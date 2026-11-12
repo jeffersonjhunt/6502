@@ -1325,13 +1325,18 @@ DPANEL: ldy     #UW_FLAGS
 DLABEL: ldy     #UW_FLAGS
         lda     (UIR),y
         pha
-        ldy     #TC_LABEL
         and     #UF_DISABLED
         beq     @en
         ldy     #TC_DISABLED
         jsr     NOACC
         bra     @al
-@en:    jsr     TATTR
+@en:    ldy     #UW_VALUE               ; its own attribute (U3b): UW_VALUE's low byte, 0 the theme's
+        lda     (UIR),y
+        beq     @th
+        jsr     OWNATTR
+        bra     @al
+@th:    ldy     #TC_LABEL
+        jsr     TATTR
 @al:    pla
         stz     tal
         bit     #UF_CENTRE
@@ -1396,6 +1401,19 @@ DBUTTON:
         jmp     EMIT
 @r:     rts
 
+; Attribute A as the text's (uattr), with the theme's key colour on its
+; background (uacc), as TATTR makes them from a role (U3b: a label's own).
+OWNATTR:
+        sta     uattr
+        and     #$F0
+        sta     uacc
+        ldy     #TC_ACCEL
+        lda     (UIT),y
+        and     #$0F
+        ora     uacc
+        sta     uacc
+        rts
+
 ; A button's attribute: disabled, down (pressed, or a toggle on), the
 ; focus's, or plain.
 BATTR:  ldy     #UW_FLAGS
@@ -1420,8 +1438,18 @@ BATTR:  ldy     #UW_FLAGS
 @foc:   ldy     #TC_BUTTON
         lda     dh
         cmp     ufocus
-        bne     @a
-        ldy     #TC_BUTTONFOCUS
+        beq     @f
+        ldy     #TH_FLAGS               ; the pointer over it, with the theme's TF_HOT (U3b):
+        lda     (UIT),y                 ;   the focus's colour
+        and     #TF_HOT
+        beq     @b
+        ldy     #UW_STATE
+        lda     (UIR),y
+        and     #US_HOT
+        beq     @b
+@f:     ldy     #TC_BUTTONFOCUS
+        bra     @a
+@b:     ldy     #TC_BUTTON
 @a:     jmp     TATTR
 
 DCHECK: ldy     #UW_FLAGS

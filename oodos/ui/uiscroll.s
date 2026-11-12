@@ -7,13 +7,23 @@
 ; wheel over it moves it, its steps upward taking the position down; the
 ; accelerator table's UA_UP and UA_DOWN move one. It takes no focus. OO-Amp:
 ; the playlist's scroll bar.
+;
+; U3b: with UF_SPRITE its thumb is a sprite (UW_TEXT's high byte), placed
+; to the sprite unit after each paint as a slider's is (uislider.s's POST),
+; and the bar works in units, not cells: the thumb is the sprite's length
+; (OOUI's 8 x 8, or with UF_OWNTHUMB the program's, its size byte UW_TEXT's
+; low byte), at (track - thumb) x value / last along the track; a press
+; on it drags it, before or after it pages.
 
         .setcpu "65C02"
+        .include "oodos.inc"
+        .include "oolib.inc"
         .include "ooui.inc"
         .include "ui.inc"
 
         .import SCALE, sv, su, sa, sr
-        .export UIW_VSCROLL, UIW_HSCROLL
+        .import TSIZE, SPRTAIL, POST, hw, hh, tc, tr
+        .export UIW_VSCROLL, UIW_HSCROLL, SCMEAS, SCPLACE
 
         .segment "BRODATA"
 UIW_VSCROLL:
@@ -34,6 +44,12 @@ page:   .res    2
 idx:    .res    1
 grab:   .res    2                      ; a drag: the pointer's units into the thumb
 drag:   .res    1                      ; 1: the thumb is held
+
+        .segment "BBSS"                 ; block B's own (U3b: a sprite's thumb)
+smode:  .res    1                      ; 1: UF_SPRITE, in units
+sth:    .res    1                      ;   the thumb's length, in units
+room:   .res    2                      ;   the track's units less the thumb's
+tu:     .res    2                      ;   the thumb's first unit along the track
 
         .segment "BCODE"
 
@@ -104,6 +120,150 @@ MEASURE:
         jsr     SCALE
         lda     sr
         sta     tpos
+        stz     smode                   ; a sprite's thumb (U3b): in units
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @r
+        inc     smode
+        jsr     TSIZE                   ; hw, hh
+        lda     hh
+        ldx     vert
+        bne     @s
+        lda     hw
+@s:     asl     a
+        sta     sth
+        lda     len                     ; room = len x units - the thumb, at least 0
+        jsr     UNITS
+        sec
+        lda     t0
+        sbc     sth
+        sta     room
+        lda     t1
+        sbc     #0
+        sta     room + 1
+        bcs     @rm
+        stz     room
+        stz     room + 1
+@rm:    stz     tu                      ; tu = room x val / last (0 with no last)
+        stz     tu + 1
+        lda     last
+        ora     last + 1
+        beq     @r
+        lda     val
+        sta     sv
+        lda     val + 1
+        sta     sv + 1
+        lda     room
+        sta     su
+        lda     room + 1
+        sta     su + 1
+        lda     last
+        sta     sa
+        lda     last + 1
+        sta     sa + 1
+        jsr     SCALE
+        lda     sr
+        sta     tu
+        lda     sr + 1
+        sta     tu + 1
+@r:     rts
+
+; For uislider.s's POST (U3b): the bar's measures (UIR the bar, UI_RECT its
+; place).
+SCMEAS = MEASURE
+
+; The bar's sprite thumb (UIR, MEASURE'd, UI_RECT its place) to its place:
+; GX_X and GX_Y, and its cell (tc, tr) for SHOWS, then uislider.s's
+; SPRTAIL. Vertical: x = column x 4 + 2 - hw, y = (row + 1) x 8 + tu;
+; horizontal: x = (column + 1) x 4 + tu, y = row x 8 + 4 - hh.
+SCPLACE:
+        lda     vert
+        beq     @h
+        lda     UI_RECT
+        sta     tc
+        jsr     X4V
+        clc
+        adc     #2
+        sec
+        sbc     hw
+        sta     GX_X
+        bcs     @x
+        dec     GX_X + 1
+@x:     lda     UI_RECT + 1
+        inc     a
+        jsr     X8V
+        clc
+        adc     tu
+        sta     GX_Y
+        lda     GX_Y + 1
+        adc     tu + 1
+        sta     GX_Y + 1
+        lda     tu                      ; its middle's row: row + 1 + (tu + hh) / 8
+        clc
+        adc     hh
+        sta     t0
+        lda     tu + 1
+        adc     #0
+        lsr     a
+        ror     t0
+        lsr     a
+        ror     t0
+        lsr     a
+        ror     t0
+        lda     UI_RECT + 1
+        sec
+        adc     t0
+        sta     tr
+        jmp     SPRTAIL
+@h:     lda     UI_RECT
+        inc     a
+        jsr     X4V
+        clc
+        adc     tu
+        sta     GX_X
+        lda     GX_X + 1
+        adc     tu + 1
+        sta     GX_X + 1
+        lda     UI_RECT + 1
+        sta     tr
+        jsr     X8V
+        clc
+        adc     #4
+        sec
+        sbc     hh
+        sta     GX_Y
+        bcs     @y
+        dec     GX_Y + 1
+@y:     lda     tu                      ; its middle's column: column + 1 + (tu + hw) / 4
+        clc
+        adc     hw
+        sta     t0
+        lda     tu + 1
+        adc     #0
+        lsr     a
+        ror     t0
+        lsr     a
+        ror     t0
+        lda     UI_RECT
+        sec
+        adc     t0
+        sta     tc
+        jmp     SPRTAIL
+; GX_X (GX_Y) = A x 4 (x 8): A its low byte, its high byte set.
+X4V:    stz     GX_X + 1
+        asl     a
+        rol     GX_X + 1
+        asl     a
+        rol     GX_X + 1
+        rts
+X8V:    stz     GX_Y + 1
+        asl     a
+        rol     GX_Y + 1
+        asl     a
+        rol     GX_Y + 1
+        asl     a
+        rol     GX_Y + 1
         rts
 
 DRAW:   jsr     MEASURE
@@ -114,6 +274,8 @@ DRAW:   jsr     MEASURE
         cmp     len
         beq     @lastc
         bcs     @r
+        ldx     smode                   ; a sprite's thumb: every cell the track's
+        bne     @track
         sec
         sbc     tpos
         bcc     @track
@@ -155,7 +317,13 @@ DRAW:   jsr     MEASURE
         jsr     EMIT
         inc     idx
         bra     @cell
-@r:     rts
+@r:     lda     smode                   ; a sprite's thumb: placed after the paint (POST)
+        beq     @rr
+        lda     #<POST
+        sta     upost
+        lda     #>POST
+        sta     upost + 1
+@rr:    rts
 
         .segment "BRODATA"
 ARROWS: .byte   $11, $10, $1E, $1F      ; horizontal's left and right, vertical's up and down
@@ -241,7 +409,9 @@ DOWN:   jsr     MEASURE
         bcc     @track
         ldx     #1                      ; the last arrow: one on
         bra     STEP1
-@track: sec
+@track: ldx     smode
+        bne     @strk
+        sec
         sbc     tpos
         bcc     @pgup
         cmp     tsz
@@ -260,6 +430,29 @@ DOWN:   jsr     MEASURE
         lda     grab + 1
         sbc     t1
         sta     grab + 1
+        lda     #UE_NONE
+        clc
+        rts
+@strk:  jsr     ALONG                   ; a sprite's thumb (U3b): in units
+        sta     t0
+        stx     t1
+        cmp     tu
+        lda     t1
+        sbc     tu + 1
+        bcc     @pgup                   ; before it
+        lda     t0                      ; into it
+        sec
+        sbc     tu
+        sta     grab
+        lda     t1
+        sbc     tu + 1
+        sta     grab + 1
+        bne     @pgdn                   ; past it
+        lda     grab
+        cmp     sth
+        bcs     @pgdn
+        lda     #1
+        sta     drag
         lda     #UE_NONE
         clc
         rts
@@ -345,8 +538,9 @@ UNITS:  sta     t0
 ; The thumb dragged: its first cell where the pointer, less the grab, is,
 ; the value last x that / (len - tsz) in units.
 MOVE:   lda     drag
-        beq     @none
-        jsr     MEASURE
+        bne     @held
+        jmp     @none
+@held:  jsr     MEASURE
         jsr     ALONG
         sec
         sbc     grab
@@ -361,7 +555,19 @@ MOVE:   lda     drag
         sta     su
         lda     last + 1
         sta     su + 1
-        lda     len
+        lda     smode                   ; a sprite's thumb: its room in units (U3b)
+        beq     @cells
+        lda     room
+        sta     sa
+        lda     room + 1
+        sta     sa + 1
+        ora     sa
+        bne     @sa
+        stz     t0                      ; no room: 0
+        stz     t1
+        jsr     HOLD
+        bra     @live
+@cells: lda     len
         sec
         sbc     tsz
         jsr     UNITS
@@ -369,6 +575,7 @@ MOVE:   lda     drag
         sta     sa
         lda     t1
         sta     sa + 1
+@sa:
         lda     sa                      ; sv held to the track (X2)
         cmp     sv
         lda     sa + 1
@@ -384,7 +591,7 @@ MOVE:   lda     drag
         lda     sr + 1
         sta     t1
         jsr     HOLD
-        cmp     #UE_NONE
+@live:  cmp     #UE_NONE
         beq     @r
         lda     #UV_LIVE
         tsb     evf

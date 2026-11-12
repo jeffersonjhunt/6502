@@ -58,7 +58,7 @@ WF_RANGE        = $02                  ; its value is held to 0-UW_A
 WF_LIST         = $04                  ;   below UW_A, or $FFFF none
 WF_REPEAT       = $08                  ; the keys it takes repeat while held
 
-DLG_RECS        = 13
+DLG_RECS        = 14                   ; (U3b: 14, the picker's Add all)
 
 ; The crossings between blocks (U3a: uifar.s, and each block's dispatcher,
 ; uia.s, uib.s, uic.s): XGO FARx, a selector, keeping A, X, Y, the carry

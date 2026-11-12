@@ -1037,20 +1037,27 @@ RECEND: lda     t0
         sec
         rts
 
-; Carry set if record UIR is a slider with a sprite's thumb (UF_SPRITE)
+; Carry set if record UIR is a slider or (U3b) a scroll bar with a sprite's thumb (UF_SPRITE)
 ; whose sprite isn't one of OOUI's (UO_SPRITE to UO_SPRITE + UO_SPRITES - 1)
 ; or is the pointer's (UO_SPRITE). Keeps UIR.
 SPRCHK: ldy     #UW_TYPE
         lda     (UIR),y
+        ldx     #UW_B + 1
         cmp     #UT_VSLIDER
         beq     @s
         cmp     #UT_HSLIDER
+        beq     @s
+        ldx     #UW_TEXT + 1            ; (U3b: a scroll bar's sprite thumb)
+        cmp     #UT_VSCROLL
+        beq     @s
+        cmp     #UT_HSCROLL
         bne     @ok
 @s:     ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_SPRITE
         beq     @ok
-        ldy     #UW_B + 1
+        txa
+        tay
         lda     (UIR),y
         sec
         sbc     usprite                 ; its place among OOUI's
@@ -1134,10 +1141,10 @@ OKTYPE: .byte   1                       ; UT_NONE
 ; The dialogs' handles: the public ones (UI_MSG on) and the internal ones
 ; (ucount on), in the order they are drawn: the picker's window and its
 ; widgets, then the message box's, so a box is over the picker.
-PUB2INT: .byte  9, 0, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8
+PUB2INT: .byte  10, 0, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9
         .segment "URODATA"              ; (PUBH's: UICOM's, U3a)
 INT2PUB: .byte  UI_MSG + 1, UI_MSG + 5, UI_MSG + 6, UI_MSG + 7, UI_MSG + 8, UI_MSG + 9, UI_MSG + 10
-        .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
+        .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG + 13, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
 .assert * - INT2PUB = DLG_RECS, error, "a public handle a dialog record"
         .rodata
 

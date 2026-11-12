@@ -139,8 +139,10 @@ c_open: asl     a
 
 ; ui_theme A: 0 the default, 1 Turbo Vision's, 2 the default's colours in
 ; groups 2 (the base), 3 (the overlay) and 4 (dimmed, TF_DIM); 3 the same
-; with TF_DIM clear.
+; with TF_DIM clear; 4 (U3b) the default with TF_HOT.
 c_theme:
+        cmp     #4
+        beq     @hot
         cmp     #1
         beq     @tv
         cmp     #2
@@ -165,6 +167,18 @@ c_theme:
         bcc     @dim
         lda     #TF_SHADOW
 @dim:   sta     tgroups + TH_FLAGS
+        bra     @g2
+@hot:   ldx     #TH_LEN - 1             ; (U3b) the default, its buttons lit under the pointer
+@hc:    lda     UI_HOUSE,x
+        sta     tgroups,x
+        dex
+        bpl     @hc
+        lda     #TF_HOT
+        tsb     tgroups + TH_FLAGS
+        lda     #<tgroups
+        ldx     #>tgroups
+        jmp     ui_theme
+@g2:
         lda     #2
         sta     tgroups + TH_GROUP
         inc     a
@@ -577,7 +591,7 @@ blocks: .word   blk_main, blk_one, blk_desk
         .word   blk_u2, blk_u2one
 .endif
 .if UIVAR = 2
-        .word   blk_amp
+        .word   blk_amp, blk_u3b, blk_own
 .endif
 
 ; 0: the main scene, menus and overlay windows on layer 1.
@@ -790,6 +804,33 @@ blk_amp: .word  AREA, amp
         UI_END     amp
 .assert amp_COUNT = 59, error, "the amp scene's records"
 
+; 6 (U3b): the gaps OO-Amp's port found: a slider with a thumb of the
+; program's own (16 x 8, group 1: UF_OWNTHUMB), one with OOUI's; scroll bars
+; with sprite thumbs, the program's 8 x 32 and OOUI's 8 x 8; a label in a
+; colour of its own; a button for TF_HOT. Sprites 0 (the pointer) to 4.
+blk_u3b: .word  AREA, u3b
+        .byte   u3b_COUNT
+        .word   0, keys2
+        .byte   0, 1, 0, 5, 0
+        .word   0
+; 7 (U3b): the same with UO_OWNMOUSE: the program's pointer, OOUI's hits.
+blk_own: .word  AREA, u3b
+        .byte   u3b_COUNT
+        .word   0, keys2
+        .byte   0, 1, 0, 5, UO_OWNMOUSE
+        .word   0
+
+        UI_BEGIN u3b
+        UI_DESKTOP Z_DESK
+        UI_WINDOW  Z_WIN, Z_DESK, 2, 1, 76, 28, "U3b", 0
+        UI_HSLIDER Z_OWN, Z_WIN, 6, 2, 30, 100, 50, 5, 1, UF_SPRITE | UF_OWNTHUMB, $11
+        UI_HSLIDER Z_STD, Z_WIN, 6, 4, 30, 100, 50, 5, 2, UF_SPRITE
+        UI_VSCROLL Z_VSC, Z_WIN, 40, 2, 12, 100, 10, UF_SPRITE | UF_OWNTHUMB, 3, $81
+        UI_HSCROLL Z_HSC, Z_WIN, 6, 8, 30, 100, 10, UF_SPRITE, 4
+        UI_LABEL   Z_LBL, Z_WIN, 6, 10, 20, "Its own colour", 0, $4E
+        UI_BUTTON  Z_BTN, Z_WIN, 6, 12, 12, "&Hot", 0
+        UI_END     u3b
+
 ; ui_msgbox's blocks: OK; Yes and No (No the default); OK and Cancel.
 msgs:   .word   msgA, msgB, msgC
 msgA:   .word   textA, titleA
@@ -810,7 +851,7 @@ titleB: .asciiz "Confirm"
 ; and a column; 1 the TXT and BIN files of M:; 2 a name to save on B:; 3
 ; every file of M: into a work buffer of 8; 4 every file of A: into one of
 ; 256 (BIGWORK).
-picks:  .word   pickA, pickB, pickC, pickD, pickE
+picks:  .word   pickA, pickB, pickC, pickD, pickE, pickF
 pickA:  .word   ptitleA, 0
         .byte   UP_MULTI | UP_DRIVES | UP_USERS, 0, $FF
         .word   RESULT
@@ -840,6 +881,14 @@ pickE:  .word   ptitleA, 0
         .word   RESULT
         .byte   16, 0
         .word   0, 0, BIGWORK, 256 * UP_ELEN
+        .byte   0
+; (U3b) OO-Amp's Load Files: OK is Add and Add all, each leaving the
+; picker up (UP_KEEP, UP_ALL), the marks kept; the extra button.
+pickF:  .word   ptitleA, 0
+        .byte   UP_MULTI | UP_DRIVES | UP_KEEP | UP_ALL, 13, $FF
+        .word   RESULT
+        .byte   16, 0
+        .word   0, pextra, WORK, WORKLEN
         .byte   0
 .assert pickB - pickA = UP_LEN, error, "a pick block is UP_LEN"
 ptitleA: .asciiz "Load Files"

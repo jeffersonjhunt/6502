@@ -2959,7 +2959,9 @@ namespace
         const uint16_t jumps[] = {static_cast<uint16_t>(lab("AENT") + 23), static_cast<uint16_t>(lab("BENT") + 23),
                                   static_cast<uint16_t>(lab("CENT") + 23)}; // each dispatcher's JMP (xjmp)
         Costs c;
-        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0;
+        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0, xmin = ~uint64_t{0}; // (U3b: the least, as an
+                                                                                    //   interrupt inside one
+                                                                                    //   lengthens it by chance)
         uint16_t xret = 0, prev = 0;
         uint8_t xsp = 0;
         bool done = false, in = false;
@@ -2986,6 +2988,8 @@ namespace
             {
                 if (ostart)
                     xsum += now - ostart; // out: FCRET to the caller
+                xmin = std::min(xmin, xsum);
+                xsum = 0;
                 xret = 0;
                 ostart = 0;
             }
@@ -3012,7 +3016,7 @@ namespace
         };
         poll(r);
         r.watch = nullptr;
-        c.crossing = timed ? static_cast<unsigned long>(xsum / timed) : 0;
+        c.crossing = timed ? static_cast<unsigned long>(xmin) : 0;
         return c;
     }
 } // namespace
@@ -3244,4 +3248,244 @@ TEST(c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed)
                    UX_LOAD_, "short in an image");
     refused_from_b(std::vector<uint8_t>(good.begin(), good.begin() + static_cast<long>(bnk_fixups(good, 0) + 128)),
                    UX_LOAD_, "short in the fixups");
+}
+
+// ---------------------------------------------------------------------------
+// U3b: the gaps OO-Amp's port found (hw/ooui.md, "U3b"), each a case that fails without its fix.
+
+namespace
+{
+    enum : uint8_t { Z_DESK, Z_WIN, Z_OWN, Z_STD, Z_VSC, Z_HSC, Z_LBL, Z_BTN };
+    enum : uint8_t { BLK_U3B = 6, BLK_OWN = 7 }; ///< uitest.s's (UITBAR)
+    constexpr uint8_t P_ALL = 0xFD;              ///< the picker's Add all (U3b)
+    constexpr unsigned TH_COLOURS_ = 34, TC_LABEL_ = 5, TC_BUTTON_ = 6, TC_BUTTONFOCUS_ = 7;
+    uint16_t rec3(uint8_t h) { return static_cast<uint16_t>(lab("u3b") + h * 16u); }
+    unsigned spr_x(Rig &r, unsigned n) { return word_at(r, lab("GX_SPR") + n * 8u + 2); }
+    unsigned spr_y(Rig &r, unsigned n) { return word_at(r, lab("GX_SPR") + n * 8u + 4); }
+    unsigned spr_size(Rig &r, unsigned n) { return r.phys(lab("GX_SPR") + n * 8u + 7); }
+    /// Sprite n's image word set as the program would (GX_SPRIMG), before ui_open.
+    void spr_set_image(Rig &r, unsigned n, unsigned page)
+    {
+        r.poke(lab("GX_SPR") + n * 8u, static_cast<uint8_t>(page));
+        r.poke(lab("GX_SPR") + n * 8u + 1, static_cast<uint8_t>(page >> 8));
+    }
+    /// A cell's attribute on layer 0 (the base, UO_BASE 0).
+    unsigned cell_attr(Rig &r, unsigned col, unsigned row)
+    {
+        const unsigned map0 = vid(r).peek(0x11) | vid(r).peek(0x12) << 8;
+        return vid(r).card_peek(map0 * 256u + row * 160u + col * 2u + 1);
+    }
+    unsigned house(Rig &r, unsigned role) { return r.phys(lab("UI_HOUSE") + TH_COLOURS_ + role); }
+    unsigned upage(Rig &r) { return r.phys(lab("upage")) | r.phys(lab("upage") + 1u) << 8; }
+    void open_u3b(CcpRig &r, uint8_t block = BLK_U3B)
+    {
+        start_ui(r, "uitbar");
+        spr_set_image(r, 1, 0x0ABC); // the program's own thumbs' images (UF_OWNTHUMB)
+        spr_set_image(r, 3, 0x0ABD);
+        CHECK_EQ(ui(r, 'o', block).substr(6), std::string("00"));
+        poll(r);
+    }
+    /// A dialog record's text (place k), a UICOM string read from block A.
+    std::string dlg_text(Rig &r, unsigned k)
+    {
+        uint32_t p = word_at(r, lab("UDLG") + k * 16u + UW_TEXT);
+        if (p >= 0xC800 && p < 0xF800)
+            p = r.phys(lab("UI_BLOCKS")) * 0x4000u + p - 0xC000;
+        std::string t;
+        for (uint8_t c; (c = r.phys(p)) != 0 && t.size() < 40; ++p)
+            t += static_cast<char>(c);
+        return t;
+    }
+} // namespace
+
+TEST(u3b_a_slider_s_own_thumb)
+{
+    // UF_OWNTHUMB: the thumb's image is the program's (OOUI writes none), its size and group the record's
+    // (UW_TEXT, $11: 16 x 8, group 1), and it is centred by its size: x = 9 x 4 + 50 x 119 / 100 - 8 (half of
+    // 16), y = 4 x 8 + 4 - 4. Beside it, OOUI's own 8 x 8, as before.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(word_at(r, rec3(Z_OWN) + UW_TEXT), 0x11u); // (the layout macro's thumb)
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    CHECK_EQ(spr_size(r, 1), 0x11u);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(spr_x(r, 1), 9u * 4 + 50u * 119 / 100 - 8);
+    CHECK_EQ(spr_y(r, 1), 4u * 8);
+    CHECK_EQ(spr_image(r, 2) & 0x7FFF, upage(r) + 0x29);
+    CHECK_EQ(spr_size(r, 2) & 0xF0, 0u);
+    CHECK_EQ(spr_x(r, 2), 9u * 4 + 50u * 119 / 100 - 4);
+    CHECK_EQ(spr_y(r, 2), 6u * 8);
+    setv(r, Z_OWN, 100);
+    poll(r);
+    CHECK_EQ(spr_x(r, 1), 9u * 4 + 119 - 8);
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    CHECK_EQ(ui(r, 'h', Z_WIN).substr(6), std::string("00")); // hidden: out of sight, the image left alone
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+}
+
+TEST(u3b_a_scroll_bar_s_sprite_thumb)
+{
+    // UF_SPRITE on a scroll bar: its thumb a sprite (UW_TEXT's high byte), the bar in units. The vertical one
+    // (column 43, rows 4-15, its track rows 5-14: 80 units) has the program's 8 x 32 ($81: UF_OWNTHUMB), so 48
+    // units of room: the thumb at (row 5) x 8 + 48 x value / 100, x = 43 x 4 + 2 - 4.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(word_at(r, rec3(Z_VSC) + UW_TEXT), 0x0381u);
+    CHECK_EQ(spr_image(r, 3), 0x0ABDu);
+    CHECK_EQ(spr_size(r, 3), 0x81u);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_x(r, 3), 43u * 4 + 2 - 4);
+    CHECK_EQ(spr_y(r, 3), 5u * 8);
+    setv(r, Z_VSC, 50);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 5u * 8 + 24);
+    // A press below the thumb pages down, one above it up (the page, 10).
+    click(r, 43, 14);
+    expect(poll(r), {{UE_CHANGE, Z_VSC, 0, 60}}, "below the thumb: a page down");
+    click(r, 43, 5);
+    expect(poll(r), {{UE_CHANGE, Z_VSC, 0, 50}}, "above it: a page up");
+    // The thumb (units 24-55 of the track) held 16 units in, and dragged to 52: its start 36, 36 x 100 / 48.
+    usb(r).mouse_to(43 * 4 + 2, 5 * 8 + 40);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {}, "the thumb held");
+    usb(r).mouse_to(43 * 4 + 2, 5 * 8 + 52);
+    r.run(ms(30));
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Z_VSC && ev[0].value == 75 && (ev[0].flags & UV_LIVE));
+    button(r, false);
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].value == 75 && !(ev[0].flags & UV_LIVE));
+    CHECK_EQ(spr_y(r, 3), 5u * 8 + 36);
+    // The horizontal one, OOUI's 8 x 8 (column 9, its track columns 10-37: 104 units of room).
+    CHECK_EQ(spr_image(r, 4) & 0x7FFF, upage(r) + 0x29);
+    CHECK_EQ(spr_x(r, 4), 10u * 4);
+    CHECK_EQ(spr_y(r, 4), 10u * 8);
+    setv(r, Z_HSC, 50);
+    poll(r);
+    CHECK_EQ(spr_x(r, 4), 10u * 4 + 52);
+    CHECK_EQ(ui(r, 'h', Z_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0);
+    CHECK_EQ(spr_depth(r, 4), 0);
+}
+
+TEST(u3b_a_label_in_a_colour_of_its_own)
+{
+    // A label's UW_VALUE low byte, not 0: its own attribute ($4E); 0: the theme's TC_LABEL.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(cell_attr(r, 9, 12), 0x4Eu);
+    CHECK_EQ(cell_attr(r, 9 + 13, 12), 0x4Eu);
+    setv(r, Z_LBL, 0);
+    poll(r);
+    CHECK_EQ(cell_attr(r, 9, 12), house(r, TC_LABEL_));
+}
+
+TEST(u3b_tf_hot_lights_the_button_under_the_pointer)
+{
+    // US_HOT's colour (U3b's decision): with the theme's TF_HOT, a button under the pointer is drawn in
+    // TC_BUTTONFOCUS's colours; without it, as before.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("02")); // the focus on the first slider, not the button
+    point(r, 12, 14);
+    poll(r);
+    CHECK_EQ(cell_attr(r, 12, 14), house(r, TC_BUTTON_)); // the default theme: no TF_HOT
+    point(r, 50, 20);
+    poll(r);
+    CHECK_EQ(ui(r, 't', 4).substr(6), std::string("00")); // the default with TF_HOT
+    poll(r);
+    CHECK_EQ(cell_attr(r, 12, 14), house(r, TC_BUTTON_));
+    point(r, 12, 14);
+    poll(r);
+    CHECK_EQ(cell_attr(r, 12, 14), house(r, TC_BUTTONFOCUS_));
+    point(r, 50, 20);
+    poll(r);
+    CHECK_EQ(cell_attr(r, 12, 14), house(r, TC_BUTTON_));
+}
+
+TEST(u3b_uo_ownmouse_leaves_the_pointer_to_the_program)
+{
+    // UO_OWNMOUSE (U3b checked it for OO-Amp's own pointer): OOUI sets no pointer (its sprite, sprite 0, as the
+    // program left it; no DM_POINTER), and still takes the mouse's clicks from the event area.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    spr_set_image(r, 0, 0x0DEF);
+    CHECK_EQ(ui(r, 'o', BLK_OWN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_image(r, 0), 0x0DEFu);
+    CHECK_EQ(spr_depth(r, 0), 0);
+    CHECK_EQ(r.phys(lab("uptr")), 0);
+    click(r, 12, 14);
+    expect(poll(r), {{UE_FOCUS, Z_BTN, 0, 0}, {UE_CLICK, Z_BTN, 0, 0}}, "a click on the button: its focus, its click");
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00")); // ui_suspend and ui_resume: still none
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_image(r, 0), 0x0DEFu);
+    CHECK_EQ(r.phys(lab("uptr")), 0);
+}
+
+TEST(u3b_the_picker_s_add_and_add_all_keep_it_up)
+{
+    // OO-Amp's Load Files (U3b): UP_KEEP makes OK "&Add", its answer 0 leaving the picker up with its marks;
+    // UP_ALL shows "Add a&ll", answer 3, every file listed given (as many as the result holds). Without
+    // UP_ALL the button is hidden.
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<MFile> m;
+    for (unsigned i = 0; i < 20; ++i)
+    {
+        char n[12];
+        std::snprintf(n, sizeof n, "DATA%02u  BIN", i);
+        m.push_back({0, n, std::vector<uint8_t>(10, 1)});
+    }
+    r.put_m(m);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 0);
+    CHECK(rect(r, P_ALL).hidden); // block A: no UP_ALL
+    CHECK_EQ(dlg_text(r, 5), std::string("&OK"));
+    key(r, K_ESC);
+    poll(r);
+    pick(r, 5);
+    CHECK_EQ(listed(r).size(), 20u);
+    CHECK_EQ(dlg_text(r, 5), std::string("&Add"));
+    CHECK(!rect(r, P_ALL).hidden);
+    CHECK_EQ(dlg_text(r, 9), std::string("Add a&ll"));
+    key(r, K_DOWN);
+    key(r, K_SPACE);
+    key(r, K_DOWN);
+    key(r, K_DOWN);
+    key(r, K_SPACE);
+    poll(r);
+    const Place ok = rect(r, P_OK);
+    click(r, ok.col + 3, ok.row);
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 0}}, "Add: up still");
+    CHECK_EQ(chosen(r, "pickF"), 2u);
+    CHECK(!rect(r, P_WIN).hidden);
+    click(r, ok.col + 3, ok.row); // the marks kept: the same two again
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 0}}, "Add again");
+    CHECK_EQ(chosen(r, "pickF"), 2u);
+    key(r, 0x0F); // L: "Add a&ll"
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 3}}, "Add all: up still");
+    CHECK_EQ(chosen(r, "pickF"), 16u); // the result's room
+    const std::vector<std::string> l = listed(r);
+    for (unsigned i = 0; i < 16; ++i)
+    {
+        std::string want = l[i];
+        const size_t dot = want.find('.');
+        want = "13 0 " + (want.substr(0, dot) + "        ").substr(0, 8) + want.substr(dot + 1);
+        CHECK_EQ(result(r, i), want);
+    }
+    key(r, K_ESC);
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 1}, {UE_MODAL, P_WIN, 0, 0}}, "Escape: gone");
 }

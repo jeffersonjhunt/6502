@@ -1512,6 +1512,44 @@ program's 320 KB.
 - **The demo card has OOUI.BNK on A:** (user 0, not SYS), and test_oodos_boot's demo-card case wants it. The test
   card is unchanged.
 
+#### U3b: the gaps OO-Amp's port found ####
+
+**Proposed, built 2026-11-12** on `feat/ooui-u3b`, for OO-Amp's port (U3b), whose look the owner kept (2026-11-12,
+option A: its pixel chrome on layer 0, OOUI's widgets and text on layer 1 over it with transparent backgrounds,
+its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record or event changes meaning.
+
+- **A thumb of the program's own** (`UF_OWNTHUMB`, `$20`, with `UF_SPRITE`; a slider or a scroll bar). OOUI never
+  writes the thumb's image (the program sets it with `GX_SPRIMG`); its size byte, `GX_SPRATTR`'s Y (height << 6,
+  width << 4, the palette group; not 0), is the record's `UW_TEXT` low byte. Every sprite thumb is now centred by its
+  size (half its width across a vertical track's column, half its height on a horizontal track's row), which for
+  OOUI's own 8 x 8 is where it was. OO-Amp's thumbs are 16 x 8, 8 x 8 and 8 x 32.
+- **A scroll bar's sprite thumb** (`UF_SPRITE` on `UT_VSCROLL` and `UT_HSCROLL`, the sprite `UW_TEXT`'s high byte).
+  The bar then works in sprite units, not cells: the thumb is the sprite's length, at (track - thumb) x value / last
+  along the track; a press on it drags it, before or after it pages; it is placed after a paint as a slider's is
+  (`POST`, with its Z3 filter and X4's rules), and `ui_open`'s `UX_SPRITE` check covers it. OO-Amp: the playlist's
+  scroll bar, an 8 x 32 thumb moved to the pixel.
+- **A label's own colour:** `UW_VALUE`'s low byte, not 0, is the label's attribute (0: the theme's `TC_LABEL`, as
+  before). OO-Amp's words are in a dozen colours of its skin; one role couldn't draw them. `UI_LABEL` takes it as an
+  optional last argument.
+- **`US_HOT`'s colour** (U3's decision): the theme's `TF_HOT` flag (`TH_FLAGS` `$04`). With it, a button under the
+  pointer is drawn in `TC_BUTTONFOCUS`'s colours (without the focus's pointers) and drawn again as the pointer comes
+  and goes. No new role: the theme stays 64 bytes. OO-Amp's theme leaves it clear (its buttons are its art).
+- **The picker's Add and Add all** (U3's, shaped by the port): `UP_KEEP` (`$10`) makes OK "&Add": its `UE_PICK` 0
+  gives the chosen files and leaves the picker up, with its marks; `UP_ALL` (`$20`) shows an "Add a&ll" button
+  (public handle `$FD`): `UE_PICK` 3, every file listed given in the result buffer, as many as it holds, the picker
+  up. The extra button stays the program's (OO-Amp's MOUNT). Its record is the dialogs' 14th: to keep `UISTATE`
+  inside its 1,536 bytes, the picker's variables that only block C reads (its scratch record, the program's state
+  it keeps, the SCB block, a row's text, the walk's skip list: 84 bytes) moved to block C's own memory. `UISTATE`
+  uses 1,463 bytes now (1,531 before).
+- **The program's own pointer:** `UO_OWNMOUSE` already did it (no change): OOUI sets no pointer and still takes the
+  mouse's clicks from the event area. A case checks it.
+
+**Tests:** `test_oodos_ui` gains six `u3b_*` cases (a scene of UITBAR's, blocks 6 and 7, and the picker's block F),
+each failing without its change. One existing case changed how it measures, not what it expects:
+`what_a_call_and_a_crossing_cost` now takes the least of the crossings it times, not their mean, since an interrupt
+inside one lengthens it by chance (a build whose code had moved measured 689 cycles, where the crossing is 322).
+No golden frame changed.
+
 #### U3a: questions ####
 
 **The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopened answer 3, and the owner

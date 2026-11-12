@@ -22,7 +22,10 @@
 ; The answer is UE_PICK with X UI_PICKER: UV_VALUE 0 chosen (the picker
 ; gone; the entries in the result buffer, their count in the block's
 ; UP_CHOSEN): the files marked, or the one selected, or with UP_NEW the name
-; typed; 1 cancelled (gone); 2 the extra button (still up). OO-Amp: Load
+; typed; 1 cancelled (gone); 2 the extra button (still up); 3 (U3b) Add all,
+; with UP_ALL: every file listed given as the chosen are, the picker still
+; up. With UP_KEEP (U3b) OK is Add, and its answer 0 leaves the picker up
+; (the marks kept). OO-Amp: Load
 ; Files (its gui/ooadlg.s), with its plugins' types and PROBE's titles as
 ; the column routine.
 
@@ -43,6 +46,7 @@ POK             = 5
 PCAN            = 6
 PEXT            = 7
 PSTA            = 8
+PALL            = 9                    ; (U3b) Add all, with UP_ALL
 ROWS            = 16                   ; the list's rows
 SKIPQ           = 8                    ; a walk's listed entries passed unfound that it keeps (W2)
 
@@ -56,10 +60,6 @@ pmax:   .res    2                      ; the work buffer's room, in entries
 lst:    .res    1                      ; the listing: 0 done, 1 going on
 perr:   .res    1                      ; its error (X of 17 or 18), 0 none
 pcol:   .res    1                      ; 1: a column routine said "not yet": the list again
-rec:    .res    UW_LEN
-keep:   .res    8                      ; the program's user, DMA address and segment, error mode
-scbb:   .res    4
-rowbuf: .res    40                     ; a row's text
 frs:    .res    1                      ; FILLROWS's slot
 frr:    .res    2                      ;   and row
 fbuf:   .res    15                     ; the name field: "d:" + 8 + "." + 3 + 0 (Z4)
@@ -74,7 +74,6 @@ wstamp: .res    1                      ; the walk's stamp, in each entry it find
 atend:  .res    1                      ; CONSIDER's
 sync:   .res    1                      ;   1 while each match has been the list's entry cur
 nskip:  .res    1                      ; the listed entries a walk's lookups passed unfound, $FF too many (W2)
-skipq:  .res    2 * SKIPQ              ;   their indices
 mk:     .res    1                      ; MAKE's place
 psel:   .res    2                      ; PRUNE's: the selection
 total:  .res    2                      ; the wanted files the last walk found
@@ -83,6 +82,11 @@ ans:    .res    1                      ; FINISH's answer
 rrowh:  .res    1
 
         .segment "CBSS"                 ; block C's own (hw/ooui.md, U3a): the BDOS reaches them through W3
+rec:    .res    UW_LEN                 ; (U3b: these five moved here from UISTATE, which only C used,
+keep:   .res    8                      ;   for the picker's Add all record there: the program's user,
+scbb:   .res    4                      ;   DMA address and segment, error mode)
+rowbuf: .res    40                     ; a row's text
+skipq:  .res    2 * SKIPQ              ; a walk's listed entries passed unfound: their indices (W2)
 fcb:    .res    36
 dbuf:   .res    128                    ; the directory records
 
@@ -243,7 +247,7 @@ MAKE:   stz     mk
         jsr     PUT
         inc     mk
         lda     mk
-        cmp     #PSTA + 1
+        cmp     #PALL + 1
         bne     @p
         jmp     RELIST
 
@@ -252,7 +256,7 @@ PATCH:  ldx     mk
         bne     @drv
         lda     blk + UP_TITLE          ; the window: the block's title
         ldx     blk + UP_TITLE + 1
-        bra     @text
+        jmp     @text
 @drv:   dex
         bne     @usr
         ldx     #DRIVES_N - 1           ; the drive: its place, A: if it has none
@@ -294,9 +298,21 @@ PATCH:  ldx     mk
         lda     #UF_DISABLED
         tsb     rec + UW_FLAGS
         rts
-@ext:   cpx     #PEXT - PFLD
+@ext:   cpx     #POK - PFLD
+        bne     @ex
+        lda     blk + UP_FLAGS          ; OK: Add with UP_KEEP (U3b)
+        and     #UP_KEEP
+        beq     @r
+        lda     #<T_ADD
+        ldx     #>T_ADD
+        bra     @text
+@ex:    cpx     #PEXT - PFLD
+        beq     @extra
+        cpx     #PALL - PFLD
         bne     @r
-        lda     blk + UP_EXTRA          ; the extra button: hidden with no text
+        lda     #UP_ALL                 ; Add all (U3b): with UP_ALL
+        bra     @shown
+@extra: lda     blk + UP_EXTRA          ; the extra button: hidden with no text
         ldx     blk + UP_EXTRA + 1
         bne     @text
         cmp     #0
@@ -1062,7 +1078,7 @@ FILTER: sta     t2
         sec
         sbc     ucount
         bcc     @keep
-        cmp     #PSTA + 1
+        cmp     #PALL + 1
         bcs     @keep
         tax                             ; X its place
         lda     t2
@@ -1083,6 +1099,9 @@ FILTER: sta     t2
         beq     @fin
         lda     #1
         cpx     #PCAN
+        beq     @fin
+        lda     #3                      ; Add all (U3b): every file, still up
+        cpx     #PALL
         beq     @fin
         cpx     #PEXT
         bne     @drop
@@ -1185,6 +1204,10 @@ NAMEOF: lda     evv
 FINISH: sta     ans
         stz     n                       ; the entries given
         lda     ans
+        cmp     #3
+        bne     @one
+        jmp     @all
+@one:   lda     ans
         bne     @gone
         lda     blk + UP_FLAGS          ; a name typed (UP_NEW)
         and     #UP_NEW
@@ -1242,12 +1265,20 @@ FINISH: sta     ans
         ldy     #UP_CHOSEN
         lda     n
         sta     (UIQ),y
-        lda     #PW
+        lda     ans                     ; (U3b) Add all, and with UP_KEEP OK: the picker stays
+        cmp     #3
+        beq     @up
+        cmp     #0
+        bne     @hide
+        lda     blk + UP_FLAGS
+        and     #UP_KEEP
+        bne     @up
+@hide:  lda     #PW
         jsr     DLGH
         XGO     FARA, XA_HIDEH
         stz     uidle + 1
         stz     lst
-        lda     ans
+@up:    lda     ans
         sta     evv
         stz     evv + 1
         lda     #PW
@@ -1257,6 +1288,21 @@ FINISH: sta     ans
         rts
 @none:  lda     #UE_NONE
         rts
+@all:   stz     ent                     ; (U3b) Add all: every file listed, as many as fit
+        stz     ent + 1
+@a:     lda     ent
+        cmp     count
+        lda     ent + 1
+        sbc     count + 1
+        bcs     @gone
+        lda     ent
+        ldx     ent + 1
+        jsr     ENTRY
+        jsr     GIVE
+        inc     ent
+        bne     @a
+        inc     ent + 1
+        bra     @a
 
 ; The entry at UIQ copied to the result buffer's next, if it has room
 ; (its mark clear in the copy).
@@ -1403,7 +1449,9 @@ TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
         .word   0, 0, 0, 0
         .byte   UT_LABEL, PW, 1, ROWS + 2, <-1, 1, 0, 0
         .word   T_READING, 0, 0, 0
-.assert * - TPL = 9 * UW_LEN, error, "a template a place"
+        .byte   UT_BUTTON, PW, <-48, <-1, 10, 1, 0, 0  ; (U3b) Add all
+        .word   T_ALL, 0, 0, 0
+.assert * - TPL = (PALL + 1) * UW_LEN, error, "a template a place"
 DRVMAP: .byte   1, 2, 3, 4, 5, 6, 7, 13
 DRIVES_N = * - DRVMAP
 ; What a record points to, which blocks A and B draw: UICOM's (U3a).
@@ -1441,3 +1489,5 @@ BADS:   .byte   "*?.,:;=<>|[]"
 BADS_N = * - BADS
 T_OK:   .asciiz "&OK"
 T_CANCEL: .asciiz "Cancel"
+T_ADD:  .asciiz "&Add"                  ; (U3b) OK's text with UP_KEEP
+T_ALL:  .asciiz "Add a&ll"              ; (U3b) UP_ALL's button

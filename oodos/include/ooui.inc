@@ -135,7 +135,10 @@ UF_MULTI        = $10                  ; a list: rows marked (UE_MARK)
 UF_SCROLL       = $20                  ;   its own scroll bar, in its last column
 UF_ROUTINE      = $40                  ;   its rows from a routine (UW_TEXT)
 UF_UPPER        = $10                  ; a field: letters in capitals
-UF_SPRITE       = $10                  ; a slider: its thumb a sprite (+15)
+UF_SPRITE       = $10                  ; a slider: its thumb a sprite (+15); (U3b) a scroll bar: the same (+9)
+UF_OWNTHUMB     = $20                  ; (U3b) with UF_SPRITE: the program's own thumb image, which OOUI
+                                       ;   never writes; its size byte (GX_SPRATTR's Y: height << 6,
+                                       ;   width << 4, the palette group; not 0) at UW_TEXT (+8)
 
 ; UW_STATE (OOUI's)
 US_PRESSED      = $01
@@ -201,6 +204,8 @@ UP_MULTI        = $01
 UP_NEW          = $02
 UP_DRIVES       = $04
 UP_USERS        = $08
+UP_KEEP         = $10                  ; (U3b) OK is "Add": UE_PICK 0 gives the chosen and the picker stays up
+UP_ALL          = $20                  ; (U3b) an "Add all" button: UE_PICK 3, every file listed given, still up
 UP_EDRIVE       = 0                    ; an entry: the drive (1 A:)
 UP_EUSER        = 1                    ;   the user
 UP_ENAME        = 2                    ;   the name and type, 8 + 3, as an FCB holds them
@@ -301,6 +306,7 @@ TH_POINTER      = 63                   ; the pointer's colours: its outline << 4
 TH_LEN          = 64
 TF_SHADOW       = $01
 TF_DIM          = $02
+TF_HOT          = $04                  ; (U3b) a button under the pointer (US_HOT) in TC_BUTTONFOCUS's colours
 TS_NONE         = 0
 TS_SINGLE       = 1
 TS_DOUBLE       = 2
@@ -401,8 +407,12 @@ name:
 .macro UI_PANEL id, parent, xx, yy, ww, hh, text, flags
         _UI_REC id, UT_PANEL, parent, xx, yy, ww, hh, flags, text, 0, 0, 0
 .endmacro
-.macro UI_LABEL id, parent, xx, yy, ww, text, flags
+.macro UI_LABEL id, parent, xx, yy, ww, text, flags, attr
+.ifblank attr                           ; (U3b) attr: the label's own attribute, 0 the theme's TC_LABEL
         _UI_REC id, UT_LABEL, parent, xx, yy, ww, 1, flags, text, 0, 0, 0
+.else
+        _UI_REC id, UT_LABEL, parent, xx, yy, ww, 1, flags, text, attr, 0, 0
+.endif
 .endmacro
 .macro UI_BUTTON id, parent, xx, yy, ww, text, flags
         _UI_REC id, UT_BUTTON, parent, xx, yy, ww, 1, flags, text, 0, 0, 0
@@ -431,13 +441,26 @@ name:
         _UI_U_RADIO .set 1
         _UI_REC id, UT_RADIO, group, xx, yy, ww, 1, flags, text, 0, 0, 0
 .endmacro
-.macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags
+.macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb
         _UI_U_VSCROLL .set 1
-        _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, 0, 0, last, page
+        _UI_THUMB sprite, thumb
+        _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, _UI_T, 0, last, page
 .endmacro
-.macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags
+.macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb
         _UI_U_HSCROLL .set 1
-        _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, 0, 0, last, page
+        _UI_THUMB sprite, thumb
+        _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, _UI_T, 0, last, page
+.endmacro
+; (U3b) _UI_T: a scroll bar's UW_TEXT, its thumb's sprite (high byte) and the size byte of the
+; program's own thumb (low byte); a slider's UW_TEXT, that size byte. Each 0 when not given.
+.macro _UI_THUMB sprite, thumb
+        _UI_T .set 0
+.ifnblank sprite
+        _UI_T .set (sprite) << 8
+.endif
+.ifnblank thumb
+        _UI_T .set _UI_T | (thumb)
+.endif
 .endmacro
 .macro UI_LIST id, parent, xx, yy, ww, hh, rows, count, flags
         _UI_U_LIST .set 1
@@ -455,13 +478,15 @@ name:
         _UI_U_HBAR .set 1
         _UI_REC id, UT_HBAR, parent, xx, yy, len, 1, flags, 0, 0, top, 0
 .endmacro
-.macro UI_VSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags
+.macro UI_VSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb
         _UI_U_VSLIDER .set 1
-        _UI_REC id, UT_VSLIDER, parent, xx, yy, 1, len, flags, 0, value, top, (step) | (sprite) << 8
+        _UI_THUMB , thumb
+        _UI_REC id, UT_VSLIDER, parent, xx, yy, 1, len, flags, _UI_T, value, top, (step) | (sprite) << 8
 .endmacro
-.macro UI_HSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags
+.macro UI_HSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb
         _UI_U_HSLIDER .set 1
-        _UI_REC id, UT_HSLIDER, parent, xx, yy, len, 1, flags, 0, value, top, (step) | (sprite) << 8
+        _UI_THUMB , thumb
+        _UI_REC id, UT_HSLIDER, parent, xx, yy, len, 1, flags, _UI_T, value, top, (step) | (sprite) << 8
 .endmacro
 .macro UI_CANVAS id, parent, xx, yy, ww, hh, flags
         _UI_U_CANVAS .set 1

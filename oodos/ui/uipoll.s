@@ -1124,9 +1124,11 @@ POINTED:
         bcc     @r
 @none:  lda     #UE_NONE
 @r:     rts
-; Record A's US_HOT: X it (US_HOT) or 0.
+; Record A's US_HOT: X it (US_HOT) or 0. With the theme's TF_HOT, a button
+; is drawn again, since its colour shows it (U3b).
 HOTBIT: cmp     #UI_NONE
         beq     @r
+        pha
         jsr     REC
         stx     pw
         ldy     #UW_STATE
@@ -1134,6 +1136,17 @@ HOTBIT: cmp     #UI_NONE
         and     #<~US_HOT
         ora     pw
         sta     (UIR),y
+        ldy     #TH_FLAGS
+        lda     (UIT),y
+        and     #TF_HOT
+        beq     @p
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_BUTTON
+        bne     @p
+        pla
+        jmp     DIRTY
+@p:     pla
 @r:     rts
 
 ; A key a widget module took: A its event. One its module repeats
