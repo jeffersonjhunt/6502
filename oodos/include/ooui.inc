@@ -189,7 +189,7 @@ UM_YESNO        = 2
 ; ui_pick's block (U2)
 UP_TITLE        = 0
 UP_TYPES        = 2                    ; three-letter types one after another, ended by 0; 0 every file
-UP_FLAGS        = 4                    ; UP_MULTI, UP_NEW, UP_DRIVES, UP_USERS
+UP_FLAGS        = 4                    ; UP_MULTI, UP_NEW, UP_DRIVES, UP_USERS; (U3b) UP_KEEP, UP_ALL
 UP_DRIVE        = 5                    ; the drive to start on (0 the current, 1 A:)
 UP_USER         = 6                    ; the user to start on ($FF the current)
 UP_RESULT       = 7                    ; the result buffer: UP_ELEN bytes an entry

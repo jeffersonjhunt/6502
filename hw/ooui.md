@@ -123,7 +123,7 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 
 - A handle is a record's index in the app's table, **0-239** (`$00-$EF`).
 - **`$F0-$FE` are OOUI's own** built-in dialogs: `UI_MSG` (`$F0`) the message box, `UI_PICKER` (`$F1`) the file
-  picker; the rest reserved.
+  picker; their widgets `$F2-$FD` (U2; `$FD`, the picker's "Add all", U3b); the rest reserved.
 - **`UI_NONE` (`$FF`)** is no widget: a top-level record's parent, an event with no widget.
 - A parent comes before its children in the table, so a pass from 0 up draws back to front and a pass from the end
   down hit-tests front to back.
@@ -162,7 +162,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 1 | `UT_DESKTOP` | - | - | - | - |
 | 2 | `UT_WINDOW` | the title | - | - | - |
 | 3 | `UT_PANEL` | the title (0: none) | - | - | - |
-| 4 | `UT_LABEL` | the text | - | - | - |
+| 4 | `UT_LABEL` | the text | (*U3b, proposed*) +10 its own attribute, 0 the theme's `TC_LABEL` | - | - |
 | 5 | `UT_BUTTON` | the text | a toggle's state, 0 or 1 | - | - |
 | 6 | `UT_CHECK` | the text | 0 or 1 | - | - |
 | 7 | `UT_GROUP` | the title (0: none) | the chosen radio button, 0 its first | - | - |
@@ -171,13 +171,13 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 10 | `UT_MENU` | the title (the menu bar's child) | - | - | - |
 | 11 | `UT_ITEM` | the text (a menu's child) | a check mark, 0 or 1 | +12 a key's HID usage shown, +13 its modifiers (`UK_*`) | - |
 | 12 | `UT_SEP` | - (a menu's line) | - | - | - |
-| 13 | `UT_VSCROLL` | - | the position, 0 to `UW_A` | the last position | the page (the thumb's size) |
+| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size) |
 | 14 | `UT_HSCROLL` | the same | | | |
 | 15 | `UT_LIST` | the rows: an array of string pointers, or with `UF_ROUTINE` the row routine | the selection, `$FFFF` none | the rows' count | the top row shown |
 | 16 | `UT_FIELD` | the buffer (0-terminated) | the cursor | +12 the buffer's size with its 0, +13 the first character shown | - |
 | 17 | `UT_VBAR` | - | the level, 0 to `UW_A` | the top | - |
 | 18 | `UT_HBAR` | the same | | | |
-| 19 | `UT_VSLIDER` | - | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
+| 19 | `UT_VSLIDER` | - (*U3b, proposed:* with `UF_OWNTHUMB`, +8 the thumb's size byte) | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
 | 20 | `UT_HSLIDER` | the same | | | |
 | 21 | `UT_CANVAS` | - | - | - | - |
 | 22 | `UT_CHOICE` (U2, proposed) | an array of `UW_A` string pointers | the one shown | the count | - |
@@ -190,8 +190,8 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 1 `$02` | `UF_DISABLED`: drawn dim, takes no input | | | | | | | |
 | 2 `$04` | `UF_DIRTY`: OOUI's, set by the calls that change a widget | | | | | | | |
 | 3 `$08` | `UF_NOFOCUS`: Tab passes it by | | | | | | | |
-| 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb |
-| 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | |
+| 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb (*U3b:* a scroll bar's too) |
+| 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | `UF_OWNTHUMB` (*U3b:* with `UF_SPRITE`, the program's image; a scroll bar's too) |
 | 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows | | |
 | 7 `$80` | | `UF_NOFRAME` | | | | | | |
 
@@ -342,7 +342,7 @@ open, **OOUI is the queue's only reader**, and what it doesn't use reaches the a
 | 8 | `UE_KEY` | the focus | the HID usage | a key pressed that no widget or accelerator took; `UV_MODS`, `UV_CHAR` |
 | 9 | `UE_WHEEL` | under the pointer | 0 | wheel steps no list or scroll bar took, signed |
 | 10 | `UE_CANVAS` | the canvas | 0 | the pointer on a canvas: `UV_KIND`, `UV_X`, `UV_Y` (wheel steps in `UV_VALUE`) |
-| 11 | `UE_PICK` | `UI_PICKER` | 0 | 0 chosen (the picker closed), 1 cancelled (closed), 2 its extra button (still open) |
+| 11 | `UE_PICK` | `UI_PICKER` | 0 | 0 chosen (the picker closed; *U3b, proposed:* with `UP_KEEP` its OK is "Add", and the picker stays open with its marks), 1 cancelled (closed), 2 its extra button (still open), 3 (*U3b, proposed:* `UP_ALL`'s "Add all") every file listed given, as many as the result buffer holds (still open) |
 | 12 | `UE_RAW` | `UI_NONE` | the kind (`EK_*`) | an event OOUI doesn't use (sound, controllers, devices), its 8 bytes in `UI_RAW` |
 | 13 | `UE_MODAL` | the window | 0 | 1 the first modal window shown, 0 the last hidden: the app may dim its own layer |
 
@@ -381,7 +381,7 @@ field, OK and Cancel. It takes a block of 20 bytes (`UP_*`):
 | --- | --- |
 | +0-1 | the title |
 | +2-3 | the types shown: three-letter types one after another, ended by 0 (`"MP3SIDWAV", 0`); 0 every file |
-| +4 | `UP_MULTI` `$01` several files; `UP_NEW` `$02` a name typed that isn't there (saving); `UP_DRIVES` `$04` drive buttons; `UP_USERS` `$08` user numbers 0-15 |
+| +4 | `UP_MULTI` `$01` several files; `UP_NEW` `$02` a name typed that isn't there (saving); `UP_DRIVES` `$04` drive buttons; `UP_USERS` `$08` user numbers 0-15; *(U3b, proposed)* `UP_KEEP` `$10` OK is "Add" and the picker stays up; `UP_ALL` `$20` an "Add all" button |
 | +5 | the drive to start on (0 the current, 1 A:) |
 | +6 | the user to start on (`$FF` the current) |
 | +7-8 | the result buffer |
@@ -811,7 +811,7 @@ OOUI.BNK's block B, whose dispatcher finds a type's record itself; `UO_WIDGETS` 
 [U3a, as built](#u3a-as-built).)* Their widgets are records of OOUI's own after
 the program's table (`uidlg.s`), given by public handles: `UI_MSG` `$F0` and its text `$F2` and buttons `$F3`
 and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8`, OK `$F9`, Cancel `$FA`, extra
-`$FB` and status `$FC`.
+`$FB` and status `$FC`; *(U3b, proposed)* and "Add all" `$FD`.
 
 **Sizes** (bytes; all `RODATA` tables included in "tables"):
 
@@ -886,7 +886,9 @@ the picker stays up: Y3). Types are filtered by `UP_TYPES`. It covers every driv
 `oodos-32m`, and an `apple-do` image mounted as one), M:, and a drive with nothing mounted (an error). A DOS 3.3
 disk is APPLE2's and DOS33's, not a CP/M drive, so not the picker's. The answer is `UE_PICK` X `UI_PICKER`: 0
 chosen (the marked files, else the selected one, else with `UP_NEW` the name typed, in the result buffer, the count
-at `UP_CHOSEN`), 1 cancelled, 2 the extra button (still up); `UX_BUSY` while one is up, `UX_PICK` with no work
+at `UP_CHOSEN`), 1 cancelled, 2 the extra button (still up), and *(U3b, proposed)* 0 with `UP_KEEP` leaving the
+picker up with its marks (OK is "Add"), 3 `UP_ALL`'s "Add all" (every file listed, as many as the result buffer
+holds; still up); `UX_BUSY` while one is up, `UX_PICK` with no work
 buffer or no room. Each poll's part is a search of its own, so a program's search between polls doesn't disturb
 the listing (Y1); `ui_hide(UI_PICKER)` stops it (Y2); `ui_relist` reads the drive again.
 
@@ -1537,18 +1539,38 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
 - **The picker's Add and Add all** (U3's, shaped by the port): `UP_KEEP` (`$10`) makes OK "&Add": its `UE_PICK` 0
   gives the chosen files and leaves the picker up, with its marks; `UP_ALL` (`$20`) shows an "Add a&ll" button
   (public handle `$FD`): `UE_PICK` 3, every file listed given in the result buffer, as many as it holds, the picker
-  up. The extra button stays the program's (OO-Amp's MOUNT). Its record is the dialogs' 14th: to keep `UISTATE`
+  up. The extra button stays the program's (OO-Amp's MOUNT). "Add all" is drawn leftmost but comes last in the Tab
+  order, after the extra button, since its record is the dialogs' last (accepted, the review's G8). Its record is the dialogs' 14th: to keep `UISTATE`
   inside its 1,536 bytes, the picker's variables that only block C reads (its scratch record, the program's state
   it keeps, the SCB block, a row's text, the walk's skip list: 84 bytes) moved to block C's own memory. `UISTATE`
   uses 1,463 bytes now (1,531 before).
 - **The program's own pointer:** `UO_OWNMOUSE` already did it (no change): OOUI sets no pointer and still takes the
   mouse's clicks from the event area. A case checks it.
 
-**Tests:** `test_oodos_ui` gains six `u3b_*` cases (a scene of UITBAR's, blocks 6 and 7, and the picker's block F),
-each failing without its change. One existing case changed how it measures, not what it expects:
+**Tests:** `test_oodos_ui` gains six `u3b_*` cases (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
+five fail without their change; one confirms what `UO_OWNMOUSE` already did. One existing case changed how it
+measures, not what it expects:
 `what_a_call_and_a_crossing_cost` now takes the least of the crossings it times, not their mean, since an interrupt
 inside one lengthens it by chance (a build whose code had moved measured 689 cycles, where the crossing is 322).
 No golden frame changed.
+
+**The code review, round 1 (2026-11-12):** the owner had G1-G7 fixed as recommended and G8 accepted.
+- **G1.** `ui_close` points OOUI's own thumbs' images at card page 0, off the memory it frees, and leaves a
+  `UF_OWNTHUMB` image as the program set it. `u3b_a_slider_s_own_thumb` closes OOUI and checks both kinds.
+- **G2.** A sprite thumb shows only where its first and last cells along the track both show (held to the track),
+  not its middle's alone, and the Z3 filter tests every cell from the first to the last. OO-Amp's 8 x 32 covers up
+  to five cells. Two `FRONT`s cost the moved band on OO-Amp's screen 50,000 cycles more, so `SHOWS` walks the records
+  once for both cells: 77,056 cycles, 5,600 more than before. `u3b_a_tall_thumb_covered_at_one_end_is_hidden`: a
+  window over the thumb's last row, then a drop-down over its first.
+- **G3.** `ui_settext` on a slider's or a scroll bar's `UW_TEXT` (the thumb's size byte, a scroll bar's sprite)
+  checks the word as `ui_open` does, and refuses it with `UX_SPRITE`, the record unchanged. If it takes a new
+  sprite, the old one goes out of sight. `SPRCHK` also refuses an own thumb's size byte of 0, in `ui_open` too.
+  `u3b_ui_settext_on_a_thumb_is_checked`.
+- **G4-G6.** The tables above (`UE_PICK` 0 with `UP_KEEP` and 3, the label's `UW_VALUE`, the thumbs' `UW_TEXT`, the
+  flags, `$FD`), `ooui.inc`'s `UP_FLAGS`, and stale comments in the sources.
+- **G7.** `what_a_call_and_a_crossing_cost` prints a crossing's mean and longest beside the least, which it still
+  holds under 500 cycles.
+- **G8.** "Add all" last in the Tab order: accepted, noted above.
 
 #### U3a: questions ####
 

@@ -40,7 +40,7 @@ bvec:   .res    2                      ; BWCALL's handler
         .segment "BCODE"
 
 ; ui_open's (REGISTER): ufl, each type's WR_FLAGS, and brec its record;
-; and no slider's thumb has a last cell (uislider.s, Z3).
+; and no sprite thumb (a slider's or a scroll bar's) has a last cell (uislider.s, Z3).
 BINIT:  jsr     PNONEW
         ldx     #UT_COUNT - 1
 @z:     stz     ufl,x
@@ -108,5 +108,5 @@ BWCALL: lda     wtype
         rts
 
 ; PAINT's last call, and THUMBSOFF's: upost, a widget module's (the
-; sliders' thumbs).
+; sprite thumbs: the sliders' and scroll bars').
 BPOST:  jmp     (upost)

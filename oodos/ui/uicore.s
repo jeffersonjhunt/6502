@@ -1195,9 +1195,9 @@ PTROFF: lda     uptr
         jmp     POINTER
 @r:     rts
 
-; The widget modules' sprites (the sliders' thumbs, through upost) out of
-; sight: A 1 (ui_suspend), or 2 (ui_close: their images off OOUI's card
-; memory too, which is freed). Keeps nothing.
+; The widget modules' sprites (the sliders' and scroll bars' thumbs,
+; through upost) out of sight: A 1 (ui_suspend), or 2 (ui_close: OOUI's own
+; images off its card memory too, which is freed). Keeps nothing.
 THUMBSOFF:
         sta     upmode
         lda     upost + 1
@@ -1578,7 +1578,7 @@ ui_suspend:
         beq     @s
         jsr     POLLSTOP                ; no repeat, no first click, no drag (X1, X9, X10)
         jsr     PTROFF
-        lda     #1                      ; the sliders' sprites out of sight (X3)
+        lda     #1                      ; the thumbs' sprites out of sight (X3)
         jsr     THUMBSOFF
 @s:     lda     #1
         sta     ususp
