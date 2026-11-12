@@ -631,7 +631,15 @@ PASS:   ldx     pbx
         bcc     @place
         cmp     #UT_SEP + 1
         bcc     @next                   ; the menus: MPASS
-@place: lda     ph
+@place: ldy     #UW_FLAGS               ; clean, and the box empty: nothing to draw, and no
+        lda     (UIR),y                 ;   RECT to find so (U3a: an idle poll, which drew
+        and     #UF_DIRTY               ;   nothing, placed every record twice)
+        bne     @rect
+        ldx     pbx
+        lda     udmg,x
+        cmp     udmg + 2,x
+        bcs     @next
+@rect:  lda     ph
         jsr     RECT
         bcs     @next
         lda     rover
