@@ -10,11 +10,17 @@
 ; program's, from a routine (UW_TEXT) OOUI calls (JSR, block B in the bank's
 ; window) for each row it draws, top first: A/X the row (0 its first), Y the
 ; canvas's handle. It returns A/X its cells, as many as the canvas is wide
-; (ui_rect's width), each a character and an attribute (2 bytes), outside
-; $4000-$7FFF; or 0, the row transparent. As a list's row routine, it may
-; map W1 (OOUI maps it again after) and use the program's zero page, not
-; OOUI's; it may not call ui_* nor the BDOS. The program calls ui_dirty on
-; the canvas when its cells change (OO-Amp: each frame, its scope and VU).
+; (ui_rect's width), each a character and an attribute (2 bytes), in the
+; program's memory, below $4000 or in $8000-$BFFF; or 0, the row
+; transparent. A routine of 0: every row transparent, none called. As a
+; list's row routine, it may map W1 (OOUI maps it again after) and use the
+; program's zero page, not OOUI's; unlike a list's, it may call neither
+; ui_* nor the BDOS nor FARCALL. It is called only for the rows inside what
+; a paint draws, and may be called more than once for a row in one paint,
+; so its answer must not depend on how often, or for which rows, it is
+; called. OOUI clears the decimal flag after it. The program
+; calls ui_dirty on the canvas when its cells change (OO-Amp: each frame,
+; its scope and VU). (The U3b review's round 2: H2-H4, H6.)
 
         .setcpu "65C02"
         .include "ooui.inc"
@@ -57,20 +63,33 @@ CNROWS: ldy     #UW_TEXT
         stz     crow
 @row:   lda     crow
         cmp     UI_RECT + 3
-        bcs     @r
+        bcc     @in
+        jmp     CNDONE
+@in:    clc                             ; its row on the screen: outside what is drawn
+        adc     UI_RECT + 1             ;   (the clip), no call and no GX_VMAP (the U3b
+        cmp     clip + 1                ;   review's round 2, H3)
+        bcc     @next
+        cmp     clip + 3
+        bcs     @next
+        stz     UIQ
+        stz     UIQ + 1
+        lda     ccall                   ; a routine of 0: the row transparent (H2)
+        ora     ccall + 1
+        beq     @place
         lda     cmy
         jsr     PUBH
         tay
         lda     crow
         ldx     #0
         jsr     @jmp
+        cld                             ; (the routine may leave D set: H4)
         sta     UIQ
         stx     UIQ + 1
         jsr     MAPW1                   ; the routine may have mapped W1
         lda     cmy
         sta     dh
         jsr     REC
-        lda     UI_RECT + 1
+@place: lda     UI_RECT + 1
         clc
         adc     crow
         tax
@@ -100,9 +119,8 @@ CNROWS: ldy     #UW_TEXT
         dec     cleft
         bne     @cell
 @next:  inc     crow
-        bra     @row
+        jmp     @row
 @jmp:   jmp     (ccall)
-@r:
 CNDONE: rts                             ; (test_oodos_ui times CNROWS to here)
 
 DOWN:   lda     #UC_PRESS

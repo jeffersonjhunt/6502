@@ -29,6 +29,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 ; uidraw.s's
 .global upmode, pdmg, THUMBSOFF
 .global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
+.global clip
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 
 ; uimenu.s's

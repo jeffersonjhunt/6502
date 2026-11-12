@@ -1334,6 +1334,11 @@ ui_flags:
         jsr     ENTER
         jsr     CHKH
         sta     sh_h
+        jsr     FLGCHK                  ; a thumb's checked (the U3b review's round 2, H1)
+        bcc     @took
+        lda     #UX_SPRITE
+        rts
+@took:  lda     sh_h
         jsr     DAMAGE                  ; where it was (the review's O11)
         jsr     MENUDMG
         lda     sh_h
@@ -1356,6 +1361,61 @@ ui_flags:
         lda     (UIR),y
         clc
         rts
+
+; Record sh_h's new flags ((old | t0) & t1) checked, if it is a slider or a
+; scroll bar, as ui_open checks the table (SPRCHK; the U3b review's round
+; 2, H1): carry set if refused, the record as it was. Taken, a sprite
+; thumb whose UF_SPRITE goes off has its sprite put out of sight (depth 0).
+; Keeps t0, t1 and sh_h; the flags are ui_flags's to write.
+FLGCHK: lda     sh_h
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        ldx     #UW_TEXT + 1            ; a scroll bar's sprite
+        cmp     #UT_VSCROLL
+        bcc     @ok
+        cmp     #UT_HSCROLL + 1
+        bcc     @chk
+        ldx     #UW_B + 1               ; a slider's
+        cmp     #UT_VSLIDER
+        bcc     @ok
+        cmp     #UT_HSLIDER + 1
+        bcs     @ok
+@chk:   phx
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        pha                             ; the old flags
+        ora     t0
+        and     t1
+        sta     (UIR),y
+        jsr     SPRCHK
+        ply                             ; (the old flags in Y, carry kept)
+        tya
+        ldy     #UW_FLAGS
+        sta     (UIR),y                 ; the old flags again, refused or not
+        plx
+        bcs     @r
+        and     #UF_SPRITE              ; UF_SPRITE on before
+        beq     @ok
+        lda     t1                      ; and not cleared: nothing to hide
+        and     #UF_SPRITE
+        bne     @ok
+        txa
+        tay
+        lda     t0                      ; GX_SPRATTR keeps no t0, t1
+        pha
+        lda     t1
+        pha
+        lda     (UIR),y                 ; the sprite out of sight
+        ldx     #0
+        ldy     #0
+        jsr     GX_SPRATTR
+        pla
+        sta     t1
+        pla
+        sta     t0
+@ok:    clc
+@r:     rts
 
 ui_settext:
         sta     t0

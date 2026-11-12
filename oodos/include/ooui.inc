@@ -38,7 +38,9 @@
 ;   ui_hide     A a handle: hidden, with its children; what it covered drawn
 ;               again
 ;   ui_flags    Y a handle, A the flags to set, X those to clear (not
-;               UF_DIRTY or UF_HIDDEN): A the flags now
+;               UF_DIRTY or UF_HIDDEN): A the flags now; (U3b) a slider's
+;               or a scroll bar's checked as ui_open checks them, carry set
+;               and A UX_SPRITE if refused, the flags unchanged
 ;   ui_settext  Y a handle, A/X the text
 ;   ui_setvalue Y a handle, A/X the value (a check box's or a toggle's 0 or 1)
 ;   ui_getvalue Y a handle: A/X its value

@@ -2,9 +2,13 @@
 ; the first shown, UW_VALUE the selection ($FFFF none). The rows are
 ; UW_TEXT's array of string pointers, or with UF_ROUTINE a routine OOUI
 ; calls for each row it draws: A/X the row, Y the list's handle; it returns
-; A/X the row's string (outside $4000-$7FFF) and Y its style (UL_NORMAL,
-; UL_CURRENT, UL_DIM, and UL_MARKED added); it may map W1, which OOUI maps
-; again after, and may use the program's zero page but not OOUI's. A TAB in
+; A/X the row's string (in the program's memory, below $4000 or in
+; $8000-$BFFF) and Y its style (UL_NORMAL, UL_CURRENT, UL_DIM, and UL_MARKED
+; added); it may map W1, which OOUI maps again after, may use the program's
+; zero page but not OOUI's, and may call the BDOS and FARCALL, not ui_*.
+; OOUI clears the decimal flag after it. A routine of 0: every row empty,
+; in TC_LIST (the selection's colour still shown), none called (the U3b
+; review's round 2: H2, H4, H6). A TAB in
 ; a row puts what follows it at the row's right. With UF_SCROLL its last
 ; column is its scroll bar. The selection in TC_LISTSEL (TC_LISTCUR when it
 ; hasn't the focus), a current row TC_LISTCUR, a dim one TC_LISTDIM, a
@@ -31,6 +35,7 @@
 UIW_LIST:
         .byte   UT_LIST, WF_FOCUS | WF_LIST | WF_REPEAT
         .word   DRAW, KEY, DOWN, 0, 0, WHEEL
+NOTEXT: .byte   0                       ; a row routine of 0's rows (the U3b review's round 2, H2)
 
         .bss
 cnt:    .res    2                      ; the rows
@@ -223,12 +228,21 @@ GETROW: stz     rsty
 @hi:    lda     (UIQ),y
         sta     str + 1
         rts
-@call:  lda     myh
+@call:  lda     rcall                   ; a routine of 0: the row empty, no style (the U3b
+        ora     rcall + 1               ;   review's round 2, H2)
+        bne     @go
+        lda     #<NOTEXT
+        sta     str
+        lda     #>NOTEXT
+        sta     str + 1
+        rts
+@go:    lda     myh
         jsr     PUBH
         tay
         lda     row
         ldx     row + 1
         jsr     @jmp
+        cld                             ; (the routine may leave D set: H4)
         sta     str
         stx     str + 1
         sty     rsty

@@ -386,7 +386,10 @@ rowfn:  sta     rax
         tay
 @r:     lda     #<rbuf
         ldx     #>rbuf
-        rts
+        bit     cdec                    ; (the U3b review's round 2, H4: D set)
+        bpl     @x
+        sed
+@x:     rts
 
 .endif
 .if UIVAR = 3
@@ -849,10 +852,15 @@ blk_own: .word  AREA, u3b
 ; character ($21 + column + row) and an attribute (the column's low four bits
 ; above, column + 5 x row's below) each; row cnone's 0 (transparent). Row
 ; 0 maps the program's last card bank into W1 first, as a routine may (OOUI
-; maps its own again after).
+; maps its own again after). Each row's calls counted in ccalls, and with
+; cdec's bit 7 it returns with the decimal flag set (the U3b review's round
+; 2: H3, H4).
         .pushseg
         .code
-crows:  cmp     cnone
+crows:  tax
+        inc     ccalls,x
+        txa
+        cmp     cnone
         beq     @none
         cmp     #0
         bne     @get
@@ -867,10 +875,13 @@ crows:  cmp     cnone
         pha
         lda     crowp,x
         plx
-        rts
+        bra     @out
 @none:  lda     #0
         tax
-        rts
+@out:   bit     cdec
+        bpl     @r
+        sed
+@r:     rts
         .popseg
 crowp:  .word   ccells, ccells + 80, ccells + 160, ccells + 240
 ccells:
@@ -966,8 +977,10 @@ eaten:  .res    2 * 20
 fieldbuf: .res  16                      ; U2's field, empty (UITWID)
 rbuf:   .asciiz "Item 00"               ; rowfn's
 cbuf:   .asciiz "c0"                    ; colfn's (UITPICK)
+cdec:   .byte   0                       ; bit 7: rowfn and crows return with D set (U3b review round 2, H4)
 .if UIVAR = 2
 cnone:  .byte   $FF                     ; crows's row given as 0 (the test writes it; U3b, Q1)
+ccalls: .res    4                       ; crows's calls for each row (the U3b review's round 2, H3)
 .endif
 .if UIVAR = 3
 scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got

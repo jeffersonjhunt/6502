@@ -3520,6 +3520,197 @@ TEST(u3b_a_canvas_s_cells_from_a_routine)
     CHECK(frame.poll > plain.poll && frame.poll - plain.poll < 30000);
 }
 
+// The U3b review's round 2 (H1-H5): each case fails without its fix.
+
+TEST(u3b_r2_ui_flags_on_a_thumb_is_checked)
+{
+    // H1: ui_flags on a slider or a scroll bar checks the new flags as ui_open checks the table (SPRCHK): UF_SPRITE
+    // onto the pointer's sprite, or UF_OWNTHUMB with a size byte of 0, refused with UX_SPRITE and the flags as they
+    // were; and UF_SPRITE cleared puts the thumb's sprite out of sight, which it comes back from when set again.
+    constexpr unsigned UX_SPRITE_ = 9;
+    constexpr uint8_t UF_SPRITE_ = 0x10, UF_OWNTHUMB_ = 0x20;
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const auto flags = [&r](uint8_t h) { return r.phys(rec3(h) + UW_FLAGS) & ~0x04u; }; // (its dirty bit aside)
+    CHECK_EQ(spr_depth(r, 4), 0x0C);
+    const unsigned hsc = flags(Z_HSC);
+    CHECK_EQ(ui(r, 'F', 0, UF_SPRITE_, Z_HSC).substr(6), std::string("00")); // off: its cells' thumb, the sprite hidden
+    poll(r);
+    CHECK_EQ(spr_depth(r, 4), 0);
+    CHECK_EQ(flags(Z_HSC), hsc & ~0x10u);
+    CHECK_EQ(ui(r, 'T', 0, 0, Z_HSC).substr(6), std::string("00")); // its sprite the pointer's: no sprite thumb, taken
+    CHECK_EQ(ac(ui(r, 'F', UF_SPRITE_, 0, Z_HSC)), hex2(UX_SPRITE_) + "01");
+    CHECK_EQ(flags(Z_HSC), hsc & ~0x10u);
+    CHECK_EQ(ui(r, 'T', 0, 4, Z_HSC).substr(6), std::string("00")); // sprite 4 again: taken, and shown
+    CHECK_EQ(ui(r, 'F', UF_SPRITE_, 0, Z_HSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(flags(Z_HSC), hsc);
+    CHECK_EQ(spr_depth(r, 4), 0x0C);
+    CHECK_EQ(ac(ui(r, 'F', UF_OWNTHUMB_, 0, Z_HSC)), hex2(UX_SPRITE_) + "01"); // its size byte 0
+    CHECK_EQ(flags(Z_HSC), hsc);
+    const unsigned std = flags(Z_STD);
+    CHECK_EQ(ac(ui(r, 'F', UF_OWNTHUMB_, 0, Z_STD)), hex2(UX_SPRITE_) + "01"); // a slider's: the same
+    CHECK_EQ(flags(Z_STD), std);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 2), 0x0C);
+    CHECK_EQ(spr_image(r, 2) & 0x7FFF, upage(r) + 0x29); // still OOUI's own image
+}
+
+TEST(u3b_r2_ui_open_checks_a_scroll_bar_s_and_an_own_thumb_s_sprite)
+{
+    // H5: ui_open refuses (UX_SPRITE) a scroll bar whose sprite thumb is the pointer's sprite, and a thumb of the
+    // program's own (UF_OWNTHUMB) whose size byte is 0, a slider's or a scroll bar's.
+    struct Bad
+    {
+        uint8_t h;
+        unsigned at, value;
+        const char *what;
+    };
+    for (const Bad &b : {Bad{Z_VSC, UW_TEXT + 1u, 0, "a scroll bar on the pointer's sprite"},
+                         Bad{Z_HSC, UW_TEXT + 1u, 0, "an OOUI-thumbed scroll bar on the pointer's sprite"},
+                         Bad{Z_OWN, UW_TEXT, 0, "a slider's own thumb of size 0"},
+                         Bad{Z_VSC, UW_TEXT, 0, "a scroll bar's own thumb of size 0"}})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_ui(r, "uitbar");
+        r.poke(rec3(b.h) + b.at, static_cast<uint8_t>(b.value));
+        const std::string a = ui(r, 'o', BLK_U3B);
+        if (a.substr(0, 2) + a.substr(6) != "0901")
+            std::printf("  %s: %s\n", b.what, a.c_str());
+        CHECK_EQ(a.substr(0, 2) + a.substr(6), std::string("0901")); // UX_SPRITE
+    }
+}
+
+TEST(u3b_r2_a_routine_of_0_draws_nothing)
+{
+    // H2: UF_ROUTINE with a routine of 0 calls nothing: a canvas's rows transparent, a list's rows empty (its
+    // text blank in each row's colours, the selection still shown), as a row given as 0 is; no refusal.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(cell_char(r, 9, 20), 0x21);
+    CHECK_EQ(ui(r, 'T', 0, 0, Z_CNV).substr(6), std::string("00"));
+    poll(r);
+    unsigned drawn = 0;
+    for (unsigned y = 0; y < 4; ++y)
+        for (unsigned c = 0; c < 40; ++c)
+            drawn += cell_char(r, 9 + c, 20 + y) != 0 || cell_attr(r, 9 + c, 20 + y) != 0;
+    CHECK_EQ(drawn, 0u);
+    expect(poll(r), {}, "still running");
+    CcpRig l;
+    REQUIRE(l.ok);
+    open_u2(l, "uitwid");
+    poll(l);
+    CHECK_EQ(cell_char(l, 39, 8), 'I'); // "Item 00"
+    const unsigned list_attr = cell_attr(l, 39, 9);
+    CHECK_EQ(ui(l, 'T', 0, 0, X_LS2).substr(6), std::string("00"));
+    poll(l);
+    unsigned text = 0;
+    for (unsigned y = 0; y < 10; ++y)
+        for (unsigned c = 0; c < 14; ++c)
+            text += cell_char(l, 39 + c, 8 + y) != ' ';
+    CHECK_EQ(text, 0u);
+    CHECK_EQ(cell_attr(l, 39, 9), house(l, 15)); // TC_LIST: a row with no style
+    std::printf("  a list's row (style %02X before) with no routine: %02X\n", list_attr, cell_attr(l, 39, 9));
+    expect(poll(l), {}, "still running");
+}
+
+TEST(u3b_r2_a_canvas_s_routine_is_called_only_for_the_rows_redrawn)
+{
+    // H3: the canvas's routine (and its GX_VMAP) is called only for the rows inside what the paint redraws: a
+    // window shown and hidden over two of its rows (21-22, with the shadow) calls it for those rows alone. What
+    // the canvas's drawing costs in that paint, against the whole canvas's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    r.poke(rec3(Z_COVER) + 2, 20); // the small window (G2's) moved over the canvas: columns 20-23, row 21
+    r.poke(rec3(Z_COVER) + 3, 21);
+    r.poke(rec3(Z_COVER) + 5, 1);
+    spr_set_image(r, 1, 0x0ABC);
+    spr_set_image(r, 3, 0x0ABD);
+    CHECK_EQ(ui(r, 'o', BLK_U3B).substr(6), std::string("00"));
+    poll(r);
+    const uint16_t calls = lab("ccalls"), rows = lab("CNROWS"), done = lab("CNDONE");
+    const unsigned bb = bank_block(r, "CNROWS");
+    const auto counts = [&]() {
+        std::vector<unsigned> c;
+        for (unsigned i = 0; i < 4; ++i)
+            c.push_back(r.phys(calls + i));
+        r.poke(calls, std::vector<uint8_t>{0, 0, 0, 0});
+        return c;
+    };
+    uint64_t from = 0, took = 0;
+    const auto time = [&]() {
+        from = took = 0;
+        r.watch = [&](uint16_t pc) {
+            if ((r.nb(3) & 0x3F) != bb)
+                return;
+            if (pc == rows)
+                from = r.cpu->cycles();
+            else if (pc == done && from)
+                took += r.cpu->cycles() - from, from = 0;
+        };
+    };
+    CHECK(counts() == (std::vector<unsigned>{1, 1, 1, 1}));
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    time();
+    poll(r);
+    r.watch = nullptr;
+    const unsigned long shown = took;
+    const std::vector<unsigned> s = counts();
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    time();
+    poll(r);
+    r.watch = nullptr;
+    const unsigned long hidden = took;
+    const std::vector<unsigned> h = counts();
+    std::printf("  rows called, the window shown: %u %u %u %u; hidden: %u %u %u %u\n", s[0], s[1], s[2], s[3], h[0], h[1],
+                h[2], h[3]);
+    CHECK(s == (std::vector<unsigned>{0, 1, 1, 0}));
+    CHECK(h == (std::vector<unsigned>{0, 1, 1, 0}));
+    unsigned bad = 0;
+    for (unsigned y = 0; y < 4; ++y)
+        for (unsigned c = 0; c < 40; ++c)
+            bad += static_cast<uint8_t>(cell_char(r, 9 + c, 20 + y)) != 0x21 + c + y;
+    CHECK_EQ(bad, 0u);
+    time();
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    poll(r);
+    r.watch = nullptr;
+    CHECK(counts() == (std::vector<unsigned>{1, 1, 1, 1}));
+    std::printf("  the canvas's drawing: the strip's paint %lu cycles shown, %lu hidden; the whole canvas %lu\n", shown,
+                hidden, static_cast<unsigned long>(took));
+}
+
+TEST(u3b_r2_a_routine_returning_with_d_set)
+{
+    // H4: OOUI clears the decimal flag after a canvas's and a list's routine, so one that returns with it set
+    // leaves the drawing as it was.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    r.poke(lab("cdec"), 0x80);
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    poll(r);
+    unsigned bad = 0;
+    for (unsigned y = 0; y < 4; ++y)
+        for (unsigned c = 0; c < 40; ++c)
+            bad += static_cast<uint8_t>(cell_char(r, 9 + c, 20 + y)) != 0x21 + c + y ||
+                   cell_attr(r, 9 + c, 20 + y) != (((c & 15) << 4) | ((c + y * 5) & 15));
+    CHECK_EQ(bad, 0u);
+    CcpRig l;
+    REQUIRE(l.ok);
+    open_u2(l, "uitwid");
+    poll(l);
+    const uint64_t before = frame_hash(l);
+    l.poke(lab("cdec"), 0x80);
+    CHECK_EQ(ui(l, 'd', X_LS2).substr(6), std::string("00"));
+    poll(l);
+    CHECK_EQ(frame_hash(l), before);
+}
+
 TEST(u3b_a_label_in_a_colour_of_its_own)
 {
     // A label's UW_VALUE low byte, not 0: its own attribute ($4E); 0: the theme's TC_LABEL.
