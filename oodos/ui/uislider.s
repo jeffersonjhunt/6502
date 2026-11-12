@@ -239,7 +239,12 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         clc
         adc     t0
         sta     tc
-@at:    jsr     SHOWS                   ; (UI_RECT and UIR changed)
+@at:    ldx     pk                      ; the thumb's cell, shown or not, for POST's next filter:
+        lda     tc                      ;   when what covers only the thumb goes, its damage is
+        sta     plast,x                 ;   there (the U3a review's C1)
+        lda     tr
+        sta     plast + 1,x
+        jsr     SHOWS                   ; (UI_RECT and UIR changed)
         bcs     @r
         lda     idx
         jsr     REC
@@ -265,11 +270,6 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         jsr     GX_SPRATTR
         lda     tmp
         jsr     GX_SPRPOS
-        ldx     pk                      ; the cell it shows on (POST's next filter: Z3)
-        lda     tc
-        sta     plast,x
-        lda     tr
-        sta     plast + 1,x
         clc
 @r:     rts
 

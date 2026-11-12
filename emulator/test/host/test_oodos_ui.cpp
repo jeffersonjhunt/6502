@@ -3111,3 +3111,45 @@ TEST(ui_load_s_default_name_from_another_user)
     CHECK_EQ(own_state(r), mine);
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
 }
+
+TEST(c1_a_thumb_shows_again_when_what_covered_only_it_goes)
+{
+    // The U3a review's C1: a cover over the thumb alone hid it, and POST kept the slider's first cell as its
+    // last, so when the cover went its damage missed that cell and the thumb stayed out of sight. Now the
+    // thumb's own cell is kept, shown or not. A small overlay window over the thumb (about column 31, row 6),
+    // not over the slider's start (9, 6), then hidden; and the second menu's drop-down, the same. (Only the window
+    // fails without the fix: the menu bar's own redraw widens its layer's damage box over the slider's start.)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_ui(r, "uitbar");
+        r.poke(rec2(Y_LBL) + UW_TYPE, 2); // Y_LBL a non-modal overlay window at the top
+        r.poke(rec2(Y_LBL) + UW_PARENT, 0xFF);
+        r.poke(rec2(Y_LBL) + 2u, 27);
+        r.poke(rec2(Y_LBL) + 3u, 5);
+        r.poke(rec2(Y_LBL) + 4u, 9);
+        r.poke(rec2(Y_LBL) + 5u, 3);
+        r.poke(rec2(Y_LBL) + UW_FLAGS, 0x40);
+        CHECK_EQ(ui(r, 'o', BLK_U2).substr(6), std::string("00"));
+        poll(r);
+        const Place w = rect(r, Y_LBL), sl = rect(r, Y_HSP);
+        REQUIRE(w.col > sl.col);
+        CHECK_EQ(spr_depth(r, 1), 0);
+        CHECK_EQ(ui(r, 'h', Y_LBL).substr(6), std::string("00"));
+        poll(r);
+        CHECK_EQ(spr_depth(r, 1), 0x0C);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(ui(r, 's', Y_BAR).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    key(r, 0x17, L_ALT); // Alt+T: the second menu down, over the thumb only
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    key(r, K_ESC);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+}

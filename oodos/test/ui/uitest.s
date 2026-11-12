@@ -734,6 +734,15 @@ keys2:  .byte   0
         UI_ITEM    Y_I4, Y_MENU, "A fourth", 0, 0, 0
         UI_ITEM    Y_I5, Y_MENU, "A fifth, over the slider's row", 0, 0, 0
         UI_ITEM    Y_I6, Y_MENU, "A sixth", 0, 0, 0
+; (The U3a review's C1: a second menu, whose drop-down covers the thumb
+; but not the slider's first cell.)
+        UI_MENU    Y_MENU2, Y_BAR, "&Thumb"
+        UI_ITEM    Y_J1, Y_MENU2, "Over the thumb, not its start", 0, 0, 0
+        UI_ITEM    Y_J2, Y_MENU2, "Two", 0, 0, 0
+        UI_ITEM    Y_J3, Y_MENU2, "Three", 0, 0, 0
+        UI_ITEM    Y_J4, Y_MENU2, "Four", 0, 0, 0
+        UI_ITEM    Y_J5, Y_MENU2, "Five", 0, 0, 0
+        UI_ITEM    Y_J6, Y_MENU2, "Six", 0, 0, 0
         UI_END     u2
 
 ; 5 (U3a, Z3): a screen shaped as OO-Amp's, to time the sliders' thumbs
