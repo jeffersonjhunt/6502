@@ -2937,3 +2937,131 @@ TEST(ui_load_keeps_the_program_s_user_and_dma)
     CHECK_EQ(ac(ui(s, 'L', 0)), hex2(UX_LOAD_) + "01");
     CHECK_EQ(own_state(s), five);
 }
+
+namespace
+{
+    /// What a 'p' (ui_poll till UE_NONE) cost: the cycles of its first ui_poll (from its stub to its return in
+    /// c_poll, PRET), the crossings between OOUI's blocks (FARCALLs made with an OOUI block in W3), and what a
+    /// crossing adds, on average: from FARCALL's entry to the routine's first instruction (past the dispatcher's
+    /// JMP), and from FCRET's entry (the routine's RTS) back to the caller.
+    struct Costs
+    {
+        unsigned long poll = 0, crossings = 0, crossing = 0;
+    };
+    Costs poll_costs(Rig &r)
+    {
+        const uint16_t stub = lab("ui_poll"), back = lab("PRET");
+        const uint16_t far = sys_labels().at("FARCALL"), fcret = sys_labels().at("FCRET");
+        const uint16_t jumps[] = {static_cast<uint16_t>(lab("AENT") + 23), static_cast<uint16_t>(lab("BENT") + 23),
+                                  static_cast<uint16_t>(lab("CENT") + 23)}; // each dispatcher's JMP (xjmp)
+        Costs c;
+        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0;
+        uint16_t xret = 0, prev = 0;
+        uint8_t xsp = 0;
+        bool done = false, in = false;
+        unsigned long timed = 0;
+        r.watch = [&](uint16_t pc) {
+            const uint64_t now = r.cpu->cycles();
+            const uint16_t was = prev;
+            prev = pc;
+            if (in && (was == jumps[0] || was == jumps[1] || was == jumps[2]))
+            {
+                xsum += now - xstart; // in: FARCALL and the dispatcher
+                in = false;
+            }
+            if (xret && pc == fcret && !ostart)
+                ostart = now;
+            if (pc == stub && !start)
+                start = now;
+            else if (pc == back && start && !done)
+            {
+                c.poll = static_cast<unsigned long>(now - start);
+                done = true;
+            }
+            if (xret && pc == xret && r.cpu->regs().s == xsp)
+            {
+                if (ostart)
+                    xsum += now - ostart; // out: FCRET to the caller
+                xret = 0;
+                ostart = 0;
+            }
+            if (pc == far && (r.nb(3) & 0x3F) != 62)
+            {
+                if (std::getenv("OOUI_XLOG")) // (which crossing: the stub's return, the selector)
+                {
+                    const uint8_t sp = r.cpu->regs().s;
+                    std::printf("    crossing: from $%04X, xsel %u\n", r.phys(0x100u + static_cast<uint8_t>(sp + 1)) |
+                                r.phys(0x100u + static_cast<uint8_t>(sp + 2)) << 8, r.phys(lab("xsel")));
+                }
+                ++c.crossings;
+                if (!xret)
+                {
+                    const uint8_t sp = r.cpu->regs().s;
+                    xret = static_cast<uint16_t>((r.phys(0x100u + static_cast<uint8_t>(sp + 1)) |
+                                                  r.phys(0x100u + static_cast<uint8_t>(sp + 2)) << 8) + 4); // past its 3 bytes
+                    xsp = static_cast<uint8_t>(sp + 2);
+                    xstart = now;
+                    in = true;
+                    ++timed;
+                }
+            }
+        };
+        poll(r);
+        r.watch = nullptr;
+        c.crossing = timed ? static_cast<unsigned long>(xsum / timed) : 0;
+        return c;
+    }
+} // namespace
+
+TEST(what_a_call_and_a_crossing_cost)
+{
+    // An event loop's frame with nothing waiting: one ui_poll, through its stub and FARCALL; and a crossing between
+    // OOUI's blocks (hw/ooui.md, U3a's cost table). A frame is 119,318 cycles.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const Costs first = poll_costs(r);
+    const Costs idle = poll_costs(r);
+    std::printf("  an idle ui_poll: %lu cycles, %lu crossings (the one before: %lu)\n", idle.poll, idle.crossings, first.poll);
+    CHECK(idle.poll > 0 && idle.poll < 30000); // (98,858 before U3a skipped placing clean records over no damage)
+    CHECK_EQ(idle.crossings, 0u);
+    // A U2 widget's key: the list takes Down (a crossing to its handler, and one to draw it).
+    CcpRig w;
+    REQUIRE(w.ok);
+    open_u2(w, "uitwid");
+    poll(w);
+    CHECK_EQ(ui(w, 'f', 8).substr(6), std::string("00")); // X_LST
+    poll(w);
+    key(w, K_DOWN);
+    const Costs k = poll_costs(w);
+    std::printf("  a list's Down: the first ui_poll %lu cycles, %lu crossings of %lu cycles each\n", k.poll, k.crossings,
+                k.crossing);
+    CHECK(k.crossings >= 2u);
+    CHECK(k.crossing > 281u && k.crossing < 500u);
+}
+
+TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
+{
+    // Round 3's F1: a listing poll crosses 3 times (its listing part in C, the list's paint in B, its rows filled
+    // in C in one crossing: E3). A selection move, measured, 6: the list's key, the picker's filter of its
+    // UE_CHANGE (DFILT), the picker's idle part, the list's paint, its rows, and the name field's paint (it shows
+    // the selection); F1 counted 4, without the idle part and the field.
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 40);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00")); // M:'s TXT and BIN files
+    poll(r);
+    const Costs listing = poll_costs(r);
+    std::printf("  a listing poll: %lu crossings\n", listing.crossings);
+    CHECK_EQ(listing.crossings, 3u);
+    settle(r);
+    CHECK_EQ(ui(r, 'f', P_LST).substr(6), std::string("00"));
+    poll(r);
+    key(r, K_DOWN);
+    const Costs move = poll_costs(r);
+    std::printf("  a selection move: %lu crossings\n", move.crossings);
+    CHECK_EQ(move.crossings, 6u);
+}
