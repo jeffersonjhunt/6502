@@ -3153,3 +3153,95 @@ TEST(c1_a_thumb_shows_again_when_what_covered_only_it_goes)
     poll(r);
     CHECK_EQ(spr_depth(r, 1), 0x0C);
 }
+
+namespace
+{
+    /// OOUI.BNK's header fields (mkbank.py's format 1): block b's image and fixups.
+    unsigned bnk_word(const std::vector<uint8_t> &f, size_t at) { return f[at] | f[at + 1] << 8u; }
+    size_t bnk_image(const std::vector<uint8_t> &f, unsigned b) { return bnk_word(f, 10 + 8 * b) * 128u; }
+    size_t bnk_fixups(const std::vector<uint8_t> &f, unsigned b) { return bnk_word(f, 14 + 8 * b) * 128u; }
+    /// Block b's first fixup of kind `kind` (0x80 any word): its entry's place in the file and the image's offset.
+    std::pair<size_t, unsigned> bnk_fixup(const std::vector<uint8_t> &f, unsigned b, uint8_t kind)
+    {
+        size_t e = bnk_fixups(f, b);
+        unsigned off = 0;
+        for (unsigned n = bnk_word(f, 16 + 8 * b); n; --n, e += 2)
+        {
+            off += f[e];
+            if (f[e + 1] == kind || (kind == 0x80 && f[e + 1] >= 0x80 && f[e + 1] != 0xFF))
+                return {e, off};
+        }
+        return {0, 0};
+    }
+    /// ui_load of `file` from B: (UITPICK, user 0, its DMA state set): refused with `err`, the blocks free as
+    /// before and the program's user, DMA address, segment and error mode as they were.
+    void refused_from_b(const std::vector<uint8_t> &file, uint8_t err, const char *what)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        put_b(r, "OOUI    BNK", file);
+        start_ui(r, "uitpick", 'N');
+        CHECK_EQ(ui(r, 'e', 0, 0xFE, 1).substr(6), std::string("00"));
+        const std::string mine = own_state(r);
+        const unsigned before = free_blocks(r);
+        const std::string got = ac(ui(r, 'L', 2));
+        if (got != hex2(err) + "01")
+            std::printf("  %s: got %s\n", what, got.c_str());
+        CHECK_EQ(got, hex2(err) + "01");
+        CHECK_EQ(free_blocks(r), before);
+        CHECK_EQ(own_state(r), mine);
+    }
+} // namespace
+
+TEST(c2_a_hostile_ooui_bnk_writes_nothing_outside_its_blocks)
+{
+    // The U3a review's C2: each header and fixup ui_load reads is checked before it is used, and a file that
+    // fails one is refused (UX_LOAD), what it took freed and the user put back.
+    const std::vector<uint8_t> good = bnk();
+    std::vector<uint8_t> f = good;
+    f[12] = 0x00; // block A's image $4000 long: past its code window
+    f[13] = 0x40;
+    refused_from_b(f, UX_LOAD_, "an image too long");
+    f = good;
+    for (size_t e = bnk_fixups(f, 0), i = 0; i < 60; ++i, e += 2) // block A's fixups: skips, past its image
+    {
+        f[e] = 0xFF;
+        f[e + 1] = 0xFF;
+    }
+    refused_from_b(f, UX_LOAD_, "a skip run past the image");
+    f = good;
+    f[bnk_fixups(f, 0) + 1] = 0x05; // a kind mkbank.py doesn't make
+    refused_from_b(f, UX_LOAD_, "a bad kind");
+    f = good;
+    {
+        const auto [e, off] = bnk_fixup(f, 0, 0x02);
+        REQUIRE(e != 0);
+        f[bnk_image(f, 0) + off] = 4; // a block number's byte not 1-3
+    }
+    refused_from_b(f, UX_LOAD_, "a bad block byte");
+    f = good;
+    {
+        const auto [e, off] = bnk_fixup(f, 0, 0x80);
+        REQUIRE(e != 0);
+        f[e + 1] = static_cast<uint8_t>(0x80 + f[8]); // an import past the header's count
+    }
+    refused_from_b(f, UX_LOAD_, "an import index too high");
+    f = good;
+    f[34] = 3; // ui_open's block: none
+    refused_from_b(f, UX_LOAD_, "a bad entry block");
+    f = good;
+    f[35] = 0x00; // ui_open at $F800: common memory, not a code window
+    f[36] = 0xF8;
+    refused_from_b(f, UX_LOAD_, "a bad entry address");
+}
+
+TEST(c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed)
+{
+    // The U3a review's C4: a file that ends inside block A's image, or inside its fixups, after the blocks are
+    // taken: refused (UX_LOAD), the blocks freed, the user and DMA put back.
+    const std::vector<uint8_t> good = bnk();
+    refused_from_b(std::vector<uint8_t>(good.begin(), good.begin() + static_cast<long>(bnk_image(good, 0) + 4096)),
+                   UX_LOAD_, "short in an image");
+    refused_from_b(std::vector<uint8_t>(good.begin(), good.begin() + static_cast<long>(bnk_fixups(good, 0) + 128)),
+                   UX_LOAD_, "short in the fixups");
+}

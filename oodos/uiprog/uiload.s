@@ -54,7 +54,9 @@ lbi     = lrec + 2                     ; the index in BUF
 lpt     = lbi + 1                      ; 2: the patch's address, in W1
 lk      = lpt + 2                      ; the kind
 lo      = lk + 1                       ; 4: function 73's block
-.assert lo + 4 - UISTATE <= UI_STATE_LEN, error, "ui_load's own fit UISTATE"
+llim    = lo + 4                       ; 2: the image's end in W1 (the fixups stay below it: review C2)
+LVEND   = llim + 2
+.assert LVEND - UISTATE <= UI_STATE_LEN, error, "ui_load's own fit UISTATE"
 
 ; The calls' count, as uistub.s makes them.
 UI_NSTUBS .set 0
@@ -103,7 +105,7 @@ ui_load:
 @fresh: ldx     #0                      ; ui_load's own variables 0 (lnb, among them)
 @z:     stz     LV,x
         inx
-        cpx     #lo + 4 - LV
+        cpx     #LVEND - LV
         bne     @z
         lda     #$FF                    ; the program's user
         ldy     #F_USERNUM
@@ -226,7 +228,10 @@ ui_load:
         bcs     @far
 @old:   lda     #UX_VERSION
         jmp     CLOSE
-@far:   lda     #<lver                  ; FARCALL's address (function 72), import 0
+@far:   jsr     HEADOK                  ; its lengths and entries in range (review C2)
+        bcc     @hok
+        jmp     @short
+@hok:   lda     #<lver                  ; FARCALL's address (function 72), import 0
         ldx     #>lver
         ldy     #O_VERSION
         jsr     BDOS
@@ -361,6 +366,13 @@ IMAGE:  lda     lb                      ; HDR + 10 + 8 x lb: its image's record 
         ora     #$08
         sta     lblk + 9
         stz     lblk + 8
+        lda     HDR + 12,x              ; the image's end in W1: $4800 + its length (C2)
+        clc
+        adc     #<$4800
+        sta     llim
+        lda     HDR + 13,x
+        adc     #>$4800
+        sta     llim + 1
         lda     HDR + 12,x              ; the records: (length + 127) / 128, 96 at most
         clc
         adc     #127
@@ -450,7 +462,12 @@ IMAGE:  lda     lb                      ; HDR + 10 + 8 x lb: its image's record 
         sta     lpt
         bcc     @k
         inc     lpt + 1
-@k:     lda     BUF + 1,x               ; the kind
+@k:     lda     lpt                     ; still in the image (C2: a skip run past it refused)
+        cmp     llim
+        lda     lpt + 1
+        sbc     llim + 1
+        bcs     @bad
+        lda     BUF + 1,x               ; the kind
         sta     lk
         inx
         inx
@@ -460,37 +477,69 @@ IMAGE:  lda     lb                      ; HDR + 10 + 8 x lb: its image's record 
         dec     lleft + 1
 @dec:   dec     lleft
         jsr     PATCH
-        bra     @fix
+        bcc     @fix
+@bad:   lda     #UX_LOAD                ; a fixup that isn't one of this image's (C2)
+        sta     lerr
+        sec
+        rts
 
-; Fixup lk at lpt (through W1).
+; Fixup lk at lpt (through W1); carry set for one that can't be: a kind
+; past those mkbank.py makes, a block's byte not 1-3, an import past the
+; header's count, a word's second byte past the image (review C2).
 PATCH:  lda     lpt
         sta     UIP
         lda     lpt + 1
         sta     UIP + 1
         lda     lk
-        bmi     @word
+        cmp     #$FF
+        beq     @ok                     ; a step and nothing
+        cmp     #$80
+        bcs     @word
+        cmp     #0
         beq     @page
         cmp     #1
         beq     @zp
         cmp     #2
         beq     @blk
-        rts                             ; $FF: a step and nothing
+@no:    sec
+        rts
+@ok:    clc
+        rts
 @page:  lda     (UIP)
         clc
         adc     #<((>UISTATE) - $10)
         sta     (UIP)
+        clc
         rts
 @zp:    lda     (UIP)
         clc
         adc     #<(UIP - $10)
         sta     (UIP)
+        clc
         rts
 @blk:   lda     (UIP)                   ; 1-3: the block's number
+        beq     @no
+        cmp     #UB_BLOCKS + 1
+        bcs     @no
         tax
         lda     lblks - 1,x
         sta     (UIP)
+        clc
         rts
-@word:  and     #$7F                    ; import i: the word - $4000 - i x $400 + its value
+@word:  and     #$7F                    ; an import the header has
+        cmp     HDR + 8
+        bcs     @no
+        lda     lpt                     ; and its second byte in the image
+        clc
+        adc     #1
+        tax
+        lda     lpt + 1
+        adc     #0
+        cpx     llim
+        sbc     llim + 1
+        bcs     @no
+        lda     lk
+        and     #$7F                    ; import i: the word - $4000 - i x $400 + its value
         asl     a
         tax                             ; X = 2i (limp's index)
         asl     a                       ; A = 4i: the slot's high byte past $40
@@ -509,6 +558,44 @@ PATCH:  lda     lpt
         lda     lo
         adc     limp + 1,x
         sta     (UIP),y
+        clc
+        rts
+
+; The header's lengths and entries in range (review C2): each block's image
+; 1 to $3000 bytes (its code window), each call's block 0-2 and its address
+; in $C800-$F7FF. Carry set if not.
+HEADOK: ldx     #0
+@b:     lda     HDR + 12,x
+        ora     HDR + 13,x
+        beq     @no
+        lda     #<$3000
+        cmp     HDR + 12,x
+        lda     #>$3000
+        sbc     HDR + 13,x
+        bcc     @no
+        txa
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UB_BLOCKS
+        bne     @b
+        ldx     #0
+@e:     lda     HDR + 34,x
+        cmp     #UB_BLOCKS
+        bcs     @no
+        lda     HDR + 36,x              ; $C800 <= address
+        cmp     #$C8
+        bcc     @no
+        cmp     #$F8                    ; < $F800
+        bcs     @no
+        inx
+        inx
+        inx
+        cpx     #3 * UI_NSTUBS
+        bne     @e
+        clc
+        rts
+@no:    sec
         rts
 
 ; The stubs from the header's entry table (+34: for each call its block,
