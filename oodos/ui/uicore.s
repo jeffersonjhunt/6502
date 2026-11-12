@@ -1150,7 +1150,17 @@ ui_close:
         stz     uopen
         jsr     POLLSTOP                ; (no drag left held: X10)
         jsr     PTROFF
-        lda     #2                      ; the thumbs gone, off OOUI's memory (X3)
+        lda     usprites                ; the pointer's image off OOUI's memory too, which is
+        beq     @nop                    ;   freed (U3a, from U2's review), if the sprite is OOUI's
+        lda     uoflags
+        and     #UO_OWNMOUSE
+        bne     @nop
+        stz     GX_V                    ; (page 0: OODOS's, never freed)
+        stz     GX_V + 1
+        lda     usprite
+        jsr     GX_SPRIMG
+        jsr     GX_SPRSHOW
+@nop:   lda     #2                      ; the thumbs gone, off OOUI's memory (X3)
         jsr     THUMBSOFF
         jsr     FREE
         jsr     GX_CONSOLE

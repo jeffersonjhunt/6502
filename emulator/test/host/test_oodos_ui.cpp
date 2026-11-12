@@ -2746,3 +2746,16 @@ TEST(x4_a_menu_down_over_a_thumb_hides_it)
     poll(r);
     CHECK_EQ(spr_depth(r, 1), 0x0C);
 }
+
+TEST(the_pointer_s_image_off_ooui_s_memory_after_ui_close)
+{
+    // Left for U3a by U2's review: ui_close frees OOUI's card memory, so the pointer's sprite (UO_SPRITE, 0
+    // here) is pointed at card page 0 (OODOS's, never freed), as the thumbs' are (X3).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const auto image = [&r] { const uint16_t s = lab("GX_SPR"); return r.phys(s) | (r.phys(s + 1u) & 0x7F) << 8; };
+    CHECK_EQ(image(), r.phys(lab("upage")) + (r.phys(lab("upage") + 1u) << 8) + 0x28); // UI_OFS_SPR: the pointer's
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(image(), 0);
+}
