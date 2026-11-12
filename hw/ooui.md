@@ -1592,6 +1592,10 @@ No golden frame changed.
   holds under 500 cycles.
 - **G8.** "Add all" last in the Tab order: accepted, noted above.
 
+**Sizes after the review's fixes and Q1's canvas** (mkbank.py; a block's code window is 12,288 bytes): `UICOM`
+3,298; block A 11,603 (685 free; 817 before), B 10,485 (1,803 free; 2,396 before), C 7,222 (5,066 free, unchanged);
+`UISTATE` 1,463 of 1,536, unchanged (G2's and the canvas's variables are block B's own).
+
 #### U3a: questions ####
 
 **The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopened answer 3, and the owner
