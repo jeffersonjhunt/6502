@@ -59,6 +59,10 @@ udlgp:  .res    2                      ; the dialogs' records (uidlg.s's), 0 whi
 ufl:    .res    UT_COUNT               ; each widget type's WR_FLAGS, 0 for the core's own (U3a: block B's, at ui_open)
 wtype:  .res    1                      ; WCALL's: the widget's type, for block B's dispatcher
 rclip:  .res    4                      ; RECT's: its parents' client areas, c0, r0, c1, r1 (U2: clipping)
+rcv:    .res    1                      ; not 0: RECT's cache on (FRONT's, Z3)
+rcp:    .res    1                      ;   the parent it holds, and that parent placed:
+rcs:    .res    10                     ;   ucli, rhid and rover, then rclip, after it was placed
+rdep:   .res    1                      ; RECT's: the chain's length
 wo:     .res    1
 t0:     .res    1                      ; scratch
 t1:     .res    1
@@ -123,10 +127,38 @@ REC:    cmp     ucount
 
 ; A a handle: UI_RECT its place, ucli its client area, rtype, rover; carry
 ; set if it is hidden. UIR the record's.
-RECT:   ldx     #0
+RECT:   ldx     rcv                     ; FRONT's cache: a sibling of the last placed (Z3)
+        beq     @walk
+        pha
+        jsr     REC
+        ldy     #UW_PARENT
+        lda     (UIR),y
+        cmp     rcp
+        bne     @miss
+        ldx     #5                      ; its parent's as it was placed: ucli, rhid, rover
+@g:     lda     rcs,x
+        sta     ucli,x
+        dex
+        bpl     @g
+        ldx     #3                      ;   and rclip
+@gc:    lda     rcs + 6,x
+        sta     rclip,x
+        dex
+        bpl     @gc
+        pla
+        sta     rcur
+        jsr     REC
+        jsr     CLIPIN
+        jsr     PLACE
+        lda     rhid
+        cmp     #1
+        rts
+@miss:  pla
+@walk:  ldx     #0
 @up:    cpx     #UI_DEPTH
-        bcs     @deep
-        sta     chain,x
+        bcc     @in
+        jmp     @deep
+@in:    sta     chain,x
         inx
         jsr     REC
         ldy     #UW_PARENT
@@ -151,8 +183,29 @@ RECT:   ldx     #0
         sta     rclip + 2
         lda     #UI_ROWS
         sta     rclip + 3
+        stx     rdep
 @down:  dex
-        lda     chain,x
+        bne     @one
+        lda     rcv                     ; the record's parent placed: kept for FRONT's next
+        beq     @one
+        ldx     #5
+@k:     lda     ucli,x
+        sta     rcs,x
+        dex
+        bpl     @k
+        ldx     #3
+@kc:    lda     rclip,x
+        sta     rcs + 6,x
+        dex
+        bpl     @kc
+        lda     #UI_NONE                ; its parent: the screen for a top-level record
+        ldx     rdep
+        cpx     #1
+        beq     @p
+        lda     chain + 1
+@p:     sta     rcp
+        ldx     #0
+@one:   lda     chain,x
         sta     rcur
         jsr     REC
         phx

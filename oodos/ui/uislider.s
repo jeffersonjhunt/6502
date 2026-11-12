@@ -17,7 +17,7 @@
         .include "ui.inc"
 
         .import SCALE, sv, su, sa, sr
-        .export UIW_VSLIDER, UIW_HSLIDER
+        .export UIW_VSLIDER, UIW_HSLIDER, PNONEW
 
         .segment "BRODATA"
 UIW_VSLIDER:
@@ -37,6 +37,8 @@ idx:    .res    1
 drag:   .res    1
 tmp:    .res    1
 tc:     .res    1                      ; the thumb's cell (SHOWS's)
+plast:  .res    2 * 16                 ; each of OOUI's sprites' thumb: its last cell (column, row), $FF none (Z3)
+pk:     .res    1                      ;   the one POST is at, x 2
 tr:     .res    1
 old:    .res    2                      ; WHEEL's: the value before
 
@@ -263,6 +265,11 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         jsr     GX_SPRATTR
         lda     tmp
         jsr     GX_SPRPOS
+        ldx     pk                      ; the cell it shows on (POST's next filter: Z3)
+        lda     tc
+        sta     plast,x
+        lda     tr
+        sta     plast + 1,x
         clc
 @r:     rts
 
@@ -401,8 +408,9 @@ POST:   lda     #$FF
 @l:     inc     idx
         lda     idx
         cmp     utot
-        bcs     @done
-        jsr     REC
+        bcc     @rec
+        jmp     GX_SPRSHOW
+@rec:   jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_VSLIDER
@@ -413,17 +421,43 @@ POST:   lda     #$FF
         lda     (UIR),y
         and     #UF_SPRITE
         beq     @l
+        ldy     #UW_B + 1               ; its last cell (Z3)
+        lda     (UIR),y
+        sec
+        sbc     usprite
+        and     #$0F
+        asl     a
+        sta     pk
         lda     upmode
         bne     @off
-        lda     idx
+        ldx     pk                      ; outside the last paint's damage, its thumb as it was:
+        lda     plast,x                 ;   no RECT, no FRONT (U3a: Z3)
+        cmp     #$FF
+        beq     @go
+        sta     UI_RECT
+        lda     plast + 1,x
+        sta     UI_RECT + 1
+        lda     #1
+        sta     UI_RECT + 2
+        sta     UI_RECT + 3
+        jsr     TOUCHED
+        bcs     @next
+@go:    lda     idx
         sta     dh
         jsr     RECT
+        php
+        ldx     pk                      ; its place's first cell kept, till its thumb has one
+        lda     UI_RECT
+        sta     plast,x
+        lda     UI_RECT + 1
+        sta     plast + 1,x
+        plp
         bcs     @off
         lda     idx
         jsr     REC
         jsr     MEASURE
         jsr     SPRITE
-        bcc     @l
+        bcc     @next
 @off:   lda     idx
         jsr     REC
         ldy     #UW_B + 1
@@ -434,13 +468,56 @@ POST:   lda     #$FF
         jsr     GX_SPRATTR
         lda     upmode
         cmp     #2
-        bne     @l
+        bne     @next
         stz     GX_V                    ; (page 0: OODOS's, never freed)
         stz     GX_V + 1
         lda     tmp
         jsr     GX_SPRIMG
-        bra     @l
-@done:  jmp     GX_SPRSHOW
+@next:  jmp     @l
+
+; ui_open's (uib.s's BINIT): no thumb has a last cell.
+PNONEW: ldx     #2 * 16 - 1
+        lda     #$FF
+@z:     sta     plast,x
+        dex
+        bpl     @z
+        rts
+
+; Carry clear if UI_RECT meets either of the last paint's damage boxes
+; (pdmg: c0, r0, c1, r1 each, c1 and r1 past): only there can a thumb's
+; place, or what is in front of it, have changed since the last POST, as
+; whatever a paint draws is in its box (U3a: Z3, POST's cost on OO-Amp's
+; screen, a FRONT and a RECT of every record for each sprite slider).
+TOUCHED:
+        ldx     #0
+@box:   lda     pdmg,x                  ; an empty box: c0 not before c1
+        cmp     pdmg + 2,x
+        bcs     @next
+        lda     UI_RECT                 ; columns: c < c1 and c + w > c0
+        cmp     pdmg + 2,x
+        bcs     @next
+        clc
+        adc     UI_RECT + 2
+        beq     @next                   ; (a sum past 255 can't be: 80 columns)
+        cmp     pdmg,x
+        bcc     @next
+        beq     @next
+        lda     UI_RECT + 1             ; rows: the same
+        cmp     pdmg + 3,x
+        bcs     @next
+        clc
+        adc     UI_RECT + 3
+        cmp     pdmg + 1,x
+        bcc     @next
+        beq     @next
+        clc
+        rts
+@next:  cpx     #4
+        beq     @no
+        ldx     #4
+        bra     @box
+@no:    sec
+        rts
 
 ; A key while it has the focus.
 KEY:    jsr     MEASURE

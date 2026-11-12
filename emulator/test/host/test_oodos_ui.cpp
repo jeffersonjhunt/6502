@@ -2675,3 +2675,53 @@ int main()
     }
     return failed;
 }
+
+// ---------------------------------------------------------------------------
+// U3a (hw/ooui.md, "U3a: OOUI as a banked library"): the items it took over from U2's review, and the banked
+// library's own cases.
+
+namespace
+{
+    enum : uint8_t { BLK_AMP = 5 };       ///< uitest.s's (UITBAR): a screen shaped as OO-Amp's
+    constexpr uint8_t A_EQ5 = 16, A_ST0 = 44; ///< one of its 15 sprite sliders, a band; a status line
+    /// The cycles from POST (block B: the sprite sliders' thumbs placed after a paint that drew) to its return
+    /// in PAINT (PDONE, block A), for a paint after command `c` (A `a`, X `x`, Y `y`).
+    unsigned long post_cycles(CcpRig &r, char c, uint8_t a, uint8_t x, uint8_t y)
+    {
+        const uint16_t post = lab("POST"), done = lab("PDONE");
+        const unsigned bb = bank_block(r, "POST"), ba = bank_block(r, "PDONE");
+        uint64_t start = 0, took = 0;
+        r.watch = [&](uint16_t pc) {
+            const unsigned w3 = r.nb(3) & 0x3F;
+            if (pc == post && w3 == bb && !start)
+                start = r.cpu->cycles();
+            else if (pc == done && w3 == ba && start && !took)
+                took = r.cpu->cycles() - start;
+        };
+        CHECK_EQ(ui(r, c, a, x, y).substr(6), std::string("00"));
+        poll(r);
+        r.watch = nullptr;
+        CHECK(took != 0);
+        return static_cast<unsigned long>(took);
+    }
+} // namespace
+
+TEST(z3_the_thumbs_placed_after_a_paint_cost_little)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_AMP).substr(6), std::string("00"));
+    poll(r);
+    // A band moved (its value set): its own thumb placed again, the 14 others outside the paint's damage left
+    // as they were. Before U3a's fix each of the 15 took a RECT of itself and a FRONT (a RECT of every record):
+    // 3,302,244 cycles, 28 frames.
+    const unsigned long one = post_cycles(r, 'v', 20, 0, A_EQ5);
+    std::printf("  the thumbs placed after a band moved: %lu cycles (a frame is 119,318)\n", one);
+    CHECK(one < 100000);
+    // A status line's text changed, far from every slider: no thumb placed again.
+    r.poke(TEXTBUF, bytes(std::string("Playing", 8)));
+    const unsigned long none = post_cycles(r, 'x', 0, 0, A_ST0);
+    std::printf("  the thumbs after a status line's text changed: %lu cycles\n", none);
+    CHECK(none < 20000);
+}

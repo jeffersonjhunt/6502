@@ -23,11 +23,11 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, ucli, rhid, rover, rtype
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
-.global utot, udlgp, ufl, wtype, wo, rclip, WFLAGS, WCALL, CLAMP, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
+.global utot, udlgp, ufl, wtype, wo, rclip, rcv, rcp, WFLAGS, WCALL, CLAMP, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
 .global t0, t1, t2, t3
 
 ; uidraw.s's
-.global upmode, THUMBSOFF
+.global upmode, pdmg, THUMBSOFF
 .global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 

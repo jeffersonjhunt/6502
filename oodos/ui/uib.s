@@ -30,7 +30,7 @@ BTAB:
 MODS:   .word   UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
         .word   UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, 0
         .import UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
-        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE
+        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, PNONEW
 
         .segment "BBSS"
 brec:   .res    2 * UT_COUNT           ; each type's record, 0 for a core type
@@ -38,8 +38,10 @@ bvec:   .res    2                      ; BWCALL's handler
 
         .segment "BCODE"
 
-; ui_open's (REGISTER): ufl, each type's WR_FLAGS, and brec its record.
-BINIT:  ldx     #UT_COUNT - 1
+; ui_open's (REGISTER): ufl, each type's WR_FLAGS, and brec its record;
+; and no slider's thumb has a last cell (uislider.s, Z3).
+BINIT:  jsr     PNONEW
+        ldx     #UT_COUNT - 1
 @z:     stz     ufl,x
         dex
         bpl     @z

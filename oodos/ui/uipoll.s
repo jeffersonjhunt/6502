@@ -718,7 +718,11 @@ HIT:    jsr     FRONT
 ; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
 ; base's, each from the table's end down, inside its parents' client areas
 ; (X5); UI_NONE none. Menus aren't looked at.
-FRONT:  lda     #1
+FRONT:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
+        sta     rcv
+        lda     #$FE
+        sta     rcp
+        jsr     OVERS                   ; the overlay's pass only if something can be on it (Z3)
         sta     hp
 @pass:  lda     utot
         sta     hh
@@ -760,11 +764,36 @@ FRONT:  lda     #1
         bcc     @l
         cmp     rclip + 3
         bcs     @l
+        stz     rcv
         lda     hh
         rts
 @np:    dec     hp
         bpl     @pass
+        stz     rcv
         lda     #UI_NONE
+        rts
+
+; A = 1 if a record can be on the overlay (a shown window with UF_OVERLAY:
+; the dialogs' are), else 0. Menus, which FRONT passes by, don't count.
+OVERS:  ldx     #0
+@l:     cpx     utot
+        bcs     @no
+        txa
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_WINDOW
+        bne     @n
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_OVERLAY | UF_HIDDEN
+        cmp     #UF_OVERLAY
+        bne     @n
+        lda     #1
+        rts
+@n:     inx
+        bra     @l
+@no:    lda     #0
         rts
         .code
 

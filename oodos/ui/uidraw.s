@@ -80,6 +80,7 @@ pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
 upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
 udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
+pdmg:   .res    8                      ; the last paint's damage, both boxes (POST's, U3a: Z3)
 blk:    .res    6                      ; IN_MOUSE's block
 
 
@@ -576,17 +577,19 @@ PAINT:  lda     ususp
         bcs     @clr
 @dmg:   lda     #1
         sta     udrew
-@clr:   ldx     #7
-@z:     stz     udmg,x
+@clr:   ldx     #7                      ; the damage kept for upost (POST: U3a's Z3), then cleared
+@z:     lda     udmg,x
+        sta     pdmg,x
+        stz     udmg,x
         dex
         bpl     @z
         lda     udrew                   ; a widget module's after a paint that drew (a slider's
-        beq     @r                      ;   sprites, U2)
+        beq     PNONE                   ;   sprites, U2)
         lda     upost + 1
-        beq     @r
+        beq     PNONE
         XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
-        rts
-@r:     rts
+PDONE:  rts                             ; (test_oodos_ui times POST to here: Z3)
+PNONE:  rts
 
 ; One layer's pass (pl the layer, pbx its box, pclr 1 to clear the box,
 ; cmap its map).
