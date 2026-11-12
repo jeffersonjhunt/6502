@@ -405,7 +405,7 @@ the picker's nor is taken over by it, and a directory that changed between polls
 that hasn't changed comes back in the same order, so each match is compared with the listed entry where it should
 be, and the whole list is looked through only when they differ; past the list's end with every match in its place,
 a match is new (round 2, Z1). A walk that reaches the directory's end takes out the files it no longer found, and
-the selection is held to what is left (Z5). An app's own
+the selection moves with them: up one for each file gone before it, none if its own file went, and then the name field that showed it is cleared, unless `UP_NEW` made the field the user's (Z5; round 3, W1). An app's own
 search must end before it polls while the picker is up, since the picker's walk starts a search of its own. It lists
 each file once, however many extents it has. It names the drive in its FCB, so the current drive never changes,
 and it sets the user (function 32), the DMA address and segment (26, 51) and the error mode (45) for each part,
@@ -829,12 +829,12 @@ and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8
 | `uimath` | the scaling the bars, scroll bars and sliders share | 182 | 0 | 16 | |
 | `uidlg` | the dialogs' 13 records | 85 | 0 | 209 | |
 | `uimsg` | `ui_msgbox` | 561 | 31 | 26 | CONFIRM QUIT, the error boxes (`gui/ooadlg.s`'s) |
-| `uipick` | `ui_pick`, `ui_relist` | 2,338 | 499 | 319 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
+| `uipick` | `ui_pick`, `ui_relist` | 2,416 | 499 | 321 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
 
 Zero page: still OOUI's 8 bytes (`zpuicore`), none in any U2 module, so an overlay is given its caller's as
-before. **U2's code is 10,581 bytes against the ~3 KB target** (9,594 before the U2 review's fixes; 10,634 after
-round 1; round 2 made the picker's records from a table of templates, 144 bytes of tables for about 320 of code):
-2,085 the core's growth, 5,512 the nine widget modules, 2,984 the dialogs. A program links the core (10,063 bytes of
+before. **U2's code is 10,659 bytes against the ~3 KB target** (9,594 before the U2 review's fixes; 10,634 after
+round 1; 10,581 after round 2, which made the picker's records from a table of templates, 144 bytes of tables for
+about 320 of code; round 3's W1 took 78): 2,085 the core's growth, 5,512 the nine widget modules, 3,062 the dialogs. A program links the core (10,063 bytes of
 code with U1's) and only the modules it uses: OO-Amp's port would take the list, scroll bar, slider, bar, canvas,
 choice, message box and picker, about 7.5 KB more. That is past what one region outside W1 holds with OOLIB's graphics (16 KB at `$8000-$BFFC`, or 15.6 KB at
 `$0300-$3FFF`): the test programs had to be four (`UITEST`, `UITWID`, `UITBAR`, `UITPICK`, all from
@@ -842,7 +842,7 @@ choice, message box and picker, about 7.5 KB more. That is past what one region 
 and the test's own code, tables, data and BSS below `$1C00`, `$1C00-$2FFF` a 256-file work buffer for the picker
 (`OOUI_CFG` in `oodos/Makefile`). That link is the
 tests' only: a real program can't reproduce it, since a `.COM`'s image is one block from `$0300` with its BSS after
-it, and one that ran to `$BFFC` would leave the program no room (U2 review, Y7). `UITPICK` has 86 bytes of
+it, and one that ran to `$BFFC` would leave the program no room (U2 review, Y7). `UITPICK` has 8 bytes of
 `$8000-$BFFC` left. So **U3 must take the shared banked block** (risks
 below): the core and the modules in a block of their own reached by FARCALL, the program keeping its 16 KB.
 
@@ -915,12 +915,15 @@ changed (`TC_LIST`) fails the four frames with a house list. The U2 review's fix
 to `y6` and `x1` to `x13`, one a finding, each failing without its fix (`y4`'s and `y5`'s, which guard what was
 right, fail with the restore or the extent broken); no golden frame changed. Round 2 added `z1`, `z2`, `z4` and `z5`
 (61 now) and `y4`'s segment (Y4b); `z1` bounds the instructions a poll runs in the walk's code over 200 files, about
-54,000 where the round-1 walk ran 1.27 million. `u2-pick` changed: the name field two columns wider (Z4).
+54,000 where the round-1 walk ran 1.27 million. `u2-pick` changed: the name field two columns wider (Z4). Round 3
+added the two `w1` cases (63 now): a file before the selection deleted mid-listing, and the selected file itself;
+no golden frame changed.
 
 **The U2 review's round 2** (*proposed*, the owner's approval, 2026-11-11): Z1, Z4 and Z5 as above; a paint with
 damage but nothing drawn (a window hidden over nothing) places the sliders' thumbs too (Z2). Left for U3a: a test of
-a menu over a thumb, the pointer's image off the freed memory at `ui_close`, and the cost of placing the thumbs after
-each paint (Z3).
+a menu over a thumb, the pointer's image off the freed memory at `ui_close`, the cost of placing the thumbs after
+each paint (Z3), and a walk that gets back in step after a file is added to the directory mid-listing (W2: today, once a
+match is out of place, each new file past the list's end in that walk is looked for through the whole list).
 
 **The U2 review's fixes** (*proposed*, the owner's approval of all 21, 2026-11-11), besides the picker's and the
 errors above: a first click is forgotten after the double-click's time (a 16-bit stamp), and a press on another
