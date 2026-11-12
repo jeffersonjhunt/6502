@@ -369,7 +369,8 @@ add_custom_command(
 # a copy in bigstack/ linked with a C stack too big for the TPA. And UITEST (oodos/test/ui), OOUI's test
 # program, for test_oodos_ui: four programs from its one source (UITEST, UITWID, UITBAR, UITPICK), each an
 # ordinary .COM linked with OOUI's program part (ooui.lib) and oolib.lib (test/ui/uiprog.cfg), and
-# OOUI.BNK, the banked library they load (U3a), with its labels (ooui-bnk.lbl).
+# OOUI.BNK, the banked library they load (U3a), with its labels (ooui-bnk.lbl); and UITMIS, UITEST with
+# UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
@@ -398,6 +399,9 @@ add_custom_command(
                 "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uitest.com" "${OODOS_UTILS_DIR}/uitwid.com"
                 "${OODOS_UTILS_DIR}/uitbar.com" "${OODOS_UTILS_DIR}/uitpick.com" "${OODOS_UTILS_DIR}/OOUI.BNK"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ui OOUI_USERS=uitmis OOUI_CFG=test/ui/uimis.cfg
+                "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
+                "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uitmis.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/ctest.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}/bigstack"

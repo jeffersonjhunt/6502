@@ -24,7 +24,7 @@
 ; (build/ooui.lib) and test/ui/uiprog.cfg (UISTATE at $8000), and loads
 ; OOUI.BNK from M:, user 15, at its start (ui_load), unless the test has put 'N' at
 ; MBOX + 4 before it runs: then 'L' loads it (A 0: the default, A:OOUI.BNK;
-; 1: M:OOUI.BNK, user 15; 2: B:OOUI.BNK).
+; 1: M:OOUI.BNK, user 15; 2: B:OOUI.BNK). 'G' there: not even GX_INIT.
 .ifndef UIVAR
 UIVAR   = 0
 .endif
@@ -55,6 +55,9 @@ start:  stz     MBOX
         ldx     #>oblk
         ldy     #O_FRAME
         jsr     BDOS
+        lda     MBOX + 4                ; 'G': no GX_INIT, nor anything after it (U3a: UX_GX)
+        cmp     #'G'
+        beq     @nol
         lda     #<AREA
         ldx     #>AREA
         jsr     GX_INIT
@@ -174,6 +177,7 @@ c_theme:
 
 ; ui_poll until UE_NONE, each event printed.
 c_poll: jsr     ui_poll
+PRET:                                   ; (test_oodos_ui times a call to here: U3a)
         cmp     #UE_NONE
         beq     @done
         sta     rax
@@ -386,6 +390,104 @@ colfn:  tya
 c_wboot:
         jmp     WBOOT
 
+; The blocks free (U3a's cases: what ui_load took is free again): each
+; taken by function 55, a block at a time, till there is none, counted,
+; then each given back (57). A the count.
+c_free: stz     nfree
+@a:     jsr     mcb1
+        ldy     #MC_ALLOC
+        jsr     BDOS
+        cmp     #0
+        bne     @back
+        lda     nfree                   ; its base kept
+        asl     a
+        tax
+        lda     tmcb
+        sta     bases,x
+        lda     tmcb + 1
+        sta     bases + 1,x
+        inc     nfree
+        bra     @a
+@back:  ldx     nfree
+        phx
+@f:     dec     nfree
+        bmi     @done
+        jsr     mcb1
+        lda     nfree
+        asl     a
+        tax
+        lda     bases,x
+        sta     tmcb
+        lda     bases + 1,x
+        sta     tmcb + 1
+        lda     #<tmcb
+        ldx     #>tmcb
+        ldy     #MC_FREE
+        jsr     BDOS
+        bra     @f
+@done:  pla
+        ldx     #0
+        clc
+        rts
+; Blocks taken and kept, all but A of them free (c_eat), or given back
+; (c_release): ui_load's UX_MEMORY.
+c_eat:  sta     nleave
+        jsr     c_free
+        sec
+        sbc     nleave
+        sta     neaten
+        stz     nfree
+@a:     lda     nfree
+        cmp     neaten
+        beq     @done
+        jsr     mcb1
+        ldy     #MC_ALLOC
+        jsr     BDOS
+        lda     nfree
+        asl     a
+        tax
+        lda     tmcb
+        sta     eaten,x
+        lda     tmcb + 1
+        sta     eaten + 1,x
+        inc     nfree
+        bra     @a
+@done:  lda     neaten
+        clc
+        rts
+c_release:
+        stz     nfree
+@f:     lda     nfree
+        cmp     neaten
+        beq     @done
+        jsr     mcb1
+        lda     nfree
+        asl     a
+        tax
+        lda     eaten,x
+        sta     tmcb
+        lda     eaten + 1,x
+        sta     tmcb + 1
+        lda     #<tmcb
+        ldx     #>tmcb
+        ldy     #MC_FREE
+        jsr     BDOS
+        inc     nfree
+        bra     @f
+@done:  stz     neaten
+        clc
+        rts
+; tmcb: base 0, a block's 1,024 paragraphs, the extra byte 0; A/X it.
+mcb1:   stz     tmcb
+        stz     tmcb + 1
+        stz     tmcb + 2
+        lda     #4
+        sta     tmcb + 3
+        stz     tmcb + 4
+        lda     #<tmcb
+        ldx     #>tmcb
+        rts
+
 ; ui_load: A 0 the default (A:OOUI.BNK, user 0), 1 M:OOUI.BNK (user 15),
 ; 2 B:OOUI.BNK (the current user) (U3a).
 c_load: cmp     #0
@@ -461,6 +563,9 @@ cmds:   CMD     'o', c_open
 .endif
         CMD     'q', c_range
         CMD     'L', c_load
+        CMD     'B', c_free
+        CMD     'E', c_eat
+        CMD     'R', c_release
         CMD     '!', c_wboot
 CMDS_LEN = * - cmds
 
@@ -742,6 +847,12 @@ keys:   .byte   U_Q, UK_CTRL, B_CAN, UA_PRESS
 
         .bss
 tgroups: .res   TH_LEN                  ; c_theme's theme 2
+tmcb:   .res    5                       ; c_free's and c_eat's MCB
+nfree:  .res    1
+nleave: .res    1
+neaten: .res    1
+bases:  .res    2 * 20
+eaten:  .res    2 * 20
 
 
         .data

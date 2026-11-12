@@ -158,14 +158,16 @@ namespace
                     block = std::max(block, r.phys(MDISK + i * 32 + k) + 1u);
         put_m_files(r, entry, block, {{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
     }
-    template <class R> void start_ui(R &r, const std::string &program = "uitest", bool load = true)
+    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded from M: (put there first); with `flag` 'N' not
+    /// loaded (the test says 'L'), 'G' not even GX_INIT (U3a).
+    template <class R> void start_ui(R &r, const std::string &program = "uitest", char flag = 0)
     {
         prog() = program;
         no_splash(r);
-        if (load)
+        if (!flag)
             put_bnk(r);
         r.poke(MBOX, 0);
-        r.poke(MBOX + 4, load ? 0 : 'N');
+        r.poke(MBOX + 4, static_cast<uint8_t>(flag));
         r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
         const size_t from = r.out.size();
         r.type("GO\r");
@@ -2575,7 +2577,7 @@ namespace
     {
         m_files(r, 50); // (M: too full for OOUI.BNK as well: it is loaded from B: here, U3a)
         put_b(r, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK"));
-        start_ui(r, "uitpick", false);
+        start_ui(r, "uitpick", 'N');
         CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
         CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
         poll(r);
@@ -2819,4 +2821,119 @@ TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
     CHECK_EQ(r.phys(lab("lst")), 0);
     CHECK_EQ(word_at(r, lab("count")), 200u);
     CHECK_EQ(status(r), std::string("200 files"));
+}
+
+namespace
+{
+    enum : uint8_t
+    {
+        UX_VERSION_ = 1, UX_MEMORY_ = 3, UX_BUSY_ = 6, UX_LOAD_ = 10, UX_GX_ = 11, UX_STATE_ = 12 ///< ooui.inc's
+    };
+    /// A and the carry of a command, "aacc".
+    std::string ac(const std::string &f) { return f.substr(0, 2) + f.substr(6); }
+    std::string hex2(unsigned v)
+    {
+        char b[8];
+        std::snprintf(b, sizeof b, "%02X", v & 0xFF);
+        return b;
+    }
+    /// The blocks free (uitest.s's 'B').
+    unsigned free_blocks(Rig &r) { return static_cast<unsigned>(std::stoul(ui(r, 'B').substr(0, 2), nullptr, 16)); }
+    /// OOUI.BNK, as built.
+    std::vector<uint8_t> bnk() { return read_bytes(UTILS + "/OOUI.BNK"); }
+} // namespace
+
+TEST(ui_load_s_refusals_leave_nothing_taken)
+{
+    // Each refusal (uiprog/uiload.s): the error, and the blocks free as before (any it took freed again).
+    const auto refused = [](const std::vector<uint8_t> *file, const char *program, char flag, uint8_t err, const char *what)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        if (file)
+            r.put_m({{BNK_USER, "OOUI    BNK", *file}});
+        start_ui(r, program, flag);
+        const unsigned before = free_blocks(r);
+        const std::string got = ac(ui(r, 'L', 1));
+        if (got != hex2(err) + "01")
+            std::printf("  %s: got %s\n", what, got.c_str());
+        CHECK_EQ(got, hex2(err) + "01");
+        CHECK_EQ(free_blocks(r), before);
+    };
+    refused(nullptr, "uitest", 'N', UX_LOAD_, "no file");
+    std::vector<uint8_t> f = bnk();
+    f[0] = 'X';
+    refused(&f, "uitest", 'N', UX_LOAD_, "not an OOUI.BNK");
+    f = bnk();
+    f[4] = 0;
+    refused(&f, "uitest", 'N', UX_VERSION_, "an older interface");
+    f = bnk();
+    f[6] = 0x01;
+    f[7] = 0x06; // 1,537 bytes of UISTATE: more than the program's 1,536
+    refused(&f, "uitest", 'N', UX_VERSION_, "too little UISTATE");
+    f = bnk();
+    refused(&f, "uitest", 'G', UX_GX_, "no GX_INIT");
+    refused(&f, "uitmis", 'N', UX_STATE_, "UISTATE off a page");
+    // No block free for the third: the two it took freed again; then, the blocks back, it loads; and again is
+    // UX_BUSY.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(r, "uitest", 'N');
+    const unsigned all = free_blocks(r);
+    CHECK(all >= 3u);
+    CHECK_EQ(std::stoul(ui(r, 'E', 2).substr(0, 2), nullptr, 16), all - 2);
+    CHECK_EQ(ac(ui(r, 'L', 1)), hex2(UX_MEMORY_) + "01");
+    CHECK_EQ(free_blocks(r), 2u);
+    CHECK_EQ(ac(ui(r, 'R')).substr(2), std::string("00"));
+    CHECK_EQ(free_blocks(r), all);
+    CHECK_EQ(ui(r, 'L', 1).substr(6), std::string("00"));
+    CHECK_EQ(free_blocks(r), all - 3);
+    CHECK_EQ(ac(ui(r, 'L', 1)), hex2(UX_BUSY_) + "01");
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+}
+
+TEST(ui_load_zeroes_uistate_and_the_warm_boot_frees_the_blocks)
+{
+    // UISTATE full of $FF before ui_load (a program's memory isn't cleared): OOUI opens and draws as ever (D2).
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(r, "uitest", 'N');
+    const unsigned all = free_blocks(r);
+    r.poke(lab("UISTATE"), std::vector<uint8_t>(1536, 0xFF));
+    CHECK_EQ(ui(r, 'L', 1).substr(6), std::string("00"));
+    CHECK_EQ(r.phys(lab("UISTATE") + 1535u), 0);
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), read_golden().at("window"));
+    CHECK_EQ(free_blocks(r), all - 3);
+    // The program ended by the warm boot: its blocks are free again.
+    ui(r, '!');
+    r.run(ms(200));
+    start_ui(r, "uitest", 'N');
+    CHECK_EQ(free_blocks(r), all);
+}
+
+TEST(ui_load_keeps_the_program_s_user_and_dma)
+{
+    // From B: in the program's user (0), its DMA address, segment and error mode set (UITPICK's 'e'): all as
+    // they were after ui_load (D8); and the default name (A:OOUI.BNK, user 0, not on the test card) refused,
+    // the program's user 5 put back.
+    CcpRig r;
+    REQUIRE(r.ok);
+    put_b(r, "OOUI    BNK", bnk());
+    start_ui(r, "uitpick", 'N');
+    CHECK_EQ(ui(r, 'e', 0, 0xFE, 1).substr(6), std::string("00"));
+    const std::string mine = own_state(r);
+    CHECK_EQ(mine, std::string("user 0 dma 3A00 seg 1234 err FE"));
+    CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
+    CHECK_EQ(own_state(r), mine);
+    CcpRig s;
+    REQUIRE(s.ok);
+    start_ui(s, "uitpick", 'N');
+    CHECK_EQ(ui(s, 'e', 5, 0xFE, 1).substr(6), std::string("00"));
+    const std::string five = own_state(s);
+    CHECK_EQ(ac(ui(s, 'L', 0)), hex2(UX_LOAD_) + "01");
+    CHECK_EQ(own_state(s), five);
 }

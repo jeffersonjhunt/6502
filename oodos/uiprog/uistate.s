@@ -15,4 +15,6 @@ UISTATE: .res   UI_STATE_LEN
 UI_EV   = UISTATE
 UI_RECT = UISTATE + 12
 UI_RAW  = UISTATE + 16
+.ifndef UI_NOALIGN                      ; (test/ui/uitmis.s only: ui_load's own refusal, UX_STATE)
 .assert <UISTATE = 0, lderror, "UISTATE must start on a page (its segment's area: align it, hw/ooui.md, U3a, E2)"
+.endif
