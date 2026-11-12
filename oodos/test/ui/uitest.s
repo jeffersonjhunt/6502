@@ -605,6 +605,17 @@ keys2:  .byte   0
         UI_HSLIDER Y_HSP, Y_WIN, 6, 4, 30, 100, 75, 5, 1, UF_SPRITE
         UI_LABEL   Y_LBL, Y_WIN, 6, 6, -1, "Phase U2: bars and sliders", 0
         UI_BUTTON  Y_MSG, Y_WIN, 1, -2, 14, "&Message", 0
+; (U3a, the U2 review's X4: a menu down over the sprite thumb hides it.
+; After the rest, so their handles stay as they were; the bar at the top,
+; hidden till the test shows it, so the scene's frames are as they were.)
+        _UI_REC    Y_BAR, UT_MENUBAR, UI_NONE, 0, 0, 0, 1, UF_HIDDEN, 0, 0, 0, 0
+        UI_MENU    Y_MENU, Y_BAR, "&Levels"
+        UI_ITEM    Y_I1, Y_MENU, "A first item, as wide as the thumb", 0, 0, 0
+        UI_ITEM    Y_I2, Y_MENU, "A second", 0, 0, 0
+        UI_ITEM    Y_I3, Y_MENU, "A third", 0, 0, 0
+        UI_ITEM    Y_I4, Y_MENU, "A fourth", 0, 0, 0
+        UI_ITEM    Y_I5, Y_MENU, "A fifth, over the slider's row", 0, 0, 0
+        UI_ITEM    Y_I6, Y_MENU, "A sixth", 0, 0, 0
         UI_END     u2
 
 ; 5 (U3a, Z3): a screen shaped as OO-Amp's, to time the sliders' thumbs

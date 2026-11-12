@@ -1183,7 +1183,7 @@ namespace
 {
     // uitwid's scene (uitest.s's u2, UIVAR 1) and uitbar's (UIVAR 2).
     enum : uint8_t { X_DESK, X_WIN, X_GRP, X_R0, X_R1, X_R2, X_CHO, X_FLD, X_LST, X_VSC, X_LS2, X_CNV, X_HSC, X_LBL, X_OUT, X_DONE };
-    enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG };
+    enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG, Y_BAR };
     enum : uint8_t { BLK_U2 = 3, BLK_U2ONE = 4 };
     template <class R> void open_u2(R &r, const std::string &program, uint8_t block = BLK_U2)
     {
@@ -2724,4 +2724,25 @@ TEST(z3_the_thumbs_placed_after_a_paint_cost_little)
     const unsigned long none = post_cycles(r, 'x', 0, 0, A_ST0);
     std::printf("  the thumbs after a status line's text changed: %lu cycles\n", none);
     CHECK(none < 20000);
+}
+
+TEST(x4_a_menu_down_over_a_thumb_hides_it)
+{
+    // The U2 review's X4, left for U3a: the thumb shows only under no menu that is down. UITBAR's scene has a
+    // menu bar now (hidden till shown), its menu's drop-down wide and long enough to cover the sprite slider's
+    // thumb.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(ui(r, 's', Y_BAR).substr(6), std::string("00")); // the bar shown (hidden in the scene's frames)
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    key(r, 0x43); // F10: the menu down, over the thumb
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    key(r, K_ESC); // up again: the thumb again
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
 }
