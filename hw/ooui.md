@@ -1046,7 +1046,8 @@ with no `$34`, and the stream after it can't be parsed either way). So none of i
     1. **A word fixup:** two bytes whose 16-bit value is exactly `$0302` higher in L1. The import must be a real
        one: L0's value *v* must lie in some import's slot, `$4000` + *i* × `$400` to that plus `$3FF`, with *i* below
        the number of imports. That gives the import *i* and the addend, *v* − its base.
-    2. **A page fixup:** a byte exactly 1 higher, with the byte before it unchanged.
+    2. **A page fixup:** a byte exactly 1 higher (round 3, F2: whatever its neighbours do, so `.byte UIP, >fbuf`
+       and a table of `>a, >b` are taken).
     3. **A zero-page fixup:** a byte exactly 5 higher.
     4. **A block number:** a byte exactly `$40` higher, whose L0 value is 1, 2 or 3.
   - **Why nothing can be taken for something else.**
@@ -1280,8 +1281,8 @@ As built today, that costs:
 
 | What | Crossings | Cycles added | Of a frame |
 | --- | --- | --- | --- |
-| An idle poll while the picker lists: its listing part, then the list's 16 rows | 17 | about 5,100 | 4.3%, each frame till the listing ends |
-| A selection move: `DFILT`, the list's key handler, then 16 rows | 18 | about 5,400 | 4.5% |
+| An idle poll while the picker lists: its listing part, the list's paint in B (`WCALL`'s draw), then its 16 rows | 18 | about 5,400 | 4.5%, each frame till the listing ends |
+| A selection move: `DFILT`, the list's key handler, its paint, then 16 rows | 19 | about 5,700 | 4.8% |
 
 **The plan for phase 2: one crossing for the rows of a draw.**
 
@@ -1293,8 +1294,8 @@ As built today, that costs:
 
   | What | Crossings | Cycles added | Of a frame |
   | --- | --- | --- | --- |
-  | An idle poll while the picker lists | 2 | about 600 | 0.5% |
-  | A selection move | 3 | about 900 | 0.75% |
+  | An idle poll while the picker lists: the listing part, the paint, the rows | 3 | about 900 | 0.75% |
+  | A selection move: `DFILT`, the key, the paint, the rows | 4 | about 1,200 | 1% |
 
 - **Its price.** The buffer is 16 rows of 40 bytes, which replaces the picker's one 40-byte row and is about 600
   bytes more of `UISTATE`. That moves `UISTATE` from about 700 to about 1,300 bytes, reserved as 1,536 (answer 5),
@@ -1353,7 +1354,7 @@ program's 320 KB.
   - the program's DMA address and segment the same after `ui_load` (D8);
   - the blocks freed by the warm boot;
   - the cycles of an idle `ui_poll` and of a crossing;
-  - the picker's crossings counted in a listing poll and in a selection move: 2 and 3, with its rows filled in
+  - the picker's crossings counted in a listing poll and in a selection move: 3 and 4 (round 3, F1), with its rows filled in
     one crossing (E3).
 - **Must-fails:**
   - the copy of common memory left out: the first call never comes back, and the case fails on its time limit;
@@ -1383,7 +1384,7 @@ chose three blocks (round 2). None of these needs an OODOS or OOLIB change.
 5. **`UISTATE`'s reserve:** rounded up to a whole 256. *Answered.*
 6. **Overlays:** `libzp.py` exports the core's stubs, and, with D6, the core's OOLIB, to an overlay. *Answered.*
 7. **A lean crossing:** no; FARCALL only. *Answered.*
-8. **The picker's row buffer** (round 2, E3). Filling the shown rows in one crossing needs a 16-row buffer of about
+8. **The picker's row buffer** (round 2, E3). *Answered (the owner, round 3): the buffer, 1,536 bytes of `UISTATE` reserved.* Filling the shown rows in one crossing needs a 16-row buffer of about
    600 bytes more in `UISTATE`, which is in the program's memory. **Recommended:** the buffer, as planned above:
    it keeps the picker's code in C. **Alternative:** put the picker's row routine (`ROWFN`, 143 bytes, with what it
    calls) in `UICOM`. Then B's list calls it directly, with no crossing and no buffer, at the cost of about 150-300
