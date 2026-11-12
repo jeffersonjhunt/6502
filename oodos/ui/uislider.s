@@ -10,7 +10,9 @@
 ; step it up, Down and Left down, PgUp and PgDn an eighth, Home the top,
 ; End 0; the wheel steps it; a click or a drag puts it where the pointer
 ; is (UE_CHANGE with UV_LIVE as it moves, then without at the release).
-; OO-Amp: seek, volume, balance, the EQ's 11 bands.
+; OO-Amp: seek, volume, balance, the EQ's 11 bands. (U3b) With UF_MARGIN,
+; UW_TEXT's high byte is the margin round it that takes presses too
+; (uipoll.s's MARGIN).
 
         .setcpu "65C02"
         .include "oodos.inc"

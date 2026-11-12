@@ -13,7 +13,8 @@
 ; and the bar works in units, not cells: the thumb is the sprite's length
 ; (OOUI's 8 x 8, or with UF_OWNTHUMB the program's, its size byte UW_TEXT's
 ; low byte), at (track - thumb) x value / last along the track; a press
-; on it drags it, before or after it pages.
+; on it drags it, before or after it pages. With UF_MARGIN, UW_B's high
+; byte is the margin (uipoll.s's MARGIN) and the page its low byte.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -80,6 +81,12 @@ MEASURE:
         cpx     #6
         bne     @c
 .assert last = val + 2 && page = val + 4 && UW_A = UW_VALUE + 2 && UW_B = UW_VALUE + 4, error, "val, last, page"
+        ldy     #UW_FLAGS               ; (U3b) with UF_MARGIN, UW_B's high byte is the margin:
+        lda     (UIR),y                 ;   the page its low byte
+        and     #UF_MARGIN
+        beq     @pg
+        stz     page + 1
+@pg:
         lda     page                    ; the thumb: len x page / (last + page), at least 1
         sta     sv
         lda     page + 1

@@ -3723,7 +3723,7 @@ TEST(u3b_r2_a_routine_returning_with_d_set)
     CHECK_EQ(frame_hash(l), before);
 }
 
-// The U3b review's round 3 (J1-J3): each case fails without its fix.
+// The U3b review's round 3 (J1-J3), and the slider's and scroll bar's margin (U3b, OO-Amp's targets).
 
 TEST(u3b_r3_a_column_routine_returning_with_d_set)
 {
@@ -3800,6 +3800,142 @@ TEST(u3b_r3_ui_flags_keeps_an_own_thumb_while_its_sprite_shows)
     CHECK_EQ(ui(r, 'F', 0, UF_SPRITE_, Z_STD).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'F', UF_OWNTHUMB_, 0, Z_STD).substr(6), std::string("00"));
     CHECK_EQ(ac(ui(r, 'F', UF_SPRITE_, 0, Z_STD)), hex2(UX_SPRITE_) + "01"); // its size byte 0 (SPRCHK)
+}
+
+namespace
+{
+    constexpr uint8_t UF_MARGIN_ = 0x40;
+    /// The first UE_CHANGE in `ev` for `h`: its value, or -1 none.
+    int changed(const std::vector<Event> &ev, uint8_t h)
+    {
+        for (const Event &e : ev)
+            if (e.code == UE_CHANGE && e.handle == h)
+                return static_cast<int>(e.value);
+        return -1;
+    }
+    /// A press and release at a cell, after the slider's or scroll bar's value is set to `v`: what changed.
+    int press_at(Rig &r, uint8_t h, unsigned v, unsigned col, unsigned row)
+    {
+        setv(r, h, v);
+        poll(r);
+        click(r, col, row);
+        return changed(poll(r), h);
+    }
+} // namespace
+
+TEST(u3b_a_slider_s_margin_takes_a_press)
+{
+    // UF_MARGIN (U3b, OO-Amp's targets): a slider's margin byte (UW_TEXT's high byte): across in its low four
+    // bits, along in its high four. Z_OWN (row 4, columns 9-38) given $21: rows 3-5, columns 7-40. A press in
+    // the margin is the press on the track: the same value as at the track's cell in that column, the ends'
+    // values beyond its ends. Without the flag, the margin's cells are the window's: nothing.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const int on = press_at(r, Z_OWN, 0, 20, 4);
+    CHECK(on > 0 && on < 100);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), -1); // no flag: nothing
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 3), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 7, 4), -1);
+    r.poke(rec3(Z_OWN) + UW_TEXT + 1, 0x21);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), -1); // the margin byte alone: nothing
+    CHECK_EQ(ui(r, 'F', UF_MARGIN_, 0, Z_OWN).substr(6), std::string("00"));
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), on); // across: below, above
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 3), on);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 7, 4), 0); // along: two cells before its start, after its end
+    CHECK_EQ(press_at(r, Z_OWN, 50, 40, 5), 100);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 6, 4), -1); // past the margin
+    CHECK_EQ(press_at(r, Z_OWN, 50, 41, 4), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 2), -1);
+    // A drag begun in the margin moves the thumb as one begun on the track.
+    setv(r, Z_OWN, 0);
+    poll(r);
+    point(r, 20, 5);
+    button(r, true);
+    CHECK_EQ(changed(poll(r), Z_OWN), on);
+    point(r, 30, 3);
+    const int moved = changed(poll(r), Z_OWN);
+    CHECK(moved > on);
+    button(r, false);
+    poll(r);
+    CHECK_EQ(word_at(r, rec3(Z_OWN) + UW_VALUE), static_cast<unsigned>(moved));
+    CHECK_EQ(spr_x(r, 1), 9u * 4 + moved * 119u / 100 - 8);
+    // Hidden, its margin takes nothing.
+    CHECK_EQ(ui(r, 'h', Z_OWN).substr(6), std::string("00"));
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 4), -1);
+}
+
+TEST(u3b_a_margin_takes_no_press_from_another_widget)
+{
+    // The margin takes a press only where what is there is one of its parents (the window, the desktop) or
+    // nothing: never from a widget drawn in front of it (FRONT's order: a window over it), nor from one behind
+    // it (Z_STD, row 6, after Z_OWN, so in front: its margin over Z_OWN's row 4 leaves Z_OWN its own presses);
+    // nor under a modal window that isn't its own.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    r.poke(rec3(Z_OWN) + UW_TEXT + 1, 0x01);
+    CHECK_EQ(ui(r, 'F', UF_MARGIN_, 0, Z_OWN).substr(6), std::string("00"));
+    const int on = press_at(r, Z_OWN, 0, 20, 4);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), on);
+    // A window in front, over the margin's row 5 (columns 18-21, rows 5-7): its cells are its own.
+    r.poke(rec3(Z_COVER) + 2, 18);
+    r.poke(rec3(Z_COVER) + 3, 5);
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 24, 5), press_at(r, Z_OWN, 0, 24, 4)); // beside it, still the margin
+    // Modal, the window over it: the margin outside it takes nothing.
+    CHECK_EQ(ui(r, 'F', 0x20, 0, Z_COVER).substr(6), std::string("00")); // UF_MODAL
+    poll(r);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 24, 5), -1);
+    CHECK_EQ(ui(r, 'F', 0, 0x20, Z_COVER).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    // Z_STD (in front of Z_OWN) with a margin of two rows across: rows 4-8. Z_OWN's own row 4 is still Z_OWN's;
+    // row 5, in both margins, is Z_STD's (the frontmost); row 7, Z_STD's.
+    r.poke(rec3(Z_STD) + UW_TEXT + 1, 0x02);
+    CHECK_EQ(ui(r, 'F', UF_MARGIN_, 0, Z_STD).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 4), on);
+    setv(r, Z_STD, 0);
+    CHECK_EQ(press_at(r, Z_OWN, 0, 20, 5), -1);
+    CHECK_EQ(word_at(r, rec3(Z_STD) + UW_VALUE), static_cast<unsigned>(on));
+    setv(r, Z_STD, 0);
+    CHECK_EQ(press_at(r, Z_STD, 0, 20, 7), on);
+}
+
+TEST(u3b_a_scroll_bar_s_margin_takes_a_press)
+{
+    // A scroll bar's margin byte is UW_B's high byte (its page then 0-255), across only: Z_VSC (column 43, rows
+    // 4-15, page 10) given $11: columns 42-44; its along bits do nothing (its ends are its arrows). A press
+    // beside the track pages as on it; beside the thumb drags it.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(press_at(r, Z_VSC, 50, 44, 14), -1); // no flag: nothing
+    r.poke(rec3(Z_VSC) + 15, 0x11); // UW_B + 1
+    CHECK_EQ(ui(r, 'F', UF_MARGIN_, 0, Z_VSC).substr(6), std::string("00"));
+    CHECK_EQ(press_at(r, Z_VSC, 50, 43, 14), 60); // on it: a page down (10, UW_B's low byte)
+    CHECK_EQ(press_at(r, Z_VSC, 50, 44, 14), 60);
+    CHECK_EQ(press_at(r, Z_VSC, 50, 42, 5), 40);
+    CHECK_EQ(press_at(r, Z_VSC, 50, 45, 14), -1);
+    CHECK_EQ(press_at(r, Z_VSC, 50, 43, 3), -1); // along: none
+    CHECK_EQ(press_at(r, Z_VSC, 50, 44, 16), -1);
+    // The thumb (units 24-55 at 50: rows 8-11) held from beside it, and dragged.
+    setv(r, Z_VSC, 50);
+    poll(r);
+    usb(r).mouse_to(44 * 4 + 2, 5 * 8 + 40);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {}, "the thumb held from its margin");
+    usb(r).mouse_to(44 * 4 + 2, 5 * 8 + 52);
+    r.run(ms(30));
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Z_VSC && ev[0].value == 75);
+    button(r, false);
+    poll(r);
 }
 
 TEST(u3b_a_label_in_a_colour_of_its_own)

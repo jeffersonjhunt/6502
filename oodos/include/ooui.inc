@@ -141,6 +141,11 @@ UF_SPRITE       = $10                  ; a slider: its thumb a sprite (+15); (U3
 UF_OWNTHUMB     = $20                  ; (U3b) with UF_SPRITE: the program's own thumb image, which OOUI
                                        ;   never writes; its size byte (GX_SPRATTR's Y: height << 6,
                                        ;   width << 4, the palette group; not 0) at UW_TEXT (+8)
+UF_MARGIN       = $40                  ; (U3b) a slider or a scroll bar: a press in its margin is its own;
+                                       ;   the margin byte (a slider's UW_TEXT high byte, +9; a scroll
+                                       ;   bar's UW_B high byte, +15, its page then 0-255): the cells
+                                       ;   across on each side (bits 0-3), and a slider's beyond each
+                                       ;   end along its track (bits 4-7)
 
 ; UW_STATE (OOUI's)
 US_PRESSED      = $01
@@ -443,18 +448,31 @@ name:
         _UI_U_RADIO .set 1
         _UI_REC id, UT_RADIO, group, xx, yy, ww, 1, flags, text, 0, 0, 0
 .endmacro
-.macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb
+.macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb, margin
         _UI_U_VSCROLL .set 1
         _UI_THUMB sprite, thumb
-        _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, _UI_T, 0, last, page
+        _UI_PAGE page, margin
+        _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, _UI_T, 0, last, _UI_P
 .endmacro
-.macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb
+.macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb, margin
         _UI_U_HSCROLL .set 1
         _UI_THUMB sprite, thumb
-        _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, _UI_T, 0, last, page
+        _UI_PAGE page, margin
+        _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, _UI_T, 0, last, _UI_P
+.endmacro
+; (U3b) _UI_P: a scroll bar's UW_B, the page, and with a margin (UF_MARGIN) the margin byte above
+; a page of 0-255.
+.macro _UI_PAGE page, margin
+.ifblank margin
+        _UI_P .set page
+.else
+        .assert (page) < 256, error, "a scroll bar with a margin: a page of 0-255"
+        _UI_P .set (page) | (margin) << 8
+.endif
 .endmacro
 ; (U3b) _UI_T: a scroll bar's UW_TEXT, its thumb's sprite (high byte) and the size byte of the
-; program's own thumb (low byte); a slider's UW_TEXT, that size byte. Each 0 when not given.
+; program's own thumb (low byte); a slider's UW_TEXT, that size byte and its margin byte
+; (UF_MARGIN, high byte). Each 0 when not given.
 .macro _UI_THUMB sprite, thumb
         _UI_T .set 0
 .ifnblank sprite
@@ -480,14 +498,14 @@ name:
         _UI_U_HBAR .set 1
         _UI_REC id, UT_HBAR, parent, xx, yy, len, 1, flags, 0, 0, top, 0
 .endmacro
-.macro UI_VSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb
+.macro UI_VSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb, margin
         _UI_U_VSLIDER .set 1
-        _UI_THUMB , thumb
+        _UI_THUMB margin, thumb               ; (U3b) the margin byte (UF_MARGIN) UW_TEXT's high byte
         _UI_REC id, UT_VSLIDER, parent, xx, yy, 1, len, flags, _UI_T, value, top, (step) | (sprite) << 8
 .endmacro
-.macro UI_HSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb
+.macro UI_HSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags, thumb, margin
         _UI_U_HSLIDER .set 1
-        _UI_THUMB , thumb
+        _UI_THUMB margin, thumb               ; (U3b) the margin byte (UF_MARGIN) UW_TEXT's high byte
         _UI_REC id, UT_HSLIDER, parent, xx, yy, len, 1, flags, _UI_T, value, top, (step) | (sprite) << 8
 .endmacro
 .macro UI_CANVAS id, parent, xx, yy, ww, hh, flags, routine

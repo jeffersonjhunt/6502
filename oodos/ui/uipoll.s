@@ -812,6 +812,7 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
         jsr     MOPEN
         bra     @none
 @hit:   jsr     HIT
+        jsr     MARGIN                  ; (U3b) or a slider's or a scroll bar's margin
         sta     evh
         cmp     #UI_NONE
         beq     @none
@@ -867,6 +868,112 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
         rts
 @none:  lda     #UE_NONE
         rts
+
+; A the record HIT found at the pointer's cell, UI_NONE none: A the record
+; the press is for. (U3b, proposed: OO-Amp's targets.) A slider or a scroll
+; bar with UF_MARGIN takes a press in its margin too, the cells around it
+; that its margin byte names (a slider's UW_TEXT high byte, a scroll bar's
+; UW_B high byte): the low four bits the cells on each side across the
+; track, the high four (a slider's only) the cells beyond each end along
+; it. Only where what HIT found is one of its parents or nothing, so the
+; margin never takes a press from another widget, in front of it or behind
+; it; inside its parents' client areas and the modal window, as HIT's are.
+; The frontmost such one (the table's end first).
+MARGIN: sta     fb
+        lda     utot
+        sta     fh
+@l:     dec     fh
+        lda     fh
+        cmp     #UI_NONE
+        beq     @none
+        jsr     MTEST
+        bcs     @l
+        lda     fh
+        rts
+@none:  lda     fb
+        rts
+
+; Carry clear if record fh takes the press in its margin (MARGIN's).
+MTEST:  jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_VSCROLL
+        bcc     @n0
+        cmp     #UT_HSCROLL + 1
+        bcc     @t
+        cmp     #UT_VSLIDER
+        bcc     @n0
+        cmp     #UT_HSLIDER + 1
+        bcs     @n0
+@t:     ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_MARGIN
+        bne     @m
+@n0:    sec
+        rts
+@m:     lda     fh
+        jsr     RECT                    ; (hidden: none)
+        bcs     @n0
+        ldy     #UW_TYPE                ; t0 the columns' margin, t1 the rows'
+        lda     (UIR),y
+        ldy     #UW_B + 1               ; a scroll bar's: across only
+        cmp     #UT_VSLIDER
+        bcc     @sc
+        ldy     #UW_TEXT + 1
+@sc:    pha
+        lda     (UIR),y
+        tax
+        and     #$0F
+        sta     t0                      ; across
+        txa
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     t1                      ; along
+        pla
+        cmp     #UT_VSLIDER
+        bcs     @sl
+        stz     t1
+@sl:    lsr     a                       ; (the vertical types odd)
+        bcs     @v
+        ldx     t0
+        lda     t1
+        sta     t0
+        stx     t1
+@v:     ldx     #0                      ; the columns, then the rows: the cell less the
+@ax:    lda     UI_RECT,x               ;   margin's start, below the size and twice the
+        sec                             ;   margin (modulo 256: the screen's edge)
+        sbc     t0,x
+        sta     t2
+        lda     mcol,x
+        sec
+        sbc     t2
+        sta     t2
+        lda     t0,x
+        asl     a
+        clc
+        adc     UI_RECT + 2,x
+        cmp     t2
+        bcc     @no
+        beq     @no
+        lda     mcol,x                  ; inside its parents' client areas (X5)
+        cmp     rclip,x
+        bcc     @no
+        cmp     rclip + 2,x
+        bcs     @r
+        inx
+        cpx     #2
+        bcc     @ax
+        lda     fh                      ; what HIT found one of its parents, or nothing
+        ldx     fb
+        jsr     INSIDE
+        bcs     @r
+        lda     fh                      ; and inside the modal window
+        ldx     umodal
+        jmp     INSIDE
+@no:    sec
+@r:     rts
 
 ; The left button up: the button it went down on clicked, if it is still
 ; over it; a widget module's told (WR_UP).
