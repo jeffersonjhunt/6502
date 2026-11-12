@@ -2496,9 +2496,9 @@ namespace
             f += static_cast<char>(r.phys(p));
         return f;
     }
-    /// M: with 50 files listed part way (block 1), FILE05.BIN selected (the sixth); then FILE`gone` deleted and
-    /// the listing let run to its end.
-    void select_then_delete(CcpRig &r, const char *gone)
+    /// M: with 50 files listed part way (block 1), FILE05.BIN selected (the sixth); then the files `gone`
+    /// deleted and the listing let run to its end.
+    void select_then_delete(CcpRig &r, const std::vector<const char *> &gone)
     {
         m_files(r, 50);
         start_ui(r, "uitpick");
@@ -2513,13 +2513,16 @@ namespace
         CHECK(r.phys(lab("lst")) != 0);
         CHECK_EQ(value_of_dlg(r, 3), 5u);
         CHECK_EQ(field_text(r), std::string("FILE05.BIN"));
-        std::vector<uint8_t> fcb(36, 0);
-        fcb[0] = 13; // M:
-        std::memcpy(fcb.data() + 1, gone, 11);
-        r.poke(TEXTBUF, fcb);
-        CHECK_EQ(ui(r, 'z').substr(0, 2), std::string("00"));
+        for (const char *g : gone)
+        {
+            std::vector<uint8_t> fcb(36, 0);
+            fcb[0] = 13; // M:
+            std::memcpy(fcb.data() + 1, g, 11);
+            r.poke(TEXTBUF, fcb);
+            CHECK_EQ(ui(r, 'z').substr(0, 2), std::string("00"));
+        }
         settle(r);
-        CHECK_EQ(listed(r).size(), 49u);
+        CHECK_EQ(listed(r).size(), 50u - gone.size());
     }
 } // namespace
 
@@ -2527,7 +2530,7 @@ TEST(w1_an_entry_before_the_selection_deleted_keeps_the_selection_on_its_file)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    select_then_delete(r, "FILE02  TXT");
+    select_then_delete(r, {"FILE02  TXT"});
     CHECK_EQ(value_of_dlg(r, 3), 4u); // FILE05.BIN, one up
     const std::vector<std::string> v = listed(r);
     CHECK(v.size() > 4 && v[4] == "FILE05.BIN");
@@ -2544,7 +2547,7 @@ TEST(w1_the_selected_entry_deleted_leaves_no_selection)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    select_then_delete(r, "FILE05  BIN");
+    select_then_delete(r, {"FILE05  BIN"});
     CHECK(!has(listed(r), "FILE05.BIN"));
     CHECK_EQ(value_of_dlg(r, 3), 0xFFFFu);
     CHECK_EQ(field_text(r), std::string(""));
@@ -2553,6 +2556,35 @@ TEST(w1_the_selected_entry_deleted_leaves_no_selection)
     expect(poll(r), {}, "OK with nothing selected"); // nothing chosen: the picker stays
     CHECK_EQ(chosen(r, "pickB"), 0u);
     CHECK_EQ(r.phys(lab("uidle") + 1u) != 0, true); // still up
+}
+
+TEST(v1_two_entries_before_the_selection_deleted)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    select_then_delete(r, {"FILE03  BIN", "FILE04  TXT"});
+    CHECK_EQ(value_of_dlg(r, 3), 3u); // FILE05.BIN, two up
+    const std::vector<std::string> v = listed(r);
+    CHECK(v.size() > 3 && v[3] == "FILE05.BIN");
+    CHECK_EQ(field_text(r), std::string("FILE05.BIN"));
+    const Place ok = rect(r, P_OK);
+    click(r, ok.col + 3, ok.row);
+    const std::vector<Event> ev = poll(r);
+    CHECK(!ev.empty() && ev[0].code == UE_PICK && ev[0].value == 0);
+    CHECK_EQ(result(r, 0), std::string("13 0 FILE05  BIN"));
+}
+
+TEST(v1_one_before_the_selection_and_the_selected_one_deleted)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    select_then_delete(r, {"FILE02  TXT", "FILE05  BIN"});
+    CHECK_EQ(value_of_dlg(r, 3), 0xFFFFu);
+    CHECK_EQ(field_text(r), std::string(""));
+    const Place ok = rect(r, P_OK);
+    click(r, ok.col + 3, ok.row);
+    expect(poll(r), {}, "OK with nothing selected");
+    CHECK_EQ(chosen(r, "pickB"), 0u);
 }
 
 int main()
