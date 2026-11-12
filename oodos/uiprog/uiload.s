@@ -65,6 +65,9 @@ UI_NSTUBS .set UI_NSTUBS + 1
 .endmacro
         UI_ENTRIES
 
+.macro UIIMPV name
+        .word   name
+.endmacro
 .macro UIIMP name
 .if .xmatch(name, FARCALL)
         .word   0                       ; (ui_load's, from function 72)

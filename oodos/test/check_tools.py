@@ -704,7 +704,8 @@ def mkbank_checks(tmp):
     """OOUI.BNK's build (hw/ooui.md, U3a): mkbank.py makes it from the bank's objects, and refuses a call across
     blocks (block A naming block B's routine, UICOM naming block A's), a code segment that falls into another, and
     an import used other than whole (a #>, an addend of $400); its proof refuses a table with a fixup dropped; and
-    a program linked with UISTATE off a page doesn't link (ld65's check in uistate.s)."""
+    a program linked with UISTATE off a page doesn't link (ld65's check in uistate.s). And (the U3a review's C3,
+    C4, C6) an unnamed label, a #< of an import, a .byte >FARCALL, and a JSR to an OOLIB variable."""
     objs, srcs = bank_objects(tmp)
     r = mkbank(tmp, objs, srcs, "good")
     ok(r.returncode == 0 and "mkbank:" in r.stdout, "mkbank.py makes OOUI.BNK: %s" % r.stdout.strip()[:120])
@@ -718,7 +719,14 @@ def mkbank_checks(tmp):
             ("an addend of $400 on an import", '.import GX_V\n.code\nXW:     lda GX_V + $400\n        rts\n',
              "aren't L2"),
             ("UICOM falling into block A's code", '.segment "UCODE"\nXF:     lda #1\n.code\n        rts\n',
-             "falls through")):
+             "falls through"),
+            ("a jmp :+ from UICOM into block A (an unnamed label: C3)",
+             '.segment "UCODE"\nXJ:     jmp :+\n.code\n:       rts\n', "unnamed label"),
+            ("a #< of an import (C4)", '.import GX_V\n.code\nXL:     lda #<GX_V\n        rts\n', "no kind of fixup"),
+            ("a .byte >FARCALL (C4)", '.import FARCALL\n.code\nXB:     rts\n        .byte >FARCALL\n',
+             "no kind of fixup"),
+            ("a JSR to an OOLIB variable, GX_V (rule 4: C6)", '.import GX_V\n.code\nXV:     jsr GX_V\n        rts\n',
+             "rule 4")):
         with open(extra, "w") as f:
             f.write(src)
         obj = extra[:-2] + ".o"

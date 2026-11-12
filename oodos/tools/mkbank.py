@@ -80,8 +80,10 @@ class Fail(Exception):
 
 
 def interface(path):
+    """The calls, the imports (in order), and those imports that are variables (UIIMPV)."""
     text = open(path).read()
-    return re.findall(r"^\s*UIENT\s+(\w+)", text, re.M), re.findall(r"^\s*UIIMP\s+(\w+)", text, re.M)
+    imps = re.findall(r"^\s*UIIMP(V?)\s+(\w+)", text, re.M)
+    return (re.findall(r"^\s*UIENT\s+(\w+)", text, re.M), [n for _, n in imps], {n for v, n in imps if v})
 
 
 def l0_import(i):
@@ -183,14 +185,23 @@ SEGDIR = re.compile(r"^\s*(?:\.segment\s+\"(\w+)\"|\.(code|rodata|bss|data|zerop
 INSTR = re.compile(r"^\s*(?:[A-Za-z_@][\w]*:)?\s*([a-z]{3})\b(?!\s*=)", re.I)
 
 
+UNNAMED = re.compile(r"^\s*:|:[+-]")
+
+
 def fallthroughs(paths):
-    """A code segment left by a segment directive after an instruction that falls through."""
+    """A code segment left by a segment directive after an instruction that falls through; and an unnamed label
+    (":", ":+", ":-"), which the debug file doesn't list, so a reference through one couldn't be checked (the U3a
+    review's C3)."""
     bad = []
     for p in paths:
         seg, last, lastline = "CODE", None, 0
         for n, raw in enumerate(open(p), 1):
             code = raw.split(";")[0].rstrip()
             if not code.strip():
+                continue
+            if UNNAMED.search(re.sub(r'"[^"]*"|\'[^\']*\'', "", code)):
+                bad.append("%s:%d: an unnamed label, which no reference check can see: '%s'" % (os.path.basename(p), n,
+                                                                                               code.strip()))
                 continue
             m = SEGDIR.match(code)
             if m:
@@ -275,12 +286,12 @@ def pad(b):
 
 
 def build(a):
-    entries, imports = interface(a.iface)
+    entries, imports, variables = interface(a.iface)
     if not entries or not imports or imports[0] != "FARCALL":
         raise Fail("%s: no UIENT or UIIMP lines, or FARCALL isn't the first import" % a.iface)
     bad = fallthroughs(a.src)
     if bad:
-        raise Fail("a code segment falls through into another:\n  " + "\n  ".join(bad))
+        raise Fail("a code segment falls through into another, or an unnamed label:\n  " + "\n  ".join(bad))
     # UICOM's size: a first link with room, then fixed at what it used.
     first, d = link(a.cfg, a.objs, imports, L0, 0x1000, a.work, "L0size", sizing=True)
     ucomsz = len(first["U"])
@@ -357,7 +368,7 @@ def build(a):
     # are passed over (hw/ooui.md, U3a, round 1's D7).
     l2segs = segments(os.path.join(a.work, "L2", "map"))
     l2segs = {n: v for n, v in l2segs.items()}
-    imps = tuple(l2_import(i) for i in range(len(imports)))
+    imps = tuple(l2_import(i) for i, n in enumerate(imports) if n not in variables)  # routines only (C6)
     problems = []
     for b, (_, _, _, l2) in zip(BLOCKS, blocks):
         count, probs = rules.check(l2, CODE0, l2segs, [c for c in BLOCKCODE[b] if c in l2segs], (), imps,

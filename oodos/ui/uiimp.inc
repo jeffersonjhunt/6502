@@ -3,8 +3,9 @@
 ; in the import table's order (FARCALL first: ui_load's, from function 72).
 ; Both are only ever added to, at the end, and keep their meanings: the
 ; interface version (UI_IFACE, ooui.inc) goes up with each addition.
-; tools/mkbank.py reads the UIENT and UIIMP lines; the program part's
-; uistub.s and uiload.s expand the macros.
+; tools/mkbank.py reads the UIENT, UIIMP and UIIMPV lines (UIIMPV: a
+; variable, which no JSR or JMP may name: rules.py's rule 4, the U3a
+; review's C6); the program part's uistub.s and uiload.s expand the macros.
 
 .macro UI_ENTRIES
         UIENT   ui_open
@@ -48,10 +49,10 @@
         UIIMP   GX_PALSET
         UIIMP   GX_PALSHOW
         UIIMP   GX_CONSOLE
-        UIIMP   GX_V
-        UIIMP   GX_R
-        UIIMP   GX_X
-        UIIMP   GX_Y
-        UIIMP   GX_A
-        UIIMP   GX_C
+        UIIMPV  GX_V
+        UIIMPV  GX_R
+        UIIMPV  GX_X
+        UIIMPV  GX_Y
+        UIIMPV  GX_A
+        UIIMPV  GX_C
 .endmacro
