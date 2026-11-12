@@ -200,10 +200,11 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 
 **A list's rows.** Without `UF_ROUTINE`, `UW_TEXT` points to an array of `UW_A` string pointers. With it,
 `UW_TEXT` is a routine OOUI calls (`JSR`) for each row it draws: A/X the row, Y the list's handle; it returns A/X a
-0-terminated string, outside `$4000-$7FFF`, and Y a style (`UL_NORMAL` 0, `UL_CURRENT` 1, `UL_DIM` 2, `UL_MARKED`
+0-terminated string, in the program's memory, below `$4000` or in `$8000-$BFFF` (*U3b review round 2, H6*), and Y a style (`UL_NORMAL` 0, `UL_CURRENT` 1, `UL_DIM` 2, `UL_MARKED`
 bit 7, which a style adds). The routine may map W1 itself (OOUI maps it again after the call), may use the app's
 zero page but not OOUI's, and may not call `ui_*`. A multiple-selection list keeps its marks in the app: OOUI asks
-for them through the style.
+for them through the style. *(U3b review round 2, proposed:)* OOUI clears the decimal flag after the call (H4), and a
+routine of 0 calls nothing: every row empty, in `TC_LIST` (the selection's colour still shown) (H2).
 
 **Static layouts.** A screen is assembled as data with macros, and one `ui_open` takes it. Each macro emits one
 record and defines `id` as its handle (`.assert`ing that the parent came first); `UI_BEGIN` and `UI_END` put the
@@ -297,7 +298,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_poll` | | A the event (`UE_*`), X its widget, Y as the event says, and `UI_EV` (below). Carry clear |
 | `ui_show` | A a handle | shown with its children; a `UF_MODAL` window takes the input and the focus |
 | `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event (the picker's listing stops). A widget in it held by the pointer is let go: a slider's or a scroll bar's last `UE_CHANGE` comes at the next poll (U2 review, X10) |
-| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`) |
+| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight |
 | `ui_settext` | Y a handle, A/X a string | dirty |
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
 | `ui_getvalue` | Y a handle | A/X the value |
@@ -1553,11 +1554,21 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
     in the bank's window, as a list's row routine is called: there is no crossing, and the routine is the program's
     own code, in its memory. A/X is the row (0 the canvas's first) and Y the canvas's handle.
   - **The answer.** A/X is the row's cells, as many as the canvas is wide (`ui_rect`'s width): each a character
-    (code page 437) and an attribute, as a cell on the card is, in the layer's palette group, outside
-    `$4000-$7FFF`. A/X 0 leaves the row transparent.
+    (code page 437) and an attribute, as a cell on the card is, in the layer's palette group, in the program's
+    memory, below `$4000` or in `$8000-$BFFF`. A/X 0 leaves the row transparent. A routine of 0 (`UW_TEXT` 0 with
+    `UF_ROUTINE`) calls nothing: every row is transparent, as a plain canvas's are; it isn't refused.
   - **What the routine may and may not do.** It may map W1 itself (OOUI maps its own again after each call). It may
-    use the program's zero page, not OOUI's. It may not call `ui_*` or the BDOS. It returns with the decimal flag
-    clear.
+    use the program's zero page, not OOUI's. It may not call `ui_*`, the BDOS or FARCALL. **That differs from a
+    list's row routine,** which may call the BDOS and FARCALL (U3a's callbacks, above): the canvas's is called
+    inside the paint's inner loop, once a row, and must be quick, and a canvas's cells are the program's to have
+    ready before it calls `ui_dirty`. OOUI clears the decimal flag after each call, so a routine that leaves it set
+    does no harm.
+  - **When it is called.** For each row the paint draws, and only those: a row outside what the paint redraws (the
+    damage box, inside the canvas's parents) is skipped, with no call and no `GX_VMAP`. Today a paint draws a canvas
+    once, but OOUI doesn't promise it: the routine may be called more than once for a row in one paint, and for
+    fewer rows than the canvas has (a window moved off two of its rows calls it for those two). Its answer must not
+    depend on how often, or for which rows, it is called: it gives the row's cells as they are, each time it is
+    asked.
   - **Each frame.** OOUI draws the cells when the canvas is dirty or under the paint's damage, so the program calls
     `ui_dirty` on the canvas when they change (OO-Amp: each frame). The pointer on it is still `UE_CANVAS`. Without
     `UF_ROUTINE` a canvas is transparent, as before.
@@ -1567,7 +1578,7 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
     plain canvas. The rest is the paint around it, the same for either kind: the records walked, the damage box
     cleared, the window's inside drawn again under it, and the interrupts that fall in that time.
 
-**Tests:** `test_oodos_ui` gains six `u3b_*` cases (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
+**Tests:** `test_oodos_ui` gains six `u3b_*` cases (and the review's rounds, below, more) (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
 five fail without their change; one confirms what `UO_OWNMOUSE` already did. One existing case changed how it
 measures, not what it expects:
 `what_a_call_and_a_crossing_cost` now takes the least of the crossings it times, not their mean, since an interrupt
@@ -1592,9 +1603,40 @@ No golden frame changed.
   holds under 500 cycles.
 - **G8.** "Add all" last in the Tab order: accepted, noted above.
 
-**Sizes after the review's fixes and Q1's canvas** (mkbank.py; a block's code window is 12,288 bytes): `UICOM`
-3,298; block A 11,603 (685 free; 817 before), B 10,485 (1,803 free; 2,396 before), C 7,222 (5,066 free, unchanged);
-`UISTATE` 1,463 of 1,536, unchanged (G2's and the canvas's variables are block B's own).
+**The code review, round 2 (2026-11-12):** the owner had H1-H6 fixed as recommended. Each has a case in
+`test_oodos_ui` (`u3b_r2_*`) that fails without its fix; H5's cases guard `ui_open`'s existing check, and fail when
+`SPRCHK`'s pointer and size tests are taken out.
+- **H1.** `ui_flags` on a slider or a scroll bar checks the new flags with `SPRCHK`, as `ui_open` and `ui_settext`
+  do: `UF_SPRITE` set onto the pointer's sprite, or `UF_OWNTHUMB` with a size byte of 0, is refused with
+  `UX_SPRITE`, carry set, the flags (and the rest of the record) as they were, nothing marked dirty. When
+  `UF_SPRITE` goes off, the thumb's sprite goes out of sight (depth 0); set again, the next paint places it, since
+  the record is dirty. `u3b_r2_ui_flags_on_a_thumb_is_checked`.
+- **H2.** A `UF_ROUTINE` routine of 0 calls nothing, and isn't refused: a canvas's rows are transparent; a list's
+  rows are empty, in `TC_LIST` with no style (the selection's row still in its colour). For the list, empty rows
+  were chosen over the array path (`UW_TEXT` 0 read as an array at `$0000`, which would draw whatever the zero page
+  holds); no golden frame has such a list. `u3b_r2_a_routine_of_0_draws_nothing`.
+- **H3.** The canvas's routine rules said beside the list's (above): no BDOS or FARCALL for the canvas's; called
+  for each row drawn, maybe more than once a paint, its answer not to depend on the count. And the rows outside
+  the paint's clip (the damage box inside the canvas's parents) are skipped, with no call and no `GX_VMAP`.
+  `u3b_r2_a_canvas_s_routine_is_called_only_for_the_rows_redrawn`: a small window shown and hidden over two of the
+  canvas's rows calls the routine for those two alone. **Cost:** the canvas's drawing in that strip's paint, 15,731
+  cycles before (all four rows called, two of them drawn clipped away), 8,720 after. The whole canvas made dirty
+  (`u3b_a_canvas_s_cells_from_a_routine`): its cells 21,907 before, 21,990 after (the row's clip test, and the test
+  routine's call count, which this round added); its `ui_poll` 73,313 before, 74,039 after, against 66,122 and
+  66,328 for a plain canvas, which doesn't reach the changed code: the difference is where the interrupts fall.
+- **H4.** OOUI clears the decimal flag after the canvas's routine and after the list's row routine.
+  `u3b_r2_a_routine_returning_with_d_set`: test routines that return with D set; without the `CLD` the canvas's
+  row addresses come out in decimal and the program stops answering, and the list's frame changes.
+- **H5.** `u3b_r2_ui_open_checks_a_scroll_bar_s_and_an_own_thumb_s_sprite`: `ui_open` refuses (`UX_SPRITE`) a
+  scroll bar with `UF_SPRITE` on the pointer's sprite (with the program's thumb and with OOUI's), and a
+  `UF_OWNTHUMB` thumb with a size byte of 0 (a slider's and a scroll bar's).
+- **H6.** The cells' and the rows' pointer rule reads "in the program's memory, below `$4000` or in `$8000-$BFFF`"
+  (the canvas, the list, their sources' headers).
+
+**Sizes after round 2** (mkbank.py; a block's code window is 12,288 bytes): `UICOM` 3,298; block A 11,710 (578
+free; 685 after round 1, 817 before U3b), B 10,537 (1,751 free; 1,803 after round 1, 2,396 before U3b), C 7,222
+(5,066 free, unchanged); `UISTATE` 1,463 of 1,536, unchanged (round 2 added no variable; the canvas's are block
+B's own).
 
 #### U3a: questions ####
 
