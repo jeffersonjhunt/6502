@@ -828,7 +828,7 @@ sizes`, the maps, normal and `DEBUG=1`).
   - **No map operation (decided, question 1):** OOLIB writes W1 itself, under the W1 contract below.
   - **Function 84 isn't needed:** nothing in video memory is shared between owners. The running program has units
     13–255 whole, as it has its TPA, and the library hands them out inside it. `OA_VIDEO` stays unassigned.
-- **The W1 contract** (*revised for video card revision 2 as version 8, proposed: "Video card revision 2" below*;
+- **The W1 contract** (*revised for video card revision 2 as version 8, released in OODOS 0.9: "Video card revision 2" below*;
   decided 2026-11-08, the owner: OOLIB is OODOS's extension, there so programs don't go around
   the rules, and may do what the rules keep from programs where OODOS states it as part of the interface). From
   interface version 4: OOLIB may write `NB_WIN1` directly, with any block `DM_INFO`'s W1 map allows, and OODOS
@@ -1360,7 +1360,7 @@ and more in L5:
     `SID_ZP` SIDOVL's) by 59 and plays a tune of ours as `plan_sid` plans it; SIDPLUGZ, the same linked without
     the names, has 2 bytes and 59 refuses it (`$FE02`).
 
-- **Video card revision 2** (*proposed, 2026-11-11*; [video-rev2.md](video-rev2.md), whose register map and card
+- **Video card revision 2** (*proposed 2026-11-11, released 2026-11-13 in OODOS 0.9*; [video-rev2.md](video-rev2.md), whose register map and card
   memory layout are frozen; interface version 8). The card draws from 2 MB of its own memory, reached through a
   64 KB aperture of four 16 KB slots at physical bank 8 and a data port fed by DMA channel 1. Banks 9–B are RAM
   again. OODOS and OOLIB are built for revision 2 only: no compatibility mode.

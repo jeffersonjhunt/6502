@@ -2,7 +2,7 @@
 
 Nov 10, 2026 · @Jefferson
 
-**Status: proposed (2026-11-10).** Phase U0 (below) settled the API and the open questions, as OOLIB's plan did.
+**Status: proposed (2026-11-10); U1–U3b built and merged, in OODOS 0.9 (2026-11-13).** Phase U0 (below) settled the API and the open questions, as OOLIB's plan did.
 **U0 accepted by the owner (2026-11-11):** [the API](#the-api), [what OO-Amp needs](#what-oo-amp-needs-from-ooui)
 and the six recommended answers to the [open questions](#open-questions) stand, and U0's gate is met. U1, the core
 and the text backend, builds the API as it is written here.

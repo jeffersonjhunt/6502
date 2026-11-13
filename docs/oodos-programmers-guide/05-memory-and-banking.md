@@ -25,7 +25,7 @@ aperture slot 1 in W1, under [the W1 contract](#the-w1-contract).
 | 3 | 0 | not allocated by 53–58; a DMA segment may reach it |
 | 4–23 | 1–5 | the blocks programs allocate (53–58): 20 blocks, 320 KB |
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
-| 32 | 8 | the video card's aperture, slot 0: the console's card memory, OODOS's (*proposed*, revision 2: [below](#video-memory-on-revision-2)) |
+| 32 | 8 | the video card's aperture, slot 0: the console's card memory, OODOS's (since OODOS 0.9, revision 2: [below](#video-memory-on-revision-2)) |
 | 33 | 8 | the aperture's slot 1: the program's card memory, through OOLIB |
 | 34–35 | 8 | the aperture's slots 2 and 3, OODOS's |
 | 36–47 | 9–B | ordinary RAM, the running program's (not allocated by 53–58); OOLIB stages its asset loads in `$BF000–$BFFFF` unless the program moves `GX_STAGE` |

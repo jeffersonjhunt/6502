@@ -2920,7 +2920,7 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 
 - A = 0, and A = 1 with video card revision 2, the DMA controller and a IIe ROM in the cartridge: it doesn't
   return.
-- A = 1 without video card revision 2 (*proposed*: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
+- A = 1 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
   `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
   mode on a revision 1 card.
 - A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$81`): A = `$FF`, X = `$FE`,
@@ -2938,7 +2938,7 @@ As in Exit.
 
 - For A = 0 or 1, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM
   to go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
-  before anything else (*proposed*, the card), and OODOS's own card transfers need the DMA controller too. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  before anything else (the card since OODOS 0.9), and OODOS's own card transfers need the DMA controller too. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows.
@@ -2949,7 +2949,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.4
+OODOS 0.4; the revision 2 check since OODOS 0.9.
 
 #### Status
 
@@ -3338,7 +3338,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 - X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and the
   operation's parameters after it, as [function 80's](#bdos-80). The operations are oodos.inc's `DM_` names.
   A physical address is 3 bytes ([function 73](#bdos-73) makes one of a CPU address). A card address, in the video
-  card's own memory (*proposed*, revision 2: `oodos/include/vmem.inc`), is 3 bytes too, `$000000–$1FFFFF` on a
+  card's own memory (revision 2: `oodos/include/vmem.inc`), is 3 bytes too, `$000000–$1FFFFF` on a
   2 MB card. A length of 0 is 65,536.
 
   | A or +0 | Name | The block, after +0 | What it does |
@@ -3355,8 +3355,8 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 9 | `DM_VFILL` | +1 the byte, +2–4 the destination (card), +5–6 the length | fills card memory |
   | 10 | `DM_VCOPY` | +1–3 the source (card), +4–6 the destination (card), +7–8 the length | copies within card memory |
 
-  Operations 7–10, and card addresses for 4, are *proposed*, with revision 2 of the video card (interface version
-  8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
+  Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
+  version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
 
 #### Exit
 
