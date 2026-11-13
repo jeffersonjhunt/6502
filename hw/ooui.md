@@ -689,7 +689,7 @@ Six phases, all software, each closed by a gate:
 | U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled: **met** (the owner, 2026-11-11) |
 | U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass: **built** (2026-11-11), [below](#u1-the-core-and-the-text-backend) |
 | U2 | Scroll bars, list boxes, message boxes, text fields, sliders, bars, canvas; file picker on OODOS directory calls | File picker works on real disks: **built** (2026-11-11), [below](#u2-the-remaining-widgets-the-message-box-and-the-picker) |
-| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend |
+| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend: **not met** (the owner, 2026-11-12: OO-Amp stays on its own UI, the port kept to revisit; the bitmap backend not now; [the outcome](#u3b-the-outcome)) |
 | U4 | Bitmap backend (optional), drawing assist if repaints are slow | Repaints fast enough to feel native |
 | U5 | Programmer's Guide chapter, examples, docs/README.md phases, a second app | A second app built on OOUI |
 
@@ -2098,7 +2098,8 @@ changed.
 | 30 widgets at once | 399,574 | 411,709 |
 | 26 track labels dirty (more rows than boxes) | 138,269 | 157,709 |
 
-A paint that draws one record or a few costs a little more (each record's test looks at each box used; a
+OO-Amp's `test_accept` response case passes with B5 (worst 1.8 frames at 9c64da3, 1.9 for the keys at 7665e91;
+[the outcome](#u3b-the-outcome)). A paint that draws one record or a few costs a little more (each record's test looks at each box used; a
 dirty record's `BOXADD` looks at every box); one whose dirty records are apart, much less.
 
 **Tests.** `b5_two_far_apart_dirty_records_draw_nothing_between_them` (the two labels above: two `ONE`s, under
@@ -2121,6 +2122,42 @@ one box's were.
 
 **Sizes** (mkbank.py): `UICOM` 3,218; block A 12,160 (128 free: `BOXADD` 289 bytes more, `ONE`'s and `PAINT`'s
 loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
+
+#### U3b: the outcome ####
+
+**Decided (the owner, 2026-11-12).** U3b's gate, OO-Amp clearly smaller, is not met. The port's measurements
+(OO-Amp's feat/ooui-u3b against its main):
+
+| What | OO-Amp's own UI | On OOUI |
+| --- | --- | --- |
+| OO-Amp's own code and data | 30,871 bytes | 29,958 (3% less) |
+| Its files on the card | 85,840 bytes | 141,564 (OOUI.BNK 40,320 of them) |
+| Start-up to the main loop | 56.0 frames (0.93 s) | 90.0 (1.50 s): `ui_load` from A: 21.6 frames for 40,320 bytes, the first paint 15.2 frames against 2.3 |
+| Help opened | 10.7 frames | 21.1 |
+
+And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its look.
+
+- **The decision.** OO-Amp stays on its own UI. The port is kept, on OO-Amp's local branch feat/ooui-u3b
+  (7665e91), to revisit when OOUI loads by DMA ([OOLIB's question 13](oolib.md)) and paints faster (S3: no
+  repaint of widgets that are covered). Only this repository's OOUI work merges: the gaps the port found, the
+  margins and the thumbs, the speed steps (S1, S2, B5).
+- **The bitmap backend: not now.** A 4-bit cell is 32 times a text cell's writes, and the backend would take
+  some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
+- **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; the modal picker swallows
+  the keys it doesn't use; `ui_theme`, and hiding a full-screen overlay window, draw again the widgets it covers.
+- **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
+  case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
+
+  | OOUI.BNK | Keys (7665e91) | Clicks (9c64da3) | The worst |
+  | --- | --- | --- | --- |
+  | 20caf52 (before S2) | G EQ 2.6, G 2.7, S 2.4 | EQ panel 3.5, shuffle 3.0, repeat 2.8 | 3.5 (12 over 2) |
+  | S2 (36d447c) | G EQ 2.6, G 2.7 (the one box), S 1.6 | EQ panel 2.0, the rest 1.8 or less | 2.7 |
+  | B5 (a332d19) | G EQ 1.9, Tab 1.9, G 1.7 | playlist 1.8, EQ ON 1.0 | 1.9 at 7665e91, 1.8 at 9c64da3: **passes** |
+
+  At 7665e91 the case can't reach its clicks with any OOUI.BNK (20caf52's too): from Load Files on every action
+  is "never" (99 frames), so they are 9c64da3's, which has the same clicks. What is left in B5's G EQ (1.86
+  frames, 221,653 cycles): 68,952 waiting for the blank, OOUI 96,711 (the paint 57,624, two buttons drawn), OO-Amp's
+  own 111,711, the system's 13,231; before S2 the paint alone was 202,000.
 
 #### U3a: questions ####
 
