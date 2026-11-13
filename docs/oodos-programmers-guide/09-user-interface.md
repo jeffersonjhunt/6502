@@ -30,6 +30,9 @@ What U0 settled, in short ([hw/ooui.md, "Open Questions"](../../hw/ooui.md#open-
 - **The text backend comes first:** 80×30 cells on the card's two layers. Whether a bitmap backend follows, and a
   drawing assist with it, is decided after OO-Amp is rebuilt on OOUI. A program's own pixels, such as OO-Amp's
   visualizer, go on a canvas widget.
+- **The layers show at the first paint** (U3b's landing, 2026-11-13): `ui_open`, `ui_resume` and `ui_theme` set
+  OOUI's layers up but don't turn them on; the first `ui_poll` after them paints and then shows them, so the
+  first picture is a finished one. A program polls once before it expects OOUI's screen to be seen.
 
 OOUI takes its card memory from OOLIB, under OODOS's interface version 8 on video card revision 2 ([chapter 8,
 "Video memory"](08-game-services.md#video-memory)), and leaves the console's card memory and Apple II mode alone.

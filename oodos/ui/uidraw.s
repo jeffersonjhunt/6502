@@ -206,7 +206,8 @@ SETUP:  jsr     LAYERS
 
 ; The base layer and the overlay (text 80 x 30, OOUI's font), and the
 ; display on with them, the sprites, and layer 0 if OOUI leaves it to the
-; program (the base on 1, no overlay).
+; program (the base on 1, no overlay): (U3b landing) shown at the end of the
+; next paint (ushow), not here, so nothing shows before it is painted.
 LAYERS: lda     upage
         sta     GX_V
         clc
@@ -254,9 +255,10 @@ LAYERS: lda     upage
         beq     @show
         lda     #$02                    ; the program's layer 0, under OOUI's
         tsb     lb
-@show:  lda     lb
-        ora     #$08
-        jmp     GX_SHOW
+@show:  lda     lb                      ; (U3b landing) shown at the next paint's end
+        ora     #$08                    ;   (PAINT), so the first picture the layers
+        sta     ushow                   ;   show is the painted one, not cleared maps
+        rts
 ; CTRL's bit for layer A.
 LBIT:   and     #1
         asl     a
@@ -652,7 +654,11 @@ PAINT:  lda     ususp
         cpx     #8 * UI_BOXES
         bcc     @pu
         jsr     UDEND
-        lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
+        lda     ushow                   ; (U3b landing) the layers LAYERS set, now
+        beq     @sh                     ;   that they are painted
+        stz     ushow
+        jsr     GX_SHOW
+@sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
         and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
         ora     udrew                   ;   changed (VDIRTY), with nothing drawn
         beq     PNONE

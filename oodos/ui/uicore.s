@@ -45,6 +45,7 @@ umenu:  .res    1                      ; the menu down, UI_NONE none
 umsel:  .res    1                      ;   its item chosen
 upress: .res    1                      ; the button the left button went down on
 ususp:  .res    1                      ; 1: suspended (ui_suspend)
+ushow:  .res    1                      ; (U3b landing) CTRL's bits LAYERS set, to show at the next paint's end; 0 none
 upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
 udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0, r0, c1, r1 each (ui.inc's UI_BOXES)

@@ -279,7 +279,10 @@ puts the theme's colours in OOLIB's palette shadow (`GX_PALSET`, then `GX_PALSHO
 with limits 319 and 239 (function 81's `IN_MOUSE`) and the pointer on `UO_SPRITE` (function 83's `DM_POINTER`),
 unless `UO_OWNMOUSE`; checks the table; marks every visible widget dirty; and gives the focus to the first that
 takes it. Its maps are cleared (`GX_VFILL`) before the layers show them, so nothing from before shows (U1 review,
-O15). Nothing is drawn until `ui_poll`. While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
+O15). Nothing is drawn until `ui_poll`. *(U3b landing, the owner's decision 2026-11-13; a change to existing
+behaviour:)* the layers are turned on (CTRL) at the end of the first `ui_poll`'s paint after `ui_open`, `ui_resume`
+or `ui_theme`, not by these calls, so the first picture they show is the painted one; until then CTRL is as the
+program left it. (Their map, font and palette group registers are still set by the call.) While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
 `ui_close` when it isn't does nothing (O9). Errors: `UX_VERSION`, `UX_AREA`, `UX_LAYER`, `UX_MEMORY`, `UX_TABLE`,
 `UX_BUSY`, `UX_SPRITE` (U2). *Proposed (the U2 review, X11-X12):* each widget's value is held to its range as the
 table is checked, as `ui_setvalue` would hold it; and a slider's `UF_SPRITE` thumb must be one of OOUI's sprites after
@@ -2155,9 +2158,10 @@ loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
 consistency is worth a little size. **The port lands.** U3's gate is now: OO-Amp runs on OOUI with every feature
 working, no unapproved change in behaviour, start-up and dialogs within an agreed time. It is met once the
 landing (OO-Amp's feat/ooui-u3b, this repository's feat/ooui-u3b-land) is approved. The agreed times are the
-owner's to set; *proposed:* start-up, from the CCP taking OOAMP's CR to the finished screen, at most 1.5 s (the
-port measures 1.48 s against 6502 616c968, OO-Amp's own UI 0.97 s), and a dialog opened (H to Help shown whole) at
-most 0.4 s (0.37 s; 0.20 s on its own UI).
+owner's, and *decided (2026-11-13, L1):* start-up, from the CCP taking OOAMP's CR to the finished screen, at most
+1.5 s (the port measures 1.48 s against 6502 616c968, OO-Amp's own UI 0.97 s), and a dialog shown whole (H to Help
+shown whole) at most 0.4 s (0.37 s; 0.20 s on its own UI). OO-Amp's Load Files' "Add all" gives at most 40 files
+(its slot's room; the old dialog 48): accepted (L7).
 
 The size figures stay, as information (OO-Amp's feat/ooui-u3b against its main):
 
@@ -2175,17 +2179,22 @@ the next small phase's question.
 - **The behaviour part 4 changed** (the owner's dispositions, 2026-11-13): the picker's U key (the next user)
   and its size column are restored (below); accepted: a click while CONFIRM QUIT's box is up does nothing (it was
   a no), and a click outside a modal window is OOUI's to drop.
-- **The picker passes on the keys it doesn't use** *(U3b landing, proposed)*: a key that no widget, button
-  letter, Escape, Tab or the accelerator table takes is the program's `UE_KEY` while the picker is up, X the
-  focus (one of the picker's handles), as it is outside the picker; before, the picker's filter dropped it.
-  OO-Amp's U is one. `test_oodos_ui`'s `u3b_the_picker_s_add_and_add_all_keep_it_up` checks it. (A program that
-  acts on every `UE_KEY` sees these too: a change for an existing caller, put to the owner.)
+- **The picker passes on the keys it doesn't use** *(U3b landing; a change to existing behaviour, accepted by the
+  owner 2026-11-13, L6)*: a key that no widget, button letter, Escape, Tab or the accelerator table takes is the
+  program's `UE_KEY` while the picker is up, X the focus (one of the picker's handles), as it is outside the
+  picker; before, the picker's filter dropped it. A program that acts on every `UE_KEY` sees these too. OO-Amp's
+  U is one. `test_oodos_ui`'s `u3b_the_picker_s_add_and_add_all_keep_it_up` checks it.
+- **The layers at the first paint** *(U3b landing; a change to existing behaviour, accepted 2026-11-13, L5)*:
+  `ui_open` showed OOUI's layers before anything was painted (OO-Amp's start: its chrome without words for a
+  frame, then the console, then the screen). They now show at the end of the first paint
+  ([Opening and closing](#opening-and-closing)); `u3b_the_layers_show_at_the_first_paint` checks it. It costs 12
+  bytes of UICOM, so OOUI.BNK is 41,088 bytes: `u2_the_picker_on_the_card_s_drives` puts 20 files on M:, not 40
+  (the owner's decision, the case's other checks unchanged).
 - **The bitmap backend: not now.** A 4-bit cell is 32 times a text cell's writes, and the backend would take
   some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
 - **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; `ui_theme`, and hiding a
-  full-screen overlay window, draw again the widgets it covers; `ui_open` shows the layers before the first paint
-  (a flash: the fix, the layers shown at the first paint's end, costs 12 bytes of every block's UICOM and makes
-  OOUI.BNK 41,088 bytes, past 40,960: not made, put to the owner).
+  full-screen overlay window, draw again the widgets it covers; the picker takes 12-14 frames to switch user (made
+  again by the program, as OO-Amp's U does: L4).
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 

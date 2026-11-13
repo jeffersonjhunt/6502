@@ -402,6 +402,23 @@ namespace
     }
 } // namespace
 
+TEST(u3b_the_layers_show_at_the_first_paint)
+{
+    // (U3b landing; the owner, 2026-11-13) ui_open no longer turns the layers on: the first ui_poll's paint does,
+    // at its end, so the first picture they show is the painted one, not cleared maps (OO-Amp's start showed
+    // OOUI's layer unpainted for a frame). Until then CTRL is the console's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    const uint8_t before = vid(r).peek(0x00);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), static_cast<unsigned>(before)); // not yet
+    expect(poll(r), {}, "the first poll");
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), 0x0Fu); // display, both layers (the base on 1), sprites: painted, then shown
+    golden(r, "desktop");
+}
+
 TEST(a_desktop_and_its_menu_bar)
 {
     CcpRig r;
@@ -1631,10 +1648,11 @@ TEST(u2_the_picker_on_the_card_s_drives)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // M: forty files, more than a screen, put there before it is logged in; C: the card's apple-do disk; D:
-    // nothing mounted.
+    // M: twenty files, more than a screen, put there before it is logged in; C: the card's apple-do disk; D:
+    // nothing mounted. (U3b landing: twenty, not forty, so that OOUI.BNK, which shares M: with them, can grow
+    // past 40,960 bytes: the owner's decision, 2026-11-13; still more than the picker's 16 rows.)
     std::vector<MFile> m;
-    for (unsigned i = 0; i < 40; ++i)
+    for (unsigned i = 0; i < 20; ++i)
     {
         char n[12];
         std::snprintf(n, sizeof n, "FILE%02u  %s", i, i % 4 == 3 ? "COM" : i % 2 ? "BIN" : "TXT");
@@ -1678,7 +1696,7 @@ TEST(u2_the_picker_on_the_card_s_drives)
     for (int i = 0; i < 4; ++i) // E:, F:, G:, then M:
         next_drive(r);
     std::vector<std::string> mm = listed(r);
-    CHECK_EQ(mm.size(), 40u);
+    CHECK_EQ(mm.size(), 20u);
     // User 3 on A: again.
     CHECK_EQ(ui(r, 'f', P_DRV).substr(6), std::string("00"));
     key(r, K_HOME); // (Home isn't a choice's: nothing)
