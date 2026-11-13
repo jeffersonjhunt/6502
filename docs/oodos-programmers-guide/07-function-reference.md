@@ -2348,7 +2348,7 @@ refused record is A = X = `$FF` with nothing done: checked before the first reco
 when the record moves for 17 and 18.
 
 A record read (17, 18, 20, 33) is refused too, when it moves, if it would touch an aperture window that shows
-OODOS's card memory: on video card revision 2 (*proposed*, interface version 8) bank 8 is the card's aperture, and
+OODOS's card memory: on video card revision 2 (since OODOS 0.9, interface version 8) bank 8 is the card's aperture, and
 its slot 0's window, `$80000–$83FFF` (the console's), and slots 2 and 3's, `$88000–$8FFFF`, are OODOS's. Slot 1's,
 `$84000–$87FFF`, shows the program's own card memory, and banks 9–B are ordinary RAM ([chapter
 5](05-memory-and-banking.md#video-memory-on-revision-2)). From OODOS 0.5 to interface version 7, on revision 1,
@@ -3045,8 +3045,8 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 #### Exit
 
 - `FT_INFO`: A = OOLIB's interface version (8: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
-  volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 video card
-  revision 2's, *proposed*: function 83's card operations and the W1 contract on the aperture,
+  volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
+  video card revision 2: function 83's card operations and the W1 contract on the aperture,
   [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
@@ -3447,7 +3447,7 @@ trip that includes its rig's command line. What the slots and the pointer cost a
 
 #### Since
 
-OODOS 0.5; operations 7–10 and the card addresses with interface version 8 (*proposed*).
+OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface version 8).
 
 #### Status
 

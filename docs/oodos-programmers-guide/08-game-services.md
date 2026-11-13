@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 with video card revision 2 (*proposed*: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -628,7 +628,7 @@ the [Technical Reference's chapter 6](../oo1-technical-reference/06-video.md).
 
 ### Video memory
 
-**Proposed**, from interface version 8: video memory is the video card's own, revision 2's 2 MB, not system RAM
+Since OODOS 0.9, from interface version 8: video memory is the video card's own, revision 2's 2 MB, not system RAM
 ([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); the card itself is the [Technical Reference's
 chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). Its addresses are **card addresses**, 24
 bits, and the library names it in **card pages**, a card address ÷ 256, a word, which is what the card's base
@@ -701,7 +701,7 @@ put:    .byte   DM_VWRITE
 ### Copies and fills
 
 `DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time. For card memory
-(*proposed*, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
+(since OODOS 0.9, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
 `DM_VFILL` fills it, and `DM_VCOPY` copies within it: a scroll of a bitmap, a cleared screen, the console's font read
 for text. Through the port a byte is a cycle of DMA, so 60 KB is about 8.6 ms of it, the CPU held. The library fills a bitmap's whole rows in one call
 (`GX_FRECT`, by `DM_VFILL`) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
@@ -770,7 +770,7 @@ set with an error in A (`GE_`).
 
 ### Assets
 
-An **asset file** (format 4, *proposed* with interface version 8) holds a picture's parts, ready for the card: a
+An **asset file** (format 4, since OODOS 0.9, interface version 8) holds a picture's parts, ready for the card: a
 palette, a bitmap, tiles and their map, sprite images and a sprite table, a font. Record 0 has a 16-byte header
 (`'OGX'`, the format, the parts) and up to 7 parts of 16 bytes (the type, the layer's CONFIG it was made for, at +2–3
 a card page, a multiple of 4 in the program's part or `$FFFF` for any, the first record, the records, the bytes, a
