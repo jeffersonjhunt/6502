@@ -1,0 +1,47 @@
+OO-1 SYSTEM INFORMATION
+
+SYSTEM
+  CPU        W65C02S at 7.159 MHz
+             #,###,### Hz by the clock chip, #,###,### Hz by the video frame
+  ROM BIOS   not readable by a program under OODOS
+  OODOS      0.9, its BIOS 0.2; OOLIB interface 8
+  OOUI.BNK   none on A:
+  MEMORY     1,024 KB fitted: 960 KB of RAM and the video card's 64 KB aperture
+             for programs: a 47K TPA, 320 KB in banks 1-5 (320 KB free)
+             and banks 9-B, 192 KB
+  BOOTED     from the flash, at power-on
+
+CARDS
+  ADDR   ID   CARD                          REVISION
+  $C300  --   serial: the stand-in 6551 (no ID register)
+  $C380  $71  mass storage (SD)             1
+  $C400  $81  DMA controller                1
+  $C480  $92  video                         2
+  $C500  $A1  sound                         1
+  $C580  $B1  USB, game port and speaker    1
+  $C600  $C1  Disk II controller            1
+  $C680  $D1  north bridge                  1
+  $C700  $E1  console (front panel)         1
+
+VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB
+
+SOUND      revision 1: two SIDs, the 6510 and its 64 KB
+             free: 6510
+
+STORAGE
+  SD CARD    SDSC, 65,536 sectors (32 MB), FAT, firmware 0.2
+             named "card"
+             unit 1  A.IMG, 16,384 sectors
+             unit 2  B.IMG, 16,384 sectors
+  DRIVES     A: 8,192K, 7,876K free
+             B: 8,192K, 8,160K free
+             M: 128K, 110K free
+             O: and P:, the Disk II's (not looked at)
+
+INPUT      USB keyboard, USB mouse
+             game port: paddles 0 0 0 0, no button down
+             joysticks 1 and 2: nothing pressed (or nothing plugged in)
+
+CLOCK      2026-10-30 hh:mm:ss, the oscillator kept time; 25.00 C
+
+PANEL      switches $00000, HALT/ENABLE at ENABLE, S INST

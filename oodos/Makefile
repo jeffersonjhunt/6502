@@ -18,7 +18,7 @@
 # utils/NAME.s there is, .COMs only, through the same gate; each includes
 # include/cmd.inc and include/util.inc, and some include/system.inc (the
 # BIOS entries, for function 50): each is rebuilt when any of them changes.
-# A new one needs no change here, unless it uses OOLIB (below: OOLIB_USERS).
+# A new one needs no change here, unless it uses OOLIB (below: OOLIB_USERS) or oohw (OOHW_USERS).
 
 SRC      ?= examples
 BUILD    ?= build
@@ -54,7 +54,7 @@ $(BUILD)/%.o: $(SRC)/%.s $(wildcard include/*.inc) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
 $(UTILS:%=$(BUILD)/%.o): $(BUILD)/%.o: utils/%.s $(UTIL_INCS) | $(BUILD)
-	ca65 $(AFLAGS) $< -o $@
+	ca65 $(AFLAGS) $(UTIL_AFLAGS) $< -o $@
 
 $(RSXS:%=$(BUILD)/%.o): $(BUILD)/%.o: rsx/%.s include/oodos.inc include/rsx.inc include/rxfile.inc | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
@@ -105,6 +105,32 @@ $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 	ar65 a $@ $(LIBS:%=$(BUILD)/lib-%.o)
 
 $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
+
+# oohw, the hardware library DIAG and SYSINFO share with the ROM's diagnostics (../backplane/oohw/,
+# oohw.inc; hw/diag.md, "The library: oohw.lib"): each module assembled with OOHW_OS into build/oohw.lib,
+# of which ld65 takes the modules a program uses. Its modules include backplane.inc. A utility in
+# OOHW_USERS is assembled with backplane.inc and oohw.inc on its include path and linked with the
+# library, through the same rules gate (its code and the library's).
+OOHW_DIR = ../backplane/oohw
+OOHW_SRC = $(patsubst $(OOHW_DIR)/%.s,%,$(wildcard $(OOHW_DIR)/*.s))
+OOHW_INCS = $(OOHW_DIR)/oohw.inc ../backplane/bios/backplane.inc
+OOHW_AFLAGS = -I ../backplane/bios -I $(OOHW_DIR)
+OOHW_USERS = sysinfo
+
+$(OOHW_SRC:%=$(BUILD)/hw-%.o): $(BUILD)/hw-%.o: $(OOHW_DIR)/%.s $(OOHW_INCS) | $(BUILD)
+	ca65 -g $(OOHW_AFLAGS) -D OOHW_OS $< -o $@
+
+$(BUILD)/oohw.lib: $(OOHW_SRC:%=$(BUILD)/hw-%.o)
+	rm -f $@
+	ar65 a $@ $^
+
+$(OOHW_USERS:%=$(BUILD)/%.o): UTIL_AFLAGS = $(OOHW_AFLAGS)
+$(OOHW_USERS:%=$(BUILD)/%.o): $(OOHW_INCS)
+
+$(OOHW_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oohw.lib cfg/com.cfg tools/rules.py
+	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oohw.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	mv $@.tmp $@
 
 $(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py tools/w1.py
 	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)

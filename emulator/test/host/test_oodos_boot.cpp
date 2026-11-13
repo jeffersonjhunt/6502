@@ -777,8 +777,9 @@ std::string u83(const std::string &u)
 
 /// A card's files are what today's sources build: OOLDR, OODOS.SYS, HELLO and the utilities, then `more` (a
 /// name on A: and its build). A file on A: is its bytes, then whatever pads its last record; each .COM in user 0 with
-/// the SYS attribute (t2's bit 7). @return A: as on the card.
-Drive built_card(const Bytes &card, const std::string &script, const std::vector<std::pair<std::string, Bytes>> &more = {})
+/// the SYS attribute (t2's bit 7). `left_out`: utilities the card hasn't (in capitals). @return A: as on the card.
+Drive built_card(const Bytes &card, const std::string &script, const std::vector<std::pair<std::string, Bytes>> &more = {},
+                 const std::set<std::string> &left_out = {})
 {
     const std::string STALE = "the card is stale: run " + script;
     auto same = [&](const std::string &what, const Bytes &on, const Bytes &built, bool records) {
@@ -800,6 +801,11 @@ Drive built_card(const Bytes &card, const std::string &script, const std::vector
     CHECK(!us.empty()); // none found would check nothing
     for (const std::string &u : us)
     {
+        if (left_out.count(u))
+        {
+            CHECK(a.entries_of(0, u83(u)).empty());
+            continue;
+        }
         std::string name83 = u83(u), lower = u;
         for (char &c : lower)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -824,10 +830,13 @@ TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
     // The WebUI's card (sd/demo.sparse): the same programs, from today's sources, and on A: only those,
     // OOUI.BNK (OOUI's banked library, hw/ooui.md U3a: an OOUI program's ui_load opens it by default),
     // UIDEMO.COM (oodos/demo/uidemo.s, OOUI's demo) and README.TXT, in user 0; B: empty. Nothing else on the card.
+    // SYSINFO (hw/diag.md, D1) isn't on it yet: the owner's to say.
+    const std::set<std::string> not_yet = {"SYSINFO"};
     const Bytes demo = sd_image("demo.sparse");
     Drive a = built_card(demo, "oodos/tools/make_card.sh",
                          {{"OOUI    BNK", read_file(EMU_OODOS_UTILS_DIR "/OOUI.BNK")},
-                          {"UIDEMO  COM", read_file(EMU_OODOS_UTILS_DIR "/uidemo.com")}});
+                          {"UIDEMO  COM", read_file(EMU_OODOS_UTILS_DIR "/uidemo.com")}},
+                         not_yet);
     std::set<std::string> names;
     for (unsigned i = 0; i < a.entries; ++i)
     {
@@ -841,7 +850,8 @@ TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
     }
     std::set<std::string> want = {"0:HELLO   COM", "0:OODOS   SYS", "0:README  TXT", "0:OOUI    BNK", "0:UIDEMO  COM"};
     for (const std::string &u : utilities())
-        want.insert("0:" + u83(u));
+        if (!not_yet.count(u))
+            want.insert("0:" + u83(u));
     CHECK(names == want);
     for (const auto &n : names)
         if (!want.count(n))
