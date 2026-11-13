@@ -18,7 +18,7 @@ words, with what the 6502 and the OO-1 change. The machine underneath, without O
 6. [Program formats](06-program-formats.md): `.COM`, `.PRL`, overlays, the 65C816 rules; RSXs and chaining
 7. [Function reference](07-function-reference.md): one entry per function
 8. [Game services (OOLIB)](08-game-services.md): written in G3
-9. [User interface (OOUI)](09-user-interface.md): proposed; a placeholder until OOUI's phase U5
+9. [User interface (OOUI)](09-user-interface.md): built through U3b; a placeholder until OOUI's phase U5
 
 Appendices:
 

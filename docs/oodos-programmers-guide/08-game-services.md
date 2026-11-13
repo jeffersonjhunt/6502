@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 with video card revision 2 (*proposed*: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -628,7 +628,7 @@ the [Technical Reference's chapter 6](../oo1-technical-reference/06-video.md).
 
 ### Video memory
 
-**Proposed**, from interface version 8: video memory is the video card's own, revision 2's 2 MB, not system RAM
+Since OODOS 0.9, from interface version 8: video memory is the video card's own, revision 2's 2 MB, not system RAM
 ([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); the card itself is the [Technical Reference's
 chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). Its addresses are **card addresses**, 24
 bits, and the library names it in **card pages**, a card address ÷ 256, a word, which is what the card's base
@@ -701,7 +701,7 @@ put:    .byte   DM_VWRITE
 ### Copies and fills
 
 `DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time. For card memory
-(*proposed*, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
+(since OODOS 0.9, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
 `DM_VFILL` fills it, and `DM_VCOPY` copies within it: a scroll of a bitmap, a cleared screen, the console's font read
 for text. Through the port a byte is a cycle of DMA, so 60 KB is about 8.6 ms of it, the CPU held. The library fills a bitmap's whole rows in one call
 (`GX_FRECT`, by `DM_VFILL`) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
@@ -734,14 +734,14 @@ revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (
 card memory all free. Then:
 
 - **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
-  (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (*proposed*) a layer's palette
+  (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (since OODOS 0.9) a layer's palette
   group, A the layer and X the group, 0–15 (its PALOFS: a text, mono or 4-bit pixel's colour is the group × 16 + its
   value, 0 still transparent), so a layer can keep to its own 16 entries; `GX_SHOW` the display, `GX_BORDER`, `GX_PALBASE` and `GX_SPRBASE` (a
   card page in A/X), `GX_SCROLL`, `GX_FLIP` (double buffering: a layer in A, the card page in `GX_V` its MAPBASE
   takes, latched at the vertical blank, then the frame waited for), `GX_CONSOLE`; the card memory calls
   ([above](#video-memory)), `GX_BLOCK`, `GX_W1BACK`.
 - **The palette** (`gxpal.s`): `GX_PALINIT` takes two card pages for it and points PALBASE there; a shadow of 256
-  entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`; and (`gxfade.s`, a module of its own, *proposed*,
+  entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`; and (`gxfade.s`, a module of its own since OODOS 0.9,
   so a program that only sets colours doesn't link its 3 KB of accumulators) `GX_FADE` to another palette over n
   frames, a step a frame.
 - **Sprites** (`gxspr.s`): `GX_SPRINIT` takes two card pages for the table and points SPRBASE there; a shadow table
@@ -770,7 +770,7 @@ set with an error in A (`GE_`).
 
 ### Assets
 
-An **asset file** (format 4, *proposed* with interface version 8) holds a picture's parts, ready for the card: a
+An **asset file** (format 4, since OODOS 0.9, interface version 8) holds a picture's parts, ready for the card: a
 palette, a bitmap, tiles and their map, sprite images and a sprite table, a font. Record 0 has a 16-byte header
 (`'OGX'`, the format, the parts) and up to 7 parts of 16 bytes (the type, the layer's CONFIG it was made for, at +2–3
 a card page, a multiple of 4 in the program's part or `$FFFF` for any, the first record, the records, the bytes, a
@@ -799,7 +799,7 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 
 - **A program** links the library as before, to the byte. ld65 takes a zero page module with the code that names
   it, and `lib/zpNAME.s` is in `oolib.lib` right after `NAME`, so the program's zero page is laid out as it was.
-- **Where it goes** (*proposed*): while the library draws, block 33 is in W1, so an overlay linked with the
+- **Where it goes** (since OODOS 0.9): while the library draws, block 33 is in W1, so an overlay linked with the
   library's graphics modules is loaded outside `$4000–$7FFF`, as the program's code and data are (the W1 contract).
   The build checks a program linked with the library for that (`oodos/tools/w1.py`), but not an overlay, which has
   no address until function 59 relocates it, nor a buffer the program puts at a fixed address.
@@ -829,7 +829,7 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 | Modules | Their zero page | Bytes | Defined in |
 | --- | --- | --- | --- |
 | `gxasset`, `gxbmp`, `gxfade`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgxmem` |
-| `gxfade` | `GXFADE_ZP` (*proposed*: was `gxpal`'s `GXPAL_ZP`) | 4 | `zpgxfade` |
+| `gxfade` | `GXFADE_ZP` (since OODOS 0.9: was `gxpal`'s `GXPAL_ZP`) | 4 | `zpgxfade` |
 | `mu`, `munote`, `mutone` | `MUP` | 2 | `zpmu` |
 | `pblev`, `pbmath`, `pbvol` | `PBP` | 2 | `zppbmath` |
 | `pbeq` | `PBEQ_ZP` | 2 | `zppbeq` |

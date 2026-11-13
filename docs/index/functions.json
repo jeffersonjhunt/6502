@@ -572,7 +572,7 @@
   "documented": true,
   "anchor": "bdos-75",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4",
+  "since": "OODOS 0.4; the revision 2 check since OODOS 0.9.",
   "status": "built"
  },
  {
@@ -617,7 +617,7 @@
   "documented": true,
   "anchor": "bdos-83",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.5; operations 7\u201310 and the card addresses with interface version 8 (*proposed*).",
+  "since": "OODOS 0.5; operations 7\u201310 and the card addresses since OODOS 0.9 (interface version 8).",
   "status": "built"
  },
  {

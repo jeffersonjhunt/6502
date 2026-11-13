@@ -25,7 +25,7 @@ aperture slot 1 in W1, under [the W1 contract](#the-w1-contract).
 | 3 | 0 | not allocated by 53–58; a DMA segment may reach it |
 | 4–23 | 1–5 | the blocks programs allocate (53–58): 20 blocks, 320 KB |
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
-| 32 | 8 | the video card's aperture, slot 0: the console's card memory, OODOS's (*proposed*, revision 2: [below](#video-memory-on-revision-2)) |
+| 32 | 8 | the video card's aperture, slot 0: the console's card memory, OODOS's (since OODOS 0.9, revision 2: [below](#video-memory-on-revision-2)) |
 | 33 | 8 | the aperture's slot 1: the program's card memory, through OOLIB |
 | 34–35 | 8 | the aperture's slots 2 and 3, OODOS's |
 | 36–47 | 9–B | ordinary RAM, the running program's (not allocated by 53–58); OOLIB stages its asset loads in `$BF000–$BFFFF` unless the program moves `GX_STAGE` |
@@ -161,7 +161,7 @@ OOLIB is OODOS's own extension, there so that programs don't go around the rules
 not, OODOS says so here, as part of the interface, and checks it by version. From OOLIB's interface version 4
 ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, OODOS 0.5), **OOLIB may write W1** (`NB_WIN1`,
 `$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map. From
-interface version 8 (*proposed*, video card revision 2) that is block 1, the blocks the program has allocated, block
+interface version 8 (OODOS 0.9, video card revision 2) that is block 1, the blocks the program has allocated, block
 33 (aperture slot 1's window) and blocks 36–47 (banks 9–B); never 32, 34 or 35, the windows of OODOS's slots. And
 **OOLIB may write `SLOT1`** (`VIDEO_SLOT1`, `$C4B2`) with any of the program's card banks, 16–111, so that
 block 33 shows the card memory it draws in. OODOS keeps W1 and `SLOT1`:
@@ -186,7 +186,7 @@ A hook that draws maps W1 itself. A program that doesn't use OOLIB keeps the old
 
 ## Video memory on revision 2
 
-**Proposed.** OODOS and OOLIB are built for revision 2 of the video card (its ID `$92`), from interface version 8:
+Since OODOS 0.9, OODOS and OOLIB are built for revision 2 of the video card (its ID `$92`), from interface version 8:
 the card draws from 2 MB of its own memory instead of banks 8–B
 ([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). On an older
 card, or none, OODOS has no console screen and the card operations are refused. For a program:

@@ -711,7 +711,7 @@ PIP dest-filespec{[Gn]}=device{[options]}
 - **The devices:** `CON:` (the console), `AUX:` (the serial line), `LST:` (the printer), `PRN:` (the printer, with
   tabs every eighth column, line numbers and a new page every 60 lines), and two sources: `NUL:` (64 zero bytes)
   and `EOF:` (one ^Z). `DEVICE` says where `CON:`, `AUX:` and `LST:` go.
-- **PIP alone** prints `OODOS PIP 0.8` and asks with `*` for one command a line; an empty line ends it.
+- **PIP alone** prints `OODOS PIP 0.9` and asks with `*` for one command a line; an empty line ends it.
 
 #### Options
 
@@ -815,7 +815,7 @@ OODOS 0.4
 
 ```
 A>PIP
-OODOS PIP 0.8
+OODOS PIP 0.9
 *B:=A:*.BAS
 COPYING -
 GAME.BAS
@@ -1300,7 +1300,7 @@ VIEW shows an asset file, a picture made for the video card (a bitmap, tiles and
 palette), on the screen until you press a key, then puts the console's screen back. The files are made on Linux from
 PNG images by `oodos/tools/mkasset.py`. VIEW is built on OOLIB's linked graphics library ([the Programmer's Guide,
 chapter 8](../oodos-programmers-guide/08-game-services.md#graphics)), which loads each part of the file from the SD
-card into the video card's own memory (*proposed*: video card revision 2, which VIEW needs).
+card into the video card's own memory (since OODOS 0.9: video card revision 2, which VIEW needs).
 
 #### Forms
 
@@ -1330,7 +1330,7 @@ console's screen back too: the warm boot does.
 
 - `VIEW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file, or
   one that can't be read.
-- `Not an asset file.`: the file isn't an asset file of format 4 (*proposed*; an older file, of format 3, needs
+- `Not an asset file.`: the file isn't an asset file of format 4 (since OODOS 0.9; an older file, of format 3, needs
   making again with `mkasset.py`).
 - `Not enough video memory.`: the file's parts need more of the card's memory than there is.
 - `Needs OODOS's interface 8.`: an older OODOS, or no revision 2 video card. `Video memory W1 can't reach.` and
@@ -1340,7 +1340,7 @@ Each sets the return code to `$FF00`.
 
 #### Since
 
-OODOS 0.5
+OODOS 0.5; the card's own memory and asset format 4 since OODOS 0.9.
 
 #### Status
 
