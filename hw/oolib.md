@@ -1503,6 +1503,8 @@ question 15.
 9. **Where OOLIB's code lives.** Linked into each program (as proposed), or also kept in an allocated block and
    reached by FARCALL for programs short of TPA space (GW-BASIC is)?
    **Recommended:** linked, in L4. A FARCALL copy waits for GW-BASIC, with its own measurements.
+   *Decided for GW-BASIC (2026-11-13, [hw/oodos.md phase 7, question 7](oodos.md#phase-7s-questions)): linked
+   into its video block, one copy; no OOLIB change.*
 10. **The console during a game.** May a game use the text layer for its own status line while the console's
     output goes elsewhere, or does any console output put the console's text screen back?
     **Recommended:** a program that takes the screen keeps it. Console output goes on into the console's own
