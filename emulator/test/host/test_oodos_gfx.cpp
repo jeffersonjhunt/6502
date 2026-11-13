@@ -492,10 +492,11 @@ TEST(the_library_refuses_to_map_below_interface_8)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it.
+    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #9
+    // (interface 9 since function 72's ROM BIOS version, hw/diag.md D1-1), LDX #$0F.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 8 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 9 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 7);
