@@ -4961,6 +4961,17 @@ TEST(s2_the_position_cache_holds_every_record_s_place)
     step("a window's frame gone", 'F', UF_NOFRAME, 0, Z_WIN);
     step("and back", 'F', 0, UF_NOFRAME, Z_WIN);
     step("a label disabled", 'F', UF_DISABLED, 0, Z_LBL);
+    // A theme with no shadows (theme 4, the default lit, with TH_FLAGS' TF_SHADOW taken from its copy): the
+    // window's own entry is the same with its frame or without, but its children's places aren't (CSET: a record
+    // with children makes the cache stale).
+    const uint16_t hflags = static_cast<uint16_t>(lab("UI_HOUSE") + 1u);
+    const uint8_t was = r.phys(hflags);
+    r.poke(hflags, 0);
+    step("a theme with no shadows", 't', 4);
+    step("its frame gone", 'F', UF_NOFRAME, 0, Z_WIN);
+    step("and back", 'F', 0, UF_NOFRAME, Z_WIN);
+    r.poke(hflags, was);
+    step("the default theme", 't', 0);
     step("the menu bar shown", 's', Z_BAR);
     key(r, 0x43); // F10: a drop-down
     poll(r);
@@ -4983,6 +4994,18 @@ TEST(s2_the_position_cache_holds_every_record_s_place)
     step("ui_suspend, ui_resume", 'U');
     step("ui_theme 1", 't', 1);
     step("ui_theme 0", 't', 0);
+    // A window's shadow drawn again where only it meets the box: a label moved under Z_COVER's shadow (its right,
+    // columns 46-47, rows 9-10), then dirtied: the frame as it was (CMEETS's shadow).
+    r.poke(cx, 42);
+    r.poke(lx, 43);
+    r.poke(static_cast<uint16_t>(rec3(Z_LBL) + 3), 7);
+    step("a label under a window's shadow, ui_redraw", 'D');
+    const uint64_t shade = frame_hash(r);
+    CHECK_EQ(ui(r, 'd', Z_LBL).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), shade);
+    CHECK_EQ(cache_mismatches(r, "the label dirty"), 0u);
+    r.poke(static_cast<uint16_t>(rec3(Z_LBL) + 3), 10);
     // Moved by its fields and only dirtied: caught at the paint.
     r.poke(lx, 12);
     step("a label moved by its fields, only ui_dirty", 'd', Z_LBL);

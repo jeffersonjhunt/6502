@@ -134,7 +134,9 @@ A record is 16 bytes (`UW_LEN`), so record *h* is at the table + *h* × 16. The 
 writes `UW_FLAGS`'s dirty bit, `UW_STATE` and the values the user changes. An app may write any field itself and
 then call `ui_dirty`. *(S1, proposed; the owner's rule:)* a field that moves or resizes a record (`UW_X`, `UW_Y`,
 `UW_W`, `UW_H`, a window's frame), or its type or parent, needs `ui_redraw` after, not `ui_dirty`: what covers what
-may have changed, and only `ui_redraw` says so (the sprite thumbs, the hit test).
+may have changed, and only `ui_redraw` says so (the sprite thumbs, the hit test). *(S2, proposed:)* OOUI keeps
+each record's place in a cache; a record moved by its fields and only dirtied is caught at the next paint (its
+place compared with the cache's), but a hit test before that paint still finds it where it was.
 
 | Offset | Name | What it is |
 | --- | --- | --- |
@@ -1981,6 +1983,86 @@ pixels, not 68. Opt-in and additive:
   ways with the length not taken (by hand, 2026-11-12). No golden frame changed.
 - **Sizes after it** (mkbank.py): `UICOM` 3,351; block A 12,233 (55 free); B 10,764 (1,524 free); C 7,281 (5,007
   free); `UISTATE` 1,464 of 1,536.
+
+#### U3b: speed step S2, the position cache ####
+
+**Proposed, built 2026-11-12**, the owner's choice after the profile of OO-Amp's slowest response (its EQ ON click,
+2.78 frames at cc500d2: of the paint's 180,189 cycles in `PASS`, 83,730 were 69 records placed by `RECT` and not
+drawn, about 1,210 each). No call, record or event changes meaning; no golden frame changed; `UISTATE` 1,462 of
+1,536 (2 bytes fewer: `FRONT`'s two left it).
+
+- **The cache.** Block C's own memory (`CBSS`, uicache.s) holds an entry for each record, the table's and the
+  dialogs' (254 at most, 5 bytes each, 1,270 bytes): where it shows, its cells inside its parents' client areas
+  (`c0`, `r0`, `c1`, `r1` from `RECT`'s place and `rclip`), and three flags: hidden (or a record no walk looks
+  at, unused or a menu's), on the overlay (`rover`), casting a shadow (a framed window, the theme's `TF_SHADOW`).
+- **The walks read it, in block C.** `PASS`'s walk, `FRONT` (from `UICOM`), `HIT`, `MARGIN` (block A's) and
+  `SHOWS` (block B's) are uicache.s's. `PASS` places a clean record (`RECT`) only if its entry, with its shadow,
+  meets the box, a test on more than `ONE`'s `EXTRECT` and `OVERLAP`, which still decide; `FRONT` and `SHOWS`
+  read the entries only; `MARGIN` places only the margin sliders and bars the cache says show. A, the core,
+  keeps `PASS`'s clearing of the box (`PASSA`) and crosses to C for the walk (`XC_PASS`, once a layer), C to A's
+  `ONE` for each record it draws (`XA_ONE`); a press or a pointer's move crosses for `HIT` (`XC_HIT`), a press for
+  `MARGIN` (`XC_MARGIN`), and each sprite thumb placed for `SHOWS` (`XC_SHOWS`: its last cell in A and X, its
+  record in Y). `POST`'s own walk stays in B (a `REC` and a type a record). **Choice:** `SHOWS` alone moved, not
+  `POST` with it: the same one crossing a placed thumb, less code moved.
+- **Stale and found again.** `uany`'s free bit, `UQ_CSTALE` ($20), says the cache is stale; it is set with the
+  geometry events (S1's table) but a menu's (`MPASS`, `MCLOSE`: the menus aren't in it): `BOXFULL` (`ui_open`,
+  `ui_redraw`, `ui_resume`, `ui_theme`), `ui_open`'s own setting of `uany`, `DLGREC`, and `STALE` (`ui_dirty` on a
+  window). The next walk finds it again whole: `PASS` as it places every record (its first, "filling", mode),
+  `FRONT`, `MARGIN` and `SHOWS` by `CFILL` (every record placed, about 880 cycles each). `ui_show`, `ui_hide` and
+  `ui_flags` (the dialogs' too, through `HIDEH`) call `CSET` (`XC_CSET`) instead: a record no record is the
+  child of is placed alone and its entry written; one with children makes the cache stale.
+- **A dirty record compared.** `PASS` places every dirty record, as before, and compares it with its entry: a
+  difference (a record the program moved by its fields and only dirtied, against the S1 rule) makes the cache
+  stale and is a geometry event (`UQ_GEOM`), the rest of that walk placing every record as before S2.
+
+**What it costs** (`s2_a_poll_s_cost_with_the_position_cache`, block 8 of UITBAR, 90 records on one layer as
+OO-Amp's; every `ui_poll` until `UE_NONE`; a frame is 119,318 cycles; before, the same case with 20caf52's
+OOUI.BNK):
+
+| What | Before (20caf52) | S2 | The limit the case holds |
+| --- | --- | --- | --- |
+| One label dirty, the table's first | 142,225, 88 records looked at by `ONE` | 52,558, one | 80,000, one `ONE` |
+| A track's start (2 values, 27 labels) | 378,239 | 191,026 | 260,000, two thumbs placed |
+| A button pressed, the pointer moved there (a `FRONT`) | 387,426 | 201,563 | 260,000 |
+| ... and released (its click) | 104,317 | 50,008 | 80,000 |
+| A drag's step (a band held, moved a row) | 141,830 | 69,882 | 100,000, one thumb placed |
+| 30 widgets at once (15 thumbs placed) | 1,555,648 | 399,574 | 600,000, the 15 placed |
+| `ui_redraw` (every record drawn, the cache found again) | 2,558,586 | 1,494,106 | measured |
+| The last label shown again (`CSET`, not the whole cache) | 45,655 | 48,295 | 60,000 (158,612 with the cache found again whole) |
+
+A crossing costs 322 cycles (`what_a_call_and_a_crossing_cost`). In the other cost cases (their limits unchanged)
+B1-B4's `u3b_r5_a_poll_s_cost_among_ninety_records` and S1's `s1_a_poll_s_cost_among_ninety_records` all fall:
+the 30 widgets 1,554,976 to 399,314, a press 318,259 to 125,764, a track's start 378,976 to 190,921.
+
+**Tests.** `s2_the_position_cache_holds_every_record_s_place` (UITBAR's U3b scene): after each step of a
+session, the pointer moved and a poll (a `HIT`, so a stale cache is found again: it must not be stale after), every
+table record's entry is checked against `ui_rect` (its place, `rclip` and `rover` after it): a window shown and
+hidden, a label hidden and shown (`CSET`), a window's frame gone and back, a label disabled, the menu bar and a
+drop-down, the message box and its going, a hidden window and a label moved by their fields with `ui_redraw`,
+`ui_suspend` and `ui_resume`, `ui_theme` 1 and 0, and a label and a window moved by their fields with only
+`ui_dirty`. `s2_a_poll_s_cost_with_the_position_cache` (above). `polls_cost` counts `PASS` in block C. **Changed
+expectation** (the owner's S2 design, its crossings): `the_picker_s_crossings_a_listing_poll_and_a_selection_move`,
+a listing poll 3 crossings to 6 and a selection move 6 to 11 (each paint's two walks, each record drawn).
+By hand, 2026-11-12, each piece taken out: the dirty record's comparison, the guard (the label moved and only
+dirtied); `CSET` made nothing, the guard (the frame gone under a theme without shadows: the window's own entry is
+the same, its children's places aren't) and the cost case's label shown again (158,612: the whole cache found
+again); `CMEETS`'s shadow, the guard (a label under a window's shadow dirtied: the frame changed); the entry's
+clipping to `rclip`, `x4_a_thumb_under_a_dialog_or_clipped_is_out_of_sight` and
+`x5_a_clipped_away_part_takes_no_pointer`; `PASS` never reading the cache, and `CFILL` finding it again at every
+walk, the cost case (3 and 4 limits). Kept for safety, failing nothing taken out alone (the comparison at the
+paint catches each, the records they change being dirty): `UQ_CSTALE` in `BOXFULL`, `ui_open`, `DLGREC` and
+`STALE`; and `FRONT`'s test of the hidden flag (a hidden entry has no cells).
+
+**OO-Amp** (9c64da3, which draws an event's patches again, 865a981; `test_accept`'s response case, 1 minute):
+the worst response done, of the keys and clicks that read no disk, 3.5 frames before S2 (20caf52's OOUI.BNK: 12
+over 2, the shuffle and repeat clicks 2.8-3.0, EQ panel 3.5) and 2.4 with it (G EQ 2.4, the EQ panel's second
+click 2.0; every other 1.9 or less). What is left in G EQ's 2.38 frames (283,862 cycles): 68,844 waiting for the
+blank, the key's poll 42,000, the paint 144,552 (80,082 of it drawing 10 records, 8 of them only because the one
+box joins the two buttons dirtied, 66,8 and 22,15: B5's), `vis_frame` 19,402; by code, OOUI 174,814 cycles,
+OO-Amp's own 90,567, OODOS's and the system's 18,481.
+
+**Sizes** (mkbank.py): `UICOM` 3,218 (133 fewer: `FRONT`); block A 11,833 (455 free; 55 before), B 10,433 (1,855
+free; 1,524), C 9,591 (2,697 free; 5,007, the cache 1,270 of it); `UISTATE` 1,462 of 1,536.
 
 #### U3a: questions ####
 
