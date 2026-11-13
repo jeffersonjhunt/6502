@@ -199,15 +199,18 @@ GLYPHAT:
         sta     UIP + 1
         rts
 
-; The layers, the colours and the pointer (ui_open, ui_resume).
-SETUP:  jsr     LAYERS
-        jsr     SETPAL
+; The layers, the colours and the pointer (ui_open, ui_resume): (U3b landing,
+; review AA1) the layers' registers, CTRL and the palette at the next paint's
+; end (ushow, PAINT), so a base layer the console shows (layer 0) keeps the
+; console's map and colours until OOUI's is painted; the pointer now.
+SETUP:  lda     #1
+        sta     ushow
         jmp     PTRSET
 
 ; The base layer and the overlay (text 80 x 30, OOUI's font), and the
 ; display on with them, the sprites, and layer 0 if OOUI leaves it to the
-; program (the base on 1, no overlay): (U3b landing) shown at the end of the
-; next paint (ushow), not here, so nothing shows before it is painted.
+; program (the base on 1, no overlay). (U3b landing: SETUP leaves it, with
+; the palette, to the next paint's end.)
 LAYERS: lda     upage
         sta     GX_V
         clc
@@ -255,10 +258,9 @@ LAYERS: lda     upage
         beq     @show
         lda     #$02                    ; the program's layer 0, under OOUI's
         tsb     lb
-@show:  lda     lb                      ; (U3b landing) shown at the next paint's end
-        ora     #$08                    ;   (PAINT), so the first picture the layers
-        sta     ushow                   ;   show is the painted one, not cleared maps
-        rts
+@show:  lda     lb
+        ora     #$08
+        jmp     GX_SHOW
 ; CTRL's bit for layer A.
 LBIT:   and     #1
         asl     a
@@ -654,10 +656,11 @@ PAINT:  lda     ususp
         cpx     #8 * UI_BOXES
         bcc     @pu
         jsr     UDEND
-        lda     ushow                   ; (U3b landing) the layers LAYERS set, now
-        beq     @sh                     ;   that they are painted
-        stz     ushow
-        jsr     GX_SHOW
+        lda     ushow                   ; (U3b landing) the layers, CTRL and the palette
+        beq     @sh                     ;   that ui_open or ui_resume left, now that
+        stz     ushow                   ;   they are painted (SETUP)
+        jsr     LAYERS
+        jsr     SETPAL
 @sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
         and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
         ora     udrew                   ;   changed (VDIRTY), with nothing drawn

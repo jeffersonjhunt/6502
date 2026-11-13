@@ -282,7 +282,9 @@ takes it. Its maps are cleared (`GX_VFILL`) before the layers show them, so noth
 O15). Nothing is drawn until `ui_poll`. *(U3b landing, the owner's decision 2026-11-13; a change to existing
 behaviour:)* the layers are turned on (CTRL) at the end of the first `ui_poll`'s paint after `ui_open`, `ui_resume`
 or `ui_theme`, not by these calls, so the first picture they show is the painted one; until then CTRL is as the
-program left it. (Their map, font and palette group registers are still set by the call.) While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
+program left it. *(Review AA1:)* after `ui_open` and `ui_resume` the layers' own registers (map, font, palette
+group) and the palette wait for that paint's end too, so a base layer the console shows (layer 0) keeps the
+console's map and colours until OOUI's is painted. While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
 `ui_close` when it isn't does nothing (O9). Errors: `UX_VERSION`, `UX_AREA`, `UX_LAYER`, `UX_MEMORY`, `UX_TABLE`,
 `UX_BUSY`, `UX_SPRITE` (U2). *Proposed (the U2 review, X11-X12):* each widget's value is held to its range as the
 table is checked, as `ui_setvalue` would hold it; and a slider's `UF_SPRITE` thumb must be one of OOUI's sprites after

@@ -432,16 +432,26 @@ namespace
 
 TEST(u3b_the_layers_show_at_the_first_paint)
 {
-    // (U3b landing; the owner, 2026-11-13) ui_open no longer turns the layers on: the first ui_poll's paint does,
+    // (U3b landing; the owner, 2026-11-13; review AA1) ui_open no longer sets the layers up: the first ui_poll's paint does,
     // at its end, so the first picture they show is the painted one, not cleared maps (OO-Amp's start showed
     // OOUI's layer unpainted for a frame). Until then CTRL is the console's.
     CcpRig r;
     REQUIRE(r.ok);
     start_ui(r);
     const uint8_t before = vid(r).peek(0x00);
+    std::vector<uint8_t> l0;
+    for (uint8_t i = 0x10; i < 0x18; ++i) // layer 0's registers: the console's (BLK_DESK's base is layer 0)
+        l0.push_back(vid(r).peek(i));
+    r.run(ms(40));
+    const std::vector<uint32_t> console(vid(r).frame(), vid(r).frame() + 640 * 480);
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
     r.run(ms(40));
     CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), static_cast<unsigned>(before)); // not yet
+    // (review AA1) Nor layer 0's map, font and colours: the frame is still the console's as it was before
+    // ui_open, not OOUI's cleared map in OOUI's colours.
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(l0[i - 0x10]));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
     expect(poll(r), {}, "the first poll");
     CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), 0x0Fu); // display, both layers (the base on 1), sprites: painted, then shown
     golden(r, "desktop");
