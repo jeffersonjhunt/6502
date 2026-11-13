@@ -360,7 +360,9 @@ open, **OOUI is the queue's only reader**, and what it doesn't use reaches the a
 `UI_EV` (12 bytes, `UV_*`): +0 `UV_CODE`, +1 `UV_HANDLE`, +2-3 `UV_VALUE`, +4-5 `UV_X` and +6 `UV_Y` (the
 pointer, in pointer units from the widget's top left), +7 `UV_KIND` (a canvas's: `UC_PRESS` 1, `UC_RELEASE` 2,
 `UC_MOVE` 3 while a button is held, `UC_WHEEL` 4), +8 `UV_MODS` (`EV_MODS`'s then), +9 `UV_USAGE`, +10 `UV_CHAR`
-(ASCII, 0 none), +11 `UV_FLAGS` (`UV_LIVE` `$01`, `UV_DOUBLE` `$02`, `UV_KEYED` `$04`: by the keyboard).
+(ASCII, 0 none), +11 `UV_FLAGS` (`UV_LIVE` `$01`, `UV_DOUBLE` `$02`, `UV_KEYED` `$04`: by the keyboard). *(U3b landing, review GG3:)* `UV_USAGE` and `UV_MODS` hold the last key
+OOUI read: for an event no key made (a field's last `UE_CHANGE` as `ui_hide` moves the focus away, a click's) they
+still hold that earlier key, so a program acting on a key checks `UV_KEYED` too.
 
 **Where a key goes.** First to an open menu or the modal window, then to the focused widget (a list takes Up,
 Down, PgUp, PgDn, Home, End, Enter and Space; a field takes printable keys, Left, Right, Home, End, Backspace and

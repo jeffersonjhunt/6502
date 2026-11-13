@@ -1776,6 +1776,8 @@ ui_theme:
         lda     ususp
         bne     @r
         jsr     ENTER
+        lda     ushow                   ; (U3b landing, review FF4) before the first paint
+        bne     @all                    ;   after ui_open or ui_resume: left to its end
         jsr     LAYERS                  ; the groups (PALOFS), then the colours
         jsr     SETPAL
         lda     uptr

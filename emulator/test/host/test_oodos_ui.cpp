@@ -452,7 +452,30 @@ TEST(u3b_the_layers_show_at_the_first_paint)
     for (uint8_t i = 0x10; i < 0x18; ++i)
         CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(l0[i - 0x10]));
     CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    // (Review round 2, FF4) ui_theme before the first poll sets nothing either: the theme is kept for the paint.
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), static_cast<unsigned>(before));
+    for (uint8_t i = 0x10; i < 0x1A; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(i < 0x18 ? l0[i - 0x10] : vid(r).peek(i)));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    // (FF1) Nor does the paint touch layer 0's PALOFS (the console's: 3 here) before its end, where LAYERS sets
+    // it with CTRL: OOUI's last group (ubofs, 7 here) differing from the theme's made PAINT's start write it.
+    r.machine->bus().write(0xC499, 3); // layer 0's PALOFS (+9)
+    r.poke(lab("ubofs"), 7);
+    uint64_t pal_at = 0, ctrl_at = 0;
+    const auto prev = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (prev)
+            prev(pc);
+        if (!pal_at && vid(r).peek(0x19) != 3)
+            pal_at = r.cpu->cycles();
+        if (!ctrl_at && vid(r).peek(0x00) != before)
+            ctrl_at = r.cpu->cycles();
+    };
     expect(poll(r), {}, "the first poll");
+    r.watch = prev;
+    CHECK(pal_at != 0 && ctrl_at != 0 && ctrl_at - pal_at < 2000); // together, at the paint's end
     CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), 0x0Fu); // display, both layers (the base on 1), sprites: painted, then shown
     golden(r, "desktop");
 }

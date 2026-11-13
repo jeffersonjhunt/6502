@@ -512,7 +512,9 @@ PAINT:  lda     ususp
         ldy     #TH_DIMGROUP
         lda     (UIT),y
         tax
-@nd:    cpx     ubofs
+@nd:    ldy     ushow                   ; (U3b landing, review FF1) the first paint after
+        bne     @map                    ;   ui_open or ui_resume: LAYERS at its end sets it
+        cpx     ubofs
         beq     @map
         stx     ubofs
         lda     ubase
