@@ -37,6 +37,12 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   ask before a program touches that hardware.
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
+- **Don't break an interface programs use** (the owner's rule, 2026-11-13). The BDOS functions, OOLIB's interface
+  (8, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
+  (`UI_IFACE` 1) only grow: a new function, operation, flag or field is added with its interface version raised,
+  and every existing call keeps its arguments, results, record layouts and meaning. A change that would break an
+  existing caller, or remove anything, goes to the owner first, named, with why. The interfaces are declared
+  stable at OODOS 1.0, after GW-BASIC (phase 7); until then this rule holds them.
 - **No Digital Research text or code,** in programs, tests or books. Write from the meaning, in our own words.
   The CP/M 3 Programmer's Guide and User's Guide are on the owner's machine, outside the repo and read-only, in
   `~/workspace/references/cpm3/` (PDF and text): read them for what CP/M 3 does, and never copy or closely

@@ -4376,7 +4376,8 @@ entries and indexes in docs/ are.
    *Proposed (2026-10-30), not yet numbered:* the game and device services ([oolib.md](oolib.md)) as a phase
    before GW-BASIC, whose SCREEN, PLAY, STICK and ON TIMER are written on them: the interrupt dispatcher and the
    VIA's system tick first. Its open questions are the owner's to settle first.
-7. **GW-BASIC.**
+7. **GW-BASIC.** Its release is **OODOS 1.0**, at which the interfaces programs use are declared stable (the
+   owner, 2026-11-13; until then they only grow, [AGENTS.md](../AGENTS.md)).
 8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
 
 
