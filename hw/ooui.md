@@ -2064,6 +2064,64 @@ OO-Amp's own 90,567, OODOS's and the system's 18,481.
 **Sizes** (mkbank.py): `UICOM` 3,218 (133 fewer: `FRONT`); block A 11,833 (455 free; 55 before), B 10,433 (1,855
 free; 1,524), C 9,591 (2,697 free; 5,007, the cache 1,270 of it); `UISTATE` 1,462 of 1,536.
 
+#### U3b: B5, the damage in boxes ####
+
+**Proposed, built 2026-11-12**, the owner's choice after S2's profile of OO-Amp (its G EQ key and EQ ON click
+dirty two buttons, at 66,8 and 22,15: the one damage box joined them, and 8 records inside it but meeting
+neither were drawn again, some 76,000 cycles). No call, record or event changes meaning; no golden frame
+changed.
+
+- **The boxes.** Each layer's damage is up to `UI_BOXES` (4) boxes, not one: box *k* of layer *L* (0 the base,
+  4 the overlay) at `udmg` + 8 × *k* + *L*, so box 0 is where the one box was. `BOXADD` joins a rectangle with
+  every box it overlaps (and the union with any it then overlaps), else puts it in the layer's first empty box;
+  with none empty it joins the layer's last. Boxes that only touch (a row each, one under another) stay apart.
+  `BOXFULL` makes box 0 the screen and the others empty.
+- **The paint.** `PASSA` clears each box; block C's walk draws a clean record if it meets any box (`CMEETS`
+  looks at each box up to `udend`'s, the end of the layer's boxes this paint has used; box 0 empty means all
+  are, as `BOXADD` fills the first empty one); `ONE` draws it once for each box it overlaps, clipped to that box
+  (placed again by `RECT` before a second); a dirty record is drawn whole and its rectangle added, as before.
+  The overlay's own layer joins each of the base's boxes, as it joined the one. `POST`'s `pdmg` keeps each
+  layer's boxes' bounds, so its test (`TOUCHED`) looks at no less than before.
+- **Choice:** 4 boxes a layer (the owner allowed 2 to 4); a fifth rectangle joins the last box.
+- **`UISTATE`:** 1,492 of 1,536 (30 bytes more: `udmg` 24, `bxl` 1, `udend` 2, `ONE`'s `obx`, `obh` and `odn`
+  3), 44 free.
+
+**What it costs** (block 8 of UITBAR; S2 before, the same case with 36d447c's OOUI.BNK):
+
+| What | S2 | B5 |
+| --- | --- | --- |
+| Two far-apart labels dirty (A_TIME, top left; A_ST3, record 47, bottom right) | 166,816, 33 records drawn | 61,729, two |
+| One label dirty | 52,558 | 53,826 |
+| A track's start (2 values, 27 labels) | 191,026 | 210,684 |
+| A button pressed, the pointer moved there | 201,563 | 131,210 |
+| A drag's step | 69,882 | 70,647 |
+| 30 widgets at once | 399,574 | 411,709 |
+| 26 track labels dirty (more rows than boxes) | 138,269 | 157,709 |
+
+A paint that draws one record or a few costs a little more (each record's test looks at each box used; a
+dirty record's `BOXADD` looks at every box); one whose dirty records are apart, much less.
+
+**Tests.** `b5_two_far_apart_dirty_records_draw_nothing_between_them` (the two labels above: two `ONE`s, under
+90,000 cycles, OOUI's cells then as `ui_redraw` draws them; a label and the window under it, joined; the 26 track
+labels, more than 4 boxes). `b5_each_box_is_drawn_again_whole` (UITBAR's U3b scene: two far-apart records
+hidden at once, the window under both drawn in both holes; two far-apart records dirtied with a window over the
+second, the window drawn again in the second box; the cells as `ui_redraw`'s). The tests compare OOUI's base
+layer's cells, not the frame (the frame has a sprite that moves), from column 13 (the test program's replies
+are written to the console layer's first columns). **Changed expectation:**
+`the_picker_s_crossings_a_listing_poll_and_a_selection_move`'s selection move, 11 crossings to 10 (one record
+fewer drawn: B5's).
+By hand, 2026-11-12, each piece taken out: `BOXADD` joining every box (one box again), the two far-apart labels'
+case (33 records drawn); `CMEETS` looking at the first box only, `udend` not raised, and `ONE` drawing for the
+first box it overlaps only, `b5_each_box_is_drawn_again_whole`; `pdmg` the first box's only, four of the thumbs'
+cases (`x4_a_menu_down_over_a_thumb_hides_it`, `c1_a_thumb_shows_again_when_what_covered_only_it_goes`,
+`u3b_a_tall_thumb_covered_at_one_end_is_hidden`, `s1_a_thumb_follows_every_geometry_event`). Failing nothing taken
+out alone: `PASSA` clearing a box past the first (no scene has a hole no record draws over; the overlay's layer is
+clear whole once its last window goes) and the overlay's layer joining a base box past the first; kept, as the
+one box's were.
+
+**Sizes** (mkbank.py): `UICOM` 3,218; block A 12,160 (128 free: `BOXADD` 289 bytes more, `ONE`'s and `PAINT`'s
+loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
+
 #### U3a: questions ####
 
 **The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopened answer 3, and the owner

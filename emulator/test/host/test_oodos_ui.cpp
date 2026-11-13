@@ -3086,7 +3086,8 @@ TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
     // UE_CHANGE (DFILT), the picker's idle part, the list's paint, its rows, and the name field's paint (it shows
     // the selection); F1 counted 4, without the idle part and the field. S2 (the position cache, hw/ooui.md): each
     // paint's two layers' walks are block C's (2 more), and each record they draw is drawn by block A's ONE (one
-    // more each: the listing's one, 6 in all; the move's three, 11 in all).
+    // more each: the listing's one, 6 in all; the move's two, 10 in all, B5's boxes drawing no record that only
+    // their bounds met).
     CcpRig r;
     REQUIRE(r.ok);
     m_files(r, 40);
@@ -3104,7 +3105,7 @@ TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
     key(r, K_DOWN);
     const Costs move = poll_costs(r);
     std::printf("  a selection move: %lu crossings\n", move.crossings);
-    CHECK_EQ(move.crossings, 11u); // (6 before S2)
+    CHECK_EQ(move.crossings, 10u); // (6 before S2, 11 with S2 before B5: a record drawn only for the one box)
 }
 
 TEST(ui_load_s_default_name_from_another_user)
@@ -4938,6 +4939,21 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    /// OOUI's base layer's cells (layer `layer`'s map on the card: a character and an attribute each), as drawn,
+    /// from column 13 on: on layer 0 the test program's replies to the commands are written to the first columns.
+    std::string base_cells(CcpRig &r, unsigned layer = 0)
+    {
+        const unsigned map0 = vid(r).peek(0x11 + 0x10 * layer) | vid(r).peek(0x12 + 0x10 * layer) << 8;
+        std::string c;
+        for (unsigned row = 0; row < 30; ++row)
+            for (unsigned i = 13u * 2u; i < 80u * 2u; ++i)
+                c += static_cast<char>(vid(r).card_peek(map0 * 256u + row * 160u + i));
+        return c;
+    }
+} // namespace
+
 TEST(s2_the_position_cache_holds_every_record_s_place)
 {
     // After each step of a session, every entry is the record's place as ui_rect finds it: ui_show and ui_hide (a
@@ -4995,15 +5011,15 @@ TEST(s2_the_position_cache_holds_every_record_s_place)
     step("ui_theme 1", 't', 1);
     step("ui_theme 0", 't', 0);
     // A window's shadow drawn again where only it meets the box: a label moved under Z_COVER's shadow (its right,
-    // columns 46-47, rows 9-10), then dirtied: the frame as it was (CMEETS's shadow).
+    // columns 46-47, rows 9-10), then dirtied: the cells as they were (CMEETS's shadow).
     r.poke(cx, 42);
     r.poke(lx, 43);
     r.poke(static_cast<uint16_t>(rec3(Z_LBL) + 3), 7);
     step("a label under a window's shadow, ui_redraw", 'D');
-    const uint64_t shade = frame_hash(r);
+    const std::string shade = base_cells(r);
     CHECK_EQ(ui(r, 'd', Z_LBL).substr(6), std::string("00"));
     poll(r);
-    CHECK_EQ(frame_hash(r), shade);
+    CHECK(base_cells(r) == shade);
     CHECK_EQ(cache_mismatches(r, "the label dirty"), 0u);
     r.poke(static_cast<uint16_t>(rec3(Z_LBL) + 3), 10);
     // Moved by its fields and only dirtied: caught at the paint.
@@ -5083,4 +5099,104 @@ TEST(s2_a_poll_s_cost_with_the_position_cache)
     const Polls shown = polls_cost(r);
     say("the last label shown again", shown);
     CHECK(shown.cycles < 60000); // (45,655; 158,612 with the whole cache found again, not CSET)
+}
+
+// ---------------------------------------------------------------------------
+// B5, the damage's boxes (hw/ooui.md, "U3b: B5"): up to UI_BOXES boxes a layer, joined only when they overlap, so
+// a record is drawn again only where it meets one.
+
+TEST(b5_two_far_apart_dirty_records_draw_nothing_between_them)
+{
+    // Block 8 (UITBAR's), 90 records on one layer. The table's first label (A_TIME, top left) and the fourth status
+    // label (A_ST3, bottom right, record 47: 42 records after it, the tracks' and the extras' labels among them, in
+    // the two's bounds) dirtied together: each drawn, and no other record (with one box, every record their bounds met was drawn
+    // again: B5's before). The cells then are the cells ui_redraw draws (OOUI's base layer, 1 in block 8: the
+    // frame has a sprite of its own that moves).
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t A_ST3 = 47;
+    const Place a = rect(r, A_TIME), b = rect(r, A_ST3);
+    std::printf("  the two: %u,%u %ux%u and %u,%u %ux%u\n", a.col, a.row, a.w, a.h, b.col, b.row, b.w, b.h);
+    CHECK(b.row > a.row + 4); // far apart
+    CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'd', A_ST3).substr(6), std::string("00"));
+    const Polls two = polls_cost(r);
+    say("two far-apart labels dirty", two);
+    CHECK_EQ(two.ones, 2u);
+    CHECK(two.cycles < 90000);
+    const std::string drawn = base_cells(r, 1);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK(base_cells(r, 1) == drawn);
+    // Two that overlap are joined: a label and the window under it (its parent, before it in the table, dirtied
+    // after it): one box, every record meeting the window drawn again, the cells unchanged.
+    CHECK_EQ(ui(r, 'd', A_X4B).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'd', 1).substr(6), std::string("00"));
+    poll(r);
+    CHECK(base_cells(r, 1) == drawn);
+    // More boxes than UI_BOXES (the 26 track labels, a row each: none overlaps the next): the last joins the
+    // layer's last box, and every row is drawn; the cells as ui_redraw's.
+    constexpr uint8_t A_TR0 = 59;
+    for (unsigned h = A_TR0; h < A_TR0 + 26u; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls rows = polls_cost(r);
+    say("26 track labels dirty", rows);
+    CHECK(rows.ones >= 26u);
+    CHECK(base_cells(r, 1) == drawn);
+}
+
+TEST(b5_each_box_is_drawn_again_whole)
+{
+    // UITBAR's U3b scene (OOUI's base layer 0). Two far-apart records hidden at once: two boxes, each cleared and
+    // every record under it drawn again in it, the window under both in both (ONE once a box it meets). Then two
+    // far-apart records dirtied, the window shown over the second (Z_COVER over Z_VSC): the window drawn again in
+    // the second box (CMEETS looks at every box used). Two far-apart holes on the overlay's layer, nothing under
+    // them. The cells each time as ui_redraw draws them.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const auto redrawn = [&] {
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        return base_cells(r);
+    };
+    CHECK_EQ(ui(r, 'h', Z_LBL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'h', Z_BTN).substr(6), std::string("00"));
+    poll(r);
+    const std::string holes = base_cells(r);
+    CHECK(holes == redrawn());
+    CHECK_EQ(ui(r, 's', Z_LBL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', Z_BTN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    const std::string base = redrawn();
+    CHECK_EQ(ui(r, 'd', Z_OWN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'd', Z_VSC).substr(6), std::string("00"));
+    const Polls two = polls_cost(r);
+    say("U3b: a slider and the scroll bar under a window dirty", two);
+    CHECK(base_cells(r) == base);
+    // Two far-apart holes on the overlay's layer (1), where no record is under them: the window moved to the top
+    // right and put on the overlay, and the message box; both gone in one paint, the layer then as ui_redraw
+    // leaves it. (With the last overlay window gone the layer is clear whole, so PASSA's clearing of a box past
+    // the first isn't what this sees: no scene here has a hole that no record draws over.)
+    r.poke(static_cast<uint16_t>(rec3(Z_COVER) + 2), 70);
+    r.poke(static_cast<uint16_t>(rec3(Z_COVER) + 3), 2);
+    CHECK_EQ(ui(r, 'F', UF_OVERLAY, 0, Z_COVER).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    poll(r);
+    const std::string up = base_cells(r, 1);
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    key(r, K_ENTER);
+    poll(r);
+    const std::string gone = base_cells(r, 1);
+    CHECK(gone != up);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK(base_cells(r, 1) == gone);
 }

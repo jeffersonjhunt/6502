@@ -39,6 +39,9 @@ cx1:    .res    CMAX
 cy1:    .res    CMAX
 cfl:    .res    CMAX
 ce:     .res    5                      ; one entry made (CMAKE): c0, r0, c1, r1, its flags
+cex:    .res    1                      ;   its ends with its shadow (CMEETS's)
+cey:    .res    1
+cbnd:   .res    1                      ;   and its layer's boxes' end
 ch:     .res    1                      ; CFILL's record
 cmode:  .res    1                      ; PASS's: 0 the cache read, 1 filled, 2 neither (stale)
 hh:     .res    1                      ; FRONT's record and pass
@@ -98,7 +101,7 @@ CHID:   lda     #CF_HID
         stz     ce + 3
         rts
 
-; Entry X = ce (CSTORE); ce = entry X (CLOAD); Z set if entry X is ce
+; Entry X = ce (CSTORE); Z set if entry X is ce
 ; (CSAME).
 CSTORE: lda     ce
         sta     cx0,x
@@ -110,17 +113,6 @@ CSTORE: lda     ce
         sta     cy1,x
         lda     ce + 4
         sta     cfl,x
-        rts
-CLOAD:  lda     cx0,x
-        sta     ce
-        lda     cy0,x
-        sta     ce + 1
-        lda     cx1,x
-        sta     ce + 2
-        lda     cy1,x
-        sta     ce + 3
-        lda     cfl,x
-        sta     ce + 4
         rts
 CSAME:  lda     ce
         cmp     cx0,x
@@ -138,10 +130,11 @@ CSAME:  lda     ce
         cmp     cfl,x
 @r:     rts
 
-; Carry clear if ce can meet box pbx on layer pl: shown, on it, and its
-; cells, with its shadow, overlap the box (OVERLAP's test on more than
-; EXTRECT's er: what ONE draws of a record is inside it).
-CMEETS: lda     ce + 4
+; Carry clear if entry Y can meet one of layer pl's boxes (pbx the first; B5):
+; shown, on it, and its cells, with its shadow, overlap the box (OVERLAP's test
+; on more than EXTRECT's er: what ONE draws of a record is inside it). Only
+; the boxes up to udend's are looked at (those a paint has used). Keeps Y.
+CMEETS: lda     cfl,y
         lsr     a                       ; CF_HID
         bcs     @r
         lsr     a                       ; CF_OVER: the layer
@@ -149,49 +142,68 @@ CMEETS: lda     ce + 4
         rol     a
         cmp     pl
         bne     @no
-        ldx     pbx
-        lda     udmg,x                  ; the box empty
-        cmp     udmg + 2,x
-        bcs     @r
-        lda     ce
-        cmp     udmg + 2,x
-        bcs     @r
-        lda     ce + 1
-        cmp     udmg + 3,x
-        bcs     @r
-        ldy     ce + 3                  ; the ends, with the shadow
+        tax                             ; the layer's boxes' end
+        lda     udend,x
+        sta     cbnd
+        lda     cx1,y                   ; the ends, with the shadow
+        sta     cex
+        lda     cy1,y
+        sta     cey
         lda     #CF_SHAD
-        and     ce + 4
-        beq     @ns
+        and     cfl,y
+        beq     @go
         phy
         ldy     #TM_SHADOWX
         lda     (UIT),y
         clc
-        adc     ce + 2
+        adc     cex
         bcc     @sx
         lda     #$FF
-@sx:    sta     t3
+@sx:    sta     cex
         iny
-        pla
+        lda     (UIT),y
         clc
-        adc     (UIT),y
+        adc     cey
         bcc     @sy
         lda     #$FF
-@sy:    tay
-        lda     t3
-        bra     @cmp
-@ns:    lda     ce + 2
-@cmp:   cmp     udmg,x                  ; box c0 < c1 and box r0 < r1
-        beq     @no
-        bcc     @no
-        tya
+@sy:    sta     cey
+        ply
+@go:    ldx     pbx
+@b:     lda     udmg,x                  ; the box empty
+        cmp     udmg + 2,x
+        bcs     @n
+        lda     cx0,y
+        cmp     udmg + 2,x
+        bcs     @n
+        lda     cy0,y
+        cmp     udmg + 3,x
+        bcs     @n
+        lda     cex                     ; box c0 < c1 and box r0 < r1
+        cmp     udmg,x
+        beq     @n
+        bcc     @n
+        lda     cey
         cmp     udmg + 1,x
-        beq     @no
-        bcc     @no
+        beq     @n
+        bcc     @n
         clc
         rts
+@n:     txa
+        clc
+        adc     #8
+        tax
+        cpx     cbnd
+        bcc     @b
 @no:    sec
 @r:     rts
+
+; Carry set if every box of layer pl (pbx the first) is empty: its first is
+; (B5: BOXADD puts a box in the first empty one, so the first is empty only
+; when all are).
+CEMPTY: ldx     pbx
+        lda     udmg,x
+        cmp     udmg + 2,x
+        rts
 
 ; The cache found again, if it is stale: every record placed (RECT's
 ; sibling cache on, as the walks' are), its entry made. Keeps nothing.
@@ -308,14 +320,11 @@ PREC:   ldy     #UW_TYPE
         lda     cmode                   ; filling: every record placed
         cmp     #1
         beq     @rect
-        ldx     pbx                     ; clean, and the box empty: nothing to draw
-        lda     udmg,x
-        cmp     udmg + 2,x
+        jsr     CEMPTY                  ; clean, and the boxes empty: nothing to draw
         bcs     @next
         lda     cmode                   ; the cache stale: placed, as before S2
         bne     @rect
-        ldx     ph                      ; the cache: drawn only if it meets the box
-        jsr     CLOAD
+        ldy     ph                      ; the cache: drawn only if it meets a box
         jsr     CMEETS
         bcs     @next
         lda     ph
@@ -328,24 +337,22 @@ PREC:   ldy     #UW_TYPE
         jsr     CMAKE
         ldx     ph
         lda     cmode
-        beq     @cmp
-        cmp     #1
-        bne     @chk
-        jsr     CSTORE
-        bra     @chk
-@cmp:   jsr     CSAME                   ; (only a dirty record here)
+        bne     @st
+        jsr     CSAME                   ; (the cache read: only a dirty record here)
         beq     @chk
         lda     #UQ_CSTALE | UQ_GEOM    ; moved by its fields: the cache stale, and a
         tsb     uany                    ;   geometry event
         lda     #2
         sta     cmode
+@st:    jsr     CSTORE                  ; (filling; or stale, where it does no harm)
 @chk:   lda     ph
         jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_DIRTY
         bne     @dirty
-        jsr     CMEETS                  ; clean: if it meets the box
+        ldy     ph                      ; clean: if it meets a box
+        jsr     CMEETS
         bcs     @back
         bra     @one
 @dirty: lda     ce + 4                  ; dirty: if it shows on this layer

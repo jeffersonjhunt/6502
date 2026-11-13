@@ -47,7 +47,9 @@ upress: .res    1                      ; the button the left button went down on
 ususp:  .res    1                      ; 1: suspended (ui_suspend)
 upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
-udmg:   .res    8                      ; the damage: the base's box, the overlay's: c0, r0, c1, r1 each
+udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0, r0, c1, r1 each (ui.inc's UI_BOXES)
+bxl:    .res    1                      ; (B5) BOXADD's layer
+udend:  .res    2                      ; (B5) each layer's boxes' end this paint: past the last used
 uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
 rhid:   .res    1                      ;   not 0: hidden (it or a parent, or a menu not down)
@@ -646,20 +648,74 @@ FINDMODAL:
 @set:   sta     umodal
         rts
 
-; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's), and
-; a paint to do (UQ_PAINT: U3b, B1); an empty er adds nothing.
+; er (c0, r0, c1, r1) added to layer X's damage (0 the base's, 4 the
+; overlay's), and a paint to do (UQ_PAINT: U3b, B1); an empty er adds
+; nothing. (B5) A layer has UI_BOXES boxes (box k at udmg + 8 x k + the
+; layer): er joins every box it overlaps (the union joining any it then
+; overlaps), else takes an empty box; with none empty, it joins the
+; layer's last. Keeps nothing.
+BNONE:  rts
 BOXADD: lda     er
         cmp     er + 2
-        bcs     @none
+        bcs     BNONE
         lda     er + 1
         cmp     er + 3
-        bcs     @none
+        bcs     BNONE
         lda     #UQ_PAINT
         tsb     uany
-        lda     udmg,x
+        stx     bxl
+@again: ldx     bxl
+@scan:  lda     udmg,x                  ; an empty box: c0 not before c1
         cmp     udmg + 2,x
-        bcc     @merge
-        ldy     #0                      ; empty: er itself
+        bcs     @ns
+        lda     er                      ; er overlaps it: joined, the box emptied, and again
+        cmp     udmg + 2,x
+        bcs     @ns
+        lda     udmg,x
+        cmp     er + 2
+        bcs     @ns
+        lda     er + 1
+        cmp     udmg + 3,x
+        bcs     @ns
+        lda     udmg + 1,x
+        cmp     er + 3
+        bcs     @ns
+@join:  jsr     BJOIN
+        bra     @again
+@ns:    txa
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @scan
+        ldx     bxl                     ; none overlaps: an empty box takes it
+@e:     lda     udmg,x
+        cmp     udmg + 2,x
+        bcs     @put
+        txa
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @e
+        lda     bxl                     ; none empty: the last joined
+        clc
+        adc     #8 * (UI_BOXES - 1)
+        tax
+        bra     @join
+@put:   txa                             ; the layer's boxes' end, past it
+        clc
+        adc     #8
+        pha
+        lda     bxl
+        lsr     a
+        lsr     a
+        tay
+        pla
+        cmp     udend,y
+        bcc     @in
+        sta     udend,y
+@in:    ldy     #0
 @cp:    lda     er,y
         sta     udmg,x
         inx
@@ -667,31 +723,52 @@ BOXADD: lda     er
         cpy     #4
         bne     @cp
         rts
-@merge: lda     er                      ; the lesser starts,
-        cmp     udmg,x
+; er = er and box X joined (the lesser starts, the greater ends); box X
+; emptied. Keeps X.
+BJOIN:  lda     udmg,x
+        cmp     er
         bcs     @a
-        sta     udmg,x
-@a:     lda     er + 1
-        cmp     udmg + 1,x
+        sta     er
+@a:     lda     udmg + 1,x
+        cmp     er + 1
         bcs     @b
-        sta     udmg + 1,x
-@b:     lda     udmg + 2,x              ;   the greater ends
+        sta     er + 1
+@b:     lda     udmg + 2,x
         cmp     er + 2
-        bcs     @c
-        lda     er + 2
-        sta     udmg + 2,x
+        bcc     @c
+        sta     er + 2
 @c:     lda     udmg + 3,x
         cmp     er + 3
-        bcs     @d
-        lda     er + 3
-        sta     udmg + 3,x
-@d:
-@none:  rts
+        bcc     @d
+        sta     er + 3
+@d:     stz     udmg,x
+        stz     udmg + 2,x
+        rts
 
-; Box X the whole screen, and a paint to do (U3b, B1) and a geometry event (S1).
+; (B5) Each layer's boxes' end its first box's (PAINT's, after it cleared
+; them, and ui_open's).
+UDEND:  lda     #8
+        sta     udend
+        lda     #4 + 8
+        sta     udend + 1
+        rts
+
+; Layer X's damage the whole screen (B5: its first box; the others empty),
+; and a paint to do (U3b, B1) and a geometry event (S1).
 BOXFULL:
         lda     #UQ_PAINT | UQ_GEOM | UQ_CSTALE ; (S1) a geometry event: ui_open, ui_redraw, ui_resume,
         tsb     uany                    ;   ui_theme (its thumb image's colours)
+        phx
+        ldy     #UI_BOXES
+@z:     stz     udmg,x
+        stz     udmg + 2,x
+        txa
+        clc
+        adc     #8
+        tax
+        dey
+        bne     @z
+        plx
         stz     udmg,x
         stz     udmg + 1,x
         lda     #UI_COLS
@@ -932,10 +1009,11 @@ ui_open:
         sta     umsel
         sta     upress
         stz     ususp
-        stz     udmg
-        stz     udmg + 2
-        stz     udmg + 4
-        stz     udmg + 6
+        ldx     #8 * UI_BOXES - 1       ; (B5) every box empty
+@dz:    stz     udmg,x
+        dex
+        bpl     @dz
+        jsr     UDEND
         lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B3) the modal window and the overlay found again;
         sta     uany                    ;   (S1) a geometry event
         jsr     ENTER
