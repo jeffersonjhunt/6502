@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures; SYSINFO (hw/diag.md, D1), for what the machine has. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -1341,6 +1341,80 @@ Each sets the return code to `$FF00`.
 #### Since
 
 OODOS 0.5; the card's own memory and asset format 4 since OODOS 0.9.
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.
+
+## SYSINFO
+
+<a id="util-sysinfo"></a>
+### SYSINFO: what the machine has
+
+SYSINFO lists what is installed: the cards and their revisions, the memory, the CPU's clock measured, the video and
+sound cards' parts, the SD card and the drives, what is plugged into the USB card, the clock chip and the front
+panel's switches. It changes nothing, so it is always safe to run. It reads some of the cards' status registers
+itself, as the owner allows the system tools ([hw/diag.md](../../hw/diag.md#sysinfo)); the rest comes from OODOS.
+
+#### Forms
+
+```
+SYSINFO {section} {/ALL}
+```
+
+- **section** is one of `SYSTEM`, `CARDS`, `VIDEO`, `SOUND`, `STORAGE`, `INPUT`, `CLOCK` and `PANEL`: only that
+  part. Without it, all of them.
+- **/ALL** writes the whole report without stopping at each screenful. Without it, SYSINFO pages as the console
+  does (`SETDEF [PAGE]`).
+
+#### Options
+
+None but `/ALL`.
+
+#### Output
+
+```
+A>SYSINFO CARDS /ALL
+OO-1 SYSTEM INFORMATION
+
+CARDS
+  ADDR   ID   CARD                          REVISION
+  $C300  --   serial: the stand-in 6551 (no ID register)
+  $C380  $71  mass storage (SD)             1
+  $C400  $81  DMA controller                1
+  $C480  $92  video                         2
+  $C500  $A2  sound                         2
+  $C580  $B1  USB, game port and speaker    1
+  $C600  $C1  Disk II controller            1
+  $C680  $D1  north bridge                  1
+  $C700  $E1  console (front panel)         1
+```
+
+- **SYSTEM:** the CPU and its clock, measured for a second against the clock chip and for 60 frames against the
+  video card (a few seconds in all); the ROM BIOS's version, OODOS's and its BIOS's, OOLIB's interface; OOUI.BNK
+  on A:, if it is there; the memory fitted and what programs get; how the machine booted.
+- **CARDS:** a line a card, found by its ID byte. A card that doesn't answer is `not found`; a card at a revision
+  SYSINFO doesn't know says so. The serial card of the emulator is a stand-in with no ID.
+- **VIDEO, SOUND:** the cards' memory and parts, and which of the sound card's parts no program has claimed.
+- **STORAGE:** the SD card's type, size, file system and firmware, the image files mounted, then drives A: to N:
+  with their size and free space. O: and P:, the Disk II's, aren't looked at.
+- **INPUT:** the USB keyboard, mouse and gamepad plugged in, the game port's paddles and buttons, and the
+  joysticks. An empty joystick port reads the same as a stick no one is touching.
+- **CLOCK:** the date and time, whether the clock chip kept time, and its temperature.
+- **PANEL:** the front panel's switch register and its HALT/ENABLE and S INST/S BUS CYCLE switches.
+
+#### Errors
+
+- `SYSINFO {section} {/ALL}`: a word that is neither a section nor `/ALL`, or two sections. The return code is
+  `$FF00`.
+
+#### Since
+
+OODOS 0.9, from hw/diag.md's D1 (after OODOS 0.9's release).
 
 #### Status
 

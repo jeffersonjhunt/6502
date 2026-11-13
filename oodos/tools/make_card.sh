@@ -64,7 +64,9 @@
 #                      in our words), OODOS.SYS, HELLO.COM and the utilities
 #                      (SYS, as on the test card), and OOUI.BNK (user 0, not
 #                      SYS: OOUI's banked library, which an OOUI program's
-#                      ui_load opens by default, hw/ooui.md, U3a)
+#                      ui_load opens by default, hw/ooui.md, U3a), and
+#                      UIDEMO.COM (user 0, not SYS: oodos/demo/uidemo.s,
+#                      OOUI's demo, which loads it)
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty: B: to work on
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
@@ -78,7 +80,8 @@ out="$root/emulator/test/host/sd"
 # What the container copies in (below), and so what's on the cards: a commit
 # elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
 src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
-     oodos/utils oodos/rsx oodos/lib oodos/ui oodos/uiprog oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+     oodos/utils oodos/rsx oodos/lib oodos/ui oodos/uiprog oodos/demo oodos/card oodos/diskdefs backplane/bios/backplane.inc
+     backplane/oohw"
 # shellcheck disable=SC2086 # src is a list of paths
 stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
     --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
@@ -92,7 +95,7 @@ if [ -n "$(cd "$root" && git -c safe.directory='*' status --porcelain -- $src)" 
 fi
 echo "the demo card's stamps: $stamp"
 docker run --rm -i -e DEMO_STAMP="$stamp" -v "$(hostpath "$root/oodos"):/o:ro" \
-    -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
+    -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$root/backplane/oohw"):/h:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
 apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 make python3 faketime >/dev/null
 echo "debian $(cat /etc/debian_version); the packages:"
@@ -139,15 +142,17 @@ PY
 # OOLDR, OODOS.SYS, the test system, HELLO.COM, WRITEOO1.COM and the
 # utilities, from their sources, in a copy laid out as the repo is (/o and /b
 # are read-only).
-mkdir -p src/oodos src/backplane/bios
-cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib /o/ui /o/uiprog src/oodos/
+mkdir -p src/oodos src/backplane/bios src/backplane/oohw
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib /o/ui /o/uiprog /o/demo src/oodos/
 cp /b/backplane.inc src/backplane/bios/
+cp /h/* src/backplane/oohw/
 rm -rf src/oodos/ldr/build src/oodos/sys/build src/oodos/build
 make -s -C src/oodos/ldr
 make -s -C src/oodos/sys build/OODOS.SYS build/hello.com build/writeoo1.com
 make -s -C src/oodos build/hello.prl
 make -s -C src/oodos utils
 make -s -C src/oodos build/OOUI.BNK
+make -s -C src/oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/uidemo.com
 utils=
 for s in src/oodos/utils/*.s; do
   n=$(basename "$s" .s | tr a-z A-Z)
@@ -161,6 +166,7 @@ cp src/oodos/sys/build/hello.com HELLO.COM
 cp src/oodos/build/hello.prl HELLO.PRL
 cp src/oodos/sys/build/writeoo1.com WRITEOO1.COM
 cp src/oodos/build/OOUI.BNK OOUI.BNK
+cp src/oodos/build/uidemo.com UIDEMO.COM
 
 # A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
 cp /o/diskdefs diskdefs
@@ -253,8 +259,10 @@ python3 text.py demo/README.TXT \
     "  TYPE README.TXT this file" \
     "  PIP B:=*.TXT    copy files, here the .TXTs to drive B:" \
     "  HELLO           a small program, run from A:" \
+    "  UIDEMO          windows, menus and a file picker (OOUI), on Display" \
     "  SHOW            the drives and their space" \
     "  DATE            the date and time" \
+    "  SYSINFO         what the machine has: its cards, memory and clock" \
     "  B:              drive B:, and A: to come back" \
     "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
     "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
@@ -262,7 +270,7 @@ python3 text.py demo/README.TXT \
     "START, on the front panel, boots OODOS again. A key during the logo" \
     "at power-on goes to the Woz Monitor instead, and so does a power-on" \
     "with no card."
-demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils OOUI.BNK 0:
+demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils OOUI.BNK UIDEMO.COM 0:
 demo_at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
 for u in $utils; do demo_at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n demo/A.IMG
