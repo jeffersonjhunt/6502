@@ -35,10 +35,40 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   meanwhile. The console's video memory, units 0-12, is OODOS's. Go through OOLIB
   ([hw/oolib.md](hw/oolib.md), phase G3) for the screen, sound, timing and input; for what it doesn't cover yet,
   ask before a program touches that hardware.
+- **The system tools' exception** (the owner's, 2026-11-13: [hw/diag.md, answer 1](hw/diag.md#the-owners-answers)).
+  Two programs, and no other, may touch the hardware below directly under OODOS: `DIAG.COM` and `SYSINFO.COM`,
+  built from `oodos/utils/diag.s` and `oodos/utils/sysinfo.s` with `backplane/oohw/`. No other program, RSX or
+  library may claim it, by name or by copying their code; anything else still asks first, as above. The list, as
+  answer 1 has it:
+  - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; IRQL and IRQH (NB3: the same poll the
+    dispatcher makes, which acknowledges nothing and changes nothing); `VIDEO_MEMSIZE`; `USB_DEVICES`; `SD_STATUS`;
+    the console card's SWR, PANEL, STATUS, LADDR and LDATA; `NB_SEC` polled for the clock (its effect on the
+    bridge's I²C reads on real hardware unknown, as stage 11 says).
+  - **The VIA's timer 2** (EE5): `T2CL` and `T2CH` written and read, for `HW_CLOCK`'s count. That changes only
+    IFR's timer 2 flag (a read of `T2CL` clears it), which OODOS doesn't use; never ACR, IER or timer 1.
+  - **Writes:** RTCREG, to read the DS3231's temperature through RTCDATA (an I²C read; BUSY waited for); SD's
+    `IDENTIFY`; the console card's DISPLAY, CTRL's bit 3 (P2), and its breakpoint (P3: BPADDR, BPCTRL, STATUS's
+    HIT); and, with the parts claimed through function 82, the sound card's registers as the Programmer's Guide
+    allows a claimed part's, S6's included.
+  - **S6 (`/FULL`)** writes every byte of the ES5503's 128 KB of wave RAM through DOCDATA. With `SC_DOC` claimed
+    the chip and its RAM are DIAG's, and nothing kept there belongs to anyone else (the boot splash's samples are
+    loaded at each boot); its oscillators are halted first, and `SN_RELEASE` gives the chip back stopped.
+  - **P3 (`/FULL /I`)** halts the CPU until CONT. While it is halted nothing runs: no interrupt is taken, so
+    OODOS's 1 kHz tick and the millisecond counter stop (timer 1 runs on, so one tick is taken late and the rest
+    of the halt's ticks are lost), the frame counter and any vertical-blank copies miss the frames (DIAG sets none),
+    the USB card's event FIFO can fill and drop events, and the sound card plays on by itself. The DS3231 keeps the
+    time, so function 105 is right after; the millisecond counter is behind by the halt. On the card RDY holds the
+    CPU on the cycle; the emulator stops between instructions.
+  - **Why IDENTIFY can't collide with OODOS's driver:** OODOS drives the SD card only inside BDOS and BIOS calls,
+    each command waited for until BUSY clears (`oodos/sys/bios.s`), and never from an interrupt: its SD interrupt
+    stays off (`SD_IEN` 0, `irq.s`'s DEAFEN) and the dispatcher doesn't serve the card. A program runs only between
+    those calls, so when DIAG writes CMD no command of OODOS's is under way. IDENTIFY changes nothing on the card
+    (LBA and COUNT stay), DIAG reads DATA by the CPU with CTRL's DMA bit clear and puts CTRL back as it found it,
+    and OODOS's next command writes UNIT, LBA, COUNT and CTRL afresh.
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
 - **Don't break an interface programs use** (the owner's rule, 2026-11-13). The BDOS functions, OOLIB's interface
-  (8, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
+  (9, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
   (`UI_IFACE` 1) only grow: a new function, operation, flag or field is added with its interface version raised,
   and every existing call keeps its arguments, results, record layouts and meaning. A change that would break an
   existing caller, or remove anything, goes to the owner first, named, with why. The interfaces are declared

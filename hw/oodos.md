@@ -292,7 +292,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
 | 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
-| 77–97 | reserved for OODOS |
+| 77 | the ROM BIOS's version: A the major, X the minor, `$FF $FF` if the cold boot didn't find its greeting. *Since interface version 9 (2026-11-13, the owner: [diag.md](diag.md#d1-questions), D1-1, EE2), so SYSINFO can show it: a program can't read the ROM's copy in block 63 itself* |
+| 78–97 | reserved for OODOS |
 
 ### Far calls ###
 

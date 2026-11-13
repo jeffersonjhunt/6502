@@ -80,7 +80,8 @@ out="$root/emulator/test/host/sd"
 # What the container copies in (below), and so what's on the cards: a commit
 # elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
 src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
-     oodos/utils oodos/rsx oodos/lib oodos/ui oodos/uiprog oodos/demo oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+     oodos/utils oodos/rsx oodos/lib oodos/ui oodos/uiprog oodos/demo oodos/card oodos/diskdefs backplane/bios/backplane.inc
+     backplane/oohw"
 # shellcheck disable=SC2086 # src is a list of paths
 stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
     --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
@@ -94,7 +95,7 @@ if [ -n "$(cd "$root" && git -c safe.directory='*' status --porcelain -- $src)" 
 fi
 echo "the demo card's stamps: $stamp"
 docker run --rm -i -e DEMO_STAMP="$stamp" -v "$(hostpath "$root/oodos"):/o:ro" \
-    -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
+    -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$root/backplane/oohw"):/h:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
 apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 make python3 faketime >/dev/null
 echo "debian $(cat /etc/debian_version); the packages:"
@@ -141,9 +142,10 @@ PY
 # OOLDR, OODOS.SYS, the test system, HELLO.COM, WRITEOO1.COM and the
 # utilities, from their sources, in a copy laid out as the repo is (/o and /b
 # are read-only).
-mkdir -p src/oodos src/backplane/bios
+mkdir -p src/oodos src/backplane/bios src/backplane/oohw
 cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib /o/ui /o/uiprog /o/demo src/oodos/
 cp /b/backplane.inc src/backplane/bios/
+cp /h/* src/backplane/oohw/
 rm -rf src/oodos/ldr/build src/oodos/sys/build src/oodos/build
 make -s -C src/oodos/ldr
 make -s -C src/oodos/sys build/OODOS.SYS build/hello.com build/writeoo1.com
@@ -260,6 +262,7 @@ python3 text.py demo/README.TXT \
     "  UIDEMO          windows, menus and a file picker (OOUI), on Display" \
     "  SHOW            the drives and their space" \
     "  DATE            the date and time" \
+    "  SYSINFO         what the machine has: its cards, memory and clock" \
     "  B:              drive B:, and A: to come back" \
     "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
     "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \

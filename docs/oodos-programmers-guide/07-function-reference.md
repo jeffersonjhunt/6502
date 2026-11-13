@@ -3020,6 +3020,49 @@ OODOS 0.4
 OODOS's own: CP/M 3 has no function 76 (OODOS's range, 72 on). CP/M 3 would leave this to the BIOS's own
 functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to drop them.
 
+<a id="bdos-77"></a>
+### 77 O_ROMVER: the ROM BIOS's version
+
+#### Entry
+
+- Y = 77 (`O_ROMVER`).
+
+#### Exit
+
+- A = the ROM BIOS's version's major number, X its minor (0 and 13 for `BACKPLANE BIOS 0.13`).
+- A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
+  block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
+  two numbers to 255 with a `.` between.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None.
+
+#### Side effects
+
+None. The version is the one the cold boot read for its boot status (`BIOS 0.13`); a program can't read it itself,
+since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+Interface version 9 (function 80's `FT_INFO`).
+
+An OODOS before it hasn't function 77 and answers it as any function it hasn't, A = X = `$FF`, the same as an unknown
+version: a program that must tell the two apart asks [function 80's](#bdos-80) `FT_INFO` first, as SYSINFO does.
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
+
 <a id="bdos-80"></a>
 ### 80 O_FRAME: frame and timing
 
@@ -3044,10 +3087,11 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (8: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+- `FT_INFO`: A = OOLIB's interface version (9: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
   video card revision 2: function 83's card operations and the W1 contract on the aperture,
-  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)), X = a bit for each service area OODOS
+  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 [function 77](#bdos-77), the ROM BIOS's
+  version: the number marks OODOS's own additions a program needs to detect too), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the

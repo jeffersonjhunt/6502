@@ -103,6 +103,7 @@
 #define O_MOUNT          74
 #define O_ROM            75
 #define O_SECTOR         76
+#define O_ROMVER         77
 #define O_FRAME          80
 #define O_INPUT          81
 #define O_SOUND          82

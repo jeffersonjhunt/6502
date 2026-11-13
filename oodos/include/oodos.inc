@@ -122,7 +122,8 @@ WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
 ; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
-; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3, 4 from L4), X = a bit for each
+; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3, 4 from L4; 9 since function
+; 77, O_ROMVER: interface numbers mark OODOS additions too, hw/oolib.md), X = a bit for each
 ; service area. An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
 OA_INPUT        = $02                  ;   81, input (L2)
@@ -406,6 +407,7 @@ O_PHYSADDR      = 73
 O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
+O_ROMVER        = 77                   ; the ROM BIOS's version: A major, X minor; $FF $FF unknown (interface 9)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)

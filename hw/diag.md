@@ -676,6 +676,66 @@ check`), merged in order. Each reads its part of the books again at its start an
 - **Test map:** `backplane/oohw/  bios oodos docs` (both builds use it); `oodos/utils/sysinfo.s` is under
   `oodos/`; the suite's label `oodos sd video sound usb rtc console` in `EMU_TEST_LABELS`.
 
+#### D1: as built (2026-11-13) ####
+
+**Built** on `feat/diag-d1`, for the owner's review. What differs from the plan above, and why:
+
+- **The ROM BIOS's version comes from a new function, 77 `O_ROMVER` (D1-1 and EE2, decided below).** The plan had
+  SYSINFO copy the greeting out of RAM block 63 by function 83's `DM_COPY`, "a physical source may be anything". The
+  Programmer's Guide says a source may be anything *a segment may reach*, and OODOS's code (`oodos/sys/video.s`,
+  SRCOK) refuses OODOS's own blocks as a source as well as a destination; block 63 is one. So OODOS gives it: the
+  cold boot, which already finds the version for its boot status, keeps it as two numbers (`ROMVER`, `cold.s`), and
+  function 77 returns them, the major in A and the minor in X, `$FF $FF` if it found none. Function 72 is as it was
+  (a first build grew its block by two bytes behind a marker; the review's EE2 replaced that). A new function is an
+  interface addition, so OOLIB's interface version (function 80's `FT_INFO`) goes from 8 to 9, the number marking
+  OODOS's own additions too (EE3, hw/oolib.md's question 15); OODOS stays 0.9, and 77's Since line names the
+  interface, not an OODOS version (EE1). An OODOS before 9 answers 77 as a function it hasn't, A = X = `$FF`, which
+  is also "unknown", so SYSINFO asks `FT_INFO` first and says which. `VERTEST` (`oodos/sys/test/vertest.s`) prints
+  `FT_INFO`, 77's answer and 72's block, for test_oodos_sysinfo.
+- **The library's routines built in D1:** `HW_PROBE`, `HW_NAME`, `HW_KNOWN`, `HW_CLOCK`, `HW_FRAMEHZ`, `HW_RTC`,
+  `HW_SD_ID` and the output (`HW_HEX2`, `HW_HEX4`, `HW_HEX6`, `HW_DEC`), with two the table above hasn't: `HW_PUTS`
+  (a 0-ended string, its length in Y) and `HW_DIV` (32 bits by 16, which `HW_DEC`, `HW_FRAMEHZ` and SYSINFO share).
+  The memory tests (`HW_AIA`, `HW_MARCH`, `HW_WALK`, `HW_PORTAIA`) and the report lines (`HW_LINE`, `HW_FAULT`,
+  `HW_SUMMARY`) are DIAG's, so they come with D2. Each module is a file, `backplane/oohw/hw*.s`; their zero page is
+  one pointer, `HW_PTR` (`hwzp.s`). `oohw.inc` is the interface. The library's code is 930 bytes and its names 264,
+  about 1.2 KB, as planned.
+- **The build:** `oodos/Makefile`'s `OOHW_USERS` (SYSINFO now) are assembled with `backplane/bios` and
+  `backplane/oohw` on their include path and linked with `build/oohw.lib`, through the rules gate (3,315
+  instructions, no problems) and with no ld65 warning. `make_card.sh` copies `backplane/oohw/` into its container.
+- **SYSINFO.COM is 9,704 bytes,** not about 5 KB: `cmd.inc` and `util.inc`, which every utility assembles in, are
+  most of the difference.
+- **The drives** are selected by function 14 in the error mode that returns errors (45, `$FF`), so a drive that
+  isn't is passed over in silence, and their free space is function 46's. O: and P: (the Disk II's) aren't selected,
+  so the Disk II's drive never turns for SYSINFO.
+- **The clock** can't read exactly 7,159,090 Hz, as the plan's test said: the poll is about 80 cycles, so each edge
+  is seen up to a pass late. By the DS3231 it read 7,159,031–7,159,122 Hz in the suite's runs (within 9 ppm), so the
+  check is 0.002%; by the video frame 7,159,041–7,159,579 Hz (within 68 ppm: the frame counter is the vertical-blank
+  interrupt's, which other interrupts can hold off), so its check is the plan's 0.01%. The golden files hold
+  `#,###,### Hz` in their place, `hh:mm:ss` for the time, and `#K free` for the drives' free space (EE6), which
+  changes with every file on the card; one exact check of A:'s, worked out from the card's directory, stays.
+- **On the demo card too (D1-2, decided below),** with a line in its README; and on the test card, which changes
+  OOUI's two picker frames (`u2-pick`, `u2-pick-turbo`: A:'s count and the list's scroll thumb), made again after
+  looking at them. `feat/ooui-u3b-land` changes the same frames (OOUI.BNK on A:): whichever merges second makes them
+  again.
+- **The must-fail cases,** each made to fail once on a copy of the sources (`OODOS_UTILS_DIR`): the frame's
+  correction taken out (60 frames counted as a second: 7,166,152 Hz, caught by the 0.01% check in three cases);
+  `HW_PROBE`'s second read made absolute like the first (the floating bus then reads as a Disk II at revision 6,
+  caught); `HW_PROBE` reading `+$7E` instead of `+$7F` (every card wrong: every golden file differs). The floating
+  bus is a test-only device in the suite (answer 8): it answers each read with the byte before the CPU's PC, the
+  instruction's last byte, as an empty slot might.
+
+<a id="d1-questions"></a>
+**D1's questions, decided (2026-11-13, the owner), as recommended:**
+
+- **D1-1, the ROM BIOS's version:** first decided as function 72's block grown by two bytes; **replaced by the
+  review's EE2 (2026-11-13, the owner):** a new function, 77 `O_ROMVER`, with function 72 exactly as it was; the
+  interface version raised to 9 (EE3), 77's Since line the interface's (EE1). SYSINFO prints it. Built as above.
+- **EE4:** 77's own test: a known version, `$FF $FF` when the cold boot finds no greeting, and SYSINFO on an OODOS
+  that reports interface 8, each shown failing on a broken build. **EE5:** the VIA's timer 2 in answer 1's list.
+  **EE6:** the drives' free space masked in SYSINFO's golden files, with one exact check of A:'s from the card.
+- **D1-2, the demo card:** SYSINFO.COM is on it with the other utilities.
+- **The OOUI frames:** made again after looking at them (above).
+
 ### D2: DIAG.COM ###
 
 - **What:** `oodos/utils/diag.s`, `backplane/oohw/card6510.s` (built for both), the library's memory and port
@@ -752,6 +812,9 @@ replaced by the owner's option A, the prompt. The alternatives are kept for the 
      dispatcher makes, which acknowledges nothing and changes nothing); `VIDEO_MEMSIZE`; `USB_DEVICES`; `SD_STATUS`;
      the console card's SWR, PANEL, STATUS, LADDR and LDATA; `NB_SEC` polled for the clock (its effect on the
      bridge's I²C reads on real hardware unknown, as stage 11 says).
+   - **The VIA's timer 2** (EE5, added 2026-11-13): `T2CL` and `T2CH` written and read, for `HW_CLOCK`'s count.
+     That changes only IFR's timer 2 flag (a read of `T2CL` clears it), which OODOS doesn't use; never ACR, IER or
+     timer 1.
    - **Writes:** RTCREG, to read the DS3231's temperature through RTCDATA (an I²C read; BUSY waited for); SD's
      `IDENTIFY`; the console card's DISPLAY, CTRL's bit 3 (P2), and its breakpoint (P3: BPADDR, BPCTRL, STATUS's
      HIT); and, with the parts claimed through function 82, the sound card's registers as the Programmer's Guide

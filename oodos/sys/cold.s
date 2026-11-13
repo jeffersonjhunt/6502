@@ -14,6 +14,7 @@
 .import WARM, BINIT, MFORMAT, DAYS2DATE, UNKEEP, CLKINIT
 .importzp TYEAR, TMONTH, TDATE
 .export COLD
+.exportzp ROMVER
 
 VER_MAX         = 8                    ; the BIOS's version, at most
 
@@ -28,6 +29,8 @@ FIRST2:         .res    1
 SHIFT:          .res    1
 CIDX:           .res    1              ; CARDS' place in CARDTAB
 VER:            .res    VER_MAX + 1
+ROMVER:         .res    2              ; the ROM BIOS's version, major and minor ($FF $FF: not found), for
+                                       ; function 77 (bdos.s, F_ROMVER; interface 9)
 
 .segment "RES"
 
@@ -188,6 +191,64 @@ BIOSVER:        LDA     #63            ; RAM block 63: the ROM BIOS's copy
                 STZ     VER + 1
 @back:          LDA     #BDOS_BLOCK
                 STA     NB_WIN1
+                ; fall through: ROMVER from VER
+
+; ROMVER: VER as "major.minor", each a decimal number to 255; $FF $FF if it isn't one.
+ROMPARSE:       LDA     #$FF
+                STA     ROMVER
+                STA     ROMVER + 1
+                LDX     #0
+                JSR     @num
+                BCS     @out
+                PHA
+                LDA     VER,X
+                CMP     #'.'
+                BNE     @drop
+                INX
+                JSR     @num
+                BCS     @drop
+                STA     ROMVER + 1
+                PLA
+                STA     ROMVER
+                RTS
+@drop:          PLA
+@out:           RTS
+; The decimal digits at VER + X: A their value, X past them; carry set if
+; none, or past 255.
+@num:           STZ     NUM
+                STZ     NUM + 1        ; digits seen
+@dig:           LDA     VER,X
+                SEC
+                SBC     #'0'
+                CMP     #10
+                BCS     @end
+                PHA
+                LDA     NUM            ; NUM x 10 + the digit
+                ASL     A
+                BCS     @big
+                ASL     A
+                BCS     @big
+                ADC     NUM
+                BCS     @big
+                ASL     A
+                BCS     @big
+                STA     NUM
+                PLA
+                ADC     NUM
+                BCS     @over
+                STA     NUM
+                INC     NUM + 1
+                INX
+                BRA     @dig
+@big:           PLA
+@over:          SEC
+                RTS
+@end:           LDA     NUM + 1
+                BEQ     @none          ; no digit
+                LDA     NUM
+                CLC
+                RTS
+@none:          SEC
                 RTS
 
 ; Each drive the BIOS has, A-P, and its size, three blanks between.
