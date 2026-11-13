@@ -3,8 +3,8 @@ OO-1 SYSTEM INFORMATION
 SYSTEM
   CPU        W65C02S at 7.159 MHz
              #,###,### Hz by the clock chip, no video frame to measure by
-  ROM BIOS   not readable by a program under OODOS
-  OODOS      0.9, its BIOS 0.2; OOLIB interface 8
+  ROM BIOS   0.13
+  OODOS      0.9, its BIOS 0.2; OOLIB interface 9
   OOUI.BNK   none on A:
   MEMORY     1,024 KB fitted
              for programs: a 47K TPA, 320 KB in banks 1-5 (320 KB free)
