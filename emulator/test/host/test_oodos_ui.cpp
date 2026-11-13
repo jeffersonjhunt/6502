@@ -5247,7 +5247,7 @@ TEST(s2_a_new_table_s_menus_and_unused_records_take_no_hit)
 // ---------------------------------------------------------------------------------------------------------------
 // UIDEMO (oodos/demo/uidemo.s, proposed): the demo card's OOUI program, as a visitor runs it. The demo card
 // booted, UIDEMO typed at A>, and its screens checked by golden frames (the main screen, a menu down, the file
-// picker on A:, the Turbo Vision theme); keys and the mouse drive it, and what ui_poll returned is read from its
+// picker on A:, the blue theme, UI_TURBO); keys and the mouse drive it, and what ui_poll returned is read from its
 // EVLOG (4 bytes an event: its code, its widget, UV_VALUE; EVN counts them). Quit gives A> back with the
 // console's screen.
 
@@ -5390,7 +5390,7 @@ TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
     r.run(ms(100));
     golden(r, "uidemo-menu");
     key(r, K_ESC);
-    // View's item: the Turbo Vision theme, its check mark on.
+    // View's item: the blue theme (UI_TURBO), its check mark on.
     key(r, K_V, L_ALT);
     key(r, K_ENTER);
     expect_demo(r, seen, {{UE_MENU, D_THEME, 0}}, "the theme's item");

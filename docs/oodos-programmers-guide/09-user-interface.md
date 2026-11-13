@@ -22,7 +22,7 @@ field, the message box and the file picker, both themes, by the keyboard and the
 OOLIB set up, `ui_load`, the table written with the layout macros, the `ui_poll` loop, and `ui_close` before the
 warm boot. It links as OOUI's test programs do, with `ooui.lib` and `oolib.lib` and a config that puts `UISTATE`
 at `$8000` ([oodos/demo/uidemo.cfg](../../oodos/demo/uidemo.cfg)):
-`make -C oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/uidemo.com`. It is 5,198 bytes.
+`make -C oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/uidemo.com`. It is 5,182 bytes.
 
 OOUI is a library of 6502 code that a program loads and calls, as it calls OOLIB's graphics library, to get the same
 windows, menus, dialogs, lists, scroll bars and file picker as every other OO-1 program. The program describes its

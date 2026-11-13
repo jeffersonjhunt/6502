@@ -1,6 +1,6 @@
 ; UIDEMO: OOUI shown off, for a visitor on the demo card (make_card.sh).
-; One window with a menu bar (File: About, Quit; View: the Turbo Vision
-; theme), check boxes, radio buttons, a slider with a bar that follows it,
+; One window with a menu bar (File: About, Quit; View: the blue theme,
+; OOUI's UI_TURBO), check boxes, radio buttons, a slider with a bar that follows it,
 ; a list, a text field and buttons; Open file... puts up the file picker on
 ; A: and B:, About a message box. The line at the window's foot says what
 ; the last event did. Quit, the window's close box, or Escape with nothing
@@ -437,7 +437,7 @@ s_hello: .asciiz "Hello, "
 s_pick: .asciiz "Picked: "
 s_nopick: .asciiz "No file picked"
 s_ok:   .asciiz "About: OK"
-s_turbo: .asciiz "Theme: Turbo Vision"
+s_turbo: .asciiz "Theme: Blue"
 s_house: .asciiz "Theme: the OO-1's own"
 
 rows:   .word   p0, p1, p2, p3, p4, p5, p6, p7, p8, p9
@@ -466,7 +466,7 @@ r_fast: .asciiz "&Fast"
         UI_SEP     I_SEP, M_FILE
         UI_ITEM    I_QUIT, M_FILE, "&Quit", U_Q, UK_CTRL, 0
         UI_MENU    M_VIEW, W_BARM, "&View"
-        UI_ITEM    I_THEME, M_VIEW, "&Turbo Vision theme", 0, 0, 0
+        UI_ITEM    I_THEME, M_VIEW, "&Blue theme", 0, 0, 0
         UI_WINDOW  W_MAIN, W_DESK, 4, 3, 72, 24, "OOUI on the OO-1", UF_CLOSE
         UI_LABEL   L_HEAD, W_MAIN, 0, 0, 0, "Tab moves the focus, Alt+letter opens a menu, Esc quits", UF_CENTRE
         UI_PANEL   P_OPTS, W_MAIN, 1, 2, 22, 4, "Options", UF_FRAME
@@ -497,7 +497,7 @@ namebuf: .res   NAMELEN                 ; the field's text, empty
 STATLEN = 64
 stat:   .byte   "Ready: try the keyboard and the mouse", 0
         .res    STATLEN - 38
-turbo:  .byte   0                       ; 1: the Turbo Vision theme
+turbo:  .byte   0                       ; 1: the blue theme (UI_TURBO)
 READY:  .byte   0
 EVN:    .byte   0
 oblk:   .byte   FT_OPEN
