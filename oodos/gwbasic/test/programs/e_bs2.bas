@@ -1,0 +1,2 @@
+10 DIM B(5) : B(5)=1 : PRINT B(5);
+20 PRINT B(6)

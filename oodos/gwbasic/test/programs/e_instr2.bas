@@ -1,0 +1,1 @@
+10 PRINT INSTR(256,"A","A")

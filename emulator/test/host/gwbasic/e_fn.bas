@@ -1,0 +1,3 @@
+10 PRINT "start"
+20 FOR I=1 TO 2
+30 PRINT I

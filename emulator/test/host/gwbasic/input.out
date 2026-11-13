@@ -1,0 +1,30 @@
+? 5
+ 5 
+Name? Bob
+Hi Bob
+Two, no ? 3,4
+ 7 
+? "quoted, with comma",-2,1E3
+quoted, with comma-2  1000 
+?   spaces  
+[spaces]
+  as typed, "with" quotes
+[  as typed, "with" quotes]
+Line: x
+[x]
+? 1.23456789012345
+ 1.23456789012345 
+? 1,2
+?Redo from start
+? abc
+?Redo from start
+? 32767
+ 32767 
+? 1
+?Redo from start
+? 2,3
+ 2  3 
+last? 1,2,3
+?Redo from start
+last? 8
+ 8 

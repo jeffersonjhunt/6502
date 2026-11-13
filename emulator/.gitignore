@@ -2,5 +2,6 @@
 .env
 build/
 **/*.out
+!test/host/gwbasic/*.out
 **/*.o
 src/hexarray.h

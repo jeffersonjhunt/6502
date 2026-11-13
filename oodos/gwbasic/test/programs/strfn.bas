@@ -1,0 +1,19 @@
+10 REM the string functions
+20 S$="GW-BASIC 1983"
+30 PRINT LEFT$(S$,2);"|";LEFT$(S$,0);"|";LEFT$(S$,255);"|";LEFT$("",3);"|"
+40 PRINT RIGHT$(S$,4);"|";RIGHT$(S$,0);"|";RIGHT$(S$,99);"|";RIGHT$("",1);"|"
+50 PRINT MID$(S$,4);"|";MID$(S$,4,5);"|";MID$(S$,13);"|";MID$(S$,14);"|";MID$(S$,200,2);"|";MID$(S$,1,0);"|"
+60 PRINT MID$(S$,10,255);"|";MID$(S$,2,1);"|";MID$("",1);"|"
+70 PRINT LEN(S$);LEN(LEFT$(S$,3));ASC(S$);ASC("a");ASC(CHR$(0));ASC(CHR$(255))
+80 PRINT CHR$(72);CHR$(105);CHR$(33);LEN(CHR$(0));CHR$(65.4);CHR$(65.5)
+90 PRINT "[";SPACE$(5);"]";LEN(SPACE$(0));LEN(SPACE$(255))
+100 PRINT INSTR(S$,"BASIC");INSTR(S$,"X");INSTR(S$,"");INSTR("",S$);INSTR("","");INSTR(S$,S$)
+110 PRINT INSTR(5,S$,"S");INSTR(7,S$,"S");INSTR(13,S$,"3");INSTR(14,S$,"3");INSTR(14,S$,"");INSTR(13,S$,"")
+120 PRINT INSTR("AAAB","AAB");INSTR("ABABC","ABC");INSTR(2,"ABAB","AB");INSTR("ABC","ABCD");INSTR(255,"A","")
+130 PRINT STR$(0);"|";STR$(-1.5);"|";STR$(1E+20);"|";STR$(32767);"|";STR$(1/3);"|";STR$(-32768)
+140 PRINT VAL("12");VAL(" -3.5");VAL("1E3");VAL("12ABC");VAL("");VAL("ABC");VAL(".5");VAL("  7  ")
+150 PRINT VAL("123456789");VAL("1.5D2");VAL("-0");VAL(STR$(255))+1;VAL(MID$("9876",2,2))
+160 PRINT HEX$(0);" ";HEX$(255);" ";HEX$(-1);" ";HEX$(65535);" ";HEX$(32768);" ";HEX$(4096.4);" ";HEX$(-32768)
+170 PRINT OCT$(0);" ";OCT$(8);" ";OCT$(-1);" ";OCT$(65535);" ";OCT$(511.6)
+180 PRINT LEN(STR$(12345));LEN(HEX$(255));ASC(STR$(5));ASC(STR$(-5))
+190 PRINT LEFT$(RIGHT$(MID$(S$,1),9),5);INSTR(MID$(S$,3),"B");CHR$(ASC("A")+1)

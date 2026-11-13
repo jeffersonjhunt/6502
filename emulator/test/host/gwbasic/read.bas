@@ -1,0 +1,18 @@
+10 REM READ, DATA, RESTORE: numbers, strings quoted or not, colons, RESTORE line
+20 READ A,B%,C#,D$:PRINT A;B%;C#;D$
+30 READ E$,F$,G$:PRINT "[";E$;"][";F$;"][";G$;"]"
+40 READ H:PRINT H:READ I$:PRINT I$
+50 RESTORE:READ A:PRINT A
+60 RESTORE 200:READ A,A$:PRINT A;A$
+70 READ X:IF X<>-1 THEN PRINT X;:GOTO 70
+80 PRINT
+90 READ N:FOR I=1 TO N:READ V(I):NEXT:FOR I=1 TO N:PRINT V(I);:NEXT:PRINT
+100 READ S$:PRINT LEN(S$);S$
+110 END
+120 DATA 1.5,-7,1.234567890123,hello
+130 DATA  "a, b" , spaced  out  ,"x:y"
+140 PRINT "not run":DATA 99
+150 DATA unquoted:REM after a colon
+200 DATA 3,three,10,20,30,-1
+210 DATA 4,  1.5 ,2.5,3.5  ,4.5
+220 DATA ""
