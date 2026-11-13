@@ -3938,6 +3938,75 @@ TEST(u3b_a_scroll_bar_s_margin_takes_a_press)
     poll(r);
 }
 
+TEST(u3b_r4_a_margin_at_the_edges_under_a_hidden_parent_and_a_drop_down)
+{
+    // The U3b review's round 4, K2: the margin's edge cases. Z_OWN given $11 (a cell across, a cell along) and
+    // UF_MARGIN.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    r.poke(rec3(Z_OWN) + UW_TEXT + 1, 0x11);
+    CHECK_EQ(ui(r, 'F', UF_MARGIN_, 0, Z_OWN).substr(6), std::string("00"));
+    // At a parent's client area's edge: the slider at the window's client (0, 0), columns 3-32 of row 2. The
+    // margin's cells on the window's frame (column 2, its left side; row 1, its title) take nothing; those
+    // inside do.
+    r.poke(rec3(Z_OWN) + 2, 0);
+    r.poke(rec3(Z_OWN) + 3, 0);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    const int on = press_at(r, Z_OWN, 50, 10, 2);
+    CHECK(on > 0 && on < 100);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 10, 3), on); // below, inside the client area
+    CHECK_EQ(press_at(r, Z_OWN, 50, 10, 1), -1); // above: the title row
+    CHECK_EQ(press_at(r, Z_OWN, 50, 2, 2), -1);  // before its start: the frame
+    CHECK_EQ(press_at(r, Z_OWN, 50, 33, 3), 100); // after its end, inside
+    // At the screen's left and top edge: the slider on the desktop at (0, 0), columns 0-29 of row 0, the window
+    // hidden (else its cells, from row 1, are its own). The margin before its start and above it is off the
+    // screen; nothing comes round from the far edges.
+    r.poke(rec3(Z_OWN) + 1, Z_DESK);
+    CHECK_EQ(ui(r, 'h', Z_WIN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    const int top = press_at(r, Z_OWN, 50, 5, 0);
+    CHECK(top > 0 && top < 100);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 5, 1), top); // below
+    CHECK_EQ(press_at(r, Z_OWN, 50, 0, 1), press_at(r, Z_OWN, 50, 0, 0)); // below its first cell
+    CHECK_EQ(press_at(r, Z_OWN, 50, 30, 1), 100); // after its end, below
+    CHECK_EQ(press_at(r, Z_OWN, 50, 31, 0), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 5, 29), -1);  // the bottom row, the right column: no wrap
+    CHECK_EQ(press_at(r, Z_OWN, 50, 79, 0), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 79, 29), -1);
+    // Back in the window (columns 9-38, row 4), the window hidden: no margin, nor the track.
+    r.poke(rec3(Z_OWN) + 1, Z_WIN);
+    r.poke(rec3(Z_OWN) + 2, 6);
+    r.poke(rec3(Z_OWN) + 3, 2);
+    CHECK_EQ(ui(r, 's', Z_WIN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    const int mid = press_at(r, Z_OWN, 50, 20, 4);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 20, 5), mid);
+    CHECK_EQ(ui(r, 'h', Z_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 20, 5), -1);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 20, 4), -1);
+    CHECK_EQ(ui(r, 's', Z_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(press_at(r, Z_OWN, 50, 20, 3), mid);
+    // A drop-down down over the margin (the menu bar's, rows 1-5): a press there is the menu's, never the
+    // slider's.
+    CHECK_EQ(ui(r, 's', Z_BAR).substr(6), std::string("00"));
+    poll(r);
+    setv(r, Z_OWN, 50);
+    poll(r);
+    key(r, 0x43); // F10: the drop-down
+    poll(r);
+    click(r, 20, 3); // its second item's row, in the margin above the track
+    const std::vector<Event> ev = poll(r);
+    CHECK_EQ(changed(ev, Z_OWN), -1);
+    CHECK(!ev.empty() && ev[0].code == UE_MENU);
+    CHECK_EQ(word_at(r, rec3(Z_OWN) + UW_VALUE), 50u);
+}
+
 TEST(u3b_a_label_in_a_colour_of_its_own)
 {
     // A label's UW_VALUE low byte, not 0: its own attribute ($4E); 0: the theme's TC_LABEL.
@@ -4052,4 +4121,196 @@ TEST(u3b_the_picker_s_add_and_add_all_keep_it_up)
     }
     key(r, K_ESC);
     expect(poll(r), {{UE_PICK, P_WIN, 0, 1}, {UE_MODAL, P_WIN, 0, 0}}, "Escape: gone");
+}
+
+// ---------------------------------------------------------------------------
+// U3b, the repaint trace's B1-B4 (hw/ooui.md, "U3b: the repaint"): what a poll costs among 90 records, as many as
+// OO-Amp's screen has.
+
+namespace
+{
+    enum : uint8_t { BLK_BIG = 8 };                  ///< uitest.s's (UITBAR): block 5's table with 31 records more
+    constexpr uint8_t A_TIME = 2, A_EQ5B = 16, A_X4B = 89; ///< its first label; a band (A_EQ5); its last label
+    /// A 'p' (ui_poll till UE_NONE): the cycles of all its ui_polls (each from its stub to its return, PRET), how
+    /// many, the events, and how often OOUI's REC, RNEXT (a walk's step), FRONT and PASS were entered (U3b, B1-B4).
+    struct Polls
+    {
+        unsigned long cycles = 0, calls = 0, recs = 0, steps = 0, fronts = 0, passes = 0;
+        std::vector<Event> ev;
+    };
+    Polls polls_cost(CcpRig &r)
+    {
+        const uint16_t stub = lab("ui_poll"), back = lab("PRET"), rec = lab("REC"), front = lab("FRONT"),
+                       pass = lab("PASS"), step = lab("RNEXT");
+        const unsigned blocks[3] = {bank_block(r, "PAINT"), bank_block(r, "POST"), bank_block(r, "DLGON")};
+        Polls p;
+        uint64_t start = 0;
+        r.watch = [&](uint16_t pc) {
+            const unsigned w3 = r.nb(3) & 0x3F;
+            const bool ooui = w3 == blocks[0] || w3 == blocks[1] || w3 == blocks[2];
+            if (pc == stub && !start)
+                start = r.cpu->cycles();
+            else if (pc == back && start)
+            {
+                p.cycles += static_cast<unsigned long>(r.cpu->cycles() - start);
+                ++p.calls;
+                start = 0;
+            }
+            else if (ooui && pc == rec)
+                ++p.recs;
+            else if (ooui && pc == step)
+                ++p.steps;
+            else if (ooui && pc == front)
+                ++p.fronts;
+            else if (w3 == blocks[0] && pc == pass)
+                ++p.passes;
+        };
+        p.ev = poll(r);
+        r.watch = nullptr;
+        return p;
+    }
+    void say(const char *what, const Polls &p)
+    {
+        std::printf("  among 90 records, %s: %lu cycles, %lu ui_poll, %lu REC, %lu RNEXT, %lu FRONT, %lu PASS\n", what,
+                    p.cycles, p.calls, p.recs, p.steps, p.fronts, p.passes);
+    }
+} // namespace
+
+TEST(u3b_r5_a_poll_s_cost_among_ninety_records)
+{
+    // OO-Amp's screen has about 90 records; block 8 has 90 (its sliders, bars, canvases, buttons and labels), on
+    // one layer as OO-Amp's are, no record on the overlay. A frame is 119,318 cycles. Before B1-B4 (48c0386):
+    // idle 56,679; one label dirty 453,345; a drag's step 628,883; a button pressed 1,026,758, released 455,661;
+    // 30 widgets changed 2,273,689.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    // An idle poll, nothing dirty and no damage: no paint (B1), the modal window and the overlay kept (B3), so
+    // no record looked at.
+    const Polls idle = polls_cost(r);
+    say("an idle poll", idle);
+    CHECK(idle.calls == 1 && idle.cycles > 0 && idle.cycles < 5000);
+    CHECK_EQ(idle.passes, 0u);
+    CHECK(idle.recs < 5u);
+    // One widget dirty, the table's first label: drawn again, the records after it looked at once each, in one
+    // pass (B2: no record can be on the overlay), the walks stepping (B4).
+    CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
+    const Polls one = polls_cost(r);
+    say("one label dirty", one);
+    CHECK_EQ(one.passes, 1u);
+    CHECK(one.cycles < 350000);
+    // The table's last label dirty: the records before it stepped over, not found one by one (B4).
+    CHECK_EQ(ui(r, 'd', A_X4B).substr(6), std::string("00"));
+    const Polls last = polls_cost(r);
+    say("the last label dirty", last);
+    CHECK(last.recs < 150u);                     // (192 with PASS's or the clearing's steps by REC: B4)
+    CHECK(last.recs + last.steps < 330u);        // (374 with OVERS found again each paint: B3)
+    // A label hidden, then shown again: the modal window and the overlay found again once (B3), the overlay's
+    // walk stepping (B4).
+    CHECK_EQ(ui(r, 'h', A_X4B).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 's', A_X4B).substr(6), std::string("00"));
+    const Polls shown = polls_cost(r);
+    say("the last label shown again", shown);
+    CHECK(shown.recs < 150u);                    // (194 with the overlay's walk by REC: B4)
+    // A drag: band 5 (column 24, rows 11-18) held on its track and moved a row: no hit test while it is held
+    // (B4), the drag still tracked.
+    point(r, 24, 15);
+    button(r, true);
+    const Polls down = polls_cost(r);
+    CHECK(changed(down.ev, A_EQ5B) >= 0);
+    point(r, 24, 14);
+    const Polls drag = polls_cost(r);
+    say("a drag's step", drag);
+    CHECK_EQ(drag.fronts, 0u);
+    CHECK(changed(drag.ev, A_EQ5B) > changed(down.ev, A_EQ5B));
+    CHECK(drag.cycles < 450000);
+    button(r, false);
+    poll(r);
+    // A press on a button (A_PLAY, columns 10-15, row 22: drawn pressed), and its release (a click).
+    point(r, 11, 22);
+    button(r, true);
+    const Polls press = polls_cost(r);
+    say("a button pressed", press);
+    CHECK(press.cycles < 900000);
+    button(r, false);
+    const Polls release = polls_cost(r);
+    say("released", release);
+    CHECK(release.cycles < 350000);
+    // Many widgets changed at once, as when a track starts: the 14 sliders' values and the 15 status labels.
+    for (unsigned h : {6u, 7u, 8u, 11u, 12u, 13u, 14u, 15u, 16u, 17u, 18u, 19u, 20u, 21u, 33u})
+        setv(r, static_cast<uint8_t>(h), 20);
+    for (unsigned h = 44; h < 59; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls many = polls_cost(r);
+    say("30 widgets changed", many);
+    CHECK(many.cycles < 2150000);
+}
+
+TEST(u3b_r5_the_modal_window_and_the_overlay_kept_are_found_again)
+{
+    // B3: FINDMODAL's umodal and OVERS's answer are kept between polls, and found again after each change that can
+    // move them: ui_show, ui_hide, ui_flags, ui_dirty on a window (its flags the program's own writing),
+    // ui_redraw, ui_resume, ui_open (after ui_close), and the dialogs (u2_the_message_box, the picker's cases). A
+    // modal window's coming and going is seen (UE_MODAL, umodal); the overlay's window, by a click (FRONT's
+    // overlay pass runs only while OVERS says one can be there).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint16_t umodal = lab("umodal");
+    const uint16_t side = static_cast<uint16_t>(lab("main") + W_SIDE * 16u + UW_FLAGS);
+    CHECK_EQ(r.phys(umodal), 0xFF);
+    // ui_flags
+    CHECK_EQ(ui(r, 'F', UF_MODAL, 0, W_SIDE).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 1}}, "ui_flags: modal");
+    CHECK_EQ(ui(r, 'F', 0, UF_MODAL, W_SIDE).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 0}}, "ui_flags: not");
+    // ui_hide and ui_show of a modal window
+    CHECK_EQ(ui(r, 'F', UF_MODAL, 0, W_SIDE).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'h', W_SIDE).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 0}}, "ui_hide");
+    CHECK_EQ(ui(r, 's', W_SIDE).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 1}}, "ui_show");
+    // ui_dirty on the window after the program wrote its flags itself
+    r.poke(side, static_cast<uint8_t>(r.phys(side) & ~UF_MODAL));
+    poll(r);
+    CHECK_EQ(r.phys(umodal), W_SIDE); // (kept: nothing said it changed)
+    CHECK_EQ(ui(r, 'd', W_SIDE).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 0}}, "ui_dirty on the window");
+    // ui_redraw
+    r.poke(side, static_cast<uint8_t>(r.phys(side) | UF_MODAL));
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 1}}, "ui_redraw");
+    // ui_suspend, the flags written meanwhile, ui_resume
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    r.poke(side, static_cast<uint8_t>(r.phys(side) & ~UF_MODAL));
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 0}}, "ui_resume");
+    // ui_close, the flags written, ui_open again
+    r.poke(side, static_cast<uint8_t>(r.phys(side) | UF_MODAL));
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(r.phys(umodal), W_SIDE);
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    r.poke(side, static_cast<uint8_t>(r.phys(side) & ~UF_MODAL));
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(r.phys(umodal), 0xFF);
+    // The overlay: its window shown, a click on its button is its; hidden, the click isn't.
+    click(r, 25, 23);
+    poll(r);
+    CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00"));
+    poll(r);
+    click(r, 25, 23);
+    std::vector<Event> ev = poll(r);
+    CHECK(std::any_of(ev.begin(), ev.end(), [](const Event &e) { return e.code == UE_CLICK && e.handle == B_HIDE; }));
+    CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
+    poll(r);
+    click(r, 25, 23);
+    ev = poll(r);
+    CHECK(std::none_of(ev.begin(), ev.end(), [](const Event &e) { return e.handle == B_HIDE; }));
 }

@@ -48,6 +48,7 @@ ususp:  .res    1                      ; 1: suspended (ui_suspend)
 upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
 udmg:   .res    8                      ; the damage: the base's box, the overlay's: c0, r0, c1, r1 each
+uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
 rhid:   .res    1                      ;   not 0: hidden (it or a parent, or a menu not down)
 rover:  .res    1                      ;   1: on the overlay
@@ -124,6 +125,22 @@ REC:    cmp     ucount
         sta     UIR + 1
         pla
         rts
+
+; UIR on record A, when it was on record A - 1 (U3b, B4: a walk up the
+; records steps, as REC finds; the dialogs' follow the table's). Keeps A,
+; X and Y.
+RNEXT:  cmp     ucount
+        beq     @dlg
+        pha
+        lda     UIR
+        clc
+        adc     #UW_LEN
+        sta     UIR
+        bcc     @r
+        inc     UIR + 1
+@r:     pla
+        rts
+@dlg:   jmp     REC
 
 ; A a handle: UI_RECT its place, ucli its client area, rtype, rover; carry
 ; set if it is hidden. UIR the record's.
@@ -423,8 +440,9 @@ UPPER:  cmp     #'a'
         and     #$DF
 @r:     rts
 
-; A a handle: marked dirty (a menu's bar too, an item's menu). Keeps A, and
-; leaves UIR on record A (the review's O1: not on the bar it went up to).
+; A a handle: marked dirty (a menu's bar too, an item's menu), and a paint
+; to do (UQ_PAINT: U3b, B1). Keeps A, and leaves UIR on record A (the
+; review's O1: not on the bar it went up to).
 DIRTY:  cmp     utot
         bcs     @r
         pha
@@ -433,6 +451,8 @@ DIRTY:  cmp     utot
         lda     (UIR),y
         ora     #UF_DIRTY
         sta     (UIR),y
+        lda     #UQ_PAINT               ; (U3b, B1) a paint to do
+        tsb     uany
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_MENU
@@ -594,8 +614,16 @@ NEXTFOCUS:
         clc
         rts
 
-; umodal = the last modal window that shows, or UI_NONE.
+; umodal = the last modal window that shows, or UI_NONE. (U3b, B3) Found
+; again only when uany's UQ_MSTALE says so: REFOCUS sets it (ui_show,
+; ui_hide, ui_flags, the dialogs), and DLGREC, ui_open, ui_resume, and
+; ui_dirty on a window. Else it keeps A, X, Y and UIR.
 FINDMODAL:
+        bit     uany
+        bmi     @go
+        rts
+@go:    lda     #UQ_MSTALE
+        trb     uany
         lda     utot
         sta     fm_h
 @l:     dec     fm_h
@@ -618,14 +646,16 @@ FINDMODAL:
 @set:   sta     umodal
         rts
 
-; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's); an
-; empty er adds nothing.
+; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's), and
+; a paint to do (UQ_PAINT: U3b, B1); an empty er adds nothing.
 BOXADD: lda     er
         cmp     er + 2
         bcs     @none
         lda     er + 1
         cmp     er + 3
         bcs     @none
+        lda     #UQ_PAINT
+        tsb     uany
         lda     udmg,x
         cmp     udmg + 2,x
         bcc     @merge
@@ -658,8 +688,10 @@ BOXADD: lda     er
 @d:
 @none:  rts
 
-; Box X the whole screen.
+; Box X the whole screen, and a paint to do (U3b, B1).
 BOXFULL:
+        lda     #UQ_PAINT
+        tsb     uany
         stz     udmg,x
         stz     udmg + 1,x
         lda     #UI_COLS
@@ -904,6 +936,8 @@ ui_open:
         stz     udmg + 2
         stz     udmg + 4
         stz     udmg + 6
+        lda     #UQ_STALE               ; (U3b, B3) the modal window and the overlay found again
+        sta     uany
         jsr     ENTER
         jsr     POLLINIT
         jsr     SETUP
@@ -1263,8 +1297,12 @@ HIDEH:  sta     sh_h
         ora     #UF_HIDDEN
         sta     (UIR),y
 ; The focus kept where it can be, else moved on (a modal window shown, or
-; the focus's widget hidden).
+; the focus's widget hidden). (U3b, B3) After a record shown, hidden, its
+; flags changed or a dialog made: the modal window and OVERS's answer found
+; again.
 REFOCUS:
+        lda     #UQ_STALE
+        tsb     uany
         jsr     FINDMODAL
         lda     umenu                   ; a menu down outside the modal window goes up (W5)
         cmp     #UI_NONE
@@ -1584,13 +1622,20 @@ ui_dirty:
         jsr     ENTER
         jsr     CHKH
         jsr     DIRTY
+        ldy     #UW_TYPE                ; (U3b, B3) a window: its flags may be the program's
+        lda     (UIR),y                 ;   own writing (UF_MODAL, UF_OVERLAY), so the modal
+        cmp     #UT_WINDOW              ;   window and the overlay are found again
+        beq     STALE
+        clc
+        rts
+STALE:  lda     #UQ_STALE
+        tsb     uany
         clc
         rts
 
 ui_redraw:
         jsr     ALLDIRTY
-        clc
-        rts
+        bra     STALE
 
 ui_focus:
         jsr     ENTER
@@ -1664,8 +1709,7 @@ ui_resume:
         jsr     ENTER
         jsr     SETUP
         jsr     ALLDIRTY
-        clc
-        rts
+        jmp     STALE                   ; (U3b, B3)
 
         .bss
 sf_old: .res    1

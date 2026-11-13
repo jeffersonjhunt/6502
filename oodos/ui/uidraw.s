@@ -476,8 +476,11 @@ PIX:    asl     mf + 1
 ; Painting.
 
 PAINT:  lda     ususp
-        beq     @go
-        rts
+        bne     @r
+        lda     #UQ_PAINT               ; (U3b, B1) nothing dirtied and no damage since the
+        bit     uany                    ;   last: nothing to draw, nor thumbs to place
+        bne     @go
+@r:     rts
 @go:    stz     udrew
         jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
@@ -556,18 +559,23 @@ PAINT:  lda     ususp
         sta     cmap + 1
         bra     @p2
 @same:  stz     pclr                    ; on the base: box 0 again, not cleared again
+        jsr     OVERS                   ; (U3b, B2) no record can be on the overlay: no
+        beq     @np2                    ;   second pass
 @p2:    jsr     PASS
-        jsr     MPASS
-        stz     ph                      ; nothing dirty, no damage
+@np2:   jsr     MPASS
+        lda     #0                      ; nothing dirty, no damage
+        sta     ph
+        jsr     REC
+        ldy     #UW_FLAGS
 @c:     lda     ph
         cmp     utot
         bcs     @e
-        jsr     REC
-        ldy     #UW_FLAGS
         lda     (UIR),y
         and     #<~UF_DIRTY
         sta     (UIR),y
         inc     ph
+        lda     ph
+        jsr     RNEXT                   ; (U3b, B4: keeps Y)
         bra     @c
 @e:     lda     udmg                    ; damage with nothing drawn (a window hidden over
         cmp     udmg + 2                ;   nothing): what shows changed, upost too (Z2)
@@ -577,7 +585,9 @@ PAINT:  lda     ususp
         bcs     @clr
 @dmg:   lda     #1
         sta     udrew
-@clr:   ldx     #7                      ; the damage kept for upost (POST: U3a's Z3), then cleared
+@clr:   lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
+        trb     uany                    ;   on is the next paint's
+        ldx     #7                      ; the damage kept for upost (POST: U3a's Z3), then cleared
 @z:     lda     udmg,x
         sta     pdmg,x
         stz     udmg,x
@@ -619,11 +629,12 @@ PASS:   ldx     pbx
         stz     uattr
         lda     #0
         jsr     FILLR
-@go:    stz     ph
+@go:    lda     #0
+        sta     ph
+        jsr     REC
 @rec:   lda     ph
         cmp     utot
         bcs     @r
-        jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
         beq     @next
@@ -641,13 +652,19 @@ PASS:   ldx     pbx
         bcs     @next
 @rect:  lda     ph
         jsr     RECT
-        bcs     @next
+        bcs     @back
         lda     rover
         cmp     pl
-        bne     @next
+        bne     @back
         lda     ph
         jsr     ONE
-@next:  inc     ph
+@back:  inc     ph                      ; (RECT and ONE moved UIR: the next found)
+        lda     ph
+        jsr     REC
+        bra     @rec
+@next:  inc     ph                      ; (U3b, B4) the next record's a step on
+        lda     ph
+        jsr     RNEXT
         bra     @rec
 @r:     rts
 

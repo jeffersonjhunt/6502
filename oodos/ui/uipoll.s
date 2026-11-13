@@ -774,12 +774,23 @@ FRONT:  lda     #1                      ; RECT's sibling cache on for the walk (
         rts
 
 ; A = 1 if a record can be on the overlay (a shown window with UF_OVERLAY:
-; the dialogs' are), else 0. Menus, which FRONT passes by, don't count.
-OVERS:  ldx     #0
-@l:     cpx     utot
-        bcs     @no
+; the dialogs' are), else 0 (Z with it). Menus, which FRONT passes by,
+; don't count. (U3b, B3) Kept in uany (UQ_OVERS), and found again only
+; when UQ_OSTALE says so, as FINDMODAL's umodal is; else it keeps X, Y and
+; UIR.
+OVERS:  bit     uany
+        bvs     @go
+        lda     uany
+        and     #UQ_OVERS
+        lsr     a
+        rts
+@go:    lda     #UQ_OSTALE | UQ_OVERS
+        trb     uany
+        ldx     #0
         txa
         jsr     REC
+@l:     cpx     utot
+        bcs     @no
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_WINDOW
@@ -789,9 +800,13 @@ OVERS:  ldx     #0
         and     #UF_OVERLAY | UF_HIDDEN
         cmp     #UF_OVERLAY
         bne     @n
+        lda     #UQ_OVERS
+        tsb     uany
         lda     #1
         rts
 @n:     inx
+        txa
+        jsr     RNEXT                   ; (U3b, B4) the next record a step on
         bra     @l
 @no:    lda     #0
         rts
@@ -1180,7 +1195,8 @@ WHEELW: lda     dh
 
 ; The pointer, if it moved since the last poll: US_HOT moved to the widget
 ; under it, and the widget held (upress) told (WR_MOVE). A its event, or
-; UE_NONE.
+; UE_NONE. (U3b, B4) While a slider or a scroll bar is held, no hit test:
+; US_HOT stays till the pointer moves after the release.
 POINTED:
         lda     uarea
         sta     UIP
@@ -1203,6 +1219,8 @@ POINTED:
         lda     moved
         beq     @none
         jsr     CELL
+        jsr     DRAGGED                 ; (U3b, B4) a slider or a scroll bar held: no hit
+        bcc     @drag                   ;   test, US_HOT kept, the drag tracked
         jsr     HIT
         cmp     uhot
         beq     @drag
@@ -1231,6 +1249,27 @@ POINTED:
         bcc     @r
 @none:  lda     #UE_NONE
 @r:     rts
+; Carry clear if the press held (upress) is a slider's or a scroll bar's
+; (U3b, B4: its drag needs no hit test). Keeps nothing.
+DRAGGED:
+        lda     upress
+        cmp     #UI_NONE
+        beq     @no
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_VSCROLL
+        bcc     @no
+        cmp     #UT_HSCROLL + 1
+        bcc     @yes
+        cmp     #UT_VSLIDER
+        bcc     @no
+        cmp     #UT_HSLIDER + 1
+        rts
+@yes:   clc
+        rts
+@no:    sec
+        rts
 ; Record A's US_HOT: X it (US_HOT) or 0. With the theme's TF_HOT, a button
 ; is drawn again, since its colour shows it (U3b).
 HOTBIT: cmp     #UI_NONE

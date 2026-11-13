@@ -20,8 +20,8 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 
 ; uicore.s's
 .global ublk, uarea, utab, ucount, utheme, ukeys, ubase, uover, usprite, usprites, uoflags
-.global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, ucli, rhid, rover, rtype
-.global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL
+.global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, uany, ucli, rhid, rover, rtype
+.global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL, RNEXT
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
 .global utot, udlgp, ufl, wtype, wo, rclip, rcv, rcp, WFLAGS, WCALL, CLAMP, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
 .global t0, t1, t2, t3
@@ -60,6 +60,13 @@ WF_LIST         = $04                  ;   below UW_A, or $FFFF none
 WF_REPEAT       = $08                  ; the keys it takes repeat while held
 
 DLG_RECS        = 14                   ; (U3b: 14, the picker's Add all)
+
+; uany's bits (uicore.s; U3b, the repaint trace's B1 and B3)
+UQ_PAINT        = $01                  ; a record dirtied or damage added since the last paint
+UQ_OVERS        = $02                  ; OVERS's answer, while UQ_OSTALE is clear
+UQ_OSTALE       = $40                  ; OVERS's answer to find again
+UQ_MSTALE       = $80                  ; FINDMODAL's umodal to find again
+UQ_STALE        = UQ_OSTALE | UQ_MSTALE
 
 ; The crossings between blocks (U3a: uifar.s, and each block's dispatcher,
 ; uia.s, uib.s, uic.s): XGO FARx, a selector, keeping A, X, Y, the carry

@@ -598,7 +598,7 @@ blocks: .word   blk_main, blk_one, blk_desk
         .word   blk_u2, blk_u2one
 .endif
 .if UIVAR = 2
-        .word   blk_amp, blk_u3b, blk_own
+        .word   blk_amp, blk_u3b, blk_own, blk_big
 .endif
 
 ; 0: the main scene, menus and overlay windows on layer 1.
@@ -771,7 +771,7 @@ keys2:  .byte   0
 ; volume, balance, the playlist's), each band's label, buttons, bars and
 ; canvases, 59 records; sprites 0 (the pointer) to 15.
 blk_amp: .word  AREA, amp
-        .byte   amp_COUNT
+        .byte   AMP_N
         .word   0, keys2
         .byte   0, 1, 0, 16, 0
         .word   amp_WIDGETS
@@ -808,8 +808,19 @@ blk_amp: .word  AREA, amp
 .repeat 15, i
         UI_LABEL   .ident(.sprintf("A_ST%d", i)), A_WIN, 1 + (i .mod 4) * 18, 22 + i / 4, 17, "Status", 0
 .endrepeat
+AMP_N   = 59                            ; (block 5's count)
+.assert _UI_N = AMP_N, error, "the amp scene's records"
+; (U3b, the repaint trace's B1-B4: block 8 below, the same table with 31
+; records more, 90, as many as OO-Amp's screen: a playlist's rows in two
+; columns and a row of labels.)
+.repeat 26, i
+        UI_LABEL   .ident(.sprintf("A_TR%d", i)), A_WIN, 50 + (i .mod 2) * 12, 5 + i / 2, 11, "Track", 0
+.endrepeat
+.repeat 5, i
+        UI_LABEL   .ident(.sprintf("A_X%d", i)), A_WIN, 1 + i * 9, 19, 8, "Extra", 0
+.endrepeat
         UI_END     amp
-.assert amp_COUNT = 59, error, "the amp scene's records"
+.assert amp_COUNT = 90, error, "the big scene's records"
 
 ; 6 (U3b): the gaps OO-Amp's port found: a slider with a thumb of the
 ; program's own (16 x 8, group 1: UF_OWNTHUMB), one with OOUI's; scroll bars
@@ -827,6 +838,15 @@ blk_own: .word  AREA, u3b
         .word   0, keys2
         .byte   0, 1, 0, 5, UO_OWNMOUSE
         .word   0
+
+; 8 (U3b, B1-B4): the amp scene with 90 records, to time an idle poll, a
+; dirty widget's and a drag's among as many records as OO-Amp's screen; on
+; one layer, 1, as OO-Amp's look A has it (UO_OVER $FF).
+blk_big: .word  AREA, amp
+        .byte   amp_COUNT
+        .word   0, keys2
+        .byte   1, $FF, 0, 16, 0
+        .word   amp_WIDGETS
 
         UI_BEGIN u3b
         UI_DESKTOP Z_DESK
