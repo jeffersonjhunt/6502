@@ -1,0 +1,2 @@
+10 PRINT INSTR(1,"A","A");
+20 PRINT INSTR(0,"A","A")

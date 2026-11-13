@@ -1,0 +1,2 @@
+10 DIM C(2,2) : PRINT C(1,1);
+20 PRINT C(1)

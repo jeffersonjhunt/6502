@@ -1,0 +1,4 @@
+10 READ A$,B
+20 PRINT A$
+30 DATA abc
+40 DATA def

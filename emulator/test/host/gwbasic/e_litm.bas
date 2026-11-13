@@ -1,0 +1,1 @@
+10 LINE INPUT A

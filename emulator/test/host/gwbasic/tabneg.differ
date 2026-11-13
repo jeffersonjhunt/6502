@@ -1,0 +1,6 @@
+# the 1983 source: TAB and SPC of a negative number are of 0 (SPC: no spaces; TAB: a new line if past column 0); PC-BASIC goes on to the next print zone
+abc
+abcde
+f
+x
+y

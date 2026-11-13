@@ -1,0 +1,2 @@
+10 DIM D(5) : PRINT 1;
+20 DIM D(5)

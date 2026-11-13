@@ -1,0 +1,2 @@
+10 PRINT MID$("ABC",1,0);"|";
+20 PRINT MID$("ABC",0)

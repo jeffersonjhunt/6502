@@ -532,6 +532,63 @@ target_compile_definitions(test_docs_examples PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
+# --- GW-BASIC (hw/oodos.md, "The plan, phase 7") -----------------------------
+#
+# oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL (the resident
+# core and the blocks, through the size gate and the rules gate) into the
+# build tree, and checks the translation ledger. test_gwbasic_core runs them
+# from OODOS's CCP (oodos_rig.h).
+
+get_filename_component(GWBASIC_SRC "${PROJECT_SOURCE_DIR}/../oodos/gwbasic" ABSOLUTE)
+set(GWBASIC_DIR "${CMAKE_CURRENT_BINARY_DIR}/gwbasic")
+file(GLOB_RECURSE gwbasic_sources CONFIGURE_DEPENDS "${GWBASIC_SRC}/*.s" "${GWBASIC_SRC}/*.inc"
+        "${GWBASIC_SRC}/*.cfg" "${GWBASIC_SRC}/tools/*.py")
+list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames.txt") # the ledger's check
+add_custom_command(
+        OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
+               "${GWBASIC_DIR}/ledger.ok"
+        COMMAND "${EMU_MAKE}" -s -C "${GWBASIC_SRC}" "BUILD=${GWBASIC_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        DEPENDS ${gwbasic_sources} "${GWBASIC_SRC}/Makefile" ${oodos_includes} "${OODOS_SRC}/tools/rules.py"
+        VERBATIM)
+add_custom_target(gwbasic ALL DEPENDS "${GWBASIC_DIR}/GWBASIC.COM")
+emu_add_test(test_gwbasic_core)
+set_tests_properties(test_gwbasic_core PROPERTIES TIMEOUT 600)
+add_dependencies(test_gwbasic_core gwbasic oodos_sys backplane_bios)
+target_compile_definitions(test_gwbasic_core PRIVATE
+        EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
+        EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
+# test_gwbasic_math: the math (res/ and p1/) against oodos/gwbasic/test/mbf.py, bit for bit, on the
+# W65C02S core alone: the Makefile's flat test image (every module in one image, a far call a JSR;
+# test/flat.cfg) and run6502 (test/run6502.cpp), built here, run by test/check.py. No device, and no
+# OODOS: about 5 s.
+add_executable(gwbasic_run6502 "${GWBASIC_SRC}/test/run6502.cpp")
+target_link_libraries(gwbasic_run6502 PRIVATE emu_cpu6502 emu_log)
+add_custom_command(
+        OUTPUT "${GWBASIC_DIR}/flat.bin" "${GWBASIC_DIR}/flat.map" "${GWBASIC_DIR}/flat.lbl"
+        COMMAND "${EMU_MAKE}" -s -C "${GWBASIC_SRC}" "BUILD=${GWBASIC_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+                "${GWBASIC_DIR}/flat.bin"
+        DEPENDS ${gwbasic_sources} "${GWBASIC_SRC}/Makefile" ${oodos_includes}
+        VERBATIM)
+add_custom_target(gwbasic_flat ALL DEPENDS "${GWBASIC_DIR}/flat.bin" gwbasic_run6502)
+add_dependencies(gwbasic_flat gwbasic) # one make at a time in GWBASIC_DIR
+add_test(NAME test_gwbasic_math
+         COMMAND "${Python3_EXECUTABLE}" -I -B "${GWBASIC_SRC}/test/check.py"
+                 --runner $<TARGET_FILE:gwbasic_run6502> --image "${GWBASIC_DIR}/flat.bin")
+set_tests_properties(test_gwbasic_math PROPERTIES TIMEOUT 300)
+# test_gwbasic_programs: oodos/gwbasic/test/programs/*.bas on the same flat image, through NEWSTT and
+# the stand-in PRINT, each against PC-BASIC's output (NAME.out) or the 1983 source's where PC-BASIC
+# differs (NAME.differ): the variables, arrays and strings (test/programs.py).
+add_test(NAME test_gwbasic_programs
+         COMMAND "${Python3_EXECUTABLE}" -I -B "${GWBASIC_SRC}/test/programs.py"
+                 --runner $<TARGET_FILE:gwbasic_run6502> --image "${GWBASIC_DIR}/flat.bin")
+set_tests_properties(test_gwbasic_programs PROPERTIES TIMEOUT 300)
+
 # --- OODOS: the BDOS's model test --------------------------------------------
 #
 # oodos/test/: the model of CP/M 3's file system, the generator and the
@@ -783,6 +840,9 @@ set(EMU_TEST_LABELS
     test_docs                   "docs"
     test_docs_check             "docs"
     test_docs_examples          "docs oodos bios sd backplane"
+    test_gwbasic_core           "gwbasic oodos bios sd backplane"
+    test_gwbasic_math           "gwbasic oodos"
+    test_gwbasic_programs       "gwbasic oodos"
     test_sound_driver           "emu sound bridge"
     test_mudrv                  "oodos sound sid bridge"
     test_app_tty                "emu app apple1 debug pia"
