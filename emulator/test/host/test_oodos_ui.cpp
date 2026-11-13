@@ -964,6 +964,7 @@ TEST(o9_o10_one_session_and_its_layers)
     CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'c').substr(6), std::string("00")); // closed already: nothing
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r); // (U3b landing, AA1: the layers' registers are set at the first paint)
     CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x11) | vid(r).peek(0x12) << 8), map0); // its bank freed and taken again
 }
 
@@ -1001,17 +1002,29 @@ TEST(o15_the_maps_are_clear_before_the_first_poll)
     // The banks OOUI may take, full of junk: the first is GX_PALINIT's and GX_SPRINIT's, so OOUI's is the next.
     for (uint32_t a = 0x044000; a < 0x04C000; ++a)
         vid(r).card_poke(a, static_cast<uint8_t>(a * 7 + 0x41));
+    // (U3b landing, AA1; the owner's change) Until the first poll the console's frame and layer 0's
+    // registers stay as they were; after it, OOUI's cleared maps show.
+    r.run(ms(40));
+    std::vector<uint8_t> l0;
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        l0.push_back(vid(r).peek(i));
+    const std::vector<uint32_t> console(vid(r).frame(), vid(r).frame() + 640 * 480);
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    r.run(ms(40));
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(l0[i - 0x10]));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    poll(r);
     CHECK_EQ(vid(r).peek(0x11) | vid(r).peek(0x12) << 8, 0x0440); // the bank filled
     r.run(ms(40));
-    const uint32_t *f = vid(r).frame();
-    const uint32_t bg = VideoCard::rgba(0x112); // palette entry 0, where both layers are transparent
-    size_t other = 0;
-    for (size_t i = 0; i < size_t{640} * 480; ++i)
-        other += f[i] != bg;
-    if (other > 32 * 32)
-        std::printf("  %zu pixels not entry 0's\n", other);
-    CHECK(other <= 32 * 32); // the pointer at most
+    // The first picture is OOUI's own, none of the junk: the frame a rig with no junk in the bank shows.
+    CcpRig c;
+    REQUIRE(c.ok);
+    start_ui(c);
+    CHECK_EQ(ui(c, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(c);
+    c.run(ms(40));
+    CHECK_EQ(frame_hash(r), frame_hash(c));
 }
 
 TEST(o17_the_pointer_off_when_closed_or_suspended)
