@@ -6,7 +6,11 @@
 #   sh oodos/gwbasic/tools/oracle.sh DIR NAME...
 #
 # For each DIR/NAME.bas: PC-BASIC runs it (-n: no interface; -q: quit at the end) and its output becomes
-# DIR/NAME.out. The program goes in, and only the output comes out, by docker cp; the container is removed.
+# DIR/NAME.out. If DIR/NAME.in is there, it is what is typed: the lines INPUT reads, each ended by a CR, on
+# PC-BASIC's standard input (its --input option ends the run before the last lines are read), and the output
+# is what PC-BASIC writes to its standard output, the lines typed shown as typed. The program goes in, and
+# only the output comes out, by docker cp (the typed lines and the output by docker exec's own streams); the
+# container is removed.
 set -eu
 IMAGE=python@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b  # python:3.12-slim
 WHEEL=pcbasic-2.0.7-py2.py3-none-any.whl
@@ -22,6 +26,10 @@ docker exec "$name" sh -c "pip download -q --no-deps pcbasic==2.0.7 -d /w 2>/dev
     pip install -q --no-deps /w/$WHEEL 2>/dev/null && mkdir /work"
 for n in "$@"; do
     docker cp "$dir/$n.bas" "$name:/work/$n.bas"
-    docker exec -w /work "$name" timeout 120 pcbasic -n "$n.bas" -q --output="$n.out"
-    docker cp "$name:/work/$n.out" "$dir/$n.out"
+    if [ -f "$dir/$n.in" ]; then
+        docker exec -i -w /work "$name" timeout 120 pcbasic -n "$n.bas" -q <"$dir/$n.in" >"$dir/$n.out"
+    else
+        docker exec -w /work "$name" timeout 120 pcbasic -n "$n.bas" -q --output="$n.out"
+        docker cp "$name:/work/$n.out" "$dir/$n.out"
+    fi
 done

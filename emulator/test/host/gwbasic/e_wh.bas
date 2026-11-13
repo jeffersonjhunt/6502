@@ -1,0 +1,2 @@
+10 WHILE 1
+20 PRINT "w"

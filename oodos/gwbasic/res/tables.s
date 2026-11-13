@@ -13,6 +13,7 @@
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
+.import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
 .import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
@@ -43,24 +44,23 @@ NUMCON:         .byte   CONCON, CONCN2
 .rodata
 
 ; STMDSP: the statements END ($81) to LOCATE ($CA), each address less one
-; for GONE2's RTS, in IBMRES.ASM's order. NOTSPK (Illegal function call):
-; 7a's, not translated yet (step I2's); ADVERR (Advanced Feature): a later
-; sub-phase's; SNERR: IBMRES.ASM's padding.
+; for GONE2's RTS, in IBMRES.ASM's order. ADVERR (Advanced Feature): a
+; later sub-phase's; SNERR: IBMRES.ASM's padding.
 .define S(addr) .word addr-1
 STMDSP:         S       ENDST          ; END
-                S       NOTSPK         ; FOR
-                S       NOTSPK         ; NEXT
+                S       FOR            ; FOR
+                S       NEXT           ; NEXT
                 S       DATA           ; DATA
-                S       NOTSPK         ; INPUT
+                S       INPUT          ; INPUT
                 S       DIM            ; DIM
-                S       NOTSPK         ; READ
+                S       READ           ; READ
                 S       LET            ; LET
                 S       GOTO           ; GOTO
                 S       RUN            ; RUN
                 S       IFS            ; IF
-                S       NOTSPK         ; RESTORE
-                S       NOTSPK         ; GOSUB
-                S       NOTSPK         ; RETURN
+                S       RESTORE        ; RESTORE
+                S       GOSUB          ; GOSUB
+                S       RETURN         ; RETURN
                 S       REM            ; REM
                 S       STOP           ; STOP
                 S       PRINT          ; PRINT
@@ -70,12 +70,12 @@ STMDSP:         S       ENDST          ; END
                 S       ADVERR         ; ON (7b)
                 S       ADVERR         ; WAIT (refused, 7g)
                 S       ADVERR         ; DEF (7b)
-                S       NOTSPK         ; POKE
+                S       ADVERR         ; POKE (7c)
                 S       CONT           ; CONT
                 S       SNERR          ; (padding)
                 S       SNERR          ; (padding)
                 S       ADVERR         ; OUT (refused, 7g)
-                S       NOTSPK         ; LPRINT
+                S       LPRINT         ; LPRINT
                 S       LLIST          ; LLIST
                 S       SNERR          ; (padding)
                 S       ADVERR         ; WIDTH (7d)
@@ -94,9 +94,9 @@ STMDSP:         S       ENDST          ; END
                 S       DEFINT         ; DEFINT
                 S       DEFREA         ; DEFSNG
                 S       DEFDBL         ; DEFDBL
-                S       ADVERR         ; LINE (7b, 7d)
-                S       NOTSPK         ; WHILE
-                S       NOTSPK         ; WEND
+                S       LINE           ; LINE (LINE INPUT; the graphics LINE is 7e's)
+                S       WHILE          ; WHILE
+                S       WEND           ; WEND
                 S       ADVERR         ; CALL (7g)
                 S       SNERR          ; (padding)
                 S       SNERR          ; (padding)

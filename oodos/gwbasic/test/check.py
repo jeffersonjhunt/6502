@@ -18,8 +18,9 @@ The project's own, from the size spike's (oodos/spike/gwbasic/check.py), for the
 
     python3 -I check.py ... --programs
 
-also runs the spike's programs (tokenised BASIC through NEWSTT, FRMEVL and the stub PRINT) against
-basic.py: the interpreter's own suites take those over as its parts are translated.
+also runs the spike's programs (tokenised BASIC through NEWSTT, FRMEVL and PRINT) against basic.py;
+--write-programs DIR writes them as BASIC text, which test_gwbasic_core types into GW-BASIC and checks
+against PC-BASIC.
 
     python3 -I check.py ... --timing
 
@@ -876,7 +877,10 @@ def run_program(src, workdir, counts=()):
     p = subprocess.run(args, capture_output=True)
     if p.returncode:
         sys.exit("run6502 failed: " + p.stderr.decode())
-    return p.stdout.decode("latin-1"), p.stderr.decode()
+    out = p.stdout.decode("latin-1")
+    if out.endswith("Ok\r\n"):  # READY's, after the program (step I1's)
+        out = out[:-4]
+    return out, p.stderr.decode()
 
 
 PROGRAMS = {
@@ -972,6 +976,20 @@ def oracle_lines():
         out.append("%s%s%s" % (a, rng.choice("+-*/"), b))
     out += ["RND", "RND", "RND(1)", "RND(0)", "RND(-1)", "RND", "RND(-5)", "RND", "RND(.5)", "RND(-1E20)", "RND"]
     return out
+
+
+def write_programs(d):
+    """The spike's seven programs as BASIC text, for test_gwbasic_core to type into GW-BASIC and check against
+    PC-BASIC (emulator/test/host/gwbasic/spk_*.bas): loop, precedence, golden and four of random expressions,
+    seeded so the files stay as committed."""
+    progs = [("spk_loop", PROGRAMS["loop"]), ("spk_prec", PROGRAMS["precedence"]), ("spk_gold", GOLDEN[0])]
+    rng = random.Random(1983)
+    progs += [("spk_rnd%d" % k, random_program(rng)) for k in range(4)]
+    for name, src in progs:
+        with open(os.path.join(d, name + ".bas"), "w") as f:
+            f.write(src.lstrip("\n"))
+    print("wrote %s: run sh oodos/gwbasic/tools/oracle.sh %s %s" % (", ".join(n for n, _ in progs), d,
+                                                                 " ".join(n for n, _ in progs)))
 
 
 def write_oracle():
@@ -1172,12 +1190,16 @@ def main():
     ap.add_argument("--seed", type=int, default=1983)
     ap.add_argument("--count", type=int, default=400)
     ap.add_argument("-v", action="store_true")
-    ap.add_argument("--programs", action="store_true", help="the spike's programs too, on the stub PRINT")
+    ap.add_argument("--programs", action="store_true", help="the spike's programs too, against basic.py")
     ap.add_argument("--timing", action="store_true", help="print the cycles and stop")
     ap.add_argument("--write-oracle", action="store_true", help="write oracle/math.bas and stop")
+    ap.add_argument("--write-programs", metavar="DIR", help="write the spike's programs as BASIC text and stop")
     args = ap.parse_args()
     if args.write_oracle:
         write_oracle()
+        return 0
+    if args.write_programs:
+        write_programs(args.write_programs)
         return 0
     RUNNER, IMAGE = os.path.abspath(args.runner), os.path.abspath(args.image)
     LABELS = os.path.splitext(IMAGE)[0] + ".lbl"

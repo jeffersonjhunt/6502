@@ -1,0 +1,19 @@
+10 REM PRINT: items, ";", the zones of ",", TAB and SPC, numbers and strings
+20 PRINT 1;2;-3;"a";"b";4.5;-.5;1E+20;1/3
+30 PRINT 1,2,3,4,5,6,7
+40 PRINT "a","bb","ccc";
+50 PRINT "d"
+60 PRINT 12345678901234,1;
+70 PRINT
+80 PRINT "x";TAB(10);"y";TAB(5);"z";TAB(0);"w"
+90 PRINT SPC(3);"s";SPC(0);"t";SPC(85);"v"
+100 PRINT TAB(85);"tab85";TAB(1);"one"
+110 A$="":FOR I=1 TO 30:A$=A$+"ab":NEXT:PRINT A$;A$
+120 PRINT A$;123;"x";A$
+130 PRINT 1;:PRINT 2,:PRINT 3:PRINT
+140 FOR I=1 TO 12:PRINT 123456789#*I,:NEXT:PRINT
+150 PRINT 100000!,-100000!,1E-5,-1E-5,1.5D+30
+160 ? "short";:? 1,
+170 PRINT
+180 B$="":FOR I=1 TO 9:B$=B$+"x":PRINT B$,:NEXT
+190 PRINT "end"

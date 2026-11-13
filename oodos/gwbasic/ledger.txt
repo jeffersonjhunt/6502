@@ -12,6 +12,132 @@
 # 6502 label named is there).
 
 # The spike's (oodos/spike/gwbasic/, carried into res/ at 7a's start)
+#
+# Filled at step I2: every routine of GWMAIN.ASM, GWEVAL.ASM and BIMISC.ASM the spike translated (the statement
+# loop and CHRGTR, FNDLIN, LINGET, GOTO, DATA and REM, LET, IF; the formula evaluator; SYNCHR, GETSTK, ISLET2),
+# and those the translated routines call that had no line. The labels inside a routine that matter are named too.
+GWMAIN.ASM FNDLIN -> res/gwmain.s FNDLIN
+GWMAIN.ASM LOOP -> res/gwmain.s LOOP
+GWMAIN.ASM GOPRGD -> res/gwmain.s GOPRGD
+GWMAIN.ASM GOSNER -> res/gwmain.s GOSNER
+GWMAIN.ASM GORET -> res/gwmain.s GORET
+GWMAIN.ASM GONCHR -> res/gwmain.s GONCHR
+GWMAIN.ASM GISMD$ -> res/gwmain.s GISMD
+GWMAIN.ASM GONLET -> res/gwmain.s GONLET
+GWMAIN.ASM GONZER -> res/gwmain.s GONZER
+GWMAIN.ASM GONE4 -> res/gwmain.s GONE4
+GWMAIN.ASM NEWSTT -> res/gwmain.s NEWSTT
+GWMAIN.ASM NEWST1 -> res/gwmain.s NEWST1
+GWMAIN.ASM GONGET -> res/gwmain.s GONGET
+GWMAIN.ASM GONE -> res/gwmain.s GONE
+GWMAIN.ASM GONE0 -> res/gwmain.s GONE0
+GWMAIN.ASM GONE3 -> res/gwmain.s GONE3
+GWMAIN.ASM GONE2 -> res/gwmain.s GONE2
+GWMAIN.ASM CHRGTR -> res/gwmain.s CHRGTR
+GWMAIN.ASM CHRGT2 -> res/gwmain.s CHRGT2
+GWMAIN.ASM CHRCON -> res/gwmain.s CHRCON
+GWMAIN.ASM LOWCHR -> res/gwmain.s LOWCHR
+GWMAIN.ASM NTRSCC -> res/gwmain.s NTRSCC
+GWMAIN.ASM NTRSC2 -> res/gwmain.s NTRSC2
+GWMAIN.ASM ONEI -> res/gwmain.s ONEI
+GWMAIN.ASM ONEI2 -> res/gwmain.s ONEI2
+GWMAIN.ASM FRCINC -> res/gwmain.s FRCINC
+GWMAIN.ASM CONFAC -> res/gwmain.s CONFAC
+GWMAIN.ASM CONSCN -> res/gwmain.s CONSCN
+GWMAIN.ASM MAKTKN -> res/gwmain.s MAKTKN
+GWMAIN.ASM FININ1 -> res/gwmain.s FININ1
+GWMAIN.ASM NOTCON -> res/gwmain.s NOTCON
+GWMAIN.ASM NOTLFT -> res/gwmain.s NOTLFT
+GWMAIN.ASM CONFC1 -> res/gwmain.s CONFC1
+GWMAIN.ASM FLTLIN -> res/gwmain.s FLTLIN
+GWMAIN.ASM NTLINE -> res/gwmain.s NTLINE
+GWMAIN.ASM CONFDB -> res/gwmain.s CONFDB
+GWMAIN.ASM NOTRNG -> res/gwmain.s NOTRNG
+GWMAIN.ASM LPDCHG -> res/gwmain.s LPDCHG
+GWMAIN.ASM LINGET -> res/gwmain.s LINGET
+GWMAIN.ASM LINGT2 -> res/gwmain.s LINGT2
+GWMAIN.ASM LINGT3 -> res/gwmain.s LINGT3
+GWMAIN.ASM MORLIN -> res/gwmain.s MORLIN
+GWMAIN.ASM POPHSR -> res/gwmain.s POPHSR
+GWMAIN.ASM GOTO -> res/gwmain.s GOTO
+GWMAIN.ASM GOTO2 -> res/gwmain.s GOTO2
+GWMAIN.ASM USERR -> res/gwmain.s USERR
+GWMAIN.ASM DATA -> res/gwmain.s DATA
+GWMAIN.ASM ELSES -> res/gwmain.s ELSES
+GWMAIN.ASM REM -> res/gwmain.s REM
+GWMAIN.ASM REMZER -> res/gwmain.s REMZER
+GWMAIN.ASM EXCHQT -> res/gwmain.s EXCHQT
+GWMAIN.ASM REMER -> res/gwmain.s REMER
+GWMAIN.ASM REMER1 -> res/gwmain.s REMER1
+GWMAIN.ASM LET -> res/gwmain.s LET
+GWMAIN.ASM REDINP -> res/gwmain.s REDINP
+GWMAIN.ASM LETCN2 -> res/gwmain.s LETCN2
+GWMAIN.ASM INPCOM -> res/gwmain.s INPCOM
+GWMAIN.ASM LETCN4 -> res/gwmain.s LETCN4
+GWMAIN.ASM LETCN5 -> res/gwmain.s LETCN5
+GWMAIN.ASM COPNUM -> res/gwmain.s COPNUM
+GWMAIN.ASM IFS -> res/gwmain.s IFS
+GWMAIN.ASM OKGOTO -> res/gwmain.s OKGOTO
+GWMAIN.ASM DOCOND -> res/gwmain.s DOCOND
+GWMAIN.ASM FALSIF -> res/gwmain.s FALSIF
+GWMAIN.ASM SKPMRF -> res/gwmain.s SKPMRF
+GWMAIN.ASM CONCH2 -> res/gwmain.s CONCH2
+GWEVAL.ASM FRMEQL -> res/gweval.s FRMEQL
+GWEVAL.ASM FRMPRN -> res/gweval.s FRMPRN
+GWEVAL.ASM FRMEVL -> res/gweval.s FRMEVL
+GWEVAL.ASM FRMCHK -> res/gweval.s FRMCHK
+GWEVAL.ASM LPOPER -> res/gweval.s LPOPER
+GWEVAL.ASM TSTOP -> res/gweval.s TSTOP
+GWEVAL.ASM RETAOP -> res/gweval.s RETAOP
+GWEVAL.ASM NOTSTV -> res/gweval.s NOTSTV
+GWEVAL.ASM NTPLUS -> res/gweval.s NTPLUS
+GWEVAL.ASM NUMREL -> res/gweval.s NUMREL
+GWEVAL.ASM VPUSHD -> res/gweval.s VPUSHD
+GWEVAL.ASM FINTMP -> res/gweval.s FINTMP
+GWEVAL.ASM DORELS -> res/gweval.s DORELS
+GWEVAL.ASM LOPREL -> res/gweval.s LOPREL
+GWEVAL.ASM EXPSTK -> res/gweval.s EXPSTK
+GWEVAL.ASM ANDORD -> res/gweval.s ANDORD
+GWEVAL.ASM FINREL -> res/gweval.s FINREL
+GWEVAL.ASM APPLOP -> res/gweval.s APPLOP
+GWEVAL.ASM VALNSM -> res/gweval.s VALNSM
+GWEVAL.ASM INTDPC -> res/gweval.s INTDPC
+GWEVAL.ASM STKDBL -> res/gweval.s STKDBL
+GWEVAL.ASM DBLDPC -> res/gweval.s DBLDPC
+GWEVAL.ASM SETDBL -> res/gweval.s SETDBL
+GWEVAL.ASM FACDBL -> res/gweval.s FACDBL
+GWEVAL.ASM STKSNG -> res/gweval.s STKSNG
+GWEVAL.ASM SNGDPC -> res/gweval.s SNGDPC
+GWEVAL.ASM SNGDO -> res/gweval.s SNGDO
+GWEVAL.ASM FACSNG -> res/gweval.s FACSNG
+GWEVAL.ASM INTDIV -> res/gweval.s INTDIV
+GWEVAL.ASM EVAL -> res/gweval.s EVAL
+GWEVAL.ASM NTDERC -> res/gweval.s NTDERC
+GWEVAL.ASM NTERC -> res/gweval.s NTERC
+GWEVAL.ASM NTERL -> res/gweval.s NTERL
+GWEVAL.ASM PARCHK -> res/gweval.s PARCHK
+GWEVAL.ASM DOMIN -> res/gweval.s DOMIN
+GWEVAL.ASM LABBCK -> res/gweval.s LABBCK
+GWEVAL.ASM ISVAR -> res/gweval.s ISVAR
+GWEVAL.ASM RETVAR -> res/gweval.s RETVAR
+GWEVAL.ASM ISFUN -> res/gweval.s ISFUN
+GWEVAL.ASM NTMRND -> res/gweval.s NTMRND
+GWEVAL.ASM OKNORM -> res/gweval.s OKNORM
+GWEVAL.ASM NOTFRF -> res/gweval.s NOTFRF
+GWEVAL.ASM FINGO -> res/gweval.s FINGO
+GWEVAL.ASM DOCMP -> res/gweval.s DOCMP
+GWEVAL.ASM NOTER -> res/gweval.s NOTER
+GWEVAL.ASM DANDOR -> res/gweval.s DANDOR
+GWEVAL.ASM NOTOR -> res/gweval.s NOTOR
+GWEVAL.ASM NOTAND -> res/gweval.s NOTAND
+GWEVAL.ASM NOTXOR -> res/gweval.s NOTXOR
+GWEVAL.ASM NOTEQV -> res/gweval.s NOTEQV
+GWEVAL.ASM SNGFLT -> res/gweval.s SNGFLT
+GWEVAL.ASM DOCNVF -> res/gweval.s DOCNVF
+BIMISC.ASM GETSTK -> res/bimisc.s GETSTK
+BIMISC.ASM SYNCHR -> res/bimisc.s SYNCHR
+BIMISC.ASM SYNERR -> res/bimisc.s SYNERR
+BIMISC.ASM ISLET2 -> res/bimisc.s ISLET2
 
 # m: the math (step M of 7a). Every routine of MATH1.ASM and MATH2.ASM: res/ the resident core's (single and
 # integer arithmetic, compares, conversions), p1/ block P1's (output, input, double precision, the functions).
@@ -355,8 +481,8 @@ BISTRS.ASM STRLT3 -> res/bistrs.s STRLT3
 BISTRS.ASM STRLT2 -> res/bistrs.s STRLT2
 BISTRS.ASM PUTNEW -> res/bistrs.s PUTNEW
 BISTRS.ASM PUTTMP -> res/bistrs.s PUTTMP
-BISTRS.ASM STROUI -> later 7a: PRINT's (step I2); the stand-in in res/todo.s prints $FOUT's buffer by STROUT
-BISTRS.ASM DSOUT -> later 7a: as STROUI
+BISTRS.ASM STROUI -> res/bistrs.s STROUI # step I2's: at FBPTR, STRLIT at TXTPTR round it
+BISTRS.ASM DSOUT -> res/bistrs.s DSOUT # step I2's
 BISTRS.ASM STRPRT -> res/bistrs.s STRPRT
 BISTRS.ASM GETSPA -> res/bistrs.s GETSPA # the 8086's flag on its stack is GSDONE
 BISTRS.ASM PPSWRT -> dropped: referenced by nothing
@@ -439,7 +565,7 @@ GWMAIN.ASM TMERR -> res/gwmain.s TMERR
 GWMAIN.ASM $TMERR -> res/gwmain.s TMERR
 GWMAIN.ASM FCERR -> res/gwmain.s FCERR
 GWMAIN.ASM $FCERR -> res/gwmain.s FCERR
-GWMAIN.ASM DATSNE -> later 7a: READ's (step I2), with DATLIN
+GWMAIN.ASM DATSNE -> res/gwmain.s DATSNE # step I2's (READ's), with DATLIN
 GWMAIN.ASM ERROR -> res/gwmain.s ERROR # INITFG's CMDERR first; NLONLY, MRGFLG and CHNFLG are 7c's
 GWMAIN.ASM INITOK -> res/gwmain.s INITOK
 GWMAIN.ASM ERRESM -> res/gwmain.s ERRESM
@@ -834,3 +960,161 @@ GIOKYB.ASM GETFKY -> later 7d: a function key's next character
 GIO86.ASM GETQ -> OEM res/oem.s KYBGET
 GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
 GIO86.ASM SIDSP -> later 7c: a file's input dispatch
+
+# i2: the statements (step I2 of 7a). Resident: GWMAIN.ASM's FNDFOR, FOR, NXTSCN and WNDSCN, GOSUB and RETURN;
+# NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (res/gwmain.s has their
+# layout); and BISTRS.ASM's STROUI. In P1: GWMAIN.ASM's LINE INPUT, INPUT and READ (p1/gwmain.s), GIO86.ASM's
+# PRINT and LPRINT (p1/gio86.s), each reached by a resident stub in res/gwmain.s. The labels inside a routine
+# that matter are named too.
+GWMAIN.ASM FNDFOR -> res/gwmain.s FNDFOR # from SSP; C set when found (the 8086's Z: A may be 0 here)
+GWMAIN.ASM LOOPER -> res/gwmain.s LOOPER
+GWMAIN.ASM STKSRC -> res/gwmain.s STKSRC
+GWMAIN.ASM POPGOF -> res/gwmain.s STKSRC
+GWMAIN.ASM FOR -> res/gwmain.s FOR # NEWSTT's return kept on the 6502's stack; the entry's room taken at once
+GWMAIN.ASM LPFORM -> res/gwmain.s LPFORM
+GWMAIN.ASM NOTOL -> res/gwmain.s NOTOL
+GWMAIN.ASM SNGFOR -> res/gwmain.s SNGFOR
+GWMAIN.ASM STPSGN -> res/gwmain.s STPSGN
+GWMAIN.ASM ONEON -> res/gwmain.s STPSGN
+GWMAIN.ASM NT0STP -> res/gwmain.s NT0STP
+GWMAIN.ASM NXTCON -> res/next86.s FINNXT # the entry stays whole: no token to push back
+GWMAIN.ASM WNDSCN -> res/gwmain.s WNDSCN
+GWMAIN.ASM NXTSCN -> res/gwmain.s NXTSCN # the count and the error in FORCNT and SCNERR (the 8086's CX)
+GWMAIN.ASM SCNCNT -> res/gwmain.s SCNCNT
+GWMAIN.ASM FORINC -> res/gwmain.s FORINC
+GWMAIN.ASM FNLOP -> res/gwmain.s FNLOP
+GWMAIN.ASM SCANWF -> res/gwmain.s SCANWF
+GWMAIN.ASM QTLOPF -> res/gwmain.s QTLOPF
+GWMAIN.ASM NTQTSC -> res/gwmain.s NTQTSC
+GWMAIN.ASM FORTRM -> res/gwmain.s FORTRM
+GWMAIN.ASM FNNWST -> res/gwmain.s FNNWST
+GWMAIN.ASM NTREMR -> res/gwmain.s NTREMR
+GWMAIN.ASM NTDATR -> res/gwmain.s NTDATR
+GWMAIN.ASM NXTLOK -> res/gwmain.s NXTLOK
+GWMAIN.ASM DECNXT -> res/gwmain.s DECNXT
+GWMAIN.ASM TRMNXT -> res/gwmain.s TRMNXT
+GWMAIN.ASM GOSUB -> res/gwmain.s GOSUB
+GWMAIN.ASM GOSUB2 -> later 7b: the event traps' GOSUB (the flag's address in the entry)
+GWMAIN.ASM RETURN -> res/gwmain.s RETURN
+GWMAIN.ASM RTRNOK -> res/gwmain.s RTRNOK # SAVSTK left past the token, as the 8086's
+GWMAIN.ASM NOTEVT -> res/gwmain.s RTRNOK # an event's RETURN (RSTTRP) later 7b
+GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its resident stub res/gwmain.s LINE; GLINE later 7e, DLINE 7c
+GWMAIN.ASM RELINE -> p1/gwmain.s RELINE # LETCN2 as INPCOM, the variable in PTR
+GWMAIN.ASM TRYAGN -> p1/gwmain.s TRYAGN
+GWMAIN.ASM SCNSTR -> p1/gwmain.s SCNSTR
+GWMAIN.ASM INPBAK -> p1/gwmain.s INPBAK
+GWMAIN.ASM TRMNOK -> p1/gwmain.s TRMNOK
+GWMAIN.ASM RDOIN2 -> p1/gwmain.s RDOIN2
+GWMAIN.ASM RDOINP -> p1/gwmain.s RDOINP
+GWMAIN.ASM FILSTI -> later 7c: INPUT #
+GWMAIN.ASM INPUT -> p1/gwmain.s INPUTP # its resident stub res/gwmain.s INPUT; the two text pointers TXTPTR and OTHPTR (XTHL)
+GWMAIN.ASM QTINP -> p1/gwmain.s QTINP # TEMPA+1 is INPQM; CNTOFL (^O) has no counterpart
+GWMAIN.ASM NTICMA -> p1/gwmain.s NTICMA
+GWMAIN.ASM INPCMA -> p1/gwmain.s INPCMA
+GWMAIN.ASM NOTQTI -> p1/gwmain.s NOTQTI
+GWMAIN.ASM GETAGN -> p1/gwmain.s GETAGN
+GWMAIN.ASM SUPPRS -> p1/gwmain.s SUPPRS
+GWMAIN.ASM VARLOP -> p1/gwmain.s VARLOP
+GWMAIN.ASM SCNBKT -> p1/gwmain.s SCNBKT
+GWMAIN.ASM SCNOPN -> p1/gwmain.s SCNOPN
+GWMAIN.ASM SCNCON -> p1/gwmain.s SCNCON
+GWMAIN.ASM LEFPRN -> p1/gwmain.s LEFPRN
+GWMAIN.ASM ENDSCN -> p1/gwmain.s ENDSCN
+GWMAIN.ASM OKVLST -> p1/gwmain.s OKVLST
+GWMAIN.ASM INPCN3 -> p1/gwmain.s INPCN3
+GWMAIN.ASM READ -> p1/gwmain.s READP # its resident stub res/gwmain.s READ
+GWMAIN.ASM INPCON -> p1/gwmain.s INPCON
+GWMAIN.ASM LOPDT2 -> p1/gwmain.s LOPDT2
+GWMAIN.ASM LOPDAT -> p1/gwmain.s LOPDAT
+GWMAIN.ASM DATBK -> p1/gwmain.s DATBK
+GWMAIN.ASM SCNVAL -> p1/gwmain.s SCNVAL # FILIND (a file's value) later 7c
+GWMAIN.ASM NCOLST -> p1/gwmain.s NCOLST
+GWMAIN.ASM NOWGET -> p1/gwmain.s NOWGET
+GWMAIN.ASM DOASIG -> p1/gwmain.s DOASIG # pass 2's assignment returns to its caller, STRDN2 next
+GWMAIN.ASM NUMINS -> p1/gwmain.s NUMINS
+GWMAIN.ASM STRDN2 -> p1/gwmain.s STRDN2
+GWMAIN.ASM TRMOK -> p1/gwmain.s TRMOK
+GWMAIN.ASM FINPRG -> p1/gwmain.s FINPRG
+GWMAIN.ASM DATLOP -> p1/gwmain.s DATLOP
+GWMAIN.ASM DATFND -> p1/gwmain.s DATFND
+GWMAIN.ASM NOWLIN -> p1/gwmain.s NOWLIN
+NEXT86.ASM NF1 -> res/next86.s NF1
+NEXT86.ASM NEXT -> res/next86.s NEXT # the entry stays where it is, SSP at it; NEWSTT's return on the 6502's stack
+NEXT86.ASM NEXTS -> res/next86.s NEXTS
+NEXT86.ASM NEXTS1 -> res/next86.s NEXTS1
+NEXT86.ASM NEXTC -> res/next86.s NEXTC
+NEXT86.ASM NEXTC1 -> res/next86.s NEXTC1 # the 8086's TEMP is NXTTMP
+NEXT86.ASM NXTDO -> res/next86.s NXTDO
+NEXT86.ASM NXTDOA -> res/next86.s NXTDOA
+NEXT86.ASM INTNXT -> res/next86.s INTNXT
+NEXT86.ASM INXTDO -> res/next86.s INXTDO
+NEXT86.ASM IFORIN -> res/next86.s IFORIN
+NEXT86.ASM FINNXT -> res/next86.s FINNXT
+NEXT86.ASM LOOPDN -> res/next86.s LOOPDN
+NEXT86.ASM LOOPD1 -> res/next86.s LOOPDN
+NEXT86.ASM OV1 -> res/next86.s OV1
+NEXT86.ASM NS1 -> res/next86.s NS1
+FIVEO.ASM WHILE -> res/fiveo.s WHILE # the 8086's ENDFOR is WHLTXT
+FIVEO.ASM WNOTOL -> res/fiveo.s WNOTOL
+FIVEO.ASM WEND -> res/fiveo.s WEND
+FIVEO.ASM FNWEND -> res/fiveo.s FNWEND
+FIVEO.ASM FLSWHL -> res/fiveo.s FLSWHL
+FIVEO.ASM FNDWND -> res/fiveo.s FNDWND # C set when found
+FIVEO.ASM FNDWN2 -> res/fiveo.s FNDWN2
+FIVEO.ASM FNDWN3 -> res/fiveo.s FNDWN3
+FIVEO.ASM WEERR -> res/fiveo.s WEND
+GIO86.ASM LPRINT -> p1/gio86.s LPRNTP # its resident stub res/gwmain.s LPRINT
+GIO86.ASM PRINT -> p1/gio86.s PRINTP # its resident stub res/gwmain.s PRINT; the width and comma column in PRTWID, PRTCMA
+GIO86.ASM FILGET -> later 7c: PRINT # (here Advanced Feature)
+GIO86.ASM FILINP -> later 7c: INPUT #
+GIO86.ASM JPRINU -> later 7b: PRINT USING (here Advanced Feature)
+GIO86.ASM PRINT1 -> p1/gio86.s PRINT1
+GIO86.ASM NEWCHR -> p1/gio86.s NEWCHR
+GIO86.ASM PRINTC -> p1/gio86.s PRINTC
+GIO86.ASM PRINTX -> p1/gio86.s PRINTX
+GIO86.ASM PRNTX1 -> p1/gio86.s PRNTX1
+GIO86.ASM TABERJ -> p1/gio86.s TABERJ
+GIO86.ASM PRTS -> p1/gio86.s PRTS # STRLIT reads at TXTPTR: FBPTR there for it, the text pointer kept
+GIO86.ASM MODCOM -> p1/gio86.s MODCOM
+GIO86.ASM MODCM1 -> p1/gio86.s MODCM1
+GIO86.ASM INCLEN -> p1/gio86.s INCLEN
+GIO86.ASM STRDON -> p1/gio86.s STRDON
+GIO86.ASM LINCHK -> p1/gio86.s LINCRD
+GIO86.ASM LINCH2 -> p1/gio86.s LINCH2
+GIO86.ASM COMPRT -> p1/gio86.s COMPRT
+GIO86.ASM CHKCOM -> p1/gio86.s COMPRT
+GIO86.ASM MORCOM -> p1/gio86.s MORCOM
+GIO86.ASM TABER -> p1/gio86.s TABER
+GIO86.ASM TBNONG -> p1/gio86.s TBNONG
+GIO86.ASM SPCNDC -> p1/gio86.s SPCNDC
+GIO86.ASM LNOMOD -> p1/gio86.s LNOMOD
+GIO86.ASM DOSIZT -> p1/gio86.s DOSIZT
+GIO86.ASM ASPA2 -> p1/gio86.s ASPA2
+GIO86.ASM ASPAC -> p1/gio86.s ASPAC
+GIO86.ASM REPOUT -> p1/gio86.s REPOUT
+GIO86.ASM NOTABR -> p1/gio86.s NOTABR
+# (GIO86.ASM PTRGPS is I1's line above, the OEM's column; PRINT's own is p1/gio86.s PTRGPS.)
+GIO86.ASM PTRWDC -> p1/gio86.s PTRWDC
+GIO86.ASM PTRWDL -> p1/gio86.s PTRWDC
+GIO86.ASM PTRWID -> p1/gio86.s PTRWDC # LINLEN (the console's, LPT1's); a file's width later 7c
+GIO86.ASM PTRWD1 -> p1/gio86.s PTRWDC
+GIO86.ASM ADRGET -> p1/gio86.s ADRGET
+BIMISC.ASM GOTRP -> later 7b: the event traps' GOSUB (res/todo.s GOTRP returns)
+BIMISC.ASM RSTTRP -> later 7b: an event's RETURN turns its trap back on
+BIMISC.ASM ISLET -> res/biptrg.s PTRGT2 # inline: a letter, or Syntax error
+GWEVAL.ASM GETYPR -> res/math1.s GETYP # MATH1.ASM's $GETYP, the same code
+GWEVAL.ASM GETINT -> res/gweval.s GETIN2 # FOR's: its CHRGTR first, inline
+GWEVAL.ASM DISPAT -> res/gweval.s DOCNVF # the jump through FRCTBL (and FUNDSP's, in ISFUN), inline
+GWEVAL.ASM $OHCNS -> res/gweval.s OCTCNS
+GWMAIN.ASM $STPRN -> res/math1.s STROUT # the message to the console (PTRFIL kept round it, $CATTY's)
+GIOSCN.ASM $CATTY -> res/math1.s DV015 # PTRFIL 0 for the message, then back
+GWSTS.ASM VARPT2 -> later 7b: VARPTR$ (res/todo_s.s NOTYET gives Advanced Feature)
+GIO86.ASM GETPTR -> later 7c: VARPTR(#file) (res/todo_s.s NOTYET)
+GWSTS.ASM SCRENF -> later 7d: SCREEN( as a function
+GWSTS.ASM GETLIN -> later 7d: CSRLIN
+GENGRP.ASM POINT -> later 7e: POINT
+DSKCOM.ASM FIXINP -> later 7c: INPUT$
+GENGRP.ASM GLINE -> later 7e: the graphics LINE (here Advanced Feature)
+DSKCOM.ASM DLINE -> later 7c: LINE INPUT # (here Advanced Feature)
+DSKCOM.ASM FILIND -> later 7c: INPUT #'s values
+GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY

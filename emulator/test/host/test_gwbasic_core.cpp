@@ -17,6 +17,10 @@
  * - What PC-BASIC's run of a file can't give, written by hand from GW-BASIC's own messages and LIST's format
  *   (each case says so): typing, replacing and deleting lines; LIST's ranges; RUN, RUN n and NEW; errors in
  *   direct mode; a Syntax error's line offered to edit; ^C (Break in n) and CONT; INKEY$; LLIST.
+ * - Step I2's statements, the same way (FOR, NEXT, GOSUB, RETURN, WHILE, WEND, PRINT, READ, DATA, RESTORE, with
+ *   their errors), the size spike's seven programs, and INPUT with its lines typed as GW-BASIC asks; INPUT;,
+ *   LPRINT and the forms of later sub-phases by hand; and the timing figures: the core loop's cycles a pass, a
+ *   PRINT statement's with its far call, and a character's through function 2.
  */
 
 #include "harness.h"
@@ -73,13 +77,15 @@ namespace
             r.type(l + "\r");
     }
 
-    /// A command typed: what it printed before the next Ok, its echo (the line, CR, LF) and the Ok left out.
+    /// A command typed: what it printed before the next Ok, its echo (the line, CR, LF) and the Ok left out
+    /// (and anything after the Ok: a Syntax error's line, offered to edit).
     std::string command(CcpRig &r, const std::string &line)
     {
         const std::string o = r.to(line, "Ok\r\n");
-        if (o.size() < line.size() + 2 + 4)
+        const size_t ok = o.find("Ok\r\n", line.size());
+        if (o.size() < line.size() + 2 + 4 || ok == std::string::npos)
             return "<" + o + ">";
-        return o.substr(line.size() + 2, o.size() - line.size() - 2 - 4);
+        return o.substr(line.size() + 2, ok - line.size() - 2);
     }
 
     /// emulator/test/host/gwbasic/NAME.bas's lines.
@@ -101,14 +107,103 @@ namespace
     }
 
     /// PC-BASIC's output for NAME.bas (NAME.out), its "not typed" marks ($FF, which GW-BASIC sends after a
-    /// message and the OO-1's console doesn't show) left out.
+    /// message and the OO-1's console doesn't show) left out. Where the 1983 source and PC-BASIC differ, the
+    /// port keeps the source's behaviour and NAME.differ is what it must print instead, as oodos/gwbasic/test's
+    /// programs.py has it: its first line "# why", then the text, line by line.
     std::string oracle(const std::string &name)
     {
+        std::ifstream differ(std::string(EMU_GWBASIC_PROGRAMS) + "/" + name + ".differ");
+        if (differ)
+        {
+            std::string line, out;
+            std::getline(differ, line);
+            CHECK(line.rfind("# ", 0) == 0);
+            while (std::getline(differ, line))
+                out += line + "\r\n";
+            return out;
+        }
         std::string out;
         for (const char c : read_text(EMU_GWBASIC_PROGRAMS "/" + name + ".out"))
             if (static_cast<unsigned char>(c) != 0xFF)
                 out += c;
         return out;
+    }
+
+    /// NAME.bas typed (after NEW) and RUN, each of NAME.in's lines (each ended by a CR) typed when GW-BASIC waits
+    /// for a line (its SINLIN at INLIN0, function 10's call); what it printed from RUN's echo to READY's Ok, both
+    /// left out. GW-BASIC waiting with no line left is READY's MAIN: the end.
+    std::string run_typed(CcpRig &r, const std::string &name, uint16_t inlin0)
+    {
+        std::vector<std::string> in;
+        std::string l;
+        for (const char c : read_text(EMU_GWBASIC_PROGRAMS "/" + name + ".in"))
+            if (c == '\r')
+            {
+                in.push_back(l);
+                l.clear();
+            }
+            else
+                l += c;
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, bas(name));
+        bool waiting = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == inlin0)
+                waiting = true;
+        };
+        const size_t from = r.out.size();
+        r.type("RUN\r");
+        for (size_t next = 0;;)
+        {
+            const uint64_t end = r.cpu->cycles() + ms(20000);
+            while (!waiting && r.cpu->cycles() < end)
+                r.run(10'000);
+            if (!waiting || next == in.size())
+                break;
+            waiting = false;
+            r.type(in[next++] + "\r");
+        }
+        r.watch = nullptr;
+        const std::string o = r.out.substr(from);
+        if (o.size() < 5 + 4 || o.compare(o.size() - 4, 4, "Ok\r\n") != 0)
+            return "<" + o + ">";
+        return o.substr(5, o.size() - 5 - 4);
+    }
+
+    /// A program typed (after NEW) and RUN, timed from the RUN statement to the end's ENDCON, with the far calls
+    /// made between them counted (each a JSR to FARCALL, the address the loader put in at READY's FTSITE).
+    struct Timed
+    {
+        uint64_t cycles = 0;
+        unsigned farcalls = 0;
+    };
+    Timed timed(CcpRig &r, const std::map<std::string, uint16_t> &lab, const std::vector<std::string> &lines)
+    {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, lines);
+        const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON"), site = lab.at("FTSITE");
+        const uint16_t farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
+                                                       r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
+        Timed t;
+        uint64_t from = 0;
+        bool on = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == runc && !on)
+            {
+                from = r.cpu->cycles();
+                on = true;
+            }
+            else if (on && pc == endcon)
+            {
+                t.cycles = r.cpu->cycles() - from;
+                on = false;
+            }
+            else if (on && pc == farcall)
+                ++t.farcalls;
+        };
+        command(r, "RUN");
+        r.watch = nullptr;
+        return t;
     }
 
     /// The banner's "N Bytes free".
@@ -312,6 +407,114 @@ TEST(ctrl_c_breaks_and_cont_goes_on_and_inkey_reads_a_key)
     r.run(ms(100));
     r.type("x");
     CHECK(r.until("x 120 \r\nOk\r\n", ms(2000), from));
+}
+
+// Step I2's statements, each a program typed and RUN against PC-BASIC's output (or NAME.differ, where the
+// 1983 source and PC-BASIC differ): FOR and NEXT, GOSUB and RETURN, WHILE and WEND, PRINT, READ, DATA and
+// RESTORE, TAB and SPC; each statement's errors; then the size spike's seven programs (oodos/spike/gwbasic/:
+// a loop, precedence, outputs GW-BASIC is known to print, and four of basic.py's random expressions), as text
+// (oodos/gwbasic/test/check.py --write-programs). (e_dsn, last, leaves its DATA line offered to edit.)
+TEST(statements_typed_and_run_print_what_pc_basic_prints)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    for (const char *name : {"for", "gosub", "while", "print", "tabneg", "read", "e_nf", "e_nf2", "e_rg", "e_od",
+                             "e_fn", "e_wh", "e_we", "e_ftm", "e_ftm2", "e_ov", "e_litm", "spk_loop", "spk_prec",
+                             "spk_gold", "spk_rnd0", "spk_rnd1", "spk_rnd2", "spk_rnd3", "e_dsn"})
+    {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, bas(name));
+        const std::string got = command(r, "RUN"), want = oracle(name);
+        if (got != want)
+            std::printf("  %s:\n    got  '%s'\n    want '%s'\n", name, vis(got).c_str(), vis(want).c_str());
+        CHECK_EQ(got, want);
+    }
+}
+
+// INPUT and LINE INPUT, NAME.in's lines typed as GW-BASIC asks for each, against PC-BASIC's output, which shows
+// them as typed: prompts, "? ", several values, quoted strings, "?Redo from start" (too many, too few, not a
+// number), a subscript in the list.
+TEST(input_typed_lines_print_what_pc_basic_prints)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("INLIN0") == 1);
+    const std::string got = run_typed(r, "input", lab.at("INLIN0")), want = oracle("input");
+    if (got != want)
+        std::printf("  input:\n    got  '%s'\n    want '%s'\n", vis(got).c_str(), vis(want).c_str());
+    CHECK_EQ(got, want);
+}
+
+// By hand, from the 1983 source:
+// - INPUT; (SCNSEM): GW-BASIC's screen editor keeps the cursor after the line typed; OODOS's function 10 echoes
+//   the CR, so 7a gives no LF after it: the next output starts at the line's start (over the typed text);
+// - LPRINT goes to LST: (OODOS's LPT takes and drops): the console shows nothing of it but an arithmetic
+//   message, which $DIV0S sends to the console ($CATTY);
+// - PRINT # and INPUT # (the files, 7c), PRINT USING (7b), the graphics LINE (7e): Advanced Feature;
+// - RESTORE to a line that isn't there: Undefined line number; NEXT in direct mode with no FOR.
+TEST(input_semicolon_lprint_and_later_forms)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const size_t from = r.out.size();
+    r.type("INPUT;A:PRINT \"a=\";A\r");
+    CHECK(r.until("? ", ms(2000), from + 5));
+    r.type("7\r");
+    CHECK(r.until("Ok\r\n", ms(2000), from + 5));
+    CHECK(r.out.find("? 7\ra= 7 \r\nOk\r\n", from) != std::string::npos);
+    CHECK_EQ(command(r, "LPRINT \"to the printer\";1,2"), std::string());
+    CHECK_EQ(command(r, "PRINT 1:LPRINT 2:PRINT 3"), std::string(" 1 \r\n 3 \r\n"));
+    CHECK_EQ(command(r, "LPRINT 1/0"), std::string("Division by zero\r\n")); // $CATTY: the message to the console
+    CHECK_EQ(command(r, "PRINT #1,2"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT USING \"##\";1"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LINE (0,0)-(1,1)"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "RESTORE 100"), std::string("Undefined line number\r\n"));
+    CHECK_EQ(command(r, "NEXT"), std::string("NEXT without FOR\r\n"));
+    CHECK_EQ(command(r, "FOR I=1 TO 3:PRINT I;:NEXT"), std::string(" 1  2  3 \r\n"));
+}
+
+// The timing figures (hw/oodos.md, "The plan, phase 7": 7a's cycles), on the running GWBASIC.COM, each by
+// check.py --timing's method: two runs of different lengths, the difference over the passes between them, from
+// the RUN statement to the end's ENDCON (the console's tick and CHKINT's look at the keys included, as a program
+// meets them). The limits are first limits, with room over the measurement.
+// - the core loop, `10 I%=I%+1 : IF I%<n THEN 10`: the plan's 4,700 a pass (the spike's, on its harness),
+//   with no far call;
+// - a PRINT statement that prints nothing (`PRINT ;`), over the loop: its cost, with its one far call to P1;
+// - a character through function 2: `PRINT A$;`, A$ 80 characters against A$ empty, over 80 a pass.
+TEST(the_core_loop_a_print_and_a_character_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("RUN") == 1 && lab.count("ENDCON") == 1 && lab.count("FTSITE") == 1);
+    const Timed l1 = timed(r, lab, {"10 I%=I%+1 : IF I%<1000 THEN 10"});
+    const Timed l2 = timed(r, lab, {"10 I%=I%+1 : IF I%<3000 THEN 10"});
+    const double loop = static_cast<double>(l2.cycles - l1.cycles) / 2000;
+    std::printf("  the core loop: %.0f cycles a pass (the plan's 4,700), far calls %u and %u\n", loop, l1.farcalls,
+                l2.farcalls);
+    CHECK(loop > 1000 && loop <= 6000);
+    CHECK_EQ(l1.farcalls, 0u);
+    CHECK_EQ(l2.farcalls, 0u);
+    const Timed p1 = timed(r, lab, {"10 PRINT ; : I%=I%+1 : IF I%<1000 THEN 10"});
+    const Timed p2 = timed(r, lab, {"10 PRINT ; : I%=I%+1 : IF I%<3000 THEN 10"});
+    const double print = static_cast<double>(p2.cycles - p1.cycles) / 2000 - loop;
+    std::printf("  PRINT ; : %.0f cycles a statement, its far call included; far calls %u and %u\n", print,
+                p1.farcalls, p2.farcalls);
+    CHECK(print > 300 && print <= 3000);
+    CHECK_EQ(p1.farcalls, 1000u);
+    CHECK_EQ(p2.farcalls, 3000u);
+    const std::string a80 = "10 A$=\"" + std::string(80, 'x') + "\"";
+    const Timed c0 = timed(r, lab, {"10 A$=\"\"", "20 PRINT A$; : I%=I%+1 : IF I%<20 THEN 20"});
+    const Timed c1 = timed(r, lab, {a80, "20 PRINT A$; : I%=I%+1 : IF I%<20 THEN 20"});
+    const double ch = static_cast<double>(c1.cycles - c0.cycles) / (20 * 80);
+    std::printf("  a character through function 2: %.0f cycles (the plan's estimate 1,500-2,500)\n", ch);
+    CHECK(ch > 100 && ch <= 8000);
 }
 
 int main()

@@ -18,7 +18,8 @@ testing). From the size spike's tests (`oodos/spike/gwbasic/`), for the port.
     make -C oodos/gwbasic test BUILD=...                # the image, run6502, check.py
     make -C oodos/gwbasic test BUILD=... CHECK=--timing # the cycles instead
     python3 -I check.py --runner R --image I --seed 7 --count 1500   # more vectors
-    python3 -I check.py --runner R --image I --programs             # the spike's programs too, on the stub PRINT
+    python3 -I check.py --runner R --image I --programs             # the spike's programs too, against basic.py
+    python3 -I check.py --write-programs DIR                        # the spike's programs as text, for the oracle
     python3 -I programs.py --runner R --image I [NAME...]           # programs/, against PC-BASIC
 
 ctest's `test_gwbasic_math` builds `run6502` and the image and runs `check.py` (about 5 s). The harness's vector
@@ -37,7 +38,7 @@ fails on any difference it doesn't list.
 ctest's `test_gwbasic_programs` runs `programs.py`: each `programs/NAME.bas`, tokenised by `basic.py`, runs
 in the harness (`harness.s` sets the workspace up as RUN would: the variables past the program, the
 string space down from `$9FEE`, or smaller where a program says `REM @memsize N`) through NEWSTT and
-the stand-in PRINT (numbers and strings, `;` between). What it prints must be `NAME.out`, made by
+PRINT (P1's, step I2's). What it prints must be `NAME.out`, made by
 `tools/oracle.sh` from the same file. GW-BASIC's own error printer (step I1) prints an error as PC-BASIC
 does ("Type mismatch in 20", on a line of its own); then READY's "Ok", which PC-BASIC's `-n` run doesn't
 print, is dropped, and so are the `$FF` marks PC-BASIC writes after a message (the OO-1's console doesn't
@@ -69,3 +70,11 @@ typed lines is the emulator's `test_gwbasic_core`, against `emulator/test/host/g
 
 The project's own: `flat.cfg`, `harness.s`, `run6502.cpp`, `check.py`, `programs.py`, this file, `oracle/` and
 `programs/`.
+
+## The spike's programs
+
+`check.py --programs` runs the size spike's seven programs (a counted loop, precedence and types, outputs GW-BASIC
+is known to print, and four of `basic.py`'s random expressions) on the flat image against `basic.py`'s reading of
+them. `check.py --write-programs DIR` writes the same seven as BASIC text (`spk_*.bas`, the random ones seeded so
+the files stay as committed), which test_gwbasic_core types into GW-BASIC and checks against PC-BASIC
+(`emulator/test/host/gwbasic/`).

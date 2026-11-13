@@ -9,7 +9,7 @@
 ;   STRCPY STRINI STRAD2       a copy; space and DSCTMP for a result
 ;   STRLIT STRLTI STRLT2       a literal's descriptor (in the text: no copy)
 ;   PUTNEW PUTTMP              DSCTMP to a temporary, the FAC at it
-;   STRPRT                     print the FAC's string
+;   STROUI DSOUT STRPRT        print a zero-ended text, or the FAC's string
 ;   GETSPA GARBAG GARBA2 DVARS space in the string space, collecting it
 ;   CAT MOVINS MOVSTR          concatenation
 ;   FRESTR FREFAC FRETMP FRETMS temporaries freed (and their space, if lowest)
@@ -39,7 +39,7 @@
 .include "gwbasic.inc"
 
 .export STRCMP, STRCPY, STRIN1, STRINI, STRAD2, STRAD1, STRLIT, STRLTI, STRLT3
-.export STRLT2, PUTNEW, PUTTMP, STRPRT, GETSPA, GARBA2, CAT, MOVSTR
+.export STRLT2, PUTNEW, PUTTMP, STRPRT, STROUI, DSOUT, GETSPA, GARBA2, CAT, MOVSTR
 .export FRESTR, FREFAC, FRETM2, FRETMP, FRETMS, LEN, LEN1, ASC, ASC2, CHR
 .export SETSTR, SPACE, SPACE2, LEFT, RIGHT, MID, INSTR, FRE, LETSTR, GETBCD
 .export MEMSIZ, TEMPST, DSCTMP, DSEGZ, NUMTMP
@@ -256,8 +256,25 @@ PUTTMP:         LDA     TEMPPT
 
 ; --- STRPRT (BISTRS.ASM 271) ---------------------------------------------------
 
-; Print the FAC's string, and free it. (STROUI and DSOUT, a zero-ended string
-; printed through a temporary, are PRINT's: the stand-in in res/todo.s.)
+; STROUI (BISTRS.ASM 247): print the zero-ended text at FBPTR+1 ($FOUT's,
+; past the sign's place: LINPRT's). DSOUT: at FBPTR. A literal of it first
+; (STRLIT, which reads at TXTPTR: the text pointer kept round it), then
+; STRPRT.
+STROUI:         INCW    FBPTR
+DSOUT:          LDA     TXTPTR+1
+                PHA
+                LDA     TXTPTR
+                PHA
+                LDA     FBPTR
+                STA     TXTPTR
+                LDA     FBPTR+1
+                STA     TXTPTR+1
+                JSR     STRLIT
+                PLA
+                STA     TXTPTR
+                PLA
+                STA     TXTPTR+1
+; STRPRT: print the FAC's string, and free it.
 STRPRT:         JSR     FREFAC
                 JSR     GETBCD
 @l:             LDA     RDH

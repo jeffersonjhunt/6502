@@ -183,6 +183,12 @@ LSTLIN          = $D4                  ; LIST: the line being listed
 BUFLEN          = 255                  ; OEM.H: a line's characters (BUF)
 KBFLEN          = BUFLEN + BUFLEN / 4  ; GWMAIN.ASM: the crunch buffer (KBUF), somewhat larger
 
+; --- The statements ($D8-$DF): step I2's -------------------------------------
+;
+; FNDFOR and FNDWND walk the BASIC stack's FOR, GOSUB and WHILE entries
+; (res/gwmain.s) with FORPTR, as the 8086 walks its own stack with BX.
+FORPTR          = $D8                  ; an entry on the BASIC stack
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

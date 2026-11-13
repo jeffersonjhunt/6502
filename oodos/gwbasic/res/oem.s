@@ -146,11 +146,11 @@ FINPRT:         STZ     PTRFIL
                 STZ     PTRFIL+1
                 RTS
 
-; ISFLIO (BIMISC.ASM 922): Z clear when PTRFIL is a file (or LPT1).
-ISFLIO:         PHA
-                LDA     PTRFIL
+; ISFLIO (BIMISC.ASM 922): Z clear when PTRFIL is a file (or LPT1). A is
+; used (the 8086 keeps BX, its text pointer, and uses AL's flags alone: a
+; PLA here would set Z by A).
+ISFLIO:         LDA     PTRFIL
                 ORA     PTRFIL+1
-                PLA
                 RTS
 
 ; --- PINLIN, QINLIN, INLIN (SCNEDT.ASM 132) --------------------------------------------

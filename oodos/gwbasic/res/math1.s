@@ -61,11 +61,21 @@ DV010:          STA     PTR
                 BNE     DV020          ; 2: don't
                 LDA     #2             ; 1: print, and not again
                 STA     FLGOV
-DV015:          JSR     STROUT
+DV015:          LDA     PTRFIL+1       ; $STPRN, $CATTY: to the console, whatever
+                PHA                    ; the output (LPRINT's LPT1)
+                LDA     PTRFIL
+                PHA
+                STZ     PTRFIL
+                STZ     PTRFIL+1
+                JSR     STROUT
                 LDA     #13
                 JSR     OUTDO
                 LDA     #10
                 JSR     OUTDO
+                PLA
+                STA     PTRFIL
+                PLA
+                STA     PTRFIL+1
 DV020:          RTS
 
 ; DOINF: +infinity for zero to a negative power (BH zero), else the FAC's

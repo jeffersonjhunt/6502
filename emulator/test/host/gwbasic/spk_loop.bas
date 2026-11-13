@@ -1,0 +1,7 @@
+10 REM a counted loop, GOTO and IF
+20 I%=0 : S=0
+30 I%=I%+1 : S=S+I%/3
+40 IF I%<20 THEN 30
+50 PRINT I%;S
+60 IF S>70 THEN PRINT 1 ELSE PRINT 0
+70 END
