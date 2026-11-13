@@ -38,9 +38,11 @@ ctest's `test_gwbasic_programs` runs `programs.py`: each `programs/NAME.bas`, to
 in the harness (`harness.s` sets the workspace up as RUN would: the variables past the program, the
 string space down from `$9FEE`, or smaller where a program says `REM @memsize N`) through NEWSTT and
 the stand-in PRINT (numbers and strings, `;` between). What it prints must be `NAME.out`, made by
-`tools/oracle.sh` from the same file, with PC-BASIC's error messages put as the stand-in prints errors
-("?ERR 13 IN 20", on a line of its own). Where the 1983 source and PC-BASIC disagree, the port keeps the
-source's behaviour and `NAME.differ` says why and what it prints:
+`tools/oracle.sh` from the same file. GW-BASIC's own error printer (step I1) prints an error as PC-BASIC
+does ("Type mismatch in 20", on a line of its own); then READY's "Ok", which PC-BASIC's `-n` run doesn't
+print, is dropped, and so are the `$FF` marks PC-BASIC writes after a message (the OO-1's console doesn't
+show them). Where the 1983 source and PC-BASIC disagree, the port keeps the source's behaviour and
+`NAME.differ` says why and what it prints:
 
 - a 41-character name and `DEFINT C-A` are Syntax errors in the source; PC-BASIC takes them;
 - the source has 10 string temporaries (NUMTMP), and the 11th is String formula too complex; PC-BASIC
@@ -53,6 +55,17 @@ which is still a stand-in (Illegal function call).
 `gc.bas` is the garbage collector under pressure: 1,000 passes in 1,500 bytes, thousands of strings
 made and dropped, the kept ones checked at the end; breaking the collector (one descriptor not moved)
 fails it.
+
+## Typed lines
+
+`run6502 --input FILE` answers function 10 with FILE's lines, one a call, echoed as function 10 echoes
+(with the characters the buffer holds first, as OODOS's preload), and stops when they run out. With the
+control byte 2 the harness starts GW-BASIC itself at READY (INITSA), its workspace at `$9001`: so a
+transcript of lines typed at GW-BASIC's prompt can be tried in a second, without OODOS. (The real test of
+typed lines is the emulator's `test_gwbasic_core`, against `emulator/test/host/gwbasic/`.)
+
+    printf '\x02\0\0\0\0\0\0\0' > ctrl.vec
+    run6502 flat.bin --load 9FF0:ctrl.vec --input lines.txt
 
 The project's own: `flat.cfg`, `harness.s`, `run6502.cpp`, `check.py`, `programs.py`, this file, `oracle/` and
 `programs/`.

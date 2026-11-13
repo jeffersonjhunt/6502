@@ -1,8 +1,16 @@
 ; Derived from Microsoft GW-BASIC (1983).
 ; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
-; GWMAIN.ASM, translated: the parts the spike measures (README.md):
+; GWMAIN.ASM, translated: the resident part of the interpreter's frame.
 ;
+;   ERROR SNERR ...    the errors' entry: the stacks reset, the message (P2's
+;                      ERRPRT), then READY; the xxERR labels the code jumps to
+;   READY MAIN         "Ok", a line read (the OEM's PINLIN), then run at once
+;                      (direct) or crunched into the program (P2's EDENT2);
+;                      FINI clears and goes round again
+;   BAKSP              back over spaces after a number
+;   PRGEND             the end of the program, or of a direct line
+;   RUN                RUN and RUN line (RUN "file" is 7c's)
 ;   NEWSTT GONE        the statement fetcher and dispatch
 ;   CHRGTR CHRCON      the next character, and embedded constants
 ;   CONFC1             an embedded constant to the FAC
@@ -20,17 +28,38 @@
 ; address, then the statement's (from STMDSP, less one) for CHRGTR's RTS to
 ; go to, so a statement starts with its first character in A and CHRGTR's
 ; flags: C set for a digit, Z for the end (":" or zero).
+;
+; The two stacks. SAVSTK holds both at a statement's start: the 6502's S,
+; then the BASIC stack's SSP. An error (ERESET), a ^C (the OEM's ITSCTC)
+; and RUN, NEW and CLEAR (STKINI, res/bimisc.s) set them back, which drops
+; any far call's frame: so the main loop is never left inside a block. A
+; block that would end at READY or MAIN (LIST, ERREDT) returns instead, and
+; its resident caller goes on.
 
 .include "gwbasic.inc"
 
 .export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET
-.export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC
+.export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC, LOOP
 .export DEFSTR, DEFINT, DEFREA, DEFDBL, INTIDX, INTID2
-.import STMDSP, NUMCON, OUTDO, SNERR, ERROR, PRGEND, NEWSTX, ISMID
+.export ERROR, SNERR, DV0ERR, NFERR, UFERR, REERR, OVERR, MOERR, TMERR, FCERR
+.export USERR, ERESET, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
+.export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, LIST, LLIST, DELETE
+.import STMDSP, NUMCON, OUTDO, NEWSTX, ISMID, LRUN
 .import GOTRP, CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
-.import LETSTR, ISLET2, GETIN2, FCERR, DEFTBL
+.import LETSTR, ISLET2, GETIN2, DEFTBL, SPOP, STKERR, CRDONZ, FINLPT
+.import STROUT, PINLIN, ENDCON, RUNC, CLEARC
 
-ERRUS           = 8                    ; Undefined line number
+ERRNF           = 1                    ; GWDATA.ASM's error numbers
+ERRSN           = 2
+ERRFC           = 5
+ERROV           = 6
+ERRUS           = 8
+ERRDV0          = 11
+ERRTM           = 13
+ERRUF           = 18
+ERRNR           = 19
+ERRRE           = 20
+ERRMO           = 22
 
 .code
 
@@ -622,3 +651,237 @@ INTID2:         JSR     GETIN2
                 BPL     :+
                 JMP     FCERR
 :               RTS
+
+; --- The errors (GWMAIN.ASM 423) ---------------------------------------------------------
+
+; Each xxERR loads its number, as the 8086's MOV DL / skip chain does.
+SNERR:          LDA     #ERRSN
+                BRA     ERROR
+DV0ERR:         LDA     #ERRDV0
+                BRA     ERROR
+NFERR:          LDA     #ERRNF
+                BRA     ERROR
+UFERR:          LDA     #ERRUF
+                BRA     ERROR
+REERR:          LDA     #ERRRE
+                BRA     ERROR
+OVERR:          LDA     #ERROV
+                BRA     ERROR
+MOERR:          LDA     #ERRMO
+                BRA     ERROR
+TMERR:          LDA     #ERRTM
+                BRA     ERROR
+FCERR:          LDA     #ERRFC         ; GWMAIN.ASM 1938 $FCERR
+
+; ERROR (GWMAIN.ASM 455): error A (the 8086's DL). Before start-up is done
+; (INITFG), P2's CMDERR says so and ends. Then ERL's line and the line for
+; EDIT and LIST, the stacks back as the statement began, the line and text
+; for CONT, and the message: "Syntax error in 20", on a line of its own.
+; ON ERROR's trap (NTMDCN's) is 7b's: the error is always printed.
+ERROR:
+.ifdef FLAT
+                LDX     ERRHOOK+1      ; the math harness takes it?
+                BEQ     :+
+                JMP     (ERRHOOK)
+:
+.endif
+                STA     RDL
+                LDA     INITFG
+                BNE     INITOK
+                FJSR    CMDERR         ; never returns
+INITOK:         LDA     CURLIN         ; ERRLIN, for ERL
+                STA     ERRLIN
+                LDA     CURLIN+1
+                STA     ERRLIN+1
+                AND     CURLIN
+                CMP     #$FF
+                BEQ     ERRESM         ; a direct line: DOT stays
+                LDA     CURLIN
+                STA     DOT
+                LDA     CURLIN+1
+                STA     DOT+1
+ERRESM:         LDA     #<(ERRMOR-1)   ; CX: where STKERR returns to
+                STA     RCL
+                LDA     #>(ERRMOR-1)
+                STA     RCH
+; ERESET: the stacks as SAVSTK has them, then STKERR, which returns to CX.
+ERESET:         LDX     SAVSTK
+                TXS
+                LDA     SAVSTK+1
+                STA     SSP
+                LDA     SAVSTK+2
+                STA     SSP+1
+                JMP     STKERR
+ERRMOR:         LDX     #RCL           ; the FNDFOR stopper STKERR pushed
+                LDA     #2
+                JSR     SPOP
+                LDA     RDL
+                STA     ERRFLG         ; for READY: a Syntax error edits its line
+                LDA     SAVTXT         ; RESUME's (7b)
+                STA     ERRTXT
+                LDA     SAVTXT+1
+                STA     ERRTXT+1
+                LDA     ERRLIN
+                AND     ERRLIN+1
+                CMP     #$FF
+                BEQ     NOTRAP         ; direct: no CONT
+                LDA     ERRLIN
+                STA     OLDLIN
+                LDA     ERRLIN+1
+                STA     OLDLIN+1
+                LDA     SAVTXT
+                STA     OLDTXT
+                LDA     SAVTXT+1
+                STA     OLDTXT+1
+NOTRAP:         STZ     ONEFLG
+                JSR     CRDONZ
+                LDA     RDL
+                FJSR    ERRPRT         ; the message, " in " ERRLIN, P2's
+                ; and into READY
+
+; --- READY, MAIN (GWMAIN.ASM 586) ----------------------------------------------------------
+
+; READY: "Ok". FTSITE's far call to P1's FARTST, which does nothing, is the
+; project's own: test_gwbasic_core times it, the built FARCALL's crossing.
+; (The 8086's STPRDY pops the line ENDCON or LIST left on its stack; here
+; nothing is left there, so STPRDY is READY.)
+READY:
+FTSITE:         FJSR    FARTST
+                JSR     FINLPT         ; LPT1 to its left margin
+                JSR     CRDONZ
+                LDA     #<REDDY
+                STA     PTR
+                LDA     #>REDDY
+                STA     PTR+1
+                JSR     STROUT
+REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
+                CMP     #ERRSN
+                BNE     MAIN
+                FJSR    ERREDT
+
+; MAIN: a line from the console. A blank one is read again; one starting
+; with a number goes into the program; any other runs at once, from KBUF,
+; as the end of a program would (CRUNCH leaves three zeros after it). AUTO
+; (7b) is left out: its line number and "*".
+MAIN:           LDA     #$FF           ; CURLIN: direct
+                STA     CURLIN
+                STA     CURLIN+1
+                LDA     #<ENDPRG
+                STA     SAVTXT
+                LDA     #>ENDPRG
+                STA     SAVTXT+1
+NTAUTO:         JSR     PINLIN         ; TXTPTR at BUF-1
+                BCC     NTSTOP
+                BRA     MAIN
+NTSTOP:         JSR     CHRGTR
+                INC     A              ; zero? (C kept)
+                DEC     A
+                BEQ     MAIN
+                PHP                    ; C: a digit first
+                JSR     LINGET
+                BCC     MAINBX
+                JMP     SNERR          ; a digit left over: the number is too big
+MAINBX:         JSR     BAKSP
+NTASTC:         LDA     RDL            ; a line number: one space after it is dropped
+                ORA     RDH
+                BEQ     EDENT
+                LDA     (TXTPTR)
+                CMP     #' '
+                BNE     EDENT
+                INCW    TXTPTR
+EDENT:          LDA     RDH            ; the line number, kept
+                PHA
+                LDA     RDL
+                PHA
+                FJSR    CRUNCH         ; to KBUF; TXTPTR at KBUF-1, KCNT its length
+                PLA
+                STA     RDL
+                PLA
+                STA     RDH
+                LDA     TXTPTR
+                STA     SAVTXT
+                LDA     TXTPTR+1
+                STA     SAVTXT+1
+                PLP
+                BCS     :+
+                JMP     GONE           ; DIRDO: direct, from the keyboard
+:               FJSR    EDENT2         ; into the program; it ends at FINI
+; FINI: after the program has changed, the variables cleared, and MAIN.
+FINI:           JSR     RUNC
+                JMP     MAIN
+
+; BAKSP (GWMAIN.ASM 1412): TXTPTR back over the spaces, tabs and line feeds
+; before it.
+BAKSP:          DECW    TXTPTR
+                LDA     (TXTPTR)
+                CMP     #' '
+                BEQ     BAKSP
+                CMP     #9
+                BEQ     BAKSP
+                CMP     #10
+                BEQ     BAKSP
+                INCW    TXTPTR
+                RTS
+
+; --- PRGEND (GWMAIN.ASM 384) ----------------------------------------------------------
+
+; The end of the program or of a direct line: ENDCON, with no "Break". In ON
+; ERROR's routine (ONEFLG), No RESUME.
+PRGEND:         LDA     CURLIN
+                AND     CURLIN+1
+                CMP     #$FF
+                BEQ     ENDCNJ
+                LDA     ONEFLG
+                BEQ     ENDCNJ
+                LDA     #ERRNR
+                JMP     ERROR
+ENDCNJ:         JMP     ENDCON
+
+; --- RUN (GWMAIN.ASM 2018) -------------------------------------------------------------
+
+; RUN: from the start (RUNC, which returns to NEWSTT at TXTTAB-1); RUN line:
+; cleared, then GOTO it with NEWSTT to return to; RUN "file": LRUN, 7c's.
+RUN:            BNE     :+
+                JMP     RUNC
+:               CMP     #LINCON
+                BEQ     CONRUN
+                CMP     #PTRCON
+                BEQ     CONRUN
+                JMP     LRUN
+CONRUN:         JSR     CLEARC         ; TXTPTR kept
+                PUSHRET NEWSTT         ; RUNC2
+                JMP     GOTO
+
+; --- LIST, LLIST, DELETE: P2's statements ----------------------------------------------
+
+; LIST: P2's LISTP lists; then, as GW-BASIC's LIST, NEWSTT's return dropped
+; and READY. LLIST: the same to LPT1 (PTRFIL; READY's FINLPT puts it back).
+; DELETE: P2's DELETP, which ends at FINI.
+LLIST:          PHA
+                LDA     #$FF
+                STA     PTRFIL
+                STA     PTRFIL+1
+                PLA
+LIST:           FJSR    LISTP
+                PLA
+                PLA
+                JMP     READY
+DELETE:         FJSR    DELETP
+
+.rodata
+; GWDATA.ASM 1543
+REDDY:          .byte   "Ok", $FF, 13, 10, 0
+
+.segment "RAM"
+; GWDATA.ASM's
+ENDPRG:         .res    5              ; the fake end of a program SAVTXT points at in direct mode
+DOT:            .res    2              ; the current line, for LIST . and EDIT
+OLDLIN:         .res    2              ; CONT's line
+OLDTXT:         .res    2              ; and text; 0: nothing to continue
+ERRTXT:         .res    2              ; RESUME's (7b)
+ONEFLG:         .res    1              ; in ON ERROR's routine (7b)
+INITFG:         .res    1              ; start-up done: errors are BASIC's
+.ifdef FLAT
+.export ERRHOOK
+ERRHOOK:        .res    2              ; the flat harness's error entry, or 0 (test/harness.s)
+.endif

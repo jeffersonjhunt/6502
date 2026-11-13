@@ -4,7 +4,9 @@
 ;
 ; A control block at $9FF0 says what to do:
 ;
-;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9000
+;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9000;
+;           2: GW-BASIC itself, from READY, with its workspace at $9001 (to
+;           MEMSIZ), its lines typed from run6502's --input file
 ;   $9FF2   the number of vectors
 ;   $9FF6   a program's MEMSIZ, the string space's top (0: $9FEE, leaving a
 ;           byte below the control block for VAL's zero)
@@ -36,7 +38,7 @@
 .import SGN, VNEG, VABS, MUL10, DIV10, NEWSTT, ERRHOOK, DADD, DSUB, DCOMP
 .import DINT, FIN, FINDBL, SQR, EXP, LOG, SIN, COS, TAN, ATN, FPWR, RND
 .import FOUTO, FOUTH, RNDX
-.import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG
+.import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, INITFG, TOPS, TOPMEM, INITSA
 
 CTRL            = $9FF0
 OUTCNT          = $9FFE
@@ -74,9 +76,46 @@ START:          CLD
                 STZ     FMTAH
                 STZ     ERRHOOK
                 STZ     ERRHOOK+1
+                LDA     #$FF           ; as start-up leaves them (GWINIT, INITSA): errors
+                STA     INITFG         ; are BASIC's; both stacks' tops for STKINI
+                STA     TOPS
+                LDA     #<SSTOP
+                STA     TOPMEM
+                LDA     #>SSTOP
+                STA     TOPMEM+1
                 LDA     CTRL
-                BNE     BASRUN
+                CMP     #2
+                BEQ     INTRUN
+                CMP     #1
+                BEQ     BASRUN
                 JMP     MATHRUN
+
+; --- GW-BASIC from READY ------------------------------------------------------------
+
+; As P2's GWINIT leaves memory (but the workspace here), then INITSA: NEW and
+; READY. No heading.
+INTRUN:         LDA     #<(PROGRAM+1)
+                STA     TXTTAB
+                LDA     #>(PROGRAM+1)
+                STA     TXTTAB+1
+                LDA     CTRL+6
+                LDX     CTRL+7
+                BNE     :+
+                LDA     #<$9FEE
+                LDX     #>$9FEE
+:               STA     MEMSIZ
+                STA     FRETOP
+                STX     MEMSIZ+1
+                STX     FRETOP+1
+                LDA     #<TEMPST
+                STA     TEMPPT
+                LDA     #>TEMPST
+                STA     TEMPPT+1
+                STZ     PTRFIL
+                STZ     PTRFIL+1
+                STZ     TTYPOS
+                STZ     LPTPOS
+                JMP     INITSA
 
 ; --- A program -----------------------------------------------------------------
 

@@ -26,7 +26,7 @@
 
 .export LOAD, PAGBLK, FCADDR
 .import __FARFIX_RUN__, __FARFIX_SIZE__
-.import STROUT, READY
+.import STROUT, INITSA
 
 LBUF            = __FARFIX_RUN__ + __FARFIX_SIZE__ ; the header record, then the buffers
 LHDR            = (LBUF + $FF) & $FF00 ; the OVL's header record (128 bytes)
@@ -265,7 +265,7 @@ LOAD:           CLD
                 STZ     LBLK
                 JSR     LPATCH
                 FJSR    GWINIT
-                JMP     READY
+                JMP     INITSA         ; the end of start-up (res/bimisc.s)
 
 LBAD:           LDA     #<MBAD
                 LDX     #>MBAD

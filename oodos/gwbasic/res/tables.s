@@ -3,7 +3,8 @@
 ;
 ; The dispatch tables: GWDATA.ASM's operator tables (segment GWDATA) and
 ; IBMRES.ASM's statement and function tables (segment IBMRES). Entries not
-; translated yet point at res/todo.s's NOTSPK, Illegal function call.
+; translated yet point at res/todo.s's NOTSPK, Illegal function call, or
+; at res/todo_i1.s's ADVERR, Advanced Feature, if a later sub-phase's.
 
 .include "gwbasic.inc"
 
@@ -11,6 +12,7 @@
 .import FADD, FSUB, FMULT, FDIV, FCOMP, IADD, ISUB, IMULT, INTDIV, ICOMP
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
+.import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
@@ -41,7 +43,9 @@ NUMCON:         .byte   CONCON, CONCN2
 .rodata
 
 ; STMDSP: the statements END ($81) to LOCATE ($CA), each address less one
-; for GONE2's RTS.
+; for GONE2's RTS, in IBMRES.ASM's order. NOTSPK (Illegal function call):
+; 7a's, not translated yet (step I2's); ADVERR (Advanced Feature): a later
+; sub-phase's; SNERR: IBMRES.ASM's padding.
 .define S(addr) .word addr-1
 STMDSP:         S       ENDST          ; END
                 S       NOTSPK         ; FOR
@@ -52,28 +56,58 @@ STMDSP:         S       ENDST          ; END
                 S       NOTSPK         ; READ
                 S       LET            ; LET
                 S       GOTO           ; GOTO
-                S       NOTSPK         ; RUN
+                S       RUN            ; RUN
                 S       IFS            ; IF
-.repeat 3
-                S       NOTSPK         ; RESTORE GOSUB RETURN
-.endrepeat
+                S       NOTSPK         ; RESTORE
+                S       NOTSPK         ; GOSUB
+                S       NOTSPK         ; RETURN
                 S       REM            ; REM
-                S       NOTSPK         ; STOP
+                S       STOP           ; STOP
                 S       PRINT          ; PRINT
-.repeat 15
-                S       NOTSPK         ; CLEAR .. WIDTH
-.endrepeat
+                S       ADVERR         ; CLEAR (7b)
+                S       LIST           ; LIST
+                S       SCRATH         ; NEW
+                S       ADVERR         ; ON (7b)
+                S       ADVERR         ; WAIT (refused, 7g)
+                S       ADVERR         ; DEF (7b)
+                S       NOTSPK         ; POKE
+                S       CONT           ; CONT
+                S       SNERR          ; (padding)
+                S       SNERR          ; (padding)
+                S       ADVERR         ; OUT (refused, 7g)
+                S       NOTSPK         ; LPRINT
+                S       LLIST          ; LLIST
+                S       SNERR          ; (padding)
+                S       ADVERR         ; WIDTH (7d)
                 S       ELSES          ; ELSE
-.repeat 10
-                S       NOTSPK         ; TRON .. RENUM
-.endrepeat
+                S       TON            ; TRON
+                S       TOFF           ; TROFF
+                S       ADVERR         ; SWAP (7b)
+                S       ADVERR         ; ERASE (7b)
+                S       ADVERR         ; EDIT (7b)
+                S       ADVERR         ; ERROR (7b)
+                S       ADVERR         ; RESUME (7b)
+                S       DELETE         ; DELETE
+                S       ADVERR         ; AUTO (7b)
+                S       ADVERR         ; RENUM (7b)
                 S       DEFSTR         ; DEFSTR
                 S       DEFINT         ; DEFINT
                 S       DEFREA         ; DEFSNG
                 S       DEFDBL         ; DEFDBL
-.repeat NUMCMD - 47
-                S       NOTSPK         ; LINE .. LOCATE
+                S       ADVERR         ; LINE (7b, 7d)
+                S       NOTSPK         ; WHILE
+                S       NOTSPK         ; WEND
+                S       ADVERR         ; CALL (7g)
+                S       SNERR          ; (padding)
+                S       SNERR          ; (padding)
+                S       SNERR          ; (padding)
+                S       ADVERR         ; WRITE (7b)
+                S       ADVERR         ; OPTION (7b)
+                S       ADVERR         ; RANDOMIZE (7b)
+.repeat LOCATE_TK - OPEN_TK + 1
+                S       ADVERR         ; OPEN .. LOCATE (7c-7f)
 .endrepeat
+.assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 
 ; FUNDSP: the functions LEFT$ ($FF $81) to LOF ($FF $A4).
 FUNDSP:

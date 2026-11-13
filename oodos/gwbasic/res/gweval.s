@@ -11,11 +11,14 @@
 ;   DOCNVF                 force a value to a type
 ;   GETBYT CONINT GETIN2   a byte or an integer from a formula
 ;   VARPTR GIVDBL          a variable's address; BX - DX as a number
+;   MAKUPL MAKUPS          a character in capitals (step I1)
+;   OCTCNS                 &O and &H: CRUNCH's, VAL's and INPUT's (step I1)
+;   ISMID                  MID$ = as a statement: 7b's (step I1)
 ;
 ; Strings take BISTRS.ASM's routines (res/bistrs.s): a literal (STRLTI), "+"
-; (CAT), the relations (STRCMP), INSTR. Left out (stubs): the extended
-; functions (EVALX), USR, FN, and &H/&O typed at run time (in program text
-; they are embedded constants).
+; (CAT), the relations (STRCMP), INSTR. INKEY$ is the OEM's (res/oem.s).
+; Left out (stubs): USR, FN; the extended functions (res/ibmres.s's EVALX)
+; give Advanced Feature.
 ;
 ; The 8086 keeps each pending operator's entry on its stack: the address to
 ; go on at (RETAOP), the left operand, the operator and its type, and the
@@ -32,9 +35,10 @@
 .import VMOVAF, POPR, FRCSNG, FRCINT, FRCDBL, CONSIH, MOVRF, MOVFR, FDIVT, CONIA
 .import MAKINT, IMOD, IDIV, VNEG, VMOVFM, INEG2, CHKSTR, GETYP, VFAC
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
-.import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI, OCTCNS
+.import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
-.import PTRGTN, FCERR, NOTYET
+.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID
+.export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
 
@@ -338,6 +342,9 @@ NTERL:          CMP     #VARPTR_TK
 :               CMP     #INSTR_TK
                 BNE     :+
                 JMP     INSTR
+:               CMP     #INKEYS_TK     ; (SCREEN and POINT before it are 7d's)
+                BNE     :+
+                JMP     INKEY
 :               CMP     #FN_TK
                 BNE     PARCHK
                 JMP     FNDOER
@@ -602,3 +609,120 @@ GIVDBL:         SEC
                 SBC     RDH
                 STA     RBH
                 JMP     INEG2
+
+; --- MAKUPL, MAKUPS (GWEVAL.ASM 793) ------------------------------------------------
+
+; MAKUPL: the character at TXTPTR, MAKUPS: A, as a capital if a small letter.
+MAKUPL:         LDA     (TXTPTR)
+MAKUPS:         CMP     #'a'
+                BCC     @r
+                CMP     #'z'+1
+                BCS     @r
+                AND     #$5F
+@r:             RTS
+
+; --- OCTCNS (GWEVAL.ASM 811) -----------------------------------------------------------
+
+; &O or &H (or & alone: octal) at TXTPTR's "&": the number as an integer in
+; the FAC and DX, TXTPTR at the character after it. Hex: up to 4 digits, a
+; fifth is Overflow; octal: Overflow past 16 bits. A non-octal digit is
+; Syntax error. In INPUT (FLGSCN set, 7a's I2) these print "Overflow" and
+; count in FLGOVC instead, for INPUT to ask again.
+OCTCNS:         STZ     RDL            ; DX: the value
+                STZ     RDH
+                JSR     CHRGTR
+                JSR     MAKUPS
+                CMP     #'O'
+                BEQ     LOPOCT
+                CMP     #'H'
+                BNE     LOPOC2
+                LDA     #5             ; CH: the digits allowed
+                STA     RCH
+LOPHEX:         INCW    TXTPTR
+                LDA     (TXTPTR)
+                JSR     MAKUPS
+                JSR     ISLET2
+                BCC     ALPTST
+                CMP     #'9'+1         ; neither: the end
+                BCS     OCTFIN
+                SEC
+                SBC     #'0'
+                BCC     OCTFIN
+                BRA     NXTHEX
+ALPTST:         CMP     #'F'+1
+                BCS     OCTFIN
+                SEC
+                SBC     #'A'-10
+NXTHEX:         LDX     #4             ; DX * 16, the digit in
+@s:             ASL     RDL
+                ROL     RDH
+                DEX
+                BNE     @s
+                ORA     RDL
+                STA     RDL
+                DEC     RCH
+                BNE     LOPHEX
+CKOVER:         LDA     FLGSCN         ; too many digits
+                BNE     :+
+                JMP     OVERR
+:               LDA     #<OVRMSG
+                STA     PTR
+                LDA     #>OVRMSG
+                STA     PTR+1
+                JSR     STROUT
+                JSR     CRDO
+CONER2:         INC     FLGOVC         ; INPUT's: an error came
+                RTS
+CONERR:         LDA     FLGSCN
+                BNE     CONER2
+                JMP     SNERR
+LOPOC2:         DECW    TXTPTR         ; that character again
+LOPOCT:         JSR     CHRGTR
+                BCC     OCTFIN         ; not a digit: the end
+                CMP     #'8'
+                BCC     :+
+                JMP     CONERR
+:               LDX     #3             ; DX * 8
+@s:             ASL     RDL
+                ROL     RDH
+                BCS     CKOVER
+                DEX
+                BNE     @s
+                SEC
+                SBC     #'0'
+                CLC
+                ADC     RDL
+                STA     RDL
+                BCC     LOPOCT
+                INC     RDH
+                BRA     LOPOCT
+HEXFIN:
+OCTFIN:
+HOCFIN:         LDA     RDL            ; MAKINT: the FAC an integer
+                STA     FACLO
+                LDA     RDH
+                STA     FACLO+1
+                LDA     #VT_INT
+                STA     VALTYP
+                RTS
+
+; --- ISMID$ (GWEVAL.ASM 1524) -----------------------------------------------------------
+
+; A statement token NEWSTX didn't take: $FF and MID$ is MID$ = (LHSMID,
+; 7b's); anything else is Syntax error.
+ISMID:          CMP     #$FF - $81
+                BEQ     :+
+                JMP     SNERR
+:               INCW    TXTPTR
+                LDA     (TXTPTR)
+                INCW    TXTPTR
+                CMP     #MIDTK
+                BEQ     :+
+                JMP     SNERR
+:               JMP     LHSMID
+
+.rodata
+OVRMSG:         .byte   "Overflow", 0  ; GWDATA.ASM's $OVMSG, as INPUT prints it
+
+.segment "RAM"
+FLGSCN:         .byte   0              ; GWDATA.ASM's: INPUT is scanning (I2's)

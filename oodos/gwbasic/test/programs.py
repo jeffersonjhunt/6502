@@ -5,11 +5,11 @@
 Each DIR/NAME.bas (DIR: programs/ beside this file) is tokenised by basic.py and run in the flat
 harness (harness.s: the program at $9000, run through NEWSTT, printed by the stand-in PRINT, which
 prints numbers and strings with ";" between them). What it prints must be DIR/NAME.out, PC-BASIC's
-output for the same file (tools/oracle.sh), once PC-BASIC's error messages are put as the stand-in's
-error printer gives them: "Type mismatch in 20" as "?ERR 13 IN 20".
-
-The stand-in prints an error where the cursor is; GW-BASIC (and PC-BASIC) start a new line first if
-the cursor isn't at the start of one, so the 6502's output gets that line break before "?ERR".
+output for the same file (tools/oracle.sh). GW-BASIC's error printer (res/gwmain.s's ERROR, P2's
+messages) prints an error as PC-BASIC does; then READY prints "Ok" and asks for a line, which ends
+the run (run6502 has no lines to give): PC-BASIC's run, with -n, ends with no "Ok", so the 6502's
+last "Ok" is dropped. The $FF GW-BASIC sends after a message, to mark the line "not typed", isn't
+sent to the console (res/oem.s's OUTDO), so it is dropped from PC-BASIC's text.
 
 Where GW-BASIC's 1983 source and PC-BASIC differ, the port keeps the source's behaviour, and
 DIR/NAME.differ is what the 6502 must print instead: its first line, "# why", says why; the rest is
@@ -37,24 +37,9 @@ import basic  # noqa: E402
 
 CTRL, PROGRAM = 0x9FF0, 0x9000
 
-# GW-BASIC's messages for the errors the programs make, and their numbers.
-MESSAGES = {
-    "Syntax error": 2, "Illegal function call": 5, "Overflow": 6, "Out of memory": 7,
-    "Subscript out of range": 9, "Duplicate Definition": 10, "Division by zero": 11,
-    "Type mismatch": 13, "Out of string space": 14, "String too long": 15,
-    "String formula too complex": 16, "Missing operand": 22, "Advanced Feature": 73,
-}
-
-
 def expected(text):
-    """PC-BASIC's output, its error line as the stand-in prints one."""
-    out = []
-    for line in text.split("\r\n"):
-        m = re.match(r"(.*?)([A-Z][A-Za-z ]+) in (\d+)\xff?$", line)
-        if m and m.group(2) in MESSAGES:
-            line = "%s?ERR %d IN %s" % (m.group(1), MESSAGES[m.group(2)], m.group(3))
-        out.append(line)
-    return "\r\n".join(out)
+    """PC-BASIC's output, its "not typed" marks dropped."""
+    return text.replace("\xff", "")
 
 
 def run(runner, image, src, work):
@@ -100,7 +85,8 @@ def main():
                 print("Program %-10s run6502 failed: %s" % (name, err.strip()))
                 failed += 1
                 continue
-            got = re.sub(r"(?<=[^\n])\?ERR ", "\r\n?ERR ", got)
+            if got.endswith("Ok\r\n"):  # READY's, after the program
+                got = got[:-4]
             ok = got == want
             print("Program %-10s %s (%d lines)" % (name, "ok" if ok else "MISMATCH", want.count("\r\n")))
             if not ok:

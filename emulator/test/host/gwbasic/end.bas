@@ -1,0 +1,3 @@
+10 PRINT "one"
+20 END
+30 PRINT "two"

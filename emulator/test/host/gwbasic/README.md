@@ -16,3 +16,17 @@ only these outputs. An `.out` written by hand (an interactive transcript PC-BASI
 in a comment of the test that uses it.
 
 Run the oracle again only when a program changes, and look at the difference before committing it.
+
+The programs (step I1 of 7a), each typed line by line at GW-BASIC's prompt and then RUN:
+
+| Program | What |
+|---|---|
+| `run1` | lines run in order, GOTO, IF, variables, `?` for PRINT |
+| `tron` | TRON and TROFF in a program: `[30]` before each line |
+| `stop`, `end` | STOP's "Break in 30"; END |
+| `errul`, `errtm`, `errsn` | Undefined line number, Type mismatch, Syntax error: "... in 20" |
+| `list`, `listr` | a program that LISTs itself (every kind of token and constant), and LIST 20-30 |
+
+PC-BASIC writes `$FF` after an error's message (GW-BASIC's "not typed" mark); the test drops it, as the OO-1's
+console doesn't show it.
+

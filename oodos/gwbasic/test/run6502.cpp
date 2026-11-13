@@ -4,7 +4,7 @@
  * @copyright Copyright (c) 2026 Jefferson J. Hunt (MIT)
  *
  *   run6502 flat.bin [--load ADDR:FILE]... [--dump ADDR:LEN:FILE]... [--count ADDR]... [--outcount ADDR]
- *                    [--max N]
+ *                    [--max N] [--input FILE]
  *
  * From the size spike's (oodos/spike/gwbasic/run6502.cpp), for the port's
  * flat image (test/flat.cfg, check.py). The image loads at $0300 and starts
@@ -16,7 +16,16 @@
  *
  *   0   warm boot: stop
  *   2   console output: the character in A, to stdout
+ *   5   LST: output: dropped (no printer), as OODOS's LPT takes and drops
+ *   6   raw console: a key ($FF, $FE) is none, A = 0; a character, to stdout
  *   9   print string: the string at A (low) and X (high), to its '$'
+ *   10  read a line: the next of --input's lines, echoed as function 10 echoes
+ *       it (the characters the buffer holds first, then the line, then CR);
+ *       with none left it stops, as the warm boot: GW-BASIC's READY asks for
+ *       one when a program has ended
+ *   11  console status: no key, A = 0
+ *   26  the DMA address: kept, for function 10 with A/X = 0
+ *   109 the console mode: A = X = 0
  *
  * A jump to $0200 also stops, and so does STP. Then each --dump writes LEN
  * bytes from ADDR to FILE, for the checker to read; --count reports how many
@@ -116,6 +125,9 @@ int main(int argc, char **argv)
     std::vector<Count> counts;
     unsigned long long max_steps = 2'000'000'000ULL;
     long outcount = -1;
+    std::vector<std::string> input; // --input's lines, for function 10
+    size_t next_line = 0;
+    uint16_t dma = 0x0280;
 
     if (!load(bus, LOAD, argv[1]))
         return 2;
@@ -144,6 +156,14 @@ int main(int argc, char **argv)
             counts.push_back({static_cast<uint16_t>(parse_hex(argv[++i])), 0});
         else if (arg == "--outcount" && i + 1 < argc)
             outcount = static_cast<long>(parse_hex(argv[++i]));
+        else if (arg == "--input" && i + 1 < argc)
+        {
+            std::ifstream f(argv[++i], std::ios::binary);
+            if (!f)
+                return 2;
+            for (std::string l; std::getline(f, l);)
+                input.push_back(l);
+        }
         else if (arg == "--max" && i + 1 < argc)
             max_steps = std::strtoull(argv[++i], nullptr, 10);
         else
@@ -193,6 +213,54 @@ int main(int argc, char **argv)
             case 2:
                 std::fputc(r.a, stdout);
                 counted(1);
+                break;
+            case 5:
+                break;
+            case 26:
+                dma = static_cast<uint16_t>(r.x << 8 | r.a);
+                break;
+            case 6:
+                if (r.a >= 0xFD)
+                    r.a = 0;
+                else
+                {
+                    std::fputc(r.a, stdout);
+                    counted(1);
+                }
+                r.x = 0;
+                break;
+            case 10:
+            {
+                if (next_line >= input.size())
+                {
+                    done = true;
+                    break;
+                }
+                const auto buf = static_cast<uint16_t>((r.a | r.x) ? (r.x << 8 | r.a) : dma);
+                const unsigned size = bus.at(buf) ? bus.at(buf) : 1u;
+                std::string line;
+                if (!(r.a | r.x)) // the characters already there, as if typed
+                    for (unsigned n = 0; n < size && bus.at(static_cast<uint16_t>(buf + 2 + n)); ++n)
+                        line += static_cast<char>(bus.at(static_cast<uint16_t>(buf + 2 + n)));
+                line += input[next_line++];
+                if (line.size() > size)
+                    line.resize(size);
+                for (size_t n = 0; n < line.size(); ++n)
+                {
+                    bus.at(static_cast<uint16_t>(buf + 2 + n)) = static_cast<uint8_t>(line[n]);
+                    std::fputc(line[n], stdout);
+                }
+                std::fputc('\r', stdout);
+                counted(static_cast<unsigned>(line.size() + 1));
+                bus.at(static_cast<uint16_t>(buf + 1)) = static_cast<uint8_t>(line.size());
+                r.a = 0;
+                r.x = 0;
+                break;
+            }
+            case 11:
+            case 109:
+                r.a = 0;
+                r.x = 0;
                 break;
             case 9:
                 for (unsigned n = 0; n < 0x10000 && bus.at(static_cast<uint16_t>((r.x << 8 | r.a) + n)) != '$'; ++n)

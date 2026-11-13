@@ -34,7 +34,9 @@ all: $(BUILD)/GWBASIC.COM
 $(BUILD) $(BUILD)/res $(addprefix $(BUILD)/,$(BLOCKS)):
 	mkdir -p $@
 
-# The entries, whenever a block's source changes (gwgen.py writes only what changed).
+# The entries, whenever a block's source changes (gwgen.py writes only what changed). The headers it
+# writes have no recipe of their own, so make doesn't see them change in the run that makes them: each
+# header's object depends on entries.inc as well.
 $(BUILD)/entries.inc: $(wildcard p[1-8]/*.s) tools/gwgen.py | $(BUILD)
 	$(PYTHON) tools/gwgen.py $(BUILD) $(BLOCKS)
 $(foreach b,$(BLOCKS),$(BUILD)/$(b)_hdr.s): $(BUILD)/entries.inc
@@ -59,7 +61,7 @@ $(BUILD)/ressym.lst: $(BUILD)/ressym.s
 define BLOCK
 $(BUILD)/$(1)/%.o: $(1)/%.s $(INCS) | $(BUILD)/$(1)
 	ca65 $$(AFLAGS) -D BLOCK_$(1) $$< -o $$@
-$(BUILD)/$(1)_hdr.o: $(BUILD)/$(1)_hdr.s
+$(BUILD)/$(1)_hdr.o: $(BUILD)/$(1)_hdr.s $(BUILD)/entries.inc
 	ca65 $$(AFLAGS) $$< -o $$@
 $(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o $(BUILD)/ressym.lst blk.cfg
 	$$(call LD65,-C blk.cfg $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)

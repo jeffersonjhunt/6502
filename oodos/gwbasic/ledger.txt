@@ -200,7 +200,7 @@ MATH1.ASM MOVE -> later 7a: the interpreter's (4 bytes, the 8086's MOVE)
 MATH1.ASM MOVRM -> later 7a: the interpreter's
 MATH1.ASM GETBCD -> res/bistrs.s GETBCD # without its BX + 3 (no caller uses it yet)
 MATH1.ASM INXHRT -> later 7a: the interpreter's
-MATH1.ASM INPRT -> later 7a: the interpreter's (" in" and a line number, for errors)
+MATH1.ASM INPRT -> p2/gwmain.s INPRT # (step I1: was "later 7a")
 MATH1.ASM LINPRT -> p1/fout.s LINPRT
 MATH1.ASM LINOUT -> p1/fout.s LINOUT
 MATH1.ASM FOUINI -> p1/fout.s LINOUT # inline
@@ -419,3 +419,418 @@ GWDATA.ASM DSEGZ -> res/bistrs.s DSEGZ
 GWDATA.ASM MEMSIZ -> res/bistrs.s MEMSIZ
 GWDATA.ASM NAMBUF -> res/biptrg.s NAMBUF
 GWDATA.ASM DEFTBL -> res/biptrg.s DEFTBL
+
+# i1: the interpreter's frame and the console (step I1 of 7a): GWMAIN.ASM's errors, READY, MAIN, the program's
+# entry (CRUNCH, EDENT, CHEAD), RUN, SCNLIN and the pointers back to numbers; GWLIST.ASM; IBMRES.ASM's words and
+# extended dispatch; BIMISC.ASM's program life; GWINIT.ASM's and ITSA86.ASM's start-up; GWDATA.ASM's messages;
+# and the OEM console (SCNEDT.ASM's line input, GIO86.ASM's output, GIOKYB.ASM's keys). The labels inside a
+# routine that matter are named too. (BISTRS.ASM PPSWRT, which the s lines call dropped, is where GWLIST.ASM's
+# buffer-full exits go: here a plain RTS in p2/gwlist.s.)
+GWMAIN.ASM SNERR -> res/gwmain.s SNERR
+GWMAIN.ASM $SNERR -> res/gwmain.s SNERR
+GWMAIN.ASM DV0ERR -> res/gwmain.s DV0ERR
+GWMAIN.ASM NFERR -> res/gwmain.s NFERR
+GWMAIN.ASM UFERR -> res/gwmain.s UFERR
+GWMAIN.ASM REERR -> res/gwmain.s REERR
+GWMAIN.ASM OVERR -> res/gwmain.s OVERR
+GWMAIN.ASM $OVERR -> res/gwmain.s OVERR
+GWMAIN.ASM MOERR -> res/gwmain.s MOERR
+GWMAIN.ASM TMERR -> res/gwmain.s TMERR
+GWMAIN.ASM $TMERR -> res/gwmain.s TMERR
+GWMAIN.ASM FCERR -> res/gwmain.s FCERR
+GWMAIN.ASM $FCERR -> res/gwmain.s FCERR
+GWMAIN.ASM DATSNE -> later 7a: READ's (step I2), with DATLIN
+GWMAIN.ASM ERROR -> res/gwmain.s ERROR # INITFG's CMDERR first; NLONLY, MRGFLG and CHNFLG are 7c's
+GWMAIN.ASM INITOK -> res/gwmain.s INITOK
+GWMAIN.ASM ERRESM -> res/gwmain.s ERRESM
+GWMAIN.ASM ERESET -> res/gwmain.s ERESET # S and SSP from SAVSTK
+GWMAIN.ASM ERRMOR -> res/gwmain.s ERRMOR
+GWMAIN.ASM NTMDCN -> later 7b: ON ERROR's trap (ONELIN, ONEFLG, to GONE4); the error is printed (res/gwmain.s NOTRAP)
+GWMAIN.ASM NOTRAP -> res/gwmain.s NOTRAP # CNTOFL (^O) has no counterpart
+GWMAIN.ASM UPERR -> p2/gwmain.s UPERR
+GWMAIN.ASM NTDER2 -> p2/gwmain.s NTDER2
+GWMAIN.ASM NTDERR -> p2/gwmain.s NTDERR
+GWMAIN.ASM LEPSKP -> p2/gwmain.s LEPSKP
+GWMAIN.ASM ERRFIN -> p2/gwmain.s ERRFIN # P2's ERRPRT (from ERRMOR) and BRKMSG (from ENDCON) come to it
+GWMAIN.ASM ERRFN1 -> p2/gwmain.s ERRFN1
+GWMAIN.ASM STPRDY -> res/gwmain.s READY # the line it pops isn't on the 6502's stack: READY itself
+GWMAIN.ASM READY -> res/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN later 7c
+GWMAIN.ASM REPINI -> res/gwmain.s REPINI
+GWMAIN.ASM MAIN -> res/gwmain.s MAIN # AUTO's line number and "*" later 7b
+GWMAIN.ASM AUTELN -> later 7b: AUTO
+GWMAIN.ASM NTAUTO -> res/gwmain.s NTAUTO
+GWMAIN.ASM NTSTOP -> res/gwmain.s NTSTOP
+GWMAIN.ASM MAINBX -> res/gwmain.s MAINBX
+GWMAIN.ASM NTASTC -> res/gwmain.s NTASTC
+GWMAIN.ASM EDENT -> res/gwmain.s EDENT # to CRUNCH and back; a numbered line on in P2's EDENT2
+GWMAIN.ASM AUTRES -> later 7b: AUTO's next line
+GWMAIN.ASM AUTGOD -> p2/gwmain.s AUTGOD
+GWMAIN.ASM LXISTS -> p2/gwmain.s LXISTS
+GWMAIN.ASM LEXIST -> p2/gwmain.s LEXIST
+GWMAIN.ASM ERAINS -> p2/gwmain.s LEXIST
+GWMAIN.ASM INONLY -> p2/gwmain.s INONLY # PROCHK (protected programs) later 7c
+GWMAIN.ASM NODEL -> p2/gwmain.s NODEL
+GWMAIN.ASM LEVFRE -> p2/gwmain.s LEVFRE # CHNFLG later 7c
+GWMAIN.ASM MLOOPR -> p2/gwmain.s MLOOPR
+GWMAIN.ASM FINI -> res/gwmain.s FINI # its CHEAD done in P2 first (p2/gwmain.s FINI2), then RUNC and MAIN
+GWMAIN.ASM EDTXIT -> p2/gwmain.s FINI2
+GWMAIN.ASM LINKER -> p2/gwmain.s LINKER
+GWMAIN.ASM CHEAD -> p2/gwmain.s CHEAD
+GWMAIN.ASM CZLOOP -> p2/gwmain.s CZLOOP
+GWMAIN.ASM CZLOO2 -> p2/gwmain.s CZLOO2
+GWMAIN.ASM CZLIN -> p2/gwmain.s CZLIN
+GWMAIN.ASM SCNLIN -> p2/gwmain.s SCNLIN # the last line in LSTMAX, not on the stack
+GWMAIN.ASM ALLLST -> p2/gwmain.s ALLLST
+GWMAIN.ASM SNGLIN -> p2/gwmain.s SNGLIN
+GWMAIN.ASM FNDLN1 -> p2/gwmain.s FNDLN1
+GWMAIN.ASM CRUNCH -> p2/gwmain.s CRUNCH # DX, CX and what it pushes in KDP, KCNT, KSRC, KRP, KCH (gwbasic.inc)
+GWMAIN.ASM KLOOP -> p2/gwmain.s KLOOP
+GWMAIN.ASM CRDONE -> p2/gwmain.s CRDONE
+GWMAIN.ASM NCRDON -> p2/gwmain.s NCRDON
+GWMAIN.ASM STUFFH -> p2/gwmain.s STUFFH
+GWMAIN.ASM COLIS -> p2/gwmain.s COLIS
+GWMAIN.ASM NODATT -> p2/gwmain.s NODATT
+GWMAIN.ASM STR1 -> p2/gwmain.s STR1
+GWMAIN.ASM STRNG -> p2/gwmain.s STRNG
+GWMAIN.ASM STRNG2 -> p2/gwmain.s STRNG2
+GWMAIN.ASM NTDATA -> p2/gwmain.s NTDATA
+GWMAIN.ASM GPUTRS -> p2/gwmain.s GPUTRS
+GWMAIN.ASM CHKRES -> p2/gwmain.s CHKRES
+GWMAIN.ASM GOSTEX -> p2/gwmain.s GOSTEX
+GWMAIN.ASM TOTEX -> p2/gwmain.s TOTEX
+GWMAIN.ASM SUBTEX -> p2/gwmain.s SUBTEX
+GWMAIN.ASM NOTGOS -> p2/gwmain.s NOTGOS
+GWMAIN.ASM TRYAGA -> p2/gwmain.s TRYAGA
+GWMAIN.ASM LOPPSI -> p2/gwmain.s LOPPSI
+GWMAIN.ASM ISVARS -> p2/gwmain.s LOPPSI # a "." or a letter or digit after the word: NOTRES
+GWMAIN.ASM ISRESW -> p2/gwmain.s ISRESW
+GWMAIN.ASM RENCRN -> p2/gwmain.s RENCRN
+GWMAIN.ASM LOPSKP -> p2/gwmain.s LOPSKP
+GWMAIN.ASM LOPSK2 -> p2/gwmain.s LOPSKP
+GWMAIN.ASM NOTFNT -> p2/gwmain.s NOTFNT
+GWMAIN.ASM NOTFN2 -> p2/gwmain.s NOTFN2
+GWMAIN.ASM NOTFN3 -> p2/gwmain.s NOTFN3
+GWMAIN.ASM LINRES -> p2/ibmres.s LINRES
+GWMAIN.ASM NOTFN4 -> p2/gwmain.s NOTFN4
+GWMAIN.ASM NOTRS2 -> p2/gwmain.s NOTFN3 # its LDA #1, inline
+GWMAIN.ASM NOTRS6 -> p2/gwmain.s NOTRS6
+GWMAIN.ASM CKSNGQ -> p2/gwmain.s CKSNGQ
+GWMAIN.ASM TSTNUM -> p2/gwmain.s TSTNUM
+GWMAIN.ASM NUMTRY -> p2/gwmain.s NUMTRY
+GWMAIN.ASM SAVINT -> p2/gwmain.s SAVINT
+GWMAIN.ASM SAVI -> p2/gwmain.s SAVI
+GWMAIN.ASM POPSTF -> p2/gwmain.s POPSTF
+GWMAIN.ASM FLTGET -> p2/gwmain.s FLTGET # P1's $FIN by FJSR
+GWMAIN.ASM NTINTG -> p2/gwmain.s NTINTG
+GWMAIN.ASM NTDBL -> p2/gwmain.s NTINTG
+GWMAIN.ASM MOVCON -> p2/gwmain.s MOVCON
+GWMAIN.ASM SRCSPC -> p2/gwmain.s SRCSPC
+GWMAIN.ASM SRCSP2 -> p2/gwmain.s SRCSP2
+GWMAIN.ASM NTSNGT -> p2/gwmain.s NTSNGT
+GWMAIN.ASM WUZOCT -> p2/gwmain.s WUZOCT
+GWMAIN.ASM KRNSVC -> p2/gwmain.s KRNSVC
+GWMAIN.ASM KRNSAV -> p2/gwmain.s KRNSAV
+GWMAIN.ASM LBOERR -> p2/gwmain.s LBOERR
+GWMAIN.ASM NOTRES -> p2/gwmain.s NOTRES
+GWMAIN.ASM NOTRFN -> p2/gwmain.s NOTRFN
+GWMAIN.ASM KRNVAR -> p2/gwmain.s KRNVAR
+GWMAIN.ASM JKLOOP -> p2/gwmain.s JKLOOP
+GWMAIN.ASM NOTRS5 -> p2/gwmain.s NOTRS5
+GWMAIN.ASM NOTRS1 -> p2/gwmain.s NOTRS1
+GWMAIN.ASM JNTRS6 -> p2/gwmain.s NOTRS1
+GWMAIN.ASM BAKSP -> res/gwmain.s BAKSP
+GWMAIN.ASM PRGEND -> res/gwmain.s PRGEND
+GWMAIN.ASM ENDCNJ -> res/gwmain.s ENDCNJ
+GWMAIN.ASM LINSPC -> p2/gwmain.s LINSPC
+GWMAIN.ASM RUN -> res/gwmain.s RUN
+GWMAIN.ASM CONRUN -> res/gwmain.s CONRUN
+GWMAIN.ASM RUNC2 -> res/gwmain.s CONRUN # NEWSTT pushed, into GOTO
+GWMAIN.ASM SCCALL -> later 7b: RENUM's
+GWMAIN.ASM SCCLIN -> later 7b: RENUM's, line numbers to pointers
+GWMAIN.ASM SCCPTR -> p2/gwmain.s SCCPTR
+GWMAIN.ASM SCNPGM -> p2/gwmain.s SCNPGM
+GWMAIN.ASM SCNPLN -> p2/gwmain.s SCNPLN
+GWMAIN.ASM SCNEXT -> p2/gwmain.s SCNEXT
+GWMAIN.ASM SCNEX2 -> p2/gwmain.s SCNEX2 # (PTRFLG is 0 here: SCCLIN's way, NTERRG and CHGPTR, later 7b)
+GWMAIN.ASM NTERRG -> later 7b: SCCLIN's
+GWMAIN.ASM CHGPTR -> later 7b: SCCLIN's, with "Undefined line" (LINM)
+GWMAIN.ASM LINM -> later 7b: CHGPTR's message
+GWMAIN.ASM SCNPOP -> p2/gwmain.s SCNPOP
+GWMAIN.ASM SCNEX3 -> p2/gwmain.s SCNPOP
+GWMAIN.ASM JSCNXT -> p2/gwmain.s SCNPOP
+GWMAIN.ASM SCNPT2 -> p2/gwmain.s SCNPT2
+GWMAIN.ASM MAKPTR -> p2/gwmain.s SCNPT2
+GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at CONTXT (res/gwmain.s CONCH2, the spike's)
+GWMAIN.ASM DEPTR -> p2/gwmain.s DEPTR
+GWLIST.ASM LLIST -> res/gwmain.s LLIST # PTRFIL to LPT1, then LIST
+GWLIST.ASM LIST -> p2/gwlist.s LISTP # its resident stub, res/gwmain.s LIST, drops NEWSTT's return and goes to READY
+GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"device" (NAMSCN, NULOPM) later 7c; POLKEY the OEM's
+GWLIST.ASM LISPRT -> p2/gwlist.s LISPRT
+GWLIST.ASM LISEOL -> dropped: the PC screen's erase to the line's end; the console has no counterpart
+GWLIST.ASM LISELX -> dropped: LISEOL's
+GWLIST.ASM BUFLIN -> p2/gwlist.s BUFLIN # BUFLN2: to KDP, ERREDT's
+GWLIST.ASM PLOOP -> p2/gwlist.s PLOOP
+GWLIST.ASM PLOOP2 -> p2/gwlist.s PLOOP2
+GWLIST.ASM BFCHKC -> p2/gwlist.s BFCHKC
+GWLIST.ASM QTCOLN -> p2/gwlist.s QTCOLN
+GWLIST.ASM NTEMBL -> p2/gwlist.s NTEMBL
+GWLIST.ASM PRTVAR -> p2/gwlist.s PRTVAR
+GWLIST.ASM PLOOPG -> p2/gwlist.s PLOOPG
+GWLIST.ASM PLOOPH -> p2/gwlist.s PLOOPH
+GWLIST.ASM PLOOPZ -> p2/gwlist.s PLOOPZ
+GWLIST.ASM PLOOPR -> p2/gwlist.s PLOOPR
+GWLIST.ASM NOSNGQ -> p2/gwlist.s NOSNGQ
+GWLIST.ASM GPLOOP -> p2/gwlist.s GPLOOP
+GWLIST.ASM DATSET -> p2/gwlist.s CHKDRS
+GWLIST.ASM SETDRS -> p2/gwlist.s CHKDRS
+GWLIST.ASM REMSET -> p2/gwlist.s CHKDRS
+GWLIST.ASM CHKDRS -> p2/gwlist.s CHKDRS
+GWLIST.ASM RESEXP -> p2/gwlist.s RESEXP
+GWLIST.ASM NTFNTK -> p2/gwlist.s NTFNTK
+GWLIST.ASM NTQTTK -> p2/gwlist.s NTQTTK
+GWLIST.ASM NOTELS -> p2/gwlist.s NOTELS
+GWLIST.ASM BFNTWH -> p2/gwlist.s BFNTWH
+GWLIST.ASM RESSR3 -> p2/gwlist.s RESSR3 # the walk is BUFRES, IBMRES.ASM's extended words' too (C set)
+GWLIST.ASM RESSR1 -> p2/gwlist.s RESSR1
+GWLIST.ASM RESSRC -> p2/gwlist.s RESSRC
+GWLIST.ASM RESSR2 -> p2/gwlist.s RESSR2
+GWLIST.ASM NOISPA -> p2/gwlist.s BUFRES
+GWLIST.ASM NTFNEX -> p2/gwlist.s NTFNEX
+GWLIST.ASM NTSPCH -> p2/gwlist.s NTSPCH
+GWLIST.ASM MORLNZ -> p2/gwlist.s MORLNZ
+GWLIST.ASM MORLN0 -> p2/gwlist.s MORLN0
+GWLIST.ASM MORPUR -> p2/gwlist.s MORPUR
+GWLIST.ASM MORLNP -> p2/gwlist.s MORPUR
+GWLIST.ASM MORLN1 -> p2/gwlist.s MORLN1
+GWLIST.ASM NTSPCT -> p2/gwlist.s NTSPCT
+GWLIST.ASM TSTANM -> p2/gwlist.s TSTANM
+GWLIST.ASM NUMLIN -> p2/gwlist.s NUMLIN # P1's $FOUT, $FOUTO and $FOUTH by FJSR
+GWLIST.ASM CONLIN -> p2/gwlist.s CONLIN
+GWLIST.ASM SAVBAS -> p2/gwlist.s SAVBAS
+GWLIST.ASM NUMSLN -> p2/gwlist.s NUMSLN
+GWLIST.ASM TYPSET -> p2/gwlist.s TYPSET
+GWLIST.ASM NUMSL2 -> p2/gwlist.s NUMSL2
+GWLIST.ASM DBLSCN -> p2/gwlist.s DBLSCN
+GWLIST.ASM ZERE -> p2/gwlist.s ZERE
+GWLIST.ASM NUMDN -> p2/gwlist.s NUMDN
+GWLIST.ASM NOD -> p2/gwlist.s NOD
+GWLIST.ASM DELETE -> p2/gwlist.s DELETP # its resident stub res/gwmain.s DELETE; EOSCHK inline
+GWLIST.ASM FCERRG -> p2/gwlist.s DELETP
+GWLIST.ASM DEL -> p2/gwmain.s DEL
+GWLIST.ASM MLOOP -> p2/gwmain.s MLOOP
+GWSTS.ASM EOSCHK -> p2/gwlist.s DELETP # DELETE's, inline (the rest of GWSTS.ASM is later)
+IBMRES.ASM ALPTAB -> p2/ibmres.s ALPTAB
+IBMRES.ASM RESLST -> p2/ibmres.s RESLST # the words' text the project's own, made by Q and QF
+IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
+IBMRES.ASM STMDSX -> res/ibmres.s STMDSX # SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
+IBMRES.ASM FUNDSX -> later 7c: CVI to MKD$ (the random files'); KTN to KLEN dropped with them (Kanji)
+IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
+IBMRES.ASM RESLSX -> p2/ibmres.s RESLSX
+IBMRES.ASM CRUNCX -> p2/ibmres.s CRUNCX
+IBMRES.ASM TRYAGA -> p2/ibmres.s TRYAGX
+IBMRES.ASM LOPPSI -> p2/ibmres.s LOPPSX
+IBMRES.ASM ISVARS -> p2/ibmres.s LOPPSX
+IBMRES.ASM NOTFNT -> p2/ibmres.s LOPPSX # $FE or $FD, into GWMAIN.ASM's RENCRN
+IBMRES.ASM LOPSKP -> p2/ibmres.s LOPSKX
+IBMRES.ASM LOPSK2 -> p2/ibmres.s LOPSKX
+IBMRES.ASM LISTX -> p2/ibmres.s LISTX # finds the table and token; BUFLIN's BUFRES walks it
+IBMRES.ASM BUFRET -> p2/ibmres.s LISTX
+IBMRES.ASM NEWFUN -> p2/ibmres.s NEWFUN
+IBMRES.ASM BUFCON -> p2/ibmres.s BUFCON
+IBMRES.ASM RESSR3 -> p2/gwlist.s RESSR3 # GWLIST.ASM's walk, which it copies
+IBMRES.ASM RESSR1 -> p2/gwlist.s RESSR1
+IBMRES.ASM RESSRC -> p2/gwlist.s RESSRC
+IBMRES.ASM RESSR2 -> p2/gwlist.s RESSR2
+IBMRES.ASM NTSPCH -> p2/gwlist.s NTSPCH
+IBMRES.ASM MORLNZ -> p2/gwlist.s MORLNZ
+IBMRES.ASM MORLN0 -> p2/gwlist.s MORLN0
+IBMRES.ASM MORPUR -> p2/gwlist.s MORPUR
+IBMRES.ASM MORLNP -> p2/gwlist.s MORPUR
+IBMRES.ASM MORLN1 -> p2/gwlist.s MORLN1
+IBMRES.ASM NEWSTX -> res/ibmres.s NEWSTX
+IBMRES.ASM GIIRET -> res/ibmres.s GIIRET
+GWSTS.ASM PENS -> later 7f: PEN as a statement
+GWSTS.ASM STRIGS -> later 7f: STRIG as a statement
+GWSTS.ASM DATEF -> later 7f: DATE$
+GWSTS.ASM TIMEF -> later 7f: TIME$
+IBMRES.ASM PENV -> later 7f: PEN as a statement (PENS); res/ibmres.s PENV gives Advanced Feature
+IBMRES.ASM STRIGV -> later 7f: STRIG as a statement (STRIGS); likewise
+IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here (the 8086 doesn't check)
+IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
+IBMRES.ASM EVALX -> res/ibmres.s EVALX
+IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
+IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALNF gives Advanced Feature
+IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
+IBMRES.ASM EVALNF -> later 7c: the $FD functions (FUNDSX); res/ibmres.s EVALNF gives Advanced Feature
+GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
+GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
+GWEVAL.ASM OCTCNS -> res/gweval.s OCTCNS
+GWEVAL.ASM LOPHEX -> res/gweval.s LOPHEX
+GWEVAL.ASM ALPTST -> res/gweval.s ALPTST
+GWEVAL.ASM NXTHEX -> res/gweval.s NXTHEX
+GWEVAL.ASM CKOVER -> res/gweval.s CKOVER # INPUT's FLGSCN (step I2's) prints Overflow and counts in FLGOVC
+GWEVAL.ASM CONER2 -> res/gweval.s CONER2
+GWEVAL.ASM CONERR -> res/gweval.s CONERR
+GWEVAL.ASM LOPOC2 -> res/gweval.s LOPOC2
+GWEVAL.ASM LOPOCT -> res/gweval.s LOPOCT
+GWEVAL.ASM HEXFIN -> res/gweval.s HEXFIN
+GWEVAL.ASM OCTFIN -> res/gweval.s OCTFIN
+GWEVAL.ASM HOCFIN -> res/gweval.s HOCFIN # MAKINT inline
+GWEVAL.ASM ISMID$ -> res/gweval.s ISMID # LHSMID (MID$ =) later 7b: res/todo_i1.s
+BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
+BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
+BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG and AUTFLG later 7c and 7b
+BIMISC.ASM RUNC -> res/bimisc.s RUNC
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP, GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY, OPTFLG later 7b-7f
+BIMISC.ASM INITRP -> later 7b: the event traps' table
+BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
+BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
+BIMISC.ASM GODFRE -> res/bimisc.s GODFRE
+BIMISC.ASM STKINI -> res/bimisc.s STKINI # both stacks; PRMLEN, NOFUNS, PRMLN2, FUNACT, PRMSTK (DEF FN) later 7b
+BIMISC.ASM STKERR -> res/bimisc.s STKERR
+GWMAIN.ASM CLROVC -> res/bimisc.s STKERR # STKERR's: FLGOVC 0, inline
+BIMISC.ASM GTMPRT -> res/bimisc.s GTMPRT
+BIMISC.ASM OMERR -> res/bimisc.s OMERR
+BIMISC.ASM OMERRR -> res/bimisc.s OMERRR
+BIMISC.ASM RESTORE -> res/bimisc.s RESTORE # CLEARC's; the statement's table entry is step I2's
+BIMISC.ASM BGNRST -> res/bimisc.s BGNRST
+BIMISC.ASM RESFIN -> res/bimisc.s RESFIN
+BIMISC.ASM STOP -> res/bimisc.s STOP
+BIMISC.ASM STOPRG -> res/bimisc.s STOPRG
+BIMISC.ASM ENDST -> res/bimisc.s ENDST
+BIMISC.ASM ENDS1 -> res/bimisc.s ENDST # CLSALL later 7c
+BIMISC.ASM CONSTP -> res/bimisc.s CONSTP # the message flag in C, not Z, through the pops
+BIMISC.ASM STPEND -> res/bimisc.s STPEND
+BIMISC.ASM ENDCON -> res/bimisc.s ENDCON
+BIMISC.ASM DIRIS -> res/bimisc.s DIRIS
+BIMISC.ASM CONT -> res/bimisc.s CONT
+BIMISC.ASM RESERR -> res/bimisc.s CONT # RESUME's way in, later 7b
+BIMISC.ASM TON -> res/bimisc.s TON
+BIMISC.ASM TOFF -> res/bimisc.s TOFF
+BIMISC.ASM ISFLIO -> res/oem.s ISFLIO
+BIMISC.ASM CTRLPT -> dropped: ^C and ^O echoed by the screen editor; function 10 shows them itself
+GWINIT.ASM INIT -> p2/gwinit.s GWINIT # the memory map from the loader's start to the TPA's top; the BASIC stack fixed RAM
+GWINIT.ASM MORMOV -> dropped: no ROM constants to copy: fixed RAM's first values are in GWBASIC.COM
+GWINIT.ASM CPMVR1 -> later 7c: the read and write codes the files use
+GWINIT.ASM TBFLP -> later 7c: the command line's program and switches (/M: /F: /S: /C:)
+GWINIT.ASM ENDCMD -> later 7c: as TBFLP
+GWINIT.ASM ISSLH -> later 7c: as TBFLP
+GWINIT.ASM FNDSLH -> later 7c: as TBFLP
+GWINIT.ASM SCANSW -> later 7c: as TBFLP
+GWINIT.ASM SCANS1 -> later 7c: as TBFLP
+GWINIT.ASM FOK -> later 7c: as TBFLP
+GWINIT.ASM WASC -> later 7c: as TBFLP
+GWINIT.ASM WASS -> later 7c: as TBFLP
+GWINIT.ASM WASF -> later 7c: as TBFLP
+GWINIT.ASM GETVAL -> later 7c: as TBFLP
+GWINIT.ASM DONCMD -> p2/gwinit.s GWINIT # MAPCLC dropped; the command line's file later 7c
+GWINIT.ASM ERRCMD -> p2/gwinit.s GWINIT
+GWINIT.ASM NXTBYT -> later 7c: the command line's file name to BUF
+GWINIT.ASM SMLSTK -> dropped: the BASIC stack is fixed RAM (512 bytes), not carved from the workspace
+GWINIT.ASM PRNTIT -> p2/gwinit.s GWINIT # the OEM's line (GETHED's), then HEDING
+GWINIT.ASM PRNTND -> later 7d: the function-key line (KEYSW)
+GWINIT.ASM KEYSOF -> p2/gwinit.s GWINIT # INITFG set
+GWINIT.ASM CMDERR -> p2/gwinit.s CMDERR
+ITSA86.ASM WORDS -> p2/gwinit.s WORDS
+ITSA86.ASM INITSA -> res/bimisc.s INITSA # LRUN, a program named on the command line, later 7c
+ITSA86.ASM GREADY -> res/bimisc.s INITSA
+ITSA86.ASM MAPINI -> p2/gwinit.s GWINIT # no data segment to move: the bytes free message alone
+ITSA86.ASM MAPINX -> p2/gwinit.s GWINIT
+ITSA86.ASM MAXRQ1 -> dropped: MAPINI's segment arithmetic
+ITSA86.ASM GOMERR -> dropped: as MAXRQ1
+ITSA86.ASM MAPCLC -> dropped: the 8086's segments and the COM buffer's place (COM1 is 7c's, polled)
+ITSA86.ASM SEGOFF -> dropped: as MAPCLC
+ITSA86.ASM BASVAR -> later 7c: PEEK and POKE's filter of BASIC's own words
+GWDATA.ASM ERRTAB -> p2/gwdata.s ERRTAB
+GWDATA.ASM INTXT -> p2/gwdata.s INTXT
+GWDATA.ASM BRKTXT -> p2/gwdata.s BRKTXT
+GWDATA.ASM REDDY -> res/gwmain.s REDDY
+GWDATA.ASM $OVMSG -> res/gweval.s OVRMSG # CKOVER's; math1.s has its own copy, OVMSG
+GWDATA.ASM BUFMIN -> res/oem.s BUFMIN
+GWDATA.ASM BUF -> res/oem.s BUF # BUF-2 function 10's size: RBUF
+GWDATA.ASM KBUF -> res/oem.s KBUF
+GWDATA.ASM ENDBUF -> res/oem.s ENDBUF
+GWDATA.ASM ENDPRG -> res/gwmain.s ENDPRG
+GWDATA.ASM DOT -> res/gwmain.s DOT
+GWDATA.ASM OLDLIN -> res/gwmain.s OLDLIN
+GWDATA.ASM OLDTXT -> res/gwmain.s OLDTXT
+GWDATA.ASM DATPTR -> res/bimisc.s DATPTR
+SCNEDT.ASM PINLIN -> OEM res/oem.s PINLIN # function 10, with BUF's preload (ERREDT's line, the keys typed ahead)
+SCNEDT.ASM QINLIN -> OEM res/oem.s QINLIN
+SCNEDT.ASM INLIN -> OEM res/oem.s INLIN
+SCNEDT.ASM SINLIN -> OEM res/oem.s SINLIN
+SCNEDT.ASM INLIN0 -> OEM res/oem.s INLIN0
+SCNEDT.ASM INLLOP -> dropped: the screen editor's key loop; function 10 edits the line
+SCNEDT.ASM INLRET -> OEM res/oem.s INLIN0 # the trailing blanks dropped; a ^C in the line is the break (ITSCTC)
+SCNEDT.ASM INCRTX -> OEM res/oem.s INCRTX
+SCNEDT.ASM INCRTF -> OEM res/oem.s INCRTF
+SCNEDT.ASM CLRFLG -> OEM res/oem.s INCRTF
+SCNEDT.ASM SCNSEM -> OEM res/oem.s SCNSEM
+SCNEDT.ASM EDTBRK -> OEM res/oem.s CNTCCN # to a new line; AUTFLG later 7b
+SCNEDT.ASM ERREDT -> p2/gwmain.s ERREDT
+SCNEDT.ASM ERRED2 -> p2/gwmain.s ERREDT
+SCNEDT.ASM ERRED3 -> p2/gwmain.s ERRED3
+SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to show and edit (PRELOD)
+SCNEDT.ASM EDIT -> later 7b: EDIT n (EREDIT's other caller)
+SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
+SCNEDT.ASM DSKCHI -> later 7c: a program loaded as text
+SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
+GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; files later 7c
+GIO86.ASM CRDO -> OEM res/oem.s CRDO
+GIO86.ASM CRDONZ -> OEM res/oem.s CRDONZ
+GIO86.ASM CRFIN -> OEM res/oem.s CRFIN
+GIO86.ASM FINLPT -> OEM res/oem.s FINLPT
+GIO86.ASM FINPRT -> OEM res/oem.s FINPRT
+GIO86.ASM DIRDO -> res/gwmain.s EDENT # direct from the keyboard: GONE; a file's direct line (ERFDR) later 7c
+GIO86.ASM CLSALL -> later 7c: the files closed
+GIO86.ASM NAMSCN -> later 7c: LIST's device
+GIO86.ASM NULOPM -> later 7c: as NAMSCN
+GIO86.ASM GIOINI -> later 7c: the devices' start-up
+GIO86.ASM GIOTRM -> later 7c: the devices' end (SYSTEM)
+GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # functions 11 and 6; the function keys and their traps later 7d, 7f
+GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
+GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
+GIOKYB.ASM KYBINI -> OEM res/oem.s KYBINI
+GIOKYB.ASM PKQUE -> OEM res/oem.s PKQUE
+GIOKYB.ASM CHSNS -> OEM res/oem.s CHSNS
+GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys; INKMAP and the PC's two-byte keys later 7d
+GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
+GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
+GWSTS.ASM SNDRST -> later 7f: the break's music reset
+GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
+SCNDRV.ASM SCNIPL -> later 7d: the screen editor's start-up
+GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM
+GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
+GIODSK.ASM PROCHK -> later 7c: protected programs
+DSKCOM.ASM LRUN -> later 7c: RUN "file"; res/todo_i1.s gives Advanced Feature
+DSKCOM.ASM PRGFIN -> later 7c: READY's file close
+SCNDRV.ASM SCNMRK -> dropped: the screen editor's line marks; function 10 edits the line
+SCNDRV.ASM SCNRDL -> dropped: the screen's line read back; function 10 fills BUF
+SCNDRV.ASM SCNBRK -> dropped: the screen driver's flags at a break
+GIOKYB.ASM STCTYP -> dropped: the cursor's shape (insert, overwrite)
+GIOKYB.ASM SETCSR -> dropped: as STCTYP
+GIOKYB.ASM KEYIN -> dropped: the screen editor's key read; function 10 reads the line
+GIOKYB.ASM TRPCHK -> later 7f: the cursor keys' ON KEY traps
+GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys' expansion later 7d
+GIOKYB.ASM CKDBLK -> later 7d: a two-byte key's first byte
+GIOKYB.ASM CHKFKY -> later 7d: a function key's text
+GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
+GWSTS.ASM POLPEN -> later 7f: the light pen's trap
+GWSTS.ASM POLSTR -> later 7f: STRIG's trap
+GWSTS.ASM EOSCH1 -> later 7b: the event statements' end check (SEVSTT's)
+GWSTS.ASM EVADR -> later 7b: an event's flag
+GWSTS.ASM EVSET -> later 7b: an event's ON, OFF or STOP
+GIOCOM.ASM POLCOM -> later 7c: COM1's trap
+GIO86.ASM PTRDSP -> OEM res/oem.s OUTDO # the device's output: the console or LPT1
+GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
+GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
+GIO86.ASM FFREE -> later 7c: a file's buffer freed
+GIO86.ASM CLSFIL -> later 7c: a file closed
+GIO86.ASM LFTQ -> OEM res/oem.s PKQUE # the keyboard queue's room
+GIO86.ASM PUTQ -> OEM res/oem.s PKQUE
+GIO86.ASM INITQ -> OEM res/oem.s KYBINI
+GIO86.ASM PDCBAX -> later 7d: the soft keys' state at KYBINI
+GIOKYB.ASM GETFKY -> later 7d: a function key's next character
+GIO86.ASM GETQ -> OEM res/oem.s KYBGET
+GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
+GIO86.ASM SIDSP -> later 7c: a file's input dispatch

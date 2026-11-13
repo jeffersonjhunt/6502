@@ -1,0 +1,2 @@
+10 PRINT "start"
+20 GOTO 100

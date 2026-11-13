@@ -547,6 +547,7 @@ set_tests_properties(test_gwbasic_core PROPERTIES TIMEOUT 600)
 add_dependencies(test_gwbasic_core gwbasic oodos_sys backplane_bios)
 target_compile_definitions(test_gwbasic_core PRIVATE
         EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
+        EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
