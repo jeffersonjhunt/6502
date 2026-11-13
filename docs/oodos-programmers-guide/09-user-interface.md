@@ -9,10 +9,10 @@ backend (the desktop, windows, panels, labels, buttons, check boxes, the menu ba
 themes, the pointer); in U2 the group and radio buttons, a choice, scroll bars, list boxes, a text field, bars,
 sliders and the canvas, with the message box (`ui_msgbox`) and the file picker (`ui_pick`), which reads the
 directory of an SD drive, M: or an Apple CP/M disk image a few entries a frame. Since U3a OOUI is a banked library,
-`OOUI.BNK` on A:: a program calls `ui_load` to load it into three blocks of its own and reaches it through small
+`OOUI.BNK` (on A:): a program calls `ui_load` to load it into three blocks of its own and reaches it through small
 stubs, about 3 KB of the program's memory with its state
 ([hw/ooui.md, "U3a: OOUI as a banked library"](../../hw/ooui.md#u3a-ooui-as-a-banked-library)). U3b added what
-OO-Amp's port asked for (own thumbs, hit margins, the picker's ADD ALL) and made the repaint and the hit tests
+OO-Amp's port asked for (own thumbs, hit margins, the picker's Add all) and made the repaint and the hit tests
 cheaper ([hw/ooui.md, "U3b: the outcome"](../../hw/ooui.md#u3b-the-outcome)). The reference comes with phase U5.
 
 OOUI is a library of 6502 code that a program loads and calls, as it calls OOLIB's graphics library, to get the same
