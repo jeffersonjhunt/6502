@@ -447,7 +447,7 @@ HIT:    jsr     FRONT
 ; margin never takes a press from another widget, in front of it or behind
 ; it; inside its parents' client areas and the modal window, as HIT's are.
 ; The frontmost such one (the table's end first). (XC_MARGIN: uipoll.s's,
-; S2; a hidden one not placed, by the cache.)
+; S2; a hidden one refused by RECT.)
 MARGIN: sta     mb
         jsr     CFILL
         lda     utot

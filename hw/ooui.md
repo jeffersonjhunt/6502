@@ -2001,7 +2001,7 @@ drawn, about 1,210 each). No call, record or event changes meaning; no golden fr
   `ONE`'s `OVERLAP` (the record's whole place, `EXTRECT`'s `er`, unclipped): a record it passes over meets the
   box only where its parents clip it, where `ONE` would draw nothing; `ONE` still decides for the records it
   passes; `FRONT` and `SHOWS`
-  read the entries only; `MARGIN` places only the margin sliders and bars the cache says show. A, the core,
+  read the entries only; `MARGIN` places each flagged slider or scroll bar by `RECT`, which refuses a hidden one. A, the core,
   keeps `PASS`'s clearing of the box (`PASSA`) and crosses to C for the walk (`XC_PASS`, once a layer), C to A's
   `ONE` for each record it draws (`XA_ONE`); a press or a pointer's move crosses for `HIT` (`XC_HIT`), a press for
   `MARGIN` (`XC_MARGIN`), and each sprite thumb placed for `SHOWS` (`XC_SHOWS`: its last cell in A and X, its
@@ -2056,9 +2056,12 @@ record there is a menu's item, is nothing; and the second window, over the Cance
 made unused by the program (its type 0) with `ui_redraw`, the pointer still: the paint fills the cache before the
 press's hit test, and the press is Cancel's. It fails at 3cb4a1c (the second part: the window's stale entry takes
 the press) and with `PASS`'s hidden entries taken out. `ui_open`'s `CCLR` can't be made to fail it alone: the first
-`ui_poll` after `ui_open` always hit-tests (`POLLINIT` sets the pointer's last place to $FFFF, so it has moved), and
-that `CFILL` writes every entry before any is read, so the first part passes at 3cb4a1c too; `CCLR` is kept so that
-no entry ever holds another table's place, whatever the order.
+`ui_poll` after `ui_open` hit-tests (`POLLINIT` sets the pointer's last place to $FFFF, so it has moved), and
+that `CFILL` writes every entry before any is read, so the first part passes at 3cb4a1c too. The exception, and
+`CCLR`'s reason: a program that calls `ui_suspend` right after `ui_open`, before any poll. `POINTED` is skipped
+while suspended, and `ui_resume` marks the cache stale without resetting the pointer's last place, so with the
+pointer still the next poll paints, and `PASS` refills, before any hit test; at 3cb4a1c that read the last
+table's entries for unused and menu records. `CCLR` means no entry ever holds another table's place.
 By hand, 2026-11-12, each piece taken out: the dirty record's comparison, the guard (the label moved and only
 dirtied); `CSET` made nothing, the guard (the frame gone under a theme without shadows: the window's own entry is
 the same, its children's places aren't) and the cost case's label shown again (158,612: the whole cache found
