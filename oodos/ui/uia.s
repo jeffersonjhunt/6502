@@ -24,5 +24,5 @@ AENT:   stx     xsx
 
         .segment "RODATA"
 ATAB:
-        .word   HIDEH, REFOCUS
-.assert * - ATAB = XA_REFOCUS + 2, error, "ATAB in XA_* order"
+        .word   HIDEH, REFOCUS, ONE
+.assert * - ATAB = XA_ONE + 2, error, "ATAB in XA_* order"

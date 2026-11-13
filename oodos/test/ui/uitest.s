@@ -139,8 +139,10 @@ c_open: asl     a
 
 ; ui_theme A: 0 the default, 1 Turbo Vision's, 2 the default's colours in
 ; groups 2 (the base), 3 (the overlay) and 4 (dimmed, TF_DIM); 3 the same
-; with TF_DIM clear.
+; with TF_DIM clear; 4 (U3b) the default with TF_HOT.
 c_theme:
+        cmp     #4
+        beq     @hot
         cmp     #1
         beq     @tv
         cmp     #2
@@ -165,6 +167,18 @@ c_theme:
         bcc     @dim
         lda     #TF_SHADOW
 @dim:   sta     tgroups + TH_FLAGS
+        bra     @g2
+@hot:   ldx     #TH_LEN - 1             ; (U3b) the default, its buttons lit under the pointer
+@hc:    lda     UI_HOUSE,x
+        sta     tgroups,x
+        dex
+        bpl     @hc
+        lda     #TF_HOT
+        tsb     tgroups + TH_FLAGS
+        lda     #<tgroups
+        ldx     #>tgroups
+        jmp     ui_theme
+@g2:
         lda     #2
         sta     tgroups + TH_GROUP
         inc     a
@@ -372,7 +386,10 @@ rowfn:  sta     rax
         tay
 @r:     lda     #<rbuf
         ldx     #>rbuf
-        rts
+        bit     cdec                    ; (the U3b review's round 2, H4: D set)
+        bpl     @x
+        sed
+@x:     rts
 
 .endif
 .if UIVAR = 3
@@ -383,7 +400,10 @@ colfn:  tya
         sta     cbuf + 1
         lda     #<cbuf
         ldx     #>cbuf
-        rts
+        bit     cdec                    ; (the U3b review's round 3, J1: D set)
+        bpl     @x
+        sed
+@x:     rts
 
 .endif
 
@@ -547,6 +567,7 @@ cmds:   CMD     'o', c_open
         CMD     'D', ui_redraw
         CMD     'i', ui_info
         CMD     'x', c_text
+        CMD     'T', ui_settext         ; (U3b review, G3: A/X the word itself)
         CMD     'S', ui_suspend
         CMD     'U', ui_resume
 .if UIVAR = 2
@@ -577,7 +598,7 @@ blocks: .word   blk_main, blk_one, blk_desk
         .word   blk_u2, blk_u2one
 .endif
 .if UIVAR = 2
-        .word   blk_amp
+        .word   blk_amp, blk_u3b, blk_own, blk_big
 .endif
 
 ; 0: the main scene, menus and overlay windows on layer 1.
@@ -750,7 +771,7 @@ keys2:  .byte   0
 ; volume, balance, the playlist's), each band's label, buttons, bars and
 ; canvases, 59 records; sprites 0 (the pointer) to 15.
 blk_amp: .word  AREA, amp
-        .byte   amp_COUNT
+        .byte   AMP_N
         .word   0, keys2
         .byte   0, 1, 0, 16, 0
         .word   amp_WIDGETS
@@ -787,8 +808,111 @@ blk_amp: .word  AREA, amp
 .repeat 15, i
         UI_LABEL   .ident(.sprintf("A_ST%d", i)), A_WIN, 1 + (i .mod 4) * 18, 22 + i / 4, 17, "Status", 0
 .endrepeat
+AMP_N   = 59                            ; (block 5's count)
+.assert _UI_N = AMP_N, error, "the amp scene's records"
+; (U3b, the repaint trace's B1-B4: block 8 below, the same table with 31
+; records more, 90, as many as OO-Amp's screen: a playlist's rows in two
+; columns and a row of labels.)
+.repeat 26, i
+        UI_LABEL   .ident(.sprintf("A_TR%d", i)), A_WIN, 50 + (i .mod 2) * 12, 5 + i / 2, 11, "Track", 0
+.endrepeat
+.repeat 5, i
+        UI_LABEL   .ident(.sprintf("A_X%d", i)), A_WIN, 1 + i * 9, 19, 8, "Extra", 0
+.endrepeat
         UI_END     amp
-.assert amp_COUNT = 59, error, "the amp scene's records"
+.assert amp_COUNT = 90, error, "the big scene's records"
+
+; 6 (U3b): the gaps OO-Amp's port found: a slider with a thumb of the
+; program's own (16 x 8, group 1: UF_OWNTHUMB), one with OOUI's; scroll bars
+; with sprite thumbs, the program's 8 x 32 and OOUI's 8 x 8; a label in a
+; colour of its own; a button for TF_HOT. Sprites 0 (the pointer) to 5
+; (5 free, for the U3b review's G3: ui_settext moves a thumb to it).
+blk_u3b: .word  AREA, u3b
+        .byte   u3b_COUNT
+        .word   0, keys2
+        .byte   0, 1, 0, 6, 0
+        .word   0
+; 7 (U3b): the same with UO_OWNMOUSE: the program's pointer, OOUI's hits.
+blk_own: .word  AREA, u3b
+        .byte   u3b_COUNT
+        .word   0, keys2
+        .byte   0, 1, 0, 5, UO_OWNMOUSE
+        .word   0
+
+; 8 (U3b, B1-B4): the amp scene with 90 records, to time an idle poll, a
+; dirty widget's and a drag's among as many records as OO-Amp's screen; on
+; one layer, 1, as OO-Amp's look A has it (UO_OVER $FF).
+blk_big: .word  AREA, amp
+        .byte   amp_COUNT
+        .word   0, keys2
+        .byte   1, $FF, 0, 16, 0
+        .word   amp_WIDGETS
+
+        UI_BEGIN u3b
+        UI_DESKTOP Z_DESK
+        UI_WINDOW  Z_WIN, Z_DESK, 2, 1, 76, 28, "U3b", 0
+        UI_HSLIDER Z_OWN, Z_WIN, 6, 2, 30, 100, 50, 5, 1, UF_SPRITE | UF_OWNTHUMB, $11
+        UI_HSLIDER Z_STD, Z_WIN, 6, 4, 30, 100, 50, 5, 2, UF_SPRITE
+        UI_VSCROLL Z_VSC, Z_WIN, 40, 2, 12, 100, 10, UF_SPRITE | UF_OWNTHUMB, 3, $81
+        UI_HSCROLL Z_HSC, Z_WIN, 6, 8, 30, 100, 10, UF_SPRITE, 4
+        UI_LABEL   Z_LBL, Z_WIN, 6, 10, 20, "Its own colour", 0, $4E
+        UI_BUTTON  Z_BTN, Z_WIN, 6, 12, 12, "&Hot", 0
+; (The U3b review's G2: the 8 x 32 thumb, rows 5-8 at 0, its ends covered
+; one at a time: a small window over its last row, 8, and a menu bar's
+; drop-down over its first, 5, each hidden till the test shows it.)
+        UI_WINDOW  Z_COVER, Z_DESK, 42, 8, 4, 3, 0, UF_HIDDEN
+        _UI_REC    Z_BAR, UT_MENUBAR, UI_NONE, 0, 0, 0, 1, UF_HIDDEN, 0, 0, 0, 0
+        UI_MENU    Z_MENU, Z_BAR, "&Ends"
+        UI_ITEM    Z_I1, Z_MENU, "An item wider than the scroll bar's column, as far", 0, 0, 0
+        UI_ITEM    Z_I2, Z_MENU, "A second", 0, 0, 0
+        UI_ITEM    Z_I3, Z_MENU, "A third", 0, 0, 0
+; (U3b, the owner's Q1: a canvas whose cells are the program's, 40 x 4, as
+; OO-Amp's zone C scope and VU: crows, rows 18-21 of the window.)
+        UI_CANVAS  Z_CNV, Z_WIN, 6, 18, 40, 4, UF_ROUTINE, crows
+        UI_END     u3b
+
+; The canvas's row routine (U3b, Q1): row A's 40 cells from ccells, a
+; character ($21 + column + row) and an attribute (the column's low four bits
+; above, column + 5 x row's below) each; row cnone's 0 (transparent). Row
+; 0 maps the program's last card bank into W1 first, as a routine may (OOUI
+; maps its own again after). Each row's calls counted in ccalls, and with
+; cdec's bit 7 it returns with the decimal flag set (the U3b review's round
+; 2: H3, H4).
+        .pushseg
+        .code
+crows:  tax
+        inc     ccalls,x
+        txa
+        cmp     cnone
+        beq     @none
+        cmp     #0
+        bne     @get
+        lda     #<((VM_PROG_BANK + VM_PROG_BANKS - 1) * 64)
+        ldx     #>((VM_PROG_BANK + VM_PROG_BANKS - 1) * 64)
+        jsr     GX_VMAP
+        lda     #0
+@get:
+        asl     a
+        tax
+        lda     crowp + 1,x
+        pha
+        lda     crowp,x
+        plx
+        bra     @out
+@none:  lda     #0
+        tax
+@out:   bit     cdec
+        bpl     @r
+        sed
+@r:     rts
+        .popseg
+crowp:  .word   ccells, ccells + 80, ccells + 160, ccells + 240
+ccells:
+.repeat 4, R
+.repeat 40, C
+        .byte   $21 + C + R, ((C & 15) << 4) | ((C + R * 5) & 15)
+.endrepeat
+.endrepeat
 
 ; ui_msgbox's blocks: OK; Yes and No (No the default); OK and Cancel.
 msgs:   .word   msgA, msgB, msgC
@@ -810,7 +934,7 @@ titleB: .asciiz "Confirm"
 ; and a column; 1 the TXT and BIN files of M:; 2 a name to save on B:; 3
 ; every file of M: into a work buffer of 8; 4 every file of A: into one of
 ; 256 (BIGWORK).
-picks:  .word   pickA, pickB, pickC, pickD, pickE
+picks:  .word   pickA, pickB, pickC, pickD, pickE, pickF
 pickA:  .word   ptitleA, 0
         .byte   UP_MULTI | UP_DRIVES | UP_USERS, 0, $FF
         .word   RESULT
@@ -841,6 +965,14 @@ pickE:  .word   ptitleA, 0
         .byte   16, 0
         .word   0, 0, BIGWORK, 256 * UP_ELEN
         .byte   0
+; (U3b) OO-Amp's Load Files: OK is Add and Add all, each leaving the
+; picker up (UP_KEEP, UP_ALL), the marks kept; the extra button.
+pickF:  .word   ptitleA, 0
+        .byte   UP_MULTI | UP_DRIVES | UP_KEEP | UP_ALL, 13, $FF
+        .word   RESULT
+        .byte   16, 0
+        .word   0, pextra, WORK, WORKLEN
+        .byte   0
 .assert pickB - pickA = UP_LEN, error, "a pick block is UP_LEN"
 ptitleA: .asciiz "Load Files"
 ptitleB: .asciiz "Text and data on M:"
@@ -868,6 +1000,11 @@ eaten:  .res    2 * 20
 fieldbuf: .res  16                      ; U2's field, empty (UITWID)
 rbuf:   .asciiz "Item 00"               ; rowfn's
 cbuf:   .asciiz "c0"                    ; colfn's (UITPICK)
+cdec:   .byte   0                       ; bit 7: rowfn, crows and colfn return with D set (U3b review rounds 2, 3: H4, J1)
+.if UIVAR = 2
+cnone:  .byte   $FF                     ; crows's row given as 0 (the test writes it; U3b, Q1)
+ccalls: .res    4                       ; crows's calls for each row (the U3b review's round 2, H3)
+.endif
 .if UIVAR = 3
 scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got
 sfcb:   .byte   1, "???????????"        ; c_search's: A:, every name and type, extent 0

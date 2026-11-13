@@ -577,6 +577,9 @@ MOPEN:  cmp     umenu
 MCLOSE: lda     umenu
         cmp     #UI_NONE
         beq     @r
+        lda     #UQ_GEOM                ; (S1) a geometry event: what it covered uncovered
+        tsb     uany
+        lda     umenu
         jsr     RECT
         bcs     @h
         lda     umenu

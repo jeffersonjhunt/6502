@@ -47,7 +47,10 @@ upress: .res    1                      ; the button the left button went down on
 ususp:  .res    1                      ; 1: suspended (ui_suspend)
 upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
-udmg:   .res    8                      ; the damage: the base's box, the overlay's: c0, r0, c1, r1 each
+udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0, r0, c1, r1 each (ui.inc's UI_BOXES)
+bxl:    .res    1                      ; (B5) BOXADD's layer
+udend:  .res    2                      ; (B5) each layer's boxes' end this paint: past the last used
+uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
 rhid:   .res    1                      ;   not 0: hidden (it or a parent, or a menu not down)
 rover:  .res    1                      ;   1: on the overlay
@@ -124,6 +127,22 @@ REC:    cmp     ucount
         sta     UIR + 1
         pla
         rts
+
+; UIR on record A, when it was on record A - 1 (U3b, B4: a walk up the
+; records steps, as REC finds; the dialogs' follow the table's). Keeps A,
+; X and Y.
+RNEXT:  cmp     ucount
+        beq     @dlg
+        pha
+        lda     UIR
+        clc
+        adc     #UW_LEN
+        sta     UIR
+        bcc     @r
+        inc     UIR + 1
+@r:     pla
+        rts
+@dlg:   jmp     REC
 
 ; A a handle: UI_RECT its place, ucli its client area, rtype, rover; carry
 ; set if it is hidden. UIR the record's.
@@ -423,8 +442,9 @@ UPPER:  cmp     #'a'
         and     #$DF
 @r:     rts
 
-; A a handle: marked dirty (a menu's bar too, an item's menu). Keeps A, and
-; leaves UIR on record A (the review's O1: not on the bar it went up to).
+; A a handle: marked dirty (a menu's bar too, an item's menu), and a paint
+; to do (UQ_PAINT: U3b, B1). Keeps A, and leaves UIR on record A (the
+; review's O1: not on the bar it went up to).
 DIRTY:  cmp     utot
         bcs     @r
         pha
@@ -433,6 +453,8 @@ DIRTY:  cmp     utot
         lda     (UIR),y
         ora     #UF_DIRTY
         sta     (UIR),y
+        lda     #UQ_PAINT               ; (U3b, B1) a paint to do
+        tsb     uany
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_MENU
@@ -594,8 +616,16 @@ NEXTFOCUS:
         clc
         rts
 
-; umodal = the last modal window that shows, or UI_NONE.
+; umodal = the last modal window that shows, or UI_NONE. (U3b, B3) Found
+; again only when uany's UQ_MSTALE says so: REFOCUS sets it (ui_show,
+; ui_hide, ui_flags, the dialogs), and DLGREC, ui_open, ui_resume, and
+; ui_dirty on a window. Else it keeps A, X, Y and UIR.
 FINDMODAL:
+        bit     uany
+        bmi     @go
+        rts
+@go:    lda     #UQ_MSTALE
+        trb     uany
         lda     utot
         sta     fm_h
 @l:     dec     fm_h
@@ -618,18 +648,74 @@ FINDMODAL:
 @set:   sta     umodal
         rts
 
-; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's); an
-; empty er adds nothing.
+; er (c0, r0, c1, r1) added to layer X's damage (0 the base's, 4 the
+; overlay's), and a paint to do (UQ_PAINT: U3b, B1); an empty er adds
+; nothing. (B5) A layer has UI_BOXES boxes (box k at udmg + 8 x k + the
+; layer): er joins every box it overlaps (the union joining any it then
+; overlaps), else takes an empty box; with none empty, it joins the
+; layer's last. Keeps nothing.
+BNONE:  rts
 BOXADD: lda     er
         cmp     er + 2
-        bcs     @none
+        bcs     BNONE
         lda     er + 1
         cmp     er + 3
-        bcs     @none
-        lda     udmg,x
+        bcs     BNONE
+        lda     #UQ_PAINT
+        tsb     uany
+        stx     bxl
+@again: ldx     bxl
+@scan:  lda     udmg,x                  ; an empty box: c0 not before c1
         cmp     udmg + 2,x
-        bcc     @merge
-        ldy     #0                      ; empty: er itself
+        bcs     @ns
+        lda     er                      ; er overlaps it: joined, the box emptied, and again
+        cmp     udmg + 2,x
+        bcs     @ns
+        lda     udmg,x
+        cmp     er + 2
+        bcs     @ns
+        lda     er + 1
+        cmp     udmg + 3,x
+        bcs     @ns
+        lda     udmg + 1,x
+        cmp     er + 3
+        bcs     @ns
+@join:  jsr     BJOIN
+        bra     @again
+@ns:    txa
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @scan
+        ldx     bxl                     ; none overlaps: an empty box takes it
+@e:     lda     udmg,x
+        cmp     udmg + 2,x
+        bcs     @put
+        txa
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @e
+        lda     bxl                     ; none empty: the last joined
+        clc
+        adc     #8 * (UI_BOXES - 1)
+        tax
+        bra     @join
+@put:   txa                             ; the layer's boxes' end, past it
+        clc
+        adc     #8
+        pha
+        lda     bxl
+        lsr     a
+        lsr     a
+        tay
+        pla
+        cmp     udend,y
+        bcc     @in
+        sta     udend,y
+@in:    ldy     #0
 @cp:    lda     er,y
         sta     udmg,x
         inx
@@ -637,29 +723,52 @@ BOXADD: lda     er
         cpy     #4
         bne     @cp
         rts
-@merge: lda     er                      ; the lesser starts,
-        cmp     udmg,x
+; er = er and box X joined (the lesser starts, the greater ends); box X
+; emptied. Keeps X.
+BJOIN:  lda     udmg,x
+        cmp     er
         bcs     @a
-        sta     udmg,x
-@a:     lda     er + 1
-        cmp     udmg + 1,x
+        sta     er
+@a:     lda     udmg + 1,x
+        cmp     er + 1
         bcs     @b
-        sta     udmg + 1,x
-@b:     lda     udmg + 2,x              ;   the greater ends
+        sta     er + 1
+@b:     lda     udmg + 2,x
         cmp     er + 2
-        bcs     @c
-        lda     er + 2
-        sta     udmg + 2,x
+        bcc     @c
+        sta     er + 2
 @c:     lda     udmg + 3,x
         cmp     er + 3
-        bcs     @d
-        lda     er + 3
-        sta     udmg + 3,x
-@d:
-@none:  rts
+        bcc     @d
+        sta     er + 3
+@d:     stz     udmg,x
+        stz     udmg + 2,x
+        rts
 
-; Box X the whole screen.
+; (B5) Each layer's boxes' end its first box's (PAINT's, after it cleared
+; them, and ui_open's).
+UDEND:  lda     #8
+        sta     udend
+        lda     #4 + 8
+        sta     udend + 1
+        rts
+
+; Layer X's damage the whole screen (B5: its first box; the others empty),
+; and a paint to do (U3b, B1) and a geometry event (S1).
 BOXFULL:
+        lda     #UQ_PAINT | UQ_GEOM | UQ_CSTALE ; (S1) a geometry event: ui_open, ui_redraw, ui_resume,
+        tsb     uany                    ;   ui_theme (its thumb image's colours)
+        phx
+        ldy     #UI_BOXES
+@z:     stz     udmg,x
+        stz     udmg + 2,x
+        txa
+        clc
+        adc     #8
+        tax
+        dey
+        bne     @z
+        plx
         stz     udmg,x
         stz     udmg + 1,x
         lda     #UI_COLS
@@ -900,10 +1009,10 @@ ui_open:
         sta     umsel
         sta     upress
         stz     ususp
-        stz     udmg
-        stz     udmg + 2
-        stz     udmg + 4
-        stz     udmg + 6
+        XGO     FARC, XC_CCLR           ; (S2, round 8) every cache entry hidden, udend set (B5:
+                                        ;   ALLDIRTY's BOXFULLs empty every box)
+        lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B3) the modal window and the overlay found again;
+        sta     uany                    ;   (S1) a geometry event
         jsr     ENTER
         jsr     POLLINIT
         jsr     SETUP
@@ -1037,20 +1146,33 @@ RECEND: lda     t0
         sec
         rts
 
-; Carry set if record UIR is a slider with a sprite's thumb (UF_SPRITE)
+; Carry set if record UIR is a slider or (U3b) a scroll bar with a sprite's thumb (UF_SPRITE)
 ; whose sprite isn't one of OOUI's (UO_SPRITE to UO_SPRITE + UO_SPRITES - 1)
-; or is the pointer's (UO_SPRITE). Keeps UIR.
+; or is the pointer's (UO_SPRITE), or (U3b review, G3) whose own thumb's
+; size byte (UF_OWNTHUMB, UW_TEXT's low byte) is 0. Keeps UIR.
 SPRCHK: ldy     #UW_TYPE
         lda     (UIR),y
+        ldx     #UW_B + 1
         cmp     #UT_VSLIDER
         beq     @s
         cmp     #UT_HSLIDER
+        beq     @s
+        ldx     #UW_TEXT + 1            ; (U3b: a scroll bar's sprite thumb)
+        cmp     #UT_VSCROLL
+        beq     @s
+        cmp     #UT_HSCROLL
         bne     @ok
 @s:     ldy     #UW_FLAGS
         lda     (UIR),y
-        and     #UF_SPRITE
+        bit     #UF_SPRITE
         beq     @ok
-        ldy     #UW_B + 1
+        and     #UF_OWNTHUMB
+        beq     @num
+        ldy     #UW_TEXT                ; the program's own thumb: a size byte
+        lda     (UIR),y
+        beq     @no
+@num:   txa
+        tay
         lda     (UIR),y
         sec
         sbc     usprite                 ; its place among OOUI's
@@ -1134,10 +1256,10 @@ OKTYPE: .byte   1                       ; UT_NONE
 ; The dialogs' handles: the public ones (UI_MSG on) and the internal ones
 ; (ucount on), in the order they are drawn: the picker's window and its
 ; widgets, then the message box's, so a box is over the picker.
-PUB2INT: .byte  9, 0, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8
+PUB2INT: .byte  10, 0, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9
         .segment "URODATA"              ; (PUBH's: UICOM's, U3a)
 INT2PUB: .byte  UI_MSG + 1, UI_MSG + 5, UI_MSG + 6, UI_MSG + 7, UI_MSG + 8, UI_MSG + 9, UI_MSG + 10
-        .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
+        .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG + 13, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
 .assert * - INT2PUB = DLG_RECS, error, "a public handle a dialog record"
         .rodata
 
@@ -1182,9 +1304,9 @@ PTROFF: lda     uptr
         jmp     POINTER
 @r:     rts
 
-; The widget modules' sprites (the sliders' thumbs, through upost) out of
-; sight: A 1 (ui_suspend), or 2 (ui_close: their images off OOUI's card
-; memory too, which is freed). Keeps nothing.
+; The widget modules' sprites (the sliders' and scroll bars' thumbs,
+; through upost) out of sight: A 1 (ui_suspend), or 2 (ui_close: OOUI's own
+; images off its card memory too, which is freed). Keeps nothing.
 THUMBSOFF:
         sta     upmode
         lda     upost + 1
@@ -1226,7 +1348,7 @@ ui_show:
         lda     (UIR),y
         and     #<~UF_HIDDEN
         sta     (UIR),y
-        bra     REFOCUS
+        bra     HIDSET
 
 ui_hide:
         jsr     ENTER
@@ -1249,9 +1371,18 @@ HIDEH:  sta     sh_h
         lda     (UIR),y
         ora     #UF_HIDDEN
         sta     (UIR),y
+; (S2) record sh_h's entry in the position cache found again (block C's
+; CSET: its own, or the whole cache stale if it has children); then the
+; focus.
+HIDSET: lda     sh_h
+        XGO     FARC, XC_CSET
 ; The focus kept where it can be, else moved on (a modal window shown, or
-; the focus's widget hidden).
+; the focus's widget hidden). (U3b, B3) After a record shown, hidden, its
+; flags changed or a dialog made: the modal window and OVERS's answer found
+; again.
 REFOCUS:
+        lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event; S2: its callers see to the cache)
+        tsb     uany
         jsr     FINDMODAL
         lda     umenu                   ; a menu down outside the modal window goes up (W5)
         cmp     #UI_NONE
@@ -1321,6 +1452,11 @@ ui_flags:
         jsr     ENTER
         jsr     CHKH
         sta     sh_h
+        jsr     FLGCHK                  ; a thumb's checked (the U3b review's round 2, H1)
+        bcc     @took
+        lda     #UX_SPRITE
+        rts
+@took:  lda     sh_h
         jsr     DAMAGE                  ; where it was (the review's O11)
         jsr     MENUDMG
         lda     sh_h
@@ -1336,13 +1472,83 @@ ui_flags:
         cmp     umenu
         bne     @re
         jsr     MCLOSE
-@re:    jsr     REFOCUS                 ; the focus and the modal window again
+@re:    lda     sh_h                    ; (S2) its entry in the position cache again
+        XGO     FARC, XC_CSET
+        jsr     REFOCUS                 ; the focus and the modal window again
         lda     sh_h
         jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
         clc
         rts
+
+; Record sh_h's new flags ((old | t0) & t1) checked, if it is a slider or a
+; scroll bar, as ui_open checks the table (SPRCHK; the U3b review's round
+; 2, H1): carry set if refused, the record as it was. Refused too: a change
+; to UF_OWNTHUMB while UF_SPRITE is on before and after (round 3, J2: the
+; sprite's image would change hands while it shows); UF_SPRITE turned on or
+; off with it is taken. Taken, a sprite thumb whose UF_SPRITE goes off has
+; its sprite put out of sight (depth 0). Keeps t0, t1 and sh_h; the flags
+; are ui_flags's to write.
+FLGCHK: lda     sh_h
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        ldx     #UW_TEXT + 1            ; a scroll bar's sprite
+        cmp     #UT_VSCROLL
+        bcc     @ok
+        cmp     #UT_HSCROLL + 1
+        bcc     @chk
+        ldx     #UW_B + 1               ; a slider's
+        cmp     #UT_VSLIDER
+        bcc     @ok
+        cmp     #UT_HSLIDER + 1
+        bcs     @ok
+@chk:   phx
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        pha                             ; the old flags
+        sta     t2
+        ora     t0
+        and     t1
+        sta     (UIR),y
+        tax                             ; (J2) UF_OWNTHUMB changed,
+        eor     t2
+        and     #UF_OWNTHUMB
+        beq     @spr
+        txa                             ;   UF_SPRITE on before and after: refused
+        and     t2
+        and     #UF_SPRITE
+        sec
+        bne     @old
+@spr:   jsr     SPRCHK
+@old:   ply                             ; (the old flags in Y, carry kept)
+        tya
+        ldy     #UW_FLAGS
+        sta     (UIR),y                 ; the old flags again, refused or not
+        plx
+        bcs     @r
+        and     #UF_SPRITE              ; UF_SPRITE on before
+        beq     @ok
+        lda     t1                      ; and not cleared: nothing to hide
+        and     #UF_SPRITE
+        bne     @ok
+        txa
+        tay
+        lda     t0                      ; GX_SPRATTR keeps no t0, t1
+        pha
+        lda     t1
+        pha
+        lda     (UIR),y                 ; the sprite out of sight
+        ldx     #0
+        ldy     #0
+        jsr     GX_SPRATTR
+        pla
+        sta     t1
+        pla
+        sta     t0
+@ok:    clc
+@r:     rts
 
 ui_settext:
         sta     t0
@@ -1358,12 +1564,28 @@ SETW:   sta     t2
         tya
         jsr     ENTER
         jsr     CHKH
-        jsr     DIRTY
+        ldx     t2                      ; (S1, (viii)) a value, and UF_SPRITE's bit set: block B's
+        cpx     #UW_VALUE               ;   VDIRTY, which draws a sprite thumb's slider's or scroll
+        bne     @d                      ;   bar's cells not, only its thumb placed (the bit is
+        pha                             ;   other types' own too: VDIRTY tells them apart)
+        jsr     REC
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @nd
+        pla
+        XGO     FARB, XB_VDIRTY
+        bra     @c
+@nd:    pla
+@d:     jsr     DIRTY
+@c:
         ldy     #UW_TYPE                ; a button's, a check box's, an item's value is 0 or 1
         lda     (UIR),y
         ldy     t2
         cpy     #UW_VALUE
-        bne     @put
+        beq     @val
+        jmp     TXTCHK                  ; UW_TEXT: a thumb's is checked (U3b review, G3)
+@val:
         cmp     #UT_BUTTON
         beq     @bool
         cmp     #UT_CHECK
@@ -1385,6 +1607,79 @@ SETW:   sta     t2
         bne     @done
         jsr     CLAMP                   ; held to its range (U2)
 @done:  clc
+        rts
+
+; ui_settext's word (t0, t1) to record UIR, of type A (the U3b review's
+; G3). A slider's or a scroll bar's UW_TEXT is its thumb's size byte (with
+; UF_OWNTHUMB) and a scroll bar's its sprite, so the word is checked as
+; ui_open checks the table (SPRCHK): refused, carry set and A UX_SPRITE,
+; the record as it was. Taken, a scroll bar's thumb whose sprite changed
+; has its old sprite put out of sight (depth 0, shown with the next paint's
+; thumbs), and the new one no last place (POST's filter).
+TXTCHK: cmp     #UT_VSCROLL
+        bcc     @plain
+        cmp     #UT_HSCROLL + 1
+        bcc     @chk
+        cmp     #UT_VSLIDER
+        bcc     @plain
+        cmp     #UT_HSLIDER + 1
+        bcs     @plain
+@chk:   ldy     #UW_TEXT + 1
+        lda     (UIR),y
+        pha                             ; the old word, its high byte on top
+        dey
+        lda     (UIR),y
+        pha
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+        jsr     SPRCHK
+        bcc     @took
+        ldy     #UW_TEXT                ; refused: the old word again
+        pla
+        sta     (UIR),y
+        iny
+        pla
+        sta     (UIR),y
+        lda     #UX_SPRITE
+        sec
+        rts
+@took:  pla
+        pla                             ; the old sprite
+        ldy     #UW_TYPE
+        tax
+        lda     (UIR),y
+        cmp     #UT_VSLIDER
+        bcs     @ok                     ; a slider's sprite is UW_B's: unchanged
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @ok
+        cpx     t1
+        beq     @ok
+        lda     t1                      ; the new sprite: no last place, so placed (Z3)
+        sec
+        sbc     usprite
+        and     #$0F
+        asl     a
+        tay
+        lda     #$FF
+        sta     plast,y
+        txa                             ; the old one out of sight
+        ldx     #0
+        ldy     #0
+        jsr     GX_SPRATTR
+@ok:    clc
+        rts
+@plain: ldy     #UW_TEXT
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+        clc
         rts
 
 ; Y a handle, A/X a list's count, or a bar's, slider's or scroll bar's top
@@ -1423,13 +1718,20 @@ ui_dirty:
         jsr     ENTER
         jsr     CHKH
         jsr     DIRTY
+        ldy     #UW_TYPE                ; (U3b, B3) a window: its flags may be the program's
+        lda     (UIR),y                 ;   own writing (UF_MODAL, UF_OVERLAY), so the modal
+        cmp     #UT_WINDOW              ;   window and the overlay are found again
+        beq     STALE
+        clc
+        rts
+STALE:  lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (S1: a geometry event; S2: the cache stale)
+        tsb     uany
         clc
         rts
 
 ui_redraw:
         jsr     ALLDIRTY
-        clc
-        rts
+        bra     STALE
 
 ui_focus:
         jsr     ENTER
@@ -1490,7 +1792,7 @@ ui_suspend:
         beq     @s
         jsr     POLLSTOP                ; no repeat, no first click, no drag (X1, X9, X10)
         jsr     PTROFF
-        lda     #1                      ; the sliders' sprites out of sight (X3)
+        lda     #1                      ; the thumbs' sprites out of sight (X3)
         jsr     THUMBSOFF
 @s:     lda     #1
         sta     ususp
@@ -1503,8 +1805,7 @@ ui_resume:
         jsr     ENTER
         jsr     SETUP
         jsr     ALLDIRTY
-        clc
-        rts
+        jmp     STALE                   ; (U3b, B3)
 
         .bss
 sf_old: .res    1

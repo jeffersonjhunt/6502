@@ -24,14 +24,14 @@ BENT:   stx     xsx
 
         .segment "BRODATA"
 BTAB:
-        .word   BINIT, BWCALL, BPOST
-.assert * - BTAB = XB_POST + 2, error, "BTAB in XB_* order"
+        .word   BINIT, BWCALL, BPOST, VDIRTY
+.assert * - BTAB = XB_VDIRTY + 2, error, "BTAB in XB_* order"
 
 ; Every widget module's record (WR_*): block B has them all (U3a).
 MODS:   .word   UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
         .word   UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, 0
         .import UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
-        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, PNONEW
+        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, PNONEW, VDIRTY
 
         .segment "BBSS"
 brec:   .res    2 * UT_COUNT           ; each type's record, 0 for a core type
@@ -40,7 +40,7 @@ bvec:   .res    2                      ; BWCALL's handler
         .segment "BCODE"
 
 ; ui_open's (REGISTER): ufl, each type's WR_FLAGS, and brec its record;
-; and no slider's thumb has a last cell (uislider.s, Z3).
+; and no sprite thumb (a slider's or a scroll bar's) has a last cell (uislider.s, Z3).
 BINIT:  jsr     PNONEW
         ldx     #UT_COUNT - 1
 @z:     stz     ufl,x
@@ -108,5 +108,5 @@ BWCALL: lda     wtype
         rts
 
 ; PAINT's last call, and THUMBSOFF's: upost, a widget module's (the
-; sliders' thumbs).
+; sprite thumbs: the sliders' and scroll bars').
 BPOST:  jmp     (upost)

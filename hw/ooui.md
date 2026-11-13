@@ -123,7 +123,7 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 
 - A handle is a record's index in the app's table, **0-239** (`$00-$EF`).
 - **`$F0-$FE` are OOUI's own** built-in dialogs: `UI_MSG` (`$F0`) the message box, `UI_PICKER` (`$F1`) the file
-  picker; the rest reserved.
+  picker; their widgets `$F2-$FD` (U2; `$FD`, the picker's "Add all", U3b); the rest reserved.
 - **`UI_NONE` (`$FF`)** is no widget: a top-level record's parent, an event with no widget.
 - A parent comes before its children in the table, so a pass from 0 up draws back to front and a pass from the end
   down hit-tests front to back.
@@ -132,7 +132,11 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 
 A record is 16 bytes (`UW_LEN`), so record *h* is at the table + *h* × 16. The table is the app's memory, and OOUI
 writes `UW_FLAGS`'s dirty bit, `UW_STATE` and the values the user changes. An app may write any field itself and
-then call `ui_dirty`.
+then call `ui_dirty`. *(S1, proposed; the owner's rule:)* a field that moves or resizes a record (`UW_X`, `UW_Y`,
+`UW_W`, `UW_H`, a window's frame), or its type or parent, needs `ui_redraw` after, not `ui_dirty`: what covers what
+may have changed, and only `ui_redraw` says so (the sprite thumbs, the hit test). *(S2, proposed:)* OOUI keeps
+each record's place in a cache; a record moved by its fields and only dirtied is caught at the next paint (its
+place compared with the cache's), but a hit test before that paint still finds it where it was.
 
 | Offset | Name | What it is |
 | --- | --- | --- |
@@ -162,7 +166,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 1 | `UT_DESKTOP` | - | - | - | - |
 | 2 | `UT_WINDOW` | the title | - | - | - |
 | 3 | `UT_PANEL` | the title (0: none) | - | - | - |
-| 4 | `UT_LABEL` | the text | - | - | - |
+| 4 | `UT_LABEL` | the text | (*U3b, proposed*) +10 its own attribute, 0 the theme's `TC_LABEL` | - | - |
 | 5 | `UT_BUTTON` | the text | a toggle's state, 0 or 1 | - | - |
 | 6 | `UT_CHECK` | the text | 0 or 1 | - | - |
 | 7 | `UT_GROUP` | the title (0: none) | the chosen radio button, 0 its first | - | - |
@@ -171,15 +175,15 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 10 | `UT_MENU` | the title (the menu bar's child) | - | - | - |
 | 11 | `UT_ITEM` | the text (a menu's child) | a check mark, 0 or 1 | +12 a key's HID usage shown, +13 its modifiers (`UK_*`) | - |
 | 12 | `UT_SEP` | - (a menu's line) | - | - | - |
-| 13 | `UT_VSCROLL` | - | the position, 0 to `UW_A` | the last position | the page (the thumb's size) |
+| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size); *U3b, proposed:* with `UF_MARGIN`, +15 the margin byte and +14 the page, 0-255; with `UF_OWNTHUMB` and `UF_NOARROWS` too, the margin byte's high four bits the thumb's length ([an own thumb's length](#u3b-an-own-thumbs-length)) |
 | 14 | `UT_HSCROLL` | the same | | | |
 | 15 | `UT_LIST` | the rows: an array of string pointers, or with `UF_ROUTINE` the row routine | the selection, `$FFFF` none | the rows' count | the top row shown |
 | 16 | `UT_FIELD` | the buffer (0-terminated) | the cursor | +12 the buffer's size with its 0, +13 the first character shown | - |
 | 17 | `UT_VBAR` | - | the level, 0 to `UW_A` | the top | - |
 | 18 | `UT_HBAR` | the same | | | |
-| 19 | `UT_VSLIDER` | - | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
+| 19 | `UT_VSLIDER` | - (*U3b, proposed:* with `UF_OWNTHUMB`, +8 the thumb's size byte; with `UF_MARGIN`, +9 the margin byte) | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
 | 20 | `UT_HSLIDER` | the same | | | |
-| 21 | `UT_CANVAS` | - | - | - | - |
+| 21 | `UT_CANVAS` | - (*U3b, proposed:* with `UF_ROUTINE`, the routine of its cells) | - | - | - |
 | 22 | `UT_CHOICE` (U2, proposed) | an array of `UW_A` string pointers | the one shown | the count | - |
 
 **The flags** (`UW_FLAGS`):
@@ -190,20 +194,22 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 1 `$02` | `UF_DISABLED`: drawn dim, takes no input | | | | | | | |
 | 2 `$04` | `UF_DIRTY`: OOUI's, set by the calls that change a widget | | | | | | | |
 | 3 `$08` | `UF_NOFOCUS`: Tab passes it by | | | | | | | |
-| 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb |
-| 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | |
-| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows | | |
-| 7 `$80` | | `UF_NOFRAME` | | | | | | |
+| 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb (*U3b:* a scroll bar's too) |
+| 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | `UF_OWNTHUMB` (*U3b:* with `UF_SPRITE`, the program's image; a scroll bar's too) |
+| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows (*U3b:* a canvas's cells too) | | `UF_MARGIN` (*U3b, proposed:* a press in its margin is its own; a scroll bar's too) |
+| 7 `$80` | | `UF_NOFRAME` | | | | | | *(U3b round 5, proposed)* `UF_NOWHEEL` a slider's: the wheel over it is the program's (`UE_WHEEL`); `UF_NOARROWS` a scroll bar's: no arrows, the track the whole bar |
 
 `UW_STATE` (OOUI's): `US_PRESSED` `$01`, `US_HOT` `$02` (the pointer is over it), `US_OPEN` `$04` (a menu down),
-`US_FOCUS` `$08`, `US_DRAG` `$10`.
+`US_FOCUS` `$08`, `US_DRAG` `$10`. *(S1, proposed:)* bit 7 (`US_THUMB`, `ui.inc`'s, not `ooui.inc`'s) is OOUI's
+own: a sprite thumb to place at the next paint.
 
 **A list's rows.** Without `UF_ROUTINE`, `UW_TEXT` points to an array of `UW_A` string pointers. With it,
 `UW_TEXT` is a routine OOUI calls (`JSR`) for each row it draws: A/X the row, Y the list's handle; it returns A/X a
-0-terminated string, outside `$4000-$7FFF`, and Y a style (`UL_NORMAL` 0, `UL_CURRENT` 1, `UL_DIM` 2, `UL_MARKED`
+0-terminated string, in the program's memory, below `$4000` or in `$8000-$BFFF` (*U3b review round 2, H6*), and Y a style (`UL_NORMAL` 0, `UL_CURRENT` 1, `UL_DIM` 2, `UL_MARKED`
 bit 7, which a style adds). The routine may map W1 itself (OOUI maps it again after the call), may use the app's
 zero page but not OOUI's, and may not call `ui_*`. A multiple-selection list keeps its marks in the app: OOUI asks
-for them through the style.
+for them through the style. *(U3b review round 2, proposed:)* OOUI clears the decimal flag after the call (H4), and a
+routine of 0 calls nothing: every row empty, in `TC_LIST` (the selection's colour still shown) (H2).
 
 **Static layouts.** A screen is assembled as data with macros, and one `ui_open` takes it. Each macro emits one
 record and defines `id` as its handle (`.assert`ing that the parent came first); `UI_BEGIN` and `UI_END` put the
@@ -224,12 +230,12 @@ UI_MENUBAR  id, parent
 UI_MENU     id, menubar, text
 UI_ITEM     id, menu, text, usage, mods, flags
 UI_SEP      id, menu
-UI_VSCROLL  id, parent, x, y, len, last, page, flags      ; UI_HSCROLL the same
+UI_VSCROLL  id, parent, x, y, len, last, page, flags [, sprite, thumb, margin]   ; UI_HSCROLL the same; (U3b) the rest
 UI_LIST     id, parent, x, y, w, h, rows, count, flags
 UI_FIELD    id, parent, x, y, w, buffer, size, flags
 UI_VBAR     id, parent, x, y, len, top, flags              ; UI_HBAR the same
-UI_VSLIDER  id, parent, x, y, len, top, value, step, sprite, flags   ; UI_HSLIDER the same
-UI_CANVAS   id, parent, x, y, w, h, flags
+UI_VSLIDER  id, parent, x, y, len, top, value, step, sprite, flags [, thumb, margin]   ; UI_HSLIDER the same; (U3b) the rest
+UI_CANVAS   id, parent, x, y, w, h, flags [, routine]       ; (U3b) the routine with UF_ROUTINE
 UI_END      name                                  ; name_COUNT: its records
 ```
 
@@ -297,12 +303,12 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_poll` | | A the event (`UE_*`), X its widget, Y as the event says, and `UI_EV` (below). Carry clear |
 | `ui_show` | A a handle | shown with its children; a `UF_MODAL` window takes the input and the focus |
 | `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event (the picker's listing stops). A widget in it held by the pointer is let go: a slider's or a scroll bar's last `UE_CHANGE` comes at the next poll (U2 review, X10) |
-| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`) |
+| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight. *(Round 3, J2:)* refused the same way, a change to `UF_OWNTHUMB` while `UF_SPRITE` is on before and after the call; with `UF_SPRITE` turned on or off in the same call, it is taken. *(Round 4, K1:)* setting or clearing `UF_MARGIN` on a scroll bar changes what its `UW_B` means (with it, the page is the low byte and the margin the high; without it, the page is the whole word), so the program sets `UW_B` again first, for the meaning the new flags give it |
 | `ui_settext` | Y a handle, A/X a string | dirty |
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
 | `ui_getvalue` | Y a handle | A/X the value |
 | `ui_setrange` | Y a handle, A/X a list's count or a bar's, slider's or scroll bar's top | the value held to it; dirty |
-| `ui_dirty` | A a handle | it and its children drawn again at the next idle `ui_poll` |
+| `ui_dirty` | A a handle | it and its children drawn again at the next idle `ui_poll`. *(U3b review round 5, L1, proposed:)* after writing a window's `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself, the program calls `ui_dirty` on that window (or sets them with `ui_flags`, `ui_show` or `ui_hide` instead), so that the modal window and the overlay are found again (B3); for those bits on a record other than a window, or a record's type or parent, `ui_redraw`. *(S1, proposed:)* after moving or resizing a record by writing its fields, `ui_redraw` too: `ui_dirty` draws it again where it now is, but doesn't say that what covers what changed |
 | `ui_redraw` | | everything drawn again (after the app has had the screen) |
 | `ui_focus` | A a handle | carry set if it can't take it (hidden, disabled, `UF_NOFOCUS`, or under a modal window) |
 | `ui_getfocus` | | A the handle, `UI_NONE` none |
@@ -340,9 +346,9 @@ open, **OOUI is the queue's only reader**, and what it doesn't use reaches the a
 | 6 | `UE_CLOSE` | the window | 0 | its close box, or Escape: the app hides it (`ui_hide`) or keeps it. `UI_MSG` closes itself, and says the button: 0 OK or Yes, 1 Cancel or No |
 | 7 | `UE_FOCUS` | the widget | 0 | the focus moved there |
 | 8 | `UE_KEY` | the focus | the HID usage | a key pressed that no widget or accelerator took; `UV_MODS`, `UV_CHAR` |
-| 9 | `UE_WHEEL` | under the pointer | 0 | wheel steps no list or scroll bar took, signed |
+| 9 | `UE_WHEEL` | under the pointer | 0 | wheel steps no list or scroll bar took, signed (*U3b round 5:* nor a slider with `UF_NOWHEEL`, which is then X) |
 | 10 | `UE_CANVAS` | the canvas | 0 | the pointer on a canvas: `UV_KIND`, `UV_X`, `UV_Y` (wheel steps in `UV_VALUE`) |
-| 11 | `UE_PICK` | `UI_PICKER` | 0 | 0 chosen (the picker closed), 1 cancelled (closed), 2 its extra button (still open) |
+| 11 | `UE_PICK` | `UI_PICKER` | 0 | 0 chosen (the picker closed; *U3b, proposed:* with `UP_KEEP` its OK is "Add", and the picker stays open with its marks), 1 cancelled (closed), 2 its extra button (still open), 3 (*U3b, proposed:* `UP_ALL`'s "Add all") every file listed given, as many as the result buffer holds (still open) |
 | 12 | `UE_RAW` | `UI_NONE` | the kind (`EK_*`) | an event OOUI doesn't use (sound, controllers, devices), its 8 bytes in `UI_RAW` |
 | 13 | `UE_MODAL` | the window | 0 | 1 the first modal window shown, 0 the last hidden: the app may dim its own layer |
 
@@ -381,13 +387,13 @@ field, OK and Cancel. It takes a block of 20 bytes (`UP_*`):
 | --- | --- |
 | +0-1 | the title |
 | +2-3 | the types shown: three-letter types one after another, ended by 0 (`"MP3SIDWAV", 0`); 0 every file |
-| +4 | `UP_MULTI` `$01` several files; `UP_NEW` `$02` a name typed that isn't there (saving); `UP_DRIVES` `$04` drive buttons; `UP_USERS` `$08` user numbers 0-15 |
+| +4 | `UP_MULTI` `$01` several files; `UP_NEW` `$02` a name typed that isn't there (saving); `UP_DRIVES` `$04` drive buttons; `UP_USERS` `$08` user numbers 0-15; *(U3b, proposed)* `UP_KEEP` `$10` OK is "Add" and the picker stays up; `UP_ALL` `$20` an "Add all" button |
 | +5 | the drive to start on (0 the current, 1 A:) |
 | +6 | the user to start on (`$FF` the current) |
 | +7-8 | the result buffer |
 | +9 | its room, in entries |
 | +10 | the entries chosen (OOUI writes it) |
-| +11-12 | a column routine, 0 none: A/X an entry, Y its row; it returns A/X a short string for the row's right, or 0 for "not yet" (asked again later), so a slow look inside a file can be spread over frames |
+| +11-12 | a column routine, 0 none: A/X an entry, Y its row; it returns A/X a short string for the row's right, or 0 for "not yet" (asked again later), so a slow look inside a file can be spread over frames. *(U3b review round 3, proposed:)* OOUI clears the decimal flag after the call (J1) |
 | +13-14 | an extra button's text (0 none), such as MOUNT |
 | +15-16 | a work buffer for the listing |
 | +17-18 | its length: 16 bytes a file listed |
@@ -683,7 +689,7 @@ Six phases, all software, each closed by a gate:
 | U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled: **met** (the owner, 2026-11-11) |
 | U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass: **built** (2026-11-11), [below](#u1-the-core-and-the-text-backend) |
 | U2 | Scroll bars, list boxes, message boxes, text fields, sliders, bars, canvas; file picker on OODOS directory calls | File picker works on real disks: **built** (2026-11-11), [below](#u2-the-remaining-widgets-the-message-box-and-the-picker) |
-| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend |
+| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend: **not met** (the owner, 2026-11-12: OO-Amp stays on its own UI, the port kept to revisit; the bitmap backend not now; [the outcome](#u3b-the-outcome)) |
 | U4 | Bitmap backend (optional), drawing assist if repaints are slow | Repaints fast enough to feel native |
 | U5 | Programmer's Guide chapter, examples, docs/README.md phases, a second app | A second app built on OOUI |
 
@@ -811,7 +817,7 @@ OOUI.BNK's block B, whose dispatcher finds a type's record itself; `UO_WIDGETS` 
 [U3a, as built](#u3a-as-built).)* Their widgets are records of OOUI's own after
 the program's table (`uidlg.s`), given by public handles: `UI_MSG` `$F0` and its text `$F2` and buttons `$F3`
 and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8`, OK `$F9`, Cancel `$FA`, extra
-`$FB` and status `$FC`.
+`$FB` and status `$FC`; *(U3b, proposed)* and "Add all" `$FD`.
 
 **Sizes** (bytes; all `RODATA` tables included in "tables"):
 
@@ -886,7 +892,9 @@ the picker stays up: Y3). Types are filtered by `UP_TYPES`. It covers every driv
 `oodos-32m`, and an `apple-do` image mounted as one), M:, and a drive with nothing mounted (an error). A DOS 3.3
 disk is APPLE2's and DOS33's, not a CP/M drive, so not the picker's. The answer is `UE_PICK` X `UI_PICKER`: 0
 chosen (the marked files, else the selected one, else with `UP_NEW` the name typed, in the result buffer, the count
-at `UP_CHOSEN`), 1 cancelled, 2 the extra button (still up); `UX_BUSY` while one is up, `UX_PICK` with no work
+at `UP_CHOSEN`), 1 cancelled, 2 the extra button (still up), and *(U3b, proposed)* 0 with `UP_KEEP` leaving the
+picker up with its marks (OK is "Add"), 3 `UP_ALL`'s "Add all" (every file listed, as many as the result buffer
+holds; still up); `UX_BUSY` while one is up, `UX_PICK` with no work
 buffer or no room. Each poll's part is a search of its own, so a program's search between polls doesn't disturb
 the listing (Y1); `ui_hide(UI_PICKER)` stops it (Y2); `ui_relist` reads the drive again.
 
@@ -1442,7 +1450,7 @@ program's 320 KB.
 | What | Crossings | Cycles |
 | --- | --- | --- |
 | A crossing's overhead (FARCALL in, the dispatcher, FCRET out) | 1 | 322 |
-| An idle `ui_poll` on UITEST's scene (31 records) | 0 | 20,433 (17%) |
+| An idle `ui_poll` on UITEST's scene (31 records) | 0 | 20,433 (17%); 878 after U3b's B1 and B3 (below) |
 | The sliders' thumbs after a band moved, on a screen shaped as OO-Amp's (Z3) | 0 | 69,591 (58%) |
 | The sliders' thumbs after a status line's text changed far from them | 0 | 9,638 |
 | A picker listing poll | 3 | |
@@ -1511,6 +1519,671 @@ program's 320 KB.
   opened (and closed again before the case goes on), not refused.
 - **The demo card has OOUI.BNK on A:** (user 0, not SYS), and test_oodos_boot's demo-card case wants it. The test
   card is unchanged.
+
+#### U3b: the gaps OO-Amp's port found ####
+
+**Proposed, built 2026-11-12** on `feat/ooui-u3b`, for OO-Amp's port (U3b), whose look the owner kept (2026-11-12,
+option A: its pixel chrome on layer 0, OOUI's widgets and text on layer 1 over it with transparent backgrounds,
+its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record or event changes meaning.
+
+- **A thumb of the program's own** (`UF_OWNTHUMB`, `$20`, with `UF_SPRITE`; a slider or a scroll bar). OOUI never
+  writes the thumb's image (the program sets it with `GX_SPRIMG`); its size byte, `GX_SPRATTR`'s Y (height << 6,
+  width << 4, the palette group; not 0), is the record's `UW_TEXT` low byte. Every sprite thumb is now centred by its
+  size (half its width across a vertical track's column, half its height on a horizontal track's row), which for
+  OOUI's own 8 x 8 is where it was. OO-Amp's thumbs are 16 x 8, 8 x 8 and 8 x 32.
+- **A scroll bar's sprite thumb** (`UF_SPRITE` on `UT_VSCROLL` and `UT_HSCROLL`, the sprite `UW_TEXT`'s high byte).
+  The bar then works in sprite units, not cells: the thumb is the sprite's length, at (track - thumb) x value / last
+  along the track; a press on it drags it, before or after it pages; it is placed after a paint as a slider's is
+  (`POST`, with its Z3 filter and X4's rules), and `ui_open`'s `UX_SPRITE` check covers it. OO-Amp: the playlist's
+  scroll bar, an 8 x 32 thumb moved to the pixel.
+- **A label's own colour:** `UW_VALUE`'s low byte, not 0, is the label's attribute (0: the theme's `TC_LABEL`, as
+  before). OO-Amp's words are in a dozen colours of its skin; one role couldn't draw them. `UI_LABEL` takes it as an
+  optional last argument.
+- **`US_HOT`'s colour** (U3's decision): the theme's `TF_HOT` flag (`TH_FLAGS` `$04`). With it, a button under the
+  pointer is drawn in `TC_BUTTONFOCUS`'s colours (without the focus's pointers) and drawn again as the pointer comes
+  and goes. No new role: the theme stays 64 bytes. OO-Amp's theme leaves it clear (its buttons are its art).
+- **The picker's Add and Add all** (U3's, shaped by the port): `UP_KEEP` (`$10`) makes OK "&Add": its `UE_PICK` 0
+  gives the chosen files and leaves the picker up, with its marks; `UP_ALL` (`$20`) shows an "Add a&ll" button
+  (public handle `$FD`): `UE_PICK` 3, every file listed given in the result buffer, as many as it holds, the picker
+  up. The extra button stays the program's (OO-Amp's MOUNT). "Add all" is drawn leftmost but comes last in the Tab
+  order, after the extra button, since its record is the dialogs' last (accepted, the review's G8). Its record is the dialogs' 14th: to keep `UISTATE`
+  inside its 1,536 bytes, the picker's variables that only block C reads (its scratch record, the program's state
+  it keeps, the SCB block, a row's text, the walk's skip list: 84 bytes) moved to block C's own memory. `UISTATE`
+  uses 1,463 bytes now (1,531 before).
+- **The program's own pointer:** `UO_OWNMOUSE` already did it (no change): OOUI sets no pointer and still takes the
+  mouse's clicks from the event area. A case checks it.
+- **A canvas whose cells are the program's** (the owner's Q1, 2026-11-12; additive). `UF_ROUTINE` (`$40`, a list's
+  bit) on a `UT_CANVAS` makes `UW_TEXT` a row routine, called as a list's row routine is. OO-Amp's zone C needs it:
+  its scope and VU modes colour each cell, on OOUI's layer.
+  - **The call.** For each row it draws, top first, OOUI calls the routine with a `JSR` from block B, with OOUI.BNK
+    in the bank's window, as a list's row routine is called: there is no crossing, and the routine is the program's
+    own code, in its memory. A/X is the row (0 the canvas's first) and Y the canvas's handle.
+  - **The answer.** A/X is the row's cells, as many as the canvas is wide (`ui_rect`'s width): each a character
+    (code page 437) and an attribute, as a cell on the card is, in the layer's palette group, in the program's
+    memory, below `$4000` or in `$8000-$BFFF`. A/X 0 leaves the row transparent. A routine of 0 (`UW_TEXT` 0 with
+    `UF_ROUTINE`) calls nothing: every row is transparent, as a plain canvas's are; it isn't refused.
+  - **What the routine may and may not do.** It may map W1 itself (OOUI maps its own again after each call). It may
+    use the program's zero page, not OOUI's. It may not call `ui_*`, the BDOS or FARCALL. **That differs from a
+    list's row routine,** which may call the BDOS and FARCALL (U3a's callbacks, above): the canvas's is called
+    inside the paint's inner loop, once a row, and must be quick, and a canvas's cells are the program's to have
+    ready before it calls `ui_dirty`. OOUI clears the decimal flag after each call, so a routine that leaves it set
+    does no harm.
+  - **When it is called.** For each row the paint draws, and only those: a row outside what the paint redraws (the
+    damage box, inside the canvas's parents) is skipped, with no call and no `GX_VMAP`. Today a paint draws a canvas
+    once, but OOUI doesn't promise it: the routine may be called more than once for a row in one paint, and for
+    fewer rows than the canvas has (a window moved off two of its rows calls it for those two). Its answer must not
+    depend on how often, or for which rows, it is called: it gives the row's cells as they are, each time it is
+    asked.
+  - **Each frame.** OOUI draws the cells when the canvas is dirty or under the paint's damage, so the program calls
+    `ui_dirty` on the canvas when they change (OO-Amp: each frame). The pointer on it is still `UE_CANVAS`. Without
+    `UF_ROUTINE` a canvas is transparent, as before.
+  - **The cost** (`u3b_a_canvas_s_cells_from_a_routine`, 40 x 4 cells in a window): 21,907 cycles to draw the canvas
+    (18% of a frame), with the routine's four calls and its own `GX_VMAP`. A plain canvas's transparent fill costs
+    about 14,700 in the same place. The whole `ui_poll` after `ui_dirty` takes 73,313 cycles, against 66,122 for a
+    plain canvas. The rest is the paint around it, the same for either kind: the records walked, the damage box
+    cleared, the window's inside drawn again under it, and the interrupts that fall in that time.
+
+- **A margin for sliders and scroll bars** (`UF_MARGIN`, `$40`; owner-approved 2026-11-12, after OO-Amp's port
+  found OOUI's hit areas smaller than its own: a vertical slider's one column wide, so its EQ bands' targets 584
+  pixels smaller than today's, the playlist's scroll bar 352, volume and balance 96 each). Opt-in, and additive:
+  without the flag nothing changes.
+  - **The margin byte.** A slider's is `UW_TEXT`'s high byte (+9, free: its low byte is the own thumb's size); a
+    scroll bar's is `UW_B`'s high byte (+15; it has no free byte, so with `UF_MARGIN` its page is `UW_B`'s low byte,
+    0-255). Bits 0-3: the cells across the track on each side. Bits 4-7: the cells beyond each end along it, a
+    slider's only; a scroll bar's ends are its arrows, and these bits do nothing there. `UI_*SLIDER` and
+    `UI_*SCROLL` take it as an optional last argument.
+  - **What a press there does.** A press in the margin is a press on the widget, as on its track: the same
+    `WR_DOWN` with the pointer where it is, so the same value as the track's cell in that column (a horizontal
+    slider) or row (a vertical one), an end's value beyond the end, the same page or thumb drag on a scroll bar,
+    and the drag that follows. Only the press: the wheel and `US_HOT` look at the widget's own cells.
+  - **What it never takes.** `MARGIN` (`uipoll.s`, block A) runs after `HIT` on a press: a margin takes the press
+    only where what `HIT` found is one of the widget's own parents (its window's or panel's inside, the desktop)
+    or nothing. So it never takes a press from another widget, whether drawn in front of it (FRONT's order: a
+    window over it, a later record) or behind it. Behind too, which is more than "in front" asks: OO-Amp's volume
+    (row 12) and balance (row 13) are neighbours, and a margin across either would otherwise take the other's
+    presses. Where two margins meet, the frontmost widget's (the table's later record) has the cell. A margin is
+    inside the widget's parents' client areas and the modal window, as `HIT` is, and a hidden widget has none.
+  - **What OO-Amp sets** (its `tools/mkgfx.py`, from `art/art.json`'s hit rectangles; a cell is 4 x 8 pixels):
+
+    | Widget | Type | `UF_MARGIN` and the byte | Its target then (today's) |
+    | --- | --- | --- | --- |
+    | `eq0`-`eq10` | `UT_VSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 12 x 80 (12 x 70): one column each side, one row beyond each end; each band's columns start 1 pixel right of today's |
+    | `vol`, `bal` | `UT_HSLIDER` | `UW_TEXT` = `$20` << 8 \| the size byte | 96 x 8 (92 x 8): two columns beyond each end |
+    | `seek` | `UT_HSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 312 x 24 (312 x 12): its pixels 86-97 cover three rows |
+    | `plscroll` | `UT_VSCROLL` | `UW_B` = `$01` << 8 \| the page (the rows shown, under 256); `$51` with its thumb's length ([below](#u3b-an-own-thumbs-length)) | 12 x 88 (8 x 88): one column each side |
+
+    Each covers today's rectangle (the bands' but for its first pixel column). Where a margin meets another of
+    OO-Amp's widgets, that widget keeps its cells: if the playlist's list reaches column 77, the scroll bar's
+    left margin is the list's there. A label or a canvas in a margin keeps it too (it is a widget, not a
+    parent); OO-Amp's generator should check none sits in one. (The seek bar's difference by this count is
+    1,312 pixels, against the port's 780; the port's numbers may come from a later layout.)
+  - **The cost:** 205 bytes of block A (`MARGIN`, `MTEST`), 11 of block B (the scroll bar's page byte); no
+    `UISTATE` (it uses `fb`, `fh` and `t0`-`t2`); nothing on a poll without a press. A press walks the records
+    once more, a type test each, and `RECT` only for a flagged slider or scroll bar.
+  - **Tests** (`u3b_a_slider_s_margin_takes_a_press`, `u3b_a_margin_takes_no_press_from_another_widget`,
+    `u3b_a_scroll_bar_s_margin_takes_a_press`): without the flag (and with the byte alone) the margin's cells are
+    the window's; with it, across and along, the ends' values, a drag begun there, past the margin nothing,
+    hidden nothing; a window in front, a modal window, and a neighbour slider in front with its own margin each
+    keep their cells; a scroll bar's page from `UW_B`'s low byte, its along bits ignored, its thumb dragged from
+    beside it. No golden frame changed.
+
+**Tests:** `test_oodos_ui` gains six `u3b_*` cases (and the review's rounds, below, more) (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
+five fail without their change; one confirms what `UO_OWNMOUSE` already did. One existing case changed how it
+measures, not what it expects:
+`what_a_call_and_a_crossing_cost` now takes the least of the crossings it times, not their mean, since an interrupt
+inside one lengthens it by chance (a build whose code had moved measured 689 cycles, where the crossing is 322).
+No golden frame changed.
+
+**The code review, round 1 (2026-11-12):** the owner had G1-G7 fixed as recommended and G8 accepted.
+- **G1.** `ui_close` points OOUI's own thumbs' images at card page 0, off the memory it frees, and leaves a
+  `UF_OWNTHUMB` image as the program set it. `u3b_a_slider_s_own_thumb` closes OOUI and checks both kinds.
+- **G2.** A sprite thumb shows only where its first and last cells along the track both show (held to the track),
+  not its middle's alone, and the Z3 filter tests every cell from the first to the last. OO-Amp's 8 x 32 covers up
+  to five cells. Two `FRONT`s cost the moved band on OO-Amp's screen 50,000 cycles more, so `SHOWS` walks the records
+  once for both cells: 77,056 cycles, 5,600 more than before. `u3b_a_tall_thumb_covered_at_one_end_is_hidden`: a
+  window over the thumb's last row, then a drop-down over its first.
+- **G3.** `ui_settext` on a slider's or a scroll bar's `UW_TEXT` (the thumb's size byte, a scroll bar's sprite)
+  checks the word as `ui_open` does, and refuses it with `UX_SPRITE`, the record unchanged. If it takes a new
+  sprite, the old one goes out of sight. `SPRCHK` also refuses an own thumb's size byte of 0, in `ui_open` too.
+  `u3b_ui_settext_on_a_thumb_is_checked`.
+- **G4-G6.** The tables above (`UE_PICK` 0 with `UP_KEEP` and 3, the label's `UW_VALUE`, the thumbs' `UW_TEXT`, the
+  flags, `$FD`), `ooui.inc`'s `UP_FLAGS`, and stale comments in the sources.
+- **G7.** `what_a_call_and_a_crossing_cost` prints a crossing's mean and longest beside the least, which it still
+  holds under 500 cycles.
+- **G8.** "Add all" last in the Tab order: accepted, noted above.
+
+**The code review, round 2 (2026-11-12):** the owner had H1-H6 fixed as recommended. Each has a case in
+`test_oodos_ui` (`u3b_r2_*`) that fails without its fix; H5's cases guard `ui_open`'s existing check, and fail when
+`SPRCHK`'s pointer and size tests are taken out.
+- **H1.** `ui_flags` on a slider or a scroll bar checks the new flags with `SPRCHK`, as `ui_open` and `ui_settext`
+  do: `UF_SPRITE` set onto the pointer's sprite, or `UF_OWNTHUMB` with a size byte of 0, is refused with
+  `UX_SPRITE`, carry set, the flags (and the rest of the record) as they were, nothing marked dirty. When
+  `UF_SPRITE` goes off, the thumb's sprite goes out of sight (depth 0); set again, the next paint places it again,
+  because `ui_flags` damages the record's area, which covers the thumb's last cells (POST's filter places a thumb
+  whose cells the paint touched; round 3, J4, the wording). `u3b_r2_ui_flags_on_a_thumb_is_checked`.
+- **H2.** A `UF_ROUTINE` routine of 0 calls nothing, and isn't refused: a canvas's rows are transparent; a list's
+  rows are empty, in `TC_LIST` with no style (the selection's row still in its colour). For the list, empty rows
+  were chosen over the array path (`UW_TEXT` 0 read as an array at `$0000`, which would draw whatever the zero page
+  holds); no golden frame has such a list. `u3b_r2_a_routine_of_0_draws_nothing`.
+- **H3.** The canvas's routine rules said beside the list's (above): no BDOS or FARCALL for the canvas's; called
+  for each row drawn, maybe more than once a paint, its answer not to depend on the count. And the rows outside
+  the paint's clip (the damage box inside the canvas's parents) are skipped, with no call and no `GX_VMAP`.
+  `u3b_r2_a_canvas_s_routine_is_called_only_for_the_rows_redrawn`: a small window shown and hidden over two of the
+  canvas's rows calls the routine for those two alone. **Cost:** the canvas's drawing in that strip's paint, 15,731
+  cycles before (all four rows called, two of them drawn clipped away), 8,720 after. The whole canvas made dirty
+  (`u3b_a_canvas_s_cells_from_a_routine`): its cells 21,907 before, 21,990 after (the row's clip test, and the test
+  routine's call count, which this round added); its `ui_poll` 73,313 before, 74,039 after, against 66,122 and
+  66,328 for a plain canvas, which doesn't reach the changed code: the difference is where the interrupts fall.
+- **H4.** OOUI clears the decimal flag after each of the program's three callbacks: the canvas's routine, the
+  list's row routine and (round 3, J1) the picker's column routine.
+  `u3b_r2_a_routine_returning_with_d_set`: test routines that return with D set; without the `CLD` the canvas's
+  row addresses come out in decimal and the program stops answering, and the list's frame changes.
+- **H5.** `u3b_r2_ui_open_checks_a_scroll_bar_s_and_an_own_thumb_s_sprite`: `ui_open` refuses (`UX_SPRITE`) a
+  scroll bar with `UF_SPRITE` on the pointer's sprite (with the program's thumb and with OOUI's), and a
+  `UF_OWNTHUMB` thumb with a size byte of 0 (a slider's and a scroll bar's).
+- **H6.** The cells' and the rows' pointer rule reads "in the program's memory, below `$4000` or in `$8000-$BFFF`"
+  (the canvas, the list, their sources' headers).
+
+**Sizes after round 2** (mkbank.py; a block's code window is 12,288 bytes): `UICOM` 3,298; block A 11,710 (578
+free; 685 after round 1, 817 before U3b), B 10,537 (1,751 free; 1,803 after round 1, 2,396 before U3b), C 7,222
+(5,066 free, unchanged); `UISTATE` 1,463 of 1,536, unchanged (round 2 added no variable; the canvas's are block
+B's own).
+
+**The code review, round 3 (2026-11-12):** the owner had J1-J4 fixed as recommended. Each code change has a case
+that fails without it.
+- **J1.** OOUI clears the decimal flag after the picker's column routine (`ROWFN` in block C), as after the other
+  two callbacks (H4). `u3b_r3_a_column_routine_returning_with_d_set`: the test's column routine returns with D
+  set; without the `CLD` the picker's rows (the entries' addresses, added in decimal) come out wrong.
+- **J2.** `ui_flags` refuses (`UX_SPRITE`, carry set, the flags as they were, nothing dirtied) a change to
+  `UF_OWNTHUMB` on a slider or a scroll bar while `UF_SPRITE` is on both before and after the call: the sprite's
+  image would change hands while it shows (OOUI's image over the program's sprite, or the program's thumb left
+  with OOUI's image). Taken: both set together from off, both cleared together, `UF_SPRITE` turned on or off in
+  the same call as the change, and a change while `UF_SPRITE` is off (no sprite shows); `SPRCHK` still checks what
+  results. `ui_open`'s and `ui_settext`'s checks are unchanged. `u3b_r3_ui_flags_keeps_an_own_thumb_while_its_sprite_shows`:
+  each direction refused (a slider's own thumb made OOUI's, a slider's OOUI thumb made the program's, a scroll
+  bar's own made OOUI's), then each allowed path. Round 2's case that sets `UF_OWNTHUMB` on `Z_HSC` with a size
+  byte of 0 is now refused by J2 first; the same refusal, unchanged expectation.
+- **J3.** `u3b_r2_a_routine_of_0_draws_nothing` also checks the selection's row in a list with a routine of 0:
+  `TC_LISTCUR` without the focus, `TC_LISTSEL` with it, its neighbours `TC_LIST`. (It fails if the selection's
+  colour is taken away.)
+- **J4.** H1's note above says why the thumb is placed again: `ui_flags` damages the record's area, which covers
+  the thumb's last cells.
+
+And the margin for sliders and scroll bars ([above](#u3b-the-gaps-oo-amps-port-found)), a new gap the owner
+approved with round 3.
+
+**Sizes after round 3** (mkbank.py): `UICOM` 3,298, unchanged; block A 11,935 (353 free: J2 20 bytes, the margin
+205), B 10,548 (1,740 free: the margin's scroll-bar page 11), C 7,223 (5,065 free: J1's `CLD`); `UISTATE` 1,463 of
+1,536, unchanged.
+
+**The code review, round 4 (2026-11-12, of 48c0386):** clean; K1 and K2 fixed with the repaint's changes below.
+- **K1.** `UI_VSCROLL` and `UI_HSCROLL` refuse (an `.assert` in `_UI_PAGE`) a margin given without `UF_MARGIN` in
+  the flags, since without the flag OOUI reads `UW_B` whole as the page and the margin byte would make it a page of
+  256 or more. `ui_flags`'s row (above) says that setting or clearing `UF_MARGIN` on a scroll bar changes what its
+  `UW_B` means, so the program sets `UW_B` again first. `check_tools.py` assembles each: both macros refuse a
+  margin without the flag, take it with the flag, and take a scroll bar with no margin (a page of 300); without
+  the `.assert` the refused sources assemble.
+- **K2.** `u3b_r4_a_margin_at_the_edges_under_a_hidden_parent_and_a_drop_down`: a slider with `$11` at its window's
+  client area's top left (the margin's cells on the frame and the title take nothing, those inside do); on the
+  desktop at the screen's top left, its window hidden (below it and after its end take the press; nothing comes
+  round from the bottom row or the right column); its window hidden (neither the margin nor the track); and a
+  drop-down down over the margin (the press is the menu's item, the slider's value unchanged). It guards what
+  `MTEST` does already: without its client-area test the frame cells take the press; without its hidden test
+  the hidden window's slider takes it (and `u3b_a_slider_s_margin_takes_a_press` fails too).
+
+#### U3b: the repaint (B1-B4) ####
+
+**Proposed, built 2026-11-12**, the owner's choice from the repaint trace (OO-Amp's screen, about 90 records): B1,
+B2, B3 and B4's cheap parts. No call, record or event changes meaning; no golden frame changed.
+
+- **B1, no paint when nothing changed.** `UISTATE` gains one byte, `uany` (the one the owner approved), whose
+  `UQ_PAINT` bit says a record was dirtied or damage added since the last paint. `DIRTY` sets it (so every call
+  that changes a widget, `ui_show`, `ui_flags`, the focus, `US_HOT` with `TF_HOT`, the widgets' keys, presses and
+  drags, the menus, the picker's listing, key repeat, which comes as a key), as do `BOXADD` (hiding, `ui_flags`'
+  old place, a menu put up), `BOXFULL` (`ui_open`, `ui_theme`, `ui_redraw`, `ui_resume`) and `DLGREC` (the dialogs'
+  records). `PAINT` returns at once while it is clear, and clears it with the damage, after the passes and before
+  `POST`, so what dirties or damages from there on is the next paint's. The thumbs' placing (`POST`, Z3) follows a
+  paint that drew or had damage (Z2), as before. `BOXADD`'s and `DLGREC`'s bits are kept for safety: every caller
+  of each also dirties a record today, so no case fails without them.
+- **B2, one pass on one layer.** On one layer (`UO_OVER` `$FF`, as OO-Amp's look A is), `PAINT`'s second pass is
+  for records on the overlay; it is skipped when `OVERS` says none can be there.
+- **B3, the modal window and the overlay kept.** `FINDMODAL`'s `umodal` and `OVERS`'s answer (`uany`'s `UQ_OVERS`)
+  are found again only when `uany`'s `UQ_MSTALE` and `UQ_OSTALE` say so. `REFOCUS` sets both, and it follows every
+  `ui_show`, `ui_hide`, `ui_flags` and dialog shown or hidden (`ui_msgbox`, `ui_pick`, their closing); so do
+  `DLGREC`, `ui_open` (after `ui_close`), `ui_resume`, `ui_redraw`, and `ui_dirty` on a window: a program may
+  write a record's fields itself and call `ui_dirty` (above), and a window's are what the two answers read. While
+  suspended nothing reads them. A program that writes `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself on a record
+  other than a window, or a record's type or parent, calls `ui_redraw` after (no such program is known).
+- **B4's cheap parts.** The walks that look at every record in order (`PAINT`'s clearing of the dirty bits,
+  `PASS`, `OVERS`) step from one record to the next (`RNEXT`, in `UICOM`: 16 bytes on, the dialogs' records after
+  the table's) instead of finding each with `REC`, where nothing between moves `UIR`. And while the left button
+  holds a slider or a scroll bar, a pointer move doesn't look for the widget under it (`DRAGGED`): the drag
+  follows the pointer as before, and `US_HOT` stays where the press found it till the pointer moves after the
+  release (a `TF_HOT` button isn't lit while a drag passes over it).
+
+**What a poll costs among 90 records** (`u3b_r5_a_poll_s_cost_among_ninety_records`: block 8 of UITBAR, block 5's
+table with 31 labels more, on one layer as OO-Amp's; the cycles of every `ui_poll` until `UE_NONE`; a frame is
+119,318):
+
+| What | Before (48c0386) | After | The limit the case holds |
+| --- | --- | --- | --- |
+| An idle poll | 56,679 | 878 | 5,000, no `PASS`, under 5 `REC`s |
+| The first label dirty (the records after it placed) | 453,345 | 242,153 | 350,000, one `PASS` |
+| The last label dirty | | 38,423 | under 150 `REC`s; `REC`s and steps under 330 |
+| The last label shown again | | 45,572 | under 150 `REC`s |
+| A drag's step (a band held, moved a row) | 628,883 | 324,284 | 450,000, no `FRONT` |
+| A button pressed | 1,026,758 | 747,598 | 900,000 |
+| ... and released (its click) | 455,661 | 222,613 | 350,000 |
+| 30 widgets changed at once (14 sliders' values, 15 labels: a track's start) | 2,273,689 | 1,921,661 | 2,150,000 |
+
+UITEST's idle poll (`what_a_call_and_a_crossing_cost`, 31 records) went from 20,728 to 878; its limit, 30,000, was
+unchanged then (5,000 since round 5, below). What is left in the polls that draw is mostly `RECT`: once a dirty widget has been drawn, each record
+after it is placed (its parents walked) to see whether it overlaps the damage, a few thousand cycles each, and the
+sliders' thumbs placed after. Each change's must-fail, by hand on 2026-11-12: B1's skip taken out, the idle poll
+18,303 cycles and a `PASS`; `DIRTY`'s bit, 32 cases fail; `BOXFULL`'s, 7; B2's skip, two `PASS`es; `FINDMODAL`'s
+cache, 90 `REC`s idle and the modal case; `OVERS`'s, the steps' limit; `REFOCUS`'s, `ui_dirty`'s, `ui_resume`'s
+and `ui_open`'s invalidations, `u3b_r5_the_modal_window_and_the_overlay_kept_are_found_again` (which sees a modal
+window come and go after each, and the overlay's window's button take a click only while it shows), and more
+cases for `REFOCUS`'s and `ui_open`'s; each step taken out, the `REC` limits; `DRAGGED`, the drag's `FRONT`.
+
+**Sizes** (mkbank.py): `UICOM` 3,351 (53 more: `RNEXT`, `DIRTY`'s bit, `OVERS`'s cache, in every block); block A
+12,117 (171 free, 182 used: `PAINT`, `PASS`, `FINDMODAL`, `REFOCUS`, the calls' invalidations, `DRAGGED`), B 10,601
+(1,687 free), C 7,281 (5,007 free); `UISTATE` 1,464 of 1,536 (`uany`, the one byte approved).
+
+#### U3b: round 5 ####
+
+**Proposed, built 2026-11-12**, the owner's choices after the code review's round 5 (of 184bae4) and OO-Amp's test
+pass. No U1, U2 or U3a call, record or event changes meaning; without the new flags nothing changes; no golden frame
+changed.
+
+- **`PASS` uses `RECT`'s sibling cache.** `FRONT` and `SHOWS` already turned it on (Z3); `PASS` now does too, for
+  its walk, and turns it off at its end: a record whose parent is the last placed record's parent is placed from
+  that parent's place, kept, instead of walking its parents again. 11 bytes of block A. In
+  `u3b_r5_a_poll_s_cost_among_ninety_records`:
+
+  | What | B1-B4 (184bae4) | Round 5 | The limit now |
+  | --- | --- | --- | --- |
+  | The first label dirty | 242,153 | 143,232 | 200,000 |
+  | A drag's step | 324,284 | 241,404 | 290,000 |
+  | A button pressed | 747,598 | 664,636 | 720,000 |
+  | ... and released | 222,613 | 160,412 | 200,000 |
+  | 30 widgets changed at once | 1,921,661 | 1,828,366 | 1,880,000 |
+
+  Each limit fails without the cache (all five did, by hand, 2026-11-12); left on after `PASS` (its `stz rcv`
+  taken out), three cases of menus and the pointer fail, a later `RECT` placing a record from a stale parent.
+- **The idle poll's limit.** `what_a_call_and_a_crossing_cost` holds UITEST's idle `ui_poll` under 5,000 cycles
+  (30,000 before; the owner accepted the change). It measures 877; without B1's skip it is 18,303.
+- **L1 (the review's round 5): the `ui_dirty` row** ([the calls](#the-calls)) says that a program that writes a
+  window's `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself calls `ui_dirty` on that window (or uses `ui_flags`,
+  `ui_show`, `ui_hide`), as B3 already said. A documentation change only.
+- **L2 (the review's round 5): accepted as documented.** `US_HOT` stays on a slider or a scroll bar after a drag
+  until the pointer moves (B4's `DRAGGED`); no change.
+- **A slider that refuses the wheel** (`UF_NOWHEEL`, `$80`, a slider's; OO-Amp's test pass, the owner 2026-11-12).
+  OO-Amp's wheel moves its volume wherever the pointer is, except over the playlist, which scrolls. Without the
+  flag, the wheel over a slider steps it, as before. With it, the slider's wheel handler (block B's `WHEEL`)
+  takes nothing, and `ui_poll` returns what it returns for a wheel over a widget that takes none: `UE_WHEEL`, X the
+  slider (the widget under the pointer), `UV_VALUE` the steps, signed. Its keys, its presses and drags, and its
+  margin are unchanged. **Choice:** X is the slider, not the record that would be under the pointer without it;
+  finding that one needs another walk in `FRONT`'s order (`UICOM`, every block), and OO-Amp acts on `UE_WHEEL`
+  whatever X is. A list, a scroll bar or a canvas under a `UF_NOWHEEL` slider doesn't get the wheel (none in
+  OO-Amp's layout).
+- **A scroll bar without arrows** (`UF_NOARROWS`, `$80`, a scroll bar's). Without the flag, as before. With it:
+  - the track is the whole bar (its length, not its length less 2), drawn without arrows, and the thumb's
+    travel is the whole length: in cells, `(length - thumb) x value / last`; with a sprite thumb, units from the
+    bar's first cell, room = length x 8 (4) less the thumb;
+  - a press on an end cell is the track's, as anywhere on it: a page towards that end if the thumb isn't there,
+    the thumb held if it is. There are no arrows, so no single steps from the pointer; the accelerator table's
+    `UA_UP` and `UA_DOWN` and the wheel still step it;
+  - the margin (`UF_MARGIN`) is as before, across only.
+  The flag can be set or cleared with `ui_flags` (the record is damaged, so the bar is drawn again and its sprite
+  thumb placed again).
+- **What OO-Amp sets:** `UF_NOWHEEL` in the flags of every slider whose wheel should be the volume (the EQ's
+  bands, `vol`, `bal`, `seek`: OO-Amp's own `UE_WHEEL` handling then moves the volume by its own step, also over
+  `vol`), and `UF_NOARROWS` in `plscroll`'s, its length the whole 11 rows of its 88 pixels. No other byte: both
+  flags are bit 7 of `UW_FLAGS`, free on sliders and scroll bars (bits 4-6 are `UF_SPRITE`, `UF_OWNTHUMB`,
+  `UF_MARGIN`); `UI_*SLIDER` and `UI_*SCROLL` take them in their flags.
+- **The cost:** no `UISTATE` byte, nothing in block A. Block B: the wheel's flag test 6 bytes; the bar 63 bytes
+  and two bytes of block B's own memory (`BBSS`: the cells before the track, 1 or 0, and their units), read by
+  `MEASURE`, `DRAW`, `ALONG`, `DOWN` and the sprite thumb's placing. A few cycles a call.
+- **Tests:** `u3b_r5_a_slider_that_refuses_the_wheel` (both sliders of UITBAR's U2 block: the wheel up and down is
+  `UE_WHEEL` with the slider and the steps, the value kept; a key and a press still move it; the flag cleared, the
+  wheel steps it); `u3b_r5_a_scroll_bar_without_arrows` (UITWID's cell bar: the arrows' cells drawn as the thumb
+  and the track, nothing past the end, the end rows page, the thumb dragged from the first row to the last gives
+  the last value; UITBAR's block 6: the sprite thumbs at the bar's first cell and at the end of the whole length,
+  the ends page, a drag, the horizontal thumb held on the bar's first cell; the flag cleared, the arrows back). By
+  hand, 2026-11-12: each of eleven pieces of the code taken out or put back as it was (the wheel's test, the flag
+  read, the length, `ALONG`'s vertical and horizontal offset, the thumb's cells, its row and column, `DRAW`'s cell
+  and its end, `DOWN`'s) fails one of them.
+
+**Sizes after round 5** (mkbank.py): `UICOM` 3,351, unchanged; block A 12,128 (160 free: the cache 11), B 10,670
+(1,618 free: 69), C 7,281 (5,007 free, unchanged); `UISTATE` 1,464 of 1,536, unchanged.
+
+#### U3b: speed step S1 ####
+
+**Proposed, built 2026-11-12**, the owner's choice from the speed design (at cb1f81f): three of its changes, (i),
+(v) and (viii), and one rule. No call, record or event changes meaning but for the rule; no golden frame changed;
+`UISTATE` unchanged (1,464 of 1,536): the new state is three free bits of `uany` and one of each thumb's
+`UW_STATE`.
+
+- **(i) A thumb placed only when it can have moved.** `POST` placed every sprite thumb whose cells the paint's
+  damage touched, and a paint's damage is the box round everything it drew: on OO-Amp's screen a track's start
+  (some 27 labels) placed all 15 thumbs, each a walk of the records (`SHOWS`). Now `POST` places a thumb if
+  - its record was drawn dirty, or its value changed, since the last `POST`: the record's `UW_STATE` bit 7
+    (`US_THUMB`, `ui.inc`'s; free on every type, `US_*` being bits 0-5), set by the widget's drawing when the
+    record is dirty (`SPRDRAWN`, block B) and by a value's change (`VDIRTY`, below), cleared by `POST`; or
+  - it has no last place (just opened, or a new sprite: as before); or
+  - a geometry event has come since the last `POST` (`uany`'s `UQ_GPOST`) and the thumb's cells are in the
+    damage (U3a's Z3 filter, as before).
+  Otherwise it is left as it was: drawing a record never changes what is in front of a thumb or where it is.
+  **The geometry events** (`UQ_GEOM`: `UQ_GPOST` and `UQ_GHIT`, below, set together), every path that can change
+  what covers what, or where a record is:
+
+  | Path | Where it is set |
+  | --- | --- |
+  | `ui_show`, `ui_hide`, `ui_flags`, a dialog's widget shown or hidden, the box's and the picker's coming and going | `REFOCUS` (each ends there) |
+  | the dialogs' records made (`ui_msgbox`, `ui_pick`) | `DLGREC` (with `REFOCUS` after: kept for safety) |
+  | a menu down (by the keys or the mouse; its drop-down's size from its items' texts, so `ui_settext` on one too) | `MPASS`, at each paint while a menu is down |
+  | a menu up | `MCLOSE` |
+  | `ui_open`, `ui_redraw`, `ui_resume`, `ui_theme` (the thumb image's colours are the theme's) | `BOXFULL` (and `ui_open`'s own setting of `uany`, `STALE`: kept for safety) |
+  | `ui_dirty` on a window (its flags the program's own writing), `ui_redraw`, `ui_resume` | `STALE` |
+
+  Not geometry: a record drawn (`DIRTY`, the damage it adds), the focus, `US_HOT`, a press or a drag, a list's
+  rows, a value. `POST` clears `UQ_GPOST` (and `UQ_THUMB`) when it has looked at every thumb.
+- **(v) The hit test kept while nothing moved.** A press, a release and the wheel each walked the records
+  (`HIT`, `FRONT`) for the widget under the pointer, which `POINTED` had already found (`uhot`) if the pointer
+  hadn't moved since. `HITQ` (block A) answers `uhot` while the pointer is where `POINTED` last saw it (`lmx`,
+  `lmy` against the event area's `EV_MX`, `EV_MY`) and `uany`'s `UQ_GHIT` is clear; else `HIT`. `UQ_GHIT` is set
+  by every geometry event above, and by a pointer move (`POINTED`) until its `HIT` has run, so a drag's moves,
+  which look for nothing (B4's `141,465, nothing drawnGED`), leave it set; `POINTED` now finds the modal window again
+  (`FINDMODAL`, which costs nothing while it is kept) before its `HIT`, as the press's did. **Choice:** the
+  release (`MUP`) uses `HITQ` too, not only the press and the wheel.
+- **(viii) A sprite thumb's value draws no cells.** A slider's or a scroll bar's cells with `UF_SPRITE` don't show
+  its value (the thumb is the sprite), so a value's change there (the widget's keys, press, drag and wheel, and
+  `ui_setvalue`) marks the thumb (`US_THUMB`) and a paint to do (`UQ_PAINT`, and `UQ_THUMB` so that `POST` runs
+  though nothing was drawn) instead of dirtying the record: no cell drawn, no damage, so nothing round it drawn
+  either. `VDIRTY` (block B) does it; `ui_setvalue` reaches it by a crossing (`XB_VDIRTY`) only for a record with
+  bit 4 of its flags set (`UF_SPRITE` on these types; the other types' own bit 4 costs them the crossing, and
+  `VDIRTY` dirties them as before). A cell thumb's slider or scroll bar, and `ui_setrange`, `ui_settext`,
+  `ui_flags` and the focus on a sprite one, still dirty the record as before.
+- **The rule (owner-approved):** a program that moves or resizes a record by writing its fields (or changes its
+  type or parent) calls `ui_redraw` after; `ui_dirty` is not enough, since it says nothing about what covers what
+  ([widget records](#widget-records), [the calls](#the-calls)'s `ui_dirty`).
+- **Accepted** (the owner, with S1): round 5's choice that a `UF_NO138,121` slider's `UE_138,121` has X the slider.
+
+**What it costs** (`s1_a_poll_s_cost_among_ninety_records`, block 8 of UITBAR, 90 records on one layer as
+OO-Amp's; every `ui_poll` until `UE_NONE`; a frame is 119,318 cycles):
+
+| What | Before (cb1f81f) | S1 | The limit the case holds |
+| --- | --- | --- | --- |
+| A track's start (the seek bar's and the playlist slider's values, the title, 26 track labels) | 1,679,598, 15 thumbs placed | 378,777, two placed | 450,000, two thumbs placed |
+| A drag's step (a band held, moved a row) | 241,390, 74 records drawn | 141,465, nothing drawn | 170,000, nothing drawn, one thumb placed, no `FRONT` |
+| The wheel over the band, the pointer still | 311,900 | 138,121 | 170,000, no `FRONT`, nothing drawn |
+| A button pressed, the pointer still | 608,801, 4 thumbs placed | 261,697, one thumb placed | 330,000, no `FRONT`, at most one thumb (the band's, which the focus left) |
+| ... and released (its click) | 161,069 | 104,694 | 130,000, no `FRONT` |
+| 30 widgets at once (15 sliders' values, 15 labels) | 1,829,831 | 1,554,535 | 1,650,000, the 15 thumbs placed |
+
+What is left is mostly `SHOWS`, a walk of the records in `FRONT`'s order for each thumb placed (the drag's step,
+the 30 widgets' 15 thumbs), and `RECT` for each record after a dirty one in `PASS`: S2's and S3's. In
+`u3b_r5_a_poll_s_cost_among_ninety_records` (its limits unchanged) the press with the pointer moved there first
+falls from 664,636 to 317,902.
+
+**Tests:** `s1_a_poll_s_cost_among_ninety_records` (above); `s1_a_thumb_follows_every_geometry_event` (UITBAR's
+U3b scene: the 8 x 32 thumb covered and uncovered by a window shown and hidden, a drop-down by the keys and by the
+mouse, a window the program un-hid itself with `ui_dirty`, a window the program moved over it and back with
+`ui_redraw`, the message box; kept hidden meanwhile while a label and its window are drawn and its own value
+changes; `ui_flags` taking the window's frame away moves every thumb a cell though no thumb's record is dirty;
+`ui_suspend` and `ui_resume`; `ui_theme` rewrites OOUI's own thumb image in the new colours);
+`s1_a_thumb_s_own_changes_place_it` (`ui_setrange` moves a thumb; a value's change writes no cell of the track;
+`ui_dirty` draws it again); `s1_a_hit_is_found_again_after_each_geometry_event` (a window shown under the still
+pointer takes the press and the release, and the wheel; one the program un-hid with `ui_dirty` too; a drag let go
+over a button, then a press there without a move, is the button's; a modal window the program made itself keeps a
+press, the pointer moved onto a button outside it first). `polls_cost` also counts `ONE` (a record drawn) and
+`PLACE1` (a thumb placed). By hand, 2026-11-12, each piece taken out: (i)'s skip of a thumb without a geometry event, the track's start's thumbs and cycles and the press's thumbs;
+`POST`'s clearing of `UQ_GPOST`, the same; `SPRDRAWN`'s mark, `ui_settext`'s new size byte
+(`u3b_ui_settext_on_a_thumb_is_checked`) and `ui_setrange`'s move; `PAINT`'s `UQ_THUMB`, seven cases (no value's
+change placed); `MPASS`'s and `MCLOSE`'s bits, the drop-downs (and `u3b_a_tall_thumb_covered_at_one_end_is_hidden`);
+`REFOCUS`'s, seven cases; `STALE`'s, `ui_dirty` on the window; `BOXFULL`'s, `ui_theme`'s image; (viii)'s `VDIRTY`
+dirtying instead, the drag's and the wheel's drawing and cycles, the 30 widgets' cycles and the track's cell;
+`ui_setvalue`'s crossing skipped, the track's start's case and the cell; (v)'s `HITQ` made `HIT`, the `FRONT`
+counts and cycles; the drag's `UQ_GHIT`, the press after a drag; `POINTED`'s `FINDMODAL`, the program's own modal window; the
+pointer's comparison, the press where the pointer moved after `POINTED` looked. `DLGREC`'s and `ui_open`'s bits fail
+nothing taken out alone (`REFOCUS` and `BOXFULL` follow each): kept for safety, as B1's were.
+
+**Sizes** (mkbank.py): `UICOM` 3,351, unchanged; block A 12,233 (55 free; 105 bytes: `HITQ` 36, `ui_setvalue`'s
+test and crossing 33, `POINTED`'s bits and `FINDMODAL` 15, `MPASS` 8, `MCLOSE` 8, `PAINT`'s `UQ_THUMB` 5), B
+10,740 (1,548 free; 70: `SPRDRAWN`, `VDIRTY`, `POST`'s tests, `BTAB`'s entry), C 7,281 (5,007 free, unchanged);
+`UISTATE` 1,464 of 1,536, unchanged.
+
+#### U3b: an own thumb's length ####
+
+**Proposed, built 2026-11-12** (the owner, after OO-Amp's port at cc500d2). A scroll bar's sprite thumb was as long
+as its sprite along the track; OO-Amp's playlist bar (`plscroll`: 11 rows, 88 pixels, `UF_SPRITE`,
+`UF_OWNTHUMB`, `UF_NOARROWS`) draws a 20-pixel thumb in the top of an 8 x 32 sprite, so it travelled 88 - 32 = 56
+pixels, not 68. Opt-in and additive:
+
+- **The byte.** A scroll bar has no free byte, and no free flag (bits 4-7 are `UF_SPRITE`, `UF_OWNTHUMB`,
+  `UF_MARGIN`, `UF_NOARROWS`). With `UF_MARGIN` its margin byte is `UW_B`'s high byte, whose high four bits (the
+  cells beyond each end along the track) do nothing on a scroll bar ([the margin](#u3b-the-gaps-oo-amps-port-found)).
+  On a bar with `UF_OWNTHUMB`, `UF_NOARROWS` and `UF_MARGIN` together, those four bits, not 0, are the thumb's
+  length in 4 units (a unit is a pixel: 4 to 60), used instead of the sprite's for its room (the track's units
+  less the thumb's), its place, the cells `SHOWS` and `POST` look at, and a press on it (held inside its length,
+  a page past it). 0 is the sprite's length, as before; the sprite is placed with its start at the thumb's
+  start, so at the last value its last 12 pixels lie past the bar's end, where OO-Amp's art has room.
+- **Choice:** only with all three flags. On a bar with arrows the bits keep doing nothing, as
+  `u3b_a_scroll_bar_s_margin_takes_a_press` holds them (its `$11`); OOUI's own 8 x 8 thumb is its whole sprite.
+  The alternative, any scroll bar with `UF_MARGIN`, would change that case's input. A slider needs nothing: its
+  thumb is centred on its value whatever its size.
+- **What OO-Amp sets:** `plscroll`'s `UW_B` = `$51` << 8 \| the page (high four bits 5: 20 pixels; low four 1:
+  the margin's column each side, as before), its flags `UF_SPRITE | UF_OWNTHUMB | UF_MARGIN | UF_NOARROWS`
+  (`UI_VSCROLL`'s margin argument `$51`).
+- **The cost:** 24 bytes of block B (`MEASURE`), nothing in A, C or `UISTATE`; a few cycles a measure.
+- **Test:** `u3b_an_own_thumb_s_length_apart_from_its_sprite` (UITBAR's `Z_VSC` made `plscroll`'s shape: 11 rows,
+  `$51`): the thumb at 0, 34 and 68 pixels for 0, 50 and the last value, shown at the end; held 5 units in and
+  moved 34, the value 50; a press 25 units in, past the 20, a page; the bits 0, the travel 56 again. Fails five
+  ways with the length not taken (by hand, 2026-11-12). No golden frame changed.
+- **Sizes after it** (mkbank.py): `UICOM` 3,351; block A 12,233 (55 free); B 10,764 (1,524 free); C 7,281 (5,007
+  free); `UISTATE` 1,464 of 1,536.
+
+#### U3b: speed step S2, the position cache ####
+
+**Proposed, built 2026-11-12**, the owner's choice after the profile of OO-Amp's slowest response (its EQ ON click,
+2.78 frames at cc500d2: of the paint's 180,189 cycles in `PASS`, 83,730 were 69 records placed by `RECT` and not
+drawn, about 1,210 each). No call, record or event changes meaning; no golden frame changed; `UISTATE` 1,462 of
+1,536 (2 bytes fewer: `FRONT`'s two left it).
+
+- **The cache.** Block C's own memory (`CBSS`, uicache.s) holds an entry for each record, the table's and the
+  dialogs' (254 at most, 5 bytes each, 1,270 bytes): where it shows, its cells inside its parents' client areas
+  (`c0`, `r0`, `c1`, `r1` from `RECT`'s place and `rclip`), and three flags: hidden (or a record no walk looks
+  at, unused or a menu's), on the overlay (`rover`), casting a shadow (a framed window, the theme's `TF_SHADOW`).
+- **The walks read it, in block C.** `PASS`'s walk, `FRONT` (from `UICOM`), `HIT`, `MARGIN` (block A's) and
+  `SHOWS` (block B's) are uicache.s's. `PASS` places a clean record (`RECT`) only if its entry meets the box: `CMEETS`
+  tests the cached cells, clipped to the parents' client areas, with the shadow added, which is narrower than
+  `ONE`'s `OVERLAP` (the record's whole place, `EXTRECT`'s `er`, unclipped): a record it passes over meets the
+  box only where its parents clip it, where `ONE` would draw nothing; `ONE` still decides for the records it
+  passes; `FRONT` and `SHOWS`
+  read the entries only; `MARGIN` places each flagged slider or scroll bar by `RECT`, which refuses a hidden one. A, the core,
+  keeps `PASS`'s clearing of the box (`PASSA`) and crosses to C for the walk (`XC_PASS`, once a layer), C to A's
+  `ONE` for each record it draws (`XA_ONE`); a press or a pointer's move crosses for `HIT` (`XC_HIT`), a press for
+  `MARGIN` (`XC_MARGIN`), and each sprite thumb placed for `SHOWS` (`XC_SHOWS`: its last cell in A and X, its
+  record in Y). `POST`'s own walk stays in B (a `REC` and a type a record). **Choice:** `SHOWS` alone moved, not
+  `POST` with it: the same one crossing a placed thumb, less code moved.
+- **Stale and found again.** `uany`'s free bit, `UQ_CSTALE` ($20), says the cache is stale; it is set with the
+  geometry events (S1's table) but a menu's (`MPASS`, `MCLOSE`: the menus aren't in it): `BOXFULL` (`ui_open`,
+  `ui_redraw`, `ui_resume`, `ui_theme`), `ui_open`'s own setting of `uany`, `DLGREC`, and `STALE` (`ui_dirty` on a
+  window). The next walk finds it again whole: `PASS` as it places every record (its first, "filling", mode)
+  and writes every unused record's and menu's entry hidden, or `FRONT`, `MARGIN` and `SHOWS` by `CFILL` (every
+  record placed, about 880 cycles each; the unused and the menus' hidden); either writes every entry the walks
+  read (the table's and the dialogs' records, `utot`). `ui_open` first makes every entry hidden (`CCLR`, all
+  254, through `XC_CCLR`), so none is the last table's or the bank's memory as `ui_load` left it (the review's
+  round 8, P1: `PASS`'s filling had left the unused records' and the menus' entries as they were). `ui_show`, `ui_hide` and
+  `ui_flags` (the dialogs' too, through `HIDEH`) call `CSET` (`XC_CSET`) instead: a record no record is the
+  child of is placed alone and its entry written; one with children makes the cache stale.
+- **A dirty record compared.** `PASS` places every dirty record, as before, and compares it with its entry: a
+  difference (a record the program moved by its fields and only dirtied, against the S1 rule) makes the cache
+  stale and is a geometry event (`UQ_GEOM`), the rest of that walk placing every record as before S2.
+
+**What it costs** (`s2_a_poll_s_cost_with_the_position_cache`, block 8 of UITBAR, 90 records on one layer as
+OO-Amp's; every `ui_poll` until `UE_NONE`; a frame is 119,318 cycles; before, the same case with 20caf52's
+OOUI.BNK):
+
+| What | Before (20caf52) | S2 | The limit the case holds |
+| --- | --- | --- | --- |
+| One label dirty, the table's first | 142,225, 88 records looked at by `ONE` | 52,558, one | 80,000, one `ONE` |
+| A track's start (2 values, 27 labels) | 378,239 | 191,026 | 260,000, two thumbs placed |
+| A button pressed, the pointer moved there (a `FRONT`) | 387,426 | 201,563 | 260,000 |
+| ... and released (its click) | 104,317 | 50,008 | 80,000 |
+| A drag's step (a band held, moved a row) | 141,830 | 69,882 | 100,000, one thumb placed |
+| 30 widgets at once (15 thumbs placed) | 1,555,648 | 399,574 | 600,000, the 15 placed |
+| `ui_redraw` (every record drawn, the cache found again) | 2,558,586 | 1,494,106 | measured |
+| The last label shown again (`CSET`, not the whole cache) | 45,655 | 48,295 | 60,000 (158,612 with the cache found again whole) |
+
+A crossing costs 322 cycles (`what_a_call_and_a_crossing_cost`). In the other cost cases (their limits unchanged)
+B1-B4's `u3b_r5_a_poll_s_cost_among_ninety_records` and S1's `s1_a_poll_s_cost_among_ninety_records` all fall:
+the 30 widgets 1,554,976 to 399,314, a press 318,259 to 125,764, a track's start 378,976 to 190,921.
+
+**Tests.** `s2_the_position_cache_holds_every_record_s_place` (UITBAR's U3b scene): after each step of a
+session, the pointer moved and a poll (a `HIT`, so a stale cache is found again: it must not be stale after), every
+table record's entry is checked against `ui_rect` (its place, `rclip` and `rover` after it): a window shown and
+hidden, a label hidden and shown (`CSET`), a window's frame gone and back, a label disabled, the menu bar and a
+drop-down, the message box and its going, a hidden window and a label moved by their fields with `ui_redraw`,
+`ui_suspend` and `ui_resume`, `ui_theme` 1 and 0, and a label and a window moved by their fields with only
+`ui_dirty`. `s2_a_poll_s_cost_with_the_position_cache` (above). `polls_cost` counts `PASS` in block C. **Changed
+expectation** (the owner's S2 design, its crossings): `the_picker_s_crossings_a_listing_poll_and_a_selection_move`,
+a listing poll 3 crossings to 6 and a selection move 6 to 11 (each paint's two walks, each record drawn; 10 with
+B5, below): **accepted** by the owner (2026-11-13). `s2_a_new_table_s_menus_and_unused_records_take_no_hit`
+(round 8, P1): a click where the last table's radio button was, after `ui_close` and `ui_open` of a table whose
+record there is a menu's item, is nothing; and the second window, over the Cancel button at its first column,
+made unused by the program (its type 0) with `ui_redraw`, the pointer still: the paint fills the cache before the
+press's hit test, and the press is Cancel's. It fails at 3cb4a1c (the second part: the window's stale entry takes
+the press) and with `PASS`'s hidden entries taken out. `ui_open`'s `CCLR` can't be made to fail it alone: the first
+`ui_poll` after `ui_open` hit-tests (`POLLINIT` sets the pointer's last place to $FFFF, so it has moved), and
+that `CFILL` writes every entry before any is read, so the first part passes at 3cb4a1c too. The exception, and
+`CCLR`'s reason: a program that calls `ui_suspend` right after `ui_open`, before any poll. `POINTED` is skipped
+while suspended, and `ui_resume` marks the cache stale without resetting the pointer's last place, so with the
+pointer still the next poll paints, and `PASS` refills, before any hit test; at 3cb4a1c that read the last
+table's entries for unused and menu records. `CCLR` means no entry ever holds another table's place.
+By hand, 2026-11-12, each piece taken out: the dirty record's comparison, the guard (the label moved and only
+dirtied); `CSET` made nothing, the guard (the frame gone under a theme without shadows: the window's own entry is
+the same, its children's places aren't) and the cost case's label shown again (158,612: the whole cache found
+again); `CMEETS`'s shadow, the guard (a label under a window's shadow dirtied: the frame changed); the entry's
+clipping to `rclip`, `x4_a_thumb_under_a_dialog_or_clipped_is_out_of_sight` and
+`x5_a_clipped_away_part_takes_no_pointer`; `PASS` never reading the cache, and `CFILL` finding it again at every
+walk, the cost case (3 and 4 limits). Kept for safety, failing nothing taken out alone (the comparison at the
+paint catches each, the records they change being dirty): `UQ_CSTALE` in `BOXFULL`, `ui_open`, `DLGREC` and
+`STALE`; and `FRONT`'s test of the hidden flag (a hidden entry has no cells).
+
+**OO-Amp** (9c64da3, which draws an event's patches again, 865a981; `test_accept`'s response case, 1 minute):
+the worst response done, of the keys and clicks that read no disk, 3.5 frames before S2 (20caf52's OOUI.BNK: 12
+over 2, the shuffle and repeat clicks 2.8-3.0, EQ panel 3.5) and 2.4 with it (G EQ 2.4, the EQ panel's second
+click 2.0; every other 1.9 or less). What is left in G EQ's 2.38 frames (283,862 cycles): 68,844 waiting for the
+blank, the key's poll 42,000, the paint 144,552 (80,082 of it drawing 10 records, 8 of them only because the one
+box joins the two buttons dirtied, 66,8 and 22,15: B5's), `vis_frame` 19,402; by code, OOUI 174,814 cycles,
+OO-Amp's own 90,567, OODOS's and the system's 18,481.
+
+**Sizes** (mkbank.py): `UICOM` 3,218 (133 fewer: `FRONT`); block A 11,833 (455 free; 55 before), B 10,433 (1,855
+free; 1,524), C 9,591 (2,697 free; 5,007, the cache 1,270 of it); `UISTATE` 1,462 of 1,536.
+
+#### U3b: B5, the damage in boxes ####
+
+**Proposed, built 2026-11-12**, the owner's choice after S2's profile of OO-Amp (its G EQ key and EQ ON click
+dirty two buttons, at 66,8 and 22,15: the one damage box joined them, and 8 records inside it but meeting
+neither were drawn again, some 76,000 cycles). No call, record or event changes meaning; no golden frame
+changed.
+
+- **The boxes.** Each layer's damage is up to `UI_BOXES` (4) boxes, not one: box *k* of layer *L* (0 the base,
+  4 the overlay) at `udmg` + 8 × *k* + *L*, so box 0 is where the one box was. `BOXADD` joins a rectangle with
+  every box it overlaps (and the union with any it then overlaps), else puts it in the layer's first empty box;
+  with none empty it joins the layer's last. Boxes that only touch (a row each, one under another) stay apart.
+  `BOXFULL` makes box 0 the screen and the others empty.
+- **The paint.** `PASSA` clears each box; block C's walk draws a clean record if it meets any box (`CMEETS`
+  looks at each box up to `udend`'s, the end of the layer's boxes this paint has used; box 0 empty means all
+  are, as `BOXADD` fills the first empty one); `ONE` draws it once for each box it overlaps, clipped to that box
+  (placed again by `RECT` before a second); a dirty record is drawn whole and its rectangle added, as before.
+  The overlay's own layer joins each of the base's boxes, as it joined the one. `POST`'s `pdmg` keeps each
+  layer's boxes' bounds, so its test (`TOUCHED`) looks at no less than before.
+- **Choice:** 4 boxes a layer (the owner allowed 2 to 4); a fifth rectangle joins the last box.
+- **`UISTATE`:** 1,492 of 1,536 (30 bytes more: `udmg` 24, `bxl` 1, `udend` 2, `ONE`'s `obx`, `obh` and `odn`
+  3), 44 free.
+
+**What it costs** (block 8 of UITBAR; S2 before, the same case with 36d447c's OOUI.BNK):
+
+| What | S2 | B5 |
+| --- | --- | --- |
+| Two far-apart labels dirty (A_TIME, top left; A_ST3, record 47, bottom right) | 166,816, 33 records drawn | 61,729, two |
+| One label dirty | 52,558 | 53,826 |
+| A track's start (2 values, 27 labels) | 191,026 | 210,684 |
+| A button pressed, the pointer moved there | 201,563 | 131,210 |
+| A drag's step | 69,882 | 70,647 |
+| 30 widgets at once | 399,574 | 411,709 |
+| 26 track labels dirty (more rows than boxes) | 138,269 | 157,709 |
+
+OO-Amp's `test_accept` response case passes with B5 (worst 1.8 frames at 9c64da3, 1.9 for the keys at 7665e91;
+[the outcome](#u3b-the-outcome)). A paint that draws one record or a few costs a little more (each record's test looks at each box used; a
+dirty record's `BOXADD` looks at every box); one whose dirty records are apart, much less. **Accepted** by the
+owner (2026-11-13), as are boxes joined only when they overlap, not when they only touch.
+
+**Tests.** `b5_two_far_apart_dirty_records_draw_nothing_between_them` (the two labels above: two `ONE`s, under
+90,000 cycles, OOUI's cells then as `ui_redraw` draws them; a label and the window under it, joined; the 26 track
+labels, more than 4 boxes). `b5_each_box_is_drawn_again_whole` (UITBAR's U3b scene: two far-apart records
+hidden at once, the window under both drawn in both holes; two far-apart records dirtied with a window over the
+second, the window drawn again in the second box; the cells as `ui_redraw`'s). The tests compare OOUI's base
+layer's cells, not the frame (the frame has a sprite that moves), from column 13 (the test program's replies
+are written to the console layer's first columns). **Changed expectation:**
+`the_picker_s_crossings_a_listing_poll_and_a_selection_move`'s selection move, 11 crossings to 10 (one record
+fewer drawn: B5's): **accepted** by the owner (2026-11-13).
+By hand, 2026-11-12, each piece taken out: `BOXADD` joining every box (one box again), the two far-apart labels'
+case (33 records drawn); `CMEETS` looking at the first box only, `udend` not raised, and `ONE` drawing for the
+first box it overlaps only, `b5_each_box_is_drawn_again_whole`; `pdmg` the first box's only, four of the thumbs'
+cases (`x4_a_menu_down_over_a_thumb_hides_it`, `c1_a_thumb_shows_again_when_what_covered_only_it_goes`,
+`u3b_a_tall_thumb_covered_at_one_end_is_hidden`, `s1_a_thumb_follows_every_geometry_event`). Failing nothing taken
+out alone: `PASSA` clearing a box past the first (no scene has a hole no record draws over; the overlay's layer is
+clear whole once its last window goes) and the overlay's layer joining a base box past the first; kept, as the
+one box's were.
+
+**After the review's round 8** (P1: `CCLR`, `PASS`'s hidden entries; `ui_open`'s own clearing of the boxes and
+`udend` moved into `CCLR`, `ALLDIRTY`'s `BOXFULL`s emptying every box; `MARGIN`'s cache test, which `RECT` makes
+needless, and `CEMPTY` folded into `PASS`, so OOUI.BNK stays 40,960 bytes, the 20 blocks of 2 KB that
+`u2_the_picker_on_the_card_s_drives` leaves it on its M:): `UICOM` 3,218; block A 12,159 (129 free), B 10,433
+(1,855 free), C 9,607 (2,681 free); `UISTATE` 1,492 of 1,536.
+
+**Sizes before round 8** (mkbank.py): `UICOM` 3,218; block A 12,160 (128 free: `BOXADD` 289 bytes more, `ONE`'s and `PAINT`'s
+loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
+
+#### U3b: the outcome ####
+
+**Decided (the owner, 2026-11-12).** U3b's gate, OO-Amp clearly smaller, is not met. The port's measurements
+(OO-Amp's feat/ooui-u3b against its main):
+
+| What | OO-Amp's own UI | On OOUI |
+| --- | --- | --- |
+| OO-Amp's own code and data | 30,871 bytes | 29,958 (3% less) |
+| Its files on the card | 85,840 bytes | 141,564 (OOUI.BNK 40,320 of them) |
+| Start-up to the main loop | 56.0 frames (0.93 s) | 90.0 (1.50 s): `ui_load` from A: 21.6 frames for 40,320 bytes, the first paint 15.2 frames against 2.3 |
+| Help opened | 10.7 frames | 21.1 |
+
+And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its look.
+
+- **The decision.** OO-Amp stays on its own UI. The port is kept, on OO-Amp's local branch feat/ooui-u3b
+  (7665e91), to revisit when OOUI loads by DMA ([OOLIB's question 13](oolib.md)) and paints faster (S3: no
+  repaint of widgets that are covered). Only this repository's OOUI work merges: the gaps the port found, the
+  margins and the thumbs, the speed steps (S1, S2, B5).
+- **The bitmap backend: not now.** A 4-bit cell is 32 times a text cell's writes, and the backend would take
+  some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
+- **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; the modal picker swallows
+  the keys it doesn't use; `ui_theme`, and hiding a full-screen overlay window, draw again the widgets it covers.
+- **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
+  case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
+
+  | OOUI.BNK | Keys (7665e91) | Clicks (9c64da3) | The worst |
+  | --- | --- | --- | --- |
+  | 20caf52 (before S2) | G EQ 2.6, G 2.7, S 2.4 | EQ panel 3.5, shuffle 3.0, repeat 2.8 | 3.5 (12 over 2) |
+  | S2 (36d447c) | G EQ 2.6, G 2.7 (the one box), S 1.6 | EQ panel 2.0, the rest 1.8 or less | 2.7 |
+  | B5 (a332d19) | G EQ 1.9, Tab 1.9, G 1.7 | playlist 1.8, EQ ON 1.0 | 1.9 at 7665e91, 1.8 at 9c64da3: **passes** |
+
+  At 7665e91 the case can't reach its clicks with any OOUI.BNK (20caf52's too): from Load Files on every action
+  is "never" (99 frames), so they are 9c64da3's, which has the same clicks. What is left in B5's G EQ (1.86
+  frames, 221,653 cycles): 68,952 waiting for the blank, OOUI 96,711 (the paint 57,624, two buttons drawn), OO-Amp's
+  own 111,711, the system's 13,231; before S2 the paint alone was 202,000.
 
 #### U3a: questions ####
 

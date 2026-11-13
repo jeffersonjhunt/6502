@@ -14,10 +14,10 @@
 
         .import DLGON, DLGREC, DLGH
 
-PW              = 9                    ; the dialog records' places: the window,
-PT              = 10                   ;   the text,
-PB0             = 11                   ;   the first button,
-PB1             = 12                   ;   the second
+PW              = 10                   ; the dialog records' places (after the picker's 10): the window,
+PT              = 11                   ;   the text,
+PB0             = 12                   ;   the first button,
+PB1             = 13                   ;   the second
 
         .bss
 blk:    .res    UM_LEN

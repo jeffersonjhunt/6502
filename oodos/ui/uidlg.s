@@ -2,12 +2,12 @@
 ; and the file picker's widgets are records of OOUI's own, after the
 ; program's table (internal handles ucount on, ui.inc's DLG_RECS of them),
 ; given to the program by their public handles (UI_MSG, UI_PICKER, and
-; $F2-$FC for their widgets: uicore.s's PUB2INT and INT2PUB). Linked with
-; the first dialog a program uses.
+; $F2-$FD for their widgets, U3b's "Add all" the last: uicore.s's PUB2INT
+; and INT2PUB). In block C of OOUI.BNK, with the dialogs (U3a).
 ;
 ;   DLGON   the records in use (udlgp, utot), all unused at the first call
 ;           after ui_open
-;   DLGREC  A a record's place k (0-12): UIR it, A its internal handle,
+;   DLGREC  A a record's place k (0-13, 14 places): UIR it, A its internal handle,
 ;           filled from the 16 bytes at UIQ (its parent a place too, $FF
 ;           none)
 
@@ -64,5 +64,7 @@ DLGREC: sta     k
         lda     (UIR),y
         ora     #UF_DIRTY
         sta     (UIR),y
+        lda     #UQ_PAINT | UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B1, B3) a paint to do; the modal window
+        tsb     uany                    ;   and the overlay found again; (S1) a geometry event
         lda     k
         jmp     DLGH

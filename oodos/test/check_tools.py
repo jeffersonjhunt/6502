@@ -756,6 +756,25 @@ def mkbank_checks(tmp):
             "OOUI_CFG=test/ui/uimis.cfg", out)
     ok(r.returncode != 0 and not os.path.exists(out) and "must start on a page" in r.stdout + r.stderr,
        "a program with UISTATE off a page doesn't link")
+    # (The U3b review's round 4, K1) a scroll bar given a margin wants UF_MARGIN in its flags: ooui.inc's macros
+    # refuse it without; with it, and without a margin, they take it.
+    for what, line, good in (
+            ("a vertical scroll bar's margin without UF_MARGIN", "UI_VSCROLL S1, S0, 0, 0, 10, 50, 10, 0, , , $01", False),
+            ("a horizontal scroll bar's margin without UF_MARGIN", "UI_HSCROLL S1, S0, 0, 0, 10, 50, 10, UF_SPRITE, 1, , $01",
+             False),
+            ("a vertical scroll bar's margin with UF_MARGIN", "UI_VSCROLL S1, S0, 0, 0, 10, 50, 10, UF_MARGIN, , , $01", True),
+            ("a horizontal scroll bar's margin with UF_MARGIN",
+             "UI_HSCROLL S1, S0, 0, 0, 10, 50, 10, UF_SPRITE | UF_MARGIN, 1, , $01", True),
+            ("a scroll bar with no margin", "UI_VSCROLL S1, S0, 0, 0, 10, 50, 300, 0", True)):
+        src = os.path.join(tmp, "uimarg.s")
+        with open(src, "w") as f:
+            f.write('        .include "oodos.inc"\n        .include "ooui.inc"\n        UI_BEGIN t\n'
+                    "        UI_DESKTOP S0\n        %s\n        UI_END t\n" % line)
+        a = run("ca65", "-I", os.path.join(ROOT, "include"), src, "-o", src[:-2] + ".o")
+        if good:
+            ok(a.returncode == 0, "ooui.inc takes %s: %s" % (what, a.stderr.strip()[:120]))
+        else:
+            ok(a.returncode != 0 and "UF_MARGIN in its flags" in a.stderr, "ooui.inc refuses %s: %s" % (what, a.stderr.strip()[:120]))
 
 
 def main():

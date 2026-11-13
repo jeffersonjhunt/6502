@@ -2,13 +2,17 @@
 ; UW_VALUE from 0 to UW_A (the top: a vertical slider's top end, a
 ; horizontal one's right), UW_B's low byte a key's step (0 is 1), its high
 ; byte the thumb's sprite with UF_SPRITE. The track in TC_SCROLL, the thumb
-; a cell in TC_THUMB, or with UF_SPRITE an 8 x 8 sprite placed to the
-; pointer unit (OOUI's thumb image, in the overlay's group), which is put
-; out of sight when the slider is hidden. It takes the focus: Up and Right
+; a cell in TC_THUMB, or with UF_SPRITE a sprite placed to the pointer unit
+; and centred by its size: OOUI's 8 x 8 thumb image in the overlay's group,
+; or (U3b) with UF_OWNTHUMB the program's own image, its size and group
+; UW_TEXT's low byte, which OOUI never writes. It is put out of sight when
+; the slider is hidden. It takes the focus: Up and Right
 ; step it up, Down and Left down, PgUp and PgDn an eighth, Home the top,
 ; End 0; the wheel steps it; a click or a drag puts it where the pointer
 ; is (UE_CHANGE with UV_LIVE as it moves, then without at the release).
-; OO-Amp: seek, volume, balance, the EQ's 11 bands.
+; OO-Amp: seek, volume, balance, the EQ's 11 bands. (U3b) With UF_MARGIN,
+; UW_TEXT's high byte is the margin round it that takes presses too
+; (uipoll.s's MARGIN).
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -17,7 +21,9 @@
         .include "ui.inc"
 
         .import SCALE, sv, su, sa, sr
+        .import SCMEAS, SCPLACE
         .export UIW_VSLIDER, UIW_HSLIDER, PNONEW
+        .export TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1, VDIRTY, SPRDRAWN
 
         .segment "BRODATA"
 UIW_VSLIDER:
@@ -41,6 +47,16 @@ plast:  .res    2 * 16                 ; each of OOUI's sprites' thumb: its last
 pk:     .res    1                      ;   the one POST is at, x 2
 tr:     .res    1
 old:    .res    2                      ; WHEEL's: the value before
+
+        .segment "BBSS"                 ; block B's own, not UISTATE (U3b)
+tsize:  .res    1                      ; the thumb's size byte (TSIZE)
+hw:     .res    1                      ;   half its width, in sprite units
+hh:     .res    1                      ;   half its height
+tc1:    .res    1                      ; the thumb's last cell along the track (SHOWS's, U3b review, G2)
+tr1:    .res    1
+pend:   .res    2 * 16                 ; each of OOUI's sprites' thumb: its last cell's other end (Z3, G2)
+clo:    .res    1                      ; ENDS's: the thumb's first and last cells from the track's low end
+chi:    .res    1
 
         .segment "BCODE"
 
@@ -149,12 +165,47 @@ DRAW:   jsr     MEASURE
 @spr:   ldy     #UW_FLAGS               ; a sprite's thumb: placed after the paint (POST),
         lda     (UIR),y                 ;   when what is in front of it is known (X4)
         and     #UF_SPRITE
-        beq     @r
+        bne     SPRDRAWN
+        rts
+
+; A sprite thumb's slider or scroll bar (UIR) drawn: its thumb placed after
+; the paint (POST); drawn dirty (S1, (i)), marked (US_THUMB), so placed
+; whatever the damage, since its value, its range, its size or its sprite
+; may have changed.
+SPRDRAWN:
         lda     #<POST
         sta     upost
         lda     #>POST
         sta     upost + 1
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DIRTY
+        beq     @r
+        ldy     #UW_STATE
+        lda     (UIR),y
+        ora     #US_THUMB
+        sta     (UIR),y
 @r:     rts
+
+; Record A's value changed (UIR on it; SETV's, the scroll bar's, and
+; ui_setvalue's by XB_VDIRTY): dirty; or (S1, (viii)) a slider's or a
+; scroll bar's with a sprite thumb, whose cells don't show the value, only
+; its thumb marked to be placed (US_THUMB, POST's), none of its cells
+; drawn. Keeps A; UIR on the record after.
+VDIRTY: pha
+        jsr     REC
+        jsr     SNUM
+        bcs     @d
+        ldy     #UW_STATE
+        lda     (UIR),y
+        ora     #US_THUMB
+        sta     (UIR),y
+        lda     #UQ_PAINT | UQ_THUMB
+        tsb     uany
+        pla
+        rts
+@d:     pla
+        jmp     DIRTY
 
 ; GOTO cell idx from the low end: the bottom up (vertical), the left on.
 CELLAT: lda     vert
@@ -176,29 +227,31 @@ CELLAT: lda     vert
         jmp     GOTO
 
 ; The thumb's sprite (UW_B's high byte) for slider idx (MEASURE'd, UI_RECT
-; its place): carry clear and placed on pos, OOUI's thumb image (8 x 8, the
-; card page after the pointer's), in front and shown, if its cell shows (in
-; its parents' client areas, in front of what else is there, under no menu
-; that is down: X4); carry set if it doesn't.
-SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, and pos along
+; its place): carry clear and placed on pos, its image OOUI's (8 x 8, the
+; card page after the pointer's) or with UF_OWNTHUMB the program's, in front
+; and shown, if its cells show (its first and last along the track, held to
+; the track: in its parents' client areas, in front of what else is there,
+; under no menu that is down: X4, and the U3b review's G2); carry set if
+; they don't.
+SPRITE: jsr     TSIZE                   ; its size: hw, hh half its width and height
+        lda     vert                    ; X and Y: the cell's, in sprite units, and pos along
         beq     @h
-        lda     UI_RECT                 ; x = column x 4 - 2
+        lda     UI_RECT                 ; x = column x 4 + 2 - hw (centred on its column)
         sta     tc
         jsr     X4
-        sec
-        sbc     #2
-        sta     GX_X
-        bcs     @x
-        dec     GX_X + 1
-@x:     lda     UI_RECT + 1             ; y = (row + len) x 8 - 1 - pos - 4
+        clc
+        adc     #2
+        jsr     LESSW
+@x:     lda     UI_RECT + 1             ; y = (row + len) x 8 - 1 - pos - hh
         clc
         adc     len
         jsr     X8
         sec
-        sbc     #5
+        sbc     #1
         sta     GX_Y
-        bcs     @y
+        bcs     @y0
         dec     GX_Y + 1
+@y0:    jsr     LESSH
 @y:     lda     GX_Y
         sec
         sbc     pos
@@ -206,17 +259,24 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         lda     GX_Y + 1
         sbc     pos + 1
         sta     GX_Y + 1
-        jsr     PCELL                   ; the cell: the bottom row less pos / 8
+        lda     tc                      ; its cells: the column; the bottom row less chi, to the
+        sta     tc1                     ;   bottom row less clo
+        jsr     ENDS
         lda     UI_RECT + 1
         clc
         adc     UI_RECT + 3
         sec
         sbc     #1
+        pha
         sec
-        sbc     t0
+        sbc     chi
         sta     tr
-        bra     @at
-@h:     lda     UI_RECT                 ; x = column x 4 + pos - 4
+        pla
+        sec
+        sbc     clo
+        sta     tr1
+        bra     SPRTAIL
+@h:     lda     UI_RECT                 ; x = column x 4 + pos - hw
         jsr     X4
         clc
         adc     pos
@@ -225,32 +285,57 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         adc     pos + 1
         sta     GX_X + 1
         lda     GX_X
-        sec
-        sbc     #4
-        sta     GX_X
-        bcs     @hx
-        dec     GX_X + 1
-@hx:    lda     UI_RECT + 1             ; y = row x 8
+        jsr     LESSW
+@hx:    lda     UI_RECT + 1             ; y = row x 8 + 4 - hh (centred on its row)
         sta     tr
         jsr     X8
+        clc
+        adc     #4
         sta     GX_Y
-        jsr     PCELL                   ; the cell: the column plus pos / 4
+        bcc     @hy
+        inc     GX_Y + 1
+@hy:    jsr     LESSH
+        lda     tr                      ; its cells: the row; the column plus clo, to the column
+        sta     tr1                     ;   plus chi
+        jsr     ENDS
         lda     UI_RECT
         clc
-        adc     t0
+        adc     clo
         sta     tc
-@at:    ldx     pk                      ; the thumb's cell, shown or not, for POST's next filter:
+        lda     UI_RECT
+        clc
+        adc     chi
+        sta     tc1
+; A thumb's common part (U3b: a scroll bar's too, from uiscroll.s's SCPLACE):
+; GX_X, GX_Y its place, tc, tr and tc1, tr1 its first and last cells (the
+; top left and the bottom right of its cells on the track), idx its record,
+; pk its POST place.
+SPRTAIL:
+        ldx     pk                      ; the thumb's cells, shown or not, for POST's next filter:
         lda     tc                      ;   when what covers only the thumb goes, its damage is
-        sta     plast,x                 ;   there (the U3a review's C1)
-        lda     tr
+        sta     plast,x                 ;   there (the U3a review's C1); all of them, not its
+        lda     tr                      ;   middle's only (the U3b review's G2)
         sta     plast + 1,x
-        jsr     SHOWS                   ; (UI_RECT and UIR changed)
+        lda     tc1
+        sta     pend,x
+        lda     tr1
+        sta     pend + 1,x
+        lda     tc1                     ; shown (block C's SHOWS, by the position cache: S2;
+        ldx     tr1                     ;   UI_RECT and UIR changed)
+        ldy     idx
+        XGO     FARC, XC_SHOWS
         bcs     @r
         lda     idx
         jsr     REC
-        jsr     THUMBIMG
-        ldy     #UW_B + 1
-        lda     (UIR),y
+        jsr     SNUM
+        sta     tmp
+        lda     tsize                   ; the program's own thumb (UF_OWNTHUMB, U3b): its
+        beq     @oo                     ;   image the program's, its size and group from UW_TEXT
+        ldx     #3 << 2
+        tay
+        bra     @attr
+@oo:    jsr     THUMBIMG                ; (tmp its)
+        jsr     SNUM
         sta     tmp
         lda     upage
         clc
@@ -265,65 +350,126 @@ SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, 
         lda     (UIT),y
         and     #$0F
         tay                             ; 8 x 8, the overlay's group
-        lda     tmp
         ldx     #3 << 2
+@attr:  lda     tmp
         jsr     GX_SPRATTR
         lda     tmp
         jsr     GX_SPRPOS
         clc
 @r:     rts
 
-; t0 = the thumb's cell along the track: pos / 8 (vertical) or / 4.
-PCELL:  lda     pos + 1
+; The thumb's size (U3b): tsize the program's size byte with UF_OWNTHUMB
+; (UW_TEXT's low byte: height << 6, width << 4, the palette group; never 0,
+; since a group of 0 with 8 x 8 is OOUI's own thumb's), else 0, OOUI's 8 x 8;
+; hw and hh half its width and height in sprite units: 4 << the size's code.
+TSIZE:  stz     tsize
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_OWNTHUMB
+        beq     @s
+        ldy     #UW_TEXT
+        lda     (UIR),y
+        sta     tsize
+@s:     lda     tsize
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        pha
+        and     #3
+        jsr     HALF
+        sta     hw
+        pla
+        lsr     a
+        lsr     a
+        jsr     HALF
+        sta     hh
+        rts
+HALF:   tax
+        lda     #4
+@m:     dex
+        bmi     @r
+        asl     a
+        bra     @m
+@r:     rts
+; GX_X = A (its high byte GX_X + 1's) less hw; GX_Y less hh.
+LESSW:  sec
+        sbc     hw
+        sta     GX_X
+        bcs     @r
+        dec     GX_X + 1
+@r:     rts
+LESSH:  lda     GX_Y
+        sec
+        sbc     hh
+        sta     GX_Y
+        bcs     @r
+        dec     GX_Y + 1
+@r:     rts
+
+; The thumb's first and last cells along the track, from its low end (U3b
+; review, G2): clo and chi, the cells its sprite's units cover, held to the
+; track's 0 to len - 1. Vertical, pos the unit its middle is on: units pos -
+; hh + 1 to pos + hh, 8 a cell; horizontal, pos - hw to pos + hw - 1, 4 a
+; cell. OOUI's 8 x 8 thumb covers one or two cells; the program's 8 x 32 on
+; a vertical track up to five.
+ENDS:   lda     hw
+        ldx     vert
+        beq     @h
+        lda     hh
+@h:     sta     t2                      ; half its length along
+        lda     pos                     ; t0/t1 = pos + vert, the units from it
+        clc
+        adc     vert
+        sta     t0
+        lda     pos + 1
+        adc     #0
         sta     t1
-        lda     pos
+        pha
+        lda     t0
+        pha
+        sec                             ; its first: pos + vert - half, at least 0
+        sbc     t2
+        sta     t0
+        lda     t1
+        sbc     #0
+        sta     t1
+        bpl     @lo
+        stz     t0
+        stz     t1
+@lo:    jsr     UCELL
+        sta     clo
+        pla                             ; its last: pos + vert + half - 1, at most len - 1
+        clc
+        adc     t2
+        sta     t0
+        pla
+        adc     #0
+        sta     t1
+        lda     t0
+        bne     @d
+        dec     t1
+@d:     dec     t0
+        jsr     UCELL
+        ldx     t1                      ; (past 255 cells: past the track)
+        bne     @end
+        cmp     len
+        bcc     @in
+@end:   lda     len
+        beq     @in
+        dec     a
+@in:    sta     chi
+        rts
+; A = t0/t1's cell: / 8 (vertical) or / 4; t1 what is left above it.
+UCELL:  lsr     t1
+        ror     t0
         lsr     t1
-        ror     a
-        lsr     t1
-        ror     a
+        ror     t0
         ldx     vert
         beq     @r
         lsr     t1
-        ror     a
-@r:     sta     t0
-        rts
-
-; Carry clear if cell tc, tr of slider idx shows: the record frontmost there
-; is the slider (FRONT: its parents' client areas, and what is in front),
-; and no menu that is down covers it.
-SHOWS:  lda     mcol                    ; (ui_poll's cell kept)
-        pha
-        lda     mrowp
-        pha
-        lda     tc
-        sta     mcol
-        lda     tr
-        sta     mrowp
-        jsr     FRONT
-        cmp     idx
-        bne     @no
-        lda     umenu
-        cmp     #UI_NONE
-        beq     @yes
-        jsr     RECT
-        bcs     @yes
-        lda     tc
-        sec
-        sbc     UI_RECT
-        cmp     UI_RECT + 2
-        bcs     @yes
-        lda     tr
-        sec
-        sbc     UI_RECT + 1
-        cmp     UI_RECT + 3
-        bcs     @yes
-@no:    sec
-        bra     @put
-@yes:   clc
-@put:   pla
-        sta     mrowp
-        pla
-        sta     mcol
+        ror     t0
+@r:     lda     t0
         rts
 
 ; GX_X (or GX_Y) = A x 4 (x 8), its high byte set: A low.
@@ -399,46 +545,58 @@ THUMB:  .byte   $00, $22, $22, $00
         .byte   $00, $22, $22, $00
         .segment "BCODE"
 
-; After a paint that drew (PAINT's upost): each UF_SPRITE slider's thumb
-; placed if it shows, else out of sight (depth 0). upmode 1: all out of
-; sight (ui_suspend); 2: their images off OOUI's card memory too
-; (ui_close, X3).
+; After a paint that drew (PAINT's upost): each UF_SPRITE slider's or (U3b)
+; scroll bar's thumb placed if it shows, else out of sight (depth 0).
+; upmode 1: all out of sight (ui_suspend); 2: OOUI's own images off its card
+; memory too (ui_close, X3), a UF_OWNTHUMB image left as the program set it
+; (U3b review, G1).
 POST:   lda     #$FF
         sta     idx
 @l:     inc     idx
         lda     idx
         cmp     utot
         bcc     @rec
+        lda     #UQ_GPOST | UQ_THUMB    ; (S1) the geometry seen, the marks placed
+        trb     uany
         jmp     GX_SPRSHOW
 @rec:   jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        cmp     #UT_VSLIDER
-        beq     @s
-        cmp     #UT_HSLIDER
-        bne     @l
-@s:     ldy     #UW_FLAGS
-        lda     (UIR),y
-        and     #UF_SPRITE
-        beq     @l
-        ldy     #UW_B + 1               ; its last cell (Z3)
-        lda     (UIR),y
-        sec
+        jsr     SNUM                    ; a sprite's thumb (U3b: a slider's or a scroll bar's)
+        bcs     @l
+        sec                             ; its last cell (Z3)
         sbc     usprite
         and     #$0F
         asl     a
         sta     pk
         lda     upmode
         bne     @off
-        ldx     pk                      ; outside the last paint's damage, its thumb as it was:
-        lda     plast,x                 ;   no RECT, no FRONT (U3a: Z3)
+        ldy     #UW_STATE               ; (S1, (i)) drawn dirty or its value changed since the
+        lda     (UIR),y                 ;   last POST (US_THUMB): placed, the mark cleared
+        bpl     @nm
+        and     #<~US_THUMB
+        sta     (UIR),y
+        bra     @go
+@nm:    ldx     pk                      ; no last place: placed
+        lda     plast,x
         cmp     #$FF
         beq     @go
-        sta     UI_RECT
+        lda     #UQ_GPOST               ; (S1, (i)) no geometry event since the last POST:
+        bit     uany                    ;   nothing in front of it, nor its place, has changed,
+        bne     @geo                    ;   as it was
+        jmp     @next
+@geo:   lda     plast,x                 ; outside the last paint's damage, its thumb as it was:
+        sta     UI_RECT                 ;   no RECT, no FRONT (U3a: Z3); its cells from the
+                                        ;   first to the last (the U3b review's G2)
+        lda     pend,x
+        sec
+        sbc     UI_RECT
+        inc     a
+        sta     UI_RECT + 2
         lda     plast + 1,x
         sta     UI_RECT + 1
-        lda     #1
-        sta     UI_RECT + 2
+        lda     pend + 1,x
+        sec
+        sbc     UI_RECT + 1
+        inc     a
         sta     UI_RECT + 3
         jsr     TOUCHED
         bcs     @next
@@ -449,19 +607,19 @@ POST:   lda     #$FF
         ldx     pk                      ; its place's first cell kept, till its thumb has one
         lda     UI_RECT
         sta     plast,x
+        sta     pend,x
         lda     UI_RECT + 1
         sta     plast + 1,x
+        sta     pend + 1,x
         plp
         bcs     @off
         lda     idx
         jsr     REC
-        jsr     MEASURE
-        jsr     SPRITE
+        jsr     PLACE1
         bcc     @next
 @off:   lda     idx
         jsr     REC
-        ldy     #UW_B + 1
-        lda     (UIR),y
+        jsr     SNUM
         sta     tmp
         ldx     #0
         ldy     #0
@@ -469,11 +627,53 @@ POST:   lda     #$FF
         lda     upmode
         cmp     #2
         bne     @next
+        ldy     #UW_FLAGS               ; the program's own image (UF_OWNTHUMB) left alone: it
+        lda     (UIR),y                 ;   is in the program's memory, not OOUI's (U3b review, G1)
+        and     #UF_OWNTHUMB
+        bne     @next
         stz     GX_V                    ; (page 0: OODOS's, never freed)
         stz     GX_V + 1
         lda     tmp
         jsr     GX_SPRIMG
 @next:  jmp     @l
+
+; Record UIR's thumb placed (POST's): a scroll bar's by uiscroll.s, a
+; slider's here. Carry as SPRITE's.
+PLACE1: ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_VSLIDER
+        bcs     @sl
+        jsr     SCMEAS
+        jmp     SCPLACE
+@sl:    jsr     MEASURE
+        jmp     SPRITE
+
+; A = record UIR's thumb's sprite, carry clear; carry set if it has none: a
+; slider with UF_SPRITE (UW_B's high byte), or (U3b) a scroll bar with
+; UF_SPRITE (UW_TEXT's high byte).
+SNUM:   ldy     #UW_TYPE
+        lda     (UIR),y
+        ldy     #UW_B + 1
+        cmp     #UT_VSLIDER
+        beq     @s
+        cmp     #UT_HSLIDER
+        beq     @s
+        ldy     #UW_TEXT + 1
+        cmp     #UT_VSCROLL
+        beq     @s
+        cmp     #UT_HSCROLL
+        bne     @no
+@s:     phy
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        ply
+        and     #UF_SPRITE
+        beq     @no
+        lda     (UIR),y
+        clc
+        rts
+@no:    sec
+        rts
 
 ; ui_open's (uib.s's BINIT): no thumb has a last cell.
 PNONEW: ldx     #2 * 16 - 1
@@ -625,7 +825,7 @@ SETV:   lda     t0
         sta     evv + 1
         lda     dh
         sta     evh
-        jsr     DIRTY
+        jsr     VDIRTY                  ; (S1, (viii): a sprite thumb's, only the thumb)
         lda     #UE_CHANGE
         clc
         rts
@@ -730,8 +930,13 @@ UP:     lda     drag
         clc
         rts
 
-; The wheel: steps x the step, up for positive.
-WHEEL:  jsr     MEASURE
+; The wheel: steps x the step, up for positive. (U3b round 5) With
+; UF_NOWHEEL not taken: the program has it as UE_WHEEL.
+WHEEL:  ldy     #UW_FLAGS
+        lda     (UIR),y
+.assert UF_NOWHEEL = $80, error, "UF_NOWHEEL is bit 7"
+        bmi     @none
+        jsr     MEASURE
         lda     val
         sta     old
         lda     val + 1

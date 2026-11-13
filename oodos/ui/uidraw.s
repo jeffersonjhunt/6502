@@ -80,7 +80,10 @@ pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
 upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
 udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
-pdmg:   .res    8                      ; the last paint's damage, both boxes (POST's, U3a: Z3)
+pdmg:   .res    8                      ; the last paint's damage, each layer's (B5: its boxes' bounds; POST's, U3a: Z3)
+obx:    .res    1                      ; (B5) ONE's and PASSA's box, ONE's record,
+obh:    .res    1
+odn:    .res    1                      ;   and 1 once it has drawn it
 blk:    .res    6                      ; IN_MOUSE's block
 
 
@@ -476,8 +479,11 @@ PIX:    asl     mf + 1
 ; Painting.
 
 PAINT:  lda     ususp
-        beq     @go
-        rts
+        bne     @r
+        lda     #UQ_PAINT               ; (U3b, B1) nothing dirtied and no damage since the
+        bit     uany                    ;   last: nothing to draw, nor thumbs to place
+        bne     @go
+@r:     rts
 @go:    stz     udrew
         jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
@@ -530,23 +536,30 @@ PAINT:  lda     ususp
         sta     cmap
         lda     mapB + 1
         sta     cmap + 1
-        jsr     PASS
+        jsr     PASSA
         lda     #1                      ; the overlay's
         sta     pl
         lda     uover
         cmp     #UI_NONE
         beq     @same
-        ldx     #3                      ; its own layer: box 1, which the base's damage joins (shadows)
-@j:     lda     udmg,x
-        sta     er,x
-        dex
-        bpl     @j
-        lda     er
-        cmp     er + 2
-        bcs     @nj
+        ldx     #0                      ; its own layer: its boxes, which the base's join (shadows; B5:
+@j:     stx     obx                     ;   each of the base's)
+        ldy     #0
+@jc:    lda     udmg,x
+        sta     er,y
+        inx
+        iny
+        cpy     #4
+        bne     @jc
         ldx     #4
-        jsr     BOXADD
-@nj:    lda     #4
+        jsr     BOXADD                  ; (an empty one adds nothing)
+        lda     obx
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @j
+        lda     #4
         sta     pbx
         lda     #1
         sta     pclr
@@ -556,35 +569,93 @@ PAINT:  lda     ususp
         sta     cmap + 1
         bra     @p2
 @same:  stz     pclr                    ; on the base: box 0 again, not cleared again
-@p2:    jsr     PASS
-        jsr     MPASS
-        stz     ph                      ; nothing dirty, no damage
+        jsr     OVERS                   ; (U3b, B2) no record can be on the overlay: no
+        beq     @np2                    ;   second pass
+@p2:    jsr     PASSA
+@np2:   jsr     MPASS
+        lda     #0                      ; nothing dirty, no damage
+        sta     ph
+        jsr     REC
+        ldy     #UW_FLAGS
 @c:     lda     ph
         cmp     utot
         bcs     @e
-        jsr     REC
-        ldy     #UW_FLAGS
         lda     (UIR),y
         and     #<~UF_DIRTY
         sta     (UIR),y
         inc     ph
+        lda     ph
+        jsr     RNEXT                   ; (U3b, B4: keeps Y)
         bra     @c
-@e:     lda     udmg                    ; damage with nothing drawn (a window hidden over
-        cmp     udmg + 2                ;   nothing): what shows changed, upost too (Z2)
+@e:     ldx     #0                      ; damage with nothing drawn (a window hidden over
+@ea:    lda     udmg,x                  ;   nothing): what shows changed, upost too (Z2)
+        cmp     udmg + 2,x
         bcc     @dmg
-        lda     udmg + 4
-        cmp     udmg + 6
-        bcs     @clr
+        inx
+        inx
+        inx
+        inx
+        cpx     #8 * UI_BOXES
+        bcc     @ea
+        bra     @clr
 @dmg:   lda     #1
         sta     udrew
-@clr:   ldx     #7                      ; the damage kept for upost (POST: U3a's Z3), then cleared
-@z:     lda     udmg,x
-        sta     pdmg,x
-        stz     udmg,x
+@clr:   lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
+        trb     uany                    ;   on is the next paint's
+        ldx     #7                      ; the damage kept for upost (POST: U3a's Z3): each layer's
+@pz:    stz     pdmg,x                  ;   boxes' bounds (B5), then cleared
         dex
-        bpl     @z
-        lda     udrew                   ; a widget module's after a paint that drew (a slider's
-        beq     PNONE                   ;   sprites, U2)
+        bpl     @pz
+        ldx     #0
+@pu:    lda     udmg,x
+        cmp     udmg + 2,x
+        bcs     @pn
+        txa
+        and     #4
+        tay                             ; the layer's
+        lda     pdmg,y
+        cmp     pdmg + 2,y
+        bcc     @pj
+        lda     udmg,x                  ; empty: the box
+        sta     pdmg,y
+        lda     udmg + 1,x
+        sta     pdmg + 1,y
+        lda     udmg + 2,x
+        sta     pdmg + 2,y
+        lda     udmg + 3,x
+        sta     pdmg + 3,y
+        bra     @pn
+@pj:    lda     udmg,x                  ; else the lesser starts, the greater ends
+        cmp     pdmg,y
+        bcs     @q1
+        sta     pdmg,y
+@q1:    lda     udmg + 1,x
+        cmp     pdmg + 1,y
+        bcs     @q2
+        sta     pdmg + 1,y
+@q2:    lda     udmg + 2,x
+        cmp     pdmg + 2,y
+        bcc     @q3
+        sta     pdmg + 2,y
+@q3:    lda     udmg + 3,x
+        cmp     pdmg + 3,y
+        bcc     @pn
+        sta     pdmg + 3,y
+@pn:    stz     udmg,x
+        stz     udmg + 1,x
+        stz     udmg + 2,x
+        stz     udmg + 3,x
+        inx
+        inx
+        inx
+        inx
+        cpx     #8 * UI_BOXES
+        bcc     @pu
+        jsr     UDEND
+        lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
+        and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
+        ora     udrew                   ;   changed (VDIRTY), with nothing drawn
+        beq     PNONE
         lda     upost + 1
         beq     PNONE
         XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
@@ -592,81 +663,84 @@ PDONE:  rts                             ; (test_oodos_ui times POST to here: Z3)
 PNONE:  rts
 
 ; One layer's pass (pl the layer, pbx its box, pclr 1 to clear the box,
-; cmap its map).
-PASS:   ldx     pbx
+; cmap its map): the box cleared here, the walk block C's (S2: uicache.s's
+; PASS, with the position cache), which draws each record by ONE.
+PASSA:  lda     pclr                    ; (B5) each of its boxes cleared
+        beq     @go
+        ldx     pbx
+@b:     stx     obx
         lda     udmg,x
         cmp     udmg + 2,x
-        bcs     @go
-        lda     pclr
-        beq     @go
+        bcs     @n
         jsr     CLIPBOX                 ; the box transparent
-        ldx     pbx
-        ldy     #0
-@br:    lda     udmg,x
-        sta     UI_RECT,y
-        inx
-        iny
-        cpy     #2
-        bne     @br
+        ldx     obx
         lda     udmg,x
+        sta     UI_RECT
+        lda     udmg + 1,x
+        sta     UI_RECT + 1
+        lda     udmg + 2,x
         sec
         sbc     UI_RECT
         sta     UI_RECT + 2
-        lda     udmg + 1,x
+        lda     udmg + 3,x
         sec
         sbc     UI_RECT + 1
         sta     UI_RECT + 3
         stz     uattr
         lda     #0
         jsr     FILLR
-@go:    stz     ph
-@rec:   lda     ph
-        cmp     utot
-        bcs     @r
-        jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @next
-        cmp     #UT_MENU
-        bcc     @place
-        cmp     #UT_SEP + 1
-        bcc     @next                   ; the menus: MPASS
-@place: ldy     #UW_FLAGS               ; clean, and the box empty: nothing to draw, and no
-        lda     (UIR),y                 ;   RECT to find so (U3a: an idle poll, which drew
-        and     #UF_DIRTY               ;   nothing, placed every record twice)
-        bne     @rect
-        ldx     pbx
-        lda     udmg,x
-        cmp     udmg + 2,x
-        bcs     @next
-@rect:  lda     ph
-        jsr     RECT
-        bcs     @next
-        lda     rover
-        cmp     pl
-        bne     @next
-        lda     ph
-        jsr     ONE
-@next:  inc     ph
-        bra     @rec
-@r:     rts
+@n:     lda     obx
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @b
+@go:    XGO     FARC, XC_PASS
+        rts
 
 ; Record A (RECT just placed it) drawn: whole if dirty, its rectangle added
-; to box pbx; clipped to the box if it overlaps it; else not.
+; to box pbx; clipped to the box if it overlaps it; else not. (MPASS's, and
+; block C's PASS's through XA_ONE: S2.)
 ONE:    sta     dh
+        sta     obh
         jsr     REC
         jsr     EXTRECT
         ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_DIRTY
         bne     @dirty
-        jsr     OVERLAP
-        bcs     @r
+        stz     odn                     ; (B5) drawn for each of its layer's boxes it overlaps,
+        ldx     pbx                     ;   clipped to each
+@b:     stx     obx
+        lda     udmg,x
+        cmp     udmg + 2,x
+        bcs     @n                      ; empty
+        lda     odn                     ; drawn for a box already: placed again (its drawing
+        beq     @t                      ;   leaves UI_RECT, er and UIR as it will)
+        stz     odn
+        lda     obh
+        sta     dh
+        jsr     RECT
+        lda     obh
+        jsr     REC
+        jsr     EXTRECT
+        ldx     obx
+@t:     jsr     OVERLAP
+        bcs     @n
         lda     #1                      ; drawn (upost's)
         sta     udrew
+        sta     odn
+        ldx     obx
         jsr     CLIPBOX
         jsr     CLIPR
-        bra     DRAW
+        jsr     DRAW
+@n:     lda     obx
+        clc
+        adc     #8
+        tax
+        cpx     #8 * UI_BOXES
+        bcc     @b
+        rts
 @dirty: lda     #1
         sta     udrew
         jsr     CLIPALL
@@ -674,12 +748,14 @@ ONE:    sta     dh
         jsr     DRAW
         ldx     pbx
         jmp     BOXADD
-@r:     rts
 
 ; The menu that is down, last, on the overlay's pass.
 MPASS:  lda     umenu
         cmp     #UI_NONE
         beq     @r
+        lda     #UQ_GEOM                ; (S1) a menu down: a geometry event (its drop-down, which
+        tsb     uany                    ;   its items' texts size, covers what it covers)
+        lda     umenu
         jsr     RECT
         bcs     @r
         lda     umenu
@@ -787,9 +863,8 @@ CASTS:  ldy     #TH_FLAGS
 @no:    sec
         rts
 
-; Carry clear if er overlaps box pbx.
+; Carry clear if er overlaps box X (B5: udmg + X).
 OVERLAP:
-        ldx     pbx
         lda     udmg,x
         cmp     udmg + 2,x
         bcs     @no                     ; empty
@@ -810,8 +885,8 @@ OVERLAP:
 @no:    sec
         rts
 
+; clip = box X (B5: udmg + X).
 CLIPBOX:
-        ldx     pbx
         ldy     #0
 @c:     lda     udmg,x
         sta     clip,y
@@ -1325,13 +1400,18 @@ DPANEL: ldy     #UW_FLAGS
 DLABEL: ldy     #UW_FLAGS
         lda     (UIR),y
         pha
-        ldy     #TC_LABEL
         and     #UF_DISABLED
         beq     @en
         ldy     #TC_DISABLED
         jsr     NOACC
         bra     @al
-@en:    jsr     TATTR
+@en:    ldy     #UW_VALUE               ; its own attribute (U3b): UW_VALUE's low byte, 0 the theme's
+        lda     (UIR),y
+        beq     @th
+        jsr     OWNATTR
+        bra     @al
+@th:    ldy     #TC_LABEL
+        jsr     TATTR
 @al:    pla
         stz     tal
         bit     #UF_CENTRE
@@ -1396,6 +1476,19 @@ DBUTTON:
         jmp     EMIT
 @r:     rts
 
+; Attribute A as the text's (uattr), with the theme's key colour on its
+; background (uacc), as TATTR makes them from a role (U3b: a label's own).
+OWNATTR:
+        sta     uattr
+        and     #$F0
+        sta     uacc
+        ldy     #TC_ACCEL
+        lda     (UIT),y
+        and     #$0F
+        ora     uacc
+        sta     uacc
+        rts
+
 ; A button's attribute: disabled, down (pressed, or a toggle on), the
 ; focus's, or plain.
 BATTR:  ldy     #UW_FLAGS
@@ -1420,8 +1513,18 @@ BATTR:  ldy     #UW_FLAGS
 @foc:   ldy     #TC_BUTTON
         lda     dh
         cmp     ufocus
-        bne     @a
-        ldy     #TC_BUTTONFOCUS
+        beq     @f
+        ldy     #TH_FLAGS               ; the pointer over it, with the theme's TF_HOT (U3b):
+        lda     (UIT),y                 ;   the focus's colour
+        and     #TF_HOT
+        beq     @b
+        ldy     #UW_STATE
+        lda     (UIR),y
+        and     #US_HOT
+        beq     @b
+@f:     ldy     #TC_BUTTONFOCUS
+        bra     @a
+@b:     ldy     #TC_BUTTON
 @a:     jmp     TATTR
 
 DCHECK: ldy     #UW_FLAGS

@@ -32,8 +32,6 @@ km:     .res    1                      ;   the modifiers,
 kc:     .res    1                      ;   its character
 mcol:   .res    1                      ; the pointer's cell
 mrowp:  .res    1
-hh:     .res    1                      ; HIT's
-hp:     .res    1
 sc:     .res    1                      ; the scope: the modal window or the focus's, UI_NONE none
 fb:     .res    1                      ; FINDBTN's
 fh:     .res    1
@@ -188,7 +186,7 @@ ui_poll:
 @up:    jsr     MUP
         bra     @res
 @whl:   jsr     CELL
-        jsr     HIT
+        jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
         sta     evh
         sta     dh
         jsr     WHEELW                  ; a list's or a scroll bar's (U2)
@@ -703,83 +701,51 @@ CELL:   lda     uarea
         rts
 
 ; A the widget at the pointer's cell: FRONT's, UI_NONE none, or one under a
-; modal window.
-HIT:    jsr     FRONT
-        cmp     #UI_NONE
-        beq     @r
-        ldx     umodal
-        jsr     INSIDE
-        lda     hh
-        bcc     @r
-        lda     #UI_NONE
-@r:     rts
+; modal window. (S2: block C's HIT, by the position cache.)
+HITX:   XGO     FARC, XC_HIT
+        rts
+
+; HIT's answer, for a press, a release or the wheel (S1, (v)): uhot, which
+; POINTED's HIT found, while the pointer is where POINTED last saw it (lmx,
+; lmy) and no geometry event has come since (UQ_GHIT; a drag's moves, which
+; look for nothing, set it too); else HIT's own walk.
+HITQ:   lda     #UQ_GHIT
+        bit     uany
+        bne     HITX
+        lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        ldx     #3
+        ldy     #EV_MX + 3
+@c:     lda     (UIP),y
+        cmp     lmx,x
+        bne     HITX
+        dey
+        dex
+        bpl     @c
+        lda     uhot
+        rts
 
         .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
-; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
-; base's, each from the table's end down, inside its parents' client areas
-; (X5); UI_NONE none. Menus aren't looked at.
-FRONT:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
-        sta     rcv
-        lda     #$FE
-        sta     rcp
-        jsr     OVERS                   ; the overlay's pass only if something can be on it (Z3)
-        sta     hp
-@pass:  lda     utot
-        sta     hh
-@l:     dec     hh
-        lda     hh
-        cmp     #UI_NONE
-        beq     @np
-        jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @l
-        cmp     #UT_MENU
-        bcc     @p
-        cmp     #UT_SEP + 1
-        bcc     @l
-@p:     lda     hh
-        jsr     RECT
-        bcs     @l
-        lda     rover
-        cmp     hp
-        bne     @l
-        lda     mcol
-        sec
-        sbc     UI_RECT
-        cmp     UI_RECT + 2
-        bcs     @l
-        lda     mrowp
-        sec
-        sbc     UI_RECT + 1
-        cmp     UI_RECT + 3
-        bcs     @l
-        lda     mcol                    ; and inside its parents' client areas (X5)
-        cmp     rclip
-        bcc     @l
-        cmp     rclip + 2
-        bcs     @l
-        lda     mrowp
-        cmp     rclip + 1
-        bcc     @l
-        cmp     rclip + 3
-        bcs     @l
-        stz     rcv
-        lda     hh
-        rts
-@np:    dec     hp
-        bpl     @pass
-        stz     rcv
-        lda     #UI_NONE
-        rts
-
 ; A = 1 if a record can be on the overlay (a shown window with UF_OVERLAY:
-; the dialogs' are), else 0. Menus, which FRONT passes by, don't count.
-OVERS:  ldx     #0
-@l:     cpx     utot
-        bcs     @no
+; the dialogs' are), else 0 (Z with it). Menus, which FRONT passes by,
+; don't count. (U3b, B3) Kept in uany (UQ_OVERS), and found again only
+; when UQ_OSTALE says so, as FINDMODAL's umodal is; else it keeps X, Y and
+; UIR.
+OVERS:  bit     uany
+        bvs     @go
+        lda     uany
+        and     #UQ_OVERS
+        lsr     a
+        rts
+@go:    lda     #UQ_OSTALE | UQ_OVERS
+        trb     uany
+        ldx     #0
         txa
         jsr     REC
+@l:     cpx     utot
+        bcs     @no
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_WINDOW
@@ -789,9 +755,13 @@ OVERS:  ldx     #0
         and     #UF_OVERLAY | UF_HIDDEN
         cmp     #UF_OVERLAY
         bne     @n
+        lda     #UQ_OVERS
+        tsb     uany
         lda     #1
         rts
 @n:     inx
+        txa
+        jsr     RNEXT                   ; (U3b, B4) the next record a step on
         bra     @l
 @no:    lda     #0
         rts
@@ -811,7 +781,7 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
         beq     @hit
         jsr     MOPEN
         bra     @none
-@hit:   jsr     HIT
+@hit:   jsr     HITM
         sta     evh
         cmp     #UI_NONE
         beq     @none
@@ -868,6 +838,12 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
 @none:  lda     #UE_NONE
         rts
 
+; A the record a press is for: HITQ's (S1, (v): uhot, if the pointer is
+; still), or (U3b) a slider's or a scroll bar's margin (block C's MARGIN: S2).
+HITM:   jsr     HITQ
+        XGO     FARC, XC_MARGIN
+        rts
+
 ; The left button up: the button it went down on clicked, if it is still
 ; over it; a widget module's told (WR_UP).
 MUP:    lda     upress
@@ -898,7 +874,7 @@ MUP:    lda     upress
         sta     (UIR),y
         lda     upress
         jsr     DIRTY
-        jsr     HIT
+        jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
         ldx     upress
         ldy     #UI_NONE
         sty     upress
@@ -1073,7 +1049,8 @@ WHEELW: lda     dh
 
 ; The pointer, if it moved since the last poll: US_HOT moved to the widget
 ; under it, and the widget held (upress) told (WR_MOVE). A its event, or
-; UE_NONE.
+; UE_NONE. (U3b, B4) While a slider or a scroll bar is held, no hit test:
+; US_HOT stays till the pointer moves after the release.
 POINTED:
         lda     uarea
         sta     UIP
@@ -1096,7 +1073,16 @@ POINTED:
         lda     moved
         beq     @none
         jsr     CELL
-        jsr     HIT
+        lda     #UQ_GHIT                ; (S1, (v)) uhot not the pointer's, till HIT finds it
+        tsb     uany
+        jsr     DRAGGED                 ; (U3b, B4) a slider or a scroll bar held: no hit
+        bcc     @drag                   ;   test, US_HOT kept, the drag tracked
+        jsr     FINDMODAL               ; (S1) the modal window as a press's HIT would see it
+        jsr     HITX
+        pha
+        lda     #UQ_GHIT                ; (S1) found: uhot the pointer's, till it moves or a
+        trb     uany                    ;   geometry event comes
+        pla
         cmp     uhot
         beq     @drag
         pha
@@ -1124,9 +1110,32 @@ POINTED:
         bcc     @r
 @none:  lda     #UE_NONE
 @r:     rts
-; Record A's US_HOT: X it (US_HOT) or 0.
+; Carry clear if the press held (upress) is a slider's or a scroll bar's
+; (U3b, B4: its drag needs no hit test). Keeps nothing.
+DRAGGED:
+        lda     upress
+        cmp     #UI_NONE
+        beq     @no
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_VSCROLL
+        bcc     @no
+        cmp     #UT_HSCROLL + 1
+        bcc     @yes
+        cmp     #UT_VSLIDER
+        bcc     @no
+        cmp     #UT_HSLIDER + 1
+        rts
+@yes:   clc
+        rts
+@no:    sec
+        rts
+; Record A's US_HOT: X it (US_HOT) or 0. With the theme's TF_HOT, a button
+; is drawn again, since its colour shows it (U3b).
 HOTBIT: cmp     #UI_NONE
         beq     @r
+        pha
         jsr     REC
         stx     pw
         ldy     #UW_STATE
@@ -1134,6 +1143,17 @@ HOTBIT: cmp     #UI_NONE
         and     #<~US_HOT
         ora     pw
         sta     (UIR),y
+        ldy     #TH_FLAGS
+        lda     (UIT),y
+        and     #TF_HOT
+        beq     @p
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_BUTTON
+        bne     @p
+        pla
+        jmp     DIRTY
+@p:     pla
 @r:     rts
 
 ; A key a widget module took: A its event. One its module repeats
