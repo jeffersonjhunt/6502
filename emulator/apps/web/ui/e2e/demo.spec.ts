@@ -134,8 +134,9 @@ test("CLEAR clears the Terminal, and CLS clears it and lists the files", { tag: 
   await expect(crt).toHaveText(/^\s*A>$/); // only the prompt, and no stray [ or E
   await command(page, "CLS");
   await expect(crt).toContainText("SYSTEM FILE(S) EXIST");
-  // from the top; OOUI.BNK, OOUI's banked library, is on the demo card's A: and not SYS (hw/ooui.md, U3a)
-  await expect(crt).toHaveText(/^\s*A: README\s+TXT : OODOS\s+SYS : OOUI\s+BNK\s+SYSTEM FILE\(S\) EXIST\s*A>$/);
+  // from the top; OOUI.BNK, OOUI's banked library, and UIDEMO.COM, its demo, are on the demo card's A: and not SYS
+  // (hw/ooui.md, U3a; oodos/demo/uidemo.s)
+  await expect(crt).toHaveText(/^\s*A: README\s+TXT : OODOS\s+SYS : OOUI\s+BNK : UIDEMO\s+COM\s+SYSTEM FILE\(S\) EXIST\s*A>$/);
 });
 
 test("?sd=empty leaves the slot empty", async ({ page }) => {

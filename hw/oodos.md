@@ -292,7 +292,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
 | 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
-| 77–97 | reserved for OODOS |
+| 77 | the ROM BIOS's version: A the major, X the minor, `$FF $FF` if the cold boot didn't find its greeting. *Since interface version 9 (2026-11-13, the owner: [diag.md](diag.md#d1-questions), D1-1, EE2), so SYSINFO can show it: a program can't read the ROM's copy in block 63 itself* |
+| 78–97 | reserved for OODOS |
 
 ### Far calls ###
 
@@ -3688,14 +3689,21 @@ true 8086 code would.
 
 **What fits.**
 
-- **Files:** it uses MS-DOS 1's FCB calls (functions 5, 6, 13–17, 19, 20, 22, 23, 25, 26, 33, 34), which are
-  the CP/M BDOS's numbers, because DOS 1 copied them. Only 39 (random block read) and 41 (parse filename) differ;
-  they become CP/M 3's multi-sector I/O and function 152.
+- **Files:** it uses MS-DOS 1's FCB calls, which are the CP/M BDOS's numbers, because DOS 1 copied them. Only
+  39 (random block read) and 41 (parse filename) differ; they become CP/M 3's multi-sector I/O and function 152.
+  *Checked against the source (2026-11-13):* `CALLOS` (OEM.H, a call to the OEM's `CPMENT`) is made with 6, 13,
+  14, 15, 16, 17, 18, 19, 22, 23, 25, 26, 33, 34, 39 and 41. 18, search next, is `C_SEAR+1` and was missing from
+  the first list. MSDOSU defines 5 and 20, but nothing calls them: sequential files go by 33 and 34, GW-BASIC
+  counting the record itself. Besides those, `DOSIO` (GIO86, GWSTS) calls MS-DOS 2's 37 (an interrupt vector) and
+  42–45 (the date and time), and 38 (a program segment prefix) is called at start-up, by GWINIT (as `INS86` bytes) and by ITSA86 (its lines 185–186) (W3). The OEM layer answers all of these: the date and time
+  from 104 and 105; 37 and 38 aren't needed. One difference costs work: the DOS FCB has a record size, which CP/M's
+  hasn't. GW-BASIC sets it to 1 to load a program by block read (`DFSTLD`, GIODSK), and a random file's LEN is its
+  record size, while CP/M 3's records are always 128 bytes ([7c](#the-sub-phases)).
 - **DEF SEG:** an 8086 segment and offset make a 20-bit address, as the OO-1's physical addresses are. PEEK,
   POKE, BLOAD and BSAVE with DEF SEG reach the whole 1 MB, video memory included, through a DMA copy or a spare
   window.
 
-**What we write.** The machine-specific layer isn't in the release: about 217 symbols are used and never defined,
+**What we write.** The machine-specific layer isn't in the release: 219 symbols are declared EXTRN and defined nowhere (*checked against the source, 2026-11-13:* 67 of them are made by macros the count missed, 50 reserved-word and device names by IBMRES.H's and GIOTBL's and 17 disk errors by `DERMAK`, so **152 are the OEM's**, routines and variables; the first count, about 217, was an estimate),
 many of them the OEM's routines for the screen, graphics, keyboard, sound, light pen, joystick and serial ports
 (SCROUT, SETC, READC, MAPXYC, KEYINP, DONOTE, RDSTIK, INICOM and others). We'd write those for the OO-1 anyway:
 the video card's text and bitmap modes for SCREEN, the SIDs for SOUND and PLAY, the USB keyboard, the game port,
@@ -3738,6 +3746,603 @@ dispatch tables that carry the block, and a build that gates the resident size w
 programs print and how numbers are formatted. It runs only in a throwaway container. The port keeps Microsoft's
 copyright and MIT notice.
 
+### The plan, phase 7 ###
+
+**Approved by the owner (2026-11-13).** Proposed 2026-11-13; every question at the end decided as recommended
+([Phase 7's questions](#phase-7s-questions)): 1–3 and 5 at review round 1, the rest at round 2; review round 1's
+findings V1–V8 and round 2's W1–W4 fixed as below. 7a starts once this is merged. It works as [OOLIB's plan](oolib.md#the-plan) did: sub-phases,
+each a branch with its own gate, each built, tested and reverted alone. It is written from this section and the
+spike ([`oodos/spike/gwbasic/`](../oodos/spike/gwbasic/)), and checked against the released source:
+microsoft/GW-BASIC at commit `edf82c2ebf6bfe099c2054e0ae125c3efe5769c4` (2020-05-21, the spike's too), fetched
+once into `~/workspace/references/gw-basic/` (question 1), outside the repo, read as text and never executed.
+
+- **What the source settles (2026-11-13):** the spike's `sizes.py`, run on it, gives the same 40,035 bytes of
+  8086 code and 4,412 of tables, and the resident candidates' 6,715 bytes (8,282 of 6502): unchanged. 34,474
+  lines in 35 `.ASM` files, as recorded, with three `.H` files and two include files (753 lines) besides. The OEM's
+  symbols are 152, not about 217, and the file calls are as corrected above ([What fits](#gw-basic)). No size
+  figure below changed.
+
+**The rule it keeps: FARCALL as it is today.** OOUI's `ui_load` and its stubs ([ooui.md, U3a](ooui.md#u3a-ooui-as-a-banked-library))
+and OO-Amp's overlays, through those stubs, call FARCALL as it was built in phase 2. Nothing here changes FARCALL,
+common memory, the loader, the SCB, OODOS's functions or the memory map. Nothing here changes OOLIB either.
+Anything that would is listed as a question for the owner.
+
+**The interfaces only grow** (AGENTS.md, the owner's rule of 2026-11-13). The BDOS functions, OOLIB's interface 8,
+FARCALL and common memory's table, the BIOS's jump table and OOUI's `UI_IFACE` 1 keep every existing call as it
+is. Anything phase 7 adds to them is an addition with its version raised. Anything that would break a caller goes
+to the owner first. GW-BASIC's release is **OODOS 1.0**, when those interfaces are declared stable. So the
+additions this plan leaves for later (OODOS copying common memory, FARPEEK and the rest, a COM receive buffer) are
+each a question to settle, or to leave out on purpose, before 7g.
+
+**What there is now (main, 616c968, OODOS 0.9).**
+
+- **The TPA** is `$0300–$BFFC`, 48,381 bytes. Each RSX loaded takes its size off the top. The spike's was
+  48,384, to `$BFFF`: the BDOS entry's `JMP` at `$BFFD` (phase 2) takes three bytes, so every free figure here is
+  three bytes under the spike's (V5).
+- **FARCALL** is the spike's: 281 cycles over a JSR, A, X, Y and the flags both ways, nesting, the caller's W3
+  put back. 281 is the spike's figure, on its harness. OOUI's suite measures 322 cycles for a crossing, its
+  dispatcher included. 7a's gate measures the built FARCALL with GW-BASIC's dispatcher (V8).
+- **Whatever W3 holds is put back** by the BDOS stub (`ST_W3`), by the dispatcher's calls into block 62 (`CALL62`),
+  by the hooks (`CALLHOOK`) and by function 59's door (`LDOOR`). OOUI's blocks already run in W3 across BDOS calls
+  and interrupts. Each block's interrupts are answered from its own copy of common memory.
+- **Common memory has 166 bytes free** (`$FF54–$FFF9`, OODOS 0.9's map). Block 62's code window has 1,126
+  (`$F39A–$F7FF`).
+- **53–56 copy nothing into a block.** `ui_load` copies common memory into each of its blocks itself.
+- **The OOLIB a GW-BASIC needs is built:**
+  - L1–L6: the clocks, the event area, input, the controllers, the music driver (`MU_*`), the beep;
+  - function 83's loads and card copies;
+  - the graphics library: modes, palette, plot, the card memory calls.
+- **The W1 contract** (interface 8): only OOLIB writes `NB_WIN1` and `SLOT1`. While it has another block in W1,
+  the program's `$4000–$7FFF` is out of reach of the program and of the BDOS.
+
+#### Without the three deferred questions ####
+
+The spike leaves 32 KB free with none of them. So the plan recommends none of them now. Each is taken up again
+only if a cost measured in a sub-phase forces it.
+
+1. **The home block. GW-BASIC can do without it.**
+   - It is a lever for the TPA, not a need. With the margin below (34,210 bytes free, or about 33,600–34,600 in
+     the bad case once the buffers are out), nothing has to move into a home block.
+   - **Decided (2026-11-13, the owner): none.**
+   - **If 7a's measured resident size breaks the gate,** the home block can be had with no change to FARCALL or
+     OODOS. GW-BASIC's start-up code would far call the home block's main loop once and not return until SYSTEM.
+     W3 then holds the home block between far calls, and FARCALL's return puts it back, since FARCALL returns to
+     whatever block called it. The stub, the dispatcher, the hooks and function 59 already put W3 back as they
+     found it (above).
+   - **Its cost would be GW-BASIC's own:** banked code can reach home code only by a far call, so the home block
+     holds only code the banked pages don't call (the hazard recorded under [Open Questions](#open-questions)).
+     OOUI and OO-Amp see nothing.
+2. **A lean FARCALL. GW-BASIC can do without it.**
+   - The core statement path makes no far call. PRINT makes one a statement, 1.4–1.8% of printing a number, and a
+     graphics statement makes one, about 4–6% of a PSET (an estimate, below). A lean call would save an estimated
+     100–140 cycles of the 281: under 1% on PRINT, about 2% on a PSET.
+   - **Decided (2026-11-13, the owner): none in phase 7.**
+   - **Any lean variant would need a real change,** so it is a question for the owner and not part of this plan.
+     It would need either an entry in common memory, an OODOS change with 166 bytes to spare, or GW-BASIC writing
+     `NB_WIN3` itself, which breaks the rule that the windows are OODOS's.
+3. **Common memory in an allocated block. GW-BASIC can do without OODOS doing it.**
+   - **Decided (2026-11-13, the owner):** GW-BASIC's loader copies common memory into each of its code blocks, as `ui_load` does. No
+     block is marked for code, and 53–58 are unchanged.
+   - **How, as a cost estimate:**
+     1. The loader copies `$F800–$FFFF` into a buffer in the free workspace once, by CPU: about 29,000 cycles.
+     2. It puts the buffer into each block's `$3800–$3FFF` by function 83's `DM_COPY`: about 4,600 cycles a block.
+     3. For eight blocks that is about 66,000 cycles, 9 ms, once, at start-up.
+   - **No TPA cost:** the loader runs from the workspace before any program is in it, and is overwritten later.
+   - **OODOS doing the copy at allocation** (a flag in the MCB's M_EXT, or a function of its own) stays possible
+     later. As a pure addition, a block allocated without the flag would be as it is today, so `ui_load` and every
+     caller would go on working unchanged. Nothing in phase 7 needs it.
+
+**What this does to OOUI and OO-Amp: nothing.** `ui_load`, its stubs, its copy of common memory, `mkbank.py` and
+OO-Amp's overlays are untouched, and GW-BASIC links no OOUI ([ooui.md, "Other programs"](ooui.md#apple-ii-mode-and-existing-software)). OOUI's
+current change (feat/ooui-u3b-land) can land in any order with this.
+
+#### The memory layout on revision 2 ####
+
+**The CPU's view while BASIC runs** (W0–W2 blocks 0–2; W3 block 62, or one of GW-BASIC's blocks during a far call):
+
+| CPU range | What | Bytes |
+|---|---|---|
+| `$0000–$00EF` | zero page: GW-BASIC's pseudo-registers and variables (about 140, the spike), OOLIB's `GXP`, `GXQ`, `GXT` (6) and `MUP` (2) | about 150 of 240 |
+| `$0100–$01FF` | the 6502 stack: return addresses only | 256 |
+| `$0200–$02FF` | the base page | 256 |
+| `$0300` up | **the resident core**: the statement loop, CHRGET, LET IF GOTO GOSUB RETURN FOR NEXT, the evaluator, PTRGET, the string core and garbage collection, single and integer math, LEN to INSTR, INKEY$, the far-call dispatcher and its page table | 10,075 (high 10,549) |
+| after it | **fixed RAM**, first what a primitive or an interrupt touches (`LOWRAM`: the event area, 256, layout 2; the transfer buffer, 256; the dispatcher's stub; the keyboard queue; the STRIG latches), then GW-BASIC's own variables (2.0 KB), the BASIC stack (512), the line buffer, `$FOUT`'s buffer and the random files' FIELD buffers | 4,096 (high 5,236) |
+| up to `$BFFC` | **the workspace**: program text, variables and arrays up, strings down from the top | 34,210 (high 32,596) |
+| `$C800–$F7FF` | in a far call: one of GW-BASIC's blocks | 12,288 a block |
+
+- **The gate: at least 32,768 bytes free for BASIC.** That is FRE(0) at start-up with no RSX, as decided
+  2026-10-26. Every sub-phase's build computes it from the map (the spike's `sizes.py`, kept in the build) and
+  fails below it. It warns below 33,792, so a shortfall is seen while there is still room to act.
+- **The bad case:** 172 bytes short at the high ratio with a PC's 5,236 bytes of fixed RAM. These leave the TPA,
+  in order of value, +1–2 KB:
+  1. the FCBs and the sequential files' 128-byte buffers, about 170 bytes a file;
+  2. the COM device's queue;
+  3. the screen editor's line table.
+
+  They go into the RAM of the block whose code uses them, P4, P7 and P6 (V1, [below](#the-memory-layout-on-revision-2)).
+- **FIELD buffers stay in the TPA.** A FIELDed string's descriptor points straight into its file's random buffer,
+  and the string functions read it there. Only the sequential buffers and FCBs can move.
+- **The BASIC stack stays in the TPA,** as the spike's `SPUSH` and `SPOP`, for FOR, GOSUB and the evaluator's
+  operands. Rule 3 forbids walking page 1.
+
+**The W1 contract.** The workspace spans `$4000–$7FFF`, so GW-BASIC keeps W1 on block 1 whenever interpreter code
+runs:
+
+- **Only the OEM layer moves W1.** It does so only inside a primitive, by OOLIB's `GX_VMAP` or `GX_BLOCK`, and puts
+  block 1 back by `GX_W1BACK` before it returns. A primitive takes its arguments from zero page or fixed RAM and
+  copies what it draws (a string to print, a GET/PUT array) into the transfer buffer first.
+- **Everything a primitive touches while W1 is moved is outside `$4000–$7FFF`:**
+  - its code, in a W3 block;
+  - OOLIB's state, in the same block;
+  - zero page;
+  - fixed RAM's `LOWRAM`, which comes first in it. Resident code and fixed RAM end at `$3A5B` in the usual case
+    (`$0300` + 10,075 + 4,096), but at `$40A9` in the high case (`$0300` + 10,549 + 5,236), so fixed RAM may cross
+    `$4000`. With `LOWRAM` first, what crosses is the BASIC stack's and the interpreter's own data, which only
+    run with block 1 in W1 (V4).
+- **The build checks it,** as `oodos/tools/w1.py` checks a program linked with OOLIB: it fails if `LOWRAM`, or
+  any segment a primitive or a hook touches, has a byte in `$4000–$7FFF`.
+- **P5 calls resident code only with block 1 in W1,** so the resident code itself may cross `$4000` in the high
+  case.
+- **The BDOS sees block 1:** a primitive calls `GX_W1BACK` before any BDOS call that names a workspace address
+  (function 83's `DM_VWRITE` of a PUT array, for one).
+
+**The banked blocks:** eight code blocks, 128 KB of the 320 KB that 53–58 hand out, allocated by 55 at start-up. The warm boot frees them as it frees any. Each code block is linked at `$C800` with its own
+copy of common memory at `$F800` (above).
+
+| Block | What | 6502, estimated |
+|---|---|---|
+| P1 | math: PRINT USING's formatting, `$FOUT`, `$FIN`, double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; PRINT, LPRINT, INPUT | 8.5 KB |
+| P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
+| P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL | 9.5 KB |
+| P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
+| P5 | **the video block:** the text screen driver, SCREEN, COLOR, PALETTE, LOCATE, CLS, WIDTH, the graphics statements (GENGRP, ADVGRP, DRAW), the pixel primitives, and OOLIB's `gxmem`, `gxmode` and `gxpal` linked into it | 10.7–11.5 KB |
+| P6 | the screen editor (SCNDRV, SCNEDT) and the keyboard (cooked keys and the event queue's special keys) | 5.0–6.0 KB |
+| P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
+| P8 | room: whatever outgrows its block | — |
+
+- **One copy of OOLIB's video state.** `gxmem` keeps the block in W1, the bank in slot 1, the card memory map and
+  the W1 map. A second copy in another block would get out of step, as [ooui.md](ooui.md#u3a-the-blocks) found for
+  overlays. So everything that moves W1 is in P5. That includes the text screen, the graphics, and DEF SEG's PEEK
+  and POKE into blocks, which go through a P5 entry.
+- **P5 is the tightest block.**
+  - OOLIB's parts: `gxmem` 1,022 bytes of code and 269 of BSS, `gxmode` 158, `gxpal` 142 and 514. These are
+    measured in today's build.
+  - GW-BASIC's parts: the graphics code (about 5 KB), the text driver (1.5 KB), the primitives (1.5 KB) and text
+    on a bitmap (0.5 KB). These are estimates.
+  - **If P5 passes 12,288,** DRAW's string parser moves to P3, and DRAW makes a far call a command.
+- **OOLIB's own line, circle and fill (`gxbmp`) aren't linked.** GW-BASIC keeps Microsoft's LINE, CIRCLE and PAINT,
+  so its pixels are GW-BASIC's (below), and draws with its own pixel primitives through slot 1.
+- **Where the moved buffers live (V1).** The first plan put them in a
+  data block D and didn't say how code reaches it. Three routes, for a sequential record of 128 bytes:
+
+  | Route | TPA saved, net | Cycles a record, estimated |
+  |---|---|---|
+  | (a) D in W1 through P5's `GX_BLOCK`, the record copied by the CPU to a staging buffer in `LOWRAM` | about 170 a file, less the 128-byte staging buffer: about 40 a file at /F:3, 2,200 at /F:15 | about 2,200: a far call to P5 (311), `GX_BLOCK` and back (about 60), 128 bytes by `LDA (),Y` / `STA` (about 1,800) |
+  | (b) D by function 83's `DM_COPY` to and from the same staging buffer | the same as (a) | about 900: a BDOS call (about 450), the copy at 2 cycles a byte (256), the block's checks (about 200) |
+  | (c) **chosen:** the FCBs and sequential buffers in P4's own RAM, the editor's table in P6's, the COM queue in P7's | about 170 a file, all of it: no staging buffer, and no D | nothing more: the BDOS reads and writes a record straight into P4's buffer, through the W3 block its entry saved |
+
+  - Every byte of a file is handled by P4's code, so the buffers are reached only while P4 is in W3. OOUI's
+    picker keeps its FCB and directory buffer in its block C the same way ([ooui.md](ooui.md#u3a-the-blocks)).
+  - (c) is checked in 7c's gate: a record read into, and written from, a buffer at `$C800–$F7FF` of a block in
+    W3. The DMA address is a CPU address, which the BDOS turns into a physical address through the windows its
+    entry saved, W3 among them, as function 73 does.
+  - **P4's room** (W4): 8.5 KB of code (8,704) and 175 bytes a file, 2,625 at /F:15, the most GW-BASIC allows.
+    - With a staging buffer of its own for random files, LEN + 254 bytes at /S:1,024, that is 1,278 more:
+      12,607 bytes, 319 over the block's 12,288.
+    - **So random records are staged a record at a time** through the file's own 128-byte buffer (7c, below),
+      which needs no buffer more: 11,329 bytes at /F:15, 959 to spare. 9,229 at /F:3.
+  - **(b) is the fallback** if (c) fails its check. Neither (a) nor (b) is needed to keep the 32 KB, so FARMOVE
+    isn't wanted (question 11).
+  - **What it asks of the rest:** the device interface takes runs, not characters. P1's PRINT # hands P4 one item
+    at a time in the transfer buffer, and P4's INPUT # and LINE INPUT # return a whole line to the line buffer. So
+    a statement makes one far call an item, not one a character. The screen (7d) works the same way.
+- **The dispatcher.** The dispatch tables carry a page (1–8), as the spike planned. The resident dispatcher, about
+  60 bytes, does this for each call:
+  1. reads the page's block from an 8-byte table the loader fills;
+  2. writes the block and the address into one `JSR FARCALL` / `.byte` / `.word` stub in fixed RAM;
+  3. calls the stub.
+
+  FARCALL reads its inline bytes as it starts, so a nested call may rewrite the stub at once. Banked code reaches
+  another page through the same dispatcher, and resident code by JSR. The blocks hold no block numbers, so they
+  need no fixups. That costs about 30 cycles more than a bare FARCALL.
+- **Card memory**, from the program's 1.5 MB:
+  - the text layer: 80 × 30 cells, 4,800 bytes;
+  - the font: TILEBASE on the console's at `$000400` if a program's layer may name it, else a 4 KB copy (checked in
+    7d);
+  - a mono screen, 37.5 KB;
+  - a tile frame for SCREEN 1, 32 KB of tiles and a 2 KB map;
+  - each of these twice, for SCREEN's active and visual pages.
+
+  The total is well under 1 MB.
+- **On disk:** `GWBASIC.COM` (the resident core and the loader, about 11 KB) and `GWBASIC.OVL` (the blocks'
+  images, 1 KB-aligned so function 83 loads them in whole sectors), both on A:, user 0, SYS. Loading the blocks by
+  `DM_LOAD` takes about 25 ms.
+
+#### The sub-phases ####
+
+Each is a branch off main with its own gate. The gate for each:
+
+- `tools/check.sh changed main` and the quick tier;
+- `make -C docs check`;
+- the resident-size gate (above);
+- the sub-phase's own suites.
+
+A sub-phase that changes its books' chapters does it on the same branch, as G3 requires. Sizes are 6502 bytes,
+from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.36 the high bound. Cycles are at
+7.16 MHz.
+
+- **7a: the core.** The build, the resident core, P1 and P2, the loader, and the console through the BDOS. It
+  runs simple programs.
+  - **What it holds:**
+    - `oodos/gwbasic/` (new): the translated modules, the link configs, and the Makefile with the size gate and
+      the rules gate;
+    - the loader;
+    - the dispatcher;
+    - start-up with the banner and "Bytes free";
+    - lines typed through function 10;
+    - output through functions 2 and 6;
+    - ^C at the console;
+    - SYSTEM, and `JMP WBOOT` at the end;
+    - RUN, LIST, NEW and the immediate mode.
+  - **No screen of its own yet:** the console's VT52 is enough for typed lines and PRINT.
+  - **Size:** 10.1 KB resident (high 10.5), P1 8.5 KB, P2 5.8 KB: about 24 KB, about half the port's
+    interpreter.
+  - **Cycles:** `I%=I%+1 : IF I%<1000 THEN 10` stays about 4,700 a pass, with no far call. PRINT pays 281 (+30
+    for the dispatch) a statement. A character through function 2 costs the stub's 216 plus the console's work, an
+    estimated 1,500–2,500 (to be measured: it is 7d's reason).
+  - **Gate:**
+    - 32 KB free, measured;
+    - mbf.py's vectors on the target build's math;
+    - 7a's programs against the oracle;
+    - the built FARCALL and GW-BASIC's dispatcher measured on the emulator as a crossing, as OOUI's suite measures
+      its 322: at most 340 cycles over a JSR (V8).
+- **7b: the other statements** (P3).
+  - **What it holds:**
+    - RENUM, AUTO, ON GOTO and ON GOSUB, DEF FN, SWAP, ERASE, CLEAR, STRING$, RND, PRINT USING (whose
+      formatting is in P1);
+    - ON ERROR, ERR, ERL and RESUME;
+    - the event traps' frame (ON ... GOSUB, the flags NEWSTT tests).
+  - **Size:** 9.5 KB banked, and nothing resident but the trap test.
+  - **Cycles:** the trap test at NEWSTT is a byte compare, about 5 cycles a statement, 0.1% of the core loop.
+    With a trap turned on it is about 15–20 (0.3–0.4%). The traps poll the event area at NEWSTT: no hook, so no
+    tick costs anything.
+- **7c: files and memory** (P4, and P5's seed).
+  - **What it holds:**
+    - sequential and random files on the FCB functions (DOS 1's numbers are CP/M's; 39 becomes 44 with 33 and 34,
+      41 becomes 152);
+    - LOAD and SAVE, ASCII and tokenised;
+    - MERGE, KILL, NAME, FILES;
+    - LPRINT and LLIST to LST:;
+    - COM1 on AUX:;
+    - DEF SEG with PEEK and POKE, BLOAD and BSAVE ([below](#the-oem-layer)), on RAM. Card-memory segments wait
+      for 7d, which makes the screen pages they name;
+    - **P5's seed** (V3): the block P5 becomes, holding only OOLIB's `gxmem`, `GX_INIT`'s call at start-up and
+      the entry DEF SEG uses for a byte or a run in an allocated block or banks 9–B (`GX_BLOCK`, the load or
+      store, `GX_W1BACK`). About 1.6 KB. Its gate: PEEK and POKE in an allocated block and in bank 9, with
+      block 1 back in W1 after each (a must-fail case, below);
+    - random files of any LEN on 128-byte records: record *n* is bytes (*n* − 1) × LEN on, read and written
+      through the 128-byte records it spans, one at a time, through the file's own 128-byte buffer in P4 (a
+      random file has no sequential use for it), read, changed and written back for a part record. /S:, the most
+      LEN may be, is at most 1,024 (W4; GW-BASIC's own limit is 32,767);
+    - **past the file's end** (X1): a PUT whose record ends partway through a 128-byte record must read that
+      record first, and there function 33 returns 1 (unwritten data) or 4 (past the extent). In the
+      read-modify-write, a 33 that returns 1 or 4 gives a buffer of zeros, the new bytes go into it, and the 34
+      that follows writes it. A GET past the end gives GW-BASIC's empty record for the same two codes. Tested:
+      LEN 100, records 1–5 PUT to a new file, then each GET back as it was written (records 2, 3 and 4 end inside
+      a 128-byte record no earlier PUT reached);
+    - LOAD of a tokenised program (W2): whole records by `DM_LOAD`, straight into the workspace, only while each
+      fits below the workspace's top; the last, or the first that wouldn't fit, through the file's buffer in P4,
+      copying only the bytes below the top. Its end is found by the line links, as GW-BASIC finds it. A program
+      that doesn't end below the top is Out of memory, with nothing written past it (the BDOS's `JMP` at `$BFFD`
+      is just past it).
+  - **Size:** 8.5 KB banked, and P5's seed.
+  - **Cycles:** a file statement makes one far call, then its BDOS calls. A 128-byte record costs what the BDOS's
+    does. BLOAD of 64 KB goes by `DM_LOAD` in about 16 ms.
+- **7d: the screen** (P5's text part, on the seed; P6).
+  - **What it holds:**
+    - GW-BASIC's own text layer in its card memory, written through slot 1;
+    - SCREEN 0, WIDTH 40 and 80, COLOR with attributes, LOCATE, CLS, CSRLIN, POS, SCREEN();
+    - the function-key line;
+    - the full-screen editor, which reads the cells back;
+    - the keyboard, from the event queue alone (V2, [below](#the-oem-layer)).
+  - **Without a revision 2 card or the services** (`FT_INFO` below 8), GW-BASIC falls back to 7a's console.
+    - card-memory segments for DEF SEG ([question 10](#phase-7s-questions)).
+  - **Size:** P5's text part about 1.5 KB more than the seed. P6 5–6 KB.
+  - **Cycles:** a character is an estimated 150–300, against 7a's 1,500–2,500. Each string or PRINT item is one far
+    call to P5, the item copied to the transfer buffer first.
+  - **Timing gate** (V6), by `check.py --timing`'s method: the run of a loop with the statement, less the run
+    without it, over 100 passes, on the emulator:
+    - `PRINT A$;` with an 80-character A$, no scroll: at most 30,000 cycles (about 375 a character with the far call);
+    - a scroll of the whole text screen: at most 8,000.
+
+    The limits are first limits, made firm from the measurement. Raising one is the owner's to allow.
+- **7e: graphics** (the rest of P5).
+  - **What it holds:**
+    - SCREEN 1 and 2, and the OO-1's own modes ([question 9](#phase-7s-questions));
+    - PSET, PRESET, LINE (with B, BF and the style), CIRCLE (with the aspect), PAINT (with tiles), DRAW, POINT;
+    - GET and PUT of graphics;
+    - VIEW, WINDOW, PMAP;
+    - PALETTE.
+
+    They use Microsoft's algorithms on the OEM's pixel routines (MAPXYC, SETC, READC, the scan routines).
+  - **Size:** P5's rest, about 8 KB; P5 in all 10.7–11.5 KB of 12 KB.
+  - **Cycles:** a PSET statement is estimated at 5,000–8,000 (its two coordinates evaluated, then MAPXYC and the
+    plot). The far call is 4–6% of that.
+  - **Timing gate** (V6), by the same method, in SCREEN 2:
+    - `PSET (X%,Y%),1` with integer variables: at most 9,000 cycles a statement;
+    - `LINE (0,0)-(639,199),1`: at most 200,000 cycles. That is 640 points, each two rows, at an estimated 120–240
+      a point, and the statement.
+
+    The same rule for the limits as 7d's. A plotted pixel inside a LINE or CIRCLE costs an estimated 60–120, with no
+    far call. A PAINT of a full SCREEN 2 is the slow case, to be timed. LINE BF fills each row's run by
+    `DM_VFILL` (`GX_FRECT`'s way) if that is faster than plotting, as measured.
+- **7f: sound, input and events** (P7).
+  - **What it holds:**
+    - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
+    - STICK, STRIG, ON STRIG on the controllers;
+    - ON KEY(n) and KEY(n) on the queue;
+    - ON TIMER and TIMER on the millisecond counter and function 105.
+  - **Size:** 6–8 KB banked.
+  - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
+    so the CPU doesn't keep time. STICK is a load from the event area after one far call.
+- **7g: the release.**
+  - GWBASIC.COM and GWBASIC.OVL on the cards (`make_card.sh`), with LICENSE.TXT.
+  - The User's Guide's GW-BASIC chapter (the OO-1's differences, not a BASIC manual), and the Programmer's Guide's
+    note on the blocks a program takes.
+  - The demo programs for phase 8.
+  - **OODOS 1.0** (the owner, 2026-11-13): the version raised, and the interfaces programs use declared stable,
+    once the questions left open for 1.0 (above) are each settled or left out.
+
+**Totals:** about 10.1 KB resident and 62–68 KB banked, against the spike's 65–73 KB in all.
+
+#### The OEM layer ####
+
+**The keys: one source (V2).** The cooked keys and the event queue both get every key, with no order between
+them ([chapter 8](../docs/oodos-programmers-guide/08-game-services.md#the-keyboard)), so GW-BASIC reads only one.
+With its own screen (7d on) that is the event queue, layout 2; in 7a's console mode it is the BDOS's console
+functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG or ON KEY.
+
+- **`EVPOLL`, resident** (about 80 bytes), drains the queue. NEWSTT calls it each statement, and so do INKEY$,
+  INPUT$, the editor's wait and `ISCNTC` (the ^C test of long loops). With the queue empty it is a load and a
+  compare, about 8 cycles: 0.2% of the core loop's 4,700. Otherwise it takes each event in order from the tail:
+  - `EK_KEY`: one far call to P6's `KEYEV`, which translates it (`UCHAR`'s way; the extended codes and the
+    function keys), puts it in the keyboard queue in `LOWRAM`, and sets ON KEY(n)'s flag for a trapped key. ^C sets
+    the break flag instead, and flushes the keyboard queue, as GW-BASIC's own ^C does. `KEYEV` then throws the
+    key's cooked twin away (W1): while function 11 (console status) says a key is ready, each read by function 6
+    and dropped;
+  - `EK_SOUND`: one far call to P7's `SNDEV`, which passes the byte to `MU_EVENT` and keeps the voices' counts
+    for PLAY's queue and ON PLAY(n)'s flag;
+  - `EK_CTL`: in `EVPOLL` itself, with no far call: its fire bits latched for STRIG(0), (2), (4) and (6), and ON
+    STRIG(n)'s flag;
+  - the mouse's and the devices' events are dropped.
+
+  A key costs about 350 cycles, and about 1,000 more for the drain (function 11, then 6, for the key, and 11
+  again); a note's end, about 400.
+- **The cooked keys are never left to pile up (W1).** The card keeps cooking every key while GW-BASIC reads the
+  queue, and nothing else reads them, so without a drain the CCP would get the whole session's typing after
+  SYSTEM. A key's cooked twin may come a little after its event, so three places drain, each while function 11
+  (console status) says a key is ready, reading each with function 6 and dropping it (X2). Function 6 with `$FF`
+  alone won't do: it returns 0 both for no key and for a cooked NUL, so a drain on it could stop early:
+  - `KEYEV`, after each key event;
+  - the editor's wait, each time round;
+  - SYSTEM, once more, just before `JMP WBOOT`.
+
+  A drain costs nothing on the core statement path, since it runs only with a key.
+
+| GW-BASIC | On | Missing, or to check |
+|---|---|---|
+| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed |
+| COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM |
+| LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
+| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's |
+| SOUND, BEEP | `MU_TONE` on a voice; `SN_BEEP` | SOUND's length is in 1/18.2 s ticks: × 54.9 ms |
+| PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
+| STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |
+| ON TIMER, TIMER | `EV_MS`, polled at NEWSTT; TIMER from function 105 and the SCB's time, with the milliseconds for the fraction | — |
+| INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)) |
+| ON KEY(n), KEY | the queue's `EK_KEY` events | — |
+| files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
+| COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
+| LPRINT, LLIST | LST: (function 5) | LST: takes and drops for now (no parallel port modelled) |
+| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)) |
+| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed |
+| CALL, USR | a 6502 routine in the TPA (segment 0) | any other segment refused: code in a block is GW-BASIC's own |
+| INP, OUT, WAIT | — | refused (Illegal function call), as the hardware is OODOS's (AGENTS.md); [question 13](#phase-7s-questions) |
+
+**DEF SEG and the 20-bit address.** A segment × 16 + an offset is a physical address, wrapping at 1 MB as an
+8088's does. Segment 0, DEF SEG's default here, is physical `$00000`. That is the program's blocks 0–2, so for
+offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's result works as on a PC.
+
+- **Blocks 0–2:** a direct load or store, under segment 0 or any other segment that names them.
+- **The program's allocated blocks, and banks 9–B:** through P5, by `GX_BLOCK`, a load or store, then
+  `GX_W1BACK`. One far call each, about 400 cycles.
+- **Any other RAM that function 83 may read** (block 3, bank E): PEEK by a 1-byte `DM_COPY` (a BDOS call, about
+  1,000 cycles). POKE only where 83 may write.
+- **OODOS's own memory** (banks 6, 7, C, D and F, and the aperture's OODOS slots): a POKE is Illegal function call.
+  A PEEK reads what 83 allows, else 0.
+- **Card memory** has 24-bit addresses, which no segment reaches. Decided ([question 10](#phase-7s-questions)): segments `$8000–$8FFF` (the aperture,
+  which means nothing fixed to a program) name the current SCREEN page's card memory, so
+  `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`.
+
+#### Testing ####
+
+- **The oracle: PC-BASIC, in a throwaway container only.**
+  - `oodos/gwbasic/tools/oracle.sh` (new, map rule `none`: run by hand) builds a container from a pinned Python
+    image with a pinned PC-BASIC.
+  - It copies the `.BAS` files in with `docker cp` (a bind mount would resolve on the daemon's host), runs each
+    headless, copies the transcripts out, and removes the container.
+  - Nothing of PC-BASIC (GPLv3) enters the repo. Only its outputs do, as expected files, each headed with the
+    PC-BASIC version.
+  - The tests never run Docker: they compare against the committed files.
+  - Allowed by the owner (2026-11-13, [question 2](#phase-7s-questions)), fetched for 7a's tests.
+- **mbf.py's vectors.**
+  - mbf.py and its vectors move from the spike to `oodos/gwbasic/test/`. The spike itself stays as recorded.
+  - They run against the port's math modules on the emulator's W65C02S core, as the spike's `run6502` did: 93,289
+    vectors in seconds, bit for bit.
+  - The ulp bounds and the correct-rounding checks of `check.py` are kept.
+  - `$FOTB` and the powers of ten are checked against mbf.py's tables, since the vectors pass with a wrong low byte
+    there.
+- **Programs** run on GWBASIC.COM in `CcpRig` (`put_m()`, then `cmd("m:gwbasic prog")`, the program ending in
+  SYSTEM), each output against the oracle's. The programs come from:
+  - the spike's seven programs;
+  - a program per statement, written from its branches in the 8086 source (each error, each type);
+  - the random-expression programs of `basic.py`.
+- **Golden frames for graphics,** two ways:
+  - **Pixels:** each test program ends by printing its screen's pixels with POINT, as text, so PC-BASIC's
+    transcript is the oracle for every pixel (SCREEN 1 and 2, the PC's modes).
+  - **Frames:** the emulator's frame against a committed golden PNG, as OOUI's suites do, for what POINT can't see:
+    the palette, the layer, the border, the OO-1's own modes, and the text screen's colours.
+- **Tests that must fail first,** each broken once on purpose and caught:
+  - a byte of `$FOTB` changed (the table check);
+  - the gate's budget lowered under the build's size (the size gate);
+  - the loader's copy of common memory skipped (the first far call's interrupt, or its BDOS call, goes astray: a
+    test with a tick during a far call fails);
+  - `GX_W1BACK` left out after a PSET (a test whose variables sit in `$4000–$7FFF` reads them wrong);
+  - the dispatcher's page table off by one (the wrong block's code runs);
+  - `.3333334` against the oracle (the expected file fails until [question 3](#phase-7s-questions) is followed);
+  - one expected transcript changed by a character;
+  - **the key order (V2):** "1", "2", "3" pressed within one frame must come back from INKEY$ as "123", once each.
+    A build that also reads the cooked keys (the keys twice), or that drains the queue from the head, fails it;
+  - **P5's seed (V3):** a POKE into an allocated block, then a variable in `$4000–$7FFF` read back. It fails with
+    `GX_W1BACK` left out of the seed's entry;
+  - **the cooked keys drained (W1):** keys typed in BASIC, then SYSTEM: the CCP's next line must be empty. A
+    build without SYSTEM's drain (or `KEYEV`'s) fails it;
+  - **LOAD at the top (W2):** a program whose end lies in its file's last record, saved with the workspace nearly
+    full and loaded again, with sentinels past the top: they must be unchanged, and the program must run. A build
+    that loads the last record whole by `DM_LOAD` fails it;
+  - **a buffer in P4's RAM (V1):** a sequential file written and read back. It fails if the BDOS's record goes to
+    the program's CPU address in another block, not through W3.
+- **The test map and labels** ([hw/testing.md](testing.md)):
+  - **A new label, `gwbasic`.** `oodos/gwbasic/` maps to it, in a rule before `oodos/`, so a change to GW-BASIC
+    runs its suites without all of OODOS's. `emulator/test/host/gwbasic/` (the expected files and frames) maps to
+    `gwbasic` too, and `oodos/gwbasic/tools/oracle.sh` to `none`.
+  - **The suites carry `oodos` and `gwbasic`,** so a change to OODOS or OOLIB runs them too, and the device
+    labels of what each drives:
+    - `test_gwbasic_math` and `test_gwbasic_core` (7a), `test_gwbasic_stmts` (7b): none;
+    - `test_gwbasic_files` (7c): `sd`;
+    - `test_gwbasic_screen` (7d): `video` and `usb`;
+    - `test_gwbasic_gfx` (7e): `video`;
+    - `test_gwbasic_sound` (7f): `sound`, `sid`, `usb`, `via` and `joy`.
+  - **None is `emu`,** so the sanitizers never run them.
+  - `test_map.py check` holds the rules to the suites.
+
+#### The source and the licence ####
+
+- **By hand, as the spike did,** routine by routine, idiom by idiom:
+  - zero-page pseudo-registers;
+  - numbers in zero page named by X, in memory by a pointer;
+  - the BASIC stack;
+  - no 8086 push and swap glue.
+
+  A mechanical translation would be bigger (the spike's risks), and the margin is 1.4 KB.
+- **A tool keeps the account. A ledger,** `oodos/gwbasic/ledger.txt`, lists every 8086 routine the port needs (its
+  file, label and lines, and `sizes.py`'s 8086 bytes) and what became of it: a 6502 file and label, the OEM layer,
+  or dropped with why. A script checks the ledger against the source, so no routine that is called goes
+  unaccounted for. It also checks the ledger against the link map, giving each routine's ratio, which the size
+  gate sums.
+- **A translated routine is checked:**
+  - against mbf.py where it is math;
+  - against the oracle, by programs that reach each of its branches;
+  - by the 65C816 rules gate;
+  - by review side by side, the 8086 label and line in a comment at each 6502 label, its branches kept in order.
+- **The source** (decided, [question 1](#phase-7s-questions)): one `git clone` of github.com/microsoft/GW-BASIC,
+  commit `edf82c2ebf6bfe099c2054e0ae125c3efe5769c4`, recorded in the ledger too, in
+  `~/workspace/references/gw-basic/`, beside the CP/M 3 manuals, outside the repo:
+  - read-only and never executed: it is `.ASM` text, and nothing here assembles 8086;
+  - read only with ordinary tools and by `python3 -I` scripts kept elsewhere (`sizes.py`, the ledger's check).
+  - The mode bits don't stop a write on this machine's shared file system, so the rule is kept by the tools: no
+    script writes there.
+- **The notice.** Every derived file (each translated module, `gwbasic.inc`, mbf.py, `basic.py`) starts with:
+  - the 8086 file it comes from;
+  - "Copyright (c) Microsoft Corporation";
+  - "MIT licence: see LICENSE".
+
+  `oodos/gwbasic/LICENSE` holds Microsoft's MIT text and lists the derived files, as the spike's does; the rest is
+  the repository's. The binary carries it too: the banner names Microsoft's copyright, and LICENSE.TXT goes on
+  every card with GWBASIC.COM, and on the website (phase 8).
+- **`.3333334`.** The 1983 source rounds 1/3 to `.3333334`: `$FOTNV`'s double, then `$CSD`'s half-up rounding,
+  then `$FOTCV`'s .5. Shipped GW-BASIC is generally reported to print `.3333333`, so the shipped `$FOUT` differs
+  from this source.
+  - **Decided (2026-11-13, the owner, [question 3](#phase-7s-questions)):** the port prints `.3333333`, what
+    shipped GW-BASIC prints.
+  - **Recorded as a deviation:** marked at the routine in the source as a change from the 1983 file, with a flag
+    in mbf.py, so both roundings stay tested.
+  - **7a's first oracle run** confirms PC-BASIC's `.3333333` and finds the rule: which of `$FOTNV`, `$CSD` and
+    `$FOTCV` the shipped behaviour differs in. That is shown only by the oracle's outputs over many numbers, since no
+    later source is released. The ledger records which routine changed and why.
+
+#### What phase 8 needs from this ####
+
+- **On the files:**
+  - GWBASIC.COM and GWBASIC.OVL on the demo card (`emulator/test/host/sd/demo.sparse`, by `make_card.sh`), with
+    LICENSE.TXT;
+  - demo programs that are all the project's own or MIT, with graphics and sound, each with its expected output
+    or frame in the suites, so the card never ships a program the tests don't run.
+- **For the page:**
+  - the WebUI's keys for F1–F10, Home, End, Ins and Del reaching the USB card. A browser keeps some (F5, F11), so
+    the page needs a way round, such as a key strip;
+  - the credits naming Microsoft's copyright and the MIT notice;
+  - a smoke test: the card boots, `GWBASIC` starts, and a demo runs.
+- **Its timing:** GW-BASIC's speed in the WebUI is the emulator's (7.16 MHz when the host keeps up). The demos are
+  chosen to look right at it.
+
+#### Phase 7's questions ####
+
+All decided by the owner, as recommended: 1–3 and 5 at review round 1, the rest at round 2 (2026-11-13). Each
+alternative is kept as the record of what was weighed.
+
+1. **The source.** *Decided (2026-11-13, the owner): as recommended.* Fetched once, at commit
+   `edf82c2ebf6bfe099c2054e0ae125c3efe5769c4`, into `~/workspace/references/gw-basic/`, read-only (`chmod -R
+   a-w`), outside the repo, never executed or built, read with ordinary tools or `python3 -I` scripts kept
+   elsewhere.
+2. **The oracle.** *Decided (2026-11-13, the owner): as recommended.* PC-BASIC in a throwaway container from
+   pinned images, outputs alone committed. It is fetched for 7a's tests, not before.
+3. **`.3333334`.** *Decided (2026-11-13, the owner): as recommended.* The port prints what shipped GW-BASIC
+   prints, `.3333333`, recorded in the source and in mbf.py as a deviation from the 1983 source.
+4. **The home block.** *Decided (2026-11-13, the owner): none.* If 7a's measured size breaks the gate,
+   the outermost-far-call form above, which changes nothing in OODOS or FARCALL. *Alternative:* a home block
+   from the start, for 4–6 KB more free, under the rule that banked code never calls it.
+5. **A lean FARCALL.** *Decided (2026-11-13, the owner): none in phase 7.* Any variant changes common memory or
+   the window rule, so it would come back as its own question, with a measurement.
+6. **Common memory in GW-BASIC's blocks.** *Decided (2026-11-13, the owner):* GW-BASIC's loader copies it, as
+   `ui_load` does; OODOS unchanged. *Alternative:* OODOS copies at allocation for a flagged MCB, an interface
+   addition (53–56's M_EXT), which every caller that doesn't set the flag never sees.
+7. **OOLIB's place** ([oolib.md, question 9](oolib.md#open-questions)). *Decided (2026-11-13, the owner):* linked into GW-BASIC's video block, one copy, so no OOLIB change and no TPA. *Alternative:*
+   `gxmem` resident in the TPA (1,291 bytes with its BSS), callable from every block, at the cost of most of the
+   margin.
+8. **The text screen.** *Decided (2026-11-13, the owner):* GW-BASIC's own text layer in its card memory (for COLOR's
+   attributes, the editor's reading back, and speed), 25 rows of the 30 by default, WIDTH 80,30 as an OO-1
+   extension. The console is the fallback with no revision 2 card, its keys the console's alone. *Alternative:*
+   the OODOS console, which would need colour escapes added to OODOS (an interface addition).
+9. **SCREEN's modes.** *Decided (2026-11-13, the owner):*
+   - SCREEN 1 as a tile frame and SCREEN 2 as mono with doubled rows, both at the PC's coordinates;
+   - the OO-1's own as SCREEN 10 (bitmap 256), 11 (bitmap 512) and 12 (mono 640 × 480), numbers no GW-BASIC
+     used.
+
+   *Alternative:* the OO-1's modes only, which breaks PC listings' coordinates.
+10. **Card memory from DEF SEG** (from 7d, which makes the screen pages). *Decided (2026-11-13, the owner):* segments
+    `$8000–$8FFF` as the current screen page's card memory, as above. *Alternative:* none: card memory only
+    through the graphics statements.
+11. **FARPEEK, FARPOKE and FARMOVE.** *Decided (2026-11-13, the owner): not built.* GW-BASIC uses OOLIB's `GX_BLOCK`
+    and function 83, and V1's buffers need no move at all (route (c)). Common memory has 166 bytes left.
+    *Alternative:* build them as proposed under [Far calls](#far-calls), as an interface addition to the far call
+    table (FARCALL itself unchanged), which the rule allows; the 32 KB doesn't need
+    it.
+12. **COM's receive buffer.** *Decided (2026-11-13, the owner):* 7c ships COM1 polled, documented as losing characters
+    while BASIC is busy. A receive buffer filled by the serial card's interrupt becomes an OODOS question of its
+    own (an addition to the dispatcher and AUX), with the serial card's model. *Alternative:* that addition
+    first.
+13. **INP, OUT and WAIT.** *Decided (2026-11-13, the owner): refused.* *Alternative:* OUT and INP on the VIA's user port
+    alone, under OOLIB's claim (question 6 there).
+14. **Breaking a program.** *Decided (2026-11-13, the owner):* ^C breaks, through function 109's mode, and it reaches
+    GW-BASIC as an event. Pause stays OODOS's Break to the monitor, so the monitor can always stop a GW-BASIC
+    that has hung. *Alternative:* Pause breaks the BASIC program, as a PC's Ctrl+Break does. It would come through
+    the event queue as `EK_KEY`'s usage `$48`. The cost:
+    - **An interface addition:** function 81 gains an operation that turns off Pause's /NMI (the USB card's KBCFG
+      bit 7) while the program runs. The warm boot already puts it back ("Pause on Break"). That is about 40 bytes
+      in OODOS and OOLIB's interface 9.
+    - **While GW-BASIC runs, the monitor can't stop it.** A GW-BASIC that has hung (a primitive's endless loop, a
+      bad POKE) needs Ctrl-Reset.
 
 ## Testing ##
 
@@ -4376,7 +4981,10 @@ entries and indexes in docs/ are.
    *Proposed (2026-10-30), not yet numbered:* the game and device services ([oolib.md](oolib.md)) as a phase
    before GW-BASIC, whose SCREEN, PLAY, STICK and ON TIMER are written on them: the interrupt dispatcher and the
    VIA's system tick first. Its open questions are the owner's to settle first.
-7. **GW-BASIC.**
+7. **GW-BASIC.** Its release is **OODOS 1.0**, at which the interfaces programs use are declared stable (the
+   owner, 2026-11-13; until then they only grow, [AGENTS.md](../AGENTS.md)).
+   *Approved (2026-11-13, the owner):* seven stages, 7a–7g, with FARCALL, OODOS and OOLIB unchanged:
+   [The plan, phase 7](#the-plan-phase-7).
 8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
 
 
@@ -4404,6 +5012,10 @@ entries and indexes in docs/ are.
 
   For phase 2: prototype it in the spike harness and time, with `check.py --timing`, the BDOS map-in stub, a
   PRINT through the home block and `$FOUT` under the placement rule.
+
+  *Decided for phase 7 (2026-11-13, the owner):* none. 32 KB stays free without it. If 7a's measured size breaks the gate,
+  GW-BASIC can have one with no change to FARCALL or OODOS, as an outermost far call
+  ([phase 7's question 4](#phase-7s-questions)).
 - **A lean FARCALL**, keeping only A and the flags across the call, would save an estimated 100–140 of its 281
   cycles (not measured: reading the inline bytes, the return frame and the two window writes stay). Under 1% on
   PRINT, more on a graphics loop's far call a point, nothing on the core statement path. Against it:
@@ -4418,9 +5030,20 @@ entries and indexes in docs/ are.
   Leaning (2026-10-27): keep the full FARCALL as the interface; if phase 2's timing shows far calls matter
   somewhere (graphics), a lean variant private to GW-BASIC's dispatchers, whose targets take nothing in X or Y.
   Time a lean prototype with `check.py --timing` first.
+
+  *Decided for phase 7 (2026-11-13, the owner):* none. GW-BASIC does without it, and any lean variant would change common
+  memory or the window rule, so it comes back to the owner only with a measured need
+  ([phase 7's question 5](#phase-7s-questions)).
 - **Common memory in an allocated block** (deferred to phase 7, 2026-10-30, with the two questions above). FARCALL
   needs common memory in the top 2 KB of a block it maps into W3 ([Far calls](#far-calls)), but 3c's 53–56
   allocate blocks and copy nothing into them. Phase 7 decides how a block is marked for code (a flag in the MCB,
   or a function of OODOS's own), who copies common memory in (OODOS at allocation, or FARCALL's first use), and
   how that fits a home block and a lean FARCALL. Until then a program copies common memory into a block itself
   (test_oodos_sys puts it in FARTEST's and STUBTEST's blocks by hand).
+
+  *Decided for phase 7 (2026-11-13, the owner):* GW-BASIC's loader copies common memory into its own blocks, as OOUI's
+  `ui_load` does, and OODOS stays as it is. Copying at allocation for a flagged MCB stays possible later, as an
+  addition ([phase 7's question 6](#phase-7s-questions)).
+- **Phase 7's other questions,** all decided (2026-11-13, the owner): the source, the oracle, `.3333334`, OOLIB's place, the screen, the
+  modes, DEF SEG on card memory, FARPEEK, COM's buffer, INP and OUT, and ^C: [Phase 7's
+  questions](#phase-7s-questions).

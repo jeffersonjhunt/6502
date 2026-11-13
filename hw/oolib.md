@@ -1503,6 +1503,8 @@ question 15.
 9. **Where OOLIB's code lives.** Linked into each program (as proposed), or also kept in an allocated block and
    reached by FARCALL for programs short of TPA space (GW-BASIC is)?
    **Recommended:** linked, in L4. A FARCALL copy waits for GW-BASIC, with its own measurements.
+   *Decided for GW-BASIC (2026-11-13, [hw/oodos.md phase 7, question 7](oodos.md#phase-7s-questions)): linked
+   into its video block, one copy; no OOLIB change.*
 10. **The console during a game.** May a game use the text layer for its own status line while the console's
     output goes elsewhere, or does any console output put the console's text screen back?
     **Recommended:** a program that takes the screen keeps it. Console output goes on into the console's own
@@ -1542,3 +1544,8 @@ question 15.
     masked) and writes; the cost counted in disk bytes read. A field is shorter than a frame, so none is lost.*
 15. **The version.** *New (2026-11-07).* **Recommended:** OODOS 0.5 when L1–L4 are merged, one bump as for
     phases 5 and 6, and OOLIB's interface version 1 from L1, raised by each step that adds to it.
+    *The versions so far (function 80's `FT_INFO`):* 1 L1, 2 L2, 3 L3, 4 L4, 5 L4b's hold, go and volume, 6 L5a's
+    mailbox stamp, 7 OODOS 0.8's `EV_SFLAGS`, 8 OODOS 0.9's video card revision 2, 9 function 77, the ROM BIOS's
+    version (hw/diag.md's D1, 2026-11-13). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
+    also marks OODOS's own additions a program needs to detect, OOLIB's or not, since it is the one number a
+    program can ask for (OODOS's own version is printed one digit each, and changes only at a release).

@@ -93,6 +93,7 @@ emulator/test/host/sd_images.h                  sd web
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
 emulator/test/host/golden/ooui.txt              test_oodos_ui
+emulator/test/host/golden/sysinfo*              test_oodos_sysinfo
 emulator/test/host/sd/                          sd oodos web
 emulator/test/host/mp3/                         sound web
 emulator/test/host/sound/                       test_sound_driver
@@ -117,6 +118,8 @@ emulator/.clangd                                none
 emulator/.gitignore                             none
 
 # --- the machine's software: the BIOS, OODOS, the books ------------------------------------------------
+# oohw (hw/diag.md): built into oohw.lib for OODOS's DIAG and SYSINFO now, and into the ROM's diagnostics (D3).
+backplane/oohw/                                 bios oodos docs
 backplane/bios/backplane.inc                    bios oodos docs web
 backplane/bios/apple.s                          bios apple docs web
 # The ROM BIOS's SD code (sd.s, and bios.s's reset of the card) is on the path of the cards the tests write

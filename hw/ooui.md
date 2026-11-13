@@ -2201,7 +2201,12 @@ the next small phase's question.
   some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
 - **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; `ui_theme`, and hiding a
   full-screen overlay window, draw again the widgets it covers; the picker takes 12-14 frames to switch user (made
-  again by the program, as OO-Amp's U does: L4).
+  again by the program, as OO-Amp's U does: L4). (The modal picker no longer swallows the keys it doesn't use: the
+  landing passes them on, L6.) *(Proposed, found by UIDEMO, 2026-11-13:)* in the blue theme (`UI_TURBO`) a slider's
+  text thumb and a list's scroll bar barely show against what is round them; and a click on a radio button or a
+  list's row gives no `UE_FOCUS`, as a click on a check box or a button does. *(Proposed, the UIDEMO review's Y1:)*
+  `ui_close` leaves the console's cooked key (KEY) strobed; a drain there would cover every program (UIDEMO drains
+  it itself before `ui_close`).
 - **An S3 target** *(the owner, 2026-11-13)*: one key's change on screen within a frame. OO-Amp's
   `a_key_s_state_changes_within_a_frame` measures 1.24 frames (its limit 1.1): OOUI's paint in that key's pass.
   It is a known failure until S3.

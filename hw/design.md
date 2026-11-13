@@ -3,6 +3,8 @@
 Draft, 2026-10-21. The architecture of the backplane computer as agreed so far. Each section separates what is
 **decided** from what is **proposed** (a starting point, open to change); open questions are collected at the end.
 Card pin-outs and the module ID list are in [modules.md](modules.md), the front panel in [console.md](console.md).
+**Proposed (2026-11-13):** the diagnostics (a ROM core in the BIOS and DIAG.COM) and SYSINFO, with their shared
+library, are planned in [diag.md](diag.md).
 
 
 ## Goals ##
@@ -1635,7 +1637,7 @@ ports added 2026-10-30, [below](#the-via-and-the-joystick-ports))
 | `$C310–$C312` | LPT: data, status, control, as at a PC's LPT base + 0–2 |
 | `$C320–$C323` | card registers |
 | `$C340–$C34F` | the W65C22S VIA, its 16 registers in WDC's order ([below](#the-via-and-the-joystick-ports)) |
-| `$C37F` | ID: card type and revision |
+| `$C37F` | ID: card type and revision. **Decided (2026-11-13, the owner, [diag.md](diag.md#the-owners-answers), answer 6): `$61`**, module 6 at revision 1. The emulator's stand-in 6551 has no ID register: its four registers are mirrored through the block, so `$C37F` reads its control register |
 
 | Offset | Name | Access | Purpose |
 |---|---|---|---|

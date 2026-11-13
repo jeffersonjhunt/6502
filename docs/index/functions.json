@@ -585,6 +585,15 @@
   "status": "built"
  },
  {
+  "number": 77,
+  "name": "O_ROMVER",
+  "documented": true,
+  "anchor": "bdos-77",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "Interface version 9 (function 80's `FT_INFO`).",
+  "status": "built"
+ },
+ {
   "number": 80,
   "name": "O_FRAME",
   "documented": true,

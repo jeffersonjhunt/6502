@@ -245,6 +245,9 @@ export class FakePort implements MachinePort {
   sendMouse(mouse: MouseInput): void {
     this.calls.push(["sendMouse", mouse]);
   }
+  mouseAbsolute(): boolean {
+    return false;
+  }
   setJoystick(stick: number, pressed: number): void {
     this.calls.push(["setJoystick", stick, pressed]);
   }
