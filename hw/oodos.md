@@ -4023,6 +4023,12 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       through the 128-byte records it spans, one at a time, through the file's own 128-byte buffer in P4 (a
       random file has no sequential use for it), read, changed and written back for a part record. /S:, the most
       LEN may be, is at most 1,024 (W4; GW-BASIC's own limit is 32,767);
+    - **past the file's end** (X1): a PUT whose record ends partway through a 128-byte record must read that
+      record first, and there function 33 returns 1 (unwritten data) or 4 (past the extent). In the
+      read-modify-write, a 33 that returns 1 or 4 gives a buffer of zeros, the new bytes go into it, and the 34
+      that follows writes it. A GET past the end gives GW-BASIC's empty record for the same two codes. Tested:
+      LEN 100, records 1–5 PUT to a new file, then each GET back as it was written (records 2, 3 and 4 end inside
+      a 128-byte record no earlier PUT reached);
     - LOAD of a tokenised program (W2): whole records by `DM_LOAD`, straight into the workspace, only while each
       fits below the workspace's top; the last, or the first that wouldn't fit, through the file's buffer in P4,
       copying only the bytes below the top. Its end is found by the line links, as GW-BASIC finds it. A program
@@ -4101,18 +4107,21 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
   - `EK_KEY`: one far call to P6's `KEYEV`, which translates it (`UCHAR`'s way; the extended codes and the
     function keys), puts it in the keyboard queue in `LOWRAM`, and sets ON KEY(n)'s flag for a trapped key. ^C sets
     the break flag instead, and flushes the keyboard queue, as GW-BASIC's own ^C does. `KEYEV` then throws the
-    key's cooked twin away (W1): function 6 with `$FF` until it returns 0;
+    key's cooked twin away (W1): while function 11 (console status) says a key is ready, each read by function 6
+    and dropped;
   - `EK_SOUND`: one far call to P7's `SNDEV`, which passes the byte to `MU_EVENT` and keeps the voices' counts
     for PLAY's queue and ON PLAY(n)'s flag;
   - `EK_CTL`: in `EVPOLL` itself, with no far call: its fire bits latched for STRIG(0), (2), (4) and (6), and ON
     STRIG(n)'s flag;
   - the mouse's and the devices' events are dropped.
 
-  A key costs about 350 cycles, and about 500 more for function 6's drain; a note's end, about 400.
+  A key costs about 350 cycles, and about 1,000 more for the drain (function 11, then 6, for the key, and 11
+  again); a note's end, about 400.
 - **The cooked keys are never left to pile up (W1).** The card keeps cooking every key while GW-BASIC reads the
   queue, and nothing else reads them, so without a drain the CCP would get the whole session's typing after
-  SYSTEM. A key's cooked twin may come a little after its event, so three places drain, each by function 6 with
-  `$FF` until it returns 0:
+  SYSTEM. A key's cooked twin may come a little after its event, so three places drain, each while function 11
+  (console status) says a key is ready, reading each with function 6 and dropping it (X2). Function 6 with `$FF`
+  alone won't do: it returns 0 both for no key and for a cooked NUL, so a drain on it could stop early:
   - `KEYEV`, after each key event;
   - the editor's wait, each time round;
   - SYSTEM, once more, just before `JMP WBOOT`.
@@ -4121,7 +4130,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 
 | GW-BASIC | On | Missing, or to check |
 |---|---|---|
-| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Proposed: a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed ([question 9](#phase-7s-questions)) |
+| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed |
 | COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
 | PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's |
@@ -4150,10 +4159,9 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   1,000 cycles). POKE only where 83 may write.
 - **OODOS's own memory** (banks 6, 7, C, D and F, and the aperture's OODOS slots): a POKE is Illegal function call.
   A PEEK reads what 83 allows, else 0.
-- **Card memory** has 24-bit addresses, which no segment reaches. Proposed: segments `$8000–$8FFF` (the aperture,
+- **Card memory** has 24-bit addresses, which no segment reaches. Decided ([question 10](#phase-7s-questions)): segments `$8000–$8FFF` (the aperture,
   which means nothing fixed to a program) name the current SCREEN page's card memory, so
-  `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`. A question
-  ([10](#phase-7s-questions)).
+  `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`.
 
 #### Testing ####
 
