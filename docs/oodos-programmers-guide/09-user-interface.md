@@ -15,6 +15,15 @@ stubs, about 3 KB of the program's memory with its state
 OO-Amp's port asked for (own thumbs, hit margins, the picker's Add all) and made the repaint and the hit tests
 cheaper ([hw/ooui.md, "U3b: the outcome"](../../hw/ooui.md#u3b-the-outcome)). The reference comes with phase U5.
 
+**A program to read** (*proposed*): `UIDEMO.COM`, on the demo card's A:, is an OOUI program a visitor runs in under a
+minute: one window with a menu bar, check boxes, radio buttons, a slider and a bar that follows it, a list, a text
+field, the message box and the file picker, both themes, by the keyboard and the mouse. Its source,
+[oodos/demo/uidemo.s](../../oodos/demo/uidemo.s), is a whole OOUI program in about 500 lines: the event area and
+OOLIB set up, `ui_load`, the table written with the layout macros, the `ui_poll` loop, and `ui_close` before the
+warm boot. It links as OOUI's test programs do, with `ooui.lib` and `oolib.lib` and a config that puts `UISTATE`
+at `$8000` ([oodos/demo/uidemo.cfg](../../oodos/demo/uidemo.cfg)):
+`make -C oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/uidemo.com`. It is 5,198 bytes.
+
 OOUI is a library of 6502 code that a program loads and calls, as it calls OOLIB's graphics library, to get the same
 windows, menus, dialogs, lists, scroll bars and file picker as every other OO-1 program. The program describes its
 widgets in a table in its own memory; OOUI draws them on the video card's layers, takes the keyboard and the mouse

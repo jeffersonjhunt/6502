@@ -53,6 +53,16 @@ Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 Then the prompt. To leave OODOS, see [WOZMON](04-built-in-commands.md#wozmon) and
 [APPLE2](04-built-in-commands.md#apple2).
 
+## The demo card
+
+*Proposed.* The emulator's web page puts a demo card in the SD slot at each visit. Its A: holds OODOS, the
+utilities, `README.TXT` (what to try, `TYPE README.TXT`) and two files of OOUI's, the OO-1's windows and menus:
+`OOUI.BNK`, the library, and `UIDEMO.COM`, a program that shows it off. Type `UIDEMO` at `A>`, with the page on
+Display (the VGA screen, the USB keyboard and mouse): a window with a menu bar, check boxes, radio buttons, a slider
+and a bar that follows it, a list, a text field, and Open file..., which puts up the file picker on A: and B:.
+Tab moves between them, Alt and a letter opens a menu, and the mouse works on everything. View switches the theme;
+File's Quit, the window's close box or Escape gives `A>` back. B: is empty, to work on.
+
 ## The prompt
 
 The prompt is the current drive and `>`:

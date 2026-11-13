@@ -5243,3 +5243,194 @@ TEST(s2_a_new_table_s_menus_and_unused_records_take_no_hit)
         std::printf("  the window unused: %s, want Cancel's click last\n", show(got).c_str());
     CHECK(!got.empty() && got.back().code == UE_CLICK && got.back().handle == B_CAN);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// UIDEMO (oodos/demo/uidemo.s, proposed): the demo card's OOUI program, as a visitor runs it. The demo card
+// booted, UIDEMO typed at A>, and its screens checked by golden frames (the main screen, a menu down, the file
+// picker on A:, the Turbo Vision theme); keys and the mouse drive it, and what ui_poll returned is read from its
+// EVLOG (4 bytes an event: its code, its widget, UV_VALUE; EVN counts them). Quit gives A> back with the
+// console's screen.
+
+namespace
+{
+    // uidemo.s's handles (its table's order)
+    enum : uint8_t
+    {
+        D_DESK, D_BAR, D_MFILE, D_ABOUT, D_SEP, D_QUIT, D_MVIEW, D_THEME, D_MAIN, D_HEAD, D_OPTS, D_SOUND, D_GRID,
+        D_SPEED, D_SLOW, D_NORM, D_FAST, D_PLIST, D_LIST, D_LVOL, D_VOL, D_LLEVEL, D_LEVEL, D_LNAME, D_NAME, D_OPEN,
+        D_BABOUT, D_BQUIT, D_STAT, D_COUNT
+    };
+    constexpr uint8_t K_A = 0x04, K_D = 0x07, K_V = 0x19, UI_MSG_ = 0xF0, UI_PICKER_ = 0xF1;
+
+    uint16_t dlab(const char *name)
+    {
+        static const std::map<std::string, uint16_t> l = labels(UTILS + "/uidemo.lbl");
+        return l.at(name);
+    }
+    struct DemoEvent
+    {
+        unsigned code, handle, value;
+        bool operator==(const DemoEvent &o) const { return code == o.code && handle == o.handle && value == o.value; }
+    };
+    /// The events UIDEMO logged since `seen` (EVN's last reading), which moves on.
+    std::vector<DemoEvent> demo_events(Rig &r, unsigned &seen)
+    {
+        std::vector<DemoEvent> ev;
+        const unsigned n = r.phys(dlab("EVN"));
+        for (; (seen & 0xFF) != n; ++seen)
+        {
+            const uint32_t at = dlab("EVLOG") + (seen & 63) * 4u;
+            ev.push_back({r.phys(at), r.phys(at + 1), static_cast<unsigned>(r.phys(at + 2) | r.phys(at + 3) << 8)});
+        }
+        return ev;
+    }
+    std::string show_demo(const std::vector<DemoEvent> &ev)
+    {
+        std::string s;
+        char b[40];
+        for (const DemoEvent &e : ev)
+        {
+            std::snprintf(b, sizeof b, "[%u %u %u]", e.code, e.handle, e.value);
+            s += b;
+        }
+        return s.empty() ? "[]" : s;
+    }
+    void expect_demo(Rig &r, unsigned &seen, const std::vector<DemoEvent> &want, const char *what)
+    {
+        r.run(ms(100));
+        const std::vector<DemoEvent> got = demo_events(r, seen);
+        if (!(got == want))
+            std::printf("  %s: got %s, want %s\n", what, show_demo(got).c_str(), show_demo(want).c_str());
+        CHECK(got == want);
+    }
+    /// A widget's value in UIDEMO's table.
+    unsigned demo_value(Rig &r, uint8_t h) { return static_cast<unsigned>(r.phys(dlab("tab") + h * 16u + 10) | r.phys(dlab("tab") + h * 16u + 11) << 8); }
+    /// UIDEMO's status line, its last event said.
+    std::string demo_status(Rig &r)
+    {
+        std::string s;
+        for (uint32_t a = dlab("stat"); r.phys(a) && s.size() < 64; ++a)
+            s += static_cast<char>(r.phys(a));
+        return s;
+    }
+    /// The demo card booted, UIDEMO typed at A> and its first paint shown. @return it came up
+    /// `console`: the video card's registers at A>, before UIDEMO.
+    bool start_demo(Rig &r, std::array<uint8_t, 0x30> &console)
+    {
+        if (!r.ok || r.mount(1, "/OODOS/A.IMG") != 0 || r.mount(2, "/OODOS/B.IMG") != 0 || !r.boot())
+            return false;
+        no_splash(r);
+        for (unsigned i = 0; i < console.size(); ++i)
+            console[i] = vid(r).peek(i);
+        r.type("UIDEMO\r");
+        for (int i = 0; i < 100 && r.phys(dlab("READY")) != 1; ++i)
+            r.run(ms(50));
+        r.run(ms(100));
+        return r.phys(dlab("READY")) == 1;
+    }
+} // namespace
+
+TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
+{
+    Rig r(sd_image("demo.sparse"));
+    std::array<uint8_t, 0x30> regs{};
+    REQUIRE(start_demo(r, regs));
+    unsigned seen = 0;
+    expect_demo(r, seen, {}, "the start");
+    golden(r, "uidemo-main");
+    CHECK_EQ(demo_value(r, D_LEVEL), 40u); // the bar where the slider starts
+
+    // The keyboard: a name typed in the field (the focus starts there), Tab on to Open file.
+    usb(r).key(L_SHIFT, true);
+    key(r, K_A);
+    usb(r).key(L_SHIFT, false);
+    key(r, K_D);
+    key(r, K_A);
+    key(r, K_TAB);
+    // Each key a live change (UV_VALUE the cursor), then the field's last as the focus leaves it.
+    expect_demo(r, seen, {{UE_CHANGE, D_NAME, 1}, {UE_CHANGE, D_NAME, 2}, {UE_CHANGE, D_NAME, 3}, {UE_FOCUS, D_OPEN, 0},
+                          {UE_CHANGE, D_NAME, 3}}, "a name and Tab");
+    CHECK_EQ(demo_status(r), std::string("Hello, Ada"));
+    // Shift+Tab back, twice: the slider; Right moves it a step (5), the bar with it.
+    key(r, K_TAB, L_SHIFT);
+    key(r, K_TAB, L_SHIFT);
+    expect_demo(r, seen, {{UE_FOCUS, D_NAME, 0}, {UE_FOCUS, D_VOL, 0}}, "Shift+Tab");
+    key(r, K_RIGHT);
+    expect_demo(r, seen, {{UE_CHANGE, D_VOL, 45}}, "Right on the slider");
+    CHECK_EQ(demo_value(r, D_LEVEL), 45u);
+    CHECK_EQ(demo_status(r), std::string("Volume: 45"));
+
+    // The mouse: Grid's check box (column 8, row 8), Fast (column 27, row 9), the slider pressed at its middle.
+    point(r, 8, 8);
+    button(r, true);
+    button(r, false);
+    point(r, 32, 9);
+    button(r, true);
+    button(r, false);
+    expect_demo(r, seen, {{UE_FOCUS, D_GRID, 0}, {UE_CHANGE, D_GRID, 1}, {UE_CHANGE, D_SPEED, 2}}, "Grid and Fast clicked");
+    CHECK_EQ(demo_status(r), std::string("Speed: Fast"));
+    point(r, 15 + 17, 12);
+    button(r, true);
+    button(r, false);
+    r.run(ms(100));
+    const std::vector<DemoEvent> slid = demo_events(r, seen);
+    CHECK(!slid.empty() && slid.back().code == UE_CHANGE && slid.back().handle == D_VOL);
+    CHECK(!slid.empty() && demo_value(r, D_LEVEL) == slid.back().value && slid.back().value >= 45 && slid.back().value <= 55);
+
+    // A planet chosen with the mouse, its row, then Enter.
+    point(r, 56, 9); // the list's third row: Earth
+    button(r, true);
+    button(r, false);
+    key(r, K_ENTER);
+    expect_demo(r, seen, {{UE_CHANGE, D_LIST, 2}, {UE_SELECT, D_LIST, 2}}, "Earth");
+    CHECK_EQ(demo_status(r), std::string("Chosen: Earth"));
+
+    // The File menu down (Alt+F), then Escape.
+    key(r, K_F, L_ALT);
+    r.run(ms(100));
+    golden(r, "uidemo-menu");
+    key(r, K_ESC);
+    // View's item: the Turbo Vision theme, its check mark on.
+    key(r, K_V, L_ALT);
+    key(r, K_ENTER);
+    expect_demo(r, seen, {{UE_MENU, D_THEME, 0}}, "the theme's item");
+    CHECK_EQ(demo_value(r, D_THEME), 1u);
+    r.run(ms(100));
+    golden(r, "uidemo-turbo");
+    key(r, K_V, L_ALT);
+    key(r, K_ENTER);
+    expect_demo(r, seen, {{UE_MENU, D_THEME, 1}}, "the theme's item again"); // UV_VALUE its check mark when chosen
+    CHECK_EQ(demo_value(r, D_THEME), 0u);
+
+    // Open file... clicked: the picker, on A:; its listing read over a few polls; Escape cancels it.
+    point(r, 10, 19);
+    button(r, true);
+    button(r, false);
+    r.run(ms(1500));
+    expect_demo(r, seen, {{UE_FOCUS, D_OPEN, 0}, {UE_CLICK, D_OPEN, 0}, {UE_MODAL, UI_PICKER_, 1}}, "Open file...");
+    golden(r, "uidemo-picker");
+    key(r, K_ESC);
+    expect_demo(r, seen, {{UE_PICK, UI_PICKER_, 1}, {UE_MODAL, UI_PICKER_, 0}}, "the picker cancelled");
+    CHECK_EQ(demo_status(r), std::string("No file picked"));
+    // About (F1): the message box, Enter its OK.
+    key(r, K_F1);
+    r.run(ms(100));
+    key(r, K_ENTER);
+    expect_demo(r, seen, {{UE_MENU, D_ABOUT, 0}, {UE_MODAL, UI_MSG_, 1}, {UE_CLOSE, UI_MSG_, 0}, {UE_MODAL, UI_MSG_, 0}}, "About");
+
+    // Escape with nothing open: A> again, the console's screen as it was before UIDEMO.
+    const size_t from = r.out.size();
+    key(r, K_ESC);
+    CHECK(r.until("A>", ms(2000), from));
+    r.run(ms(100));
+    // (Not LINE, $06-$07, the beam's; nor layer 1's, $20-$2F, which is off, as at A>.)
+    CHECK_EQ(regs[0] & 0x04, 0);
+    for (unsigned i = 0; i < 0x20; ++i)
+    {
+        if (i == 6 || i == 7)
+            continue;
+        if (vid(r).peek(i) != regs[i])
+            std::printf("  the video card's register $%02X: $%02X, at A> before $%02X\n", i, vid(r).peek(i), regs[i]);
+        CHECK_EQ(vid(r).peek(i), regs[i]);
+    }
+}
