@@ -1395,9 +1395,8 @@ CARDS
 ```
 
 - **SYSTEM:** the CPU and its clock, measured for a second against the clock chip and for 60 frames against the
-  video card (a few seconds in all); OODOS's version and its BIOS's, OOLIB's interface; OOUI.BNK on A:, if it is
-  there; the memory fitted and what programs get; how the machine booted. The ROM BIOS's version can't be read by a
-  program under OODOS, and SYSINFO says so: the boot's status lines show it.
+  video card (a few seconds in all); the ROM BIOS's version, OODOS's and its BIOS's, OOLIB's interface; OOUI.BNK
+  on A:, if it is there; the memory fitted and what programs get; how the machine booted.
 - **CARDS:** a line a card, found by its ID byte. A card that doesn't answer is `not found`; a card at a revision
   SYSINFO doesn't know says so. The serial card of the emulator is a stand-in with no ID.
 - **VIDEO, SOUND:** the cards' memory and parts, and which of the sound card's parts no program has claimed.

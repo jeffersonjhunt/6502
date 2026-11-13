@@ -744,8 +744,8 @@ TEST(function_81_s_info_and_its_refusals)
     command(r, 'I', "FINFOB");
     CHECK_EQ(field(r.out, "INFO"), std::string("03 02")); // keyboard and mouse; layout 2
     CHECK_EQ(field(r.out, "INFOB"), std::string("0302"));
-    CHECK_EQ(field(r.out, "FINFO"), std::string("08 0F")); // OOLIB 8: frame and timing, input, sound, DMA
-    CHECK_EQ(field(r.out, "FINFOB"), std::string("080F0302"));
+    CHECK_EQ(field(r.out, "FINFO"), std::string("09 0F")); // OOLIB 9: frame and timing, input, sound, DMA
+    CHECK_EQ(field(r.out, "FINFOB"), std::string("090F0302"));
     CHECK_EQ(command(r, 'N', "NEXT"), std::string("FF FF EEEEEEEEEEEEEEEE")); // no layout-2 area
     CHECK_EQ(command(r, 'F', "FLUSH"), std::string("00 00"));                 // nothing to flush
     command(r, 'B', "BAD5");

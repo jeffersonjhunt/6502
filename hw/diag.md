@@ -680,12 +680,19 @@ check`), merged in order. Each reads its part of the books again at its start an
 
 **Built** on `feat/diag-d1`, for the owner's review. What differs from the plan above, and why:
 
-- **The ROM BIOS's version can't be read.** The plan had SYSINFO copy the greeting out of RAM block 63 by
-  function 83's `DM_COPY`, "a physical source may be anything". The Programmer's Guide says a source may be
-  anything *a segment may reach*, and OODOS's code (`oodos/sys/video.s`, SRCOK) refuses OODOS's own blocks as a
-  source as well as a destination; block 63 is one. The flash is in no window but OODOS's. So SYSINFO's line says
-  `not readable by a program under OODOS`, and the boot's status lines are where the version shows. Reading it would
-  need an OODOS change: [question D1-1](#d1-questions).
+- **The ROM BIOS's version comes from function 72 (D1-1, decided below).** The plan had SYSINFO copy the greeting
+  out of RAM block 63 by function 83's `DM_COPY`, "a physical source may be anything". The Programmer's Guide says
+  a source may be anything *a segment may reach*, and OODOS's code (`oodos/sys/video.s`, SRCOK) refuses OODOS's own
+  blocks as a source as well as a destination; block 63 is one. So OODOS gives it instead: the cold boot, which
+  already finds the version for its boot status, keeps it as two numbers (`ROMVER`, `cold.s`), and function 72's
+  block grows to 12 bytes, +10-11 the ROM BIOS's version, written only when the caller puts `'R'` `'V'` there first
+  (`OV_ROMKEY`, `OV_ROMKEY2` in oodos.inc), so a caller's 10-byte block is never written past. That is an interface
+  addition, so OOLIB's interface version (function 80's `FT_INFO`, the one numbered interface programs test) goes
+  from 8 to 9; OODOS's own version stays 0.9 (its banner prints one digit each). An OODOS before it leaves `'R'`
+  `'V'` as they were, and SYSINFO says so. `VERTEST` (`oodos/sys/test/vertest.s`) shows both callers: the same 10
+  bytes either way, +10-11 left alone unless asked. The residual risk, for the owner to know: an old caller whose
+  two bytes after its block happen to be `'R'` `'V'` gets them overwritten; a new function number would have had
+  none.
 - **The library's routines built in D1:** `HW_PROBE`, `HW_NAME`, `HW_KNOWN`, `HW_CLOCK`, `HW_FRAMEHZ`, `HW_RTC`,
   `HW_SD_ID` and the output (`HW_HEX2`, `HW_HEX4`, `HW_HEX6`, `HW_DEC`), with two the table above hasn't: `HW_PUTS`
   (a 0-ended string, its length in Y) and `HW_DIV` (32 bits by 16, which `HW_DEC`, `HW_FRAMEHZ` and SYSINFO share).
@@ -706,8 +713,10 @@ check`), merged in order. Each reads its part of the books again at its start an
   check is 0.002%; by the video frame 7,159,041–7,159,579 Hz (within 68 ppm: the frame counter is the vertical-blank
   interrupt's, which other interrupts can hold off), so its check is the plan's 0.01%. The golden files hold
   `#,###,### Hz` in their place, and `hh:mm:ss` for the time.
-- **Not on the demo card:** `make_card.sh` puts SYSINFO.COM on the test card only, and `test_oodos_boot` expects
-  the demo card without it (its one changed expectation), until the owner says ([question D1-2](#d1-questions)).
+- **On the demo card too (D1-2, decided below),** with a line in its README; and on the test card, which changes
+  OOUI's two picker frames (`u2-pick`, `u2-pick-turbo`: A:'s count and the list's scroll thumb), made again after
+  looking at them. `feat/ooui-u3b-land` changes the same frames (OOUI.BNK on A:): whichever merges second makes them
+  again.
 - **The must-fail cases,** each made to fail once on a copy of the sources (`OODOS_UTILS_DIR`): the frame's
   correction taken out (60 frames counted as a second: 7,166,152 Hz, caught by the 0.01% check in three cases);
   `HW_PROBE`'s second read made absolute like the first (the floating bus then reads as a Disk II at revision 6,
@@ -716,13 +725,12 @@ check`), merged in order. Each reads its part of the books again at its start an
   instruction's last byte, as an empty slot might.
 
 <a id="d1-questions"></a>
-**D1's questions for the owner:**
+**D1's questions, decided (2026-11-13, the owner), as recommended:**
 
-- **D1-1, the ROM BIOS's version.** *Recommendation:* function 72's block grows by two bytes, +10 and +11 the ROM
-  BIOS's version as OODOS's cold boot already finds it for the boot status (an interface growth, raised as the rule
-  says), and SYSINFO prints it from there. *Alternative:* leave it as built, the boot status the only place it shows.
-- **D1-2, the demo card.** *Recommendation:* put SYSINFO.COM on the demo card with the other utilities, since it
-  writes nothing and shows a visitor what the emulated machine has. *Alternative:* keep it off until DIAG joins it.
+- **D1-1, the ROM BIOS's version:** function 72's block grows by two bytes, +10 and +11 the ROM BIOS's version as
+  OODOS's cold boot finds it, with the interface version raised (9); SYSINFO prints it. Built as above.
+- **D1-2, the demo card:** SYSINFO.COM is on it with the other utilities.
+- **The OOUI frames:** made again after looking at them (above).
 
 ### D2: DIAG.COM ###
 

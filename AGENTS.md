@@ -66,7 +66,7 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
 - **Don't break an interface programs use** (the owner's rule, 2026-11-13). The BDOS functions, OOLIB's interface
-  (8, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
+  (9, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
   (`UI_IFACE` 1) only grow: a new function, operation, flag or field is added with its interface version raised,
   and every existing call keeps its arguments, results, record layouts and meaning. A change that would break an
   existing caller, or remove anything, goes to the owner first, named, with why. The interfaces are declared

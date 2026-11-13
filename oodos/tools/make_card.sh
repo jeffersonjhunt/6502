@@ -62,7 +62,6 @@
 #   /BOOT.BIN, /OODOS/DRIVES.TXT   as the test card's
 #   /OODOS/A.IMG       oodos-8m, label mode 0x31: README.TXT (what to try,
 #                      in our words), OODOS.SYS, HELLO.COM and the utilities
-#                      but SYSINFO (not yet: the owner's to say)
 #                      (SYS, as on the test card), and OOUI.BNK (user 0, not
 #                      SYS: OOUI's banked library, which an OOUI program's
 #                      ui_load opens by default, hw/ooui.md, U3a), and
@@ -155,13 +154,10 @@ make -s -C src/oodos utils
 make -s -C src/oodos build/OOUI.BNK
 make -s -C src/oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/uidemo.com
 utils=
-demoutils=
 for s in src/oodos/utils/*.s; do
   n=$(basename "$s" .s | tr a-z A-Z)
   cp "src/oodos/build/$(basename "$s" .s).com" "$n.COM"
   utils="$utils $n.COM"
-  # SYSINFO (hw/diag.md, D1) isn't on the demo card yet: the owner's to say
-  [ "$n" = SYSINFO ] || demoutils="$demoutils $n.COM"
 done
 cp src/oodos/ldr/build/BOOT.BIN BOOT.BIN
 cp src/oodos/ldr/build/OODOS.SYS TESTSYS.SYS
@@ -266,6 +262,7 @@ python3 text.py demo/README.TXT \
     "  UIDEMO          windows, menus and a file picker (OOUI), on Display" \
     "  SHOW            the drives and their space" \
     "  DATE            the date and time" \
+    "  SYSINFO         what the machine has: its cards, memory and clock" \
     "  B:              drive B:, and A: to come back" \
     "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
     "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
@@ -273,9 +270,9 @@ python3 text.py demo/README.TXT \
     "START, on the front panel, boots OODOS again. A key during the logo" \
     "at power-on goes to the Woz Monitor instead, and so does a power-on" \
     "with no card."
-demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $demoutils OOUI.BNK UIDEMO.COM 0:
+demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils OOUI.BNK UIDEMO.COM 0:
 demo_at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
-for u in $demoutils; do demo_at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
+for u in $utils; do demo_at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n demo/A.IMG
 cpmls -f oodos-8m -F demo/A.IMG
 demo_at mkfs.cpm -f oodos-8m -t -L WORK demo/B.IMG

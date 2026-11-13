@@ -21,7 +21,11 @@
 ;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words: the total, fixed, not what is
-;                   free), and FARCALL's address; A/X = FARCALL
+;                   free), and FARCALL's address; A/X = FARCALL. From interface
+;                   9 (OOLIB_IFACE), +10-11 the ROM BIOS's version (major,
+;                   minor; $FF $FF unknown), only if the caller put 'R' 'V'
+;                   there (OV_ROMKEY): a caller's 10-byte block is never
+;                   written past
 ;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the revision 2 video
@@ -70,6 +74,10 @@
 .import F_SOUND                        ; sound.s's
 .import F_DMAOP                        ; video.s's
 .import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
+.importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for 72's +10-11
+OV_ROM          = 10                   ; function 72's block, as oodos.inc's names: +10-11 the ROM BIOS's
+OV_ROMKEY       = 'R'                  ;   version, written if the caller put these there
+OV_ROMKEY2      = 'V'
 .export BDOSENT
 
 ASCII_CR        = $0D
@@ -344,13 +352,30 @@ F_OODOS:        LDX     #0
                 INX
                 CPX     #VERSIONS_LEN
                 BNE     @copy
-                LDA     #<FARCALL
+                JSR     PGET           ; +10-11 'R' 'V': the caller asks for the ROM BIOS's version
+                CMP     #OV_ROMKEY     ; there (interface 9); else nothing past +9 is written
+                BNE     @far
+                JSR     PGET
+                CMP     #OV_ROMKEY2
+                BNE     @far
+                LDA     PP             ; back to +10
+                SEC
+                SBC     #2
+                STA     PP
+                BCS     @rom
+                DEC     PP + 1
+@rom:           LDA     ROMVER
+                JSR     PPUT
+                LDA     ROMVER + 1
+                JSR     PPUT
+@far:           LDA     #<FARCALL
                 LDX     #>FARCALL
                 RTS
 VERSIONS:       .byte   OODOS_MAJOR, OODOS_MINOR, BIOS_MAJOR, BIOS_MINOR
                 .word   MEM_FITTED, MEM_PROGRAMS
                 .word   FARCALL
 VERSIONS_LEN    = * - VERSIONS
+.assert VERSIONS_LEN = OV_ROM, error, "72's block: the ROM BIOS's version follows the 10 bytes before interface 9"
 
 F_TSET:         LDX     #0
 @dat:           JSR     PGET

@@ -2763,7 +2763,8 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
 #### Entry
 
 - Y = 72 (`O_VERSION`).
-- A/X = the address of a 10-byte block to fill.
+- A/X = the address of a 10-byte block to fill (`OV_LEN`); or, for the ROM BIOS's version too, of a 12-byte block
+  (`OV_LEN9`) whose +10 and +11 hold `'R'` and `'V'` (`OV_ROMKEY`, `OV_ROMKEY2`) on entry.
 
 #### Exit
 
@@ -2776,6 +2777,11 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
+  | +10, +11 | only if they held `'R'` `'V'` on entry (`OV_ROM`): the ROM BIOS's version, major and minor (0, 13), as the cold boot found it after `BACKPLANE BIOS ` in the ROM's greeting for its boot status; `$FF` `$FF` if it found none. Since interface version 9 |
+
+- Bytes past +9 are written only when the caller asks for them, so a caller's block of 10 is never written past.
+  An OODOS before interface version 9 ([function 80's](#bdos-80) `FT_INFO`) leaves `'R'` `'V'` where they were,
+  which is how a program tells it apart.
 
 - A/X = FARCALL's address.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
@@ -2794,7 +2800,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.4
+OODOS 0.4; +10-11, the ROM BIOS's version, since OODOS 0.9 with interface version 9 (hw/diag.md, D1-1).
 
 #### Status
 
@@ -3044,10 +3050,10 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (8: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+- `FT_INFO`: A = OOLIB's interface version (9: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
   video card revision 2: function 83's card operations and the W1 contract on the aperture,
-  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)), X = a bit for each service area OODOS
+  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 [function 72's](#bdos-72) ROM BIOS version), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the

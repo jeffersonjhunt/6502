@@ -122,7 +122,8 @@ WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
 ; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
-; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3, 4 from L4), X = a bit for each
+; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3, 4 from L4; 9 since function
+; 72's ROM BIOS version, OV_ROM), X = a bit for each
 ; service area. An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
 OA_INPUT        = $02                  ;   81, input (L2)
@@ -322,6 +323,15 @@ DM_PAGE0        = $0400                ; DM_INFO's +13-14 on a 2 MB card: the pr
 DM_PAGEEND      = $1C00                ;   and +15-16, the page past its last (Apple II mode's from there)
 DM_SLOTS        = 4                    ; DM_INFO's X
 DM_BUDGET       = 1024                 ; the slots' bytes, all four
+
+; Function 72's block: 10 bytes, and from interface 9 (FT_INFO) two more, +10-11 the ROM BIOS's
+; version (major, minor; $FF $FF if OODOS didn't find it), written only if the caller put OV_ROMKEY
+; and OV_ROMKEY2 there first: a block of 10 is never written past.
+OV_LEN          = 10                   ; the block before interface 9
+OV_ROM          = 10                   ; +10-11: the ROM BIOS's version
+OV_LEN9         = 12
+OV_ROMKEY       = 'R'                  ; at +10 and +11 on entry: the caller asks for it
+OV_ROMKEY2      = 'V'
 
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.

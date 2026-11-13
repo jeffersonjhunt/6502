@@ -205,7 +205,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("08 0F")); // interface 8, areas frame, input, sound, DMA
+    CHECK_EQ(command(r, 'F', "F"), std::string("09 0F")); // interface 9, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -940,7 +940,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("08 0F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("09 0F"));
     }
 }
 

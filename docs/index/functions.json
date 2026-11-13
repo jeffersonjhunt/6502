@@ -545,7 +545,7 @@
   "documented": true,
   "anchor": "bdos-72",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4",
+  "since": "OODOS 0.4; +10-11, the ROM BIOS's version, since OODOS 0.9 with interface version 9 (hw/diag.md, D1-1).",
   "status": "built"
  },
  {

@@ -22,6 +22,7 @@
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
  *     found;
+ *   - function 72's block (interface 9): the ROM BIOS's version at +10-11 only for a caller that asks;
  *   - one section alone, and the usage line for a word that isn't one.
  *
  * SYSINFO_GOLDEN=update writes the golden files from what SYSINFO prints, which a person does on
@@ -288,6 +289,25 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
     CHECK(got.find("$C6  Disk II") == std::string::npos);
     if (got.find("not found") == std::string::npos)
         std::printf("  %s\n", vis(got).c_str());
+}
+
+TEST(function_72_writes_past_10_bytes_only_when_asked)
+{
+    // VERTEST (oodos/sys/test/vertest.s): a caller of 72 before interface 9, a block of 10 with other bytes after
+    // it, gets the same 10 bytes as one that asks for +10-11 ('R' 'V'), and its +10-11 are left as they were;
+    // the one that asks gets the ROM BIOS's version there, 0.13 as bios.rom's greeting has it.
+    InfoRig r;
+    REQUIRE(r.ok);
+    r.put_util("vertest", EMU_OODOS_SYS_DIR);
+    const std::string o = run(r, "m:vertest");
+    std::smatch m;
+    REQUIRE(std::regex_search(o, m, std::regex("OLD ([0-9A-F]{20})([0-9A-F]{4})\nNEW ([0-9A-F]{20})([0-9A-F]{4})")));
+    CHECK_EQ(m[1].str(), m[3].str());                 // the 10 bytes, the same either way
+    CHECK_EQ(m[1].str().substr(0, 16), std::string("0009000200044001")); // OODOS 0.9, its BIOS 0.2, 1,024 KB, 320 KB
+    CHECK_EQ(m[2].str(), std::string("A55A"));        // not asked: +10-11 untouched
+    CHECK_EQ(m[4].str(), std::string("000D"));        // asked: the ROM BIOS 0.13
+    if (m.empty())
+        std::printf("  %s\n", vis(o).c_str());
 }
 
 TEST(one_section_alone_and_a_wrong_word)
