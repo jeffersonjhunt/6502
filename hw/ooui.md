@@ -2210,6 +2210,11 @@ the next small phase's question.
 - **An S3 target** *(the owner, 2026-11-13)*: one key's change on screen within a frame. OO-Amp's
   `a_key_s_state_changes_within_a_frame` measures 1.24 frames (its limit 1.1): OOUI's paint in that key's pass.
   It is a known failure until S3.
+- **An S3 target** *(the owner, 2026-11-13, landing review round 2)*: in OO-Amp's `test_accept` response case,
+  the pause click right after zone C's is done in 2.0 frames (begun 1.4), over the case's 2-frame limit. Since FF3 a
+  half's read isn't put off in a pass that opens or closes a dialog (without that check the click is done in 1.0);
+  most likely that moves when later reads fall due, and the pass the click waits behind now carries one. It is a known failure until S3, for that click only: it is printed,
+  and a ceiling of 2.1 frames is still checked. Every other key and click in the case is held to 2 frames.
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 
