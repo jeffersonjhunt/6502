@@ -210,6 +210,43 @@ test("on VGA the mouse is the USB card's: the monitor reads its position", async
   await expect(page.getByTestId("crt-text")).toContainText(`C592: ${hex(vga.x & 0xff)} ${hex(vga.x >> 8)} ${hex(vga.y & 0xff)} ${hex(vga.y >> 8)}`);
 });
 
+test("the OO-1's pointer is under the host's: a position scaled to the card's limits, the host's hidden", async ({ page }) => {
+  // OOUI (hw/ooui.md, "The pointer and hit-testing") puts the mouse in absolute mode with limits 319 and 239, the
+  // sprites' 320x240, which the screen shows at twice the size. A host pointer at the picture's middle must be
+  // the card's middle too, (160, 120), not (320, 240) clamped to the corner; and the host's own pointer is
+  // hidden over the screen, so one pointer shows. With the mouse relative again, the host's shows.
+  await booted(page);
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByTestId("crt").click();
+  const type = async (line: string) => {
+    const [addr, rest] = line.split(":");
+    await page.keyboard.type(addr);
+    await page.keyboard.press("Shift+Semicolon");
+    await page.keyboard.type(rest);
+    await page.keyboard.press("Enter");
+  };
+  await type("C597: 3F 01 EF 00"); // MAXX 319, MAXY 239 (low bytes first)
+  await type("C590: 1"); // MCTRL: absolute (the monitor shows what was there, 00, as it stores)
+  await expect(page.getByTestId("crt-text")).toContainText("C590: 00");
+  const box = (await page.locator("[data-testid=crt] canvas").boundingBox())!;
+  const at = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  const vga = { x: Math.floor(((at.x - box.x) / box.width) * 640), y: Math.floor(((at.y - box.y) / box.height) * 480) };
+  const card = { x: Math.floor((vga.x * 320) / 640), y: Math.floor((vga.y * 240) / 480) };
+  expect(Math.abs(card.x - 160) + Math.abs(card.y - 120)).toBeLessThan(3);
+  await page.mouse.move(at.x - 20, at.y - 20);
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.type("C592.C595"); // reading MX latches MX and MY
+  await page.keyboard.press("Enter");
+  const hex = (v: number) => v.toString(16).toUpperCase().padStart(2, "0");
+  await expect(page.getByTestId("crt-text")).toContainText(`C592: ${hex(card.x & 0xff)} ${hex(card.x >> 8)} ${hex(card.y & 0xff)} ${hex(card.y >> 8)}`);
+  const cursor = () => page.getByTestId("crt").evaluate((g) => getComputedStyle(g).cursor);
+  expect(await cursor()).toBe("none");
+  await type("C590: 0"); // relative: no program's pointer, so the host's
+  await expect(page.getByTestId("crt-text")).toContainText("C590: 01"); // the monitor says what was there: absolute
+  await page.mouse.move(at.x + 10, at.y + 10);
+  expect(await cursor()).not.toBe("none");
+});
+
 test("Cmd shortcuts are the browser's, and a key held when focus goes is let go", async ({ page }) => {
   await booted(page);
   await page.getByRole("button", { name: "Display" }).click();

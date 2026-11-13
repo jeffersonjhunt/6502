@@ -365,8 +365,14 @@ export interface MachinePort {
   sendKey(usage: number, down: boolean): void;
   /** Stop typing what sendKey queued (a paste): it is dropped, and every key let go. */
   stopTyping(): void;
-  /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
+  /**
+   * The USB mouse: a position on the 640x480 picture, buttons (bit 0 left, 1 right, 2 middle), wheel steps. In
+   * absolute mode the position is scaled to the card's limits (MAXX, MAXY), so the program's pointer is under the
+   * host's whatever space it set: OOUI's 320x240 is half the picture's.
+   */
   sendMouse(mouse: MouseInput): void;
+  /** The USB mouse is in absolute mode (MCTRL bit 0): a program draws its pointer from it. */
+  mouseAbsolute(): boolean;
 
   /**
    * A digital joystick on the serial card's VIA (0: joystick 1, PA0-PA4; 1:

@@ -17,6 +17,7 @@
   box-shadow: inset 0 0 30px #000, 0 0 0 3px #050505, 0 0 0 5px #333;
   cursor: text;
 }
+.mon-glass[data-pointer="machine"] { cursor: none; } /* the program's pointer is the one (main.ts) */
 .mon-glass:focus-visible { outline: 2px solid var(--amber); outline-offset: 6px; }
 /* The picture sits inside the glass with a border, as a CRT's overscan does.
    Equal percentage insets keep it 4:3 (the glass is 4:3), and absolute

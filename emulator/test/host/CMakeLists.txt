@@ -370,13 +370,15 @@ add_custom_command(
 # program, for test_oodos_ui: four programs from its one source (UITEST, UITWID, UITBAR, UITPICK), each an
 # ordinary .COM linked with OOUI's program part (ooui.lib) and oolib.lib (test/ui/uiprog.cfg), and
 # OOUI.BNK, the banked library they load (U3a), with its labels (ooui-bnk.lbl); and UITMIS, UITEST with
-# UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE.
+# UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE. And UIDEMO (oodos/demo), the demo card's
+# OOUI program, linked the same way (demo/uidemo.cfg), with its labels, for test_oodos_ui and test_oodos_boot.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
-     "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py")
+     "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py"
+     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -402,6 +404,8 @@ add_custom_command(
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ui OOUI_USERS=uitmis OOUI_CFG=test/ui/uimis.cfg
                 "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uitmis.com"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg
+                "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uidemo.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/ctest.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}/bigstack"
