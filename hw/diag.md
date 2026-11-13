@@ -2,9 +2,9 @@
 
 Nov 13, 2026 · @Jefferson
 
-**Status: proposed (2026-11-13), design only.** Nothing here is built. The owner's decisions of 2026-11-13 (below)
-stand; everything else is a proposal, and the [questions](#questions-for-the-owner) are the owner's to settle
-before D1 starts. Every register and ID named here was checked against
+**Status: approved (2026-11-13, the owner), after review round 1; design only, nothing built yet.** The owner's
+decisions of 2026-11-13 (below) and [answers](#the-owners-answers) to questions 1–9 stand, two of them amended by
+the review (CC4, CC6); review round 1's findings CC1–CC6 are fixed in place. D1 starts from this. Every register and ID named here was checked against
 [`backplane.inc`](../backplane/bios/backplane.inc) and the emulator's devices (`emulator/components/devices/`), the
 reference until there is hardware. Where the real hardware's behaviour isn't known, this says so.
 
@@ -48,7 +48,7 @@ give `$FF` too, but that isn't measured.
 |---|---|---|---|---|---|
 | 0–3 | RAM A–D, 256 KB each | none | | | memory only: their I/O blocks `$C000–$C1FF` are unused. Found by memory tests alone |
 | 4, 5 | ROM A (flash), ROM B (cartridge) | none | | | memory only (`$C200–$C2FF` unused). ROM B blank reads `$FF` |
-| 6 | serial, parallel and VIA | `$C37F` | **none defined** | | the TL16C552A card isn't built. The emulator's stand-in 6551 mirrors its four registers through the block, so `$C37F` reads the 6551's control register ([question 6](#questions-for-the-owner)). The VIA at `$C340` has no ID of its own |
+| 6 | serial, parallel and VIA | `$C37F` | **none defined** | | the TL16C552A card isn't built. The emulator's stand-in 6551 mirrors its four registers through the block, so `$C37F` reads the 6551's control register ([answer 6](#the-owners-answers)). The VIA at `$C340` has no ID of its own |
 | 7 | mass storage (SD) | `$C3FF` | `$71` | `SD_ID_V1` | |
 | 8 | DMA controller | `$C47F` | `$81` | `DMA_ID_V1` | |
 | 9 | video | `$C4FF` | `$91`, `$92` | `VIDEO_ID_V1`, `VIDEO_ID_V2` | BIOS 0.13 and OODOS drive revision 2 alone; `backplane.machine` has `rev=2` |
@@ -102,19 +102,31 @@ ID; its revision is the low nibble.**
 - **No I/O block without an ID byte is read:** not `$C000–$C2FF` (RAM and ROM modules have none) nor `$C780–$C7FF`.
 - **The serial card** is the exception: it has no ID yet. Its `$C37F` is read like any other; a high nibble other
   than 6 is reported as "the stand-in 6551 (no ID register)", and nothing else of the block is touched beyond what
-  the console already does. Once question 6 settles an ID, a real card is found by the rule.
+  the console already does. From D1 the card's ID is `$61` ([answer 6](#the-owners-answers)), and a real card is found by the rule.
 - **Memory modules** are found by the ROM core's memory tests: a RAM module that isn't there reads `$FF` and drops
   writes in the emulator, so all 16 of its blocks fail the same way, which the core reports as "RAM B (blocks
   16–31): not answering" rather than 16 failures. On the backplane a missing module's reads float to what the
   pull-ups give; that isn't measured. Under OODOS the fitted memory is function 72's figure, not a probe.
-- **The CPU:** `$EB` is XBA on a 65C816 and a one-byte, one-cycle NOP on the W65C02S (WDC's datasheets; the
-  emulator's W65C02S does the same). `LDA #1`, `XBA`, `LDA #2`, `XBA` leaves A = 1 on a 65C816 and 2 on a W65C02S.
-  Both datasheets define it, and it keeps the 65C816 rules (no `RMB`, `SMB`, `BBR`, `BBS`).
+- **The CPU (review CC1):** only the ROM core tests it. `$EB` is XBA on a 65C816 and a one-byte, one-cycle NOP on
+  the W65C02S (WDC's datasheets; the emulator's W65C02S does the same): `LDA #1`, `XBA`, `LDA #2`, `XBA` leaves
+  A = 1 on a 65C816 and 2 on a W65C02S. The OS build can't use it: `oodos/tools/rules.py` gives `$EB` the mode
+  `bad` (an undocumented NOP), so the rules gate would fail DIAG's and SYSINFO's builds. SYSINFO names the CPU the
+  design has, the W65C02S, and the BIOS isn't gated, so the core keeps the test.
+- **Reading an ID byte twice (review CC5).** An empty slot may float, and a floating bus tends to return the last
+  byte the CPU fetched, the operand's high byte: `LDA $C67F` on an empty Disk II slot would then read `$C6`, which
+  looks like the Disk II at revision 6. So each ID byte is read twice by instructions whose last fetched byte
+  differs, and a card is accepted only if both reads agree: `LDA base+$7F` (last fetched byte the address's high
+  byte), then `LDA base+$7F-$FF,X` with X = `$FF`. For a module with an even ID (ID byte at `$xx7F`) the second
+  read's operand is in the page before and crosses into it, and on the W65C02S the extra cycle of a page crossing
+  reads the last instruction byte again (WDC's datasheet), so the bus last held the page before's high byte. For an
+  odd ID (`$xxFF`) both reads end on the same high byte, but every such byte is `$Cn` and no odd module is `$C`, so
+  a floating read fails the nibble test anyway. Only the Disk II (module C) is at risk, and the second read catches
+  it. Whether the backplane floats at all, or the pull-ups give `$FF`, isn't measured.
 
 | Routine | Reads |
 |---|---|
-| `HW_PROBE` | the ID bytes of modules 6–E, nothing else |
-| `HW_CPU` | the XBA sequence above |
+| `HW_PROBE` | the ID bytes of modules 6–E, each twice as above, nothing else |
+| the core's `CPUTEST` (ROM only) | the XBA sequence above |
 
 
 ## SYSINFO ##
@@ -128,18 +140,18 @@ Where each line comes from:
 
 | Line | Source | Touches the hardware? |
 |---|---|---|
-| CPU and its clock | `HW_CPU`; `HW_CLOCK` against the DS3231 and against the event area's frame counter (function 80) | VIA timer 2, the program's; `NB_SEC` read |
+| CPU and its clock | the W65C02S, the design's CPU (no opcode test: CC1); `HW_CLOCK` against the DS3231 and against the event area's frame counter (function 80) | VIA timer 2, the program's; `NB_SEC` read |
 | ROM BIOS | the word after `BACKPLANE BIOS ` in the ROM's copy in RAM block 63, copied into the TPA by function 83's `DM_COPY` (a physical source may be anything) and searched, as OODOS's boot status does | no |
 | OODOS, its BIOS, memory | function 72 (`O_VERSION`) | no |
 | OOLIB's interface | function 80's `FT_INFO` | no |
 | OOUI.BNK | `A:OOUI.BNK`'s record 0: `'OUB'`, the format, the interface version, the blocks ([ooui.md](ooui.md#u3a-ooui-as-a-banked-library)) | no |
 | Memory free | functions 53 and 57 (`MC_MAX`, then `MC_FREE` at once) | no |
-| Cards | `HW_PROBE` | ID bytes ([question 1](#questions-for-the-owner)) |
+| Cards | `HW_PROBE` | ID bytes ([answer 1](#the-owners-answers)) |
 | Video | function 83's `DM_INFO` (card memory, the program's pages); `VIDEO_MEMSIZE` agrees | ID, MEMSIZE |
 | Sound | function 82's `SN_INFO` (revision, codecs, parts free) | no |
-| Storage | the drives from the BIOS's DPBs (functions 14 and 31) and their free space (46); the card from `IDENTIFY` | `IDENTIFY` ([question 1](#questions-for-the-owner)) |
+| Storage | the drives from the BIOS's DPBs (functions 14 and 31) and their free space (46); the card from `IDENTIFY` | `IDENTIFY` ([answer 1](#the-owners-answers)) |
 | Input | `USB_DEVICES`; the event area's controllers and paddles (function 81, layout 2) | DEVICES |
-| Clock | function 105 for the time; `NB_RTCCTL`'s LOST; the temperature through RTCREG | RTCCTL, RTCREG ([question 1](#questions-for-the-owner)) |
+| Clock | function 105 for the time; `NB_RTCCTL`'s LOST; the temperature through RTCREG | RTCCTL, RTCREG ([answer 1](#the-owners-answers)) |
 | Panel | `CONSOLE_SWR`, `CONSOLE_PANEL` | reads |
 
 A sample, from `backplane.machine` (the versions, the SD lines and the time are illustrative):
@@ -194,7 +206,8 @@ PANEL      switches $00000, HALT/ENABLE at ENABLE, S INST
 
 - **Areas:** `NB`, `MEM`, `DMA`, `VIDEO`, `SOUND`, `SD`, `USB`, `SERIAL`, `DISK2`, `PANEL`; none is all of them.
 - **`/FULL`:** the march test with all four backgrounds, and the march on card memory too (below); about three
-  times as long.
+  times as long. It also runs S6 (all of wave RAM rewritten) and, with `/I`, P3 (the CPU halted), which the
+  quick run leaves out (review CC6).
 - **`/I`:** the interactive tests, which ask the user to do something (press a key, move the mouse, press CONT).
 - **`/WRITE`:** the tests that write the SD card. DIAG says what it will write and asks for `Y` first; any other key
   skips them.
@@ -223,7 +236,7 @@ block 1 back. It writes no window itself.
 | **North bridge** | | | |
 | NB1 | ID `$Dx`; STATUS bits 4–7 equal the ID's revision | they agree | the bridge (or the data bus) answers wrong |
 | NB2 | `DM_FILL` writes a block's number into the first bytes of each block DIAG may map; `GX_BLOCK` maps each in W1 and reads it back | each block shows its own number | a window bit (A14–A19) stuck or two blocks aliased |
-| NB3 | reads IRQL and IRQH 1,000 times over 10 ms | no bit of a module `HW_PROBE` didn't find is ever 0 | a stuck /IRQ line or an empty slot pulling it |
+| NB3 | reads IRQL and IRQH 1,000 times over 10 ms (plain reads: the poll the dispatcher makes, which acknowledges nothing) | no bit of a module `HW_PROBE` didn't find is ever 0 | a stuck /IRQ line or an empty slot pulling it |
 | NB4 | the RTC: BUSY clears within 1 ms; SEC steps by one each second for 3 s; LOST clear | as said | LOST set: the time must be set (a warning, not a failure) |
 | NB5 | the CPU clock against the DS3231 (`HW_CLOCK`) | within 0.1% of 7,159,090 Hz | the crystal or the divider |
 | NB6 | the CPU clock against the video frame | within 0.1% | the pixel oscillator or the CPU's |
@@ -254,12 +267,12 @@ block 1 back. It writes no window itself.
 | S3 | the mailbox both ways: 256 bytes sent with `SN_SEND`, each echoed | all 256 | a mailbox bit |
 | S4 | the card's RAM, tested by the 6510 itself, apart from its code and the vectors | no error | the card address and bits, sent back |
 | S5 | the SIDs, by the 6510: voice 3's oscillator and envelope read back from OSC3 and ENV3 on SID A and SID B | they change as set | a SID or its address decode |
-| S6 | revision 2: wave RAM, 128 KB, through DOCDATA with AUTOINC (address in address) | no error | the wave RAM address and bits |
+| S6 (`/FULL`) | revision 2: wave RAM, 128 KB, through DOCDATA with AUTOINC (address in address): every byte of it written, with the ES5503 claimed and its oscillators halted | no error | the wave RAM address and bits |
 | S7 | revision 2: a 4 KB raw PCM stream at 8,000 Hz (silence): STATE goes buffering, playing, ended; POS counts 8,000 frames a second ± 0.5% against the DS3231 | | the card's sample clock or its FIFO |
 | S8 (`/I`) | a tone on each SID and on the ES5503; Y or N | Y | |
 | **Storage** | | | |
 | SD1 | ID `$71`; STATUS PRESENT and READY | | |
-| SD2 | `IDENTIFY`: the type is 1–3, the size not 0, the FAT flag set | | a card the firmware can't read |
+| SD2 | `IDENTIFY`: the type is 1–3, the size not 0, the FAT flag set (why it can't collide with OODOS: [answer 1](#the-owners-answers)) | | a card the firmware can't read |
 | SD3 | read speed: `DM_LOAD` of 64 KB of DIAG.COM (repeated) timed | `INFO`, KB a second | |
 | SD4 (`/WRITE`) | a 64 KB file `DIAG$$$.TMP` on A: written with a pattern by `F_WRITE` (21), read back by `F_READ` (20), erased by `F_DELETE` (19) | the same bytes | the write path |
 | **USB** | | | |
@@ -278,7 +291,16 @@ block 1 back. It writes no window itself.
 | **Front panel** | | | |
 | P1 | ID `$E1`; the switches and HALT/ENABLE shown | `INFO` | |
 | P2 | the lights: a walking bit on DISPLAY with CTRL's bit 3, 0.2 s a step, then CTRL put back as it was | `INFO` (`/I`: Y or N) | |
-| P3 (`/I`) | the breakpoint: BPADDR a byte in DIAG's TPA (its physical address by function 73), BPCTRL a read that halts; "the CPU will halt: press CONT"; then STATUS's HIT, LADDR and LDATA checked, BPCTRL 0, HIT cleared | they match | the comparator or the latch |
+| P3 (`/FULL /I`) | the breakpoint: BPADDR a byte in DIAG's TPA (its physical address by function 73), BPCTRL a read that halts; "the CPU will halt: press CONT"; then STATUS's HIT, LADDR and LDATA checked, BPCTRL 0, HIT cleared | they match | the comparator or the latch |
+
+**P2 and P3 can't be left half done (review CC3).** A ^C, or a warm boot, in the middle of either could leave CTRL's
+bit 3 set (the lights stuck on DISPLAY) or a breakpoint armed on an address in DIAG's TPA, which would halt the next
+program that reads it. So DIAG sets bit 3 of the console mode first (function 109, `C_MODE`: ^C then doesn't end
+the program), saves CTRL and BPCTRL, runs the test, puts CTRL and BPCTRL back (BPCTRL 0, STATUS's HIT cleared),
+and only then puts the console mode back. Break or a reset in between still can't be caught: Break enters the
+monitor, which leaves BPCTRL alone, and a /RESET keeps BPADDR and BPCTRL ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)),
+so the User's Guide's entry for DIAG says to turn the breakpoint off (`C70B: 00` at the monitor) after a P3 that
+was broken into.
 
 A sample, quick, with a fault injected at physical `$A1234` bit 3:
 
@@ -326,11 +348,25 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 
 **How it is entered:**
 
-- **At reset, with the front panel's switch 19 up** ([question 2](#questions-for-the-owner)). The BIOS's RESET
-  checks it first thing, before it copies itself into RAM: if `CONSOLE_ID` is `$E1` and `CONSOLE_SWR+2` bit 3
-  (switch 19) is set, it jumps to the core. That is a power-on, the console card's START, or the reset button. No
-  RAM is used to decide.
-- **`C812R` from the monitor** ([question 3](#questions-for-the-owner)): it prints `ALL OF MEMORY WILL BE
+- **At reset, with the front panel's switch 19 up and HALT/ENABLE at HALT** (decided, [answer 2](#the-owners-answers),
+  amended by review CC4). Switch 19 alone isn't enough: it is also A19 of LOAD ADRS, so an address of `$80000` or
+  above left on the switches would enter the destructive core at the next reset. The BIOS's RESET checks first
+  thing, before it copies itself into RAM: `CONSOLE_ID` is `$E1` (read twice, as [Card discovery](#card-discovery)
+  says), `CONSOLE_SWR+2` bit 3 (switch 19) is set, and `CONSOLE_PANEL` bit 0 (the HALT switch) is set; then it
+  jumps to the core. No RAM is used to decide.
+- **How the HALT switch can be read at reset.** At HALT the switch halts the CPU before every instruction
+  ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#halting-and-stepping)), so with the keyswitch at
+  RUN the CPU stops on RESET's first instruction and never reaches the check: there each CONT steps one
+  instruction, and turning the switch to ENABLE lets it run but then PANEL reads ENABLE. **The combination is
+  readable only with the keyswitch at LOCK,** where the HALT switch halts nothing but PANEL's bit 0 still shows it
+  ([chapter 12, `$C703`](../docs/oo1-technical-reference/12-front-panel.md#reg-c703):
+  "Bit 0 shows the switch with LOCK on too"; the emulator's `ConsoleCard::halted()` ignores the switch while locked,
+  and PANEL reads it all the same). LOCK also ignores START, so the way in is: keyswitch at LOCK, switch 19 up,
+  HALT/ENABLE at HALT, then power on (or the reset button, which is the north bridge's, not the panel's). Before
+  the keyswitch goes back to RUN, HALT/ENABLE must go to ENABLE, or the CPU halts there. On real hardware whether
+  PANEL reads the switch while locked is the card's design, not yet measured. **This needs the owner's word:** the
+  decided entry works only with LOCK as the third condition (or a later card that doesn't halt at reset).
+- **`C812R` from the monitor** (decided, [answer 3](#the-owners-answers)): it prints `ALL OF MEMORY WILL BE
   OVERWRITTEN. Y TO GO ON` and waits for `Y`, since a user typing at the monitor may have work in RAM; any other key
   is the monitor again.
 - **Either way** the BIOS first checks the core's signature (`OOHWDIAG` at block 23's `$8000`, read through W2), so
@@ -341,7 +377,7 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 
 | Switch | Up |
 |---|---|
-| 19 | enter the core at reset (above) |
+| 19 | with HALT/ENABLE at HALT (and the keyswitch at LOCK): enter the core at reset (above) |
 | 18 | full: the march with all four backgrounds, and the march on the video card's memory |
 | 17 | loop: run again and again, counting passes, until a key |
 
@@ -350,9 +386,9 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 | Stage | What | Needs | No RAM? |
 |---|---|---|---|
 | 0 | SEI, CLD; W3 on flash block 31 (`NB_ROM` \| `NB_RO` \| 31) and VEC on block 23, the core's own vectors (below); the stack pointer `$FF`; lights on (CTRL bit 3), DISPLAY `$01`; the 6551 at 19,200 baud; the screen, if the video card is `$92`: the font from flash block 30 through W1 and the palette, by unrolled loops into PDATA, the text area cleared through the port, layer 0 on | the CPU, the north bridge, the flash | yes |
-| 1 | the flash's sums: blocks 23–31, each 16 KB through W1, a 16-bit sum against the table at block 23's end | stage 0 | yes: the sum is in A and Y, the loop unrolled a page at a time |
-| 2 | zero page and stack: `$4000–$41FF` of block 0 through W1, march with the backgrounds `$00` and `$55` by absolute indexed loads; the first block that passes becomes W0, its `$0000–$01FF` the core's zero page and stack. Block 0 first, then 1, 2 and on | stage 0 | yes |
-| 3 | from here on the core uses JSR and zero page. The data lines: walking 1s and 0s at the first byte of each RAM module's first block (0, 16, 32 or 36, 48) | stage 2 | |
+| 1 | the flash's sums: blocks 23–31, each 16 KB through W1, a 16-bit sum against the table at block 23's end | stage 0 | yes: the sum is in A and Y, X the byte's index, and the block's count in the stack pointer (`TSX`, `INX`, `TXS`: S is a register, and nothing is pushed until stage 3); the loop unrolled a page at a time |
+| 2 | zero page and stack: `$4000–$41FF` of block 0 through W1, march with the backgrounds `$00` and `$55` by absolute indexed loads; the first block that passes becomes W0, its `$0000–$01FF` the core's zero page and stack. Block 0 first, then 1, 2 and on, the block's number kept in S as in stage 1 | stage 0 | yes |
+| 3 | from here on the core uses JSR and zero page (S set to `$FF` first). The data lines: walking 1s and 0s at the first byte of each RAM module's first block (0, 16, 32 or 36, 48) | stage 2 | |
 | 4 | the address lines and blocks: each RAM block's number and its complement written at `+0` and at each power of two to `+$2000`, in every block first, then all read back | stage 3 | |
 | 5 | address in address over every RAM block: all written, then all read | stage 4 | |
 | 6 | the march, background `$00` (switch 18: four) | stage 5 | |
@@ -360,7 +396,7 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 | 8 | the video card (`$92`): its memory through the aperture (block 32 in W1, SLOT0 stepped through each 16 KB card bank to MEMSIZE), address in address (switch 18: the march); 64 KB checked through the port against the aperture; a card address past MEMSIZE reads `$FF`; then the screen is drawn again | stage 6 | |
 | 9 | the sound card (`$Ax`): the 6510 stopped (CTRL's RUN off); its RAM through RAMADDR and RAMDATA, address in address and the march; on revision 2 the wave RAM through DOCDATA; then the 6510 test program loaded and run: start byte, mailbox echo, the SIDs | stage 6 | |
 | 10 | the other cards by their IDs: SD (STATUS; IDENTIFY; LBA 0 of unit 0 read by the CPU and again by DMA channel 0, the two agree), USB (DEVICES), Disk II (ID only), the panel; the north bridge: WAIT0–3 and VEC written and read back, then put back; a write through a read-only window leaves RAM as it was; a write through a flash window changes nothing | stage 6 | |
-| 11 | the clock: cycles between two changes of `NB_SEC`, interrupts off; the video frame the same way | stage 3 | |
+| 11 | the clock: cycles between two changes of `NB_SEC`, interrupts off; the video frame the same way. How polling SEC meets the bridge's own I²C reads of the DS3231 on real hardware (a read during the second's refresh) isn't known; the emulator latches whole | stage 3 | |
 | 12 | the summary; the loop, or the end | | |
 
 **It never writes `NB_MODE`** (APPLE can't be undone but by a hard reset) and never touches the Disk II's switches.
@@ -396,17 +432,25 @@ A KEY OR LOAD ADRS: BOOT AS USUAL
 | `$80` + n, then the block number, then the bits wrong, each 0.5 s, round again | stage n failed in a way the core can't go on from: stage 1's block 23 (its own code), or stage 2 with no block left for a zero page and stack. It stays so until a reset |
 
 **How it ends.** With switch 17 down, it waits for a key on the serial line or the USB keyboard, or LOAD ADRS on the
-panel (KEYS bit 0: the only key that does anything while the CPU runs). It then puts back what it changed to the
-values /RESET leaves (SLOT0–3 0–3, PSTEP 1, PCTL 0; DMA CONTROL `$70`; the sound card's CTRL, RUN off; WAIT0–3 0;
-DISPLAY 0 and CTRL 0) and jumps to the BIOS's boot just past the switch check, which copies the BIOS into RAM and
-boots as usual. With switch 19 still up the next reset enters the core again, which is the loop the hardware gives
-for free; switch 17 is the same thing without a reset. After a fatal failure it never ends.
+panel (KEYS bit 0: the only key that does anything while the CPU runs; ignored while the keyswitch is at LOCK). It
+then puts back what it changed to the values /RESET leaves (SLOT0–3 0–3, PSTEP 1, PCTL 0; DMA CONTROL `$70`; the
+sound card's CTRL, RUN off; WAIT0–3 0; DISPLAY 0 and CTRL 0; VEC on flash block 31, `$DF`, so an NMI before the
+boot's copy takes the BIOS's own vector, and the boot then points VEC at block 63 as it always does) and jumps to
+the BIOS's boot just past the switch check, which copies the BIOS into RAM and boots as usual. With the switches
+still set the next reset enters the core again, which is the loop the hardware gives for free; switch 17 is the
+same thing without a reset. After a fatal failure it never ends.
 
 Break (NMI) while the core runs would take the flash's own vector, the BIOS's BREAK, which needs RAM. So the core
 points VEC at block 23, whose last six bytes are its own vectors, so an NMI or IRQ goes to the core's handler in
 W2: it prints `BREAK` and ends as a key would. It doesn't RTI: the stack may be the one thing that is bad.
 
-**Size:** about 6.5 KB of the 16 KB block (below).
+**Stages 0–2's size.** About 1.3 KB, a little over the first estimate's 1.2 KB: the sum's loop is 64 unrolled
+`ADC abs,X` with the carry into Y (6 bytes each, about 400 bytes), its block counter in S and the compare against
+the table about 40; stage 2's march, two backgrounds over two pages by absolute indexed loads, about 330; the screen
+(the font's 16 pages unrolled, the palette, the clear, the registers) about 200; the messages and their delays
+(no JSR: each a macro) about 250; the lights about 60. It fits block 23 with room to spare.
+
+**Size:** about 6.6 KB of the 16 KB block (below).
 
 
 ## The memory tests ##
@@ -464,7 +508,7 @@ a whole module failing alike is named as the module.
 
 ## The library: oohw.lib ##
 
-**Where:** `backplane/oohw/` (proposed; [question 9](#questions-for-the-owner)), its interface `oohw.inc`, since
+**Where:** `backplane/oohw/` (decided, [answer 9](#the-owners-answers)), its interface `oohw.inc`, since
 the ROM core and OODOS programs share it and it is about the hardware, not OODOS. Built twice from the same source:
 
 - **for OODOS:** `make -C oodos` builds `build/oohw.lib` (ar65, each module taken only if used, as `oolib.lib`), with
@@ -482,11 +526,10 @@ no zero page.
 
 | Routine | What | Returns | ROM core | Size |
 |---|---|---|---|---|
-| `HW_PROBE` | reads the ID bytes of modules 6–E | `HW_FOUND` (2 bytes, bit n module n), `HW_REV` (16 bytes, the revision or `$FF`) | shared | 60 B |
+| `HW_PROBE` | reads the ID bytes of modules 6–E, each twice (CC5) | `HW_FOUND` (2 bytes, bit n module n), `HW_REV` (16 bytes, the revision or `$FF`) | shared | 80 B |
 | `HW_NAME` | A a module ID: its name for the report | A/X the name (a string ended by 0) | shared | 30 B + 180 B of names |
 | `HW_KNOWN` | A a module, X a revision: whether this build has tests for it | carry clear if so | shared | 40 B |
-| `HW_CPU` | the XBA sequence | A 0 W65C02S, 1 65C816 | shared | 15 B |
-| `HW_CLOCK` | PHI2 cycles in one DS3231 second, by VIA timer 2 (one-shot, as OODOS leaves the ACR) and its wraps, started and stopped at changes of `NB_SEC`; with `HW_FRAMES` set, over 60 frames of the event area's counter instead | `HW_HZ`, 4 bytes | shared (the core runs it with interrupts off) | 150 B |
+| `HW_CLOCK` | PHI2 cycles in one DS3231 second, by VIA timer 2 (one-shot, as OODOS leaves the ACR) and its wraps, started and stopped at changes of `NB_SEC` (how the polling meets the bridge's own I²C reads on real hardware is unknown); with `HW_FRAMES` set, over 60 frames of the event area's counter instead | `HW_HZ`, 4 bytes | shared (the core runs it with interrupts off) | 150 B |
 | `HW_AIA` | address in address: `HW_PTR` a CPU address, `HW_LEN` the bytes, `HW_KEY` the block's number; a write pass and a check pass, called separately so all blocks are written before any is checked | carry set at the first error, `HW_BAD` its address, `HW_GOT`, `HW_WANT` | shared | 140 B |
 | `HW_MARCH` | the march over `HW_PTR`, `HW_LEN` with `HW_BG` the background | as `HW_AIA` | shared | 320 B |
 | `HW_WALK` | walking 1s and 0s at `HW_PTR` | as `HW_AIA` | shared | 50 B |
@@ -497,7 +540,7 @@ no zero page.
 | `HW_FAULT` | the failure's line from `HW_BAD`, `HW_GOT`, `HW_WANT` and the block or bank | printed | shared | 110 B |
 | `HW_SUMMARY` | the counts | printed; A the failures | shared | 70 B |
 | `HW_RTC` | the RTC's status and temperature (RTCCTL, RTCREG `$11`–`$12`, waiting on BUSY) | `HW_RTCST` 3 bytes | shared | 70 B |
-| `HW_SD_ID` | IDENTIFY into a 512-byte buffer by the CPU through DATA (no DMA), waiting on BUSY with a timeout | carry set on an error, A the card's ERROR | shared ([question 1](#questions-for-the-owner)) | 110 B |
+| `HW_SD_ID` | IDENTIFY into a 512-byte buffer by the CPU through DATA (no DMA), waiting on BUSY with a timeout | carry set on an error, A the card's ERROR | shared ([answer 1](#the-owners-answers)) | 110 B |
 
 About 1.9 KB in all; SYSINFO takes about 1.2 KB of it, DIAG about 1.6 KB, the core about 1.3 KB (not `HW_NAME`'s
 long names: it has its own short ones, nor `HW_SD_ID`'s OS timeout).
@@ -518,9 +561,9 @@ Measured from the current `bios.rom` (BIOS 0.13, main 8877ba7, `ld65 -m`):
 | 24–28 | `$60000–$73FFF` | the boot splash's wave RAM image, 80 KB | none |
 | 29 | `$74000–$77FFF` | the video demo, 9,323 bytes (`$4000–$646A`) | 7,061 bytes |
 | 30 | `$78000–$7BFFF` | the font, 4 KB | 12,288 bytes |
-| 31 | `$7C000–$7FFFF` | the BIOS: code `$C800–$E229` (6,698 bytes), the vectors | 9,680 bytes (`$E22A–$FFF9`) |
+| 31 | `$7C000–$7FFFF` | the BIOS: code `$C800–$E229` (6,698 bytes), the vectors; `$C000–$C7FF` of it is under the I/O hole | 7,632 bytes (`$E22A–$FFF9`; review CC2) |
 
-**The core's cost:** about 6.5 KB (stages 0–2 as macros about 1.2 KB, the screen and its form 1 KB, stages 3–11
+**The core's cost:** about 6.6 KB (stages 0–2 as macros about 1.3 KB, the screen and its form 1 KB, stages 3–11
 about 2.5 KB, the library's modules about 1.3 KB, the 6510 program 0.4 KB), and 64 bytes of sums.
 
 **Options:**
@@ -530,7 +573,7 @@ about 2.5 KB, the library's modules about 1.3 KB, the 6510 program 0.4 KB), and 
    lets the core put VEC on its own block, for its NMI. It is still one image: `bios.cfg` splits its `PAD` area
    (blocks 0–23) into `PAD` (0–22) and `DIAG` (23, at `$8000`), so `bios.rom` is the same 512 KB and nothing else
    in it moves.
-2. **In block 31's free 9,680 bytes,** run through W3. It fits, with about 3 KB left for the BIOS, and needs no
+2. **In block 31's free 7,632 bytes,** run through W3. It fits, with about 1.1 KB left for the BIOS, and needs no
    block of its own; but the BIOS's room to grow is nearly gone, and the core's no-RAM stages would run in the block
    whose RAM copy C812R would be overwriting (so `C812R` must still go back to the flash first).
 3. **In block 30's free 12 KB** after the font, through W2 (`$9000–$BFFF`). It fits, but the font and the core share
@@ -548,7 +591,8 @@ so a build never ships a wrong table.
 BIOS 0.14. Exactly what changes:
 
 - **`bios.s`:**
-  - **RESET** gains the switch check first (about 16 bytes): `CONSOLE_ID` = `$E1` and switch 19, then the signature
+  - **RESET** gains the switch check first (about 30 bytes): `CONSOLE_ID` = `$E1` read twice, switch 19 and the
+    HALT switch, then the signature
     check (about 30 bytes: block 23 in W2, `OOHWDIAG` compared with immediates, W2 back on block 2 if it's missing),
     then a jump to the core. Its own label after the check, `BOOT`, is where the core comes back to. No RAM is used.
   - **The jump table:** the first spare, `$C812`, becomes `JMP DIAG` (C812R's prompt, about 80 bytes with a key
@@ -566,12 +610,12 @@ BIOS 0.14. Exactly what changes:
 
 ### OODOS and OOLIB ###
 
-**No change** to OODOS or OOLIB is needed for D1–D3 as written, if question 1 is answered as recommended: the
+**No change** to OODOS or OOLIB is needed for D1–D3, with answer 1 as decided: the
 tools use only existing functions (72, 73, 80–83, 53–58, 105, the file functions), OOLIB's `GX_BLOCK`, `GX_VMAP`
 and `GX_W1BACK`, and read the hardware where AGENTS.md asks for the owner's word first ("for what OOLIB doesn't
-cover yet, ask before a program touches that hardware"). That is [question 1](#questions-for-the-owner). The two
-things that would need OODOS to change are questions too: a new information function instead of question 1's
-reads, and leaving OODOS for the ROM core in one step ([question 7](#questions-for-the-owner)).
+cover yet, ask before a program touches that hardware"), which [answer 1](#the-owners-answers) gives for these
+tools, with the full list. The two things that would have needed OODOS to change, a new information function and
+leaving OODOS for the ROM core in one step ([answer 7](#the-owners-answers)), were not chosen.
 
 The tools follow AGENTS.md otherwise: `OODOS_HEADER`, `JMP WBOOT`, oodos.inc's names, the 65C816 rules gate, no
 window written but through OOLIB, no interrupt, vector or DMA channel taken (every DMA test goes through 82 and
@@ -620,7 +664,7 @@ check`), merged in order. Each reads its part of the books again at its start an
   routines, the User's Guide's entry for DIAG, `DIAG.COM` on the card.
 - **Size:** about 1,800 lines of ca65 and 250 of the 6510 program; DIAG.COM about 11 KB, under the 15 KB the W1
   contract leaves below `$4000`.
-- **Faults the emulator needs** (test-only, in `emulator/test/host/`, [question 8](#questions-for-the-owner)):
+- **Faults the emulator needs** (test-only, in `emulator/test/host/`, [answer 8](#the-owners-answers)):
   - **a bad RAM bit:** a `FaultyMemory` device, mapped over a range after the machine is built (`Machine::bus().map`:
     later mappings win), which forwards to the RAM it covers but forces a bit, or aliases an address line. DMA goes
     through the same mappings (`Decoder::dma_read`, `dma_write`), so DMA sees the fault too. No emulator code
@@ -629,14 +673,16 @@ check`), merged in order. Each reads its part of the books again at its start an
     (V4, D6). Card memory itself is inside `VideoCard`, so a fault seen by the port too would need a hook there: not
     needed for D2;
   - **a bad sound card RAM bit:** needs a test-only hook in `SoundCard` (a mask over a byte of its RAM). That is an
-    emulator change, run under the sanitizers (`test_sound`); D2 asks before making it, or leaves S4's must-fail
-    case to D3, whose CPU path can use the same hook;
+    emulator change, run under the sanitizers (`test_sound`), made in D2 ([answer 8](#the-owners-answers)); D3's
+    CPU path uses the same hook;
   - **a missing card:** the machine's text without it, as D1.
 - **Tests:** `test_oodos_diag`: golden output of `DIAG` on a good machine; a stuck bit in block 40 (M4 fails, return
   code 1, the line names `$A1234` bit 3); a stuck bit in block 8 (M2); an aperture fault (V4); no sound card (S1-S8
   skipped); the sound card claimed by another program first (`SKIP`, "in use"); `/WRITE` answered `N` (nothing on
   the card changed: the image's bytes compared) and `Y` (the file written and erased, the card's free space as
-  before); the rules gate on DIAG.COM.
+  before); the rules gate on DIAG.COM;
+  - **the must-fail case for CC3:** ^C typed while P3 waits for CONT (`DIAG PANEL /FULL /I`), then a test program
+    that reads the address P3 armed: it must run to its end without halting, and CTRL's bit 3 must be clear.
 - **Test map:** `oodos/utils/diag.s` is under `oodos/`; the suite labelled `oodos sd video sound usb dma rtc console`.
 
 ### D3: the ROM core and BIOS 0.14 ###
@@ -644,16 +690,21 @@ check`), merged in order. Each reads its part of the books again at its start an
 - **What:** `backplane/bios/diag.s`, the ROM build of the library, `romsum.py`, `bios.s`'s changes, `bios.cfg`'s
   block 23; the Technical Reference's chapter 3 (the entry and `C812R`), chapter 12 (switches 17–19 at reset, the
   lights' codes), chapter 2 (block 23); hw/design.md's Boot (BIOS 0.14, proposed).
-- **Size:** about 1,600 lines of ca65 for the core; 160 bytes in block 31; 6.5 KB in block 23.
+- **Size:** about 1,600 lines of ca65 for the core; 160 bytes in block 31; 6.6 KB in block 23.
 - **Tests:** `test_bios_diag`, on `backplane.machine` with the console card's switches set before reset:
-  - switch 19: the core runs; golden serial output; the screen's text read from card memory; DISPLAY `$FF` at the
+  - switch 19, HALT/ENABLE at HALT and the keyswitch at LOCK (`ConsoleCard::set_switches`, `set_halt_switch`,
+    `set_lock_switch`), then a power-on: the core runs; golden serial output; the screen's text read from card memory; DISPLAY `$FF` at the
     end; a key boots on as usual (the greeting, then the monitor);
+  - **the must-fail cases for CC4:** switch 19 up alone (an address of `$80000` left on the switches) and the HALT
+    switch alone, each with LOCK: the BIOS boots as usual;
+  - **for CC5:** a machine with no Disk II line, whose `$C67F` the test makes answer as a floating bus would (a
+    test-only device returning the last byte fetched): `HW_PROBE` and the core both find no Disk II;
   - `C812R` with `N`, then `Y`;
   - the faults: a stuck bit in block 0's first 512 bytes (the zero page moves to block 1, and stage 6 reports block
     0), a stuck bit in block 41 (stage 6), every RAM block bad (DISPLAY blinks `$82`, the block, the bits, sampled
     over time), RAM B's line left out of the machine ("RAM B: not answering"), a byte of block 30 changed in a copy
     of `bios.rom` (`MachineOptions::rom_override`: stage 1 fails block 30), no video card (serial only, stage 8
-    skipped), no console card (no lights, switch 19 can't be read: the BIOS boots as now);
+    skipped), no console card (no lights, the switches can't be read: the BIOS boots as now);
   - a block 23 that is erased (a copy of `bios.rom` with it blanked): `NO DIAGNOSTICS IN THE FLASH`, then the boot;
   - the time of a quick run, in emulated cycles, reported in seconds at 7.16 MHz against the table above;
   - `test_bios`, `test_apple`, `test_iie`, `test_oodos_apple`, `test_rom_boot`: unchanged and passing.
@@ -667,43 +718,60 @@ check`), merged in order. Each reads its part of the books again at its start an
 - The ESP32's bus spy as a test host ([design.md](design.md#boot)): later, using the core's serial output.
 
 
-## Questions for the owner ##
+## The owner's answers ##
 
-1. **Hardware DIAG and SYSINFO read directly under OODOS.** AGENTS.md asks for the owner's word before a program
-   touches hardware OOLIB doesn't cover. The tools would read: the ID bytes, `NB_STATUS`, `NB_RTCCTL`, the RTC's
-   temperature through RTCREG and RTCDATA (a write to RTCREG), `VIDEO_MEMSIZE`, `USB_DEVICES`, `SD_STATUS`, the
-   console card's SWR and PANEL; and write: SD's `IDENTIFY` (CMD, then 512 bytes from DATA by the CPU, between BDOS
-   calls, when OODOS has no command running), the console card's DISPLAY, CTRL's bit 3 and its breakpoint (P2, P3:
-   OODOS doesn't use the card). **Recommendation:** allow these for DIAG and SYSINFO, named in AGENTS.md as an
-   exception for the system tools, with no OODOS change. *Alternative:* a new OODOS function that returns the IDs,
-   the SD card's identity and the RTC's status, which keeps every program off the registers but grows the interface.
-2. **The front-panel hold.** The panel's keys can't be held: KEYS keeps presses since the last read, and any
-   /RESET clears it ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)). A switch can.
-   **Recommendation:** switch 19 up at any hard reset (power-on, START, the reset button) enters the core; switches
-   18 and 17 choose full and loop. *Alternative:* LOAD ADRS pressed during the boot splash's 5 s enters it, as a
-   key there now gives the monitor; it needs the BIOS's RAM copy running, so a bank 0 or F fault could stop it
-   before it is seen.
-3. **The monitor's entry.** **Recommendation:** `$C812`, the first spare (`C812R`), with the prompt and `Y` before
-   it overwrites memory. *Alternative:* no prompt, as `C800R` has none.
-4. **Where the core lives.** **Recommendation:** flash block 23, through W2 ([ROM space](#rom-space), option 1).
-   *Alternative:* block 31's free 9,680 bytes (option 2).
-5. **Writing the SD card.** **Recommendation:** the ROM core never writes the card; DIAG.COM's `/WRITE` writes,
-   reads back and erases a 64 KB file on A: after `Y`, which leaves the card's data as it was. *Alternative:* a
-   raw sector test of a file the user puts on the card, `/DIAGTEST.BIN`, mounted as a unit, from both the core and
-   DIAG.COM, which tests the card's raw path but needs the user to make the file.
-6. **The serial card's ID.** It has none, and the stand-in's `$C37F` reads its control register. **Recommendation:**
-   define the TL16C552A card's ID as `$61` in hw/design.md now (a hardware definition, no BIOS or OODOS change), and
-   leave the emulator's stand-in as it is; the tools say "the stand-in 6551 (no ID register)" for any other value.
-   *Alternative:* the emulator's stand-in also answers `$C37F` with `$60` (module 6, revision 0 for "the stand-in"),
-   an emulator change only.
-7. **From OODOS to the core in one step.** **Recommendation:** no OODOS change: `WOZMON`, then `C812R`, and the
-   User's Guide's DIAG entry says so. *Alternative:* function 75 gains A = 2, the ROM's diagnostics, as A = 1 is
-   Apple II mode, and DIAG gets a `/ROM` option: the interface grows by one value.
-8. **The emulator's faults.** **Recommendation:** test-only, in `emulator/test/host/`: a `FaultyMemory` device
-   mapped over a range after the machine is built, which needs no emulator change; and, for the sound card's RAM, a
-   test-only hook in `SoundCard`, the one emulator change, asked for in D2. *Alternative:* a `fault` line in the
-   machine-file language, so the WebUI could show a broken machine as a demo; a bigger change, to the language and
-   its documentation.
-9. **Where the library lives.** **Recommendation:** `backplane/oohw/`, beside the BIOS, since the ROM and OODOS
-   both build it and it is about the hardware. *Alternative:* `oodos/lib/oohw*.s` beside OOLIB, with the BIOS's
-   Makefile reaching into `oodos/`.
+**Decided (2026-11-13, the owner):** questions 1–9 as recommended, questions 1 and 2 amended by review round 1
+(CC6, CC4). The alternatives are kept for the record.
+
+1. **Hardware DIAG and SYSINFO touch directly under OODOS. Decided: allowed for DIAG and SYSINFO,** named in
+   AGENTS.md as an exception for the system tools (written in D1), with no OODOS change. AGENTS.md otherwise asks
+   for the owner's word before a program touches hardware OOLIB doesn't cover. The whole list (CC6):
+   - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; IRQL and IRQH (NB3: the same poll the
+     dispatcher makes, which acknowledges nothing and changes nothing); `VIDEO_MEMSIZE`; `USB_DEVICES`; `SD_STATUS`;
+     the console card's SWR, PANEL, STATUS, LADDR and LDATA; `NB_SEC` polled for the clock (its effect on the
+     bridge's I²C reads on real hardware unknown, as stage 11 says).
+   - **Writes:** RTCREG, to read the DS3231's temperature through RTCDATA (an I²C read; BUSY waited for); SD's
+     `IDENTIFY`; the console card's DISPLAY, CTRL's bit 3 (P2), and its breakpoint (P3: BPADDR, BPCTRL, STATUS's
+     HIT); and, with the parts claimed through function 82, the sound card's registers as the Programmer's Guide
+     allows a claimed part's, S6's included.
+   - **S6 (`/FULL`)** writes every byte of the ES5503's 128 KB of wave RAM through DOCDATA. With `SC_DOC` claimed
+     the chip and its RAM are DIAG's, and nothing kept there belongs to anyone else (the boot splash's samples are
+     loaded at each boot); its oscillators are halted first, and `SN_RELEASE` gives the chip back stopped.
+   - **P3 (`/FULL /I`)** halts the CPU until CONT. While it is halted nothing runs: no interrupt is taken, so
+     OODOS's 1 kHz tick and the millisecond counter stop (timer 1 runs on, so one tick is taken late and the rest
+     of the halt's ticks are lost), the frame counter and any vertical-blank copies miss the frames (DIAG sets none),
+     the USB card's event FIFO can fill and drop events, and the sound card plays on by itself. The DS3231 keeps the
+     time, so function 105 is right after; the millisecond counter is behind by the halt. On the card RDY holds the
+     CPU on the cycle; the emulator stops between instructions.
+   - **Why IDENTIFY can't collide with OODOS's driver:** OODOS drives the SD card only inside BDOS and BIOS calls,
+     each command waited for until BUSY clears (`oodos/sys/bios.s`), and never from an interrupt: its SD interrupt
+     stays off (`SD_IEN` 0, `irq.s`'s DEAFEN) and the dispatcher doesn't serve the card. A program runs only between
+     those calls, so when DIAG writes CMD no command of OODOS's is under way. IDENTIFY changes nothing on the card
+     (LBA and COUNT stay), DIAG reads DATA by the CPU with CTRL's DMA bit clear and puts CTRL back as it found it,
+     and OODOS's next command writes UNIT, LBA, COUNT and CTRL afresh.
+
+   *Alternative (not chosen):* a new OODOS function that returns the IDs, the SD card's identity and the RTC's
+   status.
+2. **The front-panel hold. Decided, amended (CC4): switch 19 up and HALT/ENABLE at HALT** at a hard reset enters the
+   core; switches 18 and 17 choose full and loop. Switch 19 alone would catch an address of `$80000` or more left
+   on the switches by LOAD ADRS. **Found in writing it in:** the HALT switch at HALT halts the CPU before RESET's
+   first instruction unless the keyswitch is at LOCK, so the combination is readable only at LOCK (PANEL bit 0
+   still shows the switch then), which also makes START no way in: power-on or the reset button ([How it is
+   entered](#the-rom-core)). **The owner is asked to confirm LOCK as the third condition.** *Alternative (not
+   chosen):* LOAD ADRS pressed during the boot splash.
+3. **The monitor's entry. Decided:** `$C812` (`C812R`), with the prompt and `Y` before it overwrites memory.
+   *Alternative (not chosen):* no prompt.
+4. **Where the core lives. Decided:** flash block 23, through W2 ([ROM space](#rom-space), option 1).
+   *Alternative (not chosen):* block 31's free 7,632 bytes (option 2), which would leave the BIOS about 1.1 KB.
+5. **Writing the SD card. Decided:** the ROM core never writes the card; DIAG.COM's `/WRITE` writes, reads back and
+   erases a 64 KB file on A: after `Y`. *Alternative (not chosen):* a raw test of a user's `/DIAGTEST.BIN`.
+6. **The serial card's ID. Decided:** the TL16C552A card's ID is `$61`, written into hw/design.md in D1; the
+   emulator's stand-in stays as it is, and the tools say "the stand-in 6551 (no ID register)" for any other value.
+   *Alternative (not chosen):* the stand-in answers `$60`.
+7. **From OODOS to the core. Decided:** no OODOS change: `WOZMON`, then `C812R`, as the User's Guide's DIAG entry
+   will say. *Alternative (not chosen):* function 75 with A = 2.
+8. **The emulator's faults. Decided:** test-only, in `emulator/test/host/`: `FaultyMemory` mapped over a range after
+   the machine is built (and, for CC5, a device answering as a floating bus); for the sound card's RAM a test-only
+   hook in `SoundCard`, the one emulator change, made in D2. *Alternative (not chosen):* a `fault` line in the
+   machine-file language.
+9. **Where the library lives. Decided:** `backplane/oohw/`. *Alternative (not chosen):* `oodos/lib/oohw*.s`.
