@@ -3,8 +3,8 @@
 Nov 13, 2026 · @Jefferson
 
 **Status: approved (2026-11-13, the owner), after review round 1; design only, nothing built yet.** The owner's
-decisions of 2026-11-13 (below) and [answers](#the-owners-answers) to questions 1–9 stand, two of them amended by
-the review (CC4, CC6); review round 1's findings CC1–CC6 are fixed in place. D1 starts from this. Every register and ID named here was checked against
+decisions of 2026-11-13 (below) and [answers](#the-owners-answers) to questions 1–9 stand: answer 1 amended by
+the review (CC6), answer 2 replaced by the owner's option A (the prompt); review round 1's findings CC1–CC6 are fixed in place. D1 starts from this. Every register and ID named here was checked against
 [`backplane.inc`](../backplane/bios/backplane.inc) and the emulator's devices (`emulator/components/devices/`), the
 reference until there is hardware. Where the real hardware's behaviour isn't known, this says so.
 
@@ -348,24 +348,40 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 
 **How it is entered:**
 
-- **At reset, with the front panel's switch 19 up and HALT/ENABLE at HALT** (decided, [answer 2](#the-owners-answers),
-  amended by review CC4). Switch 19 alone isn't enough: it is also A19 of LOAD ADRS, so an address of `$80000` or
-  above left on the switches would enter the destructive core at the next reset. The BIOS's RESET checks first
-  thing, before it copies itself into RAM: `CONSOLE_ID` is `$E1` (read twice, as [Card discovery](#card-discovery)
-  says), `CONSOLE_SWR+2` bit 3 (switch 19) is set, and `CONSOLE_PANEL` bit 0 (the HALT switch) is set; then it
-  jumps to the core. No RAM is used to decide.
-- **How the HALT switch can be read at reset.** At HALT the switch halts the CPU before every instruction
-  ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#halting-and-stepping)), so with the keyswitch at
-  RUN the CPU stops on RESET's first instruction and never reaches the check: there each CONT steps one
-  instruction, and turning the switch to ENABLE lets it run but then PANEL reads ENABLE. **The combination is
-  readable only with the keyswitch at LOCK,** where the HALT switch halts nothing but PANEL's bit 0 still shows it
-  ([chapter 12, `$C703`](../docs/oo1-technical-reference/12-front-panel.md#reg-c703):
-  "Bit 0 shows the switch with LOCK on too"; the emulator's `ConsoleCard::halted()` ignores the switch while locked,
-  and PANEL reads it all the same). LOCK also ignores START, so the way in is: keyswitch at LOCK, switch 19 up,
-  HALT/ENABLE at HALT, then power on (or the reset button, which is the north bridge's, not the panel's). Before
-  the keyswitch goes back to RUN, HALT/ENABLE must go to ENABLE, or the CPU halts there. On real hardware whether
-  PANEL reads the switch while locked is the card's design, not yet measured. **This needs the owner's word:** the
-  decided entry works only with LOCK as the third condition (or a later card that doesn't halt at reset).
+- **At reset, with switch 19 up, after a confirmation** (decided, [answer 2](#the-owners-answers), the owner's
+  option A; it replaces round 1's HALT and LOCK combination: **neither HALT/ENABLE nor the keyswitch is part of the
+  entry now**). Switch 19 alone can't be the entry, since it is also A19 of LOAD ADRS and an address of `$80000` or
+  more may be left on the switches; so it only asks. The BIOS's RESET checks first thing, before it copies itself
+  into RAM: `CONSOLE_ID` is `$E1` (read twice, as [Card discovery](#card-discovery) says) and `CONSOLE_SWR+2`
+  bit 3 (switch 19) is set; then the signature (below); then it jumps to the core's **prompt**, in block 23. With
+  no console card, switch 19 clear or no signature it boots as now, with no delay.
+- **The prompt** shows `DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S` on the serial line and the screen, and `$A5` on the
+  lights. CONT on the panel, or `Y` on the serial line or the USB keyboard, within 5 s enters the core (stage 0 on);
+  any other key, or nothing for 5 s, jumps back to the BIOS's `BOOT` and boots as usual. **Nothing is written to
+  RAM before the confirmation,** nor to any card but what the prompt shows itself by: the 6551's settings and the
+  characters it sends, the video card's font, palette, text and layer 0 (card memory, which the boot's VINIT
+  writes again anyway) and the console card's DISPLAY and CTRL's bit 3 (put back to 0 on a normal boot).
+- **What the prompt may use: nothing that needs RAM.** RAM isn't trusted yet, and the point of the switch is to
+  reach the core when bank 0 or F is bad. So the prompt is written in the no-RAM style of stages 0–2 (macros, no JSR,
+  no zero page, no stack), reusing stage 0's screen and serial macros; it doesn't need stages 1–2 first, and
+  doing them first would put 0.1 s of flash sums and the zero page search before every such boot, for nothing when
+  the answer is no. The 5 s are counted from `NB_SEC`: the last value in Y, the seconds seen in X, A for each
+  poll; six changes, so between 5 and 6 s. The keys are polled in the same loop: the 6551's status (a byte
+  received), `USB_KEY` (bit 7, the strobe; `Y` is `$D9`, and a lower-case `y` `$F9`, taken too) and `CONSOLE_KEYS`.
+- **Why CONT and not START (found in writing it in; the owner's word is asked, [answer 2](#the-owners-answers)).**
+  START can't be read: it isn't a bit in KEYS (those are LOAD ADRS, EXAM, DEP and CONT), it *is* the hard reset,
+  through the north bridge ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)). Pressed at the
+  prompt it resets the machine: KEYS, CTRL and the rest are cleared, it leaves Apple II mode if it were on, and the
+  boot starts again, which with switch 19 still up is the prompt again, without end. The BIOS can't tell that
+  reset from any other (`NB_STATUS` bit 1 only says whether it was a power-on) unless the prompt first wrote a
+  marker into a register a reset keeps (the console card's PADDR or BPADDR), which breaks "nothing written before
+  the confirmation" and overwrites the user's panel address or breakpoint. **CONT** is in KEYS: a press while the
+  CPU runs is latched there (the emulator's `ConsoleCard::apply` sets KEYS for any key, halted or not) and does
+  nothing else while running (CONT acts only while halted). KEYS is cleared by every /RESET, so a CONT pressed
+  before this reset can't count; the prompt also reads KEYS once at its start, to drop a press during the BIOS's
+  first instructions, then watches for bit 3. LOAD ADRS would be latched too, but it copies the switches into
+  PADDR as a side effect; EXAM and DEP do nothing while running, but CONT is the panel's "go on". The keyswitch at
+  LOCK makes the panel's keys ignored, so then only `Y` enters.
 - **`C812R` from the monitor** (decided, [answer 3](#the-owners-answers)): it prints `ALL OF MEMORY WILL BE
   OVERWRITTEN. Y TO GO ON` and waits for `Y`, since a user typing at the monitor may have work in RAM; any other key
   is the monitor again.
@@ -377,7 +393,7 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 
 | Switch | Up |
 |---|---|
-| 19 | with HALT/ENABLE at HALT (and the keyswitch at LOCK): enter the core at reset (above) |
+| 19 | at reset: the prompt, then the core if CONT or `Y` confirms it (above) |
 | 18 | full: the march with all four backgrounds, and the march on the video card's memory |
 | 17 | loop: run again and again, counting passes, until a key |
 
@@ -426,6 +442,7 @@ A KEY OR LOAD ADRS: BOOT AS USUAL
 
 | Lights | Meaning |
 |---|---|
+| `$A5` | the prompt, waiting for CONT or `Y` (at most 6 s) |
 | `$01`–`$0B` | stage n running |
 | `$FF`, steady | the end: everything passed |
 | `$C0` + n, steady | the end: n stages failed (1–63) |
@@ -436,9 +453,8 @@ panel (KEYS bit 0: the only key that does anything while the CPU runs; ignored w
 then puts back what it changed to the values /RESET leaves (SLOT0–3 0–3, PSTEP 1, PCTL 0; DMA CONTROL `$70`; the
 sound card's CTRL, RUN off; WAIT0–3 0; DISPLAY 0 and CTRL 0; VEC on flash block 31, `$DF`, so an NMI before the
 boot's copy takes the BIOS's own vector, and the boot then points VEC at block 63 as it always does) and jumps to
-the BIOS's boot just past the switch check, which copies the BIOS into RAM and boots as usual. With the switches
-still set the next reset enters the core again, which is the loop the hardware gives for free; switch 17 is the
-same thing without a reset. After a fatal failure it never ends.
+the BIOS's boot just past the switch check, which copies the BIOS into RAM and boots as usual. With switch 19
+still up the next reset shows the prompt again; switch 17 loops without a reset or a confirmation. After a fatal failure it never ends.
 
 Break (NMI) while the core runs would take the flash's own vector, the BIOS's BREAK, which needs RAM. So the core
 points VEC at block 23, whose last six bytes are its own vectors, so an NMI or IRQ goes to the core's handler in
@@ -450,7 +466,7 @@ the table about 40; stage 2's march, two backgrounds over two pages by absolute 
 (the font's 16 pages unrolled, the palette, the clear, the registers) about 200; the messages and their delays
 (no JSR: each a macro) about 250; the lights about 60. It fits block 23 with room to spare.
 
-**Size:** about 6.6 KB of the 16 KB block (below).
+**Size:** about 6.9 KB of the 16 KB block, the prompt's 0.3 KB included (below).
 
 
 ## The memory tests ##
@@ -563,12 +579,12 @@ Measured from the current `bios.rom` (BIOS 0.13, main 8877ba7, `ld65 -m`):
 | 30 | `$78000–$7BFFF` | the font, 4 KB | 12,288 bytes |
 | 31 | `$7C000–$7FFFF` | the BIOS: code `$C800–$E229` (6,698 bytes), the vectors; `$C000–$C7FF` of it is under the I/O hole | 7,632 bytes (`$E22A–$FFF9`; review CC2) |
 
-**The core's cost:** about 6.6 KB (stages 0–2 as macros about 1.3 KB, the screen and its form 1 KB, stages 3–11
+**The core's cost:** about 6.9 KB (the reset's prompt about 0.3 KB, stages 0–2 as macros about 1.3 KB, the screen and its form 1 KB, stages 3–11
 about 2.5 KB, the library's modules about 1.3 KB, the 6510 program 0.4 KB), and 64 bytes of sums.
 
 **Options:**
 
-1. **Recommended: its own block, 23,** run through W2. The core has 16 KB, all its own; block 31 grows by about 160
+1. **Recommended: its own block, 23,** run through W2. The core has 16 KB, all its own; block 31 grows by about 140
    bytes (the switch check, the signature check, `C812R`'s prompt); block 31's free space stays for the BIOS. It also
    lets the core put VEC on its own block, for its NMI. It is still one image: `bios.cfg` splits its `PAD` area
    (blocks 0–23) into `PAD` (0–22) and `DIAG` (23, at `$8000`), so `bios.rom` is the same 512 KB and nothing else
@@ -591,12 +607,14 @@ so a build never ships a wrong table.
 BIOS 0.14. Exactly what changes:
 
 - **`bios.s`:**
-  - **RESET** gains the switch check first (about 30 bytes): `CONSOLE_ID` = `$E1` read twice, switch 19 and the
-    HALT switch, then the signature
-    check (about 30 bytes: block 23 in W2, `OOHWDIAG` compared with immediates, W2 back on block 2 if it's missing),
-    then a jump to the core. Its own label after the check, `BOOT`, is where the core comes back to. No RAM is used.
-  - **The jump table:** the first spare, `$C812`, becomes `JMP DIAG` (C812R's prompt, about 80 bytes with a key
-    routine, then the signature check and the core); `$C815` stays a spare. **The other entries don't move:** the
+  - **RESET** gains the switch check first (about 20 bytes: `CONSOLE_ID` = `$E1` read twice, switch 19), then the
+    signature check (about 30 bytes: block 23 in W2, `OOHWDIAG` compared with immediates, W2 back on block 2 if it's
+    missing), then a jump to the core's prompt in block 23: about 55 bytes in all, against round 1's 46. Its own
+    label after the check, `BOOT`, is where the prompt (on no) and the core (at its end) come back to. No RAM is
+    used. The prompt itself (about 300 bytes) is in block 23, not block 31.
+  - **The jump table:** the first spare, `$C812`, becomes `JMP DIAG` (C812R's own `Y` prompt, about 80 bytes with
+    a key routine, then the signature check and the core at stage 0: it doesn't go through the reset's 5 s prompt,
+    and switch 19 plays no part in it); `$C815` stays a spare. **The other entries don't move:** the
     table is eight 3-byte jumps at `$C800–$C817`, and only the spare's target changes.
   - **The greeting:** `BACKPLANE BIOS 0.14`. OODOS's boot status and SYSINFO find the version from it.
 - **`bios.cfg`:** `PAD` becomes `$0000–$5BFFF`; a new `DIAG` area, start `$8000`, size `$4000`, and its segment.
@@ -690,13 +708,17 @@ check`), merged in order. Each reads its part of the books again at its start an
 - **What:** `backplane/bios/diag.s`, the ROM build of the library, `romsum.py`, `bios.s`'s changes, `bios.cfg`'s
   block 23; the Technical Reference's chapter 3 (the entry and `C812R`), chapter 12 (switches 17–19 at reset, the
   lights' codes), chapter 2 (block 23); hw/design.md's Boot (BIOS 0.14, proposed).
-- **Size:** about 1,600 lines of ca65 for the core; 160 bytes in block 31; 6.6 KB in block 23.
+- **Size:** about 1,700 lines of ca65 for the core and the prompt; about 140 bytes in block 31; 6.9 KB in block 23.
 - **Tests:** `test_bios_diag`, on `backplane.machine` with the console card's switches set before reset:
-  - switch 19, HALT/ENABLE at HALT and the keyswitch at LOCK (`ConsoleCard::set_switches`, `set_halt_switch`,
-    `set_lock_switch`), then a power-on: the core runs; golden serial output; the screen's text read from card memory; DISPLAY `$FF` at the
-    end; a key boots on as usual (the greeting, then the monitor);
-  - **the must-fail cases for CC4:** switch 19 up alone (an address of `$80000` left on the switches) and the HALT
-    switch alone, each with LOCK: the BIOS boots as usual;
+  - switch 19 up and CONT pressed at the prompt (`ConsoleCard::set_switches`, then `press(CONT)` once the prompt
+    is on the serial line): the core runs; golden serial output; the screen's text read from card memory; DISPLAY
+    `$FF` at the end; a key boots on as usual (the greeting, then the monitor). The same with `Y` on the serial line,
+    and on the USB keyboard;
+  - **the must-fail cases for the prompt:** switch 19 up and no answer: the prompt, DISPLAY `$A5`, then the boot as
+    usual within about 6 s of emulated time, RAM unchanged (the test fills it with a pattern before the reset and
+    compares after the prompt has ended, before the boot writes it); switch 19 up and `N` typed: the boot at once;
+    CONT pressed before the reset (KEYS then cleared by it): the prompt still waits; switch 19 up and START pressed
+    at the prompt: a hard reset and the prompt again, nothing entered; switch 19 down: no prompt, the boot as now;
   - **for CC5:** a machine with no Disk II line, whose `$C67F` the test makes answer as a floating bus would (a
     test-only device returning the last byte fetched): `HW_PROBE` and the core both find no Disk II;
   - `C812R` with `N`, then `Y`;
@@ -720,8 +742,8 @@ check`), merged in order. Each reads its part of the books again at its start an
 
 ## The owner's answers ##
 
-**Decided (2026-11-13, the owner):** questions 1–9 as recommended, questions 1 and 2 amended by review round 1
-(CC6, CC4). The alternatives are kept for the record.
+**Decided (2026-11-13, the owner):** questions 1–9 as recommended; question 1 amended by review round 1 (CC6), and question 2
+replaced by the owner's option A, the prompt. The alternatives are kept for the record.
 
 1. **Hardware DIAG and SYSINFO touch directly under OODOS. Decided: allowed for DIAG and SYSINFO,** named in
    AGENTS.md as an exception for the system tools (written in D1), with no OODOS change. AGENTS.md otherwise asks
@@ -752,13 +774,17 @@ check`), merged in order. Each reads its part of the books again at its start an
 
    *Alternative (not chosen):* a new OODOS function that returns the IDs, the SD card's identity and the RTC's
    status.
-2. **The front-panel hold. Decided, amended (CC4): switch 19 up and HALT/ENABLE at HALT** at a hard reset enters the
-   core; switches 18 and 17 choose full and loop. Switch 19 alone would catch an address of `$80000` or more left
-   on the switches by LOAD ADRS. **Found in writing it in:** the HALT switch at HALT halts the CPU before RESET's
-   first instruction unless the keyswitch is at LOCK, so the combination is readable only at LOCK (PANEL bit 0
-   still shows the switch then), which also makes START no way in: power-on or the reset button ([How it is
-   entered](#the-rom-core)). **The owner is asked to confirm LOCK as the third condition.** *Alternative (not
-   chosen):* LOAD ADRS pressed during the boot splash.
+2. **The front-panel entry. Decided (2026-11-13, the owner, option A; it replaces round 1's HALT and LOCK
+   combination):** switch 19 up at any reset shows a prompt on the screen and the serial line, with `$A5` on the
+   lights; a confirmation within 5 s enters the core, anything else or nothing boots as usual; nothing is written
+   before the confirmation. HALT/ENABLE and the keyswitch are no longer part of the entry. Switches 18 and 17
+   choose full and loop. **Found in writing it in, for the owner's word:** the panel's confirmation can't be START.
+   START is the hard reset itself, not a KEYS bit, so pressing it at the prompt resets the machine and shows the
+   prompt again; it starts nothing else (a hard reset, which also leaves Apple II mode, as any START does). Telling
+   that reset apart would need a marker written into a register a reset keeps, before the confirmation.
+   **Recommendation: CONT** on the panel, or `Y` on a keyboard: CONT is latched in KEYS while the CPU runs and does
+   nothing else then, and every reset clears KEYS ([How it is entered](#the-rom-core)). *Alternative:* LOAD ADRS,
+   latched the same way, but it copies the switches into PADDR as it is pressed.
 3. **The monitor's entry. Decided:** `$C812` (`C812R`), with the prompt and `Y` before it overwrites memory.
    *Alternative (not chosen):* no prompt.
 4. **Where the core lives. Decided:** flash block 23, through W2 ([ROM space](#rom-space), option 1).
