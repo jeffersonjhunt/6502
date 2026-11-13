@@ -1,8 +1,9 @@
 ; UIDEMO: OOUI shown off, for a visitor on the demo card (make_card.sh).
 ; One window with a menu bar (File: About, Quit; View: the blue theme,
 ; OOUI's UI_TURBO), check boxes, radio buttons, a slider with a bar that follows it,
-; a list, a text field and buttons; Open file... puts up the file picker on
-; A: and B:, About a message box. The line at the window's foot says what
+; a list, a text field and buttons; Open file... puts up the file picker,
+; from A: (its arrows step through the drives there are, A:-G: and M:),
+; About a message box. The line at the window's foot says what
 ; the last event did. Quit, the window's close box, or Escape with nothing
 ; open, closes OOUI (ui_close: the console's screen back) and ends with the
 ; warm boot, back at A>.
@@ -88,9 +89,6 @@ say:    ldy     #C_WRITESTR
         jsr     BDOS
         jmp     WBOOT
 
-quit:   jsr     ui_close
-        jmp     WBOOT
-
 ; The event ui_poll returned kept in EVLOG; A, X and Y kept.
 log:    pha
         phx
@@ -157,6 +155,23 @@ close:  cpx     #W_MAIN                 ; the close box, or Escape
         lda     #<s_ok                  ; the message box's OK
         ldx     #>s_ok
         jmp     status
+
+; The keys OOUI took from the event queue were cooked into the USB card's
+; KEY as well, which nothing read while UIDEMO ran: what is left there is
+; read and dropped first, or the CCP would take it (the last, Escape say)
+; as its next line's first character. Function 6's $FE and $FD: no echo,
+; and a NUL is read as any key is.
+quit:   lda     #$FE                    ; a key waiting?
+        ldy     #C_RAWIO
+        jsr     BDOS
+        cmp     #0
+        beq     @shut
+        lda     #$FD                    ; read it, unechoed
+        ldy     #C_RAWIO
+        jsr     BDOS
+        bra     quit
+@shut:  jsr     ui_close
+        jmp     WBOOT
 
 about:  lda     #<mbox
         ldx     #>mbox
@@ -417,7 +432,7 @@ t_about: .byte  "OOUI, the OO-1's UI toolkit: windows, menus,", 13
 t_atitle: .asciiz "About UIDEMO"
 
 pick:   .word   t_ptitle, 0             ; every file
-        .byte   UP_DRIVES, 1, $FF       ; A: and B:, from A:, the current user
+        .byte   UP_DRIVES, 1, $FF       ; the drives (A:-G:, M:), from A:, the current user
         .word   result
         .byte   1, 0
         .word   0, 0, work, NFILES * UP_ELEN

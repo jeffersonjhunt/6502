@@ -5408,6 +5408,13 @@ TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
     button(r, false);
     r.run(ms(1500));
     expect_demo(r, seen, {{UE_FOCUS, D_OPEN, 0}, {UE_CLICK, D_OPEN, 0}, {UE_MODAL, UI_PICKER_, 1}}, "Open file...");
+    // Its golden frame on B:, empty (its drive's right arrow, column 20 of row 3), so a file more or less on the
+    // demo card's A: changes no OOUI golden (the review's Y3).
+    point(r, 20, 3);
+    button(r, true);
+    button(r, false);
+    r.run(ms(1000));
+    expect_demo(r, seen, {}, "the picker on B:");
     golden(r, "uidemo-picker");
     key(r, K_ESC);
     expect_demo(r, seen, {{UE_PICK, UI_PICKER_, 1}, {UE_MODAL, UI_PICKER_, 0}}, "the picker cancelled");
@@ -5433,4 +5440,19 @@ TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
             std::printf("  the video card's register $%02X: $%02X, at A> before $%02X\n", i, vid(r).peek(i), regs[i]);
         CHECK_EQ(vid(r).peek(i), regs[i]);
     }
+    // The keys OOUI took from the event queue were cooked into the USB card's KEY too, which nothing read while
+    // UIDEMO ran: its quit drains KEY, so the CCP's next line starts with what is typed now, not with the Escape
+    // (the review's Y1). DIR, on the USB keyboard: its echo straight after the prompt.
+    const size_t at = r.out.size(), prompt = r.out.rfind("A>");
+    r.type_usb("DIR\r");
+    CHECK(r.until("A>", ms(3000), at));
+    const std::string echo = r.out.substr(prompt + 2, 5); // (a stray key is echoed as the CCP reads it, before DIR)
+    if (echo != "DIR\r\n")
+    {
+        std::string shown;
+        for (const char c : echo)
+            shown += static_cast<unsigned char>(c) < 32 ? "^" + std::string(1, static_cast<char>(c + 64)) : std::string(1, c);
+        std::printf("  after A>: \"%s\", want \"DIR^M^J\"\n", shown.c_str());
+    }
+    CHECK_EQ(echo, std::string("DIR\r\n"));
 }

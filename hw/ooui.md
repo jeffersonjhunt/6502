@@ -2173,7 +2173,9 @@ And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its
   the keys it doesn't use; `ui_theme`, and hiding a full-screen overlay window, draw again the widgets it covers.
   *(Proposed, found by UIDEMO, 2026-11-13:)* in the blue theme (`UI_TURBO`) a slider's text thumb and a list's
   scroll bar barely show against what is round them; and a click on a radio button or a list's row gives no
-  `UE_FOCUS`, as a click on a check box or a button does.
+  `UE_FOCUS`, as a click on a check box or a button does. *(Proposed, the UIDEMO review's Y1:)* `ui_close` leaves the
+  console's cooked key (KEY) strobed; a drain there would cover every program (UIDEMO drains it itself before
+  `ui_close`).
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 
