@@ -368,7 +368,7 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
   the answer is no. The 5 s are counted from `NB_SEC`: the last value in Y, the seconds seen in X, A for each
   poll; six changes, so between 5 and 6 s. The keys are polled in the same loop: the 6551's status (a byte
   received), `USB_KEY` (bit 7, the strobe; `Y` is `$D9`, and a lower-case `y` `$F9`, taken too) and `CONSOLE_KEYS`.
-- **Why CONT and not START (found in writing it in; the owner's word is asked, [answer 2](#the-owners-answers)).**
+- **Why CONT and not START (found in writing it in; CONT decided by the owner, [answer 2](#the-owners-answers)).**
   START can't be read: it isn't a bit in KEYS (those are LOAD ADRS, EXAM, DEP and CONT), it *is* the hard reset,
   through the north bridge ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)). Pressed at the
   prompt it resets the machine: KEYS, CTRL and the rest are cleared, it leaves Apple II mode if it were on, and the
@@ -778,12 +778,12 @@ replaced by the owner's option A, the prompt. The alternatives are kept for the 
    combination):** switch 19 up at any reset shows a prompt on the screen and the serial line, with `$A5` on the
    lights; a confirmation within 5 s enters the core, anything else or nothing boots as usual; nothing is written
    before the confirmation. HALT/ENABLE and the keyswitch are no longer part of the entry. Switches 18 and 17
-   choose full and loop. **Found in writing it in, for the owner's word:** the panel's confirmation can't be START.
+   choose full and loop. **Found in writing it in:** the panel's confirmation can't be START.
    START is the hard reset itself, not a KEYS bit, so pressing it at the prompt resets the machine and shows the
    prompt again; it starts nothing else (a hard reset, which also leaves Apple II mode, as any START does). Telling
    that reset apart would need a marker written into a register a reset keeps, before the confirmation.
-   **Recommendation: CONT** on the panel, or `Y` on a keyboard: CONT is latched in KEYS while the CPU runs and does
-   nothing else then, and every reset clears KEYS ([How it is entered](#the-rom-core)). *Alternative:* LOAD ADRS,
+   **Decided (2026-11-13, the owner): CONT** on the panel, or `Y` on a keyboard: CONT is latched in KEYS while the CPU runs and does
+   nothing else then, and every reset clears KEYS ([How it is entered](#the-rom-core)). *Alternative (not chosen):* LOAD ADRS,
    latched the same way, but it copies the switches into PADDR as it is pressed.
 3. **The monitor's entry. Decided:** `$C812` (`C812R`), with the prompt and `Y` before it overwrites memory.
    *Alternative (not chosen):* no prompt.
