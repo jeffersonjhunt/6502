@@ -1,0 +1,77 @@
+# Where the model (mbf.py, the 1983 source's arithmetic) and PC-BASIC 2.0.7 differ on math.bas, and why
+# (check.py's oracle check). The project's own. Each line: the expression, then why. A difference not listed
+# fails, and so does a line listed whose difference has gone. Where the reason is PC-BASIC's own function,
+# PC-BASIC computes the function in IEEE double precision and converts it, a unit lower in the last digit
+# more often than not; it doesn't run GW-BASIC's Hart polynomials, so it can't settle those bits. The
+# arithmetic itself (+ - * / in each precision, $FIN, $FOUT, INT, FIX, CSNG, CDBL, RND's generator) agrees
+# everywhere it is printed.
+SQR(2)                     # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+SQR(.5)                    # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+SQR(10)                    # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+SQR(123456.7)              # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+SQR(9.999999E-39)          # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+EXP(-1)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(50)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(-50)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(87)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(88)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(-88)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(3.5)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(20.25)                 # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+LOG(.5)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+LOG(1.000001)              # cancellation: LOG is P/Q of the mantissa plus the exponent, -1+1 here; PC-BASIC is accurate
+LOG(.999999)               # cancellation: LOG is P/Q of the mantissa plus the exponent, -1+1 here; PC-BASIC is accurate
+SIN(2)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(3.141593)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(1.570796)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(4.712389)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(10)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(100)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(1000)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(1E-4)                  # GW-BASIC returns a tiny x as SIN(x) (and ATN, TAN near it); PC-BASIC 9.999999E-0n
+SIN(1E-6)                  # GW-BASIC returns a tiny x as SIN(x) (and ATN, TAN near it); PC-BASIC 9.999999E-0n
+COS(2)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(3)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(3.141593)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(6.283185)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(10)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(100)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(1000)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(1E5)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(1E-4)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(12.5)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(-.25)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(7)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(3)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(10)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(100)                   # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(1E-4)                  # GW-BASIC returns a tiny x as SIN(x) (and ATN, TAN near it); PC-BASIC 9.999999E-0n
+ATN(1)                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+ATN(-1)                    # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+ATN(.2679492)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+ATN(1E-4)                  # GW-BASIC returns a tiny x as SIN(x) (and ATN, TAN near it); PC-BASIC 9.999999E-0n
+ATN(-.25)                  # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+ATN(1.7320508)             # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+10^-3                      # XTON: 10^3 is 1000 exactly, 1/1000 rounded is .001; PC-BASIC gives 9.999999E-04
+2^-127                     # XTON squares up to 2^127, which overflows (Overflow) before 1/x; PC-BASIC has no Overflow
+1.0001^10000               # XTON's 14 squarings in single precision lose 1E-4; PC-BASIC's 2.718322 is right for 1.0001!
+2^23.5                     # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(-15.4485)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(11.4731)               # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+COS(-5.78132)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+LOG(27.3283)               # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SQR(19.3453)               # GW-BASIC's root a bit at a time rounds its 25th bit; PC-BASIC's is a unit lower
+COS(-13.8796)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(-2.6315)               # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+EXP(-8.41527)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(-10.3891)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(-13.4848)              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+TAN(18.174)                # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+SIN(9.16848)               # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+2.2117^4.77                # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+2.9328^-0.195              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+2.7436^-2.86               # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+0.18357^-2.96              # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+2.3068^4.61                # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+1.7391^2.98                # PC-BASIC's own function, a unit off in the last digit: not the 1983 Hart polynomial
+RND                        # unexplained: the 11th RND, after RND(.5) and RND(-1E20) (which agree), one unit in the last digit

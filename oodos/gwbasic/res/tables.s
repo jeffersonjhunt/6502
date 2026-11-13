@@ -12,6 +12,7 @@
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
 .import SGN, VINT, VABS, FIXER
+.import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
 
 .rodata
 
@@ -72,8 +73,9 @@ FUNDSP:
                 .word   NOTSPK         ; LEFT$ RIGHT$ MID$
 .endrepeat
                 .word   SGN, VINT, VABS
-.repeat 21
-                .word   NOTSPK         ; SQR .. HEX$ LPOS
+                .word   F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
+.repeat 13
+                .word   NOTSPK         ; FRE .. HEX$ LPOS
 .endrepeat
                 .word   FRCINT, FRCSNG, FRCDBL, FIXER
 .repeat 6

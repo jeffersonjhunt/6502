@@ -10,7 +10,7 @@
 ;   DOCMP NOTER DANDOR     relational, NOT, AND OR XOR EQV IMP MOD \
 ;   DOCNVF                 force a value to a type
 ;
-; Left out (stubs): string concatenation and compare, ^ ($FPWR), the
+; Left out (stubs): string concatenation and compare, the
 ; extended functions (EVALX), VARPTR, USR, INSTR, FN, string literals and
 ; &H/&O typed at run time (in program text they are embedded constants).
 ;
@@ -28,7 +28,7 @@
 .import VMOVAF, POPR, FRCSNG, FRCINT, FRCDBL, CONSIH, MOVRF, MOVFR, FDIVT, CONIA
 .import MAKINT, IMOD, IDIV, VNEG, VMOVFM, INEG2, CHKSTR, GETYP, VFAC
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
-.import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, FIN, EVALX, STRLTI, OCTCNS
+.import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI, OCTCNS
 .import PTRGET, VARPTR, USRFN, INSTR, FNDOER, RNDMON, GETBYT, CONFAC
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
@@ -285,7 +285,7 @@ EVAL:           JSR     CHRGTR
                 BNE     :+
                 JMP     MOERR          ; Missing operand
 :               BCC     :+
-                JMP     FIN            ; digits typed, not tokenised
+                JMP     F_FIN          ; digits typed, not tokenised
 :               JSR     ISLET2
                 BCS     :+
                 JMP     ISVAR

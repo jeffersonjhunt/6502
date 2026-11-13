@@ -3,7 +3,10 @@
 
 """GW-BASIC's Microsoft Binary Format arithmetic, modelled in Python.
 
-The reference the spike's 6502 code is checked against (check.py). It is
+The reference the port's 6502 math is checked against (check.py), from the
+size spike's: single, integer and double arithmetic, number input ($FIN) and
+output ($FOUT), and the functions (SQR, ^, EXP, LOG, SIN, COS, TAN, ATN,
+RND), each with the source's own polynomial, constants and order. It is
 written from the algorithms of MATH1.ASM and MATH2.ASM, not from the 6502
 translation: each function says what GW-BASIC computes, in Python's own
 integers, including what it keeps and drops (the single multiply's
@@ -493,22 +496,42 @@ DP = {}  # 10^n, n = 0..38, as $DP00.. hold them: filled below, after nearest()
 DPM01 = None  # 10^-1
 
 
-def mdpten(fac4, n):
-    """MDPTEN for a single: times 10^n in double precision, back to single."""
+def mdpten(fac4, n, soft=None):
+    """MDPTEN for a single: times 10^n in double precision, back to single.
+    With soft, an overflow in the double goes on to $CSD, as GW-BASIC does."""
+    call = soft or (lambda f, *a: f(*a))
     d = cds(fac4)
     if n >= 0:
         if d[7] == 0:
             return ZERO4
         if n >= 39:
             raise Overflow(1, d[6])
-        return csd(fmuld(d, DP[n]))
+        return call(csd, call(fmuld, d, DP[n]))
     if n < -38:
         n += 38
         if n < -38:
             return ZERO4
         d = ddiv(d, DP[-n])
         n = -38
-    return csd(ddiv(d, DP[-n]))
+    return call(csd, ddiv(d, DP[-n]))
+
+
+def mdpten_d(d, n):
+    """MDPTEN for a double: times 10^n, staying double. Zero is the single
+    part zeroed ($ZERO), the low half left as it was."""
+    if n >= 0:
+        if d[7] == 0:
+            return list(d[0:4]) + [0, 0, 0, 0]
+        if n >= 39:
+            raise Overflow(1, 0, DBL)
+        return fmuld(d, DP[n])
+    if n < -38:
+        n += 38
+        if n < -38:
+            return list(d[0:4]) + [0, 0, 0, 0]
+        d = ddiv(d, DP[-n])
+        n = -38
+    return ddiv(d, DP[-n])
 
 
 def mul10(f):
@@ -568,7 +591,7 @@ def fout(val, typ):
     if typ == INT:
         s = (val > 0) - (val < 0)
     else:
-        s = 0 if val[3] == 0 else (-1 if val[2] & 0x80 else 1)
+        s = 0 if val[-1] == 0 else (-1 if val[-2] & 0x80 else 1)
     if s < 0:
         buf[1] = ord("-")
         if typ == INT:
@@ -584,7 +607,7 @@ def fout(val, typ):
         return " 0"
     if typ == INT:
         return fout_int(buf, val)
-    return fofmt(buf, val)
+    return fofmt(buf, val, typ)
 
 
 def fotci(buf, bx, v, ndig, powers, cx):
@@ -667,9 +690,24 @@ def text(buf, bx):
     return s
 
 
-def fotnv(f):
-    """$FOTNV: bracket into 10^6..10^7; the decimal exponent that takes."""
+def fotnv(f, typ=SNG):
+    """$FOTNV: bracket into 10^6..10^7 (a double then to 10^15..10^16); the
+    decimal exponent that takes."""
     e = 0
+    if typ == DBL:
+        while FOTB[f[7]]:
+            p = FOTB[f[7]]
+            e -= p
+            f = mdpten_d(f, p)
+        if fcomp(f[4:], DP[6][4:]) < 0:
+            f = fmuld(f, DP[1])
+            e -= 1
+        f = fmuld(f, DP[9])
+        e -= 9
+        if dcmpm(f, HIDBL) > 0:
+            f = fmuld(f, DPM01)
+            e += 1
+        return f, e
     while FOTB[f[3]]:
         p = FOTB[f[3]]
         e -= p
@@ -680,8 +718,20 @@ def fotnv(f):
     return f, e
 
 
-def sigd(f, cl):
+def sigd(f, cl, typ=SNG):
     """$SIGD: CL up by one for each zero digit at the right of the bracket."""
+    if typ == DBL:
+        if s8((f[7] - 0xB8) & 0xFF) < 0:
+            f = dint(faddd(f, DHALF))
+        z = f
+        while True:
+            z1 = z
+            g = dint(fmuld(z, DPM01))
+            z = g
+            g = fmuld(g, DP[1])
+            if dcmpm(g, z1) != 0:
+                return cl
+            cl += 1
     if s8((f[3] - 0x98) & 0xFF) < 0:
         f = int_(fadds([0, 0, 0, 0x80], f))
     z = f
@@ -695,15 +745,15 @@ def sigd(f, cl):
         cl += 1
 
 
-def fofmt(buf, f):
+def fofmt(buf, f, typ=SNG):
     al = None
-    f, al = fotnv(f)
-    ch = cl = 8
+    f, al = fotnv(f, typ)
+    ch = cl = 17 if typ == DBL else 8
     if al <= 0:
-        if al + 7 >= 0:
+        if al + (16 if typ == DBL else 7) >= 0:
             path = "ffm18"
         else:
-            cl = sigd(f, cl)
+            cl = sigd(f, cl, typ)
             ah = al + cl
             if ah <= 0:
                 path = "ffm20"
@@ -733,7 +783,7 @@ def fofmt(buf, f):
     buf[bx] = ord("0")
     if z:
         bx += 1
-    bx = fotcv(buf, bx, f, cx)
+    bx = fotcv(buf, bx, f, cx, typ)
     while True:
         bx -= 1
         if buf[bx] != ord("0"):
@@ -741,7 +791,7 @@ def fofmt(buf, f):
     if buf[bx] != ord("."):
         bx += 1
     if al != 0:
-        buf[bx] = ord("E")
+        buf[bx] = ord("D" if typ == DBL else "E")
         bx += 1
         buf[bx] = ord("+")
         if al < 0:
@@ -754,12 +804,28 @@ def fofmt(buf, f):
     return text(buf, 1)
 
 
-def fotcv(buf, bx, f, cx):
-    """$FOTCV: the 7 digits of a bracketed single."""
-    g = int_(f)
-    if fcomp(g, f) != 0:
-        f = fadds([0, 0, 0, 0x80], f)
-    v = qint(f)
+def fotcv(buf, bx, f, cx, typ=SNG):
+    """$FOTCV: the 7 digits of a bracketed single, or the 16 of a double: 9
+    by 7-byte powers of ten ($FODTB), then as a single's."""
+    if typ == DBL:
+        g = dint(f)
+        if dcmpm(g, f) != 0:
+            f = faddd(f, DHALF)
+        v = mant56(f) >> ((0xB8 - f[7]) & 0xFF)
+        for p in FODTB:
+            bx, cx = foted(buf, bx, cx)
+            d = 0
+            while v >= p:
+                v -= p
+                d += 1
+            buf[bx] = ord("0") + d
+            bx += 1
+        v &= 0xFFFFFF
+    else:
+        g = int_(f)
+        if fcomp(g, f) != 0:
+            f = fadds([0, 0, 0, 0x80], f)
+        v = qint(f)
     for p in FOSTB:
         bx, cx = foted(buf, bx, cx)
         d = 0
@@ -771,6 +837,664 @@ def fotcv(buf, bx, f, cx):
     v &= 0xFFFF
     bx, cx = fotci(buf, bx, v, 4, FOITB, cx)
     return bx
+
+
+FODTB = [10 ** n for n in range(15, 6, -1)]  # $FODTB: 1D15 down to 1D7, 7-byte integers
+# HIDBL: 9999999999999999, the largest double .5 can be added to without overflow.
+HIDBL = [0o375, 0o377, 0o3, 0o277, 0o311, 0o33, 0o16, 0o266]
+DHALF = [0, 0, 0, 0, 0, 0, 0, 0x80]  # $DHALF
+
+
+# --- Doubles: add, subtract, compare, INT (step M) ---------------------------------
+
+M64 = (1 << 64) - 1
+Z8 = [0] * 8
+STICKY = True  # check.py turns $SHRA's sticky bit off to find the vectors that need it
+
+
+def dpack(m56, exp, sign):
+    """$ROUNX: the 7 mantissa bytes (the hidden bit's place taking the sign)."""
+    b = list((m56 & ((1 << 56) - 1)).to_bytes(7, "little"))
+    b[6] = (b[6] & 0x7F) | (sign & 0x80)
+    return b + [exp & 0xFF]
+
+
+def shra(x, cl):
+    """$SHRA: the ARG's 7 bytes over its overflow byte (x, 64 bits) right by
+    CL bits. A whole byte keeps only the old overflow byte's ST bit ($20); a
+    bit passing through bit 4 of the overflow byte sets ST."""
+    while True:
+        if cl >= 8:
+            st = x & 0x20
+            x >>= 8
+            cl -= 8
+            x |= st
+            continue
+        if cl == 0:
+            return x
+        x >>= 1
+        if x & 0x10 and STICKY:
+            x |= 0x20
+        cl -= 1
+
+
+def normd(x, exp, sign):
+    """$NORMD: shift the 7 bytes and the overflow byte left until normalised
+    (a byte at a time while the top byte is zero), at most 57 bits; then
+    $ROUND. Underflow, or 57 bits shifted, is zero ($DZERO)."""
+    dl = 57
+    while True:
+        top = x >> 56
+        if top & 0x80:
+            return dround(x, exp, sign)
+        if top:
+            x = (x << 1) & M64
+            exp -= 1
+            if exp == 0:
+                return list(Z8)
+            dl -= 1
+            if dl == 0:
+                return list(Z8)
+            continue
+        if exp <= 8:
+            return list(Z8)
+        exp -= 8
+        if dl <= 8:
+            return list(Z8)
+        dl -= 8
+        x = (x << 8) & M64
+
+
+def faddd(fac, arg):
+    """$FADDD: FAC = ARG + FAC. The smaller shifts right ($SHRA) under the
+    larger; 57 bits apart or more, the larger is the answer."""
+    if arg[7] == 0:
+        return list(fac)
+    if fac[7] == 0:
+        return list(arg)
+    al, ah, bl, bh = fac[6], fac[7], arg[6], arg[7]
+    F, A = mant56(fac), mant56(arg)
+    sign, exp = al, ah
+    cl = ah - bh
+    a64 = A << 8
+    if cl != 0:
+        if cl < 0:
+            al, bl = bl, al
+            cl = -cl
+            sign, exp = al, bh
+            F, A = A, F
+            a64 = A << 8
+        if cl >= 57:
+            return dpack(F, exp, sign)
+        a64 = shra(a64, cl)
+    f64 = F << 8
+    if not ((al ^ bl) & 0x80):
+        s = f64 + a64
+        if s >> 64:
+            exp += 1
+            if exp == 0x100:
+                raise Overflow(1, sign, DBL)
+            s >>= 1
+        return dround(s & M64, exp, sign)
+    s = f64 - a64
+    if s < 0:
+        sign ^= 0xFF
+        s = (-s) & M64
+    return normd(s, exp, sign)
+
+
+def fsubd(fac, arg):
+    """$FSUBD: FAC = ARG - FAC; a zero FAC gives the ARG as it is."""
+    if fac[7] == 0:
+        return list(arg)
+    f = list(fac)
+    f[6] ^= 0x80
+    return faddd(f, arg)
+
+
+def dadd(left, right):
+    """DADD (the formula evaluator's +): left in the FAC, right in the ARG."""
+    return faddd(left, right)
+
+
+def dsub(left, right):
+    """DSUB: both signs flipped, then ARG - FAC."""
+    f, a = list(left), list(right)
+    f[6] ^= 0x80
+    a[6] ^= 0x80
+    return fsubd(f, a)
+
+
+def dcmpm(fac, m):
+    """$DCMPM: 1, 0 or -1 as the double FAC is >, = or < m."""
+    if m[7] == 0:
+        return 0 if fac[7] == 0 else (-1 if fac[6] & 0x80 else 1)
+    if fac[7] == 0:
+        return 1 if m[6] & 0x80 else -1
+    if (fac[6] ^ m[6]) & 0x80:
+        return -1 if fac[6] & 0x80 else 1
+    x, y = fac[::-1], m[::-1]
+    if fac[6] & 0x80:
+        x, y = y, x
+    return (x > y) - (x < y)
+
+
+def dcomp(left, right):
+    """DCOMP: as ICOMP, 1 if left < right, -1 if greater."""
+    return -dcmpm(left, right)
+
+
+def dint(fac):
+    """$DINT: the largest integer not above it. A negative number less one,
+    shifted, plus one; then $NORMD. A zero exponent is left alone."""
+    e = fac[7]
+    if e >= 0xB8 or e == 0:
+        return list(fac)
+    sign = fac[6]
+    m = mant56(fac)
+    if sign & 0x80:
+        m -= 1
+    m >>= 0xB8 - e
+    if sign & 0x80:
+        m += 1
+    return normd(m << 8, 0xB8, sign)
+
+
+def dneg(d):
+    d = list(d)
+    d[6] ^= 0x80
+    return d
+
+
+# --- Soft overflow: the FAC becomes an infinity and the code goes on --------------------
+
+class Soft:
+    """Runs a routine that may print Overflow or Division by zero and go on,
+    as the transcendental functions do, collecting the messages."""
+
+    def __init__(self):
+        self.msgs = []
+
+    def __call__(self, f, *args):
+        try:
+            return f(*args)
+        except Overflow as o:
+            self.msgs.append(o.msg)
+            return o.result()
+
+
+# --- $FIN: text to a number -----------------------------------------------------------
+
+FINCH = ".eE%#!Dd"
+S1E6 = [0x00, 0x24, 0x74, 0x94]  # 1000000 ($FIDIG's limit for singles)
+S32KM = [0x00, 0x00, 0x80, 0x90]  # $S32KM: -32768
+
+
+def chrgtr(t, i):
+    """CHRGTR over plain text: the next character past spaces, tabs and line
+    feeds; (index, character, a digit?)."""
+    while True:
+        i += 1
+        c = t[i]
+        if c not in (0x20, 0x09, 0x0A):
+            return i, c, 0x30 <= c <= 0x39
+
+
+def to_sng(typ, v):
+    if typ == INT:
+        return flt(v)
+    if typ == DBL:
+        return csd(v)
+    return v
+
+
+def to_dbl(typ, v):
+    if typ == INT:
+        return cds(flt(v))
+    if typ == SNG:
+        return cds(v)
+    return v
+
+
+def mdpten_t(typ, v, n, soft):
+    """MDPTEN by type: a double stays double, anything else comes back single."""
+    if typ == DBL:
+        return DBL, soft(mdpten_d, v, n)
+    return SNG, soft(mdpten, to_sng(typ, v), n, soft)
+
+
+class Fin:
+    """$FIN: the number at the start of text, as GW-BASIC reads it."""
+
+    def __init__(self, text, dbl=False):
+        self.t = list(text.encode("latin-1")) + [0]
+        self.soft = Soft()
+        self.dbl = dbl
+
+    def run(self):
+        """(VALTYP, value, the index it stopped at, the messages)."""
+        t = self.t
+        typ, v = (DBL, [0] * 8) if self.dbl else (INT, 0)
+        self.di, self.cx = 0, 0xFFFF
+        i = 0
+        c = t[0]
+        if c == 0x26:  # "&": OCTCNS, the interpreter's
+            raise Error(-1)
+        neg_ = c == 0x2D
+        if c not in (0x2B, 0x2D):
+            i -= 1
+        while True:
+            i, c, dig = chrgtr(t, i)
+            if dig:
+                typ, v = self.fidig(typ, v, c - 0x30)
+                continue
+            dx = si = 0
+            k = FINCH.find(chr(c)) if c else -1
+            if k < 0:
+                typ, v = self.fine(typ, v, dx, si)
+                break
+            ch = FINCH[k]
+            if ch == ".":
+                self.cx = (self.cx + 1) & 0xFFFF
+                if self.cx:
+                    typ, v = self.fine(typ, v, dx, si)
+                    break
+                if typ == INT:
+                    typ, v = SNG, flt(v)
+                continue
+            if ch in "eE":
+                _, c2, _ = chrgtr(t, i)
+                if c2 in b"LlQq":
+                    typ, v = self.fine(typ, v, dx, si)
+                    break
+                typ, v, i, dx, si = self.finex(typ, v, i, False)
+                typ, v = self.fine(typ, v, dx, si)
+                break
+            if ch == "%":
+                i += 1
+                typ, v = self.fine(typ, v, dx, si)
+                break
+            if ch == "#":
+                typ, v = DBL, to_dbl(typ, v)
+                typ, v = self.fine(typ, v, 0, 0)
+                i += 1
+                break
+            if ch == "!":
+                typ, v = SNG, to_sng(typ, v)
+                typ, v = self.fine(typ, v, 0, 0)
+                i += 1
+                break
+            typ, v, i, dx, si = self.finex(typ, v, i, True)  # D, d
+            typ, v = self.fine(typ, v, dx, si)
+            break
+        if neg_:
+            if typ == INT:
+                if v == -32768:
+                    typ, v = SNG, neg(flt(v))
+                else:
+                    v = -v
+            else:
+                v = list(v)
+                v[-2] ^= 0x80
+            if typ == SNG and v == S32KM:
+                typ, v = INT, -32768
+        return typ, v, i, self.soft.msgs
+
+    def fidig(self, typ, v, d):
+        """$FIDIG: times ten and the digit added, going to single at 32768 and
+        to double at 10^6."""
+        self.di = (self.di + self.cx + 1) & 0xFFFF
+        if typ == INT:
+            if v < 3277:
+                w = v * 10 + d
+                if w < 0x8000:
+                    return INT, w
+            typ, v = SNG, flt(v)
+        elif typ == SNG and fcomp(v, S1E6) >= 0:
+            typ, v = DBL, cds(v)
+        if typ == SNG:
+            v = self.soft(mul10, v)
+            return SNG, self.soft(fadds, v, flt(d))
+        v = self.soft(fmuld, v, DP[1])
+        return DBL, self.soft(faddd, cds(flt(d)), v)
+
+    def finex(self, typ, v, i, dbl):
+        """$FINEX: the exponent's digits, after forcing single (E) or double (D)."""
+        if typ != DBL:
+            typ, v = (DBL, to_dbl(typ, v)) if dbl else (SNG, to_sng(typ, v))
+        si = dx = 0
+        i, c, dig = chrgtr(self.t, i)
+        if not dig:
+            if c == 0x2D:
+                si = 0xFFFF
+            elif c != 0x2B:
+                return typ, v, i, dx, si
+            i, c, dig = chrgtr(self.t, i)
+            if not dig:
+                return typ, v, i, dx, si
+        while dig:
+            dx = dx * 10 + (c - 0x30) if dx < 3276 else 32767
+            i, c, dig = chrgtr(self.t, i)
+        return typ, v, i, dx, si
+
+    def fine(self, typ, v, dx, si):
+        """$FINE: times 10^(exponent - digits after the point)."""
+        if si:
+            dx = -dx
+        dx -= self.di if self.di < 0x8000 else self.di - 0x10000
+        if dx < -32768:  # the 8086's JO goes astray here; the port takes it as underflow
+            dx = -32768
+        if dx == 0:
+            return typ, v
+        return mdpten_t(typ, v, dx, self.soft)
+
+
+def fin(text, dbl=False):
+    return Fin(text, dbl).run()
+
+
+# --- SQR, ^, EXP, LOG, SIN, COS, TAN, ATN, RND (step M) --------------------------------
+
+def octs(s):
+    """A single from MATH1.ASM's octal bytes."""
+    return [int(x, 8) for x in s.split()]
+
+
+ONE = [0, 0, 0, 0x81]
+LG2E = octs("073 252 070 201")
+LN2 = octs("030 162 061 200")
+LOGP = [octs(s) for s in ("232 367 031 203", "044 143 103 203", "165 315 215 204", "251 177 203 202")]
+LOGQ = [octs(s) for s in ("000 000 000 201", "342 260 115 203", "012 162 021 203", "364 004 065 177")]
+EXPCN = [octs(s) for s in ("174 210 131 164", "340 227 046 167", "304 035 036 172", "136 120 143 174",
+                           "032 376 165 176", "030 162 061 200", "000 000 000 201")]
+SINCN = [octs(s) for s in ("373 327 036 206", "145 046 231 207", "130 064 043 207", "341 135 245 206",
+                           "333 017 111 203")]
+ATNC1 = [octs(s) for s in ("327 263 135 201", "000 000 200 201")]
+ATNC2 = [octs(s) for s in ("142 065 203 176", "120 044 114 176", "171 251 252 177", "000 000 000 201")]
+IN2PI = octs("013 104 116 156 203 371 042 176")
+TWOPI = [0xDB, 0x0F, 0x49, 0x83]  # DX 7733, BX 101511
+PI2 = [0xDB, 0x0F, 0x49, 0x81]  # DX 7733, BX 100511
+PI6 = [0x92, 0x0A, 0x06, 0x80]  # DX 5222, BX 100006
+TANPI12 = [0xA2, 0x30, 0x09, 0x7F]  # DX 30242, BX 77411
+SQR3 = [0xD7, 0xB3, 0x5D, 0x81]  # DX 131727, BX 100535
+S32K = [0x00, 0x00, 0x00, 0x90]  # BX 110000: 32768
+RNDA, RNDC = 214013, 2531011
+RNDCOP = [0o122, 0o307, 0o117, 0o200]  # the seed RUN starts from
+
+
+def signs(f):
+    return 0 if f[3] == 0 else (-1 if f[2] & 0x80 else 1)
+
+
+def qint_s(fac):
+    """$QINT: BL:DX, the integer part (towards minus infinity), two's
+    complement, 24 bits."""
+    if fac[3] == 0:
+        return 0
+    cl = (0x98 - fac[3]) & 0xFF
+    m = mant24(fac)
+    n = fac[2] & 0x80
+    if n:
+        m = (m - 1) & 0xFFFFFF
+    m >>= cl
+    if n:
+        m = (m + 1) & 0xFFFFFF
+        m = (-m) & 0xFFFFFF
+    return m
+
+
+def poly(x, coefs, soft):
+    """$POLY: Horner's rule, the first coefficient the highest."""
+    f = coefs[0]
+    for c in coefs[1:]:
+        f = soft(fmuls, x, f)
+        f = soft(fadds, c, f)
+    return f
+
+
+def polyx(x, coefs, soft):
+    """$POLYX: x * P(x^2)."""
+    p = poly(soft(fmuls, x, x), coefs, soft)
+    return soft(fmuls, x, p)
+
+
+def sqr(f, soft=None):
+    """$SQR: a bit at a time, 25 bits, the last rounding the 24th up."""
+    if f[2] & 0x80:
+        raise Error(5)
+    al = f[3]
+    if al == 0:
+        return list(f)
+    dx = ((f[2] | 0x80) << 8) | f[1]
+    bx = f[0] << 8
+    odd = al & 1
+    al >>= 1
+    if odd:
+        v = ((dx << 16) | bx) >> 1
+        dx, bx = v >> 16, v & 0xFFFF
+    exp = (al + 0x40 + odd) & 0xFF
+    inp = (dx << 16) | bx  # BP:DI:DX:BX, 64 bits
+    r = 0  # AX:SI
+    for _ in range(25):
+        inp = (inp << 2) & M64
+        r = ((r << 1) | 1) & 0xFFFFFFFF
+        rem = inp >> 32
+        if rem >= r:
+            inp = ((rem - r) << 32) | (inp & 0xFFFFFFFF)
+            r = (r & 0xFFFF0000) | ((r + 1) & 0xFFFF)
+        else:
+            r = (r & 0xFFFF0000) | ((r - 1) & 0xFFFF)
+    r >>= 1
+    c = r & 1
+    r = ((r >> 1) + c) & 0xFFFFFFFF
+    return [r & 0xFF, (r >> 8) & 0xFF, (r >> 16) & 0x7F, exp]
+
+
+def log_(f, soft):
+    """$LOG: Hart 2524, P(x)/Q(x) on the mantissa, plus the exponent, times LN 2."""
+    if signs(f) <= 0:
+        raise Error(5)
+    if fcomp(f, ONE) == 0:
+        return [0, 0, 0, 0]
+    e = s8((f[3] - 0x80) & 0xFF)
+    x = [f[0], f[1], f[2], 0x80]
+    p = poly(x, LOGP, soft)
+    q = poly(x, LOGQ, soft)
+    r = soft(fdivs, p, q)
+    r = soft(fadds, r, flt(e))
+    return soft(fmuls, LN2, r)
+
+
+def exp_(f, soft):
+    """$EXP: 2^(x*LOG2(e)), the integer power in the exponent, Hart 1302 on
+    the fraction."""
+    y = soft(fmuls, LG2E, f)
+    if y[3] >= 0x88:
+        if y[2] & 0x80:
+            return [0, 0, 0, 0]
+        return _ovf(soft, 0x81, 0)
+    if y[3] < 0x68:
+        return list(ONE)
+    n = qint_s(y)
+    ah = ((n & 0xFF) + 0x81) & 0xFF
+    if ah == 0:
+        return _ovf(soft, 0x81, 0)
+    mag = (-n) & 0xFFFFFF if y[2] & 0x80 else n
+    ip = norms(mag << 8, 0x98, y[2])
+    fr = soft(fsubs, y, ip)
+    p = poly(fr, EXPCN, soft)
+    return soft(fmuls, [0, 0, 0, ah], p)
+
+
+def _ovf(soft, bh, sign, typ=SNG):
+    def f():
+        raise Overflow(bh, sign, typ)
+    return soft(f)
+
+
+def xton(x, n_fac, soft):
+    """XTON: x^n for an integer 0 < n < 32768, Knuth's binary method."""
+    n = qint_s(n_fac) & 0xFFFF
+    y = list(ONE)
+    z = x
+    while True:
+        bit = n & 1
+        n >>= 1
+        if bit:
+            y = soft(fmuls, z, y)
+        if n == 0:
+            return y
+        z = soft(fmuls, z, z)
+
+
+def fpwr(x, y, soft):
+    """$FPWR: x^y (x in BXDX, y in the FAC)."""
+    s = signs(y)
+    if s == 0:
+        return exp_(y, soft)
+    if s < 0:
+        if x[3] == 0:
+            return _ovf_d0(soft)
+    elif x[3] == 0:
+        return [0, 0, 0, 0]
+    if x[2] & 0x80:
+        if y[3] >= 0x99:
+            raise Error(5)
+        if fcomp(int_(y), y) != 0:
+            raise Error(5)
+    if y[2] & 0x80:
+        ya = [y[0], y[1], y[2] & 0x7F, y[3]]
+        r = fp30a(x, ya, soft)
+        if r[3]:
+            return soft(fdivs, ONE, r)
+        dl = qint_s(ya) & 0xFF
+        dl = ((dl >> 1) | (dl << 7)) & 0xFF
+        return _ovf(soft, 0xFF, x[2] & dl)
+    return fp30a(x, y, soft)
+
+
+def _ovf_d0(soft):
+    def f():
+        raise Overflow(0, 0, msg="Division by zero")
+    return soft(f)
+
+
+def fp30a(x, y, soft):
+    xneg = x[2] & 0x80
+    yi = int_(y)
+    if fcomp(yi, y) == 0 and fcomp(yi, S32K) < 0:
+        return xton(x, yi, soft)
+    odd = False
+    if xneg:
+        odd = bool(qint_s(yi) & 1)
+    xa = [x[0], x[1], x[2] & 0x7F, x[3]]
+    r = log_(xa, soft)
+    r = soft(fmuls, y, r)
+    r = exp_(r, soft)
+    return neg(r) if odd else r
+
+
+def rr2(d, i):
+    """RR2: FAC = INT(X) - X, then negated: X - INT(X)."""
+    return dneg(fsubd(d, i))
+
+
+def rr1(d):
+    return rr2(d, dint(d))
+
+
+def rr(f, soft):
+    """RR: the single to double, times 1/(2 pi), its fraction."""
+    d = soft(fmuld, cds(f), IN2PI)
+    return rr1(d)
+
+
+def sin30(d, soft):
+    """From SIN30: the quadrant, the angle in it, Hart 3341."""
+    d = list(d)
+    if d[7]:
+        d[7] = (d[7] + 2) & 0xFF
+    a = dint(d)
+    zneg = a[7] == 0x82
+    sub1 = bool(a[7] & 1) or bool(a[6] & 0x40)
+    d = rr2(d, a)
+    if sub1:
+        d = soft(fsubd, d, DP[0])
+    if d[7] < 2:
+        d = list(Z8)
+    else:
+        d[7] -= 2
+    s = csd(d)
+    if s[3] < 0x74:
+        s = soft(fmuls, TWOPI, s)
+    else:
+        s = polyx(s, SINCN, soft)
+    return neg(s) if zneg else s
+
+
+def sin_(f, soft):
+    if f[3] < 0x77:
+        return list(f)
+    n = f[2] & 0x80
+    f = [f[0], f[1], f[2] & 0x7F, f[3]]
+    s = sin30(rr(f, soft), soft)
+    return neg(s) if n else s
+
+
+def cos_(f, soft):
+    f = [f[0], f[1], f[2] & 0x7F, f[3]]
+    d = rr(f, soft)
+    q = list(DP[0])
+    q[7] = 0x7F
+    d = soft(faddd, d, q)
+    return sin30(rr1(d), soft)
+
+
+def tan_(f, soft):
+    s = sin_(f, soft)
+    c = cos_(f, soft)
+    return soft(fdivs, s, c)
+
+
+def atn_(f, soft):
+    """$ATAN: Hart 4940, reduced by 1/x past 1 and by pi/6 past tan(pi/12)."""
+    n = f[2] & 0x80
+    f = [f[0], f[1], f[2] & 0x7F, f[3]]
+    post = []
+    if f[3] >= 0x81:
+        post.append(PI2)
+        f = soft(fdivs, ONE, f)
+    if fcomp(f, TANPI12) >= 0:
+        post.append(PI6)
+        a = soft(fadds, SQR3, f)
+        p = poly(f, ATNC1, soft)
+        f = soft(fdivs, p, a)
+    r = polyx(f, ATNC2, soft)
+    for k in reversed(post):
+        r = soft(fadds, PI6, r) if k is PI6 else soft(fsubs, PI2, r)
+    return neg(r) if n else r
+
+
+def rnd(rndx, f):
+    """$RND: (the new RNDX, the result). RNDX is 4 bytes, of which the low 3
+    are the seed. 0 repeats the last; negative seeds from its own bytes."""
+    rndx = list(rndx)
+    s = signs(f)
+    if s:
+        if s < 0:
+            rndx[0:3] = f[0:3]
+        x = rndx[0] | (rndx[1] << 8) | (rndx[2] << 16)
+        x = (x * RNDA + RNDC) & 0xFFFFFF
+        rndx[0:3] = [x & 0xFF, (x >> 8) & 0xFF, x >> 16]
+    x = rndx[0] | (rndx[1] << 8) | (rndx[2] << 16)
+    return rndx, norms(x << 8, 0x80, 0)
+
+
+def foutoh(i, octal):
+    """$FOUTO, $FOUTH: OCT$ and HEX$'s digits, leading zeros dropped."""
+    i &= 0xFFFF
+    s = "%06o" % i if octal else "%04X" % i
+    return s.lstrip("0") or "0"
 
 
 # --- Exact values, for checking the model itself -----------------------------------------

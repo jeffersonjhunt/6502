@@ -553,6 +553,25 @@ target_compile_definitions(test_gwbasic_core PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
+# test_gwbasic_math: the math (res/ and p1/) against oodos/gwbasic/test/mbf.py, bit for bit, on the
+# W65C02S core alone: the Makefile's flat test image (every module in one image, a far call a JSR;
+# test/flat.cfg) and run6502 (test/run6502.cpp), built here, run by test/check.py. No device, and no
+# OODOS: about 5 s.
+add_executable(gwbasic_run6502 "${GWBASIC_SRC}/test/run6502.cpp")
+target_link_libraries(gwbasic_run6502 PRIVATE emu_cpu6502 emu_log)
+add_custom_command(
+        OUTPUT "${GWBASIC_DIR}/flat.bin" "${GWBASIC_DIR}/flat.map" "${GWBASIC_DIR}/flat.lbl"
+        COMMAND "${EMU_MAKE}" -s -C "${GWBASIC_SRC}" "BUILD=${GWBASIC_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+                "${GWBASIC_DIR}/flat.bin"
+        DEPENDS ${gwbasic_sources} "${GWBASIC_SRC}/Makefile" ${oodos_includes}
+        VERBATIM)
+add_custom_target(gwbasic_flat ALL DEPENDS "${GWBASIC_DIR}/flat.bin" gwbasic_run6502)
+add_dependencies(gwbasic_flat gwbasic) # one make at a time in GWBASIC_DIR
+add_test(NAME test_gwbasic_math
+         COMMAND "${Python3_EXECUTABLE}" -I -B "${GWBASIC_SRC}/test/check.py"
+                 --runner $<TARGET_FILE:gwbasic_run6502> --image "${GWBASIC_DIR}/flat.bin")
+set_tests_properties(test_gwbasic_math PROPERTIES TIMEOUT 300)
+
 # --- OODOS: the BDOS's model test --------------------------------------------
 #
 # oodos/test/: the model of CP/M 3's file system, the generator and the
@@ -804,6 +823,7 @@ set(EMU_TEST_LABELS
     test_docs_check             "docs"
     test_docs_examples          "docs oodos bios sd backplane"
     test_gwbasic_core           "gwbasic oodos bios sd backplane"
+    test_gwbasic_math           "gwbasic oodos"
     test_sound_driver           "emu sound bridge"
     test_mudrv                  "oodos sound sid bridge"
     test_app_tty                "emu app apple1 debug pia"

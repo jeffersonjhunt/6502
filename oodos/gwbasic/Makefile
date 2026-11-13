@@ -3,6 +3,9 @@
 #
 #   make            # BUILD/GWBASIC.COM and BUILD/GWBASIC.OVL, the gates passed
 #   make sizes      # the size gate's table alone
+#   make test       # BUILD/flat.bin, the flat test image (test/README.md), and
+#                   # BUILD/run6502 if a C++20 compiler is there; then
+#                   # test/check.py (CHECK=--timing for the cycles)
 #
 # The resident core is res/*.s, linked as an OODOS .COM (res.cfg); each block
 # P1-P8 is pN/*.s, linked at $C800 (blk.cfg) with the resident core's exports
@@ -39,7 +42,7 @@ $(BUILD)/res/%.o: res/%.s $(INCS) | $(BUILD)/res
 	ca65 $(AFLAGS) $< -o $@
 
 $(BUILD)/gwbasic.res: $(RES_OBJ) res.cfg
-	$(call LD65,-C res.cfg $(RES_OBJ) -o $@ -m $(BUILD)/gwbasic.map -Ln $(BUILD)/gwbasic.lbl,$@)
+	$(call LD65,-C res.cfg $(RES_OBJ) -o $@ -m $(BUILD)/gwbasic.map -vm -Ln $(BUILD)/gwbasic.lbl,$@)
 	$(PYTHON) ../tools/rules.py $@ --map $(BUILD)/gwbasic.map --code STARTUP,CODE,LOADER --farcall $(FARMISS) \
 	    --lbl $(BUILD)/gwbasic.lbl --inline SYNCHR
 
@@ -71,4 +74,26 @@ $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw
 sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 	$(PYTHON) tools/gwsize.py $(BUILD)/gwbasic.map $(BLOCKS:%=--block $(BUILD)/%.map) --min $(GWSIZE_MIN)
 
-.PHONY: all sizes
+# The flat test image (test/, the project's own): every module, resident and banked, assembled with
+# -D FLAT (a far call is a JSR) and linked as one image at $0300 with the math harness first
+# (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). ctest's
+# test_gwbasic_math builds the runner itself and runs check.py on this image.
+FLAT_SRC    = test/harness.s $(RES_SRC) $(wildcard p[1-8]/*.s)
+FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
+EMU         = ../../emulator/components
+CHECK      ?=
+
+$(BUILD)/flat/%.o: %.s $(INCS)
+	@mkdir -p $(dir $@)
+	ca65 $(AFLAGS) -D FLAT $< -o $@
+$(BUILD)/flat.bin: $(FLAT_OBJ) test/flat.cfg
+	$(call LD65,-C test/flat.cfg $(FLAT_OBJ) -o $@ -m $(BUILD)/flat.map -Ln $(BUILD)/flat.lbl,$@)
+$(BUILD)/run6502: test/run6502.cpp | $(BUILD)
+	$(CXX) -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror \
+	    -I$(EMU)/cpu6502/include -I$(EMU)/bus/include -I$(EMU)/emu_log/include \
+	    test/run6502.cpp $(EMU)/cpu6502/cpu6502.cpp $(EMU)/emu_log/emu_log.cpp -o $@
+
+test: $(BUILD)/flat.bin $(BUILD)/run6502
+	$(PYTHON) test/check.py --runner $(BUILD)/run6502 --image $(BUILD)/flat.bin $(CHECK)
+
+.PHONY: all sizes test

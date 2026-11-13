@@ -15,10 +15,10 @@
 
 .export TMERR, OVERR, DV0ERR, SNERR, FCERR, MOERR, OMERR, ERROR, NOTSPK
 .export CRFIN, STROUI, PTRGET, PRINT, ENDST, PRGEND, LETSTR
-.export DADDH, DINT, DCMPM, DADD, DSUB, DCOMP, CAT, STRCMP, FPWRQ, FIN
-.export EVALX, STRLTI, OCTCNS, VARPTR, USRFN, INSTR, FNDOER, RNDMON, GETBYT
+.export CAT, STRCMP
+.export EVALX, STRLTI, OCTCNS, VARPTR, USRFN, INSTR, FNDOER, GETBYT
 .export NEWSTX, ISMID, GOTRP, CHKINT, FBUFF, VARS, ERRHOOK
-.import CHRGTR, CHRGT2, FRMEVL, FOUT, STROUT, GETYP, LINOUT, OUTDO
+.import CHRGTR, CHRGT2, FRMEVL, STROUT, GETYP, OUTDO
 
 .code
 
@@ -48,7 +48,7 @@ ERROR:          STA     ERRFLG
                 LDA     ERRFLG
                 STA     RBL
                 STZ     RBH
-                JSR     LINOUT
+                FJSR    LINOUT
                 JSR     STROUI
                 LDA     #<INMSG
                 STA     PTR
@@ -59,7 +59,7 @@ ERROR:          STA     ERRFLG
                 STA     RBL
                 LDA     CURLIN+1
                 STA     RBH
-                JSR     LINOUT
+                FJSR    LINOUT
                 JSR     STROUI
                 JSR     CRLF
 ENDST:
@@ -67,23 +67,14 @@ PRGEND:         LDY     #P_TERMCPM
                 JMP     BDOS
 
 ; The untranslated routines.
-DADDH:
-DINT:
-DCMPM:
-DADD:
-DSUB:
-DCOMP:
 CAT:
 STRCMP:
-FPWRQ:
-FIN:
 STRLTI:
 OCTCNS:
 VARPTR:
 USRFN:
 INSTR:
 FNDOER:
-RNDMON:
 GETBYT:
 NEWSTX:
 ISMID:
@@ -143,7 +134,7 @@ PRINT:          BEQ     @crlf
 @item:          CMP     #';'
                 BEQ     @semi
                 JSR     FRMEVL
-                JSR     FOUT
+                FJSR    FOUT
                 JSR     STROUI
                 LDA     #' '
                 JSR     OUTDO

@@ -1,0 +1,311 @@
+# The translation ledger (hw/oodos.md, "The plan, phase 7": the source and the licence).
+#
+# One line for each routine of Microsoft's GW-BASIC (microsoft/GW-BASIC at edf82c2) the port needs, and what
+# became of it:
+#
+#   FILE.ASM LABEL -> res/x.s LABEL     translated, resident (or p1/..., p2/... in a block)
+#   FILE.ASM LABEL -> OEM res/x.s LABEL replaced by the OO-1's own code
+#   FILE.ASM LABEL -> later 7b          a later sub-phase's (the plan's 7b-7g)
+#   FILE.ASM LABEL -> dropped: why      not needed on the OO-1
+#
+# tools/ledger.py checks it: against the source (every label named is there) and against the build's maps (every
+# 6502 label named is there).
+
+# The spike's (oodos/spike/gwbasic/, carried into res/ at 7a's start)
+
+# m: the math (step M of 7a). Every routine of MATH1.ASM and MATH2.ASM: res/ the resident core's (single and
+# integer arithmetic, compares, conversions), p1/ block P1's (output, input, double precision, the functions).
+MATH1.ASM $FOTCI -> p1/fout.s FOTCI
+MATH1.ASM $FCI4 -> p1/fout.s FCI4
+MATH1.ASM $FOUTO -> p1/fout.s FOUTO
+MATH1.ASM $FOUTH -> p1/fout.s FOUTH
+MATH1.ASM $PUFXE -> later 7b: PRINT USING's fix-up
+MATH1.ASM $FOTZS -> p1/fout.s FOTZS
+MATH1.ASM $FOTZ -> later 7b: PRINT USING's leading zeros
+MATH1.ASM $FOTZC -> later 7b: PRINT USING's leading zeros and commas
+MATH1.ASM $PUFE -> later 7b: PRINT USING's E format
+MATH1.ASM $FOTB -> p1/fout.s FOTB
+MATH1.ASM $DPM01 -> p1/dmath.s DPM01
+MATH1.ASM $DP00 -> p1/dmath.s DP00
+MATH1.ASM $DHALF -> p1/dmath.s DHALF
+MATH1.ASM $SHALF -> dropped: .5 as a single is loaded into BXDX by $FADDH, as the 8086's own code does
+MATH1.ASM $SQRH -> dropped: SQR(.5), referenced by nothing
+MATH1.ASM $LOGP -> p1/trans.s LOGP
+MATH1.ASM $LOGQ -> p1/trans.s LOGQ
+MATH1.ASM $LN2 -> dropped: LN(2), loaded into BXDX by MLLN2 instead, as the 8086's MLLN2 does
+MATH1.ASM $FINCH -> p1/fout.s FINCH
+MATH1.ASM $FODTB -> p1/fout.s FODTB
+MATH1.ASM $FOSTB -> p1/fout.s FOSTB
+MATH1.ASM $FOITB -> p1/fout.s FOITB
+MATH1.ASM $S32KM -> dropped: -32768 as a single is loaded into BXDX by $CONI2
+MATH1.ASM $INFPD -> res/math1.s INFPD
+MATH1.ASM $INFMD -> res/math1.s INFMD
+MATH1.ASM $LG2E -> dropped: LOG2(e), loaded into BXDX by $EXP, as the 8086's $EXP does
+MATH1.ASM $EXPCN -> p1/trans.s EXPCN
+MATH1.ASM $SINCN -> p1/trans.s SINCN
+MATH1.ASM $ATNC1 -> p1/trans.s ATNC1
+MATH1.ASM $ATNC2 -> p1/trans.s ATNC2
+MATH1.ASM $IN2PI -> p1/trans.s IN2PI
+MATH1.ASM $RNDA -> p1/trans.s RND10 # 214013, an operand of RND10's multiply
+MATH1.ASM $RNDC -> p1/trans.s RND10 # 2531011, likewise
+MATH1.ASM $RND0 -> dropped: referenced by nothing (NEWSD's comment only)
+MATH1.ASM $NUMB -> p1/fout.s NUMB
+MATH1.ASM COS -> p1/trans.s COS
+MATH1.ASM $COS -> p1/trans.s COS
+MATH1.ASM SIN -> p1/trans.s SIN
+MATH1.ASM $SIN -> p1/trans.s SIN
+MATH1.ASM RR -> p1/trans.s RR
+MATH1.ASM RR1 -> p1/trans.s RR1
+MATH1.ASM RR2 -> p1/trans.s RR2
+MATH1.ASM RR3 -> p1/trans.s RR3
+MATH1.ASM ONEARG -> p1/trans.s ONEARG
+MATH1.ASM TAN -> p1/trans.s TAN
+MATH1.ASM $TAN -> p1/trans.s TAN
+MATH1.ASM ATN -> p1/trans.s ATN
+MATH1.ASM $ATAN -> p1/trans.s ATN
+MATH1.ASM $FINE -> p1/fin.s FINE
+MATH1.ASM MDPTEN -> p1/dmath.s MDPTEN
+MATH1.ASM MDP10 -> p1/dmath.s MDP10
+MATH1.ASM $OVFLS -> res/math1.s OVFLS
+MATH1.ASM OVFLS -> res/math1.s OVFLS
+MATH1.ASM $DIV0S -> res/math1.s DIV0S
+MATH1.ASM DIV0S -> res/math1.s DIV0S
+MATH1.ASM DOINF -> res/math1.s DOINF
+MATH1.ASM TRAPER -> res/math1.s OVFLS # its ON ERROR test, inline in OVFLS and DIV0S
+MATH1.ASM $FOFMT -> p1/fout.s FOFMT
+MATH1.ASM $PUEXP -> p1/fout.s PUEXP
+MATH1.ASM STROUT -> res/math1.s STROUT
+MATH1.ASM $DZERO -> res/math1.s DZERO
+MATH1.ASM ZERO -> res/math1.s ZERO
+MATH1.ASM $ZERO -> res/math1.s ZERO
+MATH1.ASM SIGN -> res/math1.s SIGNS
+MATH1.ASM $SIGNS -> res/math1.s SIGNS
+MATH1.ASM SIS05 -> res/math1.s SIS05
+MATH1.ASM SIGNAL -> res/math1.s SIGNAL
+MATH1.ASM $GETYP -> res/math1.s GETYP
+MATH1.ASM $VADDH -> p1/dmath.s VADDH
+MATH1.ASM $DADDH -> p1/dmath.s DADDH
+MATH1.ASM $FADDH -> res/math1.s FADDH
+MATH1.ASM $DIV10 -> p1/dmath.s DIV10
+MATH1.ASM $MUL10 -> p1/dmath.s MUL10
+MATH1.ASM $MLSP -> p1/dmath.s ML10
+MATH1.ASM $RDL -> dropped: referenced by nothing
+MATH1.ASM $SHDR -> p1/dmath.s SHRA30 # inline: in $SHRA, and in $DINT's shift
+MATH1.ASM $SHRM -> p1/dmath.s SHRA30 # likewise
+MATH1.ASM $SHRA -> p1/dmath.s SHRA
+MATH1.ASM $XCGAF -> p1/dmath.s XCGAF
+MATH1.ASM $MOVBS -> dropped: no code segment; a single constant is compared in BXDX or by PTR
+MATH1.ASM $MOVBF -> p1/fout.s FNV30 # inline: HIDBL copied to DBUFF for $DCMPM
+MATH1.ASM $MOVAC -> p1/dmath.s MOVAC
+MATH1.ASM $MOVFC -> p1/dmath.s MOVFC
+MATH1.ASM MOVAM -> dropped: referenced by nothing
+MATH1.ASM MOVEM -> dropped: a block move, inline where the 8086 calls it ($MOVAF, $MOVFA)
+MATH1.ASM $MOVAF -> res/math1.s VMOVAF
+MATH1.ASM $MOVFA -> p1/dmath.s MOVFA
+MATH1.ASM $MOVFR -> res/math1.s MOVFR
+MATH1.ASM $MOVRF -> res/math1.s MOVRF
+MATH1.ASM ZCMPCK -> res/math1.s ZCMPCK
+MATH1.ASM ZCMPBX -> p1/dmath.s DCMPM # inline: the comperand's exponent and sign to BH, BL
+MATH1.ASM $VCOMP -> p1/fout.s FCVD # inline: the one caller's is $DCMPA
+MATH1.ASM $FCOMP -> res/math1.s FCOMP
+MATH1.ASM $COMPM -> res/math1.s COMPM
+MATH1.ASM $DCMPA -> p1/dmath.s DCMPA
+MATH1.ASM $DCMPM -> p1/dmath.s DCMPM
+MATH1.ASM $CONI2 -> p1/fin.s CONI2
+MATH1.ASM $RSUBM -> p1/fout.s FCV70 # inline in $FOTCV
+MATH1.ASM ABSFN -> res/math1.s VABS
+MATH1.ASM $VABS -> res/math1.s VABS
+MATH1.ASM $IABS -> res/math1.s IABS
+MATH1.ASM VNEG -> res/math1.s VNEG
+MATH1.ASM $VNEG -> res/math1.s VNEG
+MATH1.ASM NEG -> res/math1.s NEG
+MATH1.ASM $NEG -> res/math1.s NEG
+MATH1.ASM INEG -> res/math1.s INEG
+MATH1.ASM $INEG -> res/math1.s INEG
+MATH1.ASM $SETDB -> p1/dmath.s SETDB
+MATH1.ASM $VMVAM -> dropped: referenced by nothing
+MATH1.ASM $VMOVM -> res/math1.s VMOVM
+MATH1.ASM $VMVMF -> res/math1.s VMVMF
+MATH1.ASM $MOVMF -> res/math1.s VMVMF
+MATH1.ASM $VMVFM -> res/math1.s VMVFM
+MATH1.ASM $MOVFM -> res/math1.s VMVFM
+MATH1.ASM $VCMPM -> res/math1.s VCMPM
+MATH1.ASM $VPSHF -> res/math1.s VPSHF
+MATH1.ASM $PUSHF -> res/math1.s PUSHF
+MATH1.ASM $POPA -> dropped: referenced by nothing
+MATH1.ASM $VPOPF -> res/math1.s VPOPF
+MATH1.ASM VINT -> res/math1.s VINT
+MATH1.ASM $VINT -> res/math1.s VINT
+MATH1.ASM FIN -> p1/fin.s FIN
+MATH1.ASM $FIN -> p1/fin.s FIN
+MATH1.ASM FINDBL -> p1/fin.s FINDBL
+MATH1.ASM $FINDB -> p1/fin.s FINDBL
+MATH1.ASM SQR -> p1/trans.s SQR
+MATH1.ASM $SQR -> p1/trans.s SQR
+MATH1.ASM $FPWR -> p1/trans.s FPWR
+MATH1.ASM FP30A -> p1/trans.s FP30A
+MATH1.ASM XTON -> p1/trans.s XTON
+MATH1.ASM $CHRGT -> dropped: JMP CHRGTR; the 6502 calls CHRGTR (GWMAIN.ASM's)
+MATH1.ASM DSUB -> res/mathfar.s DSUB
+MATH1.ASM FADD -> res/math1.s FADDS # an alias: the interpreter's operand is in BXDX already
+MATH1.ASM FSUB -> res/math1.s FSUBS # likewise
+MATH1.ASM FDIV -> res/math1.s FDIVS # likewise
+MATH1.ASM CONSIH -> res/math1.s CONSIH
+MATH1.ASM FLOAT -> later 7a: the interpreter's (a byte to a single, for its callers)
+MATH1.ASM FMULT -> res/math2.s FMULS # an alias, as FADD
+MATH1.ASM FPWR -> p1/trans.s FPWR # an alias, as FADD
+MATH1.ASM ISUB -> res/math1.s ISUB
+MATH1.ASM IADD -> res/math1.s IADD
+MATH1.ASM IMULT -> res/math1.s IMULT
+MATH1.ASM IDIV -> res/math1.s IDIV
+MATH1.ASM MOVFR -> res/math1.s MOVFR
+MATH1.ASM MOVFM -> res/math1.s VMOVFM
+MATH1.ASM MOVRF -> res/math1.s MOVRF
+MATH1.ASM MOVMF -> res/math1.s VMOVE
+MATH1.ASM FOUTO -> p1/fout.s FOUTO # OCT$'s FRQINT first is the string functions'
+MATH1.ASM FOUTH -> p1/fout.s FOUTH # HEX$'s, likewise
+MATH1.ASM FADDS -> later 7a: the interpreter's (NEXT's step, added from memory)
+MATH1.ASM PUSHF -> res/math1.s PUSHF
+MATH1.ASM FCOMP -> res/math1.s FCOMP
+MATH1.ASM FRCSTR -> res/math1.s CHKSTR
+MATH1.ASM CHKSTR -> res/math1.s CHKSTR
+MATH1.ASM INEG2 -> res/math1.s INEG2
+MATH1.ASM INEGAD -> res/math1.s INEG2
+MATH1.ASM FLOATR -> res/math1.s FLOATR
+MATH1.ASM RNDMON -> res/mathfar.s RNDMON
+MATH1.ASM RNDMN2 -> res/mathfar.s RNDMN2
+MATH1.ASM UMULT -> later 7a: the interpreter's (an array's subscripts, BIPTRG.ASM)
+MATH1.ASM VMOVFA -> later 7a: the interpreter's (a variable to the ARG)
+MATH1.ASM VMOVFM -> res/math1.s VMOVFM
+MATH1.ASM VMOVAF -> res/math1.s VMOVAF
+MATH1.ASM VMOVMF -> res/math1.s VMOVE
+MATH1.ASM VDFACS -> res/math1.s VFAC
+MATH1.ASM MOVE1 -> later 7a: the interpreter's (a block move)
+MATH1.ASM MOVVFM -> res/math1.s VMOVFM
+MATH1.ASM VMOVE -> res/math1.s VMOVE
+MATH1.ASM BLTU -> later 7a: the interpreter's (making room for a line, BIPTRG.ASM and GWMAIN.ASM)
+MATH1.ASM BLTUC -> later 7a: the interpreter's, as BLTU
+MATH1.ASM DCXBRT -> later 7a: the interpreter's
+MATH1.ASM VSIGN -> res/math1.s VSIGN
+MATH1.ASM ISIGN -> later 7a: the interpreter's (the sign of BX)
+MATH1.ASM POPHRT -> later 7a: the interpreter's
+MATH1.ASM CONIA -> res/math1.s CONIA
+MATH1.ASM MAKINT -> res/math1.s MAKINT
+MATH1.ASM VALSNG -> res/math1.s VALSNG
+MATH1.ASM SGN -> res/math1.s SGN
+MATH1.ASM FDIVT -> res/math1.s FDIVT
+MATH1.ASM FPWRQ -> res/mathfar.s FPWRQ
+MATH1.ASM FPWRT -> res/mathfar.s FPWRT
+MATH1.ASM MOVE -> later 7a: the interpreter's (4 bytes, the 8086's MOVE)
+MATH1.ASM MOVRM -> later 7a: the interpreter's
+MATH1.ASM GETBCD -> later 7a: the interpreter's
+MATH1.ASM INXHRT -> later 7a: the interpreter's
+MATH1.ASM INPRT -> later 7a: the interpreter's (" in" and a line number, for errors)
+MATH1.ASM LINPRT -> p1/fout.s LINPRT
+MATH1.ASM LINOUT -> p1/fout.s LINOUT
+MATH1.ASM FOUINI -> p1/fout.s LINOUT # inline
+MATH1.ASM SIGNC -> later 7a: the interpreter's (the FAC's sign as ICOMP gives it)
+MATH1.ASM DCOMP -> res/mathfar.s DCOMP
+MATH1.ASM ICOMPS -> res/mathfar.s DCOMP # inline
+MATH1.ASM SIGNS -> res/mathfar.s DCOMP # DCOMP's tail
+MATH1.ASM NEGR -> res/math1.s NEGR
+MATH1.ASM FIXER -> res/math1.s FIXER
+MATH1.ASM ICOMP -> res/math1.s ICOMP
+MATH1.ASM ICMPA -> later 7a: the interpreter's (ICOMP's AX entry)
+MATH1.ASM INRART -> later 7a: the interpreter's (AL = 1)
+MATH1.ASM IMOD -> res/math1.s IMOD
+MATH1.ASM LOPTOP -> later 7a: BIPTRG.ASM's PTRGET, the variable search
+MATH1.ASM LOPFND -> later 7a: BIPTRG.ASM's PTRGET, the variable search
+MATH1.ASM LOPFD1 -> later 7a: BIPTRG.ASM's PTRGET, the array search
+MATH1.ASM $AEXPS -> res/math1.s AEXPS
+MATH1.ASM $SEXPS -> res/math1.s SEXPS
+MATH1.ASM $CHKEL -> p1/fin.s CHKEL
+MATH1.ASM EXP -> p1/trans.s EXP
+MATH1.ASM $EXP -> p1/trans.s EXP
+MATH1.ASM $FSUBD -> p1/dmath.s FSUBD
+MATH1.ASM DADD -> res/mathfar.s DADD
+MATH1.ASM $FADDD -> p1/dmath.s FADDD
+MATH1.ASM $FSUBS -> res/math1.s FSUBS
+MATH1.ASM $FADDS -> res/math1.s FADDS
+MATH1.ASM DDIV -> res/mathfar.s DDIV
+MATH1.ASM DDIVFA -> p1/dmath.s DDIVFA
+MATH1.ASM $FDIVD -> p1/dmath.s DDIVFA
+MATH1.ASM $DDIV -> p1/dmath.s DDIVFA
+MATH1.ASM DDIV16 -> p1/dmath.s DDIVFA # Knuth's 16-bit digits; the 6502 divides a bit at a time, the same quotient
+MATH1.ASM $FDIVS -> res/math1.s FDIVS
+MATH1.ASM $SDIV -> res/math1.s SDIV
+MATH1.ASM CDIV16 -> res/math1.s SDIV # likewise
+MATH1.ASM DIV16 -> res/math1.s SDIV # likewise
+MATH1.ASM RESTORE -> p1/dmath.s DDIVFA # DDIV's own label (not BIMISC.ASM's RESTORE), inline
+MATH1.ASM SAVE -> res/math1.s SAVE # SDIV's own label (not DSKCOM.ASM's SAVE)
+MATH2.ASM $FIDIG -> p1/fin.s FIDIG
+MATH2.ASM $FINEX -> p1/fin.s FINEX
+MATH2.ASM $FIND -> p1/fin.s FIND
+MATH2.ASM $FINS -> p1/fin.s FINS
+MATH2.ASM $FINI -> dropped: referenced by nothing
+MATH2.ASM $FINFC -> p1/fin.s FINEX # inline: Z picks $FD or $FS
+MATH2.ASM FRCSNG -> res/math2.s FRCSNG
+MATH2.ASM $FS -> res/math2.s FRCSNG
+MATH2.ASM $CSD -> res/math2.s CSD
+MATH2.ASM FRCDBL -> res/math2.s FRCDBL
+MATH2.ASM $FD -> res/math2.s FRCDBL
+MATH2.ASM $CDS -> res/math2.s CDS
+MATH2.ASM $CSI -> res/math2.s CSI
+MATH2.ASM FRCINT -> res/math2.s FRCINT
+MATH2.ASM $FI -> res/math2.s FRCINT
+MATH2.ASM $CINC -> res/math2.s CINC
+MATH2.ASM $CIND -> res/math2.s CINC
+MATH2.ASM VALINT -> res/math2.s VALINT
+MATH2.ASM $VALNT -> res/math2.s VALINT
+MATH2.ASM $FLT -> res/math2.s FLT
+MATH2.ASM DMULT -> res/mathfar.s DMULT
+MATH2.ASM $FMULD -> p1/dmath.s FMULD
+MATH2.ASM $FMULS -> res/math2.s FMULS
+MATH2.ASM $FOTAN -> p1/fout.s FOTAN
+MATH2.ASM $FOTED -> p1/fout.s FOTED
+MATH2.ASM $FOTCV -> p1/fout.s FOTCV
+MATH2.ASM DSUBI -> p1/fout.s DSUBI
+MATH2.ASM DADDI -> p1/fout.s DADDI
+MATH2.ASM $FOTNV -> p1/fout.s FOTNV
+MATH2.ASM HIDBL -> p1/fout.s HIDBL
+MATH2.ASM S -> p1/fout.s S
+MATH2.ASM FOUT -> p1/fout.s FOUT
+MATH2.ASM $FOUT -> p1/fout.s FOUT
+MATH2.ASM $FOUT2 -> p1/fout.s FOUT2
+MATH2.ASM $DINT -> p1/dmath.s DINT
+MATH2.ASM $FTDNT -> p1/dmath.s FTDNT
+MATH2.ASM $SHRD -> p1/dmath.s DNT10 # inline in $DINT, whole bytes first
+MATH2.ASM DINTA -> p1/dmath.s DINTA
+MATH2.ASM ADD1D -> p1/dmath.s ADD1D
+MATH2.ASM INT -> res/math2.s INT
+MATH2.ASM $INT -> res/math2.s INT
+MATH2.ASM QINT -> res/math2.s QINT
+MATH2.ASM $QINT -> res/math2.s QINT
+MATH2.ASM LOG -> p1/trans.s LOG
+MATH2.ASM $LOG -> p1/trans.s LOG
+MATH2.ASM MLLN2 -> p1/trans.s MLLN2
+MATH2.ASM $NORMD -> p1/dmath.s NORMD
+MATH2.ASM $NORMS -> res/math2.s NORMS
+MATH2.ASM $POLYX -> p1/trans.s POLYX
+MATH2.ASM $POLY -> p1/trans.s POLY
+MATH2.ASM $PUF -> later 7b: PRINT USING's floating point
+MATH2.ASM DPCOM -> later 7b: PRINT USING's point and commas
+MATH2.ASM PUFOUT -> later 7b: PRINT USING
+MATH2.ASM $PUFOT -> later 7b: PRINT USING
+MATH2.ASM $PUI -> later 7b: PRINT USING's integers
+MATH2.ASM $PUIZ -> later 7b: PRINT USING's integers
+MATH2.ASM RND -> p1/trans.s RND
+MATH2.ASM $RND -> p1/trans.s RND
+MATH2.ASM NEWSD -> dropped: referenced by nothing (RANDOMIZE seeds through RNDMN2)
+MATH2.ASM OLDRN -> p1/trans.s OLDRN
+MATH2.ASM $ROUND -> p1/dmath.s ROUND
+MATH2.ASM $ROUNX -> p1/dmath.s ROUNX
+MATH2.ASM $ROUNS -> res/math2.s ROUNS
+MATH2.ASM $ROUNM -> res/math2.s ROUNM
+MATH2.ASM PAKSP -> res/math2.s PAKSP
+MATH2.ASM $SIGD -> p1/fout.s SIGD
+GWMAIN.ASM $FLGOC -> p1/fin.s FINOVC # $FIN's way out, with FINOVC and $CLROV
+GWMAIN.ASM FINOVC -> p1/fin.s FINOVC
+GWMAIN.ASM $CLROV -> p1/trans.s CLROV # $FPWR's way out; FINOVC's tail is p1/fin.s's own
+GWDATA.ASM $RNDX -> res/mathfar.s RNDX
+GWDATA.ASM RNDCOP -> res/mathfar.s RNDCOP

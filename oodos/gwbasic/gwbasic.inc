@@ -71,7 +71,7 @@ T6              = $16
 T7              = $17
 FSUBF           = $18                  ; $FADDS: bit 7 set to subtract the mantissas
 FLGOV           = $19                  ; $FLGOV: 0 print overflow, 1 once more, 2 not
-FLGOVC          = $1A                  ; FLGOVC: a function's overflow was printed
+FLGOVC          = FLGOV                ; FLGOVC: the same byte in the 8086 (GWDATA.ASM labels both)
 VALTYP          = $1B                  ; 2 integer, 3 string, 4 single, 8 double
 FMTCX           = $1C                  ; $FMTCX: CL commas, CH digits to the point
 FMTAL           = $1E                  ; $FMTAL: PRINT USING's format flags
@@ -120,6 +120,17 @@ ONELIN          = $86                  ; ON ERROR's line
 STKLOW          = $88                  ; how low the BASIC stack may grow
 SYNPTR          = $8A                  ; SYNCHR's return address
 PTR2            = $8C                  ; a second pointer into memory
+
+; --- The rest of the math, in P1 ($90-$9F) ----------------------------------
+FINDI           = $90                  ; $FIN: the 8086's DI, digits past the point (XTON: N)
+FINCX           = $92                  ; its CX: $FFFF before a point, 0 after
+FINSI           = $94                  ; its SI: the exponent's sign, 0 or $FF
+FINDX           = $95                  ; its DX: the exponent typed
+FINNEG          = $97                  ; the number's sign: $FF for a "-"
+FINDIG          = $98                  ; the digit $FIDIG adds
+PX              = $99                  ; $POLY's x, 4 bytes
+PCP             = $9D                  ; $POLY's coefficient pointer
+PCN             = $9F                  ; $POLY's coefficients left
 
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
@@ -193,19 +204,28 @@ BLK_ENTRY       = BLK_BASE + 4         ; the jump table
 BLK_END         = $F800                ; common memory from here, copied in by the loader
 
 .macro  FAR     page, target
-        .local  site
-site:   JSR     FARMISS
+        .local  @site                  ; a cheap local: the caller's @ labels
+@site:  JSR     FARMISS                ; stay in scope across it
         .byte   page
         .word   target
         .pushseg
         .segment "FARFIX"
-        .word   site + 1
+        .word   @site + 1
         .popseg
 .endmacro
 
+.ifdef FLAT
+; The flat test build (test/, the project's own): every module, resident or
+; banked, in one image for the W65C02S core alone, so a far call is a JSR.
+.macro  FJSR    name
+        .global name
+        JSR     name
+.endmacro
+.else
 .macro  FJSR    name
         FAR     .ident(.concat("PG_", .string(name))), .ident(.concat("E_", .string(name)))
 .endmacro
+.endif
 
 ; --- 16-bit helpers ---------------------------------------------------------
 .macro  INCW    addr

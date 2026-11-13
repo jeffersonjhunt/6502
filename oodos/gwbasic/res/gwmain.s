@@ -22,7 +22,7 @@
 
 .export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET
 .export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC
-.import STMDSP, NUMCON, OUTDO, LINPRT, SNERR, ERROR, PRGEND, NEWSTX, ISMID
+.import STMDSP, NUMCON, OUTDO, SNERR, ERROR, PRGEND, NEWSTX, ISMID
 .import GOTRP, CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
 .import LETSTR
 
@@ -216,7 +216,7 @@ GONE4:          LDA     (TXTPTR)       ; the link: zero at the end of the progra
                 STA     RBL
                 LDA     CURLIN+1
                 STA     RBH
-                JSR     LINPRT
+                FJSR    LINPRT
                 LDA     #']'
                 JSR     OUTDO
                 JMP     GONE
