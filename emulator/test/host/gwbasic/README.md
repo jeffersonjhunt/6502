@@ -60,3 +60,15 @@ there; `INPUT;`, whose cursor GW-BASIC keeps on the line (test_gwbasic_core chec
 PC-BASIC writes `$FF` after an error's message (GW-BASIC's "not typed" mark); the test drops it, as the OO-1's
 console doesn't show it.
 
+
+The programs of the translation-fidelity review (T1, T2), typed and RUN the same way, each against PC-BASIC's
+output (it agrees with the 8086 source on both):
+
+| Program | What |
+|---|---|
+| `gc1` | strings left as garbage until the space is nearly full, then a DIM: the collection before the array is made |
+| `gc2` | the same, then a new simple variable with an array above it: the collection before the arrays move |
+| `input2` | INPUT's data ending at a `:` (`5:6`, `"ab":x`): `?Redo from start` |
+
+T3-T5 (LLIST before `'`, LPT1's columns and its CR LF) go to LST:, which PC-BASIC's run doesn't show:
+test_gwbasic_core checks them by hand, from GIOLPT.ASM's logic.

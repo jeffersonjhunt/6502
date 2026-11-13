@@ -25,6 +25,9 @@
  *   their errors), the size spike's seven programs, and INPUT with its lines typed as GW-BASIC asks; INPUT;,
  *   LPRINT and the forms of later sub-phases by hand; and the timing figures: the core loop's cycles a pass, a
  *   PRINT statement's with its far call, and a character's through function 2.
+ * - The translation-fidelity review's cases (T1-T5): a collection while a variable is made keeps DX; INPUT's
+ *   data ending at a ':' is asked for again; LLIST before a ' lists every line; LPT1's columns and line ends as
+ *   GIOLPT.ASM drives them.
  */
 
 #include "harness.h"
@@ -762,6 +765,97 @@ TEST(outdo_and_crdonz_take_the_device_from_both_bytes_of_ptrfil)
     r.watch = nullptr;
     CHECK_EQ(stage, 5);
     CHECK_EQ(vis(by_return), std::string("\\r\\n"));
+}
+
+// What LST: is sent (function 5's bytes) while `line` is typed and run to its Ok.
+static std::string lst_of(CcpRig &r, const std::string &line)
+{
+    std::string lst;
+    r.watch = [&](uint16_t pc) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 5) // the BDOS's entry, L_WRITE
+            lst += static_cast<char>(g.a);
+    };
+    command(r, line);
+    r.watch = nullptr;
+    return lst;
+}
+
+// The fidelity review's T1: REASON keeps DX (RDL, RDH) across the collection, as BIMISC.ASM's REASON pushes CX,
+// DX and BX around GARBA2. Strings left as garbage until the space is nearly full, then an array made (NOTFDD's
+// ZERITA zeroes from DX) and a simple variable made with an array above it (MKVAR's BLTUC moves by DX), each
+// needing a collection first; against PC-BASIC's output; and nothing above MEMSIZ written.
+TEST(a_collection_while_a_variable_is_made_keeps_dx)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("MEMSIZ") == 1);
+    // The program's memory by its physical address: W0-W2 are blocks 0-2 (the CPU's view at the prompt is
+    // the BDOS's, waiting in function 10).
+    auto peek = [&](unsigned a) { return r.phys(a); };
+    const unsigned memsiz = peek(lab.at("MEMSIZ")) | peek(lab.at("MEMSIZ") + 1u) << 8;
+    std::vector<uint8_t> above;
+    for (unsigned a = memsiz + 1; a < 0xBFFD; ++a)
+        above.push_back(peek(a));
+    for (const char *name : {"gc1", "gc2"})
+    {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, bas(name));
+        const std::string got = command(r, "RUN"), want = oracle(name);
+        if (got != want)
+            std::printf("  %s:\n    got  '%s'\n    want '%s'\n", name, vis(got).c_str(), vis(want).c_str());
+        CHECK_EQ(got, want);
+        std::vector<uint8_t> now;
+        for (unsigned a = memsiz + 1; a < 0xBFFD; ++a)
+            now.push_back(peek(a));
+        CHECK(now == above);
+        for (size_t i = 0; i < now.size() && i < above.size(); ++i)
+            if (now[i] != above[i])
+                std::printf("  $%04X: $%02X, was $%02X (MEMSIZ $%04X)\n", static_cast<unsigned>(memsiz + 1 + i), now[i],
+                            above[i], memsiz);
+    }
+}
+
+// T2: INPUT's first pass ends only at a true end of the data (GWMAIN.ASM's OR AL,AL), so data that ends at a ':'
+// is asked for again: `5:6` for INPUT A, `"ab":x` for INPUT A$; against PC-BASIC's transcript.
+TEST(input_data_that_ends_at_a_colon_is_asked_for_again)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("INLIN0") == 1);
+    const std::string got = run_typed(r, "input2", lab.at("INLIN0")), want = oracle("input2");
+    if (got != want)
+        std::printf("  input2:\n    got  '%s'\n    want '%s'\n", vis(got).c_str(), vis(want).c_str());
+    CHECK_EQ(got, want);
+}
+
+// T3: LLIST keeps CHRGTR's flags as the 8086's PUSH, MOV, POP does, so LLIST followed by ' (or :REM) lists every
+// line to LST:, not line 0 alone.
+TEST(llist_before_a_remark_lists_every_line)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 PRINT 1", "20 PRINT 2"});
+    CHECK_EQ(vis(lst_of(r, "LLIST '")), vis("10 PRINT 1\r\n20 PRINT 2\r\n"));
+    CHECK_EQ(vis(lst_of(r, "LLIST:REM")), vis("10 PRINT 1\r\n20 PRINT 2\r\n"));
+}
+
+// T4 and T5: LPT1 as GIOLPT.ASM's LPTSOT, CRIFEL and LPOUT1 drive it, written by hand from them (PC-BASIC's
+// printer isn't the oracle's): UPDPOS counts printable characters only, so a TAB moves no column and TAB(20)
+// after "A" sends 18 spaces; a CR is followed by an LF, and an LF straight after a CR is dropped.
+TEST(lpt1_counts_columns_and_ends_lines_as_giolpt_does)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(vis(lst_of(r, "LPRINT CHR$(9);\"A\";TAB(20);\"B\"")), vis("\tA" + std::string(18, ' ') + "B\r\n"));
+    CHECK_EQ(vis(lst_of(r, "LPRINT \"A\";CHR$(13);\"B\"")), vis("A\r\nB\r\n"));
+    CHECK_EQ(vis(lst_of(r, "LPRINT \"A\";CHR$(13);CHR$(10);\"B\"")), vis("A\r\nB\r\n"));
 }
 
 // The timing figures (hw/oodos.md, "The plan, phase 7": 7a's cycles), on the running GWBASIC.COM, each by

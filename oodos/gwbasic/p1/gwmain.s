@@ -186,7 +186,8 @@ OKVLST:         JSR     XTHL           ; the data: a comma, then the value
                 STA     TXTPTR+1
                 DECW    TXTPTR
                 JSR     CHRGTR
-                BNE     RDOINP
+                CMP     #0             ; a true end (GWMAIN.ASM's OR AL,AL): a ':'
+                BNE     RDOINP         ; isn't one, and asks again
                 LDA     #<BUFMIN       ; pass 2, from the data's start
                 STA     TXTPTR
                 LDA     #>BUFMIN

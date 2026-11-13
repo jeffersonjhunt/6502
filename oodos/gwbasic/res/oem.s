@@ -4,8 +4,8 @@
 ; GW-BASIC's OEM layer for the console, 7a's (hw/oodos.md, "The plan, phase
 ; 7": 7a, the console through the BDOS). The release has no OEM code
 ; (hw/oodos.md, "GW-BASIC"), so most of this is the project's own. But
-; OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, SCNSEM, ITSCTC and
-; CNTCCN are translated from GIO86.ASM, BIMISC.ASM, SCNEDT.ASM and
+; OUTDO, LPOUT1, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, SCNSEM, ITSCTC and
+; CNTCCN are translated from GIO86.ASM, GIOLPT.ASM, BIMISC.ASM, SCNEDT.ASM and
 ; GIOKYB.ASM (ledger.txt), and are Microsoft's, under its MIT licence. It
 ; stands where GIO86.ASM's device dispatch, SCNEDT.ASM's screen editor and
 ; GIOKYB.ASM's keyboard are on the PC, and keeps their entries' contracts:
@@ -14,9 +14,13 @@
 ;             or LPT1 by LST: (function 5); A, X, Y and the flags kept.
 ;             TTYPOS and LPTPOS are the columns: at the width (LINLEN, 80)
 ;             the console wraps itself (OODOS's CRT does, as the PC's screen
-;             does) and LPT1 is sent CR LF. $FF, which
-;             GW-BASIC sends after a message to mark the line "not typed",
-;             counts a column and isn't sent (the PC shows it as a blank)
+;             does). LPT1 is GIOLPT.ASM's LPTSOT: a printable character at
+;             the width goes after a CR LF (CRIFEL); only printable
+;             characters move its column, a CR to 0, a BS back (UPDPOS: a
+;             TAB doesn't); a CR is followed by an LF, and an LF straight
+;             after a CR is dropped (LPOUT1). $FF, which GW-BASIC sends
+;             after a message to mark the line "not typed", counts a column
+;             and isn't sent (the PC shows it as a blank)
 ;   CRDO CRDONZ CRFIN  CR LF; CR LF unless at the margin; A = 0
 ;   FINLPT FINPRT      LPT1 to its margin; output back to the console
 ;   ISFLIO             Z clear when output isn't the console
@@ -69,20 +73,17 @@ OUTDO:          PHP
                 PHY
                 LDX     #0             ; X: the column's index, 0 the console, 1 LPT1:
                 LDY     PTRFIL         ; the console only if both of PTRFIL's bytes
-                BNE     :+             ; are 0, as ISFLIO has it (a file's block, 7c,
+                BNE     @tolpt         ; are 0, as ISFLIO has it (a file's block, 7c,
                 LDY     PTRFIL+1       ; may have a low byte of 0)
-                BEQ     :++
-:               INX
+                BEQ     :+
+@tolpt:         JMP     @lpt
 :               CMP     #' '
                 BCC     @ctl
                 PHA
                 LDA     TTYPOS,X       ; at the width: the console wraps itself,
-                CMP     LINLEN,X       ; as the PC's screen does; LPT1 is given
-                BCC     @col           ; a new line
+                CMP     LINLEN,X       ; as the PC's screen does
+                BCC     @col
                 STZ     TTYPOS,X
-                CPX     #0
-                BEQ     @col
-                JSR     @crlf
 @col:           INC     TTYPOS,X
                 PLA
                 CMP     #$FF           ; the "not typed" mark: a column, not sent
@@ -111,12 +112,23 @@ OUTDO:          PHP
                 PLA
                 PLP
                 RTS
-@crlf:          LDA     #13
-                JSR     @out
+@lpt:           CMP     #' '           ; LPT1 (LPTSOT): CRIFEL, a printable
+                BCC     @lpc           ; character at the width after a CR LF
+                LDY     LPTPOS
+                CPY     LINLEN+1
+                BCC     @lpw
+                PHA
+                LDA     #13
+                JSR     LPOUT1
                 LDA     #10
-                JSR     @out
-                STZ     TTYPOS,X
-                RTS
+                JSR     LPOUT1
+                PLA
+@lpw:           CMP     #$FF           ; the "not typed" mark: a column, not sent
+                BNE     @lpc
+                INC     LPTPOS
+                BRA     @done
+@lpc:           JSR     LPOUT1
+                BRA     @done
 @out:           PHX                    ; X: the device
                 LDY     #C_WRITE
                 CPX     #0
@@ -125,6 +137,43 @@ OUTDO:          PHP
 :               JSR     BDOS
                 PLX
                 RTS
+
+; LPOUT1 (GIOLPT.ASM): A to LST:, LPTPOS moved as UPDPOS (GIO86.ASM) moves
+; it: a printable character on one, a CR to 0, a BS back one, nothing else
+; (a TAB, an LF). An LF straight after a CR (LPCRF) is dropped; a CR is
+; followed by an LF (LPRINT's and LLIST's pseudo file: always). A, X and Y
+; used.
+LPOUT1:         CMP     #' '
+                BCC     @ctl
+                INC     LPTPOS
+                BRA     @send
+@ctl:           CMP     #13
+                BNE     @bs
+                STZ     LPTPOS
+                BRA     @send
+@bs:            CMP     #8
+                BNE     @lf
+                LDY     LPTPOS
+                BEQ     @send
+                DEC     LPTPOS
+                BRA     @send
+@lf:            CMP     #10
+                BNE     @send
+                BIT     LPCRF          ; after a CR: eaten
+                BMI     @was
+@send:          PHA
+                LDY     #L_WRITE
+                JSR     BDOS
+                PLA
+@was:           STZ     LPCRF
+                CMP     #13
+                BNE     @x
+                LDA     #$80           ; a CR: an LF after it
+                STA     LPCRF
+                LDA     #10
+                LDY     #L_WRITE
+                JSR     BDOS
+@x:             RTS
 
 ; CRDO (GIO86.ASM 1026): CR and LF; A = 0 and Z set. CRDONZ (1013): only if
 ; the current output isn't at its left margin. CRFIN (1006): A = 0.
@@ -435,6 +484,7 @@ ENDBUF:         .byte   0
 KBUF:           .res    KBFLEN
 LINLEN:         .byte   WIDTH          ; the console's width (WIDTH, the statement, is 7d's)
                 .byte   WIDTH          ; LPT1's
+LPCRF:          .byte   0              ; LPOUT1: bit 7, the last byte to LST: a CR
 F_EDPG:         .res    1              ; PINLIN: bit 7 a program line
 SEMFLG:         .res    1              ; INPUT;
 PRELOD:         .res    1              ; BUF holds a line to edit (ERREDT)

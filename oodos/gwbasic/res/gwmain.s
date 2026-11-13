@@ -1354,11 +1354,13 @@ CONRUN:         JSR     CLEARC         ; TXTPTR kept
 ; LIST: P2's LISTP lists; then, as GW-BASIC's LIST, NEWSTT's return dropped
 ; and READY. LLIST: the same to LPT1 (PTRFIL; READY's FINLPT puts it back).
 ; DELETE: P2's DELETP, which ends at FINI.
-LLIST:          PHA
-                LDA     #$FF
+LLIST:          PHP                    ; CHRGTR's flags kept, as the 8086's
+                PHA                    ; PUSH, MOV, POP keeps them (Z: the
+                LDA     #$FF           ; statement's end)
                 STA     PTRFIL
                 STA     PTRFIL+1
                 PLA
+                PLP
 LIST:           FJSR    LISTP
                 PLA
                 PLA

@@ -1315,3 +1315,9 @@ KANJ86.ASM KTNFN -> dropped: Kanji
 KANJ86.ASM JISFN -> dropped: Kanji
 KANJ86.ASM KPOSFN -> dropped: Kanji
 KANJ86.ASM KLENFN -> dropped: Kanji
+#
+# f: the fidelity review (T4, T5): LPT1's output as GIOLPT.ASM drives it, in the OEM's OUTDO.
+GIOLPT.ASM LPTSOT -> OEM res/oem.s OUTDO # LPT1's path: CRIFEL, then LPOUT1
+GIO86.ASM CRIFEL -> OEM res/oem.s OUTDO # a printable character at the width after a CR LF
+GIOLPT.ASM LPOUT1 -> OEM res/oem.s LPOUT1 # a CR then an LF; an LF after a CR dropped
+GIO86.ASM UPDPOS -> OEM res/oem.s LPOUT1 # printable characters, CR and BS move the column
