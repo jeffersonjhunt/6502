@@ -451,22 +451,24 @@ name:
 .macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb, margin
         _UI_U_VSCROLL .set 1
         _UI_THUMB sprite, thumb
-        _UI_PAGE page, margin
+        _UI_PAGE page, margin, flags
         _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, _UI_T, 0, last, _UI_P
 .endmacro
 .macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags, sprite, thumb, margin
         _UI_U_HSCROLL .set 1
         _UI_THUMB sprite, thumb
-        _UI_PAGE page, margin
+        _UI_PAGE page, margin, flags
         _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, _UI_T, 0, last, _UI_P
 .endmacro
 ; (U3b) _UI_P: a scroll bar's UW_B, the page, and with a margin (UF_MARGIN) the margin byte above
-; a page of 0-255.
-.macro _UI_PAGE page, margin
+; a page of 0-255. A margin given wants UF_MARGIN in the flags: without it OOUI reads UW_B whole as
+; the page (the U3b review's round 4, K1).
+.macro _UI_PAGE page, margin, flags
 .ifblank margin
         _UI_P .set page
 .else
         .assert (page) < 256, error, "a scroll bar with a margin: a page of 0-255"
+        .assert ((flags) & UF_MARGIN) <> 0, error, "a scroll bar with a margin: UF_MARGIN in its flags"
         _UI_P .set (page) | (margin) << 8
 .endif
 .endmacro
