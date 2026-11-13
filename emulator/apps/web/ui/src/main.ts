@@ -205,13 +205,15 @@ function start(root: HTMLElement, port: MachinePort): void {
     return { x: Math.floor(((e.clientX - r.left) / r.width) * 640), y: Math.floor(((e.clientY - r.top) / r.height) * 480) };
   };
   const BUTTONS = (b: number) => b & 7; // the DOM's left, right, middle bits are HID's
-  glass.addEventListener("mousemove", (e) => {
-    if (onMouse()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
-  });
-  for (const type of ["mousedown", "mouseup"] as const)
-    glass.addEventListener(type, (e) => {
-      if (onMouse()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
-    });
+  // With the mouse in absolute mode a program draws its own pointer from it (OOUI does), under the host's: the
+  // host's is hidden over the screen then (crt.css, data-pointer), so one pointer shows.
+  const mouse = (e: MouseEvent) => {
+    const machine = onMouse();
+    if (machine) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
+    if (machine && port.mouseAbsolute()) glass.dataset.pointer = "machine";
+    else delete glass.dataset.pointer;
+  };
+  for (const type of ["mousemove", "mousedown", "mouseup"] as const) glass.addEventListener(type, mouse);
   glass.addEventListener(
     "wheel",
     (e) => {

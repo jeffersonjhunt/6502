@@ -532,9 +532,18 @@ export class WasmPort implements MachinePort {
   sendMouse(mouse: MouseInput): void {
     const m = this.m;
     if (!m) return;
-    if (mouse.x !== undefined && mouse.y !== undefined) m.usbMouseTo(Math.round(mouse.x), Math.round(mouse.y));
+    if (mouse.x !== undefined && mouse.y !== undefined) {
+      // The card's limits, MAXX and MAXY ($C597-$C59A: the USB card at $C580), read without a bus cycle.
+      const maxX = m.peekIo(0x597) | (m.peekIo(0x598) << 8);
+      const maxY = m.peekIo(0x599) | (m.peekIo(0x59a) << 8);
+      m.usbMouseTo(Math.floor((Math.round(mouse.x) * (maxX + 1)) / 640), Math.floor((Math.round(mouse.y) * (maxY + 1)) / 480));
+    }
     if (mouse.buttons !== undefined) m.usbMouseButtons(mouse.buttons);
     if (mouse.wheel) m.usbMouseWheel(mouse.wheel);
+  }
+
+  mouseAbsolute(): boolean {
+    return !!this.m && (this.m.peekIo(0x590) & 1) === 1; // MCTRL
   }
 
   async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array> {
