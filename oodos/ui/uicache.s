@@ -11,8 +11,10 @@
 ; crosses back to A's ONE for each record it draws (XA_ONE).
 ;
 ; The cache is stale (uany's UQ_CSTALE) after every geometry event but a
-; menu's (REFOCUS, BOXFULL, DLGREC, STALE: S1's list), and found again
-; whole by the next walk (CFILL; PASS fills it as it places every record).
+; menu's (BOXFULL, ui_open, DLGREC, STALE; ui_show, ui_hide and ui_flags
+; through CSET), and found again whole by the next walk: CFILL, or PASS as
+; it places every record and writes every unused record's and menu's entry
+; hidden. ui_open makes every entry hidden first (CCLR).
 ; A dirty record is placed at each paint anyway: PASS compares it with its
 ; entry, and a difference (a record the program moved by its fields and
 ; only dirtied) makes the cache stale and is a geometry event (UQ_GEOM),
@@ -24,7 +26,7 @@
         .include "ooui.inc"
         .include "ui.inc"
 
-        .export PASS, HIT, MARGIN, SHOWS, CSET, CFILL, FRONT, cx0, cy0, cx1, cy1, cfl
+        .export PASS, HIT, MARGIN, SHOWS, CSET, CCLR, CFILL, FRONT, cx0, cy0, cx1, cy1, cfl
         .import tc, tr                  ; uislider.s's: the thumb's first cell (SHOWS's)
 
 CMAX    = UI_MAXREC + DLG_RECS          ; the records: the table's and the dialogs'
@@ -131,9 +133,11 @@ CSAME:  lda     ce
 @r:     rts
 
 ; Carry clear if entry Y can meet one of layer pl's boxes (pbx the first; B5):
-; shown, on it, and its cells, with its shadow, overlap the box (OVERLAP's test
-; on more than EXTRECT's er: what ONE draws of a record is inside it). Only
-; the boxes up to udend's are looked at (those a paint has used). Keeps Y.
+; shown, on it, and its cells (clipped to its parents' client areas), with its
+; shadow, overlap the box. Narrower than ONE's OVERLAP (EXTRECT's er, its whole
+; place unclipped): what it passes over meets the box only where its parents
+; clip it, where ONE would draw nothing. Only the boxes up to udend's are
+; looked at (those a paint has used). Keeps Y.
 CMEETS: lda     cfl,y
         lsr     a                       ; CF_HID
         bcs     @r
@@ -197,14 +201,6 @@ CMEETS: lda     cfl,y
 @no:    sec
 @r:     rts
 
-; Carry set if every box of layer pl (pbx the first) is empty: its first is
-; (B5: BOXADD puts a box in the first empty one, so the first is empty only
-; when all are).
-CEMPTY: ldx     pbx
-        lda     udmg,x
-        cmp     udmg + 2,x
-        rts
-
 ; The cache found again, if it is stale: every record placed (RECT's
 ; sibling cache on, as the walks' are), its entry made. Keeps nothing.
 CFILL:  lda     #UQ_CSTALE
@@ -226,6 +222,33 @@ CFILL:  lda     #UQ_CSTALE
         bra     @l
 @e:     stz     rcv
 @r:     rts
+
+; Carry clear if entry X shows on layer hp (FRONT's and SHOWS's): not
+; hidden, and on it.
+CON:    lda     cfl,x
+        lsr     a                       ; CF_HID
+        bcs     @r
+        lsr     a                       ; CF_OVER: the layer
+        lda     #0
+        rol     a
+        eor     hp
+        cmp     #1                      ; (0, the same: carry clear)
+@r:     rts
+
+; Every entry hidden (XC_CCLR: ui_open's, so no entry is the last table's
+; or the bank's memory as ui_load left it; the review's round 8, P1); and
+; udend set (as A's UDEND does: ui_open's own before).
+CCLR:   jsr     CHID
+        ldx     #0
+@l:     jsr     CSTORE
+        inx
+        cpx     #CMAX
+        bne     @l
+        lda     #8                      ; (B5) and each layer's boxes' end its first's (UDEND's,
+        sta     udend                   ;   block A's)
+        lda     #4 + 8
+        sta     udend + 1
+        rts
 
 ; Record A's entry found again (XC_CSET: ui_show, ui_hide and ui_flags, the
 ; dialogs' too, after they changed its flags): only its own can change if
@@ -308,11 +331,11 @@ PASS:   stz     cmode                   ; the cache read; if it is stale, filled
 ; UIR moved (it was placed), clear if not.
 PREC:   ldy     #UW_TYPE
         lda     (UIR),y
-        beq     @next
+        beq     @none
         cmp     #UT_MENU
         bcc     @t
         cmp     #UT_SEP + 1
-        bcc     @next                   ; the menus: MPASS
+        bcc     @none                   ; the menus: MPASS
 @t:     ldy     #UW_FLAGS               ; dirty: placed, and compared with its entry
         lda     (UIR),y
         and     #UF_DIRTY
@@ -320,7 +343,9 @@ PREC:   ldy     #UW_TYPE
         lda     cmode                   ; filling: every record placed
         cmp     #1
         beq     @rect
-        jsr     CEMPTY                  ; clean, and the boxes empty: nothing to draw
+        ldx     pbx                     ; clean, and the boxes empty: nothing to draw (B5:
+        lda     udmg,x                  ;   the first is empty only when all are, as BOXADD
+        cmp     udmg + 2,x              ;   puts a box in the first empty one)
         bcs     @next
         lda     cmode                   ; the cache stale: placed, as before S2
         bne     @rect
@@ -330,6 +355,9 @@ PREC:   ldy     #UW_TYPE
         lda     ph
         jsr     RECT
         bra     @one
+@none:  jsr     CHID                    ; an unused record or a menu's: hidden in the cache,
+        ldx     ph                      ;   so a fill writes every entry (the review's round 8, P1)
+        jsr     CSTORE
 @next:  clc
         rts
 @rect:  lda     ph
@@ -377,14 +405,8 @@ FRONT:  jsr     CFILL
 @l:     dex
         cpx     #UI_NONE
         beq     @np
-        lda     cfl,x
-        lsr     a                       ; CF_HID
+        jsr     CON
         bcs     @l
-        lsr     a                       ; CF_OVER
-        lda     #0
-        rol     a
-        cmp     hp
-        bne     @l
         lda     mcol
         cmp     cx0,x
         bcc     @l
@@ -459,11 +481,7 @@ MTEST:  jsr     REC
         bne     @m
 @n0:    sec
         rts
-@m:     ldx     mh                      ; hidden: none (the cache's, S2)
-        lda     cfl,x
-        lsr     a
-        bcs     @n0
-        lda     mh
+@m:     lda     mh
         jsr     RECT
         bcs     @n0
         ldy     #UW_TYPE                ; t0 the columns' margin, t1 the rows'
@@ -545,14 +563,8 @@ SHOWS:  sta     stc1
 @l:     dex
         cpx     #UI_NONE
         beq     @np
-        lda     cfl,x
-        lsr     a                       ; CF_HID
+        jsr     CON
         bcs     @l
-        lsr     a                       ; CF_OVER
-        lda     #0
-        rol     a
-        cmp     hp
-        bne     @l
         lda     tc
         ldy     tr
         jsr     INENT

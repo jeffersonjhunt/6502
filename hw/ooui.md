@@ -1996,8 +1996,11 @@ drawn, about 1,210 each). No call, record or event changes meaning; no golden fr
   (`c0`, `r0`, `c1`, `r1` from `RECT`'s place and `rclip`), and three flags: hidden (or a record no walk looks
   at, unused or a menu's), on the overlay (`rover`), casting a shadow (a framed window, the theme's `TF_SHADOW`).
 - **The walks read it, in block C.** `PASS`'s walk, `FRONT` (from `UICOM`), `HIT`, `MARGIN` (block A's) and
-  `SHOWS` (block B's) are uicache.s's. `PASS` places a clean record (`RECT`) only if its entry, with its shadow,
-  meets the box, a test on more than `ONE`'s `EXTRECT` and `OVERLAP`, which still decide; `FRONT` and `SHOWS`
+  `SHOWS` (block B's) are uicache.s's. `PASS` places a clean record (`RECT`) only if its entry meets the box: `CMEETS`
+  tests the cached cells, clipped to the parents' client areas, with the shadow added, which is narrower than
+  `ONE`'s `OVERLAP` (the record's whole place, `EXTRECT`'s `er`, unclipped): a record it passes over meets the
+  box only where its parents clip it, where `ONE` would draw nothing; `ONE` still decides for the records it
+  passes; `FRONT` and `SHOWS`
   read the entries only; `MARGIN` places only the margin sliders and bars the cache says show. A, the core,
   keeps `PASS`'s clearing of the box (`PASSA`) and crosses to C for the walk (`XC_PASS`, once a layer), C to A's
   `ONE` for each record it draws (`XA_ONE`); a press or a pointer's move crosses for `HIT` (`XC_HIT`), a press for
@@ -2007,8 +2010,12 @@ drawn, about 1,210 each). No call, record or event changes meaning; no golden fr
 - **Stale and found again.** `uany`'s free bit, `UQ_CSTALE` ($20), says the cache is stale; it is set with the
   geometry events (S1's table) but a menu's (`MPASS`, `MCLOSE`: the menus aren't in it): `BOXFULL` (`ui_open`,
   `ui_redraw`, `ui_resume`, `ui_theme`), `ui_open`'s own setting of `uany`, `DLGREC`, and `STALE` (`ui_dirty` on a
-  window). The next walk finds it again whole: `PASS` as it places every record (its first, "filling", mode),
-  `FRONT`, `MARGIN` and `SHOWS` by `CFILL` (every record placed, about 880 cycles each). `ui_show`, `ui_hide` and
+  window). The next walk finds it again whole: `PASS` as it places every record (its first, "filling", mode)
+  and writes every unused record's and menu's entry hidden, or `FRONT`, `MARGIN` and `SHOWS` by `CFILL` (every
+  record placed, about 880 cycles each; the unused and the menus' hidden); either writes every entry the walks
+  read (the table's and the dialogs' records, `utot`). `ui_open` first makes every entry hidden (`CCLR`, all
+  254, through `XC_CCLR`), so none is the last table's or the bank's memory as `ui_load` left it (the review's
+  round 8, P1: `PASS`'s filling had left the unused records' and the menus' entries as they were). `ui_show`, `ui_hide` and
   `ui_flags` (the dialogs' too, through `HIDEH`) call `CSET` (`XC_CSET`) instead: a record no record is the
   child of is placed alone and its entry written; one with children makes the cache stale.
 - **A dirty record compared.** `PASS` places every dirty record, as before, and compares it with its entry: a
@@ -2042,7 +2049,16 @@ drop-down, the message box and its going, a hidden window and a label moved by t
 `ui_suspend` and `ui_resume`, `ui_theme` 1 and 0, and a label and a window moved by their fields with only
 `ui_dirty`. `s2_a_poll_s_cost_with_the_position_cache` (above). `polls_cost` counts `PASS` in block C. **Changed
 expectation** (the owner's S2 design, its crossings): `the_picker_s_crossings_a_listing_poll_and_a_selection_move`,
-a listing poll 3 crossings to 6 and a selection move 6 to 11 (each paint's two walks, each record drawn).
+a listing poll 3 crossings to 6 and a selection move 6 to 11 (each paint's two walks, each record drawn; 10 with
+B5, below): **accepted** by the owner (2026-11-13). `s2_a_new_table_s_menus_and_unused_records_take_no_hit`
+(round 8, P1): a click where the last table's radio button was, after `ui_close` and `ui_open` of a table whose
+record there is a menu's item, is nothing; and the second window, over the Cancel button at its first column,
+made unused by the program (its type 0) with `ui_redraw`, the pointer still: the paint fills the cache before the
+press's hit test, and the press is Cancel's. It fails at 3cb4a1c (the second part: the window's stale entry takes
+the press) and with `PASS`'s hidden entries taken out. `ui_open`'s `CCLR` can't be made to fail it alone: the first
+`ui_poll` after `ui_open` always hit-tests (`POLLINIT` sets the pointer's last place to $FFFF, so it has moved), and
+that `CFILL` writes every entry before any is read, so the first part passes at 3cb4a1c too; `CCLR` is kept so that
+no entry ever holds another table's place, whatever the order.
 By hand, 2026-11-12, each piece taken out: the dirty record's comparison, the guard (the label moved and only
 dirtied); `CSET` made nothing, the guard (the frame gone under a theme without shadows: the window's own entry is
 the same, its children's places aren't) and the cost case's label shown again (158,612: the whole cache found
@@ -2100,7 +2116,8 @@ changed.
 
 OO-Amp's `test_accept` response case passes with B5 (worst 1.8 frames at 9c64da3, 1.9 for the keys at 7665e91;
 [the outcome](#u3b-the-outcome)). A paint that draws one record or a few costs a little more (each record's test looks at each box used; a
-dirty record's `BOXADD` looks at every box); one whose dirty records are apart, much less.
+dirty record's `BOXADD` looks at every box); one whose dirty records are apart, much less. **Accepted** by the
+owner (2026-11-13), as are boxes joined only when they overlap, not when they only touch.
 
 **Tests.** `b5_two_far_apart_dirty_records_draw_nothing_between_them` (the two labels above: two `ONE`s, under
 90,000 cycles, OOUI's cells then as `ui_redraw` draws them; a label and the window under it, joined; the 26 track
@@ -2110,7 +2127,7 @@ second, the window drawn again in the second box; the cells as `ui_redraw`'s). T
 layer's cells, not the frame (the frame has a sprite that moves), from column 13 (the test program's replies
 are written to the console layer's first columns). **Changed expectation:**
 `the_picker_s_crossings_a_listing_poll_and_a_selection_move`'s selection move, 11 crossings to 10 (one record
-fewer drawn: B5's).
+fewer drawn: B5's): **accepted** by the owner (2026-11-13).
 By hand, 2026-11-12, each piece taken out: `BOXADD` joining every box (one box again), the two far-apart labels'
 case (33 records drawn); `CMEETS` looking at the first box only, `udend` not raised, and `ONE` drawing for the
 first box it overlaps only, `b5_each_box_is_drawn_again_whole`; `pdmg` the first box's only, four of the thumbs'
@@ -2120,7 +2137,13 @@ out alone: `PASSA` clearing a box past the first (no scene has a hole no record 
 clear whole once its last window goes) and the overlay's layer joining a base box past the first; kept, as the
 one box's were.
 
-**Sizes** (mkbank.py): `UICOM` 3,218; block A 12,160 (128 free: `BOXADD` 289 bytes more, `ONE`'s and `PAINT`'s
+**After the review's round 8** (P1: `CCLR`, `PASS`'s hidden entries; `ui_open`'s own clearing of the boxes and
+`udend` moved into `CCLR`, `ALLDIRTY`'s `BOXFULL`s emptying every box; `MARGIN`'s cache test, which `RECT` makes
+needless, and `CEMPTY` folded into `PASS`, so OOUI.BNK stays 40,960 bytes, the 20 blocks of 2 KB that
+`u2_the_picker_on_the_card_s_drives` leaves it on its M:): `UICOM` 3,218; block A 12,159 (129 free), B 10,433
+(1,855 free), C 9,607 (2,681 free); `UISTATE` 1,492 of 1,536.
+
+**Sizes before round 8** (mkbank.py): `UICOM` 3,218; block A 12,160 (128 free: `BOXADD` 289 bytes more, `ONE`'s and `PAINT`'s
 loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
 
 #### U3b: the outcome ####

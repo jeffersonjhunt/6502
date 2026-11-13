@@ -1009,11 +1009,8 @@ ui_open:
         sta     umsel
         sta     upress
         stz     ususp
-        ldx     #8 * UI_BOXES - 1       ; (B5) every box empty
-@dz:    stz     udmg,x
-        dex
-        bpl     @dz
-        jsr     UDEND
+        XGO     FARC, XC_CCLR           ; (S2, round 8) every cache entry hidden, udend set (B5:
+                                        ;   ALLDIRTY's BOXFULLs empty every box)
         lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B3) the modal window and the overlay found again;
         sta     uany                    ;   (S1) a geometry event
         jsr     ENTER

@@ -5200,3 +5200,46 @@ TEST(b5_each_box_is_drawn_again_whole)
     poll(r);
     CHECK(base_cells(r, 1) == gone);
 }
+
+TEST(s2_a_new_table_s_menus_and_unused_records_take_no_hit)
+{
+    // The review's round 8, P1: a table opened after another, its menus' items and its unused records never
+    // placed by PASS, must not keep the last table's entries. UITWID: the U2 scene's first radio button (record
+    // 3, X_R0) under the pointer; ui_close; the main scene, whose record 3 is a menu's item (I_OPEN, hidden, its
+    // menu up), the desktop at that cell; the paint (PASS filling the cache) before any hit test, as the pointer
+    // hasn't moved; then a click there: nothing (the desktop), not the item.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    const Place p = rect(r, X_R0);
+    point(r, p.col, p.row);
+    poll(r);
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    button(r, true);
+    button(r, false);
+    const std::vector<Event> ev = poll(r);
+    expect(ev, {}, "a click where the last table's radio button was");
+    // A record the program made unused itself (its type 0), with ui_redraw as the rule asks, the pointer still:
+    // the paint (PASS filling the cache: ui_redraw made it stale) comes before the press's hit test, so the
+    // record's entry must say hidden. W_SIDE, the second window, over the main window's Cancel button at its
+    // first column: a click there is the window's (nothing), then, the window unused, Cancel's.
+    const Place side = rect(r, W_SIDE), can = rect(r, B_CAN);
+    CHECK(side.col >= can.col && side.col < can.col + can.w && can.row >= side.row && can.row < side.row + side.h);
+    point(r, side.col, can.row);
+    poll(r);
+    button(r, true);
+    button(r, false);
+    expect(poll(r), {}, "a click on the second window over Cancel");
+    r.poke(rec(W_SIDE), 0);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    button(r, true);
+    button(r, false);
+    const std::vector<Event> got = poll(r);
+    if (got.empty() || got.back().code != UE_CLICK || got.back().handle != B_CAN)
+        std::printf("  the window unused: %s, want Cancel's click last\n", show(got).c_str());
+    CHECK(!got.empty() && got.back().code == UE_CLICK && got.back().handle == B_CAN);
+}

@@ -106,6 +106,7 @@ XC_HIT          = 10
 XC_MARGIN       = 12
 XC_SHOWS        = 14
 XC_CSET         = 16
+XC_CCLR         = 18                   ; (S2, round 8) every entry hidden: ui_open's
 PR_ROWS         = 16                   ; uirows.s's prbuf: the picker's rows shown
 PR_LEN          = 40                   ;   each one's text with its 0, as uipick.s's rowbuf
 .global prtop, prn, prsty, prbuf, PROFS, PROWS

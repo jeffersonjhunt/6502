@@ -24,10 +24,10 @@ CENT:   stx     xsx
 
         .segment "CRODATA"
 CTAB:
-        .word   DF1, DF2, DIDLE, FILLROWS, PASS, HIT, MARGIN, SHOWS, CSET
-.assert * - CTAB = XC_CSET + 2, error, "CTAB in XC_* order"
+        .word   DF1, DF2, DIDLE, FILLROWS, PASS, HIT, MARGIN, SHOWS, CSET, CCLR
+.assert * - CTAB = XC_CCLR + 2, error, "CTAB in XC_* order"
         .import FILLROWS                ; uipick.s's: the picker's shown rows into prbuf (U3a, E3)
-        .import PASS, HIT, MARGIN, SHOWS, CSET ; uicache.s's: the position cache's walks (S2)
+        .import PASS, HIT, MARGIN, SHOWS, CSET, CCLR ; uicache.s's: the position cache's walks (S2)
 
         .segment "CCODE"
 ; ui_poll's (uipoll.s's DFILT and IDLE): the dialogs' filters and idle
