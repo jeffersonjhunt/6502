@@ -690,7 +690,7 @@ BOXADD: lda     er
 
 ; Box X the whole screen, and a paint to do (U3b, B1) and a geometry event (S1).
 BOXFULL:
-        lda     #UQ_PAINT | UQ_GEOM     ; (S1) a geometry event: ui_open, ui_redraw, ui_resume,
+        lda     #UQ_PAINT | UQ_GEOM | UQ_CSTALE ; (S1) a geometry event: ui_open, ui_redraw, ui_resume,
         tsb     uany                    ;   ui_theme (its thumb image's colours)
         stz     udmg,x
         stz     udmg + 1,x
@@ -936,7 +936,7 @@ ui_open:
         stz     udmg + 2
         stz     udmg + 4
         stz     udmg + 6
-        lda     #UQ_STALE | UQ_GEOM     ; (U3b, B3) the modal window and the overlay found again;
+        lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B3) the modal window and the overlay found again;
         sta     uany                    ;   (S1) a geometry event
         jsr     ENTER
         jsr     POLLINIT
@@ -1273,7 +1273,7 @@ ui_show:
         lda     (UIR),y
         and     #<~UF_HIDDEN
         sta     (UIR),y
-        bra     REFOCUS
+        bra     HIDSET
 
 ui_hide:
         jsr     ENTER
@@ -1296,12 +1296,17 @@ HIDEH:  sta     sh_h
         lda     (UIR),y
         ora     #UF_HIDDEN
         sta     (UIR),y
+; (S2) record sh_h's entry in the position cache found again (block C's
+; CSET: its own, or the whole cache stale if it has children); then the
+; focus.
+HIDSET: lda     sh_h
+        XGO     FARC, XC_CSET
 ; The focus kept where it can be, else moved on (a modal window shown, or
 ; the focus's widget hidden). (U3b, B3) After a record shown, hidden, its
 ; flags changed or a dialog made: the modal window and OVERS's answer found
 ; again.
 REFOCUS:
-        lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event)
+        lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event; S2: its callers see to the cache)
         tsb     uany
         jsr     FINDMODAL
         lda     umenu                   ; a menu down outside the modal window goes up (W5)
@@ -1392,7 +1397,9 @@ ui_flags:
         cmp     umenu
         bne     @re
         jsr     MCLOSE
-@re:    jsr     REFOCUS                 ; the focus and the modal window again
+@re:    lda     sh_h                    ; (S2) its entry in the position cache again
+        XGO     FARC, XC_CSET
+        jsr     REFOCUS                 ; the focus and the modal window again
         lda     sh_h
         jsr     REC
         ldy     #UW_FLAGS
@@ -1642,7 +1649,7 @@ ui_dirty:
         beq     STALE
         clc
         rts
-STALE:  lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event)
+STALE:  lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (S1: a geometry event; S2: the cache stale)
         tsb     uany
         clc
         rts

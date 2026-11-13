@@ -22,6 +22,7 @@
 #include "video_card.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -3083,7 +3084,9 @@ TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
     // Round 3's F1: a listing poll crosses 3 times (its listing part in C, the list's paint in B, its rows filled
     // in C in one crossing: E3). A selection move, measured, 6: the list's key, the picker's filter of its
     // UE_CHANGE (DFILT), the picker's idle part, the list's paint, its rows, and the name field's paint (it shows
-    // the selection); F1 counted 4, without the idle part and the field.
+    // the selection); F1 counted 4, without the idle part and the field. S2 (the position cache, hw/ooui.md): each
+    // paint's two layers' walks are block C's (2 more), and each record they draw is drawn by block A's ONE (one
+    // more each: the listing's one, 6 in all; the move's three, 11 in all).
     CcpRig r;
     REQUIRE(r.ok);
     m_files(r, 40);
@@ -3094,14 +3097,14 @@ TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
     poll(r);
     const Costs listing = poll_costs(r);
     std::printf("  a listing poll: %lu crossings\n", listing.crossings);
-    CHECK_EQ(listing.crossings, 3u);
+    CHECK_EQ(listing.crossings, 6u); // (3 before S2)
     settle(r);
     CHECK_EQ(ui(r, 'f', P_LST).substr(6), std::string("00"));
     poll(r);
     key(r, K_DOWN);
     const Costs move = poll_costs(r);
     std::printf("  a selection move: %lu crossings\n", move.crossings);
-    CHECK_EQ(move.crossings, 6u);
+    CHECK_EQ(move.crossings, 11u); // (6 before S2)
 }
 
 TEST(ui_load_s_default_name_from_another_user)
@@ -4145,6 +4148,7 @@ namespace
         const uint16_t stub = lab("ui_poll"), back = lab("PRET"), rec = lab("REC"), front = lab("FRONT"),
                        pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1");
         const unsigned blocks[3] = {bank_block(r, "PAINT"), bank_block(r, "POST"), bank_block(r, "DLGON")};
+        const unsigned passb = bank_block(r, "PASS"); // (block C's from S2)
         Polls p;
         uint64_t start = 0;
         r.watch = [&](uint16_t pc) {
@@ -4164,7 +4168,7 @@ namespace
                 ++p.steps;
             else if (ooui && pc == front)
                 ++p.fronts;
-            else if (w3 == blocks[0] && pc == pass)
+            else if (w3 == passb && pc == pass)
                 ++p.passes;
             else if (w3 == blocks[0] && pc == one)
                 ++p.ones;
@@ -4872,4 +4876,188 @@ TEST(u3b_an_own_thumb_s_length_apart_from_its_sprite)
     setv(r, Z_VSC, 100);
     poll(r);
     CHECK_EQ(spr_y(r, 3), 4u * 8 + 56);
+}
+
+// ---------------------------------------------------------------------------
+// S2, the position cache (hw/ooui.md, "U3b: speed step S2"): block C's entry for each record, where it shows, read
+// by PASS's, FRONT's, MARGIN's and SHOWS's walks instead of a RECT of every record.
+
+namespace
+{
+    /// Block C's cache entry h: c0, r0, c1, r1, its flags (uicache.s's arrays, in block C's bank).
+    std::array<unsigned, 5> cache_entry(CcpRig &r, unsigned h)
+    {
+        const uint32_t bank = bank_block(r, "CFILL") * 0x4000u;
+        std::array<unsigned, 5> e{};
+        const char *names[5] = {"cx0", "cy0", "cx1", "cy1", "cfl"};
+        for (unsigned i = 0; i < 5; ++i)
+            e[i] = r.phys(bank + (lab(names[i]) - 0xC000u) + h);
+        return e;
+    }
+    /// Every table record's cache entry against ui_rect (its place, and RECT's rclip and rover after it): its cells
+    /// inside its parents' client areas, hidden, on the overlay; an unused record or a menu's hidden. The pointer
+    /// moved first (to one of two desktop cells, by turns) and a poll, so that HIT finds the cache again if it is
+    /// stale (CFILL): it must hold after, and every entry match. The mismatches, said.
+    unsigned cache_mismatches(CcpRig &r, const char *what)
+    {
+        static bool turn = false;
+        turn = !turn;
+        point(r, turn ? 79 : 78, 29);
+        poll(r);
+        const bool stale = (r.phys(lab("uany")) & 0x20) != 0; // UQ_CSTALE
+        if (stale)
+            std::printf("  %s: the cache still stale after a hit test\n", what);
+        CHECK(!stale);
+        const unsigned n = r.phys(lab("ucount")), tab = word_at(r, lab("utab"));
+        unsigned bad = 0;
+        for (unsigned h = 0; h < n; ++h)
+        {
+            const std::array<unsigned, 5> e = cache_entry(r, h);
+            const unsigned type = r.phys(tab + h * 16u);
+            std::array<unsigned, 5> want{0, 0, 0, 0, 1};
+            if (type != 0 && !(type >= 10 && type <= 12))
+            {
+                const Place p = rect(r, static_cast<uint8_t>(h));
+                if (!p.hidden)
+                {
+                    const unsigned k0 = r.phys(lab("rclip")), k1 = r.phys(lab("rclip") + 1u),
+                                   k2 = r.phys(lab("rclip") + 2u), k3 = r.phys(lab("rclip") + 3u);
+                    want = {std::max(p.col, k0), std::max(p.row, k1), std::min(std::min(p.col + p.w, 255u), k2),
+                            std::min(std::min(p.row + p.h, 255u), k3), r.phys(lab("rover")) * 2u};
+                    want[4] |= e[4] & (type == 2 ? 4u : 0u); // a window's shadow bit: the theme's (not checked here)
+                }
+            }
+            if (e != want)
+            {
+                ++bad;
+                std::printf("  %s: record %u's entry %u,%u-%u,%u %02x, want %u,%u-%u,%u %02x\n", what, h, e[0], e[1], e[2],
+                            e[3], e[4], want[0], want[1], want[2], want[3], want[4]);
+            }
+        }
+        return bad;
+    }
+} // namespace
+
+TEST(s2_the_position_cache_holds_every_record_s_place)
+{
+    // After each step of a session, every entry is the record's place as ui_rect finds it: ui_show and ui_hide (a
+    // leaf's own entry, CSET; a window with children, the whole cache again), ui_flags (the same), a drop-down by
+    // the keys, the message box and its going, a record the program moved by its fields with ui_redraw (the rule),
+    // ui_suspend and ui_resume, ui_theme, and a record the program moved by its fields and only dirtied: PASS
+    // places a dirty record at each paint and compares it with its entry, so the move is caught.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(cache_mismatches(r, "opened"), 0u);
+    const auto step = [&](const char *what, char c, uint8_t a = 0, uint8_t x = 0, uint8_t y = 0) {
+        CHECK_EQ(ui(r, c, a, x, y).substr(6), std::string("00"));
+        poll(r);
+        CHECK_EQ(cache_mismatches(r, what), 0u);
+    };
+    step("a window shown", 's', Z_COVER);
+    step("and hidden", 'h', Z_COVER);
+    step("a label hidden", 'h', Z_LBL);
+    step("and shown", 's', Z_LBL);
+    step("a window's frame gone", 'F', UF_NOFRAME, 0, Z_WIN);
+    step("and back", 'F', 0, UF_NOFRAME, Z_WIN);
+    step("a label disabled", 'F', UF_DISABLED, 0, Z_LBL);
+    step("the menu bar shown", 's', Z_BAR);
+    key(r, 0x43); // F10: a drop-down
+    poll(r);
+    CHECK_EQ(cache_mismatches(r, "a drop-down"), 0u);
+    key(r, K_ESC);
+    poll(r);
+    CHECK_EQ(cache_mismatches(r, "the drop-down up"), 0u);
+    step("the menu bar hidden", 'h', Z_BAR);
+    step("the message box", 'm', 0);
+    key(r, K_ENTER);
+    poll(r);
+    CHECK_EQ(cache_mismatches(r, "the message box gone"), 0u);
+    const uint16_t lx = static_cast<uint16_t>(rec3(Z_LBL) + 2), cx = static_cast<uint16_t>(rec3(Z_COVER) + 2);
+    r.poke(cx, 20);
+    step("a hidden window moved by its fields, ui_redraw", 'D');
+    step("and shown", 's', Z_COVER);
+    r.poke(lx, 9);
+    step("a label moved by its fields, ui_redraw", 'D');
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    step("ui_suspend, ui_resume", 'U');
+    step("ui_theme 1", 't', 1);
+    step("ui_theme 0", 't', 0);
+    // Moved by its fields and only dirtied: caught at the paint.
+    r.poke(lx, 12);
+    step("a label moved by its fields, only ui_dirty", 'd', Z_LBL);
+    r.poke(static_cast<uint16_t>(rec3(Z_COVER) + 3), 2);
+    step("a window moved by its fields, only ui_dirty", 'd', Z_COVER);
+}
+
+TEST(s2_a_poll_s_cost_with_the_position_cache)
+{
+    // Block 8 (UITBAR's), 90 records on one layer, as OO-Amp's screen; a frame is 119,318 cycles. Each limit fails
+    // with the cache unread (every record placed by RECT, as before S2). The cycles before S2 (20caf52) in brackets.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    // One label dirty, the table's first: the records after it not placed unless they meet the box (S2).
+    CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
+    const Polls one = polls_cost(r);
+    say("one label dirty", one);
+    CHECK_EQ(one.ones, 1u);
+    CHECK(one.cycles < 80000); // (142,225, 88 records looked at by ONE)
+    // A track's start as OO-Amp's: two values, the title and 26 track labels.
+    constexpr uint8_t A_TITLE = 3, A_SEEK = 6, A_PLS = 33, A_TR0 = 59;
+    setv(r, A_SEEK, 600);
+    setv(r, A_PLS, 50);
+    CHECK_EQ(ui(r, 'd', A_TITLE).substr(6), std::string("00"));
+    for (unsigned h = A_TR0; h < A_TR0 + 26u; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls start = polls_cost(r);
+    say("a track's start (2 values, 27 labels)", start);
+    CHECK_EQ(start.places, 2u);
+    CHECK(start.cycles < 260000); // (378,239)
+    // A press on a button with the pointer moved there first (a hit test, FRONT, from the cache), and its release.
+    point(r, 11, 22);
+    button(r, true);
+    const Polls press = polls_cost(r);
+    say("a button pressed, the pointer moved there", press);
+    CHECK_EQ(press.fronts, 1u);
+    CHECK(press.cycles < 260000); // (387,426)
+    button(r, false);
+    const Polls release = polls_cost(r);
+    say("released", release);
+    CHECK(std::any_of(release.ev.begin(), release.ev.end(), [](const Event &e) { return e.code == UE_CLICK && e.handle == 35; }));
+    CHECK(release.cycles < 80000); // (104,317)
+    // A drag's step: band 5 held and moved a row, its thumb placed (SHOWS, from the cache).
+    point(r, 24, 15);
+    button(r, true);
+    polls_cost(r);
+    point(r, 24, 14);
+    const Polls drag = polls_cost(r);
+    say("a drag's step", drag);
+    CHECK_EQ(drag.places, 1u);
+    CHECK(drag.cycles < 100000); // (141,830)
+    button(r, false);
+    poll(r);
+    // 30 widgets at once: the 15 thumbs placed (each SHOWS from the cache), the 15 status labels.
+    for (unsigned h : {6u, 7u, 8u, 11u, 12u, 13u, 14u, 15u, 16u, 17u, 18u, 19u, 20u, 21u, 33u})
+        setv(r, static_cast<uint8_t>(h), 40);
+    for (unsigned h = 44; h < 59; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls many = polls_cost(r);
+    say("30 widgets changed", many);
+    CHECK_EQ(many.places, 15u);
+    CHECK(many.cycles < 600000); // (1,555,648)
+    // The cache found again whole after a geometry event (ui_redraw: every record drawn), and a leaf shown again
+    // (its own entry only, CSET): measured.
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    const Polls redraw = polls_cost(r);
+    say("ui_redraw (the cache found again)", redraw); // (2,558,586)
+    CHECK_EQ(ui(r, 'h', A_X4B).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 's', A_X4B).substr(6), std::string("00"));
+    const Polls shown = polls_cost(r);
+    say("the last label shown again", shown);
+    CHECK(shown.cycles < 60000); // (45,655; 158,612 with the whole cache found again, not CSET)
 }

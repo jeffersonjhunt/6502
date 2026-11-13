@@ -32,8 +32,6 @@ km:     .res    1                      ;   the modifiers,
 kc:     .res    1                      ;   its character
 mcol:   .res    1                      ; the pointer's cell
 mrowp:  .res    1
-hh:     .res    1                      ; HIT's
-hp:     .res    1
 sc:     .res    1                      ; the scope: the modal window or the focus's, UI_NONE none
 fb:     .res    1                      ; FINDBTN's
 fh:     .res    1
@@ -703,16 +701,9 @@ CELL:   lda     uarea
         rts
 
 ; A the widget at the pointer's cell: FRONT's, UI_NONE none, or one under a
-; modal window.
-HIT:    jsr     FRONT
-        cmp     #UI_NONE
-        beq     @r
-        ldx     umodal
-        jsr     INSIDE
-        lda     hh
-        bcc     @r
-        lda     #UI_NONE
-@r:     rts
+; modal window. (S2: block C's HIT, by the position cache.)
+HITX:   XGO     FARC, XC_HIT
+        rts
 
 ; HIT's answer, for a press, a release or the wheel (S1, (v)): uhot, which
 ; POINTED's HIT found, while the pointer is where POINTED last saw it (lmx,
@@ -720,7 +711,7 @@ HIT:    jsr     FRONT
 ; look for nothing, set it too); else HIT's own walk.
 HITQ:   lda     #UQ_GHIT
         bit     uany
-        bne     HIT
+        bne     HITX
         lda     uarea
         sta     UIP
         lda     uarea + 1
@@ -729,7 +720,7 @@ HITQ:   lda     #UQ_GHIT
         ldy     #EV_MX + 3
 @c:     lda     (UIP),y
         cmp     lmx,x
-        bne     HIT
+        bne     HITX
         dey
         dex
         bpl     @c
@@ -737,64 +728,6 @@ HITQ:   lda     #UQ_GHIT
         rts
 
         .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
-; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
-; base's, each from the table's end down, inside its parents' client areas
-; (X5); UI_NONE none. Menus aren't looked at.
-FRONT:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
-        sta     rcv
-        lda     #$FE
-        sta     rcp
-        jsr     OVERS                   ; the overlay's pass only if something can be on it (Z3)
-        sta     hp
-@pass:  lda     utot
-        sta     hh
-@l:     dec     hh
-        lda     hh
-        cmp     #UI_NONE
-        beq     @np
-        jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @l
-        cmp     #UT_MENU
-        bcc     @p
-        cmp     #UT_SEP + 1
-        bcc     @l
-@p:     lda     hh
-        jsr     RECT
-        bcs     @l
-        lda     rover
-        cmp     hp
-        bne     @l
-        lda     mcol
-        sec
-        sbc     UI_RECT
-        cmp     UI_RECT + 2
-        bcs     @l
-        lda     mrowp
-        sec
-        sbc     UI_RECT + 1
-        cmp     UI_RECT + 3
-        bcs     @l
-        lda     mcol                    ; and inside its parents' client areas (X5)
-        cmp     rclip
-        bcc     @l
-        cmp     rclip + 2
-        bcs     @l
-        lda     mrowp
-        cmp     rclip + 1
-        bcc     @l
-        cmp     rclip + 3
-        bcs     @l
-        stz     rcv
-        lda     hh
-        rts
-@np:    dec     hp
-        bpl     @pass
-        stz     rcv
-        lda     #UI_NONE
-        rts
-
 ; A = 1 if a record can be on the overlay (a shown window with UF_OVERLAY:
 ; the dialogs' are), else 0 (Z with it). Menus, which FRONT passes by,
 ; don't count. (U3b, B3) Kept in uany (UQ_OVERS), and found again only
@@ -848,8 +781,7 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
         beq     @hit
         jsr     MOPEN
         bra     @none
-@hit:   jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
-        jsr     MARGIN                  ; (U3b) or a slider's or a scroll bar's margin
+@hit:   jsr     HITM
         sta     evh
         cmp     #UI_NONE
         beq     @none
@@ -906,111 +838,11 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
 @none:  lda     #UE_NONE
         rts
 
-; A the record HIT found at the pointer's cell, UI_NONE none: A the record
-; the press is for. (U3b, proposed: OO-Amp's targets.) A slider or a scroll
-; bar with UF_MARGIN takes a press in its margin too, the cells around it
-; that its margin byte names (a slider's UW_TEXT high byte, a scroll bar's
-; UW_B high byte): the low four bits the cells on each side across the
-; track, the high four (a slider's only) the cells beyond each end along
-; it. Only where what HIT found is one of its parents or nothing, so the
-; margin never takes a press from another widget, in front of it or behind
-; it; inside its parents' client areas and the modal window, as HIT's are.
-; The frontmost such one (the table's end first).
-MARGIN: sta     fb
-        lda     utot
-        sta     fh
-@l:     dec     fh
-        lda     fh
-        cmp     #UI_NONE
-        beq     @none
-        jsr     MTEST
-        bcs     @l
-        lda     fh
+; A the record a press is for: HITQ's (S1, (v): uhot, if the pointer is
+; still), or (U3b) a slider's or a scroll bar's margin (block C's MARGIN: S2).
+HITM:   jsr     HITQ
+        XGO     FARC, XC_MARGIN
         rts
-@none:  lda     fb
-        rts
-
-; Carry clear if record fh takes the press in its margin (MARGIN's).
-MTEST:  jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        cmp     #UT_VSCROLL
-        bcc     @n0
-        cmp     #UT_HSCROLL + 1
-        bcc     @t
-        cmp     #UT_VSLIDER
-        bcc     @n0
-        cmp     #UT_HSLIDER + 1
-        bcs     @n0
-@t:     ldy     #UW_FLAGS
-        lda     (UIR),y
-        and     #UF_MARGIN
-        bne     @m
-@n0:    sec
-        rts
-@m:     lda     fh
-        jsr     RECT                    ; (hidden: none)
-        bcs     @n0
-        ldy     #UW_TYPE                ; t0 the columns' margin, t1 the rows'
-        lda     (UIR),y
-        ldy     #UW_B + 1               ; a scroll bar's: across only
-        cmp     #UT_VSLIDER
-        bcc     @sc
-        ldy     #UW_TEXT + 1
-@sc:    pha
-        lda     (UIR),y
-        tax
-        and     #$0F
-        sta     t0                      ; across
-        txa
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     t1                      ; along
-        pla
-        cmp     #UT_VSLIDER
-        bcs     @sl
-        stz     t1
-@sl:    lsr     a                       ; (the vertical types odd)
-        bcs     @v
-        ldx     t0
-        lda     t1
-        sta     t0
-        stx     t1
-@v:     ldx     #0                      ; the columns, then the rows: the cell less the
-@ax:    lda     UI_RECT,x               ;   margin's start, below the size and twice the
-        sec                             ;   margin (modulo 256: the screen's edge)
-        sbc     t0,x
-        sta     t2
-        lda     mcol,x
-        sec
-        sbc     t2
-        sta     t2
-        lda     t0,x
-        asl     a
-        clc
-        adc     UI_RECT + 2,x
-        cmp     t2
-        bcc     @no
-        beq     @no
-        lda     mcol,x                  ; inside its parents' client areas (X5)
-        cmp     rclip,x
-        bcc     @no
-        cmp     rclip + 2,x
-        bcs     @r
-        inx
-        cpx     #2
-        bcc     @ax
-        lda     fh                      ; what HIT found one of its parents, or nothing
-        ldx     fb
-        jsr     INSIDE
-        bcs     @r
-        lda     fh                      ; and inside the modal window
-        ldx     umodal
-        jmp     INSIDE
-@no:    sec
-@r:     rts
 
 ; The left button up: the button it went down on clicked, if it is still
 ; over it; a widget module's told (WR_UP).
@@ -1246,7 +1078,7 @@ POINTED:
         jsr     DRAGGED                 ; (U3b, B4) a slider or a scroll bar held: no hit
         bcc     @drag                   ;   test, US_HOT kept, the drag tracked
         jsr     FINDMODAL               ; (S1) the modal window as a press's HIT would see it
-        jsr     HIT
+        jsr     HITX
         pha
         lda     #UQ_GHIT                ; (S1) found: uhot the pointer's, till it moves or a
         trb     uany                    ;   geometry event comes

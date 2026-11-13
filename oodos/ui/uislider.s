@@ -57,9 +57,6 @@ tr1:    .res    1
 pend:   .res    2 * 16                 ; each of OOUI's sprites' thumb: its last cell's other end (Z3, G2)
 clo:    .res    1                      ; ENDS's: the thumb's first and last cells from the track's low end
 chi:    .res    1
-wp:     .res    1                      ; SHOWS's walk: its pass's layer, its record, its first cell's
-wi:     .res    1                      ;   answer
-wk:     .res    1
 
         .segment "BCODE"
 
@@ -323,7 +320,10 @@ SPRTAIL:
         sta     pend,x
         lda     tr1
         sta     pend + 1,x
-        jsr     SHOWS                   ; (UI_RECT and UIR changed)
+        lda     tc1                     ; shown (block C's SHOWS, by the position cache: S2;
+        ldx     tr1                     ;   UI_RECT and UIR changed)
+        ldy     idx
+        XGO     FARC, XC_SHOWS
         bcs     @r
         lda     idx
         jsr     REC
@@ -470,110 +470,6 @@ UCELL:  lsr     t1
         lsr     t1
         ror     t0
 @r:     lda     t0
-        rts
-
-; Carry clear if the thumb's cells show: its first and last along the
-; track (tc, tr and tc1, tr1; the U3b review's G2), each where the record
-; frontmost is slider or scroll bar idx, and no menu that is down covers
-; either. One walk in FRONT's order for both (the overlay's pass first if
-; something can be on it, each from the table's end down, inside the
-; parents' client areas: X5): the first record either cell is on must be
-; idx with both on it. (Two FRONTs cost a band's move on OO-Amp's screen
-; 50,000 cycles more.)
-SHOWS:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
-        sta     rcv
-        lda     #$FE
-        sta     rcp
-        jsr     OVERS
-        sta     wp
-@pass:  lda     utot
-        sta     wi
-@l:     dec     wi
-        lda     wi
-        cmp     #UI_NONE
-        beq     @np
-        jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @l
-        cmp     #UT_MENU
-        bcc     @p
-        cmp     #UT_SEP + 1
-        bcc     @l
-@p:     lda     wi
-        jsr     RECT
-        bcs     @l
-        lda     rover
-        cmp     wp
-        bne     @l
-        lda     tc
-        ldx     tr
-        jsr     INCLIP
-        rol     wk                      ; (bit 0: the first cell not on it)
-        lda     tc1
-        ldx     tr1
-        jsr     INCLIP
-        lda     wk
-        and     #1
-        bcc     @on2
-        bne     @l                      ; on neither: on down
-        bra     @no                     ; on the first only: covered, or idx not whole
-@on2:   bne     @no                     ; on the last only
-        lda     wi                      ; on both: shown if it is idx
-        cmp     idx
-        bne     @no
-        stz     rcv
-        lda     umenu                   ; and under no menu that is down (X4)
-        cmp     #UI_NONE
-        beq     @yes
-        jsr     RECT
-        bcs     @yes
-        lda     tc
-        ldx     tr
-        jsr     INRECT
-        bcc     @no
-        lda     tc1
-        ldx     tr1
-        jsr     INRECT
-        bcc     @no
-@yes:   clc
-        rts
-@np:    dec     wp
-        bmi     @no
-        jmp     @pass
-@no:    stz     rcv
-        sec
-        rts
-
-; Carry clear if cell A, X is in UI_RECT (INRECT), and (INCLIP) in rclip,
-; its parents' client areas, too.
-INCLIP: jsr     INRECT
-        bcs     @r
-        cmp     rclip
-        bcc     @out
-        cmp     rclip + 2
-        bcs     @r
-        cpx     rclip + 1
-        bcc     @out
-        cpx     rclip + 3
-        rts
-@out:   sec
-@r:     rts
-INRECT: pha
-        sec
-        sbc     UI_RECT
-        cmp     UI_RECT + 2
-        bcs     @no
-        txa
-        sec
-        sbc     UI_RECT + 1
-        cmp     UI_RECT + 3
-        bcs     @no
-        pla
-        clc
-        rts
-@no:    pla
-        sec
         rts
 
 ; GX_X (or GX_Y) = A x 4 (x 8), its high byte set: A low.

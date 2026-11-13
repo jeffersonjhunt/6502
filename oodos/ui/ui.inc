@@ -31,14 +31,15 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global clip
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
+.global ph, pl, pbx, ONE
 
 ; uimenu.s's
 .global MRECT, DMBAR, DMENU, MOPEN, MCLOSE, MKEY, MCLICK, MBARAT, MALT, KEYTEXT, MCHOOSE, mcnt
 
 ; uipoll.s's
 .global UCHAR, ku, km, kc, mcol, mrowp, evv, evh, evy, evf
-.global mpx, mpy, upend, upendh, upendv, HIT, SCOPE, PRESS, sc, wst, evk, evx, evyy, POLLINIT, FRAME
-.global udf1, udf2, uidle, HIDEH, DROP, POLLSTOP, FRONT, OVERS, plast
+.global mpx, mpy, upend, upendh, upendv, SCOPE, PRESS, sc, wst, evk, evx, evyy, POLLINIT, FRAME
+.global udf1, udf2, uidle, HIDEH, DROP, POLLSTOP, OVERS, plast
 
 ; A widget module's record (U2): what the core calls it for. Each handler
 ; is entered with UIR on the widget's record and dh its handle (and, for
@@ -71,6 +72,8 @@ UQ_GEOM         = UQ_GPOST | UQ_GHIT   ; (S1) a geometry event: what covers what
                                        ;   down or up, a dialog, ui_open, ui_redraw, ui_resume, ui_theme,
                                        ;   ui_dirty on a window); never set by a record's own drawing
 UQ_THUMB        = $10                  ; (S1) a thumb marked (US_THUMB) since the last POST: POST to run
+UQ_CSTALE       = $20                  ; (S2) the position cache (uicache.s, block C's) to find again: set
+                                       ;   with UQ_GEOM by every geometry event but a menu's
 UQ_OSTALE       = $40                  ; OVERS's answer to find again
 UQ_MSTALE       = $80                  ; FINDMODAL's umodal to find again
 UQ_STALE        = UQ_OSTALE | UQ_MSTALE
@@ -86,6 +89,7 @@ US_THUMB        = $80
 .global xsel, xsx, xjmp, FARA, FARB, FARC, AENT, BENT, CENT
 XA_HIDEH        = 0                    ; uia.s's ATAB
 XA_REFOCUS      = 2
+XA_ONE          = 4                    ; (S2) uidraw.s's ONE: a record uicache.s's PASS draws
 XB_INIT         = 0                    ; uib.s's BTAB
 XB_WCALL        = 2
 XB_POST         = 4
@@ -94,6 +98,11 @@ XC_DF1          = 0                    ; uic.s's CTAB
 XC_DF2          = 2
 XC_IDLE         = 4
 XC_ROWS         = 6
+XC_PASS         = 8                    ; (S2) uicache.s's: PASS's walk, HIT, MARGIN, SHOWS (the cache's)
+XC_HIT          = 10
+XC_MARGIN       = 12
+XC_SHOWS        = 14
+XC_CSET         = 16
 PR_ROWS         = 16                   ; uirows.s's prbuf: the picker's rows shown
 PR_LEN          = 40                   ;   each one's text with its 0, as uipick.s's rowbuf
 .global prtop, prn, prsty, prbuf, PROFS, PROWS

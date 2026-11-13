@@ -533,7 +533,7 @@ PAINT:  lda     ususp
         sta     cmap
         lda     mapB + 1
         sta     cmap + 1
-        jsr     PASS
+        jsr     PASSA
         lda     #1                      ; the overlay's
         sta     pl
         lda     uover
@@ -561,7 +561,7 @@ PAINT:  lda     ususp
 @same:  stz     pclr                    ; on the base: box 0 again, not cleared again
         jsr     OVERS                   ; (U3b, B2) no record can be on the overlay: no
         beq     @np2                    ;   second pass
-@p2:    jsr     PASS
+@p2:    jsr     PASSA
 @np2:   jsr     MPASS
         lda     #0                      ; nothing dirty, no damage
         sta     ph
@@ -604,8 +604,9 @@ PDONE:  rts                             ; (test_oodos_ui times POST to here: Z3)
 PNONE:  rts
 
 ; One layer's pass (pl the layer, pbx its box, pclr 1 to clear the box,
-; cmap its map).
-PASS:   ldx     pbx
+; cmap its map): the box cleared here, the walk block C's (S2: uicache.s's
+; PASS, with the position cache), which draws each record by ONE.
+PASSA:  ldx     pbx
         lda     udmg,x
         cmp     udmg + 2,x
         bcs     @go
@@ -631,51 +632,12 @@ PASS:   ldx     pbx
         stz     uattr
         lda     #0
         jsr     FILLR
-@go:    lda     #$FE                    ; RECT's sibling cache on for the walk, as FRONT's, no
-        sta     rcv                     ;   parent held yet (U3b round 5: a record placed from
-        sta     rcp                     ;   its parent's place when the last was its sibling)
-        lda     #0
-        sta     ph
-        jsr     REC
-@rec:   lda     ph
-        cmp     utot
-        bcs     @r
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @next
-        cmp     #UT_MENU
-        bcc     @place
-        cmp     #UT_SEP + 1
-        bcc     @next                   ; the menus: MPASS
-@place: ldy     #UW_FLAGS               ; clean, and the box empty: nothing to draw, and no
-        lda     (UIR),y                 ;   RECT to find so (U3a: an idle poll, which drew
-        and     #UF_DIRTY               ;   nothing, placed every record twice)
-        bne     @rect
-        ldx     pbx
-        lda     udmg,x
-        cmp     udmg + 2,x
-        bcs     @next
-@rect:  lda     ph
-        jsr     RECT
-        bcs     @back
-        lda     rover
-        cmp     pl
-        bne     @back
-        lda     ph
-        jsr     ONE
-@back:  inc     ph                      ; (RECT and ONE moved UIR: the next found)
-        lda     ph
-        jsr     REC
-        bra     @rec
-@next:  inc     ph                      ; (U3b, B4) the next record's a step on
-        lda     ph
-        jsr     RNEXT
-        bra     @rec
-@r:     stz     rcv
+@go:    XGO     FARC, XC_PASS
         rts
 
 ; Record A (RECT just placed it) drawn: whole if dirty, its rectangle added
-; to box pbx; clipped to the box if it overlaps it; else not.
+; to box pbx; clipped to the box if it overlaps it; else not. (MPASS's, and
+; block C's PASS's through XA_ONE: S2.)
 ONE:    sta     dh
         jsr     REC
         jsr     EXTRECT
