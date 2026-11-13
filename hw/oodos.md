@@ -3694,7 +3694,7 @@ true 8086 code would.
   14, 15, 16, 17, 18, 19, 22, 23, 25, 26, 33, 34, 39 and 41. 18, search next, is `C_SEAR+1` and was missing from
   the first list. MSDOSU defines 5 and 20, but nothing calls them: sequential files go by 33 and 34, GW-BASIC
   counting the record itself. Besides those, `DOSIO` (GIO86, GWSTS) calls MS-DOS 2's 37 (an interrupt vector) and
-  42–45 (the date and time), and GWINIT calls 38 at start-up. The OEM layer answers all of these: the date and time
+  42–45 (the date and time), and 38 (a program segment prefix) is called at start-up, by GWINIT (as `INS86` bytes) and by ITSA86 (its lines 185–186) (W3). The OEM layer answers all of these: the date and time
   from 104 and 105; 37 and 38 aren't needed. One difference costs work: the DOS FCB has a record size, which CP/M's
   hasn't. GW-BASIC sets it to 1 to load a program by block read (`DFSTLD`, GIODSK), and a random file's LEN is its
   record size, while CP/M 3's records are always 128 bytes ([7c](#the-sub-phases)).
@@ -3747,9 +3747,9 @@ copyright and MIT notice.
 
 ### The plan, phase 7 ###
 
-**Proposed (2026-11-13), for the owner. Nothing here is built until the owner has decided the questions at the
-end ([Phase 7's questions](#phase-7s-questions)).** *Decided (2026-11-13, the owner): questions 1–3 as
-recommended, and 5 (no lean FARCALL); review round 1's findings V1–V8 fixed as below.* It works as [OOLIB's plan](oolib.md#the-plan) did: sub-phases,
+**Approved by the owner (2026-11-13).** Proposed 2026-11-13; every question at the end decided as recommended
+([Phase 7's questions](#phase-7s-questions)): 1–3 and 5 at review round 1, the rest at round 2; review round 1's
+findings V1–V8 and round 2's W1–W4 fixed as below. 7a starts once this is merged. It works as [OOLIB's plan](oolib.md#the-plan) did: sub-phases,
 each a branch with its own gate, each built, tested and reverted alone. It is written from this section and the
 spike ([`oodos/spike/gwbasic/`](../oodos/spike/gwbasic/)), and checked against the released source:
 microsoft/GW-BASIC at commit `edf82c2ebf6bfe099c2054e0ae125c3efe5769c4` (2020-05-21, the spike's too), fetched
@@ -3802,7 +3802,7 @@ only if a cost measured in a sub-phase forces it.
 1. **The home block. GW-BASIC can do without it.**
    - It is a lever for the TPA, not a need. With the margin below (34,210 bytes free, or about 33,600–34,600 in
      the bad case once the buffers are out), nothing has to move into a home block.
-   - **Recommended:** none.
+   - **Decided (2026-11-13, the owner): none.**
    - **If 7a's measured resident size breaks the gate,** the home block can be had with no change to FARCALL or
      OODOS. GW-BASIC's start-up code would far call the home block's main loop once and not return until SYSTEM.
      W3 then holds the home block between far calls, and FARCALL's return puts it back, since FARCALL returns to
@@ -3820,7 +3820,7 @@ only if a cost measured in a sub-phase forces it.
      It would need either an entry in common memory, an OODOS change with 166 bytes to spare, or GW-BASIC writing
      `NB_WIN3` itself, which breaks the rule that the windows are OODOS's.
 3. **Common memory in an allocated block. GW-BASIC can do without OODOS doing it.**
-   - **Recommended:** GW-BASIC's loader copies common memory into each of its code blocks, as `ui_load` does. No
+   - **Decided (2026-11-13, the owner):** GW-BASIC's loader copies common memory into each of its code blocks, as `ui_load` does. No
      block is marked for code, and 53–58 are unchanged.
    - **How, as a cost estimate:**
      1. The loader copies `$F800–$FFFF` into a buffer in the free workspace once, by CPU: about 29,000 cycles.
@@ -3925,7 +3925,11 @@ copy of common memory at `$F800` (above).
   - (c) is checked in 7c's gate: a record read into, and written from, a buffer at `$C800–$F7FF` of a block in
     W3. The DMA address is a CPU address, which the BDOS turns into a physical address through the windows its
     entry saved, W3 among them, as function 73 does.
-  - **P4's room:** 8.5 KB of code and 175 bytes a file: 9.0 KB at /F:3, 11.1 KB at /F:15, the most GW-BASIC allows.
+  - **P4's room** (W4): 8.5 KB of code (8,704) and 175 bytes a file, 2,625 at /F:15, the most GW-BASIC allows.
+    - With a staging buffer of its own for random files, LEN + 254 bytes at /S:1,024, that is 1,278 more:
+      12,607 bytes, 319 over the block's 12,288.
+    - **So random records are staged a record at a time** through the file's own 128-byte buffer (7c, below),
+      which needs no buffer more: 11,329 bytes at /F:15, 959 to spare. 9,229 at /F:3.
   - **(b) is the fallback** if (c) fails its check. Neither (a) nor (b) is needed to keep the 32 KB, so FARMOVE
     isn't wanted (question 11).
   - **What it asks of the rest:** the device interface takes runs, not characters. P1's PRINT # hands P4 one item
@@ -4016,9 +4020,14 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       store, `GX_W1BACK`). About 1.6 KB. Its gate: PEEK and POKE in an allocated block and in bank 9, with
       block 1 back in W1 after each (a must-fail case, below);
     - random files of any LEN on 128-byte records: record *n* is bytes (*n* − 1) × LEN on, read and written
-      through the records it spans, by P4's staging (at most LEN + 254 bytes, in P4's RAM);
-    - LOAD of a tokenised program by `DM_LOAD`, its end found by the line links, as GW-BASIC finds it; the
-      padding of the last record is ignored.
+      through the 128-byte records it spans, one at a time, through the file's own 128-byte buffer in P4 (a
+      random file has no sequential use for it), read, changed and written back for a part record. /S:, the most
+      LEN may be, is at most 1,024 (W4; GW-BASIC's own limit is 32,767);
+    - LOAD of a tokenised program (W2): whole records by `DM_LOAD`, straight into the workspace, only while each
+      fits below the workspace's top; the last, or the first that wouldn't fit, through the file's buffer in P4,
+      copying only the bytes below the top. Its end is found by the line links, as GW-BASIC finds it. A program
+      that doesn't end below the top is Out of memory, with nothing written past it (the BDOS's `JMP` at `$BFFD`
+      is just past it).
   - **Size:** 8.5 KB banked, and P5's seed.
   - **Cycles:** a file statement makes one far call, then its BDOS calls. A 128-byte record costs what the BDOS's
     does. BLOAD of 64 KB goes by `DM_LOAD` in about 16 ms.
@@ -4091,14 +4100,24 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
   compare, about 8 cycles: 0.2% of the core loop's 4,700. Otherwise it takes each event in order from the tail:
   - `EK_KEY`: one far call to P6's `KEYEV`, which translates it (`UCHAR`'s way; the extended codes and the
     function keys), puts it in the keyboard queue in `LOWRAM`, and sets ON KEY(n)'s flag for a trapped key. ^C sets
-    the break flag instead, and flushes the keyboard queue, as GW-BASIC's own ^C does;
+    the break flag instead, and flushes the keyboard queue, as GW-BASIC's own ^C does. `KEYEV` then throws the
+    key's cooked twin away (W1): function 6 with `$FF` until it returns 0;
   - `EK_SOUND`: one far call to P7's `SNDEV`, which passes the byte to `MU_EVENT` and keeps the voices' counts
     for PLAY's queue and ON PLAY(n)'s flag;
   - `EK_CTL`: in `EVPOLL` itself, with no far call: its fire bits latched for STRIG(0), (2), (4) and (6), and ON
     STRIG(n)'s flag;
   - the mouse's and the devices' events are dropped.
 
-  A key costs about 350 cycles; a note's end, about 400.
+  A key costs about 350 cycles, and about 500 more for function 6's drain; a note's end, about 400.
+- **The cooked keys are never left to pile up (W1).** The card keeps cooking every key while GW-BASIC reads the
+  queue, and nothing else reads them, so without a drain the CCP would get the whole session's typing after
+  SYSTEM. A key's cooked twin may come a little after its event, so three places drain, each by function 6 with
+  `$FF` until it returns 0:
+  - `KEYEV`, after each key event;
+  - the editor's wait, each time round;
+  - SYSTEM, once more, just before `JMP WBOOT`.
+
+  A drain costs nothing on the core statement path, since it runs only with a key.
 
 | GW-BASIC | On | Missing, or to check |
 |---|---|---|
@@ -4177,6 +4196,11 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
     A build that also reads the cooked keys (the keys twice), or that drains the queue from the head, fails it;
   - **P5's seed (V3):** a POKE into an allocated block, then a variable in `$4000–$7FFF` read back. It fails with
     `GX_W1BACK` left out of the seed's entry;
+  - **the cooked keys drained (W1):** keys typed in BASIC, then SYSTEM: the CCP's next line must be empty. A
+    build without SYSTEM's drain (or `KEYEV`'s) fails it;
+  - **LOAD at the top (W2):** a program whose end lies in its file's last record, saved with the workspace nearly
+    full and loaded again, with sentinels past the top: they must be unchanged, and the program must run. A build
+    that loads the last record whole by `DM_LOAD` fails it;
   - **a buffer in P4's RAM (V1):** a sequential file written and read back. It fails if the BDOS's record goes to
     the program's CPU address in another block, not through W3.
 - **The test map and labels** ([hw/testing.md](testing.md)):
@@ -4255,8 +4279,8 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
 
 #### Phase 7's questions ####
 
-For the owner. 1–3 and 5 are decided. The others each have the plan's recommendation and are needed before the
-sub-phase named.
+All decided by the owner, as recommended: 1–3 and 5 at review round 1, the rest at round 2 (2026-11-13). Each
+alternative is kept as the record of what was weighed.
 
 1. **The source.** *Decided (2026-11-13, the owner): as recommended.* Fetched once, at commit
    `edf82c2ebf6bfe099c2054e0ae125c3efe5769c4`, into `~/workspace/references/gw-basic/`, read-only (`chmod -R
@@ -4266,43 +4290,42 @@ sub-phase named.
    pinned images, outputs alone committed. It is fetched for 7a's tests, not before.
 3. **`.3333334`.** *Decided (2026-11-13, the owner): as recommended.* The port prints what shipped GW-BASIC
    prints, `.3333333`, recorded in the source and in mbf.py as a deviation from the 1983 source.
-4. **The home block** (before 7a's split is fixed). **Recommended:** none. If 7a's measured size breaks the gate,
+4. **The home block.** *Decided (2026-11-13, the owner): none.* If 7a's measured size breaks the gate,
    the outermost-far-call form above, which changes nothing in OODOS or FARCALL. *Alternative:* a home block
    from the start, for 4–6 KB more free, under the rule that banked code never calls it.
 5. **A lean FARCALL.** *Decided (2026-11-13, the owner): none in phase 7.* Any variant changes common memory or
    the window rule, so it would come back as its own question, with a measurement.
-6. **Common memory in GW-BASIC's blocks** (before 7a). **Recommended:** GW-BASIC's loader copies it, as
+6. **Common memory in GW-BASIC's blocks.** *Decided (2026-11-13, the owner):* GW-BASIC's loader copies it, as
    `ui_load` does; OODOS unchanged. *Alternative:* OODOS copies at allocation for a flagged MCB, an interface
    addition (53–56's M_EXT), which every caller that doesn't set the flag never sees.
-7. **OOLIB's place** ([oolib.md, question 9](oolib.md#open-questions)) (before 7c, whose P5 seed links it).
-   **Recommended:** linked into GW-BASIC's video block, one copy, so no OOLIB change and no TPA. *Alternative:*
+7. **OOLIB's place** ([oolib.md, question 9](oolib.md#open-questions)). *Decided (2026-11-13, the owner):* linked into GW-BASIC's video block, one copy, so no OOLIB change and no TPA. *Alternative:*
    `gxmem` resident in the TPA (1,291 bytes with its BSS), callable from every block, at the cost of most of the
    margin.
-8. **The text screen** (before 7d). **Recommended:** GW-BASIC's own text layer in its card memory (for COLOR's
+8. **The text screen.** *Decided (2026-11-13, the owner):* GW-BASIC's own text layer in its card memory (for COLOR's
    attributes, the editor's reading back, and speed), 25 rows of the 30 by default, WIDTH 80,30 as an OO-1
    extension. The console is the fallback with no revision 2 card, its keys the console's alone. *Alternative:*
    the OODOS console, which would need colour escapes added to OODOS (an interface addition).
-9. **SCREEN's modes** (before 7e). **Recommended:**
+9. **SCREEN's modes.** *Decided (2026-11-13, the owner):*
    - SCREEN 1 as a tile frame and SCREEN 2 as mono with doubled rows, both at the PC's coordinates;
    - the OO-1's own as SCREEN 10 (bitmap 256), 11 (bitmap 512) and 12 (mono 640 × 480), numbers no GW-BASIC
      used.
 
    *Alternative:* the OO-1's modes only, which breaks PC listings' coordinates.
-10. **Card memory from DEF SEG** (before 7d, which makes the screen pages). **Recommended:** segments
+10. **Card memory from DEF SEG** (from 7d, which makes the screen pages). *Decided (2026-11-13, the owner):* segments
     `$8000–$8FFF` as the current screen page's card memory, as above. *Alternative:* none: card memory only
     through the graphics statements.
-11. **FARPEEK, FARPOKE and FARMOVE** (before 7c). **Recommended:** not built. GW-BASIC uses OOLIB's `GX_BLOCK`
+11. **FARPEEK, FARPOKE and FARMOVE.** *Decided (2026-11-13, the owner): not built.* GW-BASIC uses OOLIB's `GX_BLOCK`
     and function 83, and V1's buffers need no move at all (route (c)). Common memory has 166 bytes left.
     *Alternative:* build them as proposed under [Far calls](#far-calls), as an interface addition to the far call
-    table (FARCALL itself unchanged), which the rule allows. That is the owner's to choose; the 32 KB doesn't need
+    table (FARCALL itself unchanged), which the rule allows; the 32 KB doesn't need
     it.
-12. **COM's receive buffer** (before 7c). **Recommended:** 7c ships COM1 polled, documented as losing characters
+12. **COM's receive buffer.** *Decided (2026-11-13, the owner):* 7c ships COM1 polled, documented as losing characters
     while BASIC is busy. A receive buffer filled by the serial card's interrupt becomes an OODOS question of its
     own (an addition to the dispatcher and AUX), with the serial card's model. *Alternative:* that addition
     first.
-13. **INP, OUT and WAIT** (before 7c). **Recommended:** refused. *Alternative:* OUT and INP on the VIA's user port
+13. **INP, OUT and WAIT.** *Decided (2026-11-13, the owner): refused.* *Alternative:* OUT and INP on the VIA's user port
     alone, under OOLIB's claim (question 6 there).
-14. **Breaking a program** (before 7d). **Recommended:** ^C breaks, through function 109's mode, and it reaches
+14. **Breaking a program.** *Decided (2026-11-13, the owner):* ^C breaks, through function 109's mode, and it reaches
     GW-BASIC as an event. Pause stays OODOS's Break to the monitor, so the monitor can always stop a GW-BASIC
     that has hung. *Alternative:* Pause breaks the BASIC program, as a PC's Ctrl+Break does. It would come through
     the event queue as `EK_KEY`'s usage `$48`. The cost:
@@ -4951,7 +4974,7 @@ entries and indexes in docs/ are.
    VIA's system tick first. Its open questions are the owner's to settle first.
 7. **GW-BASIC.** Its release is **OODOS 1.0**, at which the interfaces programs use are declared stable (the
    owner, 2026-11-13; until then they only grow, [AGENTS.md](../AGENTS.md)).
-   *Proposed (2026-11-13), for the owner:* seven stages, 7a–7g, with FARCALL, OODOS and OOLIB unchanged:
+   *Approved (2026-11-13, the owner):* seven stages, 7a–7g, with FARCALL, OODOS and OOLIB unchanged:
    [The plan, phase 7](#the-plan-phase-7).
 8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
 
@@ -4981,7 +5004,7 @@ entries and indexes in docs/ are.
   For phase 2: prototype it in the spike harness and time, with `check.py --timing`, the BDOS map-in stub, a
   PRINT through the home block and `$FOUT` under the placement rule.
 
-  *Proposed for phase 7 (2026-11-13):* none. 32 KB stays free without it. If 7a's measured size breaks the gate,
+  *Decided for phase 7 (2026-11-13, the owner):* none. 32 KB stays free without it. If 7a's measured size breaks the gate,
   GW-BASIC can have one with no change to FARCALL or OODOS, as an outermost far call
   ([phase 7's question 4](#phase-7s-questions)).
 - **A lean FARCALL**, keeping only A and the flags across the call, would save an estimated 100–140 of its 281
@@ -4999,7 +5022,7 @@ entries and indexes in docs/ are.
   somewhere (graphics), a lean variant private to GW-BASIC's dispatchers, whose targets take nothing in X or Y.
   Time a lean prototype with `check.py --timing` first.
 
-  *Proposed for phase 7 (2026-11-13):* none. GW-BASIC does without it, and any lean variant would change common
+  *Decided for phase 7 (2026-11-13, the owner):* none. GW-BASIC does without it, and any lean variant would change common
   memory or the window rule, so it comes back to the owner only with a measured need
   ([phase 7's question 5](#phase-7s-questions)).
 - **Common memory in an allocated block** (deferred to phase 7, 2026-10-30, with the two questions above). FARCALL
@@ -5009,9 +5032,9 @@ entries and indexes in docs/ are.
   how that fits a home block and a lean FARCALL. Until then a program copies common memory into a block itself
   (test_oodos_sys puts it in FARTEST's and STUBTEST's blocks by hand).
 
-  *Proposed for phase 7 (2026-11-13):* GW-BASIC's loader copies common memory into its own blocks, as OOUI's
+  *Decided for phase 7 (2026-11-13, the owner):* GW-BASIC's loader copies common memory into its own blocks, as OOUI's
   `ui_load` does, and OODOS stays as it is. Copying at allocation for a flagged MCB stays possible later, as an
   addition ([phase 7's question 6](#phase-7s-questions)).
-- **Phase 7's other questions** (2026-11-13): the source, the oracle, `.3333334`, OOLIB's place, the screen, the
+- **Phase 7's other questions,** all decided (2026-11-13, the owner): the source, the oracle, `.3333334`, OOLIB's place, the screen, the
   modes, DEF SEG on card memory, FARPEEK, COM's buffer, INP and OUT, and ^C: [Phase 7's
   questions](#phase-7s-questions).
