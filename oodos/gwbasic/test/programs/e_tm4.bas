@@ -1,0 +1,1 @@
+10 IF "A"<1 THEN PRINT 1

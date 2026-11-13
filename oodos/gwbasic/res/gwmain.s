@@ -10,8 +10,11 @@
 ;   LINGET             read a line number
 ;   GOTO               with the line number turned into a pointer (CONCH2)
 ;   DATA REM ELSES     skip a statement or the line
-;   LET                (numbers; a string's copy is a stub)
+;   LET                (a string's copy: LETSTR, res/bistrs.s)
 ;   IFS                IF ... THEN ... ELSE
+;   DEFSTR DEFINT      DEFSTR DEFINT DEFSNG DEFDBL: DEFTBL, for PTRGET
+;   DEFREA DEFDBL
+;   INTIDX             a subscript: a formula, a positive integer
 ;
 ; Statements dispatch as in the 8086: NEWSTT is pushed as the return
 ; address, then the statement's (from STMDSP, less one) for CHRGTR's RTS to
@@ -22,9 +25,10 @@
 
 .export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET
 .export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC
+.export DEFSTR, DEFINT, DEFREA, DEFDBL, INTIDX, INTID2
 .import STMDSP, NUMCON, OUTDO, SNERR, ERROR, PRGEND, NEWSTX, ISMID
 .import GOTRP, CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
-.import LETSTR
+.import LETSTR, ISLET2, GETIN2, FCERR, DEFTBL
 
 ERRUS           = 8                    ; Undefined line number
 
@@ -560,3 +564,61 @@ SKPMRF:         JSR     DATA
                 DEC     RDH
                 BNE     SKPMRF
                 BRA     DOCOND
+
+; --- DEFSTR, DEFINT, DEFSNG, DEFDBL (GWMAIN.ASM 1872) -------------------------------
+
+; DEFxxx letter[-letter][,...]: those letters' default type, in DEFTBL.
+DEFSTR:         LDA     #VT_STR
+                BRA     DEFCON
+DEFINT:         LDA     #VT_INT
+                BRA     DEFCON
+DEFREA:         LDA     #VT_SNG
+                BRA     DEFCON
+DEFDBL:         LDA     #VT_DBL
+DEFCON:         STA     RDL            ; DL: the type
+DEFCN1:         LDA     (TXTPTR)       ; ISLET: a letter, or Syntax error
+                JSR     ISLET2
+                BCS     DEFSN
+                SEC
+                SBC     #'A'
+                STA     RCL            ; CL: the first
+                STA     RCH            ; CH: the last, so far
+                JSR     CHRGTR
+                CMP     #MINUTK        ; a range?
+                BNE     NOTRNG
+                JSR     CHRGTR
+                LDA     (TXTPTR)
+                JSR     ISLET2
+                BCS     DEFSN
+                SEC
+                SBC     #'A'
+                STA     RCH
+                JSR     CHRGTR
+NOTRNG:         LDA     RCH            ; backwards is nonsense
+                SEC
+                SBC     RCL
+                BCC     DEFSN
+                TAY                    ; Y+1 letters from CL
+                LDX     RCL
+                LDA     RDL
+LPDCHG:         STA     DEFTBL,X
+                INX
+                DEY
+                BPL     LPDCHG
+                LDA     (TXTPTR)       ; a comma: another
+                CMP     #','
+                BEQ     :+
+                RTS
+:               JSR     CHRGTR
+                BRA     DEFCN1
+DEFSN:            JMP     SNERR
+
+; --- INTIDX (GWMAIN.ASM 1929) --------------------------------------------------------
+
+; A formula past the character at TXTPTR, as an integer in DX: not negative,
+; or Illegal function call. TXTPTR returns at the character after it.
+INTIDX:         JSR     CHRGTR
+INTID2:         JSR     GETIN2
+                BPL     :+
+                JMP     FCERR
+:               RTS

@@ -571,6 +571,13 @@ add_test(NAME test_gwbasic_math
          COMMAND "${Python3_EXECUTABLE}" -I -B "${GWBASIC_SRC}/test/check.py"
                  --runner $<TARGET_FILE:gwbasic_run6502> --image "${GWBASIC_DIR}/flat.bin")
 set_tests_properties(test_gwbasic_math PROPERTIES TIMEOUT 300)
+# test_gwbasic_programs: oodos/gwbasic/test/programs/*.bas on the same flat image, through NEWSTT and
+# the stand-in PRINT, each against PC-BASIC's output (NAME.out) or the 1983 source's where PC-BASIC
+# differs (NAME.differ): the variables, arrays and strings (test/programs.py).
+add_test(NAME test_gwbasic_programs
+         COMMAND "${Python3_EXECUTABLE}" -I -B "${GWBASIC_SRC}/test/programs.py"
+                 --runner $<TARGET_FILE:gwbasic_run6502> --image "${GWBASIC_DIR}/flat.bin")
+set_tests_properties(test_gwbasic_programs PROPERTIES TIMEOUT 300)
 
 # --- OODOS: the BDOS's model test --------------------------------------------
 #
@@ -824,6 +831,7 @@ set(EMU_TEST_LABELS
     test_docs_examples          "docs oodos bios sd backplane"
     test_gwbasic_core           "gwbasic oodos bios sd backplane"
     test_gwbasic_math           "gwbasic oodos"
+    test_gwbasic_programs       "gwbasic oodos"
     test_sound_driver           "emu sound bridge"
     test_mudrv                  "oodos sound sid bridge"
     test_app_tty                "emu app apple1 debug pia"

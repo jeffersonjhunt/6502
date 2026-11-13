@@ -1,0 +1,3 @@
+# BIPTRG.ASM PTRGT2: a name past 40 characters (NAMLEN) is Syntax error; PC-BASIC takes it
+ 1 
+?ERR 2 IN 20

@@ -174,7 +174,7 @@ MATH1.ASM INEGAD -> res/math1.s INEG2
 MATH1.ASM FLOATR -> res/math1.s FLOATR
 MATH1.ASM RNDMON -> res/mathfar.s RNDMON
 MATH1.ASM RNDMN2 -> res/mathfar.s RNDMN2
-MATH1.ASM UMULT -> later 7a: the interpreter's (an array's subscripts, BIPTRG.ASM)
+MATH1.ASM UMULT -> res/biptrg.s UMULT
 MATH1.ASM VMOVFA -> later 7a: the interpreter's (a variable to the ARG)
 MATH1.ASM VMOVFM -> res/math1.s VMOVFM
 MATH1.ASM VMOVAF -> res/math1.s VMOVAF
@@ -183,8 +183,8 @@ MATH1.ASM VDFACS -> res/math1.s VFAC
 MATH1.ASM MOVE1 -> later 7a: the interpreter's (a block move)
 MATH1.ASM MOVVFM -> res/math1.s VMOVFM
 MATH1.ASM VMOVE -> res/math1.s VMOVE
-MATH1.ASM BLTU -> later 7a: the interpreter's (making room for a line, BIPTRG.ASM and GWMAIN.ASM)
-MATH1.ASM BLTUC -> later 7a: the interpreter's, as BLTU
+MATH1.ASM BLTU -> res/biptrg.s BLTU
+MATH1.ASM BLTUC -> res/biptrg.s BLTUC
 MATH1.ASM DCXBRT -> later 7a: the interpreter's
 MATH1.ASM VSIGN -> res/math1.s VSIGN
 MATH1.ASM ISIGN -> later 7a: the interpreter's (the sign of BX)
@@ -198,7 +198,7 @@ MATH1.ASM FPWRQ -> res/mathfar.s FPWRQ
 MATH1.ASM FPWRT -> res/mathfar.s FPWRT
 MATH1.ASM MOVE -> later 7a: the interpreter's (4 bytes, the 8086's MOVE)
 MATH1.ASM MOVRM -> later 7a: the interpreter's
-MATH1.ASM GETBCD -> later 7a: the interpreter's
+MATH1.ASM GETBCD -> res/bistrs.s GETBCD # without its BX + 3 (no caller uses it yet)
 MATH1.ASM INXHRT -> later 7a: the interpreter's
 MATH1.ASM INPRT -> later 7a: the interpreter's (" in" and a line number, for errors)
 MATH1.ASM LINPRT -> p1/fout.s LINPRT
@@ -214,9 +214,9 @@ MATH1.ASM ICOMP -> res/math1.s ICOMP
 MATH1.ASM ICMPA -> later 7a: the interpreter's (ICOMP's AX entry)
 MATH1.ASM INRART -> later 7a: the interpreter's (AL = 1)
 MATH1.ASM IMOD -> res/math1.s IMOD
-MATH1.ASM LOPTOP -> later 7a: BIPTRG.ASM's PTRGET, the variable search
-MATH1.ASM LOPFND -> later 7a: BIPTRG.ASM's PTRGET, the variable search
-MATH1.ASM LOPFD1 -> later 7a: BIPTRG.ASM's PTRGET, the array search
+MATH1.ASM LOPTOP -> res/biptrg.s LOPTOP
+MATH1.ASM LOPFND -> res/biptrg.s LOPFND
+MATH1.ASM LOPFD1 -> res/biptrg.s LOPFD1
 MATH1.ASM $AEXPS -> res/math1.s AEXPS
 MATH1.ASM $SEXPS -> res/math1.s SEXPS
 MATH1.ASM $CHKEL -> p1/fin.s CHKEL
@@ -309,3 +309,113 @@ GWMAIN.ASM FINOVC -> p1/fin.s FINOVC
 GWMAIN.ASM $CLROV -> p1/trans.s CLROV # $FPWR's way out; FINOVC's tail is p1/fin.s's own
 GWDATA.ASM $RNDX -> res/mathfar.s RNDX
 GWDATA.ASM RNDCOP -> res/mathfar.s RNDCOP
+
+# s: the variables and strings (step S of 7a). Every routine of BIPTRG.ASM and BISTRS.ASM, resident (res/biptrg.s,
+# res/bistrs.s) but for STR$ VAL OCT$ HEX$, in P1 (p1/strfn.s); and what they need from GWMAIN.ASM, GWEVAL.ASM,
+# BIMISC.ASM and MATH1.ASM (whose search, block move and GETBCD lines are above, under m). The labels inside a
+# routine that matter are named too.
+BIPTRG.ASM DIMCON -> res/biptrg.s DIMCON
+BIPTRG.ASM DIM -> res/biptrg.s DIM
+BIPTRG.ASM PTRGET -> res/biptrg.s PTRGET
+BIPTRG.ASM PTRGT1 -> res/biptrg.s PTRGT1
+BIPTRG.ASM PTRGT2 -> res/biptrg.s PTRGT2 # ISLET inline
+BIPTRG.ASM HAVTYP -> res/biptrg.s HAVTYP
+BIPTRG.ASM NOARYS -> res/biptrg.s NOARYS # DEF FN's parameters (NOFUNS, PARM1) searched first: later 7b
+BIPTRG.ASM NOTFNS -> res/biptrg.s NOTFNS # PRMFLG's second search: later 7b, with DEF FN
+BIPTRG.ASM PTRGTN -> res/biptrg.s PTRGTN
+BIPTRG.ASM PTRGTR -> res/biptrg.s PTRGTR
+BIPTRG.ASM VARNOT -> res/biptrg.s VARNOT
+BIPTRG.ASM SMKVAR -> res/biptrg.s SMKVAR # the caller asked by the return address on the 6502's stack, as the 8086 does
+BIPTRG.ASM ZEROER -> res/biptrg.s MKVAR # SMKVAR's second half: the entry made, zeroed
+BIPTRG.ASM FINZER -> res/biptrg.s FINZER
+BIPTRG.ASM ISARY -> res/biptrg.s ISARY # subscripts on the BASIC stack; SARYFL (CALL's) later 7b
+BIPTRG.ASM INDLOP -> res/biptrg.s INDLOP
+BIPTRG.ASM ERSFIN -> later 7b: ERASE's entry (SUBFLG 1); res/todo_s.s's stand-in gives Advanced Feature
+BIPTRG.ASM ARYEXT -> res/biptrg.s ARYEXT # ERASE's zero-dimension case: later 7b
+BIPTRG.ASM BSERR -> res/biptrg.s BSERR
+BIPTRG.ASM NOTFDD -> res/biptrg.s NOTFDD
+BIPTRG.ASM PTRRNZ -> later 7b: NOTFDD's way out for ERASE and CHAIN
+BIPTRG.ASM GETDEF -> res/biptrg.s GETDEF
+BIPTRG.ASM IADAHL -> dropped: inline, where the collector skips a name (res/bistrs.s SVAR, ARYVA4)
+BIPTRG.ASM ADDAHL -> dropped: as IADAHL
+BIPTRG.ASM NPUTSB -> res/biptrg.s NPUTSB
+BISTRS.ASM STRCMP -> res/bistrs.s STRCMP
+BISTRS.ASM STRO$ -> p1/strfn.s STRO
+BISTRS.ASM STRH$ -> p1/strfn.s STRH
+BISTRS.ASM STR$ -> p1/strfn.s STR
+BISTRS.ASM STRCPY -> res/bistrs.s STRCPY
+BISTRS.ASM STRIN1 -> res/bistrs.s STRIN1
+BISTRS.ASM STRINI -> res/bistrs.s STRINI
+BISTRS.ASM STRAD2 -> res/bistrs.s STRAD2
+BISTRS.ASM STRAD1 -> res/bistrs.s STRAD1
+BISTRS.ASM PUTDEI -> res/bistrs.s PUTDEI
+BISTRS.ASM STRLIT -> res/bistrs.s STRLIT
+BISTRS.ASM STRLTI -> res/bistrs.s STRLTI
+BISTRS.ASM STRLT3 -> res/bistrs.s STRLT3
+BISTRS.ASM STRLT2 -> res/bistrs.s STRLT2
+BISTRS.ASM PUTNEW -> res/bistrs.s PUTNEW
+BISTRS.ASM PUTTMP -> res/bistrs.s PUTTMP
+BISTRS.ASM STROUI -> later 7a: PRINT's (step I2); the stand-in in res/todo.s prints $FOUT's buffer by STROUT
+BISTRS.ASM DSOUT -> later 7a: as STROUI
+BISTRS.ASM STRPRT -> res/bistrs.s STRPRT
+BISTRS.ASM GETSPA -> res/bistrs.s GETSPA # the 8086's flag on its stack is GSDONE
+BISTRS.ASM PPSWRT -> dropped: referenced by nothing
+BISTRS.ASM GARBAG -> res/bistrs.s GARBAG
+BISTRS.ASM GARBA2 -> res/bistrs.s GARBA2 # DEF FN's parameter blocks (PRMPRV, TEMP9) walked too: later 7b
+BISTRS.ASM FNDVAR -> res/bistrs.s FNDVAR
+BISTRS.ASM DVARS -> res/bistrs.s DVARS # the highest so far in GCMAX and GCVAR, not on the stack
+BISTRS.ASM GRBPAS -> res/bistrs.s GRBPAS
+BISTRS.ASM CAT -> res/bistrs.s CAT
+BISTRS.ASM MOVINS -> res/bistrs.s MOVINS
+BISTRS.ASM MOVSTR -> res/bistrs.s MOVSTR
+BISTRS.ASM FRESTR -> res/bistrs.s FRESTR
+BISTRS.ASM FREFAC -> res/bistrs.s FREFAC
+BISTRS.ASM FRETM2 -> res/bistrs.s FRETM2
+BISTRS.ASM FRETMP -> res/bistrs.s FRETMP
+BISTRS.ASM FRETMS -> res/bistrs.s FRETMS
+BISTRS.ASM LEN -> res/bistrs.s LEN
+BISTRS.ASM LEN1 -> res/bistrs.s LEN1
+BISTRS.ASM ASC -> res/bistrs.s ASC
+BISTRS.ASM ASC2 -> res/bistrs.s ASC2
+BISTRS.ASM CHR$ -> res/bistrs.s CHR
+BISTRS.ASM SETSTR -> res/bistrs.s SETSTR
+BISTRS.ASM FINBCK -> res/bistrs.s FINBCK # LABBCK pops the text pointer here, so it is PUTNEW
+BISTRS.ASM STRNG$ -> later 7b: STRING$ (EVAL's token; it gives what it gave before)
+BISTRS.ASM SPACE$ -> res/bistrs.s SPACE
+BISTRS.ASM SPACE2 -> res/bistrs.s SPACE2
+BISTRS.ASM LEFT$ -> res/bistrs.s LEFT
+BISTRS.ASM LEFTUS -> later 7b: PRINT USING's entry into LEFT$
+BISTRS.ASM RIGHT$ -> res/bistrs.s RIGHT
+BISTRS.ASM MID$ -> res/bistrs.s MID
+BISTRS.ASM VAL -> p1/strfn.s VAL
+BISTRS.ASM PREAM -> res/bistrs.s PREAM
+BISTRS.ASM PREAM2 -> res/bistrs.s PREAM2
+BISTRS.ASM INSTR -> res/bistrs.s INSTR
+BISTRS.ASM LHSMID -> later 7b: MID$ as a statement (GONE2's ISMID stand-in, res/todo.s)
+BISTRS.ASM MIDRST -> res/bistrs.s MIDRST
+BISTRS.ASM FRE -> res/bistrs.s FRE
+BISTRS.ASM CLCDIF -> res/bistrs.s CLCDIF
+GWMAIN.ASM LETCN6 -> res/bistrs.s LETSTR # its string half; LET's numeric half is res/gwmain.s's
+GWMAIN.ASM DEFSTR -> res/gwmain.s DEFSTR
+GWMAIN.ASM DEFINT -> res/gwmain.s DEFINT
+GWMAIN.ASM DEFREA -> res/gwmain.s DEFREA
+GWMAIN.ASM DEFDBL -> res/gwmain.s DEFDBL
+GWMAIN.ASM DEFCON -> res/gwmain.s DEFCON
+GWMAIN.ASM INTIDX -> res/gwmain.s INTIDX
+GWMAIN.ASM INTID2 -> res/gwmain.s INTID2
+GWMAIN.ASM DDERR -> res/biptrg.s DDERR
+GWMAIN.ASM FRQINT -> p1/strfn.s FRQINT # OCT$ and HEX$'s; to the resident core when a resident caller needs it
+GWEVAL.ASM GETIN2 -> res/gweval.s GETIN2
+GWEVAL.ASM INTFR2 -> res/gweval.s INTFR2
+GWEVAL.ASM GTBYTC -> res/gweval.s GTBYTC
+GWEVAL.ASM GETBYT -> res/gweval.s GETBYT
+GWEVAL.ASM CONINT -> res/gweval.s CONINT
+GWEVAL.ASM VARRET -> res/gweval.s VARRET # VARPTR's, from NTERL; VARPTR$ (GWSTS.ASM VARPT2) later 7b, VARPTR(#) 7c
+GWEVAL.ASM GIVDBL -> res/gweval.s GIVDBL
+BIMISC.ASM REASON -> res/biptrg.s REASON # CHAIN's CHNFLG, which forbids the collection: later 7c
+GWDATA.ASM TEMPST -> res/bistrs.s TEMPST
+GWDATA.ASM DSCTMP -> res/bistrs.s DSCTMP
+GWDATA.ASM DSEGZ -> res/bistrs.s DSEGZ
+GWDATA.ASM MEMSIZ -> res/bistrs.s MEMSIZ
+GWDATA.ASM NAMBUF -> res/biptrg.s NAMBUF
+GWDATA.ASM DEFTBL -> res/biptrg.s DEFTBL

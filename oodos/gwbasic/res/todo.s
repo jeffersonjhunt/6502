@@ -6,19 +6,17 @@
 ;   errors        print "?ERR n IN line" and stop, or hand the number to the
 ;                 harness (ERRHOOK) when it is running the math vectors
 ;   OUTDO         one character to the console, through the BDOS
-;   PTRGET        single-letter variables, A-Z with %, ! or nothing (single)
-;   PRINT         numbers only, with ";" between them
+;   PRINT         numbers and strings, with ";" between them
 ;   END           stop: a warm boot through the BDOS
 ;   the rest      Illegal function call
 
 .include "gwbasic.inc"
 
 .export TMERR, OVERR, DV0ERR, SNERR, FCERR, MOERR, OMERR, ERROR, NOTSPK
-.export CRFIN, STROUI, PTRGET, PRINT, ENDST, PRGEND, LETSTR
-.export CAT, STRCMP
-.export EVALX, STRLTI, OCTCNS, VARPTR, USRFN, INSTR, FNDOER, GETBYT
-.export NEWSTX, ISMID, GOTRP, CHKINT, FBUFF, VARS, ERRHOOK
-.import CHRGTR, CHRGT2, FRMEVL, STROUT, GETYP, OUTDO
+.export CRFIN, STROUI, PRINT, ENDST, PRGEND
+.export EVALX, OCTCNS, USRFN, FNDOER
+.export NEWSTX, ISMID, GOTRP, CHKINT, FBUFF, ERRHOOK
+.import CHRGTR, CHRGT2, FRMEVL, STROUT, GETYP, OUTDO, STRPRT
 
 .code
 
@@ -67,18 +65,11 @@ PRGEND:         LDY     #P_TERMCPM
                 JMP     BDOS
 
 ; The untranslated routines.
-CAT:
-STRCMP:
-STRLTI:
 OCTCNS:
-VARPTR:
 USRFN:
-INSTR:
 FNDOER:
-GETBYT:
 NEWSTX:
-ISMID:
-LETSTR:         JMP     NOTSPK
+ISMID:          JMP     NOTSPK
 EVALX:
 GOTRP:
 CHKINT:
@@ -96,49 +87,21 @@ STROUI:         LDA     FBPTR
                 STA     PTR+1
                 JMP     STROUT
 
-; PTRGET: PTR = the variable named at TXTPTR, VALTYP its type; returns past
-; the name with CHRGTR's A and flags.
-PTRGET:         LDA     (TXTPTR)
-                SEC
-                SBC     #'A'
-                ASL     A
-                ASL     A
-                ASL     A
-                CLC
-                ADC     #<VARS
-                STA     PTR
-                LDA     #>VARS
-                ADC     #0
-                STA     PTR+1
-                LDA     #VT_SNG
-                STA     VALTYP
-                JSR     CHRGTR
-                CMP     #'!'
-                BEQ     @sng
-                CMP     #'%'
-                BNE     @ret
-                LDA     #VT_INT        ; integers at +4
-                STA     VALTYP
-                CLC
-                LDA     PTR
-                ADC     #4
-                STA     PTR
-                BCC     @sng
-                INC     PTR+1
-@sng:           JMP     CHRGTR
-@ret:           RTS
-
-; PRINT: numbers, each followed by a space as GW-BASIC's are; ";" keeps the
-; line going.
+; PRINT: numbers, each followed by a space as GW-BASIC's are, and strings
+; (STRPRT); ";" keeps the line going.
 PRINT:          BEQ     @crlf
 @item:          CMP     #';'
                 BEQ     @semi
                 JSR     FRMEVL
-                FJSR    FOUT
+                JSR     GETYP
+                BNE     @num
+                JSR     STRPRT
+                BRA     @next
+@num:           FJSR    FOUT
                 JSR     STROUI
                 LDA     #' '
                 JSR     OUTDO
-                JSR     CHRGT2
+@next:          JSR     CHRGT2
                 BEQ     @crlf
                 BRA     @item
 @semi:          JSR     CHRGTR
@@ -153,5 +116,4 @@ INMSG:          .byte   " IN", 0
 .segment "RAM"
 
 FBUFF:          .res    32             ; $FOUT's output
-VARS:           .res    26 * 8         ; PTRGET's variables
 ERRHOOK:        .res    2              ; the harness's error entry, or 0

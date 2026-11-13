@@ -2,8 +2,8 @@
 ; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; The dispatch tables: GWDATA.ASM's operator tables (segment GWDATA) and
-; IBMRES.ASM's statement and function tables (segment IBMRES). Entries the
-; spike doesn't translate point at stubs.s's NOTSPK, Illegal function call.
+; IBMRES.ASM's statement and function tables (segment IBMRES). Entries not
+; translated yet point at res/todo.s's NOTSPK, Illegal function call.
 
 .include "gwbasic.inc"
 
@@ -11,7 +11,8 @@
 .import FADD, FSUB, FMULT, FDIV, FCOMP, IADD, ISUB, IMULT, INTDIV, ICOMP
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
-.import SGN, VINT, VABS, FIXER
+.import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
+.import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
 
 .rodata
@@ -46,9 +47,9 @@ STMDSP:         S       ENDST          ; END
                 S       NOTSPK         ; FOR
                 S       NOTSPK         ; NEXT
                 S       DATA           ; DATA
-.repeat 3
-                S       NOTSPK         ; INPUT DIM READ
-.endrepeat
+                S       NOTSPK         ; INPUT
+                S       DIM            ; DIM
+                S       NOTSPK         ; READ
                 S       LET            ; LET
                 S       GOTO           ; GOTO
                 S       NOTSPK         ; RUN
@@ -63,20 +64,27 @@ STMDSP:         S       ENDST          ; END
                 S       NOTSPK         ; CLEAR .. WIDTH
 .endrepeat
                 S       ELSES          ; ELSE
-.repeat NUMCMD - 33
-                S       NOTSPK         ; TRON .. LOCATE
+.repeat 10
+                S       NOTSPK         ; TRON .. RENUM
+.endrepeat
+                S       DEFSTR         ; DEFSTR
+                S       DEFINT         ; DEFINT
+                S       DEFREA         ; DEFSNG
+                S       DEFDBL         ; DEFDBL
+.repeat NUMCMD - 47
+                S       NOTSPK         ; LINE .. LOCATE
 .endrepeat
 
 ; FUNDSP: the functions LEFT$ ($FF $81) to LOF ($FF $A4).
 FUNDSP:
-.repeat 3
-                .word   NOTSPK         ; LEFT$ RIGHT$ MID$
-.endrepeat
+                .word   LEFT, RIGHT, MID ; LEFT$ RIGHT$ MID$
                 .word   SGN, VINT, VABS
                 .word   F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
-.repeat 13
-                .word   NOTSPK         ; FRE .. HEX$ LPOS
-.endrepeat
+                .word   FRE, NOTSPK, NOTSPK ; FRE INP POS
+                .word   LEN, F_STR, F_VAL, ASC, CHR ; LEN STR$ VAL ASC CHR$
+                .word   NOTSPK, SPACE  ; PEEK SPACE$
+                .word   F_STRO, F_STRH ; OCT$ HEX$
+                .word   NOTSPK         ; LPOS
                 .word   FRCINT, FRCSNG, FRCDBL, FIXER
 .repeat 6
                 .word   NOTSPK         ; PEN .. LOF

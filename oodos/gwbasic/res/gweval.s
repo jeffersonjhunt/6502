@@ -9,10 +9,13 @@
 ;   ISFUN                  function dispatch
 ;   DOCMP NOTER DANDOR     relational, NOT, AND OR XOR EQV IMP MOD \
 ;   DOCNVF                 force a value to a type
+;   GETBYT CONINT GETIN2   a byte or an integer from a formula
+;   VARPTR GIVDBL          a variable's address; BX - DX as a number
 ;
-; Left out (stubs): string concatenation and compare, the
-; extended functions (EVALX), VARPTR, USR, INSTR, FN, string literals and
-; &H/&O typed at run time (in program text they are embedded constants).
+; Strings take BISTRS.ASM's routines (res/bistrs.s): a literal (STRLTI), "+"
+; (CAT), the relations (STRCMP), INSTR. Left out (stubs): the extended
+; functions (EVALX), USR, FN, and &H/&O typed at run time (in program text
+; they are embedded constants).
 ;
 ; The 8086 keeps each pending operator's entry on its stack: the address to
 ; go on at (RETAOP), the left operand, the operator and its type, and the
@@ -24,12 +27,14 @@
 
 .export FRMEQL, FRMPRN, FRMEVL, FRMCHK, LPOPER, RETAOP, APPLOP, EVAL, PARCHK
 .export DOCMP, NOTER, DANDOR, GETYPR, DOCNVF, INTDIV, LABBCK, SNGFLT
+.export TSTOP, RETVAR, GETBYT, GTBYTC, CONINT, GETIN2, INTFR2, VARPTR, GIVDBL
 .import SYNCHR, CHRGTR, GETSTK, ISLET2, SPUSH, SPOP, SPUSHA, SPOPA, PUSHF
 .import VMOVAF, POPR, FRCSNG, FRCINT, FRCDBL, CONSIH, MOVRF, MOVFR, FDIVT, CONIA
 .import MAKINT, IMOD, IDIV, VNEG, VMOVFM, INEG2, CHKSTR, GETYP, VFAC
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI, OCTCNS
-.import PTRGET, VARPTR, USRFN, INSTR, FNDOER, RNDMON, GETBYT, CONFAC
+.import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
+.import PTRGTN, FCERR, NOTYET
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
 
@@ -535,3 +540,65 @@ DOCNVF:         AND     #7
                 ASL     A
                 TAX
                 JMP     (FRCTBL,X)
+
+; --- GETBYT, CONINT, GETIN2 (GWEVAL.ASM 1602) ----------------------------------------
+
+; GETIN2: a formula, as an integer in DX; A = DH, N and Z by it. INTFR2: the
+; FAC's.
+GETIN2:         JSR     FRMEVL
+INTFR2:         JSR     FRCINT
+                LDA     RBL
+                STA     RDL
+                LDA     RBH
+                STA     RDH
+                RTS
+
+; GETBYT: a formula, as a byte: 0-255, or Illegal function call. CONINT: the
+; FAC's. A and DL return it, with CHRGTR's flags for the character after.
+GTBYTC:         JSR     CHRGTR
+GETBYT:         JSR     FRMEVL
+CONINT:         JSR     INTFR2
+                BEQ     :+
+                JMP     FCERR
+:               DECW    TXTPTR
+                JSR     CHRGTR
+                PHP
+                LDA     RDL
+                PLP
+                RTS
+
+; --- VARPTR (GWEVAL.ASM 678) ----------------------------------------------------------
+
+; From EVAL, TXTPTR at VARPTR: VARPTR(variable), the address of its value as
+; an integer; Illegal function call if it has none. (VARPTR$ and a file's
+; VARPTR(#n) are later sub-phases': NOTYET.)
+VARPTR:         JSR     CHRGTR
+                CMP     #'$'
+                BNE     :+
+                JMP     NOTYET         ; VARPT2
+:               JSR     SYNCHR
+                .byte   '('
+                CMP     #'#'
+                BNE     :+
+                JMP     NOTYET         ; GETPTR
+:               JSR     PTRGTN
+VARRET:         JSR     SYNCHR
+                .byte   ')'
+                LDA     PTR
+                STA     RBL
+                ORA     PTR+1
+                BNE     :+
+                JMP     FCERR          ; not there
+:               LDA     PTR+1
+                STA     RBH
+                JMP     MAKINT
+
+; GIVDBL (GWEVAL.ASM 1113): BX - DX, unsigned, as a single.
+GIVDBL:         SEC
+                LDA     RBL
+                SBC     RDL
+                STA     RBL
+                LDA     RBH
+                SBC     RDH
+                STA     RBH
+                JMP     INEG2

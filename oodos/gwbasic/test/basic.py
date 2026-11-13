@@ -1,15 +1,19 @@
 # Derived from Microsoft GW-BASIC (1983).
 # Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 
-"""A tiny GW-BASIC for checking the spike: tokeniser and reference reader.
+"""A tiny GW-BASIC for checking the port: tokeniser and reference reader.
 
 tokenise(src) gives the bytes GW-BASIC keeps a program in (a zero, then
 lines of link, line number, tokens and a zero, then a zero link) for the
-statements and functions the spike has: PRINT (numbers), LET, IF THEN ELSE,
-GOTO, REM, END; SGN INT ABS CINT CSNG FIX; + - * / \\ MOD, the relations,
-NOT AND OR XOR EQV IMP. Numbers become GW-BASIC's embedded constants: 0-9 in
-the token, then one byte, two bytes, or a single in MBF (Python's nearest
-single: the spike has no FIN, so the program carries the bytes).
+statements and functions translated so far: PRINT, LET, IF THEN ELSE, GOTO,
+REM, END, DIM, DEFSTR DEFINT DEFSNG DEFDBL; SGN INT ABS CINT CSNG CDBL FIX,
+the string functions (LEFT$ ... HEX$, INSTR) and VARPTR; + - * / \\ MOD, the
+relations, NOT AND OR XOR EQV IMP. Names are a letter, then letters, digits
+and dots, then a type character; string literals are kept as they are. A
+keyword is recognised only where a name would start (avoid names that begin
+with one: GW-BASIC's CRUNCH would split them). Numbers become GW-BASIC's
+embedded constants: 0-9 in the token, then one byte, two bytes, or a single
+in MBF (Python's nearest single: the program carries the bytes).
 
 run(src) is what GW-BASIC prints for the same program, read the way its
 interpreter reads it (FRMEVL's precedences and type rules, IF's skipping of
@@ -22,10 +26,13 @@ from fractions import Fraction
 
 import mbf
 
-KEYWORDS = {"END": 0x81, "LET": 0x88, "GOTO": 0x89, "IF": 0x8B, "REM": 0x8F, "PRINT": 0x91, "ELSE": 0xA1,
-            "THEN": 0xCD, "NOT": 0xD3, "AND": 0xEE, "OR": 0xEF, "XOR": 0xF0, "EQV": 0xF1, "IMP": 0xF2,
-            "MOD": 0xF3}
+KEYWORDS = {"END": 0x81, "DIM": 0x86, "LET": 0x88, "GOTO": 0x89, "IF": 0x8B, "REM": 0x8F, "PRINT": 0x91,
+            "CLEAR": 0x92, "ELSE": 0xA1, "SWAP": 0xA4, "ERASE": 0xA5, "DEFSTR": 0xAC, "DEFINT": 0xAD,
+            "DEFSNG": 0xAE, "DEFDBL": 0xAF, "THEN": 0xCD, "NOT": 0xD3, "STRING$": 0xD6, "INSTR": 0xD8,
+            "VARPTR": 0xDA, "AND": 0xEE, "OR": 0xEF, "XOR": 0xF0, "EQV": 0xF1, "IMP": 0xF2, "MOD": 0xF3}
 FUNCS = {"SGN": 0x84, "INT": 0x85, "ABS": 0x86, "CINT": 0x9C, "CSNG": 0x9D, "FIX": 0x9F}
+SFUNCS = {"LEFT$": 0x81, "RIGHT$": 0x82, "MID$": 0x83, "FRE": 0x8F, "LEN": 0x92, "STR$": 0x93, "VAL": 0x94,
+          "ASC": 0x95, "CHR$": 0x96, "SPACE$": 0x98, "OCT$": 0x99, "HEX$": 0x9A, "CDBL": 0x9E}
 OPS = {">": 0xE6, "=": 0xE7, "<": 0xE8, "+": 0xE9, "-": 0xEA, "*": 0xEB, "/": 0xEC, "^": 0xED, "\\": 0xF4}
 PREC = {"+": 121, "-": 121, "*": 124, "/": 124, "^": 127, "AND": 80, "OR": 70, "XOR": 60, "EQV": 50, "IMP": 40,
         "MOD": 122, "\\": 123}
@@ -43,13 +50,20 @@ def lex(line):
             toks.append(("ch", " "))
             i += 1
             continue
-        m = re.match(r"[A-Z]+", line[i:])
-        if m:
-            w = m.group(0)
-            for k in sorted(list(KEYWORDS) + list(FUNCS), key=len, reverse=True):
-                if w.startswith(k):
+        if c == '"':
+            j = line.find('"', i + 1)
+            j = len(line) if j < 0 else j + 1
+            toks.append(("str", line[i:j]))
+            i = j
+            after_jump = False
+            continue
+        if c.isalpha():
+            for k in sorted(list(KEYWORDS) + list(FUNCS) + list(SFUNCS), key=len, reverse=True):
+                if line.startswith(k, i):
                     if k in FUNCS:
                         toks.append(("fn", k))
+                    elif k in SFUNCS:
+                        toks.append(("sfn", k))
                     else:
                         toks.append(("kw", k))
                     i += len(k)
@@ -59,10 +73,11 @@ def lex(line):
                         return toks
                     break
             else:
-                v = line[i]
-                i += 1
+                m = re.match(r"[A-Z][A-Z0-9.]*", line[i:])
+                v = m.group(0)
+                i += len(v)
                 suf = ""
-                if i < len(line) and line[i] in "%!":
+                if i < len(line) and line[i] in "%!$#":
                     suf = line[i]
                     i += 1
                 toks.append(("var", v, suf))
@@ -109,6 +124,10 @@ def crunch(toks):
             out.append(KEYWORDS[t[1]])
         elif k == "fn":
             out += bytes([0xFF, FUNCS[t[1]]])
+        elif k == "sfn":
+            out += bytes([0xFF, SFUNCS[t[1]]])
+        elif k == "str":
+            out += t[1].encode("latin-1")
         elif k == "op":
             out.append(OPS[t[1]])
         elif k == "var":

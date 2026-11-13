@@ -132,6 +132,33 @@ PX              = $99                  ; $POLY's x, 4 bytes
 PCP             = $9D                  ; $POLY's coefficient pointer
 PCN             = $9F                  ; $POLY's coefficients left
 
+; --- Variables and strings ($A0-$BF): BIPTRG.ASM's and BISTRS.ASM's ----------
+;
+; The workspace, from TXTTAB up: the program, the simple variables (VARTAB),
+; the arrays (ARYTAB) to STREND, free space, then the strings down from
+; MEMSIZ, the lowest at FRETOP+1. The pointers the search and the string
+; space use most are here; the rest (MEMSIZ, TEMPST, DSCTMP, NAMBUF, DEFTBL)
+; are fixed RAM (res/biptrg.s, res/bistrs.s).
+VARTAB          = $A0                  ; the simple variables
+ARYTAB          = $A2                  ; the arrays
+STREND          = $A4                  ; the first byte past them
+FRETOP          = $A6                  ; the top of free space: strings above it
+TEMPPT          = $A8                  ; the first free string temporary
+ARYTA2          = $AA                  ; where the simple search stops
+VPTR            = $AC                  ; the symbol table search (the 8086's SI)
+DIMFLG          = $AE                  ; DIM's: bit 7 set when DIM called PTRGET
+NDIM            = $AF                  ; an array's subscripts so far (the 8086's D)
+ATEMP3          = $B0                  ; NOTFDD's TEMP3: the new array's dimension count
+NCNT            = $B2                  ; NOTFDD's dimensions to go
+GSLEN           = $B3                  ; GETSPA's length
+GSDONE          = $B4                  ; GETSPA's: nonzero once it has collected
+GCMAX           = $B5                  ; the garbage collector's highest string so far
+GCVAR           = $B7                  ; and the place past its descriptor, or 0
+TEMP8           = $B9                  ; the end of the string array being collected
+S1              = $BB                  ; a string routine's descriptor (or pointer)
+S2              = $BD                  ; and a second
+SLEN            = $BF                  ; and a length
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

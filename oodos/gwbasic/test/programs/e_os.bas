@@ -1,0 +1,3 @@
+10 DIM A$(300) : I=0
+20 A$(I)=SPACE$(255) : I=I+1 : IF I<300 THEN 20
+30 PRINT "NO"

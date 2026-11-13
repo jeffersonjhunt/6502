@@ -6,6 +6,8 @@
 ;
 ;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9000
 ;   $9FF2   the number of vectors
+;   $9FF6   a program's MEMSIZ, the string space's top (0: $9FEE, leaving a
+;           byte below the control block for VAL's zero)
 ;   $9FFE   run6502's count of the characters output (--outcount)
 ;
 ; A vector is 80 bytes:
@@ -34,6 +36,7 @@
 .import SGN, VNEG, VABS, MUL10, DIV10, NEWSTT, ERRHOOK, DADD, DSUB, DCOMP
 .import DINT, FIN, FINDBL, SQR, EXP, LOG, SIN, COS, TAN, ATN, FPWR, RND
 .import FOUTO, FOUTH, RNDX
+.import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG
 
 CTRL            = $9FF0
 OUTCNT          = $9FFE
@@ -88,6 +91,54 @@ BASRUN:         LDA     #<(PROGRAM+1)
                 LDA     #$FF
                 STA     CURLIN
                 STA     CURLIN+1
+; The workspace as RUN's CLEARC leaves it (BIMISC.ASM's, the interpreter's
+; own to translate): the variables after the program's zero link, no
+; arrays, the string space empty, no temporaries, every letter single.
+                LDA     TXTTAB
+                STA     PTR
+                LDA     TXTTAB+1
+                STA     PTR+1
+@link:          LDY     #1             ; to the zero link
+                LDA     (PTR),Y
+                TAX
+                LDA     (PTR)
+                BNE     :+
+                CPX     #0
+                BEQ     @end
+:               STA     PTR
+                STX     PTR+1
+                BRA     @link
+@end:           CLC
+                LDA     PTR
+                ADC     #2
+                STA     VARTAB
+                STA     ARYTAB
+                STA     STREND
+                LDA     PTR+1
+                ADC     #0
+                STA     VARTAB+1
+                STA     ARYTAB+1
+                STA     STREND+1
+                LDA     CTRL+6
+                LDX     CTRL+7
+                BNE     :+
+                LDA     #<$9FEE
+                LDX     #>$9FEE
+:               STA     MEMSIZ
+                STA     FRETOP
+                STX     MEMSIZ+1
+                STX     FRETOP+1
+                LDA     #<TEMPST
+                STA     TEMPPT
+                LDA     #>TEMPST
+                STA     TEMPPT+1
+                LDX     #25
+                LDA     #VT_SNG
+@def:           STA     DEFTBL,X
+                DEX
+                BPL     @def
+                STZ     OPTVAL
+                STZ     SUBFLG
                 JMP     NEWSTT
 
 ; --- The math vectors ------------------------------------------------------------

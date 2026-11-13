@@ -5,7 +5,8 @@
 #   make sizes      # the size gate's table alone
 #   make test       # BUILD/flat.bin, the flat test image (test/README.md), and
 #                   # BUILD/run6502 if a C++20 compiler is there; then
-#                   # test/check.py (CHECK=--timing for the cycles)
+#                   # test/check.py (CHECK=--timing for the cycles) and
+#                   # test/programs.py
 #
 # The resident core is res/*.s, linked as an OODOS .COM (res.cfg); each block
 # P1-P8 is pN/*.s, linked at $C800 (blk.cfg) with the resident core's exports
@@ -95,5 +96,6 @@ $(BUILD)/run6502: test/run6502.cpp | $(BUILD)
 
 test: $(BUILD)/flat.bin $(BUILD)/run6502
 	$(PYTHON) test/check.py --runner $(BUILD)/run6502 --image $(BUILD)/flat.bin $(CHECK)
+	$(PYTHON) test/programs.py --runner $(BUILD)/run6502 --image $(BUILD)/flat.bin
 
 .PHONY: all sizes test
