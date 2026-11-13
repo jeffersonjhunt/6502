@@ -99,6 +99,7 @@ emulator/test/host/sound/                       test_sound_driver
 emulator/test/host/fixtures/                    none
 emulator/test/host/README.md                    docs
 emulator/test/host/test_docs_examples.cpp       self docs
+emulator/test/host/gwbasic/                     gwbasic
 emulator/test/host/test_*                       self
 emulator/tools/fetch_fixtures.py                test_fetch_fixtures
 emulator/tools/make_sd_images.sh                sd
@@ -129,6 +130,7 @@ oodos/include/                                  oodos docs
 oodos/lib/mudrv/                                oodos test_mudrv docs
 oodos/diskdefs                                  oodos docs web
 oodos/spike/                                    none
+oodos/gwbasic/                                  gwbasic docs
 oodos/README.md                                 docs
 oodos/                                          oodos docs
 docs/                                           docs
