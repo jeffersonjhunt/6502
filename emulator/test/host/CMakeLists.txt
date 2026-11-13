@@ -530,14 +530,17 @@ target_compile_definitions(test_docs_examples PRIVATE
 #
 # oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL (the resident
 # core and the blocks, through the size gate and the rules gate) into the
-# build tree. test_gwbasic_core runs them from OODOS's CCP (oodos_rig.h).
+# build tree, and checks the translation ledger. test_gwbasic_core runs them
+# from OODOS's CCP (oodos_rig.h).
 
 get_filename_component(GWBASIC_SRC "${PROJECT_SOURCE_DIR}/../oodos/gwbasic" ABSOLUTE)
 set(GWBASIC_DIR "${CMAKE_CURRENT_BINARY_DIR}/gwbasic")
 file(GLOB_RECURSE gwbasic_sources CONFIGURE_DEPENDS "${GWBASIC_SRC}/*.s" "${GWBASIC_SRC}/*.inc"
         "${GWBASIC_SRC}/*.cfg" "${GWBASIC_SRC}/tools/*.py")
+list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames.txt") # the ledger's check
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
+               "${GWBASIC_DIR}/ledger.ok"
         COMMAND "${EMU_MAKE}" -s -C "${GWBASIC_SRC}" "BUILD=${GWBASIC_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
         DEPENDS ${gwbasic_sources} "${GWBASIC_SRC}/Makefile" ${oodos_includes} "${OODOS_SRC}/tools/rules.py"
         VERBATIM)

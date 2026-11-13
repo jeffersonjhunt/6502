@@ -1,7 +1,8 @@
 # GW-BASIC for OODOS (hw/oodos.md, "The plan, phase 7"). Needs cc65 (ca65,
 # ld65) and python3.
 #
-#   make            # BUILD/GWBASIC.COM and BUILD/GWBASIC.OVL, the gates passed
+#   make            # BUILD/GWBASIC.COM and BUILD/GWBASIC.OVL, the gates passed, and the
+#                   # translation ledger checked
 #   make sizes      # the size gate's table alone
 #   make test       # BUILD/flat.bin, the flat test image (test/README.md), and
 #                   # BUILD/run6502 if a C++20 compiler is there; then
@@ -14,7 +15,11 @@
 # ";@entry" lines). Every link must give no ld65 warning, every code segment
 # must pass OODOS's 65C816 rules (../tools/rules.py), and the size gate
 # (tools/gwsize.py) must pass: at least 32 KB free for BASIC, LOWRAM under
-# $4000. GWSIZE_MIN raises the gate, to see it fail.
+# $4000. GWSIZE_MIN raises the gate, to see it fail. And the translation
+# ledger (ledger.txt, tools/ledger.py) must pass against the source's names
+# (srcnames.txt, made from the source by ledger.py --write-names) and the
+# links' labels: every routine a translated one reaches has its line, and
+# every 6502 label a line names is in its link.
 
 BUILD      ?= build
 PYTHON      = python3 -I
@@ -29,7 +34,7 @@ FARMISS     = $$(awk '/\.FARMISS$$/ {print "0x" $$2; exit}' $(BUILD)/gwbasic.lbl
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \
 	[ -z "$$w" ] || echo "$$w" >&2; [ $$s = 0 ] && [ -z "$$w" ]
 
-all: $(BUILD)/GWBASIC.COM
+all: $(BUILD)/GWBASIC.COM $(BUILD)/ledger.ok
 
 $(BUILD) $(BUILD)/res $(addprefix $(BUILD)/,$(BLOCKS)):
 	mkdir -p $@
@@ -73,6 +78,11 @@ $(foreach b,$(BLOCKS),$(eval $(call BLOCK,$(b))))
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py
 	$(PYTHON) tools/gwsize.py $(BUILD)/gwbasic.map $(BLOCKS:%=--block $(BUILD)/%.map) --min $(GWSIZE_MIN) --free $(BUILD)/free.txt
 	$(PYTHON) tools/mkgw.py --com $(BUILD)/gwbasic.res $(foreach b,$(BLOCKS),--block $(subst p,,$(b)):$(BUILD)/$(b).bin) -o $(BUILD)
+
+$(BUILD)/ledger.ok: ledger.txt srcnames.txt tools/ledger.py $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
+	@$(PYTHON) tools/ledger.py ledger.txt --names srcnames.txt --lbl res=$(BUILD)/gwbasic.lbl \
+	    $(foreach b,$(BLOCKS),--lbl $(b)=$(BUILD)/$(b).lbl) > $@.out || { cat $@.out; rm -f $@.out; exit 1; }
+	@head -1 $@.out; tail -1 $@.out; mv $@.out $@
 
 sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 	$(PYTHON) tools/gwsize.py $(BUILD)/gwbasic.map $(BLOCKS:%=--block $(BUILD)/%.map) --min $(GWSIZE_MIN)

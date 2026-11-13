@@ -8,8 +8,10 @@
 #   FILE.ASM LABEL -> later 7b          a later sub-phase's (the plan's 7b-7g)
 #   FILE.ASM LABEL -> dropped: why      not needed on the OO-1
 #
-# tools/ledger.py checks it: against the source (every label named is there) and against the build's maps (every
-# 6502 label named is there).
+# tools/ledger.py checks it: against the source's names (every label named is there, and every routine a translated
+# one calls, jumps into or names in a dispatch table has its line) and against the build's maps (every 6502 label
+# named is there). The Makefile's default target runs it, with srcnames.txt, the source's names made from the
+# source by `ledger.py --src ... --write-names srcnames.txt`, so the build needs no copy of the source.
 
 # The spike's (oodos/spike/gwbasic/, carried into res/ at 7a's start)
 #
@@ -748,6 +750,8 @@ GWSTS.ASM EOSCHK -> p2/gwlist.s DELETP # DELETE's, inline (the rest of GWSTS.ASM
 IBMRES.ASM ALPTAB -> p2/ibmres.s ALPTAB
 IBMRES.ASM RESLST -> p2/ibmres.s RESLST # the words' text the project's own, made by Q and QF
 IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
+IBMRES.ASM STMDSP -> res/tables.s STMDSP # each R and R2 target has its line
+IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
 IBMRES.ASM STMDSX -> res/ibmres.s STMDSX # SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
 IBMRES.ASM FUNDSX -> later 7c: CVI to MKD$ (the random files'); KTN to KLEN dropped with them (Kanji)
 IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
@@ -1118,3 +1122,196 @@ GENGRP.ASM GLINE -> later 7e: the graphics LINE (here Advanced Feature)
 DSKCOM.ASM DLINE -> later 7c: LINE INPUT # (here Advanced Feature)
 DSKCOM.ASM FILIND -> later 7c: INPUT #'s values
 GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY
+
+# r1: review round 1 (DD4). What the translated routines reach that the first check didn't follow: tail jumps
+# into another routine's body (a label nothing CALLs, nor makes PUBLIC), and the dispatch tables' targets
+# (IBMRES.ASM's R and R2 in STMDSP, FUNDSP and STMDSX/FUNDSX, which SPCTAB's body runs into; the DW tables of
+# MATH1.ASM and ALPTAB). Where the 8086 shares a tail (a RET, a JMP) the 6502 has it inline, the line names the
+# routine that holds it.
+MATH1.ASM FTH10 -> p1/fout.s FTH10 # a tail jump of $FOUTO's
+MATH1.ASM FZ10 -> p1/fout.s FZ10 # a tail jump of $FOTZS's
+MATH1.ASM FZ50 -> p1/fout.s FZ50 # a tail jump of FZ10's
+MATH1.ASM FZ60 -> p1/fout.s FZ60 # a tail jump of FZ10's
+MATH1.ASM SIN30 -> p1/trans.s SIN30 # a tail jump of $COS's
+MATH1.ASM FIN80 -> p1/dmath.s FIN80 # a tail jump of $FINE's
+MATH1.ASM DV010 -> res/math1.s DV010 # a tail jump of OVFLS's
+MATH1.ASM FFM100 -> p1/fout.s FFM100 # a tail jump of TRAPER's
+MATH1.ASM STOULP -> res/math1.s STOULP # a tail jump of STROUT's
+MATH1.ASM SIS10 -> res/math1.s SIS10 # a tail jump of $SIGNS's
+MATH1.ASM ML10 -> p1/dmath.s ML10 # a tail jump of $DIV10's
+MATH1.ASM ML05 -> p1/dmath.s ML05 # a tail jump of $DIV10's
+MATH1.ASM CPM05 -> res/math1.s CPM05 # a tail jump of $FCOMP's
+MATH1.ASM CPM10 -> res/math1.s CPM10 # a tail jump of $FCOMP's
+MATH1.ASM CPM06 -> res/math1.s CPM06 # a tail jump of $FCOMP's
+MATH1.ASM ZEREXP -> res/math1.s ZEREXP # a tail jump of $COMPM's
+MATH1.ASM VN15 -> res/math1.s VN15 # a tail jump of ABSFN's
+MATH1.ASM FN20 -> p1/fin.s FN20 # a tail jump of FIN's
+MATH1.ASM FN96 -> p1/fin.s FN96 # a tail jump of FINDBL's
+MATH1.ASM FN100 -> p1/fin.s FN100 # in FINDBL's table
+MATH1.ASM FN200 -> p1/fin.s FN200 # in FINDBL's table
+MATH1.ASM FN400 -> p1/fin.s FN400 # in FINDBL's table
+MATH1.ASM FN500 -> p1/fin.s FN500 # in FINDBL's table
+MATH1.ASM FN600 -> p1/fin.s FN600 # in FINDBL's table
+MATH1.ASM FN92 -> p1/fin.s FN92 # in FINDBL's table
+MATH1.ASM FN50 -> p1/fin.s FN50 # a tail jump of FN100's
+MATH1.ASM FN94 -> p1/fin.s FN94 # a tail jump of FN200's
+MATH1.ASM FINF -> p1/fin.s FINF # a tail jump of FN500's
+MATH1.ASM NG10 -> res/math1.s NG10 # a tail jump of FIXER's
+MATH1.ASM NOTIT2 -> res/biptrg.s NOTIT2 # a tail jump of LOPFND's
+MATH1.ASM FADDX1 -> p1/dmath.s FADDX1 # a tail jump of $FSUBD's
+MATH1.ASM FADDX2 -> p1/dmath.s FADDX2 # a tail jump of $FADDD's
+MATH1.ASM FEXIT1 -> res/math1.s FEXIT1 # a tail jump of $FSUBS's
+MATH1.ASM EXIT2 -> res/math1.s EXIT2 # a tail jump of $FADDS's
+MATH1.ASM DNRMCHK -> p1/dmath.s DNRMCHK # a tail jump of DDIV's
+MATH1.ASM NORMCHK -> res/math1.s NORMCHK # a tail jump of $FDIVS's
+MATH1.ASM SDIVOVFL -> res/math1.s SDIVOVFL # a tail jump of RESTORE's
+MATH2.ASM FC200 -> res/math2.s FC200 # a tail jump of $FS's
+MATH2.ASM OVCHK -> res/math2.s OVCHK # a tail jump of $FI's
+MATH2.ASM POSBOVER -> res/math2.s POSBOVER # a tail jump of $FI's
+MATH2.ASM CXRET -> res/math2.s CXRET # a tail jump of VALINT's
+MATH2.ASM FTD05 -> p1/fout.s FTD05 # a tail jump of $FOTAN's
+MATH2.ASM FTD20 -> p1/fout.s FTD20 # a tail jump of $FOTAN's
+MATH2.ASM DNT20 -> p1/dmath.s DNT20 # a tail jump of $DINT's
+MATH2.ASM QINTX -> res/math2.s QINTX # a tail jump of $QINT's
+BIPTRG.ASM SNFUNS -> res/biptrg.s SNFUNS # a tail jump of NOARYS's
+BIPTRG.ASM LOPFD0 -> res/biptrg.s LOPFD0 # a tail jump of PTRGTR's
+BISTRS.ASM LEFT3 -> res/bistrs.s LEFT3 # a tail jump of RIGHT$'s
+IBMRES.ASM ATAB -> p2/ibmres.s ATAB # in ALPTAB's table
+IBMRES.ASM BTAB -> p2/ibmres.s BTAB # in ALPTAB's table
+IBMRES.ASM CTAB -> p2/ibmres.s CTAB # in ALPTAB's table
+IBMRES.ASM DTAB -> p2/ibmres.s DTAB # in ALPTAB's table
+IBMRES.ASM ETAB -> p2/ibmres.s ETAB # in ALPTAB's table
+IBMRES.ASM FTAB -> p2/ibmres.s FTAB # in ALPTAB's table
+IBMRES.ASM GTAB -> p2/ibmres.s GTAB # in ALPTAB's table
+IBMRES.ASM HTAB -> p2/ibmres.s HTAB # in ALPTAB's table
+IBMRES.ASM ITAB -> p2/ibmres.s ITAB # in ALPTAB's table
+IBMRES.ASM JTAB -> p2/ibmres.s JTAB # in ALPTAB's table
+IBMRES.ASM KTAB -> p2/ibmres.s KTAB # in ALPTAB's table
+IBMRES.ASM LTAB -> p2/ibmres.s LTAB # in ALPTAB's table
+IBMRES.ASM MTAB -> p2/ibmres.s MTAB # in ALPTAB's table
+IBMRES.ASM NTAB -> p2/ibmres.s NTAB # in ALPTAB's table
+IBMRES.ASM OTAB -> p2/ibmres.s OTAB # in ALPTAB's table
+IBMRES.ASM PTAB -> p2/ibmres.s PTAB # in ALPTAB's table
+IBMRES.ASM QTAB -> p2/ibmres.s QTAB # in ALPTAB's table
+IBMRES.ASM RTAB -> p2/ibmres.s RTAB # in ALPTAB's table
+IBMRES.ASM STAB -> p2/ibmres.s STAB # in ALPTAB's table
+IBMRES.ASM TTAB -> p2/ibmres.s TTAB # in ALPTAB's table
+IBMRES.ASM UTAB -> p2/ibmres.s UTAB # in ALPTAB's table
+IBMRES.ASM VTAB -> p2/ibmres.s VTAB # in ALPTAB's table
+IBMRES.ASM WTAB -> p2/ibmres.s WTAB # in ALPTAB's table
+IBMRES.ASM XTAB -> p2/ibmres.s XTAB # in ALPTAB's table
+IBMRES.ASM YTAB -> p2/ibmres.s YTAB # in ALPTAB's table
+IBMRES.ASM ZTAB -> p2/ibmres.s ZTAB # in ALPTAB's table
+MATH1.ASM FIN55 -> p1/fin.s FINE # a RET: $FINE's own
+MATH1.ASM SHST -> p1/dmath.s SHRA # the sticky bit, inline
+MATH1.ASM MBF05 -> p1/dmath.s MOVAC # inline
+MATH1.ASM MAF05 -> p1/dmath.s MOVFA # inline
+MATH1.ASM CPM80 -> res/math1.s FCOMP # the exit, inline
+MATH1.ASM CPM22 -> p1/dmath.s DCMPM # inline
+MATH1.ASM VPS10 -> res/math1.s VPSHF # inline
+MATH1.ASM VMVVFM -> res/math1.s VMOVFM # inline
+MATH1.ASM SG15 -> res/mathfar.s DCOMP # a RET
+MATH1.ASM EXIT1 -> p1/dmath.s DDIVFA # JMP $DZERO, inline
+MATH1.ASM DOVCKJ -> p1/dmath.s DDIVFA # inline
+MATH1.ASM MAXQUO -> res/math1.s SDIV # the quotient's overflow, inline
+MATH1.ASM RETJ -> res/math1.s SDIV # a RET
+MATH2.ASM NGBLDX -> res/math2.s INT25 # $QINT's; EXP's copy inline (p1/trans.s EXP)
+MATH2.ASM OVERFLOW -> res/math2.s OVRFLW
+BISTRS.ASM STR$1 -> p1/strfn.s STR1
+GWEVAL.ASM USRFN -> later 7b: USR (here res/todo.s USRFN, Illegal function call)
+GWEVAL.ASM FNDOER -> later 7b: FN (here res/todo.s FNDOER, Illegal function call)
+GIOKYB.ASM RET8 -> OEM res/oem.s CNTCCN # a RET
+GIODSK.ASM RESETX -> OEM res/oem.s SYSTEM # a RET
+GIO86.ASM ERDNA2 -> later 7c: the device dispatch's Device unavailable
+GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
+#
+# STMDSP's statements (res/tables.s: here ADVERR, Advanced Feature, until their sub-phase).
+BIMISC.ASM CLEAR -> later 7b
+GWMAIN.ASM ONGOTO -> later 7b: ON GOTO and ON GOSUB
+GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
+GWEVAL.ASM DEF -> later 7b: DEF FN
+GWMAIN.ASM POKE -> later 7c: with DEF SEG
+GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
+GIO86.ASM WIDTHS -> later 7d
+BIMISC.ASM SWAP -> later 7b
+BIMISC.ASM ERASE -> later 7b
+GWMAIN.ASM ERRORS -> later 7b: ERROR
+GWMAIN.ASM RESUME -> later 7b
+GWMAIN.ASM AUTO -> later 7b
+GWMAIN.ASM RESEQ -> later 7b: RENUM
+CALL86.ASM CALLS -> later 7g: CALL
+FIVEO.ASM WRITE -> later 7b
+GWMAIN.ASM OPTION -> later 7b: OPTION BASE
+GWMAIN.ASM RANDOM -> later 7b: RANDOMIZE
+GIO86.ASM OPEN -> later 7c
+GIO86.ASM CLOSE -> later 7c
+DSKCOM.ASM LOAD -> later 7c
+DSKCOM.ASM MERGE -> later 7c
+GWSTS.ASM COLOR -> later 7d
+GWSTS.ASM CLS -> later 7d
+GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
+GIO86.ASM BSAVE -> later 7c
+GIO86.ASM BLOAD -> later 7c
+GWSTS.ASM SOUNDS -> later 7f: SOUND
+GWSTS.ASM BEEPS -> later 7f: BEEP
+GENGRP.ASM PSET -> later 7e
+GENGRP.ASM PRESET -> later 7e
+GWSTS.ASM SCREEN -> later 7d: SCREEN 0 (1 and 2 7e)
+GWSTS.ASM KEYS -> later 7d: KEY and the function-key line (KEY(n) 7f)
+GWSTS.ASM LOCATE -> later 7d
+#
+# FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
+GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
+GIOSCN.ASM POS -> later 7d
+GWMAIN.ASM PEEK -> later 7c: with DEF SEG
+GIOLPT.ASM LPOS -> later 7c
+GWSTS.ASM PENF -> later 7e: PEN
+GWSTS.ASM STICKF -> later 7f: STICK
+GWSTS.ASM STRIGF -> later 7f: STRIG
+GIO86.ASM EOF -> later 7c
+GIO86.ASM LOC -> later 7c
+GIO86.ASM LOF -> later 7c
+#
+# STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
+GIODSK.ASM FILES -> later 7c
+DSKCOM.ASM FIELD -> later 7c
+GIODSK.ASM NAME -> later 7c
+DSKCOM.ASM LSET -> later 7c
+DSKCOM.ASM RSET -> later 7c
+GIODSK.ASM KILL -> later 7c
+GWSTS.ASM PUT -> later 7c: PUT, a file's (a graphics PUT 7e)
+GWSTS.ASM GET -> later 7c: GET, a file's (a graphics GET 7e)
+GIODSK.ASM RESET -> later 7c
+FIVEO.ASM COMMON -> later 7c: with CHAIN (not in the plan's lists: a question for 7c)
+FIVEO.ASM CHAIN -> later 7c: CHAIN (not in the plan's lists: a question for 7c)
+GWSTS.ASM DATES -> later 7f: DATE$, on function 105
+GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
+ADVGRP.ASM PAINT -> later 7e
+GWSTS.ASM COMS -> later 7c: COM, the COM1 device's statement (ON COM's trap 7f)
+ADVGRP.ASM CIRCLE -> later 7e
+ADVGRP.ASM DRAW -> later 7e
+GWSTS.ASM PLAYS -> later 7f: PLAY
+GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
+GWSTS.ASM ERDEV -> later 7c: ERDEV, ERDEV$
+GWSTS.ASM IOCTL -> later 7c: IOCTL, IOCTL$
+GWSTS.ASM CHDIR -> later 7c: OODOS has no directories (a question for 7c)
+GWSTS.ASM MKDIR -> later 7c: OODOS has no directories (a question for 7c)
+GWSTS.ASM RMDIR -> later 7c: OODOS has no directories (a question for 7c)
+GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
+GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
+GWSTS.ASM VIEW -> later 7e
+GWSTS.ASM WINDOW -> later 7e
+GWSTS.ASM PMAP -> later 7e
+GWSTS.ASM PALETE -> later 7e: PALETTE
+GWSTS.ASM LCOPYS -> later 7c: LCOPY, to LST:
+CALL86.ASM CALLSL -> later 7g: CALLS
+DSKCOM.ASM CVI -> later 7c
+DSKCOM.ASM CVS -> later 7c
+DSKCOM.ASM CVD -> later 7c
+DSKCOM.ASM MKI$ -> later 7c
+DSKCOM.ASM MKS$ -> later 7c
+DSKCOM.ASM MKD$ -> later 7c
+KANJ86.ASM KTNFN -> dropped: Kanji
+KANJ86.ASM JISFN -> dropped: Kanji
+KANJ86.ASM KPOSFN -> dropped: Kanji
+KANJ86.ASM KLENFN -> dropped: Kanji
