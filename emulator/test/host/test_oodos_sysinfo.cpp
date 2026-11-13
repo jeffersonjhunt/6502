@@ -22,7 +22,9 @@
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
  *     found;
- *   - function 72's block (interface 9): the ROM BIOS's version at +10-11 only for a caller that asks;
+ *   - function 77 (interface 9): the ROM BIOS's version, $FF $FF with no greeting found, and SYSINFO on an
+ *     OODOS that reports interface 8; function 72 as it was (VERTEST);
+ *   - A:'s free space, exact, worked out from the card's directory (the golden files hold "#K free");
  *   - one section alone, and the usage line for a word that isn't one.
  *
  * SYSINFO_GOLDEN=update writes the golden files from what SYSINFO prints, which a person does on
@@ -117,6 +119,7 @@ namespace
             }
         }
         s = std::regex_replace(s, std::regex("[0-9],[0-9]{3},[0-9]{3} Hz by"), "#,###,### Hz by");
+        s = std::regex_replace(s, std::regex("[0-9,]+K free"), "#K free"); // what is on the card's drives (EE6)
         s = std::regex_replace(s, std::regex("(CLOCK      [0-9]{4}-[0-9]{2}-[0-9]{2} )[0-9]{2}:[0-9]{2}:[0-9]{2}"),
                                "$1hh:mm:ss");
         return s;
@@ -208,6 +211,55 @@ namespace
         void write(uint32_t, uint8_t) override {}
     };
 
+    /// A:'s free space (the card's unit 1, oodos-8m), worked out from its directory behind OODOS's back, as
+    /// test_oodos_utils_sys's SHOW cases do: (DSM + 1) blocks less the directory's (AL0, AL1) and every
+    /// file's, of 4 KB each.
+    unsigned a_free_kb(CcpRig &r)
+    {
+        CpmDisk disk{r, 1};
+        const std::vector<uint8_t> d = disk.directory();
+        const std::string h = dpb_hex("oodos-8m");
+        std::vector<uint8_t> p;
+        for (size_t i = 0; i + 1 < h.size(); i += 2)
+            p.push_back(static_cast<uint8_t>(std::stoul(h.substr(i, 2), nullptr, 16)));
+        const unsigned dsm = unsigned{p[5]} | unsigned{p[6]} << 8, al = unsigned{p[9]} << 8 | p[10];
+        std::vector<bool> used(dsm + 1, false);
+        for (unsigned b = 0; b < 16; ++b)
+            if (al & (0x8000u >> b))
+                used[b] = true;
+        for (unsigned i = 0; i < disk.entries(); ++i)
+            if (d[i * 32] < 16)
+                for (unsigned k = 0; k < 8; ++k)
+                {
+                    const unsigned b = unsigned{d[i * 32 + 16 + 2 * k]} | unsigned{d[i * 32 + 17 + 2 * k]} << 8;
+                    if (b && b <= dsm)
+                        used[b] = true;
+                }
+        unsigned f = 0;
+        for (const bool u : used)
+            f += !u;
+        return f * disk.bls() / 1024;
+    }
+    std::string commas(unsigned n)
+    {
+        const std::string d = std::to_string(n);
+        std::string s;
+        for (size_t i = 0; i < d.size(); ++i)
+            s += (i && (d.size() - i) % 3 == 0 ? "," : "") + std::string(1, d[i]);
+        return s;
+    }
+
+    /// FT_INFOX's LDA #9 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
+    void report_interface_8(CcpRig &r)
+    {
+        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
+        uint32_t p = base;
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 9 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+            ++p;
+        REQUIRE(p < base + 64);
+        r.poke(p + 1, 8);
+    }
+
     std::string full_golden() { return read_text(std::string(EMU_GOLDEN_DIR) + "/sysinfo.txt"); }
 } // namespace
 
@@ -215,7 +267,12 @@ TEST(sysinfo_reports_the_whole_machine)
 {
     InfoRig r;
     REQUIRE(r.ok);
-    const std::string got = normal(run(r, "m:sysinfo /all"));
+    const std::string raw = run(r, "m:sysinfo /all");
+    const std::string want_a = "DRIVES     A: 8,192K, " + commas(a_free_kb(r)) + "K free"; // the one exact free space
+    CHECK(raw.find(want_a) != std::string::npos);
+    if (raw.find(want_a) == std::string::npos)
+        std::printf("  no '%s'\n", want_a.c_str());
+    const std::string got = normal(raw);
     CHECK(golden("sysinfo.txt", got));
     CHECK(got.find("$C4FF") == std::string::npos); // the addresses are the blocks', not the ID bytes'
 }
@@ -291,22 +348,61 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
         std::printf("  %s\n", vis(got).c_str());
 }
 
-TEST(function_72_writes_past_10_bytes_only_when_asked)
+TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): a caller of 72 before interface 9, a block of 10 with other bytes after
-    // it, gets the same 10 bytes as one that asks for +10-11 ('R' 'V'), and its +10-11 are left as they were;
-    // the one that asks gets the ROM BIOS's version there, 0.13 as bios.rom's greeting has it.
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 9, 77 the ROM BIOS 0.13 as bios.rom's greeting has
+    // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
+    CHECK(o.find("FINFO 09 0F\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 0D\n") != std::string::npos);
     std::smatch m;
-    REQUIRE(std::regex_search(o, m, std::regex("OLD ([0-9A-F]{20})([0-9A-F]{4})\nNEW ([0-9A-F]{20})([0-9A-F]{4})")));
-    CHECK_EQ(m[1].str(), m[3].str());                 // the 10 bytes, the same either way
-    CHECK_EQ(m[1].str().substr(0, 16), std::string("0009000200044001")); // OODOS 0.9, its BIOS 0.2, 1,024 KB, 320 KB
-    CHECK_EQ(m[2].str(), std::string("A55A"));        // not asked: +10-11 untouched
-    CHECK_EQ(m[4].str(), std::string("000D"));        // asked: the ROM BIOS 0.13
-    if (m.empty())
+    CHECK(std::regex_search(o, m, std::regex("V72 0009000200044001[0-9A-F]{4}A55A")));
+    if (o.find("ROMV 00 0D") == std::string::npos || m.empty())
+        std::printf("  %s\n", vis(o).c_str());
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.13\n") != std::string::npos);
+}
+
+TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
+{
+    // The ROM's greeting in its RAM copy (block 63) taken away, and OODOS booted again: its cold boot finds none.
+    InfoRig r;
+    REQUIRE(r.ok);
+    const std::string key = "BACKPLANE BIOS ";
+    unsigned found = 0;
+    for (uint32_t a = 0xFC800; a + key.size() <= 0x100000; ++a)
+    {
+        bool same = true;
+        for (size_t i = 0; i < key.size() && same; ++i)
+            same = r.phys(static_cast<uint32_t>(a + i)) == static_cast<uint8_t>(key[i]);
+        if (same)
+        {
+            r.poke(a, 'X');
+            ++found;
+        }
+    }
+    REQUIRE(found >= 1);
+    REQUIRE(r.boot());
+    r.put_util("vertest", EMU_OODOS_SYS_DIR);
+    r.put_util("sysinfo", UTILS);
+    const std::string o = run(r, "m:vertest");
+    CHECK(o.find("ROMV FF FF\n") != std::string::npos);
+    if (o.find("ROMV FF FF") == std::string::npos)
+        std::printf("  %s\n", vis(o).c_str());
+    CHECK(run(r, "m:sysinfo system /all").find("  ROM BIOS   not found by OODOS at its boot\n") != std::string::npos);
+}
+
+TEST(sysinfo_on_an_oodos_of_interface_8_says_it_has_no_function_77)
+{
+    InfoRig r;
+    REQUIRE(r.ok);
+    report_interface_8(r);
+    const std::string o = run(r, "m:sysinfo system /all");
+    CHECK(o.find("  ROM BIOS   not given by this OODOS (before interface 9)\n") != std::string::npos);
+    CHECK(o.find("OOLIB interface 8") != std::string::npos);
+    if (o.find("before interface 9") == std::string::npos)
         std::printf("  %s\n", vis(o).c_str());
 }
 

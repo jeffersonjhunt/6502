@@ -1,11 +1,10 @@
-; VERTEST: function 72's block before interface 9 and after (hw/diag.md, D1-1):
-; a caller's block of 10 is never written past, and one that puts 'R' 'V'
-; (OV_ROMKEY, OV_ROMKEY2) at +10-11 gets the ROM BIOS's version there.
+; VERTEST: function 77 (O_ROMVER, interface 9; hw/diag.md, D1-1), the ROM
+; BIOS's version, and function 72 as it always was, for test_oodos_sysinfo.
 ;
-;   OLD <12 bytes>   a block with $A5 $5A at +10-11: the 10 bytes, then
-;                    +10-11 as they were
-;   NEW <12 bytes>   the same with 'R' 'V' there: the 10 bytes, then the
-;                    ROM BIOS's version, major and minor
+;   FINFO aa xx    function 80's FT_INFO: the interface version, the areas
+;   ROMV aa xx     function 77: the major and the minor, $FF $FF unknown
+;   V72 <12 bytes> function 72's 10 bytes into a block with $A5 $5A after
+;                  it: they are left alone
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -14,43 +13,54 @@
         .include "printzp.inc"
 
         .code
-start:  lda     #$A5
-        ldx     #$5A
-        jsr     call
-        lda     #<sold
-        ldx     #>sold
-        jsr     show
-        lda     #OV_ROMKEY
-        ldx     #OV_ROMKEY2
-        jsr     call
-        lda     #<snew
-        ldx     #>snew
-        jsr     show
-        jmp     WBOOT
-
-; Function 72 into blk, A and X at its +10-11 first.
-call:   sta     blk + OV_ROM
-        stx     blk + OV_ROM + 1
+start:  lda     #<sfinfo
+        ldx     #>sfinfo
+        jsr     PUTS
+        lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        jsr     pair
+        lda     #<sromv
+        ldx     #>sromv
+        jsr     PUTS
+        ldy     #O_ROMVER
+        jsr     BDOS
+        jsr     pair
+        lda     #$A5
+        sta     blk + 10
+        lda     #$5A
+        sta     blk + 11
         lda     #<blk
         ldx     #>blk
         ldy     #O_VERSION
-        jmp     BDOS
-
-; The '$' string at A/X, the block's 12 bytes, CR LF.
-show:   jsr     PUTS
+        jsr     BDOS
+        lda     #<sv72
+        ldx     #>sv72
+        jsr     PUTS
         lda     #<blk
         sta     PTR
         lda     #>blk
         sta     PTR + 1
-        ldx     #OV_LEN9
+        ldx     #12
         jsr     HEXN
+        jsr     CRLF
+        jmp     WBOOT
+
+; A and X as "aa xx", CR LF.
+pair:   phx
+        jsr     HEX2
+        jsr     SPACE
+        pla
+        jsr     HEX2
         jmp     CRLF
 
         .rodata
-sold:   .byte   "OLD $"
-snew:   .byte   "NEW $"
+sfinfo: .byte   "FINFO $"
+sromv:  .byte   "ROMV $"
+sv72:   .byte   "V72 $"
 
         .bss
-blk:    .res    OV_LEN9
+blk:    .res    12
 
         .include "print.inc"

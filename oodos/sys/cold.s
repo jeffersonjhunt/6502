@@ -30,7 +30,7 @@ SHIFT:          .res    1
 CIDX:           .res    1              ; CARDS' place in CARDTAB
 VER:            .res    VER_MAX + 1
 ROMVER:         .res    2              ; the ROM BIOS's version, major and minor ($FF $FF: not found), for
-                                       ; function 72's +10-11 (bdos.s, F_OODOS; interface 9)
+                                       ; function 77 (bdos.s, F_ROMVER; interface 9)
 
 .segment "RES"
 

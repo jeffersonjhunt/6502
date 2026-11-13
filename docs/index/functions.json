@@ -545,7 +545,7 @@
   "documented": true,
   "anchor": "bdos-72",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4; +10-11, the ROM BIOS's version, since OODOS 0.9 with interface version 9 (hw/diag.md, D1-1).",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -582,6 +582,15 @@
   "anchor": "bdos-76",
   "file": "oodos-programmers-guide/07-function-reference.md",
   "since": "OODOS 0.4",
+  "status": "built"
+ },
+ {
+  "number": 77,
+  "name": "O_ROMVER",
+  "documented": true,
+  "anchor": "bdos-77",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "Interface version 9 (function 80's `FT_INFO`).",
   "status": "built"
  },
  {

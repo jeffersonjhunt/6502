@@ -44,6 +44,8 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
     dispatcher makes, which acknowledges nothing and changes nothing); `VIDEO_MEMSIZE`; `USB_DEVICES`; `SD_STATUS`;
     the console card's SWR, PANEL, STATUS, LADDR and LDATA; `NB_SEC` polled for the clock (its effect on the
     bridge's I²C reads on real hardware unknown, as stage 11 says).
+  - **The VIA's timer 2** (EE5): `T2CL` and `T2CH` written and read, for `HW_CLOCK`'s count. That changes only
+    IFR's timer 2 flag (a read of `T2CL` clears it), which OODOS doesn't use; never ACR, IER or timer 1.
   - **Writes:** RTCREG, to read the DS3231's temperature through RTCDATA (an I²C read; BUSY waited for); SD's
     `IDENTIFY`; the console card's DISPLAY, CTRL's bit 3 (P2), and its breakpoint (P3: BPADDR, BPCTRL, STATUS's
     HIT); and, with the parts claimed through function 82, the sound card's registers as the Programmer's Guide

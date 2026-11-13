@@ -433,8 +433,9 @@ class Check:
             elif fns[num] != name:
                 self.fail(where, f"{e['id']}: oodos.inc calls function {num} {fns[num]}, not {name}")
             since = e["fields"].get("Since", "")
-            if status == "built" and not re.match(r"^OODOS \d+\.\d+\b", since):
-                self.fail(where, f"{e['id']}: a built function's Since is 'OODOS major.minor'")
+            # An OODOS version, or (since function 77, hw/diag.md's EE1) the interface version that brought it.
+            if status == "built" and not re.match(r"^(OODOS \d+\.\d+|Interface version \d+)\b", since):
+                self.fail(where, f"{e['id']}: a built function's Since is 'OODOS major.minor' or 'Interface version n'")
             e["since"] = since.split("\n")[0] if since else None
         elif kind == "register":
             m = REG_HEAD.match(e["heading"])

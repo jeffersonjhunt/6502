@@ -17,8 +17,8 @@
 ;   SYSTEM   the CPU (the design's W65C02S: no opcode test, review CC1) and
 ;            its clock, measured by oohw's HW_CLOCK against the DS3231's
 ;            second and against 60 frames of the event area's counter
-;            (function 80); the ROM BIOS's version (72's +10-11, interface
-;            9); OODOS's and its BIOS's (72), OOLIB's interface
+;            (function 80); the ROM BIOS's version (77, interface 9);
+;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA); how
 ;            the machine booted (NB_STATUS)
@@ -423,41 +423,33 @@ mhz:    sta     p
         ldx     #>smhz
         jmp     puts
 
-; "  ROM BIOS   0.13": function 72's +10-11 (interface 9, hw/diag.md's D1-1), asked for by 'R' 'V'
-; there; an OODOS before it leaves them as they were.
+; "  ROM BIOS   0.13": function 77 (O_ROMVER, interface 9, hw/diag.md's D1-1). An OODOS before
+; interface 9 hasn't it (and would answer it A = X = $FF anyway): FT_INFO says which.
 rombios:
         lda     #<sbios
         ldx     #>sbios
         jsr     puts
-        lda     #OV_ROMKEY
-        sta     ver + OV_ROM
-        lda     #OV_ROMKEY2
-        sta     ver + OV_ROM + 1
-        lda     #<ver
-        ldx     #>ver
-        ldy     #O_VERSION
+        lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
         jsr     BDOS
-        lda     ver + OV_ROM
-        cmp     #OV_ROMKEY
-        bne     @got
-        lda     ver + OV_ROM + 1
-        cmp     #OV_ROMKEY2
-        bne     @got
-        lda     #<sbiosold              ; an OODOS before interface 9
+        cmp     #9
+        bcc     @old                    ; $FF (no function 80) is past 9: looked at next
+        cmp     #$FF
+        bne     @ask
+@old:   lda     #<sbiosold
         ldx     #>sbiosold
         jmp     puts
-@got:   lda     ver + OV_ROM
+@ask:   ldy     #O_ROMVER
+        jsr     BDOS
         cmp     #$FF
         bne     @ver
-        lda     ver + OV_ROM + 1
-        cmp     #$FF
+        cpx     #$FF
         bne     @ver
         lda     #<sbiosnone
         ldx     #>sbiosnone
         jmp     puts
-@ver:   lda     ver + OV_ROM
-        ldx     ver + OV_ROM + 1
-        jmp     version
+@ver:   jmp     version
 
 ; "  OODOS      0.9, its BIOS 0.9; OOLIB interface 8"
 oodos:  lda     #<soodos
@@ -1627,7 +1619,7 @@ frac:   .res    2
 tmp:    .res    1
 tmp2:   .res    1
 left:   .res    2
-ver:    .res    OV_LEN9
+ver:    .res    10
 fcb:    .res    36
 rec:    .res    128
 mcb:    .res    5
