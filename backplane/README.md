@@ -22,3 +22,10 @@ the addresses are in `bios/backplane.inc`. NMI re-enters the monitor.
 make -C bios
 ../emulator/build/release/apps/emu/emulator --machine ../emulator/machines/backplane.machine bios/bios.rom
 ```
+
+## oohw/ ##
+
+The hardware library the system tools share ([`../hw/diag.md`](../hw/diag.md), "The library: oohw.lib"): card
+discovery by ID byte, the CPU's clock against the DS3231 and the video frame, the clock chip's status, the SD
+card's identity, and number output. `oohw.inc` is its interface. OODOS's Makefile builds it into `build/oohw.lib`
+for SYSINFO (and, from D2, DIAG); the ROM's diagnostics (D3) will assemble the same sources into the flash.

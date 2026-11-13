@@ -676,6 +676,54 @@ check`), merged in order. Each reads its part of the books again at its start an
 - **Test map:** `backplane/oohw/  bios oodos docs` (both builds use it); `oodos/utils/sysinfo.s` is under
   `oodos/`; the suite's label `oodos sd video sound usb rtc console` in `EMU_TEST_LABELS`.
 
+#### D1: as built (2026-11-13) ####
+
+**Built** on `feat/diag-d1`, for the owner's review. What differs from the plan above, and why:
+
+- **The ROM BIOS's version can't be read.** The plan had SYSINFO copy the greeting out of RAM block 63 by
+  function 83's `DM_COPY`, "a physical source may be anything". The Programmer's Guide says a source may be
+  anything *a segment may reach*, and OODOS's code (`oodos/sys/video.s`, SRCOK) refuses OODOS's own blocks as a
+  source as well as a destination; block 63 is one. The flash is in no window but OODOS's. So SYSINFO's line says
+  `not readable by a program under OODOS`, and the boot's status lines are where the version shows. Reading it would
+  need an OODOS change: [question D1-1](#d1-questions).
+- **The library's routines built in D1:** `HW_PROBE`, `HW_NAME`, `HW_KNOWN`, `HW_CLOCK`, `HW_FRAMEHZ`, `HW_RTC`,
+  `HW_SD_ID` and the output (`HW_HEX2`, `HW_HEX4`, `HW_HEX6`, `HW_DEC`), with two the table above hasn't: `HW_PUTS`
+  (a 0-ended string, its length in Y) and `HW_DIV` (32 bits by 16, which `HW_DEC`, `HW_FRAMEHZ` and SYSINFO share).
+  The memory tests (`HW_AIA`, `HW_MARCH`, `HW_WALK`, `HW_PORTAIA`) and the report lines (`HW_LINE`, `HW_FAULT`,
+  `HW_SUMMARY`) are DIAG's, so they come with D2. Each module is a file, `backplane/oohw/hw*.s`; their zero page is
+  one pointer, `HW_PTR` (`hwzp.s`). `oohw.inc` is the interface. The library's code is 930 bytes and its names 264,
+  about 1.2 KB, as planned.
+- **The build:** `oodos/Makefile`'s `OOHW_USERS` (SYSINFO now) are assembled with `backplane/bios` and
+  `backplane/oohw` on their include path and linked with `build/oohw.lib`, through the rules gate (3,315
+  instructions, no problems) and with no ld65 warning. `make_card.sh` copies `backplane/oohw/` into its container.
+- **SYSINFO.COM is 9,704 bytes,** not about 5 KB: `cmd.inc` and `util.inc`, which every utility assembles in, are
+  most of the difference.
+- **The drives** are selected by function 14 in the error mode that returns errors (45, `$FF`), so a drive that
+  isn't is passed over in silence, and their free space is function 46's. O: and P: (the Disk II's) aren't selected,
+  so the Disk II's drive never turns for SYSINFO.
+- **The clock** can't read exactly 7,159,090 Hz, as the plan's test said: the poll is about 80 cycles, so each edge
+  is seen up to a pass late. By the DS3231 it read 7,159,031–7,159,122 Hz in the suite's runs (within 9 ppm), so the
+  check is 0.002%; by the video frame 7,159,041–7,159,579 Hz (within 68 ppm: the frame counter is the vertical-blank
+  interrupt's, which other interrupts can hold off), so its check is the plan's 0.01%. The golden files hold
+  `#,###,### Hz` in their place, and `hh:mm:ss` for the time.
+- **Not on the demo card:** `make_card.sh` puts SYSINFO.COM on the test card only, and `test_oodos_boot` expects
+  the demo card without it (its one changed expectation), until the owner says ([question D1-2](#d1-questions)).
+- **The must-fail cases,** each made to fail once on a copy of the sources (`OODOS_UTILS_DIR`): the frame's
+  correction taken out (60 frames counted as a second: 7,166,152 Hz, caught by the 0.01% check in three cases);
+  `HW_PROBE`'s second read made absolute like the first (the floating bus then reads as a Disk II at revision 6,
+  caught); `HW_PROBE` reading `+$7E` instead of `+$7F` (every card wrong: every golden file differs). The floating
+  bus is a test-only device in the suite (answer 8): it answers each read with the byte before the CPU's PC, the
+  instruction's last byte, as an empty slot might.
+
+<a id="d1-questions"></a>
+**D1's questions for the owner:**
+
+- **D1-1, the ROM BIOS's version.** *Recommendation:* function 72's block grows by two bytes, +10 and +11 the ROM
+  BIOS's version as OODOS's cold boot already finds it for the boot status (an interface growth, raised as the rule
+  says), and SYSINFO prints it from there. *Alternative:* leave it as built, the boot status the only place it shows.
+- **D1-2, the demo card.** *Recommendation:* put SYSINFO.COM on the demo card with the other utilities, since it
+  writes nothing and shows a visitor what the emulated machine has. *Alternative:* keep it off until DIAG joins it.
+
 ### D2: DIAG.COM ###
 
 - **What:** `oodos/utils/diag.s`, `backplane/oohw/card6510.s` (built for both), the library's memory and port

@@ -32,7 +32,7 @@ STORAGE
              named "card"
              unit 1  A.IMG, 16,384 sectors
              unit 2  B.IMG, 16,384 sectors
-  DRIVES     A: 8,192K, 7,876K free
+  DRIVES     A: 8,192K, 7,864K free
              B: 8,192K, 8,160K free
              M: 128K, 110K free
              O: and P:, the Disk II's (not looked at)
