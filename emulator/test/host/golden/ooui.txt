@@ -22,6 +22,6 @@ u2-pick 61c447240cb2c0bb
 u2-pick-turbo ae84e34a42dcfa33
 uidemo-main 75e591eb33a7ec3a
 uidemo-menu 518c74c5dc6ce37d
-uidemo-picker 051db3cfefbf1d99
+uidemo-picker e8917a77f2d4bf3a
 uidemo-turbo 29ccad79fc7bb872
 window e4b60bb3fea162f2
