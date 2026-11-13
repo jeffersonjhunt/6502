@@ -4113,6 +4113,8 @@ TEST(u3b_the_picker_s_add_and_add_all_keep_it_up)
     click(r, ok.col + 3, ok.row); // the marks kept: the same two again
     expect(poll(r), {{UE_PICK, P_WIN, 0, 0}}, "Add again");
     CHECK_EQ(chosen(r, "pickF"), 2u);
+    key(r, 0x18); // (U3b landing) U: no widget's, nor the picker's: the program's UE_KEY (OK has the focus)
+    expect(poll(r), {{UE_KEY, P_OK, 0x18, 0}}, "U: the program's");
     key(r, 0x0F); // L: "Add a&ll"
     expect(poll(r), {{UE_PICK, P_WIN, 0, 3}}, "Add all: up still");
     CHECK_EQ(chosen(r, "pickF"), 16u); // the result's room
