@@ -480,6 +480,44 @@ TEST(u3b_the_layers_show_at_the_first_paint)
     golden(r, "desktop");
 }
 
+TEST(u3b_a_theme_before_the_first_paint_gives_the_pointer_its_own)
+{
+    // (Review round 3, JJ3) ui_theme before the first ui_poll leaves the layers and the palette to the paint's
+    // end (FF4), and the pointer's image and attribute with them: the paint's end sets them in the new theme
+    // (PTRATTR), as ui_theme after the first paint does. UI_HOUSE's and UI_TURBO's pointers differ in colour
+    // (TH_POINTER); both put it in group 0 (TH_OVERGROUP), so the attribute is checked as written the same.
+    const auto pointer = [](CcpRig &x) {
+        x.run(ms(40));
+        const unsigned page = x.phys(lab("upage")) | x.phys(lab("upage") + 1u) << 8;
+        const unsigned sprbase = vid(x).peek(0x0C) | vid(x).peek(0x0D) << 8;
+        std::vector<uint8_t> v;
+        for (unsigned i = 0; i < 128; ++i) // its image (UI_OFS_SPR: the pointer's first)
+            v.push_back(vid(x).card_peek((page + 0x28) * 256u + i));
+        for (unsigned i = 0; i < 8; ++i) // sprite 0's entry
+            v.push_back(vid(x).card_peek(sprbase * 256u + i));
+        return v;
+    };
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00")); // UI_TURBO, before the first poll
+    expect(poll(r), {}, "the first poll");
+    const std::vector<uint8_t> early = pointer(r);
+    CcpRig c;
+    REQUIRE(c.ok);
+    start_ui(c);
+    CHECK_EQ(ui(c, 'o', BLK_DESK).substr(6), std::string("00"));
+    expect(poll(c), {}, "the first poll");
+    const std::vector<uint8_t> house = pointer(c);
+    CHECK_EQ(ui(c, 't', 1).substr(6), std::string("00")); // UI_TURBO, after it
+    expect(poll(c), {}, "the theme");
+    const std::vector<uint8_t> turbo = pointer(c);
+    CHECK(house != turbo); // the two themes' pointers differ
+    CHECK(early == turbo);
+    CHECK_EQ(frame_hash(r), frame_hash(c));
+}
+
 TEST(a_desktop_and_its_menu_bar)
 {
     CcpRig r;

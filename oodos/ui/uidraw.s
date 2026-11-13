@@ -663,6 +663,9 @@ PAINT:  lda     ususp
         stz     ushow                   ;   they are painted (SETUP)
         jsr     LAYERS
         jsr     SETPAL
+        lda     uptr                    ; (review JJ3) and the pointer in the theme's
+        beq     @sh                     ;   colours: a ui_theme before this paint left it
+        jsr     PTRATTR
 @sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
         and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
         ora     udrew                   ;   changed (VDIRTY), with nothing drawn
