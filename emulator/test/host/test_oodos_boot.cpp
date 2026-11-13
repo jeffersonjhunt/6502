@@ -822,10 +822,12 @@ TEST(the_committed_card_is_what_the_sources_build)
 TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
 {
     // The WebUI's card (sd/demo.sparse): the same programs, from today's sources, and on A: only those,
-    // OOUI.BNK (OOUI's banked library, hw/ooui.md U3a: an OOUI program's ui_load opens it by default) and
-    // README.TXT, in user 0; B: empty. Nothing else on the card.
+    // OOUI.BNK (OOUI's banked library, hw/ooui.md U3a: an OOUI program's ui_load opens it by default),
+    // UIDEMO.COM (oodos/demo/uidemo.s, OOUI's demo) and README.TXT, in user 0; B: empty. Nothing else on the card.
     const Bytes demo = sd_image("demo.sparse");
-    Drive a = built_card(demo, "oodos/tools/make_card.sh", {{"OOUI    BNK", read_file(EMU_OODOS_UTILS_DIR "/OOUI.BNK")}});
+    Drive a = built_card(demo, "oodos/tools/make_card.sh",
+                         {{"OOUI    BNK", read_file(EMU_OODOS_UTILS_DIR "/OOUI.BNK")},
+                          {"UIDEMO  COM", read_file(EMU_OODOS_UTILS_DIR "/uidemo.com")}});
     std::set<std::string> names;
     for (unsigned i = 0; i < a.entries; ++i)
     {
@@ -837,7 +839,7 @@ TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
             c = static_cast<char>(c & 0x7F);
         names.insert(std::to_string(e[0]) + ":" + n);
     }
-    std::set<std::string> want = {"0:HELLO   COM", "0:OODOS   SYS", "0:README  TXT", "0:OOUI    BNK"};
+    std::set<std::string> want = {"0:HELLO   COM", "0:OODOS   SYS", "0:README  TXT", "0:OOUI    BNK", "0:UIDEMO  COM"};
     for (const std::string &u : utilities())
         want.insert("0:" + u83(u));
     CHECK(names == want);
