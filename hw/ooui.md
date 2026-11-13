@@ -298,7 +298,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_poll` | | A the event (`UE_*`), X its widget, Y as the event says, and `UI_EV` (below). Carry clear |
 | `ui_show` | A a handle | shown with its children; a `UF_MODAL` window takes the input and the focus |
 | `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event (the picker's listing stops). A widget in it held by the pointer is let go: a slider's or a scroll bar's last `UE_CHANGE` comes at the next poll (U2 review, X10) |
-| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight. *(Round 3, J2:)* refused the same way, a change to `UF_OWNTHUMB` while `UF_SPRITE` is on before and after the call; with `UF_SPRITE` turned on or off in the same call, it is taken |
+| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight. *(Round 3, J2:)* refused the same way, a change to `UF_OWNTHUMB` while `UF_SPRITE` is on before and after the call; with `UF_SPRITE` turned on or off in the same call, it is taken. *(Round 4, K1:)* setting or clearing `UF_MARGIN` on a scroll bar changes what its `UW_B` means (with it, the page is the low byte and the margin the high; without it, the page is the whole word), so the program sets `UW_B` again first, for the meaning the new flags give it |
 | `ui_settext` | Y a handle, A/X a string | dirty |
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
 | `ui_getvalue` | Y a handle | A/X the value |
@@ -1445,7 +1445,7 @@ program's 320 KB.
 | What | Crossings | Cycles |
 | --- | --- | --- |
 | A crossing's overhead (FARCALL in, the dispatcher, FCRET out) | 1 | 322 |
-| An idle `ui_poll` on UITEST's scene (31 records) | 0 | 20,433 (17%) |
+| An idle `ui_poll` on UITEST's scene (31 records) | 0 | 20,433 (17%); 878 after U3b's B1 and B3 (below) |
 | The sliders' thumbs after a band moved, on a screen shaped as OO-Amp's (Z3) | 0 | 69,591 (58%) |
 | The sliders' thumbs after a status line's text changed far from them | 0 | 9,638 |
 | A picker listing poll | 3 | |
@@ -1710,6 +1710,80 @@ approved with round 3.
 **Sizes after round 3** (mkbank.py): `UICOM` 3,298, unchanged; block A 11,935 (353 free: J2 20 bytes, the margin
 205), B 10,548 (1,740 free: the margin's scroll-bar page 11), C 7,223 (5,065 free: J1's `CLD`); `UISTATE` 1,463 of
 1,536, unchanged.
+
+**The code review, round 4 (2026-11-12, of 48c0386):** clean; K1 and K2 fixed with the repaint's changes below.
+- **K1.** `UI_VSCROLL` and `UI_HSCROLL` refuse (an `.assert` in `_UI_PAGE`) a margin given without `UF_MARGIN` in
+  the flags, since without the flag OOUI reads `UW_B` whole as the page and the margin byte would make it a page of
+  256 or more. `ui_flags`'s row (above) says that setting or clearing `UF_MARGIN` on a scroll bar changes what its
+  `UW_B` means, so the program sets `UW_B` again first. `check_tools.py` assembles each: both macros refuse a
+  margin without the flag, take it with the flag, and take a scroll bar with no margin (a page of 300); without
+  the `.assert` the refused sources assemble.
+- **K2.** `u3b_r4_a_margin_at_the_edges_under_a_hidden_parent_and_a_drop_down`: a slider with `$11` at its window's
+  client area's top left (the margin's cells on the frame and the title take nothing, those inside do); on the
+  desktop at the screen's top left, its window hidden (below it and after its end take the press; nothing comes
+  round from the bottom row or the right column); its window hidden (neither the margin nor the track); and a
+  drop-down down over the margin (the press is the menu's item, the slider's value unchanged). It guards what
+  `MTEST` does already: without its client-area test the frame cells take the press; without its hidden test
+  the hidden window's slider takes it (and `u3b_a_slider_s_margin_takes_a_press` fails too).
+
+#### U3b: the repaint (B1-B4) ####
+
+**Proposed, built 2026-11-12**, the owner's choice from the repaint trace (OO-Amp's screen, about 90 records): B1,
+B2, B3 and B4's cheap parts. No call, record or event changes meaning; no golden frame changed.
+
+- **B1, no paint when nothing changed.** `UISTATE` gains one byte, `uany` (the one the owner approved), whose
+  `UQ_PAINT` bit says a record was dirtied or damage added since the last paint. `DIRTY` sets it (so every call
+  that changes a widget, `ui_show`, `ui_flags`, the focus, `US_HOT` with `TF_HOT`, the widgets' keys, presses and
+  drags, the menus, the picker's listing, key repeat, which comes as a key), as do `BOXADD` (hiding, `ui_flags`'
+  old place, a menu put up), `BOXFULL` (`ui_open`, `ui_theme`, `ui_redraw`, `ui_resume`) and `DLGREC` (the dialogs'
+  records). `PAINT` returns at once while it is clear, and clears it with the damage, after the passes and before
+  `POST`, so what dirties or damages from there on is the next paint's. The thumbs' placing (`POST`, Z3) follows a
+  paint that drew or had damage (Z2), as before. `BOXADD`'s and `DLGREC`'s bits are kept for safety: every caller
+  of each also dirties a record today, so no case fails without them.
+- **B2, one pass on one layer.** On one layer (`UO_OVER` `$FF`, as OO-Amp's look A is), `PAINT`'s second pass is
+  for records on the overlay; it is skipped when `OVERS` says none can be there.
+- **B3, the modal window and the overlay kept.** `FINDMODAL`'s `umodal` and `OVERS`'s answer (`uany`'s `UQ_OVERS`)
+  are found again only when `uany`'s `UQ_MSTALE` and `UQ_OSTALE` say so. `REFOCUS` sets both, and it follows every
+  `ui_show`, `ui_hide`, `ui_flags` and dialog shown or hidden (`ui_msgbox`, `ui_pick`, their closing); so do
+  `DLGREC`, `ui_open` (after `ui_close`), `ui_resume`, `ui_redraw`, and `ui_dirty` on a window: a program may
+  write a record's fields itself and call `ui_dirty` (above), and a window's are what the two answers read. While
+  suspended nothing reads them. A program that writes `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself on a record
+  other than a window, or a record's type or parent, calls `ui_redraw` after (no such program is known).
+- **B4's cheap parts.** The walks that look at every record in order (`PAINT`'s clearing of the dirty bits,
+  `PASS`, `OVERS`) step from one record to the next (`RNEXT`, in `UICOM`: 16 bytes on, the dialogs' records after
+  the table's) instead of finding each with `REC`, where nothing between moves `UIR`. And while the left button
+  holds a slider or a scroll bar, a pointer move doesn't look for the widget under it (`DRAGGED`): the drag
+  follows the pointer as before, and `US_HOT` stays where the press found it till the pointer moves after the
+  release (a `TF_HOT` button isn't lit while a drag passes over it).
+
+**What a poll costs among 90 records** (`u3b_r5_a_poll_s_cost_among_ninety_records`: block 8 of UITBAR, block 5's
+table with 31 labels more, on one layer as OO-Amp's; the cycles of every `ui_poll` until `UE_NONE`; a frame is
+119,318):
+
+| What | Before (48c0386) | After | The limit the case holds |
+| --- | --- | --- | --- |
+| An idle poll | 56,679 | 878 | 5,000, no `PASS`, under 5 `REC`s |
+| The first label dirty (the records after it placed) | 453,345 | 242,153 | 350,000, one `PASS` |
+| The last label dirty | | 38,423 | under 150 `REC`s; `REC`s and steps under 330 |
+| The last label shown again | | 45,572 | under 150 `REC`s |
+| A drag's step (a band held, moved a row) | 628,883 | 324,284 | 450,000, no `FRONT` |
+| A button pressed | 1,026,758 | 747,598 | 900,000 |
+| ... and released (its click) | 455,661 | 222,613 | 350,000 |
+| 30 widgets changed at once (14 sliders' values, 15 labels: a track's start) | 2,273,689 | 1,921,661 | 2,150,000 |
+
+UITEST's idle poll (`what_a_call_and_a_crossing_cost`, 31 records) went from 20,728 to 878; its limit, 30,000, is
+unchanged. What is left in the polls that draw is mostly `RECT`: once a dirty widget has been drawn, each record
+after it is placed (its parents walked) to see whether it overlaps the damage, a few thousand cycles each, and the
+sliders' thumbs placed after. Each change's must-fail, by hand on 2026-11-12: B1's skip taken out, the idle poll
+18,303 cycles and a `PASS`; `DIRTY`'s bit, 32 cases fail; `BOXFULL`'s, 7; B2's skip, two `PASS`es; `FINDMODAL`'s
+cache, 90 `REC`s idle and the modal case; `OVERS`'s, the steps' limit; `REFOCUS`'s, `ui_dirty`'s, `ui_resume`'s
+and `ui_open`'s invalidations, `u3b_r5_the_modal_window_and_the_overlay_kept_are_found_again` (which sees a modal
+window come and go after each, and the overlay's window's button take a click only while it shows), and more
+cases for `REFOCUS`'s and `ui_open`'s; each step taken out, the `REC` limits; `DRAGGED`, the drag's `FRONT`.
+
+**Sizes** (mkbank.py): `UICOM` 3,351 (53 more: `RNEXT`, `DIRTY`'s bit, `OVERS`'s cache, in every block); block A
+12,117 (171 free, 182 used: `PAINT`, `PASS`, `FINDMODAL`, `REFOCUS`, the calls' invalidations, `DRAGGED`), B 10,601
+(1,687 free), C 7,281 (5,007 free); `UISTATE` 1,464 of 1,536 (`uany`, the one byte approved).
 
 #### U3a: questions ####
 
