@@ -3780,7 +3780,8 @@ each a question to settle, or to leave out on purpose, before 7g.
   three bytes under the spike's (V5).
 - **FARCALL** is the spike's: 281 cycles over a JSR, A, X, Y and the flags both ways, nesting, the caller's W3
   put back. 281 is the spike's figure, on its harness. OOUI's suite measures 322 cycles for a crossing, its
-  dispatcher included. 7a's gate measures the built FARCALL with GW-BASIC's dispatcher (V8).
+  dispatcher included. 7a's gate measures the built FARCALL from a call site the loader patched (V8, as restated
+  under [the dispatcher](#the-memory-layout-on-revision-2)).
 - **Whatever W3 holds is put back** by the BDOS stub (`ST_W3`), by the dispatcher's calls into block 62 (`CALL62`),
   by the hooks (`CALLHOOK`) and by function 59's door (`LDOOR`). OOUI's blocks already run in W3 across BDOS calls
   and interrupts. Each block's interrupts are answered from its own copy of common memory.
@@ -3944,6 +3945,23 @@ copy of common memory at `$F800` (above).
   FARCALL reads its inline bytes as it starts, so a nested call may rewrite the stub at once. Banked code reaches
   another page through the same dispatcher, and resident code by JSR. The blocks hold no block numbers, so they
   need no fixups. That costs about 30 cycles more than a bare FARCALL.
+  - **A decided deviation (2026-11-13, the owner, at 7a's review): call sites patched at load, not a dispatcher.**
+    7a built no dispatcher. Every far call is a `JSR FARCALL` with the page and the address after it, as FARCALL
+    takes them, assembled as a `JSR` to the resident core's own `FARMISS` ("far call before load") with the
+    page (1–8) where the block goes. Each link lists its far call sites (a `FARFIX` segment; a block's list is
+    named by its header). The loader, once it has allocated the blocks, puts FARCALL's address into every site
+    and replaces each page with its block (`PAGBLK`), in each block's image before the image goes to its block,
+    and in the resident core where it runs. Then a far call is FARCALL alone.
+    - **Why it is faster:** no table read, no stub written and no second `JSR` at each call. The dispatcher's
+      estimated 30 cycles a call are gone: the built crossing is 284 cycles over a `JSR`, against the plan's 281
+      plus 30. It is smaller too: no dispatcher and no stub in the resident core.
+    - **What it costs:** the blocks hold the fixups after all (their lists, about 2 bytes a site, transient for
+      the resident core's), and the loader must trust nothing in GWBASIC.OVL. It checks every list and site
+      against its image and every page against 1–8 and the blocks it has, and refuses anything else (7a's review,
+      DD1 and DD2).
+    - **V8's gate, restated for it:** the built FARCALL, called from a site the loader patched (READY's
+      `FTSITE`, into P1), measured on the emulator as a crossing from the `JSR` to the instruction after it, less
+      a `JSR` and its `RTS`: at most 340 cycles over a `JSR`.
 - **Card memory**, from the program's 1.5 MB:
   - the text layer: 80 × 30 cells, 4,800 bytes;
   - the font: TILEBASE on the console's at `$000400` if a program's layer may name it, else a 4 KB copy (checked in
@@ -3976,7 +3994,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - `oodos/gwbasic/` (new): the translated modules, the link configs, and the Makefile with the size gate and
       the rules gate;
     - the loader;
-    - the dispatcher;
+    - the far call sites, patched by the loader (the decided deviation under the dispatcher, above);
     - start-up with the banner and "Bytes free";
     - lines typed through function 10;
     - output through functions 2 and 6;
@@ -3993,8 +4011,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - 32 KB free, measured;
     - mbf.py's vectors on the target build's math;
     - 7a's programs against the oracle;
-    - the built FARCALL and GW-BASIC's dispatcher measured on the emulator as a crossing, as OOUI's suite measures
-      its 322: at most 340 cycles over a JSR (V8).
+    - the built FARCALL from a call site the loader patched, measured on the emulator as a crossing, as OOUI's
+      suite measures its 322: at most 340 cycles over a JSR (V8, restated under the dispatcher, above).
 - **7b: the other statements** (P3).
   - **What it holds:**
     - RENUM, AUTO, ON GOTO and ON GOSUB, DEF FN, SWAP, ERASE, CLEAR, STRING$, RND, PRINT USING (whose
@@ -4197,7 +4215,10 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   - the loader's copy of common memory skipped (the first far call's interrupt, or its BDOS call, goes astray: a
     test with a tick during a far call fails);
   - `GX_W1BACK` left out after a PSET (a test whose variables sit in `$4000–$7FFF` reads them wrong);
-  - the dispatcher's page table off by one (the wrong block's code runs);
+  - the loader's page table (`PAGBLK`) off by one as it patches the far call sites (the wrong block's code would
+    run): GW-BASIC must not start that way. Decided 2026-11-13 with the patched sites, in place of the
+    dispatcher's page table; 7a's build with the lookup off by one is refused by the loader's own page check
+    ("GWBASIC.OVL is damaged"), and test_gwbasic_core's loading and far call cases fail;
   - `.3333334` against the oracle (the expected file fails until [question 3](#phase-7s-questions) is followed);
   - one expected transcript changed by a character;
   - **the key order (V2):** "1", "2", "3" pressed within one frame must come back from INKEY$ as "123", once each.
@@ -4237,7 +4258,10 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
 - **A tool keeps the account. A ledger,** `oodos/gwbasic/ledger.txt`, lists every 8086 routine the port needs (its
   file, label and lines, and `sizes.py`'s 8086 bytes) and what became of it: a 6502 file and label, the OEM layer,
   or dropped with why. A script checks the ledger against the source, so no routine that is called goes
-  unaccounted for. It also checks the ledger against the link map, giving each routine's ratio, which the size
+  unaccounted for. *As built (7a's review, DD4, 2026-11-13):* "called" takes in tail jumps into another routine
+  and the dispatch tables' targets (IBMRES.ASM's R and R2, the DW tables), and the build runs the check against
+  `oodos/gwbasic/srcnames.txt`, the source's label names alone, made from the source by the script, so it needs
+  no copy of the source. It also checks the ledger against the link map, giving each routine's ratio, which the size
   gate sums.
 - **A translated routine is checked:**
   - against mbf.py where it is math;
