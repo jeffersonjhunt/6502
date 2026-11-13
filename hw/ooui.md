@@ -132,7 +132,9 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 
 A record is 16 bytes (`UW_LEN`), so record *h* is at the table + *h* × 16. The table is the app's memory, and OOUI
 writes `UW_FLAGS`'s dirty bit, `UW_STATE` and the values the user changes. An app may write any field itself and
-then call `ui_dirty`.
+then call `ui_dirty`. *(S1, proposed; the owner's rule:)* a field that moves or resizes a record (`UW_X`, `UW_Y`,
+`UW_W`, `UW_H`, a window's frame), or its type or parent, needs `ui_redraw` after, not `ui_dirty`: what covers what
+may have changed, and only `ui_redraw` says so (the sprite thumbs, the hit test).
 
 | Offset | Name | What it is |
 | --- | --- | --- |
@@ -196,7 +198,8 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 7 `$80` | | `UF_NOFRAME` | | | | | | *(U3b round 5, proposed)* `UF_NOWHEEL` a slider's: the wheel over it is the program's (`UE_WHEEL`); `UF_NOARROWS` a scroll bar's: no arrows, the track the whole bar |
 
 `UW_STATE` (OOUI's): `US_PRESSED` `$01`, `US_HOT` `$02` (the pointer is over it), `US_OPEN` `$04` (a menu down),
-`US_FOCUS` `$08`, `US_DRAG` `$10`.
+`US_FOCUS` `$08`, `US_DRAG` `$10`. *(S1, proposed:)* bit 7 (`US_THUMB`, `ui.inc`'s, not `ooui.inc`'s) is OOUI's
+own: a sprite thumb to place at the next paint.
 
 **A list's rows.** Without `UF_ROUTINE`, `UW_TEXT` points to an array of `UW_A` string pointers. With it,
 `UW_TEXT` is a routine OOUI calls (`JSR`) for each row it draws: A/X the row, Y the list's handle; it returns A/X a
@@ -303,7 +306,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
 | `ui_getvalue` | Y a handle | A/X the value |
 | `ui_setrange` | Y a handle, A/X a list's count or a bar's, slider's or scroll bar's top | the value held to it; dirty |
-| `ui_dirty` | A a handle | it and its children drawn again at the next idle `ui_poll`. *(U3b review round 5, L1, proposed:)* after writing a window's `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself, the program calls `ui_dirty` on that window (or sets them with `ui_flags`, `ui_show` or `ui_hide` instead), so that the modal window and the overlay are found again (B3); for those bits on a record other than a window, or a record's type or parent, `ui_redraw` |
+| `ui_dirty` | A a handle | it and its children drawn again at the next idle `ui_poll`. *(U3b review round 5, L1, proposed:)* after writing a window's `UF_MODAL`, `UF_OVERLAY` or `UF_HIDDEN` itself, the program calls `ui_dirty` on that window (or sets them with `ui_flags`, `ui_show` or `ui_hide` instead), so that the modal window and the overlay are found again (B3); for those bits on a record other than a window, or a record's type or parent, `ui_redraw`. *(S1, proposed:)* after moving or resizing a record by writing its fields, `ui_redraw` too: `ui_dirty` draws it again where it now is, but doesn't say that what covers what changed |
 | `ui_redraw` | | everything drawn again (after the app has had the screen) |
 | `ui_focus` | A a handle | carry set if it can't take it (hidden, disabled, `UF_NOFOCUS`, or under a modal window) |
 | `ui_getfocus` | | A the handle, `UI_NONE` none |
@@ -1852,6 +1855,102 @@ changed.
 
 **Sizes after round 5** (mkbank.py): `UICOM` 3,351, unchanged; block A 12,128 (160 free: the cache 11), B 10,670
 (1,618 free: 69), C 7,281 (5,007 free, unchanged); `UISTATE` 1,464 of 1,536, unchanged.
+
+#### U3b: speed step S1 ####
+
+**Proposed, built 2026-11-12**, the owner's choice from the speed design (at cb1f81f): three of its changes, (i),
+(v) and (viii), and one rule. No call, record or event changes meaning but for the rule; no golden frame changed;
+`UISTATE` unchanged (1,464 of 1,536): the new state is three free bits of `uany` and one of each thumb's
+`UW_STATE`.
+
+- **(i) A thumb placed only when it can have moved.** `POST` placed every sprite thumb whose cells the paint's
+  damage touched, and a paint's damage is the box round everything it drew: on OO-Amp's screen a track's start
+  (some 27 labels) placed all 15 thumbs, each a walk of the records (`SHOWS`). Now `POST` places a thumb if
+  - its record was drawn dirty, or its value changed, since the last `POST`: the record's `UW_STATE` bit 7
+    (`US_THUMB`, `ui.inc`'s; free on every type, `US_*` being bits 0-5), set by the widget's drawing when the
+    record is dirty (`SPRDRAWN`, block B) and by a value's change (`VDIRTY`, below), cleared by `POST`; or
+  - it has no last place (just opened, or a new sprite: as before); or
+  - a geometry event has come since the last `POST` (`uany`'s `UQ_GPOST`) and the thumb's cells are in the
+    damage (U3a's Z3 filter, as before).
+  Otherwise it is left as it was: drawing a record never changes what is in front of a thumb or where it is.
+  **The geometry events** (`UQ_GEOM`: `UQ_GPOST` and `UQ_GHIT`, below, set together), every path that can change
+  what covers what, or where a record is:
+
+  | Path | Where it is set |
+  | --- | --- |
+  | `ui_show`, `ui_hide`, `ui_flags`, a dialog's widget shown or hidden, the box's and the picker's coming and going | `REFOCUS` (each ends there) |
+  | the dialogs' records made (`ui_msgbox`, `ui_pick`) | `DLGREC` (with `REFOCUS` after: kept for safety) |
+  | a menu down (by the keys or the mouse; its drop-down's size from its items' texts, so `ui_settext` on one too) | `MPASS`, at each paint while a menu is down |
+  | a menu up | `MCLOSE` |
+  | `ui_open`, `ui_redraw`, `ui_resume`, `ui_theme` (the thumb image's colours are the theme's) | `BOXFULL` (and `ui_open`'s own setting of `uany`, `STALE`: kept for safety) |
+  | `ui_dirty` on a window (its flags the program's own writing), `ui_redraw`, `ui_resume` | `STALE` |
+
+  Not geometry: a record drawn (`DIRTY`, the damage it adds), the focus, `US_HOT`, a press or a drag, a list's
+  rows, a value. `POST` clears `UQ_GPOST` (and `UQ_THUMB`) when it has looked at every thumb.
+- **(v) The hit test kept while nothing moved.** A press, a release and the wheel each walked the records
+  (`HIT`, `FRONT`) for the widget under the pointer, which `POINTED` had already found (`uhot`) if the pointer
+  hadn't moved since. `HITQ` (block A) answers `uhot` while the pointer is where `POINTED` last saw it (`lmx`,
+  `lmy` against the event area's `EV_MX`, `EV_MY`) and `uany`'s `UQ_GHIT` is clear; else `HIT`. `UQ_GHIT` is set
+  by every geometry event above, and by a pointer move (`POINTED`) until its `HIT` has run, so a drag's moves,
+  which look for nothing (B4's `141,465, nothing drawnGED`), leave it set; `POINTED` now finds the modal window again
+  (`FINDMODAL`, which costs nothing while it is kept) before its `HIT`, as the press's did. **Choice:** the
+  release (`MUP`) uses `HITQ` too, not only the press and the wheel.
+- **(viii) A sprite thumb's value draws no cells.** A slider's or a scroll bar's cells with `UF_SPRITE` don't show
+  its value (the thumb is the sprite), so a value's change there (the widget's keys, press, drag and wheel, and
+  `ui_setvalue`) marks the thumb (`US_THUMB`) and a paint to do (`UQ_PAINT`, and `UQ_THUMB` so that `POST` runs
+  though nothing was drawn) instead of dirtying the record: no cell drawn, no damage, so nothing round it drawn
+  either. `VDIRTY` (block B) does it; `ui_setvalue` reaches it by a crossing (`XB_VDIRTY`) only for a record with
+  bit 4 of its flags set (`UF_SPRITE` on these types; the other types' own bit 4 costs them the crossing, and
+  `VDIRTY` dirties them as before). A cell thumb's slider or scroll bar, and `ui_setrange`, `ui_settext`,
+  `ui_flags` and the focus on a sprite one, still dirty the record as before.
+- **The rule (owner-approved):** a program that moves or resizes a record by writing its fields (or changes its
+  type or parent) calls `ui_redraw` after; `ui_dirty` is not enough, since it says nothing about what covers what
+  ([widget records](#widget-records), [the calls](#the-calls)'s `ui_dirty`).
+- **Accepted** (the owner, with S1): round 5's choice that a `UF_NO138,121` slider's `UE_138,121` has X the slider.
+
+**What it costs** (`s1_a_poll_s_cost_among_ninety_records`, block 8 of UITBAR, 90 records on one layer as
+OO-Amp's; every `ui_poll` until `UE_NONE`; a frame is 119,318 cycles):
+
+| What | Before (cb1f81f) | S1 | The limit the case holds |
+| --- | --- | --- | --- |
+| A track's start (the seek bar's and the playlist slider's values, the title, 26 track labels) | 1,679,598, 15 thumbs placed | 378,777, two placed | 450,000, two thumbs placed |
+| A drag's step (a band held, moved a row) | 241,390, 74 records drawn | 141,465, nothing drawn | 170,000, nothing drawn, one thumb placed, no `FRONT` |
+| The wheel over the band, the pointer still | 311,900 | 138,121 | 170,000, no `FRONT`, nothing drawn |
+| A button pressed, the pointer still | 608,801, 4 thumbs placed | 261,697, one thumb placed | 330,000, no `FRONT`, at most one thumb (the band's, which the focus left) |
+| ... and released (its click) | 161,069 | 104,694 | 130,000, no `FRONT` |
+| 30 widgets at once (15 sliders' values, 15 labels) | 1,829,831 | 1,554,535 | 1,650,000, the 15 thumbs placed |
+
+What is left is mostly `SHOWS`, a walk of the records in `FRONT`'s order for each thumb placed (the drag's step,
+the 30 widgets' 15 thumbs), and `RECT` for each record after a dirty one in `PASS`: S2's and S3's. In
+`u3b_r5_a_poll_s_cost_among_ninety_records` (its limits unchanged) the press with the pointer moved there first
+falls from 664,636 to 317,902.
+
+**Tests:** `s1_a_poll_s_cost_among_ninety_records` (above); `s1_a_thumb_follows_every_geometry_event` (UITBAR's
+U3b scene: the 8 x 32 thumb covered and uncovered by a window shown and hidden, a drop-down by the keys and by the
+mouse, a window the program un-hid itself with `ui_dirty`, a window the program moved over it and back with
+`ui_redraw`, the message box; kept hidden meanwhile while a label and its window are drawn and its own value
+changes; `ui_flags` taking the window's frame away moves every thumb a cell though no thumb's record is dirty;
+`ui_suspend` and `ui_resume`; `ui_theme` rewrites OOUI's own thumb image in the new colours);
+`s1_a_thumb_s_own_changes_place_it` (`ui_setrange` moves a thumb; a value's change writes no cell of the track;
+`ui_dirty` draws it again); `s1_a_hit_is_found_again_after_each_geometry_event` (a window shown under the still
+pointer takes the press and the release, and the wheel; one the program un-hid with `ui_dirty` too; a drag let go
+over a button, then a press there without a move, is the button's; a modal window the program made itself keeps a
+press, the pointer moved onto a button outside it first). `polls_cost` also counts `ONE` (a record drawn) and
+`PLACE1` (a thumb placed). By hand, 2026-11-12, each piece taken out: (i)'s skip of a thumb without a geometry event, the track's start's thumbs and cycles and the press's thumbs;
+`POST`'s clearing of `UQ_GPOST`, the same; `SPRDRAWN`'s mark, `ui_settext`'s new size byte
+(`u3b_ui_settext_on_a_thumb_is_checked`) and `ui_setrange`'s move; `PAINT`'s `UQ_THUMB`, seven cases (no value's
+change placed); `MPASS`'s and `MCLOSE`'s bits, the drop-downs (and `u3b_a_tall_thumb_covered_at_one_end_is_hidden`);
+`REFOCUS`'s, seven cases; `STALE`'s, `ui_dirty` on the window; `BOXFULL`'s, `ui_theme`'s image; (viii)'s `VDIRTY`
+dirtying instead, the drag's and the wheel's drawing and cycles, the 30 widgets' cycles and the track's cell;
+`ui_setvalue`'s crossing skipped, the track's start's case and the cell; (v)'s `HITQ` made `HIT`, the `FRONT`
+counts and cycles; the drag's `UQ_GHIT`, the press after a drag; `POINTED`'s `FINDMODAL`, the program's own modal window; the
+pointer's comparison, the press where the pointer moved after `POINTED` looked. `DLGREC`'s and `ui_open`'s bits fail
+nothing taken out alone (`REFOCUS` and `BOXFULL` follow each): kept for safety, as B1's were.
+
+**Sizes** (mkbank.py): `UICOM` 3,351, unchanged; block A 12,233 (55 free; 105 bytes: `HITQ` 36, `ui_setvalue`'s
+test and crossing 33, `POINTED`'s bits and `FINDMODAL` 15, `MPASS` 8, `MCLOSE` 8, `PAINT`'s `UQ_THUMB` 5), B
+10,740 (1,548 free; 70: `SPRDRAWN`, `VDIRTY`, `POST`'s tests, `BTAB`'s entry), C 7,281 (5,007 free, unchanged);
+`UISTATE` 1,464 of 1,536, unchanged.
 
 #### U3a: questions ####
 
