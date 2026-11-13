@@ -2188,13 +2188,19 @@ the next small phase's question.
   `ui_open` showed OOUI's layers before anything was painted (OO-Amp's start: its chrome without words for a
   frame, then the console, then the screen). They now show at the end of the first paint
   ([Opening and closing](#opening-and-closing)); `u3b_the_layers_show_at_the_first_paint` checks it. It costs 12
-  bytes of UICOM, so OOUI.BNK is 41,088 bytes: `u2_the_picker_on_the_card_s_drives` puts 20 files on M:, not 40
-  (the owner's decision, the case's other checks unchanged).
+  bytes of UICOM, so OOUI.BNK is 41,088 bytes. So that OOUI's size no longer depends on M:'s room, the
+  tests load it as the real cards and OO-Amp's tests do *(the owner's decision, 2026-11-13)*: the rig writes
+  OOUI.BNK on A:, user 0, before OODOS boots (oodos_rig.h's `before_boot`, test_oodos_ui's `put_bnk_a`), and the
+  test programs load it by `ui_load`'s default. M:'s file counts are as they were; A:'s listings show OOUI.BNK
+  (the expectations that list A: count it: the owner accepted that in kind).
 - **The bitmap backend: not now.** A 4-bit cell is 32 times a text cell's writes, and the backend would take
   some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
 - **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; `ui_theme`, and hiding a
   full-screen overlay window, draw again the widgets it covers; the picker takes 12-14 frames to switch user (made
   again by the program, as OO-Amp's U does: L4).
+- **An S3 target** *(the owner, 2026-11-13)*: one key's change on screen within a frame. OO-Amp's
+  `a_key_s_state_changes_within_a_frame` measures 1.24 frames (its limit 1.1): OOUI's paint in that key's pass.
+  It is a known failure until S3.
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 

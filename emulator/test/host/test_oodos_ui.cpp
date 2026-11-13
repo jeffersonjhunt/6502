@@ -126,47 +126,75 @@ namespace
         CHECK(area >= 'A' && area <= 'C');
         return r.phys(prog_labels().at("UI_BLOCKS") + static_cast<unsigned>(area - 'A'));
     }
-    /// OOUI.BNK's user on M:, out of the picker's listings of user 0 (uitest.s loads it from there).
+    /// OOUI.BNK's user on M: for the cases that load it from there by name (ui_load's 1).
     constexpr unsigned BNK_USER = 15;
-    /// M: has OOUI.BNK already (a second start_ui on the same rig).
-    bool has_bnk(Rig &r)
+    /// (U3b landing, the owner's decision 2026-11-13) OOUI.BNK on A:, user 0, where the real cards keep it and
+    /// ui_load's default opens it, written on the card before OODOS logs A: in (as OO-Amp's put_a.py does), so
+    /// M:'s room is the tests' own and doesn't depend on OOUI's size. A: is unit 1, `entries` directory entries
+    /// and `bls`-byte blocks (the test card's oodos-8m A.IMG: 1,024 and 4 KB; a test's own oodos-32m image:
+    /// 2,048 and 8 KB).
+    bool a_has_bnk(Rig &r, unsigned entries = 1024)
     {
-        for (unsigned i = 0; i < 256; ++i)
+        for (uint32_t s = 0; s < entries * 32 / SECTOR; ++s)
         {
-            bool match = r.phys(MDISK + i * 32) == BNK_USER;
-            for (unsigned c = 0; c < 11 && match; ++c)
-                match = (r.phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>("OOUI    BNK"[c]);
-            if (match)
-                return true;
+            const std::vector<uint8_t> d = r.read_unit(1, s);
+            for (unsigned e = 0; e < SECTOR / 32; ++e)
+                if (d[e * 32] == 0 && std::memcmp(&d[e * 32 + 1], "OOUI    BNK", 11) == 0)
+                    return true;
         }
         return false;
     }
-    /// OOUI.BNK on M: (U3a: each test program loads it from there), once a rig, before M: is logged in:
-    /// a CcpRig's put_m, or a card of the test's own's fresh M:.
-    void put_bnk(CcpRig &r)
+    void put_bnk_a(Rig &r, unsigned entries = 1024, unsigned BLS = 4096)
     {
-        if (!has_bnk(r))
-            r.put_m({{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
-    }
-    void put_bnk(Rig &r)
-    {
-        if (has_bnk(r))
+        if (a_has_bnk(r, entries))
             return;
-        unsigned entry = 0, block = M_DIRBLOCKS;
-        for (unsigned i = 0; i < 256; ++i) // past what M:'s files hold already
-            if (r.phys(MDISK + i * 32) < 0x10)
-                for (unsigned k = 16; k < 32; ++k)
-                    block = std::max(block, r.phys(MDISK + i * 32 + k) + 1u);
-        put_m_files(r, entry, block, {{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+        const std::vector<uint8_t> data = read_bytes(UTILS + "/OOUI.BNK");
+        std::vector<uint8_t> dir;
+        for (uint32_t s = 0; s < entries * 32 / SECTOR; ++s)
+        {
+            const std::vector<uint8_t> sec = r.read_unit(1, s);
+            dir.insert(dir.end(), sec.begin(), sec.end());
+        }
+        unsigned next = entries * 32 / BLS; // past the directory, and every block an entry names
+        for (unsigned e = 0; e < entries; ++e)
+            if (dir[e * 32] < 16)
+                for (unsigned k = 0; k < 8; ++k)
+                    next = std::max(next, (dir[e * 32 + 16 + 2 * k] | dir[e * 32 + 17 + 2 * k] << 8) + 1u);
+        const unsigned records = static_cast<unsigned>((data.size() + RECORD - 1) / RECORD);
+        const unsigned blocks = (records * unsigned{RECORD} + BLS - 1) / BLS, per = BLS / unsigned{RECORD};
+        unsigned e = 0;
+        for (unsigned first = 0; first < blocks; first += 8)
+        {
+            while (dir[e * 32] != 0xE5 || e % 4 == 3)
+                ++e;
+            REQUIRE(e < entries);
+            uint8_t *d = &dir[e * 32];
+            std::fill(d, d + 32, 0);
+            std::memcpy(d + 1, "OOUI    BNK", 11);
+            const unsigned here = std::min(records - first * per, 8 * per);
+            const unsigned ext = first * BLS / 16384 + (here - 1) / 128; // its last record's logical extent
+            d[12] = static_cast<uint8_t>(ext & 0x1F);
+            d[14] = static_cast<uint8_t>(ext >> 5);
+            d[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128);
+            for (unsigned k = 0; k < 8 && first + k < blocks; ++k)
+            {
+                d[16 + 2 * k] = static_cast<uint8_t>(next + first + k);
+                d[17 + 2 * k] = static_cast<uint8_t>((next + first + k) >> 8);
+            }
+            ++e;
+        }
+        std::vector<uint8_t> body = data;
+        body.resize(records * RECORD, 0x1A);
+        unit_write(r, 1, 0, dir);
+        unit_write(r, 1, static_cast<uint32_t>(next * (BLS / SECTOR)), body);
     }
-    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded from M: (put there first); with `flag` 'N' not
-    /// loaded (the test says 'L'), 'G' not even GX_INIT (U3a).
+    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded by ui_load's default (A:, user 0: the rig put it
+    /// there before OODOS booted; U3b landing); with `flag` 'N' not loaded (the test says 'L'), 'G' not even
+    /// GX_INIT (U3a).
     template <class R> void start_ui(R &r, const std::string &program = "uitest", char flag = 0)
     {
         prog() = program;
         no_splash(r);
-        if (!flag)
-            put_bnk(r);
         r.poke(MBOX, 0);
         r.poke(MBOX + 4, static_cast<uint8_t>(flag));
         r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
@@ -1648,11 +1676,10 @@ TEST(u2_the_picker_on_the_card_s_drives)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // M: twenty files, more than a screen, put there before it is logged in; C: the card's apple-do disk; D:
-    // nothing mounted. (U3b landing: twenty, not forty, so that OOUI.BNK, which shares M: with them, can grow
-    // past 40,960 bytes: the owner's decision, 2026-11-13; still more than the picker's 16 rows.)
+    // M: forty files, more than a screen, put there before it is logged in; C: the card's apple-do disk; D:
+    // nothing mounted.
     std::vector<MFile> m;
-    for (unsigned i = 0; i < 20; ++i)
+    for (unsigned i = 0; i < 40; ++i)
     {
         char n[12];
         std::snprintf(n, sizeof n, "FILE%02u  %s", i, i % 4 == 3 ? "COM" : i % 2 ? "BIN" : "TXT");
@@ -1696,7 +1723,7 @@ TEST(u2_the_picker_on_the_card_s_drives)
     for (int i = 0; i < 4; ++i) // E:, F:, G:, then M:
         next_drive(r);
     std::vector<std::string> mm = listed(r);
-    CHECK_EQ(mm.size(), 20u);
+    CHECK_EQ(mm.size(), 40u);
     // User 3 on A: again.
     CHECK_EQ(ui(r, 'f', P_DRV).substr(6), std::string("00"));
     key(r, K_HOME); // (Home isn't a choice's: nothing)
@@ -1806,15 +1833,16 @@ TEST(u2_the_picker_on_an_oodos_32m_drive)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
     poll(r);
     pick(r, 0);
     std::vector<std::string> b = listed(r);
-    CHECK_EQ(b.size(), 24u);
+    CHECK_EQ(b.size(), 25u); // (U3b landing: the 24, and OOUI.BNK, on A: as on the real cards)
     CHECK(has(b, "BIG00.DAT") && has(b, "BIG23.DAT"));
-    CHECK_EQ(status(r), std::string("24 files"));
+    CHECK_EQ(status(r), std::string("25 files"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2486,6 +2514,7 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
@@ -2506,8 +2535,8 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     std::printf("  the most a poll ran in the walk: %lu instructions\n", most);
     CHECK(most < 100000); // (about 54,000 at its last walk, the prune with it: a list's squared /2 is past 600,000)
     CHECK_EQ(r.phys(lab("lst")), 0);
-    CHECK_EQ(word_at(r, lab("count")), 200u);
-    CHECK_EQ(status(r), std::string("200 files"));
+    CHECK_EQ(word_at(r, lab("count")), 201u); // (U3b landing: the 200, and OOUI.BNK on A:)
+    CHECK_EQ(status(r), std::string("201 files"));
 }
 
 TEST(z2_an_overlay_window_hidden_over_nothing_takes_its_thumb)
@@ -2685,6 +2714,7 @@ TEST(v1_one_before_the_selection_and_the_selected_one_deleted)
 
 int main()
 {
+    before_boot() = [](Rig &r) { put_bnk_a(r); }; // (U3b landing) OOUI.BNK on A: before OODOS boots
     const int failed = run_all();
     if (updating() && failed)
         return failed; // an update run that failed anything else fails (round 2's W7)
@@ -2807,6 +2837,7 @@ TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
@@ -2838,8 +2869,8 @@ TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
     std::printf("  the most a poll ran in the walk after a file was added mid-listing: %lu instructions\n", most);
     CHECK(most < 100000);
     CHECK_EQ(r.phys(lab("lst")), 0);
-    CHECK_EQ(word_at(r, lab("count")), 200u);
-    CHECK_EQ(status(r), std::string("200 files"));
+    CHECK_EQ(word_at(r, lab("count")), 201u); // (U3b landing: the 200, and OOUI.BNK on A:)
+    CHECK_EQ(status(r), std::string("201 files"));
 }
 
 namespace
@@ -2952,7 +2983,10 @@ TEST(ui_load_keeps_the_program_s_user_and_dma)
     CHECK_EQ(mine, std::string("user 0 dma 3A00 seg 1234 err FE"));
     CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
     CHECK_EQ(own_state(r), mine);
+    const auto put_a = before_boot(); // (U3b landing: this rig's card as committed, without OOUI.BNK on A:)
+    before_boot() = nullptr;
     CcpRig s;
+    before_boot() = put_a;
     REQUIRE(s.ok);
     start_ui(s, "uitpick", 'N');
     CHECK_EQ(ui(s, 'e', 5, 0xFE, 1).substr(6), std::string("00"));
