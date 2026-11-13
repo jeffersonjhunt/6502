@@ -24,14 +24,14 @@ BENT:   stx     xsx
 
         .segment "BRODATA"
 BTAB:
-        .word   BINIT, BWCALL, BPOST
-.assert * - BTAB = XB_POST + 2, error, "BTAB in XB_* order"
+        .word   BINIT, BWCALL, BPOST, VDIRTY
+.assert * - BTAB = XB_VDIRTY + 2, error, "BTAB in XB_* order"
 
 ; Every widget module's record (WR_*): block B has them all (U3a).
 MODS:   .word   UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
         .word   UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, 0
         .import UIW_GROUP, UIW_RADIO, UIW_VSCROLL, UIW_HSCROLL, UIW_LIST, UIW_FIELD, UIW_VBAR, UIW_HBAR
-        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, PNONEW
+        .import UIW_VSLIDER, UIW_HSLIDER, UIW_CANVAS, UIW_CHOICE, PNONEW, VDIRTY
 
         .segment "BBSS"
 brec:   .res    2 * UT_COUNT           ; each type's record, 0 for a core type

@@ -4133,16 +4133,17 @@ namespace
     enum : uint8_t { BLK_BIG = 8 };                  ///< uitest.s's (UITBAR): block 5's table with 31 records more
     constexpr uint8_t A_TIME = 2, A_EQ5B = 16, A_X4B = 89; ///< its first label; a band (A_EQ5); its last label
     /// A 'p' (ui_poll till UE_NONE): the cycles of all its ui_polls (each from its stub to its return, PRET), how
-    /// many, the events, and how often OOUI's REC, RNEXT (a walk's step), FRONT and PASS were entered (U3b, B1-B4).
+    /// many, the events, and how often OOUI's REC, RNEXT (a walk's step), FRONT and PASS were entered (U3b, B1-B4),
+    /// and (S1) ONE (a record drawn) and PLACE1 (a sprite thumb placed).
     struct Polls
     {
-        unsigned long cycles = 0, calls = 0, recs = 0, steps = 0, fronts = 0, passes = 0;
+        unsigned long cycles = 0, calls = 0, recs = 0, steps = 0, fronts = 0, passes = 0, ones = 0, places = 0;
         std::vector<Event> ev;
     };
     Polls polls_cost(CcpRig &r)
     {
         const uint16_t stub = lab("ui_poll"), back = lab("PRET"), rec = lab("REC"), front = lab("FRONT"),
-                       pass = lab("PASS"), step = lab("RNEXT");
+                       pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1");
         const unsigned blocks[3] = {bank_block(r, "PAINT"), bank_block(r, "POST"), bank_block(r, "DLGON")};
         Polls p;
         uint64_t start = 0;
@@ -4165,6 +4166,10 @@ namespace
                 ++p.fronts;
             else if (w3 == blocks[0] && pc == pass)
                 ++p.passes;
+            else if (w3 == blocks[0] && pc == one)
+                ++p.ones;
+            else if (w3 == blocks[1] && pc == place)
+                ++p.places;
         };
         p.ev = poll(r);
         r.watch = nullptr;
@@ -4172,8 +4177,8 @@ namespace
     }
     void say(const char *what, const Polls &p)
     {
-        std::printf("  among 90 records, %s: %lu cycles, %lu ui_poll, %lu REC, %lu RNEXT, %lu FRONT, %lu PASS\n", what,
-                    p.cycles, p.calls, p.recs, p.steps, p.fronts, p.passes);
+        std::printf("  among 90 records, %s: %lu cycles, %lu ui_poll, %lu REC, %lu RNEXT, %lu FRONT, %lu PASS, %lu ONE, %lu PLACE1\n",
+                    what, p.cycles, p.calls, p.recs, p.steps, p.fronts, p.passes, p.ones, p.places);
     }
 } // namespace
 
@@ -4464,4 +4469,353 @@ TEST(u3b_r5_a_scroll_bar_without_arrows)
     poll(r);
     CHECK_EQ(ch_at(r, 43, 4), 0x1Eu);
     CHECK_EQ(spr_y(r, 3), 5u * 8);
+}
+
+// ---------------------------------------------------------------------------
+// OOUI speed, step S1 (hw/ooui.md, "U3b: speed step S1"): (i) a sprite thumb placed only when its record was drawn
+// dirty or its value changed since the last POST, or after a geometry event (UQ_GEOM) with the thumb in the
+// damage; (v) a press's, a release's and the wheel's hit test reuse uhot while the pointer hasn't moved and no
+// geometry event has come since POINTED found it; (viii) a sprite thumb's slider or scroll bar whose value
+// changes draws no cells, only its thumb placed again.
+
+TEST(s1_a_poll_s_cost_among_ninety_records)
+{
+    // Block 8 (UITBAR's), 90 records on one layer, as OO-Amp's screen. A frame is 119,318 cycles.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t A_TITLE = 3, A_SEEK = 6, A_PLS = 33, A_TR0 = 59;
+    // A track's start as OO-Amp's: the seek bar's and the playlist's slider's values, the title and the 26
+    // track labels (the playlist's rows). Only the two thumbs whose values changed are placed (i), and neither
+    // slider's cells are drawn (viii).
+    setv(r, A_SEEK, 500);
+    setv(r, A_PLS, 40);
+    CHECK_EQ(ui(r, 'd', A_TITLE).substr(6), std::string("00"));
+    for (unsigned h = A_TR0; h < A_TR0 + 26u; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls start = polls_cost(r);
+    say("a track's start (2 values, 27 labels)", start);
+    CHECK_EQ(start.places, 2u);
+    CHECK(start.cycles < 450000); // (1,679,598 before S1)
+    // A drag's step: band 5 (column 24, rows 11-18) held and moved a row: nothing drawn (viii), its thumb alone
+    // placed (i), no hit test (B4).
+    point(r, 24, 15);
+    button(r, true);
+    const Polls down = polls_cost(r);
+    CHECK(changed(down.ev, A_EQ5B) >= 0);
+    point(r, 24, 14);
+    const Polls drag = polls_cost(r);
+    say("a drag's step", drag);
+    CHECK(changed(drag.ev, A_EQ5B) > changed(down.ev, A_EQ5B));
+    CHECK_EQ(drag.ones, 0u);
+    CHECK_EQ(drag.places, 1u);
+    CHECK_EQ(drag.fronts, 0u);
+    CHECK(drag.cycles < 170000); // (241,390 before S1)
+    button(r, false);
+    poll(r);
+    // The wheel over the band, the pointer still since POINTED found it there: no hit test (v), nothing drawn
+    // (viii). (Right after the drag, uhot isn't the pointer's: the drag's moves looked for nothing.)
+    point(r, 24, 13);
+    poll(r);
+    const Polls whl = [&] {
+        usb(r).mouse_wheel(1);
+        r.run(ms(30));
+        return polls_cost(r);
+    }();
+    say("the wheel, the pointer still", whl);
+    CHECK(changed(whl.ev, A_EQ5B) > changed(drag.ev, A_EQ5B));
+    CHECK_EQ(whl.fronts, 0u);
+    CHECK_EQ(whl.ones, 0u);
+    CHECK(whl.cycles < 170000); // (311,900 before S1)
+    // A press on a button (A_PLAY, columns 10-15, row 22) with the pointer already there, and its release: no
+    // hit test (v); the button drawn pressed and again, and only the band's thumb placed, the band drawn dirty as
+    // the focus left it (i; 4 before S1, every thumb in the damage).
+    point(r, 11, 22);
+    poll(r);
+    button(r, true);
+    const Polls press = polls_cost(r);
+    say("a button pressed, the pointer still", press);
+    CHECK_EQ(press.fronts, 0u);
+    CHECK(press.places <= 1u);
+    CHECK(press.cycles < 330000); // (608,801 before S1)
+    button(r, false);
+    const Polls release = polls_cost(r);
+    say("released", release);
+    CHECK(std::any_of(release.ev.begin(), release.ev.end(), [](const Event &e) { return e.code == UE_CLICK && e.handle == 35; }));
+    CHECK_EQ(release.fronts, 0u);
+    CHECK(release.cycles < 130000); // (161,069 before S1)
+    // 30 widgets at once (the 15 sliders' values, the 15 status labels): the 15 thumbs placed, no slider drawn
+    // (viii). Most of what is left is each thumb's SHOWS, a walk of the records (S2's).
+    for (unsigned h : {6u, 7u, 8u, 11u, 12u, 13u, 14u, 15u, 16u, 17u, 18u, 19u, 20u, 21u, 33u})
+        setv(r, static_cast<uint8_t>(h), 30);
+    for (unsigned h = 44; h < 59; ++h)
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
+    const Polls many = polls_cost(r);
+    say("30 widgets changed", many);
+    CHECK_EQ(many.places, 15u);
+    CHECK(many.cycles < 1650000); // (1,829,831 before S1)
+}
+
+TEST(s1_a_thumb_follows_every_geometry_event)
+{
+    // (i): with no geometry event, a thumb is placed only when its record was drawn dirty or its value changed; so
+    // each event that can cover or uncover a thumb, or move it, must say so (UQ_GEOM). Each is seen here: the thumb
+    // hidden when covered, kept hidden while other widgets are drawn and its own value changes, shown (at its new
+    // place) when uncovered, and moved when its parent's frame goes.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    // Z_VSC's 8 x 32 thumb, sprite 3: column 43, rows 5-8 at 0; Z_COVER a window at 42-45, rows 8-10, hidden.
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    const auto hidden_while_busy = [&](const char *what) {
+        CHECK_EQ(spr_depth(r, 3), 0);
+        CHECK_EQ(ui(r, 'd', Z_LBL).substr(6), std::string("00")); // other drawing: no placing
+        CHECK_EQ(ui(r, 'd', Z_WIN).substr(6), std::string("00"));
+        poll(r);
+        if (spr_depth(r, 3) != 0)
+            std::printf("  %s: shown while covered\n", what);
+        CHECK_EQ(spr_depth(r, 3), 0);
+    };
+    // ui_show and ui_hide (REFOCUS)
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    hidden_while_busy("ui_show");
+    setv(r, Z_VSC, 1); // its value changed while covered: placed, still hidden
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0);
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    setv(r, Z_VSC, 0);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 5u * 8);
+    // A drop-down over its first row (MPASS while a menu is down, MCLOSE), by the keys and by the mouse
+    CHECK_EQ(ui(r, 's', Z_BAR).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    key(r, 0x43); // F10
+    poll(r);
+    hidden_while_busy("the drop-down");
+    key(r, K_ESC);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    click(r, 1, 0); // the menu's title, "Ends", on the bar's first columns
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0);
+    click(r, 70, 25); // elsewhere: up
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(ui(r, 'h', Z_BAR).substr(6), std::string("00"));
+    poll(r);
+    // ui_dirty on a window whose UF_HIDDEN the program cleared itself (STALE)
+    const uint16_t cf = static_cast<uint16_t>(rec3(Z_COVER) + UW_FLAGS);
+    r.poke(cf, static_cast<uint8_t>(r.phys(cf) & ~0x01u));
+    CHECK_EQ(ui(r, 'd', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    hidden_while_busy("ui_dirty on the window");
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    // ui_redraw after the program moved a window over it by writing its fields (the doc rule), and back
+    const uint16_t cx = static_cast<uint16_t>(rec3(Z_COVER) + 2);
+    r.poke(cx, 60);
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    r.poke(cx, 42);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    hidden_while_busy("ui_redraw, moved over it");
+    r.poke(cx, 60);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    r.poke(cx, 42);
+    poll(r);
+    // ui_flags: the window's frame gone (UF_NOFRAME), so its client area a cell up and left: every thumb moved,
+    // though none of their records is dirty
+    const unsigned x2 = spr_x(r, 2), y2 = spr_y(r, 2), x3 = spr_x(r, 3), y3 = spr_y(r, 3);
+    CHECK_EQ(ui(r, 'F', UF_NOFRAME, 0, Z_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK(spr_x(r, 2) == x2 - 4 && spr_y(r, 2) == y2 - 8);
+    CHECK(spr_x(r, 3) == x3 - 4 && spr_y(r, 3) == y3 - 8);
+    CHECK_EQ(ui(r, 'F', 0, UF_NOFRAME, Z_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK(spr_x(r, 2) == x2 && spr_y(r, 2) == y2);
+    // The message box over it (the dialogs' records, REFOCUS), at its last value's place: over its last row, 14
+    setv(r, Z_VSC, 100);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 5u * 8 + 48);
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    poll(r);
+    const Place box = rect(r, 0xF0);
+    CHECK(box.col <= 43 && box.col + box.w > 43 && box.row <= 14 && box.row + box.h > 14);
+    hidden_while_busy("the message box");
+    key(r, K_ENTER);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    // ui_suspend and ui_resume: out of sight, then placed again
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    CHECK_EQ(spr_depth(r, 3), 0);
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_y(r, 3), 5u * 8 + 48);
+    // ui_theme (BOXFULL): OOUI's own thumb image (Z_STD's, sprite 2) drawn again in the new theme's colours,
+    // though no record is dirty
+    const unsigned img = (upage(r) + 0x29u) * 256u;
+    const auto image = [&] {
+        std::string s;
+        for (unsigned i = 0; i < 32; ++i)
+            s += static_cast<char>(vid(r).card_peek(img + i));
+        return s;
+    };
+    const std::string before = image();
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00"));
+    poll(r);
+    CHECK(image() != before);
+    CHECK_EQ(spr_depth(r, 2), 0x0C);
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    poll(r);
+    CHECK(image() == before);
+}
+
+TEST(s1_a_thumb_s_own_changes_place_it)
+{
+    // (i): a thumb's record drawn dirty is placed whatever the damage: ui_setrange (a slider's top: the thumb moves,
+    // no geometry event); and (viii) a value change draws none of its cells but places it. A cell thumb's slider
+    // or scroll bar is drawn as before.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    setv(r, Z_STD, 50);
+    poll(r);
+    const unsigned x = spr_x(r, 2);
+    CHECK_EQ(ac(ui(r, 'q', 200, 0, Z_STD)), "0000"); // top 100 to 200: value 50 a quarter along
+    poll(r);
+    CHECK(spr_x(r, 2) < x);
+    // The value: the thumb moved, no cell of the track written (a mark left on one is still there)
+    const unsigned map0 = vid(r).peek(0x11) | vid(r).peek(0x12) << 8;
+    const unsigned cell = map0 * 256u + 6u * 160u + 20u * 2u; // Z_STD's track, column 20, row 6
+    const uint8_t was = vid(r).card_peek(cell);
+    vid(r).card_poke(cell, '#');
+    setv(r, Z_STD, 150);
+    poll(r);
+    CHECK(spr_x(r, 2) > x);
+    CHECK_EQ(vid(r).card_peek(cell), '#');
+    vid(r).card_poke(cell, was);
+    CHECK_EQ(ui(r, 'd', Z_STD).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(vid(r).card_peek(cell), was);
+}
+
+TEST(s1_a_hit_is_found_again_after_each_geometry_event)
+{
+    // (v): a press, a release and the wheel take uhot while the pointer is where POINTED last found it; each
+    // geometry event since (here ui_show and ui_hide, and ui_dirty on a window the program changed itself) and a
+    // drag's moves, which look for nothing, make them look again.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const uint16_t cx = static_cast<uint16_t>(rec3(Z_COVER) + 2), cf = static_cast<uint16_t>(rec3(Z_COVER) + UW_FLAGS);
+    r.poke(cx, 10); // Z_COVER (hidden) over Z_BTN's columns 10-13, rows 13-15
+    r.poke(static_cast<uint16_t>(cx + 1), 13);
+    const auto clicked = [](const std::vector<Event> &ev, uint8_t h) {
+        return std::any_of(ev.begin(), ev.end(), [h](const Event &e) { return e.code == UE_CLICK && e.handle == h; });
+    };
+    point(r, 11, 14);
+    poll(r);
+    // A window shown under the still pointer takes the press and the release; hidden, the button has them.
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    button(r, true);
+    poll(r);
+    button(r, false);
+    CHECK(!clicked(poll(r), Z_BTN));
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    button(r, true);
+    poll(r);
+    button(r, false);
+    CHECK(clicked(poll(r), Z_BTN));
+    // Shown while the button is held: the release is the window's, no click.
+    button(r, true);
+    poll(r);
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    button(r, false);
+    CHECK(!clicked(poll(r), Z_BTN));
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    // The wheel: the button's, then the window's (ui_dirty after the program cleared its UF_HIDDEN itself).
+    usb(r).mouse_wheel(1);
+    r.run(ms(30));
+    expect(poll(r), {{UE_WHEEL, Z_BTN, 0, 1}}, "the wheel over the button");
+    r.poke(cf, static_cast<uint8_t>(r.phys(cf) & ~0x01u));
+    CHECK_EQ(ui(r, 'd', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    usb(r).mouse_wheel(1);
+    r.run(ms(30));
+    expect(poll(r), {{UE_WHEEL, Z_COVER, 0, 1}}, "the wheel over the window shown");
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    // A drag from Z_STD (row 6) to the button, let go there: the next press, the pointer still, is the button's.
+    point(r, 20, 6);
+    poll(r);
+    button(r, true);
+    poll(r);
+    point(r, 11, 14);
+    poll(r);
+    button(r, false);
+    poll(r);
+    const std::string v = ui(r, 'V', 0, 0, Z_STD);
+    button(r, true);
+    std::vector<Event> ev = poll(r);
+    button(r, false);
+    const std::vector<Event> up = poll(r);
+    ev.insert(ev.end(), up.begin(), up.end());
+    CHECK(clicked(ev, Z_BTN));
+    CHECK(changed(ev, Z_STD) < 0);
+    CHECK_EQ(ui(r, 'V', 0, 0, Z_STD), v);
+    // The pointer moved between POINTED's look and the press's (the mouse's interrupt, here a write to the event
+    // area as the press's CELL starts): the press is where the pointer is, the window's inside, not the button's
+    // (no focus).
+    CHECK_EQ(ui(r, 'f', Z_STD).substr(6), std::string("00"));
+    point(r, 12, 14); // (uhot found again: the drag left it the slider's)
+    poll(r);
+    const uint16_t cell = lab("CELL");
+    const unsigned blka = bank_block(r, "CELL");
+    bool moved = false;
+    r.watch = [&](uint16_t pc) {
+        if (!moved && pc == cell && (r.nb(3) & 0x3F) == blka)
+        {
+            r.poke(0x3000 + 32, 30 * 4 + 2); // EV_MX: column 30, row 14 still, the window's inside
+            moved = true;
+        }
+    };
+    button(r, true);
+    ev = poll(r);
+    r.watch = nullptr;
+    CHECK(moved);
+    CHECK(std::none_of(ev.begin(), ev.end(), [](const Event &e) { return e.handle == Z_BTN; }));
+    button(r, false);
+    poll(r);
+    // A modal window the program made itself (its UF_HIDDEN cleared, UF_MODAL set, then ui_dirty on it), away
+    // from the button: the pointer moved onto the button and still, its press and release are nobody's (POINTED
+    // finds the modal window again before it looks).
+    r.poke(cx, 60);
+    r.poke(cf, static_cast<uint8_t>((r.phys(cf) & ~0x01u) | UF_MODAL));
+    CHECK_EQ(ui(r, 'd', Z_COVER).substr(6), std::string("00"));
+    point(r, 12, 14);
+    poll(r);
+    button(r, true);
+    ev = poll(r);
+    button(r, false);
+    const std::vector<Event> up2 = poll(r);
+    ev.insert(ev.end(), up2.begin(), up2.end());
+    CHECK(!clicked(ev, Z_BTN));
 }

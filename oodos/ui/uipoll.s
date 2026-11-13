@@ -188,7 +188,7 @@ ui_poll:
 @up:    jsr     MUP
         bra     @res
 @whl:   jsr     CELL
-        jsr     HIT
+        jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
         sta     evh
         sta     dh
         jsr     WHEELW                  ; a list's or a scroll bar's (U2)
@@ -714,6 +714,28 @@ HIT:    jsr     FRONT
         lda     #UI_NONE
 @r:     rts
 
+; HIT's answer, for a press, a release or the wheel (S1, (v)): uhot, which
+; POINTED's HIT found, while the pointer is where POINTED last saw it (lmx,
+; lmy) and no geometry event has come since (UQ_GHIT; a drag's moves, which
+; look for nothing, set it too); else HIT's own walk.
+HITQ:   lda     #UQ_GHIT
+        bit     uany
+        bne     HIT
+        lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        ldx     #3
+        ldy     #EV_MX + 3
+@c:     lda     (UIP),y
+        cmp     lmx,x
+        bne     HIT
+        dey
+        dex
+        bpl     @c
+        lda     uhot
+        rts
+
         .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
 ; base's, each from the table's end down, inside its parents' client areas
@@ -826,7 +848,7 @@ MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anyw
         beq     @hit
         jsr     MOPEN
         bra     @none
-@hit:   jsr     HIT
+@hit:   jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
         jsr     MARGIN                  ; (U3b) or a slider's or a scroll bar's margin
         sta     evh
         cmp     #UI_NONE
@@ -1020,7 +1042,7 @@ MUP:    lda     upress
         sta     (UIR),y
         lda     upress
         jsr     DIRTY
-        jsr     HIT
+        jsr     HITQ                    ; (S1, (v): uhot, if the pointer is still)
         ldx     upress
         ldy     #UI_NONE
         sty     upress
@@ -1219,9 +1241,16 @@ POINTED:
         lda     moved
         beq     @none
         jsr     CELL
+        lda     #UQ_GHIT                ; (S1, (v)) uhot not the pointer's, till HIT finds it
+        tsb     uany
         jsr     DRAGGED                 ; (U3b, B4) a slider or a scroll bar held: no hit
         bcc     @drag                   ;   test, US_HOT kept, the drag tracked
+        jsr     FINDMODAL               ; (S1) the modal window as a press's HIT would see it
         jsr     HIT
+        pha
+        lda     #UQ_GHIT                ; (S1) found: uhot the pointer's, till it moves or a
+        trb     uany                    ;   geometry event comes
+        pla
         cmp     uhot
         beq     @drag
         pha

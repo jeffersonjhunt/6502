@@ -64,7 +64,7 @@ DLGREC: sta     k
         lda     (UIR),y
         ora     #UF_DIRTY
         sta     (UIR),y
-        lda     #UQ_PAINT | UQ_STALE    ; (U3b, B1, B3) a paint to do; the modal window and
-        tsb     uany                    ;   the overlay found again
+        lda     #UQ_PAINT | UQ_STALE | UQ_GEOM ; (U3b, B1, B3) a paint to do; the modal window
+        tsb     uany                    ;   and the overlay found again; (S1) a geometry event
         lda     k
         jmp     DLGH

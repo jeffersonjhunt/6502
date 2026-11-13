@@ -23,7 +23,7 @@
         .import SCALE, sv, su, sa, sr
         .import SCMEAS, SCPLACE
         .export UIW_VSLIDER, UIW_HSLIDER, PNONEW
-        .export TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1
+        .export TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1, VDIRTY, SPRDRAWN
 
         .segment "BRODATA"
 UIW_VSLIDER:
@@ -168,12 +168,47 @@ DRAW:   jsr     MEASURE
 @spr:   ldy     #UW_FLAGS               ; a sprite's thumb: placed after the paint (POST),
         lda     (UIR),y                 ;   when what is in front of it is known (X4)
         and     #UF_SPRITE
-        beq     @r
+        bne     SPRDRAWN
+        rts
+
+; A sprite thumb's slider or scroll bar (UIR) drawn: its thumb placed after
+; the paint (POST); drawn dirty (S1, (i)), marked (US_THUMB), so placed
+; whatever the damage, since its value, its range, its size or its sprite
+; may have changed.
+SPRDRAWN:
         lda     #<POST
         sta     upost
         lda     #>POST
         sta     upost + 1
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DIRTY
+        beq     @r
+        ldy     #UW_STATE
+        lda     (UIR),y
+        ora     #US_THUMB
+        sta     (UIR),y
 @r:     rts
+
+; Record A's value changed (UIR on it; SETV's, the scroll bar's, and
+; ui_setvalue's by XB_VDIRTY): dirty; or (S1, (viii)) a slider's or a
+; scroll bar's with a sprite thumb, whose cells don't show the value, only
+; its thumb marked to be placed (US_THUMB, POST's), none of its cells
+; drawn. Keeps A; UIR on the record after.
+VDIRTY: pha
+        jsr     REC
+        jsr     SNUM
+        bcs     @d
+        ldy     #UW_STATE
+        lda     (UIR),y
+        ora     #US_THUMB
+        sta     (UIR),y
+        lda     #UQ_PAINT | UQ_THUMB
+        tsb     uany
+        pla
+        rts
+@d:     pla
+        jmp     DIRTY
 
 ; GOTO cell idx from the low end: the bottom up (vertical), the left on.
 CELLAT: lda     vert
@@ -625,6 +660,8 @@ POST:   lda     #$FF
         lda     idx
         cmp     utot
         bcc     @rec
+        lda     #UQ_GPOST | UQ_THUMB    ; (S1) the geometry seen, the marks placed
+        trb     uany
         jmp     GX_SPRSHOW
 @rec:   jsr     REC
         jsr     SNUM                    ; a sprite's thumb (U3b: a slider's or a scroll bar's)
@@ -636,11 +673,23 @@ POST:   lda     #$FF
         sta     pk
         lda     upmode
         bne     @off
-        ldx     pk                      ; outside the last paint's damage, its thumb as it was:
-        lda     plast,x                 ;   no RECT, no FRONT (U3a: Z3); its cells from the
-        cmp     #$FF                    ;   first to the last (the U3b review's G2)
+        ldy     #UW_STATE               ; (S1, (i)) drawn dirty or its value changed since the
+        lda     (UIR),y                 ;   last POST (US_THUMB): placed, the mark cleared
+        bpl     @nm
+        and     #<~US_THUMB
+        sta     (UIR),y
+        bra     @go
+@nm:    ldx     pk                      ; no last place: placed
+        lda     plast,x
+        cmp     #$FF
         beq     @go
-        sta     UI_RECT
+        lda     #UQ_GPOST               ; (S1, (i)) no geometry event since the last POST:
+        bit     uany                    ;   nothing in front of it, nor its place, has changed,
+        bne     @geo                    ;   as it was
+        jmp     @next
+@geo:   lda     plast,x                 ; outside the last paint's damage, its thumb as it was:
+        sta     UI_RECT                 ;   no RECT, no FRONT (U3a: Z3); its cells from the
+                                        ;   first to the last (the U3b review's G2)
         lda     pend,x
         sec
         sbc     UI_RECT
@@ -880,7 +929,7 @@ SETV:   lda     t0
         sta     evv + 1
         lda     dh
         sta     evh
-        jsr     DIRTY
+        jsr     VDIRTY                  ; (S1, (viii): a sprite thumb's, only the thumb)
         lda     #UE_CHANGE
         clc
         rts

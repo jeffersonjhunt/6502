@@ -688,10 +688,10 @@ BOXADD: lda     er
 @d:
 @none:  rts
 
-; Box X the whole screen, and a paint to do (U3b, B1).
+; Box X the whole screen, and a paint to do (U3b, B1) and a geometry event (S1).
 BOXFULL:
-        lda     #UQ_PAINT
-        tsb     uany
+        lda     #UQ_PAINT | UQ_GEOM     ; (S1) a geometry event: ui_open, ui_redraw, ui_resume,
+        tsb     uany                    ;   ui_theme (its thumb image's colours)
         stz     udmg,x
         stz     udmg + 1,x
         lda     #UI_COLS
@@ -936,8 +936,8 @@ ui_open:
         stz     udmg + 2
         stz     udmg + 4
         stz     udmg + 6
-        lda     #UQ_STALE               ; (U3b, B3) the modal window and the overlay found again
-        sta     uany
+        lda     #UQ_STALE | UQ_GEOM     ; (U3b, B3) the modal window and the overlay found again;
+        sta     uany                    ;   (S1) a geometry event
         jsr     ENTER
         jsr     POLLINIT
         jsr     SETUP
@@ -1301,7 +1301,7 @@ HIDEH:  sta     sh_h
 ; flags changed or a dialog made: the modal window and OVERS's answer found
 ; again.
 REFOCUS:
-        lda     #UQ_STALE
+        lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event)
         tsb     uany
         jsr     FINDMODAL
         lda     umenu                   ; a menu down outside the modal window goes up (W5)
@@ -1482,7 +1482,21 @@ SETW:   sta     t2
         tya
         jsr     ENTER
         jsr     CHKH
-        jsr     DIRTY
+        ldx     t2                      ; (S1, (viii)) a value, and UF_SPRITE's bit set: block B's
+        cpx     #UW_VALUE               ;   VDIRTY, which draws a sprite thumb's slider's or scroll
+        bne     @d                      ;   bar's cells not, only its thumb placed (the bit is
+        pha                             ;   other types' own too: VDIRTY tells them apart)
+        jsr     REC
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @nd
+        pla
+        XGO     FARB, XB_VDIRTY
+        bra     @c
+@nd:    pla
+@d:     jsr     DIRTY
+@c:
         ldy     #UW_TYPE                ; a button's, a check box's, an item's value is 0 or 1
         lda     (UIR),y
         ldy     t2
@@ -1628,7 +1642,7 @@ ui_dirty:
         beq     STALE
         clc
         rts
-STALE:  lda     #UQ_STALE
+STALE:  lda     #UQ_STALE | UQ_GEOM     ; (S1: a geometry event)
         tsb     uany
         clc
         rts

@@ -27,7 +27,7 @@
         .include "ui.inc"
 
         .import SCALE, sv, su, sa, sr
-        .import TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1
+        .import TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1, VDIRTY, SPRDRAWN
         .export UIW_VSCROLL, UIW_HSCROLL, SCMEAS, SCPLACE
 
         .segment "BRODATA"
@@ -387,12 +387,9 @@ DRAW:   jsr     MEASURE
         jsr     EMIT
         inc     idx
         bra     @cell
-@r:     lda     smode                   ; a sprite's thumb: placed after the paint (POST)
-        beq     @rr
-        lda     #<POST
-        sta     upost
-        lda     #>POST
-        sta     upost + 1
+@r:     lda     smode                   ; a sprite's thumb: placed after the paint (POST;
+        beq     @rr                     ;   S1: marked if drawn dirty)
+        jmp     SPRDRAWN
 @rr:    rts
 
         .segment "BRODATA"
@@ -584,7 +581,7 @@ SETV:   lda     t0
         sta     evv + 1
         lda     dh
         sta     evh
-        jsr     DIRTY
+        jsr     VDIRTY                  ; (S1, (viii): a sprite thumb's, only the thumb)
         lda     #UE_CHANGE
         clc
         rts

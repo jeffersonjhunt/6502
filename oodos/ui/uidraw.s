@@ -593,8 +593,10 @@ PAINT:  lda     ususp
         stz     udmg,x
         dex
         bpl     @z
-        lda     udrew                   ; a widget module's after a paint that drew (a slider's
-        beq     PNONE                   ;   sprites, U2)
+        lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
+        and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
+        ora     udrew                   ;   changed (VDIRTY), with nothing drawn
+        beq     PNONE
         lda     upost + 1
         beq     PNONE
         XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
@@ -701,6 +703,9 @@ ONE:    sta     dh
 MPASS:  lda     umenu
         cmp     #UI_NONE
         beq     @r
+        lda     #UQ_GEOM                ; (S1) a menu down: a geometry event (its drop-down, which
+        tsb     uany                    ;   its items' texts size, covers what it covers)
+        lda     umenu
         jsr     RECT
         bcs     @r
         lda     umenu
