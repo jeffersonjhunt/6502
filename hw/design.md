@@ -3,6 +3,8 @@
 Draft, 2026-10-21. The architecture of the backplane computer as agreed so far. Each section separates what is
 **decided** from what is **proposed** (a starting point, open to change); open questions are collected at the end.
 Card pin-outs and the module ID list are in [modules.md](modules.md), the front panel in [console.md](console.md).
+**Proposed (2026-11-13):** the diagnostics (a ROM core in the BIOS and DIAG.COM) and SYSINFO, with their shared
+library, are planned in [diag.md](diag.md).
 
 
 ## Goals ##
