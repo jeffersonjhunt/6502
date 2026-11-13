@@ -71,7 +71,7 @@ endef
 $(foreach b,$(BLOCKS),$(eval $(call BLOCK,$(b))))
 
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py
-	$(PYTHON) tools/gwsize.py $(BUILD)/gwbasic.map $(BLOCKS:%=--block $(BUILD)/%.map) --min $(GWSIZE_MIN)
+	$(PYTHON) tools/gwsize.py $(BUILD)/gwbasic.map $(BLOCKS:%=--block $(BUILD)/%.map) --min $(GWSIZE_MIN) --free $(BUILD)/free.txt
 	$(PYTHON) tools/mkgw.py --com $(BUILD)/gwbasic.res $(foreach b,$(BLOCKS),--block $(subst p,,$(b)):$(BUILD)/$(b).bin) -o $(BUILD)
 
 sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)

@@ -24,4 +24,4 @@ GOTRP:          RTS
 
 .segment "RAM"
 
-FBUFF:          .res    32             ; $FOUT's output
+FBUFF:          .res    43             ; $FOUT's output: FBUFFR's 43 (GWDATA.ASM), PRINT USING's too (7b)

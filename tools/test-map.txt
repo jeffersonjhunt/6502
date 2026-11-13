@@ -130,6 +130,7 @@ oodos/include/                                  oodos docs
 oodos/lib/mudrv/                                oodos test_mudrv docs
 oodos/diskdefs                                  oodos docs web
 oodos/spike/                                    none
+oodos/gwbasic/tools/oracle.sh                   none
 oodos/gwbasic/                                  gwbasic docs
 oodos/README.md                                 docs
 oodos/                                          oodos docs

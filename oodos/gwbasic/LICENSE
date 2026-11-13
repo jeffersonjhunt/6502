@@ -1,8 +1,12 @@
 The files of this directory derived from Microsoft GW-BASIC (1983) are under
 the licence below. Each says so in its first lines ("Derived from Microsoft
 GW-BASIC"): the translated modules in res/, p1/ and p2/, gwbasic.inc, and
-test/mbf.py and test/basic.py. The rest (the OEM layer, the loader, the
-tools, the link configs, the Makefile and the tests) are the project's own,
+test/mbf.py and test/basic.py. res/oem.s, the console's OEM layer, is partly
+derived ("Partly derived from Microsoft GW-BASIC"): the routines it names as
+translated (OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, SCNSEM, ITSCTC
+and CNTCCN) are under the licence below, the rest of it is the project's own.
+The rest (the loader, res/todo*.s's stand-ins, the tools, the link configs,
+the Makefile, ledger.txt, srcnames.txt and the tests) are the project's own,
 under the repository's LICENSE.
 
     MIT License

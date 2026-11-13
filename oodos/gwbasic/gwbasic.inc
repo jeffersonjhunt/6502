@@ -498,3 +498,8 @@ BLK_END         = $F800                ; common memory from here, copied in by t
                 JMP     t
 :
 .endmacro
+.macro  JCC     t
+                BCS     :+
+                JMP     t
+:
+.endmacro

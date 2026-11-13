@@ -1,8 +1,14 @@
+; Partly derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
+;
 ; GW-BASIC's OEM layer for the console, 7a's (hw/oodos.md, "The plan, phase
-; 7": 7a, the console through the BDOS). The project's own, not Microsoft's:
-; the release has no OEM code (hw/oodos.md, "GW-BASIC"). It stands where
-; GIO86.ASM's device dispatch, SCNEDT.ASM's screen editor and GIOKYB.ASM's
-; keyboard are on the PC, and keeps their entries' contracts:
+; 7": 7a, the console through the BDOS). The release has no OEM code
+; (hw/oodos.md, "GW-BASIC"), so most of this is the project's own. But
+; OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, SCNSEM, ITSCTC and
+; CNTCCN are translated from GIO86.ASM, BIMISC.ASM, SCNEDT.ASM and
+; GIOKYB.ASM (ledger.txt), and are Microsoft's, under its MIT licence. It
+; stands where GIO86.ASM's device dispatch, SCNEDT.ASM's screen editor and
+; GIOKYB.ASM's keyboard are on the PC, and keeps their entries' contracts:
 ;
 ;   OUTDO     A to the current output (PTRFIL): the console by function 2,
 ;             or LPT1 by LST: (function 5); A, X, Y and the flags kept.
@@ -61,10 +67,12 @@ OUTDO:          PHP
                 PHA
                 PHX
                 PHY
-                LDX     #0             ; X: the column's index, 0 the console, 1 LPT1
-                LDY     PTRFIL
-                BEQ     :+
-                INX
+                LDX     #0             ; X: the column's index, 0 the console, 1 LPT1:
+                LDY     PTRFIL         ; the console only if both of PTRFIL's bytes
+                BNE     :+             ; are 0, as ISFLIO has it (a file's block, 7c,
+                LDY     PTRFIL+1       ; may have a low byte of 0)
+                BEQ     :++
+:               INX
 :               CMP     #' '
                 BCC     @ctl
                 PHA
@@ -120,8 +128,8 @@ OUTDO:          PHP
 
 ; CRDO (GIO86.ASM 1026): CR and LF; A = 0 and Z set. CRDONZ (1013): only if
 ; the current output isn't at its left margin. CRFIN (1006): A = 0.
-CRDONZ:         LDX     #0
-                LDA     PTRFIL
+CRDONZ:         LDX     #0             ; the device as OUTDO takes it
+                JSR     ISFLIO
                 BEQ     :+
                 INX
 :               LDA     TTYPOS,X

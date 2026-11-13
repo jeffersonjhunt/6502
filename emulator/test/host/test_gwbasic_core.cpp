@@ -9,7 +9,11 @@
  * own prompt, on the serial line, as a user types them.
  *
  * - The loader: the blocks loaded, common memory copied into them, the far call sites patched; the banner, its
- *   bytes free against the plan's gate (32,768), and Ok; SYSTEM back to the CCP.
+ *   bytes free against the plan's gate (32,768) and the size gate's own figure (tools/gwsize.py), and Ok; SYSTEM
+ *   back to the CCP. And what it refuses, each with its message and back to A>: no GWBASIC.OVL, a short one, a
+ *   header that is wrong (the magic, the format, the count, a page, an entry's record, records or length), a far
+ *   call site list or site outside its block's image, a site's page out of range, no memory for the blocks, and
+ *   an OODOS without function 83. A stale PTRFIL can't send its messages to LST:.
  * - A far call's crossing (V8): READY's FTSITE, a far call to P1's FARTST, which does nothing, timed from the
  *   JSR to the instruction after it, less a JSR and its RTS: at most 340 cycles.
  * - Programs typed and run, against PC-BASIC's output for the same program (emulator/test/host/gwbasic/NAME.bas
@@ -29,6 +33,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -206,6 +211,64 @@ namespace
         return t;
     }
 
+    /// GW-BASIC started from the CCP with GWBASIC.OVL first changed by `damage` (or not there at all, `ovl`
+    /// false): what it printed to the CCP's next prompt ("" if that never came). `from_load` runs before each
+    /// instruction from the loader's first (LOAD, `first` true) on, to leave the machine as a case needs it.
+    std::string refused(CcpRig &r, const std::function<void(std::vector<uint8_t> &)> &damage, bool ovl = true,
+                        const std::function<void(uint16_t pc, bool first)> &from_load = {})
+    {
+        const std::vector<uint8_t> com = file("GWBASIC.COM");
+        std::vector<uint8_t> o = file("GWBASIC.OVL");
+        CHECK(!com.empty() && !o.empty());
+        if (com.empty() || o.empty())
+            return {};
+        if (damage)
+            damage(o);
+        std::vector<MFile> files = {{0, "GWBASIC COM", com}};
+        if (ovl)
+            files.push_back({0, "GWBASIC OVL", o});
+        r.put_m(files);
+        const uint16_t load = labels().at("LOAD");
+        bool on = false;
+        r.watch = [&](uint16_t pc) {
+            if (!from_load)
+                return;
+            const bool first = !on && pc == load;
+            on = on || first;
+            if (on)
+                from_load(pc, first);
+        };
+        const std::string out = r.cmd("m:gwbasic");
+        r.watch = nullptr;
+        return out;
+    }
+
+    /// GWBASIC.OVL's header entry for block i (8 bytes from +8): +0 the page, +2 the first record, +4 the records,
+    /// +6 the length.
+    uint8_t *entry(std::vector<uint8_t> &o, unsigned i) { return &o[8 + 8 * i]; }
+    unsigned word(const uint8_t *p) { return p[0] | p[1] << 8u; }
+    void put_word(uint8_t *p, unsigned v)
+    {
+        p[0] = static_cast<uint8_t>(v);
+        p[1] = static_cast<uint8_t>(v >> 8);
+    }
+    /// Block i's image in GWBASIC.OVL, linked at $C800: +0 its FARFIX list's address, +2 the list's count.
+    uint8_t *image(std::vector<uint8_t> &o, unsigned i) { return &o[size_t{word(entry(o, i) + 2)} * 128]; }
+    constexpr unsigned BLK_BASE = 0xC800;
+
+    const std::string DAMAGED = "GWBASIC.OVL is damaged\r\n", NO_OVL = "GWBASIC.OVL not found\r\n",
+                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs a newer OODOS\r\n";
+
+    /// `got` says `message`, has no Ok, and ends at the CCP's prompt.
+    void says(const std::string &what, const std::string &got, const std::string &message)
+    {
+        const bool good = got.find(message) != std::string::npos && got.find("Ok\r\n") == std::string::npos &&
+                          got.size() >= 2 && got.compare(got.size() - 2, 2, "A>") == 0;
+        if (!good)
+            std::printf("  %s: got '%s', want '%s' and A>\n", what.c_str(), vis(got).c_str(), vis(message).c_str());
+        CHECK(good);
+    }
+
     /// The banner's "N Bytes free".
     long bytes_free(const std::string &banner)
     {
@@ -264,7 +327,8 @@ TEST(a_far_call_crosses_in_at_most_340_cycles)
 }
 
 // The heading as GWINIT prints it (by hand: GW-BASIC's HEDING, with the OO-1's line before it), and the bytes
-// free: MEMSIZ - TXTTAB - 2, at least the plan's 32,768 (hw/oodos.md, "The plan, phase 7": the gate).
+// free: MEMSIZ - TXTTAB - 2, at least the plan's 32,768 (hw/oodos.md, "The plan, phase 7": the gate), and the
+// size gate's own figure.
 TEST(the_banner_has_the_heading_and_at_least_32768_bytes_free)
 {
     CcpRig r;
@@ -274,7 +338,162 @@ TEST(the_banner_has_the_heading_and_at_least_32768_bytes_free)
     const long n = bytes_free(got);
     std::printf("  the banner: %ld Bytes free (the gate 32,768)\n", n);
     CHECK(n >= 32768);
+    // The size gate's figure (tools/gwsize.py --free) is the banner's, so the gate holds what a user sees.
+    const std::vector<uint8_t> gate = file("free.txt");
+    const long g = std::strtol(std::string(gate.begin(), gate.end()).c_str(), nullptr, 10);
+    if (g != n)
+        std::printf("  the size gate's figure: %ld\n", g);
+    CHECK_EQ(g, n);
     CHECK(got.find(std::to_string(n) + " Bytes free\r\nOk\r\n") != std::string::npos);
+}
+
+// The loader refuses a GWBASIC.OVL that isn't there or is short, with its message, and the warm boot.
+TEST(the_loader_refuses_a_missing_or_short_gwbasic_ovl)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        says("no GWBASIC.OVL", refused(r, {}, false), NO_OVL);
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        says("a short GWBASIC.OVL", refused(r, [](std::vector<uint8_t> &o) {
+                 o.resize(size_t{word(entry(o, 0) + 2)} * 128 + 3 * 128); // P1's first three records
+             }),
+             DAMAGED);
+    }
+}
+
+// The header's checks (DD2): each case one field wrong, the rest as built. A length of 0 would be a 64 KB
+// DM_COPY, and records past the length's would load past the TPA's top.
+TEST(the_loader_refuses_a_header_that_is_wrong)
+{
+    const std::vector<std::pair<const char *, std::function<void(std::vector<uint8_t> &)>>> cases = {
+        {"the magic", [](std::vector<uint8_t> &o) { o[2] = 'X'; }},
+        {"the format", [](std::vector<uint8_t> &o) { o[4] = 2; }},
+        {"0 blocks", [](std::vector<uint8_t> &o) { o[5] = 0; }},
+        {"9 blocks", [](std::vector<uint8_t> &o) { o[5] = 9; }},
+        {"a page of 0", [](std::vector<uint8_t> &o) { entry(o, 1)[0] = 0; }},
+        {"a page of 9", [](std::vector<uint8_t> &o) { entry(o, 1)[0] = 9; }},
+        {"a page named twice", [](std::vector<uint8_t> &o) { entry(o, 1)[0] = entry(o, 0)[0]; }},
+        {"a first record of 0", [](std::vector<uint8_t> &o) { put_word(entry(o, 1) + 2, 0); }},
+        {"a length of 0", [](std::vector<uint8_t> &o) { put_word(entry(o, 0) + 6, 0); }},
+        {"a length over 12,288",
+         [](std::vector<uint8_t> &o) {
+             put_word(entry(o, 0) + 6, 0x3001);
+             put_word(entry(o, 0) + 4, 97);
+         }},
+        {"records past the length's", [](std::vector<uint8_t> &o) { put_word(entry(o, 0) + 4, word(entry(o, 0) + 4) + 1); }},
+        {"records short of the length's",
+         [](std::vector<uint8_t> &o) { put_word(entry(o, 1) + 4, word(entry(o, 1) + 4) - 1); }},
+    };
+    for (const auto &[what, damage] : cases)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        says(what, refused(r, damage), DAMAGED);
+    }
+}
+
+// The far call sites (DD1): a block's FARFIX list must lie in its image, past its header; each site's three
+// bytes (the JSR's operand and the page) in the image, past the header; each site's page 1-8 and one the file
+// has. Anything else would let the file write any CPU address (OODOS's own block 62 among them).
+TEST(the_loader_refuses_far_call_sites_outside_their_block)
+{
+    // P2's (block 1's: P1 makes no far call), its first site and that site's page byte. Where a case can, it
+    // leaves a page of 1 where the unchecked loader would read the site's page, so that one would patch it and
+    // go on: the padding of the image's last record, past its length, is the file's own and free to use.
+    constexpr unsigned P2 = 1;
+    {
+        std::vector<uint8_t> o = file("GWBASIC.OVL");
+        REQUIRE(o.size() > 128 && o[5] >= 2 && word(image(o, P2) + 2) >= 1);
+    }
+    auto list = [](std::vector<uint8_t> &o) { return image(o, P2) + (word(image(o, P2)) - BLK_BASE); };
+    auto page = [&](std::vector<uint8_t> &o) -> uint8_t & { return image(o, P2)[word(list(o)) - BLK_BASE + 2]; };
+    const unsigned len = 6; // the entry's length, at +6
+    const std::vector<std::pair<const char *, std::function<void(std::vector<uint8_t> &)>>> cases = {
+        {"the list in the header", [](std::vector<uint8_t> &o) { put_word(image(o, P2), BLK_BASE + 2); }},
+        {"the list past the image", // one more site, past the image's end, its three bytes past it too
+         [](std::vector<uint8_t> &o) {
+             const unsigned top = BLK_BASE + word(entry(o, P2) + len), end = word(image(o, P2)) + 2 * word(image(o, P2) + 2);
+             REQUIRE(end == top); // FARFIX is the image's last segment
+             put_word(image(o, P2) + 2, word(image(o, P2) + 2) + 1);
+             put_word(image(o, P2) + (top - BLK_BASE), top + 2);
+             image(o, P2)[top - BLK_BASE + 4] = 1;
+         }},
+        {"a list that wraps", [](std::vector<uint8_t> &o) { put_word(image(o, P2) + 2, 0x8000); }},
+        {"a site in the header", [&](std::vector<uint8_t> &o) { put_word(list(o), BLK_BASE + 3); }},
+        // ($BF02 is 2 into the header record's buffer, as the loader places it under the image's; its +4, the
+        // format, is 1.)
+        {"a site under the image", [&](std::vector<uint8_t> &o) { put_word(list(o), BLK_BASE - 0x900 + 2); }},
+        {"a site past the image",
+         [&](std::vector<uint8_t> &o) {
+             put_word(list(o), BLK_BASE + word(entry(o, P2) + len)); // (the list is the image's last bytes)
+             image(o, P2)[word(entry(o, P2) + len) + 2] = 1;
+         }},
+        {"a site's page of 0", [&](std::vector<uint8_t> &o) { page(o) = 0; }},
+        {"a site's page of 9", [&](std::vector<uint8_t> &o) { page(o) = 9; }},
+        {"a site's page of 200", [&](std::vector<uint8_t> &o) { page(o) = 200; }},
+        {"a site's page the file hasn't", [&](std::vector<uint8_t> &o) { page(o) = 8; }},
+    };
+    for (const auto &[what, damage] : cases)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        says(what, refused(r, damage), DAMAGED);
+    }
+}
+
+// No memory for the blocks: every block of banks 1-5 taken (function 55's map, AMAP, as the loader starts).
+TEST(the_loader_refuses_with_no_memory_for_the_blocks)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    says("no memory", refused(r, {}, true, [&](uint16_t, bool first) {
+             for (uint32_t i = 0; first && i < 20; ++i) // AMAP_LEN: blocks 4-23
+                 r.poke(SYS_BLOCK_PHYS + sym("AMAP") + i, 0x81);
+         }),
+         NO_MEMORY);
+}
+
+// An OODOS without function 83 (DD12): function 80's FT_INFO answered as an OODOS without the services answers
+// it, A = X = $FF; the loader says so, not "damaged".
+TEST(the_loader_refuses_an_oodos_without_function_83)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    unsigned answered = 0;
+    const std::string got = refused(r, {}, true, [&](uint16_t pc, bool) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // the BDOS's entry, FT_INFO: return A = X = $FF
+        {
+            Registers n = g;
+            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
+                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
+            n.pc = static_cast<uint16_t>(ret + 1);
+            n.s = static_cast<uint8_t>(g.s + 2);
+            n.a = n.x = 0xFF;
+            r.cpu->set_regs(n);
+            ++answered;
+        }
+    });
+    CHECK(answered >= 1u);
+    says("an OODOS without function 83", got, OLD);
+}
+
+// A stale zero page (DD3): PTRFIL left as LPT1's ($FFFF) and the columns at the margin by what ran before; the
+// loader's message must still reach the console.
+TEST(the_loader_s_messages_go_to_the_console_whatever_zero_page_held)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    says("a stale PTRFIL", refused(r, {}, false, [&](uint16_t, bool first) {
+             for (const unsigned a : {0xCEu, 0xCFu, 0xD0u, 0xD1u}) // PTRFIL, TTYPOS, LPTPOS (gwbasic.inc)
+                 if (first)
+                     r.machine->bus().write(static_cast<uint16_t>(a), 0xFF);
+         }),
+         NO_OVL);
 }
 
 // Each program typed, then RUN: what it prints must be PC-BASIC's output for it. (errsn, last, leaves its
@@ -476,6 +695,73 @@ TEST(input_semicolon_lprint_and_later_forms)
     CHECK_EQ(command(r, "RESTORE 100"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "NEXT"), std::string("NEXT without FOR\r\n"));
     CHECK_EQ(command(r, "FOR I=1 TO 3:PRINT I;:NEXT"), std::string(" 1  2  3 \r\n"));
+}
+
+// OUTDO and CRDONZ take the device from both of PTRFIL's bytes, as ISFLIO does (DD8): a PTRFIL of $0100, as a
+// file's block will be at 7c with a low byte of 0, isn't the console. Here it goes where 7a sends any PTRFIL
+// but 0, to LST: (function 5).
+// - OUTDO: the "Z" of PRINT "Z"; sent with PTRFIL $0100 must go by function 5, and not to the console;
+// - CRDONZ: called with PTRFIL $0100, the console at its margin and LPT1 not, must send CR LF by function 5
+//   before it returns.
+TEST(outdo_and_crdonz_take_the_device_from_both_bytes_of_ptrfil)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("OUTDO") == 1 && lab.count("CRDONZ") == 1);
+    const uint16_t outdo = lab.at("OUTDO"), crdonz = lab.at("CRDONZ");
+    auto zp = [&](uint16_t a, uint8_t v) { r.machine->bus().write(a, v); };
+    constexpr uint16_t PTRFIL = 0xCE, TTYPOS = 0xD0, LPTPOS = 0xD1; // gwbasic.inc
+    std::string lst, by_return;
+    int stage = 0;
+    uint16_t back = 0;
+    r.watch = [&](uint16_t pc) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 5) // the BDOS's entry, L_WRITE
+            lst += static_cast<char>(g.a);
+        if (stage == 0 && pc == outdo && g.a == 'Z')
+        {
+            zp(PTRFIL, 0x00);
+            zp(PTRFIL + 1, 0x01);
+            stage = 1;
+        }
+        else if (stage == 1 && pc == 0x0203) // the device chosen: PTRFIL back
+        {
+            zp(PTRFIL, 0);
+            zp(PTRFIL + 1, 0);
+            stage = 2;
+        }
+        else if (stage == 3 && pc == crdonz)
+        {
+            zp(PTRFIL, 0x00);
+            zp(PTRFIL + 1, 0x01);
+            zp(TTYPOS, 0);
+            zp(LPTPOS, 5);
+            back = static_cast<uint16_t>((r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
+                                          r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8) + 1);
+            stage = 4;
+        }
+        else if (stage == 4 && pc == back) // CRDONZ's return: what it sent, and PTRFIL back
+        {
+            by_return = lst;
+            zp(PTRFIL, 0);
+            zp(PTRFIL + 1, 0);
+            stage = 5;
+        }
+    };
+    const std::string z = command(r, "PRINT \"Z\";");
+    CHECK_EQ(stage, 2);
+    CHECK(z.find('Z') == std::string::npos); // (command() leaves out the echo)
+    CHECK(lst.size() >= 1 && lst[0] == 'Z');
+    if (lst.empty() || lst[0] != 'Z')
+        std::printf("  OUTDO: LST: got '%s', the console '%s'\n", vis(lst).c_str(), vis(z).c_str());
+    lst.clear();
+    stage = 3;
+    command(r, "REM");
+    r.watch = nullptr;
+    CHECK_EQ(stage, 5);
+    CHECK_EQ(vis(by_return), std::string("\\r\\n"));
 }
 
 // The timing figures (hw/oodos.md, "The plan, phase 7": 7a's cycles), on the running GWBASIC.COM, each by
