@@ -4819,3 +4819,57 @@ TEST(s1_a_hit_is_found_again_after_each_geometry_event)
     ev.insert(ev.end(), up2.begin(), up2.end());
     CHECK(!clicked(ev, Z_BTN));
 }
+
+TEST(u3b_an_own_thumb_s_length_apart_from_its_sprite)
+{
+    // (U3b, the owner 2026-11-12) A scroll bar's own thumb (UF_OWNTHUMB) with UF_NOARROWS and UF_MARGIN takes its
+    // length from the margin byte's high four bits (x 4 units), not 0, instead of its sprite's: OO-Amp's playlist
+    // bar, 11 rows (88 px), its 8 x 32 sprite holding a 20 px thumb at its top, travels 88 - 20 = 68 px, not 56.
+    // (With arrows the bits do nothing, as before: u3b_a_scroll_bar_s_margin_takes_a_press.)
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const uint16_t b = rec3(Z_VSC); // column 43, from row 4
+    r.poke(static_cast<uint16_t>(b + UW_FLAGS), static_cast<uint8_t>(r.phys(static_cast<uint16_t>(b + UW_FLAGS)) | UF_NOARROWS_ | 0x40));
+    r.poke(static_cast<uint16_t>(b + 5), 11); // UW_H: 11 rows
+    r.poke(static_cast<uint16_t>(b + 14), std::vector<uint8_t>{10, 0x51}); // the page 10; a 20-unit thumb, a column each side
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    setv(r, Z_VSC, 100);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 68); // the thumb's end at the bar's (its sprite's 12 more past it)
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    setv(r, Z_VSC, 50);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 34);
+    // A press 5 units into the thumb holds it; 34 units on, the value 34 x 100 / 68.
+    setv(r, Z_VSC, 0);
+    poll(r);
+    usb(r).mouse_to(43 * 4 + 2, 4 * 8 + 5);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {}, "the thumb held");
+    usb(r).mouse_to(43 * 4 + 2, 4 * 8 + 5 + 34);
+    r.run(ms(30));
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Z_VSC && ev[0].value == 50u);
+    button(r, false);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 34);
+    // At 0, a press 25 units down is past the 20-unit thumb (on its sprite's lower part): the track's, a page.
+    setv(r, Z_VSC, 0);
+    poll(r);
+    usb(r).mouse_to(43 * 4 + 2, 4 * 8 + 25);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {{UE_CHANGE, Z_VSC, 0, 10}}, "past the thumb: a page down");
+    button(r, false);
+    poll(r);
+    // The high bits 0: the sprite's length again (88 - 32 = 56).
+    r.poke(static_cast<uint16_t>(b + 15), 0x01);
+    setv(r, Z_VSC, 100);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 56);
+}

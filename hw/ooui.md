@@ -173,7 +173,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 10 | `UT_MENU` | the title (the menu bar's child) | - | - | - |
 | 11 | `UT_ITEM` | the text (a menu's child) | a check mark, 0 or 1 | +12 a key's HID usage shown, +13 its modifiers (`UK_*`) | - |
 | 12 | `UT_SEP` | - (a menu's line) | - | - | - |
-| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size); *U3b, proposed:* with `UF_MARGIN`, +15 the margin byte and +14 the page, 0-255 |
+| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size); *U3b, proposed:* with `UF_MARGIN`, +15 the margin byte and +14 the page, 0-255; with `UF_OWNTHUMB` and `UF_NOARROWS` too, the margin byte's high four bits the thumb's length ([an own thumb's length](#u3b-an-own-thumbs-length)) |
 | 14 | `UT_HSCROLL` | the same | | | |
 | 15 | `UT_LIST` | the rows: an array of string pointers, or with `UF_ROUTINE` the row routine | the selection, `$FFFF` none | the rows' count | the top row shown |
 | 16 | `UT_FIELD` | the buffer (0-terminated) | the cursor | +12 the buffer's size with its 0, +13 the first character shown | - |
@@ -1608,7 +1608,7 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
     | `eq0`-`eq10` | `UT_VSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 12 x 80 (12 x 70): one column each side, one row beyond each end; each band's columns start 1 pixel right of today's |
     | `vol`, `bal` | `UT_HSLIDER` | `UW_TEXT` = `$20` << 8 \| the size byte | 96 x 8 (92 x 8): two columns beyond each end |
     | `seek` | `UT_HSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 312 x 24 (312 x 12): its pixels 86-97 cover three rows |
-    | `plscroll` | `UT_VSCROLL` | `UW_B` = `$01` << 8 \| the page (the rows shown, under 256) | 12 x 88 (8 x 88): one column each side |
+    | `plscroll` | `UT_VSCROLL` | `UW_B` = `$01` << 8 \| the page (the rows shown, under 256); `$51` with its thumb's length ([below](#u3b-an-own-thumbs-length)) | 12 x 88 (8 x 88): one column each side |
 
     Each covers today's rectangle (the bands' but for its first pixel column). Where a margin meets another of
     OO-Amp's widgets, that widget keeps its cells: if the playlist's list reaches column 77, the scroll bar's
@@ -1951,6 +1951,36 @@ nothing taken out alone (`REFOCUS` and `BOXFULL` follow each): kept for safety, 
 test and crossing 33, `POINTED`'s bits and `FINDMODAL` 15, `MPASS` 8, `MCLOSE` 8, `PAINT`'s `UQ_THUMB` 5), B
 10,740 (1,548 free; 70: `SPRDRAWN`, `VDIRTY`, `POST`'s tests, `BTAB`'s entry), C 7,281 (5,007 free, unchanged);
 `UISTATE` 1,464 of 1,536, unchanged.
+
+#### U3b: an own thumb's length ####
+
+**Proposed, built 2026-11-12** (the owner, after OO-Amp's port at cc500d2). A scroll bar's sprite thumb was as long
+as its sprite along the track; OO-Amp's playlist bar (`plscroll`: 11 rows, 88 pixels, `UF_SPRITE`,
+`UF_OWNTHUMB`, `UF_NOARROWS`) draws a 20-pixel thumb in the top of an 8 x 32 sprite, so it travelled 88 - 32 = 56
+pixels, not 68. Opt-in and additive:
+
+- **The byte.** A scroll bar has no free byte, and no free flag (bits 4-7 are `UF_SPRITE`, `UF_OWNTHUMB`,
+  `UF_MARGIN`, `UF_NOARROWS`). With `UF_MARGIN` its margin byte is `UW_B`'s high byte, whose high four bits (the
+  cells beyond each end along the track) do nothing on a scroll bar ([the margin](#u3b-the-gaps-oo-amps-port-found)).
+  On a bar with `UF_OWNTHUMB`, `UF_NOARROWS` and `UF_MARGIN` together, those four bits, not 0, are the thumb's
+  length in 4 units (a unit is a pixel: 4 to 60), used instead of the sprite's for its room (the track's units
+  less the thumb's), its place, the cells `SHOWS` and `POST` look at, and a press on it (held inside its length,
+  a page past it). 0 is the sprite's length, as before; the sprite is placed with its start at the thumb's
+  start, so at the last value its last 12 pixels lie past the bar's end, where OO-Amp's art has room.
+- **Choice:** only with all three flags. On a bar with arrows the bits keep doing nothing, as
+  `u3b_a_scroll_bar_s_margin_takes_a_press` holds them (its `$11`); OOUI's own 8 x 8 thumb is its whole sprite.
+  The alternative, any scroll bar with `UF_MARGIN`, would change that case's input. A slider needs nothing: its
+  thumb is centred on its value whatever its size.
+- **What OO-Amp sets:** `plscroll`'s `UW_B` = `$51` << 8 \| the page (high four bits 5: 20 pixels; low four 1:
+  the margin's column each side, as before), its flags `UF_SPRITE | UF_OWNTHUMB | UF_MARGIN | UF_NOARROWS`
+  (`UI_VSCROLL`'s margin argument `$51`).
+- **The cost:** 24 bytes of block B (`MEASURE`), nothing in A, C or `UISTATE`; a few cycles a measure.
+- **Test:** `u3b_an_own_thumb_s_length_apart_from_its_sprite` (UITBAR's `Z_VSC` made `plscroll`'s shape: 11 rows,
+  `$51`): the thumb at 0, 34 and 68 pixels for 0, 50 and the last value, shown at the end; held 5 units in and
+  moved 34, the value 50; a press 25 units in, past the 20, a page; the bits 0, the travel 56 again. Fails five
+  ways with the length not taken (by hand, 2026-11-12). No golden frame changed.
+- **Sizes after it** (mkbank.py): `UICOM` 3,351; block A 12,233 (55 free); B 10,764 (1,524 free); C 7,281 (5,007
+  free); `UISTATE` 1,464 of 1,536.
 
 #### U3a: questions ####
 

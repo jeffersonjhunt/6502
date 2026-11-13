@@ -14,7 +14,11 @@
 ; (OOUI's 8 x 8, or with UF_OWNTHUMB the program's, its size byte UW_TEXT's
 ; low byte), at (track - thumb) x value / last along the track; a press
 ; on it drags it, before or after it pages. With UF_MARGIN, UW_B's high
-; byte is the margin (uipoll.s's MARGIN) and the page its low byte.
+; byte is the margin (uipoll.s's MARGIN) and the page its low byte. Its
+; high four bits, which are along the track and so a slider's only in the
+; margin, are on a bar with UF_NOARROWS and UF_OWNTHUMB too the thumb's
+; length in 4 units (pixels), 0 the sprite's: OO-Amp's 20 px thumb drawn in
+; the top of its 8 x 32 sprite.
 ;
 ; U3b round 5: with UF_NOARROWS ($80) the bar has no arrows: its track is
 ; the whole bar, a press anywhere on it is the track's (a page, or the
@@ -60,7 +64,10 @@ afu:    .res    1                      ;   and their units (8 or 4, or 0)
 
         .segment "BCODE"
 
-; The bar's measures: vert, len, val, last, page, tsz, tpos.
+; The bar's measures: vert, len, val, last, page, tsz, tpos; with a sprite's
+; thumb, smode, sth (its length: its sprite's along the track, or, U3b, the
+; margin byte's high four bits x 4 with UF_MARGIN, UF_NOARROWS and
+; UF_OWNTHUMB), room and tu.
 MEASURE:
         ldy     #UW_TYPE
         lda     (UIR),y
@@ -149,8 +156,9 @@ MEASURE:
         ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_SPRITE
-        beq     @r
-        inc     smode
+        bne     @sp
+        rts
+@sp:    inc     smode
         jsr     TSIZE                   ; hw, hh
         lda     hh
         ldx     vert
@@ -158,7 +166,20 @@ MEASURE:
         lda     hw
 @s:     asl     a
         sta     sth
-        lda     len                     ; room = len x units - the thumb, at least 0
+        ldy     #UW_FLAGS               ; (U3b, the thumb's length) an own thumb's (UF_OWNTHUMB)
+        lda     (UIR),y                 ;   on a bar with no arrows (UF_NOARROWS) and a margin
+        and     #UF_NOARROWS | UF_MARGIN | UF_OWNTHUMB ; (UF_MARGIN): the margin byte's
+        cmp     #UF_NOARROWS | UF_MARGIN | UF_OWNTHUMB ;   high four bits (along, which
+        bne     @ln                     ;   do nothing else on a scroll bar), not 0, in 4
+        ldy     #UW_B + 1               ;   units, not its sprite's: the room, the cells
+                                        ;   SHOWS looks at and a press's are its
+        lda     (UIR),y
+        and     #$F0
+        beq     @ln
+        lsr     a
+        lsr     a
+        sta     sth
+@ln:    lda     len                     ; room = len x units - the thumb, at least 0
         jsr     UNITS
         sec
         lda     t0
