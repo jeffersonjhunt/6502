@@ -689,7 +689,7 @@ Six phases, all software, each closed by a gate:
 | U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled: **met** (the owner, 2026-11-11) |
 | U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass: **built** (2026-11-11), [below](#u1-the-core-and-the-text-backend) |
 | U2 | Scroll bars, list boxes, message boxes, text fields, sliders, bars, canvas; file picker on OODOS directory calls | File picker works on real disks: **built** (2026-11-11), [below](#u2-the-remaining-widgets-the-message-box-and-the-picker) |
-| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend: **not met** (the owner, 2026-11-12: OO-Amp stays on its own UI, the port kept to revisit; the bitmap backend not now; [the outcome](#u3b-the-outcome)) |
+| U3 | U3a: OOUI as a banked library ([proposed](#u3a-ooui-as-a-banked-library)); U3b: OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared (as information) | *(the owner, 2026-11-13)* OO-Amp runs on OOUI with every feature working, no unapproved change in behaviour, start-up and dialogs within an agreed time; the bitmap backend not now: **met once the landing is approved** ([the outcome](#u3b-the-outcome); the size gate, "OO-Amp clearly smaller", was the wrong one) |
 | U4 | Bitmap backend (optional), drawing assist if repaints are slow | Repaints fast enough to feel native |
 | U5 | Programmer's Guide chapter, examples, docs/README.md phases, a second app | A second app built on OOUI |
 
@@ -2151,26 +2151,41 @@ loops), B 10,433 (1,855 free), C 9,589 (2,699 free); `UISTATE` 1,492 of 1,536.
 
 #### U3b: the outcome ####
 
-**Decided (the owner, 2026-11-12).** U3b's gate, OO-Amp clearly smaller, is not met. The port's measurements
-(OO-Amp's feat/ooui-u3b against its main):
+**Decided (the owner, 2026-11-13; it replaces 2026-11-12's).** Size was the wrong gate: a framework's ease and
+consistency is worth a little size. **The port lands.** U3's gate is now: OO-Amp runs on OOUI with every feature
+working, no unapproved change in behaviour, start-up and dialogs within an agreed time. It is met once the
+landing (OO-Amp's feat/ooui-u3b, this repository's feat/ooui-u3b-land) is approved. The agreed times are the
+owner's to set; *proposed:* start-up, from the CCP taking OOAMP's CR to the finished screen, at most 1.5 s (the
+port measures 1.48 s against 6502 616c968, OO-Amp's own UI 0.97 s), and a dialog opened (H to Help shown whole) at
+most 0.4 s (0.37 s; 0.20 s on its own UI).
+
+The size figures stay, as information (OO-Amp's feat/ooui-u3b against its main):
 
 | What | OO-Amp's own UI | On OOUI |
 | --- | --- | --- |
 | OO-Amp's own code and data | 30,871 bytes | 29,958 (3% less) |
 | Its files on the card | 85,840 bytes | 141,564 (OOUI.BNK 40,320 of them) |
-| Start-up to the main loop | 56.0 frames (0.93 s) | 90.0 (1.50 s): `ui_load` from A: 21.6 frames for 40,320 bytes, the first paint 15.2 frames against 2.3 |
-| Help opened | 10.7 frames | 21.1 |
+| Start-up to the main loop | 56.0 frames (0.93 s) | 90.0 (1.50 s) at 20caf52; 87.2 (1.45 s) at 616c968: `ui_load` 17.5 frames, the first paint 12.3 against 2.3 |
+| Help opened | 10.7 frames | 21.1 (test_accept's response, an MP3 playing); shown whole 22 frames against 12 (616c968, idle) |
 
-And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its look.
+And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its look. `ui_load` already reads
+OOUI.BNK by `DM_LOAD` (2026-11-12's "revisit when OOUI loads by DMA" was wrong); why 40 KB takes 17.5 frames is
+the next small phase's question.
 
-- **The decision.** OO-Amp stays on its own UI. The port is kept, on OO-Amp's local branch feat/ooui-u3b
-  (7665e91), to revisit when OOUI loads by DMA ([OOLIB's question 13](oolib.md)) and paints faster (S3: no
-  repaint of widgets that are covered). Only this repository's OOUI work merges: the gaps the port found, the
-  margins and the thumbs, the speed steps (S1, S2, B5).
+- **The behaviour part 4 changed** (the owner's dispositions, 2026-11-13): the picker's U key (the next user)
+  and its size column are restored (below); accepted: a click while CONFIRM QUIT's box is up does nothing (it was
+  a no), and a click outside a modal window is OOUI's to drop.
+- **The picker passes on the keys it doesn't use** *(U3b landing, proposed)*: a key that no widget, button
+  letter, Escape, Tab or the accelerator table takes is the program's `UE_KEY` while the picker is up, X the
+  focus (one of the picker's handles), as it is outside the picker; before, the picker's filter dropped it.
+  OO-Amp's U is one. `test_oodos_ui`'s `u3b_the_picker_s_add_and_add_all_keep_it_up` checks it. (A program that
+  acts on every `UE_KEY` sees these too: a change for an existing caller, put to the owner.)
 - **The bitmap backend: not now.** A 4-bit cell is 32 times a text cell's writes, and the backend would take
   some 38 KB of card memory; the port's pixel needs were met by sprite thumbs, margins and a thumb's own length.
-- **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; the modal picker swallows
-  the keys it doesn't use; `ui_theme`, and hiding a full-screen overlay window, draw again the widgets it covers.
+- **OOUI's open gaps, for later:** Enter on a focused `UT_CHOICE` changes its value; `ui_theme`, and hiding a
+  full-screen overlay window, draw again the widgets it covers; `ui_open` shows the layers before the first paint
+  (a flash: the fix, the layers shown at the first paint's end, costs 12 bytes of every block's UICOM and makes
+  OOUI.BNK 41,088 bytes, past 40,960: not made, put to the owner).
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 
@@ -2181,7 +2196,9 @@ And OO-Amp still draws its own pixel chrome: OOUI took over its widgets, not its
   | B5 (a332d19) | G EQ 1.9, Tab 1.9, G 1.7 | playlist 1.8, EQ ON 1.0 | 1.9 at 7665e91, 1.8 at 9c64da3: **passes** |
 
   At 7665e91 the case can't reach its clicks with any OOUI.BNK (20caf52's too): from Load Files on every action
-  is "never" (99 frames), so they are 9c64da3's, which has the same clicks. What is left in B5's G EQ (1.86
+  is "never" (99 frames), so they are 9c64da3's, which has the same clicks. *(U3b landing:)* the cause was OO-Amp's, not OOUI's: the
+  jump, made after Settings in the dialogs' shared records, kept Settings' CANCEL as its window's child, so Esc
+  pressed that and the jump stayed up; fixed in OO-Amp (9df4444, with a test that fails without it). What is left in B5's G EQ (1.86
   frames, 221,653 cycles): 68,952 waiting for the blank, OOUI 96,711 (the paint 57,624, two buttons drawn), OO-Amp's
   own 111,711, the system's 13,231; before S2 the paint alone was 202,000.
 
