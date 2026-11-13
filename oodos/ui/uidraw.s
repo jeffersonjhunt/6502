@@ -629,7 +629,10 @@ PASS:   ldx     pbx
         stz     uattr
         lda     #0
         jsr     FILLR
-@go:    lda     #0
+@go:    lda     #$FE                    ; RECT's sibling cache on for the walk, as FRONT's, no
+        sta     rcv                     ;   parent held yet (U3b round 5: a record placed from
+        sta     rcp                     ;   its parent's place when the last was its sibling)
+        lda     #0
         sta     ph
         jsr     REC
 @rec:   lda     ph
@@ -666,7 +669,8 @@ PASS:   ldx     pbx
         lda     ph
         jsr     RNEXT
         bra     @rec
-@r:     rts
+@r:     stz     rcv
+        rts
 
 ; Record A (RECT just placed it) drawn: whole if dirty, its rectangle added
 ; to box pbx; clipped to the box if it overlaps it; else not.

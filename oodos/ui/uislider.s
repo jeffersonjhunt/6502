@@ -985,8 +985,13 @@ UP:     lda     drag
         clc
         rts
 
-; The wheel: steps x the step, up for positive.
-WHEEL:  jsr     MEASURE
+; The wheel: steps x the step, up for positive. (U3b round 5) With
+; UF_NOWHEEL not taken: the program has it as UE_WHEEL.
+WHEEL:  ldy     #UW_FLAGS
+        lda     (UIR),y
+.assert UF_NOWHEEL = $80, error, "UF_NOWHEEL is bit 7"
+        bmi     @none
+        jsr     MEASURE
         lda     val
         sta     old
         lda     val + 1

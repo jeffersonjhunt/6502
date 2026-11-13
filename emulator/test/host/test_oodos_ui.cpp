@@ -3037,7 +3037,8 @@ TEST(what_a_call_and_a_crossing_cost)
     const Costs first = poll_costs(r);
     const Costs idle = poll_costs(r);
     std::printf("  an idle ui_poll: %lu cycles, %lu crossings (the one before: %lu)\n", idle.poll, idle.crossings, first.poll);
-    CHECK(idle.poll > 0 && idle.poll < 30000); // (98,858 before U3a skipped placing clean records over no damage)
+    CHECK(idle.poll > 0 && idle.poll < 5000); // (98,858 before U3a skipped placing clean records over no damage;
+                                              //  20,728 before U3b's B1)
     CHECK_EQ(idle.crossings, 0u);
     // A U2 widget's key: the list takes Down (a crossing to its handler, and one to draw it).
     CcpRig w;
@@ -4201,7 +4202,7 @@ TEST(u3b_r5_a_poll_s_cost_among_ninety_records)
     const Polls one = polls_cost(r);
     say("one label dirty", one);
     CHECK_EQ(one.passes, 1u);
-    CHECK(one.cycles < 350000);
+    CHECK(one.cycles < 200000); // (242,153 with PASS's RECT walking each record's parents: round 5)
     // The table's last label dirty: the records before it stepped over, not found one by one (B4).
     CHECK_EQ(ui(r, 'd', A_X4B).substr(6), std::string("00"));
     const Polls last = polls_cost(r);
@@ -4227,7 +4228,7 @@ TEST(u3b_r5_a_poll_s_cost_among_ninety_records)
     say("a drag's step", drag);
     CHECK_EQ(drag.fronts, 0u);
     CHECK(changed(drag.ev, A_EQ5B) > changed(down.ev, A_EQ5B));
-    CHECK(drag.cycles < 450000);
+    CHECK(drag.cycles < 290000); // (324,284 without PASS's sibling cache: round 5)
     button(r, false);
     poll(r);
     // A press on a button (A_PLAY, columns 10-15, row 22: drawn pressed), and its release (a click).
@@ -4235,11 +4236,11 @@ TEST(u3b_r5_a_poll_s_cost_among_ninety_records)
     button(r, true);
     const Polls press = polls_cost(r);
     say("a button pressed", press);
-    CHECK(press.cycles < 900000);
+    CHECK(press.cycles < 720000); // (747,598 without PASS's sibling cache: round 5)
     button(r, false);
     const Polls release = polls_cost(r);
     say("released", release);
-    CHECK(release.cycles < 350000);
+    CHECK(release.cycles < 200000); // (222,613 without PASS's sibling cache: round 5)
     // Many widgets changed at once, as when a track starts: the 14 sliders' values and the 15 status labels.
     for (unsigned h : {6u, 7u, 8u, 11u, 12u, 13u, 14u, 15u, 16u, 17u, 18u, 19u, 20u, 21u, 33u})
         setv(r, static_cast<uint8_t>(h), 20);
@@ -4247,7 +4248,7 @@ TEST(u3b_r5_a_poll_s_cost_among_ninety_records)
         CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(h)).substr(6), std::string("00"));
     const Polls many = polls_cost(r);
     say("30 widgets changed", many);
-    CHECK(many.cycles < 2150000);
+    CHECK(many.cycles < 1880000); // (1,921,661 without PASS's sibling cache: round 5)
 }
 
 TEST(u3b_r5_the_modal_window_and_the_overlay_kept_are_found_again)
@@ -4313,4 +4314,154 @@ TEST(u3b_r5_the_modal_window_and_the_overlay_kept_are_found_again)
     click(r, 25, 23);
     ev = poll(r);
     CHECK(std::none_of(ev.begin(), ev.end(), [](const Event &e) { return e.handle == B_HIDE; }));
+}
+
+// ---------------------------------------------------------------------------
+// U3b round 5: the two gaps OO-Amp's test pass found (hw/ooui.md, "U3b: round 5"): a slider that refuses the
+// wheel, and a scroll bar with no arrows.
+
+namespace
+{
+    constexpr uint8_t UF_NOWHEEL_ = 0x80, UF_NOARROWS_ = 0x80;
+    /// A cell's character on layer 0, as a code.
+    unsigned ch_at(Rig &r, unsigned col, unsigned row) { return static_cast<uint8_t>(cell_char(r, col, row)); }
+    void wheel(Rig &r, int steps)
+    {
+        usb(r).mouse_wheel(steps);
+        r.run(ms(30));
+    }
+} // namespace
+
+TEST(u3b_r5_a_slider_that_refuses_the_wheel)
+{
+    // UF_NOWHEEL ($80, a slider's): the wheel over it is the program's, UE_WHEEL with the slider as X and the
+    // steps in UV_VALUE, as over a widget that takes no wheel; its value unchanged. Its keys and a press still
+    // move it. Without the flag the wheel steps it, as before (u2_sliders_and_bars).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(ui(r, 'F', UF_NOWHEEL_, 0, Y_HSL).substr(6), std::string("00"));
+    poll(r);
+    point(r, 20, 4);
+    wheel(r, 1);
+    expect(poll(r), {{UE_WHEEL, Y_HSL, 0, 1}}, "the wheel up over it: the program's");
+    wheel(r, -2);
+    expect(poll(r), {{UE_WHEEL, Y_HSL, 0, 0xFFFE}}, "the wheel down over it");
+    CHECK_EQ(value_of(r, Y_HSL), 25u);
+    CHECK_EQ(ui(r, 'F', UF_NOWHEEL_, 0, Y_VSL).substr(6), std::string("00")); // the vertical one, the same
+    poll(r);
+    point(r, 6, 5);
+    wheel(r, 1);
+    expect(poll(r), {{UE_WHEEL, Y_VSL, 0, 1}}, "the wheel over the vertical one");
+    CHECK_EQ(value_of(r, Y_VSL), 50u);
+    key(r, K_UP); // its keys still step it (the focus is the vertical slider's)
+    expect(poll(r), {{UE_CHANGE, Y_VSL, 0, 55}}, "Up still");
+    point(r, 24, 4); // and a press still puts it there: 62 x 100 / 119 = 52
+    button(r, true);
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Y_HSL && ev[0].value == 52);
+    button(r, false);
+    poll(r);
+    // The flag cleared: the wheel steps it again.
+    CHECK_EQ(ui(r, 'F', 0, UF_NOWHEEL_, Y_HSL).substr(6), std::string("00"));
+    poll(r);
+    point(r, 20, 4);
+    wheel(r, 1);
+    expect(poll(r), {{UE_CHANGE, Y_HSL, 0, 57}}, "the flag cleared: a step up");
+}
+
+TEST(u3b_r5_a_scroll_bar_without_arrows)
+{
+    // UF_NOARROWS ($80, a scroll bar's): no arrows; the track is the whole bar, a press on either end cell is the
+    // track's (a page, or the thumb held), and the thumb travels the whole length. Cells first: UITWID's X_VSC
+    // (column 35, rows 8-17, last 50, page 10).
+    CcpRig w;
+    REQUIRE(w.ok);
+    open_u2(w, "uitwid");
+    poll(w);
+    CHECK_EQ(ch_at(w, 35, 8), 0x1Eu); // with arrows (no flag): the up arrow, the down arrow
+    CHECK_EQ(ch_at(w, 35, 17), 0x1Fu);
+    click(w, 35, 8);
+    expect(poll(w), {}, "with arrows: the up arrow at 0");
+    const unsigned below = ch_at(w, 35, 18);
+    CHECK_EQ(ui(w, 'F', UF_NOARROWS_, 0, X_VSC).substr(6), std::string("00"));
+    poll(w);
+    CHECK_EQ(ch_at(w, 35, 18), below); // nothing drawn past its end
+    CHECK_EQ(ch_at(w, 35, 8), 0xDBu); // the thumb (10 x 10 / 60: 1 cell) at the bar's first row
+    CHECK_EQ(ch_at(w, 35, 9), 0xB0u);
+    CHECK_EQ(ch_at(w, 35, 17), 0xB0u); // the last row the track's
+    click(w, 35, 17);
+    expect(poll(w), {{UE_CHANGE, X_VSC, 0, 10}}, "the last row: a page down, not a step");
+    setv(w, X_VSC, 50);
+    poll(w);
+    CHECK_EQ(ch_at(w, 35, 17), 0xDBu); // at the end, the thumb on the last row
+    CHECK_EQ(ch_at(w, 35, 16), 0xB0u);
+    click(w, 35, 8);
+    expect(poll(w), {{UE_CHANGE, X_VSC, 0, 40}}, "the first row: a page up, not a step");
+    // The thumb dragged from the first row to the last: the whole travel, 0 to 50.
+    setv(w, X_VSC, 0);
+    poll(w);
+    point(w, 35, 8);
+    button(w, true);
+    expect(poll(w), {}, "the thumb held on the first row");
+    point(w, 35, 17);
+    std::vector<Event> ev = poll(w);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].value == 50 && (ev[0].flags & UV_LIVE));
+    button(w, false);
+    poll(w);
+    CHECK_EQ(ch_at(w, 35, 17), 0xDBu);
+    // A sprite thumb: UITBAR's block 6, Z_VSC (column 43, rows 4-15, the program's 8 x 32) and Z_HSC (column 9,
+    // columns 9-38, OOUI's 8 x 8). Without arrows the vertical track is rows 4-15, 96 units, 64 of room; the
+    // horizontal, 120 units, 112 of room.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(ui(r, 'F', UF_NOARROWS_, 0, Z_VSC).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'F', UF_NOARROWS_, 0, Z_HSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8);
+    CHECK_EQ(spr_x(r, 4), 9u * 4);
+    CHECK_EQ(ch_at(r, 43, 4), 0xB0u); // the track's, not an arrow
+    CHECK_EQ(ch_at(r, 43, 15), 0xB0u);
+    setv(r, Z_VSC, 50);
+    setv(r, Z_HSC, 100);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 32);
+    CHECK_EQ(spr_x(r, 4), 9u * 4 + 112);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_depth(r, 4), 0x0C); // (its last cell, column 38, on the bar)
+    click(r, 43, 15);
+    expect(poll(r), {{UE_CHANGE, Z_VSC, 0, 60}}, "the sprite bar's last row: a page down");
+    click(r, 43, 4);
+    expect(poll(r), {{UE_CHANGE, Z_VSC, 0, 50}}, "its first row: a page up");
+    // The thumb (units 32-63) held 8 units in and moved 12 on: its start 44, 44 x 100 / 64.
+    usb(r).mouse_to(43 * 4 + 2, 4 * 8 + 40);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {}, "the thumb held");
+    usb(r).mouse_to(43 * 4 + 2, 4 * 8 + 52);
+    r.run(ms(30));
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Z_VSC && ev[0].value == 44u * 100 / 64);
+    button(r, false);
+    poll(r);
+    CHECK_EQ(spr_y(r, 3), 4u * 8 + 64u * (44u * 100 / 64) / 100); // (68 placed again: 43 units on)
+    // The horizontal one at 4: its thumb units 4-11 (112 x 4 / 100), from the bar's first column. A press 6 units
+    // in, on the bar's first cell, is on the thumb: held, no page.
+    setv(r, Z_HSC, 4);
+    poll(r);
+    CHECK_EQ(spr_x(r, 4), 9u * 4 + 4);
+    usb(r).mouse_to(9 * 4 + 6, 10 * 8 + 4);
+    r.run(ms(30));
+    button(r, true);
+    expect(poll(r), {}, "the horizontal thumb held on the bar's first cell");
+    button(r, false);
+    expect(poll(r), {{UE_CHANGE, Z_HSC, 0, 4}}, "let go where it was");
+    // The flag cleared: the arrows back, the thumb on the track inside them.
+    CHECK_EQ(ui(r, 'F', 0, UF_NOARROWS_, Z_VSC).substr(6), std::string("00"));
+    setv(r, Z_VSC, 0);
+    poll(r);
+    CHECK_EQ(ch_at(r, 43, 4), 0x1Eu);
+    CHECK_EQ(spr_y(r, 3), 5u * 8);
 }

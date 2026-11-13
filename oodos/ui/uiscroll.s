@@ -15,6 +15,10 @@
 ; low byte), at (track - thumb) x value / last along the track; a press
 ; on it drags it, before or after it pages. With UF_MARGIN, UW_B's high
 ; byte is the margin (uipoll.s's MARGIN) and the page its low byte.
+;
+; U3b round 5: with UF_NOARROWS ($80) the bar has no arrows: its track is
+; the whole bar, a press anywhere on it is the track's (a page, or the
+; thumb held), and the thumb travels the whole length.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -51,6 +55,8 @@ smode:  .res    1                      ; 1: UF_SPRITE, in units
 sth:    .res    1                      ;   the thumb's length, in units
 room:   .res    2                      ;   the track's units less the thumb's
 tu:     .res    2                      ;   the thumb's first unit along the track
+arw:    .res    1                      ; (round 5) the cells before the track: 1, 0 with UF_NOARROWS
+afu:    .res    1                      ;   and their units (8 or 4, or 0)
 
         .segment "BCODE"
 
@@ -63,14 +69,26 @@ MEASURE:
         bne     @h
         inx
 @h:     stx     vert
-        lda     UI_RECT + 2
+        lda     #1                      ; an arrow at each end, or (UF_NOARROWS) none
+        sta     arw
+        jsr     UNIT
+        sta     afu
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+.assert UF_NOARROWS = $80, error, "UF_NOARROWS is bit 7"
+        bpl     @ar
+        stz     arw
+        stz     afu
+@ar:    lda     UI_RECT + 2
         cpx     #0
         beq     @w
         lda     UI_RECT + 3
-@w:     sec
-        sbc     #2
+@w:     sec                             ; the track: the length less the arrows
+        sbc     arw
+        bcc     @z
+        sbc     arw
         bcs     @l
-        lda     #0
+@z:     lda     #0
 @l:     sta     len
         ldy     #UW_VALUE
         ldx     #0
@@ -184,7 +202,7 @@ SCMEAS = MEASURE
 ; GX_X and GX_Y, and its first and last cells along the track (tc, tr and
 ; tc1, tr1) for SHOWS, then uislider.s's SPRTAIL. Vertical: x = column x 4
 ; + 2 - hw, y = (row + 1) x 8 + tu; horizontal: x = (column + 1) x 4 + tu,
-; y = row x 8 + 4 - hh.
+; y = row x 8 + 4 - hh (with UF_NOARROWS row and column, not + 1).
 SCPLACE:
         lda     vert
         beq     @h
@@ -200,7 +218,8 @@ SCPLACE:
         bcs     @x
         dec     GX_X + 1
 @x:     lda     UI_RECT + 1
-        inc     a
+        clc
+        adc     arw
         jsr     X8V
         clc
         adc     tu
@@ -219,7 +238,8 @@ SCPLACE:
         sta     tr1
         jmp     SPRTAIL
 @h:     lda     UI_RECT
-        inc     a
+        clc
+        adc     arw
         jsr     X4V
         clc
         adc     tu
@@ -281,7 +301,11 @@ SENDS:  lda     tu
         bcs     @put
 @lo:    lda     t2
 @put:   sta     t3
-        rts
+        lda     arw                     ; (round 5) no arrows: the track from the bar's first
+        bne     @ra                     ;   cell, not its second
+        dec     t2
+        dec     t3
+@ra:    rts
 @cell:  lsr     t1                      ; A = t0/t1 / 8 or / 4
         ror     t0
         lsr     t1
@@ -311,12 +335,16 @@ X8V:    stz     GX_Y + 1
 DRAW:   jsr     MEASURE
         stz     idx
 @cell:  lda     idx                     ; cell idx of the whole: an arrow, the track or the thumb
-        beq     @first
-        dec     a
+        sec
+        sbc     arw                     ;   (the track's cell: idx - 1, or idx with no arrows)
+        bcc     @first
         cmp     len
-        beq     @lastc
-        bcs     @r
-        ldx     smode                   ; a sprite's thumb: every cell the track's
+        bcc     @mid
+        bne     @r
+        ldx     arw                     ;   one past the track: the last arrow, if it has arrows
+        bne     @lastc
+        bra     @r
+@mid:   ldx     smode                   ; a sprite's thumb: every cell the track's
         bne     @track
         sec
         sbc     tpos
@@ -396,14 +424,15 @@ STEP1:  phx
         jmp     ADDV
 
 ; The pointer's units along the bar: A/X (mpy vertical, mpx horizontal),
-; less one cell for the first arrow; and the cell (along) in idx.
+; less one cell for the first arrow (none with UF_NOARROWS); and the cell
+; (along) in idx. After MEASURE.
 ALONG:  lda     vert
         beq     @h
         lda     mpy + 1
         tax
         lda     mpy
         sec
-        sbc     #8
+        sbc     afu                     ; (round 5: 0 with no arrows)
         bcs     @v
         dex
 @v:     pha
@@ -418,7 +447,7 @@ ALONG:  lda     vert
         tax
         lda     mpx
         sec
-        sbc     #4
+        sbc     afu
         bcs     @x
         dex
 @x:     pha
@@ -443,11 +472,12 @@ DOWN:   jsr     MEASURE
         stz     drag
         jsr     ALONG
         lda     idx
-        bne     @nf
+        sec
+        sbc     arw                     ; (round 5: no arrows, every cell the track's)
+        bcs     @nf
         ldx     #$FF                    ; the first arrow: one back
         bra     STEP1
-@nf:    dec     a
-        cmp     len
+@nf:    cmp     len
         bcc     @track
         ldx     #1                      ; the last arrow: one on
         bra     STEP1

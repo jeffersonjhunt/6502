@@ -146,6 +146,8 @@ UF_MARGIN       = $40                  ; (U3b) a slider or a scroll bar: a press
                                        ;   bar's UW_B high byte, +15, its page then 0-255): the cells
                                        ;   across on each side (bits 0-3), and a slider's beyond each
                                        ;   end along its track (bits 4-7)
+UF_NOWHEEL      = $80                  ; (U3b round 5) a slider: the wheel not taken (UE_WHEEL to the program)
+UF_NOARROWS     = $80                  ; (U3b round 5) a scroll bar: no arrows, the track the whole bar
 
 ; UW_STATE (OOUI's)
 US_PRESSED      = $01
