@@ -739,6 +739,10 @@ LOOP:
 PASSGO:
                 stz     DG_FSTAGE
                 stz     DG_SHOWN
+                stz     DG_TALLY       ; the card tests' counts (blocks 22 and 21)
+                stz     DG_TALLY + 1
+                stz     DG_TALLY + 2
+                stz     DG_TALLY + 3
                 ldx     #7
 @bad:           stz     DG_BAD,x
                 stz     SKIPS,x
@@ -1671,6 +1675,8 @@ SQUICK:         .byte   "QUICK", 0
 SFULL:          .byte   "FULL", 0
 SLOOP:          .byte   " LOOP", 0
 SASK:           .byte   " ASK", 0
+
+        .export SKIPS                  ; blocks 22 and 21 pass over them too
 
 .segment "D23BSS"
 NAMEBUF:        .res    40
