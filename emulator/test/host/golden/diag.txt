@@ -1,0 +1,62 @@
+OO-1 DIAGNOSTICS 0.1   quick, nothing destroyed   (DIAG /? for the options)
+
+NORTH BRIDGE $D1
+  NB1  ID and STATUS agree, revision 1 ......................... PASS
+  NB2  W1 shows each of 32 blocks as itself .................... PASS
+  NB3  no interrupt line stuck ................................. PASS
+  NB4  the clock chip ticks; the time is valid ................. PASS
+  NB5  CPU #,###,### Hz by the clock chip (##.###%) ............ PASS
+  NB6  CPU #,###,### Hz by the video frame (##.###%) ........... PASS
+MEMORY
+  M1   TPA $4000-$7FFF, $####-$BFFC, ##,### bytes .............. PASS
+  M2   banks 1-5, 20 blocks, 320 KB: address in address ........ PASS
+  M3   banks 1-5: march, background $00 ........................ PASS
+  M4   banks 9-B, 12 blocks, 192 KB ............................ PASS
+  M5   card memory $040000-$1BFFFF, 1,536 KB ................... PASS
+DMA $81
+  D1   ID $81 .................................................. PASS
+  D2   2 KB filled by DMA, read back by the CPU ................ PASS
+  D3   2 KB copied by DMA between two blocks, both ways ........ PASS
+  D4   a DMA fill takes #.## cycles a byte ..................... PASS
+  D5   DIAG.COM read by DMA and by the CPU agree ............... PASS
+  D6   4 KB to card memory by DMA, back, and by slot 1 ......... PASS
+  D7   4 KB to the sound card by DMA, summed by its 6510 ....... PASS
+VIDEO $92
+  V1   ID $92, MEMSIZE 32 (2,048 KB) ........................... PASS
+  V2   BORDER and layer 1's registers read back ................ PASS
+  V3   the beam: lines 0-524, a frame each ###,### cycles ...... PASS
+  V4   slot 1 and the card's port agree, both ways ............. PASS
+  V5   card memory past MEMSIZE ................................ SKIP (the ROM core's: C812R)
+  V6   a test card on layer 1 .................................. SKIP (/I)
+SOUND $A2
+  S1   ID $A2; function 82: revision 2, CODECS $83 ............. PASS
+  S2   the 6510 runs the test program and answers $A5 .......... PASS
+  S3   the mailbox both ways: 256 bytes echoed ................. PASS
+  S4   the card's RAM $0600-$FFF9 by the 6510 .................. PASS
+  S5   SID A's and SID B's voice 3: OSC3 and ENV3 .............. PASS
+  S6   wave RAM, 128 KB, through DOCDATA ....................... SKIP (/FULL)
+  S7   a PCM stream at 8,000 Hz: #,### frames a second ......... PASS
+  S8   a tone on SID A, SID B and the ES5503 ................... SKIP (/I)
+STORAGE $71
+  SD1  ID $71; STATUS: a card, ready ........................... PASS
+  SD2  IDENTIFY: SDSC, 65,536 sectors, FAT ..................... PASS
+  SD3  read by DMA: #,### KB a second .......................... INFO
+  SD4  A:DIAG$$$.TMP, 64 KB, written, read back and erased ..... SKIP (/WRITE)
+USB $B1
+  U1   DEVICES $03: a keyboard, a mouse ........................ INFO
+  U2   the paddles settle: 0 0 0 0 ............................. INFO
+  U3   keys: A, then Esc, seen in the event queue .............. SKIP (/I)
+  U4   the mouse, its buttons and the game port's .............. SKIP (/I)
+  U5   the speaker: a 1 kHz beep ............................... SKIP (/I)
+SERIAL AND VIA
+  SR1  the card's ID ........................................... SKIP (the stand-in 6551: no ID register)
+  SR2  the VIA's timer 2 counts 1,000 cycles as 1,000 .......... PASS
+  SR3  the joysticks: each direction and fire, both ports ...... SKIP (/I)
+  SR4  the TL16C552A's COM2 in its loopback .................... SKIP (no TL16C552A card)
+DISK II $C1
+  DK1  ID $C1 (alone: a switch moves the drive) ................ PASS
+FRONT PANEL $E1
+  P1   switches $00000, HALT/ENABLE at ENABLE .................. INFO
+  P2   the lights: a bit walked on DISPLAY ..................... INFO
+  P3   the breakpoint: a read halts the CPU, CONT goes on ...... SKIP (/FULL /I)
+SUMMARY  49 tests: 32 passed, 0 failed, 12 skipped, 5 measured (DIAG /FULL /I runs them all)

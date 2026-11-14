@@ -314,7 +314,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_diag)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     emu_suite_properties(${name} TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -378,7 +378,8 @@ file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_S
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
      "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py"
-     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg")
+     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg"
+     "${OODOS_SRC}/../backplane/oohw/*.s" "${OODOS_SRC}/../backplane/oohw/*.inc" "${OODOS_SRC}/../backplane/oohw/*.cfg")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -439,6 +440,9 @@ target_compile_definitions(test_oodos_sound PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT
 target_compile_definitions(test_oodos_ui PRIVATE EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
 # D1's golden reports (hw/diag.md): SYSINFO's output, its measurements taken out (test_oodos_sysinfo.cpp).
 target_compile_definitions(test_oodos_sysinfo PRIVATE EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
+# D2's (hw/diag.md): DIAG's report, its measurements taken out, and the faults put in by test-only devices.
+target_compile_definitions(test_oodos_diag PRIVATE EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden"
+        EMU_OODOS_SRC="${OODOS_SRC}" EMU_PYTHON="${Python3_EXECUTABLE}")
 set_tests_properties(test_oodos_ui PROPERTIES SKIP_RETURN_CODE 77) # OOUI_GOLDEN=update: skipped, never passed
 target_link_libraries(test_oodos_sound PRIVATE emu_minimp3)
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
@@ -835,6 +839,7 @@ set(EMU_TEST_LABELS
     test_oodos_mu               "oodos bios sd sound sid backplane"
     test_oodos_c                "oodos bios sd backplane"
     test_oodos_sysinfo          "oodos bios sd video sound usb rtc console backplane"
+    test_oodos_diag             "oodos bios sd video sound usb dma rtc console backplane"
     test_oodos_model            "oodos bios sd backplane"
     test_oodos_model_py         "oodos"
     test_docs                   "docs"
