@@ -2345,8 +2345,8 @@ directly, but they are the ROM's own code and move with it.
   - `DMA_NONE` `$08` and `DMA_WIDE` `$10` (CARD).
 - **Kept:** `DMA_ON` `$71` (master, no burst limit, SELECT 0), `DMA_MASTER`, the MODE and CTRL values.
 
-**The ID checks** take `$82` exactly (`DMA_ID_V2`). They don't take the type nibble, as the owner's answer 4 had it
-before the layout changed: a revision 1 controller (`$81`) has the other layout, and must read as no controller.
+**The ID checks (decided, the owner, 2026-11-14)** take `$82` exactly (`DMA_ID_V2`), not the type nibble that
+answer 4 first had: a revision 1 controller (`$81`) has the other layout, so it reads as no controller.
 - The BIOS: `bios.s:363`, `sd.s:209`, `video.s:139`, `apple.s:56` and `diag23.s:212`.
 - OODOS: `cold.s:390` (`CARD DMA_ID, DMA_ID_V1, $FF`), `bdos.s:287` (function 75's), `crt.s:301`, `irq.s:611`,
   `sound.s:123`, and `video.s:168`, `440`, `564` and `1125`.
@@ -2494,8 +2494,8 @@ record, FARCALL or OOUI's interface.
    gains A = 2, and APPLE2.COM takes a number.
 2. **The character sets** are in ROM A, one per image: 8 KB each in blocks 4–5 (review round 1, for the 8 KB erase).
 3. **ROM B** is two 256 KB chips, as ROM A is.
-4. **DMA revision 2's ID** is `$82`. With the new layout, the checks take `$82` itself rather than the type nibble
-   ([the B2 migration](#the-b2-migration-revision-1-dropped)).
+4. **DMA revision 2's ID** is `$82`, and the checks take `$82` exactly (decided 2026-11-14, with the new layout),
+   so a revision 1 controller reads as none ([the B2 migration](#the-b2-migration-revision-1-dropped)).
 5. **The aperture** is reached by WINnH and VECH, with MAP's AP8 and `DM_BANK8`.
 6. **The aperture's address** is `$E00000`.
 7. **video-rev2.md's note** and the exception's read of MAP both come with B7.
