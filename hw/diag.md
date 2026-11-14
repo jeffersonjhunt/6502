@@ -594,6 +594,166 @@ docs check`. Each reads its part of the books again at its start and adds its "a
 - **Moves:** `hwmem.s`, `hwline.s` and `oohw.inc`'s additions file by file; `FaultyMemory` into the header. No
   emulator code changes, so no sanitizer run beyond the gate's.
 
+<a id="d3a-as-built"></a>
+#### D3a: as built (2026-11-14) ####
+
+**Built** on `feat/diag-d3a`, for the owner's review. What differs from the plan above, and why:
+
+- **Sizes.** Block 23 is 7,215 bytes (the core 6,494, the library's memory tests 721), against the plan's 7.1 KB;
+  blocks 22 and 21 are their frames, 1,463 and 1,447 bytes (the header, the console, the end). Block 31 grew by 335
+  bytes (`$E229` to `$E378`, 7,297 bytes still free), not about 220: `$C812`'s question and the "no diagnostics"
+  message are text, and `GREET` became a subroutine for the two ways back. LL1's compare and clear is 25 bytes, as
+  planned.
+- **Times on the emulator,** at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line: **a quick run 27.9 s, a full
+  run 90.7 s,** with stages 7–13 `SKIP` until D3b. The plan's table gave 19.5 s for the memory alone; the rest is the
+  serial line's pace (each character waits 3,840 cycles, as ECHO does) and stage 6's own test of W0's first 512 bytes.
+  The prompt, unanswered, waits 5.97 s.
+- **The library is linked into block 23 as objects** (`hw-hwmem.o`, `hw-hwzp.o`, assembled with `OOHW_ROM`), not
+  included as source per block: in D3a only block 23 calls it. D3b, whose blocks 22 and 21 need their own copies,
+  gives each block's copy its own names (the exports a block-specific prefix under `OOHW_ROM`). The library's
+  segments are named by macro now (`OOHW_CODE` and the rest, oohw.inc); SYSINFO.COM is byte for byte as before.
+  `hwline.s` and `hwport.s` are moved from `feat/diag-d2` but not linked yet: D3b's.
+- **The console is the core's own** (`diagcon.inc`, included by each block, nothing exported): a stage's line, its
+  details, the result and the keys. The screen's form puts stage n on row n + 2 and **only the run's first failure's
+  detail, on row 18,** not under its stage as the plan's sample has it: rows can't move once later stages have
+  written theirs. The serial line has every detail, in order.
+- **Stage 1 keeps its failure in WAIT3's bit 1** (module C's second wait-state bit, as bit 0 is the program's flag):
+  stages 1 and 2 have no RAM and every register busy. Stage 3 reads WAIT3 and clears it.
+- **Stage 2 says FAIL** when a block before the one it chose failed (block 0's first 512 bytes bad: `BLOCK 1`, FAIL),
+  though the run goes on.
+- **Stage 4's tags are the core's own** (`TAGW`, `TAGC` in diag23.s), not oohw's `HW_TAGW` and `HW_TAGC`: W0's block's
+  first 512 bytes can't be written while they are the zero page and stack, so its tags below `+$200` are left out.
+  What a wrong tag says is named: a line (`ADDRESS LINE A5`), two lines, or two blocks as one.
+- **A module that doesn't answer** (a write of 0 reads `$FF` at its first block) is named once, `RAM B (BLOCKS
+  16-31): NOT ANSWERING`, and its blocks are left out of stages 4–6.
+- **An erased block 21 or 22 fails stage 1 too** (its sum), as it should: the tests expect it.
+- **CC5's floating-bus case moves to D3b,** with card discovery (`HW_PROBE`), which D3a's stages don't do.
+- **The books:** only what `make -C docs check` holds to the code (chapter 3's, 4's and 7's listings of `bios.s`), the
+  entry table's `$C812` and `$C815` rows (*proposed*), and the greeting's version in the books' samples (0.14); the
+  rest of the books is D3c's. Their other mentions of "BIOS 0.13" describe what that BIOS does, which 0.14 does too,
+  and are left to D3c. `oodos/sys/cold.s`'s comment naming 0.13 is OODOS's, left alone (no OODOS change).
+
+**The expectations changed, in kind** (BIOS 0.13 to 0.14, approved with the plan): every wait for the greeting
+`BACKPLANE BIOS 0.13` (`oodos_rig.h`, test_bios, test_bios_sd, test_session, test_oodos_boot, test_oodos_model,
+test_oodos_e2e, the WebUI's e2e specs, `wasm-port.test.ts`, `apps/web/test/boot.mjs`); SYSINFO's six golden reports'
+`ROM BIOS 0.13` and its function-77 case's `ROM BIOS 0.13`; function 77's `ROMV 00 0D` to `00 0E`; the WebUI's
+`built-in 0.13`. No other expectation changed.
+
+**The tests** (`test_bios_diag`, 23 cases, about 5 minutes alone): each must-fail case was seen to fail on a build with
+its one fault put in:
+
+| Case | The fault that made it fail |
+|---|---|
+| a good quick run, golden (`golden/romdiag.txt`) | a stage line's dots one column short |
+| the prompt unanswered: the boot within 5-6 s, RAM untouched | the prompt waiting 20 changes of SEC |
+| C815R at the monitor with A = `$A5` still asks (LL2) | `$C815` not checking Y |
+| a program's options, whatever the switches (LL3) | a program's entry reading the switches anyway |
+| the VIA put back (LL4) | the VIA left out of the put-back |
+| block 21 blanked: block 22 ends the run (LL5) | block 22 handing to block 21 unchecked |
+| a reset during P3: the boot reaches `A>`, and the core reads `$BD1A5` unhalted (LL1) | RESET's BPCTRL write left out |
+| a user's breakpoint on a byte the boot reads still halts it (LL1) | BPCTRL cleared without comparing BPADDR |
+| stuck bits in blocks 41 and 62 (OODOS's): stage 6 | `HW_MARCH` returning at once |
+| a stuck bit in block 0's first 512 bytes: W0 on block 1, stage 5 | stage 2's march left out; `HW_AIAC` returning at once |
+| an aliased address line: `ADDRESS LINE A5` | stage 4's check left out |
+| RAM B left out: not answering | stage 3's absent module taken as there |
+| a byte of flash block 30 changed: stage 1 | stage 1's compare left out |
+| block 23 blanked: `NO DIAGNOSTICS IN THE FLASH`, then the boot | the signature check skipped |
+| every RAM block bad: `$82`, the block, the bits | stage 2's fatal end not showing the bits |
+
+The other cases (CONT, Y on serial and USB, N, CONT before the reset, START, switch 19 down, C812R, Esc's monitor,
+block 22 blanked, no video card, no console card, a full run's time) pass on the built ROM.
+
+<a id="d3a-review"></a>
+**D3a's review, MM1–MM14 (2026-11-14), fixed as the owner decided** (Q1, block 31's growth, and Q2, only the run's
+first failure's detail on the screen's row 18, accepted). Each real bug has a test that was seen failing on the ROM
+before its fix (`7a763b7`) and passing after:
+
+- **MM1, Esc booted:** ENDRUN read the key back from W0's block after PUTBACK had moved W0. PUTBACK no longer moves
+  W0; the BIOS's BOOT does, as it always did. The test has OODOS's card in the slot: Esc reaches the monitor, never
+  `A>`; RETURN and CONT reach `A>`.
+- **MM2, W0 proved:** stage 2's 512-byte march couldn't see another address landing on W0's zero page and stack. Its
+  candidate is now proved too, with no RAM (`PROVEW0`): canaries in its first 512 bytes, 512 bytes written at its own
+  `+$200` to `+$2000` (A9–A13) and in each block one block line away (A14–A19), and a canary changed rejects it. Stage
+  4 first finds any block that answers as W0's (`ALIASW0`: a byte at `+$07` written through W1), says `BLOCK nn ANSWERS
+  AS BLOCK ww, W0'S: NOT TESTED`, and keeps it out of stages 4–6. FaultyMemory gains `fault_redirect` (one block
+  answering as another). Tests: A9 stuck on RAM A (W0 goes to block 16), A18 stuck so RAM B answers as RAM A (W0 to
+  block 36), block 40 answering as block 0, all to the result.
+- **MM3, fixed ways back:** the core's ways back are trampolines at `$FFF4` (`JMP BOOT`) and `$FFF7` (`JMP MONBOOT`),
+  under the vectors and outside the jump table, held there by ld65 asserts (`DG_TBOOT`, `DG_TMON`). Block 23's header
+  records the BIOS it was linked with at `$801C` (major, minor; `BIOS_VMAJ`, `BIOS_VMIN`); RESET and CHKSIG check the
+  signature, `DG_VERSION` and that. Test: each byte changed in a copy of `bios.rom` is "no diagnostics".
+- **MM4:** both builds link to `bios.rom.tmp` and rename it only after `romsum.py` succeeds (the Makefile also has
+  `.DELETE_ON_ERROR`); `romsum.py` finds `SUMLO` and `SUMHI` in the label file.
+- **MM5:** the prompt counts the clock chip's seconds by RTCCTL's TICK, six of them, and its own polls too (about
+  5,170 cycles each, wraps counted in S): about 7 s with no second says `THE CLOCK CHIP DIDN'T TICK: 7 S COUNTED BY
+  THE CPU` and boots. Test with TICK held clear: 7.04 s.
+- **MM6:** the prompt puts VEC on block 23 first, so Break there is the stub's: `BREAK`, then the boot (as no). Test.
+- **MM7:** the blocks stage 2 passed over are marked failed in DG_BAD on every pass, so none is W0's spare.
+- **MM8:** stage 3's "not answering" reads twice, as CC5 does.
+- **MM9:** `$C815` with no diagnostics in the flash returns, carry set, W2 as it was (CHKSIG keeps W2); `$C812` never
+  returns. Test: a program at `$0300` calls `$C815` with block 23 blanked.
+- **MM10:** `$C812` and the prompt clear WAIT3 first; hw/design.md says the diagnostics own WAIT3 and zero every wait
+  state on the way out. Test: a program's bits left in WAIT3 don't change `C812R`'s run.
+- **MM11, the missing cases:** a two-pass loop and a key ending it; Break in stage 5 and in block 22; a cross-block
+  alias (`BLOCKS 10 AND 20 ANSWER AS ONE`); `$C815` with block 23 blanked; WAIT0–3 read back 0 after a run; CONT
+  pressed after the reset, before the prompt reads KEYS; the VIA's IER enabled in the middle of a run, cleared by the
+  end's put-back alone (stage 0's quiet comes before it).
+- **MM12:** one PUTBACKM (diag.inc), with the 6510 stop, for Break and the end alike.
+- **MM13:** *proposed* lines in the Technical Reference's chapter 3 (the switch-19 prompt) and chapter 12 (BPCTRL
+  cleared at reset only for `$BD1A5`).
+- **MM14:** the header prints the pass as 16 bits (`PUTDEC16`).
+
+**After the review:** block 23 is 7,966 bytes (the core 7,245, the library 721), blocks 22 and 21 1,532 and 1,516;
+block 31 has grown by 399 bytes in all (its code to `$E3B2`, and the trampolines' 6 bytes at `$FFF4`), 7,233 bytes
+still free. A quick run is 28.0 s, a full run 91.2 s, the prompt 5.97 s (7.04 s by the CPU's count with no clock).
+`test_bios_diag` has 36 cases, about 9 minutes alone; every must-fail case above, and the review's (W0's proof and
+the W0 alias check left out, the prompt's KEYS discard left out, the loop not looping, the end's PUTBACK left out,
+the BIOS's check of block 23 skipped), was seen failing again on the fixed code with its one fault put in.
+
+**D3a's review, round 2, NN1–NN5 (2026-11-14), fixed as the owner decided:**
+
+- **NN1:** stage 2's proof of W0 keeps its in-block probes (A9–A13) and drops the block-line ones (A14–A19): with half
+  of RAM answering as the other half they rejected every block (FATAL2). ALIASW0, in stage 4, finds a block
+  answering as W0's. Test: A18 stuck on every module (video revision 1) finds block 0 and reports block 16 as W0's.
+  The earlier A18 case (RAM B alone answering as RAM A) now has W0 on block 0, not 36, and reports block 16 as W0's:
+  its expectations changed with NN1.
+- **NN2:** stage 3 counts a module absent when its two reads of a written 0 are both `$FF` or differ (a floating
+  bus): its blocks aren't tested and no data line is blamed. Test with a floating bus over RAM B's space.
+- **NN3:** `$C815` with no diagnostics returns A, X, Y and W2 as they were, carry set. Test: W2 on block 5 before the
+  call, A, X, Y, P and W2 kept after.
+- **NN4:** the BIOS's version is set once (diag.inc's `BIOS_VMAJ`, `BIOS_VMIN`): the greeting, the diagnostics'
+  header line and block 23's `DG_LINKED` are made from it. Diagnostics of another build get their own message, `THE
+  DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN`; no signature is still `NO DIAGNOSTICS IN THE
+  FLASH`. The version-mismatch case's expectation changed with it.
+- **NN5:** the unused `skipvia` label is gone; new cases for MM7 (a block stage 2 passed over, good afterwards, is
+  never W0's spare), the 6510 stopped by Break's put-back, and a pass count above 255 (`PASS 300`).
+
+Each new case was seen failing (NN1, NN2 and NN4's on the ROM of `06839a1`; NN3's and NN5's on a build with their
+code reverted) and passing on the fix. Sizes after: block 23 7,758 bytes (the core 7,037, the library 721); block 31
+has grown by 486 bytes in all (its code to `$E409`, and the trampolines' 6), 7,146 bytes free.
+
+**The final check (2026-11-14), NNN1, accepted by the owner.** A module that is fitted but has D0 open floats that bit
+alone, so its two reads differ and NN2's rule reports it "not answering", its blocks left out, where an open data
+line is the fault. Stage 3 still fails, so nothing passes that shouldn't; only the fault's name is wrong. Calling a
+module absent only when its reads are the bytes last fetched would fix it on the emulator, but what a real floating
+bus reads back is unknown, and on the board that rule could report a missing module as a data-line fault again.
+Revisit with a real board.
+
+**SYSINFO's clock, after D3a's review (2026-11-14, the owner's option B).** BIOS 0.14's new timing put an OODOS
+interrupt at the end of SYSINFO's one-second window in one case (7,159,411 Hz, outside the 0.002% check), so
+`HW_CLOCK` (hwclock.s) now takes three windows back to back and keeps the middle count. Anything that makes a
+window's last change be seen late makes that window too long and the next, which starts at the same change, too
+short by as much; with one change disturbed the middle of three is the undisturbed window. The first form kept the
+window whose two ends' poll gaps were least, but on the emulator a burst of USB interrupts just before a window's
+end deflated the window by about 2,000 cycles with the polls' gaps unchanged, so the choice is by the counts. The
+video frame's measurement has the same exposure (a handler that holds off the vertical blank's makes the frame
+counter's change late) and takes the same three windows. The tolerances stay (0.002%, 0.01%). The test,
+`an_interrupt_at_a_windows_end_is_kept_out_of_the_clock`, puts 48 USB events in 2,000 cycles before the first
+window's end of each measurement: three windows read 7,159,092 and 7,159,126 Hz; a build keeping the first window
+alone reads 7,161,054 and 7,160,746 and fails both checks. Each SYSINFO run of its SYSTEM section takes about
+4 s more of the machine's time (two more seconds of each measurement); test_oodos_sysinfo is 17 s alone. The cards
+are made again (SYSINFO.COM changed), and the utilities' build now depends on backplane/oohw, which it didn't.
+
 #### D3b: the card tests ####
 
 - **What:** `diag22.s` (stages 7–10), `diag21.s` (11–13), `hwport.s` and `card6510.s` from D2, `DMA_DEC` in

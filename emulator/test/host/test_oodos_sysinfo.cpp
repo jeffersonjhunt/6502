@@ -277,6 +277,59 @@ TEST(sysinfo_reports_the_whole_machine)
     CHECK(got.find("$C4FF") == std::string::npos); // the addresses are the blocks', not the ID bytes'
 }
 
+TEST(an_interrupt_at_a_windows_end_is_kept_out_of_the_clock)
+{
+    // HW_CLOCK's windows (hwclock.s): what makes a window's last change be seen late makes its count too big,
+    // and the next one's too small. Here a burst of USB events (shift down and up, which type nothing) comes
+    // just before the first window's end, for both measurements (the clock chip's second and the 60 frames),
+    // so OODOS's USB handler is running when the change comes. One window alone reads outside the tolerance
+    // (the clock chip's by about 2,000 cycles); HW_CLOCK keeps the middle of its three, which is within it.
+    InfoRig r;
+    REQUIRE(r.ok);
+    const auto lbl = labels(UTILS + "/sysinfo.lbl");
+    REQUIRE(lbl.count("HW_CLOCK") && lbl.count("HW_FRAMEHZ") && lbl.count("HW_WATCH") && lbl.count("HW_EDGES"));
+    const uint16_t from = lbl.at("HW_CLOCK"), to = lbl.at("HW_FRAMEHZ");
+    const uint16_t watch = lbl.at("HW_WATCH"), edges = lbl.at("HW_EDGES");
+    auto peek16 = [&](uint16_t a) {
+        return static_cast<uint16_t>(r.machine->bus().peek(a) | r.machine->bus().peek(static_cast<uint16_t>(a + 1)) << 8);
+    };
+    // The window's end is due a second, or 60 frames, after its start: the burst is put in 2,000 cycles before
+    // it, so OODOS's USB handler (16 events a pass, 3,000-3,400 cycles, then again while events wait) is
+    // running when the change comes, and the poll that sees it is late.
+    unsigned changes = 0, bursts = 0;
+    int last = -1;
+    uint64_t due = 0;
+    UsbCard *usb = r.machine->usb_card();
+    REQUIRE(usb != nullptr);
+    r.watch = [&](uint16_t pc) {
+        if (pc == from)
+            changes = 0, last = -1, due = 0; // a measurement starts
+        if (due && r.cpu->cycles() >= due)
+        {
+            due = 0;
+            for (int k = 0; k < 24; ++k)
+            {
+                usb->key(0xE1, true);
+                usb->key(0xE1, false);
+            }
+            ++bursts;
+        }
+        if (pc < from || pc >= to)
+            return;
+        const int v = r.machine->bus().peek(peek16(watch));
+        if (last >= 0 && v != last && ++changes == 1)
+        {
+            const bool frames = r.machine->bus().peek(edges) == 60;
+            due = r.cpu->cycles() + (frames ? 7'166'199u : 7'159'090u) - 2'000u; // the first window's end, less a little
+        }
+        last = v;
+    };
+    const std::string o = run(r, "m:sysinfo system /all");
+    r.watch = nullptr;
+    CHECK_EQ(bursts, 2u);
+    normal(o);
+}
+
 TEST(a_card_left_out_loses_its_line_and_its_section)
 {
     struct Case
@@ -350,19 +403,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 9, 77 the ROM BIOS 0.13 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 9, 77 the ROM BIOS 0.14 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
     CHECK(o.find("FINFO 09 0F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 0D\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 0E\n") != std::string::npos);
     std::smatch m;
     CHECK(std::regex_search(o, m, std::regex("V72 0009000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 0D") == std::string::npos || m.empty())
+    if (o.find("ROMV 00 0E") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.13\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.14\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)

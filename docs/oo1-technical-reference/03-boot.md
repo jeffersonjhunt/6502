@@ -11,7 +11,9 @@ Status: **emulated**
 
 At reset the north bridge maps W3 and VEC to the top block of the flash, ROM A block 31, read-only (`$DF`). W0–W2
 map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts the BIOS at `$C800`. The block's first
-2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.13:
+2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. *Proposed* (BIOS 0.14, [hw/diag.md](../../hw/diag.md)):
+first, with the front panel fitted and switch 19 up, the ROM's diagnostics ask "PRESS CONT OR Y WITHIN 5 S"
+from flash block 23; anything else, or nothing, boots as below. The BIOS, version 0.13:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -23,16 +25,65 @@ map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts t
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.13` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.14` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:87-116 -->
+<!-- listing: ../../backplane/bios/bios.s:101-179 -->
 ```
 RESET:
                 LDX     #$FF
                 TXS
+                LDA     CONSOLE_ID     ; the front panel? Read twice (hw/diag.md, "Card discovery")
+                CMP     #CONSOLE_ID_V1
+                BNE     BOOT
+                LDA     CONSOLE_ID - $FF,X
+                CMP     #CONSOLE_ID_V1
+                BNE     BOOT
+                LDA     CONSOLE_BPADDR ; P3's breakpoint, and only P3's, off
+                CMP     #<DG_P3ADDR
+                BNE     @switch
+                LDA     CONSOLE_BPADDR + 1
+                CMP     #>DG_P3ADDR
+                BNE     @switch
+                LDA     CONSOLE_BPADDR + 2
+                CMP     #^DG_P3ADDR
+                BNE     @switch
+                STZ     CONSOLE_BPCTRL
+@switch:        LDA     CONSOLE_SWR + 2
+                AND     #$08           ; switch 19
+                BEQ     BOOT
+                LDA     #DG_B23        ; the diagnostics' signature, through W2
+                STA     NB_WIN2
+                LDX     #7
+@sig:           LDA     $8000,X
+                CMP     DIAGSIG,X
+                BNE     @none
+                DEX
+                BPL     @sig
+                LDA     $8009          ; and this build's: the diagnostics' version, the BIOS they were linked with
+                CMP     #DG_VERSION
+                BNE     @none
+                LDA     DG_LINKED
+                CMP     #BIOS_VMAJ
+                BNE     @none
+                LDA     DG_LINKED + 1
+                CMP     #BIOS_VMIN
+                BNE     @none
+                LDX     #DE_PROMPT
+                JMP     (DG_ENTRIES,X) ; the prompt: back to BOOT unless CONT or Y
+@none:          LDA     #BLOCK2        ; (said after the greeting: DIAGNOTE)
+                STA     NB_WIN2
+
+; The boot (BOOT), or the copy, the greeting and the monitor with no splash
+; and no SD boot (MONBOOT): the diagnostics' two ways back.
+BOOT:           LDA     #0
+                BRA     BOOT2
+MONBOOT:        LDA     #1
+BOOT2:          LDX     #$FF
+                TXS
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
+                STA     BOOTMODE
                 LDA     #1
                 STA     NB_WIN1
 
@@ -94,7 +145,7 @@ Status: **emulated**
 The BIOS starts with a table of jumps at fixed addresses, so a new entry never moves another. From the monitor,
 `C803R` and so on run one. A program calls ECHO with `JSR $C80F`.
 
-<!-- listing: ../../backplane/bios/bios.s:51-61 -->
+<!-- listing: ../../backplane/bios/bios.s:66-75 -->
 ```
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
 ; eight of them, so a new one does not move the code after them.
@@ -104,9 +155,8 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     SDCAT          ; $C809: the SD card and its root directory (sd.s)
                 JMP     SDBOOT         ; $C80C: boot /BOOT.BIN from the SD card (sd.s)
                 JMP     ECHO           ; $C80F: print A, for programs (keeps A and X)
-.repeat 2
-                JMP     WOZMON         ; $C812-$C815: spare
-.endrepeat
+                JMP     DIAG           ; $C812: the ROM's diagnostics, after a Y (diag23.s)
+                JMP     DIAGPGM        ; $C815: the same for a program: A = $A5, Y = $5A, X the options
 ```
 
 | Address | Entry | What it does |
@@ -117,7 +167,8 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
-| `$C812`, `$C815` | spare | The monitor, for now |
+| `$C812` | the diagnostics | *Proposed* (BIOS 0.14, [hw/diag.md](../../hw/diag.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23 |
+| `$C815` | the diagnostics, for a program | *Proposed* (BIOS 0.14): A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive), with no `Y` asked; anything else is `$C812`. The table's last spare |
 
 ## The monitor
 

@@ -2772,7 +2772,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.13`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.14`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -3029,7 +3029,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- A = the ROM BIOS's version's major number, X its minor (0 and 13 for `BACKPLANE BIOS 0.13`).
+- A = the ROM BIOS's version's major number, X its minor (0 and 14 for `BACKPLANE BIOS 0.14`).
 - A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
   block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
   two numbers to 255 with a `.` between.
@@ -3041,7 +3041,7 @@ None.
 
 #### Side effects
 
-None. The version is the one the cold boot read for its boot status (`BIOS 0.13`); a program can't read it itself,
+None. The version is the one the cold boot read for its boot status (`BIOS 0.14`); a program can't read it itself,
 since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
 
 #### Cycles

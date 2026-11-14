@@ -195,6 +195,13 @@ emu_add_test(test_session)
 emu_add_test(test_sd)
 emu_add_test(test_sd_fat)
 emu_add_test(test_bios_sd)
+emu_add_test(test_bios_diag) # the ROM's diagnostics (hw/diag.md, plan 2): D3a's core and BIOS 0.14's entries
+set_tests_properties(test_bios_diag PROPERTIES TIMEOUT 900)
+target_compile_definitions(test_bios_diag PRIVATE
+        EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
 emu_add_test(test_oodos_card)
 set_tests_properties(test_bios_sd PROPERTIES TIMEOUT 300) # the boot at power-on waits out the 5 s splash: ~115 s alone under ASan
 set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 1800) # each case boots the card through the 5 s splash: about 710 s alone under ASan (2026-11-05)
@@ -378,7 +385,8 @@ file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_S
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
      "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py"
-     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg")
+     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg"
+     "${OODOS_SRC}/../backplane/oohw/*.s" "${OODOS_SRC}/../backplane/oohw/*.inc") # oohw.lib, SYSINFO's
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -784,6 +792,7 @@ set(EMU_TEST_LABELS
     test_rtc                    "emu rtc bridge debug backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
     test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
+    test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"
     test_dma                    "emu dma bridge"
     test_console_card           "emu console dma bridge"
     test_video                  "emu video bridge"
@@ -895,3 +904,4 @@ foreach(t ${all_tests})
         message(FATAL_ERROR "emu: ${t} has no labels: give its suite a line in EMU_TEST_LABELS (\"Labels\")")
     endif()
 endforeach()
+add_dependencies(test_bios_diag backplane_bios)
