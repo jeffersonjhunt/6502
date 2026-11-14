@@ -1,0 +1,7 @@
+# RANDOM: the seed is FRCINT's integer in RNDX+1 and +2 (PC-BASIC takes -5's single precision bytes instead, so line 30's differs); line 60's .7788379 (13066732 / 2^24) is .778838 by the source's $FOUT (test/mbf.py)
+ 0 -1 
+ .9627401  5.286181E-02 
+ .8592017 
+ .9459723 
+ 0 
+ .778838  .778838 

@@ -189,6 +189,11 @@ KBFLEN          = BUFLEN + BUFLEN / 4  ; GWMAIN.ASM: the crunch buffer (KBUF), s
 ; (res/gwmain.s) with FORPTR, as the 8086 walks its own stack with BX.
 FORPTR          = $D8                  ; an entry on the BASIC stack
 
+; --- 7b step a2's ($1A) --------------------------------------------------------
+;
+; OPTION BASE's flag, which the resident CLEARC resets (GWDATA.ASM's OPTFLG).
+OPTFLG          = $1A                  ; nonzero once OPTION BASE has set a base
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

@@ -13,10 +13,11 @@
 ;   VARPTR GIVDBL          a variable's address; BX - DX as a number
 ;   MAKUPL MAKUPS          a character in capitals (step I1)
 ;   OCTCNS                 &O and &H: CRUNCH's, VAL's and INPUT's (step I1)
-;   ISMID                  MID$ = as a statement: 7b's (step I1)
+;   ISMID                  MID$ = as a statement (step I1), to P3's LHSMID
 ;
 ; Strings take BISTRS.ASM's routines (res/bistrs.s): a literal (STRLTI), "+"
 ; (CAT), the relations (STRCMP), INSTR. INKEY$ is the OEM's (res/oem.s).
+; STRING$ and VARPTR$ are P3's (7b step a2), through res/far3.s's stubs.
 ; Left out (stubs): USR, FN; the extended functions (res/ibmres.s's EVALX)
 ; give Advanced Feature.
 ;
@@ -37,7 +38,7 @@
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
-.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID
+.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2
 .export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
@@ -345,6 +346,9 @@ NTERL:          CMP     #VARPTR_TK
 :               CMP     #INKEYS_TK     ; (SCREEN and POINT before it are 7d's)
                 BNE     :+
                 JMP     INKEY
+:               CMP     #STRINGS_TK    ; STRING$ (P3's: res/far3.s)
+                BNE     :+
+                JMP     STRNGS
 :               CMP     #FN_TK
                 BNE     PARCHK
                 JMP     FNDOER
@@ -577,12 +581,12 @@ CONINT:         JSR     INTFR2
 ; --- VARPTR (GWEVAL.ASM 678) ----------------------------------------------------------
 
 ; From EVAL, TXTPTR at VARPTR: VARPTR(variable), the address of its value as
-; an integer; Illegal function call if it has none. (VARPTR$ and a file's
-; VARPTR(#n) are later sub-phases': NOTYET.)
+; an integer; Illegal function call if it has none. VARPTR$ is P3's (a
+; stub, res/far3.s); a file's VARPTR(#n) is 7c's: NOTYET.
 VARPTR:         JSR     CHRGTR
                 CMP     #'$'
                 BNE     :+
-                JMP     NOTYET         ; VARPT2
+                JMP     VARPT2         ; VARPTR$ (P3's: res/far3.s)
 :               JSR     SYNCHR
                 .byte   '('
                 CMP     #'#'
@@ -709,7 +713,7 @@ HOCFIN:         LDA     RDL            ; MAKINT: the FAC an integer
 ; --- ISMID$ (GWEVAL.ASM 1524) -----------------------------------------------------------
 
 ; A statement token NEWSTX didn't take: $FF and MID$ is MID$ = (LHSMID,
-; 7b's); anything else is Syntax error.
+; P3's, through res/far3.s's stub); anything else is Syntax error.
 ISMID:          CMP     #$FF - $81
                 BEQ     :+
                 JMP     SNERR

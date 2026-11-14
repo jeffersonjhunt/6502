@@ -10,19 +10,30 @@
 ;   RESUMEP   RESUME, RESUME 0, RESUME NEXT, RESUME line
 ;   ERRORSP   ERROR n
 ;
+; and step a2's:
+;
+;   OPTIONP   OPTION BASE 0 or 1
+;   RANDOMP   RANDOMIZE n, and RANDOMIZE alone, which asks for the seed
+;   FRMQNT    a formula as 0..65535 in DX (CLEAR's GETMPM, p3/bimisc.s)
+;
 ; The far call rule (translate-7b-common.md): ON's chosen GOTO or GOSUB is
 ; started by JMP GONE2, a tail call, as the 8086's is: the statement's RTS
 ; returns through FARCALL to the stub, whose RTS goes to NEWSTT. RESUME's
 ; JMP DATA is one too. RESTRP's JMP ERRESM and the errors reset both stacks.
+; RANDOMIZE returns C set for a ^C at its prompt (the 8086's JMP STPEND),
+; which the stub takes to STPEND, as INPUT's is.
 
 .include "gwbasic.inc"
 
 ;@entry ONGOTOP
 ;@entry RESUMEP
 ;@entry ERRORSP
-.export ONGOTOP, RESUMEP, ERRORSP
+;@entry OPTIONP
+;@entry RANDOMP
+.export ONGOTOP, RESUMEP, ERRORSP, OPTIONP, RANDOMP, FRMQNT
 .import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, GONE2, DATA, GETBYT
 .import ERROR, ERRESM, USERR, REERR, FCERR, ADVERR, ONEFLG, ERRTXT, ONGOTP
+.import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2
 
 .code
 
@@ -160,3 +171,114 @@ ERRORSP:        JSR     GETBYT
                 BNE     GOERR
                 JMP     FCERR
 GOERR:          JMP     ERROR          ; GWMAIN.ASM 2535 GOERR
+
+; --- OPTION BASE (GWMAIN.ASM 3327) --------------------------------------------------------
+
+; OPTION BASE n: the letters BASE (not a reserved word, so in the text as
+; they were typed), then the digit as a character (CRUNCH keeps a digit after
+; a name as it is): 0 or 1, else Syntax error. The base it has already: nothing
+; more. Another: Duplicate Definition if OPTION BASE has set one before, or if
+; there is an array (ARYTAB not STREND); else OPTVAL, and OPTFLG set.
+OPTIONP:        JSR     SYNCHR
+                .byte   'B'
+                JSR     SYNCHR
+                .byte   'A'
+                JSR     SYNCHR
+                .byte   'S'
+                JSR     SYNCHR
+                .byte   'E'
+                LDA     (TXTPTR)       ; the base
+                SEC
+                SBC     #'0'
+                BCS     :+
+                JMP     SNERR
+:               CMP     #2             ; only 0 and 1
+                BCC     :+
+                JMP     SNERR
+:               STA     RCH
+                LDA     OPTVAL
+                CMP     RCH
+                BEQ     OLDOPT         ; the base it has
+                LDA     OPTFLG         ; OPTION BASE seen before?
+                BEQ     :+
+                JMP     DDERR
+:               LDA     ARYTAB         ; any arrays yet?
+                CMP     STREND
+                BNE     @dd
+                LDA     ARYTAB+1
+                CMP     STREND+1
+                BEQ     :+
+@dd:            JMP     DDERR
+:               LDA     RCH
+                STA     OPTVAL
+                INC     A              ; nonzero
+                STA     OPTFLG
+OLDOPT:         JMP     CHRGTR         ; GWMAIN.ASM 3363: the terminator
+
+; --- RANDOMIZE (GWMAIN.ASM 3383) ----------------------------------------------------------
+
+; RANDOMIZE n: n as an integer (-32768..32767, else Overflow) in RNDX+1 and
+; RNDX+2, then RNDMN2 (RND(1)'s step). RANDOMIZE alone: "Random number seed
+; (-32768 to 32767)? " and a line typed (QINLIN), read by $FIN; anything
+; after the number asks again. The text pointer is kept on the 6502's stack,
+; as the 8086 keeps BX on its own; C set back for a ^C (QINLIN's C: OODOS's
+; ^C breaks inside it, res/oem.s, so it comes back clear).
+RANDOMP:        BEQ     INPRG          ; no argument: ask
+                JSR     FRMEVL
+                LDA     TXTPTR+1
+                PHA
+                LDA     TXTPTR
+                PHA
+                JSR     FRCINT         ; normal integers
+                BRA     STRNDS
+; INPRG (GWMAIN.ASM 3389)
+INPRG:          LDA     TXTPTR+1
+                PHA
+                LDA     TXTPTR
+                PHA
+; INPRAG (GWMAIN.ASM 3390)
+INPRAG:         LDA     #<RANMES
+                STA     PTR
+                LDA     #>RANMES
+                STA     PTR+1
+                JSR     STROUT
+                JSR     QINLIN         ; TXTPTR at BUFMIN
+                BCC     :+
+                PLA                    ; ^C: the text pointer back, STPEND
+                STA     TXTPTR
+                PLA
+                STA     TXTPTR+1
+                SEC
+                RTS
+:               INCW    TXTPTR         ; past BUFMIN to BUF
+                FJSR    FIN            ; a number
+                LDA     (TXTPTR)       ; the terminator: only the end
+                BNE     INPRAG
+                JSR     FRCINT
+; STRNDS (GWMAIN.ASM 3405)
+STRNDS:         LDA     RBL            ; the seed: FRCINT's BX
+                STA     RNDX+1
+                LDA     RBH
+                STA     RNDX+2
+                JSR     RNDMN2
+                PLA                    ; the text pointer back
+                STA     TXTPTR
+                PLA
+                STA     TXTPTR+1
+                CLC
+                RTS
+
+; --- FRMQNT (GWMAIN.ASM 3076) -------------------------------------------------------------
+
+; A formula, then FRQINT (P1's: 32768..65535 taken as such), the value in
+; DX: FRCINT's BX, which the 8086 exchanges into DX.
+FRMQNT:         JSR     FRMEVL
+                FJSR    FRQINT
+                LDA     RBL
+                STA     RDL
+                LDA     RBH
+                STA     RDH
+                RTS
+
+.rodata
+RANMES:         .byte   "Random number seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412

@@ -182,15 +182,17 @@ RUNC:           LDA     TXTTAB
                 LDA     TXTTAB+1
                 STA     TXTPTR+1
                 DECW    TXTPTR
-; CLEARC: the variables and arrays gone, every letter single, RND's seed
-; back, no ON ERROR, nothing to CONT, the strings gone, DATA from the start;
-; then STKINI. TXTPTR is kept. (The traps, the screen, the sound and the
-; files it resets too are 7b's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
+; CLEARC: the variables and arrays gone, every letter single, no OPTION
+; BASE, RND's seed back, no ON ERROR, nothing to CONT, the strings gone, DATA
+; from the start; then STKINI. TXTPTR is kept. (The traps, the screen, the
+; sound and the files it resets too are 7b's to 7f's; CHAIN's MRGFLG and
+; CHNFLG are 7c's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
                 STA     TEMP+1
-                STZ     OPTVAL         ; OPTION BASE 0 (OPTFLG, "OPTION seen", is 7b's)
+                STZ     OPTFLG         ; no OPTION BASE seen
+                STZ     OPTVAL         ; OPTION BASE 0
                 LDX     #25
                 LDA     #VT_SNG
 LOPDFT:         STA     DEFTBL,X

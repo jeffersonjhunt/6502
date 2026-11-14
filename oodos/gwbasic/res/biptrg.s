@@ -29,17 +29,20 @@
 ; doesn't make a variable it hasn't got (FINZER gives zero), and VARPTR's
 ; PTRGTN gets 0.
 ;
-; Left for later: DEF FN's parameter table, which the 8086 searches first
-; when a function is active (NOFUNS; 7b), ERASE's entry (ERSFIN: SUBFLG 1;
-; 7b), and CALL's SARYFL (7b). OPTION BASE is 7b's, but OPTVAL is read here.
+; ERASE (P3, 7b step a2) calls PTRGET with SUBFLG 1: ERSFIN searches the
+; arrays for the name with no subscripts (NDIM 0, the 8086's dummy count
+; with Z set); ARYEXT returns at the array found, Z set, and NOTFDD, for one
+; not there, returns Z clear (PTRRNZ). Left for later: DEF FN's parameter
+; table, which the 8086 searches first when a function is active (NOFUNS;
+; 7b), and CALL's SARYFL (7b). OPTION BASE is P3's, but OPTVAL is read here.
 
 .include "gwbasic.inc"
 
 .export PTRGET, PTRGT1, PTRGT2, PTRGTN, PTRGTR, DIM, NOARYS, BSERR, DDERR
-.export NPUTSB, UMULT, BLTU, BLTUC, REASON
+.export NPUTSB, UMULT, BLTU, BLTUC, REASON, ERSFIN
 .export NAMCNT, NAMBUF, DEFTBL, OPTVAL, SUBFLG
 .import CHRGTR, SYNCHR, SNERR, ISLET2, GETSTK, OMERR, ERROR, INTIDX
-.import SPUSH, SPOP, SPUSHA, SPOPA, RETVAR, DZERO, GETYP, GARBA2, DSEGZ, ERSFIN
+.import SPUSH, SPOP, SPUSHA, SPOPA, RETVAR, DZERO, GETYP, GARBA2, DSEGZ
 
 NAMLEN          = 40                   ; OEM.H: the longest name
 ERRBS           = 9                    ; Subscript out of range
@@ -133,7 +136,9 @@ HAVTYP:         STX     VALTYP
                 LDA     SUBFLG
                 DEC     A
                 BNE     :+
-                JMP     ERSFIN         ; 1: ERASE's
+; ERSFIN (BIPTRG.ASM 421): ERASE's, the array search with no subscripts.
+ERSFIN:         STZ     NDIM           ; the dummy count: none
+                JMP     LOPFD1
 :               BPL     NOARYS         ; 2 and up: no arrays
                 LDA     (TXTPTR)
                 CMP     #'('
@@ -467,13 +472,17 @@ CNOMAT:         TYA                    ; BX at the number of dimensions
                 ADC     #0
                 STA     RBH
 
-; ARYEXT: found. DIM can't make it again; the subscripts must be as many.
+; ARYEXT: found. DIM can't make it again; ERASE's (no subscripts) is done,
+; BX at the number of dimensions, A 0 and Z set (the 8086's POPHRT); else
+; the subscripts must be as many.
 ARYEXT:         LDA     DIMFLG
                 BEQ     :+
 DDERR:          LDA     #ERRDD         ; GWMAIN.ASM 435
                 JMP     ERROR
 :               LDA     NDIM
-                CMP     (RBL)
+                BNE     :+
+                RTS                    ; ERASE's
+:               CMP     (RBL)
                 BEQ     GETDEF
 BSERR:          LDA     #ERRBS
                 JMP     ERROR
@@ -548,6 +557,10 @@ DONMUL:         CLC                    ; from the values' start
                 ADC     RAH
                 STA     PTR+1
 FINNOW:         RTS
+; PTRRNZ (BIPTRG.ASM 649): NOTFDD's way out for ERASE's search (and CHAIN's,
+; 7c): not there, A nonzero, Z clear.
+PTRRNZ:         LDA     #$FF
+                RTS
 
 ; NOTFDD: not found; made at STREND (VPTR). DIM's subscripts plus one are
 ; its sizes, or 11 each (10 with OPTION BASE 1); then as found, unless DIM.
@@ -559,6 +572,8 @@ NOTFDD:         LDA     VPTR
                 STA     (RBL)
                 STA     RDL            ; DX: one value's size
                 STZ     RDH
+                LDA     NDIM           ; no subscripts: ERASE's, not there
+                BEQ     PTRRNZ
                 LDY     #1             ; the name
                 LDA     RCL
                 STA     (RBL),Y

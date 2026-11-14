@@ -458,11 +458,11 @@ BIPTRG.ASM ZEROER -> res/biptrg.s MKVAR # SMKVAR's second half: the entry made, 
 BIPTRG.ASM FINZER -> res/biptrg.s FINZER
 BIPTRG.ASM ISARY -> res/biptrg.s ISARY # subscripts on the BASIC stack; SARYFL (CALL's) later 7b
 BIPTRG.ASM INDLOP -> res/biptrg.s INDLOP
-BIPTRG.ASM ERSFIN -> later 7b: ERASE's entry (SUBFLG 1); res/todo_s.s's stand-in gives Advanced Feature
-BIPTRG.ASM ARYEXT -> res/biptrg.s ARYEXT # ERASE's zero-dimension case: later 7b
+BIPTRG.ASM ERSFIN -> res/biptrg.s ERSFIN # ERASE's entry (SUBFLG 1): NDIM 0, the 8086's dummy count with Z set
+BIPTRG.ASM ARYEXT -> res/biptrg.s ARYEXT # ERASE's zero-dimension case (POPHRT): RTS, A 0 and Z set (7b step a2)
 BIPTRG.ASM BSERR -> res/biptrg.s BSERR
 BIPTRG.ASM NOTFDD -> res/biptrg.s NOTFDD
-BIPTRG.ASM PTRRNZ -> later 7b: NOTFDD's way out for ERASE and CHAIN
+BIPTRG.ASM PTRRNZ -> res/biptrg.s PTRRNZ # NOTFDD's way out for ERASE (CHAIN's 7c)
 BIPTRG.ASM GETDEF -> res/biptrg.s GETDEF
 BIPTRG.ASM IADAHL -> dropped: inline, where the collector skips a name (res/bistrs.s SVAR, ARYVA4)
 BIPTRG.ASM ADDAHL -> dropped: as IADAHL
@@ -508,7 +508,7 @@ BISTRS.ASM ASC2 -> res/bistrs.s ASC2
 BISTRS.ASM CHR$ -> res/bistrs.s CHR
 BISTRS.ASM SETSTR -> res/bistrs.s SETSTR
 BISTRS.ASM FINBCK -> res/bistrs.s FINBCK # LABBCK pops the text pointer here, so it is PUTNEW
-BISTRS.ASM STRNG$ -> later 7b: STRING$ (EVAL's token; it gives what it gave before)
+BISTRS.ASM STRNG$ -> p3/bistrs.s STRNGP # EVAL's token, its resident stub res/far3.s STRNGS
 BISTRS.ASM SPACE$ -> res/bistrs.s SPACE
 BISTRS.ASM SPACE2 -> res/bistrs.s SPACE2
 BISTRS.ASM LEFT$ -> res/bistrs.s LEFT
@@ -519,7 +519,7 @@ BISTRS.ASM VAL -> p1/strfn.s VAL
 BISTRS.ASM PREAM -> res/bistrs.s PREAM
 BISTRS.ASM PREAM2 -> res/bistrs.s PREAM2
 BISTRS.ASM INSTR -> res/bistrs.s INSTR
-BISTRS.ASM LHSMID -> later 7b: MID$ as a statement (GONE2's ISMID stand-in, res/todo.s)
+BISTRS.ASM LHSMID -> p3/bistrs.s LHSMIDP # from ISMID, its resident stub res/far3.s LHSMID
 BISTRS.ASM MIDRST -> res/bistrs.s MIDRST
 BISTRS.ASM FRE -> res/bistrs.s FRE
 BISTRS.ASM CLCDIF -> res/bistrs.s CLCDIF
@@ -538,7 +538,7 @@ GWEVAL.ASM INTFR2 -> res/gweval.s INTFR2
 GWEVAL.ASM GTBYTC -> res/gweval.s GTBYTC
 GWEVAL.ASM GETBYT -> res/gweval.s GETBYT
 GWEVAL.ASM CONINT -> res/gweval.s CONINT
-GWEVAL.ASM VARRET -> res/gweval.s VARRET # VARPTR's, from NTERL; VARPTR$ (GWSTS.ASM VARPT2) later 7b, VARPTR(#) 7c
+GWEVAL.ASM VARRET -> res/gweval.s VARRET # VARPTR's, from NTERL; VARPTR$ (GWSTS.ASM VARPT2) P3's, VARPTR(#) 7c
 GWEVAL.ASM GIVDBL -> res/gweval.s GIVDBL
 BIMISC.ASM REASON -> res/biptrg.s REASON # CHAIN's CHNFLG, which forbids the collection: later 7c
 GWDATA.ASM TEMPST -> res/bistrs.s TEMPST
@@ -806,12 +806,12 @@ GWEVAL.ASM LOPOCT -> res/gweval.s LOPOCT
 GWEVAL.ASM HEXFIN -> res/gweval.s HEXFIN
 GWEVAL.ASM OCTFIN -> res/gweval.s OCTFIN
 GWEVAL.ASM HOCFIN -> res/gweval.s HOCFIN # MAKINT inline
-GWEVAL.ASM ISMID$ -> res/gweval.s ISMID # LHSMID (MID$ =) later 7b: res/todo_i1.s
+GWEVAL.ASM ISMID$ -> res/gweval.s ISMID # LHSMID (MID$ =) P3's, through res/far3.s LHSMID
 BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG and AUTFLG later 7c and 7b
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP, GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY, OPTFLG later 7b-7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP, GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY later 7b-7f
 BIMISC.ASM INITRP -> later 7b: the event traps' table
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -1112,7 +1112,7 @@ GWEVAL.ASM DISPAT -> res/gweval.s DOCNVF # the jump through FRCTBL (and FUNDSP's
 GWEVAL.ASM $OHCNS -> res/gweval.s OCTCNS
 GWMAIN.ASM $STPRN -> res/math1.s STROUT # the message to the console (PTRFIL kept round it, $CATTY's)
 GIOSCN.ASM $CATTY -> res/math1.s DV015 # PTRFIL 0 for the message, then back
-GWSTS.ASM VARPT2 -> later 7b: VARPTR$ (res/todo_s.s NOTYET gives Advanced Feature)
+GWSTS.ASM VARPT2 -> p3/gwsts.s VARPT2P # from VARPTR, its resident stub res/far3.s VARPT2
 GIO86.ASM GETPTR -> later 7c: VARPTR(#file) (res/todo_s.s NOTYET)
 GWSTS.ASM SCRENF -> later 7d: SCREEN( as a function
 GWSTS.ASM GETLIN -> later 7d: CSRLIN
@@ -1226,23 +1226,23 @@ GIO86.ASM ERDNA2 -> later 7c: the device dispatch's Device unavailable
 GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 #
 # STMDSP's statements (res/tables.s: here ADVERR, Advanced Feature, until their sub-phase).
-BIMISC.ASM CLEAR -> later 7b
+BIMISC.ASM CLEAR -> p3/bimisc.s CLEARP # its resident stub res/far3.s CLEAR, which then jumps to CLEARC (GCLERC)
 GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> later 7b: DEF FN
 GWMAIN.ASM POKE -> later 7c: with DEF SEG
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
 GIO86.ASM WIDTHS -> later 7d
-BIMISC.ASM SWAP -> later 7b
-BIMISC.ASM ERASE -> later 7b
+BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
+BIMISC.ASM ERASE -> p3/bimisc.s ERASEP # its resident stub res/far3.s ERASE
 GWMAIN.ASM ERRORS -> p3/gwmain.s ERRORSP # its resident stub res/far3.s ERRORS
 GWMAIN.ASM RESUME -> p3/gwmain.s RESUMEP # its resident stub res/far3.s RESUME
 GWMAIN.ASM AUTO -> later 7b
 GWMAIN.ASM RESEQ -> later 7b: RENUM
 CALL86.ASM CALLS -> later 7g: CALL
-FIVEO.ASM WRITE -> later 7b
-GWMAIN.ASM OPTION -> later 7b: OPTION BASE
-GWMAIN.ASM RANDOM -> later 7b: RANDOMIZE
+FIVEO.ASM WRITE -> p3/fiveo.s WRITEP # its resident stub res/far3.s WRITE; WRITE # (FILGET) 7c's
+GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/far3.s OPTION
+GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM
 GIO86.ASM OPEN -> later 7c
 GIO86.ASM CLOSE -> later 7c
 DSKCOM.ASM LOAD -> later 7c
@@ -1338,3 +1338,41 @@ GWMAIN.ASM NOTBGL -> p3/gwmain.s NOTBGL # JMP DATA: a tail call
 GWMAIN.ASM GOERR -> p3/gwmain.s GOERR
 GWSTS.ASM ONGOTP -> later 7b: step e's ON event GOSUB (here p3/todo_a1.s ONGOTP: C set, not an event)
 GWSTS.ASM SETGSB -> later 7b: step e's, ON event GOSUB's line for the event
+
+# 7b step a2: SWAP, ERASE and CLEAR (BIMISC.ASM, p3/bimisc.s), OPTION BASE and RANDOMIZE (GWMAIN.ASM, p3/gwmain.s),
+# WRITE (FIVEO.ASM, p3/fiveo.s), STRING$ and MID$ = (BISTRS.ASM, p3/bistrs.s) and VARPTR$ (GWSTS.ASM, p3/gwsts.s), each
+# reached by a resident stub in res/far3.s; and PTRGET's ERASE entry (ERSFIN, ARYEXT, PTRRNZ, above). CLEAR's CLSALL
+# is a stand-in until 7c (p3/todo_a2.s CLSALL: nothing to close), and CLEARC's INITRP is step e's (above). The labels
+# inside a routine that matter are named too.
+BIMISC.ASM GFCERR -> p3/bimisc.s GFCERR
+BIMISC.ASM LPBKNM -> p3/bimisc.s LPBKNM
+BIMISC.ASM ERSLOP -> p3/bimisc.s ERSLOP # the 8086's LAHF and SAHF round the move: PHP and PLP
+BIMISC.ASM GCLERC -> p3/bimisc.s GCLERC # an RTS: the stub's JMP CLEARC (CLEARC's STKINI resets the 6502's stack)
+BIMISC.ASM CSKPCM -> p3/bimisc.s CSKPCM # n's default: MEMSIZ + 2 (OO-1: the 8086's TOPMEM; MAXMEM the TPA's top)
+BIMISC.ASM CLEARS -> p3/bimisc.s CLEARS
+BIMISC.ASM CLEART -> p3/bimisc.s CLEART # OO-1: n the workspace's top, m the fixed BASIC stack's size (at most 512)
+BIMISC.ASM GETMPM -> p3/bimisc.s GETMPM
+BIMISC.ASM GOMERR -> p3/bimisc.s GOMERR
+BIMISC.ASM CDFSTK -> p3/bimisc.s CDFSTK
+BIMISC.ASM SUBDE -> p3/bimisc.s CLEART # inline: n - m, its borrow
+GWMAIN.ASM OLDOPT -> p3/gwmain.s OLDOPT
+GWMAIN.ASM INPRG -> p3/gwmain.s INPRG
+GWMAIN.ASM INPRAG -> p3/gwmain.s INPRAG
+GWMAIN.ASM STRNDS -> p3/gwmain.s STRNDS
+GWMAIN.ASM FRMQNT -> p3/gwmain.s FRMQNT # CLEAR's GETMPM; FRQINT through P1's entry
+FIVEO.ASM WRTCHR -> p3/fiveo.s WRTCHR
+FIVEO.ASM WRTMLP -> p3/fiveo.s WRTMLP
+FIVEO.ASM WRTNEG -> p3/fiveo.s WRTNEG
+FIVEO.ASM NXTWRV -> p3/fiveo.s NXTWRV
+FIVEO.ASM WASEMI -> p3/fiveo.s WASEMI
+FIVEO.ASM WRTSTR -> p3/fiveo.s WRTSTR
+FIVEO.ASM WRTFIN -> p3/fiveo.s WRTFIN # a random file's padding (CMPFBC) 7c's
+FIVEO.ASM NTRNDW -> p3/fiveo.s NTRNDW
+BISTRS.ASM STRSTR -> p3/bistrs.s STRSTR
+BISTRS.ASM CALSPA -> p3/bistrs.s CALSPA # JMP SPACE2: a tail call (the 8086's FINBCK pops the return instead)
+BISTRS.ASM NCP1 -> p3/bistrs.s NCP1
+BISTRS.ASM NCPMID -> p3/bistrs.s NCPMID
+BISTRS.ASM BIGLEN -> p3/bistrs.s BIGLEN
+BISTRS.ASM MID$LP -> p3/bistrs.s MIDSLP
+GWSTS.ASM VARRT2 -> p3/gwsts.s VARRT2 # JMP PUTNEW: a tail call
+GIODSK.ASM CMPFBC -> later 7c: WRITE #'s random record, padded to its end (WRTFIN)

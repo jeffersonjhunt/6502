@@ -90,3 +90,31 @@ output (it agrees with the 1983 source on all of them):
 
 Errors in direct mode with ON ERROR set can't come from PC-BASIC's run of a file: test_gwbasic_stmts checks them
 by hand, from the source (GWMAIN.ASM's NTMDCN).
+
+Step a2's, typed and RUN the same way:
+
+| Program | What |
+|---|---|
+| `swap` | SWAP of each type, array elements with simple variables, a variable with itself, formula subscripts, a first variable SWAP makes, long names |
+| `swaptm`, `swaptm2`, `swapfc`, `swapsn` | SWAP's errors: two types (Type mismatch), a second variable SWAP makes (Illegal function call), no comma |
+| `erase`, `gcerase` | ERASE of arrays of each type, first, middle, last, two at once; DIM again; string arrays erased and the string space collected after, the kept strings checked |
+| `erasefc`, `erasefc2`, `erasesn` | ERASE's errors: an array not there, a simple variable, a subscript |
+| `clear`, `clearrg`, `clearnf` | CLEAR alone, with x, with m; what it drops (variables, arrays, ON ERROR, GOSUB, FOR) |
+| `clearcm`, `clearcm2`, `clearom`, `clearom2`, `clearom3`, `clearfc`, `clearfc2`, `clearfc3`, `clearfc4`, `clearsn` | CLEAR's commas and errors: m 240 or less, more than n, n under the variables (Out of memory); n or m 0, x negative, n past the TPA's top (Illegal function call); too much |
+| `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate Definition; Syntax error |
+| `random`, `randomov`, `randomtm`, `randin` (`randin.in`) | RANDOMIZE n (each kind of seed), its errors; RANDOMIZE alone with the seed typed, a bad line asked for again |
+| `write`, `writemo`, `writesn` | WRITE: numbers, strings, `,` and `;`, alone; Missing operand; Syntax error |
+| `strng`, `strfc`, `strfc2`, `strfc3`, `strfc4`, `strtm` | STRING$ of a code and of a string, 0 and 255 long; its errors |
+| `lhsmid`, `lhsfc0`, `lhsfc`, `lhsfc2`, `lhstm`, `lhstm2`, `lhssn`, `lhssn2` | MID$ as a statement: each length case, a literal (and DATA) copied first; n 0, past the end; Type mismatch; Syntax error |
+| `varptr`, `varpfc` | VARPTR$'s type byte for each type, its address bytes against VARPTR; an undefined variable |
+
+Where PC-BASIC doesn't do what the 1983 source does, `NAME.differ` has the source's output and says why: `clearcm`,
+`clearcm2` (no Syntax error for a comma with nothing after it); `clearom`, `clearom2`, `clearom3` (CLEAR's stack
+and room checks, which PC-BASIC doesn't make); `opt01` (OPTION BASE 0 when the base is 0 isn't counted); `random`
+(the seed is FRCINT's integer, not the number's bytes; and $FOUT's .778838); `randomov`, `randomtm` (FRCINT's
+Overflow and Type mismatch); `writesn` (the comma goes out after the separator is checked); `strfc4` (a null
+string is Illegal function call). `clearfc4` is the OO-1's own: n past the TPA's top.
+
+By hand in test_gwbasic_stmts (not from PC-BASIC's run of a file): WRITE # (Advanced Feature until 7c), RANDOMIZE
+TIMER (TIMER is a variable until 7f: the 1983 source's crunch table has no TIMER), and CLEAR's n and m on the OO-1's
+memory map (FRE(0) by n; the GOSUB depth by m).

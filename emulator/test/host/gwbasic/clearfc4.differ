@@ -1,0 +1,2 @@
+# OO-1: n past MAXMEM, the TPA's top start-up used (the base page's BDOS address, under 65000), is Illegal function call; a PC's data segment would take it
+Illegal function call in 10

@@ -32,16 +32,17 @@
 ; collector doesn't touch.
 ;
 ; STR$ VAL HEX$ OCT$ are in P1 (p1/strfn.s), through the F_ stubs here.
-; Later: MID$ as a statement (LHSMID), STRING$ and the PRINT USING entry
-; (LEFTUS) are 7b's; DEF FN's parameter blocks, which the collector walks too,
-; are 7b's.
+; MID$ as a statement (LHSMID) and STRING$ are P3's (7b step a2), with
+; their stubs in res/far3.s; MIDRST is LHSMID's too. Later: the PRINT USING
+; entry (LEFTUS) is 7b's; DEF FN's parameter blocks, which the collector walks
+; too, are 7b's.
 
 .include "gwbasic.inc"
 
 .export STRCMP, STRCPY, STRIN1, STRINI, STRAD2, STRAD1, STRLIT, STRLTI, STRLT3
 .export STRLT2, PUTNEW, PUTTMP, STRPRT, STROUI, DSOUT, GETSPA, GARBA2, CAT, MOVSTR
 .export FRESTR, FREFAC, FRETM2, FRETMP, FRETMS, LEN, LEN1, ASC, ASC2, CHR
-.export SETSTR, SPACE, SPACE2, LEFT, RIGHT, MID, INSTR, FRE, LETSTR, GETBCD
+.export SETSTR, SPACE, SPACE2, LEFT, RIGHT, MID, MIDRST, INSTR, FRE, LETSTR, GETBCD
 .export MEMSIZ, TEMPST, DSCTMP, DSEGZ, NUMTMP
 .export F_STR, F_VAL, F_STRO, F_STRH
 .import CHRGTR, SYNCHR, FCERR, ERROR, CHKSTR, GETYP, EVAL, TSTOP, SPUSH, SPOP
