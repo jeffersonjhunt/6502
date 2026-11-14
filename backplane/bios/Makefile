@@ -12,14 +12,21 @@
 #   ../../emulator/build/release/apps/emu/emulator --machine ../../emulator/machines/backplane.machine bios.rom
 
 AFLAGS  = -g  # debug info, so -Ln lists every label, not just the exports
-OBJS    = bios.o wozmon.o video.o input.o apple.o sd.o demo.o splash.o
+OBJS    = bios.o wozmon.o video.o input.o apple.o sd.o demo.o splash.o diag21.o diag22.o diag23.o
+# The ROM's diagnostics (hw/diag.md, plan 2) take oohw's memory tests, built for the ROM (OOHW_ROM): block 23's
+OOHW    = ../oohw
+HWOBJS  = hw-hwmem.o hw-hwzp.o
 ROM     = bios.rom
 
-$(ROM): $(OBJS) bios.cfg
-	ld65 -C bios.cfg $(OBJS) -o $(ROM) -Ln $(ROM).lbl
+$(ROM): $(OBJS) $(HWOBJS) bios.cfg romsum.py
+	ld65 -C bios.cfg $(OBJS) $(HWOBJS) -o $(ROM) -Ln $(ROM).lbl
+	python3 romsum.py $(ROM)
 
-%.o: %.s backplane.inc font/vga8x16.bin $(wildcard demo/*.bin) splash/bootsnd.bin splash/docsnd.bin splash/wave.bin
-	ca65 $(AFLAGS) $<
+%.o: %.s backplane.inc diag.inc diagcon.inc $(OOHW)/oohw.inc font/vga8x16.bin $(wildcard demo/*.bin) splash/bootsnd.bin splash/docsnd.bin splash/wave.bin
+	ca65 $(AFLAGS) -I $(OOHW) $<
+
+hw-%.o: $(OOHW)/%.s $(OOHW)/oohw.inc backplane.inc
+	ca65 $(AFLAGS) -I . -I $(OOHW) -D OOHW_ROM $< -o $@
 
 splash/bootsnd.bin: splash/bootsnd.s splash/tables.inc splash/bootsnd.cfg
 	cd splash && ca65 bootsnd.s -o bootsnd.o && ld65 -C bootsnd.cfg bootsnd.o -o bootsnd.bin && rm bootsnd.o
@@ -31,6 +38,6 @@ splash:
 	$(MAKE) -C splash
 
 clean:
-	rm -f $(OBJS) $(ROM) $(ROM).lbl
+	rm -f $(OBJS) $(HWOBJS) $(ROM) $(ROM).lbl
 
 .PHONY: clean splash

@@ -350,19 +350,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 9, 77 the ROM BIOS 0.13 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 9, 77 the ROM BIOS 0.14 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
     CHECK(o.find("FINFO 09 0F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 0D\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 0E\n") != std::string::npos);
     std::smatch m;
     CHECK(std::regex_search(o, m, std::regex("V72 0009000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 0D") == std::string::npos || m.empty())
+    if (o.find("ROMV 00 0E") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.13\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.14\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)

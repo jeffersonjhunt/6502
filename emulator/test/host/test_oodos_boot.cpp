@@ -452,7 +452,7 @@ namespace
             return b;
         }
         std::string out;
-        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.13\r\\\r") == std::string::npos; ++i)
+        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.14\r\\\r") == std::string::npos; ++i)
         {
             b.s->run(FRAME);
             out += b.s->take_output();

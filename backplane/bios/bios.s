@@ -20,6 +20,16 @@
 ; $C800 is reset, $C803 the video demo, $C806 Apple II mode, $C809 the SD
 ; card's directory and $C80C a boot from it: C803R and so on from the
 ; monitor. $C80F is ECHO, for programs: it uses $E0-$E7 (backplane.inc).
+; $C812 is the ROM's diagnostics (diag23.s, hw/diag.md's plan 2), after a Y;
+; $C815 the same for a program that has asked already: A = $A5 and Y = $5A,
+; X the options (bit 0 full, bit 1 interactive); anything else is $C812.
+;
+; Before the copy, with the front panel there (its ID read twice): a
+; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
+; that one, so a reset during the diagnostics' P3 can't halt the next boot
+; while any other breakpoint still catches the boot; and with switch 19 up,
+; and the diagnostics in the flash, the diagnostics' prompt (CONT or Y
+; within 5 s) comes first. No RAM is used until BOOT.
 ;
 ; C800R goes back to the flash first and starts from its reset vector, as a
 ; hard reset does, so it copies the flash again rather than the RAM copy it
@@ -36,14 +46,16 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT
-.export BREAK
+.include "diag.inc"
+.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
+.export BREAK, BOOT, MONBOOT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
 
 BLOCK63 = 63                           ; RAM block 63: physical $FC000-$FFFFF
 BLOCK2  = 2
+BOOTMODE = $04                         ; 0 BOOT, 1 MONBOOT: kept in block 0 while the boot runs
 FLASH31 = NB_ROM | NB_RO | 31          ; the flash's top block, where reset maps W3
 
 .segment "CODE"
@@ -56,9 +68,8 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     SDCAT          ; $C809: the SD card and its root directory (sd.s)
                 JMP     SDBOOT         ; $C80C: boot /BOOT.BIN from the SD card (sd.s)
                 JMP     ECHO           ; $C80F: print A, for programs (keeps A and X)
-.repeat 2
-                JMP     WOZMON         ; $C812-$C815: spare
-.endrepeat
+                JMP     DIAG           ; $C812: the ROM's diagnostics, after a Y (diag23.s)
+                JMP     DIAGPGM        ; $C815: the same for a program: A = $A5, Y = $5A, X the options
 
 ; A hard reset arrives on the flash; C800R, on the RAM copy. Put W3 and VEC
 ; back on the flash from zero page, so the next fetch is the flash's own
@@ -87,7 +98,47 @@ STUB_END:
 RESET:
                 LDX     #$FF
                 TXS
+                LDA     CONSOLE_ID     ; the front panel? Read twice (hw/diag.md, "Card discovery")
+                CMP     #CONSOLE_ID_V1
+                BNE     BOOT
+                LDA     CONSOLE_ID - $FF,X
+                CMP     #CONSOLE_ID_V1
+                BNE     BOOT
+                LDA     CONSOLE_BPADDR ; P3's breakpoint, and only P3's, off
+                CMP     #<DG_P3ADDR
+                BNE     @switch
+                LDA     CONSOLE_BPADDR + 1
+                CMP     #>DG_P3ADDR
+                BNE     @switch
+                LDA     CONSOLE_BPADDR + 2
+                CMP     #^DG_P3ADDR
+                BNE     @switch
+                STZ     CONSOLE_BPCTRL
+@switch:        LDA     CONSOLE_SWR + 2
+                AND     #$08           ; switch 19
+                BEQ     BOOT
+                LDA     #DG_B23        ; the diagnostics' signature, through W2
+                STA     NB_WIN2
+                LDX     #7
+@sig:           LDA     $8000,X
+                CMP     DIAGSIG,X
+                BNE     @none
+                DEX
+                BPL     @sig
+                LDX     #DE_PROMPT
+                JMP     (DG_ENTRIES,X) ; the prompt: back to BOOT unless CONT or Y
+@none:          LDA     #BLOCK2        ; (said after the greeting: DIAGNOTE)
+                STA     NB_WIN2
+
+; The boot (BOOT), or the copy, the greeting and the monitor with no splash
+; and no SD boot (MONBOOT): the diagnostics' two ways back.
+BOOT:           LDA     #0
+                BRA     BOOT2
+MONBOOT:        LDA     #1
+BOOT2:          LDX     #$FF
+                TXS
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
+                STA     BOOTMODE
                 LDA     #1
                 STA     NB_WIN1
 
@@ -119,16 +170,113 @@ COPY:           LDA     (SRC),Y
                 STA     ACIA_CTRL
                 LDA     #$0B           ; no parity, no echo, no interrupts
                 STA     ACIA_CMD
+                LDA     BOOTMODE
+                BNE     MONB
                 JSR     SPLASH         ; the logo and its sound, 5 s on their own
                 JSR     VINIT          ; the screen, so ECHO writes there too
                 JSR     KINIT          ; the USB keyboard, if there is one (input.s)
-                LDX     #$00
+                JSR     GREET
+MONITOR:        JMP     AUTOBOOT       ; the SD card's /BOOT.BIN after the splash, or the monitor (sd.s)
+MONB:           JSR     VINIT
+                JSR     KINIT
+                JSR     GREET
+                JMP     WOZMON
+
+GREET:          LDX     #$00
 BANNER:         LDA     GREETING,X
-                BEQ     MONITOR
+                BEQ     DIAGNOTE
                 JSR     ECHO
                 INX
                 BNE     BANNER
-MONITOR:        JMP     AUTOBOOT       ; the SD card's /BOOT.BIN after the splash, or the monitor (sd.s)
+
+; With switch 19 up and no diagnostics in the flash, say so (RESET couldn't:
+; it has no RAM for ECHO).
+DIAGNOTE:       LDA     CONSOLE_ID
+                CMP     #CONSOLE_ID_V1
+                BNE     @done
+                LDA     CONSOLE_SWR + 2
+                AND     #$08
+                BEQ     @done
+                JSR     CHKSIG
+                BCC     @done
+                LDX     #MNODIAG - DMSGS
+                JMP     DSAY
+@done:          RTS
+
+; Carry clear if flash block 23 holds the diagnostics (its signature), read
+; through W2, which goes back on block 2.
+CHKSIG:         LDA     #DG_B23
+                STA     NB_WIN2
+                LDX     #7
+@sig:           LDA     $8000,X
+                CMP     DIAGSIG,X
+                BNE     @no
+                DEX
+                BPL     @sig
+                LDA     #BLOCK2
+                STA     NB_WIN2
+                CLC
+                RTS
+@no:            LDA     #BLOCK2
+                STA     NB_WIN2
+                SEC
+                RTS
+
+; $C812: the diagnostics from the monitor, after a Y, since they overwrite
+; all of memory.
+DIAG:           LDX     #MALL - DMSGS
+                JSR     DSAY
+                JSR     GETKEY
+                JSR     ECHO
+                AND     #$DF           ; y or Y
+                CMP     #'Y'
+                BEQ     DIAGGO
+                LDA     #$0D
+                JSR     ECHO
+                JMP     WOZMON
+DIAGGO:         JSR     CHKSIG
+                BCS     @none
+                SEI
+                LDA     #DG_B23
+                STA     NB_WIN2
+                LDX     #DE_GO
+                JMP     (DG_ENTRIES,X)
+@none:          STZ     NB_WAIT3       ; no options left behind
+                LDX     #MNODIAG - DMSGS
+                JSR     DSAY
+                JMP     WOZMON
+
+; $C815: a program's, which has asked already: A = $A5 and Y = $5A (two bytes,
+; so the monitor's R can't match them by chance), X the options. Its options go
+; to the core in WAIT3 (diag.inc): bit 0 a program's, bits 6 and 7 X's.
+DIAGPGM:        CMP     #$A5
+                BNE     DIAG
+                CPY     #$5A
+                BNE     DIAG
+                TXA
+                AND     #$03
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     #DW_PROGRAM
+                STA     NB_WAIT3
+                JMP     DIAGGO
+
+; The message at DMSGS + X, ended by 0.
+DSAY:           LDA     DMSGS,X
+                BEQ     @done
+                JSR     ECHO
+                INX
+                BNE     DSAY
+@done:          RTS
+
+DIAGSIG:        .byte   "OOHWDIAG"
+DMSGS:
+MALL:           .byte   $0D, "ALL OF MEMORY WILL BE OVERWRITTEN. Y TO GO ON ", 0
+MNODIAG:        .byte   $0D, "NO DIAGNOSTICS IN THE FLASH", $0D, 0
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen
@@ -229,7 +377,7 @@ QUIET:
                 STA     VIA_IER
                 RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.13", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.14", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

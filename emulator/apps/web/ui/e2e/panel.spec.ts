@@ -6,7 +6,7 @@ async function booted(page: Page) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.14", { timeout: 15_000 });
 }
 
 const lamp = (page: Page, name: string) =>

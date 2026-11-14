@@ -63,7 +63,7 @@ Status: **emulated**
 To take the SIDs, stop the 6510 (clear RUN), then write the registers. Writing every register 0 turns off each
 voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:202-221 -->
+<!-- listing: ../../backplane/bios/bios.s:350-369 -->
 ```
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
