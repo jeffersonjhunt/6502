@@ -33,7 +33,7 @@
 
 HW_WINDOWS      = 3                     ; the middle of three is kept: wbuf and the swaps are for three
 
-        .code
+        OOHW_CODE
 clkfar: rts                             ; carry set: no change in time (a branch's reach from HW_CLOCK)
 HW_CLOCK:
         lda     HW_WATCH
@@ -236,7 +236,7 @@ HW_DIV: sta     dvs
         ldx     rem + 1
         rts
 
-        .bss
+        OOHW_BSS
 HW_WATCH: .res  2
 HW_EDGES: .res  1
 HW_CYC: .res    4

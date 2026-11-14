@@ -1,10 +1,11 @@
 ; The diagnostics' program for the sound card's 6510 (hw/diag.md, "The 6510
 ; test program"): the card's own code, NMOS 6502 opcodes only, assembled on
-; its own (card6510.cfg: $0200-$05FF in the card's RAM, its zero page
-; $02-$1F; it is about 800 bytes, so it has four pages, not two) and
-; taken whole into DIAG.COM (and, from D3, the ROM core), which load it by
-; function 82 (SN_LOAD) and start it at $0200 (SN_START). Not a module of
-; oohw.lib.
+; its own (card6510.cfg: $0200-$03FF in the card's RAM, its zero page
+; $02-$1F) and taken whole into the ROM's diagnostics' block 22, which loads
+; it through RAMADDR and RAMDATA, writes its reset vector and starts it
+; (stage 10, S4). Not a module of oohw.lib. D2's RAM test (C65_TEST, a march
+; at the 6510's 1 MHz) is gone: in the ROM the host tests all 64 KB itself
+; through RAMDATA, faster (S2), so the 6510 has no use for it.
 ;
 ; It starts by reading the mailbox from the host once (a byte a program
 ; left there, which only a /RESET empties) and sending $A5. Then it answers
@@ -14,18 +15,6 @@
 ;   C65_SUM    a.lo a.hi n.lo n.hi
 ;                                the 16-bit sum of n bytes from a (n 0:
 ;                                65,536): its low byte, then its high
-;   C65_TEST   a.lo a.hi e.lo e.hi f
-;                                its RAM from a to e - 1 tested: address in
-;                                address (each byte its address's low byte
-;                                XOR its high), then with f bit 0 the march
-;                                (March C-, background $00), a page at a
-;                                time (a must start a page); $D000-$DFFF is
-;                                reached as RAM meanwhile (the port's bits
-;                                0-2 low), so the mailbox is out of reach
-;                                until it ends. Answered by five bytes: 0
-;                                passed or 1 failed, then the first failing
-;                                address (low, high), what was read and what
-;                                was expected
 ;   C65_SID    s                 SID s (0 A at $D400, 1 B at $D420): its
 ;                                voice 3 set running (sawtooth, gate on,
 ;                                attack 2 ms) with the volume 0 and voice 3
@@ -38,8 +27,7 @@
 ;   anything else                answered by $FF
 ;
 ; It never writes $0000-$01FF but its zero page bytes and the stack, and
-; never $0200-$05FF (itself), nor its vectors; the host asks for $0600-
-; $FFF9 to be tested (C65_FIRST). A byte to the host is sent once it has taken the last
+; never $0200-$03FF (itself), nor its vectors. A byte to the host is sent once it has taken the last
 ; ($DE01 bit 1 clear); one from it is waited for ($DE01 bit 0).
 
         .setcpu "6502"
@@ -54,20 +42,11 @@ SIDB    = $D420
 
         .zeropage
 p:      .res    2
-e:      .res    2
-a0:     .res    2
 n:      .res    2
 sum:    .res    2
-bad:    .res    2
-npg:    .res    1
-npg0:   .res    1
-cnt:    .res    1
-dirn:   .res    1
-flags:  .res    1
 sid:    .res    2
 t:      .res    1
 got:    .res    1
-want:   .res    1
 o1:     .res    1
 
         .code
@@ -83,10 +62,7 @@ loop:   jsr     recv
         beq     echo
         cmp     #C65_SUM
         beq     sumcmd
-        cmp     #C65_TEST
-        bne     @n1
-        jmp     test
-@n1:    cmp     #C65_SID
+        cmp     #C65_SID
         bne     @n2
         jmp     sidcmd
 @n2:    cmp     #C65_TONE
@@ -147,243 +123,6 @@ recv:   lda     MBST
         and     #$01
         beq     recv
         lda     MBOX
-        rts
-
-; ---------------------------------------------------------------------------
-; C65_TEST: a page at a time, as hwmem.s's (a starts a page: the host's
-; runs do).
-
-test:   jsr     recv
-        sta     a0
-        jsr     recv
-        sta     a0 + 1
-        jsr     recv
-        sta     e
-        jsr     recv
-        sta     e + 1
-        jsr     recv
-        sta     flags
-        sec                             ; the pages, the last perhaps a part one
-        lda     e + 1
-        sbc     a0 + 1
-        sta     npg0
-        lda     e
-        beq     @whole
-        inc     npg0
-@whole: lda     #$07                    ; the port's bits 0-2 out, low: RAM everywhere
-        sta     PORTDDR
-        lda     #$00
-        sta     PORT
-        jsr     aiaw
-        jsr     aiac
-        bcs     @end
-        lda     flags
-        and     #$01
-        beq     @ok
-        jsr     march
-        bcs     @end
-@ok:    lda     #0
-        sta     bad
-        sta     bad + 1
-        sta     got
-        sta     want
-        clc
-@end:   lda     #$07                    ; the I/O back: bits 0-2 high, then inputs again
-        sta     PORT
-        lda     #$00
-        sta     PORTDDR
-        rol     a                       ; 1 failed
-        jsr     send
-        lda     bad
-        jsr     send
-        lda     bad + 1
-        jsr     send
-        lda     got
-        jsr     send
-        lda     want
-        jsr     send
-        jmp     loop
-
-; From the first page up: p, and npg the pages to go.
-up:     lda     #0
-        sta     p
-        sta     dirn
-        lda     a0 + 1
-        sta     p + 1
-        lda     npg0
-        sta     npg
-        rts
-; From the last page down.
-down:   jsr     up
-        clc
-        adc     a0 + 1
-        sta     p + 1
-        dec     p + 1
-        inc     dirn
-        rts
-; This page's bytes: cnt (0: 256), the last page's e's low byte (the
-; first to go down).
-count:  lda     dirn
-        beq     @up
-        lda     npg
-        cmp     npg0
-        bne     @full
-        beq     @part
-@up:    lda     npg
-        cmp     #1
-        bne     @full
-@part:
-        lda     e
-        sta     cnt
-        rts
-@full:  lda     #0
-        sta     cnt
-        rts
-
-aiaw:   jsr     up
-@pg:    jsr     count
-        ldy     #0
-@b:     tya
-        eor     p + 1
-        sta     (p),y
-        iny
-        cpy     cnt
-        bne     @b
-        inc     p + 1
-        dec     npg
-        bne     @pg
-        rts
-
-aiac:   jsr     up
-@pg:    jsr     count
-        ldy     #0
-@b:     tya
-        eor     p + 1
-        cmp     (p),y
-        bne     @bad
-        iny
-        cpy     cnt
-        bne     @b
-        inc     p + 1
-        dec     npg
-        bne     @pg
-        clc
-        rts
-@bad:   sta     want
-        jmp     failed
-
-; The failure at p + Y: what is there read again.
-failed: lda     (p),y
-        sta     got
-        sty     bad
-        lda     p + 1
-        sta     bad + 1
-        sec
-        rts
-
-; March C-, background $00.
-march:  jsr     up                      ; (w0)
-@w0:    jsr     count
-        ldy     #0
-        lda     #$00
-@w0b:   sta     (p),y
-        iny
-        cpy     cnt
-        bne     @w0b
-        inc     p + 1
-        dec     npg
-        bne     @w0
-        lda     #$00                    ; up (r0, w1)
-        sta     want
-        jsr     up
-@e1:    jsr     count
-        ldy     #0
-@e1b:   lda     (p),y
-        bne     @b1
-        lda     #$FF
-        sta     (p),y
-        iny
-        cpy     cnt
-        bne     @e1b
-        inc     p + 1
-        dec     npg
-        bne     @e1
-        jmp     @n1
-@b1:    jmp     failed
-@n1:
-        lda     #$FF                    ; up (r1, w0)
-        sta     want
-        jsr     up
-@e2:    jsr     count
-        ldy     #0
-@e2b:   lda     (p),y
-        cmp     #$FF
-        bne     @b2
-        lda     #$00
-        sta     (p),y
-        iny
-        cpy     cnt
-        bne     @e2b
-        inc     p + 1
-        dec     npg
-        bne     @e2
-        jmp     @n2
-@b2:    jmp     failed
-@n2:
-        lda     #$00                    ; down (r0, w1)
-        sta     want
-        jsr     down
-@e3:    jsr     count
-        ldy     cnt
-@e3b:   dey
-        lda     (p),y
-        bne     @b3
-        lda     #$FF
-        sta     (p),y
-        cpy     #0
-        bne     @e3b
-        dec     p + 1
-        dec     npg
-        bne     @e3
-        jmp     @n3
-@b3:    jmp     failed
-@n3:
-        lda     #$FF                    ; down (r1, w0)
-        sta     want
-        jsr     down
-@e4:    jsr     count
-        ldy     cnt
-@e4b:   dey
-        lda     (p),y
-        cmp     #$FF
-        bne     @b4
-        lda     #$00
-        sta     (p),y
-        cpy     #0
-        bne     @e4b
-        dec     p + 1
-        dec     npg
-        bne     @e4
-        jmp     @n4
-@b4:    jmp     failed
-@n4:
-        lda     #$00                    ; (r0)
-        sta     want
-        jsr     up
-@e5:    jsr     count
-        ldy     #0
-@e5b:   lda     (p),y
-        bne     @b5
-        iny
-        cpy     cnt
-        bne     @e5b
-        inc     p + 1
-        dec     npg
-        bne     @e5
-        jmp     @n5
-@b5:    jmp     failed
-@n5:
-        clc
         rts
 
 ; ---------------------------------------------------------------------------

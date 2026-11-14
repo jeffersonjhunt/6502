@@ -110,20 +110,74 @@
 OOHW_INC = 1
 
 ; The segments a module's code, constants, variables and zero page go in: OODOS's own for a program, and for
-; the ROM (OOHW_ROM, hw/diag.md's plan 2) block 23's, with its variables in the core's zero page and stack page
-; (the first 512 bytes of the RAM block stage 2 chose for W0, tested before anything is kept there).
+; the ROM (OOHW_ROM, hw/diag.md's plan 2) the diagnostics' block's, with its variables in the core's zero page and
+; stack page (the first 512 bytes of the RAM block stage 2 chose for W0, tested before anything is kept there).
+; Each block has its own copy of the modules it uses (one block is seen at a time, so none can call another's):
+; block 23's (OOHW_BLK not given) under the plain names, in D23CODE and the rest; block 22's and 21's with
+; OOHW_BLK = 22 or 21, every name below given the block's number (HW_CLOCK is HW22_CLOCK), in D22CODE and the
+; rest, so one link holds all three copies. The block's own unit includes this file with the same OOHW_BLK.
 .ifdef OOHW_ROM
+.ifdef OOHW_BLK
+.define HW_PUTC     .ident(.sprintf("HW%d_PUTC", OOHW_BLK))
+.define HW_PROBE    .ident(.sprintf("HW%d_PROBE", OOHW_BLK))
+.define HW_FOUND    .ident(.sprintf("HW%d_FOUND", OOHW_BLK))
+.define HW_REV      .ident(.sprintf("HW%d_REV", OOHW_BLK))
+.define HW_IDB      .ident(.sprintf("HW%d_IDB", OOHW_BLK))
+.define HW_NAME     .ident(.sprintf("HW%d_NAME", OOHW_BLK))
+.define HW_KNOWN    .ident(.sprintf("HW%d_KNOWN", OOHW_BLK))
+.define HW_CLOCK    .ident(.sprintf("HW%d_CLOCK", OOHW_BLK))
+.define HW_FRAMEHZ  .ident(.sprintf("HW%d_FRAMEHZ", OOHW_BLK))
+.define HW_DIV      .ident(.sprintf("HW%d_DIV", OOHW_BLK))
+.define HW_WATCH    .ident(.sprintf("HW%d_WATCH", OOHW_BLK))
+.define HW_EDGES    .ident(.sprintf("HW%d_EDGES", OOHW_BLK))
+.define HW_CYC      .ident(.sprintf("HW%d_CYC", OOHW_BLK))
+.define HW_PUTS     .ident(.sprintf("HW%d_PUTS", OOHW_BLK))
+.define HW_HEX2     .ident(.sprintf("HW%d_HEX2", OOHW_BLK))
+.define HW_HEX4     .ident(.sprintf("HW%d_HEX4", OOHW_BLK))
+.define HW_HEX6     .ident(.sprintf("HW%d_HEX6", OOHW_BLK))
+.define HW_DEC      .ident(.sprintf("HW%d_DEC", OOHW_BLK))
+.define HW_NUM      .ident(.sprintf("HW%d_NUM", OOHW_BLK))
+.define HW_RTC      .ident(.sprintf("HW%d_RTC", OOHW_BLK))
+.define HW_RTCST    .ident(.sprintf("HW%d_RTCST", OOHW_BLK))
+.define HW_SD_ID    .ident(.sprintf("HW%d_SD_ID", OOHW_BLK))
+.define HW_WALK     .ident(.sprintf("HW%d_WALK", OOHW_BLK))
+.define HW_TAGW     .ident(.sprintf("HW%d_TAGW", OOHW_BLK))
+.define HW_TAGC     .ident(.sprintf("HW%d_TAGC", OOHW_BLK))
+.define HW_AIAW     .ident(.sprintf("HW%d_AIAW", OOHW_BLK))
+.define HW_AIAC     .ident(.sprintf("HW%d_AIAC", OOHW_BLK))
+.define HW_MARCH    .ident(.sprintf("HW%d_MARCH", OOHW_BLK))
+.define HW_LEN      .ident(.sprintf("HW%d_LEN", OOHW_BLK))
+.define HW_KEY      .ident(.sprintf("HW%d_KEY", OOHW_BLK))
+.define HW_BG       .ident(.sprintf("HW%d_BG", OOHW_BLK))
+.define HW_BAD      .ident(.sprintf("HW%d_BAD", OOHW_BLK))
+.define HW_GOT      .ident(.sprintf("HW%d_GOT", OOHW_BLK))
+.define HW_WANT     .ident(.sprintf("HW%d_WANT", OOHW_BLK))
+.define HW_PAIAW    .ident(.sprintf("HW%d_PAIAW", OOHW_BLK))
+.define HW_PAIAC    .ident(.sprintf("HW%d_PAIAC", OOHW_BLK))
+.define HW_PORT     .ident(.sprintf("HW%d_PORT", OOHW_BLK))
+.define HW_PLEN     .ident(.sprintf("HW%d_PLEN", OOHW_BLK))
+.define HW_TEST     .ident(.sprintf("HW%d_TEST", OOHW_BLK))
+.define HW_LINE     .ident(.sprintf("HW%d_LINE", OOHW_BLK))
+.define HW_FAULT    .ident(.sprintf("HW%d_FAULT", OOHW_BLK))
+.define HW_SUMMARY  .ident(.sprintf("HW%d_SUMMARY", OOHW_BLK))
+.define HW_COL      .ident(.sprintf("HW%d_COL", OOHW_BLK))
+.define HW_TALLY    .ident(.sprintf("HW%d_TALLY", OOHW_BLK))
+.define HW_PTR      .ident(.sprintf("HW%d_PTR", OOHW_BLK))
+OOHW_SEGN = OOHW_BLK
+.else
+OOHW_SEGN = 23
+.endif
 .macro OOHW_CODE
-        .segment "D23CODE"
+        .segment .sprintf("D%dCODE", OOHW_SEGN)
 .endmacro
 .macro OOHW_RODATA
-        .segment "D23CODE"
+        .segment .sprintf("D%dCODE", OOHW_SEGN)
 .endmacro
 .macro OOHW_BSS
-        .segment "D23BSS"
+        .segment .sprintf("D%dBSS", OOHW_SEGN)
 .endmacro
 .macro OOHW_ZP
-        .segment "D23ZP": zeropage
+        .segment .sprintf("D%dZP", OOHW_SEGN): zeropage
 .endmacro
 .else
 .macro OOHW_CODE
@@ -157,13 +211,10 @@ HL_SKIP         = 2
 HL_INFO         = 3                    ; a measurement, with no limit
 
 ; card6510.s: its place in the card's RAM and its commands (each answered)
-C65_ORG         = $0200                ; where it is loaded and started: $0200-$05FF at most
-C65_FIRST       = $0600                ; the first byte of the card's RAM it may test; to $FFF9
+C65_ORG         = $0200                ; where it is loaded and started: $0200-$03FF at most
 C65_HELLO       = $A5                  ; sent when it starts
 C65_ECHO        = $01                  ; b: b back
 C65_SUM         = $02                  ; a (2), n (2): the sum of n bytes from a, low then high
-C65_TEST        = $03                  ; a (2, a page's start), e (2), f: a to e - 1 tested (f bit 0: the march
-                                       ;   too); 5 bytes back: 0 or 1, the address (2), read, expected
 C65_SID         = $04                  ; s (0 A, 1 B): voice 3 run; back bit 0 OSC3 moved, bit 1 ENV3 rose
 C65_TONE        = $05                  ; s, on (1) or off (0): voice 1 at 440 Hz; back C65_TONE
 
