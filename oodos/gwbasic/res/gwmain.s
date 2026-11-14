@@ -13,6 +13,8 @@
 ;   PRGEND             the end of the program, or of a direct line
 ;   RUN                RUN and RUN line (RUN "file" is 7c's)
 ;   NEWSTT GONE        the statement fetcher and dispatch
+;   TRPOLL GOSUB2      OO-1: the event traps' poll, NEWSTT's while a trap is
+;                      on (7b step e); an event's GOSUB
 ;   CHRGTR CHRCON      the next character, and embedded constants
 ;   CONFC1             an embedded constant to the FAC
 ;   FNDLIN LOOP        find a line
@@ -54,9 +56,10 @@
 .export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, LIST, LLIST, DELETE
 .export EDIT, EDTMAI, LSTRDY
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, GOSUB, RETURN, NXTLIN, FVALSV
+.export NEWST1, GOSUB2, TRPON, TRPTST, CURLIN ; (the zero page ones for the label file: the tests)
 .export LETCN2, INPCOM, LETCN4, DATSNE, DATLIN, PRINT, LPRINT, INPUT, LINE, READ, INPRET
 .import STMDSP, NUMCON, OUTDO, NEWSTX, ISMID, LRUN
-.import GOTRP, CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
+.import CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
 .import LETSTR, ISLET2, GETIN2, DEFTBL, SPOP, STKERR, CRDONZ, FINLPT
 .import STROUT, PINLIN, ENDCON, RUNC, CLEARC
 .import SUBFLG, GETSTK, FRCINT, FRCSNG, FRMCHK, GETYP, SIGNS, NEXTS, STPEND
@@ -90,9 +93,41 @@ GISMD:          JSR     NEWSTX         ; an extended statement, or MID$ =
                 JMP     ISMID
 GONLET:         JMP     LET
 
-NEWSTT:         LDA     ONGSBF         ; an event's GOSUB?
+; TRPOLL: OO-1, the event traps' poll (hw/oodos.md, "The plan, phase 7": 7b).
+; The 8086's sources raise a trap's request from an interrupt, and NEWSTT
+; tests ONGSBF each statement. Here NEWSTT tests TRPON alone (gwbasic.inc:
+; nonzero while any trap is on, which P3 keeps), and only then comes here:
+; the sources polled, then ONGSBF's test (which can be nonzero only while a
+; trap is on) and GOTRP (P3). GOTRP returns C set for a trap taken (the far
+; call rule: the 8086's GOTRP jumps to GOSUB2 itself), and the poll goes on
+; into GOSUB2; else back to NEWST1. The sources' polls are 7d-7f's; until
+; then TRPTST, the test-only trigger, stands in their place (p3/trptst.s),
+; and goes when they come.
+TRPOLL:         LDA     TRPTST         ; test only: a trigger (7d-7f: the sources' polls)
+                BEQ     TRPOL1
+                FJSR    TRPTSP
+TRPOL1:         LDA     ONGSBF         ; NEWSTT's own test: an event's GOSUB?
                 BEQ     NEWST1
-                JSR     GOTRP
+                FJSR    GOTRP          ; possible ON GOSUB
+                BCC     NEWST1         ; none taken
+; GOSUB2 (GWMAIN.ASM 2073): the entry for an event's GOSUB, DX the line's
+; pointer (its link), CX the trap's flag address (P3's, which RETURN hands
+; back to P3: RTNTRP), and TXTPTR the text where NEWSTT was; then the line
+; run from its start (GONE4), SAVTXT just before it.
+GOSUB2:         JSR     GOSPSH         ; the entry: text, CURLIN, CX, GOSUB
+                LDA     RDL            ; HL: the subroutine's text
+                STA     TXTPTR
+                SEC                    ; SAVTXT one before it (NEWSTT's INX)
+                SBC     #1
+                STA     SAVTXT
+                LDA     RDH
+                STA     TXTPTR+1
+                SBC     #0
+                STA     SAVTXT+1
+                JMP     GONE4          ; continue with the subroutine
+
+NEWSTT:         LDA     TRPON          ; OO-1: any trap on? (5 cycles, none)
+                BNE     TRPOLL
 NEWST1:         TSX                    ; SAVSTK: both stacks
                 STX     SAVSTK
                 LDA     SSP
@@ -995,12 +1030,16 @@ TRMNXT:         PLX                    ; CURLIN back, A kept
 ; --- GOSUB, RETURN (GWMAIN.ASM 2049, 2154) -------------------------------------------
 
 ; GOSUB line: the entry (CURLIN, and the text after the line number, for
-; RETURN), then GOTO's search. The event traps' entry (GOSUB2, the flag's
-; address in the entry) is 7b's.
+; RETURN; no event's flag, CX 0), then GOTO's search. GOSPSH makes the entry
+; from CX and TXTPTR, for GOSUB and for an event's GOSUB (GOSUB2, above).
 GOSUB:          LDA     #3
                 JSR     GETSTK
                 JSR     LINGET
-                SEC                    ; the entry, by the 8086's pushes
+                STZ     RCL            ; not an event's flag (ON event GOSUB)
+                STZ     RCH
+                JSR     GOSPSH
+                JMP     GOTO2
+GOSPSH:         SEC                    ; the entry, by the 8086's pushes
                 LDA     SSP
                 SBC     #GOSSIZ
                 STA     SSP
@@ -1012,10 +1051,11 @@ GOSUB:          LDA     #3
                 LDY     #1
                 LDA     #GOSUB_TK
                 STA     (PTR),Y
-                LDA     #0             ; no event's flag
-                INY
+                INY                    ; CX: the event's flag, or 0
+                LDA     RCL
                 STA     (PTR),Y
                 INY
+                LDA     RCH
                 STA     (PTR),Y
                 INY
                 LDA     CURLIN
@@ -1029,14 +1069,15 @@ GOSUB:          LDA     #3
                 INY
                 LDA     TXTPTR+1
                 STA     (PTR),Y
-                JMP     GOTO2
+                RTS
 
 ; RETURN [line]: every FOR and WHILE above the GOSUB's entry dropped (FNDFOR
 ; with a variable no entry has), then its line and text back, and the rest
 ; of the GOSUB statement skipped; RETURN line goes there instead, from here.
 ; With no GOSUB entry, RETURN without GOSUB, the stack cut at what stopped
 ; the walk. (The 8086 leaves SAVSTK just past the GOSUB's token: so here.)
-; An event's RETURN, which turns its trap back on (RSTTRP), is 7b's.
+; An event's GOSUB entry (GOSUB2's, its trap's flag address not 0) has P3
+; take the stop off its trap (RTNTRP: RSTTRP, if the trap is on).
 RETURN:         LDA     TXTPTR
                 STA     RTNTXT
                 LDA     TXTPTR+1
@@ -1052,7 +1093,12 @@ RETURN:         LDA     TXTPTR
 RTRNOK:         LDA     #2             ; past the token
                 JSR     FORADV
                 JSR     FORSSP
-                LDY     #2             ; NOTEVT: the GOSUB's line in CX,
+                LDA     (FORPTR)       ; the trap's flag address, if an event's
+                LDY     #1
+                ORA     (FORPTR),Y
+                BEQ     NOTEVT         ; not ON event GOSUB's
+                FJSR    RTNTRP         ; its stop taken off (P3: RSTTRP)
+NOTEVT:         LDY     #2             ; the GOSUB's line in CX,
                 LDA     (FORPTR),Y     ; its text in DX
                 STA     RCL
                 INY

@@ -28,6 +28,14 @@
  * - Step d: PRINT USING, every field and its edge cases, against PC-BASIC (NAME.differ where it departs from the 1983
  *   source, each checked against a model of MATH1.ASM's and MATH2.ASM's routines on mbf.py's arithmetic); the
  *   longest field the source allows, with the program after FBUFF LISTed; and, by hand, LPRINT USING to LST:.
+ * - Step e: the event traps' frame. ON event GOSUB's forms and errors against PC-BASIC (NAME.differ where it
+ *   departs from the 1983 source); and, by hand from the source (PC-BASIC has no way to raise a trap from outside),
+ *   the traps raised through the test-only trigger (p3/trptst.s: TRPTST, with TRPON, written by their labels at
+ *   chosen statements): a trap taken once at the next statement, RETURN to the statement after; a request while
+ *   OFF forgotten, while STOPped kept; a request during the trap's own GOSUB taken after its RETURN (RSTTRP); none
+ *   in direct mode or in ON ERROR's handler; a trap with GOSUB 0; three at once in TRPTBL's order; RUN and CLEAR
+ *   clearing the table (INITRP); 300 traps taken with nothing left on either stack; and NEWSTT's cost a statement
+ *   (the trap test), with no trap on and with one on.
  */
 
 #include "harness.h"
@@ -644,6 +652,333 @@ TEST(lprint_using_goes_to_lpt1)
     r.watch = nullptr;
     CHECK_EQ(vis(lst), vis(" 1.3-x\r\n"));
     CHECK_EQ(vis(con), vis("y\r\n"));
+}
+
+// ON event GOSUB (GWMAIN.ASM NTOERR, ONGSB0, RSTRAP; GWSTS.ASM ONGOTP, NT2BTK, NTONPN, ONFUN, ONFUN1, ONSTM, ONGOTX,
+// GETSUB, SETGSB, EVADR), with no event raised, so no trap is taken: ON KEY(1) and KEY(14), with spaces; ON COM(1)
+// and (2); ON PEN; ON STRIG(0), (2), (4) and (6); GOSUB 0; a rounded n; ON's numeric form still right after them.
+// ON TIMER(n) and ON PLAY(n) GOSUB: TIMER isn't a reserved word in the 1983 source (TIMER(1) is an array's element,
+// 0, and ON 0 GOSUB goes on), and PLAY is a statement's token, which ON's numeric form doesn't take. Then the errors:
+// KEY(0), KEY(256), KEY(-1), COM(0), COM(3), STRIG(1) and STRIG(8) (Illegal function call), a missing line, and
+// Syntax error for two lines, GOTO, no "(", no ")", no GOSUB, something after the line. Where PC-BASIC departs from
+// the source (.differ): KEY(15) (the source has 14 key traps, NMKEYT), GOSUB with no line (the source's LINGET
+// gives 0: the trap's line cleared), ON PLAY(n).
+TEST(on_event_gosub_prints_what_pc_basic_prints_or_the_source_says)
+{
+    programs({"onev", "ontimer", "onevnl", "onevfc0", "onevfc1", "onevfc2", "onevfc3", "onevfc4", "onevfc5", "onevfc6",
+              "onevfc7", "onevul", "onevsn"});
+    programs({"onevsn2"});
+    programs({"onevsn3"});
+    programs({"onevsn4"});
+    programs({"onevsn5"});
+    programs({"onevsn6"});
+    programs({"onplay"});
+}
+
+namespace
+{
+    /// The test-only trigger's operations (p3/trptst.s): TRPTST's bits 7-6 and its bit 5, the event's id below.
+    constexpr uint8_t REQ = 0x20, ON = 0x60, OFF = 0xA0, STOP = 0xE0;
+    constexpr uint8_t PEN = 0, KEY1 = 1, KEY2 = 2; // the event ids (gwbasic.inc: PENOFF, KEYOFF + n - 1)
+    constexpr uint16_t DIRECT = 0xFFFF;             // CURLIN in a direct statement
+
+    /// A trap raised through the trigger: TRPTST written (with TRPON nonzero) when NEWSTT is reached for the nth time
+    /// (from 1) with CURLIN at line, so that NEWSTT's own poll carries it out (a source's request, or ON, OFF, STOP).
+    struct Raise
+    {
+        uint16_t line;
+        unsigned nth;
+        uint8_t op;
+    };
+
+    /// The labels the trap cases need from gwbasic.lbl.
+    struct TrapLabels
+    {
+        uint16_t newstt = 0, newst1 = 0, trpon = 0, trptst = 0, curlin = 0;
+        bool ok = false;
+        TrapLabels()
+        {
+            const std::map<std::string, uint16_t> lab = labels();
+            for (const char *n : {"NEWSTT", "NEWST1", "TRPON", "TRPTST", "CURLIN"})
+                CHECK(lab.count(n) == 1);
+            ok = lab.count("NEWSTT") && lab.count("NEWST1") && lab.count("TRPON") && lab.count("TRPTST") &&
+                 lab.count("CURLIN");
+            if (!ok)
+                return;
+            newstt = lab.at("NEWSTT");
+            newst1 = lab.at("NEWST1");
+            trpon = lab.at("TRPON");
+            trptst = lab.at("TRPTST");
+            curlin = lab.at("CURLIN");
+        }
+    };
+
+    /// GW-BASIC started, with a watch that raises each of `raises` as it comes (Raise's rule); the visits to NEWSTT
+    /// are counted for each line, so a rule may name a statement anywhere in the session.
+    struct TrapRig
+    {
+        CcpRig r;
+        TrapLabels lab;
+        std::vector<Raise> raises;
+        std::map<uint16_t, unsigned> visits;
+        uint8_t trpon = 0; ///< TRPON at the last NEWSTT (read while GW-BASIC runs, not inside the BDOS)
+        TrapRig()
+        {
+            REQUIRE(r.ok);
+            REQUIRE(lab.ok);
+            start(r);
+            r.watch = [this](uint16_t pc) {
+                if (pc != lab.newstt)
+                    return;
+                const uint16_t line = static_cast<uint16_t>(r.machine->bus().peek(lab.curlin) |
+                                                            r.machine->bus().peek(static_cast<uint16_t>(lab.curlin + 1))
+                                                                << 8);
+                trpon = r.machine->bus().peek(lab.trpon);
+                const unsigned n = ++visits[line];
+                for (const Raise &x : raises)
+                    if (x.line == line && x.nth == n)
+                    {
+                        r.machine->bus().poke(lab.trptst, x.op);
+                        r.machine->bus().poke(lab.trpon, 1);
+                    }
+            };
+        }
+        /// NAME's lines typed after NEW, and RUN with `rs` raised: what it printed.
+        std::string run(const std::vector<std::string> &lines, const std::vector<Raise> &rs)
+        {
+            CHECK_EQ(command(r, "NEW"), std::string());
+            enter(r, lines);
+            raises = rs;
+            visits.clear();
+            return command(r, "RUN");
+        }
+        /// A direct line typed, with `rs` raised (DIRECT's visits counted from this line).
+        std::string typed(const std::string &line, const std::vector<Raise> &rs)
+        {
+            raises = rs;
+            visits.erase(DIRECT);
+            return command(r, line);
+        }
+    };
+
+    /// Each program of a trap case: its lines, the raises, what the 1983 source makes it print.
+    void trap_case(TrapRig &t, const char *what, const std::vector<std::string> &lines, const std::vector<Raise> &rs,
+                   const std::string &want)
+    {
+        const std::string got = t.run(lines, rs);
+        if (got != want)
+            std::printf("  %s:\n    got  '%s'\n    want '%s'\n", what, vis(got).c_str(), vis(want).c_str());
+        CHECK_EQ(got, want);
+    }
+} // namespace
+
+// By hand, from the source (BIMISC.ASM's trap routines, GOTRP; GWMAIN.ASM's GOSUB2 and RETURN's RSTTRP; GWSTS.ASM's
+// EVTRP and EVSET), each trap raised through the test-only trigger at the statement named:
+// - taken: KEY(1) ON after line 10, its request after 20: the GOSUB at the next statement, once; RETURN to the
+//   statement after 20; the line numbers right after it (an error in 50) and in the trap's routine (an error there);
+// - a request while the trap is OFF is forgotten: none taken when it is turned ON; TRPON nonzero while it is ON, 0
+//   once it is turned OFF again (and a request then not taken);
+// - a request while it is STOPped is kept, and taken as soon as it is ON again;
+// - a request during the trap's own GOSUB (GOTRP stops the trap) is kept, and taken right after its RETURN, which
+//   takes the stop off (RSTTRP): the routine runs twice;
+// - GOSUB 0: a request is kept but not taken (GOTRP passes a trap with no line) until ON ... GOSUB gives it a line;
+// - in ON ERROR's handler (ONEFLG) no trap is taken: requested there, it is taken after RESUME NEXT;
+// - two (three) requested at once, in the handler: taken in TRPTBL's order (the pen, KEY(1), KEY(2)), each inside the
+//   one before, whatever the order of their requests;
+// - CLEAR clears the table (INITRP): after it a trap turned ON has no line, so its request isn't taken.
+TEST(event_traps_raised_by_the_test_trigger_are_taken_as_the_source_says)
+{
+    TrapRig t;
+    trap_case(t, "taken",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\";:PRINT \"c\";", "40 PRINT \"d\"",
+               "50 ERROR 200", "100 PRINT \"<\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, REQ | KEY1}}, "a<bcd\r\nUnprintable error in 50\r\n");
+    trap_case(t, "an error in the routine",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\"", "40 END", "100 PRINT \"<\";",
+               "110 ERROR 201"},
+              {{10, 1, ON | KEY1}, {20, 1, REQ | KEY1}}, "a<\r\nUnprintable error in 110\r\n");
+    trap_case(t, "off",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\";", "40 PRINT \"c\"", "50 END",
+               "100 PRINT \"<\";:RETURN"},
+              {{20, 1, REQ | KEY1}, {30, 1, ON | KEY1}}, "abc\r\n");
+    CHECK(t.trpon != 0);
+    trap_case(t, "turned off",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\";", "40 PRINT \"c\"", "50 END",
+               "100 PRINT \"<\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, OFF | KEY1}, {30, 1, REQ | KEY1}}, "abc\r\n");
+    CHECK_EQ(t.trpon, 0);
+    trap_case(t, "stopped",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\";", "40 PRINT \"c\";", "50 PRINT \"d\"",
+               "60 END", "100 PRINT \"<\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, STOP | KEY1}, {30, 1, REQ | KEY1}, {40, 1, ON | KEY1}}, "abc<d\r\n");
+    trap_case(t, "during its gosub",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\"", "40 END", "100 PRINT \"<\";",
+               "110 PRINT \"x\";", "120 PRINT \">\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, REQ | KEY1}, {100, 1, REQ | KEY1}}, "a<x><x>b\r\n");
+    trap_case(t, "gosub 0",
+              {"10 ON KEY(1) GOSUB 0", "20 PRINT \"a\";", "30 PRINT \"b\";", "40 ON KEY(1) GOSUB 100",
+               "50 PRINT \"c\"", "60 END", "100 PRINT \"<\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, REQ | KEY1}}, "ab<c\r\n");
+    trap_case(t, "in on error's handler",
+              {"10 ON ERROR GOTO 200", "20 ON KEY(1) GOSUB 100", "30 PRINT \"a\";", "40 ERROR 5", "50 PRINT \"b\"",
+               "60 END", "100 PRINT \"<\";:RETURN", "200 PRINT \"h\";", "210 PRINT \"i\";", "220 RESUME NEXT"},
+              {{20, 1, ON | KEY1}, {200, 1, REQ | KEY1}}, "ahi<b\r\n");
+    trap_case(t, "three at once",
+              {"10 ON ERROR GOTO 200", "20 ON KEY(1) GOSUB 100:ON KEY(2) GOSUB 110:ON PEN GOSUB 120", "30 ERROR 5",
+               "40 PRINT \"b\"", "50 END", "100 PRINT \"k1\";:RETURN", "110 PRINT \"k2\";:RETURN",
+               "120 PRINT \"p\";:RETURN", "200 PRINT \"h\";", "205 PRINT \"i\";", "207 PRINT \"j\";",
+               "210 RESUME NEXT"},
+              {{20, 1, ON | KEY2},
+               {20, 2, ON | KEY1},
+               {20, 3, ON | PEN},
+               {200, 1, REQ | KEY2},
+               {205, 1, REQ | PEN},
+               {207, 1, REQ | KEY1}},
+              "hijpk1k2b\r\n");
+    trap_case(t, "clear",
+              {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 CLEAR", "40 PRINT \"b\";", "50 PRINT \"c\";",
+               "60 PRINT \"d\"", "70 END", "100 PRINT \"<\";:RETURN"},
+              {{10, 1, ON | KEY1}, {20, 1, REQ | KEY1}, {40, 1, ON | KEY1}, {50, 1, REQ | KEY1}}, "a<bcd\r\n");
+}
+
+// By hand, from the source: no trap in direct mode. EVTRP makes no request in a direct statement (CURLIN 65535):
+// one raised while a typed line runs is forgotten, so GOTO into the program takes none. And GOTRP takes none there:
+// a request kept while the trap was STOPped, then the trap turned ON in a typed line, waits through it, and is taken
+// once GOTO has run the program's next statement. RUN clears the table (INITRP): TRPON 0 after it.
+TEST(event_traps_are_not_taken_in_direct_mode_and_run_clears_them)
+{
+    TrapRig t;
+    const std::vector<std::string> prog = {"10 ON KEY(1) GOSUB 100", "20 PRINT \"a\";", "30 PRINT \"b\"", "40 END",
+                                           "50 PRINT \"c\";", "60 PRINT \"d\"", "70 END", "100 PRINT \"<\";:RETURN"};
+    CHECK_EQ(t.run(prog, {{10, 1, ON | KEY1}}), std::string("ab\r\n"));
+    CHECK_EQ(t.typed("PRINT \"x\";:PRINT \"y\"", {{DIRECT, 1, REQ | KEY1}, {DIRECT, 2, REQ | KEY1}}),
+             std::string("xy\r\n"));
+    CHECK_EQ(t.typed("GOTO 50", {}), std::string("cd\r\n"));
+    CHECK_EQ(t.run(prog, {{10, 1, ON | KEY1}, {20, 1, STOP | KEY1}, {30, 1, REQ | KEY1}}), std::string("ab\r\n"));
+    CHECK_EQ(t.typed("PRINT \"x\";:PRINT \"y\"", {{DIRECT, 1, ON | KEY1}}), std::string("xy\r\n"));
+    CHECK_EQ(t.typed("PRINT \"z\"", {}), std::string("z\r\n"));
+    CHECK_EQ(t.typed("GOTO 50", {}), std::string("c<d\r\n"));
+    CHECK(t.trpon != 0);
+    CHECK_EQ(t.typed("RUN 70", {}), std::string());
+    CHECK_EQ(t.trpon, 0);
+    CHECK_EQ(t.typed("GOTO 50", {{50, 1, REQ | KEY1}}), std::string("cd\r\n"));
+}
+
+// The far call rule (translate-7b-common.md): GOTRP returns and the resident poll jumps to GOSUB2, so a trap taken
+// leaves nothing behind on the 6502's stack, and RETURN nothing on the BASIC stack. A request raised at each IF
+// (IFS, the statement's start), 300 times (the first the trap's ON), each taken at the next statement: the routine
+// runs 299 times, and the 6502's S and the BASIC stack's SSP at the program's end (PRGEND's ENDCON) are, against the
+// first statement's (NEWST1), what they are for the same program run with no trap raised.
+TEST(three_hundred_traps_leave_both_stacks_as_they_were)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    TrapLabels lab;
+    REQUIRE(lab.ok);
+    const std::map<std::string, uint16_t> all = labels();
+    REQUIRE(all.count("IFS") == 1 && all.count("ENDCON") == 1);
+    start(r);
+    enter(r, {"5 GOTO 10", "6 N=N+1:RETURN", "10 ON KEY(1) GOSUB 6", "20 I=I+1:IF I<300 THEN 20", "30 PRINT N"});
+    auto ssp = [&] { return r.machine->bus().peek(0x7B) | r.machine->bus().peek(0x7C) << 8; }; // gwbasic.inc's SSP
+    struct Run
+    {
+        int raised = 0, s = 0, ssp = 0;
+        bool first = true, end = false;
+    };
+    auto run = [&](bool raise) {
+        Run u;
+        r.watch = [&](uint16_t pc) {
+            if (pc == all.at("IFS") && raise)
+            {
+                ++u.raised;
+                r.machine->bus().poke(lab.trptst, u.raised == 1 ? ON | KEY1 : REQ | KEY1);
+                r.machine->bus().poke(lab.trpon, 1);
+            }
+            else if (pc == lab.newst1 && u.first)
+            {
+                u.first = false;
+                u.s = r.cpu->regs().s;
+                u.ssp = ssp();
+            }
+            else if (pc == all.at("ENDCON") && !u.end)
+            {
+                u.end = true;
+                u.s -= r.cpu->regs().s;
+                u.ssp -= ssp();
+            }
+        };
+        const std::string o = command(r, "RUN");
+        r.watch = nullptr;
+        CHECK_EQ(o, std::string(raise ? " 299 \r\n" : " 0 \r\n"));
+        return u;
+    };
+    const Run plain = run(false), trapped = run(true);
+    CHECK_EQ(trapped.raised, 300);
+    CHECK(plain.end && trapped.end);
+    CHECK_EQ(trapped.s, plain.s);
+    CHECK_EQ(trapped.ssp, plain.ssp);
+}
+
+// The trap test's cost (hw/oodos.md, "The plan, phase 7": 7b's cycles, about 5 a statement with no trap on, 15-20
+// with one on), on the running GWBASIC.COM: the cycles from NEWSTT to NEWST1 (the test, and with a trap on the poll),
+// summed over the core loop `I%=I%+1 : IF I%<n THEN 20` for n 1,000 and 3,000, the difference over the difference
+// in NEWSTT's visits. A visit the console's 1 kHz tick lands in (over 100 cycles) is left out of both sums, and
+// counted. With no trap on (the program never turns one on); and with KEY(1) ON (raised after line 10) and nothing
+// requested. 7a's NEWSTT was LDA ONGSBF / BEQ NEWST1, 6 cycles (3 + 3, taken); each is given against it. The
+// limits have room over the plan's figures.
+TEST(the_trap_test_at_newstt_is_timed)
+{
+    TrapRig t;
+    struct Window
+    {
+        uint64_t cycles = 0;
+        unsigned visits = 0, ticked = 0;
+    };
+    auto measure = [&](bool on, unsigned n) {
+        Window w;
+        uint64_t from = 0;
+        bool in = false;
+        const auto raise = t.r.watch;
+        t.r.watch = [&](uint16_t pc) {
+            raise(pc);
+            if (pc == t.lab.newstt)
+            {
+                from = t.r.cpu->cycles();
+                in = true;
+            }
+            else if (pc == t.lab.newst1 && in)
+            {
+                in = false;
+                const uint64_t c = t.r.cpu->cycles() - from;
+                if (c > 100)
+                    ++w.ticked;
+                else
+                {
+                    w.cycles += c;
+                    ++w.visits;
+                }
+            }
+        };
+        const std::string got = t.run({"10 ON KEY(1) GOSUB 100", "20 I%=I%+1 : IF I%<" + std::to_string(n) + " THEN 20",
+                                       "30 END", "100 RETURN"},
+                                      on ? std::vector<Raise>{{10, 1, ON | KEY1}} : std::vector<Raise>{});
+        t.r.watch = raise;
+        CHECK_EQ(got, std::string());
+        return w;
+    };
+    auto per = [&](bool on) {
+        const Window a = measure(on, 1000), b = measure(on, 3000);
+        std::printf("  (%u and %u visits; %u and %u with a tick, left out)\n", a.visits, b.visits, a.ticked,
+                    b.ticked);
+        CHECK(b.visits > a.visits);
+        return static_cast<double>(b.cycles - a.cycles) / (b.visits - a.visits);
+    };
+    const double none = per(false), one = per(true);
+    std::printf("  NEWSTT's test: %.2f cycles a statement with no trap on (7a's 6: %+.2f), %.2f with one on and "
+                "nothing requested (%+.2f; the plan's about 5 and 15-20)\n",
+                none, none - 6, one, one - 6);
+    CHECK(none >= 5 && none <= 6);
+    CHECK(one >= 15 && one <= 24);
 }
 
 int main()

@@ -879,16 +879,14 @@ TEST(the_core_loop_a_print_and_a_character_are_timed)
     std::printf("  the core loop: %.0f cycles a pass (the plan's 4,700), far calls %u and %u\n", loop, l1.farcalls,
                 l2.farcalls);
     CHECK(loop > 1000 && loop <= 6000);
-    CHECK_EQ(l1.farcalls, 0u);
-    CHECK_EQ(l2.farcalls, 0u);
+    CHECK_EQ(l2.farcalls, l1.farcalls); // none a pass (RUN's CLEARC makes one, INITRP's, since 7b step e: G9)
     const Timed p1 = timed(r, lab, {"10 PRINT ; : I%=I%+1 : IF I%<1000 THEN 10"});
     const Timed p2 = timed(r, lab, {"10 PRINT ; : I%=I%+1 : IF I%<3000 THEN 10"});
     const double print = static_cast<double>(p2.cycles - p1.cycles) / 2000 - loop;
     std::printf("  PRINT ; : %.0f cycles a statement, its far call included; far calls %u and %u\n", print,
                 p1.farcalls, p2.farcalls);
     CHECK(print > 300 && print <= 3000);
-    CHECK_EQ(p1.farcalls, 1000u);
-    CHECK_EQ(p2.farcalls, 3000u);
+    CHECK_EQ(p2.farcalls - p1.farcalls, 2000u); // one a pass (G9, as above)
     const std::string a80 = "10 A$=\"" + std::string(80, 'x') + "\"";
     const Timed c0 = timed(r, lab, {"10 A$=\"\"", "20 PRINT A$; : I%=I%+1 : IF I%<20 THEN 20"});
     const Timed c1 = timed(r, lab, {a80, "20 PRINT A$; : I%=I%+1 : IF I%<20 THEN 20"});

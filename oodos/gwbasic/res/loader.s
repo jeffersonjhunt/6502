@@ -52,7 +52,9 @@ LLO             = LHDR + $80           ; LPATCH: the lowest site, as linked
 LHI             = LHDR + $82           ; and the highest (its page byte the image's last)
 LTOP            = LHDR + $84           ; a block's image's end, as linked: BLK_BASE + its length
 LEND            = LHDR + $86           ; its site list's end
+.ifndef FLAT                           ; (the flat test image links the loader but never runs it)
 .assert LIMG + $3000 <= $BFFD, error, "the loader's buffers don't fit under the TPA's top"
+.endif
 ; The resident core's FARFIX list (step 6): in the image, after the loader,
 ; before BSS (which isn't in the file), and whole sites.
 .assert __FARFIX_LOAD__ = __FARFIX_RUN__, error, "FARFIX isn't where it is loaded"

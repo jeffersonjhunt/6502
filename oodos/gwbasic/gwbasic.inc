@@ -221,6 +221,35 @@ USCL            = $5C                  ; CL: places after the point, the point c
 USDL            = $5D                  ; DL: places before the point (BGSTRF: the count kept)
 USDH            = $5E                  ; DH: the field's flags (PUFOUT's A)
 
+; --- 7b step e's ($EC-$ED): the event traps ----------------------------------
+;
+; OO-1: the 8086 tests ONGSBF at NEWSTT, which its interrupts' sources raise
+; through EVTRP. The OO-1's sources are polled, never raised in an interrupt
+; (hw/oodos.md, "The plan, phase 7": 7b), so NEWSTT tests TRPON alone, and only
+; while it is nonzero polls the sources and then ONGSBF (res/gwmain.s TRPOLL).
+; P3 keeps TRPON as the traps' T_ON bits change (p3/bimisc.s ONTRP, OFFTRP,
+; INITRP). Both bytes are exported (res/gwmain.s), for the label file that
+; test_gwbasic_stmts writes them by.
+TRPON           = $EC                  ; OO-1: nonzero while any event trap is on (T_ON)
+TRPTST          = $ED                  ; test only: a trap trigger for the poll (p3/trptst.s); 7d-7f's sources replace it
+
+; The traps' flags (BIMISC.ASM; the routines shift them: don't change) and
+; TRPTBL's events (OEM.H, GWSTS.ASM): 3 bytes each, the flag and the GOSUB
+; line's pointer (its link), in event id order: the pen, the 14 keys, the 2
+; COM ports, the 4 triggers.
+T_ON            = 1                    ; the trap is on
+T_STOP          = 2                    ; stopped: a request is remembered, not taken
+T_REQ           = 4                    ; requested: the event has happened
+NMKEYT          = 14                   ; OEM.H: the function key traps
+NMCOMT          = 2                    ; the COM ports
+NMPENT          = 1                    ; the light pens
+NMSTRT          = 4                    ; the joystick triggers
+NUMTRP          = NMKEYT + NMCOMT + NMPENT + NMSTRT
+PENOFF          = 0                    ; GWSTS.ASM: each class's first event id
+KEYOFF          = PENOFF + NMPENT
+COMOFF          = KEYOFF + NMKEYT
+STROFF          = COMOFF + NMCOMT
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

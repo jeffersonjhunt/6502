@@ -1,0 +1,3 @@
+# GWMAIN.ASM's ONGSB0: LINGET with no digits gives line 0, which RSTRAP sets as the trap's line (cleared) and the statement ends; PC-BASIC gives Syntax error
+a
+after

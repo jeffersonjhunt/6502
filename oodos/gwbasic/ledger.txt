@@ -811,8 +811,8 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG later 7c
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP, GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY later 7b-7f
-BIMISC.ASM INITRP -> later 7b: the event traps' table
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY later 7c-7f
+BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
 BIMISC.ASM GODFRE -> res/bimisc.s GODFRE
@@ -947,9 +947,9 @@ GIOKYB.ASM CHKFKY -> later 7d: a function key's text
 GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
 GWSTS.ASM POLPEN -> later 7f: the light pen's trap
 GWSTS.ASM POLSTR -> later 7f: STRIG's trap
-GWSTS.ASM EOSCH1 -> later 7b: the event statements' end check (SEVSTT's)
-GWSTS.ASM EVADR -> later 7b: an event's flag
-GWSTS.ASM EVSET -> later 7b: an event's ON, OFF or STOP
+GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
+GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
+GWSTS.ASM EVSET -> p3/gwsts.s EVSET
 GIOCOM.ASM POLCOM -> later 7c: COM1's trap
 GIO86.ASM PTRDSP -> OEM res/oem.s OUTDO # the device's output: the console or LPT1
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
@@ -998,10 +998,10 @@ GWMAIN.ASM NXTLOK -> res/gwmain.s NXTLOK
 GWMAIN.ASM DECNXT -> res/gwmain.s DECNXT
 GWMAIN.ASM TRMNXT -> res/gwmain.s TRMNXT
 GWMAIN.ASM GOSUB -> res/gwmain.s GOSUB
-GWMAIN.ASM GOSUB2 -> later 7b: the event traps' GOSUB (the flag's address in the entry)
+GWMAIN.ASM GOSUB2 -> res/gwmain.s GOSUB2 # reached from the poll (TRPOLL) when GOTRP returns C set; the entry made by GOSPSH, GOSUB's too
 GWMAIN.ASM RETURN -> res/gwmain.s RETURN
 GWMAIN.ASM RTRNOK -> res/gwmain.s RTRNOK # SAVSTK left past the token, as the 8086's
-GWMAIN.ASM NOTEVT -> res/gwmain.s RTRNOK # an event's RETURN (RSTTRP) later 7b
+GWMAIN.ASM NOTEVT -> res/gwmain.s NOTEVT # an event's entry first: P3's RTNTRP (the F_TRPO test, RSTTRP; the flag is in P3)
 GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its resident stub res/gwmain.s LINE; GLINE later 7e, DLINE 7c
 GWMAIN.ASM RELINE -> p1/gwmain.s RELINE # LETCN2 as INPCOM, the variable in PTR
 GWMAIN.ASM TRYAGN -> p1/gwmain.s TRYAGN
@@ -1103,8 +1103,8 @@ GIO86.ASM PTRWDL -> p1/gio86.s PTRWDC
 GIO86.ASM PTRWID -> p1/gio86.s PTRWDC # LINLEN (the console's, LPT1's); a file's width later 7c
 GIO86.ASM PTRWD1 -> p1/gio86.s PTRWDC
 GIO86.ASM ADRGET -> p1/gio86.s ADRGET
-BIMISC.ASM GOTRP -> later 7b: the event traps' GOSUB (res/todo.s GOTRP returns)
-BIMISC.ASM RSTTRP -> later 7b: an event's RETURN turns its trap back on
+BIMISC.ASM GOTRP -> p3/bimisc.s GOTRP # an entry: C set back for a trap taken, and the resident poll jumps to GOSUB2 (the far call rule)
+BIMISC.ASM RSTTRP -> p3/bimisc.s RSTTRP # RETURN's, through p3/gwmain.s RTNTRP
 BIMISC.ASM ISLET -> res/biptrg.s PTRGT2 # inline: a letter, or Syntax error
 GWEVAL.ASM GETYPR -> res/math1.s GETYP # MATH1.ASM's $GETYP, the same code
 GWEVAL.ASM GETINT -> res/gweval.s GETIN2 # FOR's: its CHRGTR first, inline
@@ -1227,7 +1227,7 @@ GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 #
 # STMDSP's statements (res/tables.s: here ADVERR, Advanced Feature, until their sub-phase).
 BIMISC.ASM CLEAR -> p3/bimisc.s CLEARP # its resident stub res/far3.s CLEAR, which then jumps to CLEARC (GCLERC)
-GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's
+GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's (below)
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> p3/gweval.s DEFP # its resident stub res/far3.s DEF; DEF SEG (DEFNC2) 7c's
 GWMAIN.ASM POKE -> later 7c: with DEF SEG
@@ -1336,8 +1336,8 @@ GWMAIN.ASM RES0 -> p3/gwmain.s RES0
 GWMAIN.ASM RESTXT -> p3/gwmain.s RESTXT # the 8086's Z kept by PHP and PLP
 GWMAIN.ASM NOTBGL -> p3/gwmain.s NOTBGL # JMP DATA: a tail call
 GWMAIN.ASM GOERR -> p3/gwmain.s GOERR
-GWSTS.ASM ONGOTP -> later 7b: step e's ON event GOSUB (here p3/todo_a1.s ONGOTP: C set, not an event)
-GWSTS.ASM SETGSB -> later 7b: step e's, ON event GOSUB's line for the event
+GWSTS.ASM ONGOTP -> p3/gwsts.s ONGOTP # step e's; a one-byte token compared with CH 0 (the 8086's AH, 0 from ON's dispatch)
+GWSTS.ASM SETGSB -> p3/gwsts.s SETGSB # step e's
 
 # 7b step a2: SWAP, ERASE and CLEAR (BIMISC.ASM, p3/bimisc.s), OPTION BASE and RANDOMIZE (GWMAIN.ASM, p3/gwmain.s),
 # WRITE (FIVEO.ASM, p3/fiveo.s), STRING$ and MID$ = (BISTRS.ASM, p3/bistrs.s) and VARPTR$ (GWSTS.ASM, p3/gwsts.s), each
@@ -1437,3 +1437,57 @@ BIPRTU.ASM CRDNUS -> p3/biprtu.s CRDNUS
 BIPRTU.ASM FLDFIN -> p3/biprtu.s FLDFIN # JMP FINPRT: a tail call (its RTS returns through the far call to P1's PRINT)
 BIPRTU.ASM ISSTR1 -> p3/biprtu.s ISSTR1
 BIPRTU.ASM PLSPRT -> p3/biprtu.s PLSPRT
+
+# 7b step e: the event traps' frame: BIMISC.ASM's trap routines (p3/bimisc.s), GWSTS.ASM's general event trapping code
+# (p3/gwsts.s, with GWRAM.ASM's TRPTBL in P3's BRAM), ON event GOSUB (GWMAIN.ASM, p3/gwmain.s), and the resident part:
+# NEWSTT's gate (TRPON), the poll (res/gwmain.s TRPOLL, the project's own), GOSUB2 and RETURN's event entry; the
+# test-only trigger (p3/trptst.s, the project's own) in the sources' place. The 8086's CLI and STI have no counterpart
+# (the OO-1's sources are polled). The labels inside a routine that matter are named too.
+BIMISC.ASM ONTRP -> p3/bimisc.s ONTRP # OO-1: TRPON set (A has T_ON)
+BIMISC.ASM ONTRP0 -> p3/bimisc.s ONTRP0
+BIMISC.ASM OFFTRP -> p3/bimisc.s OFFTRP # OO-1: TRPON counted again (TRPCNT)
+BIMISC.ASM STPTRP -> p3/bimisc.s STPTRP # the old flag kept for FRECHK by PHA and PLA (the 8086's LAHF, SAHF)
+BIMISC.ASM FRECHK -> p3/bimisc.s FRECHK
+BIMISC.ASM REQTRP -> p3/bimisc.s REQTRP
+BIMISC.ASM SETCHK -> p3/bimisc.s SETCHK
+BIMISC.ASM REQTPX -> p3/bimisc.s REQTPX
+BIMISC.ASM SETTRP -> p3/bimisc.s SETTRP
+BIMISC.ASM SETTP2 -> p3/bimisc.s SETTP2
+BIMISC.ASM FRETRP -> p3/bimisc.s FRETRP
+BIMISC.ASM FRETP1 -> p3/bimisc.s FRETP1
+BIMISC.ASM FRETP2 -> p3/bimisc.s FRETP2 # SUB AL,1 / JB as a test for 0
+BIMISC.ASM INITP0 -> p3/bimisc.s INITP0
+BIMISC.ASM GOTRPL -> p3/bimisc.s GOTRPL
+BIMISC.ASM GOTRP1 -> p3/bimisc.s GOTRP1
+BIMISC.ASM GOTRPX -> p3/bimisc.s GOTRPX
+BIMISC.ASM GOTRP2 -> p3/bimisc.s GOTRP2 # DX and CX back with C set for the poll's GOSUB2 (the 8086's stack shuffle and JMP)
+GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: later 7c, 7f); JGE kept signed
+GWSTS.ASM SEVST1 -> p3/gwsts.s SEVST1
+GWSTS.ASM SEVST2 -> p3/gwsts.s SEVST2
+GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry (PENS: later 7f)
+GWSTS.ASM FCERR1 -> p3/gwsts.s FCERR1
+GWSTS.ASM SNERR1 -> p3/gwsts.s SNERR1
+GWSTS.ASM SEVALL -> p3/gwsts.s SEVALL
+GWSTS.ASM SEVAL1 -> p3/gwsts.s SEVAL1 # LOOPNE as a count (ADD DX,3 never gives Z)
+GWSTS.ASM EVSTP -> p3/gwsts.s EVSTP
+GWSTS.ASM EVON -> p3/gwsts.s EVON
+GWSTS.ASM EVOFF -> p3/gwsts.s EVOFF
+GWSTS.ASM EVONX -> p3/gwsts.s EVONX
+GWSTS.ASM NT2BTK -> p3/gwsts.s NT2BTK
+GWSTS.ASM NTONPN -> p3/gwsts.s NTONPN
+GWSTS.ASM FCERR2 -> p3/gwsts.s ONFUN1 # its JMP FCERR, inline
+GWSTS.ASM ONFUN -> p3/gwsts.s ONFUN
+GWSTS.ASM ONFUN1 -> p3/gwsts.s ONFUN1
+GWSTS.ASM ONSTM -> p3/gwsts.s ONSTM
+GWSTS.ASM ONGOTX -> p3/gwsts.s ONGOTX
+GWSTS.ASM GETSUB -> p3/gwsts.s GETSUB
+GWSTS.ASM GETSU2 -> p3/gwsts.s GETSU2
+GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: later 7c-7f; the test trigger in 7b); Z set back, not trapped
+GWSTS.ASM NOT_ON -> p3/gwsts.s NOT_ON
+GWSTS.ASM EVCLR -> p3/gwsts.s EVCLR # an entry
+GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF, STRIGF: later 7f); the result in RBL, RBH (the 8086's BX)
+GWSTS.ASM TSTEVX -> p3/gwsts.s TSTEVX
+GWSTS.ASM EOSCKX -> p3/gwsts.s EOSCKX
+GWSTS.ASM JERDNA -> dropped: ONGOTP's Device unavailable for the pen, which no code of the source reaches
+GWMAIN.ASM ONGSB0 -> p3/gwmain.s ONGSB0 # CX and the count in P3's BRAM (ONGCX, ONGCNT), not on the stack
+GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP

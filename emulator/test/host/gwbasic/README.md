@@ -184,3 +184,22 @@ printed before the missing value is found), `pufc3` (the source counts the point
 
 By hand in test_gwbasic_stmts: LPRINT USING to LST: (PC-BASIC's printer isn't the oracle's).
 
+
+Step e's, typed and RUN as 7a's:
+
+| Program | What |
+|---|---|
+| `onev` | ON event GOSUB with no event raised (none is taken): ON KEY(1) and (14), with spaces; ON COM(1) and (2); ON PEN; ON STRIG(0), (2), (4), (6); GOSUB 0; a rounded n; ON's numeric form right after them |
+| `ontimer`, `onplay` | ON TIMER(n) GOSUB (TIMER is no reserved word in the 1983 source: an array element, 0, so ON's numeric form goes on) and ON PLAY(n) GOSUB (PLAY a statement's token: Syntax error) |
+| `onevnl` | ON KEY(n) GOSUB with no line (LINGET's 0: the trap's line cleared) |
+| `onevfc0`-`onevfc7` | Illegal function call: KEY(0), KEY(15), KEY(256), COM(3), COM(0), STRIG(1), STRIG(8), KEY(-1) |
+| `onevul` | a missing line: Undefined line number |
+| `onevsn`-`onevsn6` | Syntax error: two lines, GOTO, no `(`, no GOSUB, no `)`, something after the line |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `onevnl` (the source takes no line as 0;
+PC-BASIC gives Syntax error), `onevfc1` (the source has 14 key traps, OEM.H's NMKEYT; PC-BASIC takes 15-20), `onplay`
+(the source has no ON PLAY).
+
+By hand in test_gwbasic_stmts (PC-BASIC can't raise a trap from outside a program): the traps raised through the
+test-only trigger (TRPTST, `p3/trptst.s`), each case's output written from the source's routines; and the trap
+test's cycles at NEWSTT.

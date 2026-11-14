@@ -185,13 +185,16 @@ RUNC:           LDA     TXTTAB
                 DECW    TXTPTR
 ; CLEARC: the variables and arrays gone, every letter single, no OPTION
 ; BASE, RND's seed back, no ON ERROR, nothing to CONT, the strings gone, DATA
-; from the start; then STKINI. TXTPTR is kept. (The traps, the screen, the
-; sound and the files it resets too are 7b's to 7f's; CHAIN's MRGFLG and
-; CHNFLG are 7c's.)
+; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
+; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
+; graphics' reset), and the second finds nothing more to do: once here till
+; 7e brings GRPRST. (The screen, the sound and the files it resets too are
+; 7c's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
                 STA     TEMP+1
+                FJSR    INITRP         ; init the trap table
                 STZ     OPTFLG         ; no OPTION BASE seen
                 STZ     OPTVAL         ; OPTION BASE 0
                 LDX     #25

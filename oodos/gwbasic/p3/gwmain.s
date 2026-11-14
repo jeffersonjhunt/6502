@@ -6,7 +6,8 @@
 ;
 ;   ONGOTOP   ON ERROR GOTO line (and GOTO 0, which in the handler forces
 ;             the error again: RESTRP), ON n GOTO and ON n GOSUB (NTONGS,
-;             NTONG1, ISGOSU, LOOPON); ON event GOSUB is step e's (ONGOTP)
+;             NTONG1, ISGOSU, LOOPON); ON event GOSUB (step e's: NTOERR,
+;             ONGSB0, RSTRAP, with p3/gwsts.s's ONGOTP and SETGSB)
 ;   RESUMEP   RESUME, RESUME 0, RESUME NEXT, RESUME line
 ;   ERRORSP   ERROR n
 ;
@@ -24,6 +25,12 @@
 ;   AUTAST    MAINBX's AUTO part: the "*" after the number skipped
 ;   RESEQP    RENUM [new][, [old][, inc]] (SCCLIN and SCCPTR, P2's, turn
 ;             the line numbers in the text into pointers and back)
+;
+; and step e's:
+;
+;   RTNTRP    RETURN's part for an event's GOSUB entry (GWMAIN.ASM 2172):
+;             the stop taken off its trap (RSTTRP), if the trap is on; the
+;             resident RETURN calls it, since the flag is in P3's TRPTBL
 ;
 ; The far call rule (translate-7b-common.md): ON's chosen GOTO or GOSUB is
 ; started by JMP GONE2, a tail call, as the 8086's is: the statement's RTS
@@ -46,11 +53,12 @@
 ;@entry MAINA
 ;@entry AUTAST
 ;@entry RESEQP
+;@entry RTNTRP
 .export ONGOTOP, RESUMEP, ERRORSP, OPTIONP, RANDOMP, FRMQNT
-.export AUTOP, MAINA, AUTAST, RESEQP
+.export AUTOP, MAINA, AUTAST, RESEQP, RTNTRP
 .import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, GONE2, DATA, GETBYT
 .import BUF, PRELOD
-.import ERROR, ERRESM, USERR, REERR, FCERR, ADVERR, ONEFLG, ERRTXT, ONGOTP
+.import ERROR, ERRESM, USERR, REERR, FCERR, ONEFLG, ERRTXT, ONGOTP, SETGSB, RSTTRP
 .import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2
 
 .code
@@ -91,11 +99,52 @@ RESTRP:         LDA     RDL
 :               LDA     ERRFLG         ; yes: the error happens after all
                 STA     RDL
                 JMP     ERRESM
-; NTOERR (GWMAIN.ASM 2384): ON event GOSUB (ONGSB0 to RSTRAP) is step e's;
-; for now ONGOTP says "not an event" for everything (p3/todo_a1.s).
-NTOERR:         JSR     ONGOTP         ; C set: not an event
-                BCS     NTONGS
-                JMP     ADVERR
+; NTOERR (GWMAIN.ASM 2384): ON event GOSUB line (ONGOTP, p3/gwsts.s: C
+; clear, CH the event's id, CL the line numbers it takes, 1): each line's
+; link set as its event's GOSUB line (SETGSB), line 0 clearing it; a line not
+; there is Undefined line number, more lines than CL Syntax error. The 8086
+; keeps CX and its count on its stack round LINGET and FNDLN1: ONGCX and
+; ONGCNT here. Not an event (C set): ON's numeric form, NTONGS.
+NTOERR:         JSR     ONGOTP         ; ON event GOSUB?
+                BCS     NTONGS         ; not an event trap
+                LDA     RCL            ; save the event's id (CH) and the
+                STA     ONGCX          ; lines it may have (CL)
+                LDA     RCH
+                STA     ONGCX+1
+                JSR     CHRGTR         ; skip over the event's last token
+                JSR     SYNCHR
+                .byte   GOSUB_TK       ; ON event GOSUB nn
+                LDA     #0             ; AL: the line number count
+; ONGSB0 (GWMAIN.ASM 2394)
+ONGSB0:         CMP     ONGCX          ; within the range of traps allowed?
+                BCC     :+
+                JMP     SNERR
+:               STA     ONGCNT
+                JSR     LINGET
+                LDA     RDL            ; line 0?
+                ORA     RDH
+                BEQ     RSTRAP         ; yes: just reset the trap's line
+                JSR     FNDLIN         ; FNDLN1 (TXTPTR kept): C set, found
+                LDA     RCL            ; DX: the line's link (C kept)
+                STA     RDL
+                LDA     RCH
+                STA     RDH
+                BCS     RSTRAP
+                JMP     USERR          ; the line isn't there
+; RSTRAP (GWMAIN.ASM 2415)
+RSTRAP:         LDA     ONGCNT         ; the event: CH + the count
+                CLC
+                ADC     ONGCX+1
+                JSR     SETGSB         ; its GOSUB line, DX
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BNE     :+
+                RTS                    ; the statement's end
+:               JSR     SYNCHR
+                .byte   ','
+                LDA     ONGCNT         ; the next
+                INC     A
+                BRA     ONGSB0
 ; NTONGS (GWMAIN.ASM 2443): the index, 0-255, or Illegal function call.
 NTONGS:         JSR     GETBYT         ; DL
 ; NTONG1 (GWMAIN.ASM 2447): GOSUB, or GOTO; CH the token, CL the count.
@@ -119,6 +168,25 @@ LOOPON:         DEC     RCL
                 CMP     #','
                 BEQ     LOOPON
                 RTS
+
+; --- RETURN's event part (GWMAIN.ASM 2172) ----------------------------------------------
+
+; RTNTRP: from the resident RETURN (res/gwmain.s RTRNOK), FORPTR at the
+; GOSUB entry's flag address, which isn't 0 (an ON event GOSUB's: GOSUB2).
+; The 8086's POP BX, and if the trap is on (F_TRPO), RSTTRP: the stop GOTRP
+; put on it taken off, so a request kept meanwhile is taken now.
+F_TRPO          = T_ON                 ; GWMAIN.ASM 2172: after a trap's GOSUB, the trap
+F_TRPS          = T_STOP               ; is stopped; RETURN clears the stop
+RTNTRP:         LDA     (FORPTR)       ; BX: the trap's flag
+                STA     RBL
+                LDY     #1
+                LDA     (FORPTR),Y
+                STA     RBH
+                LDA     (RBL)          ; is the trap on?
+                AND     #F_TRPO
+                BEQ     :+
+                JMP     RSTTRP         ; yes: reset its stop (a tail call)
+:               RTS
 
 ; --- RESUME (GWMAIN.ASM 2471) ------------------------------------------------------------
 
@@ -578,6 +646,8 @@ SCCALL:         FJSR    SCCPTR
 RANMES:         .byte   "Random number seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412
 
 .segment "BRAM"
+ONGCX:          .res    2              ; ON event GOSUB: CL, CH (the 8086 keeps CX on its stack)
+ONGCNT:         .res    1              ; and the line numbers so far (its AX)
 RSNN:           .res    2              ; RENUM: the first new number (the 8086's NN)
 RSINC:          .res    2              ; its increment (INC)
 RSPTR:          .res    2              ; the first line renumbered (old's)
