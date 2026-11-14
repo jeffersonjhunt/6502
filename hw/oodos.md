@@ -4024,6 +4024,47 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Cycles:** the trap test at NEWSTT is a byte compare, about 5 cycles a statement, 0.1% of the core loop.
     With a trap turned on it is about 15–20 (0.3–0.4%). The traps poll the event area at NEWSTT: no hook, so no
     tick costs anything.
+  - **As built (Proposed, 2026-11-14; feat/gwbasic-7b, the owner's G1–G11):**
+    - **Size:** P3 is 4,787 bytes (of the plan's 9.5 KB); P1 grew to 8,295 with PRINT USING's formatting, P2 to
+      5,248 with RENUM's line pointers and EDIT. The resident core is 12,821 bytes of code and tables and 1,524 of
+      fixed RAM: **34,028 bytes free, 236 above the 33,792 warning.** "Nothing resident but the trap test" didn't
+      hold: 7b added 498 resident bytes, most of them DEF FN's, which the source puts on resident paths (PTRGET's
+      search of the parameters, the garbage collector's walk of them, STKERR's resets, PARM1's 100 bytes); then
+      the dispatch stubs, ON ERROR's trap in ERROR, ERASE's and AUTO's hooks and the trap frame's 71. **7c should
+      look at the home block first** ([the deferred questions](#without-the-three-deferred-questions), 1), before
+      its own resident additions take the margin.
+    - **The trap gate (OO-1):** NEWSTT's one test is TRPON (zero page), nonzero while any trap is on (ONTRP sets
+      it, OFFTRP and INITRP recount it). Behind it a resident poll runs the sources' polls, then the 8086's ONGSBF
+      test and GOTRP, which is banked: it returns a flag, and the resident poll goes on to GOSUB2, so no far call
+      frame is left behind. RETURN calls RTNTRP (P3) for an entry with a trap's flag address. TRPTBL is in P3's RAM;
+      CLEARC calls INITRP once (the source twice, around GRPRST: 7e). Measured on GWBASIC.COM, from NEWSTT to
+      NEWST1: **5.00 cycles a statement with no trap on** (7a's NEWSTT: 6.00) and **18.00 with one on** and none
+      requested. RUN now makes one far call (INITRP's), so test_gwbasic_core counts far calls a pass (G9).
+    - **The test-only trigger:** TRPTST (zero page), read by the poll: a request (as a source's EVTRP), or ON, OFF
+      or STOP (as EVSET), for an event id, carried out in P3. test_gwbasic_stmts writes it, with TRPON, by their
+      labels. 7d–7f's sources replace it in the poll.
+    - **For 7c–7f** (G10, G11): SEVSTT keeps the source's signed range check, which lets an id of 128 or more, or
+      an odd STRIG(n), write past TRPTBL; the sub-phase that first calls it (KEY(n), COM(n) or STRIG(n) ON) adds a
+      range guard, with a test: fidelity doesn't extend to writing past the table. SEVSTT, SET1EV, EVCLR and
+      TSTCEV are translated but untested until their callers come. The flat test image skips the loader's buffer
+      assert (`res/loader.s`, `.ifndef FLAT`; it never runs the loader) and ends near `$8D48`, under check.py's
+      `$9000`: later sub-phases will reach it.
+    - **USR** (G2): on entry A = VALTYP, X = the FAC's zero page address (`#FACLO`), RDL/RDH a string's
+      descriptor (freed first); the result in the FAC and VALTYP, by RTS; always segment 0 (DEF SEG is 7c's,
+      Advanced Feature until then).
+    - **CLEAR** (G3): `n` is the workspace's top (MEMSIZ = n − 2), at most the TPA's top; `m` is the fixed BASIC
+      stack's size, at most its 512 bytes; the source's checks kept, in its order.
+    - **FBUFF is 47 bytes** (G4, revising DD9): the source's widest PRINT USING field writes to FBUFF+46.
+    - **.7788379** (G5): 13066732 / 2^24 prints .778838 by the 1983 source's $FOUT (mbf.py): $FOTNV scales by
+      10^6 rounded to single (778837.9375), then MUL10 rounded again (7788379.5), and $FOTCV's .5 carries it to
+      7788380. Shipped GW-BASIC (PC-BASIC) prints .7788379. The port follows the source (`fout7788.differ`).
+    - **TIMER** (G6): the 1983 crunch table has no TIMER, so `RANDOMIZE TIMER` is `RANDOMIZE 0` and `ON TIMER(n)`
+      names an array; 7f adds the word, a recorded deviation.
+    - **The source's bugs kept** (G7), each in a `.differ`: PRINT USING's sign lost past 10^16 and in an E-format
+      case, and 0.10E+02 for 9.999 in E format; a function called inside an FN sees the globals, not its caller's
+      parameters; CLEAR's stack and room checks, which PC-BASIC doesn't make.
+    - **EDIT is in P2** (G8), falling into EREDIT as the 8086 does; AUTO's number and "*", and EDIT's line, come
+      as function 10's preload, as 7a's ERREDT does.
 - **7c: files and memory** (P4, and P5's seed).
   - **What it holds:**
     - sequential and random files on the FCB functions (DOS 1's numbers are CP/M's; 39 becomes 44 with 33 and 34,
