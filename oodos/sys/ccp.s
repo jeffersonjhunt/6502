@@ -37,6 +37,7 @@
 ;                   the built-ins, or their utilities for forms they can't do
 ;   CLEAR, CLS      ours: the screen cleared; CLS then DIR, as DIR does it
 ;   WOZMON, APPLE2  ours: leave OODOS for the ROM (function 75)
+;   DIAG [FULL,ASK] ours: the ROM's diagnostics, after a Y (function 75)
 ;   d:, nd:         the CCP's drive (and user)
 ;   {d:}NAME{.COM}{;pw}
 ;                   NAME.COM: from d:, or each drive of the SCB's search
@@ -124,6 +125,8 @@ NCOLS:          .res    1
 DIRDRV:         .res    1              ; the letter DIR's lines start with
 NEWUSER:        .res    1
 SAVEB:          .res    1
+DIAGX:          .res    1              ; DIAG's options: bit 0 FULL, bit 1 ASK
+DSAVE:          .res    1              ; DMATCH's place in the tail
 
 .segment "RES"
 
@@ -686,6 +689,112 @@ SEARCH:         LDA     #<SFCB
                 LDX     #>SFCB
                 LDY     #F_SFIRST
                 JMP     BDOS
+
+; DIAG (ours, hw/diag.md's plan 2): the ROM's diagnostics, by function 75
+; with A = 2 (interface 10), which writes the changed buffers back and leaves
+; OODOS for the ROM's $C815; the diagnostics end in a boot, or the monitor.
+; Its options are only what is typed, [FULL] and [ASK] (X's bits 0 and 1):
+; the panel's switches count only for the ROM's own entries. It says what
+; will happen and asks first: any answer but Y is the prompt again, nothing
+; changed. With no diagnostics in the flash (75's X = $FC) it says so, the
+; return code $FF00, and OODOS goes on. A file specification, or any other
+; option, is the command and '?'. In segment RES2, after the rest of RES
+; (sys.cfg), with its text, so that nothing before it moves.
+.segment "RES2"
+B_DIAG:         JSR     BIENTER
+                LDA     PERR
+                BNE     @bad
+                LDA     OPS
+                BNE     @bad
+                JSR     DIAGOPT
+                BCS     @bad
+                LDA     #<DIAGQ
+                LDX     #>DIAGQ
+                JSR     STRING
+                JSR     CM_ASK
+                BCS     @go
+                JMP     BIOK           ; not run, as asked
+@go:            LDA     #2             ; the diagnostics
+                LDX     DIAGX
+                LDY     #O_ROM
+                JSR     BDOS           ; back only if the flash has none
+                LDA     #<NODIAG
+                LDX     #>NODIAG
+                JMP     FAILSAY
+@bad:           JMP     BADCMD
+
+; DIAG's option list into DIAGX: carry clear, or set for a word that isn't
+; FULL or ASK. The words are between '[' and ']' (or the tail's end), with
+; commas or blanks between them.
+DIAGOPT:        STZ     DIAGX
+                LDX     #0
+@find:          CPX     TAILLEN
+                BEQ     @ok
+                LDA     TAILBUF,X
+                INX
+                CMP     #'['
+                BNE     @find
+@word:          CPX     TAILLEN
+                BEQ     @ok
+                LDA     TAILBUF,X
+                CMP     #']'
+                BEQ     @ok
+                CMP     #','
+                BEQ     @sep
+                CMP     #' '
+                BEQ     @sep
+                LDY     #DFULL - DWORDS
+                JSR     DMATCH
+                BCC     @full
+                LDY     #DASK - DWORDS
+                JSR     DMATCH
+                BCS     @done          ; neither: carry set
+                LDA     #2
+                BRA     @set
+@full:          LDA     #1
+@set:           ORA     DIAGX
+                STA     DIAGX
+                BRA     @word
+@sep:           INX
+                BRA     @word
+@ok:            CLC
+@done:          RTS
+
+; Carry clear, X past it, if the tail at X is the word at DWORDS + Y and
+; ends there (a comma, a blank, ']' or the tail's end); else carry set, X
+; as it was.
+DMATCH:         STX     DSAVE
+@char:          LDA     DWORDS,Y
+                BEQ     @end
+                CPX     TAILLEN
+                BEQ     @no
+                CMP     TAILBUF,X
+                BNE     @no
+                INX
+                INY
+                BRA     @char
+@end:           CPX     TAILLEN
+                BEQ     @yes
+                LDA     TAILBUF,X
+                CMP     #']'
+                BEQ     @yes
+                CMP     #','
+                BEQ     @yes
+                CMP     #' '
+                BEQ     @yes
+@no:            LDX     DSAVE
+                SEC
+                RTS
+@yes:           CLC
+                RTS
+
+DIAGQ:          .byte   "The ROM's diagnostics test all of memory and overwrite it: OODOS stops,", 13, 10
+                .byte   "M:'s files are lost, and the machine boots again at the end. Go on (Y/N)?$"
+NODIAG:         .byte   "No diagnostics in the ROM: BIOS 0.14 or later$"
+DWORDS:
+DFULL:          .byte   "FULL", 0
+DASK:           .byte   "ASK", 0
+.segment "RES"
 
 ; CLEAR and CLS (ours, 2026-11-03): the screen cleared by ESC E, which the
 ; BIOS sends on the serial line as ANSI's clear. CLEAR's tail is ignored; CLS
@@ -1977,6 +2086,8 @@ BINAMES:        .byte   3, "DIR"       ; the built-ins (the Guide's Table 4-1, i
                 .word   B_WOZMON
                 .byte   6, "APPLE2"
                 .word   B_APPLE2
+                .byte   4, "DIAG"      ; ours, hw/diag.md's plan 2
+                .word   B_DIAG
                 .byte   0
 UNAMES:                                ; their utilities
 UDIR:           .byte   "DIR     COM"

@@ -28,10 +28,14 @@
 ;                   card and the DMA controller are there and the cartridge
 ;                   holds a IIe ROM, else A = $FF and X = $FD (no revision 2
 ;                   card), $FE (no DMA controller) or $FF (no IIe ROM), and
-;                   OODOS goes on; any other A, A = X = $FF. The changed
-;                   buffers are written back first
-;                   (as 48), but a file left open isn't closed: close it
-;                   first
+;                   OODOS goes on; A = 2 the ROM's diagnostics (its $C815,
+;                   with no question: the program has asked), X the options
+;                   (bit 0 full, bit 1 interactive), if flash block 23 holds
+;                   the ones linked with the ROM BIOS that is running, else
+;                   A = $FF, X = $FC, and OODOS goes on (interface 10); any
+;                   other A, A = X = $FF. The changed buffers are written
+;                   back first (as 48), but a file left open isn't closed:
+;                   close it first
 ;   77  O_ROMVER    A = the ROM BIOS's version's major, X its minor; $FF $FF
 ;                   if the cold boot didn't find it (interface 9)
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
@@ -66,7 +70,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import WARM, FARCALL, NMI, ROMAPPLE, WBF
+.import WARM, FARCALL, NMI, ROMAPPLE, ROMDIAG, WBF
 .import F_FRAME                        ; irq.s's
 .import F_INPUT                        ; input.s's
 .import F_SOUND                        ; sound.s's
@@ -277,24 +281,37 @@ F_ROMVER:       LDA     ROMVER
 ; written back (without DMA SDIO can't move a sector). Without the card
 ; (none, or revision 1) A = $FF, X = $FD; without DMA A = $FF, X = $FE; so a
 ; program can tell them from no IIe ROM's X = $FF.
-F_ROM:          CMP     #2
+; The diagnostics (A = 2, interface 10) need flash block 23 to hold the ones
+; linked with the ROM BIOS that is running (DIAGIN): else $C815 would come
+; back, and OODOS has gone by then. Looked at first, through W2, before
+; anything is written back: without them A = $FF, X = $FC.
+F_ROM:          CMP     #3
                 BCS     @no
                 TAX
                 BEQ     @leave         ; the monitor: no card needed
+                CMP     #2
+                BEQ     @diag
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BNE     @nocard
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BNE     @nodma
-                TXA
+                BRA     @leave1
+@diag:          JSR     DIAGIN
+                BCS     @nodiag
+@leave1:        TXA
 @leave:         PHA
                 JSR     CHANGED        ; as 48: a swapped unit's drive dropped, not written
                 LDA     #0             ; every drive's
                 JSR     FLUSHD
                 PLA
-                BNE     @apple
+                BNE     @rom
                 JMP     NMI            ; the monitor, as Break goes there
+@rom:           CMP     #2
+                BNE     @apple
+                LDX     PX             ; the options
+                JMP     ROMDIAG        ; the diagnostics, at the ROM's $C815
 @apple:         LDA     #NB_ROM | NB_RO | CART_BLOCK ; the cartridge, as the ROM BIOS looks
                 STA     NB_WIN2
                 LDA     $8000 + IIE_ID_AT
@@ -304,12 +321,45 @@ F_ROM:          CMP     #2
                 BNE     @no            ; no IIe ROM: say so to the program, and go on
                 JMP     ROMAPPLE
 @no:            JMP     RETFF
+@nodiag:        LDA     #$FF
+                LDX     #$FC
+                RTS
 @nodma:         LDA     #$FF
                 LDX     #$FE
                 RTS
 @nocard:        LDA     #$FF
                 LDX     #$FD
                 RTS
+
+; Carry clear if flash block 23 holds the ROM's diagnostics, linked with the
+; ROM BIOS that is running: their signature at $8000 and, at $801C, the
+; BIOS's version they were linked with, the same as the greeting's (cold.s's
+; ROMVER; $FF $FF, not found, never is), as the ROM BIOS's CHKSIG looks
+; (backplane/bios/diag.inc's header). Read through W2, put back on the BIOS
+; after. X kept.
+DG_HEAD         = $8000                ; flash block 23 in W2: the header
+DG_LINKAT       = $801C                ; the BIOS version linked with: major, minor
+DIAGIN:         LDA     #NB_ROM | NB_RO | 23
+                STA     NB_WIN2
+                LDY     #7
+@sig:           LDA     DG_HEAD,Y
+                CMP     DIAGSIG,Y
+                BNE     @not
+                DEY
+                BPL     @sig
+                LDA     DG_LINKAT
+                CMP     ROMVER
+                BNE     @not
+                LDA     DG_LINKAT + 1
+                CMP     ROMVER + 1
+                BNE     @not
+                CLC
+                BRA     @put
+@not:           SEC
+@put:           LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                RTS
+DIAGSIG:        .byte   "OOHWDIAG"
 
 F_DRIVE:        LDA     SCB_DISK
                 LDX     #0

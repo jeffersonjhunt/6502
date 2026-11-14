@@ -43,7 +43,7 @@
 .import DMASEG, AMAP
 .import IRQ, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
 .import WBQUIET                         ; input.s's
-.export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE
+.export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE, ROMDIAG
 
 .segment "JUMPS"
 JUMPS:          JMP     COLD           ; BOOT
@@ -415,6 +415,54 @@ APPLESRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TR
                 STA     NB_VEC
                 JMP     $C806          ; the ROM's APPLE
 APPLEEND:
+
+; The diagnostics for function 75 with A = 2 (interface 10; hw/diag.md's
+; plan 2): as ROMAPPLE leaves for the ROM, but to its $C815, the entry for a
+; program that has asked already, with A = $A5 and Y = $5A (its two-byte
+; token) and X the options (bit 0 full, bit 1 interactive); it never comes
+; back. The Disk II is stopped first, as NMI stops it; the diagnostics'
+; stage 0 quiets the other cards (DMA and the sound card's 6510 included)
+; whichever way they are entered. In block 62 above the common memory, in
+; W3 like the rest of OODOS's resident code: it moves W0-W2, not W3. In
+; segment RES2, after the rest of RES, so that nothing before it moves.
+.segment "RES2"
+ROMDIAG:        SEI
+                LDA     DISK2_Q7OFF    ; as NMI: the Disk II's write mode and motor off
+                LDA     DISK2_MOTOROFF
+                LDA     #SYS_BLOCK
+                STA     NB_WIN0
+                LDA     D2WRIT
+                BEQ     @off
+                STZ     D2WRIT
+                LDA     D2DMAS
+                STA     DMA_CONTROL
+@off:           JSR     CLKOFF         ; OODOS's interrupts off (X kept)
+                STZ     NB_WIN0
+                LDA     #1
+                STA     NB_WIN1
+                LDA     #2
+                STA     NB_WIN2
+                PHX                    ; the options, on block 0's stack page now
+                LDX     #DIAGEND - DIAGSRC - 1
+@copy:          LDA     DIAGSRC,X
+                STA     TRAMP,X
+                DEX
+                BPL     @copy
+                PLA
+                STA     TRAMP + DIAGOPTS - DIAGSRC
+                LDX     #$FF
+                TXS
+                LDY     #$5A           ; the token's second byte
+                JMP     TRAMP
+DIAGSRC:        LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
+                STA     NB_WIN3
+                STA     NB_VEC
+                LDA     #$A5           ; the token's first byte
+DIAGOPTS        = * + 1
+                LDX     #0             ; the options, written in
+                JMP     $C815          ; the ROM's diagnostics, for a program
+DIAGEND:
+.assert DIAGEND - DIAGSRC <= 16, error, "the tramp is TRAMP's 16 bytes at most (sys.inc)"
 
 .segment "VECTORS"
                 .word   NMI
