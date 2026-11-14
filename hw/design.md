@@ -1788,6 +1788,21 @@ Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0x
 
 ## Backplane Signals ##
 
+**To do (the owner, 2026-11-14): a 98-pin edge connector.** The 62-pin ISA-style connector is full. The plan is
+to move to the 98-position card-edge connector that PCIe x8 slots use. It is cheap and easy to find, and its extra
+pins carry:
+- A20–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb));
+- more DMA channels, a DRQ and DACK pair each;
+- grounds beside the clocks.
+
+The decisions so far:
+- **The slots are keyed with a shroud,** so a normal PCI or PCIe card can't be plugged in. The power pins don't
+  follow PCIe's.
+- **The bus stays at 5 V for now.**
+
+The pin map, the power pins, and whether the backplane keeps +24 V are not designed yet. Neither is the change to
+[modules.md](modules.md). The emulator models the bus's signals, not its pins, so it isn't affected.
+
 The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
 
