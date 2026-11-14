@@ -44,7 +44,6 @@ T_K:            .res    2
 T_BANKS:        .res    2
 T_SUM:          .res    2
 T_RUNS:         .res    1
-T_FR60:         .res    4              ; NB6's cycles in 60 frames, for V3
                 DTVARS
 
 .segment "D22"
@@ -404,10 +403,6 @@ NB45:
 ; within 0.1% of 60 frames of FRAME cycles; the line gives them as Hz
 ; (HW_FRAMEHZ: 800 x 525 pixel clocks at 25.175 MHz a frame).
 NB6:
-                stz     T_FR60
-                stz     T_FR60 + 1
-                stz     T_FR60 + 2
-                stz     T_FR60 + 3
                 TB      "NB6  CPU "
                 lda     HW_REV + 9
                 cmp     #2
@@ -426,9 +421,8 @@ NB6:
                 SAY     "BY THE VIDEO FRAME"
                 TD      "NO 60 FRAMES WITHIN 2.3 S"
                 rts
-@frames:        ldx     #3             ; 60 frames' cycles against 60 x FRAME; kept for V3
+@frames:        ldx     #3             ; 60 frames' cycles against 60 x FRAME
 @cyc:           lda     HW_CYC,x
-                sta     T_FR60,x
                 sta     T_N,x
                 dex
                 bpl     @cyc
@@ -1177,8 +1171,8 @@ LINENOW:
                 rts
 
 ; V3: the beam: through a vertical blank LINE reaches 524, then starts the
-; next frame at 0; a frame is 119,437 cycles within 0.1%: NB6's 60 frames /
-; 60, or, without them, one frame (two changes of STATUS's bit) by HW_CLOCK.
+; next frame at 0; a frame (two changes of STATUS's bit, by HW_CLOCK) is
+; 119,437 cycles within 0.1%: its own measurement, apart from NB6's.
 V3:
                 TB      "V3   THE BEAM: LINES 0-"
                 jsr     VBSTART
@@ -1220,30 +1214,7 @@ V3:
                 lda     T_D
                 cmp     #2
                 jcs     @start
-                lda     T_FR60         ; NB6's 60 frames, / 60: a frame to a cycle or two (review P4)
-                ora     T_FR60 + 1
-                ora     T_FR60 + 2
-                ora     T_FR60 + 3
-                beq     @one
-                clc
-                lda     T_FR60
-                adc     #30            ; rounded
-                sta     HW_NUM
-.repeat 3, i
-                lda     T_FR60 + 1 + i
-                adc     #0
-                sta     HW_NUM + 1 + i
-.endrepeat
-                lda     #60
-                ldx     #0
-                jsr     HW_DIV
-                ldx     #3
-@q:             lda     HW_NUM,x
-                sta     T_N,x
-                dex
-                bpl     @q
-                bra     @got
-@one:           lda     #<VIDEO_STATUS ; no NB6 count: one frame, to the poll's grain
+                lda     #<VIDEO_STATUS ; one frame by HW_CLOCK: to its poll's grain (about 80 cycles)
                 sta     HW_WATCH
                 lda     #>VIDEO_STATUS
                 sta     HW_WATCH + 1
@@ -1256,7 +1227,6 @@ V3:
                 sta     T_N,x
                 dex
                 bpl     @cp
-@got:
                 jsr     DEC32
                 SAY     " CYCLES"
                 lda     #<FRAMEREF

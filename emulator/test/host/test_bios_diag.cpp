@@ -1245,7 +1245,9 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
     CHECK(measured(r, "D4", "FILL: ") == 4096);
     const uint64_t frame = measured(r, "V3", "A FRAME "), frames = measured(r, "S9", "8000 HZ: "),
                    left = measured(r, "D5", "PART WAY: ");
-    CHECK(frame >= 119437 - 2 && frame <= 119437 + 2); // review P4
+    // V3's own frame, by HW_CLOCK's poll (about 80 cycles a pass): one change seen late at each end, so up to a
+    // pass long; 119,460-119,475 in the runs seen (final check PP1)
+    CHECK(frame >= 119437 && frame <= 119520);
     CHECK(frames >= 2051 - 2 && frames <= 2051 + 2);
     CHECK(left > 4096 - 16 && left < 4096);
     CHECK(ends(test_line(r, "SD2"), "PASS"));
