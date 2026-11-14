@@ -267,6 +267,8 @@ elif [ "$written" = --utils ]; then
 TXT
   n=0
   for u in /o/utils/*.s; do
+    # DIAG.COM is on neither card until the owner decides (hw/diag.md, D2; make_card.sh).
+    [ "$(basename "$u" .s)" = diag ] && continue
     echo "0 $(basename "$u" .s | tr a-z A-Z).COM S None" >>"$work/want"
     n=$((n + 1))
   done
