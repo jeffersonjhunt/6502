@@ -125,5 +125,6 @@ DMASTREAM. The north bridge (0xD) is revision 2, ID `$D2`, with the wider window
 DMA controller (0x8) and the north bridge (0xD) are on the CPU card. The backplane has about 14–15 slots, one for
 each card that can exist (at most 14 with IDs, plus the RAM card and the cartridge) and the CPU card. It is a
 passive bus at 7.16 MHz. Three pins, BR0–BR2, are reserved, unassigned, for a future bridged bus with its own ID
-space. Slow cards ask for wait states by /WAIT. ROM A's place (the CPU card or the RAM card) is open:
+space. Slow cards ask for wait states by /WAIT. ROM A is on the CPU card, which carries the CPU, the north bridge, the clock, the DS3231, the DMA controller
+and ROM A; ROM B, the cartridge, stays a card in a slot:
 [design.md](design.md#one-backplane-the-slots-and-the-reserved-pins).

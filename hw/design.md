@@ -1864,7 +1864,8 @@ granted by naming the card's module ID; and one backplane holds every card (the 
 with them is dropped, below).
 
 **Memory by address.**
-- RAM and flash cards decode their own range from A0–A23 and answer only when **/MEM** is low. The north bridge
+- RAM and flash cards decode their own range from A0–A23 (ROM A is on the CPU card, decided later the same day:
+  [one backplane](#one-backplane-the-slots-and-the-reserved-pins)) and answer only when **/MEM** is low. The north bridge
   drives /MEM and the physical address on a memory cycle (the CPU through a window, or the memory side of a DMA
   transfer), and holds /MEM high on an I/O cycle at `$C000–$C7FF`, so no memory card answers there whatever the
   address lines hold.
@@ -2005,7 +2006,7 @@ and one the odd. The SST39SF020A, a 256 KB part, is the same family as today's S
 same way.
 
 - **Byte reads by the 8-bit CPU.** The CPU reads the flash in byte cycles (above). The CPU card puts out A0–A23,
-  and the flash card enables the chip A0 chooses and steers its byte onto D0–D7. At ÷2 a 55 ns part needs no wait
+  and ROM A's logic (on the CPU card; the cartridge's own for ROM B) enables the chip A0 chooses and steers its byte onto D0–D7. At ÷2 a 55 ns part needs no wait
   state ([the read budget](#wait-states-and-the-read-budget)). A word cycle reads both chips at once, which halves a DMA
   read of the flash ([B4](#what-steps-b1-b7-change)).
 - **The CPU card's word buffer.** It may fill a buffer by a word cycle and give the CPU the other byte on the next
@@ -2015,7 +2016,7 @@ same way.
     status would look finished.
   - The flash update maps the flash with RO clear, as it must to write it, so every read it makes is a bus cycle.
   - Any write to the flash's range empties the buffer.
-- **Programming.** A byte write is a byte cycle on D0–D7. The flash card writes it to the chip A0 chooses, whose
+- **Programming.** A byte write is a byte cycle on D0–D7. The flash's logic writes it to the chip A0 chooses, whose
   write enable is the only one pulsed. Each chip has its own command sequence, at its own addresses, and its own
   status:
   - a chip's command address *c* (`$5555`, `$2AAA` in the chip) is the flash offset 2*c* for the even chip and
@@ -2420,7 +2421,7 @@ new layout.
   board design.
   - Cards with an ID: at most 14 (IDs `0x0`–`0x7`, `0x9`–`0xC`, `0xE`–`0xF`). IDs `0x8` (DMA) and `0xD` (the north
     bridge) are on the CPU card.
-  - Cards without one: the RAM card, and the cartridge (ROM B), unless it has a connector of its own.
+  - Cards without one: the RAM card, and the cartridge (ROM B), each in a slot.
   - So 15 slots hold the CPU card, the RAM card, the cartridge and twelve cards with IDs: today's seven and five
     more.
 - **Today's cards and their IDs:**
@@ -2437,7 +2438,7 @@ new layout.
   | `0xD` | the north bridge | on the CPU card |
   | `0xE` | Console (the front panel) | a slot |
   | — | the RAM card (by address) | a slot |
-  | — | the cartridge, ROM B (by address) | a slot, or a connector of its own |
+  | — | the cartridge, ROM B (by address) | a slot |
 
   **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B) and `0xF`, seven IDs for new cards.
 - **No fifth ID bit (decided, the owner, 2026-11-14: "just drop the 5th bit").** There is no PS4: the module IDs
@@ -2448,17 +2449,14 @@ new layout.
 - **Reserved pins for a bridged bus.** Three connector pins, **BR0–BR2**, are reserved for a future bridged bus
   with its own ID space (a bridge card that answers for a second set of IDs behind it). They are **unassigned
   until then**: the backplane routes them to every slot, and no card connects to them.
-- **ROM A's place is open** ([the owner's question](#rom-as-place-a-question-for-the-owner)). It is invisible to
-  software either way: ROM A answers at `$F00000–$F7FFFF` by address wherever it sits.
-
-#### ROM A's place: a question for the owner ####
-
-- **Recommended: on the CPU card.** The reset fetch then never leaves the CPU card, and the BIOS, the flash update
-  and the ROM diagnostics work with the RAM card out or failed. The diagnostics' first stages run with no RAM
-  ([diag.md](diag.md)), so this is where they can name a bad RAM card. The RAM card stays plain 16-bit SRAM.
-- **Alternative: on the RAM card.** One card then decodes all of the main memory, and the crowded CPU card (the
-  north bridge, the DMA controller, the clock and the real-time clock) has fewer parts. But a missing or failed RAM
-  card takes the BIOS with it.
+- **ROM A is on the CPU card (decided, the owner, 2026-11-14).**
+  - The reset fetch never leaves the CPU card.
+  - The BIOS, the flash update and the ROM diagnostics work with the RAM card out or failed. The diagnostics' first
+    stages run with no RAM ([diag.md](diag.md)), so they can name a bad RAM card.
+  - The RAM card stays plain 16-bit SRAM.
+  - Software can't tell where ROM A sits: it answers at `$F00000–$F7FFFF` by address.
+- **The CPU card carries** the CPU, the north bridge, the clock, the DS3231, the DMA controller and ROM A.
+- **ROM B, the cartridge, stays a card in a slot,** answering at `$F80000–$FFFFFF` by address, with no ID.
 
 #### Wait states and the read budget ####
 
