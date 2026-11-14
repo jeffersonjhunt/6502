@@ -114,5 +114,9 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 On the new bus (98 pins, 2026-11-14) memory is selected by its address, so IDs 0x0–0x5 (RAM A–D, ROM A and B) are
 free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis).
 
-
-
+**Decided (B0, 2026-11-14):** on the new bus ROM A is two 256 KB chips side by side, even and odd bytes, at
+`$F00000`, and ROM B, the cartridge, the same at `$F80000`; the video card's aperture moves to `$E00000`, so all
+1 MB is RAM. The DMA controller (revision 2, ID `$82`) grants by the module ID in each channel's CARD register,
+through one channel window chosen by CONTROL's SELECT, and the serial card (0x6) picks its DMA stream with
+DMASTREAM. The north bridge (0xD) is revision 2, ID `$D2`, with the wider windows:
+[design.md](design.md#the-physical-map-on-the-new-bus).
