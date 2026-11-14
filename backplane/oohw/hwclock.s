@@ -10,12 +10,31 @@
 ; handler never holds off. Polling NB_SEC latches the time's other
 ; registers; how that meets the north bridge's own I2C reads of the DS3231
 ; on real hardware is unknown (the emulator latches whole).
+;
+; Where an interrupt can bias it: only at a window's ends. A change is seen
+; at the first poll after it, so the count runs from the poll that saw the
+; first change to the poll that saw the last. Anything that makes the change
+; at a window's end be seen late (an interrupt handler between the change and
+; the poll; for the frames, one that holds the vertical blank's own handler
+; off, which makes the change itself late) makes that window's count too big,
+; and the next window's, which starts at the same change, too small by as much.
+; (An interrupt in between costs nothing: the timer counts through it.) So
+; HW_CLOCK takes HW_WINDOWS = 3 windows back to back, each HW_EDGES changes
+; long, and keeps the middle count of the three: one disturbed change makes
+; one window too long and its neighbour too short, and the middle one is then
+; the undisturbed one (hw/diag.md, D3a review). Measured by the emulator with a
+; burst of USB interrupts at a window's end: 7,157,126, 7,161,084 and
+; 7,159,092 cycles, the middle one exact. The polls' own gaps didn't show that
+; disturbance, so the choice is by the counts themselves.
 
         .setcpu "65C02"
         .include "backplane.inc"
         .include "oohw.inc"
 
+HW_WINDOWS      = 3                     ; the middle of three is kept: wbuf and the swaps are for three
+
         .code
+clkfar: rts                             ; carry set: no change in time (a branch's reach from HW_CLOCK)
 HW_CLOCK:
         lda     HW_WATCH
         sta     HW_PTR
@@ -30,25 +49,87 @@ HW_CLOCK:
         jsr     zero
         lda     (HW_PTR)
         sta     last
-@first: jsr     tick                    ; the first change starts the count
-        bcs     @out
+@first: jsr     tick                    ; the first change starts the first window
+        bcs     clkfar
         lda     (HW_PTR)
         cmp     last
         beq     @first
         sta     last
-        jsr     zero
+        stz     wins
+@win:   jsr     zero
         lda     HW_EDGES
         sta     left
 @more:  jsr     tick
-        bcs     @out
+        bcs     clkfar
         lda     (HW_PTR)
         cmp     last
         beq     @more
         sta     last
         dec     left
         bne     @more
+        lda     wins                    ; this window's count into its place in wbuf
+        asl     a
+        asl     a
+        tay
+        ldx     #0
+@keep:  lda     HW_CYC,x
+        sta     wbuf,y
+        iny
+        inx
+        cpx     #4
+        bne     @keep
+        inc     wins
+        lda     wins
+        cmp     #HW_WINDOWS
+        bne     @win
+        ldx     #0                      ; the middle of three: compare and swap 0-1, 1-2, 0-1
+        ldy     #4
+        jsr     cswap
+        ldx     #4
+        ldy     #8
+        jsr     cswap
+        ldx     #0
+        ldy     #4
+        jsr     cswap
+        ldx     #3
+@ret:   lda     wbuf + 4,x
+        sta     HW_CYC,x
+        dex
+        bpl     @ret
         clc
-@out:   rts
+        rts
+
+; wbuf's counts at X and Y in order: swapped if the one at X is the bigger.
+cswap:  stx     ci
+        sty     cj
+        lda     wbuf + 3,x              ; compare from the top byte
+        cmp     wbuf + 3,y
+        bne     @dec
+        lda     wbuf + 2,x
+        cmp     wbuf + 2,y
+        bne     @dec
+        lda     wbuf + 1,x
+        cmp     wbuf + 1,y
+        bne     @dec
+        lda     wbuf,x
+        cmp     wbuf,y
+@dec:   bcc     @done                   ; X's is the smaller
+        beq     @done
+        lda     #4
+        sta     cn
+@sw:    ldx     ci
+        ldy     cj
+        lda     wbuf,x
+        pha
+        lda     wbuf,y
+        sta     wbuf,x
+        pla
+        sta     wbuf,y
+        inc     ci
+        inc     cj
+        dec     cn
+        bne     @sw
+@done:  rts
 
 ; HW_CYC = 0.
 zero:   stz     HW_CYC
@@ -167,3 +248,8 @@ left:   .res    1
 dvs:    .res    2
 rem:    .res    3
 tmp:    .res    1
+wbuf:   .res    12                      ; the windows' counts, 4 bytes each
+wins:   .res    1
+ci:     .res    1
+cj:     .res    1
+cn:     .res    1

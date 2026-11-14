@@ -31,7 +31,8 @@
 ; Time (hwclock.s)
 ;
 ;   HW_CLOCK    PHI2 cycles from a change of the byte at HW_WATCH to the
-;               HW_EDGES-th change after it, counted by the VIA's timer 2
+;               HW_EDGES-th change after it, the middle of three such
+;               windows back to back (hwclock.s), counted by the VIA's timer 2
 ;               (the program's: it is set running from $FFFF, in the
 ;               one-shot mode OODOS's warm boot leaves, which counts on
 ;               past 0) and its wraps, so OODOS's interrupts in between

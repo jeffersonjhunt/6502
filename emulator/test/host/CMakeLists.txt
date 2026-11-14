@@ -385,7 +385,8 @@ file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_S
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
      "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py"
-     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg")
+     "${OODOS_SRC}/demo/*.s" "${OODOS_SRC}/demo/*.cfg"
+     "${OODOS_SRC}/../backplane/oohw/*.s" "${OODOS_SRC}/../backplane/oohw/*.inc") # oohw.lib, SYSINFO's
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"

@@ -710,6 +710,21 @@ still free. A quick run is 28.0 s, a full run 91.2 s, the prompt 5.97 s (7.04 s 
 the W0 alias check left out, the prompt's KEYS discard left out, the loop not looping, the end's PUTBACK left out,
 the BIOS's check of block 23 skipped), was seen failing again on the fixed code with its one fault put in.
 
+**SYSINFO's clock, after D3a's review (2026-11-14, the owner's option B).** BIOS 0.14's new timing put an OODOS
+interrupt at the end of SYSINFO's one-second window in one case (7,159,411 Hz, outside the 0.002% check), so
+`HW_CLOCK` (hwclock.s) now takes three windows back to back and keeps the middle count. Anything that makes a
+window's last change be seen late makes that window too long and the next, which starts at the same change, too
+short by as much; with one change disturbed the middle of three is the undisturbed window. The first form kept the
+window whose two ends' poll gaps were least, but on the emulator a burst of USB interrupts just before a window's
+end deflated the window by about 2,000 cycles with the polls' gaps unchanged, so the choice is by the counts. The
+video frame's measurement has the same exposure (a handler that holds off the vertical blank's makes the frame
+counter's change late) and takes the same three windows. The tolerances stay (0.002%, 0.01%). The test,
+`an_interrupt_at_a_windows_end_is_kept_out_of_the_clock`, puts 48 USB events in 2,000 cycles before the first
+window's end of each measurement: three windows read 7,159,092 and 7,159,126 Hz; a build keeping the first window
+alone reads 7,161,054 and 7,160,746 and fails both checks. Each SYSINFO run of its SYSTEM section takes about
+4 s more of the machine's time (two more seconds of each measurement); test_oodos_sysinfo is 17 s alone. The cards
+are made again (SYSINFO.COM changed), and the utilities' build now depends on backplane/oohw, which it didn't.
+
 #### D3b: the card tests ####
 
 - **What:** `diag22.s` (stages 7–10), `diag21.s` (11–13), `hwport.s` and `card6510.s` from D2, `DMA_DEC` in
