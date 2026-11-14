@@ -38,7 +38,7 @@ follows its ISR whatever IEN says, so a panel key that set ISR while a program h
 answer. Under BIOS 0.10 Break left both, and a program that clears I wrote them first
 ([chapter 12](12-front-panel.md)).
 
-<!-- listing: ../../backplane/bios/bios.s:333-342 -->
+<!-- listing: ../../backplane/bios/bios.s:340-349 -->
 ```
 ; BRK is the monitor; a real IRQ just returns.
 IRQ:            PHA

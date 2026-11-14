@@ -29,7 +29,7 @@ from flash block 23; anything else, or nothing, boots as below. The BIOS, versio
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:104-182 -->
+<!-- listing: ../../backplane/bios/bios.s:101-179 -->
 ```
 RESET:
                 LDX     #$FF
@@ -145,7 +145,7 @@ Status: **emulated**
 The BIOS starts with a table of jumps at fixed addresses, so a new entry never moves another. From the monitor,
 `C803R` and so on run one. A program calls ECHO with `JSR $C80F`.
 
-<!-- listing: ../../backplane/bios/bios.s:69-78 -->
+<!-- listing: ../../backplane/bios/bios.s:66-75 -->
 ```
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
 ; eight of them, so a new one does not move the code after them.
