@@ -111,5 +111,8 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 | 0xE     | Console                    |
 | 0xF     | (free: the clock moved onto the CPU card, 2026-10-30) |
 
+On the new bus (98 pins, 2026-11-14) memory is selected by its address, so IDs 0x0–0x5 (RAM A–D, ROM A and B) are
+free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis).
+
 
 

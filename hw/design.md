@@ -335,7 +335,8 @@ with up to 16 MB, so the reasoning isn't lost.
   PHI2 is low. The north bridge's CPLD would latch it, as it already turns the CPU's 16-bit addresses into 20-bit
   physical ones. The backplane carries what the north bridge drives, not the CPU's pins.
 - **Two ways to get A20–A23 to the cards.** Every pin of the 62-pin connector is in use (the bus pin-out is in
-  [modules.md](modules.md)).
+  [modules.md](modules.md)). **Decided (the owner, 2026-11-14): the wider bus,** on the new connector
+  ([Backplane Signals](#backplane-signals)).
   - *Wider bus:* four more address lines, which needs a bigger connector (as ISA's extra row did). The cards are
     unchanged.
   - *Multiplexed bus, the 65C816's own way:* the north bridge drives the upper address bits on D0–D7 while PHI2
@@ -456,15 +457,18 @@ The machine works without it, so it can come later.
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
   DMA cheap enough for every card to have it.
 - **Placement:** on its own card, module ID `0x8`.
-  - **To do (the owner, 2026-11-14): move the DMA controller onto the CPU card,** beside the north bridge. It
-    already works at the CPU's level: it pulls RDY and BE and drives A0–A19, which the CPU card does anyway. On one
-    card its address path doesn't cross the backplane twice, the reason the CPU and the north bridge share a card
-    ([Backplane Signals](#backplane-signals)) and something a future turbo needs. It also frees a slot. Its
-    registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on the CPU card, to keep
-    the north bridge's apart. This isn't designed yet: the card, the backplane notes and modules.md change when it
-    is.
+  - **Decided (the owner, 2026-11-14): the DMA controller moves onto the CPU card,** beside the north bridge, with
+    the new connector ([Backplane Signals](#backplane-signals)). It already works at the CPU's level: it pulls RDY
+    and BE and drives the address lines, which the CPU card does anyway. On one card its address path doesn't cross
+    the backplane twice, the reason the CPU and the north bridge share a card, and something a future turbo needs.
+    It also frees a slot. Its registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on
+    the CPU card, to keep the north bridge's apart. The owner is designing it.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
-  storage.
+  storage. **Decided (the owner, 2026-11-14): eight channels** with the new connector, granted by module ID over
+  /DREQ and /DMA instead of a DRQ and DACK pair each
+  ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)). Until that card is built, the
+  registers below, the emulator and the software keep four; what channels 4–7 add to the registers is designed
+  with the card.
 - **Registers per channel:**
   - a 20-bit address;
   - a 16-bit count;
@@ -1782,28 +1786,99 @@ native-only), and the joystick ports are unused: the IIe's game port is the USB 
 | 0xC | Disk II controller |
 | 0xD | north bridge registers (no card) |
 
-Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0xE. RAM A–D (IDs 0–3) are four
+Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0xE. On the new bus memory is selected by address and IDs 0–5 are free ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)). Today RAM A–D (IDs 0–3) are four
 256 KB modules, chosen by A18–A19.
 
 
 ## Backplane Signals ##
 
-**To do (the owner, 2026-11-14): a 98-pin edge connector.** The 62-pin ISA-style connector is full. The plan is
-to move to the 98-position card-edge connector that PCIe x8 slots use. It is cheap and easy to find, and its extra
-pins carry:
-- A20–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb));
-- more DMA channels, a DRQ and DACK pair each;
-- grounds beside the clocks.
+**Decided (the owner, 2026-11-14): the new connector.** The 62-pin ISA-style connector is full. The bus moves to
+the 98-pin card-edge connector that PCIe x8 slots use, which is cheap and easy to find. The
+owner is designing the pin map now. It carries:
+- **every signal documented below,** the 62-pin bus's and the assignment's;
+- **a 16-bit data bus,** D0–D15;
+- **24 address lines,** A0–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb): the wider bus,
+  not the multiplexed one);
+- **eight DMA channels** ([DMA](#dma)), the controller moving onto the CPU card, granted by module ID rather than
+  by a DRQ and DACK pair each ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis));
+- **/MEM, /DMA, /DREQ and /SEL** (the same section).
 
-The decisions so far:
+The decisions with it:
 - **The slots are keyed with a shroud,** so a normal PCI or PCIe card can't be plugged in. The power pins don't
   follow PCIe's.
-- **The bus stays at 5 V for now.**
+- **Power is 5 V only.** The backplane no longer carries +24 V; this replaces the 62-pin bus's +24 V (Power, below).
+- **An expansion chassis is more slots, nothing else** (the owner, 2026-11-14, replacing the expansion port at
+  module ID `0xF` and its fifth module-ID bit): [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis).
 
-The pin map, the power pins, and whether the backplane keeps +24 V are not designed yet. Neither is the change to
-[modules.md](modules.md). The emulator models the bus's signals, not its pins, so it isn't affected.
+**The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
+- **DMA transfers 16 bits.** A card with DMA moves a word on D0–D15 in each transfer to or from main memory, so a
+  transfer takes half the bus cycles it does now.
+- **The CPU card may make the bus 16 bits throughout.** The CPU card would read or write all 16 bits of memory on
+  each bus cycle and buffer them, shifting each byte into or out of the 8-bit CPU. The bus would then carry only
+  16-bit cycles.
+- **What it needs:**
+  - the RAM cards 16 bits wide;
+  - a way to write one byte of a word (byte enables, or A0 kept for that), since the CPU and many cards write
+    bytes;
+  - a rule for when the buffered byte is still good: a write by DMA or another master to that word, or an I/O
+    read, must not be answered from it.
 
-The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
+Not designed yet: the pin map (the owner's, in progress), how the 16-bit bus works (above), and the change to
+[modules.md](modules.md)'s pin-out. The emulator models the bus's signals, not its pins, so the connector doesn't
+change it; memory by address, DMA by module ID, eight channels and the wider bus do, when they are built.
+
+### The new bus: memory by address, DMA by module ID, a plain chassis ###
+
+**Decided (the owner, 2026-11-14), to be detailed with the pin map.** Three changes that go together. The module ID
+lines (PS0–PS3) come to select only cards with registers; memory is selected by its address; a DMA transfer is
+granted by naming the card's module ID; and an expansion chassis is just more slots.
+
+**Memory by address.**
+- RAM and flash cards decode their own range from A0–A23 and answer only when **/MEM** is low. The north bridge
+  drives /MEM and the physical address on a memory cycle (the CPU through a window, or the memory side of a DMA
+  transfer), and holds /MEM high on an I/O cycle at `$C000–$C7FF`, so no memory card answers there whatever the
+  address lines hold.
+- RAM keeps its place, RAM A–D at `$000000–$0FFFFF`, 256 KB each. The flash gets a fixed place in the 24-bit map
+  (proposed: ROM A at `$F00000–$F7FFFF`, ROM B, the cartridge, at `$F80000–$FFFFFF`). A window's ROM bit keeps
+  its meaning: the north bridge puts out a flash address instead of a RAM one, so software doesn't see the change.
+- **Module IDs `0x0`–`0x5` are free** (they were RAM A–D, ROM A and ROM B, which never had registers: their blocks
+  at `$C000–$C2FF` are unused today), and so is `0xF`. Seven IDs for new cards; the interrupt poll already gives
+  each ID its own data line.
+- With flash on the memory side, the DMA controller can read it too (today it reaches only RAM), for instance to
+  copy the Apple IIe ROM at boot.
+
+**DMA by module ID,** in place of eight DRQ and DACK pairs (16 pins become 2):
+- **Request:** a card wanting a transfer pulls **/DREQ**, one shared open-drain line. The controller then runs a
+  request poll, as the north bridge's /IACK poll does for interrupts: in a cycle with /DMA and /IACK both low,
+  each card with a request pulls its own data line, D(ID). With D0–D15 every ID has one.
+- **Grant:** a channel's registers gain a module-ID field. The controller serves the enabled channel, highest
+  priority first (channel 0 highest, as now), whose module is requesting. In the transfer cycle it drives the
+  memory address with /MEM low, puts the card's ID on PS0–PS3 and pulls **/DMA** low. The memory card answers the
+  address; the card named by PS0–PS3 puts or takes its data register (fly-by, one cycle a transfer, as now). A
+  card's logic is: PS = mine and /DMA high, a register chosen by A0–A6; PS = mine and /DMA low, my data register.
+- **Release:** the card lets /DREQ go, or the count runs out; TC is asserted with the last transfer, as now.
+- **A card with two streams** (the serial card's two sources on /DACK1 and /DACK3 today) chooses between them by
+  a register of its own, as the sound card's DRQSEL already does, or takes two module IDs.
+- **Software:** the existing registers keep their places and meaning. At reset each channel's module field names
+  the card today's wiring gives it (channel 0 storage, 2 the sound card; channel 1 and 3 in the plan), so code
+  that never writes the field works as before. Channels 4–7, and where their registers go in the controller's
+  128-byte block (STATUS, CONTROL, ABORT and the ID byte sit at `$40`–`$42` and `$7F`), are designed with the
+  card.
+
+**A plain expansion chassis.** A chassis is more slots, nothing else: the same 16 module IDs, any card in any slot,
+found only by its ID, on the backplane or in the chassis alike. No fifth ID bit and no expansion port.
+- The link buffers every line. On a read the data buffers must face the side whose card is driving, so a card
+  that drives the data bus (selected by its ID, a memory card in its range, or the DMA card on a card-to-memory
+  transfer) pulls **/SEL**, a shared open-drain line, early in the cycle, and the chassis turns its buffers toward
+  the backplane when one of its cards does.
+- The open-drain lines (RDY, BE, /IRQ, /DREQ, /SEL) cross the link both ways.
+- **Timing:** the read budget at 7.16 MHz is about 70 ns, and two buffers and the cable take part of it. 7.16 MHz is
+  fine; a 14.3 MHz turbo would be tight for cards in the chassis.
+
+**New lines:** /MEM, /DMA, /DREQ, /SEL. **Dropped on the new bus:** DRQ0–DRQ3 and /DACK0–/DACK3. The 62-pin
+assignment below stays the current machine's.
+
+The 62-pin bus's assignment, below, is the current machine's. The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
 
 **Assignment (decided).** New pins are in bold, existing pins are listed for context. The same table is in
@@ -1851,7 +1926,7 @@ design needs 18 new signals, which leaves 2 pins. Both go to ground on either si
 That covers RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ, the weak data-line pull-ups for /IACK, and the DRQ
 pull-downs.
 
-**Power (decided).** The backplane carries +24 V (B29), and every card regulates it down to what it needs at the
+**Power (decided; replaced 2026-11-14 by 5 V only on the new connector, above).** The 62-pin backplane carries +24 V (B29), and every card regulates it down to what it needs at the
 point of use. At 24 V the bus carries a fifth of the current that 5 V would need for the same power.
 
 
