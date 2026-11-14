@@ -663,6 +663,53 @@ its one fault put in:
 The other cases (CONT, Y on serial and USB, N, CONT before the reset, START, switch 19 down, C812R, Esc's monitor,
 block 22 blanked, no video card, no console card, a full run's time) pass on the built ROM.
 
+<a id="d3a-review"></a>
+**D3a's review, MM1–MM14 (2026-11-14), fixed as the owner decided** (Q1, block 31's growth, and Q2, only the run's
+first failure's detail on the screen's row 18, accepted). Each real bug has a test that was seen failing on the ROM
+before its fix (`7a763b7`) and passing after:
+
+- **MM1, Esc booted:** ENDRUN read the key back from W0's block after PUTBACK had moved W0. PUTBACK no longer moves
+  W0; the BIOS's BOOT does, as it always did. The test has OODOS's card in the slot: Esc reaches the monitor, never
+  `A>`; RETURN and CONT reach `A>`.
+- **MM2, W0 proved:** stage 2's 512-byte march couldn't see another address landing on W0's zero page and stack. Its
+  candidate is now proved too, with no RAM (`PROVEW0`): canaries in its first 512 bytes, 512 bytes written at its own
+  `+$200` to `+$2000` (A9–A13) and in each block one block line away (A14–A19), and a canary changed rejects it. Stage
+  4 first finds any block that answers as W0's (`ALIASW0`: a byte at `+$07` written through W1), says `BLOCK nn ANSWERS
+  AS BLOCK ww, W0'S: NOT TESTED`, and keeps it out of stages 4–6. FaultyMemory gains `fault_redirect` (one block
+  answering as another). Tests: A9 stuck on RAM A (W0 goes to block 16), A18 stuck so RAM B answers as RAM A (W0 to
+  block 36), block 40 answering as block 0, all to the result.
+- **MM3, fixed ways back:** the core's ways back are trampolines at `$FFF4` (`JMP BOOT`) and `$FFF7` (`JMP MONBOOT`),
+  under the vectors and outside the jump table, held there by ld65 asserts (`DG_TBOOT`, `DG_TMON`). Block 23's header
+  records the BIOS it was linked with at `$801C` (major, minor; `BIOS_VMAJ`, `BIOS_VMIN`); RESET and CHKSIG check the
+  signature, `DG_VERSION` and that. Test: each byte changed in a copy of `bios.rom` is "no diagnostics".
+- **MM4:** both builds link to `bios.rom.tmp` and rename it only after `romsum.py` succeeds (the Makefile also has
+  `.DELETE_ON_ERROR`); `romsum.py` finds `SUMLO` and `SUMHI` in the label file.
+- **MM5:** the prompt counts the clock chip's seconds by RTCCTL's TICK, six of them, and its own polls too (about
+  5,170 cycles each, wraps counted in S): about 7 s with no second says `THE CLOCK CHIP DIDN'T TICK: 7 S COUNTED BY
+  THE CPU` and boots. Test with TICK held clear: 7.04 s.
+- **MM6:** the prompt puts VEC on block 23 first, so Break there is the stub's: `BREAK`, then the boot (as no). Test.
+- **MM7:** the blocks stage 2 passed over are marked failed in DG_BAD on every pass, so none is W0's spare.
+- **MM8:** stage 3's "not answering" reads twice, as CC5 does.
+- **MM9:** `$C815` with no diagnostics in the flash returns, carry set, W2 as it was (CHKSIG keeps W2); `$C812` never
+  returns. Test: a program at `$0300` calls `$C815` with block 23 blanked.
+- **MM10:** `$C812` and the prompt clear WAIT3 first; hw/design.md says the diagnostics own WAIT3 and zero every wait
+  state on the way out. Test: a program's bits left in WAIT3 don't change `C812R`'s run.
+- **MM11, the missing cases:** a two-pass loop and a key ending it; Break in stage 5 and in block 22; a cross-block
+  alias (`BLOCKS 10 AND 20 ANSWER AS ONE`); `$C815` with block 23 blanked; WAIT0–3 read back 0 after a run; CONT
+  pressed after the reset, before the prompt reads KEYS; the VIA's IER enabled in the middle of a run, cleared by the
+  end's put-back alone (stage 0's quiet comes before it).
+- **MM12:** one PUTBACKM (diag.inc), with the 6510 stop, for Break and the end alike.
+- **MM13:** *proposed* lines in the Technical Reference's chapter 3 (the switch-19 prompt) and chapter 12 (BPCTRL
+  cleared at reset only for `$BD1A5`).
+- **MM14:** the header prints the pass as 16 bits (`PUTDEC16`).
+
+**After the review:** block 23 is 7,966 bytes (the core 7,245, the library 721), blocks 22 and 21 1,532 and 1,516;
+block 31 has grown by 399 bytes in all (its code to `$E3B2`, and the trampolines' 6 bytes at `$FFF4`), 7,233 bytes
+still free. A quick run is 28.0 s, a full run 91.2 s, the prompt 5.97 s (7.04 s by the CPU's count with no clock).
+`test_bios_diag` has 36 cases, about 9 minutes alone; every must-fail case above, and the review's (W0's proof and
+the W0 alias check left out, the prompt's KEYS discard left out, the loop not looping, the end's PUTBACK left out,
+the BIOS's check of block 23 skipped), was seen failing again on the fixed code with its one fault put in.
+
 #### D3b: the card tests ####
 
 - **What:** `diag22.s` (stages 7–10), `diag21.s` (11–13), `hwport.s` and `card6510.s` from D2, `DMA_DEC` in
