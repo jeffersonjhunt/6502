@@ -45,9 +45,11 @@ if(EMU_CA65 AND EMU_LD65 AND Python3_Interpreter_FOUND)
     endforeach()
     add_custom_command(
             OUTPUT "${EMU_BIOS_DIR}/bios.rom" "${EMU_BIOS_DIR}/bios.rom.lbl"
-            COMMAND "${EMU_LD65}" -C "${EMU_BIOS_SRC}/bios.cfg" -o "${EMU_BIOS_DIR}/bios.rom"
+            COMMAND "${EMU_LD65}" -C "${EMU_BIOS_SRC}/bios.cfg" -o "${EMU_BIOS_DIR}/bios.rom.tmp"
                     -Ln "${EMU_BIOS_DIR}/bios.rom.lbl" ${objs}
-            COMMAND "${Python3_EXECUTABLE}" -I "${EMU_BIOS_SRC}/romsum.py" "${EMU_BIOS_DIR}/bios.rom"
+            COMMAND "${Python3_EXECUTABLE}" -I "${EMU_BIOS_SRC}/romsum.py" "${EMU_BIOS_DIR}/bios.rom.tmp"
+                    "${EMU_BIOS_DIR}/bios.rom.lbl"
+            COMMAND "${CMAKE_COMMAND}" -E rename "${EMU_BIOS_DIR}/bios.rom.tmp" "${EMU_BIOS_DIR}/bios.rom"
             DEPENDS ${objs} "${EMU_BIOS_SRC}/bios.cfg" "${EMU_BIOS_SRC}/romsum.py"
             VERBATIM)
     add_custom_target(backplane_bios ALL DEPENDS "${EMU_BIOS_DIR}/bios.rom")

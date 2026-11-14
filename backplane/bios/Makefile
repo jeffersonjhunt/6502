@@ -18,9 +18,12 @@ OOHW    = ../oohw
 HWOBJS  = hw-hwmem.o hw-hwzp.o
 ROM     = bios.rom
 
+# Linked to a temporary file, then the flash's sums written (romsum.py), then renamed: a failed step leaves no bios.rom.
+.DELETE_ON_ERROR:
 $(ROM): $(OBJS) $(HWOBJS) bios.cfg romsum.py
-	ld65 -C bios.cfg $(OBJS) $(HWOBJS) -o $(ROM) -Ln $(ROM).lbl
-	python3 romsum.py $(ROM)
+	ld65 -C bios.cfg $(OBJS) $(HWOBJS) -o $(ROM).tmp -Ln $(ROM).lbl
+	python3 romsum.py $(ROM).tmp $(ROM).lbl
+	mv $(ROM).tmp $(ROM)
 
 %.o: %.s backplane.inc diag.inc diagcon.inc $(OOHW)/oohw.inc font/vga8x16.bin $(wildcard demo/*.bin) splash/bootsnd.bin splash/docsnd.bin splash/wave.bin
 	ca65 $(AFLAGS) -I $(OOHW) $<

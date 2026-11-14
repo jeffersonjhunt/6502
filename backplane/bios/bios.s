@@ -21,8 +21,11 @@
 ; card's directory and $C80C a boot from it: C803R and so on from the
 ; monitor. $C80F is ECHO, for programs: it uses $E0-$E7 (backplane.inc).
 ; $C812 is the ROM's diagnostics (diag23.s, hw/diag.md's plan 2), after a Y;
-; $C815 the same for a program that has asked already: A = $A5 and Y = $5A,
-; X the options (bit 0 full, bit 1 interactive); anything else is $C812.
+; it never returns (the diagnostics end in a boot, or the monitor). $C815 is
+; the same for a program that has asked already: A = $A5 and Y = $5A, X the
+; options (bit 0 full, bit 1 interactive); anything else is $C812. With no
+; diagnostics in the flash (or another build's) $C815 returns, carry set, W2
+; as it was.
 ;
 ; Before the copy, with the front panel there (its ID read twice): a
 ; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
@@ -48,7 +51,10 @@
 .include "backplane.inc"
 .include "diag.inc"
 .import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
-.export BREAK, BOOT, MONBOOT
+.export BREAK, BOOT, MONBOOT, BIOS_VMAJ, BIOS_VMIN
+
+BIOS_VMAJ = 0                          ; this BIOS's version, as its greeting says it; the diagnostics
+BIOS_VMIN = 14                         ;   record the one they were linked with (diag.inc, DG_LINKED)
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -125,6 +131,15 @@ RESET:
                 BNE     @none
                 DEX
                 BPL     @sig
+                LDA     $8009          ; and this build's: the diagnostics' version, the BIOS they were linked with
+                CMP     #DG_VERSION
+                BNE     @none
+                LDA     DG_LINKED
+                CMP     #BIOS_VMAJ
+                BNE     @none
+                LDA     DG_LINKED + 1
+                CMP     #BIOS_VMIN
+                BNE     @none
                 LDX     #DE_PROMPT
                 JMP     (DG_ENTRIES,X) ; the prompt: back to BOOT unless CONT or Y
 @none:          LDA     #BLOCK2        ; (said after the greeting: DIAGNOTE)
@@ -203,9 +218,13 @@ DIAGNOTE:       LDA     CONSOLE_ID
                 JMP     DSAY
 @done:          RTS
 
-; Carry clear if flash block 23 holds the diagnostics (its signature), read
-; through W2, which goes back on block 2.
-CHKSIG:         LDA     #DG_B23
+; Carry clear if flash block 23 holds this build's diagnostics (the signature,
+; DG_VERSION and the BIOS they were linked with), read through W2, which is
+; put back as it was. X; A kept.
+CHKSIG:         PHA
+                LDA     NB_WIN2
+                PHA
+                LDA     #DG_B23
                 STA     NB_WIN2
                 LDX     #7
 @sig:           LDA     $8000,X
@@ -213,18 +232,30 @@ CHKSIG:         LDA     #DG_B23
                 BNE     @no
                 DEX
                 BPL     @sig
-                LDA     #BLOCK2
+                LDA     $8009
+                CMP     #DG_VERSION
+                BNE     @no
+                LDA     DG_LINKED
+                CMP     #BIOS_VMAJ
+                BNE     @no
+                LDA     DG_LINKED + 1
+                CMP     #BIOS_VMIN
+                BNE     @no
+                PLA
                 STA     NB_WIN2
+                PLA
                 CLC
                 RTS
-@no:            LDA     #BLOCK2
+@no:            PLA
                 STA     NB_WIN2
+                PLA
                 SEC
                 RTS
 
 ; $C812: the diagnostics from the monitor, after a Y, since they overwrite
 ; all of memory.
-DIAG:           LDX     #MALL - DMSGS
+DIAG:           STZ     NB_WAIT3       ; no program's options (WAIT3 is the diagnostics')
+                LDX     #MALL - DMSGS
                 JSR     DSAY
                 JSR     GETKEY
                 JSR     ECHO
@@ -253,7 +284,12 @@ DIAGPGM:        CMP     #$A5
                 BNE     DIAG
                 CPY     #$5A
                 BNE     DIAG
-                TXA
+                PHX
+                JSR     CHKSIG
+                PLX
+                BCC     @there
+                RTS                    ; none: back to the program, carry set, W2 as it was
+@there:         TXA
                 AND     #$03
                 ASL     A
                 ASL     A
@@ -378,6 +414,12 @@ QUIET:
                 RTS
 
 GREETING:       .byte   $0D, "BACKPLANE BIOS 0.14", $0D, 0
+
+.segment "DTRAMP"                     ; the diagnostics' ways back: fixed, under the vectors
+TBOOT:          JMP     BOOT
+TMON:           JMP     MONBOOT
+.assert TBOOT = DG_TBOOT, lderror, "the diagnostics' BOOT trampoline moved"
+.assert TMON = DG_TMON, lderror, "the diagnostics' MONBOOT trampoline moved"
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

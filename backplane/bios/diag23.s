@@ -35,9 +35,10 @@
 .include "backplane.inc"
 .include "diag.inc"
 .include "oohw.inc"
-.import BOOT, MONBOOT
+.importzp BIOS_VMAJ, BIOS_VMIN
 
 FLASH30         = NB_ROM | NB_RO | 30  ; the font
+DG_PROMPTWRAPS  = 38                   ; the prompt's CPU count: 38 x 256 polls of about 5,170 cycles, 7 s
 
 .segment "D23"
                 DG_HEADER 0, PROMPT, GO, LOOP
@@ -269,45 +270,6 @@ via:            lda     #$7F
                 sta     VIA_IER
 .endmacro
 
-; What the run changed, back as /RESET leaves it, with no stack (Break's too).
-.macro PUTBACKM
-        .local slot, via
-                ldx     #6
-slot:           txa
-                lsr     a
-                sta     VIDEO_SLOT0,x
-                stz     VIDEO_SLOT0 + 1,x
-                dex
-                dex
-                bpl     slot
-                lda     #1
-                sta     VIDEO_PSTEP
-                stz     VIDEO_PSTEP + 1
-                stz     VIDEO_PCTL
-                lda     #$70
-                sta     DMA_CONTROL
-                stz     VIA_ACR
-                lda     #2
-                sta     VIA_T1CL
-                stz     VIA_T1CH
-                nop
-                nop
-                nop
-                nop
-                lda     #$7F
-                sta     VIA_IER
-                sta     VIA_IFR
-                stz     NB_WAIT0
-                stz     NB_WAIT1
-                stz     NB_WAIT2
-                stz     NB_WAIT3
-                stz     CONSOLE_DISPLAY
-                stz     CONSOLE_CTRL
-                lda     #DG_FLASH31
-                sta     NB_VEC
-                lda     #1
-                sta     NB_WIN1
-.endmacro
 
 ; A march over $4000-$41FF (W1's block's first 512 bytes) with background bg,
 ; by absolute indexed loads: up (w0); up (r0, w1); up (r1, w0); down (r0,
@@ -357,6 +319,74 @@ w0:             sta     $4000,x
                 M512UP  $4100, bg, bg, fail
 .endmacro
 
+; 512 bytes at base written through W1: each byte the low byte of its offset.
+.macro PROBE512 base
+        .local l
+                ldx     #0
+l:              txa
+                sta     base,x
+                sta     base + $100,x
+                inx
+                bne     l
+.endmacro
+
+; Block S, whose first 512 bytes passed the march, as W0 for a moment: are
+; they its own? Canaries in them (offset XOR $A5, then $5A, through W0), then
+; 512 bytes written where an address line stuck or two blocks answering as one
+; would land on them: the block's own +$200, +$400 ... +$2000 (A9-A13), and
+; the first 512 bytes of each block one block line (A14-A19) away, all through
+; W1. A canary changed: fail. No RAM is trusted: S, A and X only.
+.macro PROVEW0 fail
+        .local can, chk, ok1, ok2
+                tsx
+                stx     NB_WIN0
+                ldx     #0
+can:            txa
+                eor     #$A5
+                sta     $00,x
+                txa
+                eor     #$5A
+                sta     $0100,x
+                inx
+                bne     can
+                tsx
+                stx     NB_WIN1
+        .repeat 5, n
+                PROBE512 $4000 + ($200 << n)
+        .endrepeat
+        .repeat 6, k
+        .scope
+                tsx
+                txa
+                eor     #(1 << k)
+                tax
+                lda     VIDEO_ID       ; bank 8, with a revision 2 card, is its aperture: not RAM
+                cmp     #VIDEO_ID_V2
+                bne     go
+                cpx     #32
+                bcc     go
+                cpx     #36
+                bcc     skip
+go:             stx     NB_WIN1
+                PROBE512 $4000
+skip:
+        .endscope
+        .endrepeat
+                ldx     #0
+chk:            txa
+                eor     #$A5
+                cmp     $00,x
+                beq     ok1
+                jmp     fail
+ok1:            txa
+                eor     #$5A
+                cmp     $0100,x
+                beq     ok2
+                jmp     fail
+ok2:            inx
+                bne     chk
+.endmacro
+
 ; The serial line gets X (a block number) in hex. A, Y.
 .macro SERHEXX
         .local d1, d2, n1, d3, d4, n2
@@ -398,6 +428,9 @@ d4:             dec     a
 PROMPT:
                 sei
                 cld
+                lda     #DG_B23        ; Break here: this block's stub, as no (BRKH), not the BIOS's
+                sta     NB_VEC
+                stz     NB_WAIT3       ; no options but the switches' (WAIT3 is the diagnostics')
                 lda     #8             ; the lights on: CTRL's bit 3, DISPLAY
                 sta     CONSOLE_CTRL
                 lda     #$A5
@@ -408,15 +441,22 @@ PROMPT:
                 SCRS    0, 0, STITLE
                 SCRS    2, 0, SPROMPT
                 SERS    SPROMPTS
-                ldy     NB_SEC
+                ; 5 s: six of the clock chip's seconds (RTCCTL's TICK), or about 7 s
+                ; counted by the CPU if they don't come. Y the seconds, X the polls
+                ; (about 5,170 cycles each), S their wraps (1.32M cycles each).
+                lda     #NB_RTC_TICK
+                sta     NB_RTCCTL      ; a second already pending doesn't count
                 ldx     #0
-P_POLL:          cpy     NB_SEC
-                beq     P_KEYS
-                ldy     NB_SEC
-                inx
-                cpx     #6             ; six changes: between 5 and 6 s
+                txs
+                ldy     #0
+P_POLL:         bit     NB_RTCCTL
+                bpl     P_KEYS         ; TICK is bit 7
+                lda     #NB_RTC_TICK
+                sta     NB_RTCCTL
+                iny
+                cpy     #6             ; six seconds: between 5 and 6 s
                 beq     P_NO
-P_KEYS:          lda     ACIA_STATUS
+P_KEYS:         lda     ACIA_STATUS
                 and     #$08
                 beq     P_USB
                 lda     ACIA_DATA
@@ -424,27 +464,51 @@ P_KEYS:          lda     ACIA_STATUS
                 cmp     #'Y'
                 beq     P_YES
                 bra     P_NO
-P_USB:           lda     USB_ID
+P_USB:          lda     USB_ID
                 cmp     #USB_ID_V1
                 bne     P_PANEL
                 lda     USB_KEY
-                bpl     P_PANEL         ; no strobe
+                bpl     P_PANEL        ; no strobe
                 bit     USB_KEYCLR
                 and     #$5F
                 cmp     #'Y'
                 beq     P_YES
                 bra     P_NO
-P_PANEL:         lda     CONSOLE_ID
+P_PANEL:        lda     CONSOLE_ID
                 cmp     #CONSOLE_ID_V1
-                bne     P_POLL
+                bne     P_WAIT
                 lda     CONSOLE_KEYS
                 and     #$08           ; CONT; the other keys do nothing here
-                beq     P_POLL
-P_YES:           jmp     GO
-P_NO:            stz     CONSOLE_DISPLAY
+                bne     P_YES
+P_WAIT:         lda     #0
+P_D1:           dec     a
+                bne     P_D1
+P_D2:           dec     a
+                bne     P_D2
+P_D3:           dec     a
+                bne     P_D3
+P_D4:           dec     a
+                bne     P_D4
+                inx
+                bne     P_POLL
+                tsx
+                inx
+                txs
+                cpx     #DG_PROMPTWRAPS
+                beq     P_CLOCK
+                ldx     #0
+                jmp     P_POLL
+P_CLOCK:        cpy     #0
+                bne     P_NO
+                SERS    SNOTICK        ; the CPU's count ran out with no second from the clock chip
+                bra     P_NO
+P_YES:          jmp     GO
+P_NO:           stz     CONSOLE_DISPLAY
                 stz     CONSOLE_CTRL
                 SERS    SBOOTING
-                jmp     BOOT
+                lda     #DG_FLASH31
+                sta     NB_VEC
+                jmp     DG_TBOOT
 
 ; --- Stage 0 ------------------------------------------------------------------
 
@@ -565,6 +629,7 @@ G_TRY:           txa
                 sta     NB_WIN1
                 MARCH512 $00, G_NEXTC
                 MARCH512 $55, G_NEXTC
+                PROVEW0 G_NEXTC        ; and nothing else lands in them (review MM2)
                 tsx                    ; this block: W0
                 stx     NB_WIN0
                 txa
@@ -575,6 +640,7 @@ G_CLR:           stz     $08,x
                 dex
                 bpl     G_CLR
                 sta     DG_W0
+                sta     S2BLOCK        ; (BSS: the zero page block's, cleared by nothing)
                 jmp     STAGE2
 G_NEXTC:         tsx
                 inx
@@ -692,8 +758,22 @@ PASSGO:
                 stz     DG_SHOWN
                 ldx     #7
 @bad:           stz     DG_BAD,x
+                stz     SKIPS,x
                 dex
                 bpl     @bad
+                lda     #0             ; the blocks stage 2 passed over: failed, each pass (MM7)
+@rej:           cmp     S2BLOCK
+                bcs     @hdr0
+                ldx     DG_APER
+                beq     @mark
+                cmp     #32
+                bcc     @mark
+                cmp     #36
+                bcc     @nomark
+@mark:          jsr     MARKBAD
+@nomark:        inc     a
+                bra     @rej
+@hdr0:
                 ldx     #12
 @res:           stz     DG_RES + 3,x
                 dex
@@ -747,7 +827,8 @@ HEADER:
                 ldx     #>SPASSH
                 jsr     PUTS
                 lda     DG_PASS
-                jsr     PUTDEC
+                ldx     DG_PASS + 1
+                jsr     PUTDEC16
                 jsr     SPACE
                 jsr     SPACE
                 lda     DG_OPT
@@ -883,11 +964,16 @@ STAGE3:
                 sta     HW_PTR + 1
                 jsr     HW_WALK
                 bcc     @there
-                lda     #0             ; a write of 0 that reads $FF: nothing answers
+                lda     #0             ; a write of 0 that reads $FF, twice (CC5's two reads): nothing answers
                 sta     $7FF0
                 lda     $7FF0
                 cmp     #$FF
+                bne     @wrong
+                ldx     #$FF
+                lda     $7FF0 - $FF,x
+                cmp     #$FF
                 beq     @absent
+@wrong:
                 ldx     DG_BLK         ; there, with a data line wrong: its blocks are tested
                 lda     MODBIT,x
                 ora     DG_MODS
@@ -987,8 +1073,46 @@ NEXTBLK:
                 asl     a
                 bra     @chk
 @ok:            pla
-                clc
+                jsr     ISSKIP         ; a block that answers as W0's isn't tested (MM2)
+                bcc     @take
+                inc     a
+                bra     @chk
+@take:          clc
 @end:           rts
+
+; Carry set if block A answers as W0's block (SKIPS). A kept.
+ISSKIP:
+                pha
+                pha
+                lsr     a
+                lsr     a
+                lsr     a
+                tax
+                pla
+                and     #7
+                tay
+                lda     BIT8,y
+                and     SKIPS,x
+                cmp     #1
+                pla
+                rts
+
+; Block A answers as W0's: kept out of stages 4-6 (SKIPS). A kept.
+MARKSKIP:
+                pha
+                pha
+                lsr     a
+                lsr     a
+                lsr     a
+                tax
+                pla
+                and     #7
+                tay
+                lda     BIT8,y
+                ora     SKIPS,x
+                sta     SKIPS,x
+                pla
+                rts
 
 ; W1 on block A, and HW_PTR/HW_LEN its run: all of it, or past the first 512
 ; bytes if it is W0's. A kept; HW_KEY the block.
@@ -1073,6 +1197,7 @@ STAGE4:
                 sta     DG_T0 + 1
                 lda     #4
                 jsr     STAGEBEG
+                jsr     ALIASW0
                 lda     #$FF
 @w:             jsr     NEXTBLK
                 bcs     @check
@@ -1091,6 +1216,48 @@ STAGE4:
                 sta     NB_WIN1
                 lda     #DR_PASS
                 jmp     STAGEEND
+
+; Every block that answers as W0's (a byte written through W1 changes W0's
+; own, at +$07, which nothing keeps) is said and kept out of stages 4-6:
+; testing it would write over the run's zero page and stack (review MM2).
+ALIASW0:
+                lda     #$FF
+@a:             jsr     NEXTBLK
+                bcs     @done
+                sta     DG_BLK
+                cmp     DG_W0
+                beq     @next
+                sta     NB_WIN1
+                lda     #$A5
+                sta     $07
+                lda     #$5A
+                sta     $4007
+                lda     $07
+                cmp     #$A5
+                beq     @next
+                lda     DG_BLK
+                jsr     MARKBAD
+                jsr     MARKSKIP
+                jsr     DETAIL
+                lda     #<SBLOCK
+                ldx     #>SBLOCK
+                jsr     PUTS
+                lda     DG_BLK
+                jsr     PUTDEC
+                lda     #<SASW0
+                ldx     #>SASW0
+                jsr     PUTS
+                lda     DG_W0
+                jsr     PUTDEC
+                lda     #<SASW0B
+                ldx     #>SASW0B
+                jsr     PUTS
+                jsr     CRLF
+@next:          lda     DG_BLK
+                bra     @a
+@done:          lda     #1
+                sta     NB_WIN1
+                rts
 
 ; Block DG_BLK's tags through W1: its number at +0, and n XOR $FF XOR the
 ; number at +2^n, n 0-13; W0's block's first 512 bytes left alone.
@@ -1404,8 +1571,7 @@ BRKH:
                 txs
                 SERS    SBREAK
                 PUTBACKM
-                stz     NB_WIN0
-                jmp     BOOT
+                jmp     DG_TBOOT       ; (BOOT puts W0 back)
 
 ; Stage 1 found block 23, this code, wrong: $81, the block, round again.
 FATAL1:
@@ -1487,6 +1653,7 @@ STITLE:         .byte   "OO-1 ROM DIAGNOSTICS 0.1", 0
 SPROMPT:        .byte   "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S", 0
 SPROMPTS:       .byte   $0D, "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S", $0D, 0
 SBOOTING:       .byte   "BOOTING", $0D, 0
+SNOTICK:        .byte   "THE CLOCK CHIP DIDN'T TICK: 7 S COUNTED BY THE CPU", $0D, 0
 SCRLF:          .byte   $0D, 0
 SL1:            STLINE  " 1  FLASH BLOCKS 21-31"
 SPASSCR:        .byte   "PASS", $0D, 0
@@ -1512,6 +1679,8 @@ SANDA:          .byte   " AND A", 0
 SAS1:           .byte   "BLOCKS ", 0
 SAND:           .byte   " AND ", 0
 SAS2:           .byte   " ANSWER AS ONE", 0
+SASW0:          .byte   " ANSWERS AS BLOCK ", 0
+SASW0B:         .byte   ", W0'S: NOT TESTED", 0
 SNOSPARE:       .byte   "NO OTHER BLOCK PASSED: W0'S FIRST 512 BYTES NOT TESTED", 0
 SBIOS:          .byte   "BIOS 0.14         ", 0
 SPASSH:         .byte   "PASS ", 0
@@ -1522,6 +1691,8 @@ SASK:           .byte   " ASK", 0
 
 .segment "D23BSS"
 NAMEBUF:        .res    40
+SKIPS:          .res    8              ; bit b%8 of byte b/8: block b answers as W0's
+S2BLOCK:        .res    1              ; the block stage 2 chose first
 
 ; The flash's sums, blocks 21-31 (block 23's without this page), written by
 ; romsum.py after ld65: the low bytes, then the high.

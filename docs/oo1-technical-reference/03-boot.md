@@ -11,7 +11,9 @@ Status: **emulated**
 
 At reset the north bridge maps W3 and VEC to the top block of the flash, ROM A block 31, read-only (`$DF`). W0–W2
 map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts the BIOS at `$C800`. The block's first
-2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.13:
+2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. *Proposed* (BIOS 0.14, [hw/diag.md](../../hw/diag.md)):
+first, with the front panel fitted and switch 19 up, the ROM's diagnostics ask "PRESS CONT OR Y WITHIN 5 S"
+from flash block 23; anything else, or nothing, boots as below. The BIOS, version 0.13:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -27,7 +29,7 @@ map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts t
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:98-167 -->
+<!-- listing: ../../backplane/bios/bios.s:104-182 -->
 ```
 RESET:
                 LDX     #$FF
@@ -59,6 +61,15 @@ RESET:
                 BNE     @none
                 DEX
                 BPL     @sig
+                LDA     $8009          ; and this build's: the diagnostics' version, the BIOS they were linked with
+                CMP     #DG_VERSION
+                BNE     @none
+                LDA     DG_LINKED
+                CMP     #BIOS_VMAJ
+                BNE     @none
+                LDA     DG_LINKED + 1
+                CMP     #BIOS_VMIN
+                BNE     @none
                 LDX     #DE_PROMPT
                 JMP     (DG_ENTRIES,X) ; the prompt: back to BOOT unless CONT or Y
 @none:          LDA     #BLOCK2        ; (said after the greeting: DIAGNOTE)
@@ -134,7 +145,7 @@ Status: **emulated**
 The BIOS starts with a table of jumps at fixed addresses, so a new entry never moves another. From the monitor,
 `C803R` and so on run one. A program calls ECHO with `JSR $C80F`.
 
-<!-- listing: ../../backplane/bios/bios.s:63-72 -->
+<!-- listing: ../../backplane/bios/bios.s:69-78 -->
 ```
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
 ; eight of them, so a new one does not move the code after them.

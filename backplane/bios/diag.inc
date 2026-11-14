@@ -9,7 +9,10 @@
 ;   $800A  the gate: STA NB_WIN2, then JMP ($8010,X). Its bytes are the same
 ;          in every block, so the fetch after the STA comes from the block
 ;          just mapped and takes that block's entry X: a hand-off needs no RAM
-;   $8010  the block's entries, eight words (X = 0, 2, 4 ...)
+;   $8010  the block's entries, three words (X = 0, 2, 4)
+;   $801C  the BIOS version this build was linked with: major, minor (bios.s's
+;          BIOS_VMAJ, BIOS_VMIN). The BIOS checks the signature, DG_VERSION
+;          and this before it enters block 23 (RESET, CHKSIG)
 ;   $8020  the Break stub: LDA #DG_B23, STA NB_WIN2; block 23 goes on at
 ;          $8025 to its handler. VEC is on block 23 while the core runs, and
 ;          its NMI and IRQ vectors are $8020, whichever block W2 holds
@@ -31,6 +34,13 @@ DG_FLASH31      = NB_ROM | NB_RO | 31  ; the BIOS, W3's and VEC's at reset
 DG_GATE         = $800A
 DG_ENTRIES      = $8010
 DG_BREAK        = $8020
+DG_LINKED       = $801C                ; the BIOS version it was linked with: major, minor
+
+; The core's ways back into the BIOS: fixed trampolines at the top of block 31,
+; just under the vectors, outside the jump table (bios.s asserts them), so the
+; core never jumps to an address a later BIOS could move
+DG_TBOOT        = $FFF4                ; JMP BOOT: the boot, as after a reset (past the switch check)
+DG_TMON         = $FFF7                ; JMP MONBOOT: the BIOS copied, the greeting, the monitor
 
 ; Block 23's entries (X)
 DE_PROMPT       = 0                    ; the reset's prompt (switch 19 up), no RAM: CONT or Y within 5 s
@@ -79,6 +89,7 @@ DG_SPARE        = $2B                  ; the block W0 moves to for its own test
 DG_MGOT         = $2C                  ; a memory fault's byte read (MEMFAULT)
 DG_MWANT        = $2D                  ; and written
 DG_SHOWN        = $23                  ; the run's first detail is on the screen
+DG_N16          = $2E                  ; 2 bytes: PUTDEC16's number
 DG_RES          = $30                  ; 16 bytes: stage n's result, DR_*
 DG_BAD          = $08                  ; 8 bytes: bit b%8 of byte b/8, RAM block b failed this pass
 
@@ -123,9 +134,66 @@ DG_RESCOL       = 60                   ; a stage line's result
 .else
         .word   e2
 .endif
-        .res    10, $FF
+        .res    6, $FF
+        .byte   <BIOS_VMAJ, <BIOS_VMIN ; $801C: the BIOS this was linked with
+        .res    2, $FF
         lda     #DG_B23                ; $8020: the Break stub
         sta     NB_WIN2
+.endmacro
+
+
+; What a run changed, back as /RESET leaves it, with no stack (so Break's too,
+; and the end's: diagcon.inc's PUTBACK is this and an RTS): the aperture's
+; slots, the port, the DMA controller's CONTROL, the sound card's 6510
+; stopped, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
+; cleared and its interrupts off), WAIT0-3 (the diagnostics own WAIT3, and
+; zero every wait state on the way out), the lights, VEC on the flash's top
+; block and W1 on block 1. W0 and W2 are the BIOS's to put back: its BOOT
+; and MONBOOT (DG_TBOOT, DG_TMON) start with W0.
+.macro PUTBACKM
+        .local slot, via, skipvia
+                ldx     #6
+slot:           txa
+                lsr     a
+                sta     VIDEO_SLOT0,x
+                stz     VIDEO_SLOT0 + 1,x
+                dex
+                dex
+                bpl     slot
+                lda     #1
+                sta     VIDEO_PSTEP
+                stz     VIDEO_PSTEP + 1
+                stz     VIDEO_PCTL
+                lda     #$70
+                sta     DMA_CONTROL
+                lda     SOUND_ID
+                and     #$F0
+                cmp     #SOUND_TYPE
+                bne     via
+                lda     SOUND_CTRL
+                and     #<~SOUND_RUN
+                sta     SOUND_CTRL
+via:            stz     VIA_ACR        ; timer 1 one-shot; then started on a count it ends at once
+                lda     #2
+                sta     VIA_T1CL
+                stz     VIA_T1CH
+                nop
+                nop
+                nop
+                nop
+                lda     #$7F
+                sta     VIA_IER
+                sta     VIA_IFR
+skipvia:        stz     NB_WAIT0
+                stz     NB_WAIT1
+                stz     NB_WAIT2
+                stz     NB_WAIT3
+                stz     CONSOLE_DISPLAY
+                stz     CONSOLE_CTRL
+                lda     #DG_FLASH31
+                sta     NB_VEC
+                lda     #1
+                sta     NB_WIN1
 .endmacro
 
 .endif

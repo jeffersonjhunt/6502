@@ -119,7 +119,9 @@ is let go. BPADDR, BPCTRL, STATUS's HIT, PADDR, DISPLAY and the latched cycle ar
 START catches an address in the boot, and START with the HALT switch at HALT stops at the reset vector's first
 instruction, to step from there. LOCK ignores START.
 
-The BIOS leaves the card as reset leaves it, and Break turns IEN off and clears ISR.
+The BIOS leaves the card as reset leaves it, and Break turns IEN off and clears ISR. *Proposed* (BIOS 0.14,
+[hw/diag.md](../../hw/diag.md)): at reset the BIOS writes BPCTRL 0 when BPADDR holds `$BD1A5`, the ROM diagnostics'
+own breakpoint test address, and only then: a breakpoint you set at `$BD1A5` is turned off by every reset.
 
 In Apple II mode the card's registers are out of reach, with the rest of the I/O hole
 ([chapter 2](02-memory-and-banking.md#the-io-hole)), but the panel still works: halting, stepping, EXAM, DEP, the

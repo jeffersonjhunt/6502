@@ -124,6 +124,46 @@ PUTDEC:
                 ldy     #1
 @none:          rts
 
+; A/X (low, high) in decimal, no leading zeros (the pass, review MM14).
+PUTDEC16:
+                sta     DG_N16
+                stx     DG_N16 + 1
+                phy
+                ldy     #0             ; a digit printed yet
+                ldx     #0             ; the power of ten
+@place:         lda     #'0'
+                sta     DG_T0 + 3
+@sub:           lda     DG_N16
+                sec
+                sbc     TENSLO,x
+                pha
+                lda     DG_N16 + 1
+                sbc     TENSHI,x
+                bcc     @out
+                sta     DG_N16 + 1
+                pla
+                sta     DG_N16
+                inc     DG_T0 + 3
+                bra     @sub
+@out:           pla
+                lda     DG_T0 + 3
+                cmp     #'0'
+                bne     @print
+                cpy     #0
+                beq     @none
+@print:         jsr     PUTC
+                ldy     #1
+@none:          inx
+                cpx     #4
+                bne     @place
+                lda     DG_N16
+                ora     #'0'
+                jsr     PUTC
+                ply
+                rts
+TENSLO:         .byte   <10000, <1000, <100, <10
+TENSHI:         .byte   >10000, >1000, >100, >10
+
 ; The screen's cursor to row A, column 0, and the screen on for what follows
 ; (if there is one); X kept.
 ATROW:
@@ -466,68 +506,18 @@ ENDRUN:
 @wait:          jsr     KEYGET
                 bcc     @wait
                 sta     DG_KEY
-                jsr     PUTBACK
+                jsr     PUTBACK        ; (W0 kept: DG_KEY is still the run's)
                 lda     DG_KEY
                 cmp     #$1B
                 beq     @mon
-                jmp     BOOT
-@mon:           jmp     MONBOOT
+                jmp     DG_TBOOT
+@mon:           jmp     DG_TMON
 
-; What the run changed, back to the values /RESET leaves (hw/diag.md, plan
-; 2): the aperture's slots, the port, the DMA controller's CONTROL, the sound
-; card's 6510 stopped, the VIA (ACR 0, timer 1 a one-shot left to run out,
-; its flags cleared and its interrupts off), WAIT0-3, the lights, VEC on the
-; flash's top block, and W0 and W1 on blocks 0 and 1. The caller jumps to the
-; BIOS (W3) at once after: W0's move takes the stack with it. W2 stays on
-; this block until the BIOS maps its own.
+; What the run changed, back as /RESET leaves it (diag.inc's PUTBACKM). W0 stays,
+; so the zero page is still the run's: the caller jumps to the BIOS's trampoline
+; after (DG_TBOOT or DG_TMON), whose BOOT puts W0 back on block 0.
 PUTBACK:
-                ldx     #6
-@slot:          txa
-                lsr     a
-                sta     VIDEO_SLOT0,x
-                stz     VIDEO_SLOT0 + 1,x
-                dex
-                dex
-                bpl     @slot
-                lda     #1
-                sta     VIDEO_PSTEP
-                stz     VIDEO_PSTEP + 1
-                stz     VIDEO_PCTL
-                lda     #$70
-                sta     DMA_CONTROL
-                lda     SOUND_ID
-                and     #$F0
-                cmp     #SOUND_TYPE
-                bne     @via
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
-@via:           stz     VIA_ACR        ; timer 1 one-shot; then started on a count it ends at once
-                lda     #2
-                sta     VIA_T1CL
-                stz     VIA_T1CH
-                nop
-                nop
-                nop
-                nop
-                lda     #$7F
-                sta     VIA_IER
-                sta     VIA_IFR
-                stz     NB_WAIT0
-                stz     NB_WAIT1
-                stz     NB_WAIT2
-                stz     NB_WAIT3
-                stz     CONSOLE_DISPLAY
-                stz     CONSOLE_CTRL
-                lda     #DG_FLASH31
-                sta     NB_VEC
-                lda     #1
-                sta     NB_WIN1
-                ply                    ; the return, off the stack before W0 moves
-                plx
-                stz     NB_WIN0
-                phx
-                phy
+                PUTBACKM
                 rts
 
 ; The text screen's rows' card addresses

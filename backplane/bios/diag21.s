@@ -6,7 +6,7 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .include "diag.inc"
-.import BOOT, MONBOOT
+.importzp BIOS_VMAJ, BIOS_VMIN
 
 .segment "D21"
                 DG_HEADER 2, START
