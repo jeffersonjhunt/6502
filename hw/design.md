@@ -2395,6 +2395,11 @@ module, and the tests that program the controller are redone for revision 2: `te
 
 #### /SEL and the chassis: timing ####
 
+**Decided (the owner, 2026-11-14): what goes where.** The expansion chassis is a separate box on a cable, so the
+buffered link stays: its buffers, /CDRV and /SEL. **Memory (RAM and flash) is only ever in the main chassis, by
+convention;** cards with registers and cards with DMA may go in either. The reason is the link's delay, below: 55 ns
+parts already use the backplane's margin, and the link adds 20 ns more on a read.
+
 **Proposed.** Every card pulls /SEL whenever it drives the data bus, so that it works in the chassis as on the
 backplane:
 
@@ -2437,14 +2442,30 @@ before PHI2 falls. Assumed delays:
 |---|---|---|---|---|---|
 | Backplane, memory | 45 ns (30 + 10 + 5) | 55 ns | 129.7 − 55 − 5 (steering) − 5 (the CPU card) = 64.7 ns from select | 9.7 ns spare | 5.3 ns short: one wait state |
 | Backplane, registers (CPLD, data out by PHI2 + 10, on D0–D7 with no steering) | 45 ns | 55 ns | data at 80 + 5 = 85 ns | 44.7 ns spare | |
-| Chassis, memory | 60 ns (+ the backplane end's buffer, the cable, the chassis end's) | 70 ns (at PHI2's rise: /SEL just in time) | 129.7 − 70 − 5 (steering) − 20 (four transceivers and the cable back) = 34.7 ns from select | 20.3 ns short: one wait state | 35.3 ns short: one wait state |
 | Chassis, registers | 60 ns | 70 ns | data at 80 + 20 = 100 ns (the buffers enabled at 78 and 88) | 29.7 ns spare | |
 
 - **At 7.16 MHz (decided, review round 1): flash and RAM are 55 ns parts.** With them, memory on the backplane needs
   no wait states, and cards with registers work anywhere. A 70 ns part would need a wait state: the "55–70 ns ...
   with margin" of [CPU and clocks](#cpu-and-clocks) predates the card decode and the lane steering.
-- **Memory belongs on the backplane.** A memory card in the chassis needs parts of 35 ns or less, or pulls RDY for a
-  wait state itself (the north bridge's WAITn are by module ID, which memory no longer has).
+- **DMA with a card in the chassis and memory in the main chassis.** The controller drives the address and PS at
+  the cycle's start: at the backplane by 15 ns (its CPLD and the CPU card's transceiver), at the chassis card by
+  30 ns (the link's 15).
+  - **Card to memory** (the chassis card drives the data bus). The card decodes the grant (PS its own, /DMA low) and
+    pulls /SEL by 40 ns. /CDRV leaves the chassis end by 45 ns and reaches the backplane end by 50 ns, so both ends
+    face the backplane well before PHI2 rises. They enable at 70 ns and 78 ns. The card drives its byte at 80 ns; it
+    is through the chassis end, the cable and the backplane end by 95 ns, and in the memory card, after its lane
+    steering, by 100 ns. A 55 ns SRAM wants its write data about 25 ns before the write ends at PHI2's fall
+    (139.7 ns), so by about 115 ns: 15 ns spare. /CDRV covers the case; the flash is never written by DMA.
+  - **Memory to card** (the memory drives, the link keeps its default direction, toward the chassis). The memory card
+    is selected by 25 ns and its byte is on the backplane by 90 ns (55 ns, the steering and its transceiver), at the
+    chassis card by 105 ns, before the card latches it at PHI2's fall: about 25 ns spare.
+- **A memory card plugged into the chassis anyway** (against the convention) answers reads too late. Its read takes
+  the link's 20 ns on top of its own path, so a 55 ns part's data reaches the CPU card about 20 ns after the CPU has
+  latched it (34.7 ns left from select, against the part's 55). Reads then return wrong data, unless the card were
+  built with 35 ns parts or pulled RDY for a wait state itself (the north bridge's WAITn are by module ID, which
+  memory no longer has). Writes would mostly work, which makes the fault look intermittent. **Nothing detects it,
+  and nothing has to.** The ROM diagnostics' RAM stages would most likely report the card's blocks as bad, but
+  that is a symptom, not a check.
 - **A 14.3 MHz turbo** (69.8 ns, about 30 ns for a read) leaves nothing for the link: every card in the chassis
   would need a wait state.
 
