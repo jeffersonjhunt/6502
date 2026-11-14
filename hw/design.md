@@ -323,6 +323,41 @@ The north bridge works in two stages:
 The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
 window registers.
 
+### Future: a 65C816 and 16 MB ###
+
+**A note, not a decision (the owner, 2026-11-14).** It records why the module IDs suit a later 65C816 machine
+with up to 16 MB, so the reasoning isn't lost.
+
+- **The RAM cards' IDs already fit.** RAM A–D are IDs 0–3, and today the north bridge chooses them by A19–A18,
+  256 KB each. With 24-bit addresses it would choose them by A23–A22, 4 MB each, and the IDs wouldn't change. A
+  RAM card's ID names the card; how much memory sits behind it is the north bridge's decode.
+- **The CPU's own multiplexing stays on the CPU card.** The W65C816S puts its bank byte (A16–A23) on D0–D7 while
+  PHI2 is low. The north bridge's CPLD would latch it, as it already turns the CPU's 16-bit addresses into 20-bit
+  physical ones. The backplane carries what the north bridge drives, not the CPU's pins.
+- **Two ways to get A20–A23 to the cards.** Every pin of the 62-pin connector is in use (the bus pin-out is in
+  [modules.md](modules.md)).
+  - *Wider bus:* four more address lines, which needs a bigger connector (as ISA's extra row did). The cards are
+    unchanged.
+  - *Multiplexed bus, the 65C816's own way:* the north bridge drives the upper address bits on D0–D7 while PHI2
+    is low, when the data lines are idle, and holds them in a latch. This needs no new pins. Only cards that decode
+    above 1 MB (the RAM cards) need a latch, and I/O cards ignore the phase. Every bus master (the DMA controller,
+    the bus spy) must drive or latch that phase too. `/IACK`'s poll rides a normal read cycle, so it stays clear
+    of the address phase. PHI2 low is about 70 ns at 7.16 MHz (about 35 ns at a 14.3 MHz turbo), which leaves
+    room for a fast latch.
+- **Room for ROM and I/O.** Four 4 MB RAM cards would fill all 16 MB. The north bridge would set aside a region
+  for ROM, the I/O blocks and the video aperture, and leave the RAM behind it unused, as the aperture already hides
+  64 KB of RAM C.
+- **The windows.** Each window's register names one of 64 blocks of 16 KB. 16 MB is 1,024 blocks, so the
+  registers widen. A 65C816 can also reach memory directly by its 24-bit addresses, so much code would need no
+  window at all.
+- **Software is partly ready.**
+  - Programs keep the 65C816 rules ([hw/oodos.md](oodos.md#rules-for-programs-the-65c816)), so they run unchanged
+    on it.
+  - Some interfaces already carry three-byte addresses: `DM_COPY`, and card addresses.
+  - What doesn't fit 16 MB: block numbers are 6 bits throughout (the allocator, function 55, FARCALL, OOLIB's
+    `GX_BLOCK`), and physical addresses are checked against 1 MB. Under AGENTS.md's "interfaces only grow" rule,
+    these would come as additions (new functions or wider forms, the old ones kept), in an OODOS phase after 1.0.
+
 
 ## Boot ##
 
