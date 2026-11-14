@@ -732,6 +732,13 @@ Each new case was seen failing (NN1, NN2 and NN4's on the ROM of `06839a1`; NN3'
 code reverted) and passing on the fix. Sizes after: block 23 7,758 bytes (the core 7,037, the library 721); block 31
 has grown by 486 bytes in all (its code to `$E409`, and the trampolines' 6), 7,146 bytes free.
 
+**The final check (2026-11-14), NNN1, accepted by the owner.** A module that is fitted but has D0 open floats that bit
+alone, so its two reads differ and NN2's rule reports it "not answering", its blocks left out, where an open data
+line is the fault. Stage 3 still fails, so nothing passes that shouldn't; only the fault's name is wrong. Calling a
+module absent only when its reads are the bytes last fetched would fix it on the emulator, but what a real floating
+bus reads back is unknown, and on the board that rule could report a missing module as a data-line fault again.
+Revisit with a real board.
+
 **SYSINFO's clock, after D3a's review (2026-11-14, the owner's option B).** BIOS 0.14's new timing put an OODOS
 interrupt at the end of SYSINFO's one-second window in one case (7,159,411 Hz, outside the 0.002% check), so
 `HW_CLOCK` (hwclock.s) now takes three windows back to back and keeps the middle count. Anything that makes a
