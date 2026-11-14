@@ -724,8 +724,8 @@ B_DIAG:         JSR     BIENTER
 @bad:           JMP     BADCMD
 
 ; DIAG's option list into DIAGX: carry clear, or set for a word that isn't
-; FULL or ASK. The words are between '[' and ']' (or the tail's end), with
-; commas or blanks between them.
+; FULL or ASK, or a start of one. The words are between '[' and ']' (or the
+; tail's end), with commas or blanks between them.
 DIAGOPT:        STZ     DIAGX
                 LDX     #0
 @find:          CPX     TAILLEN
@@ -760,32 +760,31 @@ DIAGOPT:        STZ     DIAGX
 @ok:            CLC
 @done:          RTS
 
-; Carry clear, X past it, if the tail at X is the word at DWORDS + Y and
-; ends there (a comma, a blank, ']' or the tail's end); else carry set, X
-; as it was.
+; Carry clear, X past it, if the tail's word at X (to a comma, a blank, ']'
+; or the tail's end) is the word at DWORDS + Y or a start of it, as the
+; utilities' options may be shortened (FULL's and ASK's first letters
+; differ); else carry set, X as it was.
 DMATCH:         STX     DSAVE
-@char:          LDA     DWORDS,Y
+@char:          CPX     TAILLEN
                 BEQ     @end
-                CPX     TAILLEN
-                BEQ     @no
-                CMP     TAILBUF,X
+                LDA     TAILBUF,X
+                CMP     #']'
+                BEQ     @end
+                CMP     #','
+                BEQ     @end
+                CMP     #' '
+                BEQ     @end
+                CMP     DWORDS,Y       ; the word's 0 at its end matches no letter
                 BNE     @no
                 INX
                 INY
                 BRA     @char
-@end:           CPX     TAILLEN
-                BEQ     @yes
-                LDA     TAILBUF,X
-                CMP     #']'
-                BEQ     @yes
-                CMP     #','
-                BEQ     @yes
-                CMP     #' '
-                BEQ     @yes
+@end:           CPX     DSAVE          ; a letter at least
+                BEQ     @no
+                CLC
+                RTS
 @no:            LDX     DSAVE
                 SEC
-                RTS
-@yes:           CLC
                 RTS
 
 DIAGQ:          .byte   "The ROM's diagnostics test all of memory and overwrite it: OODOS stops,", 13, 10

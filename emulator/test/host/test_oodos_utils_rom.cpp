@@ -25,8 +25,9 @@
  *   - DIAG (function 75 with A = 2, interface 10; hw/diag.md's plan 2, D3c): N
  *     is the prompt again with the card's image as it was; Y runs the ROM's
  *     diagnostics, quick, from their first lines on the serial line to their
- *     end, and a key boots OODOS from the card again; [FULL] and [ASK] are the
- *     run's options, any other option or a file is the command and '?'; a
+ *     end, and a key boots OODOS from the card again; [FULL] and [ASK] (or a
+ *     start of either) are the run's options, any other option or a file is
+ *     the command and '?'; a
  *     program's record written and left in a changed buffer just before 75
  *     (DIAGWB.COM, oodos/sys/test/diagwb.s) is on the card after the boot;
  *     with flash block 23 erased (a machine whose second flash line blanks it)
@@ -368,7 +369,8 @@ TEST(diag_full_and_ask_are_the_forms_options)
     for (const auto &[tail, full, ask] : {std::tuple<std::string, bool, bool>{" [FULL]", true, false},
                                           {" [ASK]", false, true},
                                           {" [FULL,ASK]", true, true},
-                                          {" [ ASK FULL ]", true, true}})
+                                          {" [ ASK FULL ]", true, true},
+                                          {" [F,A]", true, true}}) // shortened, as the utilities' options may be
     {
         RomRig r;
         REQUIRE(r.ok);
