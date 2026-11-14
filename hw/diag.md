@@ -898,6 +898,33 @@ The other new cases (the good machine's card stages with an SD card, the bus tra
   *Alternative:* D2 only over the blocks that passed, the must-fail case then a fault that only DMA sees, which the
   emulator's FaultyMemory can't make.
 
+**D3b's review, round 1, P1-P6 (2026-11-14), fixed as the owner decided** (D3b-1 to D3b-4 and the changed
+expectations accepted). Each fix's test was seen failing on the round's tip (`1e3c0ef`) and passing after:
+
+- **P1, Break left cards running:** `QUIETM` (every card quiet, stage 0's) moves to `diag.inc` and starts `PUTBACKM`,
+  so Break and the end alike abort DMA and clear its modes, abandon a busy SD command, silence the SIDs, flush the
+  stream and stop the ES5503 before the boot. Tests: Break in S10's first tone (SID A's volume and gate were `$0F`
+  and 1 at BOOT, now 0); Break during SD4's transfer (channel 0's MODE was left 1 at BOOT, now 0; the boot reaches
+  `A>`).
+- **P2, a card that stays busy:** `SDREAD` writes no command when `SDIDLE` finds the card busy and fails the test;
+  every busy path goes through `SDSTUCK` (CTRL's RESET, which abandons the command and writes nothing, and channel 0
+  aborted). Test: STATUS's BUSY held on from SD3 (three commands were written into the busy card, and no RESET) and
+  from SD4 (no RESET); the card's image stays clean.
+- **P3, D2:** a failed block whose `+$3FF0` holds another block's tag (NB2's: of two blocks that answer as one, the
+  last written) answers as that block, and isn't filled or checked (`ASALIAS`, into `SKIPS`): filling it wrote over
+  the other, and D2 named a block from another's fill. (The review's "lower block": stage 4 fails the block it read
+  wrong, which can be the lower one of the pair, so the rule takes another block either way.) Every faulty block is
+  now marked failed, the first eight named. Tests: block 20 answering as block 10 (D2 named block 10 from block 20's
+  fill); ten blocks going bad after stage 6 (D3 took the unmarked ninth and tenth and failed).
+- **P4:** the good machine's case checks V3's frame within 2 cycles of 119,437, S9 within 2 of 2,051 frames, D5's
+  bytes left between 4,080 and 4,095. V3 now gives NB6's 60 frames / 60 (119,437 on the emulator), not one frame by
+  HW_CLOCK, whose poll grain made it 119,460-119,475; one frame is its way when NB6 didn't measure.
+- **P5, P6:** DMAWAIT's comment (about 13 ms); `diag.inc`'s stack note to `bios.cfg`'s layout; the block-22-blanked
+  case renamed to what it checks.
+
+Sizes after: block 22 13,524 bytes (2,860 free), block 21 8,179, block 23 8,127 (`QUIETM` in each block's put-back),
+block 31 unchanged (code to `$E409`).
+
 #### D3c: the launcher and the books ####
 
 - **What:** `oodos/sys/ccp.s` (the `DIAG` built-in), `bdos.s` (75 with A = 2, the interface version 10),
