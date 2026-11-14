@@ -64,7 +64,7 @@ def main():
         open(a.free, "w").write("%d\n" % free)
     for b in a.block:
         bs = segments(b)
-        used = sum(v[2] for k, v in bs.items() if k in ("BLKHDR", "CODE", "RODATA", "DATA", "BRAM", "FARFIX"))
+        used = sum(v[2] for k, v in bs.items() if k in ("BLKHDR", "HOMTAB", "CODE", "RODATA", "DATA", "BRAM", "FARFIX"))
         print("  %s: %d bytes of 12,288, %d free" % (b.rsplit("/", 1)[-1], used, 12288 - used))
         if used > 12288:
             bad = 1

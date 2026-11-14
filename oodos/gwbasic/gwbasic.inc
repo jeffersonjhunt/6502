@@ -542,6 +542,14 @@ BLK_END         = $F800                ; common memory from here, copied in by t
 
 .global FARMISS
 .include "entries.inc"
+; The home block's entries (P8, p8/home.s: 7c's home block) are the resident
+; core's and the home block's alone: a banked block P1-P7 is assembled with
+; NOHOME, so a FJSR from it to the home block names no page, and fails.
+.ifndef NOHOME
+.include "homent.inc"
+.endif
+HOMTAB          = BLK_BASE + $20       ; the home block's STMDSP (home.cfg)
+HOMPAGE         = 8                    ; the home block's page
 
 ; Long branches: a branch past +-127 bytes, as a short one round a JMP.
 .macro  JNE     t

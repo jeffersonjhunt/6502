@@ -20,7 +20,7 @@
 ;   BRKMSG INPRT   "Break"); MATH1.ASM's INPRT
 ;   ERREDT         after a Syntax error, its line to edit (SCNEDT.ASM)
 ;   EDITP          EDIT n, the same way (SCNEDT.ASM's EDIT, reached by
-;                  res/gwmain.s's stub)
+;                  p8/gwmain.s's stub)
 ;
 ; CRUNCH's text pointer is TXTPTR (the 8086's BX), as CHRGTR, LINGET and
 ; $FIN want it; its deposit pointer and count are KDP and KCNT (DX, CX), and

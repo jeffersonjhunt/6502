@@ -3805,6 +3805,8 @@ only if a cost measured in a sub-phase forces it.
    - It is a lever for the TPA, not a need. With the margin below (34,210 bytes free, or about 33,600–34,600 in
      the bad case once the buffers are out), nothing has to move into a home block.
    - **Decided (2026-11-13, the owner): none.**
+   - **Reopened and built (2026-11-14, the owner):** 7b left 236 bytes above the warning, so 7c starts with the
+     home block, block P8, as below and [as built](#the-sub-phases) under 7c (+2,000 bytes free).
    - **If 7a's measured resident size breaks the gate,** the home block can be had with no change to FARCALL or
      OODOS. GW-BASIC's start-up code would far call the home block's main loop once and not return until SYSTEM.
      W3 then holds the home block between far calls, and FARCALL's return puts it back, since FARCALL returns to
@@ -4097,6 +4099,45 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Size:** 8.5 KB banked, and P5's seed.
   - **Cycles:** a file statement makes one far call, then its BDOS calls. A 128-byte record costs what the BDOS's
     does. BLOAD of 64 KB goes by `DM_LOAD` in about 16 ms.
+  - **As built, step 1: the home block** (Proposed, 2026-11-14; the owner's choice A, which reopens [deferred
+    question 1](#without-the-three-deferred-questions) before 7c's resident work):
+    - **Where:** block P8 (`oodos/gwbasic/p8/`), so the loader, GWBASIC.OVL's pages 1–8 and the loader's
+      "9 blocks" refusal are unchanged. It holds what no banked block calls:
+      - FOR and NEXT, WHILE and WEND, RETURN, the DEF types;
+      - READY, MAIN and FINI;
+      - the stubs of P1's, P2's and P3's statements;
+      - STMDSP, at a fixed address (`HOMTAB`, `$C820`, by `home.cfg`).
+    - **What stays resident:**
+      - the statement fetcher (NEWSTT, GONE, GONE2), its trap poll, GONE4 and GOSUB (GOSUB2 shares GOSPSH);
+      - IF, GOTO, LET and RUN.
+      - A jump from the home block back into the fetcher would cost 3 cycles a statement, so the fetcher stays
+        and reads STMDSP in W3.
+    - **The invariant: W3 holds the home block whenever NEWSTT runs.**
+      - INITSA keeps S in `HOMSTK` and far calls the home block's READY, never to return.
+      - Resident code that ends in the main loop, perhaps with a banked block in W3, goes through
+        `res/home.s`: S is set back to `HOMSTK`, then a far call goes to a home entry (HREADY, HGONE4, HFINI).
+      - That covers ERROR's READY, ON ERROR's GONE4, ENDCON's and ^C's READY, and P2's FINI. The stack under
+        the home block is one far call frame at every entry.
+      - P3's ON no longer jumps to GONE2 itself: it leaves the token in `ONTOK`, and the home block's stub
+        makes the 8086's tail call.
+    - **The rule, kept by the build:**
+      - P1–P7 are assembled with `NOHOME`, so they have no home block entries (`homent.inc`, from gwgen.py).
+      - They link with the resident core's exports alone, so a banked FJSR or JSR into the home block doesn't
+        assemble or link (both shown).
+      - The resident core reaches the home block only by FJSR, and the rules gate refuses any other jump out of
+        the program.
+    - **Measured** (test_gwbasic_core, before → after):
+      - **bytes free:** 34,028 → 36,028 (+2,000). Resident code and tables 12,821 → 10,819, fixed RAM
+        1,524 → 1,526. P8 is 2,131 bytes, 10,157 free.
+      - **the core loop:** 5,217 → 5,216 cycles a pass, with no far call.
+      - **`PRINT ;`:** 813 → 811 cycles a statement, its far call included.
+      - **the far call's crossing:** 284 cycles, from FTSITE, kept resident.
+      - **an error, a ^C, an END and start-up:** each makes one far call more, about 300 cycles.
+    - **Must-fail cases** (test_gwbasic_core), each seen failing on a broken build:
+      - an error raised in P1 and in P3, then more statements: fails with ERROR's way to READY made without the
+        far call;
+      - 1,000 errors trapped, with S constant at NEWST1: fails with ON ERROR's way back set from SAVSTK;
+      - ^C during LIST, then a statement: fails with ENDCON's way to READY made without the far call.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

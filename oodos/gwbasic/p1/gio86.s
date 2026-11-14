@@ -11,7 +11,7 @@
 ;   PTRWDC          its width, and the last column a comma may go to
 ;   ADRGET          a formula as 0..65535 (TAB's and SPC's)
 ;
-; The resident core's PRINT and LPRINT (res/gwmain.s) far call these, once a
+; The home block's PRINT and LPRINT stubs (p8/gwmain.s) far call these, once a
 ; statement. PRINT # (FILGET, the files) is 7c's: Advanced Feature. PRINT
 ; USING and LPRINT USING go to P3's PRINUS (p3/biprtu.s), as GIO86.ASM's
 ; JPRINU jumps: a far call, whose return is this statement's (PRINUS ends in

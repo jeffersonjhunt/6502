@@ -30,11 +30,12 @@
 ;
 ;   RTNTRP    RETURN's part for an event's GOSUB entry (GWMAIN.ASM 2172):
 ;             the stop taken off its trap (RSTTRP), if the trap is on; the
-;             resident RETURN calls it, since the flag is in P3's TRPTBL
+;             home block's RETURN calls it, since the flag is in P3's TRPTBL
 ;
 ; The far call rule (translate-7b-common.md): ON's chosen GOTO or GOSUB is
-; started by JMP GONE2, a tail call, as the 8086's is: the statement's RTS
-; returns through FARCALL to the stub, whose RTS goes to NEWSTT. RESUME's
+; the 8086's tail call, JMP GONE2, made by the home block's stub (p8/far3.s)
+; with the token ONGOTOP leaves in ONTOK: GONE2 reads STMDSP in the home
+; block, which isn't in W3 while P3 runs (7c's home block). RESUME's
 ; JMP DATA is one too. RESTRP's JMP ERRESM and the errors reset both stacks.
 ; RANDOMIZE returns C set for a ^C at its prompt (the 8086's JMP STPEND),
 ; which the stub takes to STPEND, as INPUT's is. AUTO and RENUM return, and
@@ -56,7 +57,7 @@
 ;@entry RTNTRP
 .export ONGOTOP, RESUMEP, ERRORSP, OPTIONP, RANDOMP, FRMQNT
 .export AUTOP, MAINA, AUTAST, RESEQP, RTNTRP
-.import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, GONE2, DATA, GETBYT
+.import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, ONTOK, DATA, GETBYT
 .import BUF, PRELOD
 .import ERROR, ERRESM, USERR, REERR, FCERR, ONEFLG, ERRTXT, ONGOTP, SETGSB, RSTTRP
 .import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2
@@ -162,8 +163,9 @@ ISGOSU:         LDA     RDL
 ; the 8086 leaves it). A list too short: on to the next statement.
 LOOPON:         DEC     RCL
                 BNE     :+
-                LDA     RCH            ; done: GOTO or GOSUB, a tail call
-                JMP     GONE2
+                LDA     RCH            ; done: GOTO or GOSUB, for the home
+                STA     ONTOK          ; block's stub to start (p8/far3.s)
+                RTS
 :               JSR     LINGT2         ; past a line number
                 CMP     #','
                 BEQ     LOOPON
@@ -171,7 +173,7 @@ LOOPON:         DEC     RCL
 
 ; --- RETURN's event part (GWMAIN.ASM 2172) ----------------------------------------------
 
-; RTNTRP: from the resident RETURN (res/gwmain.s RTRNOK), FORPTR at the
+; RTNTRP: from the home block's RETURN (p8/gwmain.s RTRNOK), FORPTR at the
 ; GOSUB entry's flag address, which isn't 0 (an ON event GOSUB's: GOSUB2).
 ; The 8086's POP BX, and if the trap is on (F_TRPO), RSTTRP: the stop GOTRP
 ; put on it taken off, so a request kept meanwhile is taken now.

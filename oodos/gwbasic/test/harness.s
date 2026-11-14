@@ -38,7 +38,7 @@
 .import SGN, VNEG, VABS, MUL10, DIV10, NEWSTT, ERRHOOK, DADD, DSUB, DCOMP
 .import DINT, FIN, FINDBL, SQR, EXP, LOG, SIN, COS, TAN, ATN, FPWR, RND
 .import FOUTO, FOUTH, RNDX
-.import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, INITFG, TOPS, TOPMEM, INITSA
+.import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, INITFG, TOPS, TOPMEM, INITSA, HOMSTK
 
 CTRL            = $9FF0
 OUTCNT          = $9FFE
@@ -81,6 +81,7 @@ START:          CLD
                 LDA     #$FF           ; as start-up leaves them (GWINIT, INITSA): errors
                 STA     INITFG         ; are BASIC's; both stacks' tops for STKINI
                 STA     TOPS
+                STA     HOMSTK         ; the home block's base (res/home.s)
                 LDA     #<SSTOP
                 STA     TOPMEM
                 LDA     #>SSTOP

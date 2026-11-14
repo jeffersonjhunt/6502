@@ -54,8 +54,8 @@ GWMAIN.ASM CONFC1 -> res/gwmain.s CONFC1
 GWMAIN.ASM FLTLIN -> res/gwmain.s FLTLIN
 GWMAIN.ASM NTLINE -> res/gwmain.s NTLINE
 GWMAIN.ASM CONFDB -> res/gwmain.s CONFDB
-GWMAIN.ASM NOTRNG -> res/gwmain.s NOTRNG
-GWMAIN.ASM LPDCHG -> res/gwmain.s LPDCHG
+GWMAIN.ASM NOTRNG -> p8/gwmain.s NOTRNG
+GWMAIN.ASM LPDCHG -> p8/gwmain.s LPDCHG
 GWMAIN.ASM LINGET -> res/gwmain.s LINGET
 GWMAIN.ASM LINGT2 -> res/gwmain.s LINGT2
 GWMAIN.ASM LINGT3 -> res/gwmain.s LINGT3
@@ -524,11 +524,11 @@ BISTRS.ASM MIDRST -> res/bistrs.s MIDRST
 BISTRS.ASM FRE -> res/bistrs.s FRE
 BISTRS.ASM CLCDIF -> res/bistrs.s CLCDIF
 GWMAIN.ASM LETCN6 -> res/bistrs.s LETSTR # its string half; LET's numeric half is res/gwmain.s's
-GWMAIN.ASM DEFSTR -> res/gwmain.s DEFSTR
-GWMAIN.ASM DEFINT -> res/gwmain.s DEFINT
-GWMAIN.ASM DEFREA -> res/gwmain.s DEFREA
-GWMAIN.ASM DEFDBL -> res/gwmain.s DEFDBL
-GWMAIN.ASM DEFCON -> res/gwmain.s DEFCON
+GWMAIN.ASM DEFSTR -> p8/gwmain.s DEFSTR
+GWMAIN.ASM DEFINT -> p8/gwmain.s DEFINT
+GWMAIN.ASM DEFREA -> p8/gwmain.s DEFREA
+GWMAIN.ASM DEFDBL -> p8/gwmain.s DEFDBL
+GWMAIN.ASM DEFCON -> p8/gwmain.s DEFCON
 GWMAIN.ASM INTIDX -> res/gwmain.s INTIDX
 GWMAIN.ASM INTID2 -> res/gwmain.s INTID2
 GWMAIN.ASM DDERR -> res/biptrg.s DDERR
@@ -581,16 +581,16 @@ GWMAIN.ASM NTDERR -> p2/gwmain.s NTDERR
 GWMAIN.ASM LEPSKP -> p2/gwmain.s LEPSKP
 GWMAIN.ASM ERRFIN -> p2/gwmain.s ERRFIN # P2's ERRPRT (from ERRMOR) and BRKMSG (from ENDCON) come to it
 GWMAIN.ASM ERRFN1 -> p2/gwmain.s ERRFN1
-GWMAIN.ASM STPRDY -> res/gwmain.s READY # the line it pops isn't on the 6502's stack: READY itself
-GWMAIN.ASM READY -> res/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN later 7c
-GWMAIN.ASM REPINI -> res/gwmain.s REPINI
-GWMAIN.ASM MAIN -> res/gwmain.s MAIN # AUTO's line number and "*" offered by P3's MAINA (AUTFLG's test resident)
+GWMAIN.ASM STPRDY -> p8/gwmain.s READY # the line it pops isn't on the 6502's stack: READY itself
+GWMAIN.ASM READY -> p8/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN later 7c
+GWMAIN.ASM REPINI -> p8/gwmain.s REPINI
+GWMAIN.ASM MAIN -> p8/gwmain.s MAIN # AUTO's line number and "*" offered by P3's MAINA (AUTFLG's test resident)
 GWMAIN.ASM AUTELN -> p3/gwmain.s AUTELN # OO-1: the number and "*" into BUF, function 10's preload, not the screen
-GWMAIN.ASM NTAUTO -> res/gwmain.s NTAUTO
-GWMAIN.ASM NTSTOP -> res/gwmain.s NTSTOP
-GWMAIN.ASM MAINBX -> res/gwmain.s MAINBX
-GWMAIN.ASM NTASTC -> res/gwmain.s NTASTC
-GWMAIN.ASM EDENT -> res/gwmain.s EDENT # to CRUNCH and back; a numbered line on in P2's EDENT2
+GWMAIN.ASM NTAUTO -> p8/gwmain.s NTAUTO
+GWMAIN.ASM NTSTOP -> p8/gwmain.s NTSTOP
+GWMAIN.ASM MAINBX -> p8/gwmain.s MAINBX
+GWMAIN.ASM NTASTC -> p8/gwmain.s NTASTC
+GWMAIN.ASM EDENT -> p8/gwmain.s EDENT # to CRUNCH and back; a numbered line on in P2's EDENT2
 GWMAIN.ASM AUTRES -> p2/gwmain.s AUTRES
 GWMAIN.ASM AUTGOD -> p2/gwmain.s AUTGOD
 GWMAIN.ASM LXISTS -> p2/gwmain.s LXISTS
@@ -600,7 +600,7 @@ GWMAIN.ASM INONLY -> p2/gwmain.s INONLY # PROCHK (protected programs) later 7c
 GWMAIN.ASM NODEL -> p2/gwmain.s NODEL
 GWMAIN.ASM LEVFRE -> p2/gwmain.s LEVFRE # CHNFLG later 7c
 GWMAIN.ASM MLOOPR -> p2/gwmain.s MLOOPR
-GWMAIN.ASM FINI -> res/gwmain.s FINI # its CHEAD done in P2 first (p2/gwmain.s FINI2), then RUNC and MAIN
+GWMAIN.ASM FINI -> p8/gwmain.s FINIH # its CHEAD done in P2 first (p2/gwmain.s FINI2), then RUNC and MAIN; P2 reaches it by the resident FINI (res/home.s), which far calls the home block
 GWMAIN.ASM EDTXIT -> p2/gwmain.s FINI2
 GWMAIN.ASM LINKER -> p2/gwmain.s LINKER
 GWMAIN.ASM CHEAD -> p2/gwmain.s CHEAD
@@ -690,8 +690,8 @@ GWMAIN.ASM SCNPT2 -> p2/gwmain.s SCNPT2
 GWMAIN.ASM MAKPTR -> p2/gwmain.s SCNPT2
 GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at CONTXT (res/gwmain.s CONCH2, the spike's)
 GWMAIN.ASM DEPTR -> p2/gwmain.s DEPTR
-GWLIST.ASM LLIST -> res/gwmain.s LLIST # PTRFIL to LPT1, then LIST
-GWLIST.ASM LIST -> p2/gwlist.s LISTP # its resident stub, res/gwmain.s LIST, drops NEWSTT's return and goes to READY
+GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST
+GWLIST.ASM LIST -> p2/gwlist.s LISTP # its home block stub, p8/gwmain.s LIST, drops NEWSTT's return and goes to READY
 GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"device" (NAMSCN, NULOPM) later 7c; POLKEY the OEM's
 GWLIST.ASM LISPRT -> p2/gwlist.s LISPRT
 GWLIST.ASM LISEOL -> dropped: the PC screen's erase to the line's end; the console has no counterpart
@@ -742,7 +742,7 @@ GWLIST.ASM DBLSCN -> p2/gwlist.s DBLSCN
 GWLIST.ASM ZERE -> p2/gwlist.s ZERE
 GWLIST.ASM NUMDN -> p2/gwlist.s NUMDN
 GWLIST.ASM NOD -> p2/gwlist.s NOD
-GWLIST.ASM DELETE -> p2/gwlist.s DELETP # its resident stub res/gwmain.s DELETE; EOSCHK inline
+GWLIST.ASM DELETE -> p2/gwlist.s DELETP # its home block stub p8/gwmain.s DELETE; EOSCHK inline
 GWLIST.ASM FCERRG -> p2/gwlist.s DELETP
 GWLIST.ASM DEL -> p2/gwmain.s DEL
 GWLIST.ASM MLOOP -> p2/gwmain.s MLOOP
@@ -750,7 +750,7 @@ GWSTS.ASM EOSCHK -> p2/gwlist.s DELETP # DELETE's, inline (the rest of GWSTS.ASM
 IBMRES.ASM ALPTAB -> p2/ibmres.s ALPTAB
 IBMRES.ASM RESLST -> p2/ibmres.s RESLST # the words' text the project's own, made by Q and QF
 IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
-IBMRES.ASM STMDSP -> res/tables.s STMDSP # each R and R2 target has its line
+IBMRES.ASM STMDSP -> p8/home.s STMDSP # each R and R2 target has its line
 IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
 IBMRES.ASM STMDSX -> res/ibmres.s STMDSX # SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
 IBMRES.ASM FUNDSX -> later 7c: CVI to MKD$ (the random files'); KTN to KLEN dropped with them (Kanji)
@@ -901,7 +901,7 @@ SCNEDT.ASM ERREDT -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED2 -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED3 -> p2/gwmain.s ERRED3
 SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to show and edit (PRELOD)
-SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub res/gwmain.s EDIT
+SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub p8/gwmain.s EDIT
 SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
 SCNEDT.ASM DSKCHI -> later 7c: a program loaded as text
 SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
@@ -911,7 +911,7 @@ GIO86.ASM CRDONZ -> OEM res/oem.s CRDONZ
 GIO86.ASM CRFIN -> OEM res/oem.s CRFIN
 GIO86.ASM FINLPT -> OEM res/oem.s FINLPT
 GIO86.ASM FINPRT -> OEM res/oem.s FINPRT
-GIO86.ASM DIRDO -> res/gwmain.s EDENT # direct from the keyboard: GONE; a file's direct line (ERFDR) later 7c
+GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; a file's direct line (ERFDR) later 7c
 GIO86.ASM CLSALL -> later 7c: the files closed
 GIO86.ASM NAMSCN -> later 7c: LIST's device
 GIO86.ASM NULOPM -> later 7c: as NAMSCN
@@ -966,43 +966,43 @@ GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
 GIO86.ASM SIDSP -> later 7c: a file's input dispatch
 
 # i2: the statements (step I2 of 7a). Resident: GWMAIN.ASM's FNDFOR, FOR, NXTSCN and WNDSCN, GOSUB and RETURN;
-# NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (res/gwmain.s has their
+# NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (p8/gwmain.s has their
 # layout); and BISTRS.ASM's STROUI. In P1: GWMAIN.ASM's LINE INPUT, INPUT and READ (p1/gwmain.s), GIO86.ASM's
-# PRINT and LPRINT (p1/gio86.s), each reached by a resident stub in res/gwmain.s. The labels inside a routine
+# PRINT and LPRINT (p1/gio86.s), each reached by a stub in the home block, p8/gwmain.s (res/gwmain.s until 7c). The labels inside a routine
 # that matter are named too.
-GWMAIN.ASM FNDFOR -> res/gwmain.s FNDFOR # from SSP; C set when found (the 8086's Z: A may be 0 here)
-GWMAIN.ASM LOOPER -> res/gwmain.s LOOPER
-GWMAIN.ASM STKSRC -> res/gwmain.s STKSRC
-GWMAIN.ASM POPGOF -> res/gwmain.s STKSRC
-GWMAIN.ASM FOR -> res/gwmain.s FOR # NEWSTT's return kept on the 6502's stack; the entry's room taken at once
-GWMAIN.ASM LPFORM -> res/gwmain.s LPFORM
-GWMAIN.ASM NOTOL -> res/gwmain.s NOTOL
-GWMAIN.ASM SNGFOR -> res/gwmain.s SNGFOR
-GWMAIN.ASM STPSGN -> res/gwmain.s STPSGN
-GWMAIN.ASM ONEON -> res/gwmain.s STPSGN
-GWMAIN.ASM NT0STP -> res/gwmain.s NT0STP
-GWMAIN.ASM NXTCON -> res/next86.s FINNXT # the entry stays whole: no token to push back
-GWMAIN.ASM WNDSCN -> res/gwmain.s WNDSCN
-GWMAIN.ASM NXTSCN -> res/gwmain.s NXTSCN # the count and the error in FORCNT and SCNERR (the 8086's CX)
-GWMAIN.ASM SCNCNT -> res/gwmain.s SCNCNT
-GWMAIN.ASM FORINC -> res/gwmain.s FORINC
-GWMAIN.ASM FNLOP -> res/gwmain.s FNLOP
-GWMAIN.ASM SCANWF -> res/gwmain.s SCANWF
-GWMAIN.ASM QTLOPF -> res/gwmain.s QTLOPF
-GWMAIN.ASM NTQTSC -> res/gwmain.s NTQTSC
-GWMAIN.ASM FORTRM -> res/gwmain.s FORTRM
-GWMAIN.ASM FNNWST -> res/gwmain.s FNNWST
-GWMAIN.ASM NTREMR -> res/gwmain.s NTREMR
-GWMAIN.ASM NTDATR -> res/gwmain.s NTDATR
-GWMAIN.ASM NXTLOK -> res/gwmain.s NXTLOK
-GWMAIN.ASM DECNXT -> res/gwmain.s DECNXT
-GWMAIN.ASM TRMNXT -> res/gwmain.s TRMNXT
+GWMAIN.ASM FNDFOR -> p8/gwmain.s FNDFOR # from SSP; C set when found (the 8086's Z: A may be 0 here)
+GWMAIN.ASM LOOPER -> p8/gwmain.s LOOPER
+GWMAIN.ASM STKSRC -> p8/gwmain.s STKSRC
+GWMAIN.ASM POPGOF -> p8/gwmain.s STKSRC
+GWMAIN.ASM FOR -> p8/gwmain.s FOR # NEWSTT's return kept on the 6502's stack; the entry's room taken at once
+GWMAIN.ASM LPFORM -> p8/gwmain.s LPFORM
+GWMAIN.ASM NOTOL -> p8/gwmain.s NOTOL
+GWMAIN.ASM SNGFOR -> p8/gwmain.s SNGFOR
+GWMAIN.ASM STPSGN -> p8/gwmain.s STPSGN
+GWMAIN.ASM ONEON -> p8/gwmain.s STPSGN
+GWMAIN.ASM NT0STP -> p8/gwmain.s NT0STP
+GWMAIN.ASM NXTCON -> p8/next86.s FINNXT # the entry stays whole: no token to push back
+GWMAIN.ASM WNDSCN -> p8/gwmain.s WNDSCN
+GWMAIN.ASM NXTSCN -> p8/gwmain.s NXTSCN # the count and the error in FORCNT and SCNERR (the 8086's CX)
+GWMAIN.ASM SCNCNT -> p8/gwmain.s SCNCNT
+GWMAIN.ASM FORINC -> p8/gwmain.s FORINC
+GWMAIN.ASM FNLOP -> p8/gwmain.s FNLOP
+GWMAIN.ASM SCANWF -> p8/gwmain.s SCANWF
+GWMAIN.ASM QTLOPF -> p8/gwmain.s QTLOPF
+GWMAIN.ASM NTQTSC -> p8/gwmain.s NTQTSC
+GWMAIN.ASM FORTRM -> p8/gwmain.s FORTRM
+GWMAIN.ASM FNNWST -> p8/gwmain.s FNNWST
+GWMAIN.ASM NTREMR -> p8/gwmain.s NTREMR
+GWMAIN.ASM NTDATR -> p8/gwmain.s NTDATR
+GWMAIN.ASM NXTLOK -> p8/gwmain.s NXTLOK
+GWMAIN.ASM DECNXT -> p8/gwmain.s DECNXT
+GWMAIN.ASM TRMNXT -> p8/gwmain.s TRMNXT
 GWMAIN.ASM GOSUB -> res/gwmain.s GOSUB
 GWMAIN.ASM GOSUB2 -> res/gwmain.s GOSUB2 # reached from the poll (TRPOLL) when GOTRP returns C set; the entry made by GOSPSH, GOSUB's too
-GWMAIN.ASM RETURN -> res/gwmain.s RETURN
-GWMAIN.ASM RTRNOK -> res/gwmain.s RTRNOK # SAVSTK left past the token, as the 8086's
-GWMAIN.ASM NOTEVT -> res/gwmain.s NOTEVT # an event's entry first: P3's RTNTRP (the F_TRPO test, RSTTRP; the flag is in P3)
-GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its resident stub res/gwmain.s LINE; GLINE later 7e, DLINE 7c
+GWMAIN.ASM RETURN -> p8/gwmain.s RETURN
+GWMAIN.ASM RTRNOK -> p8/gwmain.s RTRNOK # SAVSTK left past the token, as the 8086's
+GWMAIN.ASM NOTEVT -> p8/gwmain.s NOTEVT # an event's entry first: P3's RTNTRP (the F_TRPO test, RSTTRP; the flag is in P3)
+GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its home block stub p8/gwmain.s LINE; GLINE later 7e, DLINE 7c
 GWMAIN.ASM RELINE -> p1/gwmain.s RELINE # LETCN2 as INPCOM, the variable in PTR
 GWMAIN.ASM TRYAGN -> p1/gwmain.s TRYAGN
 GWMAIN.ASM SCNSTR -> p1/gwmain.s SCNSTR
@@ -1011,7 +1011,7 @@ GWMAIN.ASM TRMNOK -> p1/gwmain.s TRMNOK
 GWMAIN.ASM RDOIN2 -> p1/gwmain.s RDOIN2
 GWMAIN.ASM RDOINP -> p1/gwmain.s RDOINP
 GWMAIN.ASM FILSTI -> later 7c: INPUT #
-GWMAIN.ASM INPUT -> p1/gwmain.s INPUTP # its resident stub res/gwmain.s INPUT; the two text pointers TXTPTR and OTHPTR (XTHL)
+GWMAIN.ASM INPUT -> p1/gwmain.s INPUTP # its home block stub p8/gwmain.s INPUT; the two text pointers TXTPTR and OTHPTR (XTHL)
 GWMAIN.ASM QTINP -> p1/gwmain.s QTINP # TEMPA+1 is INPQM; CNTOFL (^O) has no counterpart
 GWMAIN.ASM NTICMA -> p1/gwmain.s NTICMA
 GWMAIN.ASM INPCMA -> p1/gwmain.s INPCMA
@@ -1026,7 +1026,7 @@ GWMAIN.ASM LEFPRN -> p1/gwmain.s LEFPRN
 GWMAIN.ASM ENDSCN -> p1/gwmain.s ENDSCN
 GWMAIN.ASM OKVLST -> p1/gwmain.s OKVLST
 GWMAIN.ASM INPCN3 -> p1/gwmain.s INPCN3
-GWMAIN.ASM READ -> p1/gwmain.s READP # its resident stub res/gwmain.s READ
+GWMAIN.ASM READ -> p1/gwmain.s READP # its home block stub p8/gwmain.s READ
 GWMAIN.ASM INPCON -> p1/gwmain.s INPCON
 GWMAIN.ASM LOPDT2 -> p1/gwmain.s LOPDT2
 GWMAIN.ASM LOPDAT -> p1/gwmain.s LOPDAT
@@ -1042,31 +1042,31 @@ GWMAIN.ASM FINPRG -> p1/gwmain.s FINPRG
 GWMAIN.ASM DATLOP -> p1/gwmain.s DATLOP
 GWMAIN.ASM DATFND -> p1/gwmain.s DATFND
 GWMAIN.ASM NOWLIN -> p1/gwmain.s NOWLIN
-NEXT86.ASM NF1 -> res/next86.s NF1
-NEXT86.ASM NEXT -> res/next86.s NEXT # the entry stays where it is, SSP at it; NEWSTT's return on the 6502's stack
-NEXT86.ASM NEXTS -> res/next86.s NEXTS
-NEXT86.ASM NEXTS1 -> res/next86.s NEXTS1
-NEXT86.ASM NEXTC -> res/next86.s NEXTC
-NEXT86.ASM NEXTC1 -> res/next86.s NEXTC1 # the 8086's TEMP is NXTTMP
-NEXT86.ASM NXTDO -> res/next86.s NXTDO
-NEXT86.ASM NXTDOA -> res/next86.s NXTDOA
-NEXT86.ASM INTNXT -> res/next86.s INTNXT
-NEXT86.ASM INXTDO -> res/next86.s INXTDO
-NEXT86.ASM IFORIN -> res/next86.s IFORIN
-NEXT86.ASM FINNXT -> res/next86.s FINNXT
-NEXT86.ASM LOOPDN -> res/next86.s LOOPDN
-NEXT86.ASM LOOPD1 -> res/next86.s LOOPDN
-NEXT86.ASM OV1 -> res/next86.s OV1
-NEXT86.ASM NS1 -> res/next86.s NS1
-FIVEO.ASM WHILE -> res/fiveo.s WHILE # the 8086's ENDFOR is WHLTXT
-FIVEO.ASM WNOTOL -> res/fiveo.s WNOTOL
-FIVEO.ASM WEND -> res/fiveo.s WEND
-FIVEO.ASM FNWEND -> res/fiveo.s FNWEND
-FIVEO.ASM FLSWHL -> res/fiveo.s FLSWHL
-FIVEO.ASM FNDWND -> res/fiveo.s FNDWND # C set when found
-FIVEO.ASM FNDWN2 -> res/fiveo.s FNDWN2
-FIVEO.ASM FNDWN3 -> res/fiveo.s FNDWN3
-FIVEO.ASM WEERR -> res/fiveo.s WEND
+NEXT86.ASM NF1 -> p8/next86.s NF1
+NEXT86.ASM NEXT -> p8/next86.s NEXT # the entry stays where it is, SSP at it; NEWSTT's return on the 6502's stack
+NEXT86.ASM NEXTS -> p8/next86.s NEXTS
+NEXT86.ASM NEXTS1 -> p8/next86.s NEXTS1
+NEXT86.ASM NEXTC -> p8/next86.s NEXTC
+NEXT86.ASM NEXTC1 -> p8/next86.s NEXTC1 # the 8086's TEMP is NXTTMP
+NEXT86.ASM NXTDO -> p8/next86.s NXTDO
+NEXT86.ASM NXTDOA -> p8/next86.s NXTDOA
+NEXT86.ASM INTNXT -> p8/next86.s INTNXT
+NEXT86.ASM INXTDO -> p8/next86.s INXTDO
+NEXT86.ASM IFORIN -> p8/next86.s IFORIN
+NEXT86.ASM FINNXT -> p8/next86.s FINNXT
+NEXT86.ASM LOOPDN -> p8/next86.s LOOPDN
+NEXT86.ASM LOOPD1 -> p8/next86.s LOOPDN
+NEXT86.ASM OV1 -> p8/next86.s OV1
+NEXT86.ASM NS1 -> p8/next86.s NS1
+FIVEO.ASM WHILE -> p8/fiveo.s WHILE # the 8086's ENDFOR is WHLTXT
+FIVEO.ASM WNOTOL -> p8/fiveo.s WNOTOL
+FIVEO.ASM WEND -> p8/fiveo.s WEND
+FIVEO.ASM FNWEND -> p8/fiveo.s FNWEND
+FIVEO.ASM FLSWHL -> p8/fiveo.s FLSWHL
+FIVEO.ASM FNDWND -> p8/fiveo.s FNDWND # C set when found
+FIVEO.ASM FNDWN2 -> p8/fiveo.s FNDWN2
+FIVEO.ASM FNDWN3 -> p8/fiveo.s FNDWN3
+FIVEO.ASM WEERR -> p8/fiveo.s WEND
 GIO86.ASM LPRINT -> p1/gio86.s LPRNTP # its resident stub res/gwmain.s LPRINT
 GIO86.ASM PRINT -> p1/gio86.s PRINTP # its resident stub res/gwmain.s PRINT; the width and comma column in PRTWID, PRTCMA
 GIO86.ASM FILGET -> later 7c: PRINT # (here Advanced Feature)

@@ -15,7 +15,7 @@
 ;   SCNVAL          a value from the data: a string (quoted, or to a comma,
 ;                   or to a colon in DATA) or a number ($FIN)
 ;
-; The resident core's INPUT, LINE and READ (res/gwmain.s) far call these.
+; The home block's INPUT, LINE and READ stubs (p8/gwmain.s) far call these.
 ; The 8086 holds two text pointers, the variable list's and the data's (the
 ; line typed, or the DATA statements), swapping them with XTHL; every
 ; routine reads at TXTPTR, so here XTHL swaps TXTPTR with OTHPTR. What the

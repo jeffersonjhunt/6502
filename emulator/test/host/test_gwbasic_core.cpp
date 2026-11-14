@@ -438,7 +438,19 @@ TEST(the_loader_refuses_far_call_sites_outside_their_block)
         {"a site's page of 0", [&](std::vector<uint8_t> &o) { page(o) = 0; }},
         {"a site's page of 9", [&](std::vector<uint8_t> &o) { page(o) = 9; }},
         {"a site's page of 200", [&](std::vector<uint8_t> &o) { page(o) = 200; }},
-        {"a site's page the file hasn't", [&](std::vector<uint8_t> &o) { page(o) = 8; }},
+        {"a site's page the file hasn't", // the highest page 1-8 the header doesn't name (8 was, until 7c's home
+         [&](std::vector<uint8_t> &o) {   // block took page 8)
+             uint8_t none = 0;
+             for (uint8_t p = 8; p >= 1 && !none; --p)
+             {
+                 bool has = false;
+                 for (unsigned i = 0; i < o[5]; ++i)
+                     has = has || entry(o, i)[0] == p;
+                 none = has ? 0 : p;
+             }
+             REQUIRE(none != 0);
+             page(o) = none;
+         }},
     };
     for (const auto &[what, damage] : cases)
     {
@@ -893,6 +905,82 @@ TEST(the_core_loop_a_print_and_a_character_are_timed)
     const double ch = static_cast<double>(c1.cycles - c0.cycles) / (20 * 80);
     std::printf("  a character through function 2: %.0f cycles (the plan's estimate 1,500-2,500)\n", ch);
     CHECK(ch > 100 && ch <= 8000);
+}
+
+// The home block (7c, hw/oodos.md, "The plan, phase 7"): an error raised while a banked block is in W3 (P1's LOG,
+// P3's ON and RESUME) ends at READY, which res/home.s reaches by a far call into the home block; the statements
+// after it (FOR and NEXT, PRINT's stub, all the home block's) must run. A build whose way back doesn't map the
+// home block in (GOREADY jumping to its entry, not far calling it) runs P1's or P3's code at the home block's
+// address, and fails here.
+TEST(an_error_raised_in_a_block_comes_back_to_the_home_block)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::string loop = "FOR I=1 TO 3:PRINT I;:NEXT:PRINT", three = " 1  2  3 \r\n";
+    CHECK_EQ(command(r, loop), three);
+    CHECK_EQ(command(r, "PRINT LOG(-1)"), std::string("Illegal function call\r\n")); // P1's
+    CHECK_EQ(command(r, loop), three);
+    CHECK_EQ(command(r, "ON 300 GOTO 10"), std::string("Illegal function call\r\n")); // P3's
+    CHECK_EQ(command(r, loop), three);
+    CHECK_EQ(command(r, "RESUME"), std::string("RESUME without error\r\n")); // P3's
+    CHECK_EQ(command(r, loop), three);
+    enter(r, {"10 PRINT \"a\"", "20 X=LOG(-1)", "30 PRINT \"b\""});
+    CHECK_EQ(command(r, "RUN"), std::string("a\r\nIllegal function call in 20\r\n"));
+    CHECK_EQ(command(r, loop), three);
+    CHECK_EQ(command(r, "LIST 30"), std::string("30 PRINT \"b\"\r\n"));
+}
+
+// ON ERROR's routine, 1,000 times, each error raised in P1 (LOG) and RESUME NEXT (P3's) from it: ON ERROR's way
+// back (res/home.s's GOGON4) sets the 6502's stack to its base, so S is the same at every statement's start
+// (NEWST1). A build that went back from SAVSTK, or with one more far call frame each time, leaves 5 bytes more
+// on the stack at each error, and fails here (or never ends).
+TEST(a_thousand_errors_trapped_leave_the_6502_stack_where_it_was)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(lab.count("NEWST1") == 1);
+    start(r);
+    enter(r, {"10 ON ERROR GOTO 100", "20 FOR I=1 TO 1000", "30 X=LOG(-1)", "40 NEXT", "50 PRINT \"done\";N",
+              "60 END", "100 N=N+1:RESUME NEXT"});
+    int lo = 0x100, hi = -1;
+    unsigned seen = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc != lab.at("NEWST1"))
+            return;
+        const int s = r.cpu->regs().s;
+        lo = s < lo ? s : lo;
+        hi = s > hi ? s : hi;
+        ++seen;
+    };
+    CHECK_EQ(command(r, "RUN"), std::string("done 1000 \r\n"));
+    r.watch = nullptr;
+    std::printf("  1,000 errors trapped: S at NEWST1 from $%02X to $%02X, over %u statements\n", lo, hi, seen);
+    CHECK(seen > 3000u);
+    CHECK_EQ(lo, hi);
+}
+
+// A ^C while P2 lists (POLKEY, then ITSCTC's break from inside the block) ends at READY through res/home.s, and
+// the next statements run: as above, a build whose way back doesn't far call the home block fails here.
+TEST(ctrl_c_during_list_comes_back_to_the_home_block)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    std::vector<std::string> lines;
+    for (int n = 1; n <= 300; ++n)
+        lines.push_back(std::to_string(n) + " REM a line to list, one of three hundred");
+    enter(r, lines);
+    CHECK_EQ(command(r, "PRINT 5"), std::string(" 5 \r\n"));
+    const size_t from = r.out.size();
+    r.type("LIST\r");
+    CHECK(r.until("20 REM", ms(2000), from));
+    r.type("\x03");
+    CHECK(r.until("Ok\r\n", ms(2000), from));
+    CHECK(r.out.find("300 REM", from) == std::string::npos); // broken off
+    CHECK_EQ(command(r, "FOR I=1 TO 3:PRINT I;:NEXT:PRINT"), std::string(" 1  2  3 \r\n"));
+    CHECK_EQ(command(r, "LIST 300"), std::string("300 REM a line to list, one of three hundred\r\n"));
 }
 
 int main()

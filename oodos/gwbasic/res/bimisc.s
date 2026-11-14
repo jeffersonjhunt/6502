@@ -25,7 +25,7 @@
 .export SCRATH, SCRTCH, NODSKS, RUNC, CLEARC, STKINI, STKERR, RESTORE, RESFIN
 .export STOP, STOPRG, ENDST, STPEND, ENDCON, CONT, TON, TOFF, OMERR, INITSA
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
-.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, READY, CRDONZ, FINLPT
+.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, HOMSTK, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
 .import ONEFLG, OLDLIN, OLDTXT, PRMLN2
 
@@ -364,7 +364,7 @@ DIRIS:          JSR     FINLPT
                 PLP
                 BCC     :+
                 FJSR    BRKMSG
-:               JMP     READY
+:               JMP     GOREADY        ; READY, in the home block (res/home.s)
 
 ; --- CONT, TRON, TROFF (BIMISC.ASM 639) ----------------------------------------------
 
@@ -396,6 +396,7 @@ TONOFF:         STA     TRCFLG
 ; program, and READY. (A program named on the command line, LRUN, is 7c's.)
 INITSA:         TSX
                 STX     TOPS
+                STX     HOMSTK         ; the base, under the home block's far call
                 JSR     NODSKS
                 LDA     TXTTAB
                 STA     PTR
@@ -404,7 +405,7 @@ INITSA:         TSX
                 DECW    PTR
                 LDA     #0
                 STA     (PTR)
-                JMP     READY
+                JMP     GOREADY        ; the far call into the home block
 
 .segment "RAM"
 ; GWDATA.ASM's, and the BASIC stack (hw/oodos.md, "The plan, phase 7": fixed RAM)

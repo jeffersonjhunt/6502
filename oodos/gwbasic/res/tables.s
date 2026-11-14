@@ -8,15 +8,10 @@
 
 .include "gwbasic.inc"
 
-.export OPTAB, RELBIT, FRCTBL, DBLDSP, SNGDSP, INTDSP, STMDSP, FUNDSP, NUMCON
+.export OPTAB, RELBIT, FRCTBL, DBLDSP, SNGDSP, INTDSP, FUNDSP, NUMCON
 .import FADD, FSUB, FMULT, FDIV, FCOMP, IADD, ISUB, IMULT, INTDIV, ICOMP
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
-.import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
-.import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
-.import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
-.import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
-.import EDIT, AUTO, RESEQ
-.import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
+.import SGN, VINT, VABS, FIXER, NOTSPK
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
 
@@ -44,72 +39,6 @@ INTDSP:         .word   IADD, ISUB, IMULT, INTDIV, ICOMP
 NUMCON:         .byte   CONCON, CONCN2
 
 .rodata
-
-; STMDSP: the statements END ($81) to LOCATE ($CA), each address less one
-; for GONE2's RTS, in IBMRES.ASM's order. ADVERR (Advanced Feature): a
-; later sub-phase's; SNERR: IBMRES.ASM's padding.
-.define S(addr) .word addr-1
-STMDSP:         S       ENDST          ; END
-                S       FOR            ; FOR
-                S       NEXT           ; NEXT
-                S       DATA           ; DATA
-                S       INPUT          ; INPUT
-                S       DIM            ; DIM
-                S       READ           ; READ
-                S       LET            ; LET
-                S       GOTO           ; GOTO
-                S       RUN            ; RUN
-                S       IFS            ; IF
-                S       RESTORE        ; RESTORE
-                S       GOSUB          ; GOSUB
-                S       RETURN         ; RETURN
-                S       REM            ; REM
-                S       STOP           ; STOP
-                S       PRINT          ; PRINT
-                S       CLEAR          ; CLEAR
-                S       LIST           ; LIST
-                S       SCRATH         ; NEW
-                S       ONGOTO         ; ON
-                S       ADVERR         ; WAIT (refused, 7g)
-                S       DEF            ; DEF
-                S       ADVERR         ; POKE (7c)
-                S       CONT           ; CONT
-                S       SNERR          ; (padding)
-                S       SNERR          ; (padding)
-                S       ADVERR         ; OUT (refused, 7g)
-                S       LPRINT         ; LPRINT
-                S       LLIST          ; LLIST
-                S       SNERR          ; (padding)
-                S       ADVERR         ; WIDTH (7d)
-                S       ELSES          ; ELSE
-                S       TON            ; TRON
-                S       TOFF           ; TROFF
-                S       SWAP           ; SWAP
-                S       ERASE          ; ERASE
-                S       EDIT           ; EDIT
-                S       ERRORS         ; ERROR
-                S       RESUME         ; RESUME
-                S       DELETE         ; DELETE
-                S       AUTO           ; AUTO
-                S       RESEQ          ; RENUM
-                S       DEFSTR         ; DEFSTR
-                S       DEFINT         ; DEFINT
-                S       DEFREA         ; DEFSNG
-                S       DEFDBL         ; DEFDBL
-                S       LINE           ; LINE (LINE INPUT; the graphics LINE is 7e's)
-                S       WHILE          ; WHILE
-                S       WEND           ; WEND
-                S       ADVERR         ; CALL (7g)
-                S       SNERR          ; (padding)
-                S       SNERR          ; (padding)
-                S       SNERR          ; (padding)
-                S       WRITE          ; WRITE
-                S       OPTION         ; OPTION
-                S       RANDOM         ; RANDOMIZE
-.repeat LOCATE_TK - OPEN_TK + 1
-                S       ADVERR         ; OPEN .. LOCATE (7c-7f)
-.endrepeat
-.assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 
 ; FUNDSP: the functions LEFT$ ($FF $81) to LOF ($FF $A4).
 FUNDSP:

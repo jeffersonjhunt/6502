@@ -4,7 +4,9 @@
 
 Each block's sources (pN/*.s) name its entries with a line ";@entry NAME". This writes:
   BUILD/entries.inc   PG_NAME (the block's page, N) and E_NAME (its jump table entry) for every
-                      entry, for FJSR in any module, resident or banked;
+                      entry of P1-P7, for FJSR in any module, resident or banked;
+  BUILD/homent.inc    the same for P8, the home block's entries, which only the resident core
+                      and the home block include (gwbasic.inc: a banked block has NOHOME);
   BUILD/pN_hdr.s      block N's header and jump table, its first segment (BLKHDR).
 Entries are numbered in the order of the files' names, then of the lines. A name given twice, in one
 block or two, is an error.
@@ -15,6 +17,7 @@ import sys
 
 ENTRY = re.compile(r"^\s*;@entry\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 BLK_ENTRY = 0xC804  # gwbasic.inc's BLK_ENTRY
+HOME = 8  # the home block's page (gwbasic.inc's HOMPAGE)
 
 
 def entries(block_dir):
@@ -34,6 +37,7 @@ def main():
     build, dirs = sys.argv[1], sys.argv[2:]
     seen = {}
     inc = ["; Made by tools/gwgen.py from the blocks' ;@entry lines: don't edit."]
+    hom = ["; Made by tools/gwgen.py from the home block's ;@entry lines: don't edit."]
     for d in dirs:
         m = re.search(r"p([1-8])$", d.rstrip("/"))
         if not m:
@@ -50,11 +54,13 @@ def main():
             if n in seen:
                 sys.exit("gwgen.py: %s is an entry of P%d and P%d" % (n, seen[n], page))
             seen[n] = page
-            inc.append("PG_%s = %d" % (n, page))
-            inc.append("E_%s = $%04X" % (n, BLK_ENTRY + 3 * i))
+            out = hom if page == HOME else inc
+            out.append("PG_%s = %d" % (n, page))
+            out.append("E_%s = $%04X" % (n, BLK_ENTRY + 3 * i))
             hdr.append("        JMP     %s" % n)
         hdr += ['.segment "%s"' % seg for seg in ("CODE", "RODATA", "DATA", "BRAM", "FARFIX")]  # each there
         put(os.path.join(build, "p%d_hdr.s" % page), "\n".join(hdr) + "\n")
+    put(os.path.join(build, "homent.inc"), "\n".join(hom) + "\n")
     put(os.path.join(build, "entries.inc"), "\n".join(inc) + "\n")
 
 
