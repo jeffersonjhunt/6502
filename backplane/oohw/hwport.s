@@ -12,7 +12,7 @@
         .setcpu "65C02"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 HW_PAIAW:
         jsr     setup
 @page:  lda     n + 1
@@ -81,7 +81,7 @@ next:   inc     n + 1
         ora     left + 1
         rts
 
-        .bss
+        OOHW_BSS
 HW_PORT: .res   2
 HW_PLEN: .res   2
 n:      .res    3                       ; n + 1, n + 2: the page's number

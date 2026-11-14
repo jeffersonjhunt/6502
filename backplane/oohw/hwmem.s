@@ -12,7 +12,7 @@
         .setcpu "65C02"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 ; Walking 1s, then 0s, at HW_PTR: $01, $02 ... $80, then $FE ... $7F, each
 ; read back. The byte is put back as it was.
 HW_WALK:
@@ -387,10 +387,10 @@ failed: lda     (HW_PTR),y
         sec
         rts
 
-        .rodata
+        OOHW_RODATA
 bit8:   .byte   $01, $02, $04, $08, $10, $20, $40, $80
 
-        .bss
+        OOHW_BSS
 HW_LEN: .res    2
 HW_KEY: .res    1
 HW_BG:  .res    1

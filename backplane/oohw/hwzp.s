@@ -4,5 +4,5 @@
         .setcpu "65C02"
         .include "oohw.inc"
 
-        .zeropage
+        OOHW_ZP
 HW_PTR: .res    2

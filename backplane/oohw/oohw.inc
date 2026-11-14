@@ -108,6 +108,37 @@
 .ifndef OOHW_INC
 OOHW_INC = 1
 
+; The segments a module's code, constants, variables and zero page go in: OODOS's own for a program, and for
+; the ROM (OOHW_ROM, hw/diag.md's plan 2) block 23's, with its variables in the core's zero page and stack page
+; (the first 512 bytes of the RAM block stage 2 chose for W0, tested before anything is kept there).
+.ifdef OOHW_ROM
+.macro OOHW_CODE
+        .segment "D23CODE"
+.endmacro
+.macro OOHW_RODATA
+        .segment "D23CODE"
+.endmacro
+.macro OOHW_BSS
+        .segment "D23BSS"
+.endmacro
+.macro OOHW_ZP
+        .segment "D23ZP": zeropage
+.endmacro
+.else
+.macro OOHW_CODE
+        .code
+.endmacro
+.macro OOHW_RODATA
+        .rodata
+.endmacro
+.macro OOHW_BSS
+        .bss
+.endmacro
+.macro OOHW_ZP
+        .zeropage
+.endmacro
+.endif
+
 .global HW_PUTC
 .global HW_PROBE, HW_FOUND, HW_REV, HW_IDB, HW_NAME, HW_KNOWN
 .global HW_CLOCK, HW_FRAMEHZ, HW_DIV, HW_WATCH, HW_EDGES, HW_CYC

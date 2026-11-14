@@ -11,7 +11,7 @@
         .setcpu "65C02"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 ; A/X the test's name, ended by 0.
 HW_TEST:
         pha
@@ -168,7 +168,7 @@ num16:  stz     HW_NUM + 2
         sec
         jmp     HW_DEC
 
-        .rodata
+        OOHW_RODATA
 words:  .word   spass, sfail, sskip, sinfo
 spass:  .byte   "PASS", 0
 sfail:  .byte   "FAIL", 0
@@ -186,7 +186,7 @@ sskipped: .byte " skipped", 0
 scomma: .byte   ", ", 0
 smeas:  .byte   " measured", 0
 
-        .bss
+        OOHW_BSS
 HW_COL: .res    1
 HW_TALLY: .res  4
 diff:   .res    1
