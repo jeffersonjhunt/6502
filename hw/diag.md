@@ -763,6 +763,87 @@ check`), merged in order. Each reads its part of the books again at its start an
     that reads the address P3 armed: it must run to its end without halting, and CTRL's bit 3 must be clear.
 - **Test map:** `oodos/utils/diag.s` is under `oodos/`; the suite labelled `oodos sd video sound usb dma rtc console`.
 
+#### D2: as built (2026-11-13) ####
+
+**Built** on `feat/diag-d2`, for the owner's review. What differs from the plan above, and why:
+
+- **DIAG.COM is bigger than 15 KB, so it is laid out around W1's window** (`oodos/cfg/diag.cfg`, D2-1 below). Its
+  code is 15.3 KB (13.4 KB of it below `$4000`, 2 KB, `CODE2`, at `$8000`) and its strings and tables 6.6 KB:
+  about 22 KB and 5,000 lines of ca65, against the plan's 11 KB and 1,800. So its code runs from `$0300` to `$3FFF` and on
+  at `$8000`; `$4000–$7FFF`, which OOLIB maps, holds nothing of DIAG's (16 KB of zeros in the file, which is
+  40,582 bytes); its data and BSS follow `CODE2`; its buffers are from `$AC00` to `$BFFC`. The W1 contract holds
+  (`w1.py`: no segment in the window), and the rules gate checks `CODE` and `CODE2` (`rules.py --code
+  CODE,CODE2`). DIAG doesn't include `util.inc` (2.8 KB), which it can't spare: it has its own start, end and
+  tail (about 120 bytes).
+- **M1 tests two runs,** the TPA DIAG doesn't use: `$4000–$7FFF` and from past its BSS to `$BFFC` (23,036 bytes
+  now), not "from DIAG's end".
+- **The 6510 program is about 800 bytes** (`card6510.s`, `$0200–$05FF`), not 400: the march, a page at a time, is
+  most of it. So the RAM test the host asks for is `$0600–$FFF9` (`C65_FIRST`), and `$D000–$DFFF` is reached as
+  RAM meanwhile (the port's bits 0–2 low). Its own pages, `$0000–$05FF`, aren't tested under DIAG (S2 and S3
+  exercise them); the ROM core tests the card's RAM through RAMDATA (D3). **S4 is address in address quick, and
+  the march too with `/FULL`**: the march at the 6510's 1 MHz is about 8 s. The 6510's answers come through the
+  event queue (`EK_SOUND`, a 256-byte layout 2 area), which loses none, not the mailbox's stamp.
+- **D6 and V4 read the card back into a tested block,** not a second TPA buffer (room: one 4 KB buffer); **D5
+  compares 32 records** (4 KB), not all of DIAG.COM.
+- **SR2 is timer 2 across a 1,000-cycle loop less across none:** the emulator holds the CPU on the VIA's
+  registers (wait states), so two reads "1,000 cycles apart" by the instructions' count were 1,231 apart. The
+  difference takes the reads' own cycles out.
+- **S7 measures POS against the millisecond counter** over 400 ms (timer 1, PHI2, which NB5 holds to the DS3231),
+  not against the DS3231's second directly: 4 KB at 8,000 Hz plays for half a second. Its first 2 KB must leave the
+  stream buffering, the next start it.
+- **P3 arms the breakpoint, then waits for RETURN** before its read halts the CPU: so a ^C typed at P3, with the
+  breakpoint armed, is what console mode bit 3 is for. With the bit, function 10 gives DIAG the ^C, which puts
+  CTRL, BPADDR and BPCTRL back (BPCTRL 0, HIT cleared), then the console mode, and ends (`$FFFE`); without it the
+  BDOS's warm boot would leave the breakpoint armed (the must-fail case below). P2 keeps the user's breakpoint as it
+  was. A ^C seen at a line's end anywhere else ends DIAG too, giving back the blocks, the sound card's parts, the
+  event area, W1 and the panel.
+- **DIAG reads W1's map from OOLIB's GX_INIT** (an OODOS of interface 8 and a revision 2 video card): without
+  them the blocks can't be mapped, and NB2, M2–M5, D2–D6 and V4 are skipped (`no W1 map`).
+- **The report:** a test's result is at column 65, its dots to 64 (`HW_LINE`); `HW_TEST` begins the line, and
+  DIAG's `HW_PUTC` counts the column (`HW_COL`). A skip says why in brackets. The summary counts `INFO` lines as
+  "measured". An interactive test writes its line, its prompts, then the line again with its result.
+- **The library's routines built in D2:** `HW_WALK`, `HW_TAGW`/`HW_TAGC` (stage 4's tags, which DIAG runs on its
+  blocks too), `HW_AIAW`/`HW_AIAC` (the plan's `HW_AIA`, its two passes), `HW_MARCH`, `HW_PAIAW`/`HW_PAIAC`
+  (`HW_PORTAIA`), `HW_TEST`, `HW_LINE`, `HW_FAULT`, `HW_SUMMARY`. SYSINFO.COM is byte for byte as it was.
+- **The emulator's one change** is `SoundCard::set_ram_fault()` (a byte read through a mask by the host, DMA and
+  the 6510 alike), compiled only with `EMU_FAULT_HOOKS`, which `devices/CMakeLists.txt` defines for the native
+  build with its tests and never for Emscripten's (the WebUI); its own case is in `test_sound`.
+- **DIAG.COM is on neither card** (D2-2 below): `make_card.sh` leaves it out, and `test_oodos_boot`'s list of
+  the utilities on the cards does too.
+- **Time on the emulator:** a quick run of every area is 40.7 s of the machine's time (the plan's estimate was
+  about 20 s: NB4's three seconds, NB5's and NB6's measurements, S4, S7 and the 6510's start add to the memory),
+  `/FULL` 227 s. On `backplane.machine` every test passes or is skipped: SR1 and SR4 (the stand-in serial card),
+  V5 (the ROM core's), and those of `/I`, `/FULL` and `/WRITE` not asked for.
+
+**The tests** (`test_oodos_diag`, 12 cases, about 23 s): each was seen to fail on a copy of the sources with one
+fault put in (`OODOS_UTILS_DIR`):
+
+| Case | The fault that made it fail |
+|---|---|
+| the whole machine, golden (`golden/diag.txt`) | `HW_LINE`'s dots to column 63 |
+| a stuck bit in block 40: M4, "block 40 +$1234 ($A1234): read $08, expected $00: bit 3", return code 1 | `HW_MARCH` returning at once |
+| a stuck bit in block 8: M2 | `HW_AIAC` returning at once |
+| an aperture fault (block 33): V4 | V4's port-to-slot-1 compare left out |
+| no sound card: S1–S8 skipped | `sndup` not asking whether the card is there |
+| the sound card held by another: "in use" | the claim's refusal not looked at |
+| a stuck bit in the sound card's RAM: S4 | the 6510's check pass left out |
+| `/WRITE` answered N: the card's image unchanged | the answer not looked at |
+| `/WRITE` answered Y: written, read back, erased | the erase left out |
+| P3: the read halts the CPU, CONT goes on | the breakpoint on a fetch, not a read |
+| CC3: ^C at P3, then SWEEP reads the armed byte and runs to its end | console mode bit 3 not set: the warm boot left BPCTRL `$05`, and SWEEP halted |
+| the rules gate on both code segments | (in the case: an RMB put at `CODE2`'s first byte) |
+
+And `test_sound`'s hook case, with the hook made to do nothing.
+
+<a id="d2-questions"></a>
+**D2's questions, for the owner:**
+
+- **D2-1, DIAG.COM's size:** laid out around W1's window as above (built), or held to 15 KB below it, which would
+  mean leaving tests out (the interactive ones are about 2.5 KB), or an overlay.
+- **D2-2, the cards:** DIAG.COM on the demo card (and the test card, which changes `u2-pick`'s and
+  `u2-pick-turbo`'s A: count and thumb), or on neither, as now.
+- **D2-3, S4's march:** under `/FULL` only (built), or in the quick run too (about 8 s more).
+
 ### D3: the ROM core and BIOS 0.14 ###
 
 - **What:** `backplane/bios/diag.s`, the ROM build of the library, `romsum.py`, `bios.s`'s changes, `bios.cfg`'s

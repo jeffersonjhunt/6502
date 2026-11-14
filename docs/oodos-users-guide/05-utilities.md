@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures; SYSINFO (hw/diag.md, D1), for what the machine has. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures; SYSINFO (hw/diag.md, D1), for what the machine has; DIAG (D2), for what works. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -1345,6 +1345,89 @@ OODOS 0.5; the card's own memory and asset format 4 since OODOS 0.9.
 #### Status
 
 **built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.
+
+## DIAG
+
+<a id="util-diag"></a>
+### DIAG: test the machine's cards and memory
+
+DIAG finds each card by its ID byte, checks what the card does, and tests the memory OODOS doesn't own: the TPA it
+doesn't use itself, the blocks of banks 1–5 that are free (it takes them all and gives them back), banks 9–B, and
+the video card's memory that is the program's. Each test writes one line: its name, what it checked, and `PASS`,
+`FAIL`, `SKIP` with why, or `INFO` for a measurement with no limit. A failure adds a line saying what was read and
+what was expected. By default nothing is destroyed: every test leaves the machine as it found it. It reads and
+writes some of the cards' registers itself, as the owner allows the system tools
+([hw/diag.md](../../hw/diag.md#diagcom)); every DMA transfer goes through OODOS.
+
+DIAG doesn't test OODOS's own memory, which it runs in. That is the ROM's diagnostics' (hw/diag.md, D3: from the
+monitor, `C812R`, once it is built; WOZMON reaches the monitor).
+
+#### Forms
+
+```
+DIAG {area ...} {/FULL} {/I} {/WRITE} {/LOOP} {/?}
+```
+
+- **area** is one or more of `NB` (the north bridge, the clock chip and the CPU's clock), `MEM`, `DMA`, `VIDEO`,
+  `SOUND`, `SD`, `USB`, `SERIAL` (the serial card and the VIA), `DISK2` and `PANEL`. Without one, all of them, in
+  that order.
+
+#### Options
+
+- **/FULL** marches memory with all four backgrounds and marches the video card's memory too (about three times as
+  long), rewrites all of the ES5503's wave RAM (S6), and with `/I` halts the CPU on a breakpoint (P3).
+- **/I** runs the tests that ask you to do something: look at a test card on the screen, listen to tones and a
+  beep, press keys, move the mouse, press its buttons and the game port's, move each joystick, watch the front
+  panel's lights, press CONT. Each waits about 10 seconds for what it asks, or asks `Y or N?`.
+- **/WRITE** runs SD4, which writes a 64 KB file `A:DIAG$$$.TMP`, reads it back and erases it. DIAG says what it will
+  do and asks first; anything but `Y` skips it.
+- **/LOOP** runs again and again, counting the passes, until a key is pressed.
+- **/?** lists the options.
+
+#### Output
+
+```
+A>DIAG MEM
+OO-1 DIAGNOSTICS 0.1   quick, nothing destroyed   (DIAG /? for the options)
+
+MEMORY
+  M1   TPA $4000-$7FFF, $A600-$BFFC, 23,036 bytes .............. PASS
+  M2   banks 1-5, 20 blocks, 320 KB: address in address ........ PASS
+  M3   banks 1-5: march, background $00 ........................ PASS
+  M4   banks 9-B, 12 blocks, 192 KB ............................ FAIL
+       block 40 +$1234 ($A1234): read $08, expected $00: bit 3
+  M5   card memory $040000-$1BFFFF, 1,536 KB ................... PASS
+SUMMARY  5 tests: 4 passed, 1 failed, 0 skipped
+```
+
+(That M4 is the emulator with a bit made to stick on purpose.) A run of every area takes about 40 seconds;
+`/FULL` about four minutes. A card that isn't fitted has each of its tests skipped, `no card`; one at a revision
+DIAG doesn't know is listed and skipped. The sound tests claim the sound card's parts first, and are skipped `in use`
+if another program holds them. The return code is the number of tests that failed (0 for none), so a `SUBMIT` file
+can test it with a `:` command.
+
+If a P3 is broken into (Break, or a reset) while the CPU is halted, the breakpoint may still be armed: at the
+monitor, `C70B: 00` turns it off.
+
+#### Errors
+
+- `DIAG {area ...} {/FULL} {/I} {/WRITE} {/LOOP} {/?}`: a word that is neither an area nor an option. The return
+  code is `$FF00`.
+- `DIAG needs the TPA to $BFFC: remove the RSXs below it first`: an RSX is loaded below the BDOS. The return code
+  is `$FF00`.
+- A ^C at the end of a line stops DIAG, giving back what it took; the return code is `$FFFE`.
+
+#### Since
+
+OODOS 0.9, from hw/diag.md's D2 (after OODOS 0.9's release).
+
+#### Status
+
+**built** (proposed: hw/diag.md, D2)
 
 #### CP/M 3
 
