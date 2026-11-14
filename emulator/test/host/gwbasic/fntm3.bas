@@ -1,0 +1,2 @@
+10 DEF FNA(X$)=LEN(X$)
+20 PRINT FNA("abc");FNA(5)

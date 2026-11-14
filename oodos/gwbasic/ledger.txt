@@ -448,8 +448,8 @@ BIPTRG.ASM PTRGET -> res/biptrg.s PTRGET
 BIPTRG.ASM PTRGT1 -> res/biptrg.s PTRGT1
 BIPTRG.ASM PTRGT2 -> res/biptrg.s PTRGT2 # ISLET inline
 BIPTRG.ASM HAVTYP -> res/biptrg.s HAVTYP
-BIPTRG.ASM NOARYS -> res/biptrg.s NOARYS # DEF FN's parameters (NOFUNS, PARM1) searched first: later 7b
-BIPTRG.ASM NOTFNS -> res/biptrg.s NOTFNS # PRMFLG's second search: later 7b, with DEF FN
+BIPTRG.ASM NOARYS -> res/biptrg.s NOARYS # DEF FN's parameters (NOFUNS, PARM1) searched first (PRMSRC, 7b step b): OO-1, PRMFLG set only then
+BIPTRG.ASM NOTFNS -> res/biptrg.s NOTFNS # PRMFLG's second search (7b step b)
 BIPTRG.ASM PTRGTN -> res/biptrg.s PTRGTN
 BIPTRG.ASM PTRGTR -> res/biptrg.s PTRGTR
 BIPTRG.ASM VARNOT -> res/biptrg.s VARNOT
@@ -489,7 +489,7 @@ BISTRS.ASM STRPRT -> res/bistrs.s STRPRT
 BISTRS.ASM GETSPA -> res/bistrs.s GETSPA # the 8086's flag on its stack is GSDONE
 BISTRS.ASM PPSWRT -> dropped: referenced by nothing
 BISTRS.ASM GARBAG -> res/bistrs.s GARBAG
-BISTRS.ASM GARBA2 -> res/bistrs.s GARBA2 # DEF FN's parameter blocks (PRMPRV, TEMP9) walked too: later 7b
+BISTRS.ASM GARBA2 -> res/bistrs.s GARBA2 # DEF FN's parameter blocks (PRMPRV, TEMP9) walked too (ARYVAR, 7b step b)
 BISTRS.ASM FNDVAR -> res/bistrs.s FNDVAR
 BISTRS.ASM DVARS -> res/bistrs.s DVARS # the highest so far in GCMAX and GCVAR, not on the stack
 BISTRS.ASM GRBPAS -> res/bistrs.s GRBPAS
@@ -816,7 +816,7 @@ BIMISC.ASM INITRP -> later 7b: the event traps' table
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
 BIMISC.ASM GODFRE -> res/bimisc.s GODFRE
-BIMISC.ASM STKINI -> res/bimisc.s STKINI # both stacks; PRMLEN, NOFUNS, PRMLN2, FUNACT, PRMSTK (DEF FN) later 7b
+BIMISC.ASM STKINI -> res/bimisc.s STKINI # both stacks; PRMLEN, NOFUNS, PRMLN2, FUNACT, PRMSTK (DEF FN) zeroed in STKERR (7b step b)
 BIMISC.ASM STKERR -> res/bimisc.s STKERR
 GWMAIN.ASM CLROVC -> res/bimisc.s STKERR # STKERR's: FLGOVC 0, inline
 BIMISC.ASM GTMPRT -> res/bimisc.s GTMPRT
@@ -1218,8 +1218,8 @@ MATH1.ASM RETJ -> res/math1.s SDIV # a RET
 MATH2.ASM NGBLDX -> res/math2.s INT25 # $QINT's; EXP's copy inline (p1/trans.s EXP)
 MATH2.ASM OVERFLOW -> res/math2.s OVRFLW
 BISTRS.ASM STR$1 -> p1/strfn.s STR1
-GWEVAL.ASM USRFN -> later 7b: USR (here res/todo.s USRFN, Illegal function call)
-GWEVAL.ASM FNDOER -> later 7b: FN (here res/todo.s FNDOER, Illegal function call)
+GWEVAL.ASM USRFN -> p3/gweval.s USRFNP # EVAL's token, its resident stub res/far3.s USRFN; the port's convention (USRFNP)
+GWEVAL.ASM FNDOER -> p3/gweval.s FNDOERP # EVAL's token, its resident stub res/far3.s FNDOER
 GIOKYB.ASM RET8 -> OEM res/oem.s CNTCCN # a RET
 GIODSK.ASM RESETX -> OEM res/oem.s SYSTEM # a RET
 GIO86.ASM ERDNA2 -> later 7c: the device dispatch's Device unavailable
@@ -1229,7 +1229,7 @@ GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 BIMISC.ASM CLEAR -> p3/bimisc.s CLEARP # its resident stub res/far3.s CLEAR, which then jumps to CLEARC (GCLERC)
 GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
-GWEVAL.ASM DEF -> later 7b: DEF FN
+GWEVAL.ASM DEF -> p3/gweval.s DEFP # its resident stub res/far3.s DEF; DEF SEG (DEFNC2) 7c's
 GWMAIN.ASM POKE -> later 7c: with DEF SEG
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
 GIO86.ASM WIDTHS -> later 7d
@@ -1376,3 +1376,27 @@ BISTRS.ASM BIGLEN -> p3/bistrs.s BIGLEN
 BISTRS.ASM MID$LP -> p3/bistrs.s MIDSLP
 GWSTS.ASM VARRT2 -> p3/gwsts.s VARRT2 # JMP PUTNEW: a tail call
 GIODSK.ASM CMPFBC -> later 7c: WRITE #'s random record, padded to its end (WRTFIN)
+
+# 7b step b: DEF FN and FN, DEF USR and USR (GWEVAL.ASM, p3/gweval.s, each reached by a resident stub in res/far3.s),
+# and their resident parts: PTRGET's search of the parameters first (NOARYS, PRMSRC, NOTFNS, above), GARBA2's walk
+# of the parameter blocks (ARYVAR) and STKERR's resets (above). The labels inside a routine that matter are named too.
+GWEVAL.ASM DEFNC3 -> p3/gweval.s DEFNC3 # JMP DATA: a tail call
+GWEVAL.ASM SCNLIS -> p3/gweval.s SCNLIS # JMP DATA: a tail call
+GWEVAL.ASM DEFNC2 -> later 7c: DEF SEG (SAVSEG); here p3/gweval.s DEFP gives Advanced Feature after S, E, G
+GWEVAL.ASM DEFUSR -> p3/gweval.s DEFUSR # USRTAB in P3's own data, $FFFF until DEFined
+GWEVAL.ASM SCNUSR -> p3/gweval.s SCNUSR
+GWEVAL.ASM USERCN -> p3/gweval.s USERCN
+GWEVAL.ASM NOARGU -> p3/gweval.s NOARGU
+GIODSK.ASM PRODIR -> later 7c: protected programs (PROFLG), none before 7c: USR goes on
+GWEVAL.ASM ASGMOR -> p3/gweval.s ASGMOR # the arguments' values on the BASIC stack, as the 8086's on its own
+GWEVAL.ASM POPAS2 -> p3/gweval.s POPAS2 # LETCN4's return: a JSR here
+GWEVAL.ASM POPASG -> p3/gweval.s POPASG
+GWEVAL.ASM LPSIZL -> p3/gweval.s LPSIZL
+GWEVAL.ASM FINASG -> p3/gweval.s FINASG
+GWEVAL.ASM FINVLS -> p3/gweval.s FINVLS # PARM1's block on the BASIC stack; OO-1: GETSTK's words rounded down, not ROR's
+GWEVAL.ASM NOCPRS -> p3/gweval.s NOCPRS # JMP DOCNVF: a tail call (FRCTBL's RTS)
+GWEVAL.ASM BCTRAN -> dropped: inline, each a Y loop (FINVLS, NOCPRS, POPASG)
+GWEVAL.ASM BCTRAL -> dropped: as BCTRAN
+GWEVAL.ASM ERRDIR -> p3/gweval.s ERRDIR
+GWEVAL.ASM GETFNM -> p3/gweval.s GETFNM # JMP PTRGT2: a tail call (PTRGET's RTS)
+BISTRS.ASM ARYVAR -> res/bistrs.s ARYVAR # the parameter blocks' chain, TEMP9 in zero page; the arrays at ARYVA0

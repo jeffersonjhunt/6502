@@ -118,3 +118,23 @@ string is Illegal function call). `clearfc4` is the OO-1's own: n past the TPA's
 By hand in test_gwbasic_stmts (not from PC-BASIC's run of a file): WRITE # (Advanced Feature until 7c), RANDOMIZE
 TIMER (TIMER is a variable until 7f: the 1983 source's crunch table has no TIMER), and CLEAR's n and m on the OO-1's
 memory map (FRE(0) by n; the GOSUB depth by m).
+
+Step b's, typed and RUN the same way:
+
+| Program | What |
+|---|---|
+| `fn` | DEF FN and FN: each type, the result made the function's type and each argument its parameter's, 0 to 3 parameters, a parameter named as a variable (kept), nesting, a function as another's argument, in FOR and GOSUB, DEF FN again |
+| `fnshad` | parameters named as variables that are set after the DEF, string and number |
+| `fngc` | the string space (about 900 bytes, the rest taken by an array) collected while string functions' parameters are bound, in PARM1 and in the outer calls' blocks; each result checked |
+| `fnproj` | a function whose result is its string parameter (copied before PARM1 is put back) |
+| `fnscope`, `fndup` | a function called from another sees the variables, not its caller's parameters; two parameters of one name |
+| `fnuf`, `fntm`, `fntm2`, `fntm3`, `fnom`, `fnfc` | FN's errors: Undefined user function, Type mismatch (the result; an argument of either kind), recursion to Out of memory, more than PRMSIZ's bytes of parameters (Illegal function call) |
+| `fnsn`, `fnsn2`, `fnsn3`, `fnsn4`, `fnsn5` | Syntax error: too few or too many arguments, no "(", a body that doesn't end the DEF's statement, a parameter list without its comma |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `fnscope` (PC-BASIC's body sees its caller's
+parameters), `fndup` (the source finds the second X), `fnsn4` (PC-BASIC takes the body to the ")"), `fnfc`
+(PC-BASIC has no PRMSIZ), `fnproj` (PC-BASIC gives the variable of the parameter's name).
+
+By hand in test_gwbasic_stmts: DEF FN in direct mode (Illegal direct), a function called from a typed line after
+RUN, DEF SEG (Advanced Feature until 7c), and USR (PC-BASIC's runs 8086 code): 6502 routines READ into an integer
+array, at VARPTR's address.

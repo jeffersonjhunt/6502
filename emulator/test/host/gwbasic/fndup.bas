@@ -1,0 +1,2 @@
+10 DEF FNZ(X,X)=X
+20 PRINT FNZ(1,2)

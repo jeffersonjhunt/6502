@@ -18,6 +18,10 @@
  * - Step a2: SWAP, ERASE (with the string space collected after it), CLEAR in each form, OPTION BASE, RANDOMIZE
  *   (with the seed typed: NAME.in), WRITE, STRING$, MID$ as a statement and VARPTR$; and, by hand, what can't come
  *   from PC-BASIC's run: WRITE #, RANDOMIZE TIMER, and CLEAR's n and m on the OO-1's memory map.
+ * - Step b: DEF FN and FN (each type, 0 to many parameters, a parameter named as a variable, nesting, recursion
+ *   to Out of memory, in FOR and GOSUB, redefinition, the string space collected while parameters are bound, and
+ *   the errors); and, by hand: DEF in direct mode, FN typed after RUN, DEF SEG (7c's), and USR on 6502 routines
+ *   read into an integer array (PC-BASIC's USR runs 8086 code).
  */
 
 #include "harness.h"
@@ -384,6 +388,67 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
     std::printf("  GOSUB depth: m 512 %ld, m 300 %ld, m 4000 %ld\n", d512, d300, d4000);
     CHECK(d300 > 0 && d300 < d512);
     CHECK_EQ(d4000, d512);
+}
+
+// DEF FN and FN (GWEVAL.ASM DEF, DEFNC3, SCNLIS, FNDOER, ASGMOR, POPASG, LPSIZL, FINASG, FINVLS, NOCPRS; the resident
+// PTRGET's NOARYS, PRMSRC, NOTFNS and GARBA2's ARYVAR): functions of each type, the result made the function's type
+// and each argument its parameter's; 0, 1, 2 and 3 parameters; a parameter named as a variable, which keeps its
+// value (fnshad: a variable set after the DEF too); nested calls, a function calling another, as an argument of
+// another; in FOR and GOSUB; DEF FN again; a string function of a string function. fngc: strings collected while a
+// string function's parameters are bound, in PARM1 and in an outer call's block on the BASIC stack, 400 times, each
+// result checked. Then the errors: an undefined function, Type mismatch for the result and for an argument of
+// either kind, recursion to Out of memory, too few or too many arguments, no "(", a parameter list without its
+// comma (Syntax error, each the last of its run). Where PC-BASIC doesn't do what the source does (.differ): the
+// body sees the variables, not its caller's parameters (fnscope); two parameters of one name (fndup); a body not
+// ending the DEF's statement (fnsn4); PRMSIZ's 99 bytes of parameters (fnfc); a function whose result is its
+// string parameter (fnproj: PC-BASIC gives the variable's).
+TEST(def_fn_and_fn_print_what_pc_basic_prints_or_the_source_says)
+{
+    programs({"fn", "fnshad", "fngc", "fnproj", "fnscope", "fndup", "fnuf", "fntm", "fntm2", "fntm3", "fnom", "fnfc",
+              "fnsn"});
+    programs({"fnsn2"});
+    programs({"fnsn3"});
+    programs({"fnsn4"});
+    programs({"fnsn5"});
+}
+
+// By hand, from the source (none of it can come from PC-BASIC's run of a file):
+// - DEF FN typed is Illegal direct (ERRDIR); a function a program DEFined can be called from a typed line after it
+//   ran, the program's text still there; a function never DEFined is Undefined user function;
+// - DEF SEG, with or without a segment, is 7c's: Advanced Feature; DEF with anything else is Syntax error;
+// - USR (USRFN, SCNUSR, DEFUSR) on 6502 routines put in an integer array by READ, at VARPTR's address, under the
+//   port's convention (A VALTYP, X #FACLO, RDL/RDH a string's descriptor; the result in the FAC and VALTYP): one
+//   doubles an integer through X (USR and USR0 alike), one gives a string's length from its descriptor, one gives
+//   VALTYP; the argument's variable is left as it was. USR n never DEFined, or DEFined at 65535 or -1 ($FFFF), is
+//   Illegal function call. (Every simple variable is made before the DEF USRs: a new one moves the arrays up.)
+TEST(def_in_direct_mode_def_seg_and_usr_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "DEF FNA(X)=X*2"), std::string("Illegal direct\r\n"));
+    CHECK_EQ(command(r, "PRINT FNA(1)"), std::string("Undefined user function\r\n"));
+    enter(r, {"10 DEF FNA(X)=X*2", "20 DEF FNB$(A$)=A$+\"!\""});
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "PRINT FNA(21);FNB$(\"hi\")"), std::string(" 42 hi!\r\n"));
+    CHECK_EQ(command(r, "DEF SEG"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=4096"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "DEF X"), std::string("Syntax error\r\n"));
+
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 X%=0:DIM A%(15):FOR I=0 TO 13:READ L,H:A%(I)=L+256*H+65536!*(H>127):NEXT",
+              "20 DATA 22,0,54,1,96,0",                              // ASL 0,X / ROL 1,X / RTS
+              "30 DATA 178,0,133,44,100,45,169,2,133,27,96,0",       // LDA (RDL) / STA FACLO / STZ FACLO+1 /
+                                                                     // LDA #2 / STA VALTYP / RTS
+              "40 DATA 149,0,116,1,169,2,133,27,96,0",               // STA 0,X / STZ 1,X / LDA #2 / STA VALTYP / RTS
+              "50 DEF USR=VARPTR(A%(0)):DEF USR1=VARPTR(A%(3)):DEF USR9=VARPTR(A%(9))",
+              "60 PRINT USR(21);USR0(-300);USR1(\"hello\");USR1(\"\");USR9(7);USR9(1.5);USR9(2#);USR9(\"abc\")",
+              "70 X%=1000:PRINT USR0(X%);X%"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 42 -600  5  0  2  4  8  3 \r\n 2000  1000 \r\n"));
+    CHECK_EQ(command(r, "PRINT USR2(1)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF USR3=65535:PRINT USR3(1)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF USR4=-1:PRINT USR4(1)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT USR(5)+USR0(USR(1))"), std::string(" 14 \r\n"));
 }
 
 int main()

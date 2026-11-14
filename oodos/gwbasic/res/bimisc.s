@@ -27,7 +27,7 @@
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
 .import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, READY, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
@@ -224,9 +224,11 @@ GODFRE:         LDA     #0             ; Z: RESTORE from the start
                 STA     STREND+1
 ; STKINI: both stacks empty, with a zero word (the FNDFOR stopper) on the
 ; BASIC stack, SAVSTK at it; the string temporaries free, the overflow
-; message back to normal, output to the console, subscripts allowed. Returns
-; to its caller (popped first, pushed back), TXTPTR from TEMP. (DEF FN's
-; parameter state, PRMLEN and the rest, is 7b's.)
+; message back to normal, output to the console, no user function being
+; evaluated (DEF FN's parameter state: PRMLEN, NOFUNS, PRMLN2, FUNACT and
+; PRMSTK zero; PRMFLG too, which the 8086 needn't: NOARYS's), subscripts
+; allowed. Returns to its caller (popped first, pushed back), TXTPTR from
+; TEMP.
 STKINI:         PLA                    ; the return address, in CX
                 STA     RCL
                 PLA
@@ -252,6 +254,12 @@ STKERR:         LDA     #<TEMPST
                 STA     TEMPPT+1
                 STZ     FLGOVC         ; CLROVC
                 JSR     FINPRT
+                LDX     #7             ; PRMLN2, FUNACT, PRMSTK, PRMLEN: together
+@p:             STZ     PRMLN2,X
+                DEX
+                BPL     @p
+                STZ     NOFUNS
+                STZ     PRMFLG
                 STZ     SUBFLG
                 LDA     #0             ; the stopper
                 JSR     SPUSHA

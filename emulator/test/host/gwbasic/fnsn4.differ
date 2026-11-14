@@ -1,0 +1,2 @@
+# GWEVAL.ASM's FNDOER: the body must end the DEF's statement, else Syntax error, in the caller's line (the source's comment: a cheat); PC-BASIC stops at the ")"
+Syntax error in 20

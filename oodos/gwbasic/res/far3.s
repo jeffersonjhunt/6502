@@ -29,11 +29,20 @@
 ;
 ;   STRNGS    STRING$(n, c) (p3/bistrs.s STRNGP)
 ;   VARPT2    VARPTR$(v), from VARPTR (p3/gwsts.s VARPT2P)
+;
+; Step b's: DEF, and two more of EVAL's functions, back to EVAL's caller.
+; FN and USR return through their stubs; neither ever jumps into the
+; statement loop:
+;
+;   DEF       DEF FN, DEF USR (DEF SEG: 7c's) (p3/gweval.s DEFP)
+;   FNDOER    FNname[(arguments)] (p3/gweval.s FNDOERP)
+;   USRFN     USR[n](argument) (p3/gweval.s USRFNP)
 
 .include "gwbasic.inc"
 
 .export ONGOTO, ERRORS, RESUME
 .export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, LHSMID, STRNGS, VARPT2
+.export DEF, FNDOER, USRFN
 .import CLEARC, INPRET
 
 .code
@@ -62,4 +71,11 @@ LHSMID:         FJSR    LHSMIDP
 STRNGS:         FJSR    STRNGP
                 RTS
 VARPT2:         FJSR    VARPT2P
+                RTS
+
+DEF:            FJSR    DEFP
+                RTS
+FNDOER:         FJSR    FNDOERP
+                RTS
+USRFN:          FJSR    USRFNP
                 RTS

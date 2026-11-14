@@ -6,19 +6,18 @@
 ; STROUI at step I2.)
 ;
 ;   NOTSPK        Illegal function call, for a function not translated yet
-;   the rest      USR, FN and the event traps' GOSUB: Illegal function call,
-;                 or nothing
+;   GOTRP         the event traps' GOSUB: nothing
+;
+; (USR and FN went at 7b's step b: res/far3.s.)
 
 .include "gwbasic.inc"
 
-.export NOTSPK, USRFN, FNDOER, GOTRP, FBUFF
+.export NOTSPK, GOTRP, FBUFF
 .import FCERR
 
 .code
 
 ; The untranslated routines.
-USRFN:
-FNDOER:
 NOTSPK:         JMP     FCERR
 GOTRP:          RTS
 

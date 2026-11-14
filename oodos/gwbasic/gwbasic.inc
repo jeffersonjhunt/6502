@@ -194,6 +194,15 @@ FORPTR          = $D8                  ; an entry on the BASIC stack
 ; OPTION BASE's flag, which the resident CLEARC resets (GWDATA.ASM's OPTFLG).
 OPTFLG          = $1A                  ; nonzero once OPTION BASE has set a base
 
+; --- 7b step b's ($E2-$E5) -----------------------------------------------------
+;
+; DEF FN's state that the resident PTRGET and GARBA2 test on their every pass
+; (GWDATA.ASM's; the rest, PARM1 and the counts, is fixed RAM: res/bistrs.s).
+TEMP9           = $E2                  ; GARBA2: the parameter block being walked (a pointer)
+NOFUNS          = $E4                  ; zero if no user function is being evaluated
+PRMFLG          = $E5                  ; PTRGET: PARM1 still to search before the variables
+PRMSIZ          = 100                  ; GWDATA.ASM: the bytes for a function's parameters (PARM1, PARM2)
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

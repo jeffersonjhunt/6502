@@ -32,9 +32,10 @@
 ; ERASE (P3, 7b step a2) calls PTRGET with SUBFLG 1: ERSFIN searches the
 ; arrays for the name with no subscripts (NDIM 0, the 8086's dummy count
 ; with Z set); ARYEXT returns at the array found, Z set, and NOTFDD, for one
-; not there, returns Z clear (PTRRNZ). Left for later: DEF FN's parameter
-; table, which the 8086 searches first when a function is active (NOFUNS;
-; 7b), and CALL's SARYFL (7b). OPTION BASE is P3's, but OPTVAL is read here.
+; not there, returns Z clear (PTRRNZ). While a user function is evaluated
+; (NOFUNS, 7b step b), its parameters, PARM1, are searched first (NOARYS,
+; NOTFNS). Left for later: CALL's SARYFL (7g). OPTION BASE is P3's, but OPTVAL
+; is read here.
 
 .include "gwbasic.inc"
 
@@ -43,6 +44,7 @@
 .export NAMCNT, NAMBUF, DEFTBL, OPTVAL, SUBFLG
 .import CHRGTR, SYNCHR, SNERR, ISLET2, GETSTK, OMERR, ERROR, INTIDX
 .import SPUSH, SPOP, SPUSHA, SPOPA, RETVAR, DZERO, GETYP, GARBA2, DSEGZ
+.import PARM1, PRMLEN
 
 NAMLEN          = 40                   ; OEM.H: the longest name
 ERRBS           = 9                    ; Subscript out of range
@@ -148,9 +150,17 @@ ERSFIN:         STZ     NDIM           ; the dummy count: none
                 BNE     NOARYS
                 JMP     ISARY
 
-; NOARYS: a simple variable. (DEF FN's parameters, PARM1, are searched first
-; when NOFUNS says a function is active: 7b's.)
+; NOARYS: a simple variable. While a user function is evaluated (NOFUNS),
+; its parameters (PARM1, PRMLEN bytes) are searched first, and PRMFLG says
+; so to NOTFNS (BIPTRG.ASM 185). OO-1: the 8086 stores NOFUNS into PRMFLG on
+; every search; here only when NOFUNS is set, so that a program with no
+; function running pays a test and a branch. PRMFLG is kept 0 while NOFUNS
+; is: NOTFNS clears it, and STKERR and FN's end (NOCPRS) clear it with
+; NOFUNS (it lives only from here to NOTFNS: nothing in between evaluates).
 NOARYS:         STZ     SUBFLG
+                LDA     NOFUNS         ; a function active?
+                BNE     PRMSRC
+; SNFUNS (BIPTRG.ASM 203): the simple variables.
 SNFUNS:         LDA     ARYTAB         ; search to ARYTA2
                 STA     ARYTA2
                 LDA     ARYTAB+1
@@ -214,9 +224,28 @@ FNDITV:         INY                    ; found: PTR at the value
                 STA     PTR+1
                 RTS
 
-; NOTFNS, SMKVAR: not found (VPTR at ARYTAB). Made, unless EVAL wants the
-; value (FINZER) or VARPTR the address (VARNOT).
-NOTFNS:
+; PRMSRC (NOARYS's second half): PARM1, to PARM1 + PRMLEN.
+PRMSRC:         STA     PRMFLG         ; PARM1 to search: then the variables
+                CLC
+                LDA     #<PARM1
+                ADC     PRMLEN
+                STA     ARYTA2
+                LDA     #>PARM1
+                ADC     PRMLEN+1
+                STA     ARYTA2+1
+                LDA     #<PARM1
+                LDX     #>PARM1
+                BRA     LOPFND
+
+; NOTFNS (BIPTRG.ASM 198): not found. After PARM1 (PRMFLG), the variables;
+; after them, SMKVAR.
+NOTFNS:         LDA     PRMFLG         ; PARM1 searched?
+                BEQ     SMKVAR
+                STZ     PRMFLG         ; yes: the variables now
+                JMP     SNFUNS
+
+; SMKVAR: not found (VPTR at ARYTAB). Made, unless EVAL wants the value
+; (FINZER) or VARPTR the address (VARNOT).
 SMKVAR:         PLA                    ; the caller: the return address, back
                 STA     T0
                 PLA
