@@ -1,0 +1,5 @@
+10 REM the handler's end without RESUME: No RESUME
+20 ON ERROR GOTO 100
+30 ERROR 5
+40 PRINT "no"
+100 PRINT "handler";ERR;ERL

@@ -360,7 +360,8 @@ ITSCTC:         JSR     KYBINI
                 LDA     SAVTXT+1
                 STA     TXTPTR+1
                 JSR     CNTCCN         ; (its return, popped by STOP's CONPOP)
-CNTCCN:         JSR     CRDO           ; EDTBRK: to a new line (AUTO's reset is 7b's)
+CNTCCN:         JSR     CRDO           ; EDTBRK: to a new line, AUTO ended
+                STZ     AUTFLG
                 JSR     FINPRT
                 LDA     CURLIN         ; $FF in direct mode: STOPRG makes it 0, no message
                 AND     CURLIN+1

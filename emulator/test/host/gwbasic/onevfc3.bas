@@ -1,0 +1,4 @@
+10 REM ON COM(3): Illegal function call
+20 PRINT "a"
+30 ON COM(3) GOSUB 100
+100 RETURN

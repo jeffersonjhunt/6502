@@ -6,22 +6,25 @@
 ; STROUI at step I2.)
 ;
 ;   NOTSPK        Illegal function call, for a function not translated yet
-;   the rest      USR, FN and the event traps' GOSUB: Illegal function call,
-;                 or nothing
+;
+; (USR and FN went at 7b's step b: res/far3.s; GOTRP at step e: p3/bimisc.s.)
 
 .include "gwbasic.inc"
 
-.export NOTSPK, USRFN, FNDOER, GOTRP, FBUFF
+.export NOTSPK, FBUFF
 .import FCERR
 
 .code
 
 ; The untranslated routines.
-USRFN:
-FNDOER:
 NOTSPK:         JMP     FCERR
-GOTRP:          RTS
 
 .segment "RAM"
 
-FBUFF:          .res    43             ; $FOUT's output: FBUFFR's 43 (GWDATA.ASM), PRINT USING's too (7b)
+; $FOUT's output and PRINT USING's (7b step d): FBUFFR's 43 (GWDATA.ASM), and
+; 4 more (OO-1:): the widest field PRINUS allows, two places before the point
+; with a comma and 22 after it and a trailing sign, of a double just under
+; 10^16, has $PUF write to FBUFF+46 before $PUFXE gives it its "%". The 8086
+; writes past its FBUFFR there too, into TSTACK's bytes, which hold nothing
+; then; here the workspace follows (the program's first line).
+FBUFF:          .res    47

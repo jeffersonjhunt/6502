@@ -1,0 +1,3 @@
+# GWDATA.ASM's PRMSIZ: the parameters' entries take at most 99 bytes; nine doubles' are 108 (12 each), so the ninth is Illegal function call; PC-BASIC has no such limit
+ 9 
+Illegal function call in 40

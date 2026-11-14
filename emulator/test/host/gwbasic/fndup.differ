@@ -1,0 +1,2 @@
+# GWEVAL.ASM's POPASG binds the arguments last first, so PARM1 holds the second X before the first, and PTRGET finds it: 2; PC-BASIC gives 0
+ 2 

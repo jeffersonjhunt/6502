@@ -1,0 +1,7 @@
+# RANDOM: the seed is FRCINT's integer in RNDX+1 and +2 (PC-BASIC takes -5's single precision bytes instead, so line 30's differs); line 60's .7788379 (13066732 / 2^24) is .778838 by the 1983 source's $FOUT, a difference between the source and shipped GW-BASIC, not a port bug (owner G5, traced in test/mbf.py): $FOTNV brackets it by MDPTEN with 10^6, rounded to single (778837.9375, exact 778837.919...), then MUL10, rounded again (7788379.5, exact 7788379.192...), and $FOTCV's .5 carries it to 7788380
+ 0 -1 
+ .9627401  5.286181E-02 
+ .8592017 
+ .9459723 
+ 0 
+ .778838  .778838 

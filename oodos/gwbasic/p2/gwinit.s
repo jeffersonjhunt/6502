@@ -52,6 +52,12 @@ GWINIT:
                 LDA     #','
                 STA     BUFMIN
                 STZ     ERRFLG
+; OO-1: AUTO's increment 0 until an AUTO sets one, as GW-BASIC's data
+; segment starts (so AUTO n, first is Illegal function call, as PC-BASIC
+; gives it too); OODOS doesn't clear a program's zero page. (AUTFLG starts
+; clear by INITSA's NODSKS.)
+                STZ     AUTINC
+                STZ     AUTINC+1
                 LDA     #<TEMPST
                 STA     TEMPPT
                 LDA     #>TEMPST

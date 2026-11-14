@@ -1,0 +1,1 @@
+10 PRINT STRING$("a",65)

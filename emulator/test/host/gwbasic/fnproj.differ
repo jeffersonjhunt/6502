@@ -1,0 +1,3 @@
+# GWEVAL.ASM's FNDOER: a function's string result that is its parameter is copied (NOCPRS) and is the parameter's value; PC-BASIC returns the variable of the parameter's name (here null)
+abcdabxab
+abzzef

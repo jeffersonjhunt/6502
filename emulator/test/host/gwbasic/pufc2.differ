@@ -1,0 +1,3 @@
+# PRCCHR prints the "x" before ISSTR1 evaluates the missing value (PC-BASIC gives the error first)
+x
+Missing operand in 10

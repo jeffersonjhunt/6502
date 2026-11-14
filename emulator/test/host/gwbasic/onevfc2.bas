@@ -1,0 +1,4 @@
+10 REM ON KEY(256): GETBYT, Illegal function call
+20 PRINT "a"
+30 ON KEY(256) GOSUB 100
+100 RETURN

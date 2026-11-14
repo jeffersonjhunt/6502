@@ -27,7 +27,7 @@
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
 .import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, READY, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
@@ -155,8 +155,8 @@ SPOPA:          LDA     (SSP)
 ; --- SCRATH, SCRTCH, RUNC, CLEARC, STKINI (BIMISC.ASM 168) -------------------
 
 ; NEW (SCRATH: nothing may follow it): no program, no trace, no line
-; pointers; then RUNC. NODSKS is start-up's way in. PROFLG (a protected
-; program) and AUTFLG are 7c's and 7b's.
+; pointers, no AUTO; then RUNC. NODSKS is start-up's way in (so AUTFLG
+; starts clear). PROFLG (a protected program) is 7c's.
 SCRATH:         BEQ     SCRTCH
                 RTS
 NODSKS:
@@ -165,6 +165,7 @@ SCRTCH:         LDA     TXTTAB
                 LDA     TXTTAB+1
                 STA     PTR+1
                 JSR     TOFF           ; A = 0
+                STZ     AUTFLG
                 STZ     PTRFLG
                 STA     (PTR)          ; the program: its end link alone
                 LDY     #1
@@ -182,15 +183,20 @@ RUNC:           LDA     TXTTAB
                 LDA     TXTTAB+1
                 STA     TXTPTR+1
                 DECW    TXTPTR
-; CLEARC: the variables and arrays gone, every letter single, RND's seed
-; back, no ON ERROR, nothing to CONT, the strings gone, DATA from the start;
-; then STKINI. TXTPTR is kept. (The traps, the screen, the sound and the
-; files it resets too are 7b's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
+; CLEARC: the variables and arrays gone, every letter single, no OPTION
+; BASE, RND's seed back, no ON ERROR, nothing to CONT, the strings gone, DATA
+; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
+; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
+; graphics' reset), and the second finds nothing more to do: once here till
+; 7e brings GRPRST. (The screen, the sound and the files it resets too are
+; 7c's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
                 STA     TEMP+1
-                STZ     OPTVAL         ; OPTION BASE 0 (OPTFLG, "OPTION seen", is 7b's)
+                FJSR    INITRP         ; init the trap table
+                STZ     OPTFLG         ; no OPTION BASE seen
+                STZ     OPTVAL         ; OPTION BASE 0
                 LDX     #25
                 LDA     #VT_SNG
 LOPDFT:         STA     DEFTBL,X
@@ -222,9 +228,11 @@ GODFRE:         LDA     #0             ; Z: RESTORE from the start
                 STA     STREND+1
 ; STKINI: both stacks empty, with a zero word (the FNDFOR stopper) on the
 ; BASIC stack, SAVSTK at it; the string temporaries free, the overflow
-; message back to normal, output to the console, subscripts allowed. Returns
-; to its caller (popped first, pushed back), TXTPTR from TEMP. (DEF FN's
-; parameter state, PRMLEN and the rest, is 7b's.)
+; message back to normal, output to the console, no user function being
+; evaluated (DEF FN's parameter state: PRMLEN, NOFUNS, PRMLN2, FUNACT and
+; PRMSTK zero; PRMFLG too, which the 8086 needn't: NOARYS's), subscripts
+; allowed. Returns to its caller (popped first, pushed back), TXTPTR from
+; TEMP.
 STKINI:         PLA                    ; the return address, in CX
                 STA     RCL
                 PLA
@@ -250,6 +258,12 @@ STKERR:         LDA     #<TEMPST
                 STA     TEMPPT+1
                 STZ     FLGOVC         ; CLROVC
                 JSR     FINPRT
+                LDX     #7             ; PRMLN2, FUNACT, PRMSTK, PRMLEN: together
+@p:             STZ     PRMLN2,X
+                DEX
+                BPL     @p
+                STZ     NOFUNS
+                STZ     PRMFLG
                 STZ     SUBFLG
                 LDA     #0             ; the stopper
                 JSR     SPUSHA

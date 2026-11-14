@@ -189,6 +189,67 @@ KBFLEN          = BUFLEN + BUFLEN / 4  ; GWMAIN.ASM: the crunch buffer (KBUF), s
 ; (res/gwmain.s) with FORPTR, as the 8086 walks its own stack with BX.
 FORPTR          = $D8                  ; an entry on the BASIC stack
 
+; --- 7b step a2's ($1A) --------------------------------------------------------
+;
+; OPTION BASE's flag, which the resident CLEARC resets (GWDATA.ASM's OPTFLG).
+OPTFLG          = $1A                  ; nonzero once OPTION BASE has set a base
+
+; --- 7b step b's ($E2-$E5) -----------------------------------------------------
+;
+; DEF FN's state that the resident PTRGET and GARBA2 test on their every pass
+; (GWDATA.ASM's; the rest, PARM1 and the counts, is fixed RAM: res/bistrs.s).
+TEMP9           = $E2                  ; GARBA2: the parameter block being walked (a pointer)
+NOFUNS          = $E4                  ; zero if no user function is being evaluated
+PRMFLG          = $E5                  ; PTRGET: PARM1 still to search before the variables
+PRMSIZ          = 100                  ; GWDATA.ASM: the bytes for a function's parameters (PARM1, PARM2)
+
+; --- 7b step c's ($E6-$EA) -----------------------------------------------------
+;
+; AUTO's state (GWDATA.ASM's), which the resident MAIN, SCRTCH and CNTCCN
+; test or clear, P2's EDENT2 sets and P3's AUTO and MAIN part read.
+AUTFLG          = $E6                  ; AUTO on: nonzero; in MAIN, "*" or " " as offered
+AUTLIN          = $E7                  ; the line AUTO offers next
+AUTINC          = $E9                  ; AUTO's increment
+
+; --- 7b step d's ($59-$5E) ---------------------------------------------------
+;
+; PRINT USING's scan of its format (BIPRTU.ASM's BX, CH, CL, DL and DH; p3/
+; biprtu.s), kept across FRMEVL, LEFT$ and P1's PUFOUT: only PRINUS uses them.
+USP             = $59                  ; BX: the next character of the format
+USCH            = $5B                  ; CH: the format's characters left
+USCL            = $5C                  ; CL: places after the point, the point counted; a string's width
+USDL            = $5D                  ; DL: places before the point (BGSTRF: the count kept)
+USDH            = $5E                  ; DH: the field's flags (PUFOUT's A)
+
+; --- 7b step e's ($EC-$ED): the event traps ----------------------------------
+;
+; OO-1: the 8086 tests ONGSBF at NEWSTT, which its interrupts' sources raise
+; through EVTRP. The OO-1's sources are polled, never raised in an interrupt
+; (hw/oodos.md, "The plan, phase 7": 7b), so NEWSTT tests TRPON alone, and only
+; while it is nonzero polls the sources and then ONGSBF (res/gwmain.s TRPOLL).
+; P3 keeps TRPON as the traps' T_ON bits change (p3/bimisc.s ONTRP, OFFTRP,
+; INITRP). Both bytes are exported (res/gwmain.s), for the label file that
+; test_gwbasic_stmts writes them by.
+TRPON           = $EC                  ; OO-1: nonzero while any event trap is on (T_ON)
+TRPTST          = $ED                  ; test only: a trap trigger for the poll (p3/trptst.s); 7d-7f's sources replace it
+
+; The traps' flags (BIMISC.ASM; the routines shift them: don't change) and
+; TRPTBL's events (OEM.H, GWSTS.ASM): 3 bytes each, the flag and the GOSUB
+; line's pointer (its link), in event id order: the pen, the 14 keys, the 2
+; COM ports, the 4 triggers.
+T_ON            = 1                    ; the trap is on
+T_STOP          = 2                    ; stopped: a request is remembered, not taken
+T_REQ           = 4                    ; requested: the event has happened
+NMKEYT          = 14                   ; OEM.H: the function key traps
+NMCOMT          = 2                    ; the COM ports
+NMPENT          = 1                    ; the light pens
+NMSTRT          = 4                    ; the joystick triggers
+NUMTRP          = NMKEYT + NMCOMT + NMPENT + NMSTRT
+PENOFF          = 0                    ; GWSTS.ASM: each class's first event id
+KEYOFF          = PENOFF + NMPENT
+COMOFF          = KEYOFF + NMKEYT
+STROFF          = COMOFF + NMCOMT
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

@@ -8,7 +8,10 @@
 # For each DIR/NAME.bas: PC-BASIC runs it (-n: no interface; -q: quit at the end) and its output becomes
 # DIR/NAME.out. If DIR/NAME.in is there, it is what is typed: the lines INPUT reads, each ended by a CR, on
 # PC-BASIC's standard input (its --input option ends the run before the last lines are read), and the output
-# is what PC-BASIC writes to its standard output, the lines typed shown as typed. The program goes in, and
+# is what PC-BASIC writes to its standard output, the lines typed shown as typed. If DIR/NAME.typ is there
+# (and no NAME.bas is needed), it is a typed session: the lines typed at the prompt, a program's and commands
+# alike, each ended by a CR, on the standard input of PC-BASIC run with no program, and DIR/NAME.out is its
+# whole transcript (what test_gwbasic_stmts types at GW-BASIC's prompt). The program goes in, and
 # only the output comes out, by docker cp (the typed lines and the output by docker exec's own streams); the
 # container is removed.
 set -eu
@@ -25,6 +28,10 @@ docker exec "$name" sh -c "pip download -q --no-deps pcbasic==2.0.7 -d /w 2>/dev
     echo '$WHEEL_SHA256  /w/$WHEEL' | sha256sum -c - >/dev/null &&
     pip install -q --no-deps /w/$WHEEL 2>/dev/null && mkdir /work"
 for n in "$@"; do
+    if [ -f "$dir/$n.typ" ]; then
+        docker exec -i -w /work "$name" timeout 120 pcbasic -n <"$dir/$n.typ" >"$dir/$n.out"
+        continue
+    fi
     docker cp "$dir/$n.bas" "$name:/work/$n.bas"
     if [ -f "$dir/$n.in" ]; then
         docker exec -i -w /work "$name" timeout 120 pcbasic -n "$n.bas" -q <"$dir/$n.in" >"$dir/$n.out"

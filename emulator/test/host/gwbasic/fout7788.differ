@@ -1,0 +1,3 @@
+# G5 (owner 2026-11-14): .7788379 is 13066732 / 2^24, and the 1983 source's $FOUT prints .778838 (test/mbf.py, bit-exact to the source): $FOTNV brackets it by MDPTEN with 10^6, rounded to single (778837.9375, exact 778837.919...), then MUL10, rounded again (7788379.5, exact 7788379.192...), and $FOTCV's .5 carries it to 7788380. Shipped GW-BASIC (PC-BASIC) prints .7788379: the source and shipped GW-BASIC differ here; the port follows the source. Times 10 and over 10 the two agree.
+ .778838  .778838 
+ 7.788379  .0778838 

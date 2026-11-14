@@ -4,7 +4,8 @@
 ; GWMAIN.ASM, translated: the resident part of the interpreter's frame.
 ;
 ;   ERROR SNERR ...    the errors' entry: the stacks reset, the message (P2's
-;                      ERRPRT), then READY; the xxERR labels the code jumps to
+;                      ERRPRT), then READY, or ON ERROR's trap (NTMDCN); the
+;                      xxERR labels the code jumps to
 ;   READY MAIN         "Ok", a line read (the OEM's PINLIN), then run at once
 ;                      (direct) or crunched into the program (P2's EDENT2);
 ;                      FINI clears and goes round again
@@ -12,6 +13,8 @@
 ;   PRGEND             the end of the program, or of a direct line
 ;   RUN                RUN and RUN line (RUN "file" is 7c's)
 ;   NEWSTT GONE        the statement fetcher and dispatch
+;   TRPOLL GOSUB2      OO-1: the event traps' poll, NEWSTT's while a trap is
+;                      on (7b step e); an event's GOSUB
 ;   CHRGTR CHRCON      the next character, and embedded constants
 ;   CONFC1             an embedded constant to the FAC
 ;   FNDLIN LOOP        find a line
@@ -45,16 +48,18 @@
 
 .include "gwbasic.inc"
 
-.export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET
-.export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC, LOOP
+.export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET, LINGT2
+.export GOTO, GOTO2, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC, LOOP
 .export DEFSTR, DEFINT, DEFREA, DEFDBL, INTIDX, INTID2
 .export ERROR, SNERR, DV0ERR, NFERR, UFERR, REERR, OVERR, MOERR, TMERR, FCERR
-.export USERR, ERESET, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
+.export USERR, ERESET, ERRESM, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
 .export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, LIST, LLIST, DELETE
+.export EDIT, EDTMAI, LSTRDY
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, GOSUB, RETURN, NXTLIN, FVALSV
-.export LETCN2, INPCOM, DATSNE, DATLIN, PRINT, LPRINT, INPUT, LINE, READ
+.export NEWST1, GOSUB2, TRPON, TRPTST, CURLIN ; (the zero page ones for the label file: the tests)
+.export LETCN2, INPCOM, LETCN4, DATSNE, DATLIN, PRINT, LPRINT, INPUT, LINE, READ, INPRET
 .import STMDSP, NUMCON, OUTDO, NEWSTX, ISMID, LRUN
-.import GOTRP, CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
+.import CHKINT, INEG2, SYNCHR, FRMEVL, PTRGET, DOCNVF, VMOVE, VSIGN
 .import LETSTR, ISLET2, GETIN2, DEFTBL, SPOP, STKERR, CRDONZ, FINLPT
 .import STROUT, PINLIN, ENDCON, RUNC, CLEARC
 .import SUBFLG, GETSTK, FRCINT, FRCSNG, FRMCHK, GETYP, SIGNS, NEXTS, STPEND
@@ -88,9 +93,41 @@ GISMD:          JSR     NEWSTX         ; an extended statement, or MID$ =
                 JMP     ISMID
 GONLET:         JMP     LET
 
-NEWSTT:         LDA     ONGSBF         ; an event's GOSUB?
+; TRPOLL: OO-1, the event traps' poll (hw/oodos.md, "The plan, phase 7": 7b).
+; The 8086's sources raise a trap's request from an interrupt, and NEWSTT
+; tests ONGSBF each statement. Here NEWSTT tests TRPON alone (gwbasic.inc:
+; nonzero while any trap is on, which P3 keeps), and only then comes here:
+; the sources polled, then ONGSBF's test (which can be nonzero only while a
+; trap is on) and GOTRP (P3). GOTRP returns C set for a trap taken (the far
+; call rule: the 8086's GOTRP jumps to GOSUB2 itself), and the poll goes on
+; into GOSUB2; else back to NEWST1. The sources' polls are 7d-7f's; until
+; then TRPTST, the test-only trigger, stands in their place (p3/trptst.s),
+; and goes when they come.
+TRPOLL:         LDA     TRPTST         ; test only: a trigger (7d-7f: the sources' polls)
+                BEQ     TRPOL1
+                FJSR    TRPTSP
+TRPOL1:         LDA     ONGSBF         ; NEWSTT's own test: an event's GOSUB?
                 BEQ     NEWST1
-                JSR     GOTRP
+                FJSR    GOTRP          ; possible ON GOSUB
+                BCC     NEWST1         ; none taken
+; GOSUB2 (GWMAIN.ASM 2073): the entry for an event's GOSUB, DX the line's
+; pointer (its link), CX the trap's flag address (P3's, which RETURN hands
+; back to P3: RTNTRP), and TXTPTR the text where NEWSTT was; then the line
+; run from its start (GONE4), SAVTXT just before it.
+GOSUB2:         JSR     GOSPSH         ; the entry: text, CURLIN, CX, GOSUB
+                LDA     RDL            ; HL: the subroutine's text
+                STA     TXTPTR
+                SEC                    ; SAVTXT one before it (NEWSTT's INX)
+                SBC     #1
+                STA     SAVTXT
+                LDA     RDH
+                STA     TXTPTR+1
+                SBC     #0
+                STA     SAVTXT+1
+                JMP     GONE4          ; continue with the subroutine
+
+NEWSTT:         LDA     TRPON          ; OO-1: any trap on? (5 cycles, none)
+                BNE     TRPOLL
 NEWST1:         TSX                    ; SAVSTK: both stacks
                 STX     SAVSTK
                 LDA     SSP
@@ -993,12 +1030,16 @@ TRMNXT:         PLX                    ; CURLIN back, A kept
 ; --- GOSUB, RETURN (GWMAIN.ASM 2049, 2154) -------------------------------------------
 
 ; GOSUB line: the entry (CURLIN, and the text after the line number, for
-; RETURN), then GOTO's search. The event traps' entry (GOSUB2, the flag's
-; address in the entry) is 7b's.
+; RETURN; no event's flag, CX 0), then GOTO's search. GOSPSH makes the entry
+; from CX and TXTPTR, for GOSUB and for an event's GOSUB (GOSUB2, above).
 GOSUB:          LDA     #3
                 JSR     GETSTK
                 JSR     LINGET
-                SEC                    ; the entry, by the 8086's pushes
+                STZ     RCL            ; not an event's flag (ON event GOSUB)
+                STZ     RCH
+                JSR     GOSPSH
+                JMP     GOTO2
+GOSPSH:         SEC                    ; the entry, by the 8086's pushes
                 LDA     SSP
                 SBC     #GOSSIZ
                 STA     SSP
@@ -1010,10 +1051,11 @@ GOSUB:          LDA     #3
                 LDY     #1
                 LDA     #GOSUB_TK
                 STA     (PTR),Y
-                LDA     #0             ; no event's flag
-                INY
+                INY                    ; CX: the event's flag, or 0
+                LDA     RCL
                 STA     (PTR),Y
                 INY
+                LDA     RCH
                 STA     (PTR),Y
                 INY
                 LDA     CURLIN
@@ -1027,14 +1069,15 @@ GOSUB:          LDA     #3
                 INY
                 LDA     TXTPTR+1
                 STA     (PTR),Y
-                JMP     GOTO2
+                RTS
 
 ; RETURN [line]: every FOR and WHILE above the GOSUB's entry dropped (FNDFOR
 ; with a variable no entry has), then its line and text back, and the rest
 ; of the GOSUB statement skipped; RETURN line goes there instead, from here.
 ; With no GOSUB entry, RETURN without GOSUB, the stack cut at what stopped
 ; the walk. (The 8086 leaves SAVSTK just past the GOSUB's token: so here.)
-; An event's RETURN, which turns its trap back on (RSTTRP), is 7b's.
+; An event's GOSUB entry (GOSUB2's, its trap's flag address not 0) has P3
+; take the stop off its trap (RTNTRP: RSTTRP, if the trap is on).
 RETURN:         LDA     TXTPTR
                 STA     RTNTXT
                 LDA     TXTPTR+1
@@ -1050,7 +1093,12 @@ RETURN:         LDA     TXTPTR
 RTRNOK:         LDA     #2             ; past the token
                 JSR     FORADV
                 JSR     FORSSP
-                LDY     #2             ; NOTEVT: the GOSUB's line in CX,
+                LDA     (FORPTR)       ; the trap's flag address, if an event's
+                LDY     #1
+                ORA     (FORPTR),Y
+                BEQ     NOTEVT         ; not ON event GOSUB's
+                FJSR    RTNTRP         ; its stop taken off (P3: RSTTRP)
+NOTEVT:         LDY     #2             ; the GOSUB's line in CX,
                 LDA     (FORPTR),Y     ; its text in DX
                 STA     RCL
                 INY
@@ -1173,8 +1221,10 @@ FCERR:          LDA     #ERRFC         ; GWMAIN.ASM 1938 $FCERR
 ; ERROR (GWMAIN.ASM 455): error A (the 8086's DL). Before start-up is done
 ; (INITFG), P2's CMDERR says so and ends. Then ERL's line and the line for
 ; EDIT and LIST, the stacks back as the statement began, the line and text
-; for CONT, and the message: "Syntax error in 20", on a line of its own.
-; ON ERROR's trap (NTMDCN's) is 7b's: the error is always printed.
+; for CONT; then ON ERROR's trap (NTMDCN), or the message: "Syntax error
+; in 20", on a line of its own. ERRESM is the way in for an error forced
+; again (ON ERROR GOTO 0 in the handler, p3/gwmain.s RESTRP): ERRLIN and DOT
+; as they were.
 ERROR:
 .ifdef FLAT
                 LDX     ERRHOOK+1      ; the math harness takes it?
@@ -1214,14 +1264,15 @@ ERRMOR:         LDX     #RCL           ; the FNDFOR stopper STKERR pushed
                 JSR     SPOP
                 LDA     RDL
                 STA     ERRFLG         ; for READY: a Syntax error edits its line
-                LDA     SAVTXT         ; RESUME's (7b)
+                LDA     SAVTXT         ; RESUME's
                 STA     ERRTXT
                 LDA     SAVTXT+1
                 STA     ERRTXT+1
                 LDA     ERRLIN
                 AND     ERRLIN+1
-                CMP     #$FF
-                BEQ     NOTRAP         ; direct: no CONT
+                INC     A              ; the 8086's AL: zero for a direct line,
+                TAY                    ; kept in Y for NTMDCN
+                BEQ     NTMDCN         ; direct: no CONT
                 LDA     ERRLIN
                 STA     OLDLIN
                 LDA     ERRLIN+1
@@ -1230,6 +1281,25 @@ ERRMOR:         LDX     #RCL           ; the FNDFOR stopper STKERR pushed
                 STA     OLDTXT
                 LDA     SAVTXT+1
                 STA     OLDTXT+1
+; NTMDCN (GWMAIN.ASM 501): ON ERROR's trap. With ONELIN 0, no trap. Else
+; AL AND ONEFLG, as the 8086 has it: AL is zero for a direct line, so a
+; direct line's error is always trapped, even in the handler; in a program
+; line it is the line number's two bytes ANDed, plus one (not zero), so the
+; handler's own error (ONEFLG $FF) is printed. Trapped: ONEFLG decremented,
+; and the line ONELIN points at run (its link at TXTPTR, as GONE4 wants it),
+; with both stacks as the statement began (ERESET), RESUME's text in ERRTXT.
+NTMDCN:         LDA     ONELIN
+                ORA     ONELIN+1
+                BEQ     NOTRAP         ; no trapping
+                TYA
+                AND     ONEFLG
+                BNE     NOTRAP         ; in the handler already: the message
+                DEC     ONEFLG
+                LDA     ONELIN
+                STA     TXTPTR
+                LDA     ONELIN+1
+                STA     TXTPTR+1
+                JMP     GONE4
 NOTRAP:         STZ     ONEFLG
                 JSR     CRDONZ
                 LDA     RDL
@@ -1258,8 +1328,11 @@ REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
 
 ; MAIN: a line from the console. A blank one is read again; one starting
 ; with a number goes into the program; any other runs at once, from KBUF,
-; as the end of a program would (CRUNCH leaves three zeros after it). AUTO
-; (7b) is left out: its line number and "*".
+; as the end of a program would (CRUNCH leaves three zeros after it). In
+; AUTO (AUTFLG), P3's MAINA offers the line's number first, and AUTAST
+; skips the "*" offered after it (p3/gwmain.s). (PINLIN never returns C set
+; on OODOS: a ^C breaks inside it, and CNTCCN ends AUTO, so the 8086's
+; AUTFLG reset on that way back isn't needed.)
 MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     CURLIN
                 STA     CURLIN+1
@@ -1267,6 +1340,9 @@ MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     SAVTXT
                 LDA     #>ENDPRG
                 STA     SAVTXT+1
+                LDA     AUTFLG         ; in an AUTO command?
+                BEQ     NTAUTO
+                FJSR    MAINA          ; its line number into BUF, and "*"
 NTAUTO:         JSR     PINLIN         ; TXTPTR at BUF-1
                 BCC     NTSTOP
                 BRA     MAIN
@@ -1279,6 +1355,9 @@ NTSTOP:         JSR     CHRGTR
                 BCC     MAINBX
                 JMP     SNERR          ; a digit left over: the number is too big
 MAINBX:         JSR     BAKSP
+                LDA     AUTFLG         ; AUTO: its "*" skipped
+                BEQ     NTASTC
+                FJSR    AUTAST
 NTASTC:         LDA     RDL            ; a line number: one space after it is dropped
                 ORA     RDH
                 BEQ     EDENT
@@ -1362,10 +1441,18 @@ LLIST:          PHP                    ; CHRGTR's flags kept, as the 8086's
                 PLA
                 PLP
 LIST:           FJSR    LISTP
-                PLA
+LSTRDY:         PLA
                 PLA
                 JMP     READY
 DELETE:         FJSR    DELETP
+
+; EDIT (7b step c): P2's EDITP puts the line in BUF to edit (SCNEDT.ASM's
+; EDIT and EREDIT); then NEWSTT's return dropped and MAIN, as EREDIT's POP
+; BX and JMP MAIN. AUTO's stub (res/far3.s) ends here too.
+EDIT:           FJSR    EDITP
+EDTMAI:         PLA
+                PLA
+                JMP     MAIN
 
 ; --- PRINT, LPRINT, INPUT, LINE INPUT, READ: P1's statements -----------------------
 
@@ -1408,8 +1495,8 @@ ENDPRG:         .res    5              ; the fake end of a program SAVTXT points
 DOT:            .res    2              ; the current line, for LIST . and EDIT
 OLDLIN:         .res    2              ; CONT's line
 OLDTXT:         .res    2              ; and text; 0: nothing to continue
-ERRTXT:         .res    2              ; RESUME's (7b)
-ONEFLG:         .res    1              ; in ON ERROR's routine (7b)
+ERRTXT:         .res    2              ; RESUME's: the erring statement's text (SAVTXT)
+ONEFLG:         .res    1              ; in ON ERROR's routine: nonzero (NTMDCN decrements it)
 INITFG:         .res    1              ; start-up done: errors are BASIC's
 .ifdef FLAT
 .export ERRHOOK

@@ -1,0 +1,2 @@
+# GWEVAL.ASM's FNDOER: the body sees only the active function's parameters (PARM1), then the variables, so FNO's X is the variable (5), not FNQ's parameter; PC-BASIC sees the caller's parameter
+ 27  5 

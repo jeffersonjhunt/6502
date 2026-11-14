@@ -1,0 +1,2 @@
+# RANDOM: FRCINT of 40000 is Overflow (PC-BASIC takes the number's bytes and gives no error)
+Overflow in 10
