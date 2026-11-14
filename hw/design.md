@@ -1808,8 +1808,21 @@ The decisions with it:
   pin enables the expansion chassis: in effect a fifth module-ID bit beside PS3–PS0, so the chassis's cards
   answer only when it is set.
 
-Not designed yet: the pin map (the owner's, in progress), how a card uses D8–D15 and when a transfer is 16 bits
-wide, how the fifth bit is driven and decoded, and the change to [modules.md](modules.md). The emulator models the
+**The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
+- **DMA transfers 16 bits.** A card with DMA moves a word on D0–D15 in each transfer to or from main memory, so a
+  transfer takes half the bus cycles it does now.
+- **The CPU card may make the bus 16 bits throughout.** The CPU card would read or write all 16 bits of memory on
+  each bus cycle and buffer them, shifting each byte into or out of the 8-bit CPU. The bus would then carry only
+  16-bit cycles.
+- **What it needs:**
+  - the RAM cards 16 bits wide;
+  - a way to write one byte of a word (byte enables, or A0 kept for that), since the CPU and many cards write
+    bytes;
+  - a rule for when the buffered byte is still good: a write by DMA or another master to that word, or an I/O
+    read, must not be answered from it.
+
+Not designed yet: the pin map (the owner's, in progress), how the 16-bit bus works (above), how the fifth bit is
+driven and decoded, and the change to [modules.md](modules.md). The emulator models the
 bus's signals, not its pins, so the connector doesn't change it; eight DMA channels, the wider bus and the
 expansion port would, when they are built.
 
