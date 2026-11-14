@@ -72,3 +72,21 @@ output (it agrees with the 8086 source on both):
 
 T3-T5 (LLIST before `'`, LPT1's columns and its CR LF) go to LST:, which PC-BASIC's run doesn't show:
 test_gwbasic_core checks them by hand, from GIOLPT.ASM's logic.
+
+## 7b
+
+The programs of 7b's steps (test_gwbasic_stmts), typed and RUN the same way. Step a1's, each against PC-BASIC's
+output (it agrees with the 1983 source on all of them):
+
+| Program | What |
+|---|---|
+| `ongoto` | ON ... GOTO and ON ... GOSUB: index 0 and past the last fall through, 1 to the last, a non-integer index rounded, RETURN to the statement after, spaces in the list, a list ending in a comma, index 255 |
+| `on_fcn`, `on_fcb`, `on_ul`, `on_sn`, `on_sn2` | ON's errors: a negative index, one over 255, a missing line, the index at a trailing comma, neither GOTO nor GOSUB |
+| `trapres`, `trapnext`, `trapresn` | ON ERROR GOTO with RESUME (an error in PRINT among them), RESUME NEXT (mid-line, after ERROR, after a line's first statement, in IF's THEN), RESUME line, RESUME 0, ON ERROR GOTO in the handler, an unknown code; ERR and ERL |
+| `trapinh`, `trapoff`, `trapoff2` | an error in the handler (printed); ON ERROR GOTO 0 in the handler (the error printed) and out of it |
+| `trapdeep` | RESUME NEXT three GOSUBs deep inside FOR loops, then the loops and RETURNs |
+| `traperl` | ERR and ERL before any error and after RESUME; END in the handler |
+| `errkn`, `errun`, `err0`, `err256`, `resnoerr`, `noresume`, `trapul` | ERROR n (known, unknown, 0, 256), RESUME without error, No RESUME, ON ERROR GOTO a missing line |
+
+Errors in direct mode with ON ERROR set can't come from PC-BASIC's run of a file: test_gwbasic_stmts checks them
+by hand, from the source (GWMAIN.ASM's NTMDCN).

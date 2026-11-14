@@ -14,6 +14,7 @@
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
+.import ONGOTO, ERRORS, RESUME
 .import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
@@ -67,7 +68,7 @@ STMDSP:         S       ENDST          ; END
                 S       ADVERR         ; CLEAR (7b)
                 S       LIST           ; LIST
                 S       SCRATH         ; NEW
-                S       ADVERR         ; ON (7b)
+                S       ONGOTO         ; ON
                 S       ADVERR         ; WAIT (refused, 7g)
                 S       ADVERR         ; DEF (7b)
                 S       ADVERR         ; POKE (7c)
@@ -85,8 +86,8 @@ STMDSP:         S       ENDST          ; END
                 S       ADVERR         ; SWAP (7b)
                 S       ADVERR         ; ERASE (7b)
                 S       ADVERR         ; EDIT (7b)
-                S       ADVERR         ; ERROR (7b)
-                S       ADVERR         ; RESUME (7b)
+                S       ERRORS         ; ERROR
+                S       RESUME         ; RESUME
                 S       DELETE         ; DELETE
                 S       ADVERR         ; AUTO (7b)
                 S       ADVERR         ; RENUM (7b)

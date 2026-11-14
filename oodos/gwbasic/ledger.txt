@@ -573,7 +573,7 @@ GWMAIN.ASM INITOK -> res/gwmain.s INITOK
 GWMAIN.ASM ERRESM -> res/gwmain.s ERRESM
 GWMAIN.ASM ERESET -> res/gwmain.s ERESET # S and SSP from SAVSTK
 GWMAIN.ASM ERRMOR -> res/gwmain.s ERRMOR
-GWMAIN.ASM NTMDCN -> later 7b: ON ERROR's trap (ONELIN, ONEFLG, to GONE4); the error is printed (res/gwmain.s NOTRAP)
+GWMAIN.ASM NTMDCN -> res/gwmain.s NTMDCN # ON ERROR's trap, resident as ERROR is: the 8086's AL (direct: 0) ANDed with ONEFLG; to GONE4
 GWMAIN.ASM NOTRAP -> res/gwmain.s NOTRAP # CNTOFL (^O) has no counterpart
 GWMAIN.ASM UPERR -> p2/gwmain.s UPERR
 GWMAIN.ASM NTDER2 -> p2/gwmain.s NTDER2
@@ -1227,7 +1227,7 @@ GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 #
 # STMDSP's statements (res/tables.s: here ADVERR, Advanced Feature, until their sub-phase).
 BIMISC.ASM CLEAR -> later 7b
-GWMAIN.ASM ONGOTO -> later 7b: ON GOTO and ON GOSUB
+GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> later 7b: DEF FN
 GWMAIN.ASM POKE -> later 7c: with DEF SEG
@@ -1235,8 +1235,8 @@ GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
 GIO86.ASM WIDTHS -> later 7d
 BIMISC.ASM SWAP -> later 7b
 BIMISC.ASM ERASE -> later 7b
-GWMAIN.ASM ERRORS -> later 7b: ERROR
-GWMAIN.ASM RESUME -> later 7b
+GWMAIN.ASM ERRORS -> p3/gwmain.s ERRORSP # its resident stub res/far3.s ERRORS
+GWMAIN.ASM RESUME -> p3/gwmain.s RESUMEP # its resident stub res/far3.s RESUME
 GWMAIN.ASM AUTO -> later 7b
 GWMAIN.ASM RESEQ -> later 7b: RENUM
 CALL86.ASM CALLS -> later 7g: CALL
@@ -1321,3 +1321,20 @@ GIOLPT.ASM LPTSOT -> OEM res/oem.s OUTDO # LPT1's path: CRIFEL, then LPOUT1
 GIO86.ASM CRIFEL -> OEM res/oem.s OUTDO # a printable character at the width after a CR LF
 GIOLPT.ASM LPOUT1 -> OEM res/oem.s LPOUT1 # a CR then an LF; an LF after a CR dropped
 GIO86.ASM UPDPOS -> OEM res/oem.s LPOUT1 # printable characters, CR and BS move the column
+
+# 7b step a1: block P3's first statements (GWMAIN.ASM's ON, RESUME and ERROR, p3/gwmain.s, each reached by a
+# resident stub in res/far3.s) and ON ERROR's trap in the resident ERROR (NTMDCN, above). The labels inside a
+# routine that matter are named too.
+GWMAIN.ASM RESTRP -> p3/gwmain.s RESTRP # ON ERROR GOTO 0 in the handler: JMP ERRESM, the error forced
+GWMAIN.ASM NTOERR -> p3/gwmain.s NTOERR
+GWMAIN.ASM NTONGS -> p3/gwmain.s NTONGS
+GWMAIN.ASM NTONG1 -> p3/gwmain.s NTONG1
+GWMAIN.ASM ISGOSU -> p3/gwmain.s ISGOSU
+GWMAIN.ASM LOOPON -> p3/gwmain.s LOOPON # JMP GONE2: a tail call, the statement's RTS back through FARCALL
+GWMAIN.ASM RESNXT -> p3/gwmain.s RESNXT
+GWMAIN.ASM RES0 -> p3/gwmain.s RES0
+GWMAIN.ASM RESTXT -> p3/gwmain.s RESTXT # the 8086's Z kept by PHP and PLP
+GWMAIN.ASM NOTBGL -> p3/gwmain.s NOTBGL # JMP DATA: a tail call
+GWMAIN.ASM GOERR -> p3/gwmain.s GOERR
+GWSTS.ASM ONGOTP -> later 7b: step e's ON event GOSUB (here p3/todo_a1.s ONGOTP: C set, not an event)
+GWSTS.ASM SETGSB -> later 7b: step e's, ON event GOSUB's line for the event

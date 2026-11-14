@@ -4,7 +4,8 @@
 ; GWMAIN.ASM, translated: the resident part of the interpreter's frame.
 ;
 ;   ERROR SNERR ...    the errors' entry: the stacks reset, the message (P2's
-;                      ERRPRT), then READY; the xxERR labels the code jumps to
+;                      ERRPRT), then READY, or ON ERROR's trap (NTMDCN); the
+;                      xxERR labels the code jumps to
 ;   READY MAIN         "Ok", a line read (the OEM's PINLIN), then run at once
 ;                      (direct) or crunched into the program (P2's EDENT2);
 ;                      FINI clears and goes round again
@@ -45,11 +46,11 @@
 
 .include "gwbasic.inc"
 
-.export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET
-.export GOTO, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC, LOOP
+.export NEWSTT, GONE, GONE2, CHRGTR, CHRGT2, CHRCON, CONFC1, FNDLIN, LINGET, LINGT2
+.export GOTO, GOTO2, DATA, REM, ELSES, LET, IFS, CONCH2, CONFAC, LOOP
 .export DEFSTR, DEFINT, DEFREA, DEFDBL, INTIDX, INTID2
 .export ERROR, SNERR, DV0ERR, NFERR, UFERR, REERR, OVERR, MOERR, TMERR, FCERR
-.export USERR, ERESET, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
+.export USERR, ERESET, ERRESM, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
 .export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, LIST, LLIST, DELETE
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, GOSUB, RETURN, NXTLIN, FVALSV
 .export LETCN2, INPCOM, DATSNE, DATLIN, PRINT, LPRINT, INPUT, LINE, READ
@@ -1173,8 +1174,10 @@ FCERR:          LDA     #ERRFC         ; GWMAIN.ASM 1938 $FCERR
 ; ERROR (GWMAIN.ASM 455): error A (the 8086's DL). Before start-up is done
 ; (INITFG), P2's CMDERR says so and ends. Then ERL's line and the line for
 ; EDIT and LIST, the stacks back as the statement began, the line and text
-; for CONT, and the message: "Syntax error in 20", on a line of its own.
-; ON ERROR's trap (NTMDCN's) is 7b's: the error is always printed.
+; for CONT; then ON ERROR's trap (NTMDCN), or the message: "Syntax error
+; in 20", on a line of its own. ERRESM is the way in for an error forced
+; again (ON ERROR GOTO 0 in the handler, p3/gwmain.s RESTRP): ERRLIN and DOT
+; as they were.
 ERROR:
 .ifdef FLAT
                 LDX     ERRHOOK+1      ; the math harness takes it?
@@ -1214,14 +1217,15 @@ ERRMOR:         LDX     #RCL           ; the FNDFOR stopper STKERR pushed
                 JSR     SPOP
                 LDA     RDL
                 STA     ERRFLG         ; for READY: a Syntax error edits its line
-                LDA     SAVTXT         ; RESUME's (7b)
+                LDA     SAVTXT         ; RESUME's
                 STA     ERRTXT
                 LDA     SAVTXT+1
                 STA     ERRTXT+1
                 LDA     ERRLIN
                 AND     ERRLIN+1
-                CMP     #$FF
-                BEQ     NOTRAP         ; direct: no CONT
+                INC     A              ; the 8086's AL: zero for a direct line,
+                TAY                    ; kept in Y for NTMDCN
+                BEQ     NTMDCN         ; direct: no CONT
                 LDA     ERRLIN
                 STA     OLDLIN
                 LDA     ERRLIN+1
@@ -1230,6 +1234,25 @@ ERRMOR:         LDX     #RCL           ; the FNDFOR stopper STKERR pushed
                 STA     OLDTXT
                 LDA     SAVTXT+1
                 STA     OLDTXT+1
+; NTMDCN (GWMAIN.ASM 501): ON ERROR's trap. With ONELIN 0, no trap. Else
+; AL AND ONEFLG, as the 8086 has it: AL is zero for a direct line, so a
+; direct line's error is always trapped, even in the handler; in a program
+; line it is the line number's two bytes ANDed, plus one (not zero), so the
+; handler's own error (ONEFLG $FF) is printed. Trapped: ONEFLG decremented,
+; and the line ONELIN points at run (its link at TXTPTR, as GONE4 wants it),
+; with both stacks as the statement began (ERESET), RESUME's text in ERRTXT.
+NTMDCN:         LDA     ONELIN
+                ORA     ONELIN+1
+                BEQ     NOTRAP         ; no trapping
+                TYA
+                AND     ONEFLG
+                BNE     NOTRAP         ; in the handler already: the message
+                DEC     ONEFLG
+                LDA     ONELIN
+                STA     TXTPTR
+                LDA     ONELIN+1
+                STA     TXTPTR+1
+                JMP     GONE4
 NOTRAP:         STZ     ONEFLG
                 JSR     CRDONZ
                 LDA     RDL
@@ -1408,8 +1431,8 @@ ENDPRG:         .res    5              ; the fake end of a program SAVTXT points
 DOT:            .res    2              ; the current line, for LIST . and EDIT
 OLDLIN:         .res    2              ; CONT's line
 OLDTXT:         .res    2              ; and text; 0: nothing to continue
-ERRTXT:         .res    2              ; RESUME's (7b)
-ONEFLG:         .res    1              ; in ON ERROR's routine (7b)
+ERRTXT:         .res    2              ; RESUME's: the erring statement's text (SAVTXT)
+ONEFLG:         .res    1              ; in ON ERROR's routine: nonzero (NTMDCN decrements it)
 INITFG:         .res    1              ; start-up done: errors are BASIC's
 .ifdef FLAT
 .export ERRHOOK
