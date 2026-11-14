@@ -1,0 +1,44 @@
+# U2 (review, owner 2026-11-14): the 1983 source's CHGPTR and SCNPT2 take the line from LINGT3's DX, read before CHRGTR goes past the constant, but MAKPTR's CONCHG writes the new constant at CONTXT, past the last constant CHRGTR read: after "GOTO 30 &H28" that is the &H28's three bytes. So line 30, found, becomes "GOTO 30 120" (the pointer over &H28), and "GOTO 30 &H28 &H28" becomes "GOTO 30 110 110" (the pointer over the first &H28, then SCNPT2's line number over the second). PC-BASIC changes the 30 itself. A missing line 30 is "Undefined line 30 in 10" in both.
+Ok
+10 GOTO 30 &H28
+20 END
+30 PRINT "x"
+RENUM 100
+Ok
+LIST
+100 GOTO 30 120
+110 END
+120 PRINT "x"
+Ok
+NEW
+Ok
+10 GOTO 30 &H28
+40 PRINT "x"
+RENUM 100
+Undefined line 30 in 10
+Ok
+LIST
+100 GOTO 30 &H28
+110 PRINT "x"
+Ok
+NEW
+Ok
+10 ON ERROR GOTO 30 &H28
+40 PRINT "x"
+RENUM 100
+Undefined line 30 in 10
+Ok
+LIST
+100 ON ERROR GOTO 30 &H28
+110 PRINT "x"
+Ok
+NEW
+Ok
+10 GOTO 30 &H28 &H28
+30 END
+RENUM 100
+Ok
+LIST
+100 GOTO 30 110 110
+110 END
+Ok

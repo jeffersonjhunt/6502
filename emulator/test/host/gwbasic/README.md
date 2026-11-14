@@ -134,6 +134,7 @@ Step b's, typed and RUN the same way:
 | `fnscope`, `fndup` | a function called from another sees the variables, not its caller's parameters; two parameters of one name |
 | `fnuf`, `fntm`, `fntm2`, `fntm3`, `fnom`, `fnfc` | FN's errors: Undefined user function, Type mismatch (the result; an argument of either kind), recursion to Out of memory, more than PRMSIZ's bytes of parameters (Illegal function call) |
 | `fnsn`, `fnsn2`, `fnsn3`, `fnsn4`, `fnsn5` | Syntax error: too few or too many arguments, no "(", a body that doesn't end the DEF's statement, a parameter list without its comma |
+| `fnnull` | review U1: an undefined string variable's or INKEY$'s empty result (DSEGZ, below the temporaries) passed as an 11th string argument takes no temporary |
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `fnscope` (PC-BASIC's body sees its caller's
 parameters), `fndup` (the source finds the second X), `fnsn4` (PC-BASIC takes the body to the ")"), `fnfc`
@@ -151,6 +152,7 @@ waits for one, and the transcript must be PC-BASIC's (it agrees with the 1983 so
 | `renum` | RENUM of a program with every kind of line reference CRUNCH makes a line number (GOTO, GOSUB, THEN, ELSE, ON ... GOTO and GOSUB lists, RESTORE, RESUME, RETURN, RUN, LIST, LLIST, DELETE, EDIT, AUTO, RENUM, `ERL=` and `ERL<>`; not `110=ERL`), `ON ERROR GOTO 0` kept, a missing line ("Undefined line 999 in 160"); RUN, then `RENUM 1000,30`, `RENUM`, `RENUM 100,,5`, each LISTed and RUN |
 | `renumerl` | RENUM of an ON ERROR GOTO handler with `IF ERL=40 THEN RESUME 50` |
 | `renumfc` | RENUM's errors: a new number at or below a line kept, an increment of 0, past 65529 or 65535 (Illegal function call, nothing changed); too much, a letter (Syntax error); the last allowed (65529); `.` |
+| `renumu2` | review U2: a line constant followed at once by another constant (`GOTO 30 &H28`): the line is LINGT3's DX, read before CHRGTR goes past the constant; MAKPTR writes at CONTXT, so the source changes the &H28, not the 30 (`.differ`) |
 
 PC-BASIC's transcript of AUTO and EDIT is its own interface's, not GW-BASIC's screen (AUTO's number is shown twice,
 EDIT's line is typed in as input), so test_gwbasic_stmts checks them by hand, from the source: AUTO's numbers, "*"

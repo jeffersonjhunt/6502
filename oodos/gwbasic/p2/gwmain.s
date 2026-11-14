@@ -810,26 +810,30 @@ SCNEX2:         CMP     #0
                 JSR     CHRGTR
                 CMP     #LINCON
                 BNE     SCNEX2
-                JSR     CHRGTR         ; LINGT3: past it; CONLO the line
-                LDA     CONLO          ; not line 0: a pointer
-                ORA     CONLO+1
+                JSR     CONDX          ; LINGT3: DX the line, then past it
+                LDA     RDL            ; not line 0: a pointer
+                ORA     RDH
                 BNE     CHGPTR
                 DECW    TXTPTR         ; SCNEX3: line 0 left a number
                 BRA     SCNEXT
+; CONDX: LINGT3's way (GWMAIN.ASM 1972): DX = CONLO, the constant CHRGTR has
+; just read, before CHRGTR goes past it (and may read the next constant into
+; CONLO: "GOTO 30 40"; review U2). Z and C as CHRGTR leaves them.
+CONDX:          LDA     CONLO
+                STA     RDL
+                LDA     CONLO+1
+                STA     RDH
+                JMP     CHRGTR
 ; NTERRG (GWMAIN.ASM 3258)
 NTERRG:         CMP     #LINCON
                 BNE     SCNEXT
-                JSR     CHRGTR         ; LINGT3: past it; CONLO the line
+                JSR     CONDX          ; LINGT3: DX the line, then past it
 ; CHGPTR (GWMAIN.ASM 3262): TXTPTR, just past the constant, kept in KSRC.
 CHGPTR:         LDA     TXTPTR
                 STA     KSRC
                 LDA     TXTPTR+1
                 STA     KSRC+1
-                LDA     CONLO          ; DX: the line
-                STA     RDL
-                LDA     CONLO+1
-                STA     RDH
-                JSR     FNDLIN         ; C set: found, CX at it
+                JSR     FNDLIN         ; DX: the line (CONDX's)         ; C set: found, CX at it
                 LDA     RCL            ; CX - 1: the zero before it (C kept)
                 BNE     :+
                 DEC     RCH
@@ -855,16 +859,16 @@ CHGPTR:         LDA     TXTPTR
                 BRA     SCNPOP
 SCNPT2:         CMP     #PTRCON
                 BNE     JSCNXT
-                JSR     CHRGTR         ; LINGT3: past it; CONLO the pointer
+                JSR     CONDX          ; LINGT3: DX the pointer, then past it
                 LDA     TXTPTR
                 STA     KSRC
                 LDA     TXTPTR+1
                 STA     KSRC+1
                 CLC                    ; CX: its line's number
-                LDA     CONLO
+                LDA     RDL
                 ADC     #3
                 STA     PTR
-                LDA     CONLO+1
+                LDA     RDH
                 ADC     #0
                 STA     PTR+1
                 LDA     (PTR)

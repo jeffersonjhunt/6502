@@ -480,7 +480,7 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
 TEST(def_fn_and_fn_print_what_pc_basic_prints_or_the_source_says)
 {
     programs({"fn", "fnshad", "fngc", "fnproj", "fnscope", "fndup", "fnuf", "fntm", "fntm2", "fntm3", "fnom", "fnfc",
-              "fnsn"});
+              "fnnull", "fnsn"});
     programs({"fnsn2"});
     programs({"fnsn3"});
     programs({"fnsn4"});
@@ -535,9 +535,10 @@ TEST(def_in_direct_mode_def_seg_and_usr_by_hand)
 // LISTed and RUN again. renumerl: ON ERROR GOTO with "IF ERL=40 THEN RESUME 50". renumfc: a new number at or below
 // a line kept, an increment of 0 (given, or after a comma), the last number past 65529 or past 65535, all Illegal
 // function call with nothing changed; the last allowed, 65529; too much, or a letter (Syntax error); "." for new.
+// renumu2 (review U2): "GOTO 30 &H28", the line read before CHRGTR reads the next constant (.differ).
 TEST(renum_prints_what_pc_basic_prints)
 {
-    sessions({"renum", "renumerl", "renumfc"});
+    sessions({"renum", "renumerl", "renumfc", "renumu2"});
 }
 
 // By hand, from the source (PC-BASIC's transcript of AUTO shows its own interface, not GW-BASIC's screen), AUTO
