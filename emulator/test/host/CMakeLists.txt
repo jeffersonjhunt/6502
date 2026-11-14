@@ -195,6 +195,13 @@ emu_add_test(test_session)
 emu_add_test(test_sd)
 emu_add_test(test_sd_fat)
 emu_add_test(test_bios_sd)
+emu_add_test(test_bios_diag) # the ROM's diagnostics (hw/diag.md, plan 2): D3a's core and BIOS 0.14's entries
+set_tests_properties(test_bios_diag PROPERTIES TIMEOUT 900)
+target_compile_definitions(test_bios_diag PRIVATE
+        EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
 emu_add_test(test_oodos_card)
 set_tests_properties(test_bios_sd PROPERTIES TIMEOUT 300) # the boot at power-on waits out the 5 s splash: ~115 s alone under ASan
 set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 1800) # each case boots the card through the 5 s splash: about 710 s alone under ASan (2026-11-05)
@@ -772,6 +779,7 @@ set(EMU_TEST_LABELS
     test_rtc                    "emu rtc bridge debug backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
     test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
+    test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"
     test_dma                    "emu dma bridge"
     test_console_card           "emu console dma bridge"
     test_video                  "emu video bridge"
@@ -882,3 +890,4 @@ foreach(t ${all_tests})
         message(FATAL_ERROR "emu: ${t} has no labels: give its suite a line in EMU_TEST_LABELS (\"Labels\")")
     endif()
 endforeach()
+add_dependencies(test_bios_diag backplane_bios)
