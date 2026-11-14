@@ -70,6 +70,40 @@
 ;               the slot (or not started up), 2 the card stayed busy, else
 ;               $80 + the card's ERROR (an ERROR of 0: the command ended
 ;               with no sector)
+;
+; Memory (hwmem.s, hwport.s; hw/diag.md, "The memory tests"): a run is
+; HW_PTR (a CPU address; not kept) and HW_LEN (1-65,535 bytes), mapped by
+; the program; a failure is carry set, HW_BAD the address (3 bytes for a
+; port), HW_GOT what was read, HW_WANT what was expected
+;
+;   HW_WALK     walking 1s and 0s at HW_PTR, the byte put back
+;   HW_TAGW     a 16 KB block at HW_PTR (page aligned): HW_KEY at +0, and
+;               HW_KEY XOR $FF XOR n at +2^n, n 0-13: the address lines
+;   HW_TAGC     those read back (all blocks' written first)
+;   HW_AIAW     address in address written: each byte its CPU address's low
+;               byte XOR its page XOR HW_KEY
+;   HW_AIAC     the same checked (all blocks' written first)
+;   HW_MARCH    March C-, background HW_BG ($00, $55, $33, $0F)
+;   HW_PAIAW    address in address through a data port that steps itself:
+;               HW_PORT its register, HW_PLEN the pages; byte n is n's low
+;               byte XOR its middle XOR its high XOR HW_KEY (the program
+;               sets the port's address first)
+;   HW_PAIAC    the same checked
+;
+; The report (hwline.s): one line a test, its result at column 65
+;
+;   HW_TEST     A/X the test's name, ended by 0: "  NAME " in a field of 7,
+;               HW_COL 7. The program's HW_PUTC adds 1 to HW_COL for each
+;               character (DIAG's does; SYSINFO's needn't)
+;   HW_LINE     A the result (HL_*): a blank, dots to column 64, a blank and
+;               the word; counted in HW_TALLY (4 bytes, HL_* each)
+;   HW_FAULT    "read $gg, expected $ww: bit n" (bits n, m) from HW_GOT and
+;               HW_WANT; the program writes where first
+;   HW_SUMMARY  "SUMMARY  n tests: p passed, f failed, s skipped" and ", m
+;               measured" if any were: A the failures
+;
+; The sound card's 6510 (card6510.s, its own program, not a module): the
+; commands C65_* below; hw/diag.md, "The 6510 test program"
 
 .ifndef OOHW_INC
 OOHW_INC = 1
@@ -80,7 +114,26 @@ OOHW_INC = 1
 .global HW_PUTS, HW_HEX2, HW_HEX4, HW_HEX6, HW_DEC, HW_NUM
 .global HW_RTC, HW_RTCST
 .global HW_SD_ID
+.global HW_WALK, HW_TAGW, HW_TAGC, HW_AIAW, HW_AIAC, HW_MARCH, HW_LEN, HW_KEY, HW_BG, HW_BAD, HW_GOT, HW_WANT
+.global HW_PAIAW, HW_PAIAC, HW_PORT, HW_PLEN
+.global HW_TEST, HW_LINE, HW_FAULT, HW_SUMMARY, HW_COL, HW_TALLY
 .globalzp HW_PTR
+
+HL_PASS         = 0                    ; HW_LINE's results, HW_TALLY's counts
+HL_FAIL         = 1
+HL_SKIP         = 2
+HL_INFO         = 3                    ; a measurement, with no limit
+
+; card6510.s: its place in the card's RAM and its commands (each answered)
+C65_ORG         = $0200                ; where it is loaded and started: $0200-$05FF at most
+C65_FIRST       = $0600                ; the first byte of the card's RAM it may test; to $FFF9
+C65_HELLO       = $A5                  ; sent when it starts
+C65_ECHO        = $01                  ; b: b back
+C65_SUM         = $02                  ; a (2), n (2): the sum of n bytes from a, low then high
+C65_TEST        = $03                  ; a (2, a page's start), e (2), f: a to e - 1 tested (f bit 0: the march
+                                       ;   too); 5 bytes back: 0 or 1, the address (2), read, expected
+C65_SID         = $04                  ; s (0 A, 1 B): voice 3 run; back bit 0 OSC3 moved, bit 1 ENV3 rose
+C65_TONE        = $05                  ; s, on (1) or off (0): voice 1 at 440 Hz; back C65_TONE
 
 HW_FIRST        = 6                    ; the modules with registers HW_PROBE reads: 6-E
 HW_LAST         = $E
