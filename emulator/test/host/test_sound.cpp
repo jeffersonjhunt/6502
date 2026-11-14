@@ -1063,6 +1063,41 @@ TEST(a_single_tick_of_a_year_keeps_the_sid_clock_exact)
     }
 }
 
+#ifdef EMU_FAULT_HOOKS
+TEST(a_test_fault_in_the_cards_ram_reads_wrong_for_every_reader)
+{
+    // hw/diag.md's answer 8 (D2): set_ram_fault(), a test-only hook, makes one byte read with a bit forced, for the
+    // host's RAMDATA, DMA's reads and the 6510's alike; writes store as ever, and clear_ram_fault() takes it off.
+    SoundCard c;
+    c.ram()[0x5678] = 0x00;
+    c.set_ram_fault(0x5678, 0xFF, 0x04); // bit 2 stuck at 1
+    c.write(SoundCard::RAMADDR, 0x78);
+    c.write(SoundCard::RAMADDR + 1, 0x56);
+    CHECK_EQ(c.peek(SoundCard::RAMDATA), 0x04);
+    CHECK_EQ(c.read(SoundCard::RAMDATA), 0x04);
+    c.write(SoundCard::RAMADDR, 0x78);
+    c.write(SoundCard::RAMADDR + 1, 0x56);
+    c.write(SoundCard::DRQSEL, SoundCard::DRQ_RAMDATA);
+    CHECK_EQ(c.dack_read(false), 0x04); // DMA channel 2's read
+    CHECK_EQ(c.ram()[0x5678], 0x00);   // what is stored is as written
+    // The 6510: LDA $5678; STA $DE00 (to the host); JMP *.
+    start(c, 0x1000, {0xAD, 0x78, 0x56, 0x8D, 0x00, 0xDE, 0x4C, 0x06, 0x10});
+    host(c, HOST_SECOND / 1000);
+    CHECK_EQ(c.read(SoundCard::MBIN), 0x04);
+    c.set_ram_fault(0x5678, 0xFE, 0x00); // bit 0 stuck at 0
+    c.ram()[0x5678] = 0xFF;
+    c.write(SoundCard::RAMADDR, 0x78);
+    c.write(SoundCard::RAMADDR + 1, 0x56);
+    CHECK_EQ(c.read(SoundCard::RAMDATA), 0xFE);
+    c.write(SoundCard::RAMADDR, 0x79); // the next byte is as it is
+    c.ram()[0x5679] = 0xFF;
+    CHECK_EQ(c.read(SoundCard::RAMDATA), 0xFF);
+    c.clear_ram_fault();
+    c.write(SoundCard::RAMADDR, 0x78);
+    CHECK_EQ(c.read(SoundCard::RAMDATA), 0xFF);
+}
+#endif
+
 int main()
 {
     return run_all();
