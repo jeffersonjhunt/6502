@@ -4138,6 +4138,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         far call;
       - 1,000 errors trapped, with S constant at NEWST1: fails with ON ERROR's way back set from SAVSTK;
       - ^C during LIST, then a statement: fails with ENDCON's way to READY made without the far call.
+    - **STMDSX in the home block** (Proposed, 2026-11-14, the owner): the extended statements' table follows
+      STMDSP in HOMTAB (`p8/home.s`, at `HOMTAB` + 2 × `NUMCMD`, asserted at link), and the resident GONE4 reads it
+      in W3, so 7c's extended statements (FILES, KILL and the rest) get their stubs in P8, not resident. 36,094
+      bytes free (+66). Must-fail (test_gwbasic_core): extended statements from direct mode and a program, SYSTEM
+      among them; fails with GONE4 reading the table one entry off.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

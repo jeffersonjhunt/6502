@@ -983,6 +983,27 @@ TEST(ctrl_c_during_list_comes_back_to_the_home_block)
     CHECK_EQ(command(r, "LIST 300"), std::string("300 REM a line to list, one of three hundred\r\n"));
 }
 
+// The extended statements ($FE and a second byte) dispatch from STMDSX, which 7c moved into the home block, right
+// after STMDSP (p8/home.s), where the resident GONE4 reads it in W3 (HOMTAB + 2 * NUMCMD). Each entry must be the
+// statement's own: SYSTEM in the middle, and the last (CALLS), from direct mode and from a program (FILES, the
+// first, is test errors_in_direct_mode's). A build whose GONE4 reads the table one entry off (or anywhere but the home block) runs the next
+// statement's routine, and fails here: SYSTEM would not return to the CCP.
+TEST(extended_statements_dispatch_from_the_home_block_s_table)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "PLAY \"C\""), std::string("Advanced Feature\r\n")); // 7f's
+    CHECK_EQ(command(r, "CALLS 0"), std::string("Advanced Feature\r\n"));    // the last, 7g's
+    enter(r, {"10 PRINT \"a\";", "20 DRAW \"U1\"", "30 PRINT \"b\""});    // 7e's
+    CHECK_EQ(command(r, "RUN"), std::string("a\r\nAdvanced Feature in 20\r\n"));
+    enter(r, {"20 SYSTEM"});
+    const size_t from = r.out.size();
+    r.type("RUN\r");
+    CHECK(r.until("A>", ms(2000), from));
+    CHECK(r.out.find("b", from + 5) == std::string::npos);
+}
+
 int main()
 {
     return run_all();

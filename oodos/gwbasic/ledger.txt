@@ -752,7 +752,7 @@ IBMRES.ASM RESLST -> p2/ibmres.s RESLST # the words' text the project's own, mad
 IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
 IBMRES.ASM STMDSP -> p8/home.s STMDSP # each R and R2 target has its line
 IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
-IBMRES.ASM STMDSX -> res/ibmres.s STMDSX # SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
+IBMRES.ASM STMDSX -> p8/home.s STMDSX # after STMDSP (7c); SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
 IBMRES.ASM FUNDSX -> later 7c: CVI to MKD$ (the random files'); KTN to KLEN dropped with them (Kanji)
 IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
 IBMRES.ASM RESLSX -> p2/ibmres.s RESLSX

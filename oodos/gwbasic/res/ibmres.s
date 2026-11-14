@@ -6,7 +6,7 @@
 ; CRUNCH's and LIST's code for the extended words are P2's (p2/ibmres.s).
 ;
 ;   NEWSTX    a statement token past LOCATE: $FE and an extended statement
-;             (STMDSX; SYSTEM alone is 7a's), or $FF and PEN or STRIG as a
+;             (STMDSX, in the home block; SYSTEM is 7a's), or $FF and PEN or STRIG as a
 ;             statement (7e's); anything else back to GONE2's caller, for
 ;             MID$ = (ISMID) or Syntax error
 ;   EVALX     a formula's $FE DATE$ or TIME$, or $FD and a function (CVI to
@@ -14,8 +14,15 @@
 
 .include "gwbasic.inc"
 
-.export NEWSTX, EVALX, STMDSX
-.import CHRGTR, SNERR, SYSTEM, ADVERR
+.export NEWSTX, EVALX
+.import CHRGTR, SNERR, ADVERR
+; STMDSX, the extended statements' table, is the home block's (p8/home.s),
+; right after STMDSP, read here in W3.
+.ifdef FLAT
+.import STMDSX
+.else
+STMDSX          = HOMTAB + 2 * NUMCMD
+.endif
 
 .code
 
@@ -73,15 +80,3 @@ EVALNS:         LDY     #1
                 LDA     #$FE
                 RTS
 EVALNF:         JMP     ADVERR
-
-.rodata
-; STMDSX (IBMRES.ASM 553): the extended statements, $FE $81 to $FE $A1,
-; each address less one. SYSTEM is 7a's; the rest are the files' (7c), the
-; screen's and graphics' (7d), the sound's (7f) and the system's, later.
-.define S(addr) .word addr-1
-STMDSX:         S       ADVERR         ; FILES
-                S       ADVERR         ; FIELD
-                S       SYSTEM         ; SYSTEM
-.repeat NUMSTX - 3
-                S       ADVERR         ; NAME .. CALLS
-.endrepeat

@@ -22,7 +22,8 @@
 ;   HFINI    FINI: the program changed, its variables cleared, then MAIN
 ;
 ; STMDSP is at a fixed address, HOMTAB (gwbasic.inc), right after the
-; header (home.cfg), so the resident GONE2 reads it there, in W3.
+; header (home.cfg), so the resident GONE2 reads it there, in W3; STMDSX,
+; the extended statements', follows it, for the resident GONE4.
 
 .include "gwbasic.inc"
 
@@ -35,7 +36,7 @@
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
-.import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
+.import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 
 .code
 
@@ -116,3 +117,19 @@ STMDSP:         S       ENDST          ; END
                 S       ADVERR         ; OPEN .. LOCATE (7c-7f)
 .endrepeat
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
+
+; STMDSX (IBMRES.ASM 553): the extended statements, $FE $81 (FILES) to
+; $FE $A1 (CALLS), each address less one, right after STMDSP, so the
+; resident GONE4 (res/ibmres.s) reads it in W3 at HOMTAB + 2 * NUMCMD.
+; SYSTEM is resident (res/oem.s); 7c's statements are stubs in this block.
+.export STMDSX
+.ifndef FLAT
+.assert STMDSX = HOMTAB + 2 * NUMCMD, lderror, "STMDSX isn't after STMDSP (res/ibmres.s)"
+.endif
+STMDSX:         S       ADVERR         ; FILES
+                S       ADVERR         ; FIELD
+                S       SYSTEM         ; SYSTEM
+.repeat NUMSTX - 3
+                S       ADVERR         ; NAME .. CALLS
+.endrepeat
+.assert * - STMDSX = 2 * NUMSTX, error, "STMDSX: one entry an extended statement"
