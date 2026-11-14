@@ -474,9 +474,15 @@ TEST(c815_with_the_token_runs_a_programs_options_whatever_the_switches)
         Rig r;
         REQUIRE(r.ok());
         c815(r, 0xA5, 0x01, 0x5A); // full
-        CHECK(r.until(" 2  ZERO", ms(2000)));
+        CHECK(r.until(" 1  FLASH", ms(2000)));
+        const uint64_t from = r.cpu->cycles();
         CHECK(r.out.find("Y TO GO ON") == std::string::npos);
         CHECK(r.until("FULL", ms(500)));
+        REQUIRE(to_result(r, ms(300'000)));
+        const double seconds = static_cast<double>(r.cpu->cycles() - from) / HZ;
+        std::printf("  a full run (stages 0-14, 7-13 SKIP in D3a): %.1f s at 7.16 MHz\n", seconds);
+        CHECK(report(r).find("BACKGROUNDS 00 55 33 0F") != std::string::npos);
+        CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
     }
     {
         Rig r(SW18 | SW17 | SW16); // full, loop and interactive on the panel: a program's run doesn't take them
