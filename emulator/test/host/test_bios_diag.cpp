@@ -497,21 +497,42 @@ TEST(c815_with_the_token_runs_a_programs_options_whatever_the_switches)
     }
 }
 
-TEST(esc_at_the_end_is_the_monitor_with_the_bios_copied_again)
+TEST(esc_at_the_end_is_the_monitor_and_return_boots_the_card)
 {
-    Rig r;
-    REQUIRE(r.ok());
-    c815(r, 0xA5, 0x00, 0x5A);
-    REQUIRE(to_result(r));
-    const size_t at = r.out.size();
-    r.key(0x1B);
-    REQUIRE(r.until(GREETING, ms(2000), at));
-    CHECK(r.until("\\", ms(500), at));
-    CHECK(r.out.find("BOOTING THE SD CARD", at) == std::string::npos);
-    const size_t m = r.out.size();
-    r.type("C809R\r"); // the RAM copy answers: the monitor runs from block 63 again
-    CHECK(r.until("\\", ms(3000), m + 6));
-    CHECK_EQ(r.io(NB + 3), 0x40 | 63); // W3 on the copy, read-only
+    // With OODOS's card in the slot, so the boot and the monitor can't be told apart by accident (review MM1):
+    // Esc must reach the monitor, with the BIOS copied again, and never OODOS's A>; RETURN must reach A>.
+    {
+        Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+        REQUIRE(enter(r));
+        REQUIRE(to_result(r));
+        const size_t at = r.out.size();
+        r.key(0x1B);
+        REQUIRE(r.until(GREETING, ms(2000), at));
+        CHECK(r.until("\\", ms(500), at));
+        r.run(ms(8000));
+        CHECK(r.out.find("A>", at) == std::string::npos);
+        CHECK(r.out.find("BOOTING THE SD CARD", at) == std::string::npos);
+        const size_t m = r.out.size();
+        r.type("C809R\r"); // the RAM copy answers: the monitor runs from block 63 again
+        CHECK(r.until("\\", ms(3000), m + 6));
+        CHECK_EQ(r.io(NB + 3), 0x40 | 63); // W3 on the copy, read-only
+    }
+    {
+        Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+        REQUIRE(enter(r));
+        REQUIRE(to_result(r));
+        const size_t at = r.out.size();
+        r.key('\r');
+        CHECK(r.until("A>", ms(20'000), at));
+    }
+    {
+        Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+        REQUIRE(enter(r));
+        REQUIRE(to_result(r));
+        const size_t at = r.out.size();
+        r.panel()->press(ConsoleCard::CONT);
+        CHECK(r.until("A>", ms(20'000), at));
+    }
 }
 
 TEST(the_via_is_put_back)
@@ -753,6 +774,230 @@ TEST(a_users_breakpoint_on_another_address_the_boot_reads_still_halts_it)
     CHECK(r.halted);
     CHECK((r.panel()->peek(0x0C) & ConsoleCard::HIT) != 0); // STATUS's HIT
     CHECK_EQ(r.panel()->peek(0x0B), ConsoleCard::BP_ENABLE | ConsoleCard::BP_READ);
+}
+
+// --- Review MM2-MM11 --------------------------------------------------------------------------------
+
+TEST(a9_stuck_on_ram_a_w0_goes_to_ram_b_and_the_run_ends)
+{
+    // A9 stuck at 0 in every RAM A block: +$200-$3FF answer as +$000-$1FF, W0's zero page and stack included,
+    // which a 512-byte march alone can't see (review MM2).
+    Rig r;
+    REQUIRE(r.ok());
+    std::vector<std::unique_ptr<FaultyMemory>> f;
+    for (uint32_t b = 0; b < 16; ++b)
+    {
+        f.push_back(std::make_unique<FaultyMemory>());
+        f.back()->alias_mask = 0x0200;
+        REQUIRE(fault_over(*r.machine, *f.back(), b * BLOCK));
+    }
+    faulted_run(r);
+    CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 16 ") != std::string::npos);
+    CHECK(report(r).find("ADDRESS LINE A9") != std::string::npos);
+    CHECK(report(r).find("RESULT: ") != std::string::npos);
+}
+
+TEST(a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    std::vector<std::unique_ptr<FaultyMemory>> f;
+    for (uint32_t b = 16; b < 32; ++b)
+    {
+        f.push_back(std::make_unique<FaultyMemory>());
+        REQUIRE(fault_redirect(*r.machine, *f.back(), b * BLOCK, (b - 16) * BLOCK));
+    }
+    faulted_run(r);
+    CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 36 ") != std::string::npos);
+    CHECK(report(r).find("BLOCKS 0 AND 16 ANSWER AS ONE") != std::string::npos);
+    CHECK(report(r).find("RESULT: ") != std::string::npos);
+}
+
+TEST(a_block_answering_as_w0s_is_said_and_not_tested)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_redirect(*r.machine, f, 40 * BLOCK, 0)); // block 40 is block 0, W0's
+    faulted_run(r);
+    CHECK(report(r).find("BLOCK 40 ANSWERS AS BLOCK 0, W0'S: NOT TESTED") != std::string::npos);
+    CHECK(ends(stage_line(r, 4), "FAIL"));
+    CHECK(report(r).find("RESULT: ") != std::string::npos);
+}
+
+TEST(a_cross_block_alias_is_two_blocks_as_one)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_redirect(*r.machine, f, 20 * BLOCK, 10 * BLOCK));
+    faulted_run(r);
+    CHECK(report(r).find("BLOCKS 10 AND 20 ANSWER AS ONE") != std::string::npos);
+    CHECK(ends(stage_line(r, 4), "FAIL"));
+}
+
+TEST(a_mismatched_version_in_block_23_is_no_diagnostics)
+{
+    for (const uint32_t at : {23 * BLOCK + 0x09u, 23 * BLOCK + 0x1Du}) // DG_VERSION; the BIOS it was linked with
+    {
+        const std::string rom = rom_copy("version" + std::to_string(at & 0xFF), [at](std::vector<uint8_t> &b) { ++b[at]; });
+        Rig r(SW19, rom);
+        REQUIRE(r.ok());
+        CHECK(r.until(GREETING, ms(8000)));
+        CHECK(r.until("NO DIAGNOSTICS IN THE FLASH", ms(500)));
+        CHECK(r.out.find(PROMPT) == std::string::npos);
+    }
+}
+
+TEST(the_prompt_times_out_by_the_cpus_count_when_the_clock_doesnt_tick)
+{
+    Rig r(SW19);
+    REQUIRE(r.ok());
+    r.watch = [&r](uint16_t) { r.machine->bus().write(NB + 7, 0x80); }; // TICK cleared as soon as it's set
+    REQUIRE(r.until(PROMPT, ms(500)));
+    const uint64_t asked = r.cpu->cycles();
+    REQUIRE(r.until("THE CLOCK CHIP DIDN'T TICK", ms(10'000)));
+    const double s = static_cast<double>(r.cpu->cycles() - asked) / HZ;
+    std::printf("  the prompt counted %.2f s by the CPU\n", s);
+    CHECK(s > 6.5 && s < 7.5);
+    r.watch = nullptr;
+    CHECK(r.until(GREETING, ms(8000)));
+    CHECK(r.out.find(" 1  FLASH") == std::string::npos);
+}
+
+TEST(break_at_the_prompt_is_no)
+{
+    Rig r(SW19);
+    REQUIRE(r.until(PROMPT, ms(500)));
+    r.cpu->nmi();
+    CHECK(r.until("BREAK", ms(500)));
+    CHECK(r.until(GREETING, ms(8000)));
+    CHECK(r.out.find(" 1  FLASH") == std::string::npos);
+}
+
+TEST(break_in_stage_5_and_in_block_22_boots)
+{
+    {
+        Rig r(SW19);
+        REQUIRE(enter(r));
+        REQUIRE(r.until(" 5  ADDRESS IN", ms(30'000)));
+        r.cpu->nmi();
+        const size_t at = r.out.size();
+        CHECK(r.until("BREAK", ms(500), at));
+        CHECK(r.until(GREETING, ms(8000), at));
+        CHECK_EQ(r.io(NB + 4), 0x40 | 63); // VEC on the BIOS's copy again
+    }
+    {
+        Rig r(SW19);
+        REQUIRE(enter(r));
+        REQUIRE(r.until(" 7  NORTH", ms(60'000)));
+        CHECK_EQ(r.io(NB + 2), 0xC0 | 22); // W2 on block 22
+        r.cpu->nmi();
+        const size_t at = r.out.size();
+        CHECK(r.until("BREAK", ms(500), at));
+        CHECK(r.until(GREETING, ms(8000), at));
+    }
+}
+
+TEST(c815_with_no_diagnostics_returns_carry_set_and_w2_kept)
+{
+    Rig r(0, rom_blanked(23));
+    REQUIRE(r.until(GREETING, ms(8000)));
+    r.run(ms(2500));
+    // $0300: LDA #$A5, LDY #$5A, LDX #0, JSR $C815, PHP, PLA, STA $0280, LDA $C682, STA $0281, JMP the monitor
+    const uint16_t mon = label("WOZMON");
+    const std::vector<uint8_t> prog = {0xA9, 0xA5, 0xA0, 0x5A, 0xA2, 0x00, 0x20, 0x15, 0xC8, 0x08, 0x68, 0x8D, 0x80,
+                                       0x02, 0xAD, 0x82, 0xC6, 0x8D, 0x81, 0x02, 0x4C, static_cast<uint8_t>(mon),
+                                       static_cast<uint8_t>(mon >> 8)};
+    for (size_t i = 0; i < prog.size(); ++i)
+        r.poke(0x0300 + static_cast<uint32_t>(i), prog[i]);
+    r.poke(0x0281, 0xEE);
+    const size_t at = r.out.size();
+    r.type("300R\r");
+    r.run(ms(500));
+    CHECK((r.phys(0x0280) & 0x01) != 0); // carry
+    CHECK_EQ(r.phys(0x0281), 0x02);      // W2 as the program had it
+    CHECK(r.out.find("Y TO GO ON", at) == std::string::npos);
+}
+
+TEST(a_loop_runs_two_passes_and_a_key_ends_it_after_the_second)
+{
+    Rig r(SW19 | SW17);
+    REQUIRE(enter(r));
+    REQUIRE(r.until("PASS 2  QUICK LOOP", ms(60'000)));
+    r.key(' ');
+    REQUIRE(to_result(r));
+    const std::string text = report(r);
+    CHECK(text.find("PASS 3") == std::string::npos);
+    CHECK(r.row(0).find("PASS 2") != std::string::npos);
+}
+
+TEST(the_wait_states_and_the_vias_ier_are_put_back)
+{
+    Rig r;
+    REQUIRE(r.until(GREETING, ms(8000)));
+    r.run(ms(2500));
+    for (uint16_t w = 0; w < 4; ++w)
+        r.machine->bus().write(static_cast<uint16_t>(NB + 0x0A + w), 0x55);
+    bool armed = false;
+    c815(r, 0xA5, 0x00, 0x5A);
+    auto before = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (!armed && r.out.find(" 6  MARCH") != std::string::npos)
+        {
+            armed = true; // an interrupt enabled in the middle of the run, after stage 0's quiet
+            r.machine->bus().write(VIA + 0x0E, 0xA0);
+        }
+    };
+    REQUIRE(to_result(r));
+    CHECK(armed);
+    const uint16_t boot = label("BOOT");
+    bool reached = false;
+    r.watch = [&](uint16_t pc) { reached = reached || pc == boot; };
+    r.key('\r');
+    for (int i = 0; i < 100 && !reached; ++i)
+        r.run(1000);
+    REQUIRE(reached);
+    for (uint16_t w = 0; w < 4; ++w)
+        CHECK_EQ(r.io(static_cast<uint16_t>(NB + 0x0A + w)), 0x00);
+    CHECK_EQ(r.io(VIA + 0x0E) & 0x7F, 0x00);
+}
+
+TEST(cont_pressed_after_the_reset_before_the_prompt_reads_keys_doesnt_count)
+{
+    Rig r(SW19);
+    REQUIRE(r.ok());
+    const uint16_t reset = label("RESET");
+    bool pressed = false;
+    r.watch = [&](uint16_t pc) {
+        if (!pressed && pc == reset)
+        {
+            pressed = true;
+            r.panel()->press(ConsoleCard::CONT);
+        }
+    };
+    r.panel()->press_start();
+    REQUIRE(r.until(PROMPT, ms(500)));
+    CHECK(pressed);
+    r.run(ms(1000));
+    CHECK(r.out.find(" 1  FLASH") == std::string::npos);
+}
+
+TEST(c812r_takes_no_options_left_in_wait3)
+{
+    // WAIT3 is the diagnostics' (review MM10): a program's bits left there (full, and "from a program") must not
+    // change a run asked for at the monitor.
+    Rig r;
+    REQUIRE(r.until(GREETING, ms(8000)));
+    r.run(ms(2500));
+    r.machine->bus().write(NB + 0x0D, 0x41);
+    const size_t at = r.out.size();
+    r.type("C812R\r");
+    REQUIRE(r.until("Y TO GO ON", ms(500), at));
+    r.key('Y');
+    CHECK(r.until("PASS 1  QUICK", ms(3000), at));
 }
 
 int main()

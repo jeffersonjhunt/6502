@@ -7,7 +7,7 @@
  *
  * FaultyMemory came from feat/diag-d2's test_oodos_diag.cpp (4fdc4f2), where DIAG.COM's tests used it; it
  * is shared here for the ROM's diagnostics (test_bios_diag). It adds an aliased address line to D2's stuck
- * bits. Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
+ * bits, and one block answering as another (fault_redirect). Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
  * and the bus's later mappings win, for the CPU's windows and DMA alike.
  */
 
@@ -61,6 +61,29 @@ namespace ooe::test
         Mapping n = *found;
         n.first = bus_address(Space::Memory, lo);
         n.last = bus_address(Space::Memory, hi);
+        n.device = &f;
+        return m.bus().map(n);
+    }
+
+    /// One block answering as another (a block address line stuck, or a decoder fault): `f` mapped over the
+    /// 16 KB block at physical `from` forwards every access to the block at `to`, whatever device holds it.
+    inline bool fault_redirect(ooe::emu::Machine &m, FaultyMemory &f, uint32_t from, uint32_t to)
+    {
+        using namespace ooe::emu;
+        const uint32_t lo = to & ~0x3FFFu, hi = lo + 0x3FFF;
+        const auto &maps = m.bus().mappings();
+        const Mapping *found = nullptr;
+        for (auto it = maps.rbegin(); it != maps.rend() && !found; ++it)
+            if (it->first <= bus_address(Space::Memory, lo) && it->last >= bus_address(Space::Memory, hi))
+                found = &*it;
+        if (!found)
+            return false;
+        f.under = found->device;
+        f.under_first = offset_of(found->first);
+        f.first = lo; // at() is then `to`'s offset in its device
+        Mapping n = *found;
+        n.first = bus_address(Space::Memory, from & ~0x3FFFu);
+        n.last = bus_address(Space::Memory, (from & ~0x3FFFu) + 0x3FFF);
         n.device = &f;
         return m.bus().map(n);
     }
