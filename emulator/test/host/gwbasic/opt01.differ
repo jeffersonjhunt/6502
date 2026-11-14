@@ -1,0 +1,2 @@
+# OPTION: base 0 when it is 0 already goes straight to OLDOPT and doesn't set OPTFLG, so base 1 may follow (PC-BASIC counts the first: Duplicate Definition)
+ 2 

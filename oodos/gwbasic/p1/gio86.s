@@ -12,8 +12,10 @@
 ;   ADRGET          a formula as 0..65535 (TAB's and SPC's)
 ;
 ; The resident core's PRINT and LPRINT (res/gwmain.s) far call these, once a
-; statement. PRINT # (FILGET, the files) is 7c's and PRINT USING (PRINUS)
-; 7b's: Advanced Feature. The 8086 keeps the width and the last comma column
+; statement. PRINT # (FILGET, the files) is 7c's: Advanced Feature. PRINT
+; USING and LPRINT USING go to P3's PRINUS (p3/biprtu.s), as GIO86.ASM's
+; JPRINU jumps: a far call, whose return is this statement's (PRINUS ends in
+; FINPRT, as PRINT does). The 8086 keeps the width and the last comma column
 ; in CX on its stack, and the text pointer beside them; here they are PRTWID
 ; and PRTCMA, and the text pointer is TXTPTR, which the 8086's pushes keep
 ; and which nothing here moves but the scan itself.
@@ -46,10 +48,9 @@ NEWCHR:         DECW    TXTPTR
                 JSR     CHRGTR
                 BEQ     PRINTX         ; the end with no ";" or ",": CR LF
 PRINTC:         BEQ     PRNTX1         ; the end after one
-                CMP     #USING_TK      ; PRINT USING: 7b's
-                BNE     :+
-                JMP     ADVERR
-:               CMP     #TAB_TK
+                CMP     #USING_TK      ; PRINT USING?
+                BEQ     JPRINU
+                CMP     #TAB_TK
                 BEQ     TABERJ
                 CMP     #SPC_TK
                 BEQ     TABERJ
@@ -59,6 +60,9 @@ PRINTC:         BEQ     PRNTX1         ; the end after one
                 BNE     PRTS
                 JMP     NOTABR
 TABERJ:         JMP     TABER
+; JPRINU (GIO86.ASM 425): PRINUS, TXTPTR at USING; its end is the statement's.
+JPRINU:         FJSR    PRINUS
+                RTS
 PRINTX:         JSR     CRDO
 PRNTX1:         JMP     FINPRT
 

@@ -323,6 +323,41 @@ The north bridge works in two stages:
 The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
 window registers.
 
+### Future: a 65C816 and 16 MB ###
+
+**A note, not a decision (the owner, 2026-11-14).** It records why the module IDs suit a later 65C816 machine
+with up to 16 MB, so the reasoning isn't lost.
+
+- **The RAM cards' IDs already fit.** RAM A–D are IDs 0–3, and today the north bridge chooses them by A19–A18,
+  256 KB each. With 24-bit addresses it would choose them by A23–A22, 4 MB each, and the IDs wouldn't change. A
+  RAM card's ID names the card; how much memory sits behind it is the north bridge's decode.
+- **The CPU's own multiplexing stays on the CPU card.** The W65C816S puts its bank byte (A16–A23) on D0–D7 while
+  PHI2 is low. The north bridge's CPLD would latch it, as it already turns the CPU's 16-bit addresses into 20-bit
+  physical ones. The backplane carries what the north bridge drives, not the CPU's pins.
+- **Two ways to get A20–A23 to the cards.** Every pin of the 62-pin connector is in use (the bus pin-out is in
+  [modules.md](modules.md)).
+  - *Wider bus:* four more address lines, which needs a bigger connector (as ISA's extra row did). The cards are
+    unchanged.
+  - *Multiplexed bus, the 65C816's own way:* the north bridge drives the upper address bits on D0–D7 while PHI2
+    is low, when the data lines are idle, and holds them in a latch. This needs no new pins. Only cards that decode
+    above 1 MB (the RAM cards) need a latch, and I/O cards ignore the phase. Every bus master (the DMA controller,
+    the bus spy) must drive or latch that phase too. `/IACK`'s poll rides a normal read cycle, so it stays clear
+    of the address phase. PHI2 low is about 70 ns at 7.16 MHz (about 35 ns at a 14.3 MHz turbo), which leaves
+    room for a fast latch.
+- **Room for ROM and I/O.** Four 4 MB RAM cards would fill all 16 MB. The north bridge would set aside a region
+  for ROM, the I/O blocks and the video aperture, and leave the RAM behind it unused, as the aperture already hides
+  64 KB of RAM C.
+- **The windows.** Each window's register names one of 64 blocks of 16 KB. 16 MB is 1,024 blocks, so the
+  registers widen. A 65C816 can also reach memory directly by its 24-bit addresses, so much code would need no
+  window at all.
+- **Software is partly ready.**
+  - Programs keep the 65C816 rules ([hw/oodos.md](oodos.md#rules-for-programs-the-65c816)), so they run unchanged
+    on it.
+  - Some interfaces already carry three-byte addresses: `DM_COPY`, and card addresses.
+  - What doesn't fit 16 MB: block numbers are 6 bits throughout (the allocator, function 55, FARCALL, OOLIB's
+    `GX_BLOCK`), and physical addresses are checked against 1 MB. Under AGENTS.md's "interfaces only grow" rule,
+    these would come as additions (new functions or wider forms, the old ones kept), in an OODOS phase after 1.0.
+
 
 ## Boot ##
 
@@ -421,6 +456,13 @@ The machine works without it, so it can come later.
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
   DMA cheap enough for every card to have it.
 - **Placement:** on its own card, module ID `0x8`.
+  - **To do (the owner, 2026-11-14): move the DMA controller onto the CPU card,** beside the north bridge. It
+    already works at the CPU's level: it pulls RDY and BE and drives A0–A19, which the CPU card does anyway. On one
+    card its address path doesn't cross the backplane twice, the reason the CPU and the north bridge share a card
+    ([Backplane Signals](#backplane-signals)) and something a future turbo needs. It also frees a slot. Its
+    registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on the CPU card, to keep
+    the north bridge's apart. This isn't designed yet: the card, the backplane notes and modules.md change when it
+    is.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
   storage.
 - **Registers per channel:**
@@ -1321,6 +1363,13 @@ drive" below.)*
     It stays a fallback: the card is a Disk II, so any drive that behaves like one works.
 - **Native storage (decided): SD, behind an RP2350** (module ID 7, "Mass Storage"). A floppy runs at about
   30 KB/s, too slow to be native storage.
+  - **Kept as a module apart from the Disk II (the owner, 2026-11-14).** The two share almost nothing:
+    - the Disk II is a clone of Apple's slot 6 controller, at Apple's addresses, with the owner's PROMs, a 2 MHz
+      sequencer and no DMA;
+    - the SD card is the native machine's own storage, behind an RP2350, with DMA.
+
+    A module ID is logical, though (modules.md: one physical card may serve more than one ID), so one physical
+    storage card answering both IDs 7 and `0xC` stays an option.
   - The same pattern as the USB card: one microcontroller family and one toolchain.
   - The RP2350 handles the SD protocol, start-up and buffering, and presents IDE-style registers (below).
   - It can also read FAT well enough to mount image files from a PC-formatted card as units.
@@ -1738,6 +1787,21 @@ Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0x
 
 
 ## Backplane Signals ##
+
+**To do (the owner, 2026-11-14): a 98-pin edge connector.** The 62-pin ISA-style connector is full. The plan is
+to move to the 98-position card-edge connector that PCIe x8 slots use. It is cheap and easy to find, and its extra
+pins carry:
+- A20–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb));
+- more DMA channels, a DRQ and DACK pair each;
+- grounds beside the clocks.
+
+The decisions so far:
+- **The slots are keyed with a shroud,** so a normal PCI or PCIe card can't be plugged in. The power pins don't
+  follow PCIe's.
+- **The bus stays at 5 V for now.**
+
+The pin map, the power pins, and whether the backplane keeps +24 V are not designed yet. Neither is the change to
+[modules.md](modules.md). The emulator models the bus's signals, not its pins, so it isn't affected.
 
 The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.

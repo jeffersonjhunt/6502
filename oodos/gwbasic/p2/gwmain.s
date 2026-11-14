@@ -14,9 +14,13 @@
 ;   LINKER CHEAD   the links put right, from the start or a line
 ;   SCNLIN LINSPC  a line range (LIST, DELETE); a line number or "."
 ;   SCCPTR         the line pointers in the text back to line numbers
+;   SCCLIN         and line numbers to pointers, for RENUM (p3/gwmain.s
+;                  RESEQP): "Undefined line 100 in 20" for one not there
 ;   ERRPRT ERRFIN  an error's message and " in 20" (and BIMISC.ASM's
 ;   BRKMSG INPRT   "Break"); MATH1.ASM's INPRT
 ;   ERREDT         after a Syntax error, its line to edit (SCNEDT.ASM)
+;   EDITP          EDIT n, the same way (SCNEDT.ASM's EDIT, reached by
+;                  res/gwmain.s's stub)
 ;
 ; CRUNCH's text pointer is TXTPTR (the 8086's BX), as CHRGTR, LINGET and
 ; $FIN want it; its deposit pointer and count are KDP and KCNT (DX, CX), and
@@ -31,10 +35,16 @@
 ;@entry BRKMSG
 ;@entry ERREDT
 ;@entry SCNLIN
+;@entry LINSPC
+;@entry SCCLIN
+;@entry SCCPTR
+;@entry EDITP
 .export CRUNCH, EDENT2, LINKER, CHEAD, ERRPRT, ERRFIN, BRKMSG, ERREDT, SCNLIN
+.export SCCLIN, EDITP
 .export LINSPC, SCCPTR, DEPTR, INPRT, NOTRFN, RENCRN, KLOOP
 .import CHRGTR, CHRGT2, LINGET, FNDLIN, BAKSP, MAKUPL, MAKUPS, ISLET2, OCTCNS
 .import STROUT, OUTDO, CRDO, SYNCHR, ERROR, SNERR, USERR, BLTU, CONCH2
+.import CRDONZ, FCERR
 .import BUF, KBUF, MEMSIZ, DOT, FINI, SYSTME
 .import ALPTAB, SPCTAB, LINRES, CRUNCX, TSTANM, BUFLN2
 .import ERRTAB, INTXT, BRKTXT, PRELOD
@@ -452,22 +462,59 @@ JKLOOP:         JMP     KLOOP
 ; with nothing after the number deletes it (Undefined line number if there
 ; is none), else it goes in its place. The strings are dropped, so REASON
 ; doesn't count them; then CHEAD and FINI (resident: RUNC, MAIN). Out of
-; memory from BLTU fixes the links itself (OMERR). (PROCHK, AUTO and CHAIN's
-; CHNFLG are 7c's and 7b's.)
+; memory from BLTU fixes the links itself (OMERR). (PROCHK and CHAIN's
+; CHNFLG are 7c's.)
+;
+; AUTO's part (7b step c): every numbered line sets AUTO's next line,
+; AUTLIN, to its number plus AUTINC, as the 8086 does whether AUTO is on or
+; not; past 65529 (or a carry), AUTO ends (AUTRES). In AUTO, an empty line
+; (the number offered and nothing typed) neither deletes a line nor gives
+; Undefined line number: it goes straight to FINI.
 EDENT2:         JSR     CHRGTR         ; the line empty? (KTRM 0)
                 STA     KTRM
                 LDA     RDL
                 STA     DOT
                 LDA     RDH
                 STA     DOT+1
+                CLC                    ; BX = AUTINC + DX
+                LDA     AUTINC
+                ADC     RDL
+                STA     RBL
+                LDA     AUTINC+1
+                ADC     RDH
+                STA     RBH
+                BCS     AUTRES         ; the pathetic case: a carry
+                LDA     RBL            ; 65530 or more: too big, AUTO ends
+                CMP     #<65530
+                LDA     RBH
+                SBC     #>65530
+                BCS     AUTRES
+                LDA     RBL
+                STA     AUTLIN
+                LDA     RBH
+                STA     AUTLIN+1
+                BRA     AUTGOD
+; AUTRES (GWMAIN.ASM 694)
+AUTRES:         STZ     AUTFLG
 AUTGOD:         JSR     FNDLIN         ; RCL: the line, or where it goes; PTR2 the next
                 BCS     LEXIST
                 LDA     KTRM
                 BNE     LXISTS
-                JMP     USERR          ; nothing to delete
+                LDA     AUTFLG         ; not AUTO: nothing to delete
+                BNE     AUTFIN
+                JMP     USERR
 LXISTS:         CLC                    ; in, nothing to take out
                 BRA     INONLY
-LEXIST:         SEC                    ; ERAINS: out, and in if not empty
+LEXIST:         LDA     KTRM           ; the line there: AUTO doesn't erase it for
+                BNE     ERAINS         ; an empty line
+                LDA     AUTFLG
+                BEQ     ERAINS
+AUTFIN:         LDA     RCL            ; PUSH CX, JMP FINI: the links from the line
+                STA     KSRC
+                LDA     RCH
+                STA     KSRC+1
+                JMP     FINI2
+ERAINS:         SEC                    ; out, and in if not empty
 INONLY:         PHP                    ; C: take the old one out
                 LDA     RCH            ; the place
                 PHA
@@ -719,12 +766,20 @@ LINSPC:         LDA     (TXTPTR)
 
 ; DEPTR: if GOTO and the rest have turned line numbers into pointers
 ; (PTRFLG), back to numbers, before the program moves. SCCPTR: each PTRCON
-; becomes LINCON and its line's number. (SCCLIN, the other way, for RENUM,
-; is 7b's.)
+; becomes LINCON and its line's number. SCCLIN (7b step c), the other way,
+; for RENUM: PTRFLG set, and each LINCON becomes PTRCON and a pointer to
+; the zero before its line; one to a line not there is left as it is, with
+; "Undefined line 100 in 20" (CRDONZ first; " in" the scanned line's
+; number, SCNLN). The one special case: ON ERROR GOTO 0's 0 stays a
+; LINCON, so RENUM doesn't change it. (The 8086 enters SCCLIN by skipping
+; SCCPTR's XOR AL,AL, so AL is nonzero: here PTRCON, as GOTO2 sets it.)
 DEPTR:          LDA     PTRFLG
                 BNE     SCCPTR
                 RTS
-SCCPTR:         STZ     PTRFLG
+SCCLIN:         LDA     #PTRCON        ; nonzero: numbers to pointers
+                BRA     SCCPT1
+SCCPTR:         LDA     #0             ; pointers to numbers
+SCCPT1:         STA     PTRFLG
 SCNPGM:         LDA     TXTTAB
                 STA     TXTPTR
                 LDA     TXTTAB+1
@@ -736,23 +791,84 @@ SCNPLN:         INCW    TXTPTR         ; the link
                 ORA     (TXTPTR)
                 BNE     :+
                 RTS
-:               INCW    TXTPTR         ; past the line number
+:               INCW    TXTPTR         ; the line number (the 8086's DX)
+                LDA     (TXTPTR)
+                STA     SCNLN
                 INCW    TXTPTR
+                LDA     (TXTPTR)
+                STA     SCNLN+1
 SCNEXT:         JSR     CHRGTR
 SCNEX2:         CMP     #0
                 BEQ     SCNPLN
-SCNPT2:         CMP     #PTRCON
+                LDX     PTRFLG         ; which way? (A kept)
+                BEQ     SCNPT2         ; pointers to numbers
+                CMP     #ERROR_TK      ; ERROR GOTO?
+                BNE     NTERRG
+                JSR     CHRGTR
+                CMP     #GOTO_TK
+                BNE     SCNEX2
+                JSR     CHRGTR
+                CMP     #LINCON
+                BNE     SCNEX2
+                JSR     CONDX          ; LINGT3: DX the line, then past it
+                LDA     RDL            ; not line 0: a pointer
+                ORA     RDH
+                BNE     CHGPTR
+                DECW    TXTPTR         ; SCNEX3: line 0 left a number
+                BRA     SCNEXT
+; CONDX: LINGT3's way (GWMAIN.ASM 1972): DX = CONLO, the constant CHRGTR has
+; just read, before CHRGTR goes past it (and may read the next constant into
+; CONLO: "GOTO 30 40"; review U2). Z and C as CHRGTR leaves them.
+CONDX:          LDA     CONLO
+                STA     RDL
+                LDA     CONLO+1
+                STA     RDH
+                JMP     CHRGTR
+; NTERRG (GWMAIN.ASM 3258)
+NTERRG:         CMP     #LINCON
                 BNE     SCNEXT
-                JSR     CHRGTR         ; LINGT3: past it; CONLO the pointer
+                JSR     CONDX          ; LINGT3: DX the line, then past it
+; CHGPTR (GWMAIN.ASM 3262): TXTPTR, just past the constant, kept in KSRC.
+CHGPTR:         LDA     TXTPTR
+                STA     KSRC
+                LDA     TXTPTR+1
+                STA     KSRC+1
+                JSR     FNDLIN         ; DX: the line (CONDX's)         ; C set: found, CX at it
+                LDA     RCL            ; CX - 1: the zero before it (C kept)
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                LDA     #PTRCON
+                BCS     MAKPTR
+                JSR     CRDONZ         ; "Undefined line 100 in 20"
+                LDA     #<LINM
+                STA     PTR
+                LDA     #>LINM
+                STA     PTR+1
+                JSR     STROUT
+                LDA     RDL
+                STA     RBL
+                LDA     RDH
+                STA     RBH
+                FJSR    LINPRT
+                LDA     SCNLN
+                STA     RBL
+                LDA     SCNLN+1
+                STA     RBH
+                JSR     INPRT
+                BRA     SCNPOP
+SCNPT2:         CMP     #PTRCON
+                BNE     JSCNXT
+                JSR     CONDX          ; LINGT3: DX the pointer, then past it
                 LDA     TXTPTR
                 STA     KSRC
                 LDA     TXTPTR+1
                 STA     KSRC+1
                 CLC                    ; CX: its line's number
-                LDA     CONLO
+                LDA     RDL
                 ADC     #3
                 STA     PTR
-                LDA     CONLO+1
+                LDA     RDH
                 ADC     #0
                 STA     PTR+1
                 LDA     (PTR)
@@ -760,18 +876,18 @@ SCNPT2:         CMP     #PTRCON
                 LDY     #1
                 LDA     (PTR),Y
                 STA     RCH
-                LDA     CONTXT         ; CONCHG: at the constant's end
-                STA     TXTPTR
-                LDA     CONTXT+1
-                STA     TXTPTR+1
                 LDA     #LINCON
+MAKPTR:         LDX     CONTXT         ; CONCHG: at the constant's end, A the token
+                STX     TXTPTR
+                LDX     CONTXT+1
+                STX     TXTPTR+1
                 JSR     CONCH2
 SCNPOP:         LDA     KSRC           ; on from the character after it
                 STA     TXTPTR
                 LDA     KSRC+1
                 STA     TXTPTR+1
                 DECW    TXTPTR
-                BRA     SCNEXT
+JSCNXT:         JMP     SCNEXT
 
 ; --- ERRPRT, ERRFIN (GWMAIN.ASM 511) -----------------------------------------------------
 
@@ -854,20 +970,32 @@ INPRT:          LDA     #<INTXT
 ; read, which function 10 shows and lets be edited as if just typed. The
 ; caller goes on to MAIN.
 ERREDT:         STZ     ERRFLG
-                LDA     ERRLIN         ; direct, or 0: nothing
-                AND     ERRLIN+1
-                CMP     #$FF
-                BEQ     ERRED3
-                LDA     ERRLIN
-                ORA     ERRLIN+1
-                BNE     EREDIT
-ERRED3:         RTS
-EREDIT:
-                LDA     ERRLIN
+                LDA     ERRLIN         ; DX: the line
                 STA     RDL
-                STA     DOT
                 LDA     ERRLIN+1
                 STA     RDH
+ERRED2:         LDA     RDL            ; direct, or 0: nothing
+                AND     RDH
+                CMP     #$FF
+                BEQ     ERRED3
+                LDA     RDL
+                ORA     RDH
+                BNE     EREDIT
+ERRED3:         RTS
+
+; EDITP (SCNEDT.ASM 321 EDIT): EDIT n or EDIT ., which must end the
+; statement (else Illegal function call); then EREDIT, as for ERREDT: the
+; line into BUF to edit, or Undefined line number. The source doesn't check
+; for a program: EDIT in one ends it, and MAIN offers the line. EREDIT
+; returns; the resident stub drops NEWSTT's return and goes to MAIN, as
+; EREDIT's POP BX and JMP MAIN do.
+EDITP:          JSR     LINSPC         ; DX
+                BEQ     EREDIT
+                JMP     FCERR          ; EFCERR
+EREDIT:
+                LDA     RDL
+                STA     DOT
+                LDA     RDH
                 STA     DOT+1
                 JSR     FNDLIN
                 BCS     :+
@@ -931,3 +1059,7 @@ EREDIT:
 GOSTEX:         .byte   "GO ", 0       ; CHKRES's words
 TOTEX:          .byte   "TO", 0
 SUBTEX:         .byte   "UB", 0
+LINM:           .byte   "Undefined line ", 0 ; GWMAIN.ASM 3286
+
+.segment "BRAM"
+SCNLN:          .res    2              ; SCNPLN: the line being scanned (the 8086's DX)

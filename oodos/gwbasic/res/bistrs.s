@@ -32,17 +32,23 @@
 ; collector doesn't touch.
 ;
 ; STR$ VAL HEX$ OCT$ are in P1 (p1/strfn.s), through the F_ stubs here.
-; Later: MID$ as a statement (LHSMID), STRING$ and the PRINT USING entry
-; (LEFTUS) are 7b's; DEF FN's parameter blocks, which the collector walks too,
-; are 7b's.
+; MID$ as a statement (LHSMID) and STRING$ are P3's (7b step a2), with
+; their stubs in res/far3.s; MIDRST is LHSMID's too. PRINT USING's entry
+; (LEFTUS, p3/bistrs.s, 7b step d) jumps to LEFT2. The collector walks DEF FN's parameter blocks too
+; (7b step b): PARM1, the active function's, and those of the functions it
+; was called from, on the BASIC stack (p3/gweval.s FNDOER), chained from
+; PRMSTK; their state (PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT) is here, after
+; DSCTMP, as GWDATA.ASM has it: a descriptor at DSCTMP or above isn't a
+; temporary (LETSTR, FNDOER's NOCPRS).
 
 .include "gwbasic.inc"
 
 .export STRCMP, STRCPY, STRIN1, STRINI, STRAD2, STRAD1, STRLIT, STRLTI, STRLT3
 .export STRLT2, PUTNEW, PUTTMP, STRPRT, STROUI, DSOUT, GETSPA, GARBA2, CAT, MOVSTR
 .export FRESTR, FREFAC, FRETM2, FRETMP, FRETMS, LEN, LEN1, ASC, ASC2, CHR
-.export SETSTR, SPACE, SPACE2, LEFT, RIGHT, MID, INSTR, FRE, LETSTR, GETBCD
+.export SETSTR, SPACE, SPACE2, LEFT, LEFT2, RIGHT, MID, MIDRST, INSTR, FRE, LETSTR, GETBCD
 .export MEMSIZ, TEMPST, DSCTMP, DSEGZ, NUMTMP
+.export PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT
 .export F_STR, F_VAL, F_STRO, F_STRH
 .import CHRGTR, SYNCHR, FCERR, ERROR, CHKSTR, GETYP, EVAL, TSTOP, SPUSH, SPOP
 .import SPUSHA, SPOPA, FRMEVL, FRMPRN, GETBYT, CONINT, SNGFLT, GIVDBL, OUTDO, CRFIN
@@ -375,7 +381,11 @@ TVAR:           LDA     RBL            ; the temporaries
                 BEQ     @v
 @t:             JSR     DVARS
                 BRA     TVAR
-@v:             LDA     ARYTAB         ; the simple variables
+@v:             LDA     #<PRMPRV       ; the parameter blocks' chain, after
+                STA     TEMP9          ; the simple variables
+                LDA     #>PRMPRV
+                STA     TEMP9+1
+                LDA     ARYTAB         ; the simple variables
                 STA     ARYTA2
                 LDA     ARYTAB+1
                 STA     ARYTA2+1
@@ -410,7 +420,37 @@ SKPVAR:         CLC
                 BCC     SVAR
                 INC     RBH
                 BRA     SVAR
-ARYVAR:         LDA     ARYTAB         ; the arrays
+; ARYVAR (BISTRS.ASM 361): the next parameter block, walked as the simple
+; variables are: TEMP9 at the link to it (PRMPRV's, at first, to PRMSTK:
+; PARM1 itself), the block its link, its length and its entries. A zero link:
+; the arrays.
+ARYVAR:         LDA     (TEMP9)        ; DX: the next block
+                TAX
+                LDY     #1
+                LDA     (TEMP9),Y
+                BNE     @blk
+                CPX     #0
+                BEQ     ARYVA0         ; the end of the chain
+@blk:           STA     TEMP9+1        ; TEMP9 at it, to go on from
+                STX     TEMP9
+                CLC                    ; BX past the link and the length
+                TXA
+                ADC     #4
+                STA     RBL
+                LDA     TEMP9+1
+                ADC     #0
+                STA     RBH
+                LDY     #2             ; ARYTA2: BX + the length
+                CLC
+                LDA     (TEMP9),Y
+                ADC     RBL
+                STA     ARYTA2
+                INY
+                LDA     (TEMP9),Y
+                ADC     RBH
+                STA     ARYTA2+1
+                JMP     SVAR
+ARYVA0:         LDA     ARYTAB         ; the arrays
                 STA     RBL
                 LDA     ARYTAB+1
                 STA     RBH
@@ -1076,9 +1116,29 @@ DNTCPY:         JSR     FRETMS         ; the temporary freed, not its space
 
 .segment "RAM"
 
-; GWDATA.ASM's
+; GWDATA.ASM's. DSEGZ, the null string, lies below TEMPST and DSCTMP, as
+; GWDATA.ASM 833 has it: a descriptor below DSCTMP is no parameter's, so FN's
+; NOCPRS (p3/gweval.s) leaves an undefined string's empty result (FINZER,
+; INKEY$'s NULRT: DSEGZ) uncopied, taking no temporary (review U1).
+DSEGZ:          .byte   0, 0, 0        ; the null string (an undefined A$)
 MEMSIZ:         .res    2              ; the string space's top byte
                 .res    1              ; (FRETMS reads below TEMPST when there are none)
 TEMPST:         .res    3 * NUMTMP     ; the temporaries
 DSCTMP:         .res    3              ; a result's descriptor: just past them
-DSEGZ:          .byte   0, 0, 0        ; the null string (an undefined A$)
+
+; DEF FN's parameters (GWDATA.ASM 1310, 7b step b). PRMSTK, PRMLEN and PARM1
+; in this order: FNDOER pushes and pops them as one block. PRMLN2, FUNACT,
+; PRMSTK and PRMLEN together: STKERR zeroes them in one loop. PARM2, where
+; FNDOER builds the next PARM1, is P3's own (p3/gweval.s).
+PRMLN2:         .res    2              ; the bytes in PARM2 so far
+FUNACT:         .res    2              ; the functions being evaluated
+PRMSTK:         .res    2              ; the last parameter block on the BASIC stack, or 0
+PRMLEN:         .res    2              ; the bytes in PARM1
+PARM1:          .res    PRMSIZ         ; the active function's parameters, as simple variables
+.assert PARM1 > DSCTMP, error, "PARM1 must be past DSCTMP"
+.assert DSEGZ < TEMPST, error, "DSEGZ must be below the temporaries (U1)"
+.assert PRMLEN = PRMLN2 + 6 && PARM1 = PRMLEN + 2, error, "STKERR and FNDOER take these as one block"
+
+.rodata
+
+PRMPRV:         .word   PRMSTK         ; the link to PRMSTK: GARBA2 walks PARM1 first

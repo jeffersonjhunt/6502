@@ -6,7 +6,8 @@
 ;
 ;   STR$ (STR) OCT$ (STRO) HEX$ (STRH)   a number to text, the text a string
 ;   VAL                                   a string's number, by $FINDB
-;   FRQINT                                OCT$ and HEX$'s -32768..65535
+;   FRQINT                                OCT$ and HEX$'s -32768..65535, and
+;                                         an entry for P3's FRMQNT (CLEAR's)
 ;
 ; FUNDSP reaches them through the resident core's F_ stubs (res/bistrs.s),
 ; back through LABBCK, which puts the text pointer back: so they may move
@@ -18,6 +19,7 @@
 ;@entry STRO
 ;@entry STRH
 ;@entry VAL
+;@entry FRQINT
 .export STR, STRO, STRH, VAL, FRQINT
 .import FOUT, FOUTO, FOUTH, FINDBL, STRLIT, FREFAC, STRCPY, PUTNEW, LEN1, SNGFLT
 .import CHRGTR, GETYP, SIGNS, FRCSNG, FRCINT, FADD

@@ -1,0 +1,4 @@
+10 REM ON PEN with no GOSUB: Syntax error
+20 PRINT "a"
+30 ON PEN 100
+100 RETURN

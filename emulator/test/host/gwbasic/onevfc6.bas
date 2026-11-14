@@ -1,0 +1,4 @@
+10 REM ON STRIG(8): Illegal function call
+20 PRINT "a"
+30 ON STRIG(8) GOSUB 100
+100 RETURN

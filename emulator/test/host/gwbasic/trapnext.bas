@@ -1,0 +1,10 @@
+10 REM RESUME NEXT: mid-line, after ERROR, a line's first statement
+20 ON ERROR GOTO 200
+30 PRINT "a";:X=1/0:PRINT "b"
+40 ERROR 7:PRINT "c"
+50 Y=SQR(-1)
+60 PRINT "d":IF 1 THEN Z=LOG(0):PRINT "e":PRINT "f"
+70 PRINT "g"
+80 END
+200 PRINT "[";ERR;ERL;"]";
+210 RESUME NEXT

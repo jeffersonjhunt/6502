@@ -1,0 +1,1 @@
+10 PRINT STRING$(-1,65)

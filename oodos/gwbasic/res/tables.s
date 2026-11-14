@@ -14,6 +14,8 @@
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR, NOTSPK
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
+.import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
+.import EDIT, AUTO, RESEQ
 .import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
@@ -64,12 +66,12 @@ STMDSP:         S       ENDST          ; END
                 S       REM            ; REM
                 S       STOP           ; STOP
                 S       PRINT          ; PRINT
-                S       ADVERR         ; CLEAR (7b)
+                S       CLEAR          ; CLEAR
                 S       LIST           ; LIST
                 S       SCRATH         ; NEW
-                S       ADVERR         ; ON (7b)
+                S       ONGOTO         ; ON
                 S       ADVERR         ; WAIT (refused, 7g)
-                S       ADVERR         ; DEF (7b)
+                S       DEF            ; DEF
                 S       ADVERR         ; POKE (7c)
                 S       CONT           ; CONT
                 S       SNERR          ; (padding)
@@ -82,14 +84,14 @@ STMDSP:         S       ENDST          ; END
                 S       ELSES          ; ELSE
                 S       TON            ; TRON
                 S       TOFF           ; TROFF
-                S       ADVERR         ; SWAP (7b)
-                S       ADVERR         ; ERASE (7b)
-                S       ADVERR         ; EDIT (7b)
-                S       ADVERR         ; ERROR (7b)
-                S       ADVERR         ; RESUME (7b)
+                S       SWAP           ; SWAP
+                S       ERASE          ; ERASE
+                S       EDIT           ; EDIT
+                S       ERRORS         ; ERROR
+                S       RESUME         ; RESUME
                 S       DELETE         ; DELETE
-                S       ADVERR         ; AUTO (7b)
-                S       ADVERR         ; RENUM (7b)
+                S       AUTO           ; AUTO
+                S       RESEQ          ; RENUM
                 S       DEFSTR         ; DEFSTR
                 S       DEFINT         ; DEFINT
                 S       DEFREA         ; DEFSNG
@@ -101,9 +103,9 @@ STMDSP:         S       ENDST          ; END
                 S       SNERR          ; (padding)
                 S       SNERR          ; (padding)
                 S       SNERR          ; (padding)
-                S       ADVERR         ; WRITE (7b)
-                S       ADVERR         ; OPTION (7b)
-                S       ADVERR         ; RANDOMIZE (7b)
+                S       WRITE          ; WRITE
+                S       OPTION         ; OPTION
+                S       RANDOM         ; RANDOMIZE
 .repeat LOCATE_TK - OPEN_TK + 1
                 S       ADVERR         ; OPEN .. LOCATE (7c-7f)
 .endrepeat

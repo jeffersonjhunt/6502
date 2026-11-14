@@ -1,0 +1,11 @@
+10 REM ON ERROR with RESUME: the statement again, ERR and ERL, an error in P1
+20 ON ERROR GOTO 100
+30 A=0
+40 PRINT "x";10/A
+50 B$="s":C=B$+1:PRINT "c";C
+60 PRINT "done";ERR;ERL
+70 END
+100 PRINT "err";ERR;"line";ERL
+110 IF ERR=11 THEN A=2
+120 IF ERR=13 THEN B$="":C=0:RESUME 60
+130 RESUME

@@ -1,0 +1,3 @@
+# no field: the "+" is printed (REUSIN), then REUSST finds no value printed this time (USFLG 0): Illegal function call (PC-BASIC: Missing operand)
++
+Illegal function call in 10

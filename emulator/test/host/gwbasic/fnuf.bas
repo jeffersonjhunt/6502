@@ -1,0 +1,2 @@
+10 PRINT FNB(1)
+20 DEF FNB(X)=X

@@ -1,0 +1,9 @@
+10 WRITE 1,2,3
+20 WRITE "a","b c";-5;1.5
+30 A$="str":B=-.25:C%=7:D#=1/3#
+40 WRITE A$,B,C%,D#
+50 WRITE
+60 WRITE 1E+20,0,-1E-10
+70 WRITE "",""
+80 X=12:WRITE X;X*2
+90 WRITE "q";:PRINT "after"

@@ -1,0 +1,4 @@
+10 REM ON KEY(1) GOTO: Syntax error
+20 PRINT "a"
+30 ON KEY(1) GOTO 100
+100 RETURN

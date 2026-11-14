@@ -570,6 +570,18 @@ target_compile_definitions(test_gwbasic_core PRIVATE
         EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+# test_gwbasic_stmts: 7b's statements (block P3), the same way.
+emu_add_test(test_gwbasic_stmts)
+set_tests_properties(test_gwbasic_stmts PROPERTIES TIMEOUT 600)
+add_dependencies(test_gwbasic_stmts gwbasic oodos_sys backplane_bios)
+target_compile_definitions(test_gwbasic_stmts PRIVATE
+        EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
+        EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 # test_gwbasic_math: the math (res/ and p1/) against oodos/gwbasic/test/mbf.py, bit for bit, on the
 # W65C02S core alone: the Makefile's flat test image (every module in one image, a far call a JSR;
@@ -850,6 +862,7 @@ set(EMU_TEST_LABELS
     test_docs_check             "docs"
     test_docs_examples          "docs oodos bios sd backplane"
     test_gwbasic_core           "gwbasic oodos bios sd backplane"
+    test_gwbasic_stmts          "gwbasic oodos bios sd backplane"
     test_gwbasic_math           "gwbasic oodos"
     test_gwbasic_programs       "gwbasic oodos"
     test_sound_driver           "emu sound bridge"
