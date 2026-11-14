@@ -1791,7 +1791,7 @@ Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0x
 ## Backplane Signals ##
 
 **Decided (the owner, 2026-11-14): the new connector.** The 62-pin ISA-style connector is full. The bus moves to
-the card-edge connector that PCIe x8 slots use (the owner's count: 94 pins), which is cheap and easy to find. The
+the 98-pin card-edge connector that PCIe x8 slots use, which is cheap and easy to find. The
 owner is designing the pin map now. It carries:
 - **every signal documented below,** the 62-pin bus's and the assignment's;
 - **a 16-bit data bus,** D0–D15;
@@ -1805,7 +1805,7 @@ The decisions with it:
   follow PCIe's.
 - **Power is 5 V only.** The backplane no longer carries +24 V; this replaces the 62-pin bus's +24 V (Power, below).
 - **Module ID `0xF` is the expansion port.** Its slot takes either an expansion chassis or a normal card. One more
-  pin enables the expansion chassis: in effect a fifth module-ID bit beside PS3–PS0, so the chassis's cards
+  pin enables the expansion chassis: a fifth module-ID bit beside PS3–PS0 (confirmed by the owner), so the chassis's cards
   answer only when it is set.
 
 **The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
