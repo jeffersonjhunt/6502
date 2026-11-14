@@ -7,7 +7,7 @@
         .include "backplane.inc"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 HW_RTC: jsr     idle
         bcs     @out
         lda     NB_RTCCTL
@@ -44,5 +44,5 @@ idle:   ldx     #0
 @ok:    clc
         rts
 
-        .bss
+        OOHW_BSS
 HW_RTCST: .res  3

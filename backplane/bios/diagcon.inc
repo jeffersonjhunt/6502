@@ -14,7 +14,12 @@
 PUTC:
                 pha
                 phx
-                sta     ACIA_DATA
+                tax
+                lda     DG_SCR         ; bit 5: the serial line muted (a card stage's screen line)
+                and     #DG_MUTE
+                bne     @cr
+                stx     ACIA_DATA
+@cr:            txa
                 cmp     #$0D
                 bne     @char
                 stz     DG_COL
@@ -42,13 +47,16 @@ PUTC:
                 lda     #DG_ATTR
                 sta     VIDEO_PDATA
 @col:           inc     DG_COL         ; the column counts on the serial line too
-@tx:            ldx     #3             ; 10 bits at 19,200 baud, as the BIOS's ECHO waits
+@tx:            lda     DG_SCR
+                and     #DG_MUTE
+                bne     @done
+                ldx     #3             ; 10 bits at 19,200 baud, as the BIOS's ECHO waits
 @d1:            lda     #0
 @d2:            dec     a
                 bne     @d2
                 dex
                 bne     @d1
-                plx
+@done:          plx
                 pla
                 rts
 
@@ -295,7 +303,8 @@ MEMFAULT:
                 lda     DG_MWANT
                 sta     DG_FWANT
 @say0:          jsr     DETAIL
-                lda     #<SBLOCK
+; MEMFAULT's text alone, the detail line already begun (blocks 22 and 21's TDETAIL).
+MEMTEXT:        lda     #<SBLOCK
                 ldx     #>SBLOCK
                 jsr     PUTS
                 lda     DG_T0
@@ -530,8 +539,9 @@ ROWHI:
                 .byte   >(DG_TEXT + r * DG_COLS * 2)
 .endrepeat
 
-WORDLO:         .byte   <SPASS, <SFAIL, <SSKIP
-WORDHI:         .byte   >SPASS, >SFAIL, >SSKIP
+WORDLO:         .byte   <SPASS, <SFAIL, <SSKIP, <SINFO
+WORDHI:         .byte   >SPASS, >SFAIL, >SSKIP, >SINFO
+SINFO:          .byte   "INFO", 0
 SPASS:          .byte   "PASS", 0
 SFAIL:          .byte   "FAIL", 0
 SSKIP:          .byte   "SKIP", 0

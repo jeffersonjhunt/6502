@@ -2,6 +2,11 @@ add_library(emu_devices STATIC acia6551.cpp apple_io.cpp backplane_bridge.cpp co
 target_include_directories(emu_devices PUBLIC include)
 target_link_libraries(emu_devices PUBLIC emu_bus emu_cpu6502 PRIVATE emu_log)
 emu_house_flags(emu_devices)
+# Test-only fault hooks (hw/diag.md, answer 8: SoundCard::set_ram_fault, D2) in the native build with the tests,
+# never in the WebUI's (Emscripten builds its own tests, which don't use them) nor in a build without tests.
+if(EMU_BUILD_TESTS AND NOT EMSCRIPTEN)
+    target_compile_definitions(emu_devices PUBLIC EMU_FAULT_HOOKS)
+endif()
 # The sound's floats the same on every target: no fused multiply-adds, which g++ makes on aarch64 at -O2 and
 # clang within expressions, and WebAssembly and -O0 never do (test_sound_mix's golden hash is one value). That
 # holds given the same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree today; another may not.
