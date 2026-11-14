@@ -1836,7 +1836,7 @@ The decisions with it:
   follow PCIe's.
 - **Power is 5 V only.** The backplane no longer carries +24 V; this replaces the 62-pin bus's +24 V (Power, below).
 - **An expansion chassis is more slots, nothing else** (the owner, 2026-11-14, replacing the expansion port at
-  module ID `0xF` and its fifth module-ID bit). *Replaced the same day: no expansion chassis; one backplane of about
+  module ID `0xF` and its fifth module-ID bit, neither of which comes back). *Replaced the same day: no expansion chassis; one backplane of about
   15 slots, with three pins reserved for a bridged bus ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)).*
 
 **The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
@@ -1924,11 +1924,11 @@ assignment below stays the current machine's.
 with registers.
 
 ```
-  $000000 +--------------------------+
-          | RAM A  256 KB  banks 0-3 |
-  $040000 | RAM B  256 KB  banks 4-7 |
-  $080000 | RAM C  256 KB  banks 8-B |  bank 8 sent to the aperture while MAP's AP8 is set
-  $0C0000 | RAM D  256 KB  banks C-F |
+  $000000 +--------------------------+  the RAM card, 1 MB, in four quarters
+          | banks 0-3, "RAM A"       |
+  $040000 | banks 4-7, "RAM B"       |
+  $080000 | banks 8-B, "RAM C"       |  bank 8 sent to the aperture while AP8 is set
+  $0C0000 | banks C-F, "RAM D"       |
   $100000 +--------------------------+
           |                          |
           |  unused: 13 MB, room for |  nothing answers: a read gives $FF, a write is lost
@@ -1946,10 +1946,10 @@ with registers.
 
 | Physical | Size | What answers with /MEM low | Window block (ROM bit, BLOCK) |
 |---|---|---|---|
-| `$000000–$03FFFF` | 256 KB | RAM A | 0–15 |
-| `$040000–$07FFFF` | 256 KB | RAM B | 16–31 |
-| `$080000–$0BFFFF` | 256 KB | RAM C. While AP8 is set the CPU card sends no cycle to `$080000–$08FFFF`: it sends it to the aperture ([below](#the-video-aperture-moved-out-of-ram)) | 32–47 |
-| `$0C0000–$0FFFFF` | 256 KB | RAM D | 48–63 |
+| `$000000–$03FFFF` | 256 KB | the RAM card: its first quarter, "RAM A" | 0–15 |
+| `$040000–$07FFFF` | 256 KB | the RAM card: its second quarter, "RAM B" | 16–31 |
+| `$080000–$0BFFFF` | 256 KB | the RAM card: its third quarter, "RAM C". While AP8 is set the CPU card sends no cycle to `$080000–$08FFFF`: it sends it to the aperture ([below](#the-video-aperture-moved-out-of-ram)) | 32–47 |
+| `$0C0000–$0FFFFF` | 256 KB | the RAM card: its fourth quarter, "RAM D" | 48–63 |
 | `$100000–$DFFFFF` | 13 MB | nothing: room for RAM cards later | (wide windows, below) |
 | `$E00000–$E0FFFF` | 64 KB | the video card's aperture, revision 2 | WINnH `$0E`, BLOCK 0–3 |
 | `$E10000–$EFFFFF` | 960 KB | nothing: kept for other cards' memory | |
@@ -1959,7 +1959,7 @@ with registers.
 A window's ROM bit keeps its meaning: ROM block *b* is physical `$F00000 + b × $4000`, and the north bridge puts
 out that address instead of choosing modules 4 and 5. DMA revision 2 drives all 24 bits (ADDR and DEST
 are 24 bits, [below](#the-dma-controller-revision-2)), so DMA reaches the flash and the aperture by their addresses.
-RAM C needs no input to keep quiet in bank 8: the redirection is on the CPU card, so no cycle for `$08xxxx` reaches
+The RAM card needs no input to keep quiet in bank 8: the redirection is on the CPU card, so no cycle for `$08xxxx` reaches
 the backplane while AP8 is set.
 
 **/MEM in each kind of cycle.** The master holding the bus drives /MEM, PS0–PS3, A0–A23 and RWB. That is normally
@@ -1976,8 +1976,8 @@ card answers its range with /MEM low.
 | DMA: the request poll ([below](#the-dma-controller-revision-2)) | high | low, low | `0x8` | | each requesting card pulls D(ID) |
 | DMA: a fly-by transfer (the grant) | low | low, high | the channel's module | the memory address | the memory by address, and the named card's data register |
 | DMA: memory to memory, the read and the write | low | high, high | `0x8` | the source, then the destination | the memory by address |
-| Console card EXAM and DEP, the bus spy | low (it drives it) | high, high | `0xE` (its own) | its physical address (PADDR, 20 bits today: A20–A23 are 0 until it widens) | the memory by address. Bank 8 is RAM C to them: AP8 is the CPU card's, and they reach the aperture at `$E00000` only with a wider PADDR |
-| Apple II mode, memory (`$0000–$BFFF`, `$D000–$FFFF`, the ROM space from bank E) | low | high, high | `0xD` | A0–A15 as they are, A16–A19 from the IIe's switches, A20–A23 0 | RAM A–D |
+| Console card EXAM and DEP, the bus spy | low (it drives it) | high, high | `0xE` (its own) | its physical address (PADDR, 20 bits today: A20–A23 are 0 until it widens) | the memory by address. Bank 8 is the RAM card's to them: AP8 is the CPU card's, and they reach the aperture at `$E00000` only with a wider PADDR |
+| Apple II mode, memory (`$0000–$BFFF`, `$D000–$FFFF`, the ROM space from bank E) | low | high, high | `0xD` | A0–A15 as they are, A16–A19 from the IIe's switches, A20–A23 0 | the RAM card |
 | Apple II mode, `$C000–$C0FF` and a slot's ROM (`$C600`, the Disk II's) | high | high, high | the answering card's: B the USB card's switches, C the Disk II's; `0xD` for the bridge's own switches | A0–A7 | that card |
 
 The video card's Apple II snoop watches writes with /MEM low to `$000000–$01FFFF` (banks 0–1), A20–A23 0, and the
@@ -2094,7 +2094,7 @@ describes,** step by step:
 | The checks: video card revision 2 (`$92`) | unchanged |
 | The checks: the DMA controller | `apple.s` and function 75 test `DMA_ID` for revision 2's `$82` ([the B2 migration](#the-b2-migration-revision-1-dropped)) |
 | The checks: a IIe ROM, `$06` at its `$FBB3` | the same test, on ROM A's image instead of the cartridge, in the ROM and in function 75 |
-| 1. The image copied by the CPU to `$EC000–$EFFFF` | the same RAM, RAM D at `$0EC000`; only the source moves |
+| 1. The image copied by the CPU to `$EC000–$EFFFF` | the same RAM, the RAM card's at `$0EC000`; only the source moves |
 | 2. The character ROM into card memory at `$1E0000`, through the port | the same; only the source moves (blocks 4–5) |
 | 3. SEI, the zero byte at `$EBFFF` | unchanged |
 | 4. The clear by DMA on channel 3: ABORT, STATUS, CONTROL, six fills | the same fills. Every channel is stopped (ABORT `$FF`, STATUS cleared), and CONTROL is written whole as `DMA_ON` with SELECT 3, so the window is channel 3's. Channel 3's module is none. ADDR's and DEST's third bytes are 0–5 and `$0E`. The code never returns, so it doesn't put CONTROL back: the /RESET pulse does |
@@ -2137,7 +2137,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
 |---|---|---|---|---|
 | `$20`–`$23` | WIN0H–WIN3H | read/write | bits 3–0: A20–A23 for the window's block when its ROM bit is clear. The block is then 10 bits, WINnH:BLOCK, any 16 KB of the 16 MB. With the ROM bit set the flash is chosen and WINnH is ignored. Bits 7–4 0 | `$00` |
 | `$24` | VECH | read/write | the same for VEC | `$00` |
-| `$25` | MAP | read/write | bit 0 **AP8**: 1, the CPU card sends every memory cycle for `$080000–$08FFFF` (a window with ROM clear, WINnH 0 and BLOCK 32–35, and the DMA controller's memory side) to the aperture at `$E00000–$E0FFFF` instead, as bank 8 was; 0, bank 8 is RAM C. Bits 7–1 0 | `$01` |
+| `$25` | MAP | read/write | bit 0 **AP8**: 1, the CPU card sends every memory cycle for `$080000–$08FFFF` (a window with ROM clear, WINnH 0 and BLOCK 32–35, and the DMA controller's memory side) to the aperture at `$E00000–$E0FFFF` instead, as bank 8 was; 0, bank 8 is the RAM card's. Bits 7–1 0 | `$01` |
 | `$7F` | ID | read | **`$D2`**, revision 2: a north bridge with the registers above. `$D1` (today's, `HW_NB_ID` in `oohw.inc`, `BackplaneBridge::REVISION` 1) has none of them | |
 
 - **Telling the bridges apart (review round 1).** Software writes WINnH and MAP only after reading NB_ID as `$D2`.
@@ -2160,7 +2160,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   its request** (below), and sets it again at the warm boot. A machine with no revision 2 card already has AP8
   clear.
 - **The alias is on the CPU card** (the north bridge, and the DMA controller beside it). So the Console card and
-  the bus spy, driving the bus themselves, see the true map: bank 8 is RAM C to them.
+  the bus spy, driving the bus themselves, see the true map: bank 8 is the RAM card's to them.
 - **Why wider windows.** They are what [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb) needs anyway (its
   "the registers widen"), and RAM past 1 MB (`$100000–$DFFFFF`) would be reached the same way.
 
@@ -2439,7 +2439,10 @@ new layout.
   | — | the RAM card (by address) | a slot |
   | — | the cartridge, ROM B (by address) | a slot, or a connector of its own |
 
-  **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B) and `0xF`, seven IDs for new cards. The bus spy is a bus
+  **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B) and `0xF`, seven IDs for new cards.
+- **No fifth ID bit (decided, the owner, 2026-11-14: "just drop the 5th bit").** There is no PS4: the module IDs
+  stay 16, and cards decode PS0–PS3 only. 32 IDs would need a new set of cards that decode a fifth line; that is
+  recorded, not planned. BR0–BR2 (below) are three spare pins, not a fifth bit. The bus spy is a bus
   master with no registers (it reaches the Console card over SPI), so it takes a slot but no ID.
 - **The bus is passive, at 7.16 MHz.** Trace length, loading and termination are left to the owner's board design.
 - **Reserved pins for a bridged bus.** Three connector pins, **BR0–BR2**, are reserved for a future bridged bus
