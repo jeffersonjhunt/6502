@@ -456,6 +456,13 @@ The machine works without it, so it can come later.
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
   DMA cheap enough for every card to have it.
 - **Placement:** on its own card, module ID `0x8`.
+  - **To do (the owner, 2026-11-14): move the DMA controller onto the CPU card,** beside the north bridge. It
+    already works at the CPU's level: it pulls RDY and BE and drives A0–A19, which the CPU card does anyway. On one
+    card its address path doesn't cross the backplane twice, the reason the CPU and the north bridge share a card
+    ([Backplane Signals](#backplane-signals)) and something a future turbo needs. It also frees a slot. Its
+    registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on the CPU card, to keep
+    the north bridge's apart. This isn't designed yet: the card, the backplane notes and modules.md change when it
+    is.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
   storage.
 - **Registers per channel:**
@@ -1356,6 +1363,13 @@ drive" below.)*
     It stays a fallback: the card is a Disk II, so any drive that behaves like one works.
 - **Native storage (decided): SD, behind an RP2350** (module ID 7, "Mass Storage"). A floppy runs at about
   30 KB/s, too slow to be native storage.
+  - **Kept as a module apart from the Disk II (the owner, 2026-11-14).** The two share almost nothing:
+    - the Disk II is a clone of Apple's slot 6 controller, at Apple's addresses, with the owner's PROMs, a 2 MHz
+      sequencer and no DMA;
+    - the SD card is the native machine's own storage, behind an RP2350, with DMA.
+
+    A module ID is logical, though (modules.md: one physical card may serve more than one ID), so one physical
+    storage card answering both IDs 7 and `0xC` stays an option.
   - The same pattern as the USB card: one microcontroller family and one toolchain.
   - The RP2350 handles the SD protocol, start-up and buffering, and presents IDE-style registers (below).
   - It can also read FAT well enough to mount image files from a PC-formatted card as units.
