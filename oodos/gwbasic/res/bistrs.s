@@ -1116,12 +1116,15 @@ DNTCPY:         JSR     FRETMS         ; the temporary freed, not its space
 
 .segment "RAM"
 
-; GWDATA.ASM's
+; GWDATA.ASM's. DSEGZ, the null string, lies below TEMPST and DSCTMP, as
+; GWDATA.ASM 833 has it: a descriptor below DSCTMP is no parameter's, so FN's
+; NOCPRS (p3/gweval.s) leaves an undefined string's empty result (FINZER,
+; INKEY$'s NULRT: DSEGZ) uncopied, taking no temporary (review U1).
+DSEGZ:          .byte   0, 0, 0        ; the null string (an undefined A$)
 MEMSIZ:         .res    2              ; the string space's top byte
                 .res    1              ; (FRETMS reads below TEMPST when there are none)
 TEMPST:         .res    3 * NUMTMP     ; the temporaries
 DSCTMP:         .res    3              ; a result's descriptor: just past them
-DSEGZ:          .byte   0, 0, 0        ; the null string (an undefined A$)
 
 ; DEF FN's parameters (GWDATA.ASM 1310, 7b step b). PRMSTK, PRMLEN and PARM1
 ; in this order: FNDOER pushes and pops them as one block. PRMLN2, FUNACT,
@@ -1133,6 +1136,7 @@ PRMSTK:         .res    2              ; the last parameter block on the BASIC s
 PRMLEN:         .res    2              ; the bytes in PARM1
 PARM1:          .res    PRMSIZ         ; the active function's parameters, as simple variables
 .assert PARM1 > DSCTMP, error, "PARM1 must be past DSCTMP"
+.assert DSEGZ < TEMPST, error, "DSEGZ must be below the temporaries (U1)"
 .assert PRMLEN = PRMLN2 + 6 && PARM1 = PRMLEN + 2, error, "STKERR and FNDOER take these as one block"
 
 .rodata
