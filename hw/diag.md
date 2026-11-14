@@ -912,17 +912,20 @@ expectations accepted). Each fix's test was seen failing on the round's tip (`1e
   from SD4 (no RESET); the card's image stays clean.
 - **P3, D2:** a failed block whose `+$3FF0` holds another block's tag (NB2's: of two blocks that answer as one, the
   last written) answers as that block, and isn't filled or checked (`ASALIAS`, into `SKIPS`): filling it wrote over
-  the other, and D2 named a block from another's fill. (The review's "lower block": stage 4 fails the block it read
-  wrong, which can be the lower one of the pair, so the rule takes another block either way.) Every faulty block is
+  the other, and D2 named a block from another's fill. The block it skips is the lower one of an aliased pair, the one
+  stage 4 fails (every stage writes in ascending order, so the higher block's writes land last and it reads right);
+  a failed higher block answering as a lower one can't arise. Every faulty block is
   now marked failed, the first eight named. Tests: block 20 answering as block 10 (D2 named block 10 from block 20's
   fill); ten blocks going bad after stage 6 (D3 took the unmarked ninth and tenth and failed).
-- **P4:** the good machine's case checks V3's frame within 2 cycles of 119,437, S9 within 2 of 2,051 frames, D5's
-  bytes left between 4,080 and 4,095. V3 now gives NB6's 60 frames / 60 (119,437 on the emulator), not one frame by
-  HW_CLOCK, whose poll grain made it 119,460-119,475; one frame is its way when NB6 didn't measure.
+- **P4:** the good machine's case checks V3's frame, S9 within 2 of 2,051 frames, and D5's bytes left between 4,081
+  and 4,095. V3 measures one frame itself, by HW_CLOCK (the final check's PP1: a first form gave NB6's 60 frames / 60,
+  which only repeated NB6's check); its poll's grain, about 80 cycles, makes a frame read long by up to a pass, so the
+  case holds it to 119,437-119,520 (119,460-119,475 in the runs seen). V3's own constant wrong (119,000, with NB6's
+  left right) fails stage 9 alone.
 - **P5, P6:** DMAWAIT's comment (about 13 ms); `diag.inc`'s stack note to `bios.cfg`'s layout; the block-22-blanked
   case renamed to what it checks.
 
-Sizes after: block 22 13,524 bytes (2,860 free), block 21 8,179, block 23 8,127 (`QUIETM` in each block's put-back),
+Sizes after (and the final check's PP1): block 22 13,456 bytes (2,928 free), block 21 8,179, block 23 8,127 (`QUIETM` in each block's put-back),
 block 31 unchanged (code to `$E409`).
 
 #### D3c: the launcher and the books ####
