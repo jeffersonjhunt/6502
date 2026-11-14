@@ -2,8 +2,9 @@
 
 Nov 13, 2026 · @Jefferson
 
-**Status: plan 2, the owner's revision of 2026-11-13: every diagnostic in the ROM. Proposed, for the owner's
-approval before D3a starts; design only.** [Plan 2](#plan-2) is the plan from here on. D1 (the library and
+**Status: plan 2, the owner's revision of 2026-11-13: every diagnostic in the ROM. Approved (2026-11-14, the
+owner), after review LL1–LL5, with questions P2-1 to P2-7 [decided as recommended](#plan2-questions); design only,
+D3a starts from this.** [Plan 2](#plan-2) is the plan from here on. D1 (the library and
 SYSINFO) is merged and stays as built. D2 (DIAG.COM) was built on `feat/diag-d2` and **doesn't merge**: under
 OODOS it grew to 22 KB, half of it OODOS's way round the hardware, and still couldn't reach OODOS's memory, the
 console's card memory or a DMA channel of its own; so the owner put all of it in the ROM, where the core owns the
@@ -67,7 +68,8 @@ Two system tools that share their code through a linked library:
 <a id="plan-2"></a>
 ## Plan 2: every diagnostic in the ROM ##
 
-**Proposed (2026-11-13), for the owner's approval before D3a starts.** This section is the plan from here on;
+**Approved (2026-11-14, the owner),** with review LL1–LL5's findings folded in and P2-1 to P2-7 decided as
+recommended. This section is the plan from here on;
 where it and plan 1's sections after it differ, it wins. What it keeps of plan 1 it names; what it doesn't name is
 replaced.
 
@@ -103,7 +105,7 @@ ones before it proved; a stage whose card isn't there says `SKIP` and the run go
 | 10 | 22 | the sound card; the 6510 program loaded by the core | stages 6, 7, 8 | |
 | 11 | 21 | storage, read-only: the SD card; the Disk II by its ID alone | stages 6, 8 | |
 | 12 | 21 | USB and the game port; the serial card and the VIA; the front panel | stage 7 | |
-| 13 | 21 | the interactive tests (switch 16, or `DIAG [ASK]`): `SKIP` otherwise | stages 9, 10, 12 | |
+| 13 | 21 | the interactive tests (switch 16 at the switch-19 and `C812R` entries, `DIAG [ASK]` from `A>`): `SKIP` otherwise | stages 9, 10, 12 | |
 | 14 | 21 | the summary; the loop, or the end | | |
 
 **Every RAM block** means all 60 with video revision 2 (bank 8, blocks 32–35, is the card's aperture and is tested
@@ -124,7 +126,7 @@ sequences, so the core sends none. Its read-only check is a write through an `NB
 The flash now (BIOS 0.13, unchanged since plan 1 measured it at 8877ba7): blocks 0–23 erased (384 KB); 24–28 the
 splash's wave image; 29 the video demo; 30 the font; 31 the BIOS, with 7,632 bytes free.
 
-**Recommended ([question P2-3](#plan2-questions)): the diagnostics take blocks 21, 22 and 23; 0–20 stay erased
+**Decided (2026-11-14, the owner, [P2-3](#plan2-questions)): the diagnostics take blocks 21, 22 and 23; 0–20 stay erased
 (336 KB).** The BIOS's blocks (24–31) and its jump table stay where they are. `bios.cfg`'s `PAD` becomes
 `$0000–$53FFF` (21 blocks), followed by three areas, `DIAG21`, `DIAG22` and `DIAG23`, each at `$8000`, `$4000`
 long, so `bios.rom` stays 512 KB with nothing else moved.
@@ -282,18 +284,22 @@ D2's SD4 (`/WRITE`, a file on A: written, read back and erased) goes with DIAG.C
 | P1 | ID `$E1`; the switches and HALT/ENABLE shown: `INFO` | as D2 |
 | P2 | a walking bit on DISPLAY, 0.2 s a step: `INFO` (interactive: Y or N) | as D2; nothing to put back but the stage's own code |
 
-**Stage 13, the interactive tests,** only with switch 16 up or `DIAG [ASK]`: V8 and S10 above; U3, a key on the USB
+**Stage 13, the interactive tests,** only with switch 16 up (at the switch-19 and `C812R` entries) or `DIAG [ASK]`
+(from `A>`): V8 and S10 above; U3, a key on the USB
 keyboard (USB_KEY polled); U4, the mouse moved and each button pressed (MBTN, MX and MY), and each paddle button
 (USB_GAME); U5, the speaker toggled at 1 kHz by the CPU through USB_SPKR (there is no `SN_BEEP`): Y or N; SR3, each
 joystick direction and fire on both ports (the VIA's ports A and B, their DDRs left as inputs); and P3, the
 breakpoint, as D2 built it (armed, then RETURN, then the read that halts until CONT; STATUS's HIT, LADDR and LDATA
 checked; BPCTRL 0 and HIT cleared). In the ROM, CC3's ^C can't happen; Break goes to the core's handler, which puts
-BPCTRL back as every way out does. A reset during P3 still keeps BPADDR and BPCTRL
+BPCTRL back as every way out does. A reset during P3 keeps BPADDR and BPCTRL
 ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)), and the next program to read that address
-would halt. So D3b chooses P3's address where neither the BIOS's boot nor OODOS reads it, if there is such a place
-(every RAM block may be a program's, and the breakpoint sees DMA cycles too); whether there is one is not known
-yet. The Technical Reference says, as plan 1's User's Guide entry would have, to turn the breakpoint off
-(`C70B: 00` at the monitor) after a reset during P3.
+would halt; **so the BIOS's RESET turns the breakpoint off** (review LL1, decided 2026-11-14): when `CONSOLE_ID`
+reads `$E1` (the switch check's double read, CC5), it writes BPCTRL 0, first thing, before anything touches RAM
+(about 8 bytes in block 31, part of D3a's BIOS changes). P3 may then use any address, a byte in a tested RAM block.
+**What that changes for the panel:** chapter 12's "a breakpoint set before START catches an address in the boot"
+no longer holds, since every reset with the console card fitted disarms it; BPADDR is still kept, so the
+breakpoint is armed again by writing BPCTRL alone. START with HALT/ENABLE at HALT still stops at the reset
+vector's first instruction. Chapter 12's Reset says so (D3c).
 
 
 <a id="plan2-memory"></a>
@@ -331,8 +337,8 @@ wait states on real hardware aren't known, except the aperture's, which has none
 
 **A quick run is about 40 s:** the memory 19.5 s, DMA 2 s, video 10 s, sound 2 s, the clock 3 s, the panel's
 lights 1.6 s, the rest under a second each (the SD card's read speed on real hardware isn't known). **A full run
-(switch 18, or `DIAG [FULL]`) is under 2 minutes:** the march with four backgrounds adds 45 s, the march on card
-memory 22 s, on the sound card's RAM and wave RAM 2 s. The loop (switch 17) repeats from stage 3 at the same
+(switch 18, or `DIAG [FULL]` from `A>`) is under 2 minutes:** the march with four backgrounds adds 45 s, the march on card
+memory 22 s, on the sound card's RAM and wave RAM 2 s. The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
 cost a pass. `test_bios_diag` reports the emulator's time for a quick run against this table.
 
 
@@ -380,14 +386,16 @@ count), and the pass with the loop.
 **How the run ends.** With switch 17 down, the core waits for a key: on the serial line or the USB keyboard, or on
 the panel CONT or EXAM (latched in KEYS while the CPU runs, as the prompt's CONT is; ignored at LOCK). Then it puts
 back what it changed to the values /RESET leaves (plan 1's list: SLOT0–3 0–3, PSTEP 1, PCTL 0; DMA CONTROL `$70`;
-the sound card's CTRL with RUN off; WAIT0–3 0, which also clears the options; BPCTRL 0 if P3 armed it; DISPLAY 0
-and CTRL 0; W0–W2 on blocks 0–2; VEC on flash block 31), and:
+the sound card's CTRL with RUN off; the VIA (review LL4): ACR 0, timer 1 stopped (a one-shot that has run out,
+with ACR 0), IFR cleared and IER off, so the timers NB5, S9 and SR2 ran leave nothing behind; WAIT0–3 0, which also
+clears the options; BPCTRL 0 if P3 armed it; DISPLAY 0 and CTRL 0; W0–W2 on blocks 0–2; VEC on flash block 31),
+and:
 
 - **CONT, RETURN or any other key: the boot,** at the BIOS's `BOOT`, just past the reset's switch check: the BIOS
   copied into block 63, the splash, then the SD card's `/BOOT.BIN`, which on the OODOS card is OODOS. So from `A>`
   the machine comes back to `A>` as after a power-on, and a key during the splash is the monitor, as always.
 - **EXAM or Esc: the monitor,** at a new label, `MONBOOT`, after the BIOS's copy into block 63 and the greeting,
-  with no splash and no SD boot ([question P2-5](#plan2-questions)). The copy is needed: all of RAM was rewritten,
+  with no splash and no SD boot (decided, [P2-5](#plan2-questions)). The copy is needed: all of RAM was rewritten,
   block 63 included, and the monitor, Break and OODOS's way back to the ROM all run from that copy.
 
 Switch 17 loops without a key or a confirmation, counting passes; a key ends the loop after the pass under way.
@@ -423,10 +431,10 @@ missing, and OODOS goes on.
 - **(c) Function 75 with A = 2,** the diagnostics: as A = 1 does for the IIe ROM, OODOS first looks for the core
   (block 23's signature and its entry table's version, through W2, put back on `BIOS_BLOCK` after) and returns
   A = `$FF`, X = `$FC` if it isn't there, and OODOS goes on; otherwise it writes the buffers back and leaves as
-  `ROMAPPLE` does, its tramp jumping to `$C815` with A = `$A5` (the token) and X the options. **An OODOS change.**
+  `ROMAPPLE` does, its tramp jumping to `$C815` with A = `$A5` and Y = `$5A` (the token) and X the options. **An OODOS change.**
 
-**Recommended ([question P2-1](#plan2-questions)): (b) on (c), the built-in `DIAG` calling function 75 with
-A = 2.** It is the owner's "like Apple2 or WozMon" exactly; OODOS leaves the machine itself, as it already does two
+**Decided (2026-11-14, the owner, [P2-1](#plan2-questions)): (b) on (c), the built-in `DIAG` calling function
+75 with A = 2, OODOS interface 10.** It is the owner's "like Apple2 or WozMon" exactly; OODOS leaves the machine itself, as it already does two
 ways; no program writes a window, a vector or an interrupt enable, so answer 1's exception narrows to SYSINFO alone
 (the owner's decision); and it is in OODOS.SYS, on every card, with no file. *Alternative:* (a), with no OODOS
 change, at the cost above.
@@ -442,7 +450,10 @@ change, at the cost above.
 - **The cards** are made again (OODOS.SYS changes), and test_oodos_utils_rom gains DIAG's cases.
 - **The User's Guide:** `DIAG` in chapter 4, with WOZMON and APPLE2.
 
-**The built-in.** `DIAG`, `DIAG [FULL]`, `DIAG [ASK]`, `DIAG [FULL,ASK]` (the utilities' option form, chapter 4). It prints what will happen (OODOS stops,
+**The built-in.** `DIAG`, `DIAG [FULL]`, `DIAG [ASK]`, `DIAG [FULL,ASK]` (the utilities' option form, chapter 4).
+From `A>` the options are only what is typed (review LL3): the panel's switches 16, 17 and 18 apply to the switch-19
+reset entry and `C812R` alone, so a switch left up from LOAD ADRS can't change a run asked for at `A>`, and there is
+no loop from `A>`. It prints what will happen (OODOS stops,
 all of memory is tested and overwritten, M:'s files are lost, the machine boots again at the end) and asks for
 `Y`; any other key is `A>` again with nothing changed. Then function 75 with A = 2 and X the options (bit 0 full,
 bit 1 interactive). If the flash has no core, it says so (`No diagnostics in the ROM: BIOS 0.14 or later`), the
@@ -456,21 +467,25 @@ return code `$FF00`, and OODOS goes on.
 - the Disk II: its write mode and motor off, and the DMA controller's master enable put back if a write had it off
   (`NMI`'s first lines);
 - the windows: W0–W2 on RAM blocks 0–2, S `$FF`; the tramp puts W3 and VEC on block 63, the ROM's copy, and jumps to
-  `$C815` there.
+  `$C815` there with A = `$A5`, Y = `$5A` and X the options.
 
 What OODOS needn't do, because the core does it at stage 0 for every entry (`C812R` and the reset need it too):
 stop the DMA channels (channel 1's vertical-blank copies and channel 2's sound stop with their interrupts anyway),
 stop the sound card's 6510 and silence its parts, put back the video card's state. Nothing OODOS keeps in RAM
 matters: all of it is overwritten, and OODOS boots afresh after.
 
-**`$C815`, the entry for a program** ([question P2-2](#plan2-questions)): the last spare in the jump table. With
-A = `$A5` it takes X as the options, puts them in WAIT3's two bits for module F (bits 6 and 7: no card answers as
-module F, so its wait states slow nothing; the north bridge keeps WAIT3 as written, and every /RESET clears it), maps
-W2 on block 23 after the signature check, and enters at stage 0 with no prompt: OODOS has asked already. With any
-other A it is `$C812`, prompt and all, so `C815R` typed at the monitor still asks. The options go through WAIT3
-because nothing else survives stages 0–2, which keep every register busy and trust no RAM; NB7 reads them before
-it tests WAIT0–3. The panel's switches 18 and 16 are ORed in. *Alternative:* OODOS jumps to `$C812`, which asks
-`Y` a second time, the jump table grows no further, and the options come from the switches alone.
+**`$C815`, the entry for a program** (decided, [P2-2](#plan2-questions)): the jump table's last spare. With the
+two-byte token, A = `$A5` and Y = `$5A` (review LL2: the monitor's `R` leaves A and Y as they happen to be, and one
+byte could match by chance), it takes X as the options (bit 0 full, bit 1 interactive), maps W2 on block 23 after
+the signature check, and enters at stage 0 with no prompt: OODOS has asked already. With anything else in A or Y it
+is `$C812`, prompt and all, so `C815R` typed at the monitor still asks. The options go to stage 3 through WAIT3,
+because nothing else survives stages 0–2, which keep every register busy and trust no RAM: bit 0 (module C's wait
+states, the Disk II's, which the core never accesses but for its ID) says "from a program, the switches don't
+count" (LL3), and bits 6 and 7 (module F's, which no card answers) are full and interactive. Wait states are
+reserved for turbo and do nothing at ÷2 ([design.md](design.md#north-bridge-registers)); every /RESET clears WAIT3,
+so the reset and `C812R` entries find it 0 and read the switches. NB7 reads the options before it tests WAIT0–3.
+**Later entries:** with `$C815` taken the table has no spare left, so any entry after it goes through one
+dispatching entry (a number in a register), which the table's next growth would add (LL5).
 
 
 <a id="plan2-faults"></a>
@@ -507,7 +522,7 @@ Nothing is merged or cherry-picked in this step. In D3a and D3b, each piece is t
 | `test_oodos_diag`'s cases | re-done as `test_bios_diag`'s, each with its must-fail fault | D3a, D3b |
 | `oodos/utils/diag.s`, `oodos/cfg/diag.cfg`, the Makefile's DIAG rules, `golden/diag.txt`, the User's Guide's DIAG utility entry | not moved | |
 
-`feat/diag-d2` is kept until D3b merges ([question P2-6](#plan2-questions)).
+`feat/diag-d2` is kept until D3b merges (decided, [P2-6](#plan2-questions)).
 
 
 <a id="plan2-phases"></a>
@@ -518,7 +533,8 @@ docs check`. Each reads its part of the books again at its start and adds its "a
 
 #### D3a: the core, its entries, the memory tests ####
 
-- **What:** `bios.s` (the reset's switch and signature checks; `$C812`'s prompt; `$C815`'s token and WAIT3; the
+- **What:** `bios.s` (BPCTRL 0 at RESET with the console card fitted, LL1; the reset's switch and signature
+  checks; `$C812`'s prompt; `$C815`'s two-byte token and WAIT3; the
   `BOOT` and `MONBOOT` labels; the greeting `BACKPLANE BIOS 0.14`); `bios.cfg` (`PAD` 0–20, `DIAG21`–`DIAG23`); the
   Makefile (the three units, the library's ROM build, `romsum.py` after ld65); `backplane/bios/diag.inc`;
   `diag23.s` (the header and gate, the prompt, stages 0–6, the end and its put-back, Break); `diag22.s` and
@@ -526,14 +542,19 @@ docs check`. Each reads its part of the books again at its start and adds its "a
   is whole from the start; `hwmem.s` and `hwline.s` from D2; `fault_devices.h`; `test_bios_diag`. `make -C docs check`
   holds chapter 3's listings to `bios.s`, so D3a updates those listings; the books' new text is D3c's.
 - **Size:** block 23 about 7.1 KB of 16; blocks 22 and 21 about 2.5 KB each (the header, the console, the report);
-  block 31 about 0.2 KB more of its 7,632 free bytes.
+  block 31 about 0.2 KB more of its 7,632 free bytes (LL1's 8 bytes included).
 - **Tests,** `test_bios_diag`, on `backplane.machine` with the console card's switches set before the reset; each
   must-fail case is seen failing once on a copy with its one fault put in, and the report says which:
   - the prompt (plan 1's cases): CONT, `Y` on the serial line and on the USB keyboard enter; no answer boots within
     about 6 s with RAM as the test filled it; `N` boots at once; CONT pressed before the reset doesn't count; START
     at the prompt is a hard reset and the prompt again; switch 19 down, no prompt;
-  - `C812R` with `N`, then `Y`; `C815R` with A not `$A5` asks as `$C812` does; `$C815` with the token and X = 1 runs
-    full (the form says `FULL`);
+  - `C812R` with `N`, then `Y`; `C815R` with A not `$A5` asks as `$C812` does; **`C815R` typed at the monitor with
+    A = `$A5` (Y not `$5A`) still asks** (LL2's must-fail: it fails with Y left unchecked); `$C815` with the token and
+    X = 1 runs full (the form says `FULL`); with the token and switches 16–18 up, the run is quick and not
+    interactive, as X says (LL3);
+  - **LL1's must-fail:** a breakpoint armed (BPADDR, BPCTRL) on a byte the boot reads, then a reset: the boot must
+    reach OODOS's `A>` (it fails with RESET's BPCTRL write left out: the CPU halts in the boot); and P3 after it;
+  - the put-back (LL4): after a run, ACR, IER and IFR read 0 and timer 1 is still;
   - golden serial output of a good quick run (`emulator/test/host/golden/romdiag.txt`), the screen's text read from
     card memory, DISPLAY `$FF`; then a key boots (the greeting, the SD card's boot), Esc is the monitor (and block 63
     holds the BIOS again: `C809R` answers);
@@ -541,7 +562,9 @@ docs check`. Each reads its part of the books again at its start and adds its "a
     in block 41 (stage 6); **a stuck bit in block 62, OODOS's resident block** (stage 6: plan 2 tests OODOS's
     memory); an address line aliased (stage 4 names the line); every RAM block bad (`$82`, the block, the bits,
     sampled over time); RAM B's line left out ("not answering"); a byte of block 30 changed in a copy of `bios.rom`
-    (stage 1 fails block 30); block 22 blanked (stages 7–10 "NOT IN THE FLASH", and the run still ends); block 23
+    (stage 1 fails block 30); block 22 blanked (stages 7–10 "NOT IN THE FLASH", and the run still ends); block 21
+    blanked (LL5: stages 11–14 "NOT IN THE FLASH"; block 22 ends the run itself, with the summary and the way back,
+    so the core still ends rather than jumping into erased flash); block 23
     blanked (`NO DIAGNOSTICS IN THE FLASH`, then the boot); no video card (serial only); no console card (no lights;
     the BIOS boots as now);
   - CC5's floating bus: no Disk II found;
@@ -599,13 +622,15 @@ docs check`. Each reads its part of the books again at its start and adds its "a
 
 - **Chapter 2:** the flash's table: blocks 0–20 erased, 21–23 the diagnostics.
 - **Chapter 3:** the entry points' table: `$C812`, the diagnostics after `Y`; `$C815`, the diagnostics for a
-  program that has asked already (A = `$A5`, X the options; any other A is `$C812`); "Reset and the flash": switch 19
+  program that has asked already (A = `$A5` and Y = `$5A`, X the options; anything else is `$C812`), the table's last
+  spare; "Reset and the flash": switch 19
   and the prompt; the listings of `bios.s` moved with it.
-- **A new chapter 15, "Diagnostics"** (recommended over a section of chapter 3, which would double its length): the
+- **A new chapter 15, "Diagnostics"** (decided, P2-7): the
   three entries, the stages, what each tests and never does, the lights, the screen and serial output, the end and
   the way back, the times. Chapter 14 (the emulator's notes) gets its line: the WebUI's panel sets switch 19.
-- **Chapter 12:** switches 16–19 as the diagnostics read them; DISPLAY's codes; under Reset, that a breakpoint
-  armed by P3 survives a reset.
+- **Chapter 12:** switches 16–19 as the diagnostics read them (at the switch-19 and `C812R` entries); DISPLAY's
+  codes; under Reset, that the BIOS now turns the breakpoint off at every reset with the card fitted (LL1), so a
+  breakpoint set before START no longer catches the boot.
 - **Chapter 13, Apple II mode: no change,** checked against plan 2: the core never writes MODE, and nothing changes
   `$C806` or `apple.s`; the two ways into the mode (`C806R`, function 75 with A = 1) are as they were; Ctrl-Reset
   takes the IIe ROM's vector, never the flash's, so it can't reach the switch check; "only a hard reset leaves the
@@ -621,26 +646,34 @@ goes with DIAG.COM. SYSINFO's entry is as D1 left it.
 
 
 <a id="plan2-questions"></a>
-### Questions for the owner ###
+### Questions for the owner, decided ###
 
-- **P2-1, the launcher.** *Recommended:* the CCP built-in `DIAG` calling function 75 with A = 2 (OODOS's interface
-  version to 10). *Alternative:* a small `DIAG.COM` and no OODOS change, with answer 1's exception grown to let it
-  write W3, VEC and the interrupt enables.
-- **P2-2, `$C815`.** *Recommended:* the last spare becomes the program's entry: the token `$A5` in A, the options in
-  X, no prompt; any other A asks as `$C812` does. *Alternative:* OODOS jumps to `$C812`, which asks a second time;
-  the table grows no further and the options come from the switches alone.
-- **P2-3, the flash.** *Recommended:* blocks 21–23 for the diagnostics (about 27 KB used of 48), 0–20 erased.
-  *Alternative:* blocks 20–23, a block spare for a later card's tests, so `PAD` needn't shrink again.
-- **P2-4, the options.** *Recommended:* switch 16 up for the interactive tests (18 full and 17 loop, as decided);
-  from `A>`, `DIAG [FULL]` and `DIAG [ASK]`, carried through WAIT3's bits for module F. *Alternative:* the panel's
-  switches only, so from `A>` without a console card the run is always quick and not interactive.
-- **P2-5, the way back.** *Recommended:* a key boots (OODOS comes back from the card); Esc or EXAM is the monitor,
-  through a new internal label after the BIOS's copy, with no splash and no SD boot (not a jump-table entry).
-  *Alternative:* the boot only; the monitor by a key during the splash, as after any reset.
-- **P2-6, `feat/diag-d2`.** *Recommended:* kept until D3b merges, then deleted by the coordinator; its record is
-  [D2: as built](#d2-as-built) here. *Alternative:* kept for good.
-- **P2-7, the books' chapter.** *Recommended:* a new chapter 15, "Diagnostics", in the Technical Reference.
-  *Alternative:* a section of chapter 3.
+**Decided (2026-11-14, the owner): every one as recommended**, after review LL1–LL5, whose fixes are in place above.
+The alternatives are kept for the record.
+
+- **P2-1, the launcher. Decided:** the CCP built-in `DIAG` calling function 75 with A = 2 (OODOS's interface
+  version to 10). *Alternative (not chosen):* a small `DIAG.COM` and no OODOS change, with answer 1's exception grown
+  to let it write W3, VEC and the interrupt enables.
+- **P2-2, `$C815`. Decided:** the jump table's last spare becomes the program's entry: the two-byte token, A = `$A5`
+  and Y = `$5A` (LL2), the options in X, no prompt; anything else asks as `$C812` does. Later entries go through one
+  dispatching entry (LL5). *Alternative (not chosen):* OODOS jumps to `$C812`, which asks a second time.
+- **P2-3, the flash. Decided:** blocks 21–23 for the diagnostics (about 27 KB used of 48), 0–20 erased.
+  *Alternative (not chosen):* blocks 20–23, a block spare for a later card's tests.
+- **P2-4, the options. Decided:** switch 16 up for the interactive tests (18 full and 17 loop, as before) at the
+  switch-19 and `C812R` entries; from `A>`, only what is typed, `DIAG [FULL]` and `DIAG [ASK]` (LL3), carried through
+  WAIT3. *Alternative (not chosen):* the panel's switches only.
+- **P2-5, the way back. Decided:** both: a key boots (OODOS comes back from the card); Esc or EXAM is the monitor,
+  through the new internal label `MONBOOT` after the BIOS's copy, with no splash and no SD boot (not a jump-table
+  entry). *Alternative (not chosen):* the boot only.
+- **P2-6, `feat/diag-d2`. Decided:** kept until D3b merges, then deleted by the coordinator; its record is
+  [D2: as built](#d2-as-built) here. *Alternative (not chosen):* kept for good.
+- **P2-7, the books' chapter. Decided:** a new chapter 15, "Diagnostics", in the Technical Reference.
+  *Alternative (not chosen):* a section of chapter 3.
+
+**Review LL1–LL5 (2026-11-14), fixed as the owner decided:** LL1, the BIOS's RESET writes BPCTRL 0 with the console
+card fitted, so P3 may use any address ([stage 13](#plan2-card-tests)); LL2, `$C815`'s two-byte token; LL3, the
+switches only at the switch-19 and `C812R` entries, typed options at `A>`; LL4, the VIA in the run's put-back; LL5,
+D3a's "block 21 blanked" case and the note on later jump-table entries. Each has its must-fail case in D3a.
 
 D2's questions D2-1 (DIAG.COM's size), D2-2 (the cards) and D2-3 (S4's march) are moot with DIAG.COM.
 
@@ -1233,7 +1266,7 @@ so a build never ships a wrong table.
 ## The interfaces it touches ##
 
 *Replaced by plan 2: the BIOS's part grows by `$C815` and `MONBOOT` ([D3a](#d3a-the-core-its-entries-the-memory-tests)),
-and OODOS's by function 75 with A = 2 and the `DIAG` built-in if the owner chooses it ([the launcher](#plan2-launcher)).
+and OODOS's by function 75 with A = 2 and the `DIAG` built-in, decided (P2-1, [the launcher](#plan2-launcher)).
 Apple II mode is still unchanged ([the books](#plan2-books)). Kept as plan 1's record.*
 
 ### The BIOS ###
@@ -1529,8 +1562,8 @@ And `test_sound`'s hook case, with the hook made to do nothing.
 replaced by the owner's option A, the prompt. The alternatives are kept for the record.
 
 **Under plan 2 (the owner's redesign, 2026-11-13):** answer 1's exception covers SYSINFO alone (and whatever the
-launcher needs: nothing, if P2-1 is chosen as recommended), and D3c narrows AGENTS.md to it; answer 4 becomes "block 23,
-or more blocks" (P2-3); answer 5 stands for the ROM, and `/WRITE` goes with DIAG.COM; answer 7 is replaced by `DIAG`
+launcher needs: nothing, with P2-1 decided as the built-in), and D3c narrows AGENTS.md to it; answer 4 becomes
+blocks 21–23 (P2-3, decided 2026-11-14); answer 5 stands for the ROM, and `/WRITE` goes with DIAG.COM; answer 7 is replaced by `DIAG`
 at `A>` (P2-1, P2-2). Answers 2, 3, 6, 8 and 9 stand.
 
 1. **Hardware DIAG and SYSINFO touch directly under OODOS. Decided: allowed for DIAG and SYSINFO** (plan 2:
