@@ -1,6 +1,6 @@
 /**
  * @file test_bios_diag.cpp
- * @brief The ROM's diagnostics (hw/diag.md, plan 2), D3a: the core in flash block 23 and BIOS 0.14's entries.
+ * @brief The ROM's diagnostics (hw/diag.md, plan 2): D3a's core in flash block 23 and BIOS 0.14's entries, D3b's card tests.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * backplane.machine with the BIOS as roms.cmake builds it, run as the emulator's own loop runs it (the
@@ -21,9 +21,16 @@
  * - LL1: a reset during P3 (the breakpoint on its address, $BD1A5) leaves it off, so the boot reaches A> and
  *   the core's own stages read that byte without halting; a user's breakpoint on another address the boot
  *   reads still halts the boot;
- * - the put-back: the VIA's ACR, IER and IFR 0 and timer 1 still, after a run.
+ * - the put-back: the VIA's ACR, IER and IFR 0 and timer 1 still, after a run;
+ * - D3b, the card tests (stages 7-13, blocks 22 and 21): a good machine's, with their measurements in bounds
+ *   and an SD card in the slot; a stuck bit in the sound card's RAM (SoundCard::set_ram_fault, EMU_FAULT_HOOKS)
+ *   named by S2; the 6510's program not starting (S4 fails within 0.5 s, S5-S7 SKIP); an aperture fault (V6,
+ *   not V4); a stuck bit under DMA named by D2 as stage 6 names it; no sound card, no DMA controller; the SD
+ *   card's image unchanged by a full run (answer 5); CC5's floating bus in the Disk II's empty slot; a boot to
+ *   A> never touching P3's $BD1A5; the interactive tests (switch 16) with every answer given, P3's halt and
+ *   CONT; Break during P3 leaving the breakpoint off.
  *
- * Each must-fail case was seen to fail on a build with its one fault put in (hw/diag.md, D3a as built).
+ * Each must-fail case was seen to fail on a build with its one fault put in (hw/diag.md, D3a and D3b as built).
  */
 
 #include "harness.h"
@@ -33,12 +40,16 @@
 #include "console.h"
 #include "console_card.h"
 #include "fault_devices.h"
+#include "joystick_ports.h"
 #include "machine.h"
 #include "sd_card.h"
 #include "sd_images.h"
+#include "sound_card.h"
 #include "usb_card.h"
 
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -298,6 +309,7 @@ namespace
         return line.size() >= word.size() && line.compare(line.size() - word.size(), word.size(), word) == 0;
     }
     std::string golden_path() { return std::string(EMU_GOLDEN_DIR) + "/romdiag.txt"; }
+    std::string masked(const std::string &text);
 } // namespace
 
 // --- The entries ----------------------------------------------------------------------------------------
@@ -313,9 +325,9 @@ TEST(switch_19_and_cont_enter_the_core_and_a_good_run_is_golden)
     const uint64_t from = r.cpu->cycles();
     REQUIRE(to_result(r));
     const double seconds = static_cast<double>(r.cpu->cycles() - from) / HZ;
-    std::printf("  a quick run (stages 0-14, 7-13 SKIP in D3a): %.1f s at 7.16 MHz\n", seconds);
-    CHECK(seconds > 10 && seconds < 40);
-    const std::string got = report(r);
+    std::printf("  a quick run (stages 0-14): %.1f s at 7.16 MHz\n", seconds);
+    CHECK(seconds > 30 && seconds < 75); // hw/diag.md's table: about 40 s; D3b as built: 56.5 s (the serial line's pace)
+    const std::string got = masked(report(r)); // the measurements' digits masked (D3b): their bounds are checked below
     const std::string want = read_text(golden_path());
     if (got != want)
     {
@@ -328,7 +340,8 @@ TEST(switch_19_and_cont_enter_the_core_and_a_good_run_is_golden)
     CHECK(r.row(0).find("PASS 1") != std::string::npos);
     CHECK(r.row(3).find(" 1  FLASH BLOCKS 21-31") == 0 && ends(r.row(3), "PASS"));
     CHECK(ends(r.row(8), "PASS")); // stage 6
-    CHECK(ends(r.row(9), "SKIP")); // stage 7, D3b's
+    CHECK(ends(r.row(9), "PASS")); // stage 7 (D3b)
+    CHECK(ends(r.row(15), "SKIP")); // stage 13: not interactive
     CHECK(r.row(20).find("RESULT: ALL PASSED") == 0);
     // a key: the boot, the greeting
     const size_t at = r.out.size();
@@ -480,7 +493,7 @@ TEST(c815_with_the_token_runs_a_programs_options_whatever_the_switches)
         CHECK(r.until("FULL", ms(500)));
         REQUIRE(to_result(r, ms(300'000)));
         const double seconds = static_cast<double>(r.cpu->cycles() - from) / HZ;
-        std::printf("  a full run (stages 0-14, 7-13 SKIP in D3a): %.1f s at 7.16 MHz\n", seconds);
+        std::printf("  a full run (stages 0-14): %.1f s at 7.16 MHz\n", seconds);
         CHECK(report(r).find("BACKGROUNDS 00 55 33 0F") != std::string::npos);
         CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
     }
@@ -584,7 +597,7 @@ TEST(a_stuck_bit_in_block_0s_first_512_bytes_moves_w0_to_block_1)
     CHECK(ends(stage_line(r, 2), "FAIL"));
     CHECK(ends(stage_line(r, 5), "FAIL"));
     CHECK(report(r).find("BLOCK 0 +0123 (00123): READ ") != std::string::npos);
-    CHECK_EQ(r.lights(), 0xC0 + 3); // stages 2, 5 and 6
+    CHECK_EQ(r.lights(), 0xC0 + 4); // stages 2, 5 and 6, and 8's D2 (D3b: DMA's fill of block 0 too)
 }
 
 TEST(a_stuck_bit_in_block_41_and_in_oodoss_block_62)
@@ -600,7 +613,7 @@ TEST(a_stuck_bit_in_block_41_and_in_oodoss_block_62)
     CHECK(text.find("BLOCK 41 +0123 (A4123): READ ") != std::string::npos);
     CHECK(text.find("BLOCK 62 +2345 (FA345): READ ") != std::string::npos);
     CHECK(r.row(18).find("BLOCK 41 +0123 (A4123)") != std::string::npos);
-    CHECK(r.row(20).find("RESULT: 1 FAILED") == 0);
+    CHECK(r.row(20).find("RESULT: 2 FAILED") == 0); // stage 6, and 8's D2 (D3b: block 62's bit under DMA too)
 }
 
 TEST(an_aliased_address_line_is_named)
@@ -674,7 +687,7 @@ TEST(block_22_blanked_its_stages_not_in_the_flash_and_the_run_ends)
     faulted_run(r);
     CHECK(ends(stage_line(r, 7), "SKIP"));
     CHECK(report(r).find("NOT IN THE FLASH") != std::string::npos);
-    CHECK(report(r).find("NOT IN THIS BUILD YET") != std::string::npos); // block 21's, stages 11-13
+    CHECK(ends(stage_line(r, 11), "PASS")); // block 21's stages run still
     CHECK(report(r).find("FLASH BLOCK $16: ITS SUM IS WRONG") != std::string::npos);
     CHECK(r.out.find("RESULT: 1 FAILED") != std::string::npos);
 }
@@ -688,7 +701,7 @@ TEST(block_21_blanked_block_22_ends_the_run)
     const size_t s11 = text.find("\r11  ");
     REQUIRE(s11 != std::string::npos);
     CHECK(text.find("NOT IN THE FLASH", s11) != std::string::npos);
-    CHECK(ends(stage_line(r, 10), "SKIP"));
+    CHECK(ends(stage_line(r, 10), "PASS")); // block 22's last stage (D3b), before it ends the run itself
     CHECK(text.find("FLASH BLOCK $15: ITS SUM IS WRONG") != std::string::npos); // stage 1 sees the erased block too
     CHECK(text.find("RESULT: 1 FAILED") != std::string::npos);
 }
@@ -1108,6 +1121,376 @@ TEST(a_pass_count_above_255_is_printed_whole)
     REQUIRE(r.until("PASS 300  QUICK LOOP", ms(60'000)));
     r.key(' ');
     CHECK(to_result(r));
+}
+
+// --- D3b: the card tests (stages 7-13) -----------------------------------------------------------------
+
+namespace
+{
+    /// Test `name`'s line on the serial line (its first), to its CR: "    NB5  CPU ... PASS".
+    std::string test_line(const Rig &r, const std::string &name)
+    {
+        const std::string text = report(r);
+        size_t at = text.find("\r    " + name + " ");
+        if (at == std::string::npos)
+            return "<no test " + name + ">";
+        at += 1;
+        return text.substr(at, text.find('\r', at) - at);
+    }
+    /// The serial line after test `name`'s line, to the next test's or stage's: its detail lines.
+    std::string after_test(const Rig &r, const std::string &name)
+    {
+        const std::string text = report(r);
+        size_t at = text.find("\r    " + name + " ");
+        if (at == std::string::npos)
+            return {};
+        at = text.find('\r', at + 1);
+        size_t end = at;
+        while (end != std::string::npos && text.compare(end + 1, 9, "         ") == 0)
+            end = text.find('\r', end + 1);
+        return text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+    }
+    /// The number after `before` on test `name`'s line.
+    uint64_t measured(const Rig &r, const std::string &name, const std::string &before)
+    {
+        const std::string line = test_line(r, name);
+        const size_t at = line.find(before);
+        return at == std::string::npos ? 0 : std::stoull(line.substr(at + before.size()));
+    }
+    /// The golden report with what the run measures masked: a run of four or more digits on the lines of
+    /// NB5, NB6, V3, D5 and S9 becomes "#", so a change of the code's timing by a few cycles isn't a diff.
+    std::string masked(const std::string &text)
+    {
+        std::string out;
+        size_t at = 0;
+        while (at < text.size())
+        {
+            size_t end = text.find('\r', at);
+            end = end == std::string::npos ? text.size() : end + 1;
+            std::string line = text.substr(at, end - at);
+            for (const char *t : {"    NB5 ", "    NB6 ", "    V3 ", "    D5 ", "    S9 "})
+                if (line.compare(0, std::strlen(t), t) == 0)
+                {
+                    std::string m;
+                    for (size_t i = 0; i < line.size();)
+                    {
+                        size_t j = i;
+                        while (j < line.size() && std::isdigit(static_cast<unsigned char>(line[j])))
+                            ++j;
+                        if (j - i >= 4)
+                            m += '#', i = j;
+                        else if (j > i)
+                            m += line.substr(i, j - i), i = j;
+                        else
+                            m += line[i++];
+                    }
+                    line = m;
+                }
+            out += line;
+            at = end;
+        }
+        return out;
+    }
+
+    /// A device over a RAM block that counts the bus's accesses, the CPU's and DMA's, to one physical byte.
+    struct Spy : FaultyMemory
+    {
+        uint32_t watched{0};
+        unsigned reads{0}, writes{0};
+        uint8_t read(uint32_t offset) override
+        {
+            reads += first + offset == watched;
+            return FaultyMemory::read(offset);
+        }
+        void write(uint32_t offset, uint8_t data) override
+        {
+            writes += first + offset == watched;
+            FaultyMemory::write(offset, data);
+        }
+    };
+
+    /// Wait for `text` after `from` on the serial line; then `act`. @return where the text was found, or npos
+    size_t on(Rig &r, const std::string &text, size_t from, const std::function<void()> &act, uint64_t budget)
+    {
+        if (!r.until(text, budget, from))
+        {
+            std::printf("  never came: %s\n", text.c_str());
+            return std::string::npos;
+        }
+        const size_t at = r.out.find(text, from);
+        act();
+        return at + text.size();
+    }
+} // namespace
+
+TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
+{
+    // The golden run's measurements, read back: the clock within 0.002% by the DS3231 (the emulator's counts
+    // cycles) and 0.01% by the frame, as SYSINFO's tests hold them; the frame, DMA's 2 cycles a byte, the
+    // stream's 8,000 frames a second; and an SD card in the slot this time, so SD2-SD4 run.
+    Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    for (unsigned n = 7; n <= 12; ++n)
+        CHECK(ends(stage_line(r, n), "PASS"));
+    CHECK(ends(stage_line(r, 13), "SKIP"));
+    const uint64_t hz = measured(r, "NB5", "CPU "), fhz = measured(r, "NB6", "CPU ");
+    std::printf("  NB5 %llu Hz, NB6 %llu Hz, V3 %llu cycles, S9 %llu frames, SD4 %llu KB/s\n",
+                static_cast<unsigned long long>(hz), static_cast<unsigned long long>(fhz),
+                static_cast<unsigned long long>(measured(r, "V3", "A FRAME ")),
+                static_cast<unsigned long long>(measured(r, "S9", "8000 HZ: ")),
+                static_cast<unsigned long long>(measured(r, "SD4", "SPEED: ")));
+    CHECK(hz > HZ - HZ / 50000 && hz < HZ + HZ / 50000);
+    CHECK(fhz > HZ - HZ / 10000 && fhz < HZ + HZ / 10000);
+    CHECK(measured(r, "D4", "FILL: ") == 4096);
+    CHECK(ends(test_line(r, "SD2"), "PASS"));
+    CHECK(test_line(r, "SD2").find("FAT") != std::string::npos);
+    CHECK(ends(test_line(r, "SD3"), "PASS"));
+    CHECK(ends(test_line(r, "SD4"), "INFO"));
+    CHECK(measured(r, "SD4", "SPEED: ") > 1000 && measured(r, "SD4", "SPEED: ") < 6991); // DMA's 1 cycle a byte at most
+    CHECK(ends(test_line(r, "DK1"), "PASS"));
+    CHECK(report(r).find("TESTS: ") != std::string::npos);
+    CHECK(report(r).find(" 0 FAILED, ") != std::string::npos);
+    CHECK(r.row(19).find("TESTS: ") == 0);
+    CHECK(r.row(11).find(" 9  VIDEO CARD") == 0 && ends(r.row(11), "PASS")); // the screen drawn again after V4-V7
+    CHECK(r.row(3).find(" 1  FLASH BLOCKS 21-31") == 0);
+}
+
+TEST(a_stuck_bit_in_the_sound_cards_ram_is_named_by_s2)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    r.machine->sound_card()->set_ram_fault(0x5678, 0xFB, 0x00); // bit 2 stuck at 0
+    faulted_run(r);
+    CHECK(ends(test_line(r, "S2"), "FAIL"));
+    CHECK(after_test(r, "S2").find("CARD RAM $5678: READ E9, WROTE ED, BITS 2") != std::string::npos);
+    CHECK(ends(test_line(r, "S4"), "PASS"));
+    CHECK(ends(stage_line(r, 10), "FAIL"));
+}
+
+TEST(the_6510_program_not_running_fails_s4_within_half_a_second_and_skips_s5_to_s7)
+{
+    // Its first opcode reads $02 (a jam on the NMOS 6510): the start byte never comes.
+    Rig r;
+    REQUIRE(r.ok());
+    r.machine->sound_card()->set_ram_fault(0x0200, 0x00, 0x02);
+    uint64_t asked = 0, failed = 0;
+    c815(r, 0xA5, 0x00, 0x5A);
+    auto before = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (!asked && r.out.find("S4   THE 6510") != std::string::npos)
+            asked = r.cpu->cycles();
+        if (asked && !failed && r.out.find("NO START BYTE") != std::string::npos)
+            failed = r.cpu->cycles();
+    };
+    REQUIRE(to_result(r));
+    CHECK(ends(test_line(r, "S4"), "FAIL"));
+    CHECK(after_test(r, "S4").find("NO START BYTE WITHIN 0.5 S") != std::string::npos);
+    for (const char *t : {"S5", "S6", "S7"})
+    {
+        CHECK(ends(test_line(r, t), "SKIP"));
+        CHECK(after_test(r, t).find("THE 6510 DIDN'T START (S4)") != std::string::npos);
+    }
+    const double s = static_cast<double>(failed - asked) / HZ;
+    std::printf("  S4 gave up after %.2f s\n", s);
+    CHECK(asked && failed && s > 0.45 && s < 0.65); // its wait and the line's own characters
+}
+
+TEST(an_aperture_fault_fails_v6_and_not_v4)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_at(*r.machine, f, 0x84123, 0xF7, 0x00)); // aperture slot 1 (block 33), bit 3 stuck at 0
+    faulted_run(r);
+    CHECK(ends(test_line(r, "V4"), "PASS")); // V4 goes through slot 0 alone
+    CHECK(ends(test_line(r, "V6"), "FAIL"));
+    CHECK(after_test(r, "V6").find("CARD $004123: READ 30, WROTE 38, BITS 3") != std::string::npos);
+    CHECK(ends(stage_line(r, 9), "FAIL"));
+}
+
+TEST(a_stuck_bit_under_dma_is_named_by_d2_as_stage_6_names_it)
+{
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_at(*r.machine, f, 41 * BLOCK + 0x0123, 0xF7, 0x00)); // bit 3 stuck at 0
+    faulted_run(r);
+    CHECK(ends(stage_line(r, 6), "FAIL"));
+    CHECK(ends(test_line(r, "D2"), "FAIL"));
+    CHECK(after_test(r, "D2").find("BLOCK 41 +0123 (A4123): READ 84, WROTE 8C, BITS 3") != std::string::npos);
+    CHECK(ends(test_line(r, "D3"), "PASS"));
+    CHECK(ends(stage_line(r, 8), "FAIL"));
+}
+
+TEST(no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3)
+{
+    {
+        Rig r(0, EMU_BIOS_ROM, machine_without({"sound"}));
+        REQUIRE(r.ok());
+        faulted_run(r);
+        CHECK(ends(stage_line(r, 10), "SKIP"));
+        CHECK(report(r).find("10  SOUND CARD ....") != std::string::npos);
+        CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+    }
+    {
+        Rig r(SW19, EMU_BIOS_ROM, machine_without({"dma"}), sd_image("oodos.sparse"));
+        REQUIRE(enter(r));
+        REQUIRE(to_result(r));
+        CHECK(ends(stage_line(r, 8), "SKIP"));
+        for (const char *t : {"V7", "S3", "SD3", "SD4"})
+        {
+            CHECK(ends(test_line(r, t), "SKIP"));
+            CHECK(after_test(r, t).find("NO DMA CONTROLLER") != std::string::npos);
+        }
+        CHECK(test_line(r, "NB3").find("NO DMA CONTROLLER") != std::string::npos);
+        CHECK(ends(test_line(r, "SD2"), "PASS"));
+        CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+    }
+}
+
+TEST(a_full_run_never_writes_the_sd_card)
+{
+    // The owner's answer 5: the ROM never writes the card. Its image byte for byte before and after a full run.
+    std::vector<uint8_t> card = sd_image("oodos.sparse");
+    const std::vector<uint8_t> was = card;
+    Rig r(SW19 | SW18, EMU_BIOS_ROM, {}, std::move(card));
+    REQUIRE(enter(r));
+    const uint64_t from = r.cpu->cycles();
+    REQUIRE(to_result(r, ms(300'000)));
+    std::printf("  a full run: %.1f s at 7.16 MHz\n", static_cast<double>(r.cpu->cycles() - from) / HZ);
+    CHECK(report(r).find("QUICK") == std::string::npos);
+    CHECK(ends(test_line(r, "SD3"), "PASS"));
+    CHECK(!r.media->dirty());
+    CHECK(r.media->bytes() == was);
+    CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+}
+
+TEST(a_floating_bus_in_the_disk_iis_empty_slot_is_no_card)
+{
+    // Review CC5, with card discovery: no Disk II line, and an empty slot's floating bus in its block, which
+    // answers each read with the instruction's last byte ($C6 for LDA $C67F): HW_PROBE's second read differs.
+    Rig r(0, EMU_BIOS_ROM, machine_without({"disk2"}));
+    REQUIRE(r.ok());
+    FloatingMemory f;
+    f.cpu = r.cpu.get();
+    f.bus = &r.machine->bus();
+    f.bytes = 0x80;
+    Mapping m;
+    m.first = bus_address(Space::Io, 0x600);
+    m.last = bus_address(Space::Io, 0x67F);
+    m.device = &f;
+    m.module = 0xC;
+    REQUIRE(r.machine->bus().map(m));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "DK1"), "SKIP"));
+    CHECK(after_test(r, "DK1").find("NO CARD") != std::string::npos);
+    CHECK(report(r).find("REVISION 6") == std::string::npos);
+}
+
+TEST(a_boot_to_a_prompt_never_touches_p3s_address)
+{
+    // hw/diag.md, LL1: P3's $BD1A5 was chosen as an address nothing reads in a boot to A>; the bus's every
+    // access to it, the CPU's and DMA's, counted from the reset to OODOS's prompt.
+    Rig r(0, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(r.ok());
+    Spy spy;
+    spy.watched = P3ADDR;
+    REQUIRE(fault_over(*r.machine, spy, P3ADDR));
+    REQUIRE(r.until("A>", ms(20'000)));
+    std::printf("  $BD1A5: %u reads, %u writes in the boot\n", spy.reads, spy.writes);
+    CHECK_EQ(spy.reads, 0u);
+    CHECK_EQ(spy.writes, 0u);
+}
+
+TEST(the_interactive_tests_with_switch_16_every_answer_given)
+{
+    Rig r(SW19 | SW16);
+    REQUIRE(enter(r));
+    UsbCard *usb = r.machine->usb_card();
+    JoystickPorts *joy = r.machine->joysticks();
+    REQUIRE(usb && joy);
+    size_t at = 0;
+    const auto yes = [&r] { r.key('y'); };
+    at = on(r, "DID ONE LIGHT WALK ACROSS? (Y OR N) ", at, yes, ms(90'000));
+    REQUIRE(at != std::string::npos);
+    bool card = false;
+    at = on(r, "GRID? (Y OR N) ", at, [&] {
+        card = r.io(0xC480) == 0x05 && r.phys(SCREEN + 0x1400) == '+'; // layer 1 alone; its map at card $3400
+        yes();
+    }, ms(5000));
+    CHECK(card);
+    at = on(r, "ES5503? (Y OR N) ", at, yes, ms(10'000));
+    at = on(r, "(ESC ON THE TERMINAL: SKIP)", at, [&] { r.run(ms(5)); r.usb_letter('A'); }, ms(5000));
+    const uint64_t toggles = usb->speaker_toggles(); // (U5 starts as soon as U4 has all it wants)
+    at = on(r, "PADDLE BUTTONS 0 AND 1 (ESC: SKIP)", at, [&] {
+        r.run(ms(5)); // past the line: U4 drops what the mouse had summed before it
+        usb->mouse_move(5, 3);
+        r.run(ms(20));
+        for (const int b : {1, 2, 0})
+            usb->mouse_buttons(static_cast<uint8_t>(b)), r.run(ms(20));
+        for (const int b : {1, 2, 0})
+            usb->set_game_buttons(static_cast<uint8_t>(b)), r.run(ms(20));
+    }, ms(5000));
+    at = on(r, "DID IT SOUND? (Y OR N) ", at, yes, ms(5000));
+    std::printf("  U5 toggled the speaker %llu times\n", static_cast<unsigned long long>(usb->speaker_toggles() - toggles));
+    CHECK(usb->speaker_toggles() - toggles >= 2000);
+    at = on(r, "EACH WAY AND FIRE (ESC: SKIP)", at, [&] {
+        r.run(ms(5));
+        for (unsigned bit = 0; bit < 5; ++bit)
+        {
+            joy->set(0, static_cast<uint8_t>(1u << bit));
+            joy->set(1, static_cast<uint8_t>(1u << bit));
+            r.run(ms(20));
+        }
+        joy->set(0, 0);
+        joy->set(1, 0);
+    }, ms(5000));
+    at = on(r, "RETURN, THEN CONT WHEN IT HALTS ", at, [&] { r.key('\r'); }, ms(5000));
+    REQUIRE(at != std::string::npos);
+    for (int i = 0; i < 200 && !r.halted; ++i)
+        r.run(ms(10));
+    CHECK(r.halted); // the read of $BD1A5 holds the CPU
+    CHECK((r.panel()->peek(0x0C) & ConsoleCard::HIT) != 0);
+    r.panel()->press(ConsoleCard::CONT);
+    r.run(1000); // (run() clears `halted`, which until() stops on)
+    CHECK(!r.halted);
+    REQUIRE(to_result(r));
+    for (const char *t : {"P2", "V8", "S10", "U3", "U4", "U5", "SR3", "P3"})
+    {
+        CHECK(ends(test_line(r, t), "PASS"));
+        if (!ends(test_line(r, t), "PASS"))
+            std::printf("  %s%s\n", test_line(r, t).c_str(), after_test(r, t).c_str());
+    }
+    CHECK(ends(stage_line(r, 13), "PASS"));
+    CHECK_EQ(r.panel()->peek(0x0B), 0x00); // BPCTRL off again
+    CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+}
+
+TEST(break_during_p3_leaves_the_breakpoint_off)
+{
+    Rig r(SW19 | SW16);
+    REQUIRE(enter(r));
+    size_t at = 0;
+    const auto yes = [&r] { r.key('y'); };
+    const auto esc = [&r] { r.key(0x1B); };
+    at = on(r, "DID ONE LIGHT WALK ACROSS? (Y OR N) ", at, yes, ms(90'000));
+    at = on(r, "GRID? (Y OR N) ", at, yes, ms(5000));
+    at = on(r, "ES5503? (Y OR N) ", at, yes, ms(10'000));
+    at = on(r, "U3   A KEY", at, esc, ms(5000));
+    at = on(r, "U4   MOVE THE MOUSE", at, esc, ms(5000));
+    at = on(r, "DID IT SOUND? (Y OR N) ", at, yes, ms(5000));
+    at = on(r, "SR3  BOTH JOYSTICKS", at, esc, ms(5000));
+    REQUIRE(r.until("RETURN, THEN CONT WHEN IT HALTS ", ms(5000), at));
+    CHECK_EQ(r.panel()->peek(0x0B), ConsoleCard::BP_ENABLE | ConsoleCard::BP_READ); // armed, waiting for RETURN
+    const size_t brk = r.out.size();
+    r.cpu->nmi();
+    CHECK(r.until("BREAK", ms(500), brk));
+    CHECK(r.until(GREETING, ms(8000), brk));
+    CHECK_EQ(r.panel()->peek(0x0B), 0x00);
+    CHECK(!r.halted);
 }
 
 int main()
