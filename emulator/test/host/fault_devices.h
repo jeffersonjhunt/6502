@@ -12,6 +12,7 @@
  */
 
 #include "decoder.h"
+#include "cpu6502.h"
 #include "machine.h"
 
 #include <cstdint>
@@ -84,6 +85,33 @@ namespace ooe::test
         Mapping n = *found;
         n.first = bus_address(Space::Memory, from & ~0x3FFFu);
         n.last = bus_address(Space::Memory, (from & ~0x3FFFu) + 0x3FFF);
+        n.device = &f;
+        return m.bus().map(n);
+    }
+
+    /// An empty slot's floating bus over memory, as far as a read goes: the last byte the CPU fetched, the
+    /// instruction's last byte (an absolute load's high address byte; an indexed one that crosses a page
+    /// re-reads it on the W65C02S), as test_oodos_sysinfo's FloatingBus answers for an I/O block (CC5). Writes
+    /// go nowhere.
+    struct FloatingMemory : ooe::emu::Device
+    {
+        ooe::emu::Cpu6502 *cpu{nullptr};
+        ooe::emu::Decoder *bus{nullptr};
+        size_t bytes{0x40000};
+        size_t size() const override { return bytes; }
+        uint8_t read(uint32_t) override { return peek(0); }
+        uint8_t peek(uint32_t) const override { return bus->peek(static_cast<uint16_t>(cpu->regs().pc - 1)); }
+        void write(uint32_t, uint8_t) override {}
+    };
+    /// `f` over physical `first` to `first` + f.bytes - 1, where no module answers (a RAM line left out).
+    inline bool float_over(ooe::emu::Machine &m, ooe::emu::Cpu6502 &cpu, FloatingMemory &f, uint32_t first)
+    {
+        using namespace ooe::emu;
+        f.cpu = &cpu;
+        f.bus = &m.bus();
+        Mapping n;
+        n.first = bus_address(Space::Memory, first);
+        n.last = bus_address(Space::Memory, first + static_cast<uint32_t>(f.bytes) - 1);
         n.device = &f;
         return m.bus().map(n);
     }

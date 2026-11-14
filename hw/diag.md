@@ -710,6 +710,28 @@ still free. A quick run is 28.0 s, a full run 91.2 s, the prompt 5.97 s (7.04 s 
 the W0 alias check left out, the prompt's KEYS discard left out, the loop not looping, the end's PUTBACK left out,
 the BIOS's check of block 23 skipped), was seen failing again on the fixed code with its one fault put in.
 
+**D3a's review, round 2, NN1–NN5 (2026-11-14), fixed as the owner decided:**
+
+- **NN1:** stage 2's proof of W0 keeps its in-block probes (A9–A13) and drops the block-line ones (A14–A19): with half
+  of RAM answering as the other half they rejected every block (FATAL2). ALIASW0, in stage 4, finds a block
+  answering as W0's. Test: A18 stuck on every module (video revision 1) finds block 0 and reports block 16 as W0's.
+  The earlier A18 case (RAM B alone answering as RAM A) now has W0 on block 0, not 36, and reports block 16 as W0's:
+  its expectations changed with NN1.
+- **NN2:** stage 3 counts a module absent when its two reads of a written 0 are both `$FF` or differ (a floating
+  bus): its blocks aren't tested and no data line is blamed. Test with a floating bus over RAM B's space.
+- **NN3:** `$C815` with no diagnostics returns A, X, Y and W2 as they were, carry set. Test: W2 on block 5 before the
+  call, A, X, Y, P and W2 kept after.
+- **NN4:** the BIOS's version is set once (diag.inc's `BIOS_VMAJ`, `BIOS_VMIN`): the greeting, the diagnostics'
+  header line and block 23's `DG_LINKED` are made from it. Diagnostics of another build get their own message, `THE
+  DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN`; no signature is still `NO DIAGNOSTICS IN THE
+  FLASH`. The version-mismatch case's expectation changed with it.
+- **NN5:** the unused `skipvia` label is gone; new cases for MM7 (a block stage 2 passed over, good afterwards, is
+  never W0's spare), the 6510 stopped by Break's put-back, and a pass count above 255 (`PASS 300`).
+
+Each new case was seen failing (NN1, NN2 and NN4's on the ROM of `06839a1`; NN3's and NN5's on a build with their
+code reverted) and passing on the fix. Sizes after: block 23 7,758 bytes (the core 7,037, the library 721); block 31
+has grown by 486 bytes in all (its code to `$E409`, and the trampolines' 6), 7,146 bytes free.
+
 **SYSINFO's clock, after D3a's review (2026-11-14, the owner's option B).** BIOS 0.14's new timing put an OODOS
 interrupt at the end of SYSINFO's one-second window in one case (7,159,411 Hz, outside the 0.002% check), so
 `HW_CLOCK` (hwclock.s) now takes three windows back to back and keeps the middle count. Anything that makes a

@@ -132,12 +132,12 @@ namespace
 
         /// `card`: an SD card image in the slot from power-on (AUTOBOOT boots it), or none.
         explicit Rig(uint32_t switches = 0, const std::string &rom = EMU_BIOS_ROM, const std::string &text = {},
-                     std::vector<uint8_t> card = {})
+                     std::vector<uint8_t> card = {}, unsigned video_revision = 2)
         {
             MachineOptions opt;
             opt.rom_override = rom;
             opt.rtc_time = Ds3231::Time{2026, 11, 14, 12, 0, 0, 6};
-            opt.video_revision = 2;
+            opt.video_revision = video_revision;
             std::string error;
             machine = Machine::build(text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : text,
                                      "backplane.machine", opt, error);
@@ -808,8 +808,11 @@ TEST(a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c)
         REQUIRE(fault_redirect(*r.machine, *f.back(), b * BLOCK, (b - 16) * BLOCK));
     }
     faulted_run(r);
-    CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 36 ") != std::string::npos);
-    CHECK(report(r).find("BLOCKS 0 AND 16 ANSWER AS ONE") != std::string::npos);
+    // (Review NN1: stage 2 no longer probes the block lines, so W0 is block 0, and stage 4 finds RAM B's
+    // blocks answering as RAM A's, block 16 as W0's own.)
+    CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 0 ") != std::string::npos);
+    CHECK(report(r).find("BLOCK 16 ANSWERS AS BLOCK 0, W0'S: NOT TESTED") != std::string::npos);
+    CHECK(report(r).find("BLOCKS 1 AND 17 ANSWER AS ONE") != std::string::npos);
     CHECK(report(r).find("RESULT: ") != std::string::npos);
 }
 
@@ -844,7 +847,8 @@ TEST(a_mismatched_version_in_block_23_is_no_diagnostics)
         Rig r(SW19, rom);
         REQUIRE(r.ok());
         CHECK(r.until(GREETING, ms(8000)));
-        CHECK(r.until("NO DIAGNOSTICS IN THE FLASH", ms(500)));
+        CHECK(r.until("THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN", ms(500)));
+        CHECK(r.out.find("NO DIAGNOSTICS IN THE FLASH") == std::string::npos); // review NN4: its own message
         CHECK(r.out.find(PROMPT) == std::string::npos);
     }
 }
@@ -899,24 +903,35 @@ TEST(break_in_stage_5_and_in_block_22_boots)
     }
 }
 
-TEST(c815_with_no_diagnostics_returns_carry_set_and_w2_kept)
+TEST(c815_with_no_diagnostics_returns_carry_set_and_a_x_y_and_w2_kept)
 {
     Rig r(0, rom_blanked(23));
     REQUIRE(r.until(GREETING, ms(8000)));
     r.run(ms(2500));
-    // $0300: LDA #$A5, LDY #$5A, LDX #0, JSR $C815, PHP, PLA, STA $0280, LDA $C682, STA $0281, JMP the monitor
+    // $0300: W2 on block 5; LDA #$A5, LDY #$5A, LDX #$02, JSR $C815; then P, A, X, Y and W2 kept at
+    // $0280-$0284, W2 back on block 2, and the monitor (review NN3)
     const uint16_t mon = label("WOZMON");
-    const std::vector<uint8_t> prog = {0xA9, 0xA5, 0xA0, 0x5A, 0xA2, 0x00, 0x20, 0x15, 0xC8, 0x08, 0x68, 0x8D, 0x80,
-                                       0x02, 0xAD, 0x82, 0xC6, 0x8D, 0x81, 0x02, 0x4C, static_cast<uint8_t>(mon),
-                                       static_cast<uint8_t>(mon >> 8)};
+    const std::vector<uint8_t> prog = {
+        0xA9, 0x05, 0x8D, 0x82, 0xC6,             // LDA #5, STA NB_WIN2
+        0xA9, 0xA5, 0xA0, 0x5A, 0xA2, 0x02,       // LDA #$A5, LDY #$5A, LDX #$02
+        0x20, 0x15, 0xC8,                         // JSR $C815
+        0x08, 0x8D, 0x81, 0x02, 0x8E, 0x82, 0x02, // PHP, STA $0281, STX $0282
+        0x8C, 0x83, 0x02, 0x68, 0x8D, 0x80, 0x02, // STY $0283, PLA, STA $0280
+        0xAD, 0x82, 0xC6, 0x8D, 0x84, 0x02,       // LDA NB_WIN2, STA $0284
+        0xA9, 0x02, 0x8D, 0x82, 0xC6,             // LDA #2, STA NB_WIN2
+        0x4C, static_cast<uint8_t>(mon), static_cast<uint8_t>(mon >> 8)};
     for (size_t i = 0; i < prog.size(); ++i)
         r.poke(0x0300 + static_cast<uint32_t>(i), prog[i]);
-    r.poke(0x0281, 0xEE);
+    for (uint32_t a = 0x0280; a <= 0x0284; ++a)
+        r.poke(a, 0xEE);
     const size_t at = r.out.size();
     r.type("300R\r");
     r.run(ms(500));
     CHECK((r.phys(0x0280) & 0x01) != 0); // carry
-    CHECK_EQ(r.phys(0x0281), 0x02);      // W2 as the program had it
+    CHECK_EQ(r.phys(0x0281), 0xA5);
+    CHECK_EQ(r.phys(0x0282), 0x02);
+    CHECK_EQ(r.phys(0x0283), 0x5A);
+    CHECK_EQ(r.phys(0x0284), 0x05); // W2 as the program had it
     CHECK(r.out.find("Y TO GO ON", at) == std::string::npos);
 }
 
@@ -998,6 +1013,101 @@ TEST(c812r_takes_no_options_left_in_wait3)
     REQUIRE(r.until("Y TO GO ON", ms(500), at));
     r.key('Y');
     CHECK(r.until("PASS 1  QUICK", ms(3000), at));
+}
+
+// --- Review round 2: NN1, NN2, NN5 ------------------------------------------------------------------
+
+TEST(a18_stuck_backplane_wide_still_finds_a_zero_page_and_says_the_aliasing)
+{
+    // Half of RAM answering as the other half: A18 stuck at 0 on every module (video revision 1, so bank 8 is
+    // RAM C's). Stage 2's block-line probes rejected every block here (FATAL2); stage 4 finds it (review NN1).
+    Rig r(0, EMU_BIOS_ROM, {}, {}, 1);
+    REQUIRE(r.ok());
+    std::vector<std::unique_ptr<FaultyMemory>> f;
+    for (uint32_t b = 0; b < 64; ++b)
+        if (b & 16)
+        {
+            f.push_back(std::make_unique<FaultyMemory>());
+            REQUIRE(fault_redirect(*r.machine, *f.back(), b * BLOCK, (b - 16) * BLOCK));
+        }
+    faulted_run(r);
+    CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 0 ") != std::string::npos);
+    CHECK(report(r).find("BLOCK 16 ANSWERS AS BLOCK 0, W0'S: NOT TESTED") != std::string::npos);
+    CHECK(report(r).find("BLOCKS 1 AND 17 ANSWER AS ONE") != std::string::npos);
+    CHECK(report(r).find("RESULT: ") != std::string::npos);
+}
+
+TEST(a_floating_bus_where_ram_b_is_left_out_is_not_answering)
+{
+    // No RAM B line, and an empty slot's floating bus in its place: its reads aren't $FF but differ between
+    // CC5's two reads, so it is absent, its blocks aren't tested and no data line is blamed (review NN2).
+    Rig r(0, EMU_BIOS_ROM, machine_without({"ram   40000-7FFFF"}));
+    REQUIRE(r.ok());
+    FloatingMemory fl;
+    REQUIRE(float_over(*r.machine, *r.cpu, fl, 0x40000));
+    faulted_run(r);
+    CHECK(report(r).find("RAM B (BLOCKS 16-31): NOT ANSWERING") != std::string::npos);
+    CHECK(report(r).find(": DATA LINES: READ") == std::string::npos);
+    CHECK(ends(stage_line(r, 4), "PASS"));
+    CHECK(ends(stage_line(r, 5), "PASS"));
+    CHECK(ends(stage_line(r, 6), "PASS"));
+}
+
+TEST(a_block_stage_2_passed_over_is_never_w0s_spare)
+{
+    // Block 0's first 512 bytes bad while stage 2 looks, then good: stage 2 takes block 1, and block 0, though
+    // it passes stages 4-6, must not be the block W0 moves to for its own test (review MM7, NN5).
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_at(*r.machine, f, 0x00123, 0xFF, 0x08));
+    c815(r, 0xA5, 0x00, 0x5A);
+    auto before = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (f.or_mask && r.out.find(" 2  ZERO") != std::string::npos)
+            f.or_mask = 0; // the fault gone once stage 2 is over
+    };
+    REQUIRE(to_result(r));
+    CHECK(stage_line(r, 2).find("BLOCK 1 ") != std::string::npos);
+    CHECK(ends(stage_line(r, 6), "PASS"));
+    const uint8_t w0 = r.io(NB + 0);
+    std::printf("  W0 moved to block %u\n", w0);
+    CHECK(w0 != 0 && w0 != 1);
+}
+
+TEST(break_stops_the_sound_cards_6510)
+{
+    Rig r(SW19);
+    REQUIRE(enter(r));
+    REQUIRE(r.until(" 5  ADDRESS IN", ms(30'000)));
+    r.machine->bus().write(0xC540, static_cast<uint8_t>(r.io(0xC540) | 0x02)); // the 6510 running, as a program left it
+    const uint16_t boot = label("BOOT");
+    bool reached = false;
+    uint8_t ctrl = 0xFF;
+    r.watch = [&](uint16_t pc) {
+        if (!reached && pc == boot)
+            reached = true, ctrl = r.io(0xC540); // as Break's put-back left it, before the boot's splash runs it again
+    };
+    r.cpu->nmi();
+    for (int i = 0; i < 400 && !reached; ++i)
+        r.run(1000);
+    REQUIRE(reached);
+    CHECK(r.out.find("BREAK") != std::string::npos);
+    CHECK_EQ(ctrl & 0x02, 0); // SOUND_CTRL's RUN
+}
+
+TEST(a_pass_count_above_255_is_printed_whole)
+{
+    Rig r(SW19 | SW17);
+    REQUIRE(enter(r));
+    REQUIRE(r.until(" 3  CPU", ms(5000)));
+    r.poke(0x00012, 0x2B); // DG_PASS = 299, in W0's block 0
+    r.poke(0x00013, 0x01);
+    REQUIRE(r.until("PASS 300  QUICK LOOP", ms(60'000)));
+    r.key(' ');
+    CHECK(to_result(r));
 }
 
 int main()
