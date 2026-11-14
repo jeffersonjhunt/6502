@@ -140,7 +140,7 @@ contract or ^C; direct DMA, sound and screen instead):
 | 23 | the header and gate (below); the reset's prompt 0.3 KB; stages 0–2 by macros 1.45 KB, stage 0's quiet included; the console (screen, serial, lights, keys, the form) 1.2 KB; stages 3–6 and the window mapping 1.5 KB; the library's memory and report modules 1.6 KB; text 0.8 KB; the sums 64 bytes; the end and Break 0.2 KB | about 7.1 KB |
 | 22 | the header and gate; the console 1.2 KB; the library's report, memory, port, clock and RTC modules 2.0 KB; the north bridge and clock 1.2 KB, DMA 1.6 KB, video 1.35 KB, sound 1.45 KB; text 2.1 KB; the 6510 program 0.8 KB | about 11.7 KB |
 | 21 | the header and gate; the console 1.2 KB; the library's report, probe, names and IDENTIFY modules 1.6 KB; SD 0.9 KB, USB 0.8 KB, serial 0.45 KB, panel 0.6 KB, the interactive tests' prompts 0.5 KB, the summary and the end 0.4 KB; text 1.4 KB | about 7.9 KB |
-| 31 | the BIOS's part: the reset's switch and signature checks, `C812R`'s prompt, `$C815`'s check of its token, the way back to the monitor | about 0.2 KB more |
+| 31 | the BIOS's part: P3's breakpoint cleared (LL1, about 25 bytes), the reset's switch and signature checks, `C812R`'s prompt, `$C815`'s check of its token, the way back to the monitor | about 0.22 KB more |
 
 About 27 KB in 48 KB, 21 KB to grow in. **Why three blocks, not two:** each block carries its own console and
 report routines (below), so blocks 21 and 22 in one would be about 17 KB, over the 16 KB a block holds.
@@ -293,13 +293,23 @@ breakpoint, as D2 built it (armed, then RETURN, then the read that halts until C
 checked; BPCTRL 0 and HIT cleared). In the ROM, CC3's ^C can't happen; Break goes to the core's handler, which puts
 BPCTRL back as every way out does. A reset during P3 keeps BPADDR and BPCTRL
 ([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)), and the next program to read that address
-would halt; **so the BIOS's RESET turns the breakpoint off** (review LL1, decided 2026-11-14): when `CONSOLE_ID`
-reads `$E1` (the switch check's double read, CC5), it writes BPCTRL 0, first thing, before anything touches RAM
-(about 8 bytes in block 31, part of D3a's BIOS changes). P3 may then use any address, a byte in a tested RAM block.
-**What that changes for the panel:** chapter 12's "a breakpoint set before START catches an address in the boot"
-no longer holds, since every reset with the console card fitted disarms it; BPADDR is still kept, so the
-breakpoint is armed again by writing BPCTRL alone. START with HALT/ENABLE at HALT still stops at the reset
-vector's first instruction. Chapter 12's Reset says so (D3c).
+would halt. **So the BIOS's RESET turns off P3's breakpoint, and only P3's** (review LL1, the owner's option B,
+2026-11-14): when `CONSOLE_ID` reads `$E1` (the switch check's double read, CC5) and BPADDR (R/W, kept through
+/RESET) holds P3's address, `$BD1A5`, it writes BPCTRL 0, first thing, before anything touches RAM. Any other
+breakpoint is left armed, so chapter 12's "a breakpoint set before START catches an address in the boot" still
+holds, and the panel loses nothing (an earlier form of LL1 cleared every breakpoint at reset, which would have
+taken that away; option B doesn't). It costs about 25 bytes in block 31 (three compares of BPADDR's bytes with
+immediates and the `STZ`), part of D3a's BIOS changes.
+
+**P3's address: physical `$BD1A5`,** RAM block 47 (`$BC000–$BFFFF`, RAM C's last block, in bank B) at offset
+`$11A5`. A user setting a breakpoint is likely to pick a round address, an entry point, or something in the BIOS,
+OODOS or a program's TPA as the CPU sees it (blocks 0–2, 31, 60–63); this is none of those. Bank B is a program's
+under OODOS's interface 8 (functions 53–58 and the banked TPA), and neither the BIOS's boot nor OODOS's cold boot
+is expected to reach it, by the CPU or by DMA (the BIOS's scroll buffer is `$FC000–$FC7FF`); that isn't checked yet,
+and D3b checks it with the emulator's bus trace of a boot to `A>`. Since RESET clears it anyway, a boot that did
+read it would only lose the guarantee that P3's address is otherwise idle, not halt. P3 arms it only if stage 6 passed block 47, and says `SKIP`
+otherwise. **The limitation, documented in chapter 12 and chapter 15:** a user's own breakpoint at `$BD1A5` is turned
+off at every reset with the console card fitted; at any other address it is kept, as now.
 
 
 <a id="plan2-memory"></a>
@@ -484,6 +494,9 @@ states, the Disk II's, which the core never accesses but for its ID) says "from 
 count" (LL3), and bits 6 and 7 (module F's, which no card answers) are full and interactive. Wait states are
 reserved for turbo and do nothing at ÷2 ([design.md](design.md#north-bridge-registers)); every /RESET clears WAIT3,
 so the reset and `C812R` entries find it 0 and read the switches. NB7 reads the options before it tests WAIT0–3.
+(Accepted by the owner, 2026-11-14. **To revisit if turbo ever gives wait states a meaning:** a wait state on the
+Disk II or module F would then slow those accesses during stages 0–2, harmless to the result but no longer free,
+and turbo's own use of WAIT3 could clash with the flag.)
 **Later entries:** with `$C815` taken the table has no spare left, so any entry after it goes through one
 dispatching entry (a number in a register), which the table's next growth would add (LL5).
 
@@ -542,7 +555,7 @@ docs check`. Each reads its part of the books again at its start and adds its "a
   is whole from the start; `hwmem.s` and `hwline.s` from D2; `fault_devices.h`; `test_bios_diag`. `make -C docs check`
   holds chapter 3's listings to `bios.s`, so D3a updates those listings; the books' new text is D3c's.
 - **Size:** block 23 about 7.1 KB of 16; blocks 22 and 21 about 2.5 KB each (the header, the console, the report);
-  block 31 about 0.2 KB more of its 7,632 free bytes (LL1's 8 bytes included).
+  block 31 about 0.22 KB more of its 7,632 free bytes (LL1's compare and clear, about 25 bytes, included).
 - **Tests,** `test_bios_diag`, on `backplane.machine` with the console card's switches set before the reset; each
   must-fail case is seen failing once on a copy with its one fault put in, and the report says which:
   - the prompt (plan 1's cases): CONT, `Y` on the serial line and on the USB keyboard enter; no answer boots within
@@ -552,8 +565,11 @@ docs check`. Each reads its part of the books again at its start and adds its "a
     A = `$A5` (Y not `$5A`) still asks** (LL2's must-fail: it fails with Y left unchecked); `$C815` with the token and
     X = 1 runs full (the form says `FULL`); with the token and switches 16–18 up, the run is quick and not
     interactive, as X says (LL3);
-  - **LL1's must-fail:** a breakpoint armed (BPADDR, BPCTRL) on a byte the boot reads, then a reset: the boot must
-    reach OODOS's `A>` (it fails with RESET's BPCTRL write left out: the CPU halts in the boot); and P3 after it;
+  - **LL1's must-fail cases:** a reset during P3 (the breakpoint armed on `$BD1A5`): the boot must reach OODOS's `A>`
+    and BPCTRL reads 0 (it fails with RESET's BPCTRL write left out: the next run's P3, or a program using block 47,
+    halts); and **a user's breakpoint on another address the boot reads** (a byte of the BIOS's copy in block 63),
+    then a reset: the machine must still halt there, with STATUS's HIT set (it fails if RESET clears BPCTRL without
+    comparing BPADDR, LL1's first form); and P3 runs after both;
   - the put-back (LL4): after a run, ACR, IER and IFR read 0 and timer 1 is still;
   - golden serial output of a good quick run (`emulator/test/host/golden/romdiag.txt`), the screen's text read from
     card memory, DISPLAY `$FF`; then a key boots (the greeting, the SD card's boot), Esc is the monitor (and block 63
@@ -629,8 +645,8 @@ docs check`. Each reads its part of the books again at its start and adds its "a
   three entries, the stages, what each tests and never does, the lights, the screen and serial output, the end and
   the way back, the times. Chapter 14 (the emulator's notes) gets its line: the WebUI's panel sets switch 19.
 - **Chapter 12:** switches 16–19 as the diagnostics read them (at the switch-19 and `C812R` entries); DISPLAY's
-  codes; under Reset, that the BIOS now turns the breakpoint off at every reset with the card fitted (LL1), so a
-  breakpoint set before START no longer catches the boot.
+  codes; under Reset, that the BIOS turns the breakpoint off at reset only when BPADDR is P3's `$BD1A5` (LL1), so a
+  breakpoint set before START still catches the boot at any other address.
 - **Chapter 13, Apple II mode: no change,** checked against plan 2: the core never writes MODE, and nothing changes
   `$C806` or `apple.s`; the two ways into the mode (`C806R`, function 75 with A = 1) are as they were; Ctrl-Reset
   takes the IIe ROM's vector, never the flash's, so it can't reach the switch check; "only a hard reset leaves the
@@ -671,7 +687,8 @@ The alternatives are kept for the record.
   *Alternative (not chosen):* a section of chapter 3.
 
 **Review LL1–LL5 (2026-11-14), fixed as the owner decided:** LL1, the BIOS's RESET writes BPCTRL 0 with the console
-card fitted, so P3 may use any address ([stage 13](#plan2-card-tests)); LL2, `$C815`'s two-byte token; LL3, the
+card fitted only when BPADDR is P3's `$BD1A5` (the owner's option B), so other breakpoints keep working
+([stage 13](#plan2-card-tests)); LL2, `$C815`'s two-byte token; LL3, the
 switches only at the switch-19 and `C812R` entries, typed options at `A>`; LL4, the VIA in the run's put-back; LL5,
 D3a's "block 21 blanked" case and the note on later jump-table entries. Each has its must-fail case in D3a.
 
