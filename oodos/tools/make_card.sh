@@ -156,6 +156,8 @@ make -s -C src/oodos SRC=demo OOUI_USERS=uidemo OOUI_CFG=demo/uidemo.cfg build/u
 utils=
 for s in src/oodos/utils/*.s; do
   n=$(basename "$s" .s | tr a-z A-Z)
+  # DIAG.COM (hw/diag.md, D2) is on neither card until the owner decides; test_oodos_boot leaves it out too.
+  [ "$n" = DIAG ] && continue
   cp "src/oodos/build/$(basename "$s" .s).com" "$n.COM"
   utils="$utils $n.COM"
 done

@@ -753,7 +753,8 @@ TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
             {ldr_label("SYS_A"), [&](Session &s) { command(s, SdCard::MOUNT, std::string("\x01\x00/BOOT.BIN", 11)); }});
 }
 
-/// The utilities' names, in capitals, one for each oodos/utils/NAME.s, sorted.
+/// The utilities' names, in capitals, one for each oodos/utils/NAME.s, sorted: but DIAG, which make_card.sh
+/// puts on neither card until the owner decides (hw/diag.md, D2).
 std::vector<std::string> utilities()
 {
     std::vector<std::string> us;
@@ -763,7 +764,8 @@ std::vector<std::string> utilities()
             std::string u = f.path().stem().string();
             for (char &c : u)
                 c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            us.push_back(u);
+            if (u != "DIAG")
+                us.push_back(u);
         }
     std::sort(us.begin(), us.end());
     return us;

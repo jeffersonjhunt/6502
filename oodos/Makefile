@@ -18,7 +18,8 @@
 # utils/NAME.s there is, .COMs only, through the same gate; each includes
 # include/cmd.inc and include/util.inc, and some include/system.inc (the
 # BIOS entries, for function 50): each is rebuilt when any of them changes.
-# A new one needs no change here, unless it uses OOLIB (below: OOLIB_USERS) or oohw (OOHW_USERS).
+# A new one needs no change here, unless it uses OOLIB (below: OOLIB_USERS) or oohw (OOHW_USERS, and
+# OOHW_OOLIB_USERS for both).
 
 SRC      ?= examples
 BUILD    ?= build
@@ -111,11 +112,15 @@ $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
 # of which ld65 takes the modules a program uses. Its modules include backplane.inc. A utility in
 # OOHW_USERS is assembled with backplane.inc and oohw.inc on its include path and linked with the
 # library, through the same rules gate (its code and the library's).
+# DIAG (OOHW_OOLIB_USERS) links OOLIB too, for GX_BLOCK and GX_VMAP: oohw.lib then oolib.lib, with its
+# own link config (cfg/NAME.cfg: its data past W1's window), through the rules gate and w1.py. card6510.s isn't a module: it is the sound card's 6510's own program
+# (card6510.cfg), assembled into build/card6510.bin, which DIAG takes whole (.incbin).
 OOHW_DIR = ../backplane/oohw
-OOHW_SRC = $(patsubst $(OOHW_DIR)/%.s,%,$(wildcard $(OOHW_DIR)/*.s))
+OOHW_SRC = $(filter-out card6510,$(patsubst $(OOHW_DIR)/%.s,%,$(wildcard $(OOHW_DIR)/*.s)))
 OOHW_INCS = $(OOHW_DIR)/oohw.inc ../backplane/bios/backplane.inc
-OOHW_AFLAGS = -I ../backplane/bios -I $(OOHW_DIR)
+OOHW_AFLAGS = -I ../backplane/bios -I $(OOHW_DIR) --bin-include-dir $(BUILD)
 OOHW_USERS = sysinfo
+OOHW_OOLIB_USERS = diag
 
 $(OOHW_SRC:%=$(BUILD)/hw-%.o): $(BUILD)/hw-%.o: $(OOHW_DIR)/%.s $(OOHW_INCS) | $(BUILD)
 	ca65 -g $(OOHW_AFLAGS) -D OOHW_OS $< -o $@
@@ -124,8 +129,20 @@ $(BUILD)/oohw.lib: $(OOHW_SRC:%=$(BUILD)/hw-%.o)
 	rm -f $@
 	ar65 a $@ $^
 
-$(OOHW_USERS:%=$(BUILD)/%.o): UTIL_AFLAGS = $(OOHW_AFLAGS)
-$(OOHW_USERS:%=$(BUILD)/%.o): $(OOHW_INCS)
+$(BUILD)/card6510.bin: $(OOHW_DIR)/card6510.s $(OOHW_DIR)/card6510.cfg $(OOHW_DIR)/oohw.inc | $(BUILD)
+	ca65 -I $(OOHW_DIR) $< -o $(BUILD)/card6510.o
+	$(call LD65,-C $(OOHW_DIR)/card6510.cfg $(BUILD)/card6510.o -o $@ -m $(BUILD)/card6510.map,$@)
+
+$(OOHW_USERS:%=$(BUILD)/%.o) $(OOHW_OOLIB_USERS:%=$(BUILD)/%.o): UTIL_AFLAGS = $(OOHW_AFLAGS)
+$(OOHW_USERS:%=$(BUILD)/%.o) $(OOHW_OOLIB_USERS:%=$(BUILD)/%.o): $(OOHW_INCS)
+$(OOHW_OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc include/vmem.inc $(BUILD)/card6510.bin
+
+$(OOHW_OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oohw.lib $(BUILD)/oolib.lib cfg/%.cfg \
+		tools/rules.py tools/w1.py
+	$(call LD65,-C cfg/$*.cfg $< $(BUILD)/oohw.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map --code CODE,CODE2
+	$(PYTHON) tools/w1.py $(BUILD)/$*.map
+	mv $@.tmp $@
 
 $(OOHW_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oohw.lib cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oohw.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
