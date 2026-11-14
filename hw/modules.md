@@ -112,7 +112,7 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 | 0xF     | (free: the clock moved onto the CPU card, 2026-10-30) |
 
 On the new bus (98 pins, 2026-11-14) memory is selected by its address, so IDs 0x0–0x5 (RAM A–D, ROM A and B) are
-free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis).
+free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
 
 **Decided (B0, 2026-11-14):** on the new bus ROM A is two 256 KB chips side by side, even and odd bytes, at
 `$F00000`, and ROM B, the cartridge, the same at `$F80000`; the video card's aperture moves to `$E00000`, so all
@@ -120,3 +120,10 @@ free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-
 through one channel window chosen by CONTROL's SELECT, and the serial card (0x6) picks its DMA stream with
 DMASTREAM. The north bridge (0xD) is revision 2, ID `$D2`, with the wider windows:
 [design.md](design.md#the-physical-map-on-the-new-bus).
+
+**Decided (2026-11-14): one backplane, no expansion chassis.** RAM is one card of 1 MB, selected by address; the
+DMA controller (0x8) and the north bridge (0xD) are on the CPU card. The backplane has about 14–15 slots, one for
+each card that can exist (at most 14 with IDs, plus the RAM card and the cartridge) and the CPU card. It is a
+passive bus at 7.16 MHz. Three pins, BR0–BR2, are reserved, unassigned, for a future bridged bus with its own ID
+space. Slow cards ask for wait states by /WAIT. ROM A's place (the CPU card or the RAM card) is open:
+[design.md](design.md#one-backplane-the-slots-and-the-reserved-pins).
