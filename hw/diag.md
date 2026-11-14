@@ -594,6 +594,75 @@ docs check`. Each reads its part of the books again at its start and adds its "a
 - **Moves:** `hwmem.s`, `hwline.s` and `oohw.inc`'s additions file by file; `FaultyMemory` into the header. No
   emulator code changes, so no sanitizer run beyond the gate's.
 
+<a id="d3a-as-built"></a>
+#### D3a: as built (2026-11-14) ####
+
+**Built** on `feat/diag-d3a`, for the owner's review. What differs from the plan above, and why:
+
+- **Sizes.** Block 23 is 7,215 bytes (the core 6,494, the library's memory tests 721), against the plan's 7.1 KB;
+  blocks 22 and 21 are their frames, 1,463 and 1,447 bytes (the header, the console, the end). Block 31 grew by 335
+  bytes (`$E229` to `$E378`, 7,297 bytes still free), not about 220: `$C812`'s question and the "no diagnostics"
+  message are text, and `GREET` became a subroutine for the two ways back. LL1's compare and clear is 25 bytes, as
+  planned.
+- **Times on the emulator,** at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line: **a quick run 27.9 s, a full
+  run 90.7 s,** with stages 7–13 `SKIP` until D3b. The plan's table gave 19.5 s for the memory alone; the rest is the
+  serial line's pace (each character waits 3,840 cycles, as ECHO does) and stage 6's own test of W0's first 512 bytes.
+  The prompt, unanswered, waits 5.97 s.
+- **The library is linked into block 23 as objects** (`hw-hwmem.o`, `hw-hwzp.o`, assembled with `OOHW_ROM`), not
+  included as source per block: in D3a only block 23 calls it. D3b, whose blocks 22 and 21 need their own copies,
+  gives each block's copy its own names (the exports a block-specific prefix under `OOHW_ROM`). The library's
+  segments are named by macro now (`OOHW_CODE` and the rest, oohw.inc); SYSINFO.COM is byte for byte as before.
+  `hwline.s` and `hwport.s` are moved from `feat/diag-d2` but not linked yet: D3b's.
+- **The console is the core's own** (`diagcon.inc`, included by each block, nothing exported): a stage's line, its
+  details, the result and the keys. The screen's form puts stage n on row n + 2 and **only the run's first failure's
+  detail, on row 18,** not under its stage as the plan's sample has it: rows can't move once later stages have
+  written theirs. The serial line has every detail, in order.
+- **Stage 1 keeps its failure in WAIT3's bit 1** (module C's second wait-state bit, as bit 0 is the program's flag):
+  stages 1 and 2 have no RAM and every register busy. Stage 3 reads WAIT3 and clears it.
+- **Stage 2 says FAIL** when a block before the one it chose failed (block 0's first 512 bytes bad: `BLOCK 1`, FAIL),
+  though the run goes on.
+- **Stage 4's tags are the core's own** (`TAGW`, `TAGC` in diag23.s), not oohw's `HW_TAGW` and `HW_TAGC`: W0's block's
+  first 512 bytes can't be written while they are the zero page and stack, so its tags below `+$200` are left out.
+  What a wrong tag says is named: a line (`ADDRESS LINE A5`), two lines, or two blocks as one.
+- **A module that doesn't answer** (a write of 0 reads `$FF` at its first block) is named once, `RAM B (BLOCKS
+  16-31): NOT ANSWERING`, and its blocks are left out of stages 4–6.
+- **An erased block 21 or 22 fails stage 1 too** (its sum), as it should: the tests expect it.
+- **CC5's floating-bus case moves to D3b,** with card discovery (`HW_PROBE`), which D3a's stages don't do.
+- **The books:** only what `make -C docs check` holds to the code (chapter 3's, 4's and 7's listings of `bios.s`), the
+  entry table's `$C812` and `$C815` rows (*proposed*), and the greeting's version in the books' samples (0.14); the
+  rest of the books is D3c's. Their other mentions of "BIOS 0.13" describe what that BIOS does, which 0.14 does too,
+  and are left to D3c. `oodos/sys/cold.s`'s comment naming 0.13 is OODOS's, left alone (no OODOS change).
+
+**The expectations changed, in kind** (BIOS 0.13 to 0.14, approved with the plan): every wait for the greeting
+`BACKPLANE BIOS 0.13` (`oodos_rig.h`, test_bios, test_bios_sd, test_session, test_oodos_boot, test_oodos_model,
+test_oodos_e2e, the WebUI's e2e specs, `wasm-port.test.ts`, `apps/web/test/boot.mjs`); SYSINFO's six golden reports'
+`ROM BIOS 0.13` and its function-77 case's `ROM BIOS 0.13`; function 77's `ROMV 00 0D` to `00 0E`; the WebUI's
+`built-in 0.13`. No other expectation changed.
+
+**The tests** (`test_bios_diag`, 23 cases, about 5 minutes alone): each must-fail case was seen to fail on a build with
+its one fault put in:
+
+| Case | The fault that made it fail |
+|---|---|
+| a good quick run, golden (`golden/romdiag.txt`) | a stage line's dots one column short |
+| the prompt unanswered: the boot within 5-6 s, RAM untouched | the prompt waiting 20 changes of SEC |
+| C815R at the monitor with A = `$A5` still asks (LL2) | `$C815` not checking Y |
+| a program's options, whatever the switches (LL3) | a program's entry reading the switches anyway |
+| the VIA put back (LL4) | the VIA left out of the put-back |
+| block 21 blanked: block 22 ends the run (LL5) | block 22 handing to block 21 unchecked |
+| a reset during P3: the boot reaches `A>`, and the core reads `$BD1A5` unhalted (LL1) | RESET's BPCTRL write left out |
+| a user's breakpoint on a byte the boot reads still halts it (LL1) | BPCTRL cleared without comparing BPADDR |
+| stuck bits in blocks 41 and 62 (OODOS's): stage 6 | `HW_MARCH` returning at once |
+| a stuck bit in block 0's first 512 bytes: W0 on block 1, stage 5 | stage 2's march left out; `HW_AIAC` returning at once |
+| an aliased address line: `ADDRESS LINE A5` | stage 4's check left out |
+| RAM B left out: not answering | stage 3's absent module taken as there |
+| a byte of flash block 30 changed: stage 1 | stage 1's compare left out |
+| block 23 blanked: `NO DIAGNOSTICS IN THE FLASH`, then the boot | the signature check skipped |
+| every RAM block bad: `$82`, the block, the bits | stage 2's fatal end not showing the bits |
+
+The other cases (CONT, Y on serial and USB, N, CONT before the reset, START, switch 19 down, C812R, Esc's monitor,
+block 22 blanked, no video card, no console card, a full run's time) pass on the built ROM.
+
 #### D3b: the card tests ####
 
 - **What:** `diag22.s` (stages 7–10), `diag21.s` (11–13), `hwport.s` and `card6510.s` from D2, `DMA_DEC` in
