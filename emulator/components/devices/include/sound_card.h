@@ -419,6 +419,20 @@ namespace ooe::emu
         uint64_t sid_clocks() const { return now(); }
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
+#ifdef EMU_FAULT_HOOKS
+        /// Test-only (hw/diag.md, answer 8; D2): a fault in the card's RAM. The byte at `addr` reads as
+        /// (byte AND `and_mask`) OR `or_mask`, for every reader alike: the host's RAMDATA, DMA channel 2's
+        /// reads and the 6510's own; writes store as ever. clear_ram_fault() takes it off. Compiled only into
+        /// the native test build (devices/CMakeLists.txt: EMU_FAULT_HOOKS), never the WebUI's.
+        void set_ram_fault(uint16_t addr, uint8_t and_mask, uint8_t or_mask)
+        {
+            fault_on_ = true;
+            fault_addr_ = addr;
+            fault_and_ = and_mask;
+            fault_or_ = or_mask;
+        }
+        void clear_ram_fault() { fault_on_ = false; }
+#endif
         // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
         /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps
         /// every frame until take_tap(), uncapped, so nothing else turns it on (it starts off, and /RESET leaves it).
@@ -504,7 +518,16 @@ namespace ooe::emu
             SoundCard &card_;
         };
 
-        uint8_t ram_byte() { return ram_[ram_addr_++]; }
+        uint8_t ram_byte() { return ram_at(ram_addr_++); }
+        /// The card's RAM at `addr`, as a reader sees it (a test's fault applied: set_ram_fault()).
+        uint8_t ram_at(uint16_t addr) const
+        {
+#ifdef EMU_FAULT_HOOKS
+            if (fault_on_ && addr == fault_addr_)
+                return static_cast<uint8_t>((ram_[addr] & fault_and_) | fault_or_);
+#endif
+            return ram_[addr];
+        }
         /// The FIFO's room, in 256-byte units.
         uint16_t free_units() const { return static_cast<uint16_t>((FIFO_BYTES - fifo_count_) / 256); }
         /// The playing format's frame: 1, 2 or 4 bytes.
@@ -624,6 +647,11 @@ namespace ooe::emu
         mutable std::array<float, 2> hp_in_{}, hp_out_{};
         float hp_pole_{0};
         std::array<uint8_t, RAM_BYTES> ram_{};
+#ifdef EMU_FAULT_HOOKS
+        bool fault_on_{false}; ///< set_ram_fault()'s, test-only
+        uint16_t fault_addr_{0};
+        uint8_t fault_and_{0xFF}, fault_or_{0};
+#endif
         uint8_t ctrl_{0};
         uint8_t ien_{0};
         uint16_t ram_addr_{0};

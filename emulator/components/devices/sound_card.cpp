@@ -1253,7 +1253,7 @@ namespace ooe::emu
         case RAMADDR + 1:
             return static_cast<uint8_t>(ram_addr_ >> 8);
         case RAMDATA:
-            return ram_[ram_addr_];
+            return ram_at(ram_addr_);
         case MBIN:
             return to_host_;
         case PCMCTL:
@@ -1528,7 +1528,7 @@ namespace ooe::emu
         if (addr == 0x0001) // inputs: bits 0-5 pulled high, 6-7 unconnected, holding what was written
             return static_cast<uint8_t>((port_ & ddr_) | (~ddr_ & (0x3F | (port_ & 0xC0))));
         if (addr < 0xD000 || addr > 0xDFFF || !io_in())
-            return ram_[addr];
+            return ram_at(addr);
         if (addr == 0xD011 && raster_shown()) // the raster line's ninth bit; the rest as nothing drives them
             return static_cast<uint8_t>(0x7F | (raster_line() >> 8) << 7);
         if (addr == 0xD012 && raster_shown())

@@ -6,7 +6,7 @@
         .include "backplane.inc"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 HW_NAME:
         and     #$0F
         asl     a
@@ -39,7 +39,7 @@ HW_KNOWN:
 @yes:   clc
         rts
 
-        .rodata
+        OOHW_RODATA
 names:  .word   n0, n1, n2, n3, n4, n5, n6, n7, n8, n9, nA, nB, nC, nD, nE, nF
 n0:     .byte   "RAM A", 0
 n1:     .byte   "RAM B", 0
@@ -63,5 +63,5 @@ known:  .byte   HW_SERIAL_ID, SD_ID_V1, DMA_ID_V1, VIDEO_ID_V2, SOUND_ID_V1, SOU
         .byte   DISK2_ID_V1, HW_NB_ID, CONSOLE_ID_V1
 KNOWN_LEN = * - known
 
-        .bss
+        OOHW_BSS
 want:   .res    2

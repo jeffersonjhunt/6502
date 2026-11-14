@@ -6,8 +6,8 @@
 # font in block 30 and the video demo in block 29 (and the boot splash's
 # players, splash/bootsnd.bin and splash/docsnd.bin, and its samples in blocks
 # 24-28, splash/wave.bin, all committed; the ROM's diagnostics in blocks 21-23,
-# with oohw's memory tests built for the ROM and the flash's sums written by
-# romsum.py), and its ld65 -Ln label file. Target `backplane_bios`; files in EMU_BIOS_DIR.
+# with oohw's modules built for the ROM, each block its own copy, the sound card's
+# 6510 program in block 22, and the flash's sums written by romsum.py), and its ld65 -Ln label file. Target `backplane_bios`; files in EMU_BIOS_DIR.
 # Without cc65 there is no target, and what needs it skips (tests) or
 # refuses to configure (apps/web).
 
@@ -25,23 +25,45 @@ if(EMU_CA65 AND EMU_LD65 AND Python3_Interpreter_FOUND)
     foreach(src bios wozmon video input apple sd demo splash diag21 diag22 diag23)
         add_custom_command(
                 OUTPUT "${EMU_BIOS_DIR}/${src}.o"
-                COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" -I "${EMU_OOHW_SRC}" --bin-include-dir "${EMU_BIOS_SRC}"
-                        -o "${EMU_BIOS_DIR}/${src}.o" "${EMU_BIOS_SRC}/${src}.s"
+                COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" -I "${EMU_OOHW_SRC}" --bin-include-dir "${EMU_BIOS_DIR}"
+                        --bin-include-dir "${EMU_BIOS_SRC}" -o "${EMU_BIOS_DIR}/${src}.o" "${EMU_BIOS_SRC}/${src}.s"
                 DEPENDS "${EMU_BIOS_SRC}/${src}.s" "${EMU_BIOS_SRC}/backplane.inc" "${EMU_BIOS_SRC}/font/vga8x16.bin"
-                        "${EMU_BIOS_SRC}/diag.inc" "${EMU_BIOS_SRC}/diagcon.inc" "${EMU_OOHW_SRC}/oohw.inc"
+                        "${EMU_BIOS_SRC}/diag.inc" "${EMU_BIOS_SRC}/diagcon.inc" "${EMU_BIOS_SRC}/diagtest.inc"
+                        "${EMU_OOHW_SRC}/oohw.inc" "${EMU_BIOS_DIR}/card6510.bin"
                         ${demo_assets} "${EMU_BIOS_SRC}/splash/bootsnd.bin" "${EMU_BIOS_SRC}/splash/docsnd.bin"
                         "${EMU_BIOS_SRC}/splash/wave.bin"
                 VERBATIM)
         list(APPEND objs "${EMU_BIOS_DIR}/${src}.o")
     endforeach()
-    foreach(src hwmem hwzp) # oohw's, for the ROM: block 23's memory tests
+    # The sound card's 6510 program (oohw's card6510.s, its own link), taken whole into block 22.
+    add_custom_command(
+            OUTPUT "${EMU_BIOS_DIR}/card6510.bin"
+            COMMAND "${EMU_CA65}" -I "${EMU_OOHW_SRC}" -o "${EMU_BIOS_DIR}/card6510.o" "${EMU_OOHW_SRC}/card6510.s"
+            COMMAND "${EMU_LD65}" -C "${EMU_OOHW_SRC}/card6510.cfg" -o "${EMU_BIOS_DIR}/card6510.bin"
+                    "${EMU_BIOS_DIR}/card6510.o"
+            DEPENDS "${EMU_OOHW_SRC}/card6510.s" "${EMU_OOHW_SRC}/card6510.cfg" "${EMU_OOHW_SRC}/oohw.inc"
+            VERBATIM)
+    # oohw's modules, for the ROM: each block its own copy (the Makefile's HWOBJS), block 23's under the plain
+    # names, block 22's and 21's with their number in each name (OOHW_BLK, oohw.inc).
+    foreach(pair "-:hwmem" "-:hwzp" "22:hwprobe" "22:hwclock" "22:hwfmt" "22:hwmem" "22:hwport" "22:hwzp"
+                 "21:hwprobe" "21:hwclock" "21:hwfmt" "21:hwsdid" "21:hwzp")
+        string(REPLACE ":" ";" parts "${pair}")
+        list(GET parts 0 blk)
+        list(GET parts 1 src)
+        if(blk STREQUAL "-")
+            set(obj "hw-${src}.o")
+            set(blkdef "")
+        else()
+            set(obj "hw${blk}-${src}.o")
+            set(blkdef "-DOOHW_BLK=${blk}")
+        endif()
         add_custom_command(
-                OUTPUT "${EMU_BIOS_DIR}/hw-${src}.o"
-                COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" -I "${EMU_OOHW_SRC}" -D OOHW_ROM
-                        -o "${EMU_BIOS_DIR}/hw-${src}.o" "${EMU_OOHW_SRC}/${src}.s"
+                OUTPUT "${EMU_BIOS_DIR}/${obj}"
+                COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" -I "${EMU_OOHW_SRC}" -D OOHW_ROM ${blkdef}
+                        -o "${EMU_BIOS_DIR}/${obj}" "${EMU_OOHW_SRC}/${src}.s"
                 DEPENDS "${EMU_OOHW_SRC}/${src}.s" "${EMU_OOHW_SRC}/oohw.inc" "${EMU_BIOS_SRC}/backplane.inc"
                 VERBATIM)
-        list(APPEND objs "${EMU_BIOS_DIR}/hw-${src}.o")
+        list(APPEND objs "${EMU_BIOS_DIR}/${obj}")
     endforeach()
     add_custom_command(
             OUTPUT "${EMU_BIOS_DIR}/bios.rom" "${EMU_BIOS_DIR}/bios.rom.lbl"

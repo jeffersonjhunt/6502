@@ -1,11 +1,50 @@
-; The ROM's diagnostics, flash block 22 (hw/diag.md, plan 2): stages 7-10,
+; The ROM's diagnostics, flash block 22 (hw/diag.md, plan 2, D3b): stages 7-10,
 ; the north bridge and the clock, DMA, the video card and the sound card.
-; D3a: the block's frame, with each stage's line SKIP until D3b builds it;
-; then block 21, or, if block 21 isn't this build's, the end here.
+; Then block 21, or, if block 21 isn't this build's, the end here.
+;
+; Every card is the core's: interrupts are off for the whole run, so each
+; measurement polls, and every DMA channel is driven directly. A card is
+; found by HW_PROBE's rule (its ID byte read twice); one that isn't there
+; makes its stage SKIP, and one whose revision this build doesn't know is
+; listed and skipped. All of RAM was tested by stages 3-6; what a test here
+; needs for a buffer is in W0's block past its zero page and stack
+; ($0200-$3FFF of the CPU's), once stage 8's D2 has filled it.
 
 .setcpu "65C02"
+.macpack longbranch
 .include "backplane.inc"
 .include "diag.inc"
+OOHW_ROM        = 1
+OOHW_BLK        = 22
+.include "oohw.inc"
+
+.import SKIPS
+
+HZ              = 7159090              ; PHI2 at the board's /2 (hw/design.md)
+FLASH30         = NB_ROM | NB_RO | 30  ; the font
+FRAME           = 119437               ; one video frame in PHI2 cycles (800 x 525 at 25.175 MHz)
+V2SAVE          = $0200                ; W0's: V2's registers kept
+SRC4K           = $0400                ; W0's: a 4 KB pattern (V7, S3)
+DST4K           = $1400                ; W0's: 4 KB read back (V7)
+TEXTSAVE        = $2400                ; W0's: the screen's text while V4-V7 have card memory
+TEXTLEN         = DG_ROWS * DG_COLS * 2
+
+.segment "D22ZP": zeropage
+T_REV:          .res    1
+T_SEC0:         .res    1
+T_SEC1:         .res    1
+T_PAT:          .res    1
+T_NBAD:         .res    1
+T_BLKA:         .res    1
+T_BLKB:         .res    1
+T_SRC:          .res    3
+T_DST:          .res    3
+T_CNT:          .res    2
+T_K:            .res    2
+T_BANKS:        .res    2
+T_SUM:          .res    2
+T_RUNS:         .res    1
+                DTVARS
 
 .segment "D22"
                 DG_HEADER 1, START
@@ -15,39 +54,2293 @@ START:
                 cld
                 ldx     #$FF
                 txs
-                lda     #7
-@stage:         sta     DG_KEY
-                jsr     LATER
-                lda     DG_KEY
-                inc     a
-                cmp     #11
-                bne     @stage
+                jsr     HW_PROBE
+                jsr     STAGE7
+                jsr     STAGE8
+                jsr     STAGE9
+                jsr     STAGE10
                 lda     #DG_B21
                 ldx     #DE_START
                 jsr     HANDOFF
-                lda     #13
+                lda     #13            ; block 21 isn't this build's: its stages said, and the end here
                 sta     DG_T0 + 2
                 lda     #11
                 jsr     NOTFLASH
+                jsr     SUMMARY
                 jmp     ENDRUN
 
-; Stage A's line, SKIP: not built yet.
-LATER:
+; A stage's start: A the stage; its name from STNAMES (diagcon.inc).
+SBEGIN:
+                pha
                 asl     a
                 tax
                 lda     STNAMES - 14,x
                 sta     DG_T0
                 lda     STNAMES - 13,x
                 sta     DG_T0 + 1
-                lda     DG_KEY
-                jsr     STAGEBEG
-                lda     #DR_SKIP
-                jsr     STAGEEND
+                pla
+                jmp     CBEG
+
+; Module X's card at revision A: carry clear. Else the stage's end said (no
+; card, or a revision not known), carry set.
+CARDIS:
+                sta     T_REV
+                lda     HW_REV,x
+                cmp     #HW_NONE
+                beq     @none
+                cmp     T_REV
+                bne     @rev
+                clc
+                rts
+@none:          lda     #<SNOCARD
+                ldx     #>SNOCARD
+                jsr     CSKIP
+                sec
+                rts
+@rev:           jsr     CSKIPREV
+                sec
+                rts
+
+; Carry clear if there is a DMA controller this build knows.
+HAVEDMA:
+                lda     HW_REV + 8
+                cmp     #1
+                beq     @yes
+                sec
+                rts
+@yes:           clc
+                rts
+
+; T_PA into T_SRC, or T_DST.
+PA2SRC:         ldx     #2
+@c:             lda     T_PA,x
+                sta     T_SRC,x
+                dex
+                bpl     @c
+                rts
+PA2DST:         ldx     #2
+@c:             lda     T_PA,x
+                sta     T_DST,x
+                dex
+                bpl     @c
+                rts
+
+; W0's page A: T_SRC (SRCW0) or T_DST (DSTW0).
+SRCW0:          tax
+                lda     DG_W0
+                jsr     PHYSB
+                bra     PA2SRC
+DSTW0:          tax
+                lda     DG_W0
+                jsr     PHYSB
+                bra     PA2DST
+
+; Channel 3, memory to memory: T_SRC to T_DST, T_CNT bytes (0: 65,536), A its
+; MODE's other bits (DMA_HOLD, DMA_DEC, DMA_MODE_IRQ). Waited for: carry set
+; if it never ended. CONTROL is the caller's (DMA_ON, or D5's burst).
+DMA3:
+                ora     #DMA_M2M
+                sta     DMA3_MODE
+                ldx     #2
+@a:             lda     T_SRC,x
+                sta     DMA3_ADDR,x
+                lda     T_DST,x
+                sta     DMA3_DEST,x
+                dex
+                bpl     @a
+                lda     T_CNT
+                sta     DMA3_COUNT
+                lda     T_CNT + 1
+                sta     DMA3_COUNT + 1
+                lda     #DMA_GO
+                sta     DMA3_CTRL
+                ldx     #$30
+; Channel X's CTRL (X 0, $10, $20, $30) waited for ENABLE to clear: carry set
+; after about 13 ms (28 x 256 polls of about 13 cycles), for transfers of a
+; few KB that take well under 1 ms.
+DMAWAIT:
+                lda     #28
+                sta     T_REV
+                ldy     #0
+@w:             lda     DMA0_CTRL,x
+                and     #DMA_ENABLE
+                beq     @done
+                dey
+                bne     @w
+                dec     T_REV
+                bne     @w
+                sec
+                rts
+@done:          clc
+                rts
+
+; --- Stage 7: the north bridge and the clock ---------------------------------
+
+STAGE7:
+                lda     #7
+                jsr     SBEGIN
+                ldx     #$D
+                lda     #1
+                jsr     CARDIS
+                bcc     @card
+                rts
+@card:          jsr     NB1
+                jsr     NB2
+                jsr     NB3
+                jsr     NB45
+                jsr     NB6
+                jsr     NB7
+                jsr     NB8
+                lda     #DR_PASS
+                jmp     CEND
+
+NB1:
+                TB      "NB1  ID $D1; STATUS'S REVISION "
+                lda     NB_STATUS
+                lsr     a
+                lsr     a
+                lsr     a
+                lsr     a
+                pha
+                jsr     PUTDEC
+                pla
+                cmp     HW_REV + $D
+                bne     @bad
+                jmp     TPASS
+@bad:           TD      "STATUS'S BITS 4-7 AREN'T THE ID'S REVISION"
+                rts
+
+; W0's window bits (stage 4 tested W1's): every tested block's number, and
+; its complement, at +$3FF0 through W1; then each block in W0 for a moment,
+; with no RAM: the block in Y and W0's own in X.
+NB2:
+                TB      "NB2  W0'S WINDOW BITS: EACH BLOCK AS ITSELF"
+                lda     #$FF
+@w:             jsr     GOODBLK
+                bcs     @check
+                sta     NB_WIN1
+                sta     $7FF0
+                eor     #$FF
+                sta     $7FF1
+                eor     #$FF
+                bra     @w
+@check:         lda     #1
+                sta     NB_WIN1
+                lda     #$FF
+@c:             jsr     GOODBLK
+                bcs     @ok
+                sta     DG_BLK
+                tay
+                ldx     DG_W0
+                sty     NB_WIN0        ; no zero page, no stack, until W0 is back
+                cpy     $3FF0
+                bne     @bad
+                tya
+                eor     #$FF
+                cmp     $3FF1
+                bne     @bad
+                stx     NB_WIN0
+                lda     DG_BLK
+                bra     @c
+@bad:           lda     $3FF0
+                stx     NB_WIN0
+                sta     DG_MGOT
+                jsr     TDET
+                SAY     "BLOCK "
+                lda     DG_BLK
+                jsr     PUTDEC
+                SAY     " IN W0 READ "
+                lda     DG_MGOT
+                jsr     HEX2
+                SAY     ", NOT ITS NUMBER"
+                jsr     CRLF
+                jmp     SCROFF
+@ok:            jmp     TPASS
+
+; IRQL and IRQH, every card quiet: all 1s. Then a line that works: channel
+; 3's terminal count with MODE's IRQ bit pulls IRQH bit 0 low, and clearing
+; STATUS lets it go (interrupts are off: nothing is taken).
+NB3:
+                TB      "NB3  IRQL AND IRQH"
+                lda     NB_IRQL
+                and     NB_IRQH
+                cmp     #$FF
+                beq     @quiet
+                jsr     TDET
+                SAY     "IRQL "
+                lda     NB_IRQL
+                jsr     HEX2
+                SAY     ", IRQH "
+                lda     NB_IRQH
+                jsr     HEX2
+                SAY     ": A LINE IS LOW WITH EVERY CARD QUIET"
+                jsr     CRLF
+                jmp     SCROFF
+@quiet:         jsr     HAVEDMA
+                bcc     @dma
+                SAY     "; NO DMA CONTROLLER"
+                jmp     TPASS
+@dma:           SAY     "; DMA'S LINE"
+                lda     #$30           ; 16 bytes, W0 $3000 to $3100, with MODE's IRQ
+                jsr     SRCW0
+                lda     #$31
+                jsr     DSTW0
+                lda     #16
+                sta     T_CNT
+                stz     T_CNT + 1
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                lda     #DMA_MODE_IRQ
+                jsr     DMA3
+                lda     NB_IRQH
+                and     #NB_IRQ_DMA
+                bne     @noline
+                lda     #DMA_CH3
+                sta     DMA_STATUS
+                lda     NB_IRQH
+                and     #NB_IRQ_DMA
+                beq     @held
+                stz     DMA3_MODE
+                jmp     TPASS
+@noline:        stz     DMA3_MODE
+                TD      "A TERMINAL COUNT WITH MODE'S IRQ BIT LEFT IRQH BIT 0 HIGH"
+                rts
+@held:          stz     DMA3_MODE
+                TD      "IRQH BIT 0 STAYED LOW WITH STATUS CLEARED"
+                rts
+
+; NB4, the clock chip: BUSY clears within 1 ms of an I2C read; SEC steps by
+; one a second (four changes over NB5's measurement); LOST clear, or a
+; warning. NB5, the CPU's clock: HW_CLOCK's cycles in a second of the
+; DS3231's, the middle of three back to back, within 0.1% of 7,159,090.
+NB45:
+                TB      "NB4  THE CLOCK CHIP: BUSY, SEC STEPS A SECOND"
+                lda     #$11           ; the temperature's register: an I2C read
+                sta     NB_RTCREG
+                ldx     #0             ; 256 x about 28 cycles: 1 ms
+@busy:          lda     NB_RTCCTL
+                and     #NB_RTC_BUSY
+                beq     @idle
+                nop
+                nop
+                nop
+                nop
+                nop
+                nop
+                nop
+                nop
+                dex
+                bne     @busy
+                TD      "BUSY STAYED ON PAST 1 MS"
+@idle:          lda     NB_SEC
+                sta     T_SEC0
+                lda     #<NB_SEC
+                sta     HW_WATCH
+                lda     #>NB_SEC
+                sta     HW_WATCH + 1
+                lda     #1
+                sta     HW_EDGES
+                jsr     HW_CLOCK
+                lda     #0
+                rol     a
+                sta     T_REV          ; 1: no change in time
+                lda     NB_SEC
+                sta     T_SEC1
+                lda     T_REV
+                jeq     @ticked
+                TD      "SEC DIDN'T CHANGE WITHIN 2.3 S"
+                TB      "NB5  THE CPU'S CLOCK BY THE CLOCK CHIP"
+                TD      "NOT MEASURED: THE CLOCK CHIP DIDN'T TICK"
+                rts
+@ticked:        sed                    ; four steps on, in BCD, round at 60
+                clc
+                lda     T_SEC0
+                adc     #4
+                cmp     #$60
+                bcc     @in
+                sbc     #$60
+@in:            cld
+                cmp     T_SEC1
+                beq     @steps
+                jsr     TDET
+                SAY     "SEC WENT FROM "
+                lda     T_SEC0
+                jsr     HEX2
+                SAY     " TO "
+                lda     T_SEC1
+                jsr     HEX2
+                SAY     " IN FOUR CHANGES"
+                jsr     CRLF
                 jsr     SCROFF
-                lda     #<SLATER
-                ldx     #>SLATER
-                jmp     PUTS
+                bra     @nb5
+@steps:         lda     NB_RTCCTL
+                and     #NB_RTC_LOST
+                bne     @lost
+                jsr     TPASS
+                bra     @nb5
+@lost:          jsr     TINFO
+                lda     #<SLOST
+                ldx     #>SLOST
+                jsr     NOTE9
+@nb5:           TB      "NB5  CPU "
+                ldx     #3
+@cp:            lda     HW_CYC,x
+                sta     T_N,x
+                dex
+                bpl     @cp
+                jsr     DEC32
+                SAY     " HZ BY THE CLOCK CHIP"
+                lda     #<HZREF
+                ldx     #>HZREF
+                jsr     CLOSE
+                bcs     @far
+                jmp     TPASS
+@far:           TD      "NOT WITHIN 0.1% OF 7159090"
+                rts
+
+; The CPU's clock against the video frame: the cycles over 60 frames (120
+; changes of STATUS, its vertical blank's bit), the middle of three windows,
+; within 0.1% of 60 frames of FRAME cycles; the line gives them as Hz
+; (HW_FRAMEHZ: 800 x 525 pixel clocks at 25.175 MHz a frame).
+NB6:
+                TB      "NB6  CPU "
+                lda     HW_REV + 9
+                cmp     #2
+                beq     @video
+                SAY     "BY THE VIDEO FRAME"
+                TS      "NO REVISION 2 VIDEO CARD"
+                rts
+@video:         lda     #<VIDEO_STATUS
+                sta     HW_WATCH
+                lda     #>VIDEO_STATUS
+                sta     HW_WATCH + 1
+                lda     #120
+                sta     HW_EDGES
+                jsr     HW_CLOCK
+                bcc     @frames
+                SAY     "BY THE VIDEO FRAME"
+                TD      "NO 60 FRAMES WITHIN 2.3 S"
+                rts
+@frames:        ldx     #3             ; 60 frames' cycles against 60 x FRAME
+@cyc:           lda     HW_CYC,x
+                sta     T_N,x
+                dex
+                bpl     @cyc
+                lda     #<FRAMESREF
+                ldx     #>FRAMESREF
+                jsr     CLOSE
+                lda     #0
+                rol     a
+                sta     T_REV          ; 1: too far
+                jsr     HW_FRAMEHZ     ; as Hz, for the line
+                ldx     #3
+@cp:            lda     HW_NUM,x
+                sta     T_N,x
+                dex
+                bpl     @cp
+                jsr     DEC32
+                SAY     " HZ BY THE VIDEO FRAME"
+                lda     T_REV
+                bne     @far
+                jmp     TPASS
+@far:           TD      "60 FRAMES AREN'T 60 X 119437 CYCLES WITHIN 0.1%"
+                rts
+
+; WAIT0-3 and VEC written with two patterns and read back, then put back
+; (WAIT0-3 0, VEC on block 23 for Break). The options WAIT3 carried were read
+; by stage 2 already.
+NB7:
+                TB      "NB7  WAIT0-3 AND VEC READ BACK"
+                ldx     #3
+@w:             lda     #$55
+                sta     NB_WAIT0,x
+                cmp     NB_WAIT0,x
+                bne     @badw
+                lda     #$AA
+                sta     NB_WAIT0,x
+                cmp     NB_WAIT0,x
+                bne     @badw
+                stz     NB_WAIT0,x
+                dex
+                bpl     @w
+                lda     #$55
+                sta     NB_VEC
+                ldy     NB_VEC
+                lda     #$AA
+                sta     NB_VEC
+                ldx     NB_VEC
+                lda     #DG_B23
+                sta     NB_VEC
+                cpy     #$55
+                bne     @badv
+                cpx     #$AA
+                bne     @badv
+                jmp     TPASS
+@badw:          sta     DG_MWANT
+                lda     NB_WAIT0,x
+                sta     DG_MGOT
+                stz     NB_WAIT0,x
+                stx     T_REV
+                jsr     TDET
+                SAY     "WAIT"
+                lda     T_REV
+                jsr     PUTDEC
+                jsr     RWBITS
+                jmp     SCROFF
+@badv:          TD      "VEC DIDN'T READ BACK AS WRITTEN"
+                rts
+
+; A write through a read-only window (NB_RO) onto a tested RAM block leaves
+; the block as it was.
+NB8:
+                TB      "NB8  A READ-ONLY WINDOW KEEPS ITS RAM"
+                lda     #$FF
+@b:             jsr     GOODBLK
+                bcs     @none
+                cmp     DG_W0
+                beq     @b
+                sta     DG_BLK
+                sta     NB_WIN1
+                lda     $5A5A
+                sta     T_REV
+                lda     DG_BLK
+                ora     #NB_RO
+                sta     NB_WIN1
+                lda     T_REV
+                eor     #$FF
+                sta     $5A5A          ; dropped
+                lda     DG_BLK
+                sta     NB_WIN1
+                lda     $5A5A
+                ldx     #1
+                stx     NB_WIN1
+                cmp     T_REV
+                bne     @bad
+                jmp     TPASS
+@bad:           TD      "THE WRITE CHANGED THE BLOCK"
+                rts
+@none:          TS      "NO TESTED BLOCK"
+                rts
+
+; --- Stage 8: DMA --------------------------------------------------------------
+
+STAGE8:
+                lda     #8
+                jsr     SBEGIN
+                ldx     #8
+                lda     #1
+                jsr     CARDIS
+                bcc     @card
+                rts
+@card:          lda     #DMA_ON
+                sta     DMA_CONTROL
+                jsr     D1
+                jsr     D2
+                jsr     D3
+                jsr     D4
+                jsr     D5
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                lda     #DR_PASS
+                jmp     CEND
+
+; D1: each channel's ADDR, COUNT, MODE and DEST written with $55s and $AAs
+; (the addresses' top nibble is 0: 20 bits) and read back, then 0; CONTROL's
+; burst bits likewise, with the master enable off; then CONTROL on.
+D1:
+                TB      "D1   ID $81; EVERY CHANNEL'S REGISTERS READ BACK"
+                ldx     #$30
+@ch:            ldy     #DREGS - 1
+@reg:           phx
+                txa
+                clc
+                adc     DREGOFS,y
+                tax
+                lda     #$55
+                and     DREGMSK,y
+                jsr     @try
+                bne     @bad
+                lda     #$AA
+                and     DREGMSK,y
+                jsr     @try
+                bne     @bad
+                stz     DMA,x
+                plx
+                dey
+                bpl     @reg
+                txa
+                sec
+                sbc     #$10
+                tax
+                bpl     @ch
+                lda     #$50           ; CONTROL: a burst of 32, the master off
+                sta     DMA_CONTROL
+                ldx     DMA_CONTROL
+                lda     #$20
+                sta     DMA_CONTROL
+                ldy     DMA_CONTROL
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                cpx     #$50
+                bne     @badc
+                cpy     #$20
+                bne     @badc
+                jmp     TPASS
+@try:           sta     DMA,x
+                sta     DG_MWANT
+                lda     DMA,x
+                sta     DG_MGOT
+                cmp     DG_MWANT
+                rts
+@bad:           stx     T_REV
+                stz     DMA,x
+                plx
+                jsr     TDET
+                SAY     "REGISTER $C4"
+                lda     T_REV
+                jsr     HEX2
+                jsr     RWBITS
+                jmp     SCROFF
+@badc:          TD      "CONTROL'S BURST BITS DIDN'T READ BACK"
+                rts
+
+; D2: every RAM block filled by channel 3 with HOLD (the source a byte of the
+; zero page, so the fill is the controller's alone), each its own byte (its
+; number XOR $A5), all before any is read; then the CPU checks each, as
+; stage 6 names a fault. W0's block from +$200: its zero page and stack stay.
+; Blocks stages 3-6 failed are filled and checked too (a fault under DMA is
+; named as stage 6 named it), but not one that answers as W0's (ASW0): its
+; fill would land on the zero page and the stack.
+D2:
+                TB      "D2   DMA FILL OF ALL RAM, CHECKED BY THE CPU"
+                lda     #$FF
+@fill:          jsr     RAMBLK
+                jcs     @check
+                sta     DG_BLK
+                cmp     DG_W0
+                beq     @own
+                jsr     ASW0           ; a block that answers as W0's (since stage 6 moved it): not filled
+                bcs     @asw0
+                lda     DG_BLK
+                jsr     ASALIAS        ; a failed block that answers as another: not filled (review P3)
+                bcc     @own
+                lda     DG_BLK
+                jmp     @fill
+@asw0:
+                jsr     TDET
+                SAY     "BLOCK "
+                lda     DG_BLK
+                jsr     PUTDEC
+                SAY     " ANSWERS AS BLOCK "
+                lda     DG_W0
+                jsr     PUTDEC
+                SAY     ", W0'S: NOT FILLED"
+                jsr     CRLF
+                jsr     SCROFF
+                lda     DG_BLK
+                jmp     @fill
+@own:           lda     DG_BLK
+                eor     #$A5
+                sta     T_PAT
+                lda     #0
+                jsr     SRCW0
+                lda     #<T_PAT
+                sta     T_SRC          ; the zero page's byte, W0's page 0
+                ldx     #0
+                lda     #$40
+                ldy     DG_BLK
+                cpy     DG_W0
+                bne     @whole
+                ldx     #$02
+                lda     #$3E
+@whole:         stz     T_CNT
+                sta     T_CNT + 1
+                tya
+                jsr     PHYSB
+                jsr     PA2DST
+                lda     #DMA_HOLD
+                jsr     DMA3
+                bcs     @stuck
+                lda     DG_BLK
+                jmp     @fill
+@check:         stz     T_NBAD
+                lda     #$FF
+@c:             jsr     RAMBLK
+                bcs     @done
+                sta     DG_BLK
+                sta     NB_WIN1
+                eor     #$A5
+                sta     T_PAT
+                stz     HW_PTR
+                lda     #$40
+                ldx     DG_BLK
+                cpx     DG_W0
+                bne     @from
+                lda     #$42
+@from:          sta     HW_PTR + 1
+                ldy     #0
+@byte:          lda     (HW_PTR),y
+                cmp     T_PAT
+                bne     @wrong
+                iny
+                bne     @byte
+                inc     HW_PTR + 1
+                lda     HW_PTR + 1
+                cmp     #$80
+                bne     @byte
+                lda     DG_BLK
+                bra     @c
+@wrong:         sta     DG_MGOT
+                lda     T_PAT
+                sta     DG_MWANT
+                lda     DG_BLK
+                sta     DG_T0
+                sty     DG_T0 + 1
+                lda     HW_PTR + 1
+                sec
+                sbc     #$40
+                sta     DG_T0 + 2
+                lda     DG_BLK         ; every faulty block failed (review P3); the first eight said
+                jsr     MARKBAD
+                lda     T_NBAD
+                cmp     #8
+                bcs     @many
+                inc     T_NBAD
+                jsr     TRAMF
+@many:          lda     DG_BLK         ; the block's next bytes would say little more: the next block
+                bra     @c
+@done:          lda     #1
+                sta     NB_WIN1
+                jmp     TEND0
+@stuck:         lda     #1
+                sta     NB_WIN1
+                TD      "CHANNEL 3 NEVER REACHED ITS TERMINAL COUNT"
+                rts
+
+; Carry set if block A, one stages 3-6 failed, answers as another block: its
+; +$3FF0 holds another block's number and +$3FF1 its complement, NB2's tags
+; of the blocks that passed (the last written of two blocks that answer as
+; one), so filling it would write over that block, a good one, which D2 would
+; then name. It is kept out of D2's check and what follows (SKIPS); stage 4
+; has named the two blocks already.
+ASALIAS:
+                pha
+                jsr     BLKBIT
+                and     DG_BAD,x
+                beq     @no
+                pla
+                pha
+                sta     NB_WIN1
+                lda     $7FF0
+                eor     #$FF
+                cmp     $7FF1
+                bne     @no
+                lda     $7FF0
+                sta     T_REV
+                pla
+                pha
+                cmp     T_REV          ; another block's tag
+                beq     @no
+                pla
+                jsr     BLKBIT
+                ora     SKIPS,x
+                sta     SKIPS,x
+                lda     #1
+                sta     NB_WIN1
+                sec
+                rts
+@no:            lda     #1
+                sta     NB_WIN1
+                pla
+                clc
+                rts
+
+; Carry set if block A answers as W0's block: a byte written through W1
+; changes W0's own at $07, which nothing keeps (as stage 4's ALIASW0 asks of
+; the block W0 had then); the block is then kept out of what follows
+; (SKIPS). W1 back on block 1.
+ASW0:
+                sta     NB_WIN1
+                lda     $4007
+                pha
+                lda     $07
+                eor     #$FF
+                sta     $4007
+                cmp     $07
+                beq     @alias
+                pla
+                sta     $4007
+                lda     #1
+                sta     NB_WIN1
+                clc
+                rts
+@alias:         eor     #$FF           ; W0's byte back (it is the other's too)
+                sta     $07
+                pla
+                lda     #1
+                sta     NB_WIN1
+                lda     DG_BLK
+                jsr     BLKBIT
+                ora     SKIPS,x
+                sta     SKIPS,x
+                sec
+                rts
+
+; Two tested blocks other than W0's, in T_BLKA and T_BLKB: carry set if there
+; aren't two.
+TWOBLK:
+                lda     #$FF
+@a:             jsr     GOODBLK
+                bcs     @no
+                cmp     DG_W0
+                beq     @a
+                sta     T_BLKA
+@b:             jsr     GOODBLK
+                bcs     @no
+                cmp     DG_W0
+                beq     @b
+                sta     T_BLKB
+                clc
+@no:            rts
+
+; D3: channel 3 copies 4 KB of block A (address in address) to block B, up;
+; then down (MODE's DEC), A's last byte first, into B's next 4 KB.
+D3:
+                TB      "D3   DMA COPY BETWEEN TWO BLOCKS, UP AND DOWN"
+                jsr     TWOBLK
+                bcc     @two
+                TS      "NOT TWO TESTED BLOCKS"
+                rts
+@two:           lda     T_BLKA
+                sta     NB_WIN1
+                sta     HW_KEY
+                jsr     RUN4K
+                jsr     HW_AIAW
+                lda     T_BLKA         ; up: A +0 to B +0
+                ldx     #0
+                jsr     PHYSB
+                jsr     PA2SRC
+                lda     T_BLKB
+                ldx     #0
+                jsr     PHYSB
+                jsr     PA2DST
+                stz     T_CNT
+                lda     #$10
+                sta     T_CNT + 1
+                lda     #0
+                jsr     DMA3
+                lda     T_BLKB
+                sta     NB_WIN1
+                lda     T_BLKA
+                sta     HW_KEY
+                jsr     RUN4K
+                jsr     HW_AIAC
+                bcs     @badup
+                lda     T_BLKA         ; down: A +$0FFF to B +$1FFF, a byte at a time down
+                ldx     #$0F
+                jsr     PHYSB
+                jsr     PA2SRC
+                lda     #$FF
+                sta     T_SRC
+                lda     T_BLKB
+                ldx     #$1F
+                jsr     PHYSB
+                jsr     PA2DST
+                lda     #$FF
+                sta     T_DST
+                lda     #DMA_DEC
+                jsr     DMA3
+                lda     T_BLKB         ; B +$1000-$1FFF is A +$0000-$0FFF: its page $10 more
+                sta     NB_WIN1
+                lda     T_BLKA
+                eor     #$10
+                sta     HW_KEY
+                stz     HW_PTR
+                lda     #$50
+                sta     HW_PTR + 1
+                stz     HW_LEN
+                lda     #$10
+                sta     HW_LEN + 1
+                jsr     HW_AIAC
+                bcs     @baddn
+                lda     #1
+                sta     NB_WIN1
+                jmp     TPASS
+@badup:         lda     #<SCOPYUP
+                ldx     #>SCOPYUP
+                bra     @say
+@baddn:         lda     #<SCOPYDN
+                ldx     #>SCOPYDN
+@say:           pha
+                phx
+                lda     #1
+                sta     NB_WIN1
+                plx
+                pla
+                jmp     TDETS
+
+RUN4K:          stz     HW_PTR
+                lda     #$40
+                sta     HW_PTR + 1
+                stz     HW_LEN
+                lda     #$10
+                sta     HW_LEN + 1
+                rts
+
+; D4: a fill of 2 KB timed by timer 2, less a fill of none (one byte, the
+; same cost to start): 2 cycles a byte, 4,096 cycles.
+D4:
+                TB      "D4   A 2 KB DMA FILL: "
+                jsr     TWOBLK
+                bcc     @two
+                TS      "NOT TWO TESTED BLOCKS"
+                rts
+@two:           lda     #0
+                jsr     SRCW0
+                lda     #<T_PAT
+                sta     T_SRC
+                lda     T_BLKA
+                ldx     #0
+                jsr     PHYSB
+                jsr     PA2DST
+                lda     #1
+                sta     T_CNT
+                stz     T_CNT + 1
+                jsr     @timed
+                lda     T_N
+                sta     T_D            ; (T_D: the short fill's cycles)
+                lda     T_N + 1
+                sta     T_D + 1
+                lda     #<2049
+                sta     T_CNT
+                lda     #>2049
+                sta     T_CNT + 1
+                jsr     @timed
+                sec                    ; the long less the short
+                lda     T_N
+                sbc     T_D
+                sta     T_N
+                lda     T_N + 1
+                sbc     T_D + 1
+                sta     T_N + 1
+                stz     T_N + 2
+                stz     T_N + 3
+                jsr     DEC32
+                SAY     " CYCLES FOR 2048 BYTES"
+                lda     #<DMAREF
+                ldx     #>DMAREF
+                jsr     CLOSE
+                bcs     @far
+                jmp     TPASS
+@far:           TD      "NOT 2 CYCLES A BYTE"
+                rts
+; One fill of T_CNT bytes, timed: T_N (2 bytes) its cycles.
+@timed:         jsr     TZERO
+                lda     #DMA_HOLD
+                jsr     DMA3
+                jsr     T2NOW
+                sta     T_N
+                stx     T_N + 1
+                sec
+                lda     T_PREV
+                sbc     T_N
+                sta     T_N
+                lda     T_PREV + 1
+                sbc     T_N + 1
+                sta     T_N + 1
+                rts
+
+; D5: STATUS's terminal count, set at the end and cleared by a 1; then ABORT
+; part way through a copy, with a burst of one byte so the CPU runs between
+; them: COUNT reads what was left, and no terminal count.
+D5:
+                TB      "D5   TERMINAL COUNT; ABORT PART WAY"
+                jsr     TWOBLK
+                bcc     @two
+                TS      "NOT TWO TESTED BLOCKS"
+                rts
+@two:           lda     #DMA_CH3
+                sta     DMA_STATUS
+                lda     T_BLKA
+                ldx     #0
+                jsr     PHYSB
+                jsr     PA2SRC
+                lda     T_BLKB
+                ldx     #0
+                jsr     PHYSB
+                jsr     PA2DST
+                lda     #16
+                sta     T_CNT
+                stz     T_CNT + 1
+                lda     #0
+                jsr     DMA3
+                lda     DMA_STATUS
+                and     #DMA_CH3
+                jeq     @notc
+                lda     #DMA_CH3
+                sta     DMA_STATUS
+                lda     DMA_STATUS
+                and     #DMA_CH3
+                jne     @stays
+                lda     #DMA_MASTER    ; a burst of one: the CPU between each byte
+                sta     DMA_CONTROL
+                ldx     #2
+@a:             lda     T_SRC,x
+                sta     DMA3_ADDR,x
+                lda     T_DST,x
+                sta     DMA3_DEST,x
+                dex
+                bpl     @a
+                stz     DMA3_COUNT
+                lda     #$10
+                sta     DMA3_COUNT + 1
+                lda     #DMA_M2M
+                sta     DMA3_MODE
+                lda     #DMA_GO
+                ldx     #DMA_CH3
+                sta     DMA3_CTRL
+                stx     DMA_ABORT
+                lda     DMA3_COUNT
+                sta     T_N
+                lda     DMA3_COUNT + 1
+                sta     T_N + 1
+                ldy     DMA3_CTRL
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                tya
+                and     #DMA_ENABLE
+                jne     @running
+                lda     DMA_STATUS
+                and     #DMA_CH3
+                jne     @ended
+                lda     T_N            ; 0 < left < 4096
+                ora     T_N + 1
+                jeq     @ended
+                lda     T_N + 1
+                cmp     #$10
+                jcs     @none
+                SAY     ": "
+                stz     T_N + 2
+                stz     T_N + 3
+                jsr     DEC32
+                SAY     " LEFT"
+                jmp     TPASS
+@notc:          TD      "NO TERMINAL COUNT IN STATUS"
+                rts
+@stays:         TD      "STATUS'S TERMINAL COUNT DIDN'T CLEAR"
+                rts
+@running:       TD      "ABORT LEFT THE CHANNEL ENABLED"
+                rts
+@ended:         TD      "THE COPY ENDED: ABORT CAME TOO LATE OR DID NOTHING"
+                rts
+@none:          TD      "NOTHING WAS MOVED BEFORE THE ABORT"
+                rts
+
+; --- Stage 9: the video card ----------------------------------------------------
+
+STAGE9:
+                lda     #9
+                jsr     SBEGIN
+                lda     HW_REV + 9
+                cmp     #1
+                bne     @r2
+                lda     #<SVREV1
+                ldx     #>SVREV1
+                jmp     CSKIP
+@r2:            ldx     #9
+                lda     #2
+                jsr     CARDIS
+                bcc     @card
+                rts
+@card:          jsr     V1
+                jsr     V2
+                jsr     V3
+                jsr     TEXTOUT
+                lda     DG_SCR         ; card memory is the tests' until REDRAW: no screen meanwhile
+                pha
+                and     #$3F
+                sta     DG_SCR
+                jsr     V4
+                jsr     V5
+                jsr     V6
+                jsr     V7
+                jsr     REDRAW
+                pla
+                sta     DG_SCR
+                lda     #DR_PASS
+                jmp     CEND
+
+V1:
+                TB      "V1   ID $92; MEMSIZE "
+                lda     VIDEO_MEMSIZE
+                sta     T_N
+                jsr     PUTDEC
+                SAY     ": "
+                stz     T_N + 1        ; x 64 KB
+                ldx     #6
+@x64:           asl     T_N
+                rol     T_N + 1
+                dex
+                bne     @x64
+                stz     T_N + 2
+                stz     T_N + 3
+                jsr     DEC32
+                SAY     " KB OF CARD MEMORY"
+                lda     VIDEO_MEMSIZE
+                beq     @none
+                jmp     TPASS
+@none:          TD      "MEMSIZE IS 0"
+                rts
+
+; V2: every register that reads back as written (video-rev2.md's map) with
+; $55 and $AA, each under its mask, then put back: in one vertical blank.
+V2:
+                TB      "V2   EVERY REGISTER THAT READS BACK"
+                jsr     VBSTART
+                ldy     #VREGS - 1
+@save:          ldx     VREGOFS,y
+                lda     VIDEO,x
+                sta     V2SAVE,y
+                dey
+                bpl     @save
+                ldy     #VREGS - 1
+@reg:           ldx     VREGOFS,y
+                lda     #$55
+                and     VREGMSK,y
+                sta     VIDEO,x
+                cmp     VIDEO,x
+                bne     @bad
+                lda     #$AA
+                and     VREGMSK,y
+                sta     VIDEO,x
+                cmp     VIDEO,x
+                bne     @bad
+                lda     V2SAVE,y
+                sta     VIDEO,x
+                dey
+                bpl     @reg
+                jmp     TPASS
+@bad:           sta     DG_MWANT
+                lda     VIDEO,x
+                sta     DG_MGOT
+                stx     T_REV
+@back:          ldx     VREGOFS,y      ; this one and those not yet done put back
+                lda     V2SAVE,y
+                sta     VIDEO,x
+                dey
+                bpl     @back
+                jsr     TDET
+                SAY     "REGISTER $C4"
+                lda     T_REV
+                clc
+                adc     #<VIDEO
+                jsr     HEX2
+                jsr     RWBITS
+                jmp     SCROFF
+
+; Wait for a vertical blank's start (STATUS bit 7 rising): carry set after
+; about 0.1 s with none.
+VBSTART:
+                ldx     #0
+                ldy     #0
+@out:           bit     VIDEO_STATUS
+                bpl     @in
+                dex
+                bne     @out
+                dey
+                bne     @out
+                sec
+                rts
+@in:            bit     VIDEO_STATUS
+                bmi     @go
+                dex
+                bne     @in
+                dey
+                bne     @in
+                sec
+                rts
+@go:            clc
+                rts
+
+; The beam's line, A low, X high, one moment's.
+LINENOW:
+                ldx     VIDEO_LINE + 1
+                lda     VIDEO_LINE
+                cpx     VIDEO_LINE + 1
+                bne     LINENOW
+                rts
+
+; V3: the beam: through a vertical blank LINE reaches 524, then starts the
+; next frame at 0; a frame (two changes of STATUS's bit, by HW_CLOCK) is
+; 119,437 cycles within 0.1%: its own measurement, apart from NB6's.
+V3:
+                TB      "V3   THE BEAM: LINES 0-"
+                jsr     VBSTART
+                stz     T_N
+                stz     T_N + 1
+@vb:            jsr     LINENOW
+                cpx     T_N + 1
+                bcc     @less
+                bne     @more
+                cmp     T_N
+                bcc     @less
+@more:          sta     T_N
+                stx     T_N + 1
+@less:          bit     VIDEO_STATUS
+                bmi     @vb
+                jsr     LINENOW
+                sta     T_D
+                stx     T_D + 1
+                stz     T_N + 2
+                stz     T_N + 3
+                lda     T_N
+                pha
+                lda     T_N + 1
+                pha
+                jsr     DEC32
+                pla
+                sta     T_N + 1
+                pla
+                sta     T_N
+                SAY     ", A FRAME "
+                lda     T_N
+                cmp     #<524
+                jne     @lines
+                lda     T_N + 1
+                cmp     #>524
+                jne     @lines
+                lda     T_D + 1        ; the next frame's first line: 0 (or 1, a poll late)
+                jne     @start
+                lda     T_D
+                cmp     #2
+                jcs     @start
+                lda     #<VIDEO_STATUS ; one frame by HW_CLOCK: to its poll's grain (about 80 cycles)
+                sta     HW_WATCH
+                lda     #>VIDEO_STATUS
+                sta     HW_WATCH + 1
+                lda     #2
+                sta     HW_EDGES
+                jsr     HW_CLOCK
+                bcs     @noframe
+                ldx     #3
+@cp:            lda     HW_CYC,x
+                sta     T_N,x
+                dex
+                bpl     @cp
+                jsr     DEC32
+                SAY     " CYCLES"
+                lda     #<FRAMEREF
+                ldx     #>FRAMEREF
+                jsr     CLOSE
+                bcs     @far
+                jmp     TPASS
+@lines:         TD      "THE LAST LINE ISN'T 524"
+                rts
+@start:         TD      "THE FRAME DIDN'T START AT LINE 0"
+                rts
+@noframe:       TD      "NO FRAME"
+                rts
+@far:           TD      "NOT WITHIN 0.1% OF 119437 CYCLES"
+                rts
+
+; The screen's text into W0's TEXTSAVE, by the port, before V4 overwrites
+; card memory; REDRAW puts it back with the font and the palette.
+TEXTOUT:
+                jsr     TEXTAT
+                lda     #<TEXTSAVE
+                sta     HW_PTR
+                lda     #>TEXTSAVE
+                sta     HW_PTR + 1
+                ldx     #>TEXTLEN + 1
+                ldy     #0
+@b:             lda     VIDEO_PDATA
+                sta     (HW_PTR),y
+                iny
+                bne     @b
+                inc     HW_PTR + 1
+                dex
+                bne     @b
+                rts
+TEXTAT:         lda     #<DG_TEXT
+                sta     VIDEO_PADDR
+                lda     #>DG_TEXT
+                sta     VIDEO_PADDR + 1
+                lda     #^DG_TEXT
+                sta     VIDEO_PADDR + 2
+                lda     #1
+                sta     VIDEO_PSTEP
+                stz     VIDEO_PSTEP + 1
+                stz     VIDEO_PCTL
+                rts
+
+; The screen again: the font from flash block 30, the palette, the text kept
+; by TEXTOUT; the aperture's slots and the port as /RESET leaves them.
+REDRAW:
+                jsr     SLOTS
+                lda     #<DG_FONT
+                sta     VIDEO_PADDR
+                lda     #>DG_FONT
+                sta     VIDEO_PADDR + 1
+                lda     #^DG_FONT
+                sta     VIDEO_PADDR + 2
+                lda     #FLASH30
+                sta     NB_WIN1
+                stz     HW_PTR
+                lda     #$40
+                sta     HW_PTR + 1
+                ldx     #16
+                ldy     #0
+@f:             lda     (HW_PTR),y
+                sta     VIDEO_PDATA
+                iny
+                bne     @f
+                inc     HW_PTR + 1
+                dex
+                bne     @f
+                lda     #1
+                sta     NB_WIN1
+                stz     VIDEO_PADDR
+                stz     VIDEO_PADDR + 1
+                stz     VIDEO_PADDR + 2
+                ldx     #0
+@p:             lda     CGA,x
+                sta     VIDEO_PDATA
+                inx
+                cpx     #32
+                bne     @p
+                jsr     TEXTAT
+                lda     #<TEXTSAVE
+                sta     HW_PTR
+                lda     #>TEXTSAVE
+                sta     HW_PTR + 1
+                ldx     #>TEXTLEN + 1
+                ldy     #0
+@t:             lda     (HW_PTR),y
+                sta     VIDEO_PDATA
+                iny
+                bne     @t
+                inc     HW_PTR + 1
+                dex
+                bne     @t
+                rts
+
+; SLOT0-3 0-3, PSTEP 1, PCTL 0: as /RESET leaves them.
+SLOTS:
+                ldx     #6
+@s:             txa
+                lsr     a
+                sta     VIDEO_SLOT0,x
+                stz     VIDEO_SLOT0 + 1,x
+                dex
+                dex
+                bpl     @s
+                lda     #1
+                sta     VIDEO_PSTEP
+                stz     VIDEO_PSTEP + 1
+                stz     VIDEO_PCTL
+                rts
+
+; Card bank T_K (16 KB) in W1 through aperture slot 0.
+BANKW1:
+                lda     T_K
+                sta     VIDEO_SLOT0
+                lda     T_K + 1
+                sta     VIDEO_SLOT0 + 1
+                lda     #32
+                sta     NB_WIN1
+; HW_PTR and HW_LEN: W1, all 16 KB.
+RUN16K:         stz     HW_PTR
+                lda     #$40
+                sta     HW_PTR + 1
+                stz     HW_LEN
+                sta     HW_LEN + 1
+                rts
+
+; The aperture's fault at HW_BAD (a CPU address in W1) of card bank T_K:
+; "CARD $aaaaaa: READ ...".
+APERFAULT:
+                lda     HW_GOT
+                sta     DG_MGOT
+                lda     HW_WANT
+                sta     DG_MWANT
+                lda     HW_BAD
+                sta     T_N
+                lda     T_K            ; bank x $4000 + the offset in W1
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                sta     T_N + 1
+                lda     HW_BAD + 1
+                and     #$3F
+                ora     T_N + 1
+                sta     T_N + 1
+                lda     T_K + 1
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                asl     a
+                sta     T_N + 2
+                lda     T_K
+                lsr     a
+                lsr     a
+                ora     T_N + 2
+                sta     T_N + 2
+                lda     #3
+                sta     T_N + 3
+                lda     #<SCARD
+                ldx     #>SCARD
+                jmp     TCARDF
+
+; The banks card memory has: MEMSIZE x 4, into T_BANKS.
+BANKS:
+                lda     VIDEO_MEMSIZE
+                sta     T_BANKS
+                stz     T_BANKS + 1
+                asl     T_BANKS
+                rol     T_BANKS + 1
+                asl     T_BANKS
+                rol     T_BANKS + 1
+                rts
+; T_K on to the next bank: Z set at T_BANKS.
+NEXTBANK:
+                inc     T_K
+                bne     @c
+                inc     T_K + 1
+@c:             lda     T_K
+                cmp     T_BANKS
+                bne     @r
+                lda     T_K + 1
+                cmp     T_BANKS + 1
+@r:             rts
+
+; V4: all of card memory, a 16 KB bank at a time in slot 0 (W1 on block 32):
+; address in address, every bank written before any is checked (full: the
+; march too, background $00); the first eight faults said.
+V4:
+                TB      "V4   CARD MEMORY: ADDRESS IN ADDRESS"
+                lda     DG_OPT
+                and     #DO_FULL
+                beq     @q
+                SAY     " AND THE MARCH"
+@q:             jsr     BANKS
+                stz     T_NBAD
+                stz     T_K
+                stz     T_K + 1
+@w:             jsr     BANKW1
+                lda     T_K
+                sta     HW_KEY
+                jsr     HW_AIAW
+                jsr     NEXTBANK
+                bne     @w
+                stz     T_K
+                stz     T_K + 1
+@c:             jsr     BANKW1
+                lda     T_K
+                sta     HW_KEY
+                jsr     HW_AIAC
+                bcc     @march
+                jsr     @fault
+                bra     @nextc
+@march:         lda     DG_OPT
+                and     #DO_FULL
+                beq     @nextc
+                jsr     RUN16K
+                stz     HW_BG
+                jsr     HW_MARCH
+                bcc     @nextc
+                jsr     @fault
+@nextc:         jsr     NEXTBANK
+                bne     @c
+                jsr     SLOTS
+                lda     #1
+                sta     NB_WIN1
+                jmp     TEND0
+@fault:         lda     T_NBAD
+                cmp     #8
+                bcs     @r
+                inc     T_NBAD
+                jmp     APERFAULT
+@r:             rts
+
+; V5: a card address past MEMSIZE (the first bank past it) reads $FF and drops a write.
+V5:
+                TB      "V5   PAST MEMSIZE: $FF, AND A WRITE DROPPED"
+                jsr     BANKS
+                lda     T_BANKS
+                sta     T_K
+                lda     T_BANKS + 1
+                sta     T_K + 1
+                jsr     BANKW1
+                lda     $4123
+                sta     T_D
+                stz     $4123
+                lda     $4123
+                sta     T_D + 1
+                jsr     SLOTS
+                lda     #1
+                sta     NB_WIN1
+                lda     T_D
+                and     T_D + 1
+                cmp     #$FF
+                bne     @bad
+                jmp     TPASS
+@bad:           TD      "IT ANSWERED"
+                rts
+
+; V6: the port against the aperture, card $000000-$00FFFF through slots 0-3
+; (W1 on blocks 32-35): address in address written through PDATA (PSTEP 1),
+; read through the aperture; read through the port stepping down
+; (VIDEO_PCTL_DOWN) from $00FFFF; and written through the aperture, read
+; through the port. Byte n through the port is n's low byte XOR its middle
+; XOR its high XOR the key; through block 32 + k the CPU's pattern is its
+; address's low byte XOR its page XOR a key, the same bytes with the key the
+; port's XOR $40 XOR k x $40.
+V6:
+                TB      "V6   THE PORT AGAINST THE APERTURE, 64 KB, UP AND DOWN"
+                jsr     SLOTS
+                lda     #<VIDEO_PDATA
+                sta     HW_PORT
+                lda     #>VIDEO_PDATA
+                sta     HW_PORT + 1
+                stz     HW_PLEN
+                lda     #1
+                sta     HW_PLEN + 1
+                jsr     PORT0
+                lda     #$5A
+                sta     HW_KEY
+                jsr     HW_PAIAW
+                lda     #$5A           ; read through the aperture
+                jsr     APERC
+                bcs     @bad
+                lda     #$FF           ; read through the port, down from $00FFFF
+                sta     VIDEO_PADDR
+                sta     VIDEO_PADDR + 1
+                stz     VIDEO_PADDR + 2
+                lda     #VIDEO_PCTL_DOWN
+                sta     VIDEO_PCTL
+                lda     #$5A
+                sta     HW_KEY
+                jsr     HW_PAIAC
+                stz     VIDEO_PCTL
+                bcs     @baddn
+                stz     T_K            ; written through the aperture
+@aw:            lda     T_K
+                clc
+                adc     #32
+                sta     NB_WIN1
+                jsr     RUN16K
+                jsr     AKEY
+                eor     #$A5
+                sta     HW_KEY
+                jsr     HW_AIAW
+                inc     T_K
+                lda     T_K
+                cmp     #4
+                bne     @aw
+                lda     #1
+                sta     NB_WIN1
+                jsr     PORT0          ; read through the port
+                lda     #$A5
+                sta     HW_KEY
+                jsr     HW_PAIAC
+                bcs     @badup
+                jmp     TPASS
+@bad:           lda     #1
+                sta     NB_WIN1
+                stz     T_K + 1
+                jmp     APERFAULT
+@baddn:         lda     HW_BAD         ; byte n down from $FFFF is at $FFFF - n
+                eor     #$FF
+                sta     T_N
+                lda     HW_BAD + 1
+                eor     #$FF
+                sta     T_N + 1
+                bra     @port
+@badup:         lda     HW_BAD
+                sta     T_N
+                lda     HW_BAD + 1
+                sta     T_N + 1
+@port:          stz     T_N + 2
+                lda     #3
+                sta     T_N + 3
+                lda     HW_GOT
+                sta     DG_MGOT
+                lda     HW_WANT
+                sta     DG_MWANT
+                lda     #<SPORT
+                ldx     #>SPORT
+                jmp     TCARDF
+
+; The port at card $000000, stepping up by 1.
+PORT0:          stz     VIDEO_PADDR
+                stz     VIDEO_PADDR + 1
+                stz     VIDEO_PADDR + 2
+                lda     #1
+                sta     VIDEO_PSTEP
+                stz     VIDEO_PSTEP + 1
+                stz     VIDEO_PCTL
+                rts
+; $40 XOR T_K x $40: the aperture's key against the port's (V6).
+AKEY:           lda     T_K
+                lsr     a
+                ror     a
+                ror     a
+                and     #$C0
+                eor     #$40
+                rts
+; The aperture's four slots checked against the port's key A: carry set and
+; T_K the bank at a fault.
+APERC:          sta     T_REV
+                stz     T_K
+@k:             lda     T_K
+                clc
+                adc     #32
+                sta     NB_WIN1
+                jsr     RUN16K
+                jsr     AKEY
+                eor     T_REV
+                sta     HW_KEY
+                jsr     HW_AIAC
+                bcs     @r
+                inc     T_K
+                lda     T_K
+                cmp     #4
+                bne     @k
+                lda     #1
+                sta     NB_WIN1
+                clc
+@r:             rts
+
+; V7: channel 1, 4 KB of a pattern from W0's SRC4K into card memory at
+; $010000 through the port (PCTL's DRQ), and back (PCTL's FROM) into W0's
+; DST4K; the aperture and the copy back agree with it.
+V7:
+                TB      "V7   DMA CHANNEL 1: 4 KB TO THE CARD AND BACK"
+                jsr     HAVEDMA
+                bcc     @dma
+                TS      "NO DMA CONTROLLER"
+                rts
+@dma:           jsr     PAT4K
+                jsr     PORT10K
+                lda     #VIDEO_PCTL_DRQ
+                sta     VIDEO_PCTL
+                lda     #>SRC4K
+                ldx     #DMA_DEMAND_OUT
+                jsr     DMA1GO
+                stz     VIDEO_PCTL
+                bcs     @stuck
+                lda     #4             ; card $010000 is bank 4: slot 0
+                sta     VIDEO_SLOT0
+                stz     VIDEO_SLOT0 + 1
+                lda     #32
+                sta     NB_WIN1
+                lda     #$40
+                jsr     CMP4K
+                php
+                ldx     #1
+                stx     NB_WIN1
+                jsr     SLOTS
+                plp
+                bcs     @badap
+                jsr     PORT10K
+                lda     #VIDEO_PCTL_DRQ | VIDEO_PCTL_FROM
+                sta     VIDEO_PCTL
+                lda     #>DST4K
+                ldx     #DMA_DEMAND_IN
+                jsr     DMA1GO
+                stz     VIDEO_PCTL
+                bcs     @stuck
+                lda     #>DST4K
+                jsr     CMP4K
+                bcs     @badbk
+                jmp     TPASS
+@stuck:         TD      "CHANNEL 1 NEVER REACHED ITS TERMINAL COUNT"
+                rts
+@badap:         TD      "THE APERTURE DOESN'T SHOW WHAT CHANNEL 1 WROTE"
+                rts
+@badbk:         TD      "CHANNEL 1 READ BACK SOMETHING ELSE"
+                rts
+
+; W0's SRC4K: 4 KB of address in address, key $3C.
+PAT4K:          lda     #<SRC4K
+                sta     HW_PTR
+                lda     #>SRC4K
+                sta     HW_PTR + 1
+                stz     HW_LEN
+                lda     #$10
+                sta     HW_LEN + 1
+                lda     #$3C
+                sta     HW_KEY
+                jmp     HW_AIAW
+; The port at card $010000, stepping up.
+PORT10K:        jsr     PORT0
+                lda     #1
+                sta     VIDEO_PADDR + 2
+                rts
+; 4 KB at CPU page A against W0's SRC4K: carry set if they differ.
+CMP4K:          sta     HW_PTR + 1
+                stz     HW_PTR
+                lda     #<SRC4K
+                sta     DG_PTR
+                lda     #>SRC4K
+                sta     DG_PTR + 1
+                ldx     #16
+                ldy     #0
+@b:             lda     (HW_PTR),y
+                cmp     (DG_PTR),y
+                bne     @no
+                iny
+                bne     @b
+                inc     HW_PTR + 1
+                inc     DG_PTR + 1
+                dex
+                bne     @b
+                clc
+                rts
+@no:            sec
+                rts
+
+; Channel 1 between W0's page A and the card, X its MODE: 4 KB, waited for.
+DMA1GO:
+                stx     DMA1_MODE
+                jsr     SRCW0
+                ldx     #2
+@a:             lda     T_SRC,x
+                sta     DMA1_ADDR,x
+                dex
+                bpl     @a
+                stz     DMA1_COUNT
+                lda     #$10
+                sta     DMA1_COUNT + 1
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                lda     #DMA_ENABLE
+                sta     DMA1_CTRL
+                ldx     #$10
+                jmp     DMAWAIT
+
+; --- Stage 10: the sound card ---------------------------------------------------
+
+STAGE10:
+                lda     #10
+                jsr     SBEGIN
+                lda     HW_REV + $A
+                cmp     #HW_NONE
+                bne     @there
+                lda     #<SNOCARD
+                ldx     #>SNOCARD
+                jmp     CSKIP
+@there:         cmp     #1
+                beq     @known
+                cmp     #2
+                beq     @known
+                jmp     CSKIPREV
+@known:         lda     SOUND_CTRL     ; the 6510 stopped: the card's RAM is the host's
+                and     #<~SOUND_RUN
+                sta     SOUND_CTRL
+                jsr     S1
+                jsr     S2
+                jsr     S3
+                jsr     S4
+                jsr     S5
+                jsr     S6
+                jsr     S7
+                lda     SOUND_CTRL     ; the 6510 stopped again
+                and     #<~SOUND_RUN
+                sta     SOUND_CTRL
+                jsr     S8
+                jsr     S9
+                lda     #DR_PASS
+                jmp     CEND
+
+; Carry clear on revision 2.
+REV2:           lda     HW_REV + $A
+                cmp     #2
+                beq     @y
+                sec
+                rts
+@y:             clc
+                rts
+
+S1:
+                TB      "S1   ID $A"
+                lda     HW_REV + $A
+                jsr     HEXDIG
+                jsr     REV2
+                bcc     @r2
+                jmp     TPASS
+@r2:            SAY     "; CODECS $"
+                lda     SOUND_CODECS
+                jsr     HEX2
+                cmp     #$83
+                bne     @bad
+                jmp     TPASS
+@bad:           TD      "CODECS ISN'T $83"
+                rts
+
+; RAMADDR to A/X (low, high).
+RAMAT:          sta     SOUND_RAMADDR
+                stx     SOUND_RAMADDR + 1
+                rts
+
+; S2: the card's 64 KB through RAMADDR and RAMDATA, the 6510 stopped: address
+; in address (full: again with the key complemented, every bit both ways).
+S2:
+                TB      "S2   THE CARD'S RAM, 64 KB: ADDRESS IN ADDRESS"
+                lda     DG_OPT
+                and     #DO_FULL
+                beq     @q
+                SAY     ", TWICE"
+@q:             lda     #<SOUND_RAMDATA
+                sta     HW_PORT
+                lda     #>SOUND_RAMDATA
+                sta     HW_PORT + 1
+                stz     HW_PLEN
+                lda     #1
+                sta     HW_PLEN + 1
+                lda     #$C3
+                jsr     @pass
+                bcs     @bad
+                lda     DG_OPT
+                and     #DO_FULL
+                beq     @ok
+                lda     #$3C
+                jsr     @pass
+                bcs     @bad
+@ok:            jmp     TPASS
+@pass:          sta     T_PAT
+                lda     #0
+                tax
+                jsr     RAMAT
+                lda     T_PAT
+                sta     HW_KEY
+                jsr     HW_PAIAW
+                lda     #0
+                tax
+                jsr     RAMAT
+                lda     T_PAT
+                sta     HW_KEY
+                jmp     HW_PAIAC
+@bad:           lda     HW_BAD
+                sta     T_N
+                lda     HW_BAD + 1
+                sta     T_N + 1
+                lda     #2
+                sta     T_N + 3
+                lda     HW_GOT
+                sta     DG_MGOT
+                lda     HW_WANT
+                sta     DG_MWANT
+                lda     #<SCRAM
+                ldx     #>SCRAM
+                jmp     TCARDF
+
+; S3: channel 2, 4 KB of a pattern from W0's SRC4K into the card's RAM at
+; $1000 (DRQSEL 0, RAMDATA), read back through RAMDATA.
+S3:
+                TB      "S3   DMA CHANNEL 2: 4 KB INTO THE CARD'S RAM"
+                jsr     HAVEDMA
+                bcc     @dma
+                TS      "NO DMA CONTROLLER"
+                rts
+@dma:           jsr     PAT4K
+                lda     #SOUND_DRQ_RAM
+                sta     SOUND_DRQSEL
+                lda     #0
+                ldx     #$10
+                jsr     RAMAT
+                lda     #DMA_DEMAND_OUT
+                sta     DMA2_MODE
+                lda     #>SRC4K
+                jsr     SRCW0
+                ldx     #2
+@a:             lda     T_SRC,x
+                sta     DMA2_ADDR,x
+                dex
+                bpl     @a
+                stz     DMA2_COUNT
+                lda     #$10
+                sta     DMA2_COUNT + 1
+                lda     #DMA_ENABLE
+                sta     DMA2_CTRL
+                ldx     #$20
+                jsr     DMAWAIT
+                bcs     @stuck
+                lda     #0
+                ldx     #$10
+                jsr     RAMAT
+                lda     #<SRC4K
+                sta     DG_PTR
+                lda     #>SRC4K
+                sta     DG_PTR + 1
+                ldx     #16
+                ldy     #0
+@b:             lda     SOUND_RAMDATA
+                cmp     (DG_PTR),y
+                bne     @bad
+                iny
+                bne     @b
+                inc     DG_PTR + 1
+                dex
+                bne     @b
+                jmp     TPASS
+@stuck:         TD      "CHANNEL 2 NEVER REACHED ITS TERMINAL COUNT"
+                rts
+@bad:           TD      "THE CARD'S RAM DOESN'T HOLD WHAT CHANNEL 2 WROTE"
+                rts
+
+; A byte to the card's 6510 (A), once it has taken the last: carry set if it
+; doesn't within 0.5 s.
+MBSEND:
+                pha
+                jsr     TZERO
+@w:             lda     SOUND_STATUS
+                and     #SOUND_ST_MBOUT
+                beq     @go
+                jsr     TTICK
+                lda     T_ACC + 2
+                cmp     #$37           ; $370000 cycles: 0.5 s
+                bcc     @w
+                pla
+                sec
+                rts
+@go:            pla
+                sta     SOUND_MBOUT
+                clc
+                rts
+; A byte from the 6510 within 0.5 s: in A, carry clear; carry set if none.
+MBRECV:
+                jsr     TZERO
+@w:             lda     SOUND_STATUS
+                and     #SOUND_ST_MBIN
+                bne     @got
+                jsr     TTICK
+                lda     T_ACC + 2
+                cmp     #$37
+                bcc     @w
+                sec
+                rts
+@got:           lda     SOUND_MBIN
+                clc
+                rts
+
+; S4: the 6510 program (card6510.s) loaded at the card's $0200 with its reset
+; vector, the sum S6 checks taken first; then RUN and RESET: its start byte,
+; $A5, in MBIN within 0.5 s. S5-S7 need it.
+S4:
+                lda     #$00           ; S6's sum: the card's $1000-$1FFF, read by the host
+                ldx     #$10
+                jsr     RAMAT
+                stz     T_SUM
+                stz     T_SUM + 1
+                ldx     #16
+                ldy     #0
+@sum:           lda     SOUND_RAMDATA
+                clc
+                adc     T_SUM
+                sta     T_SUM
+                bcc     @nc
+                inc     T_SUM + 1
+@nc:            iny
+                bne     @sum
+                dex
+                bne     @sum
+                TB      "S4   THE 6510'S PROGRAM: ITS START BYTE"
+                lda     #<C65_ORG
+                ldx     #>C65_ORG
+                jsr     RAMAT
+                lda     #<C6510
+                sta     DG_PTR
+                lda     #>C6510
+                sta     DG_PTR + 1
+                ldx     #>(C6510END - C6510) + 1
+                ldy     #0
+@load:          lda     (DG_PTR),y
+                sta     SOUND_RAMDATA
+                iny
+                bne     @load
+                inc     DG_PTR + 1
+                dex
+                bne     @load
+                lda     #<SOUND_RAM_VECTOR
+                ldx     #>SOUND_RAM_VECTOR
+                jsr     RAMAT
+                lda     #<C65_ORG
+                sta     SOUND_RAMDATA
+                lda     #>C65_ORG
+                sta     SOUND_RAMDATA
+                lda     SOUND_MBIN     ; a byte left there: dropped
+                lda     SOUND_CTRL
+                ora     #SOUND_RUN | SOUND_RESET
+                sta     SOUND_CTRL
+                jsr     MBRECV
+                bcs     @none
+                cmp     #C65_HELLO
+                bne     @wrong
+                lda     #1
+                sta     T_RUNS
+                jmp     TPASS
+@none:          stz     T_RUNS
+                TD      "NO START BYTE WITHIN 0.5 S"
+                rts
+@wrong:         stz     T_RUNS
+                sta     DG_MGOT
+                jsr     TDET
+                SAY     "THE START BYTE WAS "
+                lda     DG_MGOT
+                jsr     HEX2
+                SAY     ", NOT A5"
+                jsr     CRLF
+                jmp     SCROFF
+
+; Carry set, and the test skipped, if the 6510 didn't start (S4).
+NEEDRUN:
+                lda     T_RUNS
+                bne     @ok
+                TS      "THE 6510 DIDN'T START (S4)"
+                sec
+                rts
+@ok:            clc
+                rts
+
+; S5: the mailbox both ways, 256 bytes, each echoed.
+S5:
+                TB      "S5   THE MAILBOX BOTH WAYS: 256 BYTES ECHOED"
+                jsr     NEEDRUN
+                bcs     @r
+                stz     T_PAT
+@b:             lda     #C65_ECHO
+                jsr     MBSEND
+                bcs     @lost
+                lda     T_PAT
+                jsr     MBSEND
+                bcs     @lost
+                jsr     MBRECV
+                bcs     @lost
+                cmp     T_PAT
+                bne     @wrong
+                inc     T_PAT
+                bne     @b
+                jmp     TPASS
+@lost:          TD      "THE 6510 STOPPED ANSWERING"
+@r:             rts
+@wrong:         sta     DG_MGOT
+                lda     T_PAT
+                sta     DG_MWANT
+                jsr     TDET
+                SAY     "ECHOED"
+                jsr     RWBITS
+                jmp     SCROFF
+
+; S6: the 6510's sum of its $1000-$1FFF (S3's 4 KB) against the host's.
+S6:
+                TB      "S6   THE 6510'S SUM OF S3'S 4 KB"
+                jsr     NEEDRUN
+                bcs     @r
+                lda     #C65_SUM
+                jsr     MBSEND
+                lda     #$00
+                jsr     MBSEND
+                lda     #$10
+                jsr     MBSEND
+                lda     #$00
+                jsr     MBSEND
+                lda     #$10
+                jsr     MBSEND
+                bcs     @lost
+                jsr     MBRECV
+                bcs     @lost
+                sta     T_N
+                jsr     MBRECV
+                bcs     @lost
+                sta     T_N + 1
+                lda     T_N
+                cmp     T_SUM
+                bne     @bad
+                lda     T_N + 1
+                cmp     T_SUM + 1
+                bne     @bad
+                jmp     TPASS
+@lost:          TD      "THE 6510 STOPPED ANSWERING"
+@r:             rts
+@bad:           TD      "ITS SUM ISN'T THE HOST'S"
+                rts
+
+; S7: the SIDs, by the 6510: voice 3's OSC3 moves and ENV3 rises, on SID A
+; and on SID B.
+S7:
+                TB      "S7   THE SIDS: VOICE 3'S OSC3 AND ENV3, A AND B"
+                jsr     NEEDRUN
+                bcs     @r
+                stz     T_PAT
+@sid:           lda     #C65_SID
+                jsr     MBSEND
+                lda     T_PAT
+                jsr     MBSEND
+                bcs     @lost
+                jsr     MBRECV
+                bcs     @lost
+                cmp     #3
+                bne     @bad
+                inc     T_PAT
+                lda     T_PAT
+                cmp     #2
+                bne     @sid
+                jmp     TPASS
+@lost:          TD      "THE 6510 STOPPED ANSWERING"
+@r:             rts
+@bad:           sta     DG_MGOT
+                jsr     TDET
+                SAY     "SID "
+                lda     T_PAT
+                clc
+                adc     #'A'
+                jsr     PUTC
+                SAY     ": "
+                lda     DG_MGOT
+                and     #1
+                bne     @osc
+                SAY     "OSC3 STILL "
+@osc:           lda     DG_MGOT
+                and     #2
+                bne     @env
+                SAY     "ENV3 FLAT"
+@env:           jsr     CRLF
+                jmp     SCROFF
+
+; S8: revision 2's wave RAM, 128 KB, through DOCDATA with AUTOINC (DOCBANK
+; the address's bit 16), the ES5503 frozen: address in address (full: again
+; with the key complemented). The splash loads its samples again at the
+; next boot.
+S8:
+                TB      "S8   WAVE RAM, 128 KB: ADDRESS IN ADDRESS"
+                jsr     REV2
+                bcc     @r2
+                TS      "REVISION 1: NO ES5503"
+                rts
+@r2:            lda     DG_OPT
+                and     #DO_FULL
+                beq     @q
+                SAY     ", TWICE"
+@q:             lda     #<SOUND_DOCDATA
+                sta     HW_PORT
+                lda     #>SOUND_DOCDATA
+                sta     HW_PORT + 1
+                stz     HW_PLEN
+                lda     #2
+                sta     HW_PLEN + 1
+                lda     #$96
+                jsr     @pass
+                bcs     @bad
+                lda     DG_OPT
+                and     #DO_FULL
+                beq     @ok
+                lda     #$69
+                jsr     @pass
+                bcs     @bad
+@ok:            stz     SOUND_DOCCTL
+                jmp     TPASS
+@pass:          sta     T_PAT
+                jsr     @at
+                jsr     HW_PAIAW
+                jsr     @at
+                jmp     HW_PAIAC
+@at:            lda     #SOUND_DOC_RAM | SOUND_DOC_AUTOINC
+                sta     SOUND_DOCCTL
+                stz     SOUND_DOCADDR
+                stz     SOUND_DOCADDR + 1
+                stz     SOUND_DOCBANK
+                lda     T_PAT
+                sta     HW_KEY
+                rts
+@bad:           stz     SOUND_DOCCTL
+                ldx     #2
+@cp:            lda     HW_BAD,x
+                sta     T_N,x
+                dex
+                bpl     @cp
+                lda     #3
+                sta     T_N + 3
+                lda     HW_GOT
+                sta     DG_MGOT
+                lda     HW_WANT
+                sta     DG_MWANT
+                lda     #<SWAVE
+                ldx     #>SWAVE
+                jmp     TCARDF
+
+; S9: revision 2's stream: 4 KB of silence, raw PCM at 8,000 Hz, 8 bits mono.
+; STATE goes buffering (the first 2 KB), playing (at 4 KB), ended (EOF);
+; POS counts 8,000 frames a second within 0.5% over 1,835,008 cycles of
+; timer 2 (2,051 frames).
+S9:
+                TB      "S9   A PCM STREAM AT 8000 HZ: "
+                jsr     REV2
+                bcc     @r2
+                TS      "REVISION 1: NO STREAM"
+                rts
+@r2:            lda     #SOUND_PCM_FLUSH
+                sta     SOUND_PCMCTL
+                stz     SOUND_CODEC
+                lda     #<8000
+                sta     SOUND_RATE
+                lda     #>8000
+                sta     SOUND_RATE + 1
+                stz     SOUND_PCMFMT
+                lda     #SOUND_PCM_RUN
+                sta     SOUND_PCMCTL
+                jsr     @half
+                lda     SOUND_STATE
+                cmp     #1
+                jne     @nobuf
+                jsr     @half
+                lda     SOUND_STATE
+                cmp     #2
+                jne     @noplay
+                lda     SOUND_POS      ; reading the low byte latches the rest
+                sta     T_SUM          ; (not T_D: TTICK's)
+                lda     SOUND_POS + 1
+                sta     T_SUM + 1
+                jsr     TZERO
+@wait:          jsr     TTICK
+                lda     T_ACC + 2
+                cmp     #$1C
+                bcc     @wait
+                lda     SOUND_POS
+                sec
+                sbc     T_SUM
+                sta     T_N
+                lda     SOUND_POS + 1
+                sbc     T_SUM + 1
+                sta     T_N + 1
+                stz     T_N + 2
+                stz     T_N + 3
+                lda     T_N
+                pha
+                lda     T_N + 1
+                pha
+                jsr     DEC32
+                pla
+                sta     T_N + 1
+                pla
+                sta     T_N
+                SAY     " FRAMES IN 1835008 CYCLES"
+                lda     #SOUND_PCM_RUN | SOUND_PCM_EOF
+                sta     SOUND_PCMCTL
+                jsr     TZERO          ; ended within about a second
+@end:           lda     SOUND_STATE
+                cmp     #5
+                beq     @ended
+                jsr     TTICK
+                lda     T_ACC + 2
+                cmp     #$6D
+                bcc     @end
+                jsr     @stop
+                TD      "IT NEVER ENDED"
+                rts
+@ended:         jsr     @stop
+                stz     T_N + 2
+                stz     T_N + 3
+                lda     #<PCMREF
+                ldx     #>PCMREF
+                jsr     CLOSE
+                bcs     @far
+                jmp     TPASS
+@far:           TD      "NOT WITHIN 0.5% OF 8000 FRAMES A SECOND"
+                rts
+@nobuf:         jsr     @stop
+                TD      "NOT BUFFERING AFTER THE FIRST 2 KB"
+                rts
+@noplay:        jsr     @stop
+                TD      "NOT PLAYING AFTER 4 KB"
+                rts
+@stop:          lda     #SOUND_PCM_FLUSH
+                sta     SOUND_PCMCTL
+                rts
+@half:          ldx     #8             ; 2 KB of silence
+                ldy     #0
+                lda     #$80
+@b:             sta     SOUND_PCMDATA
+                iny
+                bne     @b
+                dex
+                bne     @b
+                rts
 
         .include "diagcon.inc"
+        .include "diagtest.inc"
 
-SLATER:         .byte   "      NOT IN THIS BUILD YET (D3B)", $0D, 0
+; --- Tables and text -------------------------------------------------------------
+
+; D1's registers: a channel's ADDR, COUNT, MODE and DEST, with their masks
+DREGOFS:        .byte   $00, $01, $02, $04, $05, $06, $08, $09, $0A
+DREGMSK:        .byte   $FF, $FF, $0F, $FF, $FF, $FF, $FF, $FF, $0F
+DREGS           = * - DREGMSK
+
+; V2's registers (offsets from $C480) and the bits each keeps
+VREGOFS:        .byte   $00, $01, $04, $0A, $0B, $0C, $0D
+                .byte   $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+                .byte   $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+                .byte   $30, $31, $32, $33, $34, $35, $36, $37
+                .byte   $38, $39, $3A, $3C, $3D, $3E
+VREGMSK:        .byte   $0F, $FF, $07, $FF, $FF, $FF, $FF
+                .byte   $FF, $FF, $FF, $FF, $FF, $FF, $03, $FF, $03, $0F
+                .byte   $FF, $FF, $FF, $FF, $FF, $FF, $03, $FF, $03, $0F
+                .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+                .byte   $FF, $FF, $FF, $FF, $FF, $07
+VREGS           = * - VREGMSK
+.assert VREGS = VREGMSK - VREGOFS, error, "V2's tables"
+
+; CLOSE's tables: the value (4 bytes), the tolerance (2)
+HZREF:          .dword  HZ
+                .word   HZ / 1000      ; 0.1%
+FRAMEREF:       .dword  FRAME
+                .word   FRAME / 1000
+FRAMESREF:      .dword  60 * FRAME
+                .word   60 * FRAME / 1000
+DMAREF:         .dword  4096
+                .word   16
+PCMREF:         .dword  (1835008 * 8000 + HZ / 2) / HZ
+                .word   10             ; 0.5% of 2,051
+
+; The CGA's 16 colours, as video.s has them (GGGGBBBB, then 0000RRRR)
+.macro RGB r, g, b
+                .byte   (g << 4) | b, r
+.endmacro
+CGA:            RGB     $0, $0, $0
+                RGB     $0, $0, $A
+                RGB     $0, $A, $0
+                RGB     $0, $A, $A
+                RGB     $A, $0, $0
+                RGB     $A, $0, $A
+                RGB     $A, $5, $0
+                RGB     $A, $A, $A
+                RGB     $5, $5, $5
+                RGB     $5, $5, $F
+                RGB     $5, $F, $5
+                RGB     $5, $F, $F
+                RGB     $F, $5, $5
+                RGB     $F, $5, $F
+                RGB     $F, $F, $5
+                RGB     $F, $F, $F
+
+SNOCARD:        .byte   "NO CARD", 0
+SVREV1:         .byte   "REVISION 1: LISTED, NOT TESTED (BIOS 0.14 DOESN'T DRIVE IT)", 0
+SLOST:          .byte   "LOST: THE CLOCK CHIP'S OSCILLATOR STOPPED; SET THE TIME", 0
+SCOPYUP:        .byte   "THE COPY UP DOESN'T MATCH ITS SOURCE", 0
+SCOPYDN:        .byte   "THE COPY DOWN (MODE'S DEC) DOESN'T MATCH ITS SOURCE", 0
+SCARD:          .byte   "CARD $", 0
+SPORT:          .byte   "THE PORT AT CARD $", 0
+SCRAM:          .byte   "CARD RAM $", 0
+SWAVE:          .byte   "WAVE RAM $", 0
+
+; The 6510's program (card6510.s, assembled on its own by the Makefile)
+C6510:          .incbin "card6510.bin"
+C6510END:
+.assert C6510END - C6510 <= $200, error, "card6510.bin: more than $0200-$03FF"
+

@@ -9,7 +9,7 @@
         .include "backplane.inc"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 HW_SD_ID:
         lda     SD_ID
         cmp     #SD_ID_V1
@@ -108,6 +108,6 @@ data:   lda     #7
 @ok:    clc
         rts
 
-        .bss
+        OOHW_BSS
 ctrl:   .res    1
 tmo:    .res    1
