@@ -106,6 +106,7 @@ Step a2's, typed and RUN the same way:
 | `clearcm`, `clearcm2`, `clearom`, `clearom2`, `clearom3`, `clearfc`, `clearfc2`, `clearfc3`, `clearfc4`, `clearsn` | CLEAR's commas and errors: m 240 or less, more than n, n under the variables (Out of memory); n or m 0, x negative, n past the TPA's top (Illegal function call); too much |
 | `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate Definition; Syntax error |
 | `random`, `randomov`, `randomtm`, `randin` (`randin.in`) | RANDOMIZE n (each kind of seed), its errors; RANDOMIZE alone with the seed typed, a bad line asked for again |
+| `fout7788` | the owner's G5: .7788379, which the 1983 source's $FOUT prints as .778838 (two roundings in $FOTNV); shipped GW-BASIC prints .7788379 (.differ) |
 | `write`, `writemo`, `writesn` | WRITE: numbers, strings, `,` and `;`, alone; Missing operand; Syntax error |
 | `strng`, `strfc`, `strfc2`, `strfc3`, `strfc4`, `strtm` | STRING$ of a code and of a string, 0 and 255 long; its errors |
 | `lhsmid`, `lhsfc0`, `lhsfc`, `lhsfc2`, `lhstm`, `lhstm2`, `lhssn`, `lhssn2` | MID$ as a statement: each length case, a literal (and DATA) copied first; n 0, past the end; Type mismatch; Syntax error |

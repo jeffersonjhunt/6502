@@ -362,7 +362,7 @@ TEST(option_base_prints_what_pc_basic_prints)
 // asked for again (randin.in).
 TEST(randomize_prints_what_pc_basic_prints)
 {
-    programs({"random", "randomov", "randomtm"});
+    programs({"random", "randomov", "randomtm", "fout7788"});
     CcpRig r;
     REQUIRE(r.ok);
     start(r);
