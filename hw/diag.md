@@ -2,11 +2,23 @@
 
 Nov 13, 2026 · @Jefferson
 
-**Status: approved (2026-11-13, the owner), after review round 1; design only, nothing built yet.** The owner's
-decisions of 2026-11-13 (below) and [answers](#the-owners-answers) to questions 1–9 stand: answer 1 amended by
-the review (CC6), answer 2 replaced by the owner's option A (the prompt); review round 1's findings CC1–CC6 are fixed in place. D1 starts from this. Every register and ID named here was checked against
-[`backplane.inc`](../backplane/bios/backplane.inc) and the emulator's devices (`emulator/components/devices/`), the
-reference until there is hardware. Where the real hardware's behaviour isn't known, this says so.
+**Status: plan 2, the owner's revision of 2026-11-13: every diagnostic in the ROM. Approved (2026-11-14, the
+owner), after review LL1–LL5, with questions P2-1 to P2-7 [decided as recommended](#plan2-questions); design only,
+D3a starts from this.** [Plan 2](#plan-2) is the plan from here on. D1 (the library and
+SYSINFO) is merged and stays as built. D2 (DIAG.COM) was built on `feat/diag-d2` and **doesn't merge**: under
+OODOS it grew to 22 KB, half of it OODOS's way round the hardware, and still couldn't reach OODOS's memory, the
+console's card memory or a DMA channel of its own; so the owner put all of it in the ROM, where the core owns the
+machine, and `DIAG` at `A>` only drops into it. D2's record is kept ([D2: as built](#d2-as-built)), and its code is
+the source D3 carries forward.
+
+*Plan 1's status (approved 2026-11-13, the owner, after review round 1):* the owner's decisions of 2026-11-13
+(below) and [answers](#the-owners-answers) to questions 1–9 stood, answer 1 amended by the review (CC6), answer 2
+replaced by the owner's option A (the prompt), review round 1's findings CC1–CC6 fixed in place. The sections after
+plan 2 are plan 1's, kept as the record; each says where plan 2 replaces it.
+
+Every register and ID named here was checked against [`backplane.inc`](../backplane/bios/backplane.inc) and the
+emulator's devices (`emulator/components/devices/`), the reference until there is hardware; plan 2's again on
+2026-11-13 (main 3562a9e). Where the real hardware's behaviour isn't known, this says so.
 
 
 ## Goals ##
@@ -14,25 +26,673 @@ reference until there is hardware. Where the real hardware's behaviour isn't kno
 Two system tools that share their code through a linked library:
 
 1. **DIAG**, a diagnostics program in the dead-test style: it finds each card, checks what the card does, and
-   tests memory.
+   tests memory. (Plan 2: it is all in the ROM, and `DIAG` at `A>` drops into it.)
 2. **SYSINFO**, which lists what is installed: the cards and their revisions, memory, the clock speed measured,
    the peripherals connected, the firmware's versions.
 
 
 ## The owner's decisions (2026-11-13) ##
 
-- **Diagnostics run in two places.**
+**The redesign (2026-11-13, the owner), which replaces the first two decisions below:**
+
+- **The diagnostics live in the ROM only.** D3's core grows into all of them: the no-RAM stages, every memory test
+  over all of RAM (OODOS's memory included, since OODOS isn't running) and every card test. It is entered three
+  ways: switch 19 up at reset, confirmed by CONT or `Y` within 5 s (as decided); `C812R` at the monitor, with its
+  `Y` prompt; and `DIAG` at `A>`, which confirms and then drops into the core, "kind of like how we load Apple2 or
+  WozMon", and doesn't come back: the machine boots again afterwards, as it must after Apple II mode.
+- **DIAG.COM as built in D2 doesn't merge;** `feat/diag-d2` is kept as the source to carry forward.
+- **Safe by default no longer applies:** the ROM owns the machine. Answer 5 stands: the ROM never writes the SD
+  card, so the card tests are read-only and `/WRITE` goes.
+- **SYSINFO stays under OODOS,** as merged in D1. Answer 1's exception now covers SYSINFO alone, and whatever the
+  DIAG launcher needs.
+- **Unchanged:** the CONT entry, the flash for the core (block 23, or more blocks), BIOS 0.14, serial ID `$61`.
+
+*Plan 1's decisions, as they were:*
+
+- **Diagnostics run in two places.** *(Replaced by the redesign: all in the ROM.)*
   - **A ROM core in the BIOS**, dead-test style. It runs with no working RAM assumed, so it can find a bad bank
     that would keep OODOS from booting. It reports on the screen, on the serial line and on the front panel's
     lights. It is entered by a `C8xxR` command, and by a front-panel hold at power-on.
   - **`DIAG.COM` under OODOS**, for the deeper card tests: video, sound, SD, USB, serial, RTC, DMA and the north
     bridge.
-- **Safe by default.** Under OODOS the default tests are non-destructive: RAM that OODOS doesn't own, card memory
-  outside the console's, and registers and loopbacks it can put back. Destructive tests (all of RAM, writing an SD
-  card) run only from the ROM core, or with an explicit option and a confirmation.
+- **Safe by default.** *(No longer applies: the ROM owns the machine.)* Under OODOS the default tests are
+  non-destructive: RAM that OODOS doesn't own, card memory outside the console's, and registers and loopbacks it
+  can put back. Destructive tests (all of RAM, writing an SD card) run only from the ROM core, or with an explicit
+  option and a confirmation.
 - **The shared code is a linked ca65 library,** `oohw.lib`: card discovery by module ID, revision and register
   probes, clock measurement, report formatting. It adds no OODOS or OOLIB interface, so the rule that interfaces only
-  grow isn't touched.
+  grow isn't touched. *(Stands: SYSINFO links it under OODOS, and the ROM builds it into each of its blocks, [plan
+  2](#plan2-rom-space).)*
+
+
+<a id="plan-2"></a>
+## Plan 2: every diagnostic in the ROM ##
+
+**Approved (2026-11-14, the owner),** with review LL1–LL5's findings folded in and P2-1 to P2-7 decided as
+recommended. This section is the plan from here on;
+where it and plan 1's sections after it differ, it wins. What it keeps of plan 1 it names; what it doesn't name is
+replaced.
+
+**Kept from plan 1:** the [card discovery](#card-discovery) rule and CC5's double read; the reset's
+[prompt](#the-rom-core) (switch 19, CONT or `Y` within 5 s, nothing written before the confirmation); `C812R` and
+its `Y` prompt; the core's signature check; stages 0–2 in the no-RAM style; the [memory test
+algorithms](#the-memory-tests); the [lights](#the-rom-core); BIOS 0.14; [SYSINFO](#sysinfo) and the library's
+OODOS build, as D1 built them.
+
+**Replaced:** [DIAG.COM](#diagcom) and the safe-by-default rules; plan 1's [ROM space](#rom-space) (one block, 23);
+its stages 7–12; its [interfaces](#the-interfaces-it-touches) (now the launcher's too); its [D3](#d3-the-rom-core-and-bios-014),
+split into D3a–D3c below; answer 7 (`WOZMON`, then `C812R`), replaced by `DIAG` at `A>`.
+
+
+<a id="plan2-stages"></a>
+### Stages and order ###
+
+One program, entered as plan 1's core was, from the no-RAM stages out to every card. Each stage needs only what the
+ones before it proved; a stage whose card isn't there says `SKIP` and the run goes on.
+
+| Stage | Flash block | What | Needs | No RAM? |
+|---|---|---|---|---|
+| 0 | 23 | SEI, CLD; every card made quiet by macros, as the BIOS's QUIET does it (every DMA channel aborted and STATUS cleared; the SD card's command abandoned and SD_IEN off; USB_IEN, VIDEO_IEN, SOUND_IEN and CONSOLE_IEN off; the 6510 stopped and the SIDs silent; on sound revision 2 the stream flushed and the ES5503 frozen; the VIA's IER off; the clock's TIE off); W3 on flash block 31 and VEC on block 23; the lights on, DISPLAY `$00` (stage 0); the 6551 at 19,200 baud; the screen, if the video card is `$92` (plan 1's stage 0) | the CPU, the north bridge, the flash | yes |
+| 1 | 23 | the flash's sums: blocks 21–31 (plan 1's stage 1, two more blocks) | stage 0 | yes |
+| 2 | 23 | zero page and stack (plan 1's stage 2) | stage 0 | yes |
+| 3 | 23 | the CPU (CC1's XBA test: a W65C02S, not a 65C816); the data lines, walking 1s and 0s at each RAM module's first block (0, 16, 36, 48) | stage 2 | |
+| 4 | 23 | the address lines and the blocks: every RAM block tagged, then all read back | stage 3 | |
+| 5 | 23 | address in address over every RAM block | stage 4 | |
+| 6 | 23 | the march, background `$00` (full: four) | stage 5 | |
+| 7 | 22 | the north bridge and the clock | stage 6 | |
+| 8 | 22 | DMA, every channel driven directly | stage 6 | |
+| 9 | 22 | the video card | stages 6, 8 | |
+| 10 | 22 | the sound card; the 6510 program loaded by the core | stages 6, 7, 8 | |
+| 11 | 21 | storage, read-only: the SD card; the Disk II by its ID alone | stages 6, 8 | |
+| 12 | 21 | USB and the game port; the serial card and the VIA; the front panel | stage 7 | |
+| 13 | 21 | the interactive tests (switch 16 at the switch-19 and `C812R` entries, `DIAG [ASK]` from `A>`): `SKIP` otherwise | stages 9, 10, 12 | |
+| 14 | 21 | the summary; the loop, or the end | | |
+
+**Every RAM block** means all 60 with video revision 2 (bank 8, blocks 32–35, is the card's aperture and is tested
+as card memory in stage 9), 64 with revision 1. Entered from `A>`, that includes all of OODOS's: block 31 (its zero
+page, stack and SCB), 48–55 (M:, which every start empties anyway), 60–63 (the BDOS, its BIOS, the resident code
+and the ROM's RAM copy). Nothing in RAM is kept; the boot afterwards copies the BIOS into block 63 again and OODOS
+loads afresh from the card.
+
+**What the core never does:** write `NB_MODE` (APPLE is undone only by a hard reset), touch the Disk II's switches
+(they move its stepper and motor), write the SD card (answer 5), or write through a flash window. Plan 1's stage 10
+wrote through one to see that nothing changed; a write that reaches the SST39SF040 is a step of one of its command
+sequences, so the core sends none. Its read-only check is a write through an `NB_RO` window onto RAM (stage 7).
+
+
+<a id="plan2-rom-space"></a>
+### The flash: blocks 21–23 ###
+
+The flash now (BIOS 0.13, unchanged since plan 1 measured it at 8877ba7): blocks 0–23 erased (384 KB); 24–28 the
+splash's wave image; 29 the video demo; 30 the font; 31 the BIOS, with 7,632 bytes free.
+
+**Decided (2026-11-14, the owner, [P2-3](#plan2-questions)): the diagnostics take blocks 21, 22 and 23; 0–20 stay erased
+(336 KB).** The BIOS's blocks (24–31) and its jump table stay where they are. `bios.cfg`'s `PAD` becomes
+`$0000–$53FFF` (21 blocks), followed by three areas, `DIAG21`, `DIAG22` and `DIAG23`, each at `$8000`, `$4000`
+long, so `bios.rom` stays 512 KB with nothing else moved.
+
+**Sizes,** estimated from D2's map (DIAG.COM's own code 12,120 bytes and its text 6,170; the library's modules
+2.4 KB; the 6510 program 799 bytes), plan 1's core, and what changes in the ROM (no claims, event queue, W1
+contract or ^C; direct DMA, sound and screen instead):
+
+| Block | Holds | Estimate |
+|---|---|---|
+| 23 | the header and gate (below); the reset's prompt 0.3 KB; stages 0–2 by macros 1.45 KB, stage 0's quiet included; the console (screen, serial, lights, keys, the form) 1.2 KB; stages 3–6 and the window mapping 1.5 KB; the library's memory and report modules 1.6 KB; text 0.8 KB; the sums 64 bytes; the end and Break 0.2 KB | about 7.1 KB |
+| 22 | the header and gate; the console 1.2 KB; the library's report, memory, port, clock and RTC modules 2.0 KB; the north bridge and clock 1.2 KB, DMA 1.6 KB, video 1.35 KB, sound 1.45 KB; text 2.1 KB; the 6510 program 0.8 KB | about 11.7 KB |
+| 21 | the header and gate; the console 1.2 KB; the library's report, probe, names and IDENTIFY modules 1.6 KB; SD 0.9 KB, USB 0.8 KB, serial 0.45 KB, panel 0.6 KB, the interactive tests' prompts 0.5 KB, the summary and the end 0.4 KB; text 1.4 KB | about 7.9 KB |
+| 31 | the BIOS's part: P3's breakpoint cleared (LL1, about 25 bytes), the reset's switch and signature checks, `C812R`'s prompt, `$C815`'s check of its token, the way back to the monitor | about 0.22 KB more |
+
+About 27 KB in 48 KB, 21 KB to grow in. **Why three blocks, not two:** each block carries its own console and
+report routines (below), so blocks 21 and 22 in one would be about 17 KB, over the 16 KB a block holds.
+
+**How code in three blocks runs: in W2, one block at a time, through a gate.** All three are seen at
+`$8000–$BFFF` through W2, as plan 1's block 23 was: W0 is the core's zero page and stack, W1 the block under test,
+W3 the BIOS's flash block. Only one is mapped at a time, so code can't call into another block: switching W2 takes
+the caller out from under itself. So every block starts with the same header:
+
+| Address | Bytes | What |
+|---|---|---|
+| `$8000` | 8 | `OOHWDIAG`, the signature the BIOS and the hand-offs check |
+| `$8008` | 1 | the block's place: 0 for block 23, 1 for 22, 2 for 21 |
+| `$8009` | 1 | the build's version, the same in all three, so a flash written in parts is seen |
+| `$800A` | 6 | **the gate:** `STA NB_WIN2`, then `JMP ($8010,X)` |
+| `$8010` | 16 | this block's entries, eight words |
+| `$8020` | 5 | **the Break stub:** `LDA #$D7` (flash block 23, read-only), `STA NB_WIN2`; block 23 goes on at `$8025` to its handler |
+
+The gate's bytes are the same in every block, so after its `STA NB_WIN2` the next fetch, the `JMP ($8010,X)`,
+comes from the block just mapped and takes that block's entry X (the W65C02S's `JMP (abs,X)`). It needs no RAM.
+A hand-off is `LDA #NB_ROM | NB_RO | 22` (`$D6`), `LDX #entry`, `JMP $800A`. Before it the caller reads the next block's
+signature and version through W1, so a flash with that block erased, or from another build, is said (`STAGES 7-10:
+NOT IN THE FLASH`) and passed over, never jumped into. The BIOS enters block 23 the same way from block 31 (it runs
+in W3, so it needs no gate: it maps W2 and jumps through `$8010,X`).
+
+The stages hand on in order: block 23 runs 0–6 and hands to 22; 22 runs 7–10 and hands to 21; 21 runs 11–14 and,
+for the loop, hands back to 23's stage 3. No block calls another's code. What the run keeps (the switches and the
+options, the pass, each stage's result and counts, the first failure for the lights, the chosen W0 block) is at
+fixed addresses in the core's zero page, named by one include, `diag.inc`, which all three blocks assemble with.
+
+**Break (NMI) and BRK.** VEC stays on block 23 while the core runs, so a vector is read from block 23's end
+whichever block W2 holds. Its NMI and IRQ vectors are `$8020`, the Break stub, which is the same in every block:
+it maps block 23 into W2, and block 23 goes on at `$8025` to plan 1's handler: `BREAK` on the screen and the
+serial line, then the end as a key would (below). It doesn't RTI: the stack may be the one thing that is bad.
+
+**One link, the library in each block.** `bios.rom` stays one ld65 link, so the core names the BIOS's labels
+(`BOOT`, `MONBOOT`, below) and the BIOS the core's. Each block's unit (`diag23.s`, `diag22.s`, `diag21.s`) includes
+the library's sources it needs, built with `-D OOHW_ROM`, which turns their `.export`s off: so each block has its
+own copy under its own names, and ld65 never sees a name twice. The library's state that must cross a hand-off
+(`HW_TALLY`, the failure) is at `diag.inc`'s fixed addresses under `OOHW_ROM`, not in a BSS of its own. The copies
+cost about 3 KB of flash and nothing else. *Considered and not chosen:* one copy in block 23, called from the
+others by a far call that maps W2 and back (it needs RAM, and every string a caller passes is in the caller's
+block, out of sight once W2 changes, so each would be copied to RAM first); and the card tests copied into RAM and
+run there (W0 and W1 are the tests' own).
+
+**The sums:** `romsum.py`'s table, at block 23's end (before the vectors), covers blocks 21–31; stage 1 sums
+176 KB, about 0.2 s.
+
+
+<a id="plan2-card-tests"></a>
+### The card tests, as ROM tests ###
+
+D2's tests ([the table](#diagcom), [as built](#d2-as-built)), with what changes now that nothing belongs to OODOS.
+Each card is found by [`HW_PROBE`'s rule](#card-discovery); a card that isn't there makes its stage `SKIP`. The
+names are D2's where the test is the same.
+
+**Stage 7, the north bridge and the clock.** Interrupts are off for the whole run, so every measurement polls.
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| NB1 | ID `$Dx`; STATUS bits 4–7 equal the ID's revision | as D2 |
+| NB2 | the window bits: stage 4 has tagged every block through W1; here W0's bits too, a tagged block mapped into W0 for a few instructions with no stack used, then W0 put back | D2's through `GX_BLOCK` |
+| NB3 | IRQL and IRQH: with every card quiet, every bit 1; then a line that works: channel 3's terminal count with MODE's IRQ bit pulls IRQH bit 0 to 0, and clearing STATUS lets it go | D2 only read the lines |
+| NB4 | the RTC: BUSY clears within 1 ms; SEC steps by one a second; LOST clear (a warning: the time must be set) | as D2 |
+| NB5 | the CPU clock against the DS3231: PHI2 cycles between two changes of `NB_SEC`, by VIA timer 1, free-running (the core's own now), and its wraps | D2 used timer 2 under OODOS's tick |
+| NB6 | the CPU clock against the video frame: cycles over 60 frames, STATUS's vertical blank polled | D2 counted OODOS's frame interrupts, which other interrupts could hold off |
+| NB7 | WAIT0–3 and VEC written and read back, then put back (WAIT3 read first: [the options](#plan2-launcher) from `A>`) | plan 1's stage 10 |
+| NB8 | a write through an `NB_RO` window onto a tested RAM block leaves it as it was | plan 1's stage 10, less the flash write |
+
+NB4's three seconds and NB5's measurement share their changes of `NB_SEC`, about 3 s in all. How polling SEC meets
+the bridge's own I²C reads on real hardware is still unknown (plan 1's stage 11).
+
+**Stage 8, DMA,** driven directly: every channel is the core's, with no function 82 or 83 between.
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| D1 | ID `$81`; each channel's ADDR, COUNT, MODE and DEST written with two patterns and read back; CONTROL's burst bits | D2 read the ID alone |
+| D2 | channel 3, memory to memory with HOLD: every RAM block filled with a pattern but W0's first 512 bytes, the CPU checks it (960 KB, about 1.9 s) | D2 filled 2 KB |
+| D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`) | as D2, and down too |
+| D4 | D2's fill of 2 KB timed by VIA timer 2: 2 cycles a byte | as D2, less the call's cost |
+| D5 | STATUS's terminal count; ABORT part way through a copy, COUNT reads what was left | plan 1's stage 7 |
+
+D2's D5 (the SD card's DMA), D6 (the video port's) and D7 (the sound card's) move to their cards' stages, after
+those cards' own memory is tested.
+
+**Stage 9, the video card** (revision 2; revision 1 is listed and skipped, as BIOS 0.13 doesn't drive it). All of
+card memory is the core's, the console's and Apple II mode's parts too; the screen is drawn again at the end.
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| V1 | ID `$92`; MEMSIZE reported (32 on a 2 MB card) | D2 asked at least 28 |
+| V2 | every register that reads back as written ([video-rev2.md](video-rev2.md)'s map), with layer 1 off, in one vertical blank, then put back | D2 only those a program may write |
+| V3 | the beam: LINE goes 0–524, a vertical blank every 119,437 cycles ± 0.1% | as D2, polled |
+| V4 | card memory, all of it to MEMSIZE: block 32 (slot 0) in W1, SLOT0 stepped over each 16 KB card bank, address in address (full: the march); 2 MB in about 9.7 s (32 s) | D2: the program's 1.5 MB through slot 1 |
+| V5 | a card address past MEMSIZE reads `$FF` and drops a write | D2 left it to the ROM |
+| V6 | the port against the aperture: 64 KB written through PDATA read through the aperture, and the reverse, with PSTEP 1 and stepping down (`VIDEO_PCTL_DOWN`) | D2's V4 |
+| V7 | channel 1: 4 KB into card memory through the port (PCTL's DRQ) and back (PCTL's FROM) into a tested RAM block; the aperture agrees | D2's D6 |
+| V8 (interactive) | the test card on layer 1 (colour bars, a grid): Y or N | D2's V6 |
+
+**Stage 10, the sound card.** No claim: the card is the core's. The core loads its 6510 program itself, through
+RAMADDR and RAMDATA, as the splash loads its own and starts it with CTRL's RUN and RESET.
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| S1 | ID `$A1` or `$A2`; CODECS `$83` on revision 2 | as D2, without `SN_INFO` |
+| S2 | the card's RAM, all 64 KB, through RAMADDR and RAMDATA with the 6510 stopped: address in address (full: the march); 0.3 s (1 s) | new: D2's 6510 couldn't test its own pages, so the host now tests all of them |
+| S3 | channel 2: 4 KB into the card's RAM by DMA (DRQSEL 0, RAMDATA), read back through RAMDATA | D2's D7 |
+| S4 | the 6510 program (`card6510.s`) loaded at the card's `$0200` with its reset vector, then run: `$A5` in MBIN within 0.5 s (STATUS's MBIN polled) | D2's S2, polled, not through the event queue |
+| S5 | the mailbox both ways: 256 bytes, each echoed | D2's S3 |
+| S6 | the 6510 sums S3's 4 KB and sends the sum | D2's D7's other half |
+| S7 | the SIDs, by the 6510: voice 3's OSC3 and ENV3 on SID A and SID B | D2's S5 |
+| S8 | revision 2: wave RAM, all 128 KB, through DOCDATA with AUTOINC and DOCBANK, the ES5503 frozen: address in address (full: the march); 0.6 s (2 s) | D2's S6, then `/FULL` only; the splash loads its samples again at the next boot |
+| S9 | revision 2: a 4 KB raw PCM stream at 8,000 Hz (silence): STATE goes buffering, playing, ended; POS counts 8,000 frames a second ± 0.5% against VIA timer 1, which NB5 held to the DS3231 | D2's S7, against OODOS's millisecond counter |
+| S10 (interactive) | a tone on each SID and on the ES5503: Y or N | D2's S8 |
+
+D2's S4 (the card's RAM tested by the 6510 at its 1 MHz, 8 s for the march) goes: S2 covers all of it from the
+host, faster. The 6510 program keeps its RAM test routine only if D3b finds a use for it; the rest of it (the start
+byte, echo, sum, the SIDs) is D2's as built.
+
+**Stage 11, storage, read-only** (answer 5: nothing is written to the SD card).
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| SD1 | ID `$71`; STATUS's PRESENT and READY | as D2 |
+| SD2 | `IDENTIFY`: the type 1–3, the size not 0, the FAT flag | as D2 (`HW_SD_ID`) |
+| SD3 | LBA 0 of unit 0, the card itself, read by the CPU through DATA and again by channel 0 into a tested block: the two agree | D2's D5 read DIAG.COM's records two ways |
+| SD4 | read speed: 64 KB from unit 0 by channel 0, timed: `INFO`, KB a second | D2's SD3 through `DM_LOAD` |
+| DK1 | the Disk II: ID `$C1`, and nothing else | as D2 |
+
+D2's SD4 (`/WRITE`, a file on A: written, read back and erased) goes with DIAG.COM.
+
+**Stage 12, USB, serial and the panel.**
+
+| Test | Plan 2 | From D2 |
+|---|---|---|
+| U1 | ID `$B1`; DEVICES: `INFO` | as D2 |
+| U2 | the paddles settle: PTRIG, then PADDLE0–3 read twice, 20 ms apart | D2 read OODOS's event area |
+| SR1 | the serial card's ID `$61`; the stand-in 6551: `SKIP` (no ID register) | as D2 |
+| SR2 | the VIA's timers: timer 2 across a 1,000-cycle loop less across none; timer 1 likewise | D2 timer 2 only |
+| SR4 | once the TL16C552A exists: COM2 in its internal loopback, 256 bytes; COM1 is the console's line | as D2 |
+| P1 | ID `$E1`; the switches and HALT/ENABLE shown: `INFO` | as D2 |
+| P2 | a walking bit on DISPLAY, 0.2 s a step: `INFO` (interactive: Y or N) | as D2; nothing to put back but the stage's own code |
+
+**Stage 13, the interactive tests,** only with switch 16 up (at the switch-19 and `C812R` entries) or `DIAG [ASK]`
+(from `A>`): V8 and S10 above; U3, a key on the USB
+keyboard (USB_KEY polled); U4, the mouse moved and each button pressed (MBTN, MX and MY), and each paddle button
+(USB_GAME); U5, the speaker toggled at 1 kHz by the CPU through USB_SPKR (there is no `SN_BEEP`): Y or N; SR3, each
+joystick direction and fire on both ports (the VIA's ports A and B, their DDRs left as inputs); and P3, the
+breakpoint, as D2 built it (armed, then RETURN, then the read that halts until CONT; STATUS's HIT, LADDR and LDATA
+checked; BPCTRL 0 and HIT cleared). In the ROM, CC3's ^C can't happen; Break goes to the core's handler, which puts
+BPCTRL back as every way out does. A reset during P3 keeps BPADDR and BPCTRL
+([chapter 12](../docs/oo1-technical-reference/12-front-panel.md#reset)), and the next program to read that address
+would halt. **So the BIOS's RESET turns off P3's breakpoint, and only P3's** (review LL1, the owner's option B,
+2026-11-14): when `CONSOLE_ID` reads `$E1` (the switch check's double read, CC5) and BPADDR (R/W, kept through
+/RESET) holds P3's address, `$BD1A5`, it writes BPCTRL 0, first thing, before anything touches RAM. Any other
+breakpoint is left armed, so chapter 12's "a breakpoint set before START catches an address in the boot" still
+holds, and the panel loses nothing (an earlier form of LL1 cleared every breakpoint at reset, which would have
+taken that away; option B doesn't). It costs about 25 bytes in block 31 (three compares of BPADDR's bytes with
+immediates and the `STZ`), part of D3a's BIOS changes.
+
+**P3's address: physical `$BD1A5`,** RAM block 47 (`$BC000–$BFFFF`, RAM C's last block, in bank B) at offset
+`$11A5`. A user setting a breakpoint is likely to pick a round address, an entry point, or something in the BIOS,
+OODOS or a program's TPA as the CPU sees it (blocks 0–2, 31, 60–63); this is none of those. Bank B is a program's
+under OODOS's interface 8 (functions 53–58 and the banked TPA), and neither the BIOS's boot nor OODOS's cold boot
+is expected to reach it, by the CPU or by DMA (the BIOS's scroll buffer is `$FC000–$FC7FF`); that isn't checked yet,
+and D3b checks it with the emulator's bus trace of a boot to `A>`. Since RESET clears it anyway, a boot that did
+read it would only lose the guarantee that P3's address is otherwise idle, not halt. P3 arms it only if stage 6 passed block 47, and says `SKIP`
+otherwise. **The limitation, documented in chapter 12 and chapter 15:** a user's own breakpoint at `$BD1A5` is turned
+off at every reset with the console card fitted; at any other address it is kept, as now.
+
+
+<a id="plan2-memory"></a>
+### Memory tests: all of RAM ###
+
+The algorithms are plan 1's ([The memory tests](#the-memory-tests)): walking 1s and 0s, the address tags, address
+in address (about 33 cycles a byte for both passes), March C− (about 109 cycles a byte a background), and the DMA
+fill. What plan 2 changes is the range: all of it, from every entry.
+
+| Module | Blocks | Physical | Size |
+|---|---|---|---|
+| RAM A | 0–15 | `$00000–$3FFFF` | 256 KB |
+| RAM B | 16–31 | `$40000–$7FFFF` | 256 KB |
+| RAM C | 36–47 (32–35 are bank 8, the video card's aperture, with revision 2) | `$90000–$BFFFF` | 192 KB |
+| RAM D | 48–63 | `$C0000–$FFFFF` | 256 KB |
+
+960 KB with video revision 2; 1,024 KB with revision 1 (bank 8 is then RAM C's). Block 63's first 2 KB, under the I/O
+hole when the CPU reaches the block through W3, is plain RAM through W1. W0's block is tested through W1 too, its
+first 512 bytes last, from another block that passed (plan 1's rule). A module that isn't there fails all its blocks
+alike and is named once ("RAM B (blocks 16–31): not answering").
+
+**Time on the real 7.16 MHz** (7,159,090 cycles a second; counted from the instructions, so estimates; the cards'
+wait states on real hardware aren't known, except the aperture's, which has none):
+
+| What | Size | Address in address | March, 1 background | 4 backgrounds |
+|---|---|---|---|---|
+| a zero page and stack candidate (stage 2) | 512 B | | 8 ms (`$00`, `$55`) | |
+| the flash's sums (stage 1) | 176 KB | about 0.2 s | | |
+| all RAM, video revision 2 | 960 KB | 4.5 s | 15.0 s | 60 s |
+| all RAM, revision 1 | 1,024 KB | 4.8 s | 16.0 s | 64 s |
+| DMA fill and check of every RAM block (D2) | 960 KB | 1.9 s | | |
+| video card memory (V4) | 2,048 KB | 9.7 s | 32 s | |
+| the sound card's RAM through RAMDATA (S2) | 64 KB | 0.3 s | 1.0 s | |
+| wave RAM through DOCDATA (S8) | 128 KB | 0.6 s | 2.0 s | |
+
+**A quick run is about 40 s:** the memory 19.5 s, DMA 2 s, video 10 s, sound 2 s, the clock 3 s, the panel's
+lights 1.6 s, the rest under a second each (the SD card's read speed on real hardware isn't known). **A full run
+(switch 18, or `DIAG [FULL]` from `A>`) is under 2 minutes:** the march with four backgrounds adds 45 s, the march on card
+memory 22 s, on the sound card's RAM and wave RAM 2 s. The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
+cost a pass. `test_bios_diag` reports the emulator's time for a quick run against this table.
+
+
+<a id="plan2-output"></a>
+### Output, the end, and the way back ###
+
+**The screen** is plan 1's fixed form, a line a stage, filled in as each ends, with the first failure's detail
+under its stage; **the serial line** (19,200 baud, 8-N-1, as the BIOS sets it) gets the same stage lines and,
+under each, a line a test in D2's style (name, dots, `PASS`, `FAIL`, `SKIP` with its reason, `INFO`), so a terminal
+has the whole report. With no video card it is serial only; with no console card there are no lights.
+
+```
+OO-1 ROM DIAGNOSTICS 0.1          BIOS 0.14         PASS 1         QUICK
+ 1  FLASH BLOCKS 21-31 ..................................... PASS
+ 2  ZERO PAGE AND STACK: BLOCK 0 ........................... PASS
+ 3  CPU W65C02S; DATA LINES, RAM A B C D ................... PASS
+ 4  ADDRESS LINES, 60 BLOCKS ............................... PASS
+ 5  ADDRESS IN ADDRESS, 960 KB ............................. PASS
+ 6  MARCH, 960 KB, BACKGROUND 00 ........................... FAIL
+      BLOCK 41 +0123 (A4123): READ 08, WROTE 00, BIT 3
+ 7  NORTH BRIDGE; CLOCK 7159090 HZ ......................... PASS
+ 8  DMA, 4 CHANNELS ........................................ PASS
+ 9  VIDEO $92, 2048 KB ..................................... PASS
+10  SOUND $A2: RAM, 6510, SIDS, WAVE RAM, PCM .............. PASS
+11  SD $71 (READ ONLY), DISK II $C1 ........................ PASS
+12  USB $B1, SERIAL (NO ID), PANEL $E1 ..................... PASS
+13  INTERACTIVE: SWITCH 16 OR DIAG [ASK] ..................... SKIP
+RESULT: 1 FAILED                                        LIGHTS C1
+CONT OR RETURN: BOOT        EXAM OR ESC: MONITOR
+```
+
+**The lights** (DISPLAY, with CTRL's bit 3 set; plan 1's codes, the stages renumbered):
+
+| Lights | Meaning |
+|---|---|
+| `$A5` | the reset's prompt, waiting for CONT or `Y` (at most 6 s) |
+| `$00`–`$0E` | stage n running |
+| `$FF`, steady | the end: everything passed |
+| `$C0` + n, steady | the end: n stages failed |
+| `$80` + n, then the block, then the bits wrong, 0.5 s each, round again | stage n failed so that the core can't go on: stage 1's block 23 (its own code), or stage 2 with no block left for a zero page and stack. It stays so until a reset |
+
+**The summary** is the `RESULT` line: the stages failed, the tests passed, failed, skipped and measured (D2's
+count), and the pass with the loop.
+
+**How the run ends.** With switch 17 down, the core waits for a key: on the serial line or the USB keyboard, or on
+the panel CONT or EXAM (latched in KEYS while the CPU runs, as the prompt's CONT is; ignored at LOCK). Then it puts
+back what it changed to the values /RESET leaves (plan 1's list: SLOT0–3 0–3, PSTEP 1, PCTL 0; DMA CONTROL `$70`;
+the sound card's CTRL with RUN off; the VIA (review LL4): ACR 0, timer 1 stopped (a one-shot that has run out,
+with ACR 0), IFR cleared and IER off, so the timers NB5, S9 and SR2 ran leave nothing behind; WAIT0–3 0, which also
+clears the options; BPCTRL 0 if P3 armed it; DISPLAY 0 and CTRL 0; W0–W2 on blocks 0–2; VEC on flash block 31),
+and:
+
+- **CONT, RETURN or any other key: the boot,** at the BIOS's `BOOT`, just past the reset's switch check: the BIOS
+  copied into block 63, the splash, then the SD card's `/BOOT.BIN`, which on the OODOS card is OODOS. So from `A>`
+  the machine comes back to `A>` as after a power-on, and a key during the splash is the monitor, as always.
+- **EXAM or Esc: the monitor,** at a new label, `MONBOOT`, after the BIOS's copy into block 63 and the greeting,
+  with no splash and no SD boot (decided, [P2-5](#plan2-questions)). The copy is needed: all of RAM was rewritten,
+  block 63 included, and the monitor, Break and OODOS's way back to the ROM all run from that copy.
+
+Switch 17 loops without a key or a confirmation, counting passes; a key ends the loop after the pass under way.
+After a fatal failure it never ends. With switch 19 still up the next hard reset shows the prompt again, and passes
+on to the boot after 5 s.
+
+
+<a id="plan2-launcher"></a>
+### The DIAG launcher at `A>` ###
+
+**How WOZMON and APPLE2 are built today** (checked: `oodos/sys/ccp.s`, `bdos.s`, `common.s`): both are CCP
+built-ins (the `BINAMES` table), and both call function 75, `O_ROM`, with A = 0 or 1. Function 75 writes the
+changed buffers back (`CHANGED`, `FLUSHD`, as function 48), then leaves: A = 0 through `NMI`'s tramp (the Disk II's
+write mode and motor off, the DMA controller's master enable put back if a Disk II write had it off, W0 on the
+system block, then W3 and VEC on block 63 and the ROM's Break); A = 1 through `ROMAPPLE` (SEI, `CLKOFF`, W0–W2 on
+blocks 0–2, S `$FF`, then a tramp that puts W3 and VEC on block 63 and jumps to `$C806`). For A = 1 it first checks
+the cartridge through W2 (on flash block 32) and returns A = `$FF` with X = `$FD`, `$FE` or `$FF` if something is
+missing, and OODOS goes on.
+
+**The options:**
+
+- **(a) A small `DIAG.COM`** (about 0.5 KB): it asks `Y`, writes the buffers back with function 48, then does the
+  leaving itself: SEI, the cards' interrupt enables and the VIA's IER off, W0–W2 on blocks 0–2, and a tramp that
+  puts W3 and VEC on block 63 and jumps to `$C815`. **No OODOS change.** But it writes W3, VEC, the VIA's IER and the
+  cards' enables from a program, all of which AGENTS.md keeps for OODOS, so answer 1's exception must grow to cover
+  them; it repeats what `NMI` and `ROMAPPLE` know of OODOS's own state (the Disk II's write flag, the DMA master),
+  or leaves it to the core; it can't see whether the flash holds the core without writing a window (W2 onto block
+  23), so it would trust function 77's ROM version (0.14 or later), which a flash with only block 31 rewritten
+  would get wrong; and it is a file the card must have. (WOZMON's own way out can't be reused: function 75 with
+  A = 0 doesn't return.)
+- **(b) A CCP built-in, `DIAG`,** like WOZMON and APPLE2, which is how those are built. It needs (c) underneath, or
+  the CCP doing 75's work itself.
+- **(c) Function 75 with A = 2,** the diagnostics: as A = 1 does for the IIe ROM, OODOS first looks for the core
+  (block 23's signature and its entry table's version, through W2, put back on `BIOS_BLOCK` after) and returns
+  A = `$FF`, X = `$FC` if it isn't there, and OODOS goes on; otherwise it writes the buffers back and leaves as
+  `ROMAPPLE` does, its tramp jumping to `$C815` with A = `$A5` and Y = `$5A` (the token) and X the options. **An OODOS change.**
+
+**Decided (2026-11-14, the owner, [P2-1](#plan2-questions)): (b) on (c), the built-in `DIAG` calling function
+75 with A = 2, OODOS interface 10.** It is the owner's "like Apple2 or WozMon" exactly; OODOS leaves the machine itself, as it already does two
+ways; no program writes a window, a vector or an interrupt enable, so answer 1's exception narrows to SYSINFO alone
+(the owner's decision); and it is in OODOS.SYS, on every card, with no file. *Alternative:* (a), with no OODOS
+change, at the cost above.
+
+**What (b) on (c) costs:**
+
+- **OODOS:** in the BDOS, function 75's A = 2 (the signature check reuses A = 1's look through W2; `ROMAPPLE`'s
+  tramp takes its target and A and X instead of a fixed `$C806`), about 60 bytes; in the CCP, the built-in (its
+  name, the prompt, the tail's words, three messages), about 150. **It is an interface addition:** a new value of
+  A for an existing function, so OOLIB's interface version, which marks OODOS's own additions too (EE3), goes from
+  9 to 10, and 75's entry in the Programmer's Guide gets the value with a Since line naming interface 10 (EE1). An
+  OODOS before 10 answers 75 with A = 2 as any other A: A = X = `$FF`, and goes on, so a program can tell.
+- **The cards** are made again (OODOS.SYS changes), and test_oodos_utils_rom gains DIAG's cases.
+- **The User's Guide:** `DIAG` in chapter 4, with WOZMON and APPLE2.
+
+**The built-in.** `DIAG`, `DIAG [FULL]`, `DIAG [ASK]`, `DIAG [FULL,ASK]` (the utilities' option form, chapter 4).
+From `A>` the options are only what is typed (review LL3): the panel's switches 16, 17 and 18 apply to the switch-19
+reset entry and `C812R` alone, so a switch left up from LOAD ADRS can't change a run asked for at `A>`, and there is
+no loop from `A>`. It prints what will happen (OODOS stops,
+all of memory is tested and overwritten, M:'s files are lost, the machine boots again at the end) and asks for
+`Y`; any other key is `A>` again with nothing changed. Then function 75 with A = 2 and X the options (bit 0 full,
+bit 1 interactive). If the flash has no core, it says so (`No diagnostics in the ROM: BIOS 0.14 or later`), the
+return code `$FF00`, and OODOS goes on.
+
+**What OODOS puts back or shuts down before the jump** (as `ROMAPPLE` and `NMI` do between them):
+
+- the changed buffers written back (75 does it first for every A); a file left open isn't closed, as for 0 and 1;
+- interrupts: SEI, then `CLKOFF` (the VIA's timer 1 interrupt, the video card's, the USB card's and the sound
+  card's enables off);
+- the Disk II: its write mode and motor off, and the DMA controller's master enable put back if a write had it off
+  (`NMI`'s first lines);
+- the windows: W0–W2 on RAM blocks 0–2, S `$FF`; the tramp puts W3 and VEC on block 63, the ROM's copy, and jumps to
+  `$C815` there with A = `$A5`, Y = `$5A` and X the options.
+
+What OODOS needn't do, because the core does it at stage 0 for every entry (`C812R` and the reset need it too):
+stop the DMA channels (channel 1's vertical-blank copies and channel 2's sound stop with their interrupts anyway),
+stop the sound card's 6510 and silence its parts, put back the video card's state. Nothing OODOS keeps in RAM
+matters: all of it is overwritten, and OODOS boots afresh after.
+
+**`$C815`, the entry for a program** (decided, [P2-2](#plan2-questions)): the jump table's last spare. With the
+two-byte token, A = `$A5` and Y = `$5A` (review LL2: the monitor's `R` leaves A and Y as they happen to be, and one
+byte could match by chance), it takes X as the options (bit 0 full, bit 1 interactive), maps W2 on block 23 after
+the signature check, and enters at stage 0 with no prompt: OODOS has asked already. With anything else in A or Y it
+is `$C812`, prompt and all, so `C815R` typed at the monitor still asks. The options go to stage 3 through WAIT3,
+because nothing else survives stages 0–2, which keep every register busy and trust no RAM: bit 0 (module C's wait
+states, the Disk II's, which the core never accesses but for its ID) says "from a program, the switches don't
+count" (LL3), and bits 6 and 7 (module F's, which no card answers) are full and interactive. Wait states are
+reserved for turbo and do nothing at ÷2 ([design.md](design.md#north-bridge-registers)); every /RESET clears WAIT3,
+so the reset and `C812R` entries find it 0 and read the switches. NB7 reads the options before it tests WAIT0–3.
+(Accepted by the owner, 2026-11-14. **To revisit if turbo ever gives wait states a meaning:** a wait state on the
+Disk II or module F would then slow those accesses during stages 0–2, harmless to the result but no longer free,
+and turbo's own use of WAIT3 could clash with the flag.)
+**Later entries:** with `$C815` taken the table has no spare left, so any entry after it goes through one
+dispatching entry (a number in a register), which the table's next growth would add (LL5).
+
+
+<a id="plan2-faults"></a>
+### The emulator's faults ###
+
+D2's test-only faults ([answer 8](#the-owners-answers)) carry into the ROM's suite, `test_bios_diag`:
+
+- **`FaultyMemory`** (a device mapped over a range after the machine is built, forwarding to the RAM under it but
+  forcing a bit or aliasing an address line; DMA sees it too, through the same mappings) moves from
+  `test_oodos_diag.cpp` on `feat/diag-d2` into a shared test header, `emulator/test/host/fault_devices.h`, with D1's
+  `FloatingBus` (CC5, now in `test_oodos_sysinfo.cpp`) beside it. Over RAM it fails stages 3–6 and D2; over bank 8 it
+  makes the aperture and the port disagree (V6). No emulator code changes.
+- **`SoundCard::set_ram_fault()`,** compiled only with `EMU_FAULT_HOOKS` (the native build and its tests, never the
+  WebUI's), moves with D3b as D2 built it, with its own case in `test_sound`. The host's RAMDATA path (S2) and the
+  6510 (S6) see it alike. It is the one emulator change, so D3b runs `test_sound` under the sanitizers.
+- **Nothing new:** a missing card is the machine's text without its line; a damaged flash is a copy of `bios.rom`
+  through `MachineOptions::rom_override` (a byte changed, a block blanked).
+
+
+<a id="plan2-what-moves"></a>
+### What moves from feat/diag-d2 ###
+
+Nothing is merged or cherry-picked in this step. In D3a and D3b, each piece is taken from `feat/diag-d2`'s tip
+(4fdc4f2) as said, so main never gets DIAG.COM or its build:
+
+| Piece | How | When |
+|---|---|---|
+| `backplane/oohw/hwmem.s` (walking 1s and 0s, the tags, address in address, March C−), `hwline.s` (the report lines), and `oohw.inc`'s D2 additions | moved file by file (`git checkout 4fdc4f2 -- path`), then given the `OOHW_ROM` build | D3a |
+| `backplane/oohw/hwport.s` (address in address through a port) | moved file by file, then `OOHW_ROM` | D3b |
+| `backplane/oohw/card6510.s` and `card6510.cfg` | moved file by file; the BIOS's Makefile assembles it and block 22 includes the binary | D3b |
+| `diag.s`'s card tests, NB1–P3 | re-done in place in `diag22.s` and `diag21.s`, with D2's code as the reference: every OODOS and OOLIB call in them changes | D3b |
+| `FaultyMemory` | moved into `fault_devices.h` | D3a |
+| the SoundCard hook: `sound_card.h`, `sound_card.cpp`, `devices/CMakeLists.txt`'s `EMU_FAULT_HOOKS`, `test_sound`'s case | moved file by file (the hunks, as main may have moved on) | D3b |
+| `test_oodos_diag`'s cases | re-done as `test_bios_diag`'s, each with its must-fail fault | D3a, D3b |
+| `oodos/utils/diag.s`, `oodos/cfg/diag.cfg`, the Makefile's DIAG rules, `golden/diag.txt`, the User's Guide's DIAG utility entry | not moved | |
+
+`feat/diag-d2` is kept until D3b merges (decided, [P2-6](#plan2-questions)).
+
+
+<a id="plan2-phases"></a>
+### Sub-phases ###
+
+Three branches, merged in order, each with the gate `tools/check.sh changed main`, the quick tier and `make -C
+docs check`. Each reads its part of the books again at its start and adds its "as built" here.
+
+#### D3a: the core, its entries, the memory tests ####
+
+- **What:** `bios.s` (BPCTRL 0 at RESET with the console card fitted, LL1; the reset's switch and signature
+  checks; `$C812`'s prompt; `$C815`'s two-byte token and WAIT3; the
+  `BOOT` and `MONBOOT` labels; the greeting `BACKPLANE BIOS 0.14`); `bios.cfg` (`PAD` 0–20, `DIAG21`–`DIAG23`); the
+  Makefile (the three units, the library's ROM build, `romsum.py` after ld65); `backplane/bios/diag.inc`;
+  `diag23.s` (the header and gate, the prompt, stages 0–6, the end and its put-back, Break); `diag22.s` and
+  `diag21.s` with their headers and gates and the hand-offs, stages 7–13 each `SKIP` ("D3b"), and stage 14, so a run
+  is whole from the start; `hwmem.s` and `hwline.s` from D2; `fault_devices.h`; `test_bios_diag`. `make -C docs check`
+  holds chapter 3's listings to `bios.s`, so D3a updates those listings; the books' new text is D3c's.
+- **Size:** block 23 about 7.1 KB of 16; blocks 22 and 21 about 2.5 KB each (the header, the console, the report);
+  block 31 about 0.22 KB more of its 7,632 free bytes (LL1's compare and clear, about 25 bytes, included).
+- **Tests,** `test_bios_diag`, on `backplane.machine` with the console card's switches set before the reset; each
+  must-fail case is seen failing once on a copy with its one fault put in, and the report says which:
+  - the prompt (plan 1's cases): CONT, `Y` on the serial line and on the USB keyboard enter; no answer boots within
+    about 6 s with RAM as the test filled it; `N` boots at once; CONT pressed before the reset doesn't count; START
+    at the prompt is a hard reset and the prompt again; switch 19 down, no prompt;
+  - `C812R` with `N`, then `Y`; `C815R` with A not `$A5` asks as `$C812` does; **`C815R` typed at the monitor with
+    A = `$A5` (Y not `$5A`) still asks** (LL2's must-fail: it fails with Y left unchecked); `$C815` with the token and
+    X = 1 runs full (the form says `FULL`); with the token and switches 16–18 up, the run is quick and not
+    interactive, as X says (LL3);
+  - **LL1's must-fail cases:** a reset during P3 (the breakpoint armed on `$BD1A5`): the boot must reach OODOS's `A>`
+    and BPCTRL reads 0 (it fails with RESET's BPCTRL write left out: the next run's P3, or a program using block 47,
+    halts); and **a user's breakpoint on another address the boot reads** (a byte of the BIOS's copy in block 63),
+    then a reset: the machine must still halt there, with STATUS's HIT set (it fails if RESET clears BPCTRL without
+    comparing BPADDR, LL1's first form); and P3 runs after both;
+  - the put-back (LL4): after a run, ACR, IER and IFR read 0 and timer 1 is still;
+  - golden serial output of a good quick run (`emulator/test/host/golden/romdiag.txt`), the screen's text read from
+    card memory, DISPLAY `$FF`; then a key boots (the greeting, the SD card's boot), Esc is the monitor (and block 63
+    holds the BIOS again: `C809R` answers);
+  - the faults: a stuck bit in block 0's first 512 bytes (W0 moves to block 1, stage 6 reports block 0); a stuck bit
+    in block 41 (stage 6); **a stuck bit in block 62, OODOS's resident block** (stage 6: plan 2 tests OODOS's
+    memory); an address line aliased (stage 4 names the line); every RAM block bad (`$82`, the block, the bits,
+    sampled over time); RAM B's line left out ("not answering"); a byte of block 30 changed in a copy of `bios.rom`
+    (stage 1 fails block 30); block 22 blanked (stages 7–10 "NOT IN THE FLASH", and the run still ends); block 21
+    blanked (LL5: stages 11–14 "NOT IN THE FLASH"; block 22 ends the run itself, with the summary and the way back,
+    so the core still ends rather than jumping into erased flash); block 23
+    blanked (`NO DIAGNOSTICS IN THE FLASH`, then the boot); no video card (serial only); no console card (no lights;
+    the BIOS boots as now);
+  - CC5's floating bus: no Disk II found;
+  - the time of a quick run in emulated cycles, against [the table](#plan2-memory);
+  - `test_bios`, `test_bios_sd`, `test_rom_boot`, `test_apple`, `test_iie`, `test_oodos_apple`, `test_oodos_utils_rom`:
+    unchanged and passing.
+- **Test map:** `backplane/bios/` and `backplane/oohw/` are mapped already (`bios docs web`; `bios oodos docs`);
+  `test_bios_diag.cpp` is `self`. New rules: `emulator/test/host/fault_devices.h  test_bios_diag test_oodos_sysinfo`
+  and `emulator/test/host/golden/romdiag*  test_bios_diag`, above the general ones. The suite's labels in
+  `EMU_TEST_LABELS`: `bios bridge console video sound es5503 sid usb dma sd rtc backplane` (test_bios's, and `rtc`).
+- **Moves:** `hwmem.s`, `hwline.s` and `oohw.inc`'s additions file by file; `FaultyMemory` into the header. No
+  emulator code changes, so no sanitizer run beyond the gate's.
+
+#### D3b: the card tests ####
+
+- **What:** `diag22.s` (stages 7–10), `diag21.s` (11–13), `hwport.s` and `card6510.s` from D2, `DMA_DEC` in
+  `backplane.inc`, the SoundCard hook; `test_bios_diag`'s card cases.
+- **Size:** block 22 about 11.7 KB, block 21 about 7.9 KB.
+- **Must-fail cases** (each seen failing once):
+  - a stuck bit in the sound card's RAM (the hook): S2 names the card address and bit (the fault that makes it
+    fail: S2's check pass left out);
+  - an aperture fault (`FaultyMemory` over block 33): V6 (V6's compare left out);
+  - a stuck bit in a RAM block under DMA: D2 names it as stage 6 did (the CPU's check after the fill left out);
+  - DMA's down copy (MODE's DEC not set: D3 must fail);
+  - the 6510 program not loaded (its start byte never comes: S4 fails within 0.5 s, and S5–S7 `SKIP`);
+  - no sound card: stage 10 `SKIP`; no DMA controller line: stage 8 `SKIP`, and V7, S3 and SD3 `SKIP` with it;
+  - **SD read-only:** the card's image compared byte for byte before and after a full run (shown failing with one
+    write to the card added);
+  - the clock: a wrong frame constant (119,000 cycles) fails NB6, as D1's case did for `HW_CLOCK`;
+  - P3: the read halts the CPU, CONT goes on; Break during P3 leaves BPCTRL 0.
+- **Test map:** `emulator/components/devices/` sound files are mapped already; the `EMU_FAULT_HOOKS` line is in
+  `devices/CMakeLists.txt` (`all`). The emulator change runs `test_sound` and `test_sound_doc` under the
+  sanitizers, at `-j4`.
+- **Moves:** `hwport.s`, `card6510.s` and `.cfg`, and the hook's hunks file by file; the card tests re-done in place.
+
+#### D3c: the launcher and the books ####
+
+- **What:** `oodos/sys/ccp.s` (the `DIAG` built-in), `bdos.s` (75 with A = 2, the interface version 10),
+  `common.s` (`ROMAPPLE`'s tramp with a target), `oodos.inc` (`O_ROM`'s comment); the cards made again; AGENTS.md's
+  exception narrowed to SYSINFO.COM, its list cut to what SYSINFO reads and writes (the owner's decision); the books
+  ([below](#plan2-books)); hw/design.md's Boot (BIOS 0.14, proposed).
+- **Size:** about 210 bytes of OODOS; the build says whether OODOS.SYS still fits.
+- **Tests,** in `test_oodos_utils_rom` (with WOZMON's and APPLE2's): `DIAG` and `N`: `A>` again, the card's image
+  unchanged; `DIAG` and `Y`: the core's first lines on the serial line, then after its run a key and the boot brings
+  OODOS's `A>` back; **a file written just before `DIAG` is on the card after the boot** (must fail with the
+  write-back left out); a flash without the core (block 23 blanked): "No diagnostics in the ROM", return code
+  `$FF00`, and a program's 75 with A = 2 comes back with A = `$FF`, X = `$FC`; `DIAG [FULL]` gives the form's `FULL`.
+- **Test map:** `oodos/` and `docs/` are mapped; `test_oodos_utils_rom`'s labels (`oodos bios sd backplane`) cover
+  it.
+
+<a id="plan2-books"></a>
+### The books ###
+
+**The Technical Reference:**
+
+- **Chapter 2:** the flash's table: blocks 0–20 erased, 21–23 the diagnostics.
+- **Chapter 3:** the entry points' table: `$C812`, the diagnostics after `Y`; `$C815`, the diagnostics for a
+  program that has asked already (A = `$A5` and Y = `$5A`, X the options; anything else is `$C812`), the table's last
+  spare; "Reset and the flash": switch 19
+  and the prompt; the listings of `bios.s` moved with it.
+- **A new chapter 15, "Diagnostics"** (decided, P2-7): the
+  three entries, the stages, what each tests and never does, the lights, the screen and serial output, the end and
+  the way back, the times. Chapter 14 (the emulator's notes) gets its line: the WebUI's panel sets switch 19.
+- **Chapter 12:** switches 16–19 as the diagnostics read them (at the switch-19 and `C812R` entries); DISPLAY's
+  codes; under Reset, that the BIOS turns the breakpoint off at reset only when BPADDR is P3's `$BD1A5` (LL1), so a
+  breakpoint set before START still catches the boot at any other address.
+- **Chapter 13, Apple II mode: no change,** checked against plan 2: the core never writes MODE, and nothing changes
+  `$C806` or `apple.s`; the two ways into the mode (`C806R`, function 75 with A = 1) are as they were; Ctrl-Reset
+  takes the IIe ROM's vector, never the flash's, so it can't reach the switch check; "only a hard reset leaves the
+  mode" still holds, and a hard reset with switch 19 up shows the prompt before the boot, which is chapter 3's to
+  say. The memory the core overwrites (all of card memory, the IIe's character ROM image at `$1E0000` with it, and
+  RAM) is written afresh by `$C806` each time the mode is entered.
+
+**The Programmer's Guide:** function 75's entry gains A = 2 and X = `$FC`, since interface 10.
+
+**The User's Guide:** chapter 4 gains `DIAG`, beside `WOZMON` and `APPLE2` (forms, the prompt, what is lost, the
+boot after, the error with no core), and in the chapter's opening list; chapter 2's list of the built-ins too. There is no DIAG utility entry: D2's
+goes with DIAG.COM. SYSINFO's entry is as D1 left it.
+
+
+<a id="plan2-questions"></a>
+### Questions for the owner, decided ###
+
+**Decided (2026-11-14, the owner): every one as recommended**, after review LL1–LL5, whose fixes are in place above.
+The alternatives are kept for the record.
+
+- **P2-1, the launcher. Decided:** the CCP built-in `DIAG` calling function 75 with A = 2 (OODOS's interface
+  version to 10). *Alternative (not chosen):* a small `DIAG.COM` and no OODOS change, with answer 1's exception grown
+  to let it write W3, VEC and the interrupt enables.
+- **P2-2, `$C815`. Decided:** the jump table's last spare becomes the program's entry: the two-byte token, A = `$A5`
+  and Y = `$5A` (LL2), the options in X, no prompt; anything else asks as `$C812` does. Later entries go through one
+  dispatching entry (LL5). *Alternative (not chosen):* OODOS jumps to `$C812`, which asks a second time.
+- **P2-3, the flash. Decided:** blocks 21–23 for the diagnostics (about 27 KB used of 48), 0–20 erased.
+  *Alternative (not chosen):* blocks 20–23, a block spare for a later card's tests.
+- **P2-4, the options. Decided:** switch 16 up for the interactive tests (18 full and 17 loop, as before) at the
+  switch-19 and `C812R` entries; from `A>`, only what is typed, `DIAG [FULL]` and `DIAG [ASK]` (LL3), carried through
+  WAIT3. *Alternative (not chosen):* the panel's switches only.
+- **P2-5, the way back. Decided:** both: a key boots (OODOS comes back from the card); Esc or EXAM is the monitor,
+  through the new internal label `MONBOOT` after the BIOS's copy, with no splash and no SD boot (not a jump-table
+  entry). *Alternative (not chosen):* the boot only.
+- **P2-6, `feat/diag-d2`. Decided:** kept until D3b merges, then deleted by the coordinator; its record is
+  [D2: as built](#d2-as-built) here. *Alternative (not chosen):* kept for good.
+- **P2-7, the books' chapter. Decided:** a new chapter 15, "Diagnostics", in the Technical Reference.
+  *Alternative (not chosen):* a section of chapter 3.
+
+**Review LL1–LL5 (2026-11-14), fixed as the owner decided:** LL1, the BIOS's RESET writes BPCTRL 0 with the console
+card fitted only when BPADDR is P3's `$BD1A5` (the owner's option B), so other breakpoints keep working
+([stage 13](#plan2-card-tests)); LL2, `$C815`'s two-byte token; LL3, the
+switches only at the switch-19 and `C812R` entries, typed options at `A>`; LL4, the VIA in the run's put-back; LL5,
+D3a's "block 21 blanked" case and the note on later jump-table entries. Each has its must-fail case in D3a.
+
+D2's questions D2-1 (DIAG.COM's size), D2-2 (the cards) and D2-3 (S4's march) are moot with DIAG.COM.
 
 
 ## What the hardware gives ##
@@ -131,6 +791,8 @@ ID; its revision is the low nibble.**
 
 ## SYSINFO ##
 
+*Plan 2: unchanged, as D1 built it ([D1: as built](#d1-as-built-2026-11-13)).*
+
 `SYSINFO.COM` under OODOS. It writes nothing anywhere but its own TPA and the console, so it is always safe to run.
 It prints one report, paged at the console's 30 lines (a key for the next page); `SYSINFO /ALL` prints it without
 pausing (for `SUBMIT`, redirection and the tests), and `SYSINFO section` prints one of `SYSTEM`, `CARDS`, `VIDEO`,
@@ -201,6 +863,13 @@ PANEL      switches $00000, HALT/ENABLE at ENABLE, S INST
 
 
 ## DIAG.COM ##
+
+***Replaced by plan 2 (2026-11-13, the owner's redesign).*** DIAG.COM was built in D2 on `feat/diag-d2` and doesn't
+merge: its tests become the ROM's ([the card tests, as ROM tests](#plan2-card-tests)), and `DIAG` at `A>` becomes the
+launcher ([the DIAG launcher](#plan2-launcher)). Why: under OODOS it couldn't reach OODOS's memory, the console's
+card memory or a DMA channel of its own, and half of its 22 KB was OODOS's way round the hardware (the claims, the
+event queue, the W1 contract and a layout around W1's window, ^C, CC3's put-backs). In the ROM each test is the
+direct one. This section is plan 1's, kept as the record; D2's as built is [below](#d2-as-built).
 
 `DIAG.COM` under OODOS: `DIAG [area ...] [/FULL] [/I] [/WRITE] [/LOOP] [/?]`.
 
@@ -340,6 +1009,10 @@ then its own pages last, from a copy it moves itself to.
 
 ## The ROM core ##
 
+*Plan 2 keeps this section's entry (the reset's prompt, CONT and `Y`, `C812R`, the signature), its stages 0–6, its
+lights and its Break handler, and replaces the rest: where it runs (three blocks, not one), stages 7–12, the switches
+(16 is new), the output's sample and how it ends ([plan 2](#plan-2)).*
+
 A dead-test-style core in the flash, which assumes no working RAM until it has tested some.
 
 **Where it runs.** In its own flash block, ROM A block 23, through W2 (`$8000–$BFFF`), so it runs where it is,
@@ -471,6 +1144,8 @@ the table about 40; stage 2's march, two backgrounds over two pages by absolute 
 
 ## The memory tests ##
 
+*Plan 2 keeps the algorithms; its [ranges and times](#plan2-memory) replace the table here (DIAG.COM's rows go).*
+
 **Algorithms:**
 
 - **Walking 1s and 0s** (data lines): at one address a module, write `$01`, `$02`, ... `$80`, then `$FE` ... `$7F`,
@@ -524,6 +1199,9 @@ a whole module failing alike is named as the module.
 
 ## The library: oohw.lib ##
 
+*Plan 2: the OODOS build stays for SYSINFO; the ROM build is included as source by each of the three blocks with its
+exports off ([the flash](#plan2-rom-space)). DIAG.COM's column below is the record.*
+
 **Where:** `backplane/oohw/` (decided, [answer 9](#the-owners-answers)), its interface `oohw.inc`, since
 the ROM core and OODOS programs share it and it is about the hardware, not OODOS. Built twice from the same source:
 
@@ -569,6 +1247,8 @@ core's alone.
 
 ## ROM space ##
 
+*Replaced by plan 2's [flash: blocks 21–23](#plan2-rom-space); the measurement of the flash stands.*
+
 Measured from the current `bios.rom` (BIOS 0.13, main 8877ba7, `ld65 -m`):
 
 | Flash block | Physical | Holds | Free |
@@ -601,6 +1281,10 @@ so a build never ships a wrong table.
 
 
 ## The interfaces it touches ##
+
+*Replaced by plan 2: the BIOS's part grows by `$C815` and `MONBOOT` ([D3a](#d3a-the-core-its-entries-the-memory-tests)),
+and OODOS's by function 75 with A = 2 and the `DIAG` built-in, decided (P2-1, [the launcher](#plan2-launcher)).
+Apple II mode is still unchanged ([the books](#plan2-books)). Kept as plan 1's record.*
 
 ### The BIOS ###
 
@@ -738,6 +1422,8 @@ check`), merged in order. Each reads its part of the books again at its start an
 
 ### D2: DIAG.COM ###
 
+*Built on `feat/diag-d2`; doesn't merge (plan 2). What moves from it, and how: [plan 2](#plan2-what-moves).*
+
 - **What:** `oodos/utils/diag.s`, `backplane/oohw/card6510.s` (built for both), the library's memory and port
   routines, the User's Guide's entry for DIAG, `DIAG.COM` on the card.
 - **Size:** about 1,800 lines of ca65 and 250 of the 6510 program; DIAG.COM about 11 KB, under the 15 KB the W1
@@ -763,7 +1449,94 @@ check`), merged in order. Each reads its part of the books again at its start an
     that reads the address P3 armed: it must run to its end without halting, and CTRL's bit 3 must be clear.
 - **Test map:** `oodos/utils/diag.s` is under `oodos/`; the suite labelled `oodos sd video sound usb dma rtc console`.
 
+<a id="d2-as-built"></a>
+#### D2: as built (2026-11-13), not merged ####
+
+*The record of `feat/diag-d2` (tip 4fdc4f2), copied here because the branch doesn't merge (plan 2). The files it
+names are on that branch, not on main.*
+
+**Built** on `feat/diag-d2`, for the owner's review. What differs from the plan above, and why:
+
+- **DIAG.COM is bigger than 15 KB, so it is laid out around W1's window** (`oodos/cfg/diag.cfg`, D2-1 below). Its
+  code is 15.3 KB (13.4 KB of it below `$4000`, 2 KB, `CODE2`, at `$8000`) and its strings and tables 6.6 KB:
+  about 22 KB and 5,000 lines of ca65, against the plan's 11 KB and 1,800. So its code runs from `$0300` to `$3FFF` and on
+  at `$8000`; `$4000–$7FFF`, which OOLIB maps, holds nothing of DIAG's (16 KB of zeros in the file, which is
+  40,582 bytes); its data and BSS follow `CODE2`; its buffers are from `$AC00` to `$BFFC`. The W1 contract holds
+  (`w1.py`: no segment in the window), and the rules gate checks `CODE` and `CODE2` (`rules.py --code
+  CODE,CODE2`). DIAG doesn't include `util.inc` (2.8 KB), which it can't spare: it has its own start, end and
+  tail (about 120 bytes).
+- **M1 tests two runs,** the TPA DIAG doesn't use: `$4000–$7FFF` and from past its BSS to `$BFFC` (23,036 bytes
+  now), not "from DIAG's end".
+- **The 6510 program is about 800 bytes** (`card6510.s`, `$0200–$05FF`), not 400: the march, a page at a time, is
+  most of it. So the RAM test the host asks for is `$0600–$FFF9` (`C65_FIRST`), and `$D000–$DFFF` is reached as
+  RAM meanwhile (the port's bits 0–2 low). Its own pages, `$0000–$05FF`, aren't tested under DIAG (S2 and S3
+  exercise them); the ROM core tests the card's RAM through RAMDATA (D3). **S4 is address in address quick, and
+  the march too with `/FULL`**: the march at the 6510's 1 MHz is about 8 s. The 6510's answers come through the
+  event queue (`EK_SOUND`, a 256-byte layout 2 area), which loses none, not the mailbox's stamp.
+- **D6 and V4 read the card back into a tested block,** not a second TPA buffer (room: one 4 KB buffer); **D5
+  compares 32 records** (4 KB), not all of DIAG.COM.
+- **SR2 is timer 2 across a 1,000-cycle loop less across none:** the emulator holds the CPU on the VIA's
+  registers (wait states), so two reads "1,000 cycles apart" by the instructions' count were 1,231 apart. The
+  difference takes the reads' own cycles out.
+- **S7 measures POS against the millisecond counter** over 400 ms (timer 1, PHI2, which NB5 holds to the DS3231),
+  not against the DS3231's second directly: 4 KB at 8,000 Hz plays for half a second. Its first 2 KB must leave the
+  stream buffering, the next start it.
+- **P3 arms the breakpoint, then waits for RETURN** before its read halts the CPU: so a ^C typed at P3, with the
+  breakpoint armed, is what console mode bit 3 is for. With the bit, function 10 gives DIAG the ^C, which puts
+  CTRL, BPADDR and BPCTRL back (BPCTRL 0, HIT cleared), then the console mode, and ends (`$FFFE`); without it the
+  BDOS's warm boot would leave the breakpoint armed (the must-fail case below). P2 keeps the user's breakpoint as it
+  was. A ^C seen at a line's end anywhere else ends DIAG too, giving back the blocks, the sound card's parts, the
+  event area, W1 and the panel.
+- **DIAG reads W1's map from OOLIB's GX_INIT** (an OODOS of interface 8 and a revision 2 video card): without
+  them the blocks can't be mapped, and NB2, M2–M5, D2–D6 and V4 are skipped (`no W1 map`).
+- **The report:** a test's result is at column 65, its dots to 64 (`HW_LINE`); `HW_TEST` begins the line, and
+  DIAG's `HW_PUTC` counts the column (`HW_COL`). A skip says why in brackets. The summary counts `INFO` lines as
+  "measured". An interactive test writes its line, its prompts, then the line again with its result.
+- **The library's routines built in D2:** `HW_WALK`, `HW_TAGW`/`HW_TAGC` (stage 4's tags, which DIAG runs on its
+  blocks too), `HW_AIAW`/`HW_AIAC` (the plan's `HW_AIA`, its two passes), `HW_MARCH`, `HW_PAIAW`/`HW_PAIAC`
+  (`HW_PORTAIA`), `HW_TEST`, `HW_LINE`, `HW_FAULT`, `HW_SUMMARY`. SYSINFO.COM is byte for byte as it was.
+- **The emulator's one change** is `SoundCard::set_ram_fault()` (a byte read through a mask by the host, DMA and
+  the 6510 alike), compiled only with `EMU_FAULT_HOOKS`, which `devices/CMakeLists.txt` defines for the native
+  build with its tests and never for Emscripten's (the WebUI); its own case is in `test_sound`.
+- **DIAG.COM is on neither card** (D2-2 below): `make_card.sh` leaves it out, and `test_oodos_boot`'s list of
+  the utilities on the cards does too.
+- **Time on the emulator:** a quick run of every area is 40.7 s of the machine's time (the plan's estimate was
+  about 20 s: NB4's three seconds, NB5's and NB6's measurements, S4, S7 and the 6510's start add to the memory),
+  `/FULL` 227 s. On `backplane.machine` every test passes or is skipped: SR1 and SR4 (the stand-in serial card),
+  V5 (the ROM core's), and those of `/I`, `/FULL` and `/WRITE` not asked for.
+
+**The tests** (`test_oodos_diag`, 12 cases, about 23 s): each was seen to fail on a copy of the sources with one
+fault put in (`OODOS_UTILS_DIR`):
+
+| Case | The fault that made it fail |
+|---|---|
+| the whole machine, golden (`golden/diag.txt`) | `HW_LINE`'s dots to column 63 |
+| a stuck bit in block 40: M4, "block 40 +$1234 ($A1234): read $08, expected $00: bit 3", return code 1 | `HW_MARCH` returning at once |
+| a stuck bit in block 8: M2 | `HW_AIAC` returning at once |
+| an aperture fault (block 33): V4 | V4's port-to-slot-1 compare left out |
+| no sound card: S1–S8 skipped | `sndup` not asking whether the card is there |
+| the sound card held by another: "in use" | the claim's refusal not looked at |
+| a stuck bit in the sound card's RAM: S4 | the 6510's check pass left out |
+| `/WRITE` answered N: the card's image unchanged | the answer not looked at |
+| `/WRITE` answered Y: written, read back, erased | the erase left out |
+| P3: the read halts the CPU, CONT goes on | the breakpoint on a fetch, not a read |
+| CC3: ^C at P3, then SWEEP reads the armed byte and runs to its end | console mode bit 3 not set: the warm boot left BPCTRL `$05`, and SWEEP halted |
+| the rules gate on both code segments | (in the case: an RMB put at `CODE2`'s first byte) |
+
+And `test_sound`'s hook case, with the hook made to do nothing.
+
+<a id="d2-questions"></a>
+**D2's questions** (moot under plan 2, kept as asked):
+
+- **D2-1, DIAG.COM's size:** laid out around W1's window as above (built), or held to 15 KB below it, which would
+  mean leaving tests out (the interactive ones are about 2.5 KB), or an overlay.
+- **D2-2, the cards:** DIAG.COM on the demo card (and the test card, which changes `u2-pick`'s and
+  `u2-pick-turbo`'s A: count and thumb), or on neither, as now.
+- **D2-3, S4's march:** under `/FULL` only (built), or in the quick run too (about 8 s more).
+
 ### D3: the ROM core and BIOS 0.14 ###
+
+*Replaced by plan 2's D3a, D3b and D3c ([sub-phases](#plan2-phases)); kept as plan 1's record.*
 
 - **What:** `backplane/bios/diag.s`, the ROM build of the library, `romsum.py`, `bios.s`'s changes, `bios.cfg`'s
   block 23; the Technical Reference's chapter 3 (the entry and `C812R`), chapter 12 (switches 17–19 at reset, the
@@ -795,7 +1568,7 @@ check`), merged in order. Each reads its part of the books again at its start an
 
 ### Not planned ###
 
-- Testing OODOS's own memory from under OODOS. That is the ROM core's.
+- Testing OODOS's own memory from under OODOS. That is the ROM core's. (Plan 2: nothing is tested under OODOS.)
 - The serial card's tests beyond SR4: nothing to test until the TL16C552A card exists.
 - The ESP32's bus spy as a test host ([design.md](design.md#boot)): later, using the core's serial output.
 
@@ -805,7 +1578,13 @@ check`), merged in order. Each reads its part of the books again at its start an
 **Decided (2026-11-13, the owner):** questions 1–9 as recommended; question 1 amended by review round 1 (CC6), and question 2
 replaced by the owner's option A, the prompt. The alternatives are kept for the record.
 
-1. **Hardware DIAG and SYSINFO touch directly under OODOS. Decided: allowed for DIAG and SYSINFO,** named in
+**Under plan 2 (the owner's redesign, 2026-11-13):** answer 1's exception covers SYSINFO alone (and whatever the
+launcher needs: nothing, with P2-1 decided as the built-in), and D3c narrows AGENTS.md to it; answer 4 becomes
+blocks 21–23 (P2-3, decided 2026-11-14); answer 5 stands for the ROM, and `/WRITE` goes with DIAG.COM; answer 7 is replaced by `DIAG`
+at `A>` (P2-1, P2-2). Answers 2, 3, 6, 8 and 9 stand.
+
+1. **Hardware DIAG and SYSINFO touch directly under OODOS. Decided: allowed for DIAG and SYSINFO** (plan 2:
+   SYSINFO alone), named in
    AGENTS.md as an exception for the system tools (written in D1), with no OODOS change. AGENTS.md otherwise asks
    for the owner's word before a program touches hardware OOLIB doesn't cover. The whole list (CC6):
    - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; IRQL and IRQH (NB3: the same poll the
@@ -850,14 +1629,14 @@ replaced by the owner's option A, the prompt. The alternatives are kept for the 
    latched the same way, but it copies the switches into PADDR as it is pressed.
 3. **The monitor's entry. Decided:** `$C812` (`C812R`), with the prompt and `Y` before it overwrites memory.
    *Alternative (not chosen):* no prompt.
-4. **Where the core lives. Decided:** flash block 23, through W2 ([ROM space](#rom-space), option 1).
+4. **Where the core lives. Decided:** flash block 23 (plan 2: blocks 21–23 proposed, P2-3), through W2 ([ROM space](#rom-space), option 1).
    *Alternative (not chosen):* block 31's free 7,632 bytes (option 2), which would leave the BIOS about 1.1 KB.
-5. **Writing the SD card. Decided:** the ROM core never writes the card; DIAG.COM's `/WRITE` writes, reads back and
+5. **Writing the SD card. Decided:** the ROM core never writes the card (stands under plan 2); DIAG.COM's `/WRITE` writes, reads back and
    erases a 64 KB file on A: after `Y`. *Alternative (not chosen):* a raw test of a user's `/DIAGTEST.BIN`.
 6. **The serial card's ID. Decided:** the TL16C552A card's ID is `$61`, written into hw/design.md in D1; the
    emulator's stand-in stays as it is, and the tools say "the stand-in 6551 (no ID register)" for any other value.
    *Alternative (not chosen):* the stand-in answers `$60`.
-7. **From OODOS to the core. Decided:** no OODOS change: `WOZMON`, then `C812R`, as the User's Guide's DIAG entry
+7. **From OODOS to the core.** *Replaced by plan 2: `DIAG` at `A>` ([the launcher](#plan2-launcher)).* **Decided then:** no OODOS change: `WOZMON`, then `C812R`, as the User's Guide's DIAG entry
    will say. *Alternative (not chosen):* function 75 with A = 2.
 8. **The emulator's faults. Decided:** test-only, in `emulator/test/host/`: `FaultyMemory` mapped over a range after
    the machine is built (and, for CC5, a device answering as a floating bus); for the sound card's RAM a test-only
