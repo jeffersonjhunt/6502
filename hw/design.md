@@ -1888,7 +1888,8 @@ granted by naming the card's module ID; and an expansion chassis is just more sl
   the card today's wiring gives it (channel 0 storage, 2 the sound card; channel 1 and 3 in the plan), so code
   that never writes the field works as before. Channels 4–7, and where their registers go in the controller's
   128-byte block (STATUS, CONTROL, ABORT and the ID byte sit at `$40`–`$42` and `$7F`), are designed with the
-  card.
+  card. *(Superseded by B0: revision 2 has a new layout, one channel window chosen by CONTROL's SELECT, and the BIOS
+  and OODOS move to it in B2: [the DMA controller, revision 2](#the-dma-controller-revision-2).)*
 
 **A plain expansion chassis.** A chassis is more slots, nothing else: the same 16 module IDs, any card in any slot,
 found only by its ID, on the backplane or in the chassis alike. No fifth ID bit and no expansion port.
@@ -2062,15 +2063,19 @@ DMA.
 
 **`$C806` on the new bus (decided: the image by an argument).**
 - `$C806` takes the first good image, 0 to 3, so today's callers (`C806R`, OODOS's `ROMAPPLE`) get the one there is.
-- A new entry, **`$C81B`**, takes A = the image.
+- **Apple II mode with image A** is a function of the ROM's **dispatching entry**, not an entry of its own. The jump
+  table has no spare after `$C815` ([diag.md](diag.md), P2-2), so any later entry goes through one dispatching
+  entry, a function number in a register, which LL5 adds. B5 needs two of its functions: the flash update, and
+  Apple II mode with A the image. The entry's address, its register and its numbering are LL5's to design.
 - It copies image *n*, ROM A block *n*, to RAM block 59 (`$0EC000–$0EFFFF`, bank E's `$C000–$FFFF`) by the CPU,
   through W1 (`NB_ROM | NB_RO | n`, where it maps the cartridge's block 32 today).
 - It takes the character set from `$10000 + $2000 × n` (blocks 4–5), where it takes the cartridge's block 33 today.
-- **Function 75 gains A = 2, X = the image.** A = 2 is refused today ("any other A"), so this is growth.
-  APPLE2.COM takes an optional image number.
+- **Function 75 gains A = 3, X = the image.** A = 2 is the DIAG launcher's (`DIAG` at `A>`, [diag.md](diag.md),
+  P2-1, OODOS interface 10, being built in D3c). A = 3 is refused today ("any other A"), so this is growth. It comes
+  with the interface version after D3c's 10. APPLE2.COM takes an optional image number.
 - **Function 75's own check moves** (review round 1). Before it jumps to the ROM, `F_ROM` in `oodos/sys/bdos.s`
   checks the cartridge itself: it maps `NB_ROM | NB_RO | CART_BLOCK` in W2 and tests `$FBB3`. In B5 it checks ROM
-  A's image instead: the first good one for A = 1, image X for A = 2. Its X = `$FF` result keeps its meaning, no
+  A's image instead: the first good one for A = 1, image X for A = 3. Its X = `$FF` result keeps its meaning, no
   IIe ROM.
 - `NO APPLE IIE ROM IN THE CARTRIDGE` becomes a message that names the flash and the image.
 - **The emulator:** `--apple-rom` loads ROM A block 0 (or image *n*, with a number before the file), and
@@ -2083,7 +2088,7 @@ describes,** step by step:
 
 | Chapter 13 | On the new bus |
 |---|---|
-| MODE's APPLE bit, written only by `$C806`, from `C806R` or function 75 | unchanged (and `$C81B`, function 75's A = 2) |
+| MODE's APPLE bit, written only by `$C806`, from `C806R` or function 75 | unchanged (and the dispatching entry's Apple II function, function 75's A = 3) |
 | The checks: video card revision 2 (`$92`) | unchanged |
 | The checks: the DMA controller | `apple.s` and function 75 test `DMA_ID` for revision 2's `$82` ([the B2 migration](#the-b2-migration-revision-1-dropped)) |
 | The checks: a IIe ROM, `$06` at its `$FBB3` | the same test, on ROM A's image instead of the cartridge, in the ROM and in function 75 |
@@ -2164,11 +2169,12 @@ save it, clear it and put it back:
   `input.s`'s `USBSRV` and `L2TICK`, `sound.s`'s `DOCIRQ`, `MBOXIN` and `SMDROP`, and `video.s`'s `VBWORK`.
 - **The BDOS entry,** `common.s`'s `STUB` and `STUBRET`: the same around every call, so the BDOS-side maps (`crt.s`'s
   `CRTOUT` and `CRTINIT`, `bdosmem.s`'s `CARD`, `input.s`'s `L2OPEN`, `QFLUSH`, `QTAKE`, `CTLALL`, `MRESET` and
-  `AREAOUT`, `sound.s`'s `SFIELDS`) find WIN1H 0.
+  `AREAOUT`, `sound.s`'s `SFIELDS`, `disk2.s`'s `MAPW1` and `UNMAPW1`) find WIN1H 0.
 - **The hooks,** `irq.s`'s `CALLHOOK` and `HKBACK`: a hook runs with the program's windows, WIN1H included, and
   OODOS's are put back after.
-- **Others:** `common.s`'s `WARM` (the warm boot), `NMI` (Break) and `ROMAPPLE` set WIN0H–WIN3H to 0 and AP8 to 1
-  before going on. FARCALL and the loader door move W3 only, whose WIN3H is always 0.
+- **Others:** `common.s`'s `WARM` (the warm boot), `NMI` (Break) and `ROMAPPLE` set WIN0H–WIN3H to 0 before going
+  on, and set AP8 back to 1 **only when `VIDEO_ID` reads `$92`** (review round 2). Without a revision 2 card bank 8
+  is RAM, and AP8 stays clear: set, bank 8 would read `$FF`. FARCALL and the loader door move W3 only, whose WIN3H is always 0.
 
 **What OODOS and OOLIB add (B7, [below](#what-steps-b1-b7-change)).** Each is an addition, and OOLIB's interface
 version (function 80's `FT_INFO`) goes up with them. Every existing call keeps its meaning:
@@ -2190,6 +2196,9 @@ version (function 80's `FT_INFO`) goes up with them. Every existing call keeps i
   split does no harm.
 - **Function 73 (`O_PHYSADDR`)** refuses an address in W1 while W1 shows the aperture at `$E00000`, as it refuses
   the flash: its 16-bit paragraph can't hold the address.
+- **`PHYSOF` and `PMAP` do the same (review round 2).** `oodos/sys/bios.s`'s `PHYSOF` (MOVE, XMOVE, DMA segments,
+  function 83) and `oodos/sys/bdos.s`'s `PMAP` turn a CPU address into a physical one from the windows' blocks
+  alone. While WIN1H isn't 0, a W1 address is refused (A = `$FF`) rather than taken for RAM block 1.
 - **OOLIB:** `GX_INIT` calls `DM_BANK8` when the version allows, and `GX_BLOCK` writes WIN1H. A program linked with
   an older library never calls it, keeps AP8 set and runs as now.
 - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
@@ -2347,7 +2356,7 @@ directly, but they are the ROM's own code and move with it.
 
 **The ID checks (decided, the owner, 2026-11-14)** take `$82` exactly (`DMA_ID_V2`), not the type nibble that
 answer 4 first had: a revision 1 controller (`$81`) has the other layout, so it reads as no controller.
-- The BIOS: `bios.s:363`, `sd.s:209`, `video.s:139`, `apple.s:56` and `diag23.s:212`.
+- The BIOS: `bios.s:363`, `sd.s:209`, `video.s:139`, `apple.s:56` and `diag.inc:225`.
 - OODOS: `cold.s:390` (`CARD DMA_ID, DMA_ID_V1, $FF`), `bdos.s:287` (function 75's), `crt.s:301`, `irq.s:611`,
   `sound.s:123`, and `video.s:168`, `440`, `564` and `1125`.
 - SYSINFO: `backplane/oohw/hwname.s`'s list of known IDs takes `$82`.
@@ -2359,11 +2368,12 @@ and what each routine does under the SELECT rule:
 | File, routine | Today | On revision 2 |
 |---|---|---|
 | `backplane/bios/bios.s` QUIET (363–372) | ABORT and STATUS `DMA_ALL`; `STZ DMA0_MODE + $10 × n`, channels 0–3 | ABORT `$FF`, STATUS `$FF`; MODE 0 on channels 0–7 by SELECT, CONTROL saved first and put back (Break leaves CONTROL as it was) |
-| `backplane/bios/diag23.s` (212–221), `diag.inc:175` | the same as QUIET; PUTBACK writes CONTROL `$70` | the same as QUIET; `$70` is SELECT 0, the reset value |
+| `backplane/bios/diag.inc` (225–234, 310) | the diagnostics' QUIET, as the BIOS's; PUTBACK writes CONTROL `$70` | the same as QUIET; `$70` is SELECT 0, the reset value |
+| `backplane/bios/diag22.s` (D3b's stage 8: `STAGE8`, `D1`, `D5`, `DMA3`, `DMAWAIT`, `DMA1GO`; `NB3`; `S3`), `diag21.s` (`SD3`, `SD4`, `SDSTUCK`, `DMA0AT`) | each channel's registers by `DMA0_`–`DMA3_`, with interrupts off and every channel the core's | each routine selects its channel, CONTROL saved and put back as the rule says; the tests redone for revision 2 ([below](#the-b2-migration-revision-1-dropped)) |
 | `backplane/bios/sd.s` LOADRUN (219–232) | channel 0's registers, then CONTROL `DMA_ON`, never put back | CONTROL saved, `DMA_ON` with SELECT 0, the registers, and CONTROL put back when the load ends |
 | `backplane/bios/video.s` VINIT (77) | CONTROL written at start-up | unchanged (SELECT 0) |
 | `backplane/bios/video.s` PORTJOB (334–383) | ABORT, channel 1's registers, then CONTROL saved (354) and put back (383) | the save moved first, then SELECT 1, then the registers |
-| `backplane/bios/video.s` DMA3RUN (439–457) and its callers | the callers program channel 3; DMA3RUN saves CONTROL (439), restores (457) | the save and SELECT 3 come before the callers' registers (one routine that saves, selects and programs) |
+| `backplane/bios/video.s` DMA3RUN (438–457) | exported, but nothing calls it (review round 2): no `JSR DMA3RUN` in the BIOS | dropped in B2 |
 | `backplane/bios/demo.s` PORTDMA (577–612) | ABORT, channel 1's registers, CONTROL saved (591) and put back (609) | the save first, then SELECT 1 |
 | `backplane/bios/apple.s` (100–135) | ABORT and STATUS `DMA_ALL`, CONTROL `DMA_ON`, channel 3's six fills | ABORT and STATUS `$FF`, CONTROL `DMA_ON` with SELECT 3; no restore (it never returns, and /RESET puts CONTROL back) |
 | `oodos/sys/bios.s` SDIO (906–956) | channel 0's registers (911–923), then CONTROL saved (924), restored at SDEND (956); STATUS read (950) | the save first, SELECT 0, the registers; STATUS bit 0 as now |
@@ -2378,12 +2388,14 @@ and what each routine does under the SELECT rule:
 | `oodos/sys/video.s` VBQUIET (1125–1129) | ABORT channel 1 | unchanged |
 | `oodos/sys/irq.s` DEAFEN (611–633) | each channel's MODE by `DMA0_MODE,X`, X = `$30` down to 0, from the dispatcher and the warm boot | save CONTROL, SELECT 7 down to 0, MODE's IRQ bit off, restore; DMAIRQ grows to 8 bits for STATUS |
 | `oodos/sys/disk2.s` (286–295), `common.s` NMI (378) | CONTROL saved whole into D2DMAS, master off for a write, put back (and by Break) | unchanged: CONTROL is saved and put back whole, SELECT with it |
-| `backplane/bios/video.s`, `bios.s`, `apple.s`, `diag23.s`, OODOS | `DMA_ALL` (`$0F`) stops channels 0–3 | `DMA_ALL` `$FF` stops all eight wherever 0–3 are stopped today (review round 1) |
+| `backplane/bios/bios.s`, `apple.s`, `diag.inc`, OODOS | `DMA_ALL` (`$0F`) stops channels 0–3 | `DMA_ALL` `$FF` stops all eight wherever 0–3 are stopped today (review round 1) |
 
 **The emulator** drops revision 1's DMA controller when B2 lands. The machine file's `drq=` becomes the card's
 module, and the tests that program the controller are redone for revision 2: `test_dma`, `test_bios`,
 `test_bios_sd`, `test_sd`, `test_console_card`, `test_oodos_sys`, `test_oodos_disk2`, `test_oodos_sound`,
-`test_sound_doc` and `test_video_rev2`.
+`test_oodos_video`, `test_sound`, `test_sound_mp3`, `test_sound_pcm`, `test_sound_doc`, `test_usb`, `test_machine` and
+`test_video_rev2` (review round 2). The WebUI's DMA panel (`emulator/apps/web/ui/src/debugger/devices.ts`) shows the
+new layout.
 
 **The diagnostics (review round 1).** D3b's DMA tests are redone in B2, with revision 2's bounds:
 - **Stage 8** ([diag.md](diag.md)): D1 (the ID, now `$82`; each register read back through SELECT 0–7; CONTROL's
@@ -2396,9 +2408,13 @@ module, and the tests that program the controller are redone for revision 2: `te
 #### /SEL and the chassis: timing ####
 
 **Decided (the owner, 2026-11-14): what goes where.** The expansion chassis is a separate box on a cable, so the
-buffered link stays: its buffers, /CDRV and /SEL. **Memory (RAM and flash) is only ever in the main chassis, by
-convention;** cards with registers and cards with DMA may go in either. The reason is the link's delay, below: 55 ns
-parts already use the backplane's margin, and the link adds 20 ns more on a read.
+buffered link stays: its buffers, /CDRV and /SEL.
+- **Memory (RAM and flash) is only ever in the main chassis, by convention.** Below are the link's delay, and
+  55 ns parts that already use the backplane's margin.
+- **So are the bus masters (review round 2): the Console card and the bus spy.** The link's address and control
+  buffers drive only toward the chassis, so a master in the chassis would have no way to put an address on the
+  backplane.
+- Cards with registers and cards with DMA may go in either.
 
 **Proposed.** Every card pulls /SEL whenever it drives the data bus, so that it works in the chassis as on the
 backplane:
@@ -2413,61 +2429,67 @@ backplane:
 
 - **How early:** from its select decode, combinationally, while PHI2 is low, so that /SEL is down by the time PHI2
   rises. The card turns on its data drivers only while PHI2 is high, as a 6502 bus card does.
-- **The chassis end's buffers** take their direction during PHI2 low, from the chassis's own /SEL, and are enabled
-  only while PHI2 is high. So the two sides never drive each other at a turn. They face the backplane if one of the
-  chassis's cards pulls /SEL, and the chassis otherwise (writes, and a Console card in the chassis reading backplane
-  memory). The chassis's /SEL stays in the chassis.
-- **The backplane end (decided, review round 1)** turns by a line of its own in the link cable, **/CDRV**, "the
-  chassis drives". The chassis end pulls it while one of its cards pulls /SEL, and the backplane end faces the
-  backplane while it is low. Timing:
-  - the chassis's /SEL is down by 70 ns, /CDRV leaves the chassis end by 75 ns, and it reaches the backplane end by
-    80 ns, after the cable;
-  - that end then enables its buffers, 8 ns later, at 88 ns;
-  - the earliest data from a chassis card reaches it at 90 ns (80 at the card, 5 through the chassis end, 5 the
-    cable).
+- **PHI2 in the chassis** comes over the link like every other line, so it is late there: **15 ns** (the backplane
+  end, the cable, the chassis end). A chassis card's PHI2 rises at 85 ns and falls at 154.7 ns, against the
+  backplane's 70 and 139.7.
+- **The chassis end's data buffers** take their direction during PHI2 low, from the chassis's own /SEL. They face
+  the backplane if one of the chassis's cards pulls /SEL, and the chassis otherwise (writes, and memory to a chassis
+  card). They are enabled while the chassis's PHI2 is high, 8 ns after it rises: at **93 ns**. The chassis's /SEL
+  stays in the chassis.
+- **The backplane end (decided, review rounds 1 and 2)** turns by a line of its own in the link cable, **/CDRV**,
+  "the chassis drives". The chassis end pulls it while one of its cards pulls /SEL, and the backplane end faces the
+  backplane while it is low.
+  - **Its data buffers enable at one fixed time, 88 ns, in every cycle:** 8 ns after /CDRV's latest arrival, 80 ns.
+    The latest /SEL is a CPU read of a chassis card, decoded at 70 ns; /CDRV leaves the chassis end by 75 ns and
+    reaches the backplane end by 80 ns.
+  - It doesn't depend on /CDRV's edge, so no cycle has an earlier or later enable.
+  - **It stays enabled 15 ns past the backplane's PHI2 fall, until 154.7 ns** (review round 2), so that data going
+    to the chassis lasts until the chassis's own PHI2 falls.
+- **The wait state (decided, review round 2).** The link pulls RDY for one cycle in every cycle a chassis card
+  drives the data bus. It knows from the chassis cards' /SEL (its own /CDRV), which it has by 80 ns, well before
+  the CPU samples RDY at PHI2's fall.
+  - So a read of a chassis card's registers, and a chassis card's card-to-memory fly-by, take two cycles. The DMA
+    controller holds its grant through the wait, as the CPU holds its cycle.
+  - Writes to a chassis card, and memory-to-card fly-bys into one, don't drive from the chassis, so they get no wait
+    state. They have the setup below without one.
 - **Polls:** in a cycle with /IACK low, both ends' data buffers face the backplane whatever /SEL and /CDRV say.
   Cards on both sides pull lines low together, and the CPU card reads the backplane, where they meet.
 
 **The read budget at 7.16 MHz** (a 139.7 ns cycle, PHI2 high about 70 ns). Data must be at the CPU by 129.7 ns, 10 ns
-before PHI2 falls. Assumed delays:
-- tADS 30 ns and tDSR 10 ns ([CPU and clocks](#cpu-and-clocks));
+before PHI2 falls; with the link's wait state, by 269.4 ns. Assumed delays:
+- tADS 30 ns, tDSR 10 ns and tMDS 25 ns ([CPU and clocks](#cpu-and-clocks));
 - the north bridge's CPLD, window to physical address, 10 ns;
 - each transceiver (74ABT245 class) 5 ns, the backplane's traces counted in it;
 - a card's CPLD decode 10 ns;
 - **a memory card's lane steering** (its odd byte to D0–D7, above) 5 ns;
 - the cable, about 1 m, 5 ns;
-- a buffer's enable 8 ns.
+- a buffer's enable 8 ns;
+- PHI2 across the link, 15 ns;
+- a 55 ns SRAM's write data setup, about 25 ns before the write ends.
 
-| Path | Address at the card | Card selected | Time left for the part | 55 ns part | 70 ns part |
+| Path | Address at the card | Card selected | Data arrives | Needed by | Spare |
 |---|---|---|---|---|---|
-| Backplane, memory | 45 ns (30 + 10 + 5) | 55 ns | 129.7 − 55 − 5 (steering) − 5 (the CPU card) = 64.7 ns from select | 9.7 ns spare | 5.3 ns short: one wait state |
-| Backplane, registers (CPLD, data out by PHI2 + 10, on D0–D7 with no steering) | 45 ns | 55 ns | data at 80 + 5 = 85 ns | 44.7 ns spare | |
-| Chassis, registers | 60 ns | 70 ns | data at 80 + 20 = 100 ns (the buffers enabled at 78 and 88) | 29.7 ns spare | |
+| Backplane, memory read (55 ns part) | 45 ns (30 + 10 + 5) | 55 ns | 55 + 55 + 5 (steering) + 5 (the CPU card) = 120 ns | 129.7 ns | 9.7 ns; a 70 ns part is 5.3 ns short and needs a wait state |
+| Backplane, register read (CPLD, data out by PHI2 + 10, on D0–D7 with no steering) | 45 ns | 55 ns | 80 + 5 = 85 ns | 129.7 ns | 44.7 ns |
+| Chassis, register read | 60 ns (the link's 15) | 70 ns | the card drives at its PHI2 + 10 = 95 ns; the chassis end (enabled at 93) 100, the cable 105, the backplane end (enabled at 88) 110, the CPU card 115 ns | 129.7 ns, or 269.4 ns with the wait state | 14.7 ns without the wait; 154.4 ns with it |
+| Chassis card to backplane memory, DMA fly-by (a write to memory) | the controller's address and PS at the backplane by 15 ns, at the chassis card by 30 ns | /SEL by 40 ns, /CDRV at the backplane end by 50 ns | the card drives at 95 ns; at the backplane by 110 ns, in the memory chip after steering by 115 ns | 114.7 ns (25 ns before PHI2 falls at 139.7), or 254.4 ns with the wait state | −0.3 ns without the wait; 139.4 ns with it |
+| Backplane memory to a chassis card, DMA fly-by | the memory at 15 ns | 25 ns | on the backplane by 25 + 55 + 5 + 5 = 90 ns; through the backplane end (enabled at 88) 95, the cable 100, the chassis end (enabled at 93) 105 ns | the card latches at its PHI2 fall, 154.7 ns | 49.7 ns setup. **Hold:** the backplane end stays enabled until 154.7 ns, so the byte lasts at the card until the memory lets go after the backplane's fall (139.7 + its few ns of hold) plus the link's 15 ns, past the card's latch at 154.7: a few ns of hold, where with the buffer shut at 139.7 the byte could go first |
+| CPU write to a chassis card | 60 ns | 70 ns | the CPU's data at PHI2 + 25 = 95 ns, the CPU card 100, the backplane end (enabled at 88) 105, the cable 110, the chassis end (enabled at 93) 115 ns | the card latches at its PHI2 fall, 154.7 ns | 39.7 ns setup, no wait state; the hold as in the row above |
 
-- **At 7.16 MHz (decided, review round 1): flash and RAM are 55 ns parts.** With them, memory on the backplane needs
-  no wait states, and cards with registers work anywhere. A 70 ns part would need a wait state: the "55–70 ns ...
-  with margin" of [CPU and clocks](#cpu-and-clocks) predates the card decode and the lane steering.
-- **DMA with a card in the chassis and memory in the main chassis.** The controller drives the address and PS at
-  the cycle's start: at the backplane by 15 ns (its CPLD and the CPU card's transceiver), at the chassis card by
-  30 ns (the link's 15).
-  - **Card to memory** (the chassis card drives the data bus). The card decodes the grant (PS its own, /DMA low) and
-    pulls /SEL by 40 ns. /CDRV leaves the chassis end by 45 ns and reaches the backplane end by 50 ns, so both ends
-    face the backplane well before PHI2 rises. They enable at 70 ns and 78 ns. The card drives its byte at 80 ns; it
-    is through the chassis end, the cable and the backplane end by 95 ns, and in the memory card, after its lane
-    steering, by 100 ns. A 55 ns SRAM wants its write data about 25 ns before the write ends at PHI2's fall
-    (139.7 ns), so by about 115 ns: 15 ns spare. /CDRV covers the case; the flash is never written by DMA.
-  - **Memory to card** (the memory drives, the link keeps its default direction, toward the chassis). The memory card
-    is selected by 25 ns and its byte is on the backplane by 90 ns (55 ns, the steering and its transceiver), at the
-    chassis card by 105 ns, before the card latches it at PHI2's fall: about 25 ns spare.
-- **A memory card plugged into the chassis anyway** (against the convention) answers reads too late. Its read takes
-  the link's 20 ns on top of its own path, so a 55 ns part's data reaches the CPU card about 20 ns after the CPU has
-  latched it (34.7 ns left from select, against the part's 55). Reads then return wrong data, unless the card were
-  built with 35 ns parts or pulled RDY for a wait state itself (the north bridge's WAITn are by module ID, which
-  memory no longer has). Writes would mostly work, which makes the fault look intermittent. **Nothing detects it,
-  and nothing has to.** The ROM diagnostics' RAM stages would most likely report the card's blocks as bad, but
-  that is a symptom, not a check.
-- **A 14.3 MHz turbo** (69.8 ns, about 30 ns for a read) leaves nothing for the link: every card in the chassis
-  would need a wait state.
+- **At 7.16 MHz (decided, review round 1): flash and RAM are 55 ns parts.** With them, memory in the main chassis
+  needs no wait states. A 70 ns part would need a wait state: the "55–70 ns ... with margin" of
+  [CPU and clocks](#cpu-and-clocks) predates the card decode and the lane steering.
+- **Cards with registers and DMA cards work in either chassis.** In the expansion chassis they work with the link's
+  wait state: without it a register read has 14.7 ns and a card-to-memory fly-by none.
+- **A memory card plugged into the chassis anyway** (against the convention) would get the link's wait state on its
+  reads, since it pulls /SEL. But the convention stands for the main chassis's 55 ns parts, and for DMA. A chassis
+  memory card would also be the memory side of a fly-by whose card is in the main chassis, a cycle the link doesn't
+  stretch, so its reads would arrive about 20 ns after a 55 ns part's data is wanted. Reads then return wrong data
+  now and then, while writes mostly work, so the fault looks intermittent. **Nothing detects it, and nothing has
+  to.** The ROM diagnostics' DMA and RAM stages would most likely report the card's blocks as bad, but that is a
+  symptom, not a check.
+- **A 14.3 MHz turbo** (69.8 ns, about 30 ns for a read) leaves nothing for the link: every chassis cycle would need
+  more than one wait state.
 
 #### What steps B1-B7 change ####
 
@@ -2477,12 +2499,12 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chas
 | Step | The emulator | The BIOS | OODOS, OOLIB | The books | Interfaces |
 |---|---|---|---|---|---|
 | **B1** memory by address | 24-bit physical addresses (`decoder.h`'s `PHYSICAL_SPACE` and `bus_address`, `space << 20` today); the RAM lines at `000000–0FFFFF`; the flash in the memory space at `F00000` and `F80000`; the north bridge's ROM bit to `$F00000 + b × $4000`; the aperture line at `E00000–E0FFFF`, with bank 8 sent to it **only while a revision 2 video card is fitted**, as the aperture line is inert without one today (review round 1), so a machine with no such card keeps bank 8 as RAM; the bus trace's address column wider; `backplane.machine` | nothing | nothing | the Technical Reference's chapters 2 and 14 (the map), the emulator notes | none: no software-visible change |
-| **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module; revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag23, LOADRUN, PORTJOB, DMA3RUN, PORTDMA, APPLE; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | chapter 5 (DMA), chapter 9 (DMASTREAM), function 75's text; [DMA registers](#dma-registers) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
+| **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module; revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
 | **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5 | none |
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
-| **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **new entries `$C818`, the flash update** (the IIe images and character sets from the SD card to blocks 0–5), **and `$C81B`, Apple II mode with image A**; the build splits the image into even and odd files | **function 75 gains A = 2, X = the image**; `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's entries grow (`$C818`, `$C81B`); function 75 grows (A = 2); OOLIB's version raised for it |
+| **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **two functions of the dispatching entry** that LL5 adds after `$C815`: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the dispatching entry's two functions (the entry itself is LL5's); function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out and ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
-| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register | NB_ID checked; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets AP8 and WINnH 0; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`; **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
+| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register | NB_ID checked; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
 
 No step changes the BIOS's jump table in OODOS (`oodos/sys/bios.s`), the BDOS's existing calls, `DM_INFO`'s
 record, FARCALL or OOUI's interface.
@@ -2490,8 +2512,9 @@ record, FARCALL or OOUI's interface.
 #### The owner's answers (B0) ####
 
 **Decided (the owner, 2026-11-14), "recommendations as listed",** and written in above:
-1. **The Apple image** is chosen by an argument: `$C806` takes the first good image, `$C81B` takes A, function 75
-   gains A = 2, and APPLE2.COM takes a number.
+1. **The Apple image** is chosen by an argument: `$C806` takes the first good image; the dispatching entry's Apple
+   II function takes A (the entry is LL5's: the table has no spare after `$C815`); function 75 gains A = 3 (A = 2 is
+   the DIAG launcher's), with the interface version after 10; and APPLE2.COM takes a number.
 2. **The character sets** are in ROM A, one per image: 8 KB each in blocks 4–5 (review round 1, for the 8 KB erase).
 3. **ROM B** is two 256 KB chips, as ROM A is.
 4. **DMA revision 2's ID** is `$82`, and the checks take `$82` exactly (decided 2026-11-14, with the new layout),
