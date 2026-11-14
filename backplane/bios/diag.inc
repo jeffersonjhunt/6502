@@ -20,8 +20,10 @@
 ; What the run keeps across the hand-offs is here, at fixed addresses in the
 ; core's zero page: the first 512 bytes of the RAM block stage 2 chose for
 ; W0, tested before anything is kept there. $00-$07 are left alone; the
-; library's own zero page and variables (DZP, DBSS in bios.cfg) are block
-; 23's, from $40 and $0100; the stack is $0180-$01FF.
+; library's own zero page and variables are block 23's at $40-$4F and
+; $0100-$0147 (DZP, DBSS in bios.cfg), blocks 22's and 21's at $60-$FF and
+; $0148-$01D7 (one block runs at a time); the stack starts at $01FF, with 40
+; bytes ($01D8-$01FF) in blocks 22 and 21.
 
 .ifndef DIAG_INC
 DIAG_INC = 1
@@ -212,10 +214,79 @@ T_PA:           .res    3              ; a physical address (PHYSB)
 T_GOOD:         .res    1
 .endmacro
 
+; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
+; stopped, the SD card's command abandoned, every card's interrupt off, the
+; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
+; clock's TIE off, the VIA's interrupts off. The breakpoint is left alone.
+.macro QUIETM
+        .local sd, idle, usb, video, sound, sid, panel, via
+                lda     #NB_RTC_TICK
+                sta     NB_RTCCTL
+                lda     DMA_ID
+                cmp     #DMA_ID_V1
+                bne     sd
+                lda     #DMA_ALL
+                sta     DMA_ABORT
+                sta     DMA_STATUS
+                stz     DMA0_MODE
+                stz     DMA0_MODE + $10
+                stz     DMA0_MODE + $20
+                stz     DMA0_MODE + $30
+sd:             lda     SD_ID
+                cmp     #SD_ID_V1
+                bne     usb
+                stz     SD_IEN
+                lda     SD_STATUS
+                bpl     idle
+                lda     #SD_CTRL_RESET
+                sta     SD_CTRL
+                bra     usb
+idle:           stz     SD_CTRL
+usb:            lda     USB_ID
+                cmp     #USB_ID_V1
+                bne     video
+                stz     USB_IEN
+video:          lda     VIDEO_ID
+                cmp     #VIDEO_ID_V2
+                bne     sound
+                stz     VIDEO_IEN
+                stz     VIDEO_SPLASH
+                stz     VIDEO_PCTL
+sound:          lda     SOUND_ID
+                and     #$F0
+                cmp     #SOUND_TYPE
+                bne     panel
+                lda     SOUND_CTRL
+                and     #<~SOUND_RUN
+                sta     SOUND_CTRL
+                stz     SOUND_IEN
+                ldx     #SOUND_SIDS - 1
+sid:            stz     SOUND,x
+                dex
+                bpl     sid
+                lda     SOUND_ID
+                cmp     #SOUND_ID_V2
+                bcc     panel
+                lda     #SOUND_PCM_FLUSH
+                sta     SOUND_PCMCTL
+                lda     SOUND_DOCCTL
+                and     #<~SOUND_DOC_RUN
+                sta     SOUND_DOCCTL
+panel:          lda     CONSOLE_ID
+                cmp     #CONSOLE_ID_V1
+                bne     via
+                stz     CONSOLE_IEN
+                lda     #1
+                sta     CONSOLE_ISR
+via:            lda     #$7F
+                sta     VIA_IER
+.endmacro
+
 ; What a run changed, back as /RESET leaves it, with no stack (so Break's too,
-; and the end's: diagcon.inc's PUTBACK is this and an RTS): the aperture's
-; slots, the port, the DMA controller's CONTROL, the sound card's 6510
-; stopped, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
+; and the end's: diagcon.inc's PUTBACK is this and an RTS): every card quiet
+; as stage 0 makes them (QUIETM: whatever a test had running, a tone, the
+; stream, a DMA transfer or an SD command, stops before the boot), the
+; aperture's slots, the port, the DMA controller's CONTROL, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
 ; cleared and its interrupts off), WAIT0-3 (the diagnostics own WAIT3, and
 ; zero every wait state on the way out), P3's breakpoint (BPCTRL 0 when
 ; BPADDR holds P3's address, so a user's own is kept), the lights, VEC on the flash's top
@@ -237,13 +308,8 @@ slot:           txa
                 stz     VIDEO_PCTL
                 lda     #$70
                 sta     DMA_CONTROL
-                lda     SOUND_ID
-                and     #$F0
-                cmp     #SOUND_TYPE
-                bne     via
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
+                QUIETM                 ; every card quiet first (review P1): DMA aborted, the SD card's
+                                       ;   command abandoned, the SIDs, the stream and the ES5503 stopped
 via:            stz     VIA_ACR        ; timer 1 one-shot; then started on a count it ends at once
                 lda     #2
                 sta     VIA_T1CL

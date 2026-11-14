@@ -201,73 +201,7 @@ i:              lda     #' '
 done:
 .endmacro
 
-; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
-; stopped, the SD card's command abandoned, every card's interrupt off, the
-; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
-; clock's TIE off, the VIA's interrupts off. The breakpoint is left alone.
-.macro QUIETM
-        .local sd, idle, usb, video, sound, sid, panel, via
-                lda     #NB_RTC_TICK
-                sta     NB_RTCCTL
-                lda     DMA_ID
-                cmp     #DMA_ID_V1
-                bne     sd
-                lda     #DMA_ALL
-                sta     DMA_ABORT
-                sta     DMA_STATUS
-                stz     DMA0_MODE
-                stz     DMA0_MODE + $10
-                stz     DMA0_MODE + $20
-                stz     DMA0_MODE + $30
-sd:             lda     SD_ID
-                cmp     #SD_ID_V1
-                bne     usb
-                stz     SD_IEN
-                lda     SD_STATUS
-                bpl     idle
-                lda     #SD_CTRL_RESET
-                sta     SD_CTRL
-                bra     usb
-idle:           stz     SD_CTRL
-usb:            lda     USB_ID
-                cmp     #USB_ID_V1
-                bne     video
-                stz     USB_IEN
-video:          lda     VIDEO_ID
-                cmp     #VIDEO_ID_V2
-                bne     sound
-                stz     VIDEO_IEN
-                stz     VIDEO_SPLASH
-                stz     VIDEO_PCTL
-sound:          lda     SOUND_ID
-                and     #$F0
-                cmp     #SOUND_TYPE
-                bne     panel
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
-                stz     SOUND_IEN
-                ldx     #SOUND_SIDS - 1
-sid:            stz     SOUND,x
-                dex
-                bpl     sid
-                lda     SOUND_ID
-                cmp     #SOUND_ID_V2
-                bcc     panel
-                lda     #SOUND_PCM_FLUSH
-                sta     SOUND_PCMCTL
-                lda     SOUND_DOCCTL
-                and     #<~SOUND_DOC_RUN
-                sta     SOUND_DOCCTL
-panel:          lda     CONSOLE_ID
-                cmp     #CONSOLE_ID_V1
-                bne     via
-                stz     CONSOLE_IEN
-                lda     #1
-                sta     CONSOLE_ISR
-via:            lda     #$7F
-                sta     VIA_IER
-.endmacro
+; (QUIETM, every card quiet, is diag.inc's: PUTBACKM, Break's and the end's, runs it too.)
 
 
 ; A march over $4000-$41FF (W1's block's first 512 bytes) with background bg,

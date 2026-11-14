@@ -44,6 +44,7 @@ T_K:            .res    2
 T_BANKS:        .res    2
 T_SUM:          .res    2
 T_RUNS:         .res    1
+T_FR60:         .res    4              ; NB6's cycles in 60 frames, for V3
                 DTVARS
 
 .segment "D22"
@@ -156,7 +157,8 @@ DMA3:
                 sta     DMA3_CTRL
                 ldx     #$30
 ; Channel X's CTRL (X 0, $10, $20, $30) waited for ENABLE to clear: carry set
-; after about a second.
+; after about 13 ms (28 x 256 polls of about 13 cycles), for transfers of a
+; few KB that take well under 1 ms.
 DMAWAIT:
                 lda     #28
                 sta     T_REV
@@ -402,6 +404,10 @@ NB45:
 ; within 0.1% of 60 frames of FRAME cycles; the line gives them as Hz
 ; (HW_FRAMEHZ: 800 x 525 pixel clocks at 25.175 MHz a frame).
 NB6:
+                stz     T_FR60
+                stz     T_FR60 + 1
+                stz     T_FR60 + 2
+                stz     T_FR60 + 3
                 TB      "NB6  CPU "
                 lda     HW_REV + 9
                 cmp     #2
@@ -420,8 +426,9 @@ NB6:
                 SAY     "BY THE VIDEO FRAME"
                 TD      "NO 60 FRAMES WITHIN 2.3 S"
                 rts
-@frames:        ldx     #3             ; 60 frames' cycles against 60 x FRAME
+@frames:        ldx     #3             ; 60 frames' cycles against 60 x FRAME; kept for V3
 @cyc:           lda     HW_CYC,x
+                sta     T_FR60,x
                 sta     T_N,x
                 dex
                 bpl     @cyc
@@ -619,7 +626,13 @@ D2:
                 cmp     DG_W0
                 beq     @own
                 jsr     ASW0           ; a block that answers as W0's (since stage 6 moved it): not filled
+                bcs     @asw0
+                lda     DG_BLK
+                jsr     ASALIAS        ; a failed block that answers as another: not filled (review P3)
                 bcc     @own
+                lda     DG_BLK
+                jmp     @fill
+@asw0:
                 jsr     TDET
                 SAY     "BLOCK "
                 lda     DG_BLK
@@ -631,7 +644,7 @@ D2:
                 jsr     CRLF
                 jsr     SCROFF
                 lda     DG_BLK
-                bra     @fill
+                jmp     @fill
 @own:           lda     DG_BLK
                 eor     #$A5
                 sta     T_PAT
@@ -693,6 +706,8 @@ D2:
                 sec
                 sbc     #$40
                 sta     DG_T0 + 2
+                lda     DG_BLK         ; every faulty block failed (review P3); the first eight said
+                jsr     MARKBAD
                 lda     T_NBAD
                 cmp     #8
                 bcs     @many
@@ -706,6 +721,44 @@ D2:
 @stuck:         lda     #1
                 sta     NB_WIN1
                 TD      "CHANNEL 3 NEVER REACHED ITS TERMINAL COUNT"
+                rts
+
+; Carry set if block A, one stages 3-6 failed, answers as another block: its
+; +$3FF0 holds another block's number and +$3FF1 its complement, NB2's tags
+; of the blocks that passed (the last written of two blocks that answer as
+; one), so filling it would write over that block, a good one, which D2 would
+; then name. It is kept out of D2's check and what follows (SKIPS); stage 4
+; has named the two blocks already.
+ASALIAS:
+                pha
+                jsr     BLKBIT
+                and     DG_BAD,x
+                beq     @no
+                pla
+                pha
+                sta     NB_WIN1
+                lda     $7FF0
+                eor     #$FF
+                cmp     $7FF1
+                bne     @no
+                lda     $7FF0
+                sta     T_REV
+                pla
+                pha
+                cmp     T_REV          ; another block's tag
+                beq     @no
+                pla
+                jsr     BLKBIT
+                ora     SKIPS,x
+                sta     SKIPS,x
+                lda     #1
+                sta     NB_WIN1
+                sec
+                rts
+@no:            lda     #1
+                sta     NB_WIN1
+                pla
+                clc
                 rts
 
 ; Carry set if block A answers as W0's block: a byte written through W1
@@ -1124,8 +1177,8 @@ LINENOW:
                 rts
 
 ; V3: the beam: through a vertical blank LINE reaches 524, then starts the
-; next frame at 0; a frame (two changes of STATUS's bit) is 119,437 cycles
-; within 0.1%.
+; next frame at 0; a frame is 119,437 cycles within 0.1%: NB6's 60 frames /
+; 60, or, without them, one frame (two changes of STATUS's bit) by HW_CLOCK.
 V3:
                 TB      "V3   THE BEAM: LINES 0-"
                 jsr     VBSTART
@@ -1158,16 +1211,39 @@ V3:
                 SAY     ", A FRAME "
                 lda     T_N
                 cmp     #<524
-                bne     @lines
+                jne     @lines
                 lda     T_N + 1
                 cmp     #>524
-                bne     @lines
+                jne     @lines
                 lda     T_D + 1        ; the next frame's first line: 0 (or 1, a poll late)
-                bne     @start
+                jne     @start
                 lda     T_D
                 cmp     #2
-                bcs     @start
-                lda     #<VIDEO_STATUS
+                jcs     @start
+                lda     T_FR60         ; NB6's 60 frames, / 60: a frame to a cycle or two (review P4)
+                ora     T_FR60 + 1
+                ora     T_FR60 + 2
+                ora     T_FR60 + 3
+                beq     @one
+                clc
+                lda     T_FR60
+                adc     #30            ; rounded
+                sta     HW_NUM
+.repeat 3, i
+                lda     T_FR60 + 1 + i
+                adc     #0
+                sta     HW_NUM + 1 + i
+.endrepeat
+                lda     #60
+                ldx     #0
+                jsr     HW_DIV
+                ldx     #3
+@q:             lda     HW_NUM,x
+                sta     T_N,x
+                dex
+                bpl     @q
+                bra     @got
+@one:           lda     #<VIDEO_STATUS ; no NB6 count: one frame, to the poll's grain
                 sta     HW_WATCH
                 lda     #>VIDEO_STATUS
                 sta     HW_WATCH + 1
@@ -1180,6 +1256,7 @@ V3:
                 sta     T_N,x
                 dex
                 bpl     @cp
+@got:
                 jsr     DEC32
                 SAY     " CYCLES"
                 lda     #<FRAMEREF

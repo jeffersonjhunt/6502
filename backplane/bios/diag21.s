@@ -133,12 +133,18 @@ SDIDLE:
 @ok:            clc
                 rts
 
-; READ of unit 0 from LBA 0, A sectors, CTRL X (0, or SD_CTRL_DMA).
+; READ of unit 0 from LBA 0, A sectors, CTRL X (0, or SD_CTRL_DMA). Carry set,
+; and no command written, if the card stayed busy (review P2): the caller
+; says so through SDSTUCK.
 SDREAD:
                 pha
                 phx
                 jsr     SDIDLE
-                stz     SD_UNIT
+                bcc     @idle
+                plx
+                pla
+                rts
+@idle:          stz     SD_UNIT
                 stz     SD_LBA
                 stz     SD_LBA + 1
                 stz     SD_LBA + 2
@@ -150,6 +156,21 @@ SDREAD:
                 stx     SD_CTRL
                 lda     #SD_READ
                 sta     SD_CMD
+                clc
+                rts
+
+; The card stayed busy: its command abandoned (CTRL's RESET, which writes
+; nothing and leaves its units mounted) and channel 0 aborted, so neither
+; runs on into the boot; the test failed, said (review P2).
+SDSTUCK:
+                lda     #SD_CTRL_RESET
+                sta     SD_CTRL
+                lda     #DMA_CH0
+                sta     DMA_ABORT
+                stz     DMA0_MODE
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                TD      "THE CARD STAYED BUSY"
                 rts
 
 SD1:
@@ -251,6 +272,7 @@ SD3:
 @dma:           lda     #1
                 ldx     #0
                 jsr     SDREAD
+                jcs     @stuck
                 jsr     TZERO
 @data:          lda     SD_STATUS
                 bit     #SD_DATA_READY
@@ -286,9 +308,10 @@ SD3:
                 lda     #1
                 ldx     #SD_CTRL_DMA
                 jsr     SDREAD
-                jsr     SDIDLE
-                stz     SD_CTRL
                 bcs     @stuck
+                jsr     SDIDLE
+                bcs     @stuck
+                stz     SD_CTRL
                 lda     DMA0_CTRL
                 and     #DMA_ENABLE
                 bne     @short
@@ -302,8 +325,7 @@ SD3:
                 iny
                 bne     @cmp
                 jmp     TPASS
-@stuck:         TD      "THE CARD STAYED BUSY"
-                rts
+@stuck:         jmp     SDSTUCK
 @short:         lda     #DMA_CH0
                 sta     DMA_ABORT
                 TD      "CHANNEL 0 DIDN'T REACH ITS TERMINAL COUNT"
@@ -382,6 +404,7 @@ SD4:
                 lda     #DMA_ENABLE
                 sta     DMA0_CTRL
                 jsr     SDIDLE
+                jcs     SDSTUCK
                 stz     SD_UNIT
                 stz     SD_LBA
                 stz     SD_LBA + 1
@@ -401,13 +424,7 @@ SD4:
                 lda     T_ACC + 3
                 cmp     #4             ; about 9 s
                 bcc     @busy
-                stz     SD_CTRL
-                lda     #DMA_ON
-                sta     DMA_CONTROL
-                lda     #DMA_CH0
-                sta     DMA_ABORT
-                TD      "THE CARD STAYED BUSY"
-                rts
+                jmp     SDSTUCK
 @done:          stz     SD_CTRL
                 lda     #DMA_ON
                 sta     DMA_CONTROL
