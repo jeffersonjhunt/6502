@@ -203,6 +203,14 @@ NOFUNS          = $E4                  ; zero if no user function is being evalu
 PRMFLG          = $E5                  ; PTRGET: PARM1 still to search before the variables
 PRMSIZ          = 100                  ; GWDATA.ASM: the bytes for a function's parameters (PARM1, PARM2)
 
+; --- 7b step c's ($E6-$EA) -----------------------------------------------------
+;
+; AUTO's state (GWDATA.ASM's), which the resident MAIN, SCRTCH and CNTCCN
+; test or clear, P2's EDENT2 sets and P3's AUTO and MAIN part read.
+AUTFLG          = $E6                  ; AUTO on: nonzero; in MAIN, "*" or " " as offered
+AUTLIN          = $E7                  ; the line AUTO offers next
+AUTINC          = $E9                  ; AUTO's increment
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

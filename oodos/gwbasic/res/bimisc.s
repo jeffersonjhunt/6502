@@ -155,8 +155,8 @@ SPOPA:          LDA     (SSP)
 ; --- SCRATH, SCRTCH, RUNC, CLEARC, STKINI (BIMISC.ASM 168) -------------------
 
 ; NEW (SCRATH: nothing may follow it): no program, no trace, no line
-; pointers; then RUNC. NODSKS is start-up's way in. PROFLG (a protected
-; program) and AUTFLG are 7c's and 7b's.
+; pointers, no AUTO; then RUNC. NODSKS is start-up's way in (so AUTFLG
+; starts clear). PROFLG (a protected program) is 7c's.
 SCRATH:         BEQ     SCRTCH
                 RTS
 NODSKS:
@@ -165,6 +165,7 @@ SCRTCH:         LDA     TXTTAB
                 LDA     TXTTAB+1
                 STA     PTR+1
                 JSR     TOFF           ; A = 0
+                STZ     AUTFLG
                 STZ     PTRFLG
                 STA     (PTR)          ; the program: its end link alone
                 LDY     #1

@@ -13,6 +13,9 @@ Each `NAME.out` is PC-BASIC's output for `NAME.bas`, made by `oodos/gwbasic/tool
   INPUTs, each ended by a CR), as `pcbasic -n NAME.bas -q`, `NAME.in` on its standard input and `NAME.out` its
   standard output, which shows the lines as typed. (PC-BASIC's `--input` option ends the run before the last
   lines are read.)
+- for a typed session, `NAME.typ` (7b step c: the lines typed at the prompt, each ended by a CR, a program's lines
+  and commands alike, with no `NAME.bas`), as `pcbasic -n` with no program, `NAME.typ` on its standard input and
+  `NAME.out` its standard output: the whole transcript, from the first Ok, each line as typed and what it printed.
 
 The program goes in and only its output comes out, by `docker cp`. Nothing of PC-BASIC (GPLv3) is in the repo:
 only these outputs. An `.out` written by hand (an interactive transcript PC-BASIC's `-n` run can't give) says so
@@ -138,3 +141,18 @@ parameters), `fndup` (the source finds the second X), `fnsn4` (PC-BASIC takes th
 By hand in test_gwbasic_stmts: DEF FN in direct mode (Illegal direct), a function called from a typed line after
 RUN, DEF SEG (Advanced Feature until 7c), and USR (PC-BASIC's runs 8086 code): 6502 routines READ into an integer
 array, at VARPTR's address.
+
+Step c's are typed sessions (`NAME.typ`, above): test_gwbasic_stmts starts GW-BASIC and types each line when it
+waits for one, and the transcript must be PC-BASIC's (it agrees with the 1983 source on all three):
+
+| Session | What |
+|---|---|
+| `renum` | RENUM of a program with every kind of line reference CRUNCH makes a line number (GOTO, GOSUB, THEN, ELSE, ON ... GOTO and GOSUB lists, RESTORE, RESUME, RETURN, RUN, LIST, LLIST, DELETE, EDIT, AUTO, RENUM, `ERL=` and `ERL<>`; not `110=ERL`), `ON ERROR GOTO 0` kept, a missing line ("Undefined line 999 in 160"); RUN, then `RENUM 1000,30`, `RENUM`, `RENUM 100,,5`, each LISTed and RUN |
+| `renumerl` | RENUM of an ON ERROR GOTO handler with `IF ERL=40 THEN RESUME 50` |
+| `renumfc` | RENUM's errors: a new number at or below a line kept, an increment of 0, past 65529 or 65535 (Illegal function call, nothing changed); too much, a letter (Syntax error); the last allowed (65529); `.` |
+
+PC-BASIC's transcript of AUTO and EDIT is its own interface's, not GW-BASIC's screen (AUTO's number is shown twice,
+EDIT's line is typed in as input), so test_gwbasic_stmts checks them by hand, from the source: AUTO's numbers, "*"
+for a line that exists, an empty line, ^C, the end past 65529, NEW, the old increment, `.`, and the errors; EDIT n,
+`.`, a missing line, a number with more after it, and EDIT in a program. On OODOS the number AUTO offers and the
+line EDIT lists are function 10's preload (as a Syntax error's line in 7a): shown at once and edited as typed.

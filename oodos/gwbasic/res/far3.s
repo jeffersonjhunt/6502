@@ -37,13 +37,22 @@
 ;   DEF       DEF FN, DEF USR (DEF SEG: 7c's) (p3/gweval.s DEFP)
 ;   FNDOER    FNname[(arguments)] (p3/gweval.s FNDOERP)
 ;   USRFN     USR[n](argument) (p3/gweval.s USRFNP)
+;
+; Step c's: two commands that end in the main loop, as LIST does. The 8086's
+; AUTO pops NEWSTT's return and jumps to MAIN, RENUM's SCCALL returns to
+; STPRDY: here the banked routine returns, and the stub drops NEWSTT's
+; return and goes on, so no far call frame is left behind (EDIT, P2's, does
+; the same from res/gwmain.s, whose EDTMAI and LSTRDY these share).
+;
+;   AUTO      AUTO [n][, [i]] (p3/gwmain.s AUTOP), then MAIN
+;   RESEQ     RENUM [n][, [m][, i]] (p3/gwmain.s RESEQP), then READY
 
 .include "gwbasic.inc"
 
 .export ONGOTO, ERRORS, RESUME
 .export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, LHSMID, STRNGS, VARPT2
-.export DEF, FNDOER, USRFN
-.import CLEARC, INPRET
+.export DEF, FNDOER, USRFN, AUTO, RESEQ
+.import CLEARC, INPRET, EDTMAI, LSTRDY
 
 .code
 
@@ -79,3 +88,8 @@ FNDOER:         FJSR    FNDOERP
                 RTS
 USRFN:          FJSR    USRFNP
                 RTS
+
+AUTO:           FJSR    AUTOP
+                JMP     EDTMAI         ; POP CX, JMP MAIN
+RESEQ:          FJSR    RESEQP
+                JMP     LSTRDY         ; STPRDY

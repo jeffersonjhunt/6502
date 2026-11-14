@@ -22,6 +22,9 @@
  *   to Out of memory, in FOR and GOSUB, redefinition, the string space collected while parameters are bound, and
  *   the errors); and, by hand: DEF in direct mode, FN typed after RUN, DEF SEG (7c's), and USR on 6502 routines
  *   read into an integer array (PC-BASIC's USR runs 8086 code).
+ * - Step c: RENUM, typed at the prompt with its program (NAME.typ) against PC-BASIC's transcript of the same lines;
+ *   and, by hand from the source (PC-BASIC's transcript of AUTO and EDIT is its own interface's, not GW-BASIC's
+ *   screen): AUTO with its numbers and "*", ended by ^C and by a number past 65529, and EDIT.
  */
 
 #include "harness.h"
@@ -166,6 +169,67 @@ namespace
         if (o.size() < 5 + 4 || o.compare(o.size() - 4, 4, "Ok\r\n") != 0)
             return "<" + o + ">";
         return o.substr(5, o.size() - 5 - 4);
+    }
+
+    /// A typed session (step c): GW-BASIC started, then each line (a CR added) typed when GW-BASIC waits for a line
+    /// (its PINLIN at INLIN0), as oracle.sh gives NAME.typ's lines to PC-BASIC: the whole transcript, from the
+    /// start's Ok to what it printed once it waits after the last line, as PC-BASIC writes it.
+    std::string session(const std::vector<std::string> &in)
+    {
+        CcpRig r;
+        CHECK(r.ok);
+        const std::map<std::string, uint16_t> lab = labels();
+        CHECK(lab.count("INLIN0") == 1);
+        if (!r.ok || lab.count("INLIN0") != 1)
+            return {};
+        const uint16_t inlin0 = lab.at("INLIN0");
+        bool waiting = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == inlin0)
+                waiting = true;
+        };
+        start(r);
+        const size_t from = r.out.size();
+        for (size_t next = 0;; ++next)
+        {
+            const uint64_t end = r.cpu->cycles() + ms(20000);
+            while (!waiting && r.cpu->cycles() < end)
+                r.run(10'000);
+            if (!waiting || next == in.size())
+                break;
+            waiting = false;
+            r.type(in[next] + "\r");
+        }
+        r.watch = nullptr;
+        return "Ok\r\n" + r.out.substr(from);
+    }
+
+    /// NAME.typ's lines.
+    std::vector<std::string> typ(const std::string &name)
+    {
+        std::vector<std::string> in;
+        std::string l;
+        for (const char c : read_text(EMU_GWBASIC_PROGRAMS "/" + name + ".typ"))
+            if (c == '\r')
+            {
+                in.push_back(l);
+                l.clear();
+            }
+            else
+                l += c;
+        return in;
+    }
+
+    /// Each session against the oracle.
+    void sessions(const std::vector<const char *> &names)
+    {
+        for (const char *name : names)
+        {
+            const std::string got = session(typ(name)), want = oracle(name);
+            if (got != want)
+                std::printf("  %s:\n    got  '%s'\n    want '%s'\n", name, vis(got).c_str(), vis(want).c_str());
+            CHECK_EQ(got, want);
+        }
     }
 
     /// Each program typed (after NEW) and RUN, against the oracle.
@@ -449,6 +513,85 @@ TEST(def_in_direct_mode_def_seg_and_usr_by_hand)
     CHECK_EQ(command(r, "DEF USR3=65535:PRINT USR3(1)"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "DEF USR4=-1:PRINT USR4(1)"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "PRINT USR(5)+USR0(USR(1))"), std::string(" 14 \r\n"));
+}
+
+// RENUM (GWMAIN.ASM RESEQ, EATCOM, RESNN, NXTRSL, NXTRSC, RESSD1, RESNX1, SCCALL; SCCLIN's way of SCNEX2, NTERRG,
+// CHGPTR), typed sessions against PC-BASIC's transcripts of the same lines (NAME.typ). renum: a program with each
+// kind of line reference the source's CRUNCH makes a line number (LINRES: GOTO, GOSUB, THEN, ELSE, ON ... GOTO and
+// GOSUB lists, RESTORE, RESUME, RETURN, RUN, LIST, LLIST, DELETE, EDIT, AUTO, RENUM, and ERL's: "ERL=110" and
+// "ERL<>110" change, "110=ERL" doesn't), "ON ERROR GOTO 0" left as it is, and a GOTO to a missing line ("Undefined
+// line 999 in 160", left unchanged); RUN, then RENUM 1000,30 (the first two lines kept), RENUM, RENUM 100,,5, each
+// LISTed and RUN again. renumerl: ON ERROR GOTO with "IF ERL=40 THEN RESUME 50". renumfc: a new number at or below
+// a line kept, an increment of 0 (given, or after a comma), the last number past 65529 or past 65535, all Illegal
+// function call with nothing changed; the last allowed, 65529; too much, or a letter (Syntax error); "." for new.
+TEST(renum_prints_what_pc_basic_prints)
+{
+    sessions({"renum", "renumerl", "renumfc"});
+}
+
+// By hand, from the source (PC-BASIC's transcript of AUTO shows its own interface, not GW-BASIC's screen), AUTO
+// (GWMAIN.ASM AUTO, SNGAUT, SNGAU1; MAIN's AUTO part, AUTELN, MAINBX's "*"; EDENT's AUTRES and its empty lines;
+// SCNEDT.ASM EDTBRK's reset at ^C; BIMISC.ASM SCRTCH's at NEW). OO-1: GW-BASIC prints the number offered on the
+// screen and its editor reads it back with the line; here it is function 10's preload (MAINA), shown at once as the
+// line's start, with "*" for a line that exists:
+// - AUTO alone: 10, 20, ...; ^C (taken when the line ends, as 7a's) ends it: "^C", a new line, Ok;
+// - AUTO 15,5: an empty line at an existing line's "*" keeps that line, a line typed after the "*" replaces it;
+// - from 65520 by 5: after 65525 the next would be 65530, so AUTO ends and the prompt is the plain one;
+// - AUTO 100, takes the old increment, AUTO . the current line (DOT, the last entered: "*", it exists);
+// - an empty line at a new number goes on to the next without an error, and stores nothing;
+// - the number rubbed out and NEW typed: a direct line, and NEW ends AUTO (SCRTCH);
+// - an increment of 0, and AUTO n, before any AUTO set one (Illegal function call); anything after it (Syntax error).
+TEST(auto_offers_numbers_by_hand)
+{
+    const std::string got = session({"AUTO 100,", "AUTO", "PRINT 1", "PRINT 2", "\x03", "AUTO 15,5", "X=1", "", "\x03",
+                                     "LIST", "AUTO 15,5", "", "PRINT 22", "\x03", "AUTO 65520,5", "A=1", "B=2",
+                                     "AUTO 100,", "\x03", "AUTO .", "\x03", "AUTO 40", "", "", "\x03", "LIST",
+                                     "AUTO 70", "\b\b\bNEW", "LIST", "AUTO 10,0", "AUTO 10,5X"});
+    const std::string want = "Ok\r\n"
+                             "AUTO 100,\r\nIllegal function call\r\nOk\r\n"
+                             "AUTO\r\n10 PRINT 1\r\n20 PRINT 2\r\n30 ^C\r\r\nOk\r\n"
+                             "AUTO 15,5\r\n15 X=1\r\n20*\r\n25 ^C\r\r\nOk\r\n"
+                             "LIST\r\n10 PRINT 1\r\n15 X=1\r\n20 PRINT 2\r\nOk\r\n"
+                             "AUTO 15,5\r\n15*\r\n20*PRINT 22\r\n25 ^C\r\r\nOk\r\n"
+                             "AUTO 65520,5\r\n65520 A=1\r\n65525 B=2\r\n"
+                             "AUTO 100,\r\n100 ^C\r\r\nOk\r\n"
+                             "AUTO .\r\n65525*^C\r\r\nOk\r\n"
+                             "AUTO 40\r\n40 \r\n50 \r\n60 ^C\r\r\nOk\r\n"
+                             "LIST\r\n10 PRINT 1\r\n15 X=1\r\n20 PRINT 22\r\n65520 A=1\r\n65525 B=2\r\nOk\r\n"
+                             "AUTO 70\r\n70 \b \b\b \b\b \bNEW\r\nOk\r\n"
+                             "LIST\r\nOk\r\n"
+                             "AUTO 10,0\r\nIllegal function call\r\nOk\r\n"
+                             "AUTO 10,5X\r\nSyntax error\r\nOk\r\n";
+    if (got != want)
+        std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
+    CHECK_EQ(got, want);
+}
+
+// By hand, from the source (SCNEDT.ASM EDIT, EREDIT; PC-BASIC's EDIT is its own screen's): EDIT n lists the line into
+// the next line read, as ERREDT does after a Syntax error (OO-1: function 10's preload, as 7a's), and goes to MAIN
+// with no Ok; an Enter keeps it, an edit (here a backspace and a digit) changes it. EDIT . is the current line
+// (DOT, which EDIT sets). EDIT of a missing line, and EDIT alone (line 0), are Undefined line number; anything after
+// the number is Illegal function call (the source's EFCERR). The source doesn't refuse EDIT in a program: the
+// program ends there, and its line is offered.
+TEST(edit_offers_its_line_by_hand)
+{
+    const std::string got = session({"10 PRINT 1", "20 PRINT 2", "EDIT 10", "", "EDIT 20", "\b5", "EDIT .", "",
+                                     "EDIT 30", "EDIT 10X", "EDIT", "LIST", "30 EDIT 10", "RUN", "\b9", "LIST"});
+    const std::string want = "Ok\r\n"
+                             "10 PRINT 1\r\n20 PRINT 2\r\n"
+                             "EDIT 10\r\n10 PRINT 1\r\n"
+                             "EDIT 20\r\n20 PRINT 2\b \b5\r\n"
+                             "EDIT .\r\n20 PRINT 5\r\n"
+                             "EDIT 30\r\nUndefined line number\r\nOk\r\n"
+                             "EDIT 10X\r\nIllegal function call\r\nOk\r\n"
+                             "EDIT\r\nUndefined line number\r\nOk\r\n"
+                             "LIST\r\n10 PRINT 1\r\n20 PRINT 5\r\nOk\r\n"
+                             "30 EDIT 10\r\n"
+                             "RUN\r\n 1 \r\n 5 \r\n10 PRINT 1\b \b9\r\n"
+                             "LIST\r\n10 PRINT 9\r\n20 PRINT 5\r\n30 EDIT 10\r\nOk\r\n";
+    if (got != want)
+        std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
+    CHECK_EQ(got, want);
 }
 
 int main()

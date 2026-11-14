@@ -52,6 +52,7 @@
 .export ERROR, SNERR, DV0ERR, NFERR, UFERR, REERR, OVERR, MOERR, TMERR, FCERR
 .export USERR, ERESET, ERRESM, READY, MAIN, FINI, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
 .export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, LIST, LLIST, DELETE
+.export EDIT, EDTMAI, LSTRDY
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, GOSUB, RETURN, NXTLIN, FVALSV
 .export LETCN2, INPCOM, LETCN4, DATSNE, DATLIN, PRINT, LPRINT, INPUT, LINE, READ, INPRET
 .import STMDSP, NUMCON, OUTDO, NEWSTX, ISMID, LRUN
@@ -1281,8 +1282,11 @@ REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
 
 ; MAIN: a line from the console. A blank one is read again; one starting
 ; with a number goes into the program; any other runs at once, from KBUF,
-; as the end of a program would (CRUNCH leaves three zeros after it). AUTO
-; (7b) is left out: its line number and "*".
+; as the end of a program would (CRUNCH leaves three zeros after it). In
+; AUTO (AUTFLG), P3's MAINA offers the line's number first, and AUTAST
+; skips the "*" offered after it (p3/gwmain.s). (PINLIN never returns C set
+; on OODOS: a ^C breaks inside it, and CNTCCN ends AUTO, so the 8086's
+; AUTFLG reset on that way back isn't needed.)
 MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     CURLIN
                 STA     CURLIN+1
@@ -1290,6 +1294,9 @@ MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     SAVTXT
                 LDA     #>ENDPRG
                 STA     SAVTXT+1
+                LDA     AUTFLG         ; in an AUTO command?
+                BEQ     NTAUTO
+                FJSR    MAINA          ; its line number into BUF, and "*"
 NTAUTO:         JSR     PINLIN         ; TXTPTR at BUF-1
                 BCC     NTSTOP
                 BRA     MAIN
@@ -1302,6 +1309,9 @@ NTSTOP:         JSR     CHRGTR
                 BCC     MAINBX
                 JMP     SNERR          ; a digit left over: the number is too big
 MAINBX:         JSR     BAKSP
+                LDA     AUTFLG         ; AUTO: its "*" skipped
+                BEQ     NTASTC
+                FJSR    AUTAST
 NTASTC:         LDA     RDL            ; a line number: one space after it is dropped
                 ORA     RDH
                 BEQ     EDENT
@@ -1385,10 +1395,18 @@ LLIST:          PHP                    ; CHRGTR's flags kept, as the 8086's
                 PLA
                 PLP
 LIST:           FJSR    LISTP
-                PLA
+LSTRDY:         PLA
                 PLA
                 JMP     READY
 DELETE:         FJSR    DELETP
+
+; EDIT (7b step c): P2's EDITP puts the line in BUF to edit (SCNEDT.ASM's
+; EDIT and EREDIT); then NEWSTT's return dropped and MAIN, as EREDIT's POP
+; BX and JMP MAIN. AUTO's stub (res/far3.s) ends here too.
+EDIT:           FJSR    EDITP
+EDTMAI:         PLA
+                PLA
+                JMP     MAIN
 
 ; --- PRINT, LPRINT, INPUT, LINE INPUT, READ: P1's statements -----------------------
 

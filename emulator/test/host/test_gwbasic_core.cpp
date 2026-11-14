@@ -575,7 +575,7 @@ TEST(errors_in_direct_mode)
     CHECK_EQ(command(r, "PRINT 1+"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "15"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "X=&H12345"), std::string("Overflow\r\n"));
-    CHECK_EQ(command(r, "RENUM"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n")); // RENUM until 7b step c; WIDTH is 7d's
     CHECK_EQ(command(r, "FILES"), std::string("Advanced Feature\r\n"));
     CHECK_EQ(command(r, "PRINT CVI(\"ab\")"), std::string("Advanced Feature\r\n"));
 }

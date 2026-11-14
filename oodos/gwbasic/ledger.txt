@@ -584,14 +584,14 @@ GWMAIN.ASM ERRFN1 -> p2/gwmain.s ERRFN1
 GWMAIN.ASM STPRDY -> res/gwmain.s READY # the line it pops isn't on the 6502's stack: READY itself
 GWMAIN.ASM READY -> res/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN later 7c
 GWMAIN.ASM REPINI -> res/gwmain.s REPINI
-GWMAIN.ASM MAIN -> res/gwmain.s MAIN # AUTO's line number and "*" later 7b
-GWMAIN.ASM AUTELN -> later 7b: AUTO
+GWMAIN.ASM MAIN -> res/gwmain.s MAIN # AUTO's line number and "*" offered by P3's MAINA (AUTFLG's test resident)
+GWMAIN.ASM AUTELN -> p3/gwmain.s AUTELN # OO-1: the number and "*" into BUF, function 10's preload, not the screen
 GWMAIN.ASM NTAUTO -> res/gwmain.s NTAUTO
 GWMAIN.ASM NTSTOP -> res/gwmain.s NTSTOP
 GWMAIN.ASM MAINBX -> res/gwmain.s MAINBX
 GWMAIN.ASM NTASTC -> res/gwmain.s NTASTC
 GWMAIN.ASM EDENT -> res/gwmain.s EDENT # to CRUNCH and back; a numbered line on in P2's EDENT2
-GWMAIN.ASM AUTRES -> later 7b: AUTO's next line
+GWMAIN.ASM AUTRES -> p2/gwmain.s AUTRES
 GWMAIN.ASM AUTGOD -> p2/gwmain.s AUTGOD
 GWMAIN.ASM LXISTS -> p2/gwmain.s LXISTS
 GWMAIN.ASM LEXIST -> p2/gwmain.s LEXIST
@@ -673,16 +673,16 @@ GWMAIN.ASM LINSPC -> p2/gwmain.s LINSPC
 GWMAIN.ASM RUN -> res/gwmain.s RUN
 GWMAIN.ASM CONRUN -> res/gwmain.s CONRUN
 GWMAIN.ASM RUNC2 -> res/gwmain.s CONRUN # NEWSTT pushed, into GOTO
-GWMAIN.ASM SCCALL -> later 7b: RENUM's
-GWMAIN.ASM SCCLIN -> later 7b: RENUM's, line numbers to pointers
+GWMAIN.ASM SCCALL -> p3/gwmain.s SCCALL # FJSR SCCPTR; its STPRDY the stub's JMP READY
+GWMAIN.ASM SCCLIN -> p2/gwmain.s SCCLIN
 GWMAIN.ASM SCCPTR -> p2/gwmain.s SCCPTR
 GWMAIN.ASM SCNPGM -> p2/gwmain.s SCNPGM
 GWMAIN.ASM SCNPLN -> p2/gwmain.s SCNPLN
 GWMAIN.ASM SCNEXT -> p2/gwmain.s SCNEXT
-GWMAIN.ASM SCNEX2 -> p2/gwmain.s SCNEX2 # (PTRFLG is 0 here: SCCLIN's way, NTERRG and CHGPTR, later 7b)
-GWMAIN.ASM NTERRG -> later 7b: SCCLIN's
-GWMAIN.ASM CHGPTR -> later 7b: SCCLIN's, with "Undefined line" (LINM)
-GWMAIN.ASM LINM -> later 7b: CHGPTR's message
+GWMAIN.ASM SCNEX2 -> p2/gwmain.s SCNEX2 # SCCLIN's way (PTRFLG set) and SCCPTR's; the scanned line's number in SCNLN
+GWMAIN.ASM NTERRG -> p2/gwmain.s NTERRG
+GWMAIN.ASM CHGPTR -> p2/gwmain.s CHGPTR
+GWMAIN.ASM LINM -> p2/gwmain.s LINM
 GWMAIN.ASM SCNPOP -> p2/gwmain.s SCNPOP
 GWMAIN.ASM SCNEX3 -> p2/gwmain.s SCNPOP
 GWMAIN.ASM JSCNXT -> p2/gwmain.s SCNPOP
@@ -809,7 +809,7 @@ GWEVAL.ASM HOCFIN -> res/gweval.s HOCFIN # MAKINT inline
 GWEVAL.ASM ISMID$ -> res/gweval.s ISMID # LHSMID (MID$ =) P3's, through res/far3.s LHSMID
 BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
-BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG and AUTFLG later 7c and 7b
+BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG later 7c
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
 BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP, GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY later 7b-7f
 BIMISC.ASM INITRP -> later 7b: the event traps' table
@@ -896,12 +896,12 @@ SCNEDT.ASM INCRTX -> OEM res/oem.s INCRTX
 SCNEDT.ASM INCRTF -> OEM res/oem.s INCRTF
 SCNEDT.ASM CLRFLG -> OEM res/oem.s INCRTF
 SCNEDT.ASM SCNSEM -> OEM res/oem.s SCNSEM
-SCNEDT.ASM EDTBRK -> OEM res/oem.s CNTCCN # to a new line; AUTFLG later 7b
+SCNEDT.ASM EDTBRK -> OEM res/oem.s CNTCCN # to a new line; AUTFLG cleared
 SCNEDT.ASM ERREDT -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED2 -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED3 -> p2/gwmain.s ERRED3
 SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to show and edit (PRELOD)
-SCNEDT.ASM EDIT -> later 7b: EDIT n (EREDIT's other caller)
+SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub res/gwmain.s EDIT
 SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
 SCNEDT.ASM DSKCHI -> later 7c: a program loaded as text
 SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
@@ -1237,8 +1237,8 @@ BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
 BIMISC.ASM ERASE -> p3/bimisc.s ERASEP # its resident stub res/far3.s ERASE
 GWMAIN.ASM ERRORS -> p3/gwmain.s ERRORSP # its resident stub res/far3.s ERRORS
 GWMAIN.ASM RESUME -> p3/gwmain.s RESUMEP # its resident stub res/far3.s RESUME
-GWMAIN.ASM AUTO -> later 7b
-GWMAIN.ASM RESEQ -> later 7b: RENUM
+GWMAIN.ASM AUTO -> p3/gwmain.s AUTOP # its stub res/far3.s AUTO: NEWSTT's return dropped, MAIN
+GWMAIN.ASM RESEQ -> p3/gwmain.s RESEQP # its stub res/far3.s RESEQ: NEWSTT's return dropped, READY
 CALL86.ASM CALLS -> later 7g: CALL
 FIVEO.ASM WRITE -> p3/fiveo.s WRITEP # its resident stub res/far3.s WRITE; WRITE # (FILGET) 7c's
 GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/far3.s OPTION
@@ -1400,3 +1400,22 @@ GWEVAL.ASM BCTRAL -> dropped: as BCTRAN
 GWEVAL.ASM ERRDIR -> p3/gweval.s ERRDIR
 GWEVAL.ASM GETFNM -> p3/gweval.s GETFNM # JMP PTRGT2: a tail call (PTRGET's RTS)
 BISTRS.ASM ARYVAR -> res/bistrs.s ARYVAR # the parameter blocks' chain, TEMP9 in zero page; the arrays at ARYVA0
+# 7b step c: AUTO and RENUM (GWMAIN.ASM, p3/gwmain.s, each reached by a resident stub in res/far3.s), MAIN's AUTO
+# part (p3/gwmain.s MAINA and AUTAST, with AUTFLG's tests resident in MAIN) and EDENT's (p2/gwmain.s EDENT2), SCCLIN's
+# way of the line scan (p2/gwmain.s, with SCCPTR's), and EDIT (SCNEDT.ASM, p2/gwmain.s beside EREDIT, its stub in
+# res/gwmain.s). The labels inside a routine that matter are named too.
+GWMAIN.ASM SNGAUT -> p3/gwmain.s SNGAUT
+GWMAIN.ASM SNGAU1 -> p3/gwmain.s SNGAU1
+GWMAIN.ASM EATCOM -> p3/gwmain.s EATCOM
+GWMAIN.ASM RESNN -> p3/gwmain.s RESNN # new, the increment and the first line in P3's RSNN, RSINC, RSPTR
+GWMAIN.ASM NXTRSL -> p3/gwmain.s NXTRSL
+GWMAIN.ASM NXTRSC -> p3/gwmain.s NXTRSC
+GWMAIN.ASM RESSD1 -> p3/gwmain.s RESSD1
+GWMAIN.ASM RESNX1 -> p3/gwmain.s RESNX1
+SCNEDT.ASM ERED2 -> p2/gwmain.s EREDIT
+SCNEDT.ASM ERED3 -> p2/gwmain.s EREDIT
+SCNEDT.ASM ERED4 -> p2/gwmain.s EREDIT # LINPRT's number into BUF (LINOUT), not printed
+SCNEDT.ASM ERED5 -> p2/gwmain.s EREDIT # BUFLIN into BUF; LISPRT's printing is function 10's preload
+SCNEDT.ASM EFCERR -> p2/gwmain.s EDITP
+SCNEDT.ASM EUSERR -> p2/gwmain.s EREDIT
+SCNEDT.ASM INLOP3 -> dropped: the screen editor's echo of a key (INLLOP's, which INLHLP reaches); function 10 echoes

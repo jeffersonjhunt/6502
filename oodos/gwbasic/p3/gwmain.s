@@ -16,12 +16,24 @@
 ;   RANDOMP   RANDOMIZE n, and RANDOMIZE alone, which asks for the seed
 ;   FRMQNT    a formula as 0..65535 in DX (CLEAR's GETMPM, p3/bimisc.s)
 ;
+; and step c's:
+;
+;   AUTOP     AUTO [n][, [i]]: AUTLIN, AUTINC and AUTFLG set for MAIN
+;   MAINA     MAIN's AUTO part, before a line is read: the line number
+;             offered, with "*" if the line exists
+;   AUTAST    MAINBX's AUTO part: the "*" after the number skipped
+;   RESEQP    RENUM [new][, [old][, inc]] (SCCLIN and SCCPTR, P2's, turn
+;             the line numbers in the text into pointers and back)
+;
 ; The far call rule (translate-7b-common.md): ON's chosen GOTO or GOSUB is
 ; started by JMP GONE2, a tail call, as the 8086's is: the statement's RTS
 ; returns through FARCALL to the stub, whose RTS goes to NEWSTT. RESUME's
 ; JMP DATA is one too. RESTRP's JMP ERRESM and the errors reset both stacks.
 ; RANDOMIZE returns C set for a ^C at its prompt (the 8086's JMP STPEND),
-; which the stub takes to STPEND, as INPUT's is.
+; which the stub takes to STPEND, as INPUT's is. AUTO and RENUM return, and
+; their stubs drop NEWSTT's return and go to MAIN and READY, as the 8086's
+; POP CX / JMP MAIN and SCCALL's STPRDY do (a jump from here would leave
+; the far call's frame on the 6502's stack).
 
 .include "gwbasic.inc"
 
@@ -30,8 +42,14 @@
 ;@entry ERRORSP
 ;@entry OPTIONP
 ;@entry RANDOMP
+;@entry AUTOP
+;@entry MAINA
+;@entry AUTAST
+;@entry RESEQP
 .export ONGOTOP, RESUMEP, ERRORSP, OPTIONP, RANDOMP, FRMQNT
+.export AUTOP, MAINA, AUTAST, RESEQP
 .import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, GONE2, DATA, GETBYT
+.import BUF, PRELOD
 .import ERROR, ERRESM, USERR, REERR, FCERR, ADVERR, ONEFLG, ERRTXT, ONGOTP
 .import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2
 
@@ -280,5 +298,287 @@ FRMQNT:         JSR     FRMEVL
                 STA     RDH
                 RTS
 
+; --- AUTO (GWMAIN.ASM 2546) ------------------------------------------------------------------
+
+; AUTO: the first line 10 unless given (LINSPC: n, or "." for DOT), the
+; increment 10 unless given after a comma; a comma alone, AUTINC's old one.
+; An increment of 0 is Illegal function call; anything after it, Syntax
+; error. Then AUTINC, AUTFLG (the increment's two bytes ORed, nonzero, as
+; the 8086's AL) and AUTLIN, and back: the stub drops NEWSTT's return and
+; goes to MAIN. Z on entry is CHRGTR's: the statement's end. The first line
+; is kept in AUFST (P3's), where the 8086 keeps it on its stack.
+AUTOP:          PHP                    ; (the flags kept round the moves)
+                LDX     #10            ; DX = 10
+                STX     RDL
+                STZ     RDH
+                STX     AUFST          ; PUSH DX: the first line, 10
+                STZ     AUFST+1
+                PLP
+                BEQ     SNGAUT         ; AUTO alone: 10, 10
+                FJSR    LINSPC         ; the first line (Z: the end)
+                PHP
+                LDA     RDL            ; XTHL: it kept, and BX = 10
+                STA     AUFST
+                LDA     RDH
+                STA     AUFST+1
+                LDA     #10
+                STA     RBL
+                STZ     RBH
+                PLP
+                BEQ     SNGAU1         ; AUTO n: an increment of 10
+                JSR     SYNCHR         ; a comma must follow
+                .byte   ','
+                PHP
+                LDA     AUTINC         ; DX: the old increment
+                STA     RDL
+                LDA     AUTINC+1
+                STA     RDH
+                PLP
+                BEQ     SNGAUT         ; AUTO n,: the old one
+                JSR     LINGET         ; the increment
+                BEQ     SNGAUT
+                JMP     SNERR          ; should have ended
+; SNGAUT (GWMAIN.ASM 2563): BX = DX
+SNGAUT:         LDA     RDL
+                STA     RBL
+                LDA     RDH
+                STA     RBH
+; SNGAU1 (GWMAIN.ASM 2564)
+SNGAU1:         LDA     RBH            ; an increment of 0: Illegal function call
+                ORA     RBL
+                BNE     :+
+                JMP     FCERR
+:               LDX     RBL
+                STX     AUTINC
+                LDX     RBH
+                STX     AUTINC+1
+                STA     AUTFLG         ; AUTO from MAIN on
+                LDA     AUFST          ; POP BX: AUTLIN, the first line
+                STA     AUTLIN
+                LDA     AUFST+1
+                STA     AUTLIN+1
+                RTS
+
+; MAINA (GWMAIN.ASM 609, MAIN's AUTO part): with AUTFLG set, AUTLIN
+; offered as the line's start, then "*" if that line exists (FNDLIN's C)
+; or a space, and AUTFLG becomes that character, for AUTAST. OO-1: GW-BASIC
+; prints the number (LINPRT) and the character (OUTDO) on the screen, and
+; its screen editor reads them back with the line. On OODOS's console the
+; line comes from function 10, so they go in BUF as its preload instead
+; (PRELOD, as ERREDT's line does): function 10 shows them at once and they
+; begin the line read, as the screen's do; and they can be rubbed out,
+; which on the PC is moving the cursor over them. LINOUT gives the number's
+; digits (its blank left out, as LINPRT's isn't shown either).
+MAINA:          LDA     AUTLIN
+                STA     RBL
+                LDA     AUTLIN+1
+                STA     RBH
+                FJSR    LINOUT         ; at FBPTR
+                LDX     #0
+                LDY     #0
+@n:             LDA     (FBPTR),Y
+                BEQ     @f
+                CMP     #' '
+                BEQ     :+
+                STA     BUF,X
+                INX
+:               INY
+                BRA     @n
+@f:             PHX
+                LDA     AUTLIN
+                STA     RDL
+                LDA     AUTLIN+1
+                STA     RDH
+                JSR     FNDLIN         ; does it exist?
+                PLX
+                LDA     #'*'           ; C set: it does
+                BCS     AUTELN
+                LDA     #' '
+; AUTELN (GWMAIN.ASM 621)
+AUTELN:         STA     BUF,X          ; OUTDO's character, into BUF
+                STZ     BUF+1,X
+                STA     AUTFLG         ; whether there is a "*"
+                LDA     #1
+                STA     PRELOD
+                RTS
+
+; AUTAST (GWMAIN.ASM 644, MAINBX's AUTO part, the project's name): A
+; AUTFLG (nonzero: the resident MAIN tests it). With a "*" offered and the
+; line read having it after the number, it is skipped (INXHRT).
+AUTAST:         CMP     #'*'
+                BNE     @r             ; AUTO did not append an asterisk
+                CMP     (TXTPTR)
+                BNE     @r
+                INCW    TXTPTR
+@r:             RTS
+
+; --- RENUM (GWMAIN.ASM 3108 RESEQ) ----------------------------------------------------------
+
+; RESEQP: RENUM [new][, [old][, inc]]: the lines from old on (0, all of
+; them, if not given) numbered from new (10) by inc (10). "." for new or
+; old is DOT (LINSPC). Illegal function call for an increment of 0, for a
+; new number at or below a line kept (the first line numbered new or more
+; would come before the first line renumbered), and for a last number past
+; 65529; all checked before anything changes. Then SCCLIN turns each line
+; number in the text into a pointer to its line (saying "Undefined line"
+; for one not there, which keeps its number), the lines get their new
+; numbers, and SCCPTR turns the pointers back into the lines' numbers, the
+; new ones (SCCALL). The 8086 keeps new, the increment and the first line
+; on its stack; here they are RSNN, RSINC and RSPTR (P3's), and new is CX,
+; old DX, while the arguments are read.
+RESEQP:         PHP                    ; Z: CHRGTR's, the statement's end
+                LDX     #10            ; CX = 10: new, and the increment
+                STX     RCL
+                STX     RSINC
+                STZ     RCH
+                STZ     RSINC+1
+                STZ     RDL            ; DX = 0: old, all the lines
+                STZ     RDH
+                PLP
+                BEQ     RESNN          ; RENUM alone: 10 by 10
+                CMP     #','
+                BEQ     EATCOM         ; no new: 10
+                FJSR    LINSPC         ; new
+                PHP
+                LDA     RDL
+                STA     RCL
+                LDA     RDH
+                STA     RCH
+                STZ     RDL            ; DX back: 0
+                STZ     RDH
+                PLP
+                BEQ     RESNN
+; EATCOM (GWMAIN.ASM 3122)
+EATCOM:         JSR     SYNCHR
+                .byte   ','
+                FJSR    LINSPC         ; old
+                BEQ     RESNN
+                JSR     SYNCHR         ; (the old increment dropped)
+                .byte   ','
+                LDA     RDH            ; old kept
+                PHA
+                LDA     RDL
+                PHA
+                JSR     LINGET         ; the increment
+                BEQ     :+
+                JMP     SNERR          ; should have ended
+:               LDA     RDL            ; 0: Illegal function call
+                ORA     RDH
+                BNE     :+
+                JMP     FCERR
+:               LDA     RDL
+                STA     RSINC
+                LDA     RDH
+                STA     RSINC+1
+                PLA
+                STA     RDL
+                PLA
+                STA     RDH
+; RESNN (GWMAIN.ASM 3141): CX new, DX old.
+RESNN:          LDA     RCL
+                STA     RSNN
+                LDA     RCH
+                STA     RSNN+1
+                JSR     FNDLIN         ; old's line, or the one after it
+                LDA     RCL
+                STA     RSPTR
+                LDA     RCH
+                STA     RSPTR+1
+                LDA     RSNN           ; new's
+                STA     RDL
+                LDA     RSNN+1
+                STA     RDH
+                JSR     FNDLIN
+                LDA     RCL            ; new's at or after old's, or Illegal
+                CMP     RSPTR          ; function call: the program can't be
+                LDA     RCH            ; renumbered on top of itself
+                SBC     RSPTR+1
+                BCS     :+
+                JMP     FCERR
+:               LDA     RSPTR          ; BX: the first line to renumber
+                STA     PTR
+                LDA     RSPTR+1
+                STA     PTR+1
+                LDA     RSNN           ; DX: the line numbers counted up
+                STA     RDL
+                LDA     RSNN+1
+                STA     RDH
+; NXTRSL (GWMAIN.ASM 3175): the last new number found, before anything
+; changes. Each line's link; at the end's zero link, done; and none added
+; for the last line (the one whose next is the end).
+NXTRSL:         LDY     #1             ; the link
+                LDA     (PTR)
+                TAX
+                ORA     (PTR),Y
+                BEQ     RESSD1         ; zero: done
+                LDA     (PTR),Y
+                STA     PTR+1
+                STX     PTR
+                LDA     (PTR)          ; the next line's link
+                ORA     (PTR),Y
+                BEQ     RESSD1
+; NXTRSC (GWMAIN.ASM 3164)
+NXTRSC:         CLC                    ; one increment more
+                LDA     RDL
+                ADC     RSINC
+                STA     RDL
+                LDA     RDH
+                ADC     RSINC+1
+                STA     RDH
+                BCC     :+
+                JMP     FCERR          ; the increment was too large
+:               LDA     #<65529        ; past 65529: the same
+                CMP     RDL
+                LDA     #>65529
+                SBC     RDH
+                BCS     NXTRSL
+                JMP     FCERR
+; RESSD1 (GWMAIN.ASM 3191): the numbers to pointers, then the lines
+; numbered.
+RESSD1:         FJSR    SCCLIN
+                LDA     RSPTR
+                STA     PTR
+                LDA     RSPTR+1
+                STA     PTR+1
+                LDA     RSNN
+                STA     RDL
+                LDA     RSNN+1
+                STA     RDH
+; RESNX1 (GWMAIN.ASM 3197)
+RESNX1:         LDY     #1             ; the link: zero at the end
+                LDA     (PTR)
+                TAX
+                ORA     (PTR),Y
+                BEQ     SCCALL
+                LDA     (PTR),Y
+                PHA
+                INY                    ; the new number
+                LDA     RDL
+                STA     (PTR),Y
+                INY
+                LDA     RDH
+                STA     (PTR),Y
+                CLC                    ; and the next
+                LDA     RDL
+                ADC     RSINC
+                STA     RDL
+                LDA     RDH
+                ADC     RSINC+1
+                STA     RDH
+                PLA                    ; on to the next line
+                STA     PTR+1
+                STX     PTR
+                BRA     RESNX1
+; SCCALL (GWMAIN.ASM 3214): the pointers back to numbers; the stub goes to
+; READY (STPRDY).
+SCCALL:         FJSR    SCCPTR
+                RTS
+
 .rodata
 RANMES:         .byte   "Random number seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412
+
+.segment "BRAM"
+RSNN:           .res    2              ; RENUM: the first new number (the 8086's NN)
+RSINC:          .res    2              ; its increment (INC)
+RSPTR:          .res    2              ; the first line renumbered (old's)
+AUFST:          .res    2              ; AUTO: its first line, till the rest is read

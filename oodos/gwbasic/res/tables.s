@@ -15,6 +15,7 @@
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
+.import EDIT, AUTO, RESEQ
 .import SGN, VINT, VABS, FIXER, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
@@ -85,12 +86,12 @@ STMDSP:         S       ENDST          ; END
                 S       TOFF           ; TROFF
                 S       SWAP           ; SWAP
                 S       ERASE          ; ERASE
-                S       ADVERR         ; EDIT (7b)
+                S       EDIT           ; EDIT
                 S       ERRORS         ; ERROR
                 S       RESUME         ; RESUME
                 S       DELETE         ; DELETE
-                S       ADVERR         ; AUTO (7b)
-                S       ADVERR         ; RENUM (7b)
+                S       AUTO           ; AUTO
+                S       RESEQ          ; RENUM
                 S       DEFSTR         ; DEFSTR
                 S       DEFINT         ; DEFINT
                 S       DEFREA         ; DEFSNG
