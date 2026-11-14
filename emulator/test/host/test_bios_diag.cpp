@@ -680,7 +680,7 @@ TEST(a_byte_of_flash_block_30_changed_fails_stage_1)
     CHECK(ends(stage_line(r, 2), "PASS"));
 }
 
-TEST(block_22_blanked_its_stages_not_in_the_flash_and_the_run_ends)
+TEST(block_22_blanked_its_stages_not_in_the_flash_and_block_21_runs_on)
 {
     Rig r(0, rom_blanked(22));
     REQUIRE(r.ok());
@@ -1243,6 +1243,11 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
     CHECK(hz > HZ - HZ / 50000 && hz < HZ + HZ / 50000);
     CHECK(fhz > HZ - HZ / 10000 && fhz < HZ + HZ / 10000);
     CHECK(measured(r, "D4", "FILL: ") == 4096);
+    const uint64_t frame = measured(r, "V3", "A FRAME "), frames = measured(r, "S9", "8000 HZ: "),
+                   left = measured(r, "D5", "PART WAY: ");
+    CHECK(frame >= 119437 - 2 && frame <= 119437 + 2); // review P4
+    CHECK(frames >= 2051 - 2 && frames <= 2051 + 2);
+    CHECK(left > 4096 - 16 && left < 4096);
     CHECK(ends(test_line(r, "SD2"), "PASS"));
     CHECK(test_line(r, "SD2").find("FAT") != std::string::npos);
     CHECK(ends(test_line(r, "SD3"), "PASS"));
@@ -1491,6 +1496,177 @@ TEST(break_during_p3_leaves_the_breakpoint_off)
     CHECK(r.until(GREETING, ms(8000), brk));
     CHECK_EQ(r.panel()->peek(0x0B), 0x00);
     CHECK(!r.halted);
+}
+
+// --- D3b review round 1: P1-P3 ---------------------------------------------------------------------------
+
+namespace
+{
+    /// The SD card's registers, forwarded, with STATUS's BUSY held on while `stuck`; it notes a CMD written
+    /// while stuck and CTRL's RESET (review P2).
+    struct BusySd : Device
+    {
+        Device *under{nullptr};
+        bool stuck{false}, reset{false};
+        unsigned cmds{0};
+        size_t size() const override { return 0x80; }
+        uint8_t read(uint32_t o) override { return held(o, under->read(o)); }
+        uint8_t peek(uint32_t o) const override { return held(o, under->peek(o)); }
+        void write(uint32_t o, uint8_t d) override
+        {
+            cmds += stuck && o == 0x03;
+            reset = reset || (o == 0x00 && (d & 0x02));
+            under->write(o, d);
+        }
+        uint8_t held(uint32_t o, uint8_t v) const { return stuck && o == 0x01 ? static_cast<uint8_t>(v | 0x80) : v; }
+    };
+    bool busy_over(Rig &r, BusySd &b)
+    {
+        b.under = r.machine->sd_card();
+        Mapping m;
+        m.first = bus_address(Space::Io, 0x380);
+        m.last = bus_address(Space::Io, 0x3FF);
+        m.device = &b;
+        m.module = 0x7;
+        return b.under && r.machine->bus().map(m);
+    }
+    /// At the BIOS's BOOT after a Break: `check` called there, once. @return whether BOOT came
+    bool at_boot(Rig &r, const std::function<void()> &check)
+    {
+        const uint16_t boot = label("BOOT");
+        bool reached = false;
+        r.watch = [&r, &reached, boot, check](uint16_t pc) {
+            if (!reached && pc == boot)
+                reached = true, check();
+        };
+        for (int i = 0; i < 4000 && !reached; ++i)
+            r.run(1000);
+        r.watch = nullptr;
+        return reached;
+    }
+} // namespace
+
+TEST(break_during_s10s_first_tone_leaves_the_sids_silent_at_the_boot)
+{
+    // Review P1: Break's way out quiets every card as stage 0 does, so a SID can't drone on into the boot.
+    Rig r(SW19 | SW16);
+    REQUIRE(enter(r));
+    size_t at = 0;
+    at = on(r, "DID ONE LIGHT WALK ACROSS? (Y OR N) ", at, [&r] { r.key('y'); }, ms(90'000));
+    at = on(r, "GRID? (Y OR N) ", at, [&r] { r.key('y'); }, ms(5000));
+    REQUIRE(r.until("S10  A TONE ON SID A, ON SID B", ms(5000), at));
+    r.run(ms(150)); // in SID A's half second
+    REQUIRE((r.io(0xC504) & 0x01) != 0); // its gate on: the tone sounding
+    r.cpu->nmi();
+    uint8_t vol = 0xFF, gate = 0xFF;
+    REQUIRE(at_boot(r, [&] { vol = r.io(0xC518), gate = r.io(0xC504); }));
+    CHECK_EQ(vol & 0x0F, 0);
+    CHECK_EQ(gate & 0x01, 0);
+    CHECK(r.until(GREETING, ms(8000)));
+}
+
+TEST(break_during_sd4s_read_leaves_no_channel_running_into_the_boot)
+{
+    // Review P1: Break while channel 0 takes SD4's 64 KB: the channel is aborted, so the boot's DMA_ON can't
+    // resume it into memory, and the card's command abandoned, so the boot's own reaches A>.
+    Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(enter(r));
+    bool hit = false, reached = false;
+    uint8_t ctrl = 0xFF, mode = 0xFF;
+    const uint16_t boot = label("BOOT");
+    r.watch = [&](uint16_t pc) {
+        if (!hit && (r.io(0xC407) & 0x01) && (r.io(0xC381) & 0x80) && r.out.find("SD4  READ SPEED") != std::string::npos)
+            hit = true, r.cpu->nmi();
+        else if (hit && !reached && pc == boot)
+            reached = true, ctrl = r.io(0xC407), mode = r.io(0xC406); // as Break's way out left them
+    };
+    for (int i = 0; i < 4000 && !reached; ++i)
+        r.run(ms(25));
+    r.watch = nullptr;
+    REQUIRE(hit);
+    REQUIRE(reached);
+    CHECK_EQ(ctrl & 0x01, 0); // channel 0's ENABLE
+    CHECK_EQ(mode, 0);
+    CHECK(r.until("A>", ms(20'000)));
+}
+
+TEST(an_sd_card_that_stays_busy_is_reset_and_given_no_command)
+{
+    // Review P2: SD3 finding the card busy fails without writing CMD into it; SD4's long wait ends with the
+    // command abandoned (CTRL's RESET) and channel 0 aborted. Neither writes the card.
+    for (const char *from : {"SD3  LBA 0", "SD4  READ SPEED"})
+    {
+        Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+        REQUIRE(r.ok());
+        BusySd b;
+        REQUIRE(busy_over(r, b));
+        REQUIRE(enter(r));
+        REQUIRE(r.until(from, ms(90'000)));
+        b.stuck = true;
+        const std::string name = std::string(from).substr(0, 3);
+        REQUIRE(r.until("\r    DK1", ms(30'000)));
+        b.stuck = false;
+        CHECK(ends(test_line(r, name), "FAIL"));
+        CHECK(after_test(r, name).find("THE CARD STAYED BUSY") != std::string::npos);
+        CHECK(b.reset);
+        if (name == "SD3")
+            CHECK_EQ(b.cmds, 0u);
+        CHECK_EQ(r.io(0xC407) & 0x01, 0);
+        CHECK(!r.media->dirty());
+        REQUIRE(to_result(r));
+    }
+}
+
+TEST(a_failed_block_answering_as_a_good_one_is_not_filled_over_it_by_d2)
+{
+    // Review P3: block 20 answers as block 10. Stage 4 says the two answer as one and fails block 10, the one it
+    // read wrong (NB2's tag there is block 20's). D2 must not fill block 10 and then name it from block 20's fill,
+    // which lands there: the failed block that answers as another is passed over, and its RAM, good, isn't named.
+    Rig r;
+    REQUIRE(r.ok());
+    FaultyMemory f;
+    REQUIRE(fault_redirect(*r.machine, f, 20 * BLOCK, 10 * BLOCK));
+    faulted_run(r);
+    CHECK(after_test(r, "D2").find("BLOCK 10 ") == std::string::npos);
+    CHECK(ends(test_line(r, "D3"), "PASS"));
+}
+
+TEST(d2_marks_every_block_it_finds_bad_not_only_the_first_eight)
+{
+    // Review P3: ten blocks go bad after stage 6; D2 names the first eight but marks all ten failed, so D3's two
+    // blocks are good ones (with the ninth and tenth unmarked, D3 takes blocks 9 and 10 and fails).
+    Rig r;
+    REQUIRE(r.ok());
+    std::vector<std::unique_ptr<FaultyMemory>> f;
+    std::vector<uint8_t> masks;
+    for (const uint32_t b : {0u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u})
+    {
+        const uint8_t p = static_cast<uint8_t>(b ^ 0xA5);                     // D2's fill of block b
+        uint8_t m = static_cast<uint8_t>(~(p & static_cast<uint8_t>(-p)));     // its lowest bit stuck at 0
+        if (b == 9)
+            m = 0xF7; // bit 3: set in D2's $AC and in D3's address in address at +$0123 ($6B) alike
+        f.push_back(std::make_unique<FaultyMemory>());
+        f.back()->bad = b * BLOCK + 0x0123;
+        REQUIRE(fault_over(*r.machine, *f.back(), b * BLOCK));
+        masks.push_back(m);
+    }
+    c815(r, 0xA5, 0x00, 0x5A);
+    auto before = r.watch;
+    bool on_now = false;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (!on_now && r.out.find(" 7  NORTH") != std::string::npos)
+        {
+            on_now = true; // the faults come once stage 6 is over
+            for (size_t i = 0; i < f.size(); ++i)
+                f[i]->and_mask = masks[i];
+        }
+    };
+    REQUIRE(to_result(r));
+    CHECK(on_now);
+    CHECK(ends(test_line(r, "D2"), "FAIL"));
+    CHECK(ends(test_line(r, "D3"), "PASS"));
 }
 
 int main()
