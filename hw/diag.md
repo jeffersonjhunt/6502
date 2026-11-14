@@ -776,6 +776,128 @@ are made again (SYSINFO.COM changed), and the utilities' build now depends on ba
   sanitizers, at `-j4`.
 - **Moves:** `hwport.s`, `card6510.s` and `.cfg`, and the hook's hunks file by file; the card tests re-done in place.
 
+<a id="d3b-as-built"></a>
+#### D3b: as built (2026-11-14) ####
+
+**Built** on `feat/diag-d3b`, for the owner's review. What differs from the plan above, and why:
+
+- **Sizes.** Block 22 is 13,233 bytes, against the plan's about 11.7 KB (its own console and report, the library's
+  probe, clock, numbers, memory and port modules, the 6510's program, 345 bytes, and the four stages' text: each
+  test's line is its own words); block 21 8,048 bytes, against about 7.9 KB. Block 23 grew by 101 bytes to 7,859 (the
+  tests' counts zeroed each pass, P3's breakpoint in the put-back, the serial line's mute bit, `INFO`); block 31 is
+  as D3a left it (code to `$E409`, 7,146 bytes free).
+- **Times on the emulator,** at 7,159,090 Hz, from CONT to the keys' line: **a quick run 56.5 s, a full run 165.9
+  s,** against the plan's about 40 s and under 2 minutes. Stages 7-13 add about 28 s to D3a's 28.0 s: NB5's and
+  NB6's measurements (three windows each, about 7 s together), V4's 2 MB (about 10 s), D2's 960 KB, P2's 1.6 s, and
+  the serial line's pace for some 2,500 more characters.
+- **The library in each block.** `oohw.inc` with `OOHW_BLK` (22 or 21) gives every name the block's number
+  (`HW22_CLOCK`) and puts the module in that block's segments, so the one link holds three copies; the BIOS's
+  Makefile and `roms.cmake` assemble each block's (`hw22-*.o`, `hw21-*.o`). Block 22 takes `hwprobe`, `hwclock`,
+  `hwfmt`, `hwmem`, `hwport`; block 21 `hwprobe`, `hwclock` (for `HW_DIV`), `hwfmt`, `hwsdid`. Their zero page and
+  variables share `$60-$FF` and `$0148-$01D7` of W0's block (one block runs at a time), so their stack is 40 bytes
+  (`$01D8-$01FF`), enough for their deepest call. The tests' counts (`DG_TALLY`) are at `$50` (diag.inc); blocks 22
+  and 21 read block 23's `SKIPS` by its name. `hwline.s`'s report isn't used: the report is the core's
+  (`diagtest.inc`, below), so `DG_COL` is the one column.
+- **The report** (`diagtest.inc`, in blocks 22 and 21). A card stage's line goes on the screen's row when it starts,
+  with the serial line muted for it (`DG_MUTE`, DG_SCR bit 5, which `PUTC` now honours); then a line a test on the
+  serial line, its result at column 60 with the stage lines' (`PASS`, `FAIL`, `SKIP` with why on the line under it,
+  `INFO` for a measurement), a failure's detail under it; then the stage's line again on the serial line with its
+  result, and the result on the screen's row. So on the serial line a stage's tests come before its own line, not
+  after. A stage is `FAIL` if any test is, `SKIP` if its card isn't there (or, for 11 and 12, if every test was
+  skipped). Stage 14's line, `TESTS: n PASSED, n FAILED, n SKIPPED, n MEASURED`, is on the screen's row 19 and the
+  serial line before `RESULT`. While V4-V7 have card memory the screen is off: a first failure there gets the
+  serial line only, and the next gets row 18.
+- **NB5 and NB6 use the library's `HW_CLOCK`, timer 2,** not timer 1 free-running as the plan has it: the same
+  measurement as SYSINFO's, three windows back to back and the middle kept, which needs no interrupt and the core
+  owns the VIA anyway. NB4's three seconds are NB5's: SEC must have stepped four times, by one each (BCD), across
+  the measurement. NB6 checks the cycles of 60 frames against 60 x 119,437 within 0.1% and gives them as Hz
+  (`HW_FRAMEHZ`) on its line. S9's rate is against timer 2 too, which NB5 holds to the DS3231.
+- **NB2** tags every tested block at `+$3FF0` (its number and complement) through W1, then maps each into W0 with
+  the block in Y and W0's own in X, no RAM in between. **NB3**'s working line is a 16-byte copy on channel 3 with
+  MODE's IRQ bit. **NB7** writes `$55` and `$AA` (wait states slow the modules for a few instructions).
+- **D2 fills and checks the blocks stages 3-6 failed too,** so a fault under DMA is named as stage 6 named it (the
+  plan's must-fail case can't be seen otherwise); but not a block that answers as W0's block (`ASW0`, the check stage
+  4's `ALIASW0` makes, asked again because stage 6 moved W0): its fill would land on the zero page and stack, which
+  the A18 cases did until it was added. Such a block is said (`BLOCK nn ANSWERS AS BLOCK ww, W0'S: NOT FILLED`) and
+  kept out of what follows (`SKIPS`). **D4** is a fill of 2,049 bytes less one of 1 (4,096 cycles exactly on the
+  emulator); **D5**'s abort is with a burst of one byte (`CONTROL` `$01`), so the CPU runs between the bytes.
+- **V2** is 41 registers (CTRL, BORDER, IEN, PALBASE, SPRBASE, both layers', SLOT0-3, PADDR, PSTEP, PCTL) in one
+  vertical blank. **V4** steps slot 0 over all 128 banks; **V6** uses all four slots (W1 on blocks 32-35, as
+  /RESET leaves SLOT0-3), so an aperture fault in block 33 fails V6 and not V4. The screen's text is kept in W0's
+  block before V4 and drawn again, with the font and the palette, after V7.
+- **Full runs of S2 and S8 write and check address in address twice, the second with the key complemented,** not the
+  march: a port that steps itself on each access can't read and then write one cell without its address written
+  again for each byte. V4's full run adds the march (background `$00`). *A question for the owner (D3b-3).*
+- **The 6510's program** has no RAM test (`C65_TEST` gone, as the plan allowed): 345 bytes at `$0200-$03FF`.
+- **Stage 11.** An empty SD slot is `INFO` (`NO CARD IN THE SLOT`) and SD2-SD4 aren't run. SD4 reads 128 sectors by
+  channel 0 into four tested blocks in a row (not W0's) and gives KB a second (`INFO`; 6,214 on the emulator). Its
+  channel runs in bursts of 16 bytes (`CONTROL` `$41`): with longer bursts the CPU's three reads of timer 2 (high,
+  low, high) are more than 256 cycles apart, its high byte always changes between them, and the count is lost (with
+  64-byte bursts it read 2,820 cycles for 64 KB).
+- **Stage 12.** SR2 times timer 2, then timer 1 (one-shot, ACR 0), each across a 1,000-cycle loop less across none,
+  within 4 cycles. SR4 says `NO TL16C552A CARD`. P2 walks a bit across the lights, 0.2 s a step; interactive, it asks.
+- **Stage 13** (switch 16, or a program's bit 1): V8, the test card on layer 1 (80 x 30 text: eight background
+  colours in bars of ten columns, a grid of `-`, `|` and `+` every five rows and ten columns) with the display on
+  layer 1 alone; S10, a tone on SID A and SID B written by the host (the 6510 stopped) and on the ES5503 (a 256-byte
+  square wave in wave RAM's first page, oscillator 0), 0.5 s each; U3, U4 (the mouse moved, its buttons 0 and 1, the
+  game port's buttons 0 and 1), U5 (2,000 toggles of SPKR, about 3,580 cycles apart), SR3 (each of the five lines
+  on both joystick ports seen low); P3. A question's answer is `Y`; Esc on the terminal skips U3, U4 and SR3, and
+  30 s with nothing fails them.
+- **The test card** (V8) is text on layer 1 at card `$3400`, after layer 0's.
+- **P3 and Break.** `PUTBACKM` (Break's and the end's) writes BPCTRL 0 and clears HIT when the console card is
+  there and BPADDR holds P3's `$BD1A5`, as the BIOS's RESET does (LL1); any other breakpoint is kept.
+- **The bus trace** (the plan's open item): a boot to OODOS's `A>` makes no access to `$BD1A5`, the CPU's or DMA's
+  (`a_boot_to_a_prompt_never_touches_p3s_address`).
+- **CC5's floating bus with card discovery:** with no Disk II line and a floating bus in its block, `HW_PROBE`'s two
+  reads differ and DK1 says `NO CARD`.
+- **`backplane.inc`** gains `DMA_DEC` and `DMA_CH0`.
+
+**The expectations changed** (D3b replaces D3a's `SKIP` stages, which those expectations held): `golden/romdiag.txt`
+(the card stages' lines; NB5's, NB6's, V3's, D5's and S9's measured numbers masked, each held in bounds by
+`the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds`); the golden case's time bound (10-40 s
+to 30-75 s), its row 9 (stage 7 `PASS`) and row 15 (stage 13 `SKIP`); block 22 blanked (block 21's stages run, where
+D3a's said `NOT IN THIS BUILD YET`); block 21 blanked (stage 10 `PASS`, not `SKIP`); a stuck bit in block 0's first
+512 bytes (lights `$C4`, not `$C3`: D2 fails block 0 too) and in blocks 41 and 62 (`RESULT: 2 FAILED`, not 1: D2 fails
+block 62's bit). No other expectation changed. SR4's words were chosen so the `$C815` case's check for ` LOOP`
+still holds.
+
+**The tests** (`test_bios_diag`, 52 cases): each D3b must-fail case was seen to fail on a build with its one
+fault put in, and to pass without it:
+
+| Case | The fault that made it fail |
+|---|---|
+| a stuck bit in the sound card's RAM (`set_ram_fault`): S2 names `CARD RAM $5678`, bit 2 | S2's check pass left out |
+| an aperture fault in block 33: V6 fails, V4 passes | V6's compare through the aperture left out |
+| a stuck bit in block 41 under DMA: D2 names it as stage 6 does | D2's check by the CPU left out |
+| DMA's copy down (the good machine's D3) | MODE's DEC not set |
+| the 6510's program not starting: S4 fails after 0.5 s, S5-S7 `SKIP` | S4 not waiting for the start byte |
+| no sound card: stage 10 `SKIP`; no DMA line: stage 8, V7, S3, SD3, SD4 `SKIP` | `HAVEDMA` answering yes |
+| a full run leaves the SD card's image as it was | one write of LBA 0 added to SD3 |
+| the clock by the video frame (the good machine's NB6) | the frame constant 119,000 cycles |
+| the interactive tests: P3's read halts the CPU, CONT goes on | P3 arming a fetch, not a read |
+| Break during P3: BPCTRL 0 after | the put-back's BPCTRL write left out |
+| CC5's floating bus: DK1 `NO CARD` | `HW_PROBE`'s second read made absolute |
+
+The other new cases (the good machine's card stages with an SD card, the bus trace) pass on the built ROM.
+`test_sound`'s hook case is D2's.
+
+<a id="d3b-questions"></a>
+**D3b's questions for the owner:**
+
+- **D3b-1, block 22's size:** 13,233 bytes, about 13% over the plan's 11.7 KB, with 3,151 bytes left in the block.
+  *Recommended:* accept; the overrun is the tests' own words on the serial line. *Alternative:* shorten the test
+  lines' text (about 1 KB).
+- **D3b-2, a quick run's time:** 56.5 s on the emulator, against the plan's about 40 s (a full run 165.9 s, under
+  3 minutes, not under 2). *Recommended:* accept, the table in [memory tests](#plan2-memory) to say so in D3c.
+  *Alternative:* NB5 and NB6 from one window each, not three (about 4 s less), as the plan first had it.
+- **D3b-3, the full runs of S2 and S8:** address in address twice, the second with the key complemented, not the
+  march the plan names. *Recommended:* accept. *Alternative:* a march through the port, RAMADDR or DOCADDR written
+  again for each byte's read and write (about 3 s more on a full run).
+- **D3b-4, D2 and the blocks stages 3-6 failed:** D2 fills and checks them too (the plan's must-fail case needs it),
+  so a bad RAM block fails stage 8 as well and two of D3a's expectations changed (above). *Recommended:* accept.
+  *Alternative:* D2 only over the blocks that passed, the must-fail case then a fault that only DMA sees, which the
+  emulator's FaultyMemory can't make.
+
 #### D3c: the launcher and the books ####
 
 - **What:** `oodos/sys/ccp.s` (the `DIAG` built-in), `bdos.s` (75 with A = 2, the interface version 10),
