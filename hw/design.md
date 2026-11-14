@@ -335,7 +335,8 @@ with up to 16 MB, so the reasoning isn't lost.
   PHI2 is low. The north bridge's CPLD would latch it, as it already turns the CPU's 16-bit addresses into 20-bit
   physical ones. The backplane carries what the north bridge drives, not the CPU's pins.
 - **Two ways to get A20–A23 to the cards.** Every pin of the 62-pin connector is in use (the bus pin-out is in
-  [modules.md](modules.md)).
+  [modules.md](modules.md)). **Decided (the owner, 2026-11-14): the wider bus,** on the new connector
+  ([Backplane Signals](#backplane-signals)).
   - *Wider bus:* four more address lines, which needs a bigger connector (as ISA's extra row did). The cards are
     unchanged.
   - *Multiplexed bus, the 65C816's own way:* the north bridge drives the upper address bits on D0–D7 while PHI2
@@ -456,15 +457,16 @@ The machine works without it, so it can come later.
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
   DMA cheap enough for every card to have it.
 - **Placement:** on its own card, module ID `0x8`.
-  - **To do (the owner, 2026-11-14): move the DMA controller onto the CPU card,** beside the north bridge. It
-    already works at the CPU's level: it pulls RDY and BE and drives A0–A19, which the CPU card does anyway. On one
-    card its address path doesn't cross the backplane twice, the reason the CPU and the north bridge share a card
-    ([Backplane Signals](#backplane-signals)) and something a future turbo needs. It also frees a slot. Its
-    registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on the CPU card, to keep
-    the north bridge's apart. This isn't designed yet: the card, the backplane notes and modules.md change when it
-    is.
+  - **Decided (the owner, 2026-11-14): the DMA controller moves onto the CPU card,** beside the north bridge, with
+    the new connector ([Backplane Signals](#backplane-signals)). It already works at the CPU's level: it pulls RDY
+    and BE and drives the address lines, which the CPU card does anyway. On one card its address path doesn't cross
+    the backplane twice, the reason the CPU and the north bridge share a card, and something a future turbo needs.
+    It also frees a slot. Its registers keep module ID `0x8`, so software doesn't change. It may be a second CPLD on
+    the CPU card, to keep the north bridge's apart. The owner is designing it.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
-  storage.
+  storage. **Decided (the owner, 2026-11-14): eight channels** with the new connector, DRQ0–DRQ7 and /DACK0–/DACK7
+  on the bus. Until that card is built, the registers below, the emulator and the software keep four; what channels
+  4–7 add to the registers is designed with the card.
 - **Registers per channel:**
   - a 20-bit address;
   - a 16-bit count;
@@ -1788,22 +1790,30 @@ Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0x
 
 ## Backplane Signals ##
 
-**To do (the owner, 2026-11-14): a 98-pin edge connector.** The 62-pin ISA-style connector is full. The plan is
-to move to the 98-position card-edge connector that PCIe x8 slots use. It is cheap and easy to find, and its extra
-pins carry:
-- A20–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb));
-- more DMA channels, a DRQ and DACK pair each;
-- grounds beside the clocks.
+**Decided (the owner, 2026-11-14): the new connector.** The 62-pin ISA-style connector is full. The bus moves to
+the card-edge connector that PCIe x8 slots use (the owner's count: 94 pins), which is cheap and easy to find. The
+owner is designing the pin map now. It carries:
+- **every signal documented below,** the 62-pin bus's and the assignment's;
+- **a 16-bit data bus,** D0–D15;
+- **24 address lines,** A0–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb): the wider bus,
+  not the multiplexed one);
+- **eight DMA channels,** DRQ0–DRQ7 and /DACK0–/DACK7 ([DMA](#dma)), the controller moving onto the CPU card;
+- **the expansion port's enable** (below).
 
-The decisions so far:
+The decisions with it:
 - **The slots are keyed with a shroud,** so a normal PCI or PCIe card can't be plugged in. The power pins don't
   follow PCIe's.
-- **The bus stays at 5 V for now.**
+- **Power is 5 V only.** The backplane no longer carries +24 V; this replaces the 62-pin bus's +24 V (Power, below).
+- **Module ID `0xF` is the expansion port.** Its slot takes either an expansion chassis or a normal card. One more
+  pin enables the expansion chassis: in effect a fifth module-ID bit beside PS3–PS0, so the chassis's cards
+  answer only when it is set.
 
-The pin map, the power pins, and whether the backplane keeps +24 V are not designed yet. Neither is the change to
-[modules.md](modules.md). The emulator models the bus's signals, not its pins, so it isn't affected.
+Not designed yet: the pin map (the owner's, in progress), how a card uses D8–D15 and when a transfer is 16 bits
+wide, how the fifth bit is driven and decoded, and the change to [modules.md](modules.md). The emulator models the
+bus's signals, not its pins, so the connector doesn't change it; eight DMA channels, the wider bus and the
+expansion port would, when they are built.
 
-The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
+The 62-pin bus's assignment, below, is the current machine's. The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
 
 **Assignment (decided).** New pins are in bold, existing pins are listed for context. The same table is in
@@ -1851,7 +1861,7 @@ design needs 18 new signals, which leaves 2 pins. Both go to ground on either si
 That covers RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ, the weak data-line pull-ups for /IACK, and the DRQ
 pull-downs.
 
-**Power (decided).** The backplane carries +24 V (B29), and every card regulates it down to what it needs at the
+**Power (decided; replaced 2026-11-14 by 5 V only on the new connector, above).** The 62-pin backplane carries +24 V (B29), and every card regulates it down to what it needs at the
 point of use. At 24 V the bus carries a fifth of the current that 5 V would need for the same power.
 
 
