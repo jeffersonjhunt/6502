@@ -24,8 +24,8 @@
 ; it never returns (the diagnostics end in a boot, or the monitor). $C815 is
 ; the same for a program that has asked already: A = $A5 and Y = $5A, X the
 ; options (bit 0 full, bit 1 interactive); anything else is $C812. With no
-; diagnostics in the flash (or another build's) $C815 returns, carry set, W2
-; as it was.
+; diagnostics in the flash (or another build's) $C815 returns, carry set, with
+; A, X, Y and W2 as they were.
 ;
 ; Before the copy, with the front panel there (its ID read twice): a
 ; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
@@ -51,10 +51,7 @@
 .include "backplane.inc"
 .include "diag.inc"
 .import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
-.export BREAK, BOOT, MONBOOT, BIOS_VMAJ, BIOS_VMIN
-
-BIOS_VMAJ = 0                          ; this BIOS's version, as its greeting says it; the diagnostics
-BIOS_VMIN = 14                         ;   record the one they were linked with (diag.inc, DG_LINKED)
+.export BREAK, BOOT, MONBOOT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -204,8 +201,8 @@ BANNER:         LDA     GREETING,X
                 INX
                 BNE     BANNER
 
-; With switch 19 up and no diagnostics in the flash, say so (RESET couldn't:
-; it has no RAM for ECHO).
+; With switch 19 up and no diagnostics in the flash, or another build's, say
+; which (RESET couldn't: it has no RAM for ECHO).
 DIAGNOTE:       LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
                 BNE     @done
@@ -214,13 +211,21 @@ DIAGNOTE:       LDA     CONSOLE_ID
                 BEQ     @done
                 JSR     CHKSIG
                 BCC     @done
+                JMP     NODIAG
+@done:          RTS
+
+; What CHKSIG found, said: X 0 no diagnostics in the flash, else another
+; build's, which the flash must be written again to fix (review NN4).
+NODIAG:         TXA
+                BNE     @other
                 LDX     #MNODIAG - DMSGS
                 JMP     DSAY
-@done:          RTS
+@other:         LDX     #MOTHER - DMSGS
+                JMP     DSAY
 
 ; Carry clear if flash block 23 holds this build's diagnostics (the signature,
 ; DG_VERSION and the BIOS they were linked with), read through W2, which is
-; put back as it was. X; A kept.
+; put back as it was. Carry set: X 0 no signature, 1 another build's. A kept.
 CHKSIG:         PHA
                 LDA     NB_WIN2
                 PHA
@@ -232,21 +237,23 @@ CHKSIG:         PHA
                 BNE     @no
                 DEX
                 BPL     @sig
+                LDX     #1             ; the signature's: from here, another build's
                 LDA     $8009
                 CMP     #DG_VERSION
-                BNE     @no
+                BNE     @other
                 LDA     DG_LINKED
                 CMP     #BIOS_VMAJ
-                BNE     @no
+                BNE     @other
                 LDA     DG_LINKED + 1
                 CMP     #BIOS_VMIN
-                BNE     @no
+                BNE     @other
                 PLA
                 STA     NB_WIN2
                 PLA
                 CLC
                 RTS
-@no:            PLA
+@no:            LDX     #0
+@other:         PLA
                 STA     NB_WIN2
                 PLA
                 SEC
@@ -273,8 +280,7 @@ DIAGGO:         JSR     CHKSIG
                 LDX     #DE_GO
                 JMP     (DG_ENTRIES,X)
 @none:          STZ     NB_WAIT3       ; no options left behind
-                LDX     #MNODIAG - DMSGS
-                JSR     DSAY
+                JSR     NODIAG
                 JMP     WOZMON
 
 ; $C815: a program's, which has asked already: A = $A5 and Y = $5A (two bytes,
@@ -288,7 +294,7 @@ DIAGPGM:        CMP     #$A5
                 JSR     CHKSIG
                 PLX
                 BCC     @there
-                RTS                    ; none: back to the program, carry set, W2 as it was
+                RTS                    ; none: back to the program, carry set; A, X, Y and W2 as they were
 @there:         TXA
                 AND     #$03
                 ASL     A
@@ -313,6 +319,7 @@ DIAGSIG:        .byte   "OOHWDIAG"
 DMSGS:
 MALL:           .byte   $0D, "ALL OF MEMORY WILL BE OVERWRITTEN. Y TO GO ON ", 0
 MNODIAG:        .byte   $0D, "NO DIAGNOSTICS IN THE FLASH", $0D, 0
+MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN", $0D, 0
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen
@@ -413,7 +420,7 @@ QUIET:
                 STA     VIA_IER
                 RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.14", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS ", BIOS_VERSION, $0D, 0 ; (diag.inc's BIOS_VMAJ, BIOS_VMIN)
 
 .segment "DTRAMP"                     ; the diagnostics' ways back: fixed, under the vectors
 TBOOT:          JMP     BOOT

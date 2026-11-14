@@ -11,7 +11,7 @@
 ;          just mapped and takes that block's entry X: a hand-off needs no RAM
 ;   $8010  the block's entries, three words (X = 0, 2, 4)
 ;   $801C  the BIOS version this build was linked with: major, minor (bios.s's
-;          BIOS_VMAJ, BIOS_VMIN). The BIOS checks the signature, DG_VERSION
+;          BIOS_VMAJ, BIOS_VMIN, below). The BIOS checks the signature, DG_VERSION
 ;          and this before it enters block 23 (RESET, CHKSIG)
 ;   $8020  the Break stub: LDA #DG_B23, STA NB_WIN2; block 23 goes on at
 ;          $8025 to its handler. VEC is on block 23 while the core runs, and
@@ -27,6 +27,13 @@
 DIAG_INC = 1
 
 DG_VERSION      = 1                    ; ROM DIAGNOSTICS 0.1
+
+; The BIOS's version, the one place it is set (review NN4): bios.s's greeting,
+; the diagnostics' header line and the BIOS block 23 records (DG_LINKED) are all
+; made from these
+BIOS_VMAJ       = 0
+BIOS_VMIN       = 14
+.define BIOS_VERSION .sprintf("%d.%d", BIOS_VMAJ, BIOS_VMIN)
 DG_B21          = NB_ROM | NB_RO | 21  ; the three blocks as W2 maps them
 DG_B22          = NB_ROM | NB_RO | 22
 DG_B23          = NB_ROM | NB_RO | 23
@@ -135,7 +142,7 @@ DG_RESCOL       = 60                   ; a stage line's result
         .word   e2
 .endif
         .res    6, $FF
-        .byte   <BIOS_VMAJ, <BIOS_VMIN ; $801C: the BIOS this was linked with
+        .byte   BIOS_VMAJ, BIOS_VMIN   ; $801C: the BIOS this was linked with
         .res    2, $FF
         lda     #DG_B23                ; $8020: the Break stub
         sta     NB_WIN2
@@ -151,7 +158,7 @@ DG_RESCOL       = 60                   ; a stage line's result
 ; block and W1 on block 1. W0 and W2 are the BIOS's to put back: its BOOT
 ; and MONBOOT (DG_TBOOT, DG_TMON) start with W0.
 .macro PUTBACKM
-        .local slot, via, skipvia
+        .local slot, via
                 ldx     #6
 slot:           txa
                 lsr     a
@@ -184,7 +191,7 @@ via:            stz     VIA_ACR        ; timer 1 one-shot; then started on a cou
                 lda     #$7F
                 sta     VIA_IER
                 sta     VIA_IFR
-skipvia:        stz     NB_WAIT0
+                stz     NB_WAIT0
                 stz     NB_WAIT1
                 stz     NB_WAIT2
                 stz     NB_WAIT3

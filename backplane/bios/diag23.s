@@ -35,7 +35,6 @@
 .include "backplane.inc"
 .include "diag.inc"
 .include "oohw.inc"
-.importzp BIOS_VMAJ, BIOS_VMIN
 
 FLASH30         = NB_ROM | NB_RO | 30  ; the font
 DG_PROMPTWRAPS  = 38                   ; the prompt's CPU count: 38 x 256 polls of about 5,170 cycles, 7 s
@@ -332,10 +331,12 @@ l:              txa
 
 ; Block S, whose first 512 bytes passed the march, as W0 for a moment: are
 ; they its own? Canaries in them (offset XOR $A5, then $5A, through W0), then
-; 512 bytes written where an address line stuck or two blocks answering as one
-; would land on them: the block's own +$200, +$400 ... +$2000 (A9-A13), and
-; the first 512 bytes of each block one block line (A14-A19) away, all through
-; W1. A canary changed: fail. No RAM is trusted: S, A and X only.
+; 512 bytes written where a stuck in-block address line (A9-A13) would land
+; on them: the block's own +$200, +$400 ... +$2000, through W1. A canary
+; changed: fail. Another block answering as this one (A14-A19, or the
+; decoder) is stage 4's to find (ALIASW0), once the run has a zero page: here
+; it would reject every block when half of RAM answers as the other half
+; (review NN1). No RAM is trusted: S, A and X only.
 .macro PROVEW0 fail
         .local can, chk, ok1, ok2
                 tsx
@@ -353,24 +354,6 @@ can:            txa
                 stx     NB_WIN1
         .repeat 5, n
                 PROBE512 $4000 + ($200 << n)
-        .endrepeat
-        .repeat 6, k
-        .scope
-                tsx
-                txa
-                eor     #(1 << k)
-                tax
-                lda     VIDEO_ID       ; bank 8, with a revision 2 card, is its aperture: not RAM
-                cmp     #VIDEO_ID_V2
-                bne     go
-                cpx     #32
-                bcc     go
-                cpx     #36
-                bcc     skip
-go:             stx     NB_WIN1
-                PROBE512 $4000
-skip:
-        .endscope
         .endrepeat
                 ldx     #0
 chk:            txa
@@ -964,16 +947,16 @@ STAGE3:
                 sta     HW_PTR + 1
                 jsr     HW_WALK
                 bcc     @there
-                lda     #0             ; a write of 0 that reads $FF, twice (CC5's two reads): nothing answers
-                sta     $7FF0
-                lda     $7FF0
-                cmp     #$FF
-                bne     @wrong
+                lda     #0             ; a write of 0, read twice (CC5's two reads): both $FF, or the two
+                sta     $7FF0          ;   differing (a floating bus), and nothing answers (review NN2)
                 ldx     #$FF
                 lda     $7FF0 - $FF,x
+                sta     DG_T0 + 3
+                lda     $7FF0
+                cmp     DG_T0 + 3
+                bne     @absent
                 cmp     #$FF
                 beq     @absent
-@wrong:
                 ldx     DG_BLK         ; there, with a data line wrong: its blocks are tested
                 lda     MODBIT,x
                 ora     DG_MODS
@@ -1682,7 +1665,7 @@ SAS2:           .byte   " ANSWER AS ONE", 0
 SASW0:          .byte   " ANSWERS AS BLOCK ", 0
 SASW0B:         .byte   ", W0'S: NOT TESTED", 0
 SNOSPARE:       .byte   "NO OTHER BLOCK PASSED: W0'S FIRST 512 BYTES NOT TESTED", 0
-SBIOS:          .byte   "BIOS 0.14         ", 0
+SBIOS:          .byte   "BIOS ", BIOS_VERSION, "         ", 0
 SPASSH:         .byte   "PASS ", 0
 SQUICK:         .byte   "QUICK", 0
 SFULL:          .byte   "FULL", 0

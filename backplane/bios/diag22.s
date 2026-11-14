@@ -6,7 +6,6 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .include "diag.inc"
-.importzp BIOS_VMAJ, BIOS_VMIN
 
 .segment "D22"
                 DG_HEADER 1, START
