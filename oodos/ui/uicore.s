@@ -45,6 +45,7 @@ umenu:  .res    1                      ; the menu down, UI_NONE none
 umsel:  .res    1                      ;   its item chosen
 upress: .res    1                      ; the button the left button went down on
 ususp:  .res    1                      ; 1: suspended (ui_suspend)
+ushow:  .res    1                      ; (U3b landing) 1: the layers, CTRL and the palette to set at the next paint's end (SETUP)
 upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
 udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0, r0, c1, r1 each (ui.inc's UI_BOXES)
@@ -1775,6 +1776,8 @@ ui_theme:
         lda     ususp
         bne     @r
         jsr     ENTER
+        lda     ushow                   ; (U3b landing, review FF4) before the first paint
+        bne     @all                    ;   after ui_open or ui_resume: left to its end
         jsr     LAYERS                  ; the groups (PALOFS), then the colours
         jsr     SETPAL
         lda     uptr

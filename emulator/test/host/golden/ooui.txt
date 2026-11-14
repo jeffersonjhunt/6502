@@ -18,8 +18,8 @@ u2-lists 706473ddc78561a7
 u2-lists-turbo 4e44cc6c0554b278
 u2-msg 7ac38596fcae0705
 u2-msg-turbo 2d9748a1ed867095
-u2-pick f364e629df01fb0f
-u2-pick-turbo eb8af660931df6e7
+u2-pick 60f26708865c72a6
+u2-pick-turbo 79ac96efab71f6a2
 uidemo-main 75e591eb33a7ec3a
 uidemo-menu 518c74c5dc6ce37d
 uidemo-picker e8917a77f2d4bf3a

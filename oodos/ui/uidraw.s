@@ -199,14 +199,18 @@ GLYPHAT:
         sta     UIP + 1
         rts
 
-; The layers, the colours and the pointer (ui_open, ui_resume).
-SETUP:  jsr     LAYERS
-        jsr     SETPAL
+; The layers, the colours and the pointer (ui_open, ui_resume): (U3b landing,
+; review AA1) the layers' registers, CTRL and the palette at the next paint's
+; end (ushow, PAINT), so a base layer the console shows (layer 0) keeps the
+; console's map and colours until OOUI's is painted; the pointer now.
+SETUP:  lda     #1
+        sta     ushow
         jmp     PTRSET
 
 ; The base layer and the overlay (text 80 x 30, OOUI's font), and the
 ; display on with them, the sprites, and layer 0 if OOUI leaves it to the
-; program (the base on 1, no overlay).
+; program (the base on 1, no overlay). (U3b landing: SETUP leaves it, with
+; the palette, to the next paint's end.)
 LAYERS: lda     upage
         sta     GX_V
         clc
@@ -508,7 +512,9 @@ PAINT:  lda     ususp
         ldy     #TH_DIMGROUP
         lda     (UIT),y
         tax
-@nd:    cpx     ubofs
+@nd:    ldy     ushow                   ; (U3b landing, review FF1) the first paint after
+        bne     @map                    ;   ui_open or ui_resume: LAYERS at its end sets it
+        cpx     ubofs
         beq     @map
         stx     ubofs
         lda     ubase
@@ -652,7 +658,15 @@ PAINT:  lda     ususp
         cpx     #8 * UI_BOXES
         bcc     @pu
         jsr     UDEND
-        lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
+        lda     ushow                   ; (U3b landing) the layers, CTRL and the palette
+        beq     @sh                     ;   that ui_open or ui_resume left, now that
+        stz     ushow                   ;   they are painted (SETUP)
+        jsr     LAYERS
+        jsr     SETPAL
+        lda     uptr                    ; (review JJ3) and the pointer in the theme's
+        beq     @sh                     ;   colours: a ui_theme before this paint left it
+        jsr     PTRATTR
+@sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
         and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
         ora     udrew                   ;   changed (VDIRTY), with nothing drawn
         beq     PNONE

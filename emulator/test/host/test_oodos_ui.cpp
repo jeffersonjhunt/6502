@@ -126,47 +126,75 @@ namespace
         CHECK(area >= 'A' && area <= 'C');
         return r.phys(prog_labels().at("UI_BLOCKS") + static_cast<unsigned>(area - 'A'));
     }
-    /// OOUI.BNK's user on M:, out of the picker's listings of user 0 (uitest.s loads it from there).
+    /// OOUI.BNK's user on M: for the cases that load it from there by name (ui_load's 1).
     constexpr unsigned BNK_USER = 15;
-    /// M: has OOUI.BNK already (a second start_ui on the same rig).
-    bool has_bnk(Rig &r)
+    /// (U3b landing, the owner's decision 2026-11-13) OOUI.BNK on A:, user 0, where the real cards keep it and
+    /// ui_load's default opens it, written on the card before OODOS logs A: in (as OO-Amp's put_a.py does), so
+    /// M:'s room is the tests' own and doesn't depend on OOUI's size. A: is unit 1, `entries` directory entries
+    /// and `bls`-byte blocks (the test card's oodos-8m A.IMG: 1,024 and 4 KB; a test's own oodos-32m image:
+    /// 2,048 and 8 KB).
+    bool a_has_bnk(Rig &r, unsigned entries = 1024)
     {
-        for (unsigned i = 0; i < 256; ++i)
+        for (uint32_t s = 0; s < entries * 32 / SECTOR; ++s)
         {
-            bool match = r.phys(MDISK + i * 32) == BNK_USER;
-            for (unsigned c = 0; c < 11 && match; ++c)
-                match = (r.phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>("OOUI    BNK"[c]);
-            if (match)
-                return true;
+            const std::vector<uint8_t> d = r.read_unit(1, s);
+            for (unsigned e = 0; e < SECTOR / 32; ++e)
+                if (d[e * 32] == 0 && std::memcmp(&d[e * 32 + 1], "OOUI    BNK", 11) == 0)
+                    return true;
         }
         return false;
     }
-    /// OOUI.BNK on M: (U3a: each test program loads it from there), once a rig, before M: is logged in:
-    /// a CcpRig's put_m, or a card of the test's own's fresh M:.
-    void put_bnk(CcpRig &r)
+    void put_bnk_a(Rig &r, unsigned entries = 1024, unsigned BLS = 4096)
     {
-        if (!has_bnk(r))
-            r.put_m({{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
-    }
-    void put_bnk(Rig &r)
-    {
-        if (has_bnk(r))
+        if (a_has_bnk(r, entries))
             return;
-        unsigned entry = 0, block = M_DIRBLOCKS;
-        for (unsigned i = 0; i < 256; ++i) // past what M:'s files hold already
-            if (r.phys(MDISK + i * 32) < 0x10)
-                for (unsigned k = 16; k < 32; ++k)
-                    block = std::max(block, r.phys(MDISK + i * 32 + k) + 1u);
-        put_m_files(r, entry, block, {{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+        const std::vector<uint8_t> data = read_bytes(UTILS + "/OOUI.BNK");
+        std::vector<uint8_t> dir;
+        for (uint32_t s = 0; s < entries * 32 / SECTOR; ++s)
+        {
+            const std::vector<uint8_t> sec = r.read_unit(1, s);
+            dir.insert(dir.end(), sec.begin(), sec.end());
+        }
+        unsigned next = entries * 32 / BLS; // past the directory, and every block an entry names
+        for (unsigned e = 0; e < entries; ++e)
+            if (dir[e * 32] < 16)
+                for (unsigned k = 0; k < 8; ++k)
+                    next = std::max(next, (dir[e * 32 + 16 + 2 * k] | dir[e * 32 + 17 + 2 * k] << 8) + 1u);
+        const unsigned records = static_cast<unsigned>((data.size() + RECORD - 1) / RECORD);
+        const unsigned blocks = (records * unsigned{RECORD} + BLS - 1) / BLS, per = BLS / unsigned{RECORD};
+        unsigned e = 0;
+        for (unsigned first = 0; first < blocks; first += 8)
+        {
+            while (dir[e * 32] != 0xE5 || e % 4 == 3)
+                ++e;
+            REQUIRE(e < entries);
+            uint8_t *d = &dir[e * 32];
+            std::fill(d, d + 32, 0);
+            std::memcpy(d + 1, "OOUI    BNK", 11);
+            const unsigned here = std::min(records - first * per, 8 * per);
+            const unsigned ext = first * BLS / 16384 + (here - 1) / 128; // its last record's logical extent
+            d[12] = static_cast<uint8_t>(ext & 0x1F);
+            d[14] = static_cast<uint8_t>(ext >> 5);
+            d[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128);
+            for (unsigned k = 0; k < 8 && first + k < blocks; ++k)
+            {
+                d[16 + 2 * k] = static_cast<uint8_t>(next + first + k);
+                d[17 + 2 * k] = static_cast<uint8_t>((next + first + k) >> 8);
+            }
+            ++e;
+        }
+        std::vector<uint8_t> body = data;
+        body.resize(records * RECORD, 0x1A);
+        unit_write(r, 1, 0, dir);
+        unit_write(r, 1, static_cast<uint32_t>(next * (BLS / SECTOR)), body);
     }
-    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded from M: (put there first); with `flag` 'N' not
-    /// loaded (the test says 'L'), 'G' not even GX_INIT (U3a).
+    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded by ui_load's default (A:, user 0: the rig put it
+    /// there before OODOS booted; U3b landing); with `flag` 'N' not loaded (the test says 'L'), 'G' not even
+    /// GX_INIT (U3a).
     template <class R> void start_ui(R &r, const std::string &program = "uitest", char flag = 0)
     {
         prog() = program;
         no_splash(r);
-        if (!flag)
-            put_bnk(r);
         r.poke(MBOX, 0);
         r.poke(MBOX + 4, static_cast<uint8_t>(flag));
         r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
@@ -401,6 +429,94 @@ namespace
         expect(poll(r), {}, "the first poll");
     }
 } // namespace
+
+TEST(u3b_the_layers_show_at_the_first_paint)
+{
+    // (U3b landing; the owner, 2026-11-13; review AA1) ui_open no longer sets the layers up: the first ui_poll's paint does,
+    // at its end, so the first picture they show is the painted one, not cleared maps (OO-Amp's start showed
+    // OOUI's layer unpainted for a frame). Until then CTRL is the console's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    const uint8_t before = vid(r).peek(0x00);
+    std::vector<uint8_t> l0;
+    for (uint8_t i = 0x10; i < 0x18; ++i) // layer 0's registers: the console's (BLK_DESK's base is layer 0)
+        l0.push_back(vid(r).peek(i));
+    r.run(ms(40));
+    const std::vector<uint32_t> console(vid(r).frame(), vid(r).frame() + 640 * 480);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), static_cast<unsigned>(before)); // not yet
+    // (review AA1) Nor layer 0's map, font and colours: the frame is still the console's as it was before
+    // ui_open, not OOUI's cleared map in OOUI's colours.
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(l0[i - 0x10]));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    // (Review round 2, FF4) ui_theme before the first poll sets nothing either: the theme is kept for the paint.
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), static_cast<unsigned>(before));
+    for (uint8_t i = 0x10; i < 0x1A; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(i < 0x18 ? l0[i - 0x10] : vid(r).peek(i)));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    // (FF1) Nor does the paint touch layer 0's PALOFS (the console's: 3 here) before its end, where LAYERS sets
+    // it with CTRL: OOUI's last group (ubofs, 7 here) differing from the theme's made PAINT's start write it.
+    r.machine->bus().write(0xC499, 3); // layer 0's PALOFS (+9)
+    r.poke(lab("ubofs"), 7);
+    uint64_t pal_at = 0, ctrl_at = 0;
+    const auto prev = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (prev)
+            prev(pc);
+        if (!pal_at && vid(r).peek(0x19) != 3)
+            pal_at = r.cpu->cycles();
+        if (!ctrl_at && vid(r).peek(0x00) != before)
+            ctrl_at = r.cpu->cycles();
+    };
+    expect(poll(r), {}, "the first poll");
+    r.watch = prev;
+    CHECK(pal_at != 0 && ctrl_at != 0 && ctrl_at - pal_at < 2000); // together, at the paint's end
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x00)), 0x0Fu); // display, both layers (the base on 1), sprites: painted, then shown
+    golden(r, "desktop");
+}
+
+TEST(u3b_a_theme_before_the_first_paint_gives_the_pointer_its_own)
+{
+    // (Review round 3, JJ3) ui_theme before the first ui_poll leaves the layers and the palette to the paint's
+    // end (FF4), and the pointer's image and attribute with them: the paint's end sets them in the new theme
+    // (PTRATTR), as ui_theme after the first paint does. UI_HOUSE's and UI_TURBO's pointers differ in colour
+    // (TH_POINTER); both put it in group 0 (TH_OVERGROUP), so the attribute is checked as written the same.
+    const auto pointer = [](CcpRig &x) {
+        x.run(ms(40));
+        const unsigned page = x.phys(lab("upage")) | x.phys(lab("upage") + 1u) << 8;
+        const unsigned sprbase = vid(x).peek(0x0C) | vid(x).peek(0x0D) << 8;
+        std::vector<uint8_t> v;
+        for (unsigned i = 0; i < 128; ++i) // its image (UI_OFS_SPR: the pointer's first)
+            v.push_back(vid(x).card_peek((page + 0x28) * 256u + i));
+        for (unsigned i = 0; i < 8; ++i) // sprite 0's entry
+            v.push_back(vid(x).card_peek(sprbase * 256u + i));
+        return v;
+    };
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00")); // UI_TURBO, before the first poll
+    expect(poll(r), {}, "the first poll");
+    const std::vector<uint8_t> early = pointer(r);
+    CcpRig c;
+    REQUIRE(c.ok);
+    start_ui(c);
+    CHECK_EQ(ui(c, 'o', BLK_DESK).substr(6), std::string("00"));
+    expect(poll(c), {}, "the first poll");
+    const std::vector<uint8_t> house = pointer(c);
+    CHECK_EQ(ui(c, 't', 1).substr(6), std::string("00")); // UI_TURBO, after it
+    expect(poll(c), {}, "the theme");
+    const std::vector<uint8_t> turbo = pointer(c);
+    CHECK(house != turbo); // the two themes' pointers differ
+    CHECK(early == turbo);
+    CHECK_EQ(frame_hash(r), frame_hash(c));
+}
 
 TEST(a_desktop_and_its_menu_bar)
 {
@@ -909,6 +1025,7 @@ TEST(o9_o10_one_session_and_its_layers)
     CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'c').substr(6), std::string("00")); // closed already: nothing
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r); // (U3b landing, AA1: the layers' registers are set at the first paint)
     CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x11) | vid(r).peek(0x12) << 8), map0); // its bank freed and taken again
 }
 
@@ -946,17 +1063,29 @@ TEST(o15_the_maps_are_clear_before_the_first_poll)
     // The banks OOUI may take, full of junk: the first is GX_PALINIT's and GX_SPRINIT's, so OOUI's is the next.
     for (uint32_t a = 0x044000; a < 0x04C000; ++a)
         vid(r).card_poke(a, static_cast<uint8_t>(a * 7 + 0x41));
+    // (U3b landing, AA1; the owner's change) Until the first poll the console's frame and layer 0's
+    // registers stay as they were; after it, OOUI's cleared maps show.
+    r.run(ms(40));
+    std::vector<uint8_t> l0;
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        l0.push_back(vid(r).peek(i));
+    const std::vector<uint32_t> console(vid(r).frame(), vid(r).frame() + 640 * 480);
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    r.run(ms(40));
+    for (uint8_t i = 0x10; i < 0x18; ++i)
+        CHECK_EQ(static_cast<unsigned>(vid(r).peek(i)), static_cast<unsigned>(l0[i - 0x10]));
+    CHECK(std::equal(console.begin(), console.end(), vid(r).frame()));
+    poll(r);
     CHECK_EQ(vid(r).peek(0x11) | vid(r).peek(0x12) << 8, 0x0440); // the bank filled
     r.run(ms(40));
-    const uint32_t *f = vid(r).frame();
-    const uint32_t bg = VideoCard::rgba(0x112); // palette entry 0, where both layers are transparent
-    size_t other = 0;
-    for (size_t i = 0; i < size_t{640} * 480; ++i)
-        other += f[i] != bg;
-    if (other > 32 * 32)
-        std::printf("  %zu pixels not entry 0's\n", other);
-    CHECK(other <= 32 * 32); // the pointer at most
+    // The first picture is OOUI's own, none of the junk: the frame a rig with no junk in the bank shows.
+    CcpRig c;
+    REQUIRE(c.ok);
+    start_ui(c);
+    CHECK_EQ(ui(c, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(c);
+    c.run(ms(40));
+    CHECK_EQ(frame_hash(r), frame_hash(c));
 }
 
 TEST(o17_the_pointer_off_when_closed_or_suspended)
@@ -1788,15 +1917,16 @@ TEST(u2_the_picker_on_an_oodos_32m_drive)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
     poll(r);
     pick(r, 0);
     std::vector<std::string> b = listed(r);
-    CHECK_EQ(b.size(), 24u);
+    CHECK_EQ(b.size(), 25u); // (U3b landing: the 24, and OOUI.BNK, on A: as on the real cards)
     CHECK(has(b, "BIG00.DAT") && has(b, "BIG23.DAT"));
-    CHECK_EQ(status(r), std::string("24 files"));
+    CHECK_EQ(status(r), std::string("25 files"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2468,6 +2598,7 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
@@ -2488,8 +2619,8 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     std::printf("  the most a poll ran in the walk: %lu instructions\n", most);
     CHECK(most < 100000); // (about 54,000 at its last walk, the prune with it: a list's squared /2 is past 600,000)
     CHECK_EQ(r.phys(lab("lst")), 0);
-    CHECK_EQ(word_at(r, lab("count")), 200u);
-    CHECK_EQ(status(r), std::string("200 files"));
+    CHECK_EQ(word_at(r, lab("count")), 201u); // (U3b landing: the 200, and OOUI.BNK on A:)
+    CHECK_EQ(status(r), std::string("201 files"));
 }
 
 TEST(z2_an_overlay_window_hidden_over_nothing_takes_its_thumb)
@@ -2667,6 +2798,7 @@ TEST(v1_one_before_the_selection_and_the_selected_one_deleted)
 
 int main()
 {
+    before_boot() = [](Rig &r) { put_bnk_a(r); }; // (U3b landing) OOUI.BNK on A: before OODOS boots
     const int failed = run_all();
     if (updating() && failed)
         return failed; // an update run that failed anything else fails (round 2's W7)
@@ -2789,6 +2921,7 @@ TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
     Rig r(card);
     REQUIRE(r.ok);
     REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    put_bnk_a(r, 2048, 8192); // (U3b landing: OOUI.BNK on A:, as the rig's cards have it)
     REQUIRE(r.boot());
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
@@ -2820,8 +2953,8 @@ TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
     std::printf("  the most a poll ran in the walk after a file was added mid-listing: %lu instructions\n", most);
     CHECK(most < 100000);
     CHECK_EQ(r.phys(lab("lst")), 0);
-    CHECK_EQ(word_at(r, lab("count")), 200u);
-    CHECK_EQ(status(r), std::string("200 files"));
+    CHECK_EQ(word_at(r, lab("count")), 201u); // (U3b landing: the 200, and OOUI.BNK on A:)
+    CHECK_EQ(status(r), std::string("201 files"));
 }
 
 namespace
@@ -2934,7 +3067,10 @@ TEST(ui_load_keeps_the_program_s_user_and_dma)
     CHECK_EQ(mine, std::string("user 0 dma 3A00 seg 1234 err FE"));
     CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
     CHECK_EQ(own_state(r), mine);
+    const auto put_a = before_boot(); // (U3b landing: this rig's card as committed, without OOUI.BNK on A:)
+    before_boot() = nullptr;
     CcpRig s;
+    before_boot() = put_a;
     REQUIRE(s.ok);
     start_ui(s, "uitpick", 'N');
     CHECK_EQ(ui(s, 'e', 5, 0xFE, 1).substr(6), std::string("00"));
@@ -4113,6 +4249,8 @@ TEST(u3b_the_picker_s_add_and_add_all_keep_it_up)
     click(r, ok.col + 3, ok.row); // the marks kept: the same two again
     expect(poll(r), {{UE_PICK, P_WIN, 0, 0}}, "Add again");
     CHECK_EQ(chosen(r, "pickF"), 2u);
+    key(r, 0x18); // (U3b landing) U: no widget's, nor the picker's: the program's UE_KEY (OK has the focus)
+    expect(poll(r), {{UE_KEY, P_OK, 0x18, 0}}, "U: the program's");
     key(r, 0x0F); // L: "Add a&ll"
     expect(poll(r), {{UE_PICK, P_WIN, 0, 3}}, "Add all: up still");
     CHECK_EQ(chosen(r, "pickF"), 16u); // the result's room

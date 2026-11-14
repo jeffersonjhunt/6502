@@ -22,7 +22,7 @@
 ; UITBAR, the bars, sliders and the message box; 3 UITPICK, the picker.
 ; From U3a each is an ordinary .COM, linked with OOUI's program part
 ; (build/ooui.lib) and test/ui/uiprog.cfg (UISTATE at $8000), and loads
-; OOUI.BNK from M:, user 15, at its start (ui_load), unless the test has put 'N' at
+; OOUI.BNK by ui_load's default (A:, user 0; U3b landing: M:, user 15, before) at its start, unless the test has put 'N' at
 ; MBOX + 4 before it runs: then 'L' loads it (A 0: the default, A:OOUI.BNK;
 ; 1: M:OOUI.BNK, user 15; 2: B:OOUI.BNK). 'G' there: not even GX_INIT.
 .ifndef UIVAR
@@ -66,10 +66,12 @@ start:  stz     MBOX
         bcs     @say
         jsr     GX_SPRINIT
         bcs     @say
-        lda     MBOX + 4                ; OOUI.BNK from M: (U3a), unless the test says not
-        cmp     #'N'
+        lda     MBOX + 4                ; OOUI.BNK by ui_load's default (A:, user 0: U3b landing;
+        cmp     #'N'                    ;   M:'s before), unless the test says not
         beq     @nol
-        jsr     mload
+        lda     #0
+        tax
+        jsr     ui_load
         bra     @say
 @nol:   lda     #0
         tax

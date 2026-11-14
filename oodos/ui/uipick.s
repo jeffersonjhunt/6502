@@ -1085,6 +1085,8 @@ FILTER: sta     t2
         lda     t2
         cmp     #UE_MODAL
         beq     @keep
+        cmp     #UE_KEY                 ; (U3b landing) a key no widget took is the
+        beq     @keep                   ;   program's, as outside the picker (OO-Amp's U)
         cpx     #PDRV
         beq     @drv
         cpx     #PUSR

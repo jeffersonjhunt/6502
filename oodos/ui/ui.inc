@@ -22,7 +22,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 
 ; uicore.s's
 .global ublk, uarea, utab, ucount, utheme, ukeys, ubase, uover, usprite, usprites, uoflags
-.global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, uany, ucli, rhid, rover, rtype
+.global upage, ufocus, ufwin, umenu, umsel, upress, ususp, ushow, umodal, udmg, uany, ucli, rhid, rover, rtype
 .global udend, UDEND
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL, RNEXT
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER

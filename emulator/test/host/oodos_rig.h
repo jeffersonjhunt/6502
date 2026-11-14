@@ -760,6 +760,14 @@ namespace oodos_rig
             }
         }
 
+        /// (U3b landing) What a suite does to a CcpRig's card before OODOS boots it, after A: and B: are
+        /// mounted (none if unset): test_oodos_ui puts OOUI.BNK on A:, as the real cards keep it.
+        inline std::function<void(Rig &)> &before_boot()
+        {
+            static std::function<void(Rig &)> f;
+            return f;
+        }
+
         /// OODOS.SYS booted with the card's A.IMG as A: and B.IMG (empty) as B:.
         struct CcpRig : Rig
         {
@@ -773,6 +781,8 @@ namespace oodos_rig
                     return;
                 ok = mount(1, "/OODOS/A.IMG") == 0 && mount(2, "/OODOS/B.IMG") == 0;
                 set_time(2026, 10, 30, 12, 0, 0);
+                if (ok && before_boot())
+                    before_boot()(*this);
                 ok = ok && boot();
             }
 
