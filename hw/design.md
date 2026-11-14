@@ -135,6 +135,10 @@ So the machine has 960 KB of RAM and the 64 KB aperture. With a revision 1 card 
 0.13 and OODOS drive revision 2 alone. The emulator keeps RAM C's line over bank 8 and maps the aperture over it,
 so those 64 KB of RAM can't be reached while a revision 2 card is fitted ([Emulator](#emulator), step 10).
 
+**Proposed (B0, 2026-11-14): on the new bus** the map is 24 bits, the flash at `$F00000`, and the aperture moves to
+`$E00000`, so bank 8 is RAM again once software turns the old place off
+([the physical map on the new bus](#the-physical-map-on-the-new-bus)).
+
 ### Native mode: four windows of 16 KB ###
 
 **Decided.** The CPU's 64 KB is four windows of 16 KB. Each window has a **6-bit register** naming any of the 64
@@ -190,6 +194,10 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | 7 | ROM | 1 = flash. Blocks 0–31 are ROM A; 32–63 are ROM B (the cartridge) |
 | 6 | RO | 1 = writes through this window are ignored |
 | 5–0 | BLOCK | which 16 KB block: A14–A19, or the offset into the flash |
+
+**Proposed (B0): on the new bus** the north bridge adds WIN0H–WIN3H and VECH (A20–A23 for a window's block) and MAP
+(AP8, the aperture's old place in bank 8) at `$20–$25`
+([the video aperture moved out of RAM](#the-video-aperture-moved-out-of-ram)).
 
 **Register map** (offset from `$C680`):
 
@@ -322,6 +330,8 @@ The north bridge works in two stages:
 
 The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
 window registers.
+**Proposed (B0):** on the new bus, 24-bit addresses, with memory chosen by its address and not by a module ID
+([the physical map on the new bus](#the-physical-map-on-the-new-bus)).
 
 ### Future: a 65C816 and 16 MB ###
 
@@ -375,6 +385,8 @@ with up to 16 MB, so the reasoning isn't lost.
    copying, because the DMA controller only reaches RAM; 64 KB takes about 0.1 s, once per boot. The Apple IIe ROM
    image isn't copied at boot: `$C806` (Apple II mode, below) copies it from the cartridge into bank E (`$EC000`)
    each time Apple mode starts, so native mode may use bank E as RAM.
+   **Proposed (B0):** on the new bus it copies from ROM A's blocks 0–3 instead, and ROM B is for games only
+   ([the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b)).
 5. From then on the system software runs from RAM. That's the "top of RAM" requirement. It also leaves the flash
    free to be reprogrammed while the machine runs, and keeps a turbo mode possible.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
@@ -552,6 +564,9 @@ The machine works without it, so it can come later.
 
 The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
 See [Front Panel](#front-panel).
+
+**Proposed (B0): revision 2,** ID `$82`, for the new bus: a module field per channel, channels 4–7, the request
+poll, 16-bit transfers ([the DMA controller, revision 2](#the-dma-controller-revision-2)).
 
 
 ## Video ##
@@ -1525,6 +1540,9 @@ today; only where the card keeps its copy and the character ROM changes:
 - The aperture is inert while APPLE is set, the registers can't be reached, and DMA is idle, so the port is never
   used. The timing is unchanged: 640×480 out, 560×384 centred, `$C019` in Apple timing.
 
+**Proposed (B0): on the new bus** the mode works as it does today; `$C806` takes the IIe image from ROM A's blocks
+0–3, and the steps are checked one by one in [the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b).
+
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
 
@@ -1877,6 +1895,451 @@ found only by its ID, on the backplane or in the chassis alike. No fifth ID bit 
 
 **New lines:** /MEM, /DMA, /DREQ, /SEL. **Dropped on the new bus:** DRQ0–DRQ3 and /DACK0–/DACK3. The 62-pin
 assignment below stays the current machine's.
+
+**Proposed (B0, 2026-11-14): the details,** below, for the emulator's steps B1–B5 and the owner's pin map (B6).
+The owner's decisions so far: ROM A at `$F00000` and ROM B at `$F80000`; ROM A 512 KB, two 256 KB chips side by
+side; the Apple IIe ROM images in ROM A's first 64 KB and ROM B for game cartridges only; channel 1's default
+module video, channel 3's none; channels 4–7 by a bank bit in CONTROL, with STATUS2 and ABORT2 at `$43–$44`; the
+video aperture moved out of RAM, so the machine has the whole 1 MB; the IIe ROM's copy by DMA left for later.
+
+#### The physical map on the new bus ####
+
+**Proposed.** Addresses are 24 bits, A0–A23. Memory cards decode their own ranges; the module IDs choose only
+cards with registers.
+
+```
+  $000000 +--------------------------+
+          | RAM A  256 KB  banks 0-3 |
+  $040000 | RAM B  256 KB  banks 4-7 |
+  $080000 | RAM C  256 KB  banks 8-B |  bank 8 hidden while MAP's AP8 is set (the old aperture's place)
+  $0C0000 | RAM D  256 KB  banks C-F |
+  $100000 +--------------------------+
+          |                          |
+          |  unused: 13 MB, room for |  nothing answers: a read gives $FF, a write is lost
+          |  more RAM later          |
+          |                          |
+  $E00000 +--------------------------+
+          | video aperture   64 KB   |  slots 0-3 at +n x $4000
+  $E10000 | unused, kept for cards'  |
+          | memory (960 KB)          |
+  $F00000 +--------------------------+
+          | ROM A  512 KB  blocks 0-31  (two 256 KB chips: even and odd bytes)
+  $F80000 | ROM B  512 KB  blocks 32-63, the game cartridge
+  $FFFFFF +--------------------------+
+```
+
+| Physical | Size | What answers with /MEM low | Window block (ROM bit, BLOCK) |
+|---|---|---|---|
+| `$000000–$03FFFF` | 256 KB | RAM A | 0–15 |
+| `$040000–$07FFFF` | 256 KB | RAM B | 16–31 |
+| `$080000–$0BFFFF` | 256 KB | RAM C. With AP8 set (the reset state) the CPU card sends no cycle to `$080000–$08FFFF`: it sends it to the aperture ([below](#the-video-aperture-moved-out-of-ram)) | 32–47 |
+| `$0C0000–$0FFFFF` | 256 KB | RAM D | 48–63 |
+| `$100000–$DFFFFF` | 13 MB | nothing: room for RAM cards later | (wide windows, below) |
+| `$E00000–$E0FFFF` | 64 KB | the video card's aperture, revision 2 | WINnH `$0E`, BLOCK 0–3 |
+| `$E10000–$EFFFFF` | 960 KB | nothing: kept for other cards' memory | |
+| `$F00000–$F7FFFF` | 512 KB | ROM A | ROM bit, 0–31 |
+| `$F80000–$FFFFFF` | 512 KB | ROM B, the cartridge | ROM bit, 32–63 |
+
+So a window's ROM bit keeps its meaning: ROM block *b* is physical `$F00000 + b × $4000`, and the north bridge
+puts out that address instead of choosing modules 4 and 5. The DMA controller's revision 2 drives all 24 bits
+(ADDR and DEST's third byte whole, [below](#the-dma-controller-revision-2)), so DMA reaches the flash and the
+aperture by their addresses. RAM C needs no input to keep quiet in bank 8: the redirection is on the CPU card, so
+no cycle for `$08xxxx` reaches the backplane while AP8 is set.
+
+**/MEM in each kind of cycle.** The master holding the bus drives /MEM, PS0–PS3, A0–A23 and RWB: the CPU card
+(the north bridge, or the DMA controller beside it) normally, and the Console card or the bus spy when they take
+the bus with BE. A card with registers answers when PS0–PS3 is its ID with /MEM and /DMA high; a memory card
+answers its range with /MEM low.
+
+| Cycle | /MEM | /DMA, /IACK | PS0–PS3 | Address | Who answers |
+|---|---|---|---|---|---|
+| CPU, through a window (RAM, flash, the aperture) | low | high, high | `0xD` (the north bridge's own: no card's registers answer) | the physical address the window gives | the memory card whose range it is |
+| CPU, the I/O hole `$C000–$C7FF` | high | high, high | the block's ID, from A7–A10 | A0–A6 the register (the rest the CPU's) | the card with that ID; `0xD` is the bridge itself, no card |
+| North bridge interrupt poll (IRQL, IRQH) | high | high, low | `0xD` | | each interrupting card pulls D(ID) |
+| DMA: the takeover (RDY, then BE) | high | high, high | `0x8` | | nobody |
+| DMA: the request poll ([below](#the-dma-controller-revision-2)) | high | low, low | `0x8` | | each requesting card pulls D(ID) |
+| DMA: a fly-by transfer | low | low, high | the channel's module | the memory address | the memory by address, and the named card's data register |
+| DMA: memory to memory, the read and the write | low | high, high | `0x8` | the source, then the destination | the memory by address |
+| Console card EXAM and DEP, the bus spy | low (it drives it) | high, high | `0xE` (its own) | its physical address (PADDR, 20 bits today: A20–A23 are 0 until it widens) | the memory by address. Bank 8 is RAM C to them: AP8 is the CPU card's, and they reach the aperture at `$E00000` only with a wider PADDR |
+| Apple II mode, memory (`$0000–$BFFF`, `$D000–$FFFF`, the ROM space from bank E) | low | high, high | `0xD` | A0–A15 as they are, A16–A19 from the IIe's switches, A20–A23 0 | RAM A–D |
+| Apple II mode, `$C000–$C0FF` and a slot's ROM (`$C600`, the Disk II's) | high | high, high | the answering card's: B the USB card's switches, C the Disk II's; `0xD` for the bridge's own switches | A0–A7 | that card |
+
+The video card's Apple II snoop watches writes with /MEM low to `$000000–$01FFFF` (banks 0–1), A20–A23 0, and the
+display switches' I/O cycles, as it watches banks 0–1 and the switches now.
+
+#### The flash: ROM A and ROM B ####
+
+**Decided (the owner, 2026-11-14): ROM A is 512 KB, two 256 KB chips side by side,** one holding the even bytes
+and one the odd, so a read gives a whole 16-bit word on D0–D15. A 256 KB part of the SST39SF family (the SST39SF020A)
+is the same family as today's SST39SF040, programmed the same way.
+
+- **Byte reads by the 8-bit CPU.** The CPU card puts out A1–A23; both chips answer, the even byte on D0–D7 and the
+  odd on D8–D15 (the 16-bit bus's byte lanes, [Backplane Signals](#backplane-signals)), and the CPU card gives the
+  CPU the byte A0 chooses. At ÷2 flash needs no wait states either way ([CPU and clocks](#cpu-and-clocks)), so the
+  word gains the CPU nothing; it halves a DMA read of the flash ([B4](#what-steps-b1-b7-change)).
+- **The CPU card's word buffer.** It may keep the other byte of the word and give it to the next read of that word
+  without a bus cycle, which a turbo would want. For the flash the rule is: **the buffer serves flash reads only
+  through a window with RO set.** A program or erase in progress makes a chip answer reads with its status, which
+  changes from read to read, so a buffered status would look finished. The flash update maps the flash with RO
+  clear, as it must to write it, so every read it makes is a bus cycle. Any write to the flash's range empties the
+  buffer as well.
+- **Programming.** A byte write goes to one chip, the one A0 chooses: the CPU card drives only that byte lane, and
+  the chip's write enable is its lane's. Each chip has its own command sequence, at its own addresses, and its own
+  status:
+  - a chip's command address *c* (`$5555`, `$2AAA` in the chip) is the flash offset 2*c* for the even chip and
+    2*c* + 1 for the odd one: `$AAAA` and `$5554`, or `$AAAB` and `$5555`, from ROM A's start;
+  - a chip's 4 KB sector holds the even or the odd bytes of 8 KB of the flash, so a 16 KB block is two sectors in
+    each chip: erasing block *b* is four sector erases, two in each chip;
+  - each chip is polled by its own status (data polling on bit 7, or the toggle bit 6), read at an address of its
+    own lane. The two chips can work at once: the update starts a byte in the even chip, one in the odd, and
+    polls each.
+- **What the BIOS's flash update does differently** (it is new, [B5](#what-steps-b1-b7-change); today the flash
+  can't be written, [the Technical Reference, chapter 2](../docs/oo1-technical-reference/02-memory-and-banking.md#reprogramming-the-flash)):
+  everything above, per chip, where one SST39SF040 would take one sequence for every byte. Writing a byte at
+  offset *o* means the command sequence at the chip of *o*'s parity, then the byte, then that chip's poll.
+- **Unchanged:** the block numbers, 0–31 of 16 KB, and every window value; the reset block, 31, at `$DF`; the
+  diagnostics' blocks 21–23 and their sums (`backplane/bios/romsum.py` sums blocks 21–31 a byte at a time, which
+  doesn't care which chip holds a byte); the BIOS's build of the whole 512 KB image. What's new is for the
+  programmer: the build also splits the image into its even and odd halves, one file for each chip.
+
+**ROM A's layout** (the owner's direction, 2026-11-14):
+
+| Blocks | Offset in ROM A | Physical | What | Written by |
+|---|---|---|---|---|
+| 0–3 | `$00000–$0FFFF` | `$F00000–$F0FFFF` | Apple IIe ROM images 0–3, 16 KB each, as the ROM sits at `$C000–$FFFF` | the user, by the BIOS's flash update, from a file on the SD card: the IIe ROMs are Apple's, so we can't ship them |
+| 4 | `$10000–$13FFF` | `$F10000–$F13FFF` | **Proposed:** the IIe character ROMs, 4 KB each: set *n* for image *n*, of which the BIOS uses the first 2 KB, as it uses the cartridge's today. A set that is erased (its first 8 bytes `$FF`) is made from the VGA font, as now | the same, from the SD card |
+| 5–20 | `$14000–$53FFF` | `$F14000–$F53FFF` | free, erased | |
+| 21–23 | `$54000–$5FFFF` | `$F54000–$F5FFFF` | the ROM's diagnostics ([diag.md](diag.md)); block 23's last page their sums and vectors | the BIOS's build |
+| 24–28 | `$60000–$73FFF` | `$F60000–$F73FFF` | the boot splash's samples ([Boot splash](#boot-splash)), as now | the BIOS's build |
+| 29 | `$74000–$77FFF` | `$F74000–$F77FFF` | the video demo | the BIOS's build |
+| 30 | `$78000–$7BFFF` | `$F78000–$F7BFFF` | the font | the BIOS's build |
+| 31 | `$7C000–$7FFFF` | `$F7C000–$F7FFFF` | the BIOS, the reset block | the BIOS's build |
+
+The direction lists 21–23, 29, 30 and 31; blocks 24–28 are the splash's samples today (`backplane/bios/bios.cfg`), so
+they stay. The flash update writes only blocks 0–4, so the BIOS and the diagnostics' sums are never at risk from it.
+
+**ROM B** is the game cartridge only: the BIOS takes nothing from it any more.
+
+**`$C806` on the new bus.** It copies the chosen image, ROM A block *n* (*n* 0–3), to RAM block 59
+(`$0EC000–$0EFFFF`, bank E's `$C000–$FFFF`) by the CPU through W1 (`NB_ROM | NB_RO | n`, where it maps the
+cartridge's block 32 today), and the character set from block 4's 4 KB at `$1000 × n`, where it takes the
+cartridge's block 33 today. How *n* is chosen is the owner's ([question 1](#questions-for-the-owner-b0)); with a
+single image it is image 0. What changes:
+
+- the image's place: ROM A block *n*, not ROM B block 32 (`CART_BLOCK`), and the character ROM's: block 4, not
+  ROM B block 33;
+- its message: `NO APPLE IIE ROM IN THE CARTRIDGE` becomes one that names the flash and the image;
+- the emulator: `--apple-rom` loads ROM A block 0 (or image *n*, with a number before the file) and `--apple-chars`
+  block 4, both over the BIOS's image, whose blocks 0–4 are erased; the WebUI's Settings row writes the same
+  blocks, as the flash update would, and still power-cycles the machine.
+
+**Apple II mode holds as [the Technical Reference, chapter 13](../docs/oo1-technical-reference/13-apple-ii-mode.md)
+describes,** step by step:
+
+| Chapter 13 | On the new bus |
+|---|---|
+| MODE's APPLE bit, written only by `$C806`, from `C806R` or function 75 | unchanged |
+| The checks: video card revision 2 (`$92`) | unchanged |
+| The checks: the DMA controller | holds once the check takes revision 2: `apple.s` compares `DMA_ID` with `$81` exactly, so it must take `$8x` ([below](#the-dma-controller-revision-2), [B2](#what-steps-b1-b7-change)) |
+| The checks: a IIe ROM, `$06` at its `$FBB3` | the same test, on ROM A block *n* instead of the cartridge |
+| 1. The image copied by the CPU to `$EC000–$EFFFF` | the same RAM, RAM D at `$0EC000`; only the source moves |
+| 2. The character ROM into card memory at `$1E0000`, through the port | the same; only the source moves (block 4) |
+| 3. SEI, the zero byte at `$EBFFF` | unchanged |
+| 4. The clear by DMA on channel 3: ABORT, STATUS, `DMA_ON` (`$71`) to CONTROL, six fills | unchanged: `$71` leaves CONTROL's BANK bit 0, so the registers at `$30` are channel 3's; channel 3's module is none; ADDR's and DEST's third bytes are 0–5 and `$0E` |
+| 5. MODE, and the /RESET pulse | unchanged. /RESET also puts the DMA controller's module fields back to their defaults, BANK to 0, WINnH and VECH to 0 and AP8 to 1 |
+| The memory map: banks 0–5 and E, A0–A15 through, A16–A19 from the switches | unchanged; A20–A23 are 0. No Apple address reaches bank 8, `$E00000` or the flash, so AP8 and the aperture's move don't touch the mode |
+| The video card's snoop of banks 0–1 and the switches | unchanged (the table above) |
+| The aperture inert while APPLE is set | unchanged, at its new address |
+| The clock, Ctrl-Reset, the hard reset, the Disk II, DMA idle | unchanged |
+
+#### The video aperture moved out of RAM ####
+
+**Proposed (the owner's direction, 2026-11-14).** The aperture leaves bank 8 for `$E00000–$E0FFFF`, so bank 8 is
+RAM again and the machine has the whole 1 MB. `$E00000` is a 1 MB region of its own below the flash, kept for
+cards' memory; the aperture's 64 KB is its first.
+
+**Who uses bank 8 as the aperture today.** Every one reaches it by the block numbers 32–35 in a window or by the
+physical addresses `$80000–$8FFFF` in DMA:
+
+| Where | What |
+|---|---|
+| BIOS, `backplane/bios/video.s` | `VBLOCK = 32` through W2 for VPUTC (slot 0) |
+| BIOS, `diag23.s`, `diag.inc` | `DG_APER`: bank 8 is the aperture on a revision 2 card, so not RAM; the RAM stages pass over blocks 32–35 (`MODFIRSTA`) |
+| `backplane.inc` | `VIDEO_APERTURE = $80000` |
+| OODOS, `oodos/sys/crt.s` | the console's text through block 32 in W1 (`VBLOCK`) |
+| OODOS, `oodos/sys/video.s` | `DM_VCOPY`'s DMA through slots 2 and 3 at `$88000` and `$8C000`; the W1 map (block 33) |
+| OODOS, `oodos/sys/bdosmem.s` | `OSWIN`: refuses physical destinations `$80000–$83FFF` and `$88000–$8FFFF` |
+| `oodos/include/vmem.inc` | `VM_APERTURE = $80000`, `VM_SLOT_BLOCK = 33` |
+| OOLIB, `oodos/lib/gxmem.s` (`GX_VMAP`, `GX_BLOCK`), and through it `gxbmp.s`, `gxtile.s` | writes `NB_WIN1` with block 33. **The library is linked into each program,** so programs built today carry block 33 in their own code |
+| OOUI, `oodos/ui/uidraw.s` | through `GX_VMAP` (block 33) |
+| SYSINFO, `oodos/utils/sysinfo.s` | `DM_INFO` for the card, and its line "960 KB of RAM and the video card's 64 KB aperture" |
+| The emulator | `backplane.machine`'s `aperture 80000-8FFFF`; `video_card.{h,cpp}`, `machine.{h,cpp}`, `apps/emu/main.cpp`, the WebUI's `debugger/devices.ts` and `vram.ts`; `test_video_rev2`, `test_bios`, `test_bios_diag`, `test_oodos_gfx`, `test_oodos_load`, `test_oodos_utils_rom`, `test_oodos_video`, `test_app_debug.py` |
+| The books and hw/ | the Technical Reference's chapters 2, 5, 6, 11, 13, 14; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md, ooui.md, diag.md, and [video-rev2.md](video-rev2.md) (frozen: [question 7](#questions-for-the-owner-b0)) |
+
+**How a window reaches it: wider windows, and the old bank 8 kept until software says otherwise.** The window
+registers have no free bit (bit 7 ROM, bit 6 RO, bits 5–0 BLOCK), and the 6-bit block is already the whole 1 MB, so
+a new place needs more bits. Two additions to the north bridge, at offsets that are free today (`$19–$7E` are
+unused; `backplane.inc` and `backplane_bridge.h` name nothing there):
+
+| Offset | Name | Access | Purpose | Reset |
+|---|---|---|---|---|
+| `$20`–`$23` | WIN0H–WIN3H | read/write | bits 3–0: A20–A23 for the window's block when its ROM bit is clear. The block is then 10 bits, WINnH:BLOCK, any 16 KB of the 16 MB. With the ROM bit set the flash is chosen and WINnH is ignored. Bits 7–4 0 | `$00` |
+| `$24` | VECH | read/write | the same for VEC | `$00` |
+| `$25` | MAP | read/write | bit 0 **AP8**: 1, the CPU card sends every memory cycle for `$080000–$08FFFF` (a window with ROM clear, WINnH 0 and BLOCK 32–35, and the DMA controller's memory side) to the aperture at `$E00000–$E0FFFF` instead, as bank 8 was; 0, bank 8 is RAM C. Bits 7–1 0 | `$01` |
+
+- **Reset and old software:** WINnH 0 and AP8 1, so block 33 in W1 and `$84000` in a DMA address still mean the
+  aperture's slot 1: today's BIOS, OODOS and every program built with today's OOLIB run as they do now, on 960 KB.
+- **New software reaches the aperture by its own address:** WINnH `$0E` with BLOCK 0–3 for slots 0–3, and
+  `$E0xxxx` in DMA. That works whatever AP8 holds, so a new BIOS and a new OODOS use it always.
+- **The recovered 64 KB** is there once AP8 is 0. Because programs carry block 33 in their own linked OOLIB, AP8 may
+  be cleared only for a program that has said it knows: **OODOS keeps AP8 set, and clears it for the running
+  program at its request** (below), setting it again at the warm boot.
+- **The alias is on the CPU card** (the north bridge, and the DMA controller beside it), so the Console card and
+  the bus spy, driving the bus themselves, see the true map: bank 8 is RAM C to them.
+- **Why wider windows.** They are what [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb) needs anyway (its
+  "the registers widen"), and RAM past 1 MB (`$100000–$DFFFFF`) would be reached the same way.
+
+**What OODOS and OOLIB add (B7, [below](#what-steps-b1-b7-change)).** Each is an addition, with OOLIB's interface
+version (function 80's `FT_INFO`) raised; every existing call keeps its meaning:
+
+- **Function 83, a new operation `DM_BANK8`** (the next free number, 11; `DM_OPS` 12). For the running program: AP8
+  cleared, banks 8–B (blocks 32–47) its ordinary RAM, as banks 9–B are now (in the W1 map, reachable by DMA segments
+  and function 83, not handed out by 53–58), and slot 1 reached at WIN1H `$0E`, block 1. It's refused (A = `$FF`)
+  with no revision 2 video card, or with a ROM BIOS older than the one that knows AP8 (function 77, `O_ROMVER`):
+  Break into an older ROM's monitor would write its screen into bank 8's RAM. The warm boot sets AP8 again.
+- **`DM_INFO` gains a field:** slot 1's window as WIN1H and WIN1, so the library doesn't assume block 33.
+- **The W1 contract** grows: from the new interface version OOLIB may write WIN1H (`$0E` or 0) as it writes WIN1;
+  the BDOS entry, the dispatcher and the hooks save and restore WIN1H with WIN1. A map is then two writes, which an
+  interrupt can split, but the dispatcher puts back both as it found them, so a split is harmless.
+- **Function 73 (`O_PHYSADDR`)** refuses an address in W1 while W1 shows the aperture at `$E00000`, as it refuses the
+  flash: its 16-bit paragraph can't hold the address.
+- **OOLIB's `GX_INIT`** calls `DM_BANK8` when the version allows, and `GX_BLOCK` writes WIN1H. A program linked with
+  an older library never calls it, keeps AP8 set and runs as now.
+- **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
+- **SYSINFO and DIAG** would read MAP to say what the RAM is: a read that the system tools' exception in AGENTS.md
+  doesn't list, so it is the owner's to add ([question 7](#questions-for-the-owner-b0)).
+
+**Alternative (one):** no new window registers. With AP8 cleared, ROM blocks 60–63 (ROM B's top 64 KB) show the
+aperture instead, so OOLIB writes `$80 | 61` for slot 1. Cheaper (one register, MAP), but a cartridge loses its top
+64 KB from the CPU's windows (DMA still reaches it by address), and RAM past 1 MB still needs wider windows later.
+
+#### The DMA controller, revision 2 ####
+
+**Proposed.** Its ID byte is `$82`. The registers of revision 1 ([DMA registers](#dma-registers)) keep their
+places and meaning; revision 2 adds to them. Today's controller (`emulator/components/devices/dma_controller.{h,cpp}`)
+reads `$FF` at a channel's offsets `$3` and `$B–$F` and at `$43–$7E`, and keeps every bit written to CONTROL.
+
+**Per channel, added:**
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$0`–`$2` | ADDR | read/write | now 24 bits: the third byte is A16–A23 whole (revision 1 used its low 4 bits). Counts wrap within 24 bits |
+| `$8`–`$A` | DEST | read/write | the same, 24 bits |
+| `$C` | CARD | read/write | bits 3–0 **MODULE**: the module ID the channel serves; `0x8`, the controller's own ID, which never requests, is **none**. Bit 4 **WIDE**: 16-bit transfers ([below](#16-bit-transfers)). Bits 7–5 0 |
+
+**CARD's reset values** are today's wiring, which `emulator/machines/backplane.machine` gives (`sd drq=0`,
+`video drq=1`, `sound drq=2`), with WIDE 0:
+
+| Channel | CARD at reset | Module |
+|---|---|---|
+| 0 | `$07` | mass storage |
+| 1 | `$09` | video (its data port, revision 2) |
+| 2 | `$0A` | sound |
+| 3 | `$08` | none: memory to memory, and the BIOS's copies |
+| 4–7 | `$08` | none |
+
+**Channels 4–7: CONTROL's bit 7, BANK.** CONTROL uses bit 0 (master enable) and bits 4–6 (BURST); bits 1–3 and 7
+are free. With BANK set, `$00–$3F` are channels 4–7's registers, laid out as 0–3's; the shared registers at
+`$40–$44` and `$7F` answer either way. Bit 7 can be tested with BIT. Resets to 0.
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$40` | STATUS | as now | bits 0–3 terminal count on channels 0–3; bits 4–7 the channel's module was requesting at the last poll (it was "DRQn asserted now"; software reads only bits 0–3: `oodos/sys/bios.s`, `sound.s`) |
+| `$43` | STATUS2 | read; write 1 to clear | the same for channels 4–7 |
+| `$44` | ABORT2 | write | bit n stops channel 4 + n at once |
+
+The interrupt stays IRQH bit 0 (ID 8), for any channel. **BANK is a register window, which an interrupt could find
+set:** code that sets it does so with interrupts off and clears it before they go back on, and Break (the BIOS's
+NMI) clears it first. Code that writes CONTROL whole with `DMA_ON` (`$71`) clears it; code that sets bits with
+`TSB` or a read-modify-write keeps it.
+
+**The request poll.**
+- A card wanting a transfer pulls /DREQ, the shared open-drain line.
+- The controller runs a poll when /DREQ is low, the master enable is on and an armed channel serves a card (its
+  MODULE not none, its direction card to memory or memory to card). It takes the bus (RDY, then BE: the takeover
+  cycle, as now) and runs one cycle with /DMA and /IACK low, /MEM high and PS `0x8`. Each card with a request pulls
+  its own data line, D(ID), low, as /IACK's poll has it; the backplane's weak pull-ups hold the rest high. With
+  D0–D15 every ID has a line.
+- It then grants the armed channel of highest priority (0 first, then 1–7) whose MODULE's line was low; a channel
+  started by software (REQ, memory to memory) is served in the same order.
+- **A poll that grants nothing** (a card requesting with no channel armed for it) gives the bus back; the
+  controller polls again only after 64 cycles, or at once if /DREQ goes high and low again or a CTRL is written, so
+  a stray request costs at most 2 cycles in 64.
+- **Cost:** the poll is one cycle, after the takeover's. Each time the controller takes the bus with /DREQ low it
+  polls, to find who asks and whether a higher channel does. With /DREQ high (only software-started transfers) it
+  doesn't poll.
+
+| Transfer | Revision 1 | Revision 2 |
+|---|---|---|
+| single (a byte a request) | 2 cycles a byte: the takeover, the byte | 3: the takeover, the poll, the byte |
+| demand, block | 1 + n for n bytes, per take | 2 + n per take while /DREQ is low; 1 + n with it high |
+| memory to memory | 1 + 2n | 1 + 2n, with /DREQ high; + 1 per take with it low |
+
+**The grant cycle.** The controller drives the memory address on A0–A23 with /MEM low, RWB for the memory's side
+(card to memory is a write), the channel's MODULE on PS0–PS3, /DMA low, and TC with the last transfer. The memory
+answers its address; the card named by PS puts or takes its data register, fly-by, one cycle a transfer, as now. A
+card's logic: PS mine with /DMA high and /MEM high, a register chosen by A0–A6; PS mine with /DMA low, its data
+register.
+
+**Demand mode, and when the card lets go.** /DREQ is shared, so it can't say which card let go. The rule: **while
+/DMA is low, only the card named on PS0–PS3 may pull /DREQ,** and it pulls it if it wants another transfer after
+this one. The controller samples /DREQ at the end of each grant cycle: low, the demand transfer goes on with no
+new poll; high, it ends. Other cards' requests come back when /DMA goes high. A card needs only its PS match and
+/DMA for this, which it decodes anyway.
+
+**TC** is asserted with the last transfer's grant, as now, and the card named by PS sees it.
+
+#### 16-bit transfers ####
+
+**Proposed (B4).** CARD's WIDE bit, 0 at reset:
+- **A word a transfer.** With WIDE set, each grant moves 16 bits on D0–D15: the memory answers the word at the even
+  address (A1–A23, both byte lanes), and the card puts or takes 16 bits of its data register. COUNT stays in bytes
+  and goes down by 2; ADDR steps by 2 (DEC down by 2; HOLD holds still).
+- **Alignment.** A transfer that starts at an odd address, or a last odd byte, is moved as a byte, on the lane A0
+  chooses, so any count and address work; TC comes with the last transfer.
+- **Memory to memory** reads a word into a 16-bit latch and writes it: 2 cycles for 2 bytes. If the source and the
+  destination differ in parity it moves bytes, WIDE or not.
+- **A card that takes only bytes** must not have WIDE set on its channel: each card's documentation says its data
+  register's width. The byte lanes the 16-bit bus uses for a byte (byte enables, or A0: not designed yet,
+  [Backplane Signals](#backplane-signals)) tell memory which half to write.
+
+#### The serial card's stream select ####
+
+**Proposed (B2).** The serial card has two DMA sources (DMASEL1 and DMASEL3, `$C320–$C321`, on DRQ1 and DRQ3 today)
+and one module ID. It gets **DMASTREAM at `$C324`** (`$24`, free: the card's registers are `$20–$23`, and `$24–$3F`
+are unused):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$24` | DMASTREAM | read/write | bit 0: which source the card's /DREQ and its fly-by data register follow: 0 DMASEL1's, 1 DMASEL3's. Bits 7–1 0. Reset 0 |
+
+DMASEL1 and DMASEL3 keep their values and meaning (0 none, 1–5 the sources), now "stream 0" and "stream 1". A
+channel serves the card by MODULE 6; neither channel 1 (video) nor 3 (none) names it at reset, so software sets the
+channel it uses. One stream runs at a time. Nothing uses the card's DMA today: the emulator has a 6551 standing in
+for the TL16C552A, mirrored over the block, so `$C324` is its mirror there until the card is modelled.
+
+#### Code written for revision 1 on revision 2 ####
+
+Every register, offset and meaning that revision 1 has is kept:
+- **The channels' wiring:** CARD's reset values are today's (0 storage, 1 video, 2 sound, 3 none), so code that
+  never writes CARD drives the same cards.
+- **ADDR and DEST's third byte:** every writer today puts 0–`$0F` there (`backplane/bios/apple.s`, `sd.s`,
+  `demo.s`; `oodos/sys/sound.s` and `video.s` from physical addresses OODOS checks against 1 MB), so the 24-bit
+  register gives the same addresses.
+- **CONTROL:** BANK is 0 unless written; `DMA_ON` and `TSB` leave it 0 for code that never sets it.
+- **STATUS, ABORT, MODE, CTRL:** as before for channels 0–3; STATUS's bits 4–7 change from "DRQ now" to "the last
+  poll", and nothing reads them.
+- **Timing:** single mode takes 3 cycles a byte rather than 2, and a take with /DREQ low one more. Nothing in the
+  BIOS or OODOS counts DMA cycles; the BIOS's 0.1 s copy timeout and OODOS's vertical-blank budget have room.
+- **The exception: the ID byte.** The BIOS and OODOS test `DMA_ID` against `$81` exactly (`DMA_ID_V1`): the BIOS's
+  `bios.s`, `sd.s`, `video.s`, `apple.s`, `diag23.s`; OODOS's `cold.s` (`CARD DMA_ID, DMA_ID_V1, $FF`), `sound.s`,
+  `irq.s`, `video.s` (four), `bdos.s`, `crt.s`; SYSINFO's `backplane/oohw/hwname.s` lists it by name. Today's code
+  would take `$82` for no controller. B2 changes each to the type nibble (`$8x`), as BIOS 0.11 did for the sound
+  card, before the emulated controller answers `$82`; function 75's "doesn't read `$81`" becomes "isn't `$8x`". A
+  card already written with an older OODOS needs the new one ([question 4](#questions-for-the-owner-b0)).
+
+#### /SEL and the chassis: timing ####
+
+**Proposed.** Every card pulls /SEL whenever it drives the data bus, so that it works in the chassis as on the
+backplane:
+
+| Card | Pulls /SEL |
+|---|---|
+| A card with registers | a read with PS its ID, /MEM and /DMA high |
+| A memory card (RAM, flash, the video card's aperture) | a read with /MEM low in its range |
+| A card in a DMA transfer, card to memory | /DMA low with PS its ID and RWB a write (the memory's side) |
+| A memory card in a DMA transfer, memory to card, or a memory-to-memory read | as a memory read |
+| Any card in a poll (/IACK low) | never: see below |
+
+- **How early:** from its select decode, combinationally, while PHI2 is low, so that /SEL is down by the time PHI2
+  rises; the card turns on its data drivers only while PHI2 is high, as a 6502 bus card does.
+- **The chassis's buffers** take their direction from /SEL during PHI2 low and are enabled only while PHI2 is high,
+  so the two sides never drive each other at a turn. Toward the backplane if one of the chassis's own cards pulls
+  /SEL, toward the chassis otherwise (writes, and a Console card in the chassis reading backplane memory). The
+  chassis end of the link needs to know only its own cards, so the link repeats /SEL from the chassis to the
+  backplane (for the lights and the bus spy) but not back: a choice where the section above has the open-drain
+  lines crossing both ways.
+- **Polls:** in a cycle with /IACK low the chassis's data buffers face the backplane whatever /SEL says. Cards on
+  both sides pull lines low together; the CPU card reads the backplane, where they meet.
+
+**The read budget at 7.16 MHz** (a 139.7 ns cycle, PHI2 high about 70 ns). Assumed delays: tADS 30 ns and tDSR
+10 ns ([CPU and clocks](#cpu-and-clocks)); the north bridge's CPLD, window to physical address, 10 ns; each
+transceiver (74ABT245 class) 5 ns; a card's CPLD decode 10 ns; the cable, about 1 m, 5 ns; a buffer's enable 8 ns;
+the backplane's traces inside the transceivers' figures. Data must be at the CPU by 129.7 ns, 10 ns before PHI2 falls.
+
+| Path | Address at the card | Card selected | Time left for the part | 55 ns part | 70 ns part |
+|---|---|---|---|---|---|
+| Backplane, memory | 45 ns (30 + 10 + 5) | 55 ns | 129.7 − 55 − 5 (back through the CPU card) = 69.7 ns from select | 14.7 ns spare | 0 ns: no margin |
+| Backplane, registers (CPLD, data out by PHI2 + 10) | 45 ns | 55 ns | data at 80 + 5 = 85 ns | 44.7 ns spare | |
+| Chassis, memory | 60 ns (+ the backplane end's buffer, the cable, the chassis end's) | 70 ns (at PHI2's rise: /SEL just in time) | 129.7 − 70 − 20 (four transceivers and the cable back) = 39.7 ns from select | needs one wait state | needs one wait state |
+| Chassis, registers | 60 ns | 70 ns | data at 80 + 20 = 100 ns (the chassis's buffers enabled at 78) | 29.7 ns spare | |
+
+- **At 7.16 MHz** cards with registers work anywhere, and memory on the backplane works with 55 ns parts with no
+  wait states. 70 ns parts have no margin here: [CPU and clocks](#cpu-and-clocks)' 100 ns from the address, "55–70 ns
+  RAM or flash, with margin", has no card decode in it, and a 10 ns decode takes the margin. **Memory belongs on the backplane;** a memory card in the chassis needs
+  parts of 35 ns or less, or pulls RDY for a wait state itself (the north bridge's WAITn are by module ID, which
+  memory no longer has).
+- **A 14.3 MHz turbo** (69.8 ns, about 30 ns for a read) leaves nothing for the link: every card in the chassis
+  would need a wait state.
+
+#### What steps B1-B7 change ####
+
+**Proposed.** The plan as the owner gave it, with B7 added for the aperture's move. Each step starts after D3b
+merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)).
+
+| Step | The emulator | The BIOS | OODOS, OOLIB | The books | Interfaces |
+|---|---|---|---|---|---|
+| **B1** memory by address | 24-bit physical addresses (`decoder.h`'s `PHYSICAL_SPACE` and `bus_address`, `space << 20` today); the RAM lines at `000000–0FFFFF`, the flash in the memory space at `F00000` and `F80000`; the north bridge's ROM bit to `$F00000 + b × $4000`; the aperture line at `E00000–E0FFFF` with bank 8 sent to it always (AP8 fixed at 1); the bus trace's address column wider; `backplane.machine` | nothing | nothing | the Technical Reference's chapters 2 and 14 (the map), the emulator notes | none: no software-visible change |
+| **B2** DMA revision 2 | ID `$82`; ADDR and DEST 24 bits; CARD per channel with its reset values; cards request by module (the request poll, its cycle, and the grant), the machine file's `drq=` becoming the card's module; the serial card's DMASTREAM when the card is modelled | every `DMA_ID_V1` test to the type nibble (`bios.s`, `sd.s`, `video.s`, `apple.s`, `diag23.s`); Break resets CARD | the same in OODOS (`cold.s`, `sound.s`, `irq.s`, `video.s`, `bdos.s`, `crt.s`); SYSINFO's name for `$82` | chapter 5 (DMA), chapter 9 (DMASTREAM), function 75's text; [DMA registers](#dma-registers) | none to the BDOS; the controller's and the serial card's registers grow |
+| **B3** eight channels | channels 4–7, BANK, STATUS2, ABORT2 | Break: ABORT2 all, BANK 0, STATUS2 cleared | the dispatcher's terminal counts read STATUS2 when a channel 4–7 is used (none yet); the rule on BANK | chapter 5 | none |
+| **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
+| **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–4; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A; **new entry `$C818`, the flash update** (the IIe images and character sets from the SD card to blocks 0–4); the image chosen ([question 1](#questions-for-the-owner-b0)); the build splits the image into even and odd files | function 75 grows if the image is chosen by an argument (question 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's entries grow (`$C818`, and `$C81B` if question 1 goes that way); function 75 grows; OOLIB's version raised for it |
+| **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, the Technical Reference's chapter 1 | none |
+| **B7** (new) the full 1 MB | WINnH, VECH, MAP in the north bridge; AP8 as a register | VPUTC through WIN2H `$0E`; Break sets AP8 and WINnH 0; the diagnostics test all 64 blocks with AP8 clear and reach the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; the BDOS entry and the dispatcher save WIN1H; **`DM_BANK8`**, `DM_INFO`'s new field, function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md | `DM_BANK8` (function 83, operation 11); `DM_INFO`'s field; the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
+
+No step changes the BIOS's jump table in OODOS (`oodos/sys/bios.s`), the BDOS's existing calls, FARCALL or
+OOUI's interface. Two would touch the system tools' exception in AGENTS.md (SYSINFO reading MAP, and naming
+DMA revision 2's ID): the owner's ([question 7](#questions-for-the-owner-b0)).
+
+#### Questions for the owner (B0) ####
+
+1. **How the Apple image is chosen.** *Recommended:* an argument. `$C806` takes the first good image, 0 to 3, so
+   today's callers get the one there is; a new entry `$C81B` takes A = the image; function 75 gains A = 2, X = the
+   image (A = 2 is refused today, so it's growth), and APPLE2.COM an optional number. *Alternative:* the Console
+   card's switch register, bits 0–1, read by `$C806` (no new entry, but no choice without the card).
+2. **The character ROMs' place.** *Recommended:* ROM A block 4, 4 KB a set, set *n* for image *n*. *Alternative:*
+   one set for all four images, in block 4's first 4 KB.
+3. **ROM B, the cartridge: does it follow suit?** *Recommended:* yes, two 256 KB chips, even and odd: the same
+   parts and the same flash code, and word reads for a game's assets by 16-bit DMA. *Alternative:* one 8-bit
+   512 KB part, a cheaper cartridge, read on one lane, with the CPU card told the cartridge is 8 bits wide (a line
+   or a rule the 16-bit bus doesn't have yet) and DMA from it in bytes.
+4. **DMA revision 2's ID.** *Recommended:* `$82`, with every exact test of `$81` changed to the type nibble in B2,
+   before the emulated controller answers `$82`; a card with an older OODOS is then updated with it. *Alternative:*
+   revision 2 answers `$81` at `$7F` and gives its revision in a new register (`$45`), so every binary already
+   written runs unchanged, at the cost of an ID byte that doesn't say its revision.
+5. **How a window reaches the moved aperture.** *Recommended:* the wider windows (WINnH, VECH) and MAP's AP8, with
+   `DM_BANK8` for programs that ask, as above. *Alternative:* MAP's AP8 alone, the aperture shown at ROM blocks
+   60–63 when it is clear, and the cartridge's top 64 KB given up in the windows.
+6. **The aperture's address.** *Recommended:* `$E00000`, the first of a 1 MB region below the flash kept for cards'
+   memory. *Alternative:* `$EF0000`, just under the flash, which leaves `$100000–$EEFFFF` in one piece for RAM.
+7. **What the frozen and owner-held documents need.** [video-rev2.md](video-rev2.md) is frozen and says bank 8;
+   the move needs a note there, by the owner or with leave. And AGENTS.md's system tools' exception would add
+   SYSINFO's and DIAG's read of MAP. *Recommended:* both with B7. *Alternative:* SYSINFO tells 960 KB from 1 MB by
+   `DM_INFO` alone, and AGENTS.md is left as it is.
+8. **The serial card's two streams.** *Recommended:* DMASTREAM, one stream at a time, as above. *Alternative:* a
+   second module ID for stream 1 (IDs `0x0`–`0x5` are free now), so both can run at once, at the cost of an ID.
+
+### The 62-pin bus, the current machine's ###
 
 The 62-pin bus's assignment, below, is the current machine's. The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
