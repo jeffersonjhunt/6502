@@ -211,6 +211,16 @@ AUTFLG          = $E6                  ; AUTO on: nonzero; in MAIN, "*" or " " a
 AUTLIN          = $E7                  ; the line AUTO offers next
 AUTINC          = $E9                  ; AUTO's increment
 
+; --- 7b step d's ($59-$5E) ---------------------------------------------------
+;
+; PRINT USING's scan of its format (BIPRTU.ASM's BX, CH, CL, DL and DH; p3/
+; biprtu.s), kept across FRMEVL, LEFT$ and P1's PUFOUT: only PRINUS uses them.
+USP             = $59                  ; BX: the next character of the format
+USCH            = $5B                  ; CH: the format's characters left
+USCL            = $5C                  ; CL: places after the point, the point counted; a string's width
+USDL            = $5D                  ; DL: places before the point (BGSTRF: the count kept)
+USDH            = $5E                  ; DH: the field's flags (PUFOUT's A)
+
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2
 VT_STR          = 3

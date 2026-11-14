@@ -15,8 +15,19 @@
 ;   $SIGD                 trailing zeros (MATH2)
 ;   LINPRT LINOUT         a line number (MATH1's F4)
 ;
+; and PRINT USING's number (7b step d), for the field p3/biprtu.s's PRINUS
+; scans:
+;
+;   PUFOUT $PUFOT         the sign, then an integer or a float (MATH2)
+;   $PUI $PUIZ            an integer, and the zeros after the point (MATH2)
+;   $PUF DPCOM            a single or a double in fixed format (MATH2)
+;   $PUFE                 a single or a double in E format (MATH1)
+;   $FOTZ $FOTZC          zeros, and zeros with the point and commas (MATH1)
+;   $PUFXE                the fix-up: zeros suppressed, the number fitted
+;                         to its field, or a "%" before it (MATH1)
+;
 ; With the tables they need: $FOTB, $FODTB, $FOSTB, $FOITB, $FINCH, HIDBL,
-; $NUMB. The PRINT USING routines ($PUFOT and the rest) are 7b's.
+; $NUMB, and dmath.s's powers of ten.
 
 .include "gwbasic.inc"
 
@@ -26,13 +37,14 @@
 ;@entry LINPRT
 ;@entry FOUTO
 ;@entry FOUTH
-.export FOUT, FOUT2, LINOUT, LINPRT, FOUTO, FOUTH
+;@entry PUFOUT
+.export FOUT, FOUT2, LINOUT, LINPRT, FOUTO, FOUTH, PUFOUT
 .export FOTCI, FCI4, FOTZS, FOFMT, FOTAN, FOTED, FOTCV, FOTNV, SIGD, FINCH
 .export FOTB, FOSTB, FOITB, FODTB
 .import GETYP, SIGNS, VNEG, MAKINT, STROUI, CHRGTR, FBUFF, FCOMP, COMPM, QINT
 .import INT, FADDH, VINT, VMOVM, VMVMF, VMVFM, VCMPM, VPSHF, VPOPF, VMOVAF
 .import MDPTEN, MUL10, DIV10, MOVAC, MOVFA, FMULD, DINT, DCMPA, DCMPM, DADDH
-.import FTDNT, VADDH, DP06, DP09
+.import FTDNT, VADDH, DP06, DP09, DP00, CSI
 
 .code
 
@@ -314,7 +326,7 @@ FFM50:          DECW    FBPTR          ; drop trailing zeros
                 INCW    FBPTR
 FFM60:          PLA
                 BEQ     FFM100         ; no exponent
-PUEXP:          STA     RAL            ; $PUEXP (PRINT USING's too, 7b)
+PUEXP:          STA     RAL            ; $PUEXP (PRINT USING's $PUFE's too)
                 JSR     GETYP
                 LDA     #'E'
                 BCC     FFM70
@@ -346,6 +358,10 @@ FFM90:          INX
                 INCW    FBPTR
 FFM100:         LDA     #0
                 STA     (FBPTR)
+                LDA     FBPTR          ; XCHG BX,CX: the end in CX ($PUFE's)
+                STA     RCL
+                LDA     FBPTR+1
+                STA     RCH
                 LDA     #<(FBUFF+1)
                 STA     FBPTR
                 LDA     #>(FBUFF+1)
@@ -778,6 +794,659 @@ SI40:           JSR     VPOPF          ; the FAC back
                 STA     RCH
                 RTS
 
+; --- PUFOUT, $PUFOT: PRINT USING's number (MATH2.ASM 1551) ------------------------
+
+; The number in the FAC as its field says: A the format's flags, RCH the
+; places before the point and RCL those after it (the point included):
+;
+;   bit 7  PRINT USING (set by PRINUS; nothing here tests it)
+;       6  commas between the integer part's groups of three
+;       5  the leading spaces filled with "*"
+;       4  a floating "$"
+;       3  "+" for a positive number's sign, not a space
+;       2  the sign after the number
+;       0  E format (bit 6 then ignored)
+;
+; FMTAL keeps the flags and FMTAH the comma count (3, or 0 without commas):
+; the 8086's $FMTAX. FMTCX keeps CX. Returns FBPTR at the text, zero-ended,
+; in FBUFF. FBUFF+1 is the sign's place, the digits from FBUFF+2.
+PUFOUT:
+PUFOT:          STA     FMTAL
+                AND     #$40           ; commas?
+                BEQ     PFO05          ; no: AH = 0 (and A is)
+                LDA     #3
+PFO05:          STA     FMTAH
+                LDA     RCL
+                STA     FMTCX
+                LDA     RCH
+                STA     FMTCX+1
+                LDA     #<(FBUFF+1)
+                STA     FBPTR
+                LDA     #>(FBUFF+1)
+                STA     FBPTR+1
+                LDA     #' '           ; the sign's place
+                STA     (FBPTR)
+                LDA     FMTAL
+                AND     #$08           ; "+" wanted?
+                BEQ     PFO10
+                LDA     #'+'
+                STA     (FBPTR)
+PFO10:          JSR     SIGNS
+                BPL     PFO20
+                LDA     #'-'
+                STA     (FBPTR)
+                JSR     VNEG           ; the magnitude from here on
+PFO20:          INCW    FBPTR
+                LDA     #'0'           ; in case the number is zero
+                STA     (FBPTR)
+                LDA     FMTCX          ; MOV CX,$FMTCX
+                STA     RCL
+                LDA     FMTCX+1
+                STA     RCH
+                JSR     GETYP
+                BMI     PFO40          ; an integer
+                JMP     PUF
+PFO40:          JMP     PUI
+
+; --- $PUI: an integer (MATH2.ASM 1615) -----------------------------------------------
+
+; $FOTCI's 5 digits with the point after them (CH 6) and its commas (CL the
+; count, FMTAH), any leading zeros the field wants first; in E format, as a
+; single by $PUFE. $PUIZ: the point dropped if none is wanted (A, the places
+; after it, 0), or zeros after it; FMTCX popped back; then $PUFXE.
+PUI:            LDA     FMTAH          ; CL: $FOTCI's commas
+                STA     RCL
+                LDA     #6             ; CH: at most 5 digits before the point
+                STA     RCH
+                LDA     FMTCX          ; DX = $FMTCX
+                STA     RDL
+                LDA     FMTCX+1
+                STA     RDH
+                LDA     FMTAL
+                LSR     A              ; E format?
+                BCC     PI10
+                LDA     FBPTR          ; PUSH BX, for $PUFE
+                PHA
+                LDA     FBPTR+1
+                PHA
+                JSR     CSI            ; (the 6502's $CSI keeps DX itself)
+                JMP     PUFE
+PI10:           LDA     RDH            ; more than 5 places before the point:
+                SEC                    ; zeros for the rest
+                SBC     #5
+                BMI     PI20
+                JSR     FOTZ
+PI20:           LDA     RDH            ; PUSH DX
+                PHA
+                LDA     RDL
+                PHA
+                JSR     FOTCI
+                PLA                    ; POP AX: the places after the point
+                PHA                    ; PUSH AX
+PUIZ:           CMP     #0             ; none: the point dropped
+                BNE     PI30
+                DECW    FBPTR
+                LDA     #0
+PI30:           DEC     A              ; zeros after the point?
+                BMI     PI40
+                JSR     FOTZ
+                LDA     #0             ; the end again
+                STA     (FBPTR)
+PI40:           PLA                    ; POP $FMTCX
+                STA     FMTCX
+                PLA
+                STA     FMTCX+1
+                JMP     PUFXE
+
+; --- $PUF: a single or a double (MATH2.ASM 1262) ------------------------------------
+
+; FBPTR at FBUFF+2. E format is $PUFE's. Fixed: 10^16 and more is $FOUT's
+; free format with a "%" before it. Else $FOTNV brackets the digits into the
+; integer part, A the exponent that undoes it: positive or zero, the digits
+; are all before the point (zeros first if the field wants them, the
+; exponent's zeros after them, by $FOTZC, with the commas); negative, the
+; number is divided by ten until the digits after the point are as many as
+; the field has, so that $FOTCV's rounding rounds at the field's last digit,
+; and the zeros before and after them are the field's. $PUFXE fits it.
+PUF:            LDA     FBPTR          ; PUSH BX
+                PHA
+                LDA     FBPTR+1
+                PHA
+                LDA     FMTAL
+                LSR     A              ; E format?
+                BCC     PUF10
+                JMP     PUFE
+PUF10:          LDA     #<(DP00+16*8)  ; $DP16: 10^16
+                STA     PTR
+                LDA     #>(DP00+16*8)
+                STA     PTR+1
+                JSR     PUCMP          ; less: C set
+                BCS     PUF30
+                PLA                    ; POP BX
+                STA     FBPTR+1
+                PLA
+                STA     FBPTR
+                JSR     FOUT           ; free format, FBPTR at FBUFF+1
+                DECW    FBPTR
+                LDA     #'%'           ; and the overflow mark before it
+                STA     (FBPTR)
+                RTS
+PUF30:          JSR     GETYP          ; CH: the printable digits
+                LDA     #16            ; a double's 16
+                BCS     PUF40
+                LDA     #7             ; a single's 7
+PUF40:          STA     RCH
+                JSR     SIGNS          ; zero: A = 0, and no $FOTNV
+                BEQ     PUF50
+                JSR     FOTNV          ; A: the exponent, N if negative
+PUF50:          TAX
+                PLA                    ; POP BX
+                STA     FBPTR+1
+                PLA
+                STA     FBPTR
+                TXA
+                BMI     PUF80          ; digits after the point
+                STA     RDL            ; DL: the exponent
+                CLC
+                ADC     RCH            ; the places the digits need, less the
+                SEC                    ; field's: zeros if negative
+                SBC     FMTCX+1
+                BPL     PUF60
+                EOR     #$FF           ; NEG
+                INC     A
+                JSR     FOTZ
+PUF60:          STZ     RCL            ; no zeros made
+                JSR     DPCOM
+                LDA     FMTCX+1        ; PUSH $FMTCX
+                PHA
+                LDA     FMTCX
+                PHA
+                LDA     RDH            ; PUSH DX
+                PHA
+                LDA     RDL
+                PHA
+                JSR     FOTCV          ; the printable digits
+                PLA                    ; POP DX
+                STA     RDL
+                PLA
+                STA     RDH
+                PLA                    ; POP $FMTCX
+                STA     FMTCX
+                PLA
+                STA     FMTCX+1
+                PHA                    ; PUSH $FMTCX
+                LDA     FMTCX
+                PHA
+                LDA     RDL            ; the exponent's zeros before the point,
+                BEQ     PUF70          ; with its commas, then the point
+                JSR     FOTZC
+                JSR     FOTED
+PUF70:          PLA                    ; POP $FMTCX
+                STA     FMTCX
+                PLA
+                STA     FMTCX+1
+                PHA                    ; PUSH $FMTCX
+                LDA     FMTCX          ; AL: the places after the point
+                PHA
+                JMP     PUIZ
+PUF80:          STA     RDL            ; DL: the exponent, negative
+                LDA     FMTCX          ; the digits wanted after the point
+                BEQ     PUF90          ; (the point counted in FMTCX)
+                DEC     A
+PUF90:          STA     RDH            ; DH
+                CLC
+                ADC     RDL            ; less those there are
+                STA     RCL            ; CL: minus the digits to shift off
+                BMI     PUF100
+                LDA     #0             ; all the digits wanted: none shifted
+                STA     RCL
+                BRA     PUF110
+PUF100:         PHA                    ; PUSH AX, CX, DX (BX: $DIV10 keeps FBPTR)
+                LDA     RCL
+                PHA
+                LDA     RCH
+                PHA
+                LDA     RDL
+                PHA
+                LDA     RDH
+                PHA
+                JSR     DIV10          ; a digit shifted off
+                PLA                    ; POP DX, CX, AX
+                STA     RDH
+                PLA
+                STA     RDL
+                PLA
+                STA     RCH
+                PLA
+                STA     RCL
+                PLA
+                INC     A
+                BMI     PUF100
+                ; (MOV AH,CL: AH isn't used after)
+PUF110:         LDA     RDL            ; the exponent, less the zeros made,
+                SEC                    ; plus the digits: negative, no digits
+                SBC     RCL            ; before the point
+                CLC
+                ADC     RCH
+                BPL     PUF120
+                LDA     FMTCX+1        ; the field's zeros before the point
+                JSR     FOTZ
+                LDA     #'.'
+                STA     (FBPTR)
+                LDA     FBPTR          ; for $FOTED and $PUFXE
+                STA     DPADR
+                LDA     FBPTR+1
+                STA     DPADR+1
+                INCW    FBPTR
+                STZ     RCL            ; no commas
+                LDA     RDH            ; zeros after the point, before the
+                SEC                    ; digits $FOTCV puts in
+                SBC     RCH
+                JSR     FOTZ
+                STZ     RCL            ; XOR CX,CX: no point, no commas
+                STZ     RCH
+                LDA     RDH            ; PUSH DX
+                PHA
+                LDA     RDL
+                PHA
+                LDA     FMTCX+1        ; PUSH $FMTCX
+                PHA
+                LDA     FMTCX
+                PHA
+                BRA     PUF140
+PUF120:         LDA     RDH            ; PUSH DX
+                PHA
+                LDA     RDL
+                PHA
+                LDA     FMTCX+1        ; PUSH $FMTCX
+                PHA
+                LDA     FMTCX
+                PHA
+                LDA     FMTCX+1        ; zeros before the digits: the places
+                SEC                    ; wanted less (the printable digits,
+                SBC     RCH            ; plus the exponent, less the zeros
+                SEC                    ; made)
+                SBC     RDL
+                CLC
+                ADC     RCL
+                BMI     PUF130
+                JSR     FOTZ
+PUF130:         JSR     DPCOM
+PUF140:         LDA     FMTCX+1        ; PUSH $FMTCX
+                PHA
+                LDA     FMTCX
+                PHA
+                JSR     FOTCV          ; the digits, with the point and commas
+                PLA                    ; POP $FMTCX
+                STA     FMTCX
+                PLA
+                STA     FMTCX+1
+                PLA                    ; POP AX: the places after the point
+                STA     RAL
+                PLA
+                STA     RAH
+                PLA                    ; POP DX
+                STA     RDL
+                PLA
+                STA     RDH
+                LDA     FMTCX          ; no places after the point: back to
+                BNE     PUF150         ; the point, which goes
+                LDA     DPADR
+                STA     FBPTR
+                LDA     DPADR+1
+                STA     FBPTR+1
+                JMP     PUFXE
+PUF150:         LDA     RAL            ; trailing zeros: the places after the
+                CLC                    ; point (and the point), less the
+                ADC     RDL            ; digits there are
+                DEC     A
+                BMI     PUF160
+                JSR     FOTZ
+PUF160:         JMP     PUFXE
+
+; PUCMP: $MOVBF and $VCOMP, or $MOVBS and $COMPM: the FAC against the power
+; of ten at PTR (a double of dmath.s's table), by the FAC's type: a single
+; against its high 4 bytes, a double against the 8 copied to DBUFF, there
+; being no code segment. As $FCOMP: C set if the FAC is less, N with it.
+PUCMP:          JSR     GETYP
+                BCS     @dbl
+                CLC
+                LDA     PTR
+                ADC     #4
+                STA     PTR
+                BCC     :+
+                INC     PTR+1
+:               JMP     COMPM
+@dbl:           LDY     #7
+                LDX     #7
+@m:             LDA     (PTR),Y
+                STA     DBUFF,X
+                DEY
+                DEX
+                BPL     @m
+                LDX     #DBUFF
+                JMP     DCMPM
+
+; --- DPCOM: the point's and the commas' counts (MATH2.ASM 1500) -------------------
+
+; CH = the printable digits (CH), plus the exponent (DL), less the zeros
+; made (CL), plus one for the sign: $FOTED's count to the point. CL = that
+; count mod 3 (3 for 0) to the first comma, or 0 without commas.
+DPCOM:          LDA     RCH
+                CLC
+                ADC     RDL
+                SEC
+                SBC     RCL
+                INC     A
+                STA     RCH
+DPC10:          SEC                    ; less 3 while greater than 0, signed
+                SBC     #3
+                BEQ     @le            ; (JG)
+                BVS     @v
+                BPL     DPC10
+                BRA     @le
+@v:             BMI     DPC10
+@le:            CLC
+                ADC     #3
+                STA     RCL
+                LDA     FMTAL
+                AND     #$40           ; commas?
+                BNE     DPC20
+                STA     RCL            ; no: the count 0
+DPC20:          RTS
+
+; --- $FOTZ, $FOTZC: zeros (MATH1.ASM 324) ----------------------------------------
+
+; $FOTZ: A zeros at FBPTR (none for 0); A returns 0. $FOTZC: A zeros (one
+; at least), $FOTED's point and commas between them, its counts in CX.
+FOTZ:           TAX
+                BRA     FTZ15
+FTZ10:          LDA     #'0'
+                STA     (FBPTR)
+                INCW    FBPTR
+                DEX
+FTZ15:          BNE     FTZ10
+                TXA
+                RTS
+FOTZC:          TAX
+                BRA     FTZC20
+FTZC10:         JSR     FOTED          ; (keeps X)
+FTZC20:         LDA     #'0'
+                STA     (FBPTR)
+                INCW    FBPTR
+                DEX
+                BNE     FTZC10
+                RTS
+
+; --- $PUFE: E format (MATH1.ASM 357) -------------------------------------------------
+
+; A single or a double (an integer comes as a single), FBPTR on the 6502's
+; stack. $FOTNV brackets the digits (7 or 16) into the integer part; if the
+; field wants fewer, the number is divided by ten until the rest are after
+; the point, rounded there and made an integer; if the rounding made it a
+; digit longer (as big as the power of ten it was under), the exponent goes
+; up and it is divided once more. $FOTCV then puts the digits in with the
+; point after the field's places before it (and the sign's), zeros follow if
+; the field wants more digits than there are, and $PUEXP the exponent. The
+; 8086 keeps the exponent, the digit counts and the zero flag on its stack;
+; here they are PFEEXP, PFEDIG, PFEZER, PFECMP and PFEFMT.
+PUFE:           JSR     GETYP
+                LDA     #7             ; AH: a single's 7 printable digits
+                BCC     PFE10
+                LDA     #16            ; a double's 16
+PFE10:          STA     RAH
+                JSR     SIGNS
+                STA     RAL            ; AL: 0 if the number is zero
+                PLA                    ; POP BX
+                STA     FBPTR+1
+                PLA
+                STA     FBPTR
+                SEC                    ; CF: the number is zero ($FOTNV's
+                LDA     RAL            ; CF is clear)
+                BEQ     PFE20
+                LDA     RAH            ; PUSH AX
+                PHA
+                JSR     FOTNV          ; AL: the exponent (FBPTR kept)
+                STA     RAL
+                PLA                    ; POP DX: AH, the digits
+                STA     RAH
+                CLC
+PFE20:          ROR     PFEZER         ; PUSHF, PUSH AX: bit 7 the zero flag
+                LDA     RAL
+                STA     PFEEXP
+                LDA     RAH
+                STA     PFEDIG
+                LDA     FMTCX          ; DX = $FMTCX
+                STA     RDL
+                LDA     FMTCX+1
+                STA     RDH
+                LDA     RDL            ; DL: the digits after the point, the
+                BEQ     PFE30          ; point not counted
+                DEC     RDL
+PFE30:          LDA     RDH            ; DH: the digits wanted in all
+                CLC
+                ADC     RDL
+                LDX     RDH            ; (OR DH,DH; PUSHF, before the ADD)
+                STA     RDH
+                CPX     #0             ; places before the point: one of them
+                BEQ     PFE40          ; is the sign's, unless it trails
+                LDA     FMTAL
+                AND     #$04
+                BNE     PFE40
+                DEC     RDH
+PFE40:          LDA     RDH            ; AH: the digits wanted less those there
+                SEC                    ; are; negative, too many
+                SBC     PFEDIG
+                STA     RAH
+                STA     PFECMP         ; PUSH AX
+                BMI     PFE45
+                JMP     PFE65
+PFE45:          LDA     RAH            ; (PUSH BX, PUSH AX: FBPTR kept)
+PFE50:          PHA                    ; divided by ten for each one too many
+                JSR     DIV10
+                PLA
+                INC     A
+                BNE     PFE50
+                JSR     VADDH          ; rounded there
+                JSR     VINT           ; and an integer
+                LDA     PFECMP         ; POP AX, PUSH AX: the divisions,
+                ASL     A              ; negative, times 8 (the table's 8 bytes
+                ASL     A              ; an entry) and sign-extended (CBW)
+                ASL     A
+                LDX     #0
+                ORA     #0
+                BPL     :+
+                DEX
+:               STA     T0
+                STX     T1
+                JSR     GETYP          ; under 10^(16 less the divisions), or
+                LDA     #<(DP00+16*8)  ; 10^(7 less) for a single
+                LDX     #>(DP00+16*8)
+                BCS     PFE55
+                LDA     #<(DP00+7*8)
+                LDX     #>(DP00+7*8)
+PFE55:          CLC
+                ADC     T0
+                STA     PTR
+                TXA
+                ADC     T1
+                STA     PTR+1
+                JSR     PUCMP          ; less: no carry into another digit
+PFE57:          BMI     PFE60
+                INC     PFEEXP         ; POP CX, INC CL, PUSH CX: the exponent up
+                JSR     DIV10          ; and a digit more after the point
+PFE60:          LDA     PFECMP         ; AH: the divisions, negative
+                STA     RAH
+                BRA     PFE66
+PFE65:          STZ     RAH            ; no divisions
+PFE66:          LDA     RAH            ; NEG AH
+                EOR     #$FF
+                INC     A
+                CLC                    ; plus the places before the point,
+                ADC     FMTCX+1        ; plus one ($FOTED counts down first)
+                INC     A
+                STA     RAH
+                LDA     FMTCX+1        ; less one for the sign's place, unless
+                BEQ     PFE70          ; there are none or the sign trails
+                LDA     FMTAL
+                AND     #$04
+                BNE     PFE70
+                DEC     RAH
+PFE70:          LDA     RAH            ; CH: the point's place
+                STA     RCH
+                STZ     RCL            ; no commas in E format
+                LDA     FMTCX          ; PUSH $FMTCX
+                STA     PFEFMT
+                LDA     FMTCX+1
+                STA     PFEFMT+1
+                LDA     RCH
+                STA     FMTCX+1
+                JSR     FOTCV
+                LDA     PFECMP         ; trailing zeros if more were wanted
+                BEQ     PFE80          ; (JLE)
+                BMI     PFE80
+                JSR     FOTZC
+                JSR     FOTED          ; and the point, if it is next
+PFE80:          LDA     PFEFMT         ; POP AX, MOV $FMTCX,AX
+                STA     FMTCX
+                LDA     PFEFMT+1
+                STA     FMTCX+1
+                LDA     FMTCX          ; no point wanted: one at the end goes
+                BNE     PFE100
+                DECW    FBPTR
+                LDA     (FBPTR)
+                CMP     #'.'
+                BEQ     PFE90
+                INCW    FBPTR
+PFE90:          LDA     FBPTR
+                STA     DPADR
+                LDA     FBPTR+1
+                STA     DPADR+1
+PFE100:         LDA     PFEEXP         ; POP AX; POPF
+                BIT     PFEZER         ; zero: its exponent is 0
+                BMI     PFE110
+                CLC                    ; the exponent plus the digits, less
+                ADC     PFEDIG         ; the places before the point
+                SEC
+                SBC     FMTCX+1
+                LDX     FMTCX+1        ; plus one for the sign's place, unless
+                BEQ     PFE110         ; there are none or the sign trails
+                TAX
+                LDA     FMTAL
+                AND     #$04
+                BNE     @t
+                INX
+@t:             TXA
+PFE110:         JSR     PUEXP          ; E or D and the exponent; the end in CX
+                LDA     RCL            ; MOV BX,CX
+                STA     FBPTR
+                LDA     RCH
+                STA     FBPTR+1
+                ; falls into $PUFXE
+
+; --- $PUFXE: the fix-up (MATH1.ASM 145) ------------------------------------------------
+
+; With FBPTR at the number's end: $FOTZS suppresses the leading zeros, puts
+; in the "$" and the sign (or returns a trailing sign, put in here). Then
+; from FBUFF+1 the field is fitted: while there are more places before the
+; point than the field has, a leading space or "*" is dropped, or a leading
+; "0" before the point if a digit follows it (the signs and "$" before it
+; moved up over it); if none can go, a "%" before the number. The 8086 walks
+; the buffer with BX and $CHRGT (CHRGTR) and keeps the signs on its stack;
+; here TXTPTR is lent to CHRGTR, as $FOTZS lends it, and the signs go on
+; the 6502's stack above a 0. Returns FBPTR at the text.
+PUFXE:          LDA     FBPTR          ; PUSH BX
+                PHA
+                LDA     FBPTR+1
+                PHA
+                JSR     FOTZS          ; A: a trailing sign, or 0
+                PLA                    ; POP BX
+                STA     FBPTR+1
+                PLA
+                STA     FBPTR
+                LDA     RCH
+                BEQ     PFX10
+                STA     (FBPTR)        ; the trailing sign
+                INCW    FBPTR
+PFX10:          LDA     #0             ; the end
+                STA     (FBPTR)
+                LDA     TXTPTR+1       ; the text pointer kept
+                PHA
+                LDA     TXTPTR
+                PHA
+                LDA     #<FBUFF        ; BX: TXTPTR, from FBUFF
+                STA     TXTPTR
+                LDA     #>FBUFF
+                STA     TXTPTR+1
+PFX20:          INCW    TXTPTR
+PFX30:          SEC                    ; the point's address, less here, less
+                LDA     DPADR          ; the places before the point: 0 when
+                SBC     TXTPTR         ; the number fits
+                STA     T0
+                LDA     DPADR+1
+                SBC     TXTPTR+1
+                STA     T1
+                SEC
+                LDA     T0
+                SBC     FMTCX+1
+                STA     T0
+                LDA     T1
+                SBC     #0
+                ORA     T0
+                BEQ     PFX90
+                LDA     (TXTPTR)       ; a leading space or "*" goes
+                CMP     #' '
+                BEQ     PFX20
+                CMP     #'*'
+                BEQ     PFX20
+                DECW    TXTPTR         ; CHRGTR goes on first
+                LDA     TXTPTR+1       ; PUSH BX: the "%"'s place, if need be
+                PHA
+                LDA     TXTPTR
+                PHA
+                LDA     #0             ; the end of the signs (the 8086's AH 1)
+PFX40:          PHA
+                JSR     CHRGTR         ; (the first time, the same character)
+                CMP     #'-'           ; a sign or "$": kept
+                BEQ     PFX40
+                CMP     #'+'
+                BEQ     PFX40
+                CMP     #'$'
+                BEQ     PFX40
+                CMP     #'0'           ; a "0" can go if a digit follows
+                BNE     PFX70          ; the point after it
+                INCW    TXTPTR
+                JSR     CHRGTR
+                BCC     PFX70          ; not a digit: no hope
+                DECW    TXTPTR         ; at the point
+                BRA     PFX60
+PFX50:          TAX                    ; the signs moved up over the "0"
+                DECW    TXTPTR
+                TXA
+                STA     (TXTPTR)
+PFX60:          PLA
+                BNE     PFX50
+                PLA                    ; ADD SP,2: the "%"'s place dropped
+                PLA
+                BRA     PFX30          ; does it fit now?
+PFX70:          PLA                    ; the signs dropped
+                BNE     PFX70
+                PLA                    ; POP BX: the "%" before the number
+                STA     TXTPTR
+                PLA
+                STA     TXTPTR+1
+                LDA     #'%'
+                STA     (TXTPTR)
+PFX90:          LDA     TXTPTR         ; BX: the text's start, in FBPTR
+                STA     FBPTR
+                LDA     TXTPTR+1
+                STA     FBPTR+1
+                PLA                    ; the text pointer back
+                STA     TXTPTR
+                PLA
+                STA     TXTPTR+1
+                RTS
+
 ; LINPRT (MATH1.ASM 2715): print BX as a number (a line number, for TRON).
 ; LINOUT leaves it in
 ; FBUFF.
@@ -865,3 +1534,12 @@ HIDBL:          .byte   $FD,$FF,$03,$BF,$C9,$1B,$0E,$B6
 
 ; $NUMB: OCT$ and HEX$'s digits.
 NUMB:           .byte   "0123456789ABCDEF"
+
+.segment "BRAM"
+
+; $PUFE's: what the 8086 keeps on its stack.
+PFEZER:         .res    1              ; bit 7: the number is zero (the pushed CF)
+PFEEXP:         .res    1              ; the exponent (the pushed AL)
+PFEDIG:         .res    1              ; the printable digits, 7 or 16 (the pushed AH)
+PFECMP:         .res    1              ; the digits wanted less those there are
+PFEFMT:         .res    2              ; $FMTCX kept round $FOTCV

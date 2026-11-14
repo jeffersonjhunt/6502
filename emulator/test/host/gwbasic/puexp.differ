@@ -1,0 +1,20 @@
+# $PUFE: a rounding into a digit more puts the exponent up one (PFE57's INC CL), so 9.999 is 0.10E+02 and .95 .1E+01 (PC-BASIC: E+01, E+00); and -1/3, its point at FBUFF+2, has its sign put at FBUFF by $FOTZS, where $PUFXE never looks (PC-BASIC: -.3333334000E+00)
+e1  2.35E+02-2.35E+02 0.00E+00
+e2 .8889E+06%-.1230E-03
+e3 +.12E+03-.12E+03
+e4 0.10E+020.10E+020.10E+06
+e5 5.00E+00-5.00E+00 
+e6 5.00E+00-5.00E+00+
+e7  5E+00 1E+02-1E+02
+e8  E+02-E+02 E+00
+e9 0.1500000000E+010.3333334000E+00
+e10  10.00E-21 10.00E+19
+e11 0.10E+390.10E-37
+e12  5.00^^^
+e13  5.00E+00^-5.00E+00^
+e14 *50.00E-01
+e15 $50.00E-01
+e16  1234.50E+01
+e17  5.00E+00-3.28E+04
+e18 5^^^
+e19 .1E+01.1E+01%-.1E+02

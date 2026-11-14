@@ -2,10 +2,13 @@
 ; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; BISTRS.ASM's STRING$ and MID$ as a statement, in block P3 (hw/oodos.md,
-; "The plan, phase 7"), each reached by its resident stub (res/far3.s):
+; "The plan, phase 7"), each reached by its resident stub (res/far3.s), and
+; PRINT USING's way into LEFT$ (7b step d):
 ;
 ;   STRNGP    STRING$(n, code) and STRING$(n, string$): n of one character,
 ;             through the resident SPACE$'s code (SPACE2)
+;   LEFTUS    LEFT$ of BX's string to CH characters, for PRINUS's string
+;             fields (p3/biprtu.s)
 ;   LHSMIDP   MID$(a$, n[, m]) = b$: b$'s characters into a$ from its n-th,
 ;             at most m of them and never past a$'s end; a$ copied into the
 ;             string space first if it is a literal in the program
@@ -20,10 +23,10 @@
 
 ;@entry STRNGP
 ;@entry LHSMIDP
-.export STRNGP, LHSMIDP
+.export STRNGP, LHSMIDP, LEFTUS
 .import CHRGTR, SYNCHR, GETBYT, CONINT, FRMEVL, FRMEQL, GETYP, ASC2, SPACE2
 .import PTRGET, CHKSTR, STRCPY, DSCTMP, FRESTR, MIDRST, FCERR
-.import SPUSH, SPOP, SPUSHA, SPOPA
+.import SPUSH, SPOP, SPUSHA, SPOPA, LEFT2
 
 .code
 
@@ -55,6 +58,14 @@ CALSPA:         PHA
                 STA     RDL
                 PLA
                 JMP     SPACE2
+
+; --- LEFTUS (BISTRS.ASM 718) -------------------------------------------------------------
+
+; BX the descriptor, CH the characters wanted, CL 0 (the offset). The
+; 8086's LEFTUS is a dummy push and LEFT$'s own code (LEFT2): here the
+; resident LEFT2, a tail call whose PUTNEW returns to PRINUS with the FAC at
+; the new temporary.
+LEFTUS:         JMP     LEFT2
 
 ; --- LHSMID (BISTRS.ASM 974) -------------------------------------------------------------
 

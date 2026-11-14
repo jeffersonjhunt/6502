@@ -693,7 +693,7 @@ TEST(input_semicolon_lprint_and_later_forms)
     CHECK_EQ(command(r, "LPRINT 1/0"), std::string("Division by zero\r\n")); // $CATTY: the message to the console
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Advanced Feature\r\n"));
     CHECK_EQ(command(r, "INPUT #1,A"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "PRINT USING \"##\";1"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT #1,USING \"##\";1"), std::string("Advanced Feature\r\n")); // PRINT USING until 7b step d; PRINT # is 7c's
     CHECK_EQ(command(r, "LINE (0,0)-(1,1)"), std::string("Advanced Feature\r\n"));
     CHECK_EQ(command(r, "RESTORE 100"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "NEXT"), std::string("NEXT without FOR\r\n"));

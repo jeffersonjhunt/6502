@@ -33,8 +33,8 @@
 ;
 ; STR$ VAL HEX$ OCT$ are in P1 (p1/strfn.s), through the F_ stubs here.
 ; MID$ as a statement (LHSMID) and STRING$ are P3's (7b step a2), with
-; their stubs in res/far3.s; MIDRST is LHSMID's too. Later: the PRINT USING
-; entry (LEFTUS) is 7b's. The collector walks DEF FN's parameter blocks too
+; their stubs in res/far3.s; MIDRST is LHSMID's too. PRINT USING's entry
+; (LEFTUS, p3/bistrs.s, 7b step d) jumps to LEFT2. The collector walks DEF FN's parameter blocks too
 ; (7b step b): PARM1, the active function's, and those of the functions it
 ; was called from, on the BASIC stack (p3/gweval.s FNDOER), chained from
 ; PRMSTK; their state (PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT) is here, after
@@ -46,7 +46,7 @@
 .export STRCMP, STRCPY, STRIN1, STRINI, STRAD2, STRAD1, STRLIT, STRLTI, STRLT3
 .export STRLT2, PUTNEW, PUTTMP, STRPRT, STROUI, DSOUT, GETSPA, GARBA2, CAT, MOVSTR
 .export FRESTR, FREFAC, FRETM2, FRETMP, FRETMS, LEN, LEN1, ASC, ASC2, CHR
-.export SETSTR, SPACE, SPACE2, LEFT, RIGHT, MID, MIDRST, INSTR, FRE, LETSTR, GETBCD
+.export SETSTR, SPACE, SPACE2, LEFT, LEFT2, RIGHT, MID, MIDRST, INSTR, FRE, LETSTR, GETBCD
 .export MEMSIZ, TEMPST, DSCTMP, DSEGZ, NUMTMP
 .export PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT
 .export F_STR, F_VAL, F_STRO, F_STRH

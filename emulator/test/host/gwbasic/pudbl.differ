@@ -1,0 +1,13 @@
+# PUF10: 10^16 and more is $FOUT's free format after the "%" (of the magnitude: the sign is lost); PFE57 puts the exponent up one after a rounding into a digit more (0.1D+02; PC-BASIC 0.1D+01); -.0005# to 3 places is -0.001, its 16 divisions by ten leaving .5 or more (mbf.py's arithmetic; PC-BASIC -0.000)
+d1 0.33333333333333330.6666666666666667
+d2  1234567890123451000000000000000
+d3 % 1D+16% 1D+17%9999999999999999
+d4  1.13 1.14-1.13
+d5  3.33D-01 1.23D+14 0.00D+00
+d6 0.333333333333333D+000.100000000000000D+39
+d7   123,456,789,012,345
+d8 .333333333333333300
+d9     0.00012345.679   -0.001
+d10 %+$1234.50  -$0.00
+d11  1.00D-38 1.70D+38
+d12 0.1D+020.1D+02

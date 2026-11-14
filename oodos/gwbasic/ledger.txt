@@ -147,11 +147,11 @@ MATH1.ASM $FOTCI -> p1/fout.s FOTCI
 MATH1.ASM $FCI4 -> p1/fout.s FCI4
 MATH1.ASM $FOUTO -> p1/fout.s FOUTO
 MATH1.ASM $FOUTH -> p1/fout.s FOUTH
-MATH1.ASM $PUFXE -> later 7b: PRINT USING's fix-up
+MATH1.ASM $PUFXE -> p1/fout.s PUFXE # $CHRGT on TXTPTR, lent as $FOTZS lends it; the signs on the 6502's stack above a 0
 MATH1.ASM $FOTZS -> p1/fout.s FOTZS
-MATH1.ASM $FOTZ -> later 7b: PRINT USING's leading zeros
-MATH1.ASM $FOTZC -> later 7b: PRINT USING's leading zeros and commas
-MATH1.ASM $PUFE -> later 7b: PRINT USING's E format
+MATH1.ASM $FOTZ -> p1/fout.s FOTZ
+MATH1.ASM $FOTZC -> p1/fout.s FOTZC
+MATH1.ASM $PUFE -> p1/fout.s PUFE # the 8086's stack slots in P1's RAM (PFEZER, PFEEXP, PFEDIG, PFECMP, PFEFMT)
 MATH1.ASM $FOTB -> p1/fout.s FOTB
 MATH1.ASM $DPM01 -> p1/dmath.s DPM01
 MATH1.ASM $DP00 -> p1/dmath.s DP00
@@ -416,12 +416,12 @@ MATH2.ASM $NORMD -> p1/dmath.s NORMD
 MATH2.ASM $NORMS -> res/math2.s NORMS
 MATH2.ASM $POLYX -> p1/trans.s POLYX
 MATH2.ASM $POLY -> p1/trans.s POLY
-MATH2.ASM $PUF -> later 7b: PRINT USING's floating point
-MATH2.ASM DPCOM -> later 7b: PRINT USING's point and commas
-MATH2.ASM PUFOUT -> later 7b: PRINT USING
-MATH2.ASM $PUFOT -> later 7b: PRINT USING
-MATH2.ASM $PUI -> later 7b: PRINT USING's integers
-MATH2.ASM $PUIZ -> later 7b: PRINT USING's integers
+MATH2.ASM $PUF -> p1/fout.s PUF # $MOVBF, $VCOMP, $MOVBS, $COMPM inline in PUCMP
+MATH2.ASM DPCOM -> p1/fout.s DPCOM
+MATH2.ASM PUFOUT -> p1/fout.s PUFOUT # P1's entry, far called from P3's PRINUS
+MATH2.ASM $PUFOT -> p1/fout.s PUFOT
+MATH2.ASM $PUI -> p1/fout.s PUI
+MATH2.ASM $PUIZ -> p1/fout.s PUIZ
 MATH2.ASM RND -> p1/trans.s RND
 MATH2.ASM $RND -> p1/trans.s RND
 MATH2.ASM NEWSD -> dropped: referenced by nothing (RANDOMIZE seeds through RNDMN2)
@@ -512,7 +512,7 @@ BISTRS.ASM STRNG$ -> p3/bistrs.s STRNGP # EVAL's token, its resident stub res/fa
 BISTRS.ASM SPACE$ -> res/bistrs.s SPACE
 BISTRS.ASM SPACE2 -> res/bistrs.s SPACE2
 BISTRS.ASM LEFT$ -> res/bistrs.s LEFT
-BISTRS.ASM LEFTUS -> later 7b: PRINT USING's entry into LEFT$
+BISTRS.ASM LEFTUS -> p3/bistrs.s LEFTUS # JMP LEFT2: the resident LEFT$'s code, a tail call (PUTNEW's RTS)
 BISTRS.ASM RIGHT$ -> res/bistrs.s RIGHT
 BISTRS.ASM MID$ -> res/bistrs.s MID
 BISTRS.ASM VAL -> p1/strfn.s VAL
@@ -1071,7 +1071,7 @@ GIO86.ASM LPRINT -> p1/gio86.s LPRNTP # its resident stub res/gwmain.s LPRINT
 GIO86.ASM PRINT -> p1/gio86.s PRINTP # its resident stub res/gwmain.s PRINT; the width and comma column in PRTWID, PRTCMA
 GIO86.ASM FILGET -> later 7c: PRINT # (here Advanced Feature)
 GIO86.ASM FILINP -> later 7c: INPUT #
-GIO86.ASM JPRINU -> later 7b: PRINT USING (here Advanced Feature)
+GIO86.ASM JPRINU -> p1/gio86.s JPRINU # a far call to P3's PRINUS, then RTS
 GIO86.ASM PRINT1 -> p1/gio86.s PRINT1
 GIO86.ASM NEWCHR -> p1/gio86.s NEWCHR
 GIO86.ASM PRINTC -> p1/gio86.s PRINTC
@@ -1419,3 +1419,21 @@ SCNEDT.ASM ERED5 -> p2/gwmain.s EREDIT # BUFLIN into BUF; LISPRT's printing is f
 SCNEDT.ASM EFCERR -> p2/gwmain.s EDITP
 SCNEDT.ASM EUSERR -> p2/gwmain.s EREDIT
 SCNEDT.ASM INLOP3 -> dropped: the screen editor's echo of a key (INLLOP's, which INLHLP reaches); function 10 echoes
+# 7b step d: PRINT USING (BIPRTU.ASM, p3/biprtu.s, reached from P1's PRINT and LPRINT at JPRINU), with its number
+# formatting in P1 (MATH1.ASM's and MATH2.ASM's PRINT USING routines, p1/fout.s, entry PUFOUT) and LEFTUS (p3/bistrs.s).
+# The labels inside PRINUS that matter are named too.
+MATH1.ASM FTZC10 -> p1/fout.s FTZC10 # $FOTZC's loop, which $FOTZ's routine runs into
+BIPRTU.ASM PRINUS -> p3/biprtu.s PRINUS # the scan in its own zero page (USP, USCH, USCL, USDL, USDH); the stack's in P3's RAM
+BIPRTU.ASM REUSST -> p3/biprtu.s REUSST
+BIPRTU.ASM INIUS -> p3/biprtu.s INIUS
+BIPRTU.ASM BGSTRF -> p3/biprtu.s BGSTRF
+BIPRTU.ASM PRCCHR -> p3/biprtu.s PRCCHR
+BIPRTU.ASM NUMNUM -> p3/biprtu.s NUMNUM
+BIPRTU.ASM FINNUM -> p3/biprtu.s FINNUM # NOTSCI's return address as a branch, BX kept in USSAV
+BIPRTU.ASM ENDNUS -> p3/biprtu.s ENDNUS
+BIPRTU.ASM ENDNUM -> p3/biprtu.s ENDNUM
+BIPRTU.ASM FNSTRF -> p3/biprtu.s FNSTRF
+BIPRTU.ASM CRDNUS -> p3/biprtu.s CRDNUS
+BIPRTU.ASM FLDFIN -> p3/biprtu.s FLDFIN # JMP FINPRT: a tail call (its RTS returns through the far call to P1's PRINT)
+BIPRTU.ASM ISSTR1 -> p3/biprtu.s ISSTR1
+BIPRTU.ASM PLSPRT -> p3/biprtu.s PLSPRT

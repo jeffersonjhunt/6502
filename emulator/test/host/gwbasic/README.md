@@ -156,3 +156,30 @@ EDIT's line is typed in as input), so test_gwbasic_stmts checks them by hand, fr
 for a line that exists, an empty line, ^C, the end past 65529, NEW, the old increment, `.`, and the errors; EDIT n,
 `.`, a missing line, a number with more after it, and EDIT in a program. On OODOS the number AUTO offers and the
 line EDIT lists are function 10's preload (as a Syntax error's line in 7a): shown at once and edited as typed.
+
+Step d's, typed and RUN as 7a's, each line labelled:
+
+| Program | What |
+|---|---|
+| `pustr` | the string fields: `!`, `&`, `\ \` of 2 to 6, strings shorter and longer than the field, null strings; text before, between and after; `_` escapes; `\` that is no field; the format reused for a longer list; `;` and `,` between values and at the end; a `+` before a string field; a format in a variable |
+| `puint` | integers in each numeric form: `#`, leading `+`, trailing `+` and `-`, `**`, `$$`, `**$`, `,`, a point, `^^^^`; positive, negative, zero, -32768 and 32767; `%` when too wide |
+| `pusng` | singles: rounding at the field's last digit (and into a digit more), places after the point more than the digits, numbers under 1, 10^16 and more (free format after the `%`), commas with zeros from the exponent, `**$` with commas, each sign form |
+| `puexp` | E format: places before the point or none, a sign before or after, rounding into a digit more, zero, the largest and smallest, `^^^` (no field) and `^^^^^` (one more `^`), with `**`, `$$` and `,` |
+| `pudbl` | doubles: 16 digits, rounding, 10^16 and more, E format with a `D` |
+| `pumisc` | fields left over after the list, values left over, `+`, `.`, `$` and `*` that are no field's, 23 and 24 digits, a format built by an expression, -0 |
+| `pugc` | the format, a temporary in the string space, moved by collections while its list is evaluated (a string space of about 700 bytes): CRDNUS finds its characters again from the descriptor |
+| `pulong` | the longest field (two places, a comma, 22 after the point, a trailing sign) of 1D15: `%`, then the program LISTed (FBUFF's end) |
+| `pufc0`-`pufc7` | Illegal function call: a null format, a format with no field (printed first) with values and without, 25 digits; and a missing value (Missing operand) |
+| `putm`, `putm2`, `putm3` | Type mismatch: a number for `!`, a string for `##`, a number for the format |
+| `pusn`, `pusn2`, `pusn3` | Syntax error: no delimiter between values, `,` for the format's `;`, two strings run together |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`), each checked against a model of MATH1.ASM's and
+MATH2.ASM's PRINT USING routines on `mbf.py`'s arithmetic: `pusng` and `pudbl` (10^16 and more is `$FOUT`'s free
+format after the `%`, the sign lost; `$PUFXE` drops a leading `0` only when the field is too wide; -.0005# rounds to
+-0.001), `puexp` and `pudbl` (`$PUFE` puts the exponent up one after a rounding into a digit more; a negative number
+whose point is at FBUFF+2 loses its sign), `pumisc` (-0 is the integer 0), `pufc2` (the text before the field is
+printed before the missing value is found), `pufc3` (the source counts the point among the 24), `pufc4` and `pufc6`
+(a format with no field and no values is Illegal function call, after it is printed).
+
+By hand in test_gwbasic_stmts: LPRINT USING to LST: (PC-BASIC's printer isn't the oracle's).
+

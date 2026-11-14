@@ -25,6 +25,9 @@
  * - Step c: RENUM, typed at the prompt with its program (NAME.typ) against PC-BASIC's transcript of the same lines;
  *   and, by hand from the source (PC-BASIC's transcript of AUTO and EDIT is its own interface's, not GW-BASIC's
  *   screen): AUTO with its numbers and "*", ended by ^C and by a number past 65529, and EDIT.
+ * - Step d: PRINT USING, every field and its edge cases, against PC-BASIC (NAME.differ where it departs from the 1983
+ *   source, each checked against a model of MATH1.ASM's and MATH2.ASM's routines on mbf.py's arithmetic); the
+ *   longest field the source allows, with the program after FBUFF LISTed; and, by hand, LPRINT USING to LST:.
  */
 
 #include "harness.h"
@@ -592,6 +595,55 @@ TEST(edit_offers_its_line_by_hand)
     if (got != want)
         std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
     CHECK_EQ(got, want);
+}
+
+// PRINT USING (BIPRTU.ASM PRINUS, with BISTRS.ASM LEFTUS; MATH2.ASM PUFOUT, $PUI, $PUIZ, $PUF, DPCOM and MATH1.ASM
+// $PUFE, $FOTZ, $FOTZC, $PUFXE in P1). The string fields: "!", "&", "\ \" of each width, longer and shorter strings,
+// null strings, "\" that is no field, "_" escapes, literal text before, between and after, a list longer than the
+// format, ";" and "," between values and at the end, a "+" before a string field. The numeric fields, with
+// integers (puint), singles (pusng), E format (puexp) and doubles (pudbl): "#", ".", leading "+", trailing "+" and
+// "-", "**", "$$", "**$", ",", "^^^^" (and "^^^", "^^^^^"), each with positive, negative, zero, small and large
+// numbers; rounding at the field's last digit (and into a digit more, in E format); "%" for each form too wide;
+// 10^16 and more in free format after a "%"; the most digits (24). pumisc: the format reused, values left over or
+// fields left over, "+" and "." and "$" and "*" that are no field's, and a format from a string variable and an
+// expression. pugc: the format's characters moved by collections in the middle of its list. The errors: a null format, a format with no field (after printing it), 25 digits (Illegal function
+// call); a number for a string field, a string for a number's, a number for the format (Type mismatch); no
+// delimiter between values, "," for the format's ";" (Syntax error).
+TEST(print_using_prints_what_pc_basic_prints)
+{
+    programs({"pustr", "puint", "pusng", "puexp", "pudbl", "pumisc", "pugc"});
+    programs({"pufc0", "pufc1", "pufc2", "pufc3", "pufc4", "pufc5", "pufc6", "pufc7", "putm", "putm2", "putm3",
+              "pusn"});
+    programs({"pusn2"});
+    programs({"pusn3"});
+}
+
+// FBUFF holds the longest field the source allows (review DD9): 24 places, two before the point with a comma and
+// 22 after it with a trailing sign, of a double just under 10^16, which $PUF writes out to FBUFF+46 before $PUFXE
+// finds it too wide ("%"). The program's first line, just past FBUFF in the resident core's RAM, is LISTed after.
+TEST(print_using_s_longest_field_fits_fbuff)
+{
+    programs({"pulong"});
+}
+
+// LPRINT USING (GIO86.ASM LPRINT, then PRINUS as PRINT's), by hand (PC-BASIC's printer isn't the oracle's): to LST:,
+// with no line's end after the ";", then PTRFIL back to the console (FINPRT) for the PRINT USING after it; READY's
+// FINLPT ends LPT1's line (CR LF) at the prompt.
+TEST(lprint_using_goes_to_lpt1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    std::string lst;
+    r.watch = [&](uint16_t pc) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 5) // the BDOS's entry, L_WRITE
+            lst += static_cast<char>(g.a);
+    };
+    const std::string con = command(r, "LPRINT USING \"##.#-!\";-1.25,\"x\";:PRINT USING \"&\";\"y\"");
+    r.watch = nullptr;
+    CHECK_EQ(vis(lst), vis(" 1.3-x\r\n"));
+    CHECK_EQ(vis(con), vis("y\r\n"));
 }
 
 int main()

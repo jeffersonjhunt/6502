@@ -1,0 +1,24 @@
+10 PRINT "m1 ";:PRINT USING "a##b##c";1,2
+20 PRINT "m2 ";:PRINT USING "##";1;2;3
+30 PRINT "m3 ";:PRINT USING "## ";1;2;3
+40 PRINT "m4 ";:PRINT USING "x## ##";1
+60 PRINT "m6 ";:PRINT USING "++##";5;-5
+70 PRINT "m7 ";:PRINT USING "+a#";5
+80 PRINT "m8 ";:PRINT USING ". #";5
+90 PRINT "m9 ";:PRINT USING "$*#";5
+100 PRINT "m10 ";:PRINT USING "_##_#";5
+110 PRINT "m11 ";:PRINT USING "#.";5
+130 PRINT "m13 ";:PRINT USING "##";1;
+140 PRINT "|"
+150 PRINT "m14 ";:PRINT USING "##";1,
+160 PRINT "|"
+170 PRINT "m15 ";:PRINT USING "#-#";5,6
+180 PRINT "m16 ";:PRINT USING "-##";5
+190 PRINT "m17 ";:PRINT USING "##,";5
+200 PRINT "m18 ";:PRINT USING "#,#";1234
+210 PRINT "m19 ";:PRINT USING "!##";"a",5,"b",6
+220 PRINT "m20 ";:PRINT USING "######################.#";1
+230 PRINT "m21 ";:PRINT USING "########################";1
+240 PRINT "m22 ";:PRINT USING "+**$##.##-";5
+250 F$="##.#":PRINT "m23 ";:PRINT USING F$+" ";1;2.25;3.35
+270 PRINT "m25 ";:PRINT USING "##";-0
