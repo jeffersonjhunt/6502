@@ -1126,8 +1126,26 @@ FILTAB:         CLC
 ; (FD_SIZ); each FIELD buffer below it moves up with the strings, so its
 ; address goes up by AX (FFNDL, STILOK: the 8086's chain's FDBs below it);
 ; then XFRSTR, SI the buffer, DX AX, which makes each string FIELDed into it
-; null. FFIDX is its number's place in FDDAT.
-FFREE:          LDY     #F_NUM
+; null. FFIDX is its number's place in FDDAT. AX, BX, CX and DX (RDL-RCH)
+; are kept, as the 8086's PUSHes keep them: STKERR's FINPRT, on an error's
+; way (ERESET), keeps its return in CX and the error in DL, and XFRSTR uses
+; both (an error in a random OPEN, its FDB FREFDB's, would return to CX's
+; garbage: 2026-11-15).
+FFREE:          LDX     #RCH           ; PUSH AX, BX, CX, DX
+@s:             LDA     0,X
+                PHA
+                DEX
+                BPL     @s
+.assert RDL = 0 && RCH = 7, error, "FFREE: AX-DX at $00-$07"
+                JSR     FFREEB
+                LDX     #0             ; POP them
+@r:             PLA
+                STA     0,X
+                INX
+                CPX     #RCH + 1
+                BNE     @r
+                RTS
+FFREEB:         LDY     #F_NUM
                 LDA     (FDBP),Y
                 ASL     A
                 TAX

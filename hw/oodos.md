@@ -4275,7 +4275,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
     - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
-      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 446
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 424
       bytes left for BLOAD and BSAVE (697 before the review's fixes, below): measured then (the owner, 2026-11-15),
       with COM1's driver (about 1.2 KB) the piece to move out if they don't fit.
     - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
@@ -4318,10 +4318,14 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         a SYS file now expects File not found (the owner's change).
       - W11 (the owner, 2026-11-15): the KYBD: queue is 32 (KYBQLN, LOWRAM), so LOF of an empty one is 31, as
         the 8086's; scrn_kybd_and_cons_files_by_hand's expectation changed from 15 to 31 (the owner's change).
-      - Found, not fixed (asked): any error in a random OPEN after its FIELD buffer is taken hangs GW-BASIC (on
-        the build before these fixes too: OPEN "R",#1,"H:X.DAT"), so the random case of W7's OPEN isn't tested.
+      - An error in a random OPEN (the owner, 2026-11-15): it went into the monitor, on 7c's earlier builds too
+        (OPEN "R",#1,"H:X.DAT"). The error's STKERR keeps its return in CX (RCL/RCH) and ERROR the error in DL
+        across FINPRT, and FINPRT freed the half-made random FDB (FREFDB) by FFREE, whose XFRSTR (the FIELD
+        buffer given back) uses both: STKERR's RTS went to the count. The 8086's FFREE PUSHes AX, BX, CX and DX
+        first; the port's FFREE now keeps RDL-RCH the same way. Sequential FDBs have no FIELD buffer, so never
+        reached XFRSTR. Test an_error_in_a_random_open_comes_back_to_ok, and W7's random case in its test.
       - Sizes after them: 35,776 bytes free; resident code and tables 11,015, fixed RAM 1,582 (LOWRAM 45); P2
-        5,702, P4 11,842 of 12,288 (446 free).
+        5,702, P4 11,864 of 12,288 (424 free).
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

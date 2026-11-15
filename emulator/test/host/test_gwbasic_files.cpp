@@ -1447,7 +1447,7 @@ TEST(w12_a_break_s_new_line_goes_to_the_screen)
         std::printf("  the file's last line: '%s'\n", vis(last).c_str());
 }
 
-// W7's OPEN part (the owner, 2026-11-15): OPEN doesn't find a SYS file (p4/giodsk.s SYSCHK), as MS-DOS's FCB open
+// W7's OPEN part (the owner, 2026-11-15; random too, once the error path below was fixed): OPEN doesn't find a SYS file (p4/giodsk.s SYSCHK), as MS-DOS's FCB open
 // doesn't: INPUT is File not found; OUTPUT, APPEND and random, which would delete the file (CP/M's delete takes a SYS
 // file) or make a second directory entry of its name (F_MAKE), are Path/File access error. The SYS file is left as it
 // was, one entry, its text whole; and SAVE over one is the same error.
@@ -1465,8 +1465,8 @@ TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"W7S.TXT\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
     CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    // (Random: SYSCHK gives it the same error, but any error in a random OPEN after its FIELD buffer is taken
-    // hangs, on a248556's build too (OPEN "R",#1,"H:X.DAT"): asked of the owner before it is tested here.)
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" AS #3 LEN=20"), std::string("Path/File access error\r\n"));
     CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/File access error\r\n"));
     CHECK_EQ(command(r, "LOAD \"W7S\""), std::string("File not found\r\n"));
     enter(r, {"10 REM"});
@@ -1484,4 +1484,46 @@ TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
     CHECK(typed.find("system text\r\n") != std::string::npos);
     if (n != 1 || typed.find("system text") == std::string::npos)
         std::printf("  dirsys: '%s'\n  type: '%s'\n", vis(dir).c_str(), vis(typed).c_str());
+}
+
+// An error in a random OPEN comes back to Ok (the owner, 2026-11-15): the FDB is FREFDB's, so the error's STKERR
+// frees it in FINPRT, and FFREE gives its FIELD buffer back through XFRSTR; FFREE keeps AX-DX, as the 8086's PUSHes
+// do, since STKERR keeps its return in CX and ERROR its number in DL across FINPRT. A build whose FFREE doesn't keep
+// them returns to CX's garbage (into the monitor). A drive with no image (function 15's error, then Disk not
+// Ready), twice, the string space as it was (FRE(0)); a SYS file (W7: Path/File access error, the file whole);
+// then a random file opens and closes as before.
+TEST(an_error_in_a_random_open_comes_back_to_ok)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "A$=STRING$(50,\"s\"):B$=A$+\"t\""), std::string());
+    const std::string fre = command(r, "PRINT FRE(0)");
+    for (const char *line : {"OPEN \"R\",#1,\"H:X.DAT\"", "OPEN \"H:X.DAT\" AS #2 LEN=40"})
+    {
+        const std::string got = command(r, line);
+        CHECK(got.find("BDOS Function = 15") != std::string::npos);
+        CHECK(got.size() > 16 && got.substr(got.size() - 16) == "Disk not Ready\r\n");
+        if (got.find("Disk not Ready") == std::string::npos)
+            std::printf("  %s: '%s'\n", line, vis(got).c_str());
+    }
+    CHECK_EQ(command(r, "PRINT FRE(0)"), fre);
+    CHECK_EQ(command(r, "PRINT LEN(B$);RIGHT$(B$,2)"), std::string(" 51 st\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"RS.TXT\":PRINT #1,\"whole\":CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set rs.txt [sys]");
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "A$=STRING$(50,\"s\")"), std::string());
+    const std::string fre2 = command(r, "PRINT FRE(0)");
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RS.TXT\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"RS.TXT\" AS #2 LEN=40"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "PRINT FRE(0);LEN(A$)"), fre2.substr(0, fre2.size() - 2) + " 50 \r\n");
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:LSET F$=\"ok\":PUT #1,1:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:GET #1,1:PRINT F$:CLOSE"),
+             std::string("ok        \r\n"));
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    const std::string typed = r.cmd("type rs.txt");
+    CHECK(typed.find("whole\r\n") != std::string::npos);
 }
