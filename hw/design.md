@@ -2165,7 +2165,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   - `DM_BANK8` is refused;
   - SYSINFO's `hwname.s` names both IDs.
 
-  NB_ID is already read as an ID byte under the system tools' exception. The diagnostics' stage 7 checks the
+  NB_ID is already read as an ID byte under SYSINFO's exception (AGENTS.md). The diagnostics' stage 7 checks the
   bridge's revision through `HW_REV` (`diag22.s` 182–184, `CARDIS` with revision 1), and takes `$D2` with B7.
 - **Reset and old software:** WINnH 0 and AP8 1, so block 33 in W1 and `$84000` in a DMA address still mean the
   aperture's slot 1. Today's OODOS and every program built with today's OOLIB run as they do now, on 960 KB.
@@ -2224,8 +2224,10 @@ version (function 80's `FT_INFO`) goes up with them. Every existing call keeps i
 - **OOLIB:** `GX_INIT` calls `DM_BANK8` when the version allows, and `GX_BLOCK` writes WIN1H. A program linked with
   an older library never calls it, keeps AP8 set and runs as now.
 - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
-- **SYSINFO and DIAG** read MAP to say what the RAM is. This read is added to AGENTS.md's system tools' exception
-  with B7 (the owner's answer), together with the note in [video-rev2.md](video-rev2.md).
+- **SYSINFO** reads MAP to say what the RAM is, as the ROM's diagnostics do (they own the machine and need no
+  exception). The read is added to AGENTS.md's exception, which is SYSINFO's alone since D3c
+  ([diag.md](diag.md#plan2-questions), P2-1), with B7 (the owner's answer), together with the note in
+  [video-rev2.md](video-rev2.md).
 
 #### The DMA controller, revision 2 ####
 
@@ -2358,8 +2360,8 @@ revision 1 with it.
 common memory's table, the BIOS's jump table and OOUI's. The DMA controller's registers are none of these:
 - the DMA channels are OODOS's, and a program doesn't touch them (AGENTS.md: "Don't take over what OODOS owns");
 - programs move memory by function 83 and the BIOS's MOVE, whose arguments don't change;
-- the system tools' exception doesn't include the DMA controller: SYSINFO and `DIAG.COM` read only its ID byte
-  (`hwname.s`).
+- SYSINFO's exception (AGENTS.md) doesn't include the DMA controller: SYSINFO reads only its ID byte
+  (`hwname.s`); the ROM's diagnostics drive it directly, owning the machine while they run.
 
 So nothing outside the ROM and OODOS.SYS sees the move. The ROM's diagnostics (D3b's stage 8) drive the channels
 directly, but they are the ROM's own code and move with it.
