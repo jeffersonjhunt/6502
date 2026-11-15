@@ -36,6 +36,10 @@
  *   COM1: on AUX:, polled, its options parsed and kept (the speed not set: the line stays 19,200), the bytes sent
  *   and received watched at the BDOS's entry; SCRN:, KYBD: and CONS:; the COM statement with G10's guard (TRPTBL's
  *   range), LCOPY, ERDEV and IOCTL.
+ * - The 7c fidelity review's findings (the owner, 2026-11-15), by hand, each failing without its fix: LOC and LOF
+ *   inside a PRINT # (W1), CHKFOP and a device's slot (W2) and attribute bits (W3), RUN of a file ending in a bare LF
+ *   (W4), FILFCB's names as MS-DOS's parse takes them (W5, W6, W8), KILL and NAME passing over SYS files (W7),
+ *   LLIST's CR after an LF (W9), SCRN:'s last character after console output (W10), a break's new line (W12).
  */
 
 #include "harness.h"
@@ -1242,4 +1246,203 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     CHECK_EQ(command(r, "LCOPY 1,2"), std::string("Syntax error\r\n"));
     CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced Feature\r\n"));
     CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // no word in the 1983 table: a variable
+}
+
+// The 7c fidelity review's findings (the owner, 2026-11-15: W1-W12, "recommendations as listed"), each by hand
+// from the source, each failing on a build without its fix.
+
+// W1: LOC and LOF inside a PRINT # to the same file see every byte printed before them (p4/gio86.s FILFNP sends
+// OUTDO's run first, FLUSHR), as the 8086's OUTDO writes each byte at once: the 129th byte writes record 0, so LOC(1)
+// is 1 and LOF(1) 128. Without the flush, bytes 129-130 still wait in RUNBUF and nothing has been written.
+TEST(w1_loc_and_lof_inside_a_print_to_the_file_count_every_byte)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W1.TXT\":PRINT #1,STRING$(130,\"A\");LOC(1);LOF(1):CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"W1.TXT\":LINE INPUT #1,A$:PRINT LEN(A$);RIGHT$(A$,10):CLOSE"),
+             std::string(" 138 AA 1  128 \r\n"));
+}
+
+// W2 (Major): CHKFOP (p4/giodsk.s) compares only disk files' FDBs. A device's file (LPT1:) in a table slot that once
+// held a disk file keeps that file's FCB bytes (the slots are fixed, OO-1); the 8086's device FDB is fresh memory,
+// so the name opens again: OUTPUT and APPEND of it are not File already open.
+TEST(w2_a_device_s_file_is_never_taken_for_a_disk_file_s_name)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W2.TXT\":PRINT #1,\"x\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"W2.TXT\":CLOSE #1:OPEN \"LPT1:\" FOR OUTPUT AS #1"), std::string());
+    CHECK_EQ(command(r, "OPEN \"O\",#2,\"W2.TXT\":PRINT #2,\"y\":CLOSE #2"), std::string());
+    CHECK_EQ(command(r, "OPEN \"A\",#2,\"W2.TXT\":PRINT #2,\"z\":CLOSE #2"), std::string());
+    CHECK_EQ(command(r, "CLOSE:OPEN \"I\",#3,\"W2.TXT\":INPUT #3,A$,B$:PRINT A$;B$:CLOSE"), std::string("yz\r\n"));
+}
+
+// W3: CHKFOP compares names without CP/M's attribute bits (F_OPEN leaves them in the FCB): a file with ARCHIVE set
+// (by SET, at the CCP) open for input is File already open for output, as the 8086's; else the OUTPUT would delete
+// it under the open file.
+TEST(w3_a_file_with_attributes_open_is_file_already_open)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W3.TXT\":PRINT #1,\"kept\":CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set w3.txt [archive=on]");
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"W3.TXT\":OPEN \"O\",#2,\"W3.TXT\""), std::string("File already open\r\n"));
+    CHECK_EQ(command(r, "LINE INPUT #1,A$:PRINT A$:CLOSE"), std::string("kept\r\n"));
+}
+
+// W4 (Major): RUN of a text file whose last line ends in a bare LF runs at the file's end (p4/scnedt.s DSKCHP tests
+// LDRUN before the CR/LF rule), as the 8086's NOTCHN jumps to RUNC; the unfinished line is dropped. Without it the
+// CR that ends the load follows the LF, is dropped, and the load waits on the keyboard. CHAIN's end the same.
+TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LF.BAS\":PRINT #1,\"10 PRINT 1\""), std::string());
+    CHECK_EQ(command(r, "PRINT #1,\"20 PRINT 2\";CHR$(10);:CLOSE"), std::string());
+    CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n"));
+    CHECK_EQ(command(r, "CHAIN \"LF\""), std::string(" 1 \r\n"));
+    CHECK_EQ(command(r, "LIST"), std::string("10 PRINT 1\r\n"));
+}
+
+// W5: KILL, NAME and FILES (FILFCB) cut the type that a typeless name of 12 or more characters runs into to 3, as
+// MS-DOS's parse does, so they find the file OPEN made of the same name (NAMSCN: ABCDEFGH.IJK).
+TEST(w5_a_long_name_with_no_type_is_cut_as_open_cuts_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"ABCDEFGHIJKL\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "FILES \"ABCDEFGHIJKL\""), std::string("ABCDEFGH.IJK \r\n"));
+    CHECK_EQ(command(r, "NAME \"ABCDEFGHIJKLMN\" AS \"W5.TXT\""), std::string());
+    CHECK_EQ(command(r, "NAME \"W5.TXT\" AS \"ABCDEFGHIJKLM\""), std::string());
+    CHECK_EQ(command(r, "KILL \"ABCDEFGHIJKL\""), std::string());
+    CHECK_EQ(command(r, "FILES \"ABCDEFGH.*\""), std::string("File not found\r\n"));
+}
+
+// W6: in KILL, NAME and FILES, what follows a "*" in its field is passed over, as MS-DOS's parse does ("*1.BAS" is
+// "*.BAS", "AB*CD.TXT" "AB*.TXT", ".B*X" ".B*"), where function 152 refuses it.
+TEST(w6_characters_after_a_star_are_passed_over)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W6A.BAS\":CLOSE:OPEN \"O\",#1,\"W6B.BAS\":CLOSE"), std::string());
+    const std::string both = "W6A     .BAS W6B     .BAS \r\n";
+    CHECK_EQ(command(r, "FILES \"W6*.BAS\""), both);
+    CHECK_EQ(command(r, "FILES \"W6*1.BAS\""), both);
+    CHECK_EQ(command(r, "FILES \"W6?.B*X\""), both);
+    CHECK_EQ(command(r, "KILL \"W6*CD.BAS\""), std::string());
+    CHECK_EQ(command(r, "FILES \"W6*.*\""), std::string("File not found\r\n"));
+}
+
+// W7 (Major): KILL and NAME pass over a SYS file, as FILES does (SKPSYS, the owner's decision 8) and MS-DOS's FCB
+// search does: in user 0 on A:, the card's utilities are SYS files. KILL of a pattern deletes the other files it
+// matches, each by its own name, and leaves the SYS ones; a SYS file named alone is File not found.
+TEST(w7_kill_and_name_pass_over_system_files)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7A.COM\":CLOSE:OPEN \"O\",#1,\"W7B.COM\":CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set w7b.com [sys]");
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "KILL \"S*.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "KILL \"PIP.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "NAME \"PIP.COM\" AS \"W7X.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "NAME \"W7B.COM\" AS \"W7X.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "KILL \"W7?.COM\""), std::string());
+    CHECK_EQ(command(r, "FILES \"W7?.COM\""), std::string("File not found\r\n"));
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    const std::string dir = r.cmd("dirsys *.com");
+    for (const char *kept : {"SET      COM", "PIP      COM", "W7B      COM"})
+        CHECK(dir.find(kept) != std::string::npos);
+    CHECK(dir.find("W7X") == std::string::npos);
+    CHECK(r.cmd("dir w7a.com").find("W7A") == std::string::npos);
+}
+
+// W8: "+", "/", '"' and a control character end a name in KILL, NAME and FILES, as in MS-DOS's parse (function 152
+// takes the first three as name characters and refuses the last): KILL "A+B.TXT" is KILL "A", which isn't there.
+TEST(w8_plus_slash_quote_and_control_characters_end_a_name)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"A+B.TXT\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "KILL \"A+B.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "KILL \"A/B.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "FILES \"A+B.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "FILES \"A?B.TXT\""), std::string("A+B     .TXT \r\n"));
+    CHECK_EQ(command(r, "KILL \"X\"+CHR$(1)"), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W8\":CLOSE:KILL \"W8\"+CHR$(34)+\"X\""), std::string());
+    CHECK_EQ(command(r, "FILES \"W8\""), std::string("File not found\r\n"));
+}
+
+// W9: LLIST (and LIST to a file or device) sends a CR after a line feed inside a program line (GWLIST.ASM LISPRT
+// by SCNEDT.ASM's OUTCH1), so the printer starts the rest at its left margin: LF, CR, and the CR's LF.
+TEST(w9_llist_sends_a_cr_after_a_line_feed_in_a_line)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",1,\"W9.BAS\":PRINT #1,\"10 PRINT 1:\"+CHR$(10)+\"PRINT 2\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "LOAD \"W9\""), std::string());
+    CHECK_EQ(vis(sent_by(r, 5, "LLIST")), vis("10 PRINT 1:\n\r\nPRINT 2\r\n"));
+    CHECK_EQ(command(r, "LIST"), std::string("10 PRINT 1:\nPRINT 2\r\n")); // the console: none
+}
+
+// W10: the console's output passes SCRN:'s LSTCHR (res/oem.s OUTDO), as the 8086's console output passes SCNOL1: an
+// LF to SCRN: after console printing isn't the LF straight after a CR that SCNOL1 drops.
+TEST(w10_console_output_moves_scrn_s_last_character)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR OUTPUT AS 1"), std::string());
+    CHECK_EQ(command(r, "PRINT #1,\"A\";CHR$(13);:PRINT \"X\";:PRINT #1,CHR$(10);\"B\""),
+             std::string("A\r\nX\nB\r\n"));
+    CHECK_EQ(command(r, "PRINT #1,\"A\";CHR$(13);CHR$(10);\"B\":CLOSE"), std::string("A\r\nB\r\n"));
+}
+
+// W12: a break (^C) sends its new line to the screen (KYBINI's FINPRT, GIOKYB.ASM's, first), not to the file LIST
+// writes: the screen shows it before Ok, and the file ends with the last whole line listed.
+TEST(w12_a_break_s_new_line_goes_to_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    std::vector<std::string> lines;
+    for (int n = 1; n <= 300; ++n)
+        lines.push_back(std::to_string(n) + " REM a line to list, one of three hundred");
+    enter(r, lines);
+    CHECK_EQ(command(r, "PRINT 5"), std::string(" 5 \r\n"));
+    unsigned records = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == 0x0203 && r.cpu->regs().y == 34)
+            ++records;
+    };
+    const size_t from = r.out.size();
+    r.type("LIST ,\"W12.TXT\"\r");
+    const uint64_t end = r.cpu->cycles() + ms(8000);
+    while (records < 3 && r.cpu->cycles() < end)
+        r.run(10'000);
+    r.watch = nullptr;
+    REQUIRE(records >= 3);
+    r.type("\x03");
+    CHECK(r.until("Ok\r\n", ms(4000), from));
+    CHECK_EQ(vis(r.out.substr(from)), vis("LIST ,\"W12.TXT\"\r\n\r\nOk\r\n"));
+    const std::string last =
+        command(r, "OPEN \"I\",#1,\"W12.TXT\":WHILE NOT EOF(1):LINE INPUT #1,A$:WEND:PRINT A$:CLOSE");
+    CHECK(last.find(" REM a line to list, one of three hundred\r\n") != std::string::npos);
+    if (last.find(" REM a line") == std::string::npos)
+        std::printf("  the file's last line: '%s'\n", vis(last).c_str());
 }

@@ -4275,20 +4275,47 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
     - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
-      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 697
-      bytes left for BLOAD and BSAVE: measured then, with COM1's driver (about 1.2 KB) the piece to move out if
-      they don't fit.
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 517
+      bytes left for BLOAD and BSAVE (697 before the review's fixes, below): measured then (the owner, 2026-11-15),
+      with COM1's driver (about 1.2 KB) the piece to move out if they don't fit.
     - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
       RAM 1,565; P1 8,377, P2 5,688, P3 4,883, P4 11,591, P8 2,525 (as measured at d0a523d).
     - **The flat test image** leaves P4 and `p8/far4.s` out (`test/flatp4.s` stands in), and its program area
       moved from `$9000` to `$9400` (the owner's G11 answer, 2026-11-14; the notes above that name `$9000` were
-      true when written). It ends at `$90FC`.
+      true when written). It ends at `$90FC` (`$9110` after the review's fixes).
     - **Recorded deviations:** File not open is Bad file number (52), PC-BASIC's answer, where the 1983 source maps
       it to Bad file mode (54); CHDIR, MKDIR and RMDIR added to the keyword table, and errors 75 and 76's messages
       to the error table; LEN past /S: (128) is Illegal function call; COM1's speed parsed and kept but the line
       at 19,200. **A long name** (decision 9, narrowed 2026-11-15) follows the source: a name over 8 characters
       with no type runs on into the type (`ABCDEFGHI` is `ABCDEFGH.I`); only a long name with a type is Bad file
       name.
+    - **The fidelity review's fixes** (Proposed, 2026-11-15; the owner's W1-W12, "recommendations as listed"),
+      each with a test in test_gwbasic_files (`w1_...` to `w12_...`) that fails on a build without it:
+      - W1: FILFNP sends OUTDO's run (FLUSHR) before EOF, LOC and LOF, so inside a PRINT # to the same file they
+        count every byte printed before them, as the 8086's OUTDO writes each at once.
+      - W2, W3: CHKFOP compares only disk files' FDBs (F_DEV not negative: a device's slot may keep a closed
+        file's FCB, the table being fixed), and compares the names without CP/M's attribute bits, which F_OPEN
+        leaves in the FCB.
+      - W4: DSKCHP tests LDRUN after each byte, before the CR/LF rule, so RUN or CHAIN of a text file whose last
+        line ends in a bare LF runs at the file's end, as NOTCHN's RUNC, instead of waiting on the keyboard.
+      - W5, W6, W8: FILFCB (KILL, NAME, FILES) makes the name one that function 152 takes as MS-DOS's parse takes
+        it: the type that a typeless long name runs into keeps 3 characters (`ABCDEFGHIJKL` is `ABCDEFGH.IJK`, as
+        OPEN makes it); the rest of a field after a `*` is dropped to the next delimiter (`*1.BAS` is `*.BAS`); a
+        control character, `+`, `/` or `"` ends the name. An explicit type of more than 3 stays Bad file name.
+      - W7: KILL and NAME don't find a SYS file (SKPSYS, as FILES): KILL deletes each other match by its own name,
+        the search begun again after each, since CP/M's delete of the pattern would take the SYS files too. A SYS
+        file as NAME's new name still counts as there (File already exists), so no second entry is made.
+      - W9: LISPRT sends a CR after an LF in a line to a file or device (OUTCH1's), so LLIST's printer starts
+        the rest at its margin; the console gets none.
+      - W10: LSTCHR is resident (`res/oem.s`), set by the console's OUTDO for each byte and by SCNOL1 after its
+        own, so an LF to SCRN: after console printing isn't taken for one straight after a CR.
+      - W12: KYBINI ends in FINPRT, as GIOKYB.ASM's, so a break's new line goes to the screen, not to the file,
+        printer or port being written.
+      - Not yet built, as each changes an existing test's expectation (asked of the owner): W7's OPEN part (a SYS
+        file not found by OPEN, where files_leaves_out_system_files opens one) and W11 (the KYBD: queue of 32, so
+        LOF of an empty one 31, where scrn_kybd_and_cons_files_by_hand has 15).
+      - Sizes after them: 35,792 bytes free; resident code and tables 11,015, fixed RAM 1,566; P2 5,702, P4
+        11,771 of 12,288.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

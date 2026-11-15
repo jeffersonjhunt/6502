@@ -55,7 +55,7 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
-.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT
+.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL
 
         OODOS_HEADER
@@ -79,7 +79,7 @@ OUTDO:          PHP
                 LDY     PTRFIL         ; the console only if both of PTRFIL's bytes
                 BNE     @tolpt         ; are 0, as ISFLIO has it (a file's FDB may
                 LDY     PTRFIL+1       ; have a low byte of 0)
-                BEQ     :+
+                BEQ     @con
 @tolpt:         LDY     PTRFIL+1       ; a file's FDB is in P4's RAM, in W3's
                 CPY     #>BLK_BASE     ; window; LPT1 is $FFFF, and so is any
                 BCC     @tolp1         ; other PTRFIL, as 7a had it
@@ -87,7 +87,8 @@ OUTDO:          PHP
                 BEQ     @tolp1
                 JMP     @file
 @tolp1:         JMP     @lpt
-:               CMP     #' '
+@con:           STA     LSTCHR         ; (SCRN:'s, p4/gioscn.s SCNOL1: W10)
+                CMP     #' '
                 BCC     @ctl
                 PHA
                 LDA     TTYPOS,X       ; at the width: the console wraps itself,
@@ -423,7 +424,8 @@ CNTCCN:         JSR     CRDO           ; EDTBRK: to a new line, AUTO ended
                 JMP     STOPRG
 
 ; The keyboard queue (GIOKYB.ASM's KYBQDS): PKQUE puts A in (dropped if
-; full), KYBGET takes one (C set if none), KYBINI empties it.
+; full), KYBGET takes one (C set if none), KYBINI empties it and then, as
+; GIOKYB.ASM's does, FINPRT.
 PKQUE:          PHX
                 PHA
                 LDX     KYBQIN
@@ -455,9 +457,10 @@ KYBGET:         PHY
                 CLC
 @r:             PLY
                 RTS
-KYBINI:         STZ     KYBQIN
+KYBINI:         STZ     KYBQIN         ; INITQ
                 STZ     KYBQOUT
-                RTS
+                JMP     FINPRT         ; output to the console again (W12: a
+                                       ; break's new line goes to the screen)
 
 ; --- CHSNS, INKEY$ (GIOKYB.ASM 520, 817) --------------------------------------------------
 
@@ -555,6 +558,7 @@ KBUF:           .res    KBFLEN
 LINLEN:         .byte   WIDTH          ; the console's width (WIDTH, the statement, is 7d's)
                 .byte   WIDTH          ; LPT1's
 LPCRF:          .byte   0              ; LPOUT1: bit 7, the last byte to LST: a CR
+LSTCHR:         .byte   0              ; GWDATA.ASM's: the last byte to the screen (OUTDO's, SCNOL1's)
 F_EDPG:         .res    1              ; PINLIN: bit 7 a program line
 SEMFLG:         .res    1              ; INPUT;
 PRELOD:         .res    1              ; BUF holds a line to edit (ERREDT)

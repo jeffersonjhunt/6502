@@ -293,8 +293,14 @@ RET6:           RTS
 ; --- EOF, LOC, LOF (GIO86.ASM 596) --------------------------------------------------------
 
 ; FILFNP (the project's own): the resident FILFUN's, X the function as FINGO
-; has it (2 x its token's offset), or 0 for INPUT$ (FIXINP's).
-FILFNP:         CPX     #0
+; has it (2 x its token's offset), or 0 for INPUT$ (FIXINP's). OUTDO's run
+; is sent first (FLUSHR), so LOC and LOF inside a PRINT # to the same file
+; count every byte printed before them, as the 8086's OUTDO has written
+; each at once (W1, 2026-11-15).
+FILFNP:         PHX
+                JSR     FLUSHR
+                PLX
+                CPX     #0
                 BNE     :+
                 JMP     FIXINPP
 :               CPX     #2 * (LOC_FN - ONEFUN)

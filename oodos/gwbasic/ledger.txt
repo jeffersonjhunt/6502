@@ -904,7 +904,7 @@ SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to s
 SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub p8/gwmain.s EDIT
 SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
 SCNEDT.ASM DSKCHI -> p4/scnedt.s DSKCHP # an entry, from MAIN (p8/gwmain.s): a line a far call
-SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
+SCNEDT.ASM OUTCH1 -> p2/gwlist.s LISPRT # in it: a CR after an LF to a file or device (W9); the console needs none
 GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; a file's bytes in RUNBUF, to P4 as runs (FLUSHP)
 GIO86.ASM CRDO -> OEM res/oem.s CRDO
 GIO86.ASM CRDONZ -> OEM res/oem.s CRDONZ
@@ -1275,10 +1275,10 @@ GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
 GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
 DSKCOM.ASM FIELD -> p4/dskcom.s FIELDP # its home stub p8/far4.s FIELD
-GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists)
+GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists); an old name that is a SYS file not found (W7)
 DSKCOM.ASM LSET -> p4/dskcom.s LSETP # its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
 DSKCOM.ASM RSET -> p4/dskcom.s RSETP # its home stub p8/far4.s RSET
-GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"
+GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"; SYS files passed over, each match deleted by name (W7)
 GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
 GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
@@ -1566,7 +1566,7 @@ GIODSK.ASM $READS -> p4/giodsk.s READS
 GIODSK.ASM $WRITS -> p4/giodsk.s WRITES
 GIODSK.ASM SETBUF -> p4/giodsk.s SETBUF # the buffer's CPU address in W3 (V1, route (c))
 GIODSK.ASM ACCFIL -> p4/giodsk.s ACCFIL # functions 33 and 34; R0-R2 the random record (OO-1: CP/M's 3 bytes)
-GIODSK.ASM CHKFOP -> p4/giodsk.s CHKFOP # OO-1: the table's FDBs in use
+GIODSK.ASM CHKFOP -> p4/giodsk.s CHKFOP # OO-1: the table's disk FDBs in use (W2), attribute bits off (W3)
 GIODSK.ASM MAKUPC -> p4/giodsk.s MAKUPC
 GIODSK.ASM DFSTLD -> p4/giodsk.s DFSTLD # OO-1 (W2): whole records by DM_LOAD while each fits, the last part through the buffer
 GIODSK.ASM OPNSET -> p4/giodsk.s OPNSET
@@ -1631,7 +1631,7 @@ GIO86.ASM FILOU3 -> p4/gio86.s PTRDSP # OUTDO's other name: from P4, G_SOT to th
 # 7c: KILL, NAME, FILES and the directory hook (block P4, the home block's stubs; CHDIR, MKDIR and RMDIR added to the
 # keyword table, a recorded deviation, and answered by one OEM hook, p4/oem.s)
 GIODSK.ASM NAMFIL -> p4/giodsk.s NAMFIL
-GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 152 refuses is Bad file name, the name taken to 127 bytes
+GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 152 refuses is Bad file name, the name taken to 127 bytes; MS-DOS's cuts made first (W5, W6, W8)
 # 7c: random files (X1): FIELD, LSET, RSET, GET, PUT, CVI to MKD$ (block P4, the home block's stubs; EVALNF resident),
 # the FIELD buffers in the TPA (FALLOC, FFREE, XFRSTR), records of any LEN on 128-byte records (DSKRND)
 GIODSK.ASM GETSUB -> p4/giodsk.s GETSUB # PGSUB1 in it; FD_PHY compared as the 8086's, never set

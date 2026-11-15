@@ -31,7 +31,7 @@
 .export LISTP, DELETP, BUFLIN, BUFLN2, LISPRT, TSTANM
 .import CHRGTR, SYNCHR, POLKEY, OUTDO, CRDO, STROUT, ISLET2, CONFC1, SCNLIN
 .import FNDLIN, DEPTR, DEL, CHEAD, FCERR, SNERR, FINI
-.import BUF, DOT, RESLST, LISTX, REDDY, PROCHK
+.import BUF, DOT, RESLST, LISTX, REDDY, PROCHK, ISFLIO
 
 .code
 
@@ -123,14 +123,21 @@ NOSPAL:         JSR     BUFLIN
                 BRA     LSTLP
 
 ; LISPRT: BUF out, to its zero. (LISEOL, the PC screen's erase to the end
-; of the line after a line feed, has no counterpart on the console; OUTCH1's
-; CR after a file's line feed is 7c's.)
+; of the line after a line feed, has no counterpart on the console.) To a
+; file or a device (ISFLIO), a line feed is followed by a CR, as OUTCH1
+; sends it (SCNEDT.ASM's OUTCH2: W9, 2026-11-15); the console needs none.
 LISPRT:         LDX     #0
 @c:             LDA     BUF,X
                 BNE     :+
                 RTS
 :               JSR     OUTDO
-                INX
+                CMP     #10
+                BNE     @n
+                JSR     ISFLIO
+                BEQ     @n
+                LDA     #13
+                JSR     OUTDO
+@n:             INX
                 BRA     @c
 
 ; --- BUFLIN (GWLIST.ASM 372) -------------------------------------------------------------

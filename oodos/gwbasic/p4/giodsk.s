@@ -1245,8 +1245,9 @@ PRNEXT:         INCW    PTR
 
 ; CHKFOP: File already open if another FDB has this one's drive, name and
 ; type (upper case alike); its drive 0 made the current one first. A kept.
-; OO-1: the table's FDBs in use (F_MODE not 0), where the 8086 walks its
-; chain; PTR is the 8086's DI.
+; OO-1: the table's FDBs in use (F_MODE not 0) and a disk's (F_DEV not
+; negative), where the 8086 walks its chain; PTR is the 8086's DI; the
+; bytes compared without CP/M's attribute bits.
 CHKFOP:         PHA
                 LDY     #FCB_DV
                 LDA     (FDBP),Y
@@ -1269,6 +1270,9 @@ CHKNFL:         LDA     CHKN
                 LDY     #F_MODE
                 LDA     (PTR),Y
                 BEQ     IGNTFL         ; (free: no FDB in the chain)
+                LDY     #F_DEV         ; OO-1: a device's FDB (LPT1:, COM1:, ...)
+                LDA     (PTR),Y        ; may keep a closed file's FCB from
+                BMI     IGNTFL         ; before; the 8086's has none (W2)
                 LDA     PTR
                 CMP     FDBP
                 BNE     :+
@@ -1276,10 +1280,12 @@ CHKNFL:         LDA     CHKN
                 CMP     FDBP+1
                 BEQ     IGNTFL         ; itself
 :               LDY     #F_FCB
-CMPLOP:         LDA     (FDBP),Y
-                JSR     MAKUPC
+CMPLOP:         LDA     (FDBP),Y       ; OO-1: CP/M's attribute bits (the
+                AND     #$7F           ; high bits F_OPEN leaves in the name
+                JSR     MAKUPC         ; and type) off, as CP/M matches names (W3)
                 STA     T0
                 LDA     (PTR),Y
+                AND     #$7F
                 JSR     MAKUPC
                 CMP     T0
                 BNE     IGNTFL         ; NTSAME
@@ -1457,7 +1463,8 @@ NEXTFL:         LDY     #F_SNEXT       ; C_SEAR+1: the next
 ; next. OO-1: CP/M's SYS attribute (t2', the high bit of the type's second
 ; byte) hides a file, as MS-DOS's FCB search leaves a hidden or system file
 ; out and CP/M's DIR doesn't list one (the owner's, 2026-11-14): so FILES
-; doesn't list it, and a pattern only it matches is File not found.
+; doesn't list it, and a pattern only it matches is File not found; KILL
+; and NAME don't find it either (W7, 2026-11-15).
 SKPSYS:         CMP     #$FF
                 BEQ     @r
                 PHA
@@ -1482,26 +1489,61 @@ SKPSYS:         CMP     #$FF
 ; an FDB's FCB, as the 8086's SI at FILNAM - F_FCB). The 8086 opens and
 ; closes it to see it is there. OO-1: CP/M's open refuses a "?" (through
 ; the error mode, which would end GW-BASIC), so a search for it (17, its
-; record to DIRBUF) answers the same.
+; record to DIRBUF) answers the same. A SYS file isn't there (W7, as
+; FILES's SKPSYS: MS-DOS's FCB search and delete pass over a system file):
+; each other match is deleted by its own name, the search begun again after
+; each, since CP/M's delete of the pattern would take the SYS files too.
 KILLP:          JSR     NAMFIL
                 JSR     FILFCB
                 JSR     SETDIR
                 JSR     SEARCH         ; OO-1: for C_OPEN, C_CLOS
+                JSR     SKPSYS         ; (W7: a SYS file isn't there)
                 CMP     #$FF
                 BNE     KILL2
                 JMP     DERFNF
-KILL2:          JSR     FCBFDB         ; "pretend we are FDB"
+KILL2:          PHA                    ; (the entry's place)
+                JSR     FCBFDB         ; "pretend we are FDB"
                 JSR     CHKFOP
-                LDA     #<FILNAM       ; C_DELE
-                LDX     #>FILNAM
+                PLA
+KILL3:          ASL     A              ; OO-1 (W7): each match but a SYS file,
+                ASL     A              ; deleted by its own name (FILNA2), as
+                ASL     A              ; MS-DOS's FCB delete passes over a
+                ASL     A              ; system file; CP/M's delete of the
+                ASL     A              ; pattern would take them all
+                TAX
+                LDY     #0
+@n:             LDA     DIRBUF + 1,X   ; the entry's name and type, without
+                AND     #$7F           ; its attribute bits (f5': XFCBs only)
+                STA     FILNA2 + 1,Y
+                INX
+                INY
+                CPY     #FNAML
+                BNE     @n
+                LDA     FILNAM         ; its drive (CHKFOP's: not 0)
+                STA     FILNA2
+                STZ     FILNA2 + 12    ; EX, S1, S2, RC
+                STZ     FILNA2 + 13
+                STZ     FILNA2 + 14
+                STZ     FILNA2 + 15
+                LDA     #<FILNA2       ; C_DELE
+                LDX     #>FILNA2
                 LDY     #F_DELETE
-                JMP     PBDOS          ; (its answer not tested, as the 8086's)
+                JSR     PBDOS          ; (its answer not tested, as the 8086's;
+                INC     A              ; but none deleted ends the loop)
+                BEQ     @x
+                JSR     SEARCH         ; the next: the search again, from the
+                JSR     SKPSYS         ; first (a delete ends a search)
+                CMP     #$FF
+                BNE     KILL3
+@x:             RTS
 
 ; NAMEP: NAME old AS new (GIODSK.ASM 1048): the old name found (File not
 ; found) and not open (CHKFOP: File already open), its drive and name to
 ; FILNA2, the rename's FCB; "AS"; the new name, on the same drive (none
 ; named: the old one's), else Rename across disks; it to FILNA2 + 17, then
-; the rename (23): File already exists if the new name is there.
+; the rename (23): File already exists if the new name is there. A SYS
+; file as the old name isn't there (W7); as the new one it is (no second
+; entry of a name is made).
 ; OO-1: CP/M's rename gives File Exists (and "?" in either name) through the
 ; error mode, which would end GW-BASIC, where MS-DOS's returns $FF; so a
 ; "?" in either name is Bad file name, and the new name is searched for
@@ -1511,6 +1553,7 @@ NAMEP:          JSR     NAMFIL
                 JSR     FILFCB         ; FILNAM: the old name
                 JSR     SETDIR
                 JSR     SEARCH
+                JSR     SKPSYS         ; (W7: a SYS file isn't there)
                 CMP     #$FF
                 BEQ     NA_FNF
                 JSR     FCBFDB
@@ -1590,7 +1633,13 @@ ER_NMF:         JMP     DERIFN         ; DERNMF, "Bad file name"
 ; type of more than 3, a bad drive: MS-DOS's parse cuts the first two
 ; short) leaves the FCB as it was, so it is Bad file name, as OPEN's names
 ; are; and the name is taken to 127 bytes at most (152 reads 128), so BUF
-; always has room.
+; always has room. Where MS-DOS's parse takes a name that 152 would refuse,
+; the copy makes it one 152 takes alike (OO-1, 2026-11-15): a control
+; character, "+", "/" or '"' ends the name (W8: MS-DOS's terminators that
+; aren't 152's); after a "*" the rest of its field is dropped, to the next
+; of 152's delimiters (W6: MS-DOS's parse passes over it); and the type
+; the 8th character's "." makes keeps 3 characters, the rest dropped as
+; after a "*" (W5: MS-DOS's parse cuts it to 3).
 FILFCB:         LDA     RCL
                 CMP     #127
                 BCC     :+
@@ -1598,19 +1647,49 @@ FILFCB:         LDA     RCL
                 STA     RCL
 :               LDX     #0             ; DI: BUF
 STRTNM:         STZ     FCNT           ; AH: the name's characters
+                STZ     FTYPE          ; OO-1: in the name
+                STZ     FSKIP
 NAMORE:         LDA     RCL            ; anything left?
-                BEQ     TRMSTR
+                BEQ     @t
                 LDA     (PTR2)         ; MOVSB
                 INCW    PTR2
-                STA     BUF,X
-                INX
                 DEC     RCL
+                CMP     #' '           ; OO-1 (W8): MS-DOS's terminators
+                BCC     @t             ; that 152 doesn't have end it
+                CMP     #'+'
+                BEQ     @t
+                CMP     #'/'
+                BEQ     @t
+                CMP     #'"'
+                BNE     @ok
+@t:             JMP     TRMSTR
+@ok:            BIT     FTYPE          ; OO-1 (W5): the type made below, past
+                BPL     @sk            ; its 3rd: the rest dropped
+                LDY     FTCNT
+                CPY     #3
+                BCC     @tc
+                ROR     FSKIP          ; (C set: bit 7)
+                BRA     @sk
+@tc:            INC     FTCNT
+@sk:            BIT     FSKIP          ; OO-1 (W6): dropped, to a delimiter
+                BPL     NOSKIP
+                LDY     #SKPEND_LEN - 1
+@d:             CMP     SKPEND,Y
+                BEQ     @e
+                DEY
+                BPL     @d
+                BRA     NAMORE
+@e:             STZ     FSKIP
+NOSKIP:         STA     BUF,X
+                INX
+                LDY     FTYPE
+                BNE     INTYPE
                 CMP     #':'           ; a device: the name starts again
                 BEQ     STRTNM
                 CMP     #'.'           ; the type next
-                BEQ     FINNAM
+                BEQ     TYPNXT
                 CMP     #'*'           ; a wild card ends the name too
-                BEQ     FINNAM
+                BEQ     SKIPON
                 LDY     FCNT
                 CPY     #8
                 BCS     LNGNAM         ; past 8: the rest is the type
@@ -1620,14 +1699,19 @@ LNGNAM:         STA     BUF,X          ; the 9th after a "."
                 LDA     #'.'
                 STA     BUF-1,X
                 INX
-FINNAM:         LDA     RCL            ; REP MOVSB: the rest
-                BEQ     TRMSTR
-                LDA     (PTR2)
-                INCW    PTR2
-                STA     BUF,X
-                INX
-                DEC     RCL
-                BRA     FINNAM
+                LDA     #1             ; OO-1 (W5): the type made, its 1st
+                STA     FTCNT
+                LDA     #$80
+                STA     FTYPE
+                BRA     NAMORE
+TYPNXT:         INC     FTYPE          ; a type given: as it is (152's rules)
+                JMP     NAMORE
+INTYPE:         CMP     #'*'
+                BEQ     SKIPON
+                JMP     NAMORE
+SKIPON:         LDA     #$80
+                STA     FSKIP
+                JMP     NAMORE
 TRMSTR:         STZ     BUF,X          ; the terminator
                 LDA     #<PARSBK       ; C_PARS: BUF to FILNAM
                 LDX     #>PARSBK
@@ -1682,6 +1766,10 @@ PHYTAB:         .byte   ERRDME, ERRDWP, ERRPAE, ERRDNR ; Disk I/O, Read Only, Fi
 PHYEND:
 ; FILFCB's parse block (function 152): the string BUF, the FCB FILNAM.
 PARSBK:         .word   BUF, FILNAM
+; FILFCB's (OO-1, W6): 152's delimiters that end what a "*" drops (its 0,
+; TAB and CR end the name before).
+SKPEND:         .byte   ' ', ';', '=', '<', '>', '.', ':', ',', '|', '[', ']'
+SKPEND_LEN      = * - SKPEND
 ; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*.
 DSKDSP:         .word   DSKEOF         ; G_EOF
                 .word   DSKLOC         ; G_LOC
@@ -1721,6 +1809,9 @@ FILNA2:         .res    33             ; NAME's rename FCB (both names), FILES's
 DIRBUF:         .res    128            ; OO-1: the search's directory record (FILNA2 the 8086's DTA)
 FIDX:           .res    1              ; FILES's place in DIRBUF (the 8086's SI)
 FCNT:           .res    1              ; FILES's count (CX), FILFCB's name count (AH)
+FTYPE:          .res    1              ; FILFCB's (OO-1): 0 in the name, 1 a type given, $80 one made
+FTCNT:          .res    1              ; FILFCB's: the made type's characters
+FSKIP:          .res    1              ; FILFCB's: bit 7, dropping to a delimiter
 FLDSAV:         .res    2              ; FLDGET's and FLDPUT's PTR, kept
 RNDAL:          .res    1              ; DSKRND's function (the 8086's AL)
 RNDPRD:         .res    4              ; RNDMUL's product (the 8086's DX:AX)

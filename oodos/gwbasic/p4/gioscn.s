@@ -23,7 +23,7 @@
 .include "gwbasic.inc"
 
 .export SCNDSP, SCNINI, SCNSWD, SCNSOT, SCNGPS, SCNGWD, SCNSCW, SCNGCW
-.import DERBFM, INIFDB, DEVBIN, DEVBOT, OUTDO, LINLEN, ADVERR
+.import DERBFM, INIFDB, DEVBIN, DEVBOT, OUTDO, LINLEN, ADVERR, LSTCHR
 
 .rodata
 
@@ -76,19 +76,23 @@ SCNSOT:         PHA
                 RTS
 
 ; SCNOL1 (217): a CR goes as CR LF; an LF straight after a CR is dropped.
+; OO-1: LSTCHR is resident (res/oem.s), where the console's OUTDO puts each
+; byte it sends, as the 8086's console output passes SCNOL1 (W10); so
+; SCNOL1 puts its own byte there once SCNOUT (OUTDO) has sent it.
 SCNOL1:         LDX     LSTCHR         ; the last
-                STA     LSTCHR
                 CPX     #13
                 BNE     NTCRLF
                 CMP     #10
-                BEQ     RET22          ; an LF after a CR: eaten
+                BEQ     SCNOLX         ; an LF after a CR: eaten
 NTCRLF:         PHA
                 JSR     SCNOL2
                 PLA
                 CMP     #13
-                BNE     RET22
+                BNE     SCNOLX
                 LDA     #10            ; a CR: an LF after it
                 JSR     SCNOL2
+                LDA     #13
+SCNOLX:         STA     LSTCHR
 RET22:          RTS
 
 ; SCNOL2 (242): A out (SI is always a file's here): not a CR, and the next
@@ -148,4 +152,3 @@ SCNGWD:         LDY     #F_WID
 
 .segment "BRAM"
 WDTFLG:         .res    1              ; GWDATA.ASM's: SCRN:'s width
-LSTCHR:         .res    1              ; and the last byte SCNOL1 had

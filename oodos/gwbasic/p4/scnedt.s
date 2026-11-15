@@ -33,6 +33,8 @@ DSKCHP:         STZ     LDRUN
 LOPBUF:         JSR     INCHR          ; (the file's end: INCHR's)
                 LDX     DCIDX
                 STA     BUF,X
+                BIT     LDRUN          ; the end runs the program: at once, as
+                BMI     FINLIN         ; the 8086's NOTCHN jumps to RUNC (W4)
                 CMP     #13
                 BNE     INOTCR
                 LDA     BUF-1,X        ; after an LF: dropped (BUF-1 is BUFMIN, a comma)
