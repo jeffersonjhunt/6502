@@ -87,7 +87,7 @@ The keyword runs to the first blank or tab. The CCP takes it as one of these, in
 
 1. **A built-in command,** by its name alone, with no drive and no type: `DIR`, `DIRSYS` (`DIRS`), `ERASE` (`ERA`),
    `RENAME` (`REN`), `TYPE` (`TYP`), `USER` (`USE`), as in CP/M 3, and ours, `GO`, `CLEAR`, `CLS`, `WOZMON`,
-   `APPLE2`. The CCP runs them itself ([chapter 4](04-built-in-commands.md)), from any drive and user. DIR, DIRSYS,
+   `APPLE2`, `DIAG`. The CCP runs them itself ([chapter 4](04-built-in-commands.md)), from any drive and user. DIR, DIRSYS,
    ERASE, RENAME and TYPE hand the forms they can't do to their utility, `DIR.COM` and the rest.
 2. **A drive change:** `B:`, or a user number and a drive, `5B:` ([chapter 3](03-drives-and-files.md#drives)).
    Nothing may follow it.

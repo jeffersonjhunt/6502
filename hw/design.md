@@ -442,6 +442,24 @@ with up to 16 MB, so the reasoning isn't lost.
    stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor
    ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
 
+   *(BIOS 0.14, proposed, 2026-11-14: [diag.md](diag.md), plan 2.)* The ROM's diagnostics are in flash blocks
+   21–23 (blocks 0–20 stay erased), entered three ways. Before its copy into block 63, with the Console card
+   fitted (its ID read twice), the reset turns the breakpoint off if BPADDR holds the diagnostics' own P3 address
+   (`$BD1A5`), and only then, so a breakpoint set before START still catches the boot anywhere else; and with
+   switch 19 up, and block 23 holding the diagnostics linked with this BIOS (their signature, their version, and
+   the BIOS version they were linked with), it shows the diagnostics' prompt, which enters them at CONT or `Y`
+   within 5 s and otherwise goes on to the boot, having written nothing. With switch 19 up and no diagnostics (or
+   another build's), the boot says so after the greeting. `$C812` is the diagnostics from the monitor, after a `Y`;
+   `$C815` is the same for a program that has asked already (A = `$A5` and Y = `$5A`, X the options: bit 0 full,
+   bit 1 interactive; anything else is `$C812`), the jump table's last spare, and returns, carry set, if there are
+   no diagnostics. OODOS's `DIAG` at `A>` reaches `$C815` through function 75 with A = 2. The diagnostics overwrite
+   all of RAM and end in the boot (`BOOT`, past the reset's switch check: the copy, the splash, the SD card's
+   `/BOOT.BIN`) or the monitor (`MONBOOT`: the copy and the greeting, no splash, no SD boot), through two fixed
+   jumps at `$FFF4` and `$FFF7`. The switches 16–18 (interactive, loop, full) count only at the reset's and
+   `$C812`'s entries; the diagnostics own WAIT3 while they run and leave every wait state 0. The greeting is
+   `BACKPLANE BIOS 0.14`. The [Technical Reference's chapter 15](../docs/oo1-technical-reference/15-diagnostics.md)
+   is the diagnostics' reference.
+
 **From the ESP32 (override)**
 
 1. The bus spy holds /RESET low; a held W65C02S stays off the bus.
@@ -2147,7 +2165,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   - `DM_BANK8` is refused;
   - SYSINFO's `hwname.s` names both IDs.
 
-  NB_ID is already read as an ID byte under the system tools' exception. The diagnostics' stage 7 checks the
+  NB_ID is already read as an ID byte under SYSINFO's exception (AGENTS.md). The diagnostics' stage 7 checks the
   bridge's revision through `HW_REV` (`diag22.s` 182–184, `CARDIS` with revision 1), and takes `$D2` with B7.
 - **Reset and old software:** WINnH 0 and AP8 1, so block 33 in W1 and `$84000` in a DMA address still mean the
   aperture's slot 1. Today's OODOS and every program built with today's OOLIB run as they do now, on 960 KB.
@@ -2206,8 +2224,10 @@ version (function 80's `FT_INFO`) goes up with them. Every existing call keeps i
 - **OOLIB:** `GX_INIT` calls `DM_BANK8` when the version allows, and `GX_BLOCK` writes WIN1H. A program linked with
   an older library never calls it, keeps AP8 set and runs as now.
 - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
-- **SYSINFO and DIAG** read MAP to say what the RAM is. This read is added to AGENTS.md's system tools' exception
-  with B7 (the owner's answer), together with the note in [video-rev2.md](video-rev2.md).
+- **SYSINFO** reads MAP to say what the RAM is, as the ROM's diagnostics do (they own the machine and need no
+  exception). The read is added to AGENTS.md's exception, which is SYSINFO's alone since D3c
+  ([diag.md](diag.md#plan2-questions), P2-1), with B7 (the owner's answer), together with the note in
+  [video-rev2.md](video-rev2.md).
 
 #### The DMA controller, revision 2 ####
 
@@ -2340,8 +2360,8 @@ revision 1 with it.
 common memory's table, the BIOS's jump table and OOUI's. The DMA controller's registers are none of these:
 - the DMA channels are OODOS's, and a program doesn't touch them (AGENTS.md: "Don't take over what OODOS owns");
 - programs move memory by function 83 and the BIOS's MOVE, whose arguments don't change;
-- the system tools' exception doesn't include the DMA controller: SYSINFO and `DIAG.COM` read only its ID byte
-  (`hwname.s`).
+- SYSINFO's exception (AGENTS.md) doesn't include the DMA controller: SYSINFO reads only its ID byte
+  (`hwprobe.s`, which reads every card's; `hwname.s` names it); the ROM's diagnostics drive it directly, owning the machine while they run.
 
 So nothing outside the ROM and OODOS.SYS sees the move. The ROM's diagnostics (D3b's stage 8) drive the channels
 directly, but they are the ROM's own code and move with it.

@@ -1546,6 +1546,7 @@ question 15.
     phases 5 and 6, and OOLIB's interface version 1 from L1, raised by each step that adds to it.
     *The versions so far (function 80's `FT_INFO`):* 1 L1, 2 L2, 3 L3, 4 L4, 5 L4b's hold, go and volume, 6 L5a's
     mailbox stamp, 7 OODOS 0.8's `EV_SFLAGS`, 8 OODOS 0.9's video card revision 2, 9 function 77, the ROM BIOS's
-    version (hw/diag.md's D1, 2026-11-13). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
+    version (hw/diag.md's D1, 2026-11-13), 10 function 75's A = 2, the ROM's diagnostics (hw/diag.md's D3c,
+    2026-11-14, P2-1). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
     also marks OODOS's own additions a program needs to detect, OOLIB's or not, since it is the one number a
     program can ask for (OODOS's own version is printed one digit each, and changes only at a release).
