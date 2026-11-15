@@ -1,0 +1,42 @@
+# The 1983 source, by hand: a protected program (SAVE ,P, then LOAD: PROFLG) runs, but LIST, EDIT, a line typed, a tokenised SAVE and SAVE ,A are Illegal function call (PROCHK in LIST, BUFLIN, EDENT, BINSAV), until NEW (SCRTCH clears PROFLG); PC-BASIC lists and edits it.
+Ok
+10 PRINT "secret";
+20 PRINT 42
+SAVE "LP",P
+Ok
+NEW
+Ok
+LOAD "LP"
+Ok
+LIST
+Illegal function call
+Ok
+RUN
+secret 42 
+Ok
+EDIT 10
+Illegal function call
+Ok
+30 PRINT 3
+Illegal function call
+Ok
+SAVE "LP2"
+Illegal function call
+Ok
+SAVE "LP3",A
+Illegal function call
+Ok
+RUN
+secret 42 
+Ok
+RUN "LP"
+secret 42 
+Ok
+NEW
+Ok
+LIST
+Ok
+10 PRINT "open"
+LIST
+10 PRINT "open"
+Ok

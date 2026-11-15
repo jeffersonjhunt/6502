@@ -745,6 +745,7 @@ ERROR:
 :
 .endif
                 STA     RDL
+                STZ     NLONLY         ; files may be closed again (7c)
                 LDA     INITFG
                 BNE     INITOK
                 FJSR    CMDERR         ; never returns
@@ -856,7 +857,7 @@ ENDCNJ:         JMP     ENDCON
 ; --- RUN (GWMAIN.ASM 2018) -------------------------------------------------------------
 
 ; RUN: from the start (RUNC, which returns to NEWSTT at TXTTAB-1); RUN line:
-; cleared, then GOTO it with NEWSTT to return to; RUN "file": LRUN, 7c's.
+; cleared, then GOTO it with NEWSTT to return to; RUN "file": LRUN (res/far4.s).
 RUN:            BNE     :+
                 JMP     RUNC
 :               CMP     #LINCON

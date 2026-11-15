@@ -40,7 +40,7 @@
 ;@entry SCCPTR
 ;@entry EDITP
 .export CRUNCH, EDENT2, LINKER, CHEAD, ERRPRT, ERRFIN, BRKMSG, ERREDT, SCNLIN
-.export SCCLIN, EDITP
+.export SCCLIN, EDITP, PROCHK
 .export LINSPC, SCCPTR, DEPTR, INPRT, NOTRFN, RENCRN, KLOOP
 .import CHRGTR, CHRGT2, LINGET, FNDLIN, BAKSP, MAKUPL, MAKUPS, ISLET2, OCTCNS
 .import STROUT, OUTDO, CRDO, SYNCHR, ERROR, SNERR, USERR, BLTU, CONCH2
@@ -462,15 +462,16 @@ JKLOOP:         JMP     KLOOP
 ; with nothing after the number deletes it (Undefined line number if there
 ; is none), else it goes in its place. The strings are dropped, so REASON
 ; doesn't count them; then CHEAD and FINI (resident: RUNC, MAIN). Out of
-; memory from BLTU fixes the links itself (OMERR). (PROCHK and CHAIN's
-; CHNFLG are 7c's.)
+; memory from BLTU fixes the links itself (OMERR). A protected program
+; takes no line (PROCHK). (CHAIN's CHNFLG is a later step's.)
 ;
 ; AUTO's part (7b step c): every numbered line sets AUTO's next line,
 ; AUTLIN, to its number plus AUTINC, as the 8086 does whether AUTO is on or
 ; not; past 65529 (or a carry), AUTO ends (AUTRES). In AUTO, an empty line
 ; (the number offered and nothing typed) neither deletes a line nor gives
 ; Undefined line number: it goes straight to FINI.
-EDENT2:         JSR     CHRGTR         ; the line empty? (KTRM 0)
+EDENT2:         JSR     PROCHK         ; no change to a protected program
+                JSR     CHRGTR         ; the line empty? (KTRM 0)
                 STA     KTRM
                 LDA     RDL
                 STA     DOT
@@ -648,6 +649,18 @@ MLOOP:          LDA     (PTR2)
                 STA     STREND+1
                 RTS
 .export DEL
+
+; --- PROCHK (GIODSK.ASM 922) --------------------------------------------------------------
+
+; PROCHK: Illegal function call if the program is protected (PROFLG: a SAVE
+; ,P loaded), so it can't be listed, edited or changed. The flags kept, as
+; the 8086's PUSHF keeps them; A used.
+PROCHK:         PHP
+                LDA     PROFLG
+                BNE     :+
+                PLP
+                RTS
+:               JMP     FCERR
 
 ; --- LINKER, CHEAD (GWMAIN.ASM 799) ------------------------------------------------------
 

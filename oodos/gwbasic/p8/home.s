@@ -37,7 +37,7 @@
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
-.import OPEN, CLOSE, RESET
+.import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 
 .code
 
@@ -116,8 +116,11 @@ STMDSP:         S       ENDST          ; END
                 S       RANDOM         ; RANDOMIZE
                 S       OPEN           ; OPEN
                 S       CLOSE          ; CLOSE
-.repeat LOCATE_TK - LOAD_TK + 1
-                S       ADVERR         ; LOAD .. LOCATE (7c-7f)
+                S       LOADS          ; LOAD
+                S       MERGES         ; MERGE
+                S       SAVES          ; SAVE
+.repeat LOCATE_TK - SAVE_TK
+                S       ADVERR         ; COLOR .. LOCATE (7c-7f)
 .endrepeat
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 

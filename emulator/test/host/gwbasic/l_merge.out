@@ -1,0 +1,46 @@
+Okÿ
+10 PRINT "ten"
+30 PRINT "thirty"
+SAVE "LM1",A
+Okÿ
+NEW
+Okÿ
+20 PRINT "twenty"
+30 PRINT "old thirty"
+40 PRINT "forty"
+MERGE "LM1"
+Okÿ
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Okÿ
+RUN
+ten
+twenty
+thirty
+forty
+Okÿ
+SAVE "LM2"
+Okÿ
+MERGE "LM2"
+Direct statement in fileÿ
+Okÿ
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Okÿ
+MERGE "NOFILE"
+File not foundÿ
+Okÿ
+MERGE "LM1",X
+Okÿ
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Okÿ

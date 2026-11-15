@@ -582,7 +582,7 @@ GWMAIN.ASM LEPSKP -> p2/gwmain.s LEPSKP
 GWMAIN.ASM ERRFIN -> p2/gwmain.s ERRFIN # P2's ERRPRT (from ERRMOR) and BRKMSG (from ENDCON) come to it
 GWMAIN.ASM ERRFN1 -> p2/gwmain.s ERRFN1
 GWMAIN.ASM STPRDY -> p8/gwmain.s READY # the line it pops isn't on the 6502's stack: READY itself
-GWMAIN.ASM READY -> p8/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN later 7c
+GWMAIN.ASM READY -> p8/gwmain.s READY # FTSITE's far call first, the project's own measurement; PRGFIN's close of file 0 is FINLPT's FINPRT (OO-1: F0OPN)
 GWMAIN.ASM REPINI -> p8/gwmain.s REPINI
 GWMAIN.ASM MAIN -> p8/gwmain.s MAIN # AUTO's line number and "*" offered by P3's MAINA (AUTFLG's test resident)
 GWMAIN.ASM AUTELN -> p3/gwmain.s AUTELN # OO-1: the number and "*" into BUF, function 10's preload, not the screen
@@ -596,7 +596,7 @@ GWMAIN.ASM AUTGOD -> p2/gwmain.s AUTGOD
 GWMAIN.ASM LXISTS -> p2/gwmain.s LXISTS
 GWMAIN.ASM LEXIST -> p2/gwmain.s LEXIST
 GWMAIN.ASM ERAINS -> p2/gwmain.s LEXIST
-GWMAIN.ASM INONLY -> p2/gwmain.s INONLY # PROCHK (protected programs) later 7c
+GWMAIN.ASM INONLY -> p2/gwmain.s INONLY # PROCHK at EDENT2's start
 GWMAIN.ASM NODEL -> p2/gwmain.s NODEL
 GWMAIN.ASM LEVFRE -> p2/gwmain.s LEVFRE # CHNFLG later 7c
 GWMAIN.ASM MLOOPR -> p2/gwmain.s MLOOPR
@@ -809,9 +809,9 @@ GWEVAL.ASM HOCFIN -> res/gweval.s HOCFIN # MAKINT inline
 GWEVAL.ASM ISMID$ -> res/gweval.s ISMID # LHSMID (MID$ =) P3's, through res/far3.s LHSMID
 BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
-BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG later 7c
+BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c); GRPRST, SNDINI, MRGFLG, CHNFLG, NLONLY later 7c-7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c); GRPRST, SNDINI, MRGFLG, CHNFLG later 7c-7f
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -842,27 +842,27 @@ BIMISC.ASM CTRLPT -> dropped: ^C and ^O echoed by the screen editor; function 10
 GWINIT.ASM INIT -> p2/gwinit.s GWINIT # the memory map from the loader's start to the TPA's top; the BASIC stack fixed RAM
 GWINIT.ASM MORMOV -> dropped: no ROM constants to copy: fixed RAM's first values are in GWBASIC.COM
 GWINIT.ASM CPMVR1 -> later 7c: the read and write codes the files use
-GWINIT.ASM TBFLP -> later 7c: the command line's program and switches (/M: /F: /S: /C:)
-GWINIT.ASM ENDCMD -> later 7c: as TBFLP
-GWINIT.ASM ISSLH -> later 7c: as TBFLP
-GWINIT.ASM FNDSLH -> later 7c: as TBFLP
-GWINIT.ASM SCANSW -> later 7c: as TBFLP
+GWINIT.ASM TBFLP -> p2/gwinit.s TBFLP # OO-1: the tail at BP_DMA
+GWINIT.ASM ENDCMD -> p2/gwinit.s ENDCMD
+GWINIT.ASM ISSLH -> p2/gwinit.s ISSLH
+GWINIT.ASM FNDSLH -> p2/gwinit.s FNDSLH # the name's end; the switches (SCANSW) later 7c
+GWINIT.ASM SCANSW -> later 7c: the switches (/M: /F: /S: /C:), passed over until then
 GWINIT.ASM SCANS1 -> later 7c: as TBFLP
 GWINIT.ASM FOK -> later 7c: as TBFLP
 GWINIT.ASM WASC -> later 7c: as TBFLP
 GWINIT.ASM WASS -> later 7c: as TBFLP
 GWINIT.ASM WASF -> later 7c: as TBFLP
 GWINIT.ASM GETVAL -> later 7c: as TBFLP
-GWINIT.ASM DONCMD -> p2/gwinit.s GWINIT # MAPCLC dropped; the command line's file later 7c
+GWINIT.ASM DONCMD -> p2/gwinit.s DONCMD # MAPCLC dropped
 GWINIT.ASM ERRCMD -> p2/gwinit.s GWINIT
-GWINIT.ASM NXTBYT -> later 7c: the command line's file name to BUF
+GWINIT.ASM NXTBYT -> p2/gwinit.s NXTBYT
 GWINIT.ASM SMLSTK -> dropped: the BASIC stack is fixed RAM (512 bytes), not carved from the workspace
 GWINIT.ASM PRNTIT -> p2/gwinit.s GWINIT # the OEM's line (GETHED's), then HEDING
 GWINIT.ASM PRNTND -> later 7d: the function-key line (KEYSW)
 GWINIT.ASM KEYSOF -> p2/gwinit.s GWINIT # INITFG set
 GWINIT.ASM CMDERR -> p2/gwinit.s CMDERR
 ITSA86.ASM WORDS -> p2/gwinit.s WORDS
-ITSA86.ASM INITSA -> res/bimisc.s INITSA # LRUN, a program named on the command line, later 7c
+ITSA86.ASM INITSA -> res/bimisc.s INITSA # a program named on the command line: LRUN, CURLIN 65534 (OO-1: zero page)
 ITSA86.ASM GREADY -> res/bimisc.s INITSA
 ITSA86.ASM MAPINI -> p2/gwinit.s GWINIT # no data segment to move: the bytes free message alone
 ITSA86.ASM MAPINX -> p2/gwinit.s GWINIT
@@ -903,7 +903,7 @@ SCNEDT.ASM ERRED3 -> p2/gwmain.s ERRED3
 SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to show and edit (PRELOD)
 SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub p8/gwmain.s EDIT
 SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
-SCNEDT.ASM DSKCHI -> later 7c: a program loaded as text
+SCNEDT.ASM DSKCHI -> p4/scnedt.s DSKCHP # an entry, from MAIN (p8/gwmain.s): a line a far call
 SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
 GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; a file's bytes in RUNBUF, to P4 as runs (FLUSHP)
 GIO86.ASM CRDO -> OEM res/oem.s CRDO
@@ -911,7 +911,7 @@ GIO86.ASM CRDONZ -> OEM res/oem.s CRDONZ
 GIO86.ASM CRFIN -> OEM res/oem.s CRFIN
 GIO86.ASM FINLPT -> OEM res/oem.s FINLPT
 GIO86.ASM FINPRT -> OEM res/oem.s FINPRT # P4's part FINPRP (p4/gio86.s): OUTDO's run sent, FREFDB's FDB freed
-GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; a file's direct line (ERFDR) later 7c
+GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; from a file, ERFDR (Direct statement in file)
 GIO86.ASM CLSALL -> p4/gio86.s CLSALP # its resident stub res/far4.s CLSALL (no far call with no file open)
 GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> later 7c: as NAMSCN
@@ -931,9 +931,9 @@ GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
 SCNDRV.ASM SCNIPL -> later 7d: the screen editor's start-up
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
-GIODSK.ASM PROCHK -> later 7c: protected programs
-DSKCOM.ASM LRUN -> later 7c: RUN "file"; res/todo_i1.s gives Advanced Feature
-DSKCOM.ASM PRGFIN -> later 7c: READY's file close
+GIODSK.ASM PROCHK -> p2/gwmain.s PROCHK # P2's; P3's PRODIR and P4's BINSAV have it inline
+DSKCOM.ASM LRUN -> res/far4.s LRUN # S to HOMSTK, then the home block's HLRUN (p8/far4.s): LRUN2's flag 1
+DSKCOM.ASM PRGFIN -> p4/gio86.s PRGFIN
 SCNDRV.ASM SCNMRK -> dropped: the screen editor's line marks; function 10 edits the line
 SCNDRV.ASM SCNRDL -> dropped: the screen's line read back; function 10 fills BUF
 SCNDRV.ASM SCNBRK -> dropped: the screen driver's flags at a break
@@ -1245,8 +1245,8 @@ GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/fa
 GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM
 GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1's: Advanced Feature
 GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
-DSKCOM.ASM LOAD -> later 7c
-DSKCOM.ASM MERGE -> later 7c
+DSKCOM.ASM LOAD -> p8/far4.s LOADS # its flag 0; then LRUN3 (p4/dskcom.s LOADP: the resident LOAD is the loader)
+DSKCOM.ASM MERGE -> p4/dskcom.s MERGEP # the stub (p8/far4.s MERGES) drops NEWSTT's return
 GWSTS.ASM COLOR -> later 7d
 GWSTS.ASM CLS -> later 7d
 GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
@@ -1387,7 +1387,7 @@ GWEVAL.ASM DEFUSR -> p3/gweval.s DEFUSR # USRTAB in P3's own data, $FFFF until D
 GWEVAL.ASM SCNUSR -> p3/gweval.s SCNUSR
 GWEVAL.ASM USERCN -> p3/gweval.s USERCN
 GWEVAL.ASM NOARGU -> p3/gweval.s NOARGU
-GIODSK.ASM PRODIR -> later 7c: protected programs (PROFLG), none before 7c: USR goes on
+GIODSK.ASM PRODIR -> p3/gweval.s PRODIR # USR's; PROCHK inline
 GWEVAL.ASM ASGMOR -> p3/gweval.s ASGMOR # the arguments' values on the BASIC stack, as the 8086's on its own
 GWEVAL.ASM POPAS2 -> p3/gweval.s POPAS2 # LETCN4's return: a JSR here
 GWEVAL.ASM POPASG -> p3/gweval.s POPASG
@@ -1504,7 +1504,7 @@ GIO86.ASM ERBFM3 -> p4/gio86.s ERBFM3
 GIO86.ASM FILSET -> p4/gio86.s FILSET # OO-1: SETPTR, OUTDO's run sent first and FILPOS set
 DSKCOM.ASM DSKCHR -> p4/dskcom.s DSKCHR
 GIOKYB.ASM INCHRI -> OEM p4/gio86.s INCHRI # the console's next key, CHSNS's
-GIO86.ASM INCHR -> p4/gio86.s INCHR # file 0's end (FL0EOF: LOAD's) later 7c
+GIO86.ASM INCHR -> p4/gio86.s INCHR
 GIO86.ASM INDSKC -> p4/gio86.s INDSKC
 DSKCOM.ASM STRCHR -> p4/dskcom.s STRCHR
 GIO86.ASM BAKCHR -> p4/gio86.s BAKCHR
@@ -1541,7 +1541,7 @@ GIO86.ASM INCHSI -> p4/gio86.s INCHSI
 GIO86.ASM INIFDB -> p4/gio86.s INIFDB # OO-1: FILOPN counted
 GIO86.ASM FALLOC -> p4/gio86.s FALLOC # OO-1: the table's FDB for the number, not room below the strings
 GIO86.ASM FILDSP -> p4/gio86.s FILDSP
-GIODSK.ASM DSKDSP -> p4/giodsk.s DSKDSP # DSKRND, DFSTLD and DEVBOT: Advanced Feature till their steps
+GIODSK.ASM DSKDSP -> p4/giodsk.s DSKDSP # DSKRND: Advanced Feature till X1
 GIODSK.ASM DSKEOF -> p4/giodsk.s DSKEOF
 GIODSK.ASM DSKLOC -> p4/giodsk.s DSKLOC
 GIODSK.ASM DSKLOF -> p4/giodsk.s DSKLOF # OO-1: function 35's records times 128, made a single then a double ($NORMD's work)
@@ -1568,8 +1568,63 @@ GIODSK.ASM SETBUF -> p4/giodsk.s SETBUF # the buffer's CPU address in W3 (V1, ro
 GIODSK.ASM ACCFIL -> p4/giodsk.s ACCFIL # functions 33 and 34; R0-R2 the random record (OO-1: CP/M's 3 bytes)
 GIODSK.ASM CHKFOP -> p4/giodsk.s CHKFOP # OO-1: the table's FDBs in use
 GIODSK.ASM MAKUPC -> p4/giodsk.s MAKUPC
-GIODSK.ASM DFSTLD -> later 7c: LOAD's block input
+GIODSK.ASM DFSTLD -> p4/giodsk.s DFSTLD # OO-1 (W2): whole records by DM_LOAD while each fits, the last part through the buffer
 GIODSK.ASM OPNSET -> p4/giodsk.s OPNSET
 GIODSK.ASM MAKFIL -> p4/giodsk.s MAKFIL
 GIODSK.ASM PUTSUB -> later 7c: a random record written (X1)
 GIODSK.ASM ER_TMF -> p4/giodsk.s ER_TMF
+# 7c: LOAD, SAVE and MERGE (block P4, the home block's stubs)
+DSKCOM.ASM PRGFLI -> p4/dskcom.s PRGFLI
+DSKCOM.ASM PRGFL2 -> p4/dskcom.s ENDOFS # inline: PRGFIL with MD_SQO
+DSKCOM.ASM LRUN2 -> res/far4.s LRUN
+DSKCOM.ASM LRUN3 -> p8/far4.s LRUN3 # the stub: LOADP, SCRTCH, NOTINI, LOADP2
+DSKCOM.ASM NOTRNL -> p4/dskcom.s NOTRN1
+DSKCOM.ASM NOTRN1 -> p4/dskcom.s NOTRN1 # its SCRTCH the stub's (p8/far4.s)
+DSKCOM.ASM CHNENT -> later 7c: CHAIN's way in (the $81 flag is LOAD ,R's here)
+DSKCOM.ASM NOTINI -> p8/far4.s NOTINI # then the first byte: p4/dskcom.s LOADP2
+DSKCOM.ASM NTPROL -> p4/dskcom.s NTPROL
+DSKCOM.ASM BINLOD -> p4/dskcom.s BINLOD # OO-1 (W2): the end by LINKER's chain below the bytes read; RUNC, FINPRT, READY or NEWSTT the stub's (LDBIN)
+DSKCOM.ASM OUTLOD -> p8/far4.s OUTLOD
+DSKCOM.ASM OKGETM -> p4/dskcom.s OKGETM
+DSKCOM.ASM OKGET2 -> p4/dskcom.s OKGET2
+DSKCOM.ASM MAINGO -> p4/dskcom.s MAINGO # MAIN the stub's
+DSKCOM.ASM SAVE -> p4/dskcom.s SAVEP # the stub p8/far4.s SAVES; ",A": LIST from the stub
+DSKCOM.ASM GOODSV -> p4/dskcom.s GOODSV
+DSKCOM.ASM ENDOFS -> p4/dskcom.s ENDOFS
+GIO86.ASM PRGFIL -> p4/gio86.s PRGFIL
+GIO86.ASM PRGFIX -> p4/gio86.s NULOPN
+GIO86.ASM NAMBAS -> p4/gio86.s NAMBAS
+GIO86.ASM NAMBAX -> p4/gio86.s NAMBAX
+GIO86.ASM NULOPN -> p4/gio86.s NULOPN
+GIO86.ASM FL0EOF -> p4/gio86.s FL0EOF
+GIO86.ASM LDREOF -> p4/gio86.s LDREOF # CHNFLG (CHAIN) later 7c: none under way
+GIO86.ASM NOTCHN -> p4/gio86.s NOTCHN # OO-1: RUNC and NEWSTT are MAIN's (p8/gwmain.s), by LDRUN
+GIO86.ASM NORUNC -> p4/gio86.s NORUNC
+GIO86.ASM INCHRX -> p4/gio86.s INCHRX
+GIO86.ASM BINSAV -> p4/gio86.s BINSAV
+GIO86.ASM BINPSV -> p4/gio86.s BINPSV
+GIO86.ASM BINSVX -> p4/gio86.s BINSVX
+GIO86.ASM DEVBOT -> p4/gio86.s DEVBOT
+GIO86.ASM RET27 -> p4/gio86.s RET27
+GIO86.ASM OUTBLK -> p4/gio86.s OUTBLK
+GIO86.ASM INPBLK -> p4/gio86.s INPBLK
+GIO86.ASM FSTLOD -> p4/gio86.s FSTLOD # OO-1: no OUTLOD from the read's C: BINLOD's links decide
+GIO86.ASM SCDASC -> p4/gio86.s SCDASC
+GIO86.ASM SCDBIN -> p4/gio86.s SCDBIN
+GIODSK.ASM PROSAV -> p4/giodsk.s PROSAV
+GIODSK.ASM PENCOD -> p4/giodsk.s PENCOD
+GIODSK.ASM ENCDBL -> p4/giodsk.s ENCDBL
+GIODSK.ASM CNTZER -> p4/giodsk.s PRNEXT
+GIODSK.ASM PROLOD -> p4/giodsk.s PDECOD
+GIODSK.ASM PDECOD -> p4/giodsk.s PDECOD
+GIODSK.ASM DECDBL -> p4/giodsk.s DECDBL
+GIODSK.ASM CNTZR2 -> p4/giodsk.s PRNEXT
+GIODSK.ASM RET12 -> p4/giodsk.s PRRET
+GIODSK.ASM FCERRA -> p2/gwmain.s PROCHK
+SCNEDT.ASM ISLOAD -> p4/scnedt.s DSKCHP
+SCNEDT.ASM LOPBUF -> p4/scnedt.s LOPBUF
+SCNEDT.ASM INOTCR -> p4/scnedt.s INOTCR
+SCNEDT.ASM INOTLF -> p4/scnedt.s INOTLF
+SCNEDT.ASM FINLIN -> p4/scnedt.s FINLIN
+SCNEDT.ASM LTLONG -> p4/scnedt.s LTLONG
+GIO86.ASM FILOU3 -> p4/gio86.s PTRDSP # OUTDO's other name: from P4, G_SOT to the device itself

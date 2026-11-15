@@ -21,6 +21,11 @@
 ;   READS WRITES    a record read or written ($READS, $WRITS), at the
 ;                   random record CP/M's R0-R2 holds, which ACCFIL moves on
 ;   RESETP          RESET: every file closed, the drives reset
+;   DFSTLD          a LOAD's block input: whole records straight to the
+;                   workspace by function 83's DM_LOAD (W2), the last part
+;                   through the buffer
+;   PROSAV          SAVE ,P: the program saved encoded (PENCOD), then decoded
+;   PENCOD PDECOD   (PDECOD, which LOAD's PROLOD is)
 ;
 ; The FDB is P4's (p4/gio86.s, gwbasic.inc): FDBP, the 8086's SI, points at
 ; it. Each record goes straight to or from the buffer in it: SETBUF makes its
@@ -41,8 +46,9 @@
 .include "gwbasic.inc"
 
 ;@entry RESETP
-.export DSKDSP, DSKOPN, RESETP
+.export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB
+.import DEVBOT, BINPSV, GTMPRT, CHRGTR
 .import DERTMF, DERFNF, DERBFM, DERFAO, DERIOE, DERDFL, FCERR, ADVERR, FRCDBL
 
 ASCCTZ          = 26                   ; ^Z, a text file's end
@@ -593,6 +599,257 @@ FCBDOS:         CLC
                 PLA
                 JMP     BDOS
 
+; --- DFSTLD (GIODSK.ASM 783) --------------------------------------------------------------
+
+; DFSTLD: CX bytes at most from PTRFIL's file (file 0, its first byte read)
+; to BX; BX returns past the last, C set if the file ended first. OO-1
+; (W2, hw/oodos.md 7c): the 8086 reads the bytes from the second on by one
+; random block read of 1-byte records; CP/M's records are 128 bytes, so:
+;   1. the bytes the buffer has left of the first record, as many as CX
+;      takes (BUFCPY);
+;   2. whole records by function 83's DM_LOAD, from the next (R0-R2),
+;      straight to the workspace (its physical address, function 73's), as
+;      many as fit in CX whole: each lies below BX + CX;
+;   3. if CX has room for part of one more, that record read into the
+;      buffer (READS), and only the bytes CX takes copied.
+; So nothing is written at or past BX + CX, however the file ends. A
+; DM_LOAD that fails is Device I/O error.
+DFSTLD:         LDA     PTRFIL
+                STA     FDBP
+                LDA     PTRFIL+1
+                STA     FDBP+1
+                JSR     BUFCPY
+                LDA     RCL            ; the whole records: CX / 128
+                ASL     A
+                LDA     RCH
+                ROL     A
+                STA     LDBLK+6
+                LDA     #0
+                ROL     A
+                STA     LDBLK+7
+                ORA     LDBLK+6
+                JEQ     DFSTL3
+                LDA     #DM_LOAD
+                STA     LDBLK
+                CLC                    ; the FCB
+                LDA     FDBP
+                ADC     #F_FCB
+                STA     LDBLK+1
+                LDA     FDBP+1
+                ADC     #0
+                STA     LDBLK+2
+                LDY     #FCB_RN        ; the first, the next record
+                LDX     #0
+@rn:            LDA     (FDBP),Y
+                STA     LDBLK+3,X
+                INY
+                INX
+                CPX     #3
+                BNE     @rn
+                LDA     RBL            ; the destination: BX's physical address
+                STA     LDPHY
+                LDA     RBH
+                STA     LDPHY+1
+                LDA     #<LDPHY
+                LDX     #>LDPHY
+                LDY     #O_PHYSADDR
+                JSR     BDOS
+                CMP     #0
+                JNE     DFSTER
+                LDA     LDPHY+2        ; paragraph x 16 + offset
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     LDPHY
+                STA     LDBLK+8
+                LDA     LDPHY+2
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                STA     T0
+                LDA     LDPHY+3
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     T0
+                STA     LDBLK+9
+                LDA     LDPHY+3
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                STA     LDBLK+10
+                LDA     #<LDBLK
+                LDX     #>LDBLK
+                LDY     #O_DMA
+                JSR     BDOS
+                STA     LDRES          ; 0 all, 1 the file ended first
+                CMP     #2
+                BCS     DFSTER
+                LDY     #FCB_RN        ; the next record: the first + those loaded
+                CLC
+                LDA     LDBLK+3
+                ADC     LDBLK+6
+                STA     (FDBP),Y
+                INY
+                LDA     LDBLK+4
+                ADC     LDBLK+7
+                STA     (FDBP),Y
+                INY
+                LDA     LDBLK+5
+                ADC     #0
+                STA     (FDBP),Y
+                LDA     LDBLK+6        ; BX on, CX less, by 128 x those loaded
+                LSR     LDBLK+7
+                ROR     A
+                STA     T1             ; (x 128: the high byte, and the low's bit 7)
+                LDA     #0
+                ROR     A
+                STA     T0
+                CLC
+                LDA     RBL
+                ADC     T0
+                STA     RBL
+                LDA     RBH
+                ADC     T1
+                STA     RBH
+                SEC
+                LDA     RCL
+                SBC     T0
+                STA     RCL
+                LDA     RCH
+                SBC     T1
+                STA     RCH
+                LDA     LDRES
+                BNE     DFSTEF         ; the file ended
+DFSTL3:         LDA     RCL            ; room for part of one more?
+                ORA     RCH
+                BEQ     DFSTNE
+                JSR     READS
+                BEQ     DFSTEF         ; none: the end
+                JSR     BUFCPY
+DFSTNE:         CLC
+                RTS
+DFSTEF:         SEC
+                RTS
+DFSTER:         JMP     DERIOE
+
+; BUFCPY (the project's own): the bytes left in FDBP's buffer (F_BREM) to
+; BX, as many as CX takes: BX on, CX and F_BREM less.
+BUFCPY:         LDY     #F_BREM
+                LDA     (FDBP),Y
+                BEQ     @x
+                LDA     RCL
+                ORA     RCH
+                BEQ     @x
+                LDA     (FDBP),Y       ; DATOFS + F_ORCT - F_BREM: the next byte
+                EOR     #$FF
+                SEC
+                LDY     #F_ORCT
+                ADC     (FDBP),Y
+                CLC
+                ADC     #DATOFS
+                TAY
+                LDA     (FDBP),Y
+                STA     (RBL)
+                INCW    RBL
+                LDA     RCL
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                LDY     #F_BREM
+                LDA     (FDBP),Y
+                DEC     A
+                STA     (FDBP),Y
+                BRA     BUFCPY
+@x:             RTS
+
+; --- PROSAV, PENCOD, PDECOD (GIODSK.ASM 814) ----------------------------------------------
+
+; PROSAV: SAVE name,P: past the "P", TEMP there; the line pointers back to
+; numbers (SCCPTR, P2's), the program encoded (PENCOD), saved with 254 first
+; (BINPSV, which closes file 0), decoded again (PDECOD); TXTPTR from TEMP.
+PROSAV:         JSR     CHRGTR
+                LDA     TXTPTR
+                STA     TEMP
+                LDA     TXTPTR+1
+                STA     TEMP+1
+                FJSR    SCCPTR
+                JSR     PENCOD
+                LDA     #254
+                JSR     BINPSV
+                JSR     PDECOD
+                JMP     GTMPRT
+
+; PENCOD: each byte of the text, TXTTAB to VARTAB, less CH, XORed with
+; PRKEY1's byte CL and PRKEY2's byte CH, plus CL; CL counts 11 down to 1 and
+; again (N1), CH 13 down to 1 (N2), each byte. PDECOD (PROLOD) undoes it:
+; less CL, XOR CH's, XOR CL's, plus CH. PTR is the 8086's DX.
+N1              = 11
+N2              = 13
+PENCOD:         JSR     PRINIT
+ENCDBL:         JSR     PREND
+                BEQ     PRRET
+                LDA     (PTR)
+                SEC
+                SBC     PRCH
+                LDX     PRCL
+                EOR     PRKEY1-1,X
+                LDX     PRCH
+                EOR     PRKEY2-1,X
+                CLC
+                ADC     PRCL
+                STA     (PTR)
+                JSR     PRNEXT
+                BRA     ENCDBL
+PDECOD:         JSR     PRINIT
+DECDBL:         JSR     PREND
+                BEQ     PRRET
+                LDA     (PTR)
+                SEC
+                SBC     PRCL
+                LDX     PRCH
+                EOR     PRKEY2-1,X
+                LDX     PRCL
+                EOR     PRKEY1-1,X
+                CLC
+                ADC     PRCH
+                STA     (PTR)
+                JSR     PRNEXT
+                BRA     DECDBL
+PRRET:          RTS
+; (The 8086's loop's parts, the project's own: both counters set, PTR at
+; TXTTAB; Z set at VARTAB; PTR on and the counters down, each back to its
+; start at 0.)
+PRINIT:         LDA     #N1
+                STA     PRCL
+                LDA     #N2
+                STA     PRCH
+                LDA     TXTTAB
+                STA     PTR
+                LDA     TXTTAB+1
+                STA     PTR+1
+                RTS
+PREND:          LDA     PTR
+                CMP     VARTAB
+                BNE     :+
+                LDA     PTR+1
+                CMP     VARTAB+1
+:               RTS
+PRNEXT:         INCW    PTR
+                DEC     PRCL
+                BNE     :+
+                LDA     #N1
+                STA     PRCL
+:               DEC     PRCH
+                BNE     :+
+                LDA     #N2
+                STA     PRCH
+:               RTS
+
 ; --- CHKFOP (GIODSK.ASM 714) --------------------------------------------------------------
 
 ; CHKFOP: File already open if another FDB has this one's drive, name and
@@ -668,9 +925,8 @@ RESETP:         BNE     RESETX
 RESETX:         RTS
 
 .rodata
-; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*. Those of later
-; steps are Advanced Feature till then: random records (DSKRND: X1), the
-; block input of a LOAD (DFSTLD) and the block output of a BSAVE (DEVBOT).
+; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*. Random records
+; (DSKRND: X1) are a later step's, Advanced Feature till then.
 DSKDSP:         .word   DSKEOF         ; G_EOF
                 .word   DSKLOC         ; G_LOC
                 .word   DSKLOF         ; G_LOF
@@ -684,8 +940,14 @@ DSKDSP:         .word   DSKEOF         ; G_EOF
                 .word   DSKGWD         ; G_GWD
                 .word   DSKSCW         ; G_SCW
                 .word   DSKGCW         ; G_GCW
-                .word   ADVERR         ; G_BIN: DFSTLD (LOAD, later 7c)
-                .word   ADVERR         ; G_BOT: DEVBOT (BSAVE, later 7c)
+                .word   DFSTLD         ; G_BIN
+                .word   DEVBOT         ; G_BOT
+
+; PRKEY1, PRKEY2: PENCOD's and PDECOD's keys, the bytes the 8086 takes of
+; MATH1.ASM's $EXPCN (+1 to +11) and $LOGP (+1 to +13), so a protected
+; program is encoded as GW-BASIC encodes it.
+PRKEY1:         .byte   $7C, $88, $59, $74, $E0, $97, $26, $77, $C4, $1D, $1E
+PRKEY2:         .byte   $9A, $F7, $19, $83, $24, $63, $43, $83, $75, $CD, $8D, $84, $A9
 
 .segment "BRAM"
 ODEV:           .res    1              ; DSKOPN's device (the 8086's AL, kept till INIFDB)
@@ -694,3 +956,8 @@ APPCNT:         .res    1              ; APPFIN's count (DX)
 ACCFN:          .res    1              ; ACCFIL's function (the 8086's AH)
 CHKN:           .res    1              ; CHKFOP's number
 LOFRN:          .res    3              ; DSKLOF's R0-R2, kept
+LDBLK:          .res    11             ; DFSTLD's DM_LOAD block
+LDPHY:          .res    4              ; and function 73's
+LDRES:          .res    1              ; DM_LOAD's A
+PRCL:           .res    1              ; PENCOD's and PDECOD's CL and CH
+PRCH:           .res    1

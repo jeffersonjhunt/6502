@@ -239,3 +239,25 @@ NEW and SYSTEM close every file (each read back, the last after SYSTEM by the CC
 drive; `Q:` and a device name (`LPT1:`) are Bad file name; a random OPEN is Advanced Feature until X1; INPUT$ from
 the keyboard; every record's DMA address in P4's own RAM with block P4 in W3 (V1); and PRINT # to a file timed, its
 bytes going to P4 as runs.
+
+7c's LOAD, SAVE and MERGE are typed sessions (`NAME.typ`, as 7b's step c): test_gwbasic_files types each line when
+GW-BASIC waits for one, and the transcript must be PC-BASIC's (`NAME.out`), or `NAME.differ`'s. Each writes its own
+files and reads them back.
+
+| Session | What |
+|---|---|
+| `l_save` | a program SAVEd tokenised and LOADed, LISTed, RUN; SAVE ,A and LOAD of the text; a name with no type given `.BAS`; LOAD of a missing file; LOAD ,R, RUN name and RUN name,R; the options' Syntax errors |
+| `l_merge` | MERGE of a text file into a program (lines replaced and added); of a tokenised file; of a missing one; with more after the name |
+| `l_files` | a file open across LOAD ,R (kept), LOAD and RUN name (closed: Bad file number) |
+| `l_text` | text files written by PRINT #: a direct statement in one (Direct statement in file), the ^Z end, a leading LF, a last line with no CR, an empty file |
+| `l_prot` | SAVE ,P and LOAD: it runs; LIST, EDIT, a line typed, SAVE and SAVE ,A refused; NEW |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `l_merge` (MERGE of a tokenised file is Bad file
+mode, OKGET2's; more after MERGE's name is Syntax error), `l_text` (RUN name of a text file runs at its end at once,
+so a last line with no CR isn't entered: NOTCHN), `l_prot` (by hand: the source refuses LIST, EDIT, line entry and
+SAVE of a protected program, PROCHK; PC-BASIC lists and edits it).
+
+By hand in test_gwbasic_files: W2, a tokenised LOAD at the workspace's top (CLEAR ,n puts MEMSIZ 90 bytes past the
+program's end, sentinels past it unchanged, DM_LOAD used, the program run; 30 bytes lower, Out of memory with nothing
+written past it); and a program named on the command line (`GWBASIC PROG`, a name ending at `/`, a missing one).
+

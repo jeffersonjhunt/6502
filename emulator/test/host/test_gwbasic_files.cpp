@@ -19,6 +19,8 @@
  *   drives and device names, a random OPEN, INPUT$ from the keyboard.
  * - V1, route (c): the FCB and the record's buffer are in P4's own RAM, the BDOS's DMA address the buffer's CPU
  *   address in W3, while P4 is there; and PRINT #'s bytes go to P4 as runs, timed.
+ * - LOAD, SAVE and MERGE (7c's LOAD step): typed sessions against PC-BASIC's transcripts (NAME.typ); W2, a tokenised
+ *   LOAD at the workspace's top, with sentinels past it; and a program named on the command line, from the CCP.
  */
 
 #include "harness.h"
@@ -136,6 +138,67 @@ namespace
             CHECK_EQ(command(r, "NEW"), std::string());
             enter(r, bas(name));
             const std::string got = command(r, "RUN"), want = oracle(name);
+            if (got != want)
+                std::printf("  %s:\n    got  '%s'\n    want '%s'\n", name, vis(got).c_str(), vis(want).c_str());
+            CHECK_EQ(got, want);
+        }
+    }
+
+    /// A typed session (LOAD's step, as test_gwbasic_stmts' step c): GW-BASIC started, then each line (a CR added)
+    /// typed when GW-BASIC waits for a typed line (its PINLIN at INLIN0), as oracle.sh gives NAME.typ's lines to
+    /// PC-BASIC: the whole transcript, from the start's Ok to what it printed once it waits after the last line.
+    std::string session(const std::vector<std::string> &in)
+    {
+        CcpRig r;
+        CHECK(r.ok);
+        const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+        CHECK(lab.count("INLIN0") == 1);
+        if (!r.ok || lab.count("INLIN0") != 1)
+            return {};
+        const uint16_t inlin0 = lab.at("INLIN0");
+        bool waiting = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == inlin0)
+                waiting = true;
+        };
+        start(r);
+        const size_t from = r.out.size();
+        for (size_t next = 0;; ++next)
+        {
+            const uint64_t end = r.cpu->cycles() + ms(20000);
+            while (!waiting && r.cpu->cycles() < end)
+                r.run(10'000);
+            if (!waiting || next == in.size())
+                break;
+            waiting = false;
+            r.type(in[next] + "\r");
+        }
+        r.watch = nullptr;
+        return "Ok\r\n" + r.out.substr(from);
+    }
+
+    /// NAME.typ's lines, each ended by a CR.
+    std::vector<std::string> typ(const std::string &name)
+    {
+        std::vector<std::string> in;
+        std::string l;
+        for (const char c : read_text(EMU_GWBASIC_PROGRAMS "/" + name + ".typ"))
+            if (c == '\r')
+            {
+                in.push_back(l);
+                l.clear();
+            }
+            else
+                l += c;
+        return in;
+    }
+
+    /// Each session against the oracle (NAME.out, PC-BASIC's transcript; or NAME.differ).
+    void sessions(const std::vector<const char *> &names)
+    {
+        for (const char *name : names)
+        {
+            const std::string got = session(typ(name)), want = oracle(name);
             if (got != want)
                 std::printf("  %s:\n    got  '%s'\n    want '%s'\n", name, vis(got).c_str(), vis(want).c_str());
             CHECK_EQ(got, want);
@@ -345,6 +408,114 @@ TEST(print_to_a_file_goes_to_p4_in_runs)
     CHECK_EQ(f1 - f0, 60u);
     CHECK(byte > 0 && byte < 2000);
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"FTIME.TXT\":PRINT LOF(1):CLOSE"), std::string(" 1664 \r\n"));
+}
+
+// LOAD, SAVE and MERGE (DSKCOM.ASM LOAD, LRUN, NOTRN1, BINLOD, MERGE, OKGETM, MAINGO, SAVE, GOODSV, ENDOFS; GIO86.ASM
+// PRGFIL, NAMBAS, FSTLOD, BINSAV, INCHR's FL0EOF and NOTCHN; GIODSK.ASM DFSTLD, PROSAV, PENCOD, PDECOD; SCNEDT.ASM
+// DSKCHI), typed sessions against PC-BASIC's transcripts of the same lines (NAME.typ), or NAME.differ where it
+// departs from the 1983 source. l_save: a program SAVEd tokenised and LOADed, LISTed and RUN; SAVE ,A and LOAD of the
+// text; a name with no type given .BAS; LOAD of a missing file (File not found); LOAD ,R, RUN name and RUN name,R;
+// the options' Syntax errors. l_merge: MERGE of a text file into a program (lines replaced and added), of a tokenised
+// one (Bad file mode: the source's OKGET2), of a missing one, and with more after the name (Syntax error, the file
+// closed: PRGFIN). l_files: a file open across LOAD ,R (kept, NLONLY's $81), LOAD and RUN name (closed). l_text: text
+// files written by PRINT #: a direct statement in one (Direct statement in file: DIRDO), its ^Z end, LFs before a
+// line and before its CR, a last line with no CR, an empty file. l_prot: SAVE ,P, then LOAD: it runs, and LIST,
+// EDIT, a line typed, SAVE and SAVE ,A are Illegal function call (PROCHK), until NEW (PC-BASIC lists a protected
+// program: l_prot.differ, from the source).
+TEST(load_save_and_merge_print_what_pc_basic_prints)
+{
+    sessions({"l_save", "l_merge", "l_files", "l_text", "l_prot"});
+}
+
+// W2 (hw/oodos.md, "The plan, phase 7": 7c, and its must-fail list): a tokenised LOAD reads whole records by function
+// 83's DM_LOAD straight into the workspace only while each fits below its top (FSTLOD's FRETOP - 86), and the last
+// part through the file's buffer, copying only the bytes below it. A program of several records whose end lies 20
+// bytes into its file's last record is SAVEd; CLEAR ,n then puts the workspace's top (MEMSIZ) 90 bytes past the
+// program's end, and sentinels go into the 16 bytes past it. LOAD must leave them as they were, with DM_LOAD used, and
+// the program must run. A build that loads the last record whole by DM_LOAD writes it over them.
+TEST(a_tokenised_load_writes_nothing_past_the_workspace_s_top)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MEMSIZ") == 1);
+    const uint16_t memsiz = lab.at("MEMSIZ");
+    // The program's memory by its physical address: W0-W2 are blocks 0-2 (the CPU's view at the prompt is the
+    // BDOS's, waiting in function 10).
+    auto word = [&](uint16_t a) { return static_cast<uint16_t>(r.phys(a) | r.phys(a + 1u) << 8); };
+    constexpr uint16_t TXTTAB = 0x79, VARTAB = 0xA0; // gwbasic.inc
+    const std::string pad(100, 'x');
+    enter(r, {"10 REM " + pad, "11 REM " + pad, "12 REM " + pad, "13 REM " + pad, "14 REM " + pad,
+              "20 PRINT \"w2 ran\";LEN(\"" + pad + "\")"});
+    CHECK_EQ(command(r, "REM"), std::string()); // (the lines taken)
+    const unsigned at = static_cast<unsigned>(word(VARTAB) - word(TXTTAB) + 1); // the ^Z's place in the file
+    const unsigned more = (128u + 20u - at % 128u) % 128u;
+    enter(r, {"14 REM " + pad + std::string(more, 'y')});
+    CHECK_EQ(command(r, "REM"), std::string());
+    const uint16_t end = word(VARTAB);
+    CHECK_EQ((end - word(TXTTAB) + 1) % 128, 20);
+    CHECK(end - word(TXTTAB) > 4 * 128);
+    CHECK_EQ(command(r, "SAVE \"W2\""), std::string());
+    // CLEAR ,n: n's MEMSIZ measured, then the one wanted.
+    CHECK_EQ(command(r, "CLEAR ,40000"), std::string());
+    const int off = 40000 - word(memsiz), want = end + 90;
+    CHECK_EQ(command(r, "CLEAR ," + std::to_string(want + off)), std::string());
+    REQUIRE(word(memsiz) == want);
+    for (uint16_t i = 1; i <= 16; ++i)
+        r.poke(want + i, static_cast<uint8_t>(0xA5 ^ i));
+    unsigned dmaloads = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == 0x0203 && r.cpu->regs().y == 83 && r.cpu->regs().x != 0)
+            ++dmaloads;
+    };
+    CHECK_EQ(command(r, "LOAD \"W2\""), std::string());
+    r.watch = nullptr;
+    CHECK(dmaloads >= 1);
+    unsigned changed = 0;
+    for (uint16_t i = 1; i <= 16; ++i)
+        changed += r.phys(want + i) != static_cast<uint8_t>(0xA5 ^ i);
+    CHECK_EQ(changed, 0u);
+    CHECK_EQ(word(VARTAB), end);
+    CHECK_EQ(command(r, "RUN"), std::string("w2 ran 100 \r\n"));
+    // A program that doesn't end below the top is Out of memory, and nothing written past it: the same file, the top
+    // 30 bytes lower (its end then past FRETOP - 86).
+    CHECK_EQ(command(r, "CLEAR ," + std::to_string(want - 30 + off)), std::string());
+    for (uint16_t i = 1; i <= 16; ++i)
+        r.poke(want - 30 + i, static_cast<uint8_t>(0x5A ^ i));
+    CHECK_EQ(command(r, "LOAD \"W2\""), std::string("Out of memory\r\n"));
+    changed = 0;
+    for (uint16_t i = 1; i <= 16; ++i)
+        changed += r.phys(want - 30 + i) != static_cast<uint8_t>(0x5A ^ i);
+    CHECK_EQ(changed, 0u);
+    CHECK_EQ(command(r, "LIST"), std::string());
+}
+
+// A program named on GW-BASIC's command line (GWINIT.ASM TBFLP, ENDCMD, ISSLH, FNDSLH, NXTBYT; ITSA86.ASM INITSA's
+// LRUN), by hand from the source: no heading and no bytes free, the program loaded (".BAS" given) and run, then Ok;
+// the name ends at a "/" (the switches are a later step's). A missing one: File not found, and back to the CCP, as an
+// error in start-up's line 65534 ends GW-BASIC.
+TEST(a_program_named_on_the_command_line_runs)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 PRINT \"from the command line\"", "20 SYSTEM"});
+    CHECK_EQ(command(r, "SAVE \"PROG\""), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    const std::string got = r.cmd("m:gwbasic prog");
+    CHECK(got.find("from the command line\r\n") != std::string::npos);
+    CHECK(got.find("Bytes free") == std::string::npos);
+    CHECK(got.find("Copyright") == std::string::npos);
+    if (got.find("from the command line\r\n") == std::string::npos)
+        std::printf("  got '%s'\n", vis(got).c_str());
+    const std::string sw = r.cmd("m:gwbasic  prog/f:3");
+    CHECK(sw.find("from the command line\r\n") != std::string::npos);
+    const std::string none = r.cmd("m:gwbasic nofile");
+    CHECK(none.find("File not found\r\n") != std::string::npos);
+    if (none.find("File not found\r\n") == std::string::npos)
+        std::printf("  got '%s'\n", vis(none).c_str());
 }
 
 int main()

@@ -1,0 +1,22 @@
+Okÿ
+10 PRINT #1,"from the program":CLOSE
+20 OPEN "I",#1,"LF.TXT":LINE INPUT #1,A$:PRINT A$:CLOSE
+SAVE "LF"
+Okÿ
+OPEN "O",#1,"LF.TXT"
+Okÿ
+LOAD "LF",R
+from the program
+Okÿ
+OPEN "O",#1,"LF.TXT"
+Okÿ
+LOAD "LF"
+Okÿ
+PRINT #1,"x"
+Bad file numberÿ
+Okÿ
+OPEN "O",#1,"LF.TXT"
+Okÿ
+RUN "LF"
+Bad file number in 10ÿ
+Okÿ

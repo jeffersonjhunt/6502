@@ -223,9 +223,11 @@ CRFIN:          LDA     #0
 
 ; FINLPT (GIO86.ASM 2088): LPT1 to its left margin, then FINPRT (2124):
 ; output to the console. Before it, P4's part (FINPRP, p4/gio86.s), only
-; when there is something for it to do: a file's run still in RUNBUF, or an
-; FDB an OPEN left half made (FREFDB), which it frees. (The cursor is 7d's;
-; file 0's close, when LOAD and SAVE open it, LOAD's.) A, X, Y used.
+; when there is something for it to do: a file's run still in RUNBUF, an
+; FDB an OPEN left half made (FREFDB), which it frees, or file 0 open
+; (F0OPN, OO-1), which it closes unless a load is under way (NLONLY's bit
+; 0: CLSFIL's). While one is, PTRFIL stays at file 0 (RET45). (The cursor
+; is 7d's.) A, X, Y used.
 FINLPT:         LDA     LPTPOS
                 BEQ     FINPRT
                 LDA     #$FF
@@ -234,11 +236,19 @@ FINLPT:         LDA     LPTPOS
                 JSR     CRDO
 FINPRT:         LDA     RUNLEN
                 ORA     FREFDB+1
-                BEQ     :+
-                FJSR    FINPRP
-:               STZ     PTRFIL
+                BNE     @far
+                LDA     NLONLY         ; loading: nothing to close
+                LSR     A
+                BCS     @x
+                LDA     F0OPN
+                BEQ     @clr
+@far:           FJSR    FINPRP
+                LDA     NLONLY         ; loading: PTRFIL kept
+                LSR     A
+                BCS     @x
+@clr:           STZ     PTRFIL
                 STZ     PTRFIL+1
-                RTS
+@x:             RTS
 
 ; ISFLIO (BIMISC.ASM 922): Z clear when PTRFIL is a file (or LPT1). A is
 ; used (the 8086 keeps BX, its text pointer, and uses AL's flags alone: a

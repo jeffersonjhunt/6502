@@ -1,0 +1,48 @@
+# The 1983 source: MERGE of a tokenised file is Bad file mode (DSKCOM.ASM OKGET2), where PC-BASIC reads it as text (Direct statement in file); and more after MERGE's name is Syntax error, the file closed first (MERGE: PRGFIN, SNERR), where PC-BASIC passes it over.
+Ok
+10 PRINT "ten"
+30 PRINT "thirty"
+SAVE "LM1",A
+Ok
+NEW
+Ok
+20 PRINT "twenty"
+30 PRINT "old thirty"
+40 PRINT "forty"
+MERGE "LM1"
+Ok
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Ok
+RUN
+ten
+twenty
+thirty
+forty
+Ok
+SAVE "LM2"
+Ok
+MERGE "LM2"
+Bad file mode
+Ok
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Ok
+MERGE "NOFILE"
+File not found
+Ok
+MERGE "LM1",X
+Syntax error
+Ok
+LIST
+10 PRINT "ten"
+20 PRINT "twenty"
+30 PRINT "thirty"
+40 PRINT "forty"
+Ok

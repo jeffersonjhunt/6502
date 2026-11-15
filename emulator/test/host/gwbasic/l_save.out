@@ -1,0 +1,66 @@
+Okÿ
+10 REM save and load
+20 A$="tokenised":PRINT A$;LEN(A$)
+30 FOR I=1 TO 3:PRINT I*I;:NEXT:PRINT
+40 IF X THEN 20
+SAVE "LS1"
+Okÿ
+NEW
+Okÿ
+LIST
+Okÿ
+LOAD "LS1"
+Okÿ
+LIST
+10 REM save and load
+20 A$="tokenised":PRINT A$;LEN(A$)
+30 FOR I=1 TO 3:PRINT I*I;:NEXT:PRINT
+40 IF X THEN 20
+Okÿ
+RUN
+tokenised 9 
+ 1  4  9 
+Okÿ
+SAVE "LS2",A
+Okÿ
+NEW
+Okÿ
+LOAD "LS2.BAS"
+Okÿ
+LIST 20-30
+20 A$="tokenised":PRINT A$;LEN(A$)
+30 FOR I=1 TO 3:PRINT I*I;:NEXT:PRINT
+Okÿ
+RUN
+tokenised 9 
+ 1  4  9 
+Okÿ
+LOAD "LS1.BAS"
+Okÿ
+LIST 10
+10 REM save and load
+Okÿ
+LOAD "NOFILE"
+File not foundÿ
+Okÿ
+LOAD "LS1",R
+tokenised 9 
+ 1  4  9 
+Okÿ
+RUN "LS2"
+tokenised 9 
+ 1  4  9 
+Okÿ
+RUN "LS2",R
+tokenised 9 
+ 1  4  9 
+Okÿ
+LOAD "LS1",X
+Syntax errorÿ
+Okÿ
+SAVE "LS3",B
+Syntax errorÿ
+Okÿ
+SAVE "LS3",A,X
+Syntax errorÿ
+Okÿ

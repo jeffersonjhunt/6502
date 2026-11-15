@@ -28,7 +28,7 @@
 .export LISTP, DELETP, BUFLIN, BUFLN2, LISPRT, TSTANM
 .import CHRGTR, SYNCHR, POLKEY, OUTDO, CRDO, STROUT, ISLET2, CONFC1, SCNLIN
 .import FNDLIN, DEPTR, DEL, CHEAD, FCERR, SNERR, FINI, ADVERR
-.import BUF, DOT, RESLST, LISTX, REDDY
+.import BUF, DOT, RESLST, LISTX, REDDY, PROCHK
 
 .code
 
@@ -37,6 +37,7 @@
 ; LISTP: A and the flags as CHRGTR left them after LIST. ", device" (the
 ; files) is 7c's.
 LISTP:          JSR     SCNLIN         ; RCL: the first line; LSTMAX the last number
+                JSR     PROCHK         ; not even a line number of a protected program
                 LDA     TEMP           ; the text after the range
                 STA     TXTPTR
                 LDA     TEMP+1
@@ -134,6 +135,7 @@ BUFLIN:         LDA     #<BUF
                 STA     KCNT
 BUFLN2:         STZ     DORES
                 STZ     TEMPA
+                JSR     PROCHK         ; only if not protected
                 BRA     PLOOP2
 PLOOP:          INCW    KDP
                 INCW    TXTPTR

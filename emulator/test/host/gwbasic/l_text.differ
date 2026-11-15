@@ -1,0 +1,45 @@
+# The 1983 source: at the end of a text file that RUN name loads, INCHR's NOTCHN runs the program at once (RUNC, NEWSTT), so a last line with no CR, still in BUF, isn't entered; PC-BASIC enters it first. (LOAD's own end, not run, ends the line with a CR: it is entered.)
+Ok
+OPEN "O",#1,"LD.BAS":PRINT #1,"10 PRINT 1"
+Ok
+PRINT #1,"PRINT 2":PRINT #1,"20 PRINT 3":CLOSE
+Ok
+LOAD "LD"
+Direct statement in file
+Ok
+LIST
+10 PRINT 1
+Ok
+OPEN "O",#1,"LZ.BAS":PRINT #1,"10 PRINT 1"
+Ok
+PRINT #1,"20 PRINT 2"+CHR$(26)+"30 PRINT 3":CLOSE
+Ok
+LOAD "LZ"
+Ok
+LIST
+10 PRINT 1
+20 PRINT 2
+Ok
+OPEN "O",#1,"LL.BAS":PRINT #1,CHR$(10);"10 PRINT 10"
+Ok
+PRINT #1,"20 PRINT 20";:CLOSE
+Ok
+LOAD "LL"
+Ok
+LIST
+10 PRINT 10
+20 PRINT 20
+Ok
+RUN "LL"
+ 10 
+Ok
+OPEN "O",#1,"LE.BAS":CLOSE
+Ok
+LOAD "LE"
+Ok
+LIST
+Ok
+RUN "LE"
+Ok
+LIST
+Ok

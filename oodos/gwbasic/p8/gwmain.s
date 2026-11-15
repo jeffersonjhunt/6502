@@ -35,7 +35,7 @@
 .import FORCNT, FORFLG, FORVAR, FRCINT, FRCSNG, FRMCHK, FRMEVL, FVALSV, GETIN2, GETSTK
 .import GETYP, GONE, GOTO, ISLET2, LINGET, NXTLIN, ONE, PINLIN, PTRGET, REDDY, REM
 .import RTNTXT, RUNC, SCNERR, SIGNS, SNERR, STPEND, STROUT, SUBFLG, SYNCHR, TMERR
-.import FTSITE, NEXTS
+.import FTSITE, NEXTS, ISFLIO, NEWSTT
 
 ERRSN           = 2                    ; GWDATA.ASM's error numbers
 ERRRG           = 3
@@ -566,7 +566,12 @@ REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
 ; AUTO (AUTFLG), P3's MAINA offers the line's number first, and AUTAST
 ; skips the "*" offered after it (p3/gwmain.s). (PINLIN never returns C set
 ; on OODOS: a ^C breaks inside it, and CNTCCN ends AUTO, so the 8086's
-; AUTFLG reset on that way back isn't needed.)
+; AUTFLG reset on that way back isn't needed.) While PTRFIL is a file (7c:
+; LOAD or MERGE of a text file, file 0), the line is the file's, PINLIN's
+; DSKCHI: P4 reads it whole into BUF (DSKCHP, one far call a line), and at
+; the file's end, if the LOAD runs it, RUNC and NEWSTT, as INCHR's NOTCHN
+; does; a direct statement in it is Direct statement in file (DIRDO), a
+; line number too big isn't Syntax error.
 MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     CURLIN
                 STA     CURLIN+1
@@ -577,7 +582,13 @@ MAIN:           LDA     #$FF           ; CURLIN: direct
                 LDA     AUTFLG         ; in an AUTO command?
                 BEQ     NTAUTO
                 FJSR    MAINA          ; its line number into BUF, and "*"
-NTAUTO:         JSR     PINLIN         ; TXTPTR at BUF-1
+NTAUTO:         JSR     ISFLIO         ; PINLIN's DSKCHI: a line of a file
+                BEQ     @kbd           ; LOAD or MERGE reads as text
+                FJSR    DSKCHP         ; TXTPTR at BUF-1; C set: its end, run
+                BCC     NTSTOP
+                JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
+                JMP     NEWSTT
+@kbd:           JSR     PINLIN         ; TXTPTR at BUF-1
                 BCC     NTSTOP
                 BRA     MAIN
 NTSTOP:         JSR     CHRGTR
@@ -587,7 +598,9 @@ NTSTOP:         JSR     CHRGTR
                 PHP                    ; C: a digit first
                 JSR     LINGET
                 BCC     MAINBX
-                JMP     SNERR          ; a digit left over: the number is too big
+                JSR     ISFLIO         ; a digit left over: the number is too
+                BNE     MAINBX         ; big, unless the line is a file's
+                JMP     SNERR
 MAINBX:         JSR     BAKSP
                 LDA     AUTFLG         ; AUTO: its "*" skipped
                 BEQ     NTASTC
@@ -614,7 +627,11 @@ EDENT:          LDA     RDH            ; the line number, kept
                 STA     SAVTXT+1
                 PLP
                 BCS     :+
-                JMP     GONE           ; DIRDO: direct, from the keyboard
+                JSR     ISFLIO         ; DIRDO: direct, from the keyboard; from
+                BEQ     @dir           ; a file, Direct statement in file
+                LDA     #ERRFDR        ; (ERFDR)
+                JMP     ERROR
+@dir:           JMP     GONE
 :               FJSR    EDENT2         ; into the program; it ends at FINI
 ; FINI: after the program has changed, the variables cleared, and MAIN.
 FINIH:          JSR     RUNC           ; FINI (resident FINI, res/home.s, comes here)

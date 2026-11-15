@@ -5,19 +5,19 @@
 ;   ADVERR        the statements and functions of 7b to 7g in STMDSP, STMDSX
 ;                 and EVALX (AUTO, RENUM, EDIT, the files, the screen, the
 ;                 sound and the rest)
-;   LRUN          RUN "file" (DSKCOM.ASM, 7c)
+;
+; (LRUN, RUN "file", went at 7c's LOAD step: res/far4.s.)
 ;
 ; (LHSMID, MID$ as a statement, went at 7b's step a2: res/far3.s.)
 
 .include "gwbasic.inc"
 
-.export ADVERR, LRUN
+.export ADVERR
 .import ERROR
 
 ERRADV          = 73                   ; Advanced Feature
 
 .code
 
-ADVERR:
-LRUN:           LDA     #ERRADV
+ADVERR:         LDA     #ERRADV
                 JMP     ERROR

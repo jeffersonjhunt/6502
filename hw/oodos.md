@@ -4160,6 +4160,26 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       ends at `$8E53` with its BSS, under check.py's `$9000` (G11).
     - Must-fail: the record's DMA address in block 2 (not P4's buffer); the next record not stepped; CLSALL left out
       of RUN's CLEARC.
+  - **As built, LOAD, SAVE and MERGE** (Proposed, 2026-11-14): DSKCOM.ASM's LOAD (and `,R`), RUN name, MERGE and SAVE
+    (tokenised, `,A`, `,P`), with GIO86.ASM's PRGFIL, FSTLOD, BINSAV and INCHR's end of file 0, GIODSK.ASM's DFSTLD,
+    PROSAV, PENCOD and PDECOD, and SCNEDT.ASM's DSKCHI, in P4 (`p4/dskcom.s`, `p4/gio86.s`, `p4/giodsk.s`,
+    `p4/scnedt.s`); a program named on the command line (GWINIT.ASM's TBFLP to NXTBYT, INITSA's LRUN). P4 is
+    4,730 bytes; 35,902 free.
+    - **The far call rule:** LOAD, RUN name and MERGE end in the main loop from the home block (`p8/far4.s`), never
+      from P4: P4 opens and reads file 0 and returns what comes next (SCRTCH, MAIN, RUNC and READY or NEWSTT, or
+      Out of memory). RUN name is resident (`res/far4.s` LRUN): S back to HOMSTK, then the home entry HLRUN. A text
+      file's lines come to MAIN (P8) whole, one far call a line (DSKCHP); at its end, if it runs, MAIN does RUNC
+      and NEWSTT.
+    - **W2 holds:** whole records by function 83's `DM_LOAD` straight to the workspace while each lies below
+      FSTLOD's top (FRETOP − 86), the last part through file 0's buffer, only the bytes below it. The end is
+      LINKER's: twelve zeros after the bytes read end any line there, and a chain that doesn't end below them is
+      Out of memory (OO-1: the 8086 decides from the read alone). Must-fail: the last record loaded whole by
+      `DM_LOAD` overwrites sentinels past MEMSIZ; the end taken without the links fails the sessions.
+    - **Zero page, no fixed RAM:** NLONLY, PROFLG and F0OPN (file 0 open, so FINPRT far calls P4 to close it
+      only then) at `$DE`, `$DF`, `$EE`. Resident: +59 bytes (FINPRT's file 0, ERROR's and CLEARC's NLONLY,
+      SCRTCH's PROFLG, LRUN, INITSA's command line).
+    - PROCHK is P2's (LIST, BUFLIN, EDENT2), inline in P3's PRODIR (USR) and P4's BINSAV. The command line's
+      switches (/F: /S: /M: /C:) are a later step's: passed over for now.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

@@ -9,6 +9,14 @@
 ;   DLINE           LINE INPUT #f, v$: a line read into v$
 ;   INPDOR          the item's reading (the two's), STRCHR a byte kept
 ;   FIXINPP         INPUT$(n[, [#]f]): n bytes from the file, or typed
+;   LOADP LOADP2    LOAD name[,R] and RUN name[,R] (LRUN3 to NOTRN1; then
+;                   NOTINI to BINLOD, MAINGO): the home block's stubs go on
+;                   (p8/far4.s), as the far call rule needs
+;   MERGEP          MERGE name (MERGE, OKGETM, OKGET2)
+;   SAVEP           SAVE name[,A|,P] (SAVE, GOODSV, ENDOFS)
+;
+; (DSKCOM.ASM's LOAD is LOADP here: the resident LOAD is GW-BASIC's loader,
+; res/loader.s, whose name the tests read.)
 ;
 ; A whole item comes back to P1 in one far call (V1: the device interface
 ; takes runs): its bytes go into BUF here, then STRLT2 (resident) or $FIN
@@ -22,10 +30,15 @@
 
 ;@entry FILIND
 ;@entry DLINE
-.export FILIND, DLINE, FIXINPP
+;@entry LOADP
+;@entry LOADP2
+;@entry MERGEP
+;@entry SAVEP
+.export FILIND, DLINE, FIXINPP, LOADP, LOADP2, MERGEP, SAVEP
 .import GETYP, CHRGTR, SYNCHR, PTRGET, CHKSTR, STRLT2, INPCOM, FINPRT, GETBYT
 .import STRINI, PUTNEW, FCERR, BUF, INCHR, INDSKC, BAKCHR, FILINP, FILSCN, FILSET
 .import SETPTR, INCHRI, DERFNO, DERBFM, DERRPE
+.import PRGFIL, SCDASC, FSTLOD, BINSAV, PRGFIN, RUNFLG, PROSAV, PDECOD, SNERR, FRMEVL, FRESTR
 
 .code
 
@@ -190,6 +203,197 @@ STRCHR:         CMP     #0
                 PLA
                 BRA     QUIT2B
 
+; --- LOAD, RUN name (DSKCOM.ASM 290) -----------------------------------------------------
+
+; LOADP: LRUN3's first part, X its flag (0 LOAD: the files closed, not run;
+; 1 RUN: closed, run; the 8086's stack): file 0 opened for input (PRGFLI);
+; ",R" makes the flag $81 (CHNENT's 201O: the files left open, run), and
+; nothing else may follow. NOTRN1: RUNFLG the flag, NLONLY the flag or 1
+; (file 0 not closed; with $81, none). Then the stub's SCRTCH.
+LOADP:          STX     RUNFLG
+                JSR     PRGFLI
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     NOTRN1         ; NOTRNL: the flag as it was
+                JSR     SYNCHR
+                .byte   ','
+                JSR     SYNCHR
+                .byte   'R'
+                BEQ     :+
+                JMP     SNERR          ; that must be the end
+:               LDA     #$81
+                STA     RUNFLG
+NOTRN1:         LDA     RUNFLG
+                ORA     #1
+                STA     NLONLY
+                RTS
+
+; PRGFLI (290): file 0 opened for input.
+PRGFLI:         LDA     #MD_SQI
+                JMP     PRGFIL
+
+; LOADP2: from NOTINI on, after the stub's SCRTCH: the first byte. None: X
+; 0, MAIN (which meets the end at once). 254: a protected program (PROFLG);
+; then, as 255, BINLOD. Else MAINGO: the byte backed up, the file text
+; (SCDASC), X 0: MAIN reads its lines as typed (DSKCHP).
+; BINLOD (381): the program to TXTTAB (FSTLOD), VARTAB at its end, decoded
+; if protected (PROLOD, PDECOD), the links made (LINKER, P2's), VARTAB past
+; the end's zero link; X 1, A RUNFLG: the stub's RUNC, FINPRT and READY or
+; NEWSTT. (CHAIN's CHNRET, CHNFLG, is a later step's.) OO-1 (W2): the end
+; is found by the links, as LINKER finds it, among the bytes read: twelve
+; zeros put after them (in the 86 bytes FSTLOD leaves below FRETOP: no
+; string is there after SCRTCH) end any line and the chain there, however a
+; constant runs on; if the chain's end isn't below them, the program didn't
+; fit: X 2, the stub's OUTLOD (SCRTCH, Out of memory). The 8086 says so
+; from the read alone.
+LOADP2:         JSR     INDSKC
+                BCS     LDMAIN
+                CMP     #254
+                BNE     NTPROL
+                STA     PROFLG
+                BRA     BINLOD
+NTPROL:         INC     A              ; 255: binary
+                BEQ     BINLOD
+MAINGO:         DEC     A
+                JSR     BAKCHR
+                JSR     SCDASC
+LDMAIN:         LDX     #0
+                RTS
+BINLOD:         LDA     TXTTAB
+                STA     RBL
+                LDA     TXTTAB+1
+                STA     RBH
+                JSR     FSTLOD
+                LDA     RBL
+                STA     VARTAB
+                LDA     RBH
+                STA     VARTAB+1
+                LDA     PROFLG
+                BEQ     :+
+                JSR     PDECOD         ; PROLOD
+:               LDA     #0             ; OO-1: the guard
+                LDY     #11
+@g:             STA     (RBL),Y
+                DEY
+                BPL     @g
+                FJSR    LINKER         ; TXTPTR at the end's zero link
+                LDA     TXTPTR
+                CMP     RBL
+                LDA     TXTPTR+1
+                SBC     RBH
+                BCC     :+
+                LDX     #2             ; not below them: OUTLOD
+                RTS
+:               CLC
+                LDA     TXTPTR
+                ADC     #2
+                STA     VARTAB
+                LDA     TXTPTR+1
+                ADC     #0
+                STA     VARTAB+1
+                LDA     RUNFLG
+                LDX     #1
+                RTS
+
+; --- MERGE (DSKCOM.ASM 432) ---------------------------------------------------------------
+
+; MERGEP: the name, which must end the statement (else file 0 closed,
+; PRGFIN, and Syntax error); file 0 opened for input; OKGETM: not run, file
+; 0 not closed (NLONLY 1); OKGET2: the first byte. A tokenised file (255)
+; or a protected one (254) is Bad file mode; else it is backed up and the
+; file made text (MAINGO). The stub drops NEWSTT's return and goes to MAIN,
+; which reads the lines as typed, into the program as it is.
+MERGEP:         JSR     PRGFLI
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     OKGETM
+                JSR     PRGFIN
+                JMP     SNERR
+OKGETM:         STZ     RUNFLG
+                LDA     #1
+                STA     NLONLY
+OKGET2:         JSR     INDSKC
+                BCS     @x
+                INC     A
+                BEQ     @bfm
+                INC     A
+                BEQ     @bfm
+                DEC     A
+                DEC     A              ; MAINGO's
+                JSR     BAKCHR
+                JMP     SCDASC
+@bfm:           JMP     DERBFM
+@x:             RTS
+
+; --- SAVE (DSKCOM.ASM 477) ----------------------------------------------------------------
+
+; SAVEP: the name skipped (FRMEVL, its string freed); then the end, or ",A"
+; or ",P" and the end (GOODSV); file 0 opened for output (PRGFL2: the old
+; file gone, a new one made) by the name, then TXTPTR at the end, or at the
+; "A" or "P" (ENDOFS). ",P": PROSAV; ",A": the file text (SCDASC), and C
+; set back: the stub skips the "A" and goes to LIST, which lists to file 0;
+; else BINSAV. Both of those close file 0 and return C clear. SVNAM and
+; SVEND are the 8086's stack.
+SAVEP:          LDA     TXTPTR         ; the name's place, for the rescan
+                STA     SVNAM
+                LDA     TXTPTR+1
+                STA     SVNAM+1
+                JSR     FRMEVL
+                JSR     FRESTR
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BNE     :+
+                LDX     #0             ; no option
+                BRA     ENDOFS
+:               JSR     SYNCHR
+                .byte   ','
+                CMP     #'A'
+                BEQ     GOODSV
+                CMP     #'P'
+                BEQ     GOODSV
+SVSN:           JMP     SNERR
+GOODSV:         PHA                    ; "A" or "P"
+                LDA     TXTPTR
+                STA     SVEND
+                LDA     TXTPTR+1
+                STA     SVEND+1
+                JSR     CHRGTR
+                BNE     SVSN
+                LDA     SVEND          ; at the "A" or "P"
+                STA     TXTPTR
+                LDA     SVEND+1
+                STA     TXTPTR+1
+                PLX
+ENDOFS:         STX     SVOPT
+                LDA     TXTPTR
+                STA     SVEND
+                LDA     TXTPTR+1
+                STA     SVEND+1
+                LDA     SVNAM
+                STA     TXTPTR
+                LDA     SVNAM+1
+                STA     TXTPTR+1
+                LDA     #MD_SQO        ; PRGFL2
+                JSR     PRGFIL
+                LDA     SVEND
+                STA     TXTPTR
+                LDA     SVEND+1
+                STA     TXTPTR+1
+                LDA     SVOPT
+                CMP     #'P'
+                BNE     :+
+                JSR     PROSAV
+                CLC
+                RTS
+:               CMP     #'A'
+                BNE     :+
+                JSR     SCDASC
+                SEC
+                RTS
+:               JSR     BINSAV
+                CLC
+                RTS
+
 ; --- FIXINP (DSKCOM.ASM 777) --------------------------------------------------------------
 
 ; INPUT$(n[, [#]f]), from EVAL at INPUT: n bytes (1-255: 0 is Illegal
@@ -257,3 +461,6 @@ DLVAR:          .res    2              ; DLINE's variable
 FIXPTR:         .res    2              ; INPUT$'s PTRFIL, kept
 FIXCNT:         .res    1
 FIXTTY:         .res    1
+SVNAM:          .res    2              ; SAVEP's name's place, its end's, and its option
+SVEND:          .res    2
+SVOPT:          .res    1

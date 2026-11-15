@@ -18,6 +18,12 @@
 ;   NAMSCN PARDEV   a file's name, drive and type to FILNAM
 ;   INIFDB FDBPTR   an FDB made, or found by its number; FFREE frees one
 ;   PTRDSP SIDSP    the device's function for an FDB (the disk's DSKDSP)
+;   PRGFIL NAMBAS   file 0 opened for LOAD, SAVE and MERGE, ".BAS" the type
+;   NULOPN          if it has none (7c's LOAD step)
+;   SCDASC SCDBIN   PTRFIL's file made text, or binary
+;   FSTLOD INPBLK   a tokenised program read (the disk's DFSTLD)
+;   BINSAV BINPSV   and one written (OUTBLK: the disk's DEVBOT, each byte
+;   OUTBLK DEVBOT   out)
 ;
 ; and the project's own (the OO-1's, beside them):
 ;
@@ -28,6 +34,8 @@
 ;   SETPTR          PTRFIL set, the run for the old one sent first, and a
 ;                   file's column (FILPOS) from its F_POS
 ;   INCHRI          the console's next key, unechoed (GIOKYB.ASM's: the OEM's)
+;   PRGFIN          DSKCOM.ASM's: output to the console, file 0 closed, TXTPTR
+;                   from TEMP (here for INCHR's NOTCHN, the first to need it)
 ;
 ; The FDBs are a table in this block's RAM (FDBTAB), one for each file number
 ; 0 to NMFILE: OO-1 (V1, route (c)), where the 8086 allocates them in the
@@ -57,10 +65,12 @@
 .export OPENP, CLOSEP, CLSALP, FILFNP, FILGET, FILINP, FINPRP, FLUSHP
 .export FILSET, FILSCN, FDBPTR, INCHR, INDSKC, BAKCHR, SETPTR, FLUSHR, INIFDB, FFREE
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
+.export PRGFIL, SCDASC, FSTLOD, BINSAV, BINPSV, DEVBOT, PRGFIN, CLSFIL, RUNFLG, LDRUN, PTRDSP
 .export DERBFN, DERFNF, DERBFM, DERFNO, DERFAO, DERIOE, DERDFL, DERRPE, DERIFN, DERTMF, DERDNA
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import DSKOPN, DSKDSP, FIXINPP
+.import STROUT, REDDY, GTMPRT
 
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
@@ -351,6 +361,45 @@ OPNFIL:         STA     OPNNUM         ; BX: the number
                 JMP     DSKOPN
 ERFAO1:         JMP     DERFAO
 
+; PRGFIL (GIO86.ASM 790): file 0 opened for LOAD, SAVE or MERGE, in mode A
+; (the 8086's DH): the name (NAMSCN), TEMP past it (PRGFIN puts TXTPTR back
+; there), ".BAS" if it has no type (NAMBAS); NULOPN: file 0, no length,
+; OPNFIL. PTRFIL returns at its FDB, so every input and output is the file's.
+PRGFIL:         STA     FILMOD
+                JSR     NAMSCN         ; C set: a "." in it
+                PHP
+                LDA     TXTPTR
+                STA     TEMP
+                LDA     TXTPTR+1
+                STA     TEMP+1
+                PLP
+                BCS     NULOPN
+                JSR     NAMBAS
+NULOPN:         STZ     RCL
+                STZ     RCH
+                LDA     #0
+                JMP     OPNFIL
+
+; NAMBAS (GIO86.ASM 806): a disk file's blank type made BAS. (OO-1: every
+; FILDEV is a drive's: no other device yet.)
+NAMBAS:         LDA     FILNM+8
+                CMP     #' '
+                BNE     NAMBAX
+                LDA     #'B'
+                STA     FILNM+8
+                LDA     #'A'
+                STA     FILNM+9
+                LDA     #'S'
+                STA     FILNM+10
+NAMBAX:         RTS
+
+; PRGFIN (DSKCOM.ASM 422): output to the console (FINPRT, which closes file
+; 0 unless a load is under way), file 0 closed (CLSFIL), TXTPTR from TEMP.
+PRGFIN:         JSR     FINPRT
+                LDA     #0
+                JSR     CLSFIL
+                JMP     GTMPRT
+
 ; CLSALP (862): every file closed. OO-1: each number of the table in turn
 ; (CLSFIL passes over one not open), where the 8086 walks its chain.
 CLSALP:         STZ     CLSNUM
@@ -391,15 +440,43 @@ RET22:          RTS
 
 ; --- INCHR, INCHRE, INCHSI (GIO86.ASM 912) ------------------------------------------------
 
-; INCHR: the next byte from PTRFIL's file in A. At its end Input past end
-; (file 0's end, a LOAD's, MERGE's or CHAIN's, is LOAD's: later 7c).
+; INCHR: the next byte from PTRFIL's file in A. At its end Input past end;
+; but file 0's end is a load's (FL0EOF): a binary one's, C set back (a
+; BLOAD's, a later step's); a text one's (LDREOF; CHAIN's, CHNFLG, is a
+; later step's, and none is under way) ends the load (NOTCHN): every file
+; but the others NLONLY keeps may be closed, file 0 closed (PRGFIN); then
+; not run, "Ok" and a CR, which ends the line being read; or run: the
+; 8086's RUNC and NEWSTT are the home block's (OO-1: the far call rule),
+; so LDRUN says so and the line ends with a CR, which DSKCHP (p4/scnedt.s)
+; returns to MAIN as C set.
 INCHR:          JSR     INCHRE
                 BCC     INCHRX
                 LDY     #F_NUM
                 LDA     (FDBP),Y
                 BEQ     FL0EOF
                 JMP     DERRPE
-FL0EOF:         JMP     ADVERR         ; (file 0: later 7c)
+FL0EOF:         LDY     #F_CODE
+                LDA     (FDBP),Y
+                CMP     #FC_BIN
+                BNE     LDREOF
+                SEC
+                RTS
+LDREOF:
+NOTCHN:         LDA     NLONLY
+                AND     #$80
+                STA     NLONLY
+                JSR     PRGFIN
+                LDA     RUNFLG
+                BEQ     NORUNC
+                LDA     #$80           ; OO-1: run, by MAIN
+                STA     LDRUN
+                BRA     NOTCH2
+NORUNC:         LDA     #<REDDY        ; "Ok"
+                STA     PTR
+                LDA     #>REDDY
+                STA     PTR+1
+                JSR     STROUT
+NOTCH2:         LDA     #13
 INCHRX:         RTS
 
 ; INDSKC, INCHRE: the next byte from PTRFIL's file, C set at its end.
@@ -471,6 +548,99 @@ BCHRSI:         LDY     #F_BAKC
 ; not echoed, waited for (CHSNS: the keys polled, ^C breaks).
 INCHRI:         JSR     CHSNS
                 BEQ     INCHRI
+                RTS
+
+; --- BINSAV, DEVBOT, FSTLOD, SCDASC (GIO86.ASM 1095) ---------------------------------------
+
+; BINSAV: a tokenised SAVE: the line pointers back to numbers (SCCPTR, P2's),
+; not of a protected program (PROCHK, inline: Illegal function call),
+; binary (SCDBIN), 255 first; BINPSV: A first (PROSAV's 254), then the text,
+; TXTTAB to VARTAB, by the device's block output (OUTBLK: the disk's
+; DEVBOT); then PRGFIN (file 0 closed, TXTPTR back). P4 sends each byte to
+; the device itself, as the 8086's OUTDO (FILOU3) does, not through the
+; resident OUTDO's run.
+BINSAV:         FJSR    SCCPTR
+                LDA     PROFLG
+                BEQ     :+
+                JMP     FCERR
+:               JSR     SCDBIN
+                LDA     #255
+BINPSV:         LDX     #G_SOT
+                JSR     PTRDSP
+                SEC                    ; CX: the bytes to save
+                LDA     VARTAB
+                SBC     TXTTAB
+                STA     RCL
+                LDA     VARTAB+1
+                SBC     TXTTAB+1
+                STA     RCH
+                BCC     BINSVX         ; none (JBE)
+                ORA     RCL
+                BEQ     BINSVX
+                LDA     TXTTAB
+                STA     RBL
+                LDA     TXTTAB+1
+                STA     RBH
+                JSR     OUTBLK
+BINSVX:         JMP     PRGFIN
+
+; DEVBOT (1144): CX bytes from BX to PTRFIL's file, each by the device's
+; byte output; BX past them. OUTBLK (1164): PTRFIL's block output.
+DEVBOT:         LDA     RCL
+                ORA     RCH
+                BEQ     RET27
+                LDA     (RBL)
+                LDX     #G_SOT
+                JSR     PTRDSP
+                INCW    RBL
+                LDA     RCL
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                BRA     DEVBOT
+RET27:          RTS
+OUTBLK:         LDX     #G_BOT
+                JMP     PTRDSP
+
+; FSTLOD (1190): a tokenised program to BX (TXTTAB), its first byte (255 or
+; 254) read: CX the most it may take, FRETOP - 86 - BX; binary (SCDBIN);
+; the block read (INPBLK: the disk's DFSTLD). BX returns past it. OO-1:
+; whether it fitted is BINLOD's (p4/dskcom.s), by the program's links, not
+; the read's C (the 8086's OUTLOD when the file is longer than CX): CP/M's
+; last record runs past the program's end.
+FSTLOD:         SEC
+                LDA     FRETOP
+                SBC     #86
+                STA     RCL
+                LDA     FRETOP+1
+                SBC     #0
+                STA     RCH
+                SEC
+                LDA     RCL
+                SBC     RBL
+                STA     RCL
+                LDA     RCH
+                SBC     RBH
+                STA     RCH
+                BCS     :+
+                STZ     RCL            ; (OO-1: no room at all is none)
+                STZ     RCH
+:               JSR     SCDBIN
+INPBLK:         LDX     #G_BIN
+                JMP     PTRDSP
+
+; SCDASC (1709), SCDBIN (1719): PTRFIL's file text, or binary (F_CODE).
+SCDASC:         LDA     #FC_ASC
+                BRA     SCDCOD
+SCDBIN:         LDA     #FC_BIN
+SCDCOD:         PHA
+                LDA     PTRFIL
+                STA     FDBP
+                LDA     PTRFIL+1
+                STA     FDBP+1
+                PLA
+                LDY     #F_CODE
+                STA     (FDBP),Y
                 RTS
 
 ; --- FACDSP, FILDSP, PTRDSP, SIDSP (GIO86.ASM 1343) ---------------------------------------
@@ -683,9 +853,14 @@ FDBPTR:         CMP     #NMFILE + 1
 
 ; FALLOC: OO-1, file OPNNUM's FDB of the table in FDBP (the 8086 makes room
 ; for one below the strings). FFREE: FDBP's freed (OO-1: marked free; the
-; 8086 moves the string space back over it).
+; 8086 moves the string space back over it). F0OPN (OO-1) is set while file
+; 0 has its FDB, so FINPRT knows to close it.
 FALLOC:         LDA     OPNNUM
-                ASL     A
+                BNE     :+
+                DEC     A              ; file 0: F0OPN for FINPRT (OO-1)
+                STA     F0OPN
+                INC     A
+:               ASL     A
                 TAX
                 LDA     FDBTAB,X
                 STA     FDBP
@@ -696,7 +871,11 @@ FFREE:          LDY     #F_MODE
                 LDA     #0
                 STA     (FDBP),Y
                 DEC     FILOPN
-                RTS
+                LDY     #F_NUM         ; file 0: F0OPN clear
+                LDA     (FDBP),Y
+                BNE     :+
+                STZ     F0OPN
+:               RTS
 
 ; --- OUTDO's run, FINPRT's part, SETPTR (the project's own) -------------------------------
 
@@ -730,9 +909,9 @@ FLUSHR:         PHA
 @x:             PLA
                 RTS
 
-; FINPRP: FINPRT's part (GIO86.ASM 2124, res/oem.s), when OUTDO's run waits
-; or FREFDB is set: the run sent, and FREFDB's FDB freed. (CLSFIL of file 0
-; is LOAD's, later 7c: no file 0 is opened yet.)
+; FINPRP: FINPRT's part (GIO86.ASM 2124, res/oem.s), when OUTDO's run waits,
+; FREFDB is set or file 0 is open: the run sent, FREFDB's FDB freed, and
+; file 0 closed (CLSFIL: not while a load is under way).
 FINPRP:         JSR     FLUSHR
                 LDA     FREFDB+1
                 BEQ     NFRFDB
@@ -742,7 +921,8 @@ FINPRP:         JSR     FLUSHR
                 JSR     FFREE
 NFRFDB:         STZ     FREFDB
                 STZ     FREFDB+1
-                RTS
+                LDA     #0
+                JMP     CLSFIL
 
 ; SETPTR: PTRFIL = A/X (the 8086's MOV PTRFIL), OUTDO's run for the file it
 ; was first sent; for a file, FDBP at its FDB and FILPOS its column.
@@ -802,7 +982,8 @@ FILMOD:         .res    1              ; the mode an OPEN asks for
 FILNAM:                                ; the name an OPEN gives: its drive, name and type
 FILDEV:         .res    1              ; 0 the current drive, 1 A:
 FILNM:          .res    FNAML
-NLONLY:         .res    1              ; bit 7: no file closed; bit 0: not file 0 (LOAD's, later 7c)
+RUNFLG:         .res    1              ; a load's: 0 not run, 1 run, $81 run with the files kept
+LDRUN:          .res    1              ; OO-1: bit 7, a text load's end runs it (MAIN's NEWSTT)
 OPNNUM:         .res    1              ; the number of the file being opened (the 8086's BX)
 CLSNUM:         .res    1              ; CLSALP's number
 GFCODE:         .res    1              ; FACDSP's function (the 8086's AH)

@@ -1,0 +1,35 @@
+Okÿ
+10 PRINT "secret";
+20 PRINT 42
+SAVE "LP",P
+Okÿ
+NEW
+Okÿ
+LOAD "LP"
+Okÿ
+LIST
+10 PRINT "secret";
+20 PRINT 42
+Okÿ
+RUN
+secret 42 
+Okÿ
+EDIT 10
+10 PRINT "secret";10 PRINT "secret";30 PRINT 3
+SAVE "LP2"
+Okÿ
+SAVE "LP3",A
+Okÿ
+RUN
+secret 30 
+Syntax error in 10ÿ
+Okÿ
+10 PRINT "secret";30 PRINT 310 PRINT "secret";30 RUN "LP"
+NEW
+Okÿ
+LIST
+Okÿ
+10 PRINT "open"
+LIST
+10 PRINT "open"
+Okÿ

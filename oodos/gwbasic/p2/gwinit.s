@@ -25,7 +25,7 @@
 ;@entry CMDERR
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
-.import INITFG, OLDMOD, BUFMIN, KBUF, ERROR
+.import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
 
 .code
 
@@ -45,6 +45,10 @@ GWINIT:
                 STZ     LPTPOS
                 STZ     PTRFIL
                 STZ     PTRFIL+1
+; GIOINI's (GIO86.ASM 2052): no load under way (NLONLY 0); OO-1: no file 0
+; open (F0OPN), OODOS doesn't clear a program's zero page.
+                STZ     NLONLY
+                STZ     F0OPN
 ; INIT's own (GWINIT.ASM 65): KBUF-1 a colon, so a direct line can be run
 ; again; BUFMIN a comma; no error yet; the string temporaries free.
                 LDA     #':'
@@ -99,8 +103,70 @@ GWINIT:
                 STA     STKLOW
                 LDA     #>BSTACK
                 STA     STKLOW+1
+; TBFLP to NXTBYT (GWINIT.ASM 196): the command line's file name, if there
+; is one, to BUF with a quote before it, for INITSA's LRUN to take as a
+; formula (the 8086's TEMP8 then BUF); else BUF a zero. The tail (OO-1:
+; BP_DMA's, its length first, as CP/M's TBUFF) is moved down over its
+; length and ended by a zero; leading spaces skipped (CHRGTR); the name runs
+; to the end or a "/". (The switches after it, /F: /S: /M: /C:, SCANSW's,
+; are later 7c's: OO-1, passed over for now.) PTR2 is TEMP8.
+                LDX     BP_DMA         ; CH: the count
+                LDY     #0
+                CPX     #0
+                BEQ     ENDCMD
+TBFLP:          LDA     BP_DMA+1,Y
+                STA     BP_DMA,Y
+                INY
+                DEX
+                BNE     TBFLP
+ENDCMD:         LDA     #0             ; the terminator, for CHRGTR
+                STA     BP_DMA,Y
+                TYA                    ; TEMP8 at it: no name
+                CLC
+                ADC     #<BP_DMA
+                STA     PTR2
+                LDA     #>BP_DMA
+                ADC     #0
+                STA     PTR2+1
+                LDA     #<(BP_DMA-1)
+                STA     TXTPTR
+                LDA     #>(BP_DMA-1)
+                STA     TXTPTR+1
+                JSR     CHRGTR         ; leading spaces passed over
+                CMP     #0
+                BEQ     DONCMD
+                CMP     #'/'
+                BEQ     FNDSLH
+                DECW    TXTPTR         ; a quote before the name
+                PHA
+                LDA     #'"'
+                STA     (TXTPTR)
+                LDA     TXTPTR
+                STA     PTR2
+                LDA     TXTPTR+1
+                STA     PTR2+1
+                PLA
+                INCW    TXTPTR
+ISSLH:          CMP     #'/'
+                BEQ     FNDSLH
+                JSR     CHRGTR
+                CMP     #0
+                BNE     ISSLH
+                BRA     DONCMD
+FNDSLH:         LDA     #0             ; the name ends at the "/"
+                STA     (TXTPTR)
+DONCMD:         LDY     #0             ; NXTBYT: to BUF, to its zero
+NXTBYT:         LDA     (PTR2),Y
+                STA     BUF,Y
+                INY
+                CMP     #0
+                BNE     NXTBYT
 ; The heading: GETHED's (the OEM's) line, then HEDING (GWRAM.ASM 36), with
-; Microsoft's copyright as GW-BASIC has it and its date's field, blank.
+; Microsoft's copyright as GW-BASIC has it and its date's field, blank. Not
+; with a program named on the command line (GWINIT.ASM 400: PRNTND, and
+; FREFLG set, so no bytes free either).
+                LDA     BUF
+                BNE     PRNTND
                 LDA     #<OEMHED
                 STA     PTR
                 LDA     #>OEMHED
@@ -132,7 +198,7 @@ GWINIT:
                 STA     PTR+1
                 JSR     STROUT
                 JSR     CRDO
-                LDA     #$FF           ; errors are BASIC's from now on
+PRNTND:         LDA     #$FF           ; errors are BASIC's from now on
                 STA     INITFG
                 RTS
 ERRORJ:         JMP     ERROR

@@ -248,6 +248,19 @@ FILPOS          = $DC                  ; PTRFIL's file's column: F_POS, as OUTDO
 RUNLEN          = $DD                  ; the bytes in RUNBUF not yet sent to PTRFIL's file
 RUNSIZ          = 32                   ; RUNBUF's size (res/oem.s)
 
+; --- 7c's LOAD, SAVE and MERGE ($DE, $DF, $EE) ------------------------------------
+;
+; What the resident core, the home block and the blocks test of a program
+; being loaded or saved (GWDATA.ASM's NLONLY and PROFLG), and (OO-1) whether
+; file 0, LOAD's, SAVE's and MERGE's own, is open, so the resident FINPRT
+; far calls P4 to close it only when it is. In zero page: no fixed RAM.
+; ($E0, free to the program, is the flat test harness's: test/harness.s.)
+NLONLY          = $DE                  ; bit 7: no file closed (LOAD ,R); bit 0: not file 0 (a load under way)
+PROFLG          = $DF                  ; nonzero: the program is protected (a SAVE ,P loaded)
+F0OPN           = $EE                  ; OO-1: nonzero while file 0 is open (p4/gio86.s FALLOC, FFREE)
+LBOERN          = 23                   ; GWDATA.ASM's Line buffer overflow
+ERRFDR          = 66                   ; and Direct statement in file
+
 ; The file modes (MSDOSU's F_MODE) and F_CODE, F_FLGS.
 MD_SQI          = 1                    ; sequential input
 MD_SQO          = 2                    ; sequential output

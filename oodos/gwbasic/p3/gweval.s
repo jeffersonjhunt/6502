@@ -3,7 +3,7 @@
 ;
 ; GWEVAL.ASM's user functions, in block P3 (hw/oodos.md, "The plan, phase
 ; 7"), each reached by its resident stub (res/far3.s), with GIODSK.ASM's
-; PRODIR (a no-op until 7c):
+; PRODIR (a protected program's direct line refused):
 ;
 ;   DEFP      DEF FN (DEFNC3, SCNLIS), DEF USR (DEFUSR); DEF SEG is 7c's
 ;   FNDOERP   FNname[(arguments)]: the arguments bound to the parameters
@@ -137,9 +137,22 @@ NOARGU:         CLC
                 STA     RDH
                 RTS
 
+; PRODIR (GIODSK.ASM 915): a direct line (CURLIN $FFFF) of a protected
+; program (PROFLG) is Illegal function call (PROCHK's, inline here: P2 has
+; its own). The flags kept; A used.
+PRODIR:         PHP
+                LDA     CURLIN
+                AND     CURLIN+1
+                INC     A
+                BNE     :+
+                LDA     PROFLG
+                BNE     @fc
+:               PLP
+                RTS
+@fc:            JMP     FCERR
+
 ; USRFNP: USR[n](argument), from EVAL, TXTPTR at USR's token. PRODIR (a
-; protected program in direct mode: Illegal function call) is 7c's, with
-; protected programs: none can be loaded before it. Then the argument, and
+; protected program in direct mode: Illegal function call). Then the argument, and
 ; the routine USR n was DEFined at: $FFFF, never DEFined, is Illegal function
 ; call. A string argument is freed first (FREFAC), as the 8086 does.
 ;
@@ -158,7 +171,8 @@ NOARGU:         CLC
 ; as the 8086 keeps BX on its own (POPHRT), so a routine may use any of the
 ; zero page but GW-BASIC's stacks' pointers (SSP) and the FAC's neighbours it
 ; returns in.
-USRFNP:         JSR     SCNUSR         ; DX: USRTAB's entry
+USRFNP:         JSR     PRODIR         ; not direct, if protected
+                JSR     SCNUSR         ; DX: USRTAB's entry
                 LDX     #RDL
                 LDA     #2
                 JSR     SPUSH

@@ -11,14 +11,20 @@
 ;             function in X as FINGO has it (p4/gio86.s FILFNP)
 ;   FIXINP    INPUT$(n[, [#]f]) from EVAL (res/gweval.s): FILFUN with X 0
 ;             (p4/dskcom.s FIXINPP)
+;   LRUN      RUN "file" (DSKCOM.ASM's LRUN), from the resident RUN, and a
+;             program named on the command line (INITSA): S set back to
+;             HOMSTK, as res/home.s's GOREADY does, then the home block's
+;             HLRUN (p8/far4.s), LOAD's way with its flag 1, which never
+;             returns: it ends in the main loop or an error (its SCRTCH
+;             resets the stack). TXTPTR is at the file's name.
 ;
-; None ever jumps into the statement loop: each returns through its stub,
-; or ends in an error.
+; None but LRUN ever jumps into the statement loop: each returns through its
+; stub, or ends in an error.
 
 .include "gwbasic.inc"
 
-.export CLSALL, FILFUN, FIXINP
-.import FILOPN
+.export CLSALL, FILFUN, FIXINP, LRUN
+.import FILOPN, HOMSTK
 
 .code
 
@@ -31,3 +37,6 @@ CLSALL:         PHA                    ; A kept, as the 8086's PUSH AX keeps it
 FIXINP:         LDX     #0
 FILFUN:         FJSR    FILFNP
                 RTS
+LRUN:           LDX     HOMSTK
+                TXS
+                FJSR    HLRUN          ; never returns
