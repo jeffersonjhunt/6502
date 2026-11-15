@@ -4,7 +4,7 @@
         .setcpu "65C02"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 ; The 0-ended string at A/X; Y its length.
 HW_PUTS:
         sta     HW_PTR
@@ -85,7 +85,7 @@ HW_DEC: lda     #0
         bra     @out
 @done:  rts
 
-        .bss
+        OOHW_BSS
 digits: .res    10
 ndig:   .res    1
 commas: .res    1

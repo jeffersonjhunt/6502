@@ -14,7 +14,7 @@
         .include "backplane.inc"
         .include "oohw.inc"
 
-        .code
+        OOHW_CODE
 HW_PROBE:
         ldx     #$FF                    ; the second read's index
 .repeat HW_LAST - HW_FIRST + 1, i
@@ -64,7 +64,7 @@ HW_PROBE:
         bcs     @mod
         rts
 
-        .bss
+        OOHW_BSS
 HW_FOUND: .res  2
 HW_REV: .res    16
 HW_IDB: .res    16

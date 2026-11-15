@@ -20,8 +20,10 @@
 ; What the run keeps across the hand-offs is here, at fixed addresses in the
 ; core's zero page: the first 512 bytes of the RAM block stage 2 chose for
 ; W0, tested before anything is kept there. $00-$07 are left alone; the
-; library's own zero page and variables (DZP, DBSS in bios.cfg) are block
-; 23's, from $40 and $0100; the stack is $0180-$01FF.
+; library's own zero page and variables are block 23's at $40-$4F and
+; $0100-$0147 (DZP, DBSS in bios.cfg), blocks 22's and 21's at $60-$FF and
+; $0148-$01D7 (one block runs at a time); the stack starts at $01FF, with 40
+; bytes ($01D8-$01FF) in blocks 22 and 21.
 
 .ifndef DIAG_INC
 DIAG_INC = 1
@@ -99,6 +101,8 @@ DG_SHOWN        = $23                  ; the run's first detail is on the screen
 DG_N16          = $2E                  ; 2 bytes: PUTDEC16's number
 DG_RES          = $30                  ; 16 bytes: stage n's result, DR_*
 DG_BAD          = $08                  ; 8 bytes: bit b%8 of byte b/8, RAM block b failed this pass
+DG_TALLY        = $50                  ; 4 bytes: the card tests passed, failed, skipped and measured
+                                       ;   (INFO) this pass (blocks 22 and 21; block 23 zeroes them)
 
 DO_FULL         = $01
 DO_LOOP         = $02
@@ -109,6 +113,9 @@ DR_NONE         = 0                    ; not run (yet)
 DR_PASS         = 1
 DR_FAIL         = 2
 DR_SKIP         = 3
+DR_INFO         = 4                    ; a card test's measurement, with no limit (DG_TALLY's fourth)
+
+DG_MUTE         = $20                  ; DG_SCR bit 5: PUTC leaves the serial line out (the screen only)
 
 ; The screen's form: stage n's line on row n + 2, the first failure on row
 ; 18, the result on row 20, the keys on row 21
@@ -149,16 +156,144 @@ DG_RESCOL       = 60                   ; a stage line's result
 .endmacro
 
 
+; The card stages' text (blocks 22 and 21, diagtest.inc's routines): a macro
+; puts its string after a JMP, so each line's words are where they are said.
+; Its labels are unnamed, so a routine's cheap local labels (@x) reach past it.
+; A test's line begun with a name and text: TB "NB1  ID $D1".
+.macro TB text
+                lda     #<:+
+                ldx     #>:+
+                jsr     TBEG
+                jmp     :++
+:               .byte   text, 0
+:
+.endmacro
+
+; Text on the line at the cursor: SAY "TEXT".
+.macro SAY text
+                lda     #<:+
+                ldx     #>:+
+                jsr     PUTS
+                jmp     :++
+:               .byte   text, 0
+:
+.endmacro
+
+; The test failed, with a detail line: TD "WHAT WAS SEEN"; the code after it
+; runs on.
+.macro TD text
+                lda     #<:+
+                ldx     #>:+
+                jsr     TDETS
+                jmp     :++
+:               .byte   text, 0
+:
+.endmacro
+
+; The test skipped, and why: TS "NO DMA CONTROLLER".
+.macro TS text
+                lda     #<:+
+                ldx     #>:+
+                jsr     TSKIPR
+                jmp     :++
+:               .byte   text, 0
+:
+.endmacro
+
+; diagtest.inc's variables, in the zero page of the block that includes it
+; (declared before the code, so the assembler gives them zero page modes).
+.macro DTVARS
+T_OPEN:         .res    1              ; a test's line is open
+C_FAIL:         .res    1              ; one of the stage's tests failed
+C_NAME:         .res    2              ; the stage's name
+T_ACC:          .res    4              ; timer 2's cycles since TZERO
+T_PREV:         .res    2
+T_D:            .res    4              ; scratch
+T_N:            .res    4              ; a number (CLOSE, DEC32, TCARDF)
+T_PA:           .res    3              ; a physical address (PHYSB)
+T_GOOD:         .res    1
+.endmacro
+
+; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
+; stopped, the SD card's command abandoned, every card's interrupt off, the
+; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
+; clock's TIE off, the VIA's interrupts off. The breakpoint is left alone.
+.macro QUIETM
+        .local sd, idle, usb, video, sound, sid, panel, via
+                lda     #NB_RTC_TICK
+                sta     NB_RTCCTL
+                lda     DMA_ID
+                cmp     #DMA_ID_V1
+                bne     sd
+                lda     #DMA_ALL
+                sta     DMA_ABORT
+                sta     DMA_STATUS
+                stz     DMA0_MODE
+                stz     DMA0_MODE + $10
+                stz     DMA0_MODE + $20
+                stz     DMA0_MODE + $30
+sd:             lda     SD_ID
+                cmp     #SD_ID_V1
+                bne     usb
+                stz     SD_IEN
+                lda     SD_STATUS
+                bpl     idle
+                lda     #SD_CTRL_RESET
+                sta     SD_CTRL
+                bra     usb
+idle:           stz     SD_CTRL
+usb:            lda     USB_ID
+                cmp     #USB_ID_V1
+                bne     video
+                stz     USB_IEN
+video:          lda     VIDEO_ID
+                cmp     #VIDEO_ID_V2
+                bne     sound
+                stz     VIDEO_IEN
+                stz     VIDEO_SPLASH
+                stz     VIDEO_PCTL
+sound:          lda     SOUND_ID
+                and     #$F0
+                cmp     #SOUND_TYPE
+                bne     panel
+                lda     SOUND_CTRL
+                and     #<~SOUND_RUN
+                sta     SOUND_CTRL
+                stz     SOUND_IEN
+                ldx     #SOUND_SIDS - 1
+sid:            stz     SOUND,x
+                dex
+                bpl     sid
+                lda     SOUND_ID
+                cmp     #SOUND_ID_V2
+                bcc     panel
+                lda     #SOUND_PCM_FLUSH
+                sta     SOUND_PCMCTL
+                lda     SOUND_DOCCTL
+                and     #<~SOUND_DOC_RUN
+                sta     SOUND_DOCCTL
+panel:          lda     CONSOLE_ID
+                cmp     #CONSOLE_ID_V1
+                bne     via
+                stz     CONSOLE_IEN
+                lda     #1
+                sta     CONSOLE_ISR
+via:            lda     #$7F
+                sta     VIA_IER
+.endmacro
+
 ; What a run changed, back as /RESET leaves it, with no stack (so Break's too,
-; and the end's: diagcon.inc's PUTBACK is this and an RTS): the aperture's
-; slots, the port, the DMA controller's CONTROL, the sound card's 6510
-; stopped, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
+; and the end's: diagcon.inc's PUTBACK is this and an RTS): every card quiet
+; as stage 0 makes them (QUIETM: whatever a test had running, a tone, the
+; stream, a DMA transfer or an SD command, stops before the boot), the
+; aperture's slots, the port, the DMA controller's CONTROL, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
 ; cleared and its interrupts off), WAIT0-3 (the diagnostics own WAIT3, and
-; zero every wait state on the way out), the lights, VEC on the flash's top
+; zero every wait state on the way out), P3's breakpoint (BPCTRL 0 when
+; BPADDR holds P3's address, so a user's own is kept), the lights, VEC on the flash's top
 ; block and W1 on block 1. W0 and W2 are the BIOS's to put back: its BOOT
 ; and MONBOOT (DG_TBOOT, DG_TMON) start with W0.
 .macro PUTBACKM
-        .local slot, via
+        .local slot, via, bp
                 ldx     #6
 slot:           txa
                 lsr     a
@@ -173,13 +308,8 @@ slot:           txa
                 stz     VIDEO_PCTL
                 lda     #$70
                 sta     DMA_CONTROL
-                lda     SOUND_ID
-                and     #$F0
-                cmp     #SOUND_TYPE
-                bne     via
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
+                QUIETM                 ; every card quiet first (review P1): DMA aborted, the SD card's
+                                       ;   command abandoned, the SIDs, the stream and the ES5503 stopped
 via:            stz     VIA_ACR        ; timer 1 one-shot; then started on a count it ends at once
                 lda     #2
                 sta     VIA_T1CL
@@ -195,7 +325,22 @@ via:            stz     VIA_ACR        ; timer 1 one-shot; then started on a cou
                 stz     NB_WAIT1
                 stz     NB_WAIT2
                 stz     NB_WAIT3
-                stz     CONSOLE_DISPLAY
+                lda     CONSOLE_ID     ; P3's breakpoint off, and only P3's (BPADDR its address, as the
+                cmp     #CONSOLE_ID_V1 ;   BIOS's RESET checks it, LL1): Break during P3 leaves it off
+                bne     bp
+                lda     CONSOLE_BPADDR
+                cmp     #<DG_P3ADDR
+                bne     bp
+                lda     CONSOLE_BPADDR + 1
+                cmp     #>DG_P3ADDR
+                bne     bp
+                lda     CONSOLE_BPADDR + 2
+                cmp     #^DG_P3ADDR
+                bne     bp
+                stz     CONSOLE_BPCTRL
+                lda     #$02           ; STATUS's HIT cleared
+                sta     CONSOLE_STATUS
+bp:             stz     CONSOLE_DISPLAY
                 stz     CONSOLE_CTRL
                 lda     #DG_FLASH31
                 sta     NB_VEC
