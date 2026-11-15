@@ -112,7 +112,9 @@ namespace ooe::emu
         const unsigned n = cpu_addr >> WINDOW_SHIFT;
         const uint8_t reg = (n == 3 && vector_pull) ? vec_ : win_[n];
         const uint32_t offset = static_cast<uint32_t>(reg & BLOCK) << WINDOW_SHIFT | (cpu_addr & WINDOW_MASK);
-        return Route{bus_address(reg & ROM ? Space::Flash : Space::Memory, offset), (reg & RO) == 0};
+        if (reg & ROM)
+            return Route{bus_address(Space::Flash, offset), (reg & RO) == 0}; // $F00000 + block x $4000
+        return Route{bus_address(Space::Memory, redirect(offset)), (reg & RO) == 0};
     }
 
     unsigned BackplaneBridge::wait_states(uint8_t module) const

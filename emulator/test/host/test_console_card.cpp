@@ -33,13 +33,14 @@ namespace
 
     struct Panel
     {
-        Panel()
+        /// `more`: machine lines added to the panel's.
+        explicit Panel(const std::string &more = "")
         {
             std::string error;
             machine = Machine::build("cpu w65c02s\n"
                                      "northbridge backplane bootsel\n"
                                      "ram 00000-FFFFF module=0\n"
-                                     "console 700-77F space=io name=console irq\n",
+                                     "console 700-77F space=io name=console irq\n" + more,
                                      "panel.machine", {}, error);
             if (!machine)
             {
@@ -531,6 +532,37 @@ TEST(bus_reset_clears_ctrl_ien_and_isr_and_keeps_the_breakpoint)
     CHECK_EQ(p.reg(ConsoleCard::CTRL), 0x00);
     CHECK(!p.card->halted());
     CHECK_EQ(p.reg20(ConsoleCard::BPADDR), CODE_PHYS);
+}
+
+TEST(a_breakpoint_matches_only_with_a20_to_a23_0)
+{
+    // The flash at $F00000 shares A0-A19 with RAM: BPADDR, 20 bits, is the RAM's address alone.
+    Panel p("rom 00000-FFFFF space=flash -\n");
+    REQUIRE(p.ok());
+    p.boot({0xA9, 0xC1,             // LDA #ROM|RO|1
+            0x8D, 0x81, 0xC6,       // STA $C681    W1: flash block 1, $F04000
+            0xAD, 0x23, 0x41,       // LDA $4123    a read at $F04123: no match
+            0xA9, 0x01,             // LDA #1
+            0x8D, 0x81, 0xC6,       // STA $C681    W1: RAM block 1
+            0xAD, 0x23, 0x41,       // LDA $4123    a read at $04123: the match
+            0xE8,                   // INX
+            0x4C, 0x10, 0xC8});     // JMP *-1
+    p.set20(ConsoleCard::BPADDR, 0x04123);
+    p.set(ConsoleCard::BPCTRL, ConsoleCard::BP_ENABLE | ConsoleCard::BP_READ);
+    CHECK_EQ(p.run(20), 6u);                          // it stops after the second LDA only
+    CHECK_EQ(p.pc(), CODE + 0x10);
+    CHECK_EQ(p.reg20(ConsoleCard::LADDR), 0x04123u);
+    CHECK_EQ(p.reg(ConsoleCard::LDATA), 0x00);        // RAM's byte, not the erased flash's $FF
+    p.card->press(ConsoleCard::CONT);
+
+    // The lights and LADDR show A0-A19 of a flash cycle.
+    p.boot({0xA9, 0xC1, 0x8D, 0x81, 0xC6, 0xAD, 0x23, 0x41, 0xDB}); // ... LDA $4123, STP
+    p.set(ConsoleCard::BPCTRL, 0);
+    CHECK_EQ(p.run(3), 3u);                           // its last cycle the read at $F04123
+    CHECK_EQ(p.bus().last_access().physical, 0xF04123u);
+    p.card->set_halt_switch(true);
+    CHECK_EQ(p.run(1), 0u);                           // halted: the lights latch the last cycle
+    CHECK_EQ(p.reg20(ConsoleCard::LADDR), 0x04123u);
 }
 
 int main()

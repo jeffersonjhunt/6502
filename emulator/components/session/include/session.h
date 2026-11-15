@@ -32,7 +32,8 @@
  * card_read() returns $FF, and only STP and the budget stop a run.
  *
  * Inspection never takes a bus cycle: registers, peek() (CPU address, with
- * the windows) and peek_physical() (A0-A19), the lamps, and a ring of the
+ * the windows) and peek_physical() (A0-A23, the CPU card's view: with a
+ * revision 2 video card bank 8 is the aperture), the lamps, and a ring of the
  * latest bus cycles in the bus trace's terms (docs/BUS_TRACE.md), recorded
  * only while turned on.
  */
@@ -85,7 +86,7 @@ namespace ooe::emu
         struct TraceRow
         {
             uint64_t cycle{0};
-            uint32_t physical{0}; ///< A0-A19
+            uint32_t physical{0}; ///< A0-A23
             uint16_t cpu{0};      ///< the CPU's address
             uint8_t data{0};
             uint8_t module{NO_MODULE};
@@ -191,10 +192,11 @@ namespace ooe::emu
         /// changes nothing they would not do anyway.
         bool irq() { return machine_->bus().irq(); }
         uint8_t peek(uint16_t addr) const { return machine_->bus().peek(addr); }
+        /// Memory at a physical address (A0-A23) as the CPU card reaches it (Decoder::peek_physical()).
         uint8_t peek_physical(uint32_t physical) const { return machine_->bus().peek_physical(physical); }
         /// A byte into RAM at a physical address, no cycle taken (a test's setup).
         void write_physical(uint32_t physical, uint8_t data) { machine_->bus().write_physical(physical, data); }
-        /// What A0-A19 carry for a CPU address now (the windows as they are).
+        /// What A0-A23 carry for a CPU address now (the windows as they are; the CPU card's view).
         uint32_t physical(uint16_t addr) const { return machine_->bus().physical(addr); }
         /// "C800", "$C800" or a label (a label wins over hex; `$` forces hex).
         bool resolve(const std::string &text, uint16_t &addr) const;

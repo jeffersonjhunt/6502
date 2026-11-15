@@ -40,6 +40,33 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 
 The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).
 
+### The 24-bit bus
+
+Status: **proposed**
+
+Emulated as step B1 ([hw/design.md, as built](../../hw/design.md#b1-as-built)).
+
+On the new bus ([hw/design.md](../../hw/design.md#the-physical-map-on-the-new-bus)) the physical address is 24 bits,
+A0–A23, and memory answers by its address, not by a module ID. Nothing above changes for software: the blocks, the
+windows' values and the ROM bit mean what they did. The map underneath them:
+
+| Physical | What answers |
+|---|---|
+| `$000000–$0FFFFF` | the RAM card, 1 MB: RAM A–D are its quarters. Bank 8, with a revision 2 video card, is sent to the aperture ([below](#revision-2-bank-8-the-aperture)) |
+| `$100000–$DFFFFF` | nothing: a read gives `$FF` |
+| `$E00000–$E0FFFF` | the video card's aperture, revision 2 |
+| `$E10000–$EFFFFF` | nothing, kept for cards' memory |
+| `$F00000–$F7FFFF` | ROM A: ROM block *b* (0–31) is `$F00000 + b × $4000` |
+| `$F80000–$FFFFFF` | ROM B, the cartridge: blocks 32–63 |
+
+- **A window's ROM bit** makes the north bridge put out the flash's address, `$F00000 + b × $4000`, in place of
+  the RAM's.
+- **The I/O hole** is an I/O cycle, not a memory one: the bridge holds /MEM high there, so no memory answers it,
+  whatever the address lines hold. Module IDs 0–5 and F, which were RAM A–D, ROM A and ROM B, have no card: their
+  blocks read `$FF`, as they always have.
+- **The console card's** registers stay 20 bits ([chapter 12](12-front-panel.md)): its EXAM and DEP reach
+  `$000000–$0FFFFF`, and its breakpoint matches only a cycle with A20–A23 0.
+
 ### Revision 2: bank 8, the aperture
 
 Status: **proposed**
@@ -50,9 +77,11 @@ card, and block 32 + *n* is the aperture's slot *n* ([chapter 6](06-video.md#the
 slot as it reaches a RAM block, its ROM bit clear. Banks 9–B, blocks 36–47, are ordinary RAM. The machine then has
 960 KB of RAM that software can reach, and the aperture's 64 KB.
 
-In the emulator RAM C still covers bank 8 (the machine file's RAM line is unchanged), and the aperture is mapped
-over it, so those 64 KB of RAM can't be reached; with revision 1, or no video card, the aperture is inert and the
-RAM answers ([chapter 14](14-emulator-notes.md)). Apple II mode doesn't use banks 8–B: the card ignores the
+On the 24-bit bus (*proposed*, [above](#the-24-bit-bus)) the aperture's own place is `$E00000–$E0FFFF`, and while a
+revision 2 card is fitted the CPU card sends every memory cycle for bank 8 there: the windows' blocks 32–35 and the
+DMA controller's addresses `$80000–$8FFFF` reach the aperture as before. RAM C's bank 8 is then out of the CPU's and
+DMA's reach, though the console card, which drives the bus itself, sees it. With revision 1, or no video card, bank
+8 is RAM and nothing answers at `$E00000` ([chapter 14](14-emulator-notes.md#the-24-bit-bus)). Apple II mode doesn't use banks 8–B: the card ignores the
 aperture in the mode, and the IIe's character ROM is in card memory, not at `$BE000`
 ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
 

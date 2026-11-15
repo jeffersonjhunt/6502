@@ -25,6 +25,8 @@ export function breakpointsView(bps: Breakpoints) {
   });
   const add = h("button", { class: "tbtn", type: "submit", "data-testid": "bp-add" }, "Add");
   const error = h("p", { class: "bp-error", role: "alert", "data-testid": "bp-error" });
+  /** Its own line, so a later error doesn't hide it: the saved breakpoints that can't fire here. */
+  const notice = h("p", { class: "bp-error", "data-testid": "bp-notice", hidden: true });
   const form = h("form", { class: "bp-add" }, input, add);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -39,11 +41,16 @@ export function breakpointsView(bps: Breakpoints) {
     });
   });
 
+
   const list = h("div", { class: "bps", role: "radiogroup", "aria-label": "Breakpoints: one armed at a time" });
   const none = h("label", { class: "bp-row none" });
   const hitBox = h("div", { class: "bp-hit", "data-testid": "bp-hit", hidden: true });
 
   const render = () => {
+    notice.hidden = bps.notRestored.length === 0;
+    notice.textContent = bps.notRestored.length
+      ? `Not restored, as the Console card's breakpoint can't fire there (kept saved): ${bps.notRestored.join(", ")}`
+      : "";
     const rows = bps.list.map((b) => {
       const armed = bps.armed === b.id;
       const radio = h("input", { type: "radio", name: "bp-armed", "aria-label": `Arm ${describe(b)}` });
@@ -101,6 +108,7 @@ export function breakpointsView(bps: Breakpoints) {
     h("h4", {}, "Breakpoints ", h("em", {}, "Console card BPADDR / BPCTRL")),
     form,
     error,
+    notice,
     list,
     hitBox,
     h(

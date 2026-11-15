@@ -117,6 +117,33 @@ describe("debugger pane", () => {
     expect(q('[data-testid="bp-error"]').textContent).toMatch(/NOWHERE/);
   });
 
+  test("the not-restored notice has its own line: a later error doesn't hide it", async () => {
+    const high = { id: "4", text: "SLOT1", cpu: 0x4123, physical: 0xe04123, fetch: true, read: false, write: false, nmi: false };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([high]));
+    const { q } = setup();
+    q<HTMLButtonElement>('[data-tab="bps"]').click();
+    expect(q('[data-testid="bp-notice"]').textContent).toMatch(/SLOT1 \$4123 → E04123/);
+    q<HTMLInputElement>('[data-testid="bp-input"]').value = "NOWHERE";
+    q<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await tick();
+    expect(q('[data-testid="bp-error"]').textContent).toMatch(/NOWHERE/);
+    expect(q('[data-testid="bp-notice"]').textContent).toMatch(/SLOT1/);
+  });
+
+  test("on connecting to a revision 2 machine, a saved bank 8 breakpoint moves to the notice", async () => {
+    const bank8 = { id: "5", text: "84123", cpu: null, physical: 0x84123, fetch: true, read: false, write: false, nmi: false };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([bank8]));
+    const port = new FakePort();
+    port.io.set(0xc4ff, 0x92);
+    const pane = debuggerPane(port);
+    document.body.replaceChildren(pane.element);
+    pane.connect();
+    await tick();
+    expect(pane.breakpoints.list).toEqual([]);
+    pane.element.querySelector<HTMLButtonElement>('[data-tab="bps"]')!.click();
+    expect(pane.element.querySelector('[data-testid="bp-notice"]')?.textContent).toMatch(/84123/);
+  });
+
   test("a power cycle re-arms the card (it forgot)", async () => {
     const { port, pane, q } = setup();
     q<HTMLButtonElement>('[data-tab="bps"]').click();

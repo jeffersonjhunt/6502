@@ -8,7 +8,20 @@
  * A breakpoint is a physical address. Typed as five hex digits it is taken
  * as one ("FC951"); anything else is a CPU address or label ("ECHO",
  * "C951"), turned into a physical address through the windows as they are
- * when it is added, so "ECHO" shows as "ECHO $C951 → FC951".
+ * when it is added (the CPU card's view: A0-A23), so "ECHO" shows as
+ * "ECHO $C951 → FC951".
+ *
+ * BPADDR is 20 bits, and the card matches only a cycle with A20-A23 0
+ * (hw/design.md, "B1: as built"). So a CPU address that resolves above
+ * $FFFFF (a window on the flash, $F00000 up, or on the video aperture,
+ * $E00000) is refused, and so is a bank 8 address ($80000-$8FFFF) while
+ * VIDEO_ID reads $92: with a revision 2 card the CPU card sends the CPU's
+ * and DMA's bank 8 to the aperture, so no cycle there reaches the bus to
+ * match. A saved breakpoint that can't fire isn't restored, and
+ * notRestored names it: above $FFFFF at once, and in bank 8 once
+ * recheck() has read VIDEO_ID $92 (the pane calls it on connecting; a page
+ * from before B1 could save one). Those entries stay in storage, kept
+ * through every later save, so a machine they can fire on gets them back.
  *
  * The card loses its registers at power off, so a power cycle re-arms
  * whatever was armed. The list is remembered; nothing is armed at load.
@@ -48,7 +61,13 @@ export function bpctrl(b: Breakpoint): number {
 
 export const hex = (v: number, n: number) => v.toString(16).toUpperCase().padStart(n, "0");
 
-/** "ECHO $C951 → FC951", "C951 → FC951", or "FC951". */
+/** BPADDR's reach: A0-A19, with A20-A23 0. */
+export const BPADDR_MAX = 0xfffff;
+/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's. */
+const VIDEO_ID = 0xc4ff;
+const VIDEO_REV2 = 0x92;
+
+/** "ECHO $C951 → FC951", "C951 → FC951", or "FC951" (six digits above FFFFF). */
 export function describe(b: Breakpoint): string {
   if (b.cpu === null) return hex(b.physical, 5);
   const label = /^\$?[0-9a-f]{1,4}$/i.test(b.text) ? "" : `${b.text} $`;
@@ -65,7 +84,7 @@ export interface Hit {
 const STORE_KEY = "breakpoints";
 
 /** A saved breakpoint as this page wrote it: anything else (an old page's, an edited one) is dropped, not drawn. */
-function isBreakpoint(v: unknown): v is Breakpoint {
+function isBreakpoint(v: unknown, max = BPADDR_MAX): v is Breakpoint {
   if (typeof v !== "object" || v === null) return false;
   const b = v as Record<string, unknown>;
   const address = (a: unknown, max: number) => Number.isInteger(a) && (a as number) >= 0 && (a as number) <= max;
@@ -73,7 +92,7 @@ function isBreakpoint(v: unknown): v is Breakpoint {
     typeof b.id === "string" &&
     typeof b.text === "string" &&
     (b.cpu === null || address(b.cpu, 0xffff)) &&
-    address(b.physical, 0xfffff) &&
+    address(b.physical, max) &&
     (["fetch", "read", "write", "nmi"] as const).every((f) => typeof b[f] === "boolean")
   );
 }
@@ -81,17 +100,40 @@ function isBreakpoint(v: unknown): v is Breakpoint {
 export class Breakpoints {
   list: Breakpoint[] = [];
   armed: string | null = null;
+  /** Saved breakpoints that can't fire here: not restored, named here for the pane to say so. */
+  notRestored: string[] = [];
+  /** Those entries as they were saved: kept in storage through the next save. */
+  private held: unknown[] = [];
   private readonly listeners = new Set<() => void>();
   private next = 1;
 
   constructor(private readonly port: MachinePort) {
     try {
       const saved: unknown = JSON.parse(prefs.get(STORE_KEY) ?? "[]");
-      if (Array.isArray(saved)) this.list = saved.filter(isBreakpoint);
+      if (Array.isArray(saved)) {
+        this.list = saved.filter((v) => isBreakpoint(v));
+        this.held = saved.filter((v) => !isBreakpoint(v) && isBreakpoint(v, 0xffffff));
+        this.notRestored = this.held.map((b) => describe(b as Breakpoint));
+      }
     } catch {
       this.list = [];
     }
-    for (const b of this.list) this.next = Math.max(this.next, Number(b.id) + 1 || 0);
+    for (const b of [...this.list, ...(this.held as Breakpoint[])]) this.next = Math.max(this.next, Number(b.id) + 1 || 0);
+  }
+
+  /**
+   * Once the machine is there: with a revision 2 video card (VIDEO_ID $92) a restored bank 8 breakpoint can never
+   * fire, so it joins notRestored (and stays saved). Disarms it if it was armed.
+   */
+  async recheck(): Promise<void> {
+    if ((await this.port.readMemory(VIDEO_ID, 1, "io"))[0] !== VIDEO_REV2) return;
+    const dead = this.list.filter((b) => b.physical >> 16 === 0x8);
+    if (!dead.length) return;
+    if (dead.some((b) => b.id === this.armed)) this.arm(null);
+    this.list = this.list.filter((b) => !dead.includes(b));
+    this.held.push(...dead);
+    this.notRestored.push(...dead.map(describe));
+    this.changed();
   }
 
   onChange(listener: () => void): () => void {
@@ -100,7 +142,7 @@ export class Breakpoints {
   }
 
   private changed(): void {
-    prefs.set(STORE_KEY, JSON.stringify(this.list));
+    prefs.set(STORE_KEY, JSON.stringify([...this.list, ...this.held]));
     for (const listener of this.listeners) listener();
   }
 
@@ -117,6 +159,10 @@ export class Breakpoints {
       if (cpu === null) return `${t}: not a label or a hex address`;
       physical = await this.port.physical(cpu);
     }
+    if (physical > BPADDR_MAX)
+      return `${t}: $${hex(cpu ?? 0, 4)} is ${hex(physical, 6)}, above FFFFF: the Console card's breakpoint is 20 bits and never matches the flash or the video aperture`;
+    if (physical >> 16 === 0x8 && (await this.port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2)
+      return `${t}: bank 8 is the video aperture with a revision 2 card, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
     const b: Breakpoint = {
       id: String(this.next++),
       text: t,

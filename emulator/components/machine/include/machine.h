@@ -20,11 +20,14 @@
  * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq=N] [irq] [image]`;
  * a rom's image `-` is erased flash, all $FF (an empty cartridge).
  * Addresses are hex, optionally with a `$`, within the space: memory (the
- * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
+ * default, A0-A23, the 24-bit bus), flash (00000-FFFFF, ROM A then ROM B:
+ * the same as memory F00000-FFFFFF) or io (the I/O hole, 000-7FF,
  * whose mappings take the module ID of their 128-byte block unless
  * `module=` says otherwise, and may not cross into the next: a card
  * answers one module ID and decodes A0-A6). `#` starts a comment. `module=` tags the
- * mapping with a backplane module ID; `wait=` (0-15) holds RDY for that
+ * mapping with a backplane module ID (on a memory line behind the backplane's
+ * bridge, only the ID whose WAITn bits slow it, until step B2: memory is
+ * chosen by address, and its cycles carry the master's ID); `wait=` (0-15) holds RDY for that
  * many extra cycles on every access, as a slow card does; `drq=` (0-3)
  * wires the device's DMA request to that channel; `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
@@ -34,9 +37,12 @@
  * (the video card, video_card.h; at most one; `rev=1` or `rev=2`, 1 if
  * omitted, or MachineOptions::video_revision; on revision 1 banks 8-B,
  * 80000-BFFFF, must be one ram line, which it draws from), aperture
- * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture:
- * on a revision 2 card it answers over any RAM there, as if mapped last; on
- * revision 1, or with no video line, it is inert), usb (the USB card, usb_card.h;
+ * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture,
+ * at E00000-E0FFFF on the backplane: on a revision 2 card it answers, as if
+ * mapped last, and the north bridge sends bank 8, 080000-08FFFF, to it, as
+ * the CPU card does (backplane_bridge.h); a line at 80000-8FFFF, as machine
+ * files had it before the 24-bit bus, means the same. On revision 1, or
+ * with no video line, it is inert and bank 8 is the RAM's), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
  * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
@@ -46,7 +52,7 @@
  * chip can sit in another's mirror, as the backplane's VIA does at io
  * 340-34F, inside the stand-in 6551's 300-37F.
  *
- * Without a `northbridge` line every CPU address is memory with A16-A19
+ * Without a `northbridge` line every CPU address is memory with A16-A23
  * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
  * (backplane_bridge.h): the windows, VEC, ROM space, the I/O hole and the
  * DS3231 real-time clock, with its registers at io 680-6FF (module D, its
@@ -103,7 +109,7 @@ namespace ooe::emu
         /// sequencer (341-0028). Apple's too; empty: the card has none.
         std::string disk2_boot, disk2_sequencer;
         /// North bridge for the decoder; nullptr = the description's
-        /// (`northbridge` line), or A16-A19 low. Not owned.
+        /// (`northbridge` line), or A16-A23 low. Not owned.
         NorthBridge *bridge{nullptr};
         /// The backplane's DS3231, kept from another machine (a power cycle): its battery
         /// held the time. nullptr: a new chip, at `rtc_time`, or the host's local time.

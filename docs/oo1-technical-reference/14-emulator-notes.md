@@ -33,21 +33,23 @@ Each line of `backplane.machine` is a part of the OO-1:
 |---|---|
 | `cpu w65c02s` | the CPU |
 | `northbridge backplane` | the north bridge: the windows, VEC, ROM space, the I/O hole, MODE and the DS3231, with its registers at `$C680` and the clock's tick wired to /IRQ as module D ([chapter 11](11-north-bridge-and-rtc.md)). `bootsel` after it holds /BOOTSEL ([chapter 3](03-boot.md#booting-from-ram-bootsel)) |
-| `ram … module=0` to `module=3` | RAM A–D, 256 KB each, physical `$00000–$FFFFF` |
-| `rom … space=flash module=4 … bios.rom` | ROM A, the 512 KB flash, from the BIOS's image |
-| `rom … space=flash module=5 … -` | ROM B, the cartridge: `-` is erased flash, all `$FF`, until `--apple-rom` fills it |
+| `ram … module=0` to `module=3` | the RAM card, 1 MB at physical `$000000–$0FFFFF`, in four lines, RAM A–D, 256 KB each. `module=` is only the ID whose WAIT0 bits slow it (*proposed*, [the 24-bit bus](#the-24-bit-bus)) |
+| `rom 00000-7FFFF space=flash module=4 … bios.rom` | ROM A, the 512 KB flash, from the BIOS's image: memory `$F00000–$F7FFFF` |
+| `rom 80000-FFFFF space=flash module=5 … -` | ROM B, the cartridge, memory `$F80000–$FFFFFF`: `-` is erased flash, all `$FF`, until `--apple-rom` fills it |
 | `acia6551 300-37F space=io … irq` | the 6551 stand-in, mirrored through the serial card's block ([chapter 9](09-serial-and-via.md#the-stand-in-6551)) |
 | `via6522 340-34F space=io … irq` | the serial card's VIA, over the 6551's mirror: where two lines overlap, the later one answers |
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
 | `sd 380-3FF … irq drq=0` | the mass storage card, its DRQ on DMA channel 0 ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
 | `video 480-4FF … irq drq=1 rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DRQ on DMA channel 1. Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
-| `aperture 80000-8FFFF module=9` | revision 2's aperture (*proposed*): 64 KB of memory on a 16 KB boundary, four slots on card memory ([chapter 6](06-video.md#the-aperture)). It is mapped after every other line, so it answers over RAM C's bank 8, whose 64 KB can't then be reached; with a revision 1 card, or none, it is inert and the RAM answers |
+| `aperture E00000-E0FFFF module=9` | revision 2's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. With a revision 2 card the north bridge sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them. With a revision 1 card, or none, the line is inert and bank 8 is RAM. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
 | `sound 500-57F … irq drq=2` | the sound card, RAMDATA on DMA channel 2 ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)) |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
 | `console 700-77F … irq` | the console card, the front panel ([chapter 12](12-front-panel.md)) |
 
+- **Addresses** are up to six hex digits: memory is 24 bits, `$000000–$FFFFFF`. **`space=flash`** takes an
+  offset into the flash, `00000–FFFFF`, the same as memory `$F00000–$FFFFFF`.
 - **`space=io`** puts a mapping in the I/O hole, `$000–$7FF` of it. It takes the module ID of its 128-byte block,
   so `300-37F` is module 6. A mapping can't cross into the next block.
 - **`irq`** wires the device's interrupt output to /IRQ. A device on a line without it can't interrupt.
@@ -59,6 +61,28 @@ Each line of `backplane.machine` is a part of the OO-1:
 - **`wait=N`**, which `backplane.machine` doesn't use, holds RDY for N extra cycles on every access to the
   mapping, as a slow card would. The north bridge's WAIT0–3 add theirs on top
   ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
+
+### The 24-bit bus
+
+Status: **proposed**
+
+Emulated as step B1 of [the new bus](../../hw/design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)
+([as built](../../hw/design.md#b1-as-built)). Nothing a program sees changes; the bus underneath it is the new one:
+
+- **Physical addresses are 24 bits,** A0–A23, and memory answers by its address, not by a module ID: RAM at
+  `$000000–$0FFFFF`, the aperture at `$E00000`, ROM A at `$F00000` and ROM B at `$F80000`. A window's ROM block
+  *b* is `$F00000 + b × $4000`.
+- **No memory answers an I/O cycle,** `$C000–$C7FF`, whatever A0–A23 hold. Module IDs 0–5 and F, once RAM A–D and
+  the flash, are empty: their blocks read `$FF` and have no ID byte.
+- **PS0–PS3 on a memory cycle** carry the master's ID: D for the CPU, 8 for a DMA memory-to-memory cycle, the card's
+  on a fly-by. The debugger's trace and the WebUI's show it so ([BUS_TRACE.md](../../emulator/docs/BUS_TRACE.md)),
+  with the address in at least five hex digits (six when A20–A23 aren't 0).
+- **What a tool reads at a physical address.** The decoder's `peek_physical()` (and the WebUI's physical view, the
+  tests' `phys()`) is the CPU card's view: with a revision 2 card bank 8 is the aperture, as `$E0xxxx` is; in Apple
+  II mode both read `$FF`; without a revision 2 card bank 8 is RAM and `$E0xxxx` reads `$FF`. The console card's
+  EXAM and DEP go by the bus itself (`peek_bus()`), where bank 8 is always RAM: the redirection is the CPU card's.
+- **The console card stays 20 bits:** its breakpoint matches a cycle only when A20–A23 are 0, so it never fires on
+  a cycle to the flash or the aperture, and LADDR and the lights show A0–A19.
 
 The comments at the head of `backplane.machine` are older than some of the cards. Where they and the code disagree,
 the code is right.

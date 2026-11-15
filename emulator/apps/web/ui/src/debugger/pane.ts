@@ -117,6 +117,7 @@ export function debuggerPane(port: MachinePort) {
   const connect = () => {
     connected = true;
     bps.arm(null);
+    void bps.recheck(); // a saved bank 8 breakpoint can't fire on a revision 2 machine
     watch();
   };
 

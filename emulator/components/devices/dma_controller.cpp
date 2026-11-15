@@ -12,7 +12,7 @@ namespace ooe::emu
 {
     namespace
     {
-        constexpr uint32_t ADDR_MASK = PHYSICAL_SPACE - 1;
+        constexpr uint32_t ADDR_MASK = ADDRESS_20; // revision 1: 20-bit addresses (B2 widens them)
         constexpr uint8_t XFER = 0x03;
         constexpr uint8_t DIR = 0x0C;
         constexpr uint32_t FULL_COUNT = 0x10000; ///< COUNT = 0

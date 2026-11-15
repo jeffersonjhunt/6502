@@ -223,12 +223,12 @@ export interface Lights {
 
 export interface TraceRow {
   cycle: number;
-  /** A0-A19. */
+  /** A0-A23: the flash at $F00000, the aperture at $E00000. */
   physical: number;
   /** The CPU's address. */
   cpu: number;
   data: number;
-  /** Module ID 0-15, or 255 for none. */
+  /** PS0-PS3, 0-15 (memory cycles carry the master's: D for the CPU), or 255 for none. */
   module: number;
   write: boolean;
   sync: boolean;
@@ -396,7 +396,7 @@ export interface MachinePort {
   readCardMemory(addr: number, length: number): Promise<Uint8Array | null>;
   /** Bytes into card memory there, as readCardMemory() reads it; past what is fitted they are dropped. */
   writeCardMemory(addr: number, bytes: Uint8Array): void;
-  /** What A0-A19 carry for a CPU address now. */
+  /** What A0-A23 carry for a CPU address now: the CPU card's view (the flash at $F00000; with a revision 2 card, bank 8 at the aperture, $E00000). */
   physical(cpuAddr: number): Promise<number>;
   /** A label or hex ("C800", "$C800") to a CPU address; null if neither. */
   resolve(text: string): Promise<number | null>;

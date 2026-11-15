@@ -492,7 +492,7 @@ namespace ooe::emu
 
     void Session::set_switches(uint32_t swr)
     {
-        switches_ = swr & (PHYSICAL_SPACE - 1);
+        switches_ = swr & ADDRESS_20;
         if (card_)
             card_->set_switches(switches_);
     }

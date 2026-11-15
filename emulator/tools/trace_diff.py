@@ -7,7 +7,8 @@
 Cycles are compared relative to each trace's first line (after --from), so a
 capture and an emulator run need not start counting at the same number, but
 a gap (WAI, STP) must be the same length in both. A field of `?` is "not
-captured" and matches anything.
+captured" and matches anything. Addresses are five or six hex digits (A0-A23,
+at least five) and compare as numbers, so 0FFFC and 00FFFC are the same.
 
 Exit status: 0 if the traces agree for the length of the shorter one, 1 at
 the first difference, 2 if a trace is malformed or --from is never reached.
@@ -44,9 +45,9 @@ def read_trace(path):
 
 def well_formed(fields):
     _, addr, data, rw, sig, mod = fields
-    def hexfield(v, width):
-        return v == "?" or (len(v) == width and all(c in "0123456789ABCDEF" for c in v))
-    return (hexfield(addr, 5) and hexfield(data, 2) and rw in ("R", "W", "?")
+    def hexfield(v, *widths):
+        return v == "?" or (len(v) in widths and all(c in "0123456789ABCDEF" for c in v))
+    return (hexfield(addr, 5, 6) and hexfield(data, 2) and rw in ("R", "W", "?")
             and (sig == "?" or (len(sig) == 2 and sig[0] in "S-?" and sig[1] in "V-?"))
             and (mod == "-" or hexfield(mod, 1)))
 
@@ -84,6 +85,8 @@ def field_matches(k, a, b):
         return True
     if FIELDS[k] == "signals":  # SYNC and VPB can each be uncaptured
         return all(x == y or "?" in (x, y) for x, y in zip(a, b))
+    if FIELDS[k] == "address":  # five or six digits: the number is what counts
+        return int(a, 16) == int(b, 16)
     return a == b
 
 

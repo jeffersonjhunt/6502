@@ -385,7 +385,7 @@ describe("WasmPort", () => {
     for (let i = 1; i < rows.length; ++i) expect(rows[i].cycle).toBe(rows[i - 1].cycle + 1);
     const fetch = rows.find((r) => r.sync)!;
     expect(fetch.physical).toBe(0xf0000 | fetch.cpu);
-    expect(fetch.module).toBe(3);
+    expect(fetch.module).toBe(0xd); // memory by address: the north bridge's ID on PS0-PS3
     expect(rows[rows.length - 1].cycle).toBeLessThanOrEqual(f.cycles);
   });
 

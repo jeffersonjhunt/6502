@@ -77,6 +77,15 @@ test("a write breakpoint can pull /NMI instead: the monitor restarts, nothing ha
   await expect(page.getByTestId("status")).toContainText("RUNNING");
 });
 
+test("a breakpoint in bank 8 is refused on revision 2, whose bank 8 is the aperture", async ({ page }) => {
+  await booted(page);
+  await page.locator('[data-tab="bps"]').click();
+  await page.getByTestId("bp-input").fill("84123");
+  await page.getByTestId("bp-add").click();
+  await expect(page.getByTestId("bp-error")).toContainText("84123: bank 8 is the video aperture");
+  await expect(page.getByTestId("bp-row")).toHaveCount(0);
+});
+
 test("Bus trace: the monitor's loop, fetches in GETKEY's (bank F), the 6551 and the USB card in the I/O hole", async ({ page }) => {
   await booted(page);
   await page.locator('[data-tab="trace"]').click();

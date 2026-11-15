@@ -112,7 +112,7 @@ TEST(physical_addresses_above_64k)
     auto m = build("ram 10000-1FFFF\n", error);
     REQUIRE(m != nullptr);
     CHECK_EQ(m->bus().mappings()[0].first, 0x10000u);
-    CHECK(starts_with(error_of("ram 0-100000\n"), "test.machine:1: ram: want a range"));
+    CHECK(starts_with(error_of("ram 0-1000000\n"), "test.machine:1: ram: want a range")); // past A23
 }
 
 TEST(dma_line_and_drq_option)
