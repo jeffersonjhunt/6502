@@ -58,7 +58,7 @@ divided down from it:
 
 - **Decided: the design targets ÷2.** At 140 ns per cycle the read budget is about 100 ns. Flash, RAM on the
   backplane, logic analysers and long wires all work with no wait states. **On the new bus (B0, review round 1)**
-  that takes 55 ns flash and RAM ([the read budget](#sel-and-the-chassis-timing)).
+  that takes 55 ns flash and RAM ([the read budget](#wait-states-and-the-read-budget)).
 - **÷1 is a "future maybe".** Its 69.8 ns cycle is 0.2 ns, about 0.3%, under the datasheet's 70 ns minimum, which
   parts typically manage but WDC doesn't guarantee. It also leaves only about 30 ns for each read (below), which RAM
   on the backplane probably can't meet. Nothing in this design depends on it.
@@ -89,7 +89,7 @@ From the address becoming valid to read data being needed is the cycle time minu
 
 - **At ÷2: about 100 ns.** That covers the north bridge's window lookup and module decode, transceivers in both
   directions, a backplane crossing, and 55–70 ns RAM or flash, with margin. *(On the new bus, with a card's decode
-  and a memory card's lane steering added, 55 ns parts: [the read budget](#sel-and-the-chassis-timing).)*
+  and a memory card's lane steering added, 55 ns parts: [the read budget](#wait-states-and-the-read-budget).)*
 - **At ÷1: about 30 ns.** Only a fast CPLD and 10 ns SRAM close to the CPU would fit.
 
 **Decided: RAM lives on the backplane.**
@@ -97,7 +97,7 @@ From the address becoming valid to read data being needed is the cycle time minu
 **Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the RP2350 cards and the serial card.
 **On the new bus (B0, decided 2026-11-14)** they ask for wait states by **/WAIT** instead, so that the CPU (through
 the north bridge) and a DMA grant both see them; RDY stays for the DMA controller's and the Console card's own use
-([the rules](#sel-and-the-chassis-timing), rule 6).
+([wait states](#wait-states-and-the-read-budget)).
 
 **Real-time clock (decided 2026-10-26): a DS3231 on the CPU card,** with a CR2032 to keep time with the power off.
 OODOS's date stamps need it ([oodos.md](oodos.md#real-time-clock)). **Decided (2026-10-26): the north bridge owns
@@ -382,7 +382,7 @@ with up to 16 MB, so the reasoning isn't lost.
 **From ROM (normal)**
 
 1. At reset W3 and VEC map the top block of the flash (ROM A, module ID 4), read-only. At ÷2, 55–70 ns flash runs
-   with no wait states (on the new bus, 55 ns: [the read budget](#sel-and-the-chassis-timing)). A turbo mode
+   with no wait states (on the new bus, 55 ns: [the read budget](#wait-states-and-the-read-budget)). A turbo mode
    would need one or two.
 2. The BIOS points W2 at RAM block 63 and copies itself from W3 into W2.
 3. It writes `$7F` to WIN3 (RAM block 63, read-only). The code it is running is now the RAM copy at the same
@@ -484,7 +484,7 @@ The machine works without it, so it can come later.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
   storage. **Decided (the owner, 2026-11-14): eight channels** with the new connector, granted by module ID over
   /DREQ and /DMA instead of a DRQ and DACK pair each
-  ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)). Until that card is built, the
+  ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)). Until that card is built, the
   registers below, the emulator and the software keep four; what channels 4–7 add to the registers is designed
   with the card.
 - **Registers per channel:**
@@ -1013,7 +1013,7 @@ it commands.
   RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
   later.
 - **Bus timing.** The RP2350 answers the backplane through its PIO. Writes are latched; reads and back-to-back
-  writes hold the CPU with RDY if the card isn't ready. *(On the new bus, by /WAIT: [the rules](#sel-and-the-chassis-timing), rule 6.)*
+  writes hold the CPU with RDY if the card isn't ready. *(On the new bus, by /WAIT: [wait states](#wait-states-and-the-read-budget).)*
 - **In Apple mode** the card is idle and its block hidden.
 
 **Registers (decided)** (module ID `0xA`, `$C500–$C57F`, offsets from `$C500`):
@@ -1612,7 +1612,7 @@ AMODE is high.
 **Proposed: the USB card**
 
 - **USB host:** an RP2350 running TinyUSB. Its PIO answers the bus, holding RDY when it needs time, the same pattern
-  as the sound and SD cards. *(On the new bus, by /WAIT: [the rules](#sel-and-the-chassis-timing), rule 6.)*
+  as the sound and SD cards. *(On the new bus, by /WAIT: [wait states](#wait-states-and-the-read-budget).)*
 - **Game port:** a DE-9 Apple-style joystick port. The paddles use a real 558 timer, so Apple-mode readings stay
   correct whatever the CPU speed. A USB gamepad mapped onto the paddles is an option for later.
 - **Speaker:** a flip-flop that changes on each access, with a small amplifier.
@@ -1814,7 +1814,7 @@ native-only), and the joystick ports are unused: the IIe's game port is the USB 
 | 0xC | Disk II controller |
 | 0xD | north bridge registers (no card) |
 
-Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0xE. On the new bus memory is selected by address and IDs 0–5 are free ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)). Today RAM A–D (IDs 0–3) are four
+Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0xE. On the new bus memory is selected by address and IDs 0–5 are free ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)). Today RAM A–D (IDs 0–3) are four
 256 KB modules, chosen by A18–A19.
 
 
@@ -1828,15 +1828,16 @@ owner is designing the pin map now. It carries:
 - **24 address lines,** A0–A23 (see [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb): the wider bus,
   not the multiplexed one);
 - **eight DMA channels** ([DMA](#dma)), the controller moving onto the CPU card, granted by module ID rather than
-  by a DRQ and DACK pair each ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis));
-- **/MEM, /DMA, /DREQ and /SEL** (the same section).
+  by a DRQ and DACK pair each ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane));
+- **/MEM, /DMA, /DREQ and /WAIT** (the same section; /SEL went with the expansion chassis).
 
 The decisions with it:
 - **The slots are keyed with a shroud,** so a normal PCI or PCIe card can't be plugged in. The power pins don't
   follow PCIe's.
 - **Power is 5 V only.** The backplane no longer carries +24 V; this replaces the 62-pin bus's +24 V (Power, below).
 - **An expansion chassis is more slots, nothing else** (the owner, 2026-11-14, replacing the expansion port at
-  module ID `0xF` and its fifth module-ID bit): [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis).
+  module ID `0xF` and its fifth module-ID bit, neither of which comes back). *Replaced the same day: no expansion chassis; one backplane of about
+  15 slots, with three pins reserved for a bridged bus ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)).*
 
 **The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
 - **DMA transfers 16 bits.** A card with DMA moves a word on D0–D15 in each transfer to or from main memory, so a
@@ -1855,18 +1856,20 @@ Not designed yet: the pin map (the owner's, in progress), how the 16-bit bus wor
 [modules.md](modules.md)'s pin-out. The emulator models the bus's signals, not its pins, so the connector doesn't
 change it; memory by address, DMA by module ID, eight channels and the wider bus do, when they are built.
 
-### The new bus: memory by address, DMA by module ID, a plain chassis ###
+### The new bus: memory by address, DMA by module ID, one backplane ###
 
 **Decided (the owner, 2026-11-14), to be detailed with the pin map.** Three changes that go together. The module ID
 lines (PS0–PS3) come to select only cards with registers; memory is selected by its address; a DMA transfer is
-granted by naming the card's module ID; and an expansion chassis is just more slots.
+granted by naming the card's module ID; and one backplane holds every card (the expansion chassis first decided
+with them is dropped, below).
 
 **Memory by address.**
-- RAM and flash cards decode their own range from A0–A23 and answer only when **/MEM** is low. The north bridge
+- RAM and flash cards decode their own range from A0–A23 (ROM A is on the CPU card, decided later the same day:
+  [one backplane](#one-backplane-the-slots-and-the-reserved-pins)) and answer only when **/MEM** is low. The north bridge
   drives /MEM and the physical address on a memory cycle (the CPU through a window, or the memory side of a DMA
   transfer), and holds /MEM high on an I/O cycle at `$C000–$C7FF`, so no memory card answers there whatever the
   address lines hold.
-- RAM keeps its place, RAM A–D at `$000000–$0FFFFF`, 256 KB each. The flash gets a fixed place in the 24-bit map
+- RAM keeps its place, RAM A–D at `$000000–$0FFFFF`, 256 KB each (decided later the same day: one RAM card of 1 MB, [one backplane](#one-backplane-the-slots-and-the-reserved-pins)). The flash gets a fixed place in the 24-bit map
   (proposed: ROM A at `$F00000–$F7FFFF`, ROM B, the cartridge, at `$F80000–$FFFFFF`). A window's ROM bit keeps
   its meaning: the north bridge puts out a flash address instead of a RAM one, so software doesn't see the change.
 - **Module IDs `0x0`–`0x5` are free** (they were RAM A–D, ROM A and ROM B, which never had registers: their blocks
@@ -1894,23 +1897,13 @@ granted by naming the card's module ID; and an expansion chassis is just more sl
   card. *(Superseded by B0: revision 2 has a new layout, one channel window chosen by CONTROL's SELECT, and the BIOS
   and OODOS move to it in B2: [the DMA controller, revision 2](#the-dma-controller-revision-2).)*
 
-**A plain expansion chassis.** A chassis is more slots, nothing else: the same 16 module IDs, any card in any slot,
-found only by its ID, on the backplane or in the chassis alike. No fifth ID bit and no expansion port.
-- The link buffers every line. On a read the data buffers must face the side whose card is driving, so a card
-  that drives the data bus (selected by its ID, a memory card in its range, or the DMA card on a card-to-memory
-  transfer) pulls **/SEL**, a shared open-drain line, early in the cycle, and the chassis turns its buffers toward
-  the backplane when one of its cards does.
-- **Every bus line crosses the link** (decided, the owner, 2026-11-14: "ALL pins on the bus carry over to the
-  chassis"), /WAIT included. The buffers need to know which way each goes:
-  - one way, toward the chassis: the lines the CPU card or a master in the main chassis drives: A0–A23, PS0–PS3,
-    RWB, /OE, /MEM, /DMA, /IACK, TC, SYNC, VPB, AMODE, PHI2 and OSC;
-  - both ways, turned cycle by cycle: D0–D15 ([the rules](#sel-and-the-chassis-timing), rules 4 and 5);
-  - both ways, as open drain: RDY, BE, /RESET, /NMI, /IRQ, /DREQ, /SEL, /WAIT and /BOOTSEL. Each end tells its own
-    side's pull from the other's, so a low it repeats isn't sent back to it.
-- **Timing:** the read budget at 7.16 MHz is about 70 ns, and two buffers and the cable take part of it. 7.16 MHz is
-  fine; a 14.3 MHz turbo would be tight for cards in the chassis.
+**One backplane (decided, the owner, 2026-11-14), replacing the plain expansion chassis.** B0's expansion chassis
+(more slots in a second box on a buffered link, with /SEL and /CDRV, "ALL pins on the bus carry over to the
+chassis", and memory and bus masters kept in the main chassis) is dropped. Memory is one card, selected by address,
+and DMA is on the CPU card, so every card fits the one backplane; the module IDs (16), not the slots, are the limit.
+The timing that remains is in [wait states and the read budget](#wait-states-and-the-read-budget).
 
-**New lines:** /MEM, /DMA, /DREQ, /SEL, and **/WAIT** (B0, review round 3: the chassis link's wait state, [the rules](#sel-and-the-chassis-timing)). **Dropped on the new bus:** DRQ0–DRQ3 and /DACK0–/DACK3. The 62-pin
+**New lines:** /MEM, /DMA, /DREQ and **/WAIT** (slow cards' wait states, [wait states](#wait-states-and-the-read-budget)), and the reserved BR0–BR2 ([one backplane](#one-backplane-the-slots-and-the-reserved-pins)). /SEL and /CDRV went with the expansion chassis. **Dropped on the new bus:** DRQ0–DRQ3 and /DACK0–/DACK3. The 62-pin
 assignment below stays the current machine's.
 
 **Proposed (B0, 2026-11-14): the details,** below, for the emulator's steps B1–B5 and B7 and the owner's pin map
@@ -1932,11 +1925,11 @@ assignment below stays the current machine's.
 with registers.
 
 ```
-  $000000 +--------------------------+
-          | RAM A  256 KB  banks 0-3 |
-  $040000 | RAM B  256 KB  banks 4-7 |
-  $080000 | RAM C  256 KB  banks 8-B |  bank 8 sent to the aperture while MAP's AP8 is set
-  $0C0000 | RAM D  256 KB  banks C-F |
+  $000000 +--------------------------+  the RAM card, 1 MB, in four quarters
+          | banks 0-3, "RAM A"       |
+  $040000 | banks 4-7, "RAM B"       |
+  $080000 | banks 8-B, "RAM C"       |  bank 8 sent to the aperture while AP8 is set
+  $0C0000 | banks C-F, "RAM D"       |
   $100000 +--------------------------+
           |                          |
           |  unused: 13 MB, room for |  nothing answers: a read gives $FF, a write is lost
@@ -1954,10 +1947,10 @@ with registers.
 
 | Physical | Size | What answers with /MEM low | Window block (ROM bit, BLOCK) |
 |---|---|---|---|
-| `$000000–$03FFFF` | 256 KB | RAM A | 0–15 |
-| `$040000–$07FFFF` | 256 KB | RAM B | 16–31 |
-| `$080000–$0BFFFF` | 256 KB | RAM C. While AP8 is set the CPU card sends no cycle to `$080000–$08FFFF`: it sends it to the aperture ([below](#the-video-aperture-moved-out-of-ram)) | 32–47 |
-| `$0C0000–$0FFFFF` | 256 KB | RAM D | 48–63 |
+| `$000000–$03FFFF` | 256 KB | the RAM card: its first quarter, "RAM A" | 0–15 |
+| `$040000–$07FFFF` | 256 KB | the RAM card: its second quarter, "RAM B" | 16–31 |
+| `$080000–$0BFFFF` | 256 KB | the RAM card: its third quarter, "RAM C". While AP8 is set the CPU card sends no cycle to `$080000–$08FFFF`: it sends it to the aperture ([below](#the-video-aperture-moved-out-of-ram)) | 32–47 |
+| `$0C0000–$0FFFFF` | 256 KB | the RAM card: its fourth quarter, "RAM D" | 48–63 |
 | `$100000–$DFFFFF` | 13 MB | nothing: room for RAM cards later | (wide windows, below) |
 | `$E00000–$E0FFFF` | 64 KB | the video card's aperture, revision 2 | WINnH `$0E`, BLOCK 0–3 |
 | `$E10000–$EFFFFF` | 960 KB | nothing: kept for other cards' memory | |
@@ -1967,7 +1960,7 @@ with registers.
 A window's ROM bit keeps its meaning: ROM block *b* is physical `$F00000 + b × $4000`, and the north bridge puts
 out that address instead of choosing modules 4 and 5. DMA revision 2 drives all 24 bits (ADDR and DEST
 are 24 bits, [below](#the-dma-controller-revision-2)), so DMA reaches the flash and the aperture by their addresses.
-RAM C needs no input to keep quiet in bank 8: the redirection is on the CPU card, so no cycle for `$08xxxx` reaches
+The RAM card needs no input to keep quiet in bank 8: the redirection is on the CPU card, so no cycle for `$08xxxx` reaches
 the backplane while AP8 is set.
 
 **/MEM in each kind of cycle.** The master holding the bus drives /MEM, PS0–PS3, A0–A23 and RWB. That is normally
@@ -1984,8 +1977,8 @@ card answers its range with /MEM low.
 | DMA: the request poll ([below](#the-dma-controller-revision-2)) | high | low, low | `0x8` | | each requesting card pulls D(ID) |
 | DMA: a fly-by transfer (the grant) | low | low, high | the channel's module | the memory address | the memory by address, and the named card's data register |
 | DMA: memory to memory, the read and the write | low | high, high | `0x8` | the source, then the destination | the memory by address |
-| Console card EXAM and DEP, the bus spy | low (it drives it) | high, high | `0xE` (its own) | its physical address (PADDR, 20 bits today: A20–A23 are 0 until it widens) | the memory by address. Bank 8 is RAM C to them: AP8 is the CPU card's, and they reach the aperture at `$E00000` only with a wider PADDR |
-| Apple II mode, memory (`$0000–$BFFF`, `$D000–$FFFF`, the ROM space from bank E) | low | high, high | `0xD` | A0–A15 as they are, A16–A19 from the IIe's switches, A20–A23 0 | RAM A–D |
+| Console card EXAM and DEP, the bus spy | low (it drives it) | high, high | `0xE` (its own) | its physical address (PADDR, 20 bits today: A20–A23 are 0 until it widens) | the memory by address. Bank 8 is the RAM card's to them: AP8 is the CPU card's, and they reach the aperture at `$E00000` only with a wider PADDR |
+| Apple II mode, memory (`$0000–$BFFF`, `$D000–$FFFF`, the ROM space from bank E) | low | high, high | `0xD` | A0–A15 as they are, A16–A19 from the IIe's switches, A20–A23 0 | the RAM card |
 | Apple II mode, `$C000–$C0FF` and a slot's ROM (`$C600`, the Disk II's) | high | high, high | the answering card's: B the USB card's switches, C the Disk II's; `0xD` for the bridge's own switches | A0–A7 | that card |
 
 The video card's Apple II snoop watches writes with /MEM low to `$000000–$01FFFF` (banks 0–1), A20–A23 0, and the
@@ -2013,8 +2006,8 @@ and one the odd. The SST39SF020A, a 256 KB part, is the same family as today's S
 same way.
 
 - **Byte reads by the 8-bit CPU.** The CPU reads the flash in byte cycles (above). The CPU card puts out A0–A23,
-  and the flash card enables the chip A0 chooses and steers its byte onto D0–D7. At ÷2 a 55 ns part needs no wait
-  state ([the read budget](#sel-and-the-chassis-timing)). A word cycle reads both chips at once, which halves a DMA
+  and ROM A's logic (on the CPU card; the cartridge's own for ROM B) enables the chip A0 chooses and steers its byte onto D0–D7. At ÷2 a 55 ns part needs no wait
+  state ([the read budget](#wait-states-and-the-read-budget)). A word cycle reads both chips at once, which halves a DMA
   read of the flash ([B4](#what-steps-b1-b7-change)).
 - **The CPU card's word buffer.** It may fill a buffer by a word cycle and give the CPU the other byte on the next
   read of that word, without a bus cycle, which a turbo would want.
@@ -2023,7 +2016,7 @@ same way.
     status would look finished.
   - The flash update maps the flash with RO clear, as it must to write it, so every read it makes is a bus cycle.
   - Any write to the flash's range empties the buffer.
-- **Programming.** A byte write is a byte cycle on D0–D7. The flash card writes it to the chip A0 chooses, whose
+- **Programming.** A byte write is a byte cycle on D0–D7. The flash's logic writes it to the chip A0 chooses, whose
   write enable is the only one pulsed. Each chip has its own command sequence, at its own addresses, and its own
   status:
   - a chip's command address *c* (`$5555`, `$2AAA` in the chip) is the flash offset 2*c* for the even chip and
@@ -2102,7 +2095,7 @@ describes,** step by step:
 | The checks: video card revision 2 (`$92`) | unchanged |
 | The checks: the DMA controller | `apple.s` and function 75 test `DMA_ID` for revision 2's `$82` ([the B2 migration](#the-b2-migration-revision-1-dropped)) |
 | The checks: a IIe ROM, `$06` at its `$FBB3` | the same test, on ROM A's image instead of the cartridge, in the ROM and in function 75 |
-| 1. The image copied by the CPU to `$EC000–$EFFFF` | the same RAM, RAM D at `$0EC000`; only the source moves |
+| 1. The image copied by the CPU to `$EC000–$EFFFF` | the same RAM, the RAM card's at `$0EC000`; only the source moves |
 | 2. The character ROM into card memory at `$1E0000`, through the port | the same; only the source moves (blocks 4–5) |
 | 3. SEI, the zero byte at `$EBFFF` | unchanged |
 | 4. The clear by DMA on channel 3: ABORT, STATUS, CONTROL, six fills | the same fills. Every channel is stopped (ABORT `$FF`, STATUS cleared), and CONTROL is written whole as `DMA_ON` with SELECT 3, so the window is channel 3's. Channel 3's module is none. ADDR's and DEST's third bytes are 0–5 and `$0E`. The code never returns, so it doesn't put CONTROL back: the /RESET pulse does |
@@ -2145,7 +2138,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
 |---|---|---|---|---|
 | `$20`–`$23` | WIN0H–WIN3H | read/write | bits 3–0: A20–A23 for the window's block when its ROM bit is clear. The block is then 10 bits, WINnH:BLOCK, any 16 KB of the 16 MB. With the ROM bit set the flash is chosen and WINnH is ignored. Bits 7–4 0 | `$00` |
 | `$24` | VECH | read/write | the same for VEC | `$00` |
-| `$25` | MAP | read/write | bit 0 **AP8**: 1, the CPU card sends every memory cycle for `$080000–$08FFFF` (a window with ROM clear, WINnH 0 and BLOCK 32–35, and the DMA controller's memory side) to the aperture at `$E00000–$E0FFFF` instead, as bank 8 was; 0, bank 8 is RAM C. Bits 7–1 0 | `$01` |
+| `$25` | MAP | read/write | bit 0 **AP8**: 1, the CPU card sends every memory cycle for `$080000–$08FFFF` (a window with ROM clear, WINnH 0 and BLOCK 32–35, and the DMA controller's memory side) to the aperture at `$E00000–$E0FFFF` instead, as bank 8 was; 0, bank 8 is the RAM card's. Bits 7–1 0 | `$01` |
 | `$7F` | ID | read | **`$D2`**, revision 2: a north bridge with the registers above. `$D1` (today's, `HW_NB_ID` in `oohw.inc`, `BackplaneBridge::REVISION` 1) has none of them | |
 
 - **Telling the bridges apart (review round 1).** Software writes WINnH and MAP only after reading NB_ID as `$D2`.
@@ -2168,7 +2161,7 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   its request** (below), and sets it again at the warm boot. A machine with no revision 2 card already has AP8
   clear.
 - **The alias is on the CPU card** (the north bridge, and the DMA controller beside it). So the Console card and
-  the bus spy, driving the bus themselves, see the true map: bank 8 is RAM C to them.
+  the bus spy, driving the bus themselves, see the true map: bank 8 is the RAM card's to them.
 - **Why wider windows.** They are what [Future: a 65C816 and 16 MB](#future-a-65c816-and-16-mb) needs anyway (its
   "the registers widen"), and RAM past 1 MB (`$100000–$DFFFFF`) would be reached the same way.
 
@@ -2419,92 +2412,95 @@ new layout.
   SD4's timed read gains one poll cycle per take.
 - `test_bios_diag` holds each of these to revision 2's numbers.
 
-#### /SEL and the chassis: timing ####
+#### One backplane: the slots and the reserved pins ####
 
-**Decided (the owner, 2026-11-14): what goes where.** The expansion chassis is a separate box on a cable, so the
-buffered link stays: its buffers, /CDRV, /SEL and /WAIT.
-- **Memory (RAM and flash) is only ever in the main chassis, by convention.** The link's delay, on top of 55 ns
-  parts that already use the backplane's margin, leaves a memory card in the chassis no time to answer.
-- **So are the bus masters (review round 2): the Console card and the bus spy.** The link's address and control
-  buffers drive only toward the chassis, so a master in the chassis would have no way to put an address on the
-  backplane.
-- **Cards with registers and cards with DMA** may go in either.
-- **A memory card in the chassis anyway** would answer its reads too late, now and then, while writes mostly work,
-  so the fault looks intermittent. Nothing detects it, and nothing has to. The ROM diagnostics' RAM and DMA stages
-  would most likely report its blocks as bad, but that is a symptom, not a check.
+**Decided (the owner, 2026-11-14).**
+- **RAM is one card:** 1 MB at `$000000–$0FFFFF`, selected by address. It has no module ID. "RAM A–D" survive
+  only as names for its four 256 KB quarters, as the 62-pin machine had four cards.
+- **The slots: about 14–15,** one for each card that can exist, plus the CPU card. The exact count is the owner's
+  board design.
+  - Cards with an ID: at most 14 (IDs `0x0`–`0x7`, `0x9`–`0xC`, `0xE`–`0xF`). IDs `0x8` (DMA) and `0xD` (the north
+    bridge) are on the CPU card.
+  - Cards without one: the RAM card, and the cartridge (ROM B), each in a slot.
+  - So 15 slots hold the CPU card, the RAM card, the cartridge and twelve cards with IDs: today's seven and five
+    more.
+- **Today's cards and their IDs:**
 
-**The rules (decided, review rounds 1–3).** The chassis timing is kept as rules; the figures that follow from them
-are **open**, to be checked against the link's actual parts in the owner's link design.
+  | ID | Card | Slot |
+  |---|---|---|
+  | `0x6` | serial: COM1/COM2, LPT, the VIA | a slot |
+  | `0x7` | mass storage (SD) | a slot |
+  | `0x8` | the DMA controller | on the CPU card |
+  | `0x9` | video | a slot |
+  | `0xA` | sound | a slot |
+  | `0xB` | USB, game port and speaker | a slot |
+  | `0xC` | Disk II | a slot |
+  | `0xD` | the north bridge | on the CPU card |
+  | `0xE` | Console (the front panel) | a slot |
+  | — | the RAM card (by address) | a slot |
+  | — | the cartridge, ROM B (by address) | a slot |
 
-1. **Who pulls /SEL.** Every card pulls /SEL whenever it drives the data bus, so that it works in the chassis as in
-   the main chassis:
+  **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B) and `0xF`, seven IDs for new cards.
+- **No fifth ID bit (decided, the owner, 2026-11-14: "just drop the 5th bit").** There is no PS4: the module IDs
+  stay 16, and cards decode PS0–PS3 only. 32 IDs would need a new set of cards that decode a fifth line; that is
+  recorded, not planned. BR0–BR2 (below) are three spare pins, not a fifth bit. The bus spy is a bus
+  master with no registers (it reaches the Console card over SPI), so it takes a slot but no ID.
+- **The bus is passive, at 7.16 MHz.** Trace length, loading and termination are left to the owner's board design.
+- **Reserved pins for a bridged bus.** Three connector pins, **BR0–BR2**, are reserved for a future bridged bus
+  with its own ID space (a bridge card that answers for a second set of IDs behind it). They are **unassigned
+  until then**: the backplane routes them to every slot, and no card connects to them.
+- **ROM A is on the CPU card (decided, the owner, 2026-11-14).**
+  - The reset fetch never leaves the CPU card.
+  - The BIOS, the flash update and the ROM diagnostics work with the RAM card out or failed. The diagnostics' first
+    stages run with no RAM ([diag.md](diag.md)), so they can name a bad RAM card.
+  - The RAM card stays plain 16-bit SRAM.
+  - Software can't tell where ROM A sits: it answers at `$F00000–$F7FFFF` by address.
+- **The CPU card carries** the CPU, the north bridge, the clock, the DS3231, the DMA controller and ROM A.
+- **ROM B, the cartridge, stays a card in a slot,** answering at `$F80000–$FFFFFF` by address, with no ID.
 
-   | Card | Pulls /SEL |
-   |---|---|
-   | A card with registers | a read with PS its ID, /MEM and /DMA high |
-   | A memory card (RAM, flash, the video card's aperture) | a read with /MEM low in its range |
-   | A card in a DMA transfer, card to memory | a grant (/DMA low, /IACK high) with PS its ID and RWB a write (the memory's side) |
-   | A memory card in a DMA transfer, memory to card, or a memory-to-memory read | as a memory read |
-   | Any card in a poll (/IACK low) | never: rule 7 |
+#### Wait states and the read budget ####
 
-2. **How early.** A card pulls /SEL from its select decode, combinationally, while PHI2 is low. It turns on its
-   data drivers only while PHI2 is high, as a 6502 bus card does.
-3. **PHI2 in the chassis** comes over the link like every other line, so it is late there by the link's delay.
-   Each end of the link works by its own side's PHI2.
-4. **The link's direction.**
-   - The chassis end's data buffers take their direction during PHI2 low, from the chassis's own /SEL. They face
-     the backplane if one of the chassis's cards pulls /SEL, and the chassis otherwise (writes, and memory to a
-     chassis card). /SEL crosses the link like every line, but the chassis end turns by its own cards' pull on it, told
-     apart from the main chassis's.
-   - The backplane end turns by a line of its own in the cable, **/CDRV**, "the chassis drives", which the chassis
-     end pulls while one of its cards pulls /SEL.
-5. **Enables and holds.**
-   - **The backplane end enables at one fixed time in every cycle,** after /CDRV's latest arrival (from a CPU read
-     of a chassis card) and the buffer's own enable time. It doesn't follow /CDRV's edge, so no cycle has an earlier
-     or a later enable.
-   - The chassis end enables a buffer's enable time after its own PHI2 rises.
-   - **Each end holds its data buffers enabled about 10 ns past its own PHI2's fall** (review round 3), so that
-     the data a far card latches on its later PHI2 fall is still there.
-6. **The wait state: /WAIT (decided, review round 3).** **/WAIT** is a backplane line of its own, open drain,
-   pulled up on the backplane.
-   - **It is how any card asks for wait states on the new bus** (decided, 2026-11-14): a slow card in either
-     chassis (the RP2350 cards, the serial card) pulls /WAIT, not RDY, so the CPU and a DMA grant both see it. RDY
-     stays for the DMA controller's and the Console card's own use.
-   - The link pulls it for one cycle in every cycle a chassis card drives the data bus, which it knows from /CDRV.
-   - /WAIT crosses the link like every line, so **a chassis card sees it, and keeps driving while /WAIT is low.**
-   - The north bridge turns /WAIT into RDY for the CPU.
-   - The DMA controller obeys /WAIT during its grants and stretches the grant by the same cycle. It holds RDY low
-     itself through a grant, so RDY alone couldn't tell it.
-   - **Through a stretched cycle** (review round 3), the chassis card's data drivers and both link data buffers stay
-     enabled from the first PHI2 rise to the final PHI2 fall. The data is driven once, for the whole stretch, not
-     driven again at the second rise.
-   - Writes to a chassis card, and memory-to-card fly-bys into one, don't drive from the chassis, so they get no
-     wait state.
-7. **Polls.** In a cycle with /IACK low, both ends' data buffers face the backplane whatever /SEL and /CDRV say.
-   Cards on both sides pull lines low together, and the CPU card reads the backplane, where they meet.
+**Replaced (the owner, 2026-11-14): no expansion chassis.** B0 had an expansion chassis on a cable: the link's
+buffers, /SEL and /CDRV, seven timing rules, and a convention that memory and bus masters stay in the main chassis.
+They are all dropped. Memory is one card, selected by address, and DMA is on the CPU card, so every card fits
+the one backplane; the module IDs (16), not the slots, are the limit
+([one backplane](#one-backplane-the-slots-and-the-reserved-pins)). What stays is /WAIT, for slow cards.
 
-**An illustrative budget at 7.16 MHz: an estimate only**, from review round 2's assumed delays (tADS 30 ns, tDSR
-10 ns, tMDS 25 ns; the north bridge 10 ns; each transceiver 5 ns; a card's decode 10 ns; a memory card's lane steering
-5 ns; the cable 5 ns; a buffer's enable 8 ns; PHI2 15 ns late in the chassis). It shows the shape, not the margins,
-which come from the link design:
+**/WAIT (decided, the owner, 2026-11-14).** **/WAIT** is a backplane line of its own, open drain, pulled up on the
+backplane. On the new bus it is how any card asks for wait states.
+- A slow card (the RP2350 cards, the serial card) pulls /WAIT, not RDY, for as many cycles as it needs.
+- **The north bridge turns /WAIT into RDY for the CPU.**
+- **The DMA controller obeys /WAIT during its grants** and stretches the grant by the same cycles. It holds RDY low
+  itself through a grant, so RDY alone couldn't tell it.
+- **Through a stretched cycle** the card keeps driving: its data drivers stay enabled from the first PHI2 rise to
+  the final PHI2 fall.
+- RDY stays for the DMA controller's and the Console card's own use: stopping the CPU for DMA, and halting and
+  stepping it.
+
+**The read budget at 7.16 MHz: an estimate.** It uses B0's assumed delays: tADS 30 ns, tDSR 10 ns; the north bridge
+10 ns; each transceiver 5 ns; a card's decode 10 ns; a memory card's lane steering 5 ns.
 
 | Path | Estimate |
 |---|---|
-| Main chassis, memory read, 55 ns part | data at the CPU about 10 ns before it is needed; a 70 ns part needs a wait state |
-| Main chassis, register read | about 45 ns to spare |
-| Chassis, register read | about 15 ns to spare without /WAIT's cycle, a whole cycle more with it |
-| Chassis card to main-chassis memory, DMA fly-by | about none without /WAIT's cycle, a whole cycle more with it |
-| Main-chassis memory to a chassis card, DMA fly-by; a CPU write to a chassis card | some tens of ns of setup, no wait state; the hold from rule 5 |
+| Memory read, 55 ns part | data at the CPU about 10 ns before it is needed; a 70 ns part needs a wait state |
+| Register read (a card's CPLD) | about 45 ns to spare |
 
-- **At 7.16 MHz (decided, review round 1): flash and RAM are 55 ns parts.** With them, memory in the main chassis
-  needs no wait states. A 70 ns part would need one: the "55–70 ns ... with margin" of
-  [CPU and clocks](#cpu-and-clocks) predates the card decode and the lane steering.
-- **A 14.3 MHz turbo** would leave nothing for the link: every chassis cycle would need more than one wait state.
+- **At 7.16 MHz (decided, review round 1): flash and RAM are 55 ns parts.** With them, memory needs no wait states.
+  A 70 ns part would need one: the "55–70 ns ... with margin" of [CPU and clocks](#cpu-and-clocks) predates the
+  card decode and the lane steering.
+- The backplane is a passive bus at 7.16 MHz. Its trace length, loading and termination are the owner's board
+  design ([one backplane](#one-backplane-the-slots-and-the-reserved-pins)), and the estimate's margins are to be
+  checked against it.
+- **A 14.3 MHz turbo** is no longer ruled out by a chassis. What limits it now:
+  - the W65C02S's own 70 ns minimum cycle ([CPU and clocks](#cpu-and-clocks));
+  - about 30 ns for a read, which the north bridge, a transceiver each way, a card's decode and the lane steering
+    already fill: memory would need /WAIT cycles, or 10–15 ns SRAM near the CPU;
+  - the passive backplane: about fifteen slots of trace and loading at twice the speed.
 
 #### What steps B1-B7 change ####
 
 **Proposed.** The plan as the owner gave it, with B7 added for the aperture's move. Each step starts after D3b
-merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chassis)).
+merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)).
 
 | Step | The emulator | The BIOS | OODOS, OOLIB | The books | Interfaces |
 |---|---|---|---|---|---|
@@ -2513,7 +2509,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-a-plain-chas
 | **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5 | none |
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
-| **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's; every line through the chassis link), and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
+| **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
 | **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
 
 No step changes the BIOS's jump table in OODOS (`oodos/sys/bios.s`), the BDOS's existing calls, `DM_INFO`'s
