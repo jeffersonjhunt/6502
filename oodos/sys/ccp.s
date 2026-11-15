@@ -725,7 +725,8 @@ B_DIAG:         JSR     BIENTER
 
 ; DIAG's option list into DIAGX: carry clear, or set for a word that isn't
 ; FULL or ASK, or a start of one. The words are between '[' and ']' (or the
-; tail's end), with commas or blanks between them.
+; tail's end), with commas, blanks or tabs between them; every list in the
+; tail is checked.
 DIAGOPT:        STZ     DIAGX
                 LDX     #0
 @find:          CPX     TAILLEN
@@ -738,10 +739,12 @@ DIAGOPT:        STZ     DIAGX
                 BEQ     @ok
                 LDA     TAILBUF,X
                 CMP     #']'
-                BEQ     @ok
+                BEQ     @find          ; the list's end: any other list is checked too
                 CMP     #','
                 BEQ     @sep
                 CMP     #' '
+                BEQ     @sep
+                CMP     #TAB
                 BEQ     @sep
                 LDY     #DFULL - DWORDS
                 JSR     DMATCH
@@ -760,8 +763,8 @@ DIAGOPT:        STZ     DIAGX
 @ok:            CLC
 @done:          RTS
 
-; Carry clear, X past it, if the tail's word at X (to a comma, a blank, ']'
-; or the tail's end) is the word at DWORDS + Y or a start of it, as the
+; Carry clear, X past it, if the tail's word at X (to a comma, a blank, a
+; tab, ']' or the tail's end) is the word at DWORDS + Y or a start of it, as the
 ; utilities' options may be shortened (FULL's and ASK's first letters
 ; differ); else carry set, X as it was.
 DMATCH:         STX     DSAVE
@@ -773,6 +776,8 @@ DMATCH:         STX     DSAVE
                 CMP     #','
                 BEQ     @end
                 CMP     #' '
+                BEQ     @end
+                CMP     #TAB
                 BEQ     @end
                 CMP     DWORDS,Y       ; the word's 0 at its end matches no letter
                 BNE     @no
@@ -789,7 +794,7 @@ DMATCH:         STX     DSAVE
 
 DIAGQ:          .byte   "The ROM's diagnostics test all of memory and overwrite it: OODOS stops,", 13, 10
                 .byte   "M:'s files are lost, and the machine boots again at the end. Go on (Y/N)?$"
-NODIAG:         .byte   "No diagnostics in the ROM: BIOS 0.14 or later$"
+NODIAG:         .byte   "No diagnostics for this BIOS in the flash (BIOS 0.14 or later)$"
 DWORDS:
 DFULL:          .byte   "FULL", 0
 DASK:           .byte   "ASK", 0

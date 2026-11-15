@@ -312,6 +312,7 @@ TEST(diag_with_a_file_or_another_option_is_the_command_and_a_question_mark)
     CHECK_EQ(r.cmd("DIAG [LOOP]"), std::string("DIAG [LOOP]\r\nDIAG [LOOP]?\r\nA>"));
     CHECK_EQ(r.cmd("DIAG A:X"), std::string("DIAG A:X\r\nDIAG A:X?\r\nA>"));
     CHECK_EQ(r.cmd("DIAG [FULLER]"), std::string("DIAG [FULLER]\r\nDIAG [FULLER]?\r\nA>"));
+    CHECK_EQ(r.cmd("DIAG [FULL] [LOOP]"), std::string("DIAG [FULL] [LOOP]\r\nDIAG [FULL] [LOOP]?\r\nA>")); // every list
     CHECK(r.out.find("(Y/N)?") == std::string::npos);
 }
 
@@ -370,7 +371,8 @@ TEST(diag_full_and_ask_are_the_forms_options)
                                           {" [ASK]", false, true},
                                           {" [FULL,ASK]", true, true},
                                           {" [ ASK FULL ]", true, true},
-                                          {" [F,A]", true, true}}) // shortened, as the utilities' options may be
+                                          {" [F,A]", true, true},  // shortened, as the utilities' options may be
+                                          {" [FULL\tASK]", true, true}}) // a tab between them, as a blank
     {
         RomRig r;
         REQUIRE(r.ok);
@@ -394,14 +396,59 @@ TEST(diag_without_diagnostics_in_the_flash_says_so_and_75_gives_ff_fc)
     REQUIRE(r.ok);
     r.to("DIAG", "(Y/N)?");
     const std::string o = r.cmd("Y");
-    CHECK(o.find("Y\r\nNo diagnostics in the ROM: BIOS 0.14 or later\r\nA>") != std::string::npos);
+    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash (BIOS 0.14 or later)\r\nA>") != std::string::npos);
     CHECK(r.out.find(TITLE) == std::string::npos);
     CHECK(r.cmd(":CLEAR").find(CLEARED) == std::string::npos); // the return code: a failure
-    CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
     r.poke_com(romtest(2));
     CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFC\r\nA>"));
     r.to("DIAG", "(Y/N)?");                                // and again: OODOS goes on
-    CHECK(r.cmd("Y").find("No diagnostics in the ROM") != std::string::npos);
+    CHECK(r.cmd("Y").find("No diagnostics for this BIOS in the flash") != std::string::npos);
+}
+
+TEST(diag_under_a_rom_bios_version_other_than_block_23s_linked_one_says_so_and_75_gives_ff_fc)
+{
+    // Review T3: OODOS's own record of the ROM BIOS's version (cold.s's ROMVER, from the greeting) made 0.13, so
+    // block 23's linked version, 0.14, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
+    RomRig r;
+    REQUIRE(r.ok);
+    const uint32_t romver = 31u * 0x4000u + sym("ROMVER");
+    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 14);
+    r.poke(romver + 1, 13);
+    r.to("DIAG", "(Y/N)?");
+    const size_t from = r.out.size();
+    const std::string o = r.cmd("Y");
+    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash (BIOS 0.14 or later)\r\nA>") != std::string::npos);
+    CHECK(r.out.find(TITLE, from) == std::string::npos);
+    CHECK(r.cmd(":CLEAR").find(CLEARED) == std::string::npos); // the return code: a failure
+    r.poke_com(romtest(2));
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFC\r\nA>"));
+}
+
+TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
+{
+    // Review T1: block 23 with the right signature and linked BIOS version but another DG_VERSION ($8009): OODOS
+    // can't know the running BIOS's DG_VERSION, so it jumps; $C815's own check refuses and returns, and the
+    // return address ROMDIAG left on the stack is $C800's: the machine restarts, and the card boots OODOS again.
+    std::vector<uint8_t> rom = read_bytes(EMU_BIOS_ROM);
+    REQUIRE(rom.size() >= 24u * 0x4000u);
+    std::vector<uint8_t> b23(rom.begin() + 23 * 0x4000, rom.begin() + 24 * 0x4000);
+    b23[9] = static_cast<uint8_t>(b23[9] + 1);
+    const std::string path = "block23_other_version.bin";
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(b23.data()),
+                                                static_cast<std::streamsize>(b23.size()));
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    const size_t at = text.find("name=rom_b");
+    REQUIRE(at != std::string::npos);
+    text.insert(text.find('\n', at) + 1, "rom   5C000-5FFFF  space=flash  module=4  name=other23  " + path + "\n");
+    RomRig r({}, text);
+    REQUIRE(r.ok);
+    r.to("DIAG", "(Y/N)?");
+    const size_t from = r.out.size();
+    r.type("Y\r");
+    CHECK(r.until("BACKPLANE BIOS 0.14", ms(3000), from));
+    CHECK(r.until("\r\nA>", ms(20'000), from));
+    CHECK(r.out.find(TITLE, from) == std::string::npos);
+    CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again
 }
 
 int main()

@@ -452,6 +452,10 @@ ROMDIAG:        SEI
                 STA     TRAMP + DIAGOPTS - DIAGSRC
                 LDX     #$FF
                 TXS
+                LDA     #>($C800 - 1)  ; should $C815 refuse after all (a build whose own
+                PHA                    ; version, DG_VERSION, OODOS can't know), its RTS
+                LDA     #<($C800 - 1)  ; is a restart at $C800, as a reset, not a
+                PHA                    ; return into whatever is at $0100
                 LDY     #$5A           ; the token's second byte
                 JMP     TRAMP
 DIAGSRC:        LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
