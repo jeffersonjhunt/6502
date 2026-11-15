@@ -121,7 +121,7 @@ emulator/.clangd                                none
 emulator/.gitignore                             none
 
 # --- the machine's software: the BIOS, OODOS, the books ------------------------------------------------
-# oohw (hw/diag.md): built into oohw.lib for OODOS's DIAG and SYSINFO now, and into the ROM's diagnostics (D3).
+# oohw (hw/diag.md): built into oohw.lib for OODOS's SYSINFO, and into the ROM's diagnostics (D3).
 backplane/oohw/                                 bios oodos docs
 backplane/bios/backplane.inc                    bios oodos docs web
 backplane/bios/apple.s                          bios apple docs web

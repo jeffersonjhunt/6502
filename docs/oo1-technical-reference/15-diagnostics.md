@@ -61,7 +61,9 @@ OODOS looks at block 23 through W2 (the signature, and the BIOS version at `$801
 read from the greeting), and without them returns A = `$FF`, X = `$FC` and goes on. Otherwise it writes the changed
 buffers back, stops the Disk II (its write mode and motor off, and the DMA controller's master enable put back if a
 write had it off), turns its interrupts off (the VIA's timer 1, the video, USB and sound cards' enables), puts W0–W2
-on RAM blocks 0–2 and S at `$FF`, then W3 and VEC on block 63, the BIOS's RAM copy, and jumps to `$C815`. What
+on RAM blocks 0–2 and S at `$FF`, then W3 and VEC on block 63, the BIOS's RAM copy, and jumps to `$C815`, with
+`$C800`'s address on the stack below it: should `$C815` refuse after all (a build of the diagnostics whose own
+version isn't the running BIOS's, which OODOS can't check), its return is a restart, as a reset. What
 OODOS doesn't stop, the core's stage 0 does, as for every entry.
 
 ## The stages

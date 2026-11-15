@@ -2361,7 +2361,7 @@ common memory's table, the BIOS's jump table and OOUI's. The DMA controller's re
 - the DMA channels are OODOS's, and a program doesn't touch them (AGENTS.md: "Don't take over what OODOS owns");
 - programs move memory by function 83 and the BIOS's MOVE, whose arguments don't change;
 - SYSINFO's exception (AGENTS.md) doesn't include the DMA controller: SYSINFO reads only its ID byte
-  (`hwname.s`); the ROM's diagnostics drive it directly, owning the machine while they run.
+  (`hwprobe.s`, which reads every card's; `hwname.s` names it); the ROM's diagnostics drive it directly, owning the machine while they run.
 
 So nothing outside the ROM and OODOS.SYS sees the move. The ROM's diagnostics (D3b's stage 8) drive the channels
 directly, but they are the ROM's own code and move with it.

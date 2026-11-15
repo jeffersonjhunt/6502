@@ -699,8 +699,8 @@ the Woz Monitor instead.
 
 #### Errors
 
-- `No diagnostics in the ROM: BIOS 0.14 or later`: the flash has no diagnostics, or not the ones built with its
-  BIOS. Nothing is written to the card, OODOS goes on, and the return code is `$FF00`.
+- `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`: the flash has no diagnostics, or not the ones
+  built with the BIOS that is running. Nothing is written to the card, OODOS goes on, and the return code is `$FF00`.
 - `DIAG [option]?`, the command as typed: an option that is neither FULL nor ASK, or a file name.
 
 #### Since

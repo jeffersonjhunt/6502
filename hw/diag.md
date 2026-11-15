@@ -954,9 +954,13 @@ block 31 unchanged (code to `$E409`).
 - **The launcher.** `DIAG` is a CCP built-in (`ccp.s`'s `B_DIAG`), calling function 75 with A = 2; `bdos.s`'s
   `F_ROM` looks for the diagnostics first (`DIAGIN`) and `common.s`'s `ROMDIAG` leaves. `DIAGIN` checks block 23's
   signature and the BIOS version it was linked with (`$801C`) against the one the cold boot read from the greeting
-  (`ROMVER`, function 77's), which is what makes `$C815` take them, not its own `DG_VERSION`: that is the BIOS's
-  check of its own build, and an OODOS that compared it would refuse a later ROM's diagnostics whose header
-  version had moved on. The answer is a line, as ERA's `(Y/N)?` is (`Y` and RETURN), not a single key.
+  (`ROMVER`, function 77's). `$C815`'s CHKSIG also checks `DG_VERSION` (`$8009`) against the running BIOS's own,
+  which OODOS can't know (no OODOS can, for a later ROM), so `DIAGIN` leaves it out; a block 23 with the right
+  signature and linked version but another `DG_VERSION` passes OODOS's look and is refused by `$C815`, which then
+  returns. So `ROMDIAG` puts `$C800`'s return address on the fresh stack before the jump (review T1): that refusal
+  restarts the machine at `$C800`, as a reset does, and the card boots OODOS again, rather than returning through
+  `$0100`. The message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)` (review T6). The answer is
+  a line, as ERA's `(Y/N)?` is (`Y` and RETURN), not a single key.
 - **`ROMAPPLE` is as it was.** The plan gave its tramp a target; built so, in COMMON, it moved the interrupt
   dispatcher 50 bytes and changed the tick's and the frame's measured costs by a cycle (test_oodos_input's 145,
   test_oodos_video's 145, 199 and 396), expectations no plan named. So `ROMDIAG` has its own tramp (15 of `TRAMP`'s
@@ -968,6 +972,8 @@ block 31 unchanged (code to `$E409`).
 - **Size:** 533 bytes of OODOS, not about 210: the BDOS 75 (block 60 has 1,316 bytes free), `RES2` 451 and
   `BINAMES` 7 (block 62's resident part, with its BSS, ends at `$F5BE`: 577 bytes free), COMMON unchanged. The
   question, `NODIAG` and the option words are 197 bytes of it. **OODOS.SYS fits.**
+  After review round 1 (T1's return address, T2's every list, T5's tab, T6's longer message): 564 bytes, `RES2`
+  482, block 62's resident part to `$F5DD`, 546 bytes free.
 - **The cards** (`oodos.sparse`, `demo.sparse`) are made again.
 - **AGENTS.md:** the exception is SYSINFO's alone, its list cut to what `sysinfo.s` and the oohw modules it links
   (`hwprobe`, `hwclock`, `hwrtc`, `hwsdid`, `hwname`, `hwfmt`) read and write; IRQL and IRQH, the console card's
@@ -1001,6 +1007,24 @@ test_oodos_sysinfo (`FINFO 09 0F`; the six golden reports' `OOLIB interface 9`) 
 **The gate** (`tools/check.sh changed main`, 63 suites): every suite, step and e2e run passes but those five, which
 fail on exactly the assertions above. Main moved meanwhile (B0, `aa74787`: hw/design.md and hw/modules.md only);
 not merged.
+
+**D3c's review, round 1, T1–T7 (2026-11-14), fixed as the owner decided.** Each fix with a test had it seen failing
+on the round's tip (`53ec6af`) first:
+
+- **T1:** `ROMDIAG` leaves `$C800`'s return address on the fresh stack (above). Test: block 23 with another
+  `DG_VERSION` (a second flash line over it): `DIAG`, `Y` restarts the machine and the card boots OODOS to `A>`; on
+  the tip it ended in the monitor through `$0100`.
+- **T2:** `DIAGOPT` goes on to the tail's next `[` at a `]`, so every list is checked: `DIAG [FULL] [LOOP]` is the
+  command and `?` (on the tip it asked `(Y/N)?`).
+- **T3:** a case with OODOS's `ROMVER` poked to 0.13: the message, `$FF00` and a program's `FF FC`. Seen failing on a
+  build with `DIAGIN`'s compare of `$801C` against `ROMVER` removed (the diagnostics ran).
+- **T4:** the no-diagnostics case's check of W2 after the call dropped (it couldn't fail: OODOS's BDOS runs with W2
+  on block 61 anyway).
+- **T5:** a tab separates the option words as a blank does: `DIAG [FULL<tab>ASK]` (on the tip, the command and `?`).
+- **T6:** the message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`; the User's Guide's
+  chapters 4 and 6 and test_oodos_utils_rom's two checks of it changed with it.
+- **T7:** comments: `oodos/Makefile`'s and `tools/test-map.txt`'s oohw notes say SYSINFO alone; hw/design.md's DMA
+  note cites `hwprobe.s` for the ID byte's read.
 
 <a id="plan2-books"></a>
 ### The books ###
