@@ -84,10 +84,18 @@ SS_LENGTH       = 3                    ;   bytes, at most 16 KB
 SS_RECORD       = 5                    ;   the record of the file it starts at
 SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
-SYS_MAJOR       = 0                    ; 0.9: video card revision 2 (interface 8); the version's one source
-SYS_MINOR       = 9                    ; (mksys.py reads both from here)
-; The banners (OOLDR's, the cold boot's, PIP's) print each as one digit
-.assert SYS_MAJOR <= 9 && SYS_MINOR <= 9, error, "SYS_MAJOR and SYS_MINOR are printed as one digit each"
+SYS_MAJOR       = 0                    ; 0.10: SYSINFO, function 77, DIAG (interfaces 9, 10); the version's one source
+SYS_MINOR       = 10                   ; (mksys.py reads both from here)
+; The banners (OOLDR's, the cold boot's, PIP's) print the version as SYS_VERSION_TEXT writes it: the major as one
+; digit, the minor as one or two ("0.9", "0.10")
+.assert SYS_MAJOR <= 9 && SYS_MINOR <= 99, error, "SYS_MAJOR is printed as one digit, SYS_MINOR as one or two"
+.macro SYS_VERSION_TEXT
+        .byte   '0' + SYS_MAJOR, '.'
+.if SYS_MINOR > 9
+        .byte   '0' + SYS_MINOR / 10
+.endif
+        .byte   '0' + SYS_MINOR .mod 10
+.endmacro
 
 ; The CP/M file reader's errors (sys/cpmread.s), in A with carry set
 CRE_EOF         = 0                    ; CR_READ: past the file's last record

@@ -16,7 +16,7 @@ cycle. hw/design.md's "Front Panel" supersedes the switch list in hw/console.md.
 **The switches:**
 
 - **The switch register:** 20 switches. LOAD ADRS takes all 20 as a physical address; DEP takes the low 8 as a
-  byte. A program can read them in SWR, for boot options, as on a PDP-11. *Proposed* (BIOS 0.14): the top four are
+  byte. A program can read them in SWR, for boot options, as on a PDP-11. Since BIOS 0.14: the top four are
   the ROM diagnostics' ([chapter 15](15-diagnostics.md#the-three-entries)): switch 19 up at a reset asks for them,
   and at that entry and at `$C812`'s, 18 makes the run full, 17 loops it and 16 adds the interactive tests. From
   `A>` only what `DIAG` is given counts, so switches left up after a LOAD ADRS can't change that run.
@@ -124,8 +124,8 @@ is let go. BPADDR, BPCTRL, STATUS's HIT, PADDR, DISPLAY and the latched cycle ar
 START catches an address in the boot, and START with the HALT switch at HALT stops at the reset vector's first
 instruction, to step from there. LOCK ignores START.
 
-The BIOS leaves the card as reset leaves it, and Break turns IEN off and clears ISR. *Proposed* (BIOS 0.14,
-[chapter 15](15-diagnostics.md)): at reset the BIOS writes BPCTRL 0 when BPADDR holds `$BD1A5`, the ROM diagnostics'
+The BIOS leaves the card as reset leaves it, and Break turns IEN off and clears ISR. Since BIOS 0.14
+([chapter 15](15-diagnostics.md)): at reset the BIOS writes BPCTRL 0 when BPADDR holds `$BD1A5`, the ROM diagnostics'
 own breakpoint test address (P3's), and only then, so a reset during P3 can't halt the next boot, while a
 breakpoint set before START on any other address still catches the boot. A breakpoint you set at `$BD1A5` is
 turned off by every reset. The diagnostics' end and Break write BPCTRL 0 and clear HIT under the same rule.
@@ -287,7 +287,7 @@ W. A read gives `$FF`.
 #### Bits
 
 All: the byte the data lamps show while CTRL's bit 3 is set: a progress or error code with no screen, as a
-PDP-11's display register. *Proposed* (BIOS 0.14): the ROM diagnostics' codes, `$A5` at their prompt, `$00`–`$0E`
+PDP-11's display register. Since BIOS 0.14: the ROM diagnostics' codes, `$A5` at their prompt, `$00`–`$0E`
 the stage running, `$FF` all passed, `$C0` + n with n stages failed, and `$80` + n for a stage the run can't go on
 from ([chapter 15](15-diagnostics.md#the-lights)).
 

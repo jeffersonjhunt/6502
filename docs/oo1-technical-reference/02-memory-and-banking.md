@@ -35,7 +35,7 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 | 30, `$78000` | the 8×16 font, 4 KB |
 | 29, `$74000` | the video demo |
 | 24–28, `$60000` | the boot splash's samples for the ES5503: wave RAM's image, 80 KB ([chapter 7](07-sound.md)) |
-| 21–23, `$54000` | *proposed* (BIOS 0.14): the ROM's diagnostics, block 23 their core and memory tests, 22 and 21 the card tests ([chapter 15](15-diagnostics.md)) |
+| 21–23, `$54000` | since BIOS 0.14: the ROM's diagnostics, block 23 their core and memory tests, 22 and 21 the card tests ([chapter 15](15-diagnostics.md)) |
 | 0–20 | erased (`$FF`) |
 
 The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).

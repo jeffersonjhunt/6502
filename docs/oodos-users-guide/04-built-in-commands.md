@@ -705,11 +705,11 @@ the Woz Monitor instead.
 
 #### Since
 
-OODOS interface 10, from hw/diag.md's D3c; needs BIOS 0.14.
+OODOS 0.10 (interface version 10), from hw/diag.md's D3c; needs BIOS 0.14.
 
 #### Status
 
-**proposed**
+**built**
 
 #### CP/M 3
 

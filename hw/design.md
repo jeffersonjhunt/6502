@@ -3,8 +3,8 @@
 Draft, 2026-10-21. The architecture of the backplane computer as agreed so far. Each section separates what is
 **decided** from what is **proposed** (a starting point, open to change); open questions are collected at the end.
 Card pin-outs and the module ID list are in [modules.md](modules.md), the front panel in [console.md](console.md).
-**Proposed (2026-11-13):** the diagnostics (all in the ROM since plan 2, reached from `A>` by `DIAG`) and SYSINFO,
-with their shared library, are planned in [diag.md](diag.md).
+**Since BIOS 0.14 and OODOS 0.10 (planned 2026-11-13):** the diagnostics (all in the ROM since plan 2, reached from
+`A>` by `DIAG`) and SYSINFO, with their shared library, are in [diag.md](diag.md).
 
 
 ## Goals ##
@@ -215,7 +215,7 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | `$07` | RTCCTL | read/write | the real-time clock ([below](#real-time-clock)). Bit 7 TICK: a second passed or an alarm fired; write 1 to clear. Bit 6 TIE: TICK interrupts (bit 5 of IRQH, ID `0xD`). Bit 5 ALARM: the DS3231 flagged an alarm. Bit 2 LOST: the DS3231's oscillator stopped (OSF), so the time is invalid until set. Bit 1 SET: write 1 to send SEC–YEAR to the DS3231; a strobe, it reads 0, and BUSY shows the send pending. Bit 0 BUSY: the bridge is talking to the DS3231. Don't read-modify-write it: a TICK read as 1 and written back clears it | TICK, TIE and SET 0; LOST and ALARM follow the DS3231's status |
 | `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
 | `$09` | IRQH | read | interrupt poll for IDs 8–F | |
-| `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID: WAITn holds IDs 4n to 4n+3, the lowest ID in bits 1–0. Reserved for turbo; unused at ÷2. **Proposed (BIOS 0.14, [diag.md](diag.md)):** the ROM diagnostics own WAIT3 while they run (it carries a program's options and a stage's flag through their no-RAM stages) and write every wait state 0 on the way out | `$00` |
+| `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID: WAITn holds IDs 4n to 4n+3, the lowest ID in bits 1–0. Reserved for turbo; unused at ÷2. **BIOS 0.14 ([diag.md](diag.md)):** the ROM diagnostics own WAIT3 while they run (it carries a program's options and a stage's flag through their no-RAM stages) and write every wait state 0 on the way out | `$00` |
 | `$10`–`$16` | SEC–YEAR | read/write | the time, in BCD as the DS3231's registers `$00–$06` (seconds, minutes, hours, day of week, date, month with the century in bit 7, year). Reading SEC latches all seven, so a read never straddles a second | |
 | `$17` | RTCREG | read/write | a DS3231 register number, for RTCDATA | `$00` |
 | `$18` | RTCDATA | read/write | that DS3231 register (the alarms, control, status, aging, temperature), read or written through the bridge; wait for BUSY clear. A write to the control register (`$0E`) has INTCN, RS2 and RS1 cleared: SQW is the bridge's | |
@@ -442,7 +442,7 @@ with up to 16 MB, so the reasoning isn't lost.
    stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor
    ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
 
-   *(BIOS 0.14, proposed, 2026-11-14: [diag.md](diag.md), plan 2.)* The ROM's diagnostics are in flash blocks
+   *(BIOS 0.14, 2026-11-14: [diag.md](diag.md), plan 2.)* The ROM's diagnostics are in flash blocks
    21–23 (blocks 0–20 stay erased), entered three ways. Before its copy into block 63, with the Console card
    fitted (its ID read twice), the reset turns the breakpoint off if BPADDR holds the diagnostics' own P3 address
    (`$BD1A5`), and only then, so a breakpoint set before START still catches the boot anywhere else; and with

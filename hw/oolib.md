@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -1545,8 +1545,8 @@ question 15.
 15. **The version.** *New (2026-11-07).* **Recommended:** OODOS 0.5 when L1–L4 are merged, one bump as for
     phases 5 and 6, and OOLIB's interface version 1 from L1, raised by each step that adds to it.
     *The versions so far (function 80's `FT_INFO`):* 1 L1, 2 L2, 3 L3, 4 L4, 5 L4b's hold, go and volume, 6 L5a's
-    mailbox stamp, 7 OODOS 0.8's `EV_SFLAGS`, 8 OODOS 0.9's video card revision 2, 9 function 77, the ROM BIOS's
-    version (hw/diag.md's D1, 2026-11-13), 10 function 75's A = 2, the ROM's diagnostics (hw/diag.md's D3c,
+    mailbox stamp, 7 OODOS 0.8's `EV_SFLAGS`, 8 OODOS 0.9's video card revision 2, 9 OODOS 0.10's function 77, the ROM BIOS's
+    version (hw/diag.md's D1, 2026-11-13), 10 OODOS 0.10's function 75's A = 2, the ROM's diagnostics (hw/diag.md's D3c,
     2026-11-14, P2-1). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
     also marks OODOS's own additions a program needs to detect, OOLIB's or not, since it is the one number a
-    program can ask for (OODOS's own version is printed one digit each, and changes only at a release).
+    program can ask for (OODOS's own version changes only at a release).

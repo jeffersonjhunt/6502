@@ -158,7 +158,7 @@ same core in the page, compiled to WebAssembly: a `Session`
 - **The front panel** is the console card's: the switch register, the keys, HALT, S INST / S BUS CYCLE, START, the
   keyswitch and the lamps ([chapter 12](12-front-panel.md#switches-and-lights)). The toolbar's Run, Halt and Step
   inst work through the HALT switch and CONT. Step cycle is greyed out: the emulator steps whole instructions.
-  *Proposed* (BIOS 0.14): switch 19 up, then START, asks for the ROM's diagnostics, and CONT on the panel enters
+  Since BIOS 0.14: switch 19 up, then START, asks for the ROM's diagnostics, and CONT on the panel enters
   them ([chapter 15](15-diagnostics.md#the-three-entries)); switches 16–18 are their options there.
 - **The SD slot.** Each visit puts in a demo card with OODOS on it, so power-on boots OODOS. Settings takes a card
   image of one's own, saves the card with its writes, write-protects it, or ejects it. With the slot empty,
@@ -391,7 +391,7 @@ None that the chapters know of. Where the emulator does less than the design, it
 
 Status: **emulated**
 
-Not bugs, but what BIOS 0.13 does, and 0.14 (*proposed*) as well, which a program run from the monitor has to know:
+Not bugs, but what BIOS 0.13 does, and 0.14 as well, which a program run from the monitor has to know:
 
 - **Break turns off what the BIOS's IRQ handler can't answer:** the cards' IENs, the clock's TIE, the VIA's IER
   (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11
@@ -408,7 +408,7 @@ Not bugs, but what BIOS 0.13 does, and 0.14 (*proposed*) as well, which a progra
   ([What the BIOS leaves](10-storage.md#what-the-bios-leaves)).
 - **The 6551's receive interrupt is off** under the monitor (CMD `$0B`), and stays off into Apple II mode
   ([The stand-in 6551](09-serial-and-via.md#the-stand-in-6551)).
-- **A breakpoint on `$BD1A5` is turned off by every reset,** since BIOS 0.14 (*proposed*): it is the ROM
+- **A breakpoint on `$BD1A5` is turned off by every reset,** since BIOS 0.14: it is the ROM
   diagnostics' own P3 address, and the BIOS clears BPCTRL only for it ([Reset](12-front-panel.md#reset)).
 
 ## Running a program
