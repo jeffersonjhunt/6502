@@ -1550,7 +1550,9 @@ OODOS_DIR_LEN   = * - OODOS_DIR
 DRIVES_PATH:    .byte   "/OODOS/"
 DRIVES_NAME:    .byte   "DRIVES.TXT", 0
 
-MBANNER:        .byte   $0D, "OOLDR ", '0' + SYS_MAJOR, '.', '0' + SYS_MINOR, $0D, 0
+MBANNER:        .byte   $0D, "OOLDR "
+                SYS_VERSION_TEXT
+                .byte   $0D, 0
 MNODRIVES:      .byte   $0D, "NO /OODOS/DRIVES.TXT ON THE CARD", $0D, 0
 MLINE:          .byte   $0D, "DRIVES.TXT LINE ", 0
 MCOLON:         .byte   ": ", 0

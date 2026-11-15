@@ -572,7 +572,7 @@
   "documented": true,
   "anchor": "bdos-75",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since interface version 10.",
+  "since": "OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10).",
   "status": "built"
  },
  {
@@ -590,7 +590,7 @@
   "documented": true,
   "anchor": "bdos-77",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "Interface version 9 (function 80's `FT_INFO`).",
+  "since": "OODOS 0.10 (interface version 9, function 80's `FT_INFO`).",
   "status": "built"
  },
  {

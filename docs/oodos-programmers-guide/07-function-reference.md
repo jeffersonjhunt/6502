@@ -2915,7 +2915,7 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 
 - Y = 75 (`O_ROM`).
 - A = 0: the ROM BIOS's Woz Monitor, as Break goes there. A = 1: Apple II mode, through the ROM's `$C806`.
-- A = 2 (*proposed*, since interface version 10): the ROM's diagnostics, through the ROM's `$C815`, with no question
+- A = 2 (since OODOS 0.10, interface version 10): the ROM's diagnostics, through the ROM's `$C815`, with no question
   asked (the program asks first: they overwrite all of memory, and the machine boots again at their end;
   [the Technical Reference, chapter 15](../oo1-technical-reference/15-diagnostics.md)). X = the options: bit 0 a full
   run, bit 1 the interactive tests; the other bits 0. The front panel's switches don't count.
@@ -2964,7 +2964,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since interface version 10.
+OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10).
 
 #### Status
 
@@ -3065,7 +3065,7 @@ Not measured.
 
 #### Since
 
-Interface version 9 (function 80's `FT_INFO`).
+OODOS 0.10 (interface version 9, function 80's `FT_INFO`).
 
 An OODOS before it hasn't function 77 and answers it as any function it hasn't, A = X = `$FF`, the same as an unknown
 version: a program that must tell the two apart asks [function 80's](#bdos-80) `FT_INFO` first, as SYSINFO does.
@@ -3105,9 +3105,9 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
 - `FT_INFO`: A = OOLIB's interface version (10: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
   video card revision 2: function 83's card operations and the W1 contract on the aperture,
-  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 [function 77](#bdos-77), the ROM BIOS's
-  version: the number marks OODOS's own additions a program needs to detect too; 10 [function 75](#bdos-75)'s A = 2,
-  the ROM's diagnostics), X = a bit for each service area OODOS
+  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 OODOS 0.10's [function 77](#bdos-77), the ROM
+  BIOS's version: the number marks OODOS's own additions a program needs to detect too; 10 OODOS 0.10's [function
+  75](#bdos-75)'s A = 2, the ROM's diagnostics), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the

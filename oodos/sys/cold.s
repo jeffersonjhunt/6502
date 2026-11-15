@@ -488,7 +488,9 @@ HEX2:           PHA
                 ORA     #'0'
                 JMP     PUT
 
-BANNER:         .byte   $0D, $0A, "OODOS ", '0' + OODOS_MAJOR, '.', '0' + OODOS_MINOR, "  ", 0
+BANNER:         .byte   $0D, $0A, "OODOS "
+                SYS_VERSION_TEXT       ; OODOS_MAJOR.OODOS_MINOR, system.inc's
+                .byte   "  ", 0
 
 SCBINIT:        .byte   <(SCB_VERSION - SCB), $31
                 .byte   <(SCB_WIDTH - SCB), 79
