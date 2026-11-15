@@ -87,22 +87,27 @@ namespace ooe::emu
         return m ? m->module : NO_MODULE;
     }
 
-    uint8_t Decoder::module_of(const Device &card) const
+    const Mapping *Decoder::io_mapping_of(const Device &card) const
     {
         for (const Mapping &m : mappings_)
         {
             if (m.device == &card && space_of(m.first) == Space::Io)
-                return m.module;
+                return &m;
         }
-        return NO_MODULE;
+        return nullptr;
     }
 
-    const Mapping *Decoder::dma_cycle(uint32_t where, unsigned &cycles)
+    uint8_t Decoder::module_of(const Device &card) const
+    {
+        const Mapping *m = io_mapping_of(card);
+        return m ? m->module : NO_MODULE;
+    }
+
+    const Mapping *Decoder::dma_cycle(uint32_t where, unsigned &cycles, unsigned card_wait)
     {
         const Mapping *m = find(where);
-        cycles = 1;
-        if (m)
-            cycles += m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        // /WAIT is one open-drain line: the cycle lasts until the last of those holding it lets go.
+        cycles = 1 + std::max(m ? unsigned{m->wait} : 0u, card_wait);
         now_ += cycles;
         if (m)
             catch_up(*m);
@@ -161,7 +166,8 @@ namespace ooe::emu
     {
         unsigned cycles = 0;
         const uint32_t where = memory(physical);
-        const Mapping *m = dma_cycle(where, cycles);
+        const Mapping *cm = io_mapping_of(card);
+        const Mapping *m = dma_cycle(where, cycles, cm ? cm->wait : 0u);
         catch_up_device(card);
         const uint32_t off = m ? device_offset(*m, where) : 0;
         uint8_t v = UNMAPPED_READ;
@@ -257,9 +263,7 @@ namespace ooe::emu
         last_granted_ = granting_;
         r = route(addr, vector_pull_, write);
         const Mapping *m = find(r.where);
-        unsigned waits = 0;
-        if (m)
-            waits = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        const unsigned waits = m ? m->wait : 0u; // /WAIT, which the north bridge turns into RDY
         now_ += 1 + waits; // the access completes on the last held cycle
         last_wait_ = stolen + waits;
         last_stolen_ = stolen;

@@ -328,6 +328,58 @@ TEST(a_timer_runs_through_wait_states)
     CHECK_EQ(run(15), static_cast<uint8_t>(plain - 15));
 }
 
+TEST(wait_stretches_a_dma_grant_and_a_fly_by_by_the_longer_side)
+{
+    // /WAIT (hw/design.md, "Wait states and the read budget"): the DMA controller obeys it in its grants. A memory
+    // cycle lasts 1 + the memory's wait; a fly-by, which memory and the card answer in the one cycle on the one
+    // open-drain line, 1 + the longer of the two, never the sum.
+    struct Card : Ram
+    {
+        Card() : Ram(0x80) {}
+        uint8_t dack_read(bool) override { return 0xC5; }
+        void dack_write(uint8_t data, bool) override { got = data; }
+        uint8_t got{0};
+    };
+    auto rig = [](uint8_t memory_wait, uint8_t card_wait, auto &&check) {
+        Ram ram(0x10000);
+        Card card;
+        Decoder bus;
+        bus.map({0x00000, 0x0FFFF, &ram, NO_MODULE, false, memory_wait});
+        bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &card, 0x7, false, card_wait});
+        check(bus, ram, card);
+    };
+    rig(3, 0, [](Decoder &bus, Ram &ram, Card &card) {
+        uint64_t t = bus.now();
+        uint8_t v = 0;
+        ram.write(0x1234, 0x42);
+        CHECK_EQ(bus.dma_read(0x1234, v), 4u);  // memory to memory's read
+        CHECK_EQ(v, 0x42);
+        CHECK_EQ(bus.now() - t, 4u);
+        t = bus.now();
+        CHECK_EQ(bus.dma_write(0x1235, 0x43), 4u); // and its write
+        CHECK_EQ(ram.peek(0x1235), 0x43);
+        CHECK_EQ(bus.now() - t, 4u);
+        CHECK_EQ(bus.dma_fly_by(0x1236, card, true, false), 4u); // the memory's side is the longer
+        CHECK_EQ(ram.peek(0x1236), 0xC5);
+    });
+    rig(0, 2, [](Decoder &bus, Ram &ram, Card &card) {
+        uint8_t v = 0;
+        CHECK_EQ(bus.dma_read(0x1234, v), 1u);  // the card's /WAIT doesn't touch memory to memory
+        const uint64_t t = bus.now();
+        CHECK_EQ(bus.dma_fly_by(0x2000, card, true, false), 3u); // the card's side counts
+        CHECK_EQ(bus.now() - t, 3u);
+        ram.write(0x2001, 0x99);
+        CHECK_EQ(bus.dma_fly_by(0x2001, card, false, false), 3u); // either way
+        CHECK_EQ(card.got, 0x99);
+    });
+    rig(3, 2, [](Decoder &bus, Ram &, Card &card) {
+        CHECK_EQ(bus.dma_fly_by(0x3000, card, true, false), 4u); // the longer, 3, not 3 + 2
+    });
+    rig(0, 0, [](Decoder &bus, Ram &, Card &card) {
+        CHECK_EQ(bus.dma_fly_by(0x3000, card, true, false), 1u); // no /WAIT: one cycle a byte
+    });
+}
+
 int main()
 {
     return run_all();

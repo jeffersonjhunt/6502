@@ -4,8 +4,8 @@
  * @file backplane_bridge.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's north bridge: windows, VEC, ROM space, I/O hole.
- * @version 0.4.0
- * @date 2026-11-14
+ * @version 0.5.0
+ * @date 2026-11-15
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -48,9 +48,10 @@
  * a card with that module ID and a wired IRQ asserts it. Unused offsets read
  * $FF, the data lines' weak pull-ups.
  *
- * WAIT0-WAIT3 give each module ID 2 bits of wait states: WAITn holds IDs
- * 4n to 4n+3, the lowest ID in bits 1-0. Every access to that module is held
- * that many extra cycles with RDY.
+ * WAIT0-WAIT3 are read/write storage, reset 0, reserved for a turbo: they
+ * slow nothing (step B2). Every wait state comes from a card pulling /WAIT
+ * (a mapping's `wait`, decoder.h), which the bridge turns into RDY for the
+ * CPU. The diagnostics keep their options in WAIT3.
  *
  * Apple II mode (MODE bit 0; hw/design.md, "Apple II mode"): writing it
  * asks for a /RESET pulse (take_reset()) and switches to the IIe's map. A0-
@@ -199,7 +200,6 @@ namespace ooe::emu
         /// Apple mode's $C000-$CFFF, which the machine maps at APPLE_IO.
         AppleIo &apple_io() { return apple_io_; }
         const AppleSwitches &apple_switches() const { return apple_io_.switches(); }
-        unsigned wait_states(uint8_t module) const override;
 
         // Device: the registers at $C680
         size_t size() const override { return 0x80; }

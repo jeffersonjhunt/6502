@@ -332,17 +332,14 @@ static void copy_64k_on_the_backplane(uint8_t control, uint64_t &woke)
     std::string error;
     auto m = Machine::build("cpu w65c02s\n"
                             "northbridge backplane bootsel\n"
-                            "ram 00000-FFFFF module=0\n"
+                            "ram 00000-FFFFF name=ram\n"
                             "dma 400-47F space=io name=dma irq\n",
                             "dma.machine", {}, error);
     if (!m)
         std::printf("  %s\n", error.c_str());
     REQUIRE(m != nullptr);
     Decoder &bus = m->bus();
-    Device *ram = nullptr;
-    for (const Mapping &map : bus.mappings())
-        if (map.module == 0x0)
-            ram = map.device;
+    Device *ram = m->find("ram");
     REQUIRE(ram != nullptr);
     for (uint32_t i = 0; i < 0x10000; ++i)
         ram->write(0x20000 + i, static_cast<uint8_t>(i * 7));

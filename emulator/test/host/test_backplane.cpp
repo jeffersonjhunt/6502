@@ -212,24 +212,51 @@ TEST(irq_poll_reads_0_for_interrupting_modules)
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::IRQH), 0xFB);  // bit 2: ID A
 }
 
-TEST(wait_registers_slow_their_module_only)
+TEST(wait_registers_keep_their_values_and_slow_nothing)
 {
+    // Step B2 (hw/design.md, "Wait states and the read budget"): every wait state comes by /WAIT, so WAIT0-3 are
+    // storage, reserved for a turbo, that no cycle obeys.
     Rig r;
     Ram serial(0x80), storage(0x80);
     r.bus.map({bus_address(Space::Io, 0x300), bus_address(Space::Io, 0x37F), &serial, 0x6});
     r.bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &storage, 0x7});
-    r.bus.write(NB + BackplaneBridge::WAIT0 + 1, 0x20); // WAIT1: IDs 4-7; ID 6 is bits 5-4 = 2
+    r.bus.write(NB + BackplaneBridge::WAIT0 + 1, 0x20); // once WAIT1: ID 6, 2 wait states
     r.bus.read(0xC300);
-    CHECK_EQ(r.bus.wait_states(), 2u);
-    r.bus.read(0xC380);
-    CHECK_EQ(r.bus.wait_states(), 0u);                 // ID 7 untouched
-    r.bus.write(NB + BackplaneBridge::WAIT0, 0x03);     // WAIT0: ID 0 (RAM A) = 3
+    CHECK_EQ(r.bus.wait_states(), 0u);
+    r.bus.write(NB + BackplaneBridge::WAIT0, 0x03);     // once WAIT0: ID 0, RAM A, 3
     const uint64_t before = r.bus.now();
     r.bus.read(0x1000);
-    CHECK_EQ(r.bus.now() - before, 4u);
-    r.bus.write(NB + BackplaneBridge::WAIT0 + 3, 0xC0); // WAIT3: ID F is bits 7-6
-    CHECK_EQ(r.bridge.wait_states(0xF), 3u);
-    CHECK_EQ(r.bridge.wait_states(0xC), 0u);
+    CHECK_EQ(r.bus.now() - before, 1u);
+    r.bus.write(NB + BackplaneBridge::WAIT0 + 3, 0xC0);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0), 0x03); // each reads back what was written
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 1), 0x20);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 2), 0x00);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0xC0);
+    r.bus.reset();
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0x00); // and reset clears them
+}
+
+TEST(a_card_holding_wait_stretches_the_cpus_access_to_it_behind_the_bridge)
+{
+    // /WAIT: the slow card pulls it for its `wait` cycles, and the north bridge holds the CPU with RDY for them.
+    // Only that card's accesses are held; memory, chosen by address, isn't.
+    Rig r;
+    Ram slow(0x80), fast(0x80);
+    r.bus.map({bus_address(Space::Io, 0x300), bus_address(Space::Io, 0x37F), &slow, 0x6, false, 2});
+    r.bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &fast, 0x7});
+    uint64_t before = r.bus.now();
+    r.bus.write(0xC300, 0x5A);
+    CHECK_EQ(r.bus.wait_states(), 2u);
+    CHECK_EQ(r.bus.now() - before, 3u);
+    CHECK_EQ(slow.peek(0), 0x5A);                     // written once, at the end
+    before = r.bus.now();
+    CHECK_EQ(r.bus.read(0xC300), 0x5A);
+    CHECK_EQ(r.bus.now() - before, 3u);
+    r.bus.read(0xC380);
+    CHECK_EQ(r.bus.wait_states(), 0u);
+    before = r.bus.now();
+    r.bus.read(0x1000);
+    CHECK_EQ(r.bus.now() - before, 1u);
 }
 
 TEST(mode_wait_and_unused_registers)

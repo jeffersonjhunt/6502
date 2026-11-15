@@ -117,11 +117,6 @@ namespace ooe::emu
         return Route{bus_address(Space::Memory, redirect(offset)), (reg & RO) == 0};
     }
 
-    unsigned BackplaneBridge::wait_states(uint8_t module) const
-    {
-        return (wait_[(module >> 2) & 3] >> ((module & 3) * 2)) & 3u;
-    }
-
     uint8_t BackplaneBridge::poll(bool high) const
     {
         uint8_t v = 0xFF;

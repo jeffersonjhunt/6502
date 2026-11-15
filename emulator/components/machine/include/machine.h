@@ -25,10 +25,11 @@
  * whose mappings take the module ID of their 128-byte block unless
  * `module=` says otherwise, and may not cross into the next: a card
  * answers one module ID and decodes A0-A6). `#` starts a comment. `module=` tags the
- * mapping with a backplane module ID (on a memory line behind the backplane's
- * bridge, only the ID whose WAITn bits slow it, until step B2: memory is
- * chosen by address, and its cycles carry the master's ID); `wait=` (0-15) holds RDY for that
- * many extra cycles on every access, as a slow card does; `drq=` (0-3)
+ * mapping with a backplane module ID (a memory line behind the backplane's
+ * bridge has no use for one: memory is chosen by address, and its cycles
+ * carry the master's ID); `wait=` (0-15) pulls /WAIT for that many extra
+ * cycles on every access, as a slow card does, the CPU's (the north bridge
+ * makes it RDY) and a DMA grant's alike; `drq=` (0-3)
  * wires the device's DMA request to that channel; `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it

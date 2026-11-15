@@ -544,7 +544,7 @@ namespace
             std::string error;
             m = Machine::build("cpu w65c02s\n"
                                "northbridge backplane bootsel\n"
-                               "ram 00000-FFFFF module=0\n"
+                               "ram 00000-FFFFF name=ram\n"
                                "dma 400-47F space=io name=dma irq\n"
                                "sd  380-3FF space=io name=sd irq drq=0\n",
                                "sd.machine", {}, error);
@@ -553,9 +553,7 @@ namespace
             REQUIRE(m != nullptr);
             REQUIRE(m->sd_card() != nullptr);
             m->sd_card()->insert(media, false);
-            for (const Mapping &map : m->bus().mappings())
-                if (map.module == 0x0)
-                    ram = map.device;
+            ram = m->find("ram");
         }
         /// Run `prog` at $0200 until STP. @return the cycle the card went BUSY, and the one the IRQ came
         void run(const std::vector<uint8_t> &prog, uint64_t &busy_at, uint64_t &irq_at)

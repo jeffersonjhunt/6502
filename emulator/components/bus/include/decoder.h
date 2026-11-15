@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.11.0
- * @date 2026-11-14
+ * @version 0.12.0
+ * @date 2026-11-15
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -53,10 +53,17 @@
  * and do not count; a debugger store through write() does, as a Store from
  * the console takes a bus cycle on the board.
  *
- * Wait states (RDY): an access to a mapping with `wait` set, or to a module
- * the north bridge is told to slow down, lasts 1 + N cycles. The device is
- * accessed once, at the end, when the CPU takes the data, so a timed device
- * has been ticked through the held cycles by then.
+ * Wait states (/WAIT, hw/design.md "Wait states and the read budget"): a
+ * card that needs them pulls the backplane's /WAIT line, and a mapping's
+ * `wait` is how many cycles it holds it on every access. On a CPU cycle the
+ * north bridge turns /WAIT into RDY, so the access lasts 1 + N cycles; the
+ * device is accessed once, at the end, when the CPU takes the data, so a
+ * timed device has been ticked through the held cycles by then. The DMA
+ * controller obeys /WAIT in its grants alike: a memory cycle lasts 1 + the
+ * memory's N, and a fly-by, where memory and the card named on PS0-PS3 both
+ * answer the one cycle on the one open-drain line, 1 + the longer of the
+ * two. /WAIT is the only source of wait states: the north bridge's WAIT0-3
+ * are storage that slows nothing (backplane_bridge.h).
  *
  * Bus masters (DMA): before every CPU cycle, and every idle one, the
  * decoder offers the bus to its BusMaster, as the board's DMA controller
@@ -80,9 +87,8 @@
  * (NorthBridge::memory_select()): on the backplane D for the CPU, 8 for the
  * DMA controller's memory to memory cycles, and on a fly-by the card's. A
  * bus with no /MEM (no north bridge, as the Apple-1's) shows the mapping's
- * module= instead. A memory mapping's module is then only the ID whose
- * WAITn bits slow it, as the 62-pin bus's memory modules were (step B1
- * keeps it; B2 replaces it with /WAIT).
+ * module= instead. Behind a north bridge a memory mapping's module is not
+ * used.
  *
  * The CPU reports its own cycles to its observer; the bus master's go to
  * the decoder's (set_dma_observer()), each read or write as it happens,
@@ -178,12 +184,6 @@ namespace ooe::emu
         /// Where the CPU card sends a memory cycle for `physical` (A0-A23): the CPU's windows and
         /// the DMA controller's cycles alike. Default: where it was asked.
         virtual uint32_t redirect(uint32_t physical) const { return physical; }
-        /// Wait states the bridge inserts on an access to `module`.
-        virtual unsigned wait_states(uint8_t module) const
-        {
-            (void)module;
-            return 0;
-        }
     };
 
     struct Mapping
@@ -193,7 +193,7 @@ namespace ooe::emu
         Device *device{nullptr};    ///< not owned
         uint8_t module{NO_MODULE};  ///< backplane module ID 0x0-0xF, or NO_MODULE
         bool irq_wired{false};      ///< device's IRQ output reaches the CPU
-        uint8_t wait{0};            ///< wait states the card holds RDY for on every access
+        uint8_t wait{0};            ///< cycles the card holds /WAIT for on every access, the CPU's and DMA's
         uint8_t drq{NO_DRQ};        ///< DMA channel the device's DRQ line goes to, or NO_DRQ
     };
 
@@ -267,7 +267,8 @@ namespace ooe::emu
         /// A bus master's memory write at a physical address. @return cycles used
         unsigned dma_write(uint32_t physical, uint8_t data);
         /// One fly-by cycle between `card` and memory at `physical`:
-        /// `to_memory` card -> memory, else memory -> card. @return cycles used
+        /// `to_memory` card -> memory, else memory -> card. Both hold /WAIT as their mappings
+        /// say, so the cycle is stretched by the longer of the two. @return cycles used
         unsigned dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc);
         /// Memory at a physical address (A0-A23) with no bus cycle counted, as
         /// the CPU card reaches it (NorthBridge::redirect()): with a revision 2
@@ -335,9 +336,10 @@ namespace ooe::emu
         /// Route a CPU access, count its cycles (wait states and any bus
         /// master's cycles too) and record it in last_.
         const Mapping *access(uint16_t addr, Route &r, bool write);
-        /// Count one bus master cycle to memory at `where` (a bus address, redirected); @return the
-        /// mapping (or nullptr) and its cycles in `cycles`.
-        const Mapping *dma_cycle(uint32_t where, unsigned &cycles);
+        /// Count one bus master cycle to memory at `where` (a bus address, redirected), stretched by
+        /// the memory's /WAIT or `card_wait`, whichever is longer; @return the mapping (or nullptr)
+        /// and its cycles in `cycles`.
+        const Mapping *dma_cycle(uint32_t where, unsigned &cycles, unsigned card_wait = 0);
         /// The bus address a CPU card cycle for `physical` reaches (NorthBridge::redirect()).
         uint32_t memory(uint32_t physical) const
         {
@@ -351,6 +353,8 @@ namespace ooe::emu
         /// (or nothing), with `card` on a fly-by (else nullptr); PS0-PS3 are worked out only if it watches.
         void dma_seen(uint32_t where, const Mapping *m, const Device *card, unsigned cycles, uint8_t data,
                       bool write);
+        /// `card`'s mapping in the I/O hole, or nullptr.
+        const Mapping *io_mapping_of(const Device &card) const;
         /// The module ID of `card`'s mapping in the I/O hole, or NO_MODULE.
         uint8_t module_of(const Device &card) const;
 
