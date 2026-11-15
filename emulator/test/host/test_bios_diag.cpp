@@ -1674,6 +1674,81 @@ TEST(d2_marks_every_block_it_finds_bad_not_only_the_first_eight)
     CHECK(ends(test_line(r, "D3"), "PASS"));
 }
 
+// --- DMA revision 2 (b2-plan.md §4, items 12, 13 and 15) ------------------------------------------------
+
+TEST(break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt)
+{
+    // Item 12: D1 writes its patterns into each channel's CARD. A Break while channel 0's holds one: Break's
+    // way out (PUTBACKM, QUIETM's SELECT loop) puts every CARD back to its reset module, so the boot's load of
+    // OODOS (channel 0, the SD card's module) is granted. Must fail if PUTBACKM leaves CARD alone: LOADRUN's
+    // wait has no timeout, so the boot hangs.
+    Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(enter(r));
+    const DmaController &dma = *r.machine->dma();
+    bool hit = false;
+    uint8_t card = 0;
+    r.watch = [&](uint16_t) {
+        if (!hit && r.out.find("D1   ID $82") != std::string::npos && dma.peek_channel(0, DmaController::CARD) != 0x07)
+            hit = true, card = dma.peek_channel(0, DmaController::CARD), r.cpu->nmi();
+    };
+    REQUIRE(r.until("D2   DMA FILL", ms(90'000)) || hit);
+    r.watch = nullptr;
+    REQUIRE(hit);
+    std::printf("  Break with channel 0's CARD at $%02X\n", card);
+    const size_t at = r.out.find("D1   ID $82");
+    CHECK(r.until("BREAK", ms(500), at));
+    CHECK(r.until(GREETING, ms(8000), at));
+    CHECK(r.until("A>", ms(20'000), at));
+    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+        CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+}
+
+namespace
+{
+    /// A DMA controller's ID register answering revision 1's $81 over the revision 2 controller's.
+    struct RevisionOneId : Device
+    {
+        size_t size() const override { return 1; }
+        uint8_t read(uint32_t) override { return 0x81; }
+        uint8_t peek(uint32_t) const override { return 0x81; }
+        void write(uint32_t, uint8_t) override {}
+    };
+} // namespace
+
+TEST(a_revision_1_dma_controller_is_listed_and_never_driven)
+{
+    // Item 13: revision 1's layout is another, so its ID ($81) reads as no controller this ROM drives. Stage 8
+    // skips it, saying revision 1, and NB3, V7, S3, SD3 and SD4 skip their DMA parts as with none fitted.
+    // Must fail if the check takes revision 1 (HAVEDMA's or a card test's `cmp #2` left at 1): the ROM would
+    // program a revision 1 controller with revision 2's registers.
+    Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(r.ok());
+    RevisionOneId id;
+    Mapping m;
+    m.first = bus_address(Space::Io, 0x47F);
+    m.last = m.first;
+    m.device = &id;
+    m.module = DmaController::MODULE;
+    REQUIRE(r.machine->bus().map(m));
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 8), "SKIP"));
+    const std::string text = report(r);
+    const size_t s8 = text.find("\r" + stage_line(r, 8) + "\r"); // the stage's line, then its reason's
+    const size_t why = s8 == std::string::npos ? s8 : s8 + stage_line(r, 8).size() + 2;
+    const std::string reason = why == std::string::npos ? "" : text.substr(why, text.find('\r', why) - why);
+    std::printf("  stage 8: '%s' / '%s'\n", stage_line(r, 8).c_str(), reason.c_str());
+    CHECK(reason.find("REVISION 1") != std::string::npos);
+    for (const char *t : {"V7", "S3", "SD3", "SD4"})
+    {
+        CHECK(ends(test_line(r, t), "SKIP"));
+        CHECK(after_test(r, t).find("NO DMA CONTROLLER") != std::string::npos);
+    }
+    CHECK(test_line(r, "NB3").find("NO DMA CONTROLLER") != std::string::npos);
+    CHECK(text.find("D1   ID") == std::string::npos); // D1-D5 never run
+    CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
+}
+
 int main()
 {
     if (!std::ifstream(EMU_BIOS_ROM))

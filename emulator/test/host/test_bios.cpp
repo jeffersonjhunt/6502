@@ -1855,6 +1855,90 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran
 }
 
+TEST(a_scroll_and_break_leave_a_programs_select_as_they_found_it)
+{
+    // The SELECT rule (b2-plan.md §4 item 10): the scroll's port DMA (PORTJOB, channel 1) and Break's QUIET
+    // (its SELECT 7-0 loop) each put CONTROL back whole. Must fail if either restore is dropped: a program's
+    // CONTROL changed under it.
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C47E: 76\r");                   // BURST 7, SELECT 3, the master off: a program's
+    b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
+    b.run(BOOT, "C680\r");                       // so this scrolls the screen
+    CHECK_EQ(b.row(29), std::string("_"));
+    CHECK_EQ(b.row(28), std::string("C680: 00"));
+    CHECK_EQ(b.machine->bus().peek(0xC47E), 0x76);
+    b.cpu->nmi();                                // Break
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK_EQ(b.machine->bus().peek(0xC47E), 0x76);
+    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+        CHECK_EQ(b.machine->dma()->peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+}
+
+namespace
+{
+    /// The DMA controller as the bus's master, with the cycles it takes counted.
+    struct CountingMaster : BusMaster
+    {
+        explicit CountingMaster(DmaController &d) : dma(d) {}
+        unsigned take_bus(Decoder &bus) override
+        {
+            const unsigned c = dma.take_bus(bus);
+            stolen += c;
+            return c;
+        }
+        void reset() override { dma.reset(); }
+        DmaController &dma;
+        uint64_t stolen{0};
+    };
+} // namespace
+
+TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_to_it)
+{
+    // b2-plan.md §4 item 14 (chapter 13: Apple II mode takes no cycle for DMA). After C806R the /RESET pulse
+    // leaves CONTROL $70 (the master off), every CARD at its reset module and REQ 0, and the sound card's
+    // standing request (DRQSEL 0) costs nothing. Must fail if pulse_reset() leaves the poll's state, or a
+    // request costs cycles with the master off.
+    const std::string rom = fake_iie_rom("test_dma_apple.rom");
+    Board b(false, true, {rom});
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    DmaController &dma = *b.machine->dma();
+    b.run(BOOT, "C47E: 01\r");                   // SELECT 0, a burst limit, so the monitor still runs:
+    b.run(BOOT, "C40C: 05\r");                   // channel 0's CARD moved to module 5, which no card answers
+    b.run(BOOT, "C47E: 05\r");                   // SELECT 2...
+    b.run(BOOT, "C400: 00 00 02 00 00 00 45 01\r"); // ...channel 2 feeding the sound card for ever
+    REQUIRE(dma.peek_channel(2, DmaController::CTRL) & 1);
+    REQUIRE(dma.peek(DmaController::REQ_REG) & 0x04); // its polls latched the sound card's request
+    REQUIRE(dma.peek_channel(0, DmaController::CARD) == 0x05);
+    b.run(4 * BOOT, "C806R\r");
+    REQUIRE(b.bridge().apple());
+    REQUIRE(b.cpu->regs().pc == 0xFA67);
+    CHECK_EQ(dma.peek(DmaController::CONTROL), 0x70);
+    CHECK_EQ(dma.peek(DmaController::REQ_REG), 0x00);
+    CHECK_EQ(dma.peek(DmaController::STATUS), 0x00);
+    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    {
+        CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+        CHECK_EQ(dma.peek_channel(n, DmaController::CTRL), 0x00);
+    }
+    Decoder &bus = b.machine->bus();
+    CHECK(bus.dreq());                           // the premise: the sound card still asks, at DRQSEL 0
+    CountingMaster counted(dma);
+    bus.set_master(&counted);
+    const uint64_t c0 = b.cpu->cycles();
+    b.run(17'030);                               // an Apple II frame (65 x 262 cycles)
+    bus.set_master(&dma);
+    std::printf("  Apple II mode: %llu cycles run, %llu taken by DMA\n",
+                static_cast<unsigned long long>(b.cpu->cycles() - c0), static_cast<unsigned long long>(counted.stolen));
+    CHECK_EQ(counted.stolen, uint64_t{0});
+    CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's loop, undisturbed
+}
+
 // --- golden frames (hw/video-rev2.md, "Emulator changes": the BIOS screen and the demo) -----------------
 //
 // Whole frames, hashed (FNV-1a over the pixels, as test_video's splash frames): any change to what the card
