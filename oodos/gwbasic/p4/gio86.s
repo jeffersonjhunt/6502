@@ -17,6 +17,11 @@
 ;   INDSKC INCHSI   its end; the others C set), BAKCHR to back one up
 ;   NAMSCN PARDEV   a file's name, drive and type to FILNAM
 ;   INIFDB FDBPTR   an FDB made, or found by its number; FFREE frees one
+;   FALLOC XFRSTR   and a random file's FIELD buffer taken from the string
+;   UPDSTD SKPNAM   space, or given back, the strings moved (FIVEO.ASM's
+;                   SKPNAM)
+;   DPUTG           GET and PUT [#]n[, record] of a random file (GWSTS.ASM's
+;                   PUT and GET, p4/gwsts.s, come here)
 ;   PTRDSP SIDSP    the device's function for an FDB (the disk's DSKDSP)
 ;   PRGFIL NAMBAS   file 0 opened for LOAD, SAVE and MERGE, ".BAS" the type
 ;   NULOPN          if it has none (7c's LOAD step)
@@ -34,6 +39,7 @@
 ;   SETPTR          PTRFIL set, the run for the old one sent first, and a
 ;                   file's column (FILPOS) from its F_POS
 ;   INCHRI          the console's next key, unechoed (GIOKYB.ASM's: the OEM's)
+;   GETDAT          a random file's FIELD buffer's address (FDDAT)
 ;   PRGFIN          DSKCOM.ASM's: output to the console, file 0 closed, TXTPTR
 ;                   from TEMP (here for INCHR's NOTCHN, the first to need it)
 ;
@@ -48,6 +54,14 @@
 ; number, as GW-BASIC's own /F: makes it later (OO-1). The only device is
 ; the disk: a name with a device other than a drive is Bad file name, as the
 ; 8086's PARDEV says of a device its table hasn't (the others are later).
+;
+; A random file's FIELD buffer (the 8086's FD_DAT, the FDB's last field) is
+; in the TPA, as the plan has it (the string functions read a FIELDed string
+; there): FALLOC takes it from the top of the string space when the file is
+; opened, as the 8086's FALLOC takes the whole FDB, and FFREE gives it back,
+; moving the strings (XFRSTR). So it costs no byte until a random file is
+; open, and then its LEN. Its address is FDDAT's, by the file's number
+; (OO-1: the FDB's own size is kept).
 ;
 ; The far call rule: every routine here returns by RTS, or ends in an error
 ; or a tail call to resident code that returns (FINPRT, MAKINT, PUTNEW).
@@ -67,8 +81,9 @@
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
 .export PRGFIL, SCDASC, FSTLOD, BINSAV, BINPSV, DEVBOT, PRGFIN, CLSFIL, RUNFLG, LDRUN, PTRDSP
 .export DERBFN, DERFNF, DERBFM, DERFNO, DERFAO, DERIOE, DERDFL, DERRPE, DERIFN, DERTMF, DERDNA
-.export DERFAE, DERRAD
+.export DERFAE, DERRAD, DERFOV, DERBRN, DPUTG, GETDAT
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
+.import GARBA2, MEMSIZ
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import DSKOPN, DSKDSP, FIXINPP
 .import STROUT, REDDY, GTMPRT
@@ -86,6 +101,9 @@ ERRTMF          = 67
 ERRDNA          = 68
 ERRFAE          = 58
 ERRRAD          = 74
+ERRFOV          = 50                   ; FIELD overflow
+ERRBRN          = 63                   ; Bad record number
+ERROM           = 7                    ; Out of memory
 FNAML           = 11                   ; MSDOSU's: a name and type's bytes
 
 .code
@@ -854,10 +872,15 @@ FDBPTR:         CMP     #NMFILE + 1
 @none:          LDX     #0
                 RTS
 
-; FALLOC: OO-1, file OPNNUM's FDB of the table in FDBP (the 8086 makes room
-; for one below the strings). FFREE: FDBP's freed (OO-1: marked free; the
-; 8086 moves the string space back over it). F0OPN (OO-1) is set while file
-; 0 has its FDB, so FINPRT knows to close it.
+; FALLOC (GIO86.ASM 1765): OO-1, file OPNNUM's FDB of the table in FDBP
+; (the 8086 makes room for the whole FDB below the strings); F0OPN (OO-1) is
+; set while file 0 has its FDB, so FINPRT knows to close it. Then a random
+; file's FIELD buffer, CX bytes (DSKOPN's length; 0 for any other file: no
+; buffer), as the 8086 takes its FDB: room in the string space (FRETOP -
+; STREND more than CX), after a collection if there isn't, else Out of
+; memory; the string space moved down CX (XFRSTR, SI at FILTAB), and the
+; buffer is the new FILTAB (OO-1: FILTAB is always MEMSIZ + 2, as start-up
+; and CLEAR leave it, so it has no byte of its own). FALDL is the 8086's DL.
 FALLOC:         LDA     OPNNUM
                 BNE     :+
                 DEC     A              ; file 0: F0OPN for FINPRT (OO-1)
@@ -869,8 +892,115 @@ FALLOC:         LDA     OPNNUM
                 STA     FDBP
                 LDA     FDBTAB+1,X
                 STA     FDBP+1
+                LDA     RCL            ; a FIELD buffer?
+                ORA     RCH
+                BEQ     FALCX
+                LDA     #1             ; DL: the first attempt
+                STA     FALDL
+FALC1:          SEC                    ; BX: FRETOP - STREND
+                LDA     FRETOP
+                SBC     STREND
+                STA     RBL
+                LDA     FRETOP+1
+                SBC     STREND+1
+                STA     RBH
+                LDA     RCL            ; CX below it: room
+                CMP     RBL
+                LDA     RCH
+                SBC     RBH
+                BCC     FALCOK
+                DEC     FALDL
+                BEQ     FAPAS1         ; the first attempt: collect
+                LDA     #ERROM
+                JMP     ERROR
+FAPAS1:         LDA     RCL            ; PUSH AX round the collection
+                PHA
+                LDA     RCH
+                PHA
+                JSR     GARBA2
+                PLA
+                STA     RCH
+                PLA
+                STA     RCL
+                BRA     FALC1
+FALCOK:         JSR     FILTAB         ; SI: FILTAB
+                STA     RSI
+                STX     RSI+1
+                SEC                    ; DX: -CX, down
+                LDA     #0
+                SBC     RCL
+                STA     RDL
+                LDA     #0
+                SBC     RCH
+                STA     RDH
+                JSR     XFRSTR
+                LDA     OPNNUM         ; the buffer: FILTAB now
+                ASL     A
+                TAY
+                JSR     FILTAB
+                STA     FDDAT,Y
+                TXA
+                STA     FDDAT+1,Y
+FALCX:          RTS
+; FILTAB (OO-1): A/X the 8086's FILTAB, the lowest FIELD buffer's address
+; or, with none, the string space's top: MEMSIZ + 2 (VAL's zero between).
+FILTAB:         CLC
+                LDA     MEMSIZ
+                ADC     #2
+                PHA
+                LDA     MEMSIZ+1
+                ADC     #0
+                TAX
+                PLA
                 RTS
-FFREE:          LDY     #F_MODE
+
+; FFREE (GIO86.ASM 1814): FDBP's FDB freed (OO-1: marked free, F0OPN clear
+; for file 0), and a random file's FIELD buffer given back: AX its size
+; (FD_SIZ); each FIELD buffer below it moves up with the strings, so its
+; address goes up by AX (FFNDL, STILOK: the 8086's chain's FDBs below it);
+; then XFRSTR, SI the buffer, DX AX, which makes each string FIELDed into it
+; null. FFIDX is its number's place in FDDAT.
+FFREE:          LDY     #F_NUM
+                LDA     (FDBP),Y
+                ASL     A
+                TAX
+                LDA     FDDAT,X
+                ORA     FDDAT+1,X
+                BEQ     FFREE2         ; no FIELD buffer
+                LDA     FDDAT,X        ; SI: the buffer
+                STA     RSI
+                LDA     FDDAT+1,X
+                STA     RSI+1
+                STZ     FDDAT,X
+                STZ     FDDAT+1,X
+                LDY     #FD_SIZ        ; AX (DX): its size
+                LDA     (FDBP),Y
+                STA     RDL
+                INY
+                LDA     (FDBP),Y
+                STA     RDH
+                LDX     #0
+FFNDL:          LDA     FDDAT,X        ; each other buffer below it
+                ORA     FDDAT+1,X
+                BEQ     FFNXT
+                LDA     FDDAT,X
+                CMP     RSI
+                LDA     FDDAT+1,X
+                SBC     RSI+1
+                BCS     FFNXT
+                CLC                    ; STILOK: up by AX
+                LDA     FDDAT,X
+                ADC     RDL
+                STA     FDDAT,X
+                LDA     FDDAT+1,X
+                ADC     RDH
+                STA     FDDAT+1,X
+FFNXT:          INX
+                INX
+                CPX     #2 * (NMFILE + 1)
+                BNE     FFNDL
+                JSR     XFRSTR         ; FFOUND
+FFREE2:         LDY     #F_MODE
                 LDA     #0
                 STA     (FDBP),Y
                 DEC     FILOPN
@@ -879,6 +1009,275 @@ FFREE:          LDY     #F_MODE
                 BNE     :+
                 STZ     F0OPN
 :               RTS
+
+; XFRSTR (GIO86.ASM 1858): the string space moved by DX bytes (negative:
+; down), from FRETOP + 1 to SI - 1 (SI: FILTAB, to make room below it; a
+; freed FIELD buffer's address, to close it up: what is below it moves up);
+; then every string variable's and string array element's descriptor
+; (UPDSTD): data that moved moves with it; data in the freed buffer (above
+; the block's top, up to its top's new place) is a FIELDed string, made null.
+; Then FRETOP and MEMSIZ by DX, and with MEMSIZ FILTAB (OO-1: MEMSIZ + 2).
+; OO-1: PTRFIL (an FDB in P4's RAM) never moves; SAVFRE is CHAIN's (a later
+; step's). RSI is the 8086's SI less one (the block's top), RDI its DI (that
+; top's new place), RCX its count; PTR and PTR2 the move's places; BX the
+; descriptor walk's, the 8086's.
+XFRSTR:         DECW    RSI            ; SI: the block's top
+                CLC                    ; DI: where it goes
+                LDA     RSI
+                ADC     RDL
+                STA     RDI
+                LDA     RSI+1
+                ADC     RDH
+                STA     RDI+1
+                SEC                    ; CX: SI - FRETOP bytes
+                LDA     RSI
+                SBC     FRETOP
+                STA     RCL
+                LDA     RSI+1
+                SBC     FRETOP+1
+                STA     RCH
+                ORA     RCL
+                JEQ     XFRSTX         ; the string space empty
+                LDA     RDH
+                BPL     XFRSUP         ; up: from the top down
+                SEC                    ; down: from the bottom up, SI - CX + 1
+                LDA     RSI            ; to DI - CX + 1
+                SBC     RCL
+                STA     PTR
+                LDA     RSI+1
+                SBC     RCH
+                STA     PTR+1
+                INCW    PTR
+                SEC
+                LDA     RDI
+                SBC     RCL
+                STA     PTR2
+                LDA     RDI+1
+                SBC     RCH
+                STA     PTR2+1
+                INCW    PTR2
+@dn:            LDA     (PTR)
+                STA     (PTR2)
+                INCW    PTR
+                INCW    PTR2
+                JSR     XFRCNT
+                BNE     @dn
+                BRA     XFRVAR
+XFRSUP:         LDA     RSI
+                STA     PTR
+                LDA     RSI+1
+                STA     PTR+1
+                LDA     RDI
+                STA     PTR2
+                LDA     RDI+1
+                STA     PTR2+1
+@up:            LDA     (PTR)
+                STA     (PTR2)
+                DECW    PTR
+                DECW    PTR2
+                JSR     XFRCNT
+                BNE     @up
+XFRVAR:         LDA     VARTAB         ; the simple variables
+                STA     RBL
+                LDA     VARTAB+1
+                STA     RBH
+CSVAR:          LDA     RBL
+                CMP     ARYTAB
+                BNE     :+
+                LDA     RBH
+                CMP     ARYTAB+1
+                BEQ     CAYVAR
+:               JSR     SKPNAM         ; a string?
+                BNE     CSKPVA
+                JSR     UPDSTD
+                BRA     CSVAR
+CSKPVA:         CLC                    ; past its value, VALTYP bytes
+                ADC     RBL
+                STA     RBL
+                BCC     CSVAR
+                INC     RBH
+                BRA     CSVAR
+CAYVA2:         LDA     ARYEND         ; BX: the next array
+                STA     RBL
+                LDA     ARYEND+1
+                STA     RBH
+CAYVAR:         LDA     RBL            ; the arrays, to STREND
+                CMP     STREND
+                BNE     :+
+                LDA     RBH
+                CMP     STREND+1
+                BEQ     XFRSTX
+:               JSR     SKPNAM
+                PHP                    ; a string array?
+                CLC                    ; AX: past its length, the array's end
+                LDA     (RBL)
+                ADC     #2
+                PHA
+                LDY     #1
+                LDA     (RBL),Y
+                ADC     #0
+                TAX
+                PLA
+                CLC
+                ADC     RBL
+                STA     ARYEND
+                TXA
+                ADC     RBH
+                STA     ARYEND+1
+                INCW    RBL
+                INCW    RBL
+                PLP
+                BNE     CAYVA2         ; not strings
+                LDA     (RBL)          ; past its dimensions, 2 bytes each, and their count
+                ASL     A
+                BCC     :+
+                INC     RBH
+:               SEC
+                ADC     RBL
+                STA     RBL
+                BCC     CAYSTR
+                INC     RBH
+CAYSTR:         LDA     RBL            ; each element
+                CMP     ARYEND
+                BNE     :+
+                LDA     RBH
+                CMP     ARYEND+1
+                BEQ     CAYVAR
+:               JSR     UPDSTD
+                BRA     CAYSTR
+XFRSTX:         CLC                    ; FRETOP and MEMSIZ by DX (XFSTX1)
+                LDA     FRETOP
+                ADC     RDL
+                STA     FRETOP
+                LDA     FRETOP+1
+                ADC     RDH
+                STA     FRETOP+1
+                CLC
+                LDA     MEMSIZ
+                ADC     RDL
+                STA     MEMSIZ
+                LDA     MEMSIZ+1
+                ADC     RDH
+                STA     MEMSIZ+1
+                RTS
+; (The project's own: CX one less, Z at 0.)
+XFRCNT:         LDA     RCL
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                LDA     RCL
+                ORA     RCH
+                RTS
+
+; UPDSTD (GIO86.ASM 1950): the descriptor at BX, BX past it. Its data (CX)
+; at or below FRETOP: not moved; at or below SI: moved, its address by DX;
+; at or below DI (in the freed buffer): null, and moved; above: not moved.
+UPDSTD:         LDY     #1
+                LDA     (RBL),Y
+                STA     RCL
+                INY
+                LDA     (RBL),Y
+                STA     RCH
+                LDA     FRETOP         ; CX <= FRETOP: below the strings
+                CMP     RCL
+                LDA     FRETOP+1
+                SBC     RCH
+                BCS     UPDSTX
+                LDA     RSI            ; CX <= SI: moved
+                CMP     RCL
+                LDA     RSI+1
+                SBC     RCH
+                BCS     UPDSTU
+                LDA     RDI            ; CX > DI: not in the freed buffer
+                CMP     RCL
+                LDA     RDI+1
+                SBC     RCH
+                BCC     UPDSTX
+                LDA     #0             ; a FIELDed string: null
+                STA     (RBL)
+UPDSTU:         LDY     #1
+                CLC
+                LDA     RCL
+                ADC     RDL
+                STA     (RBL),Y
+                INY
+                LDA     RCH
+                ADC     RDH
+                STA     (RBL),Y
+UPDSTX:         CLC                    ; BX past it
+                LDA     RBL
+                ADC     #3
+                STA     RBL
+                BCC     :+
+                INC     RBH
+:               RTS
+
+; SKPNAM (FIVEO.ASM 701): BX at a variable: A its VALTYP, BX past its name
+; (the 8086's IADAHL: the type, two letters, the count of the rest, the
+; rest), Z set if it is a string.
+SKPNAM:         LDA     (RBL)
+                PHA
+                LDY     #3
+                LDA     (RBL),Y
+                CLC
+                ADC     #4
+                ADC     RBL
+                STA     RBL
+                BCC     :+
+                INC     RBH
+:               PLA
+                CMP     #VT_STR
+                RTS
+
+; --- GET and PUT (GIO86.ASM 627) ----------------------------------------------------------
+
+; DPUTG: GET or PUT [#]n[, record], X 0 GET, 1 PUT (the 8086's CX, PGTFLG
+; here). The file must be open (DERFNO) and random (Bad file mode); with a
+; record (ADRGET's 0..65535, P1's: a far call), A is 2 GET or 3 PUT, else
+; 0 or 1, for the device's random function (G_RND: the disk's DSKRND). FDBP
+; is kept round the record's formula, as the 8086's PUSH SI (a function in
+; it, LOF say, finds an FDB of its own).
+DPUTG:          STX     PGTFLG
+                JSR     POFNUM
+                JSR     FDBPTR
+                BEQ     ERFNO5
+                LDY     #F_MODE
+                LDA     (FDBP),Y
+                CMP     #MD_RND
+                BNE     ERBFM1
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     RELRND         ; the statement's end: the next record
+                JSR     SYNCHR
+                .byte   ','
+                LDA     FDBP
+                PHA
+                LDA     FDBP+1
+                PHA
+                FJSR    ADRGET         ; DX: the record
+                PLA
+                STA     FDBP+1
+                PLA
+                STA     FDBP
+                LDA     PGTFLG
+                CLC
+                ADC     #2
+                BRA     RELRN1
+RELRND:         LDA     PGTFLG
+RELRN1:         LDX     #G_RND
+                JMP     SIDSP
+ERFNO5:         JMP     DERFNO
+ERBFM1:         JMP     DERBFM
+
+; GETDAT (the project's own): A/X FDBP's FIELD buffer, the 8086's FD_DAT
+; (FDDAT, by its number). Y used.
+GETDAT:         LDY     #F_NUM
+                LDA     (FDBP),Y
+                ASL     A
+                TAY
+                LDA     FDDAT,Y
+                LDX     FDDAT+1,Y
+                RTS
 
 ; --- OUTDO's run, FINPRT's part, SETPTR (the project's own) -------------------------------
 
@@ -973,6 +1372,10 @@ DERFAE:         LDA     #ERRFAE
                 BRA     DERGO
 DERRAD:         LDA     #ERRRAD
                 BRA     DERGO
+DERFOV:         LDA     #ERRFOV
+                BRA     DERGO
+DERBRN:         LDA     #ERRBRN
+                BRA     DERGO
 DERDNA:         LDA     #ERRDNA
 DERGO:          JMP     ERROR
 
@@ -997,6 +1400,12 @@ CLSNUM:         .res    1              ; CLSALP's number
 GFCODE:         .res    1              ; FACDSP's function (the 8086's AH)
 FLCNT:          .res    1              ; FLUSHR's count and place
 FLIDX:          .res    1
+FALDL:          .res    1              ; FALLOC's attempt (the 8086's DL)
+ARYEND:         .res    2              ; XFRSTR's array's end (the 8086's AX)
+PGTFLG:         .res    1              ; DPUTG's GET or PUT (GWDATA.ASM's PGTFLG; the 8086's CX)
+; FDDAT: each file number's FIELD buffer in the TPA (the 8086's FD_DAT), 0
+; for none (not random, or not open).
+FDDAT:          .res    2 * (NMFILE + 1)
 ; The FDBs (V1, route (c)): the table's, each FDBLEN bytes, its record's
 ; buffer at DATOFS, where the BDOS reads and writes it.
 FDB0:           .res    (NMFILE + 1) * FDBLEN

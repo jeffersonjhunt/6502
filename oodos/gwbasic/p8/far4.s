@@ -22,6 +22,11 @@
 ;   CHDIR     CHDIR, MKDIR, RMDIR path: the directory hook, X which of the
 ;   MKDIR     three (p4/oem.s DIRHK; OO-1: words the 1983 table hasn't,
 ;   RMDIR     p2/ibmres.s)
+;   FIELD     FIELD [#]n, w AS v$, ... (p4/dskcom.s FIELDP)
+;   LSET      LSET, RSET v$ = s$ (p4/dskcom.s LSETP, RSETP)
+;   RSET
+;   PUT       PUT, GET [#]n[, record] (p4/gwsts.s PUTP, GETP: a graphics
+;   GET       PUT or GET is 7e's)
 ;
 ; LOAD, RUN name and MERGE end in the main loop, as the 8086's do: from the
 ; home block, never from P4. P4 opens file 0 and reads it, and returns what
@@ -37,7 +42,7 @@
 
 ;@entry HLRUN
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
-.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR
+.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
 
 .code
@@ -53,6 +58,16 @@ FILES:          FJSR    FILESP
 KILL:           FJSR    KILLP
                 RTS
 NAME:           FJSR    NAMEP
+                RTS
+FIELD:          FJSR    FIELDP
+                RTS
+LSET:           FJSR    LSETP
+                RTS
+RSET:           FJSR    RSETP
+                RTS
+PUT:            FJSR    PUTP
+                RTS
+GET:            FJSR    GETP
                 RTS
 CHDIR:          LDX     #0
                 BRA     DIRGO

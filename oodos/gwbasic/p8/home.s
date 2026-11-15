@@ -38,7 +38,7 @@
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
-.import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR
+.import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
 
 .code
 
@@ -134,14 +134,14 @@ STMDSP:         S       ENDST          ; END
 .assert STMDSX = HOMTAB + 2 * NUMCMD, lderror, "STMDSX isn't after STMDSP (res/ibmres.s)"
 .endif
 STMDSX:         S       FILES          ; FILES
-                S       ADVERR         ; FIELD
+                S       FIELD          ; FIELD
                 S       SYSTEM         ; SYSTEM
                 S       NAME           ; NAME
-                S       ADVERR         ; LSET
-                S       ADVERR         ; RSET
+                S       LSET           ; LSET
+                S       RSET           ; RSET
                 S       KILL           ; KILL
-                S       ADVERR         ; PUT
-                S       ADVERR         ; GET
+                S       PUT            ; PUT (a file's; the graphics PUT is 7e's)
+                S       GET            ; GET
                 S       RESET          ; RESET
 .repeat CHDIR_XS - RESET_XS - 1
                 S       ADVERR         ; COMMON .. IOCTL

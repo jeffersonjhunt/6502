@@ -589,7 +589,7 @@ TEST(errors_in_direct_mode)
     CHECK_EQ(command(r, "X=&H12345"), std::string("Overflow\r\n"));
     CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n")); // RENUM until 7b step c; WIDTH is 7d's
     CHECK_EQ(command(r, "FILES \"NOSUCH.*\""), std::string("File not found\r\n")); // FILES is 7c's
-    CHECK_EQ(command(r, "PRINT CVI(\"ab\")"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT CVI(\"ab\")"), std::string(" 25185 \r\n")); // CVI is 7c's: PC-BASIC's answer
 }
 
 // By hand, as GW-BASIC's ERREDT gives it: after a Syntax error in a program line, that line is listed for the

@@ -1,0 +1,5 @@
+# OO-1: CP/M's files are whole 128-byte records, so LOF is the records times 128 (function 35's size; the file closed first, which on OODOS leaves it open, so the extent being written counts), as on the MS-DOS 1 FCB files the 1983 source wrote; PC-BASIC's is the bytes (100, 200, 700)
+ 0 
+ 128 
+ 256 
+ 768 

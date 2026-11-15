@@ -20,10 +20,17 @@
 ;
 ; None but LRUN ever jumps into the statement loop: each returns through its
 ; stub, or ends in an error.
+;
+; And one variable P4 reads (OO-1):
+;
+;   MAXREC    /S:, the most a random file's LEN may be (W4: at most 1,024;
+;             GW-BASIC's own default, 128, while the command line's switches
+;             are passed over). Resident, so start-up (P2) can set it from
+;             the command line, as GWINIT.ASM's WASS reads /S:.
 
 .include "gwbasic.inc"
 
-.export CLSALL, FILFUN, FIXINP, LRUN
+.export CLSALL, FILFUN, FIXINP, LRUN, MAXREC
 .import FILOPN, HOMSTK
 
 .code
@@ -40,3 +47,6 @@ FILFUN:         FJSR    FILFNP
 LRUN:           LDX     HOMSTK
                 TXS
                 FJSR    HLRUN          ; never returns
+
+.segment "RAM"
+MAXREC:         .word   DATPSC         ; /S: (OO-1: W4)

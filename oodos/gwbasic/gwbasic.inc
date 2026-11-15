@@ -275,8 +275,9 @@ NMFILE          = 3                    ; OO-1: the files a program may open (1-3
 ; RAM: OO-1, a CP/M FCB of 36 bytes where MS-DOS's of 38 is (DR, the name
 ; and type, EX S1 S2 RC, the allocation, CR, R0-R2), and no F_NEXT (the
 ; FDBs are a fixed table, not a chain in the string space), nor the unused
-; F_NULn. The random files' fields follow the buffer, for X1; their FIELD
-; buffers are in the TPA (the plan), so FD_DAT isn't here.
+; F_NULn. The random files' fields follow the buffer; their FIELD buffers
+; are in the TPA (the plan), so FD_DAT isn't here: p4/gio86.s's FDDAT holds
+; each one's address, by the file's number.
 F_NUM           = 0                    ; the file number, 0-3
 F_MODE          = 1                    ; the mode (MD_*); 0: the FDB is free
 F_FCB           = 2                    ; the FCB, 36 bytes

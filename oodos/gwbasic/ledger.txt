@@ -753,7 +753,7 @@ IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
 IBMRES.ASM STMDSP -> p8/home.s STMDSP # each R and R2 target has its line
 IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
 IBMRES.ASM STMDSX -> p8/home.s STMDSX # after STMDSP (7c); SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
-IBMRES.ASM FUNDSX -> later 7c: CVI to MKD$ (the random files'); KTN to KLEN dropped with them (Kanji)
+IBMRES.ASM FUNDSX -> p4/dskcom.s FUNDSX # OO-1: P4's, EVALNF's far call (FUNDXP) dispatching; KTN to KLEN dropped with Kanji
 IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
 IBMRES.ASM RESLSX -> p2/ibmres.s RESLSX
 IBMRES.ASM CRUNCX -> p2/ibmres.s CRUNCX
@@ -789,9 +789,9 @@ IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here
 IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
 IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
-IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALNF gives Advanced Feature
+IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALDT gives Advanced Feature
 IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
-IBMRES.ASM EVALNF -> later 7c: the $FD functions (FUNDSX); res/ibmres.s EVALNF gives Advanced Feature
+IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P4's FUNDSX (FUNDXP); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
 GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
 GWEVAL.ASM OCTCNS -> res/gweval.s OCTCNS
@@ -954,7 +954,7 @@ GIOCOM.ASM POLCOM -> later 7c: COM1's trap
 GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
-GIO86.ASM FFREE -> p4/gio86.s FFREE # OO-1: the table's FDB marked free
+GIO86.ASM FFREE -> p4/gio86.s FFREE # OO-1: the table's FDB marked free; a random file's FIELD buffer given back (FDDAT, the buffers below it up: FFNDL, STILOK)
 GIO86.ASM CLSFIL -> p4/gio86.s CLSFIL
 GIO86.ASM LFTQ -> OEM res/oem.s PKQUE # the keyboard queue's room
 GIO86.ASM PUTQ -> OEM res/oem.s PKQUE
@@ -1274,13 +1274,13 @@ GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 #
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
 GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
-DSKCOM.ASM FIELD -> later 7c
+DSKCOM.ASM FIELD -> p4/dskcom.s FIELDP # its home stub p8/far4.s FIELD
 GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists)
-DSKCOM.ASM LSET -> later 7c
-DSKCOM.ASM RSET -> later 7c
+DSKCOM.ASM LSET -> p4/dskcom.s LSETP # its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
+DSKCOM.ASM RSET -> p4/dskcom.s RSETP # its home stub p8/far4.s RSET
 GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"
-GWSTS.ASM PUT -> later 7c: PUT, a file's (a graphics PUT 7e)
-GWSTS.ASM GET -> later 7c: GET, a file's (a graphics GET 7e)
+GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
+GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> later 7c: with CHAIN (not in the plan's lists: a question for 7c)
 FIVEO.ASM CHAIN -> later 7c: CHAIN (not in the plan's lists: a question for 7c)
@@ -1305,12 +1305,12 @@ GWSTS.ASM PMAP -> later 7e
 GWSTS.ASM PALETE -> later 7e: PALETTE
 GWSTS.ASM LCOPYS -> later 7c: LCOPY, to LST:
 CALL86.ASM CALLSL -> later 7g: CALLS
-DSKCOM.ASM CVI -> later 7c
-DSKCOM.ASM CVS -> later 7c
-DSKCOM.ASM CVD -> later 7c
-DSKCOM.ASM MKI$ -> later 7c
-DSKCOM.ASM MKS$ -> later 7c
-DSKCOM.ASM MKD$ -> later 7c
+DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
+DSKCOM.ASM CVS -> p4/dskcom.s CVS
+DSKCOM.ASM CVD -> p4/dskcom.s CVD
+DSKCOM.ASM MKI$ -> p4/dskcom.s MKI # FINBCK's PUTNEW
+DSKCOM.ASM MKS$ -> p4/dskcom.s MKS
+DSKCOM.ASM MKD$ -> p4/dskcom.s MKD
 KANJ86.ASM KTNFN -> dropped: Kanji
 KANJ86.ASM JISFN -> dropped: Kanji
 KANJ86.ASM KPOSFN -> dropped: Kanji
@@ -1366,7 +1366,7 @@ FIVEO.ASM WRTNEG -> p3/fiveo.s WRTNEG
 FIVEO.ASM NXTWRV -> p3/fiveo.s NXTWRV
 FIVEO.ASM WASEMI -> p3/fiveo.s WASEMI
 FIVEO.ASM WRTSTR -> p3/fiveo.s WRTSTR
-FIVEO.ASM WRTFIN -> p3/fiveo.s WRTFIN # a random file's padding (CMPFBC) 7c's
+FIVEO.ASM WRTFIN -> p3/fiveo.s WRTFIN # a random file's padding: PTRFIL's test and CMPFBC are P4's (CMPFBP, a far call)
 FIVEO.ASM NTRNDW -> p3/fiveo.s NTRNDW
 BISTRS.ASM STRSTR -> p3/bistrs.s STRSTR
 BISTRS.ASM CALSPA -> p3/bistrs.s CALSPA # JMP SPACE2: a tail call (the 8086's FINBCK pops the return instead)
@@ -1375,7 +1375,7 @@ BISTRS.ASM NCPMID -> p3/bistrs.s NCPMID
 BISTRS.ASM BIGLEN -> p3/bistrs.s BIGLEN
 BISTRS.ASM MID$LP -> p3/bistrs.s MIDSLP
 GWSTS.ASM VARRT2 -> p3/gwsts.s VARRT2 # JMP PUTNEW: a tail call
-GIODSK.ASM CMPFBC -> later 7c: WRITE #'s random record, padded to its end (WRTFIN)
+GIODSK.ASM CMPFBC -> p4/giodsk.s CMPFBC # GETFPS and GETFSZ inline; P3's WRTFIN reaches it by its entry CMPFBP (OUTDO's run sent first)
 
 # 7b step b: DEF FN and FN, DEF USR and USR (GWEVAL.ASM, p3/gweval.s, each reached by a resident stub in res/far3.s),
 # and their resident parts: PTRGET's search of the parameters first (NOARYS, PRMSRC, NOTFNS, above), GARBA2's walk
@@ -1493,8 +1493,8 @@ GWMAIN.ASM ONGSB0 -> p3/gwmain.s ONGSB0 # CX and the count in P3's BRAM (ONGCX, 
 GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP
 
 # 7c: the file layer (sequential files, block P4)
-GIO86.ASM XFRSTR -> dropped: OO-1, the FDBs are P4's table, not in the string space (FALLOC, FFREE)
-GIO86.ASM PFDCBA -> dropped: FFREE's register restore, with XFRSTR
+GIO86.ASM XFRSTR -> p4/gio86.s XFRSTR # OO-1: only the FIELD buffers move with it (the FDBs are P4's table); PTRFIL never moves; SAVFRE is CHAIN's
+GIO86.ASM PFDCBA -> dropped: FALLOC's and FFREE's register restore (their callers keep nothing in the registers)
 GIO86.ASM FDBPTR -> p4/gio86.s FDBPTR # OO-1: the table's FDB for the number; Z when not open
 GIO86.ASM CDEVID -> dropped: OO-1, the disk is the only device (SIDSP and OPNFIL go to its routines)
 GIO86.ASM RET9 -> p4/gio86.s RET9
@@ -1539,29 +1539,29 @@ GIO86.ASM UPCASE -> p4/gio86.s UPCASE
 GIO86.ASM PRFNUM -> p4/gio86.s PRFNUM
 GIO86.ASM INCHSI -> p4/gio86.s INCHSI
 GIO86.ASM INIFDB -> p4/gio86.s INIFDB # OO-1: FILOPN counted
-GIO86.ASM FALLOC -> p4/gio86.s FALLOC # OO-1: the table's FDB for the number, not room below the strings
+GIO86.ASM FALLOC -> p4/gio86.s FALLOC # OO-1: the table's FDB for the number; room below the strings only for a random file's FIELD buffer (FDDAT), FILTAB MEMSIZ + 2
 GIO86.ASM FILDSP -> p4/gio86.s FILDSP
-GIODSK.ASM DSKDSP -> p4/giodsk.s DSKDSP # DSKRND: Advanced Feature till X1
+GIODSK.ASM DSKDSP -> p4/giodsk.s DSKDSP
 GIODSK.ASM DSKEOF -> p4/giodsk.s DSKEOF
 GIODSK.ASM DSKLOC -> p4/giodsk.s DSKLOC
-GIODSK.ASM DSKLOF -> p4/giodsk.s DSKLOF # OO-1: function 35's records times 128, made a single then a double ($NORMD's work)
+GIODSK.ASM DSKLOF -> p4/giodsk.s DSKLOF # OO-1: function 35's records times 128, made a single then a double ($NORMD's work), the file closed first (16: OODOS leaves it open)
 GIODSK.ASM DSKGPS -> p4/giodsk.s DSKGPS
 GIODSK.ASM DSKGWD -> p4/giodsk.s DSKGWD
 GIODSK.ASM DSKSCW -> p4/giodsk.s DSKSCW
 GIODSK.ASM DSKGCW -> p4/giodsk.s DSKGCW
-GIODSK.ASM DSKOPN -> p4/giodsk.s DSKOPN # random (RNDFIN's caller) Advanced Feature till X1; OO-1: CP/M's FCB zeroed, the drive filled in at OPNSET
+GIODSK.ASM DSKOPN -> p4/giodsk.s DSKOPN # OO-1: CP/M's FCB zeroed, the drive filled in at OPNSET; LEN past /S: (MAXREC, W4) Illegal function call
 GIODSK.ASM OPNFIL -> p4/giodsk.s OPNFIL
 GIODSK.ASM APPFIN -> p4/giodsk.s APPFIN # OO-1: the size in records (function 35), always whole
-GIODSK.ASM RNDFIN -> p4/giodsk.s RNDFIN # X1's, unreached till then
+GIODSK.ASM RNDFIN -> p4/giodsk.s RNDFIN # the FIELD buffer not zeroed, as the 8086's count stops before it
 GIODSK.ASM BAKURN -> p4/giodsk.s BAKURN
 GIODSK.ASM DSKCLS -> p4/giodsk.s DSKCLS
 GIODSK.ASM DSKSIN -> p4/giodsk.s DSKSIN
 GIODSK.ASM DSKINP -> p4/giodsk.s DSKINP
-GIODSK.ASM SINP50 -> later 7c: a random file's serial input (X1): Advanced Feature
-GIODSK.ASM FOVCHK -> later 7c: FIELD overflow, X1's
-GIODSK.ASM DSKSOT -> p4/giodsk.s DSKSOT # a random file's serial output (X1) Advanced Feature
+GIODSK.ASM SINP50 -> p4/giodsk.s SINP50 # FD_DAT's byte through FLDGET (the FIELD buffer in the TPA)
+GIODSK.ASM FOVCHK -> p4/giodsk.s FOVCHK
+GIODSK.ASM DSKSOT -> p4/giodsk.s DSKSOT # a random file's serial output through FLDPUT
 GIODSK.ASM FILOU4 -> p4/giodsk.s FILOU4
-GIODSK.ASM DSKRND -> later 7c: GET and PUT's records (X1)
+GIODSK.ASM DSKRND -> p4/giodsk.s DSKRND # the 8086's MUL by RNDMUL; X1: a part record read first, 33's 1 and 4 zeros (READS)
 GIODSK.ASM $READS -> p4/giodsk.s READS
 GIODSK.ASM $WRITS -> p4/giodsk.s WRITES
 GIODSK.ASM SETBUF -> p4/giodsk.s SETBUF # the buffer's CPU address in W3 (V1, route (c))
@@ -1571,7 +1571,7 @@ GIODSK.ASM MAKUPC -> p4/giodsk.s MAKUPC
 GIODSK.ASM DFSTLD -> p4/giodsk.s DFSTLD # OO-1 (W2): whole records by DM_LOAD while each fits, the last part through the buffer
 GIODSK.ASM OPNSET -> p4/giodsk.s OPNSET
 GIODSK.ASM MAKFIL -> p4/giodsk.s MAKFIL
-GIODSK.ASM PUTSUB -> later 7c: a random record written (X1)
+GIODSK.ASM PUTSUB -> p4/giodsk.s PUTSUB
 GIODSK.ASM ER_TMF -> p4/giodsk.s ER_TMF
 # 7c: LOAD, SAVE and MERGE (block P4, the home block's stubs)
 DSKCOM.ASM PRGFLI -> p4/dskcom.s PRGFLI
@@ -1632,3 +1632,21 @@ GIO86.ASM FILOU3 -> p4/gio86.s PTRDSP # OUTDO's other name: from P4, G_SOT to th
 # keyword table, a recorded deviation, and answered by one OEM hook, p4/oem.s)
 GIODSK.ASM NAMFIL -> p4/giodsk.s NAMFIL
 GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 152 refuses is Bad file name, the name taken to 127 bytes
+# 7c: random files (X1): FIELD, LSET, RSET, GET, PUT, CVI to MKD$ (block P4, the home block's stubs; EVALNF resident),
+# the FIELD buffers in the TPA (FALLOC, FFREE, XFRSTR), records of any LEN on 128-byte records (DSKRND)
+GIODSK.ASM GETSUB -> p4/giodsk.s GETSUB # PGSUB1 in it; FD_PHY compared as the 8086's, never set
+GIODSK.ASM GETFSZ -> p4/giodsk.s CMPFBC # inline
+GIODSK.ASM GETFPS -> p4/giodsk.s CMPFBC # inline
+DSKCOM.ASM BLKFIL -> p4/dskcom.s BLKFIL # MAKDSC in it
+GIO86.ASM DPUTG -> p4/gio86.s DPUTG # ADRGET by a far call to P1 (an entry), FDBP kept round it
+GIO86.ASM UPDSTD -> p4/gio86.s UPDSTD
+FIVEO.ASM SKPNAM -> p4/gio86.s SKPNAM # IADAHL inline
+DSKCOM.ASM LSETA -> p4/dskcom.s LSETA
+DSKCOM.ASM MAKDSC -> p4/dskcom.s MAKDSC
+DSKCOM.ASM MADESC -> p4/dskcom.s MADESC
+GWSTS.ASM PARSE -> p4/gwsts.s PARSE
+ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (p4/gwsts.s GRPVER gives Advanced Feature)
+GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
+GIODSK.ASM SOUTPS -> p4/giodsk.s SOUTPS
+GIODSK.ASM PGSUB1 -> p4/giodsk.s PGSUB1
+GIODSK.ASM GETFP1 -> p4/giodsk.s CMPFBC # inline

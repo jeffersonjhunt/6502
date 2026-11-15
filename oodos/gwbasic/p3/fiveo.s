@@ -10,8 +10,7 @@
 ;
 ; WRITE # is a file's (7c): P4's FILGET sets PTRFIL to it, for output, a
 ; far call made only for a "#" (its first test is here), and OUTDO sends
-; the output there. WRTFIN's padding of a random file's record (CMPFBC) is
-; X1's (later 7c): no random file is opened before it. The 8086 keeps the text pointer on
+; the output there. WRTFIN pads a random file's record (P4's CMPFBP). The 8086 keeps the text pointer on
 ; its stack round $FOUT and STRLIT (which reads at the text pointer); here
 ; the 6502's stack, as P1's PRINT does.
 
@@ -94,8 +93,19 @@ WRTSTR:         LDA     #'"'
                 LDA     #'"'
                 JSR     OUTDO
                 BRA     NXTWRV
-; WRTFIN (FIVEO.ASM 769): a random file's record padded (NTRNDW's way past
-; it: X1's, later 7c), then CR LF and the console again.
-WRTFIN:
+; WRTFIN (FIVEO.ASM 769): a random file's record padded with spaces to two
+; bytes from its end, then CR LF and the console again. The test of PTRFIL's
+; file (a disk's, random) and CMPFBC are P4's (CMPFBP, a far call, which
+; sends OUTDO's run first): C set, BX the spaces. The 8086 counts BX down
+; to 0 after each: with none (two bytes left) it goes round 65536 times, so
+; the record overflows (FIELD overflow), as in the source.
+WRTFIN:         FJSR    CMPFBP
+                BCC     NTRNDW
+NXTWSP:         LDA     #' '
+                JSR     OUTDO
+                DECW    RBL
+                LDA     RBL
+                ORA     RBH
+                BNE     NXTWSP
 NTRNDW:         JSR     CRDO
                 JMP     FINPRT

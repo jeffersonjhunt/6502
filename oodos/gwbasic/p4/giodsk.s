@@ -17,7 +17,12 @@
 ;                   OUTPUT or APPEND of a file open already
 ;   DSKCLS          closed: an output file's ^Z and last record first
 ;   DSKSIN DSKINP   a byte in: ^Z or the last record's end is the end
-;   DSKSOT FILOU4   a byte out, a record written when the buffer is full
+;   SINP50 FOVCHK   a random file's byte in, from its FIELD buffer
+;   DSKSOT FILOU4   a byte out, a record written when the buffer is full (a
+;                   random file's into its FIELD buffer)
+;   DSKRND          GET and PUT: a random file's record, through the 128-byte
+;   GETSUB PUTSUB   records it spans, each read (and written) in the buffer
+;   CMPFBC CMPFBP   WRITE #'s padding of a random file's record (P3's WRTFIN)
 ;   READS WRITES    a record read or written ($READS, $WRITS), at the
 ;                   random record CP/M's R0-R2 holds, which ACCFIL moves on
 ;   RESETP          RESET: every file closed, the drives reset
@@ -43,8 +48,16 @@
 ;     file is open, as MS-DOS's open does (CHKFOP compares the drives);
 ;   - CP/M's codes for 33 and 34 are those ACCFIL maps (it maps CP/M 2's
 ;     already: 3 cannot close the extent, 5 the directory full);
-;   - random files are X1's (later 7c): an OPEN for random is Advanced
-;     Feature until then, and the random parts here are kept, unreached.
+;   - a random file's record n of LEN bytes is bytes (n - 1) x LEN on, read
+;     and written through the 128-byte records it spans, one at a time, in
+;     the FDB's own buffer (hw/oodos.md 7c), as the 8086 reads and writes its
+;     sectors; a record only partly changed is read first. Past the file's
+;     end (X1), function 33 gives 1 (unwritten data) or 4 (an unwritten
+;     extent): READS has zeroed the buffer, and takes any code but 0 for the
+;     end, so the record is zeros, as the 8086's is past MS-DOS's end;
+;   - LEN past /S: (MAXREC, res/far4.s: at most 1,024, W4; 128 while the
+;     command line's switches aren't read) is Illegal function call, as
+;     GW-BASIC gives it; the 1983 source takes any LEN (its FDBs are dynamic).
 
 .include "gwbasic.inc"
 
@@ -52,8 +65,10 @@
 ;@entry FILESP
 ;@entry KILLP
 ;@entry NAMEP
-.export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP
-.import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB
+;@entry CMPFBP
+.export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
+.import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
+.import MAXREC
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
 .import DERTMF, DERFNF, DERBFM, DERFAO, DERIOE, DERDFL, FCERR, ADVERR, FRCDBL
 .import DERIFN, DERFAE, DERRAD, FRMEVL, FRESTR, SYNCHR, OUTDO, CRDO, CRDONZ, POLKEY, LINLEN, BUF
@@ -119,7 +134,12 @@ LOC1:           LDA     (FDBP),Y
 ; is in records (function 35, to R0-R2, which are kept round it: they are
 ; the file's place), so the size is that times 128, made a single (the 24
 ; bits are exact there), then a double (the 8086's $NORMD of FCB_FS).
-DSKLOF:         LDY     #FCB_RN + 2
+; Function 35 reads the directory, where MS-DOS's FCB_FS is the open FCB's:
+; so the file is closed first (function 16), which puts the extent being
+; written in the directory and, on OODOS, leaves the FCB open.
+DSKLOF:         LDY     #F_CLOSE
+                JSR     FCBDOS
+                LDY     #FCB_RN + 2
 @k:             LDA     (FDBP),Y
                 STA     LOFRN - FCB_RN,Y
                 DEY
@@ -176,7 +196,8 @@ DSKGCW:         RTS
 
 ; DSKOPN: file OPNNUM opened on disk A (FILDEV: 0 the current drive, 1 A:),
 ; FILMOD its mode, FILNAM its name, CX a random file's length (0 the
-; default, a record). The FDB (INIFDB: every mode, width 255, column 0) is
+; default, a record; past MAXREC, OO-1: Illegal function call), which is its
+; FIELD buffer's (INIFDB's FALLOC). The FDB (INIFDB: every mode, width 255, column 0) is
 ; FREFDB's until the file is open, so an error first frees it (FINPRT). Its
 ; FCB gets the drive, name and type, the rest zero. OUTPUT: no other file
 ; open of that name (CHKFOP), the old one deleted, a new one made (Too many
@@ -187,8 +208,18 @@ DSKGCW:         RTS
 DSKOPN:         STA     ODEV           ; the device, till INIFDB
                 LDA     FILMOD
                 CMP     #MD_RND
-                BNE     DSKOP2
-                JMP     ADVERR         ; OO-1: X1's (later 7c): CX 0 is DATPSC there
+                BNE     DSKOP2         ; not random
+                LDA     RCL            ; a length asked for?
+                ORA     RCH
+                BNE     DSKOP1
+                LDA     #DATPSC        ; else a record's bytes
+                STA     RCL
+DSKOP1:         LDA     MAXREC         ; OO-1 (W4): more than /S: is Illegal
+                CMP     RCL            ; function call
+                LDA     MAXREC+1
+                SBC     RCH
+                BCS     DSKOP2
+                JMP     FCERR
 DSKOP2:         LDA     RCL            ; PUSH CX: the length asked for
                 STA     OLEN
                 LDA     RCH
@@ -280,7 +311,8 @@ OPNSET:         LDY     #FCB_DV
 OPNFIN:         STZ     FREFDB         ; open: FINPRT leaves it
                 STZ     FREFDB+1
                 RTS
-; RNDFIN: FD_PHY to the FDB's end zero (X1's, unreached till then).
+; RNDFIN: FD_PHY to the FDB's end zero (the FIELD buffer isn't: the 8086's
+; count stops at FD_DAT, so it holds what the string space left there).
 RNDFIN:         LDA     #0
                 LDY     #FD_PHY
 @z:             STA     (FDBP),Y
@@ -397,7 +429,7 @@ DSKINP:         LDY     #F_MODE
                 LDA     (FDBP),Y
                 CMP     #MD_RND
                 BNE     SINP1
-                JMP     ADVERR         ; SINP50: a random file's (X1, later 7c)
+                JMP     SINP50         ; a random file's, from its FIELD buffer
 SINP1:          LDY     #F_MODE
                 LDA     (FDBP),Y
                 CMP     #MD_SQO
@@ -427,10 +459,74 @@ FILLS1:         LDA     #ASCCTZ
                 SEC
                 RTS
 
+; SINP50 (GIODSK.ASM 403): a random file's next byte, its FIELD buffer's at
+; FD_OPS (FOVCHK: FIELD overflow past its end), C clear. FOVCHK (410): the
+; place one on, unless it is at FD_SIZ already: FIELD overflow.
+SINP50:         JSR     FOVCHK
+                JSR     FLDGET
+                CLC
+                RTS
+FOVCHK:         LDY     #FD_OPS        ; BX: the place
+                LDA     (FDBP),Y
+                LDY     #FD_SIZ
+                CMP     (FDBP),Y
+                BNE     @on
+                LDY     #FD_OPS + 1
+                LDA     (FDBP),Y
+                LDY     #FD_SIZ + 1
+                CMP     (FDBP),Y
+                BEQ     ER_FOV
+@on:            LDY     #FD_OPS        ; one on
+                LDA     (FDBP),Y
+                CLC
+                ADC     #1
+                STA     (FDBP),Y
+                INY
+                LDA     (FDBP),Y
+                ADC     #0
+                STA     (FDBP),Y
+                RTS
+ER_FOV:         JMP     DERFOV
+
+; FLDGET, FLDPUT (the project's own): the byte at FD_DAT - 1 + FD_OPS (the
+; 8086's FD_DAT-1[BX+SI], FOVCHK's place) read to A, or written from A.
+; FD_DAT is the FIELD buffer, in the TPA (GETDAT); PTR is kept, as the 8086
+; keeps BX (OUTDO's caller may be walking a string by it). X and Y used.
+FLDPUT:         PHA
+                JSR     FLDSET
+                PLA
+                STA     (PTR)
+                BRA     FLDRST
+FLDGET:         JSR     FLDSET
+                LDA     (PTR)
+FLDRST:         PHA
+                LDA     FLDSAV
+                STA     PTR
+                LDA     FLDSAV+1
+                STA     PTR+1
+                PLA
+                RTS
+FLDSET:         LDA     PTR
+                STA     FLDSAV
+                LDA     PTR+1
+                STA     FLDSAV+1
+                JSR     GETDAT
+                CLC
+                LDY     #FD_OPS
+                ADC     (FDBP),Y
+                STA     PTR
+                TXA
+                INY
+                ADC     (FDBP),Y
+                STA     PTR+1
+                DECW    PTR
+                RTS
+
 ; --- DSKSOT (GIODSK.ASM 422) --------------------------------------------------------------
 
 ; DSKSOT: A out. An input file takes none (an echo, Extra ignored: dropped);
-; a random file's is FIELD's (X1, later 7c). FILOU4: into the buffer, the
+; a random file's goes into its FIELD buffer, at FD_OPS (FOVCHK: FIELD
+; overflow past its end), and its column moves. FILOU4: into the buffer, the
 ; record written first if it is full; then the column: a CR to 0, a
 ; printable byte on one. A kept (X and Y used: the 8086 keeps them all).
 DSKSOT:         PHA
@@ -440,8 +536,10 @@ DSKSOT:         PHA
                 BEQ     FILOUX
                 CMP     #MD_RND
                 BNE     FILOU5
+                JSR     FOVCHK         ; serial output to a random file
                 PLA
-                JMP     ADVERR         ; (X1, later 7c)
+                JSR     FLDPUT
+                BRA     SOUTPS
 FILOU4:         PHA
 FILOU5:         LDY     #F_ORCT
                 LDA     (FDBP),Y
@@ -473,6 +571,261 @@ SOUT3:          CMP     #' '
                 STA     (FDBP),Y
 FILOUX:         PLA
 FILOX1:         RTS
+
+; --- DSKRND, GETSUB, PUTSUB (GIODSK.ASM 462) ---------------------------------------------
+
+PGFLAG          = 1                    ; DSKRND's function: on, PUT; off, GET
+RELFLG          = 2                    ; on, a record given; off, the next
+DIRFLG          = 4                    ; PGSUB1's: on, write; off, read
+
+; DSKRND: GET or PUT, A the function (0 GET the next record, 1 PUT it, 2 GET
+; record DX, from 1, 3 PUT it), FDBP the file's FDB; RNDAL is the 8086's
+; AL. The next is FD_LOG + 1; a record given must be 1..32767 (DX signed
+; above 0: else Bad record number). FD_LOG is it, FD_OPS 0. Its first byte
+; is (record - 1) x FD_SIZ: DX the 128-byte record, BX the place in it (a
+; place past 2^23, a record past 65535, is Illegal function call; LEN 128 is
+; the record itself). Then the record is moved a 128-byte record at a time,
+; CX bytes each (what is left of it, or of the record), between its FIELD
+; buffer (LBUFF) and the FDB's buffer (PBUFF): GET reads each (GETSUB) and
+; copies; PUT reads one it only partly fills, copies into it, and writes it
+; (PUTSUB). RECRD is the 128-byte record, DX the bytes left, BX the place.
+ER_BRN:         JMP     DERBRN         ; Bad record number
+ER_FC:          JMP     FCERR
+DSKRND:         STA     RNDAL
+                AND     #RELFLG
+                BNE     RAND1
+                LDY     #FD_LOG        ; DX: the next, FD_LOG + 1
+                LDA     (FDBP),Y
+                CLC
+                ADC     #1
+                STA     RDL
+                INY
+                LDA     (FDBP),Y
+                ADC     #0
+                STA     RDH
+                BRA     RAND2
+RAND1:          LDA     RDH            ; JLE: 0, or past 32767
+                BMI     ER_BRN
+                ORA     RDL
+                BEQ     ER_BRN
+RAND2:          LDY     #FD_LOG        ; the next logical
+                LDA     RDL
+                STA     (FDBP),Y
+                INY
+                LDA     RDH
+                STA     (FDBP),Y
+                DECW    RDL            ; DX: the current, from 0
+                LDY     #FD_OPS        ; the output place 0
+                LDA     #0
+                STA     (FDBP),Y
+                INY
+                STA     (FDBP),Y
+                LDY     #FD_SIZ        ; BX: the record's length
+                LDA     (FDBP),Y
+                STA     RBL
+                INY
+                LDA     (FDBP),Y
+                STA     RBH
+                BNE     RANDM          ; logical = physical?
+                LDA     RBL
+                CMP     #DATPSC
+                BNE     RANDM
+RAND3:          STZ     RBL            ; BX: the place 0
+                BRA     RAND4
+RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
+                ASL     RNDPRD
+                ROL     RNDPRD+1
+                ROL     RNDPRD+2
+                ROL     RNDPRD+3
+                LDA     RNDPRD+3       ; DH: too big
+                BNE     ER_FC
+                LDA     RNDPRD+2       ; DX: the 128-byte record
+                STA     RDH
+                LDA     RNDPRD+1
+                STA     RDL
+                LDA     RNDPRD         ; BX: the place in it
+                LSR     A
+                STA     RBL
+                STZ     RBH
+RAND4:          LDA     RDL            ; RECRD: the record
+                STA     RECRD
+                LDA     RDH
+                STA     RECRD+1
+                JSR     GETDAT         ; LBUFF: the FIELD buffer
+                STA     LBUFF
+                STX     LBUFF+1
+                LDY     #FD_SIZ        ; DX: the bytes to move, its length
+                LDA     (FDBP),Y
+                STA     RDL
+                INY
+                LDA     (FDBP),Y
+                STA     RDH
+NXTOPD:         CLC                    ; PBUFF: the FDB's buffer + BX
+                LDA     FDBP
+                ADC     #DATOFS
+                STA     PBUFF
+                LDA     FDBP+1
+                ADC     #0
+                STA     PBUFF+1
+                CLC
+                LDA     PBUFF
+                ADC     RBL
+                STA     PBUFF
+                BCC     :+
+                INC     PBUFF+1
+:               SEC                    ; CX: the bytes left in it
+                LDA     #DATPSC
+                SBC     RBL
+                STA     RCL
+                STZ     RCH
+                LDA     RDH            ; the smaller of that and DX
+                BNE     DATMOF
+                LDA     RCL
+                CMP     RDL
+                BCC     DATMOF
+                LDA     RDL
+                STA     RCL
+DATMOF:         LDA     RNDAL
+                AND     #PGFLAG
+                BEQ     FIVDRD         ; GET
+                LDA     RCL            ; a whole record: no need to read it
+                CMP     #DATPSC
+                BCS     NOFVRD
+                JSR     GETSUB
+NOFVRD:         LDA     LBUFF          ; the FIELD buffer's bytes into it
+                STA     PTR
+                LDA     LBUFF+1
+                STA     PTR+1
+                LDA     PBUFF
+                STA     PTR2
+                LDA     PBUFF+1
+                STA     PTR2+1
+                JSR     RNDCPY
+                JSR     PUTSUB         ; written
+                BRA     NXFVBF
+FIVDRD:         JSR     GETSUB         ; read, and its bytes to the FIELD buffer
+                LDA     PBUFF
+                STA     PTR
+                LDA     PBUFF+1
+                STA     PTR+1
+                LDA     LBUFF
+                STA     PTR2
+                LDA     LBUFF+1
+                STA     PTR2+1
+                JSR     RNDCPY
+NXFVBF:         INCW    RECRD          ; the next record
+                CLC                    ; LBUFF on, DX less, by CX
+                LDA     LBUFF
+                ADC     RCL
+                STA     LBUFF
+                BCC     :+
+                INC     LBUFF+1
+:               SEC
+                LDA     RDL
+                SBC     RCL
+                STA     RDL
+                LDA     RDH
+                SBC     #0
+                STA     RDH
+                STZ     RBL            ; from its start
+                ORA     RDL
+                JNE     NXTOPD         ; more to move
+                RTS
+
+; RNDCPY (the project's own: the 8086's REP MOVSW and MOVSB): CX (at most
+; 128) bytes from PTR to PTR2.
+RNDCPY:         LDY     #0
+@c:             CPY     RCL
+                BEQ     @x
+                LDA     (PTR),Y
+                STA     (PTR2),Y
+                INY
+                BRA     @c
+@x:             RTS
+
+; RNDMUL (the project's own: the 8086's MUL): RNDPRD (4 bytes) = BX x DX,
+; unsigned, by shifts and adds.
+RNDMUL:         STZ     RNDPRD+2
+                STZ     RNDPRD+3
+                LDA     RDL
+                STA     RNDPRD
+                LDA     RDH
+                STA     RNDPRD+1
+                LDX     #16
+@l:             LDA     RNDPRD         ; the multiplier's low bit
+                LSR     A
+                BCC     @s
+                CLC
+                LDA     RNDPRD+2
+                ADC     RBL
+                STA     RNDPRD+2
+                LDA     RNDPRD+3
+                ADC     RBH
+                STA     RNDPRD+3
+@s:             ROR     RNDPRD+3
+                ROR     RNDPRD+2
+                ROR     RNDPRD+1
+                ROR     RNDPRD
+                DEX
+                BNE     @l
+                RTS
+
+; PUTSUB: record RECRD written from the buffer; GETSUB: read into it
+; (PGSUB1). The record the buffer holds is FD_PHY's (less one), which
+; nothing sets after RNDFIN zeroes it, as in the 8086: so a read is always
+; made (but for record 65535). F_CLOC the record (READS and WRITES step it),
+; F_ORCT and F_BREM 128 (READS sets them by its read), CP/M's R0-R1 the
+; record and R2 0; then WRITES, or READS: a record past the file's end comes
+; back zeros, F_ORCT 0 (X1). RNDAL's DIRFLG is set or cleared, as the
+; 8086's AL.
+PUTSUB:         LDA     RNDAL
+                ORA     #DIRFLG
+                BRA     PGSUB1
+GETSUB:         LDA     RNDAL
+                AND     #$FF - DIRFLG
+PGSUB1:         STA     RNDAL
+                CLC                    ; BX: the record + 1
+                LDA     RECRD
+                ADC     #1
+                TAX
+                LDA     RECRD+1
+                ADC     #0
+                LDY     #FD_PHY + 1    ; in the buffer?
+                CMP     (FDBP),Y
+                BNE     NTREDS
+                TXA
+                DEY
+                CMP     (FDBP),Y
+                BNE     NTREDS
+                LDA     RNDAL          ; read: there already
+                AND     #DIRFLG
+                BEQ     PGRET
+NTREDS:         LDY     #F_CLOC        ; CURLOC: the record
+                LDA     RECRD
+                STA     (FDBP),Y
+                INY
+                LDA     RECRD+1
+                STA     (FDBP),Y
+                LDA     #DATPSC
+                LDY     #F_ORCT
+                STA     (FDBP),Y
+                INY                    ; F_BREM
+                STA     (FDBP),Y
+                LDY     #FCB_RN        ; the random record
+                LDA     RECRD
+                STA     (FDBP),Y
+                INY
+                LDA     RECRD+1
+                STA     (FDBP),Y
+                INY
+                LDA     #0
+                STA     (FDBP),Y
+                LDA     RNDAL
+                AND     #DIRFLG
+                BEQ     GET1
+                JMP     WRITES
+GET1:           JMP     READS
+PGRET:          RTS
 
 ; --- READS, WRITES, SETBUF, ACCFIL (GIODSK.ASM 599) ---------------------------------------
 
@@ -916,6 +1269,65 @@ MAKUPC:         CMP     #'a'
                 AND     #$FF - ' '
 NOTLC:          RTS
 
+; --- CMPFBC (GIODSK.ASM 823) -------------------------------------------------------------
+
+; CMPFBP (the project's own, P3's WRTFIN's part, FIVEO.ASM 769): OUTDO's run
+; to PTRFIL's file first (FLUSHR: FD_OPS then counts what WRITE # sent).
+; Then, as WRTFIN tests it: not a file (the console, or LPT1: OO-1, the
+; 8086 reads F_DEV wherever PTRFIL is), not a disk's (F_DEV negative), or
+; not random: C clear. Else CMPFBC: BX its record's size (GETFSZ: FD_SIZ),
+; DX its place (GETFPS: FD_OPS); then BX less DX less 2 (CRLFSQ, the CR and
+; LF still to come), C set if that isn't negative (the 8086's carry from
+; its ADD): the spaces that pad the record.
+CMPFBP:         JSR     FLUSHR
+                LDA     PTRFIL+1       ; an FDB in P4's RAM?
+                CMP     #>BLK_BASE
+                BCC     NTRNDW
+                CMP     #$FF
+                BEQ     NTRNDW
+                STA     FDBP+1
+                LDA     PTRFIL
+                STA     FDBP
+                LDY     #F_DEV         ; a disk's
+                LDA     (FDBP),Y
+                BMI     NTRNDW
+                LDY     #F_MODE        ; random
+                LDA     (FDBP),Y
+                CMP     #MD_RND
+                BNE     NTRNDW
+                JSR     CMPFBC
+                SEC                    ; BX - DX - 2
+                LDA     RBL
+                SBC     RDL
+                STA     RBL
+                LDA     RBH
+                SBC     RDH
+                STA     RBH
+                SEC
+                LDA     RBL
+                SBC     #2
+                STA     RBL
+                LDA     RBH
+                SBC     #0
+                STA     RBH
+                RTS                    ; C: not negative
+NTRNDW:         CLC
+                RTS
+; CMPFBC: BX FD_SIZ (GETFSZ), DX FD_OPS (GETFPS), FDBP's.
+CMPFBC:         LDY     #FD_OPS        ; GETFPS
+                LDA     (FDBP),Y
+                STA     RDL
+                INY
+                LDA     (FDBP),Y
+                STA     RDH
+                LDY     #FD_SIZ        ; GETFSZ
+                LDA     (FDBP),Y
+                STA     RBL
+                INY
+                LDA     (FDBP),Y
+                STA     RBH
+                RTS
+
 ; --- FILES, KILL, NAME (GIODSK.ASM 931) --------------------------------------------------
 
 ; FILESP: FILES [name] (GIODSK.ASM 949): the names in the directory that
@@ -1209,14 +1621,13 @@ RESETX:         RTS
 .rodata
 ; FILFCB's parse block (function 152): the string BUF, the FCB FILNAM.
 PARSBK:         .word   BUF, FILNAM
-; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*. Random records
-; (DSKRND: X1) are a later step's, Advanced Feature till then.
+; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*.
 DSKDSP:         .word   DSKEOF         ; G_EOF
                 .word   DSKLOC         ; G_LOC
                 .word   DSKLOF         ; G_LOF
                 .word   DSKCLS         ; G_CLS
                 .word   FCERR          ; G_SWD: a disk's width can't be set
-                .word   ADVERR         ; G_RND: DSKRND (X1, later 7c)
+                .word   DSKRND         ; G_RND
                 .word   DSKOPN         ; G_OPN
                 .word   DSKSIN         ; G_SIN
                 .word   DSKSOT         ; G_SOT
@@ -1249,3 +1660,9 @@ FILNA2:         .res    33             ; NAME's rename FCB (both names), FILES's
 DIRBUF:         .res    128            ; OO-1: the search's directory record (FILNA2 the 8086's DTA)
 FIDX:           .res    1              ; FILES's place in DIRBUF (the 8086's SI)
 FCNT:           .res    1              ; FILES's count (CX), FILFCB's name count (AH)
+FLDSAV:         .res    2              ; FLDGET's and FLDPUT's PTR, kept
+RNDAL:          .res    1              ; DSKRND's function (the 8086's AL)
+RNDPRD:         .res    4              ; RNDMUL's product (the 8086's DX:AX)
+RECRD:          .res    2              ; GWDATA.ASM's: the 128-byte record
+LBUFF:          .res    2              ; and the place in the FIELD buffer
+PBUFF:          .res    2              ; and in the FDB's buffer

@@ -4197,6 +4197,34 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       standing in for both: it ends at `$8F75` with its BSS, under check.py's `$9000` (G11).
     - Must-fail (test_gwbasic_files): the hook answering 76 for the root; KILL without its delete; FILES searching
       `*.*` whatever it was given.
+  - **As built, random files (X1)** (Proposed, 2026-11-14): DSKCOM.ASM's FIELD, LSET, RSET and CVI to MKD$,
+    GWSTS.ASM's PUT and GET, GIO86.ASM's DPUTG, FALLOC, FFREE, XFRSTR and UPDSTD, GIODSK.ASM's DSKRND, GETSUB, PUTSUB,
+    SINP50, FOVCHK and CMPFBC, in P4 (`p4/dskcom.s`, `p4/gwsts.s`, `p4/gio86.s`, `p4/giodsk.s`); home block stubs for
+    FIELD, LSET, RSET, PUT and GET (`p8/far4.s`). P4 is 7,563 bytes; 35,844 free.
+    - **The FIELD buffers are in the TPA,** as the 8086 has them: FALLOC takes a random file's LEN bytes from the top
+      of the string space when it is opened (the string space moved down, every string descriptor with it: XFRSTR,
+      UPDSTD; a collection first if there isn't room, else Out of memory), and FFREE gives them back when it is closed
+      (the buffers below it and the strings moved up; a string FIELDed into it made null). The 8086's FILTAB is
+      MEMSIZ + 2 (OO-1: no byte of its own); each file's buffer address is kept by its number in P4 (`FDDAT`), so
+      the FDB's size is unchanged. Cost: no byte free at start-up, LEN while the file is open.
+    - **Records:** record *n* is bytes (*n* − 1) × LEN on, moved a 128-byte record at a time between the FIELD buffer
+      and the FDB's own buffer, as the 8086 moves its sectors; PUT reads a record it only partly fills first.
+      **X1:** `$READS` zeroes the buffer before function 33 and takes any code but 0 for the end, so a 1 or a 4 gives
+      zeros, for a PUT's read and for a GET past the end alike.
+    - **/S:** is `MAXREC` (resident, 2 bytes: start-up will set it from the command line), 128 while the switches are
+      passed over; LEN past it is Illegal function call (OO-1: the 1983 source takes any LEN, PC-BASIC refuses past
+      /S:), and it may be raised to 1,024 (W4).
+    - **CVI to MKD$** are P4's: the resident EVALNF (IBMRES.ASM's, +56 bytes with the hook's DATE$/TIME$ branch) makes
+      one far call to P4's FUNDSX. P3's WRITE # pads a random record through P4's `CMPFBP` (a far call, OUTDO's run
+      sent first). P1's ADRGET is an entry, for DPUTG.
+    - **OO-1:** LOF closes the file before function 35 (OODOS's close leaves the FCB open), so the extent being
+      written counts; it is still whole records.
+    - **Source behaviour kept, PC-BASIC's differs** (`.differ`): FIELD's total past the record is FIELD overflow;
+      record 32768 is Bad record number; the FIELD buffer isn't cleared; INPUT # and PRINT # share the record's place,
+      and WRITE # pads with spaces; EOF is true after OPEN and PUT until a GET finds a record; a closed file's FIELDed
+      strings are null; FOR RANDOM is Syntax error.
+    - Must-fail (test_gwbasic_files): 33's 1 or 4 taken as an error, or the buffer not zeroed (X1's test); a part
+      record written without its read (records out of order); CVI's bytes swapped (the round trip).
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

@@ -279,3 +279,30 @@ no directories: CHDIR `""` is the root, MKDIR is Path/File access error; the own
 By hand in test_gwbasic_files: FILES with no name, `"A:"`, `"*.*"` and `"a:*.*"` alike, on the rig's A:; a drive
 before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in NAME's names and for a name function
 152 refuses; CHDIR, MKDIR and RMDIR crunched to `$FE` and their tokens (the program's text), LISTed back, and typed.
+
+7c's random files (X1), typed and RUN as the file layer's, each writing its own files:
+
+| Program | What |
+|---|---|
+| `r_x1` | X1, the plan's test: LEN 100, records 1-5 PUT to a new file, then each GET back as it was written |
+| `r_x1b` | records never written, past the end and in the last 128-byte record's tail: zeros, EOF true |
+| `r_lens` | LEN 1 (300 records), 128 and the default; FIELD, LSET and RSET; PUT and GET with and without a number; a record never written; LOC |
+| `r_order` | records of LEN 100 PUT out of order, one twice, each GET back; GET and PUT of the next record |
+| `r_cv` | MKI$, MKS$, MKD$ and CVI, CVS, CVD round trips, their bytes, edge values; a short string, Overflow, Type mismatch |
+| `r_field` | FIELD's errors; GET and PUT of a sequential file; a FIELDed string assigned by LET, then LSET; Bad record number; PRINT #, INPUT # and WRITE # in the FIELD buffer, PRINT # past it |
+| `r_seq` | one file used as sequential and random in turn |
+| `r_sw` | LEN past /S: (128 while the switches aren't read) and LEN 0: Illegal function call |
+| `r_move` | strings, a string array and FIELD buffers kept right as random files open and close; a closed file's FIELDed strings |
+| `r_eof`, `r_lof` | EOF and LOF of a random file |
+| `r_forr` | OPEN ... FOR RANDOM |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `r_field` (FIELD's total past the record is FIELD
+overflow; record 32768 is Bad record number; the FIELD buffer keeps what was in it; WRITE # pads the record with
+spaces), `r_move` (a closed file's FIELDed strings are null), `r_eof` (EOF is true after OPEN and PUT, until a GET
+reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). Where
+the OO-1 differs: `r_lof` (LOF in whole records, as `f_locof`).
+
+By hand in test_gwbasic_files: records of LEN 200 and 1,024 with /S: set to 1,024 (MAXREC, as `/S:1024` would set
+it): out of order, across the 128-byte records they span; a record never written; a record's place past 2^23 bytes
+(Illegal function call) and the last before it; LEN past /S:. And the FIELD buffers in the TPA: FRE(0) and MEMSIZ
+lowered by LEN at OPEN, the buffer's bytes from MEMSIZ + 2, both back at CLOSE.

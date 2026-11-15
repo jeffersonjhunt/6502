@@ -24,6 +24,9 @@
  * - KILL, NAME and FILES (7c's directory step), on the BDOS's search, delete and rename, names parsed by function
  *   152; and the directory hook: CHDIR, MKDIR and RMDIR crunched to their extended tokens and answered by P4's one
  *   hook (p4/oem.s), as OODOS has no directories.
+ * - Random files (7c's X1 step): FIELD, LSET, RSET, GET, PUT, CVI to MKD$, PRINT #, INPUT # and WRITE # in a FIELD
+ *   buffer; records of any LEN on CP/M's 128-byte records, read and written through the FDB's buffer in P4 (V1),
+ *   records past the end as zeros (X1); the FIELD buffers taken from the TPA's string space and given back.
  */
 
 #include "harness.h"
@@ -293,8 +296,8 @@ TEST(files_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"FDRV.TXT\":LINE INPUT #1,A$:PRINT A$:CLOSE"), std::string("on a\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"Q:FX.TXT\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"LPT1:\""), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"R\",#1,\"FX.DAT\""), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "OPEN \"FX.DAT\" AS #1 LEN=20"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"FX.DAT\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"FX.DAT\" AS #1 LEN=20:CLOSE"), std::string());
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT EOF(1)"), std::string("Bad file number\r\n"));
     // INPUT$ with no file: the keys typed, not echoed, CR among them as any byte.
@@ -601,6 +604,187 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
     CHECK_EQ(command(r, "CHDIR"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "RMDIR 1"), std::string("Type mismatch\r\n"));
     CHECK_EQ(command(r, "CHDIR \"\\\" X"), std::string("Syntax error\r\n"));
+}
+
+// Random files (7c's X1 step: DSKCOM.ASM FIELD, LSET, RSET, CVI to MKD$; GIO86.ASM DPUTG, FALLOC, FFREE, XFRSTR,
+// UPDSTD; GWSTS.ASM PUT, GET; GIODSK.ASM DSKOPN's random part, DSKRND, GETSUB, PUTSUB, SINP50, FOVCHK, DSKSOT's random
+// part, CMPFBC; FIVEO.ASM WRTFIN's padding). r_lens: LEN 1 (300 records), 128 (FOR RANDOM, the next record by PUT
+// alone) and the default, LSET and RSET into FIELDed strings, a record never written (zeros), LOC. r_order: records of
+// LEN 100 PUT out of order and one again, each GET back; GET and PUT with no number (the next). r_cv: MKI$, MKS$,
+// MKD$ and CVI, CVS, CVD round trips and their bytes, on edge values; their errors. r_field: FIELD's errors (FIELD
+// overflow past the record, Bad file mode, Bad file number, Illegal function call, Type mismatch), GET and PUT of a
+// sequential file, a FIELDed string assigned by LET (it leaves the buffer) and LSET then (a copy of the literal),
+// Bad record number (0, 32768, -1), PRINT # and INPUT # in the FIELD buffer, PRINT # past it, WRITE #'s padding.
+// r_seq: one file used as sequential and random in turn. r_sw: LEN past /S: (128 while the switches aren't read)
+// and LEN 0: Illegal function call. r_move: strings, a string array and two FIELD buffers kept right as a random
+// file opens and closes (the string space moved, XFRSTR, and the descriptors with it, UPDSTD); a FIELDed string of a
+// closed file. r_eof: EOF of a random file. r_lof: LOF of one. Where PC-BASIC departs from the 1983 source, or the
+// OO-1 from both, NAME.differ.
+TEST(random_files_print_what_pc_basic_prints)
+{
+    programs({"r_lens", "r_order", "r_cv", "r_field", "r_seq", "r_sw", "r_move", "r_eof", "r_lof", "r_forr"});
+}
+
+// X1 (hw/oodos.md, "The plan, phase 7": 7c): LEN 100, records 1-5 PUT to a new file, then each GET back as it was
+// written (records 2, 3 and 4 end inside a 128-byte record no earlier PUT reached, which function 33 finds unwritten:
+// 1, or 4 past the extent, and the read-modify-write takes as zeros). r_x1b: records never written, past the end and
+// in the last 128-byte record's tail, GET as zeros with EOF true. Must-fail: a build that takes 33's 1 or 4 as an
+// error, or doesn't zero the buffer before the read.
+TEST(x1_records_past_the_file_s_end_read_back_as_written)
+{
+    programs({"r_x1", "r_x1b"});
+}
+
+// V1, route (c), for random records too: every 128-byte record GET and PUT read (function 33) or write (34) goes to or
+// from its FDB's buffer in P4's own RAM, with block P4 in W3, as each_record_goes_to_and_from_p4_s_own_ram checks the
+// sequential files'; the FIELD buffer, in the TPA, is never the DMA address. r_x1 and r_order, as the oracle has them.
+TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
+    REQUIRE(p4.count("FDB0") == 1);
+    const uint16_t fdb0 = p4.at("FDB0");
+    constexpr uint16_t FDBLEN = 184, DATOFS = 48, FILES = 4; // gwbasic.inc
+    const std::vector<uint8_t> image = file("p4.bin");
+    REQUIRE(image.size() > 4 + 3 * 8);
+    uint16_t dma = 0;
+    int records = 0, outside = 0, not_p4 = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc != 0x0203) // the BDOS's entry
+            return;
+        const Registers g = r.cpu->regs();
+        if (g.y == 26)
+            dma = static_cast<uint16_t>(g.a | g.x << 8);
+        if (g.y != 33 && g.y != 34)
+            return;
+        ++records;
+        bool mine = false;
+        for (uint16_t i = 0; i < FILES; ++i)
+            mine = mine || dma == fdb0 + i * FDBLEN + DATOFS;
+        if (!mine || dma < 0xC800 || dma + 128 > 0xF800)
+            ++outside;
+        for (uint16_t a = 4; a < 4 + 3 * 8; ++a) // BLK_ENTRY's jump table: P4's image's
+            if (r.machine->bus().peek(static_cast<uint16_t>(0xC800 + a)) != image[a])
+            {
+                ++not_p4;
+                break;
+            }
+    };
+    for (const char *name : {"r_x1", "r_order"})
+    {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, bas(name));
+        CHECK_EQ(command(r, "RUN"), oracle(name));
+    }
+    r.watch = nullptr;
+    CHECK(records > 20);
+    CHECK_EQ(outside, 0);
+    CHECK_EQ(not_p4, 0);
+}
+
+// By hand, from the source (PC-BASIC's /S: can't be given by oracle.sh): records longer than a 128-byte record. /S:
+// (MAXREC, res/far4.s: the command line's switches aren't read yet) is set to 1,024, the most W4 allows, as GWBASIC
+// /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
+// and LOF (OO-1: whole records). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
+// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^23 bytes
+// (DSKRND's DH: Illegal function call) and the last before it (records 65,528 to 65,535); LEN past /S: (1,025:
+// Illegal function call).
+TEST(random_records_of_200_and_1024_bytes_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MAXREC") == 1);
+    const uint16_t maxrec = lab.at("MAXREC");
+    CHECK_EQ(r.phys(maxrec) | r.phys(maxrec + 1u) << 8, 128);
+    r.poke(maxrec, 1024 & 0xFF);
+    r.poke(maxrec + 1u, 1024 >> 8);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",200:FIELD #1,100 AS A$,100 AS B$",
+              "20 FOR K=1 TO 5:READ N:LSET A$=STRING$(100,64+N):RSET B$=STR$(N):PUT #1,N:NEXT",
+              "30 DATA 4,2,5,1,3",
+              "40 FOR N=1 TO 5:GET #1,N:PRINT N;LEFT$(A$,2);A$=STRING$(100,64+N);RIGHT$(B$,2):NEXT",
+              "50 PRINT LOC(1);LOF(1):CLOSE"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
+                                            " 5  1024 \r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RKB.DAT\",1024",
+              "15 FIELD #1,255 AS A$,255 AS B$,255 AS C$,255 AS D$,4 AS E$",
+              "20 FOR K=1 TO 3:READ N:LSET A$=STRING$(255,64+N):LSET B$=A$:LSET C$=A$:LSET D$=STRING$(255,96+N)",
+              "30 LSET E$=MKI$(N)+\"ok\":PUT #1,N:NEXT:DATA 3,1,2",
+              "40 FOR N=1 TO 3:GET #1,N:X$=STRING$(255,64+N)",
+              "45 PRINT N;A$=X$;B$=X$;C$=X$;D$=STRING$(255,96+N);CVI(E$);RIGHT$(E$,2):NEXT",
+              "50 GET #1,5:PRINT ASC(A$);ASC(E$);EOF(1);LOC(1);LOF(1)",
+              "60 ON ERROR GOTO 90",
+              "70 GET #1,8193:GET #1,8192:PRINT ASC(A$);EOF(1)",
+              "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
+                                            " 0  0 -1  5  3072 \r\nerr 5  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
+}
+
+// The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its
+// file's buffer, which the string functions read there), taken from the top of the string space when a random file
+// is opened, as the 8086's FALLOC takes its FDB, and given back when it is closed (FFREE): by hand, from the source.
+// OPEN of LEN 100 lowers FRE(0) and MEMSIZ by 100, and the buffer is the 100 bytes from MEMSIZ + 2 (FILTAB, past
+// VAL's zero): a LSET string is there. CLOSE puts both back, and the FIELDed string is null.
+TEST(field_buffers_are_taken_from_the_tpa_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MEMSIZ") == 1);
+    const uint16_t memsiz = lab.at("MEMSIZ");
+    auto word = [&](uint16_t a) { return static_cast<uint16_t>(r.phys(a) | r.phys(a + 1u) << 8); };
+    CHECK_EQ(command(r, "A$=\"\":B$=\"str\"+\"ing\":F=FRE(0)"), std::string());
+    const uint16_t top = word(memsiz);
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RTPA.DAT\",100:FIELD #1,100 AS A$"), std::string());
+    CHECK_EQ(command(r, "LSET A$=\"in the tpa\":PRINT F-FRE(0)"), std::string(" 100 \r\n"));
+    CHECK_EQ(word(memsiz), top - 100);
+    std::string at;
+    for (uint16_t i = 0; i < 10; ++i)
+        at += static_cast<char>(r.phys(static_cast<uint16_t>(word(memsiz) + 2 + i)));
+    CHECK_EQ(at, std::string("in the tpa"));
+    CHECK_EQ(command(r, "PRINT LEFT$(A$,10);LEN(A$);B$"), std::string("in the tpa 100 string\r\n"));
+    CHECK_EQ(command(r, "CLOSE:PRINT F-FRE(0);LEN(A$);B$"), std::string(" 0  0 string\r\n"));
+    CHECK_EQ(word(memsiz), top);
+}
+
+// FALLOC's room (GIO86.ASM FALLOC, FAPAS1, FALCOK): with less free than the FIELD buffer wants but enough once the
+// strings are collected, OPEN collects them (GARBA2, once) and opens; with too little even then, Out of memory, and
+// nothing changed (MEMSIZ as it was, the file not open). By hand, from the source.
+TEST(a_random_open_collects_the_strings_or_is_out_of_memory)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MEMSIZ") == 1 && lab.count("GARBA2") == 1);
+    const uint16_t memsiz = lab.at("MEMSIZ"), garba2 = lab.at("GARBA2");
+    auto word = [&](uint16_t a) { return static_cast<uint16_t>(r.phys(a) | r.phys(a + 1u) << 8); };
+    CHECK_EQ(command(r, "A$=\"\":B$=\"\":N%=0:F=0:N%=FRE(0)/2-75:DIM X%(N%):F=FRE(0)"), std::string());
+    CHECK_EQ(command(r, "A$=STRING$(100,\"a\"):A$=\"\":PRINT F-FRE(0)"), std::string(" 100 \r\n"));
+    const std::string free_now = command(r, "PRINT FRE(0)");
+    const int before = std::atoi(free_now.c_str());
+    CHECK(before < 60 && before + 100 >= 60);
+    unsigned collections = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == garba2)
+            ++collections;
+    };
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RGC.DAT\",60:FIELD #1,60 AS B$:LSET B$=\"room\""), std::string());
+    r.watch = nullptr;
+    CHECK_EQ(collections, 1u);
+    CHECK_EQ(command(r, "PRINT LEFT$(B$,4);F-FRE(0)"), std::string("room 60 \r\n"));
+    const uint16_t top = word(memsiz);
+    CHECK_EQ(command(r, "OPEN \"R\",#2,\"RGC2.DAT\",128"), std::string("Out of memory\r\n"));
+    CHECK_EQ(word(memsiz), top);
+    CHECK_EQ(command(r, "PRINT LOC(2)"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "PRINT LEFT$(B$,4):CLOSE:PRINT F-FRE(0)"), std::string("room\r\n 0 \r\n"));
 }
 
 int main()
