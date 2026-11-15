@@ -687,7 +687,8 @@ TEST(input_typed_lines_print_what_pc_basic_prints)
 //   the CR, so 7a gives no LF after it: the next output starts at the line's start (over the typed text);
 // - LPRINT goes to LST: (OODOS's LPT takes and drops): the console shows nothing of it but an arithmetic
 //   message, which $DIV0S sends to the console ($CATTY);
-// - PRINT # and INPUT # (the files, 7c), PRINT USING (7b), the graphics LINE (7e): Advanced Feature;
+// - PRINT #, INPUT # and PRINT # USING with no file open: Bad file number (7c's file layer); the graphics LINE
+//   (7e): Advanced Feature;
 // - RESTORE to a line that isn't there: Undefined line number; NEXT in direct mode with no FOR.
 TEST(input_semicolon_lprint_and_later_forms)
 {
@@ -703,9 +704,9 @@ TEST(input_semicolon_lprint_and_later_forms)
     CHECK_EQ(command(r, "LPRINT \"to the printer\";1,2"), std::string());
     CHECK_EQ(command(r, "PRINT 1:LPRINT 2:PRINT 3"), std::string(" 1 \r\n 3 \r\n"));
     CHECK_EQ(command(r, "LPRINT 1/0"), std::string("Division by zero\r\n")); // $CATTY: the message to the console
-    CHECK_EQ(command(r, "PRINT #1,2"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "PRINT #1,USING \"##\";1"), std::string("Advanced Feature\r\n")); // PRINT USING until 7b step d; PRINT # is 7c's
+    CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "PRINT #1,USING \"##\";1"), std::string("Bad file number\r\n")); // no file open: 7c's file layer
     CHECK_EQ(command(r, "LINE (0,0)-(1,1)"), std::string("Advanced Feature\r\n"));
     CHECK_EQ(command(r, "RESTORE 100"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "NEXT"), std::string("NEXT without FOR\r\n"));

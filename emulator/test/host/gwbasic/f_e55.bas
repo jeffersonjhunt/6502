@@ -1,0 +1,1 @@
+10 OPEN "O",#1,"FE55.TXT":OPEN "O",#1,"FE55B.TXT"

@@ -1,0 +1,8 @@
+# INPUT$ takes a CR and an LF as any bytes, and EOF is true only at the ^Z (the 1983 source's FIXINP, INDSKC); PC-BASIC gives Input past end for the CR LF before the end
+<ab>
+<c,d>
+<ef>
+<ghi> 0 
+ 13  10 -1 
+[abc],def
+Input past end in 130

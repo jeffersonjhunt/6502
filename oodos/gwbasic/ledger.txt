@@ -811,7 +811,7 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH # PROFLG later 7c
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); GRPRST, SNDINI, CLSALL, MRGFLG, CHNFLG, NLONLY later 7c-7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c); GRPRST, SNDINI, MRGFLG, CHNFLG, NLONLY later 7c-7f
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -828,7 +828,7 @@ BIMISC.ASM RESFIN -> res/bimisc.s RESFIN
 BIMISC.ASM STOP -> res/bimisc.s STOP
 BIMISC.ASM STOPRG -> res/bimisc.s STOPRG
 BIMISC.ASM ENDST -> res/bimisc.s ENDST
-BIMISC.ASM ENDS1 -> res/bimisc.s ENDST # CLSALL later 7c
+BIMISC.ASM ENDS1 -> res/bimisc.s ENDS1 # CLSALL by its resident stub (7c)
 BIMISC.ASM CONSTP -> res/bimisc.s CONSTP # the message flag in C, not Z, through the pops
 BIMISC.ASM STPEND -> res/bimisc.s STPEND
 BIMISC.ASM ENDCON -> res/bimisc.s ENDCON
@@ -905,18 +905,18 @@ SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; i
 SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
 SCNEDT.ASM DSKCHI -> later 7c: a program loaded as text
 SCNEDT.ASM OUTCH1 -> dropped: LISPRT's; a file's CR after LF is 7c's, the console needs none
-GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; files later 7c
+GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; a file's bytes in RUNBUF, to P4 as runs (FLUSHP)
 GIO86.ASM CRDO -> OEM res/oem.s CRDO
 GIO86.ASM CRDONZ -> OEM res/oem.s CRDONZ
 GIO86.ASM CRFIN -> OEM res/oem.s CRFIN
 GIO86.ASM FINLPT -> OEM res/oem.s FINLPT
-GIO86.ASM FINPRT -> OEM res/oem.s FINPRT
+GIO86.ASM FINPRT -> OEM res/oem.s FINPRT # P4's part FINPRP (p4/gio86.s): OUTDO's run sent, FREFDB's FDB freed
 GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; a file's direct line (ERFDR) later 7c
-GIO86.ASM CLSALL -> later 7c: the files closed
-GIO86.ASM NAMSCN -> later 7c: LIST's device
+GIO86.ASM CLSALL -> p4/gio86.s CLSALP # its resident stub res/far4.s CLSALL (no far call with no file open)
+GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> later 7c: as NAMSCN
-GIO86.ASM GIOINI -> later 7c: the devices' start-up
-GIO86.ASM GIOTRM -> later 7c: the devices' end (SYSTEM)
+GIO86.ASM GIOINI -> later 7c: the devices' start-up (the files need none: P4's FDB table loads free)
+GIO86.ASM GIOTRM -> later 7c: the devices' end (SYSTEM: the disk has none)
 GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # functions 11 and 6; the function keys and their traps later 7d, 7f
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
@@ -929,7 +929,7 @@ GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
 GWSTS.ASM SNDRST -> later 7f: the break's music reset
 GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
 SCNDRV.ASM SCNIPL -> later 7d: the screen editor's start-up
-GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM
+GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
 GIODSK.ASM PROCHK -> later 7c: protected programs
 DSKCOM.ASM LRUN -> later 7c: RUN "file"; res/todo_i1.s gives Advanced Feature
@@ -951,11 +951,11 @@ GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its l
 GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
 GWSTS.ASM EVSET -> p3/gwsts.s EVSET
 GIOCOM.ASM POLCOM -> later 7c: COM1's trap
-GIO86.ASM PTRDSP -> OEM res/oem.s OUTDO # the device's output: the console or LPT1
+GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
-GIO86.ASM FFREE -> later 7c: a file's buffer freed
-GIO86.ASM CLSFIL -> later 7c: a file closed
+GIO86.ASM FFREE -> p4/gio86.s FFREE # OO-1: the table's FDB marked free
+GIO86.ASM CLSFIL -> p4/gio86.s CLSFIL
 GIO86.ASM LFTQ -> OEM res/oem.s PKQUE # the keyboard queue's room
 GIO86.ASM PUTQ -> OEM res/oem.s PKQUE
 GIO86.ASM INITQ -> OEM res/oem.s KYBINI
@@ -963,7 +963,7 @@ GIO86.ASM PDCBAX -> later 7d: the soft keys' state at KYBINI
 GIOKYB.ASM GETFKY -> later 7d: a function key's next character
 GIO86.ASM GETQ -> OEM res/oem.s KYBGET
 GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
-GIO86.ASM SIDSP -> later 7c: a file's input dispatch
+GIO86.ASM SIDSP -> p4/gio86.s SIDSP # the disk's DSKDSP, the only device
 
 # i2: the statements (step I2 of 7a). Resident: GWMAIN.ASM's FNDFOR, FOR, NXTSCN and WNDSCN, GOSUB and RETURN;
 # NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (p8/gwmain.s has their
@@ -1010,7 +1010,7 @@ GWMAIN.ASM INPBAK -> p1/gwmain.s INPBAK
 GWMAIN.ASM TRMNOK -> p1/gwmain.s TRMNOK
 GWMAIN.ASM RDOIN2 -> p1/gwmain.s RDOIN2
 GWMAIN.ASM RDOINP -> p1/gwmain.s RDOINP
-GWMAIN.ASM FILSTI -> later 7c: INPUT #
+GWMAIN.ASM FILSTI -> p1/gwmain.s FILSTI
 GWMAIN.ASM INPUT -> p1/gwmain.s INPUTP # its home block stub p8/gwmain.s INPUT; the two text pointers TXTPTR and OTHPTR (XTHL)
 GWMAIN.ASM QTINP -> p1/gwmain.s QTINP # TEMPA+1 is INPQM; CNTOFL (^O) has no counterpart
 GWMAIN.ASM NTICMA -> p1/gwmain.s NTICMA
@@ -1031,7 +1031,7 @@ GWMAIN.ASM INPCON -> p1/gwmain.s INPCON
 GWMAIN.ASM LOPDT2 -> p1/gwmain.s LOPDT2
 GWMAIN.ASM LOPDAT -> p1/gwmain.s LOPDAT
 GWMAIN.ASM DATBK -> p1/gwmain.s DATBK
-GWMAIN.ASM SCNVAL -> p1/gwmain.s SCNVAL # FILIND (a file's value) later 7c
+GWMAIN.ASM SCNVAL -> p1/gwmain.s SCNVAL # FILIND (a file's value) P4's, a far call
 GWMAIN.ASM NCOLST -> p1/gwmain.s NCOLST
 GWMAIN.ASM NOWGET -> p1/gwmain.s NOWGET
 GWMAIN.ASM DOASIG -> p1/gwmain.s DOASIG # pass 2's assignment returns to its caller, STRDN2 next
@@ -1069,8 +1069,8 @@ FIVEO.ASM FNDWN3 -> p8/fiveo.s FNDWN3
 FIVEO.ASM WEERR -> p8/fiveo.s WEND
 GIO86.ASM LPRINT -> p1/gio86.s LPRNTP # its resident stub res/gwmain.s LPRINT
 GIO86.ASM PRINT -> p1/gio86.s PRINTP # its resident stub res/gwmain.s PRINT; the width and comma column in PRTWID, PRTCMA
-GIO86.ASM FILGET -> later 7c: PRINT # (here Advanced Feature)
-GIO86.ASM FILINP -> later 7c: INPUT #
+GIO86.ASM FILGET -> p4/gio86.s FILGET # an entry; its first test ("#") at each caller
+GIO86.ASM FILINP -> p4/gio86.s FILINP # an entry
 GIO86.ASM JPRINU -> p1/gio86.s JPRINU # a far call to P3's PRINUS, then RTS
 GIO86.ASM PRINT1 -> p1/gio86.s PRINT1
 GIO86.ASM NEWCHR -> p1/gio86.s NEWCHR
@@ -1100,7 +1100,7 @@ GIO86.ASM NOTABR -> p1/gio86.s NOTABR
 # (GIO86.ASM PTRGPS is I1's line above, the OEM's column; PRINT's own is p1/gio86.s PTRGPS.)
 GIO86.ASM PTRWDC -> p1/gio86.s PTRWDC
 GIO86.ASM PTRWDL -> p1/gio86.s PTRWDC
-GIO86.ASM PTRWID -> p1/gio86.s PTRWDC # LINLEN (the console's, LPT1's); a file's width later 7c
+GIO86.ASM PTRWID -> p1/gio86.s PTRWDC # LINLEN (the console's, LPT1's); a disk file's, 255 (OO-1: F_WID never changes)
 GIO86.ASM PTRWD1 -> p1/gio86.s PTRWDC
 GIO86.ASM ADRGET -> p1/gio86.s ADRGET
 BIMISC.ASM GOTRP -> p3/bimisc.s GOTRP # an entry: C set back for a trap taken, and the resident poll jumps to GOSUB2 (the far call rule)
@@ -1117,10 +1117,10 @@ GIO86.ASM GETPTR -> later 7c: VARPTR(#file) (res/todo_s.s NOTYET)
 GWSTS.ASM SCRENF -> later 7d: SCREEN( as a function
 GWSTS.ASM GETLIN -> later 7d: CSRLIN
 GENGRP.ASM POINT -> later 7e: POINT
-DSKCOM.ASM FIXINP -> later 7c: INPUT$
+DSKCOM.ASM FIXINP -> p4/dskcom.s FIXINPP # its resident stub res/far4.s FIXINP
 GENGRP.ASM GLINE -> later 7e: the graphics LINE (here Advanced Feature)
-DSKCOM.ASM DLINE -> later 7c: LINE INPUT # (here Advanced Feature)
-DSKCOM.ASM FILIND -> later 7c: INPUT #'s values
+DSKCOM.ASM DLINE -> p4/dskcom.s DLINE # an entry, INPDOR in it
+DSKCOM.ASM FILIND -> p4/dskcom.s FILIND # an entry
 GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY
 
 # r1: review round 1 (DD4). What the translated routines reach that the first check didn't follow: tail jumps
@@ -1222,7 +1222,7 @@ GWEVAL.ASM USRFN -> p3/gweval.s USRFNP # EVAL's token, its resident stub res/far
 GWEVAL.ASM FNDOER -> p3/gweval.s FNDOERP # EVAL's token, its resident stub res/far3.s FNDOER
 GIOKYB.ASM RET8 -> OEM res/oem.s CNTCCN # a RET
 GIODSK.ASM RESETX -> OEM res/oem.s SYSTEM # a RET
-GIO86.ASM ERDNA2 -> later 7c: the device dispatch's Device unavailable
+GIO86.ASM ERDNA2 -> p4/gio86.s ERDNA2
 GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 #
 # STMDSP's statements (res/tables.s: here ADVERR, Advanced Feature, until their sub-phase).
@@ -1243,8 +1243,8 @@ CALL86.ASM CALLS -> later 7g: CALL
 FIVEO.ASM WRITE -> p3/fiveo.s WRITEP # its resident stub res/far3.s WRITE; WRITE # (FILGET) 7c's
 GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/far3.s OPTION
 GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM
-GIO86.ASM OPEN -> later 7c
-GIO86.ASM CLOSE -> later 7c
+GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1's: Advanced Feature
+GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
 DSKCOM.ASM LOAD -> later 7c
 DSKCOM.ASM MERGE -> later 7c
 GWSTS.ASM COLOR -> later 7d
@@ -1268,9 +1268,9 @@ GIOLPT.ASM LPOS -> later 7c
 GWSTS.ASM PENF -> later 7e: PEN
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
-GIO86.ASM EOF -> later 7c
-GIO86.ASM LOC -> later 7c
-GIO86.ASM LOF -> later 7c
+GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
+GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
+GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 #
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
 GIODSK.ASM FILES -> later 7c
@@ -1281,7 +1281,7 @@ DSKCOM.ASM RSET -> later 7c
 GIODSK.ASM KILL -> later 7c
 GWSTS.ASM PUT -> later 7c: PUT, a file's (a graphics PUT 7e)
 GWSTS.ASM GET -> later 7c: GET, a file's (a graphics GET 7e)
-GIODSK.ASM RESET -> later 7c
+GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> later 7c: with CHAIN (not in the plan's lists: a question for 7c)
 FIVEO.ASM CHAIN -> later 7c: CHAIN (not in the plan's lists: a question for 7c)
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
@@ -1491,3 +1491,85 @@ GWSTS.ASM EOSCKX -> p3/gwsts.s EOSCKX
 GWSTS.ASM JERDNA -> dropped: ONGOTP's Device unavailable for the pen, which no code of the source reaches
 GWMAIN.ASM ONGSB0 -> p3/gwmain.s ONGSB0 # CX and the count in P3's BRAM (ONGCX, ONGCNT), not on the stack
 GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP
+
+# 7c: the file layer (sequential files, block P4)
+GIO86.ASM XFRSTR -> dropped: OO-1, the FDBs are P4's table, not in the string space (FALLOC, FFREE)
+GIO86.ASM PFDCBA -> dropped: FFREE's register restore, with XFRSTR
+GIO86.ASM FDBPTR -> p4/gio86.s FDBPTR # OO-1: the table's FDB for the number; Z when not open
+GIO86.ASM CDEVID -> dropped: OO-1, the disk is the only device (SIDSP and OPNFIL go to its routines)
+GIO86.ASM RET9 -> p4/gio86.s RET9
+GIO86.ASM FILSCN -> p4/gio86.s FILSCN
+GIO86.ASM ERFNO3 -> p4/gio86.s ERFNO3
+GIO86.ASM ERBFM3 -> p4/gio86.s ERBFM3
+GIO86.ASM FILSET -> p4/gio86.s FILSET # OO-1: SETPTR, OUTDO's run sent first and FILPOS set
+DSKCOM.ASM DSKCHR -> p4/dskcom.s DSKCHR
+GIOKYB.ASM INCHRI -> OEM p4/gio86.s INCHRI # the console's next key, CHSNS's
+GIO86.ASM INCHR -> p4/gio86.s INCHR # file 0's end (FL0EOF: LOAD's) later 7c
+GIO86.ASM INDSKC -> p4/gio86.s INDSKC
+DSKCOM.ASM STRCHR -> p4/dskcom.s STRCHR
+GIO86.ASM BAKCHR -> p4/gio86.s BAKCHR
+DSKCOM.ASM INPDOR -> p4/dskcom.s INPDOR
+GIO86.ASM POFNUM -> p4/gio86.s POFNUM
+GIO86.ASM PORLEN -> p4/gio86.s PORLEN
+GIO86.ASM NAMSC1 -> p4/gio86.s NAMSC1 # OO-1: the name upper case
+GIO86.ASM PNRLEN -> p4/gio86.s PNRLEN
+GIO86.ASM OPNFIL -> p4/gio86.s OPNFIL # TBLDSP's G_OPN: DSKOPN, the disk's
+GIO86.ASM RET6 -> p4/gio86.s RET6
+GIO86.ASM FACFPT -> p4/gio86.s FACFPT
+GIO86.ASM GFUNX -> p4/gio86.s GFUNX
+GIO86.ASM FACDSP -> p4/gio86.s FACDSP
+GIOKYB.ASM KBSINX -> later 7d: INCHRI's screen keyboard (the OEM's INCHRI waits on CHSNS)
+GIOKYB.ASM KEYSIN -> later 7d: as KBSINX
+GIOKYB.ASM KYBSI2 -> later 7d: as KBSINX
+GIO86.ASM INCHRE -> p4/gio86.s INCHRE
+FIVEO.ASM CHNRET -> later 7c: CHAIN's end of file 0 (INCHR's LDREOF)
+DSKCOM.ASM QUIT2B -> p4/dskcom.s QUIT2B
+GIO86.ASM BCHRSI -> p4/gio86.s BCHRSI
+GIO86.ASM GETNZB -> p4/gio86.s GETNZB # OO-1: past NMFILE is Bad file number too
+GIO86.ASM PRLENC -> p4/gio86.s PRLENC
+GIO86.ASM PRLENX -> p4/gio86.s PRLENX
+GIO86.ASM VARECS -> p4/gio86.s VARECS
+GIO86.ASM PARDEV -> p4/gio86.s PARDEV # OO-1: drives A: to P:; no device table yet (Bad file name)
+GIO86.ASM SCAN1 -> p4/gio86.s SCAN1
+GIO86.ASM ERIFN1 -> p4/gio86.s ERIFN1
+GIO86.ASM SCNAM3 -> p4/gio86.s SCNAM3
+GIO86.ASM ERBFN2 -> p4/gio86.s ERBFN2
+GIO86.ASM ERFNO2 -> p4/gio86.s ERFNO2
+GIO86.ASM UPCASE -> p4/gio86.s UPCASE
+GIO86.ASM PRFNUM -> p4/gio86.s PRFNUM
+GIO86.ASM INCHSI -> p4/gio86.s INCHSI
+GIO86.ASM INIFDB -> p4/gio86.s INIFDB # OO-1: FILOPN counted
+GIO86.ASM FALLOC -> p4/gio86.s FALLOC # OO-1: the table's FDB for the number, not room below the strings
+GIO86.ASM FILDSP -> p4/gio86.s FILDSP
+GIODSK.ASM DSKDSP -> p4/giodsk.s DSKDSP # DSKRND, DFSTLD and DEVBOT: Advanced Feature till their steps
+GIODSK.ASM DSKEOF -> p4/giodsk.s DSKEOF
+GIODSK.ASM DSKLOC -> p4/giodsk.s DSKLOC
+GIODSK.ASM DSKLOF -> p4/giodsk.s DSKLOF # OO-1: function 35's records times 128, made a single then a double ($NORMD's work)
+GIODSK.ASM DSKGPS -> p4/giodsk.s DSKGPS
+GIODSK.ASM DSKGWD -> p4/giodsk.s DSKGWD
+GIODSK.ASM DSKSCW -> p4/giodsk.s DSKSCW
+GIODSK.ASM DSKGCW -> p4/giodsk.s DSKGCW
+GIODSK.ASM DSKOPN -> p4/giodsk.s DSKOPN # random (RNDFIN's caller) Advanced Feature till X1; OO-1: CP/M's FCB zeroed, the drive filled in at OPNSET
+GIODSK.ASM OPNFIL -> p4/giodsk.s OPNFIL
+GIODSK.ASM APPFIN -> p4/giodsk.s APPFIN # OO-1: the size in records (function 35), always whole
+GIODSK.ASM RNDFIN -> p4/giodsk.s RNDFIN # X1's, unreached till then
+GIODSK.ASM BAKURN -> p4/giodsk.s BAKURN
+GIODSK.ASM DSKCLS -> p4/giodsk.s DSKCLS
+GIODSK.ASM DSKSIN -> p4/giodsk.s DSKSIN
+GIODSK.ASM DSKINP -> p4/giodsk.s DSKINP
+GIODSK.ASM SINP50 -> later 7c: a random file's serial input (X1): Advanced Feature
+GIODSK.ASM FOVCHK -> later 7c: FIELD overflow, X1's
+GIODSK.ASM DSKSOT -> p4/giodsk.s DSKSOT # a random file's serial output (X1) Advanced Feature
+GIODSK.ASM FILOU4 -> p4/giodsk.s FILOU4
+GIODSK.ASM DSKRND -> later 7c: GET and PUT's records (X1)
+GIODSK.ASM $READS -> p4/giodsk.s READS
+GIODSK.ASM $WRITS -> p4/giodsk.s WRITES
+GIODSK.ASM SETBUF -> p4/giodsk.s SETBUF # the buffer's CPU address in W3 (V1, route (c))
+GIODSK.ASM ACCFIL -> p4/giodsk.s ACCFIL # functions 33 and 34; R0-R2 the random record (OO-1: CP/M's 3 bytes)
+GIODSK.ASM CHKFOP -> p4/giodsk.s CHKFOP # OO-1: the table's FDBs in use
+GIODSK.ASM MAKUPC -> p4/giodsk.s MAKUPC
+GIODSK.ASM DFSTLD -> later 7c: LOAD's block input
+GIODSK.ASM OPNSET -> p4/giodsk.s OPNSET
+GIODSK.ASM MAKFIL -> p4/giodsk.s MAKFIL
+GIODSK.ASM PUTSUB -> later 7c: a random record written (X1)
+GIODSK.ASM ER_TMF -> p4/giodsk.s ER_TMF

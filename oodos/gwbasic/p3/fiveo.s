@@ -8,9 +8,10 @@
 ;             quotes, numbers as $FOUT gives them without the positive sign's
 ;             space; then the line's end
 ;
-; WRITE # (FILGET, a file's) is 7c's: Advanced Feature, as PRINT # gives in
-; 7a. So PTRFIL is never a file here, and WRTFIN's padding of a random
-; file's record (CMPFBC) is 7c's too. The 8086 keeps the text pointer on
+; WRITE # is a file's (7c): P4's FILGET sets PTRFIL to it, for output, a
+; far call made only for a "#" (its first test is here), and OUTDO sends
+; the output there. WRTFIN's padding of a random file's record (CMPFBC) is
+; X1's (later 7c): no random file is opened before it. The 8086 keeps the text pointer on
 ; its stack round $FOUT and STRLIT (which reads at the text pointer); here
 ; the 6502's stack, as P1's PRINT does.
 
@@ -19,15 +20,16 @@
 ;@entry WRITEP
 .export WRITEP
 .import CHRGTR, SYNCHR, FRMEVL, GETYP, STRLIT, STRPRT, OUTDO, CRDO, FINPRT
-.import ADVERR
 
 .code
 
 ; --- WRITE (FIVEO.ASM 723) ---------------------------------------------------------------
 
-WRITEP:         CMP     #'#'           ; FILGET: a file's (7c)
+WRITEP:         CMP     #'#'           ; FILGET's own first test
                 BNE     WRTCHR
-                JMP     ADVERR
+                LDX     #MD_SQO
+                STX     RCL
+                FJSR    FILGET
 ; WRTCHR (FIVEO.ASM 728)
 WRTCHR:         DECW    TXTPTR
                 JSR     CHRGTR
@@ -93,7 +95,7 @@ WRTSTR:         LDA     #'"'
                 JSR     OUTDO
                 BRA     NXTWRV
 ; WRTFIN (FIVEO.ASM 769): a random file's record padded (NTRNDW's way past
-; it: 7c's), then CR LF and the console again.
+; it: X1's, later 7c), then CR LF and the console again.
 WRTFIN:
 NTRNDW:         JSR     CRDO
                 JMP     FINPRT

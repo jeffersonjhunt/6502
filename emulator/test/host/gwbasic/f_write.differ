@@ -1,0 +1,11 @@
+# a double read by INPUT # is read as a double (the 1983 source's FILIND, 6/27/80: FINDBL); PC-BASIC reads 1E+20 as a single, then makes it double
+["plain",1,-2.5,"with, comma"]
+["",0]
+[]
+["quoted "part",12,"end"]
+[1E+20,.3333334,-.3333333333333333]
+<plain> 1 -2.5 <with, comma>
+<> 0 
+<><quoted ><part"><12>
+ 0  1D+20  .3333334 
+ 0 

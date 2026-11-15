@@ -27,7 +27,7 @@
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
 .import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, HOMSTK, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT, PRMLN2
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
@@ -188,8 +188,10 @@ RUNC:           LDA     TXTTAB
 ; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
 ; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
 ; graphics' reset), and the second finds nothing more to do: once here till
-; 7e brings GRPRST. (The screen, the sound and the files it resets too are
-; 7c's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
+; 7e brings GRPRST. Every file is closed (CLSALL: CHAIN MERGE's MRGFLG,
+; which keeps them open, and NLONLY's load flag are LOAD's and CHAIN's, later
+; 7c). (The screen and the sound it resets too are 7d's to 7f's; CHNFLG is
+; CHAIN's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
@@ -226,6 +228,7 @@ GODFRE:         LDA     #0             ; Z: RESTORE from the start
                 LDA     VARTAB+1
                 STA     ARYTAB+1
                 STA     STREND+1
+                JSR     CLSALL         ; (MRGFLG: CHAIN's)
 ; STKINI: both stacks empty, with a zero word (the FNDFOR stopper) on the
 ; BASIC stack, SAVSTK at it; the string temporaries free, the overflow
 ; message back to normal, output to the console, no user function being
@@ -315,9 +318,10 @@ RESFIN:         STA     DATPTR
 ; Syntax error). Both keep the text for CONT and free the string
 ; temporaries, and pop NEWSTT's return; then ENDCON. STOP says "Break"
 ; (STOPRG, with A = 0 when ^C came in direct mode: no message). END leaves
-; ON ERROR's routine (ONEFLG). STPEND: INPUT's ^C, which says "Break" too.
-; The message flag is C here (the 8086 keeps it in Z through a PUSHF).
-; (END's closing of the files is 7c's.)
+; ON ERROR's routine (ONEFLG) and closes every file (ENDS1's CLSALL, which
+; the 8086 makes with Z set: END's only way here). STPEND: INPUT's ^C, which
+; says "Break" too. The message flag is C here (the 8086 keeps it in Z
+; through a PUSHF).
 STOP:           BEQ     STOPRG
                 RTS
 STOPRG:         INC     A
@@ -325,6 +329,7 @@ STOPRG:         INC     A
 ENDST:          BEQ     :+
                 RTS
 :               STZ     ONEFLG
+ENDS1:          JSR     CLSALL
                 LDA     #0
 CONSTP:         PHP
                 LDA     TXTPTR         ; for CONT

@@ -233,6 +233,80 @@ USDH            = $5E                  ; DH: the field's flags (PUFOUT's A)
 TRPON           = $EC                  ; OO-1: nonzero while any event trap is on (T_ON)
 TRPTST          = $ED                  ; test only: a trap trigger for the poll (p3/trptst.s); 7d-7f's sources replace it
 
+; --- 7c's, the file layer ($DA-$DD) ---------------------------------------------
+;
+; The sequential files (block P4, hw/oodos.md, "The plan, phase 7": 7c, V1's
+; route (c)): every file's FDB, its FCB and its 128-byte buffer are in P4's
+; own RAM, and only P4's code touches them. PTRFIL (above) is a file's FDB
+; address there (in $C800-$F7FF, so its high byte is neither 0, the console,
+; nor $FF, LPT1). What resident code needs is these bytes: OUTDO sends a
+; file's bytes as a run (RUNBUF, res/oem.s), handed to P4 in one far call
+; when it is full and at FINPRT, and keeps the file's column as P4's DSKSOT
+; keeps F_POS, for PTRGPS (P1).
+FDBP            = $DA                  ; P4: an FDB (the 8086's SI in the file code)
+FILPOS          = $DC                  ; PTRFIL's file's column: F_POS, as OUTDO's run moves it
+RUNLEN          = $DD                  ; the bytes in RUNBUF not yet sent to PTRFIL's file
+RUNSIZ          = 32                   ; RUNBUF's size (res/oem.s)
+
+; The file modes (MSDOSU's F_MODE) and F_CODE, F_FLGS.
+MD_SQI          = 1                    ; sequential input
+MD_SQO          = 2                    ; sequential output
+MD_RND          = 4                    ; random
+MD_APP          = 8                    ; append
+FC_ASC          = 0                    ; an ASCII file
+FC_BIN          = 1                    ; a binary one (BSAVE, a tokenised SAVE)
+FL_BKC          = $80                  ; F_BAKC holds the next input byte
+NMFILE          = 3                    ; OO-1: the files a program may open (1-3), and file 0 (P4's table)
+
+; The FDB (MSDOSU's file data block, its fields in their order), in P4's
+; RAM: OO-1, a CP/M FCB of 36 bytes where MS-DOS's of 38 is (DR, the name
+; and type, EX S1 S2 RC, the allocation, CR, R0-R2), and no F_NEXT (the
+; FDBs are a fixed table, not a chain in the string space), nor the unused
+; F_NULn. The random files' fields follow the buffer, for X1; their FIELD
+; buffers are in the TPA (the plan), so FD_DAT isn't here.
+F_NUM           = 0                    ; the file number, 0-3
+F_MODE          = 1                    ; the mode (MD_*); 0: the FDB is free
+F_FCB           = 2                    ; the FCB, 36 bytes
+F_CLOC          = 38                   ; sequential: records read or written; random: the last + 1
+F_ORCT          = 40                   ; the bytes in the buffer (input: when read; output: so far)
+F_BREM          = 41                   ; the bytes left to read in it
+F_CODE          = 42                   ; FC_ASC or FC_BIN
+F_BAKC          = 43                   ; the byte backed up (FL_BKC)
+F_DEV           = 44                   ; the device: 0-n a disk
+F_WID           = 45                   ; the width
+F_FLGS          = 46                   ; FL_BKC
+F_POS           = 47                   ; the column
+FDBSIZ          = 48                   ; the device-independent part's size
+DATOFS          = 48                   ; the record's buffer, 128 bytes (DATPSC)
+FD_SIZ          = DATOFS + 128         ; random: the record's length
+FD_PHY          = FD_SIZ + 2           ; the physical record in the buffer
+FD_LOG          = FD_PHY + 2           ; the logical record
+FD_OPS          = FD_LOG + 2           ; the place in the record
+FDBLEN          = FD_OPS + 2           ; an FDB's bytes
+DATPSC          = 128                  ; a record's bytes
+FCB_DV          = F_FCB + 0            ; the drive: 0 the current one, 1 A:
+FCB_FN          = F_FCB + 1            ; the name, 8 bytes, then the type, 3
+FCB_EX          = F_FCB + 12           ; OO-1: CP/M's EX, S1, S2, RC
+FCB_NR          = F_FCB + 32           ; CP/M's CR, the next record (MS-DOS's NR)
+FCB_RN          = F_FCB + 33           ; CP/M's R0-R2, the random record (MS-DOS's 4 bytes)
+
+; The disk device's functions (GIO86U's G_*: DSKDSP's entries, p4/giodsk.s).
+G_EOF           = 0
+G_LOC           = 2
+G_LOF           = 4
+G_CLS           = 6
+G_SWD           = 8
+G_RND           = 10
+G_OPN           = 12
+G_SIN           = 14
+G_SOT           = 16
+G_GPS           = 18
+G_GWD           = 20
+G_SCW           = 22
+G_GCW           = 24
+G_BIN           = 26
+G_BOT           = 28
+
 ; The traps' flags (BIMISC.ASM; the routines shift them: don't change) and
 ; TRPTBL's events (OEM.H, GWSTS.ASM): 3 bytes each, the flag and the GOSUB
 ; line's pointer (its link), in event id order: the pen, the 14 keys, the 2

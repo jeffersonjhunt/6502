@@ -1,0 +1,10 @@
+10 REM a line of 255 characters, and one longer
+20 OPEN "O",#1,"F255.TXT"
+30 PRINT #1,STRING$(255,"a")
+40 PRINT #1,STRING$(254,"b")
+50 PRINT #1,STRING$(250,"c");"dddddddddd"
+60 PRINT #1,"last"
+70 CLOSE
+80 OPEN "I",#1,"F255.TXT"
+90 WHILE NOT EOF(1):LINE INPUT #1,A$:PRINT LEN(A$);LEFT$(A$,1);RIGHT$(A$,1):WEND
+100 CLOSE

@@ -205,3 +205,37 @@ PC-BASIC gives Syntax error), `onevfc1` (the source has 14 key traps, OEM.H's NM
 By hand in test_gwbasic_stmts (PC-BASIC can't raise a trap from outside a program): the traps raised through the
 test-only trigger (TRPTST, `p3/trptst.s`), each case's output written from the source's routines; and the trap
 test's cycles at NEWSTT.
+
+## 7c
+
+The programs of 7c's file layer (test_gwbasic_files: block P4, sequential files), typed and RUN as 7a's, each
+against PC-BASIC's output. Each writes its own files and reads them back, so it runs alike in PC-BASIC's working
+directory and on the OO-1, where GW-BASIC's files go to the CCP's current drive, A:, when no
+drive is named.
+
+| Program | What |
+|---|---|
+| `f_seq` | PRINT # to a file, CLOSE, then LINE INPUT #, INPUT # and EOF reading it back |
+| `f_modes` | OPEN's two forms and every sequential mode, either case, FOR OUTPUT, INPUT and APPEND; APPEND at the end, to a new file and to an empty one |
+| `f_close`, `f_reset` | CLOSE of one, a list and all, of one not open and of one twice; a closed file used again; RESET |
+| `f_print`, `f_write` | PRINT # with `,` `;` TAB SPC and USING; WRITE #'s quoting; what LINE INPUT # and INPUT # read of them |
+| `f_input` | INPUT # of numbers and strings, quoted and not, with commas, CRs, LFs and spaces; a quote never closed; Input past end |
+| `f_255` | LINE INPUT # of lines of 255, 254 and 260 characters |
+| `f_inps` | INPUT$ from a file, with and without `#`, its CR and LF; PRINT #2 of INPUT$(n, #1); past the end |
+| `f_ctlz`, `f_eof` | the ^Z end of a text file; EOF before the end and at it |
+| `f_long`, `f_locof` | files of more than one record and of several; LOC and LOF |
+| `f_clear`, `f_run`, `f_run2` | CLEAR and RUN close every file, its last record written |
+| `f_errs`, `f_errs2`, `f_e52`, `f_e53`, `f_e54`, `f_e55`, `f_e62`, `f_e64` | the errors, trapped (ERR, ERL), then each's message |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `f_write` (INPUT # reads a double as a double:
+the source's FINDBL), `f_input` (an LF in an unquoted item is dropped and the item goes on: LPISLF), `f_inps`
+(INPUT$ takes the CR and LF before the end as bytes), `f_clear` (CLEAR closes every file), `f_errs` (EOF of an output
+file with nothing in its buffer is -1; INPUT$(0, #f) of an output file is Bad file mode; LEN= on a sequential OPEN
+is Syntax error), `f_errs2` (a name with only a type is Bad file name). Where the OO-1 differs: `f_locof` (CP/M's
+files are whole 128-byte records, so LOF is the records times 128, as on the MS-DOS 1 FCB files the source wrote).
+
+By hand in test_gwbasic_files (PC-BASIC's run of a file can't type at the prompt, nor has the OO-1's drives): END,
+NEW and SYSTEM close every file (each read back, the last after SYSTEM by the CCP's TYPE); `A:` named is the current
+drive; `Q:` and a device name (`LPT1:`) are Bad file name; a random OPEN is Advanced Feature until X1; INPUT$ from
+the keyboard; every record's DMA address in P4's own RAM with block P4 in W3 (V1); and PRINT # to a file timed, its
+bytes going to P4 as runs.

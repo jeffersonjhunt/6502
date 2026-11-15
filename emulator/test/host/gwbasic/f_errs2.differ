@@ -1,0 +1,7 @@
+# a name with only a type (.TXT) is Bad file name (the 1983 source's NAMSCN, FILNM0); PC-BASIC opens it
+a
+error 64 in 30 
+b
+c
+error 64 in 50 
+done

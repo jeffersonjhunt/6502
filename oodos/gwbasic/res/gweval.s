@@ -17,7 +17,8 @@
 ;
 ; Strings take BISTRS.ASM's routines (res/bistrs.s): a literal (STRLTI), "+"
 ; (CAT), the relations (STRCMP), INSTR. INKEY$ is the OEM's (res/oem.s).
-; STRING$ and VARPTR$ are P3's (7b step a2), through res/far3.s's stubs.
+; STRING$ and VARPTR$ are P3's (7b step a2), through res/far3.s's stubs;
+; INPUT$ P4's (7c), through res/far4.s's.
 ; Left out (stubs): USR, FN; the extended functions (res/ibmres.s's EVALX)
 ; give Advanced Feature.
 ;
@@ -38,7 +39,7 @@
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
-.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2
+.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP
 .export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
@@ -349,6 +350,9 @@ NTERL:          CMP     #VARPTR_TK
 :               CMP     #STRINGS_TK    ; STRING$ (P3's: res/far3.s)
                 BNE     :+
                 JMP     STRNGS
+:               CMP     #INPUT_TK      ; INPUT$ (P4's: res/far4.s)
+                BNE     :+
+                JMP     FIXINP
 :               CMP     #FN_TK
                 BNE     PARCHK
                 JMP     FNDOER

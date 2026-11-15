@@ -37,6 +37,7 @@
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
+.import OPEN, CLOSE, RESET
 
 .code
 
@@ -113,8 +114,10 @@ STMDSP:         S       ENDST          ; END
                 S       WRITE          ; WRITE
                 S       OPTION         ; OPTION
                 S       RANDOM         ; RANDOMIZE
-.repeat LOCATE_TK - OPEN_TK + 1
-                S       ADVERR         ; OPEN .. LOCATE (7c-7f)
+                S       OPEN           ; OPEN
+                S       CLOSE          ; CLOSE
+.repeat LOCATE_TK - LOAD_TK + 1
+                S       ADVERR         ; LOAD .. LOCATE (7c-7f)
 .endrepeat
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 
@@ -129,7 +132,11 @@ STMDSP:         S       ENDST          ; END
 STMDSX:         S       ADVERR         ; FILES
                 S       ADVERR         ; FIELD
                 S       SYSTEM         ; SYSTEM
-.repeat NUMSTX - 3
-                S       ADVERR         ; NAME .. CALLS
+.repeat RESET_XS - NAME_XS
+                S       ADVERR         ; NAME .. GET
+.endrepeat
+                S       RESET          ; RESET
+.repeat CALLS_XS - RESET_XS
+                S       ADVERR         ; COMMON .. CALLS
 .endrepeat
 .assert * - STMDSX = 2 * NUMSTX, error, "STMDSX: one entry an extended statement"

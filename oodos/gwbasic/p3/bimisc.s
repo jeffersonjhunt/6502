@@ -208,12 +208,13 @@ ERSLOP:         LDA     RBL
 ; workspace). A bad end is Syntax error. FILTAB, the file blocks' base, is
 ; 7c's (OO-1: the files' blocks are P4's).
 ;
-; The files are closed first (CLSALL, with NLONLY 0 so file 0 too: a stand-in
-; until 7c, p3/todo_a2.s). CLEARC (the stub's) resets the rest, the event
-; traps' table too (INITRP, below).
+; The files are closed first (CLSALL, res/far4.s; the 8086 clears NLONLY
+; first, so file 0 goes too: NLONLY is P4's, and 0 until LOAD and CHAIN, later
+; 7c, set it). CLEARC (the stub's) resets the rest, the event traps' table
+; too (INITRP, below).
 GCLERC:         RTS                    ; BIMISC.ASM 805: to the stub's JMP CLEARC
 CLEARP:         PHP                    ; Z: the statement's end
-                JSR     CLSALL         ; (NLONLY 0: 7c's)
+                JSR     CLSALL         ; (NLONLY 0: LOAD's, later 7c)
                 PLP
                 BEQ     GCLERC         ; no formula: just clear
                 CMP     #','           ; no x

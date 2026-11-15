@@ -1,0 +1,48 @@
+# EOF of an output file with nothing in its buffer is -1 (the 1983 source's EOF: F_ORCT 0 before the device is asked); INPUT$(0, #f) of an output file is Bad file mode (FIXINP checks the file before the count); LEN= on a sequential OPEN is Syntax error (PRLENC). PC-BASIC: Bad file mode, Illegal function call, File already open
+a
+error 52 in 40 
+b
+error 52 in 50 
+c
+error 53 in 60 
+d
+error 54 in 70 
+e
+error 54 in 80 
+f
+error 62 in 90 
+g
+error 55 in 100 
+h
+error 54 in 110 
+i
+error 54 in 120 
+j
+-1 
+k
+error 64 in 140 
+l
+error 55 in 150 
+m
+error 52 in 160 
+n
+error 52 in 170 
+o
+error 54 in 180 
+p
+error 54 in 190 
+q
+error 54 in 200 
+r
+error 64 in 210 
+u
+error 2 in 240 
+v
+error 2 in 250 
+w
+error 5 in 260 
+x
+error 13 in 270 
+y
+error 52 in 275 
+done

@@ -419,7 +419,7 @@ TEST(varptr_string_prints_what_pc_basic_prints)
 }
 
 // By hand, from the source and 7a's state (none of it can come from PC-BASIC's run of a file):
-// - WRITE # is a file's (FILGET, 7c): Advanced Feature, as PRINT # gives in 7a;
+// - WRITE # is a file's (FILGET, 7c): with no file open, Bad file number, as PRINT # gives;
 // - RANDOMIZE TIMER: TIMER isn't a reserved word in the 1983 source's crunch table (IBMRES.ASM's TTABX has TIME$
 //   alone; TIMER is 7f's), so it is a variable, 0, and RANDOMIZE TIMER is RANDOMIZE 0 (each after CLEAR, which
 //   starts RND's state again);
@@ -435,7 +435,7 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
     const std::string banner = start(r);
     const std::map<std::string, uint16_t> lab = labels();
     REQUIRE(lab.count("LOAD") == 1);
-    CHECK_EQ(command(r, "WRITE #1,2"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "WRITE #1,2"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT TIMER"), std::string(" 0 \r\n"));
     const std::string seeded = command(r, "CLEAR:RANDOMIZE 0:PRINT RND;RND");
     CHECK_EQ(command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND"), seeded);

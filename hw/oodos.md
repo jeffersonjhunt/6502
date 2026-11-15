@@ -4143,6 +4143,23 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       in W3, so 7c's extended statements (FILES, KILL and the rest) get their stubs in P8, not resident. 36,094
       bytes free (+66). Must-fail (test_gwbasic_core): extended statements from direct mode and a program, SYSTEM
       among them; fails with GONE4 reading the table one entry off.
+  - **As built, the file layer** (Proposed, 2026-11-14): sequential files in block P4 (`p4/gio86.s`,
+    `p4/giodsk.s`, `p4/dskcom.s`), 3,505 bytes. OPEN (both forms), CLOSE, RESET, PRINT # (and USING), WRITE #,
+    INPUT #, LINE INPUT #, INPUT$(n, #f), EOF, LOC, LOF, on the FCB functions, the disk device only (A:–P:).
+    - **Route (c) holds:** each record is read and written by the BDOS straight into its file's 128-byte buffer in
+      P4's BRAM, at its W3 address (test_gwbasic_files checks the DMA address and W3 at every 33 and 34).
+    - **The FDBs** are a fixed table of four (files 0–3, 184 bytes each) in P4's BRAM, not a chain in the string
+      space (OO-1). LOF is the file's records × 128 (function 35). Random files are X1's (OPEN "R" is Advanced
+      Feature until then).
+    - **Output in runs:** OUTDO puts a file's bytes into a 32-byte run in fixed RAM, which P4 takes in one far call
+      when full, at FINPRT, or before any other file work. Resident: +98 bytes of code, +35 of fixed RAM:
+      35,961 bytes free.
+    - **File not open is Bad file number (52)**, PC-BASIC's answer, as the owner allowed for the four placeholder
+      lines; the 1983 source maps it to Bad file mode (54, GWDATA.ASM's ERRFNO): a question for the owner.
+    - **The flat test image** leaves P4 out (it has no OODOS); `test/flatp4.s` stands in for its entries, so it
+      ends at `$8E53` with its BSS, under check.py's `$9000` (G11).
+    - Must-fail: the record's DMA address in block 2 (not P4's buffer); the next record not stepped; CLSALL left out
+      of RUN's CLEARC.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;
