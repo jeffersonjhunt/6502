@@ -182,9 +182,9 @@ and boots. With switch 19 still up, the next hard reset asks again.
 Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
-every card: **a quick run 56.5 s, a full run 165.9 s.** The prompt, unanswered, waits 5.97 s. The quick run was
-measured again with DMA revision 2 (B2, *proposed*) and is unchanged; the full run is the figure from before B2 and
-awaits measurement on it (B2 adds a poll cycle a take to SD4, V7 and S3, and D1's channels 4–7). On real hardware
+every card: **a quick run 56.5 s, a full run 165.6 s.** The prompt, unanswered, waits 5.97 s. Both were measured
+with DMA revision 2 (B2, *proposed*): the quick run is unchanged and the full run 0.3 s shorter than before it
+(165.9 s). On real hardware
 the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.
 
 Where the time goes: stages 1–6, the flash and all of RAM, about 28 s of a quick run (address in address and one

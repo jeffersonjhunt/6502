@@ -613,10 +613,11 @@ about 15 ms, far from that.
 ### What sound costs
 
 Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of
-a piece is an interrupt of about 530 to 700 cycles, about 850 at a buffer's end (the area written); with room in the
-FIFO the next piece's 4,096 cycles of DMA come inside it. 44.1 kHz 16-bit stereo is 43 pieces a second, under 0.5%
-of the CPU. A frame with the stream claimed and a layout-2 area open costs about 300 cycles more (688 against 389),
-for the area's sound part.
+a piece is an interrupt of about 690 to 860 cycles (688 and 858 the usual ones), a few up to about 1,420; with room
+in the FIFO the next piece's 4,096 cycles of DMA come inside it, 4,656 to 5,264 cycles in all. 44.1 kHz 16-bit stereo
+is 43 pieces a second, under 0.5% of the CPU. A frame with the stream claimed and a layout-2 area open costs about
+300 cycles more (698 against 396), for the area's sound part. These are measured on DMA revision 2 (B2,
+*proposed*).
 
 ## Graphics
 

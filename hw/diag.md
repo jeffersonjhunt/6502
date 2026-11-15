@@ -353,7 +353,7 @@ on card memory 22 s, on the sound card's RAM and wave RAM 2 s. **As built (D3b-2
 D3c): a quick run is 56.5 s on the emulator, a full run 165.9 s,** from CONT to the keys' line: stages 1–6 about
 28 s (the serial line's pace and stage 6's own test of W0's first 512 bytes included), NB5's and NB6's three windows
 each about 7 s together, V4's 2 MB about 10 s, P2 1.6 s ([D3b: as built](#d3b-as-built)). With DMA revision 2 (B2)
-the quick run measured 56.5 s again; the full run awaits measurement on B2 ([B2](#b2-dma-revision-2)). The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
+the quick run measured 56.5 s again and the full run 165.6 s ([B2](#b2-dma-revision-2)). The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
 cost a pass. `test_bios_diag` reports the emulator's time for a quick run against this table.
 
 
@@ -1043,7 +1043,10 @@ is written whole.
 - **The SELECT rule.** Each stage or test that drives a channel saves CONTROL, selects its channel before the first
   of its registers, and puts CONTROL back on every way out: NB3 (SELECT 3), stage 8, V7's `DMA1GO` (1), S3 (2),
   SDSTUCK, SD3 and SD4 (0). Stage 8 writes SELECT 3 itself after D1, whose loop leaves the window on its last
-  channel, and again after D5, which writes CONTROL itself. D5's burst of one is `$07`. `DMAWAIT` polls `DMA_CTRL`
+  channel, and again after D5, which writes CONTROL itself. Without the first, D2–D4 still pass, on channel 0, since
+  memory to memory works on any channel; what fails is D5's terminal-count check (`NO TERMINAL COUNT IN STATUS`,
+  stage 8 `FAIL`), as the golden run shows (corrected 2026-11-15, the owner's answer 4: the plan had expected D2 to
+  fail). D5's burst of one is `$07`. `DMAWAIT` polls `DMA_CTRL`
   under its caller's SELECT.
 - **D1** reads the ID, then each channel through SELECT 0–7: ADDR and DEST all 24 bits, COUNT, MODE and CARD (bits
   4–0), each with two patterns; `$03`, `$0B` and `$0D–$0F` must read `$FF`. A channel whose window reads `$FF` at
@@ -1055,8 +1058,11 @@ is written whole.
   rather than read from a table, since each of its five expansions would need its own; CONTROL is kept in Y.
 - **Measured on the emulator (B2's U3):** D4 4,096 cycles, as before (memory to memory never polls); V3 119,460; S9
   2,050; SD4 5,829 KB a second, against 6,214 on revision 1 (`test_bios_diag` holds it above 1,000 and below 6,991);
-  a quick run 56.5 s, as before. **A full run awaits measurement on B2** (165.9 s before it; B2 adds a poll cycle a
-  take to SD4, V7 and S3, and D1's channels 4–7, so it is expected to move by well under a second).
+  a quick run 56.5 s, as before. **A full run 165.6 s** (measured 2026-11-15, the owner's answer 3: 165.9 s on main
+  `c4ad400`, the fast preset and the same case, `test_bios_diag`'s
+  `c815_with_the_token_runs_a_programs_options_whatever_the_switches`; the card-image case's full run 164.7 s before
+  and 164.4 s after). B2 adds a poll cycle a take to SD4, V7 and S3, and D1's channels 4–7, and still the run is
+  0.3 s shorter: no bound in the suite times a full run.
 - **Sizes after:** block 22 13,723 bytes (2,661 free), block 21 8,236, block 23 8,211, block 31's code to `$E407`
   (`DMA3RUN` dropped). OODOS (still 0.10): block 61's code to `$B74C` (+68), block 62's resident part to `$F5F0`
   (+19), 527 bytes free.

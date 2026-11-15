@@ -687,6 +687,12 @@ L4. Where the plan left something open it was decided as below, each with its re
   0.5% of the CPU. A frame with the stream claimed and a layout-2 area open is 688 cycles against 389 without: the
   sound part about 300 (692 since F1's 4). The USB card's key interrupt is 662 cycles, 11 more than L2's (IRQOTH's check). The mailbox
   and ES5503 interrupts weren't timed.
+  **Measured again on DMA revision 2** (2026-11-15, the bus work's B2, the owner's answer 3; `test_oodos_sound`'s
+  acceptance case and `a_layout_1_or_2_program_that_claims_nothing_is_unaffected`, on feat/bus-b2 and on main
+  `c4ad400`): a terminal count's handler 688 or 858 cycles (689 or 859 on `c4ad400`), a few up to 1,422; with the
+  next piece's DMA inside it 4,656 to 5,264 (4,632 to 5,366), B2's poll adding 24 or 25 to the usual ones. A frame with the
+  stream claimed 698 against 396 without, the same on both: B2 moves neither. The 688 and 389 above are L3's, from
+  before L4 (whose frame with a layout-2 area is 396) and F1. The tick with a layout-2 area 234, as before.
 - **Tests** (emulator, fast preset): `test_oodos_sound` (15 cases since the review, 2.8 s: the claims and refusals; `SN_SEND` busy; loads to the RAMs' ends; 64 KB of card RAM
   by DMA byte for byte with no tick lost; the 6510 started, its mailbox both ways into the queue, stopped; busy while
   a buffer moves; six buffers of 10,000 bytes chained across terminal counts, the tap what was sent; pause, resume,

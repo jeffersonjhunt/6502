@@ -398,6 +398,7 @@ TEST(block_mode_finishes_the_count_once_started)
     CHECK_EQ(r.cpu_cycle(), 2u);
     CHECK_EQ(r.cpu_cycle(), 0u);
     CHECK(r.card.sent == (std::vector<uint8_t>{0xA0, 0xA1, 0xA2}));
+    REQUIRE(!r.card.tcs.empty()); // no byte reached the card: fail here, not on back() of nothing
     CHECK(r.card.tcs.back());
 }
 

@@ -2758,7 +2758,9 @@ OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the control
   none on the poll, and the take order; test_decoder's and test_backplane's /WAIT cases; and the system-level cases
   (the SELECT rule over a stream with SD reads and a stray interrupt, Break leaving SELECT as found, a bad CARD
   under the monitor then Break and `C80CR`, Break during D1, a revision 1 ID refused, Apple II mode with no stolen
-  cycle, stage 8's SELECT 3), each with the fault it must fail on named in the plan's section 4.
+  cycle, stage 8's SELECT 3), each with the fault it must fail on named in the plan's section 4. Stage 8's SELECT 3
+  after D1, dropped, fails D5's terminal-count check (`NO TERMINAL COUNT IN STATUS`); D2–D4 pass on channel 0, since
+  memory to memory works on any channel (corrected 2026-11-15, the owner's answer 4: the plan had named D2).
 - **The books:** the Technical Reference's chapters 1–15 where they named revision 1, DRQn and /DACKn, channels by
   number for a card, or the north bridge's wait states; the Programmer's Guide's function 75 and cost figures; the
   User's Guide's SYSINFO sample; [diag.md](diag.md#b2-dma-revision-2), [oolib.md](oolib.md#the-plan),
