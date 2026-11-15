@@ -1414,7 +1414,7 @@ CARDS
 
 #### Since
 
-OODOS 0.9, from hw/diag.md's D1 (after OODOS 0.9's release).
+OODOS 0.10, from hw/diag.md's D1 (function 77: interface version 9).
 
 #### Status
 
