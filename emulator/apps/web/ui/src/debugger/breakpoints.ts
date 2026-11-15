@@ -17,8 +17,11 @@
  * $E00000) is refused, and so is a bank 8 address ($80000-$8FFFF) while
  * VIDEO_ID reads $92: with a revision 2 card the CPU card sends the CPU's
  * and DMA's bank 8 to the aperture, so no cycle there reaches the bus to
- * match. A saved breakpoint above $FFFFF (from an older page) isn't
- * restored, and notRestored names it.
+ * match. A saved breakpoint that can't fire isn't restored, and
+ * notRestored names it: above $FFFFF at once, and in bank 8 once
+ * recheck() has read VIDEO_ID $92 (the pane calls it on connecting; a page
+ * from before B1 could save one). Those entries stay in storage, kept
+ * through every later save, so a machine they can fire on gets them back.
  *
  * The card loses its registers at power off, so a power cycle re-arms
  * whatever was armed. The list is remembered; nothing is armed at load.
@@ -97,8 +100,10 @@ function isBreakpoint(v: unknown, max = BPADDR_MAX): v is Breakpoint {
 export class Breakpoints {
   list: Breakpoint[] = [];
   armed: string | null = null;
-  /** Saved breakpoints above $FFFFF, which BPADDR can't hold: not restored, named here for the pane to say so. */
+  /** Saved breakpoints that can't fire here: not restored, named here for the pane to say so. */
   notRestored: string[] = [];
+  /** Those entries as they were saved: kept in storage through the next save. */
+  private held: unknown[] = [];
   private readonly listeners = new Set<() => void>();
   private next = 1;
 
@@ -107,14 +112,28 @@ export class Breakpoints {
       const saved: unknown = JSON.parse(prefs.get(STORE_KEY) ?? "[]");
       if (Array.isArray(saved)) {
         this.list = saved.filter((v) => isBreakpoint(v));
-        this.notRestored = saved
-          .filter((v) => !isBreakpoint(v) && isBreakpoint(v, 0xffffff))
-          .map((b) => describe(b as Breakpoint));
+        this.held = saved.filter((v) => !isBreakpoint(v) && isBreakpoint(v, 0xffffff));
+        this.notRestored = this.held.map((b) => describe(b as Breakpoint));
       }
     } catch {
       this.list = [];
     }
-    for (const b of this.list) this.next = Math.max(this.next, Number(b.id) + 1 || 0);
+    for (const b of [...this.list, ...(this.held as Breakpoint[])]) this.next = Math.max(this.next, Number(b.id) + 1 || 0);
+  }
+
+  /**
+   * Once the machine is there: with a revision 2 video card (VIDEO_ID $92) a restored bank 8 breakpoint can never
+   * fire, so it joins notRestored (and stays saved). Disarms it if it was armed.
+   */
+  async recheck(): Promise<void> {
+    if ((await this.port.readMemory(VIDEO_ID, 1, "io"))[0] !== VIDEO_REV2) return;
+    const dead = this.list.filter((b) => b.physical >> 16 === 0x8);
+    if (!dead.length) return;
+    if (dead.some((b) => b.id === this.armed)) this.arm(null);
+    this.list = this.list.filter((b) => !dead.includes(b));
+    this.held.push(...dead);
+    this.notRestored.push(...dead.map(describe));
+    this.changed();
   }
 
   onChange(listener: () => void): () => void {
@@ -123,7 +142,7 @@ export class Breakpoints {
   }
 
   private changed(): void {
-    prefs.set(STORE_KEY, JSON.stringify(this.list));
+    prefs.set(STORE_KEY, JSON.stringify([...this.list, ...this.held]));
     for (const listener of this.listeners) listener();
   }
 

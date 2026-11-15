@@ -2596,6 +2596,16 @@ source changed, and the suites pass with only the thirteen expectations below ch
   A breakpoint saved by an older page above `$FFFFF` isn't restored; the pane names it rather than drop it
   silently.
 
+  The final check (VV1, VV2, the owner, 2026-11-15):
+  - **Bank 8 breakpoints from before B1.** A page from before B1 could save one in bank 8. On connecting, the pane
+    reads `VIDEO_ID` (`recheck()`), and while it reads `$92` such a breakpoint joins the ones not restored.
+  - **The notice has its own line** (`bp-notice`), so a later error doesn't overwrite it.
+  - **The entries not restored stay saved** through every later save, and their ids aren't reused. A machine they
+    can fire on (bank 8 without a revision 2 card) restores them again.
+  - The cases: `breakpoints.test.ts` (a bank 8 breakpoint on revision 2 and on revision 1, kept through a save) and
+    `pane.test.ts` (the notice beside a later error, the bank 8 one on connecting). All four were seen failing with
+    the round 1 code of `breakpoints.ts`, `breakpoints-view.ts` and `pane.ts` put back.
+
   **Left for B7:** with AP8 a register, the bank 8 check is to follow AP8 rather than `VIDEO_ID`, since software
   may clear it.
 - **New cases:**

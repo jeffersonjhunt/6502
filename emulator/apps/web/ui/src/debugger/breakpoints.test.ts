@@ -169,6 +169,38 @@ describe("Breakpoints", () => {
     expect(bps.notRestored).toEqual(["SLOT1 $4123 → E04123"]);
   });
 
+  test("a saved bank 8 breakpoint, from before B1, isn't restored on a revision 2 machine once checked", async () => {
+    const good = { id: "3", text: "ECHO", cpu: 0xc951, physical: 0xfc951, fetch: true, read: false, write: false, nmi: false };
+    const bank8 = { ...good, id: "5", text: "84123", cpu: null, physical: 0x84123 };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([good, bank8]));
+    const rev2 = port();
+    rev2.io.set(0xc4ff, 0x92);
+    const bps = new Breakpoints(rev2);
+    await bps.recheck();
+    expect(bps.list).toEqual([good]);
+    expect(bps.notRestored).toEqual(["84123"]);
+    const rev1 = port();
+    rev1.io.set(0xc4ff, 0x91); // bank 8 is RAM: it can fire
+    const kept = new Breakpoints(rev1);
+    await kept.recheck();
+    expect(kept.list).toEqual([good, bank8]);
+    expect(kept.notRestored).toEqual([]);
+  });
+
+  test("breakpoints not restored are kept through the next save, and their ids aren't reused", async () => {
+    const good = { id: "3", text: "ECHO", cpu: 0xc951, physical: 0xfc951, fetch: true, read: false, write: false, nmi: false };
+    const high = { ...good, id: "4", text: "SLOT1", cpu: 0x4123, physical: 0xe04123 };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([good, high]));
+    const bps = new Breakpoints(port());
+    const added = (await bps.add("C800")) as { id: string };
+    expect(added.id).toBe("5");
+    const saved = JSON.parse(localStorage.getItem("oo1.breakpoints")!) as { id: string }[];
+    expect(saved.map((b) => b.id).sort()).toEqual(["3", "4", "5"]);
+    const again = new Breakpoints(port());
+    expect(again.list.map((b) => b.id)).toEqual(["3", "5"]);
+    expect(again.notRestored).toEqual(["SLOT1 $4123 → E04123"]);
+  });
+
   test("bpctrl bits", () => {
     const b = { id: "1", text: "x", cpu: null, physical: 0, fetch: false, read: true, write: true, nmi: true };
     expect(bpctrl(b)).toBe(0x1d);
