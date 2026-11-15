@@ -89,6 +89,12 @@ namespace ooe::emu
         unsigned take_bus(Decoder &bus) override;
         void reset() override;
 
+        /// Channel `n`'s register `reg` (ADDR $0-$2, COUNT $4-$5, MODE $6, CTRL $7, DEST $8-$A, as a
+        /// channel's registers are laid out), read with no effect on the controller: for tests and
+        /// tools, which must never reach a channel by changing what the running software has set
+        /// up. $FF for a channel or a register that doesn't exist.
+        uint8_t peek_channel(unsigned n, uint8_t reg) const;
+
     private:
         struct Channel
         {

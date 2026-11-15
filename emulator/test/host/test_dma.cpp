@@ -123,6 +123,28 @@ TEST(registers_read_back_and_reset)
     CHECK_EQ(r.bus.peek(DMA + 0x10), 0x00);
 }
 
+TEST(peek_channel_reads_each_channel_with_no_effect)
+{
+    // The side door for tests and tools (b2-plan.md, U2): a channel's registers by channel number, whatever the
+    // controller's decode is, with nothing changed and no cycle taken.
+    Rig r;
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+        r.channel(n, 0x10203 * (n + 1), 0x0102 * (n + 1), static_cast<uint8_t>(0x40 + n), 0x30405 * (n + 1));
+    r.arm(2, DmaController::ENABLE);
+    const uint64_t before = r.bus.now();
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+        for (uint8_t reg = 0; reg < 0x10; ++reg)
+            CHECK_EQ(r.dma.peek_channel(n, reg), r.bus.peek(static_cast<uint16_t>(DMA + n * 0x10 + reg)));
+    CHECK_EQ(r.dma.peek_channel(1, DmaController::ADDR), 0x06);   // $20406's low byte
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::MODE), 0x43);
+    CHECK_EQ(r.dma.peek_channel(2, DmaController::CTRL), DmaController::ENABLE);
+    CHECK_EQ(r.dma.peek_channel(0, DmaController::CTRL), 0x00);
+    CHECK_EQ(r.dma.peek_channel(DmaController::CHANNELS, DmaController::CTRL), 0xFF); // no such channel
+    CHECK_EQ(r.dma.peek_channel(0, 0x10), 0xFF);                                      // nor register
+    CHECK_EQ(r.bus.now(), before);
+    CHECK_EQ(r.dma.peek_channel(2, DmaController::CTRL), DmaController::ENABLE); // still armed
+}
+
 TEST(nothing_moves_until_the_master_enable)
 {
     Rig r;

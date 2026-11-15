@@ -265,6 +265,13 @@ namespace ooe::emu
         }
     }
 
+    uint8_t DmaController::peek_channel(unsigned n, uint8_t reg) const
+    {
+        if (n >= CHANNELS || reg > 0xF)
+            return 0xFF;
+        return peek(n * 0x10 + reg); // revision 1: each channel's registers at n x $10, read without effects
+    }
+
     bool DmaController::irq() const
     {
         for (unsigned n = 0; n < CHANNELS; ++n)

@@ -378,11 +378,11 @@ TEST(break_during_c80c_stops_the_read_and_its_dma)
         reading = s->sd()->commands() == 3;
     }
     REQUIRE(reading);
-    REQUIRE(s->peek(0xC407) & 1);                // channel 0 armed
+    REQUIRE(s->dma()->peek_channel(0, DmaController::CTRL) & 1);     // channel 0 armed
     s->usb()->key(UsbCard::PAUSE, true);         // Pause/Break
     s->run(300);                                 // Break's own work, before the card's first byte
     s->usb()->key(UsbCard::PAUSE, false);
-    CHECK_EQ(s->peek(0xC407) & 1, 0);            // channel 0 stopped
+    CHECK_EQ(s->dma()->peek_channel(0, DmaController::CTRL) & 1, 0); // channel 0 stopped
     CHECK_EQ(s->sd()->peek(SdCard::CTRL), 0);    // and the card's DRQ0 off
     std::string out;
     REQUIRE(run_until(*s, out, "\\\r"));

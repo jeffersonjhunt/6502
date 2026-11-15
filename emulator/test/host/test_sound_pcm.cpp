@@ -475,7 +475,7 @@ namespace
             bus().poke(0xC427, DmaController::ENABLE);
         }
 
-        bool armed() { return bus().peek(0xC427) & DmaController::ENABLE; }
+        bool armed() { return m->dma()->peek_channel(2, DmaController::CTRL) & DmaController::ENABLE; }
 
         /// `cycles` CPU cycles, the devices caught up after each as the run loop's irq() does.
         void run(uint64_t cycles)

@@ -1576,11 +1576,14 @@ TEST(break_during_sd4s_read_leaves_no_channel_running_into_the_boot)
     bool hit = false, reached = false;
     uint8_t ctrl = 0xFF, mode = 0xFF;
     const uint16_t boot = label("BOOT");
+    const DmaController &dma = *r.machine->dma();
     r.watch = [&](uint16_t pc) {
-        if (!hit && (r.io(0xC407) & 0x01) && (r.io(0xC381) & 0x80) && r.out.find("SD4  READ SPEED") != std::string::npos)
+        if (!hit && (dma.peek_channel(0, DmaController::CTRL) & 0x01) && (r.io(0xC381) & 0x80) &&
+            r.out.find("SD4  READ SPEED") != std::string::npos)
             hit = true, r.cpu->nmi();
         else if (hit && !reached && pc == boot)
-            reached = true, ctrl = r.io(0xC407), mode = r.io(0xC406); // as Break's way out left them
+            reached = true, ctrl = dma.peek_channel(0, DmaController::CTRL),
+            mode = dma.peek_channel(0, DmaController::MODE); // as Break's way out left them
     };
     for (int i = 0; i < 4000 && !reached; ++i)
         r.run(ms(25));
@@ -1613,7 +1616,7 @@ TEST(an_sd_card_that_stays_busy_is_reset_and_given_no_command)
         CHECK(b.reset);
         if (name == "SD3")
             CHECK_EQ(b.cmds, 0u);
-        CHECK_EQ(r.io(0xC407) & 0x01, 0);
+        CHECK_EQ(r.machine->dma()->peek_channel(0, DmaController::CTRL) & 0x01, 0);
         CHECK(!r.media->dirty());
         REQUIRE(to_result(r));
     }

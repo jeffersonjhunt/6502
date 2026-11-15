@@ -445,6 +445,7 @@ namespace ooe::emu
                     dma->attach(&m->bus_);
                     m->bus_.set_master(dma.get());
                     m->master_ = dma.get();
+                    m->dma_ = dma.get();
                     dev = std::move(dma);
                 }
             }

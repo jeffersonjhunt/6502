@@ -81,6 +81,7 @@
 #include "backplane_bridge.h"
 #include "console_card.h"
 #include "disk2_card.h"
+#include "dma_controller.h"
 #include "sd_card.h"
 #include "sound_card.h"
 #include "decoder.h"
@@ -148,6 +149,9 @@ namespace ooe::emu
         SoundCard *sound_card() const { return sound_card_; }
         /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
         SdCard *sd_card() const { return sd_card_; }
+        /// The DMA controller, if the description has one (`dma`): its channels through
+        /// DmaController::peek_channel(), which has no effect on it.
+        DmaController *dma() const { return dma_; }
         /// The joystick ports, if the description has them (`joyports`).
         JoystickPorts *joysticks() const { return joysticks_; }
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
@@ -186,6 +190,7 @@ namespace ooe::emu
         Disk2Card *disk2_card_{nullptr};     ///< owned through devices_
         SoundCard *sound_card_{nullptr};     ///< owned through devices_
         SdCard *sd_card_{nullptr};           ///< owned through devices_
+        DmaController *dma_{nullptr};        ///< owned through devices_
         JoystickPorts *joysticks_{nullptr};  ///< owned through peripherals_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;

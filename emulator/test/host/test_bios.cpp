@@ -1658,13 +1658,13 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
                              "C540: 02 00 04\r"; // the sound card's 6510 running, its mailbox interrupting
     b.run(keys.size() * 25'000 + BOOT / 2, keys);
     REQUIRE(bus.irq());
-    REQUIRE(bus.peek(0xC407) & 1);
+    REQUIRE(b.machine->dma()->peek_channel(0, DmaController::CTRL) & 1);
     b.cpu->nmi();
     CHECK(has(b.run(BOOT), "\\"));
     CHECK(!bus.irq());
     CHECK_EQ(bus.peek(0xC440) & 0x0F, 0);        // no terminal count left
-    CHECK_EQ(bus.peek(0xC407) & 1, 0);           // channel 0 stopped
-    CHECK_EQ(bus.peek(0xC416) & 0x80, 0);        // and its interrupt off
+    CHECK_EQ(b.machine->dma()->peek_channel(0, DmaController::CTRL) & 1, 0);    // channel 0 stopped
+    CHECK_EQ(b.machine->dma()->peek_channel(1, DmaController::MODE) & 0x80, 0); // and channel 1's interrupt off
     CHECK_EQ(bus.peek(0xC5B0), 0);
     CHECK_EQ(bus.peek(0xC540), 0);               // the 6510 stopped
     CHECK_EQ(bus.peek(0xC542), 0);
@@ -1795,11 +1795,12 @@ TEST(break_during_a_burst_limited_scroll_stops_it)
     b.run(BOOT, "C441: 01\r");                   // a cycle back to the CPU every byte
     b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
     Decoder &bus = b.machine->bus();
-    REQUIRE(step_until(b, [&] { return (bus.peek(0xC417) & 1) != 0; }, BOOT, '\r')); // a scroll under way (the port's channel 1)
+    const DmaController &dma = *b.machine->dma();
+    REQUIRE(step_until(b, [&] { return (dma.peek_channel(1, DmaController::CTRL) & 1) != 0; }, BOOT, '\r')); // a scroll under way (the port's channel 1)
     b.cpu->nmi();
     const unsigned wozmon = label(read_file(EMU_BIOS_ROM ".lbl"), "WOZMON");
     REQUIRE(step_until(b, [&] { return b.cpu->regs().pc == wozmon; }, BOOT));
-    CHECK_EQ(bus.peek(0xC417) & 1, 0);           // stopped by Break, not left to run
+    CHECK_EQ(dma.peek_channel(1, DmaController::CTRL) & 1, 0); // stopped by Break, not left to run
     CHECK_EQ(bus.peek(0xC4BE), 0);               // and the port's DRQ off
     CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));
     CHECK_EQ(b.row(29), std::string("_"));
@@ -1846,7 +1847,7 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     b.run(BOOT);
     b.run(BOOT, "C441: 01\r");                   // a burst limit, so the monitor still runs...
     b.run(BOOT, "C420: 00 00 02 00 00 00 45 01\r"); // ...beside channel 2 feeding the sound card for ever
-    REQUIRE(b.machine->bus().peek(0xC427) & 1);
+    REQUIRE(b.machine->dma()->peek_channel(2, DmaController::CTRL) & 1);
     b.run(4 * BOOT, "C806R\r");
     CHECK(b.bridge().apple());
     CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran

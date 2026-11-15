@@ -486,7 +486,7 @@ TEST(by_demand_dma_each_file_plays_as_minimp3_decodes_it)
         b.bus().poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
         b.bus().poke(0xC427, DmaController::ENABLE);
         b.run_cycles(100'000);
-        REQUIRE(!(b.bus().peek(0xC427) & DmaController::ENABLE)); // all of it in
+        REQUIRE(!(b.m->dma()->peek_channel(2, DmaController::CTRL) & DmaController::ENABLE)); // all of it in
         b.bus().write(0xC548, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
         for (unsigned i = 0; i < 100 && state(c) != SoundCard::STATE_ENDED; ++i)
             b.run_cycles(SECOND / 100);

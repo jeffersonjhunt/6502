@@ -215,8 +215,8 @@ namespace
         CHECK_EQ(reg(r, SoundCard::STATE), 0);
         CHECK_EQ(reg(r, SoundCard::DOCCTL) & 1, 0);
         CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
-        CHECK_EQ(r.machine->bus().peek(0xC426) & 0x80, 0); // DMA2_MODE's interrupt
-        CHECK_EQ(r.machine->bus().peek(0xC427) & 0x01, 0); // DMA2_CTRL's ENABLE
+        CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::MODE) & 0x80, 0); // channel 2's MODE: its interrupt
+        CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::CTRL) & 0x01, 0); // its CTRL's ENABLE
     }
     /// The 6510, the stream and the ES5503 claimed and running.
     void claim_it_all(CcpRig &r)
