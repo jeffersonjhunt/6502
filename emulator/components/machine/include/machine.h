@@ -52,7 +52,7 @@
  * chip can sit in another's mirror, as the backplane's VIA does at io
  * 340-34F, inside the stand-in 6551's 300-37F.
  *
- * Without a `northbridge` line every CPU address is memory with A16-A19
+ * Without a `northbridge` line every CPU address is memory with A16-A23
  * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
  * (backplane_bridge.h): the windows, VEC, ROM space, the I/O hole and the
  * DS3231 real-time clock, with its registers at io 680-6FF (module D, its
@@ -109,7 +109,7 @@ namespace ooe::emu
         /// sequencer (341-0028). Apple's too; empty: the card has none.
         std::string disk2_boot, disk2_sequencer;
         /// North bridge for the decoder; nullptr = the description's
-        /// (`northbridge` line), or A16-A19 low. Not owned.
+        /// (`northbridge` line), or A16-A23 low. Not owned.
         NorthBridge *bridge{nullptr};
         /// The backplane's DS3231, kept from another machine (a power cycle): its battery
         /// held the time. nullptr: a new chip, at `rtc_time`, or the host's local time.

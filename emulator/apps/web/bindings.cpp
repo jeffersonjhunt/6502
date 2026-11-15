@@ -28,7 +28,7 @@
  *
  * - lights(): Float32Array(32): A0-A19, D0-D7, then SYNC, RWB, VPB, RDY.
  * - trace(max): Uint32Array(4 per row, oldest first): cycle low 32 bits,
- *   cycle high bits, A0-A19 | module << 24, CPU address | data << 16 |
+ *   cycle high bits, A0-A23 | module << 24, CPU address | data << 16 |
  *   flags << 24 (1 write, 2 SYNC, 4 VPB).
  * - videoFrame(): Uint8Array(640 x 480 x 4): the video card's last finished
  *   frame, R G B A per pixel, row by row; empty without a card. A new one

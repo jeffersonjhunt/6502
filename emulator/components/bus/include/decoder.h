@@ -11,7 +11,7 @@
  *
  * The W65C02S drives only A0-A15; the north bridge decides what an access
  * reaches (hw/design.md). So it is a pluggable NorthBridge: CPU address in,
- * a Route out. The default sends everything to memory with A16-A19 low,
+ * a Route out. The default sends everything to memory with A16-A23 low,
  * which is exactly a machine with no banking; the backplane's bridge
  * (backplane_bridge.h) adds the windows, ROM space and the I/O hole.
  *
@@ -144,7 +144,7 @@ namespace ooe::emu
         virtual ~NorthBridge() = default;
         /// Route a CPU access. `vector_pull` is the VPB pin; `write` is RWB low (a
         /// bridge may send reads and writes to different places, as Apple II
-        /// mode's RAMRD and RAMWRT do). Default: memory, A16-A19 low.
+        /// mode's RAMRD and RAMWRT do). Default: memory, A16-A23 low.
         virtual Route route(uint16_t cpu_addr, bool vector_pull, bool write) const
         {
             (void)vector_pull;
@@ -347,8 +347,10 @@ namespace ooe::emu
         uint8_t select(NorthBridge::Master master, const Mapping *m) const;
         /// Bring the slot of `device` up to the cycle before now.
         void catch_up_device(const Device &device);
-        /// Tell the DMA observer about a bus master's cycle of `cycles` at bus address `where`, PS0-PS3 `module`.
-        void dma_seen(uint32_t where, uint8_t module, unsigned cycles, uint8_t data, bool write);
+        /// Tell the DMA observer about a bus master's cycle of `cycles` at bus address `where`, to mapping `m`
+        /// (or nothing), with `card` on a fly-by (else nullptr); PS0-PS3 are worked out only if it watches.
+        void dma_seen(uint32_t where, const Mapping *m, const Device *card, unsigned cycles, uint8_t data,
+                      bool write);
         /// The module ID of `card`'s mapping in the I/O hole, or NO_MODULE.
         uint8_t module_of(const Device &card) const;
 

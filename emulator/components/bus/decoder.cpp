@@ -109,10 +109,15 @@ namespace ooe::emu
         return m;
     }
 
-    void Decoder::dma_seen(uint32_t where, uint8_t module, unsigned cycles, uint8_t data, bool write)
+    void Decoder::dma_seen(uint32_t where, const Mapping *m, const Device *card, unsigned cycles, uint8_t data,
+                           bool write)
     {
         if (!dma_observer_)
-            return;
+            return; // nothing watching: no need to work out PS0-PS3
+        uint8_t module = select(NorthBridge::Master::Dma, m);
+        // A fly-by's grant names the card; a bus with no /MEM shows the memory's module, as before.
+        if (card && bridge_->memory_select(NorthBridge::Master::Dma) != NO_MODULE)
+            module = module_of(*card);
         last_ = Access{lines(where), module};
         last_wait_ = cycles - 1; // the CPU's access, after these, sets both again
         BusCycle c;
@@ -137,7 +142,7 @@ namespace ooe::emu
         const uint32_t where = memory(physical);
         const Mapping *m = dma_cycle(where, cycles);
         data = m ? m->device->read(device_offset(*m, where)) : UNMAPPED_READ;
-        dma_seen(where, select(NorthBridge::Master::Dma, m), cycles, data, false);
+        dma_seen(where, m, nullptr, cycles, data, false);
         return cycles;
     }
 
@@ -148,7 +153,7 @@ namespace ooe::emu
         const Mapping *m = dma_cycle(where, cycles);
         if (m)
             m->device->write(device_offset(*m, where), data);
-        dma_seen(where, select(NorthBridge::Master::Dma, m), cycles, data, true);
+        dma_seen(where, m, nullptr, cycles, data, true);
         return cycles;
     }
 
@@ -172,11 +177,7 @@ namespace ooe::emu
                 v = m->device->read(off);
             card.dack_write(v, tc);
         }
-        // PS0-PS3 name the card in a grant; a bus with no /MEM shows the memory's module, as before.
-        const uint8_t ps = bridge_->memory_select(NorthBridge::Master::Dma) != NO_MODULE ? module_of(card)
-                           : m                                                      ? m->module
-                                                                                    : NO_MODULE;
-        dma_seen(where, ps, cycles, v, to_memory);
+        dma_seen(where, m, &card, cycles, v, to_memory);
         return cycles;
     }
 
