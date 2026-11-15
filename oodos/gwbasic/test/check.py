@@ -49,7 +49,7 @@ IMAGE = None  # --image
 LABELS = None  # beside the image
 VLEN = 80
 PER_RUN = 300
-CTRL, VECTORS, PROGRAM = 0x9FF0, 0xA000, 0x9000
+CTRL, VECTORS, PROGRAM = 0x9FF0, 0xA000, 0x9400  # G11: the program at $9400 (was $9000), 7c
 OUTCNT = "9FFE"
 
 OPS = {

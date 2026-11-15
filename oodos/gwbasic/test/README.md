@@ -61,7 +61,7 @@ fails it.
 
 `run6502 --input FILE` answers function 10 with FILE's lines, one a call, echoed as function 10 echoes
 (with the characters the buffer holds first, as OODOS's preload), and stops when they run out. With the
-control byte 2 the harness starts GW-BASIC itself at READY (INITSA), its workspace at `$9001`: so a
+control byte 2 the harness starts GW-BASIC itself at READY (INITSA), its workspace at `$9401`: so a
 transcript of lines typed at GW-BASIC's prompt can be tried in a second, without OODOS. (The real test of
 typed lines is the emulator's `test_gwbasic_core`, against `emulator/test/host/gwbasic/`.)
 

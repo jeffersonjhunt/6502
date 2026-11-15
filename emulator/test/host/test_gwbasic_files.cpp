@@ -27,6 +27,9 @@
  * - Random files (7c's X1 step): FIELD, LSET, RSET, GET, PUT, CVI to MKD$, PRINT #, INPUT # and WRITE # in a FIELD
  *   buffer; records of any LEN on CP/M's 128-byte records, read and written through the FDB's buffer in P4 (V1),
  *   records past the end as zeros (X1); the FIELD buffers taken from the TPA's string space and given back.
+ * - The owner's small decisions (2026-11-14), by hand: error mode $FE, so a drive with no image is a BASIC error;
+ *   the command line's switches (/F: /S: /C: read and ignored, /M: the workspace's top); FILES leaving out SYS files;
+ *   a CR after an LF going on with a loaded line; a name of more than 8 characters and a type, Bad file name.
  */
 
 #include "harness.h"
@@ -524,6 +527,60 @@ TEST(a_program_named_on_the_command_line_runs)
         std::printf("  got '%s'\n", vis(none).c_str());
 }
 
+// The command line's switches (GWINIT.ASM SCANSW, SCANS1, FOK, WASC, WASS, WASF, GETVAL; GWEVAL.ASM CNSGET; ITSA86.ASM
+// MAPCLC's and MAPINI's checks), by hand from the source (the owner's decision 6, 2026-11-14): /F: and /S: read and
+// ignored, /C: too (OO-1), /M:n the workspace's top as CLEAR's n (MEMSIZ n - 2): FRE(0) is less by the TPA's top less
+// n, the bytes free 4 less than n less TXTTAB, a hex n (&H) taken. A letter that isn't a switch, a missing colon,
+// something after the number that isn't "/", an n past the TPA's top or too near TXTTAB: the heading, "Error detected
+// in command line", and back to the CCP (CMDERR, before start-up is done).
+TEST(the_command_line_s_switches_are_read_and_m_sets_the_top)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 PRINT \"free\";FRE(0)", "20 SYSTEM"});
+    CHECK_EQ(command(r, "SAVE \"PROG\""), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    auto fre = [&](const std::string &line) {
+        const std::string o = r.cmd(line);
+        const size_t at = o.find("free ");
+        if (at == std::string::npos)
+        {
+            std::printf("  '%s': '%s'\n", line.c_str(), vis(o).c_str());
+            return -1L;
+        }
+        return std::strtol(o.c_str() + at + 5, nullptr, 10);
+    };
+    const long all = fre("m:gwbasic prog"), top = r.phys(0x0204) | r.phys(0x0205) << 8;
+    CHECK(all > 30000);
+    CHECK_EQ(fre("m:gwbasic prog /f:3 /s:256 /m:40000"), all - (top - 40000));
+    CHECK_EQ(fre("m:gwbasic prog /M:40000/F:3"), all - (top - 40000));
+    CHECK_EQ(fre("m:gwbasic prog /c:256 /m:&H9C40 /s:1024"), all - (top - 40000));
+    CHECK_EQ(fre("m:gwbasic prog /f:3 /s:256"), all);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("LOAD") == 1);
+    const std::string head = r.to("m:gwbasic /m:40000", "Ok\r\n");
+    CHECK(head.find("\r\n" + std::to_string(40000 - 2 - (lab.at("LOAD") + 1) - 2) + " Bytes free\r\n") !=
+          std::string::npos);
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    const std::string refused = "(C) Copyright Microsoft 1982         \r\n\r\nError detected in command line\r\n";
+    for (const std::string &tail : std::vector<std::string>{"prog /x:3", "/m40000", "prog /f:3 x", "/m:" + std::to_string(top + 1),
+                                   "/m:" + std::to_string(lab.at("LOAD") + 1 + 32), "prog /s"})
+    {
+        const std::string o = r.cmd("m:gwbasic " + tail);
+        CHECK(o.find(refused) != std::string::npos);
+        CHECK(o.find("free") == std::string::npos);
+        if (o.find(refused) == std::string::npos)
+            std::printf("  '%s': '%s'\n", tail.c_str(), vis(o).c_str());
+    }
+    const std::string least = r.to("m:gwbasic /m:" + std::to_string(lab.at("LOAD") + 1 + 33), "Ok\r\n");
+    CHECK(least.find("\r\n29 Bytes free\r\n") != std::string::npos); // 33 above TXTTAB: the least taken
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+}
+
 // KILL (GIODSK.ASM KILL, KILL2), NAME (NAME, SAMDRV, NA_FNF, NA_FAE) and FILES (FILES, NOARG, ALFILS, GOTNAM, FILNXT,
 // MORNAM, PRISPA, NOTEXT, NWFILN, NEXTFL), with NAMFIL and FILFCB (STRTNM, NAMORE, LNGNAM, FINNAM, TRMSTR). d_kill: a
 // file KILLed, then OPENed for input (File not found), KILL of a missing file, of an open one (File already open), of
@@ -567,6 +624,36 @@ TEST(files_kill_and_name_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "KILL \"A:DH?.TXT\""), std::string());
     CHECK_EQ(command(r, "FILES \"DH*.*\""), std::string("File not found\r\n"));
     CHECK(command(r, "FILES").find("DH") == std::string::npos);
+}
+
+// The owner's decision 8 (2026-11-14): FILES leaves out a file with CP/M's SYS attribute (t2', p4/giodsk.s SKPSYS), as
+// MS-DOS's FCB search leaves out system files and CP/M's DIR doesn't list them; by hand. The rig's A: has its
+// utilities (SET.COM, PIP.COM and the rest) as SYS files, the others not: FILES lists README.TXT and not SET.COM, and a
+// pattern only SYS files match is File not found. A file made SYS by SET (function 30) leaves FILES "pattern", and is
+// still there to open.
+TEST(files_leaves_out_system_files)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"DSA.TXT\":CLOSE:OPEN \"O\",#1,\"DSB.TXT\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSA     .TXT DSB     .TXT \r\n"));
+    const std::string all = command(r, "FILES");
+    CHECK(all.find("README  .TXT") != std::string::npos);
+    CHECK(all.find("WRITEOO1.COM") != std::string::npos);
+    CHECK(all.find("SET     .COM") == std::string::npos);
+    CHECK(all.find("PIP     .COM") == std::string::npos);
+    CHECK_EQ(command(r, "FILES \"S*.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "FILES \"*.COM\""), std::string("WRITEOO1.COM \r\n"));
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set dsa.txt [sys]");
+    CHECK(r.cmd("dirsys ds*.txt").find("DSA      TXT") != std::string::npos);
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSB     .TXT \r\n"));
+    CHECK_EQ(command(r, "FILES \"DSA.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"DSA.TXT\":PRINT EOF(1):CLOSE"), std::string("-1 \r\n"));
+    CHECK_EQ(command(r, "KILL \"DS?.TXT\""), std::string());
 }
 
 // The directory hook (the owner's, 2026-11-13 and 2026-11-14): CHDIR, MKDIR and RMDIR are added to P2's keyword table
@@ -790,4 +877,77 @@ TEST(a_random_open_collects_the_strings_or_is_out_of_memory)
 int main()
 {
     return run_all();
+}
+
+
+// The owner's decision 5 (2026-11-14): error mode $FE at start-up (p2/gwinit.s, function 45), so a physical error is
+// the BDOS's two lines and then GW-BASIC's own error (p4/giodsk.s PBDOS, by the 8086's DSKERR: Invalid Drive is Disk not
+// Ready, 71), and GW-BASIC goes on; in the default mode the BDOS would end it. By hand: the BDOS's message is
+// OODOS's (appendix A), GW-BASIC's from the 1983 table. H: and C: have no image in the rig. OPEN for input (15) and
+// output (19, the old file deleted first), LOAD, SAVE, KILL and NAME (17, the search first), FILES; the FDB given back
+// (the same number opened next), ON ERROR's ERR 71 and a statement after each error; SYSTEM back to the CCP, which
+// needs nothing put back (sys/ccp.s RUNTAIL sets the default mode for each program it runs).
+TEST(a_drive_with_no_image_is_a_basic_error_and_gw_basic_goes_on)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(r.phys(SCB_PHYS + 0x4B), 0xFE);
+    auto bdos = [](const char *drive, int fn, const char *file) {
+        return std::string("\r\nOODOS Error On ") + drive + ": Invalid Drive\r\nBDOS Function = " + std::to_string(fn) +
+               " File = " + file + "\r\n";
+    };
+    auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not Ready\r\n"; };
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"H:X.TXT\""), said("H", 15, "X       .TXT"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"C:X.TXT\""), said("C", 19, "X       .TXT"));
+    CHECK_EQ(command(r, "OPEN \"H:X.TXT\" FOR APPEND AS #2"), said("H", 15, "X       .TXT"));
+    CHECK_EQ(command(r, "LOAD \"H:X\""), said("H", 15, "X       .BAS"));
+    CHECK_EQ(command(r, "SAVE \"H:X\""), said("H", 19, "X       .BAS"));
+    CHECK_EQ(command(r, "KILL \"H:X.TXT\""), said("H", 17, "X       .TXT"));
+    CHECK_EQ(command(r, "FILES \"H:\""), said("H", 17, "????????.???"));
+    CHECK_EQ(command(r, "NAME \"H:X\" AS \"H:Y\""), said("H", 17, "X       .   "));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"MD.TXT\":PRINT #1,\"kept\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"MD.TXT\":INPUT #1,A$:CLOSE:PRINT A$"), std::string("kept\r\n"));
+    enter(r, {"10 ON ERROR GOTO 100", "20 OPEN \"I\",#1,\"H:X.TXT\"", "30 PRINT \"not here\"", "40 END",
+              "100 PRINT \"ERR\";ERR;\"in\";ERL:RESUME 110", "110 PRINT \"went on\":ON ERROR GOTO 0", "120 OPEN \"I\",#3,\"H:Y\""});
+    CHECK_EQ(command(r, "RUN"), bdos("H", 15, "X       .TXT") + "ERR 71 in 20 \r\nwent on\r\n" +
+                                    bdos("H", 15, "Y       .   ") + "Disk not Ready in 120\r\n");
+    CHECK_EQ(command(r, "PRINT \"after\""), std::string("after\r\n"));
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+}
+
+// The owner's decision 10 (2026-11-14): in a text file LOADed or MERGEd, a CR that follows an LF doesn't end the line
+// (SCNEDT.ASM DSKCHI, p4/scnedt.s DSKCHP), so the line goes on past it, the LF kept in it (CHRGTR passes over an LF
+// as over a blank). By hand, from the source: PC-BASIC ends the line at that CR, so its answer would be a Direct
+// statement in file. The file is written by PRINT # (each line ended by CR LF), line 10 with an LF and a CR in it.
+TEST(a_cr_after_an_lf_continues_a_loaded_line)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 OPEN \"O\",#1,\"CRLF.BAS\"", "20 PRINT #1,\"10 PRINT \"+CHR$(34)+\"A\"+CHR$(34)+\";\"+CHR$(10)+CHR$(13)+CHR$(34)+\"B\"+CHR$(34)",
+              "30 PRINT #1,\"20 PRINT \"+CHR$(34)+\"C\"+CHR$(34)", "40 CLOSE"});
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "LOAD \"CRLF\""), std::string());
+    CHECK_EQ(command(r, "RUN"), std::string("AB\r\nC\r\n"));
+    const std::string list = command(r, "LIST");
+    CHECK_EQ(list.substr(0, 14), std::string("10 PRINT \"A\";\n"));
+    CHECK(list.find("20 PRINT \"C\"\r\n") != std::string::npos);
+    CHECK(list.find("\r\"B\"") == std::string::npos);
+    CHECK_EQ(command(r, "KILL \"CRLF.BAS\""), std::string());
+}
+
+// The owner's decision 9 (2026-11-14), as the port already was: a name of more than 8 characters before its type is
+// Bad file name for OPEN, LOAD and SAVE (OO-1: function 152 refuses it; the 1983 source hands MS-DOS's parse a
+// name FILFCB has run into the type). By hand: PC-BASIC cuts the name to 8.
+TEST(a_name_of_more_than_8_characters_and_a_type_is_bad_file_name)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"ABCDEFGHI.TXT\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"ABCDEFGHI.TXT\" FOR INPUT AS #1"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "SAVE \"ABCDEFGHI.BAS\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "LOAD \"ABCDEFGHI.BAS\""), std::string("Bad file name\r\n"));
 }

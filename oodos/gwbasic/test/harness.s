@@ -4,8 +4,8 @@
 ;
 ; A control block at $9FF0 says what to do:
 ;
-;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9000;
-;           2: GW-BASIC itself, from READY, with its workspace at $9001 (to
+;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9400;
+;           2: GW-BASIC itself, from READY, with its workspace at $9401 (to
 ;           MEMSIZ), its lines typed from run6502's --input file
 ;   $9FF2   the number of vectors
 ;   $9FF6   a program's MEMSIZ, the string space's top (0: $9FEE, leaving a
@@ -28,8 +28,9 @@
 ;           RNDX after
 ;   +56     in: $FIN's text, to its zero (23 characters at most)
 ;
-; The program is GW-BASIC's tokenised form at $9001 (link, line number,
-; tokens, zero), after a zero at $9000, ending with a zero link.
+; The program is GW-BASIC's tokenised form at $9401 (link, line number,
+; tokens, zero), after a zero at $9400, ending with a zero link. (G11: at
+; $9000 until 7c, so the image may end below $9400; the owner's, 2026-11-14.)
 
 .include "gwbasic.inc"
 
@@ -43,7 +44,7 @@
 CTRL            = $9FF0
 OUTCNT          = $9FFE
 VECTORS         = $A000
-PROGRAM         = $9000
+PROGRAM         = $9400
 VLEN            = 80
 
 HREC            = $E0                  ; the vector being run

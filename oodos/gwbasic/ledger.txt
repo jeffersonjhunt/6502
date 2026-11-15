@@ -845,15 +845,15 @@ GWINIT.ASM CPMVR1 -> later 7c: the read and write codes the files use
 GWINIT.ASM TBFLP -> p2/gwinit.s TBFLP # OO-1: the tail at BP_DMA
 GWINIT.ASM ENDCMD -> p2/gwinit.s ENDCMD
 GWINIT.ASM ISSLH -> p2/gwinit.s ISSLH
-GWINIT.ASM FNDSLH -> p2/gwinit.s FNDSLH # the name's end; the switches (SCANSW) later 7c
-GWINIT.ASM SCANSW -> later 7c: the switches (/M: /F: /S: /C:), passed over until then
-GWINIT.ASM SCANS1 -> later 7c: as TBFLP
-GWINIT.ASM FOK -> later 7c: as TBFLP
-GWINIT.ASM WASC -> later 7c: as TBFLP
-GWINIT.ASM WASS -> later 7c: as TBFLP
-GWINIT.ASM WASF -> later 7c: as TBFLP
-GWINIT.ASM GETVAL -> later 7c: as TBFLP
-GWINIT.ASM DONCMD -> p2/gwinit.s DONCMD # MAPCLC dropped
+GWINIT.ASM FNDSLH -> p2/gwinit.s FNDSLH # the name's end
+GWINIT.ASM SCANSW -> p2/gwinit.s SCANSW
+GWINIT.ASM SCANS1 -> p2/gwinit.s SCANS1
+GWINIT.ASM FOK -> p2/gwinit.s FOK
+GWINIT.ASM WASC -> p2/gwinit.s WASC # OO-1: /C: read and ignored (CSWFLG, CSWSIZ not kept)
+GWINIT.ASM WASS -> p2/gwinit.s WASS # read and ignored, as the source: MAXREC stays 128
+GWINIT.ASM WASF -> p2/gwinit.s WASF # read and ignored, as the source: 3 files
+GWINIT.ASM GETVAL -> p2/gwinit.s GETVAL
+GWINIT.ASM DONCMD -> p2/gwinit.s DONCMD # MAPCLC's /M: check and MAPINI's in it
 GWINIT.ASM ERRCMD -> p2/gwinit.s GWINIT
 GWINIT.ASM NXTBYT -> p2/gwinit.s NXTBYT
 GWINIT.ASM SMLSTK -> dropped: the BASIC stack is fixed RAM (512 bytes), not carved from the workspace
@@ -864,11 +864,11 @@ GWINIT.ASM CMDERR -> p2/gwinit.s CMDERR
 ITSA86.ASM WORDS -> p2/gwinit.s WORDS
 ITSA86.ASM INITSA -> res/bimisc.s INITSA # a program named on the command line: LRUN, CURLIN 65534 (OO-1: zero page)
 ITSA86.ASM GREADY -> res/bimisc.s INITSA
-ITSA86.ASM MAPINI -> p2/gwinit.s GWINIT # no data segment to move: the bytes free message alone
+ITSA86.ASM MAPINI -> p2/gwinit.s GWINIT # no data segment to move: the bytes free message; /M:'s room check in DONCMD (OO-1: before start-up is done)
 ITSA86.ASM MAPINX -> p2/gwinit.s GWINIT
 ITSA86.ASM MAXRQ1 -> dropped: MAPINI's segment arithmetic
-ITSA86.ASM GOMERR -> dropped: as MAXRQ1
-ITSA86.ASM MAPCLC -> dropped: the 8086's segments and the COM buffer's place (COM1 is 7c's, polled)
+ITSA86.ASM GOMERR -> p2/gwinit.s GOMERR # /M:'s Out of memory (before start-up is done: CMDERR's)
+ITSA86.ASM MAPCLC -> p2/gwinit.s DONCMD # /M: no more than the TPA's top (MAXREQ, NOMOPT); the segments and the COM buffer's place dropped
 ITSA86.ASM SEGOFF -> dropped: as MAPCLC
 ITSA86.ASM BASVAR -> later 7c: PEEK and POKE's filter of BASIC's own words
 GWDATA.ASM ERRTAB -> p2/gwdata.s ERRTAB
@@ -1650,3 +1650,7 @@ GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
 GIODSK.ASM SOUTPS -> p4/giodsk.s SOUTPS
 GIODSK.ASM PGSUB1 -> p4/giodsk.s PGSUB1
 GIODSK.ASM GETFP1 -> p4/giodsk.s CMPFBC # inline
+# 7c: the owner's small decisions (2026-11-14): error mode $FE, the command line's switches, FILES and SYS files
+GWEVAL.ASM CNSGET -> p2/gwinit.s CNSGET # GETVAL's number: &H/&O (OCTCNS) or LINGET's
+GIO86.ASM DSKERR -> OEM p4/giodsk.s PBDOS # OO-1: error mode $FE; OODOS's physical errors made GW-BASIC's as DSKERR makes MS-DOS's critical errors
+GWSTS.ASM SKEYON -> later 7d: the function-key line (KEYSW), as GWINIT.ASM PRNTND's

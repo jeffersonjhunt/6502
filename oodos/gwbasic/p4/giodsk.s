@@ -68,13 +68,19 @@
 ;@entry CMPFBP
 .export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
-.import MAXREC
+.import MAXREC, ERROR
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
 .import DERTMF, DERFNF, DERBFM, DERFAO, DERIOE, DERDFL, FCERR, ADVERR, FRCDBL
 .import DERIFN, DERFAE, DERRAD, FRMEVL, FRESTR, SYNCHR, OUTDO, CRDO, CRDONZ, POLKEY, LINLEN, BUF
 
 ASCCTZ          = 26                   ; ^Z, a text file's end
 FNAML           = 11                   ; MSDOSU's: a name and type's bytes
+ERRDWP          = 70                   ; GWDATA.ASM's: Disk write protected
+ERRDNR          = 71                   ; Disk not Ready
+ERRDME          = 72                   ; Disk media error
+ERRPAE          = 75                   ; Path/File access error (OO-1: p4/oem.s's)
+ERRFAX          = 58                   ; File already exists
+ERRNMX          = 64                   ; Bad file name
 
 .code
 
@@ -958,7 +964,31 @@ FCBDOS:         CLC
                 ADC     #0
                 TAX
                 PLA
-                JMP     BDOS
+                JMP     PBDOS
+
+; PBDOS (the project's own, the OEM's): JSR BDOS, then a physical error made
+; GW-BASIC's. OO-1: GWINIT sets error mode $FE (function 45), so the BDOS
+; says a physical error (its two lines) and returns A = $FF with X its code,
+; where the default mode would end GW-BASIC. A result code's $FF has X 0 (or
+; X $FF: a block refused) and comes back as it is. The codes are made errors
+; as the 8086's DSKERR makes MS-DOS's critical errors (GIO86.ASM 2165): Read
+; Only, its write protect, Disk write protected (70); Invalid Drive (a drive
+; with no image), its drive not ready, Disk not Ready (71); Disk I/O, and the
+; codes OODOS doesn't give, its others, Disk media error (72). MS-DOS raises
+; no critical error for the rest but answers the FCB call; here: File R/O
+; and Password Error, access refused, Path/File access error (75); File
+; Exists, File already exists (58); ? in Filename, Bad file name (64). A and
+; X are kept; the flags aren't (A is tested after it, as after JSR BDOS).
+PBDOS:          JSR     BDOS
+                CMP     #$FF
+                BNE     @r
+                CPX     #PHYEND - PHYTAB + 1
+                BCS     @r             ; X past 9: not a physical error
+                CPX     #0
+                BEQ     @r             ; X 0: a result code's $FF
+                LDA     PHYTAB - 1,X
+                JMP     ERROR
+@r:             RTS
 
 ; --- DFSTLD (GIODSK.ASM 783) --------------------------------------------------------------
 
@@ -1046,7 +1076,7 @@ DFSTLD:         LDA     PTRFIL
                 LDA     #<LDBLK
                 LDX     #>LDBLK
                 LDY     #O_DMA
-                JSR     BDOS
+                JSR     PBDOS
                 STA     LDRES          ; 0 all, 1 the file ended first
                 CMP     #2
                 BCS     DFSTER
@@ -1375,6 +1405,7 @@ ALFILS:         LDA     #'*'           ; "*.*"
 GOTNAM:         JSR     FILFCB         ; FILNAM: the search's FCB
                 JSR     SETDIR         ; C_BUFF: the records to DIRBUF
                 JSR     SEARCH         ; C_SEAR: the first
+                JSR     SKPSYS
                 CMP     #$FF
                 BNE     FILNXT
                 JMP     DERFNF
@@ -1415,10 +1446,35 @@ NOTEXT:         DEC     FCNT           ; LOOP MORNAM
                 BRA     NEXTFL
 NWFILN:         JSR     CRDO
 NEXTFL:         LDY     #F_SNEXT       ; C_SEAR+1: the next
-                JSR     BDOS
+                JSR     PBDOS
+                JSR     SKPSYS
                 CMP     #$FF
                 BNE     FILNXT
                 JMP     CRDONZ         ; a new line, unless at the margin
+
+; SKPSYS (the project's own): A the search's answer (the entry's place 0-3,
+; or $FF none); a system file's entry passed over, the search gone on to the
+; next. OO-1: CP/M's SYS attribute (t2', the high bit of the type's second
+; byte) hides a file, as MS-DOS's FCB search leaves a hidden or system file
+; out and CP/M's DIR doesn't list one (the owner's, 2026-11-14): so FILES
+; doesn't list it, and a pattern only it matches is File not found.
+SKPSYS:         CMP     #$FF
+                BEQ     @r
+                PHA
+                ASL     A              ; DIRBUF + 32 A + 10: t2'
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                TAX
+                LDA     DIRBUF + 10,X
+                BMI     @sys
+                PLA
+@r:             RTS
+@sys:           PLA
+                LDY     #F_SNEXT
+                JSR     PBDOS
+                BRA     SKPSYS
 
 ; KILLP: KILL name (GIODSK.ASM 1022): the files of that name deleted (its
 ; "*" and "?" match, as the BDOS's delete takes them); File not found if
@@ -1439,7 +1495,7 @@ KILL2:          JSR     FCBFDB         ; "pretend we are FDB"
                 LDA     #<FILNAM       ; C_DELE
                 LDX     #>FILNAM
                 LDY     #F_DELETE
-                JMP     BDOS           ; (its answer not tested, as the 8086's)
+                JMP     PBDOS          ; (its answer not tested, as the 8086's)
 
 ; NAMEP: NAME old AS new (GIODSK.ASM 1048): the old name found (File not
 ; found) and not open (CHKFOP: File already open), its drive and name to
@@ -1497,7 +1553,7 @@ SAMDRV:         LDX     #FNAML - 1     ; the new name and type to FILNA2 + 17
                 LDA     #<FILNA2       ; C_RENA, the FCB with both names
                 LDX     #>FILNA2
                 LDY     #F_RENAME
-                JSR     BDOS
+                JSR     PBDOS
                 INC     A              ; $FF: the 8086's File already exists
                 BEQ     NA_FAE
                 RTS
@@ -1595,7 +1651,7 @@ SETDIR:         LDA     #<DIRBUF
 SEARCH:         LDA     #<FILNAM
                 LDX     #>FILNAM
                 LDY     #F_SFIRST
-                JMP     BDOS
+                JMP     PBDOS
 FCBFDB:         LDA     #<(FILNAM - F_FCB)
                 STA     FDBP
                 LDA     #>(FILNAM - F_FCB)
@@ -1612,13 +1668,18 @@ RESETP:         BNE     RESETX
                 JSR     BDOS
                 PHA
                 LDY     #DRV_ALLRESET
-                JSR     BDOS
+                JSR     PBDOS
                 PLA
                 LDY     #DRV_SET
                 JSR     BDOS
 RESETX:         RTS
 
 .rodata
+; PHYTAB: the error for each physical error's code, 1-9 (PBDOS).
+PHYTAB:         .byte   ERRDME, ERRDWP, ERRPAE, ERRDNR ; Disk I/O, Read Only, File R/O, Invalid Drive
+                .byte   ERRDME, ERRDME, ERRPAE ; (5, 6), Password Error
+                .byte   ERRFAX, ERRNMX ; File Exists, ? in Filename
+PHYEND:
 ; FILFCB's parse block (function 152): the string BUF, the FCB FILNAM.
 PARSBK:         .word   BUF, FILNAM
 ; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*.

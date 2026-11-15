@@ -3,7 +3,7 @@
 ; the math and programs on the bare W65C02S core, with no OODOS, so no file
 ; can open there: P4 is left out of it (the Makefile's FLAT_SRC), and so are
 ; its statements' home block stubs (p8/far4.s), which keeps the image under
-; check.py's $9000 (G11); its entries and those stubs come here. A file
+; check.py's $9400 (G11: $9000 until 7c's raise); its entries and those stubs come here. A file
 ; statement (and CHDIR, MKDIR, RMDIR), and CVI to MKD$, are Advanced
 ; Feature; the output hooks find nothing to flush, and WRITE no random file.
 
