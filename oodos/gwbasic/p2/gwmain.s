@@ -13,14 +13,15 @@
 ;                  its number, or deleting it if empty; then CHEAD and FINI
 ;   LINKER CHEAD   the links put right, from the start or a line
 ;   SCNLIN LINSPC  a line range (LIST, DELETE); a line number or "."
-;   SCCPTR         the line pointers in the text back to line numbers
+;   SCCPTR DEPTR   the line pointers in the text back to line numbers (DEPTR,
+;                  and DEL, a line taken out: entries for P4's CHAIN)
 ;   SCCLIN         and line numbers to pointers, for RENUM (p3/gwmain.s
 ;                  RESEQP): "Undefined line 100 in 20" for one not there
 ;   ERRPRT ERRFIN  an error's message and " in 20" (and BIMISC.ASM's
 ;   BRKMSG INPRT   "Break"); MATH1.ASM's INPRT
 ;   ERREDT         after a Syntax error, its line to edit (SCNEDT.ASM)
 ;   EDITP          EDIT n, the same way (SCNEDT.ASM's EDIT, reached by
-;                  res/gwmain.s's stub)
+;                  p8/gwmain.s's stub)
 ;
 ; CRUNCH's text pointer is TXTPTR (the 8086's BX), as CHRGTR, LINGET and
 ; $FIN want it; its deposit pointer and count are KDP and KCNT (DX, CX), and
@@ -39,8 +40,10 @@
 ;@entry SCCLIN
 ;@entry SCCPTR
 ;@entry EDITP
+;@entry DEPTR
+;@entry DEL
 .export CRUNCH, EDENT2, LINKER, CHEAD, ERRPRT, ERRFIN, BRKMSG, ERREDT, SCNLIN
-.export SCCLIN, EDITP
+.export SCCLIN, EDITP, PROCHK
 .export LINSPC, SCCPTR, DEPTR, INPRT, NOTRFN, RENCRN, KLOOP
 .import CHRGTR, CHRGT2, LINGET, FNDLIN, BAKSP, MAKUPL, MAKUPS, ISLET2, OCTCNS
 .import STROUT, OUTDO, CRDO, SYNCHR, ERROR, SNERR, USERR, BLTU, CONCH2
@@ -54,7 +57,7 @@ ERRLBO          = 23                   ; Line buffer overflow
 ERRUE           = 21                   ; Unprintable error
 NONDSK          = 30                   ; the last of the errors before the disk's
 DSKERR          = 49                   ; less one than the first disk error
-LSTERR          = 75                   ; one past the last
+LSTERR          = 77                   ; one past the last (OO-1: 75 and 76 added, p2/gwdata.s)
 DSKER1          = DSKERR - NONDSK
 ERRUE1          = ERRUE + DSKER1
 
@@ -462,15 +465,16 @@ JKLOOP:         JMP     KLOOP
 ; with nothing after the number deletes it (Undefined line number if there
 ; is none), else it goes in its place. The strings are dropped, so REASON
 ; doesn't count them; then CHEAD and FINI (resident: RUNC, MAIN). Out of
-; memory from BLTU fixes the links itself (OMERR). (PROCHK and CHAIN's
-; CHNFLG are 7c's.)
+; memory from BLTU fixes the links itself (OMERR). A protected program
+; takes no line (PROCHK). (CHAIN's CHNFLG is a later step's.)
 ;
 ; AUTO's part (7b step c): every numbered line sets AUTO's next line,
 ; AUTLIN, to its number plus AUTINC, as the 8086 does whether AUTO is on or
 ; not; past 65529 (or a carry), AUTO ends (AUTRES). In AUTO, an empty line
 ; (the number offered and nothing typed) neither deletes a line nor gives
 ; Undefined line number: it goes straight to FINI.
-EDENT2:         JSR     CHRGTR         ; the line empty? (KTRM 0)
+EDENT2:         JSR     PROCHK         ; no change to a protected program
+                JSR     CHRGTR         ; the line empty? (KTRM 0)
                 STA     KTRM
                 LDA     RDL
                 STA     DOT
@@ -542,6 +546,8 @@ NODEL:          LDA     RCL            ; DX: the place, for CHEAD too
                 STA     KSRC+1
                 LDA     KTRM
                 JEQ     FINI2          ; empty: deleted, done
+                LDA     CHNFLG         ; a CHAIN's load: FRETOP left, below
+                BNE     LEVFRE         ; the variables it keeps (7c)
                 LDA     MEMSIZ         ; the strings dropped
                 STA     FRETOP
                 LDA     MEMSIZ+1
@@ -648,6 +654,18 @@ MLOOP:          LDA     (PTR2)
                 STA     STREND+1
                 RTS
 .export DEL
+
+; --- PROCHK (GIODSK.ASM 922) --------------------------------------------------------------
+
+; PROCHK: Illegal function call if the program is protected (PROFLG: a SAVE
+; ,P loaded), so it can't be listed, edited or changed. The flags kept, as
+; the 8086's PUSHF keeps them; A used.
+PROCHK:         PHP
+                LDA     PROFLG
+                BNE     :+
+                PLP
+                RTS
+:               JMP     FCERR
 
 ; --- LINKER, CHEAD (GWMAIN.ASM 799) ------------------------------------------------------
 

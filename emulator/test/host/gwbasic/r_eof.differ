@@ -1,0 +1,6 @@
+# The 1983 source: a random file's EOF is true while F_ORCT is 0, as its OPEN (OPNSET) and every PUT (WRITES) leave it, until a GET reads a record that is there (GIO86.ASM's EOF, GIODSK.ASM's PGSUB1 and $READS); PC-BASIC's is false until a GET past the end
+-1  0 
+-1  2 
+ 0  1  0 
+ 0  2 x         
+-1  20  0 

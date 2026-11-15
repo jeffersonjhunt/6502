@@ -5,7 +5,8 @@
 ; message to its zero, in their numbers' order; a "?" is a number with no
 ; message: Unprintable error), and " in " and "Break". The disk errors, 50
 ; to 74, follow the others (1 to 30) directly. The texts are GW-BASIC's own,
-; as it prints them.
+; as it prints them. OO-1: 75 and 76, which the 1983 table ends before,
+; are GW-BASIC's own later messages, for the directory hook (p4/oem.s).
 
 .include "gwbasic.inc"
 
@@ -69,6 +70,8 @@ ERRTAB:         .byte   0
                 .byte   "Disk media error", 0           ; 72
                 .byte   "Advanced Feature", 0           ; 73
                 .byte   "Rename across disks", 0        ; 74
+                .byte   "Path/File access error", 0     ; 75 OO-1: not in the 1983 table
+                .byte   "Path not found", 0             ; 76 OO-1: not in the 1983 table
 
 INTXT:          .byte   " in ", 0
 BRKTXT:         .byte   "Break", 0

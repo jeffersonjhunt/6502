@@ -1,0 +1,2 @@
+# CLEAR closes every file (the 1983 source's CLEAR, CLSALL); PC-BASIC's leaves them open (File already open)
+by clear

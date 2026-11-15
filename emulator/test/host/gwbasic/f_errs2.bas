@@ -1,0 +1,7 @@
+10 REM names the 1983 source refuses
+20 ON ERROR GOTO 900
+30 PRINT "a":OPEN "O",#1,".TXT"
+40 PRINT "b":CLOSE:OPEN "I",#1,"FX1.TXT.X"
+50 PRINT "c":CLOSE:OPEN "O",#1,"A.B.C"
+60 PRINT "done":CLOSE:END
+900 PRINT "error";ERR;"in";ERL:RESUME NEXT

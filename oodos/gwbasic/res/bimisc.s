@@ -23,11 +23,11 @@
 
 .export SYNCHR, GETSTK, ISLET2, SPUSH, SPOP, SPUSHA, SPOPA
 .export SCRATH, SCRTCH, NODSKS, RUNC, CLEARC, STKINI, STKERR, RESTORE, RESFIN
-.export STOP, STOPRG, ENDST, STPEND, ENDCON, CONT, TON, TOFF, OMERR, INITSA
+.export STOP, STOPRG, ENDST, STPEND, ENDCON, CONT, TON, TOFF, OMERR, INITSA, GTMPRT
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
-.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, READY, CRDONZ, FINLPT
+.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, HOMSTK, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT, PRMLN2
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL, BUF, LRUN
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
@@ -155,8 +155,8 @@ SPOPA:          LDA     (SSP)
 ; --- SCRATH, SCRTCH, RUNC, CLEARC, STKINI (BIMISC.ASM 168) -------------------
 
 ; NEW (SCRATH: nothing may follow it): no program, no trace, no line
-; pointers, no AUTO; then RUNC. NODSKS is start-up's way in (so AUTFLG
-; starts clear). PROFLG (a protected program) is 7c's.
+; pointers, no AUTO, no protected program (PROFLG); then RUNC. NODSKS is
+; start-up's way in (so AUTFLG starts clear).
 SCRATH:         BEQ     SCRTCH
                 RTS
 NODSKS:
@@ -165,6 +165,7 @@ SCRTCH:         LDA     TXTTAB
                 LDA     TXTTAB+1
                 STA     PTR+1
                 JSR     TOFF           ; A = 0
+                STZ     PROFLG         ; no longer a protected program
                 STZ     AUTFLG
                 STZ     PTRFLG
                 STA     (PTR)          ; the program: its end link alone
@@ -188,13 +189,19 @@ RUNC:           LDA     TXTTAB
 ; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
 ; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
 ; graphics' reset), and the second finds nothing more to do: once here till
-; 7e brings GRPRST. (The screen, the sound and the files it resets too are
-; 7c's to 7f's; CHAIN's MRGFLG and CHNFLG are 7c's.)
+; 7e brings GRPRST. Every file is closed (CLSALL), but those NLONLY keeps
+; (file 0 while a load is under way, or all for LOAD ,R and CHAIN); NLONLY
+; then 0 unless a load is under way (CLRDS1). A CHAIN MERGE (MRGFLG) leaves
+; the DEF types, OPTION BASE and every file as they are (LEVDTB); a CHAIN
+; (CHNFLG) leaves FRETOP, below the variables it keeps (GODFRE). (The
+; screen and the sound it resets too are 7d's to 7f's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
                 STA     TEMP+1
                 FJSR    INITRP         ; init the trap table
+                LDA     MRGFLG         ; a CHAIN MERGE: the types left alone
+                BNE     LEVDTB
                 STZ     OPTFLG         ; no OPTION BASE seen
                 STZ     OPTVAL         ; OPTION BASE 0
                 LDX     #25
@@ -214,6 +221,8 @@ LEVDTB:         LDX     #3             ; RNDX = RNDCOP
                 STZ     OLDTXT+1
                 STZ     ERRLIN
                 STZ     ERRLIN+1
+                LDA     CHNFLG         ; a CHAIN: FRETOP is good
+                BNE     GODFRE
                 LDA     MEMSIZ         ; the string space empty
                 STA     FRETOP
                 LDA     MEMSIZ+1
@@ -226,6 +235,13 @@ GODFRE:         LDA     #0             ; Z: RESTORE from the start
                 LDA     VARTAB+1
                 STA     ARYTAB+1
                 STA     STREND+1
+                LDA     MRGFLG         ; a CHAIN MERGE: no file closed
+                BNE     :+
+                JSR     CLSALL
+:               LDA     NLONLY         ; a load under way: the others left
+                LSR     A              ; open (LOAD ,R) or file 0 (CLRDS1)
+                BCS     STKINI
+                STZ     NLONLY         ; else every file may be closed
 ; STKINI: both stacks empty, with a zero word (the FNDFOR stopper) on the
 ; BASIC stack, SAVSTK at it; the string temporaries free, the overflow
 ; message back to normal, output to the console, no user function being
@@ -315,9 +331,10 @@ RESFIN:         STA     DATPTR
 ; Syntax error). Both keep the text for CONT and free the string
 ; temporaries, and pop NEWSTT's return; then ENDCON. STOP says "Break"
 ; (STOPRG, with A = 0 when ^C came in direct mode: no message). END leaves
-; ON ERROR's routine (ONEFLG). STPEND: INPUT's ^C, which says "Break" too.
-; The message flag is C here (the 8086 keeps it in Z through a PUSHF).
-; (END's closing of the files is 7c's.)
+; ON ERROR's routine (ONEFLG) and closes every file (ENDS1's CLSALL, which
+; the 8086 makes with Z set: END's only way here). STPEND: INPUT's ^C, which
+; says "Break" too. The message flag is C here (the 8086 keeps it in Z
+; through a PUSHF).
 STOP:           BEQ     STOPRG
                 RTS
 STOPRG:         INC     A
@@ -325,6 +342,7 @@ STOPRG:         INC     A
 ENDST:          BEQ     :+
                 RTS
 :               STZ     ONEFLG
+ENDS1:          JSR     CLSALL
                 LDA     #0
 CONSTP:         PHP
                 LDA     TXTPTR         ; for CONT
@@ -364,7 +382,7 @@ DIRIS:          JSR     FINLPT
                 PLP
                 BCC     :+
                 FJSR    BRKMSG
-:               JMP     READY
+:               JMP     GOREADY        ; READY, in the home block (res/home.s)
 
 ; --- CONT, TRON, TROFF (BIMISC.ASM 639) ----------------------------------------------
 
@@ -393,9 +411,13 @@ TONOFF:         STA     TRCFLG
 
 ; The end of start-up, from the loader once P2's INIT has set memory up and
 ; printed the heading: the 6502's stack top kept, NEW, the zero before the
-; program, and READY. (A program named on the command line, LRUN, is 7c's.)
+; program, and READY; or, with a program named on the command line (P2's
+; GWINIT put its name in BUF, a quote first: the 8086's TEMP8), LRUN, with
+; TXTPTR there and CURLIN start-up's 65534 (the 8086's data segment starts
+; it so; OO-1: zero page isn't), so an error loading it ends GW-BASIC.
 INITSA:         TSX
                 STX     TOPS
+                STX     HOMSTK         ; the base, under the home block's far call
                 JSR     NODSKS
                 LDA     TXTTAB
                 STA     PTR
@@ -404,7 +426,18 @@ INITSA:         TSX
                 DECW    PTR
                 LDA     #0
                 STA     (PTR)
-                JMP     READY
+                LDA     BUF            ; a file named?
+                BEQ     GREADY
+                LDA     #<BUF
+                STA     TXTPTR
+                LDA     #>BUF
+                STA     TXTPTR+1
+                LDA     #<65534
+                STA     CURLIN
+                LDA     #>65534
+                STA     CURLIN+1
+                JMP     LRUN           ; LRUN's far call into the home block
+GREADY:         JMP     GOREADY        ; the far call into the home block
 
 .segment "RAM"
 ; GWDATA.ASM's, and the BASIC stack (hw/oodos.md, "The plan, phase 7": fixed RAM)

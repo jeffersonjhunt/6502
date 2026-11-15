@@ -333,7 +333,12 @@ LINRES:         .byte   RESTORE_TK, AUTO_TK, RENUM_TK, DELETE_TK, EDIT_TK
                 .byte   RESUME_TK, ERL_TK, ELSE_TK, RUN_TK, LIST_TK, LLIST_TK
                 .byte   GOTO_TK, RETURN_TK, THEN_TK, GOSUB_TK, 0
 
-; ALPTAX (IBMRES.ASM 621) and RESLSX (651): the extended words.
+; ALPTAX (IBMRES.ASM 621) and RESLSX (651): the extended words. OO-1
+; (DIRWRD, the owner's, 2026-11-14, a recorded deviation as 7f's TIMER is):
+; CHDIR, MKDIR and RMDIR are added, each at its letter's end, crunched to
+; STMDSX's tokens ($FE $97-$99, IBMRES.ASM's R CHDIR and the rest), which
+; the 1983 table has no words for (so it crunched them as names); their
+; statements are OODOS's directory hook (p4/oem.s DIRHK).
 ALPTAX:         .word   ATABX, BTABX, CTABX, DTABX, ETABX, FTABX, GTABX, HTABX
                 .word   ITABX, JTABX, KTABX, LTABX, MTABX, NTABX, OTABX, PTABX
                 .word   QTABX, RTABX, STABX, TTABX, UTABX, VTABX, WTABX, XTABX
@@ -353,6 +358,7 @@ CTABX:
                 Q       "COM", COM_XS
                 Q       "CIRCLE", CIRCLE_XS
                 Q       "CALLS", CALLS_XS
+                Q       "CHDIR", CHDIR_XS ; OO-1: not in the 1983 table (DIRWRD, below)
                 .byte   0
 DTABX:
                 Q       "DATE$", DATES_XS
@@ -385,6 +391,7 @@ MTABX:
                 QF      "MKI$", MKIS_XF
                 QF      "MKS$", MKSS_XF
                 QF      "MKD$", MKDS_XF
+                Q       "MKDIR", MKDIR_XS ; OO-1: DIRWRD
                 .byte   0
 NTABX:
                 Q       "NAME", NAME_XS
@@ -401,6 +408,7 @@ QTABX:
 RTABX:
                 Q       "RSET", RSET_XS
                 Q       "RESET", RESET_XS
+                Q       "RMDIR", RMDIR_XS ; OO-1: DIRWRD
                 .byte   0
 STABX:
                 Q       "SYSTEM", SYSTEM_XS

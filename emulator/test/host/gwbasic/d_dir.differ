@@ -1,0 +1,18 @@
+# The directory hook (the owner's, 2026-11-13; p4/oem.s): OODOS has no directories, so CHDIR "" is the root and done (PC-BASIC: Bad file name), and MKDIR is Path/File access error (PC-BASIC makes the directory). CHDIR to another, RMDIR, and a number for the path agree.
+a
+b
+c
+d
+error 76 in 60 
+e
+error 75 in 70 
+f
+error 76 in 80 
+g
+error 13 in 90 
+h
+error 13 in 100 
+i
+error 13 in 110 
+j
+done

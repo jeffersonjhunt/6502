@@ -3805,6 +3805,8 @@ only if a cost measured in a sub-phase forces it.
    - It is a lever for the TPA, not a need. With the margin below (34,210 bytes free, or about 33,600–34,600 in
      the bad case once the buffers are out), nothing has to move into a home block.
    - **Decided (2026-11-13, the owner): none.**
+   - **Reopened and built (2026-11-14, the owner):** 7b left 236 bytes above the warning, so 7c starts with the
+     home block, block P8, as below and [as built](#the-sub-phases) under 7c (+2,000 bytes free).
    - **If 7a's measured resident size breaks the gate,** the home block can be had with no change to FARCALL or
      OODOS. GW-BASIC's start-up code would far call the home block's main loop once and not return until SYSTEM.
      W3 then holds the home block between far calls, and FARCALL's return puts it back, since FARCALL returns to
@@ -4097,6 +4099,233 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Size:** 8.5 KB banked, and P5's seed.
   - **Cycles:** a file statement makes one far call, then its BDOS calls. A 128-byte record costs what the BDOS's
     does. BLOAD of 64 KB goes by `DM_LOAD` in about 16 ms.
+  - **As built, step 1: the home block** (Proposed, 2026-11-14; the owner's choice A, which reopens [deferred
+    question 1](#without-the-three-deferred-questions) before 7c's resident work):
+    - **Where:** block P8 (`oodos/gwbasic/p8/`), so the loader, GWBASIC.OVL's pages 1–8 and the loader's
+      "9 blocks" refusal are unchanged. It holds what no banked block calls:
+      - FOR and NEXT, WHILE and WEND, RETURN, the DEF types;
+      - READY, MAIN and FINI;
+      - the stubs of P1's, P2's and P3's statements;
+      - STMDSP, at a fixed address (`HOMTAB`, `$C820`, by `home.cfg`).
+    - **What stays resident:**
+      - the statement fetcher (NEWSTT, GONE, GONE2), its trap poll, GONE4 and GOSUB (GOSUB2 shares GOSPSH);
+      - IF, GOTO, LET and RUN.
+      - A jump from the home block back into the fetcher would cost 3 cycles a statement, so the fetcher stays
+        and reads STMDSP in W3.
+    - **The invariant: W3 holds the home block whenever NEWSTT runs.**
+      - INITSA keeps S in `HOMSTK` and far calls the home block's READY, never to return.
+      - Resident code that ends in the main loop, perhaps with a banked block in W3, goes through
+        `res/home.s`: S is set back to `HOMSTK`, then a far call goes to a home entry (HREADY, HGONE4, HFINI).
+      - That covers ERROR's READY, ON ERROR's GONE4, ENDCON's and ^C's READY, and P2's FINI. The stack under
+        the home block is one far call frame at every entry.
+      - P3's ON no longer jumps to GONE2 itself: it leaves the token in `ONTOK`, and the home block's stub
+        makes the 8086's tail call.
+    - **The rule, kept by the build:**
+      - P1–P7 are assembled with `NOHOME`, so they have no home block entries (`homent.inc`, from gwgen.py).
+      - They link with the resident core's exports alone, so a banked FJSR or JSR into the home block doesn't
+        assemble or link (both shown).
+      - The resident core reaches the home block only by FJSR, and the rules gate refuses any other jump out of
+        the program.
+    - **Measured** (test_gwbasic_core, before → after):
+      - **bytes free:** 34,028 → 36,028 (+2,000). Resident code and tables 12,821 → 10,819, fixed RAM
+        1,524 → 1,526. P8 is 2,131 bytes, 10,157 free.
+      - **the core loop:** 5,217 → 5,216 cycles a pass, with no far call.
+      - **`PRINT ;`:** 813 → 811 cycles a statement, its far call included.
+      - **the far call's crossing:** 284 cycles, from FTSITE, kept resident.
+      - **an error, a ^C, an END and start-up:** each makes one far call more, about 300 cycles.
+    - **Must-fail cases** (test_gwbasic_core), each seen failing on a broken build:
+      - an error raised in P1 and in P3, then more statements: fails with ERROR's way to READY made without the
+        far call;
+      - 1,000 errors trapped, with S constant at NEWST1: fails with ON ERROR's way back set from SAVSTK;
+      - ^C during LIST, then a statement: fails with ENDCON's way to READY made without the far call.
+    - **STMDSX in the home block** (Proposed, 2026-11-14, the owner): the extended statements' table follows
+      STMDSP in HOMTAB (`p8/home.s`, at `HOMTAB` + 2 × `NUMCMD`, asserted at link), and the resident GONE4 reads it
+      in W3, so 7c's extended statements (FILES, KILL and the rest) get their stubs in P8, not resident. 36,094
+      bytes free (+66). Must-fail (test_gwbasic_core): extended statements from direct mode and a program, SYSTEM
+      among them; fails with GONE4 reading the table one entry off.
+  - **As built, the file layer** (Proposed, 2026-11-14): sequential files in block P4 (`p4/gio86.s`,
+    `p4/giodsk.s`, `p4/dskcom.s`), 3,505 bytes. OPEN (both forms), CLOSE, RESET, PRINT # (and USING), WRITE #,
+    INPUT #, LINE INPUT #, INPUT$(n, #f), EOF, LOC, LOF, on the FCB functions, the disk device only (A:–P:).
+    - **Route (c) holds:** each record is read and written by the BDOS straight into its file's 128-byte buffer in
+      P4's BRAM, at its W3 address (test_gwbasic_files checks the DMA address and W3 at every 33 and 34).
+    - **The FDBs** are a fixed table of four (files 0–3, 184 bytes each) in P4's BRAM, not a chain in the string
+      space (OO-1). LOF is the file's records × 128 (function 35). Random files are X1's (OPEN "R" is Advanced
+      Feature until then).
+    - **Output in runs:** OUTDO puts a file's bytes into a 32-byte run in fixed RAM, which P4 takes in one far call
+      when full, at FINPRT, or before any other file work. Resident: +98 bytes of code, +35 of fixed RAM:
+      35,961 bytes free.
+    - **File not open is Bad file number (52)**, PC-BASIC's answer, as the owner allowed for the four placeholder
+      lines; the 1983 source maps it to Bad file mode (54, GWDATA.ASM's ERRFNO): a question for the owner.
+    - **The flat test image** leaves P4 out (it has no OODOS); `test/flatp4.s` stands in for its entries, so it
+      ends at `$8E53` with its BSS, under check.py's `$9000` (G11).
+    - Must-fail: the record's DMA address in block 2 (not P4's buffer); the next record not stepped; CLSALL left out
+      of RUN's CLEARC.
+  - **As built, LOAD, SAVE and MERGE** (Proposed, 2026-11-14): DSKCOM.ASM's LOAD (and `,R`), RUN name, MERGE and SAVE
+    (tokenised, `,A`, `,P`), with GIO86.ASM's PRGFIL, FSTLOD, BINSAV and INCHR's end of file 0, GIODSK.ASM's DFSTLD,
+    PROSAV, PENCOD and PDECOD, and SCNEDT.ASM's DSKCHI, in P4 (`p4/dskcom.s`, `p4/gio86.s`, `p4/giodsk.s`,
+    `p4/scnedt.s`); a program named on the command line (GWINIT.ASM's TBFLP to NXTBYT, INITSA's LRUN). P4 is
+    4,730 bytes; 35,902 free.
+    - **The far call rule:** LOAD, RUN name and MERGE end in the main loop from the home block (`p8/far4.s`), never
+      from P4: P4 opens and reads file 0 and returns what comes next (SCRTCH, MAIN, RUNC and READY or NEWSTT, or
+      Out of memory). RUN name is resident (`res/far4.s` LRUN): S back to HOMSTK, then the home entry HLRUN. A text
+      file's lines come to MAIN (P8) whole, one far call a line (DSKCHP); at its end, if it runs, MAIN does RUNC
+      and NEWSTT.
+    - **W2 holds:** whole records by function 83's `DM_LOAD` straight to the workspace while each lies below
+      FSTLOD's top (FRETOP − 86), the last part through file 0's buffer, only the bytes below it. The end is
+      LINKER's: twelve zeros after the bytes read end any line there, and a chain that doesn't end below them is
+      Out of memory (OO-1: the 8086 decides from the read alone). Must-fail: the last record loaded whole by
+      `DM_LOAD` overwrites sentinels past MEMSIZ; the end taken without the links fails the sessions.
+    - **Zero page, no fixed RAM:** NLONLY, PROFLG and F0OPN (file 0 open, so FINPRT far calls P4 to close it
+      only then) at `$DE`, `$DF`, `$EE`. Resident: +59 bytes (FINPRT's file 0, ERROR's and CLEARC's NLONLY,
+      SCRTCH's PROFLG, LRUN, INITSA's command line).
+    - PROCHK is P2's (LIST, BUFLIN, EDENT2), inline in P3's PRODIR (USR) and P4's BINSAV. The command line's
+      switches (/F: /S: /M: /C:) are a later step's: passed over for now.
+  - **As built, KILL, NAME, FILES and the directory hook** (Proposed, 2026-11-14): GIODSK.ASM's KILL, NAME and FILES,
+    with NAMFIL and FILFCB, in P4 (`p4/giodsk.s`), on functions 17 and 18 (search), 19 (delete) and 23 (rename), each
+    name made an FCB by 152; home block stubs in `p8/far4.s`. P4 is 5,490 bytes; 35,902 free (no resident byte).
+    - **OO-1, where CP/M isn't MS-DOS:** KILL looks for the file by a search, where the 8086 opens and closes it
+      (CP/M's open refuses a `?`, through the error mode); CP/M's rename gives File Exists and a `?` through the
+      error mode, so NAME searches for the new name first (File already exists) and refuses a `?` in either name (Bad
+      file name); a name 152 refuses (a type of more than 3, a bad drive) is Bad file name, where MS-DOS's parse cuts
+      it short; FILES prints the name from CP/M's 128-byte directory record, its attribute bits taken off, and every
+      file of the user's that matches (SYS ones too).
+    - **The directory hook** (the owner's, 2026-11-13 and 2026-11-14): CHDIR, MKDIR and RMDIR are added to P2's
+      keyword table (the 1983 table has no words for them), crunched to STMDSX's tokens, and one routine answers all
+      three (`p4/oem.s` DIRHK): CHDIR to `\`, `.` or `""` is done; any other CHDIR, and RMDIR, Path not found (76);
+      MKDIR Path/File access error (75). Their messages are added after the 1983 table's last (74).
+    - **The flat test image** leaves out `p8/far4.s` (P4's statements' stubs) as it leaves out P4, `test/flatp4.s`
+      standing in for both: it ends at `$8F75` with its BSS, under check.py's `$9000` (G11).
+    - Must-fail (test_gwbasic_files): the hook answering 76 for the root; KILL without its delete; FILES searching
+      `*.*` whatever it was given.
+  - **As built, random files (X1)** (Proposed, 2026-11-14): DSKCOM.ASM's FIELD, LSET, RSET and CVI to MKD$,
+    GWSTS.ASM's PUT and GET, GIO86.ASM's DPUTG, FALLOC, FFREE, XFRSTR and UPDSTD, GIODSK.ASM's DSKRND, GETSUB, PUTSUB,
+    SINP50, FOVCHK and CMPFBC, in P4 (`p4/dskcom.s`, `p4/gwsts.s`, `p4/gio86.s`, `p4/giodsk.s`); home block stubs for
+    FIELD, LSET, RSET, PUT and GET (`p8/far4.s`). P4 is 7,563 bytes; 35,844 free.
+    - **The FIELD buffers are in the TPA,** as the 8086 has them: FALLOC takes a random file's LEN bytes from the top
+      of the string space when it is opened (the string space moved down, every string descriptor with it: XFRSTR,
+      UPDSTD; a collection first if there isn't room, else Out of memory), and FFREE gives them back when it is closed
+      (the buffers below it and the strings moved up; a string FIELDed into it made null). The 8086's FILTAB is
+      MEMSIZ + 2 (OO-1: no byte of its own); each file's buffer address is kept by its number in P4 (`FDDAT`), so
+      the FDB's size is unchanged. Cost: no byte free at start-up, LEN while the file is open.
+    - **Records:** record *n* is bytes (*n* − 1) × LEN on, moved a 128-byte record at a time between the FIELD buffer
+      and the FDB's own buffer, as the 8086 moves its sectors; PUT reads a record it only partly fills first.
+      **X1:** `$READS` zeroes the buffer before function 33 and takes any code but 0 for the end, so a 1 or a 4 gives
+      zeros, for a PUT's read and for a GET past the end alike.
+    - **/S:** is `MAXREC` (resident, 2 bytes: start-up will set it from the command line), 128 while the switches are
+      passed over; LEN past it is Illegal function call (OO-1: the 1983 source takes any LEN, PC-BASIC refuses past
+      /S:), and it may be raised to 1,024 (W4).
+    - **CVI to MKD$** are P4's: the resident EVALNF (IBMRES.ASM's, +56 bytes with the hook's DATE$/TIME$ branch) makes
+      one far call to P4's FUNDSX. P3's WRITE # pads a random record through P4's `CMPFBP` (a far call, OUTDO's run
+      sent first). P1's ADRGET is an entry, for DPUTG.
+    - **OO-1:** LOF closes the file before function 35 (OODOS's close leaves the FCB open), so the extent being
+      written counts; it is still whole records.
+    - **Source behaviour kept, PC-BASIC's differs** (`.differ`): FIELD's total past the record is FIELD overflow;
+      record 32768 is Bad record number; the FIELD buffer isn't cleared; INPUT # and PRINT # share the record's place,
+      and WRITE # pads with spaces; EOF is true after OPEN and PUT until a GET finds a record; a closed file's FIELDed
+      strings are null; FOR RANDOM is Syntax error.
+    - Must-fail (test_gwbasic_files): 33's 1 or 4 taken as an error, or the buffer not zeroed (X1's test); a part
+      record written without its read (records out of order); CVI's bytes swapped (the round trip).
+  - **As built, the devices as files** (Proposed, 2026-11-14): GIOTBL.ASM's device table, GIOLPT.ASM, GIOCOM.ASM,
+    GIOSCN.ASM's, GIOKYB.ASM's and GIOCON.ASM's device drivers in P4 (`p4/giotbl.s`, `giolpt.s`, `giocom.s`,
+    `gioscn.s`, `giokyb.s`, `giocon.s`; PARDEV's DEVSRC, CDEVID, TBLDSP, DEVBIN, CRIFEL, UPDPOS and GIOINI's DOALDV
+    in `p4/gio86.s`), COM1's OEM routines on AUX: in `p4/oem.s`; LPOS (P4, a resident stub); the COM statement and
+    LCOPY in P3 (`p3/gwsts.s`, their stubs in `p8/far3.s`). P4 is 11,591 bytes (697 free); 35,798 bytes free.
+    - **The table** is OEM.H's: KYBD:, SCRN:, CONS:, LPT1:-LPT3:, COM1:, COM2:, so any of them OPENs as the source
+      does (its options after the colon, in FILOPT). **OO-1:** LPT2:, LPT3: and COM2: have no driver (they wait for
+      the serial card's TL16C552A), so their table entries are 0: Device Unavailable at OPEN, the source's answer for
+      a device with none; LPT9: and other names are Bad file name.
+    - **Resident (OO-1):** a device's file's bytes go to P4 one at a time (OUTDO's `FILDVC` bit, then a far call to
+      `DEVSOT`), since a printer's or a port's column and line ends are the driver's; a disk file's still go as runs.
+      `FILWID` (the file's F_WID) lets P1's PTRWDC give a file its own width (LPT1:'s 80, where every file was
+      255). Two bytes of fixed RAM, 21 of code (OUTDO's branch, LPOS's stub).
+    - **LPT1:** is LST: (function 5), the DCB LPRINT's (LINLEN+1, LPTPOS, LPCRF), so LPRINT, LLIST and an LPT1: file
+      share its column, as the 8086's LP1DCB is shared: a CR followed by an LF, an LF after a CR dropped, a TAB no
+      column, a CR LF at the width; BIN raw. LPOS(n) keeps the source's (n - 1) / 2 (so LPOS(3) reads LPT1's flags
+      byte; past LPT1's DCB, LPTINI's bytes for LPT2 and LPT3, then 0).
+    - **COM1:** is AUX:, **polled** (decision 12): output by function 4, input by function 3 when function 7 says a
+      byte waits (COMSIN polls the keys meanwhile, so ^C breaks). With no receive buffer, **a byte that comes while
+      BASIC is busy elsewhere is lost** once the next comes (TTY holds one); LOC is 0 or 1 (and a byte backed up),
+      LOF the room in that one place. **The speed** (the owner, 2026-11-14) is parsed and checked as PCOMOP and the
+      OEM's INICOM give it (5 digits at most; one of the PC's 75-9,600 or the line's own 19,200, else Bad file name)
+      and kept in the DCB with the parity, data and stop bits, but **not set**: OODOS's DEVINI ignores the device
+      table's speed and TTY has no soft speed, so the line stays 19,200, 8-N-1, and a program asking for 300 gets
+      19,200. RS, CS, DS and CD are kept and do nothing (TTY has no modem lines). Binary unless ASC (no ^Z at CLOSE;
+      EOF true while nothing waits); ASCII sends a ^Z at CLOSE and ends at one received. OO-1: GET and PUT's count is
+      1 to the record's length (Bad record number), where the source's takes 65,536 bytes for 0 and runs past the
+      FIELD buffer for more. ON COM(n)'s trap from a byte waiting (POLCOM) is 7f's; COM(n) ON/OFF/STOP sets the flag.
+    - **SCRN:, KYBD:, CONS:** until the screen (7d): SCRN: writes through the console's own output (a CR as CR LF, an
+      LF after a CR dropped, CR LF past its width, 80); KYBD: reads the OEM's keys (INCHRI), ^Z its end; CONS: writes
+      by function 6 raw (OO-1: not $FD-$FF, function 6's requests).
+    - **G10:** SEVSTT's id must be below the class's count unsigned too, so COM(200) (which passes the source's signed
+      JGE) is Illegal function call, as PC-BASIC gives it, never a flag past TRPTBL.
+    - **LCOPY** parses as LCOPYS (a byte, the statement's end), then the OEM's LCPY is Advanced Feature until 7d's
+      text layer (the console's screen is OODOS's). ERDEV and IOCTL are the source's Advanced Feature (ERDEV has no
+      word in the 1983 table, so it is a variable). GIOTRM is dropped: every device's end is a RET here.
+    - **FALLOC** keeps BX, CX and DX as the 8086's does (it didn't: a random file's F_WID and F_POS were the string
+      move's), stores the FIELD buffer's size in FD_SIZ for FFREE (a device's random file too), and INIFDB keeps the
+      device id on the stack round its collection.
+    - The books describe no GW-BASIC device yet (the Technical Reference's serial chapter is the card's): COM1's
+      speed goes into the User's Guide's GW-BASIC chapter when it is written.
+    - Must-fail (test_gwbasic_files): an LPT1: file's CR without its LF; COM1:'s bytes sent by function 2, not 4;
+      SEVSTT without G10's guard (COM(200) writes past TRPTBL).
+  - **7c as built, in sum** (Proposed, 2026-11-15; feat/gwbasic-7c, the owner's decisions of 2026-11-14 and 15):
+    - **Done:** the home block and STMDSX in it; files (sequential, random on 128-byte records with X1's rule,
+      route (c) checked); LOAD, SAVE, MERGE and a program on the command line with its switches (SCANSW: /F:, /S:,
+      /C: read and ignored, /M: as CLEAR's n); KILL, NAME, FILES (SYS files left out) and the directory hook;
+      CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
+      with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
+    - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 424
+      bytes left for BLOAD and BSAVE (697 before the review's fixes, below): measured then (the owner, 2026-11-15),
+      with COM1's driver (about 1.2 KB) the piece to move out if they don't fit.
+    - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
+      RAM 1,565; P1 8,377, P2 5,688, P3 4,883, P4 11,591, P8 2,525 (as measured at d0a523d).
+    - **The flat test image** leaves P4 and `p8/far4.s` out (`test/flatp4.s` stands in), and its program area
+      moved from `$9000` to `$9400` (the owner's G11 answer, 2026-11-14; the notes above that name `$9000` were
+      true when written). It ends at `$90FC` (`$9110` after the review's fixes).
+    - **Recorded deviations:** File not open is Bad file number (52), PC-BASIC's answer, where the 1983 source maps
+      it to Bad file mode (54); CHDIR, MKDIR and RMDIR added to the keyword table, and errors 75 and 76's messages
+      to the error table; LEN past /S: (128) is Illegal function call; COM1's speed parsed and kept but the line
+      at 19,200. **A long name** (decision 9, narrowed 2026-11-15) follows the source: a name over 8 characters
+      with no type runs on into the type (`ABCDEFGHI` is `ABCDEFGH.I`); only a long name with a type is Bad file
+      name.
+    - **The fidelity review's fixes** (Proposed, 2026-11-15; the owner's W1-W12, "recommendations as listed"),
+      each with a test in test_gwbasic_files (`w1_...` to `w12_...`) that fails on a build without it:
+      - W1: FILFNP sends OUTDO's run (FLUSHR) before EOF, LOC and LOF, so inside a PRINT # to the same file they
+        count every byte printed before them, as the 8086's OUTDO writes each at once.
+      - W2, W3: CHKFOP compares only disk files' FDBs (F_DEV not negative: a device's slot may keep a closed
+        file's FCB, the table being fixed), and compares the names without CP/M's attribute bits, which F_OPEN
+        leaves in the FCB.
+      - W4: DSKCHP tests LDRUN after each byte, before the CR/LF rule, so RUN or CHAIN of a text file whose last
+        line ends in a bare LF runs at the file's end, as NOTCHN's RUNC, instead of waiting on the keyboard.
+      - W5, W6, W8: FILFCB (KILL, NAME, FILES) makes the name one that function 152 takes as MS-DOS's parse takes
+        it: the type that a typeless long name runs into keeps 3 characters (`ABCDEFGHIJKL` is `ABCDEFGH.IJK`, as
+        OPEN makes it); the rest of a field after a `*` is dropped to the next delimiter (`*1.BAS` is `*.BAS`); a
+        control character, `+`, `/` or `"` ends the name. An explicit type of more than 3 stays Bad file name.
+      - W7: KILL and NAME don't find a SYS file (SKPSYS, as FILES): KILL deletes each other match by its own name,
+        the search begun again after each, since CP/M's delete of the pattern would take the SYS files too. A SYS
+        file as NAME's new name still counts as there (File already exists), so no second entry is made.
+      - W9: LISPRT sends a CR after an LF in a line to a file or device (OUTCH1's), so LLIST's printer starts
+        the rest at its margin; the console gets none.
+      - W10: LSTCHR is resident (`res/oem.s`), set by the console's OUTDO for each byte and by SCNOL1 after its
+        own, so an LF to SCRN: after console printing isn't taken for one straight after a CR.
+      - W12: KYBINI ends in FINPRT, as GIOKYB.ASM's, so a break's new line goes to the screen, not to the file,
+        printer or port being written.
+      - W7's OPEN part (the owner, 2026-11-15): DSKOPN's SYSCHK searches for the name first (in error mode $FF,
+        so a missing drive is still met by the open, delete or make, its function named): a SYS file is File not
+        found for INPUT (and LOAD), Path/File access error (75) for OUTPUT, APPEND, random (and SAVE), as
+        deleting it or making a second entry of its name would harm it. files_leaves_out_system_files's OPEN of
+        a SYS file now expects File not found (the owner's change).
+      - W11 (the owner, 2026-11-15): the KYBD: queue is 32 (KYBQLN, LOWRAM), so LOF of an empty one is 31, as
+        the 8086's; scrn_kybd_and_cons_files_by_hand's expectation changed from 15 to 31 (the owner's change).
+      - An error in a random OPEN (the owner, 2026-11-15): it went into the monitor, on 7c's earlier builds too
+        (OPEN "R",#1,"H:X.DAT"). The error's STKERR keeps its return in CX (RCL/RCH) and ERROR the error in DL
+        across FINPRT, and FINPRT freed the half-made random FDB (FREFDB) by FFREE, whose XFRSTR (the FIELD
+        buffer given back) uses both: STKERR's RTS went to the count. The 8086's FFREE PUSHes AX, BX, CX and DX
+        first; the port's FFREE now keeps RDL-RCH the same way. Sequential FDBs have no FIELD buffer, so never
+        reached XFRSTR. Test an_error_in_a_random_open_comes_back_to_ok, and W7's random case in its test.
+      - Sizes after them: 35,776 bytes free; resident code and tables 11,015, fixed RAM 1,582 (LOWRAM 45); P2
+        5,702, P4 11,864 of 12,288 (424 free).
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

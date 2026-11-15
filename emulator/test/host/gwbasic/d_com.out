@@ -1,0 +1,14 @@
+on
+stop
+off
+err 5  50 
+3
+err 5  60 
+200
+err 2  65 
+x
+gosub
+err 5  75 
+gosub3
+err 68  80 
+com2

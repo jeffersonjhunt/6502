@@ -1,0 +1,2 @@
+# 77 is past the 1983 table's last error (74; the port adds 75 and 76, the directory hook's), so it is Unprintable error, as the source's ERRPRT gives one past LSTERR; PC-BASIC has later messages there (Deadlock).
+Unprintable error in 10

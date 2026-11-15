@@ -1,0 +1,1 @@
+10 OPEN "I",#1,"NOFILE.TXT"

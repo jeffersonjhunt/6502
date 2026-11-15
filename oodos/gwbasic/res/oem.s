@@ -20,9 +20,13 @@
 ;             TAB doesn't); a CR is followed by an LF, and an LF straight
 ;             after a CR is dropped (LPOUT1). $FF, which GW-BASIC sends
 ;             after a message to mark the line "not typed", counts a column
-;             and isn't sent (the PC shows it as a blank)
-;   CRDO CRDONZ CRFIN  CR LF; CR LF unless at the margin; A = 0
-;   FINLPT FINPRT      LPT1 to its margin; output back to the console
+;             and isn't sent (the PC shows it as a blank). A disk file's
+;             byte (7c) goes into RUNBUF for P4, its column in FILPOS; a
+;             device's file's (FILDVC) goes to P4 at once (DEVSOT)
+;   CRDO CRDONZ CRFIN  CR LF; CR LF unless at the margin; A = 0 (CRDONZ:
+;                      the console's or LPT1's; no file's comes here yet)
+;   FINLPT FINPRT      LPT1 to its margin; output back to the console, a
+;                      file's run sent and a half-opened FDB freed first
 ;   ISFLIO             Z clear when output isn't the console
 ;   PINLIN INLIN       a line into BUF by function 10, BUF-1 returned in
 ;   QINLIN SINLIN      TXTPTR, as GW-BASIC's buffer: the characters, then a
@@ -51,7 +55,8 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
-.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG
+.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR
+.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL
 
         OODOS_HEADER
 
@@ -60,7 +65,6 @@
                 JMP     LOAD           ; $0300: the loader, once
 
 POLN            = 16                   ; CHKINT: statements between looks at the keys
-KYBQLN          = 16                   ; the keyboard queue's size (a power of 2)
 WIDTH           = 80                   ; the console's and LPT1's width
 
 .code
@@ -73,11 +77,18 @@ OUTDO:          PHP
                 PHY
                 LDX     #0             ; X: the column's index, 0 the console, 1 LPT1:
                 LDY     PTRFIL         ; the console only if both of PTRFIL's bytes
-                BNE     @tolpt         ; are 0, as ISFLIO has it (a file's block, 7c,
-                LDY     PTRFIL+1       ; may have a low byte of 0)
-                BEQ     :+
-@tolpt:         JMP     @lpt
-:               CMP     #' '
+                BNE     @tolpt         ; are 0, as ISFLIO has it (a file's FDB may
+                LDY     PTRFIL+1       ; have a low byte of 0)
+                BEQ     @con
+@tolpt:         LDY     PTRFIL+1       ; a file's FDB is in P4's RAM, in W3's
+                CPY     #>BLK_BASE     ; window; LPT1 is $FFFF, and so is any
+                BCC     @tolp1         ; other PTRFIL, as 7a had it
+                INY
+                BEQ     @tolp1
+                JMP     @file
+@tolp1:         JMP     @lpt
+@con:           STA     LSTCHR         ; (SCRN:'s, p4/gioscn.s SCNOL1: W10)
+                CMP     #' '
                 BCC     @ctl
                 PHA
                 LDA     TTYPOS,X       ; at the width: the console wraps itself,
@@ -129,6 +140,34 @@ OUTDO:          PHP
                 BRA     @done
 @lpc:           JSR     LPOUT1
                 BRA     @done
+; A file's byte (7c): the 8086's PTRDSP to the disk's DSKSOT (p4/giodsk.s).
+; OO-1: the bytes wait in RUNBUF, and P4 takes them as a run, in one far
+; call (FLUSHP) when RUNBUF is full or at FINPRT, or before anything else
+; P4 does (hw/oodos.md, V1: the device interface takes runs). The column
+; moves as SOUTPS moves F_POS: a CR to 0, a printable byte on one. A
+; device's file (LPT1:, COM1:, SCRN:, CONS:: FILDVC, which P4's SETPTR
+; sets) keeps its own column and line ends in P4, so its byte goes there at
+; once, one far call each (DEVSOT, which sets FILPOS): a printer or a port
+; is slower than the call.
+@file:          BIT     FILDVC
+                BMI     @dev
+                LDX     RUNLEN
+                STA     RUNBUF,X
+                INX
+                STX     RUNLEN
+                CMP     #13
+                BNE     @fp
+                STZ     FILPOS
+                BRA     @fful
+@fp:            CMP     #' '
+                BCC     @fful
+                INC     FILPOS
+@fful:          CPX     #RUNSIZ
+                BCC     @done
+                FJSR    FLUSHP
+                BRA     @done
+@dev:           FJSR    DEVSOT
+                JMP     @done
 @out:           PHX                    ; X: the device
                 LDY     #C_WRITE
                 CPX     #0
@@ -191,17 +230,34 @@ CRDO:           LDA     #13
 CRFIN:          LDA     #0
                 RTS
 
-; FINLPT (GIO86.ASM 2088): LPT1 to its left margin, then FINPRT: output to
-; the console (and, with the files, 7c, the other I/O flags cleared).
+; FINLPT (GIO86.ASM 2088): LPT1 to its left margin, then FINPRT (2124):
+; output to the console. Before it, P4's part (FINPRP, p4/gio86.s), only
+; when there is something for it to do: a file's run still in RUNBUF, an
+; FDB an OPEN left half made (FREFDB), which it frees, or file 0 open
+; (F0OPN, OO-1), which it closes unless a load is under way (NLONLY's bit
+; 0: CLSFIL's). While one is, PTRFIL stays at file 0 (RET45). (The cursor
+; is 7d's.) A, X, Y used.
 FINLPT:         LDA     LPTPOS
                 BEQ     FINPRT
                 LDA     #$FF
                 STA     PTRFIL
                 STA     PTRFIL+1
                 JSR     CRDO
-FINPRT:         STZ     PTRFIL
+FINPRT:         LDA     RUNLEN
+                ORA     FREFDB+1
+                BNE     @far
+                LDA     NLONLY         ; loading: nothing to close
+                LSR     A
+                BCS     @x
+                LDA     F0OPN
+                BEQ     @clr
+@far:           FJSR    FINPRP
+                LDA     NLONLY         ; loading: PTRFIL kept
+                LSR     A
+                BCS     @x
+@clr:           STZ     PTRFIL
                 STZ     PTRFIL+1
-                RTS
+@x:             RTS
 
 ; ISFLIO (BIMISC.ASM 922): Z clear when PTRFIL is a file (or LPT1). A is
 ; used (the 8086 keeps BX, its text pointer, and uses AL's flags alone: a
@@ -368,7 +424,8 @@ CNTCCN:         JSR     CRDO           ; EDTBRK: to a new line, AUTO ended
                 JMP     STOPRG
 
 ; The keyboard queue (GIOKYB.ASM's KYBQDS): PKQUE puts A in (dropped if
-; full), KYBGET takes one (C set if none), KYBINI empties it.
+; full), KYBGET takes one (C set if none), KYBINI empties it and then, as
+; GIOKYB.ASM's does, FINPRT.
 PKQUE:          PHX
                 PHA
                 LDX     KYBQIN
@@ -400,9 +457,10 @@ KYBGET:         PHY
                 CLC
 @r:             PLY
                 RTS
-KYBINI:         STZ     KYBQIN
+KYBINI:         STZ     KYBQIN         ; INITQ
                 STZ     KYBQOUT
-                RTS
+                JMP     FINPRT         ; output to the console again (W12: a
+                                       ; break's new line goes to the screen)
 
 ; --- CHSNS, INKEY$ (GIOKYB.ASM 520, 817) --------------------------------------------------
 
@@ -437,12 +495,14 @@ NULRT:          LDA     #<DSEGZ
 
 ; --- SYSTEM (GIODSK.ASM 1200) -------------------------------------------------------------
 
-; SYSTEM (nothing may follow it): back to OODOS. GWTERM, the OEM's part:
-; the console mode as it was, and what was typed ahead drained, so the CCP
-; doesn't get it (X2: while function 11 says a key waits, function 6 reads
-; and drops it). (CLSALL, the files, is 7c's.)
-SYSTEM:         BEQ     SYSTME
+; SYSTEM (nothing may follow it): back to OODOS, every file closed first
+; (CLSALL). GWTERM, the OEM's part: the console mode as it was, and what was
+; typed ahead drained, so the CCP doesn't get it (X2: while function 11 says
+; a key waits, function 6 reads and drops it). (GIOTRM, the devices' end,
+; has nothing to do: the disk is the only device.)
+SYSTEM:         BEQ     :+
                 RTS
+:               JSR     CLSALL
 SYSTME:         LDA     OLDMOD
                 LDX     OLDMOD+1
                 LDY     #C_MODE
@@ -473,6 +533,18 @@ KYBQIN:         .res    1
 KYBQOUT:        .res    1
 
 .segment "RAM"
+; 7c's: OUTDO's run for PTRFIL's file (above); FILOPN, the files open,
+; which P4 counts (INIFDB, FFREE), so CLSALL makes no far call with none
+; (res/far4.s); FREFDB (GWDATA.ASM's), the FDB an OPEN is making, for
+; FINPRT to free if an error comes first (P4 sets and clears it).
+RUNBUF:         .res    RUNSIZ
+FILOPN:         .byte   0
+FREFDB:         .word   0
+; 7c's devices (P4's SETPTR sets them with PTRFIL, for a file): FILWID the
+; file's width (F_WID: 255 a disk's; P1's PTRWDC), FILDVC bit 7 if it is a
+; device's (OUTDO, above).
+FILWID:         .byte   255
+FILDVC:         .byte   0
 ; GWDATA.ASM's buffers: function 10 reads into BUF-2, its size and length
 ; over the byte before BUF; BUFMIN, a comma for INPUT and READ; BUF, a line
 ; typed (direct statements run from KBUF, which CRUNCH fills); KBUF-1 a
@@ -486,6 +558,7 @@ KBUF:           .res    KBFLEN
 LINLEN:         .byte   WIDTH          ; the console's width (WIDTH, the statement, is 7d's)
                 .byte   WIDTH          ; LPT1's
 LPCRF:          .byte   0              ; LPOUT1: bit 7, the last byte to LST: a CR
+LSTCHR:         .byte   0              ; GWDATA.ASM's: the last byte to the screen (OUTDO's, SCNOL1's)
 F_EDPG:         .res    1              ; PINLIN: bit 7 a program line
 SEMFLG:         .res    1              ; INPUT;
 PRELOD:         .res    1              ; BUF holds a line to edit (ERREDT)

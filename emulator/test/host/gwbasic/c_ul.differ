@@ -1,0 +1,2 @@
+# the 1983 source: a CHAIN line not in the program is Undefined line number (CHNRET: FNDLIN, USERR), with no " in": a text file is read by MAIN, which makes CURLIN direct; PC-BASIC gives Illegal function call
+Undefined line number

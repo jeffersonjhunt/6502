@@ -1,0 +1,8 @@
+10 REM EOF before the end and at it; Input past end
+20 OPEN "O",#1,"FE.TXT":PRINT #1,"1,2":PRINT #1,"3":CLOSE
+30 OPEN "I",#1,"FE.TXT"
+40 PRINT EOF(1);:INPUT #1,A:PRINT A;EOF(1);
+50 INPUT #1,A:PRINT A;EOF(1);
+60 INPUT #1,A:PRINT A;EOF(1)
+70 INPUT #1,A
+80 PRINT "not here"

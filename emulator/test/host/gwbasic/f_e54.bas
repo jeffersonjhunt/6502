@@ -1,0 +1,1 @@
+10 OPEN "O",#1,"FE54.TXT":INPUT #1,A

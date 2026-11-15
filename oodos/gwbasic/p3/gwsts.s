@@ -35,10 +35,12 @@
 ;@entry EVTRP
 ;@entry EVCLR
 ;@entry TSTCEV
+;@entry COMSP
+;@entry LCOPYP
 .export VARPT2P
 .export SEVSTT, SET1EV, SEVALL, EVSET, EVADR, ONGOTP, SETGSB, EVTRP, EVCLR, TSTCEV
-.export EOSCHK, EOSCH1, TRPTBL
-.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT
+.export EOSCHK, EOSCH1, TRPTBL, COMSP, LCOPYP
+.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT, ADVERR
 .import ONTRP, OFFTRP, STPTRP, REQTRP, FRETRP
 
 .code
@@ -85,8 +87,10 @@ VARRT2:         LDA     PTR+1          ; the address
 ; class (SEVALL); n is the class's n-th event, but STRIG's, whose 0, 2, 4 and
 ; 6 are halved (ROR AL,1, bit 0 into bit 7, so an odd one comes out 128 or
 ; more). Past the class: Illegal function call. The 8086's JGE is a signed
-; compare, kept: an id of 128 or more passes it (as negative), and is a flag
-; past TRPTBL's end (a question for the statements' step, 7f).
+; compare, kept: an id of 128 or more passes it (as negative), and would be
+; a flag past TRPTBL's end. OO-1 (G10, the owner's, 2026-11-14; the guard is
+; 7c's, whose COM statement first calls SEVSTT): such an id is Illegal
+; function call too, as PC-BASIC gives it, never a write past the table.
 SEVSTT:         LDA     RCL            ; save the class's count and first id
                 PHA
                 LDA     RCH
@@ -128,6 +132,9 @@ SEVST2:         STA     RAL
                 BVC     :+
                 EOR     #$80
 :               BPL     FCERR1         ; not in range
+                LDA     RAL            ; G10: and unsigned (OO-1), so never
+                CMP     RCL            ; past TRPTBL
+                BCS     FCERR1
                 LDA     RAL            ; the event id
                 CLC
                 ADC     RCH
@@ -407,6 +414,28 @@ TSTCEV:         JSR     EVADR          ; DX: the event's flag
 TSTEVX:         STX     RBL
                 STX     RBH
                 RTS
+
+; --- COMS, LCOPYS (GWSTS.ASM 1280, 227) ------------------------------------------------
+
+; COMSP: COMS, COM(n) ON, OFF or STOP: SEVSTT for the COM class (NMCOMT
+; events from COMOFF), TXTPTR at the "(". The trap's flag is set as the
+; source sets it; ON COM(n)'s trap from a byte waiting (POLCOM) is 7f's.
+COMSP:          LDA     #NMCOMT
+                STA     RCL
+                LDA     #COMOFF
+                STA     RCH
+                JMP     SEVSTT
+
+; LCOPYP: LCOPYS, LCOPY [n]: n 0 if not given (a byte, GETBYT), and the
+; statement's end; then LCPY, the OEM's copy of the screen to the printer
+; (C set: Illegal function call). OO-1: LCPY is Advanced Feature until the
+; screen (7d): the console's screen is OODOS's (AGENTS.md), and GW-BASIC's
+; own text layer, which it would copy, is 7d's.
+LCOPYP:         STZ     RDL            ; DL: 0, the default
+                BEQ     NOPARM         ; the statement's end
+                JSR     GETBYT
+NOPARM:         JSR     EOSCHK
+                JMP     ADVERR         ; LCPY (OO-1: 7d's)
 
 ; EOSCHK (GWSTS.ASM 467): the statement must end at TXTPTR (EOSCHK) or after
 ; it (EOSCH1), else Syntax error.

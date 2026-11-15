@@ -11,9 +11,11 @@
 ;   PTRWDC          its width, and the last column a comma may go to
 ;   ADRGET          a formula as 0..65535 (TAB's and SPC's)
 ;
-; The resident core's PRINT and LPRINT (res/gwmain.s) far call these, once a
-; statement. PRINT # (FILGET, the files) is 7c's: Advanced Feature. PRINT
-; USING and LPRINT USING go to P3's PRINUS (p3/biprtu.s), as GIO86.ASM's
+; The home block's PRINT and LPRINT stubs (p8/gwmain.s) far call these, once a
+; statement. PRINT # is a file's (7c): FILGET, P4's (p4/gio86.s), a far call
+; made only for a "#" (its first test is here, so a PRINT to the console pays
+; nothing for it), sets PTRFIL to the file's FDB, and OUTDO sends the output
+; there (res/oem.s). PRINT USING and LPRINT USING go to P3's PRINUS (p3/biprtu.s), as GIO86.ASM's
 ; JPRINU jumps: a far call, whose return is this statement's (PRINUS ends in
 ; FINPRT, as PRINT does). The 8086 keeps the width and the last comma column
 ; in CX on its stack, and the text pointer beside them; here they are PRTWID
@@ -24,23 +26,26 @@
 
 ;@entry PRINTP
 ;@entry LPRNTP
+;@entry ADRGET
 .export PRINTP, LPRNTP, PTRGPS, PTRWDC, ADRGET
 .import CHRGTR, FRMEVL, GETYP, FOUT, STRLIT, STRPRT, CRDO, FINPRT, OUTDO
-.import SYNCHR, FRQINT, IMOD, ADVERR, LINLEN
+.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID
 
 CLMWID          = 14                   ; OEM.H: the print zones' width
 
 .code
 
-; LPRINT (GIO86.ASM 431): to LPT1 (PTRFIL $FFFF), then as PRINT. PRINT: a
-; "#" is a file's (7c).
+; LPRINT (GIO86.ASM 431): to LPT1 (PTRFIL $FFFF), then as PRINT. PRINT
+; (433): a "#" is a file's, for output (FILGET, MD_SQO in CL: P4's).
 LPRNTP:         LDA     #$FF
                 STA     PTRFIL
                 STA     PTRFIL+1
                 BRA     PRINT1
-PRINTP:         CMP     #'#'           ; FILGET
+PRINTP:         CMP     #'#'           ; FILGET's own first test
                 BNE     PRINT1
-                JMP     ADVERR
+                LDX     #MD_SQO
+                STX     RCL
+                FJSR    FILGET
 PRINT1:         JSR     PTRWDC
                 STX     PRTWID
                 STA     PRTCMA
@@ -199,24 +204,41 @@ NOTABR:         JSR     CHRGTR         ; past ";", "," or ")"
 
 ; --- PTRGPS, PTRWDC (GIO86.ASM 1208) ------------------------------------------------
 
-; PTRGPS: the current output's column (the console's or LPT1's) in A, Z set
-; at the margin.
-PTRGPS:         LDX     #0
-                LDA     PTRFIL
-                BEQ     :+
-                INX
-:               LDA     TTYPOS,X
+; PTRGPS: the current output's column (the console's, LPT1's or a file's) in
+; A, Z set at the margin. A file's is FILPOS (the 8086's G_GPS: OO-1, the
+; FDB is P4's): a disk file's F_POS, as OUTDO keeps it beside the run it
+; hands P4; a device's file's, the device's column, which P4's DEVSOT sets
+; after each byte.
+PTRGPS:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
+                BEQ     @con           ; window; else LPT1 ($FFFF), as OUTDO
+                CMP     #>BLK_BASE     ; has it
+                BCC     @lpt
+                INC     A
+                BEQ     @lpt
+                LDA     FILPOS
+                RTS
+@lpt:           LDA     LPTPOS
+                RTS
+@con:           LDA     TTYPOS
                 RTS
 
 ; PTRWDC: X = the current output's width (LINLEN; WIDTH is 7d's), A the last
 ; column a comma may print at: the width less its remainder mod 14, less 14
-; (80: 56). (PTRWID's file widths are 7c's.)
-PTRWDC:         LDX     #0
-                LDA     PTRFIL
-                BEQ     :+
-                INX
-:               LDA     LINLEN,X
-                TAX
+; (80: 56). PTRWID: a file's width is its F_WID: OO-1, FILWID, which P4's
+; SETPTR keeps with PTRFIL, so P1 needn't read P4's FDB for it (255 for a
+; disk file; LPT1:'s 80, ...).
+PTRWDC:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
+                BEQ     @con           ; window; else LPT1 ($FFFF), as OUTDO
+                CMP     #>BLK_BASE     ; has it
+                BCC     @lpt
+                INC     A
+                BEQ     @lpt
+                LDA     FILWID
+                BRA     @w
+@lpt:           LDA     LINLEN+1
+                BRA     @w
+@con:           LDA     LINLEN
+@w:             TAX
 @m:             SEC
                 SBC     #14
                 BCS     @m

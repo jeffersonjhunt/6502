@@ -1,0 +1,8 @@
+10 REM RUN closes every file, its last record written
+20 OPEN "O",#2,"FR2.TXT":PRINT #2,"by run";
+30 RUN 100
+100 OPEN "I",#2,"FR2.TXT":LINE INPUT #2,A$:PRINT A$
+110 ON ERROR GOTO 200
+120 PRINT #1,"x"
+130 CLOSE:END
+200 PRINT "error";ERR;"in";ERL:RESUME NEXT

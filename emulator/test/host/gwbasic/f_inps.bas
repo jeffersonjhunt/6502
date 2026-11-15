@@ -1,0 +1,13 @@
+10 REM INPUT$ from a file
+20 OPEN "O",#1,"FS.TXT":PRINT #1,"abc,def":PRINT #1,"ghi":CLOSE
+30 OPEN "I",#1,"FS.TXT"
+40 A$=INPUT$(2,#1):PRINT "<";A$;">"
+50 A$=INPUT$(3,1):PRINT "<";A$;">"
+60 INPUT #1,B$:PRINT "<";B$;">"
+70 A$=INPUT$(3,#1):PRINT "<";A$;">";EOF(1)
+80 A$=INPUT$(2,#1):PRINT ASC(A$);ASC(MID$(A$,2));EOF(1)
+90 CLOSE
+100 OPEN "O",#2,"FS2.TXT":OPEN "I",#1,"FS.TXT"
+110 PRINT #2,"[";INPUT$(3,#1);"]";INPUT$(4,#1):CLOSE
+120 OPEN "I",#1,"FS2.TXT":LINE INPUT #1,A$:PRINT A$:CLOSE
+130 OPEN "I",#1,"FS.TXT":A$=INPUT$(20,#1)

@@ -28,7 +28,7 @@ AFLAGS      = -g -I . -I $(BUILD) -I ../include
 BLOCKS      = $(sort $(patsubst %/,%,$(dir $(wildcard p[1-8]/*.s))))
 RES_SRC     = $(wildcard res/*.s)
 RES_OBJ     = $(RES_SRC:res/%.s=$(BUILD)/res/%.o)
-INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc
+INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc $(BUILD)/homent.inc
 FARMISS     = $$(awk '/\.FARMISS$$/ {print "0x" $$2; exit}' $(BUILD)/gwbasic.lbl)
 
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \
@@ -44,6 +44,7 @@ $(BUILD) $(BUILD)/res $(addprefix $(BUILD)/,$(BLOCKS)):
 # header's object depends on entries.inc as well.
 $(BUILD)/entries.inc: $(wildcard p[1-8]/*.s) tools/gwgen.py | $(BUILD)
 	$(PYTHON) tools/gwgen.py $(BUILD) $(BLOCKS)
+$(BUILD)/homent.inc: $(BUILD)/entries.inc
 $(foreach b,$(BLOCKS),$(BUILD)/$(b)_hdr.s): $(BUILD)/entries.inc
 
 $(BUILD)/res/%.o: res/%.s $(INCS) | $(BUILD)/res
@@ -63,13 +64,16 @@ $(BUILD)/ressym.lst: $(BUILD)/ressym.s
 
 # A block: its header, its modules, the resident core's symbols. Its rules check takes the resident core's
 # exports as the addresses outside the block a JSR or JMP may go to.
+# P8 is the home block (p8/home.s): linked by home.cfg, which puts STMDSP at HOMTAB; the other blocks are
+# assembled with NOHOME, so none can name the home block's entries (gwbasic.inc), and none links with its
+# labels, so no banked code calls it.
 define BLOCK
 $(BUILD)/$(1)/%.o: $(1)/%.s $(INCS) | $(BUILD)/$(1)
-	ca65 $$(AFLAGS) -D BLOCK_$(1) $$< -o $$@
+	ca65 $$(AFLAGS) -D BLOCK_$(1) $(if $(filter p8,$(1)),,-D NOHOME) $$< -o $$@
 $(BUILD)/$(1)_hdr.o: $(BUILD)/$(1)_hdr.s $(BUILD)/entries.inc
 	ca65 $$(AFLAGS) $$< -o $$@
-$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o $(BUILD)/ressym.lst blk.cfg
-	$$(call LD65,-C blk.cfg $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
+$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o $(BUILD)/ressym.lst $(if $(filter p8,$(1)),home.cfg,blk.cfg)
+	$$(call LD65,-C $(if $(filter p8,$(1)),home.cfg,blk.cfg) $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
 	$$(PYTHON) ../tools/rules.py $$@ --load 0xC800 --map $(BUILD)/$(1).map --code CODE --farcall $$(FARMISS) \
 	    --import $$$$(cat $(BUILD)/ressym.lst) --lbl $(BUILD)/gwbasic.lbl --inline SYNCHR
 endef
@@ -89,9 +93,11 @@ sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 
 # The flat test image (test/, the project's own): every module, resident and banked, assembled with
 # -D FLAT (a far call is a JSR) and linked as one image at $0300 with the math harness first
-# (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). ctest's
+# (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). P4, the
+# files, is left out (the image has no OODOS), and so are its statements' home block stubs
+# (p8/far4.s); test/flatp4.s stands in for both. ctest's
 # test_gwbasic_math builds the runner itself and runs check.py on this image.
-FLAT_SRC    = test/harness.s $(RES_SRC) $(wildcard p[1-8]/*.s)
+FLAT_SRC    = test/harness.s test/flatp4.s $(RES_SRC) $(filter-out p4/% p8/far4.s,$(wildcard p[1-8]/*.s))
 FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
 EMU         = ../../emulator/components
 CHECK      ?=

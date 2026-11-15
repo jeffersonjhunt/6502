@@ -3,7 +3,7 @@
     python3 -I programs.py --runner RUN6502 --image flat.bin [--dir DIR] [NAME...] [-v]
 
 Each DIR/NAME.bas (DIR: programs/ beside this file) is tokenised by basic.py and run in the flat
-harness (harness.s: the program at $9000, run through NEWSTT, printed by the stand-in PRINT, which
+harness (harness.s: the program at $9400, run through NEWSTT, printed by the stand-in PRINT, which
 prints numbers and strings with ";" between them). What it prints must be DIR/NAME.out, PC-BASIC's
 output for the same file (tools/oracle.sh). GW-BASIC's error printer (res/gwmain.s's ERROR, P2's
 messages) prints an error as PC-BASIC does; then READY prints "Ok" and asks for a line, which ends
@@ -35,7 +35,7 @@ sys.path.insert(0, HERE)
 
 import basic  # noqa: E402
 
-CTRL, PROGRAM = 0x9FF0, 0x9000
+CTRL, PROGRAM = 0x9FF0, 0x9400  # G11: the program at $9400 (was $9000), 7c
 
 def expected(text):
     """PC-BASIC's output, its "not typed" marks dropped."""

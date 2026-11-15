@@ -15,15 +15,19 @@
 ;   SCNVAL          a value from the data: a string (quoted, or to a comma,
 ;                   or to a colon in DATA) or a number ($FIN)
 ;
-; The resident core's INPUT, LINE and READ (res/gwmain.s) far call these.
+; The home block's INPUT, LINE and READ stubs (p8/gwmain.s) far call these.
 ; The 8086 holds two text pointers, the variable list's and the data's (the
 ; line typed, or the DATA statements), swapping them with XTHL; every
 ; routine reads at TXTPTR, so here XTHL swaps TXTPTR with OTHPTR. What the
 ; 8086 keeps on its stack is in this block's RAM: the list's start
 ; (VLSTRT; pass 2's data starts at BUFMIN), the variable (INPVAR), the
 ; value's type (INPTYP). A return with C set is INPUT's ^C (STPEND, the
-; resident caller's). INPUT # and LINE INPUT # (the files) are 7c's, and the
-; graphics LINE 7e's: Advanced Feature.
+; resident caller's). The graphics LINE is 7e's: Advanced Feature.
+;
+; A file's (7c): INPUT # (FILSTI) has P4's FILINP set PTRFIL to the file,
+; then goes on as INPUT's pass 2 with BUFMIN's comma for its data, and each
+; value is P4's FILIND (SCNVAL's ISFLIO), an item read from the file into
+; BUF in one far call. LINE INPUT # is P4's DLINE, whole.
 
 .include "gwbasic.inc"
 
@@ -47,9 +51,11 @@ LINEP:          CMP     #INPUT_TK      ; LINE alone: GLINE, the graphics' (7e)
                 JMP     ADVERR
 :               JSR     SYNCHR
                 .byte   INPUT_TK
-                CMP     #'#'           ; DLINE, a file's (7c)
+                CMP     #'#'           ; DLINE, a file's (P4's)
                 BNE     :+
-                JMP     ADVERR
+                FJSR    DLINE
+                CLC
+                RTS
 :               JSR     SCNSEM
                 JSR     QTINP
                 JSR     PTRGET         ; the string to set
@@ -81,10 +87,24 @@ XTHLC:          JSR     XTHL
 
 ; --- INPUT (GWMAIN.ASM 2713) -----------------------------------------------------
 
-INPUTP:         CMP     #'#'           ; FILSTI, a file's (7c)
-                BNE     :+
-                JMP     ADVERR
-:               JSR     SCNSEM
+; FILSTI (GWMAIN.ASM 2709): INPUT #: the file set up for input (P4's FILINP,
+; past its comma), the variable list kept, and BUFMIN's comma as the data,
+; at INPCN3, as pass 2 (a file's values are read one at a time, each when
+; its variable wants it: SCNVAL's FILIND).
+FILSTI:         FJSR    FILINP
+                LDA     TXTPTR         ; PUSH BX: the variable list
+                STA     VLSTRT
+                LDA     TXTPTR+1
+                STA     VLSTRT+1
+                LDA     #<BUFMIN
+                STA     TXTPTR
+                LDA     #>BUFMIN
+                STA     TXTPTR+1
+                JMP     INPCN3
+
+INPUTP:         CMP     #'#'           ; FILSTI, a file's
+                BEQ     FILSTI
+                JSR     SCNSEM
                 JSR     QTINP
 NOTQTI:         LDA     TXTPTR         ; the variable list
                 STA     VLSTRT
@@ -310,11 +330,17 @@ NOWLIN:         JSR     CHRGTR         ; the statement: DATA?
 ; DATA, a colon, its trailing spaces dropped (STRLT2 with CH ","). Unquoted
 ; it may be all digits: only the variable's type decides. A number: $FIN
 ; ($FINDB for a double). DOASIG: in pass 2 (INPPAS not 0), assigned to
-; INPVAR as LET assigns (INPCOM). A file's value (FILIND) is 7c's.
+; INPVAR as LET assigns (INPCOM). A file's value is P4's FILIND (DSKCOM.ASM),
+; which reads it from the file and makes it, TXTPTR kept; the variable's
+; type, which FILIND's GETYPR gives the 8086's DOASIG on its stack, is in
+; INPTYP first (VALTYP changes as the value is made).
 SCNVAL:         STZ     INPPAS         ; pass 1: scanned only
 SCNVL1:         JSR     ISFLIO
                 BEQ     :+
-                JMP     ADVERR
+                JSR     GETYP
+                STA     INPTYP
+                FJSR    FILIND
+                BRA     DOASIG
 :               JSR     GETYP
                 STA     INPTYP
                 BNE     NUMINS

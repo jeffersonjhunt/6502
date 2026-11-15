@@ -1,0 +1,27 @@
+# FILES as the 1983 source prints it (GIODSK.ASM FILES): no heading (PC-BASIC prints the directory, Z:\), each name its 8 characters, a "." (a blank for a blank type) and its 3, then one blank (PC-BASIC six), a new line when the next name would end past the width (80: six a line, fewer after a PRINT ;), and no "Bytes free" line; and the source's OPEN runs a name of more than 8 characters into the type (DFLONGNM.X, where PC-BASIC cuts it to DFLONGNM), which FILES finds as FILFCB makes its name (a "." after the 8th).
+a
+DFA     .TXT DFB     .TXT 
+b
+DFNOTYPE     
+c
+DFA     .TXT DGA     .TXT 
+d
+error 53 in 70 
+e
+DFA     .TXT 
+f
+DFLONGNM.X   
+123456789012345DW1     .TXT DW2     .TXT DW3     .TXT DW4     .TXT
+DW5     .TXT DW6     .TXT DW7     .TXT DW8     .TXT 
+g
+DW1     .TXT DW2     .TXT DW3     .TXT DW4     .TXT DW5     .TXT DW6     .TXT
+DW7     .TXT DW8     .TXT 
+h
+error 13 in 120 
+i
+error 64 in 130 
+j
+error 53 in 140 
+k
+error 53 in 160 
+done

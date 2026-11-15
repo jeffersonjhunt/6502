@@ -1,0 +1,11 @@
+10 REM the ^Z end of a text file
+20 OPEN "O",#1,"FZ.TXT"
+30 PRINT #1,"before"
+40 PRINT #1,"ab";CHR$(26);"cd"
+50 PRINT #1,"after"
+60 CLOSE
+70 OPEN "I",#1,"FZ.TXT"
+80 LINE INPUT #1,A$:PRINT A$;EOF(1)
+90 LINE INPUT #1,A$:PRINT A$;LEN(A$);EOF(1)
+100 CLOSE
+110 OPEN "I",#1,"FZ.TXT":X$=INPUT$(9,#1):PRINT LEN(X$):CLOSE

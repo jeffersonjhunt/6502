@@ -1,0 +1,4 @@
+# The 1983 source: OPEN's FOR takes INPUT, OUTPUT and APPEND (GIO86.ASM's NOTNSO); a random file is the form with no FOR, so FOR RANDOM is Syntax error; PC-BASIC takes FOR RANDOM
+err 2  20 
+opened
+opened

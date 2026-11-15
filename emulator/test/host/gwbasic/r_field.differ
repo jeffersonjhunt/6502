@@ -1,0 +1,22 @@
+# The 1983 source: FIELD's total past the record is FIELD overflow (DSKCOM.ASM's TEMPB against TEMPA; PC-BASIC lets 15 + 6 into 20); a record past 32767 is Bad record number (DSKRND's JLE: PC-BASIC takes 32768); the FIELD buffer isn't cleared by anything but the bytes written (PC-BASIC's shows zeros where the source's keeps an earlier record's); INPUT # and PRINT # share FD_OPS, and WRITE # pads the record with spaces to two bytes from its end, then CR LF (FIVEO.ASM's WRTFIN, CMPFBC; PC-BASIC doesn't pad)
+ 10  10 
+err 50  40 
+err 5  50 
+err 13  60 
+err 52  70 
+err 54  80 
+err 54  80 
+err 54  80 
+aaaaaaaaaa|        bb|
+aaaaaaaaaa        bb|
+xaaaaaaaaaa        bb|
+y|aaaaaaaaaa        bb
+err 63  120 
+err 63  130 
+err 63  140 
+ 97  98  99  100  13  10  97  97  97  97 
+ 32  32  32  32  32  32  32  32  98  98 
+err 50  160 
+abcd
+ 97  98  99  100  13  10  34  113  34  44 
+ 49  32  32  32  32  32  32  32  13  10 

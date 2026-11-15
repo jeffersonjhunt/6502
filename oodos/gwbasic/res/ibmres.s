@@ -6,16 +6,24 @@
 ; CRUNCH's and LIST's code for the extended words are P2's (p2/ibmres.s).
 ;
 ;   NEWSTX    a statement token past LOCATE: $FE and an extended statement
-;             (STMDSX; SYSTEM alone is 7a's), or $FF and PEN or STRIG as a
+;             (STMDSX, in the home block; SYSTEM is 7a's), or $FF and PEN or STRIG as a
 ;             statement (7e's); anything else back to GONE2's caller, for
 ;             MID$ = (ISMID) or Syntax error
-;   EVALX     a formula's $FE DATE$ or TIME$, or $FD and a function (CVI to
-;             KLEN): all later sub-phases', so Advanced Feature for now
+;   EVALX     a formula's $FE DATE$ or TIME$ (later sub-phases': Advanced
+;             Feature for now), or $FD and a function (EVALNF: CVI to MKD$,
+;             P4's, by one far call; KTN to KLEN, Kanji's, dropped)
 
 .include "gwbasic.inc"
 
-.export NEWSTX, EVALX, STMDSX
-.import CHRGTR, SNERR, SYSTEM, ADVERR
+.export NEWSTX, EVALX
+.import CHRGTR, SNERR, ADVERR, SPUSHA, SPOPA, SPUSH, PARCHK, LABBCK
+; STMDSX, the extended statements' table, is the home block's (p8/home.s),
+; right after STMDSP, read here in W3.
+.ifdef FLAT
+.import STMDSX
+.else
+STMDSX          = HOMTAB + 2 * NUMCMD
+.endif
 
 .code
 
@@ -57,7 +65,7 @@ GONE4:          PLA
 SNERRS:         JMP     SNERR
 
 ; EVALX (IBMRES.ASM 961): EVAL's hook. $FE then DATE$ or TIME$ (DATEF,
-; TIMEF), or $FD and a function (FUNDSX): Advanced Feature; anything else
+; TIMEF: Advanced Feature), or $FD and a function (EVALNF); anything else
 ; back, A as it was.
 EVALX:          CMP     #$FE
                 BEQ     EVALNS
@@ -67,21 +75,38 @@ EVALX:          CMP     #$FE
 EVALNS:         LDY     #1
                 LDA     (TXTPTR),Y
                 CMP     #DATES_XS
-                BEQ     EVALNF
+                BEQ     EVALDT
                 CMP     #TIMES_XS
-                BEQ     EVALNF
+                BEQ     EVALDT
                 LDA     #$FE
                 RTS
-EVALNF:         JMP     ADVERR
-
-.rodata
-; STMDSX (IBMRES.ASM 553): the extended statements, $FE $81 to $FE $A1,
-; each address less one. SYSTEM is 7a's; the rest are the files' (7c), the
-; screen's and graphics' (7d), the sound's (7f) and the system's, later.
-.define S(addr) .word addr-1
-STMDSX:         S       ADVERR         ; FILES
-                S       ADVERR         ; FIELD
-                S       SYSTEM         ; SYSTEM
-.repeat NUMSTX - 3
-                S       ADVERR         ; NAME .. CALLS
-.endrepeat
+EVALDT:         JMP     ADVERR         ; DATEV, TIMEV: later sub-phases'
+; EVALNF: the hook's return dropped (POP CX); the function's place in FUNDSX
+; (2 x (its token - $81)) kept, its argument in parentheses (PARCHK); then,
+; as ISFUN calls a function (res/gweval.s), the text pointer kept for
+; LABBCK, which the function returns to, and FLGOVC 1. OO-1: FUNDSX and the
+; functions are P4's (p4/dskcom.s): one far call, X the place. A token past
+; MKD$'s (Kanji's, dropped, which CRUNCH never makes) is Syntax error.
+EVALNF:         PLA
+                PLA
+                INCW    TXTPTR
+                LDA     (TXTPTR)
+                SEC
+                SBC     #$81
+                CMP     #MKDS_XF - $81 + 1
+                BCS     SNERRS
+                ASL     A
+                JSR     SPUSHA         ; PUSH CX
+                JSR     CHRGTR
+                JSR     PARCHK
+                JSR     SPOPA
+                PHA
+                LDX     #TXTPTR        ; XTHL: the text pointer kept
+                LDA     #2
+                JSR     SPUSH
+                PLX
+                PUSHRET LABBCK
+                LDA     #1
+                STA     FLGOVC
+                FJSR    FUNDXP         ; JMP FUNDSX[SI]
+                RTS

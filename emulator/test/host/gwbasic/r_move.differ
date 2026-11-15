@@ -1,0 +1,7 @@
+# The 1983 source: closing a random file frees its FIELD buffer, and every string FIELDed into it is made null (GIO86.ASM's FFREE, XFRSTR, UPDSTD: LEN 0); PC-BASIC keeps their lengths
+simplesimple!str 0str 3|first file|second                              file
+ 0 secondfilesimplesimple!str 2
+ 0  0 thirdstr 1simple!
+third
+ 0 
+second              |                file

@@ -205,3 +205,139 @@ PC-BASIC gives Syntax error), `onevfc1` (the source has 14 key traps, OEM.H's NM
 By hand in test_gwbasic_stmts (PC-BASIC can't raise a trap from outside a program): the traps raised through the
 test-only trigger (TRPTST, `p3/trptst.s`), each case's output written from the source's routines; and the trap
 test's cycles at NEWSTT.
+
+## 7c
+
+The programs of 7c's file layer (test_gwbasic_files: block P4, sequential files), typed and RUN as 7a's, each
+against PC-BASIC's output. Each writes its own files and reads them back, so it runs alike in PC-BASIC's working
+directory and on the OO-1, where GW-BASIC's files go to the CCP's current drive, A:, when no
+drive is named.
+
+| Program | What |
+|---|---|
+| `f_seq` | PRINT # to a file, CLOSE, then LINE INPUT #, INPUT # and EOF reading it back |
+| `f_modes` | OPEN's two forms and every sequential mode, either case, FOR OUTPUT, INPUT and APPEND; APPEND at the end, to a new file and to an empty one |
+| `f_close`, `f_reset` | CLOSE of one, a list and all, of one not open and of one twice; a closed file used again; RESET |
+| `f_print`, `f_write` | PRINT # with `,` `;` TAB SPC and USING; WRITE #'s quoting; what LINE INPUT # and INPUT # read of them |
+| `f_input` | INPUT # of numbers and strings, quoted and not, with commas, CRs, LFs and spaces; a quote never closed; Input past end |
+| `f_255` | LINE INPUT # of lines of 255, 254 and 260 characters |
+| `f_inps` | INPUT$ from a file, with and without `#`, its CR and LF; PRINT #2 of INPUT$(n, #1); past the end |
+| `f_ctlz`, `f_eof` | the ^Z end of a text file; EOF before the end and at it |
+| `f_long`, `f_locof` | files of more than one record and of several; LOC and LOF |
+| `f_clear`, `f_run`, `f_run2` | CLEAR and RUN close every file, its last record written |
+| `f_errs`, `f_errs2`, `f_e52`, `f_e53`, `f_e54`, `f_e55`, `f_e62`, `f_e64` | the errors, trapped (ERR, ERL), then each's message |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `f_write` (INPUT # reads a double as a double:
+the source's FINDBL), `f_input` (an LF in an unquoted item is dropped and the item goes on: LPISLF), `f_inps`
+(INPUT$ takes the CR and LF before the end as bytes), `f_clear` (CLEAR closes every file), `f_errs` (EOF of an output
+file with nothing in its buffer is -1; INPUT$(0, #f) of an output file is Bad file mode; LEN= on a sequential OPEN
+is Syntax error), `f_errs2` (a name with only a type is Bad file name). Where the OO-1 differs: `f_locof` (CP/M's
+files are whole 128-byte records, so LOF is the records times 128, as on the MS-DOS 1 FCB files the source wrote).
+
+By hand in test_gwbasic_files (PC-BASIC's run of a file can't type at the prompt, nor has the OO-1's drives): END,
+NEW and SYSTEM close every file (each read back, the last after SYSTEM by the CCP's TYPE); `A:` named is the current
+drive; `Q:` and a device name (`LPT1:`) are Bad file name; a random OPEN is Advanced Feature until X1; INPUT$ from
+the keyboard; every record's DMA address in P4's own RAM with block P4 in W3 (V1); and PRINT # to a file timed, its
+bytes going to P4 as runs.
+
+7c's LOAD, SAVE and MERGE are typed sessions (`NAME.typ`, as 7b's step c): test_gwbasic_files types each line when
+GW-BASIC waits for one, and the transcript must be PC-BASIC's (`NAME.out`), or `NAME.differ`'s. Each writes its own
+files and reads them back.
+
+| Session | What |
+|---|---|
+| `l_save` | a program SAVEd tokenised and LOADed, LISTed, RUN; SAVE ,A and LOAD of the text; a name with no type given `.BAS`; LOAD of a missing file; LOAD ,R, RUN name and RUN name,R; the options' Syntax errors |
+| `l_merge` | MERGE of a text file into a program (lines replaced and added); of a tokenised file; of a missing one; with more after the name |
+| `l_files` | a file open across LOAD ,R (kept), LOAD and RUN name (closed: Bad file number) |
+| `l_text` | text files written by PRINT #: a direct statement in one (Direct statement in file), the ^Z end, a leading LF, a last line with no CR, an empty file |
+| `l_prot` | SAVE ,P and LOAD: it runs; LIST, EDIT, a line typed, SAVE and SAVE ,A refused; NEW |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `l_merge` (MERGE of a tokenised file is Bad file
+mode, OKGET2's; more after MERGE's name is Syntax error), `l_text` (RUN name of a text file runs at its end at once,
+so a last line with no CR isn't entered: NOTCHN), `l_prot` (by hand: the source refuses LIST, EDIT, line entry and
+SAVE of a protected program, PROCHK; PC-BASIC lists and edits it).
+
+By hand in test_gwbasic_files: W2, a tokenised LOAD at the workspace's top (CLEAR ,n puts MEMSIZ 90 bytes past the
+program's end, sentinels past it unchanged, DM_LOAD used, the program run; 30 bytes lower, Out of memory with nothing
+written past it); and a program named on the command line (`GWBASIC PROG`, a name ending at `/`, a missing one).
+
+7c's KILL, NAME, FILES and the directory hook, typed and RUN as the file layer's, each writing its own files:
+
+| Program | What |
+|---|---|
+| `d_kill` | KILL of a file, then OPEN for input (File not found); of a missing file, an open one, a null name, a number; `?` and `*` |
+| `d_name`, `d_name2` | NAME, the file read by its new name; a missing one, to a name there already, an open one, null names, numbers; no AS |
+| `d_files` | FILES with `*` and `?`, lower case, a name alone, none matching, one of more than 8 characters; six a line, fewer after PRINT ; |
+| `d_dir` | CHDIR to `\`, `.`, `""` and another, MKDIR, RMDIR (the directory hook); a number for the path |
+| `d_e58`, `d_e74`, `d_e75`, `d_e76`, `d_e77` | the messages of 58 and 74, and of 75 and 76 (added); 77, past the table |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (the source prints no heading and no
+Bytes free line, one blank between names and six a line; its OPEN runs a long name into the type), `d_name` (a null
+name is Bad file name: NAMFIL), `d_e77` (past the table: Unprintable error). Where the OO-1 differs: `d_dir` (OODOS has
+no directories: CHDIR `""` is the root, MKDIR is Path/File access error; the owner's, 2026-11-13).
+
+By hand in test_gwbasic_files: FILES with no name, `"A:"`, `"*.*"` and `"a:*.*"` alike, on the rig's A:; a drive
+before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in NAME's names and for a name function
+152 refuses; CHDIR, MKDIR and RMDIR crunched to `$FE` and their tokens (the program's text), LISTed back, and typed.
+
+7c's random files (X1), typed and RUN as the file layer's, each writing its own files:
+
+| Program | What |
+|---|---|
+| `r_x1` | X1, the plan's test: LEN 100, records 1-5 PUT to a new file, then each GET back as it was written |
+| `r_x1b` | records never written, past the end and in the last 128-byte record's tail: zeros, EOF true |
+| `r_lens` | LEN 1 (300 records), 128 and the default; FIELD, LSET and RSET; PUT and GET with and without a number; a record never written; LOC |
+| `r_order` | records of LEN 100 PUT out of order, one twice, each GET back; GET and PUT of the next record |
+| `r_cv` | MKI$, MKS$, MKD$ and CVI, CVS, CVD round trips, their bytes, edge values; a short string, Overflow, Type mismatch |
+| `r_field` | FIELD's errors; GET and PUT of a sequential file; a FIELDed string assigned by LET, then LSET; Bad record number; PRINT #, INPUT # and WRITE # in the FIELD buffer, PRINT # past it |
+| `r_seq` | one file used as sequential and random in turn |
+| `r_sw` | LEN past /S: (128 while the switches aren't read) and LEN 0: Illegal function call |
+| `r_move` | strings, a string array and FIELD buffers kept right as random files open and close; a closed file's FIELDed strings |
+| `r_eof`, `r_lof` | EOF and LOF of a random file |
+| `r_forr` | OPEN ... FOR RANDOM |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `r_field` (FIELD's total past the record is FIELD
+overflow; record 32768 is Bad record number; the FIELD buffer keeps what was in it; WRITE # pads the record with
+spaces), `r_move` (a closed file's FIELDed strings are null), `r_eof` (EOF is true after OPEN and PUT, until a GET
+reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). Where
+the OO-1 differs: `r_lof` (LOF in whole records, as `f_locof`).
+
+By hand in test_gwbasic_files: records of LEN 200 and 1,024 with /S: set to 1,024 (MAXREC, as `/S:1024` would set
+it): out of order, across the 128-byte records they span; a record never written; a record's place past 2^23 bytes
+(Illegal function call) and the last before it; LEN past /S:. And the FIELD buffers in the TPA: FRE(0) and MEMSIZ
+lowered by LEN at OPEN, the buffer's bytes from MEMSIZ + 2, both back at CLOSE.
+
+7c's CHAIN and COMMON, typed and RUN as the file layer's; each writes the program it chains to as text by PRINT #
+(its quotes as `CHR$(34)`: GW-BASIC's strings have no doubled quote):
+
+| Program | What |
+|---|---|
+| `c_common` | COMMON of an integer, a single, a double, a string whose text is in the program, number and string arrays, a long name, `M%( )`, over two COMMONs; the rest gone; an array not kept made again |
+| `c_all` | `CHAIN name,,ALL`: every variable kept, a string array too |
+| `c_line` | CHAIN to line 30; a chained program chaining itself to line 20 (an expression) with ALL |
+| `c_ul` | a CHAIN line that isn't in the program |
+| `c_merge` | CHAIN MERGE with a line, ALL and DELETE: overlays in turn, the main program's lines and a GOSUB to them kept, DEFINT kept, a file open across both |
+| `c_merge2` | CHAIN MERGE with a line and no ALL: COMMON's variable alone kept, lines replaced |
+| `c_types` | CHAIN: the DEF types back to single (a COMMON integer then not found by its letter), OPTION BASE 1 kept |
+| `c_files` | a file open for output across a CHAIN, written by the chained program, read back |
+| `c_miss` | CHAIN of a file that isn't there, trapped, the variables kept |
+| `c_e2`-`c_e7` | the errors: `COMMON A B`, DELETE of a line not there, `,BAD`, a string for a COMMON array's count, a range backwards, `B(` with nothing after it |
+
+And typed sessions (`NAME.typ`): `c_tok`, CHAIN of a tokenised and of an ASCII SAVE, from a program and typed, with a
+line and with ALL, of a missing file; `c_list`, LIST and LLIST to a file (a range; read back, LOADed again), a
+missing name and a drive past P:.
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `c_ul` (Undefined line number, with no line: a
+text file is read by MAIN), `c_miss` (the file is opened first, so ON ERROR traps File not found), `c_e5` (a COMMON
+array's count is evaluated: a string is Illegal function call), `c_e7` (and nothing there is Missing operand),
+`c_list` (LLIST goes on into LIST, so it lists to the file; `Q:` is Bad file name on the OO-1).
+
+By hand in test_gwbasic_files: CHAIN MERGE of a tokenised file (Bad file mode, where PC-BASIC fails), and
+VARPTR(#n), the address of file n's FDB in P4's table (its F_MODE byte), Bad file number for a file not open.
+
+7c's devices as files (LPT1:, COM1:, SCRN:, KYBD:, CONS:, the COM statement): PC-BASIC's printer and ports aren't the
+oracle's, so test_gwbasic_files checks their bytes by hand from the source; only the COM statement's errors run here.
+
+| Program | What |
+|---|---|
+| `d_com` | `COM(n) ON`, `STOP`, `OFF` for 1, 2 and 0 (the class); 3 and 200 Illegal function call (200 passes the source's signed compare: G10's guard); `COM(1) GOSUB` a Syntax error; `ON COM(n) GOSUB`; COM2: Device Unavailable |
