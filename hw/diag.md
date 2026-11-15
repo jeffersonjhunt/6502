@@ -345,10 +345,13 @@ wait states on real hardware aren't known, except the aperture's, which has none
 | the sound card's RAM through RAMDATA (S2) | 64 KB | 0.3 s | 1.0 s | |
 | wave RAM through DOCDATA (S8) | 128 KB | 0.6 s | 2.0 s | |
 
-**A quick run is about 40 s:** the memory 19.5 s, DMA 2 s, video 10 s, sound 2 s, the clock 3 s, the panel's
-lights 1.6 s, the rest under a second each (the SD card's read speed on real hardware isn't known). **A full run
-(switch 18, or `DIAG [FULL]` from `A>`) is under 2 minutes:** the march with four backgrounds adds 45 s, the march on card
-memory 22 s, on the sound card's RAM and wave RAM 2 s. The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
+**A quick run was planned at about 40 s:** the memory 19.5 s, DMA 2 s, video 10 s, sound 2 s, the clock 3 s, the
+panel's lights 1.6 s, the rest under a second each (the SD card's read speed on real hardware isn't known). **A full
+run (switch 18, or `DIAG [FULL]` from `A>`) under 2 minutes:** the march with four backgrounds adding 45 s, the march
+on card memory 22 s, on the sound card's RAM and wave RAM 2 s. **As built (D3b-2, accepted 2026-11-14; corrected in
+D3c): a quick run is 56.5 s on the emulator, a full run 165.9 s,** from CONT to the keys' line: stages 1–6 about
+28 s (the serial line's pace and stage 6's own test of W0's first 512 bytes included), NB5's and NB6's three windows
+each about 7 s together, V4's 2 MB about 10 s, P2 1.6 s ([D3b: as built](#d3b-as-built)). The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
 cost a pass. `test_bios_diag` reports the emulator's time for a quick run against this table.
 
 
@@ -942,6 +945,86 @@ block 31 unchanged (code to `$E409`).
   `$FF00`, and a program's 75 with A = 2 comes back with A = `$FF`, X = `$FC`; `DIAG [FULL]` gives the form's `FULL`.
 - **Test map:** `oodos/` and `docs/` are mapped; `test_oodos_utils_rom`'s labels (`oodos bios sd backplane`) cover
   it.
+
+<a id="d3c-as-built"></a>
+#### D3c: as built (2026-11-14) ####
+
+**Built** on `feat/diag-d3c`, for the owner's review. What differs from the plan above, and why:
+
+- **The launcher.** `DIAG` is a CCP built-in (`ccp.s`'s `B_DIAG`), calling function 75 with A = 2; `bdos.s`'s
+  `F_ROM` looks for the diagnostics first (`DIAGIN`) and `common.s`'s `ROMDIAG` leaves. `DIAGIN` checks block 23's
+  signature and the BIOS version it was linked with (`$801C`) against the one the cold boot read from the greeting
+  (`ROMVER`, function 77's). `$C815`'s CHKSIG also checks `DG_VERSION` (`$8009`) against the running BIOS's own,
+  which OODOS can't know (no OODOS can, for a later ROM), so `DIAGIN` leaves it out; a block 23 with the right
+  signature and linked version but another `DG_VERSION` passes OODOS's look and is refused by `$C815`, which then
+  returns. So `ROMDIAG` puts `$C800`'s return address on the fresh stack before the jump (review T1): that refusal
+  restarts the machine at `$C800`, as `C800R` does, and boots OODOS from the card, rather than returning through
+  `$0100`. The message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)` (review T6). The answer is
+  a line, as ERA's `(Y/N)?` is (`Y` and RETURN), not a single key.
+- **`ROMAPPLE` is as it was.** The plan gave its tramp a target; built so, in COMMON, it moved the interrupt
+  dispatcher 50 bytes and changed the tick's and the frame's measured costs by a cycle (test_oodos_input's 145,
+  test_oodos_video's 145, 199 and 396), expectations no plan named. So `ROMDIAG` has its own tramp (15 of `TRAMP`'s
+  16 bytes: W3 and VEC, A = `$A5`, X the options written in, `JMP $C815`; Y = `$5A` set before it), and the new
+  code, the CCP's included, is in a new segment, `RES2`, after the rest of block 62's resident code (`sys.cfg`), so
+  nothing before it moves but by `BINAMES`'s 7 bytes. `ROMDIAG` also stops the Disk II as `NMI` does.
+- **The options** are `[FULL]` and `[ASK]`, either shortened as the utilities' options may be (`[F,A]`), with commas
+  or blanks; any other word, or a file, is the command and `?`.
+- **Size:** 533 bytes of OODOS, not about 210: the BDOS 75 (block 60 has 1,316 bytes free), `RES2` 451 and
+  `BINAMES` 7 (block 62's resident part, with its BSS, ends at `$F5BE`: 577 bytes free), COMMON unchanged. The
+  question, `NODIAG` and the option words are 197 bytes of it. **OODOS.SYS fits.**
+  After review round 1 (T1's return address, T2's every list, T5's tab, T6's longer message): 564 bytes, `RES2`
+  482, block 62's resident part to `$F5DD`, 546 bytes free.
+- **The cards** (`oodos.sparse`, `demo.sparse`) are made again.
+- **AGENTS.md:** the exception is SYSINFO's alone, its list cut to what `sysinfo.s` and the oohw modules it links
+  (`hwprobe`, `hwclock`, `hwrtc`, `hwsdid`, `hwname`, `hwfmt`) read and write; IRQL and IRQH, the console card's
+  STATUS, LADDR, LDATA, DISPLAY, CTRL and breakpoint, the sound card's registers, S6 and P3 are gone with DIAG.COM.
+- **The books** as listed above, and chapter 6's error table in the User's Guide; the times as built in chapter 15
+  and in the [table](#plan2-memory) here. Chapter 13 doesn't change: `$C806`, `apple.s` and `ROMAPPLE` are as they
+  were, function 75's A = 1 path is unchanged, the core never writes MODE, and only a hard reset leaves the mode.
+
+**The tests** (`test_oodos_utils_rom`, six new cases, 14 in all, about 35 s alone): each must-fail case was seen
+failing on a build of OODOS with its one fault put in, and passing without it:
+
+| Case | The fault that made it fail |
+|---|---|
+| a record left in a changed buffer by DIAGWB.COM just before 75 is on the card after the boot | the write-back left out for A = 2 (`TYPE` showed `BEFORE`) |
+| `DIAG` and `N`: `A>` again, the card's image unchanged | N taken as Y (the diagnostics ran) |
+| block 23 erased: the message, `$FF00`, and a program's `FF FC` | `DIAGIN`'s look skipped (`$C815` came back, carry set, into the monitor) |
+| `DIAG [FULL]`, `[ASK]`, both, shortened: the run's form | the options not passed (X = 0) |
+| `DIAG` and `Y`: the quick run's form, its end, a key boots OODOS from the card again | the tramp jumping to `$C812` (it asked again) |
+
+The sixth, a file or another option is the command and `?`, passes on the built code. DIAGWB.COM
+(`oodos/sys/test/diagwb.s`) writes a record of an open file again and calls 75 with A = 2 without closing it, since a
+program's end (the warm boot's 48) or a close writes everything back anyway, so the CCP's `DIAG` alone could never
+show the write-back missing. Block 23 is erased by a second flash line over it in the machine's text, so
+`oodos_rig.h` needn't change.
+
+**Expectations that would change, asked first (D3c-1):** OODOS's interface version 9 to 10, as P2-1 decided, is
+seen by test_oodos_clock (`INFO` and `ALIVE` `09 0F`), test_oodos_input (`FINFO`), test_oodos_video (two `09 0F`),
+test_oodos_sysinfo (`FINFO 09 0F`; the six golden reports' `OOLIB interface 9`) and, through a patch of `FT_INFOX`'s
+`LDA #9`, test_oodos_gfx's and test_oodos_sysinfo's interface-8 cases, which look for the 9. None is changed yet.
+
+**The gate** (`tools/check.sh changed main`, 63 suites): every suite, step and e2e run passes but those five, which
+fail on exactly the assertions above. Main moved meanwhile (B0, `aa74787`: hw/design.md and hw/modules.md only);
+not merged.
+
+**D3c's review, round 1, T1–T7 (2026-11-14), fixed as the owner decided.** Each fix with a test had it seen failing
+on the round's tip (`53ec6af`) first:
+
+- **T1:** `ROMDIAG` leaves `$C800`'s return address on the fresh stack (above). Test: block 23 with another
+  `DG_VERSION` (a second flash line over it): `DIAG`, `Y` restarts the machine and the card boots OODOS to `A>`; on
+  the tip it ended in the monitor through `$0100`.
+- **T2:** `DIAGOPT` goes on to the tail's next `[` at a `]`, so every list is checked: `DIAG [FULL] [LOOP]` is the
+  command and `?` (on the tip it asked `(Y/N)?`).
+- **T3:** a case with OODOS's `ROMVER` poked to 0.13: the message, `$FF00` and a program's `FF FC`. Seen failing on a
+  build with `DIAGIN`'s compare of `$801C` against `ROMVER` removed (the diagnostics ran).
+- **T4:** the no-diagnostics case's check of W2 after the call dropped (it couldn't fail: STUBRET puts the caller's
+  W2 back on every BDOS return, whatever the call left in it).
+- **T5:** a tab separates the option words as a blank does: `DIAG [FULL<tab>ASK]` (on the tip, the command and `?`).
+- **T6:** the message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`; the User's Guide's
+  chapters 4 and 6 and test_oodos_utils_rom's two checks of it changed with it.
+- **T7:** comments: `oodos/Makefile`'s and `tools/test-map.txt`'s oohw notes say SYSINFO alone; hw/design.md's DMA
+  note cites `hwprobe.s` for the ID byte's read.
 
 <a id="plan2-books"></a>
 ### The books ###

@@ -11,9 +11,13 @@ Status: **emulated**
 
 At reset the north bridge maps W3 and VEC to the top block of the flash, ROM A block 31, read-only (`$DF`). W0–W2
 map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts the BIOS at `$C800`. The block's first
-2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. *Proposed* (BIOS 0.14, [hw/diag.md](../../hw/diag.md)):
-first, with the front panel fitted and switch 19 up, the ROM's diagnostics ask "PRESS CONT OR Y WITHIN 5 S"
-from flash block 23; anything else, or nothing, boots as below. The BIOS, version 0.13:
+2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. *Proposed* (BIOS 0.14,
+[chapter 15](15-diagnostics.md)): first, with the front panel fitted (its ID read twice), the BIOS turns the
+breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and on no other
+([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
+with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
+nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.14:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -167,8 +171,8 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
-| `$C812` | the diagnostics | *Proposed* (BIOS 0.14, [hw/diag.md](../../hw/diag.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23 |
-| `$C815` | the diagnostics, for a program | *Proposed* (BIOS 0.14): A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive), with no `Y` asked; anything else is `$C812`. The table's last spare |
+| `$C812` | the diagnostics | *Proposed* (BIOS 0.14, [chapter 15](15-diagnostics.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23, with the panel's switches 16–18 as their options. With no diagnostics in the flash it says `NO DIAGNOSTICS IN THE FLASH` (or that they are another build's) and goes back to the monitor. It never returns |
+| `$C815` | the diagnostics, for a program | *Proposed* (BIOS 0.14): A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive; the switches don't count), with no `Y` asked; anything else is `$C812`. With no diagnostics in the flash it returns, carry set, A, X, Y and W2 as they were. OODOS's `DIAG` reaches it through function 75 with A = 2. The table's last spare: a later entry goes through one entry that dispatches by a number |
 
 ## The monitor
 

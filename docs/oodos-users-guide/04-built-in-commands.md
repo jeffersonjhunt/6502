@@ -1,7 +1,7 @@
 # 4 Built-in commands
 
 The commands the CCP runs itself: CP/M 3's DIR, DIRSYS, ERASE, RENAME, TYPE and USER, and our GO, CLEAR, CLS,
-WOZMON and APPLE2. A built-in and the utility of the same name share one entry here, with the forms the utility adds.
+WOZMON, APPLE2 and DIAG. A built-in and the utility of the same name share one entry here, with the forms the utility adds.
 
 The design record, for the reasons: [hw/oodos.md, "The CCP, phase 4"](../../hw/oodos.md#the-ccp-phase-4).
 
@@ -638,6 +638,78 @@ OODOS 0.2; the revision 2 check since OODOS 0.9.
 #### Status
 
 **built**
+
+#### CP/M 3
+
+Ours: CP/M 3 has no such command. A program of the name runs only with a drive before it.
+
+## DIAG
+
+<a id="util-diag"></a>
+### DIAG: the ROM's diagnostics
+
+DIAG leaves OODOS for the diagnostics in the ROM, which test the whole machine: the flash, all of memory, and each
+card. It says what will happen and asks first, since they overwrite all of memory: OODOS stops, M:'s files are lost,
+and at the end the machine boots again, from the card, as after a power-on. Changed data is written to the card
+before it goes, but a file a program left open isn't closed. The run's report is on the serial line and the screen,
+and its code on the front panel's lamps (the
+[Technical Reference, chapter 15](../oo1-technical-reference/15-diagnostics.md)).
+
+#### Forms
+
+```
+DIAG
+DIAG [FULL]
+DIAG [ASK]
+DIAG [FULL,ASK]
+```
+
+#### Options
+
+- `FULL`: the full run: the march over all of memory with four backgrounds, not one, and over the video card's
+  memory, and the sound card's memories written twice. About 2 minutes 46 s, where the quick run takes about 57 s
+  (on the emulator at 7.16 MHz).
+- `ASK`: the interactive tests too: a test card on the screen, a tone on each sound chip, a key, the mouse, the
+  speaker, the joysticks and the front panel's breakpoint, each asking you; `Y` is yes, and Esc skips the ones that
+  wait for you to do something.
+
+Only what is typed counts: the front panel's switches, which choose these when the diagnostics are entered from a
+reset or the monitor, don't change a run DIAG starts, and DIAG never loops. The options may be shortened, as a
+utility's may (`[F]`, `[A]`).
+
+#### Output
+
+First:
+
+```
+The ROM's diagnostics test all of memory and overwrite it: OODOS stops,
+M:'s files are lost, and the machine boots again at the end. Go on (Y/N)?
+```
+
+`Y` starts them; any other answer is the prompt again, with nothing changed. Then the diagnostics' report, a line a
+stage and a test, ending:
+
+```
+RESULT: ALL PASSED                                      LIGHTS FF
+CONT OR RETURN: BOOT        EXAM OR ESC: MONITOR
+```
+
+A key, RETURN or the panel's CONT, boots the machine, and OODOS comes back to `A>`; Esc or the panel's EXAM goes to
+the Woz Monitor instead.
+
+#### Errors
+
+- `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`: the flash has no diagnostics, or not the ones
+  built with the BIOS that is running. Nothing is written to the card, OODOS goes on, and the return code is `$FF00`.
+- `DIAG [option]?`, the command as typed: an option that is neither FULL nor ASK, or a file name.
+
+#### Since
+
+OODOS interface 10, from hw/diag.md's D3c; needs BIOS 0.14.
+
+#### Status
+
+**proposed**
 
 #### CP/M 3
 
