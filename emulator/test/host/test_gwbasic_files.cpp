@@ -944,9 +944,10 @@ TEST(a_cr_after_an_lf_continues_a_loaded_line)
     CHECK_EQ(command(r, "KILL \"CRLF.BAS\""), std::string());
 }
 
-// The owner's decision 9 (2026-11-14), as the port already was: a name of more than 8 characters before its type is
-// Bad file name for OPEN, LOAD and SAVE (OO-1: function 152 refuses it; the 1983 source hands MS-DOS's parse a
-// name FILFCB has run into the type). By hand: PC-BASIC cuts the name to 8.
+// The owner's decision 9 (2026-11-14, narrowed 2026-11-15 to the source's behaviour): only a long name with a type is
+// Bad file name: a name of more than 8 characters before its type, for OPEN, LOAD and SAVE (function 152 refuses
+// it). A long name with no type runs on into the type, as the source's scan does (ABCDEFGHI is ABCDEFGH.I: KILL,
+// NAME and FILES through FILFCB, d_files.differ). By hand: PC-BASIC cuts the name to 8.
 TEST(a_name_of_more_than_8_characters_and_a_type_is_bad_file_name)
 {
     CcpRig r;

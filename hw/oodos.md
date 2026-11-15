@@ -4268,6 +4268,27 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       speed goes into the User's Guide's GW-BASIC chapter when it is written.
     - Must-fail (test_gwbasic_files): an LPT1: file's CR without its LF; COM1:'s bytes sent by function 2, not 4;
       SEVSTT without G10's guard (COM(200) writes past TRPTBL).
+  - **7c as built, in sum** (Proposed, 2026-11-15; feat/gwbasic-7c, the owner's decisions of 2026-11-14 and 15):
+    - **Done:** the home block and STMDSX in it; files (sequential, random on 128-byte records with X1's rule,
+      route (c) checked); LOAD, SAVE, MERGE and a program on the command line with its switches (SCANSW: /F:, /S:,
+      /C: read and ignored, /M: as CLEAR's n); KILL, NAME, FILES (SYS files left out) and the directory hook;
+      CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
+      with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
+    - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 697
+      bytes left for BLOAD and BSAVE: measured then, with COM1's driver (about 1.2 KB) the piece to move out if
+      they don't fit.
+    - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
+      RAM 1,565; P1 8,377, P2 5,688, P3 4,883, P4 11,591, P8 2,525 (as measured at d0a523d).
+    - **The flat test image** leaves P4 and `p8/far4.s` out (`test/flatp4.s` stands in), and its program area
+      moved from `$9000` to `$9400` (the owner's G11 answer, 2026-11-14; the notes above that name `$9000` were
+      true when written). It ends at `$90FC`.
+    - **Recorded deviations:** File not open is Bad file number (52), PC-BASIC's answer, where the 1983 source maps
+      it to Bad file mode (54); CHDIR, MKDIR and RMDIR added to the keyword table, and errors 75 and 76's messages
+      to the error table; LEN past /S: (128) is Illegal function call; COM1's speed parsed and kept but the line
+      at 19,200. **A long name** (decision 9, narrowed 2026-11-15) follows the source: a name over 8 characters
+      with no type runs on into the type (`ABCDEFGHI` is `ABCDEFGH.I`); only a long name with a type is Bad file
+      name.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;
