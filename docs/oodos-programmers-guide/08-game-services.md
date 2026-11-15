@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a

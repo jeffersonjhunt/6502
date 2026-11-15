@@ -27,7 +27,7 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 12 [The front panel](12-front-panel.md) | the console card, `$C700`: switches, keys, lights, the breakpoint | the design's bus-cycle step, breakpoint cycle, EXAM and DEP on the bus, AMODE handling and ISR; the BE lamp; the ESP32's SPI header |
 | 13 [Apple II mode](13-apple-ii-mode.md) | entering it, the IIe's memory map and switches, the display, the clock, the Disk II, Ctrl-Reset, what isn't there | the long cycle; the display and character ROM in revision 2's card memory |
 | 14 [Emulator notes](14-emulator-notes.md) | the machines and the apps, what the emulator models, every difference from the design, running a program | what isn't there, gathered from the chapters; revision 2 of the video card |
-| 15 [Diagnostics](15-diagnostics.md) | | the ROM's diagnostics (BIOS 0.14): the three entries, the stages, the lights, the report, the way back, the times |
+| 15 [Diagnostics](15-diagnostics.md) | the ROM's diagnostics (BIOS 0.14): the three entries, the stages, the lights, the report, the way back, the times | |
 
 Everything else is **emulated**: each chapter's sections and all 191 register entries, one for every I/O address
 an equate in [`backplane/bios/backplane.inc`](../../backplane/bios/backplane.inc) names

@@ -12,9 +12,9 @@ library in [`backplane/oohw/`](../../backplane/oohw/).
 
 ## The flash and the core
 
-Status: **proposed**
+Status: **emulated**
 
-*Proposed* (BIOS 0.14): designed, and running on the emulator; no card is built. The diagnostics are three blocks
+Since BIOS 0.14: running on the emulator; no card is built. The diagnostics are three blocks
 of ROM A ([chapter 2](02-memory-and-banking.md#physical-memory)), each mapped into W2 (`$8000–$BFFF`) while it
 runs:
 
@@ -36,7 +36,7 @@ the BIOS into block 63 again, and OODOS loads afresh from the card.
 
 ## The three entries
 
-Status: **proposed**
+Status: **emulated**
 
 | Entry | How | It asks | Options |
 |---|---|---|---|
@@ -69,7 +69,7 @@ OODOS doesn't stop, the core's stage 0 does, as for every entry.
 
 ## The stages
 
-Status: **proposed**
+Status: **emulated**
 
 Each stage needs only what the stages before it proved; a stage whose card isn't there says `SKIP` and the run goes
 on. Stages 0–2 use no RAM: stage 2 is what finds the zero page and stack the rest use.
@@ -99,7 +99,7 @@ and Break, write BPCTRL 0 and clear HIT when BPADDR still holds `$BD1A5`, as the
 
 ## What they never do
 
-Status: **proposed**
+Status: **emulated**
 
 - **Write the SD card.** Stage 11 reads only: IDENTIFY and reads. A card that stays busy is reset (CTRL's RESET,
   which abandons the command and writes nothing) and given no further command.
@@ -113,7 +113,7 @@ Status: **proposed**
 
 ## The lights
 
-Status: **proposed**
+Status: **emulated**
 
 With the front panel fitted the lamps show DISPLAY (CTRL's bit 3 set; [chapter 12](12-front-panel.md#reg-c705)):
 
@@ -127,7 +127,7 @@ With the front panel fitted the lamps show DISPLAY (CTRL's bit 3 set; [chapter 1
 
 ## The screen and the serial line
 
-Status: **proposed**
+Status: **emulated**
 
 **The serial line** (19,200 baud, 8 bits, no parity, as the BIOS sets it) has the whole report: the title, a line
 for each stage with its result at column 60, and under each card stage a line for each test, `PASS`, `FAIL`, `SKIP`
@@ -158,7 +158,7 @@ the report is on the serial line only; with no front panel there are no lamps.
 
 ## The end and the way back
 
-Status: **proposed**
+Status: **emulated**
 
 With switch 17 down (and always from `$C815`), the run waits for a key: on the serial line, the USB keyboard, or the
 panel's CONT or EXAM (ignored at LOCK). Then it puts back what it changed to what /RESET leaves (the video card's
@@ -179,7 +179,7 @@ and boots. With switch 19 still up, the next hard reset asks again.
 
 ## How long a run takes
 
-Status: **proposed**
+Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
 every card: **a quick run 56.5 s, a full run 165.9 s.** The prompt, unanswered, waits 5.97 s. On real hardware the

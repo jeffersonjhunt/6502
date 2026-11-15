@@ -24,7 +24,7 @@ place of the command's output, on a line of its own, and the prompt follows.
 | `Apple II mode needs the revision 2 video card` | APPLE2 found a revision 1 video card, or none (since OODOS 0.9): Apple II mode needs revision 2. OODOS goes on. | Fit video card revision 2 (in the emulator, `rev=2`, the default machine's). |
 | `Apple II mode needs the DMA controller` | APPLE2 found no DMA controller, which Apple II mode needs. OODOS goes on. | Fit the DMA controller (module 8). |
 | `No IIe ROM in the cartridge (the emulator: Settings, ROMs)` | APPLE2 found no Apple IIe ROM in the cartridge. OODOS goes on. | In the emulator, choose a IIe ROM in Settings, ROMs. |
-| `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)` | DIAG found no diagnostics in the flash, or not the ones built with its BIOS (*proposed*). OODOS goes on. | Write a BIOS 0.14 or later into the flash, blocks 21–31 (in the emulator, the built-in BIOS has them). |
+| `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)` | DIAG found no diagnostics in the flash, or not the ones built with its BIOS. OODOS goes on. | Write a BIOS 0.14 or later into the flash, blocks 21–31 (in the emulator, the built-in BIOS has them). |
 | `Press a key for more` | Not an error: the screen is full. Any key goes on; ^C stops the command. [SETDEF](05-utilities.md#util-setdef)'s `[NO PAGE]` turns the stops off. | |
 
 The questions the built-ins ask (`ERASE B:*.TXT (Y/N)?`, `Not renamed: NEW.TXT file already exists, delete
