@@ -2483,7 +2483,9 @@ verify: lda     crc
         .include "util.inc"
 
         .rodata
-sbanner: .byte  "OODOS PIP ", '0' + SYS_MAJOR, '.', '0' + SYS_MINOR, "$" ; system.inc's version
+sbanner: .byte  "OODOS PIP "
+        SYS_VERSION_TEXT                ; system.inc's version
+        .byte   "$"
 sstar:  .byte   "*$"
 scopying: .byte "COPYING -$"
 scopy:  .byte   "COPY $"
