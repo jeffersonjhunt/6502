@@ -40,10 +40,14 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
+
+#include <unistd.h>
 
 using namespace ooe::test;
 using namespace ooe::emu;
@@ -71,8 +75,24 @@ namespace
 
     constexpr uint16_t LOOP = 0xFA00; ///< the stand-in ROM's reset vector: JMP to itself
 
-    /// A stand-in IIe ROM (16 KB, $C000-$FFFF) in the build tree: the IIe's ID byte and a loop at reset.
-    std::string stand_in_rom()
+    /// A file of the test's own in the temporary directory, named for this process, removed when it goes out of
+    /// scope (on a REQUIRE's early return too), so no case leaves a file behind.
+    struct TempFile
+    {
+        std::string path;
+        TempFile(const std::string &name, const void *data, size_t size)
+            : path((std::filesystem::temp_directory_path() /
+                    ("test_oodos_utils_rom_" + std::to_string(::getpid()) + "_" + name)).string())
+        {
+            std::ofstream(path, std::ios::binary).write(static_cast<const char *>(data), static_cast<std::streamsize>(size));
+        }
+        TempFile(const TempFile &) = delete;
+        TempFile &operator=(const TempFile &) = delete;
+        ~TempFile() { std::remove(path.c_str()); }
+    };
+
+    /// A stand-in IIe ROM (16 KB, $C000-$FFFF), a TempFile: the IIe's ID byte and a loop at reset.
+    std::unique_ptr<TempFile> stand_in_rom()
     {
         std::vector<char> rom(0x4000, static_cast<char>(0xEA));
         rom[0x3BB3] = 0x06;                                     // $FBB3: a IIe, to the ROM BIOS
@@ -81,9 +101,7 @@ namespace
         rom[LOOP - 0xC000 + 2] = static_cast<char>(LOOP >> 8);
         rom[0x3FFC] = static_cast<char>(LOOP & 0xFF);            // RESET
         rom[0x3FFD] = static_cast<char>(LOOP >> 8);
-        const std::string path = "stand_in_iie.rom";
-        std::ofstream(path, std::ios::binary).write(rom.data(), static_cast<std::streamsize>(rom.size()));
-        return path;
+        return std::make_unique<TempFile>("stand_in_iie.rom", rom.data(), rom.size());
     }
 
     /// backplane.machine without its DMA controller.
@@ -185,7 +203,8 @@ TEST(apple2_without_a_iie_rom_says_so_and_oodos_goes_on)
 
 TEST(apple2_with_a_iie_rom_restarts_in_apple_ii_mode)
 {
-    RomRig r({stand_in_rom()});
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
     REQUIRE(r.ok);
     r.type("APPLE2\r");
     for (int i = 0; i < 40 && !r.bridge().apple(); ++i)
@@ -201,7 +220,8 @@ TEST(apple2_without_the_dma_controller_says_so_and_oodos_goes_on)
 {
     const std::string text = no_dma_machine();
     REQUIRE(!text.empty());
-    RomRig r({stand_in_rom()}, text);
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path}, text);
     REQUIRE(r.ok);
     REQUIRE(r.machine->bus().read(0xC47F) != 0x81);         // DMA_ID: no controller answers
     const std::string o = r.cmd("APPLE2");
@@ -216,7 +236,8 @@ TEST(function_75_without_the_dma_controller_returns_ff_fe_and_oodos_goes_on)
 {
     const std::string text = no_dma_machine();
     REQUIRE(!text.empty());
-    RomRig r({stand_in_rom()}, text);
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path}, text);
     REQUIRE(r.ok);
     r.poke_com(romtest());                                 // GO: no drive to load it from, as SDIO needs DMA
     CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFE\r\nA>"));
@@ -239,7 +260,8 @@ TEST(function_75_without_a_iie_rom_returns_ff_ff)
 // controller are there, so only the card's check can refuse.
 TEST(apple2_on_a_revision_1_video_card_says_so_and_oodos_goes_on)
 {
-    RomRig r({stand_in_rom()}, {}, 1);
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path}, {}, 1);
     REQUIRE(r.ok);
     REQUIRE(r.machine->bus().read(0xC4FF) == 0x91);         // VIDEO_ID: revision 1
     const std::string o = r.cmd("APPLE2");
@@ -257,7 +279,8 @@ TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
 {
     const std::string text = no_video_machine();
     REQUIRE(!text.empty());
-    RomRig r({stand_in_rom()}, text);
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path}, text);
     REQUIRE(r.ok);
     REQUIRE(r.machine->bus().read(0xC4FF) != 0x92);          // VIDEO_ID: no revision 2 card answers
     const std::string o = r.cmd("APPLE2");
@@ -433,9 +456,8 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
     REQUIRE(rom.size() >= 24u * 0x4000u);
     std::vector<uint8_t> b23(rom.begin() + 23 * 0x4000, rom.begin() + 24 * 0x4000);
     b23[9] = static_cast<uint8_t>(b23[9] + 1);
-    const std::string path = "block23_other_version.bin";
-    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(b23.data()),
-                                                static_cast<std::streamsize>(b23.size()));
+    const TempFile b23file("block23_other_version.bin", b23.data(), b23.size());
+    const std::string &path = b23file.path;
     std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
     const size_t at = text.find("name=rom_b");
     REQUIRE(at != std::string::npos);

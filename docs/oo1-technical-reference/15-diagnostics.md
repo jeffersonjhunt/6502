@@ -63,7 +63,8 @@ buffers back, stops the Disk II (its write mode and motor off, and the DMA contr
 write had it off), turns its interrupts off (the VIA's timer 1, the video, USB and sound cards' enables), puts W0–W2
 on RAM blocks 0–2 and S at `$FF`, then W3 and VEC on block 63, the BIOS's RAM copy, and jumps to `$C815`, with
 `$C800`'s address on the stack below it: should `$C815` refuse after all (a build of the diagnostics whose own
-version isn't the running BIOS's, which OODOS can't check), its return is a restart, as a reset. What
+version isn't the running BIOS's, which OODOS can't check), its return restarts at `$C800`, as `C800R` does, and
+boots OODOS from the card. What
 OODOS doesn't stop, the core's stage 0 does, as for every entry.
 
 ## The stages

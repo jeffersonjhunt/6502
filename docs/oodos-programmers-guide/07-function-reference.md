@@ -2925,7 +2925,7 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 - A = 0, A = 1 with video card revision 2, the DMA controller and a IIe ROM in the cartridge, and A = 2 with the
   diagnostics in the flash: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
   all (their own build version, which OODOS can't check, isn't the running BIOS's): OODOS has gone by then, and the
-  machine restarts at `$C800`, as at a reset, which boots OODOS from the card again.
+  machine restarts at `$C800`, as `C800R` does, and boots OODOS from the card.
 - A = 1 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
   `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
   mode on a revision 1 card.

@@ -958,7 +958,7 @@ block 31 unchanged (code to `$E409`).
   which OODOS can't know (no OODOS can, for a later ROM), so `DIAGIN` leaves it out; a block 23 with the right
   signature and linked version but another `DG_VERSION` passes OODOS's look and is refused by `$C815`, which then
   returns. So `ROMDIAG` puts `$C800`'s return address on the fresh stack before the jump (review T1): that refusal
-  restarts the machine at `$C800`, as a reset does, and the card boots OODOS again, rather than returning through
+  restarts the machine at `$C800`, as `C800R` does, and boots OODOS from the card, rather than returning through
   `$0100`. The message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)` (review T6). The answer is
   a line, as ERA's `(Y/N)?` is (`Y` and RETURN), not a single key.
 - **`ROMAPPLE` is as it was.** The plan gave its tramp a target; built so, in COMMON, it moved the interrupt
@@ -1018,8 +1018,8 @@ on the round's tip (`53ec6af`) first:
   command and `?` (on the tip it asked `(Y/N)?`).
 - **T3:** a case with OODOS's `ROMVER` poked to 0.13: the message, `$FF00` and a program's `FF FC`. Seen failing on a
   build with `DIAGIN`'s compare of `$801C` against `ROMVER` removed (the diagnostics ran).
-- **T4:** the no-diagnostics case's check of W2 after the call dropped (it couldn't fail: OODOS's BDOS runs with W2
-  on block 61 anyway).
+- **T4:** the no-diagnostics case's check of W2 after the call dropped (it couldn't fail: STUBRET puts the caller's
+  W2 back on every BDOS return, whatever the call left in it).
 - **T5:** a tab separates the option words as a blank does: `DIAG [FULL<tab>ASK]` (on the tip, the command and `?`).
 - **T6:** the message is `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`; the User's Guide's
   chapters 4 and 6 and test_oodos_utils_rom's two checks of it changed with it.
