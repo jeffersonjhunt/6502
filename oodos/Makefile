@@ -106,7 +106,7 @@ $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 
 $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
 
-# oohw, the hardware library DIAG and SYSINFO share with the ROM's diagnostics (../backplane/oohw/,
+# oohw, the hardware library SYSINFO shares with the ROM's diagnostics (../backplane/oohw/,
 # oohw.inc; hw/diag.md, "The library: oohw.lib"): each module assembled with OOHW_OS into build/oohw.lib,
 # of which ld65 takes the modules a program uses. Its modules include backplane.inc. A utility in
 # OOHW_USERS is assembled with backplane.inc and oohw.inc on its include path and linked with the

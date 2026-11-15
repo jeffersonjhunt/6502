@@ -28,4 +28,5 @@ make -C bios
 The hardware library the system tools share ([`../hw/diag.md`](../hw/diag.md), "The library: oohw.lib"): card
 discovery by ID byte, the CPU's clock against the DS3231 and the video frame, the clock chip's status, the SD
 card's identity, and number output. `oohw.inc` is its interface. OODOS's Makefile builds it into `build/oohw.lib`
-for SYSINFO (and, from D2, DIAG); the ROM's diagnostics (D3) will assemble the same sources into the flash.
+for SYSINFO; the ROM's diagnostics (flash blocks 21-23, `bios/diag2*.s`) assemble the same sources into the
+flash, a copy in each block that uses them (`OOHW_ROM`, `OOHW_BLK`).

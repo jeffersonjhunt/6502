@@ -51,7 +51,8 @@ Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 - **The fourth:** the cards that answered, in that order, or `none`.
 
 Then the prompt. To leave OODOS, see [WOZMON](04-built-in-commands.md#wozmon) and
-[APPLE2](04-built-in-commands.md#apple2).
+[APPLE2](04-built-in-commands.md#apple2); [DIAG](04-built-in-commands.md#diag) tests the machine, then boots it
+again.
 
 ## The demo card
 
