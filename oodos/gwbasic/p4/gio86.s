@@ -12,7 +12,7 @@
 ;   FILINP FILGET   PRINT #, WRITE #, INPUT #'s file: PTRFIL at its FDB
 ;   FILSET FILSCN   (FILSCN: the number, its FDB and its mode)
 ;   GETPTR          VARPTR(#n)'s: file n's FDB (its F_MODE's address)
-;   OPNFIL          a file opened (DSKOPN, p4/giodsk.s)
+;   OPNFIL          a file opened (its device's open: DSKOPN, p4/giodsk.s, ...)
 ;   CLSALP CLSFIL   every file closed, or one
 ;   INCHR INCHRE    the next byte from PTRFIL's file (INCHR: Input past end at
 ;   INDSKC INCHSI   its end; the others C set), BAKCHR to back one up
@@ -23,7 +23,11 @@
 ;                   SKPNAM)
 ;   DPUTG           GET and PUT [#]n[, record] of a random file (GWSTS.ASM's
 ;                   PUT and GET, p4/gwsts.s, come here)
-;   PTRDSP SIDSP    the device's function for an FDB (the disk's DSKDSP)
+;   PTRDSP SIDSP    the device's function for an FDB (DVPTR's: the disk's
+;   TBLDSP CDEVID   DSKDSP, LPTDSP, ...); DEVBIN a device's block input
+;   DEVBIN          (LOAD's); CRIFEL UPDPOS, the devices' output's column
+;   CRIFEL UPDPOS   and width rules; GIOINP (GIOINI's DOALDV) their start
+;   GIOINP
 ;   PRGFIL NAMBAS   file 0 opened for LOAD, SAVE and MERGE, ".BAS" the type
 ;   NULOPN          if it has none (7c's LOAD step); NULOPM in a mode (LIST's
 ;   NULOPM          file, p2/gwlist.s)
@@ -39,7 +43,9 @@
 ;                   OUTDO and PTRDSP for each byte
 ;   FINPRP          FINPRT's part (res/oem.s): the run sent, FREFDB's FDB freed
 ;   SETPTR          PTRFIL set, the run for the old one sent first, and a
-;                   file's column (FILPOS) from its F_POS
+;                   file's column (FILPOS, the device's), width (FILWID)
+;                   and kind (FILDVC) for the resident core
+;   DEVSOT          OUTDO's byte for a device's file (res/oem.s)
 ;   INCHRI          the console's next key, unechoed (GIOKYB.ASM's: the OEM's)
 ;   GETDAT          a random file's FIELD buffer's address (FDDAT)
 ;   PRGFIN          DSKCOM.ASM's: output to the console, file 0 closed, TXTPTR
@@ -53,9 +59,10 @@
 ; W3 block its entry saved. FDBP is the 8086's SI; the pseudo-registers its
 ; other registers, as elsewhere. The 8086's file numbers may be any of
 ; 1-255 (its FDBs only take memory); here a number past NMFILE is Bad file
-; number, as GW-BASIC's own /F: makes it later (OO-1). The only device is
-; the disk: a name with a device other than a drive is Bad file name, as the
-; 8086's PARDEV says of a device its table hasn't (the others are later).
+; number, as GW-BASIC's own /F: makes it later (OO-1). A file's device is a
+; disk, or one of GIOTBL.ASM's table (p4/giotbl.s: KYBD, SCRN, CONS, LPT1-3,
+; COM1-2, the 7c devices step's), each with its functions (SIDSP, TBLDSP); a
+; device's file's bytes go to P4 one at a time (DEVSOT), not as runs.
 ;
 ; A random file's FIELD buffer (the 8086's FD_DAT, the FDB's last field) is
 ; in the TPA, as the plan has it (the string functions read a FIELDed string
@@ -81,6 +88,10 @@
 ;@entry NAMSCN
 ;@entry NULOPM
 ;@entry GETPTR
+;@entry DEVSOT
+;@entry GIOINP
+.export DEVSOT, GIOINP, CDEVID, TBLDSP, GFCODE, FILOPT, UPCASE, INCHSI, BCHRSI, DEVBIN
+.export CRIFEL, UPDPOS, CRDL, CRDH, BXVEC, SCDBIN
 .export NAMSCN, NULOPM, GETPTR, SKPNAM
 .export OPENP, CLOSEP, CLSALP, FILFNP, FILGET, FILINP, FINPRP, FLUSHP
 .export FILSET, FILSCN, FDBPTR, INCHR, INDSKC, BAKCHR, SETPTR, FLUSHR, INIFDB, FFREE
@@ -91,8 +102,9 @@
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
 .import GARBA2, MEMSIZ
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
-.import DSKOPN, DSKDSP, FIXINPP
+.import FIXINPP
 .import STROUT, REDDY, GTMPRT, SAVFRE
+.import DVPTR, DEVTBL, DVINI, FILWID, FILDVC
 
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
@@ -393,13 +405,16 @@ GETPTR:         JSR     FDBPTR
 
 ; OPNFIL: file A opened, CX its length (0 the default), FILMOD its mode,
 ; FILNAM its drive, name and type: File already open if it is; else the
-; device's open (TBLDSP's G_OPN: the disk's DSKOPN, the only device).
-; PTRFIL returns at its FDB.
+; device's open (TBLDSP's G_OPN: the disk's DSKOPN, LPTOPN, COMOPN, ...),
+; A the device id. PTRFIL returns at its FDB.
 OPNFIL:         STA     OPNNUM         ; BX: the number
                 JSR     FDBPTR
                 BNE     ERFAO1
-                LDA     FILDEV         ; the device: a disk (CDEVID's 0..n)
-                JMP     DSKOPN
+                LDA     FILDEV         ; the device id (0..n a disk, -1..-n the table's)
+                JSR     CDEVID         ; X: its place in DVPTR
+                LDY     #G_OPN         ; the open function (AL still the device id)
+                STY     GFCODE
+                JMP     TBLDSP
 ERFAO1:         JMP     DERFAO
 
 ; PRGFIL (GIO86.ASM 790): file 0 opened for LOAD, SAVE or MERGE, in mode A
@@ -424,9 +439,11 @@ NULOPN:         STZ     RCL
                 LDA     #0
                 JMP     OPNFIL
 
-; NAMBAS (GIO86.ASM 806): a disk file's blank type made BAS. (OO-1: every
-; FILDEV is a drive's: no other device yet.)
-NAMBAS:         LDA     FILNM+8
+; NAMBAS (GIO86.ASM 806): a disk file's blank type made BAS; a device's name
+; (FILDEV negative) is left as it is.
+NAMBAS:         LDA     FILDEV
+                BMI     NAMBAX
+                LDA     FILNM+8
                 CMP     #' '
                 BNE     NAMBAX
                 LDA     #'B'
@@ -648,6 +665,23 @@ DEVBOT:         LDA     RCL
 :               DEC     RCL
                 BRA     DEVBOT
 RET27:          RTS
+; DEVBIN (1120): CX bytes from PTRFIL's file to BX, each by the device's
+; byte input (a device with no block input of its own: LOAD's FSTLOD from
+; one); BX past them, C set if its end came first.
+DEVBIN:         CLC
+                LDA     RCL
+                ORA     RCH
+                BEQ     RET27
+                LDX     #G_SIN
+                JSR     PTRDSP
+                BCS     RET27
+                STA     (RBL)
+                INCW    RBL
+                LDA     RCL
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                BRA     DEVBIN
 OUTBLK:         LDX     #G_BOT
                 JMP     PTRDSP
 
@@ -696,11 +730,9 @@ SCDCOD:         PHA
 
 ; FACDSP: the device's function X for file FAC (0 is Bad file number);
 ; FILDSP: for file A, which must be open. PTRDSP: for PTRFIL's FDB; SIDSP:
-; for FDBP's. The function's own registers come back (A, BX). OO-1: the
-; disk is the only device (its DSKDSP, p4/giodsk.s): an FDB of another
-; (F_DEV negative) is Device Unavailable, as TBLDSP's empty entry is; the
-; console's and LPT1's pseudo FDBs (0, $FFFF) are the OEM's OUTDO's, and
-; never come here.
+; for FDBP's: its device (F_DEV, CDEVID) and TBLDSP. The function's own
+; registers come back (A, BX). The console's and LPT1's pseudo FDBs (0,
+; $FFFF) are the OEM's OUTDO's (res/oem.s), and never come here (OO-1).
 FACDSP:         STX     GFCODE         ; the 8086's AH
                 JSR     CONINT
                 CMP     #0
@@ -717,17 +749,46 @@ PTRDSP:         PHA
                 LDA     PTRFIL+1
                 STA     FDBP+1
                 PLA
-SIDSP:          PHA
+SIDSP:          STX     GFCODE         ; the function (the 8086's AH)
+                PHA
                 LDY     #F_DEV
-                LDA     (FDBP),Y
-                BMI     ERDNA2
+                LDA     (FDBP),Y       ; (AL) = device number
+                JSR     CDEVID         ; X: its place in DVPTR
                 PLA
-                JMP     (DSKDSP,X)
+; TBLDSP (GIO86.ASM 1418): function GFCODE of the device whose DVPTR place
+; is X (0 the disk, 2 KYBD:, ...): an entry of 0 is Device unavailable.
+; OO-1: each entry is the device's own two-instruction jump (p4/giotbl.s),
+; which indexes its table by GFCODE, where the 8086's TBLDSP indexes it
+; (IOJUMP); A, and the caller's FDBP and pseudo-registers, reach the
+; routine as they came.
+TBLDSP:         PHA
+                LDA     DVPTR+1,X
+                BEQ     ERDNA2
+                PLA
+                JMP     (DVPTR,X)
 ERDNA2:         JMP     DERDNA
+
+; CDEVID (GIO86.ASM 1452): A a device id (0..n a disk, -1..-n a device of
+; the table): X its place in DVPTR, 0 for a disk, 2 * -A for a device, and
+; Z set for a disk. A is kept.
+CDEVID:         LDX     #0
+                PHA
+                ORA     #0
+                BPL     CDEV2          ; a disk
+                EOR     #$FF           ; NEG: the device's number
+                INC     A
+                ASL     A              ; * 2
+                TAX
+CDEV2:          PLA
+                CPX     #0             ; Z: a disk
+                RTS
 
 ; --- NAMSCN, PARDEV (GIO86.ASM 1486) ------------------------------------------------------
 
 ; NAMSCN: a file's name, a string formula; NAMSC1: the one just evaluated.
+; A device of the table (FILDEV negative, PARDEV's): the rest of the string,
+; its options, goes to FILOPT, ended by a 0 (64 bytes or more is Bad file
+; name), for the device's open to read; C clear. Else a disk file:
 ; FILDEV its drive (0 the current one, 1 A:), FILNM its name and type, 8
 ; and 3, padded with spaces: a "." starts the type, which C returns set
 ; for. "*", "?" or a control character is Bad file name; so is a name with
@@ -747,7 +808,22 @@ NAMSC1:         JSR     FRESTR         ; BX: the descriptor
                 STA     PTR2+1
                 JSR     PARDEV
                 STA     FILDEV
+                BPL     NAMDSK         ; a disk's
+                LDY     #0             ; NOTDSK: the options to FILOPT
+                LDA     RCL
+                BEQ     SCOM1          ; none: a 0 alone
+                CMP     #64            ; FOPTSZ, the buffer's size
+                BCS     ERIFN1
+@opt:           LDA     (PTR2),Y
+                STA     FILOPT,Y
+                INY
+                CPY     RCL
+                BNE     @opt
+SCOM1:          LDA     #0
+                STA     FILOPT,Y
                 CLC                    ; "." not scanned
+                RTS
+NAMDSK:         CLC                    ; "." not scanned
                 PHP
                 LDX     #0             ; DI: FILNM (the disk's: no other device)
 SCAN1:          LDA     RCL
@@ -794,8 +870,8 @@ FILSPC:         LDA     #' '           ; a short name padded
 ; PARDEV (1577): a device at the name's start, CX bytes at SI: A its number
 ; (0 none), CX and SI past its ":". A ":" first is Bad file name; one letter
 ; is a drive, OO-1 A: to P: (1-16, CP/M's; the 8086's A: to Y:); a longer
-; name is a device of the table, which (OO-1) has none yet: Bad file name,
-; as for a name the 8086's table hasn't.
+; name is a device of the table (DEVSRC: DEVTBL, p4/giotbl.s, in either
+; case), its number negative; a name the table hasn't is Bad file name.
 PARDEV:         LDY     #0             ; the ":"'s place
 @scan:          CPY     RCL
                 BEQ     NODVNM
@@ -809,7 +885,46 @@ NODVNM:         LDA     #0             ; no device
 DEVNM:          CPY     #0             ; the device's name: Y bytes
                 BEQ     ERIFN2
                 CPY     #1
-                BNE     ERIFN2         ; DEVSRC: no device but the disk's (OO-1)
+                BEQ     DSKNAM         ; one: a disk's
+; DEVSRC (1608): the name's Y bytes against each of DEVTBL's names (X its
+; place; each name is followed by its number, which has bit 7 set, and a 0
+; ends the table): every byte alike and then a number is the device.
+                STY     DVLEN          ; DX: the name's length
+                LDX     #0             ; DI: the table
+DEVSRC:         LDY     #0             ; SI: the name's start
+DEVLOP:         LDA     (PTR2),Y
+                JSR     UPCASE
+                STA     DVCH
+                LDA     DEVTBL,X
+                BMI     NMTCH2         ; the table's name is shorter
+                CMP     DVCH
+                BNE     NOMTCH
+                INX
+                INY
+                CPY     DVLEN
+                BNE     DEVLOP
+FNDDEV:         LDA     DEVTBL,X       ; the device's number must follow
+                BPL     NOMTCH
+                PHA                    ; DEVRET: past "name:"
+                SEC
+                LDA     PTR2
+                ADC     DVLEN          ; (C: the ":")
+                STA     PTR2
+                BCC     :+
+                INC     PTR2+1
+:               CLC
+                LDA     RCL
+                SBC     DVLEN          ; CX less the name and the ":"
+                STA     RCL
+                PLA
+                RTS
+NMTCH1:         INX
+NOMTCH:         LDA     DEVTBL,X       ; to this entry's number
+                BPL     NMTCH1
+NMTCH2:         LDA     DEVTBL+1,X     ; the end of the table?
+                BEQ     ERIFN2
+                INX                    ; the next entry
+                BRA     DEVSRC
 DSKNAM:         LDA     (PTR2)
                 JSR     UPCASE
                 SEC
@@ -844,8 +959,8 @@ UPRET:          RTS
 ; F_ORCT 1 (not at the end); PTRFIL and FDBP at it. OO-1: FALLOC's FDB is
 ; the table's for the number (GETNZB keeps it in range), and FILOPN
 ; counts it.
-INIFDB:         STA     T0             ; the device
-                TXA
+INIFDB:         PHA                    ; the device (kept round FALLOC, whose
+                TXA                    ; collection uses T0)
                 AND     FILMOD
                 BEQ     ERBFM4
                 JSR     FALLOC
@@ -853,7 +968,7 @@ INIFDB:         STA     T0             ; the device
                 LDA     OPNNUM
                 STA     (FDBP),Y
                 LDY     #F_DEV
-                LDA     T0
+                PLA
                 STA     (FDBP),Y
                 LDY     #F_FLGS
                 LDA     #0
@@ -923,6 +1038,12 @@ FALLOC:         LDA     OPNNUM
                 LDA     RCL            ; a FIELD buffer?
                 ORA     RCH
                 BEQ     FALCX
+                LDX     #RDL           ; PUSH BX, CX, DX: kept, as the 8086's
+@sv:            LDA     0,X            ; FALLOC keeps AX-DX (INIFDB's width and
+                PHA                    ; column, DX, and the length, CX)
+                INX
+                CPX     #RCH + 1
+                BNE     @sv
                 LDA     #1             ; DL: the first attempt
                 STA     FALDL
 FALC1:          SEC                    ; BX: FRETOP - STREND
@@ -969,6 +1090,18 @@ FALCOK:         JSR     FILTAB         ; SI: FILTAB
                 STA     FDDAT,Y
                 TXA
                 STA     FDDAT+1,Y
+                LDX     #RCH           ; POP DX, CX, BX
+@rs:            PLA
+                STA     0,X
+                DEX
+                BPL     @rs            ; (RDL is 0)
+.assert RDL = 0, error, "FALLOC's POP: RDL at 0"
+                LDY     #FD_SIZ        ; OO-1: its size, which FFREE gives back
+                LDA     RCL            ; (a device's file too: the 8086's FDB
+                STA     (FDBP),Y       ; size is its chain's own)
+                INY
+                LDA     RCH
+                STA     (FDBP),Y
 FALCX:          RTS
 ; FILTAB (OO-1): A/X the 8086's FILTAB, the lowest FIELD buffer's address
 ; or, with none, the string space's top: MEMSIZ + 2 (VAL's zero between).
@@ -1362,7 +1495,11 @@ NFRFDB:         STZ     FREFDB
                 JMP     CLSFIL
 
 ; SETPTR: PTRFIL = A/X (the 8086's MOV PTRFIL), OUTDO's run for the file it
-; was first sent; for a file, FDBP at its FDB and FILPOS its column.
+; was first sent; for a file, FDBP at its FDB, and what the resident core
+; reads of it without P4 (OO-1): FILPOS its column, the device's (G_GPS:
+; the disk's F_POS, LPT1's LPTPOS, ...), as the 8086's PTRGPS asks it;
+; FILWID its width (F_WID, the 8086's PTRWID); FILDVC bit 7 if it is a
+; device's, whose bytes OUTDO sends to P4 one at a time (DEVSOT).
 SETPTR:         PHA
                 PHX
                 JSR     FLUSHR
@@ -1376,10 +1513,92 @@ SETPTR:         PHA
                 BEQ     @r
                 STA     FDBP
                 STX     FDBP+1
-                LDY     #F_POS
+                LDY     #F_WID
                 LDA     (FDBP),Y
+                STA     FILWID
+                LDY     #F_DEV
+                LDA     (FDBP),Y
+                AND     #$80
+                STA     FILDVC
+                LDX     #G_GPS
+                JSR     SIDSP
                 STA     FILPOS
 @r:             RTS
+
+; DEVSOT (the project's own): OUTDO's byte A for PTRFIL's file when it is a
+; device's (FILDVC): the device's output (G_SOT), the 8086's OUTDO and
+; PTRDSP, then FILPOS its column (G_GPS), for the resident PTRGPS. FDBP is
+; kept (a P4 routine may be mid-way with its own); A, X and Y used.
+DEVSOT:         LDX     FDBP
+                PHX
+                LDX     FDBP+1
+                PHX
+                LDX     #G_SOT
+                JSR     PTRDSP
+                LDX     #G_GPS
+                JSR     PTRDSP
+                STA     FILPOS
+                PLX
+                STX     FDBP+1
+                PLX
+                STX     FDBP
+                RTS
+
+; --- CRIFEL, UPDPOS (GIO86.ASM 1295) ------------------------------------------------------
+
+; CRIFEL: for a device's output routine: A to the raw output at BXVEC (the
+; 8086's BX), a CR and an LF first if A is printable, the width (CRDL, the
+; 8086's DL) isn't 255 and the column (CRDH, DH) is at it or past. The raw
+; routine moves CRDH (UPDPOS). A is kept round the CR LF.
+CRIFEL:         CMP     #' '
+                BCC     NOCR           ; not printable
+                LDX     CRDL
+                CPX     #255
+                BEQ     NOCR           ; no width
+                LDX     CRDH
+                CPX     CRDL
+                BCC     NOCR           ; room on the line
+                PHA
+                LDA     #13
+                JSR     CALLBX
+                LDA     #10
+                JSR     CALLBX
+                PLA
+NOCR:
+CALLBX:         JMP     (BXVEC)        ; the byte out, the column moved
+
+; UPDPOS (1314): CRDH (DH) moved for A: a printable byte on one, a CR to 0,
+; a BS back one (not below 0); nothing else moves it. A and Y kept.
+UPDPOS:         CMP     #' '
+                BCC     NPRINT
+                INC     CRDH
+                RTS
+NPRINT:         CMP     #13
+                BNE     NOTCR
+                STZ     CRDH           ; ZERPOS
+                RTS
+NOTCR:          CMP     #8
+                BNE     UPPOSX
+                LDX     CRDH
+                BEQ     UPPOSX
+                DEC     CRDH
+UPPOSX:         RTS
+
+; --- GIOINI (GIO86.ASM 2053) --------------------------------------------------------------
+
+; GIOINP: GIOINI's devices, at start-up (p2/gwinit.s, which does its other
+; parts: NLONLY, PTRFIL; OO-1: no MS-DOS vectors, MSISET, nor STKLOW). DOALDV:
+; each device's initialisation (DVINI, p4/giotbl.s), the last first, X its
+; DVPTR place (the 8086's DI). FINPRT's PTRFIL is start-up's.
+GIOINP:         LDX     #2 * NDEV
+DOALLP:         PHX
+                JSR     DOALL1
+                PLX
+                DEX
+                DEX
+                BNE     DOALLP
+                RTS
+DOALL1:         JMP     (DVINI - 2,X)
 
 ; --- The errors (GWMAIN.ASM 397, DERMAK) ----------------------------------------------------
 
@@ -1438,6 +1657,12 @@ FLIDX:          .res    1
 FALDL:          .res    1              ; FALLOC's attempt (the 8086's DL)
 ARYEND:         .res    2              ; XFRSTR's array's end (the 8086's AX)
 PGTFLG:         .res    1              ; DPUTG's GET or PUT (GWDATA.ASM's PGTFLG; the 8086's CX)
+DVLEN:          .res    1              ; DEVSRC's name length (the 8086's DX)
+DVCH:           .res    1              ; and the name's byte, upper case
+FILOPT:         .res    64             ; GWRAM.ASM's: a device's options (FOPTSZ), 0 ended
+CRDL:           .res    1              ; CRIFEL's width (the 8086's DL)
+CRDH:           .res    1              ; and column (DH), UPDPOS's
+BXVEC:          .res    2              ; and the raw output routine (BX)
 ; FDDAT: each file number's FIELD buffer in the TPA (the 8086's FD_DAT), 0
 ; for none (not random, or not open).
 FDDAT:          .res    2 * (NMFILE + 1)

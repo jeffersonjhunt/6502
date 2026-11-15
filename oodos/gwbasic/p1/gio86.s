@@ -29,7 +29,7 @@
 ;@entry ADRGET
 .export PRINTP, LPRNTP, PTRGPS, PTRWDC, ADRGET
 .import CHRGTR, FRMEVL, GETYP, FOUT, STRLIT, STRPRT, CRDO, FINPRT, OUTDO
-.import SYNCHR, FRQINT, IMOD, LINLEN
+.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID
 
 CLMWID          = 14                   ; OEM.H: the print zones' width
 
@@ -205,9 +205,10 @@ NOTABR:         JSR     CHRGTR         ; past ";", "," or ")"
 ; --- PTRGPS, PTRWDC (GIO86.ASM 1208) ------------------------------------------------
 
 ; PTRGPS: the current output's column (the console's, LPT1's or a file's) in
-; A, Z set at the margin. A file's is FILPOS, F_POS as OUTDO keeps it (the
-; 8086's G_GPS to DSKGPS: OO-1, the FDB is P4's, so its column is kept
-; beside the run OUTDO hands P4).
+; A, Z set at the margin. A file's is FILPOS (the 8086's G_GPS: OO-1, the
+; FDB is P4's): a disk file's F_POS, as OUTDO keeps it beside the run it
+; hands P4; a device's file's, the device's column, which P4's DEVSOT sets
+; after each byte.
 PTRGPS:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
                 BEQ     @con           ; window; else LPT1 ($FFFF), as OUTDO
                 CMP     #>BLK_BASE     ; has it
@@ -223,16 +224,16 @@ PTRGPS:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
 
 ; PTRWDC: X = the current output's width (LINLEN; WIDTH is 7d's), A the last
 ; column a comma may print at: the width less its remainder mod 14, less 14
-; (80: 56). PTRWID: a file's width is its F_WID, which for a disk file is
-; always 255 (DSKOPN's, and DSKSWD is Illegal function call: OO-1, so P1
-; needn't read P4's FDB for it).
+; (80: 56). PTRWID: a file's width is its F_WID: OO-1, FILWID, which P4's
+; SETPTR keeps with PTRFIL, so P1 needn't read P4's FDB for it (255 for a
+; disk file; LPT1:'s 80, ...).
 PTRWDC:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
                 BEQ     @con           ; window; else LPT1 ($FFFF), as OUTDO
                 CMP     #>BLK_BASE     ; has it
                 BCC     @lpt
                 INC     A
                 BEQ     @lpt
-                LDA     #255
+                LDA     FILWID
                 BRA     @w
 @lpt:           LDA     LINLEN+1
                 BRA     @w

@@ -280,6 +280,16 @@ FC_ASC          = 0                    ; an ASCII file
 FC_BIN          = 1                    ; a binary one (BSAVE, a tokenised SAVE)
 FL_BKC          = $80                  ; F_BAKC holds the next input byte
 NMFILE          = 3                    ; OO-1: the files a program may open (1-3), and file 0 (P4's table)
+KYBQLN          = 16                   ; the keyboard queue's size, a power of 2 (res/oem.s's KYBQ)
+
+; 7c's devices as files (GIOTBL.ASM's numbers, p4/giotbl.s): F_DEV and FILDEV
+; of a device are negative, its place in DEVTBL; a disk's are 0-16.
+NDEV            = 8                    ; $_NDEV: the devices that aren't disks
+DEVKYB          = $FF                  ; $_KYBD: the keyboard (input)
+DEVSCN          = $FE                  ; $_SCRN: the screen (output)
+DEVCON          = $FD                  ; $_CONS: the console, raw (output)
+DEVLP1          = $FC                  ; $_LPT1 (LPT2 $FB, LPT3 $FA: no driver, OO-1)
+DEVCM1          = $F9                  ; $_COM1 (COM2 $F8: no driver, OO-1)
 
 ; The FDB (MSDOSU's file data block, its fields in their order), in P4's
 ; RAM: OO-1, a CP/M FCB of 36 bytes where MS-DOS's of 38 is (DR, the name

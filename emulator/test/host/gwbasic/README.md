@@ -334,3 +334,10 @@ array's count is evaluated: a string is Illegal function call), `c_e7` (and noth
 
 By hand in test_gwbasic_files: CHAIN MERGE of a tokenised file (Bad file mode, where PC-BASIC fails), and
 VARPTR(#n), the address of file n's FDB in P4's table (its F_MODE byte), Bad file number for a file not open.
+
+7c's devices as files (LPT1:, COM1:, SCRN:, KYBD:, CONS:, the COM statement): PC-BASIC's printer and ports aren't the
+oracle's, so test_gwbasic_files checks their bytes by hand from the source; only the COM statement's errors run here.
+
+| Program | What |
+|---|---|
+| `d_com` | `COM(n) ON`, `STOP`, `OFF` for 1, 2 and 0 (the class); 3 and 200 Illegal function call (200 passes the source's signed compare: G10's guard); `COM(1) GOSUB` a Syntax error; `ON COM(n) GOSUB`; COM2: Device Unavailable |

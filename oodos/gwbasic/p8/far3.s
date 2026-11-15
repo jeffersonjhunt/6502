@@ -36,7 +36,7 @@
 .include "gwbasic.inc"
 
 .export ONGOTO, ERRORS, RESUME
-.export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF, AUTO, RESEQ
+.export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF, AUTO, RESEQ, COMS, LCOPY
 .import CLEARC, INPRET, EDTMAI, LSTRDY, ONTOK, GONE2
 
 .code
@@ -72,3 +72,9 @@ AUTO:           FJSR    AUTOP
                 JMP     EDTMAI         ; POP CX, JMP MAIN
 RESEQ:          FJSR    RESEQP
                 JMP     LSTRDY         ; STPRDY
+
+; 7c's devices: COM(n) ON/OFF/STOP and LCOPY, STMDSX's (P3's: p3/gwsts.s).
+COMS:           FJSR    COMSP
+                RTS
+LCOPY:          FJSR    LCOPYP
+                RTS

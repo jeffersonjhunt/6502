@@ -4225,6 +4225,49 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       strings are null; FOR RANDOM is Syntax error.
     - Must-fail (test_gwbasic_files): 33's 1 or 4 taken as an error, or the buffer not zeroed (X1's test); a part
       record written without its read (records out of order); CVI's bytes swapped (the round trip).
+  - **As built, the devices as files** (Proposed, 2026-11-14): GIOTBL.ASM's device table, GIOLPT.ASM, GIOCOM.ASM,
+    GIOSCN.ASM's, GIOKYB.ASM's and GIOCON.ASM's device drivers in P4 (`p4/giotbl.s`, `giolpt.s`, `giocom.s`,
+    `gioscn.s`, `giokyb.s`, `giocon.s`; PARDEV's DEVSRC, CDEVID, TBLDSP, DEVBIN, CRIFEL, UPDPOS and GIOINI's DOALDV
+    in `p4/gio86.s`), COM1's OEM routines on AUX: in `p4/oem.s`; LPOS (P4, a resident stub); the COM statement and
+    LCOPY in P3 (`p3/gwsts.s`, their stubs in `p8/far3.s`). P4 is 11,591 bytes (697 free); 35,798 bytes free.
+    - **The table** is OEM.H's: KYBD:, SCRN:, CONS:, LPT1:-LPT3:, COM1:, COM2:, so any of them OPENs as the source
+      does (its options after the colon, in FILOPT). **OO-1:** LPT2:, LPT3: and COM2: have no driver (they wait for
+      the serial card's TL16C552A), so their table entries are 0: Device Unavailable at OPEN, the source's answer for
+      a device with none; LPT9: and other names are Bad file name.
+    - **Resident (OO-1):** a device's file's bytes go to P4 one at a time (OUTDO's `FILDVC` bit, then a far call to
+      `DEVSOT`), since a printer's or a port's column and line ends are the driver's; a disk file's still go as runs.
+      `FILWID` (the file's F_WID) lets P1's PTRWDC give a file its own width (LPT1:'s 80, where every file was
+      255). Two bytes of fixed RAM, 21 of code (OUTDO's branch, LPOS's stub).
+    - **LPT1:** is LST: (function 5), the DCB LPRINT's (LINLEN+1, LPTPOS, LPCRF), so LPRINT, LLIST and an LPT1: file
+      share its column, as the 8086's LP1DCB is shared: a CR followed by an LF, an LF after a CR dropped, a TAB no
+      column, a CR LF at the width; BIN raw. LPOS(n) keeps the source's (n - 1) / 2 (so LPOS(3) reads LPT1's flags
+      byte; past LPT1's DCB, LPTINI's bytes for LPT2 and LPT3, then 0).
+    - **COM1:** is AUX:, **polled** (decision 12): output by function 4, input by function 3 when function 7 says a
+      byte waits (COMSIN polls the keys meanwhile, so ^C breaks). With no receive buffer, **a byte that comes while
+      BASIC is busy elsewhere is lost** once the next comes (TTY holds one); LOC is 0 or 1 (and a byte backed up),
+      LOF the room in that one place. **The speed** (the owner, 2026-11-14) is parsed and checked as PCOMOP and the
+      OEM's INICOM give it (5 digits at most; one of the PC's 75-9,600 or the line's own 19,200, else Bad file name)
+      and kept in the DCB with the parity, data and stop bits, but **not set**: OODOS's DEVINI ignores the device
+      table's speed and TTY has no soft speed, so the line stays 19,200, 8-N-1, and a program asking for 300 gets
+      19,200. RS, CS, DS and CD are kept and do nothing (TTY has no modem lines). Binary unless ASC (no ^Z at CLOSE;
+      EOF true while nothing waits); ASCII sends a ^Z at CLOSE and ends at one received. OO-1: GET and PUT's count is
+      1 to the record's length (Bad record number), where the source's takes 65,536 bytes for 0 and runs past the
+      FIELD buffer for more. ON COM(n)'s trap from a byte waiting (POLCOM) is 7f's; COM(n) ON/OFF/STOP sets the flag.
+    - **SCRN:, KYBD:, CONS:** until the screen (7d): SCRN: writes through the console's own output (a CR as CR LF, an
+      LF after a CR dropped, CR LF past its width, 80); KYBD: reads the OEM's keys (INCHRI), ^Z its end; CONS: writes
+      by function 6 raw (OO-1: not $FD-$FF, function 6's requests).
+    - **G10:** SEVSTT's id must be below the class's count unsigned too, so COM(200) (which passes the source's signed
+      JGE) is Illegal function call, as PC-BASIC gives it, never a flag past TRPTBL.
+    - **LCOPY** parses as LCOPYS (a byte, the statement's end), then the OEM's LCPY is Advanced Feature until 7d's
+      text layer (the console's screen is OODOS's). ERDEV and IOCTL are the source's Advanced Feature (ERDEV has no
+      word in the 1983 table, so it is a variable). GIOTRM is dropped: every device's end is a RET here.
+    - **FALLOC** keeps BX, CX and DX as the 8086's does (it didn't: a random file's F_WID and F_POS were the string
+      move's), stores the FIELD buffer's size in FD_SIZ for FFREE (a device's random file too), and INIFDB keeps the
+      device id on the stack round its collection.
+    - The books describe no GW-BASIC device yet (the Technical Reference's serial chapter is the card's): COM1's
+      speed goes into the User's Guide's GW-BASIC chapter when it is written.
+    - Must-fail (test_gwbasic_files): an LPT1: file's CR without its LF; COM1:'s bytes sent by function 2, not 4;
+      SEVSTT without G10's guard (COM(200) writes past TRPTBL).
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

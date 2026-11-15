@@ -20,8 +20,9 @@
 ;             TAB doesn't); a CR is followed by an LF, and an LF straight
 ;             after a CR is dropped (LPOUT1). $FF, which GW-BASIC sends
 ;             after a message to mark the line "not typed", counts a column
-;             and isn't sent (the PC shows it as a blank). A file's byte
-;             (7c) goes into RUNBUF for P4, its column in FILPOS
+;             and isn't sent (the PC shows it as a blank). A disk file's
+;             byte (7c) goes into RUNBUF for P4, its column in FILPOS; a
+;             device's file's (FILDVC) goes to P4 at once (DEVSOT)
 ;   CRDO CRDONZ CRFIN  CR LF; CR LF unless at the margin; A = 0 (CRDONZ:
 ;                      the console's or LPT1's; no file's comes here yet)
 ;   FINLPT FINPRT      LPT1 to its margin; output back to the console, a
@@ -54,7 +55,7 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
-.export RUNBUF, FILOPN, FREFDB
+.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL
 
         OODOS_HEADER
@@ -64,7 +65,6 @@
                 JMP     LOAD           ; $0300: the loader, once
 
 POLN            = 16                   ; CHKINT: statements between looks at the keys
-KYBQLN          = 16                   ; the keyboard queue's size (a power of 2)
 WIDTH           = 80                   ; the console's and LPT1's width
 
 .code
@@ -143,8 +143,14 @@ OUTDO:          PHP
 ; OO-1: the bytes wait in RUNBUF, and P4 takes them as a run, in one far
 ; call (FLUSHP) when RUNBUF is full or at FINPRT, or before anything else
 ; P4 does (hw/oodos.md, V1: the device interface takes runs). The column
-; moves as SOUTPS moves F_POS: a CR to 0, a printable byte on one.
-@file:          LDX     RUNLEN
+; moves as SOUTPS moves F_POS: a CR to 0, a printable byte on one. A
+; device's file (LPT1:, COM1:, SCRN:, CONS:: FILDVC, which P4's SETPTR
+; sets) keeps its own column and line ends in P4, so its byte goes there at
+; once, one far call each (DEVSOT, which sets FILPOS): a printer or a port
+; is slower than the call.
+@file:          BIT     FILDVC
+                BMI     @dev
+                LDX     RUNLEN
                 STA     RUNBUF,X
                 INX
                 STX     RUNLEN
@@ -159,6 +165,8 @@ OUTDO:          PHP
                 BCC     @done
                 FJSR    FLUSHP
                 BRA     @done
+@dev:           FJSR    DEVSOT
+                JMP     @done
 @out:           PHX                    ; X: the device
                 LDY     #C_WRITE
                 CPX     #0
@@ -529,6 +537,11 @@ KYBQOUT:        .res    1
 RUNBUF:         .res    RUNSIZ
 FILOPN:         .byte   0
 FREFDB:         .word   0
+; 7c's devices (P4's SETPTR sets them with PTRFIL, for a file): FILWID the
+; file's width (F_WID: 255 a disk's; P1's PTRWDC), FILDVC bit 7 if it is a
+; device's (OUTDO, above).
+FILWID:         .byte   255
+FILDVC:         .byte   0
 ; GWDATA.ASM's buffers: function 10 reads into BUF-2, its size and length
 ; over the byte before BUF; BUFMIN, a comma for INPUT and READ; BUF, a line
 ; typed (direct statements run from KBUF, which CRUNCH fills); KBUF-1 a

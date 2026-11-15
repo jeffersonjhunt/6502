@@ -39,6 +39,7 @@
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
+.import COMS, LCOPY
 
 .code
 
@@ -145,13 +146,19 @@ STMDSX:         S       FILES          ; FILES
                 S       RESET          ; RESET
                 S       DATA           ; COMMON (FIVEO.ASM's COMMON: JMP DATA)
                 S       CHAIN          ; CHAIN (p8/far4.s)
-.repeat CHDIR_XS - CHAIN_XS - 1
-                S       ADVERR         ; DATE$ .. IOCTL
+.repeat COM_XS - CHAIN_XS - 1
+                S       ADVERR         ; DATE$ .. PAINT
+.endrepeat
+                S       COMS           ; COM (p8/far3.s)
+.repeat CHDIR_XS - COM_XS - 1
+                S       ADVERR         ; CIRCLE .. IOCTL (ERDEV and IOCTL: the source's, Advanced Feature)
 .endrepeat
                 S       CHDIR          ; CHDIR
                 S       MKDIR          ; MKDIR
                 S       RMDIR          ; RMDIR
-.repeat CALLS_XS - RMDIR_XS
-                S       ADVERR         ; SHELL .. CALLS
+.repeat LCOPY_XS - RMDIR_XS - 1
+                S       ADVERR         ; SHELL .. PALETTE
 .endrepeat
+                S       LCOPY          ; LCOPY (p8/far3.s)
+                S       ADVERR         ; CALLS
 .assert * - STMDSX = 2 * NUMSTX, error, "STMDSX: one entry an extended statement"

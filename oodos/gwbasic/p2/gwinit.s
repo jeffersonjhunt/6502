@@ -55,9 +55,12 @@ GWINIT:
                 STZ     PTRFIL
                 STZ     PTRFIL+1
 ; GIOINI's (GIO86.ASM 2052): no load under way (NLONLY 0); OO-1: no file 0
-; open (F0OPN), OODOS doesn't clear a program's zero page.
+; open (F0OPN), OODOS doesn't clear a program's zero page. Then its DOALDV,
+; each device's start (P4's GIOINP: LPT1:'s width, COM1:'s DCB, SCRN:'s
+; width, the keyboard's queue).
                 STZ     NLONLY
                 STZ     F0OPN
+                FJSR    GIOINP
 ; CPMVR1's (GWINIT.ASM 158): no CHAIN, no MERGE under way.
                 STZ     CHNFLG
                 STZ     MRGFLG

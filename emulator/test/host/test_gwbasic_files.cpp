@@ -32,6 +32,10 @@
  *   a CR after an LF going on with a loaded line; a name of more than 8 characters and a type, Bad file name.
  * - CHAIN and COMMON (7c's CHAIN step): COMMON's variables, ALL, a line, MERGE with DELETE, the DEF types, a file
  *   open across it, the errors; LIST and LLIST to a file; VARPTR(#n), by hand: the FDB's place in P4's table.
+ * - The devices as files (7c's devices step), by hand from the source: LPT1: to LST: as LPRINT goes, and LPOS;
+ *   COM1: on AUX:, polled, its options parsed and kept (the speed not set: the line stays 19,200), the bytes sent
+ *   and received watched at the BDOS's entry; SCRN:, KYBD: and CONS:; the COM statement with G10's guard (TRPTBL's
+ *   range), LCOPY, ERDEV and IOCTL.
  */
 
 #include "harness.h"
@@ -300,7 +304,7 @@ TEST(files_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"A:FDRV.TXT\":PRINT #1,\"on a\":CLOSE"), std::string());
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"FDRV.TXT\":LINE INPUT #1,A$:PRINT A$:CLOSE"), std::string("on a\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"Q:FX.TXT\""), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LPT1:\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LPT1:\":PRINT #1,\"x\":CLOSE"), std::string()); // to LST: (lpt1_files_...)
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"FX.DAT\":CLOSE"), std::string());
     CHECK_EQ(command(r, "OPEN \"FX.DAT\" AS #1 LEN=20:CLOSE"), std::string());
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
@@ -1005,4 +1009,236 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
     CHECK_EQ(command(r, "PRINT VARPTR(#2)"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT VARPTR(#4)"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "CLOSE:PRINT VARPTR(#1)"), std::string("Bad file number\r\n"));
+}
+
+namespace
+{
+    /// What a BDOS function (5 L_WRITE: LST:; 4 A_WRITE: AUX:) is sent while `line` is typed and run to its Ok,
+    /// read at the BDOS's entry as test_gwbasic_core's lst_of() reads LST:.
+    std::string sent_by(CcpRig &r, uint8_t function, const std::string &line)
+    {
+        std::string got;
+        r.watch = [&](uint16_t pc) {
+            const Registers g = r.cpu->regs();
+            if (pc == 0x0203 && g.y == function)
+                got += static_cast<char>(g.a);
+        };
+        command(r, line);
+        r.watch = nullptr;
+        return got;
+    }
+} // namespace
+
+// LPT1: as a file (GIOLPT.ASM's LPTOPN, LPTSOT, LPOUT1; the 7c devices step), by hand from the source (PC-BASIC's
+// printer isn't the oracle's): to LST: by function 5, through LPT1's own DCB, which LPRINT shares (its column, its
+// CR flag), by the rules 7a's LPRINT keeps (T4, T5): a CR followed by an LF, an LF straight after a CR dropped, a
+// TAB moving no column, a CR LF before a printable byte at the width (80). So each PRINT #1 below sends what the
+// same LPRINT sends. BIN sends the bytes as they are; a random OPEN writes as an output one; LIST to "LPT1:" is
+// LLIST's text. LPOS(n) (GIOLPT.ASM LPOS) is the shared column plus 1, n 0 to 2 LPT1's; past them the source's
+// (n - 1) / 2 reads LPT1's flags byte (the CR flag: 2 after a CR) and then LPT2's width (80: 81). The errors: input
+// or append (Bad file mode), an option but BIN, LPT9: (Bad file name), LPT2: and LPT3:, which have no driver on the
+// OO-1 (Device Unavailable), and EOF and LOC of a printer (Bad file mode).
+TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    auto lst = [&](const std::string &line) { return vis(sent_by(r, 5, line)); };
+    const std::string open = "OPEN \"LPT1:\" FOR OUTPUT AS #1:PRINT #1,";
+    CHECK_EQ(lst(open + "\"A\";CHR$(13);CHR$(10);\"B\":CLOSE"), vis("A\r\nB\r\n"));
+    CHECK_EQ(lst(open + "\"A\";CHR$(13);\"B\":CLOSE"), vis("A\r\nB\r\n"));
+    CHECK_EQ(lst(open + "STRING$(85,\"x\"):CLOSE"), vis(std::string(80, 'x') + "\r\n" + std::string(5, 'x') + "\r\n"));
+    CHECK_EQ(lst(open + "CHR$(9);\"A\";TAB(20);\"B\":CLOSE"), vis("\tA" + std::string(18, ' ') + "B\r\n"));
+    for (const char *items : {"CHR$(9);\"A\";TAB(20);\"B\"", "STRING$(85,\"x\")", "1,2,\"abc\";-3", "SPC(5);\"Q\";CHR$(8);\"R\"",
+                              "STRING$(70,\"y\");12345"})
+        CHECK_EQ(lst(open + items + ":CLOSE"), lst(std::string("LPRINT ") + items));
+    CHECK_EQ(lst("OPEN \"LPT1:BIN\" FOR OUTPUT AS #1:PRINT #1,\"A\";CHR$(13);\"B\";:CLOSE"), vis("A\rB"));
+    CHECK_EQ(lst("OPEN \"lpt1:bin\" AS #1:PRINT #1,\"C\";CHR$(10);:CLOSE"), vis("C\n"));
+    CHECK_EQ(lst("OPEN \"LPT1:\" AS #1:PRINT #1,\"R\":CLOSE"), vis("R\r\n"));
+    CHECK_EQ(lst("OPEN \"O\",#2,\"LPT1:\":OPEN \"O\",#3,\"LPT1:\":PRINT #2,\"2\";:PRINT #3,\"3\":CLOSE"), vis("23\r\n"));
+    enter(r, {"10 PRINT 1", "20 REM two"});
+    CHECK_EQ(lst("LIST ,\"LPT1:\""), lst("LLIST"));
+    CHECK_EQ(lst("LIST ,\"LPT1:\""), vis("10 PRINT 1\r\n20 REM two\r\n"));
+    CHECK_EQ(command(r, "LPRINT \"AB\";:PRINT LPOS(0);LPOS(1);LPOS(2)"), std::string(" 3  3  3 \r\n"));
+    CHECK_EQ(command(r, open + "\"ABCD\";:PRINT LPOS(1):CLOSE"), std::string(" 5 \r\n"));
+    CHECK_EQ(command(r, "LPRINT CHR$(13);:PRINT LPOS(0);LPOS(3);LPOS(4);LPOS(5);LPOS(7);LPOS(30)"),
+             std::string(" 1  2  2  1  81  1 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR INPUT AS #1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR APPEND AS #1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT1:X\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT1:BINX\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT9:\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT2:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR OUTPUT AS #1:PRINT EOF(1)"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "PRINT LOC(1)"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "CLOSE:PRINT 1"), std::string(" 1 \r\n"));
+}
+
+// COM1: as a file (GIOCOM.ASM's COMOPN, PCOMOP, COMSIN, COMSOT, COMEOF, COMLOC, COMLOF, COMCLS), by hand from the
+// source (PC-BASIC's port isn't the oracle's), on AUX: (OO-1, decision 12: polled; the OEM's routines, p4/oem.s):
+// a byte sent goes by function 4 (watched at the BDOS's entry), one received is read by function 3 when function 7
+// says it waits. The test makes TTY AUX:'s alone while the program runs (the SCB's CONIN: vector CRT only, as DEVICE
+// CONIN:=CRT does; RUN typed on the USB keyboard), so GW-BASIC's look at the keys (POLKEY, which COMSIN calls while
+// it waits) can't take the line's bytes, which come by the console's key(). The options: the speed, parity, data
+// and stop bits parsed, checked and kept in the DCB (CM1DCB, read while P4 is in W3) as PCOMOP and INICOM give them,
+// and not set (the owner, 2026-11-14: the line stays 19,200); each wrong one Bad file name; COM2: Device
+// Unavailable; COM1: one file at a time. A file is binary unless ASC is given: no ^Z at its CLOSE, and EOF true
+// while no byte waits; but its CR LF and width rules still apply (COMSOT: BIN not given), with no LF after a CR
+// unless LF is given. ASCII: a ^Z at CLOSE, and a ^Z received is its end.
+TEST(com1_files_go_to_and_from_aux_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
+    REQUIRE(p4.count("CMBAUD") == 1 && p4.count("CMSTOPB") == 1);
+    for (const char *bad : {"COM1:1234", "COM1:0", "COM1:123456", "COM1:300,X", "COM1:300,N,9", "COM1:300,N,3",
+                            "COM1:300,N,8,3", "COM1:300,N,8,1.6", "COM1:300,N,8,1,XY", "COM1:,,,,ASC,BIN", "COM1:,,,,LX",
+                            "COM1:300 N", "COM1:,,,,BIX"})
+        CHECK_EQ(command(r, std::string("OPEN \"") + bad + "\" AS #1"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "OPEN \"COM2:\" AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"COM1:\" AS #1:OPEN \"COM1:\" AS #2"), std::string("File already open\r\n"));
+    CHECK_EQ(command(r, "CLOSE"), std::string());
+    // The DCB as PCOMOP leaves it, read at the file's first byte out (W3 then P4's).
+    struct Dcb
+    {
+        unsigned baud, data, parity, stop;
+    } dcb{};
+    auto peek = [&](const char *l, unsigned k = 0) { return r.machine->bus().peek(static_cast<uint16_t>(p4.at(l) + k)); };
+    auto aux = [&](const std::string &line) {
+        std::string got;
+        dcb = {};
+        r.watch = [&](uint16_t pc) {
+            const Registers g = r.cpu->regs();
+            if (pc != 0x0203 || g.y != 4)
+                return;
+            if (got.empty())
+                dcb = {static_cast<unsigned>(peek("CMBAUD") | peek("CMBAUD", 1) << 8), peek("CMBYTSZ"), peek("CMPARIT"),
+                       peek("CMSTOPB")};
+            got += static_cast<char>(g.a);
+        };
+        const std::string printed = command(r, line);
+        r.watch = nullptr;
+        CHECK_EQ(vis(printed), vis(got)); // AUX: is TTY, the serial line the rig reads the console's output on
+        return vis(got);
+    };
+    CHECK_EQ(aux("OPEN \"COM1:\" AS #1:PRINT #1,\"HI\";CHR$(13);CHR$(10);\"X\":CLOSE"), vis("HI\rX\r"));
+    CHECK(dcb.baud == 300 && dcb.data == 7 && dcb.parity == 2 && dcb.stop == 0); // the defaults; 300: 1 stop bit
+    CHECK_EQ(aux("OPEN \"COM1:9600,N,8,1.5,LF,ASC\" AS #1:PRINT #1,\"A\":CLOSE"), vis("A\r\n\x1a"));
+    CHECK(dcb.baud == 9600 && dcb.data == 8 && dcb.parity == 0 && dcb.stop == 1);
+    CHECK_EQ(aux("OPEN \"COM1:110,O,5\" FOR OUTPUT AS #1:PRINT #1,\"B\":CLOSE"), vis("B\r"));
+    CHECK(dcb.baud == 110 && dcb.data == 5 && dcb.parity == 1 && dcb.stop == 1); // 110 and 5 bits: 1.5
+    CHECK_EQ(aux("OPEN \"COM1:75,M,6\" AS #1:PRINT #1,\"C\";:CLOSE"), vis("C"));
+    CHECK(dcb.baud == 75 && dcb.data == 6 && dcb.parity == 3 && dcb.stop == 2); // 75 and 6 bits: 2
+    CHECK_EQ(aux("OPEN \"COM1:19200,S,8,2,RS,CS,DS2,CD5,BIN\" AS #1:PRINT #1,\"D\";CHR$(13);:CLOSE"), vis("D\r"));
+    CHECK(dcb.baud == 19200 && dcb.data == 8 && dcb.parity == 4 && dcb.stop == 2);
+    CHECK_EQ(aux("OPEN \"COM1:1 2 0 0,,7\" AS #1:PRINT #1,STRING$(3,\"e\"):CLOSE"), vis("eee\r"));
+    CHECK(dcb.baud == 1200 && dcb.data == 7 && dcb.parity == 2);
+    // Input: a program run with CONIN: the USB keyboard's alone, the line's bytes fed as the console's keys.
+    enter(r, {"NEW", "10 OPEN \"COM1:300,N,8,1\" AS #1", "20 PRINT #1,\"HI\"", "30 PRINT \"a\";:A$=INPUT$(1,#1)",
+              "40 PRINT \"<\";A$;\">\";LOC(1);LOF(1)", "50 PRINT \"b\";:LINE INPUT #1,B$:PRINT \"[\";B$;\"]\";LOC(1);INPUT$(1,#1);EOF(1)",
+              "55 CLOSE:OPEN \"COM1:,,,,ASC\" AS #2:PRINT \"c\";:PRINT EOF(2);EOF(2):CLOSE"});
+    std::string sent;
+    r.watch = [&](uint16_t pc) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 4)
+            sent += static_cast<char>(g.a);
+    };
+    r.scb(0x22, 0x00); // CONIN: CRT alone
+    r.scb(0x23, 0x80);
+    const size_t from = r.out.size();
+    r.type_usb("RUN\r");
+    CHECK(r.until("a", ms(4000), from + 3)); // each byte sent once the program waits for it
+    r.type("Q");
+    CHECK(r.until("b", ms(4000), from + 3));
+    r.type("hello\rx"); // the byte after the CR read and backed up (the console sends no LF: it makes one a CR)
+    CHECK(r.until("c", ms(4000), from + 3));
+    r.type("\x1a");
+    CHECK(r.until("Ok\r\n", ms(8000), from));
+    r.watch = nullptr;
+    r.scb(0x23, 0xC0); // CONIN: CRT and TTY again, from the next line typed (function 10 reads the vector at its start)
+    r.type_usb("\r");
+    CHECK_EQ(vis(sent), vis("HI\r\x1a"));
+    const std::string ran = r.out.substr(from);
+    const std::string want = "a<Q> 0  1 \r\nb[hello] 1 x-1 \r\nc-1 -1 \r\n\x1aOk\r\n"; // (AUX:'s ^Z on the line too)
+    CHECK(ran.find(want) != std::string::npos);
+    if (ran.find(want) == std::string::npos)
+        std::printf("  ran: '%s'\n", vis(ran).c_str());
+    CHECK_EQ(command(r, "PRINT 2"), std::string(" 2 \r\n"));
+}
+
+// The console's devices as files (GIOSCN.ASM, GIOKYB.ASM, GIOCON.ASM; the devices step), by hand from the source:
+// SCRN: through BASIC's own console output, a CR as CR LF and an LF straight after a CR dropped, its width the
+// console's (80: a CR LF before the 81st column); CONS: raw, by function 6, no CR LF of its own; KYBD: the keys
+// typed (INPUT$, EOF's ^Z), the keyboard's queue for LOC and LOF (16, one kept empty: 15). Each for its one way
+// only (Bad file mode).
+TEST(scrn_kybd_and_cons_files_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,\"AB\";CHR$(13);CHR$(10);\"C\":CLOSE"),
+             std::string("AB\r\nC\r\n"));
+    CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,\"AB\";CHR$(13);\"C\":CLOSE"), std::string("AB\r\nC\r\n"));
+    CHECK_EQ(command(r, "OPEN \"scrn:\" FOR OUTPUT AS #1:PRINT #1,STRING$(81,\"s\"):CLOSE"),
+             std::string(80, 's') + "\r\ns\r\n");
+    CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,1,2,\"z\":CLOSE"), command(r, "PRINT 1,2,\"z\""));
+    CHECK_EQ(command(r, "OPEN \"CONS:\" FOR OUTPUT AS #1:PRINT #1,\"AB\";CHR$(10);\"C\":CLOSE"), std::string("AB\nC\r\n"));
+    CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR INPUT AS #1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "OPEN \"CONS:\" AS #1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "OPEN \"KYBD:\" FOR OUTPUT AS #1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "OPEN \"KYBD:\" AS #1:PRINT LOC(1);LOF(1):CLOSE"), std::string(" 0  15 \r\n"));
+    size_t from = r.out.size();
+    r.type("OPEN \"KYBD:\" FOR INPUT AS #1:A$=INPUT$(3,#1):PRINT \"<\";A$;\">\":CLOSE\r");
+    r.type("xyz");
+    CHECK(r.until("Ok\r\n", ms(4000), from + 10));
+    CHECK(r.out.find("<xyz>\r\n", from) != std::string::npos);
+    from = r.out.size();
+    r.type("OPEN \"KYBD:\" FOR INPUT AS #2:PRINT EOF(2);EOF(2):CLOSE\r");
+    r.type("\x1a");
+    CHECK(r.until("Ok\r\n", ms(4000), from + 10));
+    CHECK(r.out.find("-1 -1 \r\n", from) != std::string::npos);
+}
+
+// The COM statement (GWSTS.ASM COMS: SEVSTT for COM(1) and COM(2)) and G10 (the owner's, 2026-11-14): an event id
+// past TRPTBL's range is Illegal function call, never a write past it: COM(200) passes the source's signed JGE (199
+// is negative) and would set the flag of event 214, 642 bytes into P3's RAM; with the guard, no byte past TRPTBL's
+// 63 changes (read at COMSP, P3 in W3). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
+// PC-BASIC where it can tell (d_com: COM(n)'s errors, COM2: Device Unavailable); by hand, LCOPY, the source's LCOPYS
+// parse and then the OEM's LCPY, Advanced Feature until the screen (7d); IOCTL, the source's Advanced Feature
+// (GWSTS.ASM's ERDEV and IOCTL are ADVERR), and ERDEV, which the 1983 table has no word for (IBMRES.ASM's STMDSX
+// names it, its reserved words don't), so it is a variable: Syntax error.
+TEST(the_com_statement_lcopy_erdev_and_ioctl)
+{
+    programs({"d_com"});
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> p3 = link_labels("p3.lbl");
+    REQUIRE(p3.count("TRPTBL") == 1 && p3.count("COMSP") == 1);
+    const uint16_t past = static_cast<uint16_t>(p3.at("TRPTBL") + 3 * 21), end = 0xF800; // NUMTRP 21
+    std::vector<std::vector<uint8_t>> seen;
+    r.watch = [&](uint16_t pc) {
+        if (pc != p3.at("COMSP"))
+            return;
+        std::vector<uint8_t> b;
+        for (uint16_t a = past; a < end; ++a)
+            b.push_back(r.machine->bus().peek(a));
+        seen.push_back(b);
+    };
+    CHECK_EQ(command(r, "COM(1) ON"), std::string());
+    CHECK_EQ(command(r, "COM(200) ON"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "COM(129) STOP"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "COM(0) OFF"), std::string());
+    r.watch = nullptr;
+    REQUIRE(seen.size() == 4);
+    CHECK(seen[1] == seen[0] && seen[2] == seen[0] && seen[3] == seen[0]);
+    CHECK_EQ(command(r, "LCOPY"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY 1"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY 256"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "LCOPY 1,2"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // no word in the 1983 table: a variable
 }

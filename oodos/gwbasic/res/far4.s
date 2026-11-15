@@ -11,6 +11,8 @@
 ;             function in X as FINGO has it (p4/gio86.s FILFNP)
 ;   FIXINP    INPUT$(n[, [#]f]) from EVAL (res/gweval.s): FILFUN with X 0
 ;             (p4/dskcom.s FIXINPP)
+;   LPOS      LPOS(n) from FUNDSP (res/tables.s): GIOLPT.ASM's, P4's
+;             (p4/giolpt.s LPOSP), beside LPT1:'s file
 ;   LRUN      RUN "file" (DSKCOM.ASM's LRUN), from the resident RUN, and a
 ;             program named on the command line (INITSA): S set back to
 ;             HOMSTK, as res/home.s's GOREADY does, then the home block's
@@ -30,7 +32,7 @@
 
 .include "gwbasic.inc"
 
-.export CLSALL, FILFUN, FIXINP, LRUN, MAXREC
+.export CLSALL, FILFUN, FIXINP, LRUN, MAXREC, LPOS
 .import FILOPN, HOMSTK
 
 .code
@@ -40,6 +42,8 @@ CLSALL:         PHA                    ; A kept, as the 8086's PUSH AX keeps it
                 BEQ     :+
                 FJSR    CLSALP
 :               PLA
+                RTS
+LPOS:           FJSR    LPOSP
                 RTS
 FIXINP:         LDX     #0
 FILFUN:         FJSR    FILFNP

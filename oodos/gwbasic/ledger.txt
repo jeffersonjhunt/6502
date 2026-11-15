@@ -915,8 +915,8 @@ GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; from a fi
 GIO86.ASM CLSALL -> p4/gio86.s CLSALP # its resident stub res/far4.s CLSALL (no far call with no file open)
 GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> p4/gio86.s NULOPM # an entry, LIST's (p2/gwlist.s LIST4)
-GIO86.ASM GIOINI -> later 7c: the devices' start-up (DOALDV's LPT1:, COM1:), the devices step's; the disk files need none of it: NLONLY and PTRFIL are start-up's (p2/gwinit.s), FILTAB MEMSIZ + 2 (OO-1), P4's FDB table loads free, no MS-DOS vectors (MSISET)
-GIO86.ASM GIOTRM -> later 7c: the devices' end (DOALDV's), the devices step's; the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
+GIO86.ASM GIOINI -> p4/gio86.s GIOINP # DOALDV in it: each device's start (DVINI); NLONLY and PTRFIL are start-up's (p2/gwinit.s, which far calls it), FILTAB MEMSIZ + 2 (OO-1), no MS-DOS vectors (MSISET), no STKLOW
+GIO86.ASM GIOTRM -> dropped: every device's end is a RET on the OO-1 (KYBTRM, LPTTRM, COMTRM, CONS's _RET; SCNTRM's function-key line is 7d's); the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
 GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # functions 11 and 6; the function keys and their traps later 7d, 7f
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
@@ -950,7 +950,7 @@ GWSTS.ASM POLSTR -> later 7f: STRIG's trap
 GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
 GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
 GWSTS.ASM EVSET -> p3/gwsts.s EVSET
-GIOCOM.ASM POLCOM -> later 7c: COM1's trap
+GIOCOM.ASM POLCOM -> later 7f: COM1's trap, ON COM(n) from a byte waiting (CHKINT's; COM(n)'s flag is 7c's, p3/gwsts.s COMSP)
 GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
@@ -963,7 +963,7 @@ GIO86.ASM PDCBAX -> later 7d: the soft keys' state at KYBINI
 GIOKYB.ASM GETFKY -> later 7d: a function key's next character
 GIO86.ASM GETQ -> OEM res/oem.s KYBGET
 GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
-GIO86.ASM SIDSP -> p4/gio86.s SIDSP # the disk's DSKDSP, the only device
+GIO86.ASM SIDSP -> p4/gio86.s SIDSP # TBLDSP in it: DVPTR's entry (p4/giotbl.s), 0 Device unavailable
 
 # i2: the statements (step I2 of 7a). Resident: GWMAIN.ASM's FNDFOR, FOR, NXTSCN and WNDSCN, GOSUB and RETURN;
 # NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (p8/gwmain.s has their
@@ -1264,7 +1264,7 @@ GWSTS.ASM LOCATE -> later 7d
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> later 7d
 GWMAIN.ASM PEEK -> later 7c: with DEF SEG
-GIOLPT.ASM LPOS -> later 7c
+GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
 GWSTS.ASM PENF -> later 7e: PEN
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
@@ -1287,13 +1287,13 @@ FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes 
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
 ADVGRP.ASM PAINT -> later 7e
-GWSTS.ASM COMS -> later 7c: COM, the COM1 device's statement (ON COM's trap 7f)
+GWSTS.ASM COMS -> p3/gwsts.s COMSP # its stub p8/far3.s COMS (STMDSX's); ON COM's trap 7f
 ADVGRP.ASM CIRCLE -> later 7e
 ADVGRP.ASM DRAW -> later 7e
 GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
-GWSTS.ASM ERDEV -> later 7c: ERDEV, ERDEV$
-GWSTS.ASM IOCTL -> later 7c: IOCTL, IOCTL$
+GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
+GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
 GWSTS.ASM CHDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
 GWSTS.ASM MKDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
 GWSTS.ASM RMDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
@@ -1303,7 +1303,7 @@ GWSTS.ASM VIEW -> later 7e
 GWSTS.ASM WINDOW -> later 7e
 GWSTS.ASM PMAP -> later 7e
 GWSTS.ASM PALETE -> later 7e: PALETTE
-GWSTS.ASM LCOPYS -> later 7c: LCOPY, to LST:
+GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) Advanced Feature until the screen, 7d
 CALL86.ASM CALLSL -> later 7g: CALLS
 DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
 DSKCOM.ASM CVS -> p4/dskcom.s CVS
@@ -1496,7 +1496,7 @@ GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP
 GIO86.ASM XFRSTR -> p4/gio86.s XFRSTR # OO-1: only the FIELD buffers move with it (the FDBs are P4's table); PTRFIL never moves; SAVFRE (CHAIN's) moves
 GIO86.ASM PFDCBA -> dropped: FALLOC's and FFREE's register restore (their callers keep nothing in the registers)
 GIO86.ASM FDBPTR -> p4/gio86.s FDBPTR # OO-1: the table's FDB for the number; Z when not open
-GIO86.ASM CDEVID -> dropped: OO-1, the disk is the only device (SIDSP and OPNFIL go to its routines)
+GIO86.ASM CDEVID -> p4/gio86.s CDEVID
 GIO86.ASM RET9 -> p4/gio86.s RET9
 GIO86.ASM FILSCN -> p4/gio86.s FILSCN
 GIO86.ASM ERFNO3 -> p4/gio86.s ERFNO3
@@ -1513,7 +1513,7 @@ GIO86.ASM POFNUM -> p4/gio86.s POFNUM
 GIO86.ASM PORLEN -> p4/gio86.s PORLEN
 GIO86.ASM NAMSC1 -> p4/gio86.s NAMSC1 # OO-1: the name upper case
 GIO86.ASM PNRLEN -> p4/gio86.s PNRLEN
-GIO86.ASM OPNFIL -> p4/gio86.s OPNFIL # TBLDSP's G_OPN: DSKOPN, the disk's
+GIO86.ASM OPNFIL -> p4/gio86.s OPNFIL # TBLDSP's G_OPN, the device's (DSKOPN, LPTOPN, COMOPN, ...)
 GIO86.ASM RET6 -> p4/gio86.s RET6
 GIO86.ASM FACFPT -> p4/gio86.s FACFPT
 GIO86.ASM GFUNX -> p4/gio86.s GFUNX
@@ -1529,7 +1529,7 @@ GIO86.ASM GETNZB -> p4/gio86.s GETNZB # OO-1: past NMFILE is Bad file number too
 GIO86.ASM PRLENC -> p4/gio86.s PRLENC
 GIO86.ASM PRLENX -> p4/gio86.s PRLENX
 GIO86.ASM VARECS -> p4/gio86.s VARECS
-GIO86.ASM PARDEV -> p4/gio86.s PARDEV # OO-1: drives A: to P:; no device table yet (Bad file name)
+GIO86.ASM PARDEV -> p4/gio86.s PARDEV # DEVSRC in it (DEVTBL, p4/giotbl.s); OO-1: drives A: to P:
 GIO86.ASM SCAN1 -> p4/gio86.s SCAN1
 GIO86.ASM ERIFN1 -> p4/gio86.s ERIFN1
 GIO86.ASM SCNAM3 -> p4/gio86.s SCNAM3
@@ -1668,3 +1668,65 @@ FIVEO.ASM CLPFIN -> p4/fiveo.s CLPFIN
 FIVEO.ASM DNCMDS -> p4/fiveo.s DNCMDS
 FIVEO.ASM DNCMDA -> p4/fiveo.s DNCMDA
 FIVEO.ASM DNCCLS -> p4/fiveo.s DNCCLS
+# 7c: LPRINT and COM1: the devices as files (block P4: GIOTBL.ASM's table, GIOLPT.ASM, GIOCOM.ASM, GIOSCN.ASM,
+# GIOKYB.ASM, GIOCON.ASM; the OEM's COM routines on AUX:, p4/oem.s; COM and LCOPY in P3, their stubs in the home block)
+GIOTBL.ASM _DVTBL -> p4/giotbl.s DEVTBL
+GIOTBL.ASM _DVPTR -> p4/giotbl.s DVPTR # OO-1: each entry the device's jump (DSKJ ...), which indexes its table; LPT2, LPT3, COM2 0
+GIOTBL.ASM _DVINI -> p4/giotbl.s DVINI # OO-1: LPT2's, LPT3's and COM2's RETs (no DCB)
+GIOTBL.ASM _DVTRM -> dropped: GIOTRM's, every end a RET on the OO-1
+GIO86.ASM DEVBIN -> p4/gio86.s DEVBIN
+GIOLPT.ASM LPTDSP -> p4/giolpt.s LPTDSP
+GIOLPT.ASM LPTTRM -> p4/giolpt.s LPTCLS # a RET
+GIOLPT.ASM LPTINI -> p4/giolpt.s LPTINI # LPTCLS, LPTSWD, LPTOPN, LPTSOT and LPOUT1 in its routine: a file's (LPRINT's pseudo FDB is res/oem.s OUTDO's); CRIFEL and UPDPOS are P4's too (p4/gio86.s)
+GIOLPT.ASM LPROUT -> p4/giolpt.s LPROUT # SNDLPT, the OEM's: function 5, no error (LPERR never reached)
+GIOLPT.ASM GLPDCB -> dropped: OO-1, LPT1's DCB alone (LINLEN+1, LPTPOS, LPCRF: resident, LPRINT's too); LPT2 and LPT3 have no driver
+GIOCOM.ASM COMDSP -> p4/giocom.s COMDSP
+GIOCOM.ASM COMINI -> p4/giocom.s COMINI
+GIOCOM.ASM COMTRM -> p4/giocom.s COMSCW # a RET
+GIOCOM.ASM POLCM1 -> later 7f: POLCOM's, ON COM(n)'s trap
+GIOCOM.ASM GCOMSZ -> p4/giocom.s GCOMSZ # STACOM the OEM's (p4/oem.s): AUX:'s status, function 7
+GIOCOM.ASM CKCMER -> p4/giocom.s CKCMER # COMOPN in its routine: INICOM the OEM's (p4/oem.s); OO-1: the speed and the rest kept, not set (the owner, 2026-11-14)
+GIOCOM.ASM PCOMOP -> p4/giocom.s PCOMOP # LPARM's options in its routine
+GIOCOM.ASM LPTRYS -> p4/giocom.s LPTRYS # LPRBIN, LPRASC, TSTCOD in its routine
+GIOCOM.ASM SYNPRM -> p4/giocom.s SYNPRM # CHKPRM (unused) left out
+GIOCOM.ASM GETPRM -> p4/giocom.s GETPRM
+GIOCOM.ASM GETPRI -> p4/giocom.s GETPRI
+GIOCOM.ASM GETPR0 -> p4/giocom.s GETPR0
+GIOCOM.ASM VALGET -> p4/giocom.s VALGET # COMEOF in its routine
+GIOCOM.ASM COMLOC -> p4/giocom.s COMLOC # COMLOF, COMCLS, COMSWD, COMRND in its routine; OO-1: COMRND's count 1 to FD_SIZ (Bad record number), never past the FIELD buffer
+GIOCOM.ASM COMSIN -> p4/giocom.s COMSIN # COMSOT, CMOUT1 in its routine; RECCOM the OEM's: functions 7 and 3
+GIOCOM.ASM CMROUT -> p4/giocom.s CMROUT # COMGPS, COMGWD, COMSCW, COMGCW in its routine; SNDCOM the OEM's: function 4
+GIOCOM.ASM GCMDCB -> dropped: OO-1, COM1's DCB alone (CM1DCB); COM2 has no driver
+GIOCOM.ASM GCMUID -> dropped: OO-1, the unit 0 (COM1's) alone
+GIOCON.ASM CONDSP -> p4/giocon.s CONDSP # CONOPN, CONGPS in its routine
+GIOCON.ASM _RET -> p4/giocon.s CONRET # CONGWD in its routine
+GIOCON.ASM CONSOT -> p4/giocon.s CONSOT # C_DCIO: function 6; OO-1: $FD-$FF not sent (function 6's requests)
+GIOSCN.ASM SCNDSP -> p4/gioscn.s SCNDSP
+GIOSCN.ASM SCNINI -> p4/gioscn.s SCNINI
+GIOSCN.ASM SCNTRM -> p4/gioscn.s SCNCLS # SCNTRM itself (TKEYOF, SCNPOS) the screen's, 7d: GIOTRM's table isn't kept
+GIOSCN.ASM SCNSWD -> p4/gioscn.s SCNOPN # SCNSWD itself, WIDTH's (SWIDTH, the screen editor's): 7d, Advanced Feature here
+GIOSCN.ASM SCNSOT -> p4/gioscn.s SCNSOT # TWOBYT (the editor's two-byte characters) 7d's
+GIOSCN.ASM SCNOL1 -> p4/gioscn.s SCNOL1
+GIOSCN.ASM SCNOL2 -> p4/gioscn.s SCNOL2 # SCNOUT: OO-1, the console's OUTDO (PTRFIL 0); no CSRX to move back
+GIOSCN.ASM SCNGPS -> p4/gioscn.s SCNGPS # CSRX is TTYPOS + 1 (OO-1)
+GIOSCN.ASM SCNGWD -> p4/gioscn.s SCNGWD
+GIOSCN.ASM SCNSCW -> p4/gioscn.s SCNSCW
+GIOSCN.ASM SCNGCW -> p4/gioscn.s SCNGCW
+GIOKYB.ASM KYBDSP -> p4/giokyb.s KYBDSP
+GIOKYB.ASM KYBCLR -> p4/giokyb.s KYBEOF # KYBCLR itself, the OEMs' clear, is KYBINI's (res/oem.s); KYBEOF in its routine
+GIOKYB.ASM KYBTRM -> p4/giokyb.s KYBLOC # KYBTRM a RET; KYBLOF, KYBCLS, KYBOPN in its routine
+GIOKYB.ASM KYBSIN -> p4/giokyb.s KYBSIN # the OEM's INCHRI for KEYIN (the screen editor's, 7d)
+GIO86.ASM MSISET -> dropped: MS-DOS's ^C and critical error vectors (&H23, &H24); OODOS's console mode and error mode $FE are start-up's (p2/gwinit.s)
+GIO86.ASM DOALDV -> p4/gio86.s GIOINP # DOALLP in it (GIOTRM's DOALDV dropped)
+GIO86.ASM NUMQ -> p4/giokyb.s NUMQ # OO-1: the OEM's queue (res/oem.s KYBQ: KYBQIN, KYBQOUT)
+GIOCOM.ASM RET14 -> p4/giocom.s RET14
+GIOCOM.ASM RET21 -> p4/giocom.s RET21
+GIOCOM.ASM RET24 -> p4/giocom.s RET24
+GIOCOM.ASM LPRBIN -> p4/giocom.s LPRBIN
+GIOCOM.ASM PARIFN -> p4/giocom.s PARIFN
+GIOCOM.ASM LPARM -> p4/giocom.s LPARM
+GIOCOM.ASM GETPRX -> p4/giocom.s GETPRX
+GWSTS.ASM TRMCOM -> later 7d: SCNINT's (the screen statements' parameters); GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
+GWSTS.ASM TKEYOF -> later 7d: the function-key line off (SCNTRM's)
+SCNDRV.ASM SCNPOS -> later 7d: the cursor's place (SCNTRM's, KEYSIN's)
+SCNDRV.ASM SCNOUT -> later 7d: the screen driver's output; till then p4/gioscn.s SCNOUT, the console's OUTDO (PTRFIL 0), OO-1
