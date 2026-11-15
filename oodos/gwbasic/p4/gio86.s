@@ -67,6 +67,7 @@
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
 .export PRGFIL, SCDASC, FSTLOD, BINSAV, BINPSV, DEVBOT, PRGFIN, CLSFIL, RUNFLG, LDRUN, PTRDSP
 .export DERBFN, DERFNF, DERBFM, DERFNO, DERFAO, DERIOE, DERDFL, DERRPE, DERIFN, DERTMF, DERDNA
+.export DERFAE, DERRAD
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import DSKOPN, DSKDSP, FIXINPP
@@ -83,6 +84,8 @@ ERRRPE          = 62
 ERRNMF          = 64
 ERRTMF          = 67
 ERRDNA          = 68
+ERRFAE          = 58
+ERRRAD          = 74
 FNAML           = 11                   ; MSDOSU's: a name and type's bytes
 
 .code
@@ -966,6 +969,10 @@ DERIFN:         LDA     #ERRNMF
                 BRA     DERGO
 DERTMF:         LDA     #ERRTMF
                 BRA     DERGO
+DERFAE:         LDA     #ERRFAE
+                BRA     DERGO
+DERRAD:         LDA     #ERRRAD
+                BRA     DERGO
 DERDNA:         LDA     #ERRDNA
 DERGO:          JMP     ERROR
 
@@ -982,6 +989,7 @@ FILMOD:         .res    1              ; the mode an OPEN asks for
 FILNAM:                                ; the name an OPEN gives: its drive, name and type
 FILDEV:         .res    1              ; 0 the current drive, 1 A:
 FILNM:          .res    FNAML
+                .res    36 - 1 - FNAML ; the rest of an FCB: FILFCB's (KILL, NAME, FILES; F_PARSE fills 0-23)
 RUNFLG:         .res    1              ; a load's: 0 not run, 1 run, $81 run with the files kept
 LDRUN:          .res    1              ; OO-1: bit 7, a text load's end runs it (MAIN's NEWSTT)
 OPNNUM:         .res    1              ; the number of the file being opened (the 8086's BX)

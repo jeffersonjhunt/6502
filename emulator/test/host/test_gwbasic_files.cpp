@@ -21,6 +21,9 @@
  *   address in W3, while P4 is there; and PRINT #'s bytes go to P4 as runs, timed.
  * - LOAD, SAVE and MERGE (7c's LOAD step): typed sessions against PC-BASIC's transcripts (NAME.typ); W2, a tokenised
  *   LOAD at the workspace's top, with sentinels past it; and a program named on the command line, from the CCP.
+ * - KILL, NAME and FILES (7c's directory step), on the BDOS's search, delete and rename, names parsed by function
+ *   152; and the directory hook: CHDIR, MKDIR and RMDIR crunched to their extended tokens and answered by P4's one
+ *   hook (p4/oem.s), as OODOS has no directories.
  */
 
 #include "harness.h"
@@ -516,6 +519,88 @@ TEST(a_program_named_on_the_command_line_runs)
     CHECK(none.find("File not found\r\n") != std::string::npos);
     if (none.find("File not found\r\n") == std::string::npos)
         std::printf("  got '%s'\n", vis(none).c_str());
+}
+
+// KILL (GIODSK.ASM KILL, KILL2), NAME (NAME, SAMDRV, NA_FNF, NA_FAE) and FILES (FILES, NOARG, ALFILS, GOTNAM, FILNXT,
+// MORNAM, PRISPA, NOTEXT, NWFILN, NEXTFL), with NAMFIL and FILFCB (STRTNM, NAMORE, LNGNAM, FINNAM, TRMSTR). d_kill: a
+// file KILLed, then OPENed for input (File not found), KILL of a missing file, of an open one (File already open), of
+// a null name (Bad file name) and a number (Type mismatch), "?" and "*" (each file of the pattern deleted, the others
+// kept). d_name: a file renamed and read by its new name, the old one gone; a missing one; to a name there already
+// (File already exists); an open one; null names (Bad file name: the source's NAMFIL, NAME.differ) and numbers;
+// d_name2 no AS (Syntax error). d_files: FILES with "*" and "?", lower case, a name alone, none matching (File not
+// found), one of more than 8 characters (FILFCB's "." after the 8th), six names a line and fewer after PRINT ;, as the
+// 1983 source prints them (NAME.differ: PC-BASIC's heading, columns and Bytes free differ). The messages of 58 and 74.
+TEST(kill_name_and_files_print_what_the_source_prints)
+{
+    programs({"d_kill", "d_name", "d_name2", "d_files", "d_e58", "d_e74"});
+}
+
+// By hand, from the source, what PC-BASIC's run of a file can't give: FILES with no name lists the current drive's
+// files, as FILES "A:" (ALFILS's "d:*.*"), "*.*" and "a:*.*" do, the same lines; a drive named before a pattern; NAME
+// to another drive is Rename across disks (SAMDRV's check, before the disk is read); and the OO-1's departures: a "?"
+// in either of NAME's names is Bad file name (CP/M's rename takes none), and a name function 152 refuses (Q:, a type
+// of more than 3) is Bad file name, for KILL, NAME and FILES alike.
+TEST(files_kill_and_name_typed_at_the_prompt_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"DHA.TXT\":CLOSE:OPEN \"O\",#1,\"DHB.TXT\":CLOSE"), std::string());
+    const std::string all = command(r, "FILES");
+    CHECK(all.find("DHA     .TXT DHB     .TXT ") != std::string::npos);
+    CHECK(all.size() > 2 && all.substr(all.size() - 2) == "\r\n");
+    CHECK_EQ(command(r, "FILES \"A:\""), all);
+    CHECK_EQ(command(r, "FILES \"*.*\""), all);
+    CHECK_EQ(command(r, "FILES \"a:*.*\""), all);
+    CHECK_EQ(command(r, "FILES \"A:DH?.*\""), std::string("DHA     .TXT DHB     .TXT \r\n"));
+    CHECK_EQ(command(r, "NAME \"DHA.TXT\" AS \"B:DHC.TXT\""), std::string("Rename across disks\r\n"));
+    CHECK_EQ(command(r, "NAME \"A:DHA.TXT\" AS \"A:DHC.TXT\""), std::string());
+    CHECK_EQ(command(r, "FILES \"DH?.TXT\""), std::string("DHC     .TXT DHB     .TXT \r\n"));
+    CHECK_EQ(command(r, "NAME \"DH?.TXT\" AS \"DHD.TXT\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DH*.TXT\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DHB.TXTX\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "KILL \"Q:DHB.TXT\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "FILES \"Q:\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "KILL \"A:DH?.TXT\""), std::string());
+    CHECK_EQ(command(r, "FILES \"DH*.*\""), std::string("File not found\r\n"));
+    CHECK(command(r, "FILES").find("DH") == std::string::npos);
+}
+
+// The directory hook (the owner's, 2026-11-13 and 2026-11-14): CHDIR, MKDIR and RMDIR are added to P2's keyword table
+// (OO-1: the 1983 table has no words for them), each crunched to $FE and its STMDSX token ($97, $98, $99: the program's
+// text read at TXTTAB) and LISTed back as the word; and one hook (p4/oem.s DIRHK) answers all three: CHDIR to "\", "."
+// or "" is done (the root), any other CHDIR and any RMDIR Path not found (76), MKDIR Path/File access error (75); a
+// number is Type mismatch. d_dir against PC-BASIC (NAME.differ: PC-BASIC refuses CHDIR "" and makes the directory),
+// the messages of 75 and 76 (added: the 1983 table ends at 74) and 77 (past them: Unprintable error, NAME.differ).
+TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
+{
+    programs({"d_dir", "d_e75", "d_e76", "d_e77"});
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::string line = "10 CHDIR \"\\\":MKDIR \"X\":RMDIR \"Y\"";
+    enter(r, {line});
+    CHECK_EQ(command(r, "LIST"), line + "\r\n");
+    auto word = [&](uint16_t a) { return static_cast<uint16_t>(r.phys(a) | r.phys(a + 1u) << 8); };
+    constexpr uint16_t TXTTAB = 0x79; // gwbasic.inc
+    const uint16_t text = word(TXTTAB);
+    std::vector<uint8_t> got;
+    for (uint16_t i = 4; i < 4 + 17; ++i)
+        got.push_back(r.phys(static_cast<uint16_t>(text + i)));
+    const std::vector<uint8_t> want = {0xFE, 0x97, ' ', '"', '\\', '"', ':', 0xFE, 0x98,
+                                       ' ',  '"',  'X', '"', ':',   0xFE, 0x99, ' '};
+    CHECK(got == want);
+    CHECK_EQ(word(static_cast<uint16_t>(text + 2)), 10);
+    CHECK_EQ(command(r, "RUN"), std::string("Path/File access error in 10\r\n"));
+    CHECK_EQ(command(r, "CHDIR \"\\\""), std::string());
+    CHECK_EQ(command(r, "CHDIR \".\":CHDIR \"\":PRINT \"root\""), std::string("root\r\n"));
+    CHECK_EQ(command(r, "CHDIR \"X\""), std::string("Path not found\r\n"));
+    CHECK_EQ(command(r, "CHDIR \"\\\\\""), std::string("Path not found\r\n"));
+    CHECK_EQ(command(r, "MKDIR \"\\\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "RMDIR \"\\\""), std::string("Path not found\r\n"));
+    CHECK_EQ(command(r, "CHDIR"), std::string("Missing operand\r\n"));
+    CHECK_EQ(command(r, "RMDIR 1"), std::string("Type mismatch\r\n"));
+    CHECK_EQ(command(r, "CHDIR \"\\\" X"), std::string("Syntax error\r\n"));
 }
 
 int main()

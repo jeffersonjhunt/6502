@@ -4180,6 +4180,23 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       SCRTCH's PROFLG, LRUN, INITSA's command line).
     - PROCHK is P2's (LIST, BUFLIN, EDENT2), inline in P3's PRODIR (USR) and P4's BINSAV. The command line's
       switches (/F: /S: /M: /C:) are a later step's: passed over for now.
+  - **As built, KILL, NAME, FILES and the directory hook** (Proposed, 2026-11-14): GIODSK.ASM's KILL, NAME and FILES,
+    with NAMFIL and FILFCB, in P4 (`p4/giodsk.s`), on functions 17 and 18 (search), 19 (delete) and 23 (rename), each
+    name made an FCB by 152; home block stubs in `p8/far4.s`. P4 is 5,490 bytes; 35,902 free (no resident byte).
+    - **OO-1, where CP/M isn't MS-DOS:** KILL looks for the file by a search, where the 8086 opens and closes it
+      (CP/M's open refuses a `?`, through the error mode); CP/M's rename gives File Exists and a `?` through the
+      error mode, so NAME searches for the new name first (File already exists) and refuses a `?` in either name (Bad
+      file name); a name 152 refuses (a type of more than 3, a bad drive) is Bad file name, where MS-DOS's parse cuts
+      it short; FILES prints the name from CP/M's 128-byte directory record, its attribute bits taken off, and every
+      file of the user's that matches (SYS ones too).
+    - **The directory hook** (the owner's, 2026-11-13 and 2026-11-14): CHDIR, MKDIR and RMDIR are added to P2's
+      keyword table (the 1983 table has no words for them), crunched to STMDSX's tokens, and one routine answers all
+      three (`p4/oem.s` DIRHK): CHDIR to `\`, `.` or `""` is done; any other CHDIR, and RMDIR, Path not found (76);
+      MKDIR Path/File access error (75). Their messages are added after the 1983 table's last (74).
+    - **The flat test image** leaves out `p8/far4.s` (P4's statements' stubs) as it leaves out P4, `test/flatp4.s`
+      standing in for both: it ends at `$8F75` with its BSS, under check.py's `$9000` (G11).
+    - Must-fail (test_gwbasic_files): the hook answering 76 for the root; KILL without its delete; FILES searching
+      `*.*` whatever it was given.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

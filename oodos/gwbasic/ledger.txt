@@ -1273,12 +1273,12 @@ GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 #
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
-GIODSK.ASM FILES -> later 7c
+GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
 DSKCOM.ASM FIELD -> later 7c
-GIODSK.ASM NAME -> later 7c
+GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists)
 DSKCOM.ASM LSET -> later 7c
 DSKCOM.ASM RSET -> later 7c
-GIODSK.ASM KILL -> later 7c
+GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"
 GWSTS.ASM PUT -> later 7c: PUT, a file's (a graphics PUT 7e)
 GWSTS.ASM GET -> later 7c: GET, a file's (a graphics GET 7e)
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
@@ -1294,9 +1294,9 @@ GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> later 7c: ERDEV, ERDEV$
 GWSTS.ASM IOCTL -> later 7c: IOCTL, IOCTL$
-GWSTS.ASM CHDIR -> later 7c: OODOS has no directories (a question for 7c)
-GWSTS.ASM MKDIR -> later 7c: OODOS has no directories (a question for 7c)
-GWSTS.ASM RMDIR -> later 7c: OODOS has no directories (a question for 7c)
+GWSTS.ASM CHDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
+GWSTS.ASM MKDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
+GWSTS.ASM RMDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
 GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
 GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
 GWSTS.ASM VIEW -> later 7e
@@ -1628,3 +1628,7 @@ SCNEDT.ASM INOTLF -> p4/scnedt.s INOTLF
 SCNEDT.ASM FINLIN -> p4/scnedt.s FINLIN
 SCNEDT.ASM LTLONG -> p4/scnedt.s LTLONG
 GIO86.ASM FILOU3 -> p4/gio86.s PTRDSP # OUTDO's other name: from P4, G_SOT to the device itself
+# 7c: KILL, NAME, FILES and the directory hook (block P4, the home block's stubs; CHDIR, MKDIR and RMDIR added to the
+# keyword table, a recorded deviation, and answered by one OEM hook, p4/oem.s)
+GIODSK.ASM NAMFIL -> p4/giodsk.s NAMFIL
+GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 152 refuses is Bad file name, the name taken to 127 bytes

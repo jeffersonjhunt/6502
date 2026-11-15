@@ -1,0 +1,26 @@
+# NAME's null names are Bad file name in the 1983 source (GIODSK.ASM NAMFIL's JCXZ ER_NMF, for the old name and the new); PC-BASIC gives Device I/O error for a null old name and File already exists for a null new one.
+a
+b
+renamed
+c
+error 53 in 60 
+d
+error 53 in 70 
+e
+error 58 in 80 
+f
+renamed
+g
+error 55 in 100 
+h
+renamed
+i
+error 64 in 120 
+j
+error 64 in 130 
+k
+error 13 in 140 
+l
+error 13 in 150 
+m
+done

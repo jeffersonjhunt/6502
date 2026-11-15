@@ -261,3 +261,21 @@ By hand in test_gwbasic_files: W2, a tokenised LOAD at the workspace's top (CLEA
 program's end, sentinels past it unchanged, DM_LOAD used, the program run; 30 bytes lower, Out of memory with nothing
 written past it); and a program named on the command line (`GWBASIC PROG`, a name ending at `/`, a missing one).
 
+7c's KILL, NAME, FILES and the directory hook, typed and RUN as the file layer's, each writing its own files:
+
+| Program | What |
+|---|---|
+| `d_kill` | KILL of a file, then OPEN for input (File not found); of a missing file, an open one, a null name, a number; `?` and `*` |
+| `d_name`, `d_name2` | NAME, the file read by its new name; a missing one, to a name there already, an open one, null names, numbers; no AS |
+| `d_files` | FILES with `*` and `?`, lower case, a name alone, none matching, one of more than 8 characters; six a line, fewer after PRINT ; |
+| `d_dir` | CHDIR to `\`, `.`, `""` and another, MKDIR, RMDIR (the directory hook); a number for the path |
+| `d_e58`, `d_e74`, `d_e75`, `d_e76`, `d_e77` | the messages of 58 and 74, and of 75 and 76 (added); 77, past the table |
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (the source prints no heading and no
+Bytes free line, one blank between names and six a line; its OPEN runs a long name into the type), `d_name` (a null
+name is Bad file name: NAMFIL), `d_e77` (past the table: Unprintable error). Where the OO-1 differs: `d_dir` (OODOS has
+no directories: CHDIR `""` is the root, MKDIR is Path/File access error; the owner's, 2026-11-13).
+
+By hand in test_gwbasic_files: FILES with no name, `"A:"`, `"*.*"` and `"a:*.*"` alike, on the rig's A:; a drive
+before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in NAME's names and for a name function
+152 refuses; CHDIR, MKDIR and RMDIR crunched to `$FE` and their tokens (the program's text), LISTed back, and typed.

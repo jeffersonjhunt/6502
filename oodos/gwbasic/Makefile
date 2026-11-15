@@ -94,9 +94,10 @@ sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 # The flat test image (test/, the project's own): every module, resident and banked, assembled with
 # -D FLAT (a far call is a JSR) and linked as one image at $0300 with the math harness first
 # (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). P4, the
-# files, is left out (the image has no OODOS) and test/flatp4.s stands in for its entries. ctest's
+# files, is left out (the image has no OODOS), and so are its statements' home block stubs
+# (p8/far4.s); test/flatp4.s stands in for both. ctest's
 # test_gwbasic_math builds the runner itself and runs check.py on this image.
-FLAT_SRC    = test/harness.s test/flatp4.s $(RES_SRC) $(filter-out p4/%,$(wildcard p[1-8]/*.s))
+FLAT_SRC    = test/harness.s test/flatp4.s $(RES_SRC) $(filter-out p4/% p8/far4.s,$(wildcard p[1-8]/*.s))
 FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
 EMU         = ../../emulator/components
 CHECK      ?=

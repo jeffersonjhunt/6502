@@ -16,6 +16,12 @@
 ;             to HOMSTK first, as for HREADY; LOAD with its flag 1
 ;   MERGES    MERGE name (DSKCOM.ASM's MERGE, p4/dskcom.s MERGEP)
 ;   SAVES     SAVE name[,A|,P] (DSKCOM.ASM's SAVE, p4/dskcom.s SAVEP)
+;   FILES     FILES [name] (p4/giodsk.s FILESP)
+;   KILL      KILL name (p4/giodsk.s KILLP)
+;   NAME      NAME old AS new (p4/giodsk.s NAMEP)
+;   CHDIR     CHDIR, MKDIR, RMDIR path: the directory hook, X which of the
+;   MKDIR     three (p4/oem.s DIRHK; OO-1: words the 1983 table hasn't,
+;   RMDIR     p2/ibmres.s)
 ;
 ; LOAD, RUN name and MERGE end in the main loop, as the 8086's do: from the
 ; home block, never from P4. P4 opens file 0 and reads it, and returns what
@@ -31,6 +37,7 @@
 
 ;@entry HLRUN
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
+.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
 
 .code
@@ -40,6 +47,19 @@ OPEN:           FJSR    OPENP
 CLOSE:          FJSR    CLOSEP
                 RTS
 RESET:          FJSR    RESETP
+                RTS
+FILES:          FJSR    FILESP
+                RTS
+KILL:           FJSR    KILLP
+                RTS
+NAME:           FJSR    NAMEP
+                RTS
+CHDIR:          LDX     #0
+                BRA     DIRGO
+MKDIR:          LDX     #1
+                BRA     DIRGO
+RMDIR:          LDX     #2
+DIRGO:          FJSR    DIRHK
                 RTS
 
 ; HLRUN: TOPS, STKINI's stack top, as HREADY sets it (LRUN set S back to

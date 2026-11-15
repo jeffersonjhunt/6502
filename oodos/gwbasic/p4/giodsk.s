@@ -21,6 +21,9 @@
 ;   READS WRITES    a record read or written ($READS, $WRITS), at the
 ;                   random record CP/M's R0-R2 holds, which ACCFIL moves on
 ;   RESETP          RESET: every file closed, the drives reset
+;   FILESP          FILES: the directory's names that match, or every one
+;   KILLP NAMEP     KILL, NAME: a file deleted, renamed (the BDOS's 19, 23)
+;   NAMFIL FILFCB   their names: a string, made an FCB by function 152
 ;   DFSTLD          a LOAD's block input: whole records straight to the
 ;                   workspace by function 83's DM_LOAD (W2), the last part
 ;                   through the buffer
@@ -46,12 +49,17 @@
 .include "gwbasic.inc"
 
 ;@entry RESETP
-.export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD
+;@entry FILESP
+;@entry KILLP
+;@entry NAMEP
+.export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
 .import DERTMF, DERFNF, DERBFM, DERFAO, DERIOE, DERDFL, FCERR, ADVERR, FRCDBL
+.import DERIFN, DERFAE, DERRAD, FRMEVL, FRESTR, SYNCHR, OUTDO, CRDO, CRDONZ, POLKEY, LINLEN, BUF
 
 ASCCTZ          = 26                   ; ^Z, a text file's end
+FNAML           = 11                   ; MSDOSU's: a name and type's bytes
 
 .code
 
@@ -908,6 +916,280 @@ MAKUPC:         CMP     #'a'
                 AND     #$FF - ' '
 NOTLC:          RTS
 
+; --- FILES, KILL, NAME (GIODSK.ASM 931) --------------------------------------------------
+
+; FILESP: FILES [name] (GIODSK.ASM 949): the names in the directory that
+; match the name, or with none every file of the current drive ("*.*"),
+; with "d:" alone every file of that drive ("d:*.*"); "*" and "?" are wild
+; cards. Each is printed as the 8086 prints MS-DOS's: its 8 characters,
+; "." (a blank if the type is blank) and its 3, then a blank, or a new line
+; when the next would end past the width; File not found if none matches.
+; The directory's records come to DIRBUF (the 8086's FILNA2, its DTA), the
+; DMA address (OO-1: CP/M's search gives a 128-byte record, the entry at
+; DIRBUF + 32 A, its name and type at +1, the attributes in their bit 7,
+; which is taken off). OO-1: PTRWID and PTRGPS are P1's; FILES's output is
+; the console's (a statement starts with PTRFIL 0), so its width and column
+; are theirs, LINLEN and TTYPOS. Z from CHRGTR: nothing follows.
+FILESP:         BEQ     NOARG          ; JE NOARG
+                JSR     NAMFIL         ; PTR2 the name, RCL its length
+                LDA     RCL
+                CMP     #2
+                BNE     GOTNAM         ; not "d:"
+                LDY     #1
+                LDA     (PTR2),Y
+                CMP     #':'
+                BNE     GOTNAM
+                LDA     (PTR2)         ; "d:" to FILNA2
+                STA     FILNA2
+                LDA     #':'
+                STA     FILNA2+1
+                LDX     #2
+                BRA     ALFILS         ; "*.*" after it
+NOARG:          LDX     #0             ; SI: FILNA2
+                STZ     RCL            ; XOR CX,CX
+ALFILS:         LDA     #'*'           ; "*.*"
+                STA     FILNA2,X
+                STA     FILNA2+2,X
+                LDA     #'.'
+                STA     FILNA2+1,X
+                CLC                    ; ADD CX,3
+                LDA     RCL
+                ADC     #3
+                STA     RCL
+                LDA     #<FILNA2
+                STA     PTR2
+                LDA     #>FILNA2
+                STA     PTR2+1
+GOTNAM:         JSR     FILFCB         ; FILNAM: the search's FCB
+                JSR     SETDIR         ; C_BUFF: the records to DIRBUF
+                JSR     SEARCH         ; C_SEAR: the first
+                CMP     #$FF
+                BNE     FILNXT
+                JMP     DERFNF
+FILNXT:         JSR     POLKEY         ; ^C, ^S between the names
+                ASL     A              ; the entry's name: DIRBUF + 32 A + 1
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                INC     A
+                STA     FIDX
+                LDA     #FNAML         ; CX: the name's characters
+                STA     FCNT
+MORNAM:         LDX     FIDX
+                LDA     DIRBUF,X
+                AND     #$7F           ; OO-1: CP/M's attribute bits off
+                JSR     OUTDO
+                INC     FIDX
+                LDA     FCNT
+                CMP     #4
+                BNE     NOTEXT         ; not at the type
+                LDX     FIDX
+                LDA     DIRBUF,X       ; the type's first: blank, a blank
+                AND     #$7F
+                CMP     #' '
+                BEQ     PRISPA
+                LDA     #'.'
+PRISPA:         JSR     OUTDO
+NOTEXT:         DEC     FCNT           ; LOOP MORNAM
+                BNE     MORNAM
+                LDA     TTYPOS         ; PTRGPS (OO-1: the console's, above)
+                CLC
+                ADC     #14            ; past the next name
+                CMP     LINLEN         ; PTRWID's width
+                BCS     NWFILN
+                LDA     #' '
+                JSR     OUTDO
+                BRA     NEXTFL
+NWFILN:         JSR     CRDO
+NEXTFL:         LDY     #F_SNEXT       ; C_SEAR+1: the next
+                JSR     BDOS
+                CMP     #$FF
+                BNE     FILNXT
+                JMP     CRDONZ         ; a new line, unless at the margin
+
+; KILLP: KILL name (GIODSK.ASM 1022): the files of that name deleted (its
+; "*" and "?" match, as the BDOS's delete takes them); File not found if
+; there is none, File already open if it is open (CHKFOP, FILNAM taken for
+; an FDB's FCB, as the 8086's SI at FILNAM - F_FCB). The 8086 opens and
+; closes it to see it is there. OO-1: CP/M's open refuses a "?" (through
+; the error mode, which would end GW-BASIC), so a search for it (17, its
+; record to DIRBUF) answers the same.
+KILLP:          JSR     NAMFIL
+                JSR     FILFCB
+                JSR     SETDIR
+                JSR     SEARCH         ; OO-1: for C_OPEN, C_CLOS
+                CMP     #$FF
+                BNE     KILL2
+                JMP     DERFNF
+KILL2:          JSR     FCBFDB         ; "pretend we are FDB"
+                JSR     CHKFOP
+                LDA     #<FILNAM       ; C_DELE
+                LDX     #>FILNAM
+                LDY     #F_DELETE
+                JMP     BDOS           ; (its answer not tested, as the 8086's)
+
+; NAMEP: NAME old AS new (GIODSK.ASM 1048): the old name found (File not
+; found) and not open (CHKFOP: File already open), its drive and name to
+; FILNA2, the rename's FCB; "AS"; the new name, on the same drive (none
+; named: the old one's), else Rename across disks; it to FILNA2 + 17, then
+; the rename (23): File already exists if the new name is there.
+; OO-1: CP/M's rename gives File Exists (and "?" in either name) through the
+; error mode, which would end GW-BASIC, where MS-DOS's returns $FF; so a
+; "?" in either name is Bad file name, and the new name is searched for
+; first, on the old one's drive (found: File already exists). The rename's
+; $FF (no old name: the 8086's File already exists) is then not reached.
+NAMEP:          JSR     NAMFIL
+                JSR     FILFCB         ; FILNAM: the old name
+                JSR     SETDIR
+                JSR     SEARCH
+                CMP     #$FF
+                BEQ     NA_FNF
+                JSR     FCBFDB
+                JSR     CHKFOP         ; (its drive 0 made the current one)
+                LDX     #FNAML         ; the drive and name to FILNA2
+@o:             LDA     FILNAM,X
+                STA     FILNA2,X
+                DEX
+                BPL     @o
+                JSR     SYNCHR         ; "AS"
+                .byte   'A'
+                JSR     SYNCHR
+                .byte   'S'
+                JSR     NAMFIL
+                JSR     FILFCB         ; FILNAM: the new name
+                LDA     FILNAM         ; its drive: none, or the old one's
+                BEQ     SAMDRV
+                CMP     FILNA2
+                BEQ     SAMDRV
+                JMP     DERRAD         ; Rename across disks
+SAMDRV:         LDX     #FNAML - 1     ; the new name and type to FILNA2 + 17
+@n:             LDA     FILNAM+1,X
+                STA     FILNA2+17,X
+                DEX
+                BPL     @n
+                LDX     #FNAML         ; OO-1: "?" in either: Bad file name
+@q:             LDA     FILNA2,X
+                CMP     #'?'
+                BEQ     NA_NMF
+                LDA     FILNA2+16,X
+                CMP     #'?'
+                BEQ     NA_NMF
+                DEX
+                BNE     @q
+                LDA     FILNA2         ; OO-1: the new name there already?
+                STA     FILNAM
+                JSR     SEARCH
+                CMP     #$FF
+                BNE     NA_FAE
+                LDA     #<FILNA2       ; C_RENA, the FCB with both names
+                LDX     #>FILNA2
+                LDY     #F_RENAME
+                JSR     BDOS
+                INC     A              ; $FF: the 8086's File already exists
+                BEQ     NA_FAE
+                RTS
+NA_FNF:         JMP     DERFNF
+NA_FAE:         JMP     DERFAE
+NA_NMF:         JMP     DERIFN
+
+; NAMFIL (GIODSK.ASM 1106): a file name for NAME, KILL or FILES, a string
+; formula (Type mismatch if not), its temporary freed: PTR2 its text, RCL
+; its length (the 8086's SI and CX); a null one is Bad file name. TXTPTR
+; past it.
+NAMFIL:         JSR     FRMEVL
+                JSR     FRESTR         ; BX: the descriptor
+                LDA     (RBL)
+                BEQ     ER_NMF         ; JCXZ ER_NMF
+                STA     RCL
+                LDY     #1
+                LDA     (RBL),Y
+                STA     PTR2
+                INY
+                LDA     (RBL),Y
+                STA     PTR2+1
+                RTS
+ER_NMF:         JMP     DERIFN         ; DERNMF, "Bad file name"
+
+; FILFCB (GIODSK.ASM 1129): the name at PTR2, RCL bytes ("d:name.ext"),
+; made an unopened FCB in FILNAM. It is copied to BUF first, as the 8086
+; copies it: a name of more than 8 characters before any ".", ":" or "*"
+; gets a "." after its 8th, so the rest is the type; then a zero after it,
+; and F_PARSE (152, the 8086's C_PARS: MS-DOS's 41) fills FILNAM's bytes
+; 0-23 from it: the drive, the name and type in capitals, "*" made "?"s.
+; The 8086 returns AL from its parse (bad, wild, or neither), which none of
+; its callers tests. OO-1: a name 152 refuses (a name of more than 8, a
+; type of more than 3, a bad drive: MS-DOS's parse cuts the first two
+; short) leaves the FCB as it was, so it is Bad file name, as OPEN's names
+; are; and the name is taken to 127 bytes at most (152 reads 128), so BUF
+; always has room.
+FILFCB:         LDA     RCL
+                CMP     #127
+                BCC     :+
+                LDA     #127           ; OO-1
+                STA     RCL
+:               LDX     #0             ; DI: BUF
+STRTNM:         STZ     FCNT           ; AH: the name's characters
+NAMORE:         LDA     RCL            ; anything left?
+                BEQ     TRMSTR
+                LDA     (PTR2)         ; MOVSB
+                INCW    PTR2
+                STA     BUF,X
+                INX
+                DEC     RCL
+                CMP     #':'           ; a device: the name starts again
+                BEQ     STRTNM
+                CMP     #'.'           ; the type next
+                BEQ     FINNAM
+                CMP     #'*'           ; a wild card ends the name too
+                BEQ     FINNAM
+                LDY     FCNT
+                CPY     #8
+                BCS     LNGNAM         ; past 8: the rest is the type
+                INC     FCNT
+                BRA     NAMORE
+LNGNAM:         STA     BUF,X          ; the 9th after a "."
+                LDA     #'.'
+                STA     BUF-1,X
+                INX
+FINNAM:         LDA     RCL            ; REP MOVSB: the rest
+                BEQ     TRMSTR
+                LDA     (PTR2)
+                INCW    PTR2
+                STA     BUF,X
+                INX
+                DEC     RCL
+                BRA     FINNAM
+TRMSTR:         STZ     BUF,X          ; the terminator
+                LDA     #<PARSBK       ; C_PARS: BUF to FILNAM
+                LDX     #>PARSBK
+                LDY     #F_PARSE
+                JSR     BDOS
+                CMP     #$FF           ; OO-1: refused, Bad file name
+                BNE     FLFCBX
+                CPX     #$FF
+                BNE     FLFCBX
+                JMP     DERIFN
+FLFCBX:         RTS
+
+; The project's own, for the three: SETDIR, the DMA address DIRBUF's (P4's
+; own RAM, in W3: V1); SEARCH, the first entry that matches FILNAM (17), A
+; its place in DIRBUF's record or $FF; FCBFDB, FDBP at FILNAM less F_FCB,
+; so CHKFOP takes FILNAM for an FDB's FCB.
+SETDIR:         LDA     #<DIRBUF
+                LDX     #>DIRBUF
+                LDY     #F_DMAOFF
+                JMP     BDOS
+SEARCH:         LDA     #<FILNAM
+                LDX     #>FILNAM
+                LDY     #F_SFIRST
+                JMP     BDOS
+FCBFDB:         LDA     #<(FILNAM - F_FCB)
+                STA     FDBP
+                LDA     #>(FILNAM - F_FCB)
+                STA     FDBP+1
+                RTS
+
 ; --- RESET (GIODSK.ASM 1179) --------------------------------------------------------------
 
 ; RESET (nothing may follow it): every file closed, the disks reset
@@ -925,6 +1207,8 @@ RESETP:         BNE     RESETX
 RESETX:         RTS
 
 .rodata
+; FILFCB's parse block (function 152): the string BUF, the FCB FILNAM.
+PARSBK:         .word   BUF, FILNAM
 ; DSKDSP (GIODSK.ASM 49): the disk's functions, by G_*. Random records
 ; (DSKRND: X1) are a later step's, Advanced Feature till then.
 DSKDSP:         .word   DSKEOF         ; G_EOF
@@ -961,3 +1245,7 @@ LDPHY:          .res    4              ; and function 73's
 LDRES:          .res    1              ; DM_LOAD's A
 PRCL:           .res    1              ; PENCOD's and PDECOD's CL and CH
 PRCH:           .res    1
+FILNA2:         .res    33             ; NAME's rename FCB (both names), FILES's "d:*.*" (GWDATA.ASM's FILNA2)
+DIRBUF:         .res    128            ; OO-1: the search's directory record (FILNA2 the 8086's DTA)
+FIDX:           .res    1              ; FILES's place in DIRBUF (the 8086's SI)
+FCNT:           .res    1              ; FILES's count (CX), FILFCB's name count (AH)

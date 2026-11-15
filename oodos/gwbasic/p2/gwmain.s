@@ -54,7 +54,7 @@ ERRLBO          = 23                   ; Line buffer overflow
 ERRUE           = 21                   ; Unprintable error
 NONDSK          = 30                   ; the last of the errors before the disk's
 DSKERR          = 49                   ; less one than the first disk error
-LSTERR          = 75                   ; one past the last
+LSTERR          = 77                   ; one past the last (OO-1: 75 and 76 added, p2/gwdata.s)
 DSKER1          = DSKERR - NONDSK
 ERRUE1          = ERRUE + DSKER1
 

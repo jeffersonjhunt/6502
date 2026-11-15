@@ -38,6 +38,7 @@
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
+.import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR
 
 .code
 
@@ -132,14 +133,23 @@ STMDSP:         S       ENDST          ; END
 .ifndef FLAT
 .assert STMDSX = HOMTAB + 2 * NUMCMD, lderror, "STMDSX isn't after STMDSP (res/ibmres.s)"
 .endif
-STMDSX:         S       ADVERR         ; FILES
+STMDSX:         S       FILES          ; FILES
                 S       ADVERR         ; FIELD
                 S       SYSTEM         ; SYSTEM
-.repeat RESET_XS - NAME_XS
-                S       ADVERR         ; NAME .. GET
-.endrepeat
+                S       NAME           ; NAME
+                S       ADVERR         ; LSET
+                S       ADVERR         ; RSET
+                S       KILL           ; KILL
+                S       ADVERR         ; PUT
+                S       ADVERR         ; GET
                 S       RESET          ; RESET
-.repeat CALLS_XS - RESET_XS
-                S       ADVERR         ; COMMON .. CALLS
+.repeat CHDIR_XS - RESET_XS - 1
+                S       ADVERR         ; COMMON .. IOCTL
+.endrepeat
+                S       CHDIR          ; CHDIR
+                S       MKDIR          ; MKDIR
+                S       RMDIR          ; RMDIR
+.repeat CALLS_XS - RMDIR_XS
+                S       ADVERR         ; SHELL .. CALLS
 .endrepeat
 .assert * - STMDSX = 2 * NUMSTX, error, "STMDSX: one entry an extended statement"
