@@ -639,8 +639,8 @@ TEST(files_kill_and_name_typed_at_the_prompt_by_hand)
 // The owner's decision 8 (2026-11-14): FILES leaves out a file with CP/M's SYS attribute (t2', p4/giodsk.s SKPSYS), as
 // MS-DOS's FCB search leaves out system files and CP/M's DIR doesn't list them; by hand. The rig's A: has its
 // utilities (SET.COM, PIP.COM and the rest) as SYS files, the others not: FILES lists README.TXT and not SET.COM, and a
-// pattern only SYS files match is File not found. A file made SYS by SET (function 30) leaves FILES "pattern", and is
-// still there to open.
+// pattern only SYS files match is File not found. A file made SYS by SET (function 30) leaves FILES "pattern", and
+// OPEN doesn't find it either (W7, the owner's 2026-11-15).
 TEST(files_leaves_out_system_files)
 {
     CcpRig r;
@@ -662,7 +662,7 @@ TEST(files_leaves_out_system_files)
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSB     .TXT \r\n"));
     CHECK_EQ(command(r, "FILES \"DSA.TXT\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "OPEN \"I\",#1,\"DSA.TXT\":PRINT EOF(1):CLOSE"), std::string("-1 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"DSA.TXT\":PRINT EOF(1):CLOSE"), std::string("File not found\r\n")); // W7
     CHECK_EQ(command(r, "KILL \"DS?.TXT\""), std::string());
 }
 
@@ -1177,7 +1177,7 @@ TEST(com1_files_go_to_and_from_aux_by_hand)
 // The console's devices as files (GIOSCN.ASM, GIOKYB.ASM, GIOCON.ASM; the devices step), by hand from the source:
 // SCRN: through BASIC's own console output, a CR as CR LF and an LF straight after a CR dropped, its width the
 // console's (80: a CR LF before the 81st column); CONS: raw, by function 6, no CR LF of its own; KYBD: the keys
-// typed (INPUT$, EOF's ^Z), the keyboard's queue for LOC and LOF (16, one kept empty: 15). Each for its one way
+// typed (INPUT$, EOF's ^Z), the keyboard's queue for LOC and LOF (32, one kept empty: 31: W11). Each for its one way
 // only (Bad file mode).
 TEST(scrn_kybd_and_cons_files_by_hand)
 {
@@ -1194,7 +1194,7 @@ TEST(scrn_kybd_and_cons_files_by_hand)
     CHECK_EQ(command(r, "OPEN \"SCRN:\" FOR INPUT AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"CONS:\" AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"KYBD:\" FOR OUTPUT AS #1"), std::string("Bad file mode\r\n"));
-    CHECK_EQ(command(r, "OPEN \"KYBD:\" AS #1:PRINT LOC(1);LOF(1):CLOSE"), std::string(" 0  15 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"KYBD:\" AS #1:PRINT LOC(1);LOF(1):CLOSE"), std::string(" 0  31 \r\n"));
     size_t from = r.out.size();
     r.type("OPEN \"KYBD:\" FOR INPUT AS #1:A$=INPUT$(3,#1):PRINT \"<\";A$;\">\":CLOSE\r");
     r.type("xyz");
@@ -1445,4 +1445,43 @@ TEST(w12_a_break_s_new_line_goes_to_the_screen)
     CHECK(last.find(" REM a line to list, one of three hundred\r\n") != std::string::npos);
     if (last.find(" REM a line") == std::string::npos)
         std::printf("  the file's last line: '%s'\n", vis(last).c_str());
+}
+
+// W7's OPEN part (the owner, 2026-11-15): OPEN doesn't find a SYS file (p4/giodsk.s SYSCHK), as MS-DOS's FCB open
+// doesn't: INPUT is File not found; OUTPUT, APPEND and random, which would delete the file (CP/M's delete takes a SYS
+// file) or make a second directory entry of its name (F_MAKE), are Path/File access error. The SYS file is left as it
+// was, one entry, its text whole; and SAVE over one is the same error.
+TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\":PRINT #1,\"system text\":CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.BAS\":CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set w7s.* [sys]");
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"W7S.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
+    // (Random: SYSCHK gives it the same error, but any error in a random OPEN after its FIELD buffer is taken
+    // hangs, on a248556's build too (OPEN "R",#1,"H:X.DAT"): asked of the owner before it is tested here.)
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "LOAD \"W7S\""), std::string("File not found\r\n"));
+    enter(r, {"10 REM"});
+    CHECK_EQ(command(r, "SAVE \"W7S\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7T.TXT\":PRINT #1,\"t\":CLOSE"), std::string()); // the FDBs given back
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    const std::string dir = r.cmd("dirsys w7s.*");
+    size_t n = 0;
+    for (size_t at = dir.find("W7S      TXT"); at != std::string::npos; at = dir.find("W7S      TXT", at + 1))
+        ++n;
+    CHECK_EQ(n, 1u);
+    CHECK(dir.find("W7S      BAS") != std::string::npos);
+    const std::string typed = r.cmd("type w7s.txt");
+    CHECK(typed.find("system text\r\n") != std::string::npos);
+    if (n != 1 || typed.find("system text") == std::string::npos)
+        std::printf("  dirsys: '%s'\n  type: '%s'\n", vis(dir).c_str(), vis(typed).c_str());
 }

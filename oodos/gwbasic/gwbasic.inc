@@ -280,7 +280,7 @@ FC_ASC          = 0                    ; an ASCII file
 FC_BIN          = 1                    ; a binary one (BSAVE, a tokenised SAVE)
 FL_BKC          = $80                  ; F_BAKC holds the next input byte
 NMFILE          = 3                    ; OO-1: the files a program may open (1-3), and file 0 (P4's table)
-KYBQLN          = 16                   ; the keyboard queue's size, a power of 2 (res/oem.s's KYBQ)
+KYBQLN          = 32                   ; the keyboard queue's size, a power of 2 (res/oem.s's KYBQ)
 
 ; 7c's devices as files (GIOTBL.ASM's numbers, p4/giotbl.s): F_DEV and FILDEV
 ; of a device are negative, its place in DEVTBL; a disk's are 0-16.

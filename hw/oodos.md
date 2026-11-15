@@ -4275,7 +4275,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
     - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
-      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 517
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 446
       bytes left for BLOAD and BSAVE (697 before the review's fixes, below): measured then (the owner, 2026-11-15),
       with COM1's driver (about 1.2 KB) the piece to move out if they don't fit.
     - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
@@ -4311,11 +4311,17 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         own, so an LF to SCRN: after console printing isn't taken for one straight after a CR.
       - W12: KYBINI ends in FINPRT, as GIOKYB.ASM's, so a break's new line goes to the screen, not to the file,
         printer or port being written.
-      - Not yet built, as each changes an existing test's expectation (asked of the owner): W7's OPEN part (a SYS
-        file not found by OPEN, where files_leaves_out_system_files opens one) and W11 (the KYBD: queue of 32, so
-        LOF of an empty one 31, where scrn_kybd_and_cons_files_by_hand has 15).
-      - Sizes after them: 35,792 bytes free; resident code and tables 11,015, fixed RAM 1,566; P2 5,702, P4
-        11,771 of 12,288.
+      - W7's OPEN part (the owner, 2026-11-15): DSKOPN's SYSCHK searches for the name first (in error mode $FF,
+        so a missing drive is still met by the open, delete or make, its function named): a SYS file is File not
+        found for INPUT (and LOAD), Path/File access error (75) for OUTPUT, APPEND, random (and SAVE), as
+        deleting it or making a second entry of its name would harm it. files_leaves_out_system_files's OPEN of
+        a SYS file now expects File not found (the owner's change).
+      - W11 (the owner, 2026-11-15): the KYBD: queue is 32 (KYBQLN, LOWRAM), so LOF of an empty one is 31, as
+        the 8086's; scrn_kybd_and_cons_files_by_hand's expectation changed from 15 to 31 (the owner's change).
+      - Found, not fixed (asked): any error in a random OPEN after its FIELD buffer is taken hangs GW-BASIC (on
+        the build before these fixes too: OPEN "R",#1,"H:X.DAT"), so the random case of W7's OPEN isn't tested.
+      - Sizes after them: 35,776 bytes free; resident code and tables 11,015, fixed RAM 1,582 (LOWRAM 45); P2
+        5,702, P4 11,842 of 12,288 (446 free).
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;

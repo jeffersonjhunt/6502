@@ -264,6 +264,7 @@ DSKOP2:         LDA     RCL            ; PUSH CX: the length asked for
                 INY
                 LDA     OLEN+1
                 STA     (FDBP),Y
+                JSR     SYSCHK
                 JSR     SETBUF
                 LDA     FILMOD
                 CMP     #MD_APP
@@ -290,6 +291,47 @@ NTAPNF:         CMP     #MD_RND
                 BNE     ER_FNF
                 BRA     MAKFIL
 ER_FNF:         JMP     DERFNF
+; SYSCHK (the project's own, W7, the owner's 2026-11-15): a SYS file of
+; FILNAM's name isn't there for OPEN (and LOAD, SAVE, CHAIN, MERGE), as
+; MS-DOS's FCB open passes over a system file and FILES, KILL and NAME do
+; here: INPUT is File not found; OUTPUT, APPEND and random, which would
+; delete it or make a second entry of its name, Path/File access error. A
+; search (17, to DIRBUF; SETBUF's DMA address is set after it) for the name,
+; in error mode $FF, so a physical error says nothing here: the open, the
+; delete or the make that follows meets it as before, its function named.
+SYSCHK:         STZ     FILNAM + 12    ; EX, S1, S2: the first extent's entry
+                STZ     FILNAM + 13
+                STZ     FILNAM + 14
+                JSR     SETDIR
+                LDA     #$FF           ; error mode: return, quietly
+                LDY     #F_ERRMODE
+                JSR     BDOS
+                LDA     #<FILNAM
+                LDX     #>FILNAM
+                LDY     #F_SFIRST
+                JSR     BDOS
+                PHA
+                LDA     #$FE           ; GW-BASIC's (p2/gwinit.s)
+                LDY     #F_ERRMODE
+                JSR     BDOS
+                PLA
+                CMP     #$FF           ; none, or a physical error
+                BEQ     @r
+                ASL     A              ; DIRBUF + 32 A + 10: t2'
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                TAX
+                LDA     DIRBUF + 10,X
+                BPL     @r
+                LDA     FILMOD
+                CMP     #MD_SQI
+                BNE     @pae
+                JMP     DERFNF
+@pae:           LDA     #ERRPAE
+                JMP     ERROR
+@r:             RTS
 ; OPNSET: open. (FCB_RC's 128: OO-1, CP/M's records are 128 bytes.) OO-1:
 ; the drive filled in, as MS-DOS's open does. F_CLOC, F_ORCT, F_BREM zero.
 OPNSET:         LDY     #FCB_DV
