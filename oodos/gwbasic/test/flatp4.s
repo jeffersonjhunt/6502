@@ -4,8 +4,9 @@
 ; can open there: P4 is left out of it (the Makefile's FLAT_SRC), and so are
 ; its statements' home block stubs (p8/far4.s), which keeps the image under
 ; check.py's $9400 (G11: $9000 until 7c's raise); its entries and those stubs come here. A file
-; statement (and CHDIR, MKDIR, RMDIR), and CVI to MKD$, are Advanced
-; Feature; the output hooks find nothing to flush, and WRITE no random file.
+; statement (and CHDIR, MKDIR, RMDIR, CHAIN, LIST's file), VARPTR(#n), and
+; CVI to MKD$, are Advanced Feature; the output hooks find nothing to flush,
+; and WRITE no random file.
 
 .include "gwbasic.inc"
 
@@ -14,7 +15,7 @@
 .export LOADP, LOADP2, MERGEP, SAVEP, DSKCHP
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN ; p8/far4.s's
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
-.export FUNDXP, CMPFBP
+.export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR
 .import ADVERR
 
 .code
@@ -51,6 +52,11 @@ LSET:
 RSET:
 PUT:
 GET:
+CHAIN:
+CHNRET:
+NAMSCN:
+NULOPM:
+GETPTR:
 FUNDXP:         JMP     ADVERR
 CMPFBP:         CLC                    ; WRITE's: not a random file
                 RTS

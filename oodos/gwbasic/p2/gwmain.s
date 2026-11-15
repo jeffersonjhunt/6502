@@ -13,7 +13,8 @@
 ;                  its number, or deleting it if empty; then CHEAD and FINI
 ;   LINKER CHEAD   the links put right, from the start or a line
 ;   SCNLIN LINSPC  a line range (LIST, DELETE); a line number or "."
-;   SCCPTR         the line pointers in the text back to line numbers
+;   SCCPTR DEPTR   the line pointers in the text back to line numbers (DEPTR,
+;                  and DEL, a line taken out: entries for P4's CHAIN)
 ;   SCCLIN         and line numbers to pointers, for RENUM (p3/gwmain.s
 ;                  RESEQP): "Undefined line 100 in 20" for one not there
 ;   ERRPRT ERRFIN  an error's message and " in 20" (and BIMISC.ASM's
@@ -39,6 +40,8 @@
 ;@entry SCCLIN
 ;@entry SCCPTR
 ;@entry EDITP
+;@entry DEPTR
+;@entry DEL
 .export CRUNCH, EDENT2, LINKER, CHEAD, ERRPRT, ERRFIN, BRKMSG, ERREDT, SCNLIN
 .export SCCLIN, EDITP, PROCHK
 .export LINSPC, SCCPTR, DEPTR, INPRT, NOTRFN, RENCRN, KLOOP
@@ -543,6 +546,8 @@ NODEL:          LDA     RCL            ; DX: the place, for CHEAD too
                 STA     KSRC+1
                 LDA     KTRM
                 JEQ     FINI2          ; empty: deleted, done
+                LDA     CHNFLG         ; a CHAIN's load: FRETOP left, below
+                BNE     LEVFRE         ; the variables it keeps (7c)
                 LDA     MEMSIZ         ; the strings dropped
                 STA     FRETOP
                 LDA     MEMSIZ+1

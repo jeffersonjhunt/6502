@@ -30,6 +30,8 @@
  * - The owner's small decisions (2026-11-14), by hand: error mode $FE, so a drive with no image is a BASIC error;
  *   the command line's switches (/F: /S: /C: read and ignored, /M: the workspace's top); FILES leaving out SYS files;
  *   a CR after an LF going on with a loaded line; a name of more than 8 characters and a type, Bad file name.
+ * - CHAIN and COMMON (7c's CHAIN step): COMMON's variables, ALL, a line, MERGE with DELETE, the DEF types, a file
+ *   open across it, the errors; LIST and LLIST to a file; VARPTR(#n), by hand: the FDB's place in P4's table.
  */
 
 #include "harness.h"
@@ -950,4 +952,57 @@ TEST(a_name_of_more_than_8_characters_and_a_type_is_bad_file_name)
     CHECK_EQ(command(r, "OPEN \"ABCDEFGHI.TXT\" FOR INPUT AS #1"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "SAVE \"ABCDEFGHI.BAS\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "LOAD \"ABCDEFGHI.BAS\""), std::string("Bad file name\r\n"));
+}
+
+// CHAIN and COMMON (FIVEO.ASM CHAIN, COMMON, CHNRET; DSKCOM.ASM CHNENT; 7c's CHAIN step), programs that write the
+// program they chain to as text by PRINT #, against PC-BASIC: COMMON's variables of each type, arrays of numbers and
+// strings, a long name, a string whose text is in the program (copied to the string space first, CDVARS); the rest
+// gone (c_common); ALL (c_all); a line to start at, a CHAIN from a chained program (c_line), a line that isn't
+// there (c_ul); CHAIN MERGE with ALL and DELETE, an overlay in turn, the DEF types and the files kept (c_merge), and
+// without ALL, COMMON's alone kept (c_merge2); the DEF types back to single and OPTION BASE kept by a CHAIN (c_types);
+// a file open across it (c_files); a missing file (c_miss); COMMON's and CHAIN's errors (c_e2-c_e7: a Syntax error
+// last in its GW-BASIC, whose next line is that line's edit). Then a typed session (c_tok): CHAIN of a tokenised and an
+// ASCII SAVE, typed at the prompt, with a line and ALL. Where PC-BASIC departs from the 1983 source, NAME.differ.
+TEST(chain_and_common_print_what_pc_basic_prints)
+{
+    programs({"c_common", "c_all", "c_line", "c_ul", "c_merge", "c_merge2", "c_types", "c_files", "c_miss"});
+    programs({"c_e3", "c_e5", "c_e6", "c_e7", "c_e2"});
+    programs({"c_e4"});
+    sessions({"c_tok"});
+}
+
+// LIST and LLIST to a file (GWLIST.ASM LIST's ,"name": NAMSCN and NULOPM, file 0 opened for output; READY closes
+// it), a range of the program, read back by LINE INPUT # and LOADed as text again, a missing name (Missing operand)
+// and a drive past P: (Bad file name), as a typed session. Where PC-BASIC departs from the source (LLIST's file:
+// the source's LLIST goes on into LIST), c_list.differ.
+TEST(list_to_a_file_prints_what_pc_basic_prints)
+{
+    sessions({"c_list"});
+}
+
+// By hand, from the source, what PC-BASIC can't give: CHAIN MERGE of a tokenised file is Bad file mode (OKGET2;
+// PC-BASIC fails); VARPTR(#n) (GIO86.ASM GETPTR) is the address of file n's FDB's F_MODE (OO-1: P4's FDB table,
+// p4.lbl's FDB0, FDBLEN = 184 bytes apart; F_MODE at 1), as an integer, so negative in $C800-$F7FF; Bad file number
+// for a file not open or past NMFILE.
+TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
+    REQUIRE(p4.count("FDB0") == 1);
+    enter(r, {"10 PRINT \"TOKENISED\""});
+    CHECK_EQ(command(r, "SAVE \"CMT\""), std::string());
+    CHECK_EQ(command(r, "A=1:CHAIN MERGE \"CMT\""), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "CHAIN \"CMT\""), std::string("TOKENISED\r\n"));
+    auto varptr = [&](int n) { // PRINT's form of the integer: its sign, or a space
+        const int a = p4.at("FDB0") + n * 184 + 1, s = a >= 32768 ? a - 65536 : a;
+        return (s < 0 ? "" : " ") + std::to_string(s) + " \r\n";
+    };
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"VP1.TXT\":OPEN \"O\",#3,\"VP3.TXT\""), std::string());
+    CHECK_EQ(command(r, "PRINT VARPTR(#1)"), varptr(1));
+    CHECK_EQ(command(r, "PRINT VARPTR(#3)"), varptr(3));
+    CHECK_EQ(command(r, "PRINT VARPTR(#2)"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "PRINT VARPTR(#4)"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "CLOSE:PRINT VARPTR(#1)"), std::string("Bad file number\r\n"));
 }

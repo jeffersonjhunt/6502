@@ -11,6 +11,7 @@
 ;   POFNUM PRFNUM   [#]n, #n, n: a file number (GETNZB)
 ;   FILINP FILGET   PRINT #, WRITE #, INPUT #'s file: PTRFIL at its FDB
 ;   FILSET FILSCN   (FILSCN: the number, its FDB and its mode)
+;   GETPTR          VARPTR(#n)'s: file n's FDB (its F_MODE's address)
 ;   OPNFIL          a file opened (DSKOPN, p4/giodsk.s)
 ;   CLSALP CLSFIL   every file closed, or one
 ;   INCHR INCHRE    the next byte from PTRFIL's file (INCHR: Input past end at
@@ -24,7 +25,8 @@
 ;                   PUT and GET, p4/gwsts.s, come here)
 ;   PTRDSP SIDSP    the device's function for an FDB (the disk's DSKDSP)
 ;   PRGFIL NAMBAS   file 0 opened for LOAD, SAVE and MERGE, ".BAS" the type
-;   NULOPN          if it has none (7c's LOAD step)
+;   NULOPN          if it has none (7c's LOAD step); NULOPM in a mode (LIST's
+;   NULOPM          file, p2/gwlist.s)
 ;   SCDASC SCDBIN   PTRFIL's file made text, or binary
 ;   FSTLOD INPBLK   a tokenised program read (the disk's DFSTLD)
 ;   BINSAV BINPSV   and one written (OUTBLK: the disk's DEVBOT, each byte
@@ -76,6 +78,10 @@
 ;@entry FILINP
 ;@entry FINPRP
 ;@entry FLUSHP
+;@entry NAMSCN
+;@entry NULOPM
+;@entry GETPTR
+.export NAMSCN, NULOPM, GETPTR, SKPNAM
 .export OPENP, CLOSEP, CLSALP, FILFNP, FILGET, FILINP, FINPRP, FLUSHP
 .export FILSET, FILSCN, FDBPTR, INCHR, INDSKC, BAKCHR, SETPTR, FLUSHR, INIFDB, FFREE
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
@@ -86,7 +92,7 @@
 .import GARBA2, MEMSIZ
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import DSKOPN, DSKDSP, FIXINPP
-.import STROUT, REDDY, GTMPRT
+.import STROUT, REDDY, GTMPRT, SAVFRE
 
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
@@ -369,6 +375,20 @@ FILID2:         JSR     FDBPTR
                 LDA     (FDBP),Y       ; (not zero: open)
 NTOPEN:         RTS
 
+; GETPTR (740): VARPTR(#n), A the number: PTR at file n's FDB, its F_MODE
+; (OO-1: in P4's FDB table, FDB0 on, FDBLEN apart); Bad file number if the
+; file isn't open.
+GETPTR:         JSR     FDBPTR
+                BEQ     ERFNO3
+                CLC
+                LDA     FDBP
+                ADC     #F_MODE
+                STA     PTR
+                LDA     FDBP+1
+                ADC     #0
+                STA     PTR+1
+                RTS
+
 ; --- OPNFIL, CLSALL, CLSFIL (GIO86.ASM 830) -----------------------------------------------
 
 ; OPNFIL: file A opened, CX its length (0 the default), FILMOD its mode,
@@ -396,6 +416,9 @@ PRGFIL:         STA     FILMOD
                 PLP
                 BCS     NULOPN
                 JSR     NAMBAS
+                BRA     NULOPN         ; PRGFIX
+; NULOPM (815): file 0 opened in mode A, the name NAMSCN found (LIST's file).
+NULOPM:         STA     FILMOD
 NULOPN:         STZ     RCL
                 STZ     RCH
                 LDA     #0
@@ -463,8 +486,9 @@ RET22:          RTS
 
 ; INCHR: the next byte from PTRFIL's file in A. At its end Input past end;
 ; but file 0's end is a load's (FL0EOF): a binary one's, C set back (a
-; BLOAD's, a later step's); a text one's (LDREOF; CHAIN's, CHNFLG, is a
-; later step's, and none is under way) ends the load (NOTCHN): every file
+; BLOAD's, a later step's); a text one's (LDREOF) is a CHAIN's end if one
+; is under way (CHNFLG: CHNRET, which MAIN far calls on LDRUN, as for a run:
+; OO-1, the far call rule), else it ends the load (NOTCHN): every file
 ; but the others NLONLY keeps may be closed, file 0 closed (PRGFIN); then
 ; not run, "Ok" and a CR, which ends the line being read; or run: the
 ; 8086's RUNC and NEWSTT are the home block's (OO-1: the far call rule),
@@ -482,7 +506,11 @@ FL0EOF:         LDY     #F_CODE
                 BNE     LDREOF
                 SEC
                 RTS
-LDREOF:
+LDREOF:         LDA     CHNFLG         ; a CHAIN: its end, CHNRET (OO-1: by
+                BEQ     NOTCHN         ; MAIN, which far calls it, as the run)
+                LDA     #$80
+                STA     LDRUN
+                BRA     NOTCH2
 NOTCHN:         LDA     NLONLY
                 AND     #$80
                 STA     NLONLY
@@ -1017,8 +1045,8 @@ FFREE2:         LDY     #F_MODE
 ; (UPDSTD): data that moved moves with it; data in the freed buffer (above
 ; the block's top, up to its top's new place) is a FIELDed string, made null.
 ; Then FRETOP and MEMSIZ by DX, and with MEMSIZ FILTAB (OO-1: MEMSIZ + 2).
-; OO-1: PTRFIL (an FDB in P4's RAM) never moves; SAVFRE is CHAIN's (a later
-; step's). RSI is the 8086's SI less one (the block's top), RDI its DI (that
+; OO-1: PTRFIL (an FDB in P4's RAM) never moves. SAVFRE (CHAIN's) moves by
+; DX too. RSI is the 8086's SI less one (the block's top), RDI its DI (that
 ; top's new place), RCX its count; PTR and PTR2 the move's places; BX the
 ; descriptor walk's, the 8086's.
 XFRSTR:         DECW    RSI            ; SI: the block's top
@@ -1159,6 +1187,13 @@ XFRSTX:         CLC                    ; FRETOP and MEMSIZ by DX (XFSTX1)
                 LDA     MEMSIZ+1
                 ADC     RDH
                 STA     MEMSIZ+1
+                CLC                    ; and SAVFRE, CHAIN's (p4/fiveo.s)
+                LDA     SAVFRE
+                ADC     RDL
+                STA     SAVFRE
+                LDA     SAVFRE+1
+                ADC     RDH
+                STA     SAVFRE+1
                 RTS
 ; (The project's own: CX one less, Z at 0.)
 XFRCNT:         LDA     RCL

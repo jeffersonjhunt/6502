@@ -306,3 +306,31 @@ By hand in test_gwbasic_files: records of LEN 200 and 1,024 with /S: set to 1,02
 it): out of order, across the 128-byte records they span; a record never written; a record's place past 2^23 bytes
 (Illegal function call) and the last before it; LEN past /S:. And the FIELD buffers in the TPA: FRE(0) and MEMSIZ
 lowered by LEN at OPEN, the buffer's bytes from MEMSIZ + 2, both back at CLOSE.
+
+7c's CHAIN and COMMON, typed and RUN as the file layer's; each writes the program it chains to as text by PRINT #
+(its quotes as `CHR$(34)`: GW-BASIC's strings have no doubled quote):
+
+| Program | What |
+|---|---|
+| `c_common` | COMMON of an integer, a single, a double, a string whose text is in the program, number and string arrays, a long name, `M%( )`, over two COMMONs; the rest gone; an array not kept made again |
+| `c_all` | `CHAIN name,,ALL`: every variable kept, a string array too |
+| `c_line` | CHAIN to line 30; a chained program chaining itself to line 20 (an expression) with ALL |
+| `c_ul` | a CHAIN line that isn't in the program |
+| `c_merge` | CHAIN MERGE with a line, ALL and DELETE: overlays in turn, the main program's lines and a GOSUB to them kept, DEFINT kept, a file open across both |
+| `c_merge2` | CHAIN MERGE with a line and no ALL: COMMON's variable alone kept, lines replaced |
+| `c_types` | CHAIN: the DEF types back to single (a COMMON integer then not found by its letter), OPTION BASE 1 kept |
+| `c_files` | a file open for output across a CHAIN, written by the chained program, read back |
+| `c_miss` | CHAIN of a file that isn't there, trapped, the variables kept |
+| `c_e2`-`c_e7` | the errors: `COMMON A B`, DELETE of a line not there, `,BAD`, a string for a COMMON array's count, a range backwards, `B(` with nothing after it |
+
+And typed sessions (`NAME.typ`): `c_tok`, CHAIN of a tokenised and of an ASCII SAVE, from a program and typed, with a
+line and with ALL, of a missing file; `c_list`, LIST and LLIST to a file (a range; read back, LOADed again), a
+missing name and a drive past P:.
+
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `c_ul` (Undefined line number, with no line: a
+text file is read by MAIN), `c_miss` (the file is opened first, so ON ERROR traps File not found), `c_e5` (a COMMON
+array's count is evaluated: a string is Illegal function call), `c_e7` (and nothing there is Missing operand),
+`c_list` (LLIST goes on into LIST, so it lists to the file; `Q:` is Bad file name on the OO-1).
+
+By hand in test_gwbasic_files: CHAIN MERGE of a tokenised file (Bad file mode, where PC-BASIC fails), and
+VARPTR(#n), the address of file n's FDB in P4's table (its F_MODE byte), Bad file number for a file not open.

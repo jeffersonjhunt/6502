@@ -27,6 +27,9 @@
 ;   RSET
 ;   PUT       PUT, GET [#]n[, record] (p4/gwsts.s PUTP, GETP: a graphics
 ;   GET       PUT or GET is 7e's)
+;   CHAIN     CHAIN [MERGE] name[, [line][, ALL][, DELETE range]]
+;             (FIVEO.ASM's CHAIN, p4/fiveo.s CHAINP; its end, CHNRET, from
+;             LDBIN here and from MAIN, p8/gwmain.s)
 ;
 ; LOAD, RUN name and MERGE end in the main loop, as the 8086's do: from the
 ; home block, never from P4. P4 opens file 0 and reads it, and returns what
@@ -35,14 +38,19 @@
 ; RUNC and READY or NEWSTT (a tokenised one, BINLOD's end), or SCRTCH and
 ; Out of memory (OUTLOD). MERGE's MAIN drops NEWSTT's return first, as
 ; its POP CX does (EDTMAI). SAVE returns, or (",A") goes to LIST, which
-; lists to file 0; READY then closes it (FINPRT). None leaves a far call's
-; frame behind: each far call has returned before the stub goes on.
+; lists to file 0; READY then closes it (FINPRT). CHAIN too: P4 does its
+; steps 1-5 and returns which way step 6 goes, CHAIN MERGE's MAIN (OKGETM's:
+; NEWSTT's return dropped first, as MERGE's) or CHNENT's SCRTCH and file
+; read, LOAD's (CHNSCR); at the load's end CHNRET (P4) moves the variables
+; back and sets TXTPTR, and NEWSTT runs the program from here (the 8086's
+; JMP NEWSTT in CHNRET). None leaves a far call's frame behind: each far
+; call has returned before the stub goes on.
 
 .include "gwbasic.inc"
 
 ;@entry HLRUN
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
-.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
+.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
 
 .code
@@ -90,7 +98,7 @@ HLRUN:          TSX
 ; 65534, made direct), and the file read (P4's LOADP2, X what comes next).
 LOADS:          LDX     #0
 LRUN3:          FJSR    LOADP
-                JSR     SCRTCH
+CHNSCR:         JSR     SCRTCH         ; (CHAIN's CHNENT comes here)
                 LDA     CURLIN+1       ; 65534?
                 INC     A
                 BNE     NOTINI
@@ -109,7 +117,11 @@ OUTLOD:         JSR     SCRTCH         ; DSKCOM.ASM 426
 ; closed again, file 0 closed (FINPRT), then READY, or NEWSTT for RUN or ,R.
 LDBIN:          STA     LDFLG          ; (not on the stack: RUNC's STKINI resets it)
                 JSR     RUNC
-                STZ     NLONLY
+                LDA     CHNFLG         ; a CHAIN (DSKCOM.ASM 401): CHNRET
+                BEQ     :+
+                FJSR    CHNRET
+                JMP     NEWSTT
+:               STZ     NLONLY
                 JSR     FINPRT
                 LDA     LDFLG
                 BNE     :+
@@ -118,6 +130,14 @@ LDBIN:          STA     LDFLG          ; (not on the stack: RUNC's STKINI resets
 
 MERGES:         FJSR    MERGEP
                 JMP     EDTMAI         ; POP CX, JMP MAIN
+
+; CHAIN: P4's CHAINP, X what comes next: 0 CHAIN MERGE's MAIN (OKGETM; the
+; 8086's CHAIN leaves NEWSTT's return, which MAIN never takes: dropped here,
+; as MERGE's), else CHNENT's way, LOAD's from its SCRTCH on.
+CHAIN:          FJSR    CHAINP
+                CPX     #0
+                BNE     CHNSCR
+                JMP     EDTMAI
 
 SAVES:          FJSR    SAVEP          ; C set: ",A", TXTPTR at the "A"
                 BCS     :+

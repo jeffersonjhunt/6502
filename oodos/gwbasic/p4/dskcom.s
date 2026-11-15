@@ -11,7 +11,8 @@
 ;   FIXINPP         INPUT$(n[, [#]f]): n bytes from the file, or typed
 ;   LOADP LOADP2    LOAD name[,R] and RUN name[,R] (LRUN3 to NOTRN1; then
 ;                   NOTINI to BINLOD, MAINGO): the home block's stubs go on
-;                   (p8/far4.s), as the far call rule needs
+;                   (p8/far4.s), as the far call rule needs; CHAIN's way in,
+;                   CHNENT, is LOADP's ",R" (p4/fiveo.s CHAINP)
 ;   MERGEP          MERGE name (MERGE, OKGETM, OKGET2)
 ;   SAVEP           SAVE name[,A|,P] (SAVE, GOODSV, ENDOFS)
 ;   FIELDP          FIELD [#]n, w AS v$, ...: strings in a random file's FIELD
@@ -46,6 +47,7 @@
 ;@entry RSETP
 ;@entry FUNDXP
 .export FILIND, DLINE, FIXINPP, LOADP, LOADP2, MERGEP, SAVEP, FIELDP, LSETP, RSETP, FUNDXP
+.export CHNENT, OKGETM, PRGFLI
 .import GETDAT, DERFOV, GTBYTC, FRMEQL, GETSPA, DOCNVF, VMOVE, VMOVFM
 .import GETYP, CHRGTR, SYNCHR, PTRGET, CHKSTR, STRLT2, INPCOM, FINPRT, GETBYT
 .import STRINI, PUTNEW, FCERR, BUF, INCHR, INDSKC, BAKCHR, FILINP, FILSCN, FILSET
@@ -221,7 +223,9 @@ STRCHR:         CMP     #0
 ; 1 RUN: closed, run; the 8086's stack): file 0 opened for input (PRGFLI);
 ; ",R" makes the flag $81 (CHNENT's 201O: the files left open, run), and
 ; nothing else may follow. NOTRN1: RUNFLG the flag, NLONLY the flag or 1
-; (file 0 not closed; with $81, none). Then the stub's SCRTCH.
+; (file 0 not closed; with $81, none). Then the stub's SCRTCH. CHNENT
+; (DSKCOM.ASM 332): CHAIN's way in, file 0 already open (p4/fiveo.s), the
+; ",R" case's flag; then CHAIN's stub's SCRTCH, as LOAD's.
 LOADP:          STX     RUNFLG
                 JSR     PRGFLI
                 DECW    TXTPTR
@@ -233,7 +237,8 @@ LOADP:          STX     RUNFLG
                 .byte   'R'
                 BEQ     :+
                 JMP     SNERR          ; that must be the end
-:               LDA     #$81
+:
+CHNENT:         LDA     #$81
                 STA     RUNFLG
 NOTRN1:         LDA     RUNFLG
                 ORA     #1
@@ -251,7 +256,7 @@ PRGFLI:         LDA     #MD_SQI
 ; BINLOD (381): the program to TXTTAB (FSTLOD), VARTAB at its end, decoded
 ; if protected (PROLOD, PDECOD), the links made (LINKER, P2's), VARTAB past
 ; the end's zero link; X 1, A RUNFLG: the stub's RUNC, FINPRT and READY or
-; NEWSTT. (CHAIN's CHNRET, CHNFLG, is a later step's.) OO-1 (W2): the end
+; NEWSTT, or for a CHAIN (CHNFLG) CHNRET (the stub's). OO-1 (W2): the end
 ; is found by the links, as LINKER finds it, among the bytes read: twelve
 ; zeros put after them (in the 86 bytes FSTLOD leaves below FRETOP: no
 ; string is there after SCRTCH) end any line and the chain there, however a

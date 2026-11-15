@@ -5,8 +5,11 @@
 ;
 ;   LISTP          LIST's lines: a range (SCNLIN), each line's number and
 ;                  its text as BUFLIN gives it, to the console or (LLIST,
-;                  PTRFIL set) LPT1; ^C between lines (POLKEY). LIST's
-;                  resident stub then goes to READY, as GW-BASIC's LIST does
+;                  PTRFIL set) LPT1, or to a file named after a comma (file
+;                  0, opened for output by P4's NAMSCN and NULOPM); ^C
+;                  between lines (POLKEY). LIST's resident stub then goes to
+;                  READY, as GW-BASIC's LIST does (READY's FINPRT closes the
+;                  file)
 ;   BUFLIN BUFLN2  a line's tokens back to text in BUF: the reserved words
 ;                  (with the spaces GW-BASIC puts round them), embedded
 ;                  constants through P1's $FOUT ($FOUTO, $FOUTH for &O and
@@ -27,15 +30,15 @@
 ;@entry DELETP
 .export LISTP, DELETP, BUFLIN, BUFLN2, LISPRT, TSTANM
 .import CHRGTR, SYNCHR, POLKEY, OUTDO, CRDO, STROUT, ISLET2, CONFC1, SCNLIN
-.import FNDLIN, DEPTR, DEL, CHEAD, FCERR, SNERR, FINI, ADVERR
+.import FNDLIN, DEPTR, DEL, CHEAD, FCERR, SNERR, FINI
 .import BUF, DOT, RESLST, LISTX, REDDY, PROCHK
 
 .code
 
 ; --- LIST (GWLIST.ASM 279) ---------------------------------------------------------------
 
-; LISTP: A and the flags as CHRGTR left them after LIST. ", device" (the
-; files) is 7c's.
+; LISTP: A and the flags as CHRGTR left them after LIST. ", name": the
+; listing goes to file 0, opened for output (LIST4's NAMSCN and NULOPM).
 LISTP:          JSR     SCNLIN         ; RCL: the first line; LSTMAX the last number
                 JSR     PROCHK         ; not even a line number of a protected program
                 LDA     TEMP           ; the text after the range
@@ -47,7 +50,17 @@ LISTP:          JSR     SCNLIN         ; RCL: the first line; LSTMAX the last nu
                 BEQ     LIST4
                 JSR     SYNCHR
                 .byte   ','
-                JMP     ADVERR         ; NAMSCN, NULOPM: a device, 7c's
+                LDA     RCH            ; PUSH CX: the first line, round them
+                PHA
+                LDA     RCL
+                PHA
+                FJSR    NAMSCN         ; the file's name
+                LDA     #MD_SQO        ; file 0 opened for output
+                FJSR    NULOPM
+                PLA
+                STA     RCL
+                PLA
+                STA     RCH
 LIST4:          LDA     #$FF           ; CONT isn't changed by a ^C here
                 STA     CURLIN
                 STA     CURLIN+1

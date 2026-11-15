@@ -58,6 +58,9 @@ GWINIT:
 ; open (F0OPN), OODOS doesn't clear a program's zero page.
                 STZ     NLONLY
                 STZ     F0OPN
+; CPMVR1's (GWINIT.ASM 158): no CHAIN, no MERGE under way.
+                STZ     CHNFLG
+                STZ     MRGFLG
 ; INIT's own (GWINIT.ASM 65): KBUF-1 a colon, so a direct line can be run
 ; again; BUFMIN a comma; no error yet; the string temporaries free.
                 LDA     #':'

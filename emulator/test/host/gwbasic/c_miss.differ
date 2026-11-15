@@ -1,0 +1,3 @@
+# the 1983 source: CHAIN opens the file first (PRGFLI), so File not found is an error ON ERROR traps, the program and its variables as they were; PC-BASIC does not trap it
+ 53  30  42 
+ 42 KEEP

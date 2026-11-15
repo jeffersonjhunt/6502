@@ -38,7 +38,7 @@
 .import ONGOTO, ERRORS, RESUME, SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
-.import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
+.import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 
 .code
 
@@ -143,8 +143,10 @@ STMDSX:         S       FILES          ; FILES
                 S       PUT            ; PUT (a file's; the graphics PUT is 7e's)
                 S       GET            ; GET
                 S       RESET          ; RESET
-.repeat CHDIR_XS - RESET_XS - 1
-                S       ADVERR         ; COMMON .. IOCTL
+                S       DATA           ; COMMON (FIVEO.ASM's COMMON: JMP DATA)
+                S       CHAIN          ; CHAIN (p8/far4.s)
+.repeat CHDIR_XS - CHAIN_XS - 1
+                S       ADVERR         ; DATE$ .. IOCTL
 .endrepeat
                 S       CHDIR          ; CHDIR
                 S       MKDIR          ; MKDIR

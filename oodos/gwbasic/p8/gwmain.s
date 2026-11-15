@@ -570,7 +570,8 @@ REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
 ; LOAD or MERGE of a text file, file 0), the line is the file's, PINLIN's
 ; DSKCHI: P4 reads it whole into BUF (DSKCHP, one far call a line), and at
 ; the file's end, if the LOAD runs it, RUNC and NEWSTT, as INCHR's NOTCHN
-; does; a direct statement in it is Direct statement in file (DIRDO), a
+; does (a CHAIN's end, CHNFLG, CHNRET and NEWSTT, as its LDREOF does); a
+; direct statement in it is Direct statement in file (DIRDO), a
 ; line number too big isn't Syntax error.
 MAIN:           LDA     #$FF           ; CURLIN: direct
                 STA     CURLIN
@@ -586,7 +587,11 @@ NTAUTO:         JSR     ISFLIO         ; PINLIN's DSKCHI: a line of a file
                 BEQ     @kbd           ; LOAD or MERGE reads as text
                 FJSR    DSKCHP         ; TXTPTR at BUF-1; C set: its end, run
                 BCC     NTSTOP
-                JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
+                LDA     CHNFLG         ; a CHAIN's end: LDREOF's CHNRET (P4's;
+                BEQ     :+             ; TXTPTR where NEWSTT starts)
+                FJSR    CHNRET
+                JMP     NEWSTT
+:               JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
                 JMP     NEWSTT
 @kbd:           JSR     PINLIN         ; TXTPTR at BUF-1
                 BCC     NTSTOP

@@ -260,6 +260,16 @@ PROFLG          = $DF                  ; nonzero: the program is protected (a SA
 F0OPN           = $EE                  ; OO-1: nonzero while file 0 is open (p4/gio86.s FALLOC, FFREE)
 LBOERN          = 23                   ; GWDATA.ASM's Line buffer overflow
 ERRFDR          = 66                   ; and Direct statement in file
+; --- 7c's CHAIN ($D6, $D7) -------------------------------------------------------
+;
+; A CHAIN under way (GWDATA.ASM's CHNFLG and MRGFLG, set by P4's CHAINP,
+; p4/fiveo.s): the resident REASON collects no strings while it is, CLEARC
+; leaves FRETOP (the variables kept lie just above it), and for CHAIN MERGE
+; the DEF types and the files; P2's line entry leaves FRETOP (LEVFRE); the
+; end of file 0's load goes to CHNRET; ERROR and start-up clear both. In
+; zero page: no fixed RAM.
+CHNFLG          = $D6                  ; nonzero: a CHAIN is under way
+MRGFLG          = $D7                  ; nonzero: a CHAIN MERGE
 
 ; The file modes (MSDOSU's F_MODE) and F_CODE, F_FLGS.
 MD_SQI          = 1                    ; sequential input

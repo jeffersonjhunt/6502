@@ -189,16 +189,19 @@ RUNC:           LDA     TXTTAB
 ; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
 ; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
 ; graphics' reset), and the second finds nothing more to do: once here till
-; 7e brings GRPRST. Every file is closed (CLSALL: CHAIN MERGE's MRGFLG,
-; which keeps them open, is CHAIN's), but those NLONLY keeps (file 0 while a
-; load is under way, or all for LOAD ,R); NLONLY then 0 unless a load is
-; under way (CLRDS1). (The screen and the sound it resets too are 7d's to
-; 7f's; CHNFLG is CHAIN's.)
+; 7e brings GRPRST. Every file is closed (CLSALL), but those NLONLY keeps
+; (file 0 while a load is under way, or all for LOAD ,R and CHAIN); NLONLY
+; then 0 unless a load is under way (CLRDS1). A CHAIN MERGE (MRGFLG) leaves
+; the DEF types, OPTION BASE and every file as they are (LEVDTB); a CHAIN
+; (CHNFLG) leaves FRETOP, below the variables it keeps (GODFRE). (The
+; screen and the sound it resets too are 7d's to 7f's.)
 CLEARC:         LDA     TXTPTR
                 STA     TEMP
                 LDA     TXTPTR+1
                 STA     TEMP+1
                 FJSR    INITRP         ; init the trap table
+                LDA     MRGFLG         ; a CHAIN MERGE: the types left alone
+                BNE     LEVDTB
                 STZ     OPTFLG         ; no OPTION BASE seen
                 STZ     OPTVAL         ; OPTION BASE 0
                 LDX     #25
@@ -218,6 +221,8 @@ LEVDTB:         LDX     #3             ; RNDX = RNDCOP
                 STZ     OLDTXT+1
                 STZ     ERRLIN
                 STZ     ERRLIN+1
+                LDA     CHNFLG         ; a CHAIN: FRETOP is good
+                BNE     GODFRE
                 LDA     MEMSIZ         ; the string space empty
                 STA     FRETOP
                 LDA     MEMSIZ+1
@@ -230,8 +235,10 @@ GODFRE:         LDA     #0             ; Z: RESTORE from the start
                 LDA     VARTAB+1
                 STA     ARYTAB+1
                 STA     STREND+1
-                JSR     CLSALL         ; (MRGFLG: CHAIN's)
-                LDA     NLONLY         ; a load under way: the others left
+                LDA     MRGFLG         ; a CHAIN MERGE: no file closed
+                BNE     :+
+                JSR     CLSALL
+:               LDA     NLONLY         ; a load under way: the others left
                 LSR     A              ; open (LOAD ,R) or file 0 (CLRDS1)
                 BCS     STKINI
                 STZ     NLONLY         ; else every file may be closed

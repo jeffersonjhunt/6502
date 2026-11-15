@@ -538,9 +538,9 @@ GWEVAL.ASM INTFR2 -> res/gweval.s INTFR2
 GWEVAL.ASM GTBYTC -> res/gweval.s GTBYTC
 GWEVAL.ASM GETBYT -> res/gweval.s GETBYT
 GWEVAL.ASM CONINT -> res/gweval.s CONINT
-GWEVAL.ASM VARRET -> res/gweval.s VARRET # VARPTR's, from NTERL; VARPTR$ (GWSTS.ASM VARPT2) P3's, VARPTR(#) 7c
+GWEVAL.ASM VARRET -> res/gweval.s VARRET # VARPTR's, from NTERL; VARPTR$ (GWSTS.ASM VARPT2) P3's, VARPTR(#) P4's GETPTR (7c)
 GWEVAL.ASM GIVDBL -> res/gweval.s GIVDBL
-BIMISC.ASM REASON -> res/biptrg.s REASON # CHAIN's CHNFLG, which forbids the collection: later 7c
+BIMISC.ASM REASON -> res/biptrg.s REASON # CHAIN's CHNFLG forbids the collection (7c)
 GWDATA.ASM TEMPST -> res/bistrs.s TEMPST
 GWDATA.ASM DSCTMP -> res/bistrs.s DSCTMP
 GWDATA.ASM DSEGZ -> res/bistrs.s DSEGZ
@@ -598,7 +598,7 @@ GWMAIN.ASM LEXIST -> p2/gwmain.s LEXIST
 GWMAIN.ASM ERAINS -> p2/gwmain.s LEXIST
 GWMAIN.ASM INONLY -> p2/gwmain.s INONLY # PROCHK at EDENT2's start
 GWMAIN.ASM NODEL -> p2/gwmain.s NODEL
-GWMAIN.ASM LEVFRE -> p2/gwmain.s LEVFRE # CHNFLG later 7c
+GWMAIN.ASM LEVFRE -> p2/gwmain.s LEVFRE # FRETOP left while CHNFLG (7c's CHAIN)
 GWMAIN.ASM MLOOPR -> p2/gwmain.s MLOOPR
 GWMAIN.ASM FINI -> p8/gwmain.s FINIH # its CHEAD done in P2 first (p2/gwmain.s FINI2), then RUNC and MAIN; P2 reaches it by the resident FINI (res/home.s), which far calls the home block
 GWMAIN.ASM EDTXIT -> p2/gwmain.s FINI2
@@ -692,7 +692,7 @@ GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at CONTXT (res/gwmain.s CONCH2,
 GWMAIN.ASM DEPTR -> p2/gwmain.s DEPTR
 GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST
 GWLIST.ASM LIST -> p2/gwlist.s LISTP # its home block stub, p8/gwmain.s LIST, drops NEWSTT's return and goes to READY
-GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"device" (NAMSCN, NULOPM) later 7c; POLKEY the OEM's
+GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"name": NAMSCN and NULOPM, P4's, by far calls (7c); POLKEY the OEM's
 GWLIST.ASM LISPRT -> p2/gwlist.s LISPRT
 GWLIST.ASM LISEOL -> dropped: the PC screen's erase to the line's end; the console has no counterpart
 GWLIST.ASM LISELX -> dropped: LISEOL's
@@ -811,7 +811,7 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c); GRPRST, SNDINI, MRGFLG, CHNFLG later 7c-7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST, SNDINI later 7d-7f
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -841,7 +841,7 @@ BIMISC.ASM ISFLIO -> res/oem.s ISFLIO
 BIMISC.ASM CTRLPT -> dropped: ^C and ^O echoed by the screen editor; function 10 shows them itself
 GWINIT.ASM INIT -> p2/gwinit.s GWINIT # the memory map from the loader's start to the TPA's top; the BASIC stack fixed RAM
 GWINIT.ASM MORMOV -> dropped: no ROM constants to copy: fixed RAM's first values are in GWBASIC.COM
-GWINIT.ASM CPMVR1 -> later 7c: the read and write codes the files use
+GWINIT.ASM CPMVR1 -> p2/gwinit.s GWINIT # CHNFLG, MRGFLG cleared; OO-1: no CPMREA/CPMWRI, P4 names the BDOS's functions by oodos.inc's names
 GWINIT.ASM TBFLP -> p2/gwinit.s TBFLP # OO-1: the tail at BP_DMA
 GWINIT.ASM ENDCMD -> p2/gwinit.s ENDCMD
 GWINIT.ASM ISSLH -> p2/gwinit.s ISSLH
@@ -914,9 +914,9 @@ GIO86.ASM FINPRT -> OEM res/oem.s FINPRT # P4's part FINPRP (p4/gio86.s): OUTDO'
 GIO86.ASM DIRDO -> p8/gwmain.s EDENT # direct from the keyboard: GONE; from a file, ERFDR (Direct statement in file)
 GIO86.ASM CLSALL -> p4/gio86.s CLSALP # its resident stub res/far4.s CLSALL (no far call with no file open)
 GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
-GIO86.ASM NULOPM -> later 7c: as NAMSCN
-GIO86.ASM GIOINI -> later 7c: the devices' start-up (the files need none: P4's FDB table loads free)
-GIO86.ASM GIOTRM -> later 7c: the devices' end (SYSTEM: the disk has none)
+GIO86.ASM NULOPM -> p4/gio86.s NULOPM # an entry, LIST's (p2/gwlist.s LIST4)
+GIO86.ASM GIOINI -> later 7c: the devices' start-up (DOALDV's LPT1:, COM1:), the devices step's; the disk files need none of it: NLONLY and PTRFIL are start-up's (p2/gwinit.s), FILTAB MEMSIZ + 2 (OO-1), P4's FDB table loads free, no MS-DOS vectors (MSISET)
+GIO86.ASM GIOTRM -> later 7c: the devices' end (DOALDV's), the devices step's; the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
 GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # functions 11 and 6; the function keys and their traps later 7d, 7f
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
@@ -1113,7 +1113,7 @@ GWEVAL.ASM $OHCNS -> res/gweval.s OCTCNS
 GWMAIN.ASM $STPRN -> res/math1.s STROUT # the message to the console (PTRFIL kept round it, $CATTY's)
 GIOSCN.ASM $CATTY -> res/math1.s DV015 # PTRFIL 0 for the message, then back
 GWSTS.ASM VARPT2 -> p3/gwsts.s VARPT2P # from VARPTR, its resident stub res/far3.s VARPT2
-GIO86.ASM GETPTR -> later 7c: VARPTR(#file) (res/todo_s.s NOTYET)
+GIO86.ASM GETPTR -> p4/gio86.s GETPTR # an entry, VARPTR's (res/gweval.s); OO-1: the FDB is P4's table's
 GWSTS.ASM SCRENF -> later 7d: SCREEN( as a function
 GWSTS.ASM GETLIN -> later 7d: CSRLIN
 GENGRP.ASM POINT -> later 7e: POINT
@@ -1282,8 +1282,8 @@ GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a sea
 GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
 GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
-FIVEO.ASM COMMON -> later 7c: with CHAIN (not in the plan's lists: a question for 7c)
-FIVEO.ASM CHAIN -> later 7c: CHAIN (not in the plan's lists: a question for 7c)
+FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as COMMON's JMP DATA
+FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes on to MAIN or CHNENT's SCRTCH (the far call rule)
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
 ADVGRP.ASM PAINT -> later 7e
@@ -1493,7 +1493,7 @@ GWMAIN.ASM ONGSB0 -> p3/gwmain.s ONGSB0 # CX and the count in P3's BRAM (ONGCX, 
 GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP
 
 # 7c: the file layer (sequential files, block P4)
-GIO86.ASM XFRSTR -> p4/gio86.s XFRSTR # OO-1: only the FIELD buffers move with it (the FDBs are P4's table); PTRFIL never moves; SAVFRE is CHAIN's
+GIO86.ASM XFRSTR -> p4/gio86.s XFRSTR # OO-1: only the FIELD buffers move with it (the FDBs are P4's table); PTRFIL never moves; SAVFRE (CHAIN's) moves
 GIO86.ASM PFDCBA -> dropped: FALLOC's and FFREE's register restore (their callers keep nothing in the registers)
 GIO86.ASM FDBPTR -> p4/gio86.s FDBPTR # OO-1: the table's FDB for the number; Z when not open
 GIO86.ASM CDEVID -> dropped: OO-1, the disk is the only device (SIDSP and OPNFIL go to its routines)
@@ -1522,7 +1522,7 @@ GIOKYB.ASM KBSINX -> later 7d: INCHRI's screen keyboard (the OEM's INCHRI waits 
 GIOKYB.ASM KEYSIN -> later 7d: as KBSINX
 GIOKYB.ASM KYBSI2 -> later 7d: as KBSINX
 GIO86.ASM INCHRE -> p4/gio86.s INCHRE
-FIVEO.ASM CHNRET -> later 7c: CHAIN's end of file 0 (INCHR's LDREOF)
+FIVEO.ASM CHNRET -> p4/fiveo.s CHNRET # an entry: from p8/far4.s LDBIN and p8/gwmain.s MAIN, which go on at NEWSTT
 DSKCOM.ASM QUIT2B -> p4/dskcom.s QUIT2B
 GIO86.ASM BCHRSI -> p4/gio86.s BCHRSI
 GIO86.ASM GETNZB -> p4/gio86.s GETNZB # OO-1: past NMFILE is Bad file number too
@@ -1580,7 +1580,7 @@ DSKCOM.ASM LRUN2 -> res/far4.s LRUN
 DSKCOM.ASM LRUN3 -> p8/far4.s LRUN3 # the stub: LOADP, SCRTCH, NOTINI, LOADP2
 DSKCOM.ASM NOTRNL -> p4/dskcom.s NOTRN1
 DSKCOM.ASM NOTRN1 -> p4/dskcom.s NOTRN1 # its SCRTCH the stub's (p8/far4.s)
-DSKCOM.ASM CHNENT -> later 7c: CHAIN's way in (the $81 flag is LOAD ,R's here)
+DSKCOM.ASM CHNENT -> p4/dskcom.s CHNENT # LOADP's ,R; then the stub's SCRTCH (p8/far4.s CHNSCR)
 DSKCOM.ASM NOTINI -> p8/far4.s NOTINI # then the first byte: p4/dskcom.s LOADP2
 DSKCOM.ASM NTPROL -> p4/dskcom.s NTPROL
 DSKCOM.ASM BINLOD -> p4/dskcom.s BINLOD # OO-1 (W2): the end by LINKER's chain below the bytes read; RUNC, FINPRT, READY or NEWSTT the stub's (LDBIN)
@@ -1597,7 +1597,7 @@ GIO86.ASM NAMBAS -> p4/gio86.s NAMBAS
 GIO86.ASM NAMBAX -> p4/gio86.s NAMBAX
 GIO86.ASM NULOPN -> p4/gio86.s NULOPN
 GIO86.ASM FL0EOF -> p4/gio86.s FL0EOF
-GIO86.ASM LDREOF -> p4/gio86.s LDREOF # CHNFLG (CHAIN) later 7c: none under way
+GIO86.ASM LDREOF -> p4/gio86.s LDREOF # CHNFLG: OO-1, CHNRET by MAIN (LDRUN), the far call rule
 GIO86.ASM NOTCHN -> p4/gio86.s NOTCHN # OO-1: RUNC and NEWSTT are MAIN's (p8/gwmain.s), by LDRUN
 GIO86.ASM NORUNC -> p4/gio86.s NORUNC
 GIO86.ASM INCHRX -> p4/gio86.s INCHRX
@@ -1654,3 +1654,17 @@ GIODSK.ASM GETFP1 -> p4/giodsk.s CMPFBC # inline
 GWEVAL.ASM CNSGET -> p2/gwinit.s CNSGET # GETVAL's number: &H/&O (OCTCNS) or LINGET's
 GIO86.ASM DSKERR -> OEM p4/giodsk.s PBDOS # OO-1: error mode $FE; OODOS's physical errors made GW-BASIC's as DSKERR makes MS-DOS's critical errors
 GWSTS.ASM SKEYON -> later 7d: the function-key line (KEYSW), as GWINIT.ASM PRNTND's
+# 7c: CHAIN and COMMON (block P4, p4/fiveo.s; the home block's stubs), LIST's file, VARPTR(#n)
+FIVEO.ASM CBAKBL -> p4/fiveo.s CBAKBL # FNDAAY, BAKCOM, BCKUCM, SKPCOM, COMADY to CHKCST, CLPFIN, CLPSLP in its routine
+FIVEO.ASM VARDLS -> p4/fiveo.s VARDLS # DNCMDS, CLPAKP, DNCMDA to CAYSTR in its routine
+FIVEO.ASM CDVARS -> p4/fiveo.s CDVARS # DNCCLS and NTMDLT in its routine; MOVE1's 3 bytes inline
+FIVEO.ASM AFTCOM -> p4/fiveo.s AFTCOM
+FIVEO.ASM NXTCOM -> p4/fiveo.s NXTCOM
+FIVEO.ASM SCNSMP -> p4/fiveo.s SCNSMP
+FIVEO.ASM FNDAAY -> p4/fiveo.s FNDAAY
+FIVEO.ASM SKPCOM -> p4/fiveo.s SKPCOM
+FIVEO.ASM COMADY -> p4/fiveo.s COMADY
+FIVEO.ASM CLPFIN -> p4/fiveo.s CLPFIN
+FIVEO.ASM DNCMDS -> p4/fiveo.s DNCMDS
+FIVEO.ASM DNCMDA -> p4/fiveo.s DNCMDA
+FIVEO.ASM DNCCLS -> p4/fiveo.s DNCCLS

@@ -39,7 +39,7 @@
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
-.import PTRGTN, FCERR, NOTYET, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP
+.import PTRGTN, FCERR, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP
 .export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
@@ -586,7 +586,8 @@ CONINT:         JSR     INTFR2
 
 ; From EVAL, TXTPTR at VARPTR: VARPTR(variable), the address of its value as
 ; an integer; Illegal function call if it has none. VARPTR$ is P3's (a
-; stub, res/far3.s); a file's VARPTR(#n) is 7c's: NOTYET.
+; stub, res/far3.s). VARPTR(#n): file n's FDB, its F_MODE's address, from
+; P4's GETPTR (OO-1: in P4's FDB table, $C800-$F7FF, so negative).
 VARPTR:         JSR     CHRGTR
                 CMP     #'$'
                 BNE     :+
@@ -594,9 +595,11 @@ VARPTR:         JSR     CHRGTR
 :               JSR     SYNCHR
                 .byte   '('
                 CMP     #'#'
-                BNE     :+
-                JMP     NOTYET         ; GETPTR
-:               JSR     PTRGTN
+                BNE     NVRFIL
+                JSR     GTBYTC         ; the file's number
+                FJSR    GETPTR         ; PTR: its FDB's
+                BRA     VARRET
+NVRFIL:         JSR     PTRGTN
 VARRET:         JSR     SYNCHR
                 .byte   ')'
                 LDA     PTR

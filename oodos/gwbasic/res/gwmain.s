@@ -753,6 +753,8 @@ INITOK:         LDA     CURLIN         ; ERRLIN, for ERL
                 STA     ERRLIN
                 LDA     CURLIN+1
                 STA     ERRLIN+1
+                STZ     MRGFLG         ; no CHAIN goes on (7c)
+                STZ     CHNFLG
                 AND     CURLIN
                 CMP     #$FF
                 BEQ     ERRESM         ; a direct line: DOT stays

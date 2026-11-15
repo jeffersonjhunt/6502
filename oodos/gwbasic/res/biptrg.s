@@ -827,13 +827,15 @@ BLTUC:          SEC                    ; T1:T0 = CX - DX + 1 bytes
 ; REASON (BIMISC.ASM 143): BX must not pass FRETOP. If it does, the strings
 ; are collected (BX, CX and DX kept: $00-$07, RDL to RCH, as the 8086 pushes
 ; CX, DX and BX; GARBA2 writes DX, and MKVAR and NOTFDD use it after) and it
-; is asked again; then Out of memory. (CHAIN's CHNFLG, which forbids the
-; collection, is 7c's.)
+; is asked again; then Out of memory. While a CHAIN is under way (CHNFLG,
+; 7c) there is no collection: the variables it keeps are just above FRETOP.
 REASON:         LDA     FRETOP
                 CMP     RBL
                 LDA     FRETOP+1
                 SBC     RBH
                 BCS     @ok
+                LDA     CHNFLG
+                BNE     @om
                 LDX     #7
 @s:             LDA     RDL,X
                 PHA
@@ -851,7 +853,7 @@ REASON:         LDA     FRETOP
                 LDA     FRETOP+1
                 SBC     RBH
                 BCS     @ok
-                JMP     OMERR
+@om:            JMP     OMERR
 @ok:            RTS
 
 .segment "RAM"
