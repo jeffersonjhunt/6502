@@ -8,7 +8,17 @@
  * A breakpoint is a physical address. Typed as five hex digits it is taken
  * as one ("FC951"); anything else is a CPU address or label ("ECHO",
  * "C951"), turned into a physical address through the windows as they are
- * when it is added, so "ECHO" shows as "ECHO $C951 → FC951".
+ * when it is added (the CPU card's view: A0-A23), so "ECHO" shows as
+ * "ECHO $C951 → FC951".
+ *
+ * BPADDR is 20 bits, and the card matches only a cycle with A20-A23 0
+ * (hw/design.md, "B1: as built"). So a CPU address that resolves above
+ * $FFFFF (a window on the flash, $F00000 up, or on the video aperture,
+ * $E00000) is refused, and so is a bank 8 address ($80000-$8FFFF) while
+ * VIDEO_ID reads $92: with a revision 2 card the CPU card sends the CPU's
+ * and DMA's bank 8 to the aperture, so no cycle there reaches the bus to
+ * match. A saved breakpoint above $FFFFF (from an older page) isn't
+ * restored, and notRestored names it.
  *
  * The card loses its registers at power off, so a power cycle re-arms
  * whatever was armed. The list is remembered; nothing is armed at load.
@@ -48,7 +58,13 @@ export function bpctrl(b: Breakpoint): number {
 
 export const hex = (v: number, n: number) => v.toString(16).toUpperCase().padStart(n, "0");
 
-/** "ECHO $C951 → FC951", "C951 → FC951", or "FC951". */
+/** BPADDR's reach: A0-A19, with A20-A23 0. */
+export const BPADDR_MAX = 0xfffff;
+/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's. */
+const VIDEO_ID = 0xc4ff;
+const VIDEO_REV2 = 0x92;
+
+/** "ECHO $C951 → FC951", "C951 → FC951", or "FC951" (six digits above FFFFF). */
 export function describe(b: Breakpoint): string {
   if (b.cpu === null) return hex(b.physical, 5);
   const label = /^\$?[0-9a-f]{1,4}$/i.test(b.text) ? "" : `${b.text} $`;
@@ -65,7 +81,7 @@ export interface Hit {
 const STORE_KEY = "breakpoints";
 
 /** A saved breakpoint as this page wrote it: anything else (an old page's, an edited one) is dropped, not drawn. */
-function isBreakpoint(v: unknown): v is Breakpoint {
+function isBreakpoint(v: unknown, max = BPADDR_MAX): v is Breakpoint {
   if (typeof v !== "object" || v === null) return false;
   const b = v as Record<string, unknown>;
   const address = (a: unknown, max: number) => Number.isInteger(a) && (a as number) >= 0 && (a as number) <= max;
@@ -73,7 +89,7 @@ function isBreakpoint(v: unknown): v is Breakpoint {
     typeof b.id === "string" &&
     typeof b.text === "string" &&
     (b.cpu === null || address(b.cpu, 0xffff)) &&
-    address(b.physical, 0xfffff) &&
+    address(b.physical, max) &&
     (["fetch", "read", "write", "nmi"] as const).every((f) => typeof b[f] === "boolean")
   );
 }
@@ -81,13 +97,20 @@ function isBreakpoint(v: unknown): v is Breakpoint {
 export class Breakpoints {
   list: Breakpoint[] = [];
   armed: string | null = null;
+  /** Saved breakpoints above $FFFFF, which BPADDR can't hold: not restored, named here for the pane to say so. */
+  notRestored: string[] = [];
   private readonly listeners = new Set<() => void>();
   private next = 1;
 
   constructor(private readonly port: MachinePort) {
     try {
       const saved: unknown = JSON.parse(prefs.get(STORE_KEY) ?? "[]");
-      if (Array.isArray(saved)) this.list = saved.filter(isBreakpoint);
+      if (Array.isArray(saved)) {
+        this.list = saved.filter((v) => isBreakpoint(v));
+        this.notRestored = saved
+          .filter((v) => !isBreakpoint(v) && isBreakpoint(v, 0xffffff))
+          .map((b) => describe(b as Breakpoint));
+      }
     } catch {
       this.list = [];
     }
@@ -117,6 +140,10 @@ export class Breakpoints {
       if (cpu === null) return `${t}: not a label or a hex address`;
       physical = await this.port.physical(cpu);
     }
+    if (physical > BPADDR_MAX)
+      return `${t}: $${hex(cpu ?? 0, 4)} is ${hex(physical, 6)}, above FFFFF: the Console card's breakpoint is 20 bits and never matches the flash or the video aperture`;
+    if (physical >> 16 === 0x8 && (await this.port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2)
+      return `${t}: bank 8 is the video aperture with a revision 2 card, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
     const b: Breakpoint = {
       id: String(this.next++),
       text: t,

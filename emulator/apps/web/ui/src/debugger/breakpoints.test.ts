@@ -134,6 +134,41 @@ describe("Breakpoints", () => {
     expect(writes(p).at(-1)).toEqual([CARD.STATUS, 0x02]);
   });
 
+  // The 24-bit bus (hw/design.md, "B1: as built"): BPADDR is 20 bits and matches only with A20-A23 0.
+  test("a label in W1 on block 33, the aperture at $E04123, is refused: BPADDR can't hold it", async () => {
+    const p = port();
+    p.labels.set("SLOT1", 0x4123);
+    p.physical = async (cpu: number) => (cpu >= 0x4000 && cpu < 0x8000 ? 0xe00000 | cpu : cpu); // W1 on block 33
+    const bps = new Breakpoints(p);
+    const r = await bps.add("SLOT1");
+    expect(typeof r).toBe("string");
+    expect(r).toMatch(/SLOT1: \$4123 is E04123, above FFFFF/);
+    expect(bps.list).toEqual([]);
+  });
+
+  test("a typed 84123 is refused with a revision 2 video card, whose bank 8 is the aperture; kept without one", async () => {
+    const p = port();
+    p.io.set(0xc4ff, 0x92); // VIDEO_ID: revision 2
+    const bps = new Breakpoints(p);
+    const r = await bps.add("84123");
+    expect(typeof r).toBe("string");
+    expect(r).toMatch(/84123: bank 8 is the video aperture/);
+    expect(bps.list).toEqual([]);
+    p.io.set(0xc4ff, 0x91); // revision 1: bank 8 is RAM
+    const kept = await bps.add("84123");
+    expect(typeof kept).toBe("object");
+    expect(bps.list.length).toBe(1);
+  });
+
+  test("a saved E0xxxx breakpoint isn't restored, and says so", () => {
+    const good = { id: "3", text: "ECHO", cpu: 0xc951, physical: 0xfc951, fetch: true, read: false, write: false, nmi: false };
+    const high = { ...good, id: "4", text: "SLOT1", cpu: 0x4123, physical: 0xe04123 };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([good, high]));
+    const bps = new Breakpoints(port());
+    expect(bps.list).toEqual([good]);
+    expect(bps.notRestored).toEqual(["SLOT1 $4123 → E04123"]);
+  });
+
   test("bpctrl bits", () => {
     const b = { id: "1", text: "x", cpu: null, physical: 0, fetch: false, read: true, write: true, nmi: true };
     expect(bpctrl(b)).toBe(0x1d);

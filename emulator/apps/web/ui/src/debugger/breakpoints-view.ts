@@ -39,6 +39,9 @@ export function breakpointsView(bps: Breakpoints) {
     });
   });
 
+  if (bps.notRestored.length)
+    error.textContent = `Not restored, above FFFFF where the Console card's breakpoint can't reach: ${bps.notRestored.join(", ")}`;
+
   const list = h("div", { class: "bps", role: "radiogroup", "aria-label": "Breakpoints: one armed at a time" });
   const none = h("label", { class: "bp-row none" });
   const hitBox = h("div", { class: "bp-hit", "data-testid": "bp-hit", hidden: true });
