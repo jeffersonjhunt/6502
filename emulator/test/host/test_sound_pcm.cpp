@@ -454,7 +454,7 @@ namespace
         {
             std::string error;
             m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq=2\n",
+                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
                                "sound.machine", {}, error);
             if (m)
                 sound = m->sound_card();
@@ -465,14 +465,15 @@ namespace
         /// Channel 2: `count` bytes (0: 65,536) from `from` to the card, demand mode.
         void channel(uint32_t from, uint32_t count)
         {
-            bus().poke(0xC420, static_cast<uint8_t>(from));
-            bus().poke(0xC421, static_cast<uint8_t>(from >> 8));
-            bus().poke(0xC422, static_cast<uint8_t>(from >> 16));
-            bus().poke(0xC424, static_cast<uint8_t>(count));
-            bus().poke(0xC425, static_cast<uint8_t>(count >> 8));
-            bus().poke(0xC426, DmaController::DEMAND | DmaController::TO_CARD);
-            bus().poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-            bus().poke(0xC427, DmaController::ENABLE);
+            // SELECT 2 first: the window at $C400-$C40F then shows channel 2
+            bus().poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
+            bus().poke(0xC400, static_cast<uint8_t>(from));
+            bus().poke(0xC401, static_cast<uint8_t>(from >> 8));
+            bus().poke(0xC402, static_cast<uint8_t>(from >> 16));
+            bus().poke(0xC404, static_cast<uint8_t>(count));
+            bus().poke(0xC405, static_cast<uint8_t>(count >> 8));
+            bus().poke(0xC406, DmaController::DEMAND | DmaController::TO_CARD);
+            bus().poke(0xC407, DmaController::ENABLE);
         }
 
         bool armed() { return m->dma()->peek_channel(2, DmaController::CTRL) & DmaController::ENABLE; }

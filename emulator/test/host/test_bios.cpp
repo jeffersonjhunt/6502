@@ -249,7 +249,7 @@ namespace
 
     constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.14\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.15\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -385,7 +385,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.14"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -445,7 +445,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.14"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.15"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -641,7 +641,7 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK_EQ(running, 0u); // every oscillator halted
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.14"));
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
     }
 }
 
@@ -1554,7 +1554,7 @@ TEST(the_screen_scrolls_whole_with_a_burst_limit)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(BOOT, "C441: 11\r");                   // DMA: a cycle back to the CPU every 2 bytes
+    b.run(BOOT, "C47E: 11\r");                   // DMA: a cycle back to the CPU every 2 bytes
     std::string keys;
     for (int i = 0; i < 12; ++i)
         keys += "FFFC.FFFD\r";
@@ -1651,9 +1651,11 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
     Decoder &bus = b.machine->bus();
     b.machine->usb_card()->key(0xE1, true);      // Shift: a USB key event, but no character
     b.machine->usb_card()->key(0xE1, false);
-    const std::string keys = "C418: 00 10 00\r"  // channel 1: a byte to $01000...
-                             "C410: 00 00 00 00 01 00 8A 03\r" // ...interrupting at terminal count
-                             "C406: 01 01\r"     // channel 0 armed, as for the SD card
+    const std::string keys = "C47E: 73\r"        // SELECT 1 (the master on)...
+                             "C408: 00 10 00\r"  // ...channel 1: a byte to $01000...
+                             "C400: 00 00 00 00 01 00 8A 03\r" // ...interrupting at terminal count
+                             "C47E: 71\r"        // SELECT 0...
+                             "C406: 01 01\r"     // ...channel 0 armed, as for the SD card
                              "C5B0: 01\r"        // USB: the key event interrupts
                              "C540: 02 00 04\r"; // the sound card's 6510 running, its mailbox interrupting
     b.run(keys.size() * 25'000 + BOOT / 2, keys);
@@ -1662,7 +1664,7 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
     b.cpu->nmi();
     CHECK(has(b.run(BOOT), "\\"));
     CHECK(!bus.irq());
-    CHECK_EQ(bus.peek(0xC440) & 0x0F, 0);        // no terminal count left
+    CHECK_EQ(bus.peek(0xC410), 0);               // no terminal count left (STATUS)
     CHECK_EQ(b.machine->dma()->peek_channel(0, DmaController::CTRL) & 1, 0);    // channel 0 stopped
     CHECK_EQ(b.machine->dma()->peek_channel(1, DmaController::MODE) & 0x80, 0); // and channel 1's interrupt off
     CHECK_EQ(bus.peek(0xC5B0), 0);
@@ -1792,7 +1794,7 @@ TEST(break_during_a_burst_limited_scroll_stops_it)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(BOOT, "C441: 01\r");                   // a cycle back to the CPU every byte
+    b.run(BOOT, "C47E: 01\r");                   // a cycle back to the CPU every byte
     b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
     Decoder &bus = b.machine->bus();
     const DmaController &dma = *b.machine->dma();
@@ -1813,10 +1815,10 @@ TEST(a_scroll_leaves_the_dma_master_enable_as_it_was)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(BOOT, "C441: 70\r");                   // DMA off, as a program may leave it
+    b.run(BOOT, "C47E: 70\r");                   // DMA off, as a program may leave it
     b.run(BOOT, "E3: 1D\r");
     b.run(BOOT, "C680\r");
-    CHECK_EQ(b.machine->bus().peek(0xC441), 0x70);
+    CHECK_EQ(b.machine->bus().peek(0xC47E), 0x70);
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("C680: 00"));
 }
@@ -1827,14 +1829,14 @@ TEST(the_demo_runs_with_the_dma_master_enable_off)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(BOOT, "C441: 70\r");
+    b.run(BOOT, "C47E: 70\r");
     start_demo(b);
     b.run(20 * FRAME);
     REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
     CHECK_EQ(b.machine->video_card()->card_peek(DEMO_SPR + 11 * 8 + 6), 0x18); // the sprite table, by port DMA
     CHECK_EQ(b.machine->video_card()->card_peek(DEMO_RIPPLE + 239 * 256 + 255) & 0xF0, 0x50); // the ripple, too
     CHECK(has(b.run(10 * FRAME, "X"), "\\"));
-    CHECK_EQ(b.machine->bus().peek(0xC441), 0x70);
+    CHECK_EQ(b.machine->bus().peek(0xC47E), 0x70);
 }
 
 TEST(c806_stops_a_programs_dma_before_its_fills)
@@ -1845,8 +1847,8 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(BOOT, "C441: 01\r");                   // a burst limit, so the monitor still runs...
-    b.run(BOOT, "C420: 00 00 02 00 00 00 45 01\r"); // ...beside channel 2 feeding the sound card for ever
+    b.run(BOOT, "C47E: 05\r");                   // a burst limit, so the monitor still runs, and SELECT 2...
+    b.run(BOOT, "C400: 00 00 02 00 00 00 45 01\r"); // ...beside channel 2 feeding the sound card for ever
     REQUIRE(b.machine->dma()->peek_channel(2, DmaController::CTRL) & 1);
     b.run(4 * BOOT, "C806R\r");
     CHECK(b.bridge().apple());
@@ -1915,7 +1917,7 @@ TEST(golden_frame_the_monitors_text_screen)
     REQUIRE(card->splash_frame() == -1);
     REQUIRE(card->frames() < MONITOR_FRAME);
     run_to_frame(b, MONITOR_FRAME);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.14"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
     CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
 }
 

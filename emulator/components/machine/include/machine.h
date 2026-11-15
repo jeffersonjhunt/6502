@@ -4,8 +4,8 @@
  * @file machine.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A machine built from a plain-text description.
- * @version 0.9.0
- * @date 2026-10-30
+ * @version 0.10.0
+ * @date 2026-11-15
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -17,7 +17,7 @@
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal
  *
- * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq=N] [irq] [image]`;
+ * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq] [irq] [image]`;
  * a rom's image `-` is erased flash, all $FF (an empty cartridge).
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A23, the 24-bit bus), flash (00000-FFFFF, ROM A then ROM B:
@@ -29,8 +29,11 @@
  * bridge has no use for one: memory is chosen by address, and its cycles
  * carry the master's ID); `wait=` (0-15) pulls /WAIT for that many extra
  * cycles on every access, as a slow card does, the CPU's (the north bridge
- * makes it RDY) and a DMA grant's alike; `drq=` (0-3)
- * wires the device's DMA request to that channel; `irq` wires the device's
+ * makes it RDY) and a DMA grant's alike; `drq` wires the device's DMA
+ * request to the backplane's shared /DREQ (Dreq::Wired): the DMA controller
+ * polls it and grants it by its module ID, which a channel's CARD register
+ * names (dma_controller.h), so the channel isn't the machine file's to say;
+ * `drq=N`, revision 1's channel, is refused; `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;

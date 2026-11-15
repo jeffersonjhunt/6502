@@ -15,12 +15,14 @@
  *   $0C DATA  $0D-$0E BUFPTR  $10 IEN  $11 ISR  $7F ID
  *
  * An IDE disk: write UNIT, LBA and COUNT, then CMD, and the sectors stream
- * through DATA, a CPU loop or DMA channel 0 (CTRL bit 0) moving them. The
+ * through DATA, a CPU loop or DMA (CTRL bit 0) moving them. The
  * card holds two 512-byte buffers, so it fetches (or programs) one sector
  * while the bus empties (or fills) the other; DATA in STATUS is set while
  * the whole current sector is there to be read, or the whole buffer free to
  * be written, so a loop may wait for it once a sector and then move 512
- * bytes. With CTRL.DMA, DRQ follows it. LBA and COUNT advance as each
+ * bytes. With CTRL.DMA, the card's request follows it: wired (`drq` on its
+ * machine line), it pulls /DREQ and answers the poll as module 7, which
+ * channel 0's CARD names at reset. LBA and COUNT advance as each
  * sector passes through DATA: during a transfer COUNT is the sectors left,
  * and after one LBA names the next sector.
  *

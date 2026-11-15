@@ -903,30 +903,31 @@ SDION:          STA     SDN            ; A sectors (1-8: function 83's RDRUN)
                 JSR     SDRESET        ; still busy with something else: give up
                 LDA     #1
                 RTS
-@idle:          LDA     #$01           ; channel 0, programmed stopped, its
+@idle:          LDA     #DMA_CH0       ; channel 0, programmed stopped, its
                 STA     DMA_ABORT      ; terminal count cleared
                 STA     DMA_STATUS
+                LDA     DMA_CONTROL    ; SELECT is shared: CONTROL saved first,
+                PHA                    ; put back at SDEND
+                AND     #<~DMA_SEL
+                ORA     #DMA_MASTER | DMA_SEL0 ; the window on channel 0, the master on
+                STA     DMA_CONTROL
                 LDX     #2
 @addr:          LDA     SRCP,X
-                STA     DMA0_ADDR,X
+                STA     DMA_ADDR,X
                 DEX
                 BPL     @addr
-                STZ     DMA0_COUNT
+                STZ     DMA_COUNT
                 LDA     SDN            ; 512 bytes a sector
                 ASL     A
-                STA     DMA0_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     DOP
                 AND     #1             ; DOP's bit 0: the direction
                 ASL     A
                 ASL     A
                 ORA     #DMA_DEMAND_IN ; demand; DIR 00 card to memory, 01 memory to card
-                STA     DMA0_MODE
-                LDA     DMA_CONTROL
-                PHA
-                ORA     #DMA_MASTER
-                STA     DMA_CONTROL
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA0_CTRL
+                STA     DMA_CTRL
                 LDX     CURDRV
                 INX
                 STX     SD_UNIT
@@ -950,9 +951,9 @@ SDWAIT:         JSR     SDIDLE
 SDEND:          LDA     DMA_STATUS     ; channel 0's terminal count, in bit 0
                 TAY
                 STZ     SD_CTRL
-                LDA     #$01
+                LDA     #DMA_CH0
                 STA     DMA_ABORT
-                PLA
+                PLA                    ; CONTROL as SDIO found it, SELECT with it
                 STA     DMA_CONTROL
                 STZ     SD_UNIT
                 LDA     SD_STATUS
@@ -1764,9 +1765,11 @@ PHYSOF:         LDA     SIDES + 1,X
 SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
 
 ; DCOUNT bytes (0: 65,536) from SRCP to DSTP, physical, by DMA channel 3, in
-; block transfers of DMA_CHUNK bytes at most, each waited for, as the ROM's
-; DMA3RUN: programmed stopped, the master enable on for them and CONTROL put
-; back after; each given up after about 0.1 s. The CPU waits through a block
+; block transfers of DMA_CHUNK bytes at most, each waited for: programmed
+; stopped, CONTROL saved, the window on channel 3 (SELECT) with the master
+; enable on for them, and CONTROL put back after, SELECT with it (the SELECT
+; rule: an interrupt between blocks finds the window here and leaves it
+; here); each given up after about 0.1 s. The CPU waits through a block
 ; transfer, 2 cycles a byte, and can take no interrupt in it: one longer than
 ; a tick (7,159 cycles) could cover two of timer 1's expiries, and the VIA
 ; has one flag, so a tick would be lost (the console's scroll is 4,640
@@ -1793,23 +1796,24 @@ DMAGO:          LDX     #1             ; the addresses' high two bytes kept: a b
                 STA     DLEFT + 1      ; $FFFF: 65,536
                 LDA     DMA_CONTROL
                 PHA
-                ORA     #DMA_MASTER
+                AND     #<~DMA_SEL
+                ORA     #DMA_MASTER | DMA_SEL3 ; the window on channel 3
                 STA     DMA_CONTROL
 @block:         LDA     #DMA_CH3
                 STA     DMA_ABORT
                 LDX     #2
 @regs:          LDA     SRCP,X
-                STA     DMA3_ADDR,X
+                STA     DMA_ADDR,X
                 LDA     DSTP,X
-                STA     DMA3_DEST,X
+                STA     DMA_DEST,X
                 DEX
                 BPL     @regs
                 LDA     DLEFT + 1
                 CMP     #>DMA_CHUNK
                 BCC     @last          ; DMA_CHUNK bytes or fewer left
-                STZ     DMA3_COUNT
+                STZ     DMA_COUNT
                 LDA     #>DMA_CHUNK
-                STA     DMA3_COUNT + 1
+                STA     DMA_COUNT + 1
                 JSR     DMA3W
                 SEC
                 LDA     DLEFT + 1
@@ -1831,10 +1835,10 @@ DMAGO:          LDX     #1             ; the addresses' high two bytes kept: a b
 @last:          CLC
                 LDA     DLEFT
                 ADC     #1
-                STA     DMA3_COUNT
+                STA     DMA_COUNT
                 LDA     DLEFT + 1
                 ADC     #0
-                STA     DMA3_COUNT + 1
+                STA     DMA_COUNT + 1
                 JSR     DMA3W
                 LDX     #1
 @back:          LDA     DSAVE,X
@@ -1843,20 +1847,21 @@ DMAGO:          LDX     #1             ; the addresses' high two bytes kept: a b
                 STA     DSTP + 1,X
                 DEX
                 BPL     @back
-                PLA
+                PLA                    ; CONTROL as DMAGO found it, SELECT with it
                 STA     DMA_CONTROL
                 RTS
 .assert <DMA_CHUNK = 0, error, "DMAGO steps the addresses' middle bytes alone"
 
 ; Channel 3 started as programmed, memory to memory, and waited for: given
-; up (stopped) after 65,536 polls.
+; up (stopped) after 65,536 polls. Only inside DMAGO's stretch, with the
+; window on channel 3.
 DMA3W:          LDA     #DMA_M2M
-                STA     DMA3_MODE
+                STA     DMA_MODE
                 LDA     #DMA_GO
-                STA     DMA3_CTRL
+                STA     DMA_CTRL
                 LDX     #0
                 LDY     #0
-@wait:          LDA     DMA3_CTRL
+@wait:          LDA     DMA_CTRL
                 LSR     A
                 BCC     @done
                 DEX

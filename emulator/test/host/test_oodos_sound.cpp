@@ -805,7 +805,7 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     Costs::print("a frame, the stream claimed", costs.frame);
     Costs::print("a tick", costs.tick);
     // A terminal count's handler, the next piece started (a piece that runs at once, the FIFO having room,
-    // holds the CPU its 4,096 cycles inside it: those are counted too, and are the DMA's, not the handler's).
+    // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
     CHECK_EQ(Costs::mode(costs.tick), 234u); // a layout-2 area's tick, L2's: the stream costs it nothing

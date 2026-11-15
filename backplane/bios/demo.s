@@ -567,36 +567,37 @@ DMASPRITES:
 
 ; LEN bytes from (SRC), RAM block 0 as W0 shows it, into the port at PADDR
 ; by DMA channel 1 in demand mode: the card asks while PCTL's DRQ is on, and
-; the controller moves the bytes with the CPU held. Waited for, with the
-; master enable on (a program may have left it off) and CONTROL put back
-; after, as the BIOS's DMA3RUN does: 65,536 polls, then it gives up and
-; stops the channel. DRQ is off again on return, so the CPU has the port.
-; Uses A, X, Y.
+; the controller moves the bytes with the CPU held. Waited for, with CONTROL
+; saved first, then the master enable on (a program may have left it off) and
+; SELECT 1 (the window channel 1's), and CONTROL put back after, as the BIOS's
+; PORTJOB does: 65,536 polls, then it gives up and stops the channel. DRQ is
+; off again on return, so the CPU has the port. Uses A, X, Y.
 PORTDMA:
                 LDA     #DMA_CH1       ; stopped while it is programmed
                 STA     DMA_ABORT
-                LDA     SRC
-                STA     DMA1_ADDR
-                LDA     SRC+1
-                STA     DMA1_ADDR+1
-                STZ     DMA1_ADDR+2    ; physical $00000-$0FFFF
-                LDA     LEN
-                STA     DMA1_COUNT
-                LDA     LEN+1
-                STA     DMA1_COUNT+1
-                LDA     #DMA_DEMAND_OUT ; memory to the card, no interrupt
-                STA     DMA1_MODE
-                LDA     #VIDEO_PCTL_DRQ ; to the card, stepping up
-                STA     VIDEO_PCTL
                 LDA     DMA_CONTROL
                 PHA
-                ORA     #DMA_MASTER
+                AND     #<~DMA_SEL
+                ORA     #DMA_SEL1 | DMA_MASTER
                 STA     DMA_CONTROL
+                LDA     SRC
+                STA     DMA_ADDR
+                LDA     SRC+1
+                STA     DMA_ADDR+1
+                STZ     DMA_ADDR+2     ; physical $00000-$0FFFF
+                LDA     LEN
+                STA     DMA_COUNT
+                LDA     LEN+1
+                STA     DMA_COUNT+1
+                LDA     #DMA_DEMAND_OUT ; memory to the card, no interrupt
+                STA     DMA_MODE
+                LDA     #VIDEO_PCTL_DRQ ; to the card, stepping up
+                STA     VIDEO_PCTL
                 LDA     #DMA_ENABLE
-                STA     DMA1_CTRL
+                STA     DMA_CTRL
                 LDX     #0
                 LDY     #0
-@wait:          LDA     DMA1_CTRL
+@wait:          LDA     DMA_CTRL
                 LSR     A
                 BCC     @done
                 DEX

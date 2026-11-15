@@ -21,9 +21,11 @@
  * instruction it fired in. Untimed devices (RAM, ROM) are never ticked,
  * which keeps that free for them.
  *
- * DMA: a card raises drq() on the channel its mapping names, and the DMA
- * controller answers with /DACK cycles, fly-by: the card drives or takes
- * the data while the controller addresses memory, so a /DACK access has no
+ * DMA: a card whose mapping is wired (Mapping::drq) raises drq() on the
+ * shared /DREQ, and the DMA controller polls the cards and grants the
+ * channel whose CARD names the card's module, which it puts on PS0-PS3.
+ * The grant cycles are fly-by: the card drives or takes the data while the
+ * controller addresses memory, so dack_read() and dack_write() have no
  * offset. `tc` marks the transfer's last byte (the TC line).
  */
 
@@ -63,15 +65,18 @@ namespace ooe::emu
         /// on timed devices.
         virtual void tick(uint64_t cycles) { (void)cycles; }
 
-        /// DRQ: the card wants a DMA transfer.
+        /// The card wants a DMA transfer: with its mapping wired (Mapping::drq) it pulls the
+        /// backplane's /DREQ, pulls its module's data line in the DMA controller's poll, and in a
+        /// grant naming it holds /DREQ while it wants another transfer after this one.
         virtual bool drq() const { return false; }
-        /// /DACK, card to memory: the byte the card puts on the bus.
+        /// A grant naming the card on PS0-PS3 (/DMA low), card to memory: the byte the card puts on
+        /// the bus.
         virtual uint8_t dack_read(bool tc)
         {
             (void)tc;
             return 0xFF;
         }
-        /// /DACK, memory to card: the byte on the bus.
+        /// A grant naming the card, memory to card: the byte on the bus.
         virtual void dack_write(uint8_t data, bool tc)
         {
             (void)data;

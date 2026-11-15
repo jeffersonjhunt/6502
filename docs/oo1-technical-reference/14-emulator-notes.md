@@ -261,10 +261,10 @@ emulator; each link goes to the note.
   - Pause/Break comes only from the WebUI. The terminal app has no USB keyboard, so there Break comes only from the
     console card ([Pause/Break](04-interrupts.md#pausebreak)).
 - **DMA** ([chapter 5](05-dma.md))
-  - Channel 0's DRQ is the SD card's, and channel 2's the sound card's, always (RAMDATA's, unless its DRQSEL
-    picks another: [`$C563`](07-sound.md#reg-c563)). Nothing drives channels 1
-    and 3, which the design gives to the serial card and to blits, and channel 2 isn't shared with the USB card
-    ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C410`](05-dma.md#reg-c410)).
+  - The SD, video and sound cards' requests reach /DREQ (`drq` on their lines), and channels 0, 1 and 2 serve
+    them by their reset CARD; the sound card asks always (RAMDATA's, unless its DRQSEL picks another:
+    [`$C563`](07-sound.md#reg-c563)). The USB card's request isn't wired, and the serial card, a 6551 standing in,
+    has no DMA ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C40C`](05-dma.md#reg-c40c)).
 - **Video** ([chapter 6](06-video.md))
   - A whole sprite table copied by DMA takes about 143 µs, at two cycles a byte, where hw/design.md says about
     72 µs ([Sprites](06-video.md#sprites)).

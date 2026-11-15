@@ -528,7 +528,7 @@ TEST(the_card_operations_are_refused_without_the_dma_controller)
     if (!r.ok && r.out.find("OODOS ") != std::string::npos)
         r.ok = r.until("\r\nA>", ms(10000), r.out.size());
     REQUIRE(r.ok);
-    REQUIRE(r.machine->bus().read(0xC47F) != 0x81); // DMA_ID: no controller answers
+    REQUIRE(r.machine->bus().read(0xC47F) != 0x82); // DMA_ID: no controller answers
     open(r, "X");
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04")); // the card is there
     r.poke(0x10000, noise(16, 17));

@@ -203,11 +203,11 @@ TEST(the_write_loop_loads_every_224_cycles_with_dma_off)
     has(r.c("dir o:"), "README");
     Loads loads;
     loads.bus = &r.machine->bus();
-    const uint8_t before = r.machine->bus().peek(0xC441);
+    const uint8_t before = r.machine->bus().peek(0xC47E);
     r.cpu->set_observer(&loads);
     r.c("pip o:=m:x.bin");
     r.cpu->set_observer(nullptr);
-    CHECK_EQ(r.machine->bus().peek(0xC441), before);
+    CHECK_EQ(r.machine->bus().peek(0xC47E), before);
     REQUIRE(loads.at.size() >= 354);
     // the first sector's field: 5 syncs and 349 bytes
     unsigned wrong = 0;
@@ -308,7 +308,7 @@ TEST(a_break_mid_write_loses_only_that_sector)
     REQUIRE(r.ok);
     has(r.c("dir o:"), "README");
     const TrackRead before = read_track(*r.card().disk(0), 3);
-    const uint8_t dma = r.machine->bus().peek(0xC441);
+    const uint8_t dma = r.machine->bus().peek(0xC47E);
     const uint16_t a_loop = sym("WLA");
     unsigned loops = 0;
     bool hit = false;
@@ -327,7 +327,7 @@ TEST(a_break_mid_write_loses_only_that_sector)
     REQUIRE(hit);
     const Disk2Card::Status st = r.card().status();
     CHECK(!st.q7 && !st.motor);
-    CHECK_EQ(r.machine->bus().peek(0xC441), dma);
+    CHECK_EQ(r.machine->bus().peek(0xC47E), dma);
     r.run(ms(1500)); // the run-on over
     unsigned kept = 0;
     for (unsigned t = 0; t < 35; ++t)

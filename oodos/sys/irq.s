@@ -587,6 +587,7 @@ HOOKCOST:       CLD
 
 .segment "RESBSS"
 DMAIRQ:         .res    1              ; DEAFEN's: the channels whose interrupt was on
+DMACTL:         .res    1              ; DEAFEN's: CONTROL as it found it, less SELECT
 
 .segment "RES"
 
@@ -598,7 +599,13 @@ DMAIRQ:         .res    1              ; DEAFEN's: the channels whose interrupt 
 ; program that changed the latch may cost it a tick (below). A DMA
 ; channel's terminal count is cleared only if its interrupt was on: the
 ; others' are their drivers' (SDIO reads channel 0's), and an interrupt
-; can come while one waits.
+; can come while one waits. The channels are reached through the window,
+; SELECT 7 down to 0, so CONTROL is saved first and put back after, SELECT
+; with it (the SELECT rule: the dispatcher's DEAFEN may come between the
+; code it interrupted and that code's channel registers). Until channels
+; 4-7 are fitted (B3) their window reads $FF: their MODE's bit 7 then puts
+; 1s in DMAIRQ's bits 4-7, and STATUS is written with them; harmless, as a
+; 1 clears a count and there are no such channels to clear.
 DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0 sends nothing)
                 STA     NB_RTCCTL
                 STZ     SD_IEN
@@ -609,29 +616,37 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 LDA     #1             ; a front-panel key pending pulls /IRQ whatever IEN says
                 STA     CONSOLE_ISR
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @acia
+                LDA     DMA_CONTROL
+                PHA                    ; put back after
+                AND     #<~DMA_SEL
+                STA     DMACTL
                 STZ     DMAIRQ
-                LDX     #$30           ; channel 3 to 0
-@dma:           CPX     #$20           ; channel 2 while a stream buffer moves on it is L3's:
+                LDX     #DMA_SEL7      ; channel 7 to 0, X its SELECT (2 x the channel)
+@dma:           CPX     #DMA_SEL2      ; channel 2 while a stream buffer moves on it is L3's:
                 BNE     @mode          ; its interrupt and its count left as they are
                 LDA     C2ON
                 BEQ     @mode
                 ASL     DMAIRQ
                 BRA     @next
-@mode:          LDA     DMA0_MODE,X
+@mode:          TXA
+                ORA     DMACTL         ; the master and BURST as found
+                STA     DMA_CONTROL    ; the window on channel X / 2
+                LDA     DMA_MODE
                 ASL     A              ; its interrupt bit (7) to carry,
-                ROL     DMAIRQ         ; and on into the mask: channel 3's ends in bit 3
+                ROL     DMAIRQ         ; and on into the mask: channel 7's ends in bit 7
                 LSR     A              ; the mode with its interrupt off
-                STA     DMA0_MODE,X
-@next:          TXA
-                SEC
-                SBC     #$10
-                TAX
-                BCS     @dma
+                STA     DMA_MODE
+@next:          DEX
+                DEX
+                BPL     @dma
                 LDA     DMAIRQ         ; none to come, and none left to interrupt
                 STA     DMA_STATUS
+                PLA
+                STA     DMA_CONTROL    ; CONTROL as DEAFEN found it, SELECT with it
 .assert DMA_MODE_IRQ = $80, error, "DEAFEN's mask: the interrupt bit is MODE's bit 7"
+.assert DMA_SEL7 = 14 && DMA_SEL2 = 4 && DMA_SEL = $0E, error, "DEAFEN's X is SELECT's field, 2 x the channel"
 @acia:          LDA     ACIA_CMD       ; the stand-in 6551's, should a program have turned them
                 AND     #<~ACIA_CMD_TXMASK ; on: its receiver's interrupt off, and its
                 ORA     #ACIA_CMD_RXOFF | ACIA_CMD_TXOFF ; transmitter's (RTS low), the rest kept;

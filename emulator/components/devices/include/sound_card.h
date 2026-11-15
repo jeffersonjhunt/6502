@@ -124,8 +124,11 @@
  *
  * RAM. RAMADDR is the next address; a RAMDATA access, read or write, moves
  * it on, wrapping at 64 KB. The card is always ready, so DRQ is always
- * asserted: a DMA channel wired to the card (`drq=` in the machine file)
- * moves bytes through RAMDATA, fly-by, as fast as it is programmed to.
+ * asserted: with its line wired (`drq` in the machine file) the card pulls
+ * /DREQ and answers the DMA controller's poll by its module (A), and a
+ * channel whose CARD names it moves bytes through RAMDATA, fly-by, as fast
+ * as it is programmed to. So at DRQSEL 0 (its reset value) and 2 the card
+ * is a standing request on the shared line.
  *
  * Mailbox. Two one-byte boxes. MBOUT puts a byte in the card's box (STATUS
  * bit 1 until the card takes it; a second write replaces the first). The

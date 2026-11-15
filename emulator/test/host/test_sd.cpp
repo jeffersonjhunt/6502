@@ -546,7 +546,7 @@ namespace
                                "northbridge backplane bootsel\n"
                                "ram 00000-FFFFF name=ram\n"
                                "dma 400-47F space=io name=dma irq\n"
-                               "sd  380-3FF space=io name=sd irq drq=0\n",
+                               "sd  380-3FF space=io name=sd irq drq\n",
                                "sd.machine", {}, error);
             if (!m)
                 std::printf("  %s\n", error.c_str());
@@ -601,7 +601,8 @@ namespace
         0xA9, 0x00, 0x8D, 0x8B, 0xC3, // LDA #0; STA COUNT+1
     };
 
-    /// DMA channel 0 at $20000 for 2,048 bytes, demand mode, `mode`'s direction; the card's
+    /// DMA channel 0 (SELECT 0, CONTROL's reset value, so the window shows it; its CARD at reset
+    /// serves the card's module, 7) at $20000 for 2,048 bytes, demand mode, `mode`'s direction; the card's
     /// CTRL.DMA and IEN.DONE, then `cmd`; WAI for the interrupt, STP.
     std::vector<uint8_t> dma_program(uint8_t mode, uint8_t cmd)
     {
@@ -613,7 +614,7 @@ namespace
             0xA9, 0x00, 0x8D, 0x04, 0xC4, // LDA #0; STA COUNT0
             0xA9, 0x08, 0x8D, 0x05, 0xC4, // LDA #8; STA COUNT0+1   2,048
             0xA9, mode, 0x8D, 0x06, 0xC4, // LDA #mode; STA MODE0
-            0xA9, 0x71, 0x8D, 0x41, 0xC4, // LDA #$71; STA CONTROL  DMA on, no burst limit
+            0xA9, 0x71, 0x8D, 0x7E, 0xC4, // LDA #$71; STA CONTROL  DMA on, SELECT 0, no burst limit
             0xA9, 0x01, 0x8D, 0x07, 0xC4, // LDA #1; STA CTRL0      ENABLE
             0x8D, 0x80, 0xC3,             //         STA CTRL       the card's DMA
             0x8D, 0x90, 0xC3,             //         STA IEN        command done
@@ -680,7 +681,7 @@ TEST(dma_channel_0_reads_four_sectors_at_a_byte_a_cycle)
     const uint64_t took = irq_at - busy_at;
     CHECK(took >= ACCESS + 2048);
     CHECK(took < ACCESS + 2048 + 40);
-    CHECK_EQ(b.m->bus().peek(0xC440) & 0x01, 0x01); // channel 0 reached terminal count
+    CHECK_EQ(b.m->bus().peek(0xC410) & 0x01, 0x01); // channel 0 reached terminal count (STATUS)
 }
 
 TEST(dma_channel_0_writes_four_sectors)

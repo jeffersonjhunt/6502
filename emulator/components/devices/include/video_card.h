@@ -45,9 +45,10 @@
  * of card memory, slot n from SLOTn x $4000, and ignores cycles while the
  * north bridge is in Apple II mode. Each PDATA read or write moves PADDR by
  * PSTEP, up or (PCTL bit 2) down, wrapping at the fitted memory's end. While
- * PCTL bit 0 is set the card asserts DRQ (its machine line's `drq=`, channel
- * 1), and /DACK cycles move bytes through the port in PCTL bit 1's
- * direction; a /DACK cycle the other way is ignored. /RESET resets the
+ * PCTL bit 0 is set the card requests DMA (its machine line's `drq`: it
+ * pulls /DREQ and answers the poll as module 9, which channel 1's CARD names
+ * at reset), and grants naming it move bytes through the port in PCTL bit
+ * 1's direction; a grant the other way is ignored. /RESET resets the
  * registers and never touches card memory.
  *
  * Time. VGA 640x480 at 60 Hz: 800 pixel clocks a line at 25.175 MHz, 525

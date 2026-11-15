@@ -49,7 +49,7 @@ APPLE:
                 BEQ     @card
                 JMP     NOCARD_SAY
 @card:          LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BEQ     @dma
                 JMP     NODMA_SAY
 @dma:           LDA     #CART

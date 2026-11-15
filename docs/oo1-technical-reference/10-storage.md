@@ -186,7 +186,7 @@ The BIOS polls STATUS. To take a sector out, it waits for DATA, then reads 512 b
 for BUSY to clear, then looks at ERR. A command that fails before its sector is ready is caught by the first loop
 too, because BUSY clears.
 
-<!-- listing: ../../backplane/bios/sd.s:282-309 -->
+<!-- listing: ../../backplane/bios/sd.s:286-313 -->
 ```
 ; Wait for a sector out of DATA, into BUF. Carry set if the command ended
 ; first: with an error, said.
@@ -291,9 +291,10 @@ Status: **emulated**
 The card asks for DMA channel 0 ([chapter 5](05-dma.md#transfers-for-a-card)) while CTRL's DMA bit is set and
 STATUS's DATA is: DRQ0 follows DATA. The transfer is fly-by, a byte a cycle.
 
-1. Program channel 0 ([`$C400`](05-dma.md#reg-c400) on): ADDR the physical address, COUNT the bytes (sectors ×
-   512), MODE demand (XFER `%01`) with DIR `%00`, card to memory, for a READ, or `%01`, memory to card, for a
-   WRITE. Turn on the master enable and set ENABLE.
+1. Save CONTROL and select channel 0 with the master enable on ([`$C47E`](05-dma.md#reg-c47e)), then program it
+   in the window ([`$C400`](05-dma.md#reg-c400) on): ADDR the physical address, COUNT the bytes (sectors × 512),
+   MODE demand (XFER `%01`) with DIR `%00`, card to memory, for a READ, or `%01`, memory to card, for a WRITE. Set
+   ENABLE. Put CONTROL back when the transfer ends.
 2. Write UNIT, LBA and COUNT, and CTRL as `SD_CTRL_DMA` (`$01`).
 3. Write CMD, and wait for BUSY to clear. Check ERR.
 4. Write CTRL as 0, so DRQ0 stays off.
@@ -315,24 +316,26 @@ AUTO mode.
 
 The BIOS's boot reads `/BOOT.BIN` this way, 88 sectors at most, to physical `$01000`:
 
-<!-- listing: ../../backplane/bios/sd.s:217-252 -->
+<!-- listing: ../../backplane/bios/sd.s:217-256 -->
 ```
 ; Read SECTORS of unit 1 to $1000 by DMA and call it; back to the monitor if
 ; it returns, or the read fails (said).
-LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
+LOADRUN:        LDA     DMA_CONTROL    ; CONTROL kept, put back when the load ends
+                PHA
+                LDA     #DMA_ON        ; the master on, SELECT 0: the window is channel 0's
+                STA     DMA_CONTROL
+                STZ     DMA_ADDR       ; channel 0: to $01000, a sector a 512
                 LDA     #>LOAD
-                STA     DMA0_ADDR + 1
-                STZ     DMA0_ADDR + 2
-                STZ     DMA0_COUNT
+                STA     DMA_ADDR + 1
+                STZ     DMA_ADDR + 2
+                STZ     DMA_COUNT
                 LDA     SECTORS
                 ASL
-                STA     DMA0_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     #DMA_DEMAND_IN
-                STA     DMA0_MODE
-                LDA     #DMA_ON
-                STA     DMA_CONTROL
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA0_CTRL
+                STA     DMA_CTRL
 
                 LDA     #1             ; READ unit 1, from 0, SECTORS of it
                 STA     SD_UNIT
@@ -350,6 +353,8 @@ LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
                 JSR     WAITDONE
                 STZ     SD_CTRL
                 STZ     SD_UNIT
+                PLA                    ; CONTROL as it was, either way (the carry kept)
+                STA     DMA_CONTROL
                 BCS     @quit
                 JSR     LOAD
 @quit:          JMP     WOZMON
@@ -603,7 +608,7 @@ for Apple CP/M disks. The drives it gives programs, O: and P:, are in the Progra
   the next field; the seek and the search run with them on. The millisecond counter misses the ticks of a masked
   field, so the driver adds that time back from the disk bytes it read (224 cycles each); a vertical blank that
   comes meanwhile is taken afterwards, so the frame counter loses none. A write also turns the DMA controller's
-  master enable off ([`$C441`](05-dma.md#reg-c441)) while it writes and puts it back after; a read leaves DMA
+  master enable off ([`$C47E`](05-dma.md#reg-c47e)) while it writes and puts it back after; a read leaves DMA
   alone, since OODOS runs no transfer while the driver does. Break (NMI) can't be masked: the NMI handler turns the card's write mode
   and motor off and the master enable back on before the monitor, so a write it cuts short loses that sector and
   the rest of the track is kept.

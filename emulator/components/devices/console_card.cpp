@@ -64,7 +64,9 @@ namespace ooe::emu
         if (lights_on_)
         {
             // A held access glows longer; the DMA cycles it waited for came on their own, at their
-            // addresses, but not the one taking the bus, which still shows the CPU's address.
+            // addresses, but not the one taking the bus nor the DMA controller's poll (granted()
+            // counts both), which still show the CPU's held address with RDY low. The breakpoint
+            // never matches them: the card isn't told of them as cycles.
             const uint64_t w =
                 1 + (decoder_ ? decoder_->wait_states() -
                                     (c.dma ? 0 : decoder_->stolen() - decoder_->granted())

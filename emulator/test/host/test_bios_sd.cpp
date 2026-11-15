@@ -84,7 +84,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.14\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.15\r\\\r"))
             return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
@@ -104,7 +104,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.14\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.15\r"))
             return nullptr;
         return s;
     }
@@ -168,7 +168,7 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     auto s = powered_on_with("fat16.sparse", out);
     REQUIRE(s != nullptr);
     REQUIRE(run_until(*s, out, "\\\r"));
-    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.14\r\\\r")); // no error, no wait
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.15\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
 }
@@ -244,7 +244,7 @@ TEST(c80c_boots_boot_bin_from_the_card_by_dma)
     REQUIRE(run_until(*s, out, "\rBOOTED FROM SD\r"));
     REQUIRE(run_until(*s, out, "\\\r")); // it returned to the monitor
     CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // LDX #0, where it was loaded
-    CHECK_EQ(s->peek(0xC440) & 0x01, 0x01);       // channel 0 reached terminal count
+    CHECK_EQ(s->peek(0xC410) & 0x01, 0x01);       // channel 0 reached terminal count
     CHECK(s->sd()->unit(1).mounted);
     CHECK_EQ(s->sd()->unit(1).name, std::string("BOOT.BIN"));
 }

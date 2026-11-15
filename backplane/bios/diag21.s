@@ -161,15 +161,17 @@ SDREAD:
 
 ; The card stayed busy: its command abandoned (CTRL's RESET, which writes
 ; nothing and leaves its units mounted) and channel 0 aborted, so neither
-; runs on into the boot; the test failed, said (review P2).
+; runs on into the boot; the test failed, said (review P2). Called only from
+; SD3's and SD4's DMA parts (SD3GO, SD4GO), whose callers keep CONTROL and
+; put it back: it selects channel 0 itself before its MODE.
 SDSTUCK:
                 lda     #SD_CTRL_RESET
                 sta     SD_CTRL
                 lda     #DMA_CH0
                 sta     DMA_ABORT
-                stz     DMA0_MODE
-                lda     #DMA_ON
+                lda     #DMA_ON        ; SELECT 0 first: the window is channel 0's
                 sta     DMA_CONTROL
+                stz     DMA_MODE
                 TD      "THE CARD STAYED BUSY"
                 rts
 
@@ -261,15 +263,25 @@ SD2:
                 rts
 
 ; SD3: LBA 0 of unit 0, the card itself, read by the CPU through DATA and
-; again by channel 0 into W0's block: the two agree.
+; again by channel 0 into W0's block: the two agree. CONTROL is kept, SELECT 0
+; (the master on) written before any channel register, and CONTROL put back
+; however SD3GO ends.
 SD3:
                 TB      "SD3  LBA 0 BY THE CPU AND BY CHANNEL 0 AGREE"
                 lda     HW_REV + 8
-                cmp     #1
+                cmp     #2
                 beq     @dma
                 TS      "NO DMA CONTROLLER"
                 rts
-@dma:           lda     #1
+@dma:           lda     DMA_CONTROL
+                pha
+                lda     #DMA_ON        ; SELECT 0: the window is channel 0's
+                sta     DMA_CONTROL
+                jsr     SD3GO
+                pla
+                sta     DMA_CONTROL
+                rts
+SD3GO:          lda     #1
                 ldx     #0
                 jsr     SDREAD
                 jcs     @stuck
@@ -296,15 +308,13 @@ SD3:
                 bne     @hi
                 lda     #>SDDMA        ; channel 0, demand, card to memory: 512 bytes
                 jsr     DMA0AT
-                stz     DMA0_COUNT
+                stz     DMA_COUNT
                 lda     #2
-                sta     DMA0_COUNT + 1
+                sta     DMA_COUNT + 1
                 lda     #DMA_DEMAND_IN
-                sta     DMA0_MODE
-                lda     #DMA_ON
-                sta     DMA_CONTROL
+                sta     DMA_MODE
                 lda     #DMA_ENABLE
-                sta     DMA0_CTRL
+                sta     DMA_CTRL
                 lda     #1
                 ldx     #SD_CTRL_DMA
                 jsr     SDREAD
@@ -312,7 +322,7 @@ SD3:
                 jsr     SDIDLE
                 bcs     @stuck
                 stz     SD_CTRL
-                lda     DMA0_CTRL
+                lda     DMA_CTRL
                 and     #DMA_ENABLE
                 bne     @short
                 ldy     #0
@@ -333,14 +343,14 @@ SD3:
 @diff:          TD      "THE TWO READS DIFFER"
                 rts
 
-; Channel 0's ADDR: W0's page A.
+; Channel 0's ADDR (SELECT 0 is the caller's): W0's page A.
 DMA0AT:
                 tax
                 lda     DG_W0
                 jsr     PHYSB
                 ldx     #2
 @a:             lda     T_PA,x
-                sta     DMA0_ADDR,x
+                sta     DMA_ADDR,x
                 dex
                 bpl     @a
                 rts
@@ -376,15 +386,25 @@ FOUR:
                 bra     @start
 
 ; SD4: the read speed: 64 KB of unit 0 by channel 0 into four tested blocks,
-; timed by timer 2 from the command to the card idle again: INFO.
+; timed by timer 2 from the command to the card idle again: INFO. CONTROL is
+; kept, SELECT 0 written before any channel register, and CONTROL put back
+; however SD4GO ends.
 SD4:
                 TB      "SD4  READ SPEED: "
                 lda     HW_REV + 8
-                cmp     #1
+                cmp     #2
                 beq     @dma
                 TS      "NO DMA CONTROLLER"
                 rts
-@dma:           jsr     FOUR
+@dma:           lda     DMA_CONTROL
+                pha
+                lda     #DMA_ON        ; SELECT 0: the window is channel 0's
+                sta     DMA_CONTROL
+                jsr     SD4GO
+                pla
+                sta     DMA_CONTROL
+                rts
+SD4GO:          jsr     FOUR
                 bcc     @blocks
                 TS      "NOT FOUR TESTED BLOCKS IN A ROW"
                 rts
@@ -392,17 +412,17 @@ SD4:
                 jsr     PHYSB
                 ldx     #2
 @a:             lda     T_PA,x
-                sta     DMA0_ADDR,x
+                sta     DMA_ADDR,x
                 dex
                 bpl     @a
-                stz     DMA0_COUNT     ; 65,536
-                stz     DMA0_COUNT + 1
+                stz     DMA_COUNT      ; 65,536
+                stz     DMA_COUNT + 1
                 lda     #DMA_DEMAND_IN
-                sta     DMA0_MODE
-                lda     #DMA_MASTER | $40 ; bursts of 16 bytes: the CPU between them keeps timer 2's count, its
-                sta     DMA_CONTROL    ;   three reads (T2NOW) under 256 cycles apart
+                sta     DMA_MODE
+                lda     #DMA_MASTER | DMA_SEL0 | $40 ; bursts of 16 bytes, SELECT 0 kept: the CPU between them keeps
+                sta     DMA_CONTROL    ;   timer 2's count, its three reads (T2NOW) under 256 cycles apart
                 lda     #DMA_ENABLE
-                sta     DMA0_CTRL
+                sta     DMA_CTRL
                 jsr     SDIDLE
                 jcs     SDSTUCK
                 stz     SD_UNIT
@@ -431,7 +451,7 @@ SD4:
                 lda     SD_STATUS
                 and     #SD_ERR
                 bne     @err
-                lda     DMA0_CTRL
+                lda     DMA_CTRL
                 and     #DMA_ENABLE
                 jne     @short
                 lda     T_ACC + 3      ; KB a second: 64 x 7,159,090 / cycles, both / 256

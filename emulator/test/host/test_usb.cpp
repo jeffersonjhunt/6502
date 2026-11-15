@@ -683,22 +683,24 @@ TEST(dma_drains_the_event_fifo_on_its_drq)
 {
     std::string error;
     auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "dma 400-47F space=io name=dma irq\nusb 580-5FF space=io name=usb irq drq=2\n",
+                            "dma 400-47F space=io name=dma irq\nusb 580-5FF space=io name=usb irq drq\n",
                             "usb.machine", {}, error);
     REQUIRE(m != nullptr);
     UsbCard *usb = m->usb_card();
     Decoder &bus = m->bus();
     usb->key(0x04, true);
     usb->key(0x04, false);
-    // channel 2: card to memory at $01000, 4 bytes, demand mode
-    bus.poke(0xC420, 0x00);
-    bus.poke(0xC421, 0x10);
-    bus.poke(0xC422, 0x00);
-    bus.poke(0xC424, 4);
-    bus.poke(0xC425, 0);
-    bus.poke(0xC426, DmaController::DEMAND);
-    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-    bus.poke(0xC427, DmaController::ENABLE);
+    // channel 2 (SELECT 2 in CONTROL, then the window): card to memory at $01000, 4 bytes,
+    // demand mode, serving the USB card's module ($B) in place of its reset CARD (the sound card)
+    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
+    bus.poke(0xC40C, 0x0B);
+    bus.poke(0xC400, 0x00);
+    bus.poke(0xC401, 0x10);
+    bus.poke(0xC402, 0x00);
+    bus.poke(0xC404, 4);
+    bus.poke(0xC405, 0);
+    bus.poke(0xC406, DmaController::DEMAND);
+    bus.poke(0xC407, DmaController::ENABLE);
     for (int i = 0; i < 8; ++i)
         bus.read(0x0000);                         // CPU cycles: the controller steals what it needs
     CHECK_EQ(bus.peek_physical(0x01000), 0x04);

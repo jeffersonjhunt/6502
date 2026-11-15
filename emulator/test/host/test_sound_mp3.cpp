@@ -443,7 +443,7 @@ namespace
         {
             std::string error;
             m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq=2\n",
+                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
                                "sound.machine", {}, error);
             if (m)
                 sound = m->sound_card();
@@ -477,14 +477,15 @@ TEST(by_demand_dma_each_file_plays_as_minimp3_decodes_it)
         b.bus().write(0xC563, SoundCard::DRQ_PCMDATA);
         b.bus().write(0xC549, 1); // CODEC: MP3
         b.bus().write(0xC548, SoundCard::PCMCTL_RUN);
-        b.bus().poke(0xC420, 0x00);
-        b.bus().poke(0xC421, 0x00);
-        b.bus().poke(0xC422, 0x01);
-        b.bus().poke(0xC424, static_cast<uint8_t>(bytes.size()));
-        b.bus().poke(0xC425, static_cast<uint8_t>(bytes.size() >> 8));
-        b.bus().poke(0xC426, DmaController::DEMAND | DmaController::TO_CARD);
-        b.bus().poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-        b.bus().poke(0xC427, DmaController::ENABLE);
+        // SELECT 2 first: the window at $C400-$C40F then shows channel 2
+        b.bus().poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
+        b.bus().poke(0xC400, 0x00);
+        b.bus().poke(0xC401, 0x00);
+        b.bus().poke(0xC402, 0x01);
+        b.bus().poke(0xC404, static_cast<uint8_t>(bytes.size()));
+        b.bus().poke(0xC405, static_cast<uint8_t>(bytes.size() >> 8));
+        b.bus().poke(0xC406, DmaController::DEMAND | DmaController::TO_CARD);
+        b.bus().poke(0xC407, DmaController::ENABLE);
         b.run_cycles(100'000);
         REQUIRE(!(b.m->dma()->peek_channel(2, DmaController::CTRL) & DmaController::ENABLE)); // all of it in
         b.bus().write(0xC548, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);

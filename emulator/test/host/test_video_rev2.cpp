@@ -554,14 +554,15 @@ namespace
     /// DMA channel 1, `count` bytes between system RAM at `addr` and the card, block mode.
     void dma_channel_1(Decoder &bus, uint32_t addr, unsigned count, uint8_t dir)
     {
-        bus.poke(0xC410, static_cast<uint8_t>(addr));
-        bus.poke(0xC411, static_cast<uint8_t>(addr >> 8));
-        bus.poke(0xC412, static_cast<uint8_t>(addr >> 16));
-        bus.poke(0xC414, static_cast<uint8_t>(count));
-        bus.poke(0xC415, static_cast<uint8_t>(count >> 8));
-        bus.poke(0xC416, DmaController::BLOCK | dir);
-        bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-        bus.poke(0xC417, DmaController::ENABLE);
+        // SELECT 1 first: the window at $C400-$C40F then shows channel 1
+        bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 1 << 1);
+        bus.poke(0xC400, static_cast<uint8_t>(addr));
+        bus.poke(0xC401, static_cast<uint8_t>(addr >> 8));
+        bus.poke(0xC402, static_cast<uint8_t>(addr >> 16));
+        bus.poke(0xC404, static_cast<uint8_t>(count));
+        bus.poke(0xC405, static_cast<uint8_t>(count >> 8));
+        bus.poke(0xC406, DmaController::BLOCK | dir);
+        bus.poke(0xC407, DmaController::ENABLE);
         for (unsigned i = 0; i < count + 100; ++i)
             bus.read(0x0000);
     }
@@ -713,14 +714,15 @@ namespace
     /// DMA channel `n`, `count` bytes between system RAM at `addr` and the channel's card, in `mode`.
     void dma_card(Decoder &bus, unsigned n, uint32_t addr, unsigned count, uint8_t mode)
     {
-        const uint16_t c = static_cast<uint16_t>(0xC400 + n * 0x10);
+        // SELECT n first: the window at $C400-$C40F then shows channel n
+        bus.poke(0xC47E, static_cast<uint8_t>(DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | n << 1));
+        const uint16_t c = 0xC400;
         bus.poke(c + 0u, static_cast<uint8_t>(addr));
         bus.poke(c + 1u, static_cast<uint8_t>(addr >> 8));
         bus.poke(c + 2u, static_cast<uint8_t>(addr >> 16));
         bus.poke(c + 4u, static_cast<uint8_t>(count));
         bus.poke(c + 5u, static_cast<uint8_t>(count >> 8));
         bus.poke(c + 6u, mode);
-        bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
         bus.poke(c + 7u, DmaController::ENABLE);
         for (unsigned i = 0; i < 2 * count + 100; ++i)
             bus.read(0x0000);
@@ -773,17 +775,18 @@ TEST(a_memory_to_memory_copy_to_80000_lands_in_card_memory_through_the_aperture)
         bus.write_physical(0x21000 + i, static_cast<uint8_t>(i ^ 0xA5));
     bus.write(0xC4B2, 0x40); // SLOT1 = page $40: card $100000
     const uint32_t src = 0x21000, dest = 0x83F00; // across slot 0's end into slot 1
-    bus.poke(0xC410, static_cast<uint8_t>(src));
-    bus.poke(0xC411, static_cast<uint8_t>(src >> 8));
-    bus.poke(0xC412, static_cast<uint8_t>(src >> 16));
-    bus.poke(0xC418, static_cast<uint8_t>(dest));
-    bus.poke(0xC419, static_cast<uint8_t>(dest >> 8));
-    bus.poke(0xC41A, static_cast<uint8_t>(dest >> 16));
-    bus.poke(0xC414, 0x00); // 512
-    bus.poke(0xC415, 0x02);
-    bus.poke(0xC416, DmaController::BLOCK | DmaController::MEM_TO_MEM);
-    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-    bus.poke(0xC417, DmaController::ENABLE | DmaController::REQ);
+    // SELECT 1 first: the window at $C400-$C40F then shows channel 1
+    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 1 << 1);
+    bus.poke(0xC400, static_cast<uint8_t>(src));
+    bus.poke(0xC401, static_cast<uint8_t>(src >> 8));
+    bus.poke(0xC402, static_cast<uint8_t>(src >> 16));
+    bus.poke(0xC408, static_cast<uint8_t>(dest));
+    bus.poke(0xC409, static_cast<uint8_t>(dest >> 8));
+    bus.poke(0xC40A, static_cast<uint8_t>(dest >> 16));
+    bus.poke(0xC404, 0x00); // 512
+    bus.poke(0xC405, 0x02);
+    bus.poke(0xC406, DmaController::BLOCK | DmaController::MEM_TO_MEM);
+    bus.poke(0xC407, DmaController::ENABLE | DmaController::REQ);
     for (int i = 0; i < 100; ++i)
         bus.read(0x0000);
     bool same = true;
@@ -1076,17 +1079,18 @@ TEST(dma_memory_cycles_carry_8_a_fly_by_the_cards_id_and_bank_8_goes_to_the_aper
         bus.write_physical(0x21000 + i, static_cast<uint8_t>(0x30 + i));
     // Memory to memory, $21000 to $84000: the reads at $21xxx, the writes at the aperture's slot 1.
     const uint32_t src = 0x21000, dest = 0x84000;
-    bus.poke(0xC410, static_cast<uint8_t>(src));
-    bus.poke(0xC411, static_cast<uint8_t>(src >> 8));
-    bus.poke(0xC412, static_cast<uint8_t>(src >> 16));
-    bus.poke(0xC418, static_cast<uint8_t>(dest));
-    bus.poke(0xC419, static_cast<uint8_t>(dest >> 8));
-    bus.poke(0xC41A, static_cast<uint8_t>(dest >> 16));
-    bus.poke(0xC414, 16);
-    bus.poke(0xC415, 0);
-    bus.poke(0xC416, DmaController::BLOCK | DmaController::MEM_TO_MEM);
-    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-    bus.poke(0xC417, DmaController::ENABLE | DmaController::REQ);
+    // SELECT 1 first: the window at $C400-$C40F then shows channel 1
+    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 1 << 1);
+    bus.poke(0xC400, static_cast<uint8_t>(src));
+    bus.poke(0xC401, static_cast<uint8_t>(src >> 8));
+    bus.poke(0xC402, static_cast<uint8_t>(src >> 16));
+    bus.poke(0xC408, static_cast<uint8_t>(dest));
+    bus.poke(0xC409, static_cast<uint8_t>(dest >> 8));
+    bus.poke(0xC40A, static_cast<uint8_t>(dest >> 16));
+    bus.poke(0xC404, 16);
+    bus.poke(0xC405, 0);
+    bus.poke(0xC406, DmaController::BLOCK | DmaController::MEM_TO_MEM);
+    bus.poke(0xC407, DmaController::ENABLE | DmaController::REQ);
     for (int i = 0; i < 50; ++i)
         bus.read(0x0000);
     CHECK_EQ(card->card_peek(0x4000 + 15), 0x3F);

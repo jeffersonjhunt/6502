@@ -2929,8 +2929,9 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 - A = 1 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
   `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
   mode on a revision 1 card.
-- A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$81`): A = `$FF`, X = `$FE`,
-  and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it without one.
+- A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$82`, revision 2's ID):
+  A = `$FF`, X = `$FE`, and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it
+  without one.
 - A = 1 with no IIe ROM in the cartridge (`$FBB3` isn't `$06`), or any other A: A = X = `$FF`, and OODOS goes on.
 - A = 2 without the diagnostics in the flash: A = `$FF`, X = `$FC`, and OODOS goes on. OODOS looks at flash block 23
   through W2 for their signature and the ROM BIOS version they were linked with, which must be the one the cold

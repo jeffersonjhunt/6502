@@ -192,7 +192,7 @@ so a write to it swaps the whole palette between frames.
 
 The BIOS's palette is the CGA's 16 colours, which VINIT writes to entries 0–15 at unit 0 (`video.s`):
 
-<!-- listing: ../../backplane/bios/video.s:460-479 -->
+<!-- listing: ../../backplane/bios/video.s:434-453 -->
 ```
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR.
 .macro RGB r, g, b
@@ -533,7 +533,7 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
   `$000000`, inside the memory again.
 - **By DMA:** with PCTL's bit 0 set the card raises DRQ on channel 1 whenever the port can take or give a byte, so
   the controller streams system RAM into card memory, or back, fly-by
-  ([chapter 5](05-dma.md#revision-2-channel-1-the-video-port)). PCTL's bit 1 must agree with the channel's DIR: a DMA
+  ([chapter 5](05-dma.md#channel-1-the-video-cards-data-port)). PCTL's bit 1 must agree with the channel's DIR: a DMA
   cycle against it moves nothing (a read gives `$FF`, a write is dropped) and leaves PADDR where it was.
 - **Within card memory,** a scroll or a moved sprite image goes out through the port and back in; the card has no
   copy engine yet.

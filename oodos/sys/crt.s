@@ -299,7 +299,7 @@ CRTINIT:        STZ     CVOK
                 CMP     #VIDEO_ID_V2
                 BNE     @nocard
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BEQ     @card
 @nocard:        JMP     USBINIT
 @card:          STZ     VIDEO_SLOT0    ; slot 0 on bank 0, as /RESET leaves it

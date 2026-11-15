@@ -273,13 +273,11 @@ namespace ooe::emu
                 const size_t eq = arg.find('=');
                 if (arg == "irq")
                     map.irq_wired = true;
+                else if (arg == "drq")
+                    map.drq = Dreq::Wired; // the card pulls /DREQ; its module, from its I/O block, names it
                 else if (eq != std::string::npos && arg.compare(0, eq, "drq") == 0)
-                {
-                    const std::string n = arg.substr(eq + 1);
-                    if (n.size() != 1 || n[0] < '0' || n[0] > '3')
-                        return fail("drq: want a DMA channel 0-3");
-                    map.drq = static_cast<uint8_t>(n[0] - '0');
-                }
+                    return fail("drq: a flag, with no channel: the card's request reaches /DREQ, and a DMA "
+                                "channel serves it by the module its CARD register names (DMA revision 2)");
                 else if (eq != std::string::npos && arg.compare(0, eq, "wait") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);

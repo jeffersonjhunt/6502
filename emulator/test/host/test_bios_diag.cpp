@@ -271,7 +271,7 @@ namespace
     };
 
     const std::string PROMPT = "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S";
-    const std::string GREETING = "BACKPLANE BIOS 0.14\r";
+    const std::string GREETING = "BACKPLANE BIOS 0.15\r";
     const std::string RESULT = "RESULT: ";
 
     /// Switch 19 up, the reset, the prompt, CONT: the core runs. @return whether the prompt came
@@ -1254,7 +1254,7 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
     CHECK(test_line(r, "SD2").find("FAT") != std::string::npos);
     CHECK(ends(test_line(r, "SD3"), "PASS"));
     CHECK(ends(test_line(r, "SD4"), "INFO"));
-    CHECK(measured(r, "SD4", "SPEED: ") > 1000 && measured(r, "SD4", "SPEED: ") < 6991); // DMA's 1 cycle a byte at most
+    CHECK(measured(r, "SD4", "SPEED: ") > 1000 && measured(r, "SD4", "SPEED: ") < 6991); // DMA's 1 cycle a byte at most; 16/19 with bursts of 16 (the takeover, the poll, the CPU's cycle)
     CHECK(ends(test_line(r, "DK1"), "PASS"));
     CHECK(report(r).find("TESTS: ") != std::string::npos);
     CHECK(report(r).find(" 0 FAILED, ") != std::string::npos);

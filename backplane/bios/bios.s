@@ -348,7 +348,7 @@ IRQ:            PHA
                 PLA
                 RTI
 
-; Stop what would go on behind the monitor: every DMA channel, the SD card's
+; Stop what would go on behind the monitor: every DMA channel (all eight), the SD card's
 ; command, the boot splash and the video port's DMA request, the sound card's 6510 and SIDs (and from revision
 ; 2, its PCM stream and ES5503); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
@@ -361,25 +361,45 @@ QUIET:
                 LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
                 STA     NB_RTCCTL
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @sd
                 LDA     #DMA_ALL
-                STA     DMA_ABORT
+                STA     DMA_ABORT      ; every channel stopped, all eight
                 STA     DMA_STATUS     ; no terminal count left to interrupt
-                STZ     DMA0_MODE      ; nor one to come: MODE's IRQ bit
-                STZ     DMA0_MODE + $10
-                STZ     DMA0_MODE + $20
-                STZ     DMA0_MODE + $30
 @sd:            LDA     SD_ID
                 CMP     #SD_ID_V1
-                BNE     @usb
+                BNE     @chans
                 STZ     SD_IEN
                 LDA     SD_STATUS
                 BPL     @idle          ; BUSY clear
                 LDA     #SD_CTRL_RESET ; abandon the command; units stay mounted
                 STA     SD_CTRL
-                BRA     @usb
-@idle:          STZ     SD_CTRL        ; DRQ0 off
+                BRA     @chans
+@idle:          STZ     SD_CTRL        ; the card's DMA request off
+; Each channel, through SELECT 7 down to 0: MODE 0, so no terminal count is to
+; come (its IRQ bit), and CARD back to its reset module (7, 9, A, then none), so
+; a CARD a program or the monitor changed can't keep the SD boot from its grant.
+; CONTROL is kept in Y and put back whole: Break leaves the master enable, BURST
+; and SELECT as it found them. The master is off while the loop selects.
+@chans:         LDA     DMA_ID
+                CMP     #DMA_ID_V2
+                BNE     @usb
+                LDY     DMA_CONTROL
+                LDX     #7
+@chan:          TXA
+                ASL     A              ; SELECT X, the master off
+                STA     DMA_CONTROL
+                STZ     DMA_MODE
+                LDA     #DMA_NONE      ; channels 3-7: no module
+                CPX     #3
+                BCS     @card
+                TXA                    ; 0, 1, 2: 7, 9, A (carry set from 1 on)
+                CMP     #1
+                ADC     #DMA_MOD_SD
+@card:          STA     DMA_CARD
+                DEX
+                BPL     @chan
+                STY     DMA_CONTROL
 @usb:           LDA     USB_ID
                 CMP     #USB_ID_V1
                 BNE     @video

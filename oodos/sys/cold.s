@@ -387,7 +387,7 @@ CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V2, $FF, CVIDEO ; revision 2 only
                 CARD    SD_ID, SD_ID_V1, $FF, CSD
                 CARD    DISK2_ID, DISK2_ID_V1, $FF, CDISK2
                 CARD    USB_ID, USB_ID_V1, $FF, CUSB
-                CARD    DMA_ID, DMA_ID_V1, $FF, CDMA
+                CARD    DMA_ID, DMA_ID_V2, $FF, CDMA
                 CARD    CONSOLE_ID, CONSOLE_ID_V1, $FF, CPANEL
 CARDTAB_LEN     = * - CARDTAB
 

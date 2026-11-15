@@ -63,7 +63,7 @@ Status: **emulated**
 To take the SIDs, stop the 6510 (clear RUN), then write the registers. Writing every register 0 turns off each
 voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:393-412 -->
+<!-- listing: ../../backplane/bios/bios.s:413-432 -->
 ```
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
@@ -743,9 +743,9 @@ Undefined: the card's RAM keeps its contents through a /RESET. The emulator's is
 
 #### Notes
 
-`backplane.machine` wires the card to DMA channel 2, fly-by, one cycle a byte
-([chapter 5](05-dma.md#transfers-for-a-card), [channel 2's address](05-dma.md#reg-c420)). Since DRQ2 never drops,
-channel 2 runs as soon as it is enabled, at the pace its XFER gives. With the 6510 running, a write here can change
+`backplane.machine` wires the card's request to /DREQ, and channel 2 serves it, its CARD `$0A` (module A) at
+reset, fly-by, one cycle a byte ([chapter 5](05-dma.md#transfers-for-a-card), [CARD](05-dma.md#reg-c40c)). Since
+the card's request never drops, channel 2 runs as soon as it is enabled, at the pace its XFER gives. With the 6510 running, a write here can change
 the code under it.
 
 <a id="reg-c546"></a>

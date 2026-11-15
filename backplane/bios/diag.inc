@@ -34,7 +34,7 @@ DG_VERSION      = 1                    ; ROM DIAGNOSTICS 0.1
 ; the diagnostics' header line and the BIOS block 23 records (DG_LINKED) are all
 ; made from these
 BIOS_VMAJ       = 0
-BIOS_VMIN       = 14
+BIOS_VMIN       = 15
 .define BIOS_VERSION .sprintf("%d.%d", BIOS_VMAJ, BIOS_VMIN)
 DG_B21          = NB_ROM | NB_RO | 21  ; the three blocks as W2 maps them
 DG_B22          = NB_ROM | NB_RO | 22
@@ -215,33 +215,49 @@ T_GOOD:         .res    1
 .endmacro
 
 ; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
-; stopped, the SD card's command abandoned, every card's interrupt off, the
+; stopped (all eight channels, each one's CARD back to its reset module; X and Y
+; not kept), the SD card's command abandoned, every card's interrupt off, the
 ; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
 ; clock's TIE off, the VIA's interrupts off. The breakpoint is left alone.
 .macro QUIETM
-        .local sd, idle, usb, video, sound, sid, panel, via
+        .local sd, idle, chans, chan, card, usb, video, sound, sid, panel, via
                 lda     #NB_RTC_TICK
                 sta     NB_RTCCTL
                 lda     DMA_ID
-                cmp     #DMA_ID_V1
+                cmp     #DMA_ID_V2
                 bne     sd
                 lda     #DMA_ALL
                 sta     DMA_ABORT
                 sta     DMA_STATUS
-                stz     DMA0_MODE
-                stz     DMA0_MODE + $10
-                stz     DMA0_MODE + $20
-                stz     DMA0_MODE + $30
 sd:             lda     SD_ID
                 cmp     #SD_ID_V1
-                bne     usb
+                bne     chans
                 stz     SD_IEN
                 lda     SD_STATUS
                 bpl     idle
                 lda     #SD_CTRL_RESET
                 sta     SD_CTRL
-                bra     usb
+                bra     chans
 idle:           stz     SD_CTRL
+chans:          lda     DMA_ID         ; each channel through SELECT 7-0: MODE 0 and CARD its
+                cmp     #DMA_ID_V2     ;   reset module (7, 9, A, then none), computed, not a
+                bne     usb            ;   table (no copy of one to reach in each block);
+                ldy     DMA_CONTROL    ;   CONTROL kept in Y (no stack) and put back
+                ldx     #7
+chan:           txa
+                asl     a              ; SELECT X, the master off
+                sta     DMA_CONTROL
+                stz     DMA_MODE
+                lda     #DMA_NONE
+                cpx     #3
+                bcs     card
+                txa                    ; 0, 1, 2: 7, 9, A (carry set from 1 on; D is clear)
+                cmp     #1
+                adc     #DMA_MOD_SD
+card:           sta     DMA_CARD
+                dex
+                bpl     chan
+                sty     DMA_CONTROL
 usb:            lda     USB_ID
                 cmp     #USB_ID_V1
                 bne     video
@@ -286,7 +302,8 @@ via:            lda     #$7F
 ; and the end's: diagcon.inc's PUTBACK is this and an RTS): every card quiet
 ; as stage 0 makes them (QUIETM: whatever a test had running, a tone, the
 ; stream, a DMA transfer or an SD command, stops before the boot), the
-; aperture's slots, the port, the DMA controller's CONTROL, the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
+; aperture's slots, the port, the DMA controller's CONTROL ($70, SELECT 0) and every channel's CARD
+; (QUIETM), the VIA (ACR 0, timer 1 a one-shot left to run out, its flags
 ; cleared and its interrupts off), WAIT0-3 (the diagnostics own WAIT3, and
 ; zero every wait state on the way out), P3's breakpoint (BPCTRL 0 when
 ; BPADDR holds P3's address, so a user's own is kept), the lights, VEC on the flash's top

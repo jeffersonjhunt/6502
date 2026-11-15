@@ -167,7 +167,7 @@ namespace disk2_rig
             if (c.write && (c.addr == DISK2 + 0x0D || c.addr == DISK2 + 0x0F))
             {
                 at.push_back(c.cycle);
-                dma_off.push_back(bus && !(bus->peek(0xC441) & 1));
+                dma_off.push_back(bus && !(bus->peek(0xC47E) & 1));
             }
         }
     };

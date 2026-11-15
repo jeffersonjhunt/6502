@@ -1,6 +1,6 @@
 /**
  * @file test_decoder.cpp
- * @brief Address decoding: mappings, overlap, spaces, the north bridge, IRQ wiring, RDY wait states.
+ * @brief Address decoding: mappings, overlap, spaces, the north bridge, IRQ wiring, /WAIT, /DREQ.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 
@@ -378,6 +378,72 @@ TEST(wait_stretches_a_dma_grant_and_a_fly_by_by_the_longer_side)
     rig(0, 0, [](Decoder &bus, Ram &, Card &card) {
         CHECK_EQ(bus.dma_fly_by(0x3000, card, true, false), 1u); // no /WAIT: one cycle a byte
     });
+}
+
+TEST(dreq_is_the_wired_cards_or_and_the_poll_finds_each_by_module)
+{
+    // DMA revision 2 (hw/design.md): a card wired to /DREQ (Mapping::drq) pulls the one shared line, and in the
+    // poll its module's data line. Timed cards are caught up before the line is read (b2-plan.md [C15]); the
+    // poll cycle is the controller's, unseen by the observer, with no /WAIT.
+    struct Card : Ram
+    {
+        Card() : Ram(4) {}
+        bool drq() const override { return want; }
+        bool want{false};
+    };
+    struct Timed : Card
+    {
+        bool timed() const override { return true; }
+        void tick(uint64_t cycles) override
+        {
+            ticked += cycles;
+            want = ticked >= 10; // ready after 10 cycles
+        }
+        uint64_t ticked{0};
+    };
+    struct Watch : CycleObserver
+    {
+        void on_cycle(const BusCycle &) override { ++seen; }
+        unsigned seen{0};
+    };
+    Ram ram(0x100);
+    Card a, unwired;
+    Timed t;
+    Watch watch;
+    Decoder bus;
+    bus.set_dma_observer(&watch);
+    bus.map({0x0000, 0x00FF, &ram});
+    bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x383), &a, 0x7, false, 2, Dreq::Wired});
+    bus.map({bus_address(Space::Io, 0x500), bus_address(Space::Io, 0x503), &t, 0xA, false, 0, Dreq::Wired});
+    bus.map({bus_address(Space::Io, 0x580), bus_address(Space::Io, 0x583), &unwired, 0xB});
+    CHECK(!bus.dreq());
+    unwired.want = true;
+    CHECK(!bus.dreq());                                // not wired: never on /DREQ
+    CHECK(bus.dreq_card(0xB) == nullptr);
+    REQUIRE(bus.dreq_card(0x7) != nullptr);
+    CHECK(bus.dreq_card(0x7)->device == &a);
+    CHECK_EQ(bus.dreq_card(0x7)->wait, 2);             // its side of /WAIT in a grant
+    CHECK(bus.dreq_card(0x8) == nullptr);              // the controller's own ID: none
+    CHECK(bus.dreq_card(NO_MODULE) == nullptr);
+    a.want = true;
+    CHECK(bus.dreq());
+    CHECK(bus.dreq_from(0x7));
+    CHECK(!bus.dreq_from(0xA));
+    CHECK(!bus.dreq_from(0xB));
+    a.want = false;
+
+    for (int i = 0; i < 12; ++i)
+        bus.idle();                                    // time passes; nothing has ticked the timed card
+    CHECK_EQ(t.ticked, uint64_t{0});
+    CHECK(bus.dreq());                                 // caught up first: it is ready
+    CHECK(t.ticked >= 10u);
+
+    const uint64_t before = bus.now();
+    CHECK_EQ(bus.dma_poll(), 1u);                      // one cycle, no /WAIT though module 7 holds 2
+    CHECK_EQ(bus.now(), before + 1);
+    CHECK(bus.dreq_from(0xA));
+    CHECK(!bus.dreq_from(0x7));
+    CHECK_EQ(watch.seen, 0u);                          // not reported, as the takeover isn't
 }
 
 int main()

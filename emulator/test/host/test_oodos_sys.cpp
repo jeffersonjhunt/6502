@@ -888,10 +888,10 @@ TEST(the_bios_waits_for_the_card_bounded_and_checks_the_dma_moved_it_all)
     CHECK_EQ(read_with(r, "SDIO", [&] { r.sd().write(SdCard::CMD, 0xE7); }, waited), std::string("00"));
     CHECK(read_ok());
     // The card done but channel 0 short of its terminal count: an error, not 0.
-    CHECK_EQ(read_with(r, "SDEND", [&] { r.machine->bus().write(0xC440, 0x01); }, waited), std::string("01"));
+    CHECK_EQ(read_with(r, "SDEND", [&] { r.machine->bus().write(0xC410, 0x01); }, waited), std::string("01"));
     // A command that never ends (channel 0 stopped under it): given about a second, then the
     // card reset, its units still mounted.
-    CHECK_EQ(read_with(r, "SDWAIT", [&] { r.machine->bus().write(0xC442, 0x01); }, waited), std::string("01"));
+    CHECK_EQ(read_with(r, "SDWAIT", [&] { r.machine->bus().write(0xC411, 0x01); }, waited), std::string("01"));
     std::printf("  a READ that never ends: given up after %.2f s\n", static_cast<double>(waited) / HZ);
     CHECK(waited > ms(900) && waited < ms(1500));
     r.run(ms(SdCard::INIT_MS + 10));

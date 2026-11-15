@@ -12,10 +12,10 @@
 ; The clear wipes this code's stack and zero page (bank 0), so it is the last
 ; thing done, inline: no subroutine returns after it. It is four 64 KB DMA
 ; fills from a zero byte held as the source, and two of 4 KB, about 75 ms.
-; Every channel is stopped first and CONTROL set to no burst limit (Apple
-; mode holds the controller idle after, so a program's CONTROL is not worth
-; keeping); each fill is then a block transfer that is done before the next
-; instruction, with no wait needed.
+; Every channel is stopped first and CONTROL set to no burst limit, SELECT 3
+; (Apple mode holds the controller idle, and /RESET puts CONTROL back, so a
+; program's CONTROL is not kept); each fill is then a block transfer that is
+; done before the next instruction, with no wait needed.
 ;
 ; The IIe's character ROM goes into the video card's memory too (CHARS),
 ; through its port, from the cartridge's $84000 or, without one, made from
@@ -54,7 +54,7 @@ APPLE:
                 BEQ     @card
                 JMP     NOCARD_SAY
 @card:          LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BEQ     @dma
                 JMP     NODMA_SAY
 @dma:           LDA     #CART
@@ -100,39 +100,39 @@ APPLE:
                 LDA     #DMA_ALL       ; a program's channels stopped, so the fills
                 STA     DMA_ABORT      ; have the bus to themselves
                 STA     DMA_STATUS
-                LDA     #DMA_ON        ; and no burst limit, whatever it set
-                STA     DMA_CONTROL
+                LDA     #DMA_ON | DMA_SEL3 ; no burst limit, whatever it set, and SELECT 3:
+                STA     DMA_CONTROL    ;   the window is channel 3's (/RESET puts SELECT 0 back)
                 LDA     #<ZERO_PHYS
-                STA     DMA3_ADDR
+                STA     DMA_ADDR
                 LDA     #>ZERO_PHYS
-                STA     DMA3_ADDR+1
+                STA     DMA_ADDR+1
                 LDA     #^ZERO_PHYS
-                STA     DMA3_ADDR+2
+                STA     DMA_ADDR+2
 .repeat 4, bank
-                STZ     DMA3_DEST
-                STZ     DMA3_DEST+1
+                STZ     DMA_DEST
+                STZ     DMA_DEST+1
                 LDA     #bank
-                STA     DMA3_DEST+2
-                STZ     DMA3_COUNT     ; 0: 65,536 bytes
-                STZ     DMA3_COUNT+1
+                STA     DMA_DEST+2
+                STZ     DMA_COUNT      ; 0: 65,536 bytes
+                STZ     DMA_COUNT+1
                 LDA     #DMA_M2M | DMA_HOLD
-                STA     DMA3_MODE
+                STA     DMA_MODE
                 LDA     #DMA_GO
-                STA     DMA3_CTRL      ; it runs before the next instruction
+                STA     DMA_CTRL       ; it runs before the next instruction
 .endrepeat
 .repeat 2, bank                        ; the second $D000 bank, main then auxiliary
-                STZ     DMA3_DEST
+                STZ     DMA_DEST
                 LDA     #$D0
-                STA     DMA3_DEST+1
+                STA     DMA_DEST+1
                 LDA     #4 + bank
-                STA     DMA3_DEST+2
-                STZ     DMA3_COUNT     ; 4 KB
+                STA     DMA_DEST+2
+                STZ     DMA_COUNT      ; 4 KB
                 LDA     #$10
-                STA     DMA3_COUNT+1
+                STA     DMA_COUNT+1
                 LDA     #DMA_M2M | DMA_HOLD
-                STA     DMA3_MODE
+                STA     DMA_MODE
                 LDA     #DMA_GO
-                STA     DMA3_CTRL
+                STA     DMA_CTRL
 .endrepeat
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
