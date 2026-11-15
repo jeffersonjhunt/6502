@@ -179,7 +179,7 @@ namespace ooe::emu
         uint8_t memory_select(Master master) const override { return master == Master::Dma ? DMA_MODULE : MODULE; }
         uint32_t redirect(uint32_t physical) const override
         {
-            return aperture_ != NO_APERTURE && (physical & ~0xFFFFu) == BANK8 ? aperture_ | (physical & 0xFFFF)
+            return aperture_ != NO_APERTURE && (physical & ~0xFFFFu) == BANK8 ? aperture_ + (physical & 0xFFFF)
                                                                               : physical;
         }
         /// Send bank 8 to the aperture at `base` (64 KB; a revision 2 video card is fitted), or

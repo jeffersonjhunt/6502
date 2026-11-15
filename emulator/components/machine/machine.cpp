@@ -429,8 +429,10 @@ namespace ooe::emu
                 }
                 else if (type == "aperture")
                 {
-                    if (space != Space::Memory || size != VideoCard::APERTURE_SIZE || (map.first & 0x3FFF))
-                        return fail("aperture: want 64 KB of memory on a 16 KB boundary, like E00000-E0FFFF");
+                    // Its place on the new bus, or the old spelling of it, bank 8, which means the same (B1).
+                    if (space != Space::Memory || size != VideoCard::APERTURE_SIZE ||
+                        (map.first != BackplaneBridge::APERTURE && map.first != BackplaneBridge::BANK8))
+                        return fail("aperture: want 64 KB at E00000-E0FFFF (or 80000-8FFFF, read as that)");
                     auto ap = std::make_unique<VideoAperture>();
                     aperture_devices.push_back(ap.get());
                     dev = std::move(ap);

@@ -647,6 +647,32 @@ TEST(machine_lines_check_the_revision_and_the_aperture)
     CHECK(m != nullptr);
     CHECK(Machine::build(low + "video 480-4FF space=io rev=1\n", "v.machine", {}, error) == nullptr);
     CHECK(error.find("banks 8-B") != std::string::npos);
+    // The old spelling, 80000-8FFFF, is the aperture at its own place, E00000, with bank 8 sent there:
+    // the bus still has the RAM at bank 8 (B1, review V3).
+    auto old = Machine::build(head + "video 480-4FF space=io rev=2\naperture 80000-8FFFF\n", "v.machine", {}, error);
+    REQUIRE(old != nullptr);
+    Decoder &bus = old->bus();
+    old->video_card()->card_poke(0x4123, 0xC3);
+    bus.write_bus(0x084123, 0x5A);
+    CHECK_EQ(bus.peek_bus(0x084123), 0x5A);       // the RAM, as the bus carries it
+    CHECK_EQ(bus.peek_physical(0xE04123), 0xC3);  // the card, at the aperture's own address
+    CHECK_EQ(bus.peek_physical(0x084123), 0xC3);  // and the CPU card's bank 8
+    bus.write(0xC681, 33);                        // W1 on block 33: slot 1
+    CHECK_EQ(bus.read(0x4123), 0xC3);
+    CHECK_EQ(bus.last_access().physical, 0xE04123u);
+}
+
+TEST(the_aperture_line_is_at_e00000_or_the_old_bank_8_spelling_and_nowhere_else)
+{
+    std::string error;
+    const std::string head = "cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF\nvideo 480-4FF space=io rev=2\n";
+    CHECK(Machine::build(head + "aperture E00000-E0FFFF\n", "v.machine", {}, error) != nullptr);
+    CHECK(Machine::build(head + "aperture 80000-8FFFF\n", "v.machine", {}, error) != nullptr);
+    for (const char *line : {"aperture E04000-E13FFF\n", "aperture 90000-9FFFF\n", "aperture 100000-10FFFF\n"})
+    {
+        CHECK(Machine::build(head + line, "v.machine", {}, error) == nullptr);
+        CHECK(error.find("aperture: want 64 KB at E00000-E0FFFF") != std::string::npos);
+    }
 }
 
 // --- review fixes: Apple II mode, DMA modes, the aperture by DMA, latching, the build -----

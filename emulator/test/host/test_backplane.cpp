@@ -407,6 +407,18 @@ TEST(an_io_cycle_never_reaches_memory_whatever_the_address_lines_hold)
     CHECK_EQ(touched, 0u);
 }
 
+TEST(the_aperture_redirect_adds_its_base)
+{
+    BackplaneBridge bridge;
+    CHECK_EQ(bridge.redirect(0x084123), 0x084123u); // no aperture: bank 8 is RAM
+    bridge.set_aperture(0xE00000);
+    CHECK_EQ(bridge.redirect(0x084123), 0xE04123u);
+    CHECK_EQ(bridge.redirect(0x094123), 0x094123u); // bank 9 never
+    bridge.set_aperture(0xE04000);                  // a base the machine file can't give, but the bridge adds it
+    CHECK_EQ(bridge.redirect(0x080123), 0xE04123u);
+    CHECK_EQ(bridge.redirect(0x084123), 0xE08123u);
+}
+
 TEST(ids_0_to_5_and_f_are_empty_slots_on_the_machine)
 {
     MachineOptions opt;
