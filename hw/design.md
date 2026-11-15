@@ -2510,7 +2510,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
-| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register; the WebUI refuses a breakpoint that resolves above `$FFFFF` while BPADDR is 20 bits (B1's follow-up, [as built](#b1-as-built)) | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
+| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register; the WebUI's bank 8 breakpoint check follows AP8, not `VIDEO_ID` (B1's follow-up, [as built](#b1-as-built)) | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
 
 No step changes the BIOS's jump table in OODOS (`oodos/sys/bios.s`), the BDOS's existing calls, `DM_INFO`'s
 record, FARCALL or OOUI's interface.
@@ -2536,7 +2536,9 @@ source changed, and the suites pass with only the thirteen expectations below ch
 - **The machine file** (`backplane.machine`):
   - Addresses are up to six digits: `aperture E00000-E0FFFF`. The RAM and flash lines keep their spelling (the
     tests edit the file by its lines). The flash lines stay `space=flash` offsets, which are memory `$F00000` up.
-  - An `aperture 80000-8FFFF` line, the old spelling, means the same on the backplane.
+  - An `aperture 80000-8FFFF` line, the old spelling, means the same on the backplane. The aperture is accepted
+    only there or at `E00000-E0FFFF`; any other place is an error (review V2). The redirect adds the aperture's base
+    to the offset in bank 8.
   - The memory lines keep `module=0`–`5` only as the ID whose WAITn bits slow them, and only in B1. B2's /WAIT
     replaces it.
   - The I/O hole's IDs 0–5 and F have no line: their blocks read `$FF`, and no ID byte.
@@ -2562,16 +2564,37 @@ source changed, and the suites pass with only the thirteen expectations below ch
   - `test_backplane`'s ROM B address (`0xF80000`) and its BIOS fetch (`0xF7C822`);
   - the module now shown as D in `test_backplane` (five checks), in `test_session`'s trace rows and in
     `wasm-port.test.ts`.
-- **Left for B7 (the owner, 2026-11-14):** the WebUI resolves a breakpoint typed as a CPU label through the
-  windows, so a label in a window on the flash gives `$F7xxxx`. BPADDR keeps only A0–A19, so it would arm on RAM
-  bank 7 and never match the flash fetch. While BPADDR is 20 bits the WebUI is to refuse a breakpoint that resolves
-  above `$FFFFF`. Not built in B1.
+- **The WebUI's breakpoints (review V1, the owner, 2026-11-15).** BPADDR keeps A0–A19 and matches only with
+  A20–A23 0, so the debugger refuses, saying why:
+  - a CPU address or label that resolves above `$FFFFF`. A window on the flash gives `$F0xxxx`, and one on the
+    aperture (blocks 32–35 with a revision 2 card) gives `$E0xxxx`. Masked to 20 bits, either would have armed an
+    unrelated RAM address;
+  - a bank 8 address, `$80000–$8FFFF`, typed while `VIDEO_ID` reads `$92`. The CPU card sends the CPU's and DMA's
+    bank 8 to the aperture, so no cycle there reaches the bus to match. Without a revision 2 card bank 8 is RAM and
+    such a breakpoint is kept.
+
+  A breakpoint saved by an older page above `$FFFFF` isn't restored; the pane names it rather than drop it
+  silently.
+
+  **Left for B7:** with AP8 a register, the bank 8 check is to follow AP8 rather than `VIDEO_ID`, since software
+  may clear it.
 - **New cases:**
   - `test_backplane`: the ROM bit's `$F00000` address, an I/O cycle never reaching memory, IDs 0–5 and F empty;
   - `test_video_rev2`: bank 8 and `$E00000` with a revision 2 card, bank 8 as RAM without one, DMA's PS0–PS3 and its
     bank-8 cycles, EXAM and DEP on the RAM;
   - `test_console_card`: the breakpoint needing A20–A23 0;
   - `test_trace_diff.py`: six-digit addresses.
+  - Review round 1:
+    - `breakpoints.test.ts`: the three refusals and reports above;
+    - `test_backplane`: the redirect adding its base;
+    - `test_video_rev2`: the aperture line only at `E00000` or the old spelling, and the old spelling's case
+      extended (the RAM at bank 8 on the bus, the card at `$E04123`, a block 33 read on `$E04123`);
+    - `debugger.spec.ts`: a typed `84123` refused on the real machine.
+- **Must-fail and regression guards (review V6).** Each new case was seen failing once against a deliberate break,
+  except two: `an_io_cycle_never_reaches_memory_whatever_the_address_lines_hold` and
+  `ids_0_to_5_and_f_are_empty_slots_on_the_machine`. Both pass on the code before B1 too, because the I/O hole was
+  already decoded ahead of memory. They guard the /MEM rule against regressions rather than prove B1's change, and
+  each was seen failing against a break of that rule (windows decoded ahead of the hole; a stray I/O line on ID 0).
 
 #### The owner's answers (B0) ####
 
