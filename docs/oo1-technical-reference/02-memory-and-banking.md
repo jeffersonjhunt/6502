@@ -38,7 +38,9 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 | 21–23, `$54000` | since BIOS 0.14: the ROM's diagnostics, block 23 their core and memory tests, 22 and 21 the card tests ([chapter 15](15-diagnostics.md)) |
 | 0–20 | erased (`$FF`) |
 
-The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).
+The DMA controller reaches memory by physical address, not through the windows ([chapter 5](05-dma.md)). Since B2
+(*proposed*) its ADDR and DEST are 24 bits, so it reaches every memory address in the map below: the RAM, the
+aperture and the flash.
 
 ### The 24-bit bus
 

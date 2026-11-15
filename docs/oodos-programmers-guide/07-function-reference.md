@@ -2772,7 +2772,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.14`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.15`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -3045,7 +3045,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- A = the ROM BIOS's version's major number, X its minor (0 and 14 for `BACKPLANE BIOS 0.14`).
+- A = the ROM BIOS's version's major number, X its minor (0 and 15 for `BACKPLANE BIOS 0.15`).
 - A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
   block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
   two numbers to 255 with a `.` between.
@@ -3057,7 +3057,7 @@ None.
 
 #### Side effects
 
-None. The version is the one the cold boot read for its boot status (`BIOS 0.14`); a program can't read it itself,
+None. The version is the one the cold boot read for its boot status (`BIOS 0.15`); a program can't read it itself,
 since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
 
 #### Cycles
@@ -3337,7 +3337,7 @@ sound (`OA_SOUND`).
 - `SN_START`, with a layout-2 area open, drops a byte the stopped run left in the mailbox from the card, and sets
   the area's `EV_SMMS` to the millisecond counter and `EV_SMCNT` to 0, before the 6510 runs (since OODOS 0.7).
 - `SN_LOAD` and `SN_WAVE` move channel 2 4 KB a piece, each waited for, interrupts on between; the card holds the
-  CPU 4,096 cycles a piece. `SN_LOAD` sets RAMADDR, past the last byte after; `SN_WAVE` sets DOCCTL's RAM and AUTOINC
+  CPU about 4,096 cycles a piece (4,098 on DMA revision 2: the takeover and a poll of the cards, then the bytes). `SN_LOAD` sets RAMADDR, past the last byte after; `SN_WAVE` sets DOCCTL's RAM and AUTOINC
   for it and puts DOCCTL back as it was after, leaving DOCADDR and DOCBANK past the last byte; it holds the ES5503's
   interrupt off meanwhile (IEN bit 3), and the hook waits for the load's end. Both leave DRQSEL 0.
 - `SN_START` writes the card's `$FFFC–$FFFD` and CTRL (RUN and RESET with the bits given).
@@ -3500,8 +3500,8 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
 
 #### Cycles
 
-`DM_LOAD` of 64 KB from an `oodos-8m` drive: 114,442 cycles (16.0 ms), against 620,419 (86.7 ms) by functions 51 and
-33 with a multi-sector count of 128 (test_oodos_load). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call.
+`DM_LOAD` of 64 KB from an `oodos-8m` drive: 114,761 cycles (16.0 ms), against 621,869 (86.9 ms) by functions 51 and
+33 with a multi-sector count of 128 (test_oodos_load, on DMA revision 2, B2). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call.
 `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a cycle a byte by DMA, the CPU held, and each 2 KB piece's setting up: 60 KB
 (61,440 bytes) is about 61,500 cycles of DMA, 8.6 ms at 7.16 MHz. test_oodos_video measures 17 ms for it, a round
 trip that includes its rig's command line. What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).

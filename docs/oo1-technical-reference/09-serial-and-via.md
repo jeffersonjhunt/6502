@@ -26,14 +26,20 @@ The design's block:
 | `$C308–$C30F` | COM2's, the same |
 | `$C310–$C312` | LPT: data, status and control, as at a PC's LPT base |
 | `$C320–$C323` | the card's registers |
+| `$C324` | DMASTREAM, which of the card's two DMA streams it asks for (B2's design) |
 | `$C340–$C34F` | the VIA, as emulated now ([below](#the-via-and-the-joystick-ports)) |
 | `$C37F` | the card's ID |
 
 The chip's registers keep the PC's layout, so a 16550 or LPT driver needs only its base address changed. The card's
-four registers:
+own registers:
 
-- **DMASEL1** (`$C320`) chooses what drives DMA channel 1's DRQ: nothing, COM1 or COM2 receiving or sending, or LPT
-  sending. **DMASEL3** (`$C321`) does the same for channel 3, for a second stream.
+- **DMASEL1** (`$C320`) chooses what drives the card's first DMA stream, stream 0: nothing, COM1 or COM2 receiving
+  or sending, or LPT sending. **DMASEL3** (`$C321`) does the same for a second stream, stream 1. On the first design
+  these were the requests of DMA channels 1 and 3; on the new bus the card has one request, by its module 6, and
+  the names stay.
+- **DMASTREAM** (`$C324`, *proposed*, B2's design): bit 0 says which stream the card's DMA request and its fly-by
+  data register follow, 0 DMASEL1's, 1 DMASEL3's. Bits 7–1 read 0; it resets to 0. One stream runs at a time
+  ([hw/design.md](../../hw/design.md#the-serial-cards-stream-select)).
 - **INTSTAT** (`$C322`) says which part is interrupting: bit 0 COM1, bit 1 COM2, bit 2 LPT, bit 3 the VIA. Any of
   them pulls IRQL bit 6. The enables stay in the chip's own registers and the VIA's
   ([chapter 4](04-interrupts.md#the-serial-cards-intstat)).
@@ -42,12 +48,22 @@ four registers:
 - **ID** (`$C37F`) is the card's type and revision. Today `$C37F` is the 6551's CTRL, through its mirror, so a
   program can't find the serial card by its ID ([chapter 1](01-overview.md#slots-and-module-ids)).
 
-**Serial DMA.** The UARTs' ready outputs drive the DRQ that DMASEL picks, and the CPLD selects the chosen data
-register on /DACK, so the transfer is fly-by ([chapter 5](05-dma.md#transfers-for-a-card)). A receive ring buffer is
-channel 1 in AUTO mode, with the program reading the channel's current address to see how far it has got.
+**Serial DMA.** The UARTs' ready outputs drive the card's request for the stream DMASTREAM names, as its DMASEL
+picks: the card pulls /DREQ and answers the controller's poll on D6, its module's line. In a grant cycle naming
+module 6 the CPLD selects that stream's data register, so the transfer is fly-by
+([chapter 5](05-dma.md#transfers-for-a-card)). The channel that serves it is the one whose CARD names module 6;
+none does from reset (channel 1's is the video card's, channel 3's none), so the driver writes CARD on the channel
+it uses. A receive ring buffer is that channel in AUTO mode, with the program reading the channel's current address
+to see how far it has got.
+
+**DMASTREAM in the emulator.** Nothing of it is modelled. `$C324` is in the 6551 stand-in's mirror there: a write
+sends a byte to the terminal and a read takes a key ([below](#the-stand-in-6551)), so nothing may touch it until the
+card is modelled. It has no equate in `backplane.inc`.
 
 **Timing.** The chip needs its strobes longer than PHI2's high time, so every access to it takes one wait state, and
-accesses back to back take another. The VIA takes none. In Apple II mode the whole block is hidden.
+accesses back to back take another. The card asks for them by /WAIT, which the north bridge turns into RDY for the
+CPU and the DMA controller obeys in its grants ([chapter 5](05-dma.md#the-controller)); the north bridge's
+WAIT0–3 slow nothing since B2. The VIA takes none. In Apple II mode the whole block is hidden.
 
 ## The stand-in 6551
 

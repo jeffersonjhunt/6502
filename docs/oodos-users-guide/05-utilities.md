@@ -1385,7 +1385,7 @@ CARDS
   ADDR   ID   CARD                          REVISION
   $C300  --   serial: the stand-in 6551 (no ID register)
   $C380  $71  mass storage (SD)             1
-  $C400  $81  DMA controller                1
+  $C400  $82  DMA controller                2
   $C480  $92  video                         2
   $C500  $A2  sound                         2
   $C580  $B1  USB, game port and speaker    1

@@ -1430,6 +1430,16 @@ and more in L5:
     with 1,024 bytes, the pointer and the stream: line 504 under a USB batch at line 470 (20 to spare), line 502
     under 64 KB loads (22 to spare). And `DM_VWRITE` of 61,440 bytes: 17 ms in the test's round trip (its command
     line included), about 61,500 cycles of it DMA, a cycle a byte.
+  - **Measured again on DMA revision 2** (2026-11-15, the bus work's B2: `test_oodos_video` and `test_oodos_load` on
+    feat/bus-b2 after its switch, 2db1504; [design.md, B2: as built](design.md#b2-as-built)). Each copy now saves
+    the controller's CONTROL, selects channel 1 and puts CONTROL back, and each card transfer begins with a poll of
+    the cards. Cycles a frame: no area 199 and layout 2 with no slot 396, as before; a slot set, no bit 518; a 512-byte
+    slot each frame 1,302; the pointer on 736; four slots of 256 bytes, the pointer and the stream 2,769. The latest
+    a frame's copies ended: line 505 under a USB batch at line 470 (19 to spare), line 497 under 64 KB loads (27 to
+    spare). `DM_VWRITE` of 61,440 bytes: 17.3 ms in the round trip. `test_oodos_load`: 64 KB by `DM_LOAD` 114,761
+    cycles (16.0 ms), against 621,869 (86.9 ms) by 51 and 33; 117,410 with a 44.1 kHz stream playing, no underrun;
+    24 KB from M: 75,517; 20 KB from an apple-do unit 914,866. The tick is 145, and 234 with a layout-2 area. No
+    interface changed.
   - **Tests:** the OODOS rig runs on revision 2 (`MachineOptions::video_revision`). `test_oodos_video` gains a case
     for the four card operations (60 KB to the card byte for byte with no tick lost, back unaligned across a bank,
     fills, 40,000 bytes card to card across banks with the borrowed slots put back, down over itself, and every

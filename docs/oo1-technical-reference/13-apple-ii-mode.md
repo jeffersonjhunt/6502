@@ -64,7 +64,8 @@ APPLE:
 - **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
   port, and BIOS 0.13 doesn't drive revision 1 ([chapter 6](06-video.md#revision-2-card-memory)). On any other card,
   or none, the BIOS prints `APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD`. *Proposed*, with revision 2.
-- **The DMA controller** must answer with its ID (`DMA_ID_V1`). Without it the BIOS prints `APPLE II MODE NEEDS THE
+- **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; since BIOS 0.15 a
+  revision 1 controller, `$81`, counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
   DMA CONTROLLER`.
 - **A IIe ROM** must be in the cartridge: 16 KB at its start (flash block 32, `CART_BLOCK`), as the ROM sits at
   `$C000–$FFFF`. The byte at its `$FBB3` must be `$06` (`IIE_ID`). Otherwise the BIOS prints `NO APPLE IIE ROM IN
@@ -85,10 +86,12 @@ Then, in order:
    (BIOS 0.12, on revision 1, put the 2 KB at `$BE000` in the video banks instead.)
 3. **Interrupts off** (SEI), and a zero byte at `$EBFFF`, the top of block 58.
 4. **The clear,** by DMA, from that zero byte held as the source: banks 0–3 (four fills of 64 KB), then
-   `$D000–$DFFF` of banks 4 and 5 (two of 4 KB). Before the first, it aborts every channel, clears their STATUS
-   bits and writes `DMA_ON` (`$71`) to CONTROL, so the fills have the bus with no burst limit. Each fill is a block
-   transfer on channel 3, done before the next instruction. The first fill wipes bank 0, the BIOS's own stack and
-   zero page with it, so this part runs inline and never returns. apple.s reckons the clear at about 75 ms.
+   `$D000–$DFFF` of banks 4 and 5 (two of 4 KB). Before the first, it aborts every channel (ABORT `$FF`, all
+   eight), clears their STATUS bits (`$FF`) and writes `DMA_ON` with SELECT 3 (`$77`) to CONTROL, so the fills have
+   the bus with no burst limit and the window shows channel 3. Each fill is a block transfer on channel 3, done
+   before the next instruction; memory to memory, it needs no poll of the cards. The first fill wipes bank 0, the
+   BIOS's own stack and zero page with it, so this part runs inline and never returns. apple.s reckons the clear at
+   about 75 ms.
 5. **MODE:**
 
 <!-- listing: ../../backplane/bios/apple.s:137-139 -->
@@ -113,7 +116,9 @@ isn't a hard reset: APPLE survives it. What it resets:
 - **The north bridge:** the windows and VEC to their reset values (the mode doesn't use them), the wait states to 0,
   TICK and TIE cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
   real-time clock keeps its time.
-- **The DMA controller:** every channel cleared and CONTROL back to `$70`, master enable off, so it stays idle
+- **The DMA controller:** every channel cleared, its CARD back to its reset value, REQ cleared and any hold-off
+  ended, and CONTROL back to `$70`: master enable off and SELECT 0. With the master enable off it neither polls nor
+  takes the bus, so it stays idle, even with the sound card's standing request on /DREQ
   ([chapter 5](05-dma.md#apple-ii-mode)).
 - **Every card but the 6551 stand-in:** the SD, video, sound, USB and console cards and the VIA go back to their
   /RESET state, their interrupt enables off. The 6551 keeps its CMD, so it can still interrupt

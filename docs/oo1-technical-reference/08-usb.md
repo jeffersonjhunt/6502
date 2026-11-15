@@ -166,9 +166,10 @@ Status: **proposed**
 - **A USB gamepad on the paddles,** an option the design leaves for later. DEVICES's bit 2 is for it.
 - **Device events:** a keyboard, mouse or gamepad plugged in or out, on ISR's bit 3. In the emulator a keyboard and
   a mouse are always there, and the bit is never set.
-- **The FIFO on DMA:** the card asserts DRQ while the event FIFO isn't empty, and the design shares DMA channel 2
-  between the USB card and the sound card's RAM ([chapter 5](05-dma.md#transfers-for-a-card)). `backplane.machine`
-  wires channel 2 to the sound card only, so the FIFO's DRQ reaches no channel.
+- **The FIFO on DMA:** the card asks for DMA, by its module B, while the event FIFO isn't empty
+  ([chapter 5](05-dma.md#transfers-for-a-card)). A channel serves it once software writes its CARD as `$0B`; none
+  does from reset (channel 2's is the sound card's). `backplane.machine` leaves the card's request off /DREQ (no
+  `drq` on its line), so it pulls nothing, which keeps it from starting a poll on every key.
 - **The real 558,** so that the timers stay right whatever the CPU's speed. The emulator times them in software.
 
 ## Registers
@@ -342,8 +343,8 @@ Empty: a /RESET empties the FIFO.
 
 #### Notes
 
-The card asserts DRQ while the FIFO isn't empty, and a fly-by DMA read takes a byte as a read here does. In the
-emulator that DRQ reaches no channel ([Proposed](#proposed)). Read EVCOUNT first, and read the two bytes of an event
+The card asks for DMA, by module B, while the FIFO isn't empty, and a fly-by DMA read takes a byte as a read here
+does. On `backplane.machine` that request isn't wired to /DREQ ([Proposed](#proposed)). Read EVCOUNT first, and read the two bytes of an event
 together.
 
 <a id="reg-c585"></a>

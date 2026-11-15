@@ -293,7 +293,8 @@ first bank, so block 33 never shows OODOS's part. It copies nothing: the console
 so what OODOS printed meanwhile shows.
 
 **The frame handler's copies.** OODOS's vertical-blank copies (from system memory to the program's card memory) and
-the pointer sprite's position go through the data port, on DMA channel 1, from the frame handler
+the pointer sprite's position go through the data port, on DMA channel 1 (its CARD `$09`, the video card's
+module), from the frame handler
 ([chapter 4](04-interrupts.md#under-oodos), [chapter 5](05-dma.md#under-oodos)).
 
 ### When changes show
@@ -374,11 +375,12 @@ VSCREEN:
 It leaves ISR, LINE and SPLASH alone, and of layer 1 it writes only CONFIG. The font, the palette and the text keep
 revision 1's old offsets in card memory (`$000400`, `$000000` and `$002000`, so the base
 registers read `$0004`, `$0000` and `$0020`). VINIT writes the font and the palette into the port's PDATA, and
-clears the screen with two port transfers by DMA on channel 1, held on one byte with PSTEP 2: the characters, then
+clears the screen with two port transfers by DMA on channel 1 (CARD 9, the card's module), held on one byte with PSTEP 2: the characters, then
 the attributes. VPUTC, run for each character, writes it with the CPU through aperture slot 0 (W2 on physical
 `$80000`; it points SLOT0 at page 0 and puts both back after), and scrolls by the port on channel 1: the rows out
 of the card into a 2 KB buffer at `$FC000` (under the I/O hole, in RAM block 63) and back in a row higher, then a
-fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, but stops a program's own transfer on
+fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, and since BIOS 0.15 the DMA controller's
+CONTROL too, which it saves before it selects channel 1 (*proposed*), but stops a program's own transfer on
 channel 1. BIOS 0.12, on revision 1, wrote it through W2 on RAM block 32 and scrolled by DMA on channel 3
 ([chapter 5](05-dma.md#memory-to-memory)); BIOS 0.13 leaves a revision 1 card alone.
 
@@ -446,8 +448,8 @@ same section's later list says ([`hw/design.md:652`](../../hw/design.md#video-re
 Status: **proposed**
 
 Revision 2 ([hw/video-rev2.md](../../hw/video-rev2.md)) draws from 2 MB of its own memory instead of banks 8–B,
-reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16 KB slots) and a data port on DMA
-channel 1. Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
+reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16 KB slots) and a data port whose DMA request
+channel 1 serves (its CARD `$09` from reset). Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
 layers' registers up a byte; the `_R1` equates are revision 1's names where they moved. Every byte it doesn't name
 reads 0. The emulator has it (`rev=2` on the machine's video line, as `backplane.machine` has it), and BIOS 0.13
 and OODOS drive it and nothing older: on a revision 1 card the BIOS's text screen stays off, `C806R` refuses, and
@@ -531,8 +533,9 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
 - **PADDR wraps** at the end of the fitted memory, up or down. Set at or past that end, it reads back as written and
   steps as a plain 24-bit counter (each PDATA read giving `$FF`, each write lost) until it wraps from `$FFFFFF` to
   `$000000`, inside the memory again.
-- **By DMA:** with PCTL's bit 0 set the card raises DRQ on channel 1 whenever the port can take or give a byte, so
-  the controller streams system RAM into card memory, or back, fly-by
+- **By DMA:** with PCTL's bit 0 set the card pulls /DREQ, by its module 9, whenever the port can take or give a
+  byte, and channel 1, whose CARD is `$09` from reset, serves it, so the controller streams system RAM into card
+  memory, or back, fly-by (*proposed*: revision 1's controller had a DRQ line wired to channel 1 instead)
   ([chapter 5](05-dma.md#channel-1-the-video-cards-data-port)). PCTL's bit 1 must agree with the channel's DIR: a DMA
   cycle against it moves nothing (a read gives `$FF`, a write is dropped) and leaves PADDR where it was.
 - **Within card memory,** a scroll or a moved sprite image goes out through the port and back in; the card has no
@@ -1669,7 +1672,7 @@ R/W, on [revision 2](#revision-2-card-memory) only.
 | 7–3 | | 0 |
 | 2 | DOWN | `VIDEO_PCTL_DOWN`: PADDR steps down |
 | 1 | FROM | `VIDEO_PCTL_FROM`: DMA reads PDATA (0: DMA writes it) |
-| 0 | DRQ | `VIDEO_PCTL_DRQ`: ask for DMA on channel 1 |
+| 0 | DRQ | `VIDEO_PCTL_DRQ`: ask for DMA by module 9 (/DREQ), which channel 1 serves at reset |
 
 #### Reset
 
@@ -1681,7 +1684,7 @@ R/W, on [revision 2](#revision-2-card-memory) only.
 
 #### Notes
 
-A /DACK cycle in the other direction from bit 1's moves nothing.
+A DMA grant cycle (module 9 on PS0–PS3, /DMA low) in the other direction from bit 1's moves nothing.
 
 <a id="reg-c4bf"></a>
 ### $C4BF VIDEO_MEMSIZE: the card memory fitted

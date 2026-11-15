@@ -13,10 +13,12 @@ The design record, for the reasons: [hw/design.md, "Overview"](../../hw/design.m
 Status: **emulated**
 
 The OO-1 is a W65C02S on a backplane of cards. The CPU card carries the CPU, the north bridge, the clock and a DS3231
-real-time clock. The 1 MB of RAM is on the backplane. Everything else is a card in a slot: the flash, the DMA
-controller, video, sound, storage, the Disk II, serial, USB and the front panel.
+real-time clock, and the DMA controller (*proposed*, [chapter 5](05-dma.md): in the emulator it is one more device on
+the bus, module 8, wherever it sits). The 1 MB of RAM is on the backplane. Everything else is a card in a slot: the
+flash, video, sound, storage, the Disk II, serial, USB and the front panel.
 
-The bus has 20 address lines and 8 data lines. The north bridge drives A14–A19 from the windows, and the CPU drives
+The bus has 20 address lines and 8 data lines (the new connector's 24 and 16, and its pins, are step B6's:
+[hw/design.md](../../hw/design.md#what-steps-b1-b7-change)). The north bridge drives A14–A19 from the windows, and the CPU drives
 A0–A13 ([chapter 2](02-memory-and-banking.md)). Besides those lines and the CPU's own (PHI2, RWB, /RESET, /NMI,
 /IRQ, SYNC, VPB), the backplane carries:
 
@@ -24,17 +26,19 @@ A0–A13 ([chapter 2](02-memory-and-banking.md)). Besides those lines and the CP
 |---|---|
 | PS0–PS3 | the module ID of the access, from the north bridge: which card answers |
 | /OE | the north bridge's read strobe |
-| RDY | wait states, and the CPU held for DMA |
+| RDY | the CPU held: by the DMA controller while it has the bus, by the console card to halt and step it, and by the north bridge for a card's /WAIT |
 | BE | low floats the CPU off the bus, for the DMA controller (and the console card and the bus spy) |
 | /IACK | the interrupt poll ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)) |
-| DRQ0–3, /DACK0–3 | a card's request for DMA, and the controller's answer ([chapter 5](05-dma.md)) |
+| /DREQ | a card's request for DMA, one open-drain line all cards share; the controller polls to find who asks (*proposed*, [chapter 5](05-dma.md#transfers-for-a-card)) |
+| /DMA | low in the DMA controller's poll and grant cycles; in a grant, the card named on PS0–PS3 moves its data register's byte (*proposed*) |
+| /WAIT | a slow card's wait states, open drain: the north bridge turns it into RDY for the CPU, and the DMA controller stretches its grant by it (*proposed*) |
 | TC | terminal count, with a transfer's last byte |
 | AMODE | Apple II mode is on ([chapter 13](13-apple-ii-mode.md)) |
 | /BOOTSEL | boot from RAM, not the flash ([chapter 3](03-boot.md#booting-from-ram-bootsel)) |
 | OSC | the 14.31818 MHz master clock |
 
-The emulator models what these signals do: module decode, wait states, DMA taking the bus, the poll, terminal count,
-the mode and /BOOTSEL. It doesn't model them as pins.
+The emulator models what these signals do: module decode, wait states by /WAIT, DMA taking the bus, the interrupt
+poll, the DMA controller's poll and grant, terminal count, the mode and /BOOTSEL. It doesn't model them as pins.
 
 ### The physical bus
 
@@ -63,7 +67,7 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | 5 | ROM B, the cartridge, 512 KB | none | | yes, erased unless a IIe ROM is given |
 | 6 | serial | `$C300` | none yet | a 6551 stand-in, and the VIA ([chapter 9](09-serial-and-via.md)) |
 | 7 | mass storage | `$C380` | `$71` | yes ([chapter 10](10-storage.md)) |
-| 8 | DMA controller | `$C400` | `$81` | yes ([chapter 5](05-dma.md)) |
+| 8 | DMA controller, on the CPU card | `$C400` | `$82` (revision 2, *proposed*; revision 1's `$81` reads as no controller since B2) | yes ([chapter 5](05-dma.md)) |
 | 9 | video | `$C480` | `$91` | yes ([chapter 6](06-video.md)) |
 | A | sound | `$C500` | `$A2` (`$A1` before revision 2: take either by the high nibble) | yes ([chapter 7](07-sound.md)) |
 | B | USB | `$C580` | `$B1` | yes ([chapter 8](08-usb.md)) |
@@ -74,7 +78,7 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 
 The serial card's 6551 stand-in is mirrored through its whole block, so its `$C37F` is the 6551's control register,
 not an ID. The TL16C552A card that the design has is to have its ID there ([chapter 9](09-serial-and-via.md)).
-backplane.inc names each ID byte's value: `SD_ID_V1`, `DMA_ID_V1`, and so on.
+backplane.inc names each ID byte's value: `SD_ID_V1`, `DMA_ID_V2`, and so on.
 
 ## Clocks
 
