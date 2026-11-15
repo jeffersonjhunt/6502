@@ -183,7 +183,7 @@ export const PAGE_SMOOTHING = 16;
 
 /** Where the owner's BIOS goes in the module's file system. */
 export const USER_BIOS = "/roms/user-bios.rom";
-/** The flash the BIOS is in: rom_a, $00000-$7FFFF (machines/backplane.machine). */
+/** The flash the BIOS is in: rom_a, $F00000-$F7FFFF (machines/backplane.machine). */
 export const MAX_BIOS = 512 * 1024;
 
 /** "0.13" from a ROM that greets "BACKPLANE BIOS 0.13", or "". */
@@ -773,7 +773,7 @@ export class WasmPort implements MachinePort {
       const flags = w[i + 3] >>> 24;
       rows.push({
         cycle: w[i] + w[i + 1] * 2 ** 32,
-        physical: w[i + 2] & 0xfffff,
+        physical: w[i + 2] & 0xffffff, // A0-A23
         cpu: w[i + 3] & 0xffff,
         data: (w[i + 3] >>> 16) & 0xff,
         module: w[i + 2] >>> 24,

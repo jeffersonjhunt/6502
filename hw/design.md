@@ -2510,10 +2510,68 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
-| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
+| **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register; the WebUI refuses a breakpoint that resolves above `$FFFFF` while BPADDR is 20 bits (B1's follow-up, [as built](#b1-as-built)) | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
 
 No step changes the BIOS's jump table in OODOS (`oodos/sys/bios.s`), the BDOS's existing calls, `DM_INFO`'s
 record, FARCALL or OOUI's interface.
+
+#### B1: as built ####
+
+**Proposed, emulated (2026-11-14).** Step B1 in the emulator, with the owner's answers to its five items and two
+questions (2026-11-14, "recommendations as listed"). No software-visible change: no BIOS, OODOS, OOLIB or GW-BASIC
+source changed, and the suites pass with only the thirteen expectations below changed.
+
+- **The decoder** (`decoder.h`): `PHYSICAL_SPACE` is 16 MB, A0–A23. A bus address is the space in bit 24 above a
+  24-bit offset, and there are two spaces, Memory and Io. `Space::Flash` is now only a name for memory
+  `$F00000–$FFFFFF`: `bus_address(Space::Flash, o)` is `$F00000 + o`. The registers that stay 20 bits use
+  `ADDRESS_20`: the DMA controller's revision 1 addresses, and the Console card's PADDR, SWR and BPADDR.
+- **The north bridge** (`backplane_bridge.h`):
+  - A window's ROM block *b* is `$F00000 + b × $4000`.
+  - `memory_select()` gives PS0–PS3 on a memory cycle: D for the CPU, 8 for the DMA controller's memory-to-memory
+    cycles. A fly-by shows the card's ID.
+  - `redirect()` sends bank 8 to the aperture at `$E00000`, and is applied both to the CPU's windows and to every DMA
+    cycle. It is AP8 fixed at build time: on while a revision 2 video card is fitted, off otherwise. MAP and AP8 as a
+    register are B7's.
+  - A bus with no north bridge (the Apple-1, Eater) still shows each mapping's `module=`.
+- **The machine file** (`backplane.machine`):
+  - Addresses are up to six digits: `aperture E00000-E0FFFF`. The RAM and flash lines keep their spelling (the
+    tests edit the file by its lines). The flash lines stay `space=flash` offsets, which are memory `$F00000` up.
+  - An `aperture 80000-8FFFF` line, the old spelling, means the same on the backplane.
+  - The memory lines keep `module=0`–`5` only as the ID whose WAITn bits slow them, and only in B1. B2's /WAIT
+    replaces it.
+  - The I/O hole's IDs 0–5 and F have no line: their blocks read `$FF`, and no ID byte.
+- **Physical peeks.** `Decoder::peek_physical()` and `write_physical()` give the CPU card's view (the redirect
+  applied), which is what `CcpRig`'s `row()` and `attr()` at `0x82000` use:
+
+  | Machine | `0x08xxxx` | `0xE0xxxx` |
+  |---|---|---|
+  | revision 2 card, native mode | the aperture's slot *n* (bits 14–15) | the same byte |
+  | revision 2 card, Apple II mode | `$FF` (the aperture ignores cycles) | `$FF` |
+  | revision 1 card, or none | RAM C's bank 8 | `$FF`: nothing answers |
+
+  `peek_bus()` and `write_bus()` are the bus with no redirection. The Console card's EXAM and DEP use them, so bank
+  8 is the RAM card's to the panel (the owner's answer).
+- **The Console card** compares BPADDR with A0–A23. A20–A23 must be 0, so a flash or aperture cycle never matches,
+  even when its low 20 bits do (the owner's answer). LADDR and the lights show A0–A19.
+- **The bus trace** stays at version 1. Its address field is at least five hex digits, so a 24-bit address shows six.
+  `tools/trace_diff.py` takes five or six digits and compares addresses as numbers
+  ([BUS_TRACE.md](../emulator/docs/BUS_TRACE.md)). The WebUI's trace rows carry A0–A23.
+- **The thirteen expectations changed, as the owner approved:**
+  - `test_decoder`'s two range checks (past A23, past the I/O space) and its flash address (`0xF00010`);
+  - `test_machine`'s refused range, now `ram 0-1000000` (seven digits, past A23): six-digit addresses are valid;
+  - `test_backplane`'s ROM B address (`0xF80000`) and its BIOS fetch (`0xF7C822`);
+  - the module now shown as D in `test_backplane` (five checks), in `test_session`'s trace rows and in
+    `wasm-port.test.ts`.
+- **Left for B7 (the owner, 2026-11-14):** the WebUI resolves a breakpoint typed as a CPU label through the
+  windows, so a label in a window on the flash gives `$F7xxxx`. BPADDR keeps only A0–A19, so it would arm on RAM
+  bank 7 and never match the flash fetch. While BPADDR is 20 bits the WebUI is to refuse a breakpoint that resolves
+  above `$FFFFF`. Not built in B1.
+- **New cases:**
+  - `test_backplane`: the ROM bit's `$F00000` address, an I/O cycle never reaching memory, IDs 0–5 and F empty;
+  - `test_video_rev2`: bank 8 and `$E00000` with a revision 2 card, bank 8 as RAM without one, DMA's PS0–PS3 and its
+    bank-8 cycles, EXAM and DEP on the RAM;
+  - `test_console_card`: the breakpoint needing A20–A23 0;
+  - `test_trace_diff.py`: six-digit addresses.
 
 #### The owner's answers (B0) ####
 
@@ -2686,10 +2744,11 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
    terminal app's debugger has `joy`.)*
 10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). *(Built: `VideoCard` owns
-    2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `80000-8FFFF`, is a bare 64 KB
-    memory device that forwards each access to the card (`$FF` and writes lost with no card), whose slot registers
-    are the card's own (`$C4B0–$C4B7`); it is mapped after every other line so that it answers over RAM C's bank 8,
-    whose `ram` line is unchanged, and inert with a revision 1 card or none; the port (PADDR, PDATA, PSTEP, PCTL) has
+    2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `E00000-E0FFFF` since B1
+    ([as built](#b1-as-built)), is a bare 64 KB memory device that forwards each access to the card (`$FF` and
+    writes lost with no card), whose slot registers are the card's own (`$C4B0–$C4B7`); with a revision 2 card the
+    north bridge sends bank 8 to it, from the CPU's windows and DMA alike, and it is inert with a revision 1 card or
+    none, bank 8 then RAM; the port (PADDR, PDATA, PSTEP, PCTL) has
     its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2. The `video` line's `rev=` (1 or 2,
     1 if left out; `backplane.machine` has 2), or `MachineOptions::video_revision` over it, picks the revision,
     fixed once the machine is built. Apple mode still reads banks 0–1 of the RAM, keeping no copy of them, and takes

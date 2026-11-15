@@ -10,7 +10,7 @@ namespace ooe::emu
 {
     namespace
     {
-        constexpr uint32_t ADDR_MASK = PHYSICAL_SPACE - 1;
+        constexpr uint32_t ADDR_MASK = ADDRESS_20; // its registers are 20 bits: A20-A23 are 0 (hw/design.md)
 
         uint8_t byte_of(uint32_t v, unsigned i) { return static_cast<uint8_t>(v >> (8 * i)); }
 
@@ -54,8 +54,10 @@ namespace ooe::emu
 
     void ConsoleCard::on_cycle(const BusCycle &c)
     {
+        // A0-A23 on the bus. The breakpoint matches only with A20-A23 0 (BPADDR is 20 bits, so
+        // a cycle to the flash or the aperture never matches); LADDR and the lights show A0-A19.
         const uint32_t phys = decoder_ ? decoder_->last_access().physical : c.addr;
-        last_ = Cycle{phys, c.data,
+        last_ = Cycle{phys & ADDR_MASK, c.data,
                       static_cast<uint8_t>((c.sync ? L_SYNC : 0) | (c.write ? 0 : L_RWB) |
                                            (c.vector_pull ? L_VPB : 0) | (c.dma ? L_BE : 0))};
 
@@ -183,8 +185,8 @@ namespace ooe::emu
             if (last_key_ == key)
                 paddr_ = (paddr_ + 1) & ADDR_MASK; // repeated presses step through memory
             if (key == DEP)
-                decoder_->write_physical(paddr_, static_cast<uint8_t>(swr_));
-            const uint8_t v = decoder_->peek_physical(paddr_);
+                decoder_->write_bus(paddr_, static_cast<uint8_t>(swr_)); // the bus as the card drives it:
+            const uint8_t v = decoder_->peek_bus(paddr_);                // bank 8 is the RAM's, always
             shown_ = Cycle{paddr_, v, static_cast<uint8_t>(key == DEP ? 0 : L_RWB)};
             last_key_ = key;
         }

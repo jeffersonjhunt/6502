@@ -38,7 +38,7 @@ namespace ooe::emu
         bool parse_addr(const std::string &s, uint32_t &out)
         {
             const std::string digits = (!s.empty() && s[0] == '$') ? s.substr(1) : s;
-            if (digits.empty() || digits.size() > 5)
+            if (digits.empty() || digits.size() > 6) // A0-A23
                 return false;
             char *end = nullptr;
             const unsigned long v = std::strtoul(digits.c_str(), &end, 16);
@@ -262,7 +262,7 @@ namespace ooe::emu
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
                 return fail(type + ": want a range like 8000-FFFF");
             if (map.last >= PHYSICAL_SPACE)
-                return fail(type + ": range is outside A0-A19");
+                return fail(type + ": range is outside A0-A23");
 
             std::string name, image;
             unsigned rev = 0;
@@ -327,6 +327,8 @@ namespace ooe::emu
             }
             if (!name.empty() && m->named_.count(name))
                 return fail("name '" + name + "' is already used");
+            if (space == Space::Flash && map.last > ADDRESS_20)
+                return fail(type + ": the flash is 00000-FFFFF (memory F00000-FFFFFF)");
             if (space == Space::Io)
             {
                 if (map.last >= IO_SIZE)
@@ -428,7 +430,7 @@ namespace ooe::emu
                 else if (type == "aperture")
                 {
                     if (space != Space::Memory || size != VideoCard::APERTURE_SIZE || (map.first & 0x3FFF))
-                        return fail("aperture: want 64 KB of memory on a 16 KB boundary, like 80000-8FFFF");
+                        return fail("aperture: want 64 KB of memory on a 16 KB boundary, like E00000-E0FFFF");
                     auto ap = std::make_unique<VideoAperture>();
                     aperture_devices.push_back(ap.get());
                     dev = std::move(ap);
@@ -480,15 +482,27 @@ namespace ooe::emu
             return nullptr;
         }
         {
-            // Revision 2: the card answers its aperture, over any RAM there (bank 8 is the card's).
-            // Revision 1 has none, nor a machine without the card: the line is inert, and the RAM
-            // there answers.
+            // Revision 2: the card answers its aperture, and the CPU card sends bank 8 there (AP8
+            // set, hw/design.md). Revision 1 has none, nor a machine without the card: the line is
+            // inert, and bank 8 is the RAM's. A line at bank 8 itself, as machine files had it before
+            // the 24-bit bus, is taken for the aperture's own place, E00000, on the backplane.
+            auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_);
             if (m->video_card_ && video_rev == 2)
             {
                 for (VideoAperture *ap : aperture_devices)
                     ap->attach(m->video_card_);
-                for (const Mapping &map : apertures)
+                for (Mapping map : apertures)
+                {
+                    if (bp && map.first == bus_address(Space::Memory, BackplaneBridge::BANK8))
+                    {
+                        map.first = bus_address(Space::Memory, BackplaneBridge::APERTURE);
+                        map.last = map.first + VideoCard::APERTURE_SIZE - 1;
+                    }
+                    if (bp && bp->aperture() == BackplaneBridge::NO_APERTURE &&
+                        map.first != bus_address(Space::Memory, BackplaneBridge::BANK8))
+                        bp->set_aperture(offset_of(map.first));
                     m->bus_.map(map);
+                }
             }
         }
         if (m->video_card_)

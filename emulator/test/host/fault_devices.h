@@ -8,7 +8,9 @@
  * FaultyMemory came from feat/diag-d2's test_oodos_diag.cpp (4fdc4f2), where DIAG.COM's tests used it; it
  * is shared here for the ROM's diagnostics (test_bios_diag). It adds an aliased address line to D2's stuck
  * bits, and one block answering as another (fault_redirect). Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
- * and the bus's later mappings win, for the CPU's windows and DMA alike.
+ * and the bus's later mappings win, for the CPU's windows and DMA alike. Addresses are physical as the CPU card
+ * reaches them (Decoder::redirect()): with a revision 2 video card, bank 8 is the aperture at $E00000, so a fault
+ * there is the aperture's.
  */
 
 #include "decoder.h"
@@ -48,7 +50,8 @@ namespace ooe::test
     inline bool fault_over(ooe::emu::Machine &m, FaultyMemory &f, uint32_t block_addr)
     {
         using namespace ooe::emu;
-        const uint32_t lo = block_addr & ~0x3FFFu, hi = lo + 0x3FFF;
+        const uint32_t lo = m.bus().redirect(block_addr) & ~0x3FFFu, hi = lo + 0x3FFF;
+        f.bad = f.bad == 0xFFFFFFFF ? f.bad : m.bus().redirect(f.bad);
         const auto &maps = m.bus().mappings();
         const Mapping *found = nullptr;
         for (auto it = maps.rbegin(); it != maps.rend() && !found; ++it)
@@ -71,6 +74,8 @@ namespace ooe::test
     inline bool fault_redirect(ooe::emu::Machine &m, FaultyMemory &f, uint32_t from, uint32_t to)
     {
         using namespace ooe::emu;
+        to = m.bus().redirect(to);
+        from = m.bus().redirect(from);
         const uint32_t lo = to & ~0x3FFFu, hi = lo + 0x3FFF;
         const auto &maps = m.bus().mappings();
         const Mapping *found = nullptr;

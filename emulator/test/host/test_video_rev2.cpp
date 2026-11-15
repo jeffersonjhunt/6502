@@ -14,8 +14,10 @@
 #include "harness.h"
 
 #include "backplane_bridge.h"
+#include "console_card.h"
 #include "cpu6502.h"
 #include "debugger.h"
+#include "decoder.h"
 #include "dma_controller.h"
 #include "machine.h"
 #include "symbols.h"
@@ -946,6 +948,170 @@ TEST(vram_at_the_debuggers_prompt_reaches_the_machines_card)
     CHECK_EQ(m->bus().peek_physical(0x82000), 0x48); // aperture slot 0 shows it
     CHECK_EQ(m->bus().peek_physical(0x82001), 0x49);
     CHECK_EQ(d.command("vram 2000 2"), std::string("002000  48 49                                            HI\n"));
+}
+
+// --- the 24-bit bus (step B1): the aperture at $E00000, bank 8 sent there with a revision 2 card ----
+
+namespace
+{
+    /// backplane.machine with no video line at all, flash erased.
+    std::unique_ptr<Machine> backplane_without_video()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const size_t at = text.find("\nvideo ");
+        if (at == std::string::npos)
+            return nullptr;
+        text.erase(at + 1, text.find('\n', at + 1) - at);
+        MachineOptions opt;
+        opt.rom_override = "-";
+        std::string error;
+        auto m = Machine::build(text, "backplane.machine", opt, error);
+        if (!m)
+            std::printf("  %s\n", error.c_str());
+        return m;
+    }
+
+    /// Every DMA cycle's lines, as the Console card sees them.
+    struct DmaLines : CycleObserver
+    {
+        explicit DmaLines(const Decoder &d) : bus(d) {}
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.dma)
+                seen.push_back(bus.last_access());
+        }
+        const Decoder &bus;
+        std::vector<Access> seen;
+    };
+} // namespace
+
+TEST(on_revision_2_the_cpu_card_sends_bank_8_to_the_aperture_at_e00000)
+{
+    auto m = backplane(2);
+    REQUIRE(m != nullptr);
+    VideoCard *card = m->video_card();
+    Decoder &bus = m->bus();
+    for (unsigned n = 0; n < 4; ++n)
+        card->card_poke(n * 0x4000 + 0x123, static_cast<uint8_t>(0xC0 + n));
+    for (unsigned n = 0; n < 4; ++n)
+    {
+        // The CPU card's view (peek_physical, as a DMA cycle): bank 8 and $E0xxxx are both the card.
+        CHECK_EQ(bus.peek_physical(0x080000 + n * 0x4000 + 0x123), 0xC0 + n);
+        CHECK_EQ(bus.peek_physical(0xE00000 + n * 0x4000 + 0x123), 0xC0 + n);
+        // Through a window on block 32 + n: the bus carries $E0xxxx, the bridge's ID.
+        bus.write(0xC681, static_cast<uint8_t>(32 + n));
+        CHECK_EQ(bus.read(0x4123), 0xC0 + n);
+        CHECK_EQ(bus.last_access().physical, 0xE00000 + n * 0x4000 + 0x123);
+        CHECK_EQ(bus.last_access().module, BackplaneBridge::MODULE);
+    }
+    bus.write(0xC681, 33);
+    bus.write(0x4200, 0x6B);                         // a CPU store through slot 1
+    CHECK_EQ(card->card_peek(0x4200), 0x6B);
+    bus.write_physical(0xE08001, 0x6C);              // and one at the aperture's own address
+    CHECK_EQ(card->card_peek(0x8001), 0x6C);
+    // The bus as a card driving it sees it (the Console card): bank 8 is the RAM card's.
+    bus.write_bus(0x080123, 0x5C);
+    CHECK_EQ(bus.peek_bus(0x080123), 0x5C);
+    CHECK_EQ(card->card_peek(0x0123), 0xC0);         // the card untouched
+    CHECK_EQ(bus.peek_physical(0x080123), 0xC0);     // and the CPU card still sees the aperture
+    CHECK_EQ(bus.peek_bus(0xE00123), 0xC0);
+}
+
+TEST(without_a_revision_2_card_bank_8_is_ram_and_e00000_is_empty)
+{
+    std::vector<std::unique_ptr<Machine>> machines;
+    machines.push_back(backplane(1));
+    machines.push_back(backplane_without_video());
+    for (auto &m : machines)
+    {
+        REQUIRE(m != nullptr);
+        Decoder &bus = m->bus();
+        bus.write_physical(0x080123, 0x42);
+        CHECK_EQ(bus.peek_physical(0x080123), 0x42); // the RAM
+        CHECK_EQ(bus.peek_bus(0x080123), 0x42);
+        bus.write(0xC681, 32);                       // W1 on block 32: the RAM too
+        CHECK_EQ(bus.read(0x4123), 0x42);
+        CHECK_EQ(bus.last_access().physical, 0x080123u);
+        bus.write_physical(0xE00123, 0x24);          // nothing answers at $E00000
+        CHECK_EQ(bus.peek_physical(0xE00123), 0xFF);
+        CHECK_EQ(bus.peek_physical(0x080123), 0x42);
+    }
+}
+
+TEST(dma_memory_cycles_carry_8_a_fly_by_the_cards_id_and_bank_8_goes_to_the_aperture)
+{
+    auto m = backplane(2);
+    REQUIRE(m != nullptr);
+    VideoCard *card = m->video_card();
+    Decoder &bus = m->bus();
+    DmaLines lines(bus);
+    bus.set_dma_observer(&lines);
+    for (unsigned i = 0; i < 16; ++i)
+        bus.write_physical(0x21000 + i, static_cast<uint8_t>(0x30 + i));
+    // Memory to memory, $21000 to $84000: the reads at $21xxx, the writes at the aperture's slot 1.
+    const uint32_t src = 0x21000, dest = 0x84000;
+    bus.poke(0xC410, static_cast<uint8_t>(src));
+    bus.poke(0xC411, static_cast<uint8_t>(src >> 8));
+    bus.poke(0xC412, static_cast<uint8_t>(src >> 16));
+    bus.poke(0xC418, static_cast<uint8_t>(dest));
+    bus.poke(0xC419, static_cast<uint8_t>(dest >> 8));
+    bus.poke(0xC41A, static_cast<uint8_t>(dest >> 16));
+    bus.poke(0xC414, 16);
+    bus.poke(0xC415, 0);
+    bus.poke(0xC416, DmaController::BLOCK | DmaController::MEM_TO_MEM);
+    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
+    bus.poke(0xC417, DmaController::ENABLE | DmaController::REQ);
+    for (int i = 0; i < 50; ++i)
+        bus.read(0x0000);
+    CHECK_EQ(card->card_peek(0x4000 + 15), 0x3F);
+    REQUIRE(lines.seen.size() == 32u);
+    unsigned wrong = 0;
+    for (unsigned i = 0; i < 16; ++i)
+    {
+        const Access &rd = lines.seen[2 * i], &wr = lines.seen[2 * i + 1];
+        wrong += rd.physical != 0x21000 + i || rd.module != BackplaneBridge::DMA_MODULE;
+        wrong += wr.physical != 0xE04000 + i || wr.module != BackplaneBridge::DMA_MODULE;
+    }
+    CHECK_EQ(wrong, 0u);
+    // A fly-by on channel 1: the memory side by address, PS0-PS3 the video card's 9.
+    lines.seen.clear();
+    bus.write(0xC4B8, 0x00); // PADDR $000400
+    bus.write(0xC4B9, 0x04);
+    bus.write(0xC4BA, 0x00);
+    bus.write(0xC4BE, R2::PCTL_DRQ);
+    dma_channel_1(bus, 0x21000, 16, DmaController::TO_CARD);
+    CHECK_EQ(card->card_peek(0x400 + 15), 0x3F);
+    REQUIRE(lines.seen.size() >= 16u);
+    unsigned flyby = 0;
+    for (const Access &a : lines.seen)
+        flyby += a.module == 0x9 && a.physical >= 0x21000 && a.physical < 0x21010;
+    CHECK_EQ(flyby, 16u);
+}
+
+TEST(the_console_cards_exam_and_dep_see_bank_8_as_the_ram_cards)
+{
+    auto m = backplane(2);
+    REQUIRE(m != nullptr);
+    ConsoleCard *panel = m->console_card();
+    REQUIRE(panel != nullptr);
+    VideoCard *card = m->video_card();
+    Decoder &bus = m->bus();
+    card->card_poke(0x0123, 0xC3);
+    bus.write_bus(0x080123, 0x3C);
+    panel->set_halt_switch(true);
+    panel->set_switches(0x80123);
+    panel->press(ConsoleCard::LOAD_ADRS);
+    panel->press(ConsoleCard::EXAM);
+    const ConsoleCard::Lights l = panel->lights();
+    uint8_t shown = 0;
+    for (unsigned i = 0; i < 8; ++i)
+        shown = static_cast<uint8_t>(shown | (l.data[i] > 0.5f ? 1u << i : 0u));
+    CHECK_EQ(shown, 0x3C);                            // the RAM's byte, not the card's $C3
+    panel->set_switches(0x000A5);
+    panel->press(ConsoleCard::DEP);
+    CHECK_EQ(bus.peek_bus(0x080123), 0xA5);           // DEP: the RAM
+    CHECK_EQ(card->card_peek(0x0123), 0xC3);          // the card memory untouched
+    CHECK_EQ(bus.peek_physical(0x080123), 0xC3);      // the CPU's bank 8 is still the aperture
 }
 
 int main()

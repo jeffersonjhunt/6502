@@ -46,6 +46,12 @@
  * - S BUS CYCLE is readable in PANEL, but CONT still runs one instruction.
  * - Time stands still while halted, so EXAM and DEP take no bus cycle.
  *
+ * On the 24-bit bus (hw/design.md, "The Console card on the 24-bit bus") its
+ * registers stay 20 bits. EXAM and DEP reach A0-A19 with A20-A23 0, as the
+ * bus carries it (Decoder::peek_bus()): bank 8 is the RAM's even while the
+ * CPU card sends the CPU's bank 8 to the video aperture. The breakpoint
+ * matches a cycle only with A20-A23 0, and LADDR and the lights show A0-A19.
+ *
  * CONT while halted clears a breakpoint halt and CTRL's HALT; if the HALT
  * switch is still down it runs one instruction, else the CPU runs on. The
  * STATUS hit bit stays until a 1 is written to it. START (press_start())
@@ -134,7 +140,7 @@ namespace ooe::emu
         void on_cycle(const BusCycle &c) override;
 
         // The panel
-        void set_switches(uint32_t swr) { swr_ = swr & (PHYSICAL_SPACE - 1); }
+        void set_switches(uint32_t swr) { swr_ = swr & ADDRESS_20; }
         void set_halt_switch(bool halt) { panel_ = static_cast<uint8_t>(halt ? panel_ | HALT_SWITCH : panel_ & ~HALT_SWITCH); }
         void set_bus_cycle_switch(bool bus_cycle)
         {

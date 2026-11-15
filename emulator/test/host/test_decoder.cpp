@@ -79,8 +79,8 @@ TEST(map_refuses_bad_ranges)
     Ram ram(0x10);
     Decoder bus;
     CHECK(!bus.map({0x10, 0x0F, &ram}));        // backwards
-    CHECK(!bus.map({0x0, 0x100000, &ram}));     // past A19, into the next space
-    CHECK(!bus.map({0x300000, 0x30000F, &ram})); // past the last space
+    CHECK(!bus.map({0x0, 0x1000000, &ram}));      // past A23, into the I/O space
+    CHECK(!bus.map({0x2000000, 0x200000F, &ram})); // past the I/O space, the last
     CHECK(!bus.map({0x0, 0xF, nullptr}));       // no device
     CHECK(bus.mappings().empty());
 }
@@ -137,7 +137,7 @@ TEST(routes_reach_other_spaces_and_honour_read_only)
 
     bus.poke(0x0010, 0xA5);                // the loader reaches flash
     CHECK_EQ(bus.read(0x0010), 0xA5);
-    CHECK_EQ(bus.last_access().physical, 0x00010u);
+    CHECK_EQ(bus.last_access().physical, 0xF00010u); // the flash at F00000
     CHECK_EQ(bus.last_access().module, 0x4);
     flash.poke(0x0011, 0x00);
     bus.write(0x0011, 0xFF);               // read-only route: dropped

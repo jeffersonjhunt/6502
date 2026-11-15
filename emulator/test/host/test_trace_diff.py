@@ -6,8 +6,9 @@
 The rules in docs/BUS_TRACE.md that a real board capture will lean on:
 cycle numbers compared relative to each trace's start, gaps compared,
 `?` matching anything (a whole field, or one of the two signal flags),
---from lining up a capture that began mid-program, and exit status 2 (not
-0 or 1) for a malformed trace.
+--from lining up a capture that began mid-program, five- or six-digit
+addresses compared as numbers, and exit status 2 (not 0 or 1) for a
+malformed trace.
 """
 
 import os
@@ -64,6 +65,11 @@ def main():
             ("bad line", HEAD + "1 0000 00 R -- 0\n", [], 2, ":2: not a trace line"),
             ("bad signals", HEAD + "1 00000 00 R XX 0\n", [], 2, "not a trace line"),
             ("empty", HEAD, [], 2, "has no cycles"),
+            # A0-A23 (the 24-bit bus): at least five digits, either width read, compared as numbers.
+            ("six digits, the same address", EMU.replace("5 0E001 41", "5 00E001 41"), [], 0, "traces agree"),
+            ("six digits, A20-A23 differ", EMU.replace("5 0E001 41", "5 F0E001 41"), [], 1,
+             "address 0E001 vs F0E001"),
+            ("seven digits", HEAD + "1 0000000 00 R -- 0\n", [], 2, "not a trace line"),
         ]
         for name, body, extra, want_rc, want_text in cases:
             other = trace("other.trace", body)

@@ -78,7 +78,9 @@ card they take the bus with BE for one cycle.
 Status: **emulated**
 
 BPADDR holds a 20-bit physical address, and BPCTRL says which cycles at it match and what then happens. The
-comparator checks the A0–A19 of every bus cycle, the DMA controller's included.
+comparator checks the A0–A19 of every bus cycle, the DMA controller's included. On the 24-bit bus (*proposed*,
+[chapter 2](02-memory-and-banking.md#the-24-bit-bus)) it also wants A20–A23 0, so a cycle to the flash or the video
+aperture never matches, and LADDR and the lights show such a cycle's A0–A19.
 
 - **A fetch** (BPCTRL bit 1) matches an opcode fetch. A fetch that halts stops the CPU before that instruction, with
   PC on it: LADDR is BPADDR, LDATA the opcode and LSTAT `$03`, SYNC and a read.

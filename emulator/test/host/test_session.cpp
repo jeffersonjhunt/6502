@@ -234,7 +234,7 @@ TEST(trace_ring_keeps_the_newest_cycles)
         {
             ++fetches;
             CHECK_EQ(rows[i].physical, 0xF0000u | rows[i].cpu); // W3 = block 63: $FC000 + (cpu - $C000)
-            CHECK_EQ(rows[i].module, 3);                         // RAM D
+            CHECK_EQ(rows[i].module, 0xD);                       // memory by address: the bridge's ID
         }
     }
     CHECK(fetches > 5);

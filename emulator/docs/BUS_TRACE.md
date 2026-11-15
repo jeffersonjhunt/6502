@@ -28,7 +28,7 @@ separated by single spaces:
 | # | field | meaning |
 |---|---|---|
 | 1 | cycle | decimal cycle number. Only differences matter: the diff compares each trace against its own first line |
-| 2 | address | A19..A0, five upper-case hex digits |
+| 2 | address | A23..A0, upper-case hex digits: at least five, so six when A20..A23 aren't all 0 (`F7FFFC`). A reader takes either width and compares the numbers, so a spy that always writes six digits diffs cleanly against the emulator |
 | 3 | data | D7..D0, two upper-case hex digits: what was read or written |
 | 4 | R/W | `R` read (RWB high), `W` write |
 | 5 | signals | two characters: `S` if SYNC is high (an opcode fetch) else `-`, then `V` if VPB is low (a vector read) else `-` |
@@ -63,24 +63,33 @@ Three gaps:
   cycle it held. Halting with RDY (the console's single-step) is not
   modelled; the debugger halts between instructions.
 
-## Module IDs and A16..A19
+## Module IDs and A16..A23
 
-The address is what A19..A0 carry on the backplane, after the north
-bridge. Machines without one (the Apple-1, Eater) drive A16..A19 low, so
+The address is what A23..A0 carry on the backplane, after the north
+bridge. Machines without one (the Apple-1, Eater) drive A16..A23 low, so
 their addresses all start with `0`. On `backplane.machine` the north
-bridge's windows decide (hw/design.md):
+bridge's windows decide, on the 24-bit bus (hw/design.md, "The new bus"):
 
-- **RAM:** the 20-bit physical address.
-- **Flash** (a window with its ROM bit set): the offset into the flash,
-  `00000-7FFFF` for ROM A (module 4) and `80000-FFFFF` for ROM B (module
-  5). The module column tells it from RAM at the same address.
+- **RAM:** the physical address, `000000-0FFFFF`, written `00000-FFFFF`.
+- **Flash** (a window with its ROM bit set): its place in the map,
+  `F00000-F7FFFF` for ROM A and `F80000-FFFFFF` for ROM B.
+- **The video aperture:** `E00000-E0FFFF`. With a revision 2 card the CPU
+  card sends bank 8 (`80000-8FFFF`) there, so a window on blocks 32-35
+  shows `E0xxxx`.
 - **The I/O hole:** the CPU address, `0C000-0C7FF`, with the card's module
   ID.
 
+The module column is what PS3..PS0 carry. On `backplane.machine` memory is
+chosen by its address, not by a module ID, so a memory cycle carries its
+master's ID: `D`, the north bridge's, for the CPU. (DMA's cycles are a gap
+here, above; on the bus they carry `8`, the controller's, or on a fly-by
+the card's, which the Console card sees.) A cycle to the I/O hole carries the card's ID. On a machine with no north
+bridge the module is the mapping's `module=` in the machine file; the
+Apple-1 machines set none, so they show `-`.
+
 Each line shows the lines as they were on that cycle, so the write that
 changes a window, and a vector read through VEC, are traced where they
-actually went. The module is the mapping's `module=` in the machine file;
-the Apple-1 machines set none, so they show `-`.
+actually went.
 
 ## Diffing
 

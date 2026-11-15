@@ -223,12 +223,12 @@ export interface Lights {
 
 export interface TraceRow {
   cycle: number;
-  /** A0-A19. */
+  /** A0-A23: the flash at $F00000, the aperture at $E00000. */
   physical: number;
   /** The CPU's address. */
   cpu: number;
   data: number;
-  /** Module ID 0-15, or 255 for none. */
+  /** PS0-PS3, 0-15 (memory cycles carry the master's: D for the CPU), or 255 for none. */
   module: number;
   write: boolean;
   sync: boolean;

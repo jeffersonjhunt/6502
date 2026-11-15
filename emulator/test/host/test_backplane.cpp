@@ -86,7 +86,7 @@ TEST(reset_maps_ram_blocks_0_to_2_and_the_top_of_rom_a)
     const Route top = r.bus.route(0xFFFC);
     CHECK_EQ(top.where, bus_address(Space::Flash, 0x7FFFC));
     CHECK(!top.writable);
-    CHECK_EQ(r.bus.module_at(0xE000), 0x4);
+    CHECK_EQ(r.bus.module_at(0xE000), BackplaneBridge::MODULE); // memory by address: PS0-PS3 carry the bridge's D
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD1);
 }
 
@@ -146,11 +146,11 @@ TEST(rom_bit_maps_rom_a_and_the_cartridge)
     r.rom_b.poke(0x00000, 0xB0);
     r.bus.write(NB + 1, 0x80 | 0);     // W1 = ROM A block 0
     CHECK_EQ(r.bus.read(0x4000), 0xA0);
-    CHECK_EQ(r.bus.last_access().module, 0x4);
+    CHECK_EQ(r.bus.last_access().module, BackplaneBridge::MODULE);
     r.bus.write(NB + 1, 0x80 | 32);    // W1 = block 32: ROM B, the cartridge
     CHECK_EQ(r.bus.read(0x4000), 0xB0);
-    CHECK_EQ(r.bus.last_access().module, 0x5);
-    CHECK_EQ(r.bus.last_access().physical, 0x80000u);
+    CHECK_EQ(r.bus.last_access().module, BackplaneBridge::MODULE);
+    CHECK_EQ(r.bus.last_access().physical, 0xF80000u);
     r.bus.write(0x4000, 0x00);         // flash ignores a CPU store anyway
     CHECK_EQ(r.rom_b.read(0), 0xB0);
 }
@@ -340,13 +340,103 @@ TEST(bios_shadows_itself_into_ram_and_keeps_running)
     for (const auto &fe : fetches.seen)
     {
         if (fe.cpu == 0xC822)
-            before = fe.access.module == 0x4 && fe.access.physical == 0x7C822u;
+            before = fe.access.module == BackplaneBridge::MODULE && fe.access.physical == 0xF7C822u;
         if (fe.cpu == 0xC825)
-            after = fe.access.module == 0x3 && fe.access.physical == 0xFC825u;
+            after = fe.access.module == BackplaneBridge::MODULE && fe.access.physical == 0xFC825u;
     }
     CHECK(before);
     CHECK(after);
     std::remove(image);
+}
+
+// --- the new bus: memory by address (hw/design.md, "The new bus", step B1) ---
+
+TEST(the_rom_bit_puts_out_f00000_plus_the_block)
+{
+    Rig r;
+    for (const unsigned b : {0u, 5u, 31u, 32u, 47u, 63u})
+    {
+        Rom &chip = b < 32 ? r.rom_a : r.rom_b;
+        chip.poke((b & 31) * 0x4000 + 0x123, static_cast<uint8_t>(0x40 + b));
+        r.ram.write(b * 0x4000 + 0x123, 0x99); // RAM block b, at the same A0-A19
+        r.bus.write(NB + 1, static_cast<uint8_t>(BackplaneBridge::ROM | BackplaneBridge::RO | b));
+        const uint32_t want = 0xF00000 + b * 0x4000 + 0x123;
+        CHECK_EQ(r.bus.read(0x4123), 0x40 + b);
+        CHECK_EQ(r.bus.last_access().physical, want);
+        CHECK_EQ(r.bus.last_access().module, BackplaneBridge::MODULE);
+        CHECK_EQ(r.bus.physical(0x4123), want);
+        CHECK_EQ(r.bus.peek_physical(want), 0x40 + b);
+        CHECK_EQ(r.bus.peek_physical(want & 0xFFFFF), 0x99); // A20-A23 0: the RAM
+    }
+    CHECK_EQ(r.bus.route(0xFFFC).where, 0xF7FFFCu); // reset: W3 and VEC on block 31
+}
+
+TEST(an_io_cycle_never_reaches_memory_whatever_the_address_lines_hold)
+{
+    Rig r;
+    // Bytes in RAM and in the flash wherever A0-A23 could point during a cycle to the hole.
+    for (uint32_t a = 0; a < 0x800; ++a)
+    {
+        r.ram.write(0x0C000 + a, 0x11);       // bank 0's $C000: A0-A19 as the hole carries them
+        r.ram.write(0xFC000 + a, 0x22);       // RAM block 63
+        r.rom_a.poke(0x7C000 + a, 0x33);      // ROM A block 31
+    }
+    for (const uint8_t w3 : {uint8_t{0x03}, uint8_t{0x3F}, BackplaneBridge::RESET_TOP})
+    {
+        r.bus.write(NB + 3, w3);
+        r.bus.write(NB + BackplaneBridge::VEC, w3);
+        unsigned memory = 0;
+        for (uint16_t a = 0xC000; a < 0xC680; ++a) // every card's block but the bridge's own
+        {
+            memory += r.bus.read(a) != 0xFF;
+            r.bus.vector_pull(true);
+            memory += r.bus.read(a) != 0xFF;
+            r.bus.vector_pull(false);
+            r.bus.write(a, 0x5A);
+            memory += r.bus.last_access().module == BackplaneBridge::MODULE; // not a memory cycle
+        }
+        for (uint16_t a = 0xC700; a < 0xC800; ++a)
+            memory += r.bus.read(a) != 0xFF;
+        CHECK_EQ(memory, 0u);
+        CHECK_EQ(r.bus.last_access().physical, 0x0C7FFu); // A0-A19 the CPU's, as the hole's
+    }
+    unsigned touched = 0;
+    for (uint32_t a = 0; a < 0x800; ++a)
+        touched += r.ram.read(0x0C000 + a) != 0x11 || r.ram.read(0xFC000 + a) != 0x22 ||
+                   r.rom_a.read(0x7C000 + a) != 0x33;
+    CHECK_EQ(touched, 0u);
+}
+
+TEST(ids_0_to_5_and_f_are_empty_slots_on_the_machine)
+{
+    MachineOptions opt;
+    opt.rom_override = "-";
+    std::string error;
+    auto m = Machine::load(EMU_MACHINE_DIR "/backplane.machine", opt, error);
+    if (!m)
+        std::printf("  %s\n", error.c_str());
+    REQUIRE(m != nullptr);
+    Decoder &bus = m->bus();
+    for (const unsigned id : {0x0u, 0x1u, 0x2u, 0x3u, 0x4u, 0x5u, 0xFu})
+    {
+        unsigned answered = 0;
+        for (uint16_t a = 0; a < 0x80; ++a)
+        {
+            const uint16_t at = static_cast<uint16_t>(id * 0x80 + a);
+            answered += bus.peek_io(at) != 0xFF;
+            answered += bus.read(static_cast<uint16_t>(0xC000 + at)) != 0xFF; // the ID byte at +$7F too
+        }
+        if (answered)
+            std::printf("  module %X answers\n", id);
+        CHECK_EQ(answered, 0u);
+    }
+    // No line of the machine takes those IDs in the hole; the memory lines are memory only.
+    for (const Mapping &map : bus.mappings())
+    {
+        if (space_of(map.first) == Space::Io && offset_of(map.first) < IO_SIZE)
+            CHECK(map.module >= 0x6 && map.module <= 0xE);
+    }
+    CHECK_EQ(bus.peek(0xC6FF), BackplaneBridge::ID); // and the slots that are cards still answer
 }
 
 int main()

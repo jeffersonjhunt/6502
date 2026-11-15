@@ -4,8 +4,8 @@
  * @file backplane_bridge.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's north bridge: windows, VEC, ROM space, I/O hole.
- * @version 0.3.0
- * @date 2026-10-26
+ * @version 0.4.0
+ * @date 2026-11-14
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -15,6 +15,22 @@
  *   bit 7 ROM    1 = flash: blocks 0-31 ROM A, 32-63 ROM B (the cartridge)
  *   bit 6 RO     1 = writes through the window are ignored
  *   bits 5-0     the 16 KB block (A14-A19, or the offset into the flash)
+ *
+ * On the new bus (hw/design.md, "The new bus", step B1) addresses are 24
+ * bits and memory answers by address: RAM block b is physical b x $4000,
+ * ROM block b is $F00000 + b x $4000. Every memory cycle carries the
+ * bridge's own ID, D, on PS0-PS3 (memory_select()), and the DMA
+ * controller's memory to memory cycles its 8.
+ *
+ * The aperture (hw/design.md, "The video aperture moved out of RAM"): the
+ * video card's 64 KB window is at $E00000-$E0FFFF. While a revision 2 card
+ * is fitted the CPU card sends every memory cycle for bank 8, $080000-
+ * $08FFFF, there instead (redirect(): through a window with ROM clear on
+ * blocks 32-35, and the DMA controller's cycles), as bank 8 was the card's
+ * before. That is MAP's AP8 to come (step B7); until then the machine sets
+ * it once, from the card it is built with (set_aperture()). Without such a
+ * card bank 8 is the RAM's. The Console card, driving the bus itself, sees
+ * bank 8 as the RAM's either way.
  *
  * While VPB is low, $C000-$FFFF goes through VEC instead of W3. The I/O hole,
  * $C000-$C7FF, is decoded ahead of the windows; module n's registers are at
@@ -154,8 +170,23 @@ namespace ooe::emu
             apple_io_.attach(decoder);
         }
 
+        static constexpr uint8_t DMA_MODULE = 0x8;                ///< the DMA controller's ID, on its memory cycles
+        static constexpr uint32_t BANK8 = 0x080000;               ///< what AP8 sends to the aperture: 64 KB
+        static constexpr uint32_t APERTURE = 0xE00000;            ///< the video card's aperture
+
         // NorthBridge
         Route route(uint16_t cpu_addr, bool vector_pull, bool write) const override;
+        uint8_t memory_select(Master master) const override { return master == Master::Dma ? DMA_MODULE : MODULE; }
+        uint32_t redirect(uint32_t physical) const override
+        {
+            return aperture_ != NO_APERTURE && (physical & ~0xFFFFu) == BANK8 ? aperture_ | (physical & 0xFFFF)
+                                                                              : physical;
+        }
+        /// Send bank 8 to the aperture at `base` (64 KB; a revision 2 video card is fitted), or
+        /// NO_APERTURE: bank 8 is the RAM's. Fixed when the machine is built (AP8 is B7's).
+        void set_aperture(uint32_t base) { aperture_ = base; }
+        static constexpr uint32_t NO_APERTURE = 0xFFFFFFFF;
+        uint32_t aperture() const { return aperture_; }
         void reset() override;
         void reset_pulse() override;
         bool take_reset() override;
@@ -227,6 +258,7 @@ namespace ooe::emu
         uint8_t poll(bool high) const;
 
         Decoder *decoder_{nullptr};
+        uint32_t aperture_{NO_APERTURE};
         bool bootsel_;
         bool power_on_{true};
         bool reset_seen_{false};

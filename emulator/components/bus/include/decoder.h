@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.10.0
- * @date 2026-10-23
+ * @version 0.11.0
+ * @date 2026-11-14
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -15,17 +15,23 @@
  * which is exactly a machine with no banking; the backplane's bridge
  * (backplane_bridge.h) adds the windows, ROM space and the I/O hole.
  *
- * A route names one of three address spaces, because the backplane's north
- * bridge reaches more than the 1 MB of RAM:
+ * A route names one of two address spaces, because the backplane's north
+ * bridge reaches more than memory (hw/design.md, "The new bus"):
  *
- * - Memory: the 20-bit physical address space (RAM A-D).
- * - Flash: ROM A at 00000-7FFFF and ROM B, the cartridge, at 80000-FFFFF,
- *   reached through a window's ROM bit.
+ * - Memory: the 24-bit physical address space, A0-A23, which memory answers
+ *   by address with /MEM low: on the backplane RAM at 000000-0FFFFF, the
+ *   video card's aperture at E00000-E0FFFF and the flash, ROM A at
+ *   F00000-F7FFFF and ROM B, the cartridge, at F80000-FFFFFF.
  * - Io: the 2 KB I/O hole, CPU $C000-$C7FF, decoded ahead of the windows;
- *   module n's 128-byte block is at n x $80.
+ *   module n's 128-byte block is at n x $80. /MEM is high on these cycles,
+ *   so no memory answers them, whatever the address lines hold.
  *
- * Mappings and routes use bus addresses: the space in bits 20-21 above a
- * 20-bit offset (bus_address()). A route also says whether the access may
+ * Space::Flash is a name for the flash's megabyte of memory space:
+ * bus_address(Space::Flash, o) is memory F00000 + o, so a window's ROM
+ * block b is physical F00000 + b x $4000.
+ *
+ * Mappings and routes use bus addresses: the space in bit 24 above a
+ * 24-bit offset (bus_address()). A route also says whether the access may
  * write (a window's RO bit), so a write through a read-only window is
  * dropped while poke() still loads it.
  *
@@ -59,8 +65,24 @@
  * the CPU's pending access is held for them like a wait state. They reach
  * memory space only, by physical address, never through the windows.
  *
- * peek_physical() and write_physical() are the same reach with no cycle
- * counted, for the Console card while the CPU is halted.
+ * The CPU card may send a memory cycle somewhere other than the address its
+ * master asked for: the backplane's bridge sends bank 8 to the video
+ * aperture while a revision 2 card is fitted (NorthBridge::redirect()).
+ * The CPU's windows and the DMA controller's cycles go through it, as both
+ * are on the CPU card. peek_physical() and write_physical() are that same
+ * reach with no cycle counted (the CPU card's view, for tests and tools);
+ * peek_bus() and write_bus() are the backplane as a card driving it sees
+ * it, with no redirection: the Console card's EXAM and DEP, while the CPU
+ * is halted.
+ *
+ * PS0-PS3 on a memory cycle (Access::module): memory is chosen by address,
+ * so the module lines carry the master's own ID, which the bridge gives
+ * (NorthBridge::memory_select()): on the backplane D for the CPU, 8 for the
+ * DMA controller's memory to memory cycles, and on a fly-by the card's. A
+ * bus with no /MEM (no north bridge, as the Apple-1's) shows the mapping's
+ * module= instead. A memory mapping's module is then only the ID whose
+ * WAITn bits slow it, as the 62-pin bus's memory modules were (step B1
+ * keeps it; B2 replaces it with /WAIT).
  *
  * The CPU reports its own cycles to its observer; the bus master's go to
  * the decoder's (set_dma_observer()), each read or write as it happens,
@@ -79,29 +101,34 @@
 
 namespace ooe::emu
 {
-    constexpr uint32_t PHYSICAL_SPACE = 1u << 20; ///< A0-A19: the size of each space
+    constexpr uint32_t PHYSICAL_SPACE = 1u << 24; ///< A0-A23: the size of each space
+    /// A0-A19: what the registers still 20 bits wide hold (DMA revision 1, the Console card's).
+    constexpr uint32_t ADDRESS_20 = (1u << 20) - 1;
+    constexpr uint32_t FLASH_BASE = 0xF00000; ///< ROM A; ROM B, the cartridge, at F80000
     constexpr uint8_t NO_MODULE = 0xFF;
     constexpr uint8_t NO_DRQ = 0xFF;
 
     enum class Space : uint8_t
     {
-        Memory = 0, ///< the 1 MB physical address space
-        Flash = 1,  ///< ROM A, then ROM B
-        Io = 2,     ///< the I/O hole, CPU $C000-$C7FF
+        Memory = 0, ///< the 16 MB physical address space
+        Io = 1,     ///< the I/O hole, CPU $C000-$C7FF
+        Flash = 2,  ///< not a space of its own: memory F00000-FFFFFF, ROM A then ROM B
     };
-    constexpr uint32_t SPACE_COUNT = 3;
+    constexpr uint32_t SPACE_COUNT = 2; ///< the spaces a bus address can be in: Memory and Io
     constexpr uint32_t IO_HOLE = 0xC000; ///< CPU address of the I/O hole
     constexpr uint32_t IO_SIZE = 0x800;
     /// Apple II mode's $C000-$CFFF, in Io space past the native hole (backplane_bridge.h);
     /// the address lines still show $0C000-$0CFFF.
     constexpr uint32_t APPLE_IO = 0x1000;
 
-    /// A bus address: `offset` (A0-A19) within `space`.
+    /// A bus address: `offset` (A0-A23) within `space`; in Space::Flash, the offset into the flash (A0-A19).
     constexpr uint32_t bus_address(Space space, uint32_t offset)
     {
-        return static_cast<uint32_t>(space) << 20 | (offset & (PHYSICAL_SPACE - 1));
+        if (space == Space::Flash)
+            return FLASH_BASE | (offset & ADDRESS_20);
+        return static_cast<uint32_t>(space) << 24 | (offset & (PHYSICAL_SPACE - 1));
     }
-    constexpr Space space_of(uint32_t bus_addr) { return static_cast<Space>(bus_addr >> 20); }
+    constexpr Space space_of(uint32_t bus_addr) { return static_cast<Space>(bus_addr >> 24); }
     constexpr uint32_t offset_of(uint32_t bus_addr) { return bus_addr & (PHYSICAL_SPACE - 1); }
 
     /// Where one CPU access goes.
@@ -135,6 +162,22 @@ namespace ooe::emu
         /// The CPU clock the bridge's mode fixes (the clock card follows it, as
         /// Apple II mode's ÷14 does), in Hz; 0: the caller's choice.
         virtual uint32_t clock_hz() const { return 0; }
+        /// Who drives a memory cycle, for memory_select().
+        enum class Master : uint8_t
+        {
+            Cpu, ///< through a window
+            Dma, ///< the DMA controller's memory to memory cycle
+        };
+        /// PS0-PS3 on a memory cycle `master` drives, or NO_MODULE for a bus with no /MEM,
+        /// where the mapping's own module shows (the default).
+        virtual uint8_t memory_select(Master master) const
+        {
+            (void)master;
+            return NO_MODULE;
+        }
+        /// Where the CPU card sends a memory cycle for `physical` (A0-A23): the CPU's windows and
+        /// the DMA controller's cycles alike. Default: where it was asked.
+        virtual uint32_t redirect(uint32_t physical) const { return physical; }
         /// Wait states the bridge inserts on an access to `module`.
         virtual unsigned wait_states(uint8_t module) const
         {
@@ -172,7 +215,7 @@ namespace ooe::emu
     /// What the backplane carried on the most recent CPU access, for the bus trace.
     struct Access
     {
-        uint32_t physical{0};       ///< A0-A19
+        uint32_t physical{0};       ///< A0-A23
         uint8_t module{NO_MODULE};  ///< PS0-PS3, or NO_MODULE
     };
 
@@ -226,14 +269,21 @@ namespace ooe::emu
         /// One fly-by cycle between `card` and memory at `physical`:
         /// `to_memory` card -> memory, else memory -> card. @return cycles used
         unsigned dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc);
-        /// Memory at a physical address with no bus cycle counted: the Console
-        /// card's EXAM, while the CPU is halted and emulated time stands still.
+        /// Memory at a physical address (A0-A23) with no bus cycle counted, as
+        /// the CPU card reaches it (NorthBridge::redirect()): with a revision 2
+        /// video card on the backplane, bank 8 is the aperture.
         uint8_t peek_physical(uint32_t physical) const;
+        /// Memory at a physical address as the backplane carries it, with no
+        /// redirection and no cycle counted: the Console card's EXAM, while the
+        /// CPU is halted and emulated time stands still. Bank 8 is the RAM's.
+        uint8_t peek_bus(uint32_t physical) const;
+        /// A store the same way (DEP). A device write, as the card's cycle is: ROM ignores it.
+        void write_bus(uint32_t physical, uint8_t data);
         /// I/O space at `offset` ($000-$FFF the cards, as the native map puts them at $C000)
         /// with no bus cycle, whatever the map is now: a card's registers in Apple II mode too.
         uint8_t peek_io(uint16_t offset) const;
-        /// A store at a physical address with no bus cycle counted (DEP). A
-        /// device write, as the card's cycle is: ROM ignores it.
+        /// A store at a physical address with no bus cycle counted, as the CPU
+        /// card reaches it (peek_physical()). A device write: ROM ignores it.
         void write_physical(uint32_t physical, uint8_t data);
 
         /// Where a CPU address goes now (with VPB as given).
@@ -241,13 +291,18 @@ namespace ooe::emu
         {
             return bridge_->route(addr, vector_pull, write);
         }
-        /// What A0-A19 carry for a CPU address: the offset in memory or
-        /// flash; in the I/O hole, the CPU address itself.
+        /// Where the CPU card sends a memory cycle for `physical` (NorthBridge::redirect()): with a
+        /// revision 2 video card on the backplane, bank 8 goes to the aperture at $E00000.
+        uint32_t redirect(uint32_t physical) const { return bridge_->redirect(physical & (PHYSICAL_SPACE - 1)); }
+        /// What A0-A23 carry for a CPU address: the physical address in
+        /// memory (the flash at F00000); in the I/O hole, the CPU address itself.
         uint32_t physical(uint16_t addr, bool vector_pull = false) const;
 
         /// The mapping a CPU address decodes to, or nullptr.
         const Mapping *decode(uint16_t addr, bool vector_pull = false) const;
-        /// Module ID a CPU address selects (for the console and bus traces).
+        /// What PS0-PS3 carry for a CPU address (for the console and bus traces): a card's
+        /// module ID in the I/O hole; on a memory cycle the bridge's memory_select(), or the
+        /// mapping's module on a bus with no /MEM.
         uint8_t module_at(uint16_t addr, bool vector_pull = false) const;
         /// The backplane's lines on the latest read() or write().
         const Access &last_access() const { return last_; }
@@ -280,12 +335,22 @@ namespace ooe::emu
         /// Route a CPU access, count its cycles (wait states and any bus
         /// master's cycles too) and record it in last_.
         const Mapping *access(uint16_t addr, Route &r, bool write);
-        /// Count one bus master cycle to memory; @return the mapping (or nullptr) and its cycles in `cycles`.
-        const Mapping *dma_cycle(uint32_t physical, unsigned &cycles);
+        /// Count one bus master cycle to memory at `where` (a bus address, redirected); @return the
+        /// mapping (or nullptr) and its cycles in `cycles`.
+        const Mapping *dma_cycle(uint32_t where, unsigned &cycles);
+        /// The bus address a CPU card cycle for `physical` reaches (NorthBridge::redirect()).
+        uint32_t memory(uint32_t physical) const
+        {
+            return bus_address(Space::Memory, bridge_->redirect(physical & (PHYSICAL_SPACE - 1)));
+        }
+        /// PS0-PS3 on a memory cycle by `master` to mapping `m` (or nothing).
+        uint8_t select(NorthBridge::Master master, const Mapping *m) const;
         /// Bring the slot of `device` up to the cycle before now.
         void catch_up_device(const Device &device);
-        /// Tell the DMA observer about a bus master's cycle of `cycles` at `physical`.
-        void dma_seen(uint32_t physical, const Mapping *m, unsigned cycles, uint8_t data, bool write);
+        /// Tell the DMA observer about a bus master's cycle of `cycles` at bus address `where`, PS0-PS3 `module`.
+        void dma_seen(uint32_t where, uint8_t module, unsigned cycles, uint8_t data, bool write);
+        /// The module ID of `card`'s mapping in the I/O hole, or NO_MODULE.
+        uint8_t module_of(const Device &card) const;
 
         NorthBridge *bridge_;
         BusMaster *master_{nullptr};

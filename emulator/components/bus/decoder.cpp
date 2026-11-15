@@ -16,7 +16,7 @@ namespace ooe::emu
     {
         [[maybe_unused]] const char *TAG = "decoder";
 
-        /// A0-A19 for a bus address: the offset, or in the I/O hole the CPU address.
+        /// A0-A23 for a bus address: the offset, or in the I/O hole the CPU address.
         uint32_t lines(uint32_t where)
         {
             if (space_of(where) != Space::Io)
@@ -79,9 +79,27 @@ namespace ooe::emu
         }
     }
 
-    const Mapping *Decoder::dma_cycle(uint32_t physical, unsigned &cycles)
+    uint8_t Decoder::select(NorthBridge::Master master, const Mapping *m) const
     {
-        const Mapping *m = find(bus_address(Space::Memory, physical));
+        const uint8_t ps = bridge_->memory_select(master);
+        if (ps != NO_MODULE)
+            return ps;
+        return m ? m->module : NO_MODULE;
+    }
+
+    uint8_t Decoder::module_of(const Device &card) const
+    {
+        for (const Mapping &m : mappings_)
+        {
+            if (m.device == &card && space_of(m.first) == Space::Io)
+                return m.module;
+        }
+        return NO_MODULE;
+    }
+
+    const Mapping *Decoder::dma_cycle(uint32_t where, unsigned &cycles)
+    {
+        const Mapping *m = find(where);
         cycles = 1;
         if (m)
             cycles += m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
@@ -91,15 +109,15 @@ namespace ooe::emu
         return m;
     }
 
-    void Decoder::dma_seen(uint32_t physical, const Mapping *m, unsigned cycles, uint8_t data, bool write)
+    void Decoder::dma_seen(uint32_t where, uint8_t module, unsigned cycles, uint8_t data, bool write)
     {
         if (!dma_observer_)
             return;
-        last_ = Access{physical & (PHYSICAL_SPACE - 1), m ? m->module : NO_MODULE};
+        last_ = Access{lines(where), module};
         last_wait_ = cycles - 1; // the CPU's access, after these, sets both again
         BusCycle c;
         c.cycle = now_;
-        c.addr = static_cast<uint16_t>(physical);
+        c.addr = static_cast<uint16_t>(where);
         c.data = data;
         c.write = write;
         c.dma = true;
@@ -116,28 +134,31 @@ namespace ooe::emu
     unsigned Decoder::dma_read(uint32_t physical, uint8_t &data)
     {
         unsigned cycles = 0;
-        const Mapping *m = dma_cycle(physical, cycles);
-        data = m ? m->device->read(device_offset(*m, bus_address(Space::Memory, physical))) : UNMAPPED_READ;
-        dma_seen(physical, m, cycles, data, false);
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles);
+        data = m ? m->device->read(device_offset(*m, where)) : UNMAPPED_READ;
+        dma_seen(where, select(NorthBridge::Master::Dma, m), cycles, data, false);
         return cycles;
     }
 
     unsigned Decoder::dma_write(uint32_t physical, uint8_t data)
     {
         unsigned cycles = 0;
-        const Mapping *m = dma_cycle(physical, cycles);
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles);
         if (m)
-            m->device->write(device_offset(*m, bus_address(Space::Memory, physical)), data);
-        dma_seen(physical, m, cycles, data, true);
+            m->device->write(device_offset(*m, where), data);
+        dma_seen(where, select(NorthBridge::Master::Dma, m), cycles, data, true);
         return cycles;
     }
 
     unsigned Decoder::dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc)
     {
         unsigned cycles = 0;
-        const Mapping *m = dma_cycle(physical, cycles);
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles);
         catch_up_device(card);
-        const uint32_t off = m ? device_offset(*m, bus_address(Space::Memory, physical)) : 0;
+        const uint32_t off = m ? device_offset(*m, where) : 0;
         uint8_t v = UNMAPPED_READ;
         if (to_memory)
         {
@@ -151,7 +172,11 @@ namespace ooe::emu
                 v = m->device->read(off);
             card.dack_write(v, tc);
         }
-        dma_seen(physical, m, cycles, v, to_memory);
+        // PS0-PS3 name the card in a grant; a bus with no /MEM shows the memory's module, as before.
+        const uint8_t ps = bridge_->memory_select(NorthBridge::Master::Dma) != NO_MODULE ? module_of(card)
+                           : m                                                      ? m->module
+                                                                                    : NO_MODULE;
+        dma_seen(where, ps, cycles, v, to_memory);
         return cycles;
     }
 
@@ -207,7 +232,10 @@ namespace ooe::emu
 
     uint8_t Decoder::module_at(uint16_t addr, bool vector_pull) const
     {
-        const Mapping *m = decode(addr, vector_pull);
+        const Route r = route(addr, vector_pull);
+        const Mapping *m = find(r.where);
+        if (space_of(r.where) == Space::Memory)
+            return select(NorthBridge::Master::Cpu, m);
         return m ? m->module : NO_MODULE;
     }
 
@@ -234,7 +262,10 @@ namespace ooe::emu
         now_ += 1 + waits; // the access completes on the last held cycle
         last_wait_ = stolen + waits;
         last_stolen_ = stolen;
-        last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
+        last_ = Access{lines(r.where),
+                       space_of(r.where) == Space::Memory ? select(NorthBridge::Master::Cpu, m)
+                       : m                                ? m->module
+                                                          : NO_MODULE};
         return m;
     }
 
@@ -273,12 +304,26 @@ namespace ooe::emu
 
     uint8_t Decoder::peek_physical(uint32_t physical) const
     {
-        const uint32_t where = bus_address(Space::Memory, physical);
+        const uint32_t where = memory(physical);
         const Mapping *m = find(where);
         return m ? m->device->peek(device_offset(*m, where)) : UNMAPPED_READ;
     }
 
     void Decoder::write_physical(uint32_t physical, uint8_t data)
+    {
+        const uint32_t where = memory(physical);
+        if (const Mapping *m = find(where))
+            m->device->write(device_offset(*m, where), data);
+    }
+
+    uint8_t Decoder::peek_bus(uint32_t physical) const
+    {
+        const uint32_t where = bus_address(Space::Memory, physical);
+        const Mapping *m = find(where);
+        return m ? m->device->peek(device_offset(*m, where)) : UNMAPPED_READ;
+    }
+
+    void Decoder::write_bus(uint32_t physical, uint8_t data)
     {
         const uint32_t where = bus_address(Space::Memory, physical);
         if (const Mapping *m = find(where))
