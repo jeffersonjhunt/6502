@@ -2,9 +2,10 @@
 
 Nov 13, 2026 · @Jefferson
 
-**Status: plan 2, the owner's revision of 2026-11-13: every diagnostic in the ROM. Approved (2026-11-14, the
-owner), after review LL1–LL5, with questions P2-1 to P2-7 [decided as recommended](#plan2-questions); design only,
-D3a starts from this.** [Plan 2](#plan-2) is the plan from here on. D1 (the library and
+**Status: built: the ROM's diagnostics since BIOS 0.14, with `DIAG` at `A>` and SYSINFO, released in OODOS 0.10
+(2026-11-14; D3a to D3c). Plan 2, the owner's revision of 2026-11-13: every diagnostic in the ROM. Approved
+(2026-11-14, the owner), after review LL1–LL5, with questions P2-1 to P2-7 [decided as recommended](#plan2-questions);
+D3a started from this.** [Plan 2](#plan-2) is the plan from here on. D1 (the library and
 SYSINFO) is merged and stays as built. D2 (DIAG.COM) was built on `feat/diag-d2` and **doesn't merge**: under
 OODOS it grew to 22 KB, half of it OODOS's way round the hardware, and still couldn't reach OODOS's memory, the
 console's card memory or a DMA channel of its own; so the owner put all of it in the ROM, where the core owns the
@@ -1220,7 +1221,7 @@ OO-1 SYSTEM INFORMATION                                   2026-11-13  14:02:37
 SYSTEM
   CPU        W65C02S at 7.159 MHz: 7,159,090 Hz by the clock chip,
              7,159,1xx Hz by the video frame
-  ROM BIOS   0.14            OODOS 0.9, its BIOS 0.9      OOLIB interface 8
+  ROM BIOS   0.14            OODOS 0.10, its BIOS 0.2     OOLIB interface 10
   OOUI.BNK   A:, interface 1, 3 blocks
   MEMORY     1,024 KB: 960 KB of RAM and the video card's 64 KB aperture
              for programs: a 47K TPA; banks 1-5, 320 KB (320 KB free);

@@ -1,6 +1,6 @@
 # OODOS: One Off DOS #
 
-Draft, 2026-10-26; OODOS 0.10 since 2026-11-15 (SYSINFO, function 77 and DIAG, OOLIB interfaces 9 and 10, [diag.md](diag.md)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+Draft, 2026-10-26; OODOS 0.10 since 2026-11-14 (SYSINFO, function 77 and DIAG, OOLIB interfaces 9 and 10, [diag.md](diag.md)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
 W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
 **proposed**; open questions are collected at the end.
 
@@ -4405,7 +4405,7 @@ alternative is kept as the record of what was weighed.
     the event queue as `EK_KEY`'s usage `$48`. The cost:
     - **An interface addition:** function 81 gains an operation that turns off Pause's /NMI (the USB card's KBCFG
       bit 7) while the program runs. The warm boot already puts it back ("Pause on Break"). That is about 40 bytes
-      in OODOS and OOLIB's interface 9.
+      in OODOS and a new OOLIB interface version, 11 or later (9 is function 77's, 10 function 75's A = 2).
     - **While GW-BASIC runs, the monitor can't stop it.** A GW-BASIC that has hung (a primitive's endless loop, a
       bad POKE) needs Ctrl-Reset.
 
