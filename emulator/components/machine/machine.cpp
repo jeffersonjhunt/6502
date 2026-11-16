@@ -19,6 +19,7 @@
 #include "console_card.h"
 #include "dma_controller.h"
 #include "emu_log.h"
+#include "flash.h"
 #include "hd44780.h"
 #include "joystick_ports.h"
 #include "memory_devices.h"
@@ -251,11 +252,11 @@ namespace ooe::emu
                 m->peripherals_.push_back(std::move(p));
                 continue;
             }
-            if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
+            if (type != "ram" && type != "rom" && type != "flash" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
                 type != "dma" && type != "console" && type != "video" && type != "usb" && type != "disk2" &&
                 type != "sound" && type != "sd" && type != "aperture")
                 return fail("unknown type '" + type +
-                            "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
+                            "' (want cpu, northbridge, ram, rom, flash, pia6821, via6522, acia6551, dma, console, video, "
                             "aperture, usb, disk2, sound, sd, hd44780, ps2kbd or joyports)");
 
             Mapping map;
@@ -348,20 +349,34 @@ namespace ooe::emu
                     return fail("ram takes no image");
                 dev = std::make_unique<Ram>(size);
             }
-            else if (type == "rom")
+            else if (type == "rom" || type == "flash")
             {
+                if (type == "flash" && size % 2)
+                    return fail("flash: two chips, even and odd bytes: want an even size");
                 if (!rom_overridden && !options.rom_override.empty())
                 {
                     image = options.rom_override;
                     rom_overridden = true;
                 }
                 if (image.empty())
-                    return fail("rom: needs an image file, or - for erased flash");
-                auto rom = std::make_unique<Rom>(size);
+                    return fail(type + ": needs an image file, or - for erased flash");
+                std::unique_ptr<Rom> rom;
+                Flash *flash = nullptr;
+                if (type == "flash")
+                {
+                    auto f = std::make_unique<Flash>(size);
+                    f->attach(&m->bus_); // its busy times, in the bus's cycles
+                    flash = f.get();
+                    rom = std::move(f);
+                }
+                else
+                    rom = std::make_unique<Rom>(size);
                 if (image == "-")
                     rom->erase();
                 else if (!rom->load(image))
-                    return fail("rom: cannot load " + image);
+                    return fail(type + ": cannot load " + image);
+                if (flash)
+                    m->flashes_.push_back(flash);
                 dev = std::move(rom);
             }
             else

@@ -88,7 +88,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -157,6 +157,7 @@ emu_add_test(test_eater)
 emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
+emu_add_test(test_flash) # the flash's two chips (step B5): commands, busy times, status
 emu_add_test(test_ds3231)
 emu_add_test(test_rtc)
 target_compile_definitions(test_rtc PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
@@ -775,7 +776,7 @@ endif()
 # What each suite covers (hw/testing.md, items 1-4), for `ctest -L` and tools/check.sh changed, which picks
 # the suites a branch's paths choose through tools/test-map.txt. One place: a suite and its labels a line.
 # The parts: cpu, bus, machine (the core: a change there runs everything), debug, app (apps/emu), a label a
-# device (acia, bridge, console, disk2, dma, es5503, iie, joy, lcd, pia, rtc, sd, sid, sound, usb, via,
+# device (acia, bridge, console, disk2, dma, es5503, flash, iie, joy, lcd, pia, rtc, sd, sid, sound, usb, via,
 # video), backplane (the suite builds machines/backplane.machine, so runs every card on it), and the
 # software a suite runs: bios, oodos, apple (the owner's Apple IIe ROMs and disks), apple1,
 # eater, docs, and tools (the tiers' own scripts). And one that is a kind, not a part: emu, the emulator's own
@@ -794,13 +795,14 @@ set(EMU_TEST_LABELS
     test_acia                   "emu acia"
     test_lcd                    "emu lcd via"
     test_decoder                "emu bus pia via"
-    test_machine                "emu machine apple1 acia bridge console dma lcd pia via"
+    test_machine                "emu machine apple1 acia bridge console dma flash lcd pia via"
     test_loader                 "emu machine debug"
     test_rom_boot               "emu apple1 pia"
     test_eater                  "emu eater lcd via acia"
     test_disasm                 "emu debug"
     test_debugger               "emu debug pia"
     test_backplane              "emu bridge pia backplane"
+    test_flash                  "emu flash bridge"
     test_ds3231                 "emu rtc"
     test_rtc                    "emu rtc bridge debug backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"

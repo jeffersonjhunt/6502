@@ -387,6 +387,8 @@ namespace ooe::emu
             sound->set_cpu_hz(hz);
         if (SdCard *sd = machine_->sd_card())
             sd->set_cpu_hz(hz);
+        for (Flash *flash : machine_->flashes())
+            flash->set_cpu_hz(hz); // its busy times are real time
         if (BackplaneBridge *b = machine_->backplane_bridge())
             b->set_cpu_hz(cpu_hz_); // it knows Apple II mode's clock itself
         if (Disk2Card *d = machine_->disk2_card())
