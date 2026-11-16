@@ -39,7 +39,8 @@ own registers:
   the names stay.
 - **DMASTREAM** (`$C324`, *proposed*, B2's design): bit 0 says which stream the card's DMA request and its fly-by
   data register follow, 0 DMASEL1's, 1 DMASEL3's. Bits 7–1 read 0; it resets to 0. One stream runs at a time
-  ([hw/design.md](../../hw/design.md#the-serial-cards-stream-select)).
+  ([hw/design.md](../../hw/design.md#the-serial-cards-stream-select)). The stream registers take bytes, as the
+  TL16C552A's registers are 8 bits.
 - **INTSTAT** (`$C322`) says which part is interrupting: bit 0 COM1, bit 1 COM2, bit 2 LPT, bit 3 the VIA. Any of
   them pulls IRQL bit 6. The enables stay in the chip's own registers and the VIA's
   ([chapter 4](04-interrupts.md#the-serial-cards-intstat)).
@@ -53,7 +54,8 @@ picks: the card pulls /DREQ and answers the controller's poll on D6, its module'
 module 6 the CPLD selects that stream's data register, so the transfer is fly-by
 ([chapter 5](05-dma.md#transfers-for-a-card)). The channel that serves it is the one whose CARD names module 6;
 none does from reset (channel 1's is the video card's, channel 3's none), so the driver writes CARD on the channel
-it uses. A receive ring buffer is that channel in AUTO mode, with the program reading the channel's current address
+it uses, with WIDE 0: the card's registers take bytes ([16-bit transfers](05-dma.md#16-bit-transfers), *proposed*,
+B4). A receive ring buffer is that channel in AUTO mode, with the program reading the channel's current address
 to see how far it has got.
 
 **DMASTREAM in the emulator.** Nothing of it is modelled. `$C324` is in the 6551 stand-in's mirror there: a write

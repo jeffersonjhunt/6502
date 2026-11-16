@@ -831,8 +831,8 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
   `module=` (the parser keeps it, for buses with no north bridge).
 - **The controller.** One window at $00-$0F for the channel CONTROL's
   SELECT (bits 1-3 of CONTROL at $7E) names: ADDR and DEST 24 bits, COUNT,
-  MODE, CTRL, and CARD at $0C (MODULE bits 3-0, WIDE bit 4, stored with no
-  effect until B4). STATUS $10, ABORT $11, REQ $12, ID $82. State for eight
+  MODE, CTRL, and CARD at $0C (MODULE bits 3-0, WIDE bit 4, live since B4:
+  a word a transfer where the rules allow). STATUS $10, ABORT $11, REQ $12, ID $82. State for eight
   channels, all eight live since B3 (the window's reserved bytes and
   $13-$7D read $FF). CARD resets to $07 $09 $0A $08..., by `reset()`, which
   is also Apple II mode's /RESET pulse.
@@ -871,6 +871,22 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
 `CHANNELS` (8) is the one count, so SELECT 4-7 reach live channels, served
 by the take, latched in REQ, in STATUS, ABORT and `irq()`. hw/design.md's
 "B3: as built".
+
+**16-bit transfers (2026-11-16), step B4.** hw/design.md's "16-bit
+transfers" and "B4: as built". The decoder gains word cycles beside the
+byte ones (`dma_read_word`, `dma_write_word`, `dma_fly_by_word`): one cycle
+and one /WAIT stretch a word at an even address, the even address's mapping
+answering both lanes, `$FFFF` unmapped, one observer report with
+`BusCycle::word` and `data_high`. `Device` gains `dack_read_word` and
+`dack_write_word`, whose defaults are a card with D0-D7 only. The
+controller moves a word a transfer with CARD's WIDE, except under DEC or
+HOLD or a memory-to-memory copy of mixed parity; COUNT stays in bytes,
+ADDR and DEST step by 2, TC with the transfer that empties COUNT, BURST in
+transfers. The video card's port takes a word as two PDATA accesses, each
+stepping PSTEP; the aperture answers words as memory; the SD, sound and USB
+cards stay bytes. A WIDE 64 KB copy holds the bus 65,537 cycles (9.15 ms)
+against 131,073; a 4 KB port load takes 2,050 against 4,098. No ROM or
+OODOS byte changed, and nothing there sets WIDE yet.
 
 ## Backlog
 

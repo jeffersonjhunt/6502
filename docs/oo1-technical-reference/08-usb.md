@@ -169,7 +169,8 @@ Status: **proposed**
 - **The FIFO on DMA:** the card asks for DMA, by its module B, while the event FIFO isn't empty
   ([chapter 5](05-dma.md#transfers-for-a-card)). A channel serves it once software writes its CARD as `$0B`; none
   does from reset (channel 2's is the sound card's). `backplane.machine` leaves the card's request off /DREQ (no
-  `drq` on its line), so it pulls nothing, which keeps it from starting a poll on every key.
+  `drq` on its line), so it pulls nothing, which keeps it from starting a poll on every key. The FIFO takes bytes,
+  so CARD's WIDE stays 0 on a channel naming module B ([16-bit transfers](05-dma.md#16-bit-transfers)).
 - **The real 558,** so that the timers stay right whatever the CPU's speed. The emulator times them in software.
 
 ## Registers

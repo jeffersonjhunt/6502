@@ -415,6 +415,29 @@ TEST(break_puts_back_a_card_the_monitor_moved_so_c80c_still_boots)
     CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // loaded where it belongs
 }
 
+TEST(a_wide_left_on_channel_0_by_the_monitor_is_cleared_by_break)
+{
+    // b4-plan.md, the owner's Q11: since B4 WIDE is live, and the SD card's DATA takes bytes, so a WIDE the monitor
+    // (or WOZMON under OODOS) leaves on channel 0 would turn each of C80C's word grants into one byte. An accepted
+    // gap that Break recovers: QUIET writes every CARD whole, WIDE 0. Must fail if QUIET leaves CARD alone.
+    auto s = booted("fat12.sparse");
+    REQUIRE(s != nullptr);
+    std::string out;
+    s->send("C47E: 71\r");                       // SELECT 0, the master on
+    REQUIRE(run_until(*s, out, "\rC47E: 71"));
+    s->send("C40C: 17\r");                       // channel 0's CARD: mass storage, WIDE
+    REQUIRE(run_until(*s, out, "\rC40C: 17"));
+    REQUIRE(s->dma()->peek_channel(0, DmaController::CARD) == 0x17);
+    s->usb()->key(UsbCard::PAUSE, true);         // Pause/Break
+    s->run(FRAME);
+    s->usb()->key(UsbCard::PAUSE, false);
+    REQUIRE(run_until(*s, out, "\\\r"));
+    CHECK_EQ(s->dma()->peek_channel(0, DmaController::CARD), 0x07); // WIDE cleared
+    s->send("C80CR\r");
+    CHECK(run_until(*s, out, "\rBOOTED FROM SD\r"));
+    CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // loaded where it belongs, and it ran: every byte came
+}
+
 int main()
 {
     return run_all();

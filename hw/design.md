@@ -1891,7 +1891,8 @@ The decisions with it:
 
 **The 16-bit data bus (the owner's direction, 2026-11-14; not designed yet):**
 - **DMA transfers 16 bits.** A card with DMA moves a word on D0–D15 in each transfer to or from main memory, so a
-  transfer takes half the bus cycles it does now.
+  transfer takes half the bus cycles it does now. *Refined in B4: each card's documentation says whether its data
+  register takes words; WIDE is set only for those ([16-bit transfers](#16-bit-transfers)).*
 - **The CPU card may make the bus 16 bits throughout.** The CPU card would read or write all 16 bits of memory on
   each bus cycle and buffer them, shifting each byte into or out of the 8-bit CPU. The bus would then carry only
   16-bit cycles.
@@ -2283,7 +2284,7 @@ revision 1 (BIOS 0.13, OODOS 0.9) ([the B2 migration](#the-b2-migration-revision
 | `$11` | ABORT | write | bit n stops channel n at once; its ADDR and COUNT keep the values they stopped at |
 | `$12` | REQ | read | bit n: channel n's MODULE was requesting at the last poll (revision 1's "DRQn asserted now", STATUS bits 4–7) |
 | `$13`–`$7D` | | | reserved |
-| `$7E` | CONTROL | read/write | bit 0 master enable. **Bits 1–3 SELECT**: the channel the window at `$00–$0F` shows. Bits 4–6 BURST, as revision 1's. Bit 7 free (reads 0). Resets to `$70`: no burst limit, DMA off, SELECT 0 |
+| `$7E` | CONTROL | read/write | bit 0 master enable. **Bits 1–3 SELECT**: the channel the window at `$00–$0F` shows. Bits 4–6 BURST, as revision 1's (2^BURST transfers, a byte or a word, since B4). Bit 7 free (reads 0). Resets to `$70`: no burst limit, DMA off, SELECT 0 |
 | `$7F` | ID | read | `$82` |
 
 **CARD's reset values** follow the wiring `emulator/machines/backplane.machine` gave revision 1 (`sd drq=0`,
@@ -2330,6 +2331,10 @@ it means. STATUS, ABORT, REQ and the ID need no SELECT. The B2 migration below c
 | demand, block | 1 + n for n bytes, per take | demand: 2 + n, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
 | memory to memory | 1 + 2n | 1 + 2n; 2 + 2n only in a take that polls because a card's channel is armed beside it |
 
+With WIDE (since B4, [below](#16-bit-transfers)), n counts transfers, not bytes. A transfer is a word where the rules
+allow, so an aligned run of b bytes from an even address is b/2 transfers: a card's demand transfer of b bytes is
+2 + b/2 cycles, and memory to memory is 1 + 2t for t transfers, 2 cycles for 2 bytes.
+
 **The sound card's standing request (decided, the owner's answer 1, 2026-11-15).** At DRQSEL 0, its reset value and
 OODOS's idle value, and at 2, the sound card asks for DMA all the time (revision 1 sound always does), so with it
 fitted /DREQ is almost never high. Accepted as it is: memory-to-memory costs don't move; another card's transfer
@@ -2344,7 +2349,7 @@ value. With the master enable off (Apple II mode) it costs nothing.
   - the channel's MODULE on PS0–PS3, and /DMA low with /IACK high;
   - TC with the last transfer.
 - The memory answers its address, and the card named by PS puts or takes its data register on D0–D7 (a byte cycle;
-  memory steers), fly-by, one cycle a transfer, as now.
+  memory steers), or with WIDE on D0–D15 (a word cycle, at an even address), fly-by, one cycle a transfer, as now.
 - A card's logic: with PS its own and /DMA and /MEM high, a register chosen by A0–A6; with PS its own and /DMA low,
   /IACK high, its data register.
 
@@ -2362,18 +2367,39 @@ let go.
 
 #### 16-bit transfers ####
 
-**Proposed (B4).** CARD's WIDE bit, 0 at reset:
+**Proposed, emulated (B4).** CARD's WIDE bit, 0 at reset ([as built](#b4-as-built)):
 - **A word a transfer.** With WIDE set, each grant is a word cycle: the memory answers the word at the even address,
   both lanes, and the card puts or takes 16 bits of its data register. COUNT stays in bytes and goes down by 2;
-  ADDR steps up by 2.
+  ADDR steps up by 2, and so does DEST on a memory-to-memory copy. A word costs what a byte does: one cycle fly-by,
+  two memory to memory.
 - **Only counting up (decided, review round 1).** With DEC or HOLD set the channel moves bytes, WIDE or not. Words
   counting down would pair the wrong bytes, and a held word would fill alternate bytes.
 - **Alignment.** A transfer that starts at an odd address, or a last odd byte, is moved as a byte cycle, so any
-  count and address work. TC comes with the last transfer.
+  count and address work. TC comes with the transfer that empties COUNT, a byte or a word.
 - **Memory to memory** reads a word into a 16-bit latch and writes it: 2 cycles for 2 bytes. If the source and the
   destination differ in parity, it moves bytes, WIDE or not.
+- **BURST counts transfers** (the owner's answer 1, B4): 2^BURST transfers, a byte or a word, before the CPU gets a
+  cycle. A word grant costs what a byte grant does, so the CPU's longest wait is the same number of cycles.
+- **/WAIT is one line,** so a word grant takes one stretch: 1 + the longer of the memory's and the card's /WAIT, once
+  a word.
+- **One chip select a word.** The memory or card that decodes the even address answers both lanes. An unmapped word
+  floats `$FFFF` (the backplane's pull-ups).
 - **A card that takes only bytes** must not have WIDE set on its channel: each card's documentation says its data
-  register's width.
+  register's width. Given WIDE anyway, the bus does what it would: the card's register moves once a grant, on
+  D0–D7; D8–D15 float `$FF` to memory, and the odd byte from memory is lost.
+
+**Each card's data register** (the owner's answers 2–5, B4). The video entries are an addition beside the frozen
+[video-rev2.md](video-rev2.md), which says only that PDATA is a byte; its note in B7 names them.
+
+| Card, register | Width | In a word grant |
+|---|---|---|
+| Memory: the RAM card, ROM A and ROM B | words | the even byte on D0–D7, the odd on D8–D15; a byte cycle at an odd address is steered to D0–D7 |
+| The video card's aperture (`$E00000`, and bank 8 redirected there) | words | as memory: both bytes of the word in card memory |
+| The video card's port, PDATA (revision 2) | words | two port accesses in order: the even byte at PADDR, a PSTEP step, then the odd byte, another step. Every PSTEP and PCTL meaning holds: a column at PSTEP 160, a step-down copy, the wrap. PSTEP 0 keeps one byte: a word to the card leaves its odd byte, a word from it reads that byte twice. Against PCTL's direction a word reads `$FFFF`, a write is dropped and PADDR doesn't step. A word request means room for two bytes |
+| The SD card's DATA | bytes | WIDE stays 0 on channel 0. A word DATA is a later step of its own, with the RP2350 card's word port designed |
+| The sound card's RAMDATA, PCMDATA and DOCDATA | bytes | WIDE stays 0 on channel 2, and on any channel naming module A |
+| The USB card's event FIFO | bytes | WIDE stays 0 on any channel naming module B |
+| The serial card's stream registers (the TL16C552A's) | bytes | WIDE stays 0 on any channel naming module 6 |
 
 #### The serial card's stream select ####
 
@@ -2573,7 +2599,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 | **B1** memory by address | 24-bit physical addresses (`decoder.h`'s `PHYSICAL_SPACE` and `bus_address`, `space << 20` today); the RAM lines at `000000–0FFFFF`; the flash in the memory space at `F00000` and `F80000`; the north bridge's ROM bit to `$F00000 + b × $4000`; the aperture line at `E00000–E0FFFF`, with bank 8 sent to it **only while a revision 2 video card is fitted**, as the aperture line is inert without one today (review round 1), so a machine with no such card keeps bank 8 as RAM; the bus trace's address column wider; `backplane.machine` | nothing | nothing | the Technical Reference's chapters 2 and 14 (the map), the emulator notes | none: no software-visible change |
 | **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module (as built: a bare `drq` flag, [as built](#b2-as-built)); revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled; the controller stretching a grant while /WAIT is low; the emulator's wait-state model (`decoder.h`: a mapping's `wait` and the bridge's `wait_states`, RDY wait states today) becomes /WAIT, seen by the CPU's cycles and by a DMA grant alike | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers-revision-1-dropped-in-b2) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
 | **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ ([as built](#b3-as-built)) | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5; chapter 15's D1 count, the Technical Reference's contents | none |
-| **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
+| **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) ([as built](#b4-as-built)) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
 | **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register; the WebUI's bank 8 breakpoint check follows AP8, not `VIDEO_ID` (B1's follow-up, [as built](#b1-as-built)) | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
@@ -2835,6 +2861,107 @@ programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS 0.10 
   (answer 9).
 - **The books:** the Technical Reference's chapter 5 (all eight live; STATUS, ABORT and REQ), its contents, chapter
   15's D1 count; [diag.md](diag.md#b2-dma-revision-2); `emulator/docs/EMULATOR_PLAN.md`.
+
+#### B4: as built ####
+
+**Proposed, emulated (2026-11-16).** Step B4, 16-bit transfers, on `feat/bus-b4` off main `cfedc62` (B3's merge),
+with the owner's eleven answers to its plan ("recommendations as listed") and the critic's ten findings. CARD's WIDE
+is live in the emulator. No interface programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS
+0.10 (interface 10). `git diff --stat main` names no path under `backplane/`, `oodos/` or `emulator/test/host/sd/`,
+so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or OODOS sets WIDE (answer 6).
+
+- **The bus** (`decoder.h` 0.14.0, `device.h` 0.8.0, `bus_cycle.h` 0.2.0). The decoder gains word cycles beside its
+  byte ones, which are unchanged: `dma_read_word`, `dma_write_word` and `dma_fly_by_word`, each one bus cycle at an
+  even physical address, the even byte on D0–D7 and the odd on D8–D15, stretched once by /WAIT (the longer of the
+  memory's and the card's). The mapping that decodes the even address answers both lanes, as one chip select does,
+  even where another mapping overlays the odd address (a small choice: today's overlays are 16 KB-aligned, so nothing
+  is affected); an odd byte past that mapping's end floats `$FF` and its write is dropped. Unmapped, a word reads
+  `$FFFF`. Memory steering, a byte cycle at an odd address carried on D0–D7, needed no code: RAM, ROM and the
+  aperture are byte devices reached by offset. The line that tells byte cycles from word cycles (B6's pin) is
+  modelled as the call, and as a word flag on `Access` and `BusCycle`, which carries D8–D15 too. The observers see
+  one cycle a word, at its even address. `Device` gains `dack_read_word` and `dack_write_word`; their defaults are a
+  card with D0–D7 only (one register access a grant, D8–D15 high, the odd byte from memory lost).
+- **The controller** (`dma_controller.h` 0.4.0). At each take the channel moves words when WIDE is set, neither DEC
+  nor HOLD is, and, memory to memory, ADDR and DEST have one parity; it is decided each take, since software may
+  rewrite them between. Then a transfer is a word at an even ADDR with two bytes or more left, else a byte (an odd
+  head, an odd last byte). COUNT drops by the width, ADDR and DEST step by it (`$FFFFFE` + 2 wraps to 0), TC comes
+  with the transfer that empties COUNT, and BURST counts transfers (answer 1). AUTO, STATUS, the interrupt, ENABLE
+  and REQ, the take, `reset()` and `pulse_reset()` (CARD's reset values have WIDE 0) are as they were.
+- **The cards' widths, as answered** ([above](#16-bit-transfers)): the video card's port takes a word as two PDATA
+  accesses, each stepping PSTEP (answer 2, `video_card.h` 0.2.0); the aperture answers both lanes, with no code
+  (answer 3); the SD card's DATA (answer 4), the sound and USB cards (answer 5) and the serial card take bytes, and
+  their code is unchanged. The Console card's lights and LDATA show D0–D7, the even byte, on a word cycle, and its
+  breakpoint matches only the even address, so a breakpoint on a word's odd byte doesn't fire on a WIDE DMA
+  (answer 7); `console_card.cpp` is unchanged. The CPU card's word buffer (a "may", not in the B4 row) isn't modelled:
+  it is invisible to cycle counts.
+- **The expectations changed, the two the owner approved with the plan,** both comments in `test_dma.cpp`, no check
+  touched: the file's comment (one cycle a fly-by transfer or two a memory-to-memory one, a transfer being a byte,
+  or a word with WIDE) and the read-back line's "it does nothing until B4". Every other expectation held, since
+  nothing set WIDE before a transfer: the 64 KB copy's 131,073 cycles, `DM_LOAD`'s 114,761, the frame costs, SD4,
+  the goldens and every version string.
+- **New cases,** each seen failing under the fault named:
+  - test_decoder: a word's lanes (lanes swapped); one /WAIT stretch a word, a fly-by 4 cycles with the memory's 2
+    and the card's 3 (a word as two byte cycles); a byte-only card in a word grant (the default reading the card
+    twice); an unmapped word and the observer's one cycle (told twice, or D8–D15 left 0); a mapping ending even
+    (the odd lane looked up by its own address).
+  - test_dma: a 2 KB copy even to even, 1 + 2,048 cycles (WIDE ignored: 1 + 4,096); an odd head and last byte as
+    bytes, TC on the last grant whatever its width (a word at an odd address; TC compared with 1); DEC and HOLD
+    moving bytes under WIDE (either guard dropped); a demand transfer ending when the card lets go after a word,
+    added in review (the release checked after byte grants only); the parity rule (dropped); COUNT, ADDR and DEST
+    stepping by 2 and the wrap, with AUTO and the interrupt (`step()` by 1; the carry into A16–A23); a byte-only
+    card on a WIDE channel (the default hooks moving two bytes); single mode, 3 cycles a word (the word split in
+    two grants); BURST counting transfers (bytes counted); the observer's one cycle a word (each byte reported); a
+    channel with no card floating `$FFFF` (the float on D0–D7 only); and the 64 KB copy on the backplane machine
+    with CARD `$18` (WIDE ignored).
+    `card_resets_to_todays_wiring` is the /RESET guard (the critic's 2): run once with reset keeping WIDE, it fails.
+  - test_video_rev2: the port's two accesses at PSTEP 160, stepping down, PSTEP 1 and PSTEP 0 (the word stored at
+    PADDR and PADDR + 1 with one step); a word against PCTL's direction (the direction not checked; PADDR stepped);
+    word cycles through the aperture at `$E00200` and, by bank 8, `$80400` (the aperture on D0–D7 only); a 4 KB port
+    load (the card's word hooks left at the defaults).
+  - test_bios_sd (answer 11): `C40C: 17` at the monitor, Break, then `C80C` boots (QUIET's write of CARD made a
+    read: CARD stays `$17` and the boot never completes).
+- **Measured** at 7,159,090 Hz:
+  - a 64 KB copy memory to memory on the backplane machine (channel 3, CARD `$18`, BURST no limit): the DMA holds
+    the bus 1 + 2 × 32,768 = 65,537 cycles (9.154 ms), against 131,073 (18.309 ms) without WIDE; the program, with
+    its setup before WAI, wakes at cycle 65,606 (9.164 ms) against 131,142 (18.318 ms), the same program under the
+    WIDE-ignored mutant;
+  - a 2 KB copy, even to even, 1 + 2,048 cycles; 16 bytes even to even 1 + 16, odd to odd 1 + 18 (a byte, 7
+    words, a byte), even to odd and odd to even 1 + 32;
+  - 256 bytes copied into the aperture at `$E00200`, and at `$80400` through bank 8, 1 + 256 cycles;
+  - a 4 KB load into the video port from RAM (channel 1, demand, CARD `$19` against `$09`): 2,050 cycles (0.286 ms)
+    with WIDE, 4,098 (0.572 ms) without: the takeover and the poll, then a cycle a word against one a byte;
+  - single mode, 3 cycles a word: the takeover, the poll, the word.
+- **Apple II mode is unaffected:** the master enable is off in the mode, so the controller never takes the bus;
+  the /RESET that enters it puts every CARD back with WIDE 0; APPLE writes no CARD, and its six fills are HOLD fills
+  from an odd held source, bytes by two rules; the IIe's character ROM reaches card memory by CPU writes to PDATA;
+  the video card's snoop sees only the CPU's byte cycles. No case was added (answer 9): none could fail under a
+  plausible fault.
+- **Gaps, recorded:**
+  - A WIDE left on channel 0 by the monitor (`C40C: 17`) or WOZMON.COM under OODOS: the SD card's DATA takes bytes,
+    so each word grant moves one byte; a boot or a sector read puts the sector's first 256 bytes at the even
+    addresses, `$FF` in each odd one, and leaves the other 256 in the card, and a sector write hands the card 256 of its 512 bytes before TC (answer 11). Break recovers it, since QUIET writes
+    every CARD whole; OODOS's warm boot (DEAFEN) doesn't. OODOS's next release writes CARD back in its warm boot,
+    with B3's ABORT of channels 4–7.
+  - No diagnostic sees D8–D15 (answer 8): the CPU and every byte cycle use D0–D7, so a fault there is harmless while
+    no software sets WIDE. A word pass is a later diagnostics item, with BIOS 0.16: a WIDE copy of one parity checked
+    by the CPU, in D3, and a word reading beside SD4's if the SD card takes words
+    ([diag.md](diag.md#b4-16-bit-transfers)).
+- **Later** (answer 6): software adopting WIDE where a card takes words, PORTJOB's scroll jobs, PORTDMA, PORTRUN and
+  VBWORK through the port, DMAGO's copies of one parity, and LOADRUN and SDIO only once the SD card takes words. It
+  ships as BIOS 0.16, with B3's D1 alias pass and the word pass, and OODOS's next release, with B3's ABORT of 4–7,
+  writing CARD whole at each setup and re-measuring `DM_LOAD`, the frame costs, `DM_VWRITE` and SD4. The Console
+  card's lights and latch widened to 16 bits is later Console card work.
+- **Left for B7:** [video-rev2.md](video-rev2.md) is frozen and not touched. The note B7 adds (B0's answer 7) is to
+  name the port's word rule and the aperture's two lanes, and that its "2 cycles a byte" (its diagram, and the DMA
+  bullet under the port) and "about 8,200 cycles" for a 4 KB font are revision 1's pace: the emulator moves a port
+  byte in one cycle, a word in one cycle with WIDE.
+- **Not changed:** the bus trace (still version 1: DMA is a gap there, word cycles too), the WebUI, the WASM bindings
+  and `Session::TraceRow`; no machine-file token (a card's width is its class's); no site release of B4's own (answer
+  10).
+- **The books:** the Technical Reference's chapters 5 (a new section,
+  [16-bit transfers](../docs/oo1-technical-reference/05-dma.md#16-bit-transfers)), 6, 7, 8, 9, 10, 12 and 14 and its
+  contents; [diag.md](diag.md#b4-16-bit-transfers); `emulator/docs/`
+  (EMULATOR_PLAN.md, BUS_TRACE.md).
 
 #### The owner's answers (B0) ####
 

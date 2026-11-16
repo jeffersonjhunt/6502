@@ -169,13 +169,15 @@ entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layo
   No sprites are drawn, and so none collide, while the display is off or the splash covers the screen.
 
 A program keeps its table in ordinary RAM and copies it into video memory in the vertical blank, by DMA, as the
-demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-dma.md#memory-to-memory)). Two
+demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-dma.md#memory-to-memory)), or
+one cycle a byte with WIDE and the two addresses of one parity (*proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)), which nothing sets yet. Two
 tables and a SPRBASE write to flip between them also work, but SPRBASE is latched at line 480: written before it, the
 flip shows on the next frame; written in the vertical blank, a frame later.
 
 hw/design.md, "Video" ([`hw/design.md:556`](../../hw/design.md#video)), puts a copy of the whole 512-byte table at
 about 72 µs. The DMA controller takes two cycles a byte for a memory-to-memory copy
-(`emulator/components/devices/dma_controller.cpp:109–110`), so it is about 143 µs at 7.16 MHz.
+(`DmaController::transfer()` in `emulator/components/devices/dma_controller.cpp`), so it is about 143 µs at 7.16 MHz.
+With WIDE and both addresses even it takes two cycles a word, 1 + 512 cycles, about 72 µs.
 
 ## The palette
 
@@ -505,7 +507,9 @@ card. It is four slots of 16 KB, blocks 32–35, and slot *n* shows card memory 
 ([chapter 2](02-memory-and-banking.md#the-four-windows)) shows slot *n*, so a program can have a sprite table in one
 window and part of a bitmap in another.
 
-- **Reads and writes** are ordinary memory cycles, with no wait states at 7.16 MHz.
+- **Reads and writes** are ordinary memory cycles, with no wait states at 7.16 MHz. The aperture answers word
+  cycles too (DMA with WIDE, *proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)), both bytes of the word, as
+  any memory does: a WIDE copy of 256 bytes into it takes 1 + 256 cycles.
 - **At /RESET** SLOT*n* is *n*: the aperture shows card memory `$000000–$00FFFF` in order, so slot 0, block 32, is
   the palette, the font and the text screen, and the BIOS reaches the screen with nothing set up first.
 - **Paging** a slot is two register writes; until both are written the slot shows the page the two bytes make, so
@@ -538,6 +542,15 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
   memory, or back, fly-by (*proposed*: revision 1's controller had a DRQ line wired to channel 1 instead)
   ([chapter 5](05-dma.md#channel-1-the-video-cards-data-port)). PCTL's bit 1 must agree with the channel's DIR: a DMA
   cycle against it moves nothing (a read gives `$FF`, a write is dropped) and leaves PADDR where it was.
+- **A word grant** (channel 1's CARD with WIDE, `$19`; *proposed*, B4, [chapter 5](05-dma.md#16-bit-transfers)) is
+  two port accesses in order: the even byte (D0–D7) at PADDR, a PSTEP step, then the odd byte (D8–D15), another
+  step. So every PSTEP and PCTL meaning holds: PSTEP 160 puts the two bytes in a column, PCTL's bit 2 takes both steps
+  down, and PADDR wraps as for a byte. PSTEP 0 keeps one byte: a word to the card leaves its odd byte at PADDR, and
+  a word from it reads that byte twice. Against PCTL's direction a word reads `$FFFF`, a write is dropped and PADDR
+  doesn't step. A word request means the port has room for two bytes; the emulated port always has. A 4 KB load
+  from RAM takes 2,050 cycles this way, against 4,098 a byte at a time. This is an addition beside
+  [hw/video-rev2.md](../../hw/video-rev2.md#data-port-and-dma), which has PDATA a byte
+  ([hw/design.md](../../hw/design.md#16-bit-transfers)). Neither the BIOS nor OODOS sets WIDE yet.
 - **Within card memory,** a scroll or a moved sprite image goes out through the port and back in; the card has no
   copy engine yet.
 
@@ -1618,6 +1631,11 @@ Whatever card memory holds at PADDR.
 #### Status
 
 **proposed**
+
+#### Notes
+
+A DMA word grant (WIDE, *proposed*, B4) is two port accesses, even byte first, each stepping PADDR by PSTEP
+([the data port](#the-data-port)).
 
 <a id="reg-c4bc"></a>
 ### $C4BC VIDEO_PSTEP: the port's step

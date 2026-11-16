@@ -4,8 +4,8 @@
  * @file device.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A chip on the bus: addressed by offset within its mapping.
- * @version 0.7.0
- * @date 2026-10-22
+ * @version 0.8.0
+ * @date 2026-11-16
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -26,7 +26,14 @@
  * channel whose CARD names the card's module, which it puts on PS0-PS3.
  * The grant cycles are fly-by: the card drives or takes the data while the
  * controller addresses memory, so dack_read() and dack_write() have no
- * offset. `tc` marks the transfer's last byte (the TC line).
+ * offset. `tc` marks the transfer's last byte or word (the TC line).
+ *
+ * Word grants (step B4, CARD's WIDE): a grant may move a word on D0-D15,
+ * the even byte on D0-D7. A card whose data register takes words says so
+ * by overriding dack_read_word() and dack_write_word(); the defaults are a
+ * card with D0-D7 only, as the bus sees it: its register moves once a
+ * grant, D8-D15 float high to memory and the odd byte from memory is lost.
+ * That is why WIDE must not be set on such a card's channel.
  */
 
 #include <cstddef>
@@ -82,5 +89,10 @@ namespace ooe::emu
             (void)data;
             (void)tc;
         }
+        /// A word grant, card to memory: D0-D7 the even byte, D8-D15 the odd. Default: a card with
+        /// D0-D7 only, its byte once and D8-D15 pulled up.
+        virtual uint16_t dack_read_word(bool tc) { return static_cast<uint16_t>(0xFF00u | dack_read(tc)); }
+        /// A word grant, memory to card. Default: a card with D0-D7 only takes the even byte, once.
+        virtual void dack_write_word(uint16_t data, bool tc) { dack_write(static_cast<uint8_t>(data), tc); }
     };
 } // namespace ooe::emu

@@ -30,7 +30,9 @@ cycle. hw/design.md's "Front Panel" supersedes the switch list in hw/console.md.
 **The lamps:**
 
 - **A0–A19:** the physical address, after the north bridge, so not always the CPU's address.
-- **D0–D7:** the data bus, or DISPLAY while CTRL's bit 3 is set.
+- **D0–D7:** the data bus, or DISPLAY while CTRL's bit 3 is set. On a DMA word cycle (CARD's WIDE, *proposed*, B4:
+  [chapter 5](05-dma.md#16-bit-transfers)) they show D0–D7, the even byte: the card has eight data lamps, and the
+  cycle is one, at its even address.
 - **SYNC, RWB, VPB and RDY:** the CPU's lines.
 
 While the machine runs, each lamp glows with the share of bus cycles its line was high, so the lamps show what the
@@ -83,7 +85,9 @@ Status: **emulated**
 BPADDR holds a 20-bit physical address, and BPCTRL says which cycles at it match and what then happens. The
 comparator checks the A0–A19 of every bus cycle, the DMA controller's included. On the 24-bit bus (*proposed*,
 [chapter 2](02-memory-and-banking.md#the-24-bit-bus)) it also wants A20–A23 0, so a cycle to the flash or the video
-aperture never matches, and LADDR and the lights show such a cycle's A0–A19.
+aperture never matches, and LADDR and the lights show such a cycle's A0–A19. A DMA word cycle (WIDE, *proposed*, B4)
+is one cycle at its even address, so it matches only a BPADDR equal to that even address: a breakpoint on a word's
+odd byte doesn't fire on a WIDE DMA ([chapter 5](05-dma.md#16-bit-transfers)).
 
 - **A fetch** (BPCTRL bit 1) matches an opcode fetch. A fetch that halts stops the CPU before that instruction, with
   PC on it: LADDR is BPADDR, LDATA the opcode and LSTAT `$03`, SYNC and a read.
@@ -495,7 +499,8 @@ R. Writes are ignored.
 
 #### Bits
 
-All: the latched cycle's D0–D7. For a fetch breakpoint that halts, the opcode.
+All: the latched cycle's D0–D7. For a fetch breakpoint that halts, the opcode. For a DMA word cycle (WIDE,
+*proposed*, B4), the even byte.
 
 #### Reset
 

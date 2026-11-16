@@ -446,6 +446,180 @@ TEST(dreq_is_the_wired_cards_or_and_the_poll_finds_each_by_module)
     CHECK_EQ(watch.seen, 0u);                          // not reported, as the takeover isn't
 }
 
+// Word cycles (step B4, hw/design.md "16-bit transfers"): the DMA controller's WIDE moves a word on D0-D15 at an
+// even address, in one bus cycle.
+
+TEST(a_word_cycle_carries_the_even_byte_on_d0_d7_and_the_odd_on_d8_d15)
+{
+    // Must fail with the lanes swapped (a memory card with D0-D7 and D8-D15 crossed: every word load byte-swapped).
+    struct Watch : CycleObserver
+    {
+        void on_cycle(const BusCycle &) override {}
+    };
+    Ram ram(0x10000);
+    Watch watch;
+    Decoder bus;
+    bus.set_dma_observer(&watch); // last_access() describes a bus master's cycle while something watches
+    bus.map({0x00000, 0x0FFFF, &ram});
+    for (uint32_t i = 0; i < 0x100; ++i)
+        ram.write(0x1200 + i, static_cast<uint8_t>(i * 3 + 1));
+    uint16_t v = 0;
+    uint64_t t = bus.now();
+    CHECK_EQ(bus.dma_read_word(0x1234, v), 1u);
+    CHECK_EQ(bus.now() - t, 1u);                                  // one cycle for both bytes
+    CHECK_EQ(v, static_cast<uint16_t>(ram.peek(0x1235) << 8 | ram.peek(0x1234)));
+    CHECK_EQ(v, 0xA09Du);                                         // $1235: $35 x 3 + 1 = $A0; $1234: $9D
+    CHECK(bus.last_access().word);
+    CHECK_EQ(bus.last_access().physical, 0x1234u);
+    t = bus.now();
+    CHECK_EQ(bus.dma_write_word(0x2000, 0xBEEF), 1u);
+    CHECK_EQ(bus.now() - t, 1u);
+    CHECK_EQ(ram.peek(0x2000), 0xEF);                             // the even byte, D0-D7
+    CHECK_EQ(ram.peek(0x2001), 0xBE);                             // the odd, D8-D15
+    CHECK(bus.last_access().word);
+    uint8_t b = 0;
+    bus.dma_read(0x2001, b);                                      // a byte cycle at an odd address: memory steers
+    CHECK_EQ(b, 0xBE);
+    CHECK(!bus.last_access().word);
+}
+
+TEST(a_word_cycle_takes_one_wait_stretch_the_longer_side)
+{
+    // /WAIT is one line and a word is one cycle: 1 + max(memory, card), once. Must fail if a word is done as two
+    // byte cycles (a fly-by 8, a read 6): no speed gained, and a card's /WAIT counted twice.
+    struct Card : Ram
+    {
+        Card() : Ram(0x80) {}
+        uint16_t dack_read_word(bool) override { return 0x1234; }
+        void dack_write_word(uint16_t data, bool) override { got = data; }
+        uint16_t got{0};
+    };
+    Ram ram(0x10000);
+    Card card;
+    Decoder bus;
+    bus.map({0x00000, 0x0FFFF, &ram, NO_MODULE, false, 2});
+    bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &card, 0x7, false, 3});
+    uint64_t t = bus.now();
+    CHECK_EQ(bus.dma_fly_by_word(0x4000, card, true, false), 4u); // the card's 3 is the longer
+    CHECK_EQ(bus.now() - t, 4u);
+    CHECK_EQ(ram.peek(0x4000), 0x34);
+    CHECK_EQ(ram.peek(0x4001), 0x12);
+    CHECK_EQ(bus.dma_fly_by_word(0x4000, card, false, true), 4u); // and from memory
+    CHECK_EQ(card.got, 0x1234u);
+    uint16_t v = 0;
+    t = bus.now();
+    CHECK_EQ(bus.dma_read_word(0x4000, v), 3u);                   // memory's 2 alone
+    CHECK_EQ(bus.now() - t, 3u);
+    CHECK_EQ(bus.dma_write_word(0x4002, v), 3u);
+}
+
+TEST(a_byte_only_card_in_a_word_grant_drives_d0_d7_only)
+{
+    // Device's default word hooks are a card with D0-D7 only, as the bus sees it: one register access a grant,
+    // D8-D15 pulled up to memory, the odd byte from memory lost. Must fail if the default calls dack_read() twice
+    // (two bytes taken from a register that moves once a grant).
+    struct Card : Ram
+    {
+        Card() : Ram(0x80) {}
+        uint8_t dack_read(bool tc) override
+        {
+            tcs.push_back(tc);
+            return static_cast<uint8_t>(0xA0 + reads++);
+        }
+        void dack_write(uint8_t data, bool tc) override
+        {
+            tcs.push_back(tc);
+            sent.push_back(data);
+        }
+        unsigned reads{0};
+        std::vector<uint8_t> sent;
+        std::vector<bool> tcs;
+    };
+    Ram ram(0x10000);
+    Card card;
+    Decoder bus;
+    bus.map({0x00000, 0x0FFFF, &ram});
+    bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &card, 0x7});
+    CHECK_EQ(bus.dma_fly_by_word(0x3000, card, true, false), 1u);
+    CHECK_EQ(bus.dma_fly_by_word(0x3002, card, true, true), 1u);
+    CHECK_EQ(card.reads, 2u);                                     // once a grant
+    CHECK_EQ(ram.peek(0x3000), 0xA0);
+    CHECK_EQ(ram.peek(0x3001), 0xFF);                             // D8-D15 float high
+    CHECK_EQ(ram.peek(0x3002), 0xA1);
+    CHECK_EQ(ram.peek(0x3003), 0xFF);
+    ram.write(0x5000, 0x11);
+    ram.write(0x5001, 0x22);
+    CHECK_EQ(bus.dma_fly_by_word(0x5000, card, false, true), 1u);
+    REQUIRE(card.sent.size() == 1u);                              // the even byte, once
+    CHECK_EQ(card.sent[0], 0x11);
+    CHECK(card.tcs == (std::vector<bool>{false, true, true}));    // TC passed through
+}
+
+TEST(an_unmapped_word_reads_ffff_and_the_observer_sees_one_cycle)
+{
+    // An emulator-model check: the observer (the Console card, a bus spy) sees a word cycle once, at the even
+    // address, with both bytes. Must fail if it is told twice, or data_high is left 0. Unmapped: $FFFF, the
+    // backplane's pull-ups.
+    struct Watch : CycleObserver
+    {
+        void on_cycle(const BusCycle &c) override { seen.push_back(c); }
+        std::vector<BusCycle> seen;
+    };
+    Ram ram(0x1000);
+    Watch watch;
+    Decoder bus;
+    bus.set_dma_observer(&watch);
+    bus.map({0x00000, 0x00FFF, &ram});
+    uint16_t v = 0;
+    CHECK_EQ(bus.dma_read_word(0x8000, v), 1u);
+    CHECK_EQ(v, 0xFFFFu);
+    REQUIRE(watch.seen.size() == 1u);
+    CHECK(watch.seen[0].word);
+    CHECK(watch.seen[0].dma);
+    CHECK(!watch.seen[0].write);
+    CHECK_EQ(watch.seen[0].addr, 0x8000u);
+    CHECK_EQ(watch.seen[0].data, 0xFF);
+    CHECK_EQ(watch.seen[0].data_high, 0xFF);
+    CHECK_EQ(bus.dma_write_word(0x8002, 0x1234), 1u);             // dropped
+    ram.write(0x0100, 0x5A);
+    ram.write(0x0101, 0xC3);
+    CHECK_EQ(bus.dma_read_word(0x0100, v), 1u);
+    REQUIRE(watch.seen.size() == 3u);
+    CHECK(watch.seen[1].write);
+    CHECK_EQ(watch.seen[1].data, 0x34);
+    CHECK_EQ(watch.seen[1].data_high, 0x12);
+    CHECK_EQ(watch.seen[2].addr, 0x0100u);
+    CHECK_EQ(watch.seen[2].data, 0x5A);
+    CHECK_EQ(watch.seen[2].data_high, 0xC3);
+    uint8_t b = 0;
+    bus.dma_read(0x0101, b);                                      // a byte cycle: no word, no high byte
+    REQUIRE(watch.seen.size() == 4u);
+    CHECK(!watch.seen[3].word);
+    CHECK_EQ(watch.seen[3].data_high, 0);
+}
+
+TEST(a_word_at_a_mapping_ending_even_floats_the_odd_byte)
+{
+    // The even address's mapping decodes the word cycle and answers both lanes (one chip select, as on the board),
+    // so an odd byte past its end floats and its write is dropped, even where another mapping starts there. No
+    // mapping in the repo ends even today. Must fail if the odd lane is looked up by its own address.
+    Ram low(0x1001), high(0x1000);
+    Decoder bus;
+    bus.map({0x00000, 0x01000, &low});                            // ends at an even address
+    bus.map({0x01001, 0x02000, &high});
+    low.write(0x1000, 0x77);
+    high.write(0x0000, 0x88);
+    uint16_t v = 0;
+    CHECK_EQ(bus.dma_read_word(0x1000, v), 1u);
+    CHECK_EQ(v, 0xFF77u);                                         // D8-D15 float: the second Ram doesn't answer
+    CHECK_EQ(bus.dma_write_word(0x1000, 0x2211), 1u);
+    CHECK_EQ(low.peek(0x1000), 0x11);
+    CHECK_EQ(high.peek(0x0000), 0x88);                            // dropped
+    uint8_t b = 0;
+    bus.dma_read(0x1001, b);                                      // a byte cycle there is the second Ram's
+    CHECK_EQ(b, 0x88);
+}
+
 int main()
 {
     return run_all();

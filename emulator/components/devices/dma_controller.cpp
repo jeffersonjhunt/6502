@@ -40,11 +40,11 @@ namespace ooe::emu
         v = (v & ~(0xFFu << (8 * i))) | static_cast<uint32_t>(b) << (8 * i);
     }
 
-    uint32_t DmaController::step(uint32_t addr, uint8_t mode)
+    uint32_t DmaController::step(uint32_t addr, uint8_t mode, unsigned width)
     {
         if (mode & HOLD)
             return addr;
-        return (mode & DEC ? addr - 1 : addr + 1) & ADDR_MASK;
+        return (mode & DEC ? addr - 1 : addr + width) & ADDR_MASK; // DEC never moves a word
     }
 
     unsigned DmaController::take_bus(Decoder &bus)
@@ -139,36 +139,58 @@ namespace ooe::emu
         // The card the channel's MODULE names, on PS0-PS3 for the grant; none: a floating bus.
         const uint8_t module = c.card & CARD_MODULE;
         const Mapping *card = mem_to_mem || module == CARD_NONE ? nullptr : bus.dreq_card(module);
+        // WIDE (16-bit transfers): never with DEC or HOLD, and memory to memory only with ADDR and DEST of one
+        // parity, so the latch keeps each byte on its lane. Decided each take: software may rewrite them between.
+        const bool wide = (c.card & WIDE) && !(c.mode & (DEC | HOLD)) && (!mem_to_mem || !((c.addr ^ c.dest) & 1));
 
         unsigned cycles = 0;
-        for (uint32_t moved = 0; moved < limit; ++moved)
+        for (uint32_t moved = 0; moved < limit; ++moved) // BURST counts transfers, a byte or a word
         {
             if (!c.count) // never written since reset, or run out: COUNT 0 is 65,536
                 c.count = FULL_COUNT;
-            const bool tc = c.count == 1;
+            // A word at an even address with two bytes or more left; an odd head or last byte goes as a byte.
+            const bool word = wide && !(c.addr & 1) && c.count >= 2;
+            const unsigned width = word ? 2u : 1u;
+            const bool tc = c.count == width; // the transfer that empties COUNT
             if (mem_to_mem)
             {
-                uint8_t v = 0;
-                cycles += bus.dma_read(c.addr, v);
-                cycles += bus.dma_write(c.dest, v);
-                c.addr = step(c.addr, c.mode);
-                c.dest = step(c.dest, static_cast<uint8_t>(c.mode & ~HOLD)); // HOLD is the source's
+                if (word)
+                {
+                    uint16_t v = 0;
+                    cycles += bus.dma_read_word(c.addr, v);
+                    cycles += bus.dma_write_word(c.dest, v);
+                }
+                else
+                {
+                    uint8_t v = 0;
+                    cycles += bus.dma_read(c.addr, v);
+                    cycles += bus.dma_write(c.dest, v);
+                }
+                c.addr = step(c.addr, c.mode, width);
+                c.dest = step(c.dest, static_cast<uint8_t>(c.mode & ~HOLD), width); // HOLD is the source's
             }
             else
             {
                 const bool to_memory = (c.mode & DIR) == TO_MEMORY;
                 if (card)
-                    cycles += bus.dma_fly_by(c.addr, *card, module, to_memory, tc);
-                else if (to_memory)
-                    cycles += bus.dma_write(c.addr, Decoder::UNMAPPED_READ); // no card: a floating bus
+                    cycles += word ? bus.dma_fly_by_word(c.addr, *card, module, to_memory, tc)
+                                   : bus.dma_fly_by(c.addr, *card, module, to_memory, tc);
+                else if (to_memory) // no card: a floating bus
+                    cycles += word ? bus.dma_write_word(c.addr, Decoder::UNMAPPED_WORD)
+                                   : bus.dma_write(c.addr, Decoder::UNMAPPED_READ);
+                else if (word)
+                {
+                    uint16_t ignored = 0;
+                    cycles += bus.dma_read_word(c.addr, ignored);
+                }
                 else
                 {
                     uint8_t ignored = 0;
                     cycles += bus.dma_read(c.addr, ignored);
                 }
-                c.addr = step(c.addr, c.mode);
+                c.addr = step(c.addr, c.mode, width);
             }
-            --c.count;
+            c.count -= width;
             if (tc)
             {
                 tc_ = static_cast<uint8_t>(tc_ | bit(n));

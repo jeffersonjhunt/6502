@@ -256,6 +256,22 @@ namespace ooe::emu
             port_write(data);
     }
 
+    uint16_t VideoCard::dack_read_word(bool)
+    {
+        if (rev_ != 2 || !(pctl_ & Rev2::PCTL_FROM_CARD))
+            return 0xFFFF; // taking, not giving: D0-D15 float, and PADDR stays
+        const uint8_t even = port_read(); // D0-D7 first, then a PSTEP step
+        return static_cast<uint16_t>(port_read() << 8 | even);
+    }
+
+    void VideoCard::dack_write_word(uint16_t data, bool)
+    {
+        if (rev_ != 2 || (pctl_ & Rev2::PCTL_FROM_CARD))
+            return; // giving, not taking: the word is dropped
+        port_write(static_cast<uint8_t>(data));
+        port_write(static_cast<uint8_t>(data >> 8));
+    }
+
     uint8_t VideoCard::read(uint32_t offset)
     {
         if (rev_ == 2 && offset == Rev2::PDATA)

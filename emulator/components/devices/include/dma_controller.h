@@ -4,8 +4,8 @@
  * @file dma_controller.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's DMA controller (module ID 8), revision 2.
- * @version 0.3.0
- * @date 2026-11-15
+ * @version 0.4.0
+ * @date 2026-11-16
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -21,10 +21,10 @@
  * MODE: bits 1-0 single/demand/block, bits 3-2 card->memory/memory->card/
  * memory->memory, bit 4 DEC, 5 HOLD, 6 AUTO, 7 IRQ. CTRL: bit 0 ENABLE,
  * bit 1 REQ. CARD: bits 3-0 MODULE, the module ID the channel serves ($8,
- * the controller's own, is none), bit 4 WIDE (stored and read back; 16-bit
- * transfers are step B4's, so it does nothing yet). CONTROL: bit 0 master
- * enable, bits 1-3 SELECT, bits 4-6 BURST (2^BURST bytes before the CPU
- * gets a cycle; 7 = no limit), bit 7 reads 0. It resets to $70: no limit,
+ * the controller's own, is none), bit 4 WIDE (16-bit transfers, below;
+ * since step B4). CONTROL: bit 0 master enable, bits 1-3 SELECT, bits 4-6
+ * BURST (2^BURST transfers, a byte or a word, before the CPU gets a cycle;
+ * 7 = no limit), bit 7 reads 0. It resets to $70: no limit,
  * DMA off, SELECT 0. STATUS bit n: channel n reached terminal count (write
  * 1 to clear). ABORT bit n stops channel n (it reads $FF). REQ bit n:
  * channel n's MODULE was requesting at the last poll (read only).
@@ -56,23 +56,36 @@
  *
  * Then, by mode:
  *
- * - single: one byte, then the CPU gets its cycle;
+ * - single: one transfer, then the CPU gets its cycle;
  * - demand: while the granted card holds its request, up to the BURST
  *   limit (the release rule: only the card named on PS0-PS3 counts in a
  *   grant, so a second card holding /DREQ doesn't keep it going);
  * - block: the whole count once a request or REQ starts it, a BURST at a
  *   time;
- * - memory to memory: a block started by REQ, two cycles a byte (a read
- *   into the latch, then the write).
+ * - memory to memory: a block started by REQ, two cycles a transfer (a
+ *   read into the latch, then the write).
  *
- * Card transfers are fly-by: one cycle a byte, the card named by the
+ * Card transfers are fly-by: one cycle a transfer, the card named by the
  * channel's MODULE on PS0-PS3 answering. A card channel whose MODULE has no
  * card wired to /DREQ moves a floating bus ($FF) to memory, or reads memory
  * for nothing. Writing ADDR, COUNT or DEST sets both the start value (for
  * AUTO) and the current one; reads return the current one. At terminal
- * count the card sees TC with its last byte, STATUS records it, MODE.IRQ
+ * count the card sees TC with its last transfer, STATUS records it, MODE.IRQ
  * raises the interrupt (IRQH bit 0), REQ clears, and ENABLE clears unless
  * AUTO reloads the start values. Addresses wrap within 24 bits, A0-A23.
+ *
+ * 16-bit transfers (CARD's WIDE, step B4; hw/design.md "16-bit transfers"):
+ * a transfer is a byte, or with WIDE a word cycle on D0-D15 (Decoder's
+ * dma_*_word()) where the rules allow: WIDE set, neither DEC nor HOLD (they
+ * move bytes), and memory to memory only when ADDR and DEST have the same
+ * parity (the latch can't shift lanes), decided at each take as software
+ * may rewrite them between takes; then a word at an even ADDR with two or
+ * more bytes left, else a byte (an odd head, the odd last byte). COUNT stays
+ * in bytes and drops by 2 a word, ADDR and DEST step by 2, TC comes with the
+ * transfer that empties COUNT, and BURST counts transfers. A word costs what
+ * a byte does: one cycle fly-by, two memory to memory. Whether a card's
+ * register takes words is the card's (Device::dack_read_word()); WIDE on a
+ * byte card's channel floats D8-D15 and loses its odd bytes.
  */
 
 #include <array>
@@ -160,9 +173,10 @@ namespace ooe::emu
         unsigned selected() const { return static_cast<unsigned>((control_ & SELECT_MASK) >> SELECT_SHIFT); }
         /// Register `reg` ($0-$F) of channel `c`'s window.
         static uint8_t window(const Channel &c, unsigned reg);
-        /// Move bytes on channel `n`; @return cycles used.
+        /// Move bytes or words on channel `n`; @return cycles used.
         unsigned transfer(Decoder &bus, unsigned n);
-        static uint32_t step(uint32_t addr, uint8_t mode);
+        /// `addr` after a transfer of `width` bytes (1 or 2): held by HOLD, down 1 by DEC (always bytes).
+        static uint32_t step(uint32_t addr, uint8_t mode, unsigned width);
         static uint8_t byte_of(uint32_t v, unsigned i) { return static_cast<uint8_t>(v >> (8 * i)); }
         static void set_byte(uint32_t &v, unsigned i, uint8_t b);
 
