@@ -101,7 +101,7 @@ Under the monitor the card is left this way:
 - **ISR's bit 0** is set after any of these, since every command that ends sets it. The BIOS never clears it. IEN
   is 0, so it interrupts nothing.
 - **Break and BRK** turn IEN off. If the card is BUSY, they write CTRL's RESET, which abandons the command without
-  setting ISR's bit 0 (the card then starts up again, 50 ms); otherwise they write CTRL as 0, turning DRQ0 off.
+  setting ISR's bit 0 (the card then starts up again, 50 ms); otherwise they write CTRL as 0, turning the card's DMA request off.
   Either way CTRL reads 0. ERROR, ISR, UNIT, LBA, COUNT and the units are left as they were
   ([chapter 4](04-interrupts.md#pausebreak)).
 
@@ -186,7 +186,7 @@ The BIOS polls STATUS. To take a sector out, it waits for DATA, then reads 512 b
 for BUSY to clear, then looks at ERR. A command that fails before its sector is ready is caught by the first loop
 too, because BUSY clears.
 
-<!-- listing: ../../backplane/bios/sd.s:282-309 -->
+<!-- listing: ../../backplane/bios/sd.s:286-313 -->
 ```
 ; Wait for a sector out of DATA, into BUF. Carry set if the command ended
 ; first: with an error, said.
@@ -288,20 +288,29 @@ An entry of zeros follows the last, so a directory whose entries fill their sect
 
 Status: **emulated**
 
-The card asks for DMA channel 0 ([chapter 5](05-dma.md#transfers-for-a-card)) while CTRL's DMA bit is set and
-STATUS's DATA is: DRQ0 follows DATA. The transfer is fly-by, a byte a cycle.
+The card asks for DMA by its module, 7, while CTRL's DMA bit is set and STATUS's DATA is: it pulls /DREQ, the shared
+request line, low while DATA is set, and answers the controller's poll on its own data line, D7. Channel 0 serves it,
+since its CARD is `$07` from reset ([chapter 5](05-dma.md#transfers-for-a-card)). The transfer is fly-by, a byte a
+cycle, each grant naming module 7 on PS0–PS3 (*proposed*; revision 1 had a line of the card's own, DRQ0, wired to
+channel 0).
 
-1. Program channel 0 ([`$C400`](05-dma.md#reg-c400) on): ADDR the physical address, COUNT the bytes (sectors ×
-   512), MODE demand (XFER `%01`) with DIR `%00`, card to memory, for a READ, or `%01`, memory to card, for a
-   WRITE. Turn on the master enable and set ENABLE.
+1. Save CONTROL and select channel 0 with the master enable on ([`$C47E`](05-dma.md#reg-c47e)), then program it
+   in the window ([`$C400`](05-dma.md#reg-c400) on): ADDR the physical address, COUNT the bytes (sectors × 512),
+   MODE demand (XFER `%01`) with DIR `%00`, card to memory, for a READ, or `%01`, memory to card, for a WRITE. Set
+   ENABLE. Put CONTROL back when the transfer ends.
 2. Write UNIT, LBA and COUNT, and CTRL as `SD_CTRL_DMA` (`$01`).
 3. Write CMD, and wait for BUSY to clear. Check ERR.
-4. Write CTRL as 0, so DRQ0 stays off.
+4. Write CTRL as 0, so the card's request stays off.
 
-For a READ, DRQ0 is low until the first sector is ready, 100 µs after CMD, and demand mode waits for it. After that
-the card keeps a sector ahead in its second buffer, so DRQ0 stays high and demand mode runs on. A WRITE has both
+For a READ, the card doesn't pull /DREQ until the first sector is ready, 100 µs after CMD, and demand mode waits for
+it. After that the card keeps a sector ahead in its second buffer, so it keeps /DREQ low and demand mode runs on. A WRITE has both
 buffers free at once, and the card programs a sector faster than the channel fills one. So with CONTROL's BURST at
 no limit the CPU is held for almost the whole transfer. A lower BURST gives it a cycle back every 2^BURST bytes.
+Each take of the bus begins with the poll, one cycle after the takeover's, so a burst of n bytes costs 2 + n
+cycles. While the channel waits for a sector, another card's standing request (the sound card's,
+[chapter 7](07-sound.md#reg-c563)) can start a poll that grants nothing, at most 2 cycles in 64, and a sector that
+becomes ready can wait up to 64 cycles for its grant behind that poll's hold-off
+([chapter 5](05-dma.md#transfers-for-a-card)).
 
 The card takes no notice of terminal count: the command ends when its last sector has passed through DATA. So the
 two counts must agree:
@@ -313,26 +322,30 @@ two counts must agree:
 A channel counts 65,536 bytes at most, 128 sectors. A longer transfer needs the channel programmed again, or its
 AUTO mode.
 
-The BIOS's boot reads `/BOOT.BIN` this way, 88 sectors at most, to physical `$01000`:
+The BIOS's boot reads `/BOOT.BIN` this way, 88 sectors at most, to physical `$01000`. Since BIOS 0.15 (*proposed*)
+LOADRUN keeps CONTROL on the stack and puts it back after the read, on the way out that fails as on the one that
+runs the file:
 
-<!-- listing: ../../backplane/bios/sd.s:217-252 -->
+<!-- listing: ../../backplane/bios/sd.s:217-256 -->
 ```
 ; Read SECTORS of unit 1 to $1000 by DMA and call it; back to the monitor if
 ; it returns, or the read fails (said).
-LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
+LOADRUN:        LDA     DMA_CONTROL    ; CONTROL kept, put back when the load ends
+                PHA
+                LDA     #DMA_ON        ; the master on, SELECT 0: the window is channel 0's
+                STA     DMA_CONTROL
+                STZ     DMA_ADDR       ; channel 0: to $01000, a sector a 512
                 LDA     #>LOAD
-                STA     DMA0_ADDR + 1
-                STZ     DMA0_ADDR + 2
-                STZ     DMA0_COUNT
+                STA     DMA_ADDR + 1
+                STZ     DMA_ADDR + 2
+                STZ     DMA_COUNT
                 LDA     SECTORS
                 ASL
-                STA     DMA0_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     #DMA_DEMAND_IN
-                STA     DMA0_MODE
-                LDA     #DMA_ON
-                STA     DMA_CONTROL
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA0_CTRL
+                STA     DMA_CTRL
 
                 LDA     #1             ; READ unit 1, from 0, SECTORS of it
                 STA     SD_UNIT
@@ -350,6 +363,8 @@ LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
                 JSR     WAITDONE
                 STZ     SD_CTRL
                 STZ     SD_UNIT
+                PLA                    ; CONTROL as it was, either way (the carry kept)
+                STA     DMA_CONTROL
                 BCS     @quit
                 JSR     LOAD
 @quit:          JMP     WOZMON
@@ -532,8 +547,9 @@ The emulator run at a slower clock keeps the sequencer at its own speed, so ther
   back: now and then the byte gains a ninth bit, a 0, which a reader passes over as it does in sync bytes. A load
   a cycle early loses bits. A read of `DISK2_Q7OFF` ends write mode.
 - **Nothing may stretch a write loop:** no interrupt, no DMA transfer (a channel holds the CPU off the bus) and no
-  access to a card or to memory with wait states (WAIT0–WAIT3, `$C68A–$C68D`, are 0 from reset, and OODOS leaves
-  them so; [chapter 11](11-north-bridge-and-rtc.md#reg-c68a)).
+  access to a card or to memory with wait states (a slow card's /WAIT; no card on `backplane.machine` asks for any.
+  The north bridge's WAIT0–WAIT3, `$C68A–$C68D`, slow nothing since B2:
+  [chapter 11](11-north-bridge-and-rtc.md#reg-c68a)).
 - **Stepping is timed by the CPU** too. A phase switched on pulls the head toward its magnet, a half track at most;
   two phases on next to each other hold it between them, a quarter track. The head moves only while the motor
   turns. A driver steps a half track at a time: the next phase on, a step's time, the last one off, and lets the
@@ -603,7 +619,7 @@ for Apple CP/M disks. The drives it gives programs, O: and P:, are in the Progra
   the next field; the seek and the search run with them on. The millisecond counter misses the ticks of a masked
   field, so the driver adds that time back from the disk bytes it read (224 cycles each); a vertical blank that
   comes meanwhile is taken afterwards, so the frame counter loses none. A write also turns the DMA controller's
-  master enable off ([`$C441`](05-dma.md#reg-c441)) while it writes and puts it back after; a read leaves DMA
+  master enable off ([`$C47E`](05-dma.md#reg-c47e)) while it writes and puts it back after; a read leaves DMA
   alone, since OODOS runs no transfer while the driver does. Break (NMI) can't be masked: the NMI handler turns the card's write mode
   and motor off and the master enable back on before the monitor, so a write it cuts short loses that sector and
   the rest of the track is kept.
@@ -635,7 +651,7 @@ R/W. Bit 0 reads back as written; bit 1 is a strobe and reads 0.
 |---|---|---|
 | 7–2 | | ignored; read 0 |
 | 1 | RESET | 1: abandon the command in progress and start the card up again (50 ms, READY clear meanwhile). The units stay mounted, and the other registers are left as they are |
-| 0 | DMA | 1: DRQ0 follows STATUS's DATA, so DMA channel 0 moves the bytes ([above](#reading-and-writing-by-dma)) |
+| 0 | DMA | 1: the card's DMA request (/DREQ, by module 7) follows STATUS's DATA, so DMA channel 0 moves the bytes ([above](#reading-and-writing-by-dma)) |
 
 #### Reset
 
@@ -692,7 +708,7 @@ After a power-on with a card that has no `/BOOT.BIN`, ERR is still set under the
 CTRL's RESET doesn't clear ERR.
 
 DATA is set for a whole sector, or a whole free buffer, not for each byte. hw/design.md's register table says "a
-byte, or room for one"; its notes on the emulator, and the code, say a whole sector, and this is what DRQ0 follows.
+byte, or room for one"; its notes on the emulator, and the code, say a whole sector, and this is what the card's DMA request follows.
 
 <a id="reg-c382"></a>
 ### $C382 SD_ERROR: why the last command failed
@@ -891,7 +907,7 @@ Reads `$FF`: no transfer is in progress.
 #### Notes
 
 While STATUS's DATA is clear, a read gives `$FF` and takes nothing, and a write is dropped. DMA channel 0 reads and
-writes the same port by /DACK when CTRL's DMA bit is set.
+writes the same port in its grant cycles (module 7 on PS0–PS3, /DMA low) when CTRL's DMA bit is set.
 
 <a id="reg-c38d"></a>
 ### $C38D SD_BUFPTR: the place in the sector

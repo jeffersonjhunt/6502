@@ -84,7 +84,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.14\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.15\r\\\r"))
             return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
@@ -104,7 +104,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.14\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.15\r"))
             return nullptr;
         return s;
     }
@@ -168,7 +168,7 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     auto s = powered_on_with("fat16.sparse", out);
     REQUIRE(s != nullptr);
     REQUIRE(run_until(*s, out, "\\\r"));
-    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.14\r\\\r")); // no error, no wait
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.15\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
 }
@@ -244,7 +244,7 @@ TEST(c80c_boots_boot_bin_from_the_card_by_dma)
     REQUIRE(run_until(*s, out, "\rBOOTED FROM SD\r"));
     REQUIRE(run_until(*s, out, "\\\r")); // it returned to the monitor
     CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // LDX #0, where it was loaded
-    CHECK_EQ(s->peek(0xC440) & 0x01, 0x01);       // channel 0 reached terminal count
+    CHECK_EQ(s->peek(0xC410) & 0x01, 0x01);       // channel 0 reached terminal count
     CHECK(s->sd()->unit(1).mounted);
     CHECK_EQ(s->sd()->unit(1).name, std::string("BOOT.BIN"));
 }
@@ -378,17 +378,41 @@ TEST(break_during_c80c_stops_the_read_and_its_dma)
         reading = s->sd()->commands() == 3;
     }
     REQUIRE(reading);
-    REQUIRE(s->peek(0xC407) & 1);                // channel 0 armed
+    REQUIRE(s->dma()->peek_channel(0, DmaController::CTRL) & 1);     // channel 0 armed
     s->usb()->key(UsbCard::PAUSE, true);         // Pause/Break
     s->run(300);                                 // Break's own work, before the card's first byte
     s->usb()->key(UsbCard::PAUSE, false);
-    CHECK_EQ(s->peek(0xC407) & 1, 0);            // channel 0 stopped
+    CHECK_EQ(s->dma()->peek_channel(0, DmaController::CTRL) & 1, 0); // channel 0 stopped
     CHECK_EQ(s->sd()->peek(SdCard::CTRL), 0);    // and the card's DRQ0 off
     std::string out;
     REQUIRE(run_until(*s, out, "\\\r"));
     CHECK(out.find("BOOTED FROM SD") == std::string::npos);
     s->send("C80CR\r");                          // the card takes commands again
     CHECK(run_until(*s, out, "\rBOOTED FROM SD\r"));
+}
+
+TEST(break_puts_back_a_card_the_monitor_moved_so_c80c_still_boots)
+{
+    // b2-plan.md §4 item 11: channel 0's CARD poked to module 8 (none) at the monitor, then Break: QUIET puts
+    // every CARD back to its reset module, so C80C's channel 0 is granted to the SD card again. Must fail if
+    // QUIET leaves CARD alone: LOADRUN's wait has no timeout, so the boot hangs.
+    auto s = booted("fat12.sparse");
+    REQUIRE(s != nullptr);
+    std::string out;
+    s->send("C47E: 71\r");                       // SELECT 0, the master on
+    REQUIRE(run_until(*s, out, "\rC47E: 71"));   // (the monitor says what the byte reads)
+    s->send("C40C: 08\r");                       // channel 0's CARD: no module
+    REQUIRE(run_until(*s, out, "\rC40C: 08"));
+    REQUIRE(s->dma()->peek_channel(0, DmaController::CARD) == 0x08);
+    s->usb()->key(UsbCard::PAUSE, true);         // Pause/Break
+    s->run(FRAME);
+    s->usb()->key(UsbCard::PAUSE, false);
+    REQUIRE(run_until(*s, out, "\\\r"));
+    CHECK_EQ(s->dma()->peek_channel(0, DmaController::CARD), 0x07);
+    CHECK_EQ(s->peek(0xC47E), 0x71);             // CONTROL as the monitor's poke left it
+    s->send("C80CR\r");
+    CHECK(run_until(*s, out, "\rBOOTED FROM SD\r"));
+    CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // loaded where it belongs
 }
 
 int main()

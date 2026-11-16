@@ -33,8 +33,9 @@ Status: **emulated**
   ([chapter 13](13-apple-ii-mode.md)).
 - **STATUS** ([`$C686`](#reg-c686)) says how the machine started: from RAM (/BOOTSEL) or not, and whether the last
   hard reset was the power-on one. Its top four bits are the bridge's revision.
-- **WAIT0–WAIT3** ([`$C68A`–`$C68D`](#reg-c68a)) add up to three wait states to every access to a module, the DMA
-  controller's included.
+- **WAIT0–WAIT3** ([`$C68A`–`$C68D`](#reg-c68a)) are read/write storage, reserved for a turbo mode: since B2
+  (*proposed*) they slow nothing. A slow card asks for wait states by /WAIT, which the bridge turns into RDY for the
+  CPU ([chapter 5](05-dma.md#the-controller)). The ROM's diagnostics keep their options in WAIT3.
 - **ID** ([`$C6FF`](#reg-c6ff)) reads `$D1`: module D, revision 1. Every block with registers has its ID byte at
   `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
 
@@ -501,7 +502,7 @@ R, as [IRQL](#reg-c688).
 **emulated**
 
 <a id="reg-c68a"></a>
-### $C68A NB_WAIT0: wait states, IDs 0–3
+### $C68A NB_WAIT0: reserved for a turbo, IDs 0–3
 
 #### Equates
 
@@ -519,12 +520,14 @@ R/W.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7–6 | ID 3 | RAM D |
-| 5–4 | ID 2 | RAM C |
-| 3–2 | ID 1 | RAM B |
-| 1–0 | ID 0 | RAM A |
+| 7–6 | ID 3 | reserved |
+| 5–4 | ID 2 | reserved |
+| 3–2 | ID 1 | reserved |
+| 1–0 | ID 0 | reserved |
 
-Each pair is 0–3: the cycles RDY holds every access to that module, beyond the module's own.
+Each pair is 0–3, kept for a turbo mode's wait states for that module ID. Since B2 (*proposed*) they are storage
+only: a write is kept and read back, and slows nothing. Until B1 IDs 0–3 were RAM A–D; on the new bus memory answers
+by address and has no ID ([chapter 2](02-memory-and-banking.md#the-24-bit-bus)), so these four IDs have no card.
 
 #### Reset
 
@@ -536,12 +539,15 @@ Each pair is 0–3: the cycles RDY holds every access to that module, beyond the
 
 #### Notes
 
-The wait states apply to the CPU's accesses and the DMA controller's alike, and to a card's registers in the I/O
-hole as well as to memory. hw/design.md keeps them for a turbo mode and has them unused at ÷2; the emulator applies
-them whatever the clock. Neither the BIOS nor OODOS sets them.
+Before B2 the emulator applied these wait states to the CPU's accesses and the DMA controller's alike, whatever the
+clock. Since B2 every wait state comes from a card's /WAIT (in the emulator, a mapping's `wait=`:
+[chapter 14](14-emulator-notes.md#backplanemachine)), seen by the CPU and stretching a DMA grant, and WAIT0–3 slow
+nothing; hw/design.md keeps them for a turbo mode. Neither the BIOS nor OODOS sets them for wait states. The ROM's
+diagnostics keep their options and a stage 1 failure in [WAIT3](#reg-c68d), and stage 7's NB7 writes all four and
+reads them back ([chapter 15](15-diagnostics.md)); every /RESET clears them.
 
 <a id="reg-c68b"></a>
-### $C68B NB_WAIT1: wait states, IDs 4–7
+### $C68B NB_WAIT1: reserved for a turbo, IDs 4–7
 
 #### Equates
 
@@ -557,7 +563,8 @@ R/W, as [WAIT0](#reg-c68a).
 
 #### Bits
 
-Bits 1–0 ID 4 (ROM A), 3–2 ID 5 (ROM B), 5–4 ID 6 (serial), 7–6 ID 7 (storage).
+Bits 1–0 ID 4, 3–2 ID 5 (both without a card since B1), 5–4 ID 6 (serial), 7–6 ID 7 (storage). Storage only since
+B2, as [WAIT0](#reg-c68a).
 
 #### Reset
 
@@ -568,7 +575,7 @@ Bits 1–0 ID 4 (ROM A), 3–2 ID 5 (ROM B), 5–4 ID 6 (serial), 7–6 ID 7 (st
 **emulated**
 
 <a id="reg-c68c"></a>
-### $C68C NB_WAIT2: wait states, IDs 8–B
+### $C68C NB_WAIT2: reserved for a turbo, IDs 8–B
 
 #### Equates
 
@@ -584,7 +591,8 @@ R/W, as [WAIT0](#reg-c68a).
 
 #### Bits
 
-Bits 1–0 ID 8 (DMA), 3–2 ID 9 (video), 5–4 ID A (sound), 7–6 ID B (USB).
+Bits 1–0 ID 8 (DMA), 3–2 ID 9 (video), 5–4 ID A (sound), 7–6 ID B (USB). Storage only since B2, as
+[WAIT0](#reg-c68a).
 
 #### Reset
 
@@ -595,7 +603,7 @@ Bits 1–0 ID 8 (DMA), 3–2 ID 9 (video), 5–4 ID A (sound), 7–6 ID B (USB).
 **emulated**
 
 <a id="reg-c68d"></a>
-### $C68D NB_WAIT3: wait states, IDs C–F
+### $C68D NB_WAIT3: reserved for a turbo, IDs C–F
 
 #### Equates
 
@@ -611,7 +619,9 @@ R/W, as [WAIT0](#reg-c68a).
 
 #### Bits
 
-Bits 1–0 ID C (Disk II), 3–2 ID D (the bridge's own registers), 5–4 ID E (console), 7–6 ID F (no module).
+Bits 1–0 ID C (Disk II), 3–2 ID D (the bridge's own registers), 5–4 ID E (console), 7–6 ID F (no module). Storage
+only since B2, as [WAIT0](#reg-c68a): the ROM's diagnostics keep their options here
+([chapter 15](15-diagnostics.md)).
 
 #### Reset
 

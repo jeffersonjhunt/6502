@@ -275,8 +275,9 @@ F_ROMVER:       LDA     ROMVER
 ; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the
 ; program asked to leave).
 ; The cartridge is looked at through W2, put back on the BIOS after.
-; Apple II mode needs the revision 2 video card and the DMA controller too
-; (the ROM's APPLE checks both, the card first, and goes to its monitor
+; Apple II mode needs the revision 2 video card and the revision 2 DMA
+; controller too (ID $82 exactly: a revision 1 controller reads as none;
+; the ROM's APPLE checks both, the card first, and goes to its monitor
 ; without either): looked at first, in APPLE's order, before anything is
 ; written back (without DMA SDIO can't move a sector). Without the card
 ; (none, or revision 1) A = $FF, X = $FD; without DMA A = $FF, X = $FE; so a
@@ -295,7 +296,7 @@ F_ROM:          CMP     #3
                 CMP     #VIDEO_ID_V2
                 BNE     @nocard
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @nodma
                 BRA     @leave1
 @diag:          JSR     DIAGIN

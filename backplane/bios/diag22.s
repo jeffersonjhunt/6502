@@ -44,6 +44,10 @@ T_K:            .res    2
 T_BANKS:        .res    2
 T_SUM:          .res    2
 T_RUNS:         .res    1
+T_CH:           .res    1              ; D1: the channel
+T_FIT:          .res    1              ;   how many are fitted
+T_FITS:         .res    1              ;   which (bit n channel n)
+T_UNFIT:        .res    1              ;   $FF if T_CH isn't, else 0
                 DTVARS
 
 .segment "D22"
@@ -101,10 +105,11 @@ CARDIS:
                 sec
                 rts
 
-; Carry clear if there is a DMA controller this build knows.
+; Carry clear if there is a DMA controller this build knows: revision 2 (ID
+; $82 exactly; revision 1's layout is another, so it reads as none).
 HAVEDMA:
                 lda     HW_REV + 8
-                cmp     #1
+                cmp     #2
                 beq     @yes
                 sec
                 rts
@@ -137,32 +142,32 @@ DSTW0:          tax
 
 ; Channel 3, memory to memory: T_SRC to T_DST, T_CNT bytes (0: 65,536), A its
 ; MODE's other bits (DMA_HOLD, DMA_DEC, DMA_MODE_IRQ). Waited for: carry set
-; if it never ended. CONTROL is the caller's (DMA_ON, or D5's burst).
+; if it never ended. CONTROL is the caller's, with SELECT 3 (DMA_ON | DMA_SEL3,
+; or D5's burst): the window must be channel 3's.
 DMA3:
                 ora     #DMA_M2M
-                sta     DMA3_MODE
+                sta     DMA_MODE
                 ldx     #2
 @a:             lda     T_SRC,x
-                sta     DMA3_ADDR,x
+                sta     DMA_ADDR,x
                 lda     T_DST,x
-                sta     DMA3_DEST,x
+                sta     DMA_DEST,x
                 dex
                 bpl     @a
                 lda     T_CNT
-                sta     DMA3_COUNT
+                sta     DMA_COUNT
                 lda     T_CNT + 1
-                sta     DMA3_COUNT + 1
+                sta     DMA_COUNT + 1
                 lda     #DMA_GO
-                sta     DMA3_CTRL
-                ldx     #$30
-; Channel X's CTRL (X 0, $10, $20, $30) waited for ENABLE to clear: carry set
-; after about 13 ms (28 x 256 polls of about 13 cycles), for transfers of a
-; few KB that take well under 1 ms.
+                sta     DMA_CTRL
+; The selected channel's CTRL (the caller's SELECT) waited for ENABLE to
+; clear: carry set after about 13 ms (28 x 256 polls of about 13 cycles), for
+; transfers of a few KB that take well under 1 ms.
 DMAWAIT:
                 lda     #28
                 sta     T_REV
                 ldy     #0
-@w:             lda     DMA0_CTRL,x
+@w:             lda     DMA_CTRL
                 and     #DMA_ENABLE
                 beq     @done
                 dey
@@ -281,15 +286,21 @@ NB3:
                 SAY     "; NO DMA CONTROLLER"
                 jmp     TPASS
 @dma:           SAY     "; DMA'S LINE"
-                lda     #$30           ; 16 bytes, W0 $3000 to $3100, with MODE's IRQ
+                lda     DMA_CONTROL    ; CONTROL kept, SELECT 3 for NB3GO, put back however it ends
+                pha
+                lda     #DMA_ON | DMA_SEL3
+                sta     DMA_CONTROL
+                jsr     NB3GO
+                pla
+                sta     DMA_CONTROL
+                rts
+NB3GO:          lda     #$30           ; 16 bytes, W0 $3000 to $3100, with MODE's IRQ
                 jsr     SRCW0
                 lda     #$31
                 jsr     DSTW0
                 lda     #16
                 sta     T_CNT
                 stz     T_CNT + 1
-                lda     #DMA_ON
-                sta     DMA_CONTROL
                 lda     #DMA_MODE_IRQ
                 jsr     DMA3
                 lda     NB_IRQH
@@ -300,12 +311,12 @@ NB3:
                 lda     NB_IRQH
                 and     #NB_IRQ_DMA
                 beq     @held
-                stz     DMA3_MODE
+                stz     DMA_MODE
                 jmp     TPASS
-@noline:        stz     DMA3_MODE
+@noline:        stz     DMA_MODE
                 TD      "A TERMINAL COUNT WITH MODE'S IRQ BIT LEFT IRQH BIT 0 HIGH"
                 rts
-@held:          stz     DMA3_MODE
+@held:          stz     DMA_MODE
                 TD      "IRQH BIT 0 STAYED LOW WITH STATUS CLEARED"
                 rts
 
@@ -528,65 +539,111 @@ STAGE8:
                 lda     #8
                 jsr     SBEGIN
                 ldx     #8
-                lda     #1
+                lda     #2             ; revision 2 (ID $82): revision 1's layout is another
                 jsr     CARDIS
                 bcc     @card
                 rts
-@card:          lda     #DMA_ON
+@card:          lda     DMA_CONTROL    ; CONTROL kept for the stage, put back at its end
+                pha
+                lda     #DMA_ON
                 sta     DMA_CONTROL
-                jsr     D1
+                jsr     D1             ; (it selects each channel itself, and leaves the window on one)
+                lda     #DMA_ON | DMA_SEL3 ; D2-D5 are channel 3's: SELECT 3, written here, not assumed
+                sta     DMA_CONTROL
                 jsr     D2
                 jsr     D3
                 jsr     D4
                 jsr     D5
-                lda     #DMA_ON
+                lda     #DMA_ON | DMA_SEL3 ; D5 writes CONTROL itself: SELECT 3 again before
+                sta     DMA_CONTROL    ;   anything after it touches channel 3
+                pla
                 sta     DMA_CONTROL
                 lda     #DR_PASS
                 jmp     CEND
 
-; D1: each channel's ADDR, COUNT, MODE and DEST written with $55s and $AAs
-; (the addresses' top nibble is 0: 20 bits) and read back, then 0; CONTROL's
-; burst bits likewise, with the master enable off; then CONTROL on.
+; D1: each channel through SELECT 7 down to 0, the master off. First the
+; channels fitted are counted: one whose window reads $FF at every offset isn't
+; (until B3, SELECT 4-7; a fitted channel's CARD has bits 7-5 0, so it never
+; reads all $FF), and the count goes on D1's line. Then each register of a
+; fitted channel, ADDR and DEST (24 bits), COUNT, MODE and CARD (5 bits), is
+; written with $55s and $AAs and read back, and its reserved bytes ($03, $0B,
+; $0D-$0F) read $FF whatever is written; a channel not fitted reads $FF at
+; every offset whatever is written. Any other mix fails, naming the channel
+; and the register. Each register goes back to 0, and CARD to its reset
+; module (7, 9, A, then none), not 0. Last, CONTROL's BURST and SELECT bits
+; both ways, the master off and bit 7 written 1 (it reads 0); then CONTROL on.
 D1:
-                TB      "D1   ID $81; EVERY CHANNEL'S REGISTERS READ BACK"
-                ldx     #$30
-@ch:            ldy     #DREGS - 1
-@reg:           phx
+                TB      "D1   ID $82; REGISTERS READ BACK ON "
+                stz     T_FIT
+                ldx     #7
+@scan:          txa
+                asl     a              ; SELECT X, the master off
+                sta     DMA_CONTROL
+                ldy     #$0F
+@ff:            lda     DMA,y
+                cmp     #$FF
+                bne     @fit
+                dey
+                bpl     @ff
+                clc                    ; $FF throughout: not fitted
+                bra     @next
+@fit:           inc     T_FIT
+                sec
+@next:          rol     T_FITS         ; ...so channel n's bit ends as bit n
+                dex
+                bpl     @scan
+                lda     T_FIT
+                jsr     PUTDEC
+                SAY     " CHANNELS"
+                lda     T_FIT
+                bne     @some
+                lda     #DMA_ON
+                sta     DMA_CONTROL
+                TD      "NO CHANNEL'S REGISTERS ANSWER"
+                rts
+@some:          ldx     #7
+@ch:            stx     T_CH
                 txa
-                clc
-                adc     DREGOFS,y
-                tax
+                asl     a              ; SELECT T_CH, the master off
+                sta     DMA_CONTROL
+                asl     T_FITS         ; channel 7's bit first: carry set if fitted
+                lda     #0
+                sbc     #0             ; fitted 0; not fitted $FF, every offset's want
+                sta     T_UNFIT
+                ldy     #DREGS - 1
+@reg:           ldx     DREGOFS,y
                 lda     #$55
-                and     DREGMSK,y
                 jsr     @try
                 bne     @bad
                 lda     #$AA
-                and     DREGMSK,y
                 jsr     @try
                 bne     @bad
                 stz     DMA,x
-                plx
                 dey
                 bpl     @reg
-                txa
-                sec
-                sbc     #$10
-                tax
+                jsr     D1CARD
+                ldx     T_CH
+                dex
                 bpl     @ch
-                lda     #$50           ; CONTROL: a burst of 32, the master off
+                lda     #$AA           ; bit 7 1, BURST 010, SELECT 101, the master off
                 sta     DMA_CONTROL
                 ldx     DMA_CONTROL
-                lda     #$20
+                lda     #$D4           ; bit 7 1, BURST 101, SELECT 010, the master off
                 sta     DMA_CONTROL
                 ldy     DMA_CONTROL
                 lda     #DMA_ON
                 sta     DMA_CONTROL
-                cpx     #$50
+                cpx     #$2A
                 bne     @badc
-                cpy     #$20
+                cpy     #$54
                 bne     @badc
                 jmp     TPASS
-@try:           sta     DMA,x
+; Register X (Y its index in DREGOFS) written with A and its mask, read back
+; against what it should read: Z set if it did.
+@try:           and     DREGMSK,y
+                sta     DMA,x
+                ora     DREGFIX,y      ; a reserved byte reads $FF
+                ora     T_UNFIT        ;   as every byte of a channel not fitted does
                 sta     DG_MWANT
                 lda     DMA,x
                 sta     DG_MGOT
@@ -594,14 +651,32 @@ D1:
                 rts
 @bad:           stx     T_REV
                 stz     DMA,x
-                plx
+                jsr     D1CARD
+                lda     #DMA_ON
+                sta     DMA_CONTROL
                 jsr     TDET
-                SAY     "REGISTER $C4"
+                SAY     "CHANNEL "
+                lda     T_CH
+                jsr     PUTDEC
+                SAY     ", REGISTER $C4"
                 lda     T_REV
                 jsr     HEX2
                 jsr     RWBITS
                 jmp     SCROFF
-@badc:          TD      "CONTROL'S BURST BITS DIDN'T READ BACK"
+@badc:          TD      "CONTROL'S BURST AND SELECT BITS DIDN'T READ BACK"
+                rts
+
+; D1's channel T_CH (selected): CARD back to its reset module, 7, 9 or A for
+; channels 0-2, none for 3-7 (as QUIET puts them).
+D1CARD:
+                lda     #DMA_NONE
+                ldx     T_CH
+                cpx     #3
+                bcs     @set
+                txa                    ; 0, 1, 2: 7, 9, A (carry set from 1 on)
+                cmp     #1
+                adc     #DMA_MOD_SD
+@set:           sta     DMA_CARD
                 rts
 
 ; D2: every RAM block filled by channel 3 with HOLD (the source a byte of the
@@ -982,30 +1057,30 @@ D5:
                 lda     DMA_STATUS
                 and     #DMA_CH3
                 jne     @stays
-                lda     #DMA_MASTER    ; a burst of one: the CPU between each byte
-                sta     DMA_CONTROL
+                lda     #DMA_MASTER | DMA_SEL3 ; a burst of one: the CPU between each byte; SELECT 3
+                sta     DMA_CONTROL    ;   kept (DMA_MASTER alone would be SELECT 0, channel 0's window)
                 ldx     #2
 @a:             lda     T_SRC,x
-                sta     DMA3_ADDR,x
+                sta     DMA_ADDR,x
                 lda     T_DST,x
-                sta     DMA3_DEST,x
+                sta     DMA_DEST,x
                 dex
                 bpl     @a
-                stz     DMA3_COUNT
+                stz     DMA_COUNT
                 lda     #$10
-                sta     DMA3_COUNT + 1
+                sta     DMA_COUNT + 1
                 lda     #DMA_M2M
-                sta     DMA3_MODE
+                sta     DMA_MODE
                 lda     #DMA_GO
                 ldx     #DMA_CH3
-                sta     DMA3_CTRL
+                sta     DMA_CTRL
                 stx     DMA_ABORT
-                lda     DMA3_COUNT
+                lda     DMA_COUNT
                 sta     T_N
-                lda     DMA3_COUNT + 1
+                lda     DMA_COUNT + 1
                 sta     T_N + 1
-                ldy     DMA3_CTRL
-                lda     #DMA_ON
+                ldy     DMA_CTRL
+                lda     #DMA_ON | DMA_SEL3
                 sta     DMA_CONTROL
                 tya
                 and     #DMA_ENABLE
@@ -1705,24 +1780,32 @@ CMP4K:          sta     HW_PTR + 1
 @no:            sec
                 rts
 
-; Channel 1 between W0's page A and the card, X its MODE: 4 KB, waited for.
+; Channel 1 between W0's page A and the card, X its MODE: 4 KB, waited for
+; (carry set if it never ended). CONTROL is kept, the master on with SELECT 1
+; written before any channel register, and CONTROL put back after.
 DMA1GO:
-                stx     DMA1_MODE
+                tay                    ; the page
+                lda     DMA_CONTROL
+                pha
+                lda     #DMA_ON | DMA_SEL1
+                sta     DMA_CONTROL
+                stx     DMA_MODE
+                tya
                 jsr     SRCW0
                 ldx     #2
 @a:             lda     T_SRC,x
-                sta     DMA1_ADDR,x
+                sta     DMA_ADDR,x
                 dex
                 bpl     @a
-                stz     DMA1_COUNT
+                stz     DMA_COUNT
                 lda     #$10
-                sta     DMA1_COUNT + 1
-                lda     #DMA_ON
-                sta     DMA_CONTROL
+                sta     DMA_COUNT + 1
                 lda     #DMA_ENABLE
-                sta     DMA1_CTRL
-                ldx     #$10
-                jmp     DMAWAIT
+                sta     DMA_CTRL
+                jsr     DMAWAIT
+                pla                    ; (the carry is DMAWAIT's)
+                sta     DMA_CONTROL
+                rts
 
 ; --- Stage 10: the sound card ---------------------------------------------------
 
@@ -1854,22 +1937,27 @@ S3:
                 lda     #0
                 ldx     #$10
                 jsr     RAMAT
+                lda     DMA_CONTROL    ; CONTROL kept; the master on, SELECT 2 before any
+                pha                    ;   channel register; put back after
+                lda     #DMA_ON | DMA_SEL2
+                sta     DMA_CONTROL
                 lda     #DMA_DEMAND_OUT
-                sta     DMA2_MODE
+                sta     DMA_MODE
                 lda     #>SRC4K
                 jsr     SRCW0
                 ldx     #2
 @a:             lda     T_SRC,x
-                sta     DMA2_ADDR,x
+                sta     DMA_ADDR,x
                 dex
                 bpl     @a
-                stz     DMA2_COUNT
+                stz     DMA_COUNT
                 lda     #$10
-                sta     DMA2_COUNT + 1
+                sta     DMA_COUNT + 1
                 lda     #DMA_ENABLE
-                sta     DMA2_CTRL
-                ldx     #$20
+                sta     DMA_CTRL
                 jsr     DMAWAIT
+                pla                    ; (the carry is DMAWAIT's)
+                sta     DMA_CONTROL
                 bcs     @stuck
                 lda     #0
                 ldx     #$10
@@ -2277,10 +2365,17 @@ S9:
 
 ; --- Tables and text -------------------------------------------------------------
 
-; D1's registers: a channel's ADDR, COUNT, MODE and DEST, with their masks
-DREGOFS:        .byte   $00, $01, $02, $04, $05, $06, $08, $09, $0A
-DREGMSK:        .byte   $FF, $FF, $0F, $FF, $FF, $FF, $FF, $FF, $0F
-DREGS           = * - DREGMSK
+; D1's registers: a channel's ADDR, COUNT, MODE, DEST and CARD, then its
+; reserved bytes; the bits each keeps, and what each reads besides (a reserved
+; byte $FF)
+DREGOFS:        .byte   $00, $01, $02, $04, $05, $06, $08, $09, $0A, $0C
+                .byte   $03, $0B, $0D, $0E, $0F
+DREGMSK:        .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $1F
+                .byte   $FF, $FF, $FF, $FF, $FF
+DREGFIX:        .byte   $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+                .byte   $FF, $FF, $FF, $FF, $FF
+DREGS           = * - DREGFIX
+.assert DREGS = DREGFIX - DREGMSK && DREGS = DREGMSK - DREGOFS, error, "D1's tables"
 
 ; V2's registers (offsets from $C480) and the bits each keeps
 VREGOFS:        .byte   $00, $01, $04, $0A, $0B, $0C, $0D
@@ -2330,7 +2425,7 @@ CGA:            RGB     $0, $0, $0
                 RGB     $F, $F, $F
 
 SNOCARD:        .byte   "NO CARD", 0
-SVREV1:         .byte   "REVISION 1: LISTED, NOT TESTED (BIOS 0.14 DOESN'T DRIVE IT)", 0
+SVREV1:         .byte   "REVISION 1: LISTED, NOT TESTED (BIOS ", BIOS_VERSION, " DOESN'T DRIVE IT)", 0
 SLOST:          .byte   "LOST: THE CLOCK CHIP'S OSCILLATOR STOPPED; SET THE TIME", 0
 SCOPYUP:        .byte   "THE COPY UP DOESN'T MATCH ITS SOURCE", 0
 SCOPYDN:        .byte   "THE COPY DOWN (MODE'S DEC) DOESN'T MATCH ITS SOURCE", 0

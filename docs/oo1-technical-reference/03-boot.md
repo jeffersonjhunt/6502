@@ -17,7 +17,7 @@ breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and o
 ([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
 with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
-BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.14:
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.15:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -29,7 +29,7 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.14` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.15` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
@@ -207,7 +207,10 @@ Status: **emulated**
 
 1. W0–W2 go back on RAM blocks 0–2, so CPU `$1000` is physical `$01000`, where the DMA writes.
 2. The card mounts `/BOOT.BIN` as unit 1 ([chapter 10](10-storage.md)).
-3. Its sectors are read to `$1000` by DMA channel 0: 88 at most, 44 KB, `$1000–$BFFF`.
+3. Its sectors are read to `$1000` by DMA channel 0, whose CARD names the SD card (module 7): 88 at most, 44 KB,
+   `$1000–$BFFF`. The BIOS selects channel 0 for the read and puts CONTROL back as it found it afterwards, so
+   `/BOOT.BIN` starts with the BIOS's own CONTROL: `$71` with a revision 2 video card, `$70` without one, since BIOS
+   0.15 (*proposed*).
 4. The BIOS calls `$1000` with JSR. A program that returns comes back to the monitor.
 
 Each failure is said, then the monitor: `NO SD CARD`, `NO CARD IN THE SLOT`, `NO DMA`, `NOT ON THE CARD: /BOOT.BIN`,

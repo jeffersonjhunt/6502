@@ -207,7 +207,7 @@ PREP:           STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
 @no:            RTS
 @fits:          STA     SECTORS
                 LDA     DMA_ID         ; the load is by DMA: found, but no controller to read it
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BEQ     @dma
                 LDX     #MNODMA - MSGS
                 BRA     @say
@@ -216,20 +216,22 @@ PREP:           STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
 
 ; Read SECTORS of unit 1 to $1000 by DMA and call it; back to the monitor if
 ; it returns, or the read fails (said).
-LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
+LOADRUN:        LDA     DMA_CONTROL    ; CONTROL kept, put back when the load ends
+                PHA
+                LDA     #DMA_ON        ; the master on, SELECT 0: the window is channel 0's
+                STA     DMA_CONTROL
+                STZ     DMA_ADDR       ; channel 0: to $01000, a sector a 512
                 LDA     #>LOAD
-                STA     DMA0_ADDR + 1
-                STZ     DMA0_ADDR + 2
-                STZ     DMA0_COUNT
+                STA     DMA_ADDR + 1
+                STZ     DMA_ADDR + 2
+                STZ     DMA_COUNT
                 LDA     SECTORS
                 ASL
-                STA     DMA0_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     #DMA_DEMAND_IN
-                STA     DMA0_MODE
-                LDA     #DMA_ON
-                STA     DMA_CONTROL
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA0_CTRL
+                STA     DMA_CTRL
 
                 LDA     #1             ; READ unit 1, from 0, SECTORS of it
                 STA     SD_UNIT
@@ -247,6 +249,8 @@ LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
                 JSR     WAITDONE
                 STZ     SD_CTRL
                 STZ     SD_UNIT
+                PLA                    ; CONTROL as it was, either way (the carry kept)
+                STA     DMA_CONTROL
                 BCS     @quit
                 JSR     LOAD
 @quit:          JMP     WOZMON

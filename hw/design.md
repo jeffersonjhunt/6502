@@ -44,6 +44,11 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
                                                                                  joysticks
 ```
 
+*The diagram is the first design's 62-pin bus. On the new bus ([below](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane))
+the DMA controller is on the CPU card with eight channels, revision 2 ([the DMA controller, revision
+2](#the-dma-controller-revision-2), built in B2), and DRQ/DACK become /DREQ and /DMA, with /WAIT for slow cards; the
+pin-out is B6's.*
+
 
 ## CPU and clocks ##
 
@@ -333,8 +338,8 @@ The north bridge works in two stages:
    the CPU goes through this.
 2. Physical address to module ID (PS0–PS3). Everything goes through this, including DMA.
 
-The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
-window registers.
+The DMA controller supplies its own addresses, so DMA always sees physical memory and never depends on the window
+registers: 20 bits on revision 1, 24 (A0–A23) on revision 2, emulated as B2 ([B2: as built](#b2-as-built)).
 **Proposed (B0):** on the new bus, 24-bit addresses, with memory chosen by its address and not by a module ID
 ([the physical map on the new bus](#the-physical-map-on-the-new-bus)).
 
@@ -490,8 +495,15 @@ The machine works without it, so it can come later.
 
 **Decided.** A central DMA controller in the style of the IBM PC's 8237.
 
+*Revision 2 (B2, 2026-11-15) replaces what this section and
+[the registers below](#dma-registers-revision-1-dropped-in-b2) describe: eight channels behind one register window,
+a CARD byte a channel naming the module it serves, 24-bit addresses, and requests by /DREQ and a poll instead of a
+DRQ and DACK pair a channel ([the DMA controller, revision 2](#the-dma-controller-revision-2);
+[B2: as built](#b2-as-built)). The first design is kept below for the record.*
+
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
-  DMA cheap enough for every card to have it.
+  DMA cheap enough for every card to have it. *(Revision 2: the shared /DREQ, its answer to the poll on its own data
+  line, and its PS match with /DMA low in a grant; still no address decode of its own.)*
 - **Placement:** on its own card, module ID `0x8`.
   - **Decided (the owner, 2026-11-14): the DMA controller moves onto the CPU card,** beside the north bridge, with
     the new connector ([Backplane Signals](#backplane-signals)). It already works at the CPU's level: it pulls RDY
@@ -504,8 +516,9 @@ The machine works without it, so it can come later.
   /DREQ and /DMA instead of a DRQ and DACK pair each
   ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)). Until that card is built, the
   registers below, the emulator and the software keep four; what channels 4–7 add to the registers is designed
-  with the card.
-- **Registers per channel:**
+  with the card. *(Since B2 the emulator keeps state for eight behind SELECT, with 0–3 live and 4–7 reading `$FF`
+  until B3; the BIOS's and OODOS's loops already cover all eight.)*
+- **Registers per channel:** *(revision 1's; revision 2's addresses are 24 bits and it adds CARD)*
   - a 20-bit address;
   - a 16-bit count;
   - a mode byte giving the direction, the address step (up, down or fixed) and the transfer mode.
@@ -528,9 +541,15 @@ The machine works without it, so it can come later.
 - **Apple mode:** the controller is held idle. Unaltered software never programs it, and stolen cycles would break
   code timed to the cycle.
 
-### DMA registers ###
+### DMA registers, revision 1 (dropped in B2) ###
 
-**Decided.** The controller's block is `$C400–$C47F` (module ID `0x8`). Each channel has 16 bytes at
+**Revision 1, dropped in B2.** The layout below, ID `$81`, was the emulator's, BIOS 0.14's and OODOS's until B2
+(2026-11-15). Revision 2's replaces it ([the DMA controller, revision 2](#the-dma-controller-revision-2)): the BIOS
+from 0.15, OODOS from B2 and the emulator know only revision 2, and take an ID of `$81` as no controller. MODE's
+bits, CTRL's, the transfer modes and the behaviour below carry over unchanged; the registers' places, the 20-bit
+addresses, STATUS's DRQ bits and the wiring by channel do not.
+
+**Decided (then).** The controller's block is `$C400–$C47F` (module ID `0x8`). Each channel has 16 bytes at
 `$C400 + channel × $10`; the registers shared by all channels start at `$C440`, and the rest is reserved.
 
 **Per channel** (offset from the channel's base):
@@ -585,7 +604,9 @@ The machine works without it, so it can come later.
 - **Channel 1 with video card revision 2 (proposed, 2026-11-10):** the video card's data port, its DRQ wired to
   channel 1 ([below](#video-card-revision-2)). Under OODOS channel 1 already carries the vertical-blank copies,
   which become port transfers. The serial card's DMASEL1 (DRQ1) then needs moving or sharing; its DMASEL3 still
-  reaches channel 3. Open. *(On the new bus: the serial card's DMASTREAM, [below](#the-serial-cards-stream-select).)*
+  reaches channel 3. *(Closed by the new bus: the serial card asks by its own module, 6, and its DMASTREAM picks
+  which of its two streams the request follows ([below](#the-serial-cards-stream-select)); channel 1 serves the
+  video card by CARD 9, and whichever channel software points at module 6 serves the serial card.)*
 
 The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
 See [Front Panel](#front-panel).
@@ -780,7 +801,8 @@ revisions apart; what isn't said here is as revision 1 has it, above.
   [the video aperture moved out of RAM](#the-video-aperture-moved-out-of-ram).)*
 - **The data port:** PADDR, a 24-bit card address, and PDATA. Each access to PDATA moves PADDR by PSTEP, up or
   down, so a column or a rectangle's rows go as one stream. While PCTL's DRQ enable is set the card raises DRQ on
-  channel 1 whenever the port can take or give a byte, so the DMA controller streams to or from system RAM. Copies
+  channel 1 whenever the port can take or give a byte, so the DMA controller streams to or from system RAM. *(DMA
+  revision 2, B2: the card pulls /DREQ by its module, 9, and channel 1 serves it by its reset CARD `$09`.)* Copies
   inside card memory go out and back through the port for now; a copy engine on the card is a later feature.
 - **Latching:** the two-byte bases are latched at line 480, as the one-byte ones were.
 
@@ -819,7 +841,8 @@ revisions apart; what isn't said here is as revision 1 has it, above.
   end, it reads back as written and steps as a plain 24-bit counter, each PDATA access reading `$FF` or dropping
   its write, until it wraps from `$FFFFFF` to `$000000` (settled by the owner, 2026-11-11). Aperture addresses past
   MEMSIZE read `$FF` and ignore writes.
-- **A DMA cycle against PCTL's direction** (/DACK reading the port while bit 1 says to the card, or writing it
+- **A DMA cycle against PCTL's direction** (/DACK reading the port while bit 1 says to the card (on DMA revision 2, a
+  grant naming module 9), or writing it
   while bit 1 says from the card) moves nothing: a read gives `$FF`, a write is dropped, and PADDR doesn't step
   (settled by the owner, 2026-11-11).
 - **/RESET** resets the registers and never touches card memory.
@@ -1055,7 +1078,10 @@ it commands.
   "reads always work" holds for every register; `$19–$1C` come from the chip.
 - **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
   same for the card's byte; STATUS says when a box is full.
-- **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2.
+- **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2. *(DMA revision 2,
+  B2: the card's request reaches the shared /DREQ (`drq` on its line) and channel 2 serves it by its reset CARD
+  `$0A`; since it asks always at DRQSEL 0 and 2, /DREQ is almost never high with the card fitted: [the standing
+  request](#the-dma-controller-revision-2).)*
 - **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, while RUN is set, from
   the 6510's reset.
   Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
@@ -1337,7 +1363,7 @@ the monitor; on revision 1 (`$A1`) it writes nothing at `$48–$63`. What the tw
   program acknowledges it before it sets IEN bit 3 again: with DOCCTL bit 6 clear (QUIET keeps it, and with it
   set DOCDATA reads wave RAM) and DOCADDR `$E0`, it reads DOCDATA.
 - The volumes, the EQ's gains, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already
-  aborted every DMA channel, so DRQSEL's DRQ moves nothing.
+  aborted every DMA channel (all eight since BIOS 0.15), so DRQSEL's DRQ moves nothing.
 
 The audio is then silent: no bus frames, and the SIDs at volume 0.
 
@@ -1435,7 +1461,7 @@ command, and the data streams through one port, fed by DMA channel 0 or a CPU lo
 
 | Offset | Name | Access | Purpose |
 |---|---|---|---|
-| `$00` | CTRL | read/write | bit 0 DMA: assert DRQ0 when DATA has a byte, or room for one. Bit 1 RESET: start the SD card up again |
+| `$00` | CTRL | read/write | bit 0 DMA: assert DRQ0 when DATA has a byte, or room for one (DMA revision 2: pull /DREQ by module 7, which channel 0 serves by its reset CARD `$07`). Bit 1 RESET: start the SD card up again |
 | `$01` | STATUS | read | bit 7 BUSY; bit 6 READY (card started up); bit 5 PRESENT (card detect); bit 4 WP (write-protect switch); bit 3 DATA (a byte, or room for one, at DATA); bit 0 ERR |
 | `$02` | ERROR | read | error code when ERR is set: no card, out of range, CRC, timeout, write-protected, unit not mounted |
 | `$03` | CMD | write | starts a command |
@@ -1464,7 +1490,8 @@ command, and the data streams through one port, fed by DMA channel 0 or a CPU lo
 
 - **With DMA**, for example 16 sectors to `$20000`: program channel 0 (ADDR `$20000`, COUNT 8192, demand mode, card
   to memory), set CTRL.DMA, write LBA and COUNT, then CMD = `$20`. DRQ0 drops while the card fetches the next
-  sector, so demand mode pauses and resumes. The DMA terminal count or the command-done interrupt ends it. The
+  sector, so demand mode pauses and resumes. *(On revision 2: SELECT 0 with CONTROL saved first, and each take of
+  the bus begins with a poll, one cycle; [the DMA controller, revision 2](#the-dma-controller-revision-2).)* The DMA terminal count or the command-done interrupt ends it. The
   RP2350 reads SD in 4-bit mode faster than the bus takes bytes, so this runs near full bus speed, about 7 MB/s.
   Transfers over 128 sectors need a new DMA program or AUTO mode, since the DMA count stops at 64 KB.
 - **Without DMA**, an `LDA DATA` / `STA (ptr),Y` loop takes about 11 cycles per byte, roughly 650 KB/s: plenty for
@@ -1482,7 +1509,7 @@ the tables leave open:
 - **Buffers and DATA.** The card holds two 512-byte buffers, so it fetches (or programs) one sector while the bus
   empties (or fills) the other. STATUS.DATA is set while the whole current sector is there to read, or a whole
   buffer is free to write. A loop can wait for it once a sector and then move 512 bytes without checking again.
-  With CTRL.DMA set, DRQ0 follows it. When DATA is clear, reading DATA returns `$FF` and a write to it is dropped.
+  With CTRL.DMA set, DRQ0 follows it (on DMA revision 2, the card's /DREQ). When DATA is clear, reading DATA returns `$FF` and a write to it is dropped.
 - **LBA and COUNT advance** as each sector passes through DATA. During a transfer COUNT is the number of sectors
   left; afterwards LBA names the next sector, so consecutive reads need only a new COUNT and CMD.
   MOUNT and LIST set COUNT to 1 for their parameter sector, whatever the program wrote, and don't move LBA.
@@ -1645,7 +1672,7 @@ AMODE is high.
 | `$01` | KEYCLR | read/write | any access clears the strobe; reading returns bit 7 = a key is held down |
 | `$02` | MODS | read | the modifiers held now, in USB HID bit order (L-Ctrl, L-Shift, L-Alt, L-GUI, then right) |
 | `$03` | EVCOUNT | read | bytes waiting in the raw event FIFO (stops at 255) |
-| `$04` | EVENT | read | raw events, two bytes each: the USB HID usage code, then flags (bit 7 = release). Modifiers arrive as keys too (`$E0–$E7`). Asserts DRQ while not empty |
+| `$04` | EVENT | read | raw events, two bytes each: the USB HID usage code, then flags (bit 7 = release). Modifiers arrive as keys too (`$E0–$E7`). Asserts DRQ while not empty (DMA revision 2: by module B, served by a channel whose CARD software sets to `$0B`; `backplane.machine` leaves it off /DREQ) |
 | `$05` | LEDS | write | bit 0 Num Lock, bit 1 Caps Lock, bit 2 Scroll Lock |
 | `$06` | REPEAT | read/write | for KEY: bits 0–3 rate, bits 4–5 delay |
 | `$07` | KBCFG | read/write | bits 0–3 layout (0 = US). Bit 7: Pause/Break pulls /NMI, to break into the Monitor |
@@ -1720,6 +1747,8 @@ ports added 2026-10-30, [below](#the-via-and-the-joystick-ports))
 - TI's TL16C552A: two 16550-compatible UARTs with 16-byte FIFOs and an IEEE 1284 bidirectional parallel port, in
   one chip. It is the classic PC combination for COM1, COM2 and LPT1.
 - **DMA:** the UARTs' TXRDY/RXRDY outputs drive DRQ lines; the parallel port gets DMA from the card's AUTOSTROBE.
+  *(On the new bus one request, by module 6, for the stream DMASTREAM picks: [the serial card's stream
+  select](#the-serial-cards-stream-select).)*
 - **Clock:** a 1.8432 MHz crystal, so the PC's divisors apply: 1 is 115,200 baud, 12 is 9,600.
 - **Glue logic:** a small CPLD turns PHI2 and RWB into the chip's Intel-style /IOR and /IOW, and adds the DMA
   routing and interrupt summary below.
@@ -1745,13 +1774,15 @@ ports added 2026-10-30, [below](#the-via-and-the-joystick-ports))
 | `$22` | INTSTAT | read | bit 0 COM1, bit 1 COM2, bit 2 LPT, bit 3 the VIA: which part is interrupting. Any of them pulls bit 6 of IRQL (ID 6) low. The enables stay in the chip's IER and LPT control registers |
 | `$23` | LPTCTL | read/write | bit 0 AUTOSTROBE: in DMA mode the card generates STROBE itself |
 
-- **DMA routing.** On /DACK1 or /DACK3 the CPLD selects the chosen source's data register (chip select, A0–A2 = 0,
+- **DMA routing.** On /DACK1 or /DACK3 (on the new bus, a grant naming module 6, with DMASTREAM choosing the
+  stream) the CPLD selects the chosen source's data register (chip select, A0–A2 = 0,
   /IOR or /IOW by direction), so the UART needs no address, as fly-by requires. With FCR bit 3 set (DMA mode 1),
   receive requests at the FIFO trigger level or timeout and transmit requests while the FIFO has room; both suit
   demand mode. The classic receive arrangement is channel 1 in AUTO mode as a ring buffer, the OS reading the
   channel's current address to see how much has arrived.
 - **AUTOSTROBE.** The 552A's parallel port has no DMA request and only strobes when software writes its control
-  register. With AUTOSTROBE set, the card asserts DRQ while the printer isn't BUSY, and after each /DACK write holds
+  register. With AUTOSTROBE set, the card asserts DRQ while the printer isn't BUSY, and after each /DACK write (a grant, on the
+  new bus) holds
   the data, pulses STROBE and waits for ACK, keeping the datasheet's 1 µs setup, pulse and hold.
 - **Bus timing** (TI datasheet SLLS189D). /IOR and /IOW must be low for at least 80 ns, longer than PHI2's ~70 ns
   high time at ÷2, so **every access takes one RDY wait state** (on the new bus, a /WAIT one). The chip also needs 80 ns between strobes, so the
@@ -2232,7 +2263,7 @@ version (function 80's `FT_INFO`) goes up with them. Every existing call keeps i
 #### The DMA controller, revision 2 ####
 
 **Decided (the owner, 2026-11-14): the register layout.** Revision 2's ID byte is `$82`. Its layout replaces
-revision 1's ([DMA registers](#dma-registers)): one channel window, which CONTROL's SELECT points at a channel, and
+revision 1's ([DMA registers](#dma-registers-revision-1-dropped-in-b2)): one channel window, which CONTROL's SELECT points at a channel, and
 the shared registers beside it. The emulator drops revision 1 when B2 lands, as the BIOS and OODOS dropped the video card's
 revision 1 (BIOS 0.13, OODOS 0.9) ([the B2 migration](#the-b2-migration-revision-1-dropped)).
 
@@ -2254,8 +2285,8 @@ revision 1 (BIOS 0.13, OODOS 0.9) ([the B2 migration](#the-b2-migration-revision
 | `$7E` | CONTROL | read/write | bit 0 master enable. **Bits 1–3 SELECT**: the channel the window at `$00–$0F` shows. Bits 4–6 BURST, as revision 1's. Bit 7 free (reads 0). Resets to `$70`: no burst limit, DMA off, SELECT 0 |
 | `$7F` | ID | read | `$82` |
 
-**CARD's reset values** follow today's wiring, which `emulator/machines/backplane.machine` gives (`sd drq=0`,
-`video drq=1`, `sound drq=2`), with WIDE 0:
+**CARD's reset values** follow the wiring `emulator/machines/backplane.machine` gave revision 1 (`sd drq=0`,
+`video drq=1`, `sound drq=2`; since B2 a bare `drq` on each line, [B2: as built](#b2-as-built)), with WIDE 0:
 
 | Channel | CARD at reset | Module |
 |---|---|---|
@@ -2285,15 +2316,25 @@ it means. STATUS, ABORT, REQ and the ID need no SELECT. The B2 migration below c
   polls again only after 64 cycles, or at once if /DREQ goes high and low again or a CTRL is written. So a stray
   request costs at most 2 cycles in 64. A card keeps /DREQ low through the poll cycle itself (below), so the poll
   makes no edge of its own that would restart one.
-- **Cost:** the poll is one cycle, after the takeover's. Each time the controller takes the bus with /DREQ low it
-  polls, to find who asks and whether a higher channel does. With /DREQ high (only software-started transfers) it
-  doesn't poll.
+- **Cost (corrected in B2, the owner's answer 2, 2026-11-15):** the poll is one cycle, after the takeover's. A
+  take polls only as the first bullet says: with /DREQ low, an armed channel that serves a card, and no hold-off
+  running. A take with no channel armed for a card (only software-started transfers, memory to memory) never
+  polls, whatever /DREQ is, so it costs what it did on revision 1. A software-started channel beside an armed card
+  channel is served in the same take as the poll, never delayed by a hold-off. *(This text first had every take with /DREQ low
+  poll, which the first bullet contradicts; the owner chose the first bullet.)*
 
 | Transfer | Revision 1 | Revision 2 |
 |---|---|---|
 | single (a byte a request) | 2 cycles a byte: the takeover, the byte | 3: the takeover, the poll, the byte |
-| demand, block | 1 + n for n bytes, per take | 2 + n per take while /DREQ is low; 1 + n with it high |
-| memory to memory | 1 + 2n | 1 + 2n, with /DREQ high; + 1 per take with it low |
+| demand, block | 1 + n for n bytes, per take | demand: 2 + n, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
+| memory to memory | 1 + 2n | 1 + 2n; 2 + 2n only in a take that polls because a card's channel is armed beside it |
+
+**The sound card's standing request (decided, the owner's answer 1, 2026-11-15).** At DRQSEL 0, its reset value and
+OODOS's idle value, and at 2, the sound card asks for DMA all the time (revision 1 sound always does), so with it
+fitted /DREQ is almost never high. Accepted as it is: memory-to-memory costs don't move; another card's transfer
+pays its poll at each take; a card that becomes ready can wait up to 64 cycles for its grant behind a hold-off; and
+while a card's channel is armed with nothing to grant, the stray polls cost 2 cycles in 64. DRQSEL 0 stays the idle
+value. With the master enable off (Apple II mode) it costs nothing.
 
 **The grant cycle.**
 - The controller drives:
@@ -2381,7 +2422,8 @@ directly, but they are the ROM's own code and move with it.
 **The ID checks (decided, the owner, 2026-11-14)** take `$82` exactly (`DMA_ID_V2`), not the type nibble that
 answer 4 first had: a revision 1 controller (`$81`) has the other layout, so it reads as no controller.
 - The BIOS: `bios.s:363`, `sd.s:209`, `video.s:139`, `apple.s:56` and `diag.inc:225`.
-- OODOS: `cold.s:390` (`CARD DMA_ID, DMA_ID_V1, $FF`), `bdos.s:287` (function 75's), `crt.s:301`, `irq.s:611`,
+- OODOS: `cold.s:390` (`CARD DMA_ID, DMA_ID_V1, $FF`), `bdos.s:297` (function 75's; the line numbers are at
+  c4ad400, before B2), `crt.s:301`, `irq.s:611`,
   `sound.s:123`, and `video.s:168`, `440`, `564` and `1125`.
 - The diagnostics' revision checks through `HW_REV` (D3b), which take DMA revision 1 today and take 2: `diag22.s`'s
   `HAVEDMA` (105–108) and its users (279, 1624, 1847); stage 8's `CARDIS` (530–532); `diag21.s` 267 and 382; and
@@ -2407,27 +2449,30 @@ and what each routine does under the SELECT rule:
 | `oodos/sys/bios.s` DMAGO, DMA3W (1794–1867) | CONTROL saved (1794) before channel 3's registers, restored (1847); DMA3W polls `DMA3_CTRL` | SELECT 3 after the save; DMA3W runs inside the saved stretch and polls `DMA_CTRL` |
 | `oodos/sys/sound.s` C2STOP (252–255) | ABORT channel 2, `STZ DMA2_CTRL`, `STZ DMA2_MODE`, STATUS | save, SELECT 2, CTRL and MODE 0, restore; ABORT and STATUS need none |
 | `oodos/sys/sound.s` PIECE (527–561) | channel 2's next piece, **in the interrupt** (the card's or channel 2's terminal count), with no save of CONTROL | **must** save CONTROL, SELECT 2, program, restore: the rule's interrupt case |
-| `oodos/sys/sound.s` DMALOAD (656–699) | `TSB` master, channel 2's pieces, polls `DMA2_CTRL`, interrupts on between pieces | save, SELECT 2 and master, the pieces, restore; an interrupt between pieces restores what it found |
+| `oodos/sys/sound.s` DMALOAD (653–725) | `TSB` master, channel 2's pieces, polls `DMA2_CTRL`, interrupts on between pieces | save, SELECT 2 and master, the pieces, restore; an interrupt between pieces restores what it found |
 | `oodos/sys/sound.s` (294–297, 1152) | STATUS's channel 2 bit; `TSB` master | unchanged (no SELECT) |
 | `oodos/sys/video.s` (767–793) | SEI, CONTROL saved (769), channel 1's registers, restored (791) | SELECT 1 after the save |
 | `oodos/sys/video.s` PORTGO (838–856) | channel 1's MODE and CTRL, its wait, ABORT and STATUS; called inside the stretches that saved CONTROL | unchanged but for the names: its callers have SELECT 1 |
 | `oodos/sys/video.s` VBWORK (987–1103) | the frame handler: CONTROL saved (991) and put back (1101) | SELECT 1 after the save: it already keeps the rule |
 | `oodos/sys/video.s` VBQUIET (1125–1129) | ABORT channel 1 | unchanged |
 | `oodos/sys/irq.s` DEAFEN (611–633) | each channel's MODE by `DMA0_MODE,X`, X = `$30` down to 0, from the dispatcher and the warm boot | save CONTROL, SELECT 7 down to 0, MODE's IRQ bit off, restore; DMAIRQ grows to 8 bits for STATUS |
-| `oodos/sys/disk2.s` (286–295), `common.s` NMI (378) | CONTROL saved whole into D2DMAS, master off for a write, put back (and by Break) | unchanged: CONTROL is saved and put back whole, SELECT with it |
+| `oodos/sys/disk2.s` (286–295), `common.s` NMI (378) and ROMDIAG (434–438) | CONTROL saved whole into D2DMAS, master off for a write, put back (by Break, and by function 75's way into the ROM's diagnostics) | unchanged: CONTROL is saved and put back whole, SELECT with it |
 | `backplane/bios/bios.s`, `apple.s`, `diag.inc`, OODOS | `DMA_ALL` (`$0F`) stops channels 0–3 | `DMA_ALL` `$FF` stops all eight wherever 0–3 are stopped today (review round 1) |
 
 **The emulator** drops revision 1's DMA controller when B2 lands. The machine file's `drq=` becomes the card's
-module, and the tests that program the controller are redone for revision 2: `test_dma`, `test_bios`,
+module *(as built, a departure from this wording: a bare `drq` flag, the module from the card's I/O block, and
+`drq=N` refused; [B2: as built](#b2-as-built))*, and the tests that program the controller are redone for revision 2: `test_dma`, `test_bios`,
 `test_bios_sd`, `test_sd`, `test_console_card`, `test_oodos_sys`, `test_oodos_disk2`, `test_oodos_sound`,
 `test_oodos_video`, `test_sound`, `test_sound_mp3`, `test_sound_pcm`, `test_sound_doc`, `test_usb`, `test_machine` and
 `test_video_rev2` (review round 2). The WebUI's DMA panel (`emulator/apps/web/ui/src/debugger/devices.ts`) shows the
-new layout.
+new layout. *(There is no such panel: the owner's answer 10 leaves one for later, reading through `peek_channel`.)*
 
 **The diagnostics (review round 1).** D3b's DMA tests are redone in B2, with revision 2's bounds:
 - **Stage 8** ([diag.md](diag.md)): D1 (the ID, now `$82`; each register read back through SELECT 0–7; CONTROL's
   burst and SELECT bits), D2 and D3 (channel 3's fill and copies), D4 (the fill timed by VIA timer 2) and D5
-  (STATUS and ABORT at `$10–$11`). D4 is a memory-to-memory fill with /DREQ high, so it stays 2 cycles a byte.
+  (STATUS and ABORT at `$10–$11`). D4 is a memory-to-memory fill, which never polls (the owner's answer 2), so it
+  stays 2 cycles a byte, 4,096 for 2 KB, with a sound card's standing request on /DREQ or not. *(Corrected in B2:
+  this sentence had "with /DREQ high", which no machine with a sound card has.)*
 - **The channel tests in the cards' stages:** V7 (channel 1, the port), S3 (channel 2), SD3 and SD4 (channel 0).
   SD4's timed read gains one poll cycle per take.
 - `test_bios_diag` holds each of these to revision 2's numbers.
@@ -2525,7 +2570,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 | Step | The emulator | The BIOS | OODOS, OOLIB | The books | Interfaces |
 |---|---|---|---|---|---|
 | **B1** memory by address | 24-bit physical addresses (`decoder.h`'s `PHYSICAL_SPACE` and `bus_address`, `space << 20` today); the RAM lines at `000000–0FFFFF`; the flash in the memory space at `F00000` and `F80000`; the north bridge's ROM bit to `$F00000 + b × $4000`; the aperture line at `E00000–E0FFFF`, with bank 8 sent to it **only while a revision 2 video card is fitted**, as the aperture line is inert without one today (review round 1), so a machine with no such card keeps bank 8 as RAM; the bus trace's address column wider; `backplane.machine` | nothing | nothing | the Technical Reference's chapters 2 and 14 (the map), the emulator notes | none: no software-visible change |
-| **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module; revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled; the controller stretching a grant while /WAIT is low; the emulator's wait-state model (`decoder.h`: a mapping's `wait` and the bridge's `wait_states`, RDY wait states today) becomes /WAIT, seen by the CPU's cycles and by a DMA grant alike | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
+| **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module (as built: a bare `drq` flag, [as built](#b2-as-built)); revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled; the controller stretching a grant while /WAIT is low; the emulator's wait-state model (`decoder.h`: a mapping's `wait` and the bridge's `wait_states`, RDY wait states today) becomes /WAIT, seen by the CPU's cycles and by a DMA grant alike | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers-revision-1-dropped-in-b2) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
 | **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5 | none |
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
@@ -2560,7 +2605,7 @@ source changed, and the suites pass with only the thirteen expectations below ch
     only there or at `E00000-E0FFFF`; any other place is an error (review V2). The redirect adds the aperture's base
     to the offset in bank 8.
   - The memory lines keep `module=0`–`5` only as the ID whose WAITn bits slow them, and only in B1. B2's /WAIT
-    replaces it.
+    replaces it. *(Done in B2: the RAM, flash and aperture lines carry no `module=`.)*
   - The I/O hole's IDs 0–5 and F have no line: their blocks read `$FF`, and no ID byte.
 - **Physical peeks.** `Decoder::peek_physical()` and `write_physical()` give the CPU card's view (the redirect
   applied), which is what `CcpRig`'s `row()` and `attr()` at `0x82000` use:
@@ -2625,6 +2670,114 @@ source changed, and the suites pass with only the thirteen expectations below ch
   `ids_0_to_5_and_f_are_empty_slots_on_the_machine`. Both pass on the code before B1 too, because the I/O hole was
   already decoded ahead of memory. They guard the /MEM rule against regressions rather than prove B1's change, and
   each was seen failing against a break of that rule (windows decoded ahead of the hole; a stray I/O line on ID 0).
+
+#### B2: as built ####
+
+**Proposed, emulated (2026-11-15).** Step B2, DMA controller revision 2, on `feat/bus-b2` off main `c4ad400`, with the
+owner's ten answers to its plan ("recommendations as listed") and the critic's fifteen findings. Revision 1 is gone
+from the emulator, the BIOS (0.15) and OODOS (still 0.10, interface 10) in one switch, since the ROM, OODOS.SYS on the
+cards, the controller and the books meet in nearly every rig. No interface programs use changed: the BDOS functions,
+OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the controller's registers are OODOS's alone.
+
+- **/WAIT (U1).** `NorthBridge::wait_states()` is gone. A mapping's `wait=` is the card's /WAIT: its cycles hold the
+  CPU and stretch a DMA grant it answers; on a fly-by the grant takes the longer of the memory's and the card's (one
+  open-drain line). The poll takes none. The bridge's WAIT0–3 are read/write storage, reset 0, reserved for a turbo,
+  and slow nothing (answer 4); the diagnostics still keep their options in WAIT3. `backplane.machine`'s RAM, flash
+  and aperture lines lose `module=`, which the parser keeps for buses with no north bridge. No machine in the repo
+  sets `wait=`, so no CPU cycle count moved.
+- **The channel accessor (U2).** `DmaController::peek_channel(n, reg)`, `Machine::dma()` and `Session::dma()` read a
+  channel with no effect; the tests that looked at a channel mid-run read it so, never by writing SELECT, which is
+  the running software's.
+- **The controller (U3).** The layout [above](#the-dma-controller-revision-2), state for eight channels with four
+  live until B3 (SELECT 4–7, the window's reserved bytes and `$13`–`$7D` read `$FF` and drop writes; ABORT reads
+  `$FF`; CONTROL is stored `& $7F`). CARD keeps bits 4–0; WIDE is stored and read back with no effect until B4
+  (answer 6). REQ is latched per channel at each poll: 0 at reset and for MODULE none. `reset()`, which is also
+  Apple II mode's /RESET pulse, puts back CONTROL `$70`, every CARD, REQ and the hold-off.
+- **The take,** in order: nothing with the master enable off (what Apple II mode relies on: a sound card's standing
+  request costs nothing there); the wired timed cards caught up, then /DREQ as the OR of their requests; a poll if
+  /DREQ is low, a channel serving a card is armed and no hold-off runs (answer 2); then a grant to the highest-priority
+  channel among the card channels whose module asked and the software-started ones (REQ, or a block under way), so
+  a memory copy beside a stray request is served in the same take. A poll with nothing to grant gives the bus back
+  after its two cycles and holds polls off for 64 cycles from the take's first; /DREQ going high and low again, a CTRL
+  write, or a reset ends it early. A demand transfer ends when the granted card lets go, whatever the others ask.
+  The poll cycle is like the takeover (answer 5): counted in the stolen cycles, never reported to the cycle
+  observers, the trace (still version 1) or a breakpoint, and lit by the Console card with the CPU's held address
+  and RDY low. A card is found by its module through a table rebuilt when the mappings change, so a take with
+  nothing armed stays cheap.
+- **The machine file: a departure from this spec's wording (answer 3, the critic's C12).** The migration and the B2
+  row above have "the machine file's `drq=` becomes the card's module". As built, `drq` is a bare flag: the card's
+  request reaches /DREQ, its module is its I/O block's, and the channel whose CARD names that module serves it. The
+  `sd`, `video` and `sound` lines have it; `usb` doesn't, so the USB card's request (the event FIFO's, on every key)
+  pulls nothing. `drq=N` is refused with an error naming CARD, so an old machine file can't load wired wrong. A
+  bare `drq` on a line with no module ID (memory, no `module=`) is refused too (review round 1, C1): no CARD could
+  name it, yet its request would pull /DREQ.
+  `Mapping::drq` is a `Dreq` type that a bare 0 or 1 can't initialise (C1).
+- **The BIOS, 0.15.** QUIET and the diagnostics' QUIETM abort and clear all eight channels, then select each in turn,
+  7 down to 0, to clear MODE and put CARD back to its reset value, computed (7, 9, A, then none) rather than from a
+  table, and put CONTROL back whole; QUIET does it after its SD section. LOADRUN, PORTJOB and PORTDMA save CONTROL,
+  select their channel and put it back (LOADRUN on both ways out, so `/BOOT.BIN` starts with the BIOS's own CONTROL).
+  APPLE writes `DMA_ON` with SELECT 3, `$77`, and puts nothing back: the /RESET pulse does. DMA3RUN, called by nothing
+  since BIOS 0.13, is dropped. Every ID check takes `$82` exactly. The diagnostics: [diag.md, B2](diag.md#b2-dma-revision-2).
+- **OODOS** keeps the SELECT rule in SDIO, DMAGO, the port copies (PORTRUN, PORTGO's callers, VBWORK), C2STOP, PIECE
+  (in the interrupt), DMALOAD (which now puts the master enable back as it found it) and DEAFEN (all eight channels,
+  each selected, CONTROL put back; channels 4–7's `$FF` lands 1s in STATUS bits 4–7, written to clear, which is
+  harmless). Every ID check, function 75's included, takes `$82`; `hwname.s` names revision 2 for SYSINFO.
+- **Not built in B2:** a WebUI DMA panel (answer 10: a later item, reading through `peek_channel`); the serial card's
+  DMASTREAM, which is documented only ([the Technical Reference, chapter 9](../docs/oo1-technical-reference/09-serial-and-via.md#com1-com2-and-lpt)):
+  in the emulator `$C324` is the 6551 stand-in's data register, so nothing may touch it.
+- **Left for B7: [video-rev2.md](video-rev2.md)'s "DRQ wired to channel 1 (`drq=1` on the machine line)"** is
+  frozen, so B2 doesn't edit it (C7). The note B7 adds to video-rev2.md (B0's question 7) is to say the wiring is now
+  by module: a bare `drq` on the line, CARD `$09` on channel 1.
+- **Old images.** OODOS 0.10's code from before B2 takes `$81` exactly, so on this controller its sound, video, CRT,
+  DEAFEN and function 75 paths see no controller. Its SDIO and DMAGO have no ID check. Revision 1's channel 0 sat
+  where revision 2's window is (ADDR `$C400`, COUNT `$C404`, MODE `$C406`, CTRL `$C407`), so an old SDIO programs
+  revision 2's channel 0 while SELECT is 0 and the master is on, which is how BIOS 0.15's LOADRUN hands over with a
+  revision 2 video card (VINIT's CONTROL `$71`, put back after the load), and its sectors reach channel 0. Its
+  STATUS, CONTROL and ABORT at `$C440-$C442` are reserved now (reads `$FF`, writes ignored), so its master enable
+  and its aborts do nothing, and its terminal-count check, reading `$FF`, always passes. But its channel-3 work
+  drives revision 1's places at `$C430-$C43F`, so each copy times out (65,536 polls) and moves nothing, and that
+  work is not only M:, `DM_COPY` and `DM_FILL`: the old BDOS moves every FCB and every record between the
+  program's bank and the system's by MOVE on channel 3, BOUNCE copies a buffer that crosses a window by it, and the
+  Disk II layer copies by it. So an old OODOS 0.10 card reaches `A>`, but no file function works: DIR says
+  "No File", TYPE never comes back, and a write saves nothing it should. Don't write with an old card; replace it
+  with the built-in one (measured on the emulator, B2's review round 2). Without a revision 2 video card
+  CONTROL stays `$70`, the master off, and its sector reads fail too. The cards in the repo are made again. A
+  user-loaded BIOS 0.14 kept by the WebUI sees no controller (its SD boot and Apple II mode refuse): the site's release note tells such users to choose "Use built-in", and that a card made before B2 must
+  be replaced by the built-in one.
+- **The costs measured** ([above](#the-dma-controller-revision-2), the corrected table): single mode 3 cycles a byte;
+  memory to memory 1 + 2n, so D4 reads 4,096 and test_video_rev2's 32 cycles hold; SD4 5,829 KB a second (6,214 on
+  revision 1); the Console card's RDY duty under single mode 0.7500 (three of each four). Held, before on main
+  `c4ad400` and after: `DM_LOAD` of 64 KB 114,568 and 114,761 cycles (the bound 179,000); the load beside a stream
+  117,113 and 117,410, no underrun; channel 2's first terminal count 689 and 688 cycles (the bound 1,000); every
+  underrun count 0; the tick 234; PIP's 36 KB and a scrolling screen lose no tick. The frame costs:
+  [oolib.md](oolib.md#the-plan).
+- **Room:** ROM block 22 13,723 bytes (2,661 free), 21 8,236, 23 8,211, block 31's code to `$E407`; OODOS block 61's
+  code to `$B74C` (+68), block 62's resident part to `$F5F0` (+19).
+- **The expectations changed, as the owner approved them with the plan** (every other expectation held):
+  - changed numbers: test_dma's single, demand, block and terminal-count cycle counts (a poll each take while a card
+    asks), test_console_card's RDY duty (about 0.75, from two in three), test_bios_diag SD4's comment;
+  - in meaning: test_dma's register read-back (the window, 24 bits, ID `$82`, REQ in place of STATUS's request
+    bits), test_dma's second card served by CARD, test_machine's `drq` cases, test_backplane's WAIT case (they
+    slow nothing), test_usb's DMA case (CARD `$0B`), test_bios's Break and `C806` cases (the new places);
+  - mechanical, the numbers unchanged: every suite that programs the controller moved to SELECT and the window, and
+    channel reads through `peek_channel`;
+  - the version: BIOS 0.15 in every greeting (the tests, the e2e specs, `wasm-port.test.ts`, `boot.mjs`), the six
+    SYSINFO goldens' line 6 and their CARDS line (`$82`, revision 2), test_oodos_sysinfo's `ROMV 00 0F`,
+    test_oodos_utils_rom's `romver` 15, and `romdiag.txt` (BIOS 0.15, D1 `ID $82; REGISTERS READ BACK ON 4
+    CHANNELS`);
+  - the docs gate: `registers.json` regenerated (12 DMA records), chapter 5's 11 entries, the listings re-cut.
+- **New cases:** in test_dma, the window following SELECT, CARD's reset values, 24-bit addresses, the grant by
+  module, a stray request's 2 cycles in 64, the hold-off's two early ends, the release rule, /WAIT on a fly-by and
+  none on the poll, and the take order; test_decoder's and test_backplane's /WAIT cases; and the system-level cases
+  (the SELECT rule over a stream with SD reads and a stray interrupt, Break leaving SELECT as found, a bad CARD
+  under the monitor then Break and `C80CR`, Break during D1, a revision 1 ID refused, Apple II mode with no stolen
+  cycle, stage 8's SELECT 3), each with the fault it must fail on named in the plan's section 4. Stage 8's SELECT 3
+  after D1, dropped, fails D5's terminal-count check (`NO TERMINAL COUNT IN STATUS`); D2–D4 pass on channel 0, since
+  memory to memory works on any channel (corrected 2026-11-15, the owner's answer 4: the plan had named D2).
+- **The books:** the Technical Reference's chapters 1–15 where they named revision 1, DRQn and /DACKn, channels by
+  number for a card, or the north bridge's wait states; the Programmer's Guide's function 75 and cost figures; the
+  User's Guide's SYSINFO sample; [diag.md](diag.md#b2-dma-revision-2), [oolib.md](oolib.md#the-plan),
+  [oodos.md](oodos.md) (function 75), and `emulator/docs/` (EMULATOR_PLAN.md, BUS_TRACE.md).
 
 #### The owner's answers (B0) ####
 
@@ -2776,7 +2929,8 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    This is `backplane.machine`, unblocked by this document.
 2. **RDY:** wait states per module, and stopping the CPU for DMA. The core is bus-cycle accurate already; this
    adds the stall cycle.
-3. **The DMA controller,** as a timed device with DRQ inputs from other devices.
+3. **The DMA controller,** as a timed device with DRQ inputs from other devices. *(Revision 2 since B2: the wired
+   cards' requests ORed into /DREQ, the poll, and the grant by MODULE.)*
 4. **Video:** a snooping video device, starting with the text layer, drawn in a window or the terminal.
 5. **Apple II mode:** the IIe switch logic, the mode register and the clock switch. Check it by running real IIe
    software.
@@ -2802,7 +2956,8 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
     writes lost with no card), whose slot registers are the card's own (`$C4B0–$C4B7`); with a revision 2 card the
     north bridge sends bank 8 to it, from the CPU's windows and DMA alike, and it is inert with a revision 1 card or
     none, bank 8 then RAM; the port (PADDR, PDATA, PSTEP, PCTL) has
-    its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2. The `video` line's `rev=` (1 or 2,
+    its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2 (since B2, a bare `drq` on each line
+    and channel 1's CARD `$09`: [B2: as built](#b2-as-built)). The `video` line's `rev=` (1 or 2,
     1 if left out; `backplane.machine` has 2), or `MachineOptions::video_revision` over it, picks the revision,
     fixed once the machine is built. Apple mode still reads banks 0–1 of the RAM, keeping no copy of them, and takes
     the character ROM from card memory; /RESET leaves card memory alone. BIOS 0.13, OODOS (interface 8) and OOLIB
@@ -2815,5 +2970,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 1. **Bus masters and I/O.** The I/O hole is decoded from the CPU's address, before the windows, so a bus master
    driving physical addresses (the ESP32) has no way to reach card registers. The DMA controller doesn't need to
-   (cards answer /DACK) and the ESP32 reaches the Console card over SPI. If a master ever needs I/O, the simplest
+   (cards answer /DACK, or on the new bus their PS match with /DMA low) and the ESP32 reaches the Console card over SPI. If a master ever needs I/O, the simplest
    rule is a physical range the north bridge treats as the I/O hole while BE is low.

@@ -166,7 +166,7 @@ CSRCOK:         LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @no
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @no
                 CLC                    ; the end's top byte, from SG + VLEN
                 LDA     SG
@@ -438,7 +438,7 @@ DM_VBSETX:      BLOCK
                 BNE     @vid
 @no0:           JMP     RETFF
 @vid:           LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @no0
                 JSR     PGET
                 CMP     #DM_SLOTS
@@ -562,7 +562,7 @@ DM_POINTERX:    BLOCK
                 AND     #CLK_FRAME
                 BEQ     @no
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @no
                 JSR     PGET
                 STA     T1
@@ -766,21 +766,22 @@ PORTRUN:        STA     PMODE
                 STA     DCOUNT + 1
 @go:            PHP
                 SEI
-                LDA     DMA_CONTROL
+                LDA     DMA_CONTROL    ; saved, SELECT with it (the SELECT rule)
                 PHA
-                ORA     #DMA_MASTER
+                AND     #<~DMA_SEL
+                ORA     #DMA_MASTER | DMA_SEL1 ; the window on channel 1
                 STA     DMA_CONTROL
                 LDX     #2
 @regs:          LDA     SRCP,X
-                STA     DMA1_ADDR,X
+                STA     DMA_ADDR,X
                 LDA     DSTP,X
                 STA     VIDEO_PADDR,X
                 DEX
                 BPL     @regs
                 LDA     DCOUNT
-                STA     DMA1_COUNT
+                STA     DMA_COUNT
                 LDA     DCOUNT + 1
-                STA     DMA1_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     #1
                 STA     VIDEO_PSTEP
                 STZ     VIDEO_PSTEP + 1
@@ -828,20 +829,21 @@ PORTRUN:        STA     PMODE
 .assert <PORT_PIECE = 0, error, "PORTRUN's pieces are whole pages"
 
 ; Channel 1 to or from the card's port, masked by the caller, the master
-; enable on, the channel's address and count and the port's PADDR and PSTEP
+; enable on and the window on channel 1 (SELECT 1, CONTROL saved by the
+; caller), the channel's address and count and the port's PADDR and PSTEP
 ; set: A the channel's mode (DMA_DEMAND_OUT to the card, with DMA_HOLD a
 ; fill; DMA_DEMAND_IN from it), X the port's PCTL (DRQ, with FROM for
 ; DMA_DEMAND_IN). The card asks for every byte at once, so it runs with the
 ; CPU held, a cycle a byte; stopped if it hasn't ended after 65,536 polls,
 ; and carry set then (clear when it ended). The port's PCTL 0 after, the
 ; terminal count cleared.
-PORTGO:         STA     DMA1_MODE
+PORTGO:         STA     DMA_MODE       ; (STA and STX absolute: the tests watch PORTGO + 6)
                 STX     VIDEO_PCTL
                 LDA     #DMA_ENABLE
-                STA     DMA1_CTRL
+                STA     DMA_CTRL
                 LDX     #0
                 LDY     #0
-@wait:          LDA     DMA1_CTRL
+@wait:          LDA     DMA_CTRL
                 LSR     A
                 BCC     @done
                 DEX
@@ -980,8 +982,9 @@ VNEXT:          LDX     #VSRC - VSRC
 ; The frame handler's (irq.s's VIDSRV, through CALL61, masked, after EVALL,
 ; while VBON): each slot whose EV_VBGO bit is set written through the
 ; card's port by channel 1 (PORTGO), its bit cleared; then the pointer's X
-; and Y. W1 borrowed for the area, and DMA_CONTROL's master enable on for
-; the copies and put back after, as whatever was interrupted had it. The
+; and Y. W1 borrowed for the area, and DMA_CONTROL's master enable on and
+; the window on channel 1 (SELECT 1) for the copies, CONTROL put back after,
+; SELECT with it, as whatever was interrupted had it. The
 ; port is OODOS's and the BDOS sets it only masked, so nothing is in the
 ; middle of it here.
 VBWORK:         LDA     NB_WIN1
@@ -990,7 +993,8 @@ VBWORK:         LDA     NB_WIN1
                 STA     NB_WIN1
                 LDA     DMA_CONTROL
                 PHA
-                ORA     #DMA_MASTER
+                AND     #<~DMA_SEL
+                ORA     #DMA_MASTER | DMA_SEL1 ; the window on channel 1
                 STA     DMA_CONTROL
                 LDY     #EV_VBGO
                 LDA     (EVP),Y
@@ -1008,15 +1012,15 @@ VBWORK:         LDA     NB_WIN1
                 ORA     SLLEN + 1,Y
                 BEQ     @next          ; a bit for a free slot: cleared, nothing copied
                 LDA     SLLEN,Y
-                STA     DMA1_COUNT
+                STA     DMA_COUNT
                 LDA     SLLEN + 1,Y
-                STA     DMA1_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     SLSRC,X
-                STA     DMA1_ADDR
+                STA     DMA_ADDR
                 LDA     SLSRC + 1,X
-                STA     DMA1_ADDR + 1
+                STA     DMA_ADDR + 1
                 LDA     SLSRC + 2,X
-                STA     DMA1_ADDR + 2
+                STA     DMA_ADDR + 2
                 LDA     SLDST,X
                 STA     VIDEO_PADDR
                 LDA     SLDST + 1,X
@@ -1085,17 +1089,17 @@ VBWORK:         LDA     NB_WIN1
                 AND     #3
                 STA     PSTAGE + 3
                 LDA     #<PSTAGE_PHYS  ; from the staging copy
-                STA     DMA1_ADDR
+                STA     DMA_ADDR
                 LDA     #>PSTAGE_PHYS
-                STA     DMA1_ADDR + 1
+                STA     DMA_ADDR + 1
                 LDA     #^PSTAGE_PHYS
-                STA     DMA1_ADDR + 2
+                STA     DMA_ADDR + 2
                 LDA     #1
                 STA     VIDEO_PSTEP
                 STZ     VIDEO_PSTEP + 1
                 LDA     #4
-                STA     DMA1_COUNT
-                STZ     DMA1_COUNT + 1
+                STA     DMA_COUNT
+                STZ     DMA_COUNT + 1
                 JSR     PORTOUT
 @done:          PLA
                 STA     DMA_CONTROL
@@ -1123,7 +1127,7 @@ VBQUIET:        STZ     VBON
                 DEX
                 BPL     @free
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @card
                 LDA     #DMA_CH1
                 STA     DMA_ABORT

@@ -56,11 +56,13 @@ Three gaps:
   not traced; neither is anything while it is halted.
 - **RDY.** A cycle held by RDY repeats on the board; the spy should log a
   cycle only on PHI2 edges where RDY is high. The emulator does the same
-  for wait states (a slow card, or the north bridge's WAIT registers): the
-  access is logged once, on its last cycle, so the held cycles show as a
-  gap in the cycle numbers. DMA is the same: the controller holds the CPU
-  with RDY and uses the bus, and its cycles show as a gap before the CPU
-  cycle it held. Halting with RDY (the console's single-step) is not
+  for wait states (a slow card pulling /WAIT; since B2 the north bridge's
+  WAIT registers add none): the access is logged once, on its last cycle,
+  so the held cycles show as a gap in the cycle numbers. DMA is the same:
+  the controller holds the CPU with RDY and uses the bus, and its cycles
+  show as a gap before the CPU cycle it held. On DMA revision 2 (B2) the
+  gap holds the poll of the cards too, one cycle after the takeover for a
+  card's transfer; the format stays at version 1. Halting with RDY (the console's single-step) is not
   modelled; the debugger halts between instructions.
 
 ## Module IDs and A16..A23

@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.11.0
- * @date 2026-11-14
+ * @version 0.13.0
+ * @date 2026-11-15
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -53,10 +53,18 @@
  * and do not count; a debugger store through write() does, as a Store from
  * the console takes a bus cycle on the board.
  *
- * Wait states (RDY): an access to a mapping with `wait` set, or to a module
- * the north bridge is told to slow down, lasts 1 + N cycles. The device is
- * accessed once, at the end, when the CPU takes the data, so a timed device
- * has been ticked through the held cycles by then.
+ * Wait states (/WAIT, hw/design.md "Wait states and the read budget"): a
+ * card that needs them pulls the backplane's /WAIT line, and a mapping's
+ * `wait` is how many cycles it holds it on every access. On a CPU cycle the
+ * north bridge turns /WAIT into RDY, so the access lasts 1 + N cycles; the
+ * device is accessed once, at the end, when the CPU takes the data, so a
+ * timed device has been ticked through the held cycles by then. The DMA
+ * controller obeys /WAIT in its grants alike: a memory cycle lasts 1 + the
+ * memory's N, and a fly-by, where memory and the card named on PS0-PS3 both
+ * answer the one cycle on the one open-drain line, 1 + the longer of the
+ * two. The takeover and the poll (below) are the controller's own cycles
+ * and take no /WAIT. /WAIT is the only source of wait states: the north
+ * bridge's WAIT0-3 are storage that slows nothing (backplane_bridge.h).
  *
  * Bus masters (DMA): before every CPU cycle, and every idle one, the
  * decoder offers the bus to its BusMaster, as the board's DMA controller
@@ -64,6 +72,15 @@
  * it uses (dma_*()) are real bus cycles, devices and timers included, and
  * the CPU's pending access is held for them like a wait state. They reach
  * memory space only, by physical address, never through the windows.
+ *
+ * DMA requests (hw/design.md, "The DMA controller, revision 2"): a card
+ * whose mapping has `drq` (Dreq::Wired) pulls /DREQ, one shared open-drain
+ * line, and dreq() is its OR, the timed cards caught up first. In a poll
+ * cycle (dma_poll(), /DMA and /IACK low) each requesting card pulls the data
+ * line of its module ID: dreq_from(). A grant names the card by its module
+ * on PS0-PS3, and dreq_card() is the wired mapping that answers it, its
+ * device and its /WAIT. The table from module to mapping is kept as
+ * mappings are added, so a take with nothing to do costs no scan.
  *
  * The CPU card may send a memory cycle somewhere other than the address its
  * master asked for: the backplane's bridge sends bank 8 to the video
@@ -78,11 +95,11 @@
  * PS0-PS3 on a memory cycle (Access::module): memory is chosen by address,
  * so the module lines carry the master's own ID, which the bridge gives
  * (NorthBridge::memory_select()): on the backplane D for the CPU, 8 for the
- * DMA controller's memory to memory cycles, and on a fly-by the card's. A
+ * DMA controller's memory to memory cycles, and on a fly-by the module the
+ * channel's CARD names (the card the grant is for). A
  * bus with no /MEM (no north bridge, as the Apple-1's) shows the mapping's
- * module= instead. A memory mapping's module is then only the ID whose
- * WAITn bits slow it, as the 62-pin bus's memory modules were (step B1
- * keeps it; B2 replaces it with /WAIT).
+ * module= instead. Behind a north bridge a memory mapping's module is not
+ * used.
  *
  * The CPU reports its own cycles to its observer; the bus master's go to
  * the decoder's (set_dma_observer()), each read or write as it happens,
@@ -90,8 +107,12 @@
  * card sees every bus cycle. The cycle taking the bus carries nothing and
  * is not reported: RDY is low but BE is not yet, so the CPU's held address
  * is still on the bus, and granted() lets the card light it as the CPU's.
+ * The poll cycle is treated the same: its address lines carry nothing
+ * defined, it is not reported to the observer or the bus trace (whose DMA
+ * gap it joins), and granted() counts it, so it is lit as the CPU's too.
  */
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -102,11 +123,19 @@
 namespace ooe::emu
 {
     constexpr uint32_t PHYSICAL_SPACE = 1u << 24; ///< A0-A23: the size of each space
-    /// A0-A19: what the registers still 20 bits wide hold (DMA revision 1, the Console card's).
+    /// A0-A19: what the registers still 20 bits wide hold (the Console card's PADDR, SWR and BPADDR).
     constexpr uint32_t ADDRESS_20 = (1u << 20) - 1;
     constexpr uint32_t FLASH_BASE = 0xF00000; ///< ROM A; ROM B, the cartridge, at F80000
     constexpr uint8_t NO_MODULE = 0xFF;
-    constexpr uint8_t NO_DRQ = 0xFF;
+    constexpr unsigned MODULE_IDS = 16; ///< PS0-PS3
+
+    /// A card's DMA request: wired to the backplane's /DREQ or not. A type of its own, so a bare
+    /// 0 or 1 (revision 1's channel numbers) can't initialise it.
+    enum class Dreq : uint8_t
+    {
+        None,  ///< not wired
+        Wired, ///< the card pulls /DREQ, and answers the poll and a grant by its module ID
+    };
 
     enum class Space : uint8_t
     {
@@ -178,12 +207,6 @@ namespace ooe::emu
         /// Where the CPU card sends a memory cycle for `physical` (A0-A23): the CPU's windows and
         /// the DMA controller's cycles alike. Default: where it was asked.
         virtual uint32_t redirect(uint32_t physical) const { return physical; }
-        /// Wait states the bridge inserts on an access to `module`.
-        virtual unsigned wait_states(uint8_t module) const
-        {
-            (void)module;
-            return 0;
-        }
     };
 
     struct Mapping
@@ -193,8 +216,8 @@ namespace ooe::emu
         Device *device{nullptr};    ///< not owned
         uint8_t module{NO_MODULE};  ///< backplane module ID 0x0-0xF, or NO_MODULE
         bool irq_wired{false};      ///< device's IRQ output reaches the CPU
-        uint8_t wait{0};            ///< wait states the card holds RDY for on every access
-        uint8_t drq{NO_DRQ};        ///< DMA channel the device's DRQ line goes to, or NO_DRQ
+        uint8_t wait{0};            ///< cycles the card holds /WAIT for on every access, the CPU's and DMA's
+        Dreq drq{Dreq::None};       ///< the device's DMA request reaches /DREQ (by `module`)
     };
 
     class Decoder;
@@ -262,13 +285,30 @@ namespace ooe::emu
 
         /// A bus master's cycle with nothing transferred (taking the bus).
         unsigned dma_idle();
+        /// The DMA controller's poll cycle (/DMA and /IACK low, PS 8): one cycle, counted in
+        /// granted() as the takeover is, and not reported to the observer. The cards wired to
+        /// /DREQ are caught up, so dreq_from() reads them as of the poll. @return cycles used
+        unsigned dma_poll();
+        /// /DREQ is low: a card wired to it (Mapping::drq) is requesting. The timed ones are caught
+        /// up to now first.
+        bool dreq();
+        /// In a poll: module `module`'s card pulls its data line (it is wired to /DREQ and
+        /// requesting). As of the last catch-up: call it after dma_poll().
+        bool dreq_from(uint8_t module) const;
+        /// The mapping wired to /DREQ that answers module `module` on PS0-PS3, or nullptr.
+        const Mapping *dreq_card(uint8_t module) const;
         /// A bus master's memory read at a physical address. @return cycles used
         unsigned dma_read(uint32_t physical, uint8_t &data);
         /// A bus master's memory write at a physical address. @return cycles used
         unsigned dma_write(uint32_t physical, uint8_t data);
         /// One fly-by cycle between `card` and memory at `physical`:
-        /// `to_memory` card -> memory, else memory -> card. @return cycles used
+        /// `to_memory` card -> memory, else memory -> card. Both hold /WAIT as their mappings
+        /// say, so the cycle is stretched by the longer of the two. @return cycles used
         unsigned dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc);
+        /// The same for the DMA controller's grant: `card` is the mapping wired to /DREQ
+        /// (dreq_card()), whose `wait` is the card's side of /WAIT, and `module` the channel's
+        /// MODULE, which PS0-PS3 carry. @return cycles used
+        unsigned dma_fly_by(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory, bool tc);
         /// Memory at a physical address (A0-A23) with no bus cycle counted, as
         /// the CPU card reaches it (NorthBridge::redirect()): with a revision 2
         /// video card on the backplane, bank 8 is the aperture.
@@ -335,9 +375,10 @@ namespace ooe::emu
         /// Route a CPU access, count its cycles (wait states and any bus
         /// master's cycles too) and record it in last_.
         const Mapping *access(uint16_t addr, Route &r, bool write);
-        /// Count one bus master cycle to memory at `where` (a bus address, redirected); @return the
-        /// mapping (or nullptr) and its cycles in `cycles`.
-        const Mapping *dma_cycle(uint32_t where, unsigned &cycles);
+        /// Count one bus master cycle to memory at `where` (a bus address, redirected), stretched by
+        /// the memory's /WAIT or `card_wait`, whichever is longer; @return the mapping (or nullptr)
+        /// and its cycles in `cycles`.
+        const Mapping *dma_cycle(uint32_t where, unsigned &cycles, unsigned card_wait = 0);
         /// The bus address a CPU card cycle for `physical` reaches (NorthBridge::redirect()).
         uint32_t memory(uint32_t physical) const
         {
@@ -348,11 +389,17 @@ namespace ooe::emu
         /// Bring the slot of `device` up to the cycle before now.
         void catch_up_device(const Device &device);
         /// Tell the DMA observer about a bus master's cycle of `cycles` at bus address `where`, to mapping `m`
-        /// (or nothing), with `card` on a fly-by (else nullptr); PS0-PS3 are worked out only if it watches.
-        void dma_seen(uint32_t where, const Mapping *m, const Device *card, unsigned cycles, uint8_t data,
-                      bool write);
-        /// The module ID of `card`'s mapping in the I/O hole, or NO_MODULE.
-        uint8_t module_of(const Device &card) const;
+        /// (or nothing), with `is_fly_by` true on a fly-by, whose grant puts `module` on PS0-PS3; PS0-PS3 are
+        /// worked out only if it watches.
+        void dma_seen(uint32_t where, const Mapping *m, bool is_fly_by, uint8_t module, unsigned cycles,
+                      uint8_t data, bool write);
+        /// A fly-by of `card` with its side of /WAIT `card_wait` and `module` on PS0-PS3.
+        unsigned fly_by(uint32_t physical, Device &card, unsigned card_wait, uint8_t module, bool to_memory,
+                        bool tc);
+        /// Catch the devices wired to /DREQ up to the cycle before now.
+        void catch_up_dreq();
+        /// `card`'s mapping in the I/O hole, or nullptr.
+        const Mapping *io_mapping_of(const Device &card) const;
 
         NorthBridge *bridge_;
         BusMaster *master_{nullptr};
@@ -369,6 +416,8 @@ namespace ooe::emu
         std::vector<Slot> slots_;         ///< distinct devices, in mapping order
         std::vector<size_t> timed_;       ///< slots of timed devices
         std::vector<Device *> irq_wired_; ///< distinct devices with an IRQ wire
+        std::vector<size_t> dreq_wired_;  ///< per distinct device wired to /DREQ: its first such mapping
+        std::array<int, MODULE_IDS> dreq_module_; ///< per module ID: the wired mapping answering it, or -1
         uint64_t now_{0};
     };
 } // namespace ooe::emu

@@ -98,7 +98,8 @@ Apple software polls its own cards and never uses /IACK. The north bridge's regi
 can't be read. hw/design.md has the native cards keep quiet while AMODE is high. The emulator gets there by the
 /RESET pulse that enters the mode: it resets every card, which turns off the interrupt enables of the SD, video,
 sound, USB and console cards and the VIA's IER. The bridge clears TIE, and the DMA controller's reset clears every
-channel's mode and terminal count. **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
+channel's mode and terminal count, all eight, and puts each CARD and CONTROL back to their reset values
+([chapter 5](05-dma.md#apple-ii-mode)). **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
 kept, and with its receive interrupt on, a byte arriving pulls /IRQ in Apple II mode. Enter the mode with the 6551's
 receive interrupt off (CMD bit 1 set). The monitor's is: it writes `$0B` to ACIA_CMD.
 
@@ -140,8 +141,8 @@ W3 holds.
   6551 and still serves the video card in the same pass.
 - **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
   bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
-  interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 and the terminal count of
-  each channel that had it on (another's is its driver's to read), the 6551's receive and transmit interrupts
+  interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 (all eight, each selected in
+  turn with CONTROL put back after) and the terminal count of each channel that had it on (another's is its driver's to read), the 6551's receive and transmit interrupts
   (ACIA_CMD bit 1 set, bits 3-2 `%10`, the rest kept; then its STATUS read), the clock's TIE. The warm boot does
   the same at each program's end, keeping only OODOS's two, and sets timer 1 up again (ACR, its latch if it
   changed, its enable), in case a program changed it; putting the latch back clears timer 1's flag, so it can cost
@@ -153,15 +154,16 @@ W3 holds.
   ([chapter 8](08-usb.md#under-oodos)). Its handler, and the joysticks' and paddles' sampling at the tick, are in
   block 62, behind a switch of W3 and back; only the switch and the tick's checks are in common memory. An
   interrupt from the card with no such area open is turned off as any other's.
-- **The sound card and DMA channel 2** (IRQH bits 2 and 0), since OOLIB's L3: the card's IEN bits 2 (the
+- **The sound card and its DMA channel, 2** (IRQH bits 2 and 0; channel 2's CARD names the sound card, module A), since OOLIB's L3: the card's IEN bits 2 (the
   mailbox) and 3 (the ES5503) while a program holds what they serve, and channel 2's terminal count while a stream
-  buffer is going to the card ([chapter 7](07-sound.md#under-oodos)). Their handler is in block 61, the BIOS's,
+  buffer is going to the card ([chapter 7](07-sound.md#under-oodos)). The handler that programs the stream's next
+  piece selects channel 2 and puts CONTROL back as it found it ([chapter 5's SELECT rule](05-dma.md#the-controller)). Their handler is in block 61, the BIOS's,
   reached through a borrow of W2 and put back byte for byte, from the same path as the USB card's; W1 is kept for
   the event area. OODOS's turning off of strays leaves those bits and channel 2 alone while they are its own.
 - **The vertical-blank copies and the pointer** (OOLIB L4): after the event area's counters, while a slot is set
-  or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1, through
-  video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
-  the blank's 10,240 cycles, with the pointer and a stream, line 504 at the latest under a USB batch and line 502
+  or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1 (CARD 9, the
+  video card), through video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
+  the blank's 10,240 cycles, with the pointer and a stream, line 505 at the latest under a USB batch and line 497
   under 64 KB loads, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
@@ -185,7 +187,10 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 /RESET pulse that enters the mode clears KBCFG, so Pause/Break pulls nothing there. Break enters the monitor with:
 
 - a fresh stack, and windows 0–2 on RAM blocks 0–2;
-- every DMA channel aborted, with its terminal count and mode cleared;
+- every DMA channel aborted, all eight, with its terminal count and mode cleared;
+- each DMA channel's CARD put back to its reset value (`$07`, `$09`, `$0A`, then `$08`, none), so a CARD a program
+  or the monitor changed can't keep the SD boot from its grant, since BIOS 0.15 (*proposed*,
+  [chapter 5](05-dma.md#the-controller));
 - an SD command abandoned, the units staying mounted;
 - the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced, and on revision 2 its PCM stream
   and ES5503 stopped too (PCMCTL FLUSH alone, DOCCTL's RUN cleared), since BIOS 0.12
@@ -196,7 +201,8 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 - the text screen set up again, found from the cards' ID bytes;
 - the 6551 set up afresh by the monitor, with its interrupts off.
 
-It leaves W3, VEC, DMA CONTROL, memory, the rest of the VIA (its timers run on, and IFR keeps its flags), and the
+It leaves W3, VEC, DMA CONTROL (its SELECT too: QUIET selects each channel in turn and then puts CONTROL back
+whole), memory, the rest of the VIA (its timers run on, and IFR keeps its flags), and the
 rest of each card's state as they were ([above](#irq-and-nmi)). Break works while W3 and VEC are the BIOS's; a program that moves VEC
 takes the NMI itself. The design record has the list and its reasons
 ([hw/design.md, "Boot"](../../hw/design.md#boot)).

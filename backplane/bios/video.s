@@ -17,9 +17,9 @@
 ; aperture's bank) through W2, borrowed the same way. Everything else goes
 ; through the card's data port: VINIT writes the font and the palette into
 ; PDATA, and clearing and scrolling are port transfers by DMA on channel 1,
-; the card's DRQ, each waited for (so whole whatever BURST a program has set:
-; the master enable on for it and put back after; one that never ends is
-; given up after about 0.1 s). A fill holds the DMA's source on one byte with
+; which serves the card (CARD 9) when it asks, each waited for (so whole
+; whatever BURST a program has set: the master enable on and SELECT 1 for it,
+; CONTROL put back after; one that never ends is given up after about 0.1 s). A fill holds the DMA's source on one byte with
 ; PSTEP 2: the characters, then the attributes. Scrolling copies card to card
 ; in 2 KB pieces, out of the port into SCRBUF and back in 160 bytes lower:
 ; 4,640 bytes each way, about 1.3 ms. SCRBUF is the first 2 KB of RAM block
@@ -39,7 +39,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.export VINIT, VPUTC, VSCREEN, DEMO, DMA3RUN
+.export VINIT, VPUTC, VSCREEN, DEMO
 .import WOZMON, DEMO_MAIN
 
 VPTR    = BIOS_ZP + 0                  ; cell pointer (CPU address)
@@ -137,7 +137,7 @@ PROBE:
                 CMP     #VIDEO_ID_V2
                 BNE     @done
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @done
                 DEC     VOK
 @done:          BIT     VOK
@@ -326,17 +326,24 @@ PORTJOBS:
 
 ; Port job X: PADDR and PSTEP, then channel 1 programmed stopped (so a live
 ; channel never runs on a half-written address) and armed, a block, which
-; the card's DRQ starts when PCTL is written; waited for as DMA3RUN waits,
-; with CONTROL's master enable on and CONTROL put back after, and PCTL 0
-; again. X moves on to the next job; carry set if it was given up. Uses A, Y.
+; the card's request starts when PCTL is written; waited for (65,536 polls,
+; about 0.1 s, then stopped: no controller, or one starved by a busier
+; channel), with CONTROL saved first, then the master enable on and SELECT 1
+; (the window channel 1's), and CONTROL put back after, and PCTL 0 again. X
+; moves on to the next job; carry set if it was given up. Uses A, Y.
 PORTJOB:
                 LDA     #DMA_CH1
                 STA     DMA_ABORT
+                LDA     DMA_CONTROL
+                PHA
+                AND     #<~DMA_SEL
+                ORA     #DMA_SEL1 | DMA_MASTER
+                STA     DMA_CONTROL
                 LDY     #$00
 @regs:          LDA     PJOBS,X
                 STA     VIDEO_PADDR,Y  ; PADDR: Y = 0-2
                 LDA     PJOBS+5,X
-                STA     DMA1_ADDR,Y    ; the memory side
+                STA     DMA_ADDR,Y     ; the memory side
                 INX
                 INY
                 CPY     #$03
@@ -346,17 +353,13 @@ PORTJOB:
                 LDA     PJOBS+1,X
                 STA     VIDEO_PSTEP + 1
                 LDA     PJOBS+5,X      ; COUNT
-                STA     DMA1_COUNT
+                STA     DMA_COUNT
                 LDA     PJOBS+6,X
-                STA     DMA1_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     PJOBS+7,X
-                STA     DMA1_MODE
-                LDA     DMA_CONTROL
-                PHA
-                ORA     #DMA_MASTER
-                STA     DMA_CONTROL
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA1_CTRL      ; armed: the card's DRQ starts it
+                STA     DMA_CTRL       ; armed: the card's request starts it
                 LDA     PJOBS+8,X
                 STA     VIDEO_PCTL
                 TXA
@@ -365,7 +368,7 @@ PORTJOB:
                 PHA                    ; the next job
                 LDX     #0
                 LDY     #0
-@wait:          LDA     DMA1_CTRL
+@wait:          LDA     DMA_CTRL
                 LSR     A
                 BCC     @done
                 DEX
@@ -427,35 +430,6 @@ ROWHI:
 .repeat ROWS, r
                 .byte   >(VWIN + TEXT_CARD + r * ROWBYTES)
 .endrepeat
-
-; Start channel 3, programmed, and wait for ENABLE to clear at terminal
-; count, with the master enable on (a program may have turned it off) and
-; CONTROL put back after. The enable is the whole controller's, so a
-; program's channels still armed run meanwhile: to keep one from running, a
-; program aborts it, not just turns the master enable off. 65,536 polls, about 0.1 s, then it gives up and
-; stops the channel: no controller there (ENABLE reads 1 off a floating
-; bus), or one starved by a busier channel. For the demo too. Uses A, X, Y.
-DMA3RUN:
-                LDA     DMA_CONTROL
-                PHA
-                ORA     #DMA_MASTER
-                STA     DMA_CONTROL
-                LDA     #DMA_GO
-                STA     DMA3_CTRL
-                LDX     #0
-                LDY     #0
-@wait:          LDA     DMA3_CTRL
-                LSR     A
-                BCC     @done
-                DEX
-                BNE     @wait
-                DEY
-                BNE     @wait
-                LDA     #DMA_CH3
-                STA     DMA_ABORT
-@done:          PLA
-                STA     DMA_CONTROL
-                RTS
 
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR.
 .macro RGB r, g, b

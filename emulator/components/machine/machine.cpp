@@ -273,13 +273,11 @@ namespace ooe::emu
                 const size_t eq = arg.find('=');
                 if (arg == "irq")
                     map.irq_wired = true;
+                else if (arg == "drq")
+                    map.drq = Dreq::Wired; // the card pulls /DREQ; its module, from its I/O block, names it
                 else if (eq != std::string::npos && arg.compare(0, eq, "drq") == 0)
-                {
-                    const std::string n = arg.substr(eq + 1);
-                    if (n.size() != 1 || n[0] < '0' || n[0] > '3')
-                        return fail("drq: want a DMA channel 0-3");
-                    map.drq = static_cast<uint8_t>(n[0] - '0');
-                }
+                    return fail("drq: a flag, with no channel: the card's request reaches /DREQ, and a DMA "
+                                "channel serves it by the module its CARD register names (DMA revision 2)");
                 else if (eq != std::string::npos && arg.compare(0, eq, "wait") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);
@@ -338,6 +336,9 @@ namespace ooe::emu
                 if (map.module == NO_MODULE)
                     map.module = static_cast<uint8_t>(map.first >> 7);
             }
+            if (map.drq == Dreq::Wired && map.module == NO_MODULE) // wired, but no CARD could ever name it
+                return fail("drq: the card needs a module ID (space=io, or module=) for a DMA channel's CARD "
+                            "to name it");
 
             const size_t size = map.last - map.first + 1;
             std::unique_ptr<Device> dev;
@@ -445,6 +446,7 @@ namespace ooe::emu
                     dma->attach(&m->bus_);
                     m->bus_.set_master(dma.get());
                     m->master_ = dma.get();
+                    m->dma_ = dma.get();
                     dev = std::move(dma);
                 }
             }

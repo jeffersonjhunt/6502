@@ -17,7 +17,7 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 2 [Memory and banking](02-memory-and-banking.md) | physical memory, the four windows, the I/O hole, flash and read-only windows, zero page | reprogramming the flash; revision 2's bank 8 aperture |
 | 3 [Boot](03-boot.md) | reset and the BIOS's copy of itself, /BOOTSEL, the entry points, the Woz Monitor, booting the SD card | the bus spy |
 | 4 [Interrupts](04-interrupts.md) | IRQ and NMI, IRQL and IRQH, VEC, Pause/Break | the serial card's INTSTAT |
-| 5 [DMA](05-dma.md) | the controller, `$C400`: memory to memory, transfers for a card | the video port on channel 1 |
+| 5 [DMA](05-dma.md) | the controller, `$C400`: memory to memory, transfers for a card | revision 2's controller (the window, CARD, the poll and /WAIT), emulated as step B2; the video port on channel 1 |
 | 6 [Video](06-video.md) | the VGA card, `$C480`: layers, sprites, the palette, video memory, interrupts, the splash | revision 2: the card's own 2 MB, the aperture, the data port |
 | 7 [Sound](07-sound.md) | two SIDs and a 6510, `$C500`: the mailbox, the card's RAM, `.sid` tunes | the card's bus timing |
 | 8 [USB](08-usb.md) | the keyboard, mouse, game port and speaker, `$C580` | other layouts, a gamepad, device events, the event FIFO on DMA, a real 558 |
@@ -29,7 +29,10 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 14 [Emulator notes](14-emulator-notes.md) | the machines and the apps, what the emulator models, every difference from the design, running a program | what isn't there, gathered from the chapters; revision 2 of the video card |
 | 15 [Diagnostics](15-diagnostics.md) | the ROM's diagnostics (BIOS 0.14): the three entries, the stages, the lights, the report, the way back, the times | |
 
-Everything else is **emulated**: each chapter's sections and all 191 register entries, one for every I/O address
-an equate in [`backplane/bios/backplane.inc`](../../backplane/bios/backplane.inc) names
+Everything else is **emulated**: each chapter's other sections, and 167 of the 191 register entries, one for
+every I/O address an equate in [`backplane/bios/backplane.inc`](../../backplane/bios/backplane.inc) names
 ([docs/templates/register.md](../templates/register.md); [docs/index/registers.json](../index/registers.json)
-lists them). Written in G2; the Disk II's native switches after OODOS's phase 6.
+lists them). The other 24, revision 2's DMA controller's 11 (chapter 5) and revision 2's video card's 13
+(chapter 6), are tagged **proposed** though the emulator has them; chapter 5's sections say so under their status
+("Emulated as step B2"), as chapter 2's 24-bit bus does for B1. Written in G2; the Disk II's native switches after
+OODOS's phase 6.

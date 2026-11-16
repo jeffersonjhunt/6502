@@ -215,8 +215,8 @@ namespace
         CHECK_EQ(reg(r, SoundCard::STATE), 0);
         CHECK_EQ(reg(r, SoundCard::DOCCTL) & 1, 0);
         CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
-        CHECK_EQ(r.machine->bus().peek(0xC426) & 0x80, 0); // DMA2_MODE's interrupt
-        CHECK_EQ(r.machine->bus().peek(0xC427) & 0x01, 0); // DMA2_CTRL's ENABLE
+        CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::MODE) & 0x80, 0); // channel 2's MODE: its interrupt
+        CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::CTRL) & 0x01, 0); // its CTRL's ENABLE
     }
     /// The 6510, the stream and the ES5503 claimed and running.
     void claim_it_all(CcpRig &r)
@@ -805,7 +805,7 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     Costs::print("a frame, the stream claimed", costs.frame);
     Costs::print("a tick", costs.tick);
     // A terminal count's handler, the next piece started (a piece that runs at once, the FIFO having room,
-    // holds the CPU its 4,096 cycles inside it: those are counted too, and are the DMA's, not the handler's).
+    // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
     CHECK_EQ(Costs::mode(costs.tick), 234u); // a layout-2 area's tick, L2's: the stream costs it nothing
@@ -1382,6 +1382,126 @@ TEST(the_warm_boot_turns_the_eq_off_with_every_gain_0_by_wboot_ctrl_c_and_break)
         CHECK(r.until("\\\r", ms(1000), from));
         REQUIRE(r.boot());
         eq_flat(r);
+    }
+}
+
+namespace
+{
+    /// The SELECT rule (hw/design.md, "The DMA controller, revision 2"; b2-plan.md §4 item 9): code that moves
+    /// CONTROL's SELECT, in an interrupt too, puts CONTROL back as it found it. This watches the dispatcher: the
+    /// DMA controller's CONTROL at each interrupt's entry (IRQ) and at its RTI (IRQEND), whether PIECE or
+    /// DEAFEN ran in it, and with which SELECT it was entered.
+    struct SelectRule
+    {
+        unsigned interrupts{0}, changed{0};
+        unsigned piece_beside{0};  ///< interrupts that ran PIECE, entered with SELECT not 2 (SDIO's 0, say)
+        unsigned deafen_beside{0}; ///< interrupts that ran DEAFEN, entered with SELECT not 0
+        uint8_t entry{0};
+        bool in{false}, piece{false}, deafen{false};
+
+        static uint8_t control(Rig &r) { return r.machine->dma()->peek(DmaController::CONTROL); }
+        static unsigned select(uint8_t c) { return (c & DmaController::SELECT_MASK) >> DmaController::SELECT_SHIFT; }
+
+        void step(Rig &r, uint16_t pc)
+        {
+            static const uint16_t irq = sym("IRQ"), end = sym("IRQEND"), piece_at = sym("PIECE"),
+                                  deafen_at = sym("DEAFEN");
+            if (pc == irq)
+            {
+                entry = control(r);
+                in = true;
+                piece = deafen = false;
+            }
+            else if (in && pc == piece_at && r.nb(2) == 61)
+                piece = true;
+            else if (in && pc == deafen_at && r.nb(3) == 62)
+                deafen = true;
+            else if (in && pc == end)
+            {
+                ++interrupts;
+                if (control(r) != entry && changed++ < 4)
+                    std::printf("  an interrupt entered with CONTROL $%02X returned with $%02X%s%s\n", entry,
+                                control(r), piece ? " (PIECE ran)" : "", deafen ? " (DEAFEN ran)" : "");
+                piece_beside += piece && select(entry) != 2;
+                deafen_beside += deafen && select(entry) != 0;
+                in = false;
+            }
+        }
+    };
+} // namespace
+
+TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
+{
+    // Must fail if PIECE (the stream's next piece, in the terminal count's interrupt) or DEAFEN (a stray's)
+    // leaves SELECT moved: the window would be another channel's under SDIO or DMALOAD, and sectors or wave
+    // RAM written through the wrong channel.
+    {
+        // A stream from B: past the FIFO's 128 KB, so the program's refills (SDIO, on channel 0) run while
+        // the pieces' terminal counts interrupt them.
+        CcpRig r;
+        REQUIRE(r.ok);
+        const std::string name83 = "SELECT  PCM";
+        const std::vector<uint8_t> pcm = noise(1792 * 128, 46);
+        card(r).set_tap(true, false);
+        put_b(r, name83, pcm);
+        r.poke(PARMS, std::vector<uint8_t>{0, 0x44, 0xAC, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO}); // 44,100 Hz
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = 2; // B:
+        for (unsigned i = 0; i < 11; ++i)
+            fcb[1 + i] = static_cast<uint8_t>(name83[i]);
+        r.poke(FCB, fcb);
+        const uint8_t before = SelectRule::control(r); // the program's CONTROL, as the CCP leaves it
+        const size_t from = start(r, "l3strm.com");
+        SelectRule rule;
+        r.watch = [&](uint16_t pc) { rule.step(r, pc); };
+        const uint64_t endc = r.cpu->cycles() + ms(4000);
+        while (r.out.find("END ", from) == std::string::npos && r.cpu->cycles() < endc)
+            r.run(ms(1));
+        r.watch = nullptr;
+        const uint8_t after = SelectRule::control(r); // at L3STRM's END line: every piece started, in a call or not
+        REQUIRE(r.until("END ", ms(10), from) && r.until("\r\nA>", ms(1000), r.out.find("END ", from)));
+        std::printf("  the stream: %u interrupts, %u with PIECE run beside another SELECT, %u changed CONTROL\n",
+                    rule.interrupts, rule.piece_beside, rule.changed);
+        CHECK(rule.piece_beside > 0); // the premise: a piece started over SDIO's SELECT 0
+        CHECK_EQ(rule.changed, 0u);
+        CHECK_EQ(after, before); // nor a piece started in function 82's call
+        CHECK_EQ(field(r.out.substr(from), "END").substr(0, 6), std::string("05 03 "));
+        CHECK_EQ(card(r).underruns(), 0u);
+        CHECK(tap_bytes(card(r)) == pcm); // every sector read through channel 0, every piece through 2
+    }
+    {
+        // A wave load of 64 KB (DMALOAD, SELECT 2) with a stray (the USB card's interrupt, no layout-2 area)
+        // in its middle: DEAFEN's SELECT loop runs inside it.
+        CcpRig r;
+        REQUIRE(r.ok);
+        open(r, "X");
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
+        const std::vector<uint8_t> w = noise(0x10000, 47);
+        r.poke(0x10000, w);
+        const uint16_t from = sym("DMALOAD"), to = sym("BEEPQ");
+        unsigned in = 0;
+        bool stray = false;
+        SelectRule rule;
+        r.watch = [&](uint16_t pc) {
+            rule.step(r, pc);
+            if (r.nb(1) != 60 || pc < from || pc >= to)
+                return;
+            if (!stray && ++in > 200)
+            {
+                r.machine->bus().write(0xC5B0, 0x0F); // USB_IEN, against the rules
+                r.machine->usb_card()->key(0x04, true);
+                stray = true;
+            }
+        };
+        CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0}), std::string("00 00"));
+        r.watch = nullptr;
+        r.machine->usb_card()->key(0x04, false);
+        std::printf("  the wave load: %u interrupts, %u with DEAFEN run beside SELECT 2, %u changed CONTROL\n",
+                    rule.interrupts, rule.deafen_beside, rule.changed);
+        CHECK(stray);
+        CHECK(rule.deafen_beside > 0); // the premise: DEAFEN's loop ran over DMALOAD's SELECT
+        CHECK_EQ(rule.changed, 0u);
+        CHECK(std::equal(w.begin(), w.end(), card(r).doc().ram().begin())); // every piece through channel 2
     }
 }
 

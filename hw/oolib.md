@@ -687,6 +687,12 @@ L4. Where the plan left something open it was decided as below, each with its re
   0.5% of the CPU. A frame with the stream claimed and a layout-2 area open is 688 cycles against 389 without: the
   sound part about 300 (692 since F1's 4). The USB card's key interrupt is 662 cycles, 11 more than L2's (IRQOTH's check). The mailbox
   and ES5503 interrupts weren't timed.
+  **Measured again on DMA revision 2** (2026-11-15, the bus work's B2, the owner's answer 3; `test_oodos_sound`'s
+  acceptance case and `a_layout_1_or_2_program_that_claims_nothing_is_unaffected`, on feat/bus-b2 and on main
+  `c4ad400`): a terminal count's handler 688 or 858 cycles (689 or 859 on `c4ad400`), a few up to 1,422; with the
+  next piece's DMA inside it 4,656 to 5,264 (4,632 to 5,366), B2's poll adding 24 or 25 to the usual ones. A frame with the
+  stream claimed 698 against 396 without, the same on both: B2 moves neither. The 688 and 389 above are L3's, from
+  before L4 (whose frame with a layout-2 area is 396) and F1. The tick with a layout-2 area 234, as before.
 - **Tests** (emulator, fast preset): `test_oodos_sound` (15 cases since the review, 2.8 s: the claims and refusals; `SN_SEND` busy; loads to the RAMs' ends; 64 KB of card RAM
   by DMA byte for byte with no tick lost; the 6510 started, its mailbox both ways into the queue, stopped; busy while
   a buffer moves; six buffers of 10,000 bytes chained across terminal counts, the tap what was sent; pause, resume,
@@ -1430,6 +1436,16 @@ and more in L5:
     with 1,024 bytes, the pointer and the stream: line 504 under a USB batch at line 470 (20 to spare), line 502
     under 64 KB loads (22 to spare). And `DM_VWRITE` of 61,440 bytes: 17 ms in the test's round trip (its command
     line included), about 61,500 cycles of it DMA, a cycle a byte.
+  - **Measured again on DMA revision 2** (2026-11-15, the bus work's B2: `test_oodos_video` and `test_oodos_load` on
+    feat/bus-b2 after its switch, 2db1504; [design.md, B2: as built](design.md#b2-as-built)). Each copy now saves
+    the controller's CONTROL, selects channel 1 and puts CONTROL back, and each card transfer begins with a poll of
+    the cards. Cycles a frame: no area 199 and layout 2 with no slot 396, as before; a slot set, no bit 518; a 512-byte
+    slot each frame 1,302; the pointer on 736; four slots of 256 bytes, the pointer and the stream 2,769. The latest
+    a frame's copies ended: line 505 under a USB batch at line 470 (19 to spare), line 497 under 64 KB loads (27 to
+    spare). `DM_VWRITE` of 61,440 bytes: 17.3 ms in the round trip. `test_oodos_load`: 64 KB by `DM_LOAD` 114,761
+    cycles (16.0 ms), against 621,869 (86.9 ms) by 51 and 33; 117,410 with a 44.1 kHz stream playing, no underrun;
+    24 KB from M: 75,517; 20 KB from an apple-do unit 914,866. The tick is 145, and 234 with a layout-2 area. No
+    interface changed.
   - **Tests:** the OODOS rig runs on revision 2 (`MachineOptions::video_revision`). `test_oodos_video` gains a case
     for the four card operations (60 KB to the card byte for byte with no tick lost, back unaligned across a bank,
     fills, 40,000 bytes card to card across banks with the borrowed slots put back, down over itself, and every

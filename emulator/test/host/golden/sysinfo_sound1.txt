@@ -3,7 +3,7 @@ OO-1 SYSTEM INFORMATION
 SYSTEM
   CPU        W65C02S at 7.159 MHz
              #,###,### Hz by the clock chip, #,###,### Hz by the video frame
-  ROM BIOS   0.14
+  ROM BIOS   0.15
   OODOS      0.10, its BIOS 0.2; OOLIB interface 10
   OOUI.BNK   none on A:
   MEMORY     1,024 KB fitted: 960 KB of RAM and the video card's 64 KB aperture
@@ -15,7 +15,7 @@ CARDS
   ADDR   ID   CARD                          REVISION
   $C300  --   serial: the stand-in 6551 (no ID register)
   $C380  $71  mass storage (SD)             1
-  $C400  $81  DMA controller                1
+  $C400  $82  DMA controller                2
   $C480  $92  video                         2
   $C500  $A1  sound                         1
   $C580  $B1  USB, game port and speaker    1

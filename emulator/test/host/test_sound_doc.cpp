@@ -199,7 +199,7 @@ TEST(demand_dma_through_drqsel_2_fills_wave_ram)
 {
     std::string error;
     auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq=2\n",
+                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
                             "sound.machine", {}, error);
     REQUIRE(m != nullptr);
     SoundCard *sound = m->sound_card();
@@ -212,14 +212,15 @@ TEST(demand_dma_through_drqsel_2_fills_wave_ram)
     bus.write(0xC500 + SoundCard::DOCADDR, 0x00);
     bus.write(0xC500 + SoundCard::DOCADDR + 1, 0xF8); // $1F800: across the top, into $00000
     bus.write(0xC500 + SoundCard::DOCBANK, 1);
-    bus.poke(0xC420, 0x00);
-    bus.poke(0xC421, 0x20);
-    bus.poke(0xC422, 0x00);
-    bus.poke(0xC424, N & 0xFF);
-    bus.poke(0xC425, N >> 8);
-    bus.poke(0xC426, DmaController::DEMAND | DmaController::TO_CARD);
-    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-    bus.poke(0xC427, DmaController::ENABLE);
+    // SELECT 2 first: the window at $C400-$C40F then shows channel 2
+    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
+    bus.poke(0xC400, 0x00);
+    bus.poke(0xC401, 0x20);
+    bus.poke(0xC402, 0x00);
+    bus.poke(0xC404, N & 0xFF);
+    bus.poke(0xC405, N >> 8);
+    bus.poke(0xC406, DmaController::DEMAND | DmaController::TO_CARD);
+    bus.poke(0xC407, DmaController::ENABLE);
     for (unsigned i = 0; i < 4 * N; ++i)
     {
         bus.read(0x0000);

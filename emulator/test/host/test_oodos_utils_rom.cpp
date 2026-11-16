@@ -223,7 +223,7 @@ TEST(apple2_without_the_dma_controller_says_so_and_oodos_goes_on)
     const auto iie = stand_in_rom();
     RomRig r({iie->path}, text);
     REQUIRE(r.ok);
-    REQUIRE(r.machine->bus().read(0xC47F) != 0x81);         // DMA_ID: no controller answers
+    REQUIRE(r.machine->bus().read(0xC47F) != 0x82);         // DMA_ID: no controller answers
     const std::string o = r.cmd("APPLE2");
     CHECK(o.find("\r\nApple II mode needs the DMA controller\r\nA>") != std::string::npos);
     CHECK(o.find("No IIe ROM") == std::string::npos);
@@ -360,7 +360,7 @@ TEST(diag_and_y_runs_the_roms_diagnostics_and_a_key_boots_oodos_again)
     CHECK(r.out.find("RESULT: ALL PASSED", from) != std::string::npos);
     const size_t end = r.out.size();
     r.type("\r");                                         // a key: the boot, as after a power-on
-    REQUIRE(r.until("BACKPLANE BIOS 0.14", ms(3000), end));
+    REQUIRE(r.until("BACKPLANE BIOS 0.15", ms(3000), end));
     REQUIRE(r.until("\r\nA>", ms(20'000), end));
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again, A: there
     CHECK_EQ(r.nb(3), 62);
@@ -430,13 +430,13 @@ TEST(diag_without_diagnostics_in_the_flash_says_so_and_75_gives_ff_fc)
 
 TEST(diag_under_a_rom_bios_version_other_than_block_23s_linked_one_says_so_and_75_gives_ff_fc)
 {
-    // Review T3: OODOS's own record of the ROM BIOS's version (cold.s's ROMVER, from the greeting) made 0.13, so
-    // block 23's linked version, 0.14, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
+    // Review T3: OODOS's own record of the ROM BIOS's version (cold.s's ROMVER, from the greeting) made 0.14, so
+    // block 23's linked version, 0.15, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
     RomRig r;
     REQUIRE(r.ok);
     const uint32_t romver = 31u * 0x4000u + sym("ROMVER");
-    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 14);
-    r.poke(romver + 1, 13);
+    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 15);
+    r.poke(romver + 1, 14);
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
     const std::string o = r.cmd("Y");
@@ -467,7 +467,7 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
     r.type("Y\r");
-    CHECK(r.until("BACKPLANE BIOS 0.14", ms(3000), from));
+    CHECK(r.until("BACKPLANE BIOS 0.15", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(20'000), from));
     CHECK(r.out.find(TITLE, from) == std::string::npos);
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again

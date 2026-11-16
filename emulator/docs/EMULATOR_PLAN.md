@@ -201,7 +201,9 @@ the north bridge's WAIT0-3 (2 bits per module ID; WAITn holds IDs 4n to
 console's halt and bus-cycle step, DMA) still needs a core that stops
 between cycles; the DMA step decides how to steal cycles. Wait states that
 vary per access (an RP2350 card holding RDY until ready) get a device hook
-when the first such card is modelled.
+when the first such card is modelled. *(Since B2, 2026-11-15, every wait
+state is a card's /WAIT, a mapping's `wait=`; WAIT0-3 are storage that
+slows nothing: below.)*
 
 **The DMA controller (2026-10-22), step 3.** `DmaController` (module 8,
 $C400; machine line `dma 400-47F space=io irq`) has the decided registers
@@ -217,7 +219,8 @@ the trace gap all agree. DMA reaches memory space by physical address.
 Cards raise `Device::drq()` and answer `dack_read`/`dack_write` with the TC
 flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
 DMA yet (the SD card now does); test_dma uses a test card. Not modelled: an
-NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only).
+NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only). *(This is
+revision 1, ID $81, replaced by revision 2 in B2: below.)*
 
 **The Console card (2026-10-23), WebUI step 1.** `ConsoleCard` (module E,
 $C700; machine line `console 700-77F space=io irq`) has the decided
@@ -815,6 +818,54 @@ on each and lights while one is pressed; the strip's JOY pill shows while
 any is connected. `MachinePort.setJoystick`; `caps.joysticks` comes from
 the core's `hasJoysticks()` once the machine is open, and the UI then
 sends what was held before it started.
+
+**DMA revision 2 and /WAIT (2026-11-15), the bus work's step B2.**
+hw/design.md's "The DMA controller, revision 2" and "B2: as built". Three
+commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
+(U3).
+- **/WAIT.** `NorthBridge::wait_states()` is gone. A mapping's `wait=N` is
+  the card's /WAIT: N cycles on each CPU access, and N on each DMA grant
+  cycle it answers; a fly-by takes the longer of the memory's and the
+  card's. The bridge's WAIT0-3 are read/write storage, reset 0, reserved for
+  a turbo, and slow nothing. backplane.machine's memory lines lose their
+  `module=` (the parser keeps it, for buses with no north bridge).
+- **The controller.** One window at $00-$0F for the channel CONTROL's
+  SELECT (bits 1-3 of CONTROL at $7E) names: ADDR and DEST 24 bits, COUNT,
+  MODE, CTRL, and CARD at $0C (MODULE bits 3-0, WIDE bit 4, stored with no
+  effect until B4). STATUS $10, ABORT $11, REQ $12, ID $82. State for eight
+  channels, `LIVE = 4` until B3 (SELECT 4-7, the window's reserved bytes and
+  $13-$7D read $FF). CARD resets to $07 $09 $0A $08..., by `reset()`, which
+  is also Apple II mode's /RESET pulse.
+- **Requests.** `Mapping::drq` is `Dreq::None` or `Dreq::Wired` (a type a
+  bare 0 or 1 can't initialise, so an old positional "channel 0" can't
+  compile on as unwired). The machine file's `drq` is a flag; `drq=N` is
+  refused with an error naming CARD. The decoder keeps the wired mappings
+  and a table of module to mapping, built when the mappings change, and
+  catches the timed ones up before it ORs their `drq()` into /DREQ.
+- **A take** returns at once with the master enable off. With /DREQ low,
+  an armed channel serving a card and no hold-off, it polls (`dma_poll()`,
+  one cycle after the takeover, counted like it and seen by no observer,
+  the trace or a breakpoint; the console card lights it as the takeover),
+  latching REQ. It grants the highest-priority channel among the card
+  channels whose module asked and the software-started ones. A poll with
+  nothing to grant gives the bus back after its two cycles and holds off
+  polls for 64 cycles from the take's first, ended early by /DREQ going
+  high and low or a CTRL write, cleared by reset; software-started takes go
+  ahead meanwhile. A demand transfer ends when the granted card lets go,
+  whatever the others ask. The grant's MODULE goes on PS0-PS3.
+- **The accessor.** `DmaController::peek_channel(n, reg)`, with
+  `Machine::dma()` and `Session::dma()`, reads a channel with no effect, so
+  tests (and a later debugger panel, none in B2) never write SELECT, which
+  is the running software's.
+- **Costs.** Single mode 3 cycles a byte (the takeover, the poll, the byte);
+  demand and block 2 + n a take that polls, 1 + n one that doesn't; memory
+  to memory 1 + 2n as before. The sound card's request stands at DRQSEL 0
+  and 2, so /DREQ is almost never high with it fitted; with the master off
+  (Apple II mode) nothing is sampled.
+- **The bus trace** stays at version 1: its DMA gap holds the poll too.
+- **The tests** (test_dma rewritten, and the suites that program the
+  controller moved to the window), every expectation change as the B2 plan
+  approved it, are listed in hw/design.md's "B2: as built".
 
 ## Backlog
 

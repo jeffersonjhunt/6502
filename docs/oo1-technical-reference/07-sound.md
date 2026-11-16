@@ -63,7 +63,7 @@ Status: **emulated**
 To take the SIDs, stop the 6510 (clear RUN), then write the registers. Writing every register 0 turns off each
 voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:393-412 -->
+<!-- listing: ../../backplane/bios/bios.s:413-432 -->
 ```
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
@@ -107,7 +107,7 @@ RUN is set, with 64 KB of RAM of its own. The host reaches that RAM through [RAM
 **Starting it:**
 
 1. Clear RUN. The SIDs are the host's again.
-2. Load the program through RAMADDR and RAMDATA, by the CPU or by DMA channel 2.
+2. Load the program through RAMADDR and RAMDATA, by the CPU or by DMA channel 2 (its CARD `$0A`, the card's module).
 3. Write the program's entry at `$FFFC–$FFFD` of the card's RAM, its reset vector.
 4. Write CTRL with RUN and RESET, and NTSC if the program wants that clock.
 
@@ -298,7 +298,8 @@ I2S DAC:
   host reaches its registers and RAM through DOCCTL, DOCDATA, DOCADDR and DOCBANK; while its RUN is set, the card's
   6510 sees its registers at `$DF00–$DFFF`. Its channels fold to stereo by their low bit, even left and odd right.
   Unlike the IIgs's Sound GLU, the port needs no dummy read before a DOCDATA read: the value is there at once.
-- **DRQSEL** picks the register the card's DRQ and fly-by DMA serve: RAMDATA, PCMDATA or DOCDATA.
+- **DRQSEL** picks the register the card's DMA request (/DREQ, by module A) and its fly-by DMA serve: RAMDATA,
+  PCMDATA or DOCDATA.
 
 PCM and the ES5503 don't run at once; the SIDs may always run beside either.
 
@@ -420,14 +421,14 @@ registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's
 volumes (VOLL and VOLR, set through function 82's `SN_VOLUME`, since OODOS 0.6), and the warm boot.
 
 - **Loads.** The card's RAM (DRQSEL 0) and the ES5503's wave RAM (DRQSEL 2) are loaded by channel 2, memory to the
-  card in demand mode, 4,096 bytes a piece: RAMDATA and DOCDATA hold DRQ always, so each piece holds the CPU 4,096
-  cycles, under a tick of the millisecond counter, and the tick is taken between pieces. For a wave load OODOS sets
+  card in demand mode, 4,096 bytes a piece: RAMDATA and DOCDATA hold the request always, so each piece holds the CPU
+  about 4,096 cycles (a poll each take, and the takeover), under a tick of the millisecond counter, and the tick is taken between pieces. For a wave load OODOS sets
   DOCCTL's RAM and AUTOINC (RUN and the route kept), DOCADDR and DOCBANK, holds IEN bit 3 off (in OODOS's own copy
   of IEN too, so turning a stray off doesn't turn it back on), and puts DOCCTL and IEN back after; DRQSEL goes back
   to 0. A load that would run past the RAM's end is refused rather than wrapped.
 - **The stream.** DRQSEL 1, and channel 2 in demand mode with MODE's IRQ set, from two buffers of the program's, 4 KB
   a piece: at each terminal count OODOS's handler starts the next piece, or the next buffer, and marks a buffer
-  sent. With the FIFO full the card drops DRQ and the piece waits; with room it runs at a byte a cycle, the CPU held
+  sent. With the FIFO full the card lets go of /DREQ and the piece waits; with room it runs at a byte a cycle, the CPU held
   4,096 cycles at most. While a stream buffer is going to the card the channel is the stream's, and a load is
   refused, busy.
 - **IEN:** bit 2 while the 6510 is claimed and the program has an event area of layout 2 open (each byte from MBIN
@@ -726,7 +727,7 @@ A, the sound card
 #### Access
 
 R/W. A read gives the byte at RAMADDR and a write stores one there; either moves RAMADDR on. It works whether
-the 6510 runs or not. With DRQSEL 0, its reset value ([`$C563`](#reg-c563)), the card asserts DRQ2 always and
+the 6510 runs or not. With DRQSEL 0, its reset value ([`$C563`](#reg-c563)), the card pulls /DREQ always and
 fly-by DMA comes here.
 
 #### Bits
@@ -743,9 +744,16 @@ Undefined: the card's RAM keeps its contents through a /RESET. The emulator's is
 
 #### Notes
 
-`backplane.machine` wires the card to DMA channel 2, fly-by, one cycle a byte
-([chapter 5](05-dma.md#transfers-for-a-card), [channel 2's address](05-dma.md#reg-c420)). Since DRQ2 never drops,
-channel 2 runs as soon as it is enabled, at the pace its XFER gives. With the 6510 running, a write here can change
+`backplane.machine` wires the card's request to /DREQ, and channel 2 serves it, its CARD `$0A` (module A) at
+reset, fly-by, one cycle a byte ([chapter 5](05-dma.md#transfers-for-a-card), [CARD](05-dma.md#reg-c40c)). Since
+the card's request never drops, channel 2 runs as soon as it is enabled, at the pace its XFER gives.
+
+**The standing request** (*proposed*, B2). At DRQSEL 0, the reset value and OODOS's idle value, and at 2, the card
+asks for DMA all the time, so with a sound card fitted the shared /DREQ is almost never high. Memory-to-memory copies
+cost what they did, since they need no poll. Another card's transfer pays one poll cycle at each take, can wait up
+to 64 cycles for its grant behind a poll that found nothing to grant, and while that card's channel is armed the
+stray polls cost 2 cycles in 64 ([chapter 5](05-dma.md#transfers-for-a-card)). With the controller's master enable
+off (Apple II mode) the request costs nothing. With the 6510 running, a write here can change
 the code under it.
 
 <a id="reg-c546"></a>
@@ -1012,7 +1020,7 @@ Nothing: the FIFO is empty.
 
 #### Notes
 
-With DRQSEL 1 the card's DRQ serves PCMDATA, holding DRQ only while the FIFO has room, so demand-mode DMA stops by itself when the FIFO is full and goes on as the card plays. A stream longer than the FIFO can so be fed by one channel, loaded again at each terminal count.
+With DRQSEL 1 the card's DMA request serves PCMDATA, held only while the FIFO has room, so demand-mode DMA stops by itself when the FIFO is full and goes on as the card plays. A stream longer than the FIFO can so be fed by one channel, loaded again at each terminal count.
 
 <a id="reg-c550"></a>
 ### $C550 SOUND_STATE: the stream's state
@@ -1506,7 +1514,7 @@ R/W. Bits 7–2 are dropped.
 
 #### Bits
 
-All: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA: the register the card's DRQ and fly-by DMA serve. 3: none, with no DRQ, a fly-by read `$FF` and a write dropped (ours: the design leaves 3 unsaid).
+All: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA: the register the card's DMA request (/DREQ) and fly-by DMA serve. 3: none, with no request, a fly-by read `$FF` and a write dropped (ours: the design leaves 3 unsaid).
 
 #### Reset
 
@@ -1518,7 +1526,7 @@ All: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA: the register the card's DRQ and fly-by DMA
 
 #### Notes
 
-RAMDATA and DOCDATA hold DRQ all the time. A fly-by read with DRQSEL 1 gives `$FF`.
+RAMDATA and DOCDATA hold the request all the time, which costs the other cards' transfers (the standing request, [RAMDATA](#reg-c545)). A fly-by read with DRQSEL 1 gives `$FF`.
 
 <a id="reg-c57f"></a>
 ### $C57F SOUND_ID: the card's ID

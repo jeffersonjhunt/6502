@@ -671,7 +671,7 @@ TEST(dma_loads_a_tune_into_the_cards_ram)
 {
     std::string error;
     auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq=2\n",
+                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
                             "sound.machine", {}, error);
     REQUIRE(m != nullptr);
     SoundCard *sound = m->sound_card();
@@ -681,14 +681,15 @@ TEST(dma_loads_a_tune_into_the_cards_ram)
     bus.write(0xC543, 0x00); // RAMADDR $1000, a tune's load address
     bus.write(0xC544, 0x10);
     // channel 2: memory at $02000 to the card, 300 bytes, block mode
-    bus.poke(0xC420, 0x00);
-    bus.poke(0xC421, 0x20);
-    bus.poke(0xC422, 0x00);
-    bus.poke(0xC424, 300 & 0xFF);
-    bus.poke(0xC425, 300 >> 8);
-    bus.poke(0xC426, DmaController::BLOCK | DmaController::TO_CARD);
-    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
-    bus.poke(0xC427, DmaController::ENABLE);
+    // SELECT 2 first: the window at $C400-$C40F then shows channel 2
+    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
+    bus.poke(0xC400, 0x00);
+    bus.poke(0xC401, 0x20);
+    bus.poke(0xC402, 0x00);
+    bus.poke(0xC404, 300 & 0xFF);
+    bus.poke(0xC405, 300 >> 8);
+    bus.poke(0xC406, DmaController::BLOCK | DmaController::TO_CARD);
+    bus.poke(0xC407, DmaController::ENABLE);
     for (int i = 0; i < 400; ++i)
         bus.read(0x0000);
     bool same = true;

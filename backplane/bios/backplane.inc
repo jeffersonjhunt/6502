@@ -13,7 +13,8 @@ NB_STATUS       = NB + $06
 NB_RTCCTL       = NB + $07             ; the real-time clock (hw/design.md, "Real-time clock")
 NB_IRQL         = NB + $08
 NB_IRQH         = NB + $09
-NB_WAIT0        = NB + $0A             ; WAIT0-3: wait states, 2 bits a module ID, IDs 0-3 in WAIT0
+NB_WAIT0        = NB + $0A             ; WAIT0-3: 2 bits a module ID, IDs 0-3 in WAIT0; storage only, reserved
+                                       ;   for a turbo (B2: every wait state comes by /WAIT)
 NB_WAIT1        = NB + $0B
 NB_WAIT2        = NB + $0C
 NB_WAIT3        = NB + $0D
@@ -83,38 +84,52 @@ VIA_IRQ_T1      = $40                  ; IFR, IER: timer 1
 VIA_IRQ_OTHERS  = $3F                  ; IFR, IER: timer 2, CB1, CB2, the shift register, CA1, CA2
 VIA_IER_SET     = $80                  ; IER: write 1 to turn on the bits that are 1 (0: turn them off)
 
-; DMA controller (module 8): channel 3 does the BIOS's memory-to-memory copies.
+; DMA controller (module 8), revision 2 (hw/design.md, "The DMA controller, revision 2"; B2). One
+; channel window at $00-$0F shows the channel CONTROL's SELECT names; the shared registers sit
+; beside it. Code that sets SELECT saves CONTROL first and puts it back after (interrupt code too).
+; Channel 0 serves the SD card, 1 the video card's port, 2 the sound card; channel 3 does the BIOS's
+; memory-to-memory copies.
 DMA             = $C400
-DMA3_ADDR       = DMA + $30            ; source, 20 bits
-DMA3_COUNT      = DMA + $34
-DMA3_MODE       = DMA + $36
-DMA3_CTRL       = DMA + $37
-DMA3_DEST       = DMA + $38            ; destination, 20 bits
-DMA1_ADDR       = DMA + $10            ; channel 1: as channel 0's
-DMA1_COUNT      = DMA + $14
-DMA1_MODE       = DMA + $16
-DMA1_CTRL       = DMA + $17
-DMA1_DEST       = DMA + $18
-DMA2_ADDR       = DMA + $20            ; channel 2, the sound card's RAM: as channel 0's
-DMA2_COUNT      = DMA + $24
-DMA2_MODE       = DMA + $26
-DMA2_CTRL       = DMA + $27
-DMA2_DEST       = DMA + $28
-DMA_STATUS      = DMA + $40            ; terminal counts: write 1s to clear
-DMA_CONTROL     = DMA + $41
-DMA_ABORT       = DMA + $42            ; bit n stops channel n
+DMA_ADDR        = DMA + $00            ; the selected channel's address (the source), 24 bits
+DMA_COUNT       = DMA + $04            ; bytes to move, 0 = 65,536; reads what is left
+DMA_MODE        = DMA + $06
+DMA_CTRL        = DMA + $07
+DMA_DEST        = DMA + $08            ; memory to memory: the destination, 24 bits
+DMA_CARD        = DMA + $0C            ; bits 3-0 the module the channel serves (DMA_NONE: none), bit 4 WIDE
+DMA_STATUS      = DMA + $10            ; bit n: channel n's terminal count; write 1s to clear
+DMA_ABORT       = DMA + $11            ; bit n stops channel n
+DMA_REQ         = DMA + $12            ; bit n: channel n's module asked at the last poll
+DMA_CONTROL     = DMA + $7E            ; master enable, SELECT (bits 1-3), BURST (bits 4-6)
 DMA_ID          = DMA + $7F
 
 DMA_M2M         = $0A                  ; MODE: memory to memory, block (the CPU waits)
 DMA_GO          = $03                  ; CTRL: ENABLE + REQ
-DMA_ON          = $71                  ; CONTROL: master enable, no burst limit
+DMA_ON          = $71                  ; CONTROL: master enable, no burst limit, SELECT 0
 DMA_MASTER      = $01                  ; CONTROL: master enable
-DMA_ID_V1       = $81
-DMA_CH0         = $01                  ; ABORT, STATUS: channel 0, the SD card's
-DMA_CH1         = $02                  ; ABORT, STATUS: channel 1, OODOS's vertical-blank copies
-DMA_CH2         = $04                  ; ABORT, STATUS: channel 2, the sound card's
-DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
-DMA_ALL         = $0F                  ; ABORT, STATUS: every channel
+DMA_SEL         = $0E                  ; CONTROL: SELECT's bits
+DMA_SEL0        = $00                  ; CONTROL: SELECT channel n (n * 2)
+DMA_SEL1        = $02
+DMA_SEL2        = $04
+DMA_SEL3        = $06
+DMA_SEL4        = $08
+DMA_SEL5        = $0A
+DMA_SEL6        = $0C
+DMA_SEL7        = $0E
+DMA_ID_V2       = $82
+DMA_CH0         = $01                  ; ABORT, STATUS, REQ: channel 0, the SD card's
+DMA_CH1         = $02                  ; channel 1, the video card's port (OODOS's vertical-blank copies)
+DMA_CH2         = $04                  ; channel 2, the sound card's
+DMA_CH3         = $08                  ; channel 3, memory to memory
+DMA_CH4         = $10                  ; channels 4-7: free (they read $FF until B3)
+DMA_CH5         = $20
+DMA_CH6         = $40
+DMA_CH7         = $80
+DMA_ALL         = $FF                  ; ABORT, STATUS: every channel
+DMA_NONE        = $08                  ; CARD: no module (the controller's own ID, which never asks)
+DMA_WIDE        = $10                  ; CARD: 16-bit transfers (B4)
+DMA_MOD_SD      = $07                  ; CARD: the module channel 0 serves at reset, the SD card
+DMA_MOD_VIDEO   = $09                  ;   channel 1's, the video card
+DMA_MOD_SOUND   = $0A                  ;   channel 2's, the sound card (channels 3-7: DMA_NONE)
 DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
 
 ; Video card (module 9): VGA 640x480. Revision 1 (ID $91) draws from banks 8-B,
@@ -181,7 +196,7 @@ VIDEO_IRQ_LINE  = $02                  ; IEN, ISR: the scan line LINE
 VIDEO_IRQ_COLLIDE = $04                ; IEN, ISR: sprite collision
 VIDEO_IRQ_ALL   = $07
 VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the end)
-VIDEO_PCTL_DRQ  = $01                  ; PCTL: assert DRQ, on DMA channel 1 (DMA_CH1)
+VIDEO_PCTL_DRQ  = $01                  ; PCTL: request DMA (/DREQ), served by channel 1 (CARD 9)
 VIDEO_PCTL_FROM = $02                  ; PCTL: DMA reads the card (0: DMA writes it)
 VIDEO_PCTL_DOWN = $04                  ; PCTL: PADDR steps down
 VIDEO_MEMSIZE_2MB = 32                 ; MEMSIZE on a 2 MB card
@@ -269,7 +284,7 @@ SD_READY        = $40
 SD_PRESENT      = $20
 SD_DATA_READY   = $08
 SD_ERR          = $01
-SD_CTRL_DMA     = $01                  ; CTRL: DRQ0 follows DATA
+SD_CTRL_DMA     = $01                  ; CTRL: the card's DMA request follows DATA (channel 0, CARD 7)
 SD_CTRL_RESET   = $02                  ; CTRL: abandon the command, start the card up again
 SD_READ         = $20                  ; CMD
 SD_MOUNT        = $A0
@@ -279,12 +294,7 @@ SD_NOT_FOUND    = 8                    ; ERROR
 SD_ID_V1        = $71
 SD_ZP           = $F0                  ; $F0-$F6: sd.s
 
-; DMA channel 0, storage's.
-DMA0_ADDR       = DMA + $00
-DMA0_COUNT      = DMA + $04
-DMA0_MODE       = DMA + $06
-DMA0_CTRL       = DMA + $07
-DMA0_DEST       = DMA + $08            ; memory to memory: the destination, 20 bits
+; DMA modes for a card's channel (channel 0, storage's, among them).
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
 DMA_DEMAND_OUT  = $05                  ; MODE: demand mode, memory to card
 DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ or REQ starts it)

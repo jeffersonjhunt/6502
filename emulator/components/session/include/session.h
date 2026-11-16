@@ -138,6 +138,8 @@ namespace ooe::emu
         SdMedia *sd_media() const { return sd_.get(); }
         MemoryMedia *sd_image() const { return dynamic_cast<MemoryMedia *>(sd_.get()); }
         SdCard *sd() const { return machine_->sd_card(); }
+        /// The DMA controller, or nullptr: its channels by DmaController::peek_channel().
+        DmaController *dma() const { return machine_->dma(); }
         /// The sound card, or nullptr: its registers, RAM and 6510.
         SoundCard *sound() const { return machine_->sound_card(); }
         /// The machine's sound at `rate` samples a second (0: none, the default), kept across

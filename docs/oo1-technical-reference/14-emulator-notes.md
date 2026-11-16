@@ -33,18 +33,18 @@ Each line of `backplane.machine` is a part of the OO-1:
 |---|---|
 | `cpu w65c02s` | the CPU |
 | `northbridge backplane` | the north bridge: the windows, VEC, ROM space, the I/O hole, MODE and the DS3231, with its registers at `$C680` and the clock's tick wired to /IRQ as module D ([chapter 11](11-north-bridge-and-rtc.md)). `bootsel` after it holds /BOOTSEL ([chapter 3](03-boot.md#booting-from-ram-bootsel)) |
-| `ram … module=0` to `module=3` | the RAM card, 1 MB at physical `$000000–$0FFFFF`, in four lines, RAM A–D, 256 KB each. `module=` is only the ID whose WAIT0 bits slow it (*proposed*, [the 24-bit bus](#the-24-bit-bus)) |
-| `rom 00000-7FFFF space=flash module=4 … bios.rom` | ROM A, the 512 KB flash, from the BIOS's image: memory `$F00000–$F7FFFF` |
-| `rom 80000-FFFFF space=flash module=5 … -` | ROM B, the cartridge, memory `$F80000–$FFFFFF`: `-` is erased flash, all `$FF`, until `--apple-rom` fills it |
+| `ram 00000-3FFFF name=ram_a` to `ram_d` | the RAM card, 1 MB at physical `$000000–$0FFFFF`, in four lines, RAM A–D, 256 KB each. Memory answers by address, so the lines carry no `module=` since B2 (*proposed*, [the 24-bit bus](#the-24-bit-bus)) |
+| `rom 00000-7FFFF space=flash … bios.rom` | ROM A, the 512 KB flash, from the BIOS's image: memory `$F00000–$F7FFFF` |
+| `rom 80000-FFFFF space=flash … -` | ROM B, the cartridge, memory `$F80000–$FFFFFF`: `-` is erased flash, all `$FF`, until `--apple-rom` fills it |
 | `acia6551 300-37F space=io … irq` | the 6551 stand-in, mirrored through the serial card's block ([chapter 9](09-serial-and-via.md#the-stand-in-6551)) |
 | `via6522 340-34F space=io … irq` | the serial card's VIA, over the 6551's mirror: where two lines overlap, the later one answers |
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
-| `sd 380-3FF … irq drq=0` | the mass storage card, its DRQ on DMA channel 0 ([chapter 10](10-storage.md)) |
+| `sd 380-3FF … irq drq` | the mass storage card, its DMA request on /DREQ, served by channel 0 (CARD `$07`) ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
-| `video 480-4FF … irq drq=1 rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DRQ on DMA channel 1. Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
-| `aperture E00000-E0FFFF module=9` | revision 2's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. With a revision 2 card the north bridge sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them. With a revision 1 card, or none, the line is inert and bank 8 is RAM. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
-| `sound 500-57F … irq drq=2` | the sound card, RAMDATA on DMA channel 2 ([chapter 7](07-sound.md)) |
-| `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)) |
+| `video 480-4FF … irq drq rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DMA request on /DREQ, served by channel 1 (CARD `$09`). Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
+| `aperture E00000-E0FFFF` | revision 2's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. With a revision 2 card the north bridge sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them. With a revision 1 card, or none, the line is inert and bank 8 is RAM. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
+| `sound 500-57F … irq drq` | the sound card, its DMA request (RAMDATA's at reset) on /DREQ, served by channel 2 (CARD `$0A`) ([chapter 7](07-sound.md)) |
+| `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)), with its DMA request left off /DREQ |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
 | `console 700-77F … irq` | the console card, the front panel ([chapter 12](12-front-panel.md)) |
 
@@ -53,14 +53,22 @@ Each line of `backplane.machine` is a part of the OO-1:
 - **`space=io`** puts a mapping in the I/O hole, `$000–$7FF` of it. It takes the module ID of its 128-byte block,
   so `300-37F` is module 6. A mapping can't cross into the next block.
 - **`irq`** wires the device's interrupt output to /IRQ. A device on a line without it can't interrupt.
-- **`drq=N`** wires the device's DMA request to channel N, 0–3. The SD card, the sound card and the video card
-  have one ([chapter 5](05-dma.md#transfers-for-a-card)).
+- **`drq`**, a flag, wires the device's DMA request to /DREQ, the shared line (*proposed*, since B2). Its module
+  is its I/O block's, and the channel whose CARD names that module serves it; CARD's reset values give channel 0 the
+  SD card, 1 the video card and 2 the sound card ([chapter 5](05-dma.md#transfers-for-a-card)). A device on a line
+  without it never pulls /DREQ. A line with no module ID (a memory line without `module=`) can't take it: no
+  CARD could name the card, so `drq` there is refused with an error. `drq=N`, revision 1's channel number, is refused, with an error that says a channel
+  serves a card by its CARD register, so an old machine file can't load wired wrong.
 - **`rev=N`**, on the `video` line only, picks the card's revision, 1 or 2. A program that builds the machine can
   override it with `MachineOptions::video_revision` (0 keeps the line's, 1 or 2 overrides it). The revision is fixed
   once the machine is built: the card's `set_revision` then returns false.
-- **`wait=N`**, which `backplane.machine` doesn't use, holds RDY for N extra cycles on every access to the
-  mapping, as a slow card would. The north bridge's WAIT0–3 add theirs on top
-  ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
+- **`wait=N`**, 0–15, which `backplane.machine` doesn't use, is the card's /WAIT: N extra cycles on every CPU
+  access to the mapping, as a slow card would ask, and N on each DMA grant cycle it answers. On a fly-by both the
+  memory and the card answer, and the grant takes the longer of their two. The north bridge's WAIT0–3 add nothing
+  since B2 ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
+- **`module=N`**, the ID a mapping reports on PS0–PS3, is for a bus with no north bridge (the Apple-1 and Eater
+  machines, and tests). `backplane.machine` doesn't use it: the bridge gives memory's PS, and an I/O line's module is
+  its block's.
 
 ### The 24-bit bus
 
@@ -185,10 +193,15 @@ Status: **emulated**
   address the silicon uses, so a trace can be compared with a logic analyser's cycle by cycle
   ([`cpu6502.h`](../../emulator/components/cpu6502/include/cpu6502.h)). It still executes an instruction at a time,
   and takes interrupts between instructions.
-- **Wait states.** An access that RDY holds counts its extra cycles, from the north bridge's WAIT0–3 or a mapping's
-  `wait=` ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
+- **Wait states.** An access that RDY holds counts its extra cycles, from a mapping's `wait=`, the card's /WAIT
+  ([above](#backplanemachine)). Since B2 the north bridge's WAIT0–3 add none
+  ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
 - **DMA steals cycles.** The controller takes the bus before a CPU cycle, which costs one cycle, and the CPU waits
-  out the bytes it moves, as for a wait state ([chapter 5](05-dma.md#the-controller)).
+  out the bytes it moves, as for a wait state ([chapter 5](05-dma.md#the-controller)). A card's transfer adds the
+  poll, one more cycle each take (*proposed*, B2). Like the takeover, the poll is counted as a stolen cycle but
+  isn't a bus cycle anyone sees: the trace, the cycle observers and a breakpoint never meet it, and the front
+  panel's lights show it as they show the takeover, the CPU's held address with RDY low. The controller is caught
+  up with the timed cards before it looks at /DREQ, so it sees each card's request as of that cycle.
 - **The cards are told the CPU's clock,** so their time stays right at any speed: the video card's frame, the USB
   card's key repeat and paddle timers, the sound card's SID clock, the SD card's start-up and sector times, the
   Disk II's sequencer, the DS3231's second ([chapter 1](01-overview.md#clocks)).
@@ -206,8 +219,8 @@ Status: **emulated**
 
 Status: **emulated**
 
-The backplane's signals are modelled for what they do, not as pins: module decode on PS0–PS3, RDY and BE for wait
-states and DMA, the /IACK poll, DRQ and /DACK, terminal count, AMODE and /BOOTSEL
+The backplane's signals are modelled for what they do, not as pins: module decode on PS0–PS3, RDY and BE for DMA,
+/WAIT, the /IACK poll, /DREQ and the DMA controller's poll and grant (/DMA), terminal count, AMODE and /BOOTSEL
 ([chapter 1](01-overview.md#the-backplane)). The north bridge and the cards are behaviour too: what a register does
 when it is read or written, at the cycle it happens. The VIA's ports are the exception: their pins are modelled,
 since the joysticks hang off them, as the LCD and the PS/2 keyboard do on Eater's machines. The pin-out, the
@@ -261,10 +274,10 @@ emulator; each link goes to the note.
   - Pause/Break comes only from the WebUI. The terminal app has no USB keyboard, so there Break comes only from the
     console card ([Pause/Break](04-interrupts.md#pausebreak)).
 - **DMA** ([chapter 5](05-dma.md))
-  - Channel 0's DRQ is the SD card's, and channel 2's the sound card's, always (RAMDATA's, unless its DRQSEL
-    picks another: [`$C563`](07-sound.md#reg-c563)). Nothing drives channels 1
-    and 3, which the design gives to the serial card and to blits, and channel 2 isn't shared with the USB card
-    ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C410`](05-dma.md#reg-c410)).
+  - The SD, video and sound cards' requests reach /DREQ (`drq` on their lines), and channels 0, 1 and 2 serve
+    them by their reset CARD; the sound card asks always (RAMDATA's, unless its DRQSEL picks another:
+    [`$C563`](07-sound.md#reg-c563)). The USB card's request isn't wired, and the serial card, a 6551 standing in,
+    has no DMA ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C40C`](05-dma.md#reg-c40c)).
 - **Video** ([chapter 6](06-video.md))
   - A whole sprite table copied by DMA takes about 143 µs, at two cycles a byte, where hw/design.md says about
     72 µs ([Sprites](06-video.md#sprites)).

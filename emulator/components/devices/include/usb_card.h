@@ -28,7 +28,8 @@
  *
  * Keyboard. Every press and release goes into the raw event FIFO (128 bytes:
  * usage, then flags, bit 7 = release; a full FIFO drops the event whole),
- * which asserts DRQ while not empty. Presses that mean a character also go to
+ * which requests DMA while not empty (reaching /DREQ only if its machine
+ * line says `drq`; the backplane's doesn't). Presses that mean a character also go to
  * KEY, cooked in the US layout with the Apple's conventions: the strobe in
  * bit 7, arrows $08 $15 $0A $0B, Delete $7F, Ctrl with $40-$5F giving $00-$1F
  * and with $60-$7E the same (Ctrl-` NUL, Ctrl-{ ESC), as a terminal cooks them,

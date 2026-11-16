@@ -321,214 +321,97 @@
   "documented": true,
   "anchor": "reg-c400",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA0_ADDR",
+  "equate": "DMA_ADDR",
   "address": "$C400",
   "module": "8",
   "documented": true,
   "anchor": "reg-c400",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA0_COUNT",
+  "equate": "DMA_COUNT",
   "address": "$C404",
   "module": "8",
   "documented": true,
   "anchor": "reg-c404",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA0_MODE",
+  "equate": "DMA_MODE",
   "address": "$C406",
   "module": "8",
   "documented": true,
   "anchor": "reg-c406",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA0_CTRL",
+  "equate": "DMA_CTRL",
   "address": "$C407",
   "module": "8",
   "documented": true,
   "anchor": "reg-c407",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA0_DEST",
+  "equate": "DMA_DEST",
   "address": "$C408",
   "module": "8",
   "documented": true,
   "anchor": "reg-c408",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
-  "equate": "DMA1_ADDR",
+  "equate": "DMA_CARD",
+  "address": "$C40C",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c40c",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "DMA_STATUS",
   "address": "$C410",
   "module": "8",
   "documented": true,
   "anchor": "reg-c410",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA1_COUNT",
-  "address": "$C414",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c414",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA1_MODE",
-  "address": "$C416",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c416",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA1_CTRL",
-  "address": "$C417",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c417",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA1_DEST",
-  "address": "$C418",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c418",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA2_ADDR",
-  "address": "$C420",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c420",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA2_COUNT",
-  "address": "$C424",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c424",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA2_MODE",
-  "address": "$C426",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c426",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA2_CTRL",
-  "address": "$C427",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c427",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA2_DEST",
-  "address": "$C428",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c428",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA3_ADDR",
-  "address": "$C430",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c430",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA3_COUNT",
-  "address": "$C434",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c434",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA3_MODE",
-  "address": "$C436",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c436",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA3_CTRL",
-  "address": "$C437",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c437",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA3_DEST",
-  "address": "$C438",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c438",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA_STATUS",
-  "address": "$C440",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c440",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
- },
- {
-  "equate": "DMA_CONTROL",
-  "address": "$C441",
-  "module": "8",
-  "documented": true,
-  "anchor": "reg-c441",
-  "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
   "equate": "DMA_ABORT",
-  "address": "$C442",
+  "address": "$C411",
   "module": "8",
   "documented": true,
-  "anchor": "reg-c442",
+  "anchor": "reg-c411",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
+ },
+ {
+  "equate": "DMA_REQ",
+  "address": "$C412",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c412",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "DMA_CONTROL",
+  "address": "$C47E",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c47e",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "proposed"
  },
  {
   "equate": "DMA_ID",
@@ -537,7 +420,7 @@
   "documented": true,
   "anchor": "reg-c47f",
   "file": "oo1-technical-reference/05-dma.md",
-  "status": "emulated"
+  "status": "proposed"
  },
  {
   "equate": "VIDEO",

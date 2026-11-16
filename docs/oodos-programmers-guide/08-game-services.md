@@ -429,7 +429,8 @@ writes its state into the area once a frame and at each buffer's end:
 **Keeping it fed.** Nothing in this needs the program's time while both buffers and the FIFO have data: a slow
 frame costs nothing. An underrun is the FIFO running dry before `SN_END`, and OODOS counts each it sees (at a frame,
 a buffer's end, or `SN_STATUS`). A buffer goes to the card in pieces of 4 KB: with room in the FIFO the card takes
-a byte a cycle and the CPU waits, 4,096 cycles a piece at most, under a tick, so no tick is lost.
+a byte a cycle and the CPU waits, about 4,096 cycles a piece at most (on DMA revision 2 a poll of the cards
+begins each take of the bus), under a tick, so no tick is lost.
 
 ### The ES5503
 
@@ -612,10 +613,11 @@ about 15 ms, far from that.
 ### What sound costs
 
 Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of
-a piece is an interrupt of about 530 to 700 cycles, about 850 at a buffer's end (the area written); with room in the
-FIFO the next piece's 4,096 cycles of DMA come inside it. 44.1 kHz 16-bit stereo is 43 pieces a second, under 0.5%
-of the CPU. A frame with the stream claimed and a layout-2 area open costs about 300 cycles more (688 against 389),
-for the area's sound part.
+a piece is an interrupt of about 690 to 860 cycles (688 and 858 the usual ones), a few up to about 1,420; with room
+in the FIFO the next piece's 4,096 cycles of DMA come inside it, 4,656 to 5,264 cycles in all. 44.1 kHz 16-bit stereo
+is 43 pieces a second, under 0.5% of the CPU. A frame with the stream claimed and a layout-2 area open costs about
+300 cycles more (698 against 396), for the area's sound part. These are measured on DMA revision 2 (B2,
+*proposed*).
 
 ## Graphics
 
@@ -783,11 +785,13 @@ byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from
 ### What graphics costs
 
 With no slot set and no pointer, nothing: the tick with no event area is 145 cycles and the frame 199, as before,
-and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied
-through the port, 1,304 (512 of them the DMA's, a cycle a byte); the pointer, 734; the whole budget, four slots of
-256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,765. That ends inside the vertical blank even with a
-USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 504 at the latest under a USB
-batch, 20 lines to spare, and line 502 under 64 KB loads, 22 to spare; the blank is lines 480–524). The figures are
+and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 518 a frame; a 512-byte slot copied
+through the port, 1,302 (512 of them the DMA's, a cycle a byte); the pointer, 736; the whole budget, four slots of
+256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,769. That ends inside the vertical blank even with a
+USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 505 at the latest under a USB
+batch, 19 lines to spare, and line 497 under 64 KB loads, 27 to spare; the blank is lines 480–524). These are
+measured on DMA revision 2 (B2, *proposed*), where each copy selects channel 1 and puts the controller's CONTROL
+back, and each card transfer begins with a poll of the cards. The figures are
 recorded with their source in [hw/oolib.md, "Video card revision 2"](../../hw/oolib.md#the-plan).
 
 ## Linking the library into an overlay

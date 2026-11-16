@@ -218,7 +218,7 @@ the bridge's own I²C reads on real hardware is still unknown (plan 1's stage 11
 
 | Test | Plan 2 | From D2 |
 |---|---|---|
-| D1 | ID `$81`; each channel's ADDR, COUNT, MODE and DEST written with two patterns and read back; CONTROL's burst bits | D2 read the ID alone |
+| D1 | ID `$81`; each channel's ADDR, COUNT, MODE and DEST written with two patterns and read back; CONTROL's burst bits. *B2: ID `$82`, each channel through SELECT 0–7, CARD among them ([B2](#b2-dma-revision-2))* | D2 read the ID alone |
 | D2 | channel 3, memory to memory with HOLD: every RAM block filled with a pattern but W0's first 512 bytes, the CPU checks it (960 KB, about 1.9 s) | D2 filled 2 KB |
 | D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`) | as D2, and down too |
 | D4 | D2's fill of 2 KB timed by VIA timer 2: 2 cycles a byte | as D2, less the call's cost |
@@ -352,7 +352,8 @@ run (switch 18, or `DIAG [FULL]` from `A>`) under 2 minutes:** the march with fo
 on card memory 22 s, on the sound card's RAM and wave RAM 2 s. **As built (D3b-2, accepted 2026-11-14; corrected in
 D3c): a quick run is 56.5 s on the emulator, a full run 165.9 s,** from CONT to the keys' line: stages 1–6 about
 28 s (the serial line's pace and stage 6's own test of W0's first 512 bytes included), NB5's and NB6's three windows
-each about 7 s together, V4's 2 MB about 10 s, P2 1.6 s ([D3b: as built](#d3b-as-built)). The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
+each about 7 s together, V4's 2 MB about 10 s, P2 1.6 s ([D3b: as built](#d3b-as-built)). With DMA revision 2 (B2)
+the quick run measured 56.5 s again and the full run 165.6 s ([B2](#b2-dma-revision-2)). The loop (switch 17, at the switch-19 and `C812R` entries only) repeats from stage 3 at the same
 cost a pass. `test_bios_diag` reports the emulator's time for a quick run against this table.
 
 
@@ -824,7 +825,8 @@ are made again (SYSINFO.COM changed), and the utilities' build now depends on ba
   4's `ALIASW0` makes, asked again because stage 6 moved W0): its fill would land on the zero page and stack, which
   the A18 cases did until it was added. Such a block is said (`BLOCK nn ANSWERS AS BLOCK ww, W0'S: NOT FILLED`) and
   kept out of what follows (`SKIPS`). **D4** is a fill of 2,049 bytes less one of 1 (4,096 cycles exactly on the
-  emulator); **D5**'s abort is with a burst of one byte (`CONTROL` `$01`), so the CPU runs between the bytes.
+  emulator); **D5**'s abort is with a burst of one byte (`CONTROL` `$01`; on revision 2, B2, `$07`, the master with SELECT 3,
+  since `$01` alone would put the window on channel 0), so the CPU runs between the bytes.
 - **V2** is 41 registers (CTRL, BORDER, IEN, PALBASE, SPRBASE, both layers', SLOT0-3, PADDR, PSTEP, PCTL) in one
   vertical blank. **V4** steps slot 0 over all 128 banks; **V6** uses all four slots (W1 on blocks 32-35, as
   /RESET leaves SLOT0-3), so an aperture fault in block 33 fails V6 and not V4. The screen's text is kept in W0's
@@ -834,8 +836,9 @@ are made again (SYSINFO.COM changed), and the utilities' build now depends on ba
   again for each byte. V4's full run adds the march (background `$00`). *A question for the owner (D3b-3).*
 - **The 6510's program** has no RAM test (`C65_TEST` gone, as the plan allowed): 345 bytes at `$0200-$03FF`.
 - **Stage 11.** An empty SD slot is `INFO` (`NO CARD IN THE SLOT`) and SD2-SD4 aren't run. SD4 reads 128 sectors by
-  channel 0 into four tested blocks in a row (not W0's) and gives KB a second (`INFO`; 6,214 on the emulator). Its
-  channel runs in bursts of 16 bytes (`CONTROL` `$41`): with longer bursts the CPU's three reads of timer 2 (high,
+  channel 0 into four tested blocks in a row (not W0's) and gives KB a second (`INFO`; 6,214 on the emulator, 5,829 on
+  DMA revision 2, B2: 19 cycles for each 16 bytes, the takeover, the poll and the CPU's cycle). Its
+  channel runs in bursts of 16 bytes (`CONTROL` `$41`, SELECT 0 on revision 2): with longer bursts the CPU's three reads of timer 2 (high,
   low, high) are more than 256 cycles apart, its high byte always changes between them, and the count is lost (with
   64-byte bursts it read 2,820 cycles for 64 KB).
 - **Stage 12.** SR2 times timer 2, then timer 1 (one-shot, ACR 0), each across a 1,000-cycle loop less across none,
@@ -1027,6 +1030,43 @@ on the round's tip (`53ec6af`) first:
 - **T7:** comments: `oodos/Makefile`'s and `tools/test-map.txt`'s oohw notes say SYSINFO alone; hw/design.md's DMA
   note cites `hwprobe.s` for the ID byte's read.
 
+#### B2: DMA revision 2 ####
+
+**Proposed, emulated (2026-11-15).** The bus work's step B2 ([hw/design.md, B2: as built](design.md#b2-as-built))
+moves the ROM's DMA tests to revision 2's layout, BIOS 0.15 with them (`BIOS_VMIN` 15; `DG_VERSION` stays 1, so
+`DG_LINKED` refuses 0.14's diagnostics beside the new BIOS). B2 rewrites blocks 31, 29, 23, 22 and 21, so the flash
+is written whole.
+
+- **The revision checks** (`HAVEDMA`, stage 8's `CARDIS`, `diag21.s`'s SD3 and SD4) take revision 2 through
+  `HW_REV`, which with HW_PROBE's rule means `$82` exactly. A revision 1 controller makes stage 8 `SKIP` and NB3, V7,
+  S3, SD3 and SD4 say `NO DMA CONTROLLER`.
+- **The SELECT rule.** Each stage or test that drives a channel saves CONTROL, selects its channel before the first
+  of its registers, and puts CONTROL back on every way out: NB3 (SELECT 3), stage 8, V7's `DMA1GO` (1), S3 (2),
+  SDSTUCK, SD3 and SD4 (0). Stage 8 writes SELECT 3 itself after D1, whose loop leaves the window on its last
+  channel, and again after D5, which writes CONTROL itself. Without the first, D2–D4 still pass, on channel 0, since
+  memory to memory works on any channel; what fails is D5's terminal-count check (`NO TERMINAL COUNT IN STATUS`,
+  stage 8 `FAIL`), as the golden run shows (corrected 2026-11-15, the owner's answer 4: the plan had expected D2 to
+  fail). D5's burst of one is `$07`. `DMAWAIT` polls `DMA_CTRL`
+  under its caller's SELECT.
+- **D1** reads the ID, then each channel through SELECT 0–7: ADDR and DEST all 24 bits, COUNT, MODE and CARD (bits
+  4–0), each with two patterns; `$03`, `$0B` and `$0D–$0F` must read `$FF`. A channel whose window reads `$FF` at
+  every offset and drops a pattern counts as not fitted; any other mix fails, naming the channel and the offset.
+  The count is on D1's line, `ID $82; REGISTERS READ BACK ON 4 CHANNELS`, and becomes 8 in B3 with no ROM change.
+  Each CARD goes back to its reset value afterwards, not 0. CONTROL's BURST and SELECT bits are tested both ways with
+  the master off, and bit 7 written 1 reads 0.
+- **QUIETM** (each block's put-back) stops all eight channels and puts each CARD back, computed (7, 9, A, then none)
+  rather than read from a table, since each of its five expansions would need its own; CONTROL is kept in Y.
+- **Measured on the emulator (B2's U3):** D4 4,096 cycles, as before (memory to memory never polls); V3 119,460; S9
+  2,050; SD4 5,829 KB a second, against 6,214 on revision 1 (`test_bios_diag` holds it above 1,000 and below 6,991);
+  a quick run 56.5 s, as before. **A full run 165.6 s** (measured 2026-11-15, the owner's answer 3: 165.9 s on main
+  `c4ad400`, the fast preset and the same case, `test_bios_diag`'s
+  `c815_with_the_token_runs_a_programs_options_whatever_the_switches`; the card-image case's full run 164.7 s before
+  and 164.4 s after). B2 adds a poll cycle a take to SD4, V7 and S3, and D1's channels 4–7, and still the run is
+  0.3 s shorter: no bound in the suite times a full run.
+- **Sizes after:** block 22 13,723 bytes (2,661 free), block 21 8,236, block 23 8,211, block 31's code to `$E407`
+  (`DMA3RUN` dropped). OODOS (still 0.10): block 61's code to `$B74C` (+68), block 62's resident part to `$F5F0`
+  (+19), 527 bytes free.
+
 <a id="plan2-books"></a>
 ### The books ###
 
@@ -1106,7 +1146,7 @@ give `$FF` too, but that isn't measured.
 | 4, 5 | ROM A (flash), ROM B (cartridge) | none | | | memory only (`$C200–$C2FF` unused). ROM B blank reads `$FF` |
 | 6 | serial, parallel and VIA | `$C37F` | **none defined** | | the TL16C552A card isn't built. The emulator's stand-in 6551 mirrors its four registers through the block, so `$C37F` reads the 6551's control register ([answer 6](#the-owners-answers)). The VIA at `$C340` has no ID of its own |
 | 7 | mass storage (SD) | `$C3FF` | `$71` | `SD_ID_V1` | |
-| 8 | DMA controller | `$C47F` | `$81` | `DMA_ID_V1` | |
+| 8 | DMA controller | `$C47F` | `$82` | `DMA_ID_V2` | revision 2 since B2; revision 1's `$81` (`DMA_ID_V1`, gone from `backplane.inc`) is taken as no controller |
 | 9 | video | `$C4FF` | `$91`, `$92` | `VIDEO_ID_V1`, `VIDEO_ID_V2` | BIOS 0.13 and OODOS drive revision 2 alone; `backplane.machine` has `rev=2` |
 | A | sound | `$C57F` | `$A1`, `$A2` | `SOUND_ID_V1`, `SOUND_ID_V2` | the BIOS takes any `$Ax` (`SOUND_TYPE`) |
 | B | USB, game port, speaker | `$C5FF` | `$B1` | `USB_ID_V1` | |
@@ -1221,7 +1261,7 @@ OO-1 SYSTEM INFORMATION                                   2026-11-13  14:02:37
 SYSTEM
   CPU        W65C02S at 7.159 MHz: 7,159,090 Hz by the clock chip,
              7,159,1xx Hz by the video frame
-  ROM BIOS   0.14            OODOS 0.10, its BIOS 0.2     OOLIB interface 10
+  ROM BIOS   0.15            OODOS 0.10, its BIOS 0.2     OOLIB interface 10
   OOUI.BNK   A:, interface 1, 3 blocks
   MEMORY     1,024 KB: 960 KB of RAM and the video card's 64 KB aperture
              for programs: a 47K TPA; banks 1-5, 320 KB (320 KB free);
@@ -1232,7 +1272,7 @@ CARDS
   ADDR   ID   CARD                            REVISION
   $C300  --   serial: the stand-in 6551 (no ID register)
   $C380  $71  mass storage (SD)               1
-  $C400  $81  DMA controller                  1
+  $C400  $82  DMA controller                  2
   $C480  $92  video                           2
   $C500  $A2  sound                           2
   $C580  $B1  USB, game port and speaker      1

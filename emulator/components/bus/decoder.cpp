@@ -28,7 +28,7 @@ namespace ooe::emu
 
     NorthBridge Decoder::default_bridge_{};
 
-    Decoder::Decoder(NorthBridge *bridge) : bridge_(bridge ? bridge : &default_bridge_) {}
+    Decoder::Decoder(NorthBridge *bridge) : bridge_(bridge ? bridge : &default_bridge_) { dreq_module_.fill(-1); }
 
     void Decoder::set_bridge(NorthBridge *bridge) { bridge_ = bridge ? bridge : &default_bridge_; }
 
@@ -87,37 +87,37 @@ namespace ooe::emu
         return m ? m->module : NO_MODULE;
     }
 
-    uint8_t Decoder::module_of(const Device &card) const
+    const Mapping *Decoder::io_mapping_of(const Device &card) const
     {
         for (const Mapping &m : mappings_)
         {
             if (m.device == &card && space_of(m.first) == Space::Io)
-                return m.module;
+                return &m;
         }
-        return NO_MODULE;
+        return nullptr;
     }
 
-    const Mapping *Decoder::dma_cycle(uint32_t where, unsigned &cycles)
+    const Mapping *Decoder::dma_cycle(uint32_t where, unsigned &cycles, unsigned card_wait)
     {
         const Mapping *m = find(where);
-        cycles = 1;
-        if (m)
-            cycles += m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        // /WAIT is one open-drain line: the cycle lasts until the last of those holding it lets go.
+        cycles = 1 + std::max(m ? unsigned{m->wait} : 0u, card_wait);
         now_ += cycles;
         if (m)
             catch_up(*m);
         return m;
     }
 
-    void Decoder::dma_seen(uint32_t where, const Mapping *m, const Device *card, unsigned cycles, uint8_t data,
-                           bool write)
+    void Decoder::dma_seen(uint32_t where, const Mapping *m, bool is_fly_by, uint8_t module, unsigned cycles,
+                           uint8_t data, bool write)
     {
         if (!dma_observer_)
             return; // nothing watching: no need to work out PS0-PS3
-        uint8_t module = select(NorthBridge::Master::Dma, m);
-        // A fly-by's grant names the card; a bus with no /MEM shows the memory's module, as before.
-        if (card && bridge_->memory_select(NorthBridge::Master::Dma) != NO_MODULE)
-            module = module_of(*card);
+        const uint8_t ps = select(NorthBridge::Master::Dma, m);
+        // A fly-by's grant names the card, by the channel's MODULE; a bus with no /MEM shows the memory's
+        // module, as before.
+        if (!is_fly_by || bridge_->memory_select(NorthBridge::Master::Dma) == NO_MODULE)
+            module = ps;
         last_ = Access{lines(where), module};
         last_wait_ = cycles - 1; // the CPU's access, after these, sets both again
         BusCycle c;
@@ -136,13 +136,52 @@ namespace ooe::emu
         return 1;
     }
 
+    unsigned Decoder::dma_poll()
+    {
+        ++granting_; // like the takeover: no observer sees it, and the card lights it as the CPU's
+        ++now_;
+        catch_up_dreq();
+        return 1;
+    }
+
+    void Decoder::catch_up_dreq()
+    {
+        for (const size_t i : dreq_wired_)
+            catch_up(mappings_[i]);
+    }
+
+    bool Decoder::dreq()
+    {
+        for (const size_t i : dreq_wired_) // one open-drain line: the first card pulling it is enough
+        {
+            const Mapping &m = mappings_[i];
+            catch_up(m);
+            if (m.device->drq())
+                return true;
+        }
+        return false;
+    }
+
+    bool Decoder::dreq_from(uint8_t module) const
+    {
+        const Mapping *m = dreq_card(module);
+        return m && m->device->drq();
+    }
+
+    const Mapping *Decoder::dreq_card(uint8_t module) const
+    {
+        if (module >= MODULE_IDS || dreq_module_[module] < 0)
+            return nullptr;
+        return &mappings_[static_cast<size_t>(dreq_module_[module])];
+    }
+
     unsigned Decoder::dma_read(uint32_t physical, uint8_t &data)
     {
         unsigned cycles = 0;
         const uint32_t where = memory(physical);
         const Mapping *m = dma_cycle(where, cycles);
         data = m ? m->device->read(device_offset(*m, where)) : UNMAPPED_READ;
-        dma_seen(where, m, nullptr, cycles, data, false);
+        dma_seen(where, m, false, NO_MODULE, cycles, data, false);
         return cycles;
     }
 
@@ -153,15 +192,27 @@ namespace ooe::emu
         const Mapping *m = dma_cycle(where, cycles);
         if (m)
             m->device->write(device_offset(*m, where), data);
-        dma_seen(where, m, nullptr, cycles, data, true);
+        dma_seen(where, m, false, NO_MODULE, cycles, data, true);
         return cycles;
     }
 
     unsigned Decoder::dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc)
     {
+        const Mapping *cm = io_mapping_of(card); // the card's I/O block: its /WAIT and its module
+        return fly_by(physical, card, cm ? cm->wait : 0u, cm ? cm->module : NO_MODULE, to_memory, tc);
+    }
+
+    unsigned Decoder::dma_fly_by(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory, bool tc)
+    {
+        return fly_by(physical, *card.device, card.wait, module, to_memory, tc);
+    }
+
+    unsigned Decoder::fly_by(uint32_t physical, Device &card, unsigned card_wait, uint8_t module, bool to_memory,
+                             bool tc)
+    {
         unsigned cycles = 0;
         const uint32_t where = memory(physical);
-        const Mapping *m = dma_cycle(where, cycles);
+        const Mapping *m = dma_cycle(where, cycles, card_wait);
         catch_up_device(card);
         const uint32_t off = m ? device_offset(*m, where) : 0;
         uint8_t v = UNMAPPED_READ;
@@ -177,7 +228,7 @@ namespace ooe::emu
                 v = m->device->read(off);
             card.dack_write(v, tc);
         }
-        dma_seen(where, m, &card, cycles, v, to_memory);
+        dma_seen(where, m, true, module, cycles, v, to_memory);
         return cycles;
     }
 
@@ -201,6 +252,17 @@ namespace ooe::emu
         slot_of_.push_back(slot);
         if (m.irq_wired && std::find(irq_wired_.begin(), irq_wired_.end(), m.device) == irq_wired_.end())
             irq_wired_.push_back(m.device);
+        if (m.drq == Dreq::Wired)
+        {
+            const size_t index = mappings_.size() - 1;
+            bool seen = false; // a device mapped twice pulls the one line once
+            for (const size_t i : dreq_wired_)
+                seen = seen || mappings_[i].device == m.device;
+            if (!seen)
+                dreq_wired_.push_back(index);
+            if (m.module < MODULE_IDS && dreq_module_[m.module] < 0)
+                dreq_module_[m.module] = static_cast<int>(index); // the first card wired on a module answers it
+        }
         return true;
     }
 
@@ -257,9 +319,7 @@ namespace ooe::emu
         last_granted_ = granting_;
         r = route(addr, vector_pull_, write);
         const Mapping *m = find(r.where);
-        unsigned waits = 0;
-        if (m)
-            waits = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        const unsigned waits = m ? m->wait : 0u; // /WAIT, which the north bridge turns into RDY
         now_ += 1 + waits; // the access completes on the last held cycle
         last_wait_ = stolen + waits;
         last_stolen_ = stolen;

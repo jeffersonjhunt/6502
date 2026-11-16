@@ -121,7 +121,7 @@ SNDINIT:        STZ     SREV
                 STZ     SDMA
                 STZ     SPARTS
                 LDA     DMA_ID
-                CMP     #DMA_ID_V1
+                CMP     #DMA_ID_V2
                 BNE     @card
                 INC     SDMA
 @card:          LDA     SOUND_ID
@@ -239,7 +239,8 @@ SIDSTOP:        STZ     SHELD
 
 ; Channel 2 stopped: aborted, its interrupt off, its terminal count
 ; cleared; no buffer moving and none taken. No DMA controller: the state
-; alone.
+; alone. SELECT is shared: CONTROL saved, the window on channel 2 for its
+; CTRL and MODE, CONTROL put back (ABORT and STATUS need no SELECT).
 C2STOP:         STZ     C2ON
                 STZ     BBUSY
                 STZ     NEXTB
@@ -250,8 +251,16 @@ C2STOP:         STZ     C2ON
                 BEQ     @done
                 LDA     #DMA_CH2
                 STA     DMA_ABORT
-                STZ     DMA2_CTRL
-                STZ     DMA2_MODE
+                LDA     DMA_CONTROL
+                PHA
+                AND     #<~DMA_SEL
+                ORA     #DMA_SEL2      ; the master as found
+                STA     DMA_CONTROL
+                STZ     DMA_CTRL
+                STZ     DMA_MODE
+                PLA
+                STA     DMA_CONTROL
+                LDA     #DMA_CH2
                 STA     DMA_STATUS
 @done:          RTS
 
@@ -512,7 +521,10 @@ BSTART:         STX     CUR
 
 ; The next piece of CADR's: CHUNK bytes, or what is left; CADR and CLEFT
 ; moved on before the channel is enabled, as it may run (and finish) at
-; once.
+; once. It runs in the interrupt (channel 2's terminal count) as well as in
+; the BDOS, so it keeps the SELECT rule: CONTROL saved, the window on channel
+; 2 (the master as found), CONTROL put back before the RTS, so the code it
+; interrupted finds the window where it left it.
 PIECE:          LDA     #<CHUNK        ; STMP/Y the piece: CHUNK, or CLEFT if less
                 STA     STMP
                 LDY     #>CHUNK
@@ -524,18 +536,23 @@ PIECE:          LDA     #<CHUNK        ; STMP/Y the piece: CHUNK, or CLEFT if le
                 LDA     CLEFT
                 STA     STMP
                 LDY     CLEFT + 1
-@set:           STZ     DMA2_CTRL
+@set:           LDA     DMA_CONTROL
+                PHA
+                AND     #<~DMA_SEL
+                ORA     #DMA_SEL2
+                STA     DMA_CONTROL
+                STZ     DMA_CTRL
                 LDA     CADR
-                STA     DMA2_ADDR
+                STA     DMA_ADDR
                 LDA     CADR + 1
-                STA     DMA2_ADDR + 1
+                STA     DMA_ADDR + 1
                 LDA     CADR + 2
-                STA     DMA2_ADDR + 2
+                STA     DMA_ADDR + 2
                 LDA     STMP
-                STA     DMA2_COUNT
-                STY     DMA2_COUNT + 1
+                STA     DMA_COUNT
+                STY     DMA_COUNT + 1
                 LDA     #DMA_MODE_IRQ | DMA_DEMAND_OUT
-                STA     DMA2_MODE
+                STA     DMA_MODE
                 LDA     #SOUND_DRQ_PCM
                 STA     SOUND_DRQSEL   ; (a load in between may have moved it)
                 CLC
@@ -558,7 +575,9 @@ PIECE:          LDA     #<CHUNK        ; STMP/Y the piece: CHUNK, or CLEFT if le
                 BCS     @go
                 DEC     CLEFT + 2
 @go:            LDA     #DMA_ENABLE
-                STA     DMA2_CTRL      ; last: it may run at once
+                STA     DMA_CTRL       ; last: it may run at once
+                PLA                    ; CONTROL as PIECE found it, SELECT with it
+                STA     DMA_CONTROL
                 RTS
 .assert <CHUNK = 0, error, "PIECE compares CLEFT's high byte with CHUNK's"
 
@@ -649,11 +668,17 @@ RAMEND:         STA     SST + 3
 ; Channel 2 from SG, LDLEN bytes, to the card (DRQSEL set by the caller:
 ; RAMDATA or DOCDATA, which hold DRQ always), a piece at a time, each
 ; waited for; interrupts on between. Carry set if a piece never ended (no
-; DMA controller, or one that doesn't run): the channel aborted.
+; DMA controller, or one that doesn't run): the channel aborted. CONTROL
+; saved first, the window on channel 2 with the master on for the pieces,
+; and CONTROL put back on both ways out (the SELECT rule: an interrupt
+; between pieces finds the window here and leaves it here).
 DMALOAD:        LDA     SDMA
                 BEQ     @fail
-                LDA     #DMA_MASTER
-                TSB     DMA_CONTROL
+                LDA     DMA_CONTROL
+                PHA
+                AND     #<~DMA_SEL
+                ORA     #DMA_MASTER | DMA_SEL2
+                STA     DMA_CONTROL
 @piece:         LDA     #<CHUNK        ; T0/T1 this piece
                 STA     T0
                 LDA     #>CHUNK
@@ -667,24 +692,24 @@ DMALOAD:        LDA     SDMA
                 STA     T0
                 LDA     LDLEN + 1
                 STA     T1
-@set:           STZ     DMA2_CTRL
+@set:           STZ     DMA_CTRL
                 LDA     SG
-                STA     DMA2_ADDR
+                STA     DMA_ADDR
                 LDA     SG + 1
-                STA     DMA2_ADDR + 1
+                STA     DMA_ADDR + 1
                 LDA     SG + 2
-                STA     DMA2_ADDR + 2
+                STA     DMA_ADDR + 2
                 LDA     T0
-                STA     DMA2_COUNT
+                STA     DMA_COUNT
                 LDA     T1
-                STA     DMA2_COUNT + 1
+                STA     DMA_COUNT + 1
                 LDA     #DMA_DEMAND_OUT ; no interrupt: waited for here
-                STA     DMA2_MODE
+                STA     DMA_MODE
                 LDA     #DMA_ENABLE
-                STA     DMA2_CTRL      ; it runs at once, the CPU held
+                STA     DMA_CTRL       ; it runs at once, the CPU held
                 LDX     #0
                 LDY     #0
-@wait:          LDA     DMA2_CTRL
+@wait:          LDA     DMA_CTRL
                 LSR     A
                 BCC     @done
                 DEX
@@ -693,6 +718,8 @@ DMALOAD:        LDA     SDMA
                 BNE     @wait
                 LDA     #DMA_CH2
                 STA     DMA_ABORT
+                PLA                    ; CONTROL as DMALOAD found it
+                STA     DMA_CONTROL
 @fail:          SEC
                 RTS
 @done:          LDA     #DMA_CH2
@@ -720,7 +747,9 @@ DMALOAD:        LDA     SDMA
                 ORA     LDLEN + 2
                 BEQ     @end
                 JMP     @piece
-@end:           CLC
+@end:           PLA                    ; CONTROL as DMALOAD found it
+                STA     DMA_CONTROL
+                CLC
                 RTS
 .assert <CHUNK = 0, error, "DMALOAD compares the length's high byte with CHUNK's"
 
