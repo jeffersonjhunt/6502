@@ -63,11 +63,13 @@ elsewhere.
 ### Under OODOS
 
 Status: **proposed**, on revision 2, which OODOS's code drives from B2 (OODOS.SYS on the cards in the repo). An
-OODOS.SYS built before B2 drives revision 1. Its SD card reads still work, because revision 1's channel 0 sat where
-the window is: with SELECT 0 and the master on, as BIOS 0.15 leaves them with a revision 2 video card, its sectors
-reach channel 0. Its channel-3 work (M:, `DM_COPY` and `DM_FILL`, MOVE) times out and moves nothing, and its
-paths that check the ID see no controller. Without a revision 2 video card the master is off, and its SD card
-reads fail too.
+OODOS.SYS built before B2 drives revision 1, and on revision 2 it reaches `A>` but can't use a file. Its SD card's
+sectors still reach channel 0, because revision 1's channel 0 sat where the window is (with SELECT 0 and the master
+on, as BIOS 0.15 leaves them with a revision 2 video card). But its channel-3 work times out and moves nothing, and
+its BDOS moves every FCB and every record between banks on channel 3: DIR says "No File", TYPE never comes back,
+and a write saves nothing it should. Its paths that check the ID see no controller. Replace such a card with the
+built-in one, and don't write with it. Without a revision 2 video card the master is off, and its sector reads fail
+too.
 
 OODOS owns all eight channels; a program reaches them only through its functions. Each of its routines keeps the
 SELECT rule: CONTROL saved, the channel selected, programmed and waited for, CONTROL put back. **Channel 0** is the

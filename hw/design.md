@@ -2732,12 +2732,18 @@ OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the control
   DEAFEN and function 75 paths see no controller. Its SDIO and DMAGO have no ID check. Revision 1's channel 0 sat
   where revision 2's window is (ADDR `$C400`, COUNT `$C404`, MODE `$C406`, CTRL `$C407`), so an old SDIO programs
   revision 2's channel 0 while SELECT is 0 and the master is on, which is how BIOS 0.15's LOADRUN hands over with a
-  revision 2 video card (VINIT's CONTROL `$71`, put back after the load): an old OODOS 0.10 card boots and reads
-  the SD card. Its STATUS, CONTROL and ABORT at `$C440-$C442` are reserved now (reads `$FF`, writes ignored), so its
-  master enable and its aborts do nothing, and its terminal-count check, reading `$FF`, always passes. Only channel-3 work (M:, `DM_COPY` and `DM_FILL`, MOVE) drives revision
-  1's places at `$C430-$C43F`, so each times out (65,536 polls) and moves nothing. Without a revision 2 video card
-  CONTROL stays `$70`, the master off, and SDIO fails too. The cards in the repo are made again. A user-loaded BIOS 0.14 kept by the WebUI sees no controller (its SD boot and Apple II mode
-  refuse): the site's release note tells such users to choose "Use built-in".
+  revision 2 video card (VINIT's CONTROL `$71`, put back after the load), and its sectors reach channel 0. Its
+  STATUS, CONTROL and ABORT at `$C440-$C442` are reserved now (reads `$FF`, writes ignored), so its master enable
+  and its aborts do nothing, and its terminal-count check, reading `$FF`, always passes. But its channel-3 work
+  drives revision 1's places at `$C430-$C43F`, so each copy times out (65,536 polls) and moves nothing, and that
+  work is not only M:, `DM_COPY` and `DM_FILL`: the old BDOS moves every FCB and every record between the
+  program's bank and the system's by MOVE on channel 3, BOUNCE copies a buffer that crosses a window by it, and the
+  Disk II layer copies by it. So an old OODOS 0.10 card reaches `A>`, but no file function works: DIR says
+  "No File", TYPE never comes back, and a write saves nothing it should. Don't write with an old card; replace it
+  with the built-in one (measured on the emulator, B2's review round 2). Without a revision 2 video card
+  CONTROL stays `$70`, the master off, and its sector reads fail too. The cards in the repo are made again. A
+  user-loaded BIOS 0.14 kept by the WebUI sees no controller (its SD boot and Apple II mode refuse): the site's release note tells such users to choose "Use built-in", and that a card made before B2 must
+  be replaced by the built-in one.
 - **The costs measured** ([above](#the-dma-controller-revision-2), the corrected table): single mode 3 cycles a byte;
   memory to memory 1 + 2n, so D4 reads 4,096 and test_video_rev2's 32 cycles hold; SD4 5,829 KB a second (6,214 on
   revision 1); the Console card's RDY duty under single mode 0.7500 (three of each four). Held, before on main
