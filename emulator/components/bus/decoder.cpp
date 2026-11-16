@@ -7,6 +7,7 @@
 #include "decoder.h"
 
 #include <algorithm>
+#include <cassert>
 
 #include "emu_log.h"
 
@@ -109,7 +110,7 @@ namespace ooe::emu
     }
 
     void Decoder::dma_seen(uint32_t where, const Mapping *m, bool is_fly_by, uint8_t module, unsigned cycles,
-                           uint8_t data, bool write)
+                           uint8_t data, bool write, bool word, uint8_t data_high)
     {
         if (!dma_observer_)
             return; // nothing watching: no need to work out PS0-PS3
@@ -118,7 +119,7 @@ namespace ooe::emu
         // module, as before.
         if (!is_fly_by || bridge_->memory_select(NorthBridge::Master::Dma) == NO_MODULE)
             module = ps;
-        last_ = Access{lines(where), module};
+        last_ = Access{lines(where), module, word};
         last_wait_ = cycles - 1; // the CPU's access, after these, sets both again
         BusCycle c;
         c.cycle = now_;
@@ -126,6 +127,8 @@ namespace ooe::emu
         c.data = data;
         c.write = write;
         c.dma = true;
+        c.word = word;
+        c.data_high = data_high;
         dma_observer_->on_cycle(c);
     }
 
@@ -229,6 +232,84 @@ namespace ooe::emu
             card.dack_write(v, tc);
         }
         dma_seen(where, m, true, module, cycles, v, to_memory);
+        return cycles;
+    }
+
+    uint16_t Decoder::read_word(const Mapping &m, uint32_t where)
+    {
+        const uint8_t even = m.device->read(device_offset(m, where));
+        // One chip select: the even address's mapping answers both lanes; past its end D8-D15 float.
+        const uint8_t odd = where + 1 <= m.last ? m.device->read(device_offset(m, where + 1)) : UNMAPPED_READ;
+        return static_cast<uint16_t>(odd << 8 | even);
+    }
+
+    void Decoder::write_word(const Mapping &m, uint32_t where, uint16_t data)
+    {
+        m.device->write(device_offset(m, where), static_cast<uint8_t>(data));
+        if (where + 1 <= m.last)
+            m.device->write(device_offset(m, where + 1), static_cast<uint8_t>(data >> 8));
+    }
+
+    unsigned Decoder::dma_read_word(uint32_t physical, uint16_t &data)
+    {
+        assert(!(physical & 1)); // a word cycle is at an even address: the controller sees to it
+        unsigned cycles = 0;
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles);
+        data = m ? read_word(*m, where) : UNMAPPED_WORD;
+        dma_seen(where, m, false, NO_MODULE, cycles, static_cast<uint8_t>(data), false, true,
+                 static_cast<uint8_t>(data >> 8));
+        return cycles;
+    }
+
+    unsigned Decoder::dma_write_word(uint32_t physical, uint16_t data)
+    {
+        assert(!(physical & 1));
+        unsigned cycles = 0;
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles);
+        if (m)
+            write_word(*m, where, data);
+        dma_seen(where, m, false, NO_MODULE, cycles, static_cast<uint8_t>(data), true, true,
+                 static_cast<uint8_t>(data >> 8));
+        return cycles;
+    }
+
+    unsigned Decoder::dma_fly_by_word(uint32_t physical, Device &card, bool to_memory, bool tc)
+    {
+        const Mapping *cm = io_mapping_of(card);
+        return word_fly_by(physical, card, cm ? cm->wait : 0u, cm ? cm->module : NO_MODULE, to_memory, tc);
+    }
+
+    unsigned Decoder::dma_fly_by_word(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory,
+                                      bool tc)
+    {
+        return word_fly_by(physical, *card.device, card.wait, module, to_memory, tc);
+    }
+
+    unsigned Decoder::word_fly_by(uint32_t physical, Device &card, unsigned card_wait, uint8_t module,
+                                  bool to_memory, bool tc)
+    {
+        assert(!(physical & 1));
+        unsigned cycles = 0;
+        const uint32_t where = memory(physical);
+        const Mapping *m = dma_cycle(where, cycles, card_wait); // one cycle, one /WAIT stretch for the word
+        catch_up_device(card);
+        uint16_t v = UNMAPPED_WORD;
+        if (to_memory)
+        {
+            v = card.dack_read_word(tc);
+            if (m)
+                write_word(*m, where, v);
+        }
+        else
+        {
+            if (m)
+                v = read_word(*m, where);
+            card.dack_write_word(v, tc);
+        }
+        dma_seen(where, m, true, module, cycles, static_cast<uint8_t>(v), to_memory, true,
+                 static_cast<uint8_t>(v >> 8));
         return cycles;
     }
 

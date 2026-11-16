@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.13.0
- * @date 2026-11-15
+ * @version 0.14.0
+ * @date 2026-11-16
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -65,6 +65,8 @@
  * two. The takeover and the poll (below) are the controller's own cycles
  * and take no /WAIT. /WAIT is the only source of wait states: the north
  * bridge's WAIT0-3 are storage that slows nothing (backplane_bridge.h).
+ * A word cycle (below) is one cycle too, so one stretch: 1 + the longer
+ * of the memory's and the card's /WAIT, once a word.
  *
  * Bus masters (DMA): before every CPU cycle, and every idle one, the
  * decoder offers the bus to its BusMaster, as the board's DMA controller
@@ -72,6 +74,21 @@
  * it uses (dma_*()) are real bus cycles, devices and timers included, and
  * the CPU's pending access is held for them like a wait state. They reach
  * memory space only, by physical address, never through the windows.
+ *
+ * Byte and word cycles (hw/design.md, "16-bit transfers", step B4): a byte
+ * cycle carries D0-D7 whatever A0 is, memory steering an odd address's
+ * byte onto the low lane, which a byte device reached by offset already
+ * does. A word cycle (dma_*_word(), the controller's WIDE) is at an even
+ * address and carries the even byte on D0-D7 and the odd on D8-D15. The
+ * mapping that decodes the even address answers both lanes, as one chip
+ * select does on the board, even where a later mapping overlays the odd
+ * address; an odd byte past that mapping's end floats ($FF) and its write
+ * is dropped. Unmapped, a word reads $FFFF (the backplane's pull-ups) and a
+ * write is dropped. Memory (the RAM card, ROM A and ROM B, the video
+ * aperture) answers words; a card says in its own hooks
+ * (Device::dack_read_word()) whether its data register does. The line
+ * that tells byte cycles from word cycles is modelled as the call, and as
+ * Access::word and BusCycle::word.
  *
  * DMA requests (hw/design.md, "The DMA controller, revision 2"): a card
  * whose mapping has `drq` (Dreq::Wired) pulls /DREQ, one shared open-drain
@@ -102,7 +119,8 @@
  * used.
  *
  * The CPU reports its own cycles to its observer; the bus master's go to
- * the decoder's (set_dma_observer()), each read or write as it happens,
+ * the decoder's (set_dma_observer()), each read or write as it happens (a
+ * word cycle once, at its even address, with BusCycle::word set),
  * with last_access() and wait_states() describing it then, so the Console
  * card sees every bus cycle. The cycle taking the bus carries nothing and
  * is not reported: RDY is low but BE is not yet, so the CPU's held address
@@ -240,12 +258,14 @@ namespace ooe::emu
     {
         uint32_t physical{0};       ///< A0-A23
         uint8_t module{NO_MODULE};  ///< PS0-PS3, or NO_MODULE
+        bool word{false};           ///< a bus master's word cycle (D0-D15, `physical` even)
     };
 
     class Decoder : public Bus
     {
     public:
         static constexpr uint8_t UNMAPPED_READ = 0xFF;
+        static constexpr uint16_t UNMAPPED_WORD = 0xFFFF; ///< a word cycle no mapping answers: pull-ups
 
         /// `bridge` is not owned and must outlive the decoder; nullptr = default.
         explicit Decoder(NorthBridge *bridge = nullptr);
@@ -309,6 +329,16 @@ namespace ooe::emu
         /// (dreq_card()), whose `wait` is the card's side of /WAIT, and `module` the channel's
         /// MODULE, which PS0-PS3 carry. @return cycles used
         unsigned dma_fly_by(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory, bool tc);
+        /// A bus master's word cycle (WIDE), reading memory at an even physical address: the even byte in
+        /// bits 0-7 (D0-D7), the odd in 8-15. One cycle, stretched by the memory's /WAIT once. @return cycles used
+        unsigned dma_read_word(uint32_t physical, uint16_t &data);
+        /// A bus master's word cycle writing memory at an even physical address. @return cycles used
+        unsigned dma_write_word(uint32_t physical, uint16_t data);
+        /// One fly-by word cycle between `card` and memory at an even `physical` (Device::dack_read_word(),
+        /// dack_write_word()), one /WAIT stretch for both sides. @return cycles used
+        unsigned dma_fly_by_word(uint32_t physical, Device &card, bool to_memory, bool tc);
+        /// The same for the DMA controller's grant, as dma_fly_by()'s Mapping overload. @return cycles used
+        unsigned dma_fly_by_word(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory, bool tc);
         /// Memory at a physical address (A0-A23) with no bus cycle counted, as
         /// the CPU card reaches it (NorthBridge::redirect()): with a revision 2
         /// video card on the backplane, bank 8 is the aperture.
@@ -392,7 +422,14 @@ namespace ooe::emu
         /// (or nothing), with `is_fly_by` true on a fly-by, whose grant puts `module` on PS0-PS3; PS0-PS3 are
         /// worked out only if it watches.
         void dma_seen(uint32_t where, const Mapping *m, bool is_fly_by, uint8_t module, unsigned cycles,
-                      uint8_t data, bool write);
+                      uint8_t data, bool write, bool word = false, uint8_t data_high = 0);
+        /// Both lanes of a word cycle at bus address `where` (even), mapping `m` answering: the odd byte
+        /// past its end floats.
+        uint16_t read_word(const Mapping &m, uint32_t where);
+        void write_word(const Mapping &m, uint32_t where, uint16_t data);
+        /// A word fly-by, as fly_by().
+        unsigned word_fly_by(uint32_t physical, Device &card, unsigned card_wait, uint8_t module, bool to_memory,
+                             bool tc);
         /// A fly-by of `card` with its side of /WAIT `card_wait` and `module` on PS0-PS3.
         unsigned fly_by(uint32_t physical, Device &card, unsigned card_wait, uint8_t module, bool to_memory,
                         bool tc);
