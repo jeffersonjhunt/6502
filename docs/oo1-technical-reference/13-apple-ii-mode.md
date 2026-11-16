@@ -41,7 +41,7 @@ Status: **emulated**
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
 map and with nothing changed, if any of it is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:51-66 -->
+<!-- listing: ../../backplane/bios/apple.s:54-66 -->
 ```
 APPLE:
                 LDA     VIDEO_ID
@@ -52,11 +52,8 @@ APPLE:
                 CMP     #DMA_ID_V2
                 BEQ     @dma
                 JMP     NODMA_SAY
-@dma:           LDA     #CART
-                STA     NB_WIN1
-                LDA     CART_CPU + IIE_ID_AT ; $FBB3 in the image: a IIe's?
-                CMP     #IIE_ID
-                BEQ     @rom
+@dma:           JSR     FINDIMG        ; the first good image, in W1
+                BCC     @rom
                 JMP     NOROM_SAY
 @rom:
 ```

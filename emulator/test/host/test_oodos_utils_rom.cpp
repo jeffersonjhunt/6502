@@ -8,11 +8,14 @@
  *
  *   - WOZMON: the screen cleared, then the ROM's monitor, with W3 and VEC back
  *     on the ROM's block (63) and windows 0-2 on RAM blocks 0-2, and it answers;
- *   - APPLE2 with no IIe ROM in the cartridge: it says so, the return code
- *     $FF00, and OODOS goes on;
+ *   - APPLE2 with no IIe ROM in ROM A's images 0-3: it says so, the return
+ *     code $FF00, and OODOS goes on;
  *   - APPLE2 with one: the machine restarts in Apple II mode, at the ROM's
  *     reset vector. The ROM here is a stand-in made by the test, not Apple's:
  *     the byte the ROM BIOS checks ($FBB3 = $06) and a reset vector to a loop;
+ *     in image 0, or only in image 2 (B5: function 75 looks where the running
+ *     ROM BIOS's $C806 does, ROM A's images from 0.16 on, the cartridge before:
+ *     its version gate, by the major then the minor);
  *   - with the IIe ROM but no DMA controller (backplane.machine less its
  *     `dma` line): APPLE2 says so and OODOS goes on, and a program's
  *     function 75 comes back with A = $FF, X = $FE, where with no IIe ROM
@@ -60,8 +63,8 @@ namespace
     struct RomRig : CcpRig
     {
         explicit RomRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                        unsigned video_revision = 2)
-            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision)
+                        unsigned video_revision = 2, const std::array<std::string, 4> &images = {})
+            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision, images)
         {
             // Without the DMA controller the card's sectors don't move and each one waits out SDIO's time
             // limit, so the boot takes longer than CcpRig's 3 s: its prompt, given longer.
@@ -289,6 +292,66 @@ TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
     r.poke_com(romtest());
     CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
     CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
+}
+
+// --- B5: the IIe ROM in ROM A's images, behind the ROM BIOS's version --------------------------------------
+
+namespace
+{
+    /// Where cold.s keeps the running ROM BIOS's version (major, minor), in RAM.
+    uint32_t romver_at() { return 31u * 0x4000u + sym("ROMVER"); }
+
+    /// Typed APPLE2 and waited for Apple II mode: true if the machine went there, at the stand-in's loop.
+    bool apple2_reaches_the_loop(RomRig &r)
+    {
+        r.type("APPLE2\r");
+        for (int i = 0; i < 40 && !r.bridge().apple(); ++i)
+            r.run(ms(50));
+        if (!r.bridge().apple())
+            return false;
+        r.run(ms(50));
+        const uint16_t pc = r.cpu->regs().pc;
+        return pc >= LOOP && pc < LOOP + 3;
+    }
+} // namespace
+
+TEST(apple2_finds_a_iie_rom_in_image_2_alone)
+{
+    const auto iie = stand_in_rom();
+    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    REQUIRE(r.ok);
+    REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 16);
+    CHECK(apple2_reaches_the_loop(r));
+    CHECK(r.out.find("No IIe ROM") == std::string::npos);
+}
+
+TEST(function_75_under_a_rom_bios_before_0_16_looks_in_the_cartridge_not_rom_a)
+{
+    // Such a ROM's $C806 reads the cartridge: a IIe ROM in ROM A's image 0 isn't one it would take, so 75 says
+    // no IIe ROM rather than jump to a $C806 that refuses with OODOS gone.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+    CHECK(!r.bridge().apple());
+    CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
+    r.poke(romver_at() + 1, 0xFF);                         // $FF $FF, not found: old too
+    r.poke(romver_at(), 0xFF);
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+}
+
+TEST(function_75_under_a_rom_bios_1_0_looks_in_rom_a)
+{
+    // The gate compares the major first: 1.0 is past 0.16 though its minor is below 16.
+    const auto iie = stand_in_rom();
+    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    REQUIRE(r.ok);
+    r.poke(romver_at(), 1);
+    r.poke(romver_at() + 1, 0);
+    CHECK(apple2_reaches_the_loop(r));
 }
 
 // --- DIAG: function 75 with A = 2 (hw/diag.md's plan 2, D3c) -------------------------------------------------

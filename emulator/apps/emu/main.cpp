@@ -10,7 +10,7 @@
  *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
  *            [--break ADDR]... [--halt] [--screen FILE]
- *            [--apple-rom FILE[,FILE]]... [--apple-chars FILE]
+ *            [--apple-rom [N=]FILE[,FILE]]... [--apple-chars [N=]FILE]...
  *            [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
@@ -39,9 +39,11 @@
  * - `vram` at the debugger's prompt shows and writes a revision 2 video
  *   card's own memory (hw/video-rev2.md), which the CPU reaches only
  *   through the aperture's slots.
- * - --apple-rom plugs the owner's Apple IIe ROM into the cartridge (one
- *   16 KB file, or the CD and EF halves, in one option or two), and
- *   --apple-chars its character ROM; C806R at the monitor enters Apple II mode with them.
+ * - --apple-rom writes the owner's Apple IIe ROM into ROM A's image N (one
+ *   16 KB file, or the CD and EF halves, in one option or two; N a digit
+ *   0-3 and '=', image 0 without), and --apple-chars N= its character set
+ *   (one each); C806R at the monitor enters Apple II mode with the first
+ *   good image. Only a leading digit and '=' are N=: dir/x=y.rom is a path.
  * - --disk2-rom gives the Disk II card the owner's two PROMs (the 16-sector
  *   boot ROM and the sequencer, 256 bytes each), and --disk puts a .woz,
  *   .dsk, .do or .po in drive 1; the IIe boots it. What is written to the
@@ -53,6 +55,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -123,7 +126,7 @@ namespace
         std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
                              "                [--break ADDR]... [--halt] [--screen FILE]\n"
-                             "                [--apple-rom FILE[,FILE]]... [--apple-chars FILE]\n"
+                             "                [--apple-rom [N=]FILE[,FILE]]... [--apple-chars [N=]FILE]...\n"
                              "                [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]\n");
         return 2;
     }
@@ -319,7 +322,8 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; ++i)
     {
         const std::string opt = argv[i];
-        const bool repeatable = opt == "--load" || opt == "--symbols" || opt == "--break" || opt == "--apple-rom";
+        const bool repeatable = opt == "--load" || opt == "--symbols" || opt == "--break" || opt == "--apple-rom" ||
+                                opt == "--apple-chars";
         static const char *const WITH_VALUE[] = {"--log",       "--machine",     "--clock",     "--load",
                                                  "--symbols",   "--trace",       "--break",     "--screen",
                                                  "--apple-rom", "--apple-chars", "--disk2-rom", "--disk",
@@ -359,18 +363,33 @@ int main(int argc, char *argv[])
             settings.start_halted = true;
         else if (opt == "--screen")
             settings.screen_path = argv[++i];
-        else if (opt == "--apple-rom")
+        else if (opt == "--apple-rom" || opt == "--apple-chars")
         {
             std::string list = argv[++i];
-            for (size_t at = 0; at <= list.size();)
+            unsigned image = 0;
+            if (list.size() >= 2 && list[1] == '=' && std::isdigit(static_cast<unsigned char>(list[0])))
             {
-                const size_t comma = std::min(list.find(',', at), list.size());
-                options.apple_rom.push_back(list.substr(at, comma - at));
-                at = comma + 1;
+                image = static_cast<unsigned>(list[0] - '0');
+                if (image > 3)
+                    return usage(opt + " " + list.substr(0, 2) + ": the images are 0-3");
+                list.erase(0, 2);
+                if (list.empty())
+                    return usage(opt + " " + std::to_string(image) + "= needs a file");
             }
+            if (opt == "--apple-chars")
+            {
+                if (!options.apple_charsets[image].empty())
+                    return usage("--apple-chars " + std::to_string(image) + "= given twice");
+                options.apple_charsets[image] = list;
+            }
+            else
+                for (size_t at = 0; at <= list.size();)
+                {
+                    const size_t comma = std::min(list.find(',', at), list.size());
+                    options.apple_roms[image].push_back(list.substr(at, comma - at));
+                    at = comma + 1;
+                }
         }
-        else if (opt == "--apple-chars")
-            options.apple_chars = argv[++i];
         else if (opt == "--disk2-rom")
         {
             const std::string pair = argv[++i];

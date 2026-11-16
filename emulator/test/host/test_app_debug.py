@@ -335,7 +335,20 @@ def main():
                              (["--machine", machine, "--machine", machine, rom], "--machine given twice"),
                              ([rom, rom], "rom given twice"),
                              # --apple-rom adds up: two 4 KB parts make 8 KB, not "given twice"
-                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes")):
+                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes"),
+                             # [N=]: ROM A's image N (B5); 0= and none are both image 0, in order
+                             (["--machine", backplane, "--apple-rom", "2=" + half, rom], "image 2: want 16 KB"),
+                             (["--machine", backplane, "--apple-rom", "0=" + half, "--apple-rom", half, rom],
+                              "image 0: want 16 KB ($C000-$FFFF, or the CD and EF halves), got 8192 bytes"),
+                             (["--machine", backplane, "--apple-rom", "4=" + half, rom], "the images are 0-3"),
+                             # one set each, by number: 1= and 2= both taken, so set 2's size is what's refused
+                             (["--machine", backplane, "--apple-chars", "1=" + half, "--apple-chars", "2=" + raw, rom],
+                              "data.bin: want the 4 or 8 KB IIe character ROM (set 2)"),
+                             (["--machine", backplane, "--apple-chars", "1=" + half, "--apple-chars", "1=" + half, rom],
+                              "--apple-chars 1= given twice"),
+                             # only a leading digit and '=' are N=: this is a path, and it isn't there
+                             (["--machine", backplane, "--apple-rom", os.path.join(cwd, "x=y.rom"), rom],
+                              "x=y.rom: cannot open")):
             s = Session(binary, args, cwd)
             rc, lost = s.close()
             check(failures, f"{' '.join(args[:2])}: refused", rc not in (None, 0) and needle in text(s.log),

@@ -77,6 +77,7 @@
  * name the file and line.
  */
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -107,12 +108,18 @@ namespace ooe::emu
         /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
         /// (VideoCard::set_revision() returns false).
         unsigned video_revision{0};
-        /// An Apple IIe ROM for the cartridge (the rom line named `rom_b`), at its
-        /// start: one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
+        /// An Apple IIe ROM for ROM A's image 0 (the flash line named `rom_a`, at its
+        /// start): one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
         /// Apple's ROMs are copyrighted: the owner supplies them.
         std::vector<std::string> apple_rom;
-        /// The IIe's video character ROM (4 or 8 KB), at cartridge offset $4000.
+        /// The IIe's video character ROM (4 or 8 KB) for image 0: character set 0, ROM A's $10000.
         std::string apple_chars;
+        /// Images 0-3 the same way (hw/design.md, "ROM A's layout"): image n at ROM A's n x $4000,
+        /// its set n at $10000 + n x $2000. Image 0's parts follow apple_rom's; set 0 is apple_chars
+        /// or apple_charsets[0], not both. A slot given is erased before it is written; one not given
+        /// is left as the ROM image has it.
+        std::array<std::vector<std::string>, 4> apple_roms{};
+        std::array<std::string, 4> apple_charsets{};
         /// The Disk II card's PROMs (256 bytes each): the boot ROM (341-0027) and the
         /// sequencer (341-0028). Apple's too; empty: the card has none.
         std::string disk2_boot, disk2_sequencer;

@@ -25,10 +25,11 @@
 ;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the revision 2 video
-;                   card and the DMA controller are there and the cartridge
-;                   holds a IIe ROM, else A = $FF and X = $FD (no revision 2
-;                   card), $FE (no DMA controller) or $FF (no IIe ROM), and
-;                   OODOS goes on; A = 2 the ROM's diagnostics (its $C815,
+;                   card and the DMA controller are there and ROM A's images
+;                   0-3 hold a IIe ROM (the cartridge under a ROM BIOS before
+;                   0.16, as its C806 looks), else A = $FF and X = $FD (no
+;                   revision 2 card), $FE (no DMA controller) or $FF (no IIe
+;                   ROM), and OODOS goes on; A = 2 the ROM's diagnostics (its $C815,
 ;                   with no question: the program has asked), X the options
 ;                   (bit 0 full, bit 1 interactive), if flash block 23 holds
 ;                   the ones linked with the ROM BIOS that is running, else
@@ -274,7 +275,9 @@ F_ROMVER:       LDA     ROMVER
 ; 75: leave for the ROM BIOS. The changed buffers are written back first, as
 ; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the
 ; program asked to leave).
-; The cartridge is looked at through W2, put back on the BIOS after.
+; The IIe ROM is looked for through W2, put back on the BIOS after, where the
+; running ROM BIOS's $C806 looks for it (NEWROM): ROM A's images 0-3 from
+; 0.16 on (the first good one), the cartridge (ROM B's first block) before.
 ; Apple II mode needs the revision 2 video card and the revision 2 DMA
 ; controller too (ID $82 exactly: a revision 1 controller reads as none;
 ; the ROM's APPLE checks both, the card first, and goes to its monitor
@@ -313,10 +316,20 @@ F_ROM:          CMP     #3
                 BNE     @apple
                 LDX     PX             ; the options
                 JMP     ROMDIAG        ; the diagnostics, at the ROM's $C815
-@apple:         LDA     #NB_ROM | NB_RO | CART_BLOCK ; the cartridge, as the ROM BIOS looks
-                STA     NB_WIN2
+@apple:         JSR     NEWROM         ; where the running ROM BIOS's $C806 looks:
+                LDY     #NB_ROM | NB_RO | CART_BLOCK ; before 0.16, the cartridge alone
+                LDX     #1
+                BCC     @look
+                LDY     #NB_ROM | NB_RO ; 0.16 on, ROM A's images 0-3 (blocks 0-3)
+                LDX     #IIE_IMAGES
+@look:          STY     NB_WIN2
                 LDA     $8000 + IIE_ID_AT
-                LDX     #BIOS_BLOCK
+                CMP     #IIE_ID
+                BEQ     @found         ; the first good one, as $C806 takes it
+                INY
+                DEX
+                BNE     @look
+@found:         LDX     #BIOS_BLOCK    ; (A: $06 if one was found)
                 STX     NB_WIN2
                 CMP     #IIE_ID
                 BNE     @no            ; no IIe ROM: say so to the program, and go on
@@ -330,6 +343,23 @@ F_ROM:          CMP     #3
                 RTS
 @nocard:        LDA     #$FF
                 LDX     #$FD
+                RTS
+
+; Carry set if the ROM BIOS that is running is 0.16 or later (cold.s's ROMVER,
+; from its greeting): its $C806 takes ROM A's first good IIe image and its
+; dispatching entry is at $C818; carry clear for an older one, or $FF $FF
+; (not found). The major first: above 0 passes, whatever the minor. A kept.
+NEWROM:         PHA
+                LDA     ROMVER
+                CMP     #$FF
+                BEQ     @old           ; not found
+                CMP     #1
+                BCS     @new           ; 1.0 and on
+                LDA     ROMVER + 1
+                CMP     #16            ; 0.16 and on: carry set
+                BRA     @new
+@old:           CLC
+@new:           PLA
                 RTS
 
 ; Carry clear if flash block 23 holds the ROM's diagnostics, linked with the

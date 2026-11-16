@@ -62,9 +62,9 @@ namespace ooe::emu
             std::string machine;  ///< machine description file
             std::string rom;      ///< replaces the first rom line's image; empty keeps it
             std::string symbols;  ///< an ld65 -Ln label file, or empty
-            /// The owner's Apple IIe ROM for the cartridge (MachineOptions::apple_rom), or none.
+            /// The owner's Apple IIe ROM for ROM A's image 0 (MachineOptions::apple_rom), or none.
             std::vector<std::string> apple_rom{};
-            std::string apple_chars{}; ///< and its character ROM, or empty
+            std::string apple_chars{}; ///< and its character ROM, set 0, or empty
             /// The Disk II card's PROMs (MachineOptions::disk2_boot, disk2_sequencer), or empty.
             std::string disk2_boot{}, disk2_sequencer{};
         };
@@ -108,8 +108,9 @@ namespace ooe::emu
         /// (RAM forgets), the panel's switches as they were, a cold start.
         /// @return false, with `error`, if the files no longer build; the old machine stays
         bool power_cycle(std::string &error);
-        /// Plug the owner's Apple IIe ROM into the cartridge (Config::apple_rom and
-        /// apple_chars; both empty: take it out), as with the power off: a power cycle.
+        /// Write the owner's Apple IIe ROM into ROM A's image 0 and set 0 (Config::apple_rom
+        /// and apple_chars; both empty: take it out), as with the power off: a power cycle.
+        /// (The name is older than ROM A's images: it was the cartridge, ROM B, until B5.)
         /// @return false, with `error`, if it does not fit; the old machine and cartridge stay
         bool set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
                            std::string &error);
@@ -163,7 +164,7 @@ namespace ooe::emu
         const SidFile *sid() const { return sid_.get(); }
         unsigned sid_song() const { return sid_song_; }
         const std::vector<std::string> &sid_warnings() const { return sid_warnings_; }
-        const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
+        const std::vector<std::string> &cartridge() const { return config_.apple_rom; } ///< image 0's
 
         // The panel: the card's inputs (nothing without a card)
         bool has_card() const { return card_ != nullptr; }
