@@ -602,10 +602,10 @@ DMACTL:         .res    1              ; DEAFEN's: CONTROL as it found it, less 
 ; can come while one waits. The channels are reached through the window,
 ; SELECT 7 down to 0, so CONTROL is saved first and put back after, SELECT
 ; with it (the SELECT rule: the dispatcher's DEAFEN may come between the
-; code it interrupted and that code's channel registers). Until channels
-; 4-7 are fitted (B3) their window reads $FF: their MODE's bit 7 then puts
-; 1s in DMAIRQ's bits 4-7, and STATUS is written with them; harmless, as a
-; 1 clears a count and there are no such channels to clear.
+; code it interrupted and that code's channel registers). Channels 4-7
+; are live since B3 (in B2 their window read $FF, so their MODE's bit 7
+; put 1s in DMAIRQ's bits 4-7); now, like 0-3, a channel 4-7's interrupt
+; bit is cleared and its count cleared only if that interrupt was on.
 DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0 sends nothing)
                 STA     NB_RTCCTL
                 STZ     SD_IEN
