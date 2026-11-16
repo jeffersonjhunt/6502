@@ -30,8 +30,9 @@
  * channel n's MODULE was requesting at the last poll (read only).
  *
  * All eight channels are live (since step B3; B2 had four), each behind
- * its SELECT, with its bit in STATUS, ABORT and REQ. Each channel's CARD resets to today's wiring: $07 (mass storage), $09 (video),
- * $0A (sound), then $08 (none).
+ * its SELECT, with its bit in STATUS, ABORT and REQ. Each channel's CARD
+ * resets to today's wiring: $07 (mass storage), $09 (video), $0A (sound),
+ * then $08 (none).
  *
  * It is a BusMaster: before each CPU cycle the decoder offers it the bus.
  * A take, when there is something to do:

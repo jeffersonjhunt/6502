@@ -560,6 +560,7 @@ TEST(a_card_on_channel_5_is_granted_by_its_module)
     Rig r;
     r.on();
     r.card_of(0, DmaController::CARD_NONE);   // channel 0 no longer serves module 7
+    r.channel(0, 0x6600, 3, DmaController::DEMAND | DmaController::TO_MEMORY);   // programmed, never armed
     r.channel(5, 0x5500, 10, DmaController::DEMAND | DmaController::TO_MEMORY);
     r.card_of(5, 0x07);                        // channel 5 does: the Rig's card
     r.arm(5);
@@ -570,7 +571,8 @@ TEST(a_card_on_channel_5_is_granted_by_its_module)
     CHECK_EQ(r.ram.read(0x5501), 0x92);
     CHECK_EQ(r.card.tcs.size(), size_t{2});    // the grant named module 7
     CHECK_EQ(r.at(5, DmaController::COUNT), 8);
-    CHECK_EQ(r.at(0, DmaController::COUNT), 0);
+    CHECK_EQ(r.at(0, DmaController::COUNT), 3);   // channel 0 untouched by the grant
+    CHECK_EQ(r.ram.read(0x6600), 0x00);
 }
 
 TEST(status_abort_and_the_interrupt_cover_channels_4_to_7)

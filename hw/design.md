@@ -2796,9 +2796,11 @@ programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS 0.10 
   block) and OODOS.SYS, with the programs, built from the branch and from a clean export of `2fedaa6`, compare
   equal. D1 counts the fitted channels at run time, so it prints `ON 8 CHANNELS` with no ROM change, as B2's answer
   7 foresaw. The BIOS's QUIET and QUIETM, D1 and OODOS's DEAFEN already looped SELECT 7 to 0 (B2).
-- **The cards.** `make_card.sh` leaves `oodos.sparse` as it was. `demo.sparse` was rewritten in six sectors: its date
-  stamps moved with its sources, being built again on 2026-11-16 (the FAT entries' create and write times, the CP/M
-  labels' and timestamp entries' time bytes in `A.IMG` and `B.IMG`); every file in it is the same as on main.
+- **The cards.** `make_card.sh` leaves `oodos.sparse` as it was. `demo.sparse` changes in six sectors, date stamps
+  only (the FAT entries' create and write times, the CP/M labels' and timestamp entries' time bytes in `A.IMG` and
+  `B.IMG`); every file in it is the same as on main. The script stamps the card with the date of the last commit to
+  its sources, which is B3's comment commit (`backplane.inc` and `irq.s`), 2026-11-16 14:29:11 UTC. Main's committed
+  card had been stale since B2's `2db1504` (2026-11-15 21:47:15), so it would have changed on main too.
 - **The expectations changed, the sixteen the owner approved with the plan** (every other held):
   - a changed number (1): `romdiag.txt`'s D1 record, `ON 4 CHANNELS` to `ON 8 CHANNELS`, the dots and width the
     same; it fails with `LIVE` left at 4;
@@ -2825,9 +2827,9 @@ programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS 0.10 
     diagnostics item, needing a BIOS 0.16 (answer 3; [diag.md](diag.md#b2-dma-revision-2)).
   - D1's not-fitted path can no longer run on the emulator, which fits eight; B2's golden ran it (`ON 4 CHANNELS`)
     and B3 changes none of its bytes (answer 4).
-  - A program's channel 4–7 survives the warm boot: DEAFEN clears MODE's IRQ bit and its count but doesn't abort it
-    (answer 10). Break recovers it (QUIET aborts all eight); an ABORT of 4–7 in DEAFEN or the warm boot is for
-    OODOS's next release, an OODOS byte change outside B3.
+  - A program's channel 4–7 survives the warm boot: DEAFEN clears its MODE's IRQ bit (and its terminal count, if that
+    interrupt was on) but doesn't abort it (answer 10). Break recovers it (QUIET aborts all eight); an ABORT of 4–7
+    in DEAFEN or the warm boot is for OODOS's next release, an OODOS byte change outside B3.
 - **Not changed:** the WebUI and the WASM bindings (no DMA panel yet, B2's answer 10); `hw/diag.md`'s plan-era sample
   screen and `oolib.md`'s L-phase inventories of four channels (answers 7 and 8); no site release of B3's own
   (answer 9).
