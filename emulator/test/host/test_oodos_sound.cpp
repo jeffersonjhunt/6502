@@ -594,6 +594,49 @@ TEST(a_stray_during_a_wave_load_leaves_the_es5503_s_interrupt_off)
     CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC); // the hook's, back after the load
 }
 
+TEST(a_stray_terminal_count_on_channel_6_is_deafened)
+{
+    // B3: a channel 4-7's interrupt that no driver turned on (a program's, against the rules) reaches IRQOTH and
+    // DEAFEN, which clears its MODE.IRQ and its terminal count through SELECT 6 and puts CONTROL back. Must fail
+    // if DEAFEN's loop starts at SELECT 3: the count is never cleared, /IRQ stays low and OODOS hangs in the
+    // dispatcher (OODOS's "nothing more" for B3, seen to hold).
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(!r.cmd("dir").empty());            // at A>
+    DmaController &dma = *r.machine->dma();
+    Decoder &bus = r.machine->bus();
+    const uint8_t control = dma.peek(DmaController::CONTROL);
+    REQUIRE(control & DmaController::MASTER_ENABLE);
+    const uint16_t deafen = sym("DEAFEN");
+    unsigned deaf = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == deafen && r.nb(3) == 62)
+            ++deaf;
+    };
+    // Between instructions, as a program would: a 1-byte copy of a byte onto itself, on channel 6 with MODE.IRQ.
+    constexpr uint32_t BYTE = 0x07FFF0;
+    bus.write(0xC47E, static_cast<uint8_t>((control & ~DmaController::SELECT_MASK) | 6 << DmaController::SELECT_SHIFT));
+    for (unsigned i = 0; i < 3; ++i)
+    {
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::ADDR + i), static_cast<uint8_t>(BYTE >> (8 * i)));
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::DEST + i), static_cast<uint8_t>(BYTE >> (8 * i)));
+    }
+    bus.write(0xC400 + DmaController::COUNT, 1);
+    bus.write(0xC400 + DmaController::COUNT + 1, 0);
+    bus.write(0xC400 + DmaController::MODE, DmaController::IRQ | DmaController::MEM_TO_MEM);
+    bus.write(0xC400 + DmaController::CTRL, DmaController::ENABLE | DmaController::REQ);
+    bus.write(0xC47E, control);                // CONTROL put back
+    r.run(ms(5));
+    r.watch = nullptr;
+    std::printf("  DEAFEN run %u times for channel 6's terminal count\n", deaf);
+    CHECK(deaf >= 1);
+    CHECK_EQ(dma.peek_channel(6, DmaController::MODE), DmaController::MEM_TO_MEM); // its interrupt off
+    CHECK_EQ(dma.peek(DmaController::STATUS) & 0x40, 0);                            // its count cleared
+    CHECK(!dma.irq());
+    CHECK_EQ(dma.peek(DmaController::CONTROL), control);                            // as DEAFEN found it
+    CHECK(!r.cmd("dir").empty());              // and A> still answers
+}
+
 TEST(the_beep_lasts_its_length_at_its_pitch)
 {
     CcpRig r;
