@@ -416,6 +416,7 @@ TEST(block_mode_started_by_drq_carries_on_after_it_drops)
     CHECK_EQ(r.cpu_cycle(), 0u);
     CHECK_EQ(r.ram.read(0x6100), 0x51);
     CHECK_EQ(r.ram.read(0x6102), 0xEE);        // the card's empty FIFO
+    REQUIRE(!r.card.tcs.empty()); // no byte reached the card: fail here, not on back() of nothing
     CHECK(r.card.tcs.back());
 }
 
@@ -530,6 +531,33 @@ TEST(a_stray_request_costs_2_cycles_in_64)
     CHECK_EQ(r.ram.read(0x5000), 0x00);
     CHECK_EQ(r.cpu_cycle(), 3u);               // then served: the takeover, the poll, the byte
     CHECK_EQ(r.ram.read(0x5000), 0x77);
+}
+
+TEST(a_stray_request_with_no_card_channel_armed_costs_nothing)
+{
+    // The owner's answer 2: a take polls only with a card channel armed, so a stray request (the sound card's
+    // standing one, say) costs memory to memory nothing. Must fail on a controller that polls every take with
+    // /DREQ low: 2 + 2n, not 1 + 2n, with the sound card fitted.
+    Rig r;
+    Card stray;
+    r.bus.map({0x0D010, 0x0D013, &stray, 0x5, false, 0, Dreq::Wired});
+    stray.want = 1;                            // module 5: no channel's CARD names it
+    r.card.want = 0;
+    r.on();
+    REQUIRE(r.bus.dreq());                     // /DREQ low throughout
+    r.channel(3, 0x1000, 4, DmaController::MEM_TO_MEM, 0x2000);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2 * 4);       // the takeover and 2 cycles a byte: no poll
+    CHECK_EQ(r.bus.peek(REQUESTS), 0x00);      // REQ: no poll was made
+    CHECK_EQ(r.at(3, DmaController::CTRL), 0x00);
+    CHECK_EQ(r.cpu_cycle(), 0u);
+
+    // Nothing armed at all: no take, so no stray polls, not even 2 cycles in 64.
+    unsigned stolen = 0;
+    for (unsigned i = 0; i < 130; ++i)
+        stolen += r.cpu_cycle();
+    CHECK_EQ(stolen, 0u);
+    CHECK_EQ(r.bus.peek(REQUESTS), 0x00);
 }
 
 TEST(the_hold_off_ends_on_a_ctrl_write_and_on_dreq_high_then_low)

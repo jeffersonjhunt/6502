@@ -338,8 +338,8 @@ The north bridge works in two stages:
    the CPU goes through this.
 2. Physical address to module ID (PS0–PS3). Everything goes through this, including DMA.
 
-The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
-window registers.
+The DMA controller supplies its own addresses, so DMA always sees physical memory and never depends on the window
+registers: 20 bits on revision 1, 24 (A0–A23) on revision 2, emulated as B2 ([B2: as built](#b2-as-built)).
 **Proposed (B0):** on the new bus, 24-bit addresses, with memory chosen by its address and not by a module ID
 ([the physical map on the new bus](#the-physical-map-on-the-new-bus)).
 
@@ -2326,7 +2326,7 @@ it means. STATUS, ABORT, REQ and the ID need no SELECT. The B2 migration below c
 | Transfer | Revision 1 | Revision 2 |
 |---|---|---|
 | single (a byte a request) | 2 cycles a byte: the takeover, the byte | 3: the takeover, the poll, the byte |
-| demand, block | 1 + n for n bytes, per take | 2 + n a take that polls; 1 + n a take that doesn't (/DREQ high, or a hold-off running) |
+| demand, block | 1 + n for n bytes, per take | demand: 2 + n, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
 | memory to memory | 1 + 2n | 1 + 2n; 2 + 2n only in a take that polls because a card's channel is armed beside it |
 
 **The sound card's standing request (decided, the owner's answer 1, 2026-11-15).** At DRQSEL 0, its reset value and
@@ -2708,7 +2708,9 @@ OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the control
   row above have "the machine file's `drq=` becomes the card's module". As built, `drq` is a bare flag: the card's
   request reaches /DREQ, its module is its I/O block's, and the channel whose CARD names that module serves it. The
   `sd`, `video` and `sound` lines have it; `usb` doesn't, so the USB card's request (the event FIFO's, on every key)
-  pulls nothing. `drq=N` is refused with an error naming CARD, so an old machine file can't load wired wrong.
+  pulls nothing. `drq=N` is refused with an error naming CARD, so an old machine file can't load wired wrong. A
+  bare `drq` on a line with no module ID (memory, no `module=`) is refused too (review round 1, C1): no CARD could
+  name it, yet its request would pull /DREQ.
   `Mapping::drq` is a `Dreq` type that a bare 0 or 1 can't initialise (C1).
 - **The BIOS, 0.15.** QUIET and the diagnostics' QUIETM abort and clear all eight channels, then select each in turn,
   7 down to 0, to clear MODE and put CARD back to its reset value, computed (7, 9, A, then none) rather than from a
@@ -2727,9 +2729,14 @@ OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the control
   frozen, so B2 doesn't edit it (C7). The note B7 adds to video-rev2.md (B0's question 7) is to say the wiring is now
   by module: a bare `drq` on the line, CARD `$09` on channel 1.
 - **Old images.** OODOS 0.10's code from before B2 takes `$81` exactly, so on this controller its sound, video, CRT,
-  DEAFEN and function 75 paths see no controller; its SDIO and DMAGO have no ID check and drive revision 1's places,
-  now reserved, so its memory moves silently move nothing (each after a 65,536-pass timeout). The cards in the repo
-  are made again. A user-loaded BIOS 0.14 kept by the WebUI sees no controller (its SD boot and Apple II mode
+  DEAFEN and function 75 paths see no controller. Its SDIO and DMAGO have no ID check. Revision 1's channel 0 sat
+  where revision 2's window is (ADDR `$C400`, COUNT `$C404`, MODE `$C406`, CTRL `$C407`), so an old SDIO programs
+  revision 2's channel 0 while SELECT is 0 and the master is on, which is how BIOS 0.15's LOADRUN hands over with a
+  revision 2 video card (VINIT's CONTROL `$71`, put back after the load): an old OODOS 0.10 card boots and reads
+  the SD card. Its STATUS, CONTROL and ABORT at `$C440-$C442` are reserved now (reads `$FF`, writes ignored), so its
+  master enable and its aborts do nothing, and its terminal-count check, reading `$FF`, always passes. Only channel-3 work (M:, `DM_COPY` and `DM_FILL`, MOVE) drives revision
+  1's places at `$C430-$C43F`, so each times out (65,536 polls) and moves nothing. Without a revision 2 video card
+  CONTROL stays `$70`, the master off, and SDIO fails too. The cards in the repo are made again. A user-loaded BIOS 0.14 kept by the WebUI sees no controller (its SD boot and Apple II mode
   refuse): the site's release note tells such users to choose "Use built-in".
 - **The costs measured** ([above](#the-dma-controller-revision-2), the corrected table): single mode 3 cycles a byte;
   memory to memory 1 + 2n, so D4 reads 4,096 and test_video_rev2's 32 cycles hold; SD4 5,829 KB a second (6,214 on

@@ -1261,7 +1261,7 @@ OO-1 SYSTEM INFORMATION                                   2026-11-13  14:02:37
 SYSTEM
   CPU        W65C02S at 7.159 MHz: 7,159,090 Hz by the clock chip,
              7,159,1xx Hz by the video frame
-  ROM BIOS   0.14            OODOS 0.10, its BIOS 0.2     OOLIB interface 10
+  ROM BIOS   0.15            OODOS 0.10, its BIOS 0.2     OOLIB interface 10
   OOUI.BNK   A:, interface 1, 3 blocks
   MEMORY     1,024 KB: 960 KB of RAM and the video card's 64 KB aperture
              for programs: a 47K TPA; banks 1-5, 320 KB (320 KB free);

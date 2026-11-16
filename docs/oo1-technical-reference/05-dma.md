@@ -62,8 +62,12 @@ elsewhere.
 
 ### Under OODOS
 
-Status: **proposed**, on revision 2, which OODOS's code drives from B2 (OODOS.SYS on the cards in the repo; an
-OODOS.SYS built before B2 drives revision 1, and sees no controller here).
+Status: **proposed**, on revision 2, which OODOS's code drives from B2 (OODOS.SYS on the cards in the repo). An
+OODOS.SYS built before B2 drives revision 1. Its SD card reads still work, because revision 1's channel 0 sat where
+the window is: with SELECT 0 and the master on, as BIOS 0.15 leaves them with a revision 2 video card, its sectors
+reach channel 0. Its channel-3 work (M:, `DM_COPY` and `DM_FILL`, MOVE) times out and moves nothing, and its
+paths that check the ID see no controller. Without a revision 2 video card the master is off, and its SD card
+reads fail too.
 
 OODOS owns all eight channels; a program reaches them only through its functions. Each of its routines keeps the
 SELECT rule: CONTROL saved, the channel selected, programmed and waited for, CONTROL put back. **Channel 0** is the
@@ -169,7 +173,7 @@ reset ends the hold-off.
 | Transfer | Cycles |
 |---|---|
 | single (a byte a request) | 3 a byte: the takeover, the poll, the byte |
-| demand, block | 2 + n for n bytes a take that polls; 1 + n a take that doesn't |
+| demand, block | demand: 2 + n for n bytes, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
 | memory to memory | 1 + 2n a take, as on revision 1 |
 
 **The sound card's standing request.** At DRQSEL 0, its reset value and OODOS's idle value, and at 2, the sound

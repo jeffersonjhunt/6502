@@ -56,7 +56,8 @@ Each line of `backplane.machine` is a part of the OO-1:
 - **`drq`**, a flag, wires the device's DMA request to /DREQ, the shared line (*proposed*, since B2). Its module
   is its I/O block's, and the channel whose CARD names that module serves it; CARD's reset values give channel 0 the
   SD card, 1 the video card and 2 the sound card ([chapter 5](05-dma.md#transfers-for-a-card)). A device on a line
-  without it never pulls /DREQ. `drq=N`, revision 1's channel number, is refused, with an error that says a channel
+  without it never pulls /DREQ. A line with no module ID (a memory line without `module=`) can't take it: no
+  CARD could name the card, so `drq` there is refused with an error. `drq=N`, revision 1's channel number, is refused, with an error that says a channel
   serves a card by its CARD register, so an old machine file can't load wired wrong.
 - **`rev=N`**, on the `video` line only, picks the card's revision, 1 or 2. A program that builds the machine can
   override it with `MachineOptions::video_revision` (0 keeps the line's, 1 or 2 overrides it). The revision is fixed

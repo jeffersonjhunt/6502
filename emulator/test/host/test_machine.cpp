@@ -120,11 +120,16 @@ TEST(dma_line_and_drq_option)
     // `drq` is a flag: the card's request reaches /DREQ, and a channel serves it by the module its CARD names
     // (DMA revision 2). Revision 1's `drq=N`, a channel, is refused, naming CARD.
     std::string error;
-    auto m = build("ram 0000-7FFF\ndma C400-C47F name=dma irq\npia6821 D000-D003 drq\n", error);
+    auto m = build("ram 0000-7FFF\ndma C400-C47F name=dma irq\npia6821 D000-D003 module=6 drq\n", error);
     REQUIRE(m != nullptr);
     CHECK(m->find_as<DmaController>("dma") != nullptr);
     CHECK(m->bus().mappings()[0].drq == Dreq::None);
     CHECK(m->bus().mappings()[2].drq == Dreq::Wired);
+    CHECK_EQ(m->bus().mappings()[2].module, 0x6);
+    // A line with no module ID (memory, no module=): wired to /DREQ, but no channel's CARD could name it. Refused.
+    const std::string moduleless = error_of("pia6821 D000-D003 drq\n");
+    CHECK(starts_with(moduleless, "test.machine:1: drq:"));
+    CHECK(moduleless.find("module ID") != std::string::npos);
     CHECK_EQ(m->bus().read(0xC47F), 0x82);
     CHECK(starts_with(error_of("dma C400-C47F\ndma C500-C57F\n"), "test.machine:2: dma: only one"));
     const std::string channel = error_of("ram 0-F drq=2\n");

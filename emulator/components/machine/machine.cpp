@@ -336,6 +336,9 @@ namespace ooe::emu
                 if (map.module == NO_MODULE)
                     map.module = static_cast<uint8_t>(map.first >> 7);
             }
+            if (map.drq == Dreq::Wired && map.module == NO_MODULE) // wired, but no CARD could ever name it
+                return fail("drq: the card needs a module ID (space=io, or module=) for a DMA channel's CARD "
+                            "to name it");
 
             const size_t size = map.last - map.first + 1;
             std::unique_ptr<Device> dev;
