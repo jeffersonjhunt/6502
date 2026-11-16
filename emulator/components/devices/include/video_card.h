@@ -4,8 +4,8 @@
  * @file video_card.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's video card (module ID 9): VGA 640x480 from snooped memory.
- * @version 0.1.0
- * @date 2026-10-24
+ * @version 0.2.0
+ * @date 2026-11-16
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -50,6 +50,16 @@
  * at reset), and grants naming it move bytes through the port in PCTL bit
  * 1's direction; a grant the other way is ignored. /RESET resets the
  * registers and never touches card memory.
+ *
+ * Word grants (the DMA controller's WIDE, step B4; recorded in hw/design.md,
+ * "16-bit transfers", beside the frozen hw/video-rev2.md): the port takes a
+ * word as two PDATA accesses in order, the even byte (D0-D7) at PADDR, a
+ * PSTEP step, then the odd byte (D8-D15), another step, so every PSTEP and
+ * PCTL meaning holds (PSTEP 0 keeps one byte: a word to the card leaves its
+ * odd byte, a word from it reads one byte twice). A word against PCTL's
+ * direction reads $FFFF, a write is dropped, and PADDR doesn't step. The
+ * request means room for two bytes; the emulated port always has it. The
+ * aperture answers word cycles on both lanes, as any memory does.
  *
  * Time. VGA 640x480 at 60 Hz: 800 pixel clocks a line at 25.175 MHz, 525
  * lines, 480 of them shown. The card is timed: tick() turns CPU cycles
@@ -263,6 +273,9 @@ namespace ooe::emu
         bool drq() const override { return rev_ == 2 && (pctl_ & Rev2::PCTL_DRQ); }
         uint8_t dack_read(bool tc) override;
         void dack_write(uint8_t data, bool tc) override;
+        /// A word grant (WIDE): two port accesses, the even byte first, each stepping PADDR by PSTEP.
+        uint16_t dack_read_word(bool tc) override;
+        void dack_write_word(uint16_t data, bool tc) override;
         /// /RESET (START, Ctrl-Reset, entering Apple II mode): the registers back to their
         /// reset values, interrupts off. The beam and the picture run on: the monitor keeps its sync.
         void bus_reset() override;

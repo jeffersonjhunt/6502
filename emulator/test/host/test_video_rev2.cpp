@@ -798,6 +798,152 @@ TEST(a_memory_to_memory_copy_to_80000_lands_in_card_memory_through_the_aperture)
     CHECK_EQ(bus.peek_physical(0x84000), static_cast<uint8_t>(256 ^ 0xA5));
 }
 
+// --- 16-bit transfers (step B4): the port in a word grant, the aperture in word cycles -------------------------
+// The owner's Q2 and Q3 (b4-plan.md), recorded in hw/design.md beside the frozen hw/video-rev2.md.
+
+TEST(the_port_takes_a_word_as_two_accesses_each_stepping_pstep)
+{
+    // A word grant is two PDATA accesses in order: the even byte at PADDR, a PSTEP step, the odd byte, another
+    // step. Must fail with the word stored at PADDR and PADDR+1 then one step (the "16-bit memory" shortcut): a
+    // column (PSTEP 160) or a step-down copy corrupted.
+    Rig r;
+    r.reg16(R2::PSTEP, 160);
+    r.reg(R2::PCTL, R2::PCTL_DRQ);                           // to the card
+    r.paddr(0x2000);
+    r.card.dack_write_word(0xBBAA, false);
+    CHECK_EQ(r.card.card_peek(0x2000), 0xAA);
+    CHECK_EQ(r.card.card_peek(0x2000 + 160), 0xBB);
+    CHECK_EQ(r.card.card_peek(0x2001), 0x00);
+    CHECK_EQ(r.paddr(), 0x2000u + 320);
+    r.reg(R2::PCTL, R2::PCTL_DRQ | R2::PCTL_DOWN);           // stepping down
+    r.paddr(0x3000);
+    r.card.dack_write_word(0xDDCC, true);
+    CHECK_EQ(r.card.card_peek(0x3000), 0xCC);
+    CHECK_EQ(r.card.card_peek(0x3000 - 160), 0xDD);
+    CHECK_EQ(r.paddr(), 0x3000u - 320);
+
+    r.reg(R2::PCTL, R2::PCTL_DRQ | R2::PCTL_FROM_CARD);      // from the card, the same way
+    r.paddr(0x2000);
+    CHECK_EQ(r.card.dack_read_word(false), 0xBBAAu);
+    CHECK_EQ(r.paddr(), 0x2000u + 320);
+    r.reg(R2::PCTL, R2::PCTL_DRQ | R2::PCTL_FROM_CARD | R2::PCTL_DOWN);
+    r.paddr(0x3000);
+    CHECK_EQ(r.card.dack_read_word(false), 0xDDCCu);
+    CHECK_EQ(r.paddr(), 0x3000u - 320);
+
+    r.reg16(R2::PSTEP, 1);                                   // PSTEP 1 at an even PADDR: a plain little-endian word
+    r.reg(R2::PCTL, R2::PCTL_DRQ);
+    r.paddr(0x4000);
+    r.card.dack_write_word(0x2211, false);
+    CHECK_EQ(r.card.card_peek(0x4000), 0x11);
+    CHECK_EQ(r.card.card_peek(0x4001), 0x22);
+    CHECK_EQ(r.paddr(), 0x4002u);
+
+    r.reg16(R2::PSTEP, 0);                                   // PSTEP 0 holds: the odd byte is the one kept
+    r.paddr(0x5000);
+    r.card.dack_write_word(0x4433, false);
+    CHECK_EQ(r.card.card_peek(0x5000), 0x44);
+    CHECK_EQ(r.card.card_peek(0x5001), 0x00);
+    CHECK_EQ(r.paddr(), 0x5000u);
+    r.reg(R2::PCTL, R2::PCTL_DRQ | R2::PCTL_FROM_CARD);
+    CHECK_EQ(r.card.dack_read_word(false), 0x4444u);         // and a word from it is that byte twice
+    CHECK_EQ(r.paddr(), 0x5000u);
+}
+
+TEST(a_word_against_the_ports_direction_moves_nothing)
+{
+    // hw/video-rev2.md:167's rule for a byte, for a word: nothing drives the bus ($FFFF), a write is dropped, and
+    // PADDR doesn't step. Must fail with one access done, or PADDR stepped.
+    Rig r;
+    r.paddr(0x1000);
+    r.card.card_poke(0x1000, 0x5A);
+    r.reg(R2::PCTL, R2::PCTL_DRQ);                           // to the card: a word from it is against it
+    CHECK_EQ(r.card.dack_read_word(false), 0xFFFFu);
+    CHECK_EQ(r.paddr(), 0x1000u);
+    r.reg(R2::PCTL, R2::PCTL_DRQ | R2::PCTL_FROM_CARD);      // from the card: a word to it is against it
+    r.card.dack_write_word(0x1234, false);
+    CHECK_EQ(r.paddr(), 0x1000u);
+    CHECK_EQ(r.card.card_peek(0x1000), 0x5A);
+    CHECK_EQ(r.card.card_peek(0x1001), 0x00);
+}
+
+TEST(word_cycles_reach_card_memory_through_the_aperture)
+{
+    // The owner's Q3: the aperture is memory and answers both lanes of a word cycle, at $E00000 and through bank
+    // 8's redirect. A WIDE memory-to-memory copy (channel 3, CARD $18) of 256 bytes is 128 words, 1 + 256 cycles.
+    // Must fail with the aperture answering D0-D7 only (the odd bytes left alone).
+    for (const uint32_t dest : {0xE00200u, 0x80400u})
+    {
+        auto m = backplane(2);
+        REQUIRE(m != nullptr);
+        VideoCard *card = m->video_card();
+        Decoder &bus = m->bus();
+        for (unsigned i = 0; i < 256; ++i)
+            bus.write_physical(0x21000 + i, static_cast<uint8_t>(i * 7 + 3));
+        bus.poke(0xC47E, static_cast<uint8_t>(DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 3 << 1));
+        const uint32_t src = 0x21000;
+        bus.poke(0xC400, static_cast<uint8_t>(src));
+        bus.poke(0xC401, static_cast<uint8_t>(src >> 8));
+        bus.poke(0xC402, static_cast<uint8_t>(src >> 16));
+        bus.poke(0xC408, static_cast<uint8_t>(dest));
+        bus.poke(0xC409, static_cast<uint8_t>(dest >> 8));
+        bus.poke(0xC40A, static_cast<uint8_t>(dest >> 16));
+        bus.poke(0xC404, 0x00); // 256
+        bus.poke(0xC405, 0x01);
+        bus.poke(0xC40C, DmaController::WIDE | DmaController::CARD_NONE);
+        bus.poke(0xC406, DmaController::BLOCK | DmaController::MEM_TO_MEM);
+        bus.poke(0xC407, DmaController::ENABLE | DmaController::REQ);
+        bus.read(0x0000);
+        CHECK_EQ(bus.wait_states(), 1u + 256);
+        const uint32_t at = (dest & 0xFFFF); // slot 0 = card page 0
+        bool same = true;
+        for (unsigned i = 0; i < 256; ++i)
+            same = same && card->card_peek(at + i) == static_cast<uint8_t>(i * 7 + 3);
+        CHECK(same);
+        CHECK_EQ(card->card_peek(at + 256), 0x00);
+    }
+}
+
+TEST(a_wide_port_load_from_ram_takes_half_the_cycles)
+{
+    // The owner's Q2 at the controller: channel 1 in demand mode, 4 KB to the port with WIDE (CARD $19): the
+    // takeover, the poll and 2,048 word grants, 2 + 2,048 cycles, against 2 + 4,096 in bytes. Must fail with the
+    // card's word hooks left at Device's defaults (every other byte lost).
+    for (const bool wide : {false, true})
+    {
+        auto m = backplane(2);
+        REQUIRE(m != nullptr);
+        VideoCard *card = m->video_card();
+        Decoder &bus = m->bus();
+        for (unsigned i = 0; i < 4096; ++i)
+            bus.write_physical(0x20000 + i, static_cast<uint8_t>(i * 13 + 5));
+        bus.write(0xC4B8, 0x00); // PADDR $000400
+        bus.write(0xC4B9, 0x04);
+        bus.write(0xC4BA, 0x00);
+        bus.write(0xC4BE, R2::PCTL_DRQ);
+        bus.poke(0xC47E, static_cast<uint8_t>(DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 1 << 1));
+        bus.poke(0xC400, 0x00);
+        bus.poke(0xC401, 0x00);
+        bus.poke(0xC402, 0x02);
+        bus.poke(0xC404, 0x00); // 4,096
+        bus.poke(0xC405, 0x10);
+        bus.poke(0xC40C, static_cast<uint8_t>((wide ? DmaController::WIDE : 0) | 0x9));
+        bus.poke(0xC406, DmaController::DEMAND | DmaController::TO_CARD);
+        bus.poke(0xC407, DmaController::ENABLE);
+        bus.read(0x0000);
+        const unsigned cycles = bus.wait_states();
+        std::printf("  a 4 KB port load %s WIDE: %u cycles\n", wide ? "with" : "without", cycles);
+        CHECK_EQ(cycles, 2u + (wide ? 2048 : 4096));
+        bool same = true;
+        for (unsigned i = 0; i < 4096; ++i)
+            same = same && card->card_peek(0x400 + i) == static_cast<uint8_t>(i * 13 + 5);
+        CHECK(same);
+        CHECK_EQ(card->card_peek(0x400 + 4096), 0x00);
+        CHECK_EQ(bus.peek(0xC4B9), 0x14);                    // PADDR $001400
+        CHECK_EQ(bus.peek(0xC40C) & DmaController::WIDE, wide ? DmaController::WIDE : 0);
+    }
+}
+
 TEST(the_bases_high_bytes_latch_at_line_480)
 {
     constexpr uint64_t LINE = VideoCard::LINE_CLOCKS;
