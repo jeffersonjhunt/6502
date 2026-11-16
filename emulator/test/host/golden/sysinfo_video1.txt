@@ -3,7 +3,7 @@ OO-1 SYSTEM INFORMATION
 SYSTEM
   CPU        W65C02S at 7.159 MHz
              #,###,### Hz by the clock chip, no video frame to measure by
-  ROM BIOS   0.15
+  ROM BIOS   0.16
   OODOS      0.10, its BIOS 0.2; OOLIB interface 10
   OOUI.BNK   none on A:
   MEMORY     1,024 KB fitted
