@@ -30,9 +30,9 @@ A0–A13 ([chapter 2](02-memory-and-banking.md)). Besides those lines and the CP
 | BE | low floats the CPU off the bus, for the DMA controller (and the console card and the bus spy) |
 | /IACK | the interrupt poll ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)) |
 | /DREQ | a card's request for DMA, one open-drain line all cards share; the controller polls to find who asks (*proposed*, [chapter 5](05-dma.md#transfers-for-a-card)) |
-| /DMA | low in the DMA controller's poll and grant cycles; in a grant, the card named on PS0–PS3 moves its data register's byte (*proposed*) |
+| /DMA | low in the DMA controller's poll and grant cycles; in a grant, the card named on PS0–PS3 moves its data register's byte, or a word with WIDE (*proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)) |
 | /WAIT | a slow card's wait states, open drain: the north bridge turns it into RDY for the CPU, and the DMA controller stretches its grant by it (*proposed*) |
-| TC | terminal count, with a transfer's last byte |
+| TC | terminal count, with a transfer's last byte (or its last word, with WIDE: *proposed*, B4) |
 | AMODE | Apple II mode is on ([chapter 13](13-apple-ii-mode.md)) |
 | /BOOTSEL | boot from RAM, not the flash ([chapter 3](03-boot.md#booting-from-ram-bootsel)) |
 | OSC | the 14.31818 MHz master clock |

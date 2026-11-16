@@ -935,6 +935,35 @@ TEST(wide_odd_head_and_last_bytes_move_as_bytes)
         CHECK_EQ(r.ram.peek(0x6000 + i), static_cast<uint8_t>(0xA1 + i));
 }
 
+TEST(a_wide_demand_transfer_ends_when_the_card_lets_go_after_a_word)
+{
+    // The release rule after a word grant: a card whose FIFO runs dry before TC lets go of /DREQ, and the burst
+    // ends there, COUNT left and the channel still armed. Must fail if the release is checked only after a byte
+    // grant: a WIDE channel would run on past the card's data and overrun it.
+    Rig r;
+    r.on();
+    r.card_of(0, WIDE_SD);
+    r.card.fifo = {0x11, 0x22, 0x33, 0x44};
+    r.channel(0, 0x5000, 8, DmaController::DEMAND | DmaController::TO_MEMORY);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 2);                     // takeover, poll, two words
+    CHECK_EQ(r.cpu_cycle(), 0u);                         // the card has let go
+    CHECK(r.card.widths == (std::vector<int>{2, 2}));
+    CHECK(r.card.tcs == (std::vector<bool>{false, false}));
+    CHECK_EQ(r.at(0, DmaController::COUNT), 4);
+    CHECK_EQ(r.at(0, DmaController::CTRL), DmaController::ENABLE); // still armed
+    CHECK_EQ(r.bus.peek(STATUS), 0x00);
+    CHECK_EQ(r.ram.peek(0x5004), 0x00);                  // and no more
+
+    r.card.fifo = {0x55, 0x66, 0x77, 0x88};              // the card asks again: the rest, to TC
+    CHECK_EQ(r.cpu_cycle(), 2u + 2);
+    CHECK(r.card.widths == (std::vector<int>{2, 2, 2, 2}));
+    CHECK(r.card.tcs == (std::vector<bool>{false, false, false, true}));
+    for (uint32_t i = 0; i < 8; ++i)
+        CHECK_EQ(r.ram.peek(0x5000 + i), static_cast<uint8_t>(0x11 * (i + 1)));
+    CHECK_EQ(r.bus.peek(STATUS), 0x01);
+}
+
 TEST(dec_and_hold_move_bytes_under_wide)
 {
     // B0 review round 1's Q10: WIDE moves bytes with DEC or HOLD. Must fail if WIDE is honoured under DEC (the

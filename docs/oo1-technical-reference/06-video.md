@@ -170,7 +170,7 @@ entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layo
 
 A program keeps its table in ordinary RAM and copies it into video memory in the vertical blank, by DMA, as the
 demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-dma.md#memory-to-memory)), or
-one cycle a byte with WIDE (*proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)), which nothing sets yet. Two
+one cycle a byte with WIDE and the two addresses of one parity (*proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)), which nothing sets yet. Two
 tables and a SPRBASE write to flip between them also work, but SPRBASE is latched at line 480: written before it, the
 flip shows on the next frame; written in the vertical blank, a frame later.
 

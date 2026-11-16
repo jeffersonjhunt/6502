@@ -2904,14 +2904,15 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
     and the card's 3 (a word as two byte cycles); a byte-only card in a word grant (the default reading the card
     twice); an unmapped word and the observer's one cycle (told twice, or D8–D15 left 0); a mapping ending even
     (the odd lane looked up by its own address).
-  - test_dma: a 2 KB copy even to even, 1 + 2,048 cycles (WIDE ignored: 1 + 4,096); an odd head and last byte
-    as bytes, TC on the last grant whatever its width (a word at an odd address; TC compared with 1); DEC and HOLD
-    moving bytes under WIDE (either guard dropped); the parity rule (dropped); COUNT, ADDR and DEST stepping by 2 and
-    the wrap, with AUTO and the interrupt (`step()` by 1; the carry into A16–A23); a byte-only card on a WIDE
-    channel (the default hooks moving two bytes); single mode, 3 cycles a word (the word split in two grants); BURST
-    counting transfers (bytes counted); the observer's one cycle a word (each byte reported); a channel with no card
-    floating `$FFFF` (the float on D0–D7 only); and the 64 KB copy on the backplane machine with CARD `$18` (WIDE
-    ignored).
+  - test_dma: a 2 KB copy even to even, 1 + 2,048 cycles (WIDE ignored: 1 + 4,096); an odd head and last byte as
+    bytes, TC on the last grant whatever its width (a word at an odd address; TC compared with 1); DEC and HOLD
+    moving bytes under WIDE (either guard dropped); a demand transfer ending when the card lets go after a word,
+    added in review (the release checked after byte grants only); the parity rule (dropped); COUNT, ADDR and DEST
+    stepping by 2 and the wrap, with AUTO and the interrupt (`step()` by 1; the carry into A16–A23); a byte-only
+    card on a WIDE channel (the default hooks moving two bytes); single mode, 3 cycles a word (the word split in
+    two grants); BURST counting transfers (bytes counted); the observer's one cycle a word (each byte reported); a
+    channel with no card floating `$FFFF` (the float on D0–D7 only); and the 64 KB copy on the backplane machine
+    with CARD `$18` (WIDE ignored).
     `card_resets_to_todays_wiring` is the /RESET guard (the critic's 2): run once with reset keeping WIDE, it fails.
   - test_video_rev2: the port's two accesses at PSTEP 160, stepping down, PSTEP 1 and PSTEP 0 (the word stored at
     PADDR and PADDR + 1 with one step); a word against PCTL's direction (the direction not checked; PADDR stepped);
@@ -2937,8 +2938,8 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
   plausible fault.
 - **Gaps, recorded:**
   - A WIDE left on channel 0 by the monitor (`C40C: 17`) or WOZMON.COM under OODOS: the SD card's DATA takes bytes,
-    so each word grant moves one byte; a boot or a sector read lands only the even bytes (`$FF` in the odd), and a
-    sector write hands the card 256 of its 512 bytes before TC (answer 11). Break recovers it, since QUIET writes
+    so each word grant moves one byte; a boot or a sector read puts the sector's first 256 bytes at the even
+    addresses, `$FF` in each odd one, and leaves the other 256 in the card, and a sector write hands the card 256 of its 512 bytes before TC (answer 11). Break recovers it, since QUIET writes
     every CARD whole; OODOS's warm boot (DEAFEN) doesn't. OODOS's next release writes CARD back in its warm boot,
     with B3's ABORT of channels 4–7.
   - No diagnostic sees D8–D15 (answer 8): the CPU and every byte cycle use D0–D7, so a fault there is harmless while
