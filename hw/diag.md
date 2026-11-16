@@ -1051,7 +1051,11 @@ is written whole.
 - **D1** reads the ID, then each channel through SELECT 0–7: ADDR and DEST all 24 bits, COUNT, MODE and CARD (bits
   4–0), each with two patterns; `$03`, `$0B` and `$0D–$0F` must read `$FF`. A channel whose window reads `$FF` at
   every offset and drops a pattern counts as not fitted; any other mix fails, naming the channel and the offset.
-  The count is on D1's line, `ID $82; REGISTERS READ BACK ON 4 CHANNELS`, and becomes 8 in B3 with no ROM change.
+  The count is on D1's line, `ID $82; REGISTERS READ BACK ON 4 CHANNELS` in B2 and `ON 8 CHANNELS` since B3, with no
+  ROM change (BIOS 0.15). A later diagnostics item (B3, the owner's answer 3): D1 writes and reads back each channel
+  alone, so it can't see SELECT's top bit lost, channels 4–7 answering as 0–3; an alias pass (each channel's ADDR
+  written with its number, then all eight read) would. Its not-fitted path can no longer run on the emulator, which
+  fits eight; B2's golden ran it (answer 4).
   Each CARD goes back to its reset value afterwards, not 0. CONTROL's BURST and SELECT bits are tested both ways with
   the master off, and bit 7 written 1 reads 0.
 - **QUIETM** (each block's put-back) stops all eight channels and puts each CARD back, computed (7, 9, A, then none)

@@ -54,7 +54,7 @@ namespace ooe::emu
 
         // Which armed channels software started, and which wait on a card's request.
         uint8_t started = 0, waiting = 0;
-        for (unsigned n = 0; n < LIVE; ++n)
+        for (unsigned n = 0; n < CHANNELS; ++n)
         {
             const Channel &c = ch_[n];
             if (!(c.ctrl & ENABLE))
@@ -103,7 +103,7 @@ namespace ooe::emu
         {
             cycles += bus.dma_poll(); // each requesting card pulls its own data line
             req_ = 0;
-            for (unsigned n = 0; n < LIVE; ++n)
+            for (unsigned n = 0; n < CHANNELS; ++n)
             {
                 const uint8_t module = ch_[n].card & CARD_MODULE;
                 if (module != CARD_NONE && bus.dreq_from(module))
@@ -222,10 +222,7 @@ namespace ooe::emu
     {
         if (offset < WINDOW)
         {
-            const unsigned n = selected();
-            if (n >= LIVE)
-                return 0xFF; // SELECT 4-7: no such channel yet
-            return window(ch_[n], offset);
+            return window(ch_[selected()], offset);
         }
         switch (offset)
         {
@@ -246,10 +243,7 @@ namespace ooe::emu
     {
         if (offset < WINDOW)
         {
-            const unsigned n = selected();
-            if (n >= LIVE)
-                return; // SELECT 4-7: no such channel yet
-            Channel &c = ch_[n];
+            Channel &c = ch_[selected()];
             switch (offset)
             {
             case ADDR:
@@ -319,14 +313,14 @@ namespace ooe::emu
 
     uint8_t DmaController::peek_channel(unsigned n, uint8_t reg) const
     {
-        if (n >= LIVE || reg >= WINDOW)
+        if (n >= CHANNELS || reg >= WINDOW)
             return 0xFF;
         return window(ch_[n], reg); // whatever SELECT is, and with no effect
     }
 
     bool DmaController::irq() const
     {
-        for (unsigned n = 0; n < LIVE; ++n)
+        for (unsigned n = 0; n < CHANNELS; ++n)
         {
             if ((tc_ & bit(n)) && (ch_[n].mode & IRQ))
                 return true;

@@ -1855,6 +1855,47 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran
 }
 
+TEST(c806_stops_a_programs_channel_5_copy_before_its_fills)
+{
+    // B3, the owner's answer 11 (chapter 13: the clear aborts every channel, all eight, first). A program's
+    // channel 5, memory to memory with AUTO, started by REQ while its master enable is off, is armed when C806
+    // starts: ABORT $FF must stop it before C806 turns the master on for its fills. Must fail with apple.s's
+    // ABORT cut to $0F: the copy then runs as the master comes on, over the fill's zero byte ($EBFFF), and
+    // every fill writes its $A5 into the IIe's memory.
+    const std::string rom = fake_iie_rom("test_dma_iie5.rom");
+    Board b(false, true, {rom});
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    for (uint32_t i = 0; i < 16; ++i)
+        bus.write_physical(0x60000 + i, 0xA5);  // the program's data, in bank 6 (the clear leaves it)
+    b.run(BOOT, "C47E: 0A\r");                   // SELECT 5, BURST 0, the master off
+    b.run(BOOT, "C408: F0 BF 0E\r");             // DEST $0EBFF0: 16 bytes up to the fill's zero byte
+    b.run(BOOT, "C400: 00 00 06 00 10 00 48 03\r"); // ADDR $060000, COUNT 16, AUTO memory to memory, REQ
+    DmaController &dma = *b.machine->dma();
+    REQUIRE(dma.peek_channel(5, DmaController::CTRL) == (DmaController::ENABLE | DmaController::REQ));
+    const unsigned apple = label(bios_labels(), "APPLE");
+    bool entered = false, armed = false;
+    b.on_step = [&] {
+        if (!entered && b.cpu->regs().pc == apple)
+        {
+            entered = true;
+            armed = dma.peek_channel(5, DmaController::CTRL) == (DmaController::ENABLE | DmaController::REQ) &&
+                    bus.peek_physical(0xEBFF0) != 0xA5;
+        }
+    };
+    b.run(4 * BOOT, "C806R\r");
+    b.on_step = nullptr;
+    REQUIRE(entered && armed);                   // the premise: still armed, nothing copied, as C806 starts
+    REQUIRE(b.bridge().apple());
+    REQUIRE(b.cpu->regs().pc == 0xFA67);
+    for (const uint32_t at : {0x02000u, 0x0FFFFu, 0x10000u, 0x23456u, 0x3FFFFu, 0x4D000u, 0x5DFFFu})
+        CHECK_EQ(bus.peek_physical(at), 0x00);   // cleared
+    CHECK_EQ(bus.peek_physical(0xEBFFF), 0x00);  // the fill's zero byte, untouched
+}
+
 TEST(a_scroll_and_break_leave_a_programs_select_as_they_found_it)
 {
     // The SELECT rule (b2-plan.md §4 item 10): the scroll's port DMA (PORTJOB, channel 1) and Break's QUIET
@@ -1873,8 +1914,45 @@ TEST(a_scroll_and_break_leave_a_programs_select_as_they_found_it)
     b.cpu->nmi();                                // Break
     CHECK(has(b.run(BOOT), "\\"));
     CHECK_EQ(b.machine->bus().peek(0xC47E), 0x76);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(b.machine->dma()->peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+}
+
+TEST(break_stops_and_clears_channels_4_to_7)
+{
+    // B3: Break's QUIET ("B2's loops already cover 0-7"), seen to hold for channels 4-7. Channel 6 given a real
+    // terminal count (a 1-byte copy, no IRQ: STATUS bit 6), channel 5 armed as a card channel with MODE.IRQ
+    // (single, CARD $05, which no card answers: it waits). Break: channel 5 stopped (CTRL 0), every MODE 0,
+    // every CARD at reset, STATUS 0, CONTROL as it was. Must fail with QUIET's loop from SELECT 3, its ABORT
+    // cut to $0F, or its STATUS write cut to $0F.
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    DmaController &dma = *b.machine->dma();
+    b.run(BOOT, "C47E: 0D\r");                   // SELECT 6, BURST 0, the master on
+    b.run(BOOT, "C408: 00 30 00\r");             // DEST $003000
+    b.run(BOOT, "C400: 00 31 00 00 01 00 08 03\r"); // ADDR $003100, COUNT 1, memory to memory, REQ: it runs
+    REQUIRE(dma.peek(DmaController::STATUS) & 0x40); // (bit 1 too, by now: the scroll's port DMA, channel 1)
+    REQUIRE(dma.peek_channel(6, DmaController::MODE) == DmaController::MEM_TO_MEM);
+    b.run(BOOT, "C47E: 0B\r");                   // SELECT 5
+    b.run(BOOT, "C40C: 05\r");                   // CARD: module 5, which no card answers
+    b.run(BOOT, "C400: 00 40 00 00 10 00 80 01\r"); // ADDR $4000, COUNT 16, single, card to memory, IRQ; armed
+    REQUIRE(dma.peek_channel(5, DmaController::CTRL) == DmaController::ENABLE);
+    REQUIRE(dma.peek_channel(5, DmaController::MODE) == 0x80);
+    REQUIRE(dma.peek_channel(5, DmaController::CARD) == 0x05);
+    REQUIRE(dma.peek(DmaController::STATUS) & 0x40);
+    const uint8_t control = dma.peek(DmaController::CONTROL);
+    b.cpu->nmi();                                // Break
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK_EQ(dma.peek_channel(5, DmaController::CTRL), 0x00);
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+    {
+        CHECK_EQ(dma.peek_channel(n, DmaController::MODE), 0x00);
+        CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+    }
+    CHECK_EQ(dma.peek(DmaController::STATUS), 0x00);
+    CHECK_EQ(dma.peek(DmaController::CONTROL), control);
 }
 
 namespace
@@ -1921,7 +1999,7 @@ TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_t
     CHECK_EQ(dma.peek(DmaController::CONTROL), 0x70);
     CHECK_EQ(dma.peek(DmaController::REQ_REG), 0x00);
     CHECK_EQ(dma.peek(DmaController::STATUS), 0x00);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
     {
         CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
         CHECK_EQ(dma.peek_channel(n, DmaController::CTRL), 0x00);

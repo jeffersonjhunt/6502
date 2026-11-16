@@ -14,6 +14,7 @@
 
 #include "harness.h"
 
+#include "bus_cycle.h"
 #include "cpu6502.h"
 #include "decoder.h"
 #include "dma_controller.h"
@@ -172,10 +173,10 @@ TEST(peek_channel_reads_each_channel_with_no_effect)
     // The side door for tests and tools (b2-plan.md, U2): a channel's registers by channel number, whatever
     // SELECT is, with nothing changed and no cycle taken.
     Rig r;
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         r.channel(n, 0x10203 * (n + 1), 0x0102 * (n + 1), static_cast<uint8_t>(0x40 + n), 0x30405 * (n + 1));
     r.arm(2, DmaController::ENABLE);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n) // channels 4-7 too: must fail with the guard at 4
         for (uint8_t reg = 0; reg < 0x10; ++reg)
             CHECK_EQ(r.dma.peek_channel(n, reg), r.at(n, reg));
     r.select(2);
@@ -185,7 +186,9 @@ TEST(peek_channel_reads_each_channel_with_no_effect)
     CHECK_EQ(r.dma.peek_channel(2, DmaController::CTRL), DmaController::ENABLE);
     CHECK_EQ(r.dma.peek_channel(0, DmaController::CTRL), 0x00);
     CHECK_EQ(r.dma.peek_channel(1, DmaController::CARD), 0x09);
-    CHECK_EQ(r.dma.peek_channel(DmaController::LIVE, DmaController::CTRL), 0xFF);     // not fitted until B3
+    CHECK_EQ(r.dma.peek_channel(7, DmaController::MODE), 0x47);                       // channels 4-7 live (B3)
+    CHECK_EQ(r.dma.peek_channel(5, DmaController::ADDR), 0x12);                       // $10203 x 6 = $060C12
+    CHECK_EQ(r.dma.peek_channel(4, DmaController::CARD), 0x08);                       // none, at reset
     CHECK_EQ(r.dma.peek_channel(DmaController::CHANNELS, DmaController::CTRL), 0xFF); // no such channel
     CHECK_EQ(r.dma.peek_channel(0, DmaController::ADDR + 3), 0xFF);                   // reserved
     CHECK_EQ(r.dma.peek_channel(0, 0x10), 0xFF);                                      // nor register
@@ -194,13 +197,14 @@ TEST(peek_channel_reads_each_channel_with_no_effect)
     CHECK_EQ(r.dma.peek_channel(2, DmaController::CTRL), DmaController::ENABLE); // still armed
 }
 
-TEST(the_window_follows_select_and_select_4_to_7_read_ff)
+TEST(the_window_follows_select_on_all_eight_channels)
 {
-    // Must fail if the window decodes channel 0 whatever SELECT says (every driver would program channel 0).
+    // Must fail if the window decodes channel 0 whatever SELECT says (every driver would program channel 0),
+    // or decodes only two of SELECT's bits.
     Rig r;
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         r.channel(n, 0x111111 * (n + 1), 0x100 + n, static_cast<uint8_t>(n), 0x0A0B0C + n);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
     {
         r.select(n);
         CHECK_EQ(r.bus.peek(DMA + 0x00), static_cast<uint8_t>(0x11 * (n + 1)));
@@ -212,31 +216,49 @@ TEST(the_window_follows_select_and_select_4_to_7_read_ff)
         for (const int reserved : {0x03, 0x0B, 0x0D, 0x0E, 0x0F})
             CHECK_EQ(r.bus.peek(static_cast<uint16_t>(DMA + reserved)), 0xFF);
     }
-    for (unsigned n = DmaController::LIVE; n < DmaController::CHANNELS; ++n)
-    {
-        r.select(n);
-        for (uint8_t reg = 0; reg < 0x10; ++reg)
-        {
-            r.bus.write(static_cast<uint16_t>(DMA + reg), 0x00); // dropped
-            CHECK_EQ(r.bus.peek(static_cast<uint16_t>(DMA + reg)), 0xFF);
-        }
-    }
-    for (unsigned n = 0; n < DmaController::LIVE; ++n) // and the writes reached no live channel
-    {
-        CHECK_EQ(r.dma.peek_channel(n, DmaController::ADDR), static_cast<uint8_t>(0x11 * (n + 1)));
-        CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
-    }
     r.bus.write(CONTROL, 0xFE);               // bit 7 is free: it reads 0
     CHECK_EQ(r.bus.peek(CONTROL), 0x7E);
     for (uint16_t a = DMA + 0x13; a < CONTROL; ++a)
         CHECK_EQ(r.bus.peek(a), 0xFF);        // $13-$7D reserved
 }
 
+TEST(select_reaches_one_channel_of_eight)
+{
+    // Each channel written through its own SELECT holds its own values and no other's (B3). Must fail if the
+    // window decodes two of SELECT's bits (4-7 aliasing 0-3: a driver on channel 4 reprogramming the SD card's
+    // channel 0), or still drops SELECT 4-7's writes.
+    Rig r;
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+    {
+        r.select(n);
+        for (unsigned i = 0; i < 3; ++i)
+            r.bus.write(static_cast<uint16_t>(DMA + DmaController::ADDR + i), static_cast<uint8_t>(n << 4 | i));
+        r.bus.write(DMA + DmaController::MODE, static_cast<uint8_t>(n));
+    }
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+    {
+        for (unsigned i = 0; i < 3; ++i)
+            CHECK_EQ(r.dma.peek_channel(n, static_cast<uint8_t>(DmaController::ADDR + i)), n << 4 | i);
+        CHECK_EQ(r.dma.peek_channel(n, DmaController::MODE), n);
+        CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+    }
+    r.select(5);
+    r.bus.write(DMA + DmaController::ADDR, 0xA5);
+    r.bus.write(DMA + DmaController::MODE, 0x5A);
+    r.bus.write(DMA + DmaController::CARD, 0x03);
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+    {
+        CHECK_EQ(r.dma.peek_channel(n, DmaController::ADDR), n == 5 ? 0xA5 : n << 4);
+        CHECK_EQ(r.dma.peek_channel(n, DmaController::MODE), n == 5 ? 0x5A : n);
+        CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), n == 5 ? 0x03 : DmaController::CARD_RESET[n]);
+    }
+}
+
 TEST(card_resets_to_todays_wiring)
 {
     // Must fail if reset() leaves CARD alone: the SD boot would never be granted after a stray CARD.
     Rig r;
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
     {
         r.card_of(n, 0xFF);
         CHECK_EQ(r.at(n, DmaController::CARD), 0x1F); // MODULE and WIDE; bits 7-5 read 0
@@ -244,18 +266,18 @@ TEST(card_resets_to_todays_wiring)
     r.card_of(0, DmaController::WIDE | 0x7);
     CHECK_EQ(r.at(0, DmaController::CARD), 0x17);     // WIDE stored and read back (it does nothing until B4)
     r.dma.reset();
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
     CHECK_EQ(r.dma.peek_channel(0, DmaController::CARD), 0x07); // mass storage
     CHECK_EQ(r.dma.peek_channel(1, DmaController::CARD), 0x09); // video
     CHECK_EQ(r.dma.peek_channel(2, DmaController::CARD), 0x0A); // sound
     CHECK_EQ(r.dma.peek_channel(3, DmaController::CARD), 0x08); // none
 
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         r.card_of(n, 0x05);
-    r.on(0x01);                                       // master on, BURST 0, SELECT 3 kept
+    r.on(0x01);                                       // master on, BURST 0, SELECT 7 kept
     r.bus.pulse_reset();                              // Apple II mode's /RESET
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
     CHECK_EQ(r.bus.peek(CONTROL), 0x70);
     CHECK_EQ(r.bus.peek(REQUESTS), 0x00);
@@ -499,6 +521,139 @@ TEST(a_card_is_granted_by_its_module)
     CHECK_EQ(r.ram.read(0x5200), 0xFF);
     CHECK(r.card.tcs.empty());
     CHECK_EQ(other.tcs.size(), size_t{2});
+}
+
+TEST(channels_4_to_7_copy_memory_to_memory)
+{
+    // B3: channels 4-7 are served like 0-3. Must fail with the take's armed-channel scan left at four channels
+    // (a CPLD's request logic built for four: a driver on channel 5 waits for ever).
+    Rig r;
+    for (uint32_t i = 0; i < 4; ++i)
+    {
+        r.ram.write(0x1500 + i, static_cast<uint8_t>(0x50 + i));
+        r.ram.write(0x1700 + i, static_cast<uint8_t>(0x70 + i));
+    }
+    r.on();
+    r.channel(5, 0x1500, 4, DmaController::MEM_TO_MEM, 0x2500);
+    r.arm(5, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2 * 4);       // 1 + 2n: no card channel, no poll
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(r.ram.read(0x2500 + i), 0x50 + i);
+    CHECK_EQ(r.bus.peek(STATUS), 0x20);
+    CHECK_EQ(r.at(5, DmaController::CTRL), 0x00); // no AUTO: ENABLE and REQ clear,
+    CHECK_EQ(r.at(5, DmaController::COUNT), 0x00); // and COUNT run out
+    r.channel(7, 0x1700, 4, DmaController::MEM_TO_MEM, 0x2700);
+    r.arm(7, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2 * 4);
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(r.ram.read(0x2700 + i), 0x70 + i);
+    CHECK_EQ(r.bus.peek(STATUS), 0xA0);
+    CHECK_EQ(r.at(7, DmaController::CTRL), 0x00);
+    CHECK_EQ(r.at(7, DmaController::COUNT), 0x00);
+    CHECK_EQ(r.cpu_cycle(), 0u);
+}
+
+TEST(a_card_on_channel_5_is_granted_by_its_module)
+{
+    // B3: a card served by a channel 4-7. Must fail with the poll's REQ latch left at four channels: the card is
+    // never granted (the bus goes back after the poll and the hold-off runs).
+    Rig r;
+    r.on();
+    r.card_of(0, DmaController::CARD_NONE);   // channel 0 no longer serves module 7
+    r.channel(0, 0x6600, 3, DmaController::DEMAND | DmaController::TO_MEMORY);   // programmed, never armed
+    r.channel(5, 0x5500, 10, DmaController::DEMAND | DmaController::TO_MEMORY);
+    r.card_of(5, 0x07);                        // channel 5 does: the Rig's card
+    r.arm(5);
+    r.card.fifo = {0x91, 0x92};
+    CHECK_EQ(r.cpu_cycle(), 2u + 2);           // the takeover, the poll, two fly-by bytes
+    CHECK_EQ(r.bus.peek(REQUESTS), 0x20);      // channel 5's module, and channel 0's bit stays 0
+    CHECK_EQ(r.ram.read(0x5500), 0x91);
+    CHECK_EQ(r.ram.read(0x5501), 0x92);
+    CHECK_EQ(r.card.tcs.size(), size_t{2});    // the grant named module 7
+    CHECK_EQ(r.at(5, DmaController::COUNT), 8);
+    CHECK_EQ(r.at(0, DmaController::COUNT), 3);   // channel 0 untouched by the grant
+    CHECK_EQ(r.ram.read(0x6600), 0x00);
+}
+
+TEST(status_abort_and_the_interrupt_cover_channels_4_to_7)
+{
+    // B3: channel n's bit in STATUS, ABORT and the interrupt for 4-7. Must fail with irq()'s loop left at four
+    // (an interrupt from channel 6 that never comes), ABORT's walk cut to four (Break unable to stop a channel
+    // 4-7), or a bit aliased onto 0-3 (ABORT $10 stopping the SD card's channel 0).
+    Rig r;
+    r.ram.write(0x1600, 0x66);
+    r.on(0x00 | DmaController::MASTER_ENABLE); // BURST 0: one byte per take
+    r.channel(6, 0x1600, 1, DmaController::MEM_TO_MEM | DmaController::IRQ, 0x2600);
+    r.arm(6, DmaController::ENABLE | DmaController::REQ);
+    CHECK(!r.bus.irq());
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.ram.read(0x2600), 0x66);
+    CHECK_EQ(r.bus.peek(STATUS), 0x40);        // channel 6's terminal count, and only it
+    CHECK(r.bus.irq());                        // MODE.IRQ: it pulls the line
+    r.bus.write(STATUS, 0x04);                 // bit 2 is not channel 6's
+    CHECK(r.bus.irq());
+    r.bus.write(STATUS, 0x40);
+    CHECK_EQ(r.bus.peek(STATUS), 0x00);
+    CHECK(!r.bus.irq());
+
+    r.channel(7, 0x1000, 10, DmaController::MEM_TO_MEM, 0x2000);
+    r.arm(7, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    r.bus.write(ABORT, 0x80);                  // stops channel 7 mid-block (the write's own cycle took a byte)
+    CHECK_EQ(r.cpu_cycle(), 0u);
+    CHECK_EQ(r.at(7, DmaController::COUNT), 7); // its count left part way
+    CHECK_EQ(r.at(7, DmaController::CTRL), 0x00);
+    CHECK_EQ(r.bus.peek(STATUS), 0x00);        // no terminal count
+
+    r.channel(0, 0x1000, 4, DmaController::MEM_TO_MEM, 0x3000);
+    r.arm(0, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    r.bus.write(ABORT, 0x10);                  // channel 4, idle: channel 0 runs on
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.at(0, DmaController::CTRL), DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.at(0, DmaController::COUNT), 1); // a byte for each take, the ABORT write's included
+}
+
+TEST(priority_runs_from_channel_0_to_7)
+{
+    // B3: the fixed priority covers 4-7 in order. Channels 3, 4 and 7 started at once, memory to memory with
+    // BURST 0, each run to its count in turn; then channel 4, started while 7 is part way, cuts in. Must fail
+    // with the priority scan reversed or wrapped for 4-7 (a later driver starving the SD card or the screen).
+    struct Writes : CycleObserver
+    {
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.dma && c.write)
+                addrs.push_back(c.addr);
+        }
+        std::vector<uint16_t> addrs;
+    } writes;
+    Rig r;
+    r.bus.set_dma_observer(&writes);
+    r.on(0x00 | DmaController::MASTER_ENABLE); // BURST 0: one byte per take
+    r.channel(7, 0x1000, 2, DmaController::MEM_TO_MEM, 0x2700);
+    r.channel(4, 0x1000, 2, DmaController::MEM_TO_MEM, 0x2400);
+    r.channel(3, 0x1000, 2, DmaController::MEM_TO_MEM, 0x2300);
+    r.arm(7, DmaController::ENABLE | DmaController::REQ);
+    r.arm(4, DmaController::ENABLE | DmaController::REQ);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    for (unsigned i = 0; i < 6; ++i)
+        CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.cpu_cycle(), 0u);
+    CHECK(writes.addrs == (std::vector<uint16_t>{0x2300, 0x2301, 0x2400, 0x2401, 0x2700, 0x2701}));
+    CHECK_EQ(r.bus.peek(STATUS), 0x98);
+
+    writes.addrs.clear();
+    r.channel(7, 0x1000, 4, DmaController::MEM_TO_MEM, 0x2780);
+    r.arm(7, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 3u);               // channel 7's first byte
+    r.channel(4, 0x1000, 2, DmaController::MEM_TO_MEM, 0x2480);
+    r.arm(4, DmaController::ENABLE | DmaController::REQ);
+    for (unsigned i = 0; i < 5; ++i)
+        CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.cpu_cycle(), 0u);
+    CHECK(writes.addrs == (std::vector<uint16_t>{0x2780, 0x2480, 0x2481, 0x2781, 0x2782, 0x2783}));
 }
 
 TEST(a_stray_request_costs_2_cycles_in_64)

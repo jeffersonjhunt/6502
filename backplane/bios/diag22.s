@@ -563,8 +563,8 @@ STAGE8:
 
 ; D1: each channel through SELECT 7 down to 0, the master off. First the
 ; channels fitted are counted: one whose window reads $FF at every offset isn't
-; (until B3, SELECT 4-7; a fitted channel's CARD has bits 7-5 0, so it never
-; reads all $FF), and the count goes on D1's line. Then each register of a
+; (B2 had SELECT 4-7 so, B3 fits all 8; a fitted channel's CARD has bits 7-5 0,
+; so it never reads all $FF), and the count goes on D1's line. Then each register of a
 ; fitted channel, ADDR and DEST (24 bits), COUNT, MODE and CARD (5 bits), is
 ; written with $55s and $AAs and read back, and its reserved bytes ($03, $0B,
 ; $0D-$0F) read $FF whatever is written; a channel not fitted reads $FF at

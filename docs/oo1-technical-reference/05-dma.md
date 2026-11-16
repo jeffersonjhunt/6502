@@ -10,14 +10,13 @@ and [the B2 migration](../../hw/design.md#the-b2-migration-revision-1-dropped).
 
 Status: **proposed**
 
-Emulated as step B2 ([hw/design.md](../../hw/design.md#the-dma-controller-revision-2)).
+Emulated as steps B2 and B3 (all eight channels since B3) ([hw/design.md](../../hw/design.md#the-dma-controller-revision-2)).
 
 The controller is on the CPU card, module 8, in the style of the PC's 8237. It has eight channels, each with a
 24-bit address, a 16-bit count, a mode, a control byte, a 24-bit destination and a CARD byte naming the module it
 serves. One window, `$C400–$C40F`, shows the channel that CONTROL's SELECT names; STATUS, ABORT and REQ at
-`$C410–$C412`, CONTROL at `$C47E` and the ID at `$C47F` are shared. Channels 0–3 are live. Channels 4–7 are B3's
-(*proposed*): until then a SELECT of 4–7 shows a window that reads `$FF` and ignores writes, and their bits in
-STATUS and REQ stay 0.
+`$C410–$C412`, CONTROL at `$C47E` and the ID at `$C47F` are shared. All eight are live (channels 4–7 since B3,
+*proposed*), each with its bit in STATUS, ABORT and REQ.
 
 - **The SELECT rule.** SELECT is shared state. Code that sets it saves CONTROL first and puts it back after,
   interrupt code included, so an interrupt taken between a SELECT and the channel's registers leaves the window
@@ -83,7 +82,7 @@ stream (L3); the stream's next piece is programmed in the interrupt, which saves
 says. **Channel 3** is the BIOS's DMAGO, 2 KB a block with a pending interrupt taken between blocks: MOVE, the
 console's scroll and erase, and function 83's `DM_COPY` and `DM_FILL`, and `DM_VCOPY`'s pieces, card to card through
 aperture slots 2 and 3, which it borrows for each piece. Since the interrupt has a channel of its own, it never meets
-a copy on channel 3 half programmed. **Channels 4–7** are free for later drivers (B3). The warm boot's DEAFEN selects
+a copy on channel 3 half programmed. **Channels 4–7** are free for later drivers; none uses them yet. The warm boot's DEAFEN selects
 each of the eight in turn to clear its MODE's IRQ bit. The Programmer's Guide's
 [function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83) has the calls.
 
@@ -143,7 +142,7 @@ byte the card also sees terminal count.
 | 1 | `$09` | 9, video | revision 2's data port, while PCTL's DRQ bit is set ([below](#channel-1-the-video-cards-data-port)) |
 | 2 | `$0A` | A, sound | the sound card, always at DRQSEL 0 and 2: RAMDATA, or what its DRQSEL picks ([`$C563`](07-sound.md#reg-c563)) |
 | 3 | `$08` | none | memory to memory |
-| 4–7 | `$08` | none | not live until B3 |
+| 4–7 | `$08` | none | free for later drivers |
 
 A channel serves a card only by its CARD: software writes a channel's CARD to serve another module. In the emulator
 a card's request reaches /DREQ when its machine-file line has `drq` (the SD, video and sound cards on
@@ -277,7 +276,7 @@ Emulated as step B2.
 The address steps up after each byte, down with MODE's DEC, or not at all with HOLD, and wraps within 24 bits. AUTO
 puts the start address back at terminal count. The third byte is the whole of A16–A23: revision 1 dropped its top
 four bits, so a bank byte of `$10` or more, which reached RAM there, reaches nothing, the aperture (`$E0`) or the
-flash (`$F0` on) here. With SELECT 4–7 the window reads `$FF` and ignores writes until B3.
+flash (`$F0` on) here.
 
 <a id="reg-c404"></a>
 ### $C404 DMA_COUNT: the selected channel's count
@@ -492,12 +491,12 @@ R. Writing 1s clears those bits.
 
 **proposed**
 
-Emulated as step B2.
+Emulated as steps B2 and B3.
 
 #### Notes
 
 A TC bit with its channel's MODE IRQ set is what interrupts. `DMA_CH0`–`DMA_CH7` and `DMA_ALL` (`$FF`) name the
-bits. Bits 7–4 stay 0 until B3. Revision 1's requests, its STATUS bits 7–4, are [REQ](#reg-c412) now.
+bits. Revision 1's requests, its STATUS bits 7–4, are [REQ](#reg-c412) now.
 
 <a id="reg-c411"></a>
 ### $C411 DMA_ABORT: stop channels
@@ -516,7 +515,7 @@ W. Reads `$FF`.
 
 #### Bits
 
-Bit n: a 1 stops channel n at once, clearing its ENABLE and REQ. Bits 7–4 do nothing until B3.
+Bit n: a 1 stops channel n at once, clearing its ENABLE and REQ.
 
 #### Reset
 
@@ -526,7 +525,7 @@ Not a register to read.
 
 **proposed**
 
-Emulated as step B2.
+Emulated as steps B2 and B3.
 
 #### Notes
 
@@ -562,13 +561,12 @@ R. Writes are ignored.
 
 **proposed**
 
-Emulated as step B2.
+Emulated as steps B2 and B3.
 
 #### Notes
 
 The controller sets it at each poll ([Transfers for a card](#transfers-for-a-card)) and keeps it until the next, so
-it shows what the last poll found, not the line as it is now. A channel with MODULE none reads 0; bits 7–4 stay 0
-until B3. With a sound card fitted, its standing request shows in bit 2 after any poll.
+it shows what the last poll found, not the line as it is now. A channel with MODULE none reads 0. With a sound card fitted, its standing request shows in bit 2 after any poll.
 
 <a id="reg-c47e"></a>
 ### $C47E DMA_CONTROL: the whole controller's control

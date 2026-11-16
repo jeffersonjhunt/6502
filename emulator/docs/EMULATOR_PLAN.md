@@ -833,7 +833,7 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
   SELECT (bits 1-3 of CONTROL at $7E) names: ADDR and DEST 24 bits, COUNT,
   MODE, CTRL, and CARD at $0C (MODULE bits 3-0, WIDE bit 4, stored with no
   effect until B4). STATUS $10, ABORT $11, REQ $12, ID $82. State for eight
-  channels, `LIVE = 4` until B3 (SELECT 4-7, the window's reserved bytes and
+  channels, all eight live since B3 (the window's reserved bytes and
   $13-$7D read $FF). CARD resets to $07 $09 $0A $08..., by `reset()`, which
   is also Apple II mode's /RESET pulse.
 - **Requests.** `Mapping::drq` is `Dreq::None` or `Dreq::Wired` (a type a
@@ -866,6 +866,11 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
 - **The tests** (test_dma rewritten, and the suites that program the
   controller moved to the window), every expectation change as the B2 plan
   approved it, are listed in hw/design.md's "B2: as built".
+
+**Eight channels (2026-11-16), step B3.** `DmaController::LIVE` is gone;
+`CHANNELS` (8) is the one count, so SELECT 4-7 reach live channels, served
+by the take, latched in REQ, in STATUS, ABORT and `irq()`. hw/design.md's
+"B3: as built".
 
 ## Backlog
 
