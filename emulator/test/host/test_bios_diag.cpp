@@ -40,6 +40,7 @@
 #include "console.h"
 #include "console_card.h"
 #include "fault_devices.h"
+#include "flash.h"
 #include "joystick_ports.h"
 #include "machine.h"
 #include "sd_card.h"
@@ -1373,6 +1374,19 @@ TEST(a_full_run_never_writes_the_sd_card)
     CHECK(!r.media->dirty());
     CHECK(r.media->bytes() == was);
     CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+    // b5-plan.md case 37 (critic 20): since B5 the flash can be written, so the run's never writing it is
+    // testable: ROM A byte for byte the BIOS's image, ROM B still erased, neither chip of either busy.
+    const std::string flash = read_text(EMU_BIOS_ROM);
+    const auto *a = r.machine->find_as<Flash>("rom_a");
+    const auto *b = r.machine->find_as<Flash>("rom_b");
+    REQUIRE(a != nullptr && b != nullptr && flash.size() == a->size());
+    size_t changed = 0;
+    for (uint32_t i = 0; i < a->size(); ++i)
+        changed += a->peek(i) != static_cast<uint8_t>(flash[i]);
+    for (uint32_t i = 0; i < b->size(); ++i)
+        changed += b->peek(i) != 0xFF;
+    CHECK_EQ(changed, size_t{0});
+    CHECK(!a->busy(0) && !a->busy(1) && !b->busy(0) && !b->busy(1));
 }
 
 TEST(a_floating_bus_in_the_disk_iis_empty_slot_is_no_card)

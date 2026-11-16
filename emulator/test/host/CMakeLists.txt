@@ -108,7 +108,8 @@ if(EMSCRIPTEN)
                 EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
                 EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
     endforeach()
-    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash")
+    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
+            EMU_BIOS_EVEN="${EMU_BIOS_DIR}/bios-even.rom" EMU_BIOS_ODD="${EMU_BIOS_DIR}/bios-odd.rom")
     target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
     target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
@@ -126,6 +127,8 @@ set(EMU_SPLIT_test_oodos_utils_files 2)
 # test_session under the sanitizers (dev, alone, 2026-11-11): 106 s of its 120, 50 of them one case's.
 set(EMU_SPLIT_test_session 2)
 set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
+# test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
+set(EMU_SPLIT_test_bios_sd 3)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -204,7 +207,7 @@ target_compile_definitions(test_bios_diag PRIVATE
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
 emu_add_test(test_oodos_card)
-set_tests_properties(test_bios_sd PROPERTIES TIMEOUT 300) # the boot at power-on waits out the 5 s splash: ~115 s alone under ASan
+emu_suite_properties(test_bios_sd TIMEOUT 300) # the boot at power-on waits out the 5 s splash; with B5's updates 452 s alone under ASan, so split in three
 set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 1800) # each case boots the card through the 5 s splash: about 710 s alone under ASan (2026-11-05)
 emu_add_test(test_oodos_boot)
 set_tests_properties(test_oodos_boot PROPERTIES TIMEOUT 600) # dozens of boots from 17-33 MB cards, under ASan
@@ -272,6 +275,8 @@ target_compile_definitions(test_rom_boot PRIVATE
 set(BIOS_DIR "${EMU_BIOS_DIR}")
 target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_BIOS_EVEN="${BIOS_DIR}/bios-even.rom"
+        EMU_BIOS_ODD="${BIOS_DIR}/bios-odd.rom"
         EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE

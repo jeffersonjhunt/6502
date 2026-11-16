@@ -199,6 +199,9 @@ namespace ooe::emu
         uint8_t peek_physical(uint32_t physical) const { return machine_->bus().peek_physical(physical); }
         /// A byte into RAM at a physical address, no cycle taken (a test's setup).
         void write_physical(uint32_t physical, uint8_t data) { machine_->bus().write_physical(physical, data); }
+        /// A device of the machine by its name= ("rom_a", "rom_b": the flash), or nullptr: a test's, for what
+        /// the Session doesn't wrap (the flash's fault hooks).
+        Device *device(const std::string &name) const { return machine_->find(name); }
         /// What A0-A23 carry for a CPU address now (the windows as they are; the CPU card's view).
         uint32_t physical(uint16_t addr) const { return machine_->bus().physical(addr); }
         /// "C800", "$C800" or a label (a label wins over hex; `$` forces hex).

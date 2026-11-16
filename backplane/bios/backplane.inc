@@ -209,13 +209,15 @@ VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank
 ;
 ;   $00-$09    the boot's copy pointers and C800R's stub (bios.s), Apple II
 ;              mode's way in (apple.s): free once the monitor is up
+;   $10-$21    the flash update (flash.s), while it runs
 ;   $24-$2B    the Woz Monitor
 ;   $30-$7B    the video demo (demo.s)
 ;   $E0-$E7    the screen (video.s). ECHO ($C80F) uses them: a program that
 ;              prints leaves them alone
-;   $F0-$F6    the SD card (sd.s)
+;   $F0-$FB    the SD card (sd.s)
 ;   $0100      the stack; Break and BRK start it afresh
 ;   $0200-$027F the monitor's input line
+;   $0280-$029A the flash update's path and commit bytes (flash.s)
 ;   $0400-$05FF the SD card's sector buffer; the demo's sprite table
 ;   $FC000-$FC7FF RAM block 63's first 2 KB, under the I/O hole: the
 ;              screen's scroll buffer (video.s), reached only by DMA
@@ -295,7 +297,7 @@ SD_LIST         = $A2
 SD_IDENTIFY     = $EC
 SD_NOT_FOUND    = 8                    ; ERROR
 SD_ID_V1        = $71
-SD_ZP           = $F0                  ; $F0-$F6: sd.s
+SD_ZP           = $F0                  ; $F0-$FB: sd.s
 
 ; DMA modes for a card's channel (channel 0, storage's, among them).
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory

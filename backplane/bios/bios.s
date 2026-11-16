@@ -33,8 +33,8 @@
 ; Apple II mode with image A, 0-3 (apple.s). $A0, the flash update (flash.s),
 ; is the menu's alone, so with the token it is refused as $A2-$AF are: back,
 ; carry set, A, X, Y and the windows as they were, as $A1 with A over 3 is.
-; Without the token (C818R) it is a menu: 0-3 Apple II mode with that image,
-; any other key the monitor.
+; Without the token (C818R) it is a menu: F the flash update, 0-3 Apple II
+; mode with that image, any other key the monitor.
 ;
 ; Before the copy, with the front panel there (its ID read twice): a
 ; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
@@ -59,8 +59,8 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .include "diag.inc"
-.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, APPLEN, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
-.export BREAK, BOOT, MONBOOT
+.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, APPLEN, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY, FLASHUP
+.export BREAK, BOOT, MONBOOT, QUIET
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -347,7 +347,11 @@ MENU:           LDX     #MROM - DMSGS
                 BCS     @letter
                 SBC     #'0' - 1       ; the image, 0-3 (carry clear: one less)
                 JMP     APPLEN
-@letter:        LDA     #$0D
+@letter:        AND     #$DF           ; f or F
+                CMP     #'F'
+                BNE     @monitor
+                JMP     FLASHUP        ; the flash update (flash.s)
+@monitor:       LDA     #$0D
                 JSR     ECHO
                 JMP     WOZMON
 
@@ -364,7 +368,7 @@ DMSGS:
 MALL:           .byte   $0D, "ALL OF MEMORY WILL BE OVERWRITTEN. Y TO GO ON ", 0
 MNODIAG:        .byte   $0D, "NO DIAGNOSTICS IN THE FLASH", $0D, 0
 MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN", $0D, 0
-MROM:           .byte   $0D, "ROM: 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
+MROM:           .byte   $0D, "ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen

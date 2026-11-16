@@ -1733,6 +1733,19 @@ TEST(c818_with_image_a_erased_says_so_and_goes_back_to_the_monitor)
     CHECK(has(t.b.run(BOOT, "C680.C681\r"), "C680: 00 01"));
 }
 
+TEST(the_build_splits_rom_a_into_its_even_chip_and_its_odd)
+{
+    // b5-plan.md case 24: a file for each SST39SF020A, as a programmer writes it: even[i] = rom[2i], odd[i] = rom[2i + 1].
+    const std::string rom = read_file(EMU_BIOS_ROM), even = read_file(EMU_BIOS_EVEN), odd = read_file(EMU_BIOS_ODD);
+    REQUIRE(rom.size() == 0x80000u);
+    REQUIRE(even.size() == 0x40000u && odd.size() == 0x40000u);
+    size_t differ = 0;
+    for (size_t i = 0; i < even.size(); ++i)
+        differ += even[i] != rom[2 * i] || odd[i] != rom[2 * i + 1];
+    CHECK_EQ(differ, size_t{0});
+    CHECK(even != odd);                                       // two halves, not one copied
+}
+
 TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
 {
     Board b{Board::Rev2{}};

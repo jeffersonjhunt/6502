@@ -7,18 +7,30 @@
  * WebUI does, with the SD test images (sd/, made by mkfs.fat and mtools) in
  * the card's slot. fat12's BOOT.BIN is a one-sector program that prints
  * through $C80F and returns. Break during C80CR stops the read and its DMA.
+ *
+ * And the flash update (flash.s, C818R then F, step B5), from cards made here
+ * (sd_images.h's make_card) with stand-ins for a IIe ROM, never Apple's: the
+ * image and set written byte for byte, nothing outside them, the commit byte
+ * last, a verify that erases again, the files checked before any erase, the
+ * run-time refusal of a block outside ROM A 0-5, a chip left half-way put
+ * back to reading, QUIET and the windows set however it is entered. Those use
+ * the Flash's test-only hooks, so the WebAssembly build leaves them out.
  */
 
 #include "harness.h"
 #include "sd_images.h"
 
+#include "flash.h"
 #include "session.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace ooe::test;
 using namespace ooe::emu;
@@ -437,6 +449,384 @@ TEST(a_wide_left_on_channel_0_by_the_monitor_is_cleared_by_break)
     CHECK(run_until(*s, out, "\rBOOTED FROM SD\r"));
     CHECK_EQ(s->peek_physical(0x01000), 0xA2);   // loaded where it belongs, and it ran: every byte came
 }
+
+#ifdef EMU_FAULT_HOOKS // the flash's test-only busy times and fault (native test builds)
+// ---- the flash update (flash.s, step B5): C818R, F -----------------------------------------------------------
+
+namespace
+{
+    using fat_card::File;
+    using fat_card::make_card;
+    using Bytes = std::vector<uint8_t>;
+
+    constexpr uint32_t IMAGE = 0x4000, SETS = 0x10000, SET = 0x2000;
+    constexpr uint32_t ID_AT = 0x3BB3; // $FBB3 in an image: $06 for a IIe's
+    constexpr int UPDATE_FRAMES = 900;  // the longest update here, with a slow program time, and some
+
+    /// A stand-in for a IIe ROM, never Apple's: 16 KB of a pattern seeded by `seed`, $06 at $FBB3 (or `id`),
+    /// and a reset vector to $FA62, whose code stores `mark` at $0300 and loops.
+    Bytes fake_rom(uint8_t seed, uint8_t mark, uint8_t id = 0x06, size_t size = 0x4000)
+    {
+        Bytes b(size);
+        for (size_t i = 0; i < size; ++i)
+            b[i] = static_cast<uint8_t>(i * 13 + seed);
+        if (size >= 0x4000)
+        {
+            b[ID_AT] = id;
+            b[0x3FFC] = 0x62;
+            b[0x3FFD] = 0xFA;
+            const uint8_t reset[] = {0xA9, mark, 0x8D, 0x00, 0x03, 0x4C, 0x67, 0xFA}; // LDA #mark; STA $0300; JMP *
+            std::copy(std::begin(reset), std::end(reset), b.begin() + 0x3A62);
+        }
+        return b;
+    }
+    Bytes chars(size_t size, uint8_t mul, uint8_t add)
+    {
+        Bytes b(size);
+        for (size_t i = 0; i < size; ++i)
+            b[i] = static_cast<uint8_t>(i * mul + add);
+        return b;
+    }
+
+    Flash *rom_a(Session &s) { return dynamic_cast<Flash *>(s.device("rom_a")); }
+    Flash *rom_b(Session &s) { return dynamic_cast<Flash *>(s.device("rom_b")); }
+    Bytes all_of(const Flash &f)
+    {
+        Bytes b(f.size());
+        for (uint32_t i = 0; i < f.size(); ++i)
+            b[i] = f.peek(i);
+        return b;
+    }
+    /// Offsets in [from, to) of `f` that differ from `want` (want[0] at `from`), counted.
+    size_t differ(const Flash &f, uint32_t from, const Bytes &want)
+    {
+        size_t n = 0;
+        for (size_t i = 0; i < want.size(); ++i)
+            n += f.peek(from + static_cast<uint32_t>(i)) != want[i];
+        return n;
+    }
+    /// Offsets outside [lo1, hi1) and [lo2, hi2) where `now` differs from `before`.
+    size_t outside(const Bytes &before, const Bytes &now, uint32_t lo1, uint32_t hi1, uint32_t lo2 = 0, uint32_t hi2 = 0)
+    {
+        size_t n = 0;
+        for (uint32_t i = 0; i < before.size(); ++i)
+            if (!(i >= lo1 && i < hi1) && !(i >= lo2 && i < hi2))
+                n += before[i] != now[i];
+        return n;
+    }
+
+    /// Booted to the monitor, then a card of `files` in the slot.
+    std::unique_ptr<Session> with_files(const std::vector<File> &files)
+    {
+        auto s = booted("");
+        std::string error;
+        if (s && !s->insert_sd(make_card(files), "card", error))
+        {
+            std::printf("  %s\n", error.c_str());
+            return nullptr;
+        }
+        return s;
+    }
+
+    /// C818R, F, the image's digit: up to the question before the writing, which `out` then holds.
+    bool ask(Session &s, std::string &out, unsigned image)
+    {
+        s.send("C818R\r");
+        if (!run_until(s, out, "ANY OTHER KEY MONITOR "))
+            return false;
+        s.send("F");
+        if (!run_until(s, out, "WHICH IIE IMAGE, 0-3? "))
+            return false;
+        s.send(std::string(1, static_cast<char>('0' + image)));
+        return run_until(s, out, "(Y/N)? ", UPDATE_FRAMES);
+    }
+    /// The whole update of `image`, Y to the question; `out` gets what it said, to the monitor's prompt after.
+    bool update(Session &s, std::string &out, unsigned image)
+    {
+        if (!ask(s, out, image))
+            return false;
+        out.clear();
+        s.send("Y");
+        return run_until(s, out, "\r\\", UPDATE_FRAMES);
+    }
+
+    /// $C818's $A1 with A = `image`, from a program at $0300: Apple II mode at the stand-in's loop, its mark at $0300.
+    void apple_with(Session &s, uint8_t image)
+    {
+        const uint8_t code[] = {0xA9, image, 0xA2, 0xA1, 0xA0, 0x5A, 0x20, 0x18, 0xC8, 0x00};
+        for (size_t i = 0; i < sizeof code; ++i)
+            s.write_physical(static_cast<uint32_t>(0x300 + i), code[i]);
+        std::string out;
+        s.send("300R\r");
+        for (int i = 0; i < 120 && !s.apple_mode(); ++i)
+            s.run(FRAME);
+        s.run(10 * FRAME);
+    }
+
+    const Bytes NEW_ROM = fake_rom(5, 0xC1), OLD_ROM = fake_rom(77, 0xD1), NEW_SET = chars(0x2000, 7, 3);
+} // namespace
+
+TEST(the_flash_update_writes_image_1_and_set_1_from_the_card_byte_for_byte_at_both_parities)
+{
+    // b5-plan.md case 18. The program time made slower than the time an unpolled pair takes to send (critic 5),
+    // so an update that didn't poll each chip after its byte would write into a busy chip and lose bytes.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}, {"/APPLE2E1.CHR", NEW_SET}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    a->set_busy_cycles(1000, 0, 0);
+    std::string out;
+    REQUIRE(ask(*s, out, 1));
+    CHECK(out.find("\r/APPLE2E1.ROM 16 KB\r/APPLE2E1.CHR 8 KB\rWRITE FLASH IMAGE 1 (Y/N)? ") != std::string::npos);
+    out.clear();
+    s->send("Y");
+    REQUIRE(run_until(*s, out, "\r\\", UPDATE_FRAMES));
+    CHECK(out.find("Y\rFLASH IMAGE 1 WRITTEN\r\\") != std::string::npos);
+    CHECK_EQ(differ(*a, 1 * IMAGE, NEW_ROM), size_t{0});            // the image, every byte, even and odd
+    CHECK_EQ(differ(*a, SETS + 1 * SET, NEW_SET), size_t{0});       // and its set
+    CHECK_EQ(s->peek(0xC681), 0x01);                                 // W1 and W2 as Break leaves them
+    CHECK_EQ(s->peek(0xC682), 0x02);
+    a->set_busy_cycles(0, 0, 0);
+    apple_with(*s, 1);                                               // and $C818's $A1 runs it
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x00300), 0xC1);
+}
+
+TEST(the_flash_update_over_an_image_already_there_leaves_the_new_file_exactly_and_nothing_else_changed)
+{
+    // Cases 19 and 23: both chips' sectors erased (four for the image, two for the set), each erase polled, and
+    // nothing written outside image 1 and set 1: the other images and sets, blocks 6-31 and ROM B as they were.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}, {"/APPLE2E1.CHR", NEW_SET}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s), *b = rom_b(*s);
+    REQUIRE(a != nullptr && b != nullptr);
+    for (unsigned n = 0; n < 4; ++n)                                // something in every image and set
+    {
+        const Bytes img = fake_rom(static_cast<uint8_t>(40 + n), 0xD0), set = chars(SET, 3, static_cast<uint8_t>(n));
+        for (uint32_t i = 0; i < IMAGE; ++i)
+            a->poke(n * IMAGE + i, n == 1 ? OLD_ROM[i] : img[i]);
+        for (uint32_t i = 0; i < SET; ++i)
+            a->poke(SETS + n * SET + i, set[i]);
+    }
+    for (uint32_t i = 0; i < b->size(); i += 7)
+        b->poke(i, static_cast<uint8_t>(i));
+    const Bytes before_a = all_of(*a), before_b = all_of(*b);
+    std::string out;
+    REQUIRE(ask(*s, out, 1));
+    out.clear();
+    const uint64_t from = s->cycles();
+    s->send("Y");
+    REQUIRE(run_until(*s, out, "WRITTEN\r", UPDATE_FRAMES));
+    std::printf("  the update's writing, Y to WRITTEN: %.2f s at 7.16 MHz\n",
+                static_cast<double>(s->cycles() - from) / 7'159'090.0);
+    REQUIRE(run_until(*s, out, "\r\\", UPDATE_FRAMES));
+    CHECK(out.find("FLASH IMAGE 1 WRITTEN") != std::string::npos);
+    CHECK_EQ(differ(*a, 1 * IMAGE, NEW_ROM), size_t{0});
+    CHECK_EQ(differ(*a, SETS + 1 * SET, NEW_SET), size_t{0});
+    CHECK_EQ(outside(before_a, all_of(*a), IMAGE, 2 * IMAGE, SETS + SET, SETS + 2 * SET), size_t{0});
+    CHECK(all_of(*b) == before_b);
+}
+
+TEST(the_flash_update_stopped_part_way_leaves_the_image_not_good)
+{
+    // Case 20: every byte but the commit bytes first, so with the image's bytes all programmed and the set's
+    // begun, its $FBB3 is still erased: an update stopped there (a Break, the power) leaves image 2 not good.
+    auto s = with_files({{"/APPLE2E2.ROM", NEW_ROM}, {"/APPLE2E2.CHR", NEW_SET}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    std::string out;
+    REQUIRE(ask(*s, out, 2));
+    s->send("Y");
+    bool begun = false;
+    for (int i = 0; i < UPDATE_FRAMES * 20 && !begun; ++i)
+    {
+        s->run(FRAME / 20);
+        begun = a->peek(SETS + 2 * SET + 8) == NEW_SET[8] && a->peek(SETS + 2 * SET + 9) == NEW_SET[9];
+    }
+    REQUIRE(begun);                                                  // the set's programming under way
+    CHECK_EQ(a->peek(2 * IMAGE + ID_AT), 0xFF);                      // the commit byte: not yet
+    size_t written = 0;
+    for (uint32_t i = 0; i < IMAGE; ++i)
+        written += i != ID_AT && a->peek(2 * IMAGE + i) == NEW_ROM[i];
+    CHECK_EQ(written, size_t{IMAGE - 1});                            // though every other byte is
+    s->usb()->key(UsbCard::PAUSE, true);                             // Break, there
+    s->run(FRAME);
+    s->usb()->key(UsbCard::PAUSE, false);
+    s->run(10 * FRAME);
+    CHECK_EQ(a->peek(2 * IMAGE + ID_AT), 0xFF);
+}
+
+TEST(the_flash_update_verifies_and_erases_again_a_byte_that_wont_program)
+{
+    // Case 21: a cell that won't take: said with its physical address, image 1 erased again (not good), and C806R
+    // then takes image 3, the next good one.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    const Bytes three = fake_rom(9, 0xB3);
+    for (uint32_t i = 0; i < IMAGE; ++i)
+        a->poke(3 * IMAGE + i, three[i]);
+    REQUIRE(NEW_ROM[0x1234] != 0xFF);
+    a->set_program_fault(1 * IMAGE + 0x1234);
+    std::string out;
+    REQUIRE(update(*s, out, 1));
+    CHECK(out.find("\rFLASH IMAGE 1 NOT WRITTEN AT $F05234\r\\") != std::string::npos);
+    size_t erased = 0;
+    for (uint32_t i = 0; i < IMAGE; ++i)
+        erased += a->peek(1 * IMAGE + i) == 0xFF;
+    CHECK_EQ(erased, size_t{IMAGE});                                 // erased again: not good
+    a->clear_program_fault();
+    out.clear();
+    s->send("C806R\r");
+    for (int i = 0; i < 240 && !s->apple_mode(); ++i)
+        s->run(FRAME);
+    s->run(10 * FRAME);
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x00300), 0xB3);                       // image 3's
+}
+
+TEST(the_flash_update_checks_the_files_before_it_erases_anything)
+{
+    // Case 22. A missing .CHR erases set n (the VGA font's then); a .ROM of 15 KB, of 16,000 bytes (32 sectors,
+    // so only the listing's size tells), not a IIe's, or a .CHR of 2 KB, changes nothing in the flash.
+    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    for (uint32_t i = 0; i < SET; ++i)
+        a->poke(SETS + i, static_cast<uint8_t>(i));
+    std::string out;
+    REQUIRE(ask(*s, out, 0));
+    CHECK(out.find("\rNO /APPLE2E0.CHR: SET 0 ERASED, ITS CHARACTERS THE VGA FONT'S\rWRITE FLASH IMAGE 0 (Y/N)? ") !=
+          std::string::npos);
+    out.clear();
+    s->send("Y");
+    REQUIRE(run_until(*s, out, "\r\\", UPDATE_FRAMES));
+    CHECK(out.find("FLASH IMAGE 0 WRITTEN") != std::string::npos);
+    CHECK_EQ(differ(*a, 0, NEW_ROM), size_t{0});
+    CHECK_EQ(differ(*a, SETS, Bytes(SET, 0xFF)), size_t{0});         // set 0 erased
+
+    const Bytes before = all_of(*a);
+    const std::vector<std::pair<std::vector<File>, std::string>> bad = {
+        {{{"/APPLE2E2.ROM", Bytes(NEW_ROM.begin(), NEW_ROM.begin() + 15 * 1024)}}, "\r/APPLE2E2.ROM ISN'T A IIE ROM\r\\"},
+        {{{"/APPLE2E2.ROM", Bytes(NEW_ROM.begin(), NEW_ROM.begin() + 16000)}}, "\r/APPLE2E2.ROM ISN'T A IIE ROM\r\\"},
+        {{{"/APPLE2E2.ROM", fake_rom(5, 0xC1, 0xEA)}}, "\r/APPLE2E2.ROM ISN'T A IIE ROM\r\\"},
+        {{{"/APPLE2E2.ROM", NEW_ROM}, {"/APPLE2E2.CHR", chars(0x800, 1, 0)}}, "\r/APPLE2E2.CHR ISN'T 4 OR 8 KB\r\\"},
+        {{}, "\rNOT ON THE CARD: /APPLE2E2.ROM\r\\"},
+    };
+    for (const auto &[files, said] : bad)
+    {
+        std::string error;
+        s->eject_sd();
+        REQUIRE(s->insert_sd(make_card(files), "bad", error));
+        out.clear();
+        s->send("C818R\r");
+        REQUIRE(run_until(*s, out, "ANY OTHER KEY MONITOR "));
+        s->send("F");
+        REQUIRE(run_until(*s, out, "0-3? "));
+        s->send("2");
+        CHECK(run_until(*s, out, said.c_str(), UPDATE_FRAMES));
+        CHECK(out.find("(Y/N)") == std::string::npos);
+        CHECK(all_of(*a) == before);                                 // nothing erased
+    }
+}
+
+TEST(the_flash_update_refuses_a_block_outside_rom_a_0_to_5_whatever_computed_it)
+{
+    // Case 23a (critic 4): the image number forced to 6, then 31, after its check (a test-only poke of flash.s's
+    // FIMG, zero page $10, at the question): the one write routine refuses the block, and ROM A and ROM B are
+    // unchanged.
+    for (const auto &[image, said] : {std::pair<uint8_t, const char *>{6, "\rTHE FLASH UPDATE REFUSED BLOCK $06\r\\"},
+                                      {31, "\rTHE FLASH UPDATE REFUSED BLOCK $1F\r\\"}})
+    {
+        auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}, {"/APPLE2E1.CHR", NEW_SET}});
+        REQUIRE(s != nullptr);
+        Flash *a = rom_a(*s), *b = rom_b(*s);
+        REQUIRE(a != nullptr && b != nullptr);
+        const Bytes before_a = all_of(*a), before_b = all_of(*b);
+        std::string out;
+        REQUIRE(ask(*s, out, 1));
+        s->write_physical(0x00010, image);                           // FIMG
+        out.clear();
+        s->send("Y");
+        CHECK(run_until(*s, out, said, UPDATE_FRAMES));
+        CHECK(all_of(*a) == before_a);
+        CHECK(all_of(*b) == before_b);
+        CHECK(!a->busy(0) && !a->busy(1));
+    }
+}
+
+TEST(the_flash_update_takes_images_0_to_3_alone)
+{
+    // Case 23's other half: 4 (or 5) at the image's question would be the character sets' block, which the
+    // run-time check allows; the question takes only 0-3, and any other key is the monitor, nothing changed.
+    auto s = with_files({{"/APPLE2E4.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    const Bytes before = all_of(*a);
+    for (const char *key : {"4", "5", "X"})
+    {
+        std::string out;
+        s->send("C818R\r");
+        REQUIRE(run_until(*s, out, "ANY OTHER KEY MONITOR "));
+        s->send("F");
+        REQUIRE(run_until(*s, out, "0-3? "));
+        s->send(key);
+        CHECK(run_until(*s, out, (std::string("0-3? ") + key + "\r\\").c_str()));
+        CHECK(out.find("(Y/N)") == std::string::npos);
+    }
+    s->run(60 * FRAME);
+    CHECK(all_of(*a) == before);
+}
+
+TEST(the_flash_update_puts_a_chip_left_half_way_through_a_program_back_to_reading_first)
+{
+    // Case 23b (critic 3): the even chip left after $AA, $55, $A0 by someone's writes, so it takes the next write
+    // to it, anywhere, as data to program. The update's first even write must not be the erase's $AA at $AAAA
+    // (image 2's byte $2AAA): image 2 unchanged, image 0 right.
+    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    const Bytes before = all_of(*a);
+    s->write_physical(0xF0AAAA, 0xAA);
+    s->write_physical(0xF05554, 0x55);
+    s->write_physical(0xF0AAAA, 0xA0);
+    std::string out;
+    REQUIRE(update(*s, out, 0));
+    CHECK(out.find("FLASH IMAGE 0 WRITTEN") != std::string::npos);
+    CHECK_EQ(differ(*a, 2 * IMAGE, Bytes(before.begin() + 2 * IMAGE, before.begin() + 3 * IMAGE)), size_t{0});
+    CHECK_EQ(differ(*a, 0, NEW_ROM), size_t{0});
+}
+
+TEST(the_flash_update_runs_quiet_and_sets_its_windows_however_it_was_entered)
+{
+    // Case 23c (Q18, critic 12): entered with W2 on ROM A block 31, read-only, and the sound card's 6510 running,
+    // the update stages in RAM blocks 58-59 all the same, writes image 0 right, and has stopped the 6510.
+    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}, {"/APPLE2E0.CHR", chars(0x1000, 5, 1)}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    std::string out;
+    s->send("C682: DF\r");
+    REQUIRE(run_until(*s, out, "C682: "));
+    s->send("C540: 02\r");                                           // SOUND_CTRL: RUN
+    REQUIRE(run_until(*s, out, "C540: "));
+    REQUIRE((s->peek(0xC540) & 0x02) != 0);
+    REQUIRE(s->peek(0xC682) == 0xDF);
+    REQUIRE(update(*s, out, 0));
+    CHECK(out.find("FLASH IMAGE 0 WRITTEN") != std::string::npos);
+    CHECK_EQ(differ(*a, 0, NEW_ROM), size_t{0});
+    Bytes set = chars(0x1000, 5, 1);
+    set.resize(SET, 0xFF);                                           // a 4 KB set, the rest erased
+    CHECK_EQ(differ(*a, SETS, set), size_t{0});
+    CHECK_EQ(s->peek(0xC540) & 0x02, 0x00);                          // QUIET stopped the 6510
+}
+
+#endif
 
 int main()
 {
