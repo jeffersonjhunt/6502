@@ -1873,7 +1873,7 @@ TEST(a_scroll_and_break_leave_a_programs_select_as_they_found_it)
     b.cpu->nmi();                                // Break
     CHECK(has(b.run(BOOT), "\\"));
     CHECK_EQ(b.machine->bus().peek(0xC47E), 0x76);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(b.machine->dma()->peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
 }
 
@@ -1921,7 +1921,7 @@ TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_t
     CHECK_EQ(dma.peek(DmaController::CONTROL), 0x70);
     CHECK_EQ(dma.peek(DmaController::REQ_REG), 0x00);
     CHECK_EQ(dma.peek(DmaController::STATUS), 0x00);
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
     {
         CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
         CHECK_EQ(dma.peek_channel(n, DmaController::CTRL), 0x00);

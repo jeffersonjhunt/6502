@@ -1699,7 +1699,7 @@ TEST(break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt)
     CHECK(r.until("BREAK", ms(500), at));
     CHECK(r.until(GREETING, ms(8000), at));
     CHECK(r.until("A>", ms(20'000), at));
-    for (unsigned n = 0; n < DmaController::LIVE; ++n)
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
 }
 

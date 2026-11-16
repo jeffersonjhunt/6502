@@ -4,7 +4,7 @@
  * @file dma_controller.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's DMA controller (module ID 8), revision 2.
- * @version 0.2.0
+ * @version 0.3.0
  * @date 2026-11-15
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
@@ -29,9 +29,8 @@
  * 1 to clear). ABORT bit n stops channel n (it reads $FF). REQ bit n:
  * channel n's MODULE was requesting at the last poll (read only).
  *
- * State is kept for eight channels; LIVE of them exist (four until step
- * B3), and SELECT 4-7 show a window that reads $FF and drops writes. Each
- * channel's CARD resets to today's wiring: $07 (mass storage), $09 (video),
+ * All eight channels are live (since step B3; B2 had four), each behind
+ * its SELECT, with its bit in STATUS, ABORT and REQ. Each channel's CARD resets to today's wiring: $07 (mass storage), $09 (video),
  * $0A (sound), then $08 (none).
  *
  * It is a BusMaster: before each CPU cycle the decoder offers it the bus.
@@ -86,8 +85,7 @@ namespace ooe::emu
     class DmaController : public Device, public BusMaster
     {
     public:
-        static constexpr unsigned CHANNELS = 8; ///< the channels SELECT can name
-        static constexpr unsigned LIVE = 4;     ///< the channels that exist (step B3 makes it 8)
+        static constexpr unsigned CHANNELS = 8; ///< the channels SELECT can name, all live (step B3)
         static constexpr uint8_t MODULE = 0x8;
         static constexpr uint8_t ID = MODULE << 4 | 2; ///< +$7F: type (module ID) and revision
         static constexpr unsigned HOLD_OFF = 64; ///< cycles with no poll after a poll that granted nothing
@@ -142,8 +140,8 @@ namespace ooe::emu
         /// Channel `n`'s register `reg` (the window's offsets: ADDR $0-$2, COUNT $4-$5, MODE $6,
         /// CTRL $7, DEST $8-$A, CARD $C), read with no effect on the controller, whatever SELECT
         /// is: for tests and tools, which must never reach a channel by changing what the running
-        /// software has set up. $FF for a channel that doesn't exist (LIVE and up, as the window
-        /// shows them) or a reserved register, as the window reads.
+        /// software has set up. $FF for `n` of CHANNELS or more (no such channel) or a reserved
+        /// register, as the window reads.
         uint8_t peek_channel(unsigned n, uint8_t reg) const;
 
     private:
