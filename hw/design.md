@@ -516,8 +516,9 @@ DRQ and DACK pair a channel ([the DMA controller, revision 2](#the-dma-controlle
   /DREQ and /DMA instead of a DRQ and DACK pair each
   ([the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane)). Until that card is built, the
   registers below, the emulator and the software keep four; what channels 4–7 add to the registers is designed
-  with the card. *(Since B2 the emulator keeps state for eight behind SELECT, with 0–3 live and 4–7 reading `$FF`
-  until B3; the BIOS's and OODOS's loops already cover all eight.)*
+  with the card. *(Since B3 all eight are live behind SELECT, so the emulator and the software no longer keep four:
+  that sentence now holds only for revision 1's registers below; B2 had 0–3 live. The BIOS's and OODOS's loops
+  cover all eight since B2.)*
 - **Registers per channel:** *(revision 1's; revision 2's addresses are 24 bits and it adds CARD)*
   - a 20-bit address;
   - a 16-bit count;
@@ -2571,7 +2572,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 |---|---|---|---|---|---|
 | **B1** memory by address | 24-bit physical addresses (`decoder.h`'s `PHYSICAL_SPACE` and `bus_address`, `space << 20` today); the RAM lines at `000000–0FFFFF`; the flash in the memory space at `F00000` and `F80000`; the north bridge's ROM bit to `$F00000 + b × $4000`; the aperture line at `E00000–E0FFFF`, with bank 8 sent to it **only while a revision 2 video card is fitted**, as the aperture line is inert without one today (review round 1), so a machine with no such card keeps bank 8 as RAM; the bus trace's address column wider; `backplane.machine` | nothing | nothing | the Technical Reference's chapters 2 and 14 (the map), the emulator notes | none: no software-visible change |
 | **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module (as built: a bare `drq` flag, [as built](#b2-as-built)); revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled; the controller stretching a grant while /WAIT is low; the emulator's wait-state model (`decoder.h`: a mapping's `wait` and the bridge's `wait_states`, RDY wait states today) becomes /WAIT, seen by the CPU's cycles and by a DMA grant alike | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers-revision-1-dropped-in-b2) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
-| **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5 | none |
+| **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ ([as built](#b3-as-built)) | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5; chapter 15's D1 count, the Technical Reference's contents | none |
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
 | **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
@@ -2778,6 +2779,60 @@ OOLIB's, FARCALL, the BIOS's jump table and OOUI's are as they were; the control
   number for a card, or the north bridge's wait states; the Programmer's Guide's function 75 and cost figures; the
   User's Guide's SYSINFO sample; [diag.md](diag.md#b2-dma-revision-2), [oolib.md](oolib.md#the-plan),
   [oodos.md](oodos.md) (function 75), and `emulator/docs/` (EMULATOR_PLAN.md, BUS_TRACE.md).
+
+#### B3: as built ####
+
+**Proposed, emulated (2026-11-16).** Step B3, eight channels, on `feat/bus-b3` off main `2fedaa6` (B2's merge), with
+the owner's eleven answers to its plan ("recommendations as listed") and the critic's fifteen findings. No interface
+programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS 0.10 (interface 10).
+
+- **The controller.** `DmaController::LIVE` (4) is gone (answer 1): `CHANNELS` (8) is the one count, at the take's
+  armed-channel scan, the poll's REQ latch, the window's read and write, `peek_channel` and `irq()`. So SELECT 4–7
+  reach live channels, each with its bit in STATUS, ABORT and REQ, served in priority after 0–3, its terminal count
+  with MODE's IRQ bit pulling IRQH bit 0. Everything else was already eight wide. Channels 4–7's CARD resets to `$08`
+  (none), so software that never arms one sees no change and no cycle count moved outside D1's own scan.
+- **No byte changed.** Three source comments that said 4–7 read `$FF` were corrected, each file keeping its line
+  count (answer 5): `backplane.inc`'s `DMA_CH4`, D1's header in `diag22.s`, DEAFEN's in `irq.s`. The ROM (every
+  block) and OODOS.SYS, with the programs, built from the branch and from a clean export of `2fedaa6`, compare
+  equal. D1 counts the fitted channels at run time, so it prints `ON 8 CHANNELS` with no ROM change, as B2's answer
+  7 foresaw. The BIOS's QUIET and QUIETM, D1 and OODOS's DEAFEN already looped SELECT 7 to 0 (B2).
+- **The cards.** `make_card.sh` leaves `oodos.sparse` as it was. `demo.sparse` was rewritten in six sectors: its date
+  stamps moved with its sources, being built again on 2026-11-16 (the FAT entries' create and write times, the CP/M
+  labels' and timestamp entries' time bytes in `A.IMG` and `B.IMG`); every file in it is the same as on main.
+- **The expectations changed, the sixteen the owner approved with the plan** (every other held):
+  - a changed number (1): `romdiag.txt`'s D1 record, `ON 4 CHANNELS` to `ON 8 CHANNELS`, the dots and width the
+    same; it fails with `LIVE` left at 4;
+  - in meaning (4, test_dma): `peek_channel`'s "channel 4 reads `$FF`" replaced by reads of channels 4–7; the window
+    case renamed `the_window_follows_select_on_all_eight_channels`, its SELECT 4–7 "read `$FF`, dropped" loop and its
+    "reached no live channel" check removed for the isolation case below;
+  - mechanical (11): the loops over `LIVE` now over `CHANNELS` (test_dma 8, test_bios 2, test_bios_diag 1), and
+    test_dma's "SELECT 3 kept" comment corrected to SELECT 7.
+- **New cases,** each seen failing under the fault named: in test_dma, channels 5 and 7 copying memory to memory (the
+  take's scan left at 4), SELECT reaching one channel of eight (SELECT decoded with two bits; the window's guards
+  left at 4), a card served by channel 5 (the REQ latch left at 4), STATUS, ABORT and the interrupt on channels 4–7
+  (`irq()`'s loop or ABORT's walk at 4; a TC bit or ABORT aliased to `n & 3`), priority from 0 to 7 (the scan
+  reversed), and `peek_channel` over 4–7 (its guard at 4); at system level (answers 2 and 11), Break stopping and
+  clearing channels 4–7 after a real terminal count on channel 6 (QUIET's loop from SELECT 3, its ABORT or its STATUS
+  write cut to `$0F`), `C806` stopping a program's channel-5 copy before its fills (APPLE's ABORT cut to `$0F`:
+  the IIe's memory fills with `$A5`), and OODOS's DEAFEN clearing a stray terminal count on channel 6 (its loop from
+  SELECT 3: the system hangs in the interrupt).
+- **Measured** (answer 6), the full diagnostics run once on B3 at 7,159,090 Hz: a quick run 56.5 s, a full run
+  165.6 s (`a_full_run_never_writes_the_sd_card`'s 164.4 s), as on B2, so [the Technical
+  Reference, chapter 15](../docs/oo1-technical-reference/15-diagnostics.md)'s figures stand.
+- **Left as gaps, recorded:**
+  - D1 writes and reads back each channel alone, so it can't see SELECT's top bit lost (channels 4–7 answering as
+    0–3) on real hardware; the emulator's isolation case holds the emulator to it. An alias pass in D1 is a later
+    diagnostics item, needing a BIOS 0.16 (answer 3; [diag.md](diag.md#b2-dma-revision-2)).
+  - D1's not-fitted path can no longer run on the emulator, which fits eight; B2's golden ran it (`ON 4 CHANNELS`)
+    and B3 changes none of its bytes (answer 4).
+  - A program's channel 4–7 survives the warm boot: DEAFEN clears MODE's IRQ bit and its count but doesn't abort it
+    (answer 10). Break recovers it (QUIET aborts all eight); an ABORT of 4–7 in DEAFEN or the warm boot is for
+    OODOS's next release, an OODOS byte change outside B3.
+- **Not changed:** the WebUI and the WASM bindings (no DMA panel yet, B2's answer 10); `hw/diag.md`'s plan-era sample
+  screen and `oolib.md`'s L-phase inventories of four channels (answers 7 and 8); no site release of B3's own
+  (answer 9).
+- **The books:** the Technical Reference's chapter 5 (all eight live; STATUS, ABORT and REQ), its contents, chapter
+  15's D1 count; [diag.md](diag.md#b2-dma-revision-2); `emulator/docs/EMULATOR_PLAN.md`.
 
 #### The owner's answers (B0) ####
 

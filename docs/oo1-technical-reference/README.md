@@ -17,7 +17,7 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 2 [Memory and banking](02-memory-and-banking.md) | physical memory, the four windows, the I/O hole, flash and read-only windows, zero page | reprogramming the flash; revision 2's bank 8 aperture |
 | 3 [Boot](03-boot.md) | reset and the BIOS's copy of itself, /BOOTSEL, the entry points, the Woz Monitor, booting the SD card | the bus spy |
 | 4 [Interrupts](04-interrupts.md) | IRQ and NMI, IRQL and IRQH, VEC, Pause/Break | the serial card's INTSTAT |
-| 5 [DMA](05-dma.md) | the controller, `$C400`: memory to memory, transfers for a card | revision 2's controller (the window, CARD, the poll and /WAIT), emulated as step B2; the video port on channel 1 |
+| 5 [DMA](05-dma.md) | the controller, `$C400`: memory to memory, transfers for a card | revision 2's controller (the window, CARD, the poll and /WAIT), emulated as steps B2 and B3 (eight channels); the video port on channel 1 |
 | 6 [Video](06-video.md) | the VGA card, `$C480`: layers, sprites, the palette, video memory, interrupts, the splash | revision 2: the card's own 2 MB, the aperture, the data port |
 | 7 [Sound](07-sound.md) | two SIDs and a 6510, `$C500`: the mailbox, the card's RAM, `.sid` tunes | the card's bus timing |
 | 8 [USB](08-usb.md) | the keyboard, mouse, game port and speaker, `$C580` | other layouts, a gamepad, device events, the event FIFO on DMA, a real 558 |
