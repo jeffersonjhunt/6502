@@ -62,6 +62,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ooe::test;
@@ -1607,6 +1608,129 @@ TEST(c806_with_no_good_image_of_the_four_says_so_with_w1_put_back)
     CHECK(!b.bridge().apple());
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK(has(b.run(BOOT, "C680.C681\r"), "C680: 00 01"));    // the monitor carries on
+}
+
+namespace
+{
+    /// `code` at $0300, put straight into RAM block 0 (W0) once the monitor is up.
+    void put_program(Board &b, const std::vector<uint8_t> &code)
+    {
+        for (size_t i = 0; i < code.size(); ++i)
+            b.machine->bus().write_physical(static_cast<uint32_t>(0x300 + i), code[i]);
+    }
+
+    /// A program's call of the dispatching entry with the token (Y = $5A, X = `x`) and A = `a`, W1 on RAM block 7
+    /// and W2 on block 9 first, carry clear; after it returns, A, X, Y, P, W1 and W2 at $0310-$0315, then BRK.
+    std::vector<uint8_t> c818_call(uint8_t a, uint8_t x, uint8_t y = 0x5A)
+    {
+        return {0xA9, 0x07, 0x8D, 0x81, 0xC6,  // LDA #7; STA NB_WIN1
+                0xA9, 0x09, 0x8D, 0x82, 0xC6,  // LDA #9; STA NB_WIN2
+                0xA9, a, 0xA2, x, 0xA0, y,     // LDA #a; LDX #x; LDY #y
+                0x18, 0x20, 0x18, 0xC8,        // CLC; JSR $C818
+                0x08, 0x8D, 0x10, 0x03,        // PHP; STA $0310
+                0x8E, 0x11, 0x03, 0x8C, 0x12, 0x03, // STX $0311; STY $0312
+                0x68, 0x8D, 0x13, 0x03,        // PLA; STA $0313
+                0xAD, 0x81, 0xC6, 0x8D, 0x14, 0x03, // LDA NB_WIN1; STA $0314
+                0xAD, 0x82, 0xC6, 0x8D, 0x15, 0x03, // LDA NB_WIN2; STA $0315
+                0x00};                         // BRK: the monitor
+    }
+
+    /// Images 0 and 2 good, each storing its own mark ($B0, $B2) at $0300 from its reset code.
+    struct TwoImages
+    {
+        std::string zero = fake_iie_rom("test_c818_0.rom", 0x06, 0xB0), two = fake_iie_rom("test_c818_2.rom", 0x06, 0xB2);
+        Board b{false, true, {}, "", {}, 0, {zero, "", two, ""}};
+        TwoImages()
+        {
+            std::remove(zero.c_str());
+            std::remove(two.c_str());
+            if (b.ok())
+            {
+                b.reset();
+                b.run(BOOT);
+            }
+        }
+    };
+} // namespace
+
+TEST(c818_with_the_token_and_function_a1_is_apple_ii_mode_with_image_a)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(2, 0xA1));
+    t.b.run(2 * BOOT, "300R\r");
+    CHECK(t.b.bridge().apple());
+    CHECK_EQ(t.b.cpu->regs().pc, 0xFA67);                         // the stand-in's JMP *
+    CHECK_EQ(t.b.machine->bus().peek_physical(0x00300), 0xB2);    // image 2's, though image 0 is good too
+}
+
+TEST(c818_with_function_a1_but_y_not_5a_is_the_menu)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(2, 0xA1, 0x00));                    // half the token: X but not Y
+    const std::string out = t.b.run(BOOT, "300R\r");
+    CHECK(has(out, "APPLE II MODE, ANY OTHER KEY MONITOR "));
+    CHECK(!t.b.bridge().apple());
+    CHECK(has(t.b.run(BOOT, "X"), "X\r\\"));                      // another key: the monitor
+    CHECK(!t.b.bridge().apple());
+}
+
+TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_over_3)
+{
+    // Back, carry set, with A, X, Y and the windows as they were: X = $A7 (reserved), $A0 (the flash update,
+    // the menu's alone, Q18) and $A1 with A = 4 (block 4 is the character sets', not an image).
+    for (const auto &[a, x] : {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}})
+    {
+        TwoImages t;
+        REQUIRE(t.b.ok());
+        for (uint32_t i = 0x310; i < 0x316; ++i)
+            t.b.machine->bus().write_physical(i, 0xEE);
+        put_program(t.b, c818_call(a, x));
+        t.b.run(BOOT, "300R\r");
+        Decoder &bus = t.b.machine->bus();
+        CHECK(!t.b.bridge().apple());
+        CHECK_EQ(bus.peek_physical(0x310), a);
+        CHECK_EQ(bus.peek_physical(0x311), x);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);          // carry set
+        CHECK_EQ(bus.peek_physical(0x314), 0x07);                 // W1 and W2 as the program left them
+        CHECK_EQ(bus.peek_physical(0x315), 0x09);
+    }
+}
+
+TEST(c818r_is_the_menu_a_digit_apple_ii_mode_with_that_image_another_key_the_monitor)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    const std::string menu = t.b.run(BOOT, "C818R\r");
+    CHECK(has(menu, "\rROM: "));
+    CHECK(has(menu, "0-3 APPLE II MODE, ANY OTHER KEY MONITOR "));
+    const size_t line = menu.find("\rROM: ");
+    CHECK(line != std::string::npos && menu.find('\r', line + 1) == std::string::npos &&
+          menu.size() - line - 1 <= 80);                          // one line of the 80-column screen
+    t.b.run(2 * BOOT, "2");
+    CHECK(t.b.bridge().apple());
+    CHECK_EQ(t.b.machine->bus().peek_physical(0x00300), 0xB2);    // image 2, not the ASCII code's
+
+    TwoImages u;
+    REQUIRE(u.b.ok());
+    u.b.run(BOOT, "C818R\r");
+    CHECK(has(u.b.run(BOOT, "Q"), "Q\r\\"));                      // any other key: the monitor
+    CHECK(!u.b.bridge().apple());
+    CHECK(has(u.b.run(BOOT, "C680.C681\r"), "C680: 00 01"));      // and it carries on
+}
+
+TEST(c818_with_image_a_erased_says_so_and_goes_back_to_the_monitor)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(1, 0xA1));                          // image 1: erased
+    const std::string out = t.b.run(2 * BOOT, "300R\r");
+    CHECK(has(out, "\rNO APPLE IIE ROM IN FLASH IMAGE 1\\"));     // then the monitor's prompt
+    CHECK(!t.b.bridge().apple());
+    CHECK_EQ(t.b.bridge().window(1), 0x01);
+    CHECK(has(t.b.run(BOOT, "C680.C681\r"), "C680: 00 01"));
 }
 
 TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)

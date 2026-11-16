@@ -1,4 +1,6 @@
-; Apple II mode (hw/design.md, "Apple II Mode"), from the monitor: C806R.
+; Apple II mode (hw/design.md, "Apple II Mode"), from the monitor: C806R,
+; the first good image; or image A through the dispatching entry, $C818's
+; function $A1 (bios.s), or its menu's 0-3 (APPLEN).
 ;
 ; The owner's Apple IIe ROMs are in ROM A (hw/design.md, "ROM A's layout"):
 ; image n in flash block n (0-3, $F00000 + n x $4000), 16 KB as it sits at
@@ -25,13 +27,14 @@
 ;
 ; With no revision 2 video card (whose ID is $92: the BIOS no longer drives
 ; revision 1, and CHARS writes only revision 2's port), no DMA controller,
-; or no IIe ROM in any of the four images, it says so and goes back to the
-; monitor, still in the native map, with nothing changed.
+; or no IIe ROM in any of the four images (in image A, for APPLEN), it says
+; so and goes back to the monitor, still in the native map, with nothing
+; changed.
 
 .setcpu "65C02"
 .include "backplane.inc"
 .import WOZMON, ECHO
-.export APPLE
+.export APPLE, APPLEN
 
 IMAGES    = NB_ROM | NB_RO             ; image n: ROM A block n, read-only, through W1
 CART_CPU  = $4000                      ; where W1 shows it
@@ -51,7 +54,8 @@ VGA_CPU   = $4000
 
 .segment "APPLE"
 
-APPLE:
+APPLE:          LDA     #$FF           ; no image named: the first good one
+APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -60,9 +64,17 @@ APPLE:
                 CMP     #DMA_ID_V2
                 BEQ     @dma
                 JMP     NODMA_SAY
-@dma:           JSR     FINDIMG        ; the first good image, in W1
+@dma:           LDA     IMAGE
+                BPL     @named
+                JSR     FINDIMG        ; the first good image, in W1
                 BCC     @rom
                 JMP     NOROM_SAY
+@named:         ORA     #IMAGES        ; image A, in W1: a IIe's?
+                STA     NB_WIN1
+                LDA     CART_CPU + IIE_ID_AT
+                CMP     #IIE_ID
+                BEQ     @rom
+                JMP     NOROMN_SAY
 @rom:
 
                 ; the ROM into bank E: $4000-$7FFF (W1) to $8000-$BFFF (W2)
@@ -254,6 +266,18 @@ NOCARD_SAY:     LDX     #NOCARD - MESSAGES
                 BRA     SAY
 NODMA_SAY:      LDX     #NODMA - MESSAGES
                 BRA     SAY
+NOROMN_SAY:     LDA     #1             ; "...IMAGE n"
+                STA     NB_WIN1
+                LDX     #NOROMN - MESSAGES
+@say:           LDA     MESSAGES,X
+                BEQ     @n
+                JSR     ECHO
+                INX
+                BNE     @say
+@n:             LDA     IMAGE
+                ORA     #'0'
+                JSR     ECHO
+                JMP     WOZMON
 NOROM_SAY:      LDA     #1
                 STA     NB_WIN1
                 LDX     #NOROM - MESSAGES
@@ -266,5 +290,6 @@ SAY:            LDA     MESSAGES,X
 
 MESSAGES:
 NOROM:          .byte   $0D, "NO APPLE IIE ROM IN FLASH IMAGES 0-3", 0
+NOROMN:         .byte   $0D, "NO APPLE IIE ROM IN FLASH IMAGE ", 0
 NODMA:          .byte   $0D, "APPLE II MODE NEEDS THE DMA CONTROLLER", 0
 NOCARD:         .byte   $0D, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD", 0

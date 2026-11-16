@@ -27,6 +27,15 @@
 ; diagnostics in the flash (or another build's) $C815 returns, carry set, with
 ; A, X, Y and W2 as they were.
 ;
+; $C818 is the dispatching entry, for the functions after the eight: a program
+; asks with Y = $5A and X = $A0 + the function, A its argument (two bytes, as
+; $C815's, so the monitor's R, which leaves X 0, can't match them). $A1 is
+; Apple II mode with image A, 0-3 (apple.s). $A0, the flash update (flash.s),
+; is the menu's alone, so with the token it is refused as $A2-$AF are: back,
+; carry set, A, X, Y and the windows as they were, as $A1 with A over 3 is.
+; Without the token (C818R) it is a menu: 0-3 Apple II mode with that image,
+; any other key the monitor.
+;
 ; Before the copy, with the front panel there (its ID read twice): a
 ; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
 ; that one, so a reset during the diagnostics' P3 can't halt the next boot
@@ -50,7 +59,7 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .include "diag.inc"
-.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
+.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, APPLEN, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY
 .export BREAK, BOOT, MONBOOT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
@@ -64,7 +73,8 @@ FLASH31 = NB_ROM | NB_RO | 31          ; the flash's top block, where reset maps
 .segment "CODE"
 
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
-; eight of them, so a new one does not move the code after them.
+; nine of them. The ninth, $C818, dispatches the functions after these, so
+; none is added after it and the code after them stays where it is.
 ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     DEMO           ; $C803: the video demo (video.s, demo.s)
                 JMP     APPLE          ; $C806: Apple II mode (apple.s)
@@ -73,6 +83,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     ECHO           ; $C80F: print A, for programs (keeps A and X)
                 JMP     DIAG           ; $C812: the ROM's diagnostics, after a Y (diag23.s)
                 JMP     DIAGPGM        ; $C815: the same for a program: A = $A5, Y = $5A, X the options
+                JMP     ROMCALL        ; $C818: the dispatching entry: Y = $5A, X = $A0 + the function, A its argument
 
 ; A hard reset arrives on the flash; C800R, on the RAM copy. Put W3 and VEC
 ; back on the flash from zero page, so the next fetch is the flash's own
@@ -307,6 +318,39 @@ DIAGPGM:        CMP     #$A5
                 STA     NB_WAIT3
                 JMP     DIAGGO
 
+; $C818: a program's function, with the token (Y = $5A, X $A0-$AF): $A1 Apple
+; II mode with image A (A 0-3); anything else back, carry set, nothing changed.
+; Without the token, the menu.
+ROMCALL:        CPY     #$5A
+                BNE     MENU
+                CPX     #$A0
+                BCC     MENU
+                CPX     #$B0
+                BCS     MENU
+                CPX     #$A1           ; $A0 (the update, the menu's only) and $A2-$AF: none
+                BNE     @none
+                CMP     #IIE_IMAGES
+                BCS     @none          ; no image 4 or over: block 4 is the character sets'
+                JMP     APPLEN         ; never returns
+@none:          SEC                    ; A, X, Y and the windows as they were
+                RTS
+
+; C818R: a key from the menu. A typed R has no return address, so this never
+; returns.
+MENU:           LDX     #MROM - DMSGS
+                JSR     DSAY
+                JSR     GETKEY
+                JSR     ECHO
+                CMP     #'0'
+                BCC     @letter
+                CMP     #'0' + IIE_IMAGES
+                BCS     @letter
+                SBC     #'0' - 1       ; the image, 0-3 (carry clear: one less)
+                JMP     APPLEN
+@letter:        LDA     #$0D
+                JSR     ECHO
+                JMP     WOZMON
+
 ; The message at DMSGS + X, ended by 0.
 DSAY:           LDA     DMSGS,X
                 BEQ     @done
@@ -320,6 +364,7 @@ DMSGS:
 MALL:           .byte   $0D, "ALL OF MEMORY WILL BE OVERWRITTEN. Y TO GO ON ", 0
 MNODIAG:        .byte   $0D, "NO DIAGNOSTICS IN THE FLASH", $0D, 0
 MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN", $0D, 0
+MROM:           .byte   $0D, "ROM: 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen
