@@ -292,7 +292,10 @@ The card asks for DMA by its module, 7, while CTRL's DMA bit is set and STATUS's
 request line, low while DATA is set, and answers the controller's poll on its own data line, D7. Channel 0 serves it,
 since its CARD is `$07` from reset ([chapter 5](05-dma.md#transfers-for-a-card)). The transfer is fly-by, a byte a
 cycle, each grant naming module 7 on PS0–PS3 (*proposed*; revision 1 had a line of the card's own, DRQ0, wired to
-channel 0).
+channel 0). DATA takes bytes, so CARD's WIDE stays 0 on channel 0 (*proposed*, B4,
+[16-bit transfers](05-dma.md#16-bit-transfers)): with WIDE set, each word grant would move one byte of DATA, memory
+getting `$FF` in each odd byte, and a write would hand the card half its bytes. Break puts CARD back. A word DATA is
+a later step of the card's own design.
 
 1. Save CONTROL and select channel 0 with the master enable on ([`$C47E`](05-dma.md#reg-c47e)), then program it
    in the window ([`$C400`](05-dma.md#reg-c400) on): ADDR the physical address, COUNT the bytes (sectors × 512),
@@ -305,7 +308,8 @@ channel 0).
 For a READ, the card doesn't pull /DREQ until the first sector is ready, 100 µs after CMD, and demand mode waits for
 it. After that the card keeps a sector ahead in its second buffer, so it keeps /DREQ low and demand mode runs on. A WRITE has both
 buffers free at once, and the card programs a sector faster than the channel fills one. So with CONTROL's BURST at
-no limit the CPU is held for almost the whole transfer. A lower BURST gives it a cycle back every 2^BURST bytes.
+no limit the CPU is held for almost the whole transfer. A lower BURST gives it a cycle back every 2^BURST transfers,
+bytes here.
 Each take of the bus begins with the poll, one cycle after the takeover's, so a burst of n bytes costs 2 + n
 cycles. While the channel waits for a sector, another card's standing request (the sound card's,
 [chapter 7](07-sound.md#reg-c563)) can start a poll that grants nothing, at most 2 cycles in 64, and a sector that

@@ -62,7 +62,9 @@ Three gaps:
   the controller holds the CPU with RDY and uses the bus, and its cycles
   show as a gap before the CPU cycle it held. On DMA revision 2 (B2) the
   gap holds the poll of the cards too, one cycle after the takeover for a
-  card's transfer; the format stays at version 1. Halting with RDY (the console's single-step) is not
+  card's transfer; the format stays at version 1. A word cycle (CARD's
+  WIDE, B4) is a DMA cycle too, so it is in the gap, and the format still
+  stays at version 1. Halting with RDY (the console's single-step) is not
   modelled; the debugger halts between instructions.
 
 ## Module IDs and A16..A23

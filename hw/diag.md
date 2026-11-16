@@ -220,7 +220,7 @@ the bridge's own I²C reads on real hardware is still unknown (plan 1's stage 11
 |---|---|---|
 | D1 | ID `$81`; each channel's ADDR, COUNT, MODE and DEST written with two patterns and read back; CONTROL's burst bits. *B2: ID `$82`, each channel through SELECT 0–7, CARD among them ([B2](#b2-dma-revision-2))* | D2 read the ID alone |
 | D2 | channel 3, memory to memory with HOLD: every RAM block filled with a pattern but W0's first 512 bytes, the CPU checks it (960 KB, about 1.9 s) | D2 filled 2 KB |
-| D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`) | as D2, and down too |
+| D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`). *B4: a word pass for D8–D15, a WIDE copy of one parity checked by the CPU, is a later item with BIOS 0.16 ([B4](#b4-16-bit-transfers))* | as D2, and down too |
 | D4 | D2's fill of 2 KB timed by VIA timer 2: 2 cycles a byte | as D2, less the call's cost |
 | D5 | STATUS's terminal count; ABORT part way through a copy, COUNT reads what was left | plan 1's stage 7 |
 
@@ -268,7 +268,7 @@ byte, echo, sum, the SIDs) is D2's as built.
 | SD1 | ID `$71`; STATUS's PRESENT and READY | as D2 |
 | SD2 | `IDENTIFY`: the type 1–3, the size not 0, the FAT flag | as D2 (`HW_SD_ID`) |
 | SD3 | LBA 0 of unit 0, the card itself, read by the CPU through DATA and again by channel 0 into a tested block: the two agree | D2's D5 read DIAG.COM's records two ways |
-| SD4 | read speed: 64 KB from unit 0 by channel 0, timed: `INFO`, KB a second | D2's SD3 through `DM_LOAD` |
+| SD4 | read speed: 64 KB from unit 0 by channel 0, timed: `INFO`, KB a second. *B4: SD3 and SD4 stay bytes, as the card's DATA does; a word reading beside SD4's, if the card comes to take words, is a later item with BIOS 0.16 ([B4](#b4-16-bit-transfers))* | D2's SD3 through `DM_LOAD` |
 | DK1 | the Disk II: ID `$C1`, and nothing else | as D2 |
 
 D2's SD4 (`/WRITE`, a file on A: written, read back and erased) goes with DIAG.COM.
@@ -1070,6 +1070,22 @@ is written whole.
 - **Sizes after:** block 22 13,723 bytes (2,661 free), block 21 8,236, block 23 8,211, block 31's code to `$E407`
   (`DMA3RUN` dropped). OODOS (still 0.10): block 61's code to `$B74C` (+68), block 62's resident part to `$F5F0`
   (+19), 527 bytes free.
+
+#### B4: 16-bit transfers ####
+
+**Proposed (2026-11-16).** The bus work's step B4 ([hw/design.md, B4: as built](design.md#b4-as-built)) makes CARD's
+WIDE live in the emulator: a word a transfer, on D0–D15, where the card takes words. It changes no ROM byte: the
+BIOS stays 0.15, and no diagnostic sets WIDE, so every figure above holds (D4 4,096 cycles, SD4 5,829 KB a second).
+
+- **What the diagnostics can't see.** The CPU and every byte cycle use D0–D7, so no stage reaches D8–D15 on real
+  hardware: a stuck or crossed line there passes the whole run. That is harmless while no software sets WIDE (the
+  owner's answer 8).
+- **A later item, with BIOS 0.16,** beside B3's D1 alias pass: a word pass in D3, a WIDE copy between two blocks of
+  one parity, checked by the CPU byte for byte, which fails on a D8–D15 line stuck, open or crossed; and, if the SD
+  card comes to take words, a word reading beside SD4's byte one. It comes with the step that has the ROM and OODOS
+  set WIDE.
+- **QUIETM** already writes every CARD whole, so a WIDE left on a channel under the monitor is cleared on the
+  diagnostics' way out, as Break clears it.
 
 <a id="plan2-books"></a>
 ### The books ###

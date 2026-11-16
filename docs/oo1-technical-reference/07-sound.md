@@ -299,7 +299,8 @@ I2S DAC:
   6510 sees its registers at `$DF00–$DFFF`. Its channels fold to stereo by their low bit, even left and odd right.
   Unlike the IIgs's Sound GLU, the port needs no dummy read before a DOCDATA read: the value is there at once.
 - **DRQSEL** picks the register the card's DMA request (/DREQ, by module A) and its fly-by DMA serve: RAMDATA,
-  PCMDATA or DOCDATA.
+  PCMDATA or DOCDATA. Each takes bytes, so CARD's WIDE (*proposed*, B4,
+  [chapter 5](05-dma.md#16-bit-transfers)) stays 0 on the channel serving module A, channel 2 from reset.
 
 PCM and the ES5503 don't run at once; the SIDs may always run beside either.
 
@@ -746,7 +747,9 @@ Undefined: the card's RAM keeps its contents through a /RESET. The emulator's is
 
 `backplane.machine` wires the card's request to /DREQ, and channel 2 serves it, its CARD `$0A` (module A) at
 reset, fly-by, one cycle a byte ([chapter 5](05-dma.md#transfers-for-a-card), [CARD](05-dma.md#reg-c40c)). Since
-the card's request never drops, channel 2 runs as soon as it is enabled, at the pace its XFER gives.
+the card's request never drops, channel 2 runs as soon as it is enabled, at the pace its XFER gives. The card's data
+registers take bytes: WIDE stays 0 on the channel serving module A (*proposed*, B4;
+[16-bit transfers](05-dma.md#16-bit-transfers)).
 
 **The standing request** (*proposed*, B2). At DRQSEL 0, the reset value and OODOS's idle value, and at 2, the card
 asks for DMA all the time, so with a sound card fitted the shared /DREQ is almost never high. Memory-to-memory copies

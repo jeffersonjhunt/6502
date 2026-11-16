@@ -201,7 +201,9 @@ Status: **emulated**
   poll, one more cycle each take (*proposed*, B2). Like the takeover, the poll is counted as a stolen cycle but
   isn't a bus cycle anyone sees: the trace, the cycle observers and a breakpoint never meet it, and the front
   panel's lights show it as they show the takeover, the CPU's held address with RDY low. The controller is caught
-  up with the timed cards before it looks at /DREQ, so it sees each card's request as of that cycle.
+  up with the timed cards before it looks at /DREQ, so it sees each card's request as of that cycle. With CARD's
+  WIDE (*proposed*, B4) a transfer is a word where the rules allow, at a byte's cost
+  ([chapter 5](05-dma.md#16-bit-transfers)).
 - **The cards are told the CPU's clock,** so their time stays right at any speed: the video card's frame, the USB
   card's key repeat and paddle timers, the sound card's SID clock, the SD card's start-up and sector times, the
   Disk II's sequencer, the DS3231's second ([chapter 1](01-overview.md#clocks)).
@@ -224,7 +226,10 @@ The backplane's signals are modelled for what they do, not as pins: module decod
 ([chapter 1](01-overview.md#the-backplane)). The north bridge and the cards are behaviour too: what a register does
 when it is read or written, at the cycle it happens. The VIA's ports are the exception: their pins are modelled,
 since the joysticks hang off them, as the LCD and the PS/2 keyboard do on Eater's machines. The pin-out, the
-connectors and the power are the design's only ([chapter 1](01-overview.md#the-physical-bus)).
+connectors and the power are the design's only ([chapter 1](01-overview.md#the-physical-bus)). The line that tells
+a byte cycle from a word cycle (B6's pin) is modelled as the call: the decoder's word cycles, which the DMA
+controller makes with WIDE, and a word flag on the cycle the observers and the console card see, once a word at its
+even address ([chapter 5](05-dma.md#16-bit-transfers)).
 
 ### What isn't there
 
@@ -247,6 +252,9 @@ The design has these, and the emulator doesn't:
   ISR, its BE lamp and the ESP32's SPI header** ([chapter 12](12-front-panel.md#what-the-emulator-leaves-out)).
 - **Apple II mode's long cycle,** every 65th cycle stretched
   ([chapter 13](13-apple-ii-mode.md#the-long-cycle)).
+- **The CPU card's word buffer,** which may read or write a whole word of memory and shift its bytes to the 8-bit CPU
+  ([hw/design.md](../../hw/design.md#backplane-signals)). The CPU's cycles are bytes; the buffer wouldn't change a
+  cycle count.
 
 The emulator's own backlog, beside the design, has `.nib`, `.d13` and `.2mg` disk images
 ([chapter 10](10-storage.md#disk-images)).
@@ -280,7 +288,8 @@ emulator; each link goes to the note.
     has no DMA ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C40C`](05-dma.md#reg-c40c)).
 - **Video** ([chapter 6](06-video.md))
   - A whole sprite table copied by DMA takes about 143 µs, at two cycles a byte, where hw/design.md says about
-    72 µs ([Sprites](06-video.md#sprites)).
+    72 µs ([Sprites](06-video.md#sprites)). With WIDE (*proposed*, B4), two cycles a word, it takes about 72 µs, but
+    nothing in the BIOS or OODOS sets WIDE yet.
   - The card reads the palette from video memory for every line, where the design copies it into the card when
     PALBASE changes ([The palette](06-video.md#the-palette)).
   - The card interrupts on ISR AND IEN, where the design's register table says any pending ISR bit

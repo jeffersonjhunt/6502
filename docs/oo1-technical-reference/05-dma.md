@@ -10,7 +10,8 @@ and [the B2 migration](../../hw/design.md#the-b2-migration-revision-1-dropped).
 
 Status: **proposed**
 
-Emulated as steps B2 and B3 (all eight channels since B3) ([hw/design.md](../../hw/design.md#the-dma-controller-revision-2)).
+Emulated as steps B2 and B3 (all eight channels since B3) and B4 (16-bit transfers)
+([hw/design.md](../../hw/design.md#the-dma-controller-revision-2)).
 
 The controller is on the CPU card, module 8, in the style of the PC's 8237. It has eight channels, each with a
 24-bit address, a 16-bit count, a mode, a control byte, a 24-bit destination and a CARD byte naming the module it
@@ -35,10 +36,11 @@ serves. One window, `$C400–$C40F`, shows the channel that CONTROL's SELECT nam
   [WAIT0–3](11-north-bridge-and-rtc.md#reg-c68a) slow nothing since B2.
 - **Taking the bus.** Before each CPU cycle the controller looks at its channels and takes the bus when one has
   work. Taking it costs one cycle: RDY holds the CPU, on a write cycle too, and BE floats it off the bus. A card's
-  transfer starts with a poll of the cards ([below](#transfers-for-a-card)). The controller then moves bytes and
-  hands the bus back. Priority is fixed: channel 0 first, then 1–7.
-- **How long it keeps the bus.** CONTROL's BURST sets that: 2^BURST bytes, after which the CPU gets one cycle back,
-  or no limit at 7. CONTROL resets to `$70`: no limit, SELECT 0, and DMA off until software sets the master enable
+  transfer starts with a poll of the cards ([below](#transfers-for-a-card)). The controller then moves bytes (or
+  words, with CARD's WIDE: [below](#16-bit-transfers)) and hands the bus back. Priority is fixed: channel 0 first,
+  then 1–7.
+- **How long it keeps the bus.** CONTROL's BURST sets that: 2^BURST transfers (a byte, or a word with WIDE), after
+  which the CPU gets one cycle back, or no limit at 7. CONTROL resets to `$70`: no limit, SELECT 0, and DMA off until software sets the master enable
   (bit 0). With a revision 2 video card the BIOS writes `DMA_ON` (`$71`: on, no limit, SELECT 0) when it sets up the
   text screen at boot, before the SD boot's read, and leaves it there, so under the monitor CONTROL reads `$71`.
 - **Terminal count.** When a channel's count runs out, its STATUS bit is set and its REQ clears. ENABLE clears too,
@@ -107,9 +109,10 @@ Emulated as step B2.
 
 Any channel can copy memory to memory (MODE's DIR = `%10`), with DEST as the destination. A copy runs as a block,
 whatever XFER says (software writes `%10`, block): REQ in CTRL starts it, and the CPU is held until the count runs
-out, or gets a cycle back every 2^BURST bytes. Each byte takes two cycles, a read into the controller's latch and
-then the write, so 64 KB takes about 18 ms at 7.16 MHz. A copy needs no poll of the cards, so it costs 1 + 2n cycles
-for n bytes a take, as on revision 1; a take polls only when a card's channel is armed too
+out, or gets a cycle back every 2^BURST transfers. Each byte takes two cycles, a read into the controller's latch
+and then the write, so 64 KB takes about 18 ms at 7.16 MHz; or, with WIDE and the two addresses of one parity, two
+cycles a word, so 64 KB takes about 9 ms ([below](#16-bit-transfers)). A copy needs no poll of the cards, so it
+costs 1 + 2n cycles for n bytes a take, as on revision 1; a take polls only when a card's channel is armed too
 ([below](#transfers-for-a-card)).
 
 - **A fill:** HOLD keeps the source address still, so one byte fills the destination. The BIOS clears memory that
@@ -132,9 +135,9 @@ Status: **proposed**
 Emulated as step B2 ([hw/design.md](../../hw/design.md#the-dma-controller-revision-2)).
 
 A card wanting a transfer pulls /DREQ, one open-drain line that every card shares. The controller finds out who
-asks by a poll, and grants a channel whose CARD names that card's module. The transfer is fly-by, one cycle a byte:
-the card puts its byte on the bus, or takes the one memory puts there, and needs no address of its own. On the last
-byte the card also sees terminal count.
+asks by a poll, and grants a channel whose CARD names that card's module. The transfer is fly-by, one cycle a
+transfer: the card puts its byte (or, with WIDE, its word) on the bus, or takes the one memory puts there, and needs
+no address of its own. On the last transfer the card also sees terminal count.
 
 | Channel | CARD at reset | Module | In the emulator |
 |---|---|---|---|
@@ -161,7 +164,7 @@ started by software (REQ, or a block under way). Each grant cycle puts the memor
 MODULE on PS0–PS3, and the card named answers with its data register. A grant is stretched while /WAIT is low: in
 the emulator, by the longer of the memory's and the card's `wait`.
 
-**When the card lets go.** In a grant only the card named may pull /DREQ, and it does if it wants another byte
+**When the card lets go.** In a grant only the card named may pull /DREQ, and it does if it wants another transfer
 after this one. A demand transfer goes on while it does, with no new poll, and ends when it lets go, whatever
 other cards ask.
 
@@ -177,6 +180,9 @@ reset ends the hold-off.
 | demand, block | demand: 2 + n for n bytes, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
 | memory to memory | 1 + 2n a take, as on revision 1 |
 
+With WIDE, n counts transfers, a byte or a word, at the same cost each: single is 3 cycles a word, and a card's
+demand transfer of b bytes from an even address is 2 + b/2 ([16-bit transfers](#16-bit-transfers)).
+
 **The sound card's standing request.** At DRQSEL 0, its reset value and OODOS's idle value, and at 2, the sound
 card asks all the time, so with a sound card fitted /DREQ is almost never high. Memory-to-memory copies cost what
 they did. A card's transfer pays the poll at each take, a card that becomes ready can wait up to 64 cycles for its
@@ -184,8 +190,8 @@ grant, behind the hold-off, and while a card's channel is armed the stray polls 
 
 MODE's DIR says which way: `%00` card to memory, `%01` memory to card. XFER says how:
 
-- **single** (`%00`): one byte for each request, then the CPU gets a cycle;
-- **demand** (`%01`): bytes while the card asks, up to the BURST limit;
+- **single** (`%00`): one transfer for each request, then the CPU gets a cycle;
+- **demand** (`%01`): transfers while the card asks, up to the BURST limit;
 - **block** (`%10`): the whole count once a request or REQ starts it, a BURST at a time.
 
 A reserved XFER or DIR (`%11`) never runs. A block channel with no card behind it (MODULE none, or no card on its
@@ -216,12 +222,16 @@ card-memory side and the channel's ADDR as the system-RAM side:
 | card memory, from RAM | `%01`, memory to card | bit 1 clear; bit 0 set |
 | RAM, from card memory | `%00`, card to memory | bit 1 set; bit 0 set |
 
-- **The two sides step on their own.** The channel's address steps by one (or down, with DEC); PADDR by the card's
-  PSTEP, up or down. So a 16-byte run of RAM can become a column of a text screen, PSTEP 160.
+- **The two sides step on their own.** The channel's address steps by one, or by two on a word (or down, with DEC,
+  by one); PADDR by the card's PSTEP, up or down, once for each byte. So a 16-byte run of RAM can become a column
+  of a text screen, PSTEP 160.
 - **What it costs.** [hw/video-rev2.md](../../hw/video-rev2.md#data-port-and-dma) reckons two cycles a byte, a 4 KB
   font in about 8,200 cycles and a 300 KB bitmap in about 0.09 s. The emulator moves a port byte as any fly-by card
   transfer, in one cycle, and the card asks for every byte at once, so a 4 KB font takes about 4,100 cycles and
-  OODOS's 1,024 bytes of vertical-blank copies about 1,024, the CPU held.
+  OODOS's 1,024 bytes of vertical-blank copies about 1,024, the CPU held. With WIDE (*proposed*, B4) the port takes a
+  word a grant, as two port accesses, the even byte first, each stepping PADDR by PSTEP: a 4 KB load from RAM in
+  demand mode takes 2,050 cycles (0.286 ms), against 4,098 (0.572 ms) without, the takeover and the poll then a
+  cycle a word ([16-bit transfers](#16-bit-transfers)). Neither the BIOS nor OODOS sets WIDE yet.
 - **Copies within card memory** have no port path of their own: the card has no copy engine yet. Out to RAM and
   back in is two port transfers; OODOS's `DM_VCOPY` instead maps the two places through aperture slots and copies
   memory to memory on channel 3.
@@ -232,6 +242,62 @@ card-memory side and the channel's ADDR as the system-RAM side:
 Under OODOS the port and channel 1 are OODOS's ([above](#under-oodos)); a program reaches card memory in bulk
 through function 83's card operations
 ([function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83)), which need the DMA controller.
+
+## 16-bit transfers
+
+Status: **proposed**
+
+Emulated as step B4 ([hw/design.md](../../hw/design.md#16-bit-transfers), [as built](../../hw/design.md#b4-as-built)).
+
+CARD's WIDE (bit 4, [`$C40C`](#reg-c40c)), 0 at reset, lets a channel move a word, D0–D15, in one bus cycle where a
+byte took one. A byte cycle carries its byte on D0–D7 whatever A0 is: memory steers an odd address's byte onto it.
+A word cycle is at an even address, the even byte on D0–D7 and the odd on D8–D15.
+
+- **When a transfer is a word.** With WIDE set, a transfer at an even ADDR with two bytes or more left is a word;
+  an odd first byte and an odd last byte go as bytes, so any address and count work. COUNT stays in bytes and goes
+  down by 2 a word, ADDR (and DEST, memory to memory) step up by 2, wrapping within 24 bits.
+- **When it isn't.** With MODE's DEC or HOLD set, the channel moves bytes, WIDE or not. Memory to memory moves words
+  only when ADDR and DEST have the same parity, since the controller's 16-bit latch keeps each byte on its lane;
+  otherwise bytes. The controller decides at each take of the bus, so software may rewrite ADDR or DEST between
+  takes.
+- **Terminal count** comes with the transfer that empties COUNT, a byte or a word.
+- **BURST** counts transfers, a byte or a word ([`$C47E`](#reg-c47e)). A word costs what a byte does, so the CPU's
+  longest wait is the same number of cycles either way.
+- **/WAIT** stretches a word once, by the longer of the memory's and the card's.
+- **Unmapped**, a word reads `$FFFF`, and a write is lost. A block channel with no card behind it, card to memory,
+  writes `$FFFF` a word.
+
+| Transfer, with WIDE | Cycles |
+|---|---|
+| single | 3 a word: the takeover, the poll, the word |
+| demand, block | as without WIDE, n being transfers: b bytes from an even address are b/2 |
+| memory to memory, 16 bytes | even to even 1 + 16; odd to odd 1 + 18 (a byte, 7 words, a byte); even to odd and odd to even 1 + 32 (bytes) |
+| memory to memory, 2 KB even to even | 1 + 2,048 |
+| memory to memory, 64 KB | 1 + 2 × 32,768 = 65,537 (9.15 ms at 7.16 MHz), against 131,073 (18.3 ms) without |
+
+**Which registers take words.** Only memory and the video card's port and aperture do. WIDE must stay 0 on a channel
+that serves any other card:
+
+| Card, register | Width |
+|---|---|
+| Memory: the RAM card, ROM A and ROM B | words |
+| The video card's aperture ([chapter 6](06-video.md#the-aperture)), `$E00000` and bank 8 | words, both bytes of each |
+| The video card's port, PDATA ([chapter 6](06-video.md#the-data-port)) | words: two port accesses, the even byte at PADDR, a PSTEP step, then the odd byte, another step |
+| The SD card's DATA ([chapter 10](10-storage.md#reading-and-writing-by-dma)) | bytes |
+| The sound card's RAMDATA, PCMDATA and DOCDATA ([chapter 7](07-sound.md#reg-c563)) | bytes |
+| The USB card's event FIFO ([chapter 8](08-usb.md#proposed)) | bytes |
+| The serial card's stream registers ([chapter 9](09-serial-and-via.md#com1-com2-and-lpt)) | bytes |
+
+**A byte card given WIDE** gets what the bus would give it: its data register moves once a grant, on D0–D7; D8–D15
+float, so memory gets `$FF` in each odd byte, and each odd byte from memory is lost. A WIDE left on channel 0 under
+the monitor (`C40C: 17`) so breaks the SD card's reads and writes; Break puts every CARD back, WIDE 0, and OODOS's
+warm boot doesn't yet.
+
+**The front panel** sees a word cycle once, at its even address: its lamps and LDATA show D0–D7, the even byte, and
+its breakpoint matches only the even address ([chapter 12](12-front-panel.md#the-breakpoint)).
+
+Neither the BIOS nor OODOS sets WIDE yet: their copies, the SD card's loads and the screen's port jobs move bytes,
+and their cycle counts are as above without it. In Apple II mode the controller is idle, so WIDE has no effect there.
 
 ## Registers
 
@@ -273,7 +339,8 @@ Emulated as step B2.
 
 #### Notes
 
-The address steps up after each byte, down with MODE's DEC, or not at all with HOLD, and wraps within 24 bits. AUTO
+The address steps up after each byte, or by 2 after a word ([16-bit transfers](#16-bit-transfers)), down with
+MODE's DEC, or not at all with HOLD, and wraps within 24 bits. AUTO
 puts the start address back at terminal count. The third byte is the whole of A16–A23: revision 1 dropped its top
 four bits, so a bank byte of `$10` or more, which reached RAM there, reaches nothing, the aperture (`$E0`) or the
 flash (`$F0` on) here.
@@ -296,7 +363,7 @@ gives the bytes left.
 
 #### Bits
 
-All: the bytes to move, 1–65,535, or 0 for 65,536.
+All: the bytes to move, 1–65,535, or 0 for 65,536. In bytes with WIDE too: a word takes 2.
 
 #### Reset
 
@@ -333,8 +400,8 @@ R/W, the channel SELECT names.
 |---|---|---|
 | 7 | IRQ | 1: interrupt at terminal count (IRQH bit 0) |
 | 6 | AUTO | 1: at terminal count, reload ADDR, COUNT and DEST and stay armed |
-| 5 | HOLD | 1: the address stays still. For memory to memory, the source only: a fill |
-| 4 | DEC | 1: the address steps down. For memory to memory, both |
+| 5 | HOLD | 1: the address stays still. For memory to memory, the source only: a fill. Transfers bytes, with or without WIDE |
+| 4 | DEC | 1: the address steps down. For memory to memory, both. Transfers bytes, with or without WIDE |
 | 3–2 | DIR | `%00` card to memory, `%01` memory to card, `%10` memory to memory, `%11` reserved |
 | 1–0 | XFER | `%00` single, `%01` demand, `%10` block, `%11` reserved |
 
@@ -441,7 +508,7 @@ R/W, the channel SELECT names.
 | Bit | Name | Meaning |
 |---|---|---|
 | 7–5 | | 0 |
-| 4 | WIDE | 1: 16-bit transfers (B4, *proposed*: stored and read back, with no effect yet) |
+| 4 | WIDE | 1: 16-bit transfers, where the card takes words ([below](#16-bit-transfers)) |
 | 3–0 | MODULE | the module ID whose requests the channel serves, and that a grant puts on PS0–PS3. `$8`, the controller's own, which never asks, is none |
 
 #### Reset
@@ -452,7 +519,7 @@ Channel 0 `$07` (mass storage), 1 `$09` (video), 2 `$0A` (sound), 3–7 `$08` (n
 
 **proposed**
 
-Emulated as step B2.
+Emulated as step B2; WIDE since B4.
 
 #### Notes
 
@@ -460,7 +527,9 @@ backplane.inc names `DMA_NONE` (`$08`), `DMA_WIDE` (`$10`) and the reset modules
 `DMA_MOD_SOUND`. A channel with MODULE none serves no card: it runs memory to memory, or a block REQ starts. Two
 channels may name one module; both then show in REQ, and the one of higher priority is granted first. The BIOS's
 Break, and the diagnostics' way out, put every channel's CARD back to its reset value, so a CARD changed under the
-monitor can't keep the SD boot from its grant. The BIOS and OODOS write no other CARD.
+monitor can't keep the SD boot from its grant. The BIOS and OODOS write no other CARD. Only memory and the video
+card's port and aperture take words, and the BIOS and OODOS set WIDE nowhere
+([16-bit transfers](#16-bit-transfers)).
 
 <a id="reg-c410"></a>
 ### $C410 DMA_STATUS: terminal counts
@@ -588,7 +657,7 @@ R/W.
 | Bit | Name | Meaning |
 |---|---|---|
 | 7 | | 0: writes ignored |
-| 6–4 | BURST | the CPU gets a cycle back every 2^BURST bytes; 7: no limit |
+| 6–4 | BURST | the CPU gets a cycle back every 2^BURST transfers (a byte, or a word with WIDE); 7: no limit |
 | 3–1 | SELECT | the channel the window at `$C400–$C40F` shows, 0–7 |
 | 0 | ENABLE | 1: the master enable. 0: no channel runs, and no poll |
 
@@ -610,7 +679,7 @@ mask) and `DMA_SEL0`–`DMA_SEL7` (n × 2). Code that sets SELECT saves CONTROL 
 leaves it there, so under the monitor CONTROL reads `$71`; the SD boot's read saves it and puts it back, and Break
 leaves it as it was. Apple II mode's fills write `DMA_ON` with SELECT 3 (`$77`), and the /RESET that enters the mode
 puts back `$70`. BURST limits demand and block transfers and memory-to-memory copies; a single transfer gives a cycle
-back after every byte whatever it says.
+back after every transfer whatever it says.
 
 <a id="reg-c47f"></a>
 ### $C47F DMA_ID: the controller's ID
