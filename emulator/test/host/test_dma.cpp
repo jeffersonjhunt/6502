@@ -7,7 +7,8 @@
  * the decoder: each CPU access reports the cycles it was held for
  * (wait_states()), which is exactly the DMA's cycles: one to take the bus,
  * one to poll the cards when /DREQ is low and a channel serving a card is
- * armed, then one per fly-by byte or two per memory-to-memory byte. Test
+ * armed, then one per fly-by transfer or two per memory-to-memory transfer,
+ * a transfer being a byte, or a word with WIDE. Test
  * cards, wired to /DREQ and answering by their module IDs, stand in for the
  * modelled ones. The last cases run real 6502 code on the backplane machine.
  */
@@ -47,20 +48,48 @@ namespace
         uint8_t dack_read(bool tc) override
         {
             tcs.push_back(tc);
+            widths.push_back(1);
+            return next();
+        }
+        void dack_write(uint8_t data, bool tc) override
+        {
+            tcs.push_back(tc);
+            widths.push_back(1);
+            sent.push_back(data);
+        }
+        /// A word grant (WIDE): the FIFO's next two bytes, the even first, as a card whose register takes
+        /// words; with `words` false, Device's defaults (a card with D0-D7 only).
+        uint16_t dack_read_word(bool tc) override
+        {
+            if (!words)
+                return Device::dack_read_word(tc);
+            tcs.push_back(tc);
+            widths.push_back(2);
+            const uint8_t lo = next();
+            return static_cast<uint16_t>(next() << 8 | lo);
+        }
+        void dack_write_word(uint16_t data, bool tc) override
+        {
+            if (!words)
+                return Device::dack_write_word(data, tc);
+            widths.push_back(2);
+            tcs.push_back(tc);
+            sent.push_back(static_cast<uint8_t>(data));
+            sent.push_back(static_cast<uint8_t>(data >> 8));
+        }
+        std::deque<uint8_t> fifo;
+        std::vector<uint8_t> sent;
+        std::vector<bool> tcs;
+        std::vector<int> widths; ///< per grant: 1 a byte, 2 a word
+        uint8_t next()
+        {
             const uint8_t v = fifo.empty() ? 0xEE : fifo.front();
             if (!fifo.empty())
                 fifo.pop_front();
             return v;
         }
-        void dack_write(uint8_t data, bool tc) override
-        {
-            tcs.push_back(tc);
-            sent.push_back(data);
-        }
-        std::deque<uint8_t> fifo;
-        std::vector<uint8_t> sent;
-        std::vector<bool> tcs;
         int want{-1}; ///< force the request: 1 on, 0 off, -1 = while the FIFO has data
+        bool words{true}; ///< the card's register takes words
     };
 
     /// 64 KB of RAM, the controller at $C400, and a card on module 7 (channel 0's CARD at reset), wired to
@@ -264,7 +293,7 @@ TEST(card_resets_to_todays_wiring)
         CHECK_EQ(r.at(n, DmaController::CARD), 0x1F); // MODULE and WIDE; bits 7-5 read 0
     }
     r.card_of(0, DmaController::WIDE | 0x7);
-    CHECK_EQ(r.at(0, DmaController::CARD), 0x17);     // WIDE stored and read back (it does nothing until B4)
+    CHECK_EQ(r.at(0, DmaController::CARD), 0x17);     // WIDE stored and read back (what it does: the WIDE cases below)
     r.dma.reset();
     for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
         CHECK_EQ(r.dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
@@ -836,11 +865,324 @@ TEST(timers_and_the_cpu_clock_run_through_dma_cycles)
     CHECK_EQ(r.bus.now(), before + 22);
 }
 
+// 16-bit transfers (step B4, hw/design.md "16-bit transfers"): CARD's WIDE moves a word a transfer where the rules
+// allow. COUNT stays in bytes; a word costs what a byte does.
+
+namespace
+{
+    constexpr uint8_t WIDE_NONE = DmaController::WIDE | DmaController::CARD_NONE; ///< CARD $18
+    constexpr uint8_t WIDE_SD = DmaController::WIDE | 0x7;                         ///< CARD $17: the test card
+
+    void fill(Ram &ram, uint32_t at, uint32_t n, uint8_t seed)
+    {
+        for (uint32_t i = 0; i < n; ++i)
+            ram.write(at + i, static_cast<uint8_t>(i * 13 + seed));
+    }
+    /// The bytes at `dest` differing from those at `src`, `n` of each.
+    size_t differ(Ram &ram, uint32_t src, uint32_t dest, uint32_t n)
+    {
+        size_t d = 0;
+        for (uint32_t i = 0; i < n; ++i)
+            d += ram.peek(src + i) != ram.peek(dest + i);
+        return d;
+    }
+} // namespace
+
+TEST(wide_memory_to_memory_moves_a_word_in_two_cycles)
+{
+    // Must fail with WIDE ignored (1 + 4,096): the flip-flop not wired to the transfer logic.
+    Rig r;
+    fill(r.ram, 0x1000, 0x800, 5);
+    r.on();
+    r.card_of(3, WIDE_NONE);
+    r.channel(3, 0x1000, 0x800, DmaController::MEM_TO_MEM, 0x4000);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2048);
+    CHECK_EQ(differ(r.ram, 0x1000, 0x4000, 0x800), size_t{0});
+    CHECK_EQ(r.bus.peek(STATUS), 0x08);
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::CTRL), 0x00); // done: ENABLE and REQ clear
+}
+
+TEST(wide_odd_head_and_last_bytes_move_as_bytes)
+{
+    // A word only at an even address with two bytes left: from an odd ADDR, count 6, a byte, two words, a byte;
+    // TC on the last grant whatever its width. Must fail with a word taken at an odd address, or TC compared
+    // with 1 (a byte-only TC comparator: a card on a WIDE channel never sees TC, so its job never ends).
+    Rig r;
+    r.on();
+    r.card_of(0, WIDE_SD);
+    r.card.fifo = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+    r.channel(0, 0x5001, 6, DmaController::DEMAND | DmaController::TO_MEMORY);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 4);                     // takeover, poll, four grants
+    CHECK(r.card.widths == (std::vector<int>{1, 2, 2, 1}));
+    CHECK(r.card.tcs == (std::vector<bool>{false, false, false, true}));
+    for (uint32_t i = 0; i < 6; ++i)
+        CHECK_EQ(r.ram.peek(0x5001 + i), static_cast<uint8_t>(0x11 * (i + 1)));
+    CHECK_EQ(r.ram.peek(0x5000), 0x00);
+    CHECK_EQ(r.ram.peek(0x5007), 0x00);
+    CHECK_EQ(r.bus.peek(STATUS), 0x01);
+
+    r.card.widths.clear();
+    r.card.tcs.clear();
+    r.card.fifo = {0xA1, 0xA2, 0xA3, 0xA4};
+    r.channel(0, 0x6000, 4, DmaController::DEMAND | DmaController::TO_MEMORY);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 2);
+    CHECK(r.card.widths == (std::vector<int>{2, 2}));
+    CHECK(r.card.tcs == (std::vector<bool>{false, true}));
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(r.ram.peek(0x6000 + i), static_cast<uint8_t>(0xA1 + i));
+}
+
+TEST(dec_and_hold_move_bytes_under_wide)
+{
+    // B0 review round 1's Q10: WIDE moves bytes with DEC or HOLD. Must fail if WIDE is honoured under DEC (the
+    // pairs reversed) or HOLD (every other byte of a fill taken from the byte after the source).
+    auto copy = [](uint8_t card, uint8_t mode, uint32_t src, uint32_t dest, uint32_t n, Ram &out) {
+        Rig r;
+        fill(r.ram, 0x1000, 0x40, 9);
+        r.on();
+        r.card_of(3, card);
+        r.channel(3, src, n, static_cast<uint8_t>(DmaController::MEM_TO_MEM | mode), dest);
+        r.arm(3, DmaController::ENABLE | DmaController::REQ);
+        const unsigned cycles = r.cpu_cycle();
+        for (uint32_t i = 0; i < 0x10000; ++i)
+            out.write(i, r.ram.peek(i));
+        return cycles;
+    };
+    Ram plain{0x10000}, wide{0x10000};
+    CHECK_EQ(copy(DmaController::CARD_NONE, DmaController::DEC, 0x101F, 0x201F, 16, plain), 1u + 2 * 16);
+    CHECK_EQ(copy(WIDE_NONE, DmaController::DEC, 0x101F, 0x201F, 16, wide), 1u + 2 * 16);
+    size_t d = 0;
+    for (uint32_t i = 0; i < 0x40; ++i)
+        d += plain.peek(0x2000 + i) != wide.peek(0x2000 + i);
+    CHECK_EQ(d, size_t{0});
+    CHECK_EQ(wide.peek(0x2010), plain.peek(0x1010));     // the bytes where they belong
+    CHECK_EQ(wide.peek(0x201F), plain.peek(0x101F));
+    CHECK_EQ(wide.peek(0x200F), 0x00);                   // and none past the count
+
+    CHECK_EQ(copy(WIDE_NONE, DmaController::HOLD, 0x1000, 0x3000, 16, wide), 1u + 2 * 16); // a fill
+    for (uint32_t i = 0; i < 16; ++i)
+        CHECK_EQ(wide.peek(0x3000 + i), wide.peek(0x1000));
+
+    Rig r;                                               // a fly-by with DEC, and one with HOLD
+    r.on();
+    r.card_of(0, WIDE_SD);
+    r.card.fifo = {1, 2, 3, 4};
+    r.channel(0, 0x5008, 4, DmaController::DEMAND | DmaController::TO_MEMORY | DmaController::DEC);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 4);
+    CHECK(r.card.widths == (std::vector<int>{1, 1, 1, 1}));
+    CHECK_EQ(r.ram.peek(0x5008), 1);
+    CHECK_EQ(r.ram.peek(0x5005), 4);
+    r.card.widths.clear();
+    r.card.fifo = {7, 8, 9, 10};
+    r.channel(0, 0x5100, 4, DmaController::DEMAND | DmaController::TO_MEMORY | DmaController::HOLD);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 4);
+    CHECK(r.card.widths == (std::vector<int>{1, 1, 1, 1}));
+    CHECK_EQ(r.ram.peek(0x5100), 10);                    // the last byte held there
+    CHECK_EQ(r.ram.peek(0x5101), 0x00);
+}
+
+TEST(memory_to_memory_parity_decides_the_width)
+{
+    // The latch keeps each byte on its lane, so a word moves only between addresses of one parity. Must fail with
+    // the parity check dropped: a latch pairing the source's bytes on the wrong destination lanes, a shifted copy.
+    auto copy = [](uint32_t src, uint32_t dest, unsigned want) {
+        Rig r;
+        fill(r.ram, 0x1000, 0x40, 3);
+        r.on();
+        r.card_of(3, WIDE_NONE);
+        r.channel(3, src, 16, DmaController::MEM_TO_MEM, dest);
+        r.arm(3, DmaController::ENABLE | DmaController::REQ);
+        CHECK_EQ(r.cpu_cycle(), want);
+        CHECK_EQ(differ(r.ram, src, dest, 16), size_t{0});
+        CHECK_EQ(r.ram.peek(dest - 1), 0x00);
+        CHECK_EQ(r.ram.peek(dest + 16), 0x00);
+    };
+    copy(0x1000, 0x2000, 1 + 2 * 8);         // even to even: 8 words
+    copy(0x1001, 0x2001, 1 + 2 * (1 + 7 + 1)); // odd to odd: a byte, 7 words, a byte
+    copy(0x1000, 0x2001, 1 + 2 * 16);        // even to odd: bytes
+    copy(0x1001, 0x2000, 1 + 2 * 16);        // odd to even: bytes
+}
+
+TEST(wide_steps_count_by_2_and_addr_and_dest_by_2)
+{
+    // BURST 0, one transfer a take: COUNT down 2, ADDR and DEST up 2 a word; $FFFFFE + 2 wraps to 0; AUTO
+    // reloads and MODE.IRQ pulls the line at the terminal count. Must fail with step() by 1 under WIDE (every
+    // other byte written twice), or the wrap at $FFFFFF.
+    Rig r;
+    Ram top{0x10000};
+    r.bus.map({0xFF0000, 0xFFFFFF, &top});
+    fill(r.ram, 0x1000, 6, 1);
+    r.on(0x01);                                          // master on, BURST 0
+    r.card_of(3, WIDE_NONE);
+    r.channel(3, 0x1000, 6, DmaController::MEM_TO_MEM | DmaController::AUTO | DmaController::IRQ, 0x2000);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    for (unsigned take = 1; take <= 3; ++take)
+    {
+        CHECK_EQ(r.cpu_cycle(), 3u);                     // takeover, a word's read and write
+        if (take < 3)
+        {
+            CHECK_EQ(r.dma.peek_channel(3, DmaController::COUNT), 6 - 2 * take);
+            CHECK_EQ(r.dma.peek_channel(3, DmaController::ADDR), 2 * take);         // $1000 + 2 x take, low byte
+            CHECK_EQ(r.dma.peek_channel(3, DmaController::DEST), 2 * take);
+            CHECK_EQ(r.dma.peek_channel(3, DmaController::ADDR + 1), 0x10);
+            CHECK(!r.bus.irq());
+        }
+    }
+    CHECK_EQ(differ(r.ram, 0x1000, 0x2000, 6), size_t{0});
+    CHECK_EQ(r.bus.peek(STATUS), 0x08);
+    CHECK(r.bus.irq());                                  // MODE.IRQ at the terminal count
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::COUNT), 6);                       // AUTO reloaded
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::ADDR), 0x00);
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::DEST), 0x00);
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::CTRL), DmaController::ENABLE);    // still armed
+
+    top.write(0xFFFE, 0xC1);
+    top.write(0xFFFF, 0xC2);
+    r.ram.write(0x0000, 0xC3);
+    r.ram.write(0x0001, 0xC4);
+    r.channel(3, 0xFFFFFE, 4, DmaController::MEM_TO_MEM, 0x3000);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::ADDR + 2), 0x00); // wrapped: $000000
+    CHECK_EQ(r.dma.peek_channel(3, DmaController::ADDR), 0x00);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.ram.peek(0x3000), 0xC1);
+    CHECK_EQ(r.ram.peek(0x3001), 0xC2);
+    CHECK_EQ(r.ram.peek(0x3002), 0xC3);
+    CHECK_EQ(r.ram.peek(0x3003), 0xC4);
+}
+
+TEST(a_byte_only_card_on_a_wide_channel_floats_the_odd_bytes)
+{
+    // The documented misuse (hw/design.md, "16-bit transfers"): WIDE on a channel whose card has D0-D7 only. Each
+    // word grant is one access of its register; D8-D15 float to memory and the odd bytes from memory are lost.
+    // Must fail if the default word hooks moved two bytes, hiding the misuse.
+    Rig r;
+    r.card.words = false;
+    r.on();
+    r.card_of(0, WIDE_SD);
+    r.card.fifo = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38};
+    r.channel(0, 0x5000, 8, DmaController::DEMAND | DmaController::TO_MEMORY);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 4);
+    for (uint32_t i = 0; i < 4; ++i)
+    {
+        CHECK_EQ(r.ram.peek(0x5000 + 2 * i), static_cast<uint8_t>(0x31 + i));
+        CHECK_EQ(r.ram.peek(0x5001 + 2 * i), 0xFF);
+    }
+    CHECK_EQ(r.card.fifo.size(), size_t{4});             // half the card's bytes still there
+    CHECK(r.card.tcs.back());
+
+    fill(r.ram, 0x6000, 8, 0);
+    r.card.want = 1;
+    r.channel(0, 0x6000, 8, DmaController::DEMAND | DmaController::TO_CARD);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 2u + 4);
+    REQUIRE(r.card.sent.size() == 4u);
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(r.card.sent[i], r.ram.peek(0x6000 + 2 * i)); // the even bytes only
+}
+
+TEST(single_mode_under_wide_is_3_cycles_a_word)
+{
+    // The takeover, the poll, the word. Must fail if the word is split into two grants (5 or 6 cycles).
+    Rig r;
+    r.on();
+    r.card_of(0, WIDE_SD);
+    r.card.fifo = {0x41, 0x42, 0x43, 0x44};
+    r.channel(0, 0x5000, 4, DmaController::SINGLE | DmaController::TO_MEMORY);
+    r.arm(0);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK_EQ(r.ram.peek(0x5000), 0x41);
+    CHECK_EQ(r.ram.peek(0x5001), 0x42);
+    CHECK_EQ(r.dma.peek_channel(0, DmaController::COUNT), 2);
+    CHECK_EQ(r.cpu_cycle(), 3u);
+    CHECK(r.card.widths == (std::vector<int>{2, 2}));
+    CHECK_EQ(r.bus.peek(STATUS), 0x01);
+}
+
+TEST(burst_counts_transfers_under_wide)
+{
+    // The owner's Q1: BURST counts transfers, a byte or a word, so the CPU's longest wait is the same number of
+    // cycles with or without WIDE. Must fail with the bytes counted (moved += width).
+    for (const unsigned burst : {0u, 1u})
+    {
+        Rig r;
+        fill(r.ram, 0x1000, 8, 2);
+        r.on(static_cast<uint8_t>(burst << 4 | DmaController::MASTER_ENABLE));
+        r.card_of(3, WIDE_NONE);
+        r.channel(3, 0x1000, 8, DmaController::MEM_TO_MEM, 0x2000);
+        r.arm(3, DmaController::ENABLE | DmaController::REQ);
+        const unsigned words = 1u << burst;              // a take: 2^BURST words
+        for (unsigned take = 0; take < 4 / words; ++take)
+            CHECK_EQ(r.cpu_cycle(), 1u + 2 * words);     // the CPU gets its cycle between
+        CHECK_EQ(r.cpu_cycle(), 0u);                     // done
+        CHECK_EQ(differ(r.ram, 0x1000, 0x2000, 8), size_t{0});
+    }
+}
+
+TEST(the_observer_sees_one_cycle_per_word)
+{
+    // An emulator-model check, as test_decoder's: the Console card on the board sees one bus cycle a word (the
+    // owner's Q7), so the observer must too. Must fail if the decoder reports each byte (32).
+    struct Watch : CycleObserver
+    {
+        void on_cycle(const BusCycle &c) override { seen.push_back(c); }
+        std::vector<BusCycle> seen;
+    };
+    Rig r;
+    Watch watch;
+    r.bus.set_dma_observer(&watch);
+    fill(r.ram, 0x1000, 16, 4);
+    r.on();
+    r.card_of(3, WIDE_NONE);
+    r.channel(3, 0x1000, 16, DmaController::MEM_TO_MEM, 0x2000);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 16);
+    REQUIRE(watch.seen.size() == 16u);
+    unsigned reads = 0, writes = 0;
+    for (size_t i = 0; i < watch.seen.size(); ++i)
+    {
+        const BusCycle &c = watch.seen[i];
+        CHECK(c.word);
+        CHECK_EQ(c.addr & 1, 0);
+        CHECK_EQ(c.addr, (c.write ? 0x2000u : 0x1000u) + 2 * (i / 2));
+        CHECK_EQ(c.data, r.ram.peek(c.addr));
+        CHECK_EQ(c.data_high, r.ram.peek(c.addr + 1u));
+        (c.write ? writes : reads) += 1;
+    }
+    CHECK_EQ(reads, 8u);
+    CHECK_EQ(writes, 8u);
+}
+
+TEST(wide_with_no_card_floats_ffff_a_word)
+{
+    // A block started by REQ on a channel serving no card moves the floating bus: $FF on both lanes, a word a
+    // cycle. Must fail with the float driven on D0-D7 only.
+    Rig r;
+    r.on();
+    r.card_of(3, WIDE_NONE);
+    r.channel(3, 0x6000, 8, DmaController::BLOCK | DmaController::TO_MEMORY);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 4);
+    for (uint32_t i = 0; i < 8; ++i)
+        CHECK_EQ(r.ram.peek(0x6000 + i), 0xFF);
+    CHECK_EQ(r.ram.peek(0x6008), 0x00);
+    CHECK_EQ(r.bus.peek(STATUS), 0x08);
+}
+
 /// 6502 code sets up channel 3 to copy 64 KB from physical $20000 to $30000
 /// with an interrupt at the end: it writes `control` to CONTROL with SELECT 3
-/// first, then the window, then waits in WAI until the interrupt wakes it.
-/// `woke` = the cycle it woke on (0: never).
-static void copy_64k_on_the_backplane(uint8_t control, uint64_t &woke)
+/// first, then `card` to CARD if it is given (the default writes nothing, so
+/// the program is byte for byte what it was before B4), then the window, then
+/// waits in WAI until the interrupt wakes it. `woke` = the cycle it woke on
+/// (0: never).
+static void copy_64k_on_the_backplane(uint8_t control, uint64_t &woke, int card = -1)
 {
     std::string error;
     auto m = Machine::build("cpu w65c02s\n"
@@ -857,8 +1199,12 @@ static void copy_64k_on_the_backplane(uint8_t control, uint64_t &woke)
     for (uint32_t i = 0; i < 0x10000; ++i)
         ram->write(0x20000 + i, static_cast<uint8_t>(i * 7));
     const uint8_t sel3 = static_cast<uint8_t>(control | 3 << DmaController::SELECT_SHIFT);
-    const std::vector<uint8_t> prog = {
+    std::vector<uint8_t> prog = {
         0xA9, sel3, 0x8D, 0x7E, 0xC4, // LDA #control|SELECT 3; STA CONTROL
+    };
+    if (card >= 0) // LDA #card; STA CARD
+        prog.insert(prog.end(), {0xA9, static_cast<uint8_t>(card), 0x8D, 0x0C, 0xC4});
+    prog.insert(prog.end(), {
         0xA9, 0x00, 0x8D, 0x00, 0xC4, // LDA #$00; STA ADDR lo
         0x8D, 0x01, 0xC4,             //           STA ADDR mid
         0xA9, 0x02, 0x8D, 0x02, 0xC4, // LDA #$02; STA ADDR hi     source $20000
@@ -873,7 +1219,7 @@ static void copy_64k_on_the_backplane(uint8_t control, uint64_t &woke)
         0xAD, 0x89, 0xC6,             // LDA IRQH: bit 0 low = the DMA (module 8)
         0x85, 0x10,                   // STA $10
         0xDB,                         // STP
-    };
+    });
     for (size_t i = 0; i < prog.size(); ++i)
         bus.poke(static_cast<uint16_t>(0x0200 + i), prog[i]);
     bus.reset();
@@ -918,6 +1264,17 @@ TEST(a_one_byte_burst_copy_runs_while_the_cpu_waits)
     uint64_t woke = 0;
     copy_64k_on_the_backplane(0x01, woke);
     CHECK(woke > 4 * 65536 - 200 && woke < 4 * 65536 + 200);
+}
+
+TEST(a_wide_64k_copy_on_the_backplane_takes_9_ms)
+{
+    // As the 18 ms copy, with CARD $18 (WIDE, no module) on channel 3: 1 cycle to take the bus + 2 a word =
+    // 65,537 cycles, 9.15 ms at 7.16 MHz, the data identical and IRQH $FE (the helper checks both). Must fail with
+    // WIDE ignored (131,073).
+    uint64_t woke = 0;
+    copy_64k_on_the_backplane(0x71, woke, DmaController::WIDE | DmaController::CARD_NONE);
+    std::printf("  the WIDE 64 KB copy woke the CPU at cycle %llu\n", static_cast<unsigned long long>(woke));
+    CHECK(woke > 65537 && woke < 65537 + 200);
 }
 
 int main()
