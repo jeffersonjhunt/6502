@@ -59,8 +59,9 @@ Status: **proposed**
 The slots take the 98-contact card edge that PCIe x8 uses, 49 contacts a side, but the bus is the OO-1's own:
 each slot is shrouded and keyed so that no other card fits. The backplane carries 5 V only, and a card that needs
 another voltage makes it on the card. There are about 15 slots, one for each card that can exist and the CPU card,
-on a passive bus at 7.16 MHz. The pull-ups are on the backplane, so an empty slot leaves every line in a known
-state.
+on a passive bus at 7.16 MHz. The pull-ups are on the backplane, so an empty slot leaves its lines in a known
+state, and a cycle that no master drives, as one master hands the bus to another with BE, is a read that selects
+no memory, no card's registers (PS0–PS3 are pulled up to `0xF`, a free ID) and no poll.
 
 The signals are decided; where each sits is not. [hw/modules.md](../../hw/modules.md) has a draft pin-out (67 lines,
 6 +5 V contacts, 23 grounds and 2 spares), every position in it open; the positions, the socket and the shroud's

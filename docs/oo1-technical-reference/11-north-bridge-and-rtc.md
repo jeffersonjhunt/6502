@@ -450,7 +450,7 @@ R. Reading brings every card up to date first, so the poll is as of this cycle.
 |---|---|---|
 | 7 | ID 7 | 0: the mass storage card (the SD card) is interrupting |
 | 6 | ID 6 | 0: the serial card, the 6551 or the VIA, is interrupting |
-| 5–0 | IDs 5–0 | RAM and ROM: never interrupt, read 1 |
+| 5–0 | IDs 5–0 | free (no card: memory answers by its address, [chapter 2](02-memory-and-banking.md#the-24-bit-bus)); read 1 |
 
 #### Reset
 
