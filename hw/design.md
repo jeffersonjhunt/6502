@@ -263,7 +263,9 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
   the cartridge (`$84000`) before entering the mode, or builds from the VGA font when there is none. It is the IIe
   video ROM's first 2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, a dot lit where its bit is 0. **Proposed**
   ([video-rev2.md](video-rev2.md), [below](#video-card-revision-2)): on video card revision 2 it is in the card's own memory at `$1E0000`, which
-  BIOS 0.13's `C806R` writes through the card's data port.
+  BIOS 0.13's `C806R` writes through the card's data port. *As built (B5, BIOS 0.16, [below](#b5-as-built)):* from
+  the image's own set *n* in ROM A (`$10000 + $2000 × n`), not the cartridge's `$84000`, or the VGA font with that
+  set erased.
 - **Apple colours:** the 16 lo-res colours (and hi-res's violet, green, blue, orange and white among them) are the
   usual NTSC approximations, rounded to the card's 12 bits. Hi-res colour is the simple artifact rule: a lone dot
   takes its column's colour, two together are white, and a gap between two dots of one colour takes it; no NTSC
@@ -397,17 +399,23 @@ with up to 16 MB, so the reasoning isn't lost.
    image isn't copied at boot: `$C806` (Apple II mode, below) copies it from the cartridge into bank E (`$EC000`)
    each time Apple mode starts, so native mode may use bank E as RAM.
    **Proposed (B0):** on the new bus it copies from ROM A's blocks 0–3 instead, and ROM B is for games only
-   ([the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b)).
+   ([the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b)). *As built (B5, BIOS 0.16, [below](#b5-as-built)):*
+   `$C806` takes the first good image of the four, and the dispatching entry `$C818`'s function `$A1` image A.
 5. From then on the system software runs from RAM. That's the "top of RAM" requirement. It also leaves the flash
    free to be reprogrammed while the machine runs, and keeps a turbo mode possible.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
+   *As built (B5, [below](#b5-as-built)):* ROM A is two SST39SF020A parts, even and odd bytes
+   ([the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b)), emulated with their command sequences; the BIOS's
+   flash update writes only the IIe images and sets, blocks 0–5, never the BIOS itself, which a programmer writes
+   from the build's `bios-even.rom` and `bios-odd.rom`.
 7. *(Emulator BIOS 0.3.)* The BIOS turns on an 80x30 text screen: an 8x16 font from flash block 30, a 16-colour
    palette, and layer 0 in video memory, so the monitor shows on VGA as well as the serial line. It starts with
    fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(Proposed 2026-10-31.)* Before the
    text screen, it starts the [boot splash](#boot-splash) and its sound, which run for 5 s on their own; the
    serial line has the monitor at once. *(BIOS 0.4.)* The monitor takes keys
    from the serial line or the USB keyboard, and Pause/Break breaks into it. *(BIOS 0.5.)* `$C806` enters Apple II
-   mode, with the IIe ROM image taken from the cartridge (ROM B). *(BIOS 0.7, proposed.)* The SD card: `$C809`
+   mode, with the IIe ROM image taken from the cartridge (ROM B; from ROM A's images since BIOS 0.16, B5).
+   *(BIOS 0.7, proposed.)* The SD card: `$C809`
    lists the card's root directory, and `$C80C` boots from it. The boot mounts `/BOOT.BIN` as unit 1, reads it to
    `$1000` by DMA channel 0 (at most 88 sectors, `$1000–$BFFF`) and calls it, so a program that returns comes back
    to the monitor. `$C80F` is ECHO, for programs to print with. *(BIOS 0.8.)* The boot puts windows 0–2 back on
@@ -448,7 +456,7 @@ with up to 16 MB, so the reasoning isn't lost.
    ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
 
    *(BIOS 0.14, 2026-11-14: [diag.md](diag.md), plan 2.)* The ROM's diagnostics are in flash blocks
-   21–23 (blocks 0–20 stay erased), entered three ways. Before its copy into block 63, with the Console card
+   21–23 (blocks 0–20 stay erased; since B5, 0–5 hold the IIe images and sets), entered three ways. Before its copy into block 63, with the Console card
    fitted (its ID read twice), the reset turns the breakpoint off if BPADDR holds the diagnostics' own P3 address
    (`$BD1A5`), and only then, so a breakpoint set before START still catches the boot anywhere else; and with
    switch 19 up, and block 23 holding the diagnostics linked with this BIOS (their signature, their version, and
@@ -1597,7 +1605,9 @@ today; only where the card keeps its copy and the character ROM changes:
   used. The timing is unchanged: 640×480 out, 560×384 centred, `$C019` in Apple timing.
 
 **Proposed (B0): on the new bus** the mode works as it does today; `$C806` takes the IIe image from ROM A's blocks
-0–3, and the steps are checked one by one in [the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b).
+0–3, and the steps are checked one by one in [the flash: ROM A and ROM B](#the-flash-rom-a-and-rom-b). *As built
+(B5, BIOS 0.16, [below](#b5-as-built)):* so it does; the copy, the fills, MODE and /RESET are unchanged, and only the
+image's and the set's sources moved.
 
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
@@ -2082,7 +2092,9 @@ same way.
   flash can't be written
   ([the Technical Reference, chapter 2](../docs/oo1-technical-reference/02-memory-and-banking.md#reprogramming-the-flash)).
   It does everything above per chip, where one SST39SF040 would take one sequence for every byte. Writing a byte at
-  offset *o* means the command sequence at the chip of *o*'s parity, then the byte, then that chip's poll.
+  offset *o* means the command sequence at the chip of *o*'s parity, then the byte, then that chip's poll. *As built
+  (B5, BIOS 0.16, [below](#b5-as-built)):* the flash is written in the emulator, and the update, from the monitor's
+  `C818R` menu, writes an image and its set a pair of bytes at a time, both chips started and then each polled.
 - **Unchanged:**
   - the block numbers, 0–31 of 16 KB, and every window value;
   - the reset block, 31, at `$DF`;
@@ -2126,12 +2138,15 @@ DMA.
 - It takes the character set from `$10000 + $2000 × n` (blocks 4–5), where it takes the cartridge's block 33 today.
 - **Function 75 gains A = 3, X = the image.** A = 2 is the DIAG launcher's (`DIAG` at `A>`, [diag.md](diag.md),
   P2-1, OODOS interface 10, being built in D3c). A = 3 is refused today ("any other A"), so this is growth. It comes
-  with the interface version after D3c's 10. APPLE2.COM takes an optional image number.
+  with the interface version after D3c's 10. The CCP's APPLE2 takes an optional image number (APPLE2 has been a
+  built-in since 2026-11-03, not a `.COM`: [B5: as built](#b5-as-built)).
 - **Function 75's own check moves** (review round 1). Before it jumps to the ROM, `F_ROM` in `oodos/sys/bdos.s`
   checks the cartridge itself: it maps `NB_ROM | NB_RO | CART_BLOCK` in W2 and tests `$FBB3`. In B5 it checks ROM
   A's image instead: the first good one for A = 1, image X for A = 3. Its X = `$FF` result keeps its meaning, no
   IIe ROM.
-- `NO APPLE IIE ROM IN THE CARTRIDGE` becomes a message that names the flash and the image.
+- `NO APPLE IIE ROM IN THE CARTRIDGE` becomes a message that names the flash and the image. *As built (B5):*
+  `NO APPLE IIE ROM IN FLASH IMAGES 0-3` from `$C806`, `NO APPLE IIE ROM IN FLASH IMAGE n` from `$C818`
+  ([B5: as built](#b5-as-built)).
 - **The emulator:** `--apple-rom` loads ROM A block 0 (or image *n*, with a number before the file), and
   `--apple-chars` loads set 0 at `$10000` (or set *n*). Both load over the BIOS's image, whose blocks 0–5 are
   erased. The WebUI's Settings row writes the same blocks, as the flash update would, and still power-cycles the
@@ -2600,7 +2615,7 @@ merges ([decisions](#the-new-bus-memory-by-address-dma-by-module-id-one-backplan
 | **B2** DMA revision 2 | revision 2's layout, ID `$82`, CARD with its reset values, ADDR and DEST 24 bits; SELECT 0–3 live, 4–7 reading `$FF` until B3; cards request by module (the poll, the grant, the release rule), the machine file's `drq=` becoming the card's module (as built: a bare `drq` flag, [as built](#b2-as-built)); revision 1 dropped; the tests above redone; the serial card's DMASTREAM when the card is modelled; the controller stretching a grant while /WAIT is low; the emulator's wait-state model (`decoder.h`: a mapping's `wait` and the bridge's `wait_states`, RDY wait states today) becomes /WAIT, seen by the CPU's cycles and by a DMA grant alike | [the migration](#the-b2-migration-revision-1-dropped): QUIET, diag.inc's QUIET, LOADRUN, PORTJOB, PORTDMA, APPLE, DMA3RUN dropped; the ID checks; D3b's stage 8 and its card stages, with revision 2's bounds | the migration: SDIO, DMAGO, C2STOP, PIECE, DMALOAD, the port copies, DEAFEN; the ID checks (function 75's included); SYSINFO's `hwname.s` | the Technical Reference's chapters 1, 5 (DMA), 9 (DMASTREAM), 10 and 13, and `docs/index/registers.json`, which quote revision 1's names (review round 2); function 75's text; [DMA registers](#dma-registers-revision-1-dropped-in-b2) here | none to the BDOS, OOLIB or the BIOS's jump tables; the controller's registers change (OODOS's alone); the serial card's grow |
 | **B3** eight channels | channels 4–7 live behind SELECT 4–7, their bits in STATUS, ABORT and REQ ([as built](#b3-as-built)) | nothing more: B2's loops already cover 0–7 | nothing more; channels 4–7 are free for later drivers | chapter 5; chapter 15's D1 count, the Technical Reference's contents | none |
 | **B4** 16-bit transfers | WIDE; word cycles on the memory and card sides; byte cycles on D0–D7 with memory steering; the cards whose data registers take words say so (the video card's 16-bit memory first; SD and sound each by their own design) ([as built](#b4-as-built)) | may set WIDE for the SD load and the screen's port copies | may set WIDE where a card takes words; no interface change | chapter 5, and each card's chapter | none |
-| **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); APPLE2.COM takes an image | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
+| **B5** the software and the books | `--apple-rom` and `--apple-chars` to ROM A blocks 0–5; the flash written, two chips, each with its command sequences and status (it ignores writes today); the WebUI's IIe ROM row writes ROM A; the Apple tests' fixtures placed there | ROM A's layout; `$C806` from ROM A, the first good image; **the dispatching entry**, designed here (foreseen by LL5), after `$C815`, with two functions: **the flash update** (the IIe images and character sets from the SD card to blocks 0–5) **and Apple II mode with A the image**; the build splits the image into even and odd files | **function 75 gains A = 3, X = the image** (A = 2 is the DIAG launcher's); `F_ROM`'s IIe check moves from the cartridge to ROM A's images (review round 1); the CCP's APPLE2 takes an image (the row said APPLE2.COM, which there isn't: [B5: as built](#b5-as-built)) | chapters 2, 3 and 13; the User's Guide's APPLE2; function 75's entry; [Boot](#boot) and [Apple II Mode](#apple-ii-mode-1) here | the ROM BIOS's new entry, the dispatching entry, with its two functions; function 75 grows (A = 3), with the OODOS interface version after D3c's 10 |
 | **B6** the pin-out | none (it models signals, not pins) | none | none | [modules.md](modules.md)'s pin-out, with /WAIT among the new lines (every card's wait states on it, RDY the controller's and the Console card's), BR0–BR2 reserved, about 15 slots, and its ID table (IDs `0x0`–`0x5` no longer RAM and ROM; `hwname.s`'s names for them with it), the Technical Reference's chapter 1 | none |
 | **B7** (new) the full 1 MB | WINnH, VECH, MAP and NB_ID `$D2` in the north bridge; AP8 as a register; the WebUI's bank 8 breakpoint check follows AP8, not `VIDEO_ID` (B1's follow-up, [as built](#b1-as-built)) | NB_ID checked; the diagnostics' stage 7 revision check (`diag22.s` 182–184) takes `$D2`; VPUTC through WIN2H `$0E`; AP8 cleared at boot with no revision 2 video card; Break sets WINnH 0, and AP8 only when `VIDEO_ID` is `$92`; the diagnostics' `DG_APER` from AP8, all 64 blocks tested with it clear, the aperture at `$E00000` | OODOS's console, `DM_VCOPY` and OSWIN by the new address; WIN1H saved, cleared and restored by `DISPATCH`, `STUB`/`STUBRET` and `CALLHOOK`/`HKBACK`, set to 0 by `WARM`, `NMI` and `ROMAPPLE`, which set AP8 only when `VIDEO_ID` is `$92` (review round 2); `bios.s`'s `PHYSOF` and `bdos.s`'s `PMAP` refuse a W1 address while WIN1H isn't 0 (review round 2); **`DM_BANK8`**; function 73's refusal; OOLIB's `GX_INIT` and `GX_BLOCK`; SYSINFO's RAM line and `hwname.s`'s `$D2` | chapters 2, 6, 11; the Programmer's Guide's chapters 5, 7, 8; hw/oodos.md, oolib.md; the note in video-rev2.md; AGENTS.md's exception (MAP) | `DM_BANK8` (function 83, operation 11); the W1 contract's WIN1H; OOLIB's version raised; the north bridge's registers grow |
 
@@ -2850,12 +2865,14 @@ programs use changed, and no ROM or OODOS byte: the BIOS stays 0.15, OODOS 0.10 
 - **Left as gaps, recorded:**
   - D1 writes and reads back each channel alone, so it can't see SELECT's top bit lost (channels 4–7 answering as
     0–3) on real hardware; the emulator's isolation case holds the emulator to it. An alias pass in D1 is a later
-    diagnostics item, needing a BIOS 0.16 (answer 3; [diag.md](diag.md#b2-dma-revision-2)).
+    diagnostics item, needing a later BIOS, 0.17 or after (answer 3; 0.16 is B5's alone, B5's answer 11;
+    [diag.md](diag.md#b2-dma-revision-2)).
   - D1's not-fitted path can no longer run on the emulator, which fits eight; B2's golden ran it (`ON 4 CHANNELS`)
     and B3 changes none of its bytes (answer 4).
   - A program's channel 4–7 survives the warm boot: DEAFEN clears its MODE's IRQ bit (and its terminal count, if that
     interrupt was on) but doesn't abort it (answer 10). Break recovers it (QUIET aborts all eight); an ABORT of 4–7
-    in DEAFEN or the warm boot is for OODOS's next release, an OODOS byte change outside B3.
+    in DEAFEN or the warm boot is for OODOS's next release, an OODOS byte change outside B3. *Done in B5 (its U9,
+    [B5: as built](#b5-as-built)):* the warm boot aborts channels 4–7 and zeroes their counts before DEAFEN.
 - **Not changed:** the WebUI and the WASM bindings (no DMA panel yet, B2's answer 10); `hw/diag.md`'s plan-era sample
   screen and `oolib.md`'s L-phase inventories of four channels (answers 7 and 8); no site release of B3's own
   (answer 9).
@@ -2941,14 +2958,16 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
     so each word grant moves one byte; a boot or a sector read puts the sector's first 256 bytes at the even
     addresses, `$FF` in each odd one, and leaves the other 256 in the card, and a sector write hands the card 256 of its 512 bytes before TC (answer 11). Break recovers it, since QUIET writes
     every CARD whole; OODOS's warm boot (DEAFEN) doesn't. OODOS's next release writes CARD back in its warm boot,
-    with B3's ABORT of channels 4–7.
+    with B3's ABORT of channels 4–7. *Done in B5 (its U9, [B5: as built](#b5-as-built)):* the warm boot puts every
+    channel's CARD back to its reset module, WIDE off, with that ABORT, so a WIDE left on channel 0 is cleared at
+    the next `A>`.
   - No diagnostic sees D8–D15 (answer 8): the CPU and every byte cycle use D0–D7, so a fault there is harmless while
-    no software sets WIDE. A word pass is a later diagnostics item, with BIOS 0.16: a WIDE copy of one parity checked
+    no software sets WIDE. A word pass is a later diagnostics item, with a later BIOS (0.17 or after): a WIDE copy of one parity checked
     by the CPU, in D3, and a word reading beside SD4's if the SD card takes words
     ([diag.md](diag.md#b4-16-bit-transfers)).
 - **Later** (answer 6): software adopting WIDE where a card takes words, PORTJOB's scroll jobs, PORTDMA, PORTRUN and
   VBWORK through the port, DMAGO's copies of one parity, and LOADRUN and SDIO only once the SD card takes words. It
-  ships as BIOS 0.16, with B3's D1 alias pass and the word pass, and OODOS's next release, with B3's ABORT of 4–7,
+  ships as a later BIOS (0.17 or after; 0.16 is B5's alone), with B3's D1 alias pass and the word pass, and OODOS's next release (B3's ABORT of 4–7 is in B5's warm boot already),
   writing CARD whole at each setup and re-measuring `DM_LOAD`, the frame costs, `DM_VWRITE` and SD4. The Console
   card's lights and latch widened to 16 bits is later Console card work.
 - **Left for B7:** [video-rev2.md](video-rev2.md) is frozen and not touched. The note B7 adds (B0's answer 7) is to
@@ -2963,12 +2982,145 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
   contents; [diag.md](diag.md#b4-16-bit-transfers); `emulator/docs/`
   (EMULATOR_PLAN.md, BUS_TRACE.md).
 
+#### B5: as built ####
+
+**Proposed, emulated (2026-11-16).** Step B5, the software and the books, on `feat/bus-b5` off main `c5c86d0` (B4's
+merge), with the owner's answers to its plan (Q1–Q15 "recommendations as listed", and Q16–Q19), the critic's twenty
+findings, and the owner's answers at three build stops (U5, HW_CLOCK, U7). The ROM BIOS is 0.16, B5's alone
+(answer 11). OODOS's interface goes from 10 to 11 (function 75's A = 3); OODOS stays 0.10 until the site release
+that carries B5, which makes it 0.11 (answer 10), so the books' "since OODOS 0.11" is true from that release. Every
+interface only grows: the jump table gains its ninth entry, function 75 an argument, and nothing existing changes.
+
+- **The flash, emulated** (answer 2; `flash.h`, `flash.cpp`, new). A `flash` machine-file line is two chips side by
+  side, even and odd bytes, each with its own command decoder at its chip addresses `$5555` and `$2AAA` (A0–A14
+  compared): program a byte (the new byte the old AND the data), sector erase (4 KB of a chip, 8 KB of the flash),
+  chip erase, software ID (`$BF` the maker's, `$B6` the part's, at chip addresses 0 and 1, until `$F0`). A chip keeps
+  its place in a sequence until its next write, with no time-out and no reset pin (critic 3), so one left after
+  `$A0` programs the next write wherever it lands. Busy times are the SST39SF020A's typical ones as bus cycles at the
+  CPU clock (the Session tells each Flash the clock, as it tells the other timed cards): program 14 µs = 101
+  cycles, sector erase 18 ms = 128,864, chip erase 70 ms = 501,137 at 7,159,090 Hz. While busy a chip ignores
+  writes and reads give its status (bit 7 the inverse of the byte's, 0 in an erase, bit 6 toggling a read, bits 0–5
+  the array's); `peek()` doesn't toggle; the other chip works on. The change lands in the array when the operation
+  starts (a simplification: a real part interrupted leaves a half-done byte), and there is no wear and no word
+  buffer. Test-only hooks under `EMU_FAULT_HOOKS`, in the Flash itself (critic 14): a byte that won't program and
+  longer busy times. `rom_override` takes the first `rom` or `flash` line. `backplane.machine`'s ROM A became a
+  `flash` line in U1 and ROM B in U3 (the owner's answer 7 at the U5 stop), both `name=` kept; `Rom` is unchanged,
+  so the Apple-1's ROM still ignores writes.
+- **The IIe images in ROM A** (the owner's B0 answers 1–2). Image *n* is ROM A block *n* (0–3), set *n* 8 KB at
+  `$10000 + $2000 × n` (blocks 4–5); `backplane.inc` gains `IIE_IMAGES` (4) and `IIE_CHARS_BLOCK` (4), and
+  `CART_BLOCK` stays as ROM B's first block. `--apple-rom [N=]FILE[,FILE]` and `--apple-chars [N=]FILE` (answer 6,
+  critic 9): N one digit and `=`, image 0 without, halves adding up within an image as before, a set given twice
+  refused, `dir/x=y.rom` a path. The loader checks every size first, erases each slot, then writes.
+  `MachineOptions::apple_rom` and `apple_chars` are image 0's, so every suite places its fixture as before.
+- **`$C806`** takes the first good image (`$06` at its `$FBB3`; FINDIMG, the image's number at zero page `$08`,
+  critic 7), with that image's own set, or the VGA font with that set erased, never set 0's. With none:
+  `NO APPLE IIE ROM IN FLASH IMAGES 0-3` (Q17), W1 back on 1. The copy, the fills, MODE and /RESET are unchanged
+  ([Apple II mode holds as](#the-flash-rom-a-and-rom-b)); the Technical Reference's chapter 13 changed only in the
+  places answer 15 listed.
+- **The dispatching entry, `$C818`** (answer 1; `bios.s`, ROMCALL). The ninth JMP, after which no entry is added;
+  START and the code after it moved 3 bytes, which nothing names by address. A program asks with Y = `$5A` and X =
+  `$A0` + the function, A its argument. `$A1` is Apple II mode with image A (apple.s's APPLEN, sharing `$C806`'s
+  checks and copy): A over 3 returns, carry set; image A not good says `NO APPLE IIE ROM IN FLASH IMAGE n` and goes
+  to the monitor. `$A0`, the flash update, is the menu's alone in B5 (Q18): with the token it returns carry set, as
+  `$A2–$AF` do, A, X, Y and the windows as they were. Without the token (a typed `C818R` leaves X 0) a menu of one
+  line, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR` (critic 17), which never returns.
+  **The row's correction (Q14):** `$C818`, "the next after `$C815`", was START on BIOS 0.15, so a call there
+  restarted the machine; hence OODOS's gate, below.
+- **The flash update** (answer 4, Q16, Q18, Q19; `flash.s`, new, in block 31's FLASH segment, and `sd.s`'s SDLOAD,
+  placed after its messages so the books' listings didn't move). From `C818R`, `F`: the image asked for, 0–3;
+  `/APPLE2En.ROM` (16,384 bytes, needed) and `/APPLE2En.CHR` (4 or 8 KB, optional) read by the CPU from the card's
+  root into RAM blocks 59 and 58, their sizes the root listing's, not the sectors' (critic 8); size and `$FBB3`
+  checked before anything is erased; `WRITE FLASH IMAGE n (Y/N)?`; each chip put back to reading (`$FF` then `$F0`,
+  critic 3); the image's four sector erases and the set's two; every pair but the commit bytes programmed, a byte
+  started in each chip and then each polled at its own parity (Q16, the design's order); a verify through a
+  read-only window; the commit bytes (the set's first 8, then the image's `$FBB3` last of all); the verify again. A
+  mismatch (`FLASH IMAGE n NOT WRITTEN AT $Fxxxxx`) or a chip that doesn't answer in 65,536 reads (`THE FLASH
+  DOESN'T ANSWER`) erases image and set again. It runs QUIET with interrupts off and sets every window itself however
+  entered (Q18, critic 12). Every flash write goes through FPUT, which refuses at run time any W1 value but
+  `NB_ROM | 0–5` (`THE FLASH UPDATE REFUSED BLOCK $bb`, critic 4), and an `.assert` holds the arithmetic at build;
+  no chip erase is ever sent. Zero page `$10–$21` and `$0280–$029A` are its own; sd.s's zero page grew to
+  `$F0–$FB`. One image and its 8 KB set take 1.48 s at 7.16 MHz in the emulator. The build writes `bios-even.rom`
+  and `bios-odd.rom` (`romsplit.py`, in the Makefile and `emulator/cmake/roms.cmake`, critic 1).
+- **OODOS** (answers 3, 7, 8, 12, Q17). Function 75's A = 1 looks where the running ROM BIOS's `$C806` looks: NEWROM
+  reads cold.s's ROMVER, the major first (above 0 passes), then the minor (16 or more), `$FF $FF` counting as old
+  (critic 18); from 0.16 the first good image of ROM A's four, before it the cartridge exactly as before. **A = 3**,
+  X the image, goes through `$C818`/`$A1`, with A = 1's card and DMA checks; X of 4 or more gives A = X = `$FF` and a
+  ROM BIOS before 0.16 A = `$FF`, X = `$FB`, both before anything is written back; image X not good A = X = `$FF`
+  after the write-back. The CCP's **`APPLE2 [n]`** (in RES2; any other tail the command and `?`) and its messages:
+  `No IIe ROM in the flash (the emulator: Settings, ROMs)`, `No IIe ROM in flash image n (the emulator: Settings,
+  ROMs)`, `No IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)` under an older ROM BIOS (by
+  function 77, the same gate), and `APPLE2 n needs ROM BIOS 0.16 or later`. `OOLIB_IFACE` is 11. The demo card's
+  README says `APPLE2 [n]`.
+- **RES didn't move** (§7 gate 2): every RES and COMMON label equal to main's on `oodos.map`, normal and DEBUG builds
+  (471 and 479 labels), COMMON byte-identical. The old APPLE2's 39 bytes of code and 59 of message in RES keep their
+  size, holding three of the new messages and `$FF` filler, with `.assert`s. **ROMENTRY** (a departure, the owner's
+  answer 5 at the U7 stop): RES2's room is set by the DEBUG build (the dispatcher's counters), which a separate
+  ROMAPPN overflowed by 44 bytes, so ROMDIAG and A = 3's exit are one routine: A, X and the entry's low byte written
+  into the tramp, Y = `$5A`, a refusal's RTS a restart at `$C800` as before.
+- **The warm boot (U9, answer 12),** B3's answer 10 and B4's answer 11 carried: WBQUIET's `JSR DEAFEN` became
+  `JSR WBDMA`, the same length. WBDMA, a 19-byte stub in RES2, maps W2 as CALL61 does and calls **DMAWARM**, at the
+  end of block 61's code (`video.s`, the last of the BIOS segment, so nothing in block 61 moved; no CALL61 entry,
+  which would have moved the rest of sound.s and video.s): ABORT of channels 4–7, their counts 0, every CARD back to
+  its reset module (7, 9, A, then none) with WIDE off, the master enable and BURST kept while SELECT moves, CONTROL
+  put back whole; then DEAFEN. Checked against U6's build: every label in RES, COMMON and block 61 the same, block
+  61 byte-identical up to its old end. The gaps "B3: as built" and "B4: as built" recorded are closed.
+- **HW_CLOCK** (`backplane/oohw/hwclock.s`; the owner's answers at the U5 and HW_CLOCK stops). U5's layout read
+  7,159,342 Hz by the clock chip, outside test_oodos_sysinfo's 0.002%, which the owner kept: OODOS's millisecond
+  handler sat at every second's change, and the old pass stamped a change with the pass that saw it. Now a change
+  is stamped by the last pass before it, with a gap that brackets it (79 cycles with no interrupt), and of the six
+  pairs of its four changes HW_CLOCK keeps the one whose bigger gap over the windows between them is least. Checked
+  on U5's ROM padded by 1 to 31 bytes: the clock chip −95 to +58 cycles of 7,159,090, the frame −34 to +13
+  ([diag.md](diag.md#d3a-review), the dated B5 paragraph). The diagnostics link it, so **ROM blocks 21–22 and their
+  sums changed**; block 22's BSS (D22BSS) has 4 bytes left. SYSINFO.COM changed on both cards.
+- **The Session's kept flash (answer 5, U7).** `MachineOptions::flash_user` carries ROM A's blocks 0–5 from the
+  running machine's array (not a busy chip's status) into each build, applied after the line's image loads and
+  before any IIe slot given, so a power cycle keeps what a program's update or the row wrote, without a separate
+  Session copy (the owner's answer 3 at the U7 stop). `set_cartridge` erases image 0 and set 0 in the copy and
+  writes the row's files; images 1–3 are kept. The copy is local to the build, so a refused ROM leaves the running
+  machine and its flash as they were (critic 10). Not across a page reload, never written back to a file. Blocks
+  6–31 and ROM B are the files' again at each power cycle. The WebUI's physical reads take A0–A23 (answer 4 at the
+  U7 stop; A0–A19 before), so they reach `$F00000`. `Session::device(name)` gives a test the Flash's hooks (answer
+  4 at the U5 stop).
+- **The expectations changed, all approved:** §3.1's group A, 59 version lines (BIOS 0.15 to 0.16), and the two U2's
+  grep missed, `e2e/boot.spec.ts:48` and `panel.spec.ts:105` (the U7 stop's answer 1); group B, 16 lines (interface
+  10 to 11); §3.2's nine sites: test_bios's cartridge case renamed `rom_a_takes_…` (six sites), its two C806R message
+  lines to Q17's text, and test_oodos_utils_rom's A = 1 message; and `test_bios_diag.cpp:1251`, V3's frame window
+  `119437 + 80` either side (the HW_CLOCK stop's answer 1). No other expectation changed.
+- **New cases,** §4's 1–37 with critic 3's 1a, 23a–23c and Q17's 29b, each seen failing under its mutant: test_flash
+  (1–7), test_machine (8), test_bios (9–17, 24), test_bios_sd (18–23c), test_oodos_utils_rom (25–31), test_session
+  (32), wasm-port.test.ts (33), test_oodos_input (34, 35), test_app_debug.py (36), test_bios_diag (37: ROM A
+  byte-equal to `bios.rom` after a full run), and test_oodos_sysinfo's interrupt-after-the-last-poll case.
+  test_bios_sd took 452 s alone under ASan with the update cases, so it is split in three (`EMU_SPLIT`, TIMEOUT 300
+  kept; the U5 stop's answer 5). `make_card()` moved into `sd_images.h` (critic 2).
+- **Measured,** from U7's build (`b2b64e8`): ROM block 31 has 5,159 bytes free (`$EBCD–$FFF3`; 7,148 on main);
+  block 21 7,896, block 22 2,409 and block 23 7,917. OODOS's RES region 219 bytes free (`$F725–$F7FF`, RES2 `$316`
+  long), BDOS 1,217, COMMON 166 (unchanged). The flash's busy times and the update's 1.48 s above.
+- **The cards** were made again after each OODOS unit (U3, U6, U9) and after HW_CLOCK, with a restamp commit after
+  each (the U5 stop's answer 8): `oodos.sparse` and `demo.sparse` change in OODOS.SYS and SYSINFO.COM, the demo
+  README's line, and date stamps.
+- **For the site's release note** (answer 9; no release of B5's own, answer 10): a kept user BIOS older than 0.16
+  says `NO APPLE IIE ROM IN THE CARTRIDGE`, since ROM B is erased now; Settings' "Use built-in" fixes it. An uploaded
+  OODOS 0.10 card says `No IIe ROM in the cartridge` for the same reason; the built-in card fixes it. Kept IIe ROMs
+  in the browser restore into ROM A unchanged. No compatibility copy goes into ROM B.
+- **Left for later:** the D8–D15 word pass, B3's D1 alias pass and the WIDE adoption, with a later BIOS (0.17 or
+  after) and OODOS's next release (answer 11); an image picker in the WebUI; reading the images in SYSINFO; a flash
+  update at `A>` (answer 13: 75 A = 4 with the interface raised, if ever); `$C818`'s `$A0` for programs; the owner's
+  check of the command addresses, the ID codes, the times and whether a part abandons a half-sent sequence after a
+  time-out, against the SST39SF020A's data sheet (answer 2).
+- **The books:** the Technical Reference's chapters 1, 2 (reprogramming the flash, ROM A's blocks, zero page), 3
+  (`$C818`, the flash update), 11, 13 (answer 15's changes), 14 (the flash, the options, the kept blocks), 15 and its
+  contents, with the six listings the code moved (chapters 3, 4, 7 and 13); the User's Guide's APPLE2, its errors and
+  introduction; the Programmer's Guide's functions 75 and 77, `FT_INFO`, chapter 8 and appendices A and D;
+  `docs/index/functions.json`; [oodos.md](oodos.md#leaving-oodos-wozmon-and-apple2), [diag.md](diag.md) and
+  `emulator/docs/EMULATOR_PLAN.md`, annotated.
+
 #### The owner's answers (B0) ####
 
 **Decided (the owner, 2026-11-14), "recommendations as listed",** and written in above:
 1. **The Apple image** is chosen by an argument: `$C806` takes the first good image; the dispatching entry's Apple
    II function takes A (the entry is B5's, as LL5 foresaw: the table has no spare after `$C815`); function 75 gains A = 3 (A = 2 is
-   the DIAG launcher's), with the interface version after 10; and APPLE2.COM takes a number.
+   the DIAG launcher's), with the interface version after 10; and the CCP's APPLE2 takes a number (read so in B5:
+   there is no APPLE2.COM).
 2. **The character sets** are in ROM A, one per image: 8 KB each in blocks 4–5 (review round 1, for the 8 KB erase).
 3. **ROM B** is two 256 KB chips, as ROM A is.
 4. **DMA revision 2's ID** is `$82`, and the checks take `$82` exactly (decided 2026-11-14, with the new layout),

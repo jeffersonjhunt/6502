@@ -8,9 +8,9 @@ The design record, for the reasons: [hw/design.md, "Apple II Mode"](../../hw/des
 In Apple II mode the OO-1 is an enhanced IIe with the extended 80-column card: 128 KB, main and auxiliary memory,
 the language card, the IIe's soft switches and display modes, and a Disk II in slot 6. The north bridge does the
 IIe's memory management, the USB card is its keyboard, game port and speaker, and the video card draws its display.
-The IIe's ROM is the owner's, from the cartridge. Apple's addresses aren't
-[`backplane.inc`](../../backplane/bios/backplane.inc)'s equates, so this chapter has no register entries: the
-switches are in tables, by the identifiers Apple software knows them by.
+The IIe's ROM is the owner's, from ROM A's images 0–3 (since BIOS 0.16, *proposed*; before, the cartridge).
+Apple's addresses aren't [`backplane.inc`](../../backplane/bios/backplane.inc)'s equates, so this chapter has no
+register entries: the switches are in tables, by the identifiers Apple software knows them by.
 
 ## Entering Apple II mode
 
@@ -21,18 +21,24 @@ north bridge switches to the IIe's map and clock at once and pulses /RESET; the 
 reset vector, as a IIe does at power-on. APPLE only sets, and once it is set MODE can't be reached.
 
 Nothing should write MODE but the BIOS's `$C806` ([chapter 3](03-boot.md#the-bioss-entry-points)), which sets up the
-IIe's memory first. There are two ways to it:
+IIe's memory first, and, since BIOS 0.16 (*proposed*), the dispatching entry `$C818`'s function `$A1`, which shares
+its code. `$C806` takes the first good image of ROM A's four; `$C818`'s function `$A1` takes image A, 0–3. The ways
+to them:
 
-- **From the monitor:** `C806R`.
+- **From the monitor:** `C806R`; or `C818R` and a digit 0–3 at its menu, for that image.
+- **From a program:** `$C818` with Y = `$5A`, X = `$A1` and A the image.
 - **From OODOS:** function 75 with A = 1 ([`O_ROM`](../oodos-programmers-guide/07-function-reference.md#bdos-75)),
-  which the CCP's [APPLE2](../oodos-users-guide/04-built-in-commands.md#util-apple2) calls. OODOS checks for a IIe ROM
-  itself and writes its changed buffers back. Then, with interrupts off, it puts windows 0–2 on RAM blocks 0–2 and
-  W3 and VEC on the BIOS's RAM copy, and jumps to `$C806`.
+  which the CCP's [APPLE2](../oodos-users-guide/04-built-in-commands.md#util-apple2) calls; or, since interface 11
+  (*proposed*), function 75 with A = 3 and X the image, which `APPLE2 n` calls. OODOS checks for a IIe ROM itself,
+  where the running ROM BIOS looks for it, and writes its changed buffers back. Then, with interrupts off, it puts
+  windows 0–2 on RAM blocks 0–2 and W3 and VEC on the BIOS's RAM copy, and jumps to `$C806`, or to `$C818` with the
+  token and the image.
 
 In the WebUI, Settings' IIe ROM row has **Start Apple IIe**, which does what someone at the machine would: START,
 the hard reset, back to the BIOS whatever was running, then `C806R` typed at the monitor. Adding or ejecting any of
-Apple II mode's ROM parts in Settings plugs in a new cartridge, which power-cycles the machine; in Apple II mode the
-WebUI asks first, since the IIe's program would be lost.
+Apple II mode's ROM parts in Settings writes or erases ROM A's image 0 and set 0, as the flash update would, which
+power-cycles the machine; in Apple II mode the WebUI asks first, since the IIe's program would be lost. Images 1–3
+are written by [the flash update](03-boot.md#the-flash-update) (or, in the emulator, `--apple-rom N=`).
 
 ### What the BIOS's entry does
 
@@ -41,9 +47,10 @@ Status: **emulated**
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
 map and with nothing changed, if any of it is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:54-66 -->
+<!-- listing: ../../backplane/bios/apple.s:57-78 -->
 ```
-APPLE:
+APPLE:          LDA     #$FF           ; no image named: the first good one
+APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -52,9 +59,17 @@ APPLE:
                 CMP     #DMA_ID_V2
                 BEQ     @dma
                 JMP     NODMA_SAY
-@dma:           JSR     FINDIMG        ; the first good image, in W1
+@dma:           LDA     IMAGE
+                BPL     @named
+                JSR     FINDIMG        ; the first good image, in W1
                 BCC     @rom
                 JMP     NOROM_SAY
+@named:         ORA     #IMAGES        ; image A, in W1: a IIe's?
+                STA     NB_WIN1
+                LDA     CART_CPU + IIE_ID_AT
+                CMP     #IIE_ID
+                BEQ     @rom
+                JMP     NOROMN_SAY
 @rom:
 ```
 
@@ -64,22 +79,27 @@ APPLE:
 - **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; since BIOS 0.15 a
   revision 1 controller, `$81`, counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
   DMA CONTROLLER`.
-- **A IIe ROM** must be in the cartridge: 16 KB at its start (flash block 32, `CART_BLOCK`), as the ROM sits at
-  `$C000–$FFFF`. The byte at its `$FBB3` must be `$06` (`IIE_ID`). Otherwise the BIOS prints `NO APPLE IIE ROM IN
-  THE CARTRIDGE`.
+- **A IIe ROM** must be in ROM A (since BIOS 0.16, *proposed*): image *n* is flash block *n*, 0–3
+  (`$F00000 + n × $4000`), 16 KB as the ROM sits at `$C000–$FFFF`. An image is good when the byte at its `$FBB3` is
+  `$06` (`IIE_ID`). `$C806` takes the first good one (`FINDIMG`); with none it prints `NO APPLE IIE ROM IN FLASH
+  IMAGES 0-3`. `$C818`'s function `$A1` takes image A alone; if it isn't good it prints `NO APPLE IIE ROM IN FLASH
+  IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
+  CARTRIDGE`.)
 
 Then, in order:
 
-1. **The ROM image.** It copies the cartridge's 16 KB, by the CPU, to RAM block 59: `$EC000–$EFFFF`, bank E's
-   `$C000–$FFFF`.
+1. **The ROM image.** It copies image *n*'s 16 KB, ROM A block *n* through W1, by the CPU, to RAM block 59:
+   `$EC000–$EFFFF`, bank E's `$C000–$FFFF`.
 2. **The character ROM.** It puts 2 KB into the video card's own memory at card address `$1E0000`, for its Apple
    text (*proposed*, [video card revision 2](06-video.md#revision-2-card-memory), BIOS 0.13), writing them to the
-   port's PDATA in turn: PADDR `$1E0000`, PSTEP 1, no DMA. If the cartridge's `$84000` (flash block 33) holds
-   anything (its first 8 bytes aren't all `$FF`), it copies the 2 KB from there. If not, it makes a set from the
+   port's PDATA in turn: PADDR `$1E0000`, PSTEP 1, no DMA. If the image's own set *n*, at ROM A's
+   `$10000 + $2000 × n` (blocks 4–5), holds anything (its first 8 bytes aren't all `$FF`), it copies the 2 KB from
+   there; it never takes another image's set. If not, it makes a set from the
    BIOS's VGA font (flash block 30), so Apple text still shows: each glyph's 16 rows ORed in pairs to 8, its 7 left
    dots reversed so that bit 0 is the leftmost, and the codes from `$80` up stored inverted, lit where a bit is 0.
-   In the emulator the cartridge's character ROM comes from `--apple-chars` (a 4 or 8 KB file) or the WebUI's
-   Settings. Card memory outlives the /RESET that enters the mode, and nothing in system RAM is written for it.
+   In the emulator set *n* comes from `--apple-chars [N=]FILE` (a 4 or 8 KB file, set 0 without the number) or,
+   for set 0, the WebUI's Settings. (BIOS 0.15 and before took the cartridge's block 33.) Card memory outlives the
+   /RESET that enters the mode, and nothing in system RAM is written for it.
    (BIOS 0.12, on revision 1, put the 2 KB at `$BE000` in the video banks instead.)
 3. **Interrupts off** (SEI), and a zero byte at `$EBFFF`, the top of block 58.
 4. **The clear,** by DMA, from that zero byte held as the source: banks 0–3 (four fills of 64 KB), then
@@ -91,7 +111,7 @@ Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:137-139 -->
+<!-- listing: ../../backplane/bios/apple.s:149-151 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
@@ -390,7 +410,7 @@ the character ROM; the mode works as this chapter describes:
   Nothing outside the card can see the copy; the modes, the colours, the 560×384 picture and `$C019` are as above.
   The emulator draws from banks 0 and 1 of its RAM directly instead, so it keeps no such copy.
 - **The character ROM** is in card memory at `$1E0000`, put there through the card's data port by the BIOS's entry,
-  from the cartridge or made from the VGA font. Nothing of the mode is in bank B any more: its banks are 0–5 and E,
+  from ROM A's set *n* or made from the VGA font. Nothing of the mode is in bank B any more: its banks are 0–5 and E,
   and system RAM is left as it was in banks 6–D and F whole. (BIOS 0.12, on revision 1, used `$BE000`.)
 - **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
   but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).

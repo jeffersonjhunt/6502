@@ -2772,7 +2772,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.15`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.16`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -2919,27 +2919,41 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
   asked (the program asks first: they overwrite all of memory, and the machine boots again at their end;
   [the Technical Reference, chapter 15](../oo1-technical-reference/15-diagnostics.md)). X = the options: bit 0 a full
   run, bit 1 the interactive tests; the other bits 0. The front panel's switches don't count.
+- A = 3 (since OODOS 0.11, interface version 11): Apple II mode with ROM A's image X, 0–3, through the ROM's
+  dispatching entry `$C818`, function `$A1` ([the Technical Reference, chapter 3](../oo1-technical-reference/03-boot.md#the-bioss-entry-points)).
+  It needs ROM BIOS 0.16 or later. A = 1 takes the first good image of the four, as the ROM's `$C806` does.
 
 #### Exit
 
-- A = 0, A = 1 with video card revision 2, the DMA controller and a IIe ROM in the cartridge, and A = 2 with the
-  diagnostics in the flash: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
+- A = 0, A = 1 with video card revision 2, the DMA controller and a IIe ROM in the flash, A = 2 with the
+  diagnostics in the flash, and A = 3 with the card, the controller, ROM BIOS 0.16 or later and a IIe ROM in image
+  X: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
   all (their own build version, which OODOS can't check, isn't the running BIOS's): OODOS has gone by then, and the
   machine restarts at `$C800`, as `C800R` does, and boots OODOS from the card.
-- A = 1 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
+- A = 1 or 3 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
   `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
   mode on a revision 1 card.
-- A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$82`, revision 2's ID):
+- A = 1 or 3 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$82`, revision 2's ID):
   A = `$FF`, X = `$FE`, and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it
   without one.
-- A = 1 with no IIe ROM in the cartridge (`$FBB3` isn't `$06`), or any other A: A = X = `$FF`, and OODOS goes on.
+- A = 1 with no IIe ROM where the running ROM BIOS's `$C806` looks for one: under ROM BIOS 0.16 or later, none of ROM
+  A's images 0–3 (flash blocks 0–3; an image's `$FBB3` isn't `$06`); under an older one ([function 77](#bdos-77)'s
+  version, `$FF $FF` counting as older), the cartridge, flash block 32, as before OODOS 0.11. A = X = `$FF`, and
+  OODOS goes on.
+- A = 3 with image X not a IIe ROM: A = X = `$FF`, and OODOS goes on.
+- A = 3 with X of 4 or more: A = X = `$FF`, with nothing written back. A = 3 under a ROM BIOS before 0.16, which has
+  no `$C818` (there it is the first byte after its table of entries, so a jump there would restart the machine):
+  A = `$FF`, X = `$FB`, with nothing written back.
+- Any other A (4 or more): A = X = `$FF`, and OODOS goes on. An OODOS before interface version 11 answers A = 3 as
+  any other A.
 - A = 2 without the diagnostics in the flash: A = `$FF`, X = `$FC`, and OODOS goes on. OODOS looks at flash block 23
   through W2 for their signature and the ROM BIOS version they were linked with, which must be the one the cold
   boot read from the ROM's greeting ([function 77](#bdos-77)): a flash with a BIOS before 0.14, with block 23
   erased, or with another build's diagnostics has none. An OODOS before interface version 10 answers A = 2 as any
   other A, A = X = `$FF`, so a program can tell the two apart; or it asks [function 80's](#bdos-80) `FT_INFO` first.
-- Every return is a failure, A = `$FF`; X tells the cases apart. For A = 1 they are looked at in the ROM's order:
-  the video card first, then the DMA controller, then the IIe ROM.
+- Every return is a failure, A = `$FF`; X tells the cases apart. For A = 1 and 3 they are looked at in the ROM's
+  order: the video card first, then the DMA controller, then (for A = 3) the ROM BIOS's version, then the IIe ROM.
+  A = 3's X is looked at before all of them.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -2948,16 +2962,18 @@ As in Exit.
 
 #### Side effects
 
-- For A = 0, 1 or 2, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM
-  to go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
+- For A = 0–3, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM to
+  go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
   before anything else (the card since OODOS 0.9), and OODOS's own card transfers need the DMA controller too.
-  Without the diagnostics nothing is written back either: OODOS looks for them first. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  Without the diagnostics nothing is written back either: OODOS looks for them first; nor for A = 3 with X of 4 or
+  more, or under a ROM BIOS before 0.16. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
-- OODOS doesn't come back: the ROM's monitor, or a reset, is what follows. For A = 2, OODOS also stops the Disk II
+- OODOS doesn't come back: the ROM's monitor, or a reset, is what follows. For A = 2 and 3, OODOS also stops the Disk II
   (its write mode and motor off), turns its interrupts off, and puts windows 0–2 on RAM blocks 0–2 and W3 and VEC
   on block 63, the ROM BIOS's copy, before the jump; the diagnostics overwrite all of memory, OODOS's included, and
-  end in the ROM's boot, which loads OODOS from the card again, or its monitor.
+  end in the ROM's boot, which loads OODOS from the card again, or its monitor. For A = 3 it jumps to `$C818` with
+  Y = `$5A`, X = `$A1` and A = the image; should the ROM refuse after all, its return is a restart at `$C800`.
 
 #### Cycles
 
@@ -2965,7 +2981,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10).
+OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10); A = 3, and A = 1 looking at ROM A's images under ROM BIOS 0.16, since OODOS 0.11 (interface version 11).
 
 #### Status
 
@@ -3045,7 +3061,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- A = the ROM BIOS's version's major number, X its minor (0 and 15 for `BACKPLANE BIOS 0.15`).
+- A = the ROM BIOS's version's major number, X its minor (0 and 16 for `BACKPLANE BIOS 0.16`).
 - A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
   block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
   two numbers to 255 with a `.` between.
@@ -3057,7 +3073,7 @@ None.
 
 #### Side effects
 
-None. The version is the one the cold boot read for its boot status (`BIOS 0.15`); a program can't read it itself,
+None. The version is the one the cold boot read for its boot status (`BIOS 0.16`); a program can't read it itself,
 since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
 
 #### Cycles
@@ -3103,12 +3119,13 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (10: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+- `FT_INFO`: A = OOLIB's interface version (11: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
   video card revision 2: function 83's card operations and the W1 contract on the aperture,
   [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 OODOS 0.10's [function 77](#bdos-77), the ROM
   BIOS's version: the number marks OODOS's own additions a program needs to detect too; 10 OODOS 0.10's [function
-  75](#bdos-75)'s A = 2, the ROM's diagnostics), X = a bit for each service area OODOS
+  75](#bdos-75)'s A = 2, the ROM's diagnostics; 11 OODOS 0.11's function 75 A = 3, Apple II mode with an image),
+  X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the

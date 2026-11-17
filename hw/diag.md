@@ -130,7 +130,9 @@ splash's wave image; 29 the video demo; 30 the font; 31 the BIOS, with 7,632 byt
 **Decided (2026-11-14, the owner, [P2-3](#plan2-questions)): the diagnostics take blocks 21, 22 and 23; 0–20 stay erased
 (336 KB).** The BIOS's blocks (24–31) and its jump table stay where they are. `bios.cfg`'s `PAD` becomes
 `$0000–$53FFF` (21 blocks), followed by three areas, `DIAG21`, `DIAG22` and `DIAG23`, each at `$8000`, `$4000`
-long, so `bios.rom` stays 512 KB with nothing else moved.
+long, so `bios.rom` stays 512 KB with nothing else moved. *Since B5 (2026-11-16, [design.md](design.md#b5-as-built)):*
+blocks 0–5 are the Apple IIe images and their character sets, written only by the BIOS's flash update; 6–20 stay
+erased, and the diagnostics' blocks are unchanged.
 
 **Sizes,** estimated from D2's map (DIAG.COM's own code 12,120 bytes and its text 6,170; the library's modules
 2.4 KB; the 6510 program 799 bytes), plan 1's core, and what changes in the ROM (no claims, event queue, W1
@@ -220,7 +222,7 @@ the bridge's own I²C reads on real hardware is still unknown (plan 1's stage 11
 |---|---|---|
 | D1 | ID `$81`; each channel's ADDR, COUNT, MODE and DEST written with two patterns and read back; CONTROL's burst bits. *B2: ID `$82`, each channel through SELECT 0–7, CARD among them ([B2](#b2-dma-revision-2))* | D2 read the ID alone |
 | D2 | channel 3, memory to memory with HOLD: every RAM block filled with a pattern but W0's first 512 bytes, the CPU checks it (960 KB, about 1.9 s) | D2 filled 2 KB |
-| D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`). *B4: a word pass for D8–D15, a WIDE copy of one parity checked by the CPU, is a later item with BIOS 0.16 ([B4](#b4-16-bit-transfers))* | as D2, and down too |
+| D3 | channel 3: a copy between two blocks, up, and down with MODE's DEC bit (bit 4; `backplane.inc` gains `DMA_DEC`). *B4: a word pass for D8–D15, a WIDE copy of one parity checked by the CPU, is a later item with a later BIOS, 0.17 or after (0.16 is B5's) ([B4](#b4-16-bit-transfers))* | as D2, and down too |
 | D4 | D2's fill of 2 KB timed by VIA timer 2: 2 cycles a byte | as D2, less the call's cost |
 | D5 | STATUS's terminal count; ABORT part way through a copy, COUNT reads what was left | plan 1's stage 7 |
 
@@ -268,7 +270,7 @@ byte, echo, sum, the SIDs) is D2's as built.
 | SD1 | ID `$71`; STATUS's PRESENT and READY | as D2 |
 | SD2 | `IDENTIFY`: the type 1–3, the size not 0, the FAT flag | as D2 (`HW_SD_ID`) |
 | SD3 | LBA 0 of unit 0, the card itself, read by the CPU through DATA and again by channel 0 into a tested block: the two agree | D2's D5 read DIAG.COM's records two ways |
-| SD4 | read speed: 64 KB from unit 0 by channel 0, timed: `INFO`, KB a second. *B4: SD3 and SD4 stay bytes, as the card's DATA does; a word reading beside SD4's, if the card comes to take words, is a later item with BIOS 0.16 ([B4](#b4-16-bit-transfers))* | D2's SD3 through `DM_LOAD` |
+| SD4 | read speed: 64 KB from unit 0 by channel 0, timed: `INFO`, KB a second. *B4: SD3 and SD4 stay bytes, as the card's DATA does; a word reading beside SD4's, if the card comes to take words, is a later item with a later BIOS, 0.17 or after ([B4](#b4-16-bit-transfers))* | D2's SD3 through `DM_LOAD` |
 | DK1 | the Disk II: ID `$C1`, and nothing else | as D2 |
 
 D2's SD4 (`/WRITE`, a file on A: written, read back and erased) goes with DIAG.COM.
@@ -503,7 +505,10 @@ so the reset and `C812R` entries find it 0 and read the switches. NB7 reads the 
 Disk II or module F would then slow those accesses during stages 0–2, harmless to the result but no longer free,
 and turbo's own use of WAIT3 could clash with the flag.)
 **Later entries:** with `$C815` taken the table has no spare left, so any entry after it goes through one
-dispatching entry (a number in a register), which the table's next growth would add (LL5).
+dispatching entry (a number in a register), which the table's next growth would add (LL5). *Built in B5 (BIOS 0.16,
+2026-11-16, [design.md](design.md#b5-as-built)):* `$C818`, the ninth and last entry, with a two-byte token like
+`$C815`'s, Y = `$5A` and X = `$A0` + the function, A its argument; `$A1` is Apple II mode with image A, `$A0` the
+flash update (the menu's alone in B5), `$A2–$AF` reserved.
 
 
 <a id="plan2-faults"></a>
@@ -758,6 +763,26 @@ window's end of each measurement: three windows read 7,159,092 and 7,159,126 Hz;
 alone reads 7,161,054 and 7,160,746 and fails both checks. Each SYSINFO run of its SYSTEM section takes about
 4 s more of the machine's time (two more seconds of each measurement); test_oodos_sysinfo is 17 s alone. The cards
 are made again (SYSINFO.COM changed), and the utilities' build now depends on backplane/oohw, which it didn't.
+
+*B5 (2026-11-16, the owner's answers to two build stops; [design.md](design.md#b5-as-built)):* the middle of three
+didn't hold on BIOS 0.16's layout. OODOS's millisecond handler (timer 1, 230–370 cycles a run) has a period of 7,159
+cycles, which slides about 90 cycles a second against the clock chip's second, so on some layouts it sat at every
+second's change for the whole measurement. The old pass read timer 2 at its start and the watched byte 115 cycles
+later, and stamped a change with the pass that saw it: the handler taken between that read and the poll left the
+stamp before the change, taken after the poll it put the stamp after the handler. On U5's ROM the four changes went
+early, late, early, early, two windows of three out by 250–500 cycles and the middle one with them: 7,159,342 Hz,
+outside the 0.002% check, which the owner kept. Now each 42-cycle pass reads the timer, then the byte, and keeps the
+reading while the byte is unchanged; a change is stamped with the last unchanged pass's reading, before the change
+whatever interrupt comes next, and its gap runs from there to a reading just after the poll that saw it (79 cycles
+with no interrupt, the change 11–53 cycles after its stamp). With the stamps alone the middle of three still failed
+the interrupt test (a USB burst at one change, the millisecond handler at another: 7,159,270 Hz), so HW_CLOCK keeps,
+of the six pairs of its four changes, the one whose bigger gap over the windows between them is least (the wider of
+equals), and gives that span over its windows. Checked on U5's ROM padded by every count from 1 to 31: every case
+passes, the clock chip within -95 to +58 cycles of 7,159,090 (the -95 is the millisecond handler at every change),
+the frame -34 to +13. A new test, `an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock`, reads
+7,159,017 Hz, where the old HW_CLOCK reads 7,170,533 and fails. V3's frame check is now 119,437 ± 80 cycles, a gap on
+either side (the owner's approved expectation change). Block 22's BSS has 4 bytes left. The diagnostics' NB5 and NB6
+link the same HW_CLOCK, so ROM blocks 21–22 and their sums change with it; no stage's text changed.
 
 #### D3b: the card tests ####
 
@@ -1080,10 +1105,10 @@ BIOS stays 0.15, and no diagnostic sets WIDE, so every figure above holds (D4 4,
 - **What the diagnostics can't see.** The CPU and every byte cycle use D0–D7, so no stage reaches D8–D15 on real
   hardware: a stuck or crossed line there passes the whole run. That is harmless while no software sets WIDE (the
   owner's answer 8).
-- **A later item, with BIOS 0.16,** beside B3's D1 alias pass: a word pass in D3, a WIDE copy between two blocks of
-  one parity, checked by the CPU byte for byte, which fails on a D8–D15 line stuck, open or crossed; and, if the SD
-  card comes to take words, a word reading beside SD4's byte one. It comes with the step that has the ROM and OODOS
-  set WIDE.
+- **A later item, with a later BIOS (0.17 or after; 0.16 is B5's),** beside B3's D1 alias pass: a word pass in D3,
+  a WIDE copy between two blocks of one parity, checked by the CPU byte for byte, which fails on a D8–D15 line stuck,
+  open or crossed; and, if the SD card comes to take words, a word reading beside SD4's byte one. It comes with the
+  step that has the ROM and OODOS set WIDE.
 - **QUIETM** already writes every CARD whole, so a WIDE left on a channel under the monitor is cleared on the
   diagnostics' way out, as Break clears it.
 
@@ -1128,8 +1153,10 @@ The alternatives are kept for the record.
   to let it write W3, VEC and the interrupt enables.
 - **P2-2, `$C815`. Decided:** the jump table's last spare becomes the program's entry: the two-byte token, A = `$A5`
   and Y = `$5A` (LL2), the options in X, no prompt; anything else asks as `$C812` does. Later entries go through one
-  dispatching entry (LL5). *Alternative (not chosen):* OODOS jumps to `$C812`, which asks a second time.
-- **P2-3, the flash. Decided:** blocks 21–23 for the diagnostics (about 27 KB used of 48), 0–20 erased.
+  dispatching entry (LL5), built in B5 at `$C818`. *Alternative (not chosen):* OODOS jumps to `$C812`, which asks
+  a second time.
+- **P2-3, the flash. Decided:** blocks 21–23 for the diagnostics (about 27 KB used of 48), 0–20 erased (since B5,
+  0–5 the IIe images and sets).
   *Alternative (not chosen):* blocks 20–23, a block spare for a later card's tests.
 - **P2-4, the options. Decided:** switch 16 up for the interactive tests (18 full and 17 loop, as before) at the
   switch-19 and `C812R` entries; from `A>`, only what is typed, `DIAG [FULL]` and `DIAG [ASK]` (LL3), carried through
@@ -1272,7 +1299,8 @@ Where each line comes from:
 | Clock | function 105 for the time; `NB_RTCCTL`'s LOST; the temperature through RTCREG | RTCCTL, RTCREG ([answer 1](#the-owners-answers)) |
 | Panel | `CONSOLE_SWR`, `CONSOLE_PANEL` | reads |
 
-A sample, from `backplane.machine` (the versions, the SD lines and the time are illustrative):
+A sample, from `backplane.machine` (the versions, the SD lines and the time are illustrative; kept as it was when
+written, so BIOS 0.15 and interface 10, where B5's build says 0.16 and 11):
 
 ```
 A>SYSINFO /ALL

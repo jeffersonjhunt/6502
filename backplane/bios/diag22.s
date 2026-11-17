@@ -323,7 +323,7 @@ NB3GO:          lda     #$30           ; 16 bytes, W0 $3000 to $3100, with MODE'
 ; NB4, the clock chip: BUSY clears within 1 ms of an I2C read; SEC steps by
 ; one a second (four changes over NB5's measurement); LOST clear, or a
 ; warning. NB5, the CPU's clock: HW_CLOCK's cycles in a second of the
-; DS3231's, the middle of three back to back, within 0.1% of 7,159,090.
+; DS3231's (its least-gap pair of four changes), within 0.1% of 7,159,090.
 NB45:
                 TB      "NB4  THE CLOCK CHIP: BUSY, SEC STEPS A SECOND"
                 lda     #$11           ; the temperature's register: an I2C read
@@ -410,7 +410,7 @@ NB45:
                 rts
 
 ; The CPU's clock against the video frame: the cycles over 60 frames (120
-; changes of STATUS, its vertical blank's bit), the middle of three windows,
+; changes of STATUS, its vertical blank's bit), HW_CLOCK's least-gap pair,
 ; within 0.1% of 60 frames of FRAME cycles; the line gives them as Hz
 ; (HW_FRAMEHZ: 800 x 525 pixel clocks at 25.175 MHz a frame).
 NB6:
@@ -1289,7 +1289,7 @@ V3:
                 lda     T_D
                 cmp     #2
                 jcs     @start
-                lda     #<VIDEO_STATUS ; one frame by HW_CLOCK: to its poll's grain (about 80 cycles)
+                lda     #<VIDEO_STATUS ; one frame by HW_CLOCK: to its gap's grain (79 cycles)
                 sta     HW_WATCH
                 lda     #>VIDEO_STATUS
                 sta     HW_WATCH + 1

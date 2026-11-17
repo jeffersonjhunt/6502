@@ -74,7 +74,7 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [72](07-function-reference.md#bdos-72) | `O_VERSION` | OODOS's version and FARCALL | A/X = 10 bytes to fill | A/X = FARCALL |
 | [73](07-function-reference.md#bdos-73) | `O_PHYSADDR` | a CPU address's physical address | A/X = 4 bytes | A = 0, `$FF` |
 | [74](07-function-reference.md#bdos-74) | `O_MOUNT` | mount or unmount an SD drive | A/X = the drive, flags, path | A = 0, `$FF` |
-| [75](07-function-reference.md#bdos-75) | `O_ROM` | leave OODOS for the ROM | A = 0 the monitor, 1 Apple II mode, 2 the ROM's diagnostics (X the options) | doesn't return, or `$FF` |
+| [75](07-function-reference.md#bdos-75) | `O_ROM` | leave OODOS for the ROM | A = 0 the monitor, 1 Apple II mode, 2 the ROM's diagnostics (X the options), 3 Apple II mode with image X | doesn't return, or `$FF` |
 | [76](07-function-reference.md#bdos-76) | `O_SECTOR` | an Apple disk's DOS 3.3 sector | A/X = the block | A = 0, 1, 2, `$FF` |
 | [77](07-function-reference.md#bdos-77) | `O_ROMVER` | the ROM BIOS's version | — | A = the major, X = the minor; `$FF $FF` unknown |
 | [80](07-function-reference.md#bdos-80) | `O_FRAME` | frame and timing | A = the operation (X = 0), or A/X = a block, +0 the operation | per the operation; `$FF` refused |

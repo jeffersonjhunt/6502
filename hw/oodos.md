@@ -290,7 +290,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07; `$82`, revision 2, since B2, 2026-11-15), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A = 2 (*since OODOS 0.10, interface version 10, 2026-11-14, the owner: [diag.md](diag.md#plan2-questions), P2-1*) the ROM's diagnostics (the ROM's `$C815`, X the options), if flash block 23 holds the ones linked with the running ROM BIOS, else A = `$FF`, X = `$FC`, nothing written back, and OODOS goes on. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON, APPLE2 and DIAG use it (built-ins since 2026-11-03, DIAG since D3c; `.COM`s from 2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks; *since B5:* where the running ROM BIOS's `$C806` looks, ROM A's images 0–3 under 0.16 or later, the cartridge before) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07; `$82`, revision 2, since B2, 2026-11-15), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A = 2 (*since OODOS 0.10, interface version 10, 2026-11-14, the owner: [diag.md](diag.md#plan2-questions), P2-1*) the ROM's diagnostics (the ROM's `$C815`, X the options), if flash block 23 holds the ones linked with the running ROM BIOS, else A = `$FF`, X = `$FC`, nothing written back, and OODOS goes on. A = 3 (*proposed, since OODOS 0.11, interface version 11, step B5: [design.md](design.md#b5-as-built)*) Apple II mode with ROM A's image X, 0–3 (the ROM's dispatching entry `$C818`, function `$A1`), with A = 1's card and DMA checks; X of 4 or more A = X = `$FF`, and a ROM BIOS before 0.16 (no `$C818`) A = `$FF`, X = `$FB`, both with nothing written back; image X not a IIe ROM A = X = `$FF` after the write-back. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON, APPLE2 and DIAG use it (built-ins since 2026-11-03, DIAG since D3c; `.COM`s from 2026-11-02; `APPLE2 n` A = 3 since B5) |
 | 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
 | 77 | the ROM BIOS's version: A the major, X the minor, `$FF $FF` if the cold boot didn't find its greeting. *Since OODOS 0.10, interface version 9 (2026-11-13, the owner: [diag.md](diag.md#d1-questions), D1-1, EE2), so SYSINFO can show it: a program can't read the ROM's copy in block 63 itself* |
 | 78–97 | reserved for OODOS |
@@ -1045,7 +1045,7 @@ tests.
 - **51** takes the segment in A/X and returns A = X = 0; any value is taken, and checked when a record moves. The
   physical address is segment × 16 + the DMA address (26's, the SCB's `$3C`). **What a segment may reach** (ours):
   any RAM but OODOS's own: banks 0–5, 8–B (video memory) and E (native mode may use bank E: the BIOS's `C806R`
-  copies the IIe ROM into it from the cartridge each time Apple mode starts); refused are banks 6–7 (the hash, the buffers, the
+  copies the IIe ROM into it from the cartridge each time Apple mode starts; from ROM A's images since B5); refused are banks 6–7 (the hash, the buffers, the
   system block), C–D (M:) and blocks 60–63 (the BDOS, the BIOS, block 62, the ROM BIOS's copy), and anything past
   `$FFFFF`. Flash has no physical address (a window's ROM bit), so it can't be named. A DMA address whose records
   run past `$FFFF` is refused as without a segment. Refused memory is the error any memory that isn't gets: A = X =
@@ -1979,10 +1979,11 @@ built, and these are the details):
 
 **Done (2026-11-02); built-ins since 2026-11-03.** Two commands of ours, for the machine OODOS runs on rather than
 CP/M's: **WOZMON** clears the screen (as CLEAR, below) and leaves OODOS for the ROM BIOS's Woz Monitor, and
-**APPLE2** restarts the machine in Apple II mode, the cartridge's IIe ROM started as a IIe starts at power-on. Both
+**APPLE2** restarts the machine in Apple II mode, the cartridge's IIe ROM (ROM A's image since B5, below) started as
+a IIe starts at power-on. Both
 call function 75 (above, "OODOS's own"): a program can't jump to the ROM itself (W3 is OODOS's block 62, and the
-rules let a program call only the BDOS and the warm boot), and only OODOS may map the cartridge to look for a IIe
-ROM. Neither comes back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and
+rules let a program call only the BDOS and the warm boot), and only OODOS may map the cartridge (since B5, ROM A's images) to look
+for a IIe ROM. Neither comes back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and
 only a reset ends Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator:
 Settings, ROMs)", the return code `$FF00`, and OODOS goes on. They were `.COM`s in `oodos/utils` for a day; the
 owner asked for them in the CCP, with CLEAR and CLS, so leaving OODOS works on any card, from any drive and user
@@ -1999,6 +2000,20 @@ controller" for X = `$FE` (50 bytes more in the CCP, 39 of them the message; 16 
 apple.s checks before it starts; the character ROM, without one in the cartridge, it makes from the VGA font. The
 tests boot a machine without its `dma` line (OODOS gets to A>, a little slower: its card reads time out) and run
 APPLE2, and a program by GO, there.
+
+*As built (B5, 2026-11-16; proposed, [design.md, "B5: as built"](design.md#b5-as-built)):* the IIe ROM is no longer
+in the cartridge. ROM BIOS 0.16 takes it from ROM A's images 0–3 (blocks 0–3, a character set each in blocks 4–5),
+which the ROM's flash update writes from the SD card, and has a dispatching entry, `$C818`, whose function `$A1` is
+Apple II mode with image A. So function 75's A = 1 looks where the running ROM BIOS's `$C806` looks (NEWROM, by
+cold.s's ROMVER: ROM A's four images from 0.16, the first good one; the cartridge before), and **A = 3**, X the
+image, goes through `$C818` (OOLIB's interface 11). **`APPLE2 n`**, one digit 0–3, is A = 3, X = *n*; plain `APPLE2`
+is A = 1; any other tail is the command and `?`, as DIAG's is. The messages: `No IIe ROM in the flash (the emulator:
+Settings, ROMs)`, `No IIe ROM in flash image n (the emulator: Settings, ROMs)`, under an older ROM BIOS `No IIe
+ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)`, and for X = `$FB` `APPLE2 n needs ROM BIOS 0.16
+or later`. APPLE2 is in RES2 now, with its tail parser and two of its messages: the old code's 39 bytes and message's
+59 in RES keep their size (three of the new messages and `$FF` filler, `.assert`ed), so nothing in RES moves, the
+interrupt dispatcher's addresses among them. A = 2's ROMDIAG and A = 3's exit are one RES2 routine, ROMENTRY (A, X and
+the entry's low byte written into the tramp, Y = `$5A`), since the DEBUG build's RES2 had no room for two.
 
 ### Clearing the screen: CLEAR and CLS ###
 

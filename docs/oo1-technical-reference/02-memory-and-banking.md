@@ -25,8 +25,9 @@ Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's characte
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
-The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS.
-ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with its ROM bit
+The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS
+and, since B5 (*proposed*), the Apple IIe ROM images and their character sets. ROM B (module 5) is the game
+cartridge only, 32 blocks more; the BIOS takes nothing from it. A window reaches them with its ROM bit
 ([below](#flash-and-read-only-windows)).
 
 | ROM A block | What |
@@ -36,7 +37,9 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 | 29, `$74000` | the video demo |
 | 24–28, `$60000` | the boot splash's samples for the ES5503: wave RAM's image, 80 KB ([chapter 7](07-sound.md)) |
 | 21–23, `$54000` | since BIOS 0.14: the ROM's diagnostics, block 23 their core and memory tests, 22 and 21 the card tests ([chapter 15](15-diagnostics.md)) |
-| 0–20 | erased (`$FF`) |
+| 6–20 | erased (`$FF`) |
+| 4–5, `$10000` | since B5 (*proposed*): the IIe character sets, 8 KB each, set *n* at `$10000 + $2000 × n` for image *n*; an erased set (its first 8 bytes `$FF`) is made from the font ([chapter 13](13-apple-ii-mode.md)) |
+| 0–3, `$00000` | since B5 (*proposed*): the Apple IIe ROM images 0–3, 16 KB each, image *n* in block *n* as the ROM sits at `$C000–$FFFF`; written only by [the flash update](03-boot.md#the-flash-update) (or, in the emulator, `--apple-rom` and Settings) |
 
 The DMA controller reaches memory by physical address, not through the windows ([chapter 5](05-dma.md)). Since B2
 (*proposed*) its ADDR and DEST are 24 bits, so it reaches every memory address in the map below: the RAM, the
@@ -58,8 +61,8 @@ windows' values and the ROM bit mean what they did. The map underneath them:
 | `$100000–$DFFFFF` | nothing: a read gives `$FF` |
 | `$E00000–$E0FFFF` | the video card's aperture, revision 2 |
 | `$E10000–$EFFFFF` | nothing, kept for cards' memory |
-| `$F00000–$F7FFFF` | ROM A: ROM block *b* (0–31) is `$F00000 + b × $4000` |
-| `$F80000–$FFFFFF` | ROM B, the cartridge: blocks 32–63 |
+| `$F00000–$F7FFFF` | ROM A: ROM block *b* (0–31) is `$F00000 + b × $4000`; two chips, the even bytes in one and the odd in the other, and a write (with RO clear) reaches the chip of its address's parity ([below](#reprogramming-the-flash)) |
+| `$F80000–$FFFFFF` | ROM B, the game cartridge: blocks 32–63, two chips as ROM A |
 
 - **A window's ROM bit** makes the north bridge put out the flash's address, `$F00000 + b × $4000`, in place of
   the RAM's.
@@ -159,8 +162,10 @@ In Apple II mode the hole is the IIe's `$C000–$CFFF` instead, and none of thes
 Status: **emulated**
 
 - **ROM.** With bit 7 set, a window shows the flash, not RAM: blocks 0–31 are ROM A, and 32–63 are ROM B, the
-  cartridge. Code in the flash runs where it is, with nothing copied. A write to the flash through a window is
-  ignored.
+  game cartridge. Code in the flash runs where it is, with nothing copied. A write to the flash through a window
+  with RO set is ignored. With RO clear it reaches the chip of its address's parity, which takes it as part of a
+  command ([below](#reprogramming-the-flash)); a lone write outside a command changes nothing (since B5, emulated;
+  before B5 the emulator ignored every write to the flash).
 - **RO.** With bit 6 set, writes through the window are ignored. It guards against stray writes, not deliberate
   ones: a program can clear the bit, or reach the block through another window. The BIOS keeps its copy in block 63
   behind it.
@@ -169,9 +174,40 @@ Status: **emulated**
 
 Status: **proposed**
 
-The flash is meant to be an SST39SF040, which software can reprogram, so the BIOS could be updated in place without
-a programmer ([hw/design.md, "Boot"](../../hw/design.md#boot)). The emulator's flash ignores every write, so it can't
-be reprogrammed yet.
+Emulated as step B5 ([hw/design.md, as built](../../hw/design.md#b5-as-built)).
+
+ROM A is two 256 KB flash chips side by side (SST39SF020A parts), one holding the even bytes and one the odd, so a
+word cycle reads both at once ([hw/design.md, "The flash"](../../hw/design.md#the-flash-rom-a-and-rom-b)). ROM B is
+built the same way. Software reprograms them through a window with the ROM bit set and RO clear, one chip at a time
+or both at once:
+
+- **Each chip has its own commands.** A chip takes a command as a short sequence of writes to two of its own
+  addresses, `$5555` and `$2AAA` in the chip. Chip address *c* is flash offset 2*c* in the even chip and 2*c* + 1
+  in the odd one, so the even chip's two are offsets `$AAAA` and `$5554` from ROM A's start, and the odd chip's
+  `$AAAB` and `$5555`. A write that doesn't fit the sequence puts that chip back to reading its array; a read
+  doesn't. The other chip doesn't see the write at all.
+- **A byte** is programmed by the unlock pair (`$AA` at the chip's `$5555`, `$55` at its `$2AAA`), `$A0` at its
+  `$5555`, then the byte at its address. Programming can only clear bits: the new byte is the old one ANDed with
+  the data, so a byte is erased before it is written.
+- **The smallest erase is 8 KB.** A chip's sector is 4 KB of its own, which holds the even or the odd bytes of
+  8 KB of the flash, so an 8 KB unit is one sector erase in each chip at the same chip address, and a 16 KB block
+  is four. A sector erase is the unlock pair, `$80`, the unlock pair again, then `$30` at an address in the sector.
+  A chip erase (`$10` in place of `$30`, at `$5555`) clears the whole chip, the BIOS's half with it: the BIOS never
+  sends one.
+- **Each chip's own status.** While a chip programs or erases, a read of it at an address of its parity gives its
+  status, not its array: bit 7 is the inverse of the byte's bit 7 (0 during an erase), and bit 6 changes on every
+  read. Two reads that agree mean it has finished. A busy chip ignores writes; the other chip works as usual, so the
+  two can work at once.
+- **The word buffer.** The CPU card may serve a read from a word it fetched before, but only through a window with
+  RO set: a busy chip's status changes from read to read, so the poll goes through a window with RO clear, where
+  every read is a bus cycle.
+
+The BIOS writes only the IIe images and their sets, ROM A's blocks 0–5, by its
+[flash update](03-boot.md#the-flash-update); the rest of ROM A, the BIOS with it, is the build's, written by a
+programmer from the build's two files, `bios-even.rom` and `bios-odd.rom`, one for each chip.
+
+**In the emulator** the two chips follow these sequences, with each chip's own pending state, busy time and status
+([chapter 14](14-emulator-notes.md#the-flash)).
 
 ## Zero page and low RAM
 
@@ -182,12 +218,14 @@ What the BIOS and the monitor keep in bank 0, from [`backplane.inc`](../../backp
 | Address | Who | Notes |
 |---|---|---|
 | `$00–$09` | the boot's copy pointers and `$C800`'s stub; Apple II mode's way in | free once the monitor is up |
+| `$10–$21` | [the flash update](03-boot.md#the-flash-update), while it runs (since BIOS 0.16) | |
 | `$24–$2B` | the Woz Monitor | |
 | `$30–$7B` | the video demo | |
 | `$E0–$E7` | the text screen (`video.s`) | ECHO (`$C80F`) uses them: a program that prints leaves them alone |
-| `$F0–$F6` | the SD card's code (`sd.s`) | |
+| `$F0–$FB` | the SD card's code (`sd.s`) | `$F0–$F6` before BIOS 0.16 |
 | `$0100–$01FF` | the stack | Break and BRK start it afresh |
 | `$0200–$027F` | the monitor's input line | |
+| `$0280–$029A` | the flash update's file name and commit bytes, while it runs (since BIOS 0.16) | |
 | `$0400–$05FF` | the SD card's sector buffer; the video demo's sprite table | |
 | `$1000–$BFFF` | where the SD boot loads `/BOOT.BIN` | [chapter 3](03-boot.md#booting-from-the-sd-card) |
 

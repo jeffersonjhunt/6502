@@ -34,8 +34,8 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `cpu w65c02s` | the CPU |
 | `northbridge backplane` | the north bridge: the windows, VEC, ROM space, the I/O hole, MODE and the DS3231, with its registers at `$C680` and the clock's tick wired to /IRQ as module D ([chapter 11](11-north-bridge-and-rtc.md)). `bootsel` after it holds /BOOTSEL ([chapter 3](03-boot.md#booting-from-ram-bootsel)) |
 | `ram 00000-3FFFF name=ram_a` to `ram_d` | the RAM card, 1 MB at physical `$000000–$0FFFFF`, in four lines, RAM A–D, 256 KB each. Memory answers by address, so the lines carry no `module=` since B2 (*proposed*, [the 24-bit bus](#the-24-bit-bus)) |
-| `rom 00000-7FFFF space=flash … bios.rom` | ROM A, the 512 KB flash, from the BIOS's image: memory `$F00000–$F7FFFF` |
-| `rom 80000-FFFFF space=flash … -` | ROM B, the cartridge, memory `$F80000–$FFFFFF`: `-` is erased flash, all `$FF`, until `--apple-rom` fills it |
+| `flash 00000-7FFFF space=flash name=rom_a bios.rom` | ROM A, the 512 KB flash, two chips that can be written ([below](#the-flash)), from the BIOS's image: memory `$F00000–$F7FFFF`. Its blocks 0–5, erased in `bios.rom`, take the IIe images and sets from `--apple-rom` and `--apple-chars` (since B5, *proposed*) |
+| `flash 80000-FFFFF space=flash name=rom_b -` | ROM B, the game cartridge, memory `$F80000–$FFFFFF`, two chips as ROM A: `-` is erased flash, all `$FF`. Before B5 both were `rom` lines, and `--apple-rom` filled ROM B |
 | `acia6551 300-37F space=io … irq` | the 6551 stand-in, mirrored through the serial card's block ([chapter 9](09-serial-and-via.md#the-stand-in-6551)) |
 | `via6522 340-34F space=io … irq` | the serial card's VIA, over the 6551's mirror: where two lines overlap, the later one answers |
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
@@ -107,11 +107,11 @@ card's picture only at the end, with `--screen`.
 | Option | What it does |
 |---|---|
 | `--machine FILE` | the machine file. Without it, the built-in Apple-1 |
-| the last argument, a file | replaces the image of the machine's first `rom` line: for the OO-1, ROM A, the whole flash |
+| the last argument, a file | replaces the image of the machine's first `rom` or `flash` line: for the OO-1, ROM A, the whole flash |
 | `--clock HZ` | the emulated clock, 1,000,000 Hz unless set. `--clock 0` runs as fast as the host can |
 | `--sd FILE` | a card image, whole 512-byte sectors, in the SD card's slot. Written through: the machine's writes change the file. A file that can't be written is a write-protected card |
-| `--apple-rom FILE[,FILE]` | the owner's Apple IIe ROM into the cartridge: one 16 KB file, or the CD and EF halves |
-| `--apple-chars FILE` | the IIe's character ROM, 4 or 8 KB |
+| `--apple-rom [N=]FILE[,FILE]` | the owner's Apple IIe ROM into ROM A's image N, 0–3 (0 without the number): one 16 KB file, or the CD and EF halves, in one option or two. Only a leading digit and `=` count, so `dir/x=y.rom` is a file. Since B5 (*proposed*); before, the cartridge |
+| `--apple-chars [N=]FILE` | the IIe's character ROM, 4 or 8 KB, into set N (0 without the number), at ROM A's `$10000 + $2000 × N`; once for each set |
 | `--disk2-rom BOOT,SEQUENCER` | the Disk II card's two PROMs, 256 bytes each |
 | `--disk FILE` | a `.woz`, `.dsk`, `.do` or `.po` in drive 1. What is written stays in memory; the file isn't changed |
 | `--load FILE[@ADDR]` | an image put on the bus before the reset: Intel HEX by its extension, else raw at the CPU address ADDR |
@@ -174,10 +174,11 @@ same core in the page, compiled to WebAssembly: a `Session`
 - **Play .sid** plays a C64 tune on the sound card, through the card's host registers
   ([chapter 7](07-sound.md#playing-a-sid-file)). The SIDs and the USB card's speaker play through the browser.
 - **Settings** also takes a BIOS of one's own, which becomes the flash and restarts the page on it; the owner's IIe
-  ROM and the Disk II's PROMs, each added or ejected on its own, which power-cycles the machine; and disks for the
-  two drives. The IIe ROM's row has **Start Apple IIe**: START, then `C806R` typed at the monitor. In Apple II mode
-  the status strip has the IIe's **Reset** (Ctrl-Delete) and **Reboot** (Ctrl-Open Apple-Delete)
-  ([chapter 13](13-apple-ii-mode.md#entering-apple-ii-mode)).
+  ROM, written into ROM A's image 0 and set 0 (since B5, *proposed*; Eject erases them), and the Disk II's PROMs,
+  each added or ejected on its own, which power-cycles the machine; and disks for the two drives. ROM A's blocks
+  0–5 keep what they hold through power cycles ([below](#the-flash)). The IIe ROM's row has **Start Apple IIe**:
+  START, then `C806R` typed at the monitor. In Apple II mode the status strip has the IIe's **Reset** (Ctrl-Delete)
+  and **Reboot** (Ctrl-Open Apple-Delete) ([chapter 13](13-apple-ii-mode.md#entering-apple-ii-mode)).
 - **The debugger** shows the CPU's registers, a bus trace and the breakpoints. A breakpoint is the console card's
   comparator, written as the ESP32 would write it.
 
@@ -231,6 +232,37 @@ a byte cycle from a word cycle (B6's pin) is modelled as the call: the decoder's
 controller makes with WIDE (*proposed*, B4), and a word flag on the cycle the observers and the console card see, once a word at its
 even address ([chapter 5](05-dma.md#16-bit-transfers)).
 
+### The flash
+
+Status: **proposed**
+
+Emulated as step B5 ([hw/design.md, as built](../../hw/design.md#b5-as-built)).
+
+The machine file's `flash` lines ([`flash.h`](../../emulator/components/devices/include/flash.h)) are two chips side
+by side, as ROM A and ROM B are: flash offset *o* is byte *o* / 2 of the even chip (*o* even) or the odd one. A
+`flash` line's size must be even. Each chip, on its own:
+
+- **reads as memory** until it is sent a command, and takes the commands of
+  [chapter 2](02-memory-and-banking.md#reprogramming-the-flash) at its chip addresses `$5555` and `$2AAA`, comparing
+  only A0–A14: program a byte, erase a 4 KB sector or the chip, and software ID (the maker's code `$BF` at chip
+  address 0 and the part's `$B6` at 1, until `$F0`);
+- **keeps its place in a sequence** until its next write: reads don't disturb it, nothing times it out and the part
+  has no reset pin, so /RESET leaves it too. A chip left after `$A0` programs the next write, wherever it lands;
+- **is busy** for the parts' typical times, counted in bus cycles at the CPU clock: 14 µs a byte (101 cycles at
+  7,159,090 Hz), 18 ms a sector (128,864) and 70 ms the chip (501,137). While busy it ignores writes and reads give
+  its status (bit 7 the inverse of the byte's, 0 in an erase; bit 6 changing on every read; bits 0–5 the array's).
+  The debugger's peek shows the status without changing bit 6.
+
+A change lands in the array when its operation starts, and there is no wear. A write through a window with RO set
+never reaches a chip.
+
+`--apple-rom` and `--apple-chars`, and Settings' IIe ROM row, write ROM A's array directly, as a programmer would:
+each slot erased, then the file. **ROM A's blocks 0–5 are kept through power cycles** (the WebUI's keyswitch, or
+Settings' IIe ROM row), whoever wrote them: the row, or the BIOS's [flash update](03-boot.md#the-flash-update) run in
+the machine. The kept bytes are copied into each new build; a ROM the row refuses leaves them as they were. They are
+in memory only: a page reload, or a new run of the terminal app, starts again from the files, and nothing is
+written back to `bios.rom` or any other file. Blocks 6–31 and ROM B are the files' again at every power cycle.
+
 ### What isn't there
 
 Status: **proposed**
@@ -240,7 +272,6 @@ The design has these, and the emulator doesn't:
 - **The TL16C552A:** COM1, COM2 and LPT, and the serial card's DMASEL, INTSTAT, LPTCTL and ID
   ([chapter 9](09-serial-and-via.md#com1-com2-and-lpt)). A 6551 stands in.
 - **The VIA's user port,** and its shift register ([chapter 9](09-serial-and-via.md#the-user-port)).
-- **Reprogramming the flash** ([chapter 2](02-memory-and-banking.md#reprogramming-the-flash)).
 - **The bus spy** ([chapter 3](03-boot.md#the-bus-spy)). `bootsel` and `--load` stand in for it.
 - **Turbo,** the CPU at ÷1 ([chapter 11](11-north-bridge-and-rtc.md#turbo)).
 - **The sound card's bus timing:** BUSY, and RDY on a SID access ([chapter 7](07-sound.md#bus-timing)).
@@ -271,8 +302,11 @@ emulator; each link goes to the note.
   - The CPU runs at the clock the app sets, flat out included: the WebUI's 1.02–7.16 MHz, the terminal app's
     1 MHz unless set. The machine has ÷2 only ([Clocks](01-overview.md#clocks)).
 - **Memory** ([chapter 2](02-memory-and-banking.md))
-  - The flash ignores every write, so it can't be reprogrammed
-    ([Reprogramming the flash](02-memory-and-banking.md#reprogramming-the-flash)).
+  - The flash's two chips take their commands, with each chip's status and the parts' typical busy times, but a
+    change lands in the array when its operation starts, so a power-off part way leaves it done, not half done;
+    there is no wear, and no word buffer. ROM A's blocks 0–5 keep what they hold through power cycles but not
+    across a page reload or a new emulator run, and are never written back to a file
+    ([The flash](#the-flash), [Reprogramming the flash](02-memory-and-banking.md#reprogramming-the-flash)).
 - **The boot** ([chapter 3](03-boot.md))
   - /BOOTSEL is the machine file's `northbridge backplane bootsel`, and an image loaded into RAM stands in for the
     bus spy's ([Booting from RAM](03-boot.md#booting-from-ram-bootsel)).
@@ -444,8 +478,9 @@ The terminal app's commands below are run from `emulator/`, after `cmake --prese
 
 Status: **emulated**
 
-`make -C backplane/bios` builds `bios.rom`, the whole 512 KB of ROM A with the BIOS in its top 16 KB, and
-`bios.rom.lbl`, its labels. Then
+`make -C backplane/bios` builds `bios.rom`, the whole 512 KB of ROM A with the BIOS in its top 16 KB,
+`bios.rom.lbl`, its labels, and (since B5) `bios-even.rom` and `bios-odd.rom`, its even and odd bytes, a file for
+each of ROM A's two chips. Then
 `./build/release/apps/emu/emulator --machine machines/backplane.machine ../backplane/bios/bios.rom` boots it to the
 Woz Monitor on the terminal ([chapter 3](03-boot.md)). `--symbols ../backplane/bios/bios.rom.lbl` gives the debugger
 its labels.

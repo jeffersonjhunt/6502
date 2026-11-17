@@ -17,7 +17,7 @@ breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and o
 ([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
 with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
-BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.15:
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.16:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -29,11 +29,11 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.15` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.16` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:101-179 -->
+<!-- listing: ../../backplane/bios/bios.s:112-190 -->
 ```
 RESET:
                 LDX     #$FF
@@ -117,7 +117,9 @@ COPY:           LDA     (SRC),Y
 ```
 
 The BIOS runs from RAM after that, so the flash is never in use once it has booted. The font (ROM A block 30) and
-the video demo (block 29) stay in the flash, and are read through W1 when they are needed.
+the video demo (block 29) stay in the flash, and are read through W1 when they are needed. So do the Apple IIe
+ROM images and their character sets (blocks 0–5, since BIOS 0.16, *proposed*): Apple II mode reads them, and only
+[the flash update](#the-flash-update) writes them.
 
 The BIOS checks for each card by its ID byte ([chapter 1](01-overview.md#slots-and-module-ids)), and leaves alone a
 card that doesn't answer. A machine with only the serial card still boots to the monitor.
@@ -149,10 +151,11 @@ Status: **emulated**
 The BIOS starts with a table of jumps at fixed addresses, so a new entry never moves another. From the monitor,
 `C803R` and so on run one. A program calls ECHO with `JSR $C80F`.
 
-<!-- listing: ../../backplane/bios/bios.s:66-75 -->
+<!-- listing: ../../backplane/bios/bios.s:75-86 -->
 ```
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
-; eight of them, so a new one does not move the code after them.
+; nine of them. The ninth, $C818, dispatches the functions after these, so
+; none is added after it and the code after them stays where it is.
 ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     DEMO           ; $C803: the video demo (video.s, demo.s)
                 JMP     APPLE          ; $C806: Apple II mode (apple.s)
@@ -161,18 +164,20 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
                 JMP     ECHO           ; $C80F: print A, for programs (keeps A and X)
                 JMP     DIAG           ; $C812: the ROM's diagnostics, after a Y (diag23.s)
                 JMP     DIAGPGM        ; $C815: the same for a program: A = $A5, Y = $5A, X the options
+                JMP     ROMCALL        ; $C818: the dispatching entry: Y = $5A, X = $A0 + the function, A its argument
 ```
 
 | Address | Entry | What it does |
 |---|---|---|
 | `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again |
 | `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on video card revision 2 (*proposed*; with any other card it goes straight back). Any key goes back to the monitor |
-| `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Only a hard reset comes back |
+| `$C806` | Apple II mode | Copies the first good IIe ROM image in ROM A, of images 0–3, with its own character set, and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Since BIOS 0.16 (*proposed*); BIOS 0.15 and before took the cartridge's IIe ROM. Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
 | `$C812` | the diagnostics | Since BIOS 0.14 ([chapter 15](15-diagnostics.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23, with the panel's switches 16–18 as their options. With no diagnostics in the flash it says `NO DIAGNOSTICS IN THE FLASH` (or that they are another build's) and goes back to the monitor. It never returns |
-| `$C815` | the diagnostics, for a program | Since BIOS 0.14: A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive; the switches don't count), with no `Y` asked; anything else is `$C812`. With no diagnostics in the flash it returns, carry set, A, X, Y and W2 as they were. OODOS's `DIAG` reaches it through function 75 with A = 2. The table's last spare: a later entry goes through one entry that dispatches by a number |
+| `$C815` | the diagnostics, for a program | Since BIOS 0.14: A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive; the switches don't count), with no `Y` asked; anything else is `$C812`. With no diagnostics in the flash it returns, carry set, A, X, Y and W2 as they were. OODOS's `DIAG` reaches it through function 75 with A = 2. The last of the eight; the functions after it go through `$C818` |
+| `$C818` | the dispatching entry | Since BIOS 0.16 (*proposed*; on BIOS 0.15 and before `$C818` was the first byte after the table, so a call there restarted the machine). A program asks with a two-byte token, Y = `$5A` and X = `$A0` + the function, and A the function's argument. Function `$A1` is Apple II mode with image A, 0–3: the card and DMA checks as `$C806`'s, then `NO APPLE IIE ROM IN FLASH IMAGE n` and the monitor if that image isn't good. With the token and A over 3, function `$A0` (the flash update, reached only from the menu in BIOS 0.16) or a function `$A2–$AF` (reserved), it returns, carry set, with A, X, Y and the windows as they were. Without the token, as `C818R` from the monitor (which leaves X 0), it prints a menu, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR`, and takes a key: `F` is [the flash update](#the-flash-update), a digit 0–3 Apple II mode with that image, any other key the monitor. OODOS's `APPLE2 n` reaches function `$A1` through function 75 with A = 3. No entry is added after it |
 
 ## The monitor
 
@@ -228,3 +233,56 @@ with `/` for a directory or its size in hex.
 
 An OODOS card's `/BOOT.BIN` is OOLDR, which loads OODOS.SYS ([hw/oodos.md, "Loading"](../../hw/oodos.md#loading)).
 So a machine with an OODOS card boots OODOS at power-on, and one without boots to the monitor.
+
+## The flash update
+
+Status: **proposed**
+
+Since BIOS 0.16; emulated as step B5 ([hw/design.md, as built](../../hw/design.md#b5-as-built)).
+
+The Apple IIe ROMs are Apple's, so the OO-1 can't ship them: the owner of a IIe ROM writes it into ROM A himself,
+from the SD card, with the BIOS's flash update. It writes one image, 0–3, and its character set, and nothing else
+([chapter 2](02-memory-and-banking.md#reprogramming-the-flash)). From the monitor, `C818R` and then `F` at the menu
+([above](#the-bioss-entry-points)). A program can't start it: `$C818`'s function `$A0` with the token returns,
+carry set, in BIOS 0.16.
+
+1. **The image.** It asks `FLASH UPDATE: WHICH IIE IMAGE, 0-3?`. Any other key goes back to the monitor.
+2. **The files**, from the card's root, for image *n*: `/APPLE2En.ROM`, the IIe ROM as it sits at `$C000–$FFFF`,
+   exactly 16,384 bytes and needed; and `/APPLE2En.CHR`, the IIe's character ROM, 4 or 8 KB, if there is one. Each
+   is mounted as unit 1, as `/BOOT.BIN` is, and read by the CPU, with no DMA, into RAM: the image into block 59, the
+   set into block 58, which Apple II mode overwrites anyway. A file's size is the one the root's listing gives
+   (`LIST`, as `C809R` lists it), not its sectors', which round it up.
+3. **The checks, before anything is erased.** The image must be 16,384 bytes with `$06` at its `$FBB3`, and a
+   `.CHR` 4 or 8 KB. A file that isn't on the card (`NOT ON THE CARD: /APPLE2E2.ROM`), the wrong size
+   (`/APPLE2E2.ROM ISN'T A IIE ROM`, `/APPLE2E2.CHR ISN'T 4 OR 8 KB`), not a IIe's, or a card error leaves the
+   flash as it was, and goes back to the monitor.
+4. **What it found**, a line each: `/APPLE2E2.ROM 16 KB`, then `/APPLE2E2.CHR 8 KB` (or `4 KB`), or with no `.CHR`
+   `NO /APPLE2E2.CHR: SET 2 ERASED, ITS CHARACTERS THE VGA FONT'S`. Then `WRITE FLASH IMAGE 2 (Y/N)?`; anything but
+   `Y` goes back to the monitor with nothing written.
+5. **Each chip reading.** A byte of `$FF` to each chip in the image's slot (it programs nothing, but ends a command
+   sequence someone left half-sent), then `$F0` to each.
+6. **The erase:** the image's 16 KB (four sector erases, two in each chip) and the set's 8 KB (two). With no
+   `.CHR` the set stays erased, so Apple II mode makes its characters from the VGA font, and an old set never
+   stays under a new image.
+7. **The program,** a pair of bytes at a time in ascending order: the even byte's sequence and byte to the even
+   chip, the odd byte's to the odd one, then each chip polled at an address of its own parity until two reads
+   agree. Every byte goes but the commit bytes: the image's `$FBB3`, which makes it good, and the set's first 8.
+8. **The verify:** everything, read back through a window with RO set, against the copy in RAM. Then the commit
+   bytes, the image's `$FBB3` last of all, and the verify again. So an image is good only once it has been written
+   whole and verified, and an update stopped part way (Break, or the power) leaves it not good, for `$C806` to pass
+   over.
+9. **The end:** `FLASH IMAGE 2 WRITTEN`, then the monitor. A byte that doesn't verify is
+   `FLASH IMAGE 2 NOT WRITTEN AT $F0xxxx`, with its physical address (`$F1xxxx` in a set), and a chip that doesn't
+   answer its poll within 65,536 reads `THE FLASH DOESN'T ANSWER`; either way the image and its set are erased
+   again (unless the erase is what didn't answer), so the image isn't good, and the monitor follows.
+
+However it is entered, it runs QUIET first (the DMA stopped and the cards quiet, as Break does), keeps interrupts off,
+and sets every window itself: W0 RAM block 0, W2 the copy in RAM, W3 the BIOS's copy, and W1 the flash, writable to
+program and read-only to verify; on the way out W1 and W2 go back to blocks 1 and 2. Every write it makes to the
+flash goes through one routine, which refuses any window value but ROM A's blocks 0–5, with RO clear, and says
+`THE FLASH UPDATE REFUSED BLOCK $bb`: so whatever computed a block, the update can't reach the BIOS, the
+diagnostics or ROM B. It never sends a chip erase. It uses zero page `$10–$21` and `$0280–$029A` while it runs
+([chapter 2](02-memory-and-banking.md#zero-page-and-low-ram)).
+
+In the emulator the update of one image and an 8 KB set takes about 1.5 s, at the chips' typical times
+([chapter 14](14-emulator-notes.md#the-flash)).
