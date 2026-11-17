@@ -76,7 +76,7 @@ Status: **emulated**
 
 PADDR is a physical address in RAM, so EXAM and DEP don't depend on the windows. They reach RAM only: not the flash,
 and not the cards' registers. In the emulator they take no bus cycle, since time stands still while halted; on the
-card they take the bus with BE for one cycle.
+card they take the bus with BE for one bus cycle, then the idle cycle before BE is released (B6).
 
 ### The breakpoint
 
