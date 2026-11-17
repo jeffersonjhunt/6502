@@ -129,6 +129,8 @@ set(EMU_SPLIT_test_session 2)
 set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
 # test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
 set(EMU_SPLIT_test_bios_sd 3)
+# test_bios_diag with B7's revision 2 default (fast, alone, 2026-11-17): 923 s, over its 900; each half ~460.
+set(EMU_SPLIT_test_bios_diag 2)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -200,7 +202,7 @@ emu_add_test(test_sd)
 emu_add_test(test_sd_fat)
 emu_add_test(test_bios_sd)
 emu_add_test(test_bios_diag) # the ROM's diagnostics (hw/diag.md, plan 2): D3a's core and BIOS 0.14's entries
-set_tests_properties(test_bios_diag PROPERTIES TIMEOUT 900)
+emu_suite_properties(test_bios_diag TIMEOUT 900) # split in two (B7): the whole suite ran 923 s alone in the fast build
 target_compile_definitions(test_bios_diag PRIVATE
         EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines"

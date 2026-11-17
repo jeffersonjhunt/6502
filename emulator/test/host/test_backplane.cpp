@@ -88,7 +88,7 @@ TEST(reset_maps_ram_blocks_0_to_2_and_the_top_of_rom_a)
     CHECK_EQ(top.where, bus_address(Space::Flash, 0x7FFFC));
     CHECK(!top.writable);
     CHECK_EQ(r.bus.module_at(0xE000), BackplaneBridge::MODULE); // memory by address: PS0-PS3 carry the bridge's D
-    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD1);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD2);
 }
 
 TEST(bootsel_starts_with_w3_and_vec_on_ram_block_63)
@@ -394,7 +394,7 @@ TEST(the_rom_bit_puts_out_f00000_plus_the_block)
         CHECK_EQ(r.bus.last_access().module, BackplaneBridge::MODULE);
         CHECK_EQ(r.bus.physical(0x4123), want);
         CHECK_EQ(r.bus.peek_physical(want), 0x40 + b);
-        CHECK_EQ(r.bus.peek_physical(want & 0xFFFFF), 0x99); // A20-A23 0: the RAM
+        CHECK_EQ(r.bus.peek_bus(want & 0xFFFFF), 0x99); // A20-A23 0: the RAM, as the bus sees it
     }
     CHECK_EQ(r.bus.route(0xFFFC).where, 0xF7FFFCu); // reset: W3 and VEC on block 31
 }
@@ -437,7 +437,7 @@ TEST(an_io_cycle_never_reaches_memory_whatever_the_address_lines_hold)
 
 TEST(the_aperture_redirect_adds_its_base)
 {
-    BackplaneBridge bridge;
+    BackplaneBridge bridge(false, nullptr, 1); // revision 1: B1's alias, by set_aperture()
     CHECK_EQ(bridge.redirect(0x084123), 0x084123u); // no aperture: bank 8 is RAM
     bridge.set_aperture(0xE00000);
     CHECK_EQ(bridge.redirect(0x084123), 0xE04123u);

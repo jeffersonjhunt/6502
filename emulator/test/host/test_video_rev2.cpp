@@ -638,6 +638,9 @@ TEST(machine_lines_check_the_revision_and_the_aperture)
     auto none = Machine::build(head + "aperture 80000-8FFFF\n", "v.machine", {}, error); // no card: inert
     REQUIRE(none != nullptr);
     none->bus().write_physical(0x80000, 0x42);
+    CHECK_EQ(none->bus().peek_physical(0x80000), 0xFF); // AP8 set at reset: the write went to the empty aperture
+    none->bus().write(0xC6A5, 0);                       // MAP: AP8 clear, as the BIOS does with no card
+    none->bus().write_physical(0x80000, 0x42);
     CHECK_EQ(none->bus().peek_physical(0x80000), 0x42); // the RAM answers
     CHECK(Machine::build(head + "video 480-4FF space=io rev=2\naperture 80000-87FFF\n", "v.machine", {}, error) ==
           nullptr);
@@ -1201,6 +1204,12 @@ TEST(without_a_revision_2_card_bank_8_is_ram_and_e00000_is_empty)
     {
         REQUIRE(m != nullptr);
         Decoder &bus = m->bus();
+        // MAP's AP8 is set at reset whatever is fitted: bank 8 goes to the empty aperture until it is cleared.
+        CHECK_EQ(bus.peek_physical(0x080123), 0xFF);
+        bus.write(0xC681, 32);                       // W1 on block 32: the cycle carries $E00123
+        bus.read(0x4123);
+        CHECK_EQ(bus.last_access().physical, 0xE00123u);
+        bus.write(0xC6A5, 0);                        // MAP: AP8 clear, as the BIOS does with no revision 2 card
         bus.write_physical(0x080123, 0x42);
         CHECK_EQ(bus.peek_physical(0x080123), 0x42); // the RAM
         CHECK_EQ(bus.peek_bus(0x080123), 0x42);

@@ -645,14 +645,12 @@ TEST(every_ram_block_bad_blinks_82_the_block_and_the_bits)
     Rig r(SW19);
     REQUIRE(r.ok());
     std::vector<std::unique_ptr<FaultyMemory>> faults;
-    for (uint32_t b = 0; b < 64; ++b)
+    for (uint32_t b = 0; b < 64; ++b) // bank 8's too: GO clears AP8 on $D2, so blocks 32-35 are RAM and tested
     {
-        if (b >= 32 && b < 36)
-            continue;
         auto f = std::make_unique<FaultyMemory>();
         f->or_mask = 0x10;
         f->bad = b * BLOCK; // the first byte of each: stage 2's march sees it
-        REQUIRE(fault_over(*r.machine, *f, b * BLOCK));
+        REQUIRE(fault_over(*r.machine, *f, b * BLOCK, true));
         faults.push_back(std::move(f));
     }
     REQUIRE(enter(r));
@@ -1891,6 +1889,32 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
     const size_t from = r.out.size();
     r.type("4123\r");
     CHECK(r.until("4123: 5C", ms(500), from));
+}
+
+TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
+{
+    // R10. Stage 7 takes the bridge at revision 2, ID $D2 exactly (b7-plan.md, question 7): a $D1 bridge has no
+    // WINnH, VECH or MAP, so NB1-NB8 never run and the stage SKIPs, saying revision 1. Must fail if CARDIS's
+    // revision is left at 1 (stage 7 would run, and pass, on the old bridge). The rest of the run is unchanged: the
+    // other stages pass, by the VIDEO_ID rule on $D1.
+    Rig r(SW19, EMU_BIOS_ROM, with_bridge(1));
+    REQUIRE(r.ok());
+    REQUIRE(bridge_of(r).id() == 0xD1);
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 7), "SKIP"));
+    const std::string text = report(r);
+    const size_t s7 = text.find("\r" + stage_line(r, 7) + "\r"); // the stage's line, then its reason's
+    const size_t why = s7 == std::string::npos ? s7 : s7 + stage_line(r, 7).size() + 2;
+    const std::string reason = why == std::string::npos ? "" : text.substr(why, text.find('\r', why) - why);
+    std::printf("  stage 7: '%s' / '%s'\n", stage_line(r, 7).c_str(), reason.c_str());
+    CHECK(reason.find("REVISION 1: NOT KNOWN TO THIS BUILD") != std::string::npos);
+    CHECK(text.find("NB1  ID") == std::string::npos); // NB1-NB8 never run
+    for (unsigned n = 2; n <= 6; ++n)
+        CHECK(ends(stage_line(r, n), "PASS"));
+    CHECK(ends(stage_line(r, 9), "PASS"));
+    CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
+    CHECK_EQ(bridge_of(r).map(), 0x01); // nothing wrote MAP: a $D1 bridge has none (it reads its reset value)
 }
 
 int main()

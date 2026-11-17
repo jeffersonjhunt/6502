@@ -160,7 +160,7 @@ DG_RESCOL       = 60                   ; a stage line's result
 ; The card stages' text (blocks 22 and 21, diagtest.inc's routines): a macro
 ; puts its string after a JMP, so each line's words are where they are said.
 ; Its labels are unnamed, so a routine's cheap local labels (@x) reach past it.
-; A test's line begun with a name and text: TB "NB1  ID $D1".
+; A test's line begun with a name and text: TB "NB1  ID $D2".
 .macro TB text
                 lda     #<:+
                 ldx     #>:+

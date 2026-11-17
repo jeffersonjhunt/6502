@@ -391,7 +391,7 @@ TEST(bootsel_boots_the_same_image_from_ram)
     CHECK_EQ(b.bridge().window(3), 0x3F);
     CHECK_EQ(b.run(BOOT), GREETING);
     CHECK_EQ(b.bridge().window(3), 0x7F);
-    CHECK(has(b.run(BOOT, "C686\r"), "C686: 13")); // revision 1, power-on, BOOTSEL
+    CHECK(has(b.run(BOOT, "C686\r"), "C686: 23")); // revision 2, power-on, BOOTSEL
 }
 
 TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
@@ -1795,12 +1795,13 @@ TEST(break_inside_vputc_puts_w2_back)
             ;
         if (!offered)
             offered = b.console->key('A');
-        caught = b.bridge().window(2) == 32;
+        caught = b.bridge().window(2) == 0 && b.bridge().winh(2) == 0x0E; // on $D2: slot 0 at $E00000
     }
     REQUIRE(caught);
     b.cpu->nmi();
     CHECK(has(b.run(BOOT), "\\"));
     CHECK_EQ(b.bridge().window(2), 0x02);        // the monitor's echo found it put back
+    CHECK_EQ(b.bridge().winh(2), 0);             // and WIN2H with it
     CHECK(has(b.run(BOOT, "C682\r"), "C682: 02"));
 }
 
@@ -2427,7 +2428,7 @@ TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
 
 // --- B7: the north bridge's revision 2 (WINnH, VECH, MAP's AP8; step B7, proposed) --------------------------
 //
-// The machines below say `revision=2` on their northbridge line (or 1), as U4 will make the default: the ROM writes
+// The machines below say `revision=2` on their northbridge line (or 1); 2 is the default since B7: the ROM writes
 // the new registers only after NB_ID reads $D2 (b7-plan.md, §2.2).
 
 namespace

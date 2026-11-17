@@ -185,7 +185,7 @@ STAGE7:
                 lda     #7
                 jsr     SBEGIN
                 ldx     #$D
-                lda     #1
+                lda     #2             ; ID $D2 exactly (B7); $D1 SKIPs, not known
                 jsr     CARDIS
                 bcc     @card
                 rts
@@ -200,7 +200,7 @@ STAGE7:
                 jmp     CEND
 
 NB1:
-                TB      "NB1  ID $D1; STATUS'S REVISION "
+                TB      "NB1  ID $D2; STATUS'S REVISION "
                 lda     NB_STATUS
                 lsr     a
                 lsr     a

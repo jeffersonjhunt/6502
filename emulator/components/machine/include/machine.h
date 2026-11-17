@@ -65,7 +65,7 @@
  * north bridge (backplane_bridge.h): the windows, VEC, ROM space, the I/O
  * hole and the DS3231 real-time clock; revision 2 (ID $D2) adds WIN0H-WIN3H,
  * VECH and MAP, revision 1 (ID $D1) is B1's, and the default is
- * BackplaneBridge::REVISION, 1 for now (step B7). Its registers are at io
+ * BackplaneBridge::REVISION, 2 (step B7). Its registers are at io
  * 680-6FF (module D, its IRQ wired: the clock's tick), and it is named
  * `northbridge`. The clock starts at the host's local time unless the
  * options give one.

@@ -192,12 +192,13 @@ def main():
             f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
                     "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
                     "video 480-4FF space=io name=video irq\n")
-        write_hex(hexfile, [(0x0300, [0xA9, 0x20, 0x8D, 0x81, 0xC6,   # LDA #$20; STA WIN1: $4000 = $80000
+        write_hex(hexfile, [(0x0300, [0x9C, 0xA5, 0xC6,               # STZ MAP: AP8 clear, bank 8 the RAM's
+                                      0xA9, 0x20, 0x8D, 0x81, 0xC6,   # LDA #$20; STA WIN1: $4000 = $80000
                                       0xA9, 0x23, 0x8D, 0x06, 0x40,   # palette entry 3 = $123
                                       0xA9, 0x01, 0x8D, 0x07, 0x40,
                                       0xA9, 0x03, 0x8D, 0x81, 0xC4,   # BORDER 3
                                       0xA9, 0x01, 0x8D, 0x80, 0xC4,   # CTRL: display on
-                                      0x4C, 0x19, 0x03])])           # JMP *
+                                      0x4C, 0x1C, 0x03])])           # JMP *
         screen = os.path.join(cwd, "screen.ppm")
         s = Session(binary, ["--machine", video, "--load", hexfile, "--screen", screen, "--halt", rom], cwd)
         s.expect(PROMPT)
