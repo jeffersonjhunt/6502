@@ -50,7 +50,7 @@
 .importzp PX, T0, T1, T2, T3, T4      ; the BDOS's (bdos.inc), for 81
 .importzp EVP                          ; irq.s's
 .import RETFF, PGET, PPUT
-.import DEAFEN, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
+.import DEAFEN, WBDMA, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .ifdef OOLIB_DEBUG
 .import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
 .endif
@@ -108,7 +108,7 @@ WBQUIET:
 .endif
                 LDX     #R61_QUIET     ; the sound card quiet, channel 2 stopped, the claims
                 JSR     CALL61         ; released (sound.s's SNDQUIET), before DEAFEN
-                JSR     DEAFEN
+                JSR     WBDMA          ; DMA channels 4-7 stopped and every CARD back, then DEAFEN (irq.s)
                 LDX     #R61_WARM      ; the vertical-blank slots freed, the pointer off, the
                 JSR     CALL61         ; console's screen shown again (video.s's VBQUIET, L4)
                 LDA     UCARD

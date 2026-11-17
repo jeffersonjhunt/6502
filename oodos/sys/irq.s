@@ -60,7 +60,8 @@
 .import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
 .import VBON                           ; video.s's
 .export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
-.export HK, DHON
+.export HK, DHON, DMACTL, WBDMA
+.import DMAWARM                        ; video.s's (block 61)
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
@@ -1132,3 +1133,18 @@ FT_COSTSX:      LDX     PX
                 LDX     #0
                 RTS
 @no:            JMP     RETFF
+
+; The warm boot's in place of DEAFEN (input.s's WBQUIET; B5): the DMA
+; controller's channels 4-7 stopped and every CARD put back (video.s's
+; DMAWARM, in block 61, through W2 as CALL61 maps it, without a CALL61 entry
+; so that nothing in block 61 moves), then DEAFEN. In RES2, so that nothing
+; in RES moves: WBQUIET's JSR is the same length.
+.segment "RES2"
+WBDMA:          LDA     NB_WIN2
+                PHA
+                LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                JSR     DMAWARM
+                PLA
+                STA     NB_WIN2
+                JMP     DEAFEN
