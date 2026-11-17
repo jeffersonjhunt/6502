@@ -1290,6 +1290,178 @@ TEST(the_console_cards_exam_and_dep_see_bank_8_as_the_ram_cards)
     CHECK_EQ(bus.peek_physical(0x080123), 0xC3);      // the CPU's bank 8 is still the aperture
 }
 
+// --- the north bridge's revision 2 (step B7): MAP's AP8 and WIN1H on the machine ------------
+
+namespace
+{
+    /// backplane.machine with its north bridge at `nb` (the `revision=` option), flash erased.
+    std::unique_ptr<Machine> backplane_nb(unsigned nb)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "\nnorthbridge  backplane";
+        const size_t at = text.find(line);
+        if (at == std::string::npos)
+            return nullptr;
+        text.insert(at + line.size(), " revision=" + std::to_string(nb));
+        MachineOptions opt;
+        opt.rom_override = "-";
+        std::string error;
+        auto m = Machine::build(text, "backplane.machine", opt, error);
+        if (!m)
+            std::printf("  %s\n", error.c_str());
+        return m;
+    }
+
+    /// The DMA controller's memory to memory copy of 16 bytes, channel 0, run to its end.
+    void copy16(Decoder &bus, uint32_t src, uint32_t dest)
+    {
+        bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE); // SELECT 0
+        bus.poke(0xC400, static_cast<uint8_t>(src));
+        bus.poke(0xC401, static_cast<uint8_t>(src >> 8));
+        bus.poke(0xC402, static_cast<uint8_t>(src >> 16));
+        bus.poke(0xC408, static_cast<uint8_t>(dest));
+        bus.poke(0xC409, static_cast<uint8_t>(dest >> 8));
+        bus.poke(0xC40A, static_cast<uint8_t>(dest >> 16));
+        bus.poke(0xC404, 16);
+        bus.poke(0xC405, 0);
+        bus.poke(0xC406, DmaController::BLOCK | DmaController::MEM_TO_MEM);
+        bus.poke(0xC407, DmaController::ENABLE | DmaController::REQ);
+        for (int i = 0; i < 50; ++i)
+            bus.read(0x0000);
+    }
+
+    /// What the Console card's EXAM shows at `physical`.
+    uint8_t exam(ConsoleCard &panel, uint32_t physical)
+    {
+        panel.set_switches(physical);
+        panel.press(ConsoleCard::LOAD_ADRS);
+        panel.press(ConsoleCard::EXAM);
+        const ConsoleCard::Lights l = panel.lights();
+        uint8_t shown = 0;
+        for (unsigned i = 0; i < 8; ++i)
+            shown = static_cast<uint8_t>(shown | (l.data[i] > 0.5f ? 1u << i : 0u));
+        return shown;
+    }
+} // namespace
+
+TEST(with_ap8_clear_bank_8_is_ram_and_the_card_is_at_e00000_and_win1h_0e)
+{
+    auto m = backplane_nb(2);
+    REQUIRE(m != nullptr);
+    VideoCard *card = m->video_card();
+    REQUIRE(card != nullptr);
+    Decoder &bus = m->bus();
+    CHECK_EQ(bus.peek(0xC6FF), 0xD2);
+    CHECK_EQ(bus.peek(0xC6A5), 0x01);                  // AP8 set at reset: old software's bank 8
+    card->card_poke(0x4123, 0xC1);                     // slot 1
+    CHECK_EQ(bus.peek_physical(0x084123), 0xC1);
+    bus.write(0xC6A5, 0x00);                           // AP8 clear
+    bus.write_physical(0x084123, 0x42);                // bank 8: the RAM
+    CHECK_EQ(bus.peek_physical(0x084123), 0x42);
+    CHECK_EQ(bus.peek_bus(0x084123), 0x42);
+    CHECK_EQ(card->card_peek(0x4123), 0xC1);           // the card untouched
+    CHECK_EQ(bus.peek_physical(0xE04123), 0xC1);       // and still at its own address
+    bus.write(0xC681, 33);                             // W1 on block 33: the RAM
+    CHECK_EQ(bus.read(0x4123), 0x42);
+    CHECK_EQ(bus.last_access().physical, 0x084123u);
+    bus.write(0xC6A1, 0x0E);                           // WIN1H $0E, WIN1 1: slot 1 by its new address
+    bus.write(0xC681, 1);
+    CHECK_EQ(bus.read(0x4123), 0xC1);
+    CHECK_EQ(bus.last_access().physical, 0xE04123u);
+    bus.write(0x4124, 0x6E);
+    CHECK_EQ(card->card_peek(0x4124), 0x6E);
+    bus.write(0xC6A5, 0x01);                           // AP8 set: WIN1H $0E is the card all the same
+    CHECK_EQ(bus.read(0x4124), 0x6E);
+    bus.write(0xC6A1, 0x00);
+    bus.write(0xC681, 33);                             // and block 33 is the aperture again
+    CHECK_EQ(bus.read(0x4123), 0xC1);
+}
+
+TEST(dma_to_84000_follows_ap8_both_ways)
+{
+    auto m = backplane_nb(2);
+    REQUIRE(m != nullptr);
+    VideoCard *card = m->video_card();
+    Decoder &bus = m->bus();
+    for (unsigned i = 0; i < 16; ++i)
+        bus.write_physical(0x21000 + i, static_cast<uint8_t>(0x30 + i));
+    copy16(bus, 0x21000, 0x84000);                     // AP8 set: the card's slot 1
+    CHECK_EQ(card->card_peek(0x4000 + 15), 0x3F);
+    CHECK_EQ(bus.peek_bus(0x84000 + 15), 0x00);
+    card->card_poke(0x4000 + 15, 0x00);
+    bus.write(0xC6A5, 0x00);                           // AP8 clear: the RAM
+    copy16(bus, 0x21000, 0x84000);
+    CHECK_EQ(bus.peek_bus(0x84000 + 15), 0x3F);
+    CHECK_EQ(card->card_peek(0x4000 + 15), 0x00);
+    copy16(bus, 0x21000, 0xE08000);                    // the card's own address, AP8 or not
+    CHECK_EQ(card->card_peek(0x8000 + 15), 0x3F);
+    bus.write(0xC6A5, 0x01);                           // and set again: the card once more
+    for (unsigned i = 0; i < 16; ++i)
+        bus.write_physical(0x21000 + i, static_cast<uint8_t>(0x50 + i));
+    copy16(bus, 0x21000, 0x84000);
+    CHECK_EQ(card->card_peek(0x4000 + 15), 0x5F);
+    CHECK_EQ(bus.peek_bus(0x84000 + 15), 0x3F);        // the RAM keeps the earlier copy
+}
+
+TEST(exam_and_dep_see_bank_8s_ram_whatever_ap8_holds)
+{
+    auto m = backplane_nb(2);
+    REQUIRE(m != nullptr);
+    ConsoleCard *panel = m->console_card();
+    REQUIRE(panel != nullptr);
+    VideoCard *card = m->video_card();
+    Decoder &bus = m->bus();
+    card->card_poke(0x0123, 0xC3);
+    bus.write_bus(0x080123, 0x3C);
+    panel->set_halt_switch(true);
+    for (const uint8_t map : {uint8_t{0x01}, uint8_t{0x00}})
+    {
+        bus.write(0xC6A5, map);
+        CHECK_EQ(exam(*panel, 0x80123), 0x3C);         // the RAM's byte, never the card's $C3
+        CHECK_EQ(bus.peek_physical(0x080123), map ? 0xC3 : 0x3C); // while the CPU card's bank 8 follows MAP
+    }
+    bus.write(0xC6A5, 0x01);
+    panel->set_switches(0x80123);
+    panel->press(ConsoleCard::LOAD_ADRS);
+    panel->set_switches(0x000A5);
+    panel->press(ConsoleCard::DEP);
+    CHECK_EQ(bus.peek_bus(0x080123), 0xA5);            // DEP: the RAM
+    CHECK_EQ(card->card_peek(0x0123), 0xC3);
+}
+
+TEST(a_revision_1_north_bridge_keeps_b1s_alias_from_the_card)
+{
+    for (const unsigned video : {2u, 1u})
+    {
+        MachineOptions opt;
+        opt.rom_override = "-";
+        opt.video_revision = video;
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const size_t at = text.find("\nnorthbridge  backplane");
+        REQUIRE(at != std::string::npos);
+        text.insert(at + 23, " revision=1");
+        std::string error;
+        auto m = Machine::build(text, "backplane.machine", opt, error);
+        if (!m)
+            std::printf("  %s\n", error.c_str());
+        REQUIRE(m != nullptr);
+        Decoder &bus = m->bus();
+        CHECK_EQ(bus.peek(0xC6FF), 0xD1);
+        CHECK_EQ(bus.peek(0xC6A5), 0xFF);              // no MAP
+        bus.write(0xC6A5, 0x00);                       // lost: the alias is the build's
+        if (video == 2)
+        {
+            m->video_card()->card_poke(0x4123, 0xC1);
+            CHECK_EQ(bus.peek_physical(0x084123), 0xC1);
+        }
+        else
+        {
+            bus.write_physical(0x084123, 0x42);        // no revision 2 card: bank 8 is the RAM's
+            CHECK_EQ(bus.peek_physical(0x084123), 0x42);
+        }
+    }
+}
+
 int main()
 {
     return run_all();

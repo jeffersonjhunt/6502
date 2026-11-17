@@ -33,10 +33,11 @@ namespace
     constexpr uint16_t NB = 0xC680; ///< the north bridge's registers
 
     /// The bridge on a decoder with 1 MB of RAM, 1 MB of flash (ROM A and B)
-    /// and its own registers, as backplane.machine wires it.
+    /// and its own registers, as backplane.machine wires it (at `revision`).
     struct Rig
     {
-        explicit Rig(bool bootsel = false) : bridge(bootsel), bus(&bridge)
+        explicit Rig(bool bootsel = false, uint8_t revision = BackplaneBridge::REVISION)
+            : bridge(bootsel, nullptr, revision), bus(&bridge)
         {
             bridge.attach(&bus);
             bus.map({0x00000, 0xFFFFF, &ram, 0x0});
@@ -476,6 +477,180 @@ TEST(ids_0_to_5_and_f_are_empty_slots_on_the_machine)
             CHECK(map.module >= 0x6 && map.module <= 0xE);
     }
     CHECK_EQ(bus.peek(0xC6FF), BackplaneBridge::ID); // and the slots that are cards still answer
+}
+
+// --- revision 2 (step B7): WIN0H-WIN3H, VECH and MAP's AP8 ----------------------------
+
+TEST(revision_2_resets_winh_vech_and_map_and_reads_d2)
+{
+    Rig r(false, 2);
+    CHECK_EQ(r.bridge.revision(), 2u);
+    CHECK_EQ(r.bridge.id(), 0xD2);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD2);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::STATUS) >> 4, 2);
+    const uint8_t reset[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x01}; // WIN0H-WIN3H, VECH, MAP
+    for (unsigned i = 0; i < 6; ++i)
+        CHECK_EQ(r.bus.read(static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i)), reset[i]);
+    // The reserved bits read 0: WINnH and VECH keep bits 3-0, MAP bit 0.
+    for (unsigned i = 0; i < 5; ++i)
+    {
+        r.bus.write(static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i), 0xF5);
+        CHECK_EQ(r.bus.read(static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i)), 0x05);
+    }
+    r.bus.write(NB + BackplaneBridge::MAP, 0xFE);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::MAP), 0x00);
+    r.bus.write(NB + BackplaneBridge::MAP, 0xFF);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::MAP), 0x01);
+    for (unsigned i = 0; i < 5; ++i) // back to 0 before the windows are used
+        r.bus.write(static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i), 0x00);
+    // The offsets either side still answer nothing.
+    unsigned answered = 0;
+    for (uint16_t o = 0x19; o < 0x7F; ++o)
+    {
+        if (o >= BackplaneBridge::WIN0H && o <= BackplaneBridge::MAP)
+            continue;
+        r.bus.write(static_cast<uint16_t>(NB + o), 0x00);
+        answered += r.bus.read(static_cast<uint16_t>(NB + o)) != 0xFF;
+    }
+    CHECK_EQ(answered, 0u);
+}
+
+TEST(winh_gives_a20_to_a23_while_the_rom_bit_is_clear)
+{
+    Rig r(false, 2);
+    r.bus.write(NB + 1, 0x01);                          // W1 = block 1
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x0E); // WIN1H $0E: block $E0:01, $E04000
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0xE04123));
+    r.bus.read(0x4123);
+    CHECK_EQ(r.bus.last_access().physical, 0xE04123u);
+    CHECK_EQ(r.bus.last_access().module, BackplaneBridge::MODULE);
+    r.ram.write(0x04123, 0x5A);                         // RAM block 1 is not what W1 shows now
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x01); // $104000: past the RAM, nothing answers
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x104123));
+    CHECK_EQ(r.bus.read(0x4123), 0xFF);
+    r.bus.write(0x4123, 0x77);                          // and the write is lost
+    CHECK_EQ(r.ram.read(0x04123), 0x5A);
+    r.bus.write(NB + 1, BackplaneBridge::ROM | 5);      // the ROM bit: the flash, WIN1H ignored
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Flash, 5 * 0x4000 + 0x123));
+    r.bus.write(NB + 1, 0x01);
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x00); // WIN1H 0: RAM block 1 again
+    CHECK_EQ(r.bus.read(0x4123), 0x5A);
+    // Each window has its own: W0 and W2 move by theirs alone.
+    r.bus.write(NB + BackplaneBridge::WIN0H + 2, 0x03);
+    CHECK_EQ(r.bus.route(0x8123).where, bus_address(Space::Memory, 0x308123));
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x004123));
+    CHECK_EQ(r.bus.route(0x0123).where, bus_address(Space::Memory, 0x000123));
+}
+
+TEST(vech_acts_only_on_a_vector_pull_and_win3h_on_w3s_other_cycles)
+{
+    Rig r(false, 2);
+    r.bus.write(NB + 3, 0x3E);                          // W3 = RAM block 62
+    r.bus.write(NB + BackplaneBridge::VEC, 0x3F);       // VEC = RAM block 63
+    r.bus.write(NB + BackplaneBridge::WIN0H + 3, 0x0D);
+    r.bus.write(NB + BackplaneBridge::VECH, 0x0E);
+    CHECK_EQ(r.bus.route(0xFFFC, false).where, bus_address(Space::Memory, 0xDF8000 + 0x3FFC));
+    CHECK_EQ(r.bus.route(0xFFFC, true).where, bus_address(Space::Memory, 0xEFC000 + 0x3FFC));
+    CHECK_EQ(r.bus.route(0xC800, false).where, bus_address(Space::Memory, 0xDF8800));
+    // VPB low elsewhere changes nothing: W1's own WIN1H, never VECH.
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x02);
+    CHECK_EQ(r.bus.route(0x4123, true).where, bus_address(Space::Memory, 0x204123));
+    // VEC with its ROM bit: the flash, VECH ignored.
+    r.bus.write(NB + BackplaneBridge::VEC, BackplaneBridge::RESET_TOP);
+    CHECK_EQ(r.bus.route(0xFFFC, true).where, bus_address(Space::Flash, 0x7FFFC));
+}
+
+TEST(ap8_sends_bank_8_to_the_aperture_and_clear_leaves_it_ram)
+{
+    Rig r(false, 2);
+    CHECK_EQ(r.bridge.map(), BackplaneBridge::MAP_AP8);
+    for (unsigned b = 32; b < 36; ++b)
+    {
+        r.bus.write(NB + 1, static_cast<uint8_t>(b));
+        CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0xE00000 + (b - 32) * 0x4000 + 0x123));
+    }
+    CHECK_EQ(r.bus.redirect(0x084000), 0xE04000u);      // the DMA controller's memory side
+    CHECK_EQ(r.bus.redirect(0x08FFFF), 0xE0FFFFu);
+    r.bus.write(NB + 1, 36);                            // bank 9 never moves
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x090123));
+    CHECK_EQ(r.bus.redirect(0x094000), 0x094000u);
+    CHECK_EQ(r.bus.redirect(0x07FFFF), 0x07FFFFu);
+    r.bus.write(NB + 1, 33);
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x01); // $184000: A20 set, not bank 8, not moved
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x184123));
+    r.bus.write(NB + BackplaneBridge::WIN0H + 1, 0x00);
+
+    r.bus.write(NB + BackplaneBridge::MAP, 0x00);       // AP8 clear: bank 8 is the RAM's, at once
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x084123));
+    r.bus.write(0x4123, 0x6D);
+    CHECK_EQ(r.ram.read(0x84123), 0x6D);
+    CHECK_EQ(r.bus.redirect(0x084000), 0x084000u);
+    r.bus.write(NB + BackplaneBridge::MAP, BackplaneBridge::MAP_AP8); // and back
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0xE04123));
+    CHECK_EQ(r.bus.read(0x4123), 0xFF);                 // nothing at $E00000 on this rig
+}
+
+TEST(every_reset_puts_winh_vech_and_map_back)
+{
+    Rig r(false, 2);
+    const auto scribble = [&r] {
+        for (unsigned i = 0; i < 4; ++i)
+            r.bus.write(static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i), static_cast<uint8_t>(5 + i));
+        r.bus.write(NB + BackplaneBridge::VECH, 0x07);
+        r.bus.write(NB + BackplaneBridge::MAP, 0x00);
+    };
+    const auto at_reset = [&r] {
+        unsigned wrong = 0;
+        for (unsigned i = 0; i < 4; ++i)
+            wrong += r.bridge.winh(i) != 0;
+        wrong += r.bridge.vech() != 0;
+        wrong += r.bridge.map() != BackplaneBridge::MAP_AP8;
+        return wrong;
+    };
+    scribble();
+    CHECK_EQ(r.bridge.winh(2), 7);
+    CHECK_EQ(r.bridge.map(), 0);
+    r.bus.reset();                                      // a hard reset
+    CHECK_EQ(at_reset(), 0u);
+    scribble();
+    r.bus.pulse_reset();                                // a /RESET pulse (Ctrl-Reset, entering Apple II mode)
+    CHECK_EQ(at_reset(), 0u);
+    CHECK_EQ(r.bridge.window(3), BackplaneBridge::RESET_TOP);
+
+    Rig boot(true, 2);                                  // /BOOTSEL: W3 and VEC on RAM block 63, their highs 0
+    CHECK_EQ(boot.bridge.window(3), 0x3F);
+    CHECK_EQ(boot.bridge.winh(3), 0);
+    CHECK_EQ(boot.bridge.vech(), 0);
+    CHECK_EQ(boot.bus.route(0xFFFC, true).where, 0xFFFFCu);
+    CHECK_EQ(boot.bus.route(0xC800).where, 0xFC800u);
+}
+
+TEST(revision_1_has_no_winh_vech_or_map_and_keeps_b1s_alias)
+{
+    Rig r(false, 1);
+    CHECK_EQ(r.bridge.revision(), 1u);
+    CHECK_EQ(r.bridge.id(), 0xD1);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD1);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::STATUS) >> 4, 1);
+    unsigned answered = 0;
+    for (unsigned i = 0; i < 6; ++i)
+    {
+        const uint16_t at = static_cast<uint16_t>(NB + BackplaneBridge::WIN0H + i);
+        answered += r.bus.read(at) != 0xFF;
+        r.bus.write(at, i == 5 ? 0x00 : 0x0E);          // lost
+        answered += r.bus.read(at) != 0xFF;
+    }
+    CHECK_EQ(answered, 0u);
+    r.bus.write(NB + 1, 0x01);
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x004123)); // WIN1H's write went nowhere
+    r.bus.write(NB + 3, 0x3E);
+    CHECK_EQ(r.bus.route(0xFFFC, true).where, bus_address(Space::Flash, 0x7FFFC)); // VEC still the ROM's
+    // B1's alias: fixed when built, MAP's write changed nothing.
+    r.bus.write(NB + 1, 33);
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0x084123));
+    r.bridge.set_aperture(BackplaneBridge::APERTURE);
+    CHECK_EQ(r.bus.route(0x4123).where, bus_address(Space::Memory, 0xE04123));
+    CHECK_EQ(r.bus.redirect(0x084000), 0xE04000u);
 }
 
 int main()

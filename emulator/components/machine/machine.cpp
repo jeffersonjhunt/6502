@@ -230,8 +230,23 @@ namespace ooe::emu
             }
             if (type == "northbridge")
             {
-                if (w.size() < 2 || w[1] != "backplane" || w.size() > 3 || (w.size() == 3 && w[2] != "bootsel"))
-                    return fail("northbridge: want 'northbridge backplane [bootsel]'");
+                if (w.size() < 2 || w[1] != "backplane")
+                    return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]'");
+                bool bootsel = false, revised = false;
+                uint8_t revision = BackplaneBridge::REVISION; // the default (step B7)
+                for (size_t i = 2; i < w.size(); ++i)
+                {
+                    if (w[i] == "bootsel" && !bootsel)
+                        bootsel = true;
+                    else if ((w[i] == "revision=1" || w[i] == "revision=2") && !revised)
+                    {
+                        revision = static_cast<uint8_t>(w[i].back() - '0');
+                        revised = true;
+                    }
+                    else
+                        return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]', not '" +
+                                    w[i] + "'");
+                }
                 if (m->bridge_)
                     return fail("northbridge: only one per machine");
                 if (options.bridge)
@@ -247,7 +262,7 @@ namespace ooe::emu
                     const Ds3231::Time now = host_time(ms);
                     rtc = std::make_shared<Ds3231>(now, false, ms);
                 }
-                auto bridge = std::make_unique<BackplaneBridge>(w.size() == 3, std::move(rtc));
+                auto bridge = std::make_unique<BackplaneBridge>(bootsel, std::move(rtc), revision);
                 bridge->attach(&m->bus_);
                 m->bus_.set_bridge(bridge.get());
                 m->bus_.map(Mapping{bus_address(Space::Io, BackplaneBridge::REGISTERS),
@@ -575,10 +590,11 @@ namespace ooe::emu
             return nullptr;
         }
         {
-            // Revision 2: the card answers its aperture, and the CPU card sends bank 8 there (AP8
-            // set, hw/design.md). Revision 1 has none, nor a machine without the card: the line is
-            // inert, and bank 8 is the RAM's. A line at bank 8 itself, as machine files had it before
-            // the 24-bit bus, is taken for the aperture's own place, E00000, on the backplane.
+            // Revision 2: the card answers its aperture. A revision 2 north bridge sends bank 8 there
+            // while MAP's AP8 is set (hw/design.md); a revision 1 bridge is told once, here, and only
+            // with the card (B1). A revision 1 card has no aperture, nor a machine without the card:
+            // the line is inert. A line at bank 8 itself, as machine files had it before the 24-bit
+            // bus, is taken for the aperture's own place, E00000, on the backplane.
             auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_);
             if (m->video_card_ && video_rev == 2)
             {
@@ -591,7 +607,7 @@ namespace ooe::emu
                         map.first = bus_address(Space::Memory, BackplaneBridge::APERTURE);
                         map.last = map.first + VideoCard::APERTURE_SIZE - 1;
                     }
-                    if (bp && bp->aperture() == BackplaneBridge::NO_APERTURE &&
+                    if (bp && !bp->wide() && bp->aperture() == BackplaneBridge::NO_APERTURE &&
                         map.first != bus_address(Space::Memory, BackplaneBridge::BANK8))
                         bp->set_aperture(offset_of(map.first));
                     m->bus_.map(map);
