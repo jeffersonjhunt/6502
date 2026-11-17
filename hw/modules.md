@@ -37,7 +37,9 @@ Dir is seen from the CPU card. OUT: the CPU card drives it. IN: a card drives it
 master holding the bus drives it, which is the CPU card (the north bridge, or the DMA controller beside it), or the
 Console card or the bus spy once it has taken the bus with BE. While the Console card or the bus spy holds BE, the
 CPU card lets go of /WORD, /OE, /MEM and PS0-PS3 as well as the address, the data and RWB; a master that makes only
-byte cycles, such as the bus spy, may leave /WORD to its pull-up.
+byte cycles, such as the bus spy, may leave /WORD to its pull-up. Before it releases BE, a master drives /MEM, /OE,
+/IACK, /DMA and /WORD inactive (high), RWB to read and PS0-PS3 to `0xF` for at least one cycle, so that the pull-ups
+only hold lines that are already high (B6, review round 2).
 
 | Pin | Name | Dir | Description |
 |---|---|---|---|
@@ -104,7 +106,7 @@ byte cycles, such as the bus spy, may leave /WORD to its pull-up.
 | B37 | GND | | ground |
 | B38-B41 | A20-A23 | OUT (master) | address; A20-A23 are new on this bus (the 24-bit map) |
 | B42 | GND | | ground |
-| B43-B46 | PS0-PS3 | OUT (master) | module ID: the card of the I/O block; `0xD` on the CPU's memory cycle, `0x8` on DMA's own cycles, the card's in a fly-by grant, `0xE` while the Console card or the bus spy holds the bus; pulled up, to `0xF`, a free ID, so a cycle no master drives selects no card's registers |
+| B43-B46 | PS0-PS3 | OUT (master) | module ID: the card of the I/O block; `0xD` on the CPU's memory cycle, `0x8` on DMA's own cycles, the card's in a fly-by grant, `0xE` while the Console card or the bus spy holds the bus; pulled up, to `0xF`, the idle bus's ID, never a card's, so a cycle no master drives selects no card's registers |
 | B47 | GND | | ground |
 | B48 | /IACK | OUT | the north bridge's interrupt poll (with /DMA low too: the DMA controller's request poll); pulled up |
 | B49 | /DMA | OUT | the DMA controller's poll and grant cycles; in a grant the card named on PS0-PS3 moves its data register; pulled up |
@@ -136,8 +138,12 @@ byte cycles, such as the bus spy, may leave /WORD to its pull-up.
 drives (a BE handover, between one master letting go and the next driving) selects nothing: RDY, BE, /BOOTSEL,
 /RESET, /NMI and /IRQ; /WAIT and /DREQ (open drain); weak ones on D0-D15, for both polls and for an unmapped read
 (`$FF`, or `$FFFF` as a word); /WORD, /MEM, /DMA, /IACK and /OE, so that such a cycle selects no memory and makes no
-poll; PS0-PS3, to `0xF`, a free ID, so that no card's registers answer it; and RWB, so that it is a read, with /OE
-high. A0-A23 have no pull-ups and float then, which is harmless with nothing selected.
+poll; PS0-PS3, to `0xF`, the idle bus's ID, which no card is given, so that no card's registers answer it; and RWB,
+so that it is a read, with /OE high. A0-A23 have no pull-ups and float then, which is harmless with nothing selected.
+A pull-up alone raises a released line slowly on a loaded passive bus, many cycles at 7.16 MHz, so a master that
+hands the bus back drives those lines high first: before it releases BE, it drives /MEM, /OE, /IACK, /DMA and /WORD
+inactive (high), RWB to read and PS0-PS3 to `0xF` for at least one cycle, and the pull-ups then only hold lines that
+are already high (B6, review round 2).
 
 **From the 62-pin bus.** Every 62-pin signal carries over but DRQ0-DRQ3 and /DACK0-/DACK3 (8 lines, replaced by
 /DREQ and /DMA) and +24 V (5 V only). New: D8-D15, A20-A23, /MEM, /DMA, /DREQ, /WAIT, /WORD and BR0-BR2. The
@@ -161,20 +167,21 @@ high. A0-A23 have no pull-ups and float then, which is harmless with nothing sel
 | 0xC | Disk II controller | a slot |
 | 0xD | the north bridge (registers) | the CPU card |
 | 0xE | Console (the front panel) | a slot |
-| 0xF | free (the clock moved onto the CPU card, 2026-10-30) | |
+| 0xF | reserved: the idle bus's ID, the value PS0-PS3's pull-ups give a cycle no master drives; never a card's (B6). Once the clock's, which moved onto the CPU card, 2026-10-30 | |
 | none | the RAM card, 1 MB at `$000000-$0FFFFF`, by address; RAM A-D name its four 256 KB quarters | a slot |
 | none | ROM A, 512 KB at `$F00000`: two 256 KB chips side by side, even and odd bytes, that can be written; the BIOS, and the IIe images in blocks 0-5 (since B5, proposed) | the CPU card |
 | none | ROM B, the game cartridge, 512 KB at `$F80000`, two chips as ROM A, erased | a slot |
 | none | the bus spy (a bus master, no registers) | a slot |
 
 - **The new bus (98 pins, 2026-11-14):** memory is selected by its address, so IDs 0x0-0x5 (once RAM A-D, ROM A
-  and B) are free, with 0xF: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
+  and B) are free, six IDs for new cards; 0xF is the idle bus's, never a card's (B6):
+  [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
 - **Decided (B0, 2026-11-14):** the video card's aperture moves to `$E00000`, so all 1 MB is RAM. The DMA
   controller (revision 2, ID `$82`) grants by the module ID in each channel's CARD register, through one channel
   window chosen by CONTROL's SELECT, and the serial card (0x6) picks its DMA stream with DMASTREAM. The north bridge
   (0xD) is revision 2, ID `$D2`, with the wider windows: [design.md](design.md#the-physical-map-on-the-new-bus).
 - **Decided (2026-11-14): one backplane, no expansion chassis.** The backplane has about 14-15 slots, one for each
-  card that can exist (at most 14 with IDs, plus the RAM card and the cartridge) and the CPU card, which carries the
+  card that can exist (at most 13 with IDs, plus the RAM card and the cartridge) and the CPU card, which carries the
   CPU, the north bridge, the clock, the DS3231, the DMA controller and ROM A. It is a passive bus at 7.16 MHz.
   BR0-BR2 are reserved, unassigned, for a future bridged bus with its own ID space. Slow cards ask for wait states
   by /WAIT: [design.md](design.md#one-backplane-the-slots-and-the-reserved-pins).

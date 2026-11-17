@@ -72,7 +72,8 @@ divided down from it:
 
 - **The clock is on the CPU card (decided 2026-10-30).** The crystal and the divider sit beside the CPU and the
   north bridge, which selects the speed: PHI2 never crosses the backplane to reach the CPU, and there is no
-  separate clock card. Module ID `0xF`, once the clock's, is free.
+  separate clock card. Module ID `0xF`, once the clock's, is the idle bus's since B6: PS0–PS3's pull-ups give it, so
+  no card is given it.
 - **A synchronous divider** on the CPU card, selected by the north bridge's mode register (and, if turbo is ever
   added, a speed bit). Every speed comes from the same crystal, so switching is just changing the divider at a
   cycle boundary while PHI2 is low. The divider never produces a short pulse, so it needs no clock multiplexer.
@@ -480,10 +481,11 @@ with up to 16 MB, so the reasoning isn't lost.
 
 **From the ESP32 (override)**
 
-1. The bus spy holds /RESET low; a held W65C02S stays off the bus.
+1. The bus spy holds /RESET low and pulls BE low, so the CPU and the north bridge float, as they do for the Console
+   card.
 2. It writes an image into RAM over the backplane. The image can come from its flash, an SD card, Wi-Fi or USB.
 3. It drives /BOOTSEL, so the north bridge starts with W3 and VEC on RAM block 63 instead of the flash.
-4. It releases /RESET, and the CPU starts from the image in RAM.
+4. It releases BE, then /RESET, and the CPU starts from the image in RAM.
 
 **What the override is for:**
 
@@ -1944,8 +1946,9 @@ with them is dropped, below).
   (proposed: ROM A at `$F00000–$F7FFFF`, ROM B, the cartridge, at `$F80000–$FFFFFF`). A window's ROM bit keeps
   its meaning: the north bridge puts out a flash address instead of a RAM one, so software doesn't see the change.
 - **Module IDs `0x0`–`0x5` are free** (they were RAM A–D, ROM A and ROM B, which never had registers: their blocks
-  at `$C000–$C2FF` are unused today), and so is `0xF`. Seven IDs for new cards; the interrupt poll already gives
-  each ID its own bit, in IRQL or IRQH.
+  at `$C000–$C2FF` are unused today). `0xF` is the idle bus's ID, the value PS0–PS3's pull-ups give a cycle no
+  master drives, and is never given to a card (B6, review round 2). Six IDs for new cards; the interrupt poll already
+  gives each ID its own bit, in IRQL or IRQH.
 - With flash on the memory side, the DMA controller can read it too (today it reaches only RAM), for instance to
   copy the Apple IIe ROM at boot.
 
@@ -2039,8 +2042,12 @@ the backplane while AP8 is set.
 the CPU card (the north bridge, or the DMA controller beside it); the Console card and the bus spy drive them when
 they take the bus with BE. A card with registers answers when PS0–PS3 is its ID with /MEM and /DMA high; a memory
 card answers its range with /MEM low. In a BE handover, while no master drives, the backplane's pull-ups hold /MEM,
-/DMA, /IACK, /WORD and /OE high, PS0–PS3 at `0xF` (a free ID) and RWB high, so the cycle is a read that no memory,
-no card's registers and no poll answer; A0–A23 float, unused (B6, review round 1: [modules.md](modules.md)).
+/DMA, /IACK, /WORD and /OE high, PS0–PS3 at `0xF` (the idle bus's ID, never a card's) and RWB high, so the cycle is
+a read that no memory, no card's registers and no poll answer; A0–A23 float, unused (B6, review round 1:
+[modules.md](modules.md)). **Before it releases BE,** a master drives /MEM, /OE, /IACK, /DMA and /WORD inactive
+(high), RWB to read and PS0–PS3 to `0xF` for at least one cycle, so the pull-ups only hold lines that are already
+high: a released line on a loaded passive bus takes many cycles to rise through a pull-up alone (B6, review round 2).
+The DMA controller's takeover cycle has the same shape, with PS `0x8`.
 
 | Cycle | /MEM | /DMA, /IACK | PS0–PS3 | Address | Who answers |
 |---|---|---|---|---|---|
@@ -2540,8 +2547,8 @@ new layout. *(There is no such panel: the owner's answer 10 leaves one for later
   only as names for its four 256 KB quarters, as the 62-pin machine had four cards.
 - **The slots: about 14–15,** one for each card that can exist, plus the CPU card. The exact count is the owner's
   board design.
-  - Cards with an ID: at most 14 (IDs `0x0`–`0x7`, `0x9`–`0xC`, `0xE`–`0xF`). IDs `0x8` (DMA) and `0xD` (the north
-    bridge) are on the CPU card.
+  - Cards with an ID: at most 13 (IDs `0x0`–`0x7`, `0x9`–`0xC` and `0xE`). IDs `0x8` (DMA) and `0xD` (the north
+    bridge) are on the CPU card; `0xF` is the idle bus's, never a card's (B6, review round 2).
   - Cards without one: the RAM card, and the cartridge (ROM B), each in a slot.
   - So 15 slots hold the CPU card, the RAM card, the cartridge and twelve cards with IDs: today's seven and five
     more.
@@ -2561,7 +2568,8 @@ new layout. *(There is no such panel: the owner's answer 10 leaves one for later
   | — | the RAM card (by address) | a slot |
   | — | the cartridge, ROM B (by address) | a slot |
 
-  **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B) and `0xF`, seven IDs for new cards.
+  **Free:** `0x0`–`0x5` (once RAM A–D, ROM A and ROM B), six IDs for new cards. `0xF` is reserved: it is the idle
+  bus's ID, the value PS0–PS3's pull-ups give a cycle no master drives (B6, review round 2).
 - **No fifth ID bit (decided, the owner, 2026-11-14: "just drop the 5th bit").** There is no PS4: the module IDs
   stay 16, and cards decode PS0–PS3 only. 32 IDs would need a new set of cards that decode a fifth line; that is
   recorded, not planned. BR0–BR2 (below) are three spare pins, not a fifth bit. The bus spy is a bus
@@ -3183,12 +3191,12 @@ models the bus's signals, not its pins.
   that holds the bus, pulled up (Q8).
 - **Pull-ups and directions** (Q9): /WORD, /MEM, /DMA and /IACK are pulled up as well as the 62-pin bus's lines,
   /WAIT, /DREQ, /OE and the weak ones on D0–D15, so a bus handover selects no memory and makes no poll; and, from
-  review round 1, PS0–PS3 (to `0xF`, a free ID, so no card's registers answer) and RWB (so the cycle is a read,
-  with /OE high). /NMI is IN
-  (the USB card and the Console card pull it), BE and /RESET IN/OUT. The bus spy's driver list in
-  [Boot](#boot) (the bus spy) is the decided one (/MEM, PS0–PS3, A0–A23, RWB), with BE and /OE.
-- **The ID table** (Q13): IDs `0x0`–`0x5` and `0xF` are free; the RAM card, ROM A (on the CPU card) and ROM B
-  answer by address and have no ID.
+  review round 1, PS0–PS3 (to `0xF`, the idle bus's ID since review round 2, so no card's registers answer) and RWB
+  (so the cycle is a read, with /OE high). /NMI is IN (the USB card and the Console card pull it), BE and /RESET
+  IN/OUT. The bus spy's driver list in [Boot](#boot) (the bus spy) is the decided one (/MEM, PS0–PS3, A0–A23,
+  RWB), with BE and /OE.
+- **The ID table** (Q13, amended in review round 2): IDs `0x0`–`0x5` are free; `0xF` is reserved, the idle bus's
+  ID, never a card's; the RAM card, ROM A (on the CPU card) and ROM B answer by address and have no ID.
 - **modules.md carries only the 98-pin bus** (Q11). The 62-pin table stays here alone, in
   [the 62-pin bus, the first design's](#the-62-pin-bus-the-first-designs), retitled from "the current machine's".
 - **The stale mentions** (Q12; critic 4, 5, 6, 10, 13): memory's module IDs in [Memory](#memory),
@@ -3220,6 +3228,21 @@ models the bus's signals, not its pins.
   - W2: [Memory](#memory)'s reset-state table and [Boot](#boot)'s step 1 still gave ROM A module ID 4: they give
     its address, with ID 4 as the first design's.
   - W3: side B has room for 35 lines, not 34 (above).
+- **Review round 2** (the owner, 2026-11-17, "recommendations as listed"). Fixed:
+  - N2: the bus spy's override held /RESET alone, but reset floats neither the W65C02S nor the north bridge: only
+    BE does. [Boot](#boot)'s override now holds /RESET and pulls BE low, and releases BE, then /RESET; the
+    Technical Reference's chapter 3 says the same and names BE among the bus spy's needs.
+  - F1, N1: the pull-ups make `0xF` the idle bus's ID, so Q13 is amended: `0xF` is reserved, never a card's. Six
+    IDs are left for new cards (`0x0`–`0x5`) and at most 13 cards have one, in modules.md's ID table and its
+    new-bus bullet, [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane),
+    [one backplane](#one-backplane-the-slots-and-the-reserved-pins), [CPU and clocks](#cpu-and-clocks), the Technical
+    Reference's chapters 1 and 2 and [diag.md](diag.md)'s ID table.
+  - N3: pull-ups alone take many cycles to raise a released line on a loaded passive bus, so a new rule: before
+    it releases BE, a master drives /MEM, /OE, /IACK, /DMA and /WORD inactive (high), RWB to read and PS0–PS3 to
+    `0xF` for at least one cycle, and the pull-ups then only hold lines already high. It is in modules.md's legend
+    and pull-up paragraph, [/MEM in each kind of cycle](#the-physical-map-on-the-new-bus) and chapter 1. The
+    emulator, which models the signals and not the pins, charges no cycle for it; B6 is docs only.
+  - F2: chapter 2's I/O hole table gave IDs 0–5 to RAM and ROM; they are free IDs, no card.
 - **video-rev2.md** (frozen, not edited) still says DRQ 1 and /DACK, revision 1's wiring (its lines 21, 56, 113,
   167 and 236); they join B7's note there.
 - **No expectation, test, card or version changed.** No site release of B6 (Q14): its books ride the next one.

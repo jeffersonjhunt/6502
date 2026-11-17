@@ -1199,7 +1199,7 @@ give `$FF` too, but that isn't measured.
 | C | Disk II controller | `$C67F` | `$C1` | `DISK2_ID_V1` | only `$C600–$C60F` are switches; `$C67F` is the ID alone (`disk2_card.h`) |
 | D | north bridge (no card) | `$C6FF` | `$D1` | `NB_ID` (no value equate) | `BackplaneBridge::ID`, revision 1; STATUS bits 4–7 repeat the revision |
 | E | console (front panel) | `$C77F` | `$E1` | `CONSOLE_ID_V1` | |
-| F | free | | | | nothing is defined at `$C780–$C7FF` |
+| F | reserved: the idle bus's ID, never a card's (B6) | | | | nothing is defined at `$C780–$C7FF` |
 
 **Other registers the tools read for SYSINFO,** all plain reads with no side effect in the emulator:
 
