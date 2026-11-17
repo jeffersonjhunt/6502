@@ -33,7 +33,13 @@
 ;                   with no question: the program has asked), X the options
 ;                   (bit 0 full, bit 1 interactive), if flash block 23 holds
 ;                   the ones linked with the ROM BIOS that is running, else
-;                   A = $FF, X = $FC, and OODOS goes on (interface 10); any
+;                   A = $FF, X = $FC, and OODOS goes on (interface 10); A = 3
+;                   Apple II mode with ROM A's image X, 0-3 (the ROM's
+;                   dispatching entry, $C818, function $A1), with A = 1's
+;                   card and DMA checks, if image X holds a IIe ROM, else
+;                   A = X = $FF; under a ROM BIOS before 0.16 (no $C818)
+;                   A = $FF, X = $FB, and X of 4 or more A = X = $FF, both
+;                   with nothing written back (interface 11); any
 ;                   other A, A = X = $FF. The changed buffers are written
 ;                   back first (as 48), but a file left open isn't closed:
 ;                   close it first
@@ -71,7 +77,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import WARM, FARCALL, NMI, ROMAPPLE, ROMDIAG, WBF
+.import WARM, FARCALL, NMI, ROMAPPLE, ROMENTRY, WBF
 .import F_FRAME                        ; irq.s's
 .import F_INPUT                        ; input.s's
 .import F_SOUND                        ; sound.s's
@@ -289,18 +295,34 @@ F_ROMVER:       LDA     ROMVER
 ; linked with the ROM BIOS that is running (DIAGIN): else $C815 would come
 ; back, and OODOS has gone by then. Looked at first, through W2, before
 ; anything is written back: without them A = $FF, X = $FC.
-F_ROM:          CMP     #3
+; Apple II mode with image X (A = 3, interface 11; B5) goes through the ROM's
+; dispatching entry, $C818, which a ROM BIOS before 0.16 doesn't have (there
+; $C818 is its START: the machine would restart with OODOS gone), so NEWROM
+; looks first: an older ROM gives A = $FF, X = $FB. X of 4 or more is no
+; image (block 4 is the character sets'): A = X = $FF. Both before anything
+; is written back, after the card and DMA checks as A = 1 has them; image X
+; itself is looked at after the write-back, as A = 1's images are.
+F_ROM:          CMP     #4
                 BCS     @no
                 TAX
                 BEQ     @leave         ; the monitor: no card needed
                 CMP     #2
                 BEQ     @diag
-                LDA     VIDEO_ID
+                CMP     #3
+                BNE     @card
+                LDA     PX             ; the image: 0-3
+                CMP     #IIE_IMAGES
+                BCS     @no
+@card:          LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BNE     @nocard
                 LDA     DMA_ID
                 CMP     #DMA_ID_V2
                 BNE     @nodma
+                CPX     #3
+                BNE     @leave1
+                JSR     NEWROM         ; $C818 there?
+                BCC     @oldrom
                 BRA     @leave1
 @diag:          JSR     DIAGIN
                 BCS     @nodiag
@@ -314,9 +336,13 @@ F_ROM:          CMP     #3
                 JMP     NMI            ; the monitor, as Break goes there
 @rom:           CMP     #2
                 BNE     @apple
+                LDA     #$A5           ; the token's first byte
                 LDX     PX             ; the options
-                JMP     ROMDIAG        ; the diagnostics, at the ROM's $C815
-@apple:         JSR     NEWROM         ; where the running ROM BIOS's $C806 looks:
+                LDY     #<$C815
+                JMP     ROMENTRY       ; the diagnostics, at the ROM's $C815
+@apple:         CMP     #3
+                BEQ     @appn
+                JSR     NEWROM         ; where the running ROM BIOS's $C806 looks:
                 LDY     #NB_ROM | NB_RO | CART_BLOCK ; before 0.16, the cartridge alone
                 LDX     #1
                 BCC     @look
@@ -338,12 +364,27 @@ F_ROM:          CMP     #3
 @nodiag:        LDA     #$FF
                 LDX     #$FC
                 RTS
+@oldrom:        LDA     #$FF
+                LDX     #$FB
+                RTS
 @nodma:         LDA     #$FF
                 LDX     #$FE
                 RTS
 @nocard:        LDA     #$FF
                 LDX     #$FD
                 RTS
+@appn:          LDA     PX             ; image X, through W2 as A = 1's look
+                ORA     #NB_ROM | NB_RO
+                STA     NB_WIN2
+                LDA     $8000 + IIE_ID_AT
+                LDX     #BIOS_BLOCK
+                STX     NB_WIN2
+                CMP     #IIE_ID
+                BNE     @no            ; not a IIe ROM: say so to the program, and go on
+                LDA     PX             ; the image
+                LDX     #$A0 + 1       ; the token: function $A1, Apple II mode with image A
+                LDY     #<$C818
+                JMP     ROMENTRY       ; at the ROM's dispatching entry, $C818
 
 ; Carry set if the ROM BIOS that is running is 0.16 or later (cold.s's ROMVER,
 ; from its greeting): its $C806 takes ROM A's first good IIe image and its

@@ -249,12 +249,12 @@ namespace
         return s;
     }
 
-    /// FT_INFOX's LDA #10 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
+    /// FT_INFOX's LDA #11 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
     void report_interface_8(CcpRig &r)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 10 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 11 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, 8);
@@ -496,13 +496,13 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 10, 77 the ROM BIOS 0.16 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 11, 77 the ROM BIOS 0.16 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
-    CHECK(o.find("FINFO 0A 0F\n") != std::string::npos);
+    CHECK(o.find("FINFO 0B 0F\n") != std::string::npos);
     CHECK(o.find("ROMV 00 10\n") != std::string::npos);
     std::smatch m;
     CHECK(std::regex_search(o, m, std::regex("V72 000A000200044001[0-9A-F]{4}A55A")));
