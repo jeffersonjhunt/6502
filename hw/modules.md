@@ -118,9 +118,9 @@ Console card or the bus spy once it has taken the bus with BE.
 | contacts | 49 | 49 | 98 |
 
 **The draft's rules.**
-- Power, then the slow open-drain lines, in the short segment (1-11): GND, three +5V and GND on each side, then
-  /RESET, /NMI, /IRQ, AMODE and /BOOTSEL on side A, and BR0-BR2 and /DREQ on side B. RDY, BE and /WAIT, open drain
-  but acting within a cycle, sit beside PHI2.
+- Power, then the slow lines, in the short segment (1-11): GND, three +5V and GND on each side, then /RESET, /NMI,
+  /IRQ, AMODE and /BOOTSEL on side A, and BR0-BR2 and /DREQ on side B. RDY, BE and /WAIT, open drain but acting
+  within a cycle, sit beside PHI2.
 - Data on side A and address on side B, D0-D15 and A0-A23 in order, so a card routes straight.
 - At most four lines between two grounds, on both sides. Every routed line counts, the spares and BR0-BR2 too, so a
   later use of them keeps the rule; a +5V contact doesn't count as a return, and neither does the key (each side
