@@ -62,9 +62,12 @@ another voltage makes it on the card. There are about 15 slots, one for each car
 on a passive bus at 7.16 MHz. The pull-ups are on the backplane, so an empty slot leaves its lines in a known
 state, and a cycle that no master drives, as one master hands the bus to another with BE, is a read that selects
 no memory, no card's registers (PS0–PS3 are pulled up to `0xF`, the idle bus's ID, which no card is given) and no
-poll. A pull-up alone is slow to raise a line on a loaded bus, so before it releases BE a master drives /MEM, /OE,
-/IACK, /DMA and /WORD inactive (high), RWB to read and PS0–PS3 to `0xF` for at least one cycle; the pull-ups then
-only hold lines that are already high.
+poll. A pull-up alone is slow to raise a line on a loaded bus, so the Console card and the bus spy leave none of
+the lines they drive to it. In the cycle it pulls BE low, such a master enables its own drivers, with /MEM and /OE
+high, RWB a read and PS0–PS3 `0xE`, its ID. Before it releases BE, it drives /MEM and /OE inactive (high), RWB to
+read, PS0–PS3 to `0xF` and /WORD high if it drives /WORD, for at least one cycle; the pull-ups then only hold lines
+that are already high. /IACK and /DMA stay the CPU card's. The DMA controller, on the CPU card, needs no such cycle
+when it releases BE: the CPU card drives the lines again at once.
 
 The signals are decided; where each sits is not. [hw/modules.md](../../hw/modules.md) has a draft pin-out (67 lines,
 6 +5 V contacts, 23 grounds and 2 spares), every position in it open; the positions, the socket and the shroud's
