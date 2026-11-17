@@ -54,6 +54,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -61,6 +62,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ooe::test;
@@ -86,9 +88,12 @@ namespace
         {
         };
 
+        /// `images` and `charsets`: a 16 KB IIe ROM file and a character set for ROM A's image and set n
+        /// (MachineOptions::apple_roms and apple_charsets), as `apple_rom` and `apple_chars` give image 0.
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
                        std::string apple_chars = "", std::vector<std::string> without = {},
-                       unsigned video_revision = 0)
+                       unsigned video_revision = 0, std::array<std::string, 4> images = {},
+                       std::array<std::string, 4> charsets = {})
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
@@ -118,6 +123,12 @@ namespace
             opt.rtc_time = Ds3231::Time{2026, 10, 26, 12, 0, 0, 2}; // a Monday
             opt.apple_rom = std::move(apple_rom);
             opt.apple_chars = std::move(apple_chars);
+            for (unsigned n = 0; n < 4; ++n)
+            {
+                if (!images[n].empty())
+                    opt.apple_roms[n] = {images[n]};
+                opt.apple_charsets[n] = charsets[n];
+            }
             opt.video_revision = video_revision ? video_revision : VIDEO_REVISION; // 1 only where a test asks
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
@@ -249,7 +260,7 @@ namespace
 
     constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.15\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.16\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -385,7 +396,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -445,7 +456,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.15"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.16"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -641,7 +652,7 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK_EQ(running, 0u); // every oscillator halted
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
     }
 }
 
@@ -1255,8 +1266,9 @@ TEST(a_usb_key_ends_the_demo)
 namespace
 {
     /// A stand-in for the owner's IIe ROM: 16 KB as at $C000-$FFFF, a IIe's
-    /// ID byte at $FBB3, a reset vector, and a pattern to recognise it by.
-    std::string fake_iie_rom(const std::string &path, uint8_t id = 0x06)
+    /// ID byte at $FBB3, a reset vector, and a pattern to recognise it by;
+    /// its reset code stores `mark` at $0300, to tell one image from another.
+    std::string fake_iie_rom(const std::string &path, uint8_t id = 0x06, uint8_t mark = 0xA5)
     {
         std::string image(0x4000, '\0');
         for (size_t i = 0; i < image.size(); ++i)
@@ -1265,7 +1277,7 @@ namespace
         image[0xFFFC - 0xC000] = 0x62; // $FA62, the IIe's reset
         image[0xFFFD - 0xC000] = static_cast<char>(0xFA);
         // ...which here stores $A5 at $0300 and stops: LDA #$A5; STA $0300; JMP *
-        const uint8_t reset[] = {0xA9, 0xA5, 0x8D, 0x00, 0x03, 0x4C, 0x67, 0xFA};
+        const uint8_t reset[] = {0xA9, mark, 0x8D, 0x00, 0x03, 0x4C, 0x67, 0xFA};
         for (size_t i = 0; i < sizeof reset; ++i)
             image[0xFA62 - 0xC000 + i] = static_cast<char>(reset[i]);
         std::ofstream(path, std::ios::binary) << image;
@@ -1280,7 +1292,7 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     b.reset();
     b.run(BOOT);
     const std::string out = b.run(BOOT, "C806R\r");
-    CHECK(has(out, "NO APPLE IIE ROM IN THE CARTRIDGE\\"));  // then the monitor's prompt
+    CHECK(has(out, "NO APPLE IIE ROM IN FLASH IMAGES 0-3\\"));  // then the monitor's prompt
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));          // the monitor carries on
     const std::string plus = fake_iie_rom("test_ii_plus.rom", 0xEA); // an Apple II Plus's ROM: not a IIe's
@@ -1289,13 +1301,13 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     REQUIRE(p.ok());
     p.reset();
     p.run(BOOT);
-    CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
+    CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN FLASH IMAGES 0-3\\"));
 }
 
 TEST(c806_on_a_revision_1_card_says_so_and_stays_in_the_native_map)
 {
-    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in the
-    // cartridge but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
+    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in
+    // ROM A but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
     const std::string rom = fake_iie_rom("test_rev1_iie.rom");
     Board b(false, true, {rom}, "", {}, 1);
     std::remove(rom.c_str());
@@ -1362,7 +1374,7 @@ TEST(c806_copies_the_iie_rom_to_bank_e_clears_the_iies_memory_and_writes_mode)
     CHECK_EQ(bus.peek_physical(0x00300), 0xA5);                // its store, to bank 0
 }
 
-TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
+TEST(rom_a_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
 {
     std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
     std::string error;
@@ -1387,25 +1399,25 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
     auto halves = build({"test_cd.rom", "test_ef.rom"}, "test_chars.rom");
     REQUIRE(halves != nullptr);
     size_t differ = 0;
-    Device *a = whole->find("rom_b"), *c = halves->find("rom_b");
+    Device *a = whole->find("rom_a"), *c = halves->find("rom_a");
     REQUIRE(a != nullptr && c != nullptr);
     for (uint32_t i = 0; i < 0x4000; ++i)
         differ += a->peek(i) != c->peek(i);
     CHECK_EQ(differ, size_t{0});
-    CHECK_EQ(c->peek(0x4000), 0x11);                           // the character ROM at $4000
-    CHECK_EQ(a->peek(0x4000), 0xFF);                           // erased without one
-    CHECK_EQ(a->peek(0x7FFFF), 0xFF);
+    CHECK_EQ(c->peek(0x10000), 0x11);                          // the character ROM: set 0, at $10000
+    CHECK_EQ(a->peek(0x10000), 0xFF);                          // erased without one
+    CHECK_EQ(a->peek(0x4000), 0xFF);                           // image 1 untouched
     CHECK(build({"test_bad.rom"}) == nullptr);
     CHECK(error.find("want 16 KB") != std::string::npos);
     CHECK(build({rom}, "test_bad.rom") == nullptr);
     CHECK(error.find("4 or 8 KB") != std::string::npos);
     CHECK(build({"no_such.rom"}) == nullptr);
     CHECK(error.find("no_such.rom") != std::string::npos);
-    const size_t at = text.find("\nrom   80000");
-    REQUIRE(at != std::string::npos);
-    text.erase(at + 1, text.find('\n', at + 1) - at);
+    const size_t at = text.find("name=rom_a");               // no flash line named rom_a: renamed, not
+    REQUIRE(at != std::string::npos);                         // erased, so rom_override still lands on ROM A
+    text.replace(at, 10, "name=rom_x");
     CHECK(build({rom}) == nullptr);
-    CHECK(error.find("rom_b") != std::string::npos);
+    CHECK(error.find("rom_a") != std::string::npos);
     for (const char *f : {"test_cart.rom", "test_cd.rom", "test_ef.rom", "test_chars.rom", "test_bad.rom"})
         std::remove(f);
 }
@@ -1436,7 +1448,7 @@ TEST(c806_puts_the_character_rom_in_card_memory_or_makes_one_from_the_vga_font)
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x800; ++i)
         differ += with_card.card_peek(CHARS + i) != static_cast<uint8_t>(i * 3 + 1);
-    CHECK_EQ(differ, size_t{0});                                // the cartridge's, its first 2 KB
+    CHECK_EQ(differ, size_t{0});                                // set 0's, its first 2 KB
     // Without one: each glyph from the VGA font (flash block 30), 16 rows folded to 8,
     // 7 dots reversed, normal codes inverted. Check A both ways: $C1 normal, $01 inverse.
     const VideoCard &card = *without.machine->video_card();
@@ -1457,6 +1469,281 @@ TEST(c806_puts_the_character_rom_in_card_memory_or_makes_one_from_the_vga_font)
     for (unsigned r = 0; r < 8; ++r)
         blank += card.card_peek(CHARS + 0xC1 * 8 + r) == 0xFF;
     CHECK(blank < 8);                                           // something to see: A is not empty
+}
+
+// --- ROM A's IIe images (B5; hw/design.md, "ROM A's layout" and "$C806 on the new bus") --------------------
+
+namespace
+{
+    /// A character set of `size` bytes, byte i = i x `mul` + `add`, in a file at `path`.
+    std::string charset(const std::string &path, uint32_t mul, uint32_t add, size_t size = 0x1000)
+    {
+        std::string chars(size, '\0');
+        for (size_t i = 0; i < chars.size(); ++i)
+            chars[i] = static_cast<char>(i * mul + add);
+        std::ofstream(path, std::ios::binary) << chars;
+        return path;
+    }
+
+    /// C806R from the monitor; the board then in Apple II mode at its image's JMP *, or not.
+    void c806(Board &b)
+    {
+        b.reset();
+        b.run(BOOT);
+        b.run(2 * BOOT, "C806R\r");
+    }
+
+    /// The card's Apple characters made from the VGA font, checked by A both ways ($C1 normal, $01 inverse).
+    size_t vga_a_wrong(const VideoCard &card)
+    {
+        const std::string flash = read_file(EMU_BIOS_ROM);
+        size_t wrong = 0;
+        for (unsigned r = 0; r < 8; ++r)
+        {
+            const uint8_t vga = static_cast<uint8_t>(flash[0x78000 + 'A' * 16 + 2 * r] | flash[0x78000 + 'A' * 16 + 2 * r + 1]);
+            uint8_t dots = 0;
+            for (unsigned bit = 0; bit < 7; ++bit)
+                dots = static_cast<uint8_t>(dots | ((vga >> (7 - bit)) & 1) << bit);
+            wrong += card.card_peek(VideoCard::APPLE_CHARS_V2 + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
+            wrong += card.card_peek(VideoCard::APPLE_CHARS_V2 + 0x01 * 8 + r) != dots;
+        }
+        return wrong;
+    }
+} // namespace
+
+TEST(apple_rom_and_apple_chars_n_place_image_n_at_n_x_4000_and_set_n_at_10000_plus_n_x_2000)
+{
+    const std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
+    const std::string zero = fake_iie_rom("test_img0.rom", 0x06, 0xB0), two = fake_iie_rom("test_img2.rom", 0x06, 0xB2);
+    const std::string set2 = charset("test_set2.chr", 7, 3, 0x2000);
+    MachineOptions opt;
+    opt.rom_override = EMU_BIOS_ROM;
+    opt.video_revision = VIDEO_REVISION;
+    opt.apple_rom = {zero};                                   // image 0, as every caller had it
+    opt.apple_roms[2] = {two};
+    opt.apple_charsets[2] = set2;
+    std::string error;
+    auto m = Machine::build(text, "backplane.machine", opt, error);
+    REQUIRE(m != nullptr);
+    const Device *a = m->find("rom_a");
+    REQUIRE(a != nullptr);
+    const std::string img0 = read_file(zero), img2 = read_file(two), chars = read_file(set2);
+    size_t differ = 0;
+    for (uint32_t i = 0; i < 0x4000; ++i)
+        differ += a->peek(i) != static_cast<uint8_t>(img0[i]) || a->peek(0x8000 + i) != static_cast<uint8_t>(img2[i]);
+    for (uint32_t i = 0; i < 0x2000; ++i)
+        differ += a->peek(0x14000 + i) != static_cast<uint8_t>(chars[i]);
+    CHECK_EQ(differ, size_t{0});                              // image 0 at 0, image 2 at $8000, set 2 at $14000
+    size_t erased = 0;
+    for (uint32_t i = 0; i < 0x4000; ++i)
+        erased += a->peek(0x4000 + i) == 0xFF && a->peek(0xC000 + i) == 0xFF; // images 1 and 3 not given
+    for (uint32_t i = 0; i < 0x2000; ++i)
+        erased += a->peek(0x10000 + i) == 0xFF && a->peek(0x16000 + i) == 0xFF; // sets 0 and 3 not given
+    CHECK_EQ(erased, size_t{0x6000});
+    opt.apple_chars = set2;                                   // set 0 by both names
+    opt.apple_charsets[0] = set2;
+    CHECK(Machine::build(text, "backplane.machine", opt, error) == nullptr);
+    CHECK(error.find("set 0: given twice") != std::string::npos);
+    for (const std::string &f : {zero, two, set2})
+        std::remove(f.c_str());
+}
+
+TEST(c806_takes_image_2_when_image_0_is_erased)
+{
+    const std::string two = fake_iie_rom("test_c806_2.rom", 0x06, 0xB2);
+    Board b(false, true, {}, "", {}, 0, {"", "", two, ""});
+    std::remove(two.c_str());
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->find("rom_a")->peek(0x3BB3) == 0xFF);  // image 0 erased
+    c806(b);
+    CHECK(b.bridge().apple());
+    CHECK_EQ(b.cpu->regs().pc, 0xFA67);                       // the stand-in's JMP *
+    CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB2);  // image 2's own mark
+}
+
+TEST(c806_takes_the_first_good_image_of_two)
+{
+    const std::string one = fake_iie_rom("test_first_1.rom", 0x06, 0xB1), two = fake_iie_rom("test_first_2.rom", 0x06, 0xB2);
+    Board b(false, true, {}, "", {}, 0, {"", one, two, ""});
+    std::remove(one.c_str());
+    std::remove(two.c_str());
+    REQUIRE(b.ok());
+    c806(b);
+    CHECK(b.bridge().apple());
+    CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB1);  // image 1's, not image 2's
+}
+
+TEST(c806_draws_with_the_images_own_set_or_the_vga_font_never_set_0)
+{
+    const std::string two = fake_iie_rom("test_set_img2.rom");
+    const std::string set0 = charset("test_set0.chr", 0, 0x11), set2 = charset("test_set2b.chr", 5, 3, 0x2000);
+    Board with(false, true, {}, set0, {}, 0, {"", "", two, ""}, {"", "", set2, ""});
+    Board without(false, true, {}, set0, {}, 0, {"", "", two, ""});  // set 2 erased, set 0 there
+    for (const std::string &f : {two, set0, set2})
+        std::remove(f.c_str());
+    REQUIRE(with.ok() && without.ok());
+    c806(with);
+    c806(without);
+    REQUIRE(with.bridge().apple() && without.bridge().apple());
+    const VideoCard &card = *with.machine->video_card();
+    size_t differ = 0;
+    for (uint32_t i = 0; i < 0x800; ++i)
+        differ += card.card_peek(VideoCard::APPLE_CHARS_V2 + i) != static_cast<uint8_t>(i * 5 + 3);
+    CHECK_EQ(differ, size_t{0});                              // set 2's first 2 KB
+    CHECK_EQ(vga_a_wrong(*without.machine->video_card()), size_t{0}); // made from the VGA font, not set 0's
+}
+
+TEST(c806_with_no_good_image_of_the_four_says_so_with_w1_put_back)
+{
+    std::array<std::string, 4> plus;                          // an Apple II Plus's ROM in every image: not a IIe's
+    for (unsigned n = 0; n < 4; ++n)
+        plus[n] = fake_iie_rom("test_plus_" + std::to_string(n) + ".rom", 0xEA);
+    Board b(false, true, {}, "", {}, 0, plus);
+    for (const std::string &f : plus)
+        std::remove(f.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    CHECK(has(b.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN FLASH IMAGES 0-3\\"));
+    CHECK(!b.bridge().apple());
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK(has(b.run(BOOT, "C680.C681\r"), "C680: 00 01"));    // the monitor carries on
+}
+
+namespace
+{
+    /// `code` at $0300, put straight into RAM block 0 (W0) once the monitor is up.
+    void put_program(Board &b, const std::vector<uint8_t> &code)
+    {
+        for (size_t i = 0; i < code.size(); ++i)
+            b.machine->bus().write_physical(static_cast<uint32_t>(0x300 + i), code[i]);
+    }
+
+    /// A program's call of the dispatching entry with the token (Y = $5A, X = `x`) and A = `a`, W1 on RAM block 7
+    /// and W2 on block 9 first, carry clear; after it returns, A, X, Y, P, W1 and W2 at $0310-$0315, then BRK.
+    std::vector<uint8_t> c818_call(uint8_t a, uint8_t x, uint8_t y = 0x5A)
+    {
+        return {0xA9, 0x07, 0x8D, 0x81, 0xC6,  // LDA #7; STA NB_WIN1
+                0xA9, 0x09, 0x8D, 0x82, 0xC6,  // LDA #9; STA NB_WIN2
+                0xA9, a, 0xA2, x, 0xA0, y,     // LDA #a; LDX #x; LDY #y
+                0x18, 0x20, 0x18, 0xC8,        // CLC; JSR $C818
+                0x08, 0x8D, 0x10, 0x03,        // PHP; STA $0310
+                0x8E, 0x11, 0x03, 0x8C, 0x12, 0x03, // STX $0311; STY $0312
+                0x68, 0x8D, 0x13, 0x03,        // PLA; STA $0313
+                0xAD, 0x81, 0xC6, 0x8D, 0x14, 0x03, // LDA NB_WIN1; STA $0314
+                0xAD, 0x82, 0xC6, 0x8D, 0x15, 0x03, // LDA NB_WIN2; STA $0315
+                0x00};                         // BRK: the monitor
+    }
+
+    /// Images 0 and 2 good, each storing its own mark ($B0, $B2) at $0300 from its reset code.
+    struct TwoImages
+    {
+        std::string zero = fake_iie_rom("test_c818_0.rom", 0x06, 0xB0), two = fake_iie_rom("test_c818_2.rom", 0x06, 0xB2);
+        Board b{false, true, {}, "", {}, 0, {zero, "", two, ""}};
+        TwoImages()
+        {
+            std::remove(zero.c_str());
+            std::remove(two.c_str());
+            if (b.ok())
+            {
+                b.reset();
+                b.run(BOOT);
+            }
+        }
+    };
+} // namespace
+
+TEST(c818_with_the_token_and_function_a1_is_apple_ii_mode_with_image_a)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(2, 0xA1));
+    t.b.run(2 * BOOT, "300R\r");
+    CHECK(t.b.bridge().apple());
+    CHECK_EQ(t.b.cpu->regs().pc, 0xFA67);                         // the stand-in's JMP *
+    CHECK_EQ(t.b.machine->bus().peek_physical(0x00300), 0xB2);    // image 2's, though image 0 is good too
+}
+
+TEST(c818_with_function_a1_but_y_not_5a_is_the_menu)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(2, 0xA1, 0x00));                    // half the token: X but not Y
+    const std::string out = t.b.run(BOOT, "300R\r");
+    CHECK(has(out, "APPLE II MODE, ANY OTHER KEY MONITOR "));
+    CHECK(!t.b.bridge().apple());
+    CHECK(has(t.b.run(BOOT, "X"), "X\r\\"));                      // another key: the monitor
+    CHECK(!t.b.bridge().apple());
+}
+
+TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_over_3)
+{
+    // Back, carry set, with A, X, Y and the windows as they were: X = $A7 (reserved), $A0 (the flash update,
+    // the menu's alone, Q18) and $A1 with A = 4 (block 4 is the character sets', not an image).
+    for (const auto &[a, x] : {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}})
+    {
+        TwoImages t;
+        REQUIRE(t.b.ok());
+        for (uint32_t i = 0x310; i < 0x316; ++i)
+            t.b.machine->bus().write_physical(i, 0xEE);
+        put_program(t.b, c818_call(a, x));
+        t.b.run(BOOT, "300R\r");
+        Decoder &bus = t.b.machine->bus();
+        CHECK(!t.b.bridge().apple());
+        CHECK_EQ(bus.peek_physical(0x310), a);
+        CHECK_EQ(bus.peek_physical(0x311), x);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);          // carry set
+        CHECK_EQ(bus.peek_physical(0x314), 0x07);                 // W1 and W2 as the program left them
+        CHECK_EQ(bus.peek_physical(0x315), 0x09);
+    }
+}
+
+TEST(c818r_is_the_menu_a_digit_apple_ii_mode_with_that_image_another_key_the_monitor)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    const std::string menu = t.b.run(BOOT, "C818R\r");
+    CHECK(has(menu, "\rROM: "));
+    CHECK(has(menu, "0-3 APPLE II MODE, ANY OTHER KEY MONITOR "));
+    const size_t line = menu.find("\rROM: ");
+    CHECK(line != std::string::npos && menu.find('\r', line + 1) == std::string::npos &&
+          menu.size() - line - 1 <= 80);                          // one line of the 80-column screen
+    t.b.run(2 * BOOT, "2");
+    CHECK(t.b.bridge().apple());
+    CHECK_EQ(t.b.machine->bus().peek_physical(0x00300), 0xB2);    // image 2, not the ASCII code's
+
+    TwoImages u;
+    REQUIRE(u.b.ok());
+    u.b.run(BOOT, "C818R\r");
+    CHECK(has(u.b.run(BOOT, "Q"), "Q\r\\"));                      // any other key: the monitor
+    CHECK(!u.b.bridge().apple());
+    CHECK(has(u.b.run(BOOT, "C680.C681\r"), "C680: 00 01"));      // and it carries on
+}
+
+TEST(c818_with_image_a_erased_says_so_and_goes_back_to_the_monitor)
+{
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    put_program(t.b, c818_call(1, 0xA1));                          // image 1: erased
+    const std::string out = t.b.run(2 * BOOT, "300R\r");
+    CHECK(has(out, "\rNO APPLE IIE ROM IN FLASH IMAGE 1\\"));     // then the monitor's prompt
+    CHECK(!t.b.bridge().apple());
+    CHECK_EQ(t.b.bridge().window(1), 0x01);
+    CHECK(has(t.b.run(BOOT, "C680.C681\r"), "C680: 00 01"));
+}
+
+TEST(the_build_splits_rom_a_into_its_even_chip_and_its_odd)
+{
+    // b5-plan.md case 24: a file for each SST39SF020A, as a programmer writes it: even[i] = rom[2i], odd[i] = rom[2i + 1].
+    const std::string rom = read_file(EMU_BIOS_ROM), even = read_file(EMU_BIOS_EVEN), odd = read_file(EMU_BIOS_ODD);
+    REQUIRE(rom.size() == 0x80000u);
+    REQUIRE(even.size() == 0x40000u && odd.size() == 0x40000u);
+    size_t differ = 0;
+    for (size_t i = 0; i < even.size(); ++i)
+        differ += even[i] != rom[2 * i] || odd[i] != rom[2 * i + 1];
+    CHECK_EQ(differ, size_t{0});
+    CHECK(even != odd);                                       // two halves, not one copied
 }
 
 TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
@@ -2079,7 +2366,7 @@ TEST(golden_frame_the_monitors_text_screen)
     REQUIRE(card->splash_frame() == -1);
     REQUIRE(card->frames() < MONITOR_FRAME);
     run_to_frame(b, MONITOR_FRAME);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.15"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
     CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
 }
 

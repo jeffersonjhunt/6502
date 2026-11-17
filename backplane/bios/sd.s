@@ -19,7 +19,7 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .import WOZMON, ECHO, PRBYTE, KEYHIT
-.export SDCAT, SDBOOT, AUTOBOOT
+.export SDCAT, SDBOOT, AUTOBOOT, SDLOAD
 
 BUF     = $0400
 PTR     = SD_ZP                        ; $F0-$F1: into BUF, or a message
@@ -386,3 +386,183 @@ MBIG:           .byte   $0D, "BOOT.BIN IS OVER 44 KB", $0D, 0
 MEMPTY:         .byte   $0D, "BOOT.BIN IS EMPTY", $0D, 0
 MAUTO:          .byte   $0D, "BOOTING THE SD CARD: A KEY FOR THE MONITOR", $0D, 0
 MCR:            .byte   $0D, 0
+
+SIZE    = SD_ZP + 7                    ; $F7-$FA: SDLOAD's file, its size in bytes from the listing
+PAGE    = SD_ZP + 11                   ; SDLOAD's destination page
+
+; SDLOAD, for the flash update (flash.s): the file at the path A (low) and X
+; (high) name, of at most 16 KB, read by the CPU into memory from page Y on
+; (its $00), the windows as the caller has them. Its size in bytes comes from
+; the root's listing (LIST "/", as SDCAT lists it), not from the unit's
+; sectors, which round it up. Carry clear: read, and its size in A (low) and
+; X (high), $FFFF for one of 64 KB or more; a file over 16 KB is not read,
+; and only its size given. Carry set: not read, said (a card that isn't there,
+; a read that fails, or a file not on the card), A then SD_NOT_FOUND for a
+; file not on the card. With carry set on the way in, a file not on the card
+; is nothing to say. It is mounted as unit 1, as /BOOT.BIN is.
+SDFAIL:         LDA     SD_ERROR       ; SDLOAD's failures: carry set, A the card's error
+SDNO:           STZ     QUIET
+                SEC
+                RTS
+SDLOAD:         STA     WHAT
+                STX     WHAT+1
+                STY     PAGE
+                LDA     #0
+                ROR     A
+                STA     QUIET          ; bit 7: the carry, a file not there not said; bit 6 found
+                JSR     START
+                BCS     SDFAIL
+                JSR     CLEARBUF       ; MOUNT 1 path
+                LDA     #1
+                STA     BUF
+                LDY     #0
+@path:          LDA     (WHAT),Y
+                STA     BUF + 2,Y
+                BEQ     @mount
+                INY
+                BNE     @path
+@mount:         LDA     #SD_MOUNT
+                STA     SD_CMD
+                JSR     PUTBUF
+                BCS     SDFAIL
+                JSR     WAITDONE
+                BCS     SDFAIL
+                JSR     CLEARBUF       ; LIST "/", every sector of it taken
+                LDA     #'/'
+                STA     BUF
+                LDA     #SD_LIST
+                STA     SD_CMD
+                JSR     PUTBUF
+                BCS     @fail
+@sector:        JSR     GETSECT
+                BCS     @fail
+                STZ     PTR
+                LDA     #>BUF
+                STA     PTR+1
+                LDA     #8
+                STA     ENTRIES
+@entry:         LDY     #8
+                LDA     (PTR),Y
+                BEQ     @listed        ; the zero entry: the end, in the listing's last sector
+                LDY     #1             ; the name against the path's, after its "/", in either case
+@name:          LDA     (WHAT),Y
+                JSR     UPPER
+                STA     SECTORS
+                PHY
+                TYA
+                CLC
+                ADC     #7
+                TAY
+                LDA     (PTR),Y
+                PLY
+                JSR     UPPER
+                CMP     SECTORS
+                BNE     @next
+                INY
+                CMP     #0
+                BNE     @name
+                LDY     #3             ; the one: its size
+@size:          LDA     (PTR),Y
+                STA     SIZE,Y
+                DEY
+                BPL     @size
+                LDA     QUIET
+                ORA     #$40           ; bit 6: found
+                STA     QUIET
+@next:          CLC
+                LDA     PTR
+                ADC     #64
+                STA     PTR
+                BCC     @more
+                INC     PTR+1
+@more:          DEC     ENTRIES
+                BNE     @entry
+                BRA     @sector
+@listed:        BIT     QUIET          ; not in the listing: not on the card
+                BVS     @found
+                BMI     @absent
+                LDX     #MNOTFOUND - MSGS
+                JSR     SAY
+                LDY     #0
+@say:           LDA     (WHAT),Y
+                BEQ     @cr
+                JSR     ECHO
+                INY
+                BNE     @say
+@cr:            LDX     #MCR - MSGS
+                JSR     SAY
+@absent:        LDA     #SD_NOT_FOUND
+                JMP     SDNO
+@fail:          JMP     SDFAIL
+@found:         LDA     SIZE+3
+                ORA     SIZE+2
+                BNE     @huge
+                LDA     SIZE+1
+                CMP     #$40
+                BCC     @read          ; under 16 KB
+                BNE     @big
+                LDA     SIZE
+                BEQ     @read          ; 16 KB exactly
+@big:           LDA     SIZE           ; over 16 KB: its size, nothing read
+                LDX     SIZE+1
+                BRA     @yes
+@huge:          LDA     #$FF
+                TAX
+                BRA     @yes
+@read:          LDA     SIZE           ; its sectors: (size + 511) / 512
+                CMP     #1             ; carry: a part-page
+                LDA     SIZE+1
+                ADC     #1
+                LSR     A
+                STA     SECTORS
+                BEQ     @done          ; empty: nothing to read
+                LDA     #1             ; READ unit 1, from 0, SECTORS of it, by the CPU
+                STA     SD_UNIT
+                STZ     SD_LBA
+                STZ     SD_LBA + 1
+                STZ     SD_LBA + 2
+                STZ     SD_LBA + 3
+                LDA     SECTORS
+                STA     SD_COUNT
+                STZ     SD_COUNT + 1
+                STZ     SD_CTRL        ; no DMA
+                LDA     #SD_READ
+                STA     SD_CMD
+                STZ     PTR
+                LDA     PAGE
+                STA     PTR+1
+@wait:          LDA     SD_STATUS
+                BIT     #SD_DATA_READY
+                BNE     @data
+                BIT     #SD_BUSY
+                BNE     @wait
+                JSR     FAILED
+@rfail:         STZ     SD_UNIT
+                JMP     SDFAIL
+@data:          LDX     #2             ; a sector: two pages
+                LDY     #0
+@byte:          LDA     SD_DATA
+                STA     (PTR),Y
+                INY
+                BNE     @byte
+                INC     PTR+1
+                DEX
+                BNE     @byte
+                DEC     SECTORS
+                BNE     @wait
+                JSR     WAITDONE
+                BCS     @rfail
+                STZ     SD_UNIT
+@done:          LDA     SIZE
+                LDX     SIZE+1
+@yes:           STZ     QUIET
+                CLC
+                RTS
+
+; A, a letter made a capital.
+UPPER:          CMP     #'a'
+                BCC     @done
+                CMP     #'z' + 1
+                BCS     @done
+                AND     #$DF
+@done:          RTS

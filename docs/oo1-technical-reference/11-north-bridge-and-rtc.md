@@ -167,7 +167,7 @@ R/W. The new mapping applies from the next bus cycle.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7 | ROM | 1: the flash. Blocks 0–31 are ROM A (module 4), 32–63 ROM B, the cartridge (module 5). 0: RAM |
+| 7 | ROM | 1: the flash. Blocks 0–31 are ROM A (module 4), 32–63 ROM B, the game cartridge (module 5). 0: RAM |
 | 6 | RO | 1: writes through this window are ignored |
 | 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash |
 

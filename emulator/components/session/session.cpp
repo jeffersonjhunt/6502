@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 
 namespace ooe::emu
 {
@@ -108,12 +110,23 @@ namespace ooe::emu
         return s;
     }
 
-    bool Session::build(std::string &error)
+    bool Session::build(std::string &error, bool new_cartridge)
     {
         MachineOptions options;
         options.rom_override = config_.rom;
-        options.apple_rom = config_.apple_rom;
-        options.apple_chars = config_.apple_chars;
+        // ROM A's blocks 0-5 are flash: what the running machine's hold (the row's image 0 and set
+        // 0, or a program's flash update) comes through the power-off. Copied, so a build that
+        // fails leaves the running machine's, which stays, as they were.
+        if (keep_flash(options.flash_user) && new_cartridge)
+            for (const auto &[at, count] : {std::pair<size_t, size_t>{0, 0x4000}, {0x10000, 0x2000}})
+                std::fill_n(options.flash_user.begin() + static_cast<std::ptrdiff_t>(at), count, uint8_t{0xFF});
+        const bool from_row = options.flash_user.empty() || new_cartridge;
+        if (from_row) // the row's slot, from its files: a new cartridge, or a first build
+        {
+            options.apple_rom = config_.apple_rom;
+            options.apple_chars = config_.apple_chars;
+        }
+        const std::optional<RowBytes> row = from_row ? row_bytes(config_.apple_rom, config_.apple_chars) : row_;
         options.disk2_boot = config_.disk2_boot;
         options.disk2_sequencer = config_.disk2_sequencer;
         options.rtc = rtc_; // the clock, on its battery
@@ -133,6 +146,7 @@ namespace ooe::emu
         console_ = std::move(console);
         machine_ = std::move(machine);
         card_ = machine_->console_card();
+        row_ = row; // what image 0 and set 0 last had from the row
         if (BackplaneBridge *b = machine_->backplane_bridge())
         {
             if (rtc_ == b->rtc())
@@ -187,6 +201,37 @@ namespace ooe::emu
         next_service_ = cpu_->cycles() + SERVICE_CYCLES;
     }
 
+    bool Session::keep_flash(std::vector<uint8_t> &out) const
+    {
+        out.clear();
+        const auto *rom_a = machine_ ? dynamic_cast<const Rom *>(machine_->find("rom_a")) : nullptr;
+        if (!rom_a || rom_a->size() < MachineOptions::FLASH_USER_BYTES)
+            return false;
+        out.resize(MachineOptions::FLASH_USER_BYTES);
+        for (size_t i = 0; i < out.size(); ++i)
+            out[i] = rom_a->Rom::peek(static_cast<uint32_t>(i)); // the array, not a busy chip's status
+        return true;
+    }
+
+    std::optional<Session::RowBytes> Session::row_bytes(const std::vector<std::string> &apple_rom,
+                                                        const std::string &apple_chars)
+    {
+        const auto read = [](const std::string &path, std::string &out) {
+            std::ifstream in(path, std::ios::binary);
+            if (!in)
+                return false;
+            out.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            return true;
+        };
+        RowBytes row;
+        for (const std::string &part : apple_rom)
+            if (!read(part, row.first))
+                return std::nullopt;
+        if (!apple_chars.empty() && !read(apple_chars, row.second))
+            return std::nullopt;
+        return row;
+    }
+
     bool Session::power_cycle(std::string &error) { return build(error); }
 
     bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
@@ -198,12 +243,16 @@ namespace ooe::emu
     bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
                                 const std::string &disk2_boot, const std::string &disk2_sequencer, std::string &error)
     {
+        // Image 0 and set 0 are erased and written again only for new bytes: a PROM alone, or the
+        // same IIe ROM again, keeps what they hold (a program's flash update may have written them).
+        const std::optional<RowBytes> now = row_bytes(apple_rom, apple_chars);
+        const bool new_cartridge = !now || !row_ || *now != *row_;
         const Config old = config_;
         config_.apple_rom = apple_rom;
         config_.apple_chars = apple_chars;
         config_.disk2_boot = disk2_boot;
         config_.disk2_sequencer = disk2_sequencer;
-        if (build(error))
+        if (build(error, new_cartridge))
             return true;
         config_ = old; // build() kept the old machine
         return false;
@@ -387,6 +436,8 @@ namespace ooe::emu
             sound->set_cpu_hz(hz);
         if (SdCard *sd = machine_->sd_card())
             sd->set_cpu_hz(hz);
+        for (Flash *flash : machine_->flashes())
+            flash->set_cpu_hz(hz); // its busy times are real time
         if (BackplaneBridge *b = machine_->backplane_bridge())
             b->set_cpu_hz(cpu_hz_); // it knows Apple II mode's clock itself
         if (Disk2Card *d = machine_->disk2_card())

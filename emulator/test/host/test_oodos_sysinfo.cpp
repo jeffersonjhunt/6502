@@ -249,12 +249,12 @@ namespace
         return s;
     }
 
-    /// FT_INFOX's LDA #10 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
+    /// FT_INFOX's LDA #11 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
     void report_interface_8(CcpRig &r)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 10 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 11 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, 8);
@@ -279,11 +279,12 @@ TEST(sysinfo_reports_the_whole_machine)
 
 TEST(an_interrupt_at_a_windows_end_is_kept_out_of_the_clock)
 {
-    // HW_CLOCK's windows (hwclock.s): what makes a window's last change be seen late makes its count too big,
-    // and the next one's too small. Here a burst of USB events (shift down and up, which type nothing) comes
-    // just before the first window's end, for both measurements (the clock chip's second and the 60 frames),
-    // so OODOS's USB handler is running when the change comes. One window alone reads outside the tolerance
-    // (the clock chip's by about 2,000 cycles); HW_CLOCK keeps the middle of its three, which is within it.
+    // HW_CLOCK's windows (hwclock.s): what makes a window's last change be stamped early, or the change itself
+    // late, makes its count wrong, and the next one's wrong the other way. Here a burst of USB events (shift down
+    // and up, which type nothing) comes just before the first window's end, for both measurements (the clock
+    // chip's second and the 60 frames), so OODOS's USB handler is running when the change comes. One window alone
+    // reads outside the tolerance (the clock chip's by about 2,000 cycles); HW_CLOCK keeps the span between the
+    // two changes whose gaps say least, which leaves that change out and is within it.
     InfoRig r;
     REQUIRE(r.ok);
     const auto lbl = labels(UTILS + "/sysinfo.lbl");
@@ -328,6 +329,98 @@ TEST(an_interrupt_at_a_windows_end_is_kept_out_of_the_clock)
     r.watch = nullptr;
     CHECK_EQ(bursts, 2u);
     normal(o);
+}
+
+TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
+{
+    // HW_CLOCK's stamp (hwclock.s): a change is stamped by the last pass of the poll that saw the byte as it was,
+    // so an interrupt taken after that pass's poll, and running when the change comes, doesn't move the stamp.
+    // (The first form stamped a change by the timer read at the start of the pass that saw it: such an interrupt
+    // put that read after the handler, and OODOS's millisecond handler, landing there or before the read by turns,
+    // moved the clock chip's count by 250-500 cycles on BIOS 0.16's first build.) The machine is deterministic, so
+    // SYSINFO runs on rigs booted alike: a run finds, for the clock chip's measurement, the second's changes (the
+    // bridge's time) and the last poll before each; the next puts a burst of USB events (OODOS's handler,
+    // 3,000-3,400 cycles a pass) just after that poll at the first window's end, and the last at the third's too,
+    // so the handler runs over the change. With the first form two windows of three were out by the burst, the
+    // middle one with them (7,170,533 Hz).
+    struct Seen
+    {
+        std::vector<uint64_t> changes; ///< the bridge's seconds changing, from the measurement's start
+        std::vector<uint64_t> polls;   ///< the cycle after each poll of the watched byte
+        std::string out;
+    };
+    auto sysinfo = [&](const std::vector<uint64_t> &fire_at, unsigned &fired, Seen &s) {
+        InfoRig r;
+        REQUIRE(r.ok);
+        const auto lbl = labels(UTILS + "/sysinfo.lbl");
+        REQUIRE(lbl.count("HW_CLOCK") && lbl.count("HW_FRAMEHZ"));
+        const uint16_t from = lbl.at("HW_CLOCK"), to = lbl.at("HW_FRAMEHZ");
+        BackplaneBridge *nb = r.machine->backplane_bridge();
+        UsbCard *usb = r.machine->usb_card();
+        REQUIRE(nb != nullptr && usb != nullptr);
+        unsigned calls = 0;
+        bool polled = false;
+        int sec = -1;
+        r.watch = [&](uint16_t pc) {
+            if (pc == from)
+                ++calls; // the clock chip's measurement is SYSINFO's first; the frames' its second
+            if (calls != 1)
+                return;
+            const uint64_t now = r.cpu->cycles();
+            const int v = nb->rtc_time()[0];
+            if (sec >= 0 && v != sec)
+                s.changes.push_back(now);
+            sec = v;
+            if (polled)
+            {
+                s.polls.push_back(now);
+                if (std::find(fire_at.begin(), fire_at.end(), now) != fire_at.end())
+                {
+                    for (int k = 0; k < 24; ++k)
+                    {
+                        usb->key(0xE1, true);
+                        usb->key(0xE1, false);
+                    }
+                    ++fired;
+                }
+            }
+            polled = pc >= from && pc < to && r.machine->bus().peek(pc) == 0xB2; // LDA (HW_PTR)
+        };
+        s.out = run(r, "m:sysinfo system /all");
+        r.watch = nullptr;
+    };
+    // A burst's place is found on a run with the bursts before it, since the machine runs on differently after one:
+    // three runs, the last with both.
+    std::vector<uint64_t> at;
+    uint64_t start = 0;
+    for (const size_t end : {size_t{1}, size_t{3}})
+    {
+        Seen s;
+        unsigned fired = 0;
+        sysinfo(at, fired, s);
+        REQUIRE(s.changes.size() > end); // the first window's start, and its ends
+        CHECK_EQ(fired, at.size());
+        if (at.empty())
+        {
+            start = s.changes[0];
+            normal(s.out); // undisturbed
+        }
+        else
+            CHECK_EQ(s.changes[0], start); // booted alike: the same up to the first burst
+        const uint64_t c = s.changes[end];
+        const auto p = std::lower_bound(s.polls.begin(), s.polls.end(), c);
+        REQUIRE(p != s.polls.begin());
+        at.push_back(*(p - 1));
+        std::printf("  change %zu at %llu, the last poll before it %llu cycles earlier\n", end,
+                    static_cast<unsigned long long>(c), static_cast<unsigned long long>(c - *(p - 1)));
+    }
+    Seen s;
+    unsigned fired = 0;
+    sysinfo(at, fired, s);
+    CHECK_EQ(fired, 2u);
+    REQUIRE(!s.changes.empty());
+    CHECK_EQ(s.changes[0], start);
+    normal(s.out);
 }
 
 TEST(a_card_left_out_loses_its_line_and_its_section)
@@ -403,19 +496,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 10, 77 the ROM BIOS 0.15 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 11, 77 the ROM BIOS 0.16 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
-    CHECK(o.find("FINFO 0A 0F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 0F\n") != std::string::npos);
+    CHECK(o.find("FINFO 0B 0F\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 10\n") != std::string::npos);
     std::smatch m;
     CHECK(std::regex_search(o, m, std::regex("V72 000A000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 0F") == std::string::npos || m.empty())
+    if (o.find("ROMV 00 10") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.15\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.16\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)

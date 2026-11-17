@@ -40,6 +40,7 @@
 #include "console.h"
 #include "console_card.h"
 #include "fault_devices.h"
+#include "flash.h"
 #include "joystick_ports.h"
 #include "machine.h"
 #include "sd_card.h"
@@ -271,7 +272,7 @@ namespace
     };
 
     const std::string PROMPT = "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S";
-    const std::string GREETING = "BACKPLANE BIOS 0.15\r";
+    const std::string GREETING = "BACKPLANE BIOS 0.16\r";
     const std::string RESULT = "RESULT: ";
 
     /// Switch 19 up, the reset, the prompt, CONT: the core runs. @return whether the prompt came
@@ -1245,9 +1246,9 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
     CHECK(measured(r, "D4", "FILL: ") == 4096);
     const uint64_t frame = measured(r, "V3", "A FRAME "), frames = measured(r, "S9", "8000 HZ: "),
                    left = measured(r, "D5", "PART WAY: ");
-    // V3's own frame, by HW_CLOCK's poll (about 80 cycles a pass): one change seen late at each end, so up to a
-    // pass long; 119,460-119,475 in the runs seen (final check PP1)
-    CHECK(frame >= 119437 && frame <= 119520);
+    // V3's own frame, by HW_CLOCK (ae842b7): each end is stamped by the poll pass before its change, 11-53 cycles
+    // early, and a clean change's gap is 79 cycles, so the frame is within a gap of the true 119,436.6 either way
+    CHECK(frame >= 119437 - 80 && frame <= 119437 + 80);
     CHECK(frames >= 2051 - 2 && frames <= 2051 + 2);
     CHECK(left > 4096 - 16 && left < 4096);
     CHECK(ends(test_line(r, "SD2"), "PASS"));
@@ -1373,6 +1374,19 @@ TEST(a_full_run_never_writes_the_sd_card)
     CHECK(!r.media->dirty());
     CHECK(r.media->bytes() == was);
     CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+    // b5-plan.md case 37 (critic 20): since B5 the flash can be written, so the run's never writing it is
+    // testable: ROM A byte for byte the BIOS's image, ROM B still erased, neither chip of either busy.
+    const std::string flash = read_text(EMU_BIOS_ROM);
+    const auto *a = r.machine->find_as<Flash>("rom_a");
+    const auto *b = r.machine->find_as<Flash>("rom_b");
+    REQUIRE(a != nullptr && b != nullptr && flash.size() == a->size());
+    size_t changed = 0;
+    for (uint32_t i = 0; i < a->size(); ++i)
+        changed += a->peek(i) != static_cast<uint8_t>(flash[i]);
+    for (uint32_t i = 0; i < b->size(); ++i)
+        changed += b->peek(i) != 0xFF;
+    CHECK_EQ(changed, size_t{0});
+    CHECK(!a->busy(0) && !a->busy(1) && !b->busy(0) && !b->busy(1));
 }
 
 TEST(a_floating_bus_in_the_disk_iis_empty_slot_is_no_card)

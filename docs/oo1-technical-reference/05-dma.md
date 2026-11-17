@@ -84,7 +84,9 @@ stream (L3); the stream's next piece is programmed in the interrupt, which saves
 says. **Channel 3** is the BIOS's DMAGO, 2 KB a block with a pending interrupt taken between blocks: MOVE, the
 console's scroll and erase, and function 83's `DM_COPY` and `DM_FILL`, and `DM_VCOPY`'s pieces, card to card through
 aperture slots 2 and 3, which it borrows for each piece. Since the interrupt has a channel of its own, it never meets
-a copy on channel 3 half programmed. **Channels 4–7** are free for later drivers; none uses them yet. The warm boot's DEAFEN selects
+a copy on channel 3 half programmed. **Channels 4–7** are free for later drivers; none uses them yet. Since B5
+(*proposed*), the warm boot first stops channels 4–7 (ABORT) and sets their counts to 0, so a program's own channel
+never outlives it, and puts every channel's CARD back to its reset module, WIDE 0 (DMAWARM); then its DEAFEN selects
 each of the eight in turn to clear its MODE's IRQ bit. The Programmer's Guide's
 [function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83) has the calls.
 
@@ -290,8 +292,9 @@ that serves any other card:
 
 **A byte card given WIDE** gets what the bus would give it: its data register moves once a grant, on D0–D7; D8–D15
 float, so memory gets `$FF` in each odd byte, and each odd byte from memory is lost. A WIDE left on channel 0 under
-the monitor (`C40C: 17`) so breaks the SD card's reads and writes; Break puts every CARD back, WIDE 0, and OODOS's
-warm boot doesn't yet.
+the monitor (`C40C: 17`) so breaks the SD card's reads and writes; Break puts every CARD back, WIDE 0, and since B5
+(*proposed*) so does OODOS's warm boot (DMAWARM, [above](#under-oodos)), so a WIDE a program left on
+channel 0 is gone by the next `A>`.
 
 **The front panel** sees a word cycle once, at its even address: its lamps and LDATA show D0–D7, the even byte, and
 its breakpoint matches only the even address ([chapter 12](12-front-panel.md#the-breakpoint)).

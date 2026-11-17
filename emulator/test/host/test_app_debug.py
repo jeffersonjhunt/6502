@@ -13,7 +13,13 @@ writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed; --screen saves the video card's
 frame as a PPM, and fails on a machine without one; `vram` shows and
 writes a revision 2 card's memory, which the aperture shows too; leaving Apple II mode
-by a hard reset paces at --clock again. Bad --load and --break arguments,
+by a hard reset paces at --clock again; the flash's busy times are
+counted at --clock. That check covers only the clock the app gives the
+flash at start: the one clock change the app has is Apple II mode's, and
+there the CPU's addresses reach the IIe image's copy in RAM, not the flash,
+so no flash command can be timed at 1.02 MHz, and leaving the mode puts
+--clock back, the start's clock again; the call in on_clock_change goes
+untested here. Bad --load and --break arguments,
 an option missing its value or given twice, stop the app before the
 terminal goes raw.
 
@@ -274,6 +280,34 @@ def main():
               f"{ran} cycles in about a second at --clock 10000 {text(s.log)}")
         check(failures, "apple session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
 
+        # The flash's busy times are real time, counted at --clock: a sector
+        # erase (18 ms) is about 18,000 cycles at 1 MHz, not the 128,864 it
+        # would be at the 7.16 MHz a chip assumes until it is told the clock.
+        # The clock given at start only (the docstring says why).
+        flash = os.path.join(cwd, "flash.machine")
+        with open(flash, "w") as f:
+            f.write("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
+                    "flash 00000-7FFFF space=flash name=rom_a -\nacia6551 300-37F space=io name=terminal\n")
+
+        def to_w1(block, addr, value):  # W1 = ROM A's block, then value to addr through it
+            return [0xA9, 0x80 | block, 0x8D, 0x81, 0xC6, 0xA9, value, 0x8D, addr & 0xFF, addr >> 8]
+
+        erase = (to_w1(2, 0x6AAA, 0xAA) + to_w1(1, 0x5554, 0x55) + to_w1(2, 0x6AAA, 0x80) +  # the even chip:
+                 to_w1(2, 0x6AAA, 0xAA) + to_w1(1, 0x5554, 0x55) + to_w1(3, 0x4000, 0x30))   # $C000's sector
+        poll = [0xAD, 0x00, 0x40, 0xCD, 0x00, 0x40, 0xD0, 0xF8, 0xDB]  # LDA/CMP $4000 until they agree; STP
+        write_hex(hexfile, [(0x0300, erase + poll)])
+        s = Session(binary, ["--machine", flash, "--clock", "1000000", "--load", hexfile, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        before = cycles(s.send(b"x pc=0300\n"))
+        out = s.send(b"r\n", timeout=20)
+        after = cycles(out)
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        ran = after - before if before is not None and after is not None else None
+        check(failures, "flash: a sector erase at --clock's time", b"halted (STP)" in out and ran is not None
+              and 18_000 <= ran < 20_000, f"{ran} cycles for a sector erase at --clock 1000000 {text(out)}")
+        check(failures, "flash session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
+
         # --trace: header, reset sequence, one line per cycle; trace_diff agrees
         # with itself and finds a changed byte.
         trace = os.path.join(cwd, "run.trace")
@@ -335,7 +369,20 @@ def main():
                              (["--machine", machine, "--machine", machine, rom], "--machine given twice"),
                              ([rom, rom], "rom given twice"),
                              # --apple-rom adds up: two 4 KB parts make 8 KB, not "given twice"
-                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes")):
+                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes"),
+                             # [N=]: ROM A's image N (B5); 0= and none are both image 0, in order
+                             (["--machine", backplane, "--apple-rom", "2=" + half, rom], "image 2: want 16 KB"),
+                             (["--machine", backplane, "--apple-rom", "0=" + half, "--apple-rom", half, rom],
+                              "image 0: want 16 KB ($C000-$FFFF, or the CD and EF halves), got 8192 bytes"),
+                             (["--machine", backplane, "--apple-rom", "4=" + half, rom], "the images are 0-3"),
+                             # one set each, by number: 1= and 2= both taken, so set 2's size is what's refused
+                             (["--machine", backplane, "--apple-chars", "1=" + half, "--apple-chars", "2=" + raw, rom],
+                              "data.bin: want the 4 or 8 KB IIe character ROM (set 2)"),
+                             (["--machine", backplane, "--apple-chars", "1=" + half, "--apple-chars", "1=" + half, rom],
+                              "--apple-chars 1= given twice"),
+                             # only a leading digit and '=' are N=: this is a path, and it isn't there
+                             (["--machine", backplane, "--apple-rom", os.path.join(cwd, "x=y.rom"), rom],
+                              "x=y.rom: cannot open")):
             s = Session(binary, args, cwd)
             rc, lost = s.close()
             check(failures, f"{' '.join(args[:2])}: refused", rc not in (None, 0) and needle in text(s.log),

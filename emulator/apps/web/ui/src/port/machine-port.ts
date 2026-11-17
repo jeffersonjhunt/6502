@@ -12,9 +12,10 @@
  * a socket they are. State arrives in a FrameState about once per
  * animation frame.
  *
- * Apple II mode needs the owner's Apple IIe ROM in the cartridge
- * (insertCartridge): the page never ships one. A backend takes it as the
- * board takes a cartridge, and keeps it no further than its own memory.
+ * Apple II mode needs the owner's Apple IIe ROM in ROM A's image 0
+ * (insertCartridge; the name is older: it was the cartridge, ROM B, until
+ * B5): the page never ships one. A backend writes it as the BIOS's flash
+ * update would, and keeps it no further than its own memory.
  */
 
 export interface PortCaps {
@@ -60,7 +61,7 @@ export interface SidTune {
   warnings: string[];
 }
 
-/** The owner's Apple IIe ROM for the cartridge (ROM B). */
+/** The owner's Apple IIe ROM for ROM A's image 0 and set 0, and the Disk II card's PROMs (insertCartridge). */
 export interface Cartridge {
   /** 16 KB, as it sits at $C000-$FFFF. */
   rom: Uint8Array;
@@ -402,9 +403,16 @@ export interface MachinePort {
   resolve(text: string): Promise<number | null>;
 
   /**
-   * Plug the owner's IIe ROM into the cartridge, or take it out (null), as
-   * with the power off: the machine starts afresh. Rejects with a readable
-   * reason if it does not fit; the old cartridge stays.
+   * Write the owner's IIe ROM into ROM A's image 0 and its character ROM
+   * into set 0, or take them out (null: both erased), as with the power
+   * off: the machine starts afresh. Images and sets 1-3 stay as they are,
+   * and ROM A's blocks 0-5 keep what they hold through power cycles, as
+   * flash does, until the page goes. Image 0 and set 0 are erased and
+   * written only when the ROM's or the characters' bytes differ from the
+   * ones last written this way: the Disk II PROMs alone changed, or the
+   * same bytes again, keeps what they hold (a program's flash update's
+   * too). Rejects with a readable reason if it does not fit; the old
+   * cartridge and the flash stay.
    */
   insertCartridge(cartridge: Cartridge | null): Promise<void>;
   /** The Apple's soft switches; null on a machine without the backplane's north bridge. */

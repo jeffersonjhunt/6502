@@ -572,7 +572,7 @@
   "documented": true,
   "anchor": "bdos-75",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10).",
+  "since": "OODOS 0.4; the revision 2 check since OODOS 0.9; A = 2, the diagnostics, since OODOS 0.10 (interface version 10); A = 3, and A = 1 looking at ROM A's images under ROM BIOS 0.16, since OODOS 0.11 (interface version 11).",
   "status": "built"
  },
  {

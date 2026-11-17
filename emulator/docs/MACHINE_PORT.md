@@ -20,7 +20,7 @@ Everything in the port is something the real board can also do:
 | Video | `watchVideo`, `FrameState.video`, `FrameState.videoCard` | the video card's VGA output (a capture device, for the board); its CTRL and layer 0's setup, read without a bus cycle, so the page can tell a program's picture from the BIOS's text screen |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
 | Joysticks | `setJoystick` (`caps.joysticks`) | the serial card's two DE-9 joystick ports (the board: joysticks plugged into them; a backend without the ports says `joysticks: false`) |
-| Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
+| Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | ROM A's image 0 and set 0 with the owner's IIe ROM and character ROM in them (the board: the BIOS's flash update writes them from the SD card), and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the Floppy Emu in the drive's place: an image in, out, written back; the drive's light |
 | SD card | `insertSd`, `ejectSd`, `readSdInfo`, `saveSd`, `setSdWriteProtect`, `FrameState.sd` | the card in the mass storage card's slot: an image in, out, saved with the machine's writes; the card's light |
 | Real-time clock | `readClock` | the north bridge's DS3231 and its registers, for the debugger; the emulator sets it from the page's clock at `connect`, as an owner sets a board's |
@@ -50,11 +50,18 @@ one that can't load a tune onto the sound card without a program says
 own. The Devices tab reads the cards that way, in either mode.
 
 The page never ships Apple's ROMs. `insertCartridge` takes the owner's
-(16 KB for $C000-$FFFF, and optionally the 4 or 8 KB character ROM) as
-plugging a cartridge in with the power off: the machine starts afresh.
-`WasmPort` writes it into the module's own memory file system and no
-further; the page keeps it in the browser's localStorage for next time
-(ui/cartridge.ts), and Eject forgets it. Disks are the same: the page keeps
+(16 KB for $C000-$FFFF, and optionally the 4 or 8 KB character ROM) and
+writes them into ROM A's image 0 and set 0 with the power off: the machine
+starts afresh (the name is older: it was the cartridge, ROM B, until B5).
+Images and sets 1-3 stay as they are; null erases image 0 and set 0. Image 0
+and set 0 are erased and written only when the IIe ROM's or the character
+ROM's bytes differ from the ones the row last wrote: a call that changes the
+Disk II PROMs alone, or passes the same bytes again, keeps what they hold. ROM A's
+blocks 0-5 keep what they hold through power cycles, as flash does, whoever
+wrote them (the row or a program's flash update), until the page goes; they
+are never written back to a file. `WasmPort` writes the files into the
+module's own memory file system and no further; the page keeps them in the
+browser's localStorage for next time (ui/cartridge.ts), and Eject forgets them. Disks are the same: the page keeps
 the last one in IndexedDB (ui/disk-store.ts), with what was written to it,
 and never uploads it. A disk stays in its drive through power cycles.
 

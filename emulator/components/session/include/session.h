@@ -41,7 +41,9 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "bus_cycle.h"
@@ -62,9 +64,10 @@ namespace ooe::emu
             std::string machine;  ///< machine description file
             std::string rom;      ///< replaces the first rom line's image; empty keeps it
             std::string symbols;  ///< an ld65 -Ln label file, or empty
-            /// The owner's Apple IIe ROM for the cartridge (MachineOptions::apple_rom), or none.
+            /// The owner's Apple IIe ROM for ROM A's image 0 (MachineOptions::apple_rom), or none:
+            /// read at the first build and by set_cartridge(); a power cycle keeps the flash instead.
             std::vector<std::string> apple_rom{};
-            std::string apple_chars{}; ///< and its character ROM, or empty
+            std::string apple_chars{}; ///< and its character ROM, set 0, or empty
             /// The Disk II card's PROMs (MachineOptions::disk2_boot, disk2_sequencer), or empty.
             std::string disk2_boot{}, disk2_sequencer{};
         };
@@ -105,12 +108,21 @@ namespace ooe::emu
         RunResult run(uint64_t budget);
 
         /// The keyswitch from OFF to RUN: a new machine from the same files
-        /// (RAM forgets), the panel's switches as they were, a cold start.
+        /// (RAM forgets), the panel's switches as they were, a cold start. ROM A's
+        /// blocks 0-5 (the IIe images and sets) are flash and keep what they held,
+        /// whoever wrote it (the row, or a program's flash update), until the Session
+        /// goes; nothing goes back to a file. The rest of the flash is the files' again.
         /// @return false, with `error`, if the files no longer build; the old machine stays
         bool power_cycle(std::string &error);
-        /// Plug the owner's Apple IIe ROM into the cartridge (Config::apple_rom and
-        /// apple_chars; both empty: take it out), as with the power off: a power cycle.
-        /// @return false, with `error`, if it does not fit; the old machine and cartridge stay
+        /// Write the owner's Apple IIe ROM into ROM A's image 0 and set 0 (Config::apple_rom
+        /// and apple_chars; both empty: take it out, erasing both), as with the power off: a
+        /// power cycle. Images 1-3 and sets 1-3 keep what they held. Image 0 and set 0 are
+        /// erased and written only when the ROM's or the characters' bytes differ from the ones
+        /// the row last wrote (whatever the files are called): a change to the PROMs alone, or
+        /// the same bytes again, keeps what they hold, a program's flash update's included.
+        /// (The name is older than ROM A's images: it was the cartridge, ROM B, until B5.)
+        /// @return false, with `error`, if it does not fit; the old machine, its flash and the
+        /// cartridge stay
         bool set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
                            std::string &error);
         /// The same, with the Disk II card's PROMs: they come with the IIe ROM, and go with it.
@@ -163,7 +175,7 @@ namespace ooe::emu
         const SidFile *sid() const { return sid_.get(); }
         unsigned sid_song() const { return sid_song_; }
         const std::vector<std::string> &sid_warnings() const { return sid_warnings_; }
-        const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
+        const std::vector<std::string> &cartridge() const { return config_.apple_rom; } ///< image 0's
 
         // The panel: the card's inputs (nothing without a card)
         bool has_card() const { return card_ != nullptr; }
@@ -198,6 +210,9 @@ namespace ooe::emu
         uint8_t peek_physical(uint32_t physical) const { return machine_->bus().peek_physical(physical); }
         /// A byte into RAM at a physical address, no cycle taken (a test's setup).
         void write_physical(uint32_t physical, uint8_t data) { machine_->bus().write_physical(physical, data); }
+        /// A device of the machine by its name= ("rom_a", "rom_b": the flash), or nullptr: a test's, for what
+        /// the Session doesn't wrap (the flash's fault hooks).
+        Device *device(const std::string &name) const { return machine_->find(name); }
         /// What A0-A23 carry for a CPU address now (the windows as they are; the CPU card's view).
         uint32_t physical(uint16_t addr) const { return machine_->bus().physical(addr); }
         /// "C800", "$C800" or a label (a label wins over hex; `$` forces hex).
@@ -263,10 +278,20 @@ namespace ooe::emu
 
     private:
         class Recorder;
+        /// The IIe ROM row's bytes (its ROM's parts, one after another; its characters).
+        using RowBytes = std::pair<std::string, std::string>;
+        /// The row's files' bytes. @return nullopt if one can't be read (build() then says why)
+        static std::optional<RowBytes> row_bytes(const std::vector<std::string> &apple_rom,
+                                                 const std::string &apple_chars);
 
         Session() = default;
-        /// Build everything from config_. @return false with `error`
-        bool build(std::string &error);
+        /// Build everything from config_, with ROM A's blocks 0-5 as the running machine has them;
+        /// `new_cartridge`: but image 0 and set 0 from config_'s files (none: erased), as a first
+        /// build does too; either records their bytes in row_.
+        /// @return false with `error`, the running machine untouched
+        bool build(std::string &error, bool new_cartridge = false);
+        /// ROM A's blocks 0-5 from the running machine into `out`. @return false (`out` empty) without ROM A
+        bool keep_flash(std::vector<uint8_t> &out) const;
         void reset();
         /// Tell the cards the clock they keep time by: the mode's fixed one, or the caller's.
         void clock_cards();
@@ -274,6 +299,7 @@ namespace ooe::emu
         void service();
 
         Config config_;
+        std::optional<RowBytes> row_; ///< the IIe ROM's and characters' bytes image 0 and set 0 last had from the row
         Symbols symbols_;
         std::unique_ptr<Machine> machine_;
         std::unique_ptr<Console> console_;

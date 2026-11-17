@@ -4,7 +4,9 @@
  * PROMs, each loaded and ejected on its own (ui/cartridge.ts identifies
  * them and keeps them in this browser); and the IIe's two resets, which
  * the status strip shows in Apple II mode. A part going in or out plugs a
- * new cartridge, which restarts the machine (a power cycle): the rows say
+ * new cartridge (the IIe ROM to ROM A's image 0, its characters to set 0,
+ * written only when their bytes change: a PROM alone keeps both), which
+ * restarts the machine (a power cycle): the rows say
  * so, and in Apple II mode, where a IIe program would be lost, ask first.
  * Ejecting the IIe ROM keeps the other parts for the next one.
  *

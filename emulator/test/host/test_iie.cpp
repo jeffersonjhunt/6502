@@ -4,7 +4,7 @@
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The backplane through a Session, as the WebUI drives it, with the enhanced
- * IIe ROM in the cartridge: C806R, then the IIe's own boot, Applesoft, the
+ * IIe ROM in ROM A's image 0: C806R, then the IIe's own boot, Applesoft, the
  * USB keyboard as the IIe's, and its resets. Then the Disk II with the
  * owner's PROMs and disks (fixtures/disks): DOS 3.3 booting, saving and
  * meeting write protect, and The Oregon Trail's WOZ booting to its menu.

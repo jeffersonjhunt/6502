@@ -63,6 +63,7 @@ emulator/components/devices/*dma_controller*    dma backplane web
 emulator/components/devices/*ds3231*            rtc bridge backplane web
 emulator/components/devices/*es5503*            es5503 sound backplane web
 emulator/components/devices/*fat_volume*        sd web
+emulator/components/devices/*flash*             flash backplane web
 emulator/components/devices/*sd_card*           sd backplane web
 emulator/components/devices/*sd_media*          sd web
 emulator/components/devices/*hd44780*           lcd web

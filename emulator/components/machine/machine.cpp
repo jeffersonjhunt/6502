@@ -19,6 +19,7 @@
 #include "console_card.h"
 #include "dma_controller.h"
 #include "emu_log.h"
+#include "flash.h"
 #include "hd44780.h"
 #include "joystick_ports.h"
 #include "memory_devices.h"
@@ -111,6 +112,80 @@ namespace ooe::emu
         {
             const size_t hash = line.find('#');
             return hash == std::string::npos ? line : line.substr(0, hash);
+        }
+
+        /// The size of the file at `path`, or nullopt if it can't be opened.
+        std::optional<size_t> file_size(const std::string &path)
+        {
+            std::ifstream in(path, std::ios::binary | std::ios::ate);
+            if (!in)
+                return std::nullopt;
+            return static_cast<size_t>(in.tellg());
+        }
+
+        /**
+         * @brief The owner's Apple IIe ROMs into ROM A (hw/design.md, "ROM A's layout"): image n
+         * (16 KB, or the CD and EF halves) at n x $4000, its character set n (4 or 8 KB) at
+         * $10000 + n x $2000, each slot erased first. Every size is checked before anything is written.
+         * @return empty, or why not (`origin`'s prefix added where the machine file is at fault)
+         */
+        std::string load_apple(const Machine &m, const MachineOptions &options, const std::string &origin)
+        {
+            constexpr size_t IMAGE = 0x4000, SETS = 0x10000, SET = 0x2000;
+            bool any = !options.apple_chars.empty() || !options.apple_rom.empty();
+            for (unsigned n = 0; n < 4; ++n)
+                any = any || !options.apple_roms[n].empty() || !options.apple_charsets[n].empty();
+            if (!any)
+                return {};
+            auto *flash = dynamic_cast<Rom *>(m.find("rom_a"));
+            if (!flash || flash->size() < SETS + 4 * SET)
+                return origin + ": an Apple IIe ROM needs ROM A, a 512 KB flash line named rom_a";
+            if (!options.apple_chars.empty() && !options.apple_charsets[0].empty())
+                return "Apple IIe character set 0: given twice";
+            for (unsigned n = 0; n < 4; ++n)
+            {
+                std::vector<std::string> parts = n == 0 ? options.apple_rom : std::vector<std::string>{};
+                parts.insert(parts.end(), options.apple_roms[n].begin(), options.apple_roms[n].end());
+                const std::string &chars = n == 0 && !options.apple_chars.empty() ? options.apple_chars
+                                                                                  : options.apple_charsets[n];
+                const std::string which = std::to_string(n);
+                size_t total = 0;
+                for (const std::string &part : parts)
+                {
+                    const auto bytes = file_size(part);
+                    if (!bytes)
+                        return part + ": cannot open the Apple IIe ROM";
+                    total += *bytes;
+                }
+                if (!parts.empty() && total != IMAGE)
+                    return "Apple IIe ROM image " + which +
+                           ": want 16 KB ($C000-$FFFF, or the CD and EF halves), got " + std::to_string(total) +
+                           " bytes";
+                if (!chars.empty())
+                {
+                    const auto bytes = file_size(chars);
+                    if (bytes != size_t{0x1000} && bytes != size_t{0x2000})
+                        return chars + ": want the 4 or 8 KB IIe character ROM (set " + which + ")";
+                }
+                if (!parts.empty())
+                {
+                    flash->erase(n * IMAGE, IMAGE);
+                    size_t at = n * IMAGE;
+                    for (const std::string &part : parts)
+                    {
+                        if (!flash->load(part, at))
+                            return part + ": cannot load it into ROM A";
+                        at += *file_size(part);
+                    }
+                }
+                if (!chars.empty())
+                {
+                    flash->erase(SETS + n * SET, SET);
+                    if (!flash->load(chars, SETS + n * SET))
+                        return chars + ": cannot load it into ROM A";
+                }
+            }
+            return {};
         }
     } // namespace
 
@@ -251,11 +326,11 @@ namespace ooe::emu
                 m->peripherals_.push_back(std::move(p));
                 continue;
             }
-            if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
+            if (type != "ram" && type != "rom" && type != "flash" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
                 type != "dma" && type != "console" && type != "video" && type != "usb" && type != "disk2" &&
                 type != "sound" && type != "sd" && type != "aperture")
                 return fail("unknown type '" + type +
-                            "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
+                            "' (want cpu, northbridge, ram, rom, flash, pia6821, via6522, acia6551, dma, console, video, "
                             "aperture, usb, disk2, sound, sd, hd44780, ps2kbd or joyports)");
 
             Mapping map;
@@ -348,20 +423,34 @@ namespace ooe::emu
                     return fail("ram takes no image");
                 dev = std::make_unique<Ram>(size);
             }
-            else if (type == "rom")
+            else if (type == "rom" || type == "flash")
             {
+                if (type == "flash" && size % 2)
+                    return fail("flash: two chips, even and odd bytes: want an even size");
                 if (!rom_overridden && !options.rom_override.empty())
                 {
                     image = options.rom_override;
                     rom_overridden = true;
                 }
                 if (image.empty())
-                    return fail("rom: needs an image file, or - for erased flash");
-                auto rom = std::make_unique<Rom>(size);
+                    return fail(type + ": needs an image file, or - for erased flash");
+                std::unique_ptr<Rom> rom;
+                Flash *flash = nullptr;
+                if (type == "flash")
+                {
+                    auto f = std::make_unique<Flash>(size);
+                    f->attach(&m->bus_); // its busy times, in the bus's cycles
+                    flash = f.get();
+                    rom = std::move(f);
+                }
+                else
+                    rom = std::make_unique<Rom>(size);
                 if (image == "-")
                     rom->erase();
                 else if (!rom->load(image))
-                    return fail("rom: cannot load " + image);
+                    return fail(type + ": cannot load " + image);
+                if (flash)
+                    m->flashes_.push_back(flash);
                 dev = std::move(rom);
             }
             else
@@ -552,53 +641,24 @@ namespace ooe::emu
                 }
             }
         }
-        if (!options.apple_rom.empty() || !options.apple_chars.empty())
+        // What the flash kept through a power cycle, then the owner's Apple IIe ROMs over it.
+        if (!options.flash_user.empty())
         {
-            // The owner's Apple IIe ROMs, plugged in as the cartridge.
-            auto *cart = dynamic_cast<Rom *>(m->find("rom_b"));
-            if (!cart)
+            auto *rom_a = dynamic_cast<Rom *>(m->find("rom_a"));
+            if (!rom_a || rom_a->size() < options.flash_user.size())
             {
-                error = origin + ": an Apple IIe ROM needs the cartridge, a rom line named rom_b";
+                error = origin + ": the kept flash needs ROM A, a flash line named rom_a of at least " +
+                        std::to_string(options.flash_user.size()) + " bytes";
                 return nullptr;
             }
-            size_t at = 0;
-            for (const std::string &part : options.apple_rom)
-            {
-                std::ifstream in(part, std::ios::binary | std::ios::ate);
-                if (!in)
-                {
-                    error = part + ": cannot open the Apple IIe ROM";
-                    return nullptr;
-                }
-                const auto bytes = static_cast<size_t>(in.tellg());
-                if (!cart->load(part, at))
-                {
-                    error = part + ": does not fit the cartridge";
-                    return nullptr;
-                }
-                at += bytes;
-            }
-            if (!options.apple_rom.empty() && at != 0x4000)
-            {
-                error = "Apple IIe ROM: want 16 KB ($C000-$FFFF, or the CD and EF halves), got " +
-                        std::to_string(at) + " bytes";
-                return nullptr;
-            }
-            if (!options.apple_chars.empty())
-            {
-                std::ifstream in(options.apple_chars, std::ios::binary | std::ios::ate);
-                const auto bytes = in ? static_cast<size_t>(in.tellg()) : size_t{0};
-                if (bytes != 0x1000 && bytes != 0x2000)
-                {
-                    error = options.apple_chars + ": want the 4 or 8 KB IIe character ROM";
-                    return nullptr;
-                }
-                if (!cart->load(options.apple_chars, 0x4000))
-                {
-                    error = options.apple_chars + ": cannot load it";
-                    return nullptr;
-                }
-            }
+            for (size_t i = 0; i < options.flash_user.size(); ++i)
+                rom_a->poke(static_cast<uint32_t>(i), options.flash_user[i]);
+        }
+        // The owner's Apple IIe ROMs, in ROM A's images and sets.
+        if (std::string why = load_apple(*m, options, origin); !why.empty())
+        {
+            error = why;
+            return nullptr;
         }
         if (!options.rom_override.empty() && !rom_overridden)
         {

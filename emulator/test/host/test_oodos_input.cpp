@@ -8,6 +8,9 @@
  * run by GO: it opens its area at $2000 (block 0, W0's) and then takes commands, a letter the test
  * puts at $2100. The input comes from the machine's host side (the USB card's keys, mouse and game
  * port; the joystick ports on the VIA), and the area is read behind OODOS's back.
+ *
+ * Also the warm boot's DMA part (B5 U9: WBQUIET's WBDMA, before DEAFEN): a program's channel 4-7 stopped
+ * and its count 0, and every channel's CARD back to its reset module, WIDE off.
  */
 
 #include "harness.h"
@@ -744,14 +747,115 @@ TEST(function_81_s_info_and_its_refusals)
     command(r, 'I', "FINFOB");
     CHECK_EQ(field(r.out, "INFO"), std::string("03 02")); // keyboard and mouse; layout 2
     CHECK_EQ(field(r.out, "INFOB"), std::string("0302"));
-    CHECK_EQ(field(r.out, "FINFO"), std::string("0A 0F")); // OOLIB 10: frame and timing, input, sound, DMA
-    CHECK_EQ(field(r.out, "FINFOB"), std::string("0A0F0302"));
+    CHECK_EQ(field(r.out, "FINFO"), std::string("0B 0F")); // OOLIB 11: frame and timing, input, sound, DMA
+    CHECK_EQ(field(r.out, "FINFOB"), std::string("0B0F0302"));
     CHECK_EQ(command(r, 'N', "NEXT"), std::string("FF FF EEEEEEEEEEEEEEEE")); // no layout-2 area
     CHECK_EQ(command(r, 'F', "FLUSH"), std::string("00 00"));                 // nothing to flush
     command(r, 'B', "BAD5");
     for (const char *k : {"BAD1", "BAD2", "BAD3", "BAD4", "BAD5"})
         CHECK_EQ(field(r.out, k), std::string("FF FF"));
     wboot(r);
+}
+
+// --- B5 U9: the warm boot stops channels 4-7 and puts every CARD back ----------------------------------------
+
+namespace
+{
+    /// A .COM by hand for GO: JMP WBOOT, the warm boot a program ends with.
+    std::vector<uint8_t> just_wboot()
+    {
+        return {0x4F, 0x4F, 0x44, 0x1A, 0x00, 0x03, 0x03, 0x00, // magic, flags, page $03, size 3
+                0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, // no BSS, zero page $00-$10
+                0x4C, 0x00, 0x02};                              // 0300 JMP WBOOT
+    }
+
+    /// CONTROL with SELECT on channel `n`, the rest as `control` has it, written between instructions as a
+    /// program would.
+    void select(CcpRig &r, uint8_t control, unsigned n)
+    {
+        using ooe::emu::DmaController;
+        r.machine->bus().write(0xC47E, static_cast<uint8_t>((control & ~DmaController::SELECT_MASK) |
+                                                             n << DmaController::SELECT_SHIFT));
+    }
+} // namespace
+
+TEST(the_warm_boot_stops_a_programs_channel_5_copy_and_clears_its_count)
+{
+    // Case 34 (B3's answer 10, done in B5): a program's channel 5, memory to memory with AUTO, run once to its
+    // terminal count, which leaves it armed (ENABLE kept, COUNT reloaded), then the program's JMP WBOOT with
+    // SELECT left on 5. The warm boot stops it (ABORT), its count 0, CARD none, and CONTROL as the program left
+    // it. Must fail with WBQUIET calling DEAFEN alone, as before B5 (channel 5 stays armed for the next
+    // program), and with CONTROL not put back (SELECT 0 after the loop).
+    using ooe::emu::DmaController;
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(!r.cmd("dir").empty());            // at A>
+    DmaController &dma = *r.machine->dma();
+    ooe::emu::Decoder &bus = r.machine->bus();
+    const uint8_t control = dma.peek(DmaController::CONTROL);
+    REQUIRE(control & DmaController::MASTER_ENABLE);
+    constexpr uint32_t FROM = 0x070000, TO = 0x070100; // bank 7, a program's
+    select(r, control, 5);
+    for (unsigned i = 0; i < 3; ++i)
+    {
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::ADDR + i), static_cast<uint8_t>(FROM >> (8 * i)));
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::DEST + i), static_cast<uint8_t>(TO >> (8 * i)));
+    }
+    bus.write(0xC400 + DmaController::COUNT, 16);
+    bus.write(0xC400 + DmaController::COUNT + 1, 0);
+    bus.write(0xC400 + DmaController::MODE, DmaController::AUTO | DmaController::MEM_TO_MEM);
+    bus.write(0xC400 + DmaController::CTRL, DmaController::ENABLE | DmaController::REQ);
+    const uint8_t left = dma.peek(DmaController::CONTROL); // the program's: SELECT 5
+    REQUIRE((left & DmaController::SELECT_MASK) == 5 << DmaController::SELECT_SHIFT);
+    r.run(ms(5));
+    REQUIRE(dma.peek(DmaController::STATUS) & 0x20); // the premise: it ran to its count,
+    REQUIRE(dma.peek_channel(5, DmaController::CTRL) == DmaController::ENABLE); // and is armed again,
+    REQUIRE(dma.peek_channel(5, DmaController::COUNT) == 16);                 // its count reloaded
+    r.poke_com(just_wboot());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\n\r\nA>"));
+    CHECK_EQ(dma.peek_channel(5, DmaController::CTRL), 0x00);   // stopped
+    CHECK_EQ(dma.peek_channel(5, DmaController::COUNT), 0x00);  // its count 0
+    CHECK_EQ(dma.peek_channel(5, DmaController::COUNT + 1), 0x00);
+    for (unsigned n = 4; n < DmaController::CHANNELS; ++n)
+        CHECK_EQ(dma.peek_channel(n, DmaController::CTRL) & DmaController::ENABLE, 0);
+    CHECK_EQ(dma.peek(DmaController::CONTROL), left);    // as the program left it
+    CHECK(r.cmd("dir").find("No File") == std::string::npos); // and A> still answers
+}
+
+TEST(the_warm_boot_puts_every_card_back_so_a_wide_on_channel_0_doesnt_reach_dir)
+{
+    // Case 35 (B4's answer 11, done in B5): a program leaves channel 0's CARD $17 (the SD card's module with
+    // WIDE) and channel 4's $03, and SELECT on 4, then JMP WBOOT. The warm boot puts every CARD back to its
+    // reset module, WIDE off, and CONTROL as the program left it; then the card reads right: TYPE of a file no
+    // command has read yet (so its sectors come from the card, not a buffer) is a fresh machine's. Must fail
+    // with WBQUIET calling DEAFEN alone, as before B5: the CARDs stay, and the SD card's DATA, a byte register,
+    // under WIDE loses every odd byte (hw/design.md, "16-bit transfers").
+    using ooe::emu::DmaController;
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::string before = r.cmd("dir");
+    REQUIRE(before.find("README   TXT") != std::string::npos);
+    DmaController &dma = *r.machine->dma();
+    ooe::emu::Decoder &bus = r.machine->bus();
+    const uint8_t control = dma.peek(DmaController::CONTROL);
+    select(r, control, 0);
+    bus.write(0xC400 + DmaController::CARD, 0x17);
+    select(r, control, 4);
+    bus.write(0xC400 + DmaController::CARD, 0x03);
+    const uint8_t left = dma.peek(DmaController::CONTROL); // the program's: SELECT 4
+    REQUIRE(dma.peek_channel(0, DmaController::CARD) == 0x17);
+    r.poke_com(just_wboot());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\n\r\nA>"));
+    for (unsigned n = 0; n < DmaController::CHANNELS; ++n)
+        CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
+    CHECK_EQ(dma.peek(DmaController::CONTROL), left);
+    CHECK_EQ(r.cmd("dir"), before);
+    CcpRig fresh;
+    REQUIRE(fresh.ok);
+    const std::string want = fresh.cmd("type readme.txt");
+    REQUIRE(want.size() > 40);                 // the command, a line of text at least, the prompt
+    REQUIRE(want.find("No File") == std::string::npos);
+    CHECK(r.cmd("type readme.txt") == want);
 }
 
 int main() { return run_all(); }

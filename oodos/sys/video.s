@@ -76,7 +76,8 @@
 .import MXS, MYS                       ; input.s's
 .import CRTREGS                        ; crt.s's
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
-.export F_DMAOP, VBWORK, VBQUIET, VBON
+.export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM
+.import DMACTL                         ; irq.s's: DEAFEN's, a scratch byte here
 .export LFCB, LREC, LCNT, LDST, LDONE
 
 SLOT_MAX        = DM_BUDGET            ; a slot's bytes at most, and all four's
@@ -1143,3 +1144,49 @@ VBQUIET:        STZ     VBON
 @crt:           JMP     CRTREGS
 QSLOT:          .word   0, VM_PROG_BANK, 2, 3 ; SLOT0-SLOT3 as the warm boot leaves them
 .assert VIDEO_SLOT3 = VIDEO_SLOT0 + 6, error, "VBQUIET sets the four slots as eight bytes"
+
+; The warm boot's DMA part (irq.s's WBDMA, from input.s's WBQUIET, before
+; DEAFEN; B5, the items B3's answer 10 and B4's answer 11 left for OODOS's
+; next release): channels 4-7 stopped (ABORT) and their counts 0, so a
+; program's own channel never outlives it, and every channel's CARD back to
+; its reset module (7, 9 and A on channels 0-2, none on 3-7) with WIDE off,
+; so a CARD a program or the monitor changed (a WIDE left on channel 0 loses
+; every odd byte the SD card's DATA, a byte register, moves) doesn't reach the
+; next program. The
+; sound card's channel 2 has been stopped by then (SNDQUIET), and channels 0,
+; 1 and 3 are idle between OODOS's calls; their CARDs are what OODOS left. The
+; master enable and BURST stay as they were while SELECT moves, as DEAFEN
+; keeps them, and CONTROL is put back whole. At the end of block 61's code,
+; so that nothing before it moves. Without the revision 2 controller, nothing.
+DMAWARM:        LDA     DMA_ID
+                CMP     #DMA_ID_V2
+                BNE     @done
+                LDA     #DMA_CH4 | DMA_CH5 | DMA_CH6 | DMA_CH7
+                STA     DMA_ABORT
+                LDA     DMA_CONTROL
+                PHA                    ; put back after
+                AND     #<~DMA_SEL
+                STA     DMACTL         ; the master and BURST (DEAFEN sets it again after)
+                LDX     #7
+@chan:          TXA
+                ASL     A              ; SELECT X
+                ORA     DMACTL
+                STA     DMA_CONTROL    ; the window on channel X
+                LDA     #DMA_NONE      ; channels 3-7: no module
+                CPX     #3
+                BCC     @mod
+                BEQ     @card
+                STZ     DMA_COUNT      ; 4-7: stopped above, the count 0
+                STZ     DMA_COUNT + 1
+                BRA     @card
+@mod:           TXA                    ; 0, 1, 2: 7, 9, A (carry set from 1 on)
+                CMP     #1
+                ADC     #DMA_MOD_SD
+@card:          STA     DMA_CARD       ; WIDE (bit 4) off with it
+                DEX
+                BPL     @chan
+                PLA
+                STA     DMA_CONTROL    ; CONTROL as it was, SELECT with it
+@done:          RTS
+.assert DMA_MOD_VIDEO = DMA_MOD_SD + 2 && DMA_MOD_SOUND = DMA_MOD_SD + 3, error, "DMAWARM's CARDs: 7, 9, A"
+.assert DMA_SEL = $0E, error, "DMAWARM's SELECT is 2 x the channel, bits 1-3"

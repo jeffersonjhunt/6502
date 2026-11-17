@@ -4,8 +4,8 @@
  * @file machine.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A machine built from a plain-text description.
- * @version 0.10.0
- * @date 2026-11-15
+ * @version 0.11.0
+ * @date 2026-11-16
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -18,7 +18,7 @@
  *   pia6821  D010-D013  name=terminal
  *
  * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq] [irq] [image]`;
- * a rom's image `-` is erased flash, all $FF (an empty cartridge).
+ * a rom's or a flash's image `-` is erased flash, all $FF (an empty cartridge).
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A23, the 24-bit bus), flash (00000-FFFFF, ROM A then ROM B:
  * the same as memory F00000-FFFFFF) or io (the I/O hole, 000-7FF,
@@ -34,7 +34,9 @@
  * polls it and grants it by its module ID, which a channel's CARD register
  * names (dma_controller.h), so the channel isn't the machine file's to say;
  * `drq=N`, revision 1's channel, is refused; `irq` wires the device's
- * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
+ * IRQ output to the CPU. Chips: ram, rom (needs an image; CPU writes do
+ * nothing), flash (the same, but two chips, even and odd bytes, that take
+ * their command sequences: flash.h; an even size), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;
  * at most one; the run loop wires it to the CPU, see console_card()), video
@@ -75,6 +77,7 @@
  * name the file and line.
  */
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -85,6 +88,7 @@
 #include "console_card.h"
 #include "disk2_card.h"
 #include "dma_controller.h"
+#include "flash.h"
 #include "sd_card.h"
 #include "sound_card.h"
 #include "decoder.h"
@@ -98,18 +102,24 @@ namespace ooe::emu
 {
     struct MachineOptions
     {
-        /// If set, replaces the image of the first `rom` line.
+        /// If set, replaces the image of the first `rom` or `flash` line.
         std::string rom_override;
         /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's. Anything
         /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
         /// (VideoCard::set_revision() returns false).
         unsigned video_revision{0};
-        /// An Apple IIe ROM for the cartridge (the rom line named `rom_b`), at its
-        /// start: one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
+        /// An Apple IIe ROM for ROM A's image 0 (the flash line named `rom_a`, at its
+        /// start): one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
         /// Apple's ROMs are copyrighted: the owner supplies them.
         std::vector<std::string> apple_rom;
-        /// The IIe's video character ROM (4 or 8 KB), at cartridge offset $4000.
+        /// The IIe's video character ROM (4 or 8 KB) for image 0: character set 0, ROM A's $10000.
         std::string apple_chars;
+        /// Images 0-3 the same way (hw/design.md, "ROM A's layout"): image n at ROM A's n x $4000,
+        /// its set n at $10000 + n x $2000. Image 0's parts follow apple_rom's; set 0 is apple_chars
+        /// or apple_charsets[0], not both. A slot given is erased before it is written; one not given
+        /// is left as the ROM image has it.
+        std::array<std::vector<std::string>, 4> apple_roms{};
+        std::array<std::string, 4> apple_charsets{};
         /// The Disk II card's PROMs (256 bytes each): the boot ROM (341-0027) and the
         /// sequencer (341-0028). Apple's too; empty: the card has none.
         std::string disk2_boot, disk2_sequencer;
@@ -120,6 +130,13 @@ namespace ooe::emu
         /// held the time. nullptr: a new chip, at `rtc_time`, or the host's local time.
         std::shared_ptr<Ds3231> rtc;
         std::optional<Ds3231::Time> rtc_time;
+        /// ROM A's first bytes kept from another machine (a power cycle): the flash held them
+        /// through the power-off. Written into the flash line named `rom_a` from its start, after
+        /// the line's image loads and before the IIe images above, so a slot given there still
+        /// replaces its part. The Session keeps blocks 0-5 (FLASH_USER_BYTES); empty: none.
+        std::vector<uint8_t> flash_user;
+        /// ROM A's blocks 0-5: the IIe images 0-3 and their character sets (hw/design.md, "ROM A's layout").
+        static constexpr size_t FLASH_USER_BYTES = 6 * 0x4000;
     };
 
     class Machine
@@ -152,6 +169,8 @@ namespace ooe::emu
         SoundCard *sound_card() const { return sound_card_; }
         /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
         SdCard *sd_card() const { return sd_card_; }
+        /// The `flash` lines' chips, in the description's order (the Session tells them the clock).
+        const std::vector<Flash *> &flashes() const { return flashes_; }
         /// The DMA controller, if the description has one (`dma`): its channels through
         /// DmaController::peek_channel(), which has no effect on it.
         DmaController *dma() const { return dma_; }
@@ -194,6 +213,7 @@ namespace ooe::emu
         SoundCard *sound_card_{nullptr};     ///< owned through devices_
         SdCard *sd_card_{nullptr};           ///< owned through devices_
         DmaController *dma_{nullptr};        ///< owned through devices_
+        std::vector<Flash *> flashes_;       ///< owned through devices_
         JoystickPorts *joysticks_{nullptr};  ///< owned through peripherals_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;

@@ -8,11 +8,21 @@
  *
  *   - WOZMON: the screen cleared, then the ROM's monitor, with W3 and VEC back
  *     on the ROM's block (63) and windows 0-2 on RAM blocks 0-2, and it answers;
- *   - APPLE2 with no IIe ROM in the cartridge: it says so, the return code
- *     $FF00, and OODOS goes on;
+ *   - APPLE2 with no IIe ROM in ROM A's images 0-3: it says so, the return
+ *     code $FF00, and OODOS goes on;
  *   - APPLE2 with one: the machine restarts in Apple II mode, at the ROM's
  *     reset vector. The ROM here is a stand-in made by the test, not Apple's:
  *     the byte the ROM BIOS checks ($FBB3 = $06) and a reset vector to a loop;
+ *     in image 0, or only in image 2 (B5: function 75 looks where the running
+ *     ROM BIOS's $C806 does, ROM A's images from 0.16 on, the cartridge before:
+ *     its version gate, by the major then the minor);
+ *   - APPLE2 n (B5: function 75 with A = 3, X = n, interface 11, through the
+ *     ROM's dispatching entry $C818): Apple II mode with image n even with
+ *     another good image before it; image n not a IIe ROM, it says so (or,
+ *     under a ROM BIOS before 0.16, that it needs 0.16), the return code a
+ *     failure, and OODOS goes on; any other tail is the command and '?';
+ *     a program's 75 with A = 3 gives $FF $FF for no IIe ROM or X of 4 or
+ *     more, $FF $FB under an older ROM BIOS, $FE and $FD as A = 1 does;
  *   - with the IIe ROM but no DMA controller (backplane.machine less its
  *     `dma` line): APPLE2 says so and OODOS goes on, and a program's
  *     function 75 comes back with A = $FF, X = $FE, where with no IIe ROM
@@ -60,8 +70,8 @@ namespace
     struct RomRig : CcpRig
     {
         explicit RomRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                        unsigned video_revision = 2)
-            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision)
+                        unsigned video_revision = 2, const std::array<std::string, 4> &images = {})
+            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision, images)
         {
             // Without the DMA controller the card's sectors don't move and each one waits out SDIO's time
             // limit, so the boot takes longer than CcpRig's 3 s: its prompt, given longer.
@@ -91,17 +101,18 @@ namespace
         ~TempFile() { std::remove(path.c_str()); }
     };
 
-    /// A stand-in IIe ROM (16 KB, $C000-$FFFF), a TempFile: the IIe's ID byte and a loop at reset.
-    std::unique_ptr<TempFile> stand_in_rom()
+    /// A stand-in IIe ROM (16 KB, $C000-$FFFF), a TempFile: the IIe's ID byte and a loop at reset, at `loop`
+    /// (LOOP unless two images must be told apart).
+    std::unique_ptr<TempFile> stand_in_rom(uint16_t loop = LOOP)
     {
         std::vector<char> rom(0x4000, static_cast<char>(0xEA));
         rom[0x3BB3] = 0x06;                                     // $FBB3: a IIe, to the ROM BIOS
-        rom[LOOP - 0xC000 + 0] = static_cast<char>(0x4C);       // JMP LOOP
-        rom[LOOP - 0xC000 + 1] = static_cast<char>(LOOP & 0xFF);
-        rom[LOOP - 0xC000 + 2] = static_cast<char>(LOOP >> 8);
-        rom[0x3FFC] = static_cast<char>(LOOP & 0xFF);            // RESET
-        rom[0x3FFD] = static_cast<char>(LOOP >> 8);
-        return std::make_unique<TempFile>("stand_in_iie.rom", rom.data(), rom.size());
+        rom[loop - 0xC000 + 0] = static_cast<char>(0x4C);       // JMP loop
+        rom[loop - 0xC000 + 1] = static_cast<char>(loop & 0xFF);
+        rom[loop - 0xC000 + 2] = static_cast<char>(loop >> 8);
+        rom[0x3FFC] = static_cast<char>(loop & 0xFF);            // RESET
+        rom[0x3FFD] = static_cast<char>(loop >> 8);
+        return std::make_unique<TempFile>("stand_in_iie_" + std::to_string(loop) + ".rom", rom.data(), rom.size());
     }
 
     /// backplane.machine without its DMA controller.
@@ -143,32 +154,34 @@ namespace
     }
 
     /// A .COM by hand (the header, then $0300 on), for GO: function 75 with A = `a` (1, Apple II mode, by
-    /// default; X as GO leaves it, which only the diagnostics would take, as their options); if it comes back, A and X printed in hex by function 2 (so OODOS still answers),
-    /// then the warm boot.
-    std::vector<uint8_t> romtest(uint8_t a = 1)
+    /// default; 2 the diagnostics, 3 Apple II mode with image X) and X = `x` (the diagnostics' options, or the
+    /// image; critic 15: set, not as GO leaves it); if it comes back, A and X printed in hex by function 2 (so
+    /// OODOS still answers), then the warm boot.
+    std::vector<uint8_t> romtest(uint8_t a = 1, uint8_t x = 0)
     {
         std::vector<uint8_t> b = {
-            0x4F, 0x4F, 0x44, 0x1A, 0x00, 0x03, 0x2C, 0x00, // magic, flags, page $03, size $2C
+            0x4F, 0x4F, 0x44, 0x1A, 0x00, 0x03, 0x2E, 0x00, // magic, flags, page $03, size $2E
             0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, // no BSS, zero page $00-$10
-            0xA9, a,                                        // 0300 LDA #a      1 Apple II mode, 2 the diagnostics
-            0xA0, 0x4B,                                     // 0302 LDY #75     O_ROM
-            0x20, 0x03, 0x02,                               // 0304 JSR BDOS
-            0x86, 0x10,                                     // 0307 STX $10
-            0x20, 0x14, 0x03,                               // 0309 JSR HEX     A
-            0xA5, 0x10,                                     // 030C LDA $10
-            0x20, 0x14, 0x03,                               // 030E JSR HEX     X
-            0x4C, 0x00, 0x02,                               // 0311 JMP WBOOT
-            0x48,                                           // 0314 HEX: PHA
-            0x4A, 0x4A, 0x4A, 0x4A,                         // 0315 LSR x4
-            0x20, 0x1F, 0x03,                               // 0319 JSR NIB
-            0x68,                                           // 031C PLA
-            0x29, 0x0F,                                     // 031D AND #$0F
-            0xC9, 0x0A,                                     // 031F NIB: CMP #10
-            0x90, 0x02,                                     // 0321 BCC +2
-            0x69, 0x06,                                     // 0323 ADC #6      (C set: +7)
-            0x69, 0x30,                                     // 0325 ADC #'0'
-            0xA0, 0x02,                                     // 0327 LDY #2      C_WRITE
-            0x4C, 0x03, 0x02,                               // 0329 JMP BDOS
+            0xA9, a,                                        // 0300 LDA #a      1 Apple II mode, 2 the diagnostics, 3 image X
+            0xA2, x,                                        // 0302 LDX #x      the options, or the image
+            0xA0, 0x4B,                                     // 0304 LDY #75     O_ROM
+            0x20, 0x03, 0x02,                               // 0306 JSR BDOS
+            0x86, 0x10,                                     // 0309 STX $10
+            0x20, 0x16, 0x03,                               // 030B JSR HEX     A
+            0xA5, 0x10,                                     // 030E LDA $10
+            0x20, 0x16, 0x03,                               // 0310 JSR HEX     X
+            0x4C, 0x00, 0x02,                               // 0313 JMP WBOOT
+            0x48,                                           // 0316 HEX: PHA
+            0x4A, 0x4A, 0x4A, 0x4A,                         // 0317 LSR x4
+            0x20, 0x21, 0x03,                               // 031B JSR NIB
+            0x68,                                           // 031E PLA
+            0x29, 0x0F,                                     // 031F AND #$0F
+            0xC9, 0x0A,                                     // 0321 NIB: CMP #10
+            0x90, 0x02,                                     // 0323 BCC +2
+            0x69, 0x06,                                     // 0325 ADC #6      (C set: +7)
+            0x69, 0x30,                                     // 0327 ADC #'0'
+            0xA0, 0x02,                                     // 0329 LDY #2      C_WRITE
+            0x4C, 0x03, 0x02,                               // 032B JMP BDOS
         };
         return b;
     }
@@ -194,7 +207,7 @@ TEST(apple2_without_a_iie_rom_says_so_and_oodos_goes_on)
     RomRig r;
     REQUIRE(r.ok);
     const std::string o = r.cmd("APPLE2");
-    CHECK(o.find("\r\nNo IIe ROM in the cartridge (the emulator: Settings, ROMs)\r\nA>") != std::string::npos);
+    CHECK(o.find("\r\nNo IIe ROM in the flash (the emulator: Settings, ROMs)\r\nA>") != std::string::npos);
     CHECK(r.cmd(":APPLE2").find("No IIe ROM") == std::string::npos); // the return code: a failure
     CHECK(!r.bridge().apple());
     CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
@@ -291,6 +304,252 @@ TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
     CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
 }
 
+// --- B5: the IIe ROM in ROM A's images, behind the ROM BIOS's version --------------------------------------
+
+namespace
+{
+    /// Where cold.s keeps the running ROM BIOS's version (major, minor), in RAM.
+    uint32_t romver_at() { return 31u * 0x4000u + sym("ROMVER"); }
+
+    /// Typed `line` (APPLE2 by default) and waited for Apple II mode: true if the machine went there, at the
+    /// stand-in's loop at `loop`.
+    bool apple2_reaches_the_loop(RomRig &r, const std::string &line = "APPLE2", uint16_t loop = LOOP)
+    {
+        r.type(line + "\r");
+        for (int i = 0; i < 40 && !r.bridge().apple(); ++i)
+            r.run(ms(50));
+        if (!r.bridge().apple())
+            return false;
+        r.run(ms(50));
+        const uint16_t pc = r.cpu->regs().pc;
+        return pc >= loop && pc < loop + 3;
+    }
+
+    constexpr uint16_t LOOP2 = 0xFA10; ///< a second stand-in's loop, to tell image 2 from image 0
+
+    /// A byte programmed into ROM A at `offset` by the chip's own command sequence (the even chip's at
+    /// $AAAA/$5554, the odd chip's at $AAAB/$5555), as the BIOS's flash update writes; true if it reads back.
+    bool program_rom_a(RomRig &r, uint32_t offset, uint8_t value)
+    {
+        Device *a = r.machine->find("rom_a");
+        if (!a)
+            return false;
+        const uint32_t odd = offset & 1u;
+        a->write(0xAAAA + odd, 0xAA);
+        a->write(0x5554 + odd, 0x55);
+        a->write(0xAAAA + odd, 0xA0);
+        a->write(offset, value);
+        r.run(ms(1));                                       // past its program time
+        return a->peek(offset) == value;
+    }
+} // namespace
+
+TEST(apple2_finds_a_iie_rom_in_image_2_alone)
+{
+    const auto iie = stand_in_rom();
+    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    REQUIRE(r.ok);
+    REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 16);
+    CHECK(apple2_reaches_the_loop(r));
+    CHECK(r.out.find("No IIe ROM") == std::string::npos);
+}
+
+TEST(function_75_under_a_rom_bios_before_0_16_looks_in_the_cartridge_not_rom_a)
+{
+    // Such a ROM's $C806 reads the cartridge: a IIe ROM in ROM A's image 0 isn't one it would take, so 75 says
+    // no IIe ROM rather than jump to a $C806 that refuses with OODOS gone.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+    CHECK(!r.bridge().apple());
+    CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
+    r.poke(romver_at() + 1, 0xFF);                         // $FF $FF, not found: old too
+    r.poke(romver_at(), 0xFF);
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+}
+
+TEST(function_75_under_a_rom_bios_1_0_looks_in_rom_a)
+{
+    // The gate compares the major first: 1.0 is past 0.16 though its minor is below 16.
+    const auto iie = stand_in_rom();
+    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    REQUIRE(r.ok);
+    r.poke(romver_at(), 1);
+    r.poke(romver_at() + 1, 0);
+    CHECK(apple2_reaches_the_loop(r));
+}
+
+// --- B5: APPLE2 n, function 75 with A = 3 and X the image (interface 11), through the ROM's $C818 ---------
+
+TEST(apple2_n_takes_image_n_though_image_0_is_good)
+{
+    // Case 25: two stand-ins told apart by their loops. Image 2 asked for, image 2's loop, not image 0's (the
+    // first good one, which A = 1's path, $C806, would take).
+    const auto iie0 = stand_in_rom();
+    const auto iie2 = stand_in_rom(LOOP2);
+    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    REQUIRE(r.ok);
+    CHECK(apple2_reaches_the_loop(r, "APPLE2 2", LOOP2));
+    CHECK(r.out.find("No IIe ROM") == std::string::npos);
+}
+
+TEST(function_75_with_a_3_takes_image_x)
+{
+    const auto iie0 = stand_in_rom();
+    const auto iie2 = stand_in_rom(LOOP2);
+    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    REQUIRE(r.ok);
+    r.poke_com(romtest(3, 2));
+    r.type("GO\r");
+    for (int i = 0; i < 40 && !r.bridge().apple(); ++i)
+        r.run(ms(50));
+    REQUIRE(r.bridge().apple());
+    r.run(ms(50));
+    const uint16_t pc = r.cpu->regs().pc;
+    CHECK(pc >= LOOP2 && pc < LOOP2 + 3);
+}
+
+TEST(apple2_n_with_image_n_erased_says_so_and_oodos_goes_on)
+{
+    // Case 27: image 0 good, image 1 not: APPLE2 1 says image 1 has none, and 75 with A = 3, X = 1 gives $FF $FF.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    const std::string o = r.cmd("APPLE2 1");
+    CHECK(o.find("\r\nNo IIe ROM in flash image 1 (the emulator: Settings, ROMs)\r\nA>") != std::string::npos);
+    CHECK(r.cmd(":APPLE2 1").find("No IIe ROM") == std::string::npos); // the return code: a failure
+    CHECK(!r.bridge().apple());
+    CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
+    r.poke_com(romtest(3, 1));
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+    CHECK(r.cmd("APPLE2 3").find("No IIe ROM in flash image 3") != std::string::npos); // and again: OODOS goes on
+    CHECK(!r.bridge().apple());
+}
+
+TEST(apple2_with_another_tail_is_the_command_and_a_question_mark)
+{
+    // Case 28: only one digit 0-3 is an image; anything else is refused before 75, with nothing done.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    CHECK_EQ(r.cmd("APPLE2 4"), std::string("APPLE2 4\r\nAPPLE2 4?\r\nA>"));
+    CHECK_EQ(r.cmd("APPLE2 X"), std::string("APPLE2 X\r\nAPPLE2 X?\r\nA>"));
+    CHECK_EQ(r.cmd("APPLE2 1 2"), std::string("APPLE2 1 2\r\nAPPLE2 1 2?\r\nA>"));
+    CHECK_EQ(r.cmd("APPLE2 12"), std::string("APPLE2 12\r\nAPPLE2 12?\r\nA>"));
+    CHECK_EQ(r.cmd("APPLE2 /"), std::string("APPLE2 /\r\nAPPLE2 /?\r\nA>")); // the character before '0'
+    CHECK(!r.bridge().apple());
+    CHECK(r.out.find("No IIe ROM") == std::string::npos);
+}
+
+TEST(function_75_with_a_3_and_x_4_or_more_gives_ff_ff)
+{
+    // Case 28's program half: X of 4 is no image. Block 4 holds the character sets: a $06 put where an image's
+    // ID byte would be in it ($13BB3, set 1's) must not be taken for a IIe ROM, which would leave for $C818 with
+    // A = 4 (refused there: the machine restarts).
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    REQUIRE(program_rom_a(r, 0x10000 + 0x3BB3, 0x06));
+    for (uint8_t x : {uint8_t{4}, uint8_t{5}, uint8_t{0x80}, uint8_t{0xFF}})
+    {
+        r.poke_com(romtest(3, x));
+        CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+    }
+    CHECK(!r.bridge().apple());
+    CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS still answers
+}
+
+TEST(function_75_with_a_3_under_a_rom_bios_before_0_16_gives_ff_fb)
+{
+    // Case 29: such a ROM has no $C818 (it is its START there): image 2 good, but 75 refuses before anything,
+    // and APPLE2 2 says what it needs.
+    const auto iie = stand_in_rom();
+    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    REQUIRE(r.ok);
+    r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
+    r.poke_com(romtest(3, 2));
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFB\r\nA>"));
+    CHECK(!r.bridge().apple());
+    const std::string o = r.cmd("APPLE2 2");
+    CHECK(o.find("\r\nAPPLE2 2 needs ROM BIOS 0.16 or later\r\nA>") != std::string::npos);
+    CHECK(r.cmd(":APPLE2 2").find("needs") == std::string::npos); // the return code: a failure
+    CHECK(!r.bridge().apple());
+    r.poke(romver_at(), 0xFF);                             // $FF $FF, not found: old too
+    r.poke(romver_at() + 1, 0xFF);
+    r.poke_com(romtest(3, 2));
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFB\r\nA>"));
+}
+
+TEST(apple2_n_under_a_rom_bios_1_0_takes_image_n)
+{
+    // Case 29a: the gate compares the major first, for A = 3 too: 1.0 is past 0.16.
+    const auto iie0 = stand_in_rom();
+    const auto iie2 = stand_in_rom(LOOP2);
+    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    REQUIRE(r.ok);
+    r.poke(romver_at(), 1);
+    r.poke(romver_at() + 1, 0);
+    CHECK(apple2_reaches_the_loop(r, "APPLE2 2", LOOP2));
+}
+
+TEST(apple2_under_a_rom_bios_before_0_16_says_it_looks_in_the_cartridge)
+{
+    // Case 29b (Q17): A = 1 under an older ROM looks in the cartridge, where there is none (the stand-in is in
+    // ROM A's image 0): the message says where that ROM looks, and what to do.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    r.poke(romver_at() + 1, 15);
+    const std::string o = r.cmd("APPLE2");
+    CHECK(o.find("\r\nNo IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)\r\nA>") !=
+          std::string::npos);
+    CHECK(!r.bridge().apple());
+    r.poke(romver_at() + 1, 16);                           // and 0.16 again: the flash's message
+    CHECK(r.cmd("APPLE2 1").find("No IIe ROM in flash image 1") != std::string::npos);
+}
+
+TEST(function_75_with_a_3_without_dma_or_the_revision_2_card_gives_fe_or_fd)
+{
+    // Case 30: A = 3 has A = 1's checks, in the ROM's order.
+    const auto iie = stand_in_rom();
+    {
+        const std::string text = no_dma_machine();
+        REQUIRE(!text.empty());
+        RomRig r({iie->path}, text);
+        REQUIRE(r.ok);
+        r.poke_com(romtest(3, 0));
+        CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFE\r\nA>"));
+        CHECK(r.cmd("APPLE2 0").find("\r\nApple II mode needs the DMA controller\r\nA>") != std::string::npos);
+        CHECK(!r.bridge().apple());
+    }
+    {
+        RomRig r({iie->path}, {}, 1);
+        REQUIRE(r.ok);
+        r.poke_com(romtest(3, 0));
+        CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
+        CHECK(r.cmd("APPLE2 0").find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
+        CHECK(!r.bridge().apple());
+    }
+}
+
+TEST(function_75_with_a_4_still_gives_ff_ff)
+{
+    // Case 31: the table's bound is 4 (A = 0-3); with a good image 0 a bound of 5 would send A = 4 to Apple II mode.
+    const auto iie = stand_in_rom();
+    RomRig r({iie->path});
+    REQUIRE(r.ok);
+    for (uint8_t a : {uint8_t{4}, uint8_t{5}, uint8_t{0xFF}})
+    {
+        r.poke_com(romtest(a, 0));
+        CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
+    }
+    CHECK(!r.bridge().apple());
+}
+
 // --- DIAG: function 75 with A = 2 (hw/diag.md's plan 2, D3c) -------------------------------------------------
 
 namespace
@@ -360,7 +619,7 @@ TEST(diag_and_y_runs_the_roms_diagnostics_and_a_key_boots_oodos_again)
     CHECK(r.out.find("RESULT: ALL PASSED", from) != std::string::npos);
     const size_t end = r.out.size();
     r.type("\r");                                         // a key: the boot, as after a power-on
-    REQUIRE(r.until("BACKPLANE BIOS 0.15", ms(3000), end));
+    REQUIRE(r.until("BACKPLANE BIOS 0.16", ms(3000), end));
     REQUIRE(r.until("\r\nA>", ms(20'000), end));
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again, A: there
     CHECK_EQ(r.nb(3), 62);
@@ -431,11 +690,11 @@ TEST(diag_without_diagnostics_in_the_flash_says_so_and_75_gives_ff_fc)
 TEST(diag_under_a_rom_bios_version_other_than_block_23s_linked_one_says_so_and_75_gives_ff_fc)
 {
     // Review T3: OODOS's own record of the ROM BIOS's version (cold.s's ROMVER, from the greeting) made 0.14, so
-    // block 23's linked version, 0.15, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
+    // block 23's linked version, 0.16, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
     RomRig r;
     REQUIRE(r.ok);
     const uint32_t romver = 31u * 0x4000u + sym("ROMVER");
-    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 15);
+    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 16);
     r.poke(romver + 1, 14);
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
@@ -451,7 +710,7 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
 {
     // Review T1: block 23 with the right signature and linked BIOS version but another DG_VERSION ($8009): OODOS
     // can't know the running BIOS's DG_VERSION, so it jumps; $C815's own check refuses and returns, and the
-    // return address ROMDIAG left on the stack is $C800's: the machine restarts, and the card boots OODOS again.
+    // return address ROMENTRY (ROMDIAG before B5) left on the stack is $C800's: the machine restarts, and the card boots OODOS again.
     std::vector<uint8_t> rom = read_bytes(EMU_BIOS_ROM);
     REQUIRE(rom.size() >= 24u * 0x4000u);
     std::vector<uint8_t> b23(rom.begin() + 23 * 0x4000, rom.begin() + 24 * 0x4000);
@@ -467,7 +726,7 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
     r.type("Y\r");
-    CHECK(r.until("BACKPLANE BIOS 0.15", ms(3000), from));
+    CHECK(r.until("BACKPLANE BIOS 0.16", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(20'000), from));
     CHECK(r.out.find(TITLE, from) == std::string::npos);
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again

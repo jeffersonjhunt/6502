@@ -160,7 +160,12 @@ settled the rule, and its emulator plan's first step is in:
 
 - **Three address spaces.** A `NorthBridge` now returns a `Route`: memory
   (the 1 MB), flash (ROM A, then ROM B) or the 2 KB I/O hole, plus a
-  writable flag. Mappings name their space (`space=flash|io`; I/O mappings
+  writable flag. (Since step B5 the flash lines are `flash` devices,
+  flash.h: two chips each, even and odd bytes, so a write through a window
+  with RO clear reaches the chip of its parity as a step of a command; ROM
+  A's blocks 0-5 hold the IIe images, and ROM B, the cartridge of the
+  Apple II steps below, is the game cartridge only. hw/design.md, "B5: as
+  built".) Mappings name their space (`space=flash|io`; I/O mappings
   take the module ID of their 128-byte block). VPB reaches the bus
   (`Bus::vector_pull`), and the bus trace records the lines of each cycle as
   they were (`Decoder::last_access`).

@@ -7,7 +7,9 @@
 # players, splash/bootsnd.bin and splash/docsnd.bin, and its samples in blocks
 # 24-28, splash/wave.bin, all committed; the ROM's diagnostics in blocks 21-23,
 # with oohw's modules built for the ROM, each block its own copy, the sound card's
-# 6510 program in block 22, and the flash's sums written by romsum.py), and its ld65 -Ln label file. Target `backplane_bios`; files in EMU_BIOS_DIR.
+# 6510 program in block 22, the flash update (flash.s) in the top block, and the flash's sums written by romsum.py),
+# its ld65 -Ln label file, and its two chips' files, bios-even.rom and bios-odd.rom (romsplit.py). Target
+# `backplane_bios`; files in EMU_BIOS_DIR.
 # Without cc65 there is no target, and what needs it skips (tests) or
 # refuses to configure (apps/web).
 
@@ -22,7 +24,7 @@ if(EMU_CA65 AND EMU_LD65 AND Python3_Interpreter_FOUND)
     file(MAKE_DIRECTORY "${EMU_BIOS_DIR}")
     set(objs "")
     file(GLOB demo_assets "${EMU_BIOS_SRC}/demo/*.bin")
-    foreach(src bios wozmon video input apple sd demo splash diag21 diag22 diag23)
+    foreach(src bios wozmon video input apple sd demo splash flash diag21 diag22 diag23)
         add_custom_command(
                 OUTPUT "${EMU_BIOS_DIR}/${src}.o"
                 COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" -I "${EMU_OOHW_SRC}" --bin-include-dir "${EMU_BIOS_DIR}"
@@ -74,7 +76,15 @@ if(EMU_CA65 AND EMU_LD65 AND Python3_Interpreter_FOUND)
             COMMAND "${CMAKE_COMMAND}" -E rename "${EMU_BIOS_DIR}/bios.rom.tmp" "${EMU_BIOS_DIR}/bios.rom"
             DEPENDS ${objs} "${EMU_BIOS_SRC}/bios.cfg" "${EMU_BIOS_SRC}/romsum.py"
             VERBATIM)
-    add_custom_target(backplane_bios ALL DEPENDS "${EMU_BIOS_DIR}/bios.rom")
+    # ROM A's two chips, a file each, as the Makefile's romsplit.py writes them: the even bytes and the odd.
+    add_custom_command(
+            OUTPUT "${EMU_BIOS_DIR}/bios-even.rom" "${EMU_BIOS_DIR}/bios-odd.rom"
+            COMMAND "${Python3_EXECUTABLE}" -I "${EMU_BIOS_SRC}/romsplit.py" "${EMU_BIOS_DIR}/bios.rom"
+                    "${EMU_BIOS_DIR}/bios-even.rom" "${EMU_BIOS_DIR}/bios-odd.rom"
+            DEPENDS "${EMU_BIOS_DIR}/bios.rom" "${EMU_BIOS_SRC}/romsplit.py"
+            VERBATIM)
+    add_custom_target(backplane_bios ALL DEPENDS "${EMU_BIOS_DIR}/bios.rom" "${EMU_BIOS_DIR}/bios-even.rom"
+            "${EMU_BIOS_DIR}/bios-odd.rom")
 else()
     message(STATUS "emu: ca65/ld65 (or Python 3) not found — no backplane BIOS")
 endif()

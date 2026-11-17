@@ -103,8 +103,9 @@ Status: **emulated**
 
 - **Write the SD card.** Stage 11 reads only: IDENTIFY and reads. A card that stays busy is reset (CTRL's RESET,
   which abandons the command and writes nothing) and given no further command.
-- **Write the flash.** A write that reaches the SST39SF040 is a step of one of its command sequences, so no window
-  onto the flash is written; stage 7's read-only check is a write through a read-only window onto RAM.
+- **Write the flash.** A write that reaches one of ROM A's two SST39SF020A chips may be a step of one of its
+  command sequences ([chapter 2](02-memory-and-banking.md#reprogramming-the-flash)), so no window onto the flash is
+  written; stage 7's read-only check is a write through a read-only window onto RAM.
 - **Write `NB_MODE`,** so never Apple II mode: only a hard reset leaves it
   ([chapter 13](13-apple-ii-mode.md)).
 - **Touch the Disk II's switches,** which move its stepper and motor: DK1 reads its ID byte, nothing else.
@@ -132,7 +133,7 @@ Status: **emulated**
 **The serial line** (19,200 baud, 8 bits, no parity, as the BIOS sets it) has the whole report: the title, a line
 for each stage with its result at column 60, and under each card stage a line for each test, `PASS`, `FAIL`, `SKIP`
 with why on the line under it, or `INFO` for a measurement, each failure's detail under it. A card stage's tests come
-before its own line. The run's form follows stage 2: `BIOS 0.15`, the pass, and `QUICK` or `FULL`, with `LOOP` and
+before its own line. The run's form follows stage 2: `BIOS 0.16`, the pass, and `QUICK` or `FULL`, with `LOOP` and
 `ASK` as asked. Then `TESTS: n PASSED, n FAILED, n SKIPPED, n MEASURED`, the `RESULT` line (`ALL PASSED`, or the
 stages failed, and the lamps' code) and the keys:
 
@@ -189,7 +190,9 @@ the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.
 
 Where the time goes: stages 1–6, the flash and all of RAM, about 28 s of a quick run (address in address and one
 background of the march, with stage 6's own test of W0's first 512 bytes); NB5's and NB6's measurements about 7 s
-together (three windows each, the middle one kept); V4's 2 MB of card memory about 10 s; P2's walk across the lamps
-1.6 s; the report on the serial line, each character waiting for the 6551 as ECHO does, about 2 s. A full run adds
-three backgrounds of the march over all of RAM, the march over card memory, and S2's and S8's second pass. A loop
-repeats from stage 3 at the same cost a pass.
+together (three windows each, back to back: four changes, and of their six pairs the one whose bigger gap, over the
+windows between them, is least, the wider of equals, gives the span, since BIOS 0.16; BIOS 0.15 kept the middle
+window); V4's 2 MB of card memory about 10 s; P2's walk across the
+lamps 1.6 s; the report on the serial line, each character waiting for the 6551 as ECHO does, about 2 s. A full run
+adds three backgrounds of the march over all of RAM, the march over card memory, and S2's and S8's second pass. A
+loop repeats from stage 3 at the same cost a pass.

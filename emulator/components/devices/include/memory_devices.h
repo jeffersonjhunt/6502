@@ -66,6 +66,12 @@ namespace ooe::emu
         bool load(const std::string &path, size_t at = 0);
         /// Erased flash: every byte $FF.
         void erase() { mem_.assign(mem_.size(), 0xFF); }
+        /// Erase `count` bytes from offset `at` (as far as the image goes).
+        void erase(size_t at, size_t count)
+        {
+            for (size_t i = at; i < at + count && i < mem_.size(); ++i)
+                mem_[i] = 0xFF;
+        }
 
     private:
         std::vector<uint8_t> mem_;

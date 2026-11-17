@@ -63,8 +63,8 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | ID | Module | Registers | ID byte | In the emulator |
 |---|---|---|---|---|
 | 0–3 | RAM A–D, 256 KB each | none | | yes |
-| 4 | ROM A, the flash, 512 KB | none | | yes |
-| 5 | ROM B, the cartridge, 512 KB | none | | yes, erased unless a IIe ROM is given |
+| 4 | ROM A, the flash, 512 KB: the BIOS, and the IIe images in blocks 0–5 (since B5, *proposed*) | none | | yes, two chips that can be written (emulated as step B5) |
+| 5 | ROM B, the game cartridge, 512 KB | none | | yes, erased |
 | 6 | serial | `$C300` | none yet | a 6551 stand-in, and the VIA ([chapter 9](09-serial-and-via.md)) |
 | 7 | mass storage | `$C380` | `$71` | yes ([chapter 10](10-storage.md)) |
 | 8 | DMA controller, on the CPU card | `$C400` | `$82` (revision 2, *proposed*; revision 1's `$81` reads as no controller since B2) | yes ([chapter 5](05-dma.md)) |

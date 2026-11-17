@@ -29,6 +29,7 @@
 #include "usb_card.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
@@ -272,19 +273,23 @@ namespace oodos_rig
         std::function<void(uint16_t pc)> watch;                    ///< before each instruction, if set
         bool ok{false};
 
-        /// `apple_rom`: a IIe ROM image's path for the cartridge (none by default), as MachineOptions takes it.
+        /// `apple_rom`: a IIe ROM image's path for ROM A's image 0 (none by default), as MachineOptions takes it;
+        /// `images`: a 16 KB IIe ROM file for image n, any of 0-3 (MachineOptions::apple_roms).
         /// `machine_text`: a machine description in place of backplane.machine's (fewer cards, say).
         /// `disk2_sequencer`: the Disk II's sequencer PROM, the owner's, from the fixtures (none by default).
         /// `video_revision`: the video card's, 2 by default: OODOS is built for revision 2 only
         /// (hw/video-rev2.md); 1 where a test asks what OODOS does on the old card.
         explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {},
                      const std::string &machine_text = {}, const std::string &disk2_sequencer = {},
-                     unsigned video_revision = 2)
+                     unsigned video_revision = 2, const std::array<std::string, 4> &images = {})
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
             opt.video_revision = video_revision;
             opt.apple_rom = std::move(apple_rom);
+            for (unsigned n = 0; n < 4; ++n)
+                if (!images[n].empty())
+                    opt.apple_roms[n] = {images[n]};
             opt.disk2_sequencer = disk2_sequencer;
             std::string error;
             machine = Machine::build(machine_text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : machine_text,
@@ -299,7 +304,7 @@ namespace oodos_rig
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
             machine->bus().reset();
             cpu->reset();
-            if (!until("BACKPLANE BIOS 0.15\r\\\r", ms(2000)))
+            if (!until("BACKPLANE BIOS 0.16\r\\\r", ms(2000)))
             {
                 std::printf("  the ROM BIOS didn't reach its monitor\n");
                 return;
@@ -774,8 +779,10 @@ namespace oodos_rig
             unsigned entry = 0, block = M_DIRBLOCKS; ///< M:'s last entry and next block put_m() used
 
             explicit CcpRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                            const std::string &disk2_sequencer = {}, unsigned video_revision = 2)
-                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer, video_revision)
+                            const std::string &disk2_sequencer = {}, unsigned video_revision = 2,
+                            const std::array<std::string, 4> &images = {})
+                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer, video_revision,
+                      images)
             {
                 if (!ok)
                     return;

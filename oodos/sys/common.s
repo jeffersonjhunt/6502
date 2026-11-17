@@ -43,7 +43,7 @@
 .import DMASEG, AMAP
 .import IRQ, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
 .import WBQUIET                         ; input.s's
-.export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE, ROMDIAG
+.export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE, ROMENTRY
 
 .segment "JUMPS"
 JUMPS:          JMP     COLD           ; BOOT
@@ -416,17 +416,25 @@ APPLESRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TR
                 JMP     $C806          ; the ROM's APPLE
 APPLEEND:
 
-; The diagnostics for function 75 with A = 2 (interface 10; hw/diag.md's
-; plan 2): as ROMAPPLE leaves for the ROM, but to its $C815, the entry for a
-; program that has asked already, with A = $A5 and Y = $5A (its two-byte
-; token) and X the options (bit 0 full, bit 1 interactive); it never comes
-; back. The Disk II is stopped first, as NMI stops it; the diagnostics'
-; stage 0 quiets the other cards (DMA and the sound card's 6510 included)
-; whichever way they are entered. In block 62 above the common memory, in
-; W3 like the rest of OODOS's resident code: it moves W0-W2, not W3. In
-; segment RES2, after the rest of RES, so that nothing before it moves.
+; The ROM's entries that take a two-byte token, for function 75: A = 2 the
+; diagnostics (interface 10; hw/diag.md's plan 2) at its $C815, with A = $A5
+; and Y = $5A, X the options (bit 0 full, bit 1 interactive); A = 3 Apple II
+; mode with image n (interface 11; B5) at its dispatching entry $C818, with
+; Y = $5A and X = $A1 (the function), A = n. Called with A and X as the
+; entry takes them and Y the entry's low byte ($C8yy); as ROMAPPLE leaves for
+; the ROM, and it never comes back: should the entry refuse after all (a
+; diagnostics build whose own version, DG_VERSION, OODOS can't know), its RTS
+; is a restart at $C800, as a reset, not a return into whatever is at $0100.
+; The Disk II is stopped first, as NMI stops it; the diagnostics' stage 0
+; quiets the other cards (DMA and the sound card's 6510 included) whichever
+; way they are entered, and Apple II mode stops them itself. In block 62
+; above the common memory, in W3 like the rest of OODOS's resident code: it
+; moves W0-W2, not W3. In segment RES2, after the rest of RES, so that
+; nothing before it moves. (ROMDIAG's until B5, which made it take Apple II
+; mode by image too.)
 .segment "RES2"
-ROMDIAG:        SEI
+ROMENTRY:       SEI
+                PHA                    ; A for the entry, on the BDOS's stack (W0 the system's)
                 LDA     DISK2_Q7OFF    ; as NMI: the Disk II's write mode and motor off
                 LDA     DISK2_MOTOROFF
                 LDA     #SYS_BLOCK
@@ -436,37 +444,46 @@ ROMDIAG:        SEI
                 STZ     D2WRIT
                 LDA     D2DMAS
                 STA     DMA_CONTROL
-@off:           JSR     CLKOFF         ; OODOS's interrupts off (X kept)
+@off:           JSR     CLKOFF         ; OODOS's interrupts off (X and Y kept)
+                PLA
                 STZ     NB_WIN0
+                PHA                    ; A, X and the entry, on block 0's stack page now
+                PHX
+                PHY
                 LDA     #1
                 STA     NB_WIN1
                 LDA     #2
                 STA     NB_WIN2
-                PHX                    ; the options, on block 0's stack page now
-                LDX     #DIAGEND - DIAGSRC - 1
-@copy:          LDA     DIAGSRC,X
+                LDX     #ENTEND - ENTSRC - 1
+@copy:          LDA     ENTSRC,X
                 STA     TRAMP,X
                 DEX
                 BPL     @copy
                 PLA
-                STA     TRAMP + DIAGOPTS - DIAGSRC
+                STA     TRAMP + ENTAT - ENTSRC
+                PLA
+                STA     TRAMP + ENTX - ENTSRC
+                PLA
+                STA     TRAMP + ENTA - ENTSRC
                 LDX     #$FF
                 TXS
-                LDA     #>($C800 - 1)  ; should $C815 refuse after all (a build whose own
-                PHA                    ; version, DG_VERSION, OODOS can't know), its RTS
-                LDA     #<($C800 - 1)  ; is a restart at $C800, as a reset, not a
-                PHA                    ; return into whatever is at $0100
+                LDA     #>($C800 - 1)  ; a refusal's RTS: a restart at $C800
+                PHA
+                LDA     #<($C800 - 1)
+                PHA
                 LDY     #$5A           ; the token's second byte
                 JMP     TRAMP
-DIAGSRC:        LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
+ENTSRC:         LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
                 STA     NB_WIN3
                 STA     NB_VEC
-                LDA     #$A5           ; the token's first byte
-DIAGOPTS        = * + 1
-                LDX     #0             ; the options, written in
-                JMP     $C815          ; the ROM's diagnostics, for a program
-DIAGEND:
-.assert DIAGEND - DIAGSRC <= 16, error, "the tramp is TRAMP's 16 bytes at most (sys.inc)"
+ENTA            = * + 1
+                LDA     #0             ; written in: $A5 (the token's first byte), or the image
+ENTX            = * + 1
+                LDX     #0             ; the options, or $A1 (the token's function)
+ENTAT           = * + 1
+                JMP     $C800          ; the entry, its low byte written in
+ENTEND:
+.assert ENTEND - ENTSRC <= 16, error, "the tramp is TRAMP's 16 bytes at most (sys.inc)"
 
 .segment "VECTORS"
                 .word   NMI

@@ -798,6 +798,115 @@ NODIAG:         .byte   "No diagnostics for this BIOS in the flash (BIOS 0.14 or
 DWORDS:
 DFULL:          .byte   "FULL", 0
 DASK:           .byte   "ASK", 0
+
+; APPLE2 [n] (ours, 2026-11-03; n since B5): leave OODOS for the ROM BIOS by
+; function 75, which writes back the changed buffers first, and restart in
+; Apple II mode, if the revision 2 video card and the DMA controller are
+; there and ROM A's images hold a IIe ROM: with no tail the first good image
+; (75 with A = 1, as the ROM's $C806 takes it), with one digit n, 0-3, image
+; n (A = 3, X = n: the ROM's $C818, interface 11). Otherwise it says which
+; is missing (75's X: $FD no revision 2 card, $FE no DMA controller, $FB a ROM
+; BIOS before 0.16, which has no $C818; $FF no IIe ROM, the message chosen by
+; the ROM BIOS's version, function 77, as 75 chooses where to look), the
+; return code $FF00, and OODOS goes on. Any other tail is the command and
+; '?', as DIAG's is, with nothing done. In segment RES2 (sys.cfg), with its
+; text, so that nothing before it moves: the old APPLE2's bytes in RES are
+; filler now (OLDAPPLE, OLDNOIIE).
+B_APPLE2:       JSR     BIENTER
+                JSR     A2TAIL
+                BCS     @bad
+                LDY     #O_ROM
+                JSR     BDOS           ; back only if something is missing
+                CPX     #$FD
+                BEQ     @nocard
+                CPX     #$FE
+                BEQ     @nodma
+                PHX                    ; $FF or $FB
+                JSR     A2TAIL         ; A and X as typed again (the tail is as it was)
+                PLY
+                CMP     #3
+                BEQ     @image
+                LDY     #O_ROMVER      ; no IIe ROM where 75 looked: the flash, or
+                JSR     BDOS           ; under a ROM BIOS before 0.16 the cartridge
+                CMP     #$FF
+                BEQ     @cart          ; not found: as 75 counts it, old
+                CMP     #1
+                BCS     @flash         ; 1.0 and on
+                CPX     #16
+                BCS     @flash         ; 0.16 and on
+@cart:          LDA     #<NOIIEC
+                LDX     #>NOIIEC
+                JMP     FAILSAY
+@flash:         LDA     #<NOIIEF
+                LDX     #>NOIIEF
+                JSR     STRING
+                BRA     @emuset
+@image:         PHX                    ; n
+                CPY     #$FB
+                BEQ     @old
+                LDA     #<NOIIEN
+                LDX     #>NOIIEN
+                JSR     STRING
+                PLA
+                ORA     #'0'
+                JSR     PUTC
+@emuset:        LDA     #<EMUSET
+                LDX     #>EMUSET
+                JMP     FAILSAY
+@old:           LDA     #<A2OLD
+                LDX     #>A2OLD
+                JSR     STRING
+                PLA
+                ORA     #'0'
+                JSR     PUTC
+                LDA     #<A2OLD2
+                LDX     #>A2OLD2
+                JMP     FAILSAY
+@nodma:         LDA     #<NODMA
+                LDX     #>NODMA
+                JMP     FAILSAY
+@nocard:        LDA     #<NOCARD
+                LDX     #>NOCARD
+                JMP     FAILSAY
+@bad:           JMP     BADCMD
+
+; APPLE2's tail, for function 75: carry clear and A = 1 with none (only
+; blanks or tabs); carry clear, A = 3 and X = n with one digit n, 0-3, and
+; blanks or tabs around it; carry set for anything else.
+A2TAIL:         LDY     #0
+                JSR     A2BLANK
+                BEQ     @none
+                SEC
+                SBC     #'0'
+                CMP     #IIE_IMAGES
+                BCS     @bad           ; not 0-3 (below '0' too: it wraps)
+                TAX
+                INY
+                JSR     A2BLANK
+                BNE     @bad           ; more after it
+                LDA     #3
+                CLC
+                RTS
+@none:          LDA     #1
+                CLC
+                RTS
+@bad:           SEC
+                RTS
+; Y past the blanks and tabs in the tail from Y: Z set at its end, else Z
+; clear and A the character there.
+A2BLANK:        CPY     TAILLEN
+                BEQ     @done
+                LDA     TAILBUF,Y
+                CMP     #' '
+                BEQ     @next
+                CMP     #TAB
+                BNE     @done          ; Z clear: a character
+@next:          INY
+                BRA     A2BLANK
+@done:          RTS
+
+NOIIEC:         .byte   "No IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)$"
+NOIIEN:         .byte   "No IIe ROM in flash image $"
 .segment "RES"
 
 ; CLEAR and CLS (ours, 2026-11-03): the screen cleared by ESC E, which the
@@ -809,36 +918,25 @@ B_CLEAR:        JSR     BIENTER
 B_CLS:          JSR     CLEARSCR
                 BRA     B_DIR
 
-; WOZMON and APPLE2 (ours, 2026-11-03): leave OODOS for the ROM BIOS by
-; function 75, which writes back the changed buffers first. WOZMON clears
-; the screen, then the Woz Monitor, as Break; it doesn't come back. APPLE2
-; restarts in Apple II mode if the revision 2 video card and the DMA
-; controller are there and the cartridge holds a IIe ROM, and otherwise says
-; which is missing (75's X: $FD no revision 2 card, $FE no DMA controller),
-; the return code $FF00, and OODOS goes on. Their tails are ignored.
+; WOZMON (ours, 2026-11-03): leave OODOS for the ROM BIOS by function 75,
+; which writes back the changed buffers first: the screen cleared, then the
+; Woz Monitor, as Break; it doesn't come back. Its tail is ignored. APPLE2 is
+; in RES2 since B5 (B_APPLE2, with its tail); its old code's 39 bytes here,
+; and its old message's 59 below (OLDNOIIE), keep their size, so that
+; nothing after them moves (the interrupt dispatcher's addresses and timing,
+; irq.s's, among them): they hold some of the new APPLE2's text now, and
+; filler.
 B_WOZMON:       JSR     BIENTER
                 JSR     CLEARSCR
                 LDA     #0             ; the monitor
                 LDY     #O_ROM
                 JSR     BDOS
                 JMP     BIOK           ; never: 75 with A = 0 doesn't return
-B_APPLE2:       JSR     BIENTER
-                LDA     #1             ; Apple II mode
-                LDY     #O_ROM
-                JSR     BDOS           ; back only if the card, the DMA controller or the IIe ROM is missing
-                CPX     #$FD
-                BEQ     @nocard
-                CPX     #$FE
-                BEQ     @nodma
-                LDA     #<NOIIE
-                LDX     #>NOIIE
-                JMP     FAILSAY
-@nodma:         LDA     #<NODMA
-                LDX     #>NODMA
-                JMP     FAILSAY
-@nocard:        LDA     #<NOCARD
-                LDX     #>NOCARD
-                JMP     FAILSAY
+OLDAPPLE:                              ; the old APPLE2's 39 bytes: two of its messages, and filler
+A2OLD:          .byte   "APPLE2 $"
+A2OLD2:         .byte   " needs ROM BIOS 0.16 or later$"
+                .res    OLDAPPLE + 39 - *, $FF
+.assert * - OLDAPPLE = 39, error, "RES keeps its size: the old APPLE2's code was 39 bytes"
 
 
 ; DIR and DIRSYS (DIRS).
@@ -2102,7 +2200,11 @@ SYSINS:         .byte   "SYS,"
 SYSADD:         .byte   " [SYS]"
 SEP:            .byte   " : $"
 CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
-NOIIE:          .byte   "No IIe ROM in the cartridge (the emulator: Settings, ROMs)$"
+OLDNOIIE:                              ; the old APPLE2's message's 59 bytes: the new one's, and filler
+NOIIEF:         .byte   "No IIe ROM in the flash$"
+EMUSET:         .byte   " (the emulator: Settings, ROMs)$" ; after NOIIEF and NOIIEN
+                .res    OLDNOIIE + 59 - *, $FF
+.assert * - OLDNOIIE = 59, error, "RES keeps its size: the old APPLE2's message was 59 bytes"
 NODMA:          .byte   "Apple II mode needs the DMA controller$"
 NOCARD:         .byte   "Apple II mode needs the revision 2 video card$"
 NOPROG:         .byte   "NO PROGRAM$"

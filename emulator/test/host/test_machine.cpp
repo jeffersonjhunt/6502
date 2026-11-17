@@ -14,6 +14,7 @@
 #include "backplane_bridge.h"
 #include "console_card.h"
 #include "dma_controller.h"
+#include "flash.h"
 #include "apple1.h"
 #include "console.h"
 #include "hd44780.h"
@@ -219,6 +220,36 @@ TEST(rom_override_replaces_only_the_first_rom)
     REQUIRE(m != nullptr);
     CHECK_EQ(m->find("first")->read(0), 0x01);  // came from rom_b, not no_such.rom
     CHECK(starts_with(error_of("ram 0000-00FF\n", opt), "test.machine: has no rom line"));
+}
+
+// §4 case 8 (step B5): the `flash` line, two chips, so an even size; rom_override reaches it as it does a `rom`
+// line. Seen failing with rom_override taken only by a `rom` line.
+TEST(a_flash_line_is_two_chips_and_takes_the_rom_override)
+{
+    const std::string a = image("flash_a.bin", 16), b = image("flash_b.bin", 16);
+    std::string error;
+    auto m = build("flash 8000-800F " + a + " name=f\n", error);
+    REQUIRE(m != nullptr);
+    REQUIRE(m->find_as<Flash>("f") != nullptr);
+    REQUIRE(m->flashes().size() == 1u);
+    CHECK(m->flashes()[0] == m->find_as<Flash>("f"));
+    CHECK_EQ(m->bus().read(0x8003), 0x04);
+    m->bus().write(0x8003, 0x00); // a lone store is no command: the array stays
+    CHECK_EQ(m->bus().read(0x8003), 0x04);
+    CHECK(starts_with(error_of("flash 8000-800E " + a + "\n"), "test.machine:1: flash: two chips"));
+    CHECK(starts_with(error_of("flash 8000-800F\n"), "test.machine:1: flash: needs an image"));
+    auto erased = build("flash 8000-800F -\n", error);
+    REQUIRE(erased != nullptr);
+    CHECK_EQ(erased->bus().read(0x8000), 0xFF);
+
+    MachineOptions opt;
+    opt.rom_override = b;
+    auto o = build("flash F000-F00F no_such.rom name=first\nrom F010-F01F " + a + " name=second\n", error, opt);
+    if (!o)
+        std::printf("  %s\n", error.c_str());
+    REQUIRE(o != nullptr);
+    CHECK_EQ(o->find("first")->read(0), 0x01);  // the override, not no_such.rom
+    CHECK(dynamic_cast<Flash *>(o->find("second")) == nullptr); // a rom line stays a Rom
 }
 
 TEST(errors_name_the_line)

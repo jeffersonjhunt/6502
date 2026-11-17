@@ -53,13 +53,20 @@
  * has pressed, bit 0 up, 1 down, 2 left, 3 right, 4 fire, held through
  * power cycles; joystick(n) reads it back.
  *
- * Apple II mode: loadCartridge(rom, chars, boot, sequencer) plugs the
+ * Apple II mode: loadCartridge(rom, chars, boot, sequencer) writes the
  * owner's IIe ROM (16 KB, $C000-$FFFF) and character ROM (4 or 8 KB, or ""
- * for none) into the cartridge, and the Disk II card's two PROMs (256 bytes
- * each, or ""), as with the power off (a power cycle); all "" takes them
- * out. The bytes go to the module's own memory file system and no
+ * for none) into ROM A's image 0 and set 0 (the name is older: it was the
+ * cartridge, ROM B, until B5), and plugs in the Disk II card's two PROMs
+ * (256 bytes each, or ""), as with the power off (a power cycle); all ""
+ * takes them out, erasing image 0 and set 0; image 0 and set 0 are erased
+ * and written only when the ROM's or the characters' bytes differ from the
+ * last ones written (the PROMs alone, or the same bytes, keep what they
+ * hold: Session::set_cartridge). ROM A's blocks 0-5 then keep
+ * what they hold through power cycles, as flash does (Session), until the
+ * page goes. The bytes go to the module's own memory file system and no
  * further, a new file for each, so one that is refused leaves the files
- * the old cartridge loads from (at the next power cycle) as they were. appleMode() is the north bridge's MODE; appleSwitches() packs
+ * the PROMs load from (at the next power cycle) as they were, and the
+ * flash as it was. appleMode() is the north bridge's MODE; appleSwitches() packs
  * the IIe's soft switches (APPLE_* below), or -1 without the backplane's
  * bridge. peekIo(offset) reads I/O space ($000-$FFF, the cards' registers)
  * with no bus cycle in either mode.
@@ -290,7 +297,7 @@ namespace
         void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }
         /// The clock the machine's mode fixes (Apple II mode), or 0: pace by it then.
         double fixed_hz() const { return session_->fixed_hz(); }
-        /// @return false, with error(), if it does not fit; the old cartridge stays
+        /// @return false, with error(), if it does not fit; the old cartridge and the flash stay
         bool load_cartridge(const std::string &rom, const std::string &chars, const std::string &boot,
                             const std::string &sequencer)
         {
@@ -593,7 +600,7 @@ namespace
         std::vector<Session::TraceRow> rows_;
         std::vector<uint32_t> packed_;
         unsigned cartridges_{0};
-        std::vector<std::string> loaded_; ///< the cartridge's files, which a power cycle reads again
+        std::vector<std::string> loaded_; ///< the cartridge's files; a power cycle reads the PROMs' again
     };
 } // namespace
 

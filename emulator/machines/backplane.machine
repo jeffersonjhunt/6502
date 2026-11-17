@@ -22,12 +22,18 @@
 #
 # The flash image is the whole 512 KB ROM A (as a programmer would write
 # it), with the BIOS in its top 16 KB: block 31, $F7C000-$F7FFFF. The CPU
-# sees $C800-$FFFF of it; $C000-$C7FF is the I/O hole.
+# sees $C800-$FFFF of it; $C000-$C7FF is the I/O hole. ROM A and ROM B
+# are each two chips, even and odd bytes (the `flash` lines, flash.h). A
+# window with RO clear sends a write to the chip of its parity, which takes
+# it as part of a command sequence (program a byte, erase a sector or the
+# chip, its software ID) and is busy a while after, polled by its status.
 #
-# ROM B is the cartridge, erased flash until something is plugged in:
-# `emulator --apple-rom FILE` (the owner's Apple IIe ROM, 16 KB, or CD,EF)
-# puts a IIe ROM at its start, for the BIOS's C806R to copy into bank E
-# before entering Apple II mode.
+# ROM A's blocks 0-5 hold the owner's Apple IIe ROMs (hw/design.md, "ROM
+# A's layout"), erased in bios.rom: `emulator --apple-rom [N=]FILE` (16 KB,
+# or CD,EF) writes image N (0-3, 0 if not given) at N x $4000, and
+# `--apple-chars [N=]FILE` its character set at $10000 + N x $2000. The
+# BIOS's C806R copies the first good image into bank E before entering
+# Apple II mode. ROM B is the game cartridge, erased.
 #
 # The DMA controller (module 8, $C400), revision 2 (ID $82; hw/design.md,
 # "The DMA controller, revision 2"), takes the bus from the CPU for its
@@ -92,8 +98,8 @@ ram   00000-3FFFF  name=ram_a
 ram   40000-7FFFF  name=ram_b
 ram   80000-BFFFF  name=ram_c
 ram   C0000-FFFFF  name=ram_d
-rom   00000-7FFFF  space=flash  name=rom_a  bios.rom
-rom   80000-FFFFF  space=flash  name=rom_b  -   # the cartridge: empty unless --apple-rom
+flash 00000-7FFFF  space=flash  name=rom_a  bios.rom
+flash 80000-FFFFF  space=flash  name=rom_b  -   # the game cartridge: erased
 
 # The VIA's line must come after the 6551's: the later mapping answers
 # (test_joyports checks it).

@@ -265,7 +265,7 @@ python3 text.py demo/README.TXT \
     "  SYSINFO         what the machine has: its cards, memory and clock" \
     "  B:              drive B:, and A: to come back" \
     "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
-    "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
+    "  APPLE2 [n]      restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
     "" \
     "START, on the front panel, boots OODOS again. A key during the logo" \
     "at power-on goes to the Woz Monitor instead, and so does a power-on" \

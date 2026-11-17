@@ -88,7 +88,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -108,7 +108,8 @@ if(EMSCRIPTEN)
                 EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
                 EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
     endforeach()
-    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash")
+    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
+            EMU_BIOS_EVEN="${EMU_BIOS_DIR}/bios-even.rom" EMU_BIOS_ODD="${EMU_BIOS_DIR}/bios-odd.rom")
     target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
     target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
@@ -126,6 +127,8 @@ set(EMU_SPLIT_test_oodos_utils_files 2)
 # test_session under the sanitizers (dev, alone, 2026-11-11): 106 s of its 120, 50 of them one case's.
 set(EMU_SPLIT_test_session 2)
 set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
+# test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
+set(EMU_SPLIT_test_bios_sd 3)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -157,6 +160,7 @@ emu_add_test(test_eater)
 emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
+emu_add_test(test_flash) # the flash's two chips (step B5): commands, busy times, status
 emu_add_test(test_ds3231)
 emu_add_test(test_rtc)
 target_compile_definitions(test_rtc PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
@@ -203,7 +207,7 @@ target_compile_definitions(test_bios_diag PRIVATE
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/golden")
 emu_add_test(test_oodos_card)
-set_tests_properties(test_bios_sd PROPERTIES TIMEOUT 300) # the boot at power-on waits out the 5 s splash: ~115 s alone under ASan
+emu_suite_properties(test_bios_sd TIMEOUT 300) # the boot at power-on waits out the 5 s splash; with B5's updates 452 s alone under ASan, so split in three
 set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 1800) # each case boots the card through the 5 s splash: about 710 s alone under ASan (2026-11-05)
 emu_add_test(test_oodos_boot)
 set_tests_properties(test_oodos_boot PROPERTIES TIMEOUT 600) # dozens of boots from 17-33 MB cards, under ASan
@@ -271,6 +275,8 @@ target_compile_definitions(test_rom_boot PRIVATE
 set(BIOS_DIR "${EMU_BIOS_DIR}")
 target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_BIOS_EVEN="${BIOS_DIR}/bios-even.rom"
+        EMU_BIOS_ODD="${BIOS_DIR}/bios-odd.rom"
         EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
@@ -775,7 +781,7 @@ endif()
 # What each suite covers (hw/testing.md, items 1-4), for `ctest -L` and tools/check.sh changed, which picks
 # the suites a branch's paths choose through tools/test-map.txt. One place: a suite and its labels a line.
 # The parts: cpu, bus, machine (the core: a change there runs everything), debug, app (apps/emu), a label a
-# device (acia, bridge, console, disk2, dma, es5503, iie, joy, lcd, pia, rtc, sd, sid, sound, usb, via,
+# device (acia, bridge, console, disk2, dma, es5503, flash, iie, joy, lcd, pia, rtc, sd, sid, sound, usb, via,
 # video), backplane (the suite builds machines/backplane.machine, so runs every card on it), and the
 # software a suite runs: bios, oodos, apple (the owner's Apple IIe ROMs and disks), apple1,
 # eater, docs, and tools (the tiers' own scripts). And one that is a kind, not a part: emu, the emulator's own
@@ -794,13 +800,14 @@ set(EMU_TEST_LABELS
     test_acia                   "emu acia"
     test_lcd                    "emu lcd via"
     test_decoder                "emu bus pia via"
-    test_machine                "emu machine apple1 acia bridge console dma lcd pia via"
+    test_machine                "emu machine apple1 acia bridge console dma flash lcd pia via"
     test_loader                 "emu machine debug"
     test_rom_boot               "emu apple1 pia"
     test_eater                  "emu eater lcd via acia"
     test_disasm                 "emu debug"
     test_debugger               "emu debug pia"
     test_backplane              "emu bridge pia backplane"
+    test_flash                  "emu flash bridge"
     test_ds3231                 "emu rtc"
     test_rtc                    "emu rtc bridge debug backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
