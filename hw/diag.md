@@ -1189,8 +1189,7 @@ give `$FF` too, but that isn't measured.
 
 | ID | Module | ID byte | Value now | Equate | Notes |
 |---|---|---|---|---|---|
-| 0–3 | RAM A–D, 256 KB each | none | | | memory only: their I/O blocks `$C000–$C1FF` are unused. Found by memory tests alone |
-| 4, 5 | ROM A (flash), ROM B (cartridge) | none | | | memory only (`$C200–$C2FF` unused). ROM B blank reads `$FF` |
+| 0–5 | free (memory by address since B1) | none | | | their I/O blocks `$C000–$C2FF` are unused. The RAM card, ROM A and ROM B answer by address and have no ID: the RAM is found by memory tests alone, and ROM B blank reads `$FF` (B6) |
 | 6 | serial, parallel and VIA | `$C37F` | **none defined** | | the TL16C552A card isn't built. The emulator's stand-in 6551 mirrors its four registers through the block, so `$C37F` reads the 6551's control register ([answer 6](#the-owners-answers)). The VIA at `$C340` has no ID of its own |
 | 7 | mass storage (SD) | `$C3FF` | `$71` | `SD_ID_V1` | |
 | 8 | DMA controller | `$C47F` | `$82` | `DMA_ID_V2` | revision 2 since B2; revision 1's `$81` (`DMA_ID_V1`, gone from `backplane.inc`) is taken as no controller |
