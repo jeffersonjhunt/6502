@@ -139,7 +139,7 @@ matches its ID on PS0–PS3 and decodes only A0–A6.
 
 | Block | ID | What answers |
 |---|---|---|
-| `$C000–$C2FF` | 0–5 | nothing: RAM and ROM have no registers |
+| `$C000–$C2FF` | 0–5 | nothing: free IDs, no card (once RAM and ROM, which answer by address since B1) |
 | `$C300–$C37F` | 6 | the serial card: the 6551 stand-in, and the VIA at `$C340` ([chapter 9](09-serial-and-via.md)) |
 | `$C380–$C3FF` | 7 | the mass storage card ([chapter 10](10-storage.md)) |
 | `$C400–$C47F` | 8 | the DMA controller ([chapter 5](05-dma.md)) |
@@ -149,7 +149,7 @@ matches its ID on PS0–PS3 and decodes only A0–A6.
 | `$C600–$C67F` | C | the Disk II card ([chapter 10](10-storage.md#the-disk-ii)) |
 | `$C680–$C6FF` | D | the north bridge ([chapter 11](11-north-bridge-and-rtc.md)) |
 | `$C700–$C77F` | E | the console card ([chapter 12](12-front-panel.md)) |
-| `$C780–$C7FF` | F | nothing |
+| `$C780–$C7FF` | F | nothing: the idle bus's ID, never a card's ([chapter 1](01-overview.md#slots-and-module-ids)) |
 
 An address no card answers reads `$FF`, and a write to it is lost. The hole only ever hides the first 2 KB of the
 block in W3. A program reaches those 2 KB through another window, or by DMA.

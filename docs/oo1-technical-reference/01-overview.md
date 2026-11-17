@@ -61,7 +61,10 @@ each slot is shrouded and keyed so that no other card fits. The backplane carrie
 another voltage makes it on the card. There are about 15 slots, one for each card that can exist and the CPU card,
 on a passive bus at 7.16 MHz. The pull-ups are on the backplane, so an empty slot leaves its lines in a known
 state, and a cycle that no master drives, as one master hands the bus to another with BE, is a read that selects
-no memory, no card's registers (PS0–PS3 are pulled up to `0xF`, a free ID) and no poll.
+no memory, no card's registers (PS0–PS3 are pulled up to `0xF`, the idle bus's ID, which no card is given) and no
+poll. A pull-up alone is slow to raise a line on a loaded bus, so before it releases BE a master drives /MEM, /OE,
+/IACK, /DMA and /WORD inactive (high), RWB to read and PS0–PS3 to `0xF` for at least one cycle; the pull-ups then
+only hold lines that are already high.
 
 The signals are decided; where each sits is not. [hw/modules.md](../../hw/modules.md) has a draft pin-out (67 lines,
 6 +5 V contacts, 23 grounds and 2 spares), every position in it open; the positions, the socket and the shroud's
@@ -94,7 +97,7 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | C | Disk II | `$C600` | `$C1` | yes ([chapter 10](10-storage.md#the-disk-ii)) |
 | D | the north bridge, on the CPU card | `$C680` | `$D1` | yes ([chapter 11](11-north-bridge-and-rtc.md)) |
 | E | console, the front panel | `$C700` | `$E1` | yes ([chapter 12](12-front-panel.md)) |
-| F | free | | | |
+| F | reserved: the idle bus's ID, what PS0–PS3's pull-ups give a cycle no master drives (*proposed*); never a card's | none | | its block reads `$FF` |
 
 Memory has no module ID: the RAM card, 1 MB at `$000000`, whose four 256 KB quarters keep the names RAM A–D;
 ROM A, the flash on the CPU card, 512 KB at `$F00000`, holding the BIOS and, since B5 (*proposed*), the IIe images

@@ -139,9 +139,10 @@ RAM stands in for what the bus spy would load.
 
 Status: **proposed**
 
-On the real machine, an ESP32 card, the bus spy, holds /RESET, writes an image into RAM over the backplane, holds
-/BOOTSEL and lets /RESET go. It is for firmware work without programming the flash, recovery from a bad flash, and
-loading test images. It needs drivers for the address and data lines, level shifting, and control of /RESET. The
+On the real machine, an ESP32 card, the bus spy, holds /RESET and BE (BE floats the CPU and the north bridge off the
+bus), writes an image into RAM over the backplane, holds /BOOTSEL, and lets BE go, then /RESET. It is for firmware
+work without programming the flash, recovery from a bad flash, and loading test images. It needs drivers for the
+address and data lines and the lines a master drives, level shifting, and control of /RESET and BE. The
 design record has the details ([hw/design.md, "Boot"](../../hw/design.md#boot)).
 
 ## The BIOS's entry points
