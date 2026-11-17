@@ -742,6 +742,50 @@ TEST(the_flash_update_with_a_chip_that_doesnt_answer_its_first_erase_leaves_the_
     CHECK_EQ(s->peek_physical(0x00300), 0xB3);                       // image 3's
 }
 
+TEST(the_flash_update_broken_off_in_its_erase_again_after_the_commit_leaves_the_image_not_good)
+{
+    // F1 (B5 review round 2): the erase again reached from the last verify, after the commit, with image 1 good
+    // by then. The set's first byte won't program, so the verify after $FBB3's $06 finds it, and the update
+    // erases again from ERASE, which makes $FBB3 $00 first there too. Break while the chips erase image 1's
+    // first unit in that erase again (the sector erase lengthened, as above): image 1 is not good and C806R
+    // takes image 3. Skipping that $00 on the erase again would leave $06 over a half-erased image.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}, {"/APPLE2E1.CHR", NEW_SET}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    const Bytes three = fake_rom(9, 0xB3);
+    for (uint32_t i = 0; i < IMAGE; ++i)
+        a->poke(3 * IMAGE + i, three[i]);
+    REQUIRE(NEW_ROM[0] != 0xFF && NEW_SET[0] != 0xFF);
+    a->set_program_fault(SETS + 1 * SET + 0);
+    a->set_busy_cycles(0, 1'000'000, 0);
+    std::string out;
+    REQUIRE(ask(*s, out, 1));
+    out.clear();
+    s->send("Y");
+    bool good = false, again = false;                                // $FBB3 seen $06, then the erase again's unit 0
+    for (int i = 0; i < UPDATE_FRAMES * 20 && !again; ++i)
+    {
+        s->run(FRAME / 20);
+        good = good || a->Rom::peek(1 * IMAGE + ID_AT) == 0x06;
+        again = good && a->busy(0) && a->Rom::peek(1 * IMAGE) == 0xFF;
+    }
+    REQUIRE(good);
+    REQUIRE(again);
+    s->usb()->key(UsbCard::PAUSE, true);                             // Break, there
+    s->run(FRAME);
+    s->usb()->key(UsbCard::PAUSE, false);
+    REQUIRE(run_until(*s, out, "\\\r"));
+    s->run(30 * FRAME);                                              // the erase over
+    REQUIRE(!a->busy(0) && !a->busy(1));
+    CHECK_NE(a->peek(1 * IMAGE + ID_AT), 0x06);                      // not good
+    a->clear_program_fault();
+    a->set_busy_cycles(0, 0, 0);
+    c806r(*s);
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x00300), 0xB3);                       // image 3's
+}
+
 TEST(the_flash_update_verifies_and_erases_again_a_byte_that_wont_program)
 {
     // Case 21: a cell that won't take: said with its physical address, image 1 erased again (not good), and C806R
