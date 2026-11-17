@@ -31,15 +31,17 @@
 ; Time (hwclock.s)
 ;
 ;   HW_CLOCK    PHI2 cycles from a change of the byte at HW_WATCH to the
-;               HW_EDGES-th change after it, the middle of three such
-;               windows back to back (hwclock.s), counted by the VIA's timer 2
+;               HW_EDGES-th change after it: four changes stamped, HW_EDGES
+;               apart (three windows back to back), and the span between the
+;               two whose polls' gaps say least, over its windows (hwclock.s),
+;               counted by the VIA's timer 2
 ;               (the program's: it is set running from $FFFF, in the
 ;               one-shot mode OODOS's warm boot leaves, which counts on
 ;               past 0) and its wraps, so OODOS's interrupts in between
 ;               don't count against it. Out: HW_CYC, 4 bytes; carry set if
-;               no change came within about 2.3 s (2^24 cycles). For the
-;               DS3231: HW_WATCH NB_SEC, HW_EDGES 1. The poll loop is about
-;               80 cycles, the measurement's grain
+;               no change came within about 2.3 s (2^24 cycles). HW_NUM not
+;               kept. For the DS3231: HW_WATCH NB_SEC, HW_EDGES 1. The poll
+;               loop is 42 cycles, the measurement's grain
 ;   HW_FRAMEHZ  HW_CYC measured over 60 video frames (800 x 525 pixel
 ;               clocks at 25.175 MHz each) as the CPU's Hz: HW_CYC less
 ;               HW_CYC / 1008, into HW_NUM
