@@ -169,7 +169,7 @@ namespace ooe::emu
         SoundCard *sound_card() const { return sound_card_; }
         /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
         SdCard *sd_card() const { return sd_card_; }
-        /// The `flash` lines' chips, in the description's order (the Session tells them the clock).
+        /// The `flash` lines' chips, in the description's order (set_cpu_hz() or the Session tells them the clock).
         const std::vector<Flash *> &flashes() const { return flashes_; }
         /// The DMA controller, if the description has one (`dma`): its channels through
         /// DmaController::peek_channel(), which has no effect on it.
@@ -179,6 +179,13 @@ namespace ooe::emu
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
         const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
         BackplaneBridge *backplane_bridge() { return dynamic_cast<BackplaneBridge *>(bridge_); }
+
+        /// Tells each card and chip that keeps real time how fast the CPU's cycles are (0: flat out,
+        /// each keeping its 7.16 MHz time): the video, USB, sound and SD cards, the north bridge (its
+        /// DS3231), the Disk II controller and every `flash` line's chips (their busy times). All on the
+        /// one clock, as the CLI runs them, at its start and on each clock change; the Session has its
+        /// own rule for Apple II mode's clock (Session::clock_cards).
+        void set_cpu_hz(uint32_t hz);
 
         /// The device given `name=` in the description, or nullptr.
         Device *find(const std::string &name) const;

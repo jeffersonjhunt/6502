@@ -18,8 +18,10 @@ counted at --clock. That check covers only the clock the app gives the
 flash at start: the one clock change the app has is Apple II mode's, and
 there the CPU's addresses reach the IIe image's copy in RAM, not the flash,
 so no flash command can be timed at 1.02 MHz, and leaving the mode puts
---clock back, the start's clock again; the call in on_clock_change goes
-untested here. Bad --load and --break arguments,
+--clock back, the start's clock again. The app sets the clock at start
+and in on_clock_change by one call, Machine::set_cpu_hz; that a change
+reaches every flash is test_machine's set_cpu_hz_tells_every_flash_the_clock.
+Bad --load and --break arguments,
 an option missing its value or given twice, stop the app before the
 terminal goes raw.
 
@@ -283,7 +285,8 @@ def main():
         # The flash's busy times are real time, counted at --clock: a sector
         # erase (18 ms) is about 18,000 cycles at 1 MHz, not the 128,864 it
         # would be at the 7.16 MHz a chip assumes until it is told the clock.
-        # The clock given at start only (the docstring says why).
+        # The clock given at start only (the docstring says why, and where a
+        # change is checked).
         flash = os.path.join(cwd, "flash.machine")
         with open(flash, "w") as f:
             f.write("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
