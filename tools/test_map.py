@@ -72,9 +72,12 @@ def tracked():
 def ctest_json(build):
     """ctest --show-only=json-v1 for a build, run on a copy of its CTestTestfile.cmake files: ctest writes
     Testing/Temporary/LastTest.log wherever it runs, even to list, and in the build itself that would clobber
-    the log of a run in progress (this runs inside one, as a test) or just finished (tools/check.sh reads it)."""
+    the log of a run in progress (this runs inside one, as a test) or just finished (tools/check.sh reads it).
+    A path the listing gives inside the copy (a test's WORKING_DIRECTORY, by default the directory of its
+    CTestTestfile.cmake) is put back into the build, since the copy is gone when this returns."""
     import shutil
     import tempfile
+    build = os.path.abspath(build)
     with tempfile.TemporaryDirectory(prefix="ctest_json.") as tmp:
         for root, _, names in os.walk(build):
             if "CTestTestfile.cmake" in names:
@@ -83,15 +86,31 @@ def ctest_json(build):
                 shutil.copy(os.path.join(root, "CTestTestfile.cmake"), dest)
         out = subprocess.run(["ctest", "--test-dir", tmp, "--show-only=json-v1"],
                              check=True, capture_output=True, text=True).stdout
-    return json.loads(out)
+        copies = {tmp, os.path.realpath(tmp)}
+    return _into_build(json.loads(out), copies, build)
 
 
-def suites(build):
-    """{ctest name: (set of labels, [command words])} from a configured build."""
+def _into_build(doc, copies, build):
+    """doc with every string that is a path in one of the directories `copies` made a path in build instead."""
+    if isinstance(doc, dict):
+        return {k: _into_build(v, copies, build) for k, v in doc.items()}
+    if isinstance(doc, list):
+        return [_into_build(v, copies, build) for v in doc]
+    if isinstance(doc, str):
+        for copy in copies:
+            if doc == copy:
+                return build
+            if doc.startswith(copy + os.sep):
+                return os.path.join(build, doc[len(copy) + 1:])
+    return doc
+
+
+def suites(build, doc=None):
+    """{ctest name: (set of labels, [command words])} from a configured build (or its ctest_json, doc)."""
     if not os.path.isdir(build):
         die(f"{build}: no build there (cmake --preset fast first)")
     found = {}
-    for t in ctest_json(build)["tests"]:
+    for t in (doc or ctest_json(build))["tests"]:
         labels = set()
         for prop in t.get("properties", []):
             if prop["name"] == "LABELS":
@@ -228,11 +247,19 @@ def cmd_check(args):
             print(f"{args.map}:{n}: {pattern} matches no tracked path")
             problems += 1
     if args.build:
-        tests = suites(args.build)
+        doc = ctest_json(args.build)
+        tests = suites(args.build, doc)
         all_labels = set().union(*(l for l, _ in tests.values()))
         for t, (l, _) in sorted(tests.items()):
             if not l:
                 print(f"{t}: no labels")
+                problems += 1
+        # Each entry's working directory is one that is there: tools/test_coverage.py runs the suites in
+        # them, and a listing that left them in ctest_json's copy of the build named a directory gone.
+        for t in doc["tests"]:
+            wd = {p["name"]: p["value"] for p in t.get("properties", [])}.get("WORKING_DIRECTORY")
+            if wd is None or not os.path.isdir(wd):
+                print(f"{t['name']}: its working directory {wd} is not there")
                 problems += 1
         chosen_by_map = set()
         for n, pattern, labels in rules:
