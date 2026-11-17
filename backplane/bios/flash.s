@@ -14,9 +14,13 @@
 ;   3. It says what it found and asks before it writes.
 ;   4. It puts each chip back to reading first (a byte of $FF to each, which
 ;      programs nothing but ends a program sequence someone left half-sent,
-;      then $F0), then erases the image's 16 KB (four sector erases) and the
-;      set's 8 KB (two). With no .CHR the set stays erased, so Apple II mode
-;      makes one from the VGA font.
+;      then $F0). Then, before anything is erased, it programs the image's
+;      $FBB3 (the odd chip's) to $00, polled: programming only clears bits,
+;      so a good image's $06 becomes $00 with no erase, and from then on the
+;      image is not good, however the rest is stopped. Then it erases the
+;      image's 16 KB (four sector erases) and the set's 8 KB (two). With no
+;      .CHR the set stays erased, so Apple II mode makes one from the VGA
+;      font.
 ;   5. It programs every byte but the commit bytes, a pair at a time: the even
 ;      byte's sequence and byte to the even chip, the odd byte's to the odd,
 ;      then each chip polled at an address of its own parity until two reads
@@ -25,9 +29,12 @@
 ;   6. It verifies everything against the staging, then programs the commit
 ;      bytes, the image's last of all, and verifies again. So an image is good
 ;      only when it was written whole and verified, and an update stopped part
-;      way (a Break, the power) leaves it not good.
+;      way (a Break, the power, a chip that stops answering), from its first
+;      erase on, leaves it not good: its $FBB3 is $00 until the erase, $FF
+;      after it.
 ;   7. On a mismatch or a chip that doesn't answer it erases the image and set
-;      again and says so; either way it ends in the monitor.
+;      again (its $FBB3 programmed to $00 first there too, as the image may be
+;      good by then) and says so; either way it ends in the monitor.
 ;
 ; However it is entered it runs QUIET (bios.s) and with interrupts off, and
 ; sets every window itself: W0 zero page and the stack (RAM block 0), W2 the
@@ -250,13 +257,7 @@ WRITE:          STZ     FFAIL
                 STA     NB_WIN2
                 LDA     #IIE_ID
                 STA     STAGE + IIE_ID_AT
-                JSR     IMGAT
-                LDA     #<(FLASH_CPU + IIE_ID_AT - 1)
-                STA     FP
-                LDA     #>(FLASH_CPU + IIE_ID_AT - 1)
-                STA     FP+1
-                LDA     #$FF           ; its pair's even byte is written already
-                STA     FE
+                JSR     IDAT
                 LDA     #IIE_ID
                 STA     FO
                 JSR     PAIR
@@ -294,9 +295,16 @@ TOREAD:         TYA                    ; $F0 to chip Y
                 LDX     #CMD1_BLK
                 JMP     FPUT
 
-; The image's two 8 KB units and the set's one: a sector erase in each chip,
-; then each polled.
-ERASE:          JSR     IMGAT
+; The image's $FBB3 programmed to $00 (the odd chip's byte alone, polled),
+; so the image is not good before any of it is erased, then the image's two
+; 8 KB units and the set's one: a sector erase in each chip, then each
+; polled. From WRITE, and from AGAIN, where the image may be good already
+; (a mismatch in the last verify). If the program doesn't answer, NOANSWER
+; erases again from here, the same way, once.
+ERASE:          JSR     IDAT
+                STZ     FO             ; $06 (or whatever it is) to $00
+                JSR     PAIR
+                JSR     IMGAT
                 JSR     ERASEU
                 LDA     #>(FLASH_CPU + $2000)
                 STA     FP+1
@@ -516,6 +524,17 @@ IMGAT:          LDA     FIMG
                 STZ     FP
                 LDA     #>FLASH_CPU
                 STA     FP+1
+                RTS
+; FP and FBLK: image FIMG's $FBB3 pair, its even byte at FP; FE $FF, so
+; PAIR programs the odd byte (FO) alone.
+.assert (<(FLASH_CPU + IIE_ID_AT) & 1) = 1, error, "$FBB3 is the odd chip's"
+IDAT:           JSR     IMGAT
+                LDA     #<(FLASH_CPU + IIE_ID_AT - 1)
+                STA     FP
+                LDA     #>(FLASH_CPU + IIE_ID_AT - 1)
+                STA     FP+1
+                LDA     #$FF
+                STA     FE
                 RTS
 ; FP and FBLK: set FIMG's, in block 4 + FIMG / 2, at $4000 or $6000.
 SETAT:          LDA     FIMG

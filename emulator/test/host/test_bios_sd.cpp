@@ -11,10 +11,12 @@
  * And the flash update (flash.s, C818R then F, step B5), from cards made here
  * (sd_images.h's make_card) with stand-ins for a IIe ROM, never Apple's: the
  * image and set written byte for byte, nothing outside them, the commit byte
- * last, a verify that erases again, the files checked before any erase, the
- * run-time refusal of a block outside ROM A 0-5, a chip left half-way put
- * back to reading, QUIET and the windows set however it is entered. Those use
- * the Flash's test-only hooks, so the WebAssembly build leaves them out.
+ * last, the image not good from before its first erase (a Break there, a
+ * chip that doesn't answer), a verify that erases again, the files checked
+ * before any erase, the run-time refusal of a block outside ROM A 0-5, a chip
+ * left half-way put back to reading, QUIET and the windows set however it is
+ * entered. Those use the Flash's test-only hooks, so the WebAssembly build
+ * leaves them out.
  */
 
 #include "harness.h"
@@ -655,6 +657,89 @@ TEST(the_flash_update_stopped_part_way_leaves_the_image_not_good)
     s->usb()->key(UsbCard::PAUSE, false);
     s->run(10 * FRAME);
     CHECK_EQ(a->peek(2 * IMAGE + ID_AT), 0xFF);
+}
+
+namespace
+{
+    /// Image 1 good (OLD_ROM, mark $D1) and image 3 good (mark $B3), the others erased: C806R takes the first good.
+    void two_good_images(Flash &a)
+    {
+        const Bytes three = fake_rom(9, 0xB3);
+        for (uint32_t i = 0; i < IMAGE; ++i)
+        {
+            a.poke(1 * IMAGE + i, OLD_ROM[i]);
+            a.poke(3 * IMAGE + i, three[i]);
+        }
+    }
+    /// C806R: Apple II mode from the first good image, its stand-in's mark at $0300.
+    void c806r(Session &s)
+    {
+        s.send("C806R\r");
+        for (int i = 0; i < 240 && !s.apple_mode(); ++i)
+            s.run(FRAME);
+        s.run(10 * FRAME);
+    }
+} // namespace
+
+TEST(the_flash_update_broken_off_in_its_first_erase_leaves_the_image_not_good)
+{
+    // R1 (B5 review round 1): image 1 good before the update, and Break while the chips erase its first 8 KB
+    // unit, which doesn't hold $FBB3. The sector erase lengthened (a slower part's, still under the poll's time
+    // out) so the Break lands in it. The update made $FBB3 $00 before that erase, so image 1 is not good and
+    // C806R takes image 3; erasing first would leave $06 there, over a half-erased image.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    two_good_images(*a);
+    REQUIRE(OLD_ROM[0] != 0xFF && OLD_ROM[0x2000] != 0xFF);
+    a->set_busy_cycles(0, 1'000'000, 0);                             // 140 ms a sector, the poll's 180
+    std::string out;
+    REQUIRE(ask(*s, out, 1));
+    out.clear();
+    s->send("Y");
+    bool erasing = false;                                            // unit 0 erased (the array) and unit 1 not yet
+    for (int i = 0; i < UPDATE_FRAMES * 20 && !erasing; ++i)
+    {
+        s->run(FRAME / 20);
+        erasing = a->busy(0) && a->Rom::peek(1 * IMAGE) == 0xFF && a->Rom::peek(1 * IMAGE + 0x2000) == OLD_ROM[0x2000];
+    }
+    REQUIRE(erasing);
+    s->usb()->key(UsbCard::PAUSE, true);                             // Break, there
+    s->run(FRAME);
+    s->usb()->key(UsbCard::PAUSE, false);
+    REQUIRE(run_until(*s, out, "\\\r"));
+    s->run(30 * FRAME);                                              // the erase over
+    REQUIRE(!a->busy(0) && !a->busy(1));
+    CHECK_NE(a->peek(1 * IMAGE + ID_AT), 0x06);                      // not good
+    a->set_busy_cycles(0, 0, 0);
+    c806r(*s);
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x00300), 0xB3);                       // image 3's
+}
+
+TEST(the_flash_update_with_a_chip_that_doesnt_answer_its_first_erase_leaves_the_image_not_good)
+{
+    // R1: image 1 good, and the chips' first sector erase far longer than the poll waits (0.84 s against
+    // 180 ms), so the first unit's poll times out, and so does the erase again (the chips still busy, taking
+    // no commands). It says so, and image 1's $FBB3 was made $00 before any erase: C806R takes image 3.
+    auto s = with_files({{"/APPLE2E1.ROM", NEW_ROM}});
+    REQUIRE(s != nullptr);
+    Flash *a = rom_a(*s);
+    REQUIRE(a != nullptr);
+    two_good_images(*a);
+    a->set_busy_cycles(0, 6'000'000, 0);
+    std::string out;
+    REQUIRE(update(*s, out, 1));
+    CHECK(out.find("Y\rTHE FLASH DOESN'T ANSWER\r\\") != std::string::npos);
+    s->run(60 * FRAME);                                              // the slow erase over
+    REQUIRE(!a->busy(0) && !a->busy(1));
+    CHECK_EQ(a->peek(1 * IMAGE + 0x2000), OLD_ROM[0x2000]);         // the second unit never erased
+    CHECK_NE(a->peek(1 * IMAGE + ID_AT), 0x06);                      // not good
+    a->set_busy_cycles(0, 0, 0);
+    c806r(*s);
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x00300), 0xB3);                       // image 3's
 }
 
 TEST(the_flash_update_verifies_and_erases_again_a_byte_that_wont_program)
