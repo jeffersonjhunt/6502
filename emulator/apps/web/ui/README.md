@@ -135,8 +135,11 @@ Settings, in sections:
   ROM into its set 0 (the flash, as the BIOS's update would write them;
   Eject erases them); images 1-3 are the BIOS's flash update's. ROM A's
   images and sets keep what they hold through power cycles, as flash does,
-  until the page reloads. Each Load or Eject plugs a new
-  cartridge, which restarts the machine: in Apple II mode it asks first.
+  until the page reloads. Each Load or Eject power-cycles the machine: in
+  Apple II mode it asks first. A new IIe ROM or character ROM, or its
+  Eject, writes or erases ROM A's image 0 and set 0; a Disk II PROM alone,
+  or the same bytes again, leaves them as they are, whatever a program's
+  flash update wrote there.
   Ejecting the IIe ROM keeps the other parts for the next one. With the IIe ROM in, its row has
   **Start Apple IIe**: START, then `C806R` at the monitor. Apple II mode, by
   the button or `C806R` typed, shows the IIe's 560x384 picture filling the

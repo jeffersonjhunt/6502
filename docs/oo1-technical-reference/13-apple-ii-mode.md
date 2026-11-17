@@ -36,8 +36,9 @@ to them:
 
 In the WebUI, Settings' IIe ROM row has **Start Apple IIe**, which does what someone at the machine would: START,
 the hard reset, back to the BIOS whatever was running, then `C806R` typed at the monitor. Adding or ejecting any of
-Apple II mode's ROM parts in Settings writes or erases ROM A's image 0 and set 0, as the flash update would, which
-power-cycles the machine; in Apple II mode the WebUI asks first, since the IIe's program would be lost. Images 1–3
+Apple II mode's ROM parts in Settings power-cycles the machine; in Apple II mode the WebUI asks first, since the IIe's
+program would be lost. A new IIe ROM or character ROM, or its Eject, writes or erases ROM A's image 0 and set 0, as
+the flash update would; a Disk II PROM alone, or the same bytes again, leaves them as they are. Images 1–3
 are written by [the flash update](03-boot.md#the-flash-update) (or, in the emulator, `--apple-rom N=`).
 
 ### What the BIOS's entry does

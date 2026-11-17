@@ -647,7 +647,7 @@ The Apple IIe's start.
   is written to the card, and OODOS goes on.
 - `APPLE2 tail?`, the command as typed: a tail that isn't one digit 0–3.
 
-Each of these but the last gives the return code `$FF00`.
+Every one of these gives the return code `$FF00`.
 
 #### Since
 

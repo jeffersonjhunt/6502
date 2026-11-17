@@ -190,8 +190,9 @@ the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.
 
 Where the time goes: stages 1–6, the flash and all of RAM, about 28 s of a quick run (address in address and one
 background of the march, with stage 6's own test of W0's first 512 bytes); NB5's and NB6's measurements about 7 s
-together (three windows each, back to back: four changes, of which the two whose stamps' gaps are least give the
-span, since BIOS 0.16; BIOS 0.15 kept the middle window); V4's 2 MB of card memory about 10 s; P2's walk across the
+together (three windows each, back to back: four changes, and of their six pairs the one whose bigger gap, over the
+windows between them, is least, the wider of equals, gives the span, since BIOS 0.16; BIOS 0.15 kept the middle
+window); V4's 2 MB of card memory about 10 s; P2's walk across the
 lamps 1.6 s; the report on the serial line, each character waiting for the 6551 as ECHO does, about 2 s. A full run
 adds three backgrounds of the march over all of RAM, the march over card memory, and S2's and S8's second pass. A
 loop repeats from stage 3 at the same cost a pass.

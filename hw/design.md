@@ -2986,7 +2986,8 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
 
 **Proposed, emulated (2026-11-16).** Step B5, the software and the books, on `feat/bus-b5` off main `c5c86d0` (B4's
 merge), with the owner's answers to its plan (Q1–Q15 "recommendations as listed", and Q16–Q19), the critic's twenty
-findings, and the owner's answers at three build stops (U5, HW_CLOCK, U7). The ROM BIOS is 0.16, B5's alone
+findings, the owner's answers at three build stops (U5, HW_CLOCK, U7), and those to its review round 1 (R1, E1–E3
+and W1–W5 fixed, each marked "review round 1" here; W6 accepted). The ROM BIOS is 0.16, B5's alone
 (answer 11). OODOS's interface goes from 10 to 11 (function 75's A = 3); OODOS stays 0.10 until the site release
 that carries B5, which makes it 0.11 (answer 10), so the books' "since OODOS 0.11" is true from that release. Every
 interface only grows: the jump table gains its ninth entry, function 75 an argument, and nothing existing changes.
@@ -2997,7 +2998,8 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   chip erase, software ID (`$BF` the maker's, `$B6` the part's, at chip addresses 0 and 1, until `$F0`). A chip keeps
   its place in a sequence until its next write, with no time-out and no reset pin (critic 3), so one left after
   `$A0` programs the next write wherever it lands. Busy times are the SST39SF020A's typical ones as bus cycles at the
-  CPU clock (the Session tells each Flash the clock, as it tells the other timed cards): program 14 µs = 101
+  CPU clock (the Session tells each Flash the clock, as it tells the other timed cards, and so does the command-line
+  app, at start and on a clock change: review round 1, E1): program 14 µs = 101
   cycles, sector erase 18 ms = 128,864, chip erase 70 ms = 501,137 at 7,159,090 Hz. While busy a chip ignores
   writes and reads give its status (bit 7 the inverse of the byte's, 0 in an erase, bit 6 toggling a read, bits 0–5
   the array's); `peek()` doesn't toggle; the other chip works on. The change lands in the array when the operation
@@ -3031,11 +3033,15 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   `/APPLE2En.ROM` (16,384 bytes, needed) and `/APPLE2En.CHR` (4 or 8 KB, optional) read by the CPU from the card's
   root into RAM blocks 59 and 58, their sizes the root listing's, not the sectors' (critic 8); size and `$FBB3`
   checked before anything is erased; `WRITE FLASH IMAGE n (Y/N)?`; each chip put back to reading (`$FF` then `$F0`,
-  critic 3); the image's four sector erases and the set's two; every pair but the commit bytes programmed, a byte
+  critic 3); the image's `$FBB3` (the odd chip's byte) programmed to `$00`, polled, so the image is not good before
+  anything is erased (review round 1, R1: before it, the image's first unit was erased with its `$06` still there, and
+  a Break or a chip that didn't answer left a half-erased image `$C806` counted good); the image's four sector erases
+  and the set's two; every pair but the commit bytes programmed, a byte
   started in each chip and then each polled at its own parity (Q16, the design's order); a verify through a
   read-only window; the commit bytes (the set's first 8, then the image's `$FBB3` last of all); the verify again. A
-  mismatch (`FLASH IMAGE n NOT WRITTEN AT $Fxxxxx`) or a chip that doesn't answer in 65,536 reads (`THE FLASH
-  DOESN'T ANSWER`) erases image and set again. It runs QUIET with interrupts off and sets every window itself however
+  mismatch (`FLASH IMAGE n NOT WRITTEN AT $Fxxxxx`) or a chip that doesn't answer in 65,536 pairs of reads (about
+  180 ms; `THE FLASH DOESN'T ANSWER`) erases image and set again, `$FBB3` to `$00` first, unless it is that erase
+  again that didn't answer. It runs QUIET with interrupts off and sets every window itself however
   entered (Q18, critic 12). Every flash write goes through FPUT, which refuses at run time any W1 value but
   `NB_ROM | 0–5` (`THE FLASH UPDATE REFUSED BLOCK $bb`, critic 4), and an `.assert` holds the arithmetic at build;
   no chip erase is ever sent. Zero page `$10–$21` and `$0280–$029A` are its own; sd.s's zero page grew to
@@ -3076,7 +3082,9 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   running machine's array (not a busy chip's status) into each build, applied after the line's image loads and
   before any IIe slot given, so a power cycle keeps what a program's update or the row wrote, without a separate
   Session copy (the owner's answer 3 at the U7 stop). `set_cartridge` erases image 0 and set 0 in the copy and
-  writes the row's files; images 1–3 are kept. The copy is local to the build, so a refused ROM leaves the running
+  writes the row's files, but only when the IIe ROM's or the characters' bytes differ from the ones the row last
+  wrote, so a Disk II PROM alone, or the same bytes again, keeps what a program's flash update wrote (review round 1,
+  E2); images 1–3 are kept. The copy is local to the build, so a refused ROM leaves the running
   machine and its flash as they were (critic 10). Not across a page reload, never written back to a file. Blocks
   6–31 and ROM B are the files' again at each power cycle. The WebUI's physical reads take A0–A23 (answer 4 at the
   U7 stop; A0–A19 before), so they reach `$F00000`. `Session::device(name)` gives a test the Flash's hooks (answer
@@ -3091,8 +3099,13 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   (32), wasm-port.test.ts (33), test_oodos_input (34, 35), test_app_debug.py (36), test_bios_diag (37: ROM A
   byte-equal to `bios.rom` after a full run), and test_oodos_sysinfo's interrupt-after-the-last-poll case.
   test_bios_sd took 452 s alone under ASan with the update cases, so it is split in three (`EMU_SPLIT`, TIMEOUT 300
-  kept; the U5 stop's answer 5). `make_card()` moved into `sd_images.h` (critic 2).
-- **Measured,** from U7's build (`b2b64e8`): ROM block 31 has 5,159 bytes free (`$EBCD–$FFF3`; 7,148 on main);
+  kept; the U5 stop's answer 5). `make_card()` moved into `sd_images.h` (critic 2). Review round 1 added, each seen
+  failing under its mutant: two test_bios_sd cases for R1 (Break during image 1's first sector erase, lengthened;
+  a sector erase past the poll's time-out twice; each `$FBB3` not `$06` and `C806R` taking image 3), test_app_debug's
+  sector erase at `--clock 1000000` (E1), test_session's and wasm-port.test.ts's row cases (E2), and test_flash case
+  4's wrong second unlock pair and `$10` at a wrong address (E3).
+- **Measured,** from U7's build (`b2b64e8`): ROM block 31 has 5,159 bytes free (`$EBCD–$FFF3`; 7,148 on main;
+  5,147, `$EBD9–$FFF3`, after review round 1's R1);
   block 21 7,896, block 22 2,409 and block 23 7,917. OODOS's RES region 219 bytes free (`$F725–$F7FF`, RES2 `$316`
   long), BDOS 1,217, COMMON 166 (unchanged). The flash's busy times and the update's 1.48 s above.
 - **The cards** were made again after each OODOS unit (U3, U6, U9) and after HW_CLOCK, with a restamp commit after
@@ -3106,13 +3119,15 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   after) and OODOS's next release (answer 11); an image picker in the WebUI; reading the images in SYSINFO; a flash
   update at `A>` (answer 13: 75 A = 4 with the interface raised, if ever); `$C818`'s `$A0` for programs; the owner's
   check of the command addresses, the ID codes, the times and whether a part abandons a half-sent sequence after a
-  time-out, against the SST39SF020A's data sheet (answer 2).
+  time-out, against the SST39SF020A's data sheet (answer 2); `tools/test_coverage.py`'s temp-dir bug, in its own
+  commit after B5 (the U5 stop's answer 9; review round 1, W6).
 - **The books:** the Technical Reference's chapters 1, 2 (reprogramming the flash, ROM A's blocks, zero page), 3
-  (`$C818`, the flash update), 11, 13 (answer 15's changes), 14 (the flash, the options, the kept blocks), 15 and its
-  contents, with the six listings the code moved (chapters 3, 4, 7 and 13); the User's Guide's APPLE2, its errors and
-  introduction; the Programmer's Guide's functions 75 and 77, `FT_INFO`, chapter 8 and appendices A and D;
-  `docs/index/functions.json`; [oodos.md](oodos.md#leaving-oodos-wozmon-and-apple2), [diag.md](diag.md) and
-  `emulator/docs/EMULATOR_PLAN.md`, annotated.
+  (`$C818`, the flash update), 5 (the warm boot's DMAWARM, review round 1), 11, 13 (answer 15's changes), 14 (the
+  flash, the options, the kept blocks), 15 and its contents, with the six listings the code moved (chapters 3, 4, 7
+  and 13); the User's Guide's APPLE2, its errors and introduction; the Programmer's Guide's functions 75 and 77,
+  `FT_INFO`, chapter 8 and appendices A and D; `docs/index/functions.json`;
+  [oodos.md](oodos.md#leaving-oodos-wozmon-and-apple2), [diag.md](diag.md) and `emulator/docs/EMULATOR_PLAN.md`,
+  annotated.
 
 #### The owner's answers (B0) ####
 

@@ -261,20 +261,23 @@ carry set, in BIOS 0.16.
    `Y` goes back to the monitor with nothing written.
 5. **Each chip reading.** A byte of `$FF` to each chip in the image's slot (it programs nothing, but ends a command
    sequence someone left half-sent), then `$F0` to each.
-6. **The erase:** the image's 16 KB (four sector erases, two in each chip) and the set's 8 KB (two). With no
-   `.CHR` the set stays erased, so Apple II mode makes its characters from the VGA font, and an old set never
-   stays under a new image.
+6. **The image not good, then the erase.** First the image's `$FBB3` (the odd chip's byte) is programmed to `$00`,
+   polled: programming only clears bits, so a good image's `$06` goes with no erase, and from then on the image is
+   not good, however the rest is stopped. Then the image's 16 KB (four sector erases, two in each chip) and the
+   set's 8 KB (two). With no `.CHR` the set stays erased, so Apple II mode makes its characters from the VGA font,
+   and an old set never stays under a new image.
 7. **The program,** a pair of bytes at a time in ascending order: the even byte's sequence and byte to the even
    chip, the odd byte's to the odd one, then each chip polled at an address of its own parity until two reads
    agree. Every byte goes but the commit bytes: the image's `$FBB3`, which makes it good, and the set's first 8.
 8. **The verify:** everything, read back through a window with RO set, against the copy in RAM. Then the commit
    bytes, the image's `$FBB3` last of all, and the verify again. So an image is good only once it has been written
-   whole and verified, and an update stopped part way (Break, or the power) leaves it not good, for `$C806` to pass
-   over.
+   whole and verified, and an update stopped once step 6 has begun (Break, the power, or a chip that stops
+   answering) leaves it not good, for `$C806` to pass over: its `$FBB3` is `$00` until its erase, `$FF` after it.
 9. **The end:** `FLASH IMAGE 2 WRITTEN`, then the monitor. A byte that doesn't verify is
    `FLASH IMAGE 2 NOT WRITTEN AT $F0xxxx`, with its physical address (`$F1xxxx` in a set), and a chip that doesn't
-   answer its poll within 65,536 reads `THE FLASH DOESN'T ANSWER`; either way the image and its set are erased
-   again (unless the erase is what didn't answer), so the image isn't good, and the monitor follows.
+   answer its poll within 65,536 pairs of reads (about 180 ms) `THE FLASH DOESN'T ANSWER`; either way the image and
+   its set are erased again, its `$FBB3` programmed to `$00` first as in step 6 (unless it is that erase again that
+   didn't answer), so the image isn't good, and the monitor follows.
 
 However it is entered, it runs QUIET first (the DMA stopped and the cards quiet, as Break does), keeps interrupts off,
 and sets every window itself: W0 RAM block 0, W2 the copy in RAM, W3 the BIOS's copy, and W1 the flash, writable to

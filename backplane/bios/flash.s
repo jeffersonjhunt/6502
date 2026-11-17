@@ -584,8 +584,8 @@ NOTWRITTEN:     LDA     FBLK           ; $F0 + block / 4, then (block & 3) x $40
                 JSR     PRBYTE
                 JMP     LEAVECR
 
-; A chip that doesn't answer its poll: erased again (unless that is what
-; didn't answer), said, and the monitor.
+; A chip that doesn't answer its poll: erased again (unless it is that
+; erase again that didn't answer), said, and the monitor.
 NOANSWER:       BIT     FFAIL
                 BMI     @say
                 JSR     AGAIN
