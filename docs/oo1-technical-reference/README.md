@@ -13,7 +13,7 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 
 | Chapter | Covers | Proposed, designed only |
 |---|---|---|
-| 1 [Overview](01-overview.md) | the backplane's signals, slots and module IDs, the clocks | the physical bus; ÷1 |
+| 1 [Overview](01-overview.md) | the backplane's signals, slots and module IDs, the clocks | the physical bus (the 98-pin draft); ÷1 |
 | 2 [Memory and banking](02-memory-and-banking.md) | physical memory, the four windows, the I/O hole, flash and read-only windows, zero page | reprogramming the flash, two chips (emulated as step B5); the IIe images in ROM A (B5); revision 2's bank 8 aperture |
 | 3 [Boot](03-boot.md) | reset and the BIOS's copy of itself, /BOOTSEL, the entry points, the Woz Monitor, booting the SD card | the bus spy; the dispatching entry `$C818` and the flash update, writing the IIe images in ROM A (B5) |
 | 4 [Interrupts](04-interrupts.md) | IRQ and NMI, IRQL and IRQH, VEC, Pause/Break | the serial card's INTSTAT |
