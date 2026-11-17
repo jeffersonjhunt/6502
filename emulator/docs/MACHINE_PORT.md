@@ -53,7 +53,10 @@ The page never ships Apple's ROMs. `insertCartridge` takes the owner's
 (16 KB for $C000-$FFFF, and optionally the 4 or 8 KB character ROM) and
 writes them into ROM A's image 0 and set 0 with the power off: the machine
 starts afresh (the name is older: it was the cartridge, ROM B, until B5).
-Images and sets 1-3 stay as they are; null erases image 0 and set 0. ROM A's
+Images and sets 1-3 stay as they are; null erases image 0 and set 0. Image 0
+and set 0 are erased and written only when the IIe ROM's or the character
+ROM's bytes differ from the ones the row last wrote: a call that changes the
+Disk II PROMs alone, or passes the same bytes again, keeps what they hold. ROM A's
 blocks 0-5 keep what they hold through power cycles, as flash does, whoever
 wrote them (the row or a program's flash update), until the page goes; they
 are never written back to a file. `WasmPort` writes the files into the

@@ -761,6 +761,35 @@ describe("WasmPort", () => {
     expect((await at(0xf10000))[0]).toBe(0xff);
   });
 
+  test("a Disk II PROM keeps ROM A's image 0 as a program's flash commands left it; a new IIe ROM writes it again", async () => {
+    const m = await open();
+    expect(m.until(GREETING)).toBe(true);
+    const at = async (addr: number) => (await m.port.readMemory(addr, 1, "physical"))[0];
+    const rom = fakeIIeRom();
+    rom[0x0100] = 0xff; // erased there, for the program to write
+    await m.port.insertCartridge({ rom, chars: null, diskBoot: null, diskSequencer: null });
+    m.clear();
+    expect(m.until(GREETING)).toBe(true); // a power cycle
+    expect(await at(0xf00100)).toBe(0xff);
+    // $5A into image 0's $0100 by the even chip's program command, through W1; W1 back to block 1.
+    const woz = await biosLabel("WOZMON");
+    m.clear();
+    m.port.sendSerial(ascii("1000: 08 78 A9 82 8D 81 C6 A9 AA 8D AA 6A A9 81 8D 81 C6 A9 55 8D 54 55\r"));
+    m.port.sendSerial(ascii("1016: A9 82 8D 81 C6 A9 A0 8D AA 6A A9 80 8D 81 C6 A9 5A 8D 00 41\r"));
+    m.port.sendSerial(ascii(`102A: A9 01 8D 81 C6 28 4C ${hex2(woz & 0xff)} ${hex2(woz >> 8)}\r1000R\r`));
+    for (let i = 0; i < 10; ++i) m.step();
+    expect(m.output().slice(-120)).toMatch(/\\\r$/); // back at the monitor's prompt
+    expect(await at(0xf00100)).toBe(0x5a);
+    // The row's IIe ROM as it was, and a Disk II PROM: image 0 is not written again.
+    await m.port.insertCartridge({ rom, chars: null, diskBoot: new Uint8Array(256).fill(0x60), diskSequencer: null });
+    expect(await at(0xf00100)).toBe(0x5a);
+    expect(await at(0xf03bb3)).toBe(0x06);
+    await m.port.insertCartridge({ rom, chars: null, diskBoot: null, diskSequencer: null }); // the PROM out
+    expect(await at(0xf00100)).toBe(0x5a);
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null }); // new bytes
+    expect(await at(0xf00100)).toBe(0x00);
+  });
+
   test("the SD card: in, written by the machine, saved, kept through a power cycle, out", async () => {
     const m = await open();
     expect(m.until(GREETING)).toBe(true);

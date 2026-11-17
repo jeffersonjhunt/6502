@@ -407,8 +407,12 @@ export interface MachinePort {
    * into set 0, or take them out (null: both erased), as with the power
    * off: the machine starts afresh. Images and sets 1-3 stay as they are,
    * and ROM A's blocks 0-5 keep what they hold through power cycles, as
-   * flash does, until the page goes. Rejects with a readable reason if it
-   * does not fit; the old cartridge and the flash stay.
+   * flash does, until the page goes. Image 0 and set 0 are erased and
+   * written only when the ROM's or the characters' bytes differ from the
+   * ones last written this way: the Disk II PROMs alone changed, or the
+   * same bytes again, keeps what they hold (a program's flash update's
+   * too). Rejects with a readable reason if it does not fit; the old
+   * cartridge and the flash stay.
    */
   insertCartridge(cartridge: Cartridge | null): Promise<void>;
   /** The Apple's soft switches; null on a machine without the backplane's north bridge. */

@@ -41,7 +41,9 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "bus_cycle.h"
@@ -114,7 +116,10 @@ namespace ooe::emu
         bool power_cycle(std::string &error);
         /// Write the owner's Apple IIe ROM into ROM A's image 0 and set 0 (Config::apple_rom
         /// and apple_chars; both empty: take it out, erasing both), as with the power off: a
-        /// power cycle. Images 1-3 and sets 1-3 keep what they held.
+        /// power cycle. Images 1-3 and sets 1-3 keep what they held. Image 0 and set 0 are
+        /// erased and written only when the ROM's or the characters' bytes differ from the ones
+        /// the row last wrote (whatever the files are called): a change to the PROMs alone, or
+        /// the same bytes again, keeps what they hold, a program's flash update's included.
         /// (The name is older than ROM A's images: it was the cartridge, ROM B, until B5.)
         /// @return false, with `error`, if it does not fit; the old machine, its flash and the
         /// cartridge stay
@@ -273,10 +278,16 @@ namespace ooe::emu
 
     private:
         class Recorder;
+        /// The IIe ROM row's bytes (its ROM's parts, one after another; its characters).
+        using RowBytes = std::pair<std::string, std::string>;
+        /// The row's files' bytes. @return nullopt if one can't be read (build() then says why)
+        static std::optional<RowBytes> row_bytes(const std::vector<std::string> &apple_rom,
+                                                 const std::string &apple_chars);
 
         Session() = default;
         /// Build everything from config_, with ROM A's blocks 0-5 as the running machine has them;
-        /// `new_cartridge`: but image 0 and set 0 from config_'s files (none: erased).
+        /// `new_cartridge`: but image 0 and set 0 from config_'s files (none: erased), as a first
+        /// build does too; either records their bytes in row_.
         /// @return false with `error`, the running machine untouched
         bool build(std::string &error, bool new_cartridge = false);
         /// ROM A's blocks 0-5 from the running machine into `out`. @return false (`out` empty) without ROM A
@@ -288,6 +299,7 @@ namespace ooe::emu
         void service();
 
         Config config_;
+        std::optional<RowBytes> row_; ///< the IIe ROM's and characters' bytes image 0 and set 0 last had from the row
         Symbols symbols_;
         std::unique_ptr<Machine> machine_;
         std::unique_ptr<Console> console_;

@@ -58,7 +58,10 @@
  * for none) into ROM A's image 0 and set 0 (the name is older: it was the
  * cartridge, ROM B, until B5), and plugs in the Disk II card's two PROMs
  * (256 bytes each, or ""), as with the power off (a power cycle); all ""
- * takes them out, erasing image 0 and set 0. ROM A's blocks 0-5 then keep
+ * takes them out, erasing image 0 and set 0; image 0 and set 0 are erased
+ * and written only when the ROM's or the characters' bytes differ from the
+ * last ones written (the PROMs alone, or the same bytes, keep what they
+ * hold: Session::set_cartridge). ROM A's blocks 0-5 then keep
  * what they hold through power cycles, as flash does (Session), until the
  * page goes. The bytes go to the module's own memory file system and no
  * further, a new file for each, so one that is refused leaves the files
