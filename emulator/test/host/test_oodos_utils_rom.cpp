@@ -349,7 +349,7 @@ TEST(apple2_finds_a_iie_rom_in_image_2_alone)
     const auto iie = stand_in_rom();
     RomRig r({}, {}, 2, {"", "", iie->path, ""});
     REQUIRE(r.ok);
-    REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 16);
+    REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 17);
     CHECK(apple2_reaches_the_loop(r));
     CHECK(r.out.find("No IIe ROM") == std::string::npos);
 }
@@ -619,7 +619,7 @@ TEST(diag_and_y_runs_the_roms_diagnostics_and_a_key_boots_oodos_again)
     CHECK(r.out.find("RESULT: ALL PASSED", from) != std::string::npos);
     const size_t end = r.out.size();
     r.type("\r");                                         // a key: the boot, as after a power-on
-    REQUIRE(r.until("BACKPLANE BIOS 0.16", ms(3000), end));
+    REQUIRE(r.until("BACKPLANE BIOS 0.17", ms(3000), end));
     REQUIRE(r.until("\r\nA>", ms(20'000), end));
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again, A: there
     CHECK_EQ(r.nb(3), 62);
@@ -690,11 +690,11 @@ TEST(diag_without_diagnostics_in_the_flash_says_so_and_75_gives_ff_fc)
 TEST(diag_under_a_rom_bios_version_other_than_block_23s_linked_one_says_so_and_75_gives_ff_fc)
 {
     // Review T3: OODOS's own record of the ROM BIOS's version (cold.s's ROMVER, from the greeting) made 0.14, so
-    // block 23's linked version, 0.16, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
+    // block 23's linked version, 0.17, isn't the running BIOS's: DIAGIN must refuse, as $C815 would.
     RomRig r;
     REQUIRE(r.ok);
     const uint32_t romver = 31u * 0x4000u + sym("ROMVER");
-    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 16);
+    REQUIRE(r.phys(romver) == 0 && r.phys(romver + 1) == 17);
     r.poke(romver + 1, 14);
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
@@ -726,7 +726,7 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
     r.type("Y\r");
-    CHECK(r.until("BACKPLANE BIOS 0.16", ms(3000), from));
+    CHECK(r.until("BACKPLANE BIOS 0.17", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(20'000), from));
     CHECK(r.out.find(TITLE, from) == std::string::npos);
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again
