@@ -1,6 +1,7 @@
 /**
- * The owner's Apple IIe ROM, from files they pick to the cartridge, and
- * kept in this browser (localStorage) so it is there next time. It goes
+ * The owner's Apple IIe ROM, from files they pick to ROM A's image 0 and
+ * set 0 (a "cartridge", the name from when it was ROM B), and kept in this
+ * browser (localStorage) so it is there next time. It goes
  * nowhere else: the page never ships Apple's ROMs, and never uploads them.
  *
  * Files are told apart by size and contents, not names (dumps come named
@@ -114,7 +115,7 @@ export function takePart(part: RomPart, files: RomFile[], current: Cartridge | n
       diskSequencer: c.diskSequencer ?? had?.diskSequencer ?? null,
     };
   }
-  if (!current) return "Load the Apple IIe ROM first: the cartridge needs it";
+  if (!current) return "Load the Apple IIe ROM first: the other parts go in with it";
   if (files.length !== 1) return "One file, please";
   const [f] = files;
   const n = f.bytes.length;

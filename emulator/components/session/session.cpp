@@ -108,12 +108,21 @@ namespace ooe::emu
         return s;
     }
 
-    bool Session::build(std::string &error)
+    bool Session::build(std::string &error, bool new_cartridge)
     {
         MachineOptions options;
         options.rom_override = config_.rom;
-        options.apple_rom = config_.apple_rom;
-        options.apple_chars = config_.apple_chars;
+        // ROM A's blocks 0-5 are flash: what the running machine's hold (the row's image 0 and set
+        // 0, or a program's flash update) comes through the power-off. Copied, so a build that
+        // fails leaves the running machine's, which stays, as they were.
+        if (keep_flash(options.flash_user) && new_cartridge)
+            for (const auto &[at, count] : {std::pair<size_t, size_t>{0, 0x4000}, {0x10000, 0x2000}})
+                std::fill_n(options.flash_user.begin() + static_cast<std::ptrdiff_t>(at), count, uint8_t{0xFF});
+        if (options.flash_user.empty() || new_cartridge) // the row's slot, from its files: a new
+        {                                                 // cartridge, or a first build
+            options.apple_rom = config_.apple_rom;
+            options.apple_chars = config_.apple_chars;
+        }
         options.disk2_boot = config_.disk2_boot;
         options.disk2_sequencer = config_.disk2_sequencer;
         options.rtc = rtc_; // the clock, on its battery
@@ -187,6 +196,18 @@ namespace ooe::emu
         next_service_ = cpu_->cycles() + SERVICE_CYCLES;
     }
 
+    bool Session::keep_flash(std::vector<uint8_t> &out) const
+    {
+        out.clear();
+        const auto *rom_a = machine_ ? dynamic_cast<const Rom *>(machine_->find("rom_a")) : nullptr;
+        if (!rom_a || rom_a->size() < MachineOptions::FLASH_USER_BYTES)
+            return false;
+        out.resize(MachineOptions::FLASH_USER_BYTES);
+        for (size_t i = 0; i < out.size(); ++i)
+            out[i] = rom_a->Rom::peek(static_cast<uint32_t>(i)); // the array, not a busy chip's status
+        return true;
+    }
+
     bool Session::power_cycle(std::string &error) { return build(error); }
 
     bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
@@ -203,7 +224,7 @@ namespace ooe::emu
         config_.apple_chars = apple_chars;
         config_.disk2_boot = disk2_boot;
         config_.disk2_sequencer = disk2_sequencer;
-        if (build(error))
+        if (build(error, true))
             return true;
         config_ = old; // build() kept the old machine
         return false;

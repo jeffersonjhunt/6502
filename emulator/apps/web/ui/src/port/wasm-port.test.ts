@@ -728,7 +728,7 @@ describe("WasmPort", () => {
     await expect(m.port.insertCartridge({ rom: new Uint8Array(100), chars: null, diskBoot: null, diskSequencer: null })).rejects.toThrow(/16 KB/);
     await expect(m.port.insertCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(100), diskBoot: null, diskSequencer: null })).rejects.toThrow(/character ROM/);
     m.port.setPower(false);
-    m.port.setPower(true); // the next power cycle reads the cartridge's files again: the refused ones did not touch them
+    m.port.setPower(true); // the next power cycle keeps the flash: the refused ones did not touch it
     m.clear();
     expect(m.until(GREETING)).toBe(true);
     m.port.sendSerial(ascii("C806R\r"));
@@ -740,6 +740,25 @@ describe("WasmPort", () => {
     expect(m.until(GREETING)).toBe(true);
     m.port.sendSerial(ascii("C806R\r"));
     expect(m.until("NO APPLE IIE ROM")).toBe(true);
+  });
+
+  test("the IIe ROM row writes ROM A's image 0 and set 0, not ROM B; kept through a power cycle; out, both erased", async () => {
+    const m = await open();
+    expect(m.until(GREETING)).toBe(true);
+    const at = async (addr: number, n = 1) => await m.port.readMemory(addr, n, "physical");
+    expect((await at(0xf03bb3))[0]).toBe(0xff); // ROM A's image 0: nothing yet
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(8192).fill(0x11), diskBoot: null, diskSequencer: null });
+    expect((await at(0xf03bb3))[0]).toBe(0x06); // the IIe's ID byte at the image's $FBB3
+    expect((await at(0xf83bb3))[0]).toBe(0xff); // ROM B, the game cartridge, untouched
+    expect(Array.from(await at(0xf10000, 2))).toEqual([0x11, 0x11]); // set 0
+    expect((await at(0xf11fff))[0]).toBe(0x11);
+    m.port.setPower(false);
+    m.port.setPower(true); // flash: through the power cycle
+    expect((await at(0xf03bb3))[0]).toBe(0x06);
+    expect((await at(0xf10000))[0]).toBe(0x11);
+    await m.port.insertCartridge(null);
+    expect((await at(0xf03bb3))[0]).toBe(0xff);
+    expect((await at(0xf10000))[0]).toBe(0xff);
   });
 
   test("the SD card: in, written by the machine, saved, kept through a power cycle, out", async () => {

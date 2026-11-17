@@ -130,6 +130,13 @@ namespace ooe::emu
         /// held the time. nullptr: a new chip, at `rtc_time`, or the host's local time.
         std::shared_ptr<Ds3231> rtc;
         std::optional<Ds3231::Time> rtc_time;
+        /// ROM A's first bytes kept from another machine (a power cycle): the flash held them
+        /// through the power-off. Written into the flash line named `rom_a` from its start, after
+        /// the line's image loads and before the IIe images above, so a slot given there still
+        /// replaces its part. The Session keeps blocks 0-5 (FLASH_USER_BYTES); empty: none.
+        std::vector<uint8_t> flash_user;
+        /// ROM A's blocks 0-5: the IIe images 0-3 and their character sets (hw/design.md, "ROM A's layout").
+        static constexpr size_t FLASH_USER_BYTES = 6 * 0x4000;
     };
 
     class Machine

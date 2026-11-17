@@ -526,6 +526,72 @@ TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
     std::remove("test_session_short.rom");
 }
 
+TEST(rom_a_blocks_0_to_5_keep_what_they_hold_through_power_cycles_and_the_row_writes_image_0_and_set_0)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    const auto rom_a = [&s] { return dynamic_cast<Flash *>(s->device("rom_a")); };
+    const auto at = [&rom_a](uint32_t offset) { return rom_a()->Rom::peek(offset); }; // the array
+    // A program's byte into image 2 and one into block 6, through the even chip's command decoder.
+    const auto program = [&](uint32_t offset, uint8_t data) {
+        Flash *f = rom_a();
+        f->write(Flash::COMMAND_1 * 2u, 0xAA);
+        f->write(Flash::COMMAND_2 * 2u, 0x55);
+        f->write(Flash::COMMAND_1 * 2u, 0xA0);
+        f->write(offset, data);
+        s->run(FRAME); // 14 us, well within it
+        return !f->busy(0) && at(offset) == data;
+    };
+    REQUIRE(rom_a() != nullptr);
+    const uint8_t block6 = at(0x18100);
+    REQUIRE(at(0x8100) == 0xFF);
+    REQUIRE(block6 != 0x00);
+    REQUIRE(program(0x8100, 0x5A));
+    REQUIRE(program(0x18100, 0x00));
+    std::string error;
+    REQUIRE(s->power_cycle(error));
+    CHECK_EQ(at(0x8100), 0x5A);                 // image 2 is flash: it kept the byte
+    CHECK_EQ(at(0x18100), block6);              // block 6 and up: the BIOS file's again
+
+    std::string image(0x4000, '\0');
+    image[0x3BB3] = 0x06;
+    std::ofstream("test_session_kept.rom", std::ios::binary) << image;
+    std::ofstream("test_session_kept.chr", std::ios::binary) << std::string(0x2000, '\x11');
+    std::ofstream("test_session_kept_short.rom", std::ios::binary) << std::string(100, '\0');
+    REQUIRE(s->set_cartridge({"test_session_kept.rom"}, "test_session_kept.chr", error));
+    CHECK_EQ(at(0x3BB3), 0x06);                 // image 0
+    CHECK_EQ(at(0x0000), 0x00);
+    CHECK_EQ(at(0x10000), 0x11);                // set 0
+    CHECK_EQ(at(0x11FFF), 0x11);
+    CHECK_EQ(at(0x8100), 0x5A);                 // image 2 kept
+    std::remove("test_session_kept.rom");       // a power cycle reads neither file again:
+    std::remove("test_session_kept.chr");
+    REQUIRE(s->power_cycle(error));
+    CHECK_EQ(at(0x3BB3), 0x06);                 // the flash holds them
+    CHECK_EQ(at(0x10000), 0x11);
+
+    CHECK(!s->set_cartridge({"test_session_kept_short.rom"}, "", error)); // refused:
+    CHECK(error.find("16 KB") != std::string::npos);
+    CHECK_EQ(at(0x3BB3), 0x06);                 // the running machine's flash untouched
+    CHECK_EQ(at(0x10000), 0x11);
+    REQUIRE(s->power_cycle(error));
+    CHECK_EQ(at(0x3BB3), 0x06);                 // and so through the next power cycle
+    CHECK_EQ(at(0x0000), 0x00);
+    CHECK_EQ(at(0x10000), 0x11);
+    CHECK_EQ(at(0x8100), 0x5A);
+
+    REQUIRE(s->set_cartridge({}, "", error));   // taken out: image 0 and set 0 erased
+    CHECK_EQ(at(0x3BB3), 0xFF);
+    CHECK_EQ(at(0x0000), 0xFF);
+    CHECK_EQ(at(0x10000), 0xFF);
+    CHECK_EQ(at(0x11FFF), 0xFF);
+    CHECK_EQ(at(0x8100), 0x5A);                 // image 2 still kept
+    REQUIRE(s->power_cycle(error));
+    CHECK_EQ(at(0x3BB3), 0xFF);
+    CHECK_EQ(at(0x8100), 0x5A);
+    std::remove("test_session_kept_short.rom");
+}
+
 TEST(a_disk_stays_in_its_drive_through_power_cycles_and_cartridges)
 {
     auto s = booted();

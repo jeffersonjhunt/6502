@@ -130,8 +130,12 @@ Settings, in sections:
   (16 KB, or the CD and EF halves; the character ROM and the PROMs may be
   picked with it), the **IIe character ROM**, and the Disk II's **boot
   PROM** and **sequencer PROM** (these need the IIe ROM in first). They are
-  told apart by size and contents, not names, plugged into the cartridge,
-  and kept in this browser, never uploaded. Each Load or Eject plugs a new
+  told apart by size and contents, not names, and kept in this browser,
+  never uploaded. The IIe ROM goes into ROM A's image 0 and the character
+  ROM into its set 0 (the flash, as the BIOS's update would write them;
+  Eject erases them); images 1-3 are the BIOS's flash update's. ROM A's
+  images and sets keep what they hold through power cycles, as flash does,
+  until the page reloads. Each Load or Eject plugs a new
   cartridge, which restarts the machine: in Apple II mode it asks first.
   Ejecting the IIe ROM keeps the other parts for the next one. With the IIe ROM in, its row has
   **Start Apple IIe**: START, then `C806R` at the monitor. Apple II mode, by

@@ -554,7 +554,7 @@ export class WasmPort implements MachinePort {
   async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array> {
     const m = this.machine;
     const read =
-      space === "cpu" ? (a: number) => m.peek(a & 0xffff) : space === "io" ? (a: number) => m.peekIo(a & 0xfff) : (a: number) => m.peekPhysical(a & 0xfffff);
+      space === "cpu" ? (a: number) => m.peek(a & 0xffff) : space === "io" ? (a: number) => m.peekIo(a & 0xfff) : (a: number) => m.peekPhysical(a & 0xffffff); // A0-A23
     const out = new Uint8Array(length);
     for (let i = 0; i < length; ++i) out[i] = read(addr + i);
     return out;
@@ -574,6 +574,7 @@ export class WasmPort implements MachinePort {
     bytes.forEach((b, i) => m.vramPoke((addr + i) & 0xffffff, b));
   }
 
+  /** Into ROM A's image 0 and set 0 through the core's loadCartridge (the Session keeps blocks 0-5 through power cycles). */
   async insertCartridge(cartridge: Cartridge | null): Promise<void> {
     const m = this.machine;
     const rom = cartridge ? bytesToString(cartridge.rom) : "";

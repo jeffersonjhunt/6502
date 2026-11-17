@@ -641,6 +641,19 @@ namespace ooe::emu
                 }
             }
         }
+        // What the flash kept through a power cycle, then the owner's Apple IIe ROMs over it.
+        if (!options.flash_user.empty())
+        {
+            auto *rom_a = dynamic_cast<Rom *>(m->find("rom_a"));
+            if (!rom_a || rom_a->size() < options.flash_user.size())
+            {
+                error = origin + ": the kept flash needs ROM A, a flash line named rom_a of at least " +
+                        std::to_string(options.flash_user.size()) + " bytes";
+                return nullptr;
+            }
+            for (size_t i = 0; i < options.flash_user.size(); ++i)
+                rom_a->poke(static_cast<uint32_t>(i), options.flash_user[i]);
+        }
         // The owner's Apple IIe ROMs, in ROM A's images and sets.
         if (std::string why = load_apple(*m, options, origin); !why.empty())
         {
