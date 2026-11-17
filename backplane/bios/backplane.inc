@@ -28,6 +28,18 @@ NB_YEAR         = NB + $16
 NB_RTCREG       = NB + $17             ; a DS3231 register number: writing it reads the register...
 NB_RTCDATA      = NB + $18             ; ...into here; writing here writes it. Wait for BUSY clear
 NB_ID           = NB + $7F
+; Revision 2 (ID $D2, step B7, proposed; hw/design.md, "The video aperture moved out of RAM"): A20-A23
+; for each window (bits 3-0; a window with the ROM bit set ignores its WINnH), for VEC's vector pulls,
+; and MAP. Write them only after NB_ID reads $D2: on revision 1 ($D1) the offsets read $FF.
+NB_WIN0H        = NB + $20             ; W0's A20-A23
+NB_WIN1H        = NB + $21
+NB_WIN2H        = NB + $22
+NB_WIN3H        = NB + $23
+NB_VECH         = NB + $24             ; a vector pull's A20-A23 (VEC's ROM bit clear)
+NB_MAP          = NB + $25             ; bit 0, AP8: bank 8 goes to the video card's aperture ($01 at reset)
+NB_MAP_AP8      = $01
+NB_ID_V1        = $D1                  ; revision 1: no WINnH, VECH or MAP
+NB_ID_V2        = $D2
 
 NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
 NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card
@@ -203,7 +215,10 @@ VIDEO_PCTL_DRQ  = $01                  ; PCTL: request DMA (/DREQ), served by ch
 VIDEO_PCTL_FROM = $02                  ; PCTL: DMA reads the card (0: DMA writes it)
 VIDEO_PCTL_DOWN = $04                  ; PCTL: PADDR steps down
 VIDEO_MEMSIZE_2MB = 32                 ; MEMSIZE on a 2 MB card
-VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank 8 (four 16 KB slots)
+VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank 8 (four 16 KB slots), while
+                                       ;   the north bridge's AP8 is set (on a $D1 bridge, always)
+VIDEO_APERTURE2 = $E00000              ; the aperture's own address (B7): slot n at $E00000 + n x $4000
+VIDEO_APER_H    = $0E                  ; the WINnH that reaches it, with BLOCK the slot (0-3)
 
 ; Zero page and low RAM, and who has them:
 ;

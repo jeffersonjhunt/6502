@@ -33,7 +33,7 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:112-190 -->
+<!-- listing: ../../backplane/bios/bios.s:112-191 -->
 ```
 RESET:
                 LDX     #$FF
@@ -86,6 +86,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
+                NBSET                  ; on a $D2 bridge: WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1

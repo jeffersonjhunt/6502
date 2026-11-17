@@ -13,8 +13,9 @@
 ;   $002000  the text: 80 x 30 cells of character + attribute
 ;
 ; VPUTC writes cells through aperture slot 0, which it points at card page 0
-; for the moment and puts back: physical $80000 (RAM block 32's address, the
-; aperture's bank) through W2, borrowed the same way. Everything else goes
+; for the moment and puts back, through W2, borrowed the same way: on a $D2
+; north bridge, WIN2H $0E and block 0 (the aperture at $E00000, whatever AP8
+; says), and on a $D1 one, block 32 (physical $80000, bank 8). Everything else goes
 ; through the card's data port: VINIT writes the font and the palette into
 ; PDATA, and clearing and scrolling are port transfers by DMA on channel 1,
 ; which serves the card (CARD 9) when it asks, each waited for (so whole
@@ -54,7 +55,8 @@ ATTR    = $07                          ; light grey on black
 CURSOR  = '_'
 CURATTR = $87                          ; light grey, blinking
 
-VBLOCK  = 32                           ; physical $80000, the aperture: slot 0 through W2
+VBLOCK  = 32                           ; on a $D1 bridge: physical $80000, the aperture's slot 0, through W2
+VBLOCK2 = 0                            ; on a $D2 bridge: with WIN2H $0E, physical $E00000, slot 0
 VWIN    = $8000
 PAL_CARD  = $000000                    ; card addresses
 FONT_CARD = $000400
@@ -189,11 +191,14 @@ DEMO:
 
 ; Write A to the screen at the cursor: CR starts a new line, backspace backs
 ; up one, other control characters do nothing. A, X and Y are kept, and so
-; are W2 and aperture slot 0, which it borrows.
+; are W2 (and WIN2H) and aperture slot 0, which it borrows. NB_ID is read
+; each time, on the way in and out, not kept with VOK, which a program may
+; write.
 VPUTC:
                 BIT     VOK
-                BPL     @off
-                PHA
+                BMI     @on
+                RTS
+@on:            PHA
                 PHX
                 PHY
                 LDX     NB_WIN2
@@ -204,8 +209,17 @@ VPUTC:
                 PHX
                 STZ     VIDEO_SLOT0    ; slot 0 on card page 0, where the text is
                 STZ     VIDEO_SLOT0 + 1
-                LDX     #VBLOCK
-                STX     NB_WIN2
+                LDX     NB_ID
+                CPX     #NB_ID_V2
+                BNE     @v1
+                LDX     NB_WIN2H       ; a $D2 bridge: W2 on $E00000, slot 0
+                PHX
+                LDX     #VIDEO_APER_H
+                STX     NB_WIN2H
+                LDX     #VBLOCK2
+                BRA     @w2
+@v1:            LDX     #VBLOCK
+@w2:            STX     NB_WIN2
                 CMP     #$0D
                 BEQ     @cr
                 CMP     #$08
@@ -232,7 +246,12 @@ VPUTC:
 @cursor:        LDA     #CURSOR
                 LDX     #CURATTR
                 JSR     PUTAT
+                LDX     NB_ID
+                CPX     #NB_ID_V2
+                BNE     @back
                 PLX
+                STX     NB_WIN2H
+@back:          PLX
                 STX     VIDEO_SLOT0 + 1
                 PLX
                 STX     VIDEO_SLOT0
@@ -241,7 +260,7 @@ VPUTC:
                 PLY
                 PLX
                 PLA
-@off:           RTS
+                RTS
 
 BLANK:          LDA     #' '
                 LDX     #ATTR

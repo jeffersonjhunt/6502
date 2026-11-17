@@ -1415,14 +1415,36 @@ SLOTS:
                 stz     VIDEO_PCTL
                 rts
 
+; W1 on aperture slot A (0-3): on a $D2 north bridge WIN1H $0E and block A
+; ($E00000 + A x $4000, whatever AP8 says); on a $D1 one block 32 + A (bank 8).
+; A and X.
+APW1:           ldx     NB_ID
+                cpx     #NB_ID_V2
+                bne     @v1
+                ldx     #VIDEO_APER_H
+                stx     NB_WIN1H
+                sta     NB_WIN1
+                rts
+@v1:            ora     #32
+                sta     NB_WIN1
+                rts
+; W1 back on RAM block 1 (WIN1H 0 on a $D2 bridge). A only.
+W1HOME:         lda     NB_ID
+                cmp     #NB_ID_V2
+                bne     @b
+                stz     NB_WIN1H
+@b:             lda     #1
+                sta     NB_WIN1
+                rts
+
 ; Card bank T_K (16 KB) in W1 through aperture slot 0.
 BANKW1:
                 lda     T_K
                 sta     VIDEO_SLOT0
                 lda     T_K + 1
                 sta     VIDEO_SLOT0 + 1
-                lda     #32
-                sta     NB_WIN1
+                lda     #0
+                jsr     APW1
 ; HW_PTR and HW_LEN: W1, all 16 KB.
 RUN16K:         stz     HW_PTR
                 lda     #$40
@@ -1493,7 +1515,7 @@ NEXTBANK:
                 cmp     T_BANKS + 1
 @r:             rts
 
-; V4: all of card memory, a 16 KB bank at a time in slot 0 (W1 on block 32):
+; V4: all of card memory, a 16 KB bank at a time in slot 0 (W1 on it, APW1):
 ; address in address, every bank written before any is checked (full: the
 ; march too, background $00); the first eight faults said.
 V4:
@@ -1532,8 +1554,7 @@ V4:
 @nextc:         jsr     NEXTBANK
                 bne     @c
                 jsr     SLOTS
-                lda     #1
-                sta     NB_WIN1
+                jsr     W1HOME
                 jmp     TEND0
 @fault:         lda     T_NBAD
                 cmp     #8
@@ -1557,8 +1578,7 @@ V5:
                 lda     $4123
                 sta     T_D + 1
                 jsr     SLOTS
-                lda     #1
-                sta     NB_WIN1
+                jsr     W1HOME
                 lda     T_D
                 and     T_D + 1
                 cmp     #$FF
@@ -1568,11 +1588,11 @@ V5:
                 rts
 
 ; V6: the port against the aperture, card $000000-$00FFFF through slots 0-3
-; (W1 on blocks 32-35): address in address written through PDATA (PSTEP 1),
+; (W1 on each, APW1): address in address written through PDATA (PSTEP 1),
 ; read through the aperture; read through the port stepping down
 ; (VIDEO_PCTL_DOWN) from $00FFFF; and written through the aperture, read
 ; through the port. Byte n through the port is n's low byte XOR its middle
-; XOR its high XOR the key; through block 32 + k the CPU's pattern is its
+; XOR its high XOR the key; through slot k the CPU's pattern is its
 ; address's low byte XOR its page XOR a key, the same bytes with the key the
 ; port's XOR $40 XOR k x $40.
 V6:
@@ -1605,9 +1625,7 @@ V6:
                 bcs     @baddn
                 stz     T_K            ; written through the aperture
 @aw:            lda     T_K
-                clc
-                adc     #32
-                sta     NB_WIN1
+                jsr     APW1
                 jsr     RUN16K
                 jsr     AKEY
                 eor     #$A5
@@ -1617,16 +1635,14 @@ V6:
                 lda     T_K
                 cmp     #4
                 bne     @aw
-                lda     #1
-                sta     NB_WIN1
+                jsr     W1HOME
                 jsr     PORT0          ; read through the port
                 lda     #$A5
                 sta     HW_KEY
                 jsr     HW_PAIAC
                 bcs     @badup
                 jmp     TPASS
-@bad:           lda     #1
-                sta     NB_WIN1
+@bad:           jsr     W1HOME
                 stz     T_K + 1
                 jmp     APERFAULT
 @baddn:         lda     HW_BAD         ; byte n down from $FFFF is at $FFFF - n
@@ -1673,9 +1689,7 @@ AKEY:           lda     T_K
 APERC:          sta     T_REV
                 stz     T_K
 @k:             lda     T_K
-                clc
-                adc     #32
-                sta     NB_WIN1
+                jsr     APW1
                 jsr     RUN16K
                 jsr     AKEY
                 eor     T_REV
@@ -1686,8 +1700,7 @@ APERC:          sta     T_REV
                 lda     T_K
                 cmp     #4
                 bne     @k
-                lda     #1
-                sta     NB_WIN1
+                jsr     W1HOME
                 clc
 @r:             rts
 
@@ -1712,13 +1725,12 @@ V7:
                 lda     #4             ; card $010000 is bank 4: slot 0
                 sta     VIDEO_SLOT0
                 stz     VIDEO_SLOT0 + 1
-                lda     #32
-                sta     NB_WIN1
+                lda     #0
+                jsr     APW1
                 lda     #$40
                 jsr     CMP4K
                 php
-                ldx     #1
-                stx     NB_WIN1
+                jsr     W1HOME
                 jsr     SLOTS
                 plp
                 bcs     @badap

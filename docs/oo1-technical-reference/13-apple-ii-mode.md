@@ -48,10 +48,16 @@ Status: **emulated**
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
 map and with nothing changed, if any of it is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:57-78 -->
+<!-- listing: ../../backplane/bios/apple.s:57-84 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
+                CPX     #NB_ID_V2
+                BNE     @low
+                STZ     NB_WIN0H
+                STZ     NB_WIN1H
+                STZ     NB_WIN2H
+@low:           STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -112,7 +118,7 @@ Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:149-151 -->
+<!-- listing: ../../backplane/bios/apple.s:155-157 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET

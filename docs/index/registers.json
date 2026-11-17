@@ -1746,6 +1746,60 @@
   "status": "emulated"
  },
  {
+  "equate": "NB_WIN0H",
+  "address": "$C6A0",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN1H",
+  "address": "$C6A1",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN2H",
+  "address": "$C6A2",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN3H",
+  "address": "$C6A3",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_VECH",
+  "address": "$C6A4",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_MAP",
+  "address": "$C6A5",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
   "equate": "NB_ID",
   "address": "$C6FF",
   "module": "D",

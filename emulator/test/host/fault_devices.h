@@ -9,13 +9,16 @@
  * is shared here for the ROM's diagnostics (test_bios_diag). It adds an aliased address line to D2's stuck
  * bits, and one block answering as another (fault_redirect). Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
  * and the bus's later mappings win, for the CPU's windows and DMA alike. Addresses are physical as the CPU card
- * reaches them (Decoder::redirect()): with a revision 2 video card, bank 8 is the aperture at $E00000, so a fault
- * there is the aperture's.
+ * reaches them (Decoder::redirect()) when the machine has a revision 2 video card: bank 8 is then the aperture at
+ * $E00000 (AP8 set from reset, or a revision 1 bridge's fixed alias), so a fault there is the aperture's. With no
+ * revision 2 card bank 8 is RAM (the BIOS clears AP8; step B7, proposed), and `ram` asks for the RAM card's bank 8
+ * whatever is fitted: the diagnostics clear AP8 and test it (b7-plan.md, question 6).
  */
 
 #include "decoder.h"
 #include "cpu6502.h"
 #include "machine.h"
+#include "video_card.h"
 
 #include <cstdint>
 
@@ -45,13 +48,21 @@ namespace ooe::test
         }
     };
 
-    /// `f` over the 16 KB block holding physical `block_addr`, on whatever is mapped there now. @return
-    /// whether it could be mapped
-    inline bool fault_over(ooe::emu::Machine &m, FaultyMemory &f, uint32_t block_addr)
+    /// Where a fault at physical `a` goes: the CPU card's redirect (bank 8 to the aperture) where the machine has a
+    /// revision 2 video card, unless `ram`; else `a` itself, the RAM card's.
+    inline uint32_t fault_address(ooe::emu::Machine &m, uint32_t a, bool ram)
+    {
+        const ooe::emu::VideoCard *v = m.video_card();
+        return ram || !v || v->revision() != 2 ? a : m.bus().redirect(a);
+    }
+
+    /// `f` over the 16 KB block holding physical `block_addr`, on whatever is mapped there now (`ram`: bank 8's
+    /// RAM, never the aperture). @return whether it could be mapped
+    inline bool fault_over(ooe::emu::Machine &m, FaultyMemory &f, uint32_t block_addr, bool ram = false)
     {
         using namespace ooe::emu;
-        const uint32_t lo = m.bus().redirect(block_addr) & ~0x3FFFu, hi = lo + 0x3FFF;
-        f.bad = f.bad == 0xFFFFFFFF ? f.bad : m.bus().redirect(f.bad);
+        const uint32_t lo = fault_address(m, block_addr, ram) & ~0x3FFFu, hi = lo + 0x3FFF;
+        f.bad = f.bad == 0xFFFFFFFF ? f.bad : fault_address(m, f.bad, ram);
         const auto &maps = m.bus().mappings();
         const Mapping *found = nullptr;
         for (auto it = maps.rbegin(); it != maps.rend() && !found; ++it)
@@ -70,12 +81,13 @@ namespace ooe::test
     }
 
     /// One block answering as another (a block address line stuck, or a decoder fault): `f` mapped over the
-    /// 16 KB block at physical `from` forwards every access to the block at `to`, whatever device holds it.
-    inline bool fault_redirect(ooe::emu::Machine &m, FaultyMemory &f, uint32_t from, uint32_t to)
+    /// 16 KB block at physical `from` forwards every access to the block at `to`, whatever device holds it
+    /// (`ram`: bank 8's RAM, never the aperture).
+    inline bool fault_redirect(ooe::emu::Machine &m, FaultyMemory &f, uint32_t from, uint32_t to, bool ram = false)
     {
         using namespace ooe::emu;
-        to = m.bus().redirect(to);
-        from = m.bus().redirect(from);
+        to = fault_address(m, to, ram);
+        from = fault_address(m, from, ram);
         const uint32_t lo = to & ~0x3FFFu, hi = lo + 0x3FFF;
         const auto &maps = m.bus().mappings();
         const Mapping *found = nullptr;
@@ -121,12 +133,13 @@ namespace ooe::test
         return m.bus().map(n);
     }
 
-    /// A stuck bit: the byte at physical `bad` reads (byte AND `and_mask`) OR `or_mask`.
-    inline bool fault_at(ooe::emu::Machine &m, FaultyMemory &f, uint32_t bad, uint8_t and_mask, uint8_t or_mask)
+    /// A stuck bit: the byte at physical `bad` reads (byte AND `and_mask`) OR `or_mask` (`ram`: as fault_over()).
+    inline bool fault_at(ooe::emu::Machine &m, FaultyMemory &f, uint32_t bad, uint8_t and_mask, uint8_t or_mask,
+                         bool ram = false)
     {
         f.bad = bad;
         f.and_mask = and_mask;
         f.or_mask = or_mask;
-        return fault_over(m, f, bad);
+        return fault_over(m, f, bad, ram);
     }
 } // namespace ooe::test

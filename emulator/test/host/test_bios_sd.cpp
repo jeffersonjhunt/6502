@@ -647,6 +647,9 @@ TEST(the_flash_update_stopped_part_way_leaves_the_image_not_good)
         begun = a->peek(SETS + 2 * SET + 8) == NEW_SET[8] && a->peek(SETS + 2 * SET + 9) == NEW_SET[9];
     }
     REQUIRE(begun);                                                  // the set's programming under way
+    for (int i = 0; i < 10'000 && (a->busy(0) || a->busy(1)); ++i) // a busy chip reads its status, not its array
+        s->run(4);
+    REQUIRE(!a->busy(0) && !a->busy(1));
     CHECK_EQ(a->peek(2 * IMAGE + ID_AT), 0xFF);                      // the commit byte: not yet
     size_t written = 0;
     for (uint32_t i = 0; i < IMAGE; ++i)

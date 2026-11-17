@@ -194,7 +194,7 @@ so a write to it swaps the whole palette between frames.
 
 The BIOS's palette is the CGA's 16 colours, which VINIT writes to entries 0–15 at unit 0 (`video.s`):
 
-<!-- listing: ../../backplane/bios/video.s:434-453 -->
+<!-- listing: ../../backplane/bios/video.s:453-472 -->
 ```
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR.
 .macro RGB r, g, b
@@ -339,7 +339,7 @@ At boot VINIT copies the font and the palette in, clears the screen, and ends in
 Break calls VSCREEN again, after QUIET, so the monitor always comes back to this screen, with its memory as it was
 left. VSCREEN does nothing unless both the video card's and the DMA controller's ID bytes answer:
 
-<!-- listing: ../../backplane/bios/video.s:146-176 -->
+<!-- listing: ../../backplane/bios/video.s:148-178 -->
 ```
 ; The card's registers for the text screen, if there is one: layer 0 only,
 ; unscrolled, no interrupts. Its memory, the aperture's slots and the port
