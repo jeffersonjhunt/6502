@@ -170,7 +170,7 @@ program can look at the first 16 KB of the screen without giving up its zero pag
   | W0 | `$0000–$3FFF` | RAM block 0 | `$00000` |
   | W1 | `$4000–$7FFF` | RAM block 1 | `$04000` |
   | W2 | `$8000–$BFFF` | RAM block 2 | `$08000` |
-  | W3 | `$C000–$FFFF` | ROM A block 31, read-only: the top 16 KB of the flash | module ID 4 |
+  | W3 | `$C000–$FFFF` | ROM A block 31, read-only: the top 16 KB of the flash | `$F7C000`, by its address (module ID 4 on the first design's bus) |
 
   The machine wakes up looking like an ordinary 64 KB computer with the BIOS at the top. When /BOOTSEL is held at
   reset, W3 starts at RAM block 63 (`$FC000`, the top of bank F) instead. See [Boot](#boot).
@@ -393,7 +393,7 @@ with up to 16 MB, so the reasoning isn't lost.
 
 **From ROM (normal)**
 
-1. At reset W3 and VEC map the top block of the flash (ROM A, module ID 4), read-only. At ÷2, 55–70 ns flash runs
+1. At reset W3 and VEC map the top block of the flash (ROM A, by its address; module ID 4 on the first design's bus), read-only. At ÷2, 55–70 ns flash runs
    with no wait states (on the new bus, 55 ns: [the read budget](#wait-states-and-the-read-budget)). A turbo mode
    would need one or two.
 2. The BIOS points W2 at RAM block 63 and copies itself from W3 into W2.
@@ -2038,7 +2038,9 @@ the backplane while AP8 is set.
 **/MEM in each kind of cycle.** The master holding the bus drives /MEM, PS0–PS3, A0–A23 and RWB. That is normally
 the CPU card (the north bridge, or the DMA controller beside it); the Console card and the bus spy drive them when
 they take the bus with BE. A card with registers answers when PS0–PS3 is its ID with /MEM and /DMA high; a memory
-card answers its range with /MEM low.
+card answers its range with /MEM low. In a BE handover, while no master drives, the backplane's pull-ups hold /MEM,
+/DMA, /IACK, /WORD and /OE high, PS0–PS3 at `0xF` (a free ID) and RWB high, so the cycle is a read that no memory,
+no card's registers and no poll answer; A0–A23 float, unused (B6, review round 1: [modules.md](modules.md)).
 
 | Cycle | /MEM | /DMA, /IACK | PS0–PS3 | Address | Who answers |
 |---|---|---|---|---|---|
@@ -3168,7 +3170,7 @@ models the bus's signals, not its pins.
   lines between grounds on both sides, the spares and BR0–BR2 counted; a ground on either side of PHI2 and of OSC;
   the rest spares. Choices inside that shape, all positions and so the owner's to change: RDY, BE and /WAIT beside
   PHI2, not in the short segment (they act within a cycle); side A held to four as well, which puts VPB after OSC;
-  /BOOTSEL (A11) and TC (A48) on side A, since side B's grounds for its groups of four leave it room for 34 lines;
+  /BOOTSEL (A11) and TC (A48) on side A, since side B's grounds for its groups of four leave it room for 35 lines, one fewer than the first draft put there, and moving both keeps a spare, RSV1, on side B;
   and two spares, RSV0 and RSV1, which is what the 23 grounds leave.
 - **Six +5V contacts** stand on the chosen connector's current rating per contact and the owner's budget for each
   of the 15 or so slots (Q4).
@@ -3180,7 +3182,9 @@ models the bus's signals, not its pins.
 - **The spares** are RSV0 and RSV1, routed to every slot, unconnected (Q7). **/OE** is kept, driven by the master
   that holds the bus, pulled up (Q8).
 - **Pull-ups and directions** (Q9): /WORD, /MEM, /DMA and /IACK are pulled up as well as the 62-pin bus's lines,
-  /WAIT, /DREQ, /OE and the weak ones on D0–D15, so a bus handover selects no memory and makes no poll. /NMI is IN
+  /WAIT, /DREQ, /OE and the weak ones on D0–D15, so a bus handover selects no memory and makes no poll; and, from
+  review round 1, PS0–PS3 (to `0xF`, a free ID, so no card's registers answer) and RWB (so the cycle is a read,
+  with /OE high). /NMI is IN
   (the USB card and the Console card pull it), BE and /RESET IN/OUT. The bus spy's driver list in
   [Boot](#boot) (the bus spy) is the decided one (/MEM, PS0–PS3, A0–A23, RWB), with BE and /OE.
 - **The ID table** (Q13): IDs `0x0`–`0x5` and `0xF` are free; the RAM card, ROM A (on the CPU card) and ROM B
@@ -3197,6 +3201,25 @@ models the bus's signals, not its pins.
   B7 changes `hwname.s`, SYSINFO and the cards anyway, so the cards change once and B6 stays docs only. B7 also
   corrects [diag.md](diag.md)'s size for `HW_NAME` ("180 B of names"; 222 B of strings today, 158 B once IDs 0–5
   name "(free)"). B6's row is left as it was, the spec.
+- **Review round 1** (the owner, 2026-11-17, "recommendations as listed"). The builder's choices were accepted:
+  RDY, BE and /WAIT beside PHI2; the four-line rule on side A too, so VPB at A47; /BOOTSEL at A11, TC at A48 and
+  /DREQ at B9; two spares. So were its extra fixes: the interrupt poll's wording in
+  [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane), the /MEM table, chapter 11's /OE
+  row, and B7's row taking the `HW_NAME` size note and video-rev2.md's DRQ and /DACK lines. Fixed:
+  - P1: the pull-up paragraph in modules.md claimed every line known in a handover, but A0–A23, RWB and PS0–PS3 had
+    no pull-up, and with /MEM, /DMA and /IACK held high a floating PS0–PS3 is a register cycle. The claim is narrowed
+    to what is pulled up, and PS0–PS3 (to `0xF`) and RWB are pulled up, in modules.md's rows and paragraph,
+    [/MEM in each kind of cycle](#the-physical-map-on-the-new-bus), chapter 1 and Q9 above. The pull-ups' value has
+    to be an ID that no card answers: `0xF`, while it stays free.
+  - P2, P3: the BE row says that BE low floats the CPU (address, data, RWB) and the north bridge's address
+    drivers, and that the DMA controller, the Console card or the bus spy then drives; the legend says the CPU card
+    lets go of /WORD, /OE, /MEM and PS0–PS3 while another master holds BE, and that a byte-only master (the bus spy)
+    may leave /WORD to its pull-up.
+  - W1: the Technical Reference's chapter 11 (IRQL's bit table) and chapter 4 still called IDs 0–5 RAM and ROM:
+    they are free IDs now.
+  - W2: [Memory](#memory)'s reset-state table and [Boot](#boot)'s step 1 still gave ROM A module ID 4: they give
+    its address, with ID 4 as the first design's.
+  - W3: side B has room for 35 lines, not 34 (above).
 - **video-rev2.md** (frozen, not edited) still says DRQ 1 and /DACK, revision 1's wiring (its lines 21, 56, 113,
   167 and 236); they join B7's note there.
 - **No expectation, test, card or version changed.** No site release of B6 (Q14): its books ride the next one.

@@ -35,7 +35,9 @@ the grounds are open, for the owner's board design.
 
 Dir is seen from the CPU card. OUT: the CPU card drives it. IN: a card drives it. IN/OUT: both. OUT (master): the
 master holding the bus drives it, which is the CPU card (the north bridge, or the DMA controller beside it), or the
-Console card or the bus spy once it has taken the bus with BE.
+Console card or the bus spy once it has taken the bus with BE. While the Console card or the bus spy holds BE, the
+CPU card lets go of /WORD, /OE, /MEM and PS0-PS3 as well as the address, the data and RWB; a master that makes only
+byte cycles, such as the bus spy, may leave /WORD to its pull-up.
 
 | Pin | Name | Dir | Description |
 |---|---|---|---|
@@ -60,15 +62,15 @@ Console card or the bus spy once it has taken the bus with BE.
 | A27 | GND | | ground |
 | A28-A31 | D12-D15 | IN/OUT | data, the odd byte of a word cycle; the DMA request poll's IDs C-F |
 | A32 | GND | | ground |
-| A33 | RWB | OUT (master) | read/write |
+| A33 | RWB | OUT (master) | read/write; pulled up, so a cycle no master drives is a read, with /OE high |
 | A34 | /OE | OUT (master) | read strobe; driven by whichever master holds the bus, as it drives RWB; pulled up |
-| A35 | /WORD | OUT (master) | low on a word cycle (both lanes, at an even address), high on a byte cycle; pulled up, so a master that never drives it makes byte cycles |
+| A35 | /WORD | OUT (master) | low on a word cycle (both lanes, at an even address), high on a byte cycle; pulled up, so a master that never drives it makes byte cycles (the bus spy, which makes only byte cycles, leaves it to the pull-up) |
 | A36 | /MEM | OUT (master) | a memory cycle: memory decodes A0-A23 only while it is low; high on an I/O cycle, a poll and the DMA takeover; pulled up |
 | A37 | GND | | ground, beside PHI2 |
 | A38 | PHI2 | OUT | the CPU clock, 50% duty |
 | A39 | GND | | ground, beside PHI2 |
 | A40 | RDY | IN/OUT | ready; open drain, pulled up; the DMA controller's and the Console card's only (a slow card uses /WAIT) |
-| A41 | BE | IN/OUT | bus enable; open drain, pulled up; low floats the CPU card's bus drivers; the DMA controller (on the CPU card), the Console card and the bus spy pull it |
+| A41 | BE | IN/OUT | bus enable; open drain, pulled up; low floats the CPU (its address, data and RWB) and the north bridge's address drivers, and the DMA controller, the Console card or the bus spy then drives the bus; the DMA controller (on the CPU card), the Console card and the bus spy pull it |
 | A42 | /WAIT | IN | a slow card's wait states; open drain, pulled up; the north bridge turns it into RDY for the CPU, and the DMA controller stretches its grant by it |
 | A43 | SYNC | OUT | opcode fetch (single step, the bus spy) |
 | A44 | GND | | ground, beside OSC |
@@ -102,7 +104,7 @@ Console card or the bus spy once it has taken the bus with BE.
 | B37 | GND | | ground |
 | B38-B41 | A20-A23 | OUT (master) | address; A20-A23 are new on this bus (the 24-bit map) |
 | B42 | GND | | ground |
-| B43-B46 | PS0-PS3 | OUT (master) | module ID: the card of the I/O block; `0xD` on the CPU's memory cycle, `0x8` on DMA's own cycles, the card's in a fly-by grant, `0xE` while the Console card or the bus spy holds the bus |
+| B43-B46 | PS0-PS3 | OUT (master) | module ID: the card of the I/O block; `0xD` on the CPU's memory cycle, `0x8` on DMA's own cycles, the card's in a fly-by grant, `0xE` while the Console card or the bus spy holds the bus; pulled up, to `0xF`, a free ID, so a cycle no master drives selects no card's registers |
 | B47 | GND | | ground |
 | B48 | /IACK | OUT | the north bridge's interrupt poll (with /DMA low too: the DMA controller's request poll); pulled up |
 | B49 | /DMA | OUT | the DMA controller's poll and grant cycles; in a grant the card named on PS0-PS3 moves its data register; pulled up |
@@ -130,10 +132,12 @@ Console card or the bus spy once it has taken the bus with BE.
 - **The six +5V contacts** carry a slot's whole current. Whether six are enough stands on the chosen connector's
   current rating per contact and the owner's budget for each of the 15 or so slots.
 
-**Pull-ups on the backplane,** so that an empty slot, or a bus between two masters, leaves every line in a known
-state: RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ; /WAIT and /DREQ (open drain); weak ones on D0-D15, for both polls
-and for an unmapped read (`$FF`, or `$FFFF` as a word); and /WORD, /MEM, /DMA, /IACK and /OE, so that a handover
-selects no memory and makes no poll.
+**Pull-ups on the backplane,** so that an empty slot leaves its lines in a known state, and a cycle that no master
+drives (a BE handover, between one master letting go and the next driving) selects nothing: RDY, BE, /BOOTSEL,
+/RESET, /NMI and /IRQ; /WAIT and /DREQ (open drain); weak ones on D0-D15, for both polls and for an unmapped read
+(`$FF`, or `$FFFF` as a word); /WORD, /MEM, /DMA, /IACK and /OE, so that such a cycle selects no memory and makes no
+poll; PS0-PS3, to `0xF`, a free ID, so that no card's registers answer it; and RWB, so that it is a read, with /OE
+high. A0-A23 have no pull-ups and float then, which is harmless with nothing selected.
 
 **From the 62-pin bus.** Every 62-pin signal carries over but DRQ0-DRQ3 and /DACK0-/DACK3 (8 lines, replaced by
 /DREQ and /DMA) and +24 V (5 V only). New: D8-D15, A20-A23, /MEM, /DMA, /DREQ, /WAIT, /WORD and BR0-BR2. The
