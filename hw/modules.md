@@ -2,129 +2,175 @@
 
 ## Chain ##
 
-CPU + North Bridge + Clock (one card) -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shift Driver) -> I/O (Serial/Parallel)
+CPU card (CPU, north bridge, clock, DS3231, DMA controller, ROM A) -> RAM card -> the cards (I/O, storage, video,
+sound, USB, Disk II, Console, the cartridge) -> Bus Spy (ESP32)
+
+*(2026-11-17, B6: the "LSD (Level Shift Driver)" element is dropped. The bus is 5 V only and every card meets it at
+5 V, so no level shifting is needed between cards; a card with 3.3 V parts, such as the bus spy's ESP32 or an
+RP2350 card, shifts its own levels on the card. The ROM is ROM A, on the CPU card; the RAM is one card.)*
 
 ## Notes: ##
 
-  - Only 1 active clock per stack. Each clock module producing a clock should have a disable switch.
-  - Each module should regulate the bus's +24 V down to the voltage it needs (V~CC2~) at the point of use. This
-    keeps the current on the bus low.
-  - Reset should be pulled low by _any_ module should reset the system. Soft starts should go high after 100ms.
-    - use a 100k resistor and 1uf cap to V~CC1~, clamp Reset high with a zener diode (3v3, 5v, etc...).
-  - Each Module has an ID (2^4) set with lines 31 .. 34 by the North Bridge. More than one ID can be services by a
-    pysical card. The ID in most cases sets Chip Enable (CE) or Chip Select (CS) of the target using a decoder.
+  - One clock: it is on the CPU card, and there is one backplane and one CPU card, so no clock needs a disable
+    switch. *(2026-11-17, B6: was "only 1 active clock per stack", from the stacked-module days.)*
+  - The bus carries 5 V only (decided, the owner, 2026-11-14). A card that needs 3.3 V or another voltage regulates
+    it from the 5 V on the card. *(Replaces the 62-pin bus's +24 V, which every card regulated down.)*
+  - /RESET may be pulled low by _any_ module, and that resets the system. Soft starts should go high after 100ms.
+    - use a 100k resistor and 1uf cap to the 5 V rail, clamp /RESET high with a zener diode. *(2026-11-17, B6: the
+      note is kept; "V~CC1~" is the bus's 5 V now.)*
+  - Each module with registers has an ID (2^4), which the north bridge puts on PS0-PS3. More than one ID can be
+    served by a physical card. The ID in most cases sets Chip Enable (CE) or Chip Select (CS) of the target using a
+    decoder. Memory (the RAM card, ROM A and ROM B) has no ID: it answers by its address while /MEM is low.
 
 
 ## Bus Pin Out ##
 
-ISA Card Slot with 62 Pins (e.g. EDC395062-ND) 20 Address Lines and 8 Data Lines
+### 98-pin PCIe x8 card edge, keyed, 5 V only (proposed: a draft) ###
 
+**Signals decided; every position is open, the owner's.** The connector is the 98-contact card edge that PCIe x8
+slots use (decided, the owner, 2026-11-14), but the bus is the OO-1's own: the slot is shrouded and keyed so that no
+other card fits. The shroud, its key and the socket's part number are the owner's. The table below is B6's draft
+(2026-11-17): the signal list in it is decided; every pin number, the split between the sides and the placement of
+the grounds are open, for the owner's board design.
 
-| PIN  |  Name  |  Dir   |  Description                                           |
-| ---- | ------ | -----  | ------------------------------------------------------ |
-|  A1  | GND    |        | Ground                                                 |
-|  A2  | D7     | IN/OUT | Data Bit 7                                             |
-|  A3  | D6     | IN/OUT·|·Data·Bit·6·············································|
-|  A4  | D5     | IN/OUT·|·Data·Bit·5·············································|
-|  A5  | D4     | IN/OUT·|·Data·Bit·4·············································|
-|  A6  | D3     | IN/OUT·|·Data·Bit·3·············································|
-|  A7  | D2     | IN/OUT·|·Data·Bit·2·············································|
-|  A8  | D1     | IN/OUT·|·Data·Bit·1·············································|
-|  A9  | D0     | IN/OUT·|·Data·Bit·0·············································|
-|  A10 | RWB    | IN/OUT | Read/Write (CPU, or the DMA/bus master)                |
-|  A11 | /OE    | OUT    | Read strobe from the north bridge                      |
-|  A12 | A19    | OUT   ·|·Address Bit 19 ········································|
-|  A13 | A18    | OUT   ·|·Address Bit 18 ········································|
-|  A14 | A17    | OUT   ·|·Address Bit 17 ········································|
-|  A15 | A16    | OUT   ·|·Address Bit 16 ········································|
-|  A16 | A15    | OUT   ·|·Address Bit 15 ········································|
-|  A17 | A14    | OUT   ·|·Address Bit 14 ········································|
-|  A18 | A13    | OUT   ·|·Address Bit 13 ········································|
-|  A19 | A12    | OUT   ·|·Address Bit 12 ········································|
-|  A20 | A11    | OUT   ·|·Address Bit 11 ········································|
-|  A21 | A10    | OUT   ·|·Address Bit 10 ········································|
-|  A22 | A9     | OUT   ·|·Address Bit 9  ········································|
-|  A23 | A8     | OUT   ·|·Address Bit 8 · ·······································|
-|  A24 | A7     | OUT   ·|·Address Bit 7 ·· ······································|
-|  A25 | A6     | OUT   ·|·Address Bit 6 ··· ·····································|
-|  A26 | A5     | OUT   ·|·Address Bit 5 ···· ····································|
-|  A27 | A4     | OUT   ·|·Address Bit 4 ····· ···································|
-|  A28 | A3     | OUT   ·|·Address Bit 3 ······ ··································|
-|  A29 | A2     | OUT   ·|·Address Bit 2 ······· ·································|
-|  A30 | A1     | OUT   ·|·Address Bit 1 ········ ································|
-|  A31 | A0     | OUT   ·|·Address Bit 0 ········· ·······························|
-|  B1  | GND    |       ·|·Ground        ········· ·······························|
-|  B2  | /RESET | OUT   ·|·Reset or initialize system logic                · ·····|
-|  B3  | /NMI   | OUT   ·|·Non-maskable interupt · ·······························|
-|  B4  | /IRQ   | IN    ·|·Interupt       ·· ········      ·······················|
-|  B5  | PS3    | OUT   ·|·Peripheral·Selector Bit 3  · ··························|
-|  B6  | PS2    | OUT   ·|·Peripheral·Selector Bit 2 ·····························|
-|  B7  | PS1    | OUT   ·|·Peripheral·Selector Bit 1 ·····························|
-|  B8  | PS0    | OUT   ·|·Peripheral·Selector Bit 0 ·····························|
-|  B9  | SYNC   | OUT    | Opcode fetch (single-step, bus spy)                    |
-|  B10 | GND    |       ·|·Ground        ········· ·······························|
-|  B11 | VPB    | OUT    | Vector pull (north bridge vector rule)                 |
-|  B12 | RDY    | IN     | Ready, open drain: wait states, DMA halt               |
-|  B13 | BE     | IN     | Bus Enable, open drain: low floats the CPU             |
-|  B14 | /IACK  | OUT    | Interrupt status poll                                  |
-|  B15 | DRQ0   | DMA    | DMA request, channel 0 (storage)                       |
-|  B16 | /DACK0 | DMA    | DMA acknowledge, channel 0                             |
-|  B17 | DRQ1   | DMA    | DMA request, channel 1                                 |
-|  B18 | /DACK1 | DMA    | DMA acknowledge, channel 1                             |
-|  B19 | GND    |        | Ground (shields PHI2)                                  |
-|  B20 | PHI2   | OUT   ·|·CPU Clock    (50% duty cycle) ·············        ····|
-|  B21 | GND    |        | Ground (shields PHI2)                                  |
-|  B22 | DRQ2   | DMA    | DMA request, channel 2                                 |
-|  B23 | /DACK2 | DMA    | DMA acknowledge, channel 2                             |
-|  B24 | DRQ3   | DMA    | DMA request, channel 3                                 |
-|  B25 | /DACK3 | DMA    | DMA acknowledge, channel 3                             |
-|  B26 | TC     | DMA    | DMA terminal count                                     |
-|  B27 | AMODE  | OUT    | Apple II mode is active                                |
-|  B28 | /BOOTSEL| IN     | Boot from RAM, not ROM (bus spy), open drain           |
-|  B29 | +24VDC |       ·|·        ········· ·················      ··············|
-|  B30 | OSC    | OUT   ·|·System Clock (50% duty cycle)       ···················|
-|  B31 | GND    |       ·|·Ground        ········· ·······························|
+Dir is seen from the CPU card. OUT: the CPU card drives it. IN: a card drives it. IN/OUT: both. OUT (master): the
+master holding the bus drives it, which is the CPU card (the north bridge, or the DMA controller beside it), or the
+Console card or the bus spy once it has taken the bus with BE.
 
+| Pin | Name | Dir | Description |
+|---|---|---|---|
+| A1 | GND | | ground |
+| A2 | +5V | | power |
+| A3 | +5V | | power |
+| A4 | +5V | | power |
+| A5 | GND | | ground |
+| A6 | /RESET | IN/OUT | reset; open drain, pulled up; any card (the bus spy too) may hold it |
+| A7 | /NMI | IN | non-maskable interrupt; open drain, pulled up; the USB card (Pause/Break) and the Console card (its breakpoint) pull it |
+| A8 | /IRQ | IN | interrupt request; open drain, pulled up |
+| A9 | AMODE | OUT | Apple II mode is active (the north bridge) |
+| A10 | GND | | ground |
+| A11 | /BOOTSEL | IN | boot from RAM, not ROM (the bus spy); open drain, pulled up |
+| key | | | the key, between 11 and 12 |
+| A12 | GND | | ground |
+| A13-A16 | D0-D3 | IN/OUT | data, the byte lane; weak pull-ups on D0-D15 on the backplane; the interrupt poll answers on D0-D7 (line ID mod 8), the DMA request poll on D(ID) |
+| A17 | GND | | ground |
+| A18-A21 | D4-D7 | IN/OUT | data, the byte lane |
+| A22 | GND | | ground |
+| A23-A26 | D8-D11 | IN/OUT | data, the odd byte of a word cycle; the DMA request poll's IDs 8-B (of the two polls, only the DMA request poll uses D8-D15) |
+| A27 | GND | | ground |
+| A28-A31 | D12-D15 | IN/OUT | data, the odd byte of a word cycle; the DMA request poll's IDs C-F |
+| A32 | GND | | ground |
+| A33 | RWB | OUT (master) | read/write |
+| A34 | /OE | OUT (master) | read strobe; driven by whichever master holds the bus, as it drives RWB; pulled up |
+| A35 | /WORD | OUT (master) | low on a word cycle (both lanes, at an even address), high on a byte cycle; pulled up, so a master that never drives it makes byte cycles |
+| A36 | /MEM | OUT (master) | a memory cycle: memory decodes A0-A23 only while it is low; high on an I/O cycle, a poll and the DMA takeover; pulled up |
+| A37 | GND | | ground, beside PHI2 |
+| A38 | PHI2 | OUT | the CPU clock, 50% duty |
+| A39 | GND | | ground, beside PHI2 |
+| A40 | RDY | IN/OUT | ready; open drain, pulled up; the DMA controller's and the Console card's only (a slow card uses /WAIT) |
+| A41 | BE | IN/OUT | bus enable; open drain, pulled up; low floats the CPU card's bus drivers; the DMA controller (on the CPU card), the Console card and the bus spy pull it |
+| A42 | /WAIT | IN | a slow card's wait states; open drain, pulled up; the north bridge turns it into RDY for the CPU, and the DMA controller stretches its grant by it |
+| A43 | SYNC | OUT | opcode fetch (single step, the bus spy) |
+| A44 | GND | | ground, beside OSC |
+| A45 | OSC | OUT | the 14.31818 MHz master clock |
+| A46 | GND | | ground, beside OSC |
+| A47 | VPB | OUT | vector pull (the north bridge's vector rule) |
+| A48 | TC | OUT | terminal count, with a transfer's last byte or word (the DMA controller) |
+| A49 | RSV0 | | spare: routed to every slot, no card connects it |
+| B1 | GND | | ground |
+| B2 | +5V | | power |
+| B3 | +5V | | power |
+| B4 | +5V | | power |
+| B5 | GND | | ground |
+| B6 | BR0 | | reserved for a future bridged bus: routed to every slot, no card connects it |
+| B7 | BR1 | | reserved, as BR0 |
+| B8 | BR2 | | reserved, as BR0 |
+| B9 | /DREQ | IN | a card's DMA request; one open-drain line all cards share, pulled up |
+| B10 | GND | | ground |
+| B11 | RSV1 | | spare, as RSV0 |
+| key | | | |
+| B12 | GND | | ground |
+| B13-B16 | A0-A3 | OUT (master) | address; A0-A6 are also a card's register select |
+| B17 | GND | | ground |
+| B18-B21 | A4-A7 | OUT (master) | address |
+| B22 | GND | | ground |
+| B23-B26 | A8-A11 | OUT (master) | address |
+| B27 | GND | | ground |
+| B28-B31 | A12-A15 | OUT (master) | address |
+| B32 | GND | | ground |
+| B33-B36 | A16-A19 | OUT (master) | address |
+| B37 | GND | | ground |
+| B38-B41 | A20-A23 | OUT (master) | address; A20-A23 are new on this bus (the 24-bit map) |
+| B42 | GND | | ground |
+| B43-B46 | PS0-PS3 | OUT (master) | module ID: the card of the I/O block; `0xD` on the CPU's memory cycle, `0x8` on DMA's own cycles, the card's in a fly-by grant, `0xE` while the Console card or the bus spy holds the bus |
+| B47 | GND | | ground |
+| B48 | /IACK | OUT | the north bridge's interrupt poll (with /DMA low too: the DMA controller's request poll); pulled up |
+| B49 | /DMA | OUT | the DMA controller's poll and grant cycles; in a grant the card named on PS0-PS3 moves its data register; pulled up |
 
-Pull-ups (RDY, BE, /BOOTSEL, /RESET, /NMI, /IRQ, and weak ones on D0-D7 for /IACK) and pull-downs (DRQ0-DRQ3)
-live on the backplane. Signal details are in [design.md](design.md#backplane-signals).
+**The counts.** 67 lines (64 signals and BR0-BR2), 6 +5V, 23 GND and 2 spares: 98 contacts, 49 a side.
+
+| | Side A | Side B | Total |
+|---|---|---|---|
+| lines (with BR0-BR2) | 33 | 34 | 67 |
+| +5V | 3 | 3 | 6 |
+| GND | 12 | 11 | 23 |
+| spare (RSV0, RSV1) | 1 | 1 | 2 |
+| contacts | 49 | 49 | 98 |
+
+**The draft's rules.**
+- Power, then the slow open-drain lines, in the short segment (1-11): GND, three +5V and GND on each side, then
+  /RESET, /NMI, /IRQ, AMODE and /BOOTSEL on side A, and BR0-BR2 and /DREQ on side B. RDY, BE and /WAIT, open drain
+  but acting within a cycle, sit beside PHI2.
+- Data on side A and address on side B, D0-D15 and A0-A23 in order, so a card routes straight.
+- At most four lines between two grounds, on both sides. Every routed line counts, the spares and BR0-BR2 too, so a
+  later use of them keeps the rule; a +5V contact doesn't count as a return, and neither does the key (each side
+  has a ground at 10 and at 12).
+- A ground on either side of PHI2 and of OSC, as the 62-pin bus had beside PHI2.
+- What is left is spare: RSV0 and RSV1, routed to every slot, unconnected.
+- **The six +5V contacts** carry a slot's whole current. Whether six are enough stands on the chosen connector's
+  current rating per contact and the owner's budget for each of the 15 or so slots.
+
+**Pull-ups on the backplane,** so that an empty slot, or a bus between two masters, leaves every line in a known
+state: RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ; /WAIT and /DREQ (open drain); weak ones on D0-D15, for both polls
+and for an unmapped read (`$FF`, or `$FFFF` as a word); and /WORD, /MEM, /DMA, /IACK and /OE, so that a handover
+selects no memory and makes no poll.
+
+**From the 62-pin bus.** Every 62-pin signal carries over but DRQ0-DRQ3 and /DACK0-/DACK3 (8 lines, replaced by
+/DREQ and /DMA) and +24 V (5 V only). New: D8-D15, A20-A23, /MEM, /DMA, /DREQ, /WAIT, /WORD and BR0-BR2. The
+62-pin table is no longer here: it is in design.md,
+[the 62-pin bus, the first design's](design.md#the-62-pin-bus-the-first-designs). Signal details are in
+[design.md](design.md#backplane-signals) and
+[the new bus](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
 
 
 ## Modules Id List ##
 
-| Address | Module                     |
-| ------- | -------------------------- |
-| 0x0     | RAM A                      |
-| 0x1     | RAM B                      |
-| 0x2     | RAM C                      |
-| 0x3     | RAM D                      |
-| 0x4     | ROM A                      |
-| 0x5     | ROM B (Game Cart)          |
-| 0x6     | Serial A/B, Parallel & VIA |
-| 0x7     | Mass Storage               |
-| 0x8     | DMA Controller             |
-| 0x9     | Video                      |
-| 0xA     | Sound (2x SID)             |
-| 0xB     | USB, Game Port & Speaker   |
-| 0xC     | Disk II Controller         |
-| 0xD     | North Bridge (registers)   |
-| 0xE     | Console                    |
-| 0xF     | (free: the clock moved onto the CPU card, 2026-10-30) |
+| ID | Module | Where |
+| --- | --- | --- |
+| 0x0-0x5 | free (once RAM A-D, ROM A and ROM B; memory is selected by its address on the new bus) | |
+| 0x6 | serial: COM1/COM2, LPT, the VIA | a slot |
+| 0x7 | mass storage (SD) | a slot |
+| 0x8 | the DMA controller (revision 2, ID byte `$82`) | the CPU card |
+| 0x9 | video | a slot |
+| 0xA | sound (2x SID) | a slot |
+| 0xB | USB, game port and speaker | a slot |
+| 0xC | Disk II controller | a slot |
+| 0xD | the north bridge (registers) | the CPU card |
+| 0xE | Console (the front panel) | a slot |
+| 0xF | free (the clock moved onto the CPU card, 2026-10-30) | |
+| none | the RAM card, 1 MB at `$000000-$0FFFFF`, by address; RAM A-D name its four 256 KB quarters | a slot |
+| none | ROM A, 512 KB at `$F00000`: two 256 KB chips side by side, even and odd bytes, that can be written; the BIOS, and the IIe images in blocks 0-5 (since B5, proposed) | the CPU card |
+| none | ROM B, the game cartridge, 512 KB at `$F80000`, two chips as ROM A, erased | a slot |
+| none | the bus spy (a bus master, no registers) | a slot |
 
-On the new bus (98 pins, 2026-11-14) memory is selected by its address, so IDs 0x0–0x5 (RAM A–D, ROM A and B) are
-free as well: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
-
-**Decided (B0, 2026-11-14):** on the new bus ROM A is two 256 KB chips side by side, even and odd bytes, at
-`$F00000`, and ROM B, the cartridge, the same at `$F80000`; the video card's aperture moves to `$E00000`, so all
-1 MB is RAM. The DMA controller (revision 2, ID `$82`) grants by the module ID in each channel's CARD register,
-through one channel window chosen by CONTROL's SELECT, and the serial card (0x6) picks its DMA stream with
-DMASTREAM. The north bridge (0xD) is revision 2, ID `$D2`, with the wider windows:
-[design.md](design.md#the-physical-map-on-the-new-bus).
-
-**Decided (2026-11-14): one backplane, no expansion chassis.** RAM is one card of 1 MB, selected by address; the
-DMA controller (0x8) and the north bridge (0xD) are on the CPU card. The backplane has about 14–15 slots, one for
-each card that can exist (at most 14 with IDs, plus the RAM card and the cartridge) and the CPU card. It is a
-passive bus at 7.16 MHz. Three pins, BR0–BR2, are reserved, unassigned, for a future bridged bus with its own ID
-space. Slow cards ask for wait states by /WAIT. ROM A is on the CPU card, which carries the CPU, the north bridge, the clock, the DS3231, the DMA controller
-and ROM A; ROM B, the cartridge, stays a card in a slot:
-[design.md](design.md#one-backplane-the-slots-and-the-reserved-pins).
+- **The new bus (98 pins, 2026-11-14):** memory is selected by its address, so IDs 0x0-0x5 (once RAM A-D, ROM A
+  and B) are free, with 0xF: [design.md](design.md#the-new-bus-memory-by-address-dma-by-module-id-one-backplane).
+- **Decided (B0, 2026-11-14):** the video card's aperture moves to `$E00000`, so all 1 MB is RAM. The DMA
+  controller (revision 2, ID `$82`) grants by the module ID in each channel's CARD register, through one channel
+  window chosen by CONTROL's SELECT, and the serial card (0x6) picks its DMA stream with DMASTREAM. The north bridge
+  (0xD) is revision 2, ID `$D2`, with the wider windows: [design.md](design.md#the-physical-map-on-the-new-bus).
+- **Decided (2026-11-14): one backplane, no expansion chassis.** The backplane has about 14-15 slots, one for each
+  card that can exist (at most 14 with IDs, plus the RAM card and the cartridge) and the CPU card, which carries the
+  CPU, the north bridge, the clock, the DS3231, the DMA controller and ROM A. It is a passive bus at 7.16 MHz.
+  BR0-BR2 are reserved, unassigned, for a future bridged bus with its own ID space. Slow cards ask for wait states
+  by /WAIT: [design.md](design.md#one-backplane-the-slots-and-the-reserved-pins).
