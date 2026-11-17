@@ -275,8 +275,10 @@ TEST(each_chip_polls_on_its_own_and_the_other_reads_meanwhile)
     CHECK_EQ(r.load(0x0010), 0x15);  // the even chip reads on
 }
 
-// §4 case 4. A busy chip ignores writes, a broken sequence returns to reading, and peek() doesn't toggle.
-// Seen failing with a busy chip accepting the next program.
+// §4 case 4. A busy chip ignores writes, a broken sequence returns to reading, and peek() doesn't toggle;
+// an erase takes its second unlock pair, and a chip erase its $10, only at the command addresses.
+// Seen failing with a busy chip accepting the next program, with the second unlock pair taken at any
+// address, and with $10 taken at any address.
 TEST(a_busy_chip_ignores_writes_and_a_broken_sequence_reads_again)
 {
     Rig r;
@@ -304,6 +306,32 @@ TEST(a_busy_chip_ignores_writes_and_a_broken_sequence_reads_again)
     r.to_chip(0, 0x5555, 0xA0);
     r.store(0x0040, 0x00);
     CHECK_EQ(r.array(0x0040), 0xFF);
+
+    // An erase's second unlock pair at a wrong chip address, either half: the $30 erases nothing.
+    r.program(0x0060, 0x00);         // in sector 0, to show an erase
+    CHECK(r.poll(0x0060) != 0);
+    r.program(0x10000, 0x00);        // and in another sector, to show a chip erase
+    CHECK(r.poll(0x10000) != 0);
+    REQUIRE(r.array(0x0060) == 0x00);
+    REQUIRE(r.array(0x10000) == 0x00);
+    for (const uint32_t aa : {0x5554u, 0x5555u})
+    {
+        r.unlock(0);
+        r.to_chip(0, 0x5555, 0x80);
+        r.to_chip(0, aa, 0xAA);
+        r.to_chip(0, aa == 0x5555 ? 0x2AABu : 0x2AAAu, 0x55); // one of the two wrong
+        r.to_chip(0, 0x0030, 0x30);
+        CHECK_EQ(r.array(0x0060), 0x00);
+        CHECK(!r.rom_a.busy(0));
+    }
+    // The whole erase sequence, but $10 at an address other than $5555: no chip erase.
+    r.unlock(0);
+    r.to_chip(0, 0x5555, 0x80);
+    r.unlock(0);
+    r.to_chip(0, 0x5554, 0x10);
+    CHECK_EQ(r.array(0x0060), 0x00);
+    CHECK_EQ(r.array(0x10000), 0x00);
+    CHECK(!r.rom_a.busy(0));
 }
 
 // §4 case 5. An emulator-model check: the busy times are the part's typical ones, in bus cycles at the CPU
