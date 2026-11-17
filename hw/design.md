@@ -2987,7 +2987,8 @@ so no ROM, OODOS.SYS or card was rebuilt or compared, and nothing in the ROM or 
 **Proposed, emulated (2026-11-16).** Step B5, the software and the books, on `feat/bus-b5` off main `c5c86d0` (B4's
 merge), with the owner's answers to its plan (Q1–Q15 "recommendations as listed", and Q16–Q19), the critic's twenty
 findings, the owner's answers at three build stops (U5, HW_CLOCK, U7), and those to its review round 1 (R1, E1–E3
-and W1–W5 fixed, each marked "review round 1" here; W6 accepted). The ROM BIOS is 0.16, B5's alone
+and W1–W5 fixed, each marked "review round 1" here; W6 accepted) and to its review round 2 (F1–F4 fixed, marked
+"review round 2"). The ROM BIOS is 0.16, B5's alone
 (answer 11). OODOS's interface goes from 10 to 11 (function 75's A = 3); OODOS stays 0.10 until the site release
 that carries B5, which makes it 0.11 (answer 10), so the books' "since OODOS 0.11" is true from that release. Every
 interface only grows: the jump table gains its ninth entry, function 75 an argument, and nothing existing changes.
@@ -3041,7 +3042,9 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   read-only window; the commit bytes (the set's first 8, then the image's `$FBB3` last of all); the verify again. A
   mismatch (`FLASH IMAGE n NOT WRITTEN AT $Fxxxxx`) or a chip that doesn't answer in 65,536 pairs of reads (about
   180 ms; `THE FLASH DOESN'T ANSWER`) erases image and set again, `$FBB3` to `$00` first, unless it is that erase
-  again that didn't answer. It runs QUIET with interrupts off and sets every window itself however
+  again that didn't answer; an odd chip that stops answering before `$FBB3` is made `$00` (in the chips' `$FF`
+  and `$F0`) doesn't answer the erase again's `$00` either, so nothing is erased and the image is left as it was,
+  good if it was (review round 2, F4: chapter 3 had said the image wasn't good then). It runs QUIET with interrupts off and sets every window itself however
   entered (Q18, critic 12). Every flash write goes through FPUT, which refuses at run time any W1 value but
   `NB_ROM | 0–5` (`THE FLASH UPDATE REFUSED BLOCK $bb`, critic 4), and an `.assert` holds the arithmetic at build;
   no chip erase is ever sent. Zero page `$10–$21` and `$0280–$029A` are its own; sd.s's zero page grew to
@@ -3103,7 +3106,13 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   failing under its mutant: two test_bios_sd cases for R1 (Break during image 1's first sector erase, lengthened;
   a sector erase past the poll's time-out twice; each `$FBB3` not `$06` and `C806R` taking image 3), test_app_debug's
   sector erase at `--clock 1000000` (E1), test_session's and wasm-port.test.ts's row cases (E2), and test_flash case
-  4's wrong second unlock pair and `$10` at a wrong address (E3).
+  4's wrong second unlock pair and `$10` at a wrong address (E3). Review round 2 added a test_bios_sd case for the
+  erase again after the commit (F1: the set's first byte refusing to program, so the last verify fails with `$06`
+  already at `$FBB3`; Break during the erase again's first unit erase; `$FBB3` not `$06` and `C806R` taking image
+  3), seen failing with the `$00` skipped when FFAIL is set. test_app_debug's E1 check pins the start's
+  `set_cpu_hz` only, and says so (F3): the app's one clock change is Apple II mode's, where no flash command can
+  be timed. Chapter 14 gained E2's rule for the row (F2), and chapter 3's step 9 the odd chip that stops answering
+  before `$FBB3` is made `$00` (F4).
 - **Measured,** from U7's build (`b2b64e8`): ROM block 31 has 5,159 bytes free (`$EBCD–$FFF3`; 7,148 on main;
   5,147, `$EBD9–$FFF3`, after review round 1's R1);
   block 21 7,896, block 22 2,409 and block 23 7,917. OODOS's RES region 219 bytes free (`$F725–$F7FF`, RES2 `$316`

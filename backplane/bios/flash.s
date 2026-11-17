@@ -34,7 +34,10 @@
 ;      after it.
 ;   7. On a mismatch or a chip that doesn't answer it erases the image and set
 ;      again (its $FBB3 programmed to $00 first there too, as the image may be
-;      good by then) and says so; either way it ends in the monitor.
+;      good by then) and says so; either way it ends in the monitor. If the
+;      odd chip stops answering before the image's $FBB3 is made $00 (in
+;      CHIPS), the erase again's program of it doesn't answer either, so
+;      nothing is erased and the image is left as it was, good if it was.
 ;
 ; However it is entered it runs QUIET (bios.s) and with interrupts off, and
 ; sets every window itself: W0 zero page and the stack (RAM block 0), W2 the
@@ -585,7 +588,9 @@ NOTWRITTEN:     LDA     FBLK           ; $F0 + block / 4, then (block & 3) x $40
                 JMP     LEAVECR
 
 ; A chip that doesn't answer its poll: erased again (unless it is that
-; erase again that didn't answer), said, and the monitor.
+; erase again that didn't answer), said, and the monitor. An odd chip that
+; stopped answering in CHIPS doesn't answer the erase again's $FBB3 either,
+; so the image is left as it was.
 NOANSWER:       BIT     FFAIL
                 BMI     @say
                 JSR     AGAIN

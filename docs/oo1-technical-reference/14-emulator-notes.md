@@ -257,7 +257,8 @@ A change lands in the array when its operation starts, and there is no wear. A w
 never reaches a chip.
 
 `--apple-rom` and `--apple-chars`, and Settings' IIe ROM row, write ROM A's array directly, as a programmer would:
-each slot erased, then the file. **ROM A's blocks 0–5 are kept through power cycles** (the WebUI's keyswitch, or
+each slot erased, then the file. The row erases and writes image 0 and set 0 only when its IIe ROM's or
+characters' bytes change; a Disk II PROM alone, or the same bytes again, keeps them (since B5, proposed). **ROM A's blocks 0–5 are kept through power cycles** (the WebUI's keyswitch, or
 Settings' IIe ROM row), whoever wrote them: the row, or the BIOS's [flash update](03-boot.md#the-flash-update) run in
 the machine. The kept bytes are copied into each new build; a ROM the row refuses leaves them as they were. They are
 in memory only: a page reload, or a new run of the terminal app, starts again from the files, and nothing is

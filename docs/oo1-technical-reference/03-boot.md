@@ -277,7 +277,10 @@ carry set, in BIOS 0.16.
    `FLASH IMAGE 2 NOT WRITTEN AT $F0xxxx`, with its physical address (`$F1xxxx` in a set), and a chip that doesn't
    answer its poll within 65,536 pairs of reads (about 180 ms) `THE FLASH DOESN'T ANSWER`; either way the image and
    its set are erased again, its `$FBB3` programmed to `$00` first as in step 6 (unless it is that erase again that
-   didn't answer), so the image isn't good, and the monitor follows.
+   didn't answer), so the image isn't good, and the monitor follows. A chip that stops answering before the
+   image's `$FBB3` has been made `$00` can leave it so: if it is the odd chip, which holds that byte, the erase
+   again can't program it either, nothing is erased, and the image is left as it was (whole, and good if it was),
+   for `$C806` to take.
 
 However it is entered, it runs QUIET first (the DMA stopped and the cards quiet, as Break does), keeps interrupts off,
 and sets every window itself: W0 RAM block 0, W2 the copy in RAM, W3 the BIOS's copy, and W1 the flash, writable to
