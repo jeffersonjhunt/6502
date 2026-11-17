@@ -13,7 +13,8 @@ writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed; --screen saves the video card's
 frame as a PPM, and fails on a machine without one; `vram` shows and
 writes a revision 2 card's memory, which the aperture shows too; leaving Apple II mode
-by a hard reset paces at --clock again. Bad --load and --break arguments,
+by a hard reset paces at --clock again; the flash's busy times are
+counted at --clock. Bad --load and --break arguments,
 an option missing its value or given twice, stop the app before the
 terminal goes raw.
 
@@ -273,6 +274,33 @@ def main():
         check(failures, "apple mode left: paced at --clock again", ran is not None and ran < 100_000,
               f"{ran} cycles in about a second at --clock 10000 {text(s.log)}")
         check(failures, "apple session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
+
+        # The flash's busy times are real time, counted at --clock: a sector
+        # erase (18 ms) is about 18,000 cycles at 1 MHz, not the 128,864 it
+        # would be at the 7.16 MHz a chip assumes until it is told the clock.
+        flash = os.path.join(cwd, "flash.machine")
+        with open(flash, "w") as f:
+            f.write("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
+                    "flash 00000-7FFFF space=flash name=rom_a -\nacia6551 300-37F space=io name=terminal\n")
+
+        def to_w1(block, addr, value):  # W1 = ROM A's block, then value to addr through it
+            return [0xA9, 0x80 | block, 0x8D, 0x81, 0xC6, 0xA9, value, 0x8D, addr & 0xFF, addr >> 8]
+
+        erase = (to_w1(2, 0x6AAA, 0xAA) + to_w1(1, 0x5554, 0x55) + to_w1(2, 0x6AAA, 0x80) +  # the even chip:
+                 to_w1(2, 0x6AAA, 0xAA) + to_w1(1, 0x5554, 0x55) + to_w1(3, 0x4000, 0x30))   # $C000's sector
+        poll = [0xAD, 0x00, 0x40, 0xCD, 0x00, 0x40, 0xD0, 0xF8, 0xDB]  # LDA/CMP $4000 until they agree; STP
+        write_hex(hexfile, [(0x0300, erase + poll)])
+        s = Session(binary, ["--machine", flash, "--clock", "1000000", "--load", hexfile, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        before = cycles(s.send(b"x pc=0300\n"))
+        out = s.send(b"r\n", timeout=20)
+        after = cycles(out)
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        ran = after - before if before is not None and after is not None else None
+        check(failures, "flash: a sector erase at --clock's time", b"halted (STP)" in out and ran is not None
+              and 18_000 <= ran < 20_000, f"{ran} cycles for a sector erase at --clock 1000000 {text(out)}")
+        check(failures, "flash session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
 
         # --trace: header, reset sequence, one line per cycle; trace_diff agrees
         # with itself and finds a changed byte.

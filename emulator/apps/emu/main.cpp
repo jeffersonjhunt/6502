@@ -259,6 +259,8 @@ namespace
                 bridge->set_cpu_hz(settings.clock_hz); // the DS3231's second
             if (Disk2Card *disk = machine.disk2_card())
                 disk->set_cpu_hz(settings.clock_hz); // native mode's sequencer steps
+            for (Flash *flash : machine.flashes())
+                flash->set_cpu_hz(settings.clock_hz); // its busy times are real time
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
             emulator.on_clock_change([&machine](uint32_t hz) {
@@ -274,6 +276,8 @@ namespace
                     bridge->set_cpu_hz(hz);
                 if (Disk2Card *disk = machine.disk2_card())
                     disk->set_cpu_hz(hz);
+                for (Flash *flash : machine.flashes())
+                    flash->set_cpu_hz(hz);
             });
 
             for (const int sig : {SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE})
