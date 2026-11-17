@@ -482,10 +482,12 @@ with up to 16 MB, so the reasoning isn't lost.
 **From the ESP32 (override)**
 
 1. The bus spy holds /RESET low and pulls BE low, so the CPU and the north bridge float, as they do for the Console
-   card.
+   card. In that cycle it enables its own drivers, with /MEM and /OE high, RWB a read and PS0–PS3 `0xE`
+   ([taking and giving back the bus](#the-physical-map-on-the-new-bus)).
 2. It writes an image into RAM over the backplane. The image can come from its flash, an SD card, Wi-Fi or USB.
 3. It drives /BOOTSEL, so the north bridge starts with W3 and VEC on RAM block 63 instead of the flash.
-4. It releases BE, then /RESET, and the CPU starts from the image in RAM.
+4. It drives one idle cycle (/MEM and /OE high, RWB a read, PS0–PS3 `0xF`), releases BE, then /RESET, and the CPU
+   starts from the image in RAM.
 
 **What the override is for:**
 
@@ -2044,10 +2046,13 @@ they take the bus with BE. A card with registers answers when PS0–PS3 is its I
 card answers its range with /MEM low. In a BE handover, while no master drives, the backplane's pull-ups hold /MEM,
 /DMA, /IACK, /WORD and /OE high, PS0–PS3 at `0xF` (the idle bus's ID, never a card's) and RWB high, so the cycle is
 a read that no memory, no card's registers and no poll answer; A0–A23 float, unused (B6, review round 1:
-[modules.md](modules.md)). **Before it releases BE,** a master drives /MEM, /OE, /IACK, /DMA and /WORD inactive
-(high), RWB to read and PS0–PS3 to `0xF` for at least one cycle, so the pull-ups only hold lines that are already
-high: a released line on a loaded passive bus takes many cycles to rise through a pull-up alone (B6, review round 2).
-The DMA controller's takeover cycle has the same shape, with PS `0x8`.
+[modules.md](modules.md)). **Taking and giving back the bus** (the Console card and the bus spy): in the cycle it
+pulls BE low, the master enables its own drivers, with /MEM and /OE high, RWB a read and PS0–PS3 `0xE`, its ID.
+Before it releases BE, it drives /MEM and /OE inactive (high), RWB to read, PS0–PS3 to `0xF` and /WORD high if it
+drives /WORD, for at least one cycle, so the pull-ups only hold lines that are already high: a released line on a
+loaded passive bus takes many cycles to rise through a pull-up alone. /IACK and /DMA stay the CPU card's. The DMA
+controller, on the CPU card, needs no idle cycle when it releases BE, since the CPU card drives the lines again at
+once, so its costs ([below](#the-dma-controller-revision-2)) are as they were (B6, review rounds 2 and 3).
 
 | Cycle | /MEM | /DMA, /IACK | PS0–PS3 | Address | Who answers |
 |---|---|---|---|---|---|
@@ -3237,12 +3242,28 @@ models the bus's signals, not its pins.
     new-bus bullet, [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane),
     [one backplane](#one-backplane-the-slots-and-the-reserved-pins), [CPU and clocks](#cpu-and-clocks), the Technical
     Reference's chapters 1 and 2 and [diag.md](diag.md)'s ID table.
-  - N3: pull-ups alone take many cycles to raise a released line on a loaded passive bus, so a new rule: before
-    it releases BE, a master drives /MEM, /OE, /IACK, /DMA and /WORD inactive (high), RWB to read and PS0–PS3 to
-    `0xF` for at least one cycle, and the pull-ups then only hold lines already high. It is in modules.md's legend
+  - N3: pull-ups alone take many cycles to raise a released line on a loaded passive bus, so a new rule, as
+    review round 3 left it: before the Console card or the bus spy releases BE, it drives /MEM and /OE inactive
+    (high), RWB to read, PS0–PS3 to `0xF` and /WORD high if it drives /WORD, for at least one cycle, and the
+    pull-ups then only hold lines already high; /IACK and /DMA stay the CPU card's. It is in modules.md's legend
     and pull-up paragraph, [/MEM in each kind of cycle](#the-physical-map-on-the-new-bus) and chapter 1. The
     emulator, which models the signals and not the pins, charges no cycle for it; B6 is docs only.
   - F2: chapter 2's I/O hole table gave IDs 0–5 to RAM and ROM; they are free IDs, no card.
+- **Review round 3, the final check** (the owner, 2026-11-17, "recommendations as listed"). Fixed:
+  - G1: round 2's rule had the releasing master drive /IACK and /DMA, which the CPU card drives throughout and the
+    other masters have no drivers for, and /WORD, which the bus spy leaves to its pull-up. The rule names only the
+    lines such a master drives: /MEM and /OE high, RWB to read, PS0–PS3 to `0xF`, and /WORD high if it drives it;
+    /IACK and /DMA stay the CPU card's.
+  - G2: the rule is for the masters off the CPU card, the Console card and the bus spy. The DMA controller's
+    release needs no idle cycle, since the CPU card drives the lines again at once, so DMA's cycle costs are
+    unchanged; the sentence that gave the rule the shape of DMA's takeover cycle is gone.
+  - G3: taking the bus had the same gap: a CPU halted by RDY inside a write leaves /MEM and RWB low when BE floats
+    it. So a take rule beside the release rule: in the cycle it pulls BE low, the master enables its own drivers,
+    with /MEM and /OE high, RWB a read and PS0–PS3 `0xE`, its ID. It is in modules.md's legend and pull-up
+    paragraph, [/MEM in each kind of cycle](#the-physical-map-on-the-new-bus), [Boot](#boot)'s override steps and
+    chapter 1.
+  - G4: EXAM and DEP are one bus cycle, then the idle cycle before BE is released, in
+    [Front Panel](#front-panel) and the Technical Reference's chapter 12.
 - **video-rev2.md** (frozen, not edited) still says DRQ 1 and /DACK, revision 1's wiring (its lines 21, 56, 113,
   167 and 236); they join B7's note there.
 - **No expectation, test, card or version changed.** No site release of B6 (Q14): its books ride the next one.
@@ -3351,8 +3372,9 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
 - **Halt and step through RDY.** The W65C02S stops on any cycle when RDY is low, writes included, so single
   bus-cycle step comes free. Releasing RDY until SYNC goes high again gives single-instruction step. What the lights
   show at each step lines up with the emulator's bus trace.
-- **EXAM and DEP** take the bus with BE and run one bus cycle at a 20-bit physical address, so they don't depend on
-  the window registers.
+- **EXAM and DEP** take the bus with BE and run one bus cycle at a 20-bit physical address, then the idle cycle
+  before BE is released ([taking and giving back the bus](#the-physical-map-on-the-new-bus), B6), so they don't
+  depend on the window registers.
 - **Live lights.** The CPLD latches the address, data and status on every bus cycle, so the lights glow with real
   bus activity, as a running PDP-11's did, and freeze when halted.
 - **Wiring.** Shift-register chains (74HC595 for lights, 74HC165 for switches) or LED drivers keep the card to the

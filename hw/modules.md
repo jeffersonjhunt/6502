@@ -37,9 +37,12 @@ Dir is seen from the CPU card. OUT: the CPU card drives it. IN: a card drives it
 master holding the bus drives it, which is the CPU card (the north bridge, or the DMA controller beside it), or the
 Console card or the bus spy once it has taken the bus with BE. While the Console card or the bus spy holds BE, the
 CPU card lets go of /WORD, /OE, /MEM and PS0-PS3 as well as the address, the data and RWB; a master that makes only
-byte cycles, such as the bus spy, may leave /WORD to its pull-up. Before it releases BE, a master drives /MEM, /OE,
-/IACK, /DMA and /WORD inactive (high), RWB to read and PS0-PS3 to `0xF` for at least one cycle, so that the pull-ups
-only hold lines that are already high (B6, review round 2).
+byte cycles, such as the bus spy, may leave /WORD to its pull-up. /IACK and /DMA stay the CPU card's. In the cycle
+it pulls BE low, the Console card or the bus spy enables its own drivers, with /MEM and /OE high, RWB a read and
+PS0-PS3 `0xE`, its ID. Before it releases BE, it drives /MEM and /OE inactive (high), RWB to read, PS0-PS3 to `0xF`
+and /WORD high if it drives /WORD, for at least one cycle, so that the pull-ups only hold lines that are already
+high. The DMA controller, on the CPU card, needs no such cycle when it releases BE: the CPU card drives the lines
+again at once (B6, review rounds 2 and 3).
 
 | Pin | Name | Dir | Description |
 |---|---|---|---|
@@ -140,10 +143,13 @@ drives (a BE handover, between one master letting go and the next driving) selec
 (`$FF`, or `$FFFF` as a word); /WORD, /MEM, /DMA, /IACK and /OE, so that such a cycle selects no memory and makes no
 poll; PS0-PS3, to `0xF`, the idle bus's ID, which no card is given, so that no card's registers answer it; and RWB,
 so that it is a read, with /OE high. A0-A23 have no pull-ups and float then, which is harmless with nothing selected.
-A pull-up alone raises a released line slowly on a loaded passive bus, many cycles at 7.16 MHz, so a master that
-hands the bus back drives those lines high first: before it releases BE, it drives /MEM, /OE, /IACK, /DMA and /WORD
-inactive (high), RWB to read and PS0-PS3 to `0xF` for at least one cycle, and the pull-ups then only hold lines that
-are already high (B6, review round 2).
+A pull-up alone raises a released line slowly on a loaded passive bus, many cycles at 7.16 MHz, so the Console card
+and the bus spy leave none of the lines they drive to the pull-ups. In the cycle it pulls BE low, such a master
+enables its own drivers, with /MEM and /OE high, RWB a read and PS0-PS3 `0xE`, its ID. Before it releases BE, it
+drives /MEM and /OE inactive (high), RWB to read, PS0-PS3 to `0xF` and /WORD high if it drives /WORD, for at least
+one cycle, and the pull-ups then only hold lines that are already high. /IACK and /DMA stay the CPU card's. The DMA
+controller's release needs no idle cycle, since the CPU card drives the lines again at once (B6, review rounds 2
+and 3).
 
 **From the 62-pin bus.** Every 62-pin signal carries over but DRQ0-DRQ3 and /DACK0-/DACK3 (8 lines, replaced by
 /DREQ and /DMA) and +24 V (5 V only). New: D8-D15, A20-A23, /MEM, /DMA, /DREQ, /WAIT, /WORD and BR0-BR2. The
