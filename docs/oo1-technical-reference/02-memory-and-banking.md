@@ -8,8 +8,8 @@ The design record, for the reasons: [hw/design.md, "Memory"](../../hw/design.md#
 
 Status: **emulated**
 
-The north bridge turns every CPU access into a 20-bit physical address, A0–A19. The RAM is 1 MB on the backplane,
-in four 256 KB modules, RAM A–D (module IDs 0–3). It is 16 banks of 64 KB, or 64 blocks of 16 KB; block n is
+The north bridge turns every CPU access into a 20-bit physical address, A0–A19. The RAM is 1 MB on one card in a
+slot, selected by its address, with no module ID; its four 256 KB quarters keep the names RAM A–D. It is 16 banks of 64 KB, or 64 blocks of 16 KB; block n is
 physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 
 | Bank | Physical | Blocks | What uses it in native mode |
@@ -25,10 +25,10 @@ Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's characte
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
-The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS
-and, since B5 (*proposed*), the Apple IIe ROM images and their character sets. ROM B (module 5) is the game
-cartridge only, 32 blocks more; the BIOS takes nothing from it. A window reaches them with its ROM bit
-([below](#flash-and-read-only-windows)).
+The flash is a second physical space, beside the RAM. ROM A, on the CPU card, is 512 KB, 32 blocks, and holds the
+BIOS and, since B5 (*proposed*), the Apple IIe ROM images and their character sets. ROM B is the game cartridge
+only, 32 blocks more, and the BIOS takes nothing from it. Neither has a module ID: both answer by their address
+([below](#the-24-bit-bus)). A window reaches them with its ROM bit ([below](#flash-and-read-only-windows)).
 
 | ROM A block | What |
 |---|---|

@@ -53,8 +53,8 @@ Status: **emulated**
 
 IRQL ([`$C688`](#reg-c688)) and IRQH ([`$C689`](#reg-c689)) give one bit to each module ID: IRQL to IDs 0–7, IRQH
 to IDs 8–F. A bit reads 0 while the card with that ID is pulling /IRQ. Reading either byte is the /IACK poll: the
-bridge drives nothing, and each card that is interrupting pulls its own data line low. [Chapter 4](04-interrupts.md)
-says which card has which bit, and how a handler uses them.
+bridge drives nothing, and each card that is interrupting pulls its own data line low, line ID mod 8 of D0–D7.
+[Chapter 4](04-interrupts.md) says which card has which bit, and how a handler uses them.
 
 ## The real-time clock
 
@@ -167,7 +167,7 @@ R/W. The new mapping applies from the next bus cycle.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7 | ROM | 1: the flash. Blocks 0–31 are ROM A (module 4), 32–63 ROM B, the game cartridge (module 5). 0: RAM |
+| 7 | ROM | 1: the flash. Blocks 0–31 are ROM A, 32–63 ROM B, the game cartridge, each reached by its address, with no module ID ([chapter 2](02-memory-and-banking.md#the-24-bit-bus)). 0: RAM |
 | 6 | RO | 1: writes through this window are ignored |
 | 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash |
 
