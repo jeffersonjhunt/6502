@@ -76,7 +76,7 @@ Status: **emulated**
 
 PADDR is a physical address in RAM, so EXAM and DEP don't depend on the windows. They reach RAM only: not the flash,
 and not the cards' registers. In the emulator they take no bus cycle, since time stands still while halted; on the
-card they take the bus with BE for one cycle.
+card they take the bus with BE for one bus cycle, then the idle cycle before BE is released (B6).
 
 ### The breakpoint
 
@@ -147,7 +147,7 @@ hw/design.md has these, and the emulator doesn't yet:
 - **S BUS CYCLE** steps one bus cycle on the card, by holding RDY. The emulator steps an instruction.
 - **A read or write breakpoint** halts on its own cycle on the card, since RDY holds a W65C02S on any cycle. The
   emulator halts after the instruction.
-- **EXAM and DEP** take one bus cycle with BE.
+- **EXAM and DEP** take the bus with BE for one bus cycle, then the idle cycle before BE is released (B6).
 - **LSTAT's AMODE bit** (bit 4) and **the card's BE lamp.** The emulator's LSTAT bit 4 always reads 0.
 - **The card hides its registers in Apple II mode** by AMODE. In the emulator the north bridge's Apple map keeps them
   out of reach instead, which a program can't tell apart.

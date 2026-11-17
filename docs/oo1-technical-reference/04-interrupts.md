@@ -76,9 +76,9 @@ other bit 1. So **a bit that reads 0 is a card interrupting**.
 | IRQH | 5 | D | the north bridge: the clock's TICK |
 | IRQH | 6 | E | the console card |
 
-IRQL's bits 0–5 (RAM and ROM), IRQH's bit 4 (the Disk II, which has no interrupt) and bit 7 (no module) always
-read 1. One read of each, then each card with a 0 asked for its own status: its ISR, or DMA_STATUS, or RTCCTL's
-TICK. Reading the poll brings every card up to date first, so it shows the interrupts pending at that cycle.
+IRQL's bits 0–5 (free IDs, once RAM and ROM: [chapter 2](02-memory-and-banking.md#the-24-bit-bus)), IRQH's bit 4
+(the Disk II, which has no interrupt) and bit 7 (no module) always read 1. One read of each, then each card with a
+0 asked for its own status: its ISR, or DMA_STATUS, or RTCCTL's TICK. Reading the poll brings every card up to date first, so it shows the interrupts pending at that cycle.
 
 The serial card's bit is shared, so a handler asks both: the 6551's STATUS (bit 7) and the VIA's IFR (bit 7).
 

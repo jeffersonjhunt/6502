@@ -8,8 +8,8 @@ The design record, for the reasons: [hw/design.md, "Memory"](../../hw/design.md#
 
 Status: **emulated**
 
-The north bridge turns every CPU access into a 20-bit physical address, A0–A19. The RAM is 1 MB on the backplane,
-in four 256 KB modules, RAM A–D (module IDs 0–3). It is 16 banks of 64 KB, or 64 blocks of 16 KB; block n is
+The north bridge turns every CPU access into a 20-bit physical address, A0–A19. The RAM is 1 MB on one card in a
+slot, selected by its address, with no module ID; its four 256 KB quarters keep the names RAM A–D. It is 16 banks of 64 KB, or 64 blocks of 16 KB; block n is
 physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 
 | Bank | Physical | Blocks | What uses it in native mode |
@@ -25,10 +25,10 @@ Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's characte
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
-The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS
-and, since B5 (*proposed*), the Apple IIe ROM images and their character sets. ROM B (module 5) is the game
-cartridge only, 32 blocks more; the BIOS takes nothing from it. A window reaches them with its ROM bit
-([below](#flash-and-read-only-windows)).
+The flash is a second physical space, beside the RAM. ROM A, on the CPU card, is 512 KB, 32 blocks, and holds the
+BIOS and, since B5 (*proposed*), the Apple IIe ROM images and their character sets. ROM B is the game cartridge
+only, 32 blocks more, and the BIOS takes nothing from it. Neither has a module ID: both answer by their address
+([below](#the-24-bit-bus)). A window reaches them with its ROM bit ([below](#flash-and-read-only-windows)).
 
 | ROM A block | What |
 |---|---|
@@ -139,7 +139,7 @@ matches its ID on PS0–PS3 and decodes only A0–A6.
 
 | Block | ID | What answers |
 |---|---|---|
-| `$C000–$C2FF` | 0–5 | nothing: RAM and ROM have no registers |
+| `$C000–$C2FF` | 0–5 | nothing: free IDs, no card (once RAM and ROM, which answer by address since B1) |
 | `$C300–$C37F` | 6 | the serial card: the 6551 stand-in, and the VIA at `$C340` ([chapter 9](09-serial-and-via.md)) |
 | `$C380–$C3FF` | 7 | the mass storage card ([chapter 10](10-storage.md)) |
 | `$C400–$C47F` | 8 | the DMA controller ([chapter 5](05-dma.md)) |
@@ -149,7 +149,7 @@ matches its ID on PS0–PS3 and decodes only A0–A6.
 | `$C600–$C67F` | C | the Disk II card ([chapter 10](10-storage.md#the-disk-ii)) |
 | `$C680–$C6FF` | D | the north bridge ([chapter 11](11-north-bridge-and-rtc.md)) |
 | `$C700–$C77F` | E | the console card ([chapter 12](12-front-panel.md)) |
-| `$C780–$C7FF` | F | nothing |
+| `$C780–$C7FF` | F | nothing: the idle bus's ID, never a card's ([chapter 1](01-overview.md#slots-and-module-ids)) |
 
 An address no card answers reads `$FF`, and a write to it is lost. The hole only ever hides the first 2 KB of the
 block in W3. A program reaches those 2 KB through another window, or by DMA.

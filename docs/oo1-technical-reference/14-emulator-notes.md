@@ -228,9 +228,9 @@ The backplane's signals are modelled for what they do, not as pins: module decod
 when it is read or written, at the cycle it happens. The VIA's ports are the exception: their pins are modelled,
 since the joysticks hang off them, as the LCD and the PS/2 keyboard do on Eater's machines. The pin-out, the
 connectors and the power are the design's only ([chapter 1](01-overview.md#the-physical-bus)). The line that tells
-a byte cycle from a word cycle (B6's pin) is modelled as the call: the decoder's word cycles, which the DMA
-controller makes with WIDE (*proposed*, B4), and a word flag on the cycle the observers and the console card see, once a word at its
-even address ([chapter 5](05-dma.md#16-bit-transfers)).
+a byte cycle from a word cycle, /WORD (*proposed*, B6), is modelled as the call: the decoder's word cycles, which
+the DMA controller makes with WIDE (*proposed*, B4), and a word flag on the cycle the observers and the console card
+see, once a word at its even address ([chapter 5](05-dma.md#16-bit-transfers)).
 
 ### The flash
 
