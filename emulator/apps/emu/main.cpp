@@ -247,38 +247,10 @@ namespace
 
         if (rc == 0)
         {
-            if (VideoCard *video = machine.video_card())
-                video->set_cpu_hz(settings.clock_hz); // 0, flat out: the card keeps 7.16 MHz time
-            if (UsbCard *usb = machine.usb_card())
-                usb->set_cpu_hz(settings.clock_hz); // key repeat and the paddles
-            if (SoundCard *sound = machine.sound_card())
-                sound->set_cpu_hz(settings.clock_hz); // its 6510 keeps the SID clock's time
-            if (SdCard *sd = machine.sd_card())
-                sd->set_cpu_hz(settings.clock_hz); // its start-up and sector times
-            if (BackplaneBridge *bridge = machine.backplane_bridge())
-                bridge->set_cpu_hz(settings.clock_hz); // the DS3231's second
-            if (Disk2Card *disk = machine.disk2_card())
-                disk->set_cpu_hz(settings.clock_hz); // native mode's sequencer steps
-            for (Flash *flash : machine.flashes())
-                flash->set_cpu_hz(settings.clock_hz); // its busy times are real time
+            machine.set_cpu_hz(settings.clock_hz); // the cards' and chips' real time
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
-            emulator.on_clock_change([&machine](uint32_t hz) {
-                if (VideoCard *video = machine.video_card())
-                    video->set_cpu_hz(hz);
-                if (UsbCard *usb = machine.usb_card())
-                    usb->set_cpu_hz(hz);
-                if (SoundCard *sound = machine.sound_card())
-                    sound->set_cpu_hz(hz);
-                if (SdCard *sd = machine.sd_card())
-                    sd->set_cpu_hz(hz);
-                if (BackplaneBridge *bridge = machine.backplane_bridge())
-                    bridge->set_cpu_hz(hz);
-                if (Disk2Card *disk = machine.disk2_card())
-                    disk->set_cpu_hz(hz);
-                for (Flash *flash : machine.flashes())
-                    flash->set_cpu_hz(hz);
-            });
+            emulator.on_clock_change([&machine](uint32_t hz) { machine.set_cpu_hz(hz); });
 
             for (const int sig : {SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE})
                 on_signal(sig);

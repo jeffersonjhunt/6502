@@ -252,6 +252,30 @@ TEST(a_flash_line_is_two_chips_and_takes_the_rom_override)
     CHECK(dynamic_cast<Flash *>(o->find("second")) == nullptr); // a rom line stays a Rom
 }
 
+// After B5: Machine::set_cpu_hz, the CLI's clock for its cards and chips at start and on each clock change
+// (apps/emu/main.cpp, on_clock_change), reaches every `flash` line's chips: their busy times are real time,
+// so a sector erase is 18 ms at whatever clock the CPU runs. test_app_debug checks the app's start clock in
+// the real app; this checks the change, which the app can't time (its docstring says why). Seen failing
+// with the flash loop left out of Machine::set_cpu_hz.
+TEST(set_cpu_hz_tells_every_flash_the_clock)
+{
+    std::string error;
+    auto m = build("flash 8000-800F - name=one\nflash 9000-900F - name=two\n", error);
+    REQUIRE(m != nullptr);
+    REQUIRE(m->flashes().size() == 2u);
+    const auto sector = [&m](size_t i) { return m->flashes()[i]->busy_cycles(Flash::Op::SectorErase); };
+    CHECK_EQ(sector(0), 128'864u); // 18 ms at the 7.16 MHz a chip assumes until told
+    m->set_cpu_hz(1'000'000);      // the clock at start
+    CHECK_EQ(sector(0), 18'000u);
+    CHECK_EQ(sector(1), 18'000u);
+    m->set_cpu_hz(2'000'000);      // and changed
+    CHECK_EQ(sector(0), 36'000u);
+    CHECK_EQ(sector(1), 36'000u);
+    CHECK_EQ(m->flashes()[1]->busy_cycles(Flash::Op::Program), 28u);
+    m->set_cpu_hz(0);              // flat out: 7.16 MHz time again
+    CHECK_EQ(sector(1), 128'864u);
+}
+
 TEST(errors_name_the_line)
 {
     const std::string big = image("rom_17.bin", 17);

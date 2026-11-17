@@ -682,6 +682,24 @@ namespace ooe::emu
         return build(text, path, options, error);
     }
 
+    void Machine::set_cpu_hz(uint32_t hz)
+    {
+        if (video_card_)
+            video_card_->set_cpu_hz(hz); // 0, flat out: the card keeps 7.16 MHz time
+        if (usb_card_)
+            usb_card_->set_cpu_hz(hz); // key repeat and the paddles
+        if (sound_card_)
+            sound_card_->set_cpu_hz(hz); // its 6510 keeps the SID clock's time
+        if (sd_card_)
+            sd_card_->set_cpu_hz(hz); // its start-up and sector times
+        if (BackplaneBridge *bridge = backplane_bridge())
+            bridge->set_cpu_hz(hz); // the DS3231's second
+        if (disk2_card_)
+            disk2_card_->set_cpu_hz(hz); // native mode's sequencer steps
+        for (Flash *flash : flashes_)
+            flash->set_cpu_hz(hz); // its busy times are real time
+    }
+
     Device *Machine::find(const std::string &name) const
     {
         const auto it = named_.find(name);
