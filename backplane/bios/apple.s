@@ -29,7 +29,7 @@
 ; revision 1, and CHARS writes only revision 2's port), no DMA controller,
 ; or no IIe ROM in any of the four images (in image A, for APPLEN), it says
 ; so and goes back to the monitor, still in the native map, with nothing
-; changed.
+; changed but WIN0H (0 on a revision 2 bridge).
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -55,7 +55,11 @@ VGA_CPU   = $4000
 .segment "APPLE"
 
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0 below 1 MB first, whatever a program
+                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
+                BNE     @w0            ; WOZMON all use it
+                STZ     NB_WIN0H
+@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -75,14 +79,11 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
-                CPX     #NB_ID_V2      ; (after the checks: a refusal changes nothing; the
-                BNE     @low           ; images are flash, which WIN1H doesn't move)
-                LDA     IMAGE          ; carried into the zero page WIN0H 0 shows, for CHARS
-                STZ     NB_WIN0H
+@rom:           LDX     NB_ID          ; a $D2 bridge: W1-W2 below 1 MB too, whatever a program
+                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
+                BNE     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
                 STZ     NB_WIN1H
                 STZ     NB_WIN2H
-                STA     IMAGE
 @low:
 
                 ; the ROM into bank E: $4000-$7FFF (W1) to $8000-$BFFF (W2)

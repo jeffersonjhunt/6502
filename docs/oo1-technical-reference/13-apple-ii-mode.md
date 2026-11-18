@@ -46,12 +46,18 @@ are written by [the flash update](03-boot.md#the-flash-update) (or, in the emula
 Status: **emulated**
 
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
-map and with nothing changed, if any of it is missing:
+map and with nothing changed but WIN0H (0 on a revision 2 bridge), if any of it is missing. On a revision 2 north
+bridge (ID `$D2`, *proposed*, B7) it first sets WIN0H to 0, whatever a program left in it, since the checks keep
+their image number in W0's zero page and FINDIMG's return address on its stack:
 
-<!-- listing: ../../backplane/bios/apple.s:57-86 -->
+<!-- listing: ../../backplane/bios/apple.s:57-87 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0 below 1 MB first, whatever a program
+                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
+                BNE     @w0            ; WOZMON all use it
+                STZ     NB_WIN0H
+@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -71,14 +77,11 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
-                CPX     #NB_ID_V2      ; (after the checks: a refusal changes nothing; the
-                BNE     @low           ; images are flash, which WIN1H doesn't move)
-                LDA     IMAGE          ; carried into the zero page WIN0H 0 shows, for CHARS
-                STZ     NB_WIN0H
+@rom:           LDX     NB_ID          ; a $D2 bridge: W1-W2 below 1 MB too, whatever a program
+                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
+                BNE     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
                 STZ     NB_WIN1H
                 STZ     NB_WIN2H
-                STA     IMAGE
 @low:
 ```
 
@@ -95,9 +98,9 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
   IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
   CARTRIDGE`.)
 
-With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN0H–WIN2H to 0, whatever a
-program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the high
-registers don't move. Then, in order:
+With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN1H and WIN2H to 0 too,
+whatever a program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the
+high registers don't move. Then, in order:
 
 1. **The ROM image.** It copies image *n*'s 16 KB, ROM A block *n* through W1, by the CPU, to RAM block 59:
    `$EC000–$EFFFF`, bank E's `$C000–$FFFF`.
@@ -122,7 +125,7 @@ registers don't move. Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:157-159 -->
+<!-- listing: ../../backplane/bios/apple.s:158-160 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET

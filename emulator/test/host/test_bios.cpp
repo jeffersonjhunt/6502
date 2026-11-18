@@ -2707,6 +2707,43 @@ TEST(c818_apple_ii_mode_with_win2h_left_on_0e_starts_the_image)
     CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB0); // image 0's mark
 }
 
+TEST(c818_apple_ii_mode_with_win0h_left_set_starts_the_image)
+{
+    // R11, extended (B7 review round 2, F1). A program that leaves WIN0H on $03 (no memory: it reads $FF, writes are
+    // lost) or $0E (the aperture, the console's area at $E00000) and calls $C818's $A1 with image 0: APPLEN clears
+    // WIN0H on a $D2 bridge at its entry, before it keeps the image number in W0's zero page and FINDIMG's return
+    // address on its stack, so Apple II mode starts the image and card memory is not written. The program runs at
+    // $4000 (W1, RAM block 1), so its own fetches don't move with WIN0H.
+    for (const uint8_t h : {uint8_t{0x03}, APER_H})
+    {
+        const std::string zero = fake_iie_rom("test_b7_0.rom", 0x06, 0xB0);
+        Board b(false, true, {}, "", {}, 0, {zero, "", "", ""}, {}, 2);
+        std::remove(zero.c_str());
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        const std::vector<uint8_t> p = {0xA9, h,    0x8D, 0xA0, 0xC6, // LDA #h; STA NB_WIN0H
+                                        0xA9, 0x00, 0xA2, 0xA1, 0xA0, 0x5A, // LDA #0; LDX #$A1; LDY #$5A
+                                        0x4C, 0x18, 0xC8};                  // JMP $C818
+        for (size_t i = 0; i < p.size(); ++i)
+            b.machine->bus().write_bus(static_cast<uint32_t>(0x04000 + i), p[i]);
+        VideoCard *card = b.machine->video_card();
+        for (uint32_t a = 0; a < 0x200; ++a)
+            card->card_poke(a, 0x77);
+        b.run(2 * BOOT, "4000R\r");
+        int written = 0; // card bytes $000-$1FF (W0's zero page and stack through WIN0H $0E) changed
+        for (uint32_t a = 0; a < 0x200; ++a)
+            written += card->card_peek(a) != 0x77;
+        if (!b.bridge().apple() || written != 0)
+            std::printf("  WIN0H %02X: apple %d, pc %04X, mark %02X, card bytes written %d\n", h, b.bridge().apple(),
+                        b.cpu->regs().pc, b.machine->bus().peek_physical(0x00300), written);
+        CHECK(b.bridge().apple());
+        CHECK_EQ(b.cpu->regs().pc, 0xFA67);                      // the stand-in's JMP *
+        CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB0); // image 0's mark
+        CHECK_EQ(written, 0);
+    }
+}
+
 int main()
 {
     if (!std::ifstream(EMU_BIOS_ROM))
