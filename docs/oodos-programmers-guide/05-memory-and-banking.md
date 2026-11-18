@@ -198,9 +198,12 @@ While another block is in W1, the program's own `$4000–$7FFF` is out of its re
 event area, the FCBs and parameter blocks it passes, and what it draws from stay in `$0300–$3FFF` or `$8000–$BFFC`.
 A hook that draws maps W1 itself. One that maps it through OOLIB ends with `GX_W1BACK` (B7, *proposed*): the hook
 shares the program's copy of the library, and with it the library's note of what W1 holds, which still names the
-hook's map after OODOS has put the program's W1 back. `GX_W1BACK` always writes block 1 and leaves the note there,
-so the program's next `GX_VMAP`, or `GX_BLOCK` of any block but 1, maps in full; a program that such a hook may
-interrupt goes back to block 1 by `GX_W1BACK`, not by `GX_BLOCK` of 1 ([chapter 8](08-game-services.md#hooks)).
+hook's map after OODOS has put the program's W1 back. `GX_W1BACK` always writes block 1 and leaves the note there.
+After a drawing hook may have run, the program re-maps with `GX_VMAP` before it touches W1, even on its way back to
+block 1 (`GX_VMAP`, then `GX_W1BACK`): after `GX_BANK8`, `GX_W1BACK` or `GX_BLOCK` alone isn't enough, since the
+note can say WIN1H 0 while OODOS has put the program's `$0E` back. A hook's `GX_VMAP` also moves slot 1's bank (the
+card's SLOT1 register), which nothing puts back: the program's writes through slot 1 go to the hook's bank until its
+own `GX_VMAP` ([chapter 8](08-game-services.md#hooks)).
 A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.
 
 ## Video memory on revision 2

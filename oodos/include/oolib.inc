@@ -70,10 +70,13 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ; bank 8 being its RAM). A hook that maps W1 through the library ends with
 ; GX_W1BACK: the library's record of W1 is the program's too, and still
 ; names the hook's map once OODOS puts the program's W1 back. GX_W1BACK
-; always writes block 1 and leaves the record there, so the program's next
-; GX_VMAP, or GX_BLOCK of a block other than 1, maps in full; a program a
-; drawing hook may interrupt goes back to block 1 by GX_W1BACK, not by
-; GX_BLOCK of 1 (B7's review round 1, R3). Card memory is named by
+; always writes block 1 and leaves the record there. After a drawing hook
+; may have run, the program re-maps with GX_VMAP before it touches W1, even
+; on its way back to block 1 (GX_VMAP, then GX_W1BACK): after GX_BANK8,
+; GX_W1BACK or GX_BLOCK alone isn't enough, since the record can say WIN1H
+; 0 while OODOS has put the program's $0E back. A hook's GX_VMAP also moves
+; slot 1's bank (VID_SLOT1), which nothing puts back, until the program's
+; own GX_VMAP (B7's review rounds 1 and 2, R3 and F2). Card memory is named by
 ; card pages (card address / 256, a word), which is what the base
 ; registers hold; vmem.inc has the allocation and copies (GX_VALLOC,
 ; GX_VFREE, GX_VADDR, GX_VMAP, GX_VPUT, GX_VGET, GX_VCOPY, GX_VFILL).
