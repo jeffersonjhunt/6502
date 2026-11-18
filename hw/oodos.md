@@ -4294,7 +4294,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       /C: read and ignored, /M: as CLEAR's n); KILL, NAME, FILES (SYS files left out) and the directory hook;
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
-    - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
+    - **Held back (the owner, 2026-11-14), done in 7c's tail (2026-11-18, [below](#the-sub-phases)):** P5's seed and
+      DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
       written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. **Added to
       the tail by B7** (the owner's answers of 2026-11-17 to B7's questions 2, 3 and 5): the segment router's
       refusal of any access meeting `$80000–$8FFFF` (PEEK included, the run's whole 20-bit range checked before a
@@ -4352,6 +4353,97 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         reached XFRSTR. Test an_error_in_a_random_open_comes_back_to_ok, and W7's random case in its test.
       - Sizes after them: 35,776 bytes free; resident code and tables 11,015, fixed RAM 1,582 (LOWRAM 45); P2
         5,702, P4 11,864 of 12,288 (424 free).
+  - **As built, 7c's tail** (Proposed, 2026-11-18; feat/gwbasic-7c-tail off main `fe017f2d`, the tail's plan with
+    the owner's answers of 2026-11-18, "go with your recommendations"). The held-back bullet above is done:
+    - **P5's seed** (`p5/seed.s`, with OOLIB's `lib/gxmem.s` linked into block P5, nothing else of OOLIB's):
+      - `GXSTRT`, far called once by P2's GWINIT: `GX_INIT` with no event area, then `GX_BANK8` whatever it
+        answered (B7's question 5), then the scratch byte's physical address by function 73. So GW-BASIC runs with
+        MAP's AP8 clear on a revision 2 card; the warm boot sets it again at SYSTEM. 7d opens an event area and calls
+        both again.
+      - gxmem's zero page (`GXP`, `GXQ`, `GXT`) is gwbasic.inc's `$8E`, `$E0` and `$EE`, exported by the seed; F0OPN
+        moved from `$EE` to `$EB` so that `$EE–$EF` is a whole word. `blk.cfg` has a BSS segment, in the image as
+        zeros (the loader clears nothing), counted by `gwsize.py`. The flat image leaves P5 out
+        (`test/flatp5.s`: GXSTRT returns, DSBYTE and DSRUN are Advanced Feature).
+      - `DSBYTE`: PEEK's and POKE's byte for any address but segment 0 below `$C000`, by the routes below.
+      - `DSRUN`: a BLOAD's or BSAVE's run checked whole before anything moves; its 20-bit start returned.
+    - **DEF SEG** (`p3/gweval.s` DEFNC2): `= n` by FRMQNT, taken unsigned; alone, segment 0 (the 8086's DS). In
+      `SAVSEG`, 2 bytes of resident fixed RAM, 0 at start-up; RUN and CLEAR leave it, as the source does.
+    - **PEEK** (`p1/peek.s`, FUNDSP's resident `F_PEEK`; PRODIR inline) and **POKE** (`p3/poke.s`, its home block
+      stub in `p8/far3.s`): under segment 0 below `$C000` the CPU's own byte, in the caller; else one far call more,
+      to `DSBYTE`. The address is segment × 16 + offset, wrapping at 1 MB. Bank 8 is Illegal function call (tested on
+      the 20-bit address); blocks 0–2 a direct load or store; any other block by `GX_BLOCK`, the byte at `$4000` + its
+      place, `GX_W1BACK`; if `GX_BLOCK` refuses (not in the W1 map, or no revision 2 card), one byte by `DM_COPY`
+      through the scratch byte: a refused PEEK is 0 (the byte cleared first), a refused POKE Illegal function call.
+      `DSBYTE` calls nothing resident while W1 holds another block. Segment 0 from `$C000` is physical block 3, read
+      and written through function 83, never W3 or the I/O hole.
+    - **USR** under any segment but 0 is Illegal function call, and nothing is called (the OEM table's "any other
+      segment refused"). CALL stays 7g's.
+    - **BLOAD and BSAVE** (GIO86.ASM's BSAVE, BLOAD, BPARMS, OUT16, INP16; the file `$FD`, the segment, the offset and
+      the length, low bytes first, then the bytes):
+      - The home block's stubs (`p8/far4.s`) hold BPARMS, parsing alone (P4's NAMSCN entry, P1's ADRGET; PRODIR
+        inline), and the run's check (`DSRUN`): before P4's `BSAVEP`, so a refused BSAVE writes no file; between
+        P4's `BLOADP`, which opens file 0, checks the `$FD` (Bad file mode) and reads the header, and `BLDRUN`,
+        which reads the bytes. BLOAD with no offset takes the file's own segment and offset; with one, DEF SEG's
+        and it. A name with no type gets `.BAS`. Each closes file 0 (LODEND's FINPRT); the text pointer is kept.
+      - `DSRUN` refuses (Illegal function call) a run past `$FFFFF`, one that meets bank 8, and one with any 16 KB
+        block that function 83 won't copy from, found by a 1-byte `DM_COPY` from each block's first byte (83 decides
+        by the block). Nothing of OODOS's own list is in GW-BASIC. A length of 0 checks nothing and moves nothing;
+        BSAVE still writes the header.
+      - BLOAD goes by DFSTLD (`p4/giodsk.s`), which now takes a physical destination (LDBLK+8–10): the rest of
+        record 0 past the header and the last part record by `DM_COPY` from the file's buffer (its physical address
+        by function 73), whole records by `DM_LOAD` straight to their place. LOAD's FSTLOD hands it the workspace's
+        address by function 73, so LOAD and W2's rule are unchanged.
+      - BSAVE copies the run into file 0's 128-byte buffer by `DM_COPY` a piece at a time (`BXFER`), writing each
+        full record first (WRITES); the close writes the last, with its ^Z.
+    - **The owner's answers (2026-11-18):** 1, IBM's BASVAR words behind PEKFLT and POKFLT not built (ledger: dropped);
+      2, a BSAVE meeting OODOS's memory Illegal function call, no file written; 3, BLOAD and BSAVE on disk files
+      only, a device Bad file mode; 4, POKE and BLOAD into GW-BASIC's own blocks allowed (no PAGBLK check); 5, not
+      needed: P4 has 93 bytes free (the stop limit 64), so COM1's driver stays.
+    - **Recorded deviations:** the run is linear from segment × 16 + offset (the 8086 wraps the offset inside the
+      segment); a device's name for BLOAD or BSAVE is Bad file mode; no BASVAR filter; a PEEK of memory function 83
+      refuses is 0. PC files' segments name other memory here (`&HB800` is bank B's RAM); 7d's screen is `&H8000`.
+    - **Sizes** (bytes; at `fe017f2d` → after the tail; the plan's estimates, made at `2eeb93f3`, in brackets):
+
+      | Region | At `fe017f2d` | After the tail | The plan's estimate |
+      |---|---|---|---|
+      | Free for BASIC (gate 32,768, warning 33,792) | 35,776 | 35,767 | ~35,766 |
+      | Resident code and tables | 11,015 | 11,022 | — |
+      | Fixed RAM | 1,582 | 1,584 | ~1,584 |
+      | P1 | 8,377 (3,911 free) | 8,436 (3,852) | ~8,420 |
+      | P2 | 5,702 (6,586) | 5,716 (6,572) | ~5,708 |
+      | P3 | 4,883 (7,405) | 4,971 (7,317) | ~4,975 |
+      | P4 | 11,864 (424) | 12,195 (93) | ~12,110 (~180) |
+      | P5 | — | 1,991 (10,297) | ~1,750 |
+      | P8 | 2,525 (9,763) | 2,855 (9,433) | ~2,640 |
+      | Flat image end (limit `$9400`) | `$9120` | `$91BA` | ~`$9140` |
+
+      GWBASIC.OVL 33,792 → 36,608 bytes (+22 records). P4's first build had 19 bytes free; the run's check and
+      the header's choice moved to the home block, and the buffer copy was made one routine, for 93. (The plan's
+      `$9110` for the flat image was 7c's figure; `fe017f2d`'s map ends at `$9120`.)
+    - **Cycles** (test_gwbasic_files, the fast build): PEEK from F_PEEK to LABBCK, the least of four, segment 0 448
+      (estimated ~500), bank 9 through `GX_BLOCK` 1,166 (~800), bank E by `DM_COPY` 3,334 (~1,650). BLOAD of 65,535
+      bytes: its bytes (BLDRUN, DFSTLD) 162,044 cycles, 22.6 ms (estimated about 16 ms); the whole command from its
+      line typed to Ok 156 ms, most of it the rig's typing and the open.
+    - **Tests** (test_gwbasic_files), each seen failing under its mutant, the source then restored:
+      - T1 `def_seg_sets_the_segment_and_alone_is_segment_0`: DEF SEG alone leaving SAVSEG as it was;
+      - T2 `segment_0_above_c000_is_block_3_not_w3`: PEEK's fast path without its `$C000` bound;
+      - T3 `peek_poke_in_an_allocated_block_and_bank_9_put_block_1_back`: `GX_W1BACK` left out of `DSBYTE`;
+      - T4 `bank_8_is_refused_to_peek_and_poke`: the bank 8 test made on the segment, not the 20-bit address;
+        `bank_8_is_refused_whole_to_bload_and_bsave` (with answer 2's BSAVE into OODOS's memory, no file): `DSRUN`
+        without the bank 8 test (DM_LOAD then writes bank 8);
+      - T5 `a_run_is_checked_whole_before_anything_moves`: `DSRUN` probing the first block only;
+      - T6 `bload_puts_the_bytes_and_nothing_past_them`: (a) one record more by `DM_LOAD`; (b) the header bytes not
+        skipped;
+      - T7 `bsave_writes_the_header_and_the_bytes` (read back from M:): the piece loop's source not moved on;
+      - T8 `bload_and_bsave_errors`: the `$FD` check left out;
+      - T9 `no_revision_2_card_takes_the_dm_copy_route`: `GX_BLOCK`'s refusal taken as the end;
+      - T10 `oodos_memory_peeks_0_and_refuses_pokes`: the scratch byte not cleared before a refused copy (bank E's
+        POKE and PEEK leave 77 in it, where the plan named bank 9, which goes by `GX_BLOCK`);
+      - T11 `usr_under_another_segment_is_refused`: USRFNP ignoring SAVSEG;
+      - T12 `start_up_maps_slot_1_by_gx_bank8`: `GX_BANK8` before `GX_INIT`;
+      - and two measuring cases, `peek_costs_on_each_route` and `bload_of_64_kb_by_dm_load`.
+    - **Expectation changes:** test_gwbasic_stmts' DEF SEG and DEF SEG=4096 give Ok (the plan's two, approved),
+      with one line added after them, DEF SEG, so that the case's later USR calls still run under segment 0.
 - **7d: the screen** (P5's text part, on the seed; P6).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;
@@ -4459,8 +4551,8 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
 | COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
 | LPRINT, LLIST | LST: (function 5) | LST: takes and drops for now (no parallel port modelled) |
-| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)) |
-| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed |
+| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below |
+| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only |
 | CALL, USR | a 6502 routine in the TPA (segment 0) | any other segment refused: code in a block is GW-BASIC's own |
 | INP, OUT, WAIT | — | refused (Illegal function call), as the hardware is OODOS's (AGENTS.md); [question 13](#phase-7s-questions) |
 
@@ -4484,6 +4576,14 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`. That meaning
   holds whatever AP8 holds (the owner, 2026-11-17, B7's question 1): bank 8's RAM, which `DM_BANK8` gives a program,
   is never reached by DEF SEG; GW-BASIC may use it internally through `GX_BLOCK` after `GX_BANK8`.
+- **As built (7c's tail, 2026-11-18;** [7c's tail as built](#the-sub-phases)**):** these routes are P5's `DSBYTE`,
+  with segment 0 below `$C000` taken in PEEK's and POKE's own blocks (448 cycles a PEEK); `GX_BLOCK`'s route costs
+  1,166 and the `DM_COPY` route 3,334, against the 400 and 1,000 above. `GX_BLOCK` refuses every block with no
+  revision 2 card (B7's question 3), so there allocated blocks and banks 9–B go by `DM_COPY` too. Which memory 83
+  refuses is 83's: a 1-byte `DM_COPY` answers, so OODOS's list isn't copied into GW-BASIC. A BLOAD's or BSAVE's
+  run (`DSRUN`) is linear, from segment × 16 + offset for its length (a recorded deviation: the 8086 wraps the
+  offset in the segment), and is refused whole if it passes `$FFFFF`, meets bank 8, or has a 16 KB block 83 won't
+  copy from (a 1-byte probe of each). USR under any segment but 0 is Illegal function call.
 
 #### Testing ####
 
