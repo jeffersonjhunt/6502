@@ -128,6 +128,8 @@ backplane/bios/backplane.inc                    bios oodos docs web
 backplane/bios/apple.s                          bios apple docs web
 # The ROM BIOS's SD code (sd.s, and bios.s's reset of the card) is on the path of the cards the tests write
 # and interop reads: `sd` chooses interop.
+# The ROM's diagnostics (hw/diag.md) choose test_bios_diag's slow share too (hw/testing.md, item 8).
+backplane/bios/diag*                            bios diagslow docs web
 backplane/bios/sd.s                             bios sd docs web
 backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web

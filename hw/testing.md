@@ -3,7 +3,7 @@
 Nov 11, 2026 · @Jefferson
 
 **Status: approved by the owner (2026-11-11); built 2026-11-11 (feat/test-changed): items 1-7 below, as "What was
-built" says.** The owner's answers to questions 1-3 are recorded under "Open questions".
+built" says; item 8, test_bios_diag's slow share, approved and built 2026-11-18 (feat/test-diagslow).** The owner's answers to questions 1-3 are recorded under "Open questions".
 
 
 ## The problem ##
@@ -199,6 +199,23 @@ python3 -I -B tools/test_coverage.py --from /tmp/cov/files.json           # afte
 ```
 
 (reconfigure the coverage build after changing the labels, so `--from` reads them).
+
+**8. A slow share** (the owner, 2026-11-18, after B7). `test_bios_diag` had become the gate's longest step: its
+two entries ran 534 and 447 s in B7's last `changed main`, against 108 s for the next suite, and it is chosen by
+nearly every change (the BIOS and most devices). Timed one case at a time at main b0100305 (fast, 8 at once): 64
+cases, 1,030 s; the 41 that each make a whole diagnostics run (56 s of machine time, a full run more) take 13-67 s
+each and 970 s in all, the other 23 60 s. So `set(EMU_SLOW_<name> case...)` with `EMU_SLOW_SPLIT_<name>` and
+`EMU_SLOW_LABEL_<name>` (the split's code, item 6) puts 37 of the long cases (904 s) in four entries,
+`test_bios_diag_slow_1of4` to `_4of4`, labelled `diagslow` only; the suite's own two shares take the 23 short
+cases and four whole runs that cover the most: the golden quick run, the card stages on a good machine, bank 8's
+stuck bit on a revision 2 bridge, and block 0's stuck bit (126 s). `check_split.py` still holds every case to
+exactly one entry.
+
+What chooses the slow share: a rule naming the suite (`test_bios_diag`: its golden reports, `fault_devices.h`) or
+`self` (`test_bios_diag.cpp`), and `backplane/bios/diag*`, the diagnostics' own source, through the label
+`diagslow`; not `bios.s` (its entries are the short cases'), nor another BIOS file or a device. `quick` and
+`full` run every case, so all of it runs before a release. The risk taken: a device change that breaks only a
+long fault case's text is found at the release's `quick` run, not at the branch's gate.
 
 **Later (accepted 2026-11-11, not built):** derive the hand-kept part of the web inputs above too (the files the
 CMake builds into `bios.rom` and embeds, the headers and data the web suites read), so the map can't drift there
