@@ -36,7 +36,7 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:112-191 -->
+<!-- listing: ../../backplane/bios/bios.s:116-195 -->
 ```
 RESET:
                 LDX     #$FF

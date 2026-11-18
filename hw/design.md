@@ -3295,7 +3295,9 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   - `diag.inc`'s inline `NBSET` (A kept) sets WIN0H–WIN3H and VECH to 0 and writes MAP whole, 1 with `VIDEO_ID`
     `$92` and else 0 (Q9), at BOOT2 (BOOT, MONBOOT, C800R and the diagnostics' trampolines come through it) and
     BREAK; not in PUTBACKM, since every way out of a diagnostics run reaches BOOT2 (C6). So AP8 is cleared at boot
-    on a machine with no revision 2 card.
+    on a machine with no revision 2 card. START, on the RAM copy, clears WIN0H inline on `$D2` before it copies its
+    stub into zero page through W0 and runs it there, since C800R reaches START's W0 before BOOT2 (review round 1,
+    R4).
   - VPUTC maps W2 through WIN2H `$0E`, block 0 (`$E00000`) on `$D2`, NB_ID read on each call, and puts a program's
     WIN2H back; block 32 on `$D1`.
   - The diagnostics: GO writes MAP 0 on `$D2` whatever the card (Q6), so `DG_APER`, read from AP8, is 0 and stages

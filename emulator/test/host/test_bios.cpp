@@ -2644,6 +2644,49 @@ TEST(c800r_with_winnh_and_vech_left_set_boots_with_w1_on_ram_block_1)
     CHECK(has(b.run(BOOT, "4123\r"), "4123: 5C"));
 }
 
+TEST(c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0)
+{
+    // R9, extended (B7 review round 1, R4). A program that leaves WIN0H on $0E (the aperture, the console's palette
+    // at $E00000) or $03 (no memory: it reads $FF) and jumps to $C800: START clears WIN0H on a $D2 bridge before it
+    // copies its stub into zero page through W0 and runs it there, since BOOT2's NBSET comes only after the stub.
+    // The program runs at $4000 (W1, RAM block 1), so its own fetches don't move with WIN0H.
+    for (const uint8_t h : {APER_H, uint8_t{0x03}})
+    {
+        Board b = bridge_board(2);
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        const std::vector<uint8_t> p = {0xA9, h, 0x8D, 0xA0, 0xC6, 0x4C, 0x00, 0xC8}; // STA NB_WIN0H; JMP $C800
+        for (size_t i = 0; i < p.size(); ++i)
+            b.machine->bus().write_bus(static_cast<uint32_t>(0x04000 + i), p[i]);
+        struct StubFetch : CycleObserver
+        {
+            const BackplaneBridge *nb = nullptr;
+            int seen = 0, moved = 0; // the stub's first fetch at $0000, and those with WIN0H not 0
+            void on_cycle(const BusCycle &c) override
+            {
+                if (c.dma || !c.sync || c.addr != 0x0000)
+                    return;
+                ++seen;
+                moved += nb->winh(0) != 0;
+            }
+        } fetch;
+        fetch.nb = &b.bridge();
+        b.cpu->set_observer(&fetch);
+        const bool greeted = has(b.run(SPLASH_TIME, "4000R\r"), GREETING.c_str());
+        b.cpu->set_observer(nullptr);
+        if (!greeted || fetch.moved != 0)
+            std::printf("  WIN0H %02X: greeting %d, stub fetches %d, through WIN0H %d\n", h, greeted, fetch.seen,
+                        fetch.moved);
+        CHECK(greeted);
+        CHECK(fetch.seen >= 1);
+        CHECK_EQ(fetch.moved, 0);
+        CHECK(winh_clear(b.bridge()));
+        CHECK_EQ(b.bridge().window(1), 0x01);
+        CHECK_EQ(b.bridge().map(), 0x01);
+    }
+}
+
 TEST(c818_apple_ii_mode_with_win2h_left_on_0e_starts_the_image)
 {
     // R11. A program that leaves WIN2H on $0E and calls $C818's $A1 with image 0: APPLE clears WIN0H-WIN2H on a $D2

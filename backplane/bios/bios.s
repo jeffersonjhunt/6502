@@ -96,7 +96,11 @@ START:
                 LDA     NB_STATUS
                 AND     #NB_STATUS_BOOTSEL
                 BNE     RESET          ; booted from RAM: no flash to go back to
-                STZ     NB_WIN0
+                LDX     NB_ID          ; (B7) WIN0H 0 for the stub, on a $D2 bridge: a program
+                CPX     #NB_ID_V2      ; that jumped to C800R may have left it set, and
+                BNE     @w0            ; BOOT2's NBSET comes only after the stub
+                STZ     NB_WIN0H
+@w0:            STZ     NB_WIN0
                 LDX     #STUB_END - STUB - 1
 @stub:          LDA     STUB,X
                 STA     $00,X
