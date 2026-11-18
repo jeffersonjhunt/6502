@@ -20,7 +20,7 @@
  *   from PC-BASIC's run: WRITE #, RANDOMIZE TIMER, and CLEAR's n and m on the OO-1's memory map.
  * - Step b: DEF FN and FN (each type, 0 to many parameters, a parameter named as a variable, nesting, recursion
  *   to Out of memory, in FOR and GOSUB, redefinition, the string space collected while parameters are bound, and
- *   the errors); and, by hand: DEF in direct mode, FN typed after RUN, DEF SEG (7c's), and USR on 6502 routines
+ *   the errors); and, by hand: DEF in direct mode, FN typed after RUN, DEF SEG (Ok: 7c's tail), and USR on 6502 routines
  *   read into an integer array (PC-BASIC's USR runs 8086 code).
  * - Step c: RENUM, typed at the prompt with its program (NAME.typ) against PC-BASIC's transcript of the same lines;
  *   and, by hand from the source (PC-BASIC's transcript of AUTO and EDIT is its own interface's, not GW-BASIC's
@@ -490,7 +490,8 @@ TEST(def_fn_and_fn_print_what_pc_basic_prints_or_the_source_says)
 // By hand, from the source (none of it can come from PC-BASIC's run of a file):
 // - DEF FN typed is Illegal direct (ERRDIR); a function a program DEFined can be called from a typed line after it
 //   ran, the program's text still there; a function never DEFined is Undefined user function;
-// - DEF SEG, with or without a segment, is 7c's: Advanced Feature; DEF with anything else is Syntax error;
+// - DEF SEG, with or without a segment, is Ok (7c's tail; DEF SEG alone segment 0 again, for USR); DEF with anything
+//   else is Syntax error;
 // - USR (USRFN, SCNUSR, DEFUSR) on 6502 routines put in an integer array by READ, at VARPTR's address, under the
 //   port's convention (A VALTYP, X #FACLO, RDL/RDH a string's descriptor; the result in the FAC and VALTYP): one
 //   doubles an integer through X (USR and USR0 alike), one gives a string's length from its descriptor, one gives
@@ -506,8 +507,9 @@ TEST(def_in_direct_mode_def_seg_and_usr_by_hand)
     enter(r, {"10 DEF FNA(X)=X*2", "20 DEF FNB$(A$)=A$+\"!\""});
     CHECK_EQ(command(r, "RUN"), std::string());
     CHECK_EQ(command(r, "PRINT FNA(21);FNB$(\"hi\")"), std::string(" 42 hi!\r\n"));
-    CHECK_EQ(command(r, "DEF SEG"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "DEF SEG=4096"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "DEF SEG"), std::string());
+    CHECK_EQ(command(r, "DEF SEG=4096"), std::string());
+    CHECK_EQ(command(r, "DEF SEG"), std::string()); // (7c's tail: segment 0 again, which USR needs)
     CHECK_EQ(command(r, "DEF X"), std::string("Syntax error\r\n"));
 
     CHECK_EQ(command(r, "NEW"), std::string());

@@ -1563,3 +1563,225 @@ TEST(start_up_maps_slot_1_by_gx_bank8)
     CHECK(r.until("A>", ms(4000), r.out.size()));
     CHECK_EQ(r.nb(0x25) & 1, 1);
 }
+
+namespace
+{
+    /// The block GW-BASIC's loader took for page `page` (PAGBLK's byte).
+    unsigned page_block(CcpRig &r, unsigned page)
+    {
+        const std::map<std::string, uint16_t> res = link_labels("gwbasic.lbl");
+        CHECK(res.count("PAGBLK") == 1);
+        return res.count("PAGBLK") == 1 ? r.phys(res.at("PAGBLK") + page) : 0;
+    }
+
+    /// The segment, as GW-BASIC's &H, of physical address `a` (a multiple of 16).
+    std::string seg_hex(uint32_t a)
+    {
+        char b[16];
+        std::snprintf(b, sizeof b, "&H%X", static_cast<unsigned>(a >> 4));
+        return b;
+    }
+
+    /// Counts the times W1 isn't block 1 (NB_WIN1, WIN1H 0) when the resident NEWSTT or SNGFLT runs: at each
+    /// statement's end, and as each PEEK's value is made. Each far call has returned by then.
+    struct W1Watch
+    {
+        unsigned seen = 0, off = 0;
+        void arm(CcpRig &r)
+        {
+            const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+            CHECK(lab.count("NEWSTT") == 1 && lab.count("SNGFLT") == 1);
+            const uint16_t a = lab.count("NEWSTT") ? lab.at("NEWSTT") : 0, b = lab.count("SNGFLT") ? lab.at("SNGFLT") : 0;
+            r.watch = [this, &r, a, b](uint16_t pc) {
+                if (pc != a && pc != b)
+                    return;
+                ++seen;
+                off += r.nb(1) != 1 || r.nb(0x21) != 0;
+            };
+        }
+    };
+} // namespace
+
+// T1 (GWEVAL.ASM DEF, DEFNC2): DEF SEG = n makes n the segment (FRMQNT: &H9000 and -28672 are the same, 65536
+// Overflow); DEF SEG alone is segment 0, the port's DS, the program's own memory from physical $00000, so a POKE at
+// VARPTR's address changes the variable. Bank 9 is RAM no one else uses. A build whose DEF SEG alone leaves SAVSEG
+// as it was (the 8086's MOV DX,DS dropped) POKEs bank 9 instead, and A% stays 0.
+TEST(def_seg_sets_the_segment_and_alone_is_segment_0)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 0,77:POKE 1,78"), std::string());
+    CHECK_EQ(r.phys(0x90000), 77);
+    CHECK_EQ(r.phys(0x90001), 78);
+    CHECK_EQ(command(r, "DEF SEG=-28672:PRINT PEEK(0);PEEK(1)"), std::string(" 77  78 \r\n"));
+    CHECK_EQ(command(r, "A%=0:DEF SEG:POKE VARPTR(A%),5:PRINT A%"), std::string(" 5 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 2,79:DEF SEG:PRINT PEEK(VARPTR(A%))"), std::string(" 5 \r\n"));
+    CHECK_EQ(r.phys(0x90002), 79);
+    CHECK_EQ(command(r, "DEF SEG=65536"), std::string("Overflow\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H9000:DEF SEG:PRINT PEEK(VARPTR(A%))"), std::string(" 5 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG 5"), std::string("Syntax error\r\n"));
+}
+
+// T2: under segment 0 only $0000-$BFFF is the CPU's own (the program's blocks 0-2); $C000 on is physical block 3,
+// which PEEK and POKE reach through P5 (function 83), not the CPU's W3 (GW-BASIC's code) nor the I/O hole at
+// $C000-$C7FF. The test puts $5A at physical $0C800. A build whose fast path lacks the $C000 bound reads W3.
+TEST(segment_0_above_c000_is_block_3_not_w3)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    r.poke(0x0C800, 0x5A);
+    r.poke(0x0C000, 0x33);
+    CHECK_EQ(command(r, "PRINT PEEK(&HC800);PEEK(-16384)"), std::string(" 90  51 \r\n"));
+    CHECK_EQ(command(r, "POKE &HC800,7:POKE 49153!,8"), std::string());
+    CHECK_EQ(r.phys(0x0C800), 7);
+    CHECK_EQ(r.phys(0x0C001), 8);
+    CHECK_EQ(command(r, "PRINT PEEK(&HC800)"), std::string(" 7 \r\n"));
+}
+
+// T3, P5's gate (V3; hw/oodos.md 7c): PEEK and POKE in an allocated block (P8's, past its code at offset $2000 and
+// below its copy of common memory; its segment from PAGBLK) and in bank 9 go through GX_BLOCK, then GX_W1BACK
+// puts block 1 back. A%(4000) of an 8,001-element array lies in $4000-$7FFF (VARPTR), so in the same statement
+// after each it must read as itself, and W1 must be block 1 at every statement's end and every PEEK's value. A
+// build whose DSBYTE leaves out GX_W1BACK reads the element from the other block.
+TEST(peek_poke_in_an_allocated_block_and_bank_9_put_block_1_back)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "DIM A%(8000):A%(4000)=1234:V=VARPTR(A%(4000)):PRINT V>=16384 AND V<32767"),
+             std::string("-1 \r\n"));
+    const uint32_t p8 = page_block(r, 8) * BLOCK + 0x2000;
+    CHECK(p8 >= 4 * BLOCK);
+    r.poke(p8 + 1, 0x42);
+    W1Watch w;
+    w.arm(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE &H123,99:PRINT A%(4000);PEEK(&H123);A%(4000)"),
+             std::string(" 1234  99  1234 \r\n"));
+    CHECK_EQ(r.phys(0x90123), 99);
+    CHECK_EQ(command(r, "DEF SEG=" + seg_hex(p8) + ":POKE 0,55:PRINT A%(4000);PEEK(0);PEEK(1);A%(4000)"),
+             std::string(" 1234  55  66  1234 \r\n"));
+    CHECK_EQ(r.phys(p8), 55);
+    CHECK_EQ(command(r, "DEF SEG:PRINT A%(4000)"), std::string(" 1234 \r\n"));
+    r.watch = nullptr;
+    CHECK(w.seen > 6);
+    CHECK_EQ(w.off, 0u);
+}
+
+// T4's PEEK and POKE half (B7's question 2, the owner, 2026-11-17): any access meeting bank 8, $80000-$8FFFF, is
+// Illegal function call, PEEK included, tested on the 20-bit address: &H7FFF:&H100 is $800F0, and &H8400 is bank 8
+// too. Bank 8's RAM (the program's after GX_BANK8) is unchanged; bank 9 still works after. A build that tests the
+// segment ($8000-$8FFF) instead lets &H7FFF:&H100 through (GX_BLOCK maps bank 8's block after GX_BANK8).
+TEST(bank_8_is_refused_to_peek_and_poke)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    r.poke(0x800F0, 0xC3);
+    r.poke(0x84000, 0x3C);
+    r.poke(0x8FFFF, 0x5A);
+    CHECK_EQ(command(r, "DEF SEG=&H7FFF:POKE &H100,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT PEEK(&H100)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H8400:POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT PEEK(0)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H8FFF:PRINT PEEK(15)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H7FFF:PRINT PEEK(15)"), std::string(" 0 \r\n")); // $7FFFF: bank 7, OODOS's: 0
+    CHECK_EQ(r.phys(0x800F0), 0xC3);
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+    CHECK_EQ(r.phys(0x8FFFF), 0x5A);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 0,9:PRINT PEEK(0)"), std::string(" 9 \r\n"));
+}
+
+// T9, B7's question 3: with no revision 2 card GX_INIT says GE_VERSION and GX_BLOCK refuses every block, so DEF SEG
+// reaches bank 9 and an allocated block (P8's) by the 1-byte DM_COPY route instead: the bytes POKEd are in physical
+// memory and PEEK reads them, and W1 stays block 1 throughout. A build that takes GX_BLOCK's refusal as the end
+// (Illegal function call) fails it.
+TEST(no_revision_2_card_takes_the_dm_copy_route)
+{
+    CcpRig r({}, {}, {}, 1);
+    REQUIRE(r.ok);
+    CHECK(start(r).find("Bytes free") != std::string::npos);
+    const uint32_t p8 = page_block(r, 8) * BLOCK + 0x2000;
+    r.poke(p8 + 1, 0x42);
+    W1Watch w;
+    w.arm(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE &H123,99:PRINT PEEK(&H123)"), std::string(" 99 \r\n"));
+    CHECK_EQ(r.phys(0x90123), 99);
+    CHECK_EQ(command(r, "DEF SEG=" + seg_hex(p8) + ":POKE 0,55:PRINT PEEK(0);PEEK(1)"), std::string(" 55  66 \r\n"));
+    CHECK_EQ(r.phys(p8), 55);
+    r.watch = nullptr;
+    CHECK(w.seen > 4);
+    CHECK_EQ(w.off, 0u);
+}
+
+// T10: OODOS's own memory (banks 6, 7, C, D, F) is function 83's to refuse: a PEEK there gives 0 (the scratch byte
+// cleared first), a POKE is Illegal function call, the memory unchanged; bank E (Apple II mode's) reads and writes
+// by DM_COPY. The bank E POKE and PEEK leave 77 in the scratch byte first, so a build that doesn't clear it before a
+// refused copy gives 77 for bank F.
+TEST(oodos_memory_peeks_0_and_refuses_pokes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const uint8_t f0 = r.phys(0xF0000), s6 = r.phys(0x60010);
+    CHECK_EQ(command(r, "DEF SEG=&HE000:POKE 0,77:PRINT PEEK(0)"), std::string(" 77 \r\n"));
+    CHECK_EQ(r.phys(0xE0000), 77);
+    CHECK_EQ(command(r, "DEF SEG=&HF000:PRINT PEEK(0)"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H6001:PRINT PEEK(0)"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(r.phys(0xF0000), f0);
+    CHECK_EQ(r.phys(0x60010), s6);
+}
+
+// T11 (the OEM table: CALL and USR, "a 6502 routine in the TPA (segment 0); any other segment refused"): under DEF
+// SEG=&H100, USR is Illegal function call and its routine isn't run (it would INC M%); after DEF SEG, it runs as
+// before. A build whose USRFNP ignores SAVSEG runs it.
+TEST(usr_under_another_segment_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 X=0:M%=0:Q=VARPTR(M%):DIM A%(3):P=VARPTR(A%(0))",
+              "20 POKE P,&HEE:POKE P+1,Q AND 255:POKE P+2,INT(Q/256):POKE P+3,&H60", // INC M% / RTS
+              "30 DEF USR=P"});
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "DEF SEG=&H100:X=USR(0)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT M%"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG:X=USR(0):PRINT M%"), std::string(" 1 \r\n"));
+}
+
+// PEEK's cost on each route (7c's tail, measured for hw/oodos.md): the cycles from FUNDSP's F_PEEK to LABBCK (the
+// function's return), the argument already evaluated: segment 0 below $C000 (one far call, to P1), bank 9 through
+// GX_BLOCK and GX_W1BACK (a second, to P5), and bank E by a 1-byte DM_COPY (a BDOS call besides). Each the least of
+// 4. Bounds only against a run gone astray.
+TEST(peek_costs_on_each_route)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("F_PEEK") == 1 && lab.count("LABBCK") == 1);
+    const uint16_t from = lab.at("F_PEEK"), to = lab.at("LABBCK");
+    auto cost = [&](const std::string &seg) {
+        uint64_t at = 0, best = ~uint64_t{0};
+        r.watch = [&](uint16_t pc) {
+            if (pc == from)
+                at = r.cpu->cycles();
+            else if (pc == to && at)
+            {
+                best = std::min(best, r.cpu->cycles() - at);
+                at = 0;
+            }
+        };
+        CHECK_EQ(command(r, seg + ":X=PEEK(256):X=PEEK(256):X=PEEK(256):X=PEEK(256)"), std::string());
+        r.watch = nullptr;
+        return best;
+    };
+    const uint64_t s0 = cost("DEF SEG"), b9 = cost("DEF SEG=&H9000"), be = cost("DEF SEG=&HE000");
+    std::printf("  PEEK: segment 0 %llu cycles, bank 9 (GX_BLOCK) %llu, bank E (DM_COPY) %llu\n",
+                static_cast<unsigned long long>(s0), static_cast<unsigned long long>(b9),
+                static_cast<unsigned long long>(be));
+    CHECK(s0 > 100 && s0 < b9 && b9 < be && be < 10000);
+}

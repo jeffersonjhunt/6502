@@ -24,7 +24,8 @@
 ;   RANDOM    RANDOMIZE [n] (p3/gwmain.s RANDOMP): C set back is a ^C at
 ;             the seed's prompt, STPEND's, as INPUT's (p8/gwmain.s INPRET)
 ;   WRITE     WRITE (p3/fiveo.s WRITEP)
-;   DEF       DEF FN, DEF USR (DEF SEG: 7c's) (p3/gweval.s DEFP)
+;   DEF       DEF FN, DEF USR, DEF SEG (p3/gweval.s DEFP)
+;   POKE      POKE address, byte (p3/poke.s POKEP; 7c's tail)
 ;   AUTO      AUTO [n][, [i]] (p3/gwmain.s AUTOP), then MAIN
 ;   RESEQ     RENUM [n][, [m][, i]] (p3/gwmain.s RESEQP), then READY
 ;
@@ -36,7 +37,7 @@
 .include "gwbasic.inc"
 
 .export ONGOTO, ERRORS, RESUME
-.export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF, AUTO, RESEQ, COMS, LCOPY
+.export SWAP, ERASE, CLEAR, OPTION, RANDOM, WRITE, DEF, AUTO, RESEQ, COMS, LCOPY, POKE
 .import CLEARC, INPRET, EDTMAI, LSTRDY, ONTOK, GONE2
 
 .code
@@ -66,6 +67,8 @@ WRITE:          FJSR    WRITEP
                 RTS
 
 DEF:            FJSR    DEFP
+                RTS
+POKE:           FJSR    POKEP
                 RTS
 
 AUTO:           FJSR    AUTOP

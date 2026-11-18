@@ -5,12 +5,14 @@
 ; 7"), each reached by its resident stub (res/far3.s), with GIODSK.ASM's
 ; PRODIR (a protected program's direct line refused):
 ;
-;   DEFP      DEF FN (DEFNC3, SCNLIS), DEF USR (DEFUSR); DEF SEG is 7c's
+;   DEFP      DEF FN (DEFNC3, SCNLIS), DEF USR (DEFUSR), DEF SEG (DEFNC2,
+;             7c's tail: SAVSEG)
 ;   FNDOERP   FNname[(arguments)]: the arguments bound to the parameters
 ;             (ASGMOR, POPASG, FINASG), the body evaluated (FINVLS), the
 ;             parameters put back (NOCPRS) and the result made the
 ;             function's type (DOCNVF)
-;   USRFNP    USR[n](argument): a 6502 routine in the TPA (SCNUSR)
+;   USRFNP    USR[n](argument): a 6502 routine in the TPA (SCNUSR), under
+;             segment 0 only (7c's tail)
 ;   ERRDIR    Illegal direct in direct mode; GETFNM: FN's name to PTRGET
 ;
 ; A function is a simple variable whose name's first character has bit 7 set
@@ -26,20 +28,19 @@
 ;
 ; The far call rule (translate-7b-common.md): FN ends with DOCNVF's JMP, a
 ; tail call to a resident routine that returns by RTS (FRCTBL's); DEF FN's
-; JMP DATA is one too; DEF SEG's JMP ADVERR and the errors reset both
-; stacks. USR calls its routine and returns. None goes into the statement
-; loop.
+; JMP DATA is one too; the errors reset both stacks. DEF SEG returns. USR
+; calls its routine and returns. None goes into the statement loop.
 
 .include "gwbasic.inc"
 
 ;@entry DEFP
 ;@entry FNDOERP
 ;@entry USRFNP
-.export DEFP, FNDOERP, USRFNP
+.export DEFP, FNDOERP, USRFNP, PRODIR
 .import CHRGTR, SYNCHR, PTRGET, PTRGT2, SUBFLG, SPUSH, SPOP, SPUSHA, SPOPA
 .import FRMEVL, FRMEQL, PARCHK, DOCNVF, GETSTK, VMOVE, VMOVFM, LETCN4, GETYPR
 .import STRCPY, PUTTMP, FREFAC, DSCTMP, PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT
-.import UFERR, FCERR, SNERR, ERROR, DATA, ADVERR, FRMQNT
+.import UFERR, FCERR, SNERR, ERROR, DATA, FRMQNT, SAVSEG
 
 ERRID           = 12                   ; Illegal direct
 
@@ -48,9 +49,12 @@ ERRID           = 12                   ; Illegal direct
 ; --- DEF (GWEVAL.ASM 1209) ---------------------------------------------------------------
 
 ; DEF: A the character after DEF, as CHRGTR left it. DEF USR, DEF FN, or
-; else it must be DEF SEG (the letters S, E, G: not a reserved word), which
-; is 7c's (DEFNC2: SAVSEG, for PEEK, POKE, CALL, BLOAD and BSAVE): Advanced
-; Feature until then, so that 7b's USR is always segment 0.
+; else it must be DEF SEG (the letters S, E, G: not a reserved word). DEF
+; SEG = n (FRMQNT: -32768 to 65535, taken unsigned) makes n the segment; DEF
+; SEG alone the 8086's DS (MOV DX,DS), which is segment 0 here, the
+; program's own memory from physical $00000 (hw/oodos.md, the DEF SEG
+; section). DEFNC2 keeps it in SAVSEG, for PEEK, POKE, USR, BLOAD and BSAVE
+; (7c's tail).
 DEFP:           CMP     #USR_TK        ; DEF USR?
                 BEQ     DEFUSR
                 CMP     #FN_TK         ; DEF FN?
@@ -61,7 +65,19 @@ DEFP:           CMP     #USR_TK        ; DEF USR?
                 .byte   'E'
                 JSR     SYNCHR
                 .byte   'G'
-                JMP     ADVERR         ; DEFNC2: 7c's
+                BNE     @eq            ; Z: the statement's end, no "="
+                STZ     RDL            ; MOV DX,DS: segment 0
+                STZ     RDH
+                BRA     DEFNC2
+@eq:            JSR     SYNCHR         ; else "=" and the segment
+                .byte   EQULTK
+                JSR     FRMQNT         ; DX
+; DEFNC2 (GWEVAL.ASM 1225): SAVSEG = DX.
+DEFNC2:         LDA     RDL
+                STA     SAVSEG
+                LDA     RDH
+                STA     SAVSEG+1
+                RTS
 
 ; DEFNC3 (GWEVAL.ASM 1227): the function's variable (made if it is new) gets
 ; the text pointer past its name; Illegal direct in direct mode (after the
@@ -156,9 +172,12 @@ PRODIR:         PHP
 ; the routine USR n was DEFined at: $FFFF, never DEFined, is Illegal function
 ; call. A string argument is freed first (FREFAC), as the 8086 does.
 ;
-; The port's convention (the 8086's, in the 6502's terms; segment 0 always,
-; the TPA, until DEF SEG in 7c), for the owner to confirm: the routine is
-; called by JSR, with
+; The routine must be in segment 0, the TPA (hw/oodos.md's OEM table: CALL
+; and USR, "any other segment refused": code in a block is GW-BASIC's own),
+; so under any other DEF SEG USR is Illegal function call and nothing is
+; called (7c's tail; the 8086 far calls SAVSEG:address). The port's
+; convention (the 8086's, in the 6502's terms), for the owner to confirm: the
+; routine is called by JSR, with
 ;
 ;   A         VALTYP: 2 integer, 3 string, 4 single, 8 double (the 8086's AL)
 ;   X         #FACLO: the FAC's zero page address (the 8086's BX = FACLO; a
@@ -187,8 +206,11 @@ USRFNP:         JSR     PRODIR         ; not direct, if protected
                 STA     RDH
                 AND     RDL            ; $FFFF: never DEFined
                 CMP     #$FF
-                BNE     :+
-                JMP     FCERR
+                BEQ     @fc
+                LDA     SAVSEG         ; segment 0 only (7c's tail)
+                ORA     SAVSEG+1
+                BEQ     :+
+@fc:            JMP     FCERR
 :               LDA     TXTPTR+1       ; the text pointer, kept
                 PHA
                 LDA     TXTPTR

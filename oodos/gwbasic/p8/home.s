@@ -39,7 +39,7 @@
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
-.import COMS, LCOPY
+.import COMS, LCOPY, POKE
 
 .code
 
@@ -82,7 +82,7 @@ STMDSP:         S       ENDST          ; END
                 S       ONGOTO         ; ON
                 S       ADVERR         ; WAIT (refused, 7g)
                 S       DEF            ; DEF
-                S       ADVERR         ; POKE (7c)
+                S       POKE           ; POKE (p8/far3.s)
                 S       CONT           ; CONT
                 S       SNERR          ; (padding)
                 S       SNERR          ; (padding)
