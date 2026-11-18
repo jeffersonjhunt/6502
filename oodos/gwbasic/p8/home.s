@@ -39,7 +39,7 @@
 .import EDIT, AUTO, RESEQ, DIM, DEFSTR, DEFINT, DEFREA, DEFDBL, SYSTEM
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
-.import COMS, LCOPY, POKE
+.import COMS, LCOPY, POKE, BSAVE, BLOAD
 
 .code
 
@@ -121,8 +121,13 @@ STMDSP:         S       ENDST          ; END
                 S       LOADS          ; LOAD
                 S       MERGES         ; MERGE
                 S       SAVES          ; SAVE
-.repeat LOCATE_TK - SAVE_TK
-                S       ADVERR         ; COLOR .. LOCATE (7c-7f)
+.repeat BSAVE_TK - SAVE_TK - 1
+                S       ADVERR         ; COLOR CLS MOTOR (7d-7f)
+.endrepeat
+                S       BSAVE          ; BSAVE (p8/far4.s)
+                S       BLOAD          ; BLOAD (p8/far4.s)
+.repeat LOCATE_TK - BLOAD_TK
+                S       ADVERR         ; SOUND .. LOCATE (7d-7f)
 .endrepeat
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 

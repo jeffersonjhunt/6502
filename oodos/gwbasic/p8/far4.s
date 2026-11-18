@@ -27,6 +27,8 @@
 ;   RSET
 ;   PUT       PUT, GET [#]n[, record] (p4/gwsts.s PUTP, GETP: a graphics
 ;   GET       PUT or GET is 7e's)
+;   BSAVE     BSAVE name, offset, length and BLOAD name[, offset] (7c's
+;   BLOAD     tail): BPARMS here, then p4/gio86.s BSAVEP and BLOADP
 ;   CHAIN     CHAIN [MERGE] name[, [line][, ALL][, DELETE range]]
 ;             (FIVEO.ASM's CHAIN, p4/fiveo.s CHAINP; its end, CHNRET, from
 ;             LDBIN here and from MAIN, p8/gwmain.s)
@@ -50,8 +52,9 @@
 
 ;@entry HLRUN
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
-.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
+.export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN, BSAVE, BLOAD
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
+.import SYNCHR, SNERR, FCERR, SAVSEG
 
 .code
 
@@ -145,5 +148,148 @@ SAVES:          FJSR    SAVEP          ; C set: ",A", TXTPTR at the "A"
 :               JSR     CHRGTR         ; past the "A" (DSKCOM.ASM 531)
                 JMP     LIST           ; the LIST code lists to file 0
 
+
+; BSAVE, BLOAD (GIO86.ASM 307, 331; 7c's tail): BPARMS here, which is
+; parsing alone (the name by P4's NAMSCN, whose FILNAM and FILDEV wait in
+; P4's RAM, as LIST's NULOPM finds them; the numbers by P1's ADRGET), and
+; the run checked whole by P5's DSRUN (BRUN) before P4's BSAVEP, or after
+; BLOADP has read the file's header and before BLDRUN reads the bytes
+; (p4/gio86.s). The text pointer is kept, as the 8086's PUSH BX and
+; LODEND's POP BX. BSAVE needs both numbers, BLOAD at most the offset
+; (SNERR2). BHD8 is the header: the segment, the offset, the length.
+BSAVE:          JSR     BPARMS
+                INC     A
+                BNE     SNERR2         ; 1 or no numbers
+                JSR     BKEEP
+                LDX     #1             ; DEF SEG's segment, CX the offset, DX the length
+@h:             LDA     SAVSEG,X
+                STA     BHD8,X
+                LDA     RCL,X
+                STA     BHD8+2,X
+                LDA     RDL,X
+                STA     BHD8+4,X
+                DEX
+                BPL     @h
+                JSR     BRUN
+                LDX     BTYPE
+                FJSR    BSAVEP
+                BRA     BBACK
+BLOAD:          JSR     BPARMS
+                CMP     #$FF
+                BEQ     SNERR2         ; 2 numbers
+                PHA                    ; BLODP: 1 none, 0 the offset
+                JSR     BKEEP
+                LDA     RCL
+                STA     BOF8
+                LDA     RCH
+                STA     BOF8+1
+                LDX     BTYPE
+                FJSR    BLOADP         ; RDL-RAH: the file's header
+                LDX     #5
+@f:             LDA     RDL,X
+                STA     BHD8,X
+                DEX
+                BPL     @f
+                PLA
+                BNE     DEFSAD         ; no offset: the file's segment and offset
+                LDX     #1             ; else DEF SEG's and the offset given
+@g:             LDA     SAVSEG,X
+                STA     BHD8,X
+                LDA     BOF8,X
+                STA     BHD8+2,X
+                DEX
+                BPL     @g
+DEFSAD:         JSR     BRUN
+                FJSR    BLDRUN
+BBACK:          LDA     BTXP           ; POP BX
+                STA     TXTPTR
+                LDA     BTXP+1
+                STA     TXTPTR+1
+                RTS
+SNERR2:         JMP     SNERR
+; BKEEP: the text pointer kept (PUSH BX); A kept.
+BKEEP:          LDY     TXTPTR
+                STY     BTXP
+                LDY     TXTPTR+1
+                STY     BTXP+1
+                RTS
+; BRUN: BHD8's run checked by DSRUN (DX the segment, BX the offset, CX the
+; length): Illegal function call if refused. Then RSI-RDI's first byte its
+; 20-bit start, RDL-RAH the header again, CX the length.
+BRUN:           LDX     #3
+@a:             LDA     BHD8,X
+                STA     RDL,X
+                DEX
+                BPL     @a
+                LDA     BHD8+4
+                STA     RCL
+                LDA     BHD8+5
+                STA     RCH
+                FJSR    DSRUN          ; DX, BL: the start
+                LDX     #2
+@b:             LDA     RDL,X
+                STA     RSI,X
+                DEX
+                BPL     @b
+                LDX     #5
+@c:             LDA     BHD8,X
+                STA     RDL,X
+                DEX
+                BPL     @c
+                RTS
+
+; BPARMS (GIO86.ASM 376): PRODIR (inline: a protected program's direct line
+; is Illegal function call); the name (NAMSCN; BTYPE bit 7 if it had a
+; type); then none, one or two numbers after commas, A 1, 0 or $FF; CX the
+; first (the offset), DX the second (BSAVE's length), and the statement's
+; end after two (SNERR3).
+BPARMS:         LDA     CURLIN
+                AND     CURLIN+1
+                INC     A
+                BNE     :+
+                LDA     PROFLG
+                BEQ     :+
+                JMP     FCERR
+:               FJSR    NAMSCN
+                ROR     BTYPE          ; C: a "."
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BNE     BPARM2
+                LDA     #1             ; no numbers
+                RTS
+BPARM2:         JSR     SYNCHR
+                .byte   ','
+                FJSR    ADRGET         ; DX
+                LDA     RDH            ; PUSH DX
+                PHA
+                LDA     RDL
+                PHA
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BNE     BPARM3
+                PLA                    ; CX the offset
+                STA     RCL
+                PLA
+                STA     RCH
+                LDA     #0             ; one
+                RTS
+BPARM3:         JSR     SYNCHR
+                .byte   ','
+                FJSR    ADRGET         ; DX the length
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     :+
+                JMP     SNERR          ; SNERR3: the statement must end
+:               PLA
+                STA     RCL
+                PLA
+                STA     RCH
+                LDA     #$FF           ; two
+                RTS
+
 .segment "BRAM"
 LDFLG:          .res    1              ; LDBIN's RUNFLG, kept over RUNC
+BTYPE:          .res    1              ; BPARMS: bit 7, the name had a type
+BTXP:           .res    2              ; BSAVE's and BLOAD's text pointer, kept
+BHD8:           .res    6              ; their header: the segment, the offset, the length
+BOF8:           .res    2              ; BLOAD's offset given (CX)

@@ -33,6 +33,8 @@
 ;   NULOPM          file, p2/gwlist.s)
 ;   SCDASC SCDBIN   PTRFIL's file made text, or binary
 ;   FSTLOD INPBLK   a tokenised program read (the disk's DFSTLD)
+;   BSAVEP BLOADP   BSAVE and BLOAD (7c's tail), once the home block has
+;   OUT16 INP16     parsed them (BPARMS: p8/far4.s), their header's words
 ;   BINSAV BINPSV   and one written (OUTBLK: the disk's DEVBOT, each byte
 ;   OUTBLK DEVBOT   out)
 ;
@@ -90,6 +92,9 @@
 ;@entry GETPTR
 ;@entry DEVSOT
 ;@entry GIOINP
+;@entry BSAVEP
+;@entry BLOADP
+;@entry BLDRUN
 .export DEVSOT, GIOINP, CDEVID, TBLDSP, GFCODE, FILOPT, UPCASE, INCHSI, BCHRSI, DEVBIN
 .export CRIFEL, UPDPOS, CRDL, CRDH, BXVEC, SCDBIN
 .export NAMSCN, NULOPM, GETPTR, SKPNAM
@@ -98,13 +103,14 @@
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
 .export PRGFIL, SCDASC, FSTLOD, BINSAV, BINPSV, DEVBOT, PRGFIN, CLSFIL, RUNFLG, LDRUN, PTRDSP
 .export DERBFN, DERFNF, DERBFM, DERFNO, DERFAO, DERIOE, DERDFL, DERRPE, DERIFN, DERTMF, DERDNA
-.export DERFAE, DERRAD, DERFOV, DERBRN, DPUTG, GETDAT
+.export DERFAE, DERRAD, DERFOV, DERBRN, DPUTG, GETDAT, BSAVEP, BLOADP, BLDRUN
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
 .import GARBA2, MEMSIZ
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import FIXINPP
 .import STROUT, REDDY, GTMPRT, SAVFRE
 .import DVPTR, DEVTBL, DVINI, FILWID, FILDVC
+.import BUFPHY, BXFER, P73, WRITES, LDBLK
 
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
@@ -123,6 +129,7 @@ ERRFOV          = 50                   ; FIELD overflow
 ERRBRN          = 63                   ; Bad record number
 ERROM           = 7                    ; Out of memory
 FNAML           = 11                   ; MSDOSU's: a name and type's bytes
+BSVFID          = $FD                  ; GIO86U's: a BSAVE file's first byte
 
 .code
 
@@ -622,6 +629,134 @@ INCHRI:         JSR     CHSNS
                 BEQ     INCHRI
                 RTS
 
+; --- BSAVE, BLOAD (GIO86.ASM 296) ---------------------------------------------------------
+
+; BSAVEP, BLOADP, BLDRUN (7c's tail): BSAVE's and BLOAD's file parts. The
+; home block's stubs (p8/far4.s) parse the statements (BPARMS: the name by
+; NAMSCN, the numbers by ADRGET) and have the run checked whole by P5's
+; DSRUN before anything moves (Illegal function call: bank 8, OODOS's
+; memory, past $FFFFF), so a BSAVE so refused writes no file (the owner's
+; answer 2). X bit 7 set if the name had a type, else NAMBAS gives it .BAS;
+; a device is Bad file mode (OO-1, the owner's answer 3: disk files only).
+; The file is BSVFID ($FD), the segment, the offset and the length, each a
+; word low byte first (BHDR), then the bytes.
+;
+; BSAVEP: RDL-RAH the header (DX the segment, BX the offset, AX the length),
+; RSI-RDI's first byte the run's 20-bit start. The run is copied into file
+; 0's buffer by DM_COPY a piece at a time (BXFER), a full record written
+; first (WRITES); LODEND's close (FINPRT) writes the last.
+BSAVEP:         JSR     BCHK
+                LDX     #5
+@h:             LDA     RDL,X
+                STA     BHDR,X
+                DEX
+                BPL     @h
+                JSR     BSTART
+                LDA     #MD_SQO
+                JSR     NULOPM
+                JSR     SCDBIN
+                JSR     BUFPHY
+                LDA     #BSVFID
+                JSR     BOUT
+; OUT16 (GIO86.ASM 2223): BHDR's three words to the file.
+OUT16:          LDY     #0
+@o:             LDA     BHDR,Y
+                PHY
+                JSR     BOUT
+                PLY
+                INY
+                CPY     #6
+                BNE     @o
+                LDA     BHDR+4         ; CX the length (OUTBLK's)
+                STA     RCL
+                LDA     BHDR+5
+                STA     RCH
+BSVLP:          LDA     RCL            ; the bytes left
+                ORA     RCH
+                BEQ     LODEND
+                LDY     #F_ORCT
+                LDA     (FDBP),Y
+                CMP     #DATPSC
+                BNE     :+
+                JSR     WRITES         ; a full record: written, F_ORCT 0
+                LDA     #0
+:               PHA                    ; the place in the buffer
+                EOR     #$FF           ; T0: the room left, or CX if less
+                SEC
+                ADC     #DATPSC
+                STA     T0
+                STZ     T1
+                LDA     RCH
+                BNE     :+
+                LDA     RCL
+                CMP     T0
+                BCS     :+
+                STA     T0
+:               PLA
+                PHA
+                CLC
+                ADC     T0
+                LDY     #F_ORCT
+                STA     (FDBP),Y
+                PLA
+                LDX     #3             ; to the buffer
+                JSR     BXFER
+                BRA     BSVLP
+
+; BLOADP: file 0 opened; BSVFID first (else Bad file mode: ERBFM2), then
+; the header (INP16) returned in RDL-RAH, for the stub to choose the run
+; (BLODP, DEFSAD) and check it. BLDRUN: that run read (INPBLK: the disk's
+; DFSTLD, to its physical address), RSI-RDI's first byte its start, CX its
+; length; LODEND closes file 0.
+BLOADP:         JSR     BCHK
+                LDA     #MD_SQI
+                JSR     NULOPM
+                JSR     SCDBIN
+                JSR     INCHR
+                CMP     #BSVFID
+                BEQ     INP16
+                JMP     DERBFM         ; ERBFM2
+; INP16 (GIO86.ASM 2235): the header's three words.
+INP16:          LDY     #0
+@i:             PHY
+                JSR     INCHR
+                PLY
+                STA     BHDR,Y
+                INY
+                CPY     #6
+                BNE     @i
+                LDX     #5
+@c:             LDA     BHDR,X
+                STA     RDL,X
+                DEX
+                BPL     @c
+                RTS
+BLDRUN:         JSR     BSTART
+                JSR     INPBLK
+LODEND:         JMP     FINPRT
+
+; BCHK: NAMBAS unless X says a type was given; a device's name is Bad file
+; mode.
+BCHK:           TXA
+                BMI     :+
+                JSR     NAMBAS
+:               LDA     FILDEV
+                BPL     :+
+                JMP     DERBFM
+:               RTS
+
+; BSTART: LDBLK+8-10 the run's start, from RSI-RDI's first byte.
+BSTART:         LDX     #2
+@s:             LDA     RSI,X
+                STA     LDBLK+8,X
+                DEX
+                BPL     @s
+                RTS
+
+; BOUT: A to file 0, by the disk's byte output (BINPSV's way).
+BOUT:           LDX     #G_SOT
+                JMP     PTRDSP
+
 ; --- BINSAV, DEVBOT, FSTLOD, SCDASC (GIO86.ASM 1095) ---------------------------------------
 
 ; BINSAV: a tokenised SAVE: the line pointers back to numbers (SCCPTR, P2's),
@@ -693,7 +828,8 @@ OUTBLK:         LDX     #G_BOT
 
 ; FSTLOD (1190): a tokenised program to BX (TXTTAB), its first byte (255 or
 ; 254) read: CX the most it may take, FRETOP - 86 - BX; binary (SCDBIN);
-; the block read (INPBLK: the disk's DFSTLD). BX returns past it. OO-1:
+; the block read (INPBLK: the disk's DFSTLD, to BX's physical address,
+; LDBLK+8-10, function 73's: 7c's tail). BX returns past it. OO-1:
 ; whether it fitted is BINLOD's (p4/dskcom.s), by the program's links, not
 ; the read's C (the 8086's OUTLOD when the file is longer than CX): CP/M's
 ; last record runs past the program's end.
@@ -715,6 +851,10 @@ FSTLOD:         SEC
                 STZ     RCL            ; (OO-1: no room at all is none)
                 STZ     RCH
 :               JSR     SCDBIN
+                LDA     RBL            ; DFSTLD's destination
+                LDX     RBH
+                LDY     #0
+                JSR     P73
 INPBLK:         LDX     #G_BIN
                 JMP     PTRDSP
 
@@ -1665,6 +1805,7 @@ FDBTAB:
 .endrepeat
 
 .segment "BRAM"
+BHDR:           .res    6              ; BSAVE's and BLOAD's header: the segment, the offset, the length
 ; GWDATA.ASM's, and what the 8086 keeps on its stack
 FILMOD:         .res    1              ; the mode an OPEN asks for
 FILNAM:                                ; the name an OPEN gives: its drive, name and type

@@ -1250,8 +1250,17 @@ DSKCOM.ASM MERGE -> p4/dskcom.s MERGEP # the stub (p8/far4.s MERGES) drops NEWST
 GWSTS.ASM COLOR -> later 7d
 GWSTS.ASM CLS -> later 7d
 GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
-GIO86.ASM BSAVE -> later 7c
-GIO86.ASM BLOAD -> later 7c
+GIO86.ASM BSAVE -> p8/far4.s BSAVE # 7c's tail: parsing and DSRUN's check in the home block, the file in p4/gio86.s BSAVEP (OUTBLK's place: DM_COPY a piece at a time into file 0's buffer)
+GIO86.ASM SNERR2 -> p8/far4.s SNERR2
+GIO86.ASM BPARMS -> p8/far4.s BPARMS # NAMSCN by P4's entry, ADRGET by P1's; PRODIR inline
+GIO86.ASM SNERR3 -> p8/far4.s BPARMS
+GIO86.ASM OUT16 -> p4/gio86.s OUT16 # the header's three words, from BHDR
+GIO86.ASM BLOAD -> p8/far4.s BLOAD # 7c's tail: the header read by p4/gio86.s BLOADP, the run checked (DSRUN), the bytes by BLDRUN (INPBLK: DFSTLD to the physical address)
+GIO86.ASM BLODP -> p8/far4.s BLOAD
+GIO86.ASM DEFSAD -> p8/far4.s DEFSAD
+GIO86.ASM LODEND -> p4/gio86.s LODEND
+GIO86.ASM ERBFM2 -> p4/gio86.s BLOADP
+GIO86.ASM INP16 -> p4/gio86.s INP16 # the header's three words, into BHDR
 GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> later 7e

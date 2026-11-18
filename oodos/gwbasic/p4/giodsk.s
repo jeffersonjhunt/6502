@@ -29,9 +29,11 @@
 ;   FILESP          FILES: the directory's names that match, or every one
 ;   KILLP NAMEP     KILL, NAME: a file deleted, renamed (the BDOS's 19, 23)
 ;   NAMFIL FILFCB   their names: a string, made an FCB by function 152
-;   DFSTLD          a LOAD's block input: whole records straight to the
-;                   workspace by function 83's DM_LOAD (W2), the last part
-;                   through the buffer
+;   DFSTLD          a LOAD's and a BLOAD's block input, to a physical
+;                   address: whole records straight there by function 83's
+;                   DM_LOAD (W2), the rest from the buffer by DM_COPY
+;   BUFPHY BXFER    (7c's tail) the buffer's physical address; a piece
+;   P73             between it and LDBLK+8-10, by DM_COPY; function 73
 ;   PROSAV          SAVE ,P: the program saved encoded (PENCOD), then decoded
 ;   PENCOD PDECOD   (PDECOD, which LOAD's PROLOD is)
 ;
@@ -67,6 +69,7 @@
 ;@entry NAMEP
 ;@entry CMPFBP
 .export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
+.export BUFPHY, BXFER, P73, WRITES, LDBLK
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
 .import MAXREC, ERROR
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
@@ -1034,23 +1037,25 @@ PBDOS:          JSR     BDOS
 
 ; --- DFSTLD (GIODSK.ASM 783) --------------------------------------------------------------
 
-; DFSTLD: CX bytes at most from PTRFIL's file (file 0, its first byte read)
-; to BX; BX returns past the last, C set if the file ended first. OO-1
-; (W2, hw/oodos.md 7c): the 8086 reads the bytes from the second on by one
-; random block read of 1-byte records; CP/M's records are 128 bytes, so:
+; DFSTLD: CX bytes at most from PTRFIL's file (file 0, its first bytes
+; read) to the physical address at LDBLK+8-10 (7c's tail: FSTLOD gives its
+; BX's, by function 73; BLOAD its run's, P5's DSRUN), which moves on past
+; them, as BX does; C set if the file ended first. OO-1 (W2, hw/oodos.md
+; 7c): the 8086 reads the bytes from the second on by one random block read
+; of 1-byte records; CP/M's records are 128 bytes, so:
 ;   1. the bytes the buffer has left of the first record, as many as CX
-;      takes (BUFCPY);
+;      takes (BUFCPY: by DM_COPY from the buffer's physical address);
 ;   2. whole records by function 83's DM_LOAD, from the next (R0-R2),
-;      straight to the workspace (its physical address, function 73's), as
-;      many as fit in CX whole: each lies below BX + CX;
+;      straight to their place, as many as fit in CX whole;
 ;   3. if CX has room for part of one more, that record read into the
-;      buffer (READS), and only the bytes CX takes copied.
-; So nothing is written at or past BX + CX, however the file ends. A
-; DM_LOAD that fails is Device I/O error.
+;      buffer (READS), and only the bytes CX takes copied (BUFCPY).
+; So nothing is written at or past the start + CX, however the file ends.
+; A DM_LOAD that fails is Device I/O error.
 DFSTLD:         LDA     PTRFIL
                 STA     FDBP
                 LDA     PTRFIL+1
                 STA     FDBP+1
+                JSR     BUFPHY
                 JSR     BUFCPY
                 LDA     RCL            ; the whole records: CX / 128
                 ASL     A
@@ -1061,7 +1066,7 @@ DFSTLD:         LDA     PTRFIL
                 ROL     A
                 STA     LDBLK+7
                 ORA     LDBLK+6
-                JEQ     DFSTL3
+                BEQ     DFSTL3
                 LDA     #DM_LOAD
                 STA     LDBLK
                 CLC                    ; the FCB
@@ -1079,42 +1084,6 @@ DFSTLD:         LDA     PTRFIL
                 INX
                 CPX     #3
                 BNE     @rn
-                LDA     RBL            ; the destination: BX's physical address
-                STA     LDPHY
-                LDA     RBH
-                STA     LDPHY+1
-                LDA     #<LDPHY
-                LDX     #>LDPHY
-                LDY     #O_PHYSADDR
-                JSR     BDOS
-                CMP     #0
-                JNE     DFSTER
-                LDA     LDPHY+2        ; paragraph x 16 + offset
-                ASL     A
-                ASL     A
-                ASL     A
-                ASL     A
-                ORA     LDPHY
-                STA     LDBLK+8
-                LDA     LDPHY+2
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
-                STA     T0
-                LDA     LDPHY+3
-                ASL     A
-                ASL     A
-                ASL     A
-                ASL     A
-                ORA     T0
-                STA     LDBLK+9
-                LDA     LDPHY+3
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
-                STA     LDBLK+10
                 LDA     #<LDBLK
                 LDX     #>LDBLK
                 LDY     #O_DMA
@@ -1135,27 +1104,14 @@ DFSTLD:         LDA     PTRFIL
                 LDA     LDBLK+5
                 ADC     #0
                 STA     (FDBP),Y
-                LDA     LDBLK+6        ; BX on, CX less, by 128 x those loaded
+                LDA     LDBLK+6        ; on by 128 x those loaded
                 LSR     LDBLK+7
                 ROR     A
                 STA     T1             ; (x 128: the high byte, and the low's bit 7)
                 LDA     #0
                 ROR     A
                 STA     T0
-                CLC
-                LDA     RBL
-                ADC     T0
-                STA     RBL
-                LDA     RBH
-                ADC     T1
-                STA     RBH
-                SEC
-                LDA     RCL
-                SBC     T0
-                STA     RCL
-                LDA     RCH
-                SBC     T1
-                STA     RCH
+                JSR     ADVN
                 LDA     LDRES
                 BNE     DFSTEF         ; the file ended
 DFSTL3:         LDA     RCL            ; room for part of one more?
@@ -1170,35 +1126,137 @@ DFSTEF:         SEC
                 RTS
 DFSTER:         JMP     DERIOE
 
-; BUFCPY (the project's own): the bytes left in FDBP's buffer (F_BREM) to
-; BX, as many as CX takes: BX on, CX and F_BREM less.
+; BUFCPY (the project's own): the bytes left in FDBP's buffer (F_BREM), as
+; many as CX takes, to LDBLK+8-10 by DM_COPY (BXFER): it, BX and CX on, and
+; F_BREM less.
 BUFCPY:         LDY     #F_BREM
                 LDA     (FDBP),Y
                 BEQ     @x
+                STA     T0             ; T0: F_BREM, or CX if less
+                STZ     T1
+                LDA     RCH
+                BNE     @n
                 LDA     RCL
-                ORA     RCH
-                BEQ     @x
-                LDA     (FDBP),Y       ; DATOFS + F_ORCT - F_BREM: the next byte
+                BEQ     @x             ; CX 0
+                CMP     T0
+                BCS     @n
+                STA     T0
+@n:             LDA     (FDBP),Y       ; F_ORCT - F_BREM: the next byte's place
                 EOR     #$FF
                 SEC
                 LDY     #F_ORCT
                 ADC     (FDBP),Y
-                CLC
-                ADC     #DATOFS
-                TAY
+                PHA
+                LDY     #F_BREM        ; F_BREM less
                 LDA     (FDBP),Y
-                STA     (RBL)
-                INCW    RBL
-                LDA     RCL
-                BNE     :+
-                DEC     RCH
-:               DEC     RCL
-                LDY     #F_BREM
-                LDA     (FDBP),Y
-                DEC     A
+                SEC
+                SBC     T0
                 STA     (FDBP),Y
-                BRA     BUFCPY
+                PLA
+                LDX     #0             ; from the buffer
+                JMP     BXFER
 @x:             RTS
+
+; BUFPHY (7c's tail): BBUF, FDBP's buffer's physical address (function 73,
+; while this block is in W3).
+BUFPHY:         CLC
+                LDA     FDBP
+                ADC     #DATOFS
+                PHA
+                LDA     FDBP+1
+                ADC     #0
+                TAX
+                PLA
+                LDY     #BBUF - LDBLK - 8
+; P73: the CPU address A/X's physical address (function 73's paragraph x
+; 16 + offset), at LDBLK+8-10 + Y. A refusal is Device I/O error (there is
+; none for the workspace or this block).
+P73:            STA     LDPHY
+                STX     LDPHY+1
+                PHY
+                LDA     #<LDPHY
+                LDX     #>LDPHY
+                LDY     #O_PHYSADDR
+                JSR     BDOS
+                PLY
+                CMP     #0
+                BNE     DFSTER
+                LDA     LDPHY+2        ; the paragraph x 16
+                STA     T0
+                LDA     LDPHY+3
+                STA     T1
+                STZ     T2
+                LDX     #4
+@x16:           ASL     T0
+                ROL     T1
+                ROL     T2
+                DEX
+                BNE     @x16
+                LDA     T0             ; + the offset (0-15)
+                ORA     LDPHY
+                STA     LDBLK+8,Y
+                LDA     T1
+                STA     LDBLK+9,Y
+                LDA     T2
+                STA     LDBLK+10,Y
+                RTS
+
+; BXFER (7c's tail): T0 bytes (1-128) by function 83's DM_COPY between the
+; buffer's byte A (BBUF + A) and LDBLK+8-10: X 0 from the buffer (DFSTLD's),
+; 3 to it (BSAVE's): the buffer's address goes to BDM+1+X. Then ADVN.
+BXFER:          CLC
+                ADC     BBUF
+                STA     BDM+1,X
+                LDA     BBUF+1
+                ADC     #0
+                STA     BDM+2,X
+                LDA     BBUF+2
+                ADC     #0
+                STA     BDM+3,X
+                TXA                    ; the other side: LDBLK+8-10
+                EOR     #3
+                TAX
+                LDY     #0
+@d:             LDA     LDBLK+8,Y
+                STA     BDM+1,X
+                INX
+                INY
+                CPY     #3
+                BNE     @d
+@go:            LDA     T0
+                STA     BDM+7
+                STZ     BDM+8
+                LDA     #DM_COPY
+                STA     BDM
+                LDA     #<BDM
+                LDX     #>BDM
+                LDY     #O_DMA
+                JSR     BDOS
+; ADVN (7c's tail): LDBLK+8-10 and BX on by T1:T0, CX less.
+ADVN:           CLC
+                LDA     LDBLK+8
+                ADC     T0
+                STA     LDBLK+8
+                LDA     LDBLK+9
+                ADC     T1
+                STA     LDBLK+9
+                BCC     :+
+                INC     LDBLK+10
+:               CLC
+                LDA     RBL
+                ADC     T0
+                STA     RBL
+                LDA     RBH
+                ADC     T1
+                STA     RBH
+                SEC
+                LDA     RCL
+                SBC     T0
+                STA     RCL
+                LDA     RCH
+                SBC     T1
+                STA     RCH
+                RTS
 
 ; --- PROSAV, PENCOD, PDECOD (GIODSK.ASM 814) ----------------------------------------------
 
@@ -1845,6 +1903,8 @@ LOFRN:          .res    3              ; DSKLOF's R0-R2, kept
 LDBLK:          .res    11             ; DFSTLD's DM_LOAD block
 LDPHY:          .res    4              ; and function 73's
 LDRES:          .res    1              ; DM_LOAD's A
+BBUF:           .res    3              ; BUFPHY: FDBP's buffer's physical address (7c's tail)
+BDM:            .res    9              ; BXFER's DM_COPY block
 PRCL:           .res    1              ; PENCOD's and PDECOD's CL and CH
 PRCH:           .res    1
 FILNA2:         .res    33             ; NAME's rename FCB (both names), FILES's "d:*.*" (GWDATA.ASM's FILNA2)
