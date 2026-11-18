@@ -2433,7 +2433,7 @@ TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
 
 namespace
 {
-    constexpr uint16_t NB_WINH = 0xC6A0, NB_VECH = 0xC6A4, NB_MAP = 0xC6A5;
+    constexpr uint16_t NB_WINH = 0xC6A0, NB_MAP = 0xC6A5;
     constexpr uint8_t APER_H = 0x0E; // the WINnH that reaches the aperture at $E00000
 
     /// A Board whose north bridge is revision `bridge`, with a video card (revision 2) or none.
