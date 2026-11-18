@@ -26,7 +26,7 @@
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
-.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG
+.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD
 
 .code
 
@@ -67,6 +67,24 @@ GWINIT:
                 STZ     SAVSEG
                 STZ     SAVSEG+1
                 FJSR    GXSTRT
+; 7d1: in screen mode (SCRMOD, GXSTRT's choice) ^S and ^P are GW-BASIC's too,
+; so the console mode gets bit 1 as well ($0A: the Programmer's Guide,
+; chapter 8), and the cooked keys' drain (function 11) never stops on a ^S;
+; then SCNIPL's start-up, P6's: the screen cleared, the cursor home, the
+; layer shown, before the banner. A/X: the text pages, GXSTRT's.
+                BIT     SCRMOD
+                BPL     NOSCRN
+                STA     RDL
+                STX     RDH
+                LDA     OLDMOD
+                ORA     #$0A
+                LDX     OLDMOD+1
+                LDY     #C_MODE
+                JSR     BDOS
+                LDA     RDL
+                LDX     RDH
+                FJSR    SCNIPL
+NOSCRN:
 ; CPMVR1's (GWINIT.ASM 158): no CHAIN, no MERGE under way.
                 STZ     CHNFLG
                 STZ     MRGFLG

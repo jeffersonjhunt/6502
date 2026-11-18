@@ -57,9 +57,10 @@
 ;@entry GXSTRT
 ;@entry DSBYTE
 ;@entry DSRUN
-.export GXSTRT, DSBYTE, DSRUN
+;@entry TXMODE
+.export GXSTRT, DSBYTE, DSRUN, TXMODE
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
-.import FCERR, SAVSEG, SCRMOD
+.import FCERR, SAVSEG, SCRMOD, EVAREA
 
 CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
                                        ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
@@ -80,11 +81,25 @@ GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byt
                 TXA
                 AND     #CON_CRT
                 STA     DSVAL          ; (DSBYTE's, free until a PEEK)
-                LDA     #0
+                BEQ     @none          ; no CRT: no event area, as 7c's tail
+                LDA     #<FTOPEN       ; 7d1: the event area (layout 2), the
+                LDX     #>FTOPEN       ; keys' source on the screen (V2)
+                LDY     #O_FRAME
+                JSR     BDOS
+                LDA     #<EVAREA
+                LDX     #>EVAREA
+                JSR     GX_INIT
+                BCC     @scr
+                LDA     #FT_CLOSE      ; refused: the area closed, the console
+                LDX     #0
+                LDY     #O_FRAME
+                JSR     BDOS
+                BRA     @con
+@none:          LDA     #0
                 TAX
                 JSR     GX_INIT
-                BCS     @con           ; refused: the console, whatever CON: is
-                LDA     DSVAL
+                BRA     @con
+@scr:           LDA     DSVAL
                 STA     SCRMOD         ; bit 7: the CRT, so GW-BASIC's own screen
 @con:           JSR     GX_BANK8
                 LDA     #<SCRB
@@ -109,7 +124,58 @@ GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byt
                 LDA     SCRP
                 ORA     DSPB
                 STA     SCRP
-                RTS
+; 7d1: the text pages (SCREEN 0's: 4 of 5 KB at 80 columns, 8 of 3 KB at
+; 40; the owner's answer 6), 24 KB of the program's card memory at once:
+; A/X their first card page, for P6's SCNIPL. None to be had: the console.
+                BIT     SCRMOD
+                BPL     @x
+                LDA     #<TXPAGES
+                STA     GX_V
+                LDA     #>TXPAGES
+                STA     GX_V + 1
+                LDA     #4             ; on a kilobyte (VM_UNIT)
+                JSR     GX_VALLOC
+                BCC     @x
+                STZ     SCRMOD
+@x:             RTS
+
+; --- TXMODE (7d1) -------------------------------------------------------------------------
+
+; TXMODE: P6's text page on layer 0: A/X its card page (MAPBASE), the font
+; the console's at $000400, read only (the owner's answer 5); Y: bit 7
+; BLINK, bit 6 25 rows centred (VSCROLL 440: the owner's answer 10), bits
+; 5-2 the border, bit 0 40 columns. The layer alone shown.
+TXMODE:         STA     GX_V
+                STX     GX_V + 1
+                LDA     #<(VM_FONT / VM_PAGE)
+                STA     GX_R
+                LDA     #>(VM_FONT / VM_PAGE)
+                STA     GX_R + 1
+                STY     DSVAL
+                TYA
+                AND     #$81           ; CONFIG: BLINK, and type 0 (80) or 1 (40)
+                TAX
+                LDA     #0
+                JSR     GX_LAYER
+                STZ     GX_X
+                STZ     GX_X + 1
+                STZ     GX_Y
+                STZ     GX_Y + 1
+                BIT     DSVAL
+                BVC     :+
+                LDA     #<440
+                STA     GX_Y
+                LDA     #>440
+                STA     GX_Y + 1
+:               LDA     #0
+                JSR     GX_SCROLL
+                LDA     DSVAL
+                LSR     A
+                LSR     A
+                AND     #$0F
+                JSR     GX_BORDER
+                LDA     #$02           ; layer 0
+                JMP     GX_SHOW
 
 ; --- DSBYTE -------------------------------------------------------------------------------
 
@@ -328,5 +394,7 @@ DSCB:           .res    9              ; function 83's DM_COPY block
 DSPB:           .res    4              ; function 73's
 SCRB:           .res    1              ; the scratch byte
 .segment "RODATA"
+TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
+FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes
 SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output vector
 SCRP:           .res    3              ; and its physical address (GXSTRT)
