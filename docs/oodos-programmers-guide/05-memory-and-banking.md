@@ -199,11 +199,11 @@ event area, the FCBs and parameter blocks it passes, and what it draws from stay
 A hook that draws maps W1 itself. One that maps it through OOLIB ends with `GX_W1BACK` (B7, *proposed*): the hook
 shares the program's copy of the library, and with it the library's note of what W1 holds, which still names the
 hook's map after OODOS has put the program's W1 back. `GX_W1BACK` always writes block 1 and leaves the note there.
-After a drawing hook may have run, the program re-maps with `GX_VMAP` before it touches W1, even on its way back to
-block 1 (`GX_VMAP`, then `GX_W1BACK`): after `GX_BANK8`, `GX_W1BACK` or `GX_BLOCK` alone isn't enough, since the
-note can say WIN1H 0 while OODOS has put the program's `$0E` back. A hook's `GX_VMAP` also moves slot 1's bank (the
-card's SLOT1 register), which nothing puts back: the program's writes through slot 1 go to the hook's bank until its
-own `GX_VMAP` ([chapter 8](08-game-services.md#hooks)).
+**After `GX_BANK8`, a hook must not map W1 through OOLIB.** The note would then say WIN1H 0 while OODOS has put
+the program's `$0E` back, and the hook can fire between any two of the program's instructions, so no order of the
+program's own calls protects it; a hook's `GX_VMAP` would also move slot 1's bank (the card's SLOT1 register), which
+nothing puts back. A `GX_BANK8` program draws from its main loop, not from a hook
+([chapter 8](08-game-services.md#hooks)).
 A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.
 
 ## Video memory on revision 2

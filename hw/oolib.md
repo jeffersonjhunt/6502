@@ -1485,14 +1485,14 @@ and more in L5:
     the library, and so its record of W1, `GXCURH:GXCUR`. When the hook returns, OODOS puts the interrupted W1 and
     WIN1H back, but the record still says what the hook mapped, and the program's next `GX_VMAP` of the same bank
     or `GX_BLOCK` of the same block would find it "already there" and write nothing. So a hook that maps W1 through
-    OOLIB ends with `GX_W1BACK`, which always writes block 1 and leaves the record at block 1, WIN1H 0. That is not
-    the whole remedy after `GX_BANK8` (B7's review round 2, F2): the record then says WIN1H 0 while OODOS has put
-    the program's `$0E` back, and `GX_W1BACK` and `GX_BLOCK` clear WIN1H only when the record says it isn't 0. So
-    after a drawing hook may have run, the program re-maps with `GX_VMAP` before it touches W1, even on its way back
-    to block 1 (`GX_VMAP`, then `GX_W1BACK`); `GX_VMAP` compares the record with the mode's WIN1H and maps in full.
-    A hook's `GX_VMAP` also moves slot 1's bank (`VID_SLOT1`, older than B7), which nothing puts back: the
-    program's writes through slot 1 go to the hook's bank until its own `GX_VMAP`. No interface is added; the text
-    only, as R3 was.
+    OOLIB ends with `GX_W1BACK`, which always writes block 1 and leaves the record at block 1, WIN1H 0. After `GX_BANK8`
+    that is not enough, and no text remedy is (B7's review rounds 2 and 3, F2 and G1): the record then says WIN1H 0
+    while OODOS has put the program's `$0E` back, `GX_W1BACK` and `GX_BLOCK` clear WIN1H only when the record says
+    it isn't 0, and a hook can fire between any two of the program's calls; a hook's `GX_VMAP` also moves slot 1's
+    bank (`VID_SLOT1`, older than B7), which nothing puts back. So the rule (the owner's, 2026-11-18): **after
+    `GX_BANK8`, a hook must not map W1 through OOLIB**; the program draws from its main loop. No interface is added.
+    Later work, a design question: OODOS saves and restores the mapping state around a hook (the library's record
+    `GXCURH:GXCUR` and the card's `VID_SLOT1`), which would let a `GX_BANK8` program's hook draw again.
   - **Costs** (measured at B7's final build, after review round 1; the fast build, a `$D2` machine): the
     dispatcher's test of WIN1H costs 17 cycles an interrupt while WIN1H is 0, so the tick with no area is 162 (was
     145) and with a layout-2 area 249 (was 234); the frame with no area 215 (was 199) and with a layout-2 area 412

@@ -3435,6 +3435,11 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   under loads 522, and a worst-case sweep is on OOLIB's question 3's later list, not in B7. The owner's rule from
   this round: every finding carries its lineage, new or a revision of an earlier fix (with its generation), and
   each round's report counts them.
+- **Review round 3** (the owner's dispositions, 2026-11-18): 0 new, 1 revision (G1, of F2, generation 2). F2's
+  recipe ("`GX_VMAP`, then `GX_W1BACK`") still fails if a hook fires between the two calls, so the R3 lineage ends
+  with a rule, not another remedy: after `GX_BANK8`, a hook must not map W1 through OOLIB (the Programmer's
+  Guide's chapters 5 and 8, `oolib.inc`, [hw/oolib.md](oolib.md)). Saving the mapping state around a hook is a
+  later design question in hw/oolib.md. No code changed.
 - **Not in B7** (Q16, Q18, Q19 and the plan's list): NB9, the word pass and the D1 alias pass (a later diagnostics
   BIOS); WIDE in the ROM or OODOS; GW-BASIC's DEF SEG, PEEK, POKE, BLOAD, BSAVE and P5's seed (7c's tail); RAM past
   1 MB (WINnH `$01–$0D`, which reads `$FF`); OO-Amp's change; a site release. B7's books ride the next release,

@@ -150,11 +150,10 @@ flags, and puts back the windows and the stack it found.
   library's note of what W1 holds is shared with the program, and after the hook it still names the hook's map,
   although OODOS has put the program's W1 back; without `GX_W1BACK` the program's next map of the same bank or
   block would be skipped and its writes would go to the wrong block. `GX_W1BACK` writes block 1 whatever the note
-  says and leaves the note at block 1. After a drawing hook may have run, the program re-maps with `GX_VMAP` before
-  it touches W1, even on its way back to block 1 (`GX_VMAP`, then `GX_W1BACK`): after `GX_BANK8`, `GX_W1BACK` or
-  `GX_BLOCK` alone isn't enough, since the note can say WIN1H 0 while OODOS has put the program's `$0E` back. A
-  hook's `GX_VMAP` also moves slot 1's bank (`VID_SLOT1`), which nothing puts back: the program's writes through
-  slot 1 go to the hook's bank until its own `GX_VMAP` (B7's review round 2).
+  says and leaves the note at block 1. **After `GX_BANK8`, a hook must not map W1 through OOLIB at all:** the note
+  can then say WIN1H 0 while OODOS has put the program's `$0E` back, the hook can fire between any two of the
+  program's instructions, so no order of the program's calls protects it, and a hook's `GX_VMAP` moves slot 1's
+  bank (`VID_SLOT1`), which nothing puts back. A `GX_BANK8` program draws from its main loop.
 - **Its stack** is page 1 of its own W0 block, under whatever is in use there: under the program's stack, or, when
   the hook interrupts a BDOS call, under the program's stack as it was at the call. A hook pushes what it needs and
   pops it again, as any routine does. That page 1 is the W0 block's the hook was *set* with, whatever W0 has when
