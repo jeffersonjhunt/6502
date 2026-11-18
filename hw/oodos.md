@@ -866,7 +866,7 @@ tests.
   cycles, 4,321 a record (against 4,723 for one buffered record a call: the FCB is copied in and out once a call),
   and a write 779,555, 6,090 a record. The check of the records' memory first costs about 45 cycles a page they
   cover (about 3,000 for 128 records, 550,107 and 776,646 before it; about 100 for one record, not in the
-  figures above). The warm boot makes one more BDOS call (44): the stub's 216 cycles and a
+  figures above). The warm boot makes one more BDOS call (44): the stub's 240 cycles (B7, measured 2026-11-18) and a
   few more (not measured).
 
 **Proposed (3b2, as built, 2026-10-28)** ([`oodos/sys/bdos.s`](../oodos/sys/bdos.s), [`bdossys.s`](../oodos/sys/bdossys.s),
@@ -4027,7 +4027,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Size:** 10.1 KB resident (high 10.5), P1 8.5 KB, P2 5.8 KB: about 24 KB, about half the port's
     interpreter.
   - **Cycles:** `I%=I%+1 : IF I%<1000 THEN 10` stays about 4,700 a pass, with no far call. PRINT pays 281 (+30
-    for the dispatch) a statement. A character through function 2 costs the stub's 216 plus the console's work, an
+    for the dispatch) a statement. A character through function 2 costs the stub's 240 (B7) plus the console's work, an
     estimated 1,500–2,500 (to be measured: it is 7d's reason).
   - **Gate:**
     - 32 KB free, measured;
