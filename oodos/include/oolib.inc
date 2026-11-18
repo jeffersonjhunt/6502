@@ -91,7 +91,7 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               program's card memory all free. Slot 1's window is block 33
 ;               ($84000, MAP's AP8 left as it is): the old mode, always, as
 ;               before B7, so a GX_INIT after GX_BANK8 needs GX_BANK8 again
-;   GX_BANK8    (interface version 12, B7; Proposed) after GX_INIT: bank 8,
+;   GX_BANK8    (interface version 12, B7) after GX_INIT: bank 8,
 ;               $80000-$8FFFF, the program's RAM until the warm boot
 ;               (function 83's DM_BANK8), slot 1's window WIN1H $0E with
 ;               block 1 ($E04000), and blocks 32-39 in the W1 map. Carry

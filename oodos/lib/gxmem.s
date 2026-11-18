@@ -15,7 +15,7 @@
 ; window in W1 (GXCURH:GXCUR, WIN1H and the block) and the bank in slot 1
 ; (GXBANK) are kept, so a draw maps only when it moves to another.
 ;
-; Bank 8 (interface version 12, B7; Proposed): GX_INIT leaves the north
+; Bank 8 (interface version 12, B7): GX_INIT leaves the north
 ; bridge's MAP as it is, so slot 1's window stays block 33 ($84000) and a
 ; program linked with this library runs as one linked before it. Only a
 ; program that calls GX_BANK8 (function 83's DM_BANK8) gets bank 8 as its
