@@ -32,7 +32,7 @@ namespace
     constexpr unsigned EV_VBGO = 12;
     // oodos.inc's
     constexpr uint8_t DM_INFO = 0, DM_COPY = 2, DM_FILL = 3, DM_VBSET = 4, DM_POINTER = 5, DM_CONSOLE = 6, DM_VWRITE = 7,
-                      DM_VREAD = 8, DM_VFILL = 9, DM_VCOPY = 10, DM_OPS = 11;
+                      DM_VREAD = 8, DM_VFILL = 9, DM_VCOPY = 10, DM_OPS = 12;
     // backplane.inc's revision 2 registers, as offsets in the card's block
     constexpr uint8_t V_PALBASE = 0x0A, V_SPRBASE = 0x0C, V_L0 = 0x10, V_L1 = 0x20, V_SLOT0 = 0x30, V_PCTL = 0x3E;
     constexpr uint8_t IN_MOUSE = 4, MC_ALLOC = 55, MC_FREE = 57;
