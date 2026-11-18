@@ -983,7 +983,9 @@ sizes`, the maps, normal and `DEBUG=1`).
    several instructions with interrupts on); the pointer sprite (L2's deferral) needs OODOS at the blank, which (c)
    can't give; +12 is free in every layout. 1 KB (a sprite table and a full palette) still ends inside the blank
    with the interrupt held off by a 4 KB piece; 2 KB might not. If the serial card's DMA is built later, OODOS
-   owns both and moves its copies.
+   owns both and moves its copies. Later work (B7's review round 2, N2): a worst-case sweep of the frame's phase
+   against the load pieces, for a single slot and the whole budget; B7 sampled 505 for the budget and saw 522 for
+   a single slot under loads.
 4. **Block 60's room.** *Decided: as recommended.* Function 83's BDOS side is about 350–450 bytes against 569 free. **Recommended:** move L3's
    load engine and the beep's body (about 370 bytes, none of which reads parameters) to block 61 first, as L3's
    step (b) went first, and keep (d1) in reserve: common memory needs only about 9 bytes.
@@ -1498,8 +1500,10 @@ and more in L5:
     (was 736); the whole budget 2,789 (was 2,769). While WIN1H is `$0E` (a `GX_BANK8` program with slot 1 in W1)
     the dispatcher clears and restores it, 27 cycles, 10 more: a tick 172 and a frame 225, measured with WIN1H
     held at `$0E`. The latest a frame's copies ended, with 1,024 bytes, the pointer and the stream: line 505 under
-    a USB batch at line 470 and line 505 under 64 KB loads, 19 to spare in both (B2 measured 505 and 497); a single
-    512-byte slot ends by line 500 with a USB batch and 522 under loads. Sound: channel 2's terminal count 705 and
+    a USB batch at line 470 and line 505 under 64 KB loads, 19 to spare in both in the frames sampled (B2 measured
+    505 and 497); a single 512-byte slot ends by line 500 with a USB batch and 522 under loads, the worst seen for a
+    single slot. The 505 is sampled, not a worst case (B7's review round 2, N2; question 3's later list). Sound:
+    channel 2's terminal count 705 and
     874, a few up to 1,007, and 4,672-5,405 with the next piece inside it. `GX_BLOCK`, already mapped, costs 16
     cycles (was 7).
   - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.

@@ -164,7 +164,9 @@ W3 holds.
   or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1 (CARD 9, the
   video card), through video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
   the blank's 10,240 cycles, with the pointer and a stream, line 505 at the latest under a USB batch and under
-  64 KB loads alike, measured at B7's final build, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then
+  64 KB loads alike in the frames sampled at B7's final build, as [hw/oolib.md](../../hw/oolib.md#the-plan)
+  records; a sampled figure, not a worst case: a single 512-byte slot under loads was seen ending at line 522, and
+  a worst-case sweep is later work), then
   writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).

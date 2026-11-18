@@ -821,9 +821,11 @@ and a layout-2 area's frame 7 cycles more (412). A slot set but its bit not is 5
 through the port, 1,323 (512 of them the DMA's, a cycle a byte); the pointer, 753; the whole budget, four slots of
 256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,789. Since B7 (*proposed*) these include the
 dispatcher's 17 cycles for WIN1H 0 (10 more while WIN1H is `$0E`, [as the clocks say](#the-clocks)), measured at
-B7's final build. That ends inside the vertical blank even with a
-USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 505 at the latest under a USB
-batch, 19 lines to spare, and line 505 under 64 KB loads too; the blank is lines 480–524). These are
+B7's final build. In the frames sampled it ended inside the vertical blank even with a USB batch or a 4 KB load
+piece holding the interrupt off (`test_oodos_video`: line 505 at the latest under a USB batch and under 64 KB loads,
+19 lines to spare in the frames sampled; the blank is lines 480–524). That is a sampled figure, not a worst case:
+the worst seen for a single 512-byte slot under loads is line 522, 2 lines from the blank's end, and a sweep for
+the worst case is later work ([hw/oolib.md](../../hw/oolib.md#open-questions), question 3). These are
 measured on DMA revision 2 (B2, *proposed*), where each copy selects channel 1 and puts the controller's CONTROL
 back, and each card transfer begins with a poll of the cards. The figures are
 recorded with their source in [hw/oolib.md, "Video card revision 2"](../../hw/oolib.md#the-plan).
