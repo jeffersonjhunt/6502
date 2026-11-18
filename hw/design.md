@@ -3304,9 +3304,11 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   - The diagnostics: GO writes MAP 0 on `$D2` whatever the card (Q6), so `DG_APER`, read from AP8, is 0 and stages
     2–6 test all 64 blocks; V4–V7 reach the aperture at `$E00000` (`APW1`, `W1HOME`). Stage 7 takes revision 2,
     `$D2`, exactly (Q7): a `$D1` bridge says `REVISION 1: NOT KNOWN TO THIS BUILD`, SKIP. NB9 is not added (Q16).
-  - APPLE clears WIN0H–WIN2H (Q17) after its checks for the card, the DMA controller and the IIe ROM, so a refusal
-    changes nothing (review round 1, R5), keeping IMAGE across the change of zero page; chapter 13's APPLE listing
-    changes with it (C1, approved), and Apple II mode is otherwise unchanged.
+  - APPLE clears WIN0H–WIN2H (Q17): WIN0H inline at APPLEN's entry, before the checks keep IMAGE in W0's zero page
+    and FINDIMG's return address on its stack (review round 2, F1), and WIN1H and WIN2H after its checks for the
+    card, the DMA controller and the IIe ROM (review round 1, R5), so a refusal changes nothing but WIN0H (0 on a
+    `$D2` bridge, which the monitor's own zero page needs anyway); chapter 13's APPLE listing changes with it (C1,
+    approved), and Apple II mode is otherwise unchanged.
   - `hwname.s` knows `$D2` (`HW_NB_ID2`), names IDs 0–5 "(free)" and F "(reserved)" (C11): `HW_NAME` is 45 B
     (13 B of code, 32 B of pointers) and 169 B of names, 222 B before ([diag.md](diag.md)).
 - **OODOS** (stays 0.10, Q15; OOLIB's interface 11 → 12):
@@ -3359,7 +3361,7 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   | BDOS (block 60) | 1,217 / 1,201 | 1,175 / 1,159 | ~1,170 / ~1,155 |
   | BIOS (block 61) | 2,164 | 2,020 | ~1,990 |
   | SYSBSS | 52 / 49 | 47 / 44 | 47 / 44 |
-  | ROM block 31 | 5,147 | 5,015 (U9 5,029; round 1's R4 and R5) | ~5,000 |
+  | ROM block 31 | 5,147 | 5,012 (U9 5,029; round 1's R4 and R5 5,015; round 2's F1) | ~5,000 |
   | ROM block 22 (D22BSS) | 2,409 (4) | 2,389 (4) | ~2,330 (4) |
   | ROM block 23 | 7,917 | 7,843 | ~7,850 |
   | ROM block 21 | 7,896 | 7,896 | 7,896 |
@@ -3380,10 +3382,13 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   705/874; with the next piece inside it 4,656–4,959 → 4,672–5,405; the rare ones 866 and 1,007 (U5 saw 1,269;
   the books had kept an older "about 1,420", review round 1, W3); a frame with the stream claimed and a layout-2
   area 698 → 715. The DEBUG build's hook counts: the tick hook's largest 475 (was 489; the bound 380–520 holds),
-  the frame hook's 10,220 (was 10,135). The BDOS stub 142 cycles in and 98 out (`< 200` holds); FARCALL 281,
-  unchanged. The latest line a slot ends: 500 with a USB batch, 522 under 64 KB loads (was 503); the budget case
-  505 (19 to spare) both under a USB batch and under 64 KB loads (507 under loads at `9cee9bc` as U5 measured it;
-  the books had kept B2's 497, review round 1, W3). OSWIN gains 6 cycles a call (U6) and `GX_BLOCK`, already
+  the frame hook's 10,220 (was 10,135). The BDOS stub 142 cycles in and 98 out (`< 200` holds), 150 and 101 with
+  WIN1H held at `$0E` (review round 2, N1); FARCALL 281,
+  unchanged. The latest line a slot ends: 500 with a USB batch, 522 under 64 KB loads (was 503), the worst seen
+  for a single slot; the budget case 505 (19 to spare in the frames sampled, not a worst case) both under a USB
+  batch and under 64 KB loads (507 under loads at `9cee9bc` as U5 measured it; the books had kept B2's 497, review
+  round 1, W3). A worst-case sweep is later work, on [OOLIB's question 3](oolib.md#open-questions) (review round
+  2, N2). OSWIN gains 6 cycles a call (U6) and `GX_BLOCK`, already
   mapped, 7 → 16 (U7), both outside every timed bound. The books' figures are these measured ones (C8), never +17
   by hand.
 - **Run times:** the diagnostics, with all 64 blocks (Q6), a quick run 58.7 s (was 56.5) and a full run 171.8 s
@@ -3403,7 +3408,9 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   a test-only program that writes WIN1H itself, with its build rule and its `tools/test-map.txt` rule. Review round
   1 adds `break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only` (test_oodos_sys, R1) and extends R9 with
   `c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0` (test_bios, R4); R5 is held by R11, which fails with the
-  clear left out.
+  clear left out. Review round 2 extends R11 with `c818_apple_ii_mode_with_win0h_left_set_starts_the_image`
+  (test_bios, F1): WIN0H `$03` or `$0E` left by a program at `$4000`, `$C818`'s `$A1` with image 0, Apple II mode
+  reached and card memory's `$000–$1FF` unwritten; it fails with APPLEN's entry clear left out.
 - **Review round 1** (the owner's dispositions, 2026-11-17, "recommendations as listed"). Fixed in the code, each in
   its place above: R1 (`WARM` and `NMI` clear WIN0H inline and call `WINH0` on the system's stack), R4 (`START`'s
   WIN0H), R5 (APPLE's clear after its checks) and E1 (`video_card.h`'s comments on where the aperture is). R2 was
@@ -3416,6 +3423,18 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   chapter 3's NBSET at `BOOT2` before the copy; W7, `HW_KNOWN` 44 B in [diag.md](diag.md); W8, a `DM_BANK8`
   refusal leaves bank 8 as it was. AGENTS.md names OOLIB's interface 12 (was 9). R1's two inline clears cost
   COMMON 16 bytes: 34 free, above its limit of 32, and 24 in the DEBUG build.
+- **Review round 2** (the owner's dispositions, 2026-11-18, "do this last set as recommended"). F1, a revision of
+  round 1's R5, in the code: APPLEN clears WIN0H inline at its entry on `$D2` (R5 had moved it after the checks,
+  which use W0), WIN1H and WIN2H still after them; chapter 13 says a refusal changes nothing but WIN0H; ROM block
+  31 5,015 → 5,012 free. F2, a revision of R3, text only: after a drawing hook may have run, the program re-maps
+  with `GX_VMAP` before it touches W1 (`GX_W1BACK` or `GX_BLOCK` alone isn't enough after `GX_BANK8`), and a
+  hook's `GX_VMAP` moves slot 1's bank, which nothing puts back (the Programmer's Guide's chapters 5 and 8,
+  `oolib.inc`, [hw/oolib.md](oolib.md)). N1: the BDOS stub's cost in the Programmer's Guide's chapter 2 and
+  [hw/oodos.md](oodos.md), measured at the round's build, 142 in and 98 out (240) with WIN1H 0 and 150 and 101
+  (251) with WIN1H `$0E`. N2: the budget case's line 505 is a sampled figure, the worst seen for a single slot
+  under loads 522, and a worst-case sweep is on OOLIB's question 3's later list, not in B7. The owner's rule from
+  this round: every finding carries its lineage, new or a revision of an earlier fix (with its generation), and
+  each round's report counts them.
 - **Not in B7** (Q16, Q18, Q19 and the plan's list): NB9, the word pass and the D1 alias pass (a later diagnostics
   BIOS); WIDE in the ROM or OODOS; GW-BASIC's DEF SEG, PEEK, POKE, BLOAD, BSAVE and P5's seed (7c's tail); RAM past
   1 MB (WINnH `$01–$0D`, which reads `$FF`); OO-Amp's change; a site release. B7's books ride the next release,
