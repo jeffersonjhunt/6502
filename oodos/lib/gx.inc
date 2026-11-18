@@ -23,7 +23,10 @@ VL_PALOFS       = 9
 VID_SLOT1       = VID + $32            ; aperture slot 1's bank, 2 bytes (the W1 contract: OOLIB's)
 VID_COLLIDE     = $04
 WIN1            = $C681                ; the north bridge's W1 (the W1 contract)
+WIN1H           = $C6A1                ; and its WIN1H, A20-A23 for W1 (a revision 2 north bridge, B7):
+                                       ;   written only after GX_BANK8 gave a window, so never on $D1
 GX_IFACE        = 8                    ; the interface version the library needs (video card revision 2)
+GX_IFACE_B8     = 12                   ; and GX_BANK8 (function 83's DM_BANK8, B7)
 
 ; gxmem.s's, which every module takes
 .globalzp GXP, GXQ, GXT

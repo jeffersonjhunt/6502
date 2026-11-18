@@ -967,4 +967,326 @@ TEST(a_layer_s_palette_group)
     CHECK_EQ(vreg(r, 0x29), 7);
 }
 
+// --- B7: GX_BANK8 and the two-byte W1 cache (b7-plan.md §2.4, §4 L1-L8; proposed) ---------------------------------
+
+namespace
+{
+    constexpr uint16_t NB_WINH = 0xC6A0, NB_MAPREG = 0xC6A5; ///< WIN0H to MAP: $C6A0-$C6A5
+    constexpr uint8_t B_RAM = 0x5B, B_CARD = 0xC5;           ///< $4000 in RAM block 1, and on the card
+    constexpr uint32_t SLOT1_AT = 0x054000; ///< card page $0541's bank (21) at W1's $4000
+
+    /// The CPU's writes to $C6A0-$C6A5 (the DMA's aren't the library's); with `program`, only those made while the
+    /// program's code ($0300-$3FFF: GXTEST and the library linked in it) runs, not OODOS's own (the console's
+    /// WIN1H on a revision 2 bridge), told by the rig's watch.
+    struct NewRegWrites : CycleObserver
+    {
+        unsigned writes = 0;
+        bool program = false, in_program = false;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.dma && c.write && c.addr >= NB_WINH && c.addr <= NB_MAPREG && (!program || in_program))
+                ++writes;
+        }
+        void watch(CcpRig &r)
+        {
+            r.watch = [this](uint16_t pc) { in_program = pc >= 0x0300 && pc < 0x4000; };
+        }
+    };
+    /// Run until the CPU is back in GXTEST (its wait, after a command's line): W1 and WIN1H are then its own.
+    void settle(CcpRig &r)
+    {
+        for (int i = 0; i < 400; ++i)
+        {
+            const uint16_t pc = r.cpu->regs().pc;
+            if (pc >= 0x0300 && pc < 0x4000)
+                return;
+            r.run(ms(1) / 8);
+        }
+        CHECK(!"GXTEST's wait not reached");
+    }
+    uint8_t w1h(CcpRig &r)
+    {
+        settle(r);
+        return r.bridge().winh(1);
+    }
+    uint8_t w1(CcpRig &r)
+    {
+        settle(r);
+        return r.nb(1);
+    }
+    std::string revision_1_bridge()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " revision=1");
+        return text;
+    }
+    /// $4000's two bytes: RAM block 1's, and the card's under card page $0541 (GX_VMAP's bank 21).
+    void mark_w1(CcpRig &r)
+    {
+        r.poke(0x4000, B_RAM);
+        vid(r).card_poke(SLOT1_AT, B_CARD);
+    }
+    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #12, LDX #$0F).
+    void ft_info_as(CcpRig &r, uint8_t v)
+    {
+        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
+        uint32_t p = base;
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 12 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+            ++p;
+        REQUIRE(p < base + 64);
+        r.poke(p + 1, v);
+    }
+    std::string ac(const std::string &s) { return s.substr(0, 2) + s.substr(5); } ///< A and the carry
+} // namespace
+
+TEST(after_gx_bank8_slot_1_is_win1h_0e_and_gx_block_1_is_ram_block_1)
+{
+    // L1. GX_BANK8: carry clear, MAP's AP8 clear. GX_VMAP then maps slot 1 by WIN1H $0E with block 1 ($E04000) and
+    // a plot lands on the card; GX_BLOCK(1) is a move (WIN1H $0E to 0, though the block byte is 1 both times), and a
+    // byte stored through W1 lands in RAM block 1, the card's byte kept.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    REQUIRE(r.bridge().map() == 1);
+    CHECK_EQ(gx(r, '8').substr(6), std::string("00"));
+    CHECK_EQ(r.bridge().map(), 0);
+    CHECK_EQ(gx(r, 'b', 32).substr(6), std::string("00")); // bank 8's RAM in the W1 map now
+    const unsigned page = alloc(r, 240, 64);
+    bmp_at(r, 0, page);
+    mark_w1(r);
+    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
+    CHECK_EQ(w1h(r), 0x0E);
+    CHECK_EQ(w1(r), 1);
+    CHECK_EQ(r.phys(at("GXCURH")), 0x0E);
+    CHECK_EQ(r.phys(at("GXCUR")), 1);
+    CHECK_EQ(gx(r, 's', 0xA5).substr(6), std::string("00"));
+    CHECK_EQ(card(r, SLOT1_AT), 0xA5);
+    CHECK_EQ(r.phys(0x4000), B_RAM);
+    xy(r, 7, 3);
+    gx(r, 'P', 9);
+    CHECK_EQ(card(r, page * 256u + 3 * 256 + 7), 9);
+    CHECK_EQ(w1h(r), 0x0E);
+    CHECK_EQ(gx(r, 'b', 1).substr(6), std::string("00"));
+    CHECK_EQ(w1h(r), 0);
+    CHECK_EQ(w1(r), 1);
+    CHECK_EQ(gx(r, 'h'), std::string("00 5B 00"));
+    gx(r, 's', 0x77);
+    CHECK_EQ(r.phys(0x4000), 0x77);
+    CHECK_EQ(card(r, SLOT1_AT), 0xA5);
+}
+
+TEST(gx_w1back_puts_win1h_0_back)
+{
+    // L2. GX_VMAP after GX_BANK8, then GX_W1BACK: WIN1H 0 and block 1, so W1 is RAM block 1 again.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    CHECK_EQ(gx(r, '8').substr(6), std::string("00"));
+    mark_w1(r);
+    gx(r, 'm', 0x41, 0x05);
+    CHECK_EQ(gx(r, 'h'), std::string("0E C5 00"));
+    gx(r, 'w');
+    CHECK_EQ(w1h(r), 0);
+    CHECK_EQ(w1(r), 1);
+    CHECK_EQ(r.phys(at("GXCURH")), 0);
+    CHECK_EQ(r.phys(at("GXCUR")), 1);
+    CHECK_EQ(gx(r, 'h'), std::string("00 5B 00"));
+}
+
+TEST(gx_block_refuses_a_block_past_63)
+{
+    // L3. GX_BLOCK of 64 or more: GE_MAP, W1 as it was, though GX_W1MAP's next bytes (GX_UNITS) have the bits for
+    // $40 and $41 set: units 0 and 1 taken.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    CHECK_EQ(hexax(valloc(r, 8)), PAGE0);
+    REQUIRE(r.phys(at("GX_UNITS")) == 0x03);
+    const uint8_t was = w1(r);
+    for (const uint8_t b : {uint8_t{0x40}, uint8_t{0x41}, uint8_t{0xFF}})
+    {
+        CHECK_EQ(ac(gx(r, 'b', b)), std::string("02 01")); // GE_MAP
+        CHECK_EQ(w1(r), was);
+    }
+    CHECK_EQ(gx(r, 'b', 0x3F).substr(6), std::string("01")); // not in the map: refused as before
+}
+
+TEST(gx_bank8_under_a_rom_before_0_17_keeps_the_old_mode)
+{
+    // L4. ROMVER (OODOS's record of the ROM BIOS) made 0.16: DM_BANK8 is refused, so GX_BANK8 gives GE_VERSION;
+    // the library stays in the old mode: GX_BLOCK(32) refused (the old map), GX_VMAP on block 33, MAP still 1, and
+    // no write to WIN1H (nor $C6A0-$C6A5) all the while.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), 0);
+    r.poke(SYS_BLOCK_PHYS + sym("ROMVER") + 1, 16);
+    NewRegWrites seen;
+    seen.program = true;
+    seen.watch(r);
+    r.cpu->set_observer(&seen);
+    CHECK_EQ(ac(gx(r, '8')), std::string("01 01")); // GE_VERSION
+    CHECK_EQ(gx(r, 'b', 32).substr(6), std::string("01"));
+    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
+    CHECK_EQ(w1(r), 33);
+    gx(r, 'w');
+    settle(r);
+    r.cpu->set_observer(nullptr);
+    r.watch = nullptr;
+    CHECK_EQ(seen.writes, 0u);
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(w1h(r), 0);
+    CHECK_EQ(r.phys(at("GXAPH")), 0);
+    CHECK_EQ(r.phys(at("GXAPB")), 33);
+}
+
+TEST(gx_bank8_needs_interface_12)
+{
+    // L5. FT_INFO's interface made 11 (an OODOS before DM_BANK8): GX_INIT still takes it (8 at least), GX_BANK8
+    // gives GE_VERSION without asking function 83, and MAP stays 1.
+    CcpRig r;
+    REQUIRE(r.ok);
+    ft_info_as(r, 11);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    CHECK_EQ(ac(gx(r, '8')), std::string("01 01"));
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(r.phys(at("GXAPH")), 0);
+    // And with no revision 2 card (revision 1's), GX_INIT's GE_VERSION as before, while GX_BANK8 succeeds: bank 8 is
+    // RAM, with no window to map (b7-plan.md §2.4, step 4).
+    CcpRig n({}, {}, {}, 1);
+    REQUIRE(n.ok);
+    start_gx(n);
+    CHECK_EQ(ac(gx(n, 'I')), std::string("01 01"));
+    CHECK_EQ(gx(n, '8').substr(6), std::string("00"));
+    CHECK_EQ(n.phys(at("GXAPH")), 0);
+    CHECK_EQ(n.phys(at("GX_OK")), 0);
+}
+
+TEST(a_program_that_calls_only_gx_init_keeps_ap8_and_block_33)
+{
+    // L6. GX_INIT alone (OO-Amp's way, question 5): MAP's AP8 stays set and GX_VMAP maps block 33, WIN1H 0, exactly
+    // as before B7.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(w1(r), 33);
+    CHECK_EQ(w1h(r), 0);
+    CHECK_EQ(r.phys(at("GXCURH")), 0);
+    CHECK_EQ(r.phys(at("GXCUR")), 33);
+}
+
+TEST(on_a_revision_1_bridge_the_library_never_writes_c6a0_to_c6a5)
+{
+    // L7. A $D1 bridge has no WINnH: GX_INIT, GX_BANK8 (refused: GE_VERSION), GX_VMAP, GX_BLOCK and GX_W1BACK
+    // never write $C6A0-$C6A5, and W1 moves as before (blocks 33, 36, 1).
+    CcpRig r({}, revision_1_bridge());
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD1);
+    start_gx(r);
+    NewRegWrites seen;
+    r.cpu->set_observer(&seen);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    CHECK_EQ(ac(gx(r, '8')), std::string("01 01"));
+    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
+    CHECK_EQ(w1(r), 33);
+    CHECK_EQ(gx(r, 'b', 36).substr(6), std::string("00"));
+    CHECK_EQ(w1(r), 36);
+    CHECK_EQ(gx(r, 'b', 1).substr(6), std::string("00"));
+    gx(r, 'm', 0x41, 0x05);
+    gx(r, 'w');
+    CHECK_EQ(w1(r), 1);
+    r.cpu->set_observer(nullptr);
+    CHECK_EQ(seen.writes, 0u);
+}
+
+TEST(a_frame_hook_that_maps_slot_1_leaves_the_interrupted_code_its_own_w1)
+{
+    // L8 (C3). After GX_BANK8, a frame hook that calls GX_VMAP, so returns with WIN1H $0E and block 1 in W1. It
+    // fires while CRTOUT has the console mapped (WIN1H $0E, block 0) and while GXTEST waits with WIN1H 0 and block 1:
+    // each time, the interrupted code gets its own WIN1H and W1 back (HKBACK clears WIN1H by the register, whatever
+    // the hook's record says, and the dispatcher puts the interrupted one back). The console's text is right, and
+    // GXTEST's $4000 is RAM block 1's after.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    CHECK_EQ(gx(r, '8').substr(6), std::string("00"));
+    gx(r, 'w');
+    mark_w1(r);
+    const uint16_t irq = sym("IRQ"), rti1 = static_cast<uint16_t>(irq + 12), rti2 = sym("IRQEND");
+    const uint16_t callhook = sym("CALLHOOK"), hkback = sym("HKBACK"), fhook = at("FHOOK");
+    unsigned depth = 0, in_crt = 0, in_prog = 0, other = 0, wrong = 0;
+    bool leaving = false, hooked = false, in_hook = false;
+    uint8_t h_in = 0, w_in = 0;
+    r.watch = [&](uint16_t pc) {
+        if (leaving)
+        {
+            leaving = false;
+            if (depth && --depth == 0 && hooked)
+            {
+                hooked = false;
+                if (r.bridge().winh(1) != h_in || r.nb(1) != w_in)
+                    ++wrong;
+            }
+        }
+        if (pc == irq)
+        {
+            if (depth++ == 0)
+                h_in = r.bridge().winh(1), w_in = r.nb(1);
+        }
+        else if (pc == rti1 || pc == rti2)
+            leaving = true;
+        else if (pc == callhook)
+            in_hook = true;
+        else if (pc == hkback)
+            in_hook = false;
+        else if (pc == fhook && in_hook && depth == 1)
+        {
+            hooked = true;
+            if (h_in == 0x0E && w_in == 0)
+                ++in_crt;
+            else if (h_in == 0 && w_in == 1)
+                ++in_prog;
+            else
+                ++other;
+        }
+    };
+    CHECK_EQ(ac(gx(r, 'j', 1, 0x41, 0x05)), std::string("00 00"));
+    for (int i = 0; i < 20 && in_crt < 3; ++i)
+        CHECK_EQ(gx(r, 'q', 30, 0, 0, ms(20000)).substr(0, 2), std::string("00"));
+    r.run(ms(100)); // GXTEST waiting: frames with WIN1H 0
+    const std::string h = gx(r, 'h');
+    std::printf("  frame hooks: %u in CRTOUT, %u in the program, %u else; %u with W1 wrong after; %u calls\n", in_crt,
+                in_prog, other, wrong, r.phys(at("HOOKN")));
+    CHECK(in_crt >= 3);
+    CHECK(in_prog >= 3);
+    CHECK_EQ(wrong, 0u);
+    CHECK_EQ(h, std::string("00 5B 00"));
+    // The console: the last 27 rows above the "q" and "h" lines are all the 60 characters, nothing lost or misplaced.
+    const std::string want = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx";
+    unsigned bad = 0;
+    for (unsigned n = 0; n < 27; ++n)
+    {
+        std::string s;
+        for (unsigned c = 0; c < 80; ++c)
+            s += static_cast<char>(card(r, 0x002000 + n * 160 + c * 2));
+        bad += s.substr(0, s.find_last_not_of(' ') + 1) != want;
+    }
+    CHECK_EQ(bad, 0u);
+    gx(r, 'j', 0);
+    r.watch = nullptr;
+}
+
 int main() { return run_all(); }

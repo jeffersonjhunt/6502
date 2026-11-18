@@ -12,8 +12,17 @@
 ; allocated blocks, 33 and 36-47; OODOS's OSWIN refuses $80000-$83FFF and
 ; $88000-$8FFFF as a physical destination.
 ; GX_INIT checks the version, so an older OODOS is never mapped under. The
-; block in W1 (GXCUR) and the bank in slot 1 (GXBANK) are kept, so a draw
-; maps only when it moves to another.
+; window in W1 (GXCURH:GXCUR, WIN1H and the block) and the bank in slot 1
+; (GXBANK) are kept, so a draw maps only when it moves to another.
+;
+; Bank 8 (interface version 12, B7; Proposed): GX_INIT leaves the north
+; bridge's MAP as it is, so slot 1's window stays block 33 ($84000) and a
+; program linked with this library runs as one linked before it. Only a
+; program that calls GX_BANK8 (function 83's DM_BANK8) gets bank 8 as its
+; RAM; slot 1's window is then WIN1H $0E with block 1 ($E04000), which
+; GXPHYS maps by GXAPH:GXAPB. The library writes WIN1H only after that, so
+; never on a revision 1 north bridge ($D1), which has none; an interrupt
+; between its two writes is harmless, since OODOS's dispatcher keeps WIN1H.
 ;
 ; Card memory: the program's part, $040000-$1BFFFF, in 1,536 units of 1 KB
 ; (VM_UNIT), a bit each in GX_UNITS (set: taken); unit u is card page
@@ -43,12 +52,18 @@ GX_UNITS: .res  VM_UNITS / 8           ; the program's card memory's units taken
 GX_VUNITS: .res 2                      ; the units the card has room for (1,536 on 2 MB)
 GX_AREA: .res   2                      ; the program's event area (0: none)
 GX_OK:  .res    1                      ; 1: GX_INIT found interface 8 and a card: W1 may be written
-GXCUR:  .res    1                      ; the block W1 has (as the library put it)
+GXCUR:  .res    1                      ; the block W1 has (as the library put it), GXCURH its WIN1H
 GXBANK: .res    2                      ; the bank slot 1 shows (as the library put it; $FFFF not known)
 GXB:    .res    20                     ; function 83's block
 GXPB:   .res    4                      ; function 73's
 
         .data
+; In DATA, not BSS (which the loader doesn't clear), so that WIN1H is
+; never written before GX_BANK8 gave a window, even before GX_INIT.
+GXCURH: .byte   0                      ; the WIN1H W1 has (as the library put it): 0 or GXAPH
+GXAPH:  .byte   0                      ; slot 1's window for W1: WIN1H (0: the old mode, and on $D1)
+GXAPB:  .byte   VM_SLOT_BLOCK          ;   and the block (33; 1 after GX_BANK8 with a card)
+
 ; The vertical-blank go bits (EV_VBGO) set with TSB, which an interrupt
 ; can't split: the instruction's operand is the area's +12, written by
 ; GX_INIT. Here, not in CODE, so that it may be written.
@@ -62,8 +77,19 @@ GXTSB:  tsb     a:$0000
 BIT8:   .byte   $01, $02, $04, $08, $10, $20, $40, $80
         .popseg
 
-; A/X the event area, or 0.
+; A/X the event area, or 0. The old mode always (slot 1's window block 33):
+; a window GX_BANK8 left in W1 is put back to block 1 first.
 GX_INIT:
+        ldy     GXCURH
+        beq     @mode
+        pha
+        phx
+        jsr     GX_W1BACK
+        plx
+        pla
+@mode:  stz     GXAPH
+        ldy     #VM_SLOT_BLOCK
+        sty     GXAPB
         sta     GX_AREA
         stx     GX_AREA + 1
         clc                             ; the TSB's operand: +12
@@ -148,6 +174,42 @@ GX_REMAP:
         clc
         rts
 
+; Bank 8 the program's RAM, by function 83's DM_BANK8 (interface version
+; 12): slot 1's window is then WIN1H $0E and block 1, and blocks 32-39 join
+; the W1 map. After GX_INIT. GE_VERSION, nothing changed, for an older
+; OODOS, no DMA, a revision 1 north bridge or a ROM BIOS older than 0.17:
+; the library stays in the old mode. With no revision 2 card, carry clear:
+; bank 8 is the program's RAM, and there is no window.
+GX_BANK8:
+        lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        cmp     #$FF                    ; no function 80: A = X = $FF
+        beq     @old
+        cmp     #GX_IFACE_B8
+        bcc     @old
+        txa
+        and     #OA_DMA
+        beq     @old
+        lda     #DM_BANK8
+        sta     GXB
+        jsr     GXDMA
+        bcs     @old                    ; refused: the old mode, silently (not GE_DMA)
+        lda     GXB + 1                 ; +1 WIN1H, +2 the block
+        beq     @ram                    ; no revision 2 card: no window
+        sta     GXAPH
+        lda     GXB + 2
+        sta     GXAPB
+        lda     GX_OK
+        beq     @ram
+        jsr     GX_REMAP                ; blocks 32-39 in the W1 map
+@ram:   clc
+        rts
+@old:   lda     #GE_VERSION
+        sec
+        rts
+
 ; Function 83 with GXB: carry set if refused (A = $FF), A the error GE_DMA.
 GXDMA:  lda     #<GXB
         ldx     #>GXB
@@ -162,16 +224,25 @@ GXDMA:  lda     #<GXB
         rts
 
 GX_W1BACK:
-        lda     #1
+        lda     GXCURH                  ; WIN1H 0 first, if the library put it otherwise
+        beq     @w1
+        stz     WIN1H
+        stz     GXCURH
+@w1:    lda     #1
         sta     WIN1
         sta     GXCUR
         rts
 
-; Block A into W1, if GX_INIT allowed it and the map has it.
+; Block A into W1 (WIN1H 0), if GX_INIT allowed it and the map has it; a
+; block past 63 never (GE_MAP), whatever GX_W1MAP's neighbour holds.
 GX_BLOCK:
-        cmp     GXCUR
+        cmp     #64
+        bcs     @no
+        cmp     GXCUR                   ; the same window: both bytes
+        bne     @move
+        ldx     GXCURH
         beq     @same
-        ldx     GX_OK
+@move:  ldx     GX_OK
         beq     @no
         pha
         and     #7
@@ -187,7 +258,11 @@ GX_BLOCK:
         lda     GX_W1MAP,x
         and     GXT
         beq     @not
-        pla
+        ldx     GXCURH                  ; WIN1H 0 first, then the block
+        beq     @w1
+        stz     WIN1H
+        stz     GXCURH
+@w1:    pla
         sta     WIN1
         sta     GXCUR
 @same:  clc
@@ -197,9 +272,9 @@ GX_BLOCK:
         sec
         rts
 
-; GX_A, a card address, mapped: its bank in slot 1, slot 1's window
-; (block 33) in W1, GXP its address there. GE_MAP for a bank that isn't
-; the program's (16-111).
+; GX_A, a card address, mapped: its bank in slot 1, slot 1's window in W1
+; (block 33; WIN1H $0E and block 1 after GX_BANK8: GXAPH:GXAPB), GXP its
+; address there. GE_MAP for a bank that isn't the program's (16-111).
 GXPHYS: lda     GX_A + 1                ; the bank: the address / $4000, 10 bits
         asl     a
         lda     GX_A + 2
@@ -230,10 +305,26 @@ GXPHYS: lda     GX_A + 1                ; the bank: the address / $4000, 10 bits
         stz     VID_SLOT1 + 1
         sta     GXBANK
         stz     GXBANK + 1
-@w1:    lda     #VM_SLOT_BLOCK
+@w1:    lda     GXAPH
+        bne     @high
+        lda     GXAPB                   ; the old mode: block 33, by GX_BLOCK
         jsr     GX_BLOCK
         bcs     @ret
-        lda     GX_A
+        bra     @at
+@high:  cmp     GXCURH                  ; WIN1H $0E and block 1, unless W1 has them
+        bne     @map
+        lda     GXAPB
+        cmp     GXCUR
+        beq     @at
+@map:   ldx     GX_OK
+        beq     @no
+        lda     GXAPH                   ; WIN1H first, then the block
+        sta     WIN1H
+        sta     GXCURH
+        lda     GXAPB
+        sta     WIN1
+        sta     GXCUR
+@at:    lda     GX_A
         sta     GXP
         lda     GX_A + 1
         and     #$3F

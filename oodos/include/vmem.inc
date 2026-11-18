@@ -61,9 +61,10 @@
 ;               the card's room
 ;   GX_VADDR    A/X a card page: GX_A its card address (page x 256)
 ;   GX_VMAP     A/X a card page: its bank shown in slot 1 and block 33 put
-;               in W1; A/X and GXP the page's CPU address ($4000-$7F00).
+;               in W1 (WIN1H $0E with block 1 after GX_BANK8); A/X and GXP
+;               the page's CPU address ($4000-$7F00).
 ;               GE_MAP for a page outside the program's part
-;   GX_W1BACK   block 1 back in W1 (slot 1 left as it is)
+;   GX_W1BACK   block 1 back in W1, WIN1H 0 (slot 1 left as it is)
 ;   GX_VPUT     A/X a CPU address in the program's memory, GX_A a card
 ;               address, GX_V the length (1-65,535; 0 nothing): copied to
 ;               the card through the port (function 83's DM_VWRITE)
