@@ -25,21 +25,51 @@
 #include "via6522.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <string>
+#include <system_error>
+
+#include <unistd.h>
 
 using namespace ooe::test;
 using namespace ooe::emu;
 
 namespace
 {
-    /// A `size`-byte image of 0x01, 0x02, ... in the working directory.
+    /// The suite's own directory for its images, in the temporary directory and named for this process,
+    /// removed with everything in it when the suite exits: a run leaves nothing where it was started.
+    struct ScratchDir
+    {
+        std::filesystem::path path = std::filesystem::temp_directory_path() /
+                                     ("test_machine_" + std::to_string(::getpid()));
+        ScratchDir() { std::filesystem::create_directories(path); }
+        ScratchDir(const ScratchDir &) = delete;
+        ScratchDir &operator=(const ScratchDir &) = delete;
+        ~ScratchDir()
+        {
+            std::error_code ec; // never throw from a destructor; a leftover directory is no failure of the suite's
+            std::filesystem::remove_all(path, ec);
+        }
+    };
+
+    const std::filesystem::path &scratch()
+    {
+        static const ScratchDir dir;
+        return dir.path;
+    }
+
+    /// A `size`-byte image of 0x01, 0x02, ... in the suite's scratch directory. @return its path
     std::string image(const char *name, size_t size)
     {
-        std::FILE *f = std::fopen(name, "wb");
+        const std::string path = (scratch() / name).string();
+        std::FILE *f = std::fopen(path.c_str(), "wb");
+        CHECK(f != nullptr);
+        if (f == nullptr)
+            return path; // the machine then fails to load it, and the case says so
         for (size_t i = 0; i < size; ++i)
             std::fputc(static_cast<int>((i % 255) + 1), f);
         std::fclose(f);
-        return name;
+        return path;
     }
 
     std::unique_ptr<Machine> build(const std::string &text, std::string &error, MachineOptions opt = {})
