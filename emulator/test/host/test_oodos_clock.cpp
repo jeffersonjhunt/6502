@@ -459,4 +459,25 @@ TEST(without_the_via_the_6551_s_interrupt_is_turned_off_and_its_key_kept)
     CHECK(d.size() > 12 && d.substr(d.size() - 4) == "\r\nA>");
 }
 
+TEST(a_hook_runs_with_the_win1h_its_program_had_and_the_bdos_gets_win1h_0_back)
+{
+    // O3 (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) sets a tick hook (every ms) and a frame hook with
+    // WIN1H on $0E and W1 on block 1, so W1 shows the video card's slot 1 at $E04000, then puts WIN1H back to 0
+    // and waits 200 ms in the BDOS (FT_DELAY). Each hook reads $4000 and WIN1H: slot 1's byte and $0E, the record's
+    // (HK_W1H); and the BDOS's W1 is right after each (HKBACK's WIN1H 0), so the delay ends and $4000 is RAM's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.poke(0x4000, 0x5B);   // RAM block 1's
+    r.poke(0xE04000, 0xA7); // slot 1's window's
+    const std::string o = r.go("w1htest.com", " H", ms(8000));
+    CHECK_EQ(field(o, "TB"), std::string("A7"));
+    CHECK_EQ(field(o, "TH"), std::string("0E"));
+    CHECK_EQ(field(o, "FB"), std::string("A7"));
+    CHECK_EQ(field(o, "FH"), std::string("0E"));
+    CHECK_EQ(field(o, "B1"), std::string("5B"));
+    CHECK(hx(field(o, "TN")) >= 150); // about 200 ticks, and 12 frames
+    CHECK(hx(field(o, "FN")) >= 8);
+    CHECK_EQ(r.bridge().winh(1), 0);
+}
+
 int main() { return run_all(); }

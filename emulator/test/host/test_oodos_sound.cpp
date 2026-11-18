@@ -702,7 +702,7 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 234u);
+    CHECK_EQ(Costs::mode(costs.tick), 249u); // L2's 234, +15 since B7 (its 17, less page crossings the move took away)
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
@@ -851,7 +851,7 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 234u); // a layout-2 area's tick, L2's: the stream costs it nothing
+    CHECK_EQ(Costs::mode(costs.tick), 249u); // a layout-2 area's tick, L2's (+15, B7, as :705): the stream costs it nothing
 }
 
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)

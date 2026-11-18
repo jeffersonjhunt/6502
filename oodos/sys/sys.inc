@@ -34,6 +34,8 @@ ST_W0           = ST_WIN
 ST_W1           = ST_WIN + 1
 ST_W2           = ST_WIN + 2
 ST_W3           = ST_WIN + 3
+ST_W1H          = $FE                  ; its WIN1H (B7; 0 on a revision 1 bridge, which has none): the BDOS
+                                       ; runs with WIN1H 0, and refuses an address in W1 while this isn't 0
 ; The BIOS's word parameters, beside A, X and Y (bios.s's header): function
 ; 50's +4-5 and +6-7.
 BW1             = $F8
@@ -173,6 +175,7 @@ HK_C0           = 8                    ; debug: timer 1's count at its call,
 HK_M0           = 10                   ;   and MS's low byte
 HK_MAX          = 11                   ;   the most cycles it took, since the warm boot
 HK_ZP           = 13                   ; the ES5503 hook's: the byte of its zero page that gets $E0's value
+HK_W1H          = 14                   ; its WIN1H, with HK_WIN's W1 (B7; 0 on a revision 1 bridge)
 HK_LEN          = 16
 HF              = 0                    ; the frame hook's
 HT              = HK_LEN               ; the tick hook's

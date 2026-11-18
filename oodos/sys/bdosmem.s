@@ -541,7 +541,8 @@ F_MCALLFREE:    LDX     #AMAP_LEN - 1
                 JMP     RET0
 
 ; ---------------------------------------------------------------------------
-; 73: a CPU address to its physical one
+; 73: a CPU address to its physical one (refused for one in W1 while the
+; program's WIN1H isn't 0: B7, a block past 1 MB that a paragraph can't name)
 
 F_PHYS:         LDX     #4
                 JSR     PREAD
@@ -555,7 +556,11 @@ F_PHYS:         LDX     #4
                 ROL     A
                 AND     #3
                 TAX
-                LDA     ST_WIN,X
+                CPX     #1             ; W1 while the program's WIN1H isn't 0 (B7): past 1 MB
+                BNE     @win
+                LDA     ST_W1H
+                BNE     @no
+@win:           LDA     ST_WIN,X
                 BIT     #NB_ROM
                 BNE     @no            ; flash
                 AND     #$3F

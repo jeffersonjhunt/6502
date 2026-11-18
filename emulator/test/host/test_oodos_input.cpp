@@ -625,20 +625,20 @@ TEST(the_tick_costs_l1_s_145_cycles_with_no_layout_2_area)
     const Costs none = time_interrupts(r, ms(600));
     Costs::print("no area, a tick", none.tick);
     REQUIRE(!none.tick.empty());
-    CHECK_EQ(Costs::mode(none.tick), 145u);
+    CHECK_EQ(Costs::mode(none.tick), 162u); // L1's 145, and B7's 17 for WIN1H (irq.s's DISPATCH)
     for (const auto &[c, n] : none.tick)
-        CHECK(c == 145 || (c == 159 && n <= 3)); // and L1's 159 at MS's carry, once in 256 ms
+        CHECK(c == 162 || (c == 176 && n <= 3)); // and L1's 159 (+17) at MS's carry, once in 256 ms
     wboot(r);
     open(r, "1");
     const Costs one = time_interrupts(r, ms(600));
     Costs::print("layout 1, a tick", one.tick);
-    CHECK_EQ(Costs::mode(one.tick), 145u + 39u);
+    CHECK_EQ(Costs::mode(one.tick), 162u + 39u);
     wboot(r);
     open(r, "2");
     const Costs two = time_interrupts(r, ms(600));
     Costs::print("layout 2, a tick", two.tick);
     Costs::print("layout 2, other interrupts", two.other);
-    CHECK(Costs::mode(two.tick) > 145u + 39u && Costs::mode(two.tick) < 300u);
+    CHECK(Costs::mode(two.tick) > 162u + 39u && Costs::mode(two.tick) < 300u);
     const Costs key = time_interrupts(r, ms(60), [&] { r.machine->usb_card()->key(A_KEY, true); });
     Costs::print("layout 2, the USB card's interrupt for a key", key.usb);
     CHECK(!key.usb.empty());
@@ -856,6 +856,22 @@ TEST(the_warm_boot_puts_every_card_back_so_a_wide_on_channel_0_doesnt_reach_dir)
     REQUIRE(want.size() > 40);                 // the command, a line of text at least, the prompt
     REQUIRE(want.find("No File") == std::string::npos);
     CHECK(r.cmd("type readme.txt") == want);
+}
+
+TEST(the_dispatcher_runs_with_win1h_0_and_puts_the_programs_win1h_back)
+{
+    // O2 (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) opens a layout-2 area in W0, puts WIN1H on $0E
+    // with W1 on block 1 (the video card's slot 1 at $E04000, not RAM block 1), and waits 200 ms by the area's own
+    // counter: the ticks write the area (W1 on its block, WIN1H 0), and each puts WIN1H $0E back on the way out,
+    // so its $4000 is still slot 1's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.poke(0x4000, 0x5B);   // RAM block 1's
+    r.poke(0xE04000, 0xA7); // slot 1's window's
+    const std::string o = r.go("w1htest.com", " I");
+    CHECK_EQ(field(o, "W1H"), std::string("0E"));
+    CHECK_EQ(field(o, "B1"), std::string("A7"));
+    CHECK_EQ(r.bridge().winh(1), 0);
 }
 
 int main() { return run_all(); }

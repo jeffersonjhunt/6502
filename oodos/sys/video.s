@@ -18,17 +18,21 @@
 ; Video card revision 2 (hw/video-rev2.md; hw/oolib.md, "Video card
 ; revision 2"; vmem.inc): the card draws from its own memory, card addresses
 ; of 24 bits. OODOS owns $000000-$03FFFF (the console's palette, font and
-; text, its units 0-12, in bank 0, which aperture slot 0 always shows: block
-; 32, $80000-$83FFF); the program owns $040000-$1BFFFF, through OOLIB; Apple
-; II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
+; text, its units 0-12, in bank 0, which aperture slot 0 always shows: at
+; $E00000-$E03FFF on a revision 2 north bridge, B7, and as block 32,
+; $80000-$83FFF, while MAP's AP8 is set or on revision 1); the program owns
+; $040000-$1BFFFF, through OOLIB; Apple II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
 ; it) puts slot 1 on the program's first card bank (VM_PROG_BANK) and slots
 ; 2 and 3 on banks 2 and 3, OODOS's; DM_VCOPY borrows those two inside the
-; call. No physical destination of function 83 may touch slot 0's window,
-; nor slots 2 and 3's, $88000-$8FFFF (bdosmem.s's OSWIN), nor may a record
-; read through a DMA segment (bdos.s's DOUT), and blocks 32, 34 and 35 aren't
-; in DM_INFO's W1 map: only slot 1's window, block 33, is the program's. No
-; card destination may leave the program's part (CDSTOK). So the warm boot
-; only sets the card's registers (crt.s's CRTREGS) and the slots.
+; call (by their aperture windows, CVA's bank: B7). No physical destination
+; of function 83 may touch slot 0's window, nor slots 2 and 3's,
+; $88000-$8FFFF (bdosmem.s's OSWIN), nor may a record read through a DMA
+; segment (bdos.s's DOUT), and blocks 32, 34 and 35 aren't in DM_INFO's W1
+; map: only slot 1's window, block 33, is the program's (a 20-bit physical
+; address can't name $E00000, and the program's W1 is refused while its
+; WIN1H isn't 0). No card destination may leave the program's part
+; (CDSTOK). So the warm boot only sets the card's registers (crt.s's
+; CRTREGS) and the slots.
 ;
 ; The card's data port (PADDR, PDATA, PSTEP, PCTL) and DMA channel 1, on
 ; which the card asks, are OODOS's: the vertical-blank copies and the
@@ -74,7 +78,7 @@
 .importzp EVP                          ; irq.s's
 .import EVON, EVBLK, CLOCKS
 .import MXS, MYS                       ; input.s's
-.import CRTREGS                        ; crt.s's
+.import CRTREGS, CVA                   ; crt.s's
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
 .export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM
 .import DMACTL                         ; irq.s's: DEAFEN's, a scratch byte here
@@ -147,7 +151,8 @@ GETSG:          JSR     PGET
 ; Carry set if SG's VLEN + 1 bytes aren't all memory a segment may reach
 ; (SEGOK: not past $FFFFF, none of OODOS's own blocks) or, for a
 ; destination (DSTOK), if they touch an aperture window that shows OODOS's
-; card memory (OSWIN: slots 0, 2 and 3's).
+; card memory (OSWIN: slots 0, 2 and 3's, in bank 8; their windows at
+; $E00000 are past what a segment reaches).
 SRCOK:          LDA     VLEN
                 LDY     VLEN + 1
                 JMP     SEGOK
@@ -207,8 +212,9 @@ LENSET:         SEC
 ; the slots; a block gets +1 those, +3 the slots' budget in pages, +4 the
 ; pointer's sprite ($FF off), +5-12 the W1 map: block 1, the blocks the
 ; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
-; window (33, the program's card bank OOLIB sets) and banks 9-B (36-47), but
-; not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0, 2 and 3);
+; window (33, the program's card bank OOLIB sets, with WIN1H 0) and banks
+; 9-B (36-47), but not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0,
+; 2 and 3);
 ; +13-16 the program's card pages, its first and the one past its last (the
 ; fitted memory's end if that is sooner; 0, 0 with no card).
 DM_INFOX:       LDX     PX
@@ -861,7 +867,8 @@ PORTGO:         STA     DMA_MODE       ; (STA and STX absolute: the tests watch 
 
 ; DM_VCOPY's next piece from VSRC and VDST, VLEFT bytes left (0: 65,536):
 ; DCOUNT the least of DMA_PIECE, VLEFT, and the bytes to the end of each's
-; bank; SRCP slot 2's window's address for VSRC, DSTP slot 3's for VDST.
+; bank; SRCP slot 2's window's address for VSRC, DSTP slot 3's for VDST
+; (the aperture's own on a revision 2 north bridge: CVA).
 VC_PIECE        = 2048                 ; DMAGO's block, so DMAGO runs it as one
 VPIECE:         LDA     VLEFT + 1
                 BEQ     @tiny
@@ -886,13 +893,13 @@ VPIECE:         LDA     VLEFT + 1
                 JSR     @limit
                 LDX     #VDST - VSRC
                 JSR     @limit
-                LDA     VSRC           ; the windows: $88000 and $8C000 + the offsets
-                STA     SRCP
-                LDA     VSRC + 1
+                LDA     VSRC           ; the windows: slots 2 and 3's + the offsets, $E08000 and
+                STA     SRCP           ; $E0C000 on a revision 2 north bridge, $88000 and $8C000 on
+                LDA     VSRC + 1       ; revision 1 (B7: CVA, crt.s's, the bank; the rest the same)
                 AND     #$3F
                 ORA     #>(VM_APERTURE + 2 * VM_BANK)
                 STA     SRCP + 1
-                LDA     #^(VM_APERTURE + 2 * VM_BANK)
+                LDA     CVA
                 STA     SRCP + 2
                 LDA     VDST
                 STA     DSTP
@@ -900,7 +907,7 @@ VPIECE:         LDA     VLEFT + 1
                 AND     #$3F
                 ORA     #>(VM_APERTURE + 3 * VM_BANK)
                 STA     DSTP + 1
-                LDA     #^(VM_APERTURE + 3 * VM_BANK)
+                LDA     CVA
                 STA     DSTP + 2
                 RTS
 @limit:         SEC                    ; T0/T1 = $4000 - (the address AND $3FFF)
@@ -1119,8 +1126,9 @@ PORTOUT:        LDA     #DMA_DEMAND_OUT
 ; port's DRQ off, the aperture's slots set (slot 0 on card bank 0, the
 ; console's; slot 1 on the program's first bank, VM_PROG_BANK, so that block
 ; 33 shows only the program's card memory; slots 2 and 3 on banks 2 and 3,
-; OODOS's, whose windows no program reaches: review F2), and the console's
-; screen shown again.
+; OODOS's, whose windows no program reaches: review F2; nor at $E08000-
+; $E0FFFF, B7, since the program's W1 is refused while its WIN1H isn't 0),
+; and the console's screen shown again.
 VBQUIET:        STZ     VBON
                 STZ     PTRON
                 LDX     #2 * DM_SLOTS - 1

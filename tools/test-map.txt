@@ -139,6 +139,8 @@ oodos/spike/                                    none
 oodos/gwbasic/tools/oracle.sh                   none
 oodos/gwbasic/                                  gwbasic docs
 oodos/README.md                                 docs
+# W1HTEST, B7's test program that writes WIN1H itself: only these suites run it.
+oodos/sys/test/w1htest.s                        test_oodos_sys test_oodos_input test_oodos_clock test_oodos_utils_rom
 oodos/                                          oodos docs
 docs/                                           docs
 apple1/README.md                                none

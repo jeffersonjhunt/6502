@@ -629,13 +629,13 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     time_interrupts(r, none, ms(300));
     Costs::print("no area, a frame", none.frame);
     Costs::print("no area, a tick", none.tick);
-    CHECK_EQ(Costs::mode(none.tick), 145u);
-    CHECK_EQ(Costs::mode(none.frame), 199u); // L3's to the cycle (main 0497570 measures 199 the same way)
+    CHECK_EQ(Costs::mode(none.tick), 162u); // with B7's 17 for WIN1H
+    CHECK_EQ(Costs::mode(none.frame), 215u); // L3's 199 (main 0497570), +16 since B7 (its 17, less a page crossing the move took away)
     open(r, "2");
     Costs area2;
     time_interrupts(r, area2, ms(200));
     Costs::print("layout 2, no slot, a frame", area2.frame);
-    CHECK_EQ(Costs::mode(area2.frame), 396u); // L3's 389, and the 7 of VBON's test
+    CHECK_EQ(Costs::mode(area2.frame), 412u); // L3's 389, the 7 of VBON's test, and B7's 16 (as :633)
     const std::vector<uint8_t> src = noise(512, 4);
     r.poke(0x10000, src);
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));
@@ -942,6 +942,50 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
         CHECK_EQ(command(r, 'F', "F"), std::string("0B 0F"));
     }
+}
+
+TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
+{
+    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
+    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
+    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
+    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD2);
+    open(r, "X");
+    const std::vector<uint8_t> ram = noise(0x10000, 7);
+    r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
+    REQUIRE(r.bridge().map() == 0);
+    for (uint32_t i = 0; i < ram.size(); ++i)
+        r.machine->bus().write_bus(0x80000 + i, ram[i]);
+    // 64 lines from L4TEST (more than twice the screen's 30 rows, so it scrolls at least 30 times, each scroll
+    // erasing the bottom row), each a DM_VCOPY of 1,000 bytes card to card, from a fresh place each time. Every
+    // row's right half is junk first, so each row is clean after only if it was erased before its line went in.
+    for (unsigned n = 0; n < 30; ++n)
+        for (unsigned c = 40; c < 80; ++c)
+            vid(r).card_poke(0x002000 + n * 160 + c * 2, '#');
+    const std::vector<uint8_t> src = noise(64 * 1000, 9);
+    cpoke(r, 0x060000, src);
+    for (unsigned i = 0; i < 64; ++i)
+        CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x060000 + i * 1000), a3(0x0A0000 + i * 1000), w2(1000)})),
+                 std::string("00 00"));
+    CHECK(cmem(r, 0x0A0000, src.size()) == src);
+    CHECK_EQ(r.bridge().map(), 0); // no warm boot in between
+    std::vector<uint8_t> now(ram.size());
+    for (uint32_t i = 0; i < ram.size(); ++i)
+        now[i] = r.machine->bus().peek_bus(0x80000 + i);
+    CHECK(now == ram);
+    // The card's text: every row one of L4TEST's K lines ("\r\nK 00 00", the last on the bottom row), the junk
+    // scrolled off or erased.
+    auto row = [&](unsigned n) {
+        std::string s;
+        for (unsigned c = 0; c < 80; ++c)
+            s += static_cast<char>(vid(r).card_peek(0x002000 + n * 160 + c * 2));
+        return s.substr(0, s.find_last_not_of(' ') + 1);
+    };
+    for (unsigned n = 0; n < 30; ++n)
+        CHECK_EQ(row(n), std::string("K 00 00"));
 }
 
 int main() { return run_all(); }

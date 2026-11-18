@@ -1264,11 +1264,12 @@ MBACK:          BIT     MRAND
 @out:           JMP     FCBOUT
 
 ; Carry set if the MLEFT records at the DMA address aren't all the
-; program's memory: past $FFFF, in the I/O hole, on flash (NB_ROM), or a
-; read's in a read-only window (PCOPY's rule, the BIOS's PHYSOF), a page at
-; a time. With a DMA segment (51), past $FFFF too, then the physical range
-; segment x 16 + the DMA address on, which must be memory a segment may
-; reach (bdosmem.s's SEGOK). Uses A, X, Y, T1.
+; program's memory: past $FFFF, in the I/O hole, on flash (NB_ROM), in W1
+; while the program's WIN1H isn't 0 (B7), or a read's in a read-only window
+; (PCOPY's rule, the BIOS's PHYSOF), a page at a time. With a DMA segment
+; (51), past $FFFF too, then the physical range segment x 16 + the DMA
+; address on, which must be memory a segment may reach (bdosmem.s's
+; SEGOK). Uses A, X, Y, T1.
 MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $FF
                 DEC     A
                 LSR     A
@@ -1307,7 +1308,11 @@ MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $F
                 ROL     A
                 AND     #3
                 TAX
-                LDA     ST_WIN,X
+                CPX     #1             ; W1 while the program's WIN1H isn't 0 (B7): the record at a
+                BNE     @win           ; time path, which PMAP refuses
+                LDA     ST_W1H
+                BNE     @no
+@win:           LDA     ST_WIN,X
                 BIT     #NB_ROM
                 BNE     @no
                 BIT     MRAND

@@ -147,10 +147,10 @@ LDOOR:          CLD                    ; the loader's arithmetic is binary
 ; The BDOS's entry: the program's JSR $0203 lands here through $BFFD, the
 ; function in Y, the parameter in A and X. The program's P, A, X and Y go on
 ; its own stack, and WIN0 into A and its S into X before W0 changes; then its
-; S and WIN0-WIN3 into the system's zero page (ST_*), A and X read back off
-; its stack through W1, W0-W3 become 31, 60, 61 and 62 and S a fresh $FF. The
-; BDOS returns A and X; the program gets them back with its windows, S and P,
-; D clear, Y not kept.
+; S and WIN0-WIN3 into the system's zero page (ST_*), and WIN1H (ST_W1H, then
+; cleared: B7), A and X read back off its stack through W1, W0-W3 become 31,
+; 60, 61 and 62 and S a fresh $FF. The BDOS returns A and X; the program gets
+; them back with its windows (WIN1H too), S and P, D clear, Y not kept.
 STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
                 BEQ     LDOOR
                 PHP
@@ -165,8 +165,15 @@ STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
                 STA     ST_W0
                 LDA     NB_WIN1
                 STA     ST_W1
+                LDY     NB_WIN1H       ; its WIN1H (B7) into ST_W1H, and 0 for the BDOS: written
+                BEQ     @w1h           ; only when it isn't 0 already, and never on a revision 1
+                BMI     @nowin1h       ; bridge, whose $FF (no register) is kept as 0
+                STZ     NB_WIN1H
+                BPL     @w1h           ; (N still LDY's)
+@nowin1h:       LDY     #0
+@w1h:           STY     ST_W1H
                 LDA     ST_W0
-                STA     NB_WIN1        ; the program's stack page at $4100
+                STA     NB_WIN1        ; the program's stack page at $4100 (WIN1H 0)
                 LDY     $4101,X
                 LDA     $4102,X
                 STA     ST_X
@@ -207,7 +214,10 @@ STUBRET:        SEI                    ; off again till the program's P is back
                 DEY
                 LDA     ST_W1
                 STA     NB_WIN1
-                LDA     ST_W2
+                LDA     ST_W1H         ; and its WIN1H, if it had one
+                BEQ     @w1h
+                STA     NB_WIN1H
+@w1h:           LDA     ST_W2
                 STA     NB_WIN2
                 TYA
                 TAX
@@ -232,6 +242,7 @@ STUBRET:        SEI                    ; off again till the program's P is back
 ; 1 and vertical blank ran on throughout: the clocks lose nothing).
 WARM:           SEI
                 CLD
+                JSR     WINH0          ; WIN0H-WIN3H and VECH 0, MAP as the card says (B7)
                 LDA     #RES_BLOCK
                 STA     NB_WIN3        ; this code goes on, in block 62's copy
                 STA     NB_VEC
@@ -367,6 +378,7 @@ FCRET:          PHP                    ; the target's return: the old block back
 ; master enable put back if the driver had it off for a write; the sector
 ; being written is lost, the rest of its track kept.
 NMI:            SEI
+                JSR     WINH0          ; (B7) for an older ROM's BREAK too
                 LDA     DISK2_Q7OFF
                 LDA     DISK2_MOTOROFF
                 LDA     #SYS_BLOCK
@@ -396,6 +408,7 @@ TRAMPEND:
 ; (NMI needs no CLKOFF: the ROM's BREAK turns the VIA's and the video card's
 ; interrupts off itself, QUIET.)
 ROMAPPLE:       SEI
+                JSR     WINH0          ; (B7) no WINnH left for the copy into RAM
                 JSR     CLKOFF         ; OODOS's interrupts off: Apple II mode has none of its own
                 STZ     NB_WIN0
                 LDA     #1
@@ -415,6 +428,30 @@ APPLESRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TR
                 STA     NB_VEC
                 JMP     $C806          ; the ROM's APPLE
 APPLEEND:
+
+; WIN0H-WIN3H and VECH to 0, and MAP written whole: AP8 set (bank 8 the
+; video card's aperture, as old programs know it) with a revision 2 video
+; card, clear (bank 8 RAM) without one; on a revision 2 north bridge only
+; (NB_ID $D2), since on revision 1 those offsets aren't registers (B7; hw/
+; design.md, "The video aperture moved out of RAM"). For WARM, NMI and
+; ROMAPPLE, in any window state. Uses A and X. After ROMAPPLE, so that
+; FARCALL keeps its cycles (no branch of its across a page).
+WINH0:          LDA     NB_ID
+                CMP     #NB_ID_V2
+                BNE     @done
+                STZ     NB_WIN0H
+                STZ     NB_WIN1H
+                STZ     NB_WIN2H
+                STZ     NB_WIN3H
+                STZ     NB_VECH
+                LDX     #0
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V2
+                BNE     @map
+                INX                    ; NB_MAP_AP8
+@map:           STX     NB_MAP
+@done:          RTS
+.assert NB_MAP_AP8 = 1, error, "WINH0's INX sets AP8"
 
 ; The ROM's entries that take a two-byte token, for function 75: A = 2 the
 ; diagnostics (interface 10; hw/diag.md's plan 2) at its $C815, with A = $A5

@@ -561,6 +561,25 @@ TEST(one_section_alone_and_a_wrong_word)
     CHECK_EQ(run(r, "m:sysinfo memory"), std::string("SYSINFO {section} {/ALL}"));
 }
 
+TEST(on_a_revision_1_north_bridge_its_row_says_d1_and_revision_1)
+{
+    // O8 (B7, b7-plan.md §4): the north bridge's ID is $D2 on revision 2 (the golden's row) and $D1 on revision 1
+    // (the emulator's `revision=1`): both known to SYSINFO (oohw's hwname.s), each by its own revision.
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    const std::string line = "northbridge  backplane";
+    const size_t at = text.find(line);
+    REQUIRE(at != std::string::npos);
+    text.insert(at + line.size(), " revision=1");
+    InfoRig r(text);
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD1);
+    const std::string got = normal(run(r, "m:sysinfo /all"), false);
+    CHECK(got.find("\n  $C680  $D1  north bridge                  1\n") != std::string::npos);
+    CHECK(got.find("$D1  (not known") == std::string::npos);
+    if (got.find("  $C680  $D1  north bridge") == std::string::npos)
+        std::printf("%s\n", got.c_str());
+}
+
 int main()
 {
     return run_all();
