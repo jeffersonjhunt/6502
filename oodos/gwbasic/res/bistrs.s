@@ -49,7 +49,7 @@
 .export SETSTR, SPACE, SPACE2, LEFT, LEFT2, RIGHT, MID, MIDRST, INSTR, FRE, LETSTR, GETBCD
 .export MEMSIZ, TEMPST, DSCTMP, DSEGZ, NUMTMP
 .export PRMSTK, PRMLEN, PARM1, PRMLN2, FUNACT
-.export F_STR, F_VAL, F_STRO, F_STRH
+.export F_STR, F_VAL, F_STRO, F_STRH, F_PEEK
 .import CHRGTR, SYNCHR, FCERR, ERROR, CHKSTR, GETYP, EVAL, TSTOP, SPUSH, SPOP
 .import SPUSHA, SPOPA, FRMEVL, FRMPRN, GETBYT, CONINT, SNGFLT, GIVDBL, OUTDO, CRFIN
 .import BLTUC
@@ -119,6 +119,10 @@ CSLOOP:         LDA     RDL            ; both ended: equal
 F_STR:          FJSR    STR
                 RTS
 F_VAL:          FJSR    VAL
+                RTS
+; PEEK (GWMAIN.ASM 3042): P1's, with STR$'s conversions (p1/peek.s; 7c's
+; tail).
+F_PEEK:         FJSR    PEEKP
                 RTS
 F_STRO:         FJSR    STRO
                 RTS

@@ -627,6 +627,9 @@ set(GWBASIC_DIR "${CMAKE_CURRENT_BINARY_DIR}/gwbasic")
 file(GLOB_RECURSE gwbasic_sources CONFIGURE_DEPENDS "${GWBASIC_SRC}/*.s" "${GWBASIC_SRC}/*.inc"
         "${GWBASIC_SRC}/*.cfg" "${GWBASIC_SRC}/tools/*.py")
 list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames.txt") # the ledger's check
+# Block P5 links OOLIB's gxmem.s (7c's tail), so a change to it or to the library's includes rebuilds the blocks
+file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" ${gwbasic_oolib})
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"

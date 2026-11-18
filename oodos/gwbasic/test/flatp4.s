@@ -18,6 +18,7 @@
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
 .export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR
 .export DEVSOT, GIOINP, LPOSP
+.export BSAVE, BLOAD                   ; p8/far4.s's (7c's tail)
 .import ADVERR
 
 .code
@@ -58,6 +59,8 @@ CHAIN:
 CHNRET:
 NAMSCN:
 NULOPM:
+BSAVE:
+BLOAD:
 GETPTR:
 LPOSP:
 FUNDXP:         JMP     ADVERR

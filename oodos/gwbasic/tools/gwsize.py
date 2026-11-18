@@ -11,7 +11,7 @@ than --min are free (32,768, decided 2026-10-26) and warns under --warn; fails i
 or a hook may touch, has a byte in $4000-$7FFF (the W1 contract, V4); fails if any segment with bytes but
 LOADER, LOADDAT and FARFIX (the loader's, which the workspace takes over) starts at or after LOADER: BSS
 or a ZEROPAGE segment there, or fixed RAM, would be under BASIC's program. Each --block map's link is
-listed against its 12,288 bytes.
+listed against its 12,288 bytes, BSS (OOLIB's gxmem, in P5) counted.
 """
 import argparse
 import re
@@ -64,7 +64,7 @@ def main():
         open(a.free, "w").write("%d\n" % free)
     for b in a.block:
         bs = segments(b)
-        used = sum(v[2] for k, v in bs.items() if k in ("BLKHDR", "HOMTAB", "CODE", "RODATA", "DATA", "BRAM", "FARFIX"))
+        used = sum(v[2] for k, v in bs.items() if k in ("BLKHDR", "HOMTAB", "CODE", "RODATA", "DATA", "BRAM", "BSS", "FARFIX"))
         print("  %s: %d bytes of 12,288, %d free" % (b.rsplit("/", 1)[-1], used, 12288 - used))
         if used > 12288:
             bad = 1

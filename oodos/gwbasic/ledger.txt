@@ -870,7 +870,7 @@ ITSA86.ASM MAXRQ1 -> dropped: MAPINI's segment arithmetic
 ITSA86.ASM GOMERR -> p2/gwinit.s GOMERR # /M:'s Out of memory (before start-up is done: CMDERR's)
 ITSA86.ASM MAPCLC -> p2/gwinit.s DONCMD # /M: no more than the TPA's top (MAXREQ, NOMOPT); the segments and the COM buffer's place dropped
 ITSA86.ASM SEGOFF -> dropped: as MAPCLC
-ITSA86.ASM BASVAR -> later 7c: PEEK and POKE's filter of BASIC's own words
+ITSA86.ASM BASVAR -> dropped: PEKFLT and POKFLT's IBM words (the owner, 2026-11-18, 7c's tail question 1): the source gives no offsets, and under segment 0 a PC's data-segment offsets are 6502 zero page and stack here; VARPTR serves programs
 GWDATA.ASM ERRTAB -> p2/gwdata.s ERRTAB
 GWDATA.ASM INTXT -> p2/gwdata.s INTXT
 GWDATA.ASM BRKTXT -> p2/gwdata.s BRKTXT
@@ -1229,8 +1229,8 @@ GIO86.ASM NUMQ1 -> OEM res/oem.s PKQUE # inline
 BIMISC.ASM CLEAR -> p3/bimisc.s CLEARP # its resident stub res/far3.s CLEAR, which then jumps to CLEARC (GCLERC)
 GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's (below)
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
-GWEVAL.ASM DEF -> p3/gweval.s DEFP # its resident stub res/far3.s DEF; DEF SEG (DEFNC2) 7c's
-GWMAIN.ASM POKE -> later 7c: with DEF SEG
+GWEVAL.ASM DEF -> p3/gweval.s DEFP # its stub p8/far3.s DEF; DEF SEG alone segment 0, the port's DS
+GWMAIN.ASM POKE -> p3/poke.s POKEP # its stub p8/far3.s POKE; segment 0 below $C000 direct, else POKFLT's place, the OEM's p5/seed.s DSBYTE
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
 GIO86.ASM WIDTHS -> later 7d
 BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
@@ -1250,8 +1250,17 @@ DSKCOM.ASM MERGE -> p4/dskcom.s MERGEP # the stub (p8/far4.s MERGES) drops NEWST
 GWSTS.ASM COLOR -> later 7d
 GWSTS.ASM CLS -> later 7d
 GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
-GIO86.ASM BSAVE -> later 7c
-GIO86.ASM BLOAD -> later 7c
+GIO86.ASM BSAVE -> p8/far4.s BSAVE # 7c's tail: parsing and DSRUN's check in the home block, the file in p4/gio86.s BSAVEP (OUTBLK's place: DM_COPY a piece at a time into file 0's buffer)
+GIO86.ASM SNERR2 -> p8/far4.s SNERR2
+GIO86.ASM BPARMS -> p8/far4.s BPARMS # NAMSCN by P4's entry, ADRGET by P1's; PRODIR inline
+GIO86.ASM SNERR3 -> p8/far4.s BPARMS
+GIO86.ASM OUT16 -> p4/gio86.s OUT16 # the header's three words, from BHDR
+GIO86.ASM BLOAD -> p8/far4.s BLOAD # 7c's tail: the header read by p4/gio86.s BLOADP, the run checked (DSRUN), the bytes by BLDRUN (INPBLK: DFSTLD to the physical address)
+GIO86.ASM BLODP -> p8/far4.s BLOAD
+GIO86.ASM DEFSAD -> p8/far4.s DEFSAD
+GIO86.ASM LODEND -> p4/gio86.s LODEND
+GIO86.ASM ERBFM2 -> p4/gio86.s BLOADP
+GIO86.ASM INP16 -> p4/gio86.s INP16 # the header's three words, into BHDR
 GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> later 7e
@@ -1263,7 +1272,7 @@ GWSTS.ASM LOCATE -> later 7d
 # FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> later 7d
-GWMAIN.ASM PEEK -> later 7c: with DEF SEG
+GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
 GWSTS.ASM PENF -> later 7e: PEN
 GWSTS.ASM STICKF -> later 7f: STICK
@@ -1382,12 +1391,12 @@ GIODSK.ASM CMPFBC -> p4/giodsk.s CMPFBC # GETFPS and GETFSZ inline; P3's WRTFIN 
 # of the parameter blocks (ARYVAR) and STKERR's resets (above). The labels inside a routine that matter are named too.
 GWEVAL.ASM DEFNC3 -> p3/gweval.s DEFNC3 # JMP DATA: a tail call
 GWEVAL.ASM SCNLIS -> p3/gweval.s SCNLIS # JMP DATA: a tail call
-GWEVAL.ASM DEFNC2 -> later 7c: DEF SEG (SAVSEG); here p3/gweval.s DEFP gives Advanced Feature after S, E, G
+GWEVAL.ASM DEFNC2 -> p3/gweval.s DEFNC2 # SAVSEG, resident fixed RAM (res/gweval.s); 0 at start-up (p2/gwinit.s)
 GWEVAL.ASM DEFUSR -> p3/gweval.s DEFUSR # USRTAB in P3's own data, $FFFF until DEFined
 GWEVAL.ASM SCNUSR -> p3/gweval.s SCNUSR
 GWEVAL.ASM USERCN -> p3/gweval.s USERCN
 GWEVAL.ASM NOARGU -> p3/gweval.s NOARGU
-GIODSK.ASM PRODIR -> p3/gweval.s PRODIR # USR's; PROCHK inline
+GIODSK.ASM PRODIR -> p3/gweval.s PRODIR # USR's and POKE's (p3/poke.s); PROCHK inline; PEEK's inline in p1/peek.s
 GWEVAL.ASM ASGMOR -> p3/gweval.s ASGMOR # the arguments' values on the BASIC stack, as the 8086's on its own
 GWEVAL.ASM POPAS2 -> p3/gweval.s POPAS2 # LETCN4's return: a JSR here
 GWEVAL.ASM POPASG -> p3/gweval.s POPASG

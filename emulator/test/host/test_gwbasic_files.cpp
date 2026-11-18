@@ -40,10 +40,14 @@
  *   inside a PRINT # (W1), CHKFOP and a device's slot (W2) and attribute bits (W3), RUN of a file ending in a bare LF
  *   (W4), FILFCB's names as MS-DOS's parse takes them (W5, W6, W8), KILL and NAME passing over SYS files (W7),
  *   LLIST's CR after an LF (W9), SCRN:'s last character after console output (W10), a break's new line (W12).
+ * - 7c's tail, by hand from the source and the design (T1-T12): P5's start-up (GX_INIT, GX_BANK8); DEF SEG, PEEK and
+ *   POKE on each route (segment 0's own bytes, GX_BLOCK, DM_COPY, bank 8 refused, OODOS's memory); USR under another
+ *   segment; BLOAD and BSAVE, the run checked whole, the file's bytes, the errors; PEEK's and BLOAD's cycles.
  */
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "video_card.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1526,4 +1530,473 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     CHECK(r.until("A>", ms(4000), r.out.size()));
     const std::string typed = r.cmd("type rs.txt");
     CHECK(typed.find("whole\r\n") != std::string::npos);
+}
+
+// --- 7c's tail (hw/oodos.md, "The plan, phase 7": P5's seed, DEF SEG, PEEK, POKE, BLOAD, BSAVE) -------------------
+
+namespace
+{
+    /// A block's label's physical address: the block GW-BASIC's loader took for page `page` (PAGBLK, in the resident
+    /// core's LOWRAM: blocks 0-2 are the CPU's own addresses) and the label's place in it (each block is linked at
+    /// $C800 for W3, $C000 its start).
+    uint32_t block_phys(CcpRig &r, unsigned page, const std::string &lbl, const std::string &name)
+    {
+        const std::map<std::string, uint16_t> res = link_labels("gwbasic.lbl"), blk = link_labels(lbl);
+        CHECK(res.count("PAGBLK") == 1 && blk.count(name) == 1);
+        if (res.count("PAGBLK") != 1 || blk.count(name) != 1)
+            return 0;
+        return r.phys(res.at("PAGBLK") + page) * BLOCK + (blk.at(name) - 0xC000u);
+    }
+} // namespace
+
+// T12, B7's question 5 (the owner, 2026-11-17): P5's start-up (p5/seed.s GXSTRT) calls OOLIB's GX_INIT, then
+// GX_BANK8, so once GW-BASIC is up on a revision 2 card the north bridge's MAP has AP8 clear (bank 8 is the
+// program's RAM), and gxmem's GXAPH and GXAPB (in P5's block, by p5.lbl) say slot 1's window is WIN1H $0E with
+// block 1. SYSTEM's warm boot sets AP8 again. A build that calls GX_BANK8 before GX_INIT fails: GX_INIT always
+// goes back to the old mode, so GXAPH is 0 (and GXAPB 33).
+TEST(start_up_maps_slot_1_by_gx_bank8)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.nb(0x25) & 1, 1); // NB_MAP's AP8, at the prompt
+    CHECK(start(r).find("Bytes free") != std::string::npos);
+    CHECK_EQ(r.nb(0x25) & 1, 0);
+    CHECK_EQ(r.phys(block_phys(r, 5, "p5.lbl", "GXAPH")), 0x0E);
+    CHECK_EQ(r.phys(block_phys(r, 5, "p5.lbl", "GXAPB")), 1);
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    CHECK_EQ(r.nb(0x25) & 1, 1);
+}
+
+namespace
+{
+    /// The block GW-BASIC's loader took for page `page` (PAGBLK's byte).
+    unsigned page_block(CcpRig &r, unsigned page)
+    {
+        const std::map<std::string, uint16_t> res = link_labels("gwbasic.lbl");
+        CHECK(res.count("PAGBLK") == 1);
+        return res.count("PAGBLK") == 1 ? r.phys(res.at("PAGBLK") + page) : 0;
+    }
+
+    /// The segment, as GW-BASIC's &H, of physical address `a` (a multiple of 16).
+    std::string seg_hex(uint32_t a)
+    {
+        char b[16];
+        std::snprintf(b, sizeof b, "&H%X", static_cast<unsigned>(a >> 4));
+        return b;
+    }
+
+    /// Counts the times W1 isn't block 1 (NB_WIN1, WIN1H 0) when the resident NEWSTT or SNGFLT runs: at each
+    /// statement's end, and as each PEEK's value is made. Each far call has returned by then.
+    struct W1Watch
+    {
+        unsigned seen = 0, off = 0;
+        void arm(CcpRig &r)
+        {
+            const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+            CHECK(lab.count("NEWSTT") == 1 && lab.count("SNGFLT") == 1);
+            const uint16_t a = lab.count("NEWSTT") ? lab.at("NEWSTT") : 0, b = lab.count("SNGFLT") ? lab.at("SNGFLT") : 0;
+            r.watch = [this, &r, a, b](uint16_t pc) {
+                if (pc != a && pc != b)
+                    return;
+                ++seen;
+                off += r.nb(1) != 1 || r.nb(0x21) != 0;
+            };
+        }
+    };
+} // namespace
+
+// T1 (GWEVAL.ASM DEF, DEFNC2): DEF SEG = n makes n the segment (FRMQNT: &H9000 and -28672 are the same, 65536
+// Overflow); DEF SEG alone is segment 0, the port's DS, the program's own memory from physical $00000, so a POKE at
+// VARPTR's address changes the variable. Bank 9 is RAM no one else uses. A build whose DEF SEG alone leaves SAVSEG
+// as it was (the 8086's MOV DX,DS dropped) POKEs bank 9 instead, and A% stays 0.
+TEST(def_seg_sets_the_segment_and_alone_is_segment_0)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 0,77:POKE 1,78"), std::string());
+    CHECK_EQ(r.phys(0x90000), 77);
+    CHECK_EQ(r.phys(0x90001), 78);
+    CHECK_EQ(command(r, "DEF SEG=-28672:PRINT PEEK(0);PEEK(1)"), std::string(" 77  78 \r\n"));
+    CHECK_EQ(command(r, "A%=0:DEF SEG:POKE VARPTR(A%),5:PRINT A%"), std::string(" 5 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 2,79:DEF SEG:PRINT PEEK(VARPTR(A%))"), std::string(" 5 \r\n"));
+    CHECK_EQ(r.phys(0x90002), 79);
+    CHECK_EQ(command(r, "DEF SEG=65536"), std::string("Overflow\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H9000:DEF SEG:PRINT PEEK(VARPTR(A%))"), std::string(" 5 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG 5"), std::string("Syntax error\r\n"));
+}
+
+// T2: under segment 0 only $0000-$BFFF is the CPU's own (the program's blocks 0-2); $C000 on is physical block 3,
+// which PEEK and POKE reach through P5 (function 83), not the CPU's W3 (GW-BASIC's code) nor the I/O hole at
+// $C000-$C7FF. The test puts $5A at physical $0C800. A build whose fast path lacks the $C000 bound reads W3.
+TEST(segment_0_above_c000_is_block_3_not_w3)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    r.poke(0x0C800, 0x5A);
+    r.poke(0x0C000, 0x33);
+    CHECK_EQ(command(r, "PRINT PEEK(&HC800);PEEK(-16384)"), std::string(" 90  51 \r\n"));
+    CHECK_EQ(command(r, "POKE &HC800,7:POKE 49153!,8"), std::string());
+    CHECK_EQ(r.phys(0x0C800), 7);
+    CHECK_EQ(r.phys(0x0C001), 8);
+    CHECK_EQ(command(r, "PRINT PEEK(&HC800)"), std::string(" 7 \r\n"));
+}
+
+// T3, P5's gate (V3; hw/oodos.md 7c): PEEK and POKE in an allocated block (P8's, past its code at offset $2000 and
+// below its copy of common memory; its segment from PAGBLK) and in bank 9 go through GX_BLOCK, then GX_W1BACK
+// puts block 1 back. A%(4000) of an 8,001-element array lies in $4000-$7FFF (VARPTR), so in the same statement
+// after each it must read as itself, and W1 must be block 1 at every statement's end and every PEEK's value. A
+// build whose DSBYTE leaves out GX_W1BACK reads the element from the other block.
+TEST(peek_poke_in_an_allocated_block_and_bank_9_put_block_1_back)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "DIM A%(8000):A%(4000)=1234:V=VARPTR(A%(4000)):PRINT V>=16384 AND V<32767"),
+             std::string("-1 \r\n"));
+    const uint32_t p8 = page_block(r, 8) * BLOCK + 0x2000;
+    CHECK(p8 >= 4 * BLOCK);
+    r.poke(p8 + 1, 0x42);
+    W1Watch w;
+    w.arm(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE &H123,99:PRINT A%(4000);PEEK(&H123);A%(4000)"),
+             std::string(" 1234  99  1234 \r\n"));
+    CHECK_EQ(r.phys(0x90123), 99);
+    CHECK_EQ(command(r, "DEF SEG=" + seg_hex(p8) + ":POKE 0,55:PRINT A%(4000);PEEK(0);PEEK(1);A%(4000)"),
+             std::string(" 1234  55  66  1234 \r\n"));
+    CHECK_EQ(r.phys(p8), 55);
+    CHECK_EQ(command(r, "DEF SEG:PRINT A%(4000)"), std::string(" 1234 \r\n"));
+    r.watch = nullptr;
+    CHECK(w.seen > 6);
+    CHECK_EQ(w.off, 0u);
+}
+
+// T4's PEEK and POKE half (B7's question 2, the owner, 2026-11-17): any access meeting bank 8, $80000-$8FFFF, is
+// Illegal function call, PEEK included, tested on the 20-bit address: &H7FFF:&H100 is $800F0, and &H8400 is bank 8
+// too. Bank 8's RAM (the program's after GX_BANK8) is unchanged; bank 9 still works after. A build that tests the
+// segment ($8000-$8FFF) instead lets &H7FFF:&H100 through (GX_BLOCK maps bank 8's block after GX_BANK8).
+TEST(bank_8_is_refused_to_peek_and_poke)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    r.poke(0x800F0, 0xC3);
+    r.poke(0x84000, 0x3C);
+    r.poke(0x8FFFF, 0x5A);
+    CHECK_EQ(command(r, "DEF SEG=&H7FFF:POKE &H100,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT PEEK(&H100)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H8400:POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT PEEK(0)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H8FFF:PRINT PEEK(15)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H7FFF:PRINT PEEK(15)"), std::string(" 0 \r\n")); // $7FFFF: bank 7, OODOS's: 0
+    CHECK_EQ(r.phys(0x800F0), 0xC3);
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+    CHECK_EQ(r.phys(0x8FFFF), 0x5A);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 0,9:PRINT PEEK(0)"), std::string(" 9 \r\n"));
+}
+
+// T9, B7's question 3: with no revision 2 card GX_INIT says GE_VERSION and GX_BLOCK refuses every block, so DEF SEG
+// reaches bank 9 and an allocated block (P8's) by the 1-byte DM_COPY route instead: the bytes POKEd are in physical
+// memory and PEEK reads them, and W1 stays block 1 throughout. A build that takes GX_BLOCK's refusal as the end
+// (Illegal function call) fails it.
+TEST(no_revision_2_card_takes_the_dm_copy_route)
+{
+    CcpRig r({}, {}, {}, 1);
+    REQUIRE(r.ok);
+    CHECK(start(r).find("Bytes free") != std::string::npos);
+    const uint32_t p8 = page_block(r, 8) * BLOCK + 0x2000;
+    r.poke(p8 + 1, 0x42);
+    W1Watch w;
+    w.arm(r);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:POKE &H123,99:PRINT PEEK(&H123)"), std::string(" 99 \r\n"));
+    CHECK_EQ(r.phys(0x90123), 99);
+    CHECK_EQ(command(r, "DEF SEG=" + seg_hex(p8) + ":POKE 0,55:PRINT PEEK(0);PEEK(1)"), std::string(" 55  66 \r\n"));
+    CHECK_EQ(r.phys(p8), 55);
+    r.watch = nullptr;
+    CHECK(w.seen > 4);
+    CHECK_EQ(w.off, 0u);
+}
+
+// T10: OODOS's own memory (banks 6, 7, C, D, F) is function 83's to refuse: a PEEK there gives 0 (the scratch byte
+// cleared first), a POKE is Illegal function call, the memory unchanged; bank E (Apple II mode's) reads and writes
+// by DM_COPY. The bank E POKE and PEEK leave 77 in the scratch byte first, so a build that doesn't clear it before a
+// refused copy gives 77 for bank F.
+TEST(oodos_memory_peeks_0_and_refuses_pokes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const uint8_t f0 = r.phys(0xF0000), s6 = r.phys(0x60010);
+    CHECK_EQ(command(r, "DEF SEG=&HE000:POKE 0,77:PRINT PEEK(0)"), std::string(" 77 \r\n"));
+    CHECK_EQ(r.phys(0xE0000), 77);
+    CHECK_EQ(command(r, "DEF SEG=&HF000:PRINT PEEK(0)"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H6001:PRINT PEEK(0)"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(r.phys(0xF0000), f0);
+    CHECK_EQ(r.phys(0x60010), s6);
+}
+
+// T11 (the OEM table: CALL and USR, "a 6502 routine in the TPA (segment 0); any other segment refused"): under DEF
+// SEG=&H100, USR is Illegal function call and its routine isn't run (it would INC M%); after DEF SEG, it runs as
+// before. A build whose USRFNP ignores SAVSEG runs it.
+TEST(usr_under_another_segment_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 X=0:M%=0:Q=VARPTR(M%):DIM A%(3):P=VARPTR(A%(0))",
+              "20 POKE P,&HEE:POKE P+1,Q AND 255:POKE P+2,INT(Q/256):POKE P+3,&H60", // INC M% / RTS
+              "30 DEF USR=P"});
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "DEF SEG=&H100:X=USR(0)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT M%"), std::string(" 0 \r\n"));
+    CHECK_EQ(command(r, "DEF SEG:X=USR(0):PRINT M%"), std::string(" 1 \r\n"));
+}
+
+// PEEK's cost on each route (7c's tail, measured for hw/oodos.md): the cycles from FUNDSP's F_PEEK to LABBCK (the
+// function's return), the argument already evaluated: segment 0 below $C000 (one far call, to P1), bank 9 through
+// GX_BLOCK and GX_W1BACK (a second, to P5), and bank E by a 1-byte DM_COPY (a BDOS call besides). Each the least of
+// 4. Bounds only against a run gone astray.
+TEST(peek_costs_on_each_route)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("F_PEEK") == 1 && lab.count("LABBCK") == 1);
+    const uint16_t from = lab.at("F_PEEK"), to = lab.at("LABBCK");
+    auto cost = [&](const std::string &seg) {
+        uint64_t at = 0, best = ~uint64_t{0};
+        r.watch = [&](uint16_t pc) {
+            if (pc == from)
+                at = r.cpu->cycles();
+            else if (pc == to && at)
+            {
+                best = std::min(best, r.cpu->cycles() - at);
+                at = 0;
+            }
+        };
+        CHECK_EQ(command(r, seg + ":X=PEEK(256):X=PEEK(256):X=PEEK(256):X=PEEK(256)"), std::string());
+        r.watch = nullptr;
+        return best;
+    };
+    const uint64_t s0 = cost("DEF SEG"), b9 = cost("DEF SEG=&H9000"), be = cost("DEF SEG=&HE000");
+    std::printf("  PEEK: segment 0 %llu cycles, bank 9 (GX_BLOCK) %llu, bank E (DM_COPY) %llu\n",
+                static_cast<unsigned long long>(s0), static_cast<unsigned long long>(b9),
+                static_cast<unsigned long long>(be));
+    CHECK(s0 > 100 && s0 < b9 && b9 < be && be < 10000);
+}
+
+namespace
+{
+    /// A byte of the test pattern at place i (none of 256 consecutive the same).
+    uint8_t pat(uint32_t i) { return static_cast<uint8_t>(i * 7 + 3); }
+    void put_pattern(CcpRig &r, uint32_t at, uint32_t n)
+    {
+        for (uint32_t i = 0; i < n; ++i)
+            r.poke(at + i, pat(i));
+    }
+    /// The places in [at, at + n) whose byte isn't the pattern's.
+    unsigned off_pattern(CcpRig &r, uint32_t at, uint32_t n)
+    {
+        unsigned bad = 0;
+        for (uint32_t i = 0; i < n; ++i)
+            bad += r.phys(at + i) != pat(i);
+        return bad;
+    }
+    void fill(CcpRig &r, uint32_t at, uint32_t n, uint8_t v)
+    {
+        for (uint32_t i = 0; i < n; ++i)
+            r.poke(at + i, v);
+    }
+    unsigned not_byte(CcpRig &r, uint32_t at, uint32_t n, uint8_t v)
+    {
+        unsigned bad = 0;
+        for (uint32_t i = 0; i < n; ++i)
+            bad += r.phys(at + i) != v;
+        return bad;
+    }
+} // namespace
+
+// T4's BLOAD and BSAVE half (B7's question 2), and the owner's answer 2: a run meeting bank 8 is Illegal function
+// call before anything moves: BLOAD to &H8400:0 (slot 1's old window, bank 8's RAM since GX_BANK8), a run from bank 7
+// into it, and BSAVE from it (no file made). Bank 8's RAM and card memory's slot 1 bank (the program's first, card
+// $040000) are unchanged; bank 9 still works after. And a BSAVE that meets OODOS's memory (bank F; bank 5 into bank
+// 6) is Illegal function call with no file written. A build whose DSRUN leaves out the bank 8 test writes bank 8 by
+// DM_LOAD, which OODOS allows after GX_BANK8.
+TEST(bank_8_is_refused_whole_to_bload_and_bsave)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    VideoCard &vid = *r.machine->video_card();
+    put_pattern(r, 0x90000, 512);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BSAVE \"B\",0,512"), std::string());
+    fill(r, 0x84000, 600, 0xC3);
+    fill(r, 0x80000, 16, 0xC3);
+    std::vector<uint8_t> card(600);
+    for (uint32_t i = 0; i < card.size(); ++i)
+        card[i] = vid.card_peek(0x040000 + i);
+    CHECK_EQ(command(r, "DEF SEG=&H8400:BLOAD \"B\",0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H7FFF:BLOAD \"B\",0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H8400:BSAVE \"C\",0,&H100"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(not_byte(r, 0x84000, 600, 0xC3), 0u);
+    CHECK_EQ(not_byte(r, 0x80000, 16, 0xC3), 0u);
+    unsigned moved = 0;
+    for (uint32_t i = 0; i < card.size(); ++i)
+        moved += vid.card_peek(0x040000 + i) != card[i];
+    CHECK_EQ(moved, 0u);
+    CHECK_EQ(command(r, "DEF SEG=&HF000:BSAVE \"D\",0,16"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "DEF SEG=&H5FF0:BSAVE \"D\",0,512"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "FILES \"C.BAS\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "FILES \"D.BAS\""), std::string("File not found\r\n"));
+    fill(r, 0x90000, 512, 0);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BLOAD \"B\",0:PRINT PEEK(511)"), std::string(" " + std::to_string(pat(511)) + " \r\n"));
+    CHECK_EQ(off_pattern(r, 0x90000, 512), 0u);
+}
+
+// T5: the run is checked whole before anything moves. A 512-byte file BLOADed at &H5FF0:0 ($5FF00, block 23: the
+// program's banks, unallocated, AMAP's last byte) runs into bank 6, OODOS's: Illegal function call, with
+// $5FF00-$5FFFF unchanged. A build whose DSRUN tests only the run's first block puts the head in bank 5, and then
+// DM_LOAD is refused partway (or the last part copied).
+TEST(a_run_is_checked_whole_before_anything_moves)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("AMAP") + 19), 0); // block 23 free
+    put_pattern(r, 0x90000, 512);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BSAVE \"B\",0,512"), std::string());
+    fill(r, 0x5FF00, 256, 0xA5);
+    const uint8_t six = r.phys(0x60000);
+    CHECK_EQ(command(r, "DEF SEG=&H5FF0:BLOAD \"B\",0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(not_byte(r, 0x5FF00, 256, 0xA5), 0u);
+    CHECK_EQ(r.phys(0x60000), six);
+    CHECK_EQ(command(r, "DEF SEG=&H5FE0:BLOAD \"B\",0"), std::string()); // $5FE00-$5FFFF: bank 5 alone
+    CHECK_EQ(off_pattern(r, 0x5FE00, 512), 0u);
+}
+
+// T6 (GIO86.ASM BLOAD, BLODP, DEFSAD; GIODSK.ASM DFSTLD): BLOAD puts the bytes and nothing past them. 1,000 patterned
+// bytes BSAVEd from &H9000:0, BLOADed to &HA000:0: the rest of record 0 by DM_COPY, whole records by DM_LOAD, the
+// last part record's bytes only, so the sentinels at $9FFFF and $A03E8 stay. A 100-byte file (record 0 alone). BLOAD
+// with no offset goes to the file's own &H9000:0. DEF SEG: BLOAD "B",VARPTR(A%(0)) fills an integer array (the PC's
+// idiom). Must fail: (a) the last record loaded whole by DM_LOAD (the $A03E8 sentinel); (b) the 7 header bytes not
+// skipped (the bytes shift).
+TEST(bload_puts_the_bytes_and_nothing_past_them)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    put_pattern(r, 0x90000, 1000);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BSAVE \"B\",0,1000:BSAVE \"S\",0,100"), std::string());
+    fill(r, 0x9FFF0, 0x500, 0xEE);
+    CHECK_EQ(command(r, "DEF SEG=&HA000:BLOAD \"B\",0"), std::string());
+    CHECK_EQ(off_pattern(r, 0xA0000, 1000), 0u);
+    CHECK_EQ(not_byte(r, 0x9FFF0, 16, 0xEE), 0u);
+    CHECK_EQ(not_byte(r, 0xA03E8, 0x100, 0xEE), 0u);
+    fill(r, 0xA1000, 0x100, 0xEE);
+    CHECK_EQ(command(r, "DEF SEG=&HA100:BLOAD \"S\",0"), std::string());
+    CHECK_EQ(off_pattern(r, 0xA1000, 100), 0u);
+    CHECK_EQ(not_byte(r, 0xA1064, 0x9C, 0xEE), 0u);
+    fill(r, 0x90000, 1000, 0);
+    CHECK_EQ(command(r, "DEF SEG=&H1234:BLOAD \"B\""), std::string());
+    CHECK_EQ(off_pattern(r, 0x90000, 1000), 0u);
+    const int w0 = pat(0) | pat(1) << 8, w499 = pat(998) | pat(999) << 8;
+    CHECK_EQ(command(r, "DIM A%(499):DEF SEG:BLOAD \"B\",VARPTR(A%(0)):PRINT A%(0);A%(499)"),
+             std::string(" " + std::to_string(w0 > 32767 ? w0 - 65536 : w0) + "  " +
+                         std::to_string(w499 > 32767 ? w499 - 65536 : w499) + " \r\n"));
+}
+
+// T7 (GIO86.ASM BSAVE, OUT16; GIO86U's BSVFID): BSAVE writes $FD, the segment, the offset and the length (each low
+// byte first), then the bytes: read back from M:'s directory and blocks, 1,000 bytes from &H9000:0 are 8 records,
+// $FD 00 90 00 00 E8 03, the bytes, and DSKCLS's ^Z. A length of 0 writes the header alone. A build whose piece
+// loop doesn't move its source on at a record's end repeats the run's first bytes in every record.
+TEST(bsave_writes_the_header_and_the_bytes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    put_pattern(r, 0x90000, 1000);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BSAVE \"M:B7\",0,1000:BSAVE \"M:Z7\",&H10,0"), std::string());
+    const std::vector<uint8_t> d = m_data(r, 0, "B7      BAS");
+    REQUIRE(d.size() == 8 * RECORD);
+    const std::vector<uint8_t> head = {0xFD, 0x00, 0x90, 0x00, 0x00, 0xE8, 0x03};
+    CHECK(std::vector<uint8_t>(d.begin(), d.begin() + 7) == head);
+    unsigned bad = 0;
+    for (uint32_t i = 0; i < 1000; ++i)
+        bad += d[7 + i] != pat(i);
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(d[1007], 0x1A);
+    const std::vector<uint8_t> z = m_data(r, 0, "Z7      BAS");
+    REQUIRE(z.size() == RECORD);
+    CHECK(std::vector<uint8_t>(z.begin(), z.begin() + 8) == std::vector<uint8_t>({0xFD, 0x00, 0x90, 0x10, 0x00, 0x00, 0x00, 0x1A}));
+}
+
+// T8 (GIO86.ASM BLOAD's ERBFM2, BPARMS's SNERR2 and SNERR3, PRODIR): BLOAD of a SAVE ,A file is Bad file mode,
+// nothing written; a missing file File not found; BSAVE with one number and BLOAD with two Syntax error, as is more
+// after BSAVE's length; in direct mode under a protected program (SAVE ,P, LOAD), both Illegal function call; a
+// device's name Bad file mode (the owner's answer 3: disk files only). A build without the $FD check writes the text
+// file's bytes at the destination.
+TEST(bload_and_bsave_errors)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 PRINT 1"});
+    CHECK_EQ(command(r, "SAVE \"T\",A"), std::string());
+    fill(r, 0xA0000, 256, 0xEE);
+    CHECK_EQ(command(r, "DEF SEG=&HA000:BLOAD \"T\",0"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "BLOAD \"T.BAS\""), std::string("Bad file mode\r\n"));
+    CHECK_EQ(not_byte(r, 0xA0000, 256, 0xEE), 0u);
+    CHECK_EQ(command(r, "BLOAD \"NONE\",0"), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "BSAVE \"X\",0"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "BSAVE \"X\""), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "BLOAD \"T\",0,10"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "BSAVE \"X\",0,10,5"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "BSAVE \"SCRN:\",0,10"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "BLOAD \"KYBD:\",0"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "SAVE \"P\",P"), std::string());
+    CHECK_EQ(command(r, "LOAD \"P\""), std::string());
+    CHECK_EQ(command(r, "BSAVE \"X\",0,10"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "BLOAD \"T\",0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    CHECK_EQ(command(r, "FILES \"X.BAS\""), std::string("File not found\r\n"));
+}
+
+// BLOAD of 65,535 bytes (7c's tail, measured for hw/oodos.md; the design's estimate about 16 ms, by DM_LOAD): the
+// cycles of the BLOAD command from its line typed to Ok, after a BSAVE of bank 9's first 65,535 bytes; the bytes
+// checked. A bound only against a run gone astray.
+TEST(bload_of_64_kb_by_dm_load)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    put_pattern(r, 0x90000, 65535);
+    CHECK_EQ(command(r, "DEF SEG=&H9000:BSAVE \"BIG\",0,&HFFFF"), std::string());
+    const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
+    REQUIRE(p4.count("BLDRUN") == 1 && p4.count("LODEND") == 1);
+    const unsigned blk4 = page_block(r, 4);
+    uint64_t run0 = 0, run = 0;
+    r.watch = [&](uint16_t pc) {
+        if (r.nb(3) != blk4)
+            return;
+        if (pc == p4.at("BLDRUN"))
+            run0 = r.cpu->cycles();
+        else if (pc == p4.at("LODEND") && run0)
+            run = r.cpu->cycles() - run0;
+    };
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(command(r, "DEF SEG=&HA000:BLOAD \"BIG\",0"), std::string());
+    const uint64_t c = r.cpu->cycles() - c0;
+    r.watch = nullptr;
+    auto msf = [](uint64_t n) { return static_cast<double>(n) * 1000.0 / static_cast<double>(HZ); };
+    std::printf("  BLOAD of 65,535 bytes: the bytes (BLDRUN: DFSTLD) %llu cycles, %.1f ms; the command from its line "
+                "typed to Ok %llu, %.1f ms\n",
+                static_cast<unsigned long long>(run), msf(run), static_cast<unsigned long long>(c), msf(c));
+    CHECK(run > 0 && run < c);
+    CHECK_EQ(off_pattern(r, 0xA0000, 65535), 0u);
+    CHECK(c < ms(1000));
 }
