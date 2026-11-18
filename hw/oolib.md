@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -1461,8 +1461,8 @@ and more in L5:
     port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
     Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
     RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
-- **Bank 8 as RAM, interface version 12** (*proposed, 2026-11-17*, the bus work's B7: [design.md, B7: as
-  built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
+- **Bank 8 as RAM, interface version 12** (*proposed 2026-11-17 and released 2026-11-18, OODOS 0.11*, the bus
+  work's B7: [design.md, B7: as built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
   which a window reaches with WIN*n*H `$0E`, and bank 8 is the aperture only while MAP's AP8 is set. OODOS keeps
   AP8 set, so every program runs as before.
   - **Function 83's `DM_BANK8`** (operation 11, `DM_OPS` 12): clears AP8 for the running program, so blocks 32–47
@@ -1612,6 +1612,8 @@ question 15.
     *The versions so far (function 80's `FT_INFO`):* 1 L1, 2 L2, 3 L3, 4 L4, 5 L4b's hold, go and volume, 6 L5a's
     mailbox stamp, 7 OODOS 0.8's `EV_SFLAGS`, 8 OODOS 0.9's video card revision 2, 9 OODOS 0.10's function 77, the ROM BIOS's
     version (hw/diag.md's D1, 2026-11-13), 10 OODOS 0.10's function 75's A = 2, the ROM's diagnostics (hw/diag.md's D3c,
-    2026-11-14, P2-1). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
+    2026-11-14, P2-1), 11 OODOS 0.11's function 75's A = 3, Apple II mode with ROM A's image X (hw/design.md's B5,
+    2026-11-16), 12 OODOS 0.11's function 83's `DM_BANK8` and WIN1H in the W1 contract (hw/design.md's B7,
+    2026-11-17). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
     also marks OODOS's own additions a program needs to detect, OOLIB's or not, since it is the one number a
     program can ask for (OODOS's own version changes only at a release).

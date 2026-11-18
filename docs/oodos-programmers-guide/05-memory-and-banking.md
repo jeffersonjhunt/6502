@@ -28,7 +28,7 @@ aperture slot 1 in W1 (writing `NB_WIN1`, and since interface version 12 `NB_WIN
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
 | 32 | 8 | RAM; while AP8 is set (OODOS's default), the video card's aperture, slot 0: the console's card memory, OODOS's (since OODOS 0.9, revision 2: [below](#video-memory-on-revision-2)) |
 | 33 | 8 | RAM; while AP8 is set, the aperture's slot 1: the program's card memory, through OOLIB |
-| 34–35 | 8 | RAM; while AP8 is set, the aperture's slots 2 and 3, OODOS's. After `DM_BANK8` (*proposed*, B7) blocks 32–47 are all the program's RAM |
+| 34–35 | 8 | RAM; while AP8 is set, the aperture's slots 2 and 3, OODOS's. After `DM_BANK8` (since OODOS 0.11, B7) blocks 32–47 are all the program's RAM |
 | 36–47 | 9–B | ordinary RAM, the running program's (not allocated by 53–58); OOLIB stages its asset loads in `$BF000–$BFFFF` unless the program moves `GX_STAGE` |
 | 48–55 | C–D | M:, the RAM disk |
 | 56–59 | E | not allocated: Apple II mode copies the IIe ROM here each time it starts; a DMA segment may reach it |
@@ -148,7 +148,7 @@ The paragraph suits function 51 and the offset function 26, so the two name the 
 device's DMA itself needs the address too.
 
 What has no physical address is refused, A = X = `$FF`: the I/O hole, `$C000–$C7FF`, a window on flash, and
-(since interface version 12, *proposed*) an address in W1 while W1 shows the aperture at `$E00000`, its WIN1H not
+(since OODOS 0.11, interface version 12) an address in W1 while W1 shows the aperture at `$E00000`, its WIN1H not
 0, which a 20-bit paragraph can't hold. OODOS's own conversions (MOVE, XMOVE, a DMA segment, function 83's
 addresses) refuse such an address the same way rather than take it for RAM block 1. Every
 function that takes an address treats the I/O hole the same way: a function stops at a program address there and
@@ -187,7 +187,7 @@ map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 3
 contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
 `$BFFD` in block 2; FARCALL needs common memory in W3's block).
 
-**Interface version 12** (*proposed*, B7: a revision 2 north bridge, ID `$D2`). After the program's `GX_BANK8`,
+**Interface version 12** (since OODOS 0.11, B7: a revision 2 north bridge, ID `$D2`). After the program's `GX_BANK8`,
 which asks for function 83's `DM_BANK8`, **OOLIB may write `NB_WIN1H`** (`$C6A1`) too: slot 1 is then WIN1H `$0E`
 with WIN1 1, the aperture's own place at `$E04000`, and every other block of the map is WIN1H 0. OOLIB writes WIN1H
 first, then WIN1, and goes back by WIN1H 0, then the block. A map is then two writes, which an interrupt can split;
@@ -196,8 +196,8 @@ them, so a split does no harm. A program that never calls `GX_BANK8` keeps WIN1H
 
 While another block is in W1, the program's own `$4000–$7FFF` is out of its reach, and of the BDOS's: its code, its
 event area, the FCBs and parameter blocks it passes, and what it draws from stay in `$0300–$3FFF` or `$8000–$BFFC`.
-A hook that draws maps W1 itself. One that maps it through OOLIB ends with `GX_W1BACK` (B7, *proposed*): the hook
-shares the program's copy of the library, and with it the library's note of what W1 holds, which still names the
+A hook that draws maps W1 itself. One that maps it through OOLIB ends with `GX_W1BACK` (since OODOS 0.11, B7): the
+hook shares the program's copy of the library, and with it the library's note of what W1 holds, which still names the
 hook's map after OODOS has put the program's W1 back. `GX_W1BACK` always writes block 1 and leaves the note there.
 **After `GX_BANK8`, a hook must not map W1 through OOLIB.** The note would then say WIN1H 0 while OODOS has put
 the program's `$0E` back, and the hook can fire between any two of the program's instructions, so no order of the
@@ -216,7 +216,7 @@ card, or none, OODOS has no console screen and the card operations are refused. 
 - **Banks 8–B.** While the north bridge's AP8 is set, as OODOS leaves it, bank 8, blocks 32–35, is the card's
   aperture: four 16 KB slots, each showing a 16 KB card bank that its slot register chooses. Slot 0 (block 32)
   always shows card bank 0, the console's; slots 2 and 3 (blocks 34 and 35) are OODOS's, borrowed by `DM_VCOPY`;
-  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (*proposed*, B7: a
+  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (since OODOS 0.11, B7: a
   `$D2` north bridge), where OODOS's console and `DM_VCOPY` reach it. A program that calls function 83's
   `DM_BANK8` (through OOLIB's `GX_BANK8`) has bank 8 as RAM too, until the warm boot sets AP8 again, and reaches
   slot 1 at `$E04000`, WIN1H `$0E` with block 1. Banks 9–B, blocks

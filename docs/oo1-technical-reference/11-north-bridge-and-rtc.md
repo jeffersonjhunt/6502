@@ -1013,7 +1013,7 @@ Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$
 
 #### Notes
 
-OOLIB's window (*proposed*, interface 12). After a program's `GX_BANK8`, OOLIB maps the aperture's slot 1 with
+OOLIB's window (since OODOS 0.11, interface 12). After a program's `GX_BANK8`, OOLIB maps the aperture's slot 1 with
 WIN1H `$0E` and WIN1 1 (`$E04000`), and puts WIN1H back to 0 with block 1. OODOS saves, clears and restores WIN1H
 on the way into the BDOS, the interrupt dispatcher and the hooks, so its own code finds it 0
 ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).

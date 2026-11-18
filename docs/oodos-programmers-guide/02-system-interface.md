@@ -33,7 +33,7 @@ puts everything back. The program's zero page, `$00`-`$EF`, is never touched: th
 of its own. Interrupts are on while the BDOS runs, off only while the stub switches the windows and the stack (OOLIB's
 L1: [chapter 8](08-game-services.md#the-clocks)). The stub costs 240 cycles a call, 142 in and 98 out, not counting
 any interrupt taken meanwhile (`test_oodos_sys`, measured again 2026-11-18; the 4 more in are phase 5a's door for
-function 59, and L1's turning interrupts on and off 2 each way). Since B7 (*proposed*) it saves, clears and puts
+function 59, and L1's turning interrupts on and off 2 each way). Since OODOS 0.11 (B7) it saves, clears and puts
 back WIN1H too, 10 cycles in and 6 out with WIN1H 0 (it was 224, 132 and 92); with WIN1H `$0E`, a `GX_BANK8`
 program with slot 1 in W1, it is 251, 150 in and 101 out (measured with WIN1H held at `$0E`).
 

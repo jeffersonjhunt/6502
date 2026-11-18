@@ -292,8 +292,8 @@ that serves any other card:
 
 **A byte card given WIDE** gets what the bus would give it: its data register moves once a grant, on D0–D7; D8–D15
 float, so memory gets `$FF` in each odd byte, and each odd byte from memory is lost. A WIDE left on channel 0 under
-the monitor (`C40C: 17`) so breaks the SD card's reads and writes; Break puts every CARD back, WIDE 0, and since B5
-(*proposed*) so does OODOS's warm boot (DMAWARM, [above](#under-oodos)), so a WIDE a program left on
+the monitor (`C40C: 17`) so breaks the SD card's reads and writes; Break puts every CARD back, WIDE 0, and since
+OODOS 0.11 (B5) so does OODOS's warm boot (DMAWARM, [above](#under-oodos)), so a WIDE a program left on
 channel 0 is gone by the next `A>`.
 
 **The front panel** sees a word cycle once, at its even address: its lamps and LDATA show D0–D7, the even byte, and
