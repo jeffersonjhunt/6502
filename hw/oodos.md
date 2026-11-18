@@ -4389,6 +4389,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         block that function 83 won't copy from, found by a 1-byte `DM_COPY` from each block's first byte (83 decides
         by the block). Nothing of OODOS's own list is in GW-BASIC. A length of 0 checks nothing and moves nothing;
         BSAVE still writes the header.
+        The probe asks only whether 83 will copy *from* a block, also for BLOAD, which writes: enough today, since
+        83's only extra refusal for a write is bank 8, which DSRUN refuses itself. If OODOS ever refuses writes to
+        more memory, DSRUN must probe the write too (the owner, 2026-11-18, recorded rather than built).
       - BLOAD goes by DFSTLD (`p4/giodsk.s`), which now takes a physical destination (LDBLK+8–10): the rest of
         record 0 past the header and the last part record by `DM_COPY` from the file's buffer (its physical address
         by function 73), whole records by `DM_LOAD` straight to their place. LOAD's FSTLOD hands it the workspace's
