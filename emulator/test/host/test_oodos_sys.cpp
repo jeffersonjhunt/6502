@@ -42,10 +42,12 @@
 #include "backplane_bridge.h"
 #include "bus_cycle.h"
 #include "console.h"
+#include "console_card.h"
 #include "machine.h"
 #include "sd_card.h"
 #include "sd_media.h"
 #include "usb_card.h"
+#include "video_card.h"
 
 #include <algorithm>
 #include <array>
@@ -3375,6 +3377,168 @@ TEST(an_irq_no_card_asserts_puts_the_interrupted_win1h_back)
     CHECK(taken);
     CHECK_EQ(field(o, "W1H"), std::string("0E"));
     CHECK_EQ(field(o, "B1"), hex(B_CARD, 2));
+}
+
+// --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 O9, D7, D9; proposed) --------------------------------------
+//
+// DM_BANK8 clears MAP's AP8: bank 8, $80000-$8FFFF, is then the RAM card's, the program's, and the video card's
+// aperture is only at $E00000 (WIN1H $0E). W1HTEST's K, L and C call it (or not) and go on.
+
+namespace
+{
+    /// Every bus cycle, the CPU's and the DMA controller's, whose physical address (as the backplane carried it,
+    /// after the CPU card's redirect) is in bank 8 while MAP's AP8 is clear: the RAM card's bank 8. The DMA
+    /// controller's cycles are passed on to the console card, whose observer this stands in for.
+    struct Bank8Cycles : CycleObserver
+    {
+        explicit Bank8Cycles(Rig &r) : bus(r.machine->bus()), nb(r.bridge()), panel(r.machine->console_card()) {}
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.dma && panel)
+                panel->on_cycle(c);
+            if (nb.map() & 1)
+                return;
+            ++watched;
+            const uint32_t p = bus.last_access().physical;
+            if ((p >> 16) == 8 && hits++ == 0)
+                first = p;
+        }
+        const Decoder &bus;
+        const BackplaneBridge &nb;
+        CycleObserver *panel;
+        unsigned watched = 0, hits = 0;
+        uint32_t first = 0;
+    };
+
+    std::vector<uint8_t> pattern(size_t n, uint32_t seed)
+    {
+        std::vector<uint8_t> b(n);
+        for (auto &x : b)
+        {
+            seed = seed * 1103515245u + 12345u;
+            x = static_cast<uint8_t>(seed >> 16);
+        }
+        return b;
+    }
+    /// Bank 8 of the RAM card, as the backplane reaches it (not redirected).
+    std::vector<uint8_t> bank8_ram(Rig &r)
+    {
+        std::vector<uint8_t> b(0x10000);
+        for (uint32_t i = 0; i < b.size(); ++i)
+            b[i] = r.machine->bus().peek_bus(0x80000 + i);
+        return b;
+    }
+    void put_bank8_ram(Rig &r, const std::vector<uint8_t> &b)
+    {
+        for (uint32_t i = 0; i < b.size(); ++i)
+            r.machine->bus().write_bus(0x80000 + i, b[i]);
+    }
+}
+
+TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
+{
+    // O9. W1HTEST's K: DM_BANK8 (AP8 clear: bank 8 the RAM card's), then the console's 40 lines (it scrolls), a
+    // DM_VCOPY, a file made and read back, and 100 ms of frames and ticks: no cycle of the CPU's or the DMA
+    // controller's meets $080000-$08FFFF while AP8 is clear. (Any one of OODOS's old bank 8 users left, VPIECE's
+    // $08 bank or CRTOUT's block 32, would.) The warm boot sets AP8 again.
+    Booted r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD2);
+    Bank8Cycles seen(r);
+    r.cpu->set_observer(&seen);
+    r.machine->bus().set_dma_observer(&seen);
+    const std::string o = r.go("w1htest.com", " K", ms(8000));
+    r.cpu->set_observer(nullptr);
+    r.machine->bus().set_dma_observer(r.machine->console_card());
+    check_fields(o, {{"K8", "00 00"}, {"K8B", "0E01"}, {"KV", "00 00"}, {"KR", "00 00"}});
+    CHECK(o.find("\r\nKDONE\r\n") != std::string::npos);
+    CHECK(o.find("LINE\r\nLINE\r\n") != std::string::npos);
+    CHECK(seen.watched > 100000u); // the whole of it ran with AP8 clear
+    CHECK_EQ(seen.hits, 0u);
+    if (seen.hits)
+        std::printf("  first bank 8 cycle at $%06X\n", static_cast<unsigned>(seen.first));
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the revision 2 video card
+}
+
+TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_alone)
+{
+    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. OODOS's NMI sets AP8 again (common.s's WINH0) before its
+    // trampoline at TRAMP ($0A00) leaves for the ROM's BREAK, as an older ROM's BREAK needs, and the monitor
+    // draws its screen on the card (at $E00000) while bank 8's RAM keeps its pattern.
+    Booted r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> ram = pattern(0x10000, 8);
+    put_bank8_ram(r, ram);
+    const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
+    constexpr uint16_t TRAMP = 0x0A00;
+    bool at_tramp = false;
+    uint8_t map = 0xEE, winh1 = 0xEE;
+    const size_t from = start(r, "w1htest.com", " L");
+    bool spun = false;
+    for (int i = 0; i < 400 && !spun; ++i)
+    {
+        r.run(ms(5));
+        spun = r.cpu->regs().pc == bspin && r.nb(0) == 0;
+    }
+    REQUIRE(spun);
+    CHECK(field(r.out.substr(from), "K8") == "00 00");
+    for (unsigned n = 0; n < 30; ++n)
+        REQUIRE(r.row(n).rfind("\\", 0) != 0);
+    REQUIRE(r.bridge().map() == 0);
+    r.watch = [&](uint16_t pc) {
+        if (!at_tramp && pc == TRAMP)
+        {
+            at_tramp = true;
+            map = r.bridge().map();
+            winh1 = r.bridge().winh(1);
+        }
+    };
+    UsbCard *usb = r.machine->usb_card();
+    usb->key(UsbCard::PAUSE, true);
+    r.run(ms(20));
+    usb->key(UsbCard::PAUSE, false);
+    CHECK(r.until("\\\r", ms(1000), from));
+    r.watch = nullptr;
+    CHECK(at_tramp);
+    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the revision 2 video card)
+    CHECK_EQ(winh1, 0);
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK(bank8_ram(r) == ram);
+    // The monitor's prompt on the card's screen (slot 0 at $E00000), where its cursor was: a row that starts
+    // with "\", which none did before.
+    bool prompt = false;
+    for (unsigned n = 0; n < 30; ++n)
+        prompt = prompt || r.row(n).rfind("\\", 0) == 0;
+    CHECK(prompt);
+    if (!prompt)
+        for (unsigned n = 0; n < 30; ++n)
+            std::printf("  row %2u: %s\n", n, r.row(n).c_str());
+}
+
+TEST(without_dm_bank8_a_dma_copy_to_84000_still_reaches_the_cards_slot_1)
+{
+    // D9. W1HTEST's C, which never calls DM_BANK8 (the W1 contract as it was): DM_COPY to $84000, aperture slot
+    // 1's window, lands in the card's memory at the program's first card bank ($040000), not in bank 8's RAM;
+    // DM_COPY to $80000, slot 0's (the console's), is refused, as OSWIN refuses it without DM_BANK8.
+    Booted r;
+    REQUIRE(r.ok);
+    VideoCard &card = *r.machine->video_card();
+    put_bank8_ram(r, std::vector<uint8_t>(0x10000, 0x11));
+    for (uint32_t i = 0; i < 4; ++i)
+        card.card_poke(0x040000 + i, 0x22);
+    std::vector<uint8_t> console(4);
+    for (uint32_t i = 0; i < 4; ++i)
+        console[i] = card.card_peek(i);
+    const std::string o = r.go("w1htest.com", " C");
+    check_fields(o, {{"C1", "00 00"}, {"C0", "FF FF"}});
+    std::string got;
+    for (uint32_t i = 0; i < 4; ++i)
+        got += static_cast<char>(card.card_peek(0x040000 + i));
+    CHECK_EQ(got, std::string("MOVE"));
+    CHECK(bank8_ram(r) == std::vector<uint8_t>(0x10000, 0x11));
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(card.card_peek(i), console[i]);
+    CHECK_EQ(r.bridge().map(), 1);
 }
 
 int main()

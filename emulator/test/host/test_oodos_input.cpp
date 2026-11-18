@@ -747,8 +747,8 @@ TEST(function_81_s_info_and_its_refusals)
     command(r, 'I', "FINFOB");
     CHECK_EQ(field(r.out, "INFO"), std::string("03 02")); // keyboard and mouse; layout 2
     CHECK_EQ(field(r.out, "INFOB"), std::string("0302"));
-    CHECK_EQ(field(r.out, "FINFO"), std::string("0B 0F")); // OOLIB 11: frame and timing, input, sound, DMA
-    CHECK_EQ(field(r.out, "FINFOB"), std::string("0B0F0302"));
+    CHECK_EQ(field(r.out, "FINFO"), std::string("0C 0F")); // OOLIB 12: frame and timing, input, sound, DMA
+    CHECK_EQ(field(r.out, "FINFOB"), std::string("0C0F0302"));
     CHECK_EQ(command(r, 'N', "NEXT"), std::string("FF FF EEEEEEEEEEEEEEEE")); // no layout-2 area
     CHECK_EQ(command(r, 'F', "FLUSH"), std::string("00 00"));                 // nothing to flush
     command(r, 'B', "BAD5");
@@ -872,6 +872,32 @@ TEST(the_dispatcher_runs_with_win1h_0_and_puts_the_programs_win1h_back)
     CHECK_EQ(field(o, "W1H"), std::string("0E"));
     CHECK_EQ(field(o, "B1"), std::string("A7"));
     CHECK_EQ(r.bridge().winh(1), 0);
+}
+
+TEST(after_dm_bank8_an_event_area_in_bank_8_is_still_refused)
+{
+    // D8 (B7, b7-plan.md §4, C4): W1HTEST's E calls function 83's DM_BANK8 (bank 8 the RAM card's, the program's
+    // for DMA), puts W1 on block 32 and asks for an event area at $4100 there: FT_OPEN still refuses it (an area
+    // is in banks 0-5 only, DM_BANK8 or not), and 50 ms of ticks write nothing in bank 8's RAM.
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> ram(0x10000);
+    uint32_t seed = 0x5EED;
+    for (auto &x : ram)
+    {
+        seed = seed * 1103515245u + 12345u;
+        x = static_cast<uint8_t>(seed >> 16);
+    }
+    for (uint32_t i = 0; i < ram.size(); ++i)
+        r.machine->bus().write_bus(0x80000 + i, ram[i]);
+    const std::string o = r.go("w1htest.com", " E");
+    CHECK_EQ(field(o, "K8"), std::string("00 00"));
+    CHECK_EQ(field(o, "E8"), std::string("FF FF"));
+    std::vector<uint8_t> now(ram.size());
+    for (uint32_t i = 0; i < now.size(); ++i)
+        now[i] = r.machine->bus().peek_bus(0x80000 + i);
+    CHECK(now == ram);
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot
 }
 
 int main() { return run_all(); }

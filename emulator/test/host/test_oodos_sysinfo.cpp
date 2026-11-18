@@ -249,12 +249,12 @@ namespace
         return s;
     }
 
-    /// FT_INFOX's LDA #11 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
+    /// FT_INFOX's LDA #12 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
     void report_interface_8(CcpRig &r)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 11 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 12 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, 8);
@@ -496,13 +496,13 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 11, 77 the ROM BIOS 0.17 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 12, 77 the ROM BIOS 0.17 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
-    CHECK(o.find("FINFO 0B 0F\n") != std::string::npos);
+    CHECK(o.find("FINFO 0C 0F\n") != std::string::npos);
     CHECK(o.find("ROMV 00 11\n") != std::string::npos);
     std::smatch m;
     CHECK(std::regex_search(o, m, std::regex("V72 000A000200044001[0-9A-F]{4}A55A")));
@@ -578,6 +578,37 @@ TEST(on_a_revision_1_north_bridge_its_row_says_d1_and_revision_1)
     CHECK(got.find("$D1  (not known") == std::string::npos);
     if (got.find("  $C680  $D1  north bridge") == std::string::npos)
         std::printf("%s\n", got.c_str());
+}
+
+TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
+{
+    // D6 (B7, b7-plan.md §4, as C18 left it): on a $D2 bridge SYSINFO reads MAP's AP8 to say what bank 8 is, with
+    // no new text. With the revision 2 video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
+    // to 0 before it runs, bank 8 is RAM: the no-card text. With no revision 2 card and MAP forced to 1, the
+    // no-card text too (DM_INFO says there is no card).
+    const std::string fitted = "MEMORY     1,024 KB fitted";
+    const auto clause = [&](const std::string &o) { // what follows "1,024 KB fitted" on its line
+        const size_t at = o.find(fitted);
+        if (at == std::string::npos)
+            return std::string("<no MEMORY line>");
+        const size_t from = at + fitted.size();
+        return o.substr(from, o.find_first_of("\r\n", from) - from);
+    };
+    const std::string with = ": 960 KB of RAM and the video card's 64 KB aperture";
+    {
+        InfoRig r;
+        REQUIRE(r.ok);
+        REQUIRE(r.bridge().id() == 0xD2);
+        CHECK_EQ(clause(run(r, "m:sysinfo system")), with);
+        r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
+        CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
+    }
+    {
+        InfoRig r({}, 1);
+        REQUIRE(r.ok);
+        r.machine->bus().write(0xC6A5, 1); // MAP: AP8 set, with no revision 2 card
+        CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
+    }
 }
 
 int main()

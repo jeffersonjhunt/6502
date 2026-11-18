@@ -492,11 +492,11 @@ TEST(the_library_refuses_to_map_below_interface_8)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #11
-    // (interface 11 since function 75's Apple II mode by image, B5), LDX #$0F.
+    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #12
+    // (interface 12 since function 83's DM_BANK8, B7), LDX #$0F.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 11 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 12 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 7);

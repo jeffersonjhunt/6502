@@ -78,9 +78,10 @@
 .importzp EVP                          ; irq.s's
 .import EVON, EVBLK, CLOCKS
 .import MXS, MYS                       ; input.s's
-.import CRTREGS, CVA                   ; crt.s's
+.import CRTREGS, CVA, NB2              ; crt.s's
+.importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for DM_BANK8
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
-.export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM
+.export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM, BANK8
 .import DMACTL                         ; irq.s's: DEAFEN's, a scratch byte here
 .export LFCB, LREC, LCNT, LDST, LDONE
 
@@ -88,6 +89,7 @@ SLOT_MAX        = DM_BUDGET            ; a slot's bytes at most, and all four's
 
 .segment "SYSBSS"
 VBON:           .res    1              ; not 0: a slot set or the pointer on (the frame handler's test)
+BANK8:          .res    1              ; bit 7: DM_BANK8 done, bank 8 the program's RAM (the warm boot clears it)
 SLSRC:          .res    3 * DM_SLOTS   ; each slot's source (physical), destination (card) and
 SLDST:          .res    3 * DM_SLOTS   ;   length (2 bytes; 0: the slot free)
 SLLEN:          .res    2 * DM_SLOTS
@@ -123,7 +125,7 @@ F_DMAOP:        LDX     PX
                 TAX
                 JMP     (DMJUMPS,X)
 DMJUMPS:        .word   DM_INFOX, DM_LOADX, DM_COPYX, DM_FILLX, DM_VBSETX, DM_POINTERX, DM_CONSOLEX
-                .word   DM_VWRITEX, DM_VREADX, DM_VFILLX, DM_VCOPYX
+                .word   DM_VWRITEX, DM_VREADX, DM_VFILLX, DM_VCOPYX, DM_BANK8X
 .assert (* - DMJUMPS) / 2 = DM_OPS, error, "DMJUMPS has an entry for each of oodos.inc's DM_*"
 
 DMFF:           JMP     RETFF
@@ -214,7 +216,7 @@ LENSET:         SEC
 ; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
 ; window (33, the program's card bank OOLIB sets, with WIN1H 0) and banks
 ; 9-B (36-47), but not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0,
-; 2 and 3);
+; 2 and 3); after DM_BANK8 all of bank 8 (32-35, its RAM; B7);
 ; +13-16 the program's card pages, its first and the one past its last (the
 ; fitted memory's end if that is sooner; 0, 0 with no card).
 DM_INFOX:       LDX     PX
@@ -236,6 +238,11 @@ DM_INFOX:       LDX     PX
                 STA     VMAP,X
                 DEX
                 BPL     @fix
+                BIT     BANK8          ; after DM_BANK8: bank 8 RAM, blocks 32-39 all the program's (B7)
+                BPL     @amap0
+                LDA     #$FF
+                STA     VMAP + 4
+@amap0:
                 LDY     #AMAP_LEN - 1
 @amap:          LDA     AMAP,Y
                 BEQ     @next
@@ -597,6 +604,46 @@ DM_POINTERX:    BLOCK
 
 DM_CONSOLEX:    JSR     CRTREGS
                 JMP     DM00
+
+; Bank 8 the program's RAM (interface version 12; B7, hw/design.md, "The
+; video aperture moved out of RAM"): MAP's AP8 cleared, so the CPU's
+; windows and a DMA address in $80000-$8FFFF reach the RAM card's bank 8,
+; and the video card's aperture only at $E00000 (WIN1H $0E); BANK8 set,
+; for OSWIN and DM_INFO's map, until the warm boot (common.s's WARM), whose
+; WINH0 sets AP8 again where there is a revision 2 video card. +1 and +2
+; get slot 1's window for W1: WIN1H $0E and block 1, or 0 and 0 with no
+; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
+; Refused, nothing changed, on a revision 1 north bridge (crt.s's NB2: no
+; MAP) and under a ROM BIOS older than 0.17 (cold.s's ROMVER, as bdos.s's
+; NEWROM compares it; $FF $FF not found), whose Break would draw the
+; monitor's screen through bank 8.
+DM_BANK8X:      BLOCK
+                BIT     NB2
+                BPL     @no            ; revision 1: no MAP
+                LDA     ROMVER
+                CMP     #$FF
+                BEQ     @no            ; not found
+                CMP     #1
+                BCS     @rom           ; 1.0 and on
+                LDA     ROMVER + 1
+                CMP     #17
+                BCC     @no            ; before 0.17
+@rom:           STZ     NB_MAP         ; AP8 clear: bank 8 the RAM card's
+                LDA     #$80
+                STA     BANK8
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V2
+                BNE     @none
+                LDA     #VM_SLOT_H     ; slot 1's window: $E04000
+                JSR     PPUT
+                LDA     #VM_SLOT_W1
+                BRA     @last
+@none:          LDA     #0             ; no revision 2 card: no aperture
+                JSR     PPUT           ; (keeps A)
+@last:          JSR     PPUT
+                JMP     DM00
+@no:            JMP     RETFF
+.assert NB_MAP_AP8 = 1, error, "DM_BANK8 clears AP8 by writing MAP 0"
 
 ; +1-3 the source (physical), +4-6 the destination (card), +7-8 the length.
 DM_VWRITEX:     BLOCK

@@ -41,6 +41,7 @@
 .import RAWF                           ; bios.s's, function 76's
 .import RSEEN                          ; bdosmem.s's, function 76's
 .import DMASEG, AMAP
+.import BANK8                          ; video.s's: DM_BANK8's, which the warm boot ends (B7)
 .import IRQ, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
 .import WBQUIET                         ; input.s's
 .export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE, ROMENTRY
@@ -252,6 +253,7 @@ WARM:           SEI
                 STZ     CURBANK
                 STZ     XPEND
                 STZ     RAWF           ; function 76's, never left set (6d's review)
+                STZ     BANK8          ; DM_BANK8's: WINH0 set AP8 again (B7)
                 STZ     RSEEN          ; and its drives: the next program's first call reads the units
                 STZ     CESC           ; the screen's and the serial line's escape
                 STZ     TESC           ; sequences: one a program left unended ends here

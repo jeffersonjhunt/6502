@@ -41,6 +41,21 @@
 ;   A   W1HON, MAP's AP8 changed (on $D2), then function 75's Apple II
 ;       mode (A = 1): A2 aa xx if it comes back (no IIe ROM), W1HOFF, the
 ;       warm boot
+;
+; Function 83's DM_BANK8 (B7, interface 12), each "K8 aa xx" for its A and X
+; and "K8B hhbb" for its block's +1 and +2:
+;
+;   K   DM_BANK8, then OODOS's own work with bank 8 the RAM card's: 40
+;       lines (the console scrolls), a DM_VCOPY of 1,000 bytes card to card
+;       ($060000 to $0A0000: KV aa xx), W1.DAT made on M: with a record and
+;       read back (KR aa xx), 100 ms of frames and ticks (FT_DELAY), KDONE,
+;       the warm boot
+;   L   DM_BANK8, then a spin for ever at BSPIN (Break ends it)
+;   E   DM_BANK8, W1 on block 32 (bank 8's RAM now), an event area at $4100
+;       (FT_OPEN, 16 bytes: E8 aa xx), 50 ms (FT_DELAY), W1 back on block 1,
+;       any area closed, the warm boot
+;   C   no DM_BANK8: DM_COPY of 4 bytes ("MOVE") to $84000, aperture slot
+;       1's window (C1 aa xx), then to $80000, slot 0's (C0 aa xx)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -93,6 +108,18 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'A'
         bne     :+
         jmp     case_a
+:       cmp     #'K'
+        bne     :+
+        jmp     case_k
+:       cmp     #'L'
+        bne     :+
+        jmp     case_l
+:       cmp     #'E'
+        bne     :+
+        jmp     case_e
+:       cmp     #'C'
+        bne     :+
+        jmp     case_c
 :       jmp     WBOOT
 
 ; WIN1H $0E (the aperture) or 0, on a revision 2 north bridge only. Uses A.
@@ -429,6 +456,86 @@ case_a: jsr     W1HON
         jsr     RES
         jmp     WBOOT
 
+; ---- K, L, E, C (DM_BANK8) -------------------------------------------------
+
+; Function 83's DM_BANK8: K8 aa xx, K8B hhbb (its block's +1 and +2).
+bank8:  lda     #DM_BANK8
+        sta     k8blk
+        lda     #$EE
+        sta     k8blk + 1
+        sta     k8blk + 2
+        SAY     "K8 "
+        CALLF   O_DMA, k8blk
+        jsr     RES
+        SAY     "K8B "
+        lda     k8blk + 1
+        jsr     HEX2
+        lda     k8blk + 2
+        jsr     HEX2
+        jmp     CRLF
+
+case_k: jsr     bank8
+        lda     #40                     ; 40 lines: the console scrolls
+        sta     t0
+kline:  SAY     "LINE"
+        jsr     CRLF
+        dec     t0
+        bne     kline
+        SAY     "KV "
+        CALLF   O_DMA, vcblk
+        jsr     RES
+        lda     #DRV_M                  ; a file written and read back
+        sta     TDRV
+        NAME    fcb, "W1      DAT"
+        CALLF   F_DELETE, fcb
+        NAME    fcb, "W1      DAT"
+        CALLF   F_MAKE, fcb
+        CALLF   F_DMAOFF, BUF
+        stz     RN
+        stz     RN + 1
+        jsr     FILL
+        CALLF   F_WRITE, fcb
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "W1      DAT"
+        CALLF   F_OPEN, fcb
+        SAY     "KR "
+        CALLF   F_READ, fcb
+        jsr     RES
+        CALLF   O_FRAME, d100blk
+        SAY     "KDONE"
+        jsr     CRLF
+        jmp     WBOOT
+
+case_l: jsr     bank8
+        jmp     BSPIN
+
+case_e: jsr     bank8
+        lda     #32                     ; W1 on block 32: bank 8's RAM after DM_BANK8
+        sta     NB_WIN1
+        CALLF   O_FRAME, evblk
+        pha
+        phx
+        CALLF   O_FRAME, d50blk
+        lda     #1
+        sta     NB_WIN1
+        SAY     "E8 "
+        plx
+        pla
+        jsr     RES
+        lda     #FT_CLOSE
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        jmp     WBOOT
+
+case_c: SAY     "C1 "
+        CALLF   O_DMA, c1blk
+        jsr     RES
+        SAY     "C0 "
+        CALLF   O_DMA, c0blk
+        jsr     RES
+        jmp     WBOOT
+
         .export QSPIN, QSPEND, BSPIN
 
         .rodata
@@ -450,6 +557,20 @@ ev1blk: .byte   FT_OPEN
         .byte   16
 d20blk: .byte   FT_DELAY
         .word   20
+d50blk: .byte   FT_DELAY
+        .word   50
+d100blk:
+        .byte   FT_DELAY
+        .word   100
+vcblk:  .byte   DM_VCOPY
+        .faraddr $060000, $0A0000
+        .word   1000
+c1blk:  .byte   DM_COPY
+        .faraddr mvsrc, $84000          ; mvsrc in W0's block 0: its physical address is its own
+        .word   4
+c0blk:  .byte   DM_COPY
+        .faraddr mvsrc, $80000
+        .word   4
 mvsrc:  .byte   "MOVE"
 
         .include "print.inc"
@@ -459,5 +580,6 @@ mvsrc:  .byte   "MOVE"
 key:    .res    1
 pblk:   .res    4
 pb50:   .res    8                       ; function 50's parameter block
+k8blk:  .res    3                       ; DM_BANK8's
 fcb:    .res    36
 area:   .res    256                     ; (in W0, the program being small)

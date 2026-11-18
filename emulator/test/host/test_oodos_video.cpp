@@ -205,7 +205,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("0B 0F")); // interface 11, areas frame, input, sound, DMA
+    CHECK_EQ(command(r, 'F', "F"), std::string("0C 0F")); // interface 12, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -940,7 +940,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("0B 0F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("0C 0F"));
     }
 }
 
@@ -986,6 +986,151 @@ TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_ba
     };
     for (unsigned n = 0; n < 30; ++n)
         CHECK_EQ(row(n), std::string("K 00 00"));
+}
+
+// --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 D1-D5; proposed) ------------------------------------------
+
+namespace
+{
+    constexpr uint8_t DM_BANK8 = 11, DM_OPS_B7 = 12; // oodos.inc's, since interface 12
+    constexpr uint16_t NB_MAPREG = 0xC6A5;
+
+    std::string bank8(CcpRig &r) { return f83(r, {DM_BANK8, 0xEE, 0xEE}); }
+    /// The block's +1 and +2 after a DM_BANK8.
+    std::string bank8_block(Rig &r) { return hex(r.phys(KBLK + 1), 2) + hex(r.phys(KBLK + 2), 2); }
+    std::vector<uint8_t> bus_bytes(Rig &r, uint32_t at, size_t n)
+    {
+        std::vector<uint8_t> b(n);
+        for (size_t i = 0; i < n; ++i)
+            b[i] = r.machine->bus().peek_bus(at + static_cast<uint32_t>(i));
+        return b;
+    }
+    void put_bus(Rig &r, uint32_t at, const std::vector<uint8_t> &b)
+    {
+        for (size_t i = 0; i < b.size(); ++i)
+            r.machine->bus().write_bus(at + static_cast<uint32_t>(i), b[i]);
+    }
+    std::string revision_1_bridge()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " revision=1");
+        return text;
+    }
+    void romver(Rig &r, uint8_t major, uint8_t minor)
+    {
+        r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), major);
+        r.poke(SYS_BLOCK_PHYS + sym("ROMVER") + 1, minor);
+    }
+}
+
+TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
+{
+    // D1. With the revision 2 video card: A = 0, +1/+2 WIN1H $0E and block 1 (slot 1's window at $E04000), MAP
+    // 0. Then W1 on block 32 writes bank 8's RAM (read back by the backplane's own view), not the card; DM_INFO's
+    // map takes in blocks 32-39 (its byte 4 $FF); and DM_COPY to $84000 lands in RAM, the card's slot 1 bank
+    // untouched.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD2);
+    open(r, "X");
+    REQUIRE(r.bridge().map() == 1);
+    put_bus(r, 0x80000, std::vector<uint8_t>(0x100, 0x11));
+    const std::vector<uint8_t> console = cmem(r, 0x000000, 0x100), prog = cmem(r, 0x040000, 64);
+    CHECK_EQ(bank8(r), std::string("00 00"));
+    CHECK_EQ(bank8_block(r), std::string("0E01"));
+    CHECK_EQ(r.bridge().map(), 0);
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000FFFF00000004001C"));
+    CHECK_EQ(command(r, 'M', "M", {32}).substr(0, 2), std::string("20")); // W1 on block 32
+    CHECK_EQ(command(r, 'P', "P", {0, 0xD1}), std::string("00 00"));
+    CHECK(bus_bytes(r, 0x80000, 0x100) == std::vector<uint8_t>(0x100, 0xD1));
+    CHECK(cmem(r, 0x000000, 0x100) == console);
+    command(r, 'B', "B");
+    const std::vector<uint8_t> src = noise(64, 21);
+    r.poke(0x10000, src);
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x84000), w2(64)})), std::string("00 00"));
+    CHECK(bus_bytes(r, 0x84000, 64) == src);
+    CHECK(cmem(r, 0x040000, 64) == prog);
+}
+
+TEST(dm_bank8_with_no_revision_2_video_card_succeeds_with_no_window)
+{
+    // D2. No revision 2 card (revision 1's): the ROM BIOS left AP8 clear, bank 8 RAM from the boot; DM_BANK8 still
+    // succeeds, with +1/+2 0 and 0 (no aperture to map).
+    CcpRig r({}, {}, {}, 1);
+    REQUIRE(r.ok);
+    open(r, "X");
+    REQUIRE(r.bridge().map() == 0);
+    CHECK_EQ(bank8(r), std::string("00 00"));
+    CHECK_EQ(bank8_block(r), std::string("0000"));
+    CHECK_EQ(r.bridge().map(), 0);
+}
+
+TEST(dm_bank8_is_refused_on_a_revision_1_bridge_and_under_a_rom_before_0_17)
+{
+    // D3. A revision 1 north bridge has no MAP: $FF $FF, the block untouched. A ROM BIOS older than 0.17 (OODOS's
+    // record of it, cold.s's ROMVER, made 0.16) would draw the monitor's screen through bank 8 on a Break: $FF
+    // $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF (not found) is refused.
+    {
+        CcpRig r({}, revision_1_bridge());
+        REQUIRE(r.ok);
+        REQUIRE(r.bridge().id() == 0xD1);
+        open(r, "X");
+        CHECK_EQ(bank8(r), std::string("FF FF"));
+        CHECK_EQ(bank8_block(r), std::string("EEEE"));
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    romver(r, 0, 16);
+    CHECK_EQ(bank8(r), std::string("FF FF"));
+    CHECK_EQ(bank8_block(r), std::string("EEEE"));
+    CHECK_EQ(r.bridge().map(), 1);
+    romver(r, 0xFF, 0xFF);
+    CHECK_EQ(bank8(r), std::string("FF FF"));
+    CHECK_EQ(r.bridge().map(), 1);
+    romver(r, 1, 0);
+    CHECK_EQ(bank8(r), std::string("00 00"));
+    CHECK_EQ(r.bridge().map(), 0);
+}
+
+TEST(the_warm_boot_ends_dm_bank8)
+{
+    // D4. After DM_BANK8 a DM_COPY to $80000 (slot 0's window before) is RAM and allowed; after the warm boot
+    // MAP is 1 again, the same copy is refused, and DM_INFO's map is as before.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    CHECK_EQ(bank8(r), std::string("00 00"));
+    const std::vector<uint8_t> src = noise(16, 23);
+    r.poke(0x10000, src);
+    const std::vector<uint8_t> copy = cat({{DM_COPY}, a3(0x10000), a3(0x80000), w2(16)});
+    CHECK_EQ(f83(r, copy), std::string("00 00"));
+    CHECK(bus_bytes(r, 0x80000, 16) == src);
+    wboot(r);
+    CHECK_EQ(r.bridge().map(), 1);
+    open(r, "X");
+    const std::vector<uint8_t> console = cmem(r, 0x000000, 16);
+    CHECK_EQ(f83(r, copy), std::string("FF FF"));
+    CHECK(cmem(r, 0x000000, 16) == console);
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000F2FF00000004001C"));
+}
+
+TEST(dm_bank8_needs_a_block_and_is_the_last_operation)
+{
+    // D5. Operation 11 with X = 0 (no block for +1 and +2): refused, MAP kept; operation 12 isn't one, with a block
+    // or without.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    CHECK_EQ(f83op(r, DM_BANK8), std::string("FF FF"));
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(f83op(r, DM_OPS_B7), std::string("FF FF"));
+    CHECK_EQ(f83(r, {DM_OPS_B7, 0xEE, 0xEE}), std::string("FF FF"));
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK_EQ(r.machine->bus().peek(NB_MAPREG), 1);
 }
 
 int main() { return run_all(); }

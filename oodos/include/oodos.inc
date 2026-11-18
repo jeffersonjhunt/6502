@@ -283,8 +283,9 @@ SC_DOC          = $04                  ;   the ES5503 (revision 2)
 ; physical destination must be memory a DMA segment may reach (51) and not
 ; an aperture window that shows OODOS's card memory: slot 0's, $80000-$83FFF
 ; (the console's), nor slots 2 and 3's, $88000-$8FFFF; only slot 1's,
-; $84000-$87FFF, is the program's. A card destination must be in the
-; program's part, $040000-$1BFFFF; a card source anywhere in the fitted
+; $84000-$87FFF, is the program's; after DM_BANK8 (interface version 12,
+; B7) bank 8 is the program's RAM, all of it. A card destination must be in
+; the program's part, $040000-$1BFFFF; a card source anywhere in the fitted
 ; memory; the card operations (4, 7-10) need the DMA controller. A = X = $FF
 ; for one that isn't, a block needed and not given, or a refusal: nothing
 ; done; and for a transfer through the card's port that didn't end, only
@@ -294,7 +295,8 @@ DM_INFO         = 0                    ; A = the card's memory in 64 KB units (0
                                        ;   256-byte pages (4), +4 the pointer's sprite ($FF off), +5-12 the
                                        ;   W1 map: bit n & 7 of byte n / 8 set for each block n that OOLIB
                                        ;   may put in W1 now (block 1, the program's allocated blocks, 33
-                                       ;   and 36-47; never 32, 34 or 35), +13-14 the program's first card
+                                       ;   and 36-47; never 32, 34 or 35 but after DM_BANK8, when 32-39
+                                       ;   are all in it), +13-14 the program's first card
                                        ;   page, +15-16 the page past its last (0, 0 with no card)
 DM_LOAD         = 1                    ; block: +1-2 an open FCB, +3-5 its first record, +6-7 a count of
                                        ;   records (1-512), +8-10 the destination (physical): A = 0; 1 the
@@ -319,7 +321,13 @@ DM_VFILL        = 9                    ; block: +1 the byte, +2-4 the destinatio
 DM_VCOPY        = 10                   ; block: +1-3 the source (card), +4-6 the destination (card), +7-8 the
                                        ;   length: card to card through aperture slots 2 and 3 (borrowed
                                        ;   inside the call, put back), forward: down over itself exact
-DM_OPS          = 11
+DM_BANK8        = 11                   ; block (interface version 12; B7): bank 8, $80000-$8FFFF, the
+                                       ;   program's RAM until the warm boot (MAP's AP8 cleared), and +1
+                                       ;   WIN1H, +2 the block that put aperture slot 1's window in W1
+                                       ;   ($0E, 1: $E04000; 0, 0 with no revision 2 video card): A = 0.
+                                       ;   $FF $FF on a revision 1 north bridge (NB_ID $D1) or under a ROM
+                                       ;   BIOS older than 0.17, nothing changed
+DM_OPS          = 12
 DM_PAGE0        = $0400                ; DM_INFO's +13-14 on a 2 MB card: the program's first card page
 DM_PAGEEND      = $1C00                ;   and +15-16, the page past its last (Apple II mode's from there)
 DM_SLOTS        = 4                    ; DM_INFO's X
