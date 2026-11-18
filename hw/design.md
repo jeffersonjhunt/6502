@@ -2258,8 +2258,9 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   "the registers widen"), and RAM past 1 MB (`$100000–$DFFFFF`) would be reached the same way.
 
 **WINnH under OODOS (review round 1).** Only OOLIB ever gives a window a WINnH other than 0, and only W1 (WIN1H
-`$0E`, slot 1). Code that maps W1 with a single `STA NB_WIN1` has to find WIN1H 0. So the three ways into OODOS
-save it, clear it and put it back:
+`$0E`, slot 1). (Superseded in part, as built: among programs only OOLIB does; OODOS's console is a second writer,
+inside the BDOS, [B7: as built](#b7-as-built).) Code that maps W1 with a single `STA NB_WIN1` has to find WIN1H 0.
+So the three ways into OODOS save it, clear it and put it back:
 - **The dispatcher,** `irq.s`'s `DISPATCH`: it saves and clears WIN1H on entry and restores it on the way out. The
   handlers it calls map W1 with one write, and they then find WIN1H 0: `TICK`, `EVALL`, `CALL61` and `CALL62`,
   `input.s`'s `USBSRV` and `L2TICK`, `sound.s`'s `DOCIRQ`, `MBOXIN` and `SMDROP`, and `video.s`'s `VBWORK`.
@@ -3310,7 +3311,10 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
     (13 B of code, 32 B of pointers) and 169 B of names, 222 B before ([diag.md](diag.md)).
 - **OODOS** (stays 0.10, Q15; OOLIB's interface 11 → 12):
   - The console and `DM_VCOPY` by the new address on `$D2` (CRTINIT's CVH/CVB/CVA: `$0E`/0/`$E0`, or 0/32/`$08` on
-    `$D1`); `TEXT_LO` checked against `VM_TEXT`.
+    `$D1`); `TEXT_LO` checked against `VM_TEXT`. So the console's `VMAP0` and `VUNMAP` (`crt.s`) are a second
+    writer of WIN1H, inside the BDOS: WIN1H `$0E` with block 0 for each character, and 0 again before the BDOS
+    returns. The spec's "only OOLIB ever gives a window a WINnH other than 0" above holds among programs only, and
+    is superseded so; chapter 11 of the Technical Reference says it that way (review round 1, W4).
   - WIN1H across the ways in (Q10): `STUB` saves it in ST_W1H (`$FE`), a `$FF` read (no register) kept as 0, and
     clears it before the stack-page map; `STUBRET` puts back only a value that isn't 0. `DISPATCH` pushes the WIN1H
     it read, clears it unless it is 0 or `$FF`, and puts it back on both exits, the no-card one too (C14). `SETHOOK`
@@ -3350,12 +3354,12 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
 
   | Region | Free at `9cee9bc` | Free after B7 | The plan's estimate |
   |---|---|---|---|
-  | COMMON | 166 / 156 | **50 / 40** (U5 53 / 43) | ~49 / ~39 (stop limit 32) |
+  | COMMON | 166 / 156 | **34 / 24** (U5 53 / 43, U9 50 / 40; round 1's R1 16) | ~49 / ~39 (stop limit 32) |
   | RES region (`$C800–$F7FF`) | 219 / 16 | 219 / 16, unchanged | 219 / 16 (limit 16) |
   | BDOS (block 60) | 1,217 / 1,201 | 1,175 / 1,159 | ~1,170 / ~1,155 |
   | BIOS (block 61) | 2,164 | 2,020 | ~1,990 |
   | SYSBSS | 52 / 49 | 47 / 44 | 47 / 44 |
-  | ROM block 31 | 5,147 | 5,029 | ~5,000 |
+  | ROM block 31 | 5,147 | 5,015 (U9 5,029; round 1's R4 and R5) | ~5,000 |
   | ROM block 22 (D22BSS) | 2,409 (4) | 2,389 (4) | ~2,330 (4) |
   | ROM block 23 | 7,917 | 7,843 | ~7,850 |
   | ROM block 21 | 7,896 | 7,896 | 7,896 |
@@ -3363,19 +3367,25 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   JUMPS at `$F800`, VECTORS at `$FFFA` and RES's symbols are main's. OOLIB per linked program: gxmem's CODE
   `$3FE` → `$499` (+155 bytes; the plan estimated about 50) and DATA 4 → 7; VIEW.COM 6,150 → 6,308 bytes, its top
   `$2100`, under `$4000`; the OOUI bank unchanged.
-- **Cycles, measured** (the fast build, a `$D2` machine, U5 against U4): the dispatcher costs exactly **+17
-  cycles** with WIN1H 0 (Q10). The ticks: no area 145 → 162, the MS-carry tick 159 → 176, layout 1 184 → 201,
-  layout 2 234 → 249; the paddles started 367 → 382 and read 672 → 687; the USB key interrupt 662 → 679. The
+- **Cycles, measured** (the fast build, a `$D2` machine; B7's final build, after review round 1, against U4's or
+  `9cee9bc`'s): the dispatcher costs exactly **+17 cycles** with WIN1H 0 (Q10), when WIN1H is only read and saved.
+  While WIN1H is `$0E` (a `GX_BANK8` program with slot 1 in W1) it is cleared and put back, 27 cycles, 10 more:
+  measured with W1HTEST holding WIN1H `$0E`, a frame 225 and a tick 172, and 215 and 162 with WIN1H poked to 0 in
+  the same spin (review round 1, W5). The ticks: no area 145 → 162, the MS-carry tick 159 → 176, layout 1 184 →
+  201, layout 2 234 → 249; the paddles started 367 → 382 and read 672 → 687; the USB key interrupt 662 → 679. The
   frames: no area 199 → 215, layout 2 396 → 412, a slot set but not its bit 518 → 534, a 512-byte slot 1,302 →
-  1,318, the pointer 736 → 752, the whole budget 2,769 → 2,786. Every figure that moved by 15 or 16 rather than 17
-  is page-crossing layout after the move (the owner's answer 1 at the U5 stop). Sound: channel 2's terminal count
-  688/858 → 705/874; with the next piece inside it 4,656–4,959 → 4,672–5,405; the rare ones 1,269 (was 1,296); a
-  frame with the stream claimed and a layout-2 area 698 → 715. The DEBUG build's hook counts: the tick hook's
-  largest 474 (was 489; the bound 380–520 holds), the frame hook's 10,203 (was 10,135). The BDOS stub 142 cycles in
-  and 98 out (`< 200` holds); FARCALL 281, unchanged. The latest line a slot ends: 500 with a USB batch, 520 under
-  64 KB loads (was 503); the budget case 505 (19 to spare), under loads 502 (was 507). OSWIN gains 6 cycles a call
-  (U6) and `GX_BLOCK`, already mapped, 7 → 16 (U7), both outside every timed bound. The books' figures are these
-  measured ones (C8), never +17 by hand.
+  1,323, the pointer 736 → 753, the whole budget 2,769 → 2,789. Every figure that moved by other than 17 is
+  page-crossing layout (the owner's answer 1 at the U5 stop): U5 measured 1,318, 752 and 2,786, and U6's growth of
+  block 61, where `VBWORK` is, added 5, 1 and 3 (review round 1, W2). Sound: channel 2's terminal count 688/858 →
+  705/874; with the next piece inside it 4,656–4,959 → 4,672–5,405; the rare ones 866 and 1,007 (U5 saw 1,269;
+  the books had kept an older "about 1,420", review round 1, W3); a frame with the stream claimed and a layout-2
+  area 698 → 715. The DEBUG build's hook counts: the tick hook's largest 475 (was 489; the bound 380–520 holds),
+  the frame hook's 10,220 (was 10,135). The BDOS stub 142 cycles in and 98 out (`< 200` holds); FARCALL 281,
+  unchanged. The latest line a slot ends: 500 with a USB batch, 522 under 64 KB loads (was 503); the budget case
+  505 (19 to spare) both under a USB batch and under 64 KB loads (507 under loads at `9cee9bc` as U5 measured it;
+  the books had kept B2's 497, review round 1, W3). OSWIN gains 6 cycles a call (U6) and `GX_BLOCK`, already
+  mapped, 7 → 16 (U7), both outside every timed bound. The books' figures are these measured ones (C8), never +17
+  by hand.
 - **Run times:** the diagnostics, with all 64 blocks (Q6), a quick run 58.7 s (was 56.5) and a full run 171.8 s
   (was 165.6). test_bios_diag, then 923 s alone in the fast build, over its 900 s, was split in two ctest entries,
   `test_bios_diag_1of2` and `_2of2`, by `OOE_TEST_SHARD` as test_bios_sd is (the owner's answer 2 at the U4 stop);
@@ -3385,11 +3395,27 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   `break_inside_vputc_puts_w2_back`'s trigger by W2 0 with WIN2H `$0E` and WIN2H checked put back (U4); the
   measured group D figures, 249, 215 and 412 for the plan's 251, 216 and 413 (U5); test_oodos_pb waits for the CPU
   to be back in the program before its pokes (U5). U8 also dropped test_bios.cpp's unused `NB_VECH`, which the WASM
-  build's clang refused.
+  build's clang refused. Review round 1: test_oodos_video.cpp's `DM_OPS` 11 → 12, oodos.inc's since interface 12 (a
+  test input, approved).
 - **New tests**, each seen failing under its mutant and the source restored: E1–E9 (the bridge, the machine
   option, the video card, Apple II mode, the session), R1–R11 (the ROM), O1–O9 and O11 (OODOS's WIN1H and new
   address), D1–D9 (`DM_BANK8`), L1–L8 (OOLIB, L8 C3's hook case), W1–W3 (the WebUI). `oodos/sys/test/w1htest.s` is
-  a test-only program that writes WIN1H itself, with its build rule and its `tools/test-map.txt` rule.
+  a test-only program that writes WIN1H itself, with its build rule and its `tools/test-map.txt` rule. Review round
+  1 adds `break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only` (test_oodos_sys, R1) and extends R9 with
+  `c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0` (test_bios, R4); R5 is held by R11, which fails with the
+  clear left out.
+- **Review round 1** (the owner's dispositions, 2026-11-17, "recommendations as listed"). Fixed in the code, each in
+  its place above: R1 (`WARM` and `NMI` clear WIN0H inline and call `WINH0` on the system's stack), R4 (`START`'s
+  WIN0H), R5 (APPLE's clear after its checks) and E1 (`video_card.h`'s comments on where the aperture is). R2 was
+  disputed: question 5's answer stands. R3 is older than B7 (the one-byte cache had it) and is documented only, with
+  no new interface: a hook that maps W1 through OOLIB ends with `GX_W1BACK`, so the program's next `GX_VMAP`, or
+  `GX_BLOCK` of a block other than 1, is a full map (the Programmer's Guide's chapters 5 and 8, `oolib.inc`,
+  [hw/oolib.md](oolib.md)). The books: W1 option 1, the owner's change to the approved note in
+  [video-rev2.md](video-rev2.md), each line reference +24 and "above" → "below", nothing else in that file; W2,
+  W3 and W5, the costs above, measured at the final build; W4, the console as a second writer of WIN1H; W6,
+  chapter 3's NBSET at `BOOT2` before the copy; W7, `HW_KNOWN` 44 B in [diag.md](diag.md); W8, a `DM_BANK8`
+  refusal leaves bank 8 as it was. AGENTS.md names OOLIB's interface 12 (was 9). R1's two inline clears cost
+  COMMON 16 bytes: 34 free, above its limit of 32, and 24 in the DEBUG build.
 - **Not in B7** (Q16, Q18, Q19 and the plan's list): NB9, the word pass and the D1 alias pass (a later diagnostics
   BIOS); WIDE in the ROM or OODOS; GW-BASIC's DEF SEG, PEEK, POKE, BLOAD, BSAVE and P5's seed (7c's tail); RAM past
   1 MB (WINnH `$01–$0D`, which reads `$FF`); OO-Amp's change; a site release. B7's books ride the next release,

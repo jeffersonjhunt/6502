@@ -392,7 +392,7 @@ its question.
   which turns off the VIA's and the video card's. Cold boot starts the clocks afresh.
 - **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
   144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. (Since B7, 162, with
-  the dispatcher's 17 cycles for WIN1H, as "Bank 8 as RAM" below records.) An open event area adds
+  the dispatcher's 17 cycles for WIN1H 0, as "Bank 8 as RAM" below records.) An open event area adds
   43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 532 bytes: **263 bytes
   are left** ($FEF2 to the vectors), **62 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
   are already in block 62).
@@ -1479,10 +1479,24 @@ and more in L5:
     refuses A ≥ 64 first (which also ends a read past `GX_W1MAP`), compares both bytes and writes WIN1H 0 only when
     `GXCURH` isn't 0; `GX_W1BACK` the same, then block 1. WIN1H is never written before `GX_BANK8` gives a window,
     nor on a `$D1` bridge. gxmem's code grows by 155 bytes, its DATA by 3.
-  - **Costs** (measured, B7's U5): the dispatcher's save, clear and restore of WIN1H is 17 cycles an interrupt, so
-    the tick with no area is 162 (was 145) and with a layout-2 area 249 (was 234); the frame with no area 215 (was
-    199) and with a layout-2 area 412 (was 396); the whole budget 2,786 (was 2,769). `GX_BLOCK`, already mapped,
-    costs 16 cycles (was 7).
+  - **A hook that draws** (B7's review round 1, R3; it was so before B7 too). A hook shares the program's copy of
+    the library, and so its record of W1, `GXCURH:GXCUR`. When the hook returns, OODOS puts the interrupted W1 and
+    WIN1H back, but the record still says what the hook mapped, and the program's next `GX_VMAP` of the same bank
+    or `GX_BLOCK` of the same block would find it "already there" and write nothing. So a hook that maps W1 through
+    OOLIB ends with `GX_W1BACK`, which always writes block 1 and leaves the record at block 1, WIN1H 0: the
+    program's next `GX_VMAP`, or `GX_BLOCK` of any block but 1, is then a full map. A program that such a hook may
+    interrupt goes back to its block 1 by `GX_W1BACK`, not by `GX_BLOCK` of 1. No interface is added.
+  - **Costs** (measured at B7's final build, after review round 1; the fast build, a `$D2` machine): the
+    dispatcher's test of WIN1H costs 17 cycles an interrupt while WIN1H is 0, so the tick with no area is 162 (was
+    145) and with a layout-2 area 249 (was 234); the frame with no area 215 (was 199) and with a layout-2 area 412
+    (was 396); a slot set, no bit 534 (was 518); a 512-byte slot each frame 1,323 (was 1,302); the pointer on 753
+    (was 736); the whole budget 2,789 (was 2,769). While WIN1H is `$0E` (a `GX_BANK8` program with slot 1 in W1)
+    the dispatcher clears and restores it, 27 cycles, 10 more: a tick 172 and a frame 225, measured with WIN1H
+    held at `$0E`. The latest a frame's copies ended, with 1,024 bytes, the pointer and the stream: line 505 under
+    a USB batch at line 470 and line 505 under 64 KB loads, 19 to spare in both (B2 measured 505 and 497); a single
+    512-byte slot ends by line 500 with a USB batch and 522 under loads. Sound: channel 2's terminal count 705 and
+    874, a few up to 1,007, and 4,672-5,405 with the next piece inside it. `GX_BLOCK`, already mapped, costs 16
+    cycles (was 7).
   - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step

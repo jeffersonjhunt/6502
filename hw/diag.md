@@ -1720,7 +1720,7 @@ no zero page.
 |---|---|---|---|---|
 | `HW_PROBE` | reads the ID bytes of modules 6–E, each twice (CC5) | `HW_FOUND` (2 bytes, bit n module n), `HW_REV` (16 bytes, the revision or `$FF`) | shared | 80 B |
 | `HW_NAME` | A a module ID: its name for the report | A/X the name (a string ended by 0) | shared | 45 B (13 B of code, 32 B of pointers) + 169 B of names (since B7: IDs 0–5 share one "(free)" and F is "(reserved)"; 222 B of names before) |
-| `HW_KNOWN` | A a module, X a revision: whether this build has tests for it | carry clear if so | shared | 41 B (since B7, `$D2` known with `$D1`) |
+| `HW_KNOWN` | A a module, X a revision: whether this build has tests for it | carry clear if so | shared | 44 B (33 B of code, 11 B of IDs; since B7, `$D2` known with `$D1`, measured from the listing) |
 | `HW_CLOCK` | PHI2 cycles in one DS3231 second, by VIA timer 2 (one-shot, as OODOS leaves the ACR) and its wraps, started and stopped at changes of `NB_SEC` (how the polling meets the bridge's own I²C reads on real hardware is unknown); with `HW_FRAMES` set, over 60 frames of the event area's counter instead | `HW_HZ`, 4 bytes | shared (the core runs it with interrupts off) | 150 B |
 | `HW_AIA` | address in address: `HW_PTR` a CPU address, `HW_LEN` the bytes, `HW_KEY` the block's number; a write pass and a check pass, called separately so all blocks are written before any is checked | carry set at the first error, `HW_BAD` its address, `HW_GOT`, `HW_WANT` | shared | 140 B |
 | `HW_MARCH` | the march over `HW_PTR`, `HW_LEN` with `HW_BG` the background | as `HW_AIA` | shared | 320 B |
