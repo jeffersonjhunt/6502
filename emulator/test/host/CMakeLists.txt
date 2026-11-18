@@ -44,6 +44,11 @@ endfunction()
 # harness.h), and <name>_cases, check_split.py holding the entries to every case of the binary's. And
 # set(EMU_SPLIT_ALONE_<name> case...) gives each of those cases an entry of its own, <name>_<case>
 # (OOE_TEST_CASES), the N shares taking the rest (OOE_TEST_EXCEPT): for a case far longer than the others.
+# And set(EMU_SLOW_<name> case...) with set(EMU_SLOW_SPLIT_<name> M) and set(EMU_SLOW_LABEL_<name> label)
+# puts those cases in M entries of their own, <name>_slow_KofM (OOE_TEST_CASES and OOE_TEST_SHARD), the N
+# shares taking the rest: the slow share (hw/testing.md, item 8). Those entries carry only their own label,
+# not the suite's, so a path that chooses the suite's labels doesn't choose them; a rule naming the suite
+# (test_NAME, or self) or the slow label does, and every whole-suite tier (quick, full) runs them.
 # Every entry sets all four selection variables (empty is unset), so one exported by hand changes nothing.
 set(EMU_TEST_ENV_CLEAR "OOE_TEST_LIST=" "OOE_TEST_SHARD=" "OOE_TEST_CASES=" "OOE_TEST_EXCEPT=")
 function(emu_add_test name)
@@ -51,7 +56,8 @@ function(emu_add_test name)
     if(DEFINED EMU_SPLIT_${name})
         set(n ${EMU_SPLIT_${name}})
         set(alone ${EMU_SPLIT_ALONE_${name}})
-        string(JOIN "," except ${alone})
+        set(slow ${EMU_SLOW_${name}})
+        string(JOIN "," except ${alone} ${slow})
         foreach(k RANGE 1 ${n})
             add_test(NAME ${name}_${k}of${n} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
             set_tests_properties(${name}_${k}of${n} PROPERTIES
@@ -66,6 +72,22 @@ function(emu_add_test name)
                     SKIP_RETURN_CODE 77 TIMEOUT 120)
             emu_entry(${name} ${name}_${c})
         endforeach()
+        if(slow)
+            if(NOT DEFINED EMU_SLOW_SPLIT_${name} OR NOT DEFINED EMU_SLOW_LABEL_${name})
+                message(FATAL_ERROR "emu: EMU_SLOW_${name} wants EMU_SLOW_SPLIT_${name} and EMU_SLOW_LABEL_${name}")
+            endif()
+            set(m ${EMU_SLOW_SPLIT_${name}})
+            string(JOIN "," only ${slow})
+            foreach(k RANGE 1 ${m})
+                add_test(NAME ${name}_slow_${k}of${m} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+                set_tests_properties(${name}_slow_${k}of${m} PROPERTIES
+                        ENVIRONMENT "OOE_TEST_LIST=;OOE_TEST_EXCEPT=;OOE_TEST_CASES=${only};OOE_TEST_SHARD=${k}/${m}"
+                        SKIP_RETURN_CODE 77 TIMEOUT 120 LABELS "${EMU_SLOW_LABEL_${name}}")
+                # It runs the suite's cases (emu_suite_properties reaches it), but takes none of its labels.
+                set_property(GLOBAL APPEND PROPERTY EMU_RUNS_${name} ${name}_slow_${k}of${m})
+                set_property(GLOBAL APPEND PROPERTY EMU_SLOW_ENTRIES ${name}_slow_${k}of${m})
+            endforeach()
+        endif()
         add_test(NAME ${name}_cases
                  COMMAND "${Python3_EXECUTABLE}" -I -B "${CMAKE_CURRENT_LIST_DIR}/check_split.py"
                          "${CMAKE_BINARY_DIR}" $<TARGET_FILE:${name}>)
@@ -130,7 +152,52 @@ set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stre
 # test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
 set(EMU_SPLIT_test_bios_sd 3)
 # test_bios_diag with B7's revision 2 default (fast, alone, 2026-11-17): 923 s, over its 900; each half ~460.
+# Its slow share (the owner, 2026-11-18; hw/testing.md, item 8): the 37 cases of 13 s or more that each make a
+# whole diagnostics run (1,030 s in all, 904 of them these), timed one by one at main b0100305. Four whole runs
+# stay in the two shares every gate runs: the golden quick run, the card stages on a good machine, bank 8's
+# stuck bit on a revision 2 bridge, and block 0's stuck bit. The slow share runs when the diagnostics' own
+# files change (tools/test-map.txt, label diagslow) and in quick and full.
 set(EMU_SPLIT_test_bios_diag 2)
+set(EMU_SLOW_SPLIT_test_bios_diag 4)
+set(EMU_SLOW_LABEL_test_bios_diag diagslow)
+set(EMU_SLOW_test_bios_diag
+        c815_with_the_token_runs_a_programs_options_whatever_the_switches
+        esc_at_the_end_is_the_monitor_and_return_boots_the_card
+        d2_marks_every_block_it_finds_bad_not_only_the_first_eight
+        the_6510_program_not_running_fails_s4_within_half_a_second_and_skips_s5_to_s7
+        a_full_run_never_writes_the_sd_card
+        an_sd_card_that_stays_busy_is_reset_and_given_no_command
+        on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
+        a_pass_count_above_255_is_printed_whole
+        a_loop_runs_two_passes_and_a_key_ends_it_after_the_second
+        no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3
+        break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt
+        the_wait_states_and_the_vias_ier_are_put_back
+        a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c
+        a_block_stage_2_passed_over_is_never_w0s_spare
+        a_stuck_bit_in_the_sound_cards_ram_is_named_by_s2
+        a9_stuck_on_ram_a_w0_goes_to_ram_b_and_the_run_ends
+        a_block_answering_as_w0s_is_said_and_not_tested
+        an_aliased_address_line_is_named
+        the_via_is_put_back
+        a_byte_of_flash_block_30_changed_fails_stage_1
+        a_floating_bus_in_the_disk_iis_empty_slot_is_no_card
+        a_reset_during_p3_leaves_the_breakpoint_off_and_the_boot_reaches_a_prompt
+        a_cross_block_alias_is_two_blocks_as_one
+        a_failed_block_answering_as_a_good_one_is_not_filled_over_it_by_d2
+        an_aperture_fault_fails_v6_and_not_v4
+        a_stuck_bit_under_dma_is_named_by_d2_as_stage_6_names_it
+        a_stuck_bit_in_block_41_and_in_oodoss_block_62
+        block_21_blanked_block_22_ends_the_run
+        break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1
+        break_during_sd4s_read_leaves_no_channel_running_into_the_boot
+        break_during_p3_leaves_the_breakpoint_off
+        the_interactive_tests_with_switch_16_every_answer_given
+        break_during_s10s_first_tone_leaves_the_sids_silent_at_the_boot
+        a_floating_bus_where_ram_b_is_left_out_is_not_answering
+        a_revision_1_dma_controller_is_listed_and_never_driven
+        ram_b_left_out_is_not_answering
+        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -921,6 +988,8 @@ foreach(i RANGE 0 ${last} 2)
     endif()
     list(APPEND labelled ${entries})
 endforeach()
+get_property(slow_entries GLOBAL PROPERTY EMU_SLOW_ENTRIES)
+list(APPEND labelled ${slow_entries}) # labelled by emu_add_test, with the slow label only
 get_property(all_tests DIRECTORY PROPERTY TESTS)
 foreach(t ${all_tests})
     if(NOT t IN_LIST labelled)
