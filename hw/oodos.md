@@ -1,6 +1,6 @@
 # OODOS: One Off DOS #
 
-Draft, 2026-10-26; OODOS 0.10 since 2026-11-14 (SYSINFO, function 77 and DIAG, OOLIB interfaces 9 and 10, [diag.md](diag.md)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+Draft, 2026-10-26; OODOS 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
 W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
 **proposed**; open questions are collected at the end.
 

@@ -505,7 +505,7 @@ TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
     CHECK(o.find("FINFO 0C 0F\n") != std::string::npos);
     CHECK(o.find("ROMV 00 11\n") != std::string::npos);
     std::smatch m;
-    CHECK(std::regex_search(o, m, std::regex("V72 000A000200044001[0-9A-F]{4}A55A")));
+    CHECK(std::regex_search(o, m, std::regex("V72 000B000200044001[0-9A-F]{4}A55A")));
     if (o.find("ROMV 00 11") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
     CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.17\n") != std::string::npos);

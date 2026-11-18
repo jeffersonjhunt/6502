@@ -452,7 +452,7 @@ rombios:
         jmp     puts
 @ver:   jmp     version
 
-; "  OODOS      0.10, its BIOS 0.2; OOLIB interface 11"
+; "  OODOS      0.11, its BIOS 0.2; OOLIB interface 12"
 oodos:  lda     #<soodos
         ldx     #>soodos
         jsr     puts
