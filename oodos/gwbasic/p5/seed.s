@@ -1,0 +1,312 @@
+; P5's seed (hw/oodos.md, "The plan, phase 7": 7c's tail; V3, and B7's
+; question 5): block P5, which 7d and 7e fill later. The project's own, the
+; OEM's (GW-BASIC's PEKFLT and POKFLT were IBM's, and its 8086 needs no
+; router: a segment is a segment). For now it holds OOLIB's gxmem.s, linked
+; in (../lib/gxmem.s: GX_INIT, GX_BANK8, GX_BLOCK, GX_W1BACK), and:
+;
+;   GXSTRT    start-up, from P2's GWINIT, once: GX_INIT with no event area
+;             (A/X 0), then GX_BANK8 whatever GX_INIT answered (with no
+;             revision 2 card GX_BANK8 is a success that changes nothing,
+;             bank 8 being RAM already: oolib.inc), then the scratch byte's
+;             physical address (function 73)
+;   DSBYTE    PEEK's and POKE's byte, for an address that isn't segment 0
+;             below $C000 (the callers' own fast path): the 20-bit address
+;             SAVSEG x 16 + DX routed as hw/oodos.md's DEF SEG section has
+;             it (below)
+;   DSRUN     BLOAD's and BSAVE's run checked whole, before anything moves:
+;             its 20-bit start returned
+;
+; The address is the segment x 16 + the offset, wrapping at 1 MB as an
+; 8088's does. DSBYTE's routes:
+;   1. bank 8, $80000-$8FFFF: Illegal function call, PEEK included, by the
+;      20-bit address, not the segment (B7's question 2), so &H7FFF:&H100 is
+;      caught. Until 7d, which gives segments $8000-$8FFF the screen page;
+;   2. blocks 0-2 (the program's TPA, W0-W2): a load or store there;
+;   3. any other block: GX_BLOCK, the load or store at $4000 + its place in
+;      the block, GX_W1BACK (an allocated block, P1-P8's among them, or
+;      banks 9-B);
+;   4. if GX_BLOCK refuses (the block isn't in OOLIB's W1 map, or there is
+;      no revision 2 card, B7's question 3): one byte by function 83's
+;      DM_COPY through the scratch byte, so OODOS decides what may be
+;      reached and nothing of its own list is copied here. A refused PEEK
+;      is 0 (the scratch byte cleared first); a refused POKE is Illegal
+;      function call (OODOS's banks 6, 7, C, D, F).
+; While W1 holds another block (route 3) DSBYTE touches only zero page and
+; this block's own RAM, and calls nothing resident, FCERR included: P5 calls
+; resident code only with block 1 in W1 (the program's $4000-$7FFF).
+;
+; DSRUN's run is linear, from segment x 16 + offset for its length (the
+; 8086 wraps the offset inside the segment: a recorded deviation). Refused,
+; Illegal function call: a run past $FFFFF (it would meet bank F, OODOS's);
+; one that meets bank 8; one with any 16 KB block that function 83 won't
+; copy from, found by a one-byte DM_COPY from each block's first byte (83
+; decides by the block, so one byte answers for all of it). A length of 0
+; is no run: nothing checked.
+;
+; The far call rule: every routine returns by RTS, or ends in FCERR with
+; block 1 in W1.
+
+.include "gwbasic.inc"
+.include "oolib.inc"
+
+;@entry GXSTRT
+;@entry DSBYTE
+;@entry DSRUN
+.export GXSTRT, DSBYTE, DSRUN
+.exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
+.import FCERR, SAVSEG
+
+.code
+
+; --- GXSTRT -------------------------------------------------------------------------------
+
+; GXSTRT: OOLIB started with no event area (7d opens one and calls GX_INIT
+; and GX_BANK8 again, since GX_INIT goes back to the old mode), bank 8 made
+; the program's RAM (B7's question 5), and the scratch byte's physical
+; address, by function 73 while this block is in W3. Their answers aren't
+; needed: GX_BLOCK refuses whatever GX_INIT didn't allow.
+GXSTRT:         LDA     #0
+                TAX
+                JSR     GX_INIT
+                JSR     GX_BANK8
+                LDA     #<SCRB
+                STA     DSPB
+                LDA     #>SCRB
+                STA     DSPB+1
+                LDA     #<DSPB
+                LDX     #>DSPB
+                LDY     #O_PHYSADDR
+                JSR     BDOS
+                LDA     DSPB+2         ; the paragraph x 16 + the offset (0-15)
+                STA     SCRP
+                LDA     DSPB+3
+                STA     SCRP+1
+                STZ     SCRP+2
+                LDX     #4
+@x16:           ASL     SCRP
+                ROL     SCRP+1
+                ROL     SCRP+2
+                DEX
+                BNE     @x16
+                LDA     SCRP
+                ORA     DSPB
+                STA     SCRP
+                RTS
+
+; --- DSBYTE -------------------------------------------------------------------------------
+
+; DSBYTE: DX the offset, SAVSEG the segment; C clear PEEK, A the byte back;
+; C set POKE A. X and Y aren't kept.
+DSBYTE:         STA     DSVAL
+                ROR     DSDIR          ; bit 7: a POKE
+                LDA     SAVSEG
+                STA     GXQ
+                LDA     SAVSEG+1
+                STA     GXQ+1
+                LDA     RDL
+                STA     GXP
+                LDA     RDH
+                STA     GXP+1
+                JSR     DSADR          ; DSA: the 20-bit address
+                LDA     DSA+2
+                CMP     #8
+                BEQ     DSFC           ; 1. bank 8
+                LDX     #0
+                JSR     BLKOF          ; A: its block
+                CMP     #3
+                BCS     DSWIN
+                LDA     DSA            ; 2. blocks 0-2: the CPU's own address
+                STA     GXP
+                LDA     DSA+1
+                STA     GXP+1
+                BRA     DSDO
+DSWIN:          JSR     GX_BLOCK       ; 3. the block in W1
+                BCS     DSCOPY
+                LDA     DSA            ; $4000 + its place in the block
+                STA     GXP
+                LDA     DSA+1
+                AND     #$3F
+                ORA     #$40
+                STA     GXP+1
+                JSR     DSDO
+                PHA
+                JSR     GX_W1BACK      ; block 1 back, before anything else
+                PLA
+                RTS
+; DSDO: the load or store at (GXP).
+DSDO:           BIT     DSDIR
+                BMI     @poke
+                LDA     (GXP)
+                RTS
+@poke:          LDA     DSVAL
+                STA     (GXP)
+                RTS
+; 4. One byte by DM_COPY through the scratch byte: a PEEK's from the
+; address (0 if refused), a POKE's to it (refused: Illegal function call).
+DSCOPY:         LDX     #2
+@a:             LDA     DSA,X          ; the address, a PEEK's source
+                STA     DSCB+1,X
+                LDA     SCRP,X         ; the scratch byte, its destination
+                STA     DSCB+4,X
+                DEX
+                BPL     @a
+                BIT     DSDIR
+                BMI     @poke
+                STZ     SCRB
+                JSR     DSCALL
+                LDA     SCRB
+                RTS
+@poke:          LDX     #2             ; the other way round
+@b:             LDA     DSCB+1,X
+                PHA
+                LDA     DSCB+4,X
+                STA     DSCB+1,X
+                PLA
+                STA     DSCB+4,X
+                DEX
+                BPL     @b
+                LDA     DSVAL
+                STA     SCRB
+                JSR     DSCALL
+                CMP     #$FF
+                BNE     DSRET
+DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or never asked)
+
+; DSCALL: function 83's DM_COPY of DSCB's one byte. A the result.
+DSCALL:         LDA     #DM_COPY
+                STA     DSCB
+                LDA     #1
+                STA     DSCB+7
+                STZ     DSCB+8
+                LDA     #<DSCB
+                LDX     #>DSCB
+                LDY     #O_DMA
+                JMP     BDOS
+
+; DSADR: DSA = GXQ (a segment) x 16 + GXP (an offset), wrapping at 1 MB.
+DSADR:          LDA     GXQ
+                STA     DSA
+                LDA     GXQ+1
+                STA     DSA+1
+                STZ     DSA+2
+                LDX     #4
+@x16:           ASL     DSA
+                ROL     DSA+1
+                ROL     DSA+2
+                DEX
+                BNE     @x16
+                CLC
+                LDA     DSA
+                ADC     GXP
+                STA     DSA
+                LDA     DSA+1
+                ADC     GXP+1
+                STA     DSA+1
+                LDA     DSA+2
+                ADC     #0
+                AND     #$0F
+                STA     DSA+2
+DSRET:          RTS
+
+; BLKOF: A the 16 KB block (0-63) of DSA (X 0) or DSE (X 3), a 20-bit
+; address: A16-A19 x 4 and A14-A15.
+BLKOF:          LDA     DSA+1,X
+                ASL     A
+                LDA     DSA+2,X
+                ROL     A
+                STA     DSBLK
+                LDA     DSA+1,X
+                ASL     A
+                ASL     A
+                LDA     DSBLK
+                ROL     A
+                RTS
+
+; --- DSRUN --------------------------------------------------------------------------------
+
+; DSRUN: DX the segment, BX the offset, CX the length (0: none). The run
+; checked whole (above): Illegal function call, nothing moved, if refused;
+; else DX and BL its 20-bit start (DSA).
+DSRUN:          LDA     RDL
+                STA     GXQ
+                LDA     RDH
+                STA     GXQ+1
+                LDA     RBL
+                STA     GXP
+                LDA     RBH
+                STA     GXP+1
+                JSR     DSADR
+                LDA     RCL            ; no bytes: no run
+                ORA     RCH
+                BEQ     @ok
+                LDA     RCL            ; DSE: its last byte, DSA + CX - 1
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                CLC
+                LDA     DSA
+                ADC     RCL
+                STA     DSE
+                LDA     DSA+1
+                ADC     RCH
+                STA     DSE+1
+                LDA     DSA+2
+                ADC     #0
+                STA     DSE+2
+                INC     RCL            ; CX back
+                BNE     :+
+                INC     RCH
+:               LDA     DSE+2
+                CMP     #$10
+                BCS     @fc            ; past $FFFFF: into bank F
+                CMP     #8             ; meets bank 8: from it or below, to it or past
+                BCC     @blocks
+                LDA     DSA+2
+                CMP     #9
+                BCC     @fc 
+@blocks:        LDX     #DSE - DSA     ; the last block
+                JSR     BLKOF
+                STA     DSLAST
+                LDX     #0             ; from the first
+                JSR     BLKOF
+@probe:         STA     DSBLK
+                STZ     DSCB+1         ; its first byte: the block x $4000
+                STZ     DSCB+2
+                LSR     A
+                ROR     DSCB+2
+                LSR     A
+                ROR     DSCB+2
+                STA     DSCB+3
+                LDX     #2
+@s:             LDA     SCRP,X         ; to the scratch byte
+                STA     DSCB+4,X
+                DEX
+                BPL     @s
+                JSR     DSCALL
+                CMP     #$FF
+                BEQ     @fc 
+                LDA     DSBLK
+                CMP     DSLAST
+                INC     A
+                BCC     @probe         ; short of the last
+@ok:            LDA     DSA            ; DX, BL: the start
+                STA     RDL
+                LDA     DSA+1
+                STA     RDH
+                LDA     DSA+2
+                STA     RBL
+                RTS
+@fc:            JMP     FCERR
+
+.segment "BRAM"
+.assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"
+DSA:            .res    3              ; the 20-bit address (DSADR)
+DSE:            .res    3              ; DSRUN: the run's last byte (just past DSA: BLKOF)
+DSBLK:          .res    1              ; a block (BLKOF; DSRUN's probe)
+DSLAST:         .res    1              ; DSRUN: the run's last block
+DSVAL:          .res    1              ; a POKE's byte
+DSDIR:          .res    1              ; bit 7: a POKE
+DSCB:           .res    9              ; function 83's DM_COPY block
+DSPB:           .res    4              ; function 73's
+SCRB:           .res    1              ; the scratch byte
+SCRP:           .res    3              ; and its physical address (GXSTRT)

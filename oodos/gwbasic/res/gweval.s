@@ -40,7 +40,7 @@
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
 .import PTRGTN, FCERR, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP
-.export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN
+.export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN, SAVSEG
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
 
@@ -737,3 +737,7 @@ OVRMSG:         .byte   "Overflow", 0  ; GWDATA.ASM's $OVMSG, as INPUT prints it
 
 .segment "RAM"
 FLGSCN:         .byte   0              ; GWDATA.ASM's: INPUT is scanning (I2's)
+; GWDATA.ASM's SAVSEG (7c's tail): DEF SEG's segment, for PEEK, POKE, USR,
+; BLOAD and BSAVE (p3/gweval.s DEFNC2, p5/seed.s DSBYTE). P2's start-up
+; sets it to 0, the port's DS (ITSA86.ASM's); RUN and CLEAR leave it.
+SAVSEG:         .res    2

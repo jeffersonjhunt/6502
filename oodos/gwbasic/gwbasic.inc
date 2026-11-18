@@ -248,7 +248,7 @@ FILPOS          = $DC                  ; PTRFIL's file's column: F_POS, as OUTDO
 RUNLEN          = $DD                  ; the bytes in RUNBUF not yet sent to PTRFIL's file
 RUNSIZ          = 32                   ; RUNBUF's size (res/oem.s)
 
-; --- 7c's LOAD, SAVE and MERGE ($DE, $DF, $EE) ------------------------------------
+; --- 7c's LOAD, SAVE and MERGE ($DE, $DF, $EB) ------------------------------------
 ;
 ; What the resident core, the home block and the blocks test of a program
 ; being loaded or saved (GWDATA.ASM's NLONLY and PROFLG), and (OO-1) whether
@@ -257,9 +257,22 @@ RUNSIZ          = 32                   ; RUNBUF's size (res/oem.s)
 ; ($E0, free to the program, is the flat test harness's: test/harness.s.)
 NLONLY          = $DE                  ; bit 7: no file closed (LOAD ,R); bit 0: not file 0 (a load under way)
 PROFLG          = $DF                  ; nonzero: the program is protected (a SAVE ,P loaded)
-F0OPN           = $EE                  ; OO-1: nonzero while file 0 is open (p4/gio86.s FALLOC, FFREE)
+F0OPN           = $EB                  ; OO-1: nonzero while file 0 is open (p4/gio86.s FALLOC, FFREE; $EE until
+                                       ;   7c's tail, which wanted $EE-$EF whole for GXT)
 LBOERN          = 23                   ; GWDATA.ASM's Line buffer overflow
 ERRFDR          = 66                   ; and Direct statement in file
+; --- 7c's tail: OOLIB's gxmem in block P5 ($8E-$8F, $E0-$E1, $EE-$EF) -----------
+;
+; P5's seed (hw/oodos.md, "The plan, phase 7": 7c's tail) links OOLIB's
+; gxmem.s, whose zero page is three words (lib/zpgxmem.s's GXP, GXQ, GXT).
+; GW-BASIC's zero page is all equates, so a .zeropage segment of the
+; library's would land on $00: they are here instead, and p5/seed.s exports
+; them to gxmem (.globalzp). Only P5 touches them. ($E0-$E1 is the flat test
+; harness's too, test/harness.s, but the flat image has no P5.)
+GXP             = $8E                  ; a pointer: DSBYTE's address, gxmem's into W1
+GXQ             = $E0                  ; a second: DSADR's segment
+GXT             = $EE                  ; gxmem's scratch (GX_BLOCK's bit)
+
 ; --- 7c's CHAIN ($D6, $D7) -------------------------------------------------------
 ;
 ; A CHAIN under way (GWDATA.ASM's CHNFLG and MRGFLG, set by P4's CHAINP,

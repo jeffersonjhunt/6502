@@ -1527,3 +1527,39 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     const std::string typed = r.cmd("type rs.txt");
     CHECK(typed.find("whole\r\n") != std::string::npos);
 }
+
+// --- 7c's tail (hw/oodos.md, "The plan, phase 7": P5's seed, DEF SEG, PEEK, POKE, BLOAD, BSAVE) -------------------
+
+namespace
+{
+    /// A block's label's physical address: the block GW-BASIC's loader took for page `page` (PAGBLK, in the resident
+    /// core's LOWRAM: blocks 0-2 are the CPU's own addresses) and the label's place in it (each block is linked at
+    /// $C800 for W3, $C000 its start).
+    uint32_t block_phys(CcpRig &r, unsigned page, const std::string &lbl, const std::string &name)
+    {
+        const std::map<std::string, uint16_t> res = link_labels("gwbasic.lbl"), blk = link_labels(lbl);
+        CHECK(res.count("PAGBLK") == 1 && blk.count(name) == 1);
+        if (res.count("PAGBLK") != 1 || blk.count(name) != 1)
+            return 0;
+        return r.phys(res.at("PAGBLK") + page) * BLOCK + (blk.at(name) - 0xC000u);
+    }
+} // namespace
+
+// T12, B7's question 5 (the owner, 2026-11-17): P5's start-up (p5/seed.s GXSTRT) calls OOLIB's GX_INIT, then
+// GX_BANK8, so once GW-BASIC is up on a revision 2 card the north bridge's MAP has AP8 clear (bank 8 is the
+// program's RAM), and gxmem's GXAPH and GXAPB (in P5's block, by p5.lbl) say slot 1's window is WIN1H $0E with
+// block 1. SYSTEM's warm boot sets AP8 again. A build that calls GX_BANK8 before GX_INIT fails: GX_INIT always
+// goes back to the old mode, so GXAPH is 0 (and GXAPB 33).
+TEST(start_up_maps_slot_1_by_gx_bank8)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.nb(0x25) & 1, 1); // NB_MAP's AP8, at the prompt
+    CHECK(start(r).find("Bytes free") != std::string::npos);
+    CHECK_EQ(r.nb(0x25) & 1, 0);
+    CHECK_EQ(r.phys(block_phys(r, 5, "p5.lbl", "GXAPH")), 0x0E);
+    CHECK_EQ(r.phys(block_phys(r, 5, "p5.lbl", "GXAPB")), 1);
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    CHECK_EQ(r.nb(0x25) & 1, 1);
+}

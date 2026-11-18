@@ -26,7 +26,7 @@
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
-.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS
+.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG
 
 .code
 
@@ -61,6 +61,12 @@ GWINIT:
                 STZ     NLONLY
                 STZ     F0OPN
                 FJSR    GIOINP
+; 7c's tail: DEF SEG's segment 0, the port's DS (ITSA86.ASM's SAVSEG; RUN
+; and CLEAR leave it), and P5's start-up (GXSTRT): OOLIB's GX_INIT with no
+; event area, then GX_BANK8 (B7's question 5).
+                STZ     SAVSEG
+                STZ     SAVSEG+1
+                FJSR    GXSTRT
 ; CPMVR1's (GWINIT.ASM 158): no CHAIN, no MERGE under way.
                 STZ     CHNFLG
                 STZ     MRGFLG
