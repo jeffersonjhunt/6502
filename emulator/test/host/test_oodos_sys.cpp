@@ -3327,6 +3327,50 @@ TEST(the_warm_boot_and_break_leave_win1h_0_and_map_as_the_card_says)
     }
 }
 
+TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
+{
+    // R1 (B7 review round 1). OODOS's NMI clears WIN0H inline and puts W0 on the system block before its first
+    // JSR, so a Break still reaches the monitor when the interrupted state's stack is nowhere usable: WIN0H left
+    // on $0E (W0's stack in card memory, as a stray write to $C6A0 would leave it), or W0 read-only (every push
+    // lost). The NMI is taken at once, before the spin runs anything from the moved W0. The free stack just below
+    // S (RAM block 0's) is given a stale return address into the spin: a JSR whose pushes went elsewhere returns
+    // there (the NMI's 3 bytes and a JSR's 2 down from S) and spins on, never reaching the monitor.
+    struct Way
+    {
+        const char *name;
+        uint16_t reg;
+        uint8_t value;
+    };
+    for (const Way &w : {Way{"WIN0H $0E", NB_WINH, 0x0E}, Way{"W0 read-only", static_cast<uint16_t>(NB), 0x40}})
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
+        const size_t from = start(r, "w1htest.com", " B");
+        bool spun = false;
+        for (int i = 0; i < 400 && !spun; ++i)
+        {
+            r.run(ms(5));
+            spun = r.cpu->regs().pc == bspin && r.nb(0) == 0;
+        }
+        REQUIRE(spun);
+        const uint32_t sp = 0x0100u + r.cpu->regs().s;
+        const uint16_t stale = static_cast<uint16_t>(bspin - 1); // an RTS's target is its pulled address + 1
+        r.poke(sp - 4, static_cast<uint8_t>(stale & 0xFF));
+        r.poke(sp - 3, static_cast<uint8_t>(stale >> 8));
+        r.machine->bus().write(w.reg, w.value);
+        r.cpu->nmi();
+        const bool monitor = r.until("\\\r", ms(1000), from);
+        if (!monitor)
+            std::fprintf(stderr, "  no monitor after Break with %s\n", w.name);
+        CHECK(monitor);
+        CHECK_EQ(r.bridge().winh(0), 0);
+        CHECK_EQ(r.bridge().winh(1), 0);
+        CHECK_EQ(r.nb(0), 0); // BREAK's W0 on block 0, writable
+        CHECK_EQ(r.bridge().map(), 1);
+    }
+}
+
 TEST(on_a_revision_1_bridge_oodos_never_writes_c6a0_to_c6a5)
 {
     // O7. A $D1 bridge has no WINnH, VECH or MAP: they read $FF. OODOS boots, prints, takes ticks and runs a tick

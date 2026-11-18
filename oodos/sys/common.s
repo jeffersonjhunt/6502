@@ -243,12 +243,15 @@ STUBRET:        SEI                    ; off again till the program's P is back
 ; 1 and vertical blank ran on throughout: the clocks lose nothing).
 WARM:           SEI
                 CLD
-                JSR     WINH0          ; WIN0H-WIN3H and VECH 0, MAP as the card says (B7)
                 LDA     #RES_BLOCK
                 STA     NB_WIN3        ; this code goes on, in block 62's copy
                 STA     NB_VEC
-                LDA     #SYS_BLOCK
+                LDA     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: no stack
+                BMI     @w0            ; yet (a $D1 bridge reads $FF there: nothing written)
+                STZ     NB_WIN0H
+@w0:            LDA     #SYS_BLOCK
                 STA     NB_WIN0
+                JSR     WINH0          ; on the system's stack: WIN1H-WIN3H and VECH 0, MAP as the card says
                 STZ     DMABANK        ; BANK_SYS: .assert below
                 STZ     CURBANK
                 STZ     XPEND
@@ -380,11 +383,14 @@ FCRET:          PHP                    ; the target's return: the old block back
 ; master enable put back if the driver had it off for a write; the sector
 ; being written is lost, the rest of its track kept.
 NMI:            SEI
-                JSR     WINH0          ; (B7) for an older ROM's BREAK too
                 LDA     DISK2_Q7OFF
                 LDA     DISK2_MOTOROFF
-                LDA     #SYS_BLOCK
+                LDA     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: the program's
+                BMI     @w0            ; stack may be nowhere (a $D1 bridge reads $FF: nothing written)
+                STZ     NB_WIN0H
+@w0:            LDA     #SYS_BLOCK
                 STA     NB_WIN0
+                JSR     WINH0          ; (B7) on the system's stack, for an older ROM's BREAK too
                 LDA     D2WRIT
                 BEQ     @copy0
                 STZ     D2WRIT
@@ -435,8 +441,11 @@ APPLEEND:
 ; video card's aperture, as old programs know it) with a revision 2 video
 ; card, clear (bank 8 RAM) without one; on a revision 2 north bridge only
 ; (NB_ID $D2), since on revision 1 those offsets aren't registers (B7; hw/
-; design.md, "The video aperture moved out of RAM"). For WARM, NMI and
-; ROMAPPLE, in any window state. Uses A and X. After ROMAPPLE, so that
+; design.md, "The video aperture moved out of RAM"). For ROMAPPLE, and for
+; WARM and NMI once W0 is on the system block (they clear WIN0H inline
+; first, since a JSR through a WIN0H left set, or a read-only W0, would lose
+; its return address: diag.inc's NBSET is inline for the same reason).
+; Uses A and X. After ROMAPPLE, so that
 ; FARCALL keeps its cycles (no branch of its across a page).
 WINH0:          LDA     NB_ID
                 CMP     #NB_ID_V2

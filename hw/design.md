@@ -3314,7 +3314,9 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
     keeps it at `HK_W1H` (14), `CALLHOOK` restores it, and `HKBACK` clears it by testing the register, not the
     record (C3). Nothing is written to WIN1H on a `$D1` bridge.
   - The new COMMON helper `WINH0` (WIN0H–WIN3H and VECH 0, MAP whole by `VIDEO_ID`, on `$D2` only) from `WARM`,
-    `NMI` and `ROMAPPLE`. `WARM` also clears `BANK8`.
+    `NMI` and `ROMAPPLE`. `WARM` and `NMI` clear WIN0H inline first (WIN0H read as `$FF`, on `$D1`, writes nothing)
+    and call `WINH0` only once W0 is on the system block, so its JSR never goes through a WIN0H left set or a
+    read-only W0 (review round 1, R1). `WARM` also clears `BANK8`.
   - The refusal of a W1 address while WIN1H isn't 0 in `PHYSOF`, `PMAP`, function 73 (`F_PHYS`), `MRANGE` and
     `FT_OPENX` (Q11).
   - **`DM_BANK8`**, function 83's operation 11 (`DM_OPS` 12), as [above](#the-video-aperture-moved-out-of-ram), in
