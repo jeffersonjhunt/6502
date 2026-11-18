@@ -15,13 +15,18 @@
  * (hw/design.md, "B1: as built"). So a CPU address that resolves above
  * $FFFFF (a window on the flash, $F00000 up, or on the video aperture,
  * $E00000) is refused, and so is a bank 8 address ($80000-$8FFFF) while
- * VIDEO_ID reads $92: with a revision 2 card the CPU card sends the CPU's
- * and DMA's bank 8 to the aperture, so no cycle there reaches the bus to
- * match. A saved breakpoint that can't fire isn't restored, and
- * notRestored names it: above $FFFFF at once, and in bank 8 once
- * recheck() has read VIDEO_ID $92 (the pane calls it on connecting; a page
- * from before B1 could save one). Those entries stay in storage, kept
- * through every later save, so a machine they can fire on gets them back.
+ * the CPU card sends the CPU's and DMA's bank 8 to the aperture, since no
+ * cycle there reaches the bus to match. Which it does is the north
+ * bridge's to say (B7): NB_ID ($C6FF) is read first, and on a revision 2
+ * bridge ($D2) bank 8 is the aperture while AP8 (MAP, $C6A5 bit 0) is set;
+ * on any other NB_ID (a revision 1 bridge's $D1, or nothing answering) the
+ * older rule holds, bank 8 being the aperture while VIDEO_ID ($C4FF) reads
+ * $92, a revision 2 video card. A saved breakpoint that can't fire isn't
+ * restored, and notRestored names it: above $FFFFF at once, and in bank 8
+ * once recheck() has found bank 8 sent to the aperture by the same rule
+ * (the pane calls it on connecting; a page from before B1 could save one).
+ * Those entries stay in storage, kept through every later save, so a
+ * machine they can fire on gets them back.
  *
  * The card loses its registers at power off, so a power cycle re-arms
  * whatever was armed. The list is remembered; nothing is armed at load.
@@ -63,15 +68,31 @@ export const hex = (v: number, n: number) => v.toString(16).toUpperCase().padSta
 
 /** BPADDR's reach: A0-A19, with A20-A23 0. */
 export const BPADDR_MAX = 0xfffff;
-/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's. */
+/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's (the rule off a revision 2 bridge). */
 const VIDEO_ID = 0xc4ff;
 const VIDEO_REV2 = 0x92;
+/** NB_ID's address, and a revision 2 north bridge's ID: its MAP register says where bank 8 goes. */
+const NB_ID = 0xc6ff;
+const NB_REV2 = 0xd2;
+/** MAP's address, and AP8 (bit 0): set, the CPU card sends bank 8 to the aperture. */
+const NB_MAP = 0xc6a5;
+const MAP_AP8 = 0x01;
 
 /** "ECHO $C951 → FC951", "C951 → FC951", or "FC951" (six digits above FFFFF). */
 export function describe(b: Breakpoint): string {
   if (b.cpu === null) return hex(b.physical, 5);
   const label = /^\$?[0-9a-f]{1,4}$/i.test(b.text) ? "" : `${b.text} $`;
   return `${label}${hex(b.cpu, 4)} → ${hex(b.physical, 5)}`;
+}
+
+/**
+ * Where bank 8 goes now, by the rule above: "ap8" on a revision 2 bridge with AP8 set, "card" on any other bridge
+ * with a revision 2 video card, null while bank 8 reaches the bus (a breakpoint there can fire).
+ */
+async function bank8Aperture(port: MachinePort): Promise<"ap8" | "card" | null> {
+  if ((await port.readMemory(NB_ID, 1, "io"))[0] === NB_REV2)
+    return (await port.readMemory(NB_MAP, 1, "io"))[0] & MAP_AP8 ? "ap8" : null;
+  return (await port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2 ? "card" : null;
 }
 
 export interface Hit {
@@ -122,11 +143,12 @@ export class Breakpoints {
   }
 
   /**
-   * Once the machine is there: with a revision 2 video card (VIDEO_ID $92) a restored bank 8 breakpoint can never
-   * fire, so it joins notRestored (and stays saved). Disarms it if it was armed.
+   * Once the machine is there: while bank 8 goes to the aperture (AP8 set on a revision 2 bridge; on any other, a
+   * revision 2 video card, VIDEO_ID $92) a restored bank 8 breakpoint can never fire, so it joins notRestored (and
+   * stays saved). Disarms it if it was armed.
    */
   async recheck(): Promise<void> {
-    if ((await this.port.readMemory(VIDEO_ID, 1, "io"))[0] !== VIDEO_REV2) return;
+    if (!(await bank8Aperture(this.port))) return;
     const dead = this.list.filter((b) => b.physical >> 16 === 0x8);
     if (!dead.length) return;
     if (dead.some((b) => b.id === this.armed)) this.arm(null);
@@ -161,8 +183,11 @@ export class Breakpoints {
     }
     if (physical > BPADDR_MAX)
       return `${t}: $${hex(cpu ?? 0, 4)} is ${hex(physical, 6)}, above FFFFF: the Console card's breakpoint is 20 bits and never matches the flash or the video aperture`;
-    if (physical >> 16 === 0x8 && (await this.port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2)
-      return `${t}: bank 8 is the video aperture with a revision 2 card, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
+    if (physical >> 16 === 0x8) {
+      const why = await bank8Aperture(this.port);
+      if (why)
+        return `${t}: bank 8 is the video aperture ${why === "ap8" ? "while AP8 (MAP, $C6A5 bit 0) is set" : "with a revision 2 card"}, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
+    }
     const b: Breakpoint = {
       id: String(this.next++),
       text: t,

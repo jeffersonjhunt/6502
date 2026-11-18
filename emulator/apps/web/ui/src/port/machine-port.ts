@@ -397,7 +397,7 @@ export interface MachinePort {
   readCardMemory(addr: number, length: number): Promise<Uint8Array | null>;
   /** Bytes into card memory there, as readCardMemory() reads it; past what is fitted they are dropped. */
   writeCardMemory(addr: number, bytes: Uint8Array): void;
-  /** What A0-A23 carry for a CPU address now: the CPU card's view (the flash at $F00000; with a revision 2 card, bank 8 at the aperture, $E00000). */
+  /** What A0-A23 carry for a CPU address now: the CPU card's view (the flash at $F00000; WINnH's A20-A23 on a revision 2 north bridge; bank 8 at the aperture, $E00000, while its MAP's AP8 is set, or on a revision 1 bridge with a revision 2 card). */
   physical(cpuAddr: number): Promise<number>;
   /** A label or hex ("C800", "$C800") to a CPU address; null if neither. */
   resolve(text: string): Promise<number | null>;
