@@ -55,13 +55,7 @@ VGA_CPU   = $4000
 .segment "APPLE"
 
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
-                CPX     #NB_ID_V2
-                BNE     @low
-                STZ     NB_WIN0H
-                STZ     NB_WIN1H
-                STZ     NB_WIN2H
-@low:           STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -81,7 +75,15 @@ APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whateve
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:
+@rom:           LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
+                CPX     #NB_ID_V2      ; (after the checks: a refusal changes nothing; the
+                BNE     @low           ; images are flash, which WIN1H doesn't move)
+                LDA     IMAGE          ; carried into the zero page WIN0H 0 shows, for CHARS
+                STZ     NB_WIN0H
+                STZ     NB_WIN1H
+                STZ     NB_WIN2H
+                STA     IMAGE
+@low:
 
                 ; the ROM into bank E: $4000-$7FFF (W1) to $8000-$BFFF (W2)
                 LDA     #IIE_BLOCK

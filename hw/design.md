@@ -3303,8 +3303,9 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
   - The diagnostics: GO writes MAP 0 on `$D2` whatever the card (Q6), so `DG_APER`, read from AP8, is 0 and stages
     2–6 test all 64 blocks; V4–V7 reach the aperture at `$E00000` (`APW1`, `W1HOME`). Stage 7 takes revision 2,
     `$D2`, exactly (Q7): a `$D1` bridge says `REVISION 1: NOT KNOWN TO THIS BUILD`, SKIP. NB9 is not added (Q16).
-  - APPLE clears WIN0H–WIN2H (Q17); chapter 13's APPLE listing changes with it (C1, approved), and Apple II mode
-    is otherwise unchanged.
+  - APPLE clears WIN0H–WIN2H (Q17) after its checks for the card, the DMA controller and the IIe ROM, so a refusal
+    changes nothing (review round 1, R5), keeping IMAGE across the change of zero page; chapter 13's APPLE listing
+    changes with it (C1, approved), and Apple II mode is otherwise unchanged.
   - `hwname.s` knows `$D2` (`HW_NB_ID2`), names IDs 0–5 "(free)" and F "(reserved)" (C11): `HW_NAME` is 45 B
     (13 B of code, 32 B of pointers) and 169 B of names, 222 B before ([diag.md](diag.md)).
 - **OODOS** (stays 0.10, Q15; OOLIB's interface 11 → 12):

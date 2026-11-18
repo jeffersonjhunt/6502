@@ -48,16 +48,10 @@ Status: **emulated**
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
 map and with nothing changed, if any of it is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:57-84 -->
+<!-- listing: ../../backplane/bios/apple.s:57-86 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
-                CPX     #NB_ID_V2
-                BNE     @low
-                STZ     NB_WIN0H
-                STZ     NB_WIN1H
-                STZ     NB_WIN2H
-@low:           STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -77,7 +71,15 @@ APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whateve
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:
+@rom:           LDX     NB_ID          ; a $D2 bridge: W0-W2 below 1 MB, whatever a program left
+                CPX     #NB_ID_V2      ; (after the checks: a refusal changes nothing; the
+                BNE     @low           ; images are flash, which WIN1H doesn't move)
+                LDA     IMAGE          ; carried into the zero page WIN0H 0 shows, for CHARS
+                STZ     NB_WIN0H
+                STZ     NB_WIN1H
+                STZ     NB_WIN2H
+                STA     IMAGE
+@low:
 ```
 
 - **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
@@ -118,7 +120,7 @@ Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:155-157 -->
+<!-- listing: ../../backplane/bios/apple.s:157-159 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
