@@ -20,6 +20,7 @@
  */
 
 #include "harness.h"
+#include "scratch.h"
 #include "sd_images.h"
 
 #include "flash.h"
@@ -40,9 +41,17 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    /// backplane.machine with its video line at revision 2, written beside the test as `name`. The BIOS is built
-    /// for revision 2 (hw/video-rev2.md, proposed), and the file still says rev=1 until the BIOS, OODOS and the
-    /// demo move together; once it says rev=2 this copies it as it is.
+
+    /// @return the path of `name` in the suite's scratch directory (scratch.h)
+    std::string tmp(const std::string &name)
+    {
+        static const ScratchDir dir("test_bios_sd");
+        return dir.file(name);
+    }
+
+    /// backplane.machine with its video line at revision 2, written as `name` in the scratch directory. The BIOS
+    /// is built for revision 2 (hw/video-rev2.md, proposed), and the file still says rev=1 until the BIOS, OODOS
+    /// and the demo move together; once it says rev=2 this copies it as it is.
     std::string rev2_machine(const std::string &name)
     {
         std::ifstream in(EMU_MACHINE_DIR "/backplane.machine");
@@ -51,8 +60,9 @@ namespace
         const size_t rev = line == std::string::npos ? line : text.find(" rev=1", line);
         if (rev != std::string::npos && rev < text.find('\n', line + 1))
             text.replace(rev, 6, " rev=2");
-        std::ofstream(name) << text;
-        return name;
+        const std::string path = tmp(name);
+        std::ofstream(path) << text;
+        return path;
     }
     const std::string MACHINE = rev2_machine("test_bios_sd_rev2.machine");
 
@@ -127,7 +137,7 @@ namespace
         return powered_on_with(sd_image(image), out);
     }
 
-    /// backplane.machine without the line that starts `card` ("\nvideo "): written beside the test, for `booted`.
+    /// backplane.machine without the line that starts `card` ("\nvideo "): written as `path`, for `booted`.
     std::string machine_without(const std::string &card, const std::string &path)
     {
         std::ifstream in(MACHINE);
@@ -198,7 +208,7 @@ TEST(at_power_on_a_boot_bin_that_cant_be_booted_says_why)
 
 TEST(with_no_video_card_a_key_has_two_seconds_before_the_boot)
 {
-    const std::string path = machine_without("video", "test_bios_sd_novideo.machine");
+    const std::string path = machine_without("video", tmp("test_bios_sd_novideo.machine"));
     {
         std::string out;
         auto s = powered_on_with(sd_image("fat12.sparse"), out, path);
@@ -370,7 +380,7 @@ TEST(a_machine_without_the_card_says_so)
     const size_t sd = text.find("\nsd ");
     REQUIRE(sd != std::string::npos);
     text.erase(sd + 1, text.find('\n', sd + 1) - sd);
-    const std::string path = "test_bios_sd_nocard.machine";
+    const std::string path = tmp("test_bios_sd_nocard.machine");
     std::ofstream(path) << text;
     auto s = booted("", path);
     REQUIRE(s != nullptr);
