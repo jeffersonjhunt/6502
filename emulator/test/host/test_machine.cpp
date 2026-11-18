@@ -9,6 +9,7 @@
  */
 
 #include "harness.h"
+#include "scratch.h"
 
 #include "acia6551.h"
 #include "backplane_bridge.h"
@@ -25,43 +26,24 @@
 #include "via6522.h"
 
 #include <cstdio>
-#include <filesystem>
 #include <string>
-#include <system_error>
-
-#include <unistd.h>
 
 using namespace ooe::test;
 using namespace ooe::emu;
 
 namespace
 {
-    /// The suite's own directory for its images, in the temporary directory and named for this process,
-    /// removed with everything in it when the suite exits: a run leaves nothing where it was started.
-    struct ScratchDir
+    /// @return the path of `name` in the suite's scratch directory (scratch.h)
+    std::string tmp(const std::string &name)
     {
-        std::filesystem::path path = std::filesystem::temp_directory_path() /
-                                     ("test_machine_" + std::to_string(::getpid()));
-        ScratchDir() { std::filesystem::create_directories(path); }
-        ScratchDir(const ScratchDir &) = delete;
-        ScratchDir &operator=(const ScratchDir &) = delete;
-        ~ScratchDir()
-        {
-            std::error_code ec; // never throw from a destructor; a leftover directory is no failure of the suite's
-            std::filesystem::remove_all(path, ec);
-        }
-    };
-
-    const std::filesystem::path &scratch()
-    {
-        static const ScratchDir dir;
-        return dir.path;
+        static const ScratchDir dir("test_machine");
+        return dir.file(name);
     }
 
     /// A `size`-byte image of 0x01, 0x02, ... in the suite's scratch directory. @return its path
     std::string image(const char *name, size_t size)
     {
-        const std::string path = (scratch() / name).string();
+        const std::string path = tmp(name);
         std::FILE *f = std::fopen(path.c_str(), "wb");
         CHECK(f != nullptr);
         if (f == nullptr)

@@ -10,6 +10,7 @@
  */
 
 #include "harness.h"
+#include "scratch.h"
 #include "test_support.h"
 
 #include "session.h"
@@ -29,6 +30,13 @@ using namespace ooe::emu;
 
 namespace
 {
+    /// @return the path of `name` in the suite's scratch directory (scratch.h)
+    std::string tmp(const std::string &name)
+    {
+        static const ScratchDir dir("test_session");
+        return dir.file(name);
+    }
+
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
     const std::string GREETING = "\rBACKPLANE BIOS 0.17\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
@@ -68,8 +76,9 @@ namespace
 
     std::string write_machine(const std::string &name, const std::string &text)
     {
-        std::ofstream(name) << text;
-        return name;
+        const std::string path = tmp(name);
+        std::ofstream(path) << text;
+        return path;
     }
 } // namespace
 
@@ -491,18 +500,18 @@ TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
     const uint8_t reset[] = {0xAD, 0x50, 0xC0, 0xA9, 0xA5, 0x8D, 0x00, 0x03, 0x4C, 0x6A, 0xFA};
     for (size_t i = 0; i < sizeof reset; ++i)
         image[0xFA62 - 0xC000 + i] = static_cast<char>(reset[i]);
-    std::ofstream("test_session_iie.rom", std::ios::binary) << image;
-    std::ofstream("test_session_short.rom", std::ios::binary) << std::string(100, '\0');
+    std::ofstream(tmp("test_session_iie.rom"), std::ios::binary) << image;
+    std::ofstream(tmp("test_session_short.rom"), std::ios::binary) << std::string(100, '\0');
 
     auto s = booted();
     REQUIRE(s != nullptr);
     std::string error, out;
-    REQUIRE(s->set_cartridge({"test_session_iie.rom"}, "", error));
+    REQUIRE(s->set_cartridge({tmp("test_session_iie.rom")}, "", error));
     CHECK(run_until(*s, out, GREETING));         // plugged in with the power off: a fresh boot
-    CHECK(!s->set_cartridge({"test_session_short.rom"}, "", error));
+    CHECK(!s->set_cartridge({tmp("test_session_short.rom")}, "", error));
     CHECK(error.find("16 KB") != std::string::npos);
     CHECK_EQ(s->cartridge().size(), 1u);         // the old one stays in, and works:
-    CHECK_EQ(s->cartridge()[0], std::string("test_session_iie.rom"));
+    CHECK_EQ(s->cartridge()[0], tmp("test_session_iie.rom"));
     REQUIRE(s->apple_switches() != nullptr);
     CHECK(s->apple_switches()->text);
     CHECK(!s->apple_mode());
@@ -522,8 +531,8 @@ TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
     REQUIRE(run_until(*s, out, GREETING));
     s->send("C806R\r");
     CHECK(run_until(*s, out, "NO APPLE IIE ROM"));
-    std::remove("test_session_iie.rom");
-    std::remove("test_session_short.rom");
+    std::remove(tmp("test_session_iie.rom").c_str());
+    std::remove(tmp("test_session_short.rom").c_str());
 }
 
 TEST(rom_a_blocks_0_to_5_keep_what_they_hold_through_power_cycles_and_the_row_writes_image_0_and_set_0)
@@ -555,22 +564,22 @@ TEST(rom_a_blocks_0_to_5_keep_what_they_hold_through_power_cycles_and_the_row_wr
 
     std::string image(0x4000, '\0');
     image[0x3BB3] = 0x06;
-    std::ofstream("test_session_kept.rom", std::ios::binary) << image;
-    std::ofstream("test_session_kept.chr", std::ios::binary) << std::string(0x2000, '\x11');
-    std::ofstream("test_session_kept_short.rom", std::ios::binary) << std::string(100, '\0');
-    REQUIRE(s->set_cartridge({"test_session_kept.rom"}, "test_session_kept.chr", error));
+    std::ofstream(tmp("test_session_kept.rom"), std::ios::binary) << image;
+    std::ofstream(tmp("test_session_kept.chr"), std::ios::binary) << std::string(0x2000, '\x11');
+    std::ofstream(tmp("test_session_kept_short.rom"), std::ios::binary) << std::string(100, '\0');
+    REQUIRE(s->set_cartridge({tmp("test_session_kept.rom")}, tmp("test_session_kept.chr"), error));
     CHECK_EQ(at(0x3BB3), 0x06);                 // image 0
     CHECK_EQ(at(0x0000), 0x00);
     CHECK_EQ(at(0x10000), 0x11);                // set 0
     CHECK_EQ(at(0x11FFF), 0x11);
     CHECK_EQ(at(0x8100), 0x5A);                 // image 2 kept
-    std::remove("test_session_kept.rom");       // a power cycle reads neither file again:
-    std::remove("test_session_kept.chr");
+    std::remove(tmp("test_session_kept.rom").c_str());       // a power cycle reads neither file again:
+    std::remove(tmp("test_session_kept.chr").c_str());
     REQUIRE(s->power_cycle(error));
     CHECK_EQ(at(0x3BB3), 0x06);                 // the flash holds them
     CHECK_EQ(at(0x10000), 0x11);
 
-    CHECK(!s->set_cartridge({"test_session_kept_short.rom"}, "", error)); // refused:
+    CHECK(!s->set_cartridge({tmp("test_session_kept_short.rom")}, "", error)); // refused:
     CHECK(error.find("16 KB") != std::string::npos);
     CHECK_EQ(at(0x3BB3), 0x06);                 // the running machine's flash untouched
     CHECK_EQ(at(0x10000), 0x11);
@@ -589,7 +598,7 @@ TEST(rom_a_blocks_0_to_5_keep_what_they_hold_through_power_cycles_and_the_row_wr
     REQUIRE(s->power_cycle(error));
     CHECK_EQ(at(0x3BB3), 0xFF);
     CHECK_EQ(at(0x8100), 0x5A);
-    std::remove("test_session_kept_short.rom");
+    std::remove(tmp("test_session_kept_short.rom").c_str());
 }
 
 TEST(the_row_rewrites_image_0_and_set_0_only_when_its_iie_rom_or_characters_change)
@@ -610,42 +619,43 @@ TEST(the_row_rewrites_image_0_and_set_0_only_when_its_iie_rom_or_characters_chan
     REQUIRE(rom_a() != nullptr);
     std::string image(0x4000, '\xFF');
     image[0x3BB3] = 0x06;
-    std::ofstream("test_session_row.rom", std::ios::binary) << image;
-    std::ofstream("test_session_row2.rom", std::ios::binary) << image; // the same bytes, another file
-    std::ofstream("test_session_row.chr", std::ios::binary) << std::string(0x2000, '\x11');
-    std::ofstream("test_session_row2.chr", std::ios::binary) << std::string(0x2000, '\x22');
-    std::ofstream("test_session_row_p5.rom", std::ios::binary) << std::string(256, '\x60');
+    std::ofstream(tmp("test_session_row.rom"), std::ios::binary) << image;
+    std::ofstream(tmp("test_session_row2.rom"), std::ios::binary) << image; // the same bytes, another file
+    std::ofstream(tmp("test_session_row.chr"), std::ios::binary) << std::string(0x2000, '\x11');
+    std::ofstream(tmp("test_session_row2.chr"), std::ios::binary) << std::string(0x2000, '\x22');
+    std::ofstream(tmp("test_session_row_p5.rom"), std::ios::binary) << std::string(256, '\x60');
     std::string error;
-    REQUIRE(s->set_cartridge({"test_session_row.rom"}, "test_session_row.chr", error));
+    REQUIRE(s->set_cartridge({tmp("test_session_row.rom")}, tmp("test_session_row.chr"), error));
     REQUIRE(at(0x0100) == 0xFF);
     REQUIRE(program(0x0100, 0x5A));             // image 0, written since the row's load
     REQUIRE(program(0x10100, 0x00));            // and set 0
 
     // A Disk II PROM, the row's IIe ROM and characters as they were (another file, the same bytes).
-    REQUIRE(s->set_cartridge({"test_session_row2.rom"}, "test_session_row.chr", "test_session_row_p5.rom", "", error));
+    REQUIRE(s->set_cartridge({tmp("test_session_row2.rom")}, tmp("test_session_row.chr"), tmp("test_session_row_p5.rom"), "",
+                             error));
     CHECK(s->disk2()->has_boot());
     CHECK_EQ(at(0x0100), 0x5A);                 // image 0 kept
     CHECK_EQ(at(0x10100), 0x00);                // set 0 kept
     CHECK_EQ(at(0x3BB3), 0x06);
-    REQUIRE(s->set_cartridge({"test_session_row2.rom"}, "test_session_row.chr", error)); // the PROM out
+    REQUIRE(s->set_cartridge({tmp("test_session_row2.rom")}, tmp("test_session_row.chr"), error)); // the PROM out
     CHECK(!s->disk2()->has_boot());
     CHECK_EQ(at(0x0100), 0x5A);
     CHECK_EQ(at(0x10100), 0x00);
 
     // New characters: image 0 and set 0 both from the row's files again.
-    REQUIRE(s->set_cartridge({"test_session_row2.rom"}, "test_session_row2.chr", error));
+    REQUIRE(s->set_cartridge({tmp("test_session_row2.rom")}, tmp("test_session_row2.chr"), error));
     CHECK_EQ(at(0x0100), 0xFF);
     CHECK_EQ(at(0x10100), 0x22);
     REQUIRE(program(0x0100, 0x5A));
     image[0x0200] = 0x00;                       // a new IIe ROM: the same
-    std::ofstream("test_session_row.rom", std::ios::binary | std::ios::trunc) << image;
-    REQUIRE(s->set_cartridge({"test_session_row.rom"}, "test_session_row2.chr", error));
+    std::ofstream(tmp("test_session_row.rom"), std::ios::binary | std::ios::trunc) << image;
+    REQUIRE(s->set_cartridge({tmp("test_session_row.rom")}, tmp("test_session_row2.chr"), error));
     CHECK_EQ(at(0x0100), 0xFF);
     CHECK_EQ(at(0x0200), 0x00);
     CHECK_EQ(at(0x10100), 0x22);
-    for (const char *f : {"test_session_row.rom", "test_session_row2.rom", "test_session_row.chr",
-                          "test_session_row2.chr", "test_session_row_p5.rom"})
-        std::remove(f);
+    for (const std::string &f : {tmp("test_session_row.rom"), tmp("test_session_row2.rom"), tmp("test_session_row.chr"),
+                          tmp("test_session_row2.chr"), tmp("test_session_row_p5.rom")})
+        std::remove(f.c_str());
 }
 
 TEST(a_disk_stays_in_its_drive_through_power_cycles_and_cartridges)
@@ -664,12 +674,12 @@ TEST(a_disk_stays_in_its_drive_through_power_cycles_and_cartridges)
     REQUIRE(s->power_cycle(error));
     CHECK(s->disk(0) == d);                       // the machine is new; the disk is the same one
     CHECK(s->disk2()->disk(0).get() == d);
-    std::ofstream("test_session_p5.rom", std::ios::binary) << std::string(256, '\x60');
-    std::ofstream("test_session_bad.rom", std::ios::binary) << std::string(255, '\0');
-    CHECK(!s->set_cartridge({}, "", "test_session_bad.rom", "", error));
+    std::ofstream(tmp("test_session_p5.rom"), std::ios::binary) << std::string(256, '\x60');
+    std::ofstream(tmp("test_session_bad.rom"), std::ios::binary) << std::string(255, '\0');
+    CHECK(!s->set_cartridge({}, "", tmp("test_session_bad.rom"), "", error));
     CHECK(error.find("want a 256-byte Disk II PROM") != std::string::npos);
     CHECK(!s->disk2()->has_boot());               // refused: the old cartridge (none) stays
-    REQUIRE(s->set_cartridge({}, "", "test_session_p5.rom", "", error));
+    REQUIRE(s->set_cartridge({}, "", tmp("test_session_p5.rom"), "", error));
     CHECK(s->disk2()->has_boot());
     CHECK_EQ(s->disk2()->slot_rom(0), 0x60);
     CHECK(s->disk2()->disk(0).get() == d);        // and through a cartridge change
@@ -677,8 +687,8 @@ TEST(a_disk_stays_in_its_drive_through_power_cycles_and_cartridges)
     CHECK(s->disk(0) == nullptr);
     CHECK(s->disk2()->disk(0) == nullptr);
     CHECK_EQ(s->peek_io(0x67F), Disk2Card::ID);   // native mode: the card's ID at $C67F
-    std::remove("test_session_p5.rom");
-    std::remove("test_session_bad.rom");
+    std::remove(tmp("test_session_p5.rom").c_str());
+    std::remove(tmp("test_session_bad.rom").c_str());
 }
 
 TEST(stp_ends_the_run_and_start_gets_out)
@@ -710,7 +720,7 @@ TEST(a_machine_without_a_panel)
     REQUIRE(at != std::string::npos);
     text.erase(at + 1, text.find('\n', at + 1) - at);       // drop the console line
     auto s = open(write_machine("no_panel.machine", text));
-    std::remove("no_panel.machine");                        // read at create: leave nothing behind
+    std::remove(tmp("no_panel.machine").c_str());                        // read at create: leave nothing behind
     REQUIRE(s != nullptr);
     CHECK(!s->has_card());
     CHECK_EQ(s->card_read(ConsoleCard::ID_REG), 0xFF);
@@ -749,7 +759,7 @@ TEST(a_power_cycle_puts_the_north_bridges_map_and_winh_back)
     CHECK_EQ(s->bridge()->map(), 0x00);
     std::string error;
     const bool cycled = s->power_cycle(error);
-    std::remove("nb2.machine");
+    std::remove(tmp("nb2.machine").c_str());
     if (!cycled)
         std::printf("  %s\n", error.c_str());
     REQUIRE(cycled);

@@ -11,6 +11,7 @@
  */
 
 #include "harness.h"
+#include "scratch.h"
 
 #include "decoder.h"
 #include "disk2_card.h"
@@ -28,6 +29,13 @@ using namespace ooe::emu;
 
 namespace
 {
+    /// @return the path of `name` in the suite's scratch directory (scratch.h)
+    std::string tmp(const std::string &name)
+    {
+        static const ScratchDir dir("test_disk2");
+        return dir.file(name);
+    }
+
     struct In
     {
         uint8_t state; ///< 0-15
@@ -109,13 +117,13 @@ TEST(native_mode_has_the_sixteen_switches_and_the_id_byte)
 {
     // Phase 6a: $C600-$C60F are slot 6's $C0E0-$C0EF, through the card's own block (Device), the rest $FF,
     // $C67F the ID; a peek changes nothing; no boot ROM there.
-    Rig r(sequencer("test_disk2_nld.rom", [](In) { return Out{0, LD}; }));
+    Rig r(sequencer(tmp("test_disk2_nld.rom"), [](In) { return Out{0, LD}; }));
     std::string boot(256, '\0');
     for (int i = 0; i < 256; ++i)
         boot[static_cast<size_t>(i)] = static_cast<char>(i ^ 0xA5);
-    std::ofstream("test_disk2_nboot.rom", std::ios::binary) << boot;
+    std::ofstream(tmp("test_disk2_nboot.rom"), std::ios::binary) << boot;
     std::string error;
-    REQUIRE(r.card.load_roms("test_disk2_nboot.rom", "test_disk2_nld.rom", error));
+    REQUIRE(r.card.load_roms(tmp("test_disk2_nboot.rom"), tmp("test_disk2_nld.rom"), error));
     r.card.set_clock(Disk2Card::Clock::Native);
     // the whole block, read and peeked: the switches (even the register, 0 so far; odd $FF), $FF, the ID; the
     // boot ROM never in it
@@ -166,8 +174,8 @@ TEST(native_mode_has_the_sixteen_switches_and_the_id_byte)
     const uint8_t reg = r.card.status().data;
     for (uint32_t o = 0; o < 0x10; ++o)
         CHECK_EQ(r.card.peek(o), o & 1 ? 0xFF : reg);
-    std::remove("test_disk2_nld.rom");
-    std::remove("test_disk2_nboot.rom");
+    std::remove(tmp("test_disk2_nld.rom").c_str());
+    std::remove(tmp("test_disk2_nboot.rom").c_str());
 }
 
 TEST(native_mode_counts_two_steps_every_seven_cycles)
@@ -195,7 +203,7 @@ TEST(native_mode_counts_two_steps_every_seven_cycles)
     r.cycles(100);
     CHECK_EQ(r.card.status().steps - s0, uint64_t{200 + 200});
     // and the disk under the head moves by the steps: a byte (64 steps) is 224 native cycles
-    Rig c(sequencer("test_disk2_ncount.rom", [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }));
+    Rig c(sequencer(tmp("test_disk2_ncount.rom"), [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }));
     c.card.set_clock(Disk2Card::Clock::Native);
     c.write(MOTOR_ON, 0);
     c.card.insert(0, disk_of("1"));
@@ -203,7 +211,7 @@ TEST(native_mode_counts_two_steps_every_seven_cycles)
     c.write(Q6L, 0);
     c.cycles(224 - 2);
     CHECK_EQ(c.read(Q6L), 0xFF);          // eight cells' pulses, eight 1s
-    std::remove("test_disk2_ncount.rom");
+    std::remove(tmp("test_disk2_ncount.rom").c_str());
 }
 
 TEST(native_mode_steps_keep_the_disks_time_at_any_cpu_speed)
@@ -264,35 +272,35 @@ TEST(the_proms_are_256_bytes_and_the_boot_rom_is_slot_6s)
     std::string boot(256, '\0');
     for (int i = 0; i < 256; ++i)
         boot[static_cast<size_t>(i)] = static_cast<char>(i ^ 0x5A);
-    std::ofstream("test_disk2_boot.rom", std::ios::binary) << boot;
-    std::ofstream("test_disk2_short.rom", std::ios::binary) << std::string(100, '\0');
+    std::ofstream(tmp("test_disk2_boot.rom"), std::ios::binary) << boot;
+    std::ofstream(tmp("test_disk2_short.rom"), std::ios::binary) << std::string(100, '\0');
     std::string error;
-    CHECK(!c.load_roms("test_disk2_short.rom", "", error));
-    CHECK(error == "test_disk2_short.rom: want a 256-byte Disk II PROM, got 100 bytes");
+    CHECK(!c.load_roms(tmp("test_disk2_short.rom"), "", error));
+    CHECK(error == tmp("test_disk2_short.rom") + ": want a 256-byte Disk II PROM, got 100 bytes");
     CHECK(!c.has_boot());
-    REQUIRE(c.load_roms("test_disk2_boot.rom", "", error));
+    REQUIRE(c.load_roms(tmp("test_disk2_boot.rom"), "", error));
     CHECK(c.has_boot());
     CHECK(!c.has_sequencer());
     CHECK_EQ(c.slot_rom(0x00), 0x5A);
     CHECK_EQ(c.slot_rom(0xFF), 0xA5);
-    std::remove("test_disk2_boot.rom");
-    std::remove("test_disk2_short.rom");
+    std::remove(tmp("test_disk2_boot.rom").c_str());
+    std::remove(tmp("test_disk2_short.rom").c_str());
 }
 
 TEST(the_sequencer_loads_the_data_bus_and_even_addresses_read_the_register)
 {
-    Rig r(sequencer("test_disk2_ld.rom", [](In) { return Out{0, LD}; }));
+    Rig r(sequencer(tmp("test_disk2_ld.rom"), [](In) { return Out{0, LD}; }));
     r.write(MOTOR_ON, 0);
     r.write(Q6H, 0x5A);         // the byte on the card's data bus
     r.cycles(2);
     CHECK_EQ(r.read(Q6L), 0x5A); // even: the data register
     CHECK_EQ(r.read(Q6H), 0xFF); // odd: nothing drives the bus
-    std::remove("test_disk2_ld.rom");
+    std::remove(tmp("test_disk2_ld.rom").c_str());
 }
 
 TEST(shift_right_brings_in_write_protect)
 {
-    Rig r(sequencer("test_disk2_sr.rom", [](In) { return Out{0, SR}; }));
+    Rig r(sequencer(tmp("test_disk2_sr.rom"), [](In) { return Out{0, SR}; }));
     r.write(MOTOR_ON, 0);
     r.cycles(8);
     CHECK_EQ(r.read(Q6L), 0xFF); // no disk: protected
@@ -302,19 +310,19 @@ TEST(shift_right_brings_in_write_protect)
     r.card.disk(0)->set_write_protected(true);
     r.cycles(8);
     CHECK_EQ(r.read(Q6L), 0xFF);
-    std::remove("test_disk2_sr.rom");
+    std::remove(tmp("test_disk2_sr.rom").c_str());
 }
 
 TEST(a_read_pulse_for_each_1_bit_once_a_cell)
 {
     // pulse: shift in a 1; otherwise nothing. Each 4 us cell (4 cycles) with a 1 adds one bit.
-    Rig r(sequencer("test_disk2_rp.rom", [](In in) { return Out{0, in.pulse ? SL1 : NOP}; }));
+    Rig r(sequencer(tmp("test_disk2_rp.rom"), [](In in) { return Out{0, in.pulse ? SL1 : NOP}; }));
     r.card.insert(0, disk_of("10"));
     r.write(MOTOR_ON, 0);
     r.cycles(4 * 8 - 2);         // eight cells (32 cycles) with the switch and the read: four of them 1s
     CHECK_EQ(r.read(Q6L), 0x0F);
     CHECK(!r.card.disk(0)->changed()); // reading writes nothing
-    std::remove("test_disk2_rp.rom");
+    std::remove(tmp("test_disk2_rp.rom").c_str());
 }
 
 namespace
@@ -334,7 +342,10 @@ namespace
         }
         return n;
     }
-    std::string counting() { return sequencer("test_disk2_count.rom", [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }); }
+    std::string counting()
+    {
+        return sequencer(tmp("test_disk2_count.rom"), [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; });
+    }
 } // namespace
 
 TEST(past_three_0_bits_the_amplifier_reads_noise)
@@ -349,7 +360,7 @@ TEST(past_three_0_bits_the_amplifier_reads_noise)
     r.card.insert(0, nullptr);            // an empty drive: noise all round
     const unsigned e = pulses(r, 800);
     CHECK(e > 160 && e < 320);
-    std::remove("test_disk2_count.rom");
+    std::remove(tmp("test_disk2_count.rom").c_str());
 }
 
 TEST(a_woz_disks_bit_timing_sets_the_cell)
@@ -370,7 +381,7 @@ TEST(a_woz_disks_bit_timing_sets_the_cell)
     r.card.insert(0, d);
     const unsigned n = pulses(r, 800); // 200 at 4 us
     CHECK(n >= 224 && n <= 234);
-    std::remove("test_disk2_count.rom");
+    std::remove(tmp("test_disk2_count.rom").c_str());
 }
 
 TEST(a_long_wait_in_read_mode_lands_the_head_where_it_would_be)
@@ -384,13 +395,13 @@ TEST(a_long_wait_in_read_mode_lands_the_head_where_it_would_be)
     r.write(MOTOR_ON, 0);                 // cell 0 under the head
     r.cycles(4 * 3000 + 8);               // nobody looks: skipped, not stepped
     CHECK_EQ(pulses(r, 8), 8u);           // in the run: a 1 every cell (elsewhere, every other)
-    std::remove("test_disk2_count.rom");
+    std::remove(tmp("test_disk2_count.rom").c_str());
 }
 
 TEST(the_register_bit_7_and_q6_q7_reach_the_prom)
 {
     // Shift in 1s while QA is clear; once it is set, clear in read mode, load in "sense", NOP else.
-    Rig r(sequencer("test_disk2_qa.rom", [](In in) {
+    Rig r(sequencer(tmp("test_disk2_qa.rom"), [](In in) {
         if (in.q7)
             return Out{0, in.q6 ? LD : SL0};
         if (in.q6)
@@ -412,13 +423,14 @@ TEST(the_register_bit_7_and_q6_q7_reach_the_prom)
     r.write(Q7H, 0x81);         // write mode, Q6 low: shift left in 0s
     r.cycles(5);
     CHECK_EQ(r.read(Q6L), 0x00); // (an even address: the register)
-    std::remove("test_disk2_qa.rom");
+    std::remove(tmp("test_disk2_qa.rom").c_str());
 }
 
 TEST(writing_the_head_follows_state_bit_7)
 {
     // In write mode count the state round: D7 changes every 8 steps, once a cell, so every cell gets a 1.
-    Rig r(sequencer("test_disk2_wr.rom", [](In in) { return Out{static_cast<uint8_t>(in.q7 ? (in.state + 1) & 15 : 0), NOP}; }));
+    Rig r(sequencer(tmp("test_disk2_wr.rom"),
+                    [](In in) { return Out{static_cast<uint8_t>(in.q7 ? (in.state + 1) & 15 : 0), NOP}; }));
     r.card.insert(0, disk_of("0"));
     r.write(MOTOR_ON, 0);
     r.write(Q7H, 0);
@@ -439,7 +451,7 @@ TEST(writing_the_head_follows_state_bit_7)
     r.cycles(4 * 100);
     CHECK(!p->changed());        // protected: the head never writes
     CHECK(!p->track(0)->bit(50));
-    std::remove("test_disk2_wr.rom");
+    std::remove(tmp("test_disk2_wr.rom").c_str());
 }
 
 TEST(the_head_steps_towards_the_magnets)
@@ -493,7 +505,7 @@ TEST(the_motor_runs_on_a_second_after_it_is_switched_off)
 TEST(drive_2_has_its_own_disk_and_head)
 {
     // Q6 on clears the register; then count pulses for eight cells.
-    Rig r(sequencer("test_disk2_d2.rom", [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }));
+    Rig r(sequencer(tmp("test_disk2_d2.rom"), [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }));
     const auto eight_cells = [&] {
         r.write(Q6H, 0);
         r.write(Q6L, 0);
@@ -514,7 +526,7 @@ TEST(drive_2_has_its_own_disk_and_head)
     CHECK_EQ(eight_cells(), 0x03); // two pulses in eight cells
     r.write(DRIVE1, 0);
     CHECK_EQ(eight_cells(), 0xFF);
-    std::remove("test_disk2_d2.rom");
+    std::remove(tmp("test_disk2_d2.rom").c_str());
 }
 
 TEST(reset_clears_the_latch_and_peeks_change_nothing)
