@@ -4,8 +4,13 @@
 ; router: a segment is a segment). For now it holds OOLIB's gxmem.s, linked
 ; in (../lib/gxmem.s: GX_INIT, GX_BANK8, GX_BLOCK, GX_W1BACK), and:
 ;
-;   GXSTRT    start-up, from P2's GWINIT, once: GX_INIT with no event area
-;             (A/X 0), then GX_BANK8 whatever GX_INIT answered (with no
+;   GXSTRT    start-up, from P2's GWINIT, once: CON:'s output read (the
+;             SCB's $24, function 49), GX_INIT with no event area (A/X 0),
+;             and the screen chosen from the two (7d1, the owner's answer 2
+;             of 2026-11-18): GW-BASIC's own text layer (SCRMOD bit 7) only
+;             when GX_INIT took it (a revision 2 card, OODOS's interface 8 or
+;             later, with DMA) and CON:'s output includes the CRT; else 7a's
+;             console mode. Then GX_BANK8 whatever GX_INIT answered (with no
 ;             revision 2 card GX_BANK8 is a success that changes nothing,
 ;             bank 8 being RAM already: oolib.inc), then the scratch byte's
 ;             physical address (function 73)
@@ -54,7 +59,10 @@
 ;@entry DSRUN
 .export GXSTRT, DSBYTE, DSRUN
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
-.import FCERR, SAVSEG
+.import FCERR, SAVSEG, SCRMOD
+
+CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
+                                       ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
 
 .code
 
@@ -65,10 +73,20 @@
 ; the program's RAM (B7's question 5), and the scratch byte's physical
 ; address, by function 73 while this block is in W3. Their answers aren't
 ; needed: GX_BLOCK refuses whatever GX_INIT didn't allow.
-GXSTRT:         LDA     #0
+GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byte
+                LDX     #>SCBPB
+                LDY     #S_SCB
+                JSR     BDOS
+                TXA
+                AND     #CON_CRT
+                STA     DSVAL          ; (DSBYTE's, free until a PEEK)
+                LDA     #0
                 TAX
                 JSR     GX_INIT
-                JSR     GX_BANK8
+                BCS     @con           ; refused: the console, whatever CON: is
+                LDA     DSVAL
+                STA     SCRMOD         ; bit 7: the CRT, so GW-BASIC's own screen
+@con:           JSR     GX_BANK8
                 LDA     #<SCRB
                 STA     DSPB
                 LDA     #>SCRB
@@ -309,4 +327,6 @@ DSDIR:          .res    1              ; bit 7: a POKE
 DSCB:           .res    9              ; function 83's DM_COPY block
 DSPB:           .res    4              ; function 73's
 SCRB:           .res    1              ; the scratch byte
+.segment "RODATA"
+SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output vector
 SCRP:           .res    3              ; and its physical address (GXSTRT)

@@ -55,7 +55,7 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
-.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR
+.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL
 
         OODOS_HEADER
@@ -531,6 +531,11 @@ MMISS:          .byte   13, 10, "?far call before GW-BASIC was loaded", 13, 10, 
 KYBQ:           .res    KYBQLN         ; the keyboard queue (hw/oodos.md: in LOWRAM, for 7d's EVPOLL)
 KYBQIN:         .res    1
 KYBQOUT:        .res    1
+; 7d1: which screen GW-BASIC has (hw/oodos.md, 7d1; the owner's answer 2 of
+; 2026-11-18), chosen once at start-up by P5's GXSTRT: bit 7 its own text
+; layer (a revision 2 card answered GX_INIT and CON:'s output has the CRT),
+; else 0, 7a's console mode, exactly as it was. In LOWRAM, since P5 writes it.
+SCRMOD:         .byte   0
 
 .segment "RAM"
 ; 7c's: OUTDO's run for PTRFIL's file (above); FILOPN, the files open,

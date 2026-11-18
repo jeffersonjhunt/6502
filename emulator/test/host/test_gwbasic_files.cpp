@@ -90,6 +90,7 @@ namespace
         if (com.empty() || ovl.empty())
             return {};
         r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
         return r.to("m:gwbasic", "Ok\r\n");
     }
 
@@ -527,6 +528,7 @@ TEST(a_program_named_on_the_command_line_runs)
     CHECK_EQ(command(r, "SAVE \"PROG\""), std::string());
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     const std::string got = r.cmd("m:gwbasic prog");
     CHECK(got.find("from the command line\r\n") != std::string::npos);
     CHECK(got.find("Bytes free") == std::string::npos);
@@ -566,6 +568,7 @@ TEST(the_command_line_s_switches_are_read_and_m_sets_the_top)
         }
         return std::strtol(o.c_str() + at + 5, nullptr, 10);
     };
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     const long all = fre("m:gwbasic prog"), top = r.phys(0x0204) | r.phys(0x0205) << 8;
     CHECK(all > 30000);
     CHECK_EQ(fre("m:gwbasic prog /f:3 /s:256 /m:40000"), all - (top - 40000));
@@ -663,6 +666,7 @@ TEST(files_leaves_out_system_files)
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set dsa.txt [sys]");
     CHECK(r.cmd("dirsys ds*.txt").find("DSA      TXT") != std::string::npos);
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSB     .TXT \r\n"));
     CHECK_EQ(command(r, "FILES \"DSA.TXT\""), std::string("File not found\r\n"));
@@ -1295,6 +1299,7 @@ TEST(w3_a_file_with_attributes_open_is_file_already_open)
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set w3.txt [archive=on]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"W3.TXT\":OPEN \"O\",#2,\"W3.TXT\""), std::string("File already open\r\n"));
     CHECK_EQ(command(r, "LINE INPUT #1,A$:PRINT A$:CLOSE"), std::string("kept\r\n"));
@@ -1358,6 +1363,7 @@ TEST(w7_kill_and_name_pass_over_system_files)
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set w7b.com [sys]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "KILL \"S*.COM\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "KILL \"PIP.COM\""), std::string("File not found\r\n"));
@@ -1465,6 +1471,7 @@ TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set w7s.* [sys]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"W7S.TXT\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
@@ -1517,6 +1524,7 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set rs.txt [sys]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "A$=STRING$(50,\"s\")"), std::string());
     const std::string fre2 = command(r, "PRINT FRE(0)");
