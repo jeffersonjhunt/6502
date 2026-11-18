@@ -3488,7 +3488,8 @@ isn't the program's (the I/O hole, flash), and:
   card of revision 2 or no DMA controller. `$FF` (off) is always taken.
 - `DM_BANK8`: a revision 1 north bridge (ID `$D1`), which has no MAP, or a ROM BIOS before 0.17
   ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
-  bank 8's RAM. Nothing is changed, and the program stays with bank 8 as the aperture.
+  bank 8's RAM. Nothing is changed: bank 8 stays as it was, the aperture with a revision 2 video card and RAM
+  without one.
 - `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a piece through the port that didn't end (no DMA controller answering, or one
   starved): A = X = `$FF`, the pieces before it done and none after.
 

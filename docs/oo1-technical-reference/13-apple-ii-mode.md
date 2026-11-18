@@ -95,7 +95,9 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
   IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
   CARTRIDGE`.)
 
-Then, in order:
+With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN0H–WIN2H to 0, whatever a
+program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the high
+registers don't move. Then, in order:
 
 1. **The ROM image.** It copies image *n*'s 16 KB, ROM A block *n* through W1, by the CPU, to RAM block 59:
    `$EC000–$EFFFF`, bank E's `$C000–$FFFF`.

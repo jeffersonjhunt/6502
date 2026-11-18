@@ -42,8 +42,10 @@ and there the six offsets read `$FF` and drop what is written.
 - **Software writes them only after reading NB_ID as `$D2`.** The BIOS's boot and Break set WIN0H–WIN3H and VECH to
   0 and write MAP whole: 1 when a revision 2 video card is fitted (`VIDEO_ID` `$92`), else 0, so a machine with no
   such card has bank 8 as RAM ([chapter 3](03-boot.md)). OODOS does the same at its warm boot, keeps AP8 set, and
-  clears it only for a program that asks (function 83's `DM_BANK8`). Under OODOS only OOLIB gives a window a high
-  register other than 0: WIN1H `$0E`, for slot 1 at `$E04000`.
+  clears it only for a program that asks (function 83's `DM_BANK8`). Under OODOS, among programs only OOLIB gives
+  a window a high register other than 0: WIN1H `$0E`, for slot 1 at `$E04000`. OODOS itself reaches the aperture
+  at `$E00000` inside the BDOS: its console maps W1 with WIN1H `$0E` for each character and puts WIN1H back to 0
+  before it returns, and `DM_VCOPY`'s DMA borrows slots 2 and 3 at `$E08000` and `$E0C000`.
 - **The Console card and the bus spy** see the true map: driving the bus themselves, they find bank 8 the RAM
   card's whatever AP8 holds ([chapter 12](12-front-panel.md)).
 

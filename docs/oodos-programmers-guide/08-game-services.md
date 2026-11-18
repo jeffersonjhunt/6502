@@ -69,7 +69,10 @@ read, so the counter keeps time through it to about half a percent. A sector tak
 is missed.
 
 **What the clocks cost.** Each tick is an interrupt: 162 cycles with no event area and no hooks, 2% of the CPU, in
-every program (since B7, *proposed*, with the dispatcher's 17 cycles for WIN1H on a revision 2 north bridge). An open
+every program (since B7, *proposed*, with the dispatcher's 17 cycles for WIN1H on a revision 2 north bridge, where
+WIN1H is 0 and nothing needs clearing). While a program that called `GX_BANK8` has slot 1 in W1, WIN1H `$0E`, the
+dispatcher clears it and puts it back, 10 cycles more on every interrupt: a tick 172, a frame 225 (measured at B7's
+final build). An open
 event area of layout 1 adds 39 cycles a tick, one of layout 2 (input) 87, and each hook its
 own time ([the input's cost](#what-input-costs)).
 
@@ -143,6 +146,12 @@ flags, and puts back the windows and the stack it found.
 
 - **Its windows** are the ones the program had when it set the hook, all four: OODOS puts them on before the call
   and puts the interrupted ones back after. The program's zero page is the hook's too, to share as it likes.
+- **A hook that maps W1 through OOLIB** (`GX_VMAP`, `GX_BLOCK`) **ends with `GX_W1BACK`** (B7, *proposed*). The
+  library's note of what W1 holds is shared with the program, and after the hook it still names the hook's map,
+  although OODOS has put the program's W1 back; without `GX_W1BACK` the program's next map of the same bank or
+  block would be skipped and its writes would go to the wrong block. `GX_W1BACK` writes block 1 whatever the note
+  says and leaves the note at block 1, so the program's next `GX_VMAP`, or `GX_BLOCK` of any block but 1, is a full
+  map; a program that such a hook may interrupt goes back to block 1 by `GX_W1BACK`, not by `GX_BLOCK` of 1.
 - **Its stack** is page 1 of its own W0 block, under whatever is in use there: under the program's stack, or, when
   the hook interrupts a BDOS call, under the program's stack as it was at the call. A hook pushes what it needs and
   pops it again, as any routine does. That page 1 is the W0 block's the hook was *set* with, whatever W0 has when
@@ -299,7 +308,8 @@ With a layout-2 area open each tick costs 249 cycles, against 162 with no area: 
 Twice a frame a tick costs more, when it starts the paddles (382) and when it reads them (687), and a stick's
 change is a little more again. The USB card's interrupt for a key is 679 cycles. Without a layout-2 area
 OODOS samples nothing: a program that doesn't open one pays only the 162 a tick with no area. These include the
-dispatcher's 17 cycles for WIN1H (B7, *proposed*), measured on the built code.
+dispatcher's 17 cycles for WIN1H 0 (B7, *proposed*; 10 more while WIN1H is `$0E`, [as the clocks
+say](#the-clocks)), measured at B7's final build.
 
 **Reading a value whole.** As with the counters, an interrupt can come between two loads: read a 2-byte X twice,
 or take only the low byte. A wheel cleared by the program with `STZ` can lose a step that came between its load
@@ -615,11 +625,11 @@ about 15 ms, far from that.
 ### What sound costs
 
 Nothing a tick: the tick with no area is 162 cycles and with a layout-2 area 249, as before. Each terminal count of
-a piece is an interrupt of about 705 to 875 cycles (705 and 874 the usual ones), a few up to about 1,420; with room
+a piece is an interrupt of about 705 to 875 cycles (705 and 874 the usual ones), a few up to about 1,010; with room
 in the FIFO the next piece's 4,096 cycles of DMA come inside it, 4,672 to 5,405 cycles in all. 44.1 kHz 16-bit stereo
 is 43 pieces a second, under 0.5% of the CPU. A frame with the stream claimed and a layout-2 area open costs about
 300 cycles more (715 against 412), for the area's sound part. These are measured on DMA revision 2 (B2,
-*proposed*), with the dispatcher's 17 cycles for WIN1H (B7, *proposed*).
+*proposed*), with the dispatcher's 17 cycles for WIN1H 0 (B7, *proposed*), at B7's final build.
 
 ## Graphics
 
@@ -805,11 +815,12 @@ byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from
 
 With no slot set and no pointer, nothing: the tick with no event area is 162 cycles and the frame 215, as before,
 and a layout-2 area's frame 7 cycles more (412). A slot set but its bit not is 534 a frame; a 512-byte slot copied
-through the port, 1,318 (512 of them the DMA's, a cycle a byte); the pointer, 752; the whole budget, four slots of
-256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,786. Since B7 (*proposed*) these include the
-dispatcher's 17 cycles for WIN1H, measured on the built code. That ends inside the vertical blank even with a
+through the port, 1,323 (512 of them the DMA's, a cycle a byte); the pointer, 753; the whole budget, four slots of
+256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,789. Since B7 (*proposed*) these include the
+dispatcher's 17 cycles for WIN1H 0 (10 more while WIN1H is `$0E`, [as the clocks say](#the-clocks)), measured at
+B7's final build. That ends inside the vertical blank even with a
 USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 505 at the latest under a USB
-batch, 19 lines to spare, and line 497 under 64 KB loads, 27 to spare; the blank is lines 480–524). These are
+batch, 19 lines to spare, and line 505 under 64 KB loads too; the blank is lines 480–524). These are
 measured on DMA revision 2 (B2, *proposed*), where each copy selects channel 1 and puts the controller's CONTROL
 back, and each card transfer begins with a poll of the cards. The figures are
 recorded with their source in [hw/oolib.md, "Video card revision 2"](../../hw/oolib.md#the-plan).

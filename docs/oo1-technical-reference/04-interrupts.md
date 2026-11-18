@@ -163,14 +163,17 @@ W3 holds.
 - **The vertical-blank copies and the pointer** (OOLIB L4): after the event area's counters, while a slot is set
   or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1 (CARD 9, the
   video card), through video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
-  the blank's 10,240 cycles, with the pointer and a stream, line 505 at the latest under a USB batch and line 497
-  under 64 KB loads, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then writes the pointer sprite's X and Y the same way, before
+  the blank's 10,240 cycles, with the pointer and a stream, line 505 at the latest under a USB batch and under
+  64 KB loads alike, measured at B7's final build, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then
+  writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
 - **What it costs:** a tick is 162 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 249
   (the sticks compared), and twice a frame more (the paddles started, then read: 382 and 687). The USB card's
-  interrupt for a key is 679. Since B7 (*proposed*) these include the dispatcher's 17 cycles for WIN1H, saved,
-  cleared and put back on a revision 2 north bridge (measured on the built code).
+  interrupt for a key is 679. Since B7 (*proposed*) these include the dispatcher's 17 cycles for WIN1H on a
+  revision 2 north bridge with WIN1H 0: read, saved and found 0, so nothing is written. While a program that called
+  OOLIB's `GX_BANK8` has slot 1 in W1 (WIN1H `$0E`), the dispatcher clears WIN1H and puts it back, 27 cycles in
+  all, 10 more on every interrupt: a tick 172 and a frame 225 (measured at B7's final build).
 - **DMA:** the CPU is held through a memory-to-memory copy, and timer 1 has one flag, so OODOS's copies on channel 3
   go 2 KB at a time (4,096 cycles, under a tick): the tick due is taken between them.
 - **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor
