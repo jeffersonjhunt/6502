@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory), *proposed*); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -69,7 +69,7 @@ read, so the counter keeps time through it to about half a percent. A sector tak
 is missed.
 
 **What the clocks cost.** Each tick is an interrupt: 162 cycles with no event area and no hooks, 2% of the CPU, in
-every program (since B7, *proposed*, with the dispatcher's 17 cycles for WIN1H on a revision 2 north bridge, where
+every program (since OODOS 0.11, B7, with the dispatcher's 17 cycles for WIN1H on a revision 2 north bridge, where
 WIN1H is 0 and nothing needs clearing). While a program that called `GX_BANK8` has slot 1 in W1, WIN1H `$0E`, the
 dispatcher clears it and puts it back, 10 cycles more on every interrupt: a tick 172, a frame 225 (measured at B7's
 final build). An open
@@ -146,7 +146,7 @@ flags, and puts back the windows and the stack it found.
 
 - **Its windows** are the ones the program had when it set the hook, all four: OODOS puts them on before the call
   and puts the interrupted ones back after. The program's zero page is the hook's too, to share as it likes.
-- **A hook that maps W1 through OOLIB** (`GX_VMAP`, `GX_BLOCK`) **ends with `GX_W1BACK`** (B7, *proposed*). The
+- **A hook that maps W1 through OOLIB** (`GX_VMAP`, `GX_BLOCK`) **ends with `GX_W1BACK`** (since OODOS 0.11, B7). The
   library's note of what W1 holds is shared with the program, and after the hook it still names the hook's map,
   although OODOS has put the program's W1 back; without `GX_W1BACK` the program's next map of the same bank or
   block would be skipped and its writes would go to the wrong block. `GX_W1BACK` writes block 1 whatever the note
@@ -310,7 +310,7 @@ With a layout-2 area open each tick costs 249 cycles, against 162 with no area: 
 Twice a frame a tick costs more, when it starts the paddles (382) and when it reads them (687), and a stick's
 change is a little more again. The USB card's interrupt for a key is 679 cycles. Without a layout-2 area
 OODOS samples nothing: a program that doesn't open one pays only the 162 a tick with no area. These include the
-dispatcher's 17 cycles for WIN1H 0 (B7, *proposed*; 10 more while WIN1H is `$0E`, [as the clocks
+dispatcher's 17 cycles for WIN1H 0 (since OODOS 0.11, B7; 10 more while WIN1H is `$0E`, [as the clocks
 say](#the-clocks)), measured at B7's final build.
 
 **Reading a value whole.** As with the counters, an interrupt can come between two loads: read a 2-byte X twice,
@@ -631,7 +631,7 @@ a piece is an interrupt of about 705 to 875 cycles (705 and 874 the usual ones),
 in the FIFO the next piece's 4,096 cycles of DMA come inside it, 4,672 to 5,405 cycles in all. 44.1 kHz 16-bit stereo
 is 43 pieces a second, under 0.5% of the CPU. A frame with the stream claimed and a layout-2 area open costs about
 300 cycles more (715 against 412), for the area's sound part. These are measured on DMA revision 2 (B2,
-*proposed*), with the dispatcher's 17 cycles for WIN1H 0 (B7, *proposed*), at B7's final build.
+*proposed*), with the dispatcher's 17 cycles for WIN1H 0 (since OODOS 0.11, B7), at B7's final build.
 
 ## Graphics
 
@@ -677,8 +677,8 @@ and its data out of `$4000–$7FFF`. Banks 9–B are ordinary RAM again, the pro
 blocks (36–47) as it maps an allocated block, with WIN1H 0; A of 64 or more is refused (`GE_MAP`, since interface
 version 12), as is any block not in the W1 map.
 
-**Bank 8 as RAM** (`GX_BANK8`, interface version 12, *proposed*, B7). While AP8 is set, as OODOS leaves it, bank 8
-is the card's aperture and slot 1's window is block 33. A program may ask for bank 8 as its RAM too by calling
+**Bank 8 as RAM** (`GX_BANK8`, since OODOS 0.11, interface version 12, B7). While AP8 is set, as OODOS leaves it,
+bank 8 is the card's aperture and slot 1's window is block 33. A program may ask for bank 8 as its RAM too by calling
 `GX_BANK8` after `GX_INIT`; the library then reaches slot 1 at the aperture's own place, `$E04000`, by WIN1H `$0E`
 with block 1, and bank 8's blocks 32–39 join the W1 map for `GX_BLOCK`. A program that never calls it runs exactly
 as before. A program that loads card memory by DMA through physical `$84000` (slot 1's old window) must not call
@@ -758,7 +758,7 @@ the sprite's other bytes, and puts the mouse in absolute mode with limits 319 an
 revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
 card memory all free. Then:
 
-- **`GX_BANK8`** (`gxmem.s`, since interface version 12, *proposed*), after `GX_INIT`: asks for function 83's
+- **`GX_BANK8`** (`gxmem.s`, since OODOS 0.11, interface version 12), after `GX_INIT`: asks for function 83's
   `DM_BANK8` ([chapter 7](07-function-reference.md#bdos-83)) and takes slot 1's window from it.
   - With a revision 2 card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
     is mapped by WIN1H `$0E` with block 1, and blocks 32–39 join the W1 map.
@@ -818,7 +818,7 @@ byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from
 With no slot set and no pointer, nothing: the tick with no event area is 162 cycles and the frame 215, as before,
 and a layout-2 area's frame 7 cycles more (412). A slot set but its bit not is 534 a frame; a 512-byte slot copied
 through the port, 1,323 (512 of them the DMA's, a cycle a byte); the pointer, 753; the whole budget, four slots of
-256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,789. Since B7 (*proposed*) these include the
+256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,789. Since OODOS 0.11 (B7) these include the
 dispatcher's 17 cycles for WIN1H 0 (10 more while WIN1H is `$0E`, [as the clocks say](#the-clocks)), measured at
 B7's final build. In the frames sampled it ended inside the vertical blank even with a USB batch or a 4 KB load
 piece holding the interrupt off (`test_oodos_video`: line 505 at the latest under a USB batch and under 64 KB loads,

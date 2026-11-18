@@ -3438,12 +3438,12 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 8 | `DM_VREAD` | +1–3 the source (card), +4–6 the destination (physical), +7–8 the length | copies card memory to system memory, the same way |
   | 9 | `DM_VFILL` | +1 the byte, +2–4 the destination (card), +5–6 the length | fills card memory |
   | 10 | `DM_VCOPY` | +1–3 the source (card), +4–6 the destination (card), +7–8 the length | copies within card memory |
-  | 11 | `DM_BANK8` | +1 and +2 to fill | makes bank 8 the program's RAM, the aperture then only at `$E00000` (*proposed*) |
+  | 11 | `DM_BANK8` | +1 and +2 to fill | makes bank 8 the program's RAM, the aperture then only at `$E00000` |
 
   Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
-  version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since interface
-  version 12 (B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's `GX_BANK8`
-  ([chapter 8](08-game-services.md#video-memory)) rather than by itself.
+  version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since OODOS 0.11
+  (interface version 12, B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's
+  `GX_BANK8` ([chapter 8](08-game-services.md#video-memory)) rather than by itself.
 
 #### Exit
 

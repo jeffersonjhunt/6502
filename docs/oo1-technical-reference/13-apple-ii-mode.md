@@ -28,8 +28,8 @@ to them:
 - **From the monitor:** `C806R`; or `C818R` and a digit 0–3 at its menu, for that image.
 - **From a program:** `$C818` with Y = `$5A`, X = `$A1` and A the image.
 - **From OODOS:** function 75 with A = 1 ([`O_ROM`](../oodos-programmers-guide/07-function-reference.md#bdos-75)),
-  which the CCP's [APPLE2](../oodos-users-guide/04-built-in-commands.md#util-apple2) calls; or, since interface 11
-  (*proposed*), function 75 with A = 3 and X the image, which `APPLE2 n` calls. OODOS checks for a IIe ROM itself,
+  which the CCP's [APPLE2](../oodos-users-guide/04-built-in-commands.md#util-apple2) calls; or, since OODOS 0.11
+  (interface 11), function 75 with A = 3 and X the image, which `APPLE2 n` calls. OODOS checks for a IIe ROM itself,
   where the running ROM BIOS looks for it, and writes its changed buffers back. Then, with interrupts off, it puts
   windows 0–2 on RAM blocks 0–2 and W3 and VEC on the BIOS's RAM copy, and jumps to `$C806`, or to `$C818` with the
   token and the image.

@@ -1461,8 +1461,8 @@ and more in L5:
     port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
     Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
     RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
-- **Bank 8 as RAM, interface version 12** (*proposed, 2026-11-17*, the bus work's B7: [design.md, B7: as
-  built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
+- **Bank 8 as RAM, interface version 12** (*proposed 2026-11-17 and released 2026-11-18, OODOS 0.11*, the bus
+  work's B7: [design.md, B7: as built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
   which a window reaches with WIN*n*H `$0E`, and bank 8 is the aperture only while MAP's AP8 is set. OODOS keeps
   AP8 set, so every program runs as before.
   - **Function 83's `DM_BANK8`** (operation 11, `DM_OPS` 12): clears AP8 for the running program, so blocks 32–47

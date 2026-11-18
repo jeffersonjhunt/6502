@@ -172,7 +172,7 @@ W3 holds.
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
 - **What it costs:** a tick is 162 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 249
   (the sticks compared), and twice a frame more (the paddles started, then read: 382 and 687). The USB card's
-  interrupt for a key is 679. Since B7 (*proposed*) these include the dispatcher's 17 cycles for WIN1H on a
+  interrupt for a key is 679. Since OODOS 0.11 (B7) these include the dispatcher's 17 cycles for WIN1H on a
   revision 2 north bridge with WIN1H 0: read, saved and found 0, so nothing is written. While a program that called
   OOLIB's `GX_BANK8` has slot 1 in W1 (WIN1H `$0E`), the dispatcher clears WIN1H and puts it back, 27 cycles in
   all, 10 more on every interrupt: a tick 172 and a frame 225 (measured at B7's final build).
