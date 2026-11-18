@@ -10,7 +10,7 @@
 import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
-const GREETING = "\rBACKPLANE BIOS 0.16\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.17\r\\\r";
 const SPLASH_TIME = 36_500_000; // cycles: the boot splash's 5 s (300 frames), and a little (test_bios)
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -83,7 +83,7 @@ check("video: a 640x480 RGBA frame", pixels instanceof Uint8Array && pixels.leng
 const at = (x, y) => Array.from(pixels.subarray((y * 640 + x) * 4, (y * 640 + x) * 4 + 4)).join(",");
 check("video: the B of BACKPLANE, lit in light grey", at(0, 18) === "170,170,170,255", at(0, 18)); // row 1, glyph row 2: 11111100
 check("video: and dark beside it", at(6, 18) === "0,0,0,255", at(6, 18));
-// The card's own memory (vram): 2 MB, the BIOS's text at $002000, as the aperture's slot 0 shows it at $82000.
+// The card's own memory (vram): 2 MB, the BIOS's text at $002000, as the aperture's slot 0 shows it at $E02000 (and at $82000 while AP8 is set).
 check("vram: 2 MB of card memory", m.vramSize() === 0x200000, String(m.vramSize()));
 check("vram: the banner's B at card $002000 + one row", m.vramPeek(0x2000 + 160) === 0x42, hex2(m.vramPeek(0x2000 + 160)));
 const spare = 0x1e1000; // the Apple region's spare: nothing draws it

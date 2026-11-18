@@ -105,8 +105,8 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("0B 0F"));        // interface 11 (75's Apple II mode by image), frame and timing, input, sound, DMA
-    CHECK_EQ(field(o, "INFOB"), std::string("0B0F0302"));    // and both clocks, layouts to 2
+    CHECK_EQ(field(o, "INFO"), std::string("0C 0F"));        // interface 12 (83's DM_BANK8, B7), frame and timing, input, sound, DMA
+    CHECK_EQ(field(o, "INFOB"), std::string("0C0F0302"));    // and both clocks, layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
     CHECK_EQ(v.substr(0, 4), std::string("000A"));            // OODOS 0.10 (question 15)
@@ -349,7 +349,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
-    CHECK_EQ(field(o, "ALIVE"), std::string("0B 0F")); // FT_INFO answers: OOLIB 11, frame and timing, input, sound and DMA
+    CHECK_EQ(field(o, "ALIVE"), std::string("0C 0F")); // FT_INFO answers: OOLIB 12, frame and timing, input, sound and DMA
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 C0")); // vertical blank and timer 1 alone
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
     s.check("through it", 2, 1);
@@ -457,6 +457,27 @@ TEST(without_the_via_the_6551_s_interrupt_is_turned_off_and_its_key_kept)
     const std::string d = r.cmd("dir m:"); // the serial line still both ways: echoed, answered, prompted
     CHECK(d.find("dir m:\r\n") == 0);
     CHECK(d.size() > 12 && d.substr(d.size() - 4) == "\r\nA>");
+}
+
+TEST(a_hook_runs_with_the_win1h_its_program_had_and_the_bdos_gets_win1h_0_back)
+{
+    // O3 (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) sets a tick hook (every ms) and a frame hook with
+    // WIN1H on $0E and W1 on block 1, so W1 shows the video card's slot 1 at $E04000, then puts WIN1H back to 0
+    // and waits 200 ms in the BDOS (FT_DELAY). Each hook reads $4000 and WIN1H: slot 1's byte and $0E, the record's
+    // (HK_W1H); and the BDOS's W1 is right after each (HKBACK's WIN1H 0), so the delay ends and $4000 is RAM's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.poke(0x4000, 0x5B);   // RAM block 1's
+    r.poke(0xE04000, 0xA7); // slot 1's window's
+    const std::string o = r.go("w1htest.com", " H", ms(8000));
+    CHECK_EQ(field(o, "TB"), std::string("A7"));
+    CHECK_EQ(field(o, "TH"), std::string("0E"));
+    CHECK_EQ(field(o, "FB"), std::string("A7"));
+    CHECK_EQ(field(o, "FH"), std::string("0E"));
+    CHECK_EQ(field(o, "B1"), std::string("5B"));
+    CHECK(hx(field(o, "TN")) >= 150); // about 200 ticks, and 12 frames
+    CHECK(hx(field(o, "FN")) >= 8);
+    CHECK_EQ(r.bridge().winh(1), 0);
 }
 
 int main() { return run_all(); }

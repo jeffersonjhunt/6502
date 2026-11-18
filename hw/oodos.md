@@ -866,7 +866,7 @@ tests.
   cycles, 4,321 a record (against 4,723 for one buffered record a call: the FCB is copied in and out once a call),
   and a write 779,555, 6,090 a record. The check of the records' memory first costs about 45 cycles a page they
   cover (about 3,000 for 128 records, 550,107 and 776,646 before it; about 100 for one record, not in the
-  figures above). The warm boot makes one more BDOS call (44): the stub's 216 cycles and a
+  figures above). The warm boot makes one more BDOS call (44): the stub's 240 cycles (B7, measured 2026-11-18) and a
   few more (not measured).
 
 **Proposed (3b2, as built, 2026-10-28)** ([`oodos/sys/bdos.s`](../oodos/sys/bdos.s), [`bdossys.s`](../oodos/sys/bdossys.s),
@@ -1044,7 +1044,9 @@ tests.
   handlers, all used); FJUMPS may hold 127. Two cycles a call more.
 - **51** takes the segment in A/X and returns A = X = 0; any value is taken, and checked when a record moves. The
   physical address is segment × 16 + the DMA address (26's, the SCB's `$3C`). **What a segment may reach** (ours):
-  any RAM but OODOS's own: banks 0–5, 8–B (video memory) and E (native mode may use bank E: the BIOS's `C806R`
+  any RAM but OODOS's own: banks 0–5, 8–B (bank 8 the video card's aperture while AP8 is set, the aperture's
+  OODOS slots refused; bank 8 the program's RAM after function 83's `DM_BANK8`, B7, proposed; banks 9–B ordinary
+  RAM since revision 2) and E (native mode may use bank E: the BIOS's `C806R`
   copies the IIe ROM into it from the cartridge each time Apple mode starts; from ROM A's images since B5); refused are banks 6–7 (the hash, the buffers, the
   system block), C–D (M:) and blocks 60–63 (the BDOS, the BIOS, block 62, the ROM BIOS's copy), and anything past
   `$FFFFF`. Flash has no physical address (a window's ROM bit), so it can't be named. A DMA address whose records
@@ -3715,8 +3717,10 @@ true 8086 code would.
   hasn't. GW-BASIC sets it to 1 to load a program by block read (`DFSTLD`, GIODSK), and a random file's LEN is its
   record size, while CP/M 3's records are always 128 bytes ([7c](#the-sub-phases)).
 - **DEF SEG:** an 8086 segment and offset make a 20-bit address, as the OO-1's physical addresses are. PEEK,
-  POKE, BLOAD and BSAVE with DEF SEG reach the whole 1 MB, video memory included, through a DMA copy or a spare
-  window.
+  POKE, BLOAD and BSAVE with DEF SEG reach the RAM of the 1 MB through a DMA copy or a spare window; card memory
+  only through segments `$8000–$8FFF`, as the screen page, from 7d (question 10). Since B7 (the owner, 2026-11-17,
+  B7's questions 1 and 2) those segments never reach bank 8's RAM, and until 7d any access meeting `$80000–$8FFFF`
+  is refused ([the routes](#the-oem-layer)).
 
 **What we write.** The machine-specific layer isn't in the release: 219 symbols are declared EXTRN and defined nowhere (*checked against the source, 2026-11-13:* 67 of them are made by macros the count missed, 50 reserved-word and device names by IBMRES.H's and GIOTBL's and 17 disk errors by `DERMAK`, so **152 are the OEM's**, routines and variables; the first count, about 217, was an estimate),
 many of them the OEM's routines for the screen, graphics, keyboard, sound, light pen, joystick and serial ports
@@ -4023,7 +4027,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Size:** 10.1 KB resident (high 10.5), P1 8.5 KB, P2 5.8 KB: about 24 KB, about half the port's
     interpreter.
   - **Cycles:** `I%=I%+1 : IF I%<1000 THEN 10` stays about 4,700 a pass, with no far call. PRINT pays 281 (+30
-    for the dispatch) a statement. A character through function 2 costs the stub's 216 plus the console's work, an
+    for the dispatch) a statement. A character through function 2 costs the stub's 240 (B7) plus the console's work, an
     estimated 1,500–2,500 (to be measured: it is 7d's reason).
   - **Gate:**
     - 32 KB free, measured;
@@ -4092,7 +4096,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - COM1 on AUX:;
     - DEF SEG with PEEK and POKE, BLOAD and BSAVE ([below](#the-oem-layer)), on RAM. Card-memory segments wait
       for 7d, which makes the screen pages they name;
-    - **P5's seed** (V3): the block P5 becomes, holding only OOLIB's `gxmem`, `GX_INIT`'s call at start-up and
+    - **P5's seed** (V3): the block P5 becomes, holding only OOLIB's `gxmem`, `GX_INIT`'s call at start-up (and,
+      since B7, `GX_BANK8`'s after it, the owner's answer of 2026-11-17 to B7's question 5) and
       the entry DEF SEG uses for a byte or a run in an allocated block or banks 9–B (`GX_BLOCK`, the load or
       store, `GX_W1BACK`). About 1.6 KB. Its gate: PEEK and POKE in an allocated block and in bank 9, with
       block 1 back in W1 after each (a must-fail case, below);
@@ -4290,7 +4295,13 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
     - **Held back (the owner, 2026-11-14):** P5's seed and DEF SEG with PEEK, POKE, BLOAD and BSAVE are 7c's tail,
-      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. P4 has 424
+      written after the bus work (B7) against its OOLIB. DEF SEG stays Advanced Feature until then. **Added to
+      the tail by B7** (the owner's answers of 2026-11-17 to B7's questions 2, 3 and 5): the segment router's
+      refusal of any access meeting `$80000–$8FFFF` (PEEK included, the run's whole 20-bit range checked before a
+      route is chosen, so `&H7FFF:&H100` is caught), with its must-fail case (`DEF SEG=&H8400: BLOAD`, and a POKE
+      at `&H7FFF:&H100`, each an error, card memory and bank 8 unchanged); P5's seed calling `GX_BANK8` after
+      `GX_INIT`; and the no-card `GX_BLOCK` gap: with no revision 2 card `GX_INIT` says `GE_VERSION`, so the
+      library can't map banks 9–B, and DEF SEG reaches them on the `DM_COPY` route instead. P4 has 424
       bytes left for BLOAD and BSAVE (697 before the review's fixes, below): measured then (the owner, 2026-11-15),
       with COM1's driver (about 1.2 KB) the piece to move out if they don't fit.
     - **Sizes:** 35,798 bytes free (the gate 32,768, the warning 33,792); resident code and tables 11,010, fixed
@@ -4349,7 +4360,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - the full-screen editor, which reads the cells back;
     - the keyboard, from the event queue alone (V2, [below](#the-oem-layer)).
   - **Without a revision 2 card or the services** (`FT_INFO` below 8), GW-BASIC falls back to 7a's console.
-    - card-memory segments for DEF SEG ([question 10](#phase-7s-questions)).
+    - card-memory segments for DEF SEG ([question 10](#phase-7s-questions)); bank 8 stays refused to DEF SEG
+      (B7's question 2, the owner, 2026-11-17).
   - **Size:** P5's text part about 1.5 KB more than the seed. P6 5–6 KB.
   - **Cycles:** a character is an estimated 150–300, against 7a's 1,500–2,500. Each string or PRINT item is one far
     call to P5, the item copied to the transfer buffer first.
@@ -4463,9 +4475,15 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   1,000 cycles). POKE only where 83 may write.
 - **OODOS's own memory** (banks 6, 7, C, D and F, and the aperture's OODOS slots): a POKE is Illegal function call.
   A PEEK reads what 83 allows, else 0.
+- **Bank 8, `$80000–$8FFFF`** (decided, the owner, 2026-11-17, B7's question 2): any access whose 20-bit range meets
+  it, PEEK included, is Illegal function call, checked whole before a route is chosen, until 7d; from 7d the same
+  test sends it to the screen page through `DM_VWRITE` and `DM_VREAD`, never a physical `DM_COPY`. It is 7c's tail,
+  with a must-fail case. OODOS changes nothing for it: OSWIN's slot 1 window stays allowed (the W1 contract).
 - **Card memory** has 24-bit addresses, which no segment reaches. Decided ([question 10](#phase-7s-questions)): segments `$8000–$8FFF` (the aperture,
   which means nothing fixed to a program) name the current SCREEN page's card memory, so
-  `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`.
+  `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`. That meaning
+  holds whatever AP8 holds (the owner, 2026-11-17, B7's question 1): bank 8's RAM, which `DM_BANK8` gives a program,
+  is never reached by DEF SEG; GW-BASIC may use it internally through `GX_BLOCK` after `GX_BANK8`.
 
 #### Testing ####
 
@@ -4631,9 +4649,11 @@ alternative is kept as the record of what was weighed.
    *Alternative:* the OO-1's modes only, which breaks PC listings' coordinates.
 10. **Card memory from DEF SEG** (from 7d, which makes the screen pages). *Decided (2026-11-13, the owner):* segments
     `$8000–$8FFF` as the current screen page's card memory, as above. *Alternative:* none: card memory only
-    through the graphics statements.
+    through the graphics statements. *Kept (2026-11-17, the owner, B7's question 1):* once bank 8 can be RAM
+    (`DM_BANK8`), these segments still mean the screen page, never bank 8's RAM; no 20-bit range is free for
+    another choice (`&HB800` would hide half of bank B, and bank E is Apple II mode's).
 11. **FARPEEK, FARPOKE and FARMOVE.** *Decided (2026-11-13, the owner): not built.* GW-BASIC uses OOLIB's `GX_BLOCK`
-    and function 83, and V1's buffers need no move at all (route (c)). Common memory has 166 bytes left.
+    and function 83, and V1's buffers need no move at all (route (c)). Common memory has 166 bytes left (50 after B7, 2026-11-17).
     *Alternative:* build them as proposed under [Far calls](#far-calls), as an interface addition to the far call
     table (FARCALL itself unchanged), which the rule allows; the 32 KB doesn't need
     it.

@@ -20,8 +20,9 @@
 ;            (function 80); the ROM BIOS's version (77, interface 9);
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
-;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA); how
-;            the machine booted (NB_STATUS)
+;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
+;            a revision 2 north bridge, NB_MAP's AP8 for what bank 8 is:
+;            B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
 ;   SOUND    82's SN_INFO
@@ -573,7 +574,13 @@ memory: lda     #<smemory
         sta     vunits
         cmp     #0
         beq     @prog
-        lda     #<sram960
+        lda     HW_REV + $D             ; a revision 2 north bridge (B7): bank 8 is the aperture
+        cmp     #2                      ;   only while MAP's AP8 is set, else the RAM card's
+        bne     @aper
+        lda     NB_MAP
+        and     #NB_MAP_AP8
+        beq     @prog
+@aper:  lda     #<sram960
         ldx     #>sram960
         jsr     puts
 @prog:  jsr     cont

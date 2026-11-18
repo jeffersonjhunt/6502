@@ -21,8 +21,9 @@ namespace ooe::emu
         constexpr uint32_t WINDOW_MASK = (1u << WINDOW_SHIFT) - 1;
     } // namespace
 
-    BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc)
-        : bootsel_(bootsel), rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
+    BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc, uint8_t revision)
+        : revision_(revision == WIDE ? WIDE : uint8_t{1}), bootsel_(bootsel),
+          rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
     {
         apply_reset();
         retime();
@@ -33,6 +34,9 @@ namespace ooe::emu
         const uint8_t top = bootsel_ ? BOOTSEL_TOP : RESET_TOP;
         win_ = {0, 1, 2, top};
         vec_ = top;
+        winh_ = {};
+        vech_ = 0;
+        map_ = MAP_AP8; // whatever is fitted: old software's bank 8 is the aperture
         mode_ = 0;
         wait_ = {};
     }
@@ -110,10 +114,12 @@ namespace ooe::emu
         if (cpu_addr >= IO_HOLE && cpu_addr < IO_HOLE + IO_SIZE)
             return Route{bus_address(Space::Io, cpu_addr - IO_HOLE), true};
         const unsigned n = cpu_addr >> WINDOW_SHIFT;
-        const uint8_t reg = (n == 3 && vector_pull) ? vec_ : win_[n];
-        const uint32_t offset = static_cast<uint32_t>(reg & BLOCK) << WINDOW_SHIFT | (cpu_addr & WINDOW_MASK);
+        const bool vec = n == 3 && vector_pull;
+        const uint8_t reg = vec ? vec_ : win_[n];
+        uint32_t offset = static_cast<uint32_t>(reg & BLOCK) << WINDOW_SHIFT | (cpu_addr & WINDOW_MASK);
         if (reg & ROM)
-            return Route{bus_address(Space::Flash, offset), (reg & RO) == 0}; // $F00000 + block x $4000
+            return Route{bus_address(Space::Flash, offset), (reg & RO) == 0}; // $F00000 + block x $4000: WINnH ignored
+        offset |= static_cast<uint32_t>(vec ? vech_ : winh_[n]) << 20; // A20-A23 (always 0 on revision 1)
         return Route{bus_address(Space::Memory, redirect(offset)), (reg & RO) == 0};
     }
 
@@ -153,7 +159,7 @@ namespace ooe::emu
         case MODE:
             return mode_;
         case STATUS:
-            return static_cast<uint8_t>(REVISION << 4 | (power_on_ ? STATUS_POWER_ON : 0) |
+            return static_cast<uint8_t>(revision_ << 4 | (power_on_ ? STATUS_POWER_ON : 0) |
                                         (bootsel_ ? STATUS_BOOTSEL : 0));
         case RTCCTL:
             return rtcctl();
@@ -179,8 +185,17 @@ namespace ooe::emu
             return rtc_reg_;
         case RTCDATA:
             return rtc_data_;
+        case WIN0H:
+        case WIN0H + 1:
+        case WIN0H + 2:
+        case WIN0H + 3:
+            return wide() ? winh_[offset - WIN0H] : 0xFF;
+        case VECH:
+            return wide() ? vech_ : 0xFF;
+        case MAP:
+            return wide() ? map_ : 0xFF;
         case ID_REG:
-            return ID;
+            return id();
         default:
             return 0xFF;
         }
@@ -243,6 +258,21 @@ namespace ooe::emu
         case WAIT0 + 2:
         case WAIT0 + 3:
             wait_[offset - WAIT0] = data;
+            break;
+        case WIN0H:
+        case WIN0H + 1:
+        case WIN0H + 2:
+        case WIN0H + 3:
+            if (wide())
+                winh_[offset - WIN0H] = static_cast<uint8_t>(data & HIGH);
+            break;
+        case VECH:
+            if (wide())
+                vech_ = static_cast<uint8_t>(data & HIGH);
+            break;
+        case MAP:
+            if (wide())
+                map_ = static_cast<uint8_t>(data & MAP_AP8);
             break;
         default:
             break; // read-only or unused

@@ -146,15 +146,16 @@ describe("Breakpoints", () => {
     expect(bps.list).toEqual([]);
   });
 
-  test("a typed 84123 is refused with a revision 2 video card, whose bank 8 is the aperture; kept without one", async () => {
+  test("a typed 84123 is refused on a revision 2 bridge while AP8 is set, bank 8 being the aperture; kept with it clear", async () => {
     const p = port();
-    p.io.set(0xc4ff, 0x92); // VIDEO_ID: revision 2
+    p.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    p.io.set(0xc6a5, 0x01); // MAP: AP8 set
     const bps = new Breakpoints(p);
     const r = await bps.add("84123");
     expect(typeof r).toBe("string");
     expect(r).toMatch(/84123: bank 8 is the video aperture/);
     expect(bps.list).toEqual([]);
-    p.io.set(0xc4ff, 0x91); // revision 1: bank 8 is RAM
+    p.io.set(0xc6a5, 0x00); // AP8 clear: bank 8 is RAM
     const kept = await bps.add("84123");
     expect(typeof kept).toBe("object");
     expect(bps.list.length).toBe(1);
@@ -174,17 +175,54 @@ describe("Breakpoints", () => {
     const bank8 = { ...good, id: "5", text: "84123", cpu: null, physical: 0x84123 };
     localStorage.setItem("oo1.breakpoints", JSON.stringify([good, bank8]));
     const rev2 = port();
-    rev2.io.set(0xc4ff, 0x92);
+    rev2.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    rev2.io.set(0xc6a5, 0x01); // MAP: AP8 set
     const bps = new Breakpoints(rev2);
     await bps.recheck();
     expect(bps.list).toEqual([good]);
     expect(bps.notRestored).toEqual(["84123"]);
     const rev1 = port();
-    rev1.io.set(0xc4ff, 0x91); // bank 8 is RAM: it can fire
+    rev1.io.set(0xc6ff, 0xd2);
+    rev1.io.set(0xc6a5, 0x00); // AP8 clear: bank 8 is RAM, it can fire
     const kept = new Breakpoints(rev1);
     await kept.recheck();
     expect(kept.list).toEqual([good, bank8]);
     expect(kept.notRestored).toEqual([]);
+  });
+
+  // B7 (question 12, C12): on a $D2 bridge MAP's AP8 decides; on any other NB_ID, VIDEO_ID does, as before B7.
+  test("on a revision 2 bridge with AP8 clear, a bank 8 breakpoint is kept though a revision 2 card is fitted", async () => {
+    const p = port();
+    p.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    p.io.set(0xc6a5, 0x00); // MAP: AP8 clear
+    p.io.set(0xc4ff, 0x92); // VIDEO_ID: a revision 2 card
+    const bps = new Breakpoints(p);
+    const kept = await bps.add("84123");
+    expect(typeof kept).toBe("object");
+    expect(bps.list.length).toBe(1);
+    await bps.recheck();
+    expect(bps.list.length).toBe(1);
+    expect(bps.notRestored).toEqual([]);
+  });
+
+  test("off a revision 2 bridge ($D1, or nothing answering) VIDEO_ID decides, whatever MAP reads", async () => {
+    for (const nb of [0xd1, 0xff]) {
+      localStorage.clear();
+      const p = port();
+      p.io.set(0xc6ff, nb);
+      p.io.set(0xc6a5, nb === 0xff ? 0xff : 0x00); // nothing answering reads $FF, AP8's bit too
+      p.io.set(0xc4ff, 0x91); // VIDEO_ID: revision 1, bank 8 is RAM
+      const bps = new Breakpoints(p);
+      const kept = await bps.add("84123");
+      expect(typeof kept, `NB_ID ${nb.toString(16)}`).toBe("object");
+      p.io.set(0xc4ff, 0x92); // a revision 2 card: bank 8 is the aperture
+      const r = await bps.add("84124");
+      expect(r, `NB_ID ${nb.toString(16)}`).toMatch(/84124: bank 8 is the video aperture with a revision 2 card/);
+      expect(bps.list.length).toBe(1);
+      await bps.recheck();
+      expect(bps.list, `NB_ID ${nb.toString(16)}`).toEqual([]);
+      expect(bps.notRestored).toEqual(["84123"]);
+    }
   });
 
   test("breakpoints not restored are kept through the next save, and their ids aren't reused", async () => {

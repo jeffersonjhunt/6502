@@ -34,7 +34,7 @@ DG_VERSION      = 1                    ; ROM DIAGNOSTICS 0.1
 ; the diagnostics' header line and the BIOS block 23 records (DG_LINKED) are all
 ; made from these
 BIOS_VMAJ       = 0
-BIOS_VMIN       = 16
+BIOS_VMIN       = 17
 .define BIOS_VERSION .sprintf("%d.%d", BIOS_VMAJ, BIOS_VMIN)
 DG_B21          = NB_ROM | NB_RO | 21  ; the three blocks as W2 maps them
 DG_B22          = NB_ROM | NB_RO | 22
@@ -89,7 +89,8 @@ DG_NDET         = $1D                  ; detail lines written this stage
 DG_ROW          = $1E                  ; the screen's cursor
 DG_COL          = $1F
 DG_SCR          = $20                  ; bit 7: a revision 2 video card, so a screen; bit 6: write to it now
-DG_APER         = $21                  ; 1: bank 8 is the video card's aperture (revision 2), so not RAM
+DG_APER         = $21                  ; 1: bank 8 is the video card's aperture, so not RAM: a revision 2
+                                       ;   card on a $D1 bridge; on $D2, AP8, which GO clears (0)
 DG_KEY          = $22                  ; the key that ended the run
 DG_PTR          = $24                  ; 2 bytes: a string
 DG_BLK          = $26                  ; the block a loop is on
@@ -159,7 +160,7 @@ DG_RESCOL       = 60                   ; a stage line's result
 ; The card stages' text (blocks 22 and 21, diagtest.inc's routines): a macro
 ; puts its string after a JMP, so each line's words are where they are said.
 ; Its labels are unnamed, so a routine's cheap local labels (@x) reach past it.
-; A test's line begun with a name and text: TB "NB1  ID $D1".
+; A test's line begun with a name and text: TB "NB1  ID $D2".
 .macro TB text
                 lda     #<:+
                 ldx     #>:+
@@ -296,6 +297,33 @@ panel:          lda     CONSOLE_ID
                 sta     CONSOLE_ISR
 via:            lda     #$7F
                 sta     VIA_IER
+.endmacro
+
+; The north bridge's revision 2 registers set as the BIOS leaves them (step B7, proposed): on a bridge
+; whose NB_ID reads $D2 only, WIN0H-WIN3H and VECH 0 (every window and the vectors below 1 MB), then MAP
+; written whole: AP8 set (bank 8 the aperture) with a revision 2 video card ($92), clear (bank 8 RAM)
+; with none. With `clear`, MAP is 0 whatever the card: the diagnostics' GO, which tests bank 8 as RAM
+; and reaches the aperture at $E00000. Inline, with no stack: a subroutine that moved WIN0H would lose
+; its own return address. A is kept; X and Y aren't. On another bridge ($D1) it writes nothing.
+.macro NBSET clear
+        .local map, done
+                ldx     NB_ID
+                cpx     #NB_ID_V2
+                bne     done
+                stz     NB_WIN0H
+                stz     NB_WIN1H
+                stz     NB_WIN2H
+                stz     NB_WIN3H
+                stz     NB_VECH
+                ldx     #0
+.ifblank clear
+                ldy     VIDEO_ID
+                cpy     #VIDEO_ID_V2
+                bne     map
+                inx                    ; AP8
+.endif
+map:            stx     NB_MAP
+done:
 .endmacro
 
 ; What a run changed, back as /RESET leaves it, with no stack (so Break's too,

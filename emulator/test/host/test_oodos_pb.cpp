@@ -1017,7 +1017,11 @@ TEST(without_es_noqueue_the_flood_fills_the_queue_and_a_key_is_lost)
     for (const uint8_t k : w)
         CHECK(k != EK_KEY);
     CHECK(word(r, EV_QLOST) > lost);
-    // Set, then cleared again: queued again as the queue makes room.
+    // Set, then cleared again: queued again as the queue makes room. The program's own two writes, so made while
+    // the CPU is back in the program, not inside the dispatcher, which may be adding to the queue (B7).
+    for (int i = 0; i < 100'000 && r.cpu->regs().pc >= 0xC000; ++i)
+        r.run(1);
+    REQUIRE(r.cpu->regs().pc < 0xC000);
     r.poke(AREA + EV_SFLAGS, ES_NOQUEUE);
     r.poke(AREA + EV_QTAIL, r.phys(AREA + EV_QHEAD)); // the program empties its queue
     r.run(ms(50));

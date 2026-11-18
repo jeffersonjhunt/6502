@@ -34,6 +34,8 @@ ST_W0           = ST_WIN
 ST_W1           = ST_WIN + 1
 ST_W2           = ST_WIN + 2
 ST_W3           = ST_WIN + 3
+ST_W1H          = $FE                  ; its WIN1H (B7; 0 on a revision 1 bridge, which has none): the BDOS
+                                       ; runs with WIN1H 0, and refuses an address in W1 while this isn't 0
 ; The BIOS's word parameters, beside A, X and Y (bios.s's header): function
 ; 50's +4-5 and +6-7.
 BW1             = $F8
@@ -145,7 +147,7 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 11                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11)
+OOLIB_IFACE     = 12                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12)
 OOLIB_AREAS     = $0F                  ; the service areas there are (FT_INFO's): frame and timing (80),
                                        ; input (81), sound (82), DMA and loading (83)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
@@ -173,6 +175,7 @@ HK_C0           = 8                    ; debug: timer 1's count at its call,
 HK_M0           = 10                   ;   and MS's low byte
 HK_MAX          = 11                   ;   the most cycles it took, since the warm boot
 HK_ZP           = 13                   ; the ES5503 hook's: the byte of its zero page that gets $E0's value
+HK_W1H          = 14                   ; its WIN1H, with HK_WIN's W1 (B7; 0 on a revision 1 bridge)
 HK_LEN          = 16
 HF              = 0                    ; the frame hook's
 HT              = HK_LEN               ; the tick hook's

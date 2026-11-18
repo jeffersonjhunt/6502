@@ -1707,7 +1707,8 @@ ADVANCE:        CLC
 
 ; SRCP = side X's physical address; carry set if it has none the BIOS may
 ; use: an address in $C000-$C7FF (the I/O hole, in either bank's W3), a
-; window on flash (NB_ROM), or the destination in a read-only window.
+; window on flash (NB_ROM), the destination in a read-only window, or the
+; program's W1 while its WIN1H isn't 0 (B7: a block past bank 0's 1 MB).
 PHYSOF:         LDA     SIDES + 1,X
                 STA     SRCP
                 LDA     SIDES,X
@@ -1730,7 +1731,11 @@ PHYSOF:         LDA     SIDES + 1,X
                 TAY
                 LDA     SIDES,X
                 BEQ     @system
-                LDA     ST_WIN,Y
+                CPY     #1             ; the program's W1 while its WIN1H isn't 0 (B7): no block
+                BNE     @prog          ; this can name
+                LDA     ST_W1H
+                BNE     @no
+@prog:          LDA     ST_WIN,Y
                 BRA     @block
 @system:        LDA     SYSWIN,Y
                 CPY     #2

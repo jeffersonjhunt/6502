@@ -46,12 +46,18 @@ are written by [the flash update](03-boot.md#the-flash-update) (or, in the emula
 Status: **emulated**
 
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
-map and with nothing changed, if any of it is missing:
+map and with nothing changed but WIN0H (0 on a revision 2 bridge), if any of it is missing. On a revision 2 north
+bridge (ID `$D2`, *proposed*, B7) it first sets WIN0H to 0, whatever a program left in it, since the checks keep
+their image number in W0's zero page and FINDIMG's return address on its stack:
 
-<!-- listing: ../../backplane/bios/apple.s:57-78 -->
+<!-- listing: ../../backplane/bios/apple.s:57-87 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0 below 1 MB first, whatever a program
+                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
+                BNE     @w0            ; WOZMON all use it
+                STZ     NB_WIN0H
+@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -71,7 +77,12 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:
+@rom:           LDX     NB_ID          ; a $D2 bridge: W1-W2 below 1 MB too, whatever a program
+                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
+                BNE     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
+                STZ     NB_WIN1H
+                STZ     NB_WIN2H
+@low:
 ```
 
 - **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
@@ -87,7 +98,9 @@ APPLEN:         STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checke
   IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
   CARTRIDGE`.)
 
-Then, in order:
+With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN1H and WIN2H to 0 too,
+whatever a program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the
+high registers don't move. Then, in order:
 
 1. **The ROM image.** It copies image *n*'s 16 KB, ROM A block *n* through W1, by the CPU, to RAM block 59:
    `$EC000–$EFFFF`, bank E's `$C000–$FFFF`.
@@ -112,7 +125,7 @@ Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:149-151 -->
+<!-- listing: ../../backplane/bios/apple.s:158-160 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
@@ -131,7 +144,8 @@ Status: **emulated**
 The pulse that enters the mode is the same /RESET as Ctrl-Reset's ([below](#ctrl-reset-and-the-hard-reset)). It
 isn't a hard reset: APPLE survives it. What it resets:
 
-- **The north bridge:** the windows and VEC to their reset values (the mode doesn't use them), the wait states to 0,
+- **The north bridge:** the windows and VEC to their reset values, and on a revision 2 bridge WINnH, VECH and MAP
+  too (*proposed*, B7; the mode doesn't use any of them), the wait states to 0,
   TICK and TIE cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
   real-time clock keeps its time.
 - **The DMA controller:** every channel cleared, its CARD back to its reset value, REQ cleared and any hold-off
@@ -415,7 +429,8 @@ the character ROM; the mode works as this chapter describes:
   and system RAM is left as it was in banks 6–D and F whole. (BIOS 0.12, on revision 1, used `$BE000`.)
 - **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
   but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).
-- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture in bank 8, and
+- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture (at `$E00000`,
+  and in bank 8 while AP8 is set), and
   the DMA controller is idle, so its port isn't used.
 
 ## The clock

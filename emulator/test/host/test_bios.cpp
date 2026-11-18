@@ -90,10 +90,11 @@ namespace
 
         /// `images` and `charsets`: a 16 KB IIe ROM file and a character set for ROM A's image and set n
         /// (MachineOptions::apple_roms and apple_charsets), as `apple_rom` and `apple_chars` give image 0.
+        /// `bridge`: the north bridge's revision= (1 or 2, step B7), or 0 for the machine file's own.
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
                        std::string apple_chars = "", std::vector<std::string> without = {},
                        unsigned video_revision = 0, std::array<std::string, 4> images = {},
-                       std::array<std::string, 4> charsets = {})
+                       std::array<std::string, 4> charsets = {}, unsigned bridge = 0)
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
@@ -114,6 +115,17 @@ namespace
                     return;
                 }
                 text.insert(at + line.size(), " bootsel");
+            }
+            if (bridge)
+            {
+                const std::string line = "northbridge  backplane";
+                const size_t at = text.find(line);
+                if (at == std::string::npos)
+                {
+                    std::printf("  backplane.machine has no '%s' line\n", line.c_str());
+                    return;
+                }
+                text.insert(at + line.size(), " revision=" + std::to_string(bridge));
             }
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
@@ -260,7 +272,7 @@ namespace
 
     constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.16\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.17\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -379,7 +391,7 @@ TEST(bootsel_boots_the_same_image_from_ram)
     CHECK_EQ(b.bridge().window(3), 0x3F);
     CHECK_EQ(b.run(BOOT), GREETING);
     CHECK_EQ(b.bridge().window(3), 0x7F);
-    CHECK(has(b.run(BOOT, "C686\r"), "C686: 13")); // revision 1, power-on, BOOTSEL
+    CHECK(has(b.run(BOOT, "C686\r"), "C686: 23")); // revision 2, power-on, BOOTSEL
 }
 
 TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
@@ -396,7 +408,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.17"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -456,7 +468,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.16"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.17"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -652,7 +664,7 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK_EQ(running, 0u); // every oscillator halted
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.17"));
     }
 }
 
@@ -1783,12 +1795,13 @@ TEST(break_inside_vputc_puts_w2_back)
             ;
         if (!offered)
             offered = b.console->key('A');
-        caught = b.bridge().window(2) == 32;
+        caught = b.bridge().window(2) == 0 && b.bridge().winh(2) == 0x0E; // on $D2: slot 0 at $E00000
     }
     REQUIRE(caught);
     b.cpu->nmi();
     CHECK(has(b.run(BOOT), "\\"));
     CHECK_EQ(b.bridge().window(2), 0x02);        // the monitor's echo found it put back
+    CHECK_EQ(b.bridge().winh(2), 0);             // and WIN2H with it
     CHECK(has(b.run(BOOT, "C682\r"), "C682: 02"));
 }
 
@@ -2366,7 +2379,7 @@ TEST(golden_frame_the_monitors_text_screen)
     REQUIRE(card->splash_frame() == -1);
     REQUIRE(card->frames() < MONITOR_FRAME);
     run_to_frame(b, MONITOR_FRAME);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.16"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.17"));
     CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
 }
 
@@ -2411,6 +2424,324 @@ TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
     run_to_frame(b, first + 30);
     CHECK(colours(*card) >= 12);
     CHECK(golden(*card, "demo-settled", DEMO_SETTLED_HASH));
+}
+
+// --- B7: the north bridge's revision 2 (WINnH, VECH, MAP's AP8; step B7, proposed) --------------------------
+//
+// The machines below say `revision=2` on their northbridge line (or 1); 2 is the default since B7: the ROM writes
+// the new registers only after NB_ID reads $D2 (b7-plan.md, §2.2).
+
+namespace
+{
+    constexpr uint16_t NB_WINH = 0xC6A0, NB_MAP = 0xC6A5;
+    constexpr uint8_t APER_H = 0x0E; // the WINnH that reaches the aperture at $E00000
+
+    /// A Board whose north bridge is revision `bridge`, with a video card (revision 2) or none.
+    Board bridge_board(unsigned bridge, bool video = true)
+    {
+        return Board(false, video, {}, "", {}, 0, {}, {}, bridge);
+    }
+
+    /// WIN0H-WIN3H and VECH all 0, said if not.
+    bool winh_clear(const BackplaneBridge &nb)
+    {
+        const bool clear = !nb.winh(0) && !nb.winh(1) && !nb.winh(2) && !nb.winh(3) && !nb.vech();
+        if (!clear)
+            std::printf("  WINnH %02X %02X %02X %02X, VECH %02X\n", nb.winh(0), nb.winh(1), nb.winh(2), nb.winh(3),
+                        nb.vech());
+        return clear;
+    }
+
+    /// Every CPU access to $C6A0-$C6A5 (WIN0H-MAP), counted.
+    struct NewRegs : CycleObserver
+    {
+        unsigned writes = 0, reads = 0;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.dma || c.addr < NB_WINH || c.addr > NB_MAP)
+                return;
+            ++(c.write ? writes : reads);
+        }
+    };
+
+    /// A program at $0300 that sets the cursor to row 5, column 10, maps W2 on `win2h`:3, clears MAP if `map0`,
+    /// prints 'Q' through ECHO ($C80F), stores WIN2H, WIN2 and MAP at $0310-$0312, then BRK (the monitor).
+    std::vector<uint8_t> print_q(uint8_t win2h, bool map0)
+    {
+        std::vector<uint8_t> p;
+        if (map0)
+            p.insert(p.end(), {0x9C, 0xA5, 0xC6});               // STZ NB_MAP
+        if (win2h)
+            p.insert(p.end(), {0xA9, win2h, 0x8D, 0xA2, 0xC6}); // LDA #win2h; STA NB_WIN2H
+        p.insert(p.end(), {0xA9, 0x03, 0x8D, 0x82, 0xC6,        // LDA #3; STA NB_WIN2
+                           0xA9, 10, 0x85, 0xE2,                // LDA #10; STA VCOL
+                           0xA9, 5, 0x85, 0xE3,                 // LDA #5; STA VROW
+                           0xA9, 'Q', 0x20, 0x0F, 0xC8,         // LDA #'Q'; JSR ECHO
+                           0xAD, 0xA2, 0xC6, 0x8D, 0x10, 0x03,  // LDA NB_WIN2H; STA $0310
+                           0xAD, 0x82, 0xC6, 0x8D, 0x11, 0x03,  // LDA NB_WIN2; STA $0311
+                           0xAD, 0xA5, 0xC6, 0x8D, 0x12, 0x03,  // LDA NB_MAP; STA $0312
+                           0x00});                              // BRK
+        return p;
+    }
+
+    /// Bank 8's RAM (as the backplane carries it, no redirect) filled with a pattern, or checked against it.
+    void fill_bank8(Board &b)
+    {
+        for (uint32_t a = 0x80000; a < 0x90000; ++a)
+            b.machine->bus().write_bus(a, static_cast<uint8_t>(a ^ a >> 8 ^ 0x5A));
+    }
+    bool bank8_kept(Board &b)
+    {
+        size_t differ = 0;
+        for (uint32_t a = 0x80000; a < 0x90000; ++a)
+            differ += b.machine->bus().peek_bus(a) != static_cast<uint8_t>(a ^ a >> 8 ^ 0x5A);
+        if (differ)
+            std::printf("  %zu bytes of bank 8's RAM changed\n", differ);
+        return differ == 0;
+    }
+} // namespace
+
+TEST(on_a_revision_2_bridge_the_boot_clears_ap8_with_no_video_card_and_keeps_it_with_one)
+{
+    // R1. MAP resets to $01 whatever is fitted; BOOT2's NBSET writes it whole: 0 with no revision 2 video card (bank
+    // 8 is then RAM), 1 with one (bank 8 the aperture, as old software expects).
+    {
+        Board b = bridge_board(2, false);
+        REQUIRE(b.ok());
+        b.reset();
+        CHECK_EQ(b.bridge().id(), 0xD2);
+        CHECK_EQ(b.bridge().map(), 0x01);
+        CHECK_EQ(b.run(BOOT), GREETING);
+        CHECK_EQ(b.bridge().map(), 0x00);
+        CHECK(winh_clear(b.bridge()));
+        // A W1 block 32 write lands in bank 8's RAM (as the backplane carries it) and reads back.
+        b.machine->bus().write_bus(0x80123, 0x00);
+        CHECK(has(b.run(BOOT, "C681: 20\r4123: 5A\r4123\r"), "4123: 5A"));
+        CHECK_EQ(b.machine->bus().peek_bus(0x80123), 0x5A); // W1 block 32, +$0123
+        CHECK(has(b.run(BOOT, "C6A5\r"), "C6A5: 00"));
+    }
+    {
+        Board b = bridge_board(2);
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        CHECK_EQ(b.bridge().map(), 0x01);
+        CHECK(winh_clear(b.bridge()));
+        CHECK(b.find_row("BACKPLANE BIOS 0.17") >= 0); // the screen through the aperture's old address, as before
+    }
+}
+
+TEST(break_on_a_revision_2_bridge_clears_winnh_and_vech_and_sets_map_by_the_card)
+{
+    // R2. A program leaves WIN1H and WIN2H on $0E and MAP 0; Break (NMI) puts WIN0H-WIN3H and VECH to 0 and MAP to 1
+    // with the card, 0 without. VECH 5 can't meet an NMI (the vector pull would take it), so a program that leaves it
+    // goes to BREAK itself, as the demo's end does.
+    const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
+    const unsigned brk = label(lbl, "BREAK");
+    REQUIRE(brk >= 0xC800);
+    for (const bool video : {true, false})
+    {
+        std::printf("  %s\n", video ? "with the video card" : "with no video card");
+        {
+            Board b = bridge_board(2, video);
+            REQUIRE(b.ok());
+            b.reset();
+            b.run(BOOT);
+            put_program(b, {0xA9, APER_H, 0x8D, 0xA1, 0xC6,  // LDA #$0E; STA NB_WIN1H
+                            0x8D, 0xA2, 0xC6,                // STA NB_WIN2H
+                            0x9C, 0xA5, 0xC6,                // STZ NB_MAP
+                            0x4C, 0x0B, 0x03});              // JMP *
+            b.run(BOOT, "300R\r");
+            REQUIRE(b.bridge().winh(1) == APER_H);
+            REQUIRE(b.bridge().map() == 0x00);
+            b.cpu->nmi();
+            CHECK(has(b.run(BOOT), "\\"));
+            CHECK(winh_clear(b.bridge()));
+            CHECK_EQ(b.bridge().map(), video ? 0x01 : 0x00);
+            CHECK_EQ(b.bridge().window(1), 0x01);
+        }
+        {
+            Board b = bridge_board(2, video);
+            REQUIRE(b.ok());
+            b.reset();
+            b.run(BOOT);
+            put_program(b, {0xA9, APER_H, 0x8D, 0xA1, 0xC6,  // LDA #$0E; STA NB_WIN1H
+                            0xA9, 0x05, 0x8D, 0xA4, 0xC6,    // LDA #5; STA NB_VECH
+                            0x9C, 0xA5, 0xC6,                // STZ NB_MAP
+                            0x4C, static_cast<uint8_t>(brk), static_cast<uint8_t>(brk >> 8)}); // JMP BREAK
+            CHECK(has(b.run(BOOT, "300R\r"), "\\"));
+            CHECK(winh_clear(b.bridge()));
+            CHECK_EQ(b.bridge().map(), video ? 0x01 : 0x00);
+            CHECK(has(b.run(BOOT, "C681\r"), "C681: 01"));
+        }
+    }
+}
+
+TEST(vputc_on_a_revision_2_bridge_draws_through_e00000_with_ap8_clear_and_puts_win2h_back)
+{
+    // R3. With MAP 0 (bank 8 RAM), VPUTC maps W2 on the aperture by WIN2H $0E, block 0: the character lands in card
+    // memory ($002000 on), bank 8's RAM is never written, and a program's WIN2H and W2 come back as it left them,
+    // 0 or $0E.
+    for (const uint8_t win2h : {uint8_t{0}, APER_H})
+    {
+        std::printf("  the program's WIN2H %02X\n", win2h);
+        Board b = bridge_board(2);
+        REQUIRE(b.ok());
+        REQUIRE(boot_past_splash(b));
+        VideoCard *card = b.machine->video_card();
+        constexpr uint32_t CELL = 0x002000 + 5 * 160 + 10 * 2;
+        card->card_poke(CELL, ' ');
+        fill_bank8(b);
+        put_program(b, print_q(win2h, true));
+        CHECK(has(b.run(BOOT, "300R\r"), "Q"));
+        CHECK_EQ(card->card_peek(CELL), 'Q');
+        CHECK_EQ(b.machine->bus().peek_physical(0x0310), win2h); // WIN2H, W2 and MAP as the program left them
+        CHECK_EQ(b.machine->bus().peek_physical(0x0311), 0x03);
+        CHECK_EQ(b.machine->bus().peek_physical(0x0312), 0x00);
+        CHECK(bank8_kept(b));
+        CHECK_EQ(b.bridge().map(), 0x01); // BRK's BREAK: MAP back by the card
+        CHECK(winh_clear(b.bridge()));
+    }
+}
+
+TEST(vputc_on_a_revision_1_bridge_draws_through_block_32_and_never_touches_c6a0_to_c6a5)
+{
+    // R4. A $D1 bridge has no WINnH, VECH or MAP ($C6A0-$C6A5 read $FF): the boot, VPUTC and Break never write them,
+    // and VPUTC still draws through block 32, bank 8, the fixed alias.
+    Board b = bridge_board(1);
+    REQUIRE(b.ok());
+    CHECK_EQ(b.bridge().id(), 0xD1);
+    NewRegs regs;
+    b.cpu->set_observer(&regs);
+    REQUIRE(boot_past_splash(b)); // the boot and a Break
+    VideoCard *card = b.machine->video_card();
+    constexpr uint32_t CELL = 0x002000 + 5 * 160 + 10 * 2;
+    card->card_poke(CELL, ' ');
+    put_program(b, print_q(0, false));
+    CHECK(has(b.run(BOOT, "300R\r"), "Q"));
+    CHECK_EQ(card->card_peek(CELL), 'Q');
+    CHECK_EQ(b.machine->bus().peek_physical(0x0311), 0x03); // W2 back
+    b.cpu->set_observer(nullptr);
+    CHECK_EQ(regs.writes, 0u);
+}
+
+TEST(c800r_with_winnh_and_vech_left_set_boots_with_w1_on_ram_block_1)
+{
+    // R9. C800R from the monitor with WIN1H and WIN2H on $0E and VECH 5 left: BOOT2's NBSET puts them to 0 before
+    // the copy, so the boot, the splash and the monitor find W1 on RAM block 1, not the aperture's slot 1.
+    Board b = bridge_board(2);
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C6A1: 0E 0E 00 05\r");
+    REQUIRE(b.bridge().winh(1) == APER_H);
+    REQUIRE(b.bridge().vech() == 0x05);
+    CHECK(has(b.run(SPLASH_TIME, "C800R\r"), GREETING.c_str()));
+    CHECK(winh_clear(b.bridge()));
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().map(), 0x01);
+    b.machine->bus().write_bus(0x04123, 0x5C); // RAM block 1
+    CHECK(has(b.run(BOOT, "4123\r"), "4123: 5C"));
+}
+
+TEST(c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0)
+{
+    // R9, extended (B7 review round 1, R4). A program that leaves WIN0H on $0E (the aperture, the console's palette
+    // at $E00000) or $03 (no memory: it reads $FF) and jumps to $C800: START clears WIN0H on a $D2 bridge before it
+    // copies its stub into zero page through W0 and runs it there, since BOOT2's NBSET comes only after the stub.
+    // The program runs at $4000 (W1, RAM block 1), so its own fetches don't move with WIN0H.
+    for (const uint8_t h : {APER_H, uint8_t{0x03}})
+    {
+        Board b = bridge_board(2);
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        const std::vector<uint8_t> p = {0xA9, h, 0x8D, 0xA0, 0xC6, 0x4C, 0x00, 0xC8}; // STA NB_WIN0H; JMP $C800
+        for (size_t i = 0; i < p.size(); ++i)
+            b.machine->bus().write_bus(static_cast<uint32_t>(0x04000 + i), p[i]);
+        struct StubFetch : CycleObserver
+        {
+            const BackplaneBridge *nb = nullptr;
+            int seen = 0, moved = 0; // the stub's first fetch at $0000, and those with WIN0H not 0
+            void on_cycle(const BusCycle &c) override
+            {
+                if (c.dma || !c.sync || c.addr != 0x0000)
+                    return;
+                ++seen;
+                moved += nb->winh(0) != 0;
+            }
+        } fetch;
+        fetch.nb = &b.bridge();
+        b.cpu->set_observer(&fetch);
+        const bool greeted = has(b.run(SPLASH_TIME, "4000R\r"), GREETING.c_str());
+        b.cpu->set_observer(nullptr);
+        if (!greeted || fetch.moved != 0)
+            std::printf("  WIN0H %02X: greeting %d, stub fetches %d, through WIN0H %d\n", h, greeted, fetch.seen,
+                        fetch.moved);
+        CHECK(greeted);
+        CHECK(fetch.seen >= 1);
+        CHECK_EQ(fetch.moved, 0);
+        CHECK(winh_clear(b.bridge()));
+        CHECK_EQ(b.bridge().window(1), 0x01);
+        CHECK_EQ(b.bridge().map(), 0x01);
+    }
+}
+
+TEST(c818_apple_ii_mode_with_win2h_left_on_0e_starts_the_image)
+{
+    // R11. A program that leaves WIN2H on $0E and calls $C818's $A1 with image 0: APPLE clears WIN0H-WIN2H on a $D2
+    // bridge before it copies the IIe ROM into RAM block 59 through W2, so Apple II mode starts the image.
+    const std::string zero = fake_iie_rom("test_b7_0.rom", 0x06, 0xB0);
+    Board b(false, true, {}, "", {}, 0, {zero, "", "", ""}, {}, 2);
+    std::remove(zero.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    std::vector<uint8_t> p = {0xA9, APER_H, 0x8D, 0xA2, 0xC6}; // LDA #$0E; STA NB_WIN2H
+    const std::vector<uint8_t> call = c818_call(0, 0xA1);
+    p.insert(p.end(), call.begin(), call.end());
+    put_program(b, p);
+    b.run(2 * BOOT, "300R\r");
+    CHECK(b.bridge().apple());
+    CHECK_EQ(b.cpu->regs().pc, 0xFA67);                      // the stand-in's JMP *
+    CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB0); // image 0's mark
+}
+
+TEST(c818_apple_ii_mode_with_win0h_left_set_starts_the_image)
+{
+    // R11, extended (B7 review round 2, F1). A program that leaves WIN0H on $03 (no memory: it reads $FF, writes are
+    // lost) or $0E (the aperture, the console's area at $E00000) and calls $C818's $A1 with image 0: APPLEN clears
+    // WIN0H on a $D2 bridge at its entry, before it keeps the image number in W0's zero page and FINDIMG's return
+    // address on its stack, so Apple II mode starts the image and card memory is not written. The program runs at
+    // $4000 (W1, RAM block 1), so its own fetches don't move with WIN0H.
+    for (const uint8_t h : {uint8_t{0x03}, APER_H})
+    {
+        const std::string zero = fake_iie_rom("test_b7_0.rom", 0x06, 0xB0);
+        Board b(false, true, {}, "", {}, 0, {zero, "", "", ""}, {}, 2);
+        std::remove(zero.c_str());
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        const std::vector<uint8_t> p = {0xA9, h,    0x8D, 0xA0, 0xC6, // LDA #h; STA NB_WIN0H
+                                        0xA9, 0x00, 0xA2, 0xA1, 0xA0, 0x5A, // LDA #0; LDX #$A1; LDY #$5A
+                                        0x4C, 0x18, 0xC8};                  // JMP $C818
+        for (size_t i = 0; i < p.size(); ++i)
+            b.machine->bus().write_bus(static_cast<uint32_t>(0x04000 + i), p[i]);
+        VideoCard *card = b.machine->video_card();
+        for (uint32_t a = 0; a < 0x200; ++a)
+            card->card_poke(a, 0x77);
+        b.run(2 * BOOT, "4000R\r");
+        int written = 0; // card bytes $000-$1FF (W0's zero page and stack through WIN0H $0E) changed
+        for (uint32_t a = 0; a < 0x200; ++a)
+            written += card->card_peek(a) != 0x77;
+        if (!b.bridge().apple() || written != 0)
+            std::printf("  WIN0H %02X: apple %d, pc %04X, mark %02X, card bytes written %d\n", h, b.bridge().apple(),
+                        b.cpu->regs().pc, b.machine->bus().peek_physical(0x00300), written);
+        CHECK(b.bridge().apple());
+        CHECK_EQ(b.cpu->regs().pc, 0xFA67);                      // the stand-in's JMP *
+        CHECK_EQ(b.machine->bus().peek_physical(0x00300), 0xB0); // image 0's mark
+        CHECK_EQ(written, 0);
+    }
 }
 
 int main()

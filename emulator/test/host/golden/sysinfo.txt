@@ -3,8 +3,8 @@ OO-1 SYSTEM INFORMATION
 SYSTEM
   CPU        W65C02S at 7.159 MHz
              #,###,### Hz by the clock chip, #,###,### Hz by the video frame
-  ROM BIOS   0.16
-  OODOS      0.10, its BIOS 0.2; OOLIB interface 11
+  ROM BIOS   0.17
+  OODOS      0.10, its BIOS 0.2; OOLIB interface 12
   OOUI.BNK   none on A:
   MEMORY     1,024 KB fitted: 960 KB of RAM and the video card's 64 KB aperture
              for programs: a 47K TPA, 320 KB in banks 1-5 (320 KB free)
@@ -20,7 +20,7 @@ CARDS
   $C500  $A2  sound                         2
   $C580  $B1  USB, game port and speaker    1
   $C600  $C1  Disk II controller            1
-  $C680  $D1  north bridge                  1
+  $C680  $D2  north bridge                  2
   $C700  $E1  console (front panel)         1
 
 VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB

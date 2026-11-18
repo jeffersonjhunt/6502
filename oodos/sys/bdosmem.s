@@ -48,6 +48,7 @@
 .include "bdos.inc"
 .import SDMNT, UNITSAV
 .import RAWF, DRVAPL, MNTGEN           ; bios.s's: function 76
+.import BANK8                          ; video.s's: DM_BANK8 done (B7)
 
 FIRST_BLOCK     = 4                    ; bank 1's first, AMAP's 0
 MAP_FIRST       = $81
@@ -225,8 +226,13 @@ SEGOK:          CLC
 ; 3 from the warm boot on, but inside DM_VCOPY, which borrows them). Only
 ; slot 1's window, $84000-$87FFF, is the program's: the warm boot puts slot 1
 ; on its first card bank (vmem.inc's VM_PROG_BANK) and OOLIB keeps it on the
-; program's. SEGOK has checked the range's end. Keeps X.
-OSWIN:          CLC                    ; the end's high byte and A16-A19: SGE + 1, SGE + 2
+; program's. After function 83's DM_BANK8 (video.s's BANK8; B7) bank 8 is
+; the program's RAM, and the aperture is only at $E00000, which a 20-bit
+; address can't name: then nothing is refused. SEGOK has checked the
+; range's end. Keeps X.
+OSWIN:          BIT     BANK8
+                BMI     @clear         ; bank 8 RAM: no window of OODOS's in reach
+                CLC                    ; the end's high byte and A16-A19: SGE + 1, SGE + 2
                 ADC     SG
                 TYA
                 ADC     SG + 1
@@ -541,7 +547,8 @@ F_MCALLFREE:    LDX     #AMAP_LEN - 1
                 JMP     RET0
 
 ; ---------------------------------------------------------------------------
-; 73: a CPU address to its physical one
+; 73: a CPU address to its physical one (refused for one in W1 while the
+; program's WIN1H isn't 0: B7, a block past 1 MB that a paragraph can't name)
 
 F_PHYS:         LDX     #4
                 JSR     PREAD
@@ -555,7 +562,11 @@ F_PHYS:         LDX     #4
                 ROL     A
                 AND     #3
                 TAX
-                LDA     ST_WIN,X
+                CPX     #1             ; W1 while the program's WIN1H isn't 0 (B7): past 1 MB
+                BNE     @win
+                LDA     ST_W1H
+                BNE     @no
+@win:           LDA     ST_WIN,X
                 BIT     #NB_ROM
                 BNE     @no            ; flash
                 AND     #$3F

@@ -26,8 +26,13 @@
 ;   - The CPU, through aperture slot 1 in W1 (GX_VMAP), under the W1
 ;     contract of interface version 8: OOLIB sets SLOT1 to one of the
 ;     program's banks and puts block 33 (slot 1's window, physical $84000-
-;     $87FFF) in W1. While it is there the program's own $4000-$7FFF is out
-;     of reach, as before: its code, its event area, the FCBs and blocks it
+;     $87FFF, while the north bridge's MAP has AP8 set, as the warm boot
+;     leaves it) in W1. On a revision 2 north bridge (B7) the aperture is
+;     also at $E00000, which W1 reaches with WIN1H $0E (VM_SLOT_H) and
+;     block 1 (VM_SLOT_W1); after function 83's DM_BANK8 (interface version
+;     12) that is the only way, bank 8 being the program's RAM. While
+;     slot 1 is in W1 the program's own $4000-$7FFF is out of reach, as
+;     before: its code, its event area, the FCBs and blocks it
 ;     passes and what it draws from stay in $0300-$3FFF or $8000-$BFFC.
 ;     The warm boot (and the cold boot, which ends in it) puts slot 1 on
 ;     the program's first bank (VM_PROG_BANK), so block 33 never shows
@@ -56,9 +61,10 @@
 ;               the card's room
 ;   GX_VADDR    A/X a card page: GX_A its card address (page x 256)
 ;   GX_VMAP     A/X a card page: its bank shown in slot 1 and block 33 put
-;               in W1; A/X and GXP the page's CPU address ($4000-$7F00).
+;               in W1 (WIN1H $0E with block 1 after GX_BANK8); A/X and GXP
+;               the page's CPU address ($4000-$7F00).
 ;               GE_MAP for a page outside the program's part
-;   GX_W1BACK   block 1 back in W1 (slot 1 left as it is)
+;   GX_W1BACK   block 1 back in W1, WIN1H 0 (slot 1 left as it is)
 ;   GX_VPUT     A/X a CPU address in the program's memory, GX_A a card
 ;               address, GX_V the length (1-65,535; 0 nothing): copied to
 ;               the card through the port (function 83's DM_VWRITE)
@@ -101,9 +107,14 @@ VM_PROG_BANKS   = (VM_PROG_END - VM_PROG) / VM_BANK
 VM_UNITS        = (VM_PROG_END - VM_PROG) / VM_UNIT ; 1,536: GX_VALLOC's map, a bit each
 
 VM_SLOT         = 1                    ; the aperture slot OOLIB maps (SLOT1)
-VM_SLOT_BLOCK   = 33                   ; its window's block: physical $84000-$87FFF
+VM_SLOT_BLOCK   = 33                   ; its window's block: physical $84000-$87FFF (while MAP's AP8 is set)
 VM_SLOT_CPU     = $4000                ; where W1 shows it
-VM_APERTURE     = $80000               ; the aperture: slot n's window at $80000 + n x $4000
+VM_APERTURE     = $80000               ; the aperture: slot n's window at $80000 + n x $4000 (AP8 set)
+VM_APER_E0      = $E00000              ; the aperture's own address (a revision 2 north bridge, B7):
+VM_SLOT_H       = $0E                  ;   slot n's window with WINnH VM_SLOT_H and block n, so slot 1's in
+VM_SLOT_W1      = 1                    ;   W1 is WIN1H $0E and block 1 ($E04000), function 83's DM_BANK8's
+.assert VM_APER_E0 = VM_SLOT_H << 20, error, "WINnH is A20-A23: $0E is $E00000"
+.assert VM_SLOT_W1 = VM_SLOT, error, "slot 1's window at $E00000 is its block"
 
 .global GX_VALLOC, GX_VFREE, GX_VADDR, GX_VMAP, GX_W1BACK
 .global GX_VPUT, GX_VGET, GX_VCOPY, GX_VFILL

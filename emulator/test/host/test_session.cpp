@@ -30,7 +30,7 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string GREETING = "\rBACKPLANE BIOS 0.16\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.17\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     std::unique_ptr<Session> open(const std::string &machine = MACHINE)
@@ -719,6 +719,46 @@ TEST(a_machine_without_a_panel)
     std::string out = s->take_output();
     CHECK(run_until(*s, out, GREETING));
     CHECK(s->lights().addr[19] == 0.0f);
+}
+
+TEST(a_power_cycle_puts_the_north_bridges_map_and_winh_back)
+{
+    std::string text;
+    {
+        std::ifstream in(MACHINE);
+        text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    const std::string line = "\nnorthbridge  backplane";
+    const size_t at = text.find(line);
+    REQUIRE(at != std::string::npos);
+    text.insert(at + line.size(), " revision=2");
+    auto s = open(write_machine("nb2.machine", text));   // kept until the power cycle has read it again
+    REQUIRE(s != nullptr);
+    REQUIRE(s->bridge() != nullptr);
+    CHECK_EQ(s->bridge()->revision(), 2u);
+    std::string out;
+    REQUIRE(run_until(*s, out, GREETING));
+    s->send("C6A1: 0E\r");                                  // the monitor's stores: WIN1H and MAP
+    for (int i = 0; i < 10; ++i)
+        s->run(FRAME);
+    s->send("C6A5: 00\r");
+    for (int i = 0; i < 10; ++i)
+        s->run(FRAME);
+    s->take_output();
+    CHECK_EQ(s->bridge()->winh(1), 0x0E);
+    CHECK_EQ(s->bridge()->map(), 0x00);
+    std::string error;
+    const bool cycled = s->power_cycle(error);
+    std::remove("nb2.machine");
+    if (!cycled)
+        std::printf("  %s\n", error.c_str());
+    REQUIRE(cycled);
+    CHECK_EQ(s->bridge()->revision(), 2u);                  // the same machine, built again
+    CHECK_EQ(s->bridge()->winh(1), 0x00);
+    CHECK_EQ(s->bridge()->map(), BackplaneBridge::MAP_AP8);
+    CHECK_EQ(s->peek_io(0x6A5), 0x01);
+    out.clear();
+    CHECK(run_until(*s, out, GREETING));
 }
 
 TEST(sync_rtc_keeps_the_clock_with_the_hosts_and_a_time_someone_set)

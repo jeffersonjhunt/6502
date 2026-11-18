@@ -2258,8 +2258,9 @@ whole 1 MB, so a new place needs more bits. The north bridge gets new registers 
   "the registers widen"), and RAM past 1 MB (`$100000–$DFFFFF`) would be reached the same way.
 
 **WINnH under OODOS (review round 1).** Only OOLIB ever gives a window a WINnH other than 0, and only W1 (WIN1H
-`$0E`, slot 1). Code that maps W1 with a single `STA NB_WIN1` has to find WIN1H 0. So the three ways into OODOS
-save it, clear it and put it back:
+`$0E`, slot 1). (Superseded in part, as built: among programs only OOLIB does; OODOS's console is a second writer,
+inside the BDOS, [B7: as built](#b7-as-built).) Code that maps W1 with a single `STA NB_WIN1` has to find WIN1H 0.
+So the three ways into OODOS save it, clear it and put it back:
 - **The dispatcher,** `irq.s`'s `DISPATCH`: it saves and clears WIN1H on entry and restores it on the way out. The
   handlers it calls map W1 with one write, and they then find WIN1H 0: `TICK`, `EVALL`, `CALL61` and `CALL62`,
   `input.s`'s `USBSRV` and `L2TICK`, `sound.s`'s `DOCIRQ`, `MBOXIN` and `SMDROP`, and `video.s`'s `VBWORK`.
@@ -2296,7 +2297,10 @@ version (function 80's `FT_INFO`) goes up with them. Every existing call keeps i
   function 83) and `oodos/sys/bdos.s`'s `PMAP` turn a CPU address into a physical one from the windows' blocks
   alone. While WIN1H isn't 0, a W1 address is refused (A = `$FF`) rather than taken for RAM block 1.
 - **OOLIB:** `GX_INIT` calls `DM_BANK8` when the version allows, and `GX_BLOCK` writes WIN1H. A program linked with
-  an older library never calls it, keeps AP8 set and runs as now.
+  an older library never calls it, keeps AP8 set and runs as now. **Decided otherwise (the owner, 2026-11-17, B7's
+  question 5):** `GX_INIT` is unchanged and never calls `DM_BANK8`; a program asks for the new mode itself with a new
+  entry, `GX_BANK8`, after `GX_INIT`. A relink alone would otherwise change what physical `$84000` means to a program
+  that loads card memory by DMA through it (OO-Amp does), with no error ([B7: as built](#b7-as-built)).
 - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
 - **SYSINFO** reads MAP to say what the RAM is, as the ROM's diagnostics do (they own the machine and need no
   exception). The read is added to AGENTS.md's exception, which is SYSINFO's alone since D3c
@@ -3213,7 +3217,7 @@ models the bus's signals, not its pins.
 - **The row changed** (Q10). B6's row put "`hwname.s`'s names for them" with the ID table. They move to B7's row:
   B7 changes `hwname.s`, SYSINFO and the cards anyway, so the cards change once and B6 stays docs only. B7 also
   corrects [diag.md](diag.md)'s size for `HW_NAME` ("180 B of names"; 222 B of strings today, 158 B once IDs 0–5
-  name "(free)"). B6's row is left as it was, the spec.
+  name "(free)"; 169 B as built in B7, with F's "(reserved)": [B7: as built](#b7-as-built)). B6's row is left as it was, the spec.
 - **Review round 1** (the owner, 2026-11-17, "recommendations as listed"). The builder's choices were accepted:
   RDY, BE and /WAIT beside PHI2; the four-line rule on side A too, so VPB at A47; /BOOTSEL at A11, TC at A48 and
   /DREQ at B9; two spares. So were its extra fixes: the interrupt poll's wording in
@@ -3267,6 +3271,180 @@ models the bus's signals, not its pins.
 - **video-rev2.md** (frozen, not edited) still says DRQ 1 and /DACK, revision 1's wiring (its lines 21, 56, 113,
   167 and 236); they join B7's note there.
 - **No expectation, test, card or version changed.** No site release of B6 (Q14): its books ride the next one.
+
+#### B7: as built ####
+
+**Proposed (2026-11-17).** Step B7, the full 1 MB, on `feat/bus-b7` off main `9cee9bc` (B1–B6 merged), as its plan
+gave it with the owner's answers ("recommendations as listed": the critic's C1–C18 folded, questions 1–19 as
+recommended). Nine units: the emulator's revision 2 bridge behind an option (U1), BIOS 0.17 (U2), the ROM (U3), the
+machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and interface 12 (U6), OOLIB's `GX_BANK8`
+(U7), the WebUI (U8) and the books (U9).
+
+- **The north bridge, revision 2** ([the video aperture moved out of RAM](#the-video-aperture-moved-out-of-ram)):
+  WIN0H–WIN3H (`$20–$23`), VECH (`$24`) and MAP (`$25`, AP8 in bit 0) as the register table has them; WINnH and VECH
+  keep bits 3–0 and MAP bit 0, the rest read 0; ID `$D2` and STATUS bits 4–7 2. Every reset, hard or the /RESET
+  pulse, puts WINnH and VECH to 0 and MAP to `$01`, whatever is fitted. `route()` takes A20–A23 from WINnH, or VECH
+  on a vector pull, while the ROM bit is clear; Apple II mode's branch never reads them. The redirect follows AP8
+  live, for the windows, the DMA controller's memory side and `peek_physical()`; the Console card and the bus spy
+  see the true map. The static `REVISION` and `ID` mean the default revision, now 2, and each bridge has `id()` and
+  `revision()` (C5). `@version` 0.6.0 for the bridge, 0.15.0 for the decoder (C15).
+- **A revision 1 bridge stays** as a machine-file option (Q8): `northbridge backplane [bootsel] [revision=1|2]`,
+  default 2 from U4 (1 in U1–U3, so every unit stayed green); revision 1 is B1's model exactly (`$20–$25` read `$FF`,
+  writes lost, ID `$D1`, the alias fixed at build by `set_aperture()`). Anything else is refused, the token named.
+  The WebUI never sets it. It is what the `$D1` fallbacks' tests run on.
+- **BIOS 0.17** (Q14). Every new path is gated on NB_ID `$D2`, so a `$D1` machine runs exactly as 0.16 did:
+  - `diag.inc`'s inline `NBSET` (A kept) sets WIN0H–WIN3H and VECH to 0 and writes MAP whole, 1 with `VIDEO_ID`
+    `$92` and else 0 (Q9), at BOOT2 (BOOT, MONBOOT, C800R and the diagnostics' trampolines come through it) and
+    BREAK; not in PUTBACKM, since every way out of a diagnostics run reaches BOOT2 (C6). So AP8 is cleared at boot
+    on a machine with no revision 2 card. START, on the RAM copy, clears WIN0H inline on `$D2` before it copies its
+    stub into zero page through W0 and runs it there, since C800R reaches START's W0 before BOOT2 (review round 1,
+    R4).
+  - VPUTC maps W2 through WIN2H `$0E`, block 0 (`$E00000`) on `$D2`, NB_ID read on each call, and puts a program's
+    WIN2H back; block 32 on `$D1`.
+  - The diagnostics: GO writes MAP 0 on `$D2` whatever the card (Q6), so `DG_APER`, read from AP8, is 0 and stages
+    2–6 test all 64 blocks; V4–V7 reach the aperture at `$E00000` (`APW1`, `W1HOME`). Stage 7 takes revision 2,
+    `$D2`, exactly (Q7): a `$D1` bridge says `REVISION 1: NOT KNOWN TO THIS BUILD`, SKIP. NB9 is not added (Q16).
+  - APPLE clears WIN0H–WIN2H (Q17): WIN0H inline at APPLEN's entry, before the checks keep IMAGE in W0's zero page
+    and FINDIMG's return address on its stack (review round 2, F1), and WIN1H and WIN2H after its checks for the
+    card, the DMA controller and the IIe ROM (review round 1, R5), so a refusal changes nothing but WIN0H (0 on a
+    `$D2` bridge, which the monitor's own zero page needs anyway); chapter 13's APPLE listing changes with it (C1,
+    approved), and Apple II mode is otherwise unchanged.
+  - `hwname.s` knows `$D2` (`HW_NB_ID2`), names IDs 0–5 "(free)" and F "(reserved)" (C11): `HW_NAME` is 45 B
+    (13 B of code, 32 B of pointers) and 169 B of names, 222 B before ([diag.md](diag.md)).
+- **OODOS** (stays 0.10, Q15; OOLIB's interface 11 → 12):
+  - The console and `DM_VCOPY` by the new address on `$D2` (CRTINIT's CVH/CVB/CVA: `$0E`/0/`$E0`, or 0/32/`$08` on
+    `$D1`); `TEXT_LO` checked against `VM_TEXT`. So the console's `VMAP0` and `VUNMAP` (`crt.s`) are a second
+    writer of WIN1H, inside the BDOS: WIN1H `$0E` with block 0 for each character, and 0 again before the BDOS
+    returns. The spec's "only OOLIB ever gives a window a WINnH other than 0" above holds among programs only, and
+    is superseded so; chapter 11 of the Technical Reference says it that way (review round 1, W4).
+  - WIN1H across the ways in (Q10): `STUB` saves it in ST_W1H (`$FE`), a `$FF` read (no register) kept as 0, and
+    clears it before the stack-page map; `STUBRET` puts back only a value that isn't 0. `DISPATCH` pushes the WIN1H
+    it read, clears it unless it is 0 or `$FF`, and puts it back on both exits, the no-card one too (C14). `SETHOOK`
+    keeps it at `HK_W1H` (14), `CALLHOOK` restores it, and `HKBACK` clears it by testing the register, not the
+    record (C3). Nothing is written to WIN1H on a `$D1` bridge.
+  - The new COMMON helper `WINH0` (WIN0H–WIN3H and VECH 0, MAP whole by `VIDEO_ID`, on `$D2` only) from `WARM`,
+    `NMI` and `ROMAPPLE`. `WARM` and `NMI` clear WIN0H inline first (WIN0H read as `$FF`, on `$D1`, writes nothing)
+    and call `WINH0` only once W0 is on the system block, so its JSR never goes through a WIN0H left set or a
+    read-only W0 (review round 1, R1). `WARM` also clears `BANK8`.
+  - The refusal of a W1 address while WIN1H isn't 0 in `PHYSOF`, `PMAP`, function 73 (`F_PHYS`), `MRANGE` and
+    `FT_OPENX` (Q11).
+  - **`DM_BANK8`**, function 83's operation 11 (`DM_OPS` 12), as [above](#the-video-aperture-moved-out-of-ram), in
+    block 61: refused with nothing changed on `$D1`, under a ROM BIOS before 0.17 (function 77's version, the major
+    first) and with no block; otherwise AP8 cleared with a revision 2 card, `BANK8` set, +1/+2 `$0E`/1 or 0/0 with
+    no card. `DM_INFO` stays 16 bytes; its W1 map takes in blocks 32–39 while `BANK8` is set. OSWIN lets bank 8
+    through only while `BANK8` is set; `FT_OPENX` still refuses an event area there (C4).
+  - SYSINFO reads MAP (under its exception, AGENTS.md) for its RAM line, with no new text (Q13, C18).
+- **OOLIB (Q3, Q4, Q5):** `GX_INIT` is unchanged and always takes the old mode (block 33, AP8 left set). The new
+  `GX_BANK8`, called after it, checks FT_INFO for 12 and `OA_DMA` and asks for `DM_BANK8`; a `$FF` refusal is
+  `GE_VERSION` with the old mode kept, silently. After it GXPHYS maps slot 1 by WIN1H `$0E` and WIN1 1. The W1 cache
+  is two bytes, `GXCURH:GXCUR`; `GX_BLOCK` refuses A ≥ 64 first and writes WIN1H 0 only when `GXCURH` isn't 0, as
+  `GX_W1BACK` does; WIN1H is never written before `GX_BANK8` gives a window. `GXCURH`, `GXAPH` and `GXAPB` are in
+  DATA, since the loader doesn't clear BSS. OO-Amp is unchanged (Q5), and must change its DMA-segment loader before
+  it ever calls `GX_BANK8`.
+- **The WebUI** (Q12, C12): the bank 8 breakpoint check reads NB_ID first; on `$D2` it refuses a bank 8 breakpoint
+  while MAP's AP8 is set, and on any other NB_ID (`$D1`, or nothing answering) it keeps the `VIDEO_ID` rule; VV1's
+  `recheck()` follows the same rule (VV1's rule changed, approved). The message's prefix is kept. Its 33 BIOS pins
+  moved to 0.17 with the rebuilt WASM core (C10). The Devices tab's north bridge row is later (Q19).
+- **The four questions of 2026-11-14** are recorded, dated, in [hw/oodos.md](oodos.md#the-oem-layer) and its phase 7 questions: DEF
+  SEG `$8000–$8FFF` keeps the screen-page meaning, never bank 8 RAM (Q1); GW-BASIC refuses any access meeting
+  `$80000–$8FFFF` until 7d, in 7c's tail, OODOS unchanged (Q2); `DM_BANK8` after the version and DMA checks, `$FF`
+  the old mode silently, no card a success, and the no-card `GX_BLOCK` gap on 7c's tail (Q3); the two-byte cache and
+  `GX_BLOCK`'s A < 64 (Q4).
+- **The note in [video-rev2.md](video-rev2.md)** is inserted after its Status paragraph, exactly as approved (C9);
+  nothing else in that file changed.
+- **Room** (`oodos.map`; normal / DEBUG build), against `9cee9bc`'s:
+
+  | Region | Free at `9cee9bc` | Free after B7 | The plan's estimate |
+  |---|---|---|---|
+  | COMMON | 166 / 156 | **34 / 24** (U5 53 / 43, U9 50 / 40; round 1's R1 16) | ~49 / ~39 (stop limit 32) |
+  | RES region (`$C800–$F7FF`) | 219 / 16 | 219 / 16, unchanged | 219 / 16 (limit 16) |
+  | BDOS (block 60) | 1,217 / 1,201 | 1,175 / 1,159 | ~1,170 / ~1,155 |
+  | BIOS (block 61) | 2,164 | 2,020 | ~1,990 |
+  | SYSBSS | 52 / 49 | 47 / 44 | 47 / 44 |
+  | ROM block 31 | 5,147 | 5,012 (U9 5,029; round 1's R4 and R5 5,015; round 2's F1) | ~5,000 |
+  | ROM block 22 (D22BSS) | 2,409 (4) | 2,389 (4) | ~2,330 (4) |
+  | ROM block 23 | 7,917 | 7,843 | ~7,850 |
+  | ROM block 21 | 7,896 | 7,896 | 7,896 |
+
+  JUMPS at `$F800`, VECTORS at `$FFFA` and RES's symbols are main's. OOLIB per linked program: gxmem's CODE
+  `$3FE` → `$499` (+155 bytes; the plan estimated about 50) and DATA 4 → 7; VIEW.COM 6,150 → 6,308 bytes, its top
+  `$2100`, under `$4000`; the OOUI bank unchanged.
+- **Cycles, measured** (the fast build, a `$D2` machine; B7's final build, after review round 1, against U4's or
+  `9cee9bc`'s): the dispatcher costs exactly **+17 cycles** with WIN1H 0 (Q10), when WIN1H is only read and saved.
+  While WIN1H is `$0E` (a `GX_BANK8` program with slot 1 in W1) it is cleared and put back, 27 cycles, 10 more:
+  measured with W1HTEST holding WIN1H `$0E`, a frame 225 and a tick 172, and 215 and 162 with WIN1H poked to 0 in
+  the same spin (review round 1, W5). The ticks: no area 145 → 162, the MS-carry tick 159 → 176, layout 1 184 →
+  201, layout 2 234 → 249; the paddles started 367 → 382 and read 672 → 687; the USB key interrupt 662 → 679. The
+  frames: no area 199 → 215, layout 2 396 → 412, a slot set but not its bit 518 → 534, a 512-byte slot 1,302 →
+  1,323, the pointer 736 → 753, the whole budget 2,769 → 2,789. Every figure that moved by other than 17 is
+  page-crossing layout (the owner's answer 1 at the U5 stop): U5 measured 1,318, 752 and 2,786, and U6's growth of
+  block 61, where `VBWORK` is, added 5, 1 and 3 (review round 1, W2). Sound: channel 2's terminal count 688/858 →
+  705/874; with the next piece inside it 4,656–4,959 → 4,672–5,405; the rare ones 866 and 1,007 (U5 saw 1,269;
+  the books had kept an older "about 1,420", review round 1, W3); a frame with the stream claimed and a layout-2
+  area 698 → 715. The DEBUG build's hook counts: the tick hook's largest 475 (was 489; the bound 380–520 holds),
+  the frame hook's 10,220 (was 10,135). The BDOS stub 142 cycles in and 98 out (`< 200` holds), 150 and 101 with
+  WIN1H held at `$0E` (review round 2, N1); FARCALL 281,
+  unchanged. The latest line a slot ends: 500 with a USB batch, 522 under 64 KB loads (was 503), the worst seen
+  for a single slot; the budget case 505 (19 to spare in the frames sampled, not a worst case) both under a USB
+  batch and under 64 KB loads (507 under loads at `9cee9bc` as U5 measured it; the books had kept B2's 497, review
+  round 1, W3). A worst-case sweep is later work, on [OOLIB's question 3](oolib.md#open-questions) (review round
+  2, N2). OSWIN gains 6 cycles a call (U6) and `GX_BLOCK`, already
+  mapped, 7 → 16 (U7), both outside every timed bound. The books' figures are these measured ones (C8), never +17
+  by hand.
+- **Run times:** the diagnostics, with all 64 blocks (Q6), a quick run 58.7 s (was 56.5) and a full run 171.8 s
+  (was 165.6). test_bios_diag, then 923 s alone in the fast build, over its 900 s, was split in two ctest entries,
+  `test_bios_diag_1of2` and `_2of2`, by `OOE_TEST_SHARD` as test_bios_sd is (the owner's answer 2 at the U4 stop);
+  they take 528.6 s and 427.6 s, the TIMEOUT 900 s unchanged. The whole fast ctest about 530–545 s, 125 of 125.
+- **Expectation changes:** only the plan's approved ones (§3 as folded, with §3.5's book listings), and the owner's
+  answers at the stops: test_bios_sd's stopped-update case waits until neither flash chip is busy (U3);
+  `break_inside_vputc_puts_w2_back`'s trigger by W2 0 with WIN2H `$0E` and WIN2H checked put back (U4); the
+  measured group D figures, 249, 215 and 412 for the plan's 251, 216 and 413 (U5); test_oodos_pb waits for the CPU
+  to be back in the program before its pokes (U5). U8 also dropped test_bios.cpp's unused `NB_VECH`, which the WASM
+  build's clang refused. Review round 1: test_oodos_video.cpp's `DM_OPS` 11 → 12, oodos.inc's since interface 12 (a
+  test input, approved).
+- **New tests**, each seen failing under its mutant and the source restored: E1–E9 (the bridge, the machine
+  option, the video card, Apple II mode, the session), R1–R11 (the ROM), O1–O9 and O11 (OODOS's WIN1H and new
+  address), D1–D9 (`DM_BANK8`), L1–L8 (OOLIB, L8 C3's hook case), W1–W3 (the WebUI). `oodos/sys/test/w1htest.s` is
+  a test-only program that writes WIN1H itself, with its build rule and its `tools/test-map.txt` rule. Review round
+  1 adds `break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only` (test_oodos_sys, R1) and extends R9 with
+  `c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0` (test_bios, R4); R5 is held by R11, which fails with the
+  clear left out. Review round 2 extends R11 with `c818_apple_ii_mode_with_win0h_left_set_starts_the_image`
+  (test_bios, F1): WIN0H `$03` or `$0E` left by a program at `$4000`, `$C818`'s `$A1` with image 0, Apple II mode
+  reached and card memory's `$000–$1FF` unwritten; it fails with APPLEN's entry clear left out.
+- **Review round 1** (the owner's dispositions, 2026-11-17, "recommendations as listed"). Fixed in the code, each in
+  its place above: R1 (`WARM` and `NMI` clear WIN0H inline and call `WINH0` on the system's stack), R4 (`START`'s
+  WIN0H), R5 (APPLE's clear after its checks) and E1 (`video_card.h`'s comments on where the aperture is). R2 was
+  disputed: question 5's answer stands. R3 is older than B7 (the one-byte cache had it) and is documented only, with
+  no new interface: a hook that maps W1 through OOLIB ends with `GX_W1BACK`, so the program's next `GX_VMAP`, or
+  `GX_BLOCK` of a block other than 1, is a full map (the Programmer's Guide's chapters 5 and 8, `oolib.inc`,
+  [hw/oolib.md](oolib.md)). The books: W1 option 1, the owner's change to the approved note in
+  [video-rev2.md](video-rev2.md), each line reference +24 and "above" → "below", nothing else in that file; W2,
+  W3 and W5, the costs above, measured at the final build; W4, the console as a second writer of WIN1H; W6,
+  chapter 3's NBSET at `BOOT2` before the copy; W7, `HW_KNOWN` 44 B in [diag.md](diag.md); W8, a `DM_BANK8`
+  refusal leaves bank 8 as it was. AGENTS.md names OOLIB's interface 12 (was 9). R1's two inline clears cost
+  COMMON 16 bytes: 34 free, above its limit of 32, and 24 in the DEBUG build.
+- **Review round 2** (the owner's dispositions, 2026-11-18, "do this last set as recommended"). F1, a revision of
+  round 1's R5, in the code: APPLEN clears WIN0H inline at its entry on `$D2` (R5 had moved it after the checks,
+  which use W0), WIN1H and WIN2H still after them; chapter 13 says a refusal changes nothing but WIN0H; ROM block
+  31 5,015 → 5,012 free. F2, a revision of R3, text only: after a drawing hook may have run, the program re-maps
+  with `GX_VMAP` before it touches W1 (`GX_W1BACK` or `GX_BLOCK` alone isn't enough after `GX_BANK8`), and a
+  hook's `GX_VMAP` moves slot 1's bank, which nothing puts back (the Programmer's Guide's chapters 5 and 8,
+  `oolib.inc`, [hw/oolib.md](oolib.md)). N1: the BDOS stub's cost in the Programmer's Guide's chapter 2 and
+  [hw/oodos.md](oodos.md), measured at the round's build, 142 in and 98 out (240) with WIN1H 0 and 150 and 101
+  (251) with WIN1H `$0E`. N2: the budget case's line 505 is a sampled figure, the worst seen for a single slot
+  under loads 522, and a worst-case sweep is on OOLIB's question 3's later list, not in B7. The owner's rule from
+  this round: every finding carries its lineage, new or a revision of an earlier fix (with its generation), and
+  each round's report counts them.
+- **Review round 3** (the owner's dispositions, 2026-11-18): 0 new, 1 revision (G1, of F2, generation 2). F2's
+  recipe ("`GX_VMAP`, then `GX_W1BACK`") still fails if a hook fires between the two calls, so the R3 lineage ends
+  with a rule, not another remedy: after `GX_BANK8`, a hook must not map W1 through OOLIB (the Programmer's
+  Guide's chapters 5 and 8, `oolib.inc`, [hw/oolib.md](oolib.md)). Saving the mapping state around a hook is a
+  later design question in hw/oolib.md. No code changed.
+- **Not in B7** (Q16, Q18, Q19 and the plan's list): NB9, the word pass and the D1 alias pass (a later diagnostics
+  BIOS); WIDE in the ROM or OODOS; GW-BASIC's DEF SEG, PEEK, POKE, BLOAD, BSAVE and P5's seed (7c's tail); RAM past
+  1 MB (WINnH `$01–$0D`, which reads `$FF`); OO-Amp's change; a site release. B7's books ride the next release,
+  whose note gains: a kept user BIOS of 0.16 or older, on a machine with no revision 2 video card, leaves bank 8
+  reading `$FF`: Use built-in.
 
 #### The owner's answers (B0) ####
 
@@ -3445,9 +3623,10 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
 10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). *(Built: `VideoCard` owns
     2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `E00000-E0FFFF` since B1
     ([as built](#b1-as-built)), is a bare 64 KB memory device that forwards each access to the card (`$FF` and
-    writes lost with no card), whose slot registers are the card's own (`$C4B0–$C4B7`); with a revision 2 card the
-    north bridge sends bank 8 to it, from the CPU's windows and DMA alike, and it is inert with a revision 1 card or
-    none, bank 8 then RAM; the port (PADDR, PDATA, PSTEP, PCTL) has
+    writes lost with no card), whose slot registers are the card's own (`$C4B0–$C4B7`); since B7
+    ([as built](#b7-as-built)) the north bridge sends bank 8 to it while MAP's AP8 is set, from the CPU's windows and
+    DMA alike, and bank 8 is RAM with AP8 clear (a `revision=1` bridge keeps B1's rule: with a revision 2 card only);
+    the line is inert with a revision 1 card or none; the port (PADDR, PDATA, PSTEP, PCTL) has
     its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2 (since B2, a bare `drq` on each line
     and channel 1's CARD `$09`: [B2: as built](#b2-as-built)). The `video` line's `rev=` (1 or 2,
     1 if left out; `backplane.machine` has 2), or `MachineOptions::video_revision` over it, picks the revision,

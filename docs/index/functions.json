@@ -554,7 +554,7 @@
   "documented": true,
   "anchor": "bdos-73",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.2; the refusal of a W1 address on the aperture since OODOS 0.11 (interface version 12)",
   "status": "built"
  },
  {
@@ -626,7 +626,7 @@
   "documented": true,
   "anchor": "bdos-83",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.5; operations 7\u201310 and the card addresses since OODOS 0.9 (interface version 8).",
+  "since": "OODOS 0.5; operations 7\u201310 and the card addresses since OODOS 0.9 (interface version 8); operation 11 since OODOS 0.11 (interface version 12).",
   "status": "built"
  },
  {

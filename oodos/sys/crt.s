@@ -18,10 +18,13 @@
 ; unit 1 ($000400, copied from flash block 30, as VINIT does), the text at
 ; unit 8 ($002000), a character and an attribute a cell. Aperture slot 0
 ; always shows bank 0 (CRTINIT sets it, the warm boot puts it back, and no
-; program writes SLOT0), so its window, block 32 at $80000-$83FFF, is the
-; console's: the BIOS reaches it through W1, put on block 32 for the call
-; and back on the BDOS's (60) before it returns; scrolling and erasing are
-; DMA copies within the window, as video.s's.
+; program writes SLOT0), so its window is the console's: on a revision 2
+; north bridge (NB_ID $D2; B7) the aperture's own, $E00000-$E03FFF, which
+; W1 reaches with WIN1H $0E and block 0, and on revision 1 bank 8's, block 32
+; at $80000-$83FFF (CRTINIT chooses: CVH, CVB, and CVA for DMA). The BIOS
+; maps W1 there for the call (VMAP0: WIN1H, then WIN1) and back on the
+; BDOS's block 60 with WIN1H 0 before it returns (VUNMAP); scrolling and
+; erasing are DMA copies within the window, as video.s's.
 ; The cursor is the cell's attribute while it is there: black on light
 ; grey, blinking (the card blinks it), the character left as it is.
 ;
@@ -33,7 +36,7 @@
 .include "vmem.inc"
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
-.export CRTINIT, CRTOUT, CRTREGS
+.export CRTINIT, CRTOUT, CRTREGS, CVA, NB2
 .import CLOCKS                         ; irq.s's
 .exportzp CESC                         ; WARM resets it
 
@@ -41,13 +44,13 @@ COLS            = 80
 ROWS            = 30
 ATTR            = $07                  ; light grey on black
 CURATTR         = $F0                  ; black on light grey, blinking
-VBLOCK          = 32                   ; $80000, through W1
+VBLOCK          = 32                   ; slot 0's window on a revision 1 bridge: $80000, through W1
 VWIN            = $4000
 PAL             = VWIN                 ; unit 0
 FONT            = VWIN + $0400         ; unit 1
 TEXT            = VWIN + $2000         ; unit 8
-TEXT_PHYS       = $82000               ; slot 0's window: card $002000
-.assert TEXT_PHYS - $80000 = VM_TEXT, error, "the text where vmem.inc has it"
+TEXT_LO         = $2000                ; the text's address in slot 0's window, less its bank (CVA)
+.assert TEXT_LO = VM_TEXT, error, "the text where vmem.inc has it"
 FONT_BLOCK      = 30                   ; in the flash
 TEXT_END        = TEXT + COLS * ROWS * 2
 
@@ -59,20 +62,39 @@ CESC:           .res    1              ; 0, 1 after ESC, 2 after ESC Y, 3 after 
 CUNDER:         .res    1              ; the attribute under the cursor
 CP:             .res    2              ; a cell, in W1
 
+.segment "SYSBSS"
+CVH:            .res    1              ; slot 0's window for W1: WIN1H ($0E; 0 on a revision 1 bridge),
+CVB:            .res    1              ;   the block (0; 32), and the window's physical bank for DMA
+CVA:            .res    1              ;   ($E0; $08): CRTINIT's, card or no card (DM_VCOPY's too)
+NB2:            .res    1              ; bit 7 ($FF): a revision 2 north bridge (NB_ID $D2); 0 not
+
 .segment "BIOS"
+
+; W1 on slot 0's window, the console's: WIN1H first (none on revision 1),
+; then the block; and back on the BDOS's block, WIN1H 0 first. Uses A.
+VMAP0:          LDA     CVH
+                BEQ     @blk
+                STA     NB_WIN1H
+@blk:           LDA     CVB
+                STA     NB_WIN1
+                RTS
+VUNMAP:         LDA     CVH
+                BEQ     @blk
+                STZ     NB_WIN1H
+@blk:           LDA     #BDOS_BLOCK
+                STA     NB_WIN1
+                RTS
 
 ; Write A. Uses A, X, Y.
 CRTOUT:         BIT     CVOK
                 BPL     @off
                 PHA
-                LDA     #VBLOCK
-                STA     NB_WIN1
+                JSR     VMAP0
                 JSR     CUROFF
                 PLA
                 JSR     CRTCH
                 JSR     CURON
-                LDA     #BDOS_BLOCK
-                STA     NB_WIN1
+                JMP     VUNMAP
 @off:           RTS
 
 CRTCH:          LDX     CESC
@@ -117,15 +139,15 @@ NEWLINE:        LDA     CROW
                 BCS     @scroll
                 STA     CROW
                 RTS
-@scroll:        LDA     #<(TEXT_PHYS + COLS * 2)
+@scroll:        LDA     #<(TEXT_LO + COLS * 2)
                 STA     SRCP
-                LDA     #>(TEXT_PHYS + COLS * 2)
+                LDA     #>(TEXT_LO + COLS * 2)
                 STA     SRCP + 1
-                LDA     #<TEXT_PHYS
+                LDA     #<TEXT_LO
                 STA     DSTP
-                LDA     #>TEXT_PHYS
+                LDA     #>TEXT_LO
                 STA     DSTP + 1
-                LDA     #^TEXT_PHYS
+                LDA     CVA            ; slot 0's window's bank
                 STA     SRCP + 2
                 STA     DSTP + 2
                 LDA     #<(COLS * (ROWS - 1) * 2)
@@ -243,7 +265,7 @@ FILL:           LDA     #' '
                 STA     SRCP + 1
                 ADC     #0
                 STA     DSTP + 1
-                LDA     #^TEXT_PHYS
+                LDA     CVA
                 STA     SRCP + 2
                 STA     DSTP + 2
                 JMP     DMAGO
@@ -292,9 +314,25 @@ ROWHI:
 
 ; The screen, from nothing: the font (flash block 30, a page at a time through
 ; SECBUF, since a window can't show both), the palette, a clear screen and the
-; card's registers for it; and the USB keyboard's Pause/Break on /NMI.
+; card's registers for it; and the USB keyboard's Pause/Break on /NMI. First,
+; card or no card, where slot 0's window is (CVH, CVB, CVA, NB2: B7).
 CRTINIT:        STZ     CVOK
                 STZ     CESC
+                STZ     NB2
+                LDA     NB_ID
+                CMP     #NB_ID_V2
+                BNE     @v1
+                DEC     NB2            ; $FF: bit 7
+                LDA     #VIDEO_APER_H
+                LDX     #0
+                LDY     #^VIDEO_APERTURE2
+                BRA     @at
+@v1:            LDA     #0
+                LDX     #VBLOCK
+                LDY     #^VM_APERTURE
+@at:            STA     CVH
+                STX     CVB
+                STY     CVA
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BNE     @nocard
@@ -304,7 +342,10 @@ CRTINIT:        STZ     CVOK
 @nocard:        JMP     USBINIT
 @card:          STZ     VIDEO_SLOT0    ; slot 0 on bank 0, as /RESET leaves it
                 STZ     VIDEO_SLOT0 + 1
-                LDX     #0             ; the page
+                LDA     CVH            ; WIN1H once: the flash's window (the ROM bit) ignores it
+                BEQ     @page
+                STA     NB_WIN1H
+@page:          LDX     #0             ; the page
 @font:          LDA     #NB_ROM | NB_RO | FONT_BLOCK
                 STA     NB_WIN1
                 STZ     CP
@@ -317,7 +358,7 @@ CRTINIT:        STZ     CVOK
                 STA     SECBUF,Y
                 INY
                 BNE     @in
-                LDA     #VBLOCK
+                LDA     CVB
                 STA     NB_WIN1
                 TXA
                 CLC
@@ -338,8 +379,7 @@ CRTINIT:        STZ     CVOK
                 JSR     CRTREG0        ; the card's registers for the screen
                 JSR     CLEAR
                 JSR     CURON
-                LDA     #BDOS_BLOCK
-                STA     NB_WIN1
+                JSR     VUNMAP
                 DEC     CVOK
 USBINIT:        LDA     USB_ID
                 CMP     #USB_ID_V1
@@ -353,7 +393,8 @@ USBINIT:        LDA     USB_ID
 ; sets them, for the warm boot (video.s's VBQUIET) and function 83's
 ; DM_CONSOLE. Its memory, units 0-12, is never a program's to write
 ; (function 83 refuses OODOS's card memory and slot 0's window, block 32
-; isn't in the W1 map), so the font, the
+; isn't in the W1 map, and the program's W1 is refused while its WIN1H
+; isn't 0), so the font, the
 ; palette and the text are as they were, the cursor too. Nothing with no
 ; screen (CVOK clear).
 CRTREGS:        BIT     CVOK

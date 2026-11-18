@@ -391,7 +391,8 @@ its question.
   Function 75's Apple II mode turns OODOS's two off first; Break and 75's monitor go through the ROM's QUIET,
   which turns off the VIA's and the video card's. Cold boot starts the clocks afresh.
 - **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
-  144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds
+  144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. (Since B7, 162, with
+  the dispatcher's 17 cycles for WIN1H 0, as "Bank 8 as RAM" below records.) An open event area adds
   43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 532 bytes: **263 bytes
   are left** ($FEF2 to the vectors), **62 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
   are already in block 62).
@@ -982,7 +983,9 @@ sizes`, the maps, normal and `DEBUG=1`).
    several instructions with interrupts on); the pointer sprite (L2's deferral) needs OODOS at the blank, which (c)
    can't give; +12 is free in every layout. 1 KB (a sprite table and a full palette) still ends inside the blank
    with the interrupt held off by a 4 KB piece; 2 KB might not. If the serial card's DMA is built later, OODOS
-   owns both and moves its copies.
+   owns both and moves its copies. Later work (B7's review round 2, N2): a worst-case sweep of the frame's phase
+   against the load pieces, for a single slot and the whole budget; B7 sampled 505 for the budget and saw 522 for
+   a single slot under loads.
 4. **Block 60's room.** *Decided: as recommended.* Function 83's BDOS side is about 350–450 bytes against 569 free. **Recommended:** move L3's
    load engine and the beep's body (about 370 bytes, none of which reads parameters) to block 61 first, as L3's
    step (b) went first, and keep (d1) in reserve: common memory needs only about 9 bytes.
@@ -1458,6 +1461,52 @@ and more in L5:
     port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
     Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
     RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
+- **Bank 8 as RAM, interface version 12** (*proposed, 2026-11-17*, the bus work's B7: [design.md, B7: as
+  built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
+  which a window reaches with WIN*n*H `$0E`, and bank 8 is the aperture only while MAP's AP8 is set. OODOS keeps
+  AP8 set, so every program runs as before.
+  - **Function 83's `DM_BANK8`** (operation 11, `DM_OPS` 12): clears AP8 for the running program, so blocks 32–47
+    are its RAM until the warm boot, and gives slot 1's window in its block's +1 and +2 (`$0E` and 1, or 0 and 0
+    with no revision 2 card, where it succeeds too). Refused (`$FF`, nothing changed) on a `$D1` bridge, under a
+    ROM BIOS before 0.17, or with no block. `DM_INFO` stays 16 bytes; its W1 map takes in 32–39 after it.
+  - **The W1 contract gains WIN1H:** after the program's `GX_BANK8`, OOLIB may write `NB_WIN1H` (`$0E` for slot 1,
+    else 0) as it writes `NB_WIN1`, WIN1H first. A map is then two writes; the dispatcher, the BDOS entry and the
+    hooks save WIN1H, run OODOS with it 0 and put it back, so a split does no harm.
+  - **`GX_BANK8`**, a new entry (the owner's answer to B7's question 5): called after `GX_INIT`, it checks
+    `FT_INFO` for 12 and `OA_DMA`, asks for `DM_BANK8`, and maps slot 1 by WIN1H `$0E` with block 1 from then on.
+    A refusal is `GE_VERSION` with the old mode kept (question 3). `GX_INIT` is unchanged: it never calls
+    `DM_BANK8`, since a relink would otherwise change what physical `$84000` means to a program that loads card
+    memory by DMA through it (OO-Amp's loader).
+  - **`GX_BLOCK` and `GX_W1BACK`** keep WIN1H with a two-byte cache, `GXCURH:GXCUR` (question 4): `GX_BLOCK`
+    refuses A ≥ 64 first (which also ends a read past `GX_W1MAP`), compares both bytes and writes WIN1H 0 only when
+    `GXCURH` isn't 0; `GX_W1BACK` the same, then block 1. WIN1H is never written before `GX_BANK8` gives a window,
+    nor on a `$D1` bridge. gxmem's code grows by 155 bytes, its DATA by 3.
+  - **A hook that draws** (B7's review round 1, R3; it was so before B7 too). A hook shares the program's copy of
+    the library, and so its record of W1, `GXCURH:GXCUR`. When the hook returns, OODOS puts the interrupted W1 and
+    WIN1H back, but the record still says what the hook mapped, and the program's next `GX_VMAP` of the same bank
+    or `GX_BLOCK` of the same block would find it "already there" and write nothing. So a hook that maps W1 through
+    OOLIB ends with `GX_W1BACK`, which always writes block 1 and leaves the record at block 1, WIN1H 0. After `GX_BANK8`
+    that is not enough, and no text remedy is (B7's review rounds 2 and 3, F2 and G1): the record then says WIN1H 0
+    while OODOS has put the program's `$0E` back, `GX_W1BACK` and `GX_BLOCK` clear WIN1H only when the record says
+    it isn't 0, and a hook can fire between any two of the program's calls; a hook's `GX_VMAP` also moves slot 1's
+    bank (`VID_SLOT1`, older than B7), which nothing puts back. So the rule (the owner's, 2026-11-18): **after
+    `GX_BANK8`, a hook must not map W1 through OOLIB**; the program draws from its main loop. No interface is added.
+    Later work, a design question: OODOS saves and restores the mapping state around a hook (the library's record
+    `GXCURH:GXCUR` and the card's `VID_SLOT1`), which would let a `GX_BANK8` program's hook draw again.
+  - **Costs** (measured at B7's final build, after review round 1; the fast build, a `$D2` machine): the
+    dispatcher's test of WIN1H costs 17 cycles an interrupt while WIN1H is 0, so the tick with no area is 162 (was
+    145) and with a layout-2 area 249 (was 234); the frame with no area 215 (was 199) and with a layout-2 area 412
+    (was 396); a slot set, no bit 534 (was 518); a 512-byte slot each frame 1,323 (was 1,302); the pointer on 753
+    (was 736); the whole budget 2,789 (was 2,769). While WIN1H is `$0E` (a `GX_BANK8` program with slot 1 in W1)
+    the dispatcher clears and restores it, 27 cycles, 10 more: a tick 172 and a frame 225, measured with WIN1H
+    held at `$0E`. The latest a frame's copies ended, with 1,024 bytes, the pointer and the stream: line 505 under
+    a USB batch at line 470 and line 505 under 64 KB loads, 19 to spare in both in the frames sampled (B2 measured
+    505 and 497); a single 512-byte slot ends by line 500 with a USB batch and 522 under loads, the worst seen for a
+    single slot. The 505 is sampled, not a worst case (B7's review round 2, N2; question 3's later list). Sound:
+    channel 2's terminal count 705 and
+    874, a few up to 1,007, and 4,672-5,405 with the next piece inside it. `GX_BLOCK`, already mapped, costs 16
+    cycles (was 7).
+  - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

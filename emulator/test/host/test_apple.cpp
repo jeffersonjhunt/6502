@@ -30,10 +30,12 @@ namespace
 
     struct Apple
     {
-        Apple()
+        /// `nb`: the north bridge's revision= (0: the default).
+        explicit Apple(unsigned nb = 0)
         {
             std::string error;
-            machine = Machine::build("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
+            const std::string revision = nb ? " revision=" + std::to_string(nb) : "";
+            machine = Machine::build("cpu w65c02s\nnorthbridge backplane" + revision + "\nram 00000-FFFFF module=0\n"
                                      "usb 580-5FF space=io name=usb irq\n",
                                      "apple.machine", {}, error);
             if (!machine)
@@ -398,6 +400,41 @@ TEST(the_apple_clock_while_in_the_mode)
     CHECK_EQ(a.bus().clock_hz(), BackplaneBridge::APPLE_HZ); // Ctrl-Reset keeps it
     a.bus().reset();
     CHECK_EQ(a.bus().clock_hz(), 0u);
+}
+
+TEST(winh_and_map_never_reach_the_iies_map_and_the_pulse_puts_them_back)
+{
+    Apple a(2);
+    REQUIRE(a.ok());
+    CHECK_EQ(a.bus().read(0xC6FF), 0xD2);
+    for (uint16_t r = 0xC6A0; r < 0xC6A5; ++r)          // WIN0H-WIN3H and VECH
+        a.bus().write(r, 0x0E);
+    a.bus().write(0xC6A5, 0x00);                        // MAP: AP8 clear
+    // MODE switches the map at once; the /RESET pulse comes after. In between, WINnH is still $0E.
+    a.bus().write(MODE, BackplaneBridge::MODE_APPLE);
+    REQUIRE(a.bridge->apple());
+    REQUIRE(a.bridge->winh(1) == 0x0E);
+    a.bus().write(0x0012, 0x5A);                        // zero page: bank 0
+    a.bus().write(0x4123, 0x5B);
+    a.bus().write(0x8123, 0x5C);
+    CHECK_EQ(a.at(0x00012), 0x5A);
+    CHECK_EQ(a.at(0x04123), 0x5B);
+    CHECK_EQ(a.at(0x08123), 0x5C);
+    CHECK_EQ(a.bus().read(0xFFFC), rom_byte(0xFFFC));   // the ROM image in bank E
+    CHECK_EQ(a.bus().read(0xD123), rom_byte(0xD123));
+    CHECK(a.bus().take_reset());
+    a.bus().pulse_reset();
+    CHECK(a.bridge->apple());
+    unsigned wrong = 0;
+    for (unsigned n = 0; n < 4; ++n)
+        wrong += a.bridge->winh(n) != 0;
+    wrong += a.bridge->vech() != 0;
+    wrong += a.bridge->map() != BackplaneBridge::MAP_AP8;
+    CHECK_EQ(wrong, 0u);
+    a.bus().write(0x4124, 0x6B);                        // and the same map after it
+    CHECK_EQ(a.at(0x04124), 0x6B);
+    CHECK_EQ(a.bus().read(0x4123), 0x5B);
+    CHECK_EQ(a.bus().read(0xFFFC), rom_byte(0xFFFC));
 }
 
 int main()

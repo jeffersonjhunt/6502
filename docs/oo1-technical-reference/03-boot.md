@@ -17,9 +17,12 @@ breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and o
 ([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
 with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
-BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.16:
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.17:
 
-1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
+1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2. Before the copy, at `BOOT2`, on a revision 2 north
+   bridge (ID `$D2`, *proposed*, B7) it sets WIN0H–WIN3H and VECH to 0 and writes MAP whole: AP8 1 with a revision 2
+   video card (`VIDEO_ID` `$92`), else 0, so bank 8 is RAM on a machine with no aperture
+   ([chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). Break does the same.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
    in RAM with no jump.
 3. Puts W2 back on RAM block 2. From here the map is RAM blocks 0, 1, 2 and 63.
@@ -29,11 +32,11 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.16` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.17` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:112-190 -->
+<!-- listing: ../../backplane/bios/bios.s:116-195 -->
 ```
 RESET:
                 LDX     #$FF
@@ -86,6 +89,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
+                NBSET                  ; on a $D2 bridge: WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1
@@ -170,7 +174,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 
 | Address | Entry | What it does |
 |---|---|---|
-| `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again |
+| `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again. The way back runs a short stub in zero page through W0, so on a revision 2 north bridge (*proposed*, B7) `START` first sets WIN0H to 0, whatever a program left there |
 | `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on video card revision 2 (*proposed*; with any other card it goes straight back). Any key goes back to the monitor |
 | `$C806` | Apple II mode | Copies the first good IIe ROM image in ROM A, of images 0–3, with its own character set, and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Since BIOS 0.16 (*proposed*); BIOS 0.15 and before took the cartridge's IIe ROM. Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |

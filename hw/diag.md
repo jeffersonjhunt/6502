@@ -110,7 +110,9 @@ ones before it proved; a stage whose card isn't there says `SKIP` and the run go
 | 14 | 21 | the summary; the loop, or the end | | |
 
 **Every RAM block** means all 60 with video revision 2 (bank 8, blocks 32–35, is the card's aperture and is tested
-as card memory in stage 9), 64 with revision 1. Entered from `A>`, that includes all of OODOS's: block 31 (its zero
+as card memory in stage 9), 64 with revision 1. *Since B7 (2026-11-17, BIOS 0.17, proposed):* on a revision 2 north
+bridge (ID `$D2`) the run clears MAP's AP8 first, so bank 8 is RAM and every RAM block is all 64, whatever video card
+is fitted ([below](#b7-dg_aper-and-the-64-blocks)). Entered from `A>`, that includes all of OODOS's: block 31 (its zero
 page, stack and SCB), 48–55 (M:, which every start empties anyway), 60–63 (the BDOS, its BIOS, the resident code
 and the ROM's RAM copy). Nothing in RAM is kept; the boot afterwards copies the BIOS into block 63 again and OODOS
 loads afresh from the card.
@@ -326,10 +328,11 @@ fill. What plan 2 changes is the range: all of it, from every entry.
 |---|---|---|---|
 | RAM A | 0–15 | `$00000–$3FFFF` | 256 KB |
 | RAM B | 16–31 | `$40000–$7FFFF` | 256 KB |
-| RAM C | 36–47 (32–35 are bank 8, the video card's aperture, with revision 2) | `$90000–$BFFFF` | 192 KB |
+| RAM C | 36–47 (32–35 are bank 8, the video card's aperture, with revision 2 while AP8 is set; RAM C's since B7 with it clear) | `$90000–$BFFFF` | 192 KB |
 | RAM D | 48–63 | `$C0000–$FFFFF` | 256 KB |
 
-960 KB with video revision 2; 1,024 KB with revision 1 (bank 8 is then RAM C's). Block 63's first 2 KB, under the I/O
+960 KB with video revision 2 while AP8 is set; 1,024 KB with revision 1, or since B7 with AP8 clear (bank 8 is then
+RAM C's). Block 63's first 2 KB, under the I/O
 hole when the CPU reaches the block through W3, is plain RAM through W1. W0's block is tested through W1 too, its
 first 512 bytes last, from another block that passed (plan 1's rule). A module that isn't there fails all its blocks
 alike and is named once ("RAM B (blocks 16–31): not answering").
@@ -1197,7 +1200,7 @@ give `$FF` too, but that isn't measured.
 | A | sound | `$C57F` | `$A1`, `$A2` | `SOUND_ID_V1`, `SOUND_ID_V2` | the BIOS takes any `$Ax` (`SOUND_TYPE`) |
 | B | USB, game port, speaker | `$C5FF` | `$B1` | `USB_ID_V1` | |
 | C | Disk II controller | `$C67F` | `$C1` | `DISK2_ID_V1` | only `$C600–$C60F` are switches; `$C67F` is the ID alone (`disk2_card.h`) |
-| D | north bridge (no card) | `$C6FF` | `$D1` | `NB_ID` (no value equate) | `BackplaneBridge::ID`, revision 1; STATUS bits 4–7 repeat the revision |
+| D | north bridge (no card) | `$C6FF` | `$D2` (B7; `$D1`, revision 1, the emulator's `revision=1`) | `NB_ID`; the values `NB_ID_V1`, `NB_ID_V2` (and oohw's `HW_NB_ID`, `HW_NB_ID2`) | `BackplaneBridge::ID`, revision 2 by default; STATUS bits 4–7 repeat the revision |
 | E | console (front panel) | `$C77F` | `$E1` | `CONSOLE_ID_V1` | |
 | F | reserved: the idle bus's ID, never a card's (B6) | | | | nothing is defined at `$C780–$C7FF` |
 
@@ -1324,7 +1327,7 @@ CARDS
   $C500  $A2  sound                           2
   $C580  $B1  USB, game port and speaker      1
   $C600  $C1  Disk II controller              1
-  $C680  $D1  north bridge                    1
+  $C680  $D2  north bridge                    2
   $C700  $E1  console (front panel)           1
 
 VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB
@@ -1460,8 +1463,8 @@ A sample, quick, with a fault injected at physical `$A1234` bit 3:
 A>DIAG
 OO-1 DIAGNOSTICS 0.1   quick, nothing destroyed   (DIAG /? for the options)
 
-NORTH BRIDGE $D1
-  NB1  ID and STATUS agree, revision 1 ......................... PASS
+NORTH BRIDGE $D2
+  NB1  ID and STATUS agree, revision 2 ......................... PASS
   NB2  W1 shows each of 32 blocks as itself .................... PASS
   NB3  no interrupt line stuck ................................. PASS
   NB4  the clock chip ticks; the time is valid ................. PASS
@@ -1565,7 +1568,7 @@ block the core chose for its zero page and stack (stage 2), W1 the block under t
 | 5 | address in address over every RAM block: all written, then all read | stage 4 | |
 | 6 | the march, background `$00` (switch 18: four) | stage 5 | |
 | 7 | the DMA controller: ID; channel 3's ADDR, COUNT, MODE and DEST written and read back; a HOLD fill of each RAM block read by the CPU; a copy between two blocks up and down (DEC); STATUS's terminal count; ABORT stops a copy part way, COUNT reads what was left | stage 6 | |
-| 8 | the video card (`$92`): its memory through the aperture (block 32 in W1, SLOT0 stepped through each 16 KB card bank to MEMSIZE), address in address (switch 18: the march); 64 KB checked through the port against the aperture; a card address past MEMSIZE reads `$FF`; then the screen is drawn again | stage 6 | |
+| 8 | the video card (`$92`): its memory through the aperture (block 32 in W1, since B7 on `$D2` WIN1H `$0E` with block 0, SLOT0 stepped through each 16 KB card bank to MEMSIZE), address in address (switch 18: the march); 64 KB checked through the port against the aperture; a card address past MEMSIZE reads `$FF`; then the screen is drawn again | stage 6 | |
 | 9 | the sound card (`$Ax`): the 6510 stopped (CTRL's RUN off); its RAM through RAMADDR and RAMDATA, address in address and the march; on revision 2 the wave RAM through DOCDATA; then the 6510 test program loaded and run: start byte, mailbox echo, the SIDs | stage 6 | |
 | 10 | the other cards by their IDs: SD (STATUS; IDENTIFY; LBA 0 of unit 0 read by the CPU and again by DMA channel 0, the two agree), USB (DEVICES), Disk II (ID only), the panel; the north bridge: WAIT0–3 and VEC written and read back, then put back; a write through a read-only window leaves RAM as it was; a write through a flash window changes nothing | stage 6 | |
 | 11 | the clock: cycles between two changes of `NB_SEC`, interrupts off; the video frame the same way. How polling SEC meets the bridge's own I²C reads of the DS3231 on real hardware (a read during the second's refresh) isn't known; the emulator latches whole | stage 3 | |
@@ -1655,7 +1658,7 @@ none):
 |---|---|---|---|---|
 | a zero page and stack candidate (no RAM) | 512 B | | 8 ms ($00, $55) | |
 | all system RAM, banks 0–7, 9–F (with video revision 2) | 960 KB | 4.5 s | 15.0 s | 60 s |
-| the same with revision 1 (bank 8 is RAM C's) | 1,024 KB | 4.8 s | 16.0 s | 64 s |
+| the same with revision 1 (bank 8 is RAM C's), or since B7 on a `$D2` bridge (AP8 clear) | 1,024 KB | 4.8 s | 16.0 s | 64 s |
 | DIAG.COM: banks 1–5 and 9–B | 512 KB | 2.4 s | 8.0 s | 32 s |
 | video card memory, all (the ROM core) | 2,048 KB | 9.7 s | 32 s | |
 | video card memory, the program's (DIAG.COM) | 1,536 KB | 7.2 s | 24 s | |
@@ -1674,6 +1677,18 @@ tested as card memory (stage 8), not as RAM. Under OODOS only the blocks above a
 **Card memory through the aperture.** The ROM core points W1 at block 32 (slot 0's window) and steps SLOT0 over each
 16 KB card bank up to MEMSIZE × 4; DIAG.COM uses slot 1 through `GX_VMAP`, its own pages only. The port is checked
 against the aperture (both paths must agree) rather than tested separately.
+
+<a id="b7-dg_aper-and-the-64-blocks"></a>
+**B7: `DG_APER` and the 64 blocks** (*proposed, 2026-11-17*, BIOS 0.17; the owner's answers to B7's questions 6
+and 7, [design.md, B7: as built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the core's GO
+writes MAP 0 whatever video card is fitted, and `DG_APER` is read from MAP's AP8 after that write, so it is 0: the
+RAM stages test all 64 blocks, bank 8 among them, on every machine, the bank `DM_BANK8` now hands to programs. The
+video stages reach the aperture at its own place, `$E00000`: `APW1` maps slot *n* with WIN1H `$0E` and block *n*,
+and `W1HOME` puts WIN1H 0 and block 1 back. The boot after the run sets MAP back by the BIOS's rule (BOOT2's NBSET:
+1 with a revision 2 card, else 0); PUTBACKM is unchanged. On a `$D1` bridge `DG_APER` follows `VIDEO_ID` as before
+and bank 8 is passed over while it is the aperture. Stage 7's NB1 takes revision 2 exactly; a `$D1` bridge is `NOT
+KNOWN TO THIS BUILD`, SKIP. The run times, re-measured: a quick run 58.7 s (was 56.5), a full run 171.8 s (was
+165.6). NB9 (WINnH and MAP read back) waits for a later diagnostics BIOS.
 
 **Faults reported** as the block (or card bank), the offset, the physical address, what was read and what was
 expected, and the bits that differ. Stage 4's failures name a line ("A13 stuck", "blocks 17 and 21 answer as one");
@@ -1704,8 +1719,8 @@ no zero page.
 | Routine | What | Returns | ROM core | Size |
 |---|---|---|---|---|
 | `HW_PROBE` | reads the ID bytes of modules 6–E, each twice (CC5) | `HW_FOUND` (2 bytes, bit n module n), `HW_REV` (16 bytes, the revision or `$FF`) | shared | 80 B |
-| `HW_NAME` | A a module ID: its name for the report | A/X the name (a string ended by 0) | shared | 30 B + 180 B of names |
-| `HW_KNOWN` | A a module, X a revision: whether this build has tests for it | carry clear if so | shared | 40 B |
+| `HW_NAME` | A a module ID: its name for the report | A/X the name (a string ended by 0) | shared | 45 B (13 B of code, 32 B of pointers) + 169 B of names (since B7: IDs 0–5 share one "(free)" and F is "(reserved)"; 222 B of names before) |
+| `HW_KNOWN` | A a module, X a revision: whether this build has tests for it | carry clear if so | shared | 44 B (33 B of code, 11 B of IDs; since B7, `$D2` known with `$D1`, measured from the listing) |
 | `HW_CLOCK` | PHI2 cycles in one DS3231 second, by VIA timer 2 (one-shot, as OODOS leaves the ACR) and its wraps, started and stopped at changes of `NB_SEC` (how the polling meets the bridge's own I²C reads on real hardware is unknown); with `HW_FRAMES` set, over 60 frames of the event area's counter instead | `HW_HZ`, 4 bytes | shared (the core runs it with interrupts off) | 150 B |
 | `HW_AIA` | address in address: `HW_PTR` a CPU address, `HW_LEN` the bytes, `HW_KEY` the block's number; a write pass and a check pass, called separately so all blocks are written before any is checked | carry set at the first error, `HW_BAD` its address, `HW_GOT`, `HW_WANT` | shared | 140 B |
 | `HW_MARCH` | the march over `HW_PTR`, `HW_LEN` with `HW_BG` the background | as `HW_AIA` | shared | 320 B |

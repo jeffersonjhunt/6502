@@ -224,7 +224,8 @@ HW_FIRST        = 6                    ; the modules with registers HW_PROBE rea
 HW_LAST         = $E
 HW_NONE         = $FF                  ; HW_REV: no card
 HW_SERIAL_ID    = $61                  ; the TL16C552A serial card's ID (hw/design.md; none on the stand-in)
-HW_NB_ID        = $D1                  ; the north bridge's NB_ID, revision 1 (the emulator's BackplaneBridge::ID)
+HW_NB_ID        = $D1                  ; the north bridge's NB_ID, revision 1 (the emulator's revision=1)
+HW_NB_ID2       = $D2                  ; revision 2, WINnH, VECH and MAP (step B7; BackplaneBridge::ID)
 
 ; HW_SD_ID's errors (A, carry set)
 HE_NOCARD       = 0                    ; no mass storage card (its ID)

@@ -28,7 +28,10 @@
  *   - the VT52 subset and lowercase on the video card's text memory, and as ANSI on the serial line;
  *   - keys from the USB keyboard and the serial line; the CCP's refusals;
  *   - Break and BRK into the ROM's monitor with W3 and VEC on block 63; an
- *     IRQ that returns.
+ *     IRQ that returns;
+ *   - B7's WIN1H (W1HTEST): kept across the BDOS stub and an IRQ no card
+ *     asserts, a W1 address refused while it isn't 0, cleared by the warm
+ *     boot and Break, and never written on a revision 1 north bridge.
  */
 
 #include "harness.h"
@@ -37,15 +40,19 @@
 #include "test_support.h"
 
 #include "backplane_bridge.h"
+#include "bus_cycle.h"
 #include "console.h"
+#include "console_card.h"
 #include "machine.h"
 #include "sd_card.h"
 #include "sd_media.h"
 #include "usb_card.h"
+#include "video_card.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -3197,6 +3204,385 @@ TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
     REQUIRE(!xs.empty());
     CHECK(c.record(d, xs, 0) == std::vector<uint8_t>(REC32, 0xC3));
     CHECK(!c.entries_of(d, 0, "Y       DAT").empty());
+}
+
+// --- B7: WIN1H across OODOS's ways in (b7-plan.md §2.3, §4 O1, O4, O6, O7, O11; proposed) ------------------
+//
+// W1HTEST (oodos/sys/test/w1htest.s) puts WIN1H on $0E itself, with W1 on block 1, so its $4000 shows the video
+// card's aperture slot 1 at $E04000 (the program's first card bank) instead of RAM block 1's $4000. A byte is put
+// at each, so the byte it reads at $4000 says which W1 it had.
+
+namespace
+{
+    constexpr uint16_t NB_WINH = 0xC6A0, NB_MAPREG = 0xC6A5; // WIN0H, and MAP: $C6A0-$C6A5
+    constexpr uint8_t B_RAM = 0x5B, B_CARD = 0xA7;            // RAM block 1's $4000, and slot 1's window's first
+
+    /// The two bytes W1HTEST tells its W1 by.
+    void mark_w1(Rig &r, bool card = true)
+    {
+        r.poke(0x4000, B_RAM);
+        if (card)
+            r.poke(0xE04000, B_CARD);
+    }
+
+    /// backplane.machine with a revision 1 north bridge (no WINnH, VECH or MAP; NB_ID $D1), or unchanged if it
+    /// has no northbridge line (the test's ID check then fails).
+    std::string revision_1_machine()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " revision=1");
+        return text;
+    }
+
+    /// Every CPU write to $C6A0-$C6A5 (WIN0H-MAP), counted.
+    struct NewRegWrites : CycleObserver
+    {
+        unsigned writes = 0;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.dma && c.write && c.addr >= NB_WINH && c.addr <= NB_MAPREG)
+                ++writes;
+        }
+    };
+}
+
+TEST(the_bdos_stub_keeps_the_programs_win1h_and_runs_the_bdos_with_win1h_0)
+{
+    // O1. W1HTEST's WIN1H $0E: C_WRITESTR's A and X are read off its stack page through W1 with WIN1H 0 (else the
+    // string isn't found), and it gets WIN1H $0E back, so its $4000 is slot 1's again.
+    Booted r;
+    REQUIRE(r.ok);
+    mark_w1(r);
+    const std::string o = r.go("w1htest.com", " S");
+    CHECK(o.find("\r\nHELLO\r\n") != std::string::npos);
+    CHECK_EQ(field(o, "W1H"), std::string("0E"));
+    CHECK_EQ(field(o, "B0"), hex(B_CARD, 2));
+    CHECK_EQ(field(o, "B1"), hex(B_CARD, 2));
+    CHECK_EQ(r.bridge().winh(1), 0); // W1HTEST put it back, and the warm boot
+}
+
+TEST(a_w1_address_is_refused_while_the_programs_win1h_isnt_0)
+{
+    // O4. With WIN1H $0E (keys H), W1 shows a block past 1 MB that neither the BDOS's W2 nor a 20-bit physical
+    // address can name: a record read to $4000 and C_WRITESTR of $4000 (the BDOS's PMAP), function 73 (F_PHYS),
+    // function 50's MOVE to $4010 (the BIOS's PHYSOF), two records at once to $3F80 (MRANGE: nothing read, not
+    // even the first record), and an event area at $4100 (FT_OPENX: refused before anything changes, so a
+    // layout-1 area open in W0 goes on counting). With WIN1H 0 (keys Z) the same calls work on RAM block 1.
+    Booted r;
+    REQUIRE(r.ok);
+    mark_w1(r);
+    const std::string o = r.go("w1htest.com", " R", ms(8000));
+    if (std::getenv("W1HTEST_SHOW"))
+        std::printf("%s\n", ccp::vis(o).c_str());
+    check_fields(o, {
+        {"HRD", "FF FF"}, {"HWS", "FF FF"}, {"HPH", "FF FF"}, {"HMV", "FF FF"}, {"HMR", "FF FF"}, {"HMRCHK", "Y"},
+        {"HEV", "FF FF"}, {"HEVKEPT", "Y"},
+        {"ZRD", "00 00"}, {"ZPH", "00 00"}, {"ZMV", "14 40"}, {"ZMR", "00 00"}, {"ZMRCHK", "N"}, {"ZEV", "00 00"},
+        {"ZEVKEPT", "N"}, // the $4100 area took the W0 one's place
+    });
+    CHECK(o.find("\r\nHPH FF FF\r\n00400000\r\n") != std::string::npos);  // the block as it was given
+    CHECK(o.find("\r\nZPH 00 00\r\n00000004\r\n") != std::string::npos);  // $4000 in RAM block 1: $0400:0000
+    // C_WRITESTR of $4000 with WIN1H 0: record 0's pattern (byte j is j ^ $5A), to its '$' at j = $7E.
+    CHECK(o.find("\r\nZWS Z[XY^_\\]RSPQ") != std::string::npos);
+    CHECK(o.find("\"# !&'00 00\r\nZPH") != std::string::npos);
+}
+
+TEST(the_warm_boot_and_break_leave_win1h_0_and_map_as_the_card_says)
+{
+    // O6. WARM: W1HTEST leaves WIN1H $0E and AP8 flipped, then the warm boot: WIN1H 0, MAP 1 (the video card is
+    // revision 2). Break (OODOS's NMI) from W1HTEST's spin with WIN1H $0E: the monitor with WIN1H 0 and MAP 1.
+    // (ROMAPPLE's part is test_oodos_utils_rom's, where the IIe ROM is.)
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const std::string o = r.go("w1htest.com", " W");
+        CHECK(o.find("\r\nA>") != std::string::npos);
+        CHECK_EQ(r.bridge().winh(1), 0);
+        CHECK_EQ(r.bridge().map(), 1);
+    }
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
+        const size_t from = start(r, "w1htest.com", " B");
+        bool spun = false;
+        for (int i = 0; i < 400 && !spun; ++i)
+        {
+            r.run(ms(5));
+            spun = r.cpu->regs().pc == bspin && r.nb(0) == 0;
+        }
+        REQUIRE(spun);
+        CHECK_EQ(r.bridge().winh(1), 0x0E);
+        UsbCard *usb = r.machine->usb_card();
+        usb->key(UsbCard::PAUSE, true);
+        r.run(ms(20));
+        usb->key(UsbCard::PAUSE, false);
+        CHECK(r.until("\\\r", ms(1000), from));
+        CHECK_EQ(r.bridge().winh(1), 0);
+        CHECK_EQ(r.bridge().map(), 1);
+        CHECK_EQ(r.nb(1), 1);
+    }
+}
+
+TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
+{
+    // R1 (B7 review round 1). OODOS's NMI clears WIN0H inline and puts W0 on the system block before its first
+    // JSR, so a Break still reaches the monitor when the interrupted state's stack is nowhere usable: WIN0H left
+    // on $0E (W0's stack in card memory, as a stray write to $C6A0 would leave it), or W0 read-only (every push
+    // lost). The NMI is taken at once, before the spin runs anything from the moved W0. The free stack just below
+    // S (RAM block 0's) is given a stale return address into the spin: a JSR whose pushes went elsewhere returns
+    // there (the NMI's 3 bytes and a JSR's 2 down from S) and spins on, never reaching the monitor.
+    struct Way
+    {
+        const char *name;
+        uint16_t reg;
+        uint8_t value;
+    };
+    for (const Way &w : {Way{"WIN0H $0E", NB_WINH, 0x0E}, Way{"W0 read-only", static_cast<uint16_t>(NB), 0x40}})
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
+        const size_t from = start(r, "w1htest.com", " B");
+        bool spun = false;
+        for (int i = 0; i < 400 && !spun; ++i)
+        {
+            r.run(ms(5));
+            spun = r.cpu->regs().pc == bspin && r.nb(0) == 0;
+        }
+        REQUIRE(spun);
+        const uint32_t sp = 0x0100u + r.cpu->regs().s;
+        const uint16_t stale = static_cast<uint16_t>(bspin - 1); // an RTS's target is its pulled address + 1
+        r.poke(sp - 4, static_cast<uint8_t>(stale & 0xFF));
+        r.poke(sp - 3, static_cast<uint8_t>(stale >> 8));
+        r.machine->bus().write(w.reg, w.value);
+        r.cpu->nmi();
+        const bool monitor = r.until("\\\r", ms(1000), from);
+        if (!monitor)
+            std::fprintf(stderr, "  no monitor after Break with %s\n", w.name);
+        CHECK(monitor);
+        CHECK_EQ(r.bridge().winh(0), 0);
+        CHECK_EQ(r.bridge().winh(1), 0);
+        CHECK_EQ(r.nb(0), 0); // BREAK's W0 on block 0, writable
+        CHECK_EQ(r.bridge().map(), 1);
+    }
+}
+
+TEST(on_a_revision_1_bridge_oodos_never_writes_c6a0_to_c6a5)
+{
+    // O7. A $D1 bridge has no WINnH, VECH or MAP: they read $FF. OODOS boots, prints, takes ticks and runs a tick
+    // hook and a frame hook (W1HTEST's H, whose W1HON writes nothing there), and no CPU cycle writes $C6A0-$C6A5:
+    // the stub keeps a $FF read as 0, and the dispatcher and HKBACK leave a $FF alone.
+    Rig r(sd_image("oodos.sparse"), {}, revision_1_machine());
+    REQUIRE(r.ok);
+    CHECK_EQ(r.bridge().id(), 0xD1);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    NewRegWrites seen;
+    r.cpu->set_observer(&seen);
+    REQUIRE(r.boot());
+    mark_w1(r, false);
+    const std::string s = r.go("w1htest.com", " S");
+    const std::string h = r.go("w1htest.com", " H", ms(8000));
+    r.cpu->set_observer(nullptr);
+    CHECK_EQ(seen.writes, 0u);
+    // It ran: the stub (WIN1H reads $FF; W1 RAM block 1 throughout), the ticks and frames, and both hooks.
+    CHECK(s.find("\r\nHELLO\r\n") != std::string::npos);
+    check_fields(s, {{"W1H", "FF"}, {"B0", "5B"}, {"B1", "5B"}});
+    check_fields(h, {{"TB", "5B"}, {"TH", "FF"}, {"FB", "5B"}, {"FH", "FF"}, {"B1", "5B"}});
+    CHECK(hexval(field(h, "TN")) >= 150); // about 200 ticks in FT_DELAY's 200 ms, and 12 frames
+    CHECK(hexval(field(h, "FN")) >= 8);
+}
+
+TEST(an_irq_no_card_asserts_puts_the_interrupted_win1h_back)
+{
+    // O11. An IRQ that no card asserts, taken in W1HTEST's spin with WIN1H $0E: the dispatcher's no-card way out
+    // (irq.s's DISPATCH, before its @out) puts WIN1H $0E back too, so the spin's $4000 is still slot 1's.
+    Booted r;
+    REQUIRE(r.ok);
+    mark_w1(r);
+    const std::map<std::string, uint16_t> l = labels(SYS + "/w1htest.lbl");
+    const uint16_t qspin = l.at("QSPIN"), qspend = l.at("QSPEND"), irq = sym("IRQ");
+    bool given = false, taken = false;
+    r.watch = [&](uint16_t pc) {
+        if (!given && pc >= qspin && pc < qspend && !(r.cpu->regs().p & Cpu6502::FLAG_I) && r.nb(0) == 0 &&
+            r.bridge().winh(1) == 0x0E)
+        {
+            r.cpu->irq();
+            given = true;
+            taken = r.cpu->regs().pc == irq;
+        }
+    };
+    const std::string o = r.go("w1htest.com", " Q");
+    r.watch = nullptr;
+    CHECK(given);
+    CHECK(taken);
+    CHECK_EQ(field(o, "W1H"), std::string("0E"));
+    CHECK_EQ(field(o, "B1"), hex(B_CARD, 2));
+}
+
+// --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 O9, D7, D9; proposed) --------------------------------------
+//
+// DM_BANK8 clears MAP's AP8: bank 8, $80000-$8FFFF, is then the RAM card's, the program's, and the video card's
+// aperture is only at $E00000 (WIN1H $0E). W1HTEST's K, L and C call it (or not) and go on.
+
+namespace
+{
+    /// Every bus cycle, the CPU's and the DMA controller's, whose physical address (as the backplane carried it,
+    /// after the CPU card's redirect) is in bank 8 while MAP's AP8 is clear: the RAM card's bank 8. The DMA
+    /// controller's cycles are passed on to the console card, whose observer this stands in for.
+    struct Bank8Cycles : CycleObserver
+    {
+        explicit Bank8Cycles(Rig &r) : bus(r.machine->bus()), nb(r.bridge()), panel(r.machine->console_card()) {}
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.dma && panel)
+                panel->on_cycle(c);
+            if (nb.map() & 1)
+                return;
+            ++watched;
+            const uint32_t p = bus.last_access().physical;
+            if ((p >> 16) == 8 && hits++ == 0)
+                first = p;
+        }
+        const Decoder &bus;
+        const BackplaneBridge &nb;
+        CycleObserver *panel;
+        unsigned watched = 0, hits = 0;
+        uint32_t first = 0;
+    };
+
+    std::vector<uint8_t> pattern(size_t n, uint32_t seed)
+    {
+        std::vector<uint8_t> b(n);
+        for (auto &x : b)
+        {
+            seed = seed * 1103515245u + 12345u;
+            x = static_cast<uint8_t>(seed >> 16);
+        }
+        return b;
+    }
+    /// Bank 8 of the RAM card, as the backplane reaches it (not redirected).
+    std::vector<uint8_t> bank8_ram(Rig &r)
+    {
+        std::vector<uint8_t> b(0x10000);
+        for (uint32_t i = 0; i < b.size(); ++i)
+            b[i] = r.machine->bus().peek_bus(0x80000 + i);
+        return b;
+    }
+    void put_bank8_ram(Rig &r, const std::vector<uint8_t> &b)
+    {
+        for (uint32_t i = 0; i < b.size(); ++i)
+            r.machine->bus().write_bus(0x80000 + i, b[i]);
+    }
+}
+
+TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
+{
+    // O9. W1HTEST's K: DM_BANK8 (AP8 clear: bank 8 the RAM card's), then the console's 40 lines (it scrolls), a
+    // DM_VCOPY, a file made and read back, and 100 ms of frames and ticks: no cycle of the CPU's or the DMA
+    // controller's meets $080000-$08FFFF while AP8 is clear. (Any one of OODOS's old bank 8 users left, VPIECE's
+    // $08 bank or CRTOUT's block 32, would.) The warm boot sets AP8 again.
+    Booted r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD2);
+    Bank8Cycles seen(r);
+    r.cpu->set_observer(&seen);
+    r.machine->bus().set_dma_observer(&seen);
+    const std::string o = r.go("w1htest.com", " K", ms(8000));
+    r.cpu->set_observer(nullptr);
+    r.machine->bus().set_dma_observer(r.machine->console_card());
+    check_fields(o, {{"K8", "00 00"}, {"K8B", "0E01"}, {"KV", "00 00"}, {"KR", "00 00"}});
+    CHECK(o.find("\r\nKDONE\r\n") != std::string::npos);
+    CHECK(o.find("LINE\r\nLINE\r\n") != std::string::npos);
+    CHECK(seen.watched > 100000u); // the whole of it ran with AP8 clear
+    CHECK_EQ(seen.hits, 0u);
+    if (seen.hits)
+        std::printf("  first bank 8 cycle at $%06X\n", static_cast<unsigned>(seen.first));
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the revision 2 video card
+}
+
+TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_alone)
+{
+    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. OODOS's NMI sets AP8 again (common.s's WINH0) before its
+    // trampoline at TRAMP ($0A00) leaves for the ROM's BREAK, as an older ROM's BREAK needs, and the monitor
+    // draws its screen on the card (at $E00000) while bank 8's RAM keeps its pattern.
+    Booted r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> ram = pattern(0x10000, 8);
+    put_bank8_ram(r, ram);
+    const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
+    constexpr uint16_t TRAMP = 0x0A00;
+    bool at_tramp = false;
+    uint8_t map = 0xEE, winh1 = 0xEE;
+    const size_t from = start(r, "w1htest.com", " L");
+    bool spun = false;
+    for (int i = 0; i < 400 && !spun; ++i)
+    {
+        r.run(ms(5));
+        spun = r.cpu->regs().pc == bspin && r.nb(0) == 0;
+    }
+    REQUIRE(spun);
+    CHECK(field(r.out.substr(from), "K8") == "00 00");
+    for (unsigned n = 0; n < 30; ++n)
+        REQUIRE(r.row(n).rfind("\\", 0) != 0);
+    REQUIRE(r.bridge().map() == 0);
+    r.watch = [&](uint16_t pc) {
+        if (!at_tramp && pc == TRAMP)
+        {
+            at_tramp = true;
+            map = r.bridge().map();
+            winh1 = r.bridge().winh(1);
+        }
+    };
+    UsbCard *usb = r.machine->usb_card();
+    usb->key(UsbCard::PAUSE, true);
+    r.run(ms(20));
+    usb->key(UsbCard::PAUSE, false);
+    CHECK(r.until("\\\r", ms(1000), from));
+    r.watch = nullptr;
+    CHECK(at_tramp);
+    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the revision 2 video card)
+    CHECK_EQ(winh1, 0);
+    CHECK_EQ(r.bridge().map(), 1);
+    CHECK(bank8_ram(r) == ram);
+    // The monitor's prompt on the card's screen (slot 0 at $E00000), where its cursor was: a row that starts
+    // with "\", which none did before.
+    bool prompt = false;
+    for (unsigned n = 0; n < 30; ++n)
+        prompt = prompt || r.row(n).rfind("\\", 0) == 0;
+    CHECK(prompt);
+    if (!prompt)
+        for (unsigned n = 0; n < 30; ++n)
+            std::printf("  row %2u: %s\n", n, r.row(n).c_str());
+}
+
+TEST(without_dm_bank8_a_dma_copy_to_84000_still_reaches_the_cards_slot_1)
+{
+    // D9. W1HTEST's C, which never calls DM_BANK8 (the W1 contract as it was): DM_COPY to $84000, aperture slot
+    // 1's window, lands in the card's memory at the program's first card bank ($040000), not in bank 8's RAM;
+    // DM_COPY to $80000, slot 0's (the console's), is refused, as OSWIN refuses it without DM_BANK8.
+    Booted r;
+    REQUIRE(r.ok);
+    VideoCard &card = *r.machine->video_card();
+    put_bank8_ram(r, std::vector<uint8_t>(0x10000, 0x11));
+    for (uint32_t i = 0; i < 4; ++i)
+        card.card_poke(0x040000 + i, 0x22);
+    std::vector<uint8_t> console(4);
+    for (uint32_t i = 0; i < 4; ++i)
+        console[i] = card.card_peek(i);
+    const std::string o = r.go("w1htest.com", " C");
+    check_fields(o, {{"C1", "00 00"}, {"C0", "FF FF"}});
+    std::string got;
+    for (uint32_t i = 0; i < 4; ++i)
+        got += static_cast<char>(card.card_peek(0x040000 + i));
+    CHECK_EQ(got, std::string("MOVE"));
+    CHECK(bank8_ram(r) == std::vector<uint8_t>(0x10000, 0x11));
+    for (uint32_t i = 0; i < 4; ++i)
+        CHECK_EQ(card.card_peek(i), console[i]);
+    CHECK_EQ(r.bridge().map(), 1);
 }
 
 int main()

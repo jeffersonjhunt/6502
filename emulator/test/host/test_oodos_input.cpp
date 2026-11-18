@@ -625,20 +625,20 @@ TEST(the_tick_costs_l1_s_145_cycles_with_no_layout_2_area)
     const Costs none = time_interrupts(r, ms(600));
     Costs::print("no area, a tick", none.tick);
     REQUIRE(!none.tick.empty());
-    CHECK_EQ(Costs::mode(none.tick), 145u);
+    CHECK_EQ(Costs::mode(none.tick), 162u); // L1's 145, and B7's 17 for WIN1H (irq.s's DISPATCH)
     for (const auto &[c, n] : none.tick)
-        CHECK(c == 145 || (c == 159 && n <= 3)); // and L1's 159 at MS's carry, once in 256 ms
+        CHECK(c == 162 || (c == 176 && n <= 3)); // and L1's 159 (+17) at MS's carry, once in 256 ms
     wboot(r);
     open(r, "1");
     const Costs one = time_interrupts(r, ms(600));
     Costs::print("layout 1, a tick", one.tick);
-    CHECK_EQ(Costs::mode(one.tick), 145u + 39u);
+    CHECK_EQ(Costs::mode(one.tick), 162u + 39u);
     wboot(r);
     open(r, "2");
     const Costs two = time_interrupts(r, ms(600));
     Costs::print("layout 2, a tick", two.tick);
     Costs::print("layout 2, other interrupts", two.other);
-    CHECK(Costs::mode(two.tick) > 145u + 39u && Costs::mode(two.tick) < 300u);
+    CHECK(Costs::mode(two.tick) > 162u + 39u && Costs::mode(two.tick) < 300u);
     const Costs key = time_interrupts(r, ms(60), [&] { r.machine->usb_card()->key(A_KEY, true); });
     Costs::print("layout 2, the USB card's interrupt for a key", key.usb);
     CHECK(!key.usb.empty());
@@ -747,8 +747,8 @@ TEST(function_81_s_info_and_its_refusals)
     command(r, 'I', "FINFOB");
     CHECK_EQ(field(r.out, "INFO"), std::string("03 02")); // keyboard and mouse; layout 2
     CHECK_EQ(field(r.out, "INFOB"), std::string("0302"));
-    CHECK_EQ(field(r.out, "FINFO"), std::string("0B 0F")); // OOLIB 11: frame and timing, input, sound, DMA
-    CHECK_EQ(field(r.out, "FINFOB"), std::string("0B0F0302"));
+    CHECK_EQ(field(r.out, "FINFO"), std::string("0C 0F")); // OOLIB 12: frame and timing, input, sound, DMA
+    CHECK_EQ(field(r.out, "FINFOB"), std::string("0C0F0302"));
     CHECK_EQ(command(r, 'N', "NEXT"), std::string("FF FF EEEEEEEEEEEEEEEE")); // no layout-2 area
     CHECK_EQ(command(r, 'F', "FLUSH"), std::string("00 00"));                 // nothing to flush
     command(r, 'B', "BAD5");
@@ -856,6 +856,48 @@ TEST(the_warm_boot_puts_every_card_back_so_a_wide_on_channel_0_doesnt_reach_dir)
     REQUIRE(want.size() > 40);                 // the command, a line of text at least, the prompt
     REQUIRE(want.find("No File") == std::string::npos);
     CHECK(r.cmd("type readme.txt") == want);
+}
+
+TEST(the_dispatcher_runs_with_win1h_0_and_puts_the_programs_win1h_back)
+{
+    // O2 (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) opens a layout-2 area in W0, puts WIN1H on $0E
+    // with W1 on block 1 (the video card's slot 1 at $E04000, not RAM block 1), and waits 200 ms by the area's own
+    // counter: the ticks write the area (W1 on its block, WIN1H 0), and each puts WIN1H $0E back on the way out,
+    // so its $4000 is still slot 1's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.poke(0x4000, 0x5B);   // RAM block 1's
+    r.poke(0xE04000, 0xA7); // slot 1's window's
+    const std::string o = r.go("w1htest.com", " I");
+    CHECK_EQ(field(o, "W1H"), std::string("0E"));
+    CHECK_EQ(field(o, "B1"), std::string("A7"));
+    CHECK_EQ(r.bridge().winh(1), 0);
+}
+
+TEST(after_dm_bank8_an_event_area_in_bank_8_is_still_refused)
+{
+    // D8 (B7, b7-plan.md §4, C4): W1HTEST's E calls function 83's DM_BANK8 (bank 8 the RAM card's, the program's
+    // for DMA), puts W1 on block 32 and asks for an event area at $4100 there: FT_OPEN still refuses it (an area
+    // is in banks 0-5 only, DM_BANK8 or not), and 50 ms of ticks write nothing in bank 8's RAM.
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> ram(0x10000);
+    uint32_t seed = 0x5EED;
+    for (auto &x : ram)
+    {
+        seed = seed * 1103515245u + 12345u;
+        x = static_cast<uint8_t>(seed >> 16);
+    }
+    for (uint32_t i = 0; i < ram.size(); ++i)
+        r.machine->bus().write_bus(0x80000 + i, ram[i]);
+    const std::string o = r.go("w1htest.com", " E");
+    CHECK_EQ(field(o, "K8"), std::string("00 00"));
+    CHECK_EQ(field(o, "E8"), std::string("FF FF"));
+    std::vector<uint8_t> now(ram.size());
+    for (uint32_t i = 0; i < now.size(); ++i)
+        now[i] = r.machine->bus().peek_bus(0x80000 + i);
+    CHECK(now == ram);
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot
 }
 
 int main() { return run_all(); }

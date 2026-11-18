@@ -781,6 +781,7 @@ TEST(a_6502_program_puts_a_character_on_the_screen_and_takes_the_vblank_irq)
     REQUIRE(card != nullptr);
     Decoder &bus = m->bus();
     const std::vector<uint8_t> prog = {
+        0x9C, 0xA5, 0xC6,                   // STZ MAP: AP8 clear, bank 8 the RAM's (a revision 1 card)
         0xA9, 0x20, 0x8D, 0x81, 0xC6,       // LDA #$20; STA WIN1     $4000 = RAM block 32 = $80000
         0xA9, 0xFF, 0x8D, 0x02, 0x40,       // palette entry 1: $FFF, white
         0xA9, 0x0F, 0x8D, 0x03, 0x40,

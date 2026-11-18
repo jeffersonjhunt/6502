@@ -1,7 +1,7 @@
 # 11 The north bridge and the clock
 
 The north bridge's registers (module D, `$C680`): the windows, VEC, MODE, STATUS, the interrupt summary, the wait
-states; and the DS3231 real-time clock behind it.
+states, and on revision 2 the windows' high bits and MAP; and the DS3231 real-time clock behind it.
 
 The design record, for the reasons: [hw/design.md, "North bridge
 registers"](../../hw/design.md#north-bridge-registers), ["Real-time clock"](../../hw/design.md#real-time-clock).
@@ -10,7 +10,7 @@ registers"](../../hw/design.md#north-bridge-registers), ["Real-time clock"](../.
 
 Status: **emulated**
 
-The north bridge sits on the CPU card. It turns each CPU address into a 20-bit physical one, and each physical
+The north bridge sits on the CPU card. It turns each CPU address into a 24-bit physical one, and each physical
 address into a module ID. The bridge isn't a card, so it takes the spare ID `$D` for its own registers,
 `$C680–$C6FF`. While the CPU is in that block the bridge puts `$D` on PS0–PS3, so no card answers.
 
@@ -22,6 +22,32 @@ block. [Chapter 2](02-memory-and-banking.md#the-four-windows) says how they make
 A window register takes effect on the next bus cycle. The BIOS relies on that. It copies itself into RAM block 63
 and points W3 at the copy, and the next fetch comes from the copy, at the same address
 ([chapter 3](03-boot.md#reset-and-the-flash)).
+
+## The high window registers and MAP
+
+Status: **proposed**
+
+Emulated as step B7. A revision 2 bridge (ID `$D2`) has six more registers; revision 1 (`$D1`) has none of them,
+and there the six offsets read `$FF` and drop what is written.
+
+- **WIN0H–WIN3H** ([`$C6A0`–`$C6A3`](#reg-c6a0)) give A20–A23 for their window's block while its ROM bit is clear,
+  so the block is ten bits, WIN*n*H:BLOCK, any 16 KB of the 16 MB. **VECH** ([`$C6A4`](#reg-c6a4)) does the same
+  for VEC on a vector pull. With the ROM bit set the flash is chosen and the high register is ignored. All five
+  reset to 0, which is the 1 MB the windows had before.
+- **MAP** ([`$C6A5`](#reg-c6a5)) holds AP8 in bit 0. While AP8 is set, as it is from every reset, the CPU card sends
+  every memory cycle for bank 8 (`$80000–$8FFFF`: a window with ROM clear, WIN*n*H 0 and BLOCK 32–35, and the DMA
+  controller's memory side) to the video card's aperture at `$E00000–$E0FFFF`, so software that knows the aperture
+  only in bank 8 still finds it there. With AP8 clear, bank 8 is the RAM card's
+  ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)). The bridge reads AP8 on every cycle.
+- **Software writes them only after reading NB_ID as `$D2`.** The BIOS's boot and Break set WIN0H–WIN3H and VECH to
+  0 and write MAP whole: 1 when a revision 2 video card is fitted (`VIDEO_ID` `$92`), else 0, so a machine with no
+  such card has bank 8 as RAM ([chapter 3](03-boot.md)). OODOS does the same at its warm boot, keeps AP8 set, and
+  clears it only for a program that asks (function 83's `DM_BANK8`). Under OODOS, among programs only OOLIB gives
+  a window a high register other than 0: WIN1H `$0E`, for slot 1 at `$E04000`. OODOS itself reaches the aperture
+  at `$E00000` inside the BDOS: its console maps W1 with WIN1H `$0E` for each character and puts WIN1H back to 0
+  before it returns, and `DM_VCOPY`'s DMA borrows slots 2 and 3 at `$E08000` and `$E0C000`.
+- **The Console card and the bus spy** see the true map: driving the bus themselves, they find bank 8 the RAM
+  card's whatever AP8 holds ([chapter 12](12-front-panel.md)).
 
 ## MODE, STATUS and ID
 
@@ -36,8 +62,10 @@ Status: **emulated**
 - **WAIT0–WAIT3** ([`$C68A`–`$C68D`](#reg-c68a)) are read/write storage, reserved for a turbo mode: since B2
   (*proposed*) they slow nothing. A slow card asks for wait states by /WAIT, which the bridge turns into RDY for the
   CPU ([chapter 5](05-dma.md#the-controller)). The ROM's diagnostics keep their options in WAIT3.
-- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D1`: module D, revision 1. Every block with registers has its ID byte at
-  `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
+- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D2`: module D, revision 2, the bridge with WIN0H–WIN3H, VECH and MAP
+  (*proposed*, emulated as step B7). A revision 1 bridge reads `$D1` and has none of them; the emulator keeps it as
+  a machine-file option. Software writes the new registers only after reading `$D2`. Every block with registers has
+  its ID byte at `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
 
 ### Turbo
 
@@ -169,9 +197,9 @@ R/W. The new mapping applies from the next bus cycle.
 |---|---|---|
 | 7 | ROM | 1: the flash. Blocks 0–31 are ROM A, 32–63 ROM B, the game cartridge, each reached by its address, with no module ID ([chapter 2](02-memory-and-banking.md#the-24-bit-bus)). 0: RAM |
 | 6 | RO | 1: writes through this window are ignored |
-| 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash |
+| 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash. With ROM clear, A20–A23 come from [WIN0H](#reg-c6a0) on a revision 2 bridge (*proposed*, B7), 0 on revision 1 |
 
-The CPU's A0–A13 pass through, so CPU `$0000–$3FFF` is physical `BLOCK × $4000` on.
+The CPU's A0–A13 pass through, so CPU `$0000–$3FFF` is physical `WIN0H × $100000 + BLOCK × $4000` on.
 
 #### Reset
 
@@ -244,8 +272,9 @@ As [WIN0](#reg-c680): bit 7 ROM, bit 6 RO, bits 5–0 the block, for CPU `$8000�
 
 The BIOS borrows W2 to copy itself into RAM block 63 at boot, then sets it to block 2. VINIT, setting up the text
 screen, borrows W1 for the font (ROM A block 30), which it writes to the video card's port. VPUTC borrows W2 for each
-character that ECHO puts on the screen, on block 32, the card's aperture slot 0 (*proposed*, revision 2:
-[chapter 6](06-video.md#the-bioss-text-screen)). Both put back whatever the windows held before.
+character that ECHO puts on the screen, on the card's aperture slot 0 (*proposed*, revision 2:
+[chapter 6](06-video.md#the-bioss-text-screen)): on a `$D2` bridge with WIN2H `$0E` and block 0, `$E00000`; on
+`$D1`, block 32. Both put back whatever the windows held before, WIN2H included.
 
 <a id="reg-c683"></a>
 ### $C683 NB_WIN3: window 3, CPU $C000–$FFFF
@@ -311,7 +340,9 @@ The same as WIN3's: `$DF`, or `$3F` with /BOOTSEL.
 #### Notes
 
 Only the vector's two bytes come through VEC. The handler is fetched through W3. The BIOS sets VEC to `$7F`, the
-same as W3. Ignored in Apple II mode. See [chapter 4](04-interrupts.md#vec-and-the-vectors).
+same as W3. Ignored in Apple II mode. See [chapter 4](04-interrupts.md#vec-and-the-vectors). On a revision 2
+bridge (*proposed*, B7) A20–A23 of a vector pull come from [VECH](#reg-c6a4), not WIN3H, while VEC's ROM bit is
+clear; the BIOS and OODOS keep it 0.
 
 <a id="reg-c685"></a>
 ### $C685 NB_MODE: the machine's mode
@@ -370,14 +401,15 @@ R. Writes are ignored.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7–4 | REV | the bridge's revision: 1 |
+| 7–4 | REV | the bridge's revision: 2 (*proposed*, B7), as NB_ID's low digit; 1 on a revision 1 bridge, the emulator's option |
 | 3–2 | | 0 |
 | 1 | POWER_ON | 1: the last hard reset was the power-on one |
 | 0 | BOOTSEL | 1: /BOOTSEL was held, so the machine booted from RAM |
 
 #### Reset
 
-`$12` after power-on, `$10` after a later hard reset. Bit 0 is also set with /BOOTSEL.
+`$22` after power-on, `$20` after a later hard reset (`$12` and `$10` on a revision 1 bridge). Bit 0 is also set
+with /BOOTSEL.
 
 #### Status
 
@@ -907,6 +939,229 @@ cleared on the way.
 Wait for BUSY ([RTCCTL](#reg-c687) bit 0) to clear before reading. A write to the status register (`$0F`) updates
 LOST and ALARM when it ends.
 
+<a id="reg-c6a0"></a>
+### $C6A0 NB_WIN0H: window 0's A20–A23
+
+#### Equates
+
+`NB_WIN0H`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W. The new mapping applies from the next bus cycle.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–4 | | 0 |
+| 3–0 | HIGH | physical A20–A23 for [WIN0](#reg-c680)'s block, while WIN0's ROM bit is clear |
+
+With ROM clear, CPU `$0000–$3FFF` is physical `HIGH × $100000 + BLOCK × $4000` on, so the window reaches any 16 KB
+of the 16 MB. With ROM set the flash is chosen and HIGH is ignored.
+
+#### Reset
+
+`$00` at every reset, hard or a /RESET pulse: the 1 MB of RAM, as on revision 1.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+`$0E` with BLOCK 0–3 reaches the video card's aperture slots at `$E00000–$E0FFFF` (`VIDEO_APER_H`, with
+`VIDEO_APERTURE2`, in [`backplane.inc`](../../backplane/bios/backplane.inc)). `$01–$0D` would be RAM past 1 MB: the
+machine has none, so reads give `$FF` and writes are lost. A bank 8 address reached with HIGH 0 is sent to the
+aperture while [MAP](#reg-c6a5)'s AP8 is set. The BIOS sets WIN0H–WIN3H to 0 at boot and at Break, and APPLE clears
+WIN0H–WIN2H before it enters Apple II mode; Apple II mode's map never reads them.
+
+<a id="reg-c6a1"></a>
+### $C6A1 NB_WIN1H: window 1's A20–A23
+
+#### Equates
+
+`NB_WIN1H`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W, as [WIN0H](#reg-c6a0).
+
+#### Bits
+
+As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN1](#reg-c681)'s block, CPU `$4000–$7FFF`, while its ROM bit is clear; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+OOLIB's window (*proposed*, interface 12). After a program's `GX_BANK8`, OOLIB maps the aperture's slot 1 with
+WIN1H `$0E` and WIN1 1 (`$E04000`), and puts WIN1H back to 0 with block 1. OODOS saves, clears and restores WIN1H
+on the way into the BDOS, the interrupt dispatcher and the hooks, so its own code finds it 0
+([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
+OODOS's console maps W1 with WIN1H `$0E`, block 0, for each character.
+
+<a id="reg-c6a2"></a>
+### $C6A2 NB_WIN2H: window 2's A20–A23
+
+#### Equates
+
+`NB_WIN2H`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W, as [WIN0H](#reg-c6a0).
+
+#### Bits
+
+As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN2](#reg-c682)'s block, CPU `$8000–$BFFF`, while its ROM bit is clear; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+The BIOS's VPUTC writes WIN2H `$0E` with W2 0 (slot 0) for each character on a `$D2` bridge, and puts both back
+([chapter 6](06-video.md#the-bioss-text-screen)).
+
+<a id="reg-c6a3"></a>
+### $C6A3 NB_WIN3H: window 3's A20–A23
+
+#### Equates
+
+`NB_WIN3H`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W, as [WIN0H](#reg-c6a0).
+
+#### Bits
+
+As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN3](#reg-c683)'s block, CPU `$C000–$FFFF`, while its ROM bit is clear; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+The BIOS and OODOS keep it 0: FARCALL and the loader move W3 only.
+
+<a id="reg-c6a4"></a>
+### $C6A4 NB_VECH: the vectors' A20–A23
+
+#### Equates
+
+`NB_VECH`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W.
+
+#### Bits
+
+As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [VEC](#reg-c684)'s block while the CPU reads a vector and VEC's ROM
+bit is clear; bits 7–4 read 0. WIN3H is not used for a vector pull.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+The BIOS and OODOS set it to 0 with WIN0H–WIN3H, and nothing else writes it.
+
+<a id="reg-c6a5"></a>
+### $C6A5 NB_MAP: where bank 8 goes
+
+#### Equates
+
+`NB_MAP`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W. A change applies from the next bus cycle.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–1 | | 0 |
+| 0 | AP8 | 1: every memory cycle the CPU card makes for bank 8, `$80000–$8FFFF` (a window with ROM clear, WIN*n*H 0 and BLOCK 32–35, and the DMA controller's memory side), goes to the video card's aperture at `$E00000–$E0FFFF` instead. 0: bank 8 is the RAM card's |
+
+#### Reset
+
+`$01` at every reset, hard or a /RESET pulse, whatever cards are fitted.
+
+#### Status
+
+**proposed**
+
+Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+
+#### Notes
+
+`NB_MAP_AP8` (`$01`) is the bit. With AP8 set and no revision 2 video card, bank 8 reads `$FF`: the BIOS writes
+MAP whole at boot and at Break, 1 with `VIDEO_ID` `$92`, else 0, and the diagnostics write 0 for their run, so they
+test all 64 RAM blocks ([chapter 15](15-diagnostics.md)). OODOS writes MAP the same way at its warm boot and clears
+AP8 only for a program that asks, by function 83's `DM_BANK8`
+([the Programmer's Guide, chapter 7](../oodos-programmers-guide/07-function-reference.md#bdos-83)). The Console card
+and the bus spy, driving the bus themselves, see bank 8 as the RAM card's whatever AP8 holds. Apple II mode's map
+ignores it.
+
 <a id="reg-c6ff"></a>
 ### $C6FF NB_ID: the north bridge's ID
 
@@ -924,12 +1179,19 @@ R.
 
 #### Bits
 
-All: the type, module D, in bits 7–4, and the revision, 1, in bits 3–0.
+All: the type, module D, in bits 7–4, and the revision in bits 3–0: 2 (*proposed*, B7), the bridge with
+[WIN0H–WIN3H, VECH and MAP](#the-high-window-registers-and-map); 1 on a revision 1 bridge, which has none of them.
 
 #### Reset
 
-`$D1`.
+`$D2` (`$D1` on revision 1).
 
 #### Status
 
 **emulated**
+
+#### Notes
+
+`NB_ID_V1` (`$D1`) and `NB_ID_V2` (`$D2`) are the two values. Software writes [WIN0H–WIN3H](#reg-c6a0),
+[VECH](#reg-c6a4) and [MAP](#reg-c6a5) only after reading `$D2`: on `$D1` it reaches the aperture by block 32 as
+before. NB_ID is read as an ID byte, so a program reads it under SYSINFO's exception only (AGENTS.md).

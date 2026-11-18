@@ -105,10 +105,11 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 - **Carry is the answer:** clear for done, set for refused with A an error (`UX_*`). Unlike the BDOS, the flags are
   not put back.
 - **Every call changes A, X and Y** unless it says otherwise, and W1 and aperture slot 1 (OOLIB's rule: OOUI draws
-  through OOLIB, whose `GX_VMAP` puts one of the program's card banks in slot 1 and slot 1's window, block 33, in
-  W1). The decimal flag is clear on return and the interrupt flag as it was.
-- **The W1 contract holds** (interface version 8): while OOUI draws, block 33 is in W1, so everything OOUI reads
-  then (the widget table, the texts, the theme, the accelerator table, the event area, the picker's buffers) is in
+  through OOLIB, whose `GX_VMAP` puts one of the program's card banks in slot 1 and slot 1's window, block 33 (or
+  WIN1H `$0E` with WIN1 1 after `GX_BANK8`), in W1). The decimal flag is clear on return and the interrupt flag as
+  it was.
+- **The W1 contract holds** (interface version 8): while OOUI draws, block 33 (or WIN1H `$0E` with WIN1 1 after
+  `GX_BANK8`) is in W1, so everything OOUI reads then (the widget table, the texts, the theme, the accelerator table, the event area, the picker's buffers) is in
   `$0300-$3FFF` or `$8000-$BFFC`, never `$4000-$7FFF`.
 - **No call from a hook** (functions 80's frame or tick hook, 82's ES5503 hook). OOUI runs only in the program's
   own time.
@@ -478,7 +479,7 @@ So a vertical bar or slider *n* cells long draws 16*n* levels, and a horizontal 
 (`$80-$9A`, `$A0-$A8`) stay, for names that have them.
 
 **Card memory.** One piece of 16 KB, a card bank (`GX_VALLOC` 64 card pages, aligned to 64), so that one
-`GX_VMAP` (aperture slot 1, block 33 in W1) reaches all of it and OOUI draws by writing cells there:
+`GX_VMAP` (aperture slot 1, block 33 (or WIN1H `$0E` with WIN1 1 after `GX_BANK8`) in W1) reaches all of it and OOUI draws by writing cells there:
 
 | Offset | Size | What |
 | --- | --- | --- |
@@ -498,7 +499,7 @@ its sprites.
 1. **Allocate:** `GX_VALLOC`, `GX_V` 64 card pages, A 64 (the alignment): A/X the first card page, a card bank's
    first; `GE_MEMORY` becomes `UX_MEMORY`.
 2. **Free:** `GX_VFREE`, the same page and size.
-3. **Reach it:** `GX_VMAP` the first page: slot 1 on that bank and block 33 in W1, A/X the CPU address (`$4000`);
+3. **Reach it:** `GX_VMAP` the first page: slot 1 on that bank and block 33 (or WIN1H `$0E` with WIN1 1 after `GX_BANK8`) in W1, A/X the CPU address (`$4000`);
    `GX_W1BACK` puts block 1 back.
 4. **Copy:** `GX_VCOPY` (card to card: the console's font), `GX_VFILL` (the maps cleared); the cells, glyphs and
    pointer image are written through W1.

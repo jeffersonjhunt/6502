@@ -134,7 +134,8 @@ describe("debugger pane", () => {
     const bank8 = { id: "5", text: "84123", cpu: null, physical: 0x84123, fetch: true, read: false, write: false, nmi: false };
     localStorage.setItem("oo1.breakpoints", JSON.stringify([bank8]));
     const port = new FakePort();
-    port.io.set(0xc4ff, 0x92);
+    port.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    port.io.set(0xc6a5, 0x01); // MAP: AP8 set
     const pane = debuggerPane(port);
     document.body.replaceChildren(pane.element);
     pane.connect();
@@ -142,6 +143,21 @@ describe("debugger pane", () => {
     expect(pane.breakpoints.list).toEqual([]);
     pane.element.querySelector<HTMLButtonElement>('[data-tab="bps"]')!.click();
     expect(pane.element.querySelector('[data-testid="bp-notice"]')?.textContent).toMatch(/84123/);
+  });
+
+  test("on connecting to a revision 2 bridge with AP8 clear, a saved bank 8 breakpoint stays in the list", async () => {
+    const bank8 = { id: "5", text: "84123", cpu: null, physical: 0x84123, fetch: true, read: false, write: false, nmi: false };
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([bank8]));
+    const port = new FakePort();
+    port.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    port.io.set(0xc6a5, 0x00); // MAP: AP8 clear
+    port.io.set(0xc4ff, 0x92); // a revision 2 card, whose bank 8 a program has taken back as RAM
+    const pane = debuggerPane(port);
+    document.body.replaceChildren(pane.element);
+    pane.connect();
+    await tick();
+    expect(pane.breakpoints.list).toEqual([bank8]);
+    expect(pane.breakpoints.notRestored).toEqual([]);
   });
 
   test("a power cycle re-arms the card (it forgot)", async () => {

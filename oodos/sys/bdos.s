@@ -874,14 +874,15 @@ PPUTY:          PHX
                 RTS
 
 ; W2 on the block the program's window had at PP; TP its address there. An
-; address in the I/O hole ends the function: A = X = $FF, from BDOSENT's
-; own frame (the stub's JSR left S at $FD), the BIOS still in W2.
+; address in the I/O hole, or in W1 while the program's WIN1H isn't 0 (B7:
+; no block W2 can show), ends the function: A = X = $FF, from BDOSENT's own
+; frame (the stub's JSR left S at $FD), the BIOS still in W2.
 PMAP:           LDA     PP + 1
                 CMP     #>CODE_WINDOW
                 BCS     @memory
                 CMP     #$C0
                 BCC     @memory
-                LDX     #$FD
+@hole:          LDX     #$FD
                 TXS
                 JMP     NOFUNC
 @memory:        ROL     A              ; the window: the top 2 bits
@@ -889,7 +890,11 @@ PMAP:           LDA     PP + 1
                 ROL     A
                 AND     #3
                 TAX
-                LDA     ST_WIN,X
+                CPX     #1
+                BNE     @win
+                LDA     ST_W1H
+                BNE     @hole
+@win:           LDA     ST_WIN,X
                 STA     NB_WIN2
                 LDA     PP + 1
                 AND     #$3F

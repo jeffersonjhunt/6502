@@ -7,6 +7,30 @@ slots, and no native-mode snooping. The register map is frozen for the work (pro
 questions 1-6 have proposed defaults. The register details below are **proposed**; mark them that way in
 [design.md](design.md) when it is updated. The UI toolkit that rides on this card is [ooui.md](ooui.md).
 
+**Note (B7, proposed, the owner's decision of 2026-11-14).** This file stays frozen: the register map and card
+memory layout below stand unchanged. The bus work (steps B1–B7 in [design.md](design.md#what-steps-b1-b7-change))
+changed the machine around the card, so read the lines named here with this note.
+
+- **Where the aperture answers** (lines 124–125, 249, 259 and 275–278). The card answers its 64 KB at physical
+  `$E00000–$E0FFFF`, slot *n* at `$E00000 + n × $4000`. A window *x* reaches slot *n* with its own WIN*x*H at `$0E`
+  and its BLOCK at *n* ([design.md](design.md#the-video-aperture-moved-out-of-ram)). The RAM card fills the whole
+  1 MB, bank 8 included. While the north bridge's AP8 (MAP, bit 0) is set, as it is from reset, the CPU card sends
+  bank 8 (`$80000–$8FFFF`: blocks 32–35 in a window whose WIN*x*H is 0, and the DMA controller's memory cycles
+  there) to the aperture, so software written to this file's bank 8 runs as described. With AP8 clear, bank 8 is
+  RAM. OODOS keeps AP8 set and clears it only for a program that asks (function 83's `DM_BANK8`).
+- **The port's DMA request** (lines 45, 80, 137, 177, 191 and 260). The new bus has no DRQ or /DACK lines. The card
+  asks on the shared /DREQ line and is served by its module ID, 9: its grant is /DMA low with `$9` on PS0–PS3. The
+  channel whose CARD field is `$09` serves the port, and channel 1's CARD is `$09` from reset, so channel 1 still
+  carries it. PCTL's bit 0 enables the request. The emulator's machine line for the card has a bare `drq`, not
+  `drq=1`. Read "DRQ" and "DRQ 1" as that request and "/DACK" as that grant; the rule at line 191 stands.
+- **Words** (the DMA controller's revision 2, WIDE). The aperture answers a word cycle on both data lanes, as memory
+  does. PDATA (line 175) takes a word in a word grant as two port accesses: the even byte at PADDR and a PSTEP step,
+  then the odd byte and another step. PSTEP 0 keeps one byte. Against PCTL's direction a word reads `$FFFF`, a write
+  is dropped and PADDR doesn't step. A word request means the port has room for two bytes.
+- **The pace** (lines 81 and 138). "2 cycles a byte", "about 8,200 cycles" for a 4 KB font and the 300 KB bitmap's
+  time are the first DMA controller's figures. On revision 2 the emulator moves a port byte in one cycle, and a word
+  in one cycle with WIDE.
+
 ## Summary
 
 In native mode the video card draws from 2 MB of its own memory instead of a snooped copy of banks 8–B. The CPU

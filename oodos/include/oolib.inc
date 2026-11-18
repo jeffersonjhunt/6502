@@ -64,7 +64,18 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ; library maps itself under the W1 contract (interface version 8): while it
 ; is there the program's own $4000-$7FFF is out of reach, so the program's
 ; code, its event area, its FCBs and what it draws from stay in $0300-$3FFF
-; or $8000-$BFFC. GX_W1BACK puts block 1 back. Card memory is named by
+; or $8000-$BFFC. GX_W1BACK puts block 1 back (and WIN1H 0: since B7 the
+; W1 contract has WIN1H in it, interface version 12; slot 1's window is
+; block 33 until the program calls GX_BANK8, then WIN1H $0E with block 1,
+; bank 8 being its RAM). A hook that maps W1 through the library ends with
+; GX_W1BACK: the library's record of W1 is the program's too, and still
+; names the hook's map once OODOS puts the program's W1 back. GX_W1BACK
+; always writes block 1 and leaves the record there. After GX_BANK8 a hook
+; must not map W1 through the library at all: the record can then say WIN1H
+; 0 while OODOS has put the program's $0E back, a hook can fire between any
+; two of the program's instructions, and a hook's GX_VMAP moves slot 1's
+; bank (VID_SLOT1), which nothing puts back. A GX_BANK8 program draws from
+; its main loop (B7's review rounds 1-3, R3, F2, G1). Card memory is named by
 ; card pages (card address / 256, a word), which is what the base
 ; registers hold; vmem.inc has the allocation and copies (GX_VALLOC,
 ; GX_VFREE, GX_VADDR, GX_VMAP, GX_VPUT, GX_VGET, GX_VCOPY, GX_VFILL).
@@ -77,11 +88,25 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               so no GX_PALSHOW or GX_SPRSHOW): OODOS's interface checked
 ;               (8 at least, with DMA, and a revision 2 card), the W1 map
 ;               and the card's room read (function 83's DM_INFO), the
-;               program's card memory all free
+;               program's card memory all free. Slot 1's window is block 33
+;               ($84000, MAP's AP8 left as it is): the old mode, always, as
+;               before B7, so a GX_INIT after GX_BANK8 needs GX_BANK8 again
+;   GX_BANK8    (interface version 12, B7; Proposed) after GX_INIT: bank 8,
+;               $80000-$8FFFF, the program's RAM until the warm boot
+;               (function 83's DM_BANK8), slot 1's window WIN1H $0E with
+;               block 1 ($E04000), and blocks 32-39 in the W1 map. Carry
+;               clear, with no revision 2 card too (bank 8 RAM, no window).
+;               GE_VERSION, nothing changed and the old mode kept: OODOS's
+;               interface below 12, no DMA, a revision 1 north bridge or a
+;               ROM BIOS older than 0.17. A program that loads card memory
+;               by DMA through $84000 (slot 1's old window) must not call it:
+;               that address is then RAM, and a DMA address can't name
+;               $E04000
 ;   GX_REMAP    the W1 map read again: after the program allocates or frees
 ;               a block (functions 53-58)
-;   GX_BLOCK    A a block of system memory: put in W1 if the W1 map has it
-;               (carry set if not): an allocated block, or banks 9-B's 36-47
+;   GX_BLOCK    A a block of system memory: put in W1, with WIN1H 0, if the
+;               W1 map has it (carry set if not, and for 64 and over): an
+;               allocated block, or banks 9-B's 36-47 (32-39 after GX_BANK8)
 ;   GX_LAYER    A the layer (0, 1), X its CONFIG, GX_V its map's card page
 ;               (MAPBASE), GX_R its tiles' or font's (TILEBASE): scrolls and
 ;               PALOFS 0
@@ -169,7 +194,7 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 
 .include "vmem.inc"
 
-.global GX_INIT, GX_REMAP, GX_BLOCK
+.global GX_INIT, GX_BANK8, GX_REMAP, GX_BLOCK
 .global GX_LAYER, GX_PALOFS, GX_SHOW, GX_BORDER, GX_CONSOLE, GX_PALBASE, GX_SPRBASE
 .global GX_PALINIT, GX_PALSET, GX_PALLOAD, GX_PALSHOW, GX_FADE
 .global GX_SPRINIT, GX_SPRPOS, GX_SPRIMG, GX_SPRATTR, GX_SPRSHOW, GX_COLL

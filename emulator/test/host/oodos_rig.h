@@ -55,7 +55,7 @@ namespace oodos_rig
     constexpr uint32_t SYS_BLOCK_PHYS = 31 * BLOCK;      ///< bank 0's $0000
     constexpr uint32_t RES_PHYS = 62 * BLOCK;            ///< block 62's $C000
     constexpr uint8_t C_WRITE_FN = 2, C_STAT_FN = 11;    ///< BDOS functions, for timing
-    constexpr uint32_t SCREEN = 0x82000;
+    constexpr uint32_t SCREEN = 0xE02000; ///< the console's text: aperture slot 0 at $E00000, AP8 set or clear (B7)
     constexpr uint16_t NB = 0xC680;
     constexpr uint8_t ROM_BLOCK_RO = 0x40 | 63;
     /// oodos/sys's build: the build tree's, or OODOS_SYS_DIR's (a build of a changed copy, to see a
@@ -304,7 +304,7 @@ namespace oodos_rig
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
             machine->bus().reset();
             cpu->reset();
-            if (!until("BACKPLANE BIOS 0.16\r\\\r", ms(2000)))
+            if (!until("BACKPLANE BIOS 0.17\r\\\r", ms(2000)))
             {
                 std::printf("  the ROM BIOS didn't reach its monitor\n");
                 return;

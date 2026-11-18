@@ -23,8 +23,11 @@
 ;                      /IRQ low for ever
 ;
 ; It touches no BDOS state, only its own (here) and the windows, which it
-; puts back as they were. The event area is the program's memory: W1 is put
-; on its block for the writes and back after.
+; puts back as they were. WIN1H too (B7): it runs with WIN1H 0, and puts back
+; what it read, on a revision 2 north bridge only (the value tells: 0, or
+; $FF where there is no register, is never written). The event area is the
+; program's memory: W1 is put on its block for the writes and back after.
+; A hook gets its own WIN1H (HK_W1H, the program's when it set the hook).
 ;
 ; The hooks (question 3): a routine of the program's, called with the
 ; windows the program had when it set the hook (W0-W3), A, X and Y saved by
@@ -137,7 +140,12 @@ DISPATCH:       LDA     NB_WIN0
                 PHA                    ; the interrupted W0
                 STA     IW0
                 PHY
-                LDA     NB_IRQL
+                LDA     NB_WIN1H       ; and its WIN1H (B7), 0 while the dispatcher runs: cleared
+                PHA                    ; only when it isn't 0, and never on a revision 1 bridge
+                BEQ     @w1h           ; (no register: $FF)
+                BMI     @w1h
+                STZ     NB_WIN1H
+@w1h:           LDA     NB_IRQL
                 CMP     VIAL
                 BNE     @more          ; not the VIA alone, or no VIA
                 LDA     NB_IRQH
@@ -158,7 +166,11 @@ DISPATCH:       LDA     NB_WIN0
                 AND     NB_IRQH
                 INC     A
                 BNE     @some
-                PLY                    ; no card interrupting: nothing to answer
+                PLA                    ; no card interrupting: nothing to answer; WIN1H back
+                BEQ     @none
+                BMI     @none
+                STA     NB_WIN1H
+@none:          PLY
                 PLA
                 STA     NB_WIN0
                 PLX
@@ -186,7 +198,11 @@ DISPATCH:       LDA     NB_WIN0
                 BEQ     @out
 @deaf:          LDX     #R62_OTHER     ; the USB card's events (a layout-2 area), or DEAFEN
                 JSR     CALL62
-@out:           PLY
+@out:           PLA                    ; the interrupted WIN1H, as it was read
+                BEQ     @back
+                BMI     @back
+                STA     NB_WIN1H
+@back:          PLY
                 PLA
                 STA     NB_WIN0        ; the interrupted stack page, under the same S
                 PLX
@@ -323,6 +339,10 @@ CALLHOOK:       LDA     NB_WIN1
                 STA     NB_WIN2
                 LDA     HK + HK_WIN + 3,Y
                 STA     NB_WIN3        ; its common memory the same: this goes on
+                LDA     HK + HK_W1H,Y  ; its WIN1H (B7): the dispatcher's is 0, so only if it isn't
+                BEQ     @w1h
+                STA     NB_WIN1H
+@w1h:
 .ifdef OOLIB_DEBUG
                 LDX     #R62_HKON      ; its start counted (HKON, block 62's): Y kept
                 JSR     CALL62
@@ -363,7 +383,11 @@ HKBACK:         LDA     #SYS_BLOCK
                 LDX     #R62_HKCOST    ; its cycles counted (HOOKCOST, block 62's): Y kept
                 JSR     CALL62
 .endif
-                PLA
+                LDA     NB_WIN1H       ; WIN1H 0 again (B7), whatever the hook left there (a
+                BEQ     @w1h           ; frame hook may map W1 itself): the register's, not
+                BMI     @w1h           ; the record's; never written on a revision 1 bridge
+                STZ     NB_WIN1H
+@w1h:           PLA
                 STA     NB_WIN3
                 PLA
                 STA     NB_WIN2
@@ -842,7 +866,11 @@ FT_OPENX:       LDX     PX
                 ROL     A
                 AND     #3
                 TAX
-                LDA     ST_WIN,X
+                CPX     #1             ; W1 while the program's WIN1H isn't 0 (B7): not a block of
+                BNE     @win           ; banks 0-5
+                LDA     ST_W1H
+                BNE     @no0
+@win:           LDA     ST_WIN,X
                 CMP     #PROG_LIMIT    ; banks 0-5, RAM: not the system's, M:, video memory or flash
                 BCS     @no0
                 PHP                    ; any area before closed, its input first,
@@ -1065,7 +1093,8 @@ FT_THOOKX:      LDY     #HT
                 STA     THCNT + 1
                 ; fall through
 
-; Hook Y set: T0/T1 its address less 1, the windows the program has now.
+; Hook Y set: T0/T1 its address less 1, the windows the program has now,
+; WIN1H with them.
 SETHOOK:        LDA     T0
                 STA     HK + HK_ADDR,Y
                 LDA     T1
@@ -1081,6 +1110,8 @@ SETHOOK:        LDA     T0
                 DEY
                 DEY
                 DEY
+                LDA     ST_W1H         ; and its WIN1H (B7)
+                STA     HK + HK_W1H,Y
                 LDA     #1
                 STA     HK + HK_ON,Y   ; set last: the dispatcher reads it first
 SETOK:          LDA     #0

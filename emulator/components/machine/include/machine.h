@@ -45,10 +45,12 @@
  * 80000-BFFFF, must be one ram line, which it draws from), aperture
  * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture,
  * at E00000-E0FFFF on the backplane: on a revision 2 card it answers, as if
- * mapped last, and the north bridge sends bank 8, 080000-08FFFF, to it, as
- * the CPU card does (backplane_bridge.h); a line at 80000-8FFFF, as machine
- * files had it before the 24-bit bus, means the same. On revision 1, or
- * with no video line, it is inert and bank 8 is the RAM's), usb (the USB card, usb_card.h;
+ * mapped last, and the CPU card sends bank 8, 080000-08FFFF, to it: a
+ * revision 2 north bridge while MAP's AP8 is set, a revision 1 bridge always
+ * (backplane_bridge.h); a line at 80000-8FFFF, as machine files had it
+ * before the 24-bit bus, means the same. On a revision 1 card, or with no
+ * video line, it is inert: a revision 1 bridge leaves bank 8 the RAM's, and
+ * a revision 2 one sends it to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
  * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
@@ -59,11 +61,14 @@
  * 340-34F, inside the stand-in 6551's 300-37F.
  *
  * Without a `northbridge` line every CPU address is memory with A16-A23
- * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
- * (backplane_bridge.h): the windows, VEC, ROM space, the I/O hole and the
- * DS3231 real-time clock, with its registers at io 680-6FF (module D, its
- * IRQ wired: the clock's tick), named `northbridge`. The clock starts at the
- * host's local time unless the options give one.
+ * low. `northbridge backplane [bootsel] [revision=1|2]` fits the backplane's
+ * north bridge (backplane_bridge.h): the windows, VEC, ROM space, the I/O
+ * hole and the DS3231 real-time clock; revision 2 (ID $D2) adds WIN0H-WIN3H,
+ * VECH and MAP, revision 1 (ID $D1) is B1's, and the default is
+ * BackplaneBridge::REVISION, 2 (step B7). Its registers are at io
+ * 680-6FF (module D, its IRQ wired: the clock's tick), and it is named
+ * `northbridge`. The clock starts at the host's local time unless the
+ * options give one.
  *
  * Peripherals hang off a named 6522's pins instead of the bus, so they
  * take no range:

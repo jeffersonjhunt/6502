@@ -74,6 +74,12 @@ Status: **emulated**
 Each stage needs only what the stages before it proved; a stage whose card isn't there says `SKIP` and the run goes
 on. Stages 0–2 use no RAM: stage 2 is what finds the zero page and stack the rest use.
 
+**All of RAM, since BIOS 0.17** (*proposed*, B7). On a revision 2 north bridge (ID `$D2`) the diagnostics clear
+MAP's AP8 as they start, whatever video card is fitted, so bank 8 is RAM and stages 2–6 test all 64 blocks, blocks
+32–35 among them; V4–V7 reach the card's aperture at its own place, `$E00000`, through W1 with WIN1H `$0E`. The boot
+after the run sets MAP back by the BIOS's rule ([chapter 11](11-north-bridge-and-rtc.md#reg-c6a5)). On a `$D1`
+bridge they pass over blocks 32–35 while a revision 2 card makes bank 8 the aperture, as before.
+
 | Stage | Block | What it tests |
 |---|---|---|
 | 0 | 23 | nothing: SEI and CLD; every card made quiet as the BIOS's Break does (every DMA channel aborted, all eight, each CARD put back to its reset value, the SD card's command abandoned, every card's interrupt enable off, the 6510 stopped and the SIDs silent, on sound revision 2 the stream flushed and the ES5503 frozen, the VIA's IER off, the clock's TIE off); W3 on flash block 31 and VEC on block 23, the core's own vectors, so Break is the core's; the lamps on; the 6551 at 19,200 baud; the text screen, if the video card is revision 2 |
@@ -83,7 +89,7 @@ on. Stages 0–2 use no RAM: stage 2 is what finds the zero page and stack the r
 | 4 | 23 | the address lines and the blocks: every block tagged, then all read back. A wrong tag names a line (`ADDRESS LINE A5`), two lines, two blocks as one, or a block answering as W0's |
 | 5 | 23 | address in address over all of RAM |
 | 6 | 23 | March C− over all of RAM, background `$00` (a full run: `$00`, `$55`, `$33`, `$0F`); W0's own first 512 bytes last, from another block that passed |
-| 7 | 22 | the north bridge and the clock: NB1 its ID and revision; NB2 W0's window bits, each block as itself; NB3 IRQL and IRQH, and DMA's line; NB4 the clock chip (BUSY, SEC stepping a second); NB5 the CPU's clock by the DS3231 and NB6 by 60 video frames; NB7 WAIT0–3 and VEC read back; NB8 a read-only window keeping its RAM |
+| 7 | 22 | the north bridge and the clock: NB1 its ID and revision (since BIOS 0.17, revision 2, `$D2`, exactly: a `$D1` bridge is `NOT KNOWN TO THIS BUILD` and the stage says `SKIP`); NB2 W0's window bits, each block as itself; NB3 IRQL and IRQH, and DMA's line; NB4 the clock chip (BUSY, SEC stepping a second); NB5 the CPU's clock by the DS3231 and NB6 by 60 video frames; NB7 WAIT0–3 and VEC read back; NB8 a read-only window keeping its RAM |
 | 8 | 22 | DMA, revision 2 (ID `$82`; a revision 1 controller is skipped): D1 the ID, and each channel's registers through CONTROL's SELECT, 0–7, CARD among them, then each CARD put back to its reset value, and CONTROL's BURST and SELECT bits (a channel whose window reads `$FF` and drops a pattern counts as not fitted, and the count is on D1's line: 8 since B3 (4 in B2)); D2–D4 on channel 3, selected again after D1; D2 a fill of all of RAM, checked by the CPU; D3 a copy between two blocks, up and down; D4 a 2 KB fill's time; D5 the terminal count and an abort part way |
 | 9 | 22 | the video card: V1 its ID and MEMSIZE; V2 every register that reads back; V3 the beam's lines and a frame's cycles; V4 all of card memory, address in address (a full run adds the march); V5 past MEMSIZE; V6 the data port against the aperture; V7 DMA channel 1 to the card and back |
 | 10 | 22 | the sound card: S1 its ID and codecs; S2 its 64 KB of RAM through RAMDATA; S3 DMA channel 2 into it; S4 the 6510's test program starting; S5 the mailbox both ways; S6 the 6510's sum of S3's bytes; S7 the SIDs' voice 3; S8 the ES5503's 128 KB of wave RAM; S9 a PCM stream's rate. A full run writes S2 and S8 twice, the second time with the key complemented |
@@ -133,13 +139,13 @@ Status: **emulated**
 **The serial line** (19,200 baud, 8 bits, no parity, as the BIOS sets it) has the whole report: the title, a line
 for each stage with its result at column 60, and under each card stage a line for each test, `PASS`, `FAIL`, `SKIP`
 with why on the line under it, or `INFO` for a measurement, each failure's detail under it. A card stage's tests come
-before its own line. The run's form follows stage 2: `BIOS 0.16`, the pass, and `QUICK` or `FULL`, with `LOOP` and
+before its own line. The run's form follows stage 2: `BIOS 0.17`, the pass, and `QUICK` or `FULL`, with `LOOP` and
 `ASK` as asked. Then `TESTS: n PASSED, n FAILED, n SKIPPED, n MEASURED`, the `RESULT` line (`ALL PASSED`, or the
 stages failed, and the lamps' code) and the keys:
 
 ```
  6  MARCH, ALL RAM, BACKGROUND 00 ......................... PASS
-    NB1  ID $D1; STATUS'S REVISION 1 ...................... PASS
+    NB1  ID $D2; STATUS'S REVISION 2 ...................... PASS
     ...
     NB8  A READ-ONLY WINDOW KEEPS ITS RAM ................. PASS
  7  NORTH BRIDGE AND CLOCK ................................ PASS
@@ -183,9 +189,9 @@ and boots. With switch 19 still up, the next hard reset asks again.
 Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
-every card: **a quick run 56.5 s, a full run 165.6 s.** The prompt, unanswered, waits 5.97 s. Both were measured
-with DMA revision 2 (B2, *proposed*): the quick run is unchanged and the full run 0.3 s shorter than before it
-(165.9 s). On real hardware
+every card: **a quick run 58.7 s, a full run 171.8 s.** The prompt, unanswered, waits 5.97 s. Both were measured
+with BIOS 0.17's test of all 64 RAM blocks (B7, *proposed*), 2.2 s and 6.2 s longer than with bank 8 passed over
+(56.5 s and 165.6 s, with DMA revision 2: B2, *proposed*). On real hardware
 the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.
 
 Where the time goes: stages 1–6, the flash and all of RAM, about 28 s of a quick run (address in address and one

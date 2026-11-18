@@ -210,6 +210,47 @@ TEST(spaces_and_the_northbridge_line)
     CHECK(starts_with(error_of("ram 000-0FF space=io\n"), "test.machine:1: ram: 000-0FF crosses"));
 }
 
+TEST(the_northbridge_line_takes_revision_1_or_2)
+{
+    std::string error;
+    std::unique_ptr<Machine> m; // the latest built
+    const auto bridge_of = [&error, &m](const std::string &line) -> const BackplaneBridge * {
+        m = build(line + "\nram 00000-FFFFF\n", error);
+        if (!m)
+            std::printf("  %s\n", error.c_str());
+        return m ? m->find_as<BackplaneBridge>("northbridge") : nullptr;
+    };
+    const BackplaneBridge *b = bridge_of("northbridge backplane");
+    REQUIRE(b != nullptr);
+    CHECK_EQ(b->revision(), BackplaneBridge::REVISION); // the default
+    CHECK_EQ(b->id(), BackplaneBridge::ID);
+    b = bridge_of("northbridge backplane revision=1");
+    REQUIRE(b != nullptr);
+    CHECK_EQ(b->revision(), 1u);
+    CHECK_EQ(b->peek(BackplaneBridge::ID_REG), 0xD1);
+    CHECK_EQ(b->peek(BackplaneBridge::MAP), 0xFF);       // none of revision 2's registers
+    b = bridge_of("northbridge backplane revision=2");
+    REQUIRE(b != nullptr);
+    CHECK_EQ(b->revision(), 2u);
+    CHECK_EQ(b->peek(BackplaneBridge::ID_REG), 0xD2);
+    CHECK_EQ(b->peek(BackplaneBridge::MAP), BackplaneBridge::MAP_AP8);
+    b = bridge_of("northbridge backplane revision=2 bootsel"); // either order
+    REQUIRE(b != nullptr);
+    CHECK_EQ(b->revision(), 2u);
+    CHECK_EQ(b->window(3), 0x3F);
+    b = bridge_of("northbridge backplane bootsel revision=1");
+    REQUIRE(b != nullptr);
+    CHECK_EQ(b->revision(), 1u);
+    CHECK_EQ(b->window(3), 0x3F);
+
+    const std::string three = error_of("northbridge backplane revision=3\n");
+    CHECK(starts_with(three, "test.machine:1: northbridge: want"));
+    CHECK(three.find("'revision=3'") != std::string::npos); // the token named
+    CHECK(error_of("northbridge backplane revision=\n").find("'revision='") != std::string::npos);
+    CHECK(starts_with(error_of("northbridge backplane revision=2 revision=1\n"), "test.machine:1: northbridge: want"));
+    CHECK(starts_with(error_of("northbridge backplane bootsel bootsel\n"), "test.machine:1: northbridge: want"));
+}
+
 TEST(rom_override_replaces_only_the_first_rom)
 {
     const std::string a = image("rom_a.bin", 16), b = image("rom_b.bin", 16);

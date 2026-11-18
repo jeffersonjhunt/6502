@@ -170,13 +170,18 @@ settled the rule, and its emulator plan's first step is in:
   (`Bus::vector_pull`), and the bus trace records the lines of each cycle as
   they were (`Decoder::last_access`).
 - **`BackplaneBridge`** (`components/devices`), from the machine line
-  `northbridge backplane [bootsel]`: four 16 KB windows with ROM and RO
-  bits, VEC on vector pulls, the I/O hole ahead of the windows, and its
-  registers at $C680 with the decided reset values (W3 and VEC on the top
-  block of ROM A, or RAM block 63 under /BOOTSEL), STATUS, the /IACK poll
-  (IRQL/IRQH), WAIT0-3 and the ID byte ($D1: module D, revision 1). The
-  bridge resets with the CPU (`Decoder::reset`, from the app and the
-  debugger's `reset`).
+  `northbridge backplane [bootsel] [revision=1|2]`: four 16 KB windows with
+  ROM and RO bits, VEC on vector pulls, the I/O hole ahead of the windows,
+  and its registers at $C680 with the decided reset values (W3 and VEC on
+  the top block of ROM A, or RAM block 63 under /BOOTSEL), STATUS, the
+  /IACK poll (IRQL/IRQH), WAIT0-3 and the ID byte ($D2: module D, revision
+  2). Revision 2 (step B7, proposed; the default) adds WIN0H-WIN3H ($20-$23)
+  and VECH ($24), A20-A23 for a window's block or a vector pull's while its
+  ROM bit is clear, and MAP ($25), whose AP8 (bit 0, set at every reset)
+  sends bank 8 to the video aperture at $E00000. `revision=1` is step B1's
+  bridge, ID $D1 with none of them, kept for tests (hw/design.md, "B7: as
+  built"). The bridge resets with the CPU (`Decoder::reset`, from the app
+  and the debugger's `reset`).
 - **`machines/backplane.machine`:** RAM A-D, the 512 KB flash, and a 6551
   in the serial card's block ($C300) as a stand-in terminal until the
   TL16C552A is modelled. The flash image is the whole ROM A, BIOS in its

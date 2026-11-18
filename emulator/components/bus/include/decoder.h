@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.14.0
- * @date 2026-11-16
+ * @version 0.15.0
+ * @date 2026-11-17
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -101,8 +101,9 @@
  *
  * The CPU card may send a memory cycle somewhere other than the address its
  * master asked for: the backplane's bridge sends bank 8 to the video
- * aperture while a revision 2 card is fitted (NorthBridge::redirect()).
- * The CPU's windows and the DMA controller's cycles go through it, as both
+ * aperture (NorthBridge::redirect()), on its revision 2 while MAP's AP8 is
+ * set, which it reads on every cycle, and on revision 1 while a revision 2
+ * card is fitted. The CPU's windows and the DMA controller's cycles go through it, as both
  * are on the CPU card. peek_physical() and write_physical() are that same
  * reach with no cycle counted (the CPU card's view, for tests and tools);
  * peek_bus() and write_bus() are the backplane as a card driving it sees
@@ -223,7 +224,8 @@ namespace ooe::emu
             return NO_MODULE;
         }
         /// Where the CPU card sends a memory cycle for `physical` (A0-A23): the CPU's windows and
-        /// the DMA controller's cycles alike. Default: where it was asked.
+        /// the DMA controller's cycles alike, asked on every cycle, so a bridge may follow its own
+        /// registers live (the backplane's AP8). Default: where it was asked.
         virtual uint32_t redirect(uint32_t physical) const { return physical; }
     };
 
@@ -340,8 +342,8 @@ namespace ooe::emu
         /// The same for the DMA controller's grant, as dma_fly_by()'s Mapping overload. @return cycles used
         unsigned dma_fly_by_word(uint32_t physical, const Mapping &card, uint8_t module, bool to_memory, bool tc);
         /// Memory at a physical address (A0-A23) with no bus cycle counted, as
-        /// the CPU card reaches it (NorthBridge::redirect()): with a revision 2
-        /// video card on the backplane, bank 8 is the aperture.
+        /// the CPU card reaches it (NorthBridge::redirect()): bank 8 is the
+        /// aperture while the backplane's bridge sends it there (AP8).
         uint8_t peek_physical(uint32_t physical) const;
         /// Memory at a physical address as the backplane carries it, with no
         /// redirection and no cycle counted: the Console card's EXAM, while the
@@ -362,7 +364,7 @@ namespace ooe::emu
             return bridge_->route(addr, vector_pull, write);
         }
         /// Where the CPU card sends a memory cycle for `physical` (NorthBridge::redirect()): with a
-        /// revision 2 video card on the backplane, bank 8 goes to the aperture at $E00000.
+        /// backplane bridge sending it there (AP8), bank 8 goes to the aperture at $E00000.
         uint32_t redirect(uint32_t physical) const { return bridge_->redirect(physical & (PHYSICAL_SPACE - 1)); }
         /// What A0-A23 carry for a CPU address: the physical address in
         /// memory (the flash at F00000); in the I/O hole, the CPU address itself.

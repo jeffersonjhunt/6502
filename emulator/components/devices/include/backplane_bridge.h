@@ -4,8 +4,8 @@
  * @file backplane_bridge.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's north bridge: windows, VEC, ROM space, I/O hole.
- * @version 0.5.0
- * @date 2026-11-15
+ * @version 0.6.0
+ * @date 2026-11-17
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -22,15 +22,28 @@
  * bridge's own ID, D, on PS0-PS3 (memory_select()), and the DMA
  * controller's memory to memory cycles its 8.
  *
- * The aperture (hw/design.md, "The video aperture moved out of RAM"): the
- * video card's 64 KB window is at $E00000-$E0FFFF. While a revision 2 card
- * is fitted the CPU card sends every memory cycle for bank 8, $080000-
- * $08FFFF, there instead (redirect(): through a window with ROM clear on
- * blocks 32-35, and the DMA controller's cycles), as bank 8 was the card's
- * before. That is MAP's AP8 to come (step B7); until then the machine sets
- * it once, from the card it is built with (set_aperture()). Without such a
- * card bank 8 is the RAM's. The Console card, driving the bus itself, sees
- * bank 8 as the RAM's either way.
+ * Two revisions (step B7, proposed; the constructor's `revision`, a machine
+ * file's `revision=1|2`; REVISION and ID are the default's):
+ *
+ * - Revision 2, ID $D2 (hw/design.md, "The video aperture moved out of
+ *   RAM"): WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
+ *   block, or VEC's on a vector pull, while its ROM bit is clear (bits 3-0;
+ *   7-4 read 0), so a window reaches any 16 KB of the 16 MB. MAP ($25) holds
+ *   AP8 in bit 0 (bits 7-1 read 0): set, the CPU card sends every memory
+ *   cycle for bank 8, $080000-$08FFFF, to the video card's aperture at
+ *   $E00000-$E0FFFF instead (redirect(): a window with ROM clear, WINnH 0 and
+ *   blocks 32-35, and the DMA controller's memory side), as bank 8 was the
+ *   card's before; clear, bank 8 is the RAM's. It follows MAP live. Any
+ *   reset sets WINnH and VECH to 0 and MAP to $01, whatever is fitted: a
+ *   machine with no revision 2 video card reads $FF in bank 8 until its
+ *   BIOS clears AP8.
+ * - Revision 1, ID $D1, B1's model: $20-$25 read $FF and drop writes, and
+ *   the alias is fixed when the machine is built, from the card it has
+ *   (set_aperture()): bank 8 goes to the aperture while a revision 2 card is
+ *   fitted, and is the RAM's without one.
+ *
+ * The Console card, driving the bus itself, sees bank 8 as the RAM's either
+ * way.
  *
  * While VPB is low, $C000-$FFFF goes through VEC instead of W3. The I/O hole,
  * $C000-$C7FF, is decoded ahead of the windows; module n's registers are at
@@ -39,7 +52,8 @@
  *
  *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS   $07 RTCCTL
  *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
- *   $17 RTCREG   $18 RTCDATA   $7F ID
+ *   $17 RTCREG   $18 RTCDATA   $20-$23 WIN0H-WIN3H   $24 VECH   $25 MAP
+ *   $7F ID (WIN0H-MAP on revision 2 only)
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
  * ROM A read-only ($DF); with /BOOTSEL held they map RAM block 63 ($3F).
@@ -96,9 +110,9 @@
  * shared, so a session can keep it through a power cycle (rtc()).
  *
  * The native registers, the windows and VEC are out of the way until a hard
- * reset (reset()), the only way back. A /RESET pulse (reset_pulse(): entering,
- * and later Ctrl-Reset) resets the windows and the IIe's switches but keeps
- * APPLE. clock_hz() is the Apple clock while in the mode: the run loop paces
+ * reset (reset()), the only way back; the IIe's map never reads WINnH or MAP.
+ * A /RESET pulse (reset_pulse(): entering, and later Ctrl-Reset) resets the
+ * windows, WINnH, VECH, MAP and the IIe's switches but keeps APPLE. clock_hz() is the Apple clock while in the mode: the run loop paces
  * by it, as the clock card follows the mode register.
  */
 
@@ -120,8 +134,9 @@ namespace ooe::emu
     public:
         static constexpr uint8_t MODULE = 0xD;                     ///< the ID its registers use
         static constexpr uint32_t REGISTERS = MODULE * 0x80;      ///< offset in the I/O hole: $C680
-        static constexpr uint8_t REVISION = 1;
-        static constexpr uint8_t ID = MODULE << 4 | REVISION;     ///< +$7F: type (module ID) and revision
+        static constexpr uint8_t REVISION = 2;                    ///< the default revision (revision()): 2 since B7
+        static constexpr uint8_t ID = MODULE << 4 | REVISION;     ///< the default's +$7F: type and revision (id())
+        static constexpr uint8_t WIDE = 2;                        ///< the revision with WINnH, VECH and MAP
 
         static constexpr uint8_t ROM = 0x80;
         static constexpr uint8_t RO = 0x40;
@@ -142,8 +157,13 @@ namespace ooe::emu
             SEC = 0x10, ///< SEC-YEAR: $10-$16
             RTCREG = 0x17,
             RTCDATA = 0x18,
+            WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23 (revision 2)
+            VECH = 0x24,  ///< revision 2
+            MAP = 0x25,   ///< revision 2
             ID_REG = 0x7F,
         };
+        static constexpr uint8_t HIGH = 0x0F;    ///< WINnH and VECH: A20-A23
+        static constexpr uint8_t MAP_AP8 = 0x01; ///< bank 8 is the aperture
         static constexpr uint8_t STATUS_BOOTSEL = 0x01;  ///< booted from RAM
         static constexpr uint8_t STATUS_POWER_ON = 0x02; ///< the last reset was power-on
         static constexpr uint8_t MODE_APPLE = 0x01;
@@ -162,7 +182,14 @@ namespace ooe::emu
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
         /// `rtc`: the DS3231 on the CPU card; nullptr, a new one at 2000-01-01 00:00:00.
-        explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr);
+        /// `revision`: 1 or WIDE (2); anything else is taken as 1.
+        explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr,
+                                 uint8_t revision = REVISION);
+
+        uint8_t revision() const { return revision_; }
+        uint8_t id() const { return static_cast<uint8_t>(MODULE << 4 | revision_); }
+        /// Revision 2: WINnH, VECH and MAP.
+        bool wide() const { return revision_ == WIDE; }
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
         void attach(Decoder *decoder)
@@ -180,11 +207,15 @@ namespace ooe::emu
         uint8_t memory_select(Master master) const override { return master == Master::Dma ? DMA_MODULE : MODULE; }
         uint32_t redirect(uint32_t physical) const override
         {
-            return aperture_ != NO_APERTURE && (physical & ~0xFFFFu) == BANK8 ? aperture_ + (physical & 0xFFFF)
-                                                                              : physical;
+            if ((physical & ~0xFFFFu) != BANK8) // A20-A23 0 and bank 8 only
+                return physical;
+            if (wide())
+                return map_ & MAP_AP8 ? APERTURE + (physical & 0xFFFF) : physical; // AP8, live
+            return aperture_ != NO_APERTURE ? aperture_ + (physical & 0xFFFF) : physical;
         }
-        /// Send bank 8 to the aperture at `base` (64 KB; a revision 2 video card is fitted), or
-        /// NO_APERTURE: bank 8 is the RAM's. Fixed when the machine is built (AP8 is B7's).
+        /// Revision 1: send bank 8 to the aperture at `base` (64 KB; a revision 2 video card is
+        /// fitted), or NO_APERTURE: bank 8 is the RAM's. Fixed when the machine is built. Revision 2
+        /// ignores it: MAP's AP8 decides.
         void set_aperture(uint32_t base) { aperture_ = base; }
         static constexpr uint32_t NO_APERTURE = 0xFFFFFFFF;
         uint32_t aperture() const { return aperture_; }
@@ -213,6 +244,10 @@ namespace ooe::emu
 
         uint8_t window(unsigned n) const { return win_[n & 3]; }
         uint8_t vec() const { return vec_; }
+        /// Revision 2's WIN0H-WIN3H, VECH and MAP (0, 0 and $01 held on revision 1, which has none).
+        uint8_t winh(unsigned n) const { return winh_[n & 3]; }
+        uint8_t vech() const { return vech_; }
+        uint8_t map() const { return map_; }
 
         // The real-time clock
         /// The CPU clock tick()'s cycles run at in native mode (0: NATIVE_HZ); Apple II mode's is APPLE_HZ.
@@ -259,11 +294,15 @@ namespace ooe::emu
 
         Decoder *decoder_{nullptr};
         uint32_t aperture_{NO_APERTURE};
+        uint8_t revision_;
         bool bootsel_;
         bool power_on_{true};
         bool reset_seen_{false};
         std::array<uint8_t, 4> win_{};
         uint8_t vec_{0};
+        std::array<uint8_t, 4> winh_{};
+        uint8_t vech_{0};
+        uint8_t map_{MAP_AP8};
         uint8_t mode_{0};
         std::array<uint8_t, 4> wait_{};
         bool reset_wanted_{false};
