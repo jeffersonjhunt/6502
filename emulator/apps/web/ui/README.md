@@ -81,6 +81,8 @@ VITE_HOME_URL=/projects/oo-1/ npm run build -- --outDir /path/to/site/emulator
 ```
 
 `VITE_HOME_URL` makes the toolbar's back arrow a link to that page (unset: none).
+`VITE_CATALOG_BASE` (the assets site's `…/oo-1/catalogs/`) gives the media rows
+their **Catalog…** (below; unset: none, as in local builds and the e2e runs).
 The core keeps its names, so the page asks for `core/oo1.mjs?v=<hash>` and
 the same for `oo1.wasm`: a new core is a new URL, never an old one from a
 cache. Everything else Vite already names by hash. On a touch screen the page
@@ -174,6 +176,26 @@ Settings, in sections:
   stops it, and the note says what the card can't give a tune (a third
   SID; an RSID's VIC-II, without which most stay silent). The file stays in
   the page: not kept, never uploaded.
+- **Catalog…** Built with `VITE_CATALOG_BASE`, the rows that take a file
+  have Catalog… beside their own button: the SD card and both drives
+  (Insert…), the five ROM rows (Load…) and the tune (Play .sid…). It opens
+  a sheet over Settings listing the site's images for that row: the
+  folder's `index.json` (`sd/`, `disks/`, `roms/`, `sid/`; version 1, as
+  the assets site's Lambda writes it), its title, size (both, for a
+  gzipped one whose `unzipped_size` the index gives), file name and
+  description, the picked one's details and credit, a filter over eight
+  entries, and the row's action. The download is checked against the
+  index's sha256, unzipped if it starts with gzip's magic, and handed to
+  the row's own code, so it is checked, asked about and kept just as a file
+  of your own is; a disk or card marked `protect` goes in write-protected.
+  A ROM lists only on the row its `slot` names; an entry the page can't
+  read is left out. Drafts list on staging and this computer only, tagged.
+  Nothing is fetched until Settings opens (then each folder at most once a
+  minute); a row whose folder has nothing for it keeps Catalog… hidden,
+  and one whose folder didn't load shows it, the sheet saying why, with Try
+  again. A failed or broken download leaves the slot as it was. On this
+  computer (localhost, 127.0.0.1) `?catalog=URL` names a catalog too, as
+  the e2e tests do.
 - **Joysticks.** The serial card's two digital joysticks (`LDA $C341` reads
   joystick 1, `$C340` joystick 2, a bit 0 while pressed: up, down, left,
   right, fire), shown when the machine has them. Gamepads drive them (the
@@ -242,7 +264,7 @@ src/port/             MachinePort, WasmPort (the WebAssembly core), FakePort (fo
 src/crt/              Terminal (80x30 text model), Crt (canvas renderer), keyboards
 src/panel/            the front panel: lamps, switches, keyswitch, readouts
 src/debugger/         the pane: registers, bus trace, breakpoints (the card's comparator)
-src/ui/               toolbar, drawer, Settings and its rows (BIOS, cartridge, drives, SD, tune, joysticks), the strip,
+src/ui/               toolbar, drawer, Settings and its rows (BIOS, cartridge, drives, SD, tune, joysticks), the catalog, the strip,
                       the screen's follow logic, panel state (every physical control, one path to the port), DOM helpers
 src/styles/           mockup C's tokens, toolbar and monitor
 e2e/                  Playwright

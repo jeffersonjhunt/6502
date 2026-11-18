@@ -17,18 +17,28 @@
  */
 
 import type { FrameState, MachinePort, SidTune } from "../port/machine-port";
+import type { CatalogButtonMaker } from "./catalog";
 import { h } from "./dom";
 import { icon } from "./icons";
 
-/** soundOn: Sound on if it is off. @returns whether it was off, so soundOff puts it back. */
-export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; soundOff: () => void }) {
+/** soundOn: Sound on if it is off. @returns whether it was off, so soundOff puts it back. catalog: its Catalog…, beside Play… (ui/catalog.ts). */
+export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; soundOff: () => void; catalog?: CatalogButtonMaker }) {
   const picker = h("input", { type: "file", accept: ".sid", hidden: true, "data-testid": "sid-file" });
   const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page. It plays while this tab is in front", "data-testid": "sid-play" }, "Play .sid…");
   const note = h("p", { class: "row-note", role: "status", "data-testid": "sid-note" });
+  // The catalog's tune: Sound on in its Play's click, before the download, as Play .sid… does before the picker.
+  const catalog = hooks.catalog?.("sid", (name, _size, read) => playTune(name, read, hooks.soundOn()), "sid-catalog");
   const element = h(
     "div",
     { class: "row-wrap", hidden: !port.caps.sid, "data-testid": "sid-bar" },
-    h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, "C64 tune"), h("div", { class: "meta" }, "a .sid file, played on the sound card")), play),
+    h(
+      "div",
+      { class: "row" },
+      picker,
+      h("div", { class: "what" }, h("div", { class: "name" }, "C64 tune"), h("div", { class: "meta" }, "a .sid file, played on the sound card")),
+      play,
+      ...(catalog ? [catalog.button] : []),
+    ),
     note,
   );
 
@@ -50,6 +60,7 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
     prev.disabled = !tune || tune.song <= 1;
     next.disabled = !tune || tune.song >= tune.songs;
     play.textContent = tune ? "Another .sid…" : "Play .sid…";
+    catalog?.follow(play);
   };
   const started = (t: SidTune) => {
     tune = t;
@@ -75,13 +86,18 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
     if (!f) return giveBack();
     const mine = turnedOn || hooks.soundOn(); // before any await
     turnedOn = false;
+    await playTune(f.name, async () => new Uint8Array(await f.arrayBuffer()), mine);
+  });
+  /** A tune of the visitor's: Play .sid…'s file, or the catalog's. mine: Sound was turned on for it. @returns null, or why not. */
+  async function playTune(name: string, read: () => Promise<Uint8Array>, mine: boolean): Promise<string | null> {
     try {
-      started(await port.playSid(new Uint8Array(await f.arrayBuffer())));
+      started(await port.playSid(await read()));
+      return null;
     } catch (err) {
       if (mine) hooks.soundOff(); // not left on for a file that isn't a tune
-      say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+      return say(`${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
-  });
+  }
   const go = async (n: number) => {
     if (!tune) return; // previous and next are disabled at the ends, and the port refuses a song it hasn't
     try {

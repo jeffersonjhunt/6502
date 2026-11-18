@@ -13,7 +13,9 @@
  * media themselves (the ROMs, the Disk II's drives, the SD card, a .sid
  * tune) are in Settings, with the joysticks, the phosphor and the credits.
  *
- * Built with VITE_HOME_URL set, the back link goes to that page.
+ * Built with VITE_HOME_URL set, the back link goes to that page. Built with
+ * VITE_CATALOG_BASE set (the assets site's catalogs/), the media rows have
+ * Catalog… (ui/catalog.ts); on this computer, ?catalog=URL sets it too.
  */
 
 import "@fontsource/inter/400.css";
@@ -46,6 +48,7 @@ import { appleBar } from "./ui/apple-bar";
 import { biosRow, keptBios, yoursLoaded } from "./ui/bios";
 import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
+import { catalog as makeCatalog, catalogBase } from "./ui/catalog";
 import { drawer, OVERLAY } from "./ui/drawer";
 import { fitWidth } from "./ui/fit";
 import { machineSource, ScreenFollow, type Screen } from "./ui/screen";
@@ -130,9 +133,13 @@ function start(root: HTMLElement, port: MachinePort): void {
   const dbg = debuggerPane(port);
   const speaker = new Speaker(port);
   const sound = soundButton(speaker, port.caps.audio && typeof AudioWorkletNode !== "undefined");
+  // The site's catalog, if the build has one: nothing is fetched until Settings opens.
+  const base = catalogBase(import.meta.env.VITE_CATALOG_BASE as string | undefined, location);
+  const cat = base ? makeCatalog({ base, host: location.hostname }) : null;
   const tune = sidBar(port, {
     soundOn: () => !speaker.on && (void sound.turnOn(), true),
     soundOff: () => sound.turnOff(),
+    catalog: cat?.button,
   });
   const bar = toolbar(port, panel, {
     sound: sound.element,
@@ -304,6 +311,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       glass.focus(); // the IIe's keyboard
     },
     typed: () => glass.focus(),
+    catalog: cat?.button,
   });
   const download = (name: string, bytes: Uint8Array) => {
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
@@ -318,8 +326,8 @@ function start(root: HTMLElement, port: MachinePort): void {
     drawer_.element.scrollTop = head.offsetTop - 12; // the drawer scrolls, not the page
   };
   const store = browserDiskStore();
-  const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: (from) => openSettings("disk", from) }, d));
-  const card = sdBar(port, download, window, { open: (from) => openSettings("sd", from) });
+  const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: (from) => openSettings("disk", from), catalog: cat?.button }, d));
+  const card = sdBar(port, download, window, { open: (from) => openSettings("sd", from), catalog: cat?.button });
   const bios = biosRow(() => location.reload(), {
     atRisk: () => {
       const sd = card.unsaved();
@@ -330,6 +338,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     },
     leaving: () => card.waive(),
     open: (from) => openSettings("roms", from),
+    catalog: cat?.button,
   });
   const settings = settingsPanel({
     roms: [bios.element, appleRoms.element],
@@ -340,6 +349,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     phosphor,
   });
   settings.show("joysticks", port.caps.joysticks); // false until the machine is open
+  if (cat) settings.element.append(cat.sheet);
 
   const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
   const strip = statusStrip({
@@ -355,7 +365,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   const bench = h("section", { class: "bench" }, ...browserNote(), ...touchNote(), h("div", { class: "mon-col" }, monitor, strip.element), fitWidth(rack.element), note, mirror);
   const drawer_ = drawer(
     {
-      settings: { element: settings.element, button: bar.settings, label: "Settings" },
+      // Opening Settings reads the catalog's indexes (at most once a minute); closing it closes the catalog's sheet.
+      settings: { element: settings.element, button: bar.settings, label: "Settings", shown: (o) => (o ? cat?.refresh() : cat?.close()) },
       debugger: { element: dbg.element, button: bar.debug, label: "Debugger", shown: (o) => dbg.setOpen(o) },
     },
     { focusBack: bar.focusBack, overlay, behind: [bar.element, bench] },

@@ -18,6 +18,7 @@
  */
 
 import type { Cartridge, FrameState, MachinePort } from "../port/machine-port";
+import type { CatalogButtonMaker, CatalogSlot } from "./catalog";
 import { forgetCartridge, forgetPart, forgetRom, keepCartridge, keptCartridge, keptParts, MAX_ROM_FILE, noRom, takePart, withoutPart, type RomFile, type RomPart, type RomParts } from "./cartridge";
 import { h, passFocus } from "./dom";
 
@@ -70,6 +71,8 @@ export interface AppleBarHooks {
   typed?: () => void;
   /** Asks; true to go ahead (window.confirm). */
   confirm?: (question: string) => boolean;
+  /** Each row's Catalog…, beside its Load… (ui/catalog.ts). */
+  catalog?: CatalogButtonMaker;
 }
 
 interface PartRow {
@@ -79,13 +82,15 @@ interface PartRow {
   id: string;
   /** What the row says with nothing in. */
   none: string;
+  /** Its catalog slot. */
+  slot: CatalogSlot;
 }
 
 const PARTS: PartRow[] = [
-  { part: "rom", name: "Apple IIe ROM", id: "apple", none: "none: Apple II mode needs yours (16 KB, or the CD and EF halves)" },
-  { part: "chars", name: "IIe character ROM", id: "apple-chars", none: "none: the built-in font" },
-  { part: "diskBoot", name: "Disk II boot PROM", id: "apple-boot", none: "none: the IIe won't boot from the drive" },
-  { part: "diskSequencer", name: "Disk II sequencer PROM", id: "apple-seq", none: "none: the drive reads nothing" },
+  { part: "rom", name: "Apple IIe ROM", id: "apple", none: "none: Apple II mode needs yours (16 KB, or the CD and EF halves)", slot: "iie-rom" },
+  { part: "chars", name: "IIe character ROM", id: "apple-chars", none: "none: the built-in font", slot: "iie-chars" },
+  { part: "diskBoot", name: "Disk II boot PROM", id: "apple-boot", none: "none: the IIe won't boot from the drive", slot: "disk2-boot" },
+  { part: "diskSequencer", name: "Disk II sequencer PROM", id: "apple-seq", none: "none: the drive reads nothing", slot: "disk2-seq" },
 ];
 
 export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
@@ -135,31 +140,46 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
       "Eject",
     );
     const meta = h("div", { class: "meta", "data-testid": `${p.id}-meta` });
-    const element = h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, p.name), meta), ...(p.part === "rom" ? [start] : []), load, eject);
+    /** Files into this part: Load…'s, or the catalog's one. @returns null, or why not. */
+    const loadFiles = async (picked: { name: string; size: number; read: () => Promise<Uint8Array> }[]): Promise<string | null> => {
+      const big = picked.find((f) => f.size > MAX_ROM_FILE);
+      if (big) return say(noRom(big.name, big.size));
+      const files: RomFile[] = [];
+      for (const f of picked) {
+        try {
+          files.push({ name: f.name, bytes: await f.read() });
+        } catch (err) {
+          return say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      const c = takePart(p.part, files, current, spare);
+      if (typeof c === "string") return say(c);
+      if (!letGo(`Load ${picked[0].name}`)) return "";
+      if (!(await plug(c))) return note.textContent ?? "";
+      kept = keepCartridge(c);
+      show();
+      passFocus(load, eject);
+      say(kept ? restarted(notes(c)) : "In for now; this browser would not keep it. The machine restarted with it");
+      return null;
+    };
+    const catalog = hooks.catalog?.(p.slot, (name, size, read) => loadFiles([{ name, size, read }]), `${p.id}-catalog`, p.name);
+    const element = h(
+      "div",
+      { class: "row" },
+      picker,
+      h("div", { class: "what" }, h("div", { class: "name" }, p.name), meta),
+      ...(p.part === "rom" ? [start] : []),
+      load,
+      ...(catalog ? [catalog.button] : []),
+      eject,
+    );
 
     load.addEventListener("click", () => picker.click());
     picker.addEventListener("change", async () => {
       const picked = Array.from(picker.files ?? []);
       picker.value = ""; // the same files again is a change too
       if (!picked.length) return;
-      const big = picked.find((f) => f.size > MAX_ROM_FILE);
-      if (big) return void say(noRom(big.name, big.size));
-      const files: RomFile[] = [];
-      for (const f of picked) {
-        try {
-          files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
-        } catch (err) {
-          return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      const c = takePart(p.part, files, current, spare);
-      if (typeof c === "string") return void say(c);
-      if (!letGo(`Load ${picked[0].name}`)) return;
-      if (!(await plug(c))) return;
-      kept = keepCartridge(c);
-      show();
-      passFocus(load, eject);
-      say(kept ? restarted(notes(c)) : "In for now; this browser would not keep it. The machine restarted with it");
+      await loadFiles(picked.map((f) => ({ name: f.name, size: f.size, read: async () => new Uint8Array(await f.arrayBuffer()) })));
     });
     eject.addEventListener("click", async () => {
       if (!current && p.part !== "rom") {
@@ -200,6 +220,7 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
           : current
             ? `Your ${p.name}: it stays in this browser. Restarts the machine`
             : "Load the Apple IIe ROM first";
+      catalog?.follow(load);
     };
     return { element, update, load };
   });

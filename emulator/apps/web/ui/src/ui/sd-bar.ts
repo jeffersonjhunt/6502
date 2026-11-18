@@ -20,6 +20,7 @@
  */
 
 import type { FrameState, MachinePort, SdInfo } from "../port/machine-port";
+import type { CatalogButtonMaker } from "./catalog";
 import { h, passFocus } from "./dom";
 
 /** The demo card's name in the slot. */
@@ -32,9 +33,13 @@ export const DEMO_NAME = "oodos-demo.img";
 export async function fetchDemoCard(url: string, get: typeof fetch = fetch): Promise<Uint8Array> {
   const r = await get(url);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`.trim());
-  const bytes = new Uint8Array(await r.arrayBuffer());
+  return ungzip(new Uint8Array(await r.arrayBuffer()));
+}
+
+/** Bytes unzipped if they start with gzip's magic, else as they are (the catalog's images too, ui/catalog.ts). */
+export async function ungzip(bytes: Uint8Array): Promise<Uint8Array> {
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
-  const out = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const out = new Blob([bytes as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(out).arrayBuffer());
 }
 
@@ -51,7 +56,7 @@ export function sdBar(
   port: MachinePort,
   download: (name: string, bytes: Uint8Array) => void,
   win: Pick<Window, "addEventListener" | "confirm"> = window,
-  hooks: { open?: (from: HTMLElement) => void } = {},
+  hooks: { open?: (from: HTMLElement) => void; catalog?: CatalogButtonMaker } = {},
 ) {
   const picker = h("input", { type: "file", hidden: true, "data-testid": "sd-file" });
   const light = h("span", { class: "led disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
@@ -62,10 +67,11 @@ export function sdBar(
   const save = h("button", { class: "tbtn", type: "button", "aria-label": "Save the SD card", title: "Download the card as it is now, with the machine's writes", "data-testid": "sd-save" }, "Save");
   const eject = h("button", { class: "tbtn", type: "button", "aria-label": "Eject the SD card", title: "Take the card out", "data-testid": "sd-eject" }, "Eject");
   const note = h("p", { class: "row-note", role: "status", "data-testid": "sd-note" });
+  const catalog = hooks.catalog?.("sd", (n, size, read, how) => putCard(n, size, read, how.protect), "sd-catalog");
   const element = h(
     "div",
     { class: "row-wrap", hidden: true, "data-testid": "sd-bar" },
-    h("div", { class: "row" }, picker, light, h("div", { class: "what" }, name, meta), protect, save, eject, insert),
+    h("div", { class: "row" }, picker, light, h("div", { class: "what" }, name, meta), protect, save, eject, insert, ...(catalog ? [catalog.button] : [])),
     note,
   );
   const pillLight = h("span", { class: "led disk-led" });
@@ -85,6 +91,7 @@ export function sdBar(
     name.textContent = info ? info.name : "The slot";
     meta.textContent = info ? `${cardSize(info.sectors)}${info.changed ? " · changed since loaded" : ""}` : "empty";
     insert.hidden = !!info && !demoIn;
+    catalog?.follow(insert);
     protect.hidden = save.hidden = eject.hidden = !info;
     protect.setAttribute("aria-pressed", String(!!info?.writeProtected));
     protect.classList.toggle("on", !!info?.writeProtected);
@@ -94,25 +101,35 @@ export function sdBar(
     pill.title = info ? `The SD card: ${info.name}${info.changed ? ", written to" : ""}. Open in Settings` : "";
   };
 
+  /** A card of the visitor's in: Insert…'s file, or the catalog's (protect: write-protected). @returns null, or why not. */
+  const putCard = async (cardName: string, size: number, read: () => Promise<Uint8Array>, protect = false): Promise<string | null> => {
+    const tooBig = `${cardName}: over 1 GB, more than this page can hold`;
+    if (size > MAX_CARD) return say(tooBig);
+    if (!letGo(`Put ${cardName} in`)) return "";
+    let why: string | null = null;
+    try {
+      const bytes = await read();
+      if (bytes.length > MAX_CARD) throw new Error(tooBig);
+      info = await port.insertSd(bytes, cardName);
+      demoIn = false;
+      if (protect) {
+        port.setSdWriteProtect(true);
+        info = { ...info, writeProtected: true };
+      }
+      say(HINT);
+    } catch (err) {
+      why = say(String(err instanceof Error ? err.message : err));
+    }
+    show();
+    if (info) passFocus(insert, eject);
+    return why;
+  };
   insert.addEventListener("click", () => picker.click());
   picker.addEventListener("change", async () => {
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
-    if (f.size > MAX_CARD) {
-      say(`${f.name}: over 1 GB, more than this page can hold`);
-      return;
-    }
-    if (!letGo(`Put ${f.name} in`)) return;
-    try {
-      info = await port.insertSd(new Uint8Array(await f.arrayBuffer()), f.name);
-      demoIn = false;
-      say(HINT);
-    } catch (err) {
-      say(String(err instanceof Error ? err.message : err));
-    }
-    show();
-    if (info) passFocus(insert, eject);
+    await putCard(f.name, f.size, async () => new Uint8Array(await f.arrayBuffer()));
   });
   protect.addEventListener("click", () => {
     if (!info) return;
