@@ -391,7 +391,8 @@ its question.
   Function 75's Apple II mode turns OODOS's two off first; Break and 75's monitor go through the ROM's QUIET,
   which turns off the VIA's and the video card's. Cold boot starts the clocks afresh.
 - **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
-  144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds
+  144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. (Since B7, 162, with
+  the dispatcher's 17 cycles for WIN1H, as "Bank 8 as RAM" below records.) An open event area adds
   43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 532 bytes: **263 bytes
   are left** ($FEF2 to the vectors), **62 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
   are already in block 62).
@@ -1458,6 +1459,31 @@ and more in L5:
     port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
     Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
     RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
+- **Bank 8 as RAM, interface version 12** (*proposed, 2026-11-17*, the bus work's B7: [design.md, B7: as
+  built](design.md#b7-as-built)). On a revision 2 north bridge (ID `$D2`) the aperture's own place is `$E00000`,
+  which a window reaches with WIN*n*H `$0E`, and bank 8 is the aperture only while MAP's AP8 is set. OODOS keeps
+  AP8 set, so every program runs as before.
+  - **Function 83's `DM_BANK8`** (operation 11, `DM_OPS` 12): clears AP8 for the running program, so blocks 32–47
+    are its RAM until the warm boot, and gives slot 1's window in its block's +1 and +2 (`$0E` and 1, or 0 and 0
+    with no revision 2 card, where it succeeds too). Refused (`$FF`, nothing changed) on a `$D1` bridge, under a
+    ROM BIOS before 0.17, or with no block. `DM_INFO` stays 16 bytes; its W1 map takes in 32–39 after it.
+  - **The W1 contract gains WIN1H:** after the program's `GX_BANK8`, OOLIB may write `NB_WIN1H` (`$0E` for slot 1,
+    else 0) as it writes `NB_WIN1`, WIN1H first. A map is then two writes; the dispatcher, the BDOS entry and the
+    hooks save WIN1H, run OODOS with it 0 and put it back, so a split does no harm.
+  - **`GX_BANK8`**, a new entry (the owner's answer to B7's question 5): called after `GX_INIT`, it checks
+    `FT_INFO` for 12 and `OA_DMA`, asks for `DM_BANK8`, and maps slot 1 by WIN1H `$0E` with block 1 from then on.
+    A refusal is `GE_VERSION` with the old mode kept (question 3). `GX_INIT` is unchanged: it never calls
+    `DM_BANK8`, since a relink would otherwise change what physical `$84000` means to a program that loads card
+    memory by DMA through it (OO-Amp's loader).
+  - **`GX_BLOCK` and `GX_W1BACK`** keep WIN1H with a two-byte cache, `GXCURH:GXCUR` (question 4): `GX_BLOCK`
+    refuses A ≥ 64 first (which also ends a read past `GX_W1MAP`), compares both bytes and writes WIN1H 0 only when
+    `GXCURH` isn't 0; `GX_W1BACK` the same, then block 1. WIN1H is never written before `GX_BANK8` gives a window,
+    nor on a `$D1` bridge. gxmem's code grows by 155 bytes, its DATA by 3.
+  - **Costs** (measured, B7's U5): the dispatcher's save, clear and restore of WIN1H is 17 cycles an interrupt, so
+    the tick with no area is 162 (was 145) and with a layout-2 area 249 (was 234); the frame with no area 215 (was
+    199) and with a layout-2 area 412 (was 396); the whole budget 2,786 (was 2,769). `GX_BLOCK`, already mapped,
+    costs 16 cycles (was 7).
+  - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

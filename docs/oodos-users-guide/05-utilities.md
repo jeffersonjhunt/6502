@@ -1390,7 +1390,7 @@ CARDS
   $C500  $A2  sound                         2
   $C580  $B1  USB, game port and speaker    1
   $C600  $C1  Disk II controller            1
-  $C680  $D1  north bridge                  1
+  $C680  $D2  north bridge                  2
   $C700  $E1  console (front panel)         1
 ```
 

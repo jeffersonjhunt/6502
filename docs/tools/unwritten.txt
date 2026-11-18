@@ -8,11 +8,3 @@
 # check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
 
 # Commands with the RSXs (phase 5)
-
-# The north bridge's revision 2 registers (step B7, proposed): written in its chapter 11 at U9
-reg-c6a0
-reg-c6a1
-reg-c6a2
-reg-c6a3
-reg-c6a4
-reg-c6a5

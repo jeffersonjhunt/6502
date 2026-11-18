@@ -2348,7 +2348,9 @@ refused record is A = X = `$FF` with nothing done: checked before the first reco
 when the record moves for 17 and 18.
 
 A record read (17, 18, 20, 33) is refused too, when it moves, if it would touch an aperture window that shows
-OODOS's card memory: on video card revision 2 (since OODOS 0.9, interface version 8) bank 8 is the card's aperture, and
+OODOS's card memory, while the north bridge's AP8 is set for the program (as OODOS leaves it; after function 83's
+`DM_BANK8`, since interface version 12, bank 8 is the program's RAM and none of it is refused): on video card
+revision 2 (since OODOS 0.9, interface version 8) bank 8 is then the card's aperture, and
 its slot 0's window, `$80000–$83FFF` (the console's), and slots 2 and 3's, `$88000–$8FFFF`, are OODOS's. Slot 1's,
 `$84000–$87FFF`, shows the program's own card memory, and banks 9–B are ordinary RAM ([chapter
 5](05-memory-and-banking.md#video-memory-on-revision-2)). From OODOS 0.5 to interface version 7, on revision 1,
@@ -2772,7 +2774,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.16`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.17`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -2823,7 +2825,9 @@ OODOS's own: CP/M 3 has no function 72 (hw/oodos.md, ["OODOS's own"](../../hw/oo
 #### Errors
 
 - A = X = `$FF`: the address is in the I/O hole (`$C000`–`$C7FF`), or its window is on flash, which has no physical
-  address; or the 4 bytes are in the I/O hole. The 4 bytes are as they were.
+  address; or the address is in W1 while W1 shows the aperture at `$E00000` (WIN1H not 0, after OOLIB's
+  `GX_BANK8`), which a 20-bit paragraph can't hold; or the 4 bytes are in the I/O hole. The 4 bytes are as they
+  were.
 
 #### Side effects
 
@@ -2839,7 +2843,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.2; the refusal of a W1 address on the aperture since OODOS 0.11 (interface version 12)
 
 #### Status
 
@@ -3061,7 +3065,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- A = the ROM BIOS's version's major number, X its minor (0 and 16 for `BACKPLANE BIOS 0.16`).
+- A = the ROM BIOS's version's major number, X its minor (0 and 17 for `BACKPLANE BIOS 0.17`).
 - A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
   block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
   two numbers to 255 with a `.` between.
@@ -3073,7 +3077,7 @@ None.
 
 #### Side effects
 
-None. The version is the one the cold boot read for its boot status (`BIOS 0.16`); a program can't read it itself,
+None. The version is the one the cold boot read for its boot status (`BIOS 0.17`); a program can't read it itself,
 since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
 
 #### Cycles
@@ -3119,12 +3123,14 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (11: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+- `FT_INFO`: A = OOLIB's interface version (12: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 OODOS 0.9's,
   video card revision 2: function 83's card operations and the W1 contract on the aperture,
   [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 OODOS 0.10's [function 77](#bdos-77), the ROM
   BIOS's version: the number marks OODOS's own additions a program needs to detect too; 10 OODOS 0.10's [function
-  75](#bdos-75)'s A = 2, the ROM's diagnostics; 11 OODOS 0.11's function 75 A = 3, Apple II mode with an image),
+  75](#bdos-75)'s A = 2, the ROM's diagnostics; 11 OODOS 0.11's function 75 A = 3, Apple II mode with an image;
+  12 OODOS 0.11's [function 83](#bdos-83)'s `DM_BANK8`, and WIN1H in the W1 contract,
+  [chapter 5](05-memory-and-banking.md#the-w1-contract)),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
@@ -3432,9 +3438,12 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 8 | `DM_VREAD` | +1–3 the source (card), +4–6 the destination (physical), +7–8 the length | copies card memory to system memory, the same way |
   | 9 | `DM_VFILL` | +1 the byte, +2–4 the destination (card), +5–6 the length | fills card memory |
   | 10 | `DM_VCOPY` | +1–3 the source (card), +4–6 the destination (card), +7–8 the length | copies within card memory |
+  | 11 | `DM_BANK8` | +1 and +2 to fill | makes bank 8 the program's RAM, the aperture then only at `$E00000` (*proposed*) |
 
   Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
-  version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
+  version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since interface
+  version 12 (B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's `GX_BANK8`
+  ([chapter 8](08-game-services.md#video-memory)) rather than by itself.
 
 #### Exit
 
@@ -3445,7 +3454,10 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   block 33 (aperture slot 1's window) and blocks 36–47 (banks 9–B), never 32, 34 or 35
   ([chapter 5](05-memory-and-banking.md#the-w1-contract)). +13–14 the program's first card page (a card address
   ÷ 256: `$0400`, `DM_PAGE0`), +15–16 the page past its last (`$1C00`, `DM_PAGEEND`, or the fitted memory's end if
-  that is sooner); both 0 with no card.
+  that is sooner); both 0 with no card. After `DM_BANK8`, byte +9 of the map is `$FF`: blocks 32–39 join it, bank
+  8 being the program's RAM.
+- `DM_BANK8`: A = 0, X = 0. +1 and +2 get slot 1's window as WIN1H and WIN1: `$0E` and 1 (the aperture's slot 1 at
+  `$E04000`) with a revision 2 video card, or 0 and 0 with none, where there is no slot and bank 8 was RAM already.
 - `DM_LOAD`: A = 0, X = 0, every record loaded; A = 1 if the file ended first (a record past the extent's count, a
   block never written, or an extent never written), its records before that loaded. The block's +6–7 get the records
   loaded, either way.
@@ -3454,12 +3466,14 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 10, one that needs a block given none, a block in memory that
+A = X = `$FF`, and nothing done, for an operation past 11 (past 10 below interface version 12), one that needs a
+block given none (`DM_BANK8` among them), a block in memory that
 isn't the program's (the I/O hole, flash), and:
 
 - **A physical destination** that isn't memory a DMA segment may reach ([function 51](#bdos-51): OODOS's own blocks,
-  or past `$FFFFF`), or that touches an aperture window showing OODOS's card memory: slot 0's, `$80000–$83FFF`, or
-  slots 2 and 3's, `$88000–$8FFFF`. Slot 1's, `$84000–$87FFF`, is the program's. A physical source may be anything
+  or past `$FFFFF`), or that touches an aperture window showing OODOS's card memory while AP8 is set for the
+  program: slot 0's, `$80000–$83FFF`, or slots 2 and 3's, `$88000–$8FFFF`. Slot 1's, `$84000–$87FFF`, is the
+  program's. After `DM_BANK8` bank 8 is the program's RAM, and none of it is refused. A physical source may be anything
   a segment may reach.
 - **A card destination** outside the program's part, `$040000–$1BFFFF` (OODOS's `$000000–$03FFFF`, Apple II
   mode's `$1C0000–$1FFFFF`, past the fitted memory, or wrapping past `$FFFFFF`). A card source may be anywhere in
@@ -3472,6 +3486,9 @@ isn't the program's (the I/O hole, flash), and:
 - `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
 - `DM_POINTER`: a sprite past 63; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
   card of revision 2 or no DMA controller. `$FF` (off) is always taken.
+- `DM_BANK8`: a revision 1 north bridge (ID `$D1`), which has no MAP, or a ROM BIOS before 0.17
+  ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
+  bank 8's RAM. Nothing is changed, and the program stays with bank 8 as the aperture.
 - `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a piece through the port that didn't end (no DMA controller answering, or one
   starved): A = X = `$FF`, the pieces before it done and none after.
 
@@ -3513,7 +3530,13 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
   SPRBASE, the layers): its text, font and palette are where they were, so what was printed meanwhile shows.
 - The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does. It also
   turns the port's DMA request off and puts the aperture's slots 0–3 on card banks 0, 16, 2 and 3: slot 1 on the
-  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part.
+  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. On a `$D2` north bridge it sets
+  WIN0H–WIN3H and VECH to 0 and AP8 again where there is a revision 2 video card, so `DM_BANK8` lasts until the
+  program ends.
+- `DM_BANK8` clears the north bridge's AP8 (MAP, `$C6A5`) with a revision 2 card, so bank 8, blocks 32–35, is RAM
+  for the CPU and DMA alike, and OODOS lets every bank 8 address through as the program's (DMA segments, function
+  83's physical destinations, the W1 map). OODOS's own use of the aperture (the console, `DM_VCOPY`) is at
+  `$E00000` throughout, so nothing of OODOS's moves.
 
 #### Cycles
 
@@ -3525,7 +3548,7 @@ trip that includes its rig's command line. What the slots and the pointer cost a
 
 #### Since
 
-OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface version 8).
+OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface version 8); operation 11 since OODOS 0.11 (interface version 12).
 
 #### Status
 

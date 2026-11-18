@@ -137,7 +137,8 @@ Status: **emulated**
 The pulse that enters the mode is the same /RESET as Ctrl-Reset's ([below](#ctrl-reset-and-the-hard-reset)). It
 isn't a hard reset: APPLE survives it. What it resets:
 
-- **The north bridge:** the windows and VEC to their reset values (the mode doesn't use them), the wait states to 0,
+- **The north bridge:** the windows and VEC to their reset values, and on a revision 2 bridge WINnH, VECH and MAP
+  too (*proposed*, B7; the mode doesn't use any of them), the wait states to 0,
   TICK and TIE cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
   real-time clock keeps its time.
 - **The DMA controller:** every channel cleared, its CARD back to its reset value, REQ cleared and any hold-off
@@ -421,7 +422,8 @@ the character ROM; the mode works as this chapter describes:
   and system RAM is left as it was in banks 6–D and F whole. (BIOS 0.12, on revision 1, used `$BE000`.)
 - **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
   but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).
-- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture in bank 8, and
+- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture (at `$E00000`,
+  and in bank 8 while AP8 is set), and
   the DMA controller is idle, so its port isn't used.
 
 ## The clock

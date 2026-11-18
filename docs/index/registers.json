@@ -1749,55 +1749,55 @@
   "equate": "NB_WIN0H",
   "address": "$C6A0",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a0",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_WIN1H",
   "address": "$C6A1",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a1",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_WIN2H",
   "address": "$C6A2",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a2",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_WIN3H",
   "address": "$C6A3",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a3",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_VECH",
   "address": "$C6A4",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a4",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_MAP",
   "address": "$C6A5",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6a5",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
  },
  {
   "equate": "NB_ID",

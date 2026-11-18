@@ -17,19 +17,22 @@ breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and o
 ([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
 with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
-BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.16:
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.17:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
    in RAM with no jump.
-3. Puts W2 back on RAM block 2. From here the map is RAM blocks 0, 1, 2 and 63.
+3. Puts W2 back on RAM block 2. From here the map is RAM blocks 0, 1, 2 and 63. On a revision 2 north bridge (ID
+   `$D2`, *proposed*, B7) it also sets WIN0H–WIN3H and VECH to 0 and writes MAP whole: AP8 1 with a revision 2
+   video card (`VIDEO_ID` `$92`), else 0, so bank 8 is RAM on a machine with no aperture
+   ([chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). Break does the same.
 4. Sets the 6551 to 19,200 baud, 8 bits, no parity.
 5. Starts the boot splash and its sound, if those cards answer ([chapter 6](06-video.md)). They play for 5 s on
    their own while the boot goes on.
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.16` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.17` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 

@@ -273,13 +273,17 @@ The program owns `$040000–$1BFFFF`, handed out by OOLIB, for as long as it run
 `$1C0000–$1FFFFF`, never a program's. Function 83's card operations refuse a card destination outside the
 program's part, and its pointer is written only while SPRBASE is in it.
 
-**The aperture.** Slot 0 is OODOS's and always shows card bank 0, the console's, at `$80000–$83FFF` (block 32),
-where the console writes its text. Slot 1, at `$84000–$87FFF` (block 33), is the program's, through OOLIB under the
-W1 contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
-Slots 2 and 3 are OODOS's too, at `$88000–$8FFFF`: function 83's card-to-card copy borrows them for each piece and
-puts them back. So no physical destination of function 83, and no record read through a DMA segment (function 51),
+**The aperture.** Slot 0 is OODOS's and always shows card bank 0, the console's, where the console writes its
+text: since B7 (*proposed*, a `$D2` north bridge) at `$E00000–$E03FFF`, through W1 with WIN1H `$0E` and block 0;
+on a `$D1` bridge at `$80000–$83FFF` (block 32). Slot 1, at `$84000–$87FFF` (block 33), or after `GX_BANK8` at
+`$E04000–$E07FFF` (WIN1H `$0E` with block 1), is the program's, through OOLIB under the W1 contract
+([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
+Slots 2 and 3 are OODOS's too, at `$E08000–$E0FFFF` (`$88000–$8FFFF` on `$D1`): function 83's card-to-card copy
+borrows them for each piece and puts them back. While AP8 is set for the program, as OODOS leaves it, bank 8 is
+those slots, so no physical destination of function 83, and no record read through a DMA segment (function 51),
 may touch `$80000–$83FFF` or `$88000–$8FFFF`: OODOS refuses it. DM_INFO's W1 map leaves out blocks 32, 34 and 35:
-it is block 1, the blocks the program has allocated, 33, and 36–47 (banks 9–B, ordinary RAM on revision 2).
+it is block 1, the blocks the program has allocated, 33, and 36–47 (banks 9–B, ordinary RAM on revision 2). After
+the program's `DM_BANK8` bank 8 is its RAM: the refusal lifts and the map takes in blocks 32–39.
 
 **Registers.** A program may write the drawing registers, but not IEN (OODOS's: the vertical blank alone) nor
 SPLASH, and of ISR only bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt,
@@ -379,7 +383,8 @@ revision 1's old offsets in card memory (`$000400`, `$000000` and `$002000`, so 
 registers read `$0004`, `$0000` and `$0020`). VINIT writes the font and the palette into the port's PDATA, and
 clears the screen with two port transfers by DMA on channel 1 (CARD 9, the card's module), held on one byte with PSTEP 2: the characters, then
 the attributes. VPUTC, run for each character, writes it with the CPU through aperture slot 0 (W2 on physical
-`$80000`; it points SLOT0 at page 0 and puts both back after), and scrolls by the port on channel 1: the rows out
+`$E00000`, WIN2H `$0E` and block 0, since BIOS 0.17 on a `$D2` north bridge, *proposed*; on `$D1`, `$80000`,
+block 32; it points SLOT0 at page 0 and puts W2, WIN2H and SLOT0 back after), and scrolls by the port on channel 1: the rows out
 of the card into a 2 KB buffer at `$FC000` (under the I/O hole, in RAM block 63) and back in a row higher, then a
 fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, and since BIOS 0.15 the DMA controller's
 CONTROL too, which it saves before it selects channel 1 (*proposed*), but stops a program's own transfer on
@@ -450,7 +455,8 @@ same section's later list says ([`hw/design.md:652`](../../hw/design.md#video-re
 Status: **proposed**
 
 Revision 2 ([hw/video-rev2.md](../../hw/video-rev2.md)) draws from 2 MB of its own memory instead of banks 8–B,
-reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16 KB slots) and a data port whose DMA request
+reached through a 64 KB aperture at physical `$E00000` (`VIDEO_APERTURE2`, four 16 KB slots; since B7, *proposed*,
+also at bank 8, `$80000`, `VIDEO_APERTURE`, while the north bridge's AP8 is set) and a data port whose DMA request
 channel 1 serves (its CARD `$09` from reset). Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
 layers' registers up a byte; the `_R1` equates are revision 1's names where they moved. Every byte it doesn't name
 reads 0. The emulator has it (`rev=2` on the machine's video line, as `backplane.machine` has it), and BIOS 0.13
@@ -458,7 +464,8 @@ and OODOS drive it and nothing older: on a revision 1 card the BIOS's text scree
 OODOS has no console screen. Revision 1 is still documented here, as the old card; the emulator can still build
 one (`rev=1`).
 
-Native mode no longer snoops anything, and banks 9–B are ordinary RAM again: bank 8 is the aperture ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)).
+Native mode no longer snoops anything, and banks 9–B are ordinary RAM again: bank 8 is the aperture while AP8 is
+set, and RAM once it is clear ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)).
 Apple II mode still snoops banks 0–1 ([below](#apple-ii-mode-on-revision-2)). The layers, sprites, palette, splash,
 interrupts and timing are as revision 1 draws them; what changes is where their data is, how it is reached, and
 where some registers sit. The BIOS's use of it is in [Video memory](#video-memory) and [The BIOS's text
@@ -501,17 +508,20 @@ register value is *u* × 4: the text screen at unit 8 is `$002000`, base `$0020`
 
 Status: **proposed**
 
-The aperture is physical bank 8, `$80000–$8FFFF`, which no RAM answers: the north bridge decodes it to the video
-card. It is four slots of 16 KB, blocks 32–35, and slot *n* shows card memory from SLOT*n* × `$4000`. SLOT0–SLOT3
-(`$C4B0–$C4B7`) are two bytes each, low byte first, a 16 KB page number. A window pointed at block 32 + *n*
-([chapter 2](02-memory-and-banking.md#the-four-windows)) shows slot *n*, so a program can have a sprite table in one
-window and part of a bitmap in another.
+The aperture is physical `$E00000–$E0FFFF` (`VIDEO_APERTURE2`). It is four slots of 16 KB, and slot *n* shows card
+memory from SLOT*n* × `$4000`. SLOT0–SLOT3 (`$C4B0–$C4B7`) are two bytes each, low byte first, a 16 KB page number.
+A window with WIN*x*H `$0E` (`VIDEO_APER_H`) and block *n* shows slot *n*, on a revision 2 north bridge (ID `$D2`,
+*proposed*, B7: [chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). While the bridge's AP8
+is set, as from reset, bank 8 is the aperture too, `$80000–$8FFFF` (`VIDEO_APERTURE`), with no RAM answering: a
+window pointed at block 32 + *n* ([chapter 2](02-memory-and-banking.md#the-four-windows)) shows slot *n*, so a
+program can have a sprite table in one window and part of a bitmap in another.
 
 - **Reads and writes** are ordinary memory cycles, with no wait states at 7.16 MHz. The aperture answers word
   cycles too (DMA with WIDE, *proposed*, B4: [chapter 5](05-dma.md#16-bit-transfers)), both bytes of the word, as
   any memory does: a WIDE copy of 256 bytes into it takes 1 + 256 cycles.
-- **At /RESET** SLOT*n* is *n*: the aperture shows card memory `$000000–$00FFFF` in order, so slot 0, block 32, is
-  the palette, the font and the text screen, and the BIOS reaches the screen with nothing set up first.
+- **At /RESET** SLOT*n* is *n*: the aperture shows card memory `$000000–$00FFFF` in order, so slot 0 (`$E00000`,
+  or block 32 while AP8 is set) is the palette, the font and the text screen, and the BIOS reaches the screen with
+  nothing set up first.
 - **Paging** a slot is two register writes; until both are written the slot shows the page the two bytes make, so
   move a slot only while nothing reads through it.
 - **In Apple II mode** the card ignores the aperture.
@@ -1487,7 +1497,7 @@ R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
 
 #### Bits
 
-All: a 16 KB page of card memory: aperture slot 0, physical `$80000`–`$83FFF`, shows card memory from SLOT0 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+All: a 16 KB page of card memory: aperture slot 0, physical `$E00000`–`$E03FFF` (bank 8's `$80000`–`$83FFF` while AP8 is set), shows card memory from SLOT0 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
 
 #### Reset
 
@@ -1514,7 +1524,7 @@ R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
 
 #### Bits
 
-All: a 16 KB page of card memory: aperture slot 1, physical `$84000`–`$87FFF`, shows card memory from SLOT1 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+All: a 16 KB page of card memory: aperture slot 1, physical `$E04000`–`$E07FFF` (bank 8's `$84000`–`$87FFF` while AP8 is set), shows card memory from SLOT1 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
 
 #### Reset
 
@@ -1541,7 +1551,7 @@ R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
 
 #### Bits
 
-All: a 16 KB page of card memory: aperture slot 2, physical `$88000`–`$8BFFF`, shows card memory from SLOT2 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+All: a 16 KB page of card memory: aperture slot 2, physical `$E08000`–`$E0BFFF` (bank 8's `$88000`–`$8BFFF` while AP8 is set), shows card memory from SLOT2 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
 
 #### Reset
 
@@ -1568,7 +1578,7 @@ R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
 
 #### Bits
 
-All: a 16 KB page of card memory: aperture slot 3, physical `$8C000`–`$8FFFF`, shows card memory from SLOT3 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+All: a 16 KB page of card memory: aperture slot 3, physical `$E0C000`–`$E0FFFF` (bank 8's `$8C000`–`$8FFFF` while AP8 is set), shows card memory from SLOT3 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
 
 #### Reset
 

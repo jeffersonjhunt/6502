@@ -167,9 +167,10 @@ W3 holds.
   under 64 KB loads, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
-- **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 234
-  (the sticks compared), and twice a frame more (the paddles started, then read: 366 and 673). The USB card's
-  interrupt for a key is about 650.
+- **What it costs:** a tick is 162 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 249
+  (the sticks compared), and twice a frame more (the paddles started, then read: 382 and 687). The USB card's
+  interrupt for a key is 679. Since B7 (*proposed*) these include the dispatcher's 17 cycles for WIN1H, saved,
+  cleared and put back on a revision 2 north bridge (measured on the built code).
 - **DMA:** the CPU is held through a memory-to-memory copy, and timer 1 has one flag, so OODOS's copies on channel 3
   go 2 KB at a time (4,096 cycles, under a tick): the tick due is taken between them.
 - **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor

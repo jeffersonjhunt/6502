@@ -26,7 +26,7 @@ serves. One window, `$C400–$C40F`, shows the channel that CONTROL's SELECT nam
   wrong channel.
 - **Physical addresses.** The controller drives A0–A23 itself, so it sees physical memory, never the CPU's
   windows. A DMA cycle is a memory cycle, so it never reaches the I/O hole. It reaches the RAM card at
-  `$000000–$0FFFFF` (with a revision 2 video card, bank 8 there is the aperture, as for the CPU:
+  `$000000–$0FFFFF` (while the north bridge's AP8 is set, bank 8 there is the aperture, as for the CPU:
   [chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)), the aperture's own place at `$E00000`, and
   the flash from `$F00000`. Nothing answers `$100000–$DFFFFF`: a read gives `$FF`. Don't write the flash by DMA:
   a write there could be one step of a flash command.
@@ -283,7 +283,7 @@ that serves any other card:
 | Card, register | Width |
 |---|---|
 | Memory: the RAM card, ROM A and ROM B | words |
-| The video card's aperture ([chapter 6](06-video.md#the-aperture)), `$E00000` and bank 8 | words, both bytes of each |
+| The video card's aperture ([chapter 6](06-video.md#the-aperture)), `$E00000`, and bank 8 while AP8 is set | words, both bytes of each |
 | The video card's port, PDATA ([chapter 6](06-video.md#the-data-port)) | words: two port accesses, the even byte at PADDR, a PSTEP step, then the odd byte, another step |
 | The SD card's DATA ([chapter 10](10-storage.md#reading-and-writing-by-dma)) | bytes |
 | The sound card's RAMDATA, PCMDATA and DOCDATA ([chapter 7](07-sound.md#reg-c563)) | bytes |
