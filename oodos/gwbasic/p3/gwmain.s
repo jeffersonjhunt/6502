@@ -307,7 +307,7 @@ OLDOPT:         JMP     CHRGTR         ; GWMAIN.ASM 3363: the terminator
 
 ; RANDOMIZE n: n as an integer (-32768..32767) in RNDX+1 and RNDX+2 (OO-1:
 ; past them, its single's bytes folded, FACLO's two and FACM1 with FACEXP),
-; then RNDMN2 (RND(1)'s step). RANDOMIZE alone: "Random number seed
+; then RNDMN2 (RND(1)'s step). RANDOMIZE alone: "Random Number Seed
 ; (-32768 to 32767)? " and a line typed (QINLIN), read by $FIN; anything
 ; after the number asks again. The text pointer is kept on the 6502's stack,
 ; as the 8086 keeps BX on its own; C set back for a ^C (QINLIN's C: OODOS's
@@ -660,7 +660,7 @@ SCCALL:         FJSR    SCCPTR
                 RTS
 
 .rodata
-RANMES:         .byte   "Random number seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412
+RANMES:         .byte   "Random Number Seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412; OO-1: the IBM manual's case (pp. 286-287)
 
 .segment "BRAM"
 ONGCX:          .res    2              ; ON event GOSUB: CL, CH (the 8086 keeps CX on its stack)
