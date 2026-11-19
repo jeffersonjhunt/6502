@@ -9,13 +9,19 @@
 ;
 ;   LSETP RSETP     LSET, RSET v$ = s$: s$ into v$'s room, left or right
 ;                   (BLKFIL, MAKDSC)
+;   CVI CVS CVD     the functions from FUNDSX (FUNDXP, from the resident
+;   MKI MKS MKD     EVALNF): a string's bytes as a number, and a number's
+;                   as a string (MKI$, MKS$, MKD$); moved from P4 too, by
+;                   the fix-up's review round 1 (the owner's second move):
+;                   the resident core's routines only, one far call as before
 
 .include "gwbasic.inc"
 
 ;@entry LSETP
 ;@entry RSETP
-.export LSETP, RSETP
-.import PTRGET, CHKSTR, FRMEQL, FRESTR, GETSPA, STRINI, PUTNEW
+;@entry FUNDXP
+.export LSETP, RSETP, FUNDXP
+.import PTRGET, CHKSTR, FRMEQL, FRESTR, GETSPA, STRINI, PUTNEW, FCERR, VMOVFM, DOCNVF, VMOVE
 
 .code
 
@@ -184,6 +190,64 @@ MAKDSC:         LDA     LRP
                 JSR     STRINI
                 JSR     PUTNEW
 MAKDS1:         JMP     MADESC
+
+; --- CVI, CVS, CVD, MKI$, MKS$, MKD$ (DSKCOM.ASM 79) ----------------------------------------
+
+; FUNDXP (the project's own): EVALNF's dispatch (res/ibmres.s), X the
+; function's place in FUNDSX (2 x (its token - $81)), the argument in the
+; FAC; back to EVALNF's LABBCK.
+FUNDXP:         JMP     (FUNDSX,X)
+
+; CVI CVS CVD: the string's first 2, 4 or 8 bytes are the value, an
+; integer, a single or a double, as MKI$ and the rest make them (its bytes
+; as they are in memory: the 8086's, an integer's low byte first, MBF's
+; singles and doubles); a shorter string is Illegal function call. AL is
+; one less than the bytes, then VALTYP.
+CVI:            LDA     #1
+                BRA     CVX
+CVS:            LDA     #3
+                BRA     CVX
+CVD:            LDA     #7
+CVX:            PHA
+                JSR     FRESTR         ; BX: the string's descriptor
+                PLA
+                CMP     (RBL)          ; longer than AL?
+                BCC     :+
+                JMP     FCERR
+:               INC     A
+                STA     VALTYP
+                LDY     #1             ; its bytes
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR+1
+                JMP     VMOVFM         ; to the FAC
+
+; MKI MKS MKD: MKI$, MKS$, MKD$: the FAC made an integer, a single or a
+; double (DOCNVF: Overflow, Type mismatch), and its 2, 4 or 8 bytes a new
+; string's (STRINI; VMOVMF, here VMOVE to PTR), its result (FINBCK).
+MKI:            LDA     #2
+                BRA     MKX
+MKS:            LDA     #4
+                BRA     MKX
+MKD:            LDA     #8
+MKX:            PHA
+                JSR     DOCNVF
+                PLA
+                JSR     STRINI         ; DX: its room (DSCPTR's)
+                LDA     RDL
+                STA     PTR
+                LDA     RDH
+                STA     PTR+1
+                JSR     VMOVE
+                JMP     PUTNEW         ; FINBCK (res/bistrs.s: PUTNEW, as LABBCK pops the text pointer)
+
+.rodata
+; FUNDSX (IBMRES.ASM 598): the $FD functions, CVI to MKD$ (OO-1: KTN, JIS,
+; KPOS and KLEN, Kanji's, are dropped).
+FUNDSX:         .word   CVI, CVS, CVD, MKI, MKS, MKD
+
 
 .segment "BRAM"
 LRFLG:          .res    1              ; LSET (bit 7) or RSET

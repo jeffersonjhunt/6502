@@ -5289,11 +5289,31 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       CVI-MKD$ (86) with DIRHK's (53) would not reach it either, and the large ones (CHAIN, 1,446 bytes; the COM
       driver, 1,124) call P4's routines (PRGFLI, SKPNAM, RUNFLG; the device dispatch per byte), costing far calls
       past 300 cycles on CHAIN or on every COM byte. Stopped for the owner, with the draft kept.
+    - **The owner's ruling on F3 and P4** (2026-11-19, "recommendations as listed"): a second move, CVI-MKD$ with
+      its table, and F3 built with compaction; if it still doesn't fit, stop. **The second move is built:** FUNDXP,
+      CVI, CVS, CVD, MKI, MKS, MKD and FUNDSX (86 bytes) to `p3/dskcom.s`; P4's slot retired on LSETR's RTS
+      (FUNDXR, no byte); the resident EVALNF's far call goes to P3 instead, no more than before (in a loop CVI 2,745
+      → 2,745 cycles, MKI$ 3,249 → 3,252); P1, P2, P5, P6 byte-identical, the resident core differing in 6 bytes and
+      P8 in 16 (far calls to P3's later entries). P4 12,200 bytes, 88 free; P3 5,540 (6,748 free). **F3 still
+      doesn't fit:** built on the draft and compacted (the record number's top bits in FD_PHY; the next record's
+      carry; MULHI's count in X and Y; LOC's double told by VALTYP, no flag; the buffer's never-set test gone; zero
+      page's wrap for the stores; FNUMX by `(FDBP)`; the end check's branch; DIRHK's stub on RECCOM's RTS), it is
+      22 bytes past P4's end. Stopped again, nothing else moved, the compacted draft kept with the fix-up's notes;
+      LOC still reads FD_LOG as an integer, and GET and PUT with no number still wrap past 65,535.
+    - **The PRINT USING checks this round took from the port's output, redone by hand** from the manual (p. 269:
+      a "+" first prints the number's sign just before it, "$$" a "$" at its immediate left, each one place more):
+      `PRINT USING "+" + 24 "#"; 1` is 23 blanks and `+1`, `"$$" + 23 "#"` 23 blanks and `$1`, 25 "#" Illegal
+      function call. PC-BASIC prints the same three. Nothing changed.
+    - **A P4 relief plan is owed before 7f** (the owner, 2026-11-19): ON COM(n)'s trap touches P4's COM driver, and
+      P4 has 88 bytes free with F3 still to come. The plan: what of P4 is cold and self-contained enough to move,
+      measured as these two moves were, or a split of the file layer between two blocks, with each looped file
+      operation's cost.
     - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
-      BASIC 34,775. Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
+      BASIC 34,775. After the second move (below): P3 5,540 (6,748), P4 12,200 (88). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
       interrupt handlers; in a loop, PUT #1,1 18,545, GET #1,2 17,310, LSET 2,187, RSET 2,163, CVI 2,745, FIELD
       2,849.
-  - **Not done in the fix-up:** review round 1's F3 (above, P4's room); the records of 7a-7d are left as written, but for the re-citations above (a line
+  - **Not done in the fix-up:** review round 1's F3 (above: 22 bytes past P4 after the second move and the
+    compaction); the records of 7a-7d are left as written, but for the re-citations above (a line
     that cites PC-BASIC there for a B item is read with this table). Items 5, 6 and 16 are 7f's.
 - **7f: sound, input and events** (P7).
   - **What it holds:**

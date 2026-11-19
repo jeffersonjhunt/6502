@@ -453,7 +453,9 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
         CHECK(r.out.find(m32768, from) != std::string::npos);
     }
     CHECK(command(r, "CLEAR:RANDOMIZE 32767.6:PRINT RND").find("Overflow") == std::string::npos);
-    // Review round 1, F8: a leading "+" and the floating "$" aren't digits: 24 "#" with either are taken.
+    // Review round 1, F8: a leading "+" and the floating "$" aren't digits: 24 "#" with either are taken. The
+    // outputs by hand from the manual (p. 269: the "+" prints the sign just before the number, "$$" the "$" at its
+    // immediate left, each one more place: 25 in all, the number right-justified), and PC-BASIC prints the same.
     CHECK_EQ(command(r, "PRINT USING \"+########################\";1"), std::string("                       +1\r\n"));
     CHECK_EQ(command(r, "PRINT USING \"$$#######################\";1"), std::string("                       $1\r\n"));
     CHECK_EQ(command(r, "PRINT USING \"#########################\";1"), std::string("Illegal function call\r\n"));

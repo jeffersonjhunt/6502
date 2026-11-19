@@ -749,7 +749,7 @@ IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
 IBMRES.ASM STMDSP -> p8/home.s STMDSP # each R and R2 target has its line
 IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
 IBMRES.ASM STMDSX -> p8/home.s STMDSX # after STMDSP (7c); SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
-IBMRES.ASM FUNDSX -> p4/dskcom.s FUNDSX # OO-1: P4's, EVALNF's far call (FUNDXP) dispatching; KTN to KLEN dropped with Kanji
+IBMRES.ASM FUNDSX -> p3/dskcom.s FUNDSX # OO-1: P3's (P4's until the fix-up's review round 1), EVALNF's far call (FUNDXP) dispatching; KTN to KLEN dropped with Kanji
 IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
 IBMRES.ASM RESLSX -> p2/ibmres.s RESLSX
 IBMRES.ASM CRUNCX -> p2/ibmres.s CRUNCX
@@ -787,7 +787,7 @@ IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
 IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALDT gives Advanced Feature
 IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
-IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P4's FUNDSX (FUNDXP); a token past MKD$ Syntax error
+IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P3's FUNDSX (FUNDXP; P4's until the fix-up's review round 1); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
 GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
 GWEVAL.ASM OCTCNS -> res/gweval.s OCTCNS
@@ -1307,12 +1307,12 @@ GWSTS.ASM PMAP -> later 7e: PMAP (7e4)
 GWSTS.ASM PALETE -> later 7e: PALETTE (7e4)
 GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) the OEM's p6/oem.s LCPYP in screen mode (7d2), Advanced Feature in console mode
 CALL86.ASM CALLSL -> later 7g: CALLS
-DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
-DSKCOM.ASM CVS -> p4/dskcom.s CVS
-DSKCOM.ASM CVD -> p4/dskcom.s CVD
-DSKCOM.ASM MKI$ -> p4/dskcom.s MKI # FINBCK's PUTNEW
-DSKCOM.ASM MKS$ -> p4/dskcom.s MKS
-DSKCOM.ASM MKD$ -> p4/dskcom.s MKD
+DSKCOM.ASM CVI -> p3/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
+DSKCOM.ASM CVS -> p3/dskcom.s CVS
+DSKCOM.ASM CVD -> p3/dskcom.s CVD
+DSKCOM.ASM MKI$ -> p3/dskcom.s MKI # FINBCK's PUTNEW
+DSKCOM.ASM MKS$ -> p3/dskcom.s MKS
+DSKCOM.ASM MKD$ -> p3/dskcom.s MKD
 KANJ86.ASM KTNFN -> dropped: Kanji
 KANJ86.ASM JISFN -> dropped: Kanji
 KANJ86.ASM KPOSFN -> dropped: Kanji

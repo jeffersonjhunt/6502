@@ -996,9 +996,10 @@ TEST(random_file_statements_in_a_loop_are_timed)
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"TIMED.DAT\",128:FIELD #1,128 AS A$:FOR I=1 TO 4:PUT #1,I:NEXT:CLOSE"),
              std::string());
     const double put = per("PUT #1,1", 20), get = per("GET #1,2", 20), lset = per("LSET A$=\"ab\"", 50),
-                 rset = per("RSET A$=\"c\"", 50), cvi = per("X%=CVI(A$)", 50), field = per("FIELD #1,2 AS A$", 50);
+                 rset = per("RSET A$=\"c\"", 50), cvi = per("X%=CVI(A$)", 50), field = per("FIELD #1,2 AS A$", 50),
+                 mki = per("B$=MKI$(I%)", 50);
     std::printf("  a loop's statement, cycles each: PUT #1,1 %.0f, GET #1,2 %.0f, LSET %.0f, RSET %.0f, CVI %.0f, "
-                "FIELD %.0f\n", put, get, lset, rset, cvi, field);
+                "FIELD %.0f, MKI$ %.0f\n", put, get, lset, rset, cvi, field, mki);
     CHECK(put > 0 && get > 0 && lset > 0 && rset > 0);
 }
 

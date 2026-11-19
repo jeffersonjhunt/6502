@@ -16,7 +16,7 @@
 .export LOADP, LOADP2, MERGEP, SAVEP, DSKCHP
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN ; p8/far4.s's
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
-.export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR, DEVSWD
+.export CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR, DEVSWD
 .export DEVSOT, GIOINP, LPOSP
 .export ERDVGT, FILESQ                         ; OO-1: P8's ERDEVP's (the IBM spec's fix-up)
 .export BSAVE, BLOAD                   ; p8/far4.s's (7c's tail)
@@ -65,7 +65,7 @@ BSAVE:
 BLOAD:
 GETPTR:
 LPOSP:
-FUNDXP:         JMP     ADVERR
+                JMP     ADVERR         ; (FUNDXP is P3's: in the image itself)
 DEVSOT:                                ; no device's file opens here
 GIOINP:         RTS                    ; no device to start
 CMPFBP:         CLC                    ; WRITE's: not a random file
