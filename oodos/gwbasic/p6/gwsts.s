@@ -299,7 +299,8 @@ SETCLR:         LDA     PCNT
                 STA     ATTR
 :               PLP
                 BEQ     :+
-                JSR     VSHOW          ; the border changed
+                JSR     BANDS          ; the border changed: the bands, and
+                JSR     VSHOW          ; the card's own
 :               CLC
                 RTS
 @bad:           SEC

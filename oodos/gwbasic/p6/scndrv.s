@@ -1963,9 +1963,11 @@ MKRMC6:         INC     xDL
                 PHP
                 PSH     xAH
                 PSH     xAL
-                PSH     xCH
+                PSH     xCH            ; CX kept round it, as the source's PUSH
+                PSH     xCL            ; CX (MVCHLN's insert past the end sets CL)
                 JSR     MVCHLN
                 MOVB    xBH, xCH
+                PULB    xCL
                 PULB    xCH
                 LDX     xSI
 MKRMC7:         LDA     OVB,X          ; the last line's overflow in

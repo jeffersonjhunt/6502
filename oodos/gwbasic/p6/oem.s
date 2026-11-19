@@ -804,7 +804,47 @@ PGINIT:         LDX     #20
                 LDA     #0
                 LDX     PGBASE
                 LDY     PGBASE + 1
-                JMP     FILLP
+                JSR     FILLP
+                ; (on into BANDS)
+
+; BANDS: with 25 rows, the 30-row layer's rows 26-30 (the bands above and
+; below the text, centred by VSCROLL 440) blank in the border's colour, as
+; the background, on every page: the border shows as the PC's overscan
+; (PGINIT, and COLOR's border). The text's rows, CLS and the scroll never
+; touch them. The border's 3 bits, as the background's (bit 7 is BLINK).
+BANDS:          SEC
+                LDA     #NMLINE
+                SBC     LINCNT
+                BEQ     @x
+                STA     SCI
+                LDA     ATTR
+                PHA
+                LDA     BRDC
+                AND     #$07
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                STA     ATTR
+                LDA     NPAGES
+@p:             DEC     A
+                PHA
+                JSR     PGADR          ; A/X the page's first card page
+                LDY     LINCNT         ; row LINCNT+1's offset added
+                CLC
+                ADC     RWOHI + 1,Y
+                BCC     :+
+                INX
+:               PHX
+                TAX
+                LDA     RWOLO + 1,Y
+                PLY
+                JSR     FILL
+                PLA
+                BNE     @p
+                PLA
+                STA     ATTR
+@x:             RTS
 
 ; FILLP: SCI card pages from the card address A, X, Y blank.
 FILLP:          PHA                    ; the cached row written back first (FLUSH uses DMB)

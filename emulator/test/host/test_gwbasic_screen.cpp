@@ -692,6 +692,174 @@ TEST(print_and_scroll_are_timed)
     CHECK(scroll > 1000 && scroll <= 14000);
 }
 
+// Review round 1 (7d1), F1: insert mode that pushes a line past the row's end wraps what runs off onto the next row,
+// and the line entered is the line on the screen: 70 B's in a string, the cursor 20 back, Insert, ten C's (the line
+// grows to 88, two rows), Enter: no Syntax error, and A$ is 80 characters with the C's from its 52nd. The same on the
+// window's last line, where the wrap scrolls the screen. Guards insert typing garbling a long line (the wrap landing
+// two rows down: "Syntax error", the line not entered). Seen failing with MKRMCH keeping CH alone round MVCHLN (the
+// insert past the end leaving CL its count), as 7d1 was built.
+TEST(insert_past_the_row_s_end_wraps_the_line)
+{
+    for (const bool bottom : {false, true})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r) > 0);
+        if (bottom)
+            enter(r, "FOR I=1 TO 40:PRINT I:NEXT:PRINT", ms(1500)); // the cursor on the window's last line
+        else
+            enter(r, "CLS");
+        keys(r, "10 A$=\"" + std::string(70, 'B') + "\"");
+        for (int i = 0; i < 20; ++i)
+            press(r, K_LEFT);
+        press(r, K_INS);
+        keys(r, std::string(10, 'C'));
+        keys(r, "\r");
+        r.run(ms(400));
+        enter(r, "RUN", ms(400));
+        enter(r, "PRINT LEN(A$);INSTR(A$,\"C\");MID$(A$,50,14)", ms(400));
+        CHECK(last_row(r, "Syntax error") < 0);
+        CHECK(last_row(r, " 80  52 BBCCCCCCCCCCBB") >= 0);
+        if (last_row(r, " 80  52 BBCCCCCCCCCCBB") < 0)
+            std::printf("  (%s) the screen: %s\n", bottom ? "the last line" : "the top", screen(r).c_str());
+    }
+}
+
+// Review round 1, F2: what a statement printed is on the screen before GW-BASIC waits for a key outside the
+// editor: "Division by zero" (an overflow message, the program going on) shown while INPUT$(1) waits; and LIST
+// paused by ^S has drawn every byte it gave before the pause (TXBUF empty), then goes on to its end. Guards a
+// message or a listing's lines missing from the screen while it waits. Seen failing with POLKEY and KEYEV's pause
+// not running TXBUF first, as 7d1 was built.
+TEST(output_is_shown_before_a_wait_for_a_key)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r) > 0);
+        enter(r, "10 A=1/0:X$=INPUT$(1):PRINT \"GOT\"");
+        keys(r, "RUN\r");
+        r.run(ms(800));
+        CHECK_EQ(line(r, 6), std::string("Division by zero"));
+        press(r, 0x04);
+        r.run(ms(400));
+        CHECK_EQ(line(r, 7), std::string("GOT"));
+        if (line(r, 7) != "GOT")
+            std::printf("  the screen: %s\n", screen(r).c_str());
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r) > 0);
+        for (int i = 1; i <= 15; ++i)
+            enter(r, std::to_string(i * 10) + " REM " + std::string(40, static_cast<char>('A' + i)), ms(250));
+        const auto lab = lbl_map();
+        keys(r, "LIST\r");
+        r.run(ms(35));
+        press(r, 0x16, CTRL); // ^S
+        r.run(ms(500));
+        CHECK_EQ(r.machine->bus().peek(lab.at("TXLEN")), 0);
+        const std::string paused = screen(r);
+        r.run(ms(500));
+        CHECK_EQ(screen(r), paused); // still paused
+        press(r, 0x04);
+        r.run(ms(800));
+        const int ok = last_row(r, "Ok");
+        CHECK(ok > 0);
+        if (ok > 0)
+            CHECK_EQ(line(r, static_cast<unsigned>(ok - 1)), "150 REM " + std::string(40, 'P'));
+    }
+}
+
+// Review round 1, F3: an error in the command line, in screen mode, is on the console when GW-BASIC goes back to
+// OODOS: "m:gwbasic /Q" (no such switch) and "m:gwbasic /M:100" (start-up's Out of memory) print the heading and
+// "Error detected in command line" to the console (its screen and the serial line, CON:'s), then A>. Guards the
+// error vanishing (it went to TXBUF, never run). Seen failing with CMDERR printing in screen mode, as 7d1 was
+// built.
+TEST(a_command_line_error_is_on_the_console)
+{
+    for (const std::string tail : {"/Q", "/M:100"})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+        r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        const size_t from = r.out.size();
+        r.type("m:gwbasic " + tail + "\r");
+        CHECK(r.until("A>", ms(6000), from + 5));
+        r.run(ms(300));
+        const std::string tty = r.out.substr(from);
+        CHECK(tty.find("(C) Copyright Microsoft 1982") != std::string::npos);
+        CHECK(tty.find("\r\nError detected in command line\r\n") != std::string::npos);
+        bool shown = false;
+        for (unsigned row = 0; row < 30; ++row)
+            shown = shown || row_at(r, row, 0x2000, 80).find("Error detected in command line") != std::string::npos;
+        CHECK(shown);
+        CHECK_EQ(mapbase(r), 0x2000u); // the console's screen shown again
+        if (!shown)
+            std::printf("  (%s) the serial line: %s\n", tail.c_str(), vis(tty).c_str());
+    }
+}
+
+// Review round 1, F4: PRINT's TAB and comma go by where the cursor is, also after the screen's control codes in the
+// same PRINT: "ABCDEFGHIJ";CHR$(11);TAB(3);"X" puts X in column 3 of the first row (CHR$(11) homes the cursor), and
+// "ABCDEFGHIJ" with five CHR$(29)s (cursor left), "Y" and ,"Z" puts Y over F and Z in the next zone, column 15.
+// Guards TAB and commas going by OUTDO's own count (X on a new row, Z five columns early). Seen failing with
+// PTRGPS taking TTYPOS before TXBUF is run, as 7d1 was built.
+TEST(tab_and_comma_follow_the_cursor)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:PRINT \"ABCDEFGHIJ\";CHR$(11);TAB(3);\"X\"", ms(400));
+    CHECK_EQ(line(r, 0), std::string("  XDEFGHIJ"));
+    CHECK_EQ(line(r, 1), std::string("Ok"));
+    enter(r, "CLS:PRINT \"ABCDEFGHIJ\";STRING$(5,29);\"Y\",\"Z\"", ms(400));
+    CHECK_EQ(line(r, 0), std::string("ABCDEY        Z"));
+    enter(r, "CLS:PRINT \"ABCDEFGHIJ\";CHR$(11);POS(0)", ms(400));
+    CHECK_EQ(line(r, 0), std::string(" 1 DEFGHIJ"));
+}
+
+// Review round 1, F5: with 25 rows the 30-row layer's rows 26-30, the bands above and below the centred text, are
+// the border's colour, as a PC's overscan: after COLOR 15,1:WIDTH 40:COLOR 7,0:CLS they are black (attribute 0),
+// not WIDTH's blue; COLOR ,,4 makes them red on every page (page 1's too), the text's cells as they were. Guards
+// the bands keeping a colour from before (a blue frame round the text) and COLOR's border never showing. Seen
+// failing with PGINIT filling the bands in ATTR, and no fill for COLOR's border, as 7d1 was built.
+TEST(the_border_shows_in_the_bands)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "COLOR 15,1:WIDTH 40:COLOR 7,0:CLS", ms(600));
+    const uint32_t base = mapbase(r);
+    CHECK_EQ(card(r, base + 1), 0x07);
+    for (const unsigned row : {25u, 27u, 29u})
+        CHECK_EQ(card(r, base + row * 80 + 79), 0x00);
+    enter(r, "COLOR ,,4", ms(600));
+    CHECK_EQ(card(r, base + 1), 0x07);
+    CHECK_EQ(card(r, base + 24 * 80 + 1), 0x07);
+    for (const unsigned row : {25u, 29u})
+    {
+        CHECK_EQ(card(r, base + row * 80 + 1), 0x40);
+        CHECK_EQ(card(r, base + 12 * 256 + row * 80 + 1), 0x40); // page 1 (12 card pages at 40 columns)
+    }
+    enter(r, "WIDTH 80,30", ms(600));
+    CHECK_EQ(card(r, mapbase(r) + 29 * 160 + 1), 0x07); // 30 rows: no bands, the text's own
+}
+
+// Review round 1, F7: the keyboard's lights at start-up are Caps Lock (GW-BASIC's own, on) and Num Lock (the keypad
+// gives digits): LEDS 3; Caps Lock pressed leaves Num Lock's on. Guards Num Lock's light off while the keypad types
+// digits. Seen failing with KLEDS writing Caps Lock's bit alone, as 7d1 was built.
+TEST(the_keyboard_s_lights_are_caps_and_num_lock)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    CHECK_EQ(r.machine->usb_card()->leds(), 0x03);
+    press(r, 0x39); // Caps Lock
+    r.run(ms(100));
+    CHECK_EQ(r.machine->usb_card()->leds(), 0x01);
+}
+
 int main()
 {
     return run_all();

@@ -1039,6 +1039,29 @@ TEST(extended_statements_dispatch_from_the_home_block_s_table)
     CHECK(r.out.find("b", from + 5) == std::string::npos);
 }
 
+// Review round 1 (7d1), F6: in console mode INKEY$ is as it was before 7d1, a key a byte: a NUL typed (the
+// console's key 0) gives CHR$(0) alone, and the key after it, Q, is the next INKEY$'s, not taken with it. Guards
+// a NUL read as the PC's two-byte key in console mode (a 2-byte INKEY$, or the next key swallowed). Seen failing
+// with INKEY's two-byte path taken in console mode too, as 7d1 was built.
+TEST(a_nul_typed_in_console_mode_is_one_inkey)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 A$=INKEY$:IF A$=\"\" THEN 10", "20 PRINT \"[\";LEN(A$);ASC(A$);\"]\"",
+              "30 B$=INKEY$:IF B$=\"\" THEN 30", "40 PRINT B$"});
+    const size_t from = r.out.size();
+    r.type("RUN\r");
+    r.run(ms(200));
+    for (int i = 0; i < 2000 && !r.console->key(0); ++i)
+        r.run(1000);
+    r.run(ms(5));
+    for (int i = 0; i < 2000 && !r.console->key('Q'); ++i)
+        r.run(1000);
+    CHECK(r.until("Ok\r\n", ms(2000), from));
+    CHECK_EQ(r.out.substr(from), std::string("RUN\r\n[ 1  0 ]\r\nQ\r\nOk\r\n"));
+}
+
 int main()
 {
     return run_all();

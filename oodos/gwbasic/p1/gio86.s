@@ -29,7 +29,7 @@
 ;@entry ADRGET
 .export PRINTP, LPRNTP, PTRGPS, PTRWDC, ADRGET
 .import CHRGTR, FRMEVL, GETYP, FOUT, STRLIT, STRPRT, CRDO, FINPRT, OUTDO
-.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID
+.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID, TXSYNC
 
 CLMWID          = 14                   ; OEM.H: the print zones' width
 
@@ -219,7 +219,8 @@ PTRGPS:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
                 RTS
 @lpt:           LDA     LPTPOS
                 RTS
-@con:           LDA     TTYPOS
+@con:           JSR     TXSYNC         ; 7d1: the screen's column is P6's cursor,
+                LDA     TTYPOS         ; once what is waiting in TXBUF has run
                 RTS
 
 ; PTRWDC: X = the current output's width (LINLEN; WIDTH is 7d's), A the last

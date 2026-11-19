@@ -31,7 +31,7 @@
 
 ;@entry KEYEV
 .export KEYEV, KEYINI
-.import CHSNS, PKQUE, KYBQIN, KYBQOUT, EVAREA
+.import CHSNS, PKQUE, KYBQIN, KYBQOUT, EVAREA, TXLEN, TXRUN
 
 K_CTRL          = $11                  ; EV_MODS: left or right
 K_SHIFT         = $22
@@ -58,10 +58,13 @@ KEYEV:          STA     KUSE
                 JSR     KDRAIN
                 LDA     #$80
                 RTS
-@ns:            CMP     #$13           ; ^S: the pause
-                BNE     @q
+@ns:            CMP     #$13           ; ^S: the pause, what was printed on
+                BNE     @q             ; the screen first (as LIST's lines)
                 JSR     KDRAIN
-                JMP     KPAUSE
+                LDA     TXLEN
+                BEQ     :+
+                JSR     TXRUN
+:               JMP     KPAUSE
 @q:             SEC                    ; room for both bytes of a two-byte key
                 LDA     KYBQOUT
                 SBC     KYBQIN
@@ -267,11 +270,12 @@ KX_pad:           CMP     #$54
                 LDA     KPAD,X
                 JMP     KONE
 
-; KLEDS: the keyboard's Caps Lock light as CAPS (function 81's IN_LEDS).
+; KLEDS: the keyboard's lights (function 81's IN_LEDS): Caps Lock as CAPS, Num Lock on.
 KLEDS:          LDA     #IN_LEDS
                 STA     LEDB
                 LDA     CAPS
                 AND     #$02
+                ORA     #$01           ; Num Lock's on (the keypad gives digits)
                 STA     LEDB + 1
                 LDA     #<LEDB
                 LDX     #>LEDB

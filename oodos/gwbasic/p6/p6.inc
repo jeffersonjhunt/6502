@@ -25,7 +25,7 @@
 
 ; The OEM's routines (p6/oem.s)
 .global SCROUT, SCRINP, CLREOL, SCROLL, CLRSCN, SETCSR, CSRDSP, STCTYP, CBEEP
-.global PUTC, P6IN, P6OUT, FLUSH, ATTR, SCATTR, VSHOW, APAGE, VPAGE, PGINIT
+.global PUTC, P6IN, P6OUT, FLUSH, ATTR, SCATTR, VSHOW, APAGE, VPAGE, PGINIT, BANDS
 .global KEYIN, KEYSIN, KDRAIN
 
 NMLINE          = 30                   ; OEM.H's lines: the most rows (WIDTH n,30)

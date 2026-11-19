@@ -26,7 +26,7 @@
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
-.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD
+.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD, TXLEN
 
 .code
 
@@ -336,8 +336,14 @@ PRNTND:         LDA     #$FF           ; errors are BASIC's from now on
 ERRORJ:         JMP     ERROR
 
 ; CMDERR (GWINIT.ASM 445): an error before start-up was done: the heading,
-; the command line blamed, and back to OODOS.
-CMDERR:         LDA     #<HEDING
+; the command line blamed, and back to OODOS. 7d1: to the console even in
+; screen mode (the warm boot shows it again; TXBUF would never be run), so
+; SCRMOD is clear while it prints, and put back for SYSTME's drains.
+CMDERR:         LDA     SCRMOD
+                PHA
+                STZ     SCRMOD
+                STZ     TXLEN
+                LDA     #<HEDING
                 STA     PTR
                 LDA     #>HEDING
                 STA     PTR+1
@@ -347,6 +353,8 @@ CMDERR:         LDA     #<HEDING
                 LDA     #>CERMSG
                 STA     PTR+1
                 JSR     STROUT
+                PLA
+                STA     SCRMOD
                 JMP     SYSTME
 
 .rodata

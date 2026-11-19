@@ -56,7 +56,7 @@
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
-.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS
+.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
 
         OODOS_HEADER
@@ -178,8 +178,10 @@ OUTDO:          PHP
 ; 7d1's screen mode: the byte into TXBUF, which P6 takes as a run (TXRUN,
 ; one far call) when it is full, at FINPRT, and at every entry of P6's (the
 ; editor's line, a break), as a file's bytes go to P4. TTYPOS has moved as
-; for the console, so PRINT's commas and TAB need no run; P6 sets it from its
-; cursor after each.
+; for the console; P6 sets it from its cursor after each run, and the column's
+; readers (PTRGPS: PRINT's commas, TAB and its line ends; POS) run TXBUF
+; first (TXSYNC), since the screen's control codes move the cursor as OUTDO
+; doesn't count.
 @txb:           LDX     TXLEN
                 STA     TXBUF,X
                 INX
@@ -262,10 +264,8 @@ FINLPT:         LDA     LPTPOS
                 STA     PTRFIL
                 STA     PTRFIL+1
                 JSR     CRDO
-FINPRT:         LDA     TXLEN          ; 7d1: the screen's run out first
-                BEQ     :+
-                FJSR    TXRUN
-:               LDA     RUNLEN
+FINPRT:         JSR     TXSYNC         ; 7d1: the screen's run out first
+                LDA     RUNLEN
                 ORA     FREFDB+1
                 BNE     @far
                 LDA     NLONLY         ; loading: nothing to close
@@ -404,8 +404,9 @@ POLKEY:         PHP
                 PHA
                 PHX
                 PHY
-                BIT     SCRMOD         ; 7d1: the event queue
-                BPL     GETKLP
+                BIT     SCRMOD         ; 7d1: the event queue, what was printed
+                BPL     GETKLP         ; on the screen first (a wait for a key
+                JSR     TXSYNC         ; may follow: INPUT$, INKEY$)
                 JSR     EVPOLL
                 BRA     POLKYX
 GETKLP:         LDY     #C_STAT
@@ -501,6 +502,14 @@ KYBINI:         STZ     KYBQIN         ; INITQ
                 STZ     KYBQOUT
                 JMP     FINPRT         ; output to the console again (W12: a
                                        ; break's new line goes to the screen)
+
+; TXSYNC (7d1): the screen's bytes waiting in TXBUF run, if any (TXRUN, one
+; far call: TTYPOS then P6's cursor). TXLEN is 0 in console mode. A, X, Y
+; and the flags used.
+TXSYNC:         LDA     TXLEN
+                BEQ     :+
+                FJSR    TXRUN
+:               RTS
 
 ; EVPOLL (7d1, hw/oodos.md, "The OEM layer": V2): the event queue (layout 2,
 ; EVAREA) taken from its tail, in order. A key pressed goes to P6's KEYEV,
@@ -610,8 +619,11 @@ INKEY:          JSR     CHRGTR
                 JSR     CHSNS
                 BEQ     NULRT
                 CMP     #0             ; 7d1: 0 and a scan code, the PC's two-byte
-                BNE     INKEY1         ; key (only the screen's keyboard gives them)
-                JSR     KYBGET
+                BNE     INKEY1         ; key: only the screen's keyboard gives
+                BIT     SCRMOD         ; them (in console mode a 0 is one key),
+                BPL     INKEY1         ; and only if its scan code is queued
+                JSR     KYBGET         ; (else the 0 alone: A still 0)
+                BCS     INKEY1
                 PHA
                 LDA     #2
                 JSR     STRINI         ; DSCTMP: its place
@@ -646,7 +658,8 @@ NULRT:          LDA     #<DSEGZ
 F_SPOS:         BIT     SCRMOD
                 BMI     :+
                 JMP     NOTSPK
-:               LDA     TTYPOS
+:               JSR     TXSYNC         ; P6's cursor, TXBUF run first
+                LDA     TTYPOS
                 INC     A
                 CMP     LINLEN
                 BCC     :+
