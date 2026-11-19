@@ -277,7 +277,17 @@ ENDNUM:         LDA     USEND          ; POPF
                 DEC     A              ; source counts it)
 :               CLC
                 ADC     USDL
-                CMP     #25
+                TAX                    ; (review round 1, F8: a leading "+" and
+                LDA     USDH           ; the floating "$" are places, not digits)
+                AND     #$0C
+                CMP     #$08           ; "+" before: bit 3 alone
+                BNE     :+
+                DEX
+:               LDA     USDH
+                AND     #$10           ; "$$" (or "**$")
+                BEQ     :+
+                DEX
+:               CPX     #25
                 BCC     :+
                 JMP     FCERR
 :               LDA     USDL           ; CX: the places before and after the

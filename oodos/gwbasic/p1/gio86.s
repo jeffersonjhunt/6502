@@ -153,20 +153,19 @@ TBFC:           JMP     FCERR          ; (TABER's)
 
 ; TABER (GIO86.ASM 537): TAB(n) to column n-1 (0-based: n), a new line first
 ; if past it; SPC(n), n spaces. Both mod the width (unless 255). OO-1 (the
-; IBM manual's pp. 327, 340: SPC 0-255, TAB 1-255): a negative n, and
-; TAB(0), are Illegal function call (a default, for the owner's veto; the
-; source takes them as 0).
+; IBM manual's pp. 327, 340: SPC 0-255, TAB 1-255): a negative n, TAB(0),
+; and n past 255 are Illegal function call (a default, for the owner's veto;
+; the source takes them as 0, and a large n mod the width).
 TABER:          PHA                    ; TAB_TK or SPC_TK
                 JSR     CHRGTR
                 JSR     ADRGET         ; DX
                 PLA
                 PHA
-                LDX     RDH            ; negative
-                BMI     TBFC
+                LDX     RDH            ; negative, or past 255 (review round 1, F5)
+                BNE     TBFC
                 CMP     #SPC_TK        ; SPC: n as it is
                 BEQ     SPCNDC
                 LDA     RDL            ; TAB(0)
-                ORA     RDH
                 BEQ     TBFC
                 DECW    RDL            ; TAB: less one
 SPCNDC:         LDA     PRTWID         ; mod the width: DL the place to go

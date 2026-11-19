@@ -1,0 +1,13 @@
+# INPUT # (the IBM manual's pp. 133-134): an LF ends a number or an unquoted string, and leading spaces, CRs and LFs are passed over before an item (the IBM spec's fix-up, C-1 item 3 and review round 1, F1); PC-BASIC ends the item at an LF but doesn't pass over a leading one (an empty item)
+ 12 -350  16 
+<unquoted string><next><last>
+<quoted, with comma><q2>
+ 1  2  3 
+<a><b><c> 1  1 
+ 0  7 
+<8><q>
+<tail>
+<after> 5 
+ 0  0 
+<two
+lines> 10  0 

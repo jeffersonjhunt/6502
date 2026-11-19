@@ -107,10 +107,14 @@ INPDOR:         LDA     TXTPTR         ; PUSH BX: the data pointer
                 LDA     TXTPTR+1
                 STA     INPTXT+1
 NOTNWT:         JSR     INCHR
-                CMP     #' '           ; spaces first skipped
-                BNE     NOTSPC
-                LDX     RDH            ; but not LINE INPUT's (DH 0)
-                BNE     NOTNWT
+                LDX     RDH            ; not LINE INPUT's (DH 0)
+                BEQ     NOTSPC
+                CMP     #' '           ; spaces first skipped (OO-1, review round
+                BEQ     NOTNWT         ; 1, F1: and CRs and LFs, the IBM manual's
+                CMP     #13            ; pp. 133-134)
+                BEQ     NOTNWT
+                CMP     #10
+                BEQ     NOTNWT
 NOTSPC:         CMP     #'"'
                 BNE     NOTQTE
                 LDX     RDL            ; a quote begins a string's item

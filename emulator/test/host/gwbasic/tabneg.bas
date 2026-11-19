@@ -4,5 +4,7 @@
 30 PRINT "abcde";TAB(-1);"f"
 40 PRINT "x";TAB(0);"y"
 50 PRINT "p";SPC(0);"q";TAB(1);"r"
+52 PRINT "s";SPC(300);"t"
+54 PRINT "u";TAB(256);"v"
 60 END
 90 PRINT "err";ERR;ERL:RESUME NEXT

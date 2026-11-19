@@ -1,6 +1,8 @@
-# SPC of a negative n and TAB of one below 1 are Illegal function call (the IBM manual's pp. 327 and 340 give SPC 0-255 and TAB 1-255; a default of the IBM spec's fix-up, C-2 item 19, for the owner's veto); the 1983 source takes them as 0, and PC-BASIC goes on to the next print zone (TAB(0) a new line in both)
+# SPC of a negative n and TAB of one below 1 are Illegal function call (the IBM manual's pp. 327 and 340 give SPC 0-255 and TAB 1-255; a default of the IBM spec's fix-up, C-2 item 19, for the owner's veto); and n past 255 (review round 1, F5); the 1983 source takes the low ones as 0, and a large n mod the width, and PC-BASIC goes on to the next print zone (TAB(0) a new line in both)
 aberr 5  20 
 abcdeerr 5  30 
 xerr 5  40 
 pq
 r
+serr 5  52 
+uerr 5  54 

@@ -61,8 +61,9 @@ error messages in Appendix A's wording ("Out of data", "Duplicate definition", "
 fix-up, G15), where PC-BASIC prints the 1983 source's. `e_fn` agrees with PC-BASIC now ("FOR without NEXT"), and so do
 `spk_rnd1`, `spk_rnd3` (0 MOD 0 is Division by zero: the manual's A-8, a default of the fix-up), `pufc3` (24 digits
 without the point, p. 272), `randomov` (RANDOMIZE 40000 is taken, p. 286), `renumu2` (RENUM changes the reference
-itself, p. 293), `f_input` (an LF ends INPUT #'s item, pp. 133-134) and `l_text` (RUN name enters a last line with no
-CR, p. 306): their `.differ`s are gone.
+itself, p. 293) and `l_text` (RUN name enters a last line with no CR, p. 306): their `.differ`s are gone. `f_input`
+and `f_write` have the manual's (pp. 133-134: an LF ends INPUT #'s item, and leading spaces, CRs and LFs are passed
+over: review round 1, F1), where PC-BASIC reads a leading LF or an empty line as an empty item.
 
 Not checked against PC-BASIC: LINE INPUT keeps the blanks typed at a line's end (OODOS's function 10 gives them;
 GW-BASIC's screen editor reads the line back from the screen, and PC-BASIC drops them), so `input.in` types none
@@ -235,7 +236,7 @@ drive is named.
 | `f_errs`, `f_errs2`, `f_e52`, `f_e53`, `f_e54`, `f_e55`, `f_e62`, `f_e64` | the errors, trapped (ERR, ERL), then each's message |
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `f_write` (INPUT # reads a double as a double:
-the source's FINDBL), `f_inps`
+the source's FINDBL; and the manual's leading CR and LF, above), `f_inps`
 (INPUT$ takes the CR and LF before the end as bytes), `f_clear` (CLEAR closes every file), `f_errs` (EOF of an output
 file with nothing in its buffer is -1; INPUT #, LINE INPUT # and INPUT$ of an output file are Input past end, the
 IBM manual's A-11, a default of the fix-up, INPUT$(0, #f) too; LEN= on a sequential OPEN

@@ -69,7 +69,7 @@
 ;@entry NAMEP
 ;@entry CMPFBP
 .export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
-.export BUFPHY, BXFER, P73, WRITES, LDBLK, ERDVGT
+.export BUFPHY, BXFER, P73, WRITES, LDBLK, ERDVGT, FILESQ
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
 .import MAXREC, ERROR
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
@@ -146,9 +146,10 @@ LOC1:           LDA     (FDBP),Y
 ; it, OPNFIL's open with CR $FF reads it into LOFCNT). An input file's size
 ; is the records less the last one's unused bytes (DSKSZ); a random file's
 ; the larger of that, as it was at the first PUT or LOF, and the furthest
-; byte a PUT has written since (LOFINI, LOFPUT: LMX); an output or append
-; file's still the records x 128 (its last record is GW-BASIC's buffer until
-; the close). Function 35 reads the directory, where MS-DOS's FCB_FS is the
+; byte a PUT has written since (LOFINI, LOFPUT: LMX); an output file's
+; still the records x 128 (its last record is GW-BASIC's buffer until the
+; close); an append file's (review round 1, F7) the bytes on the disk to the
+; record its buffer goes to and those in the buffer, R0-R2 x 128 + F_ORCT. Function 35 reads the directory, where MS-DOS's FCB_FS is the
 ; open FCB's: so the file is closed first (function 16), which puts the
 ; extent being written in the directory and, on OODOS, leaves it open.
 DSKLOF:         LDY     #F_CLOSE
@@ -166,8 +167,15 @@ DSKLOF:         LDY     #F_CLOSE
                 DEX
                 BPL     @c
                 BRA     TOFAC
-@s:             JSR     DSKSZ          ; (an output file's count is 0; an append
-                                       ; file's the old one until it is closed)
+@s:             LDA     LOFCNT,X       ; an append file (bit 7, APPFIN's: review
+                BPL     @d             ; round 1, F7): the bytes on the disk to
+                JSR     DSKSZA         ; the record its buffer goes to, R0-R2 x
+                LDY     #F_ORCT        ; 128, and those in the buffer (F_ORCT)        ; (0-127: LOFV's bits 0-6 are 0)
+                LDA     (FDBP),Y
+                ORA     LOFV
+                STA     LOFV
+                BRA     TOFAC
+@d:             JSR     DSKSZ          ; (an output file's count is 0)
                 ; (on into TOFAC)
 
 ; TOFAC (OO-1): LOFV, 4 bytes, the FAC's double (exact: 53 bits).
@@ -208,16 +216,23 @@ TOFAC:          LDA     #VT_DBL
 ; records (R0-R2 kept round it) x 128, less the last record's unused bytes
 ; if the open gave its byte count (LOFCNT,X, 1-127). X the file's number,
 ; kept.
-DSKSZ:          LDY     #FCB_RN + 2
+DSKSZA:         LDA     #0             ; (OO-1, F7: an append file's, R0-R2 as
+                .byte   $2C            ; they are, no function 35, no count)
+DSKSZ:          LDA     #F_SIZE
+                PHA
+                LDY     #FCB_RN + 2
 @k:             LDA     (FDBP),Y
                 STA     LOFRN - FCB_RN,Y
                 DEY
                 CPY     #FCB_RN
                 BCS     @k
+                PLA
+                BEQ     @n
+                TAY
                 PHX
-                LDY     #F_SIZE
                 JSR     FCBDOS
                 PLX
+@n:
                 LDY     #FCB_RN        ; the records, 24 bits, to LOFV+1
 @r:             LDA     (FDBP),Y
                 STA     LOFV + 1 - FCB_RN,Y
@@ -524,7 +539,10 @@ RNDFIN:         LDA     #0
 ; file is an output file with that many in its buffer. OO-1: the size is
 ; CP/M's records (function 35's R0-R2), a whole number, so the last is the
 ; size less one (the 8086's BAKURN for a size that is a multiple of 128).
-APPFIN:         LDY     #F_SIZE
+APPFIN:         JSR     FNUMX          ; OO-1: an append file, for LOF (review
+                LDA     #$80           ; round 1, F7; no count: DSKSZA's)
+                STA     LOFCNT,X
+                LDY     #F_SIZE
                 JSR     FCBDOS
                 LDY     #FCB_RN
                 LDA     (FDBP),Y
@@ -598,9 +616,15 @@ DSKCLS:         STZ     CLSCNT
                 JSR     FNUMX
                 LDA     LOFCNT,X
                 BPL     NOFORC
-                JSR     LMXY
-                LDA     LMX - 7,Y      ; its low byte
-                AND     #DATPSC - 1
+                TXA                    ; (X kept: the file's)
+                ASL     A
+                ASL     A
+                TAY
+                LDA     LMX - 4,Y      ; its low byte
+                EOR     LOFCNT,X       ; (review round 1, F2: kept only if it
+                AND     #DATPSC - 1    ; changed, a PUT past the size at open: a
+                BEQ     NOFORC         ; file only read, on a read-only drive too,
+                EOR     LOFCNT,X       ; closes as before; bit 7 @k's)
                 BRA     @k
 @o:             CMP     #MD_SQO
                 BNE     NOFORC
@@ -1697,9 +1721,12 @@ CMPFBC:         LDY     #FD_OPS        ; GETFPS
 ; which is taken off). OO-1: PTRWID and PTRGPS are P1's; FILES's output is
 ; the console's (a statement starts with PTRFIL 0), so its width and column
 ; are theirs, LINLEN and TTYPOS. Z from CHRGTR: nothing follows.
+FILESQ:         JSR     NAMFL2         ; OO-1, an entry: the home block's FILES
+                BRA     FILSQ2         ; evaluates the name once (review round 1,
+                                       ; F10): FILESP with its descriptor in RBL
 FILESP:         BEQ     NOARG          ; JE NOARG
                 JSR     NAMFIL         ; PTR2 the name, RCL its length
-                LDA     RCL
+FILSQ2:         LDA     RCL
                 CMP     #2
                 BNE     GOTNAM         ; not "d:"
                 LDY     #1
@@ -1929,7 +1956,7 @@ NA_NMF:         JMP     DERIFN
 ; past it.
 NAMFIL:         JSR     FRMEVL
                 JSR     FRESTR         ; BX: the descriptor
-                LDA     (RBL)
+NAMFL2:         LDA     (RBL)
                 BEQ     ER_NMF         ; JCXZ ER_NMF
                 STA     RCL
                 LDY     #1

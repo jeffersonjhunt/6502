@@ -55,7 +55,7 @@
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN, BSAVE, BLOAD
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
 .import SYNCHR, SNERR, FCERR, SAVSEG
-.import FRMEVL, FREFAC, OUTDO, CRDO, STROUT, FRCDBL
+.import FRMEVL, FRESTR, OUTDO, CRDO, STROUT, FRCDBL
 
 .code
 
@@ -71,60 +71,55 @@ RESET:          FJSR    RESETP
 ; bytes on a line after them (" n Bytes free": function 46's records x 128,
 ; printed as a double); P4's FILESP lists the names as the source does, and
 ; is unchanged. The drive is the name's "d:" or the current one (function
-; 25). No heading for a name that isn't a string or is null (FILESP's Type
-; mismatch, Bad file name), nor the free bytes when FILESP ends in an error.
+; 25), A-P only. No heading for a name that isn't a string, is null, or
+; names another drive (FILESQ's Type mismatch, Bad file name), nor the free
+; bytes when the listing ends in an error. The name is evaluated once, here,
+; and P4's FILESQ lists from its descriptor (review round 1, F10).
 FILES:          PHP                    ; CHRGTR's Z: no name
-                LDA     TXTPTR         ; the text pointer kept round a look
-                STA     FLSTXT
-                LDA     TXTPTR+1
-                STA     FLSTXT+1
                 LDY     #DRV_GET       ; the current drive
                 JSR     BDOS
                 STA     FLSDRV
                 PLP
-                BEQ     @head
-                JSR     FRMEVL         ; the name, looked at, then again by P4
-                LDA     VALTYP
-                CMP     #VT_STR
-                BNE     @list          ; FILESP's Type mismatch
-                LDA     (FACLO)        ; its length
-                BEQ     @free          ; null: FILESP's Bad file name
+                BNE     @name
+                JSR     FLSHED         ; no name: the current drive's
+                DECW    TXTPTR         ; (CHRGTR's Z again for FILESP)
+                JSR     CHRGTR
+                FJSR    FILESP
+                BRA     @free
+@name:          JSR     FRMEVL         ; the name, once (review round 1, F10):
+                JSR     FRESTR         ; P4's FILESQ takes its descriptor (a
+                LDA     RBL            ; number: Type mismatch)
+                STA     FLSDSC
+                LDA     RBH
+                STA     FLSDSC+1
+                LDA     (RBL)          ; its length
+                BEQ     @list          ; null: FILESQ's Bad file name
                 CMP     #2
-                BCC     @fr2           ; one character: the current drive
+                BCC     @h             ; one character: the current drive
                 LDY     #1             ; its bytes
-                LDA     (FACLO),Y
+                LDA     (RBL),Y
                 STA     PTR
                 INY
-                LDA     (FACLO),Y
+                LDA     (RBL),Y
                 STA     PTR+1
                 LDY     #1
                 LDA     (PTR),Y
                 CMP     #':'
-                BNE     @fr2
-                LDA     (PTR)          ; "d:": its drive
-                AND     #$DF
+                BNE     @h
+                LDA     (PTR)          ; "d:": its drive, A-P only (else no
+                AND     #$DF           ; heading: FILESQ's Bad file name)
                 SEC
                 SBC     #'A'
+                CMP     #16
+                BCS     @list
                 STA     FLSDRV
-@fr2:           JSR     FREFAC
-@head:          LDA     FLSDRV         ; "A:\"
-                CLC
-                ADC     #'A'
-                JSR     OUTDO
-                LDA     #':'
-                JSR     OUTDO
-                LDA     #$5C           ; a backslash
-                JSR     OUTDO
-                JSR     CRDO
-                BRA     @list
-@free:          JSR     FREFAC
-@list:          LDA     FLSTXT         ; back to the name, CHRGTR's flags again
-                STA     TXTPTR
-                LDA     FLSTXT+1
-                STA     TXTPTR+1
-                DECW    TXTPTR
-                JSR     CHRGTR
-                FJSR    FILESP         ; (an error ends it: no free bytes)
+@h:             JSR     FLSHED
+@list:          LDA     FLSDSC
+                STA     RBL
+                LDA     FLSDSC+1
+                STA     RBH
+                FJSR    FILESQ         ; (an error ends it: no free bytes)
+@free:
                 LDA     #<FLSREC       ; function 46's 3 bytes to FLSREC
                 LDX     #>FLSREC
                 LDY     #F_DMAOFF
@@ -173,6 +168,16 @@ FILES:          PHP                    ; CHRGTR's Z: no name
                 JSR     STROUT
                 JMP     CRDO
 @x:             RTS
+; FLSHED (OO-1): FILES's heading, FLSDRV's root, "A:\".
+FLSHED:         LDA     FLSDRV
+                CLC
+                ADC     #'A'
+                JSR     OUTDO
+                LDA     #':'
+                JSR     OUTDO
+                LDA     #$5C           ; a backslash
+                JSR     OUTDO
+                JMP     CRDO
 KILL:           FJSR    KILLP
                 RTS
 NAME:           FJSR    NAMEP
@@ -399,7 +404,7 @@ BPARM3:         JSR     SYNCHR
                 RTS
 
 .segment "BRAM"
-FLSTXT:         .res    2              ; FILES's text pointer, kept (OO-1)
+FLSDSC:         .res    2              ; FILES's name's descriptor, kept (OO-1)
 FLSDRV:         .res    1              ;   its drive, 0 A:
 FLSREC:         .res    3              ;   the drive's free records (function 46)
 LDFLG:          .res    1              ; LDBIN's RUNFLG, kept over RUNC

@@ -1082,7 +1082,7 @@ GIO86.ASM LINCH2 -> p1/gio86.s LINCH2
 GIO86.ASM COMPRT -> p1/gio86.s COMPRT
 GIO86.ASM CHKCOM -> p1/gio86.s COMPRT
 GIO86.ASM MORCOM -> p1/gio86.s MORCOM
-GIO86.ASM TABER -> p1/gio86.s TABER # OO-1: SPC of a negative n, TAB of one below 1, Illegal function call (the IBM manual's pp. 327, 340)
+GIO86.ASM TABER -> p1/gio86.s TABER # OO-1: SPC of a negative n, TAB of one below 1, either past 255, Illegal function call (the IBM manual's pp. 327, 340)
 GIO86.ASM TBNONG -> p1/gio86.s TABER # inline: OO-1, the range checks (TBFC) in its place
 GIO86.ASM SPCNDC -> p1/gio86.s SPCNDC
 GIO86.ASM LNOMOD -> p1/gio86.s LNOMOD
@@ -1275,7 +1275,7 @@ GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 #
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
-GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
+GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES (OO-1: the heading and bytes free there, the name evaluated there once, FILESQ: review round 1, F10); OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
 DSKCOM.ASM FIELD -> p4/dskcom.s FIELDP # its home stub p8/far4.s FIELD
 GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists); an old name that is a SYS file not found (W7)
 DSKCOM.ASM LSET -> p3/dskcom.s LSETP # OO-1: P3 since the IBM spec's fix-up (P4's relief); its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
@@ -1296,9 +1296,9 @@ GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
-GWSTS.ASM CHDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
-GWSTS.ASM MKDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
-GWSTS.ASM RMDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
+GWSTS.ASM CHDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
+GWSTS.ASM MKDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
+GWSTS.ASM RMDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
 GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
 GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
 GWSTS.ASM VIEW -> later 7e: VIEW (7e4)

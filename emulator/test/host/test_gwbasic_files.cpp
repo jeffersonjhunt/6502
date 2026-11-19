@@ -672,7 +672,7 @@ TEST(files_kill_and_name_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DH*.TXT\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DHB.TXTX\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "KILL \"Q:DHB.TXT\""), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "FILES \"Q:\""), std::string("Q:\\\r\nBad file name\r\n")); // the heading first: its drive named
+    CHECK_EQ(command(r, "FILES \"Q:\""), std::string("Bad file name\r\n")); // no heading: not A-P (review round 1, F10)
     CHECK_EQ(command(r, "KILL \"A:DH?.TXT\""), std::string());
     CHECK_EQ(command(r, "FILES \"DH*.*\""), std::string("A:\\\r\nFile not found\r\n"));
     CHECK(command(r, "FILES").find("DH") == std::string::npos);
@@ -1517,6 +1517,61 @@ TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
     CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n 2 \r\n"));
     CHECK_EQ(command(r, "CHAIN \"LF\""), std::string(" 1 \r\n"));
     CHECK_EQ(command(r, "LIST"), std::string("10 PRINT 1\r\n"));
+}
+
+// The IBM spec's fix-up, review round 1 (2026-11-19), by hand, each failing without its fix:
+// - F1: INPUT # skips leading spaces, CRs and LFs before an item (the IBM manual's pp. 133-134), so an LF after a
+//   quoted string or a trailing space, or a blank LF line, doesn't make the next item empty: "abc" LF 5 LF, "3 " LF 5
+//   LF and 1 LF LF 2 read 5, 5 and 2;
+// - F4: RUN of a text file whose last line, with no CR, is only blanks or a tab runs the program, as main's did;
+// - F7: an open APPEND file's LOF is the bytes on the disk and those appended so far: 49 + 300, 349;
+// - F10: FILES of a name whose drive isn't A-P has no heading (Bad file name), and the name is evaluated once
+//   (INPUT$(5) takes five keys, not ten).
+TEST(review_round_1_input_run_append_and_files_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFQ.TXT\":Q$=CHR$(34):L$=CHR$(10)"), std::string());
+    CHECK_EQ(command(r, "PRINT #1,Q$;\"abc\";Q$;L$;\"5\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFQ.TXT\":INPUT #1,A$,B:PRINT A$;B:CLOSE"), std::string("abc 5 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFS.TXT\":PRINT #1,\"3 \";L$;\"5\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFS.TXT\":INPUT #1,A,B:PRINT A;B:CLOSE"), std::string(" 3  5 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFB.TXT\":PRINT #1,\"1\";L$;L$;\"2\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFB.TXT\":INPUT #1,A,B:PRINT A;B:CLOSE"), std::string(" 1  2 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"T2.BAS\":PRINT #1,\"10 PRINT 1\":PRINT #1,\"20 PRINT 2\""), std::string());
+    CHECK_EQ(command(r, "PRINT #1,\"   \";:CLOSE"), std::string());
+    CHECK_EQ(command(r, "RUN \"T2\""), std::string(" 1 \r\n 2 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"T3.BAS\":PRINT #1,\"10 PRINT 3\":PRINT #1,CHR$(9);:CLOSE"), std::string());
+    CHECK_EQ(command(r, "RUN \"T3\""), std::string(" 3 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"AP.TXT\":PRINT #1,STRING$(47,\"a\"):CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"A\",#1,\"AP.TXT\":PRINT #1,STRING$(149,\"b\")"), std::string());
+    CHECK_EQ(command(r, "PRINT #1,STRING$(147,\"b\"):PRINT LOF(1):CLOSE"), std::string(" 349 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"AP.TXT\":PRINT LOF(1):CLOSE"), std::string(" 350 \r\n"));
+    CHECK_EQ(command(r, "FILES \"1:\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "FILES \"@:X\""), std::string("Bad file name\r\n"));
+    const size_t from = r.out.size();
+    r.type("FILES INPUT$(5)\r");
+    r.type("LFQ.*");
+    CHECK(r.until("Ok\r\n", ms(4000), from + 10));
+    CHECK(r.out.find("A:\\\r\nLFQ     .TXT \r\n", from) != std::string::npos);
+}
+
+// F2 (review round 1): a random file only read, its LOF asked, closes cleanly on a read-only drive: CLOSE keeps the
+// last record's byte count (function 30) only if a PUT changed it. Nothing is said, and ERDEV stays 0.
+TEST(review_round_1_a_random_file_only_read_closes_on_a_read_only_drive)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"ROX.DAT\",10:FIELD #1,10 AS A$:LSET A$=\"abc\":PUT #1,3:CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set a:[ro]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone, as the other cases that come back from the CCP
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"ROX.DAT\",10:PRINT LOF(1):CLOSE"), std::string(" 30 \r\n"));
+    CHECK_EQ(command(r, "PRINT ERDEV"), std::string(" 0 \r\n"));
 }
 
 // W5: KILL, NAME and FILES (FILFCB) cut the type that a typeless name of 12 or more characters runs into to 3, as

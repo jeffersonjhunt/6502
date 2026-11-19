@@ -440,6 +440,23 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
     CHECK_EQ(command(r, "PRINT TIMER"), std::string(" 0 \r\n"));
     const std::string seeded = command(r, "CLEAR:RANDOMIZE 0:PRINT RND;RND");
     CHECK_EQ(command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND"), seeded);
+    // Review round 1, F6: -32768 seeds the same as a number, an integer variable and at the prompt (FRCINT's), and
+    // 32767.6, which FRCINT would round out of the integers, is folded, not Overflow.
+    const std::string m32768 = command(r, "CLEAR:RANDOMIZE -32768:PRINT RND");
+    CHECK_EQ(command(r, "CLEAR:X%=-32768:RANDOMIZE X%:PRINT RND"), m32768);
+    {
+        const size_t from = r.out.size();
+        r.type("CLEAR:RANDOMIZE:PRINT RND\r");
+        CHECK(r.until("? ", ms(4000), from));
+        r.type("-32768\r");
+        CHECK(r.until("Ok\r\n", ms(4000), from));
+        CHECK(r.out.find(m32768, from) != std::string::npos);
+    }
+    CHECK(command(r, "CLEAR:RANDOMIZE 32767.6:PRINT RND").find("Overflow") == std::string::npos);
+    // Review round 1, F8: a leading "+" and the floating "$" aren't digits: 24 "#" with either are taken.
+    CHECK_EQ(command(r, "PRINT USING \"+########################\";1"), std::string("                       +1\r\n"));
+    CHECK_EQ(command(r, "PRINT USING \"$$#######################\";1"), std::string("                       $1\r\n"));
+    CHECK_EQ(command(r, "PRINT USING \"#########################\";1"), std::string("Illegal function call\r\n"));
     CHECK(seeded != command(r, "CLEAR:RANDOMIZE 1:PRINT RND;RND"));
 
     const size_t at = banner.find(" Bytes free");

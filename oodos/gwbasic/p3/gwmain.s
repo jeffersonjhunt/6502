@@ -318,13 +318,30 @@ RANDOMP:        BEQ     INPRG          ; no argument: ask
                 PHA
                 LDA     TXTPTR
                 PHA
-                JSR     GETYP          ; OO-1: a single or a double past the
-                BMI     @int           ; integers (the IBM manual's p. 286 takes
-                BEQ     @int           ; any number) seeds from its single's
-                LDA     FACEXP         ; bytes folded, where the source's FRCINT
-                CMP     #$90           ; gives Overflow (a default, for the
-                BCC     @int           ; owner's veto); within them, and a
-                JSR     FRCSNG         ; string, FRCINT's as before
+                JSR     GETYP          ; OO-1: a single or a double FRCINT would
+                BMI     @int           ; refuse (the IBM manual's p. 286 takes any
+                BEQ     @int           ; number) seeds from its single's bytes
+                LDA     FACEXP         ; folded, where the source's FRCINT gives
+                CMP     #$90           ; Overflow (a default, for the owner's
+                BCC     @lo            ; veto); what it takes, and a string, as
+                BNE     @fold          ; before. By the value (review round 1,
+                LDA     FACM1          ; F6): 32,768 to 65,535.99: only -32768
+                CMP     #$80           ; to -32768.49 rounds into the integers
+                BNE     @fold          ; (the mantissa $800000-$80007F, negative)
+                LDA     FACLO+1
+                BNE     @fold
+                LDA     FACLO
+                BPL     @int
+                BRA     @fold
+@lo:            CMP     #$8F           ; 16,384 to 32,767.99: 32,767.5 and past
+                BNE     @int           ; round out of them (the mantissa $FFFE00
+                LDA     FACM1          ; on, positive)
+                CMP     #$7F
+                BNE     @int
+                LDA     FACLO+1
+                CMP     #$FE
+                BCC     @int
+@fold:          JSR     FRCSNG
                 LDA     FACLO
                 EOR     FACLO+1
                 STA     RBL

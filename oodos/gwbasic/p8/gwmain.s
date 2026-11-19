@@ -592,10 +592,16 @@ NTAUTO:         JSR     ISFLIO         ; PINLIN's DSKCHI: a line of a file
                 BEQ     :+             ; TXTPTR where NEWSTT starts)
                 FJSR    CHNRET
                 JMP     NEWSTT
-:               LDA     BUF            ; OO-1: the file's last line, with no CR,
-                BEQ     @run           ; goes in first, as LOAD's does (the IBM
-                DEC     RUNPND         ; manual's p. 306, RUN filespec loads it);
-                BRA     NTSTOP         ; FINIH then runs it
+:               LDX     #0             ; OO-1: the file's last line, with no CR,
+@w:             LDA     BUF,X          ; goes in first, as LOAD's does (the IBM
+                BEQ     @run           ; manual's p. 306, RUN filespec loads it);
+                INX                    ; FINIH then runs it. Only blanks and
+                CMP     #' '           ; tabs: nothing to put in, the run at
+                BEQ     @w             ; once (review round 1, F4)
+                CMP     #9
+                BEQ     @w
+                DEC     RUNPND
+                BRA     NTSTOP
 @run:           JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
                 JMP     NEWSTT
 @kbd:           JSR     PINLIN         ; TXTPTR at BUF-1
