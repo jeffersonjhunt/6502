@@ -337,8 +337,12 @@ ERFNO4:         JMP     DERFNO
 
 ; LOC(n): the device's LOC (DSKLOC: the records read or written), as an
 ; integer. LOF(n): its LOF, which makes the FAC itself (DSKLOF).
-LOC:            LDX     #G_LOC
-GENFUN:         JSR     FACDSP
+LOC:            LDX     #G_LOC         ; (OO-1: a random file's, the FAC itself, a
+                JSR     FACDSP         ; double: review round 1, F3)
+                LDA     VALTYP
+                CMP     #VT_DBL
+                BNE     GFUNX
+                RTS
 GFUNX:          JMP     MAKINT
 LOF:            LDX     #G_LOF
                 JMP     FACDSP

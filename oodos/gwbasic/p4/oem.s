@@ -24,10 +24,6 @@
 ; ERROR, so the home block's stubs far call P3 instead, no new far call. Its
 ; jump table slot here is kept, retired (DIRHR: an RTS), so P4's later
 ; entries keep their places.
-.code
-
-DIRHR:          RTS
-
 ; --- COM1's OEM routines (GIOCOM.ASM's INICOM, SNDCOM, RECCOM, STACOM,
 ; TRMCOM; the 1983 source has none: the project's own) -----------------------
 ;
@@ -78,11 +74,11 @@ RECCOM:         LDY     #A_STATIN
                 JSR     BDOS
                 CMP     #0
                 CLC
-                BEQ     @x             ; none waits
+                BEQ     DIRHR          ; none waits
                 LDY     #A_READ
                 JSR     BDOS
                 SEC
-@x:             RTS
+DIRHR:          RTS                    ; (and the directory hook's retired slot)
 
 STACOM:         LDY     #A_STATIN
                 JSR     BDOS
