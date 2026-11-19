@@ -5054,9 +5054,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       .1388798; seed 4: .1719568 .5273236 .6879686 .713297): the port gives .2226007 .5941419 .2414202 .2013798 and
       .628988 .765605 .5551561 .775797 (each after CLEAR or as a program's RUN; the same seed again gives the same
       run, as p. 287 says). The values differ: IBM 3.0's generator or seeding isn't the 1983 source's, which the
-      port keeps (the manual gives no rule). Not changed: for the owner. The prompt also differs in case: p. 286-287
-      print `Random Number Seed (-32768 to 32767)?`, the source and the port `Random number seed`; not in the
-      audit's list, so not changed: for the owner.
+      port keeps (the manual gives no rule). Kept, by the owner's option A (below: the source's generator, the
+      difference recorded). The prompt differed in case too (p. 286-287 print `Random Number Seed (-32768 to
+      32767)?`, the source `Random number seed`): the manual's since U8 (the owner's answer 3).
     - 11: RENUM changes the reference itself (p. 293): CONDX keeps CONTXT as the line's constant left it, and MAKPTR
       writes there, not over a constant after it.
     - 14: LLIST takes no file name (p. 166): `LLIST 10,"name"` is Syntax error.
@@ -5065,27 +5065,20 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       such a line (the source's: item 15 is RUN's). 7c's W4 case now runs both lines.
     - 17: LPOS(0) and LPOS(1) are LPT1:'s column + 1 (p. 178); 2 and 3 (LPT2:, LPT3:, no driver here) are 1, and past
       3 Illegal function call (Q8's default).
-    - 18: ERDEV and ERDEV$ are words (pp. 91-93; the 1983 table has none): crunched to `$FE $95` (the source's
+    - 18: ERDEV and ERDEV$ are words (pp. 91-93; the 1983 table has none; their values since U7, below): crunched to `$FE $95` (the source's
       STMDSX token) and `$FE $A2` (the OO-1's), listed back, read in a formula through EVALX's far call to the home
       block's ERDEVP, and as a statement (an assignment too) Syntax error. Their values are 0 and "": nothing records
       a device error yet, since OODOS's errors are mapped in P4, which has no room (a default; with P4's relief they
       can take the BDOS's physical error and the drive). 17 bytes of the resident core.
     - **Defaults applied** (the audit left the reading open; listed again below, for the owner's veto):
-      - 2, FILES's heading and bytes free: **not built**. P4 has 68 bytes (below); the heading (the drive) and the
-        free space by OODOS's function 46, printed as a number, need about 100-150. *Proposed:* in the home block's
-        FILES stub (`p8/far4.s`, 9,016 free), before and after its far call to P4's FILESP, which stays as it is.
-      - 4, LOF in bytes: OODOS keeps CP/M 3's last-record byte count (function 30's f6' sets it on CLOSE, an open
-        with CR $FF returns it: OODOS 0.6), so by the default LOF should be the bytes. **Not built:** it needs P4's
-        close to set the count and DSKLOF to read it, about 80-150 bytes, and P4 has 68. *Proposed:* relief for P4
-        first (DSKLOF and the count's setting are P4's file layer): move a P4 routine no hot path uses, FIELD and
-        LSET/RSET or the COM driver, to P3 (7,270 free) at the owner's word; until then LOF stays records x 128, an
-        OO-1 limit as recorded.
-      - 12: record numbers past 32767 are taken (pp. 113, 279; A-4), up to 65,535 (ADRGET's reach); a record whose
-        bytes reach past 128-byte record 65,535 (8 MB: RECRD's 16 bits, short of CP/M 3's 18-bit random record) is
-        Bad record number, not the source's Illegal function call, and so is one that would cross it (the source's
-        INCW RECRD wrapped to record 0: a latent fault, now refused); a negative number is Bad record number still
-        (P1's ADRGTS gives FRQINT's sign). Widening RECRD to CP/M 3's 18 bits needs FD_PHY and F_CLOC widened too, in
-        P4.
+      - 2, FILES's heading and bytes free: built in U5 (below), after the owner's answer 1: a heading line with
+        the drive's root and a bytes-free line.
+      - 4, LOF in bytes: built in U7 (below), after the owner's answer 2: OODOS keeps CP/M 3's last-record byte
+        count, so LOF is the bytes.
+      - 12: record numbers past 32767 are taken (pp. 113, 279; A-4), up to 65,535 (ADRGET's reach); since U7 (the
+        owner's answer 2) a record whose bytes reach past CP/M 3's 18-bit random record, 128-byte record 262,143
+        (32 MB), is Bad record number, not the source's Illegal function call, and so is one that would cross it;
+        a negative number is Bad record number still (P1's ADRGTS gives FRQINT's sign).
       - 13: 0 MOD 0 is Division by zero (A-8): IMOD tests the divisor first. spk_rnd1 and spk_rnd3 agree with
         PC-BASIC now.
       - 19: SPC(n) of a negative n and TAB(n) of one below 1 are Illegal function call (pp. 327, 340). print.bas's
@@ -5170,9 +5163,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - Q6, Q9, Q10, Q11: the source's (the tail of a file whose last quoted item never closes; STRING$ of a null
       string; the format-only cases `c_e5`, `c_e7`, `clearcm2`, `onevnl`; CLEAR closing the files).
     - Q8: LPOS(2) and LPOS(3) are 1, LPOS(n>3) Illegal function call.
-  - **Found, for the owner** (the manual on the scan, past the audit's list): RANDOMIZE 3 and 4 don't give p.
-    287's numbers (item 10, above); RANDOMIZE's prompt is "Random Number Seed" in the manual (pp. 286-287),
-    "Random number seed" in the source and the port; A-8 says a division by zero can't be trapped by ON ERROR (the
+  - **Found, for the owner** (the manual on the scan, past the audit's list; the first two answered since): RANDOMIZE
+    3 and 4 don't give p. 287's numbers (item 10, above: kept, option A); RANDOMIZE's prompt is "Random Number Seed"
+    in the manual (pp. 286-287), "Random number seed" in the source (the manual's since U8); A-8 says a division by zero can't be trapped by ON ERROR (the
     source's Division by zero, a message and machine infinity, the program going on, is the same thing in effect).
   - **For after 1.0** (section D's rest, the owner's G16; 7f and 7e4 take KEY 15-20, PLAY's `>` and `<`, the TIMER
     seed, ON COM(n), POINT(n)):
@@ -5181,15 +5174,80 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - `<stdin` and `>stdout` on the command line, and EOF(0) (p. 87);
     - /M:'s second value, the largest block size;
     - Ctrl-PrtSc, the screen echoed to the printer;
-    - FILES's heading and bytes free, and LOF in bytes, once P4 has room (above);
     - OPEN "COM...,PE", parity checking (pp. 226-232);
-    - ERDEV and ERDEV$'s values from OODOS's physical errors (pp. 91-93);
     - IOCTL and IOCTL$ (pp. 139-141), and OPEN of an installed device driver (3.0), both waiting on OODOS;
     - SHELL (pp. 317-321) and ENVIRON, ENVIRON$ (pp. 81-86), 7g's questions, SHELL an OODOS interface question;
-    - record numbers past 8 MB (CP/M 3's 18-bit random record, RECRD and the FDB's record fields widened).
-  - **Not done in the fix-up:** C-1 items 2 and 4 (P4's room: stopped, with the proposals above); the records of
-    7a-7d are left as written, but for the re-citations above (a line that cites PC-BASIC there for a B item is
-    read with this table).
+    - record numbers past 65,535 (ADRGET's 16 bits; the manual's reach is 16,777,215).
+  - **The owner's answers to the first build** (2026-11-19, "recommendations as listed for the four"), built as U5-U8
+    on the same branch:
+    - **U5, FILES** (answer 1): the home block's FILES stub (`p8/far4.s`) prints the heading line before P4's
+      FILESP, which is unchanged, and the bytes-free line after it (pp. 102-103). The heading is the drive's root,
+      `A:\` (OODOS has no directories), the name's `d:` or the current drive (function 25); none for a name that
+      isn't a string or is null (FILESP's Type mismatch, Bad file name), as PC-BASIC; a name with a bad drive
+      (`Q:`) has its heading, then Bad file name. The free bytes are function 46's records x 128, printed as a
+      double: ` 7995392 Bytes free` on the test card's A:. An error in FILESP (File not found) ends it after the
+      heading, as PC-BASIC. P8 +247 bytes. d_files.differ by hand; the hand cases check the heading, the count a
+      multiple of 128 that falls by at least 16,384 for a 16 KB file, and B:'s heading with File not found.
+    - **U6, P4's relief** (answer 2), measured first:
+      - FIELD, LSET, RSET (`p4/dskcom.s`): FIELDP 137 bytes, which needs P4's FILSCN and GETDAT (moved, a far call
+        back into P4 at every FIELD); LSETP and RSETP 313 bytes and 8 of RAM, which use only the resident core's
+        string routines (FRMEQL, FRESTR, GETSPA, STRINI, PUTNEW): no new far call.
+      - The COM driver (`p4/giocom.s`): 1,124 bytes, 35 of tables, 21 of RAM, and 23 P4-local routines it calls
+        (INIFDB, DEVBIN, DEVBOT, FILOPT, the DER* errors, CRIFEL, UPDPOS, GETDAT...), reached through GIOTBL's
+        device dispatch for every byte a COM file moves: a far call each way a byte if moved.
+
+      LSET and RSET are the clean part of the less-connected candidate and moved whole, to `p3/dskcom.s`; FIELD
+      stays. Their two P4 jump-table slots are kept, retired (LSETR, RSETR: an RTS), so P4's later entries keep
+      their places: P1, P2, P5 and P6 are byte-identical to before the move, the resident core differs in 4 bytes
+      (far calls to P3's entries after `dskcom.s`) and P8 in 19. A loop's statement, before → after the move:
+      PUT #1,1 17,120 → 17,025 cycles; GET #1,2 17,259 → 17,130; LSET 2,188 → 2,199; RSET 2,162 → 2,163; CVI
+      2,745 → 2,748; FIELD 2,848 → 2,850 (the case `random_file_statements_in_a_loop_are_timed`). P4 12,220 →
+      11,901 (387 free), P3 5,018 → 5,344.
+    - **U7, with the room** (answer 2):
+      - **LOF in bytes** (p. 175): CLOSE keeps the last record's byte count with the file (function 30, f6': an
+        output file's last record's bytes, the ^Z counted; a random file's size's), OPEN reads it back (CR `$FF`,
+        OODOS 0.6). An input file's LOF is its records less the last one's unused bytes; a random file's the
+        larger of its size at the first PUT or LOF and the furthest byte a PUT has written (record x LEN); an
+        output file's the records x 128 still (its last record is the buffer until the close); an append file's,
+        while open, the records with the old count. The size goes to the FAC as an exact double. f_locof (601, 4)
+        and r_lof (100, 200, 700) agree with PC-BASIC; FTIME's 1,664 is 1,601, LEN 200's five records 1,000. A PUT
+        costs 2,419 cycles more (19,444: the record x LEN multiply each PUT); a GET 176 (17,306: the 3-byte record).
+        That 7d3 BLOAD's ^Z cut could use the count too is left as it was.
+      - **ERDEV and ERDEV$** (pp. 91-93), the OO-1's: a device error is a physical error of OODOS's, which P4's
+        PBDOS keeps (a new P4 entry, ERDVGT, after DSKCHP); ERDEV is its code, appendix A's 1-9 (the high byte 0,
+        where a PC's has the device's attributes), and ERDEV$ the drive it was on, `A:` to `P:`, the SCB's error
+        drive (`$51`, function 49); 0 and "" before any. After an OPEN on H: with no image, ` 4 <H:>`.
+      - **Records to 32 MB:** RECRD is 3 bytes and R2 its top bits, so a random file reaches CP/M 3's 18-bit
+        random record; a record whose last byte is past 128-byte record 262,143 is Bad record number. Record 20,000
+        of LEN 1,024 (past 8 MB) is PUT, read back and sized again from the disk after a reopen; LEN 600's 55,924
+        fits and 55,925 doesn't; LEN 1,024's 32,768 fits and 32,769 doesn't.
+      - P4 11,901 → 12,277 (11 free); P8 3,519 → 3,576.
+    - **U8, RANDOMIZE's prompt** (answer 3): `Random Number Seed (-32768 to 32767)? `, the manual's (pp. 286-287);
+      randin's `.differ` has it.
+    - **Free for BASIC** (answer 4): 34,775, 7 bytes above the floor (34,768). Noted: a later resident change that
+      reaches it comes to the owner.
+    - **RND** (the owner, 2026-11-19, option A): RND stays the manual's repeatable generator (pp. 286-287), the
+      source's, kept; its numbers differ from p. 287's printed ones (seed 3: .2226007 .5941419 .2414202 .2013798
+      here, .7655695 .3558607 .3742327 .1388798 there; seed 4: .628988 .765605 .5551561 .775797 here, .1719568
+      .5273236 .6879686 .713297 there), recorded, with no attempt to reproduce IBM's generator. A true random
+      source is planned with 7f (below).
+    - Mutants, each seen failing on its own case: U5 the heading left out, the free line left out, the drive's
+      letter not taken; U6 LSET's stub on the retired slot; U7 the close's count left out, the open's CR 0,
+      LOFPUT left out, DSKSZ's count ignored, R2 0, the reach's 4 an 8, ERDCOD not kept, ERDEV$'s letter off by
+      one (R2 0 and the reach first passed: the case gained a LOF from the disk after a reopen, and a redundant
+      start check went, then both failed); U8 the source's prompt.
+    - **Sizes after U8:** the resident core 11,465, free for BASIC 34,775; P1 8,488 (3,800 free), P2 5,815
+      (6,473), P3 5,344 (6,944), P4 12,277 (11), P5 6,472 (5,816), P6 11,698 (590), P8 3,576 (8,712).
+    - **Cycles after U8** (the gates): `PSET (X%,Y%),1` 2,027 (9,000); `LINE (0,0)-(639,199),1` 132,774 (200,000);
+      `PRINT A$;` 21,216 (30,000); the scroll 13,300 less the interrupt handlers (14,000; 13,882 with them).
+  - **The defaults, for the owner's veto, now** (U5-U8 applied): FILES's heading is the drive's root (`A:\`), and
+    a name with a bad drive prints it before its error; LOF of an open APPEND file uses its old byte count until it
+    is closed; ERDEV's high byte is 0 and ERDEV$ the SCB's error drive; RANDOMIZE's seed past the integers is the
+    single's bytes folded; 0 MOD 0 Division by zero; SPC(n<0) and TAB(n<1) Illegal function call; reading a file
+    opened for output Input past end (62); LPOS(2) and LPOS(3) 1, past 3 Illegal function call; Q6, Q9, Q10, Q11
+    the source's.
+  - **Not done in the fix-up:** the records of 7a-7d are left as written, but for the re-citations above (a line
+    that cites PC-BASIC there for a B item is read with this table). Items 5, 6 and 16 are 7f's.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
@@ -5201,6 +5259,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       PLAY's `>` and `<`, an octave up or down (pp. 250-251); RANDOMIZE's seed from TIMER (`RANDOMIZE TIMER`, p.
       286: the fix-up already takes a single or double seed, so TIMER past 32767 doesn't overflow). Also from
       the manual: PLAY's P0 is outside P's 1-64 (the source takes it as no pause), and SOUND's shortest duration.
+    - *Planned (the owner, 2026-11-19, option A), its own small plan alongside 7f:* a random source. A new BIOS
+      function returns random bytes from SID voice 3's noise (its oscillator read), only when the sound card's 6510
+      isn't playing (the busy case is that plan's question); the BIOS's jump table grows and its version is raised;
+      OODOS programs reach it through OOLIB too. RND stays the manual's repeatable generator; GW-BASIC gets a
+      recorded OO-1 extension that reseeds RND from the BIOS function.
   - **Size:** 6–8 KB banked.
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.
