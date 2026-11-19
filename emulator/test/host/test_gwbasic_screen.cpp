@@ -852,6 +852,37 @@ TEST(the_key_line_follows_pages_and_width)
     CHECK_EQ(line(r, 29), KEYLINE);
 }
 
+// LOCATE's row past the window's last is Illegal function call, whatever the row (7d2's review round 1, F1): with
+// the key line on, 25 and 255 (24 is the last); with it off, 26 and 255; at 30 rows, 30 and 255 on, 31 and 255 off.
+// Each leaves the cursor where it was (the message on row 0 after CLS) and the key line drawn. Guards a program's
+// LOCATE taking the cursor off the screen. Seen failing with LOCATE's check made on the row less KEYSW, which wraps
+// 255 to 0 with the key line on.
+TEST(locate_past_the_last_row_is_illegal)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    auto bad = [&](const std::vector<std::string> &rows, unsigned last) {
+        for (const std::string &row : rows)
+        {
+            enter(r, "CLS:LOCATE " + row + ",1:PRINT \"X\"", ms(300));
+            CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+        }
+        enter(r, "CLS:LOCATE " + std::to_string(last) + ",1:PRINT \"L\";:LOCATE 5,1", ms(300));
+        CHECK_EQ(line(r, last - 1), std::string("L"));
+        CHECK(last_row(r, "Illegal") < 0);
+    };
+    bad({"25", "255"}, 24);
+    CHECK_EQ(line(r, 24), KEYLINE);
+    enter(r, "KEY OFF", ms(300));
+    bad({"26", "255"}, 25);
+    enter(r, "WIDTH 80,30:KEY ON", ms(400));
+    bad({"30", "255"}, 29);
+    CHECK_EQ(line(r, 29), KEYLINE);
+    enter(r, "KEY OFF", ms(300));
+    bad({"31", "255"}, 30);
+}
+
 // The soft keys (GIOKYB.ASM's CHKFKY and GETFKY; 7d2, the owner's answers 2 and 3): at Ok, F1 types its text, LIST,
 // with no CR, and Enter lists; F2's RUN and its CR run the program; in a program INKEY$ gives F1's text a byte a call.
 // A text the queue hasn't room for is dropped whole: with 20 keys waiting, F10's 13 bytes don't fit the 11 left, so

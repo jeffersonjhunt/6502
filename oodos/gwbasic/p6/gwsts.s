@@ -154,12 +154,12 @@ LOCATP:         JSR     P6IN
 YLCPRM:         CMP     #0
                 BEQ     GOFCER
                 STA     LOCY
-                SEC                    ; less KEYSW (0, or $FF with the key line: 7d2)
-                SBC     KEYSW
-                CMP     LINCNT
-                BEQ     :+
-                BCS     GOFCER
-:               JSR     SCNINT         ; the column
+                LDA     LINCNT         ; the last row: LINCNT, less 1 with the key
+                CLC                    ; line (KEYSW $FF: 7d2), the line compared
+                ADC     KEYSW          ; with it, so no row wraps (255 is past it)
+                CMP     LOCY
+                BCC     GOFCER
+                JSR     SCNINT         ; the column
                 BCC     XLCPRM
                 JSR     SCNPOS
                 LDA     xDH
