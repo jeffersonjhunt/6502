@@ -41,7 +41,7 @@
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
-.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET
+.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, CIRCLE
 
 .code
 
@@ -214,8 +214,9 @@ STMDSX:         S       FILES          ; FILES
                 S       ADVERR         ; DATE$ .. PAINT
 .endrepeat
                 S       COMS           ; COM (p8/far3.s)
-.repeat ERDEV_XS - COM_XS - 1
-                S       ADVERR         ; CIRCLE .. TIMER
+                S       CIRCLE         ; CIRCLE (p8/far5.s, 7e2)
+.repeat ERDEV_XS - CIRCLE_XS - 1
+                S       ADVERR         ; DRAW .. TIMER
 .endrepeat
                 S       SNERR          ; ERDEV: OO-1, a read-only variable (the IBM manual's p. 91)
                 S       ADVERR         ; IOCTL: the source's, Advanced Feature

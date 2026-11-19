@@ -1290,7 +1290,16 @@ GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
 ADVGRP.ASM PAINT -> later 7e: PAINT (7e2)
 GWSTS.ASM COMS -> p3/gwsts.s COMSP # its stub p8/far3.s COMS (STMDSX's); ON COM's trap 7f
-ADVGRP.ASM CIRCLE -> later 7e: CIRCLE (7e2)
+ADVGRP.ASM CIRCLE -> p5/advgrp.s CIRCP # its home block stub p8/far5.s CIRCLE, screen mode; the parse (SCAN1, GETIN2, CNPNTS, ATRSCN's, the angles, the aspect, CIRC1, CIRC11, CIRC2, CSTPLT) in p3/advgrp.s CIRCA by one far call (7e2, the owner's option 1); OO-1: the cursor moves to the centre only when the statement parses
+ADVGRP.ASM CGTCNT -> p3/advgrp.s CGTCNT # CGTC2 inline; the flag byte on the 6502's stack across FRMEVL
+ADVGRP.ASM CMPONE -> p3/advgrp.s CMPONE # MOVRI's 1 by CONE (also FDIV's dividend, CIRC1)
+ADVGRP.ASM CPLOT8 -> p5/advgrp.s CPLOT8 # the swaps by XCHBD
+ADVGRP.ASM POPTRT -> p5/advgrp.s CIRCLP # CIRCLE's exit (Y >= X): GX_W1BACK, no TXTPTR to pop (the 6502's is zero page)
+ADVGRP.ASM SCALEY -> p5/advgrp.s SCALEY # SCALE, SCALE2 inline
+ADVGRP.ASM CLINE2 -> p5/advgrp.s CLINE2 # DOGRPH's true clipping (the IBM spec's fix-up, G2) for a radius line
+ADVGRP.ASM GTABSC -> p5/advgrp.s GTABSC
+ADVGRP.ASM CPLOT4 -> p5/advgrp.s CPLOT4 # CPLOT, CNBTWN, CLINEC, CLINSC, CLINE, CBTWEN, GCPLFN, CPLTIT, CPLFIN inline: HL, DE and the count in zero page (CHL, CDE, CPLN), not the 8086's stack
+ADVGRP.ASM CPLSCX -> p5/advgrp.s CPLSCX # XCHBD the swap
 ADVGRP.ASM DRAW -> later 7e: DRAW, with MACLNG (7e2)
 GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER

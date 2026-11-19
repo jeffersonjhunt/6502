@@ -22,7 +22,7 @@
 .global CBANK, CMASK, CXB, CY7
 .global SCANR, SCANL, TUPC, TDOWNC, PNTINI, PSTOR, PNX, PNY, PCSX, PBORD ; 7e2: PAINT's
 ; p5/gengrp.s
-.global GRPACX, GRPACY, GXPOS, GYPOS, ATRBYT, GRPINI
+.global GRPACX, GRPACY, GXPOS, GYPOS, ATRBYT, GRPINI, DOGRPH
 
 GM_TEXT         = 0                    ; GMODEV: SCREEN 0
 GM_TILE         = 1                    ;   SCREEN 1: the tile frame

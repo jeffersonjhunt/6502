@@ -5,10 +5,11 @@
 ; GW-BASIC set up). LINE's is p8/gwmain.s's (LINE INPUT's too).
 ;
 ;   PSET PRESET   GENGRP.ASM's
+;   CIRCLE        ADVGRP.ASM's (7e2): P5's CIRCP, which parses it in P3
 
 .include "gwbasic.inc"
 
-.export PSET, PRESET
+.export PSET, PRESET, CIRCLE
 .import ADVERR, SCRMOD
 
 .code
@@ -20,5 +21,9 @@ PSET:           BIT     SCRMOD
 PRESET:         BIT     SCRMOD
                 BPL     ADV
                 FJSR    PRSETP
+                RTS
+CIRCLE:         BIT     SCRMOD
+                BPL     ADV
+                FJSR    CIRCP
                 RTS
 ADV:            JMP     ADVERR

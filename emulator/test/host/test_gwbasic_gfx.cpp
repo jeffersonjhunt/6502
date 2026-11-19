@@ -23,6 +23,7 @@
 #include "harness.h"
 #include "oodos_rig.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -30,6 +31,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace ooe::test;
@@ -300,6 +302,226 @@ namespace
                 std::printf("  row %zu:\n    want %s\n    got  %s\n", y, want[y].c_str(), got[y].c_str());
         if (bad)
             std::printf("  %u rows of 200 differ\n", bad);
+        return bad;
+    }
+
+    /// The test's own reference of the 1983 source's drawing (7e2: the owner's answer 3, CIRCLE's ring the source's):
+    /// a screen of pixels, LINE's walk (GENGRP.ASM's DOGRPH with GWSTS.ASM's LINLP3: from the smaller y, the sum from
+    /// half the major delta, only the pixels on the screen set, the true clipping) and CIRCLE (ADVGRP.ASM's CIRCLE:
+    /// the half-unit loop, CPLOT8's octants, SCALE's rounding, CGTCNT's point counts), written from the source's
+    /// meaning, as G9's Life is written from LIFEGFX's.
+    struct Ref
+    {
+        int mode, w, ax, ay, atr;
+        std::map<std::pair<int, int>, int> px;
+        explicit Ref(int m) : mode(m), w(m == 1 ? 320 : 640), ax(w / 2), ay(100), atr(m == 1 ? 3 : 1) {}
+        bool on(int x, int y) const { return x >= 0 && x < w && y >= 0 && y < 200; }
+        void set(int x, int y, int c)
+        {
+            if (on(x, y))
+                px[{x, y}] = c;
+        }
+        int at(int x, int y) const
+        {
+            const auto i = px.find({x, y});
+            return i == px.end() ? 0 : i->second;
+        }
+        /// The rows as dump() gives them.
+        std::vector<std::string> rows() const
+        {
+            const unsigned bits = mode == 1 ? 2 : 1, per = 8 / bits;
+            std::vector<std::string> out;
+            for (int y = 0; y < 200; ++y)
+            {
+                std::string s;
+                for (unsigned b = 0; b < 80; ++b)
+                {
+                    int v = 0;
+                    for (unsigned i = 0; i < per; ++i)
+                        v = v << bits | at(static_cast<int>(b * per + i), y);
+                    char h[3];
+                    std::snprintf(h, sizeof h, "%02X", v);
+                    s += h;
+                }
+                out.push_back(s);
+            }
+            return out;
+        }
+        void line(int x1, int y1, int x2, int y2, int c)
+        {
+            if (y2 < y1)
+                std::swap(x1, x2), std::swap(y1, y2);
+            const int dy = y2 - y1, xs = x2 >= x1 ? 1 : -1, dx = std::abs(x2 - x1);
+            const bool ymaj = dy >= dx;
+            const int maj = ymaj ? dy : dx, mn = ymaj ? dx : dy;
+            int sum = maj / 2, x = x1, y = y1;
+            for (int i = 0; i <= maj; ++i)
+            {
+                set(x, y, c);
+                sum += mn;
+                if (sum >= maj)
+                {
+                    sum -= maj;
+                    if (ymaj)
+                        x += xs;
+                    else
+                        ++y;
+                }
+                if (ymaj)
+                    ++y;
+                else
+                    x += xs;
+            }
+        }
+        static int cint(float v) { return static_cast<int>(std::lround(v)); }
+        static int s16(unsigned v) { v &= 0xFFFF; return v & 0x8000 ? static_cast<int>(v) - 0x10000 : static_cast<int>(v); }
+        static unsigned scale(unsigned a, unsigned v)
+        {
+            if ((a & 0xFF) == 0)
+                return a >> 8 ? v : 0;
+            return (((a & 0xFF) * (v & 0xFFFF) + 128) >> 8) & 0xFFFF;
+        }
+        /// CIRCLE (cx,cy),r,c,start,end,aspect: NAN for an argument not given (c -1: the default).
+        void circle(int cx, int cy, int r, int c = -1, float start = NAN, float end = NAN, float aspect = NAN)
+        {
+            if (c < 0)
+                c = mode == 1 ? 3 : 1;
+            c = std::min(c, mode == 1 ? 3 : 1);
+            ax = cx, ay = cy;
+            const int npts = cint(static_cast<float>(r) * 0.70710677f);
+            unsigned clinef = 0, csclxy = 0;
+            auto cnt = [&](float v, unsigned bit) {
+                if (v < 0) // (-0 is 0: no line, CGTCNT's exponent test)
+                    v = -v, clinef |= bit;
+                const float f = v * 0.15915494f;
+                return static_cast<unsigned>(cint(f * static_cast<float>(static_cast<int16_t>((npts * 8) & 0xFFFF)))) & 0xFFFF;
+            };
+            const unsigned sc = std::isnan(start) ? 0 : cnt(start, 1), ec = std::isnan(end) ? 0xFFFF : cnt(end, 128);
+            unsigned plotf, cst, cen;
+            if (ec >= sc)
+                plotf = 0, cst = sc, cen = ec;
+            else
+            {
+                plotf = 0xFF, cst = ec, cen = sc;
+                unsigned a = clinef;
+                a = ((a << 1) | (a >> 7)) & 0xFF;
+                a = ((a << 1) | (a >> 7)) & 0xFF;
+                a |= clinef;
+                clinef = ((a >> 1) | ((a & 1) << 7)) & 0xFF;
+            }
+            unsigned asp;
+            if (std::isnan(aspect))
+                asp = mode == 1 ? 213 : 107;
+            else
+            {
+                float v = aspect;
+                if (v > 1)
+                    csclxy = 1, v = 1 / v;
+                asp = static_cast<unsigned>(cint(v * 256)) & 0xFFFF;
+            }
+            auto cplscx = [&](unsigned v) { // (DE, HL)
+                const unsigned sv = scale(asp, v);
+                return csclxy ? std::pair<unsigned, unsigned>{v, sv} : std::pair<unsigned, unsigned>{sv, v};
+            };
+            auto plot = [&](unsigned hl, unsigned de, unsigned pc) {
+                auto pt = [&] { set(cx + s16(hl), cy + s16(de), c); };
+                auto ln = [&] { line(cx + s16(hl), cy + s16(de), cx, cy, c); };
+                if (cst == pc)
+                    return (clinef & 1) ? ln() : pt();
+                if (cst > pc)
+                    return plotf ? pt() : void();
+                if (cen == pc)
+                    return (clinef & 128) ? ln() : pt();
+                if (cen > pc)
+                    return plotf ? void() : pt();
+                if (plotf)
+                    pt();
+            };
+            // CPLOT8, as the source has it (the model's order): HL x, DE y on entry.
+            auto oct8 = [&](unsigned x, unsigned y) {
+                unsigned cpcnt = y, cpcnt8 = 0;
+                auto [de1, hl1] = cplscx(y);
+                unsigned cxoff = hl1;
+                unsigned hl = de1, de = x;
+                const unsigned save = hl;
+                auto [de2, hl2] = cplscx(de);
+                unsigned cyoff = de2;
+                de = (0x10000 - save) & 0xFFFF;
+                hl = hl2;
+                auto cplot4 = [&](unsigned &h, unsigned &d) {
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        const unsigned d8 = cpcnt8;
+                        cpcnt8 = (npts * 2 + d8) & 0xFFFF;
+                        plot(h, d, (cpcnt + d8) & 0xFFFF);
+                        if (k == 3)
+                            return;
+                        const unsigned nh = (0x10000 - cxoff) & 0xFFFF, nd = (0x10000 - cyoff) & 0xFFFF;
+                        cxoff = h, cyoff = d, h = nh, d = nd;
+                    }
+                };
+                cplot4(hl, de);
+                cpcnt8 = static_cast<unsigned>(npts) & 0xFFFF;
+                cpcnt = (npts - cpcnt) & 0xFFFF;
+                cxoff = (0x10000 - cxoff) & 0xFFFF;
+                de = (0x10000 - de) & 0xFFFF;
+                cplot4(hl, de);
+            };
+            unsigned y = 0, x = (2u * static_cast<unsigned>(r)) & 0xFFFF;
+            int sum = 0;
+            for (;;)
+            {
+                if ((y & 1) == 0)
+                {
+                    oct8(((x + 1) & 0xFFFF) >> 1, ((y + 1) & 0xFFFF) >> 1);
+                    if (y >= x)
+                        break;
+                }
+                sum = static_cast<int16_t>((sum + 2 * static_cast<int>(y) + 1) & 0xFFFF);
+                if (sum >= 0)
+                {
+                    sum = static_cast<int16_t>((sum - (2 * static_cast<int>(x) - 1)) & 0xFFFF);
+                    x = (x - 1) & 0xFFFF;
+                }
+                ++y;
+            }
+        }
+    };
+
+    /// Every lit pixel of `a` within one pixel (either way, diagonals too) of a lit one of `b`: the count that isn't.
+    unsigned far_from(const std::vector<std::string> &a, const std::vector<std::string> &b, bool mono)
+    {
+        auto lit = [&](const std::vector<std::string> &rows, int x, int y) {
+            if (x < 0 || y < 0 || y >= 200 || x >= (mono ? 640 : 320))
+                return false;
+            const unsigned per = mono ? 8 : 4, bits = mono ? 1 : 2;
+            const unsigned byte = static_cast<unsigned>(std::stoul(rows[static_cast<size_t>(y)].substr(static_cast<size_t>(x) / per * 2, 2), nullptr, 16));
+            return ((byte >> ((per - 1 - static_cast<unsigned>(x) % per) * bits)) & ((1u << bits) - 1)) != 0;
+        };
+        unsigned n = 0;
+        for (int y = 0; y < 200; ++y)
+            for (int x = 0; x < (mono ? 640 : 320); ++x)
+                if (lit(a, x, y))
+                {
+                    bool near = false;
+                    for (int dy = -1; dy <= 1 && !near; ++dy)
+                        for (int dx = -1; dx <= 1 && !near; ++dx)
+                            near = lit(b, x + dx, y + dy);
+                    if (!near && ++n <= 8)
+                        std::printf("  (%d,%d) has nothing within a pixel\n", x, y);
+                }
+        return n;
+    }
+    /// The card's rows against the reference's: each row that differs printed (the first 8), and the count.
+    unsigned compare_ref(CcpRig &r, const Ref &ref)
+    {
+        const std::vector<std::string> want = ref.rows(), got = dump(r);
+        unsigned bad = 0;
+        for (size_t y = 0; y < 200; ++y)
+            if (got[y] != want[y] && ++bad <= 8)
+                std::printf("  row %zu:\n    want %s\n    got  %s\n", y, want[y].c_str(), got[y].c_str());
+        if (bad)
+            std::printf("  %u rows of 200 differ from the reference\n", bad);
         return bad;
     }
 } // namespace
@@ -828,6 +1050,107 @@ TEST(lifegfx_draws_the_board)
                 std::printf("  (%u,%u): %d, want %d\n", x, y, pixel(r, x, y), want);
         }
     CHECK_EQ(bad, 0u);
+}
+
+// G12 (7e2): CIRCLE's ring is the 1983 source's (ADVGRP.ASM's half-unit loop and octants, the owner's answer 3: the
+// IBM manual is silent on the pixels), exact against the test's own reference of it (Ref::circle), and every lit pixel
+// within one pixel of one of PC-BASIC's (gwbasic/gfx12, SCREEN 1, and gfx13, SCREEN 2: their .out, by oracle.sh),
+// both ways: the default aspect (213 and 107, the manual's 5/6 and 5/12, the owner's G8), aspects 1, 0.3, 0.5, 1.7
+// and 2.5 (past 1, x scaled), radii 0-100, circles across each edge and wholly off it, STEP's centre. Guards a circle
+// drawn the wrong shape or size, an octant missing or mirrored. Seen failing with (a) SCAL2 without its + 128 (the
+// rings a pixel in) and (b) CPLSCX not swapping for an aspect over 1 (the 1.7 and 2.5 circles squashed, not tall).
+TEST(circle_pixels_match_the_source)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:gfx12", {"gfx12"}, ms(8000)) >= 0);
+        Ref ref(1);
+        ref.circle(160, 100, 50, 3), ref.circle(160, 100, 100, 1);
+        ref.circle(50, 45, 30, 1, NAN, NAN, 1), ref.circle(270, 45, 30, 2, NAN, NAN, .3f);
+        ref.circle(50, 150, 25, 2, NAN, NAN, .5f), ref.circle(270, 150, 25, 3, NAN, NAN, 1.7f);
+        ref.circle(160, 100, 20, 2, NAN, NAN, 2.5f);
+        for (int R = 0; R <= 12; R += 3)
+            ref.circle(100 + R * 9, 190, R, 3);
+        ref.circle(230, 190, 1, 1), ref.circle(240, 190, 2, 2);
+        ref.circle(0, 100, 40, 1), ref.circle(319, 15, 30, 2), ref.circle(160, -10, 25, 3), ref.circle(300, 199, 35, 2);
+        ref.circle(-200, -200, 20, 3), ref.circle(500, 100, 30, 1), ref.circle(100, 40, 12, 3);
+        CHECK_EQ(compare_ref(r, ref), 0u);
+        const std::vector<std::string> pc = expected("gfx12"), got = dump(r);
+        CHECK_EQ(far_from(got, pc, false), 0u);
+        CHECK_EQ(far_from(pc, got, false), 0u);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx13", {"gfx13"}, ms(8000)) >= 0);
+    Ref ref(2);
+    ref.circle(320, 100, 50), ref.circle(320, 100, 100);
+    ref.circle(80, 45, 30, 1, NAN, NAN, 1), ref.circle(560, 45, 60, 1, NAN, NAN, .3f);
+    ref.circle(100, 150, 40, 1, NAN, NAN, .5f), ref.circle(540, 150, 25, 1, NAN, NAN, 1.7f);
+    ref.circle(320, 100, 20, 1, NAN, NAN, 2.5f);
+    for (int R = 0; R <= 12; R += 3)
+        ref.circle(200 + R * 12, 190, R);
+    ref.circle(420, 190, 1), ref.circle(440, 190, 2);
+    ref.circle(0, 100, 40), ref.circle(639, 15, 30), ref.circle(320, -15, 60), ref.circle(600, 199, 35);
+    ref.circle(-200, -200, 20), ref.circle(900, 100, 30);
+    CHECK_EQ(compare_ref(r, ref), 0u);
+    const std::vector<std::string> pc = expected("gfx13"), got = dump(r);
+    CHECK_EQ(far_from(got, pc, true), 0u);
+    CHECK_EQ(far_from(pc, got, true), 0u);
+}
+
+// G13 (7e2): CIRCLE's arcs and radius lines, the source's (the owner's G7: by point count, CGTCNT's), against the
+// reference and within one pixel of PC-BASIC's (two for the radius lines: the source's ends are 1-4 degrees from
+// the true angle; PC-BASIC, the oracle only, compared outside two boxes where it parts from the source by more)
+// (gwbasic/gfx14): start below and above the end (the wrap: the arc's complement's ends), negative
+// ends (a line to the centre), 0 to 2 x PI, -0, an end omitted, an arc off the screen; and LINE -( ) after a CIRCLE
+// starts at its centre (the manual's p. 31: the last point referenced is the centre). Guards a pie chart's slices at
+// the wrong angles, a radius line missing, the next relative line starting elsewhere. Seen failing with (a) the
+// CLINEF bits not swapped when start > end (the line at the other end) and (b) CNBTWN's polarity inverted (the
+// arc's complement drawn).
+TEST(circle_arcs_and_radius_lines)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx14", {"gfx14"}, ms(8000)) >= 0);
+    Ref ref(1);
+    ref.circle(60, 50, 40, 1, 0, 1.5708f), ref.line(60, 50, 10, 10, 2);
+    ref.circle(160, 50, 40, 2, 1, 4), ref.line(160, 50, 140, 5, 3);
+    ref.circle(260, 50, 40, 3, -.5f, -2), ref.line(260, 50, 310, 5, 1);
+    ref.circle(60, 150, 40, 1, -1, 3), ref.line(60, 150, 5, 195, 3);
+    ref.circle(160, 150, 30, 2, 4, 1), ref.circle(160, 150, 40, 3, -5, -.7f);
+    ref.circle(260, 150, 35, 1, 0, 6.283185f), ref.circle(260, 150, 20, 2, -0.0f, -3);
+    ref.circle(300, 190, 40, 3, -.3f, -2.5f), ref.circle(100, 100, 15, 1, NAN, -2);
+    CHECK_EQ(compare_ref(r, ref), 0u);
+    const std::vector<std::string> pc = expected("gfx14"), got = dump(r);
+    // within two pixels for the radius lines: each pixel of either within 2 of the other's, but in two boxes where
+    // PC-BASIC parts from the source by more (an oracle disagreement, recorded: the arc from an omitted start to -2,
+    // which PC-BASIC draws past 180 degrees, and the -0.3 radius line, the source's count a few degrees off it)
+    auto masked = [](int x, int y) { return (x >= 80 && x <= 120 && y >= 80 && y <= 120) || (x >= 300 && y >= 175); };
+    auto far2 = [&](const std::vector<std::string> &a, const std::vector<std::string> &b) {
+        unsigned n = 0;
+        for (int y = 0; y < 200; ++y)
+            for (int x = 0; x < 320; ++x)
+            {
+                auto lit = [&](const std::vector<std::string> &rows, int X, int Y) {
+                    if (X < 0 || Y < 0 || X >= 320 || Y >= 200)
+                        return false;
+                    const unsigned byte = static_cast<unsigned>(std::stoul(rows[static_cast<size_t>(Y)].substr(static_cast<size_t>(X) / 4 * 2, 2), nullptr, 16));
+                    return ((byte >> ((3 - static_cast<unsigned>(X) % 4) * 2)) & 3) != 0;
+                };
+                if (masked(x, y) || !lit(a, x, y))
+                    continue;
+                bool near = false;
+                for (int dy = -2; dy <= 2 && !near; ++dy)
+                    for (int dx = -2; dx <= 2 && !near; ++dx)
+                        near = lit(b, x + dx, y + dy);
+                if (!near && ++n <= 8)
+                    std::printf("  (%d,%d) has nothing within two pixels\n", x, y);
+            }
+        return n;
+    };
+    CHECK_EQ(far2(got, pc), 0u);
+    CHECK_EQ(far2(pc, got), 0u);
 }
 
 /// RUN's cycles, from the RUN statement to the end's ENDCON (check.py --timing's method), the program `lines` typed
