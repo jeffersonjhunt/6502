@@ -1126,6 +1126,27 @@ TEST(width_of_a_file_lprint_and_a_device)
     CHECK_EQ(command(r, "PRINT 1"), std::string(" 1 \r\n"));
 }
 
+// WIDTH "SCRN:",n and WIDTH "KYBD:",n in console mode change nothing (7d2's review round 1, F2): Advanced Feature,
+// as before 7d2, and SCRN:'s width stays the console's 80, so a SCRN: file's 60 characters are still one line; the
+// parse's errors come first, as the others' (a width of 0 Illegal function call, no width Syntax error); a disk's
+// name is still Bad file name. Guards a refused statement leaving a changed width behind. Seen failing with the home
+// block's refusal (SCNDEV) left out: P4's SCNSWD set the width to 40 before P6 refused it, and the line broke at 40.
+TEST(width_of_the_screen_s_devices_changes_nothing_in_console_mode)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::string sixty = "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,STRING$(60,\"A\"):CLOSE";
+    CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
+    for (const char *w : {"WIDTH \"SCRN:\",40", "WIDTH \"KYBD:\",40", "WIDTH \"scrn:\",20", "WIDTH \"kybd:XY\",30"})
+        CHECK_EQ(command(r, w), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
+    CHECK_EQ(command(r, "WIDTH \"SCRN:\",0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"KYBD:\""), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"A:BN:\",40"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"LPT1:\",80"), std::string());
+}
+
 // COM1: as a file (GIOCOM.ASM's COMOPN, PCOMOP, COMSIN, COMSOT, COMEOF, COMLOC, COMLOF, COMCLS), by hand from the
 // source (PC-BASIC's port isn't the oracle's), on AUX: (OO-1, decision 12: polled; the OEM's routines, p4/oem.s):
 // a byte sent goes by function 4 (watched at the BDOS's entry), one received is read by function 3 when function 7

@@ -7,7 +7,9 @@
 ;             mode only); WIDTH #f,n a file's (FILWID); WIDTH LPRINT n
 ;             LPT1's; WIDTH "device",n the device's set-width function, by
 ;             P4's DEVSWD (SCRN: and KYBD: the screen's too, P6's SWIDP, so
-;             screen mode only; CONS: Bad file mode; a disk Bad file name;
+;             screen mode only, and refused here in console mode before
+;             DEVSWD, whose SCNSWD would set SCRN:'s width: SCNDEV, 7d2's
+;             review round 1, F2; CONS: Bad file mode; a disk Bad file name;
 ;             P4's room: 7d2's answer 7). The file, LPRINT and printer
 ;             forms work in console mode too (7d2's answer 6). OO-1: the
 ;             device's name is evaluated twice, once here for its type and
@@ -46,10 +48,15 @@ NOTLPR:         LDA     TXTPTR+1       ; a string or a number?
                 BNE     CRTWD1         ; a number: the screen's
                 JSR     FREFAC         ; its temporary freed
                 FJSR    NAMSCN         ; FILDEV: the device (evaluated again)
+                JSR     SCNDEV         ; Z: the screen's, in console mode
+                PHP
                 JSR     SYNCHR
                 .byte   ','
                 JSR     GETWDT
-                CLC
+                PLP
+                BNE     :+
+                JMP     ADVERR         ; P4 not called: nothing changed
+:               CLC
                 FJSR    DEVSWD         ; its G_SWD
                 BCS     @x             ; not the screen's
                 LDA     RDL
@@ -105,3 +112,38 @@ KEY:            BIT     SCRMOD
                 FJSR    KEYSP
                 RTS
 ADV:            JMP     ADVERR
+
+; SCNDEV: Z set in console mode if the device NAMSCN has just taken is
+; SCRN: or KYBD: (its string's descriptor still at RBL, FRESTR's; its text
+; read by PTR2, which NAMSCN's caller doesn't use again). A name NAMSCN
+; takes with its ":" fifth, none second, is a device's (a disk's has one
+; letter before it; there are no devices of 2 or 3), and of the devices'
+; (CONS, LPTn, COMn the others) only SCRN and KYBD end in N and D.
+SCNDEV:         LDA     SCRMOD
+                BMI     @no            ; screen mode: P6's SWIDP
+                LDA     (RBL)
+                CMP     #5
+                BCC     @no
+                LDY     #1
+                LDA     (RBL),Y
+                STA     PTR2
+                INY
+                LDA     (RBL),Y
+                STA     PTR2+1
+                LDY     #1
+                LDA     (PTR2),Y
+                CMP     #':'
+                BEQ     @no            ; a disk's
+                LDY     #4
+                LDA     (PTR2),Y
+                CMP     #':'
+                BNE     @no
+                DEY
+                LDA     (PTR2),Y
+                AND     #$DF           ; upper case
+                CMP     #'N'
+                BEQ     @x
+                CMP     #'D'
+@x:             RTS
+@no:            LDA     #1             ; Z clear
+                RTS
