@@ -239,8 +239,9 @@ the source's FINDBL), `f_inps`
 (INPUT$ takes the CR and LF before the end as bytes), `f_clear` (CLEAR closes every file), `f_errs` (EOF of an output
 file with nothing in its buffer is -1; INPUT #, LINE INPUT # and INPUT$ of an output file are Input past end, the
 IBM manual's A-11, a default of the fix-up, INPUT$(0, #f) too; LEN= on a sequential OPEN
-is Syntax error), `f_errs2` (a name with only a type is Bad file name). Where the OO-1 differs: `f_locof` (CP/M's
-files are whole 128-byte records, so LOF is the records times 128, as on the MS-DOS 1 FCB files the source wrote).
+is Syntax error), `f_errs2` (a name with only a type is Bad file name). `f_locof` agrees with PC-BASIC now: LOF
+is the bytes, the ^Z counted (the IBM manual's p. 175; OODOS keeps CP/M 3's last-record byte count, the IBM spec's
+fix-up).
 
 By hand in test_gwbasic_files (PC-BASIC's run of a file can't type at the prompt, nor has the OO-1's drives): END,
 NEW and SYSTEM close every file (each read back, the last after SYSTEM by the CCP's TYPE); `A:` named is the current
@@ -307,8 +308,8 @@ before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `r_field` (FIELD's total past the record is FIELD
 overflow; record 32768 is taken, the manual's p. 113 and A-4; the FIELD buffer keeps what was in it; WRITE # pads the record with
 spaces), `r_move` (a closed file's FIELDed strings are null), `r_eof` (EOF is true after OPEN and PUT, until a GET
-reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). Where
-the OO-1 differs: `r_lof` (LOF in whole records, as `f_locof`).
+reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). `r_lof`
+agrees with PC-BASIC now (LOF in bytes, as `f_locof`).
 
 By hand in test_gwbasic_files: records of LEN 200 and 1,024 with /S: set to 1,024 (MAXREC, as `/S:1024` would set
 it): out of order, across the 128-byte records they span; a record never written; a record's place past 2^23 bytes

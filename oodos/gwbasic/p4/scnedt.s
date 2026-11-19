@@ -17,8 +17,10 @@
 .include "gwbasic.inc"
 
 ;@entry DSKCHP
+;@entry ERDVGT
+; (ERDVGT: p4/giodsk.s's, OO-1, after DSKCHP so P4's other entries keep their places)
 .export DSKCHP
-.import INCHR, LDRUN, BUF, ERROR
+.import INCHR, LDRUN, BUF, ERROR, ERDVGT
 
 .code
 

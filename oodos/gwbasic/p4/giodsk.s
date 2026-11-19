@@ -69,7 +69,7 @@
 ;@entry NAMEP
 ;@entry CMPFBP
 .export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
-.export BUFPHY, BXFER, P73, WRITES, LDBLK
+.export BUFPHY, BXFER, P73, WRITES, LDBLK, ERDVGT
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
 .import MAXREC, ERROR
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
@@ -139,58 +139,193 @@ LOC1:           LDA     (FDBP),Y
                 STA     RBH
                 RTS
 
-; DSKLOF: the file's size in bytes, a double in the FAC. OO-1: CP/M's size
-; is in records (function 35, to R0-R2, which are kept round it: they are
-; the file's place), so the size is that times 128, made a single (the 24
-; bits are exact there), then a double (the 8086's $NORMD of FCB_FS).
-; Function 35 reads the directory, where MS-DOS's FCB_FS is the open FCB's:
-; so the file is closed first (function 16), which puts the extent being
-; written in the directory and, on OODOS, leaves the FCB open.
+; DSKLOF: the file's size in bytes, a double in the FAC. OO-1 (the IBM
+; spec's fix-up, the owner's answer 2: the IBM manual's p. 175, the bytes,
+; not records x 128): CP/M's size is in records (function 35), and its last
+; record's bytes are the byte count OODOS keeps (CP/M 3's, S1: DSKCLS sets
+; it, OPNFIL's open with CR $FF reads it into LOFCNT). An input file's size
+; is the records less the last one's unused bytes (DSKSZ); a random file's
+; the larger of that, as it was at the first PUT or LOF, and the furthest
+; byte a PUT has written since (LOFINI, LOFPUT: LMX); an output or append
+; file's still the records x 128 (its last record is GW-BASIC's buffer until
+; the close). Function 35 reads the directory, where MS-DOS's FCB_FS is the
+; open FCB's: so the file is closed first (function 16), which puts the
+; extent being written in the directory and, on OODOS, leaves it open.
 DSKLOF:         LDY     #F_CLOSE
                 JSR     FCBDOS
-                LDY     #FCB_RN + 2
+                JSR     FNUMX
+                LDY     #F_MODE
+                LDA     (FDBP),Y
+                CMP     #MD_RND
+                BNE     @s
+                JSR     LOFINI
+                JSR     LMXY           ; LMX to LOFV
+@c:             LDA     LMX - 4,Y
+                STA     LOFV,X
+                DEY
+                DEX
+                BPL     @c
+                BRA     TOFAC
+@s:             JSR     DSKSZ          ; (an output file's count is 0; an append
+                                       ; file's the old one until it is closed)
+                ; (on into TOFAC)
+
+; TOFAC (OO-1): LOFV, 4 bytes, the FAC's double (exact: 53 bits).
+TOFAC:          LDA     #VT_DBL
+                STA     VALTYP
+                STZ     DFACL
+                STZ     DFACL+1
+                STZ     DFACL+2
+                LDA     LOFV
+                STA     DFACL+3
+                LDA     LOFV+1
+                STA     FACLO
+                LDA     LOFV+2
+                STA     FACLO+1
+                LDA     LOFV+3
+                STA     FACM1
+                STZ     FACEXP         ; 0: zero
+                ORA     FACLO
+                ORA     FACLO+1
+                ORA     DFACL+3
+                BEQ     @x
+                LDA     #$80 + 32
+                STA     FACEXP
+@n:             BIT     FACM1          ; normalised: the top bit set
+                BMI     @s
+                DEC     FACEXP
+                ASL     DFACL+3
+                ROL     FACLO
+                ROL     FACLO+1
+                ROL     FACM1
+                BRA     @n
+@s:             LDA     FACM1          ; positive: the top bit is the sign's
+                AND     #$7F
+                STA     FACM1
+@x:             RTS
+
+; DSKSZ (OO-1): LOFV the file's size in bytes on the disk: function 35's
+; records (R0-R2 kept round it) x 128, less the last record's unused bytes
+; if the open gave its byte count (LOFCNT,X, 1-127). X the file's number,
+; kept.
+DSKSZ:          LDY     #FCB_RN + 2
 @k:             LDA     (FDBP),Y
                 STA     LOFRN - FCB_RN,Y
                 DEY
                 CPY     #FCB_RN
                 BCS     @k
+                PHX
                 LDY     #F_SIZE
                 JSR     FCBDOS
-                LDY     #FCB_RN        ; the records, 24 bits, to FACLO..FACM1
-                LDA     (FDBP),Y
-                STA     FACLO
+                PLX
+                LDY     #FCB_RN        ; the records, 24 bits, to LOFV+1
+@r:             LDA     (FDBP),Y
+                STA     LOFV + 1 - FCB_RN,Y
+                LDA     LOFRN - FCB_RN,Y
+                STA     (FDBP),Y       ; (R0-R2 back)
                 INY
+                CPY     #FCB_RN + 3
+                BNE     @r
+                STZ     LOFV
+                LDA     LOFCNT,X       ; a count, and a record: the records less
+                AND     #$7F           ; one, x 128, and the count
+                BEQ     @s
+                LDY     LOFV+1
+                BNE     @d
+                LDY     LOFV+2
+                BNE     @m
+                LDY     LOFV+3
+                BEQ     @s             ; (no records)
+                DEC     LOFV+3
+@m:             DEC     LOFV+2
+@d:             DEC     LOFV+1
+                ASL     A              ; the count, x 2 (x 256 then halved:
+                STA     LOFV           ; x 128)
+@s:             LSR     LOFV+3
+                ROR     LOFV+2
+                ROR     LOFV+1
+                ROR     LOFV
+                RTS
+
+; ERDVGT (OO-1, an entry: P8's ERDEVP, the IBM manual's ERDEV): RBL the
+; code of the last physical error OODOS gave (appendix A's 1-9), 0 if none.
+ERDVGT:         LDA     ERDCOD
+                STA     RBL
+                RTS
+
+; LMXY (OO-1): Y the file's LMX's last byte, past LMX - 4 (X x 4 + 3: files
+; 1-3), X 3: the copies'.
+LMXY:           TXA
+                ASL     A
+                ASL     A
+                ORA     #3
+                TAY
+                LDX     #3
+                RTS
+
+; FNUMX (OO-1): X the file's number, F_NUM (0-3: LOFCNT's, LMX's index).
+FNUMX:          LDY     #F_NUM
                 LDA     (FDBP),Y
-                STA     FACLO+1
-                INY
-                LDA     (FDBP),Y
-                STA     FACM1
-                LDY     #FCB_RN + 2
-@b:             LDA     LOFRN - FCB_RN,Y
-                STA     (FDBP),Y
+                TAX
+                RTS
+
+; LOFINI (OO-1): a random file's size kept from its first PUT or LOF on
+; (LMX, LOFCNT,X's bit 7 set): the disk's (DSKSZ), as the open found it. X kept.
+LOFINI:         LDA     LOFCNT,X
+                BMI     @x
+                JSR     DSKSZ
+                LDA     LOFCNT,X
+                ORA     #$80
+                STA     LOFCNT,X
+                PHX
+                JSR     LMXY           ; LOFV to LMX
+@c:             LDA     LOFV,X
+                STA     LMX - 4,Y
                 DEY
-                CPY     #FCB_RN
-                BCS     @b
-                LDA     #VT_SNG
-                STA     VALTYP
-                STZ     FACEXP         ; zero records: zero
-                LDA     FACLO
-                ORA     FACLO+1
-                ORA     FACM1
-                BEQ     @dbl
-                LDA     #$80 + 24 + 7  ; 24 bits, times 128
-                STA     FACEXP
-@n:             BIT     FACM1          ; normalised: the top bit set
-                BMI     @sgn
-                DEC     FACEXP
-                ASL     FACLO
-                ROL     FACLO+1
-                ROL     FACM1
-                BRA     @n
-@sgn:           LDA     FACM1          ; positive: the top bit is the sign's
-                AND     #$7F
-                STA     FACM1
-@dbl:           JMP     FRCDBL
+                DEX
+                BPL     @c
+                PLX
+@x:             RTS
+
+; LOFPUT (OO-1): a PUT's end, record x LEN (FD_LOG x FD_SIZ), kept in LMX
+; if it is past what LMX has (LOFINI first). RBL, RBH, RDL, RDH used.
+LOFPUT:         JSR     FNUMX
+                JSR     LOFINI
+                LDY     #FD_SIZ
+                LDA     (FDBP),Y
+                STA     RBL
+                INY
+                LDA     (FDBP),Y
+                STA     RBH
+                LDY     #FD_LOG
+                LDA     (FDBP),Y
+                STA     RDL
+                INY
+                LDA     (FDBP),Y
+                STA     RDH
+                PHX
+                JSR     RNDMUL
+                PLX
+                TXA                    ; Y: LMX's first byte
+                ASL     A
+                ASL     A
+                TAY
+                LDA     LMX - 4,Y      ; LMX less the end: a borrow, past it
+                CMP     RNDPRD
+                LDA     LMX - 3,Y
+                SBC     RNDPRD+1
+                LDA     LMX - 2,Y
+                SBC     RNDPRD+2
+                LDA     LMX - 1,Y
+                SBC     RNDPRD+3
+                BCS     @x
+                JSR     LMXY           ; the end to LMX
+@c:             LDA     RNDPRD,X
+                STA     LMX - 4,Y
+                DEY
+                DEX
+                BPL     @c
+@x:             RTS
 
 ; DSKGPS: A the column. DSKGWD: A the width, 255 for a disk file. DSKSCW,
 ; DSKGCW: a disk file's comma width, nothing to set or get.
@@ -278,12 +413,18 @@ NTOAPP:         CMP     #MD_SQO
                 JSR     CHKFOP
                 LDY     #F_DELETE
                 JSR     FCBDOS
-MAKFIL:         LDY     #F_MAKE
+MAKFIL:         LDY     #FCB_NR        ; OO-1: no count (CR 0, not open's $FF)
+                LDA     #0
+                STA     (FDBP),Y
+                LDY     #F_MAKE
                 JSR     FCBDOS
                 INC     A              ; $FF: the directory is full
                 BNE     OPNSET
                 JMP     DERTMF
-OPNFIL:         LDY     #F_OPEN
+OPNFIL:         LDY     #FCB_NR        ; OO-1: CR $FF, the last record's byte
+                LDA     #$FF           ; count back in it (OODOS 0.6), for
+                STA     (FDBP),Y       ; OPNSET's LOFCNT (33 and 34 set CR)
+                LDY     #F_OPEN
                 JSR     FCBDOS
                 INC     A
                 BNE     OPNSET
@@ -351,6 +492,11 @@ OPNSET:         LDY     #FCB_DV
                 INY
                 CPY     #F_CLOC + 4
                 BNE     @z
+                JSR     FNUMX          ; OO-1: LOF's: the count the open gave
+                LDY     #FCB_NR        ; in CR, the size not yet kept (LOFINI)
+                LDA     (FDBP),Y
+                AND     #$7F           ; (128: a full record, 0)
+                STA     LOFCNT,X
                 LDA     FILMOD
                 CMP     #MD_RND
                 BEQ     RNDFIN
@@ -440,19 +586,49 @@ BAKRET:         RTS
 
 ; DSKCLS: an output file's ^Z put after its last byte, and its record
 ; written; then the file closed.
-DSKCLS:         LDY     #F_MODE
+; OO-1 (the owner's answer 2): the last record's byte count kept with the
+; file (function 30, f6': CP/M 3's, which OPNFIL's open gives back, for
+; LOF): an output file's, the bytes in its last record with the ^Z; a random
+; file's, its size's (LMX) last record's, once a PUT or a LOF has kept it.
+DSKCLS:         STZ     CLSCNT
+                LDY     #F_MODE
                 LDA     (FDBP),Y
-                CMP     #MD_SQO
+                CMP     #MD_RND
+                BNE     @o
+                JSR     FNUMX
+                LDA     LOFCNT,X
+                BPL     NOFORC
+                JSR     LMXY
+                LDA     LMX - 7,Y      ; its low byte
+                AND     #DATPSC - 1
+                BRA     @k
+@o:             CMP     #MD_SQO
                 BNE     NOFORC
                 LDA     #ASCCTZ
                 JSR     FILOU4
                 LDY     #F_ORCT
                 LDA     (FDBP),Y
-                BEQ     NOFORC
+                BEQ     @k
+                PHA
                 JSR     WRITES
+                PLA
+@k:             ORA     #$80
+                STA     CLSCNT
 NOFORC:         JSR     SETBUF
                 LDY     #F_CLOSE
-                JMP     FCBDOS
+                JSR     FCBDOS
+                LDA     CLSCNT
+                BPL     @x
+                AND     #$7F
+                LDY     #FCB_NR        ; CR the count, f6' set for function 30
+                STA     (FDBP),Y
+                LDY     #FCB_FN + 5
+                LDA     (FDBP),Y
+                ORA     #$80
+                STA     (FDBP),Y
+                LDY     #F_ATTRIB      ; (the FDB is freed next: f6' left)
+                JSR     FCBDOS
+@x:             RTS
 
 ; --- DSKSIN, DSKINP (GIODSK.ASM 351) ------------------------------------------------------
 
@@ -635,9 +811,10 @@ DIRFLG          = 4                    ; PGSUB1's: on, write; off, read
 ; IBM manual's p. 113 and A-4 take records past 32767, which the source's
 ; JLE refuses; 0 is Bad record number). FD_LOG is it, FD_OPS 0. Its first
 ; byte is (record - 1) x FD_SIZ: DX the 128-byte record, BX the place in it
-; (a record reaching past 128-byte record 65535, 8 MB, the port's reach, is
-; Bad record number, OO-1: the source's Illegal function call; LEN 128 is
-; the record itself). Then the record is moved a 128-byte record at a time,
+; (OO-1, the owner's answer 2: RECRD has CP/M 3's 18 bits, 32 MB, R2 its top
+; ones; a record reaching past 128-byte record 262,143 is Bad record number,
+; the source's Illegal function call past 16 bits; LEN 128 is the record
+; itself). Then the record is moved a 128-byte record at a time,
 ; CX bytes each (what is left of it, or of the record), between its FIELD
 ; buffer (LBUFF) and the FDB's buffer (PBUFF): GET reads each (GETSUB) and
 ; copies; PUT reads one it only partly fills, copies into it, and writes it
@@ -682,14 +859,18 @@ RAND2:          LDY     #FD_LOG        ; the next logical
                 CMP     #DATPSC
                 BNE     RANDM
 RAND3:          STZ     RBL            ; BX: the place 0
+                STZ     RECRD+2        ; (OO-1: below 65,536)
                 BRA     RAND4
 RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 ASL     RNDPRD
                 ROL     RNDPRD+1
                 ROL     RNDPRD+2
                 ROL     RNDPRD+3
-                LDA     RNDPRD+3       ; DH: past the reach (OO-1: Bad record
-                BNE     ER_BRN         ; number; the source's Illegal function call)
+                LDA     RNDPRD+3       ; OO-1: the 128-byte record's top bits, 18
+                STA     RECRD+2        ; in all (CP/M 3's random record: 32 MB):
+                                       ; its last byte's past it is Bad record
+                                       ; number, below (the source's Illegal
+                                       ; function call past 16 bits)
                 LDA     RNDPRD+2       ; DX: the 128-byte record
                 STA     RDH
                 LDA     RNDPRD+1
@@ -714,13 +895,25 @@ RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 ADC     RDL
                 LDA     RDH
                 ADC     #0
+                LDA     RECRD+2
+                ADC     #0
+                CMP     #4             ; (OO-1: 18 bits)
                 BCC     RAND4
                 JMP     DERBRN
 RAND4:          LDA     RDL            ; RECRD: the record
                 STA     RECRD
                 LDA     RDH
                 STA     RECRD+1
-                JSR     GETDAT         ; LBUFF: the FIELD buffer
+                LDA     RNDAL          ; OO-1: a PUT's end kept for LOF (LOFPUT)
+                AND     #PGFLAG
+                BEQ     :+
+                LDA     RBL
+                PHA
+                JSR     LOFPUT
+                PLA
+                STA     RBL
+                STZ     RBH
+:               JSR     GETDAT         ; LBUFF: the FIELD buffer
                 STA     LBUFF
                 STX     LBUFF+1
                 LDY     #FD_SIZ        ; DX: the bytes to move, its length
@@ -782,7 +975,12 @@ FIVDRD:         JSR     GETSUB         ; read, and its bytes to the FIELD buffer
                 LDA     LBUFF+1
                 STA     PTR2+1
                 JSR     RNDCPY
-NXFVBF:         INCW    RECRD          ; the next record
+NXFVBF:         INC     RECRD          ; the next record (OO-1: 18 bits)
+                BNE     :+
+                INC     RECRD+1
+                BNE     :+
+                INC     RECRD+2
+:
                 CLC                    ; LBUFF on, DX less, by CX
                 LDA     LBUFF
                 ADC     RCL
@@ -844,7 +1042,7 @@ RNDMUL:         STZ     RNDPRD+2
 ; nothing sets after RNDFIN zeroes it, as in the 8086: so a read is always
 ; made (but for record 65535). F_CLOC the record (READS and WRITES step it),
 ; F_ORCT and F_BREM 128 (READS sets them by its read), CP/M's R0-R1 the
-; record and R2 0; then WRITES, or READS: a record past the file's end comes
+; record and R2 its top bits (OO-1: 18 in all); then WRITES, or READS: a record past the file's end comes
 ; back zeros, F_ORCT 0 (X1). RNDAL's DIRFLG is set or cleared, as the
 ; 8086's AL.
 PUTSUB:         LDA     RNDAL
@@ -853,6 +1051,8 @@ PUTSUB:         LDA     RNDAL
 GETSUB:         LDA     RNDAL
                 AND     #$FF - DIRFLG
 PGSUB1:         STA     RNDAL
+                LDA     RECRD+2        ; OO-1: past 65,535 never the buffer's
+                BNE     NTREDS
                 CLC                    ; BX: the record + 1
                 LDA     RECRD
                 ADC     #1
@@ -887,7 +1087,7 @@ NTREDS:         LDY     #F_CLOC        ; CURLOC: the record
                 LDA     RECRD+1
                 STA     (FDBP),Y
                 INY
-                LDA     #0
+                LDA     RECRD+2        ; OO-1: R2 the record's top bits
                 STA     (FDBP),Y
                 LDA     RNDAL
                 AND     #DIRFLG
@@ -1049,6 +1249,7 @@ PBDOS:          JSR     BDOS
                 BCS     @r             ; X past 9: not a physical error
                 CPX     #0
                 BEQ     @r             ; X 0: a result code's $FF
+                STX     ERDCOD         ; OO-1: ERDEV's (P8's ERDEVP, by ERDVGT)
                 LDA     PHYTAB - 1,X
                 JMP     ERROR
 @r:             RTS
@@ -1918,6 +2119,11 @@ APPCNT:         .res    1              ; APPFIN's count (DX)
 ACCFN:          .res    1              ; ACCFIL's function (the 8086's AH)
 CHKN:           .res    1              ; CHKFOP's number
 LOFRN:          .res    3              ; DSKLOF's R0-R2, kept
+LOFCNT:         .res    4              ; OO-1: each file's last record's byte count, from its open
+                                       ;   (0-127), bit 7 set once LMX is kept
+LMX:            .res    12             ;   files 1-3's size in bytes, 4 each, low byte first
+CLSCNT:         .res    1              ;   DSKCLS: bit 7, a count to keep, in bits 0-6
+ERDCOD:         .res    1              ; OO-1: the last physical error's code, for ERDEV
 LDBLK:          .res    11             ; DFSTLD's DM_LOAD block
 LDPHY:          .res    4              ; and function 73's
 LDRES:          .res    1              ; DM_LOAD's A
@@ -1935,6 +2141,8 @@ FSKIP:          .res    1              ; FILFCB's: bit 7, dropping to a delimite
 FLDSAV:         .res    2              ; FLDGET's and FLDPUT's PTR, kept
 RNDAL:          .res    1              ; DSKRND's function (the 8086's AL)
 RNDPRD:         .res    4              ; RNDMUL's product (the 8086's DX:AX)
-RECRD:          .res    2              ; GWDATA.ASM's: the 128-byte record
+LOFV            = RNDPRD               ; OO-1: DSKSZ's and TOFAC's size in bytes (RNDMUL isn't
+                                       ;   called between)
+RECRD:          .res    3              ; GWDATA.ASM's: the 128-byte record (OO-1: 18 bits)
 LBUFF:          .res    2              ; and the place in the FIELD buffer
 PBUFF:          .res    2              ; and in the FDB's buffer

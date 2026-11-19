@@ -277,8 +277,9 @@ TEST(input_line_input_and_input_s_print_what_pc_basic_prints)
 }
 
 // Files longer than one record (30 lines) and than several (400 numbers on a line of 2 KB), read back whole and
-// interleaved with another file; LOC (DSKLOC: the records read or written) and LOF (DSKLOF: OO-1, CP/M's size in
-// records, times 128: NAME.differ).
+// interleaved with another file; LOC (DSKLOC: the records read or written) and LOF (DSKLOF: the bytes, the ^Z
+// counted, as PC-BASIC's: the IBM manual's p. 175, from the last record's byte count CLOSE keeps with the file and
+// OPEN reads back, OODOS's CP/M 3 count; the owner's answer 2 of the IBM spec's fix-up).
 TEST(long_files_loc_and_lof_print_what_pc_basic_prints)
 {
     programs({"f_long", "f_locof"});
@@ -450,7 +451,7 @@ TEST(print_to_a_file_goes_to_p4_in_runs)
                 f1);
     CHECK_EQ(f1 - f0, 60u);
     CHECK(byte > 0 && byte < 2000);
-    CHECK_EQ(command(r, "OPEN \"I\",#1,\"FTIME.TXT\":PRINT LOF(1):CLOSE"), std::string(" 1664 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"FTIME.TXT\":PRINT LOF(1):CLOSE"), std::string(" 1601 \r\n"));
 }
 
 // LOAD, SAVE and MERGE (DSKCOM.ASM LOAD, LRUN, NOTRN1, BINLOD, MERGE, OKGETM, MAINGO, SAVE, GOODSV, ENDOFS; GIO86.ASM
@@ -767,7 +768,7 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
 // r_seq: one file used as sequential and random in turn. r_sw: LEN past /S: (128 while the switches aren't read)
 // and LEN 0: Illegal function call. r_move: strings, a string array and two FIELD buffers kept right as a random
 // file opens and closes (the string space moved, XFRSTR, and the descriptors with it, UPDSTD); a FIELDed string of a
-// closed file. r_eof: EOF of a random file. r_lof: LOF of one. Where PC-BASIC departs from the 1983 source, or the
+// closed file. r_eof: EOF of a random file. r_lof: LOF of one (the bytes: the furthest PUT's end, as PC-BASIC's). Where PC-BASIC departs from the 1983 source, or the
 // OO-1 from both, NAME.differ.
 TEST(random_files_print_what_pc_basic_prints)
 {
@@ -836,11 +837,11 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
 // By hand, from the source (PC-BASIC's /S: can't be given by oracle.sh): records longer than a 128-byte record. /S:
 // (MAXREC, res/far4.s: the command line's switches aren't read yet) is set to 1,024, the most W4 allows, as GWBASIC
 // /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
-// and LOF (OO-1: whole records). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
-// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^23 bytes
-// (DSKRND's DH: Bad record number, the IBM spec's fix-up, C-1 item 12's default: past the port's reach; the source's
-// Illegal function call) and the last before it (records 65,528 to 65,535); LEN past /S: (1,025: Illegal function
-// call).
+// and LOF (the bytes). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
+// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^25 bytes
+// (Bad record number past CP/M 3's 18-bit random record, the owner's answer 2; the source's Illegal function call
+// past 16 bits) and the last before it (128-byte records 262,136 to 262,143); LEN past /S: (1,025: Illegal function
+// call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
 TEST(random_records_of_200_and_1024_bytes_by_hand)
 {
     CcpRig r;
@@ -859,14 +860,19 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "40 FOR N=1 TO 5:GET #1,N:PRINT N;LEFT$(A$,2);A$=STRING$(100,64+N);RIGHT$(B$,2):NEXT",
               "50 PRINT LOC(1);LOF(1):CLOSE"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
-                                            " 5  1024 \r\n"));
-    // A record that reaches past 128-byte record 65,535 (the port's reach) is Bad record number (the IBM spec's fix-up,
-    // C-1 item 12's default), not a wrap to record 0: of LEN 200, record 41,943 ends in 65,535, 41,944 past it.
+                                            " 5  1000 \r\n"));
+    // Records to CP/M 3's whole reach, 18 bits of 128-byte records, 32 MB (the owner's answer 2): of LEN 600, record
+    // 55,924 ends in 128-byte record 262,143, and 55,925 would cross past it: Bad record number, not a wrap to record
+    // 0; and a record past 8 MB (record 20,000 of LEN 1,024 starts at 128-byte record 159,992, R2 2) is PUT and read
+    // back, with the file's size in bytes (LOF: 20,480,000), and again from the disk once it is closed and opened.
     CHECK_EQ(command(r, "NEW"), std::string());
-    enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",200:ON ERROR GOTO 90",
-              "20 GET #1,41943:PRINT \"ok\":GET #1,41944:PRINT \"on\"",
-              "30 CLOSE:END", "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
-    CHECK_EQ(command(r, "RUN"), std::string("ok\r\nerr 63  20 \r\non\r\n"));
+    enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",600:ON ERROR GOTO 90",
+              "20 GET #1,55924:PRINT \"ok\":GET #1,55925:PRINT \"on\":CLOSE",
+              "30 OPEN \"R\",#2,\"RFAR.DAT\",1024:FIELD #2,4 AS F$:LSET F$=\"far!\":PUT #2,20000:LSET F$=\"\"",
+              "40 GET #2,20000:PRINT F$;LOF(2):GET #2,19999:PRINT ASC(F$):CLOSE",
+              "50 OPEN \"R\",#2,\"RFAR.DAT\",1024:PRINT LOF(2):CLOSE:KILL \"RFAR.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("ok\r\nerr 63  20 \r\non\r\nfar! 20480000 \r\n 0 \r\n 20480000 \r\n"));
     CHECK_EQ(command(r, "NEW"), std::string());
     enter(r, {"10 OPEN \"R\",#1,\"RKB.DAT\",1024",
               "15 FIELD #1,255 AS A$,255 AS B$,255 AS C$,255 AS D$,4 AS E$",
@@ -876,11 +882,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "45 PRINT N;A$=X$;B$=X$;C$=X$;D$=STRING$(255,96+N);CVI(E$);RIGHT$(E$,2):NEXT",
               "50 GET #1,5:PRINT ASC(A$);ASC(E$);EOF(1);LOC(1);LOF(1)",
               "60 ON ERROR GOTO 90",
-              "70 GET #1,8193:GET #1,8192:PRINT ASC(A$);EOF(1)",
+              "70 GET #1,32769:GET #1,32768:PRINT ASC(A$);EOF(1)",
               "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
                                             " 0  0 -1  5  3072 \r\nerr 63  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
+    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,769's place passes 32 MB, CP/M 3's reach: Bad
+    // record number; 32,768's last byte is 128-byte record 262,143's.)
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its
@@ -1018,7 +1026,11 @@ TEST(a_drive_with_no_image_is_a_basic_error_and_gw_basic_goes_on)
                " File = " + file + "\r\n";
     };
     auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not ready\r\n"; };
+    CHECK_EQ(command(r, "PRINT ERDEV;\"<\";ERDEV$;\">\""), std::string(" 0 <>\r\n"));
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"H:X.TXT\""), said("H", 15, "X       .TXT"));
+    // ERDEV and ERDEV$ (the IBM manual's pp. 91-93; the OO-1's, the owner's answer 2): OODOS's physical error, 4
+    // Invalid Drive, and the drive it was on.
+    CHECK_EQ(command(r, "PRINT ERDEV;\"<\";ERDEV$;\">\""), std::string(" 4 <H:>\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"C:X.TXT\""), said("C", 19, "X       .TXT"));
     CHECK_EQ(command(r, "OPEN \"H:X.TXT\" FOR APPEND AS #2"), said("H", 15, "X       .TXT"));
     CHECK_EQ(command(r, "LOAD \"H:X\""), said("H", 15, "X       .BAS"));

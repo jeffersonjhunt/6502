@@ -32,7 +32,7 @@
 ;@entry HFINI
 ;@entry ERDEVP
 .export HREADY, HGONE4, HFINI, ERDEVP
-.import TOPS, GONE4, READY, FINIH, CHRGTR, MAKINT, DSEGZ
+.import TOPS, GONE4, READY, FINIH, CHRGTR, MAKINT, DSEGZ, STRINI, PUTNEW, DSCTMP
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
@@ -53,25 +53,54 @@ HFINI:          JMP     FINIH
 
 ; ERDEVP (OO-1: the IBM manual's pp. 91-93): ERDEV or ERDEV$ in a formula
 ; (the resident EVALX's, TXTPTR at its $FE), read-only variables: the last
-; device error's code, and its device's name. Nothing records a device
-; error yet (P4, the files' block, where OODOS's errors are mapped, has no
-; room: a default, for the owner's veto), so ERDEV is 0 and ERDEV$ "".
-; Returns as EVAL, past the token, CHRGTR's flags.
+; device error's code, and its device's name. The OO-1's (the owner's answer
+; 2): a device error is a physical error of OODOS's (appendix A of the
+; Programmer's Guide: 1 Disk I/O, 2 Read Only, 3 File R/O, 4 Invalid Drive,
+; 7 Password Error, 8 File Exists, 9 ? in Filename), which P4's PBDOS keeps
+; (ERDVGT): ERDEV is its code (the high byte 0, where a PC's has the device's
+; attributes), 0 before any; ERDEV$ the drive it was on, "A:" to "P:" (the
+; SCB's error drive, $51), "" before any. Returns as EVAL, past the token,
+; CHRGTR's flags.
 ERDEVP:         INCW    TXTPTR         ; the token
+                FJSR    ERDVGT         ; RBL: the code
+                STZ     RBH
                 LDA     (TXTPTR)
                 CMP     #ERDEVS_XS
                 BEQ     @s
-                STZ     RBL            ; ERDEV: 0
-                STZ     RBH
-                JSR     MAKINT
+                JSR     MAKINT         ; ERDEV
                 JMP     CHRGTR
-@s:             LDA     #<DSEGZ        ; ERDEV$: the null string
+@s:             LDA     RBL            ; ERDEV$: none, the null string
+                BNE     @d
+                LDA     #<DSEGZ
                 STA     FACLO
                 LDA     #>DSEGZ
                 STA     FACLO+1
                 LDA     #VT_STR
                 STA     VALTYP
                 JMP     CHRGTR
+@d:             LDA     #<ERDSCB       ; the drive: the SCB's $51 (function 49)
+                LDX     #>ERDSCB
+                LDY     #S_SCB
+                JSR     BDOS
+                PHA
+                LDA     #2             ; "d:"
+                JSR     STRINI
+                LDA     DSCTMP+1
+                STA     PTR
+                LDA     DSCTMP+2
+                STA     PTR+1
+                PLA
+                CLC
+                ADC     #'A'
+                STA     (PTR)
+                LDY     #1
+                LDA     #':'
+                STA     (PTR),Y
+                JSR     PUTNEW
+                JMP     CHRGTR
+
+.rodata
+ERDSCB:         .byte   $51, 0, 0, 0   ; function 49: get SCB $51, the drive of the last physical error
 
 .segment "HOMTAB"
 .export STMDSP

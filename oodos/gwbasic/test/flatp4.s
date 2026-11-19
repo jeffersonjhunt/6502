@@ -18,6 +18,7 @@
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
 .export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR, DEVSWD
 .export DEVSOT, GIOINP, LPOSP
+.export ERDVGT                         ; OO-1: P8's ERDEVP's (the IBM spec's fix-up)
 .export BSAVE, BLOAD                   ; p8/far4.s's (7c's tail)
 .import ADVERR
 
@@ -72,4 +73,6 @@ CMPFBP:         CLC                    ; WRITE's: not a random file
 CLSALP:
 FINPRP:
 FLUSHP:         STZ     RUNLEN
+                RTS
+ERDVGT:         STZ     RBL            ; no physical error here
                 RTS
