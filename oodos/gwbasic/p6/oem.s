@@ -38,6 +38,7 @@
 ;@entry TXRUN
 ;@entry LCPYP
 .export SCNIPL, TXRUN, LCPYP
+.export APG, CROW, RWOLO, RWOHI         ; 7d3: p6/scpag.s's SCPAGP
 .import TXBUF, TXLEN, LSTCHR, LINLEN, KEYINI
 
 .code

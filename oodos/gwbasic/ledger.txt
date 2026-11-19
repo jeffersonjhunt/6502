@@ -1223,7 +1223,7 @@ BIMISC.ASM CLEAR -> p3/bimisc.s CLEARP # its resident stub res/far3.s CLEAR, whi
 GWMAIN.ASM ONGOTO -> p3/gwmain.s ONGOTOP # its resident stub res/far3.s ONGOTO; ON event GOSUB (ONGSB0-RSTRAP) step e's (below)
 GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> p3/gweval.s DEFP # its stub p8/far3.s DEF; DEF SEG alone segment 0, the port's DS
-GWMAIN.ASM POKE -> p3/poke.s POKEP # its stub p8/far3.s POKE; segment 0 below $C000 direct, else POKFLT's place, the OEM's p5/seed.s DSBYTE
+GWMAIN.ASM POKE -> p3/poke.s POKEP # its stub p8/far3.s POKE; segment 0 below $C000 direct, else POKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
 GIO86.ASM WIDTHS -> p8/far6.s WIDTH # its tail P4's p4/gio86.s DEVSWD (the FDB and the device table are P4's); WIDTH n[,m] and the screen's devices in screen mode only; the device's name evaluated twice (FRMEVL, then NAMSCN)
 BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
@@ -1265,7 +1265,7 @@ GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 # FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
-GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE
+GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
 GWSTS.ASM PENF -> later 7e: PEN
 GWSTS.ASM STICKF -> later 7f: STICK

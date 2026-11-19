@@ -13,8 +13,9 @@
 ; the address is below $C000 (the program's blocks 0-2: VARPTR's results);
 ; any other comes from P5's DSBYTE, the OEM's router (p5/seed.s), one far
 ; call more: blocks 0-2 by another segment, an allocated block or banks 9-B
-; by GX_BLOCK, the rest by function 83, bank 8 Illegal function call. IBM's
-; BASVAR words, which PEKFLT gave in place of some of BASIC's own, aren't
+; by GX_BLOCK, the rest by function 83; bank 8 the screen page in screen
+; mode (7d3: the active page, up to its reach), else Illegal function call.
+; IBM's BASVAR words, which PEKFLT gave in place of some of BASIC's own, aren't
 ; given (the owner, 2026-11-18: ledger.txt): VARPTR serves.
 
 .include "gwbasic.inc"

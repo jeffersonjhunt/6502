@@ -9,8 +9,9 @@
 ;
 ; As PEEK (p1/peek.s): straight to the CPU's own address under segment 0
 ; below $C000, else by P5's DSBYTE (p5/seed.s), the OEM's POKFLT's place;
-; there a byte OODOS's function 83 won't write, and bank 8, are Illegal
-; function call.
+; there a byte OODOS's function 83 won't write, and bank 8 outside the
+; screen page (7d3: in screen mode the active page, up to its reach), are
+; Illegal function call.
 
 .include "gwbasic.inc"
 

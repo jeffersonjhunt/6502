@@ -1,7 +1,8 @@
 /**
  * @file test_gwbasic_screen.cpp
- * @brief GW-BASIC's own text screen, phases 7d1 and 7d2 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
- *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY), run from OODOS's CCP on backplane.machine.
+ * @brief GW-BASIC's own text screen, phases 7d1-7d3 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
+ *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY; 7d3's screen page for DEF SEG), run from OODOS's CCP on
+ *        backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_core does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1343,6 +1344,280 @@ TEST(the_keyboard_s_lights_are_caps_and_num_lock)
     press(r, 0x39); // Caps Lock
     r.run(ms(100));
     CHECK_EQ(r.machine->usb_card()->leds(), 0x01);
+}
+
+// --- 7d3: the screen page for DEF SEG (hw/oodos.md, 7d3 as built; the owner's answers of 2026-11-18) ---------------
+
+// D1: under DEF SEG=&H8000 offset k is the active page's byte k, the PC's B800 layout (a cell's character, then its
+// attribute; 160 bytes a row at 80 columns, 80 at 40): POKE 0 and 1 make row 0 column 0 an A in yellow on blue, 158
+// is column 79, 644 row 4 column 2, and PEEK reads them back; at 40 columns 80 is row 1 column 0. The reach (answer
+// 3): 4,096 bytes at 80 x 25, 2,048 at 40 x 25, 4,800 at 80 x 30; its last byte reads, the next is Illegal function
+// call. The page is found by the 20-bit address (answer 1), so &H7FFF:&H100 is row 1 column 40; &H8400 is past the
+// reach (the rest of bank 8 refused, its RAM unchanged). Guards a PC program's screen poked into the wrong cell, or
+// refused where the PC allows it. Must fail: (a) DSPAGE adding only the offset's low byte (POKE 644 lands at cell
+// 66); (b) SCPAGP without the 25-row PC page (the reach 4,000: PEEK(4095) refused).
+TEST(def_seg_8000_is_the_active_page_s_cells)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:POKE 0,65:POKE 1,30:POKE 158,66:POKE 644,88:LOCATE 10,1:"
+             "PRINT PEEK(0);PEEK(1);PEEK(158);PEEK(644)", ms(500));
+    uint32_t mb = mapbase(r);
+    CHECK_EQ(card(r, mb), 'A');
+    CHECK_EQ(card(r, mb + 1), 0x1E);
+    CHECK_EQ(card(r, mb + 158), 'B');
+    CHECK_EQ(card(r, mb + 4 * 160 + 4), 'X');
+    CHECK_EQ(card(r, mb + 132), ' ');
+    CHECK_EQ(line(r, 9), std::string(" 65  30  66  88"));
+    enter(r, "CLS:PRINT PEEK(4095):PRINT PEEK(4096)", ms(400));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    enter(r, "CLS:DEF SEG=&H7FFF:POKE &H100,90:DEF SEG=&H8000:PRINT PEEK(240)", ms(400));
+    CHECK_EQ(card(r, mb + 160 + 80), 'Z');
+    CHECK_EQ(line(r, 0), std::string(" 90"));
+    r.poke(0x84000, 0x3C);
+    enter(r, "CLS:DEF SEG=&H8400:POKE 0,1", ms(400));
+    CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+    enter(r, "WIDTH 40:KEY OFF:CLS:DEF SEG=&H8000:POKE 80,87:POKE 81,30:LOCATE 10,1", ms(800));
+    mb = mapbase(r);
+    CHECK_EQ(columns(r), 40u);
+    CHECK_EQ(card(r, mb + 80), 'W');
+    CHECK_EQ(attr(r, 1, 0), 0x1E);
+    enter(r, "CLS:PRINT PEEK(2047):PRINT PEEK(2048)", ms(400));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    enter(r, "WIDTH 80,30:CLS:PRINT PEEK(4799):PRINT PEEK(4800)", ms(800));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    if (line(r, 1) != "Illegal function call")
+        std::printf("  the screen: %s\n", screen(r).c_str());
+}
+
+// D2: a PEEK of the page sees what this statement has just printed (TXBUF's bytes and the cached row written to the
+// card by SCPAGP first): LOCATE 3,1:PRINT "Q";PEEK(320) shows Q 81. And a P6 statement whose argument PEEKs the page
+// (SCPAGP entered again from inside P6's LOCATE and COLOR) works: R at row 7, S in yellow on blue. Guards a program
+// that prints and then tests the screen by PEEK reading the old byte. Must fail: SCPAGP without P6IN and P6OUT (Q 32).
+TEST(peek_sees_what_print_just_wrote)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:LOCATE 3,1:PRINT \"Q\";PEEK(320)", ms(400));
+    CHECK_EQ(line(r, 2), std::string("Q 81"));
+    enter(r, "CLS:POKE 0,67:LOCATE PEEK(0)-60,1:PRINT \"R\";:COLOR PEEK(0)-53,1:PRINT \"S\":COLOR 7,0:LOCATE 12,1",
+          ms(500));
+    CHECK_EQ(line(r, 6), std::string("RS"));
+    CHECK_EQ(attr(r, 6, 0), 0x07);
+    CHECK_EQ(attr(r, 6, 1), 0x1E);
+}
+
+// D3: a POKE on the row P6 has cached is seen by P6 at once (SCPAGP forgets the row before P5 writes the card):
+// LOCATE 5,1:PRINT "ABCDEF";:POKE 644,88:PRINT SCREEN(5,3) shows ABXDEF 88. And the editor enters what is on the
+// card: PRINT 1 typed, its 1 poked to 7, Up to it and Enter runs PRINT 7. Guards a game's collision test by SCREEN()
+// missing a POKEd wall, and the editor entering what was there before the POKE. Must fail: SCPAGP not forgetting the
+// row (ABXDEF 67). (The editor's half doesn't fail under it: the cursor's moves reload the rows they pass.)
+TEST(a_poke_is_seen_on_the_cached_row)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:LOCATE 5,1:PRINT \"ABCDEF\";:POKE 644,88:PRINT SCREEN(5,3)", ms(400));
+    CHECK_EQ(line(r, 4), std::string("ABXDEF 88"));
+    enter(r, "CLS", ms(300));
+    enter(r, "PRINT 1", ms(300));
+    CHECK_EQ(line(r, 1), std::string("PRINT 1"));
+    CHECK_EQ(line(r, 2), std::string(" 1"));
+    enter(r, "POKE 172,55", ms(300));
+    CHECK_EQ(line(r, 1), std::string("PRINT 7"));
+    for (int i = 0; i < 5; ++i)
+        press(r, K_UP);
+    keys(r, "\r");
+    r.run(ms(300));
+    CHECK_EQ(line(r, 2), std::string(" 7"));
+}
+
+// D4: the page is the active page (answer 2): with page 1 active and page 0 shown, POKE 0,80 puts a P in page 1's
+// cell 0, and page 0's stays a blank; SCREEN 0,,1,1 shows it. Guards a program double-buffering by POKE drawing on
+// the page shown. Must fail: SCPAGP returning the visual page's address.
+TEST(the_page_is_the_active_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:SCREEN 0,,1,0:CLS:DEF SEG=&H8000:POKE 0,80:SCREEN 0,,0,0:LOCATE 10,1", ms(800));
+    const uint32_t page0 = mapbase(r);
+    CHECK_EQ(card(r, page0), ' ');
+    enter(r, "SCREEN 0,,1,1", ms(400));
+    CHECK(mapbase(r) != page0);
+    CHECK_EQ(card(r, mapbase(r)), 'P');
+    CHECK_EQ(card(r, page0), ' ');
+}
+
+// D6: BSAVE and BLOAD of the screen page (answer 5: staged in bank 8's RAM, the card reached by function 83). Two
+// lines, one in yellow on blue, BSAVEd at &H8000:0 for 4,000 bytes: the file (read from M:) is $FD, the segment
+// $8000, the offset 0, the length $0FA0, then the card's bytes, not bank 8's RAM (filled with $A5 first). CLS, then
+// BLOAD with the offset, and with none (the file's own &H8000:0): the cells and their attributes come back. BSAVE
+// of 4,096 bytes is taken at 25 rows (answer 3). A 100-byte file BLOADed over a full screen changes its 50 cells
+// alone, and so does one whose header says 4,000 with 100 bytes there (DSPUT writes only the bytes the file gave, to
+// its last record's ^Z: review round 1, F3): the rest of the screen as it was, the record's ^Z and padding not on
+// it, as a PC's BLOAD of a short file. A BLOAD to the page forgets P6's cached row: a row printed, then the file
+// BLOADed over it, and SCREEN() reads the file's cell (F1). And a BSAVE of the page followed by a BLOAD to bank 9
+// leaves the screen alone (F2: the BSAVE's staging isn't written to the card by the next BLOAD's DSPUT). Guards a
+// picture or form saved and loaded by a PC program not coming back, or wiping the rest of the screen; a game's
+// SCREEN() test reading a cell from before its BLOAD; a BLOAD to RAM putting an old screen back. Must fail: (a)
+// BLOAD's FJSR DSPUT left out (the screen stays clear); (b) DSSRUN's DM_VREAD left out (the file holds bank 8's
+// $A5); (c) DSSRUN's SEC before FJSR SCPAGP made CLC (ZZZZZZ 65, not 90); (d) DSRUN's STZ DSSCF left out (row 0
+// OLDSCREEN); (e) DSPUT writing the whole run (cells 50-60 the record's ^Z and zeros).
+TEST(bsave_and_bload_the_screen_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    for (uint32_t i = 0; i < 4800; ++i)
+        r.poke(0x80000 + i, 0xA5);
+    enter(r, "KEY OFF:CLS:PRINT \"FIRST\":COLOR 14,1:PRINT \"SECOND\":COLOR 7,0:DEF SEG=&H8000:BSAVE \"M:S\",0,4000:"
+             "LOCATE 20,1", ms(1500));
+    const uint32_t mb = mapbase(r);
+    const std::vector<uint8_t> d = m_data(r, 0, "S       BAS");
+    REQUIRE(d.size() >= 4007);
+    CHECK(std::vector<uint8_t>(d.begin(), d.begin() + 7) == std::vector<uint8_t>({0xFD, 0x00, 0x80, 0x00, 0x00, 0xA0, 0x0F}));
+    unsigned bad = 0;
+    for (uint32_t i = 0; i < 19 * 160; ++i) // the rows above LOCATE's Ok
+        bad += d[7 + i] != card(r, mb + i);
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(d[7 + 160 + 1], 0x1E);
+    for (const std::string how : {"BLOAD \"M:S\",0", "BLOAD \"M:S\""})
+    {
+        enter(r, "CLS:" + how + ":LOCATE 20,1", ms(1500));
+        CHECK_EQ(line(r, 0), std::string("FIRST"));
+        CHECK_EQ(line(r, 1), std::string("SECOND"));
+        CHECK_EQ(attr(r, 0, 0), 0x07);
+        CHECK_EQ(attr(r, 1, 0), 0x1E);
+    }
+    enter(r, "CLS:BSAVE \"M:T\",0,4096", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("Ok"));
+    const std::vector<uint8_t> t = m_data(r, 0, "T       BAS");
+    CHECK(t.size() >= 4103 && t[5] == 0x00 && t[6] == 0x10);
+    enter(r, "CLS:PRINT \"HUNDRED\":BSAVE \"M:C\",0,100", ms(1500));
+    enter(r, "OPEN \"M:H.BAS\" FOR OUTPUT AS 1:PRINT #1,CHR$(253);CHR$(0);CHR$(128);CHR$(0);CHR$(0);CHR$(160);"
+             "CHR$(15);STRING$(100,72);:CLOSE 1", ms(1500));
+    // 22 rows filled, LOCATE 23's Ok on the next: the window's foot is row 24, with the key line off too (7d2)
+    const std::string fill = "CLS:FOR I=0 TO 21:LOCATE I+1,1:PRINT STRING$(80,65+I);:NEXT:";
+    auto rest = [&](unsigned from_cell) { // the filled rows' cells from from_cell, each as the fill left it
+        unsigned off = 0;
+        for (unsigned c = from_cell; c < 22 * 80; ++c)
+            off += card(r, mb + 2 * c) != 'A' + c / 80 || card(r, mb + 2 * c + 1) != 0x07;
+        return off;
+    };
+    enter(r, fill + "BLOAD \"M:C\",0:LOCATE 23,1", ms(1500));
+    CHECK_EQ(row_at(r, 0).substr(0, 50), std::string("HUNDRED") + std::string(43, ' '));
+    CHECK_EQ(rest(50), 0u);
+    enter(r, fill + "BLOAD \"M:H\",0:LOCATE 23,1", ms(1500));
+    CHECK_EQ(row_at(r, 0).substr(0, 50), std::string(50, 'H'));
+    CHECK_EQ(attr(r, 0, 49), 'H');
+    CHECK_EQ(rest(50), 0u);
+    if (rest(50))
+        std::printf("  row 0: %s\n", row_at(r, 0).c_str());
+    enter(r, "CLS:LOCATE 5,1:PRINT \"ZZZZZZ\":BSAVE \"M:Z\",0,4000:LOCATE 20,1", ms(1500));
+    enter(r, "CLS:LOCATE 5,1:PRINT \"ABCDEF\";:BLOAD \"M:Z\",0:PRINT SCREEN(5,1):LOCATE 20,1", ms(1500));
+    CHECK_EQ(line(r, 4), std::string("ZZZZZZ 90"));
+    enter(r, "CLS:PRINT \"OLDSCREEN\":BSAVE \"M:O\",0,4000:LOCATE 20,1", ms(1500));
+    enter(r, "CLS:PRINT \"NEW\":DEF SEG=&H9000:BLOAD \"M:O\",0:PRINT PEEK(0):DEF SEG=&H8000:LOCATE 20,1", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("NEW"));
+    CHECK_EQ(line(r, 1), std::string(" 79"));
+}
+
+// D7: a run on the page must lie inside it (the 7c tail's rule, the reach answer 3's): under &H8000, BLOAD of a
+// 512-byte file at offset 3,800 (past 4,096), BSAVE of 4,097 bytes, a BLOAD from bank 7 into bank 8 (&H7FF0:0), a
+// BSAVE from bank 8 into bank 9 (&H8FF0:0) and a BLOAD at &H8400:0 (bank 8 past the page) are each Illegal function
+// call, the page and bank 8's RAM unchanged and no file written. Guards a BLOAD writing past the page into the next
+// page's card memory, or past bank 8. Must fail: DSPAGE's test made on the run's first byte (DSA), not its last.
+TEST(a_screen_run_must_lie_inside_the_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:FOR I=1 TO 4:PRINT STRING$(80,70);:NEXT:DEF SEG=&H8000:BSAVE \"M:F\",0,512:LOCATE 10,1",
+          ms(1500));
+    REQUIRE(m_data(r, 0, "F       BAS").size() >= 519);
+    const uint32_t mb = mapbase(r);
+    r.poke(0x84000, 0x3C);
+    for (const std::string stmt : {"DEF SEG=&H8000:BLOAD \"M:F\",3800", "DEF SEG=&H8000:BSAVE \"M:U\",0,4097",
+                                   "DEF SEG=&H7FF0:BLOAD \"M:F\",0", "DEF SEG=&H8FF0:BSAVE \"M:U\",0,512",
+                                   "DEF SEG=&H8400:BLOAD \"M:F\",0"})
+    {
+        enter(r, "CLS", ms(300));
+        std::vector<uint8_t> page(4800);
+        for (uint32_t i = 0; i < page.size(); ++i)
+            page[i] = card(r, mb + i);
+        enter(r, stmt, ms(1500));
+        CHECK_EQ(line(r, 2), std::string("Illegal function call"));
+        unsigned moved = 0;
+        for (uint32_t i = 5 * 160; i < page.size(); ++i) // below the line typed, its error, Ok and the cursor
+            moved += card(r, mb + i) != page[i];
+        CHECK_EQ(moved, 0u);
+        if (line(r, 2) != "Illegal function call" || moved)
+            std::printf("  %s: %s\n", stmt.c_str(), screen(r, 4).c_str());
+    }
+    CHECK(m_data(r, 0, "U       BAS").empty());
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+}
+
+// D8: on a revision 1 north bridge ($D1, test_oodos_video's revision_1_bridge()), where GX_BANK8 refuses and bank 8
+// isn't RAM, PEEK and POKE of the page work, and BSAVE and BLOAD of it are Illegal function call (answer 6), with no
+// file written. Guards, on such a machine, a BSAVE that writes the console's card memory (aperture slot 0) to a file,
+// or a BLOAD refused partway. Must fail: DSSRUN's DSB8 test left out.
+TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
+{
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    const std::string bridge = "northbridge  backplane";
+    const size_t at = text.find(bridge);
+    REQUIRE(at != std::string::npos);
+    text.insert(at + bridge.size(), " revision=1");
+    CcpRig r({}, text);
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:POKE 160,65:PRINT PEEK(160)", ms(600));
+    CHECK_EQ(line(r, 0), std::string(" 65"));
+    enter(r, "CLS:BSAVE \"M:S\",0,100", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+    CHECK(m_data(r, 0, "S       BAS").empty());
+    enter(r, "CLS:DEF SEG:BSAVE \"M:N\",&H1000,100", ms(1500));
+    CHECK(!m_data(r, 0, "N       BAS").empty());
+    enter(r, "CLS:PRINT \"KEPT\":DEF SEG=&H8000:BLOAD \"M:N\",0", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("KEPT"));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+}
+
+// D9, for the record (7d3, unit 3), not gated: what the screen page costs, by timed()'s method (the run of a loop
+// with the statement less the run of the loop with X=0, over 200 passes): X=PEEK(0) and POKE 0,65 under &H8000 (the
+// page: SCPAGP's far call and one function 83 call) and &H9000 (bank 9, by GX_BLOCK); and a RUN line BLOADing a
+// 4,000-byte screen file and one BSAVEing 4,000 bytes, whole, under each.
+TEST(the_screen_page_costs)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:BSAVE \"M:S\",0,4000", ms(1500));
+    auto pass = [&](const std::string &seg, const std::string &stmt) {
+        const uint64_t a = timed(r, {"10 DEF SEG=" + seg, "20 " + stmt + ":I%=I%+1:IF I%<100 THEN 20"});
+        const uint64_t b = timed(r, {"10 DEF SEG=" + seg, "20 " + stmt + ":I%=I%+1:IF I%<300 THEN 20"});
+        return static_cast<double>(b - a) / 200;
+    };
+    const double none = pass("&H8000", "X=0");
+    const double peek8 = pass("&H8000", "X=PEEK(0)") - none, peek9 = pass("&H9000", "X=PEEK(0)") - none;
+    const double poke8 = pass("&H8000", "POKE 0,65") - none, poke9 = pass("&H9000", "POKE 0,65") - none;
+    std::printf("  X=PEEK(0), less X=0: the page %.0f, bank 9 %.0f; POKE 0,65: the page %.0f, bank 9 %.0f (X=0's loop %.0f)\n",
+                peek8, peek9, poke8, poke9, none);
+    const uint64_t bl8 = timed(r, {"10 DEF SEG=&H8000:BLOAD \"M:S\",0"}), bl9 = timed(r, {"10 DEF SEG=&H9000:BLOAD \"M:S\",0"});
+    const uint64_t bs8 = timed(r, {"10 DEF SEG=&H8000:BSAVE \"M:U\",0,4000"}),
+                   bs9 = timed(r, {"10 DEF SEG=&H9000:BSAVE \"M:U\",0,4000"});
+    std::printf("  a RUN line, whole: BLOAD of 4,000 bytes the page %llu, bank 9 %llu; BSAVE of 4,000 the page %llu, bank 9 %llu\n",
+                static_cast<unsigned long long>(bl8), static_cast<unsigned long long>(bl9),
+                static_cast<unsigned long long>(bs8), static_cast<unsigned long long>(bs9));
+    CHECK(peek8 > 0 && poke8 > 0 && bl8 > 0 && bs8 > 0);
 }
 
 int main()
