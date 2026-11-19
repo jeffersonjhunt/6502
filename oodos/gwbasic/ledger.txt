@@ -1278,8 +1278,8 @@ GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
 DSKCOM.ASM FIELD -> p4/dskcom.s FIELDP # its home stub p8/far4.s FIELD
 GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists); an old name that is a SYS file not found (W7)
-DSKCOM.ASM LSET -> p4/dskcom.s LSETP # its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
-DSKCOM.ASM RSET -> p4/dskcom.s RSETP # its home stub p8/far4.s RSET
+DSKCOM.ASM LSET -> p3/dskcom.s LSETP # OO-1: P3 since the IBM spec's fix-up (P4's relief); its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
+DSKCOM.ASM RSET -> p3/dskcom.s RSETP # OO-1: P3 since the fix-up; its home stub p8/far4.s RSET
 GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"; SYS files passed over, each match deleted by name (W7)
 GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
 GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
@@ -1634,13 +1634,13 @@ GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 1
 GIODSK.ASM GETSUB -> p4/giodsk.s GETSUB # PGSUB1 in it; FD_PHY compared as the 8086's, never set
 GIODSK.ASM GETFSZ -> p4/giodsk.s CMPFBC # inline
 GIODSK.ASM GETFPS -> p4/giodsk.s CMPFBC # inline
-DSKCOM.ASM BLKFIL -> p4/dskcom.s BLKFIL # MAKDSC in it
+DSKCOM.ASM BLKFIL -> p3/dskcom.s BLKFIL # MAKDSC in it
 GIO86.ASM DPUTG -> p4/gio86.s DPUTG # ADRGET by a far call to P1 (an entry), FDBP kept round it; a file not open Bad file mode (54), the source's and the IBM manual's A-3
 GIO86.ASM UPDSTD -> p4/gio86.s UPDSTD
 FIVEO.ASM SKPNAM -> p4/gio86.s SKPNAM # IADAHL inline
-DSKCOM.ASM LSETA -> p4/dskcom.s LSETA
-DSKCOM.ASM MAKDSC -> p4/dskcom.s MAKDSC
-DSKCOM.ASM MADESC -> p4/dskcom.s MADESC
+DSKCOM.ASM LSETA -> p3/dskcom.s LSETA
+DSKCOM.ASM MAKDSC -> p3/dskcom.s MAKDSC
+DSKCOM.ASM MADESC -> p3/dskcom.s MADESC
 GWSTS.ASM PARSE -> p4/gwsts.s PARSE
 ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (7e3; p4/gwsts.s GRPVER gives Advanced Feature)
 GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
