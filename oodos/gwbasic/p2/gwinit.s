@@ -330,7 +330,15 @@ NXTBYT:         LDA     (PTR2),Y
                 STA     PTR+1
                 JSR     STROUT
                 JSR     CRDO
-PRNTND:         LDA     #$FF           ; errors are BASIC's from now on
+; PRNTND (GWINIT.ASM 416): the key line on (SKEYON) in screen mode, unless
+; a program is named (KEYSW off then, the source's: 7d2, the owner's answer
+; 1); console mode has none.
+PRNTND:         BIT     SCRMOD
+                BPL     KEYSOF
+                LDA     BUF
+                BNE     KEYSOF
+                FJSR    SKEYOP
+KEYSOF:         LDA     #$FF           ; errors are BASIC's from now on
                 STA     INITFG
                 RTS
 ERRORJ:         JMP     ERROR

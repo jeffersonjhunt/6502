@@ -12,6 +12,9 @@
 ;   LOCATP    LOCATE [y][,[x][,[cursor][,[start][,stop]]]]
 ;   GWWIDP    WIDTH n[,m] for the screen: 40 or 80 columns, 25 or 30 rows
 ;             (30: decision 8's OO-1 extension); the pages cleared
+;   SWIDP     WIDTH "SCRN:",n (P4's SCNSWD, GIOSCN.ASM's): A the width,
+;             40 or 80 with the rows kept, 255 (the source's infinite) no
+;             change; Advanced Feature in console mode (7d2's answer 6)
 ;   COLORP    COLOR [fg][,[bg][,border]]: fg 0-31 (16 on: blinking), bg
 ;             0-15 (its low 3 bits shown), border 0-15
 ;   SCRNP     SCREEN [mode][,[burst][,[apage][,vpage]]]: mode 0 only (1, 2
@@ -21,6 +24,10 @@
 ;   SCRNFP    SCREEN(y,x[,z]): the cell's character, or with z not 0 its
 ;             attribute
 ;   CSRLNP    CSRLIN: the line the next character goes on (GTLINE)
+;   KEYSP     KEY ON, KEY OFF, KEY LIST, KEY n,"text" (7d2; KEY(n) is 7f's,
+;             Advanced Feature until then: the owner's answer 5)
+;   SKEYOP    SKEYON at start-up (P2's PRNTND, in screen mode with no
+;             program named: the owner's answer 1)
 
 .include "gwbasic.inc"
 .include "p6/p6.inc"
@@ -28,12 +35,16 @@
 ;@entry CLSP
 ;@entry LOCATP
 ;@entry GWWIDP
+;@entry SWIDP
 ;@entry COLORP
 ;@entry SCRNP
 ;@entry SCRNFP
 ;@entry CSRLNP
-.export CLSP, LOCATP, GWWIDP, COLORP, SCRNP, SCRNFP, CSRLNP
-.import CHRGTR, SYNCHR, GETBYT, FCERR, SNERR, MAKINT, LINLEN
+;@entry KEYSP
+;@entry SKEYOP
+.export CLSP, LOCATP, GWWIDP, SWIDP, COLORP, SCRNP, SCRNFP, CSRLNP, KEYSP, SKEYOP
+.import CHRGTR, SYNCHR, GETBYT, FCERR, SNERR, MAKINT, LINLEN, ADVERR, SCRMOD
+.import FRMEVL, FRESTR, STRTAB
 
 .macro  MOVB7   dst, src
                 LDA     src
@@ -143,12 +154,12 @@ LOCATP:         JSR     P6IN
 YLCPRM:         CMP     #0
                 BEQ     GOFCER
                 STA     LOCY
-                SEC                    ; less KEYSW (0, or $FF with the key line: 7d2)
-                SBC     KEYSW
-                CMP     LINCNT
-                BEQ     :+
-                BCS     GOFCER
-:               JSR     SCNINT         ; the column
+                LDA     LINCNT         ; the last row: LINCNT, less 1 with the key
+                CLC                    ; line (KEYSW $FF: 7d2), the line compared
+                ADC     KEYSW          ; with it, so no row wraps (255 is past it)
+                CMP     LOCY
+                BCC     GOFCER
+                JSR     SCNINT         ; the column
                 BCC     XLCPRM
                 JSR     SCNPOS
                 LDA     xDH
@@ -216,6 +227,20 @@ GWWIDP:         JSR     P6IN
                 BCS     GOFCER
 @x:             JMP     P6OUT
 
+SWIDP:          BIT     SCRMOD
+                BMI     :+
+                JMP     ADVERR
+:               CMP     #255
+                BEQ     @x
+                STA     LOCX
+                JSR     P6IN
+                LDA     LINCNT
+                STA     LOCY
+                JSR     SWIDTH
+                BCS     GOFCER
+                JMP     P6OUT
+@x:             RTS
+
 ; SWIDTH (the OEM's): LOCX columns (40, 80), LOCY rows (25, 30): the
 ; driver set for them, every page cleared, page 0 active and shown, home.
 SWIDTH:         LDA     LOCX
@@ -235,7 +260,7 @@ SWIDTH:         LDA     LOCX
                 STZ     VPAGE
                 JSR     PGINIT
                 JSR     SCNBRK
-                JSR     CLRSCN
+                JSR     CLRSCN         ; (SCNCLR's KEYDSP: the key line on the new last line)
                 JSR     VSHOW
                 CLC
                 RTS
@@ -342,6 +367,7 @@ SCRSTT:         LDA     PCNT
                 BEQ     :+
                 STA     APAGE
                 JSR     APGSET         ; the cache written back and forgotten
+                JSR     KEYDSP         ; the key line on the new page
 :               LDA     NVP
                 CMP     VPAGE
                 BEQ     :+
@@ -428,7 +454,139 @@ GTLINE:         LDA     CSRY
 @x:             RTS
 
 
+; --- KEY (GWSTS.ASM 1332) -----------------------------------------------------------------
+
+NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys
+
+; KEYSP: TXTPTR at what follows KEY, A it. KEY n,"text": key n (1-10), its
+; text's first 15 characters (a 0 after), the line drawn again if it is on.
+KEYSP:          PHA
+                JSR     P6IN
+                PLA
+                CMP     #'('
+                BNE     :+
+                JMP     ADVERR         ; KEYSTT: KEY(n), 7f's
+:               CMP     #ON_TK
+                BEQ     KEYON
+                CMP     #OFF_TK
+                BEQ     KEYOF
+                CMP     #LIST_TK
+                BEQ     KEYLST
+                JSR     GETBYT         ; the key's number
+                DEC     A
+                CMP     #NMKEYF
+                BCS     KEYFCE         ; 1 to 10, else Illegal function call
+                ASL     A              ; x 16: its place in STRTAB
+                ASL     A
+                ASL     A
+                ASL     A
+                PHA
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL
+                JSR     FRESTR         ; BX: the descriptor
+                PLX
+                LDA     (RBL)
+                CMP     #16
+                BCC     KEY1
+                LDA     #15            ; 0 to 15 characters
+KEY1:           STA     KLEN
+                LDY     #1
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR+1
+                LDY     #0
+@cp:            CPY     KLEN
+                BEQ     @end
+                LDA     (PTR),Y
+                STA     STRTAB,X
+                INX
+                INY
+                BRA     @cp
+@end:           STZ     STRTAB,X       ; the 0 after it
+                LDA     KEYSW
+                BEQ     NODSPK         ; off: the last line left as it is
+                JSR     KEYDSP
+NODSPK:         JMP     P6OUT
+KEYFCE:         JMP     FCERR
+
+KEYON:          JSR     SKEYON
+KEYOXX:         JSR     CHRGTR         ; past ON, OFF, LIST
+                JMP     P6OUT
+KEYOF:          LDA     #0
+                JSR     KEYOX
+                BRA     KEYOXX
+
+; SKEYOP: SKEYON from P2's start-up.
+SKEYOP:         JSR     P6IN
+                JSR     SKEYON
+                JMP     P6OUT
+; SKEYON: the key line on; KEYOX: A the new KEYSW (0 or $FF): if that
+; changes it, the line drawn or cleared (turned on: its first keys,
+; FKYADV's). OO-1: the scroll window's foot doesn't move (KEYOX's AH): the
+; last line is outside it whether the line is on or off (SCNSWI).
+SKEYON:         LDA     #$FF
+KEYOX:          CMP     KEYSW
+                STA     KEYSW
+                BEQ     @x
+                CMP     #$FF
+                BNE     @d
+                JSR     FKYADV         ; (Z set: the first keys)
+@d:             JMP     KEYDSP
+@x:             RTS
+
+; KEYLST: the ten keys, "F", the number, a blank, the text (KEYLSP: a CR as
+; 27), a new line each. OO-1: 27 printed would be ESC (DOESC: written where
+; the cursor is, which doesn't move, so the next character covers it); so a
+; blank is printed, and 27 written by SCROUT over its cell (SCNOUT leaves DX
+; at it), as the PC shows the CR (7d2's review round 1, F3).
+KEYLST:         LDA     #1
+                STA     KLEN           ; the key's number
+                STZ     KOFS           ; its place in STRTAB
+@k:             LDA     #'F'
+                JSR     PUTC
+                LDA     KLEN
+                CMP     #10
+                BCC     @one
+                LDA     #'1'
+                JSR     PUTC
+                LDA     #0
+@one:           ORA     #'0'
+                JSR     PUTC
+                LDA     #' '
+                JSR     PUTC
+                LDX     KOFS
+@c:             LDA     STRTAB,X
+                BEQ     @e
+                PHX
+                CMP     #13            ; KEYLSP
+                BNE     @p
+                LDA     #' '
+                JSR     PUTC
+                LDA     #27
+                JSR     SCROUT
+                BRA     @n
+@p:             JSR     PUTC
+@n:             PLX
+                INX
+                BRA     @c
+@e:             LDA     #13            ; (PUTC: and an LF)
+                JSR     PUTC
+                LDA     KOFS
+                CLC
+                ADC     #16
+                STA     KOFS
+                INC     KLEN
+                LDA     KLEN
+                CMP     #NMKEYF + 1
+                BCC     @k
+                JMP     KEYOXX
+
 .segment "BRAM"
+KLEN:           .res    1              ; KEY's length; KEYLST's number
+KOFS:           .res    1              ; KEYLST's place
 PMAX            = 8
 PCNT:           .res    1              ; GTPRMS's list
 PFLG:           .res    PMAX

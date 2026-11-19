@@ -40,7 +40,7 @@
 .export VARPT2P
 .export SEVSTT, SET1EV, SEVALL, EVSET, EVADR, ONGOTP, SETGSB, EVTRP, EVCLR, TSTCEV
 .export EOSCHK, EOSCH1, TRPTBL, COMSP, LCOPYP
-.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT, ADVERR
+.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT, ADVERR, SCRMOD
 .import ONTRP, OFFTRP, STPTRP, REQTRP, FRETRP
 
 .code
@@ -427,15 +427,19 @@ COMSP:          LDA     #NMCOMT
                 JMP     SEVSTT
 
 ; LCOPYP: LCOPYS, LCOPY [n]: n 0 if not given (a byte, GETBYT), and the
-; statement's end; then LCPY, the OEM's copy of the screen to the printer
-; (C set: Illegal function call). OO-1: LCPY is Advanced Feature until the
-; screen (7d): the console's screen is OODOS's (AGENTS.md), and GW-BASIC's
-; own text layer, which it would copy, is 7d's.
+; statement's end; then LCPY, the OEM's copy of the screen to the printer:
+; OO-1, P6's LCPYP in screen mode (7d2; n taken and not used, the owner's
+; answer 9), Advanced Feature in console mode (the console's screen is
+; OODOS's, AGENTS.md).
 LCOPYP:         STZ     RDL            ; DL: 0, the default
                 BEQ     NOPARM         ; the statement's end
                 JSR     GETBYT
 NOPARM:         JSR     EOSCHK
-                JMP     ADVERR         ; LCPY (OO-1: 7d's)
+                BIT     SCRMOD
+                BPL     @adv
+                FJSR    LCPYP          ; LCPY
+                RTS
+@adv:           JMP     ADVERR
 
 ; EOSCHK (GWSTS.ASM 467): the statement must end at TXTPTR (EOSCHK) or after
 ; it (EOSCH1), else Syntax error.

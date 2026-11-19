@@ -37,7 +37,7 @@ fails on any difference it doesn't list.
 
 ctest's `test_gwbasic_programs` runs `programs.py`: each `programs/NAME.bas`, tokenised by `basic.py`, runs
 in the harness (`harness.s` sets the workspace up as RUN would: the variables past the program, the
-string space down from `$9FEE`, or smaller where a program says `REM @memsize N`) through NEWSTT and
+string space down from `$CBEE`, or smaller where a program says `REM @memsize N`) through NEWSTT and
 PRINT (P1's, step I2's). What it prints must be `NAME.out`, made by
 `tools/oracle.sh` from the same file. GW-BASIC's own error printer (step I1) prints an error as PC-BASIC
 does ("Type mismatch in 20", on a line of its own); then READY's "Ok", which PC-BASIC's `-n` run doesn't
@@ -61,12 +61,12 @@ fails it.
 
 `run6502 --input FILE` answers function 10 with FILE's lines, one a call, echoed as function 10 echoes
 (with the characters the buffer holds first, as OODOS's preload), and stops when they run out. With the
-control byte 2 the harness starts GW-BASIC itself at READY (INITSA), its workspace at `$9401`: so a
+control byte 2 the harness starts GW-BASIC itself at READY (INITSA), its workspace at `$C001`: so a
 transcript of lines typed at GW-BASIC's prompt can be tried in a second, without OODOS. (The real test of
 typed lines is the emulator's `test_gwbasic_core`, against `emulator/test/host/gwbasic/`.)
 
     printf '\x02\0\0\0\0\0\0\0' > ctrl.vec
-    run6502 flat.bin --load 9FF0:ctrl.vec --input lines.txt
+    run6502 flat.bin --load CBF0:ctrl.vec --input lines.txt
 
 The project's own: `flat.cfg`, `harness.s`, `run6502.cpp`, `check.py`, `programs.py`, this file, `oracle/` and
 `programs/`.

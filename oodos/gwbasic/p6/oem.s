@@ -12,6 +12,8 @@
 ;             physical address (function 73), 80 x 25, the pages cleared,
 ;             the layer shown (P5's TXMODE)
 ;   TXRUN     OUTDO's TXBUF (the console's bytes, LOWRAM) through PUTC
+;   LCPYP     LCOPY (GWSTS.ASM's LCPY, the OEM's; 7d2, the owner's answer
+;             9): the visual page's text to LST:
 ;
 ; GW-BASIC's text is layer 0, 80 or 40 cells a row, 30 rows (25 used, centred,
 ; or 30: WIDTH n,30), a character and its attribute a cell: foreground bits
@@ -34,7 +36,8 @@
 
 ;@entry SCNIPL
 ;@entry TXRUN
-.export SCNIPL, TXRUN
+;@entry LCPYP
+.export SCNIPL, TXRUN, LCPYP
 .import TXBUF, TXLEN, LSTCHR, LINLEN, KEYINI
 
 .code
@@ -97,6 +100,64 @@ SCNIPL:         STA     PGBASE
 
 TXRUN:          JSR     P6IN
                 JMP     P6OUT
+
+; LCPYP: the visual page's LINCNT rows, the key line's too, to LST: by
+; function 5, as text: each row's trailing blanks left out, a character
+; below 32 or $FF sent as a blank, a CR and an LF after each; LPT1's column
+; 0 after. TXBUF's bytes and the cached row reach the card first; the rows
+; are read into the cache (ROWIN on the visual page), which is then
+; forgotten (APGSET).
+LCPYP:          JSR     P6IN
+                JSR     FLUSH
+                LDA     VPAGE
+                JSR     PGSET
+                LDA     #1
+                STA     LCR
+@row:           LDA     LCR
+                JSR     ROWIN
+                LDA     CRTWID         ; the last cell that isn't a blank
+                ASL     A
+                TAY
+@trim:          LDA     CACHE - 2,Y
+                JSR     LCHAR
+                BNE     @last
+                DEY
+                DEY
+                BNE     @trim
+@last:          STY     LCN
+                LDY     #0
+@out:           CPY     LCN
+                BEQ     @eol
+                INY
+                INY
+                PHY
+                LDA     CACHE - 2,Y
+                JSR     LCHAR
+                JSR     LSTOUT
+                PLY
+                BRA     @out
+@eol:           LDA     #13
+                JSR     LSTOUT
+                LDA     #10
+                JSR     LSTOUT
+                LDA     LCR
+                INC     LCR
+                CMP     LINCNT
+                BCC     @row
+                STZ     LPTPOS
+                JSR     APGSET         ; the active page's again, the cache empty
+                JMP     P6OUT
+; LCHAR: A a cell's character as LCOPY sends it (a blank for one below 32
+; or $FF); Z set for a blank.
+LCHAR:          CMP     #' '
+                BCC     @b
+                CMP     #$FF
+                BNE     @x
+@b:             LDA     #' '
+@x:             CMP     #' '
+                RTS
+LSTOUT:         LDY     #L_WRITE
+                JMP     BDOS
 
 ; P6IN: OUTDO's bytes waiting in TXBUF, out first (every entry of P6's
 ; but TXRUN's own does this before anything else).
@@ -889,9 +950,10 @@ FILLP:          PHA                    ; the cached row written back first (FLUS
                 STA     DMB + 8
                 JMP     DMCALL
 
-; APGSET: APG the active page's card address, PGBASE + APAGE x PGSIZE pages.
+; APGSET: APG the active page's card address, PGBASE + APAGE x PGSIZE pages;
+; PGSET: page A's (LCPYP's visual page). The cache forgotten.
 APGSET:         LDA     APAGE
-                JSR     PGADR
+PGSET:          JSR     PGADR
                 STZ     APG
                 STA     APG + 1
                 STX     APG + 2
@@ -932,6 +994,38 @@ VSHOW:          LDA     BRDC
                 JSR     PGADR
                 PLY
                 FJSR    TXMODE
+                RTS
+
+; --- FKYFMT, FKYADV (the OEM's: the key line's format) ----------------------------------
+
+; FKYFMT: X the keys the line shows, A the first: 10 from F1 at 80 columns,
+; 5 from FKYST (F1 or F6) at 40; 6 characters each (KEYDSP's).
+FKYFMT:         LDX     #10
+                LDA     #1
+                LDY     CRTWID
+                CPY     #40
+                BNE     @x
+                LDX     #5
+                LDA     FKYST
+@x:             RTS
+
+; FKYADV: Z set (the line off): its first keys, F1; A $FF (on). Z clear:
+; the next keys, at 40 columns F6-F10 after F1-F5, A $FF; past the last
+; (F6-F10, or any at 80 columns) A 0 (off).
+FKYADV:         BNE     @adv
+                LDA     #1
+@set:           STA     FKYST
+                LDA     #$FF
+                RTS
+@adv:           LDA     CRTWID
+                CMP     #40
+                BNE     @off
+                LDA     FKYST
+                CMP     #6
+                BEQ     @off
+                LDA     #6
+                BRA     @set
+@off:           LDA     #0
                 RTS
 
 ; --- The cursor (GIOKYB.ASM's STCTYP and SETCSR; CSRDSP the OEM's) ------------------------
@@ -1034,6 +1128,9 @@ FRC0:           .res    1              ; FASTRN's first place, last, and limit
 FRL:            .res    1
 FRLIM:          .res    1
 SCI:            .res    1              ; a count
+FKYST:          .res    1              ; the key line's first key at 40 columns: 1 or 6
+LCR:            .res    1              ; LCPYP's row
+LCN:            .res    1              ;   and its last cell x 2
 CURON:          .res    1              ; the cursor shown: at CURR, CURC, over CURA
 CURR:           .res    1
 CURC:           .res    1

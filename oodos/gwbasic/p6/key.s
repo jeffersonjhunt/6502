@@ -13,16 +13,20 @@
 ;             none; Ctrl-C the break (A = $80 back, EVPOLL's to take); Ctrl-S
 ;             the pause, here, until another key (dropped; Ctrl-C breaks);
 ;             Caps Lock GW-BASIC's own, on at start-up, its light by function
-;             81's IN_LEDS. Then the key's cooked twin drained (W1: while
-;             function 11 says ready, function 6 reads and drops). A = $40
-;             back if the key repeats, else 0
+;             81's IN_LEDS. An unshifted F1-F10 (59-68, GIOKYB.ASM's
+;             CHKFKY) whose soft key (STRTAB) has a text queues the text
+;             instead, whole or not at all if the queue hasn't room for it
+;             (7d2, the owner's answer 2; the source expands it as it is
+;             read, CHSNS's GETFKY). Then the key's cooked twin drained (W1:
+;             while function 11 says ready, function 6 reads and drops). A =
+;             $40 back if the key repeats, else 0
 ;   KEYINI    Caps Lock on, its light
 ;   KEYSIN    the next byte of the keyboard queue, waited for with the
 ;             editor's cursor shown, the cooked keys drained each time round
 ;   KEYIN     the editor's next key: A AL; C set for a two-byte one, X its
 ;             first byte ($FF: an editor function, SCNDRV.ASM's control
-;             codes); a PC two-byte key with no function (a function key: its
-;             soft key is 7d2's) is passed over
+;             codes); a PC two-byte key with no function (a function key with
+;             no text, a shifted one) is passed over
 ;
 ; The US layout, as OOUI's UCHAR has it; the keypad as digits (Num Lock on).
 
@@ -31,7 +35,7 @@
 
 ;@entry KEYEV
 .export KEYEV, KEYINI
-.import CHSNS, PKQUE, KYBQIN, KYBQOUT, EVAREA, TXLEN, TXRUN
+.import CHSNS, PKQUE, KYBQIN, KYBQOUT, EVAREA, TXLEN, TXRUN, STRTAB
 
 K_CTRL          = $11                  ; EV_MODS: left or right
 K_SHIFT         = $22
@@ -47,9 +51,9 @@ KEYEV:          STA     KUSE
                 EOR     #$FF
                 STA     CAPS
                 JSR     KLEDS
-                BRA     @none
+                JMP     @none
 @nc:            JSR     KXLAT
-                BCS     @none
+                JCS     @none
                 LDA     KTWO
                 BNE     @q
                 LDA     KC1
@@ -65,12 +69,44 @@ KEYEV:          STA     KUSE
                 BEQ     :+
                 JSR     TXRUN
 :               JMP     KPAUSE
-@q:             SEC                    ; room for both bytes of a two-byte key
+@q:             SEC                    ; the queue's room
                 LDA     KYBQOUT
                 SBC     KYBQIN
                 SEC
                 SBC     #1
                 AND     #KYBQLN - 1
+                STA     KROOM
+                LDA     KTWO           ; CHKFKY: F1-F10 unshifted, 59-68
+                BEQ     @one
+                LDA     KC2
+                SEC
+                SBC     #59
+                CMP     #10
+                BCS     @one
+                ASL     A              ; its text, STRTAB + 16 x n
+                ASL     A
+                ASL     A
+                ASL     A
+                TAX
+                STX     KSX
+                LDY     #0
+@len:           LDA     STRTAB,X
+                BEQ     :+
+                INX
+                INY
+                BRA     @len
+:               TYA
+                BEQ     @one           ; none: the PC's code, 0 and the scan code
+                CPY     KROOM
+                BEQ     :+
+                BCS     @full          ; no room for it all: dropped
+:               LDX     KSX            ; GETFKY's characters, queued now
+@txt:           LDA     STRTAB,X
+                BEQ     @full
+                JSR     PKQUE          ; (X kept)
+                INX
+                BRA     @txt
+@one:           LDA     KROOM          ; room for both bytes of a two-byte key
                 CMP     #2
                 BCC     @full
                 LDA     KC1
@@ -372,5 +408,7 @@ KMOD:           .res    1
 KC1:            .res    1
 KC2:            .res    1
 KTWO:           .res    1
+KROOM:          .res    1              ; the queue's room
+KSX:            .res    1              ; the soft key's text, its place in STRTAB
 CAPS:           .res    1              ; bit 7: Caps Lock on
 LEDB:           .res    2              ; function 81's block

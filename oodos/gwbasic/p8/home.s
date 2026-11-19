@@ -40,7 +40,7 @@
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
-.import WIDTH, COLOR, CLS, SCREEN, LOCATE
+.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY
 
 .code
 
@@ -133,7 +133,7 @@ STMDSP:         S       ENDST          ; END
                 S       ADVERR         ; PSET (7e)
                 S       ADVERR         ; PRESET (7e)
                 S       SCREEN         ; SCREEN (p8/far6.s; modes but 0 7e's)
-                S       ADVERR         ; KEY (7d2)
+                S       KEY            ; KEY (p8/far6.s; KEY(n) 7f's)
                 S       LOCATE         ; LOCATE (p8/far6.s)
 .assert LOCATE_TK - BLOAD_TK = 7, error, "STMDSP: SOUND .. LOCATE after BLOAD"
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"

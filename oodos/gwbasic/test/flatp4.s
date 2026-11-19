@@ -4,7 +4,7 @@
 ; can open there (nor a device's: LPOS, DEVSOT, GIOINP here too, the 7c
 ; devices step's): P4 is left out of it (the Makefile's FLAT_SRC), and so are
 ; its statements' home block stubs (p8/far4.s), which keeps the image under
-; check.py's $9400 (G11: $9000 until 7c's raise); its entries and those stubs come here. A file
+; check.py's limit (G11: $9000 until 7c, $9400 until 7d2, then $C000); its entries and those stubs come here. A file
 ; statement (and CHDIR, MKDIR, RMDIR, CHAIN, LIST's file), VARPTR(#n), and
 ; CVI to MKD$, are Advanced Feature; the output hooks find nothing to flush,
 ; and WRITE no random file.
@@ -16,7 +16,7 @@
 .export LOADP, LOADP2, MERGEP, SAVEP, DSKCHP
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN ; p8/far4.s's
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET
-.export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR
+.export FUNDXP, CMPFBP, CHAIN, CHNRET, NAMSCN, NULOPM, GETPTR, DEVSWD
 .export DEVSOT, GIOINP, LPOSP
 .export BSAVE, BLOAD                   ; p8/far4.s's (7c's tail)
 .import ADVERR
@@ -58,6 +58,7 @@ GET:
 CHAIN:
 CHNRET:
 NAMSCN:
+DEVSWD:
 NULOPM:
 BSAVE:
 BLOAD:

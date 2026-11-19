@@ -24,8 +24,8 @@
 ; and labels, its registers in P6's bytes of their names (p6/p6.inc), its CF
 ; in C and its ZF in Z where a caller tests them.
 ;
-; OO-1: the function-key line (KEYSW, LABELK's ^T, KEYDSP's line) is 7d2's,
-; so KEYSW stays 0 and ^T does nothing; GRPINI (the graphics cursor) is
+; OO-1: the function-key line (KEYSW, LABELK's ^T, KEYDSP's line: 7d2) is
+; the last line, LINCNT, always outside the scroll window; GRPINI (the graphics cursor) is
 ; 7e's; the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
 ; two-byte (DBLCHR) characters aren't built (DBLCHR is 0 in the source
 ; too).
@@ -33,7 +33,7 @@
 .include "gwbasic.inc"
 .include "p6/p6.inc"
 
-.import LINLEN, SEMFLG, BUF
+.import LINLEN, SEMFLG, BUF, STRTAB
 
 ; --- 8086-like moves ----------------------------------------------------------------------
 
@@ -116,17 +116,97 @@ SCNPOS:         PHP
                 PLP
                 RTS
 
-; KEYDSP (GWSTS.ASM 1471): the key line. OO-1: KEYSW is 0 until 7d2, so
-; only its off branch: the last line cleared. DX kept.
+; KEYDSP (GWSTS.ASM 1471): the key line, on the last line (LINCNT). KEYSW
+; off: the line cleared. On: FKYFMT's keys from its first, each its number
+; (key 10's 0) in the attribute, then its text's first 6 characters
+; reversed (XFGBG; blanks past its end), then a blank (KEYDCH: a CR shown as
+; 27, an LF as "<"). DX kept. OO-1: GETFMT's two-digit first key never
+; arises (the first is F1 or F6), so a number is one digit and KEYADV's
+; wrap (KADNRM) never comes; the cursor isn't turned off and on round it
+; (it is shown only in KEYSIN's wait, which hides it before any caller).
 KEYDSP:         PSH     xDH
                 PSH     xDL
                 LDA     #1
                 STA     xDH
                 MOVB    xDL, LINCNT
+                LDA     KEYSW
+                BNE     @on
                 JSR     CLREOL
-                PULB    xDL
+                BRA     @x
+@on:            JSR     FKYFMT         ; GETFMT: X the keys, A the first
+                STX     KYCNT
+                STA     KYNUM
+                MOVB    KYATR, ATTR
+@key:           LDA     KYNUM          ; the number
+                CMP     #10
+                BCC     :+
+                LDA     #0
+:               ORA     #'0'
+                JSR     KEYDCH
+                LDA     KYATR          ; XFGBG: the foreground and background
+                AND     #$07           ; swapped
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                STA     ATTR
+                LDA     KYATR
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                AND     #$07
+                ORA     ATTR
+                STA     ATTR
+                LDA     KYNUM          ; STRTAB + 16 x (n - 1)
+                DEC     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                TAX
+                LDY     #6             ; FKCNUM
+@ch:            LDA     STRTAB,X
+                BEQ     :+             ; past the text: blanks
+                INX
+:               PHX
+                PHY
+                JSR     KEYDCH
+                PLY
+                PLX
+                DEY
+                BNE     @ch
+                MOVB    ATTR, KYATR    ; XFGBG back
+                LDA     #0             ; KEYDB
+                JSR     KEYDCH
+                INC     KYNUM          ; KEYADV
+                DEC     KYCNT
+                BNE     @key
+@x:             PULB    xDL
                 PULB    xDH
                 RTS
+; KEYDCH: A at (DH, DL), DH moved on: a 0 as a blank, a CR as 27 (the IBM
+; FKEYCR), an LF as "<".
+KEYDCH:         CMP     #0
+                BNE     :+
+                LDA     #' '
+:               CMP     #13
+                BNE     :+
+                LDA     #27
+:               CMP     #10
+                BNE     :+
+                LDA     #'<'
+:               JSR     SCROUT
+                INC     xDH
+                RTS
+
+; LABELK (SCNDRV.ASM 816): ^T: the key line on (its first keys), on to the
+; next (40 columns: F1-F5, then F6-F10), or off past the last (FKYADV);
+; then drawn, or cleared. DX kept.
+LABELK:         LDA     KEYSW          ; Z: off
+                JSR     FKYADV
+                STA     KEYSW
+                JMP     KEYDSP
 
 ; --- SCNRDT, SCNWTT, TTBINI (SCNDRV.ASM 298) ----------------------------------------------
 
@@ -2344,7 +2424,7 @@ FUNTAB:         .word   CTLIGN, CTLIGN, BCKWRD, CTLIGN ; ^@ ^A ^B ^C
                 .word   BAKSPC, LTAB, LFEED, WHOME     ; ^H ^I ^J ^K
                 .word   CCLRSN, LCARET, LAPPND, CTLIGN ; ^L ^M ^N ^O
                 .word   CTLIGN, CTLIGN, LINSRT, CTLIGN ; ^P ^Q ^R ^S
-                .word   CTLIGN, LDELET, CTLIGN, WDELET ; ^T (LABELK: 7d2's) ^U ^V ^W
+                .word   LABELK, LDELET, CTLIGN, WDELET ; ^T ^U ^V ^W
                 .word   CTLIGN, CTLIGN, WERASE, CTLIGN ; ^X ^Y ^Z ESC
                 .word   WCSADV, WCSREG, WCSUP, WCSDWN  ; ^\ ^] ^^ ^_
                 .word   CDELET                         ; DEL
@@ -2379,7 +2459,10 @@ LSTCOL:         .res    1
 FSTCOL:         .res    1
 CSRX:           .res    1
 F_CRET:         .res    1              ; 0: the last character was a CR
-KEYSW:          .res    1              ; the key line (7d2): 0
+KEYSW:          .res    1              ; the key line: 0 off, $FF on
+KYCNT:          .res    1              ; KEYDSP's keys left, the key, the attribute
+KYNUM:          .res    1
+KYATR:          .res    1
 ESCFLG:         .res    1
 F_EDIT:         .res    1              ; INLIN running
 F_INST:         .res    1              ; insert mode

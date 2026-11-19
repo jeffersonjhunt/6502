@@ -68,7 +68,7 @@ namespace
     constexpr uint16_t LOAD = 0x0300;
     constexpr uint16_t WBOOT = 0x0200;
     constexpr uint16_t BDOS = 0x0203;
-    constexpr uint16_t TPA_TOP = 0xC000;
+    constexpr uint16_t TPA_TOP = 0xCBF0; // the flat image's control block (harness.s): CLEAR's MAXMEM below it
 
     unsigned long parse_hex(const std::string &s)
     {

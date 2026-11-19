@@ -1,7 +1,7 @@
 /**
  * @file test_gwbasic_screen.cpp
- * @brief GW-BASIC's own text screen, phase 7d1 (hw/oodos.md, "The plan, phase 7": block P6), run from OODOS's CCP
- *        on backplane.machine.
+ * @brief GW-BASIC's own text screen, phases 7d1 and 7d2 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
+ *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY), run from OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_core does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -13,7 +13,8 @@
  *
  * Every case is written by hand from the source's meaning (SCNDRV.ASM, SCNEDT.ASM, GWSTS.ASM, GIOKYB.ASM) and the
  * owner's answers; PC-BASIC's transcripts aren't GW-BASIC's screen, so none is compared with them. Each case says
- * the failure on real hardware it guards and the broken build it was seen failing on (hw/oodos.md, 7d1 as built).
+ * the failure on real hardware it guards and the broken build it was seen failing on (hw/oodos.md, 7d1 and 7d2 as
+ * built). From 7d2 the key line is on at start-up (the owner's answer 1), on the last row.
  */
 
 #include "harness.h"
@@ -53,6 +54,10 @@ namespace
                 out[name.substr(1)] = static_cast<uint16_t>(std::stoul(addr, nullptr, 16));
         return out;
     }
+
+    /// The key line at 80 columns with the PC's ten texts (7d2): each key's number, its first 6 characters (a CR
+    /// shown as 27), a blank; the trailing blank dropped, as line() drops it.
+    const std::string KEYLINE = "1LIST   2RUN\x1b   3LOAD\"  4SAVE\"  5CONT\x1b  6,\"LPT1 7TRON\x1b  8TROFF\x1b 9KEY    0SCREEN";
 
     constexpr uint16_t L0_CONFIG = 0xC490, L0_MAP = 0xC491, L0_TILE = 0xC493, L0_VSCROLL = 0xC497;
 
@@ -306,7 +311,7 @@ TEST(system_leaves_the_ccp_line_empty)
 }
 
 // 40 numbered PRINTs scroll the window (24 lines) and keep every line: the numbers in order, one a row, up to
-// 40, then Ok, then the cursor's blank line at the window's foot, and the 25th line blank. Guards lines lost or
+// 40, then Ok, then the cursor's blank line at the window's foot, and the key line as it was. Guards lines lost or
 // doubled at the bottom while output scrolls. Seen failing with the row cache not written back before SCROLL's
 // DM_VCOPY.
 TEST(a_scroll_keeps_every_line)
@@ -321,8 +326,8 @@ TEST(a_scroll_keeps_every_line)
     for (int row = 21, n = 40; row >= 0; --row, --n)
         CHECK_EQ(line(r, static_cast<unsigned>(row)), " " + std::to_string(n));
     CHECK_EQ(line(r, 23), std::string());
-    CHECK_EQ(line(r, 24), std::string());
-    CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+    CHECK_EQ(line(r, 24), KEYLINE);
+    CHECK_EQ(row_at(r, 24), KEYLINE + std::string(80 - KEYLINE.size(), ' '));
     if (ok != 22)
         std::printf("  the screen: %s\n", screen(r).c_str());
 }
@@ -345,7 +350,8 @@ TEST(ctrl_c_breaks_a_running_program)
     if (at > 0)
         CHECK_EQ(line(r, static_cast<unsigned>(at + 1)), std::string("Ok"));
     enter(r, "PRINT 5");
-    CHECK(until_row(r, " 5") > 0);
+    if (at > 0)
+        CHECK_EQ(line(r, static_cast<unsigned>(at + 3)), std::string(" 5"));
     CHECK(r.out.find("A>", since) == std::string::npos);
 }
 
@@ -448,6 +454,7 @@ TEST(inkey_gives_the_pcs_two_byte_codes)
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"\""); // 7d2: F1's soft key empty, so it gives the PC's code (a PC program does the same)
     enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
     enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1)):GOTO 10");
     keys(r, "RUN\r");
@@ -527,13 +534,14 @@ TEST(locate_csrlin_and_pos)
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "CLS:LOCATE ,81", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
-    enter(r, "CLS:LOCATE 25,1:PRINT \"Z\";:LOCATE 10,1", ms(300));
+    enter(r, "KEY OFF:CLS:LOCATE 25,1:PRINT \"Z\";:LOCATE 10,1", ms(300));
     CHECK_EQ(line(r, 24), std::string("Z"));
     CHECK(last_row(r, "Illegal") < 0);
 }
 
 // COLOR and CLS: COLOR 14,1 writes cells $1E; COLOR 30,1 $9E, blinking; COLOR ,,4 sets the border to 4; COLOR 32
-// is Illegal function call; CLS blanks every row of the 25 in the current attribute and homes the cursor. Guards
+// is Illegal function call; CLS blanks the 24 rows in the current attribute, draws the key line again and homes the
+// cursor. Guards
 // wrong colours. Seen failing with the background put in bits 3-0.
 TEST(color_and_cls)
 {
@@ -549,9 +557,13 @@ TEST(color_and_cls)
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "COLOR 7,2:CLS", ms(300));
     bool all = true;
-    for (unsigned row = 1; row < 25; ++row)
+    for (unsigned row = 1; row < 24; ++row)
         for (unsigned c = row == 1 ? 1 : 0; c < 80; ++c) // (the cursor waits at row 1's first cell)
             all = all && attr(r, row, c) == 0x27 && card(r, mapbase(r) + row * 160 + c * 2) == ' ';
+    CHECK(all);
+    CHECK_EQ(line(r, 24), KEYLINE); // the key line: its numbers in $27, its texts reversed, $72
+    for (unsigned c = 0; c < 80; ++c)
+        all = all && attr(r, 24, c) == (c % 8 == 0 || c % 8 == 7 ? 0x27 : 0x72);
     CHECK(all);
     CHECK_EQ(line(r, 0), std::string("Ok"));
 }
@@ -576,10 +588,410 @@ TEST(width_40_80_and_30_rows)
     enter(r, "WIDTH 80,30", ms(400));
     CHECK_EQ(reg(r, L0_CONFIG), 0x80);
     CHECK_EQ(reg(r, L0_VSCROLL) | reg(r, L0_VSCROLL + 1) << 8, 0);
-    enter(r, "LOCATE 30,1:PRINT \"THIRTY\";:LOCATE 10,1", ms(300));
+    enter(r, "KEY OFF:LOCATE 30,1:PRINT \"THIRTY\";:LOCATE 10,1", ms(300));
     CHECK_EQ(line(r, 29), std::string("THIRTY"));
     enter(r, "WIDTH 50", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
+}
+
+// WIDTH "SCRN:",n is the screen's WIDTH n with the rows kept (GIOSCN.ASM's SCNSWD; 7d2): WIDTH "SCRN:",40 makes the
+// layer 40 columns (CONFIG $81) and the line 40 wide; WIDTH "SCRN:",255 (the source's infinite width) changes
+// nothing; WIDTH "SCRN:",50 is Illegal function call; WIDTH "SCRN:",80 puts 80 back. Guards WIDTH "SCRN:" a no-op,
+// or a garbled screen. Seen failing with SCNSWD returning C set, as the printers' do (the home block then never
+// calls SWIDP).
+TEST(width_scrn_sets_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "WIDTH \"SCRN:\",40", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    enter(r, "PRINT STRING$(45,\"S\")", ms(300));
+    CHECK_EQ(row_at(r, 2, mapbase(r), 40), std::string(40, 'S'));
+    CHECK_EQ(row_at(r, 3, mapbase(r), 40).substr(0, 6), std::string("SSSSS "));
+    enter(r, "WIDTH \"SCRN:\",255:PRINT \"SAME\"", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    CHECK(last_row(r, "SAME") > 0);
+    enter(r, "WIDTH \"SCRN:\",50", ms(300));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    enter(r, "WIDTH \"SCRN:\",80", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x80);
+    enter(r, "PRINT \"EIGHTY\"", ms(300));
+    CHECK_EQ(line(r, 2), std::string("EIGHTY"));
+}
+
+namespace
+{
+    /// What LST: is sent (BDOS function 5, watched at the BDOS's entry) while `line` is typed and run.
+    std::string lst_of(CcpRig &r, const std::string &line, uint64_t settle = ms(1500))
+    {
+        std::string got;
+        r.watch = [&](uint16_t pc) {
+            const Registers g = r.cpu->regs();
+            if (pc == 0x0203 && g.y == 5)
+                got += static_cast<char>(g.a);
+        };
+        enter(r, line, settle);
+        r.watch = nullptr;
+        return got;
+    }
+    /// Rows 0 to `rows` - 1 of the text at `base` as LCOPY prints them: a character below 32 or $FF a blank, the
+    /// trailing blanks dropped, a CR and an LF after each.
+    std::string as_lcopy(CcpRig &r, uint32_t base, unsigned rows, int blank_row = -1)
+    {
+        std::string out;
+        for (unsigned i = 0; i < rows; ++i)
+        {
+            std::string s = static_cast<int>(i) == blank_row ? std::string() : row_at(r, i, base);
+            for (char &c : s)
+                if (static_cast<unsigned char>(c) < 32 || static_cast<unsigned char>(c) == 0xFF)
+                    c = ' ';
+            while (!s.empty() && s.back() == ' ')
+                s.pop_back();
+            out += s + "\r\n";
+        }
+        return out;
+    }
+} // namespace
+
+// LCOPY prints the screen on LST: (GWSTS.ASM's LCPY, the OEM's: the owner's answer 9): every one of the page's 25
+// rows, each as the card holds it with its trailing blanks dropped and a CR LF after it, what the statement before it
+// printed ("ABC", in the same line) among them; LCOPY's n is taken and not used. With page 1 active and page 0 shown,
+// it prints page 0, what is on the screen. In console mode it stays Advanced Feature (test_gwbasic_files). Guards a
+// printout missing what was just printed, or the wrong page's. Seen failing with LCPYP reading the active page (and
+// not failing with its TXBUF run and flush left out: FINPRT runs TXBUF and every return from P6 flushes the cache,
+// so nothing waits when LCOPY starts; both are kept, as at every entry of P6's).
+TEST(lcopy_prints_the_screen_on_lst)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::string got = lst_of(r, "CLS:LOCATE 5,3:PRINT \"ONE\":LOCATE 12,40:PRINT \"TWO\":LOCATE 20,1:PRINT \"ABC\";:LCOPY 1");
+    const int ok = last_row(r, "Ok");
+    CHECK_EQ(ok, 20);
+    CHECK_EQ(line(r, 19), std::string("ABC"));
+    const std::string want = as_lcopy(r, mapbase(r), 25, ok); // the Ok came after the copy
+    CHECK_EQ(vis(got), vis(want));
+    size_t lines = 0;
+    for (size_t p = got.find("\r\n"); p != std::string::npos; p = got.find("\r\n", p + 2))
+        ++lines;
+    CHECK_EQ(lines, 25u);
+    CHECK(got.find("  ONE\r\n") != std::string::npos);
+    CHECK(got.find(std::string(39, ' ') + "TWO\r\n") != std::string::npos);
+    CHECK(got.find("\r\nABC\r\n") != std::string::npos);
+    enter(r, "CLS:PRINT \"VISUAL\"", ms(300));
+    const uint32_t page0 = mapbase(r);
+    const std::string shown = lst_of(r, "SCREEN 0,,1,0:CLS:PRINT \"ACT\"+\"IVE\":LCOPY"); // ("ACTIVE" typed would be on page 0)
+    CHECK_EQ(mapbase(r), page0);
+    CHECK_EQ(vis(shown), vis(as_lcopy(r, page0, 25)));
+    CHECK(shown.find("VISUAL") != std::string::npos);
+    CHECK(shown.find("ACTIVE") == std::string::npos);
+    enter(r, "SCREEN 0,,0,0", ms(300));
+}
+
+// SCRN: is GW-BASIC's own screen in screen mode (GIOSCN.ASM's SCNSOT, SCNOL1, SCNOL2; 7c's device, 7d1's screen):
+// a file OPENed on "SCRN:" prints on the layer, a CR as a new line, a comma to the next zone, and nothing goes to the
+// serial line; at 40 columns a 45-character PRINT #1 wraps at 40. Guards SCRN: output on the serial line, or
+// unwrapped, under screen mode. Seen failing with P4's SCNOUT sending by function 2, not OUTDO.
+TEST(scrn_writes_on_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const size_t from = r.out.size();
+    enter(r, "CLS:OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,\"HELLO\";CHR$(13);\"AB\":PRINT #1,1,2:CLOSE", ms(600));
+    CHECK_EQ(line(r, 0), std::string("HELLO"));
+    CHECK_EQ(line(r, 1), std::string("AB"));
+    CHECK_EQ(line(r, 2), std::string(" 1             2"));
+    CHECK_EQ(line(r, 3), std::string("Ok"));
+    CHECK_EQ(vis(r.out.substr(from)), std::string());
+    enter(r, "WIDTH 40", ms(400));
+    enter(r, "CLS:OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,STRING$(45,\"Z\"):CLOSE", ms(600));
+    CHECK_EQ(row_at(r, 0, mapbase(r), 40), std::string(40, 'Z'));
+    CHECK_EQ(line(r, 1), std::string("ZZZZZ"));
+    CHECK_EQ(line(r, 2), std::string("Ok"));
+    CHECK_EQ(vis(r.out.substr(from)), std::string());
+}
+
+// The key line at start-up (GWINIT.ASM's PRNTND and SKEYON; 7d2, the owner's answer 1): in screen mode, with no
+// program named, the last row is the key line, each key's number in the attribute ($07), its text reversed ($70);
+// so LOCATE 25 is Illegal function call (LOCATE's KEYSW). KEY OFF blanks the row and LOCATE 25 then works; KEY ON
+// draws it again. With a program named on the command line (m:gwbasic m:p) there is no key line, as the source has
+// it. Guards the line missing, unreadable, or over a program's last row. Seen failing with (a) PRNTND's test of BUF
+// left out (the line on with a program named) and (b) XFGBG not swapping (the text $07).
+TEST(the_key_line_at_start_up)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r) > 0);
+        CHECK_EQ(line(r, 24), KEYLINE);
+        bool rev = true;
+        for (unsigned c = 0; c < 80; ++c)
+            rev = rev && attr(r, 24, c) == (c % 8 == 0 || c % 8 == 7 ? 0x07 : 0x70);
+        CHECK(rev);
+        enter(r, "CLS:LOCATE 25,1", ms(300));
+        CHECK(last_row(r, "Illegal function call") >= 0);
+        CHECK_EQ(line(r, 24), KEYLINE);
+        enter(r, "KEY OFF", ms(300));
+        CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+        enter(r, "CLS:LOCATE 25,1:PRINT \"LAST\";:LOCATE 5,1", ms(300));
+        CHECK_EQ(line(r, 24), std::string("LAST"));
+        CHECK(last_row(r, "Illegal") < 0);
+        enter(r, "KEY ON", ms(300));
+        CHECK_EQ(line(r, 24), KEYLINE);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+    const std::string prog = "10 PRINT \"NAMED\"\r\n\x1a";
+    r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}, {0, "P       BAS", {prog.begin(), prog.end()}}});
+    r.type("m:gwbasic m:p\r");
+    CHECK(until_row(r, "NAMED") >= 0);
+    CHECK(until_row(r, "Ok") >= 0);
+    r.run(ms(200));
+    CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+}
+
+// KEY n,"text" (GWSTS.ASM's KEYS): KEY 1,"FILES"+CHR$(13) shows field 1 as "1FILES" and 27 (the CR), and key 2
+// unchanged; KEY 2,STRING$(20,"X") keeps 15 (KEY LIST shows them); KEY 0 and KEY 11 are Illegal function call,
+// KEY 1,5 Type mismatch, KEY(1) ON Advanced Feature (7f's, the owner's answer 5). Guards a key's text landing on
+// another key. Seen failing with STRTAB's place one key on (KEYSP's DEC A left out).
+TEST(key_n_sets_a_key_and_its_field)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"FILES\"+CHR$(13)", ms(300));
+    CHECK_EQ(line(r, 24).substr(0, 16), std::string("1FILES\x1b 2RUN\x1b   "));
+    enter(r, "KEY 2,STRING$(20,\"X\"):CLS:KEY LIST", ms(600));
+    CHECK_EQ(line(r, 0), std::string("F1 FILES\x1b"));
+    CHECK_EQ(line(r, 1), "F2 " + std::string(15, 'X'));
+    CHECK_EQ(line(r, 24).substr(0, 16), std::string("1FILES\x1b 2XXXXXX "));
+    for (const char *bad : {"KEY 0,\"A\"", "KEY 11,\"A\""})
+    {
+        enter(r, std::string("CLS:") + bad, ms(300));
+        CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+    }
+    enter(r, "CLS:KEY 1,5", ms(300));
+    CHECK_EQ(line(r, 0), std::string("Type mismatch"));
+    enter(r, "CLS:KEY(1) ON", ms(300));
+    CHECK_EQ(line(r, 0), std::string("Advanced Feature"));
+    CHECK_EQ(line(r, 24).substr(0, 8), std::string("1FILES\x1b "));
+}
+
+// KEY LIST (GWSTS.ASM's KEYLST): the ten keys, "F", the number, a blank and the text, a CR shown as 27 (KEYLSP), one
+// a line: the PC's defaults (the owner's answer 3), then Ok. Guards KEY LIST scrolling the screen with blank lines (a
+// CR printed). Seen failing with KEYLSP's CR substitution left out.
+TEST(key_list_lists_the_ten)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:KEY LIST", ms(600));
+    const std::vector<std::string> want = {"F1 LIST",       "F2 RUN\x1b",    "F3 LOAD\"",       "F4 SAVE\"",
+                                           "F5 CONT\x1b",   "F6 ,\"LPT1:\"\x1b", "F7 TRON\x1b", "F8 TROFF\x1b",
+                                           "F9 KEY",        "F10 SCREEN 0,0,0\x1b", "Ok"};
+    for (unsigned i = 0; i < want.size(); ++i)
+        CHECK_EQ(line(r, i), want[i]);
+    CHECK_EQ(line(r, 24), KEYLINE);
+}
+
+// KEY LIST with a CR in the middle of a key's text (7d2's review round 1, F3): KEY 1,"A"+CHR$(13)+"B" lists as F1,
+// A, 27 (the CR, as the PC shows it), B: the 27 in its own cell and the B after it, not over it; the key line shows
+// the same (KEYDCH). Guards a key's text listed short, a character lost under the 27. Seen failing with KEYLSP's 27
+// printed by PUTC (DOESC: the cursor doesn't move, so the B covered it: "F1 AB").
+TEST(key_list_shows_a_cr_in_the_middle_of_a_text)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"A\"+CHR$(13)+\"B\":CLS:KEY LIST", ms(600));
+    CHECK_EQ(line(r, 0), std::string("F1 A\x1b" "B"));
+    CHECK_EQ(line(r, 1), std::string("F2 RUN\x1b"));
+    CHECK_EQ(line(r, 24).substr(0, 8), std::string("1A\x1b" "B    "));
+    enter(r, "CLS:PRINT \"P\";CHR$(27);\"Q\"", ms(300));
+    CHECK_EQ(line(r, 0), std::string("PQ"));
+}
+
+// ^T (SCNDRV.ASM's LABELK, the OEM's FKYADV): at 80 columns it turns the key line off and on; at 40 columns it shows
+// F1-F5, then F6-F10, then off, then F1-F5 again. Typed in the middle of a line (here turning it on) it changes
+// nothing of the line.
+// Guards the 40-column line stuck on one half. Seen failing with FKYADV not going on past F6-F10 to off.
+TEST(ctrl_t_pages_the_key_line)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    constexpr uint8_t T = 0x17;
+    press(r, T, CTRL);
+    r.run(ms(200));
+    CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+    keys(r, "PRINT 12");
+    press(r, T, CTRL);
+    enter(r, "3", ms(300));
+    CHECK(last_row(r, " 123") > 0);
+    CHECK_EQ(line(r, 24), KEYLINE);
+    enter(r, "WIDTH 40", ms(400));
+    const std::string f1 = "1LIST   2RUN\x1b   3LOAD\"  4SAVE\"  5CONT\x1b", f6 = "6,\"LPT1 7TRON\x1b  8TROFF\x1b 9KEY    0SCREEN";
+    CHECK_EQ(line(r, 24), f1);
+    const std::vector<std::string> next = {f6, "", f1, f6};
+    for (const std::string &want : next)
+    {
+        press(r, T, CTRL);
+        r.run(ms(200));
+        CHECK_EQ(line(r, 24), want);
+    }
+}
+
+// The key line follows the page and the screen's size: SCREEN 0,,1,1 (a new active page) draws it on page 1, and
+// WIDTH 80,30 puts it on the 30th row (index 29), the window the 29 above it (LOCATE 30 Illegal function call,
+// LOCATE 29 fine), the 25th row plain text. Guards a page or a 30-row screen with no key line, or the line
+// mid-screen. Seen failing with SCRNP's change of page not drawing it (KEYDSP).
+TEST(the_key_line_follows_pages_and_width)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const uint32_t page0 = mapbase(r);
+    enter(r, "SCREEN 0,,1,1", ms(400));
+    CHECK(mapbase(r) != page0);
+    CHECK_EQ(line(r, 24), KEYLINE);
+    enter(r, "SCREEN 0,,0,0", ms(400));
+    enter(r, "WIDTH 80,30", ms(400));
+    CHECK_EQ(line(r, 29), KEYLINE);
+    CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+    enter(r, "LOCATE 30,1", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE 29,1:PRINT \"ROW29\";:LOCATE 5,1", ms(300));
+    CHECK_EQ(line(r, 28), std::string("ROW29"));
+    CHECK_EQ(line(r, 29), KEYLINE);
+}
+
+// LOCATE's row past the window's last is Illegal function call, whatever the row (7d2's review round 1, F1): with
+// the key line on, 25 and 255 (24 is the last); with it off, 26 and 255; at 30 rows, 30 and 255 on, 31 and 255 off.
+// Each leaves the cursor where it was (the message on row 0 after CLS) and the key line drawn. Guards a program's
+// LOCATE taking the cursor off the screen. Seen failing with LOCATE's check made on the row less KEYSW, which wraps
+// 255 to 0 with the key line on.
+TEST(locate_past_the_last_row_is_illegal)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    auto bad = [&](const std::vector<std::string> &rows, unsigned last) {
+        for (const std::string &row : rows)
+        {
+            enter(r, "CLS:LOCATE " + row + ",1:PRINT \"X\"", ms(300));
+            CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+        }
+        enter(r, "CLS:LOCATE " + std::to_string(last) + ",1:PRINT \"L\";:LOCATE 5,1", ms(300));
+        CHECK_EQ(line(r, last - 1), std::string("L"));
+        CHECK(last_row(r, "Illegal") < 0);
+    };
+    bad({"25", "255"}, 24);
+    CHECK_EQ(line(r, 24), KEYLINE);
+    enter(r, "KEY OFF", ms(300));
+    bad({"26", "255"}, 25);
+    enter(r, "WIDTH 80,30:KEY ON", ms(400));
+    bad({"30", "255"}, 29);
+    CHECK_EQ(line(r, 29), KEYLINE);
+    enter(r, "KEY OFF", ms(300));
+    bad({"31", "255"}, 30);
+}
+
+// The soft keys (GIOKYB.ASM's CHKFKY and GETFKY; 7d2, the owner's answers 2 and 3): at Ok, F1 types its text, LIST,
+// with no CR, and Enter lists; F2's RUN and its CR run the program; in a program INKEY$ gives F1's text a byte a call.
+// A text the queue hasn't room for is dropped whole: with 20 keys waiting, F10's 13 bytes don't fit the 11 left, so
+// the program reads the 20 alone. Guards function keys doing nothing, or another key's text. Seen failing with (a) the
+// soft key's place one key on (F1 giving F2's text) and (b) the text queued without the room check (the 11 that fit
+// queued, the rest lost).
+TEST(a_function_key_types_its_text)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 PRINT \"RAN\"");
+    enter(r, "CLS", ms(300));
+    press(r, K_F1);
+    r.run(ms(200));
+    CHECK_EQ(line(r, 1), std::string("LIST"));
+    keys(r, "\r");
+    r.run(ms(400));
+    CHECK_EQ(line(r, 2), std::string("10 PRINT \"RAN\""));
+    press(r, K_F1 + 1);
+    r.run(ms(600));
+    CHECK(last_row(r, "RAN") > 2);
+    CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "RAN")) - 1), std::string("RUN"));
+    enter(r, "NEW");
+    enter(r, "10 K$=\"\":FOR I=1 TO 300:K$=K$+INKEY$:IF LEN(K$)=4 THEN 20");
+    enter(r, "15 NEXT");
+    enter(r, "20 PRINT CHR$(91);K$;CHR$(93)");
+    enter(r, "CLS:RUN", ms(100));
+    press(r, K_F1);
+    CHECK(until_row(r, "]") >= 0);
+    CHECK_EQ(line(r, 0), std::string("[LIST]"));
+    enter(r, "NEW");
+    enter(r, "10 FOR I=1 TO 5000:NEXT:PRINT CHR$(91);");
+    enter(r, "20 K$=\"\":FOR I=1 TO 40:K$=K$+INKEY$:NEXT:PRINT LEN(K$);K$;CHR$(93)");
+    enter(r, "CLS:RUN", ms(50));
+    keys(r, "ABCDEFGHIJKLMNOPQRST");
+    press(r, K_F1 + 9);
+    CHECK_EQ(line(r, 0), std::string()); // the program still waits
+    CHECK(until_row(r, "]", ms(20000)) >= 0);
+    CHECK_EQ(line(r, 0), std::string("[ 20 ABCDEFGHIJKLMNOPQRST]"));
+}
+
+// An empty soft key gives the PC's two-byte code (CHKFKY's: no text, no expansion): after KEY 1,"" INKEY$ reads F1
+// as CHR$(0)+";" (59), and KEY 1 set again types its text. Guards games that read F1 by INKEY$ broken. Seen failing
+// with the empty text's test left out (nothing queued).
+TEST(an_empty_soft_key_gives_the_pc_code)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"\"");
+    enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
+    enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1))");
+    enter(r, "CLS:RUN", ms(200));
+    press(r, K_F1);
+    CHECK(until_row(r, "[") >= 0);
+    CHECK_EQ(line(r, 0), std::string("[ 2  0  59"));
+    enter(r, "KEY 1,\"OK1\":CLS", ms(300));
+    press(r, K_F1);
+    r.run(ms(200));
+    CHECK_EQ(line(r, 1), std::string("OK1"));
+}
+
+// Shifted function keys have no soft text (CHKFKY takes 59-68 alone): Shift-F1 gives CHR$(0)+CHR$(84), Ctrl-F1 94,
+// Alt-F1 104, as 7d1 gives them, while F1 types LIST. Guards a shifted key typing the plain key's text. Seen failing
+// with the expansion taken on the key's usage, not its scan code's range (every F1 expanded).
+TEST(shifted_function_keys_aren_t_expanded)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
+    enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1)):GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    constexpr uint8_t ALT = 0xE2;
+    const std::vector<std::pair<uint8_t, std::string>> want = {
+        {SHIFT, "[ 2  0  84"}, {CTRL, "[ 2  0  94"}, {ALT, "[ 2  0  104"}};
+    for (const auto &[mod, text] : want)
+    {
+        press(r, K_F1, mod);
+        r.run(ms(150));
+        CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "[ "))), text);
+    }
+    press(r, K_F1); // LIST, a byte an INKEY$
+    r.run(ms(300));
+    const int last = last_row(r, "[ ");
+    REQUIRE(last >= 3);
+    CHECK_EQ(line(r, static_cast<unsigned>(last - 3)), std::string("[ 1  76  76"));
+    CHECK_EQ(line(r, static_cast<unsigned>(last)), std::string("[ 1  84  84"));
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
 }
 
 // SCREEN( reads a cell: PRINT "Q"; then SCREEN(r,c) is 81 and SCREEN(r,c,1) the attribute, in one statement.
@@ -690,6 +1102,79 @@ TEST(print_and_scroll_are_timed)
     std::printf("  a key (KEYEV, its drain included): %u, %.0f cycles each\n", kn, key);
     CHECK(n >= 15);
     CHECK(scroll > 1000 && scroll <= 14000);
+}
+
+// For the record (7d2, unit 6), not gated: what the key line and the soft keys cost. CLS with the key line on (the
+// line drawn again), KEY 1,"X" with it on (drawn again) and with it off, a WIDTH (40 then 80, the cost of one; the
+// line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
+// key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
+// no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
+// while a program reads INKEY$.
+TEST(the_key_line_and_soft_keys_cost)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    auto per = [&](const std::string &stmt) {
+        const uint64_t a = timed(r, {"10 I%=I%+1:IF I%<20 THEN 10"});
+        const uint64_t b = timed(r, {"10 " + stmt + ":I%=I%+1:IF I%<20 THEN 10"});
+        return static_cast<double>(b - a) / 20;
+    };
+    const double cls = per("CLS"), keyon = per("KEY 1,\"X\""), width = per("WIDTH 40:WIDTH 80") / 2;
+    enter(r, "KEY OFF", ms(300));
+    const double clsoff = per("CLS"), keyoff = per("KEY 1,\"X\""), widthoff = per("WIDTH 40:WIDTH 80") / 2;
+    enter(r, "KEY ON", ms(300));
+    std::printf("  CLS with the key line: %.0f cycles (%.0f with it off)\n", cls, clsoff);
+    std::printf("  KEY 1,\"X\" with the key line on: %.0f cycles (%.0f with it off)\n", keyon, keyoff);
+    std::printf("  WIDTH with the key line: %.0f cycles (%.0f with it off)\n", width, widthoff);
+    CHECK(cls > clsoff && keyon > keyoff && width > widthoff);
+    enter(r, "KEY 1,\"\":NEW");
+    enter(r, "10 A$=INKEY$:GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    const uint16_t kev = lbl_map(std::string("p6.lbl")).at("KEYEV");
+    uint64_t kfrom = 0, ktotal = 0;
+    unsigned kn = 0;
+    int kdepth = -1;
+    const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
+        if (kdepth < 0 && pc == kev)
+        {
+            kfrom = r.cpu->cycles();
+            kdepth = r.cpu->regs().s;
+        }
+        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
+        {
+            ktotal += r.cpu->cycles() - kfrom;
+            ++kn;
+            kdepth = -1;
+        }
+    };
+    r.watch = watch;
+    auto avg = [&](uint8_t key) {
+        kn = 0;
+        ktotal = 0;
+        for (int i = 0; i < 8; ++i)
+        {
+            press(r, key);
+            r.run(ms(50));
+        }
+        return kn ? static_cast<double>(ktotal) / kn : 0;
+    };
+    const double plain = avg(0x04), none = avg(K_F1);
+    r.watch = nullptr;
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
+    enter(r, "KEY 1,\"LIST\"");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    r.watch = watch;
+    const double soft = avg(K_F1);
+    r.watch = nullptr;
+    std::printf("  a key (KEYEV, its drain included): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
+                none, soft);
+    CHECK(soft > none);
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
 }
 
 // Review round 1 (7d1), F1: insert mode that pushes a line past the row's end wraps what runs off onto the next row,

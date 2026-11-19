@@ -1062,6 +1062,19 @@ TEST(a_nul_typed_in_console_mode_is_one_inkey)
     CHECK_EQ(r.out.substr(from), std::string("RUN\r\n[ 1  0 ]\r\nQ\r\nOk\r\n"));
 }
 
+// KEY (7d2) stays Advanced Feature in console mode, as the screen's statements do (7d1, the owner's answer 7): KEY ON,
+// KEY LIST, KEY 1,"X" and KEY OFF each say so, and GW-BASIC goes on. Guards a serial terminal's KEY writing a card
+// P6 never set up. Seen failing with the KEY stub's BIT SCRMOD test left out.
+TEST(key_stays_advanced_feature_in_console_mode)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    for (const char *k : {"KEY ON", "KEY LIST", "KEY 1,\"X\"", "KEY OFF"})
+        CHECK_EQ(command(r, k), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
+}
+
 int main()
 {
     return run_all();
