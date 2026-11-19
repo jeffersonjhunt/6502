@@ -14,6 +14,7 @@
  */
 
 import { MAX_BIOS } from "../port/wasm-port";
+import type { CatalogButtonMaker } from "./catalog";
 import { h, passFocus, prefs } from "./dom";
 
 export interface KeptBios {
@@ -75,6 +76,8 @@ export interface BiosHooks {
   leaving?: () => void;
   /** The quiet hint's link was clicked (from it): show the BIOS row in Settings. */
   open?: (from: HTMLElement) => void;
+  /** Its Catalog…, beside Load… (ui/catalog.ts). */
+  catalog?: CatalogButtonMaker;
 }
 
 /** restart: start the page again (location.reload), on whatever is kept now. */
@@ -89,8 +92,31 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   );
   const builtIn = h("button", { class: "tbtn", type: "button", hidden: !mine, title: "Forget yours, and restart on the page's own", "data-testid": "bios-builtin" }, "Use built-in");
   const note = h("p", { class: "row-note", role: "status", "data-testid": "bios-note" });
-  const element = h("div", { class: "row-wrap" }, h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, "BIOS"), meta), builtIn, load), note);
   const say = (text: string) => (note.textContent = text);
+  /** A BIOS of the visitor's: Load…'s file, or the catalog's. The page restarts on it. @returns null, or why not. */
+  const loadBios = async (name: string, size: number, read: () => Promise<Uint8Array>): Promise<string | null> => {
+    if (!size || size > MAX_BIOS) return say(`${name}: ${size} bytes is no BIOS for the flash (up to 512 KB)`);
+    let bytes: Uint8Array;
+    try {
+      bytes = await read();
+    } catch (err) {
+      return say(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!bytes.length || bytes.length > MAX_BIOS) return say(`${name}: ${bytes.length} bytes is no BIOS for the flash (up to 512 KB)`);
+    if (!letGo(`Restart on ${name}`)) return "";
+    if (!keepBios(name, bytes)) return say("This browser would not keep it, so the machine can't restart on it");
+    hooks.leaving?.();
+    say(`Restarting on ${name}…`);
+    restart();
+    return null;
+  };
+  const catalog = hooks.catalog?.("bios", (name, size, read) => loadBios(name, size, read), "bios-catalog");
+  const element = h(
+    "div",
+    { class: "row-wrap" },
+    h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, "BIOS"), meta), builtIn, load, ...(catalog ? [catalog.button] : [])),
+    note,
+  );
   /** May the machine restart, losing what it would? */
   const letGo = (doing: string) => {
     const risks = hooks.atRisk?.() ?? [];
@@ -101,6 +127,7 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   const show = () => {
     const v = version ? ` ${version}` : "";
     meta.textContent = mine ? `yours: ${mine.name}${v ? ` ·${v}` : ""} · kept in this browser` : `built-in${v} · or load your own build`;
+    catalog?.follow(load);
   };
 
   load.addEventListener("click", () => picker.click());
@@ -108,18 +135,7 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
-    if (!f.size || f.size > MAX_BIOS) return void say(`${f.name}: ${f.size} bytes is no BIOS for the flash (up to 512 KB)`);
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(await f.arrayBuffer());
-    } catch (err) {
-      return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (!letGo(`Restart on ${f.name}`)) return;
-    if (!keepBios(f.name, bytes)) return void say("This browser would not keep it, so the machine can't restart on it");
-    hooks.leaving?.();
-    say(`Restarting on ${f.name}…`);
-    restart();
+    await loadBios(f.name, f.size, async () => new Uint8Array(await f.arrayBuffer()));
   });
   builtIn.addEventListener("click", () => {
     if (!letGo("Restart on the built-in BIOS")) return;

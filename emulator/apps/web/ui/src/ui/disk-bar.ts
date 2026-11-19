@@ -16,6 +16,7 @@
  */
 
 import type { DiskFormat, DiskInfo, FrameState, MachinePort } from "../port/machine-port";
+import type { CatalogButtonMaker } from "./catalog";
 import type { DiskStore, KeptDisk } from "./disk-store";
 import { h, passFocus } from "./dom";
 
@@ -40,6 +41,8 @@ export interface DiskBarHooks {
   bootNeeds?: () => string;
   /** The pill was clicked: show this drive in Settings, focus back to `from` (the pill) after. */
   open?: (from: HTMLElement) => void;
+  /** Its Catalog…, beside Insert… (ui/catalog.ts). */
+  catalog?: CatalogButtonMaker;
 }
 
 /** drive: 0 or 1. Drive 1's testids are disk-*, drive 2's disk-*-2. */
@@ -56,10 +59,11 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   const save = h("button", { class: "tbtn", type: "button", "aria-label": `Save drive ${drive + 1}'s disk`, title: "Download the disk as it is now", "data-testid": id("save") }, "Save");
   const eject = h("button", { class: "tbtn", type: "button", "aria-label": `Eject drive ${drive + 1}`, title: "Take the disk out, and forget it in this browser", "data-testid": id("eject") }, "Eject");
   const note = h("p", { class: "row-note", role: "status", "data-testid": id("note") });
+  const catalog = hooks.catalog?.("disk", (n, size, read, how) => insertDisk(n, size, read, how.protect), id("catalog"), `Disk II, drive ${drive + 1}`);
   const element = h(
     "div",
     { class: "row-wrap", hidden: true, "data-testid": id("bar") },
-    h("div", { class: "row" }, picker, light, h("div", { class: "what" }, name, meta), protect, save, eject, insert),
+    h("div", { class: "row" }, picker, light, h("div", { class: "what" }, name, meta), protect, save, eject, insert, ...(catalog ? [catalog.button] : [])),
     note,
   );
   const pillLight = h("span", { class: "led disk-led" });
@@ -84,6 +88,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     name.textContent = info ? `${label} · ${info.name}` : label;
     meta.textContent = info ? `${diskSize(size)} · ${FORMATS[info.format]}` : "empty";
     insert.hidden = !!info;
+    catalog?.follow(insert);
     protect.hidden = save.hidden = eject.hidden = !info;
     protect.setAttribute("aria-pressed", String(!!info?.writeProtected));
     protect.classList.toggle("on", !!info?.writeProtected);
@@ -120,27 +125,34 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     }
   };
 
-  insert.addEventListener("click", () => picker.click());
-  picker.addEventListener("change", async () => {
-    const f = picker.files?.[0];
-    picker.value = "";
-    if (!f) return;
+  /** A disk of the visitor's in: Insert…'s file, or the catalog's (protect: write-protected). @returns null, or why not. */
+  const insertDisk = async (diskName: string, size: number, read: () => Promise<Uint8Array>, protect = false): Promise<string | null> => {
     picked = true;
-    if (f.size > MAX_DISK) return void say(`${f.name}: over 16 MB, too big for a 5.25-inch disk`);
+    const tooBig = `${diskName}: over 16 MB, too big for a 5.25-inch disk`;
+    if (size > MAX_DISK) return say(tooBig);
     let bytes: Uint8Array;
     try {
-      bytes = new Uint8Array(await f.arrayBuffer());
+      bytes = await read();
     } catch (err) {
-      return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+      return say(`${diskName}: ${err instanceof Error ? err.message : String(err)}`);
     }
-    const disk: KeptDisk = { name: f.name, bytes, writeProtected: false, format: /\.woz$/i.test(f.name) ? "woz" : /\.po$/i.test(f.name) ? "po" : "dsk" };
+    if (bytes.length > MAX_DISK) return say(tooBig);
+    const disk: KeptDisk = { name: diskName, bytes, writeProtected: protect, format: /\.woz$/i.test(diskName) ? "woz" : /\.po$/i.test(diskName) ? "po" : "dsk" };
     const got = await put(disk, bytes);
-    if (!got) return;
+    if (!got) return note.textContent ?? "";
     disk.format = got.format; // as the core read it (a .dsk can be in ProDOS order)
     say((await store.put(drive, disk)) ? "" : "In for now; this browser would not keep it");
     auto = ""; // the hint again, for this disk
     show(); // kept first: a reload now finds it
     passFocus(insert, eject);
+    return null;
+  };
+  insert.addEventListener("click", () => picker.click());
+  picker.addEventListener("change", async () => {
+    const f = picker.files?.[0];
+    picker.value = "";
+    if (!f) return;
+    await insertDisk(f.name, f.size, async () => new Uint8Array(await f.arrayBuffer()));
   });
   protect.addEventListener("click", async () => {
     if (!info || !kept) return;

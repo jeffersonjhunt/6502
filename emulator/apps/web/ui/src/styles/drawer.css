@@ -46,6 +46,58 @@
 .credits a { color: var(--amber); text-underline-offset: 2px; }
 .credits a:hover, .credits a:focus-visible { color: #ffd06a; }
 
+/* The catalog's sheet (ui/catalog.ts): over Settings' own content, a row's Catalog… to its Insert, Load or Play. */
+.catalog { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.catalog .drawer-h h2:focus { outline: none; }
+.catalog .drawer-h h2:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.cat-search { display: flex; padding: 0 18px 10px; }
+.cat-filter {
+  flex: 1; min-width: 0; height: 30px; padding: 0 9px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); font: 400 13px Inter, sans-serif;
+}
+.cat-filter:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.cat-b { flex: 1; min-height: 0; border-top: 1px solid var(--line2); }
+.cat-list { list-style: none; margin: 0; padding: 0; }
+.cat-item {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; padding: 9px 18px;
+  border: 0; border-bottom: 1px solid var(--line2); background: none; color: var(--text); text-align: left; cursor: pointer;
+  font: 400 13px/1.4 Inter, sans-serif;
+}
+.cat-item:hover { background: var(--bg3); }
+.cat-item:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.cat-item[aria-pressed="true"] { background: #26190e; box-shadow: inset 3px 0 0 var(--accent); }
+.cat-n { font-weight: 500; overflow-wrap: anywhere; }
+.cat-s { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cat-f { grid-column: 1 / -1; color: var(--dim); font-size: 11.5px; overflow-wrap: anywhere; }
+.cat-d { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.cat-p { grid-column: 1 / -1; color: var(--amber); font-size: 12px; }
+.cat-p:empty { display: none; }
+.cat-draft {
+  margin-left: 6px; padding: 3px 5px; border-radius: 3px; vertical-align: 1px;
+  font: 600 9.5px/1 Inter, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--bg); background: var(--amber);
+}
+.cat-state { padding: 26px 18px; color: var(--muted); text-align: center; font: 400 12.5px/1.5 Inter, sans-serif; }
+.cat-state b { display: block; margin-bottom: 4px; color: var(--text); font-weight: 500; }
+.cat-state.err b { color: var(--red); }
+.cat-again { display: block; margin-top: 12px; }
+.cat-details {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; padding: 10px 18px;
+  border-bottom: 1px solid var(--line2); background: var(--bg); font: 400 12px/1.4 Inter, sans-serif;
+}
+.cat-details dt { color: var(--dim); }
+.cat-details dd { margin: 0; overflow-wrap: anywhere; }
+.cat-note { margin: 10px 18px 0; }
+.cat-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 18px 18px; border-top: 1px solid var(--line2);
+  position: sticky; bottom: 0; background: var(--bg2);
+}
+.cat-hint { flex: 1 1 160px; color: var(--dim); font: 400 11.5px/1.4 Inter, sans-serif; }
+.cat-acts { display: flex; gap: 8px; margin-left: auto; }
+.tbtn.ghost { background: none; }
+.tbtn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tbtn.pri:disabled { opacity: .55; color: #fff; }
+
 /* Narrower: over the page, from the right, a modal dialog (OVERLAY in ui/drawer.ts). */
 @media (max-width: 980px) {
   body.drawer-open { --dbg: 0px; }
@@ -62,4 +114,8 @@
   .drawer .close { height: 44px; width: 44px; }
   .row .tbtn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
   .drawer .tabs button { min-height: 44px; }
+  .catalog .tbtn { height: 44px; min-width: 44px; padding: 0 14px; font-size: 13px; }
+  .cat-filter { height: 44px; font-size: 16px; } /* 16px: no zoom on focus in iOS */
+  .cat-item { min-height: 44px; padding: 11px 16px; }
+  .cat-search, .cat-details, .cat-foot { padding-left: 16px; padding-right: 16px; }
 }
