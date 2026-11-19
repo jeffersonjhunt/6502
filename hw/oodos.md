@@ -4584,34 +4584,44 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       screen mode's. WIDTHS's tail is a new P4 entry, `DEVSWD`, since the FDBs and the device table are P4's RAM
       (the plan had the home block store F_WID itself, which it can't reach). SCRN:'s and KYBD:'s SCNSWD set WDTFLG
       and return C clear, and the home block then far calls P6's `SWIDP` (SWIDTH with the rows kept; 255 no change):
-      P4 had no room for that far call.
+      P4 had no room for that far call. In console mode the home block refuses those two itself (`SCNDEV`, review
+      round 1's F2), after the width is parsed and before DEVSWD, so a refused WIDTH leaves SCRN:'s width as it was.
     - **LCOPY** (U3; answer 9): P3's LCOPYP far calls P6's `LCPYP` in screen mode: the visual page's LINCNT rows,
       the key line's too, each read into the row cache (ROWIN on the visual page, by APGSET's new PGSET entry), sent
       by function 5 with its trailing blanks dropped and characters below 32 or `$FF` as blanks, a CR LF each;
       LPTPOS 0 after. n is taken and not used; console mode Advanced Feature.
     - **KEY and the key line** (U4): GWSTS.ASM's KEYS in P6 (`KEYSP`, by the home block's KEY stub, screen mode only):
-      KEY ON, OFF, LIST (a CR as 27), KEY n,"text" (15 characters kept); KEY( Advanced Feature until 7f (answer 5).
-      KEYDSP whole (GETFMT, KEYADV, KEYDCH, XFGBG inline), the OEM's FKYFMT and FKYADV (10 keys at 80 columns, 5
-      from F1 or F6 at 40), LABELK on ^T. The line is drawn again by CLS, WIDTH and a change of active page, and is
-      on at start-up in screen mode unless a program is named (P2's PRNTND, P6's `SKEYOP`; answer 1). STRTAB, the
-      ten texts with the PC's defaults (answer 3), is resident fixed RAM (answer 8).
+      KEY ON, OFF, LIST (a CR as 27, in its own cell: review round 1's F3), KEY n,"text" (15 characters kept); KEY(
+      Advanced Feature until 7f (answer 5). KEYDSP whole (GETFMT, KEYADV, KEYDCH, XFGBG inline), the OEM's FKYFMT and
+      FKYADV (10 keys at 80 columns, 5 from F1 or F6 at 40), LABELK on a typed ^T. The line is drawn again by CLS, WIDTH
+      and a change of active page, and is on at start-up in screen mode unless a program is named (P2's PRNTND, P6's
+      `SKEYOP`; answer 1). STRTAB, the ten texts with the PC's defaults (answer 3), is resident fixed RAM (answer 8).
     - **The soft keys** (U5; answer 2): P6's KEYEV queues an unshifted F1-F10's text (scan codes 59-68, CHKFKY's
       range) as the key is pressed, whole or not at all if the queue hasn't room; an empty text queues the PC's code.
       Shift, Ctrl and Alt keep their codes; Alt and a letter's keywords are not built (answer 4).
-    - **Sizes** (bytes; at `f0cd3d14` → after 7d2, the plan's estimates in brackets): free for BASIC 34,979 → 34,819
-      [~34,819]; resident code and tables 11,421 → 11,421 [~11,421]; fixed RAM 1,973 → 2,133 (LOWRAM 434) [~2,133];
-      P2 5,764 → 5,782 [~5,780]; P3 4,971 → 4,985 [~4,985]; **P4 12,195 → 12,223, 65 free** (the stop line 64)
-      [~12,222, ~66]; P5 2,314 [2,314]; **P6 10,679 → 11,348, 940 free** (the stop line 600) [~11,190-11,400]; P8
-      2,940 → 3,090 [~3,030]; GWBASIC.OVL 48,000 → 48,768 [~48,128]. The flat image's last byte `$93A1` → `$94CA`
-      (its limit `$9400` → `$C000`) [~`$94A5`]. By unit, P6's free: 1,609, then 1,573 (U2), 1,456 (U3), 1,010 (U4),
-      940 (U5); P4's 65 from U2 on.
+    - **Sizes** (bytes; at `f0cd3d14` → after 7d2, before review round 1, the plan's estimates in brackets): free for
+      BASIC 34,979 → 34,819 [~34,819]; resident code and tables 11,421 → 11,421 [~11,421]; fixed RAM 1,973 → 2,133
+      (LOWRAM 434) [~2,133]; P2 5,764 → 5,782 [~5,780]; P3 4,971 → 4,985 [~4,985]; **P4 12,195 → 12,223, 65 free** (the
+      stop line 64) [~12,222, ~66]; P5 2,314 [2,314]; **P6 10,679 → 11,348, 940 free** (the stop line 600)
+      [~11,190-11,400]; P8 2,940 → 3,090 [~3,030]; GWBASIC.OVL 48,000 → 48,768 [~48,128]. The flat image's last byte
+      `$93A1` → `$94CA` (its limit `$9400` → `$C000`) [~`$94A5`]. By unit, P6's free: 1,609, then 1,573 (U2), 1,456
+      (U3), 1,010 (U4), 940 (U5); P4's 65 from U2 on. After review round 1 (measured, as the rest below): free for BASIC
+      34,819, the resident core and fixed RAM, P2-P5 and GWBASIC.OVL (48,768) unchanged, **P4 still 65 free** (F2 takes
+      no P4 byte); **P6 11,357, 931 free** (F1, F3 and F4 together +9); P8 3,153 (F2's SCNDEV and its refusal, +63); the
+      flat image's last byte `$9509` (P8's 63).
     - **Cycles** (test_gwbasic_screen, the fast build): `PRINT A$;` with 80 characters, no scroll, **21,084** (the
       gate 30,000; 21,167 at 7d1). A whole-window scroll **13,894** (the cap 14,000; 13,861 at 7d1: the margin 106),
       15,923 with the row just printed still to write back. A key, KEYEV with its drain: 1,162 on average over 66 keys
       under T17; in the measuring case A 1,129 (its cooked twin drained), F1 with no text 629, **F1 with LIST 939**
       (the text's 4 bytes queued: about 310 more). **CLS with the key line 33,540** (19,398 with it off; estimated
       ~30,000). **KEY 1,"X" with the line on 17,629** (2,389 with it off; estimated ~12,000). None but the first two is
-      gated.
+      gated. After review round 1: `PRINT A$;` **21,082**; the whole-window scroll **13,898** (the margin 102: P6's
+      code moved, no change to the scroll's), 15,904 with the row to write back; CLS with the key line 33,536 (19,409
+      off); KEY 1,"X" 17,629 (2,439 off); **a WIDTH with the key line 131,918** (40 then 80 over 20 passes, the cost
+      of one, newly printed by the measuring case; 141,406 with SWIDTH's second KEYDSP, F4: 9,488 saved; 120,701
+      with the line off). The key's figures move run to run with the ticks they meet (1,480 under T17 this run; in
+      the measuring case A 1,130, F1 with no text 929, F1 with LIST 936; 1,162, 878, 851 and 1,142 on the round's
+      base in the same run): its path is unchanged.
     - **Tests**, each seen failing under its mutant, run on its own case, the source then restored:
       - F1 (flat: check.py and programs.py): a flatp6.s with a 12 KB BSS, flat.cfg widened to link it: both stop ("the
         flat image ends at `$C3A1`, past `$C000`"); and the layout assert, with PER_RUN 300;
@@ -4636,17 +4646,33 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - K2 `an_empty_soft_key_gives_the_pc_code`: the empty text's test left out (T10 fails under it too);
       - K3 `shifted_function_keys_aren_t_expanded`: the expansion taken on the key's usage, not its scan code;
       - and a measuring case, `the_key_line_and_soft_keys_cost`.
+    - **Review round 1** (2026-11-18, all five findings "fix", the owner): each case seen failing with its fix undone
+      (on `62550228`'s source) and passing with it; the mapped suites (9) pass after each fix:
+      - F1 `locate_past_the_last_row_is_illegal`: LOCATE compares the row with the last, LINCNT plus KEYSW, not the
+        row less KEYSW with LINCNT, which wrapped 255 to 0 with the key line on (LOCATE 255 passed, at 25 rows and 30);
+      - F2 `width_of_the_screen_s_devices_changes_nothing_in_console_mode` (test_gwbasic_files): the home block's
+        `SCNDEV` (a ":" fifth and none second is a device's name; of the devices only SCRN and KYBD end in N and D)
+        refuses WIDTH "SCRN:",n and WIDTH "KYBD:",n in console mode before P4's SCNSWD sets WDTFLG; without it a
+        SCRN: file's 60 characters broke at the refused width;
+      - F3 `key_list_shows_a_cr_in_the_middle_of_a_text`: KEYLST prints a blank by PUTC and SCROUTs 27 over its
+        cell; with the 27 printed (DOESC's, the cursor not moved) KEY 1,"A"+CHR$(13)+"B" listed as "F1 AB". PRINT
+        CHR$(27) and DOESC unchanged (the case checks PRINT "P";CHR$(27);"Q" is still PQ);
+      - F4: SWIDTH's KEYDSP after CLRSCN dropped (SCNCLR draws the line); the existing WIDTH cases hold;
+      - F5: this record corrected: a printed CHR$(20) is its glyph, not LABELK (below).
     - **Expectation changes** (the owner's approved list, test_gwbasic_screen): T5 (the 25th row the key line, intact
       after 40 scrolls), T6 (the row after the typed PRINT 5), T12 and T14 (KEY OFF first), T13 (the 24 rows, and
       the key line drawn again by CLS in the current attribute), T10 (KEY 1,"" typed first; its expected value as it
-      was). No other expected output changed.
+      was). No other expected output changed (review round 1 changed none).
     - **Recorded deviations** (for the owner): WIDTH "device"'s name evaluated twice (FRMEVL for its type, then
       NAMSCN); WIDTHS's tail in P4 (DEVSWD) and SCNSWD's SWIDTH call made by the home block, for P4's room; the soft
       keys expanded as they are queued, a text that doesn't fit dropped whole (answer 2); KEYDSP doesn't turn the
       cursor off and on (shown only in KEYSIN's wait); KEYOX doesn't move the scroll window's foot (the last line is
-      always outside it); KEY LIST's 27 is written as 7d1's ESC is (DOESC: the cursor doesn't move), so a CR in the
-      middle of a text shows under the character after it; ^T in PRINT's output is LABELK too, as the source's one
-      table has it; TKEYOF dropped (the warm boot shows the console again).
+      always outside it); KEY LIST's 27 is a blank printed and 27 written over its cell, since 27 printed is 7d1's
+      ESC (DOESC: the cursor doesn't move; before review round 1 a CR in the middle of a text was covered by the
+      character after it); only a typed ^T is LABELK (the editor's map, EDTMAP): a printed CHR$(20) is its glyph, as
+      PRINT's map (PRTMAP) takes only the PC's functions (7, 9-13, 28-31), so the program can't turn the key line
+      on or off by printing it (corrected at review round 1, F5: this list said a printed ^T was LABELK too); TKEYOF
+      dropped (the warm boot shows the console again).
     - **Not done in 7d2:** KEY(n) and ON KEY (7f); the super-shift keys (answer 4: dropped); 7d3's DEF SEG page.
 - **7e: graphics** (the rest of P5).
   - **What it holds:**
