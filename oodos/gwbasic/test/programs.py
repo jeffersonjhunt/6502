@@ -3,7 +3,7 @@
     python3 -I programs.py --runner RUN6502 --image flat.bin [--dir DIR] [NAME...] [-v]
 
 Each DIR/NAME.bas (DIR: programs/ beside this file) is tokenised by basic.py and run in the flat
-harness (harness.s: the program at $9400, run through NEWSTT, printed by the stand-in PRINT, which
+harness (harness.s: the program at $C000, run through NEWSTT, printed by the stand-in PRINT, which
 prints numbers and strings with ";" between them). What it prints must be DIR/NAME.out, PC-BASIC's
 output for the same file (tools/oracle.sh). GW-BASIC's error printer (res/gwmain.s's ERROR, P2's
 messages) prints an error as PC-BASIC does; then READY prints "Ok" and asks for a line, which ends
@@ -18,7 +18,7 @@ the expected text, line by line. NAME.out stays PC-BASIC's, for the record.
 A line "REM @memsize N" in a program puts the top of the string space N bytes past the program's
 end (harness.s's MEMSIZ), so the variables and strings have N bytes: a small space, for the garbage
 collector to work hard in. PC-BASIC reads it as a remark; such a program prints nothing that
-depends on the size. Without it the space ends at $9FEE.
+depends on the size. Without it the space ends at $CBEE.
 
 A must-fail can be run against a broken image: the check exits non-zero on any difference.
 """
@@ -35,7 +35,8 @@ sys.path.insert(0, HERE)
 
 import basic  # noqa: E402
 
-CTRL, PROGRAM = 0x9FF0, 0x9400  # G11: the program at $9400 (was $9000), 7c
+CTRL, PROGRAM = 0xCBF0, 0xC000  # G11: the program at $C000 (the owner's, 2026-11-18, 7d2; $9400 from 7c)
+assert PROGRAM + 0xBF0 == CTRL  # check.py's layout
 
 def expected(text):
     """PC-BASIC's output, its "not typed" marks dropped."""
@@ -60,6 +61,16 @@ def run(runner, image, src, work):
     return p.stdout.decode("latin-1"), p.stderr.decode()
 
 
+def image_end(image):
+    """The flat image's last byte, from its map (check.py's test): it must end below the program."""
+    end = 0
+    for l in open(os.path.splitext(image)[0] + ".map"):
+        m = re.match(r"(\w+)\s+([0-9A-F]{6})\s+([0-9A-F]{6})\s+([0-9A-F]{6})", l)
+        if m and m.group(1) not in ("HEADER", "ZEROPAGE"):
+            end = max(end, int(m.group(3), 16))
+    return end
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runner", required=True)
@@ -68,6 +79,9 @@ def main():
     ap.add_argument("-v", action="store_true", help="every differing line")
     ap.add_argument("names", nargs="*")
     a = ap.parse_args()
+    end = image_end(a.image)
+    if end >= PROGRAM:
+        sys.exit("the flat image ends at $%04X, past $%04X where the test data begin (test/flat.cfg)" % (end, PROGRAM))
     names = a.names or sorted(f[:-4] for f in os.listdir(a.dir) if f.endswith(".bas"))
     failed = 0
     with tempfile.TemporaryDirectory() as work:

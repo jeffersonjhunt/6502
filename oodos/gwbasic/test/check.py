@@ -48,9 +48,12 @@ RUNNER = None  # --runner
 IMAGE = None  # --image
 LABELS = None  # beside the image
 VLEN = 80
-PER_RUN = 300
-CTRL, VECTORS, PROGRAM = 0x9FF0, 0xA000, 0x9400  # G11: the program at $9400 (was $9000), 7c
-OUTCNT = "9FFE"
+PER_RUN = 160
+# G11: the program at $C000 (the owner's, 2026-11-18, 7d2; $9400 from 7c, $9000 before). The control block
+# $BF0 past it (a program's workspace as it was), the vectors past that, PER_RUN a run, below the CPU's vectors.
+CTRL, VECTORS, PROGRAM = 0xCBF0, 0xCC00, 0xC000
+assert PROGRAM + 0xBF0 == CTRL and CTRL + 16 == VECTORS and VECTORS + VLEN * PER_RUN <= 0xFFFA
+OUTCNT = "CBFE"
 
 OPS = {
     "add": 1, "sub": 2, "mul": 3, "div": 4, "cmp": 5, "flt": 6, "cint": 7,
@@ -844,7 +847,10 @@ def op_cycles(rng, workdir, n=300):
                     rec[12:12 + len(b)] = bytes(b)
                 r.append(bytes(rec))
             return r
-        out.append((label_, what, (run_cycles(recs(op), workdir) - run_cycles(recs(load), workdir)) / n))
+        ro, rl = recs(op), recs(load)
+        tot = sum(run_cycles(ro[i:i + PER_RUN], workdir) - run_cycles(rl[i:i + PER_RUN], workdir)
+                  for i in range(0, n, PER_RUN))
+        out.append((label_, what, tot / n))
     return out
 
 

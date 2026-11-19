@@ -2,15 +2,15 @@
 ; size spike's oodos/spike/gwbasic/harness.s): segment HARNESS, at $0300.
 ; check.py writes the vectors and reads them back; run6502 runs the image.
 ;
-; A control block at $9FF0 says what to do:
+; A control block at $CBF0 says what to do:
 ;
-;   $9FF0   0: run the math vectors at $A000; 1: run the program at $9400;
-;           2: GW-BASIC itself, from READY, with its workspace at $9401 (to
+;   $CBF0   0: run the math vectors at $CC00; 1: run the program at $C000;
+;           2: GW-BASIC itself, from READY, with its workspace at $C001 (to
 ;           MEMSIZ), its lines typed from run6502's --input file
-;   $9FF2   the number of vectors
-;   $9FF6   a program's MEMSIZ, the string space's top (0: $9FEE, leaving a
+;   $CBF2   the number of vectors
+;   $CBF6   a program's MEMSIZ, the string space's top (0: $CBEE, leaving a
 ;           byte below the control block for VAL's zero)
-;   $9FFE   run6502's count of the characters output (--outcount)
+;   $CBFE   run6502's count of the characters output (--outcount)
 ;
 ; A vector is 80 bytes:
 ;
@@ -28,9 +28,12 @@
 ;           RNDX after
 ;   +56     in: $FIN's text, to its zero (23 characters at most)
 ;
-; The program is GW-BASIC's tokenised form at $9401 (link, line number,
-; tokens, zero), after a zero at $9400, ending with a zero link. (G11: at
-; $9000 until 7c, so the image may end below $9400; the owner's, 2026-11-14.)
+; The program is GW-BASIC's tokenised form at $C001 (link, line number,
+; tokens, zero), after a zero at $C000, ending with a zero link. (G11: at
+; $9000 until 7c, the owner's, 2026-11-14; at $9400 until 7d2, then $C000,
+; the owner's, 2026-11-18: the image may end below $C000. The control block
+; stays $BF0 past the program, so a program's workspace is as it was; the
+; vectors follow it, to $FE00, clear of the CPU's vectors.)
 
 .include "gwbasic.inc"
 
@@ -41,10 +44,10 @@
 .import FOUTO, FOUTH, RNDX
 .import MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, INITFG, TOPS, TOPMEM, INITSA, HOMSTK
 
-CTRL            = $9FF0
-OUTCNT          = $9FFE
-VECTORS         = $A000
-PROGRAM         = $9400
+CTRL            = $CBF0
+OUTCNT          = $CBFE
+VECTORS         = $CC00
+PROGRAM         = $C000
 VLEN            = 80
 
 HREC            = $E0                  ; the vector being run
@@ -105,8 +108,8 @@ INTRUN:         LDA     #<(PROGRAM+1)
                 LDA     CTRL+6
                 LDX     CTRL+7
                 BNE     :+
-                LDA     #<$9FEE
-                LDX     #>$9FEE
+                LDA     #<$CBEE
+                LDX     #>$CBEE
 :               STA     MEMSIZ
                 STA     FRETOP
                 STX     MEMSIZ+1
@@ -165,8 +168,8 @@ BASRUN:         LDA     #<(PROGRAM+1)
                 LDA     CTRL+6
                 LDX     CTRL+7
                 BNE     :+
-                LDA     #<$9FEE
-                LDX     #>$9FEE
+                LDA     #<$CBEE
+                LDX     #>$CBEE
 :               STA     MEMSIZ
                 STA     FRETOP
                 STX     MEMSIZ+1

@@ -4309,7 +4309,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       RAM 1,565; P1 8,377, P2 5,688, P3 4,883, P4 11,591, P8 2,525 (as measured at d0a523d).
     - **The flat test image** leaves P4 and `p8/far4.s` out (`test/flatp4.s` stands in), and its program area
       moved from `$9000` to `$9400` (the owner's G11 answer, 2026-11-14; the notes above that name `$9000` were
-      true when written). It ends at `$90FC` (`$9110` after the review's fixes).
+      true when written), and moved again to `$C000` by the owner's decision of 2026-11-18 (7d2's U1: the control
+      block `$CBF0`, the vectors `$CC00`; the notes that name `$9400` were true when written). It ends at `$90FC` (`$9110` after the review's fixes).
     - **Recorded deviations:** File not open is Bad file number (52), PC-BASIC's answer, where the 1983 source maps
       it to Bad file mode (54); CHDIR, MKDIR and RMDIR added to the keyword table, and errors 75 and 76's messages
       to the error table; LEN past /S: (128) is Illegal function call; COM1's speed parsed and kept but the line
