@@ -773,9 +773,10 @@ PLINIT:         PSH     xAH
 ; nonzero for an INPUT statement (the 8086's ZF). The line made a logical
 ; line's start, a "not typed" line ($FF in it) deleted, and FSTPOS, LSTPOS
 ; set: the cursor for INPUT, the whole logical line else.
-SCNMRK:         MOVB    xDL, CSRY
+SCNMRK:         TAX
+                MOVB    xDL, CSRY
                 MOVB    xDH, CSRX
-                DEC     A
+                DEX
                 BNE     SCNMK0
                 JSR     LSTART
                 BRA     SCNMK2

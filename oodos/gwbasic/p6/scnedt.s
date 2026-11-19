@@ -17,8 +17,10 @@
 ;
 ; DSKCHI (a program line from a file) is 7c's, p4/scnedt.s. OO-1: INLHLP,
 ; the edit key the IBM keyboard hasn't, isn't reached (Ctrl-A is a
-; character); ERREDT's line and AUTO's number come as BUF's preload
-; (PRELOD) in 7d1, printed here first, the cursor at their start.
+; character); ERREDT's and EDIT's line and AUTO's number come as BUF's
+; preload (PRELOD, 7b's way for function 10), printed here first as the
+; source prints them, so the line read back holds them: EDIT's with the
+; cursor at its start (PRELOD 1), AUTO's with it after them (2).
 
 .include "gwbasic.inc"
 .include "p6/p6.inc"
@@ -47,10 +49,10 @@ SCINLN:         PHP
                 LDA     F_EDIT         ; (1: EDIT's line)
                 LDX     PRELOD
                 BEQ     INLIN1
-                STZ     PRELOD         ; the preload printed, the cursor to its start
-                LDA     #1
-                STA     F_EDIT
-                LDX     #0
+                STZ     PRELOD         ; the preload printed, as the source prints it:
+                STX     F_EDIT         ;   EDIT's line (1: ERED5's F_EDIT, the cursor to
+                PHX                    ;   its start, SCNMRK's LSTART) or AUTO's number
+                LDX     #0             ;   (2: the cursor after it, MAINA's LINPRT)
 @p:             LDA     BUF,X
                 BEQ     @e
                 PHX
@@ -58,7 +60,7 @@ SCINLN:         PHP
                 PLX
                 INX
                 BNE     @p
-@e:             LDA     #1
+@e:             PLA
 INLIN1:         LDX     #$FF
                 STX     F_EDIT
                 JSR     SCNMRK

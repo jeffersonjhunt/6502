@@ -707,11 +707,17 @@ CLRSCN:         LDA     LINCNT
                 JMP     SCNCLR
 
 ; FILL: SCI rows of STRIDE bytes from the card address A, X, Y blank.
-FILL:           STA     DMB + 4
-                STX     DMB + 5
-                STY     DMB + 6
+FILL:           PHA                    ; the cached row written back first (FLUSH uses DMB)
+                PHX
+                PHY
                 JSR     FLUSH
                 STZ     CROW
+                PLY
+                PLX
+                PLA
+                STA     DMB + 4
+                STX     DMB + 5
+                STY     DMB + 6
                 LDA     #' '
                 STA     CACHE
                 LDA     ATTR
@@ -793,11 +799,17 @@ PGINIT:         LDX     #20
                 JMP     FILLP
 
 ; FILLP: SCI card pages from the card address A, X, Y blank.
-FILLP:          STA     DMB + 4
-                STX     DMB + 5
-                STY     DMB + 6
+FILLP:          PHA                    ; the cached row written back first (FLUSH uses DMB)
+                PHX
+                PHY
                 JSR     FLUSH
                 STZ     CROW
+                PLY
+                PLX
+                PLA
+                STA     DMB + 4
+                STX     DMB + 5
+                STY     DMB + 6
                 LDA     #' '
                 STA     CACHE
                 LDA     ATTR

@@ -367,6 +367,143 @@ TEST(a_typed_line_is_read_back_from_the_cells)
     CHECK_EQ(line(r, static_cast<unsigned>(ok + 3)), std::string("Ok"));
 }
 
+constexpr uint8_t K_UP = 0x52, K_DOWN = 0x51, K_LEFT = 0x50, K_RIGHT = 0x4F, K_HOME = 0x4A, K_END = 0x4D,
+                  K_INS = 0x49, K_DEL = 0x4C, K_F1 = 0x3A;
+/// The last row holding `text` (from the bottom of the window up), or -1.
+int last_row(CcpRig &r, const std::string &text)
+{
+    for (int i = 24; i >= 0; --i)
+        if (line(r, static_cast<unsigned>(i)).find(text) != std::string::npos)
+            return i;
+    return -1;
+}
+
+// The full-screen editor changes a listed line in place: LIST, Up to line 20, Right to its string, overtyped,
+// Insert and more text, Delete, Enter: LIST and RUN show the changed line, line 10 as it was. Guards editing a line
+// entering something else. Seen failing with insert's move (MVCHLN) taking its characters from a column right of
+// the cursor. (The plan's mutant, the row cache kept across a return from P6, is how this build works, written back
+// at every return; a scroll's copy that left the cache on its row isn't caught either, since the cursor's moves
+// reload the rows it passes. So this case's mutant is the insert's.)
+TEST(the_editor_changes_a_listed_line_in_place)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 PRINT \"ONE\"");
+    enter(r, "20 PRINT \"TWO\"");
+    enter(r, "30 PRINT \"SIX\"");
+    for (int i = 0; i < 12; ++i) // enough lines to scroll while listing
+        enter(r, "PRINT");
+    enter(r, "LIST", ms(600));
+    const int r20 = last_row(r, "20 PRINT \"TWO\""), ok = last_row(r, "Ok");
+    REQUIRE(r20 > 0 && ok > r20);
+    for (int i = 0; i < ok + 1 - r20; ++i)
+        press(r, K_UP);
+    for (int i = 0; i < 10; ++i)
+        press(r, K_RIGHT);
+    keys(r, "SE");
+    press(r, K_INS);
+    keys(r, "VEN");
+    press(r, K_DEL);
+    keys(r, "\r");
+    r.run(ms(300));
+    CHECK_EQ(line(r, static_cast<unsigned>(r20)), std::string("20 PRINT \"SEVEN\""));
+    press(r, 0x0F, CTRL); // ^L: the screen cleared (Enter left the cursor on line 30's row)
+    enter(r, "LIST", ms(600));
+    CHECK(last_row(r, "10 PRINT \"ONE\"") > 0);
+    CHECK(last_row(r, "20 PRINT \"SEVEN\"") > 0);
+    CHECK(last_row(r, "30 PRINT \"SIX\"") > 0);
+    enter(r, "RUN", ms(600));
+    const int seven = last_row(r, "SEVEN");
+    CHECK(seven > 0 && line(r, static_cast<unsigned>(seven)) == "SEVEN" &&
+          line(r, static_cast<unsigned>(seven - 1)) == "ONE");
+    if (seven < 0 || line(r, static_cast<unsigned>(seven - 1)) != "ONE")
+        std::printf("  the screen: %s\n", screen(r).c_str());
+}
+
+// A logical line spans two rows: a line of 99 characters typed wraps at the 80th, and Enter with the cursor on
+// its second row enters the whole of it. Guards long lines cut at 80. Seen failing with CHWRAP's wrap terminator
+// (TRMWRP) written as EOL.
+TEST(a_logical_line_spans_two_rows)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const int ok = start(r);
+    REQUIRE(ok > 0);
+    keys(r, "10 A$=\"" + std::string(90, 'B') + "\"");
+    CHECK_EQ(line(r, static_cast<unsigned>(ok + 2)), std::string(17, 'B') + "\"");
+    keys(r, "\r");
+    r.run(ms(300));
+    enter(r, "RUN");
+    enter(r, "PRINT LEN(A$);RIGHT$(A$,3)");
+    CHECK(until_row(r, " 90 BBB") > 0);
+}
+
+// INKEY$ gives the PC's two-byte codes for the keys with no character: Up CHR$(0)+"H" (72), F1 CHR$(0)+";" (59),
+// Home CHR$(0)+"G" (71), Del CHR$(0)+"S" (83); and a key held repeats, after 500 ms and then 30 a second (the owner's
+// answer 8). Guards games that read the arrows not moving. Seen failing with the navigation keys' table one entry
+// off.
+TEST(inkey_gives_the_pcs_two_byte_codes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
+    enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1)):GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    const std::vector<std::pair<uint8_t, std::string>> want = {
+        {K_UP, "[ 2  0  72"}, {K_F1, "[ 2  0  59"}, {K_HOME, "[ 2  0  71"}, {K_DEL, "[ 2  0  83"}};
+    for (const auto &[k, text] : want)
+    {
+        press(r, k);
+        r.run(ms(150));
+        CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "[ "))), text);
+    }
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
+    enter(r, "30 K$=\"\":FOR I=1 TO 6000:K$=K$+INKEY$:NEXT:PRINT CHR$(93);LEN(K$)");
+    keys(r, "RUN 30\r");
+    r.run(ms(50));
+    press(r, 0x04, 0, 1000); // A, held a second
+    const int at = until_row(r, "] ", ms(20000));
+    REQUIRE(at > 0);
+    const long n = std::strtol(line(r, static_cast<unsigned>(at)).c_str() + 1, nullptr, 10);
+    std::printf("  A held 1 s: %ld characters (1, then one each 33 ms from 500 ms)\n", n);
+    CHECK(n >= 10 && n <= 20);
+}
+
+// EDIT and AUTO on the screen: EDIT 10 shows the line with the cursor at its start, and Enter keeps it; AUTO offers
+// "10 ", takes two lines, offers "30 ", and Ctrl-C ends it. Guards EDIT and AUTO hanging or losing the line. Seen
+// failing with the preload sent to function 10 in screen mode.
+TEST(auto_and_edit_on_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 PRINT 1+1");
+    enter(r, "EDIT 10");
+    const int e = last_row(r, "10 PRINT 1+1");
+    REQUIRE(e > 0);
+    CHECK_EQ(line(r, static_cast<unsigned>(e - 1)), std::string("EDIT 10"));
+    CHECK_EQ(attr(r, static_cast<unsigned>(e), 0) & 0x80, 0x80); // the cursor, at the line's start
+    keys(r, "\r");
+    r.run(ms(300));
+    enter(r, "AUTO");
+    CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "10*"))), std::string("10*"));
+    keys(r, "\r");
+    r.run(ms(300));
+    CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "20"))), std::string("20"));
+    enter(r, "PRINT 2");
+    CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "30"))), std::string("30"));
+    press(r, 0x06, CTRL);
+    r.run(ms(300));
+    enter(r, "LIST", ms(600));
+    CHECK(last_row(r, "10 PRINT 1+1") > 0);
+    CHECK(last_row(r, "20 PRINT 2") > 0);
+    CHECK(last_row(r, "30 ") < last_row(r, "20 PRINT 2"));
+}
+
 int main()
 {
     return run_all();
