@@ -307,7 +307,7 @@ before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in
 | `r_forr` | OPEN ... FOR RANDOM |
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `r_field` (FIELD's total past the record is FIELD
-overflow; record 32768 is taken, the manual's p. 113 and A-4; the FIELD buffer keeps what was in it; WRITE # pads the record with
+overflow; record 32768 is Bad record number; the FIELD buffer keeps what was in it; WRITE # pads the record with
 spaces), `r_move` (a closed file's FIELDed strings are null), `r_eof` (EOF is true after OPEN and PUT, until a GET
 reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). `r_lof`
 agrees with PC-BASIC now (LOF in bytes, as `f_locof`).

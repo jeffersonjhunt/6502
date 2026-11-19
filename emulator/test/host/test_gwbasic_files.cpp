@@ -834,14 +834,45 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
     CHECK_EQ(not_p4, 0);
 }
 
+// The owner's interim cap (2026-11-19, hw/oodos.md: F3 is owed): record numbers stop at 32,767, so LOC can't go
+// negative and GET and PUT can't wrap. By hand: of LEN 2, record 32,767 is PUT and read back, LOC 32767; an
+// explicit 32,768 is Bad record number for PUT and GET, and LOC stays 32767.
+TEST(record_32767_is_the_last_an_explicit_32768_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RCAP.DAT\",2:FIELD #1,2 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"ok\":PUT #1,32767:LSET F$=\"\":GET #1,32767:PRINT F$;LOC(1)",
+              "30 PUT #1,32768:GET #1,32768:PRINT LOC(1):CLOSE:KILL \"RCAP.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("ok 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\n"));
+}
+
+// The owner's interim cap: GET and PUT with no number take the next record, and past 32,767 that is Bad record
+// number, not a wrap to 0 (main's had no check there). By hand: of LEN 2, PUT #1,32766 then PUT alone writes
+// 32,767 (read back, LOC 32767); a PUT alone and a GET alone after it are each Bad record number, LOC 32767 still.
+TEST(get_and_put_with_no_number_stop_after_record_32767)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RCAP.DAT\",2:FIELD #1,2 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"ab\":PUT #1,32766:LSET F$=\"cd\":PUT #1:PRINT LOC(1)",
+              "30 PUT #1:GET #1:PRINT LOC(1):GET #1,32767:PRINT F$:CLOSE:KILL \"RCAP.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\ncd\r\n"));
+}
+
 // By hand, from the source (PC-BASIC's /S: can't be given by oracle.sh): records longer than a 128-byte record. /S:
 // (MAXREC, res/far4.s: the command line's switches aren't read yet) is set to 1,024, the most W4 allows, as GWBASIC
 // /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
 // and LOF (the bytes). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
-// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^25 bytes
-// (Bad record number past CP/M 3's 18-bit random record, the owner's answer 2; the source's Illegal function call
-// past 16 bits) and the last before it (128-byte records 262,136 to 262,143); LEN past /S: (1,025: Illegal function
-// call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
+// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); record 32,768 (Bad record number, the
+// owner's interim cap) and 32,767, the last (128-byte records 262,128 to 262,135); LEN past /S: (1,025: Illegal
+// function call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
 TEST(random_records_of_200_and_1024_bytes_by_hand)
 {
     CcpRig r;
@@ -861,13 +892,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "50 PRINT LOC(1);LOF(1):CLOSE"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
                                             " 5  1000 \r\n"));
-    // Records to CP/M 3's whole reach, 18 bits of 128-byte records, 32 MB (the owner's answer 2): of LEN 600, record
-    // 55,924 ends in 128-byte record 262,143, and 55,925 would cross past it: Bad record number, not a wrap to record
-    // 0; and a record past 8 MB (record 20,000 of LEN 1,024 starts at 128-byte record 159,992, R2 2) is PUT and read
-    // back, with the file's size in bytes (LOF: 20,480,000), and again from the disk once it is closed and opened.
+    // Records past 65,535 128-byte records (CP/M 3's R2): of LEN 600, record 32,767 is read and 32,768 is Bad record
+    // number (the owner's interim cap), not a wrap to record 0; and a record past 8 MB (record 20,000 of LEN 1,024
+    // starts at 128-byte record 159,992, R2 2) is PUT and read back, with the file's size in bytes (LOF:
+    // 20,480,000), and again from the disk once it is closed and opened.
     CHECK_EQ(command(r, "NEW"), std::string());
     enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",600:ON ERROR GOTO 90",
-              "20 GET #1,55924:PRINT \"ok\":GET #1,55925:PRINT \"on\":CLOSE",
+              "20 GET #1,32767:PRINT \"ok\":GET #1,32768:PRINT \"on\":CLOSE",
               "30 OPEN \"R\",#2,\"RFAR.DAT\",1024:FIELD #2,4 AS F$:LSET F$=\"far!\":PUT #2,20000:LSET F$=\"\"",
               "40 GET #2,20000:PRINT F$;LOF(2):GET #2,19999:PRINT ASC(F$):CLOSE",
               "50 OPEN \"R\",#2,\"RFAR.DAT\",1024:PRINT LOF(2):CLOSE:KILL \"RFAR.DAT\":END",
@@ -882,13 +913,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "45 PRINT N;A$=X$;B$=X$;C$=X$;D$=STRING$(255,96+N);CVI(E$);RIGHT$(E$,2):NEXT",
               "50 GET #1,5:PRINT ASC(A$);ASC(E$);EOF(1);LOC(1);LOF(1)",
               "60 ON ERROR GOTO 90",
-              "70 GET #1,32769:GET #1,32768:PRINT ASC(A$);EOF(1)",
+              "70 GET #1,32768:GET #1,32767:PRINT ASC(A$);EOF(1)",
               "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
                                             " 0  0 -1  5  3072 \r\nerr 63  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
-    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,769's place passes 32 MB, CP/M 3's reach: Bad
-    // record number; 32,768's last byte is 128-byte record 262,143's.)
+    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,768 is past the cap: Bad record number; 32,767's
+    // last byte is 128-byte record 262,135's.)
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its

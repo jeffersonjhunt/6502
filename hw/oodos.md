@@ -5155,8 +5155,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - item 4, LOF: the bytes, OODOS keeping CP/M 3's last-record byte count: *built in U7* (below; answer 2).
     - item 10's seeding past the integers: the single's bytes folded (FACLO, FACLO+1; FACM1, FACEXP); since review
       round 1 (F6) for what FRCINT would refuse, by the value.
-    - item 12: records past 32767 taken, *since U7* to CP/M 3's 18-bit random record (32 MB), past it or across it
-      Bad record number; -1 Bad record number.
+    - item 12: *since the owner's interim cap* (2026-11-19, review round 1's record below) records stop at 32,767,
+      main's limit: an explicit number past it, or a GET or PUT with no number that would step past it, is Bad record
+      number; -1 Bad record number. The manual's range, to 16,777,215, is owed (F3, with P4's relief).
     - item 13: 0 MOD 0 is Division by zero.
     - item 18's values: *since U7* OODOS's physical error's code and the SCB's error drive (below).
     - item 19: SPC(n<0), TAB(n<1), and since review round 1 (F5) either past 255, are Illegal function call.
@@ -5308,12 +5309,31 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       P4 has 88 bytes free with F3 still to come. The plan: what of P4 is cold and self-contained enough to move,
       measured as these two moves were, or a split of the file layer between two blocks, with each looped file
       operation's cost.
+    - **The interim cap** (the owner, 2026-11-19, option A; an OO-1 limit for now, by the owner's ruling): record
+      numbers stop at 32,767 again, main's limit, so LOC can't go negative and GET and PUT can't wrap. DSKRND's
+      JLE is back for an explicit number (past 32,767, or 0 or less, Bad record number), and the next record of a
+      GET or PUT with no number is refused the same way past 32,767 (main's wrapped there). The rest of U7 stays:
+      LOF in bytes, ERDEV's values, the byte count, R2 for 128-byte records past 65,535. The 18-bit check on a
+      record's last byte goes: record 32,767 of LEN 1,024 (MAXREC's most) ends in 128-byte record 262,135, inside
+      CP/M 3's 262,143, so it can't be reached (34 bytes back: P4 12,200 → 12,166, 122 free). Expectations back
+      to main's, as approved: r_field.differ and the gwbasic README's line (32768 Bad record number); the LEN 600
+      and 1,024 hand cases now read 32,767 and refuse 32,768. Two new hand cases, `record_32767_is_the_last_an_
+      explicit_32768_is_refused` and `get_and_put_with_no_number_stop_after_record_32767`, each seen failing on its
+      own case under its mutants: the explicit check gone, the sequential check gone, each cap moved down to
+      32,512 (record 32,767 refused), and DSKLOC reading FD_LOG's high byte (LOC at 32,767 not 32767).
+    - **Owed, with the P4 relief plan before 7f:** the manual's range for record numbers (pp. 113, 279, A-4: up to
+      16,777,215; on the OO-1 within CP/M 3's 32 MB, 18 bits of 128-byte records), and F3 with it: LOC the true
+      record number (a single or double past 32,767), GET and PUT with no number carrying past 65,535 (FD_PHY as
+      the top bits), the 18-bit check on the last byte back. The compacted draft (22 bytes past P4 when tried) is
+      `ibmspec/f3draft2/f3-compacted.diff` in the fix-up's scratch directory, the first draft beside it in
+      `ibmspec/f3draft/`; it is a diff against the code before the cap.
     - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
-      BASIC 34,775. After the second move (below): P3 5,540 (6,748), P4 12,200 (88). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
+      BASIC 34,775. After the second move (above): P3 5,540 (6,748), P4 12,200 (88); after the interim cap
+      (below): P4 12,166 (122). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
       interrupt handlers; in a loop, PUT #1,1 18,545, GET #1,2 17,310, LSET 2,187, RSET 2,163, CVI 2,745, FIELD
       2,849.
   - **Not done in the fix-up:** review round 1's F3 (above: 22 bytes past P4 after the second move and the
-    compaction); the records of 7a-7d are left as written, but for the re-citations above (a line
+    compaction; record numbers capped at 32,767 for now, the manual's range owed); the records of 7a-7d are left as written, but for the re-citations above (a line
     that cites PC-BASIC there for a B item is read with this table). Items 5, 6 and 16 are 7f's.
 - **7f: sound, input and events** (P7).
   - **What it holds:**

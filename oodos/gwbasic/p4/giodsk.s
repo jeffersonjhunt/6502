@@ -856,10 +856,12 @@ DSKRND:         STA     RNDAL
                 LDA     (FDBP),Y
                 ADC     #0
                 STA     RDH
-                BRA     RAND2
-RAND1:          LDA     RDH            ; 0: Bad record number (OO-1: past 32767
-                ORA     RDL            ; too, the source's JLE, is taken: the IBM
-                BEQ     ER_BRN         ; manual's p. 113, A-4)
+                BMI     ER_BRN         ; OO-1: past 32767 Bad record number too,
+                BRA     RAND2          ; not a wrap (the owner's interim cap)
+RAND1:          LDA     RDH            ; JLE: 0, or past 32767 (OO-1: the
+                BMI     ER_BRN         ; owner's interim cap, 2026-11-19; the
+                ORA     RDL            ; IBM manual's range, pp. 113, 279, A-4,
+                BEQ     ER_BRN         ; is owed, hw/oodos.md)
 RAND2:          LDY     #FD_LOG        ; the next logical
                 LDA     RDL
                 STA     (FDBP),Y
@@ -890,11 +892,10 @@ RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 ROL     RNDPRD+1
                 ROL     RNDPRD+2
                 ROL     RNDPRD+3
-                LDA     RNDPRD+3       ; OO-1: the 128-byte record's top bits, 18
-                STA     RECRD+2        ; in all (CP/M 3's random record: 32 MB):
-                                       ; its last byte's past it is Bad record
-                                       ; number, below (the source's Illegal
-                                       ; function call past 16 bits)
+                LDA     RNDPRD+3       ; OO-1: the 128-byte record's top bits
+                STA     RECRD+2        ; (CP/M 3's R2): record 32,767 of LEN 1,024
+                                       ; (MAXREC's most) ends in 128-byte record
+                                       ; 262,135, inside 18 bits, so no check
                 LDA     RNDPRD+2       ; DX: the 128-byte record
                 STA     RDH
                 LDA     RNDPRD+1
@@ -903,27 +904,6 @@ RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 LSR     A
                 STA     RBL
                 STZ     RBH
-                LDY     #FD_SIZ        ; OO-1: its last byte's record past 65,535
-                CLC                    ; too (P + size - 1, over 128, added)
-                ADC     (FDBP),Y
-                TAX
-                INY
-                LDA     #0
-                ADC     (FDBP),Y
-                CPX     #1             ; less one
-                SBC     #0
-                DEX
-                CPX     #$80
-                ROL     A
-                CLC
-                ADC     RDL
-                LDA     RDH
-                ADC     #0
-                LDA     RECRD+2
-                ADC     #0
-                CMP     #4             ; (OO-1: 18 bits)
-                BCC     RAND4
-                JMP     DERBRN
 RAND4:          LDA     RDL            ; RECRD: the record
                 STA     RECRD
                 LDA     RDH
