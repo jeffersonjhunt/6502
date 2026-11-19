@@ -213,7 +213,10 @@ ATRFI2:         PHA
 ; --- XDELT, YDELT, XCHGX, XCHGY, XCHGAC (GENGRP.ASM 270) --------------------------------------
 
 ; XDELT: BX = |GXPOS - CX|, C set if CX was the greater (the 8086's borrow);
-; YDELT the same of GYPOS and DX; NEGHL: BX negated, C set.
+; YDELT the same of GYPOS and DX; NEGHL: BX negated, C set. OO-1: the
+; greater by the difference's sign, not the borrow, since a line's end may
+; be -1 (SCALXL); the coordinates are within -1 and 640, so it never
+; overflows, and for those on the screen it is the source's borrow.
 XDELT:          SEC
                 LDA     GXPOS
                 SBC     RCL
@@ -221,7 +224,7 @@ XDELT:          SEC
                 LDA     GXPOS + 1
                 SBC     RCH
                 STA     RBH
-CNEGHL:         BCC     NEGHL          ; (the 6502's carry: no borrow)
+CNEGHL:         BMI     NEGHL
                 CLC
                 RTS
 NEGHL:          SEC
@@ -351,16 +354,31 @@ BOXLIN:         PSHW    GYPOS          ; y2
 
 ; DOGRPH: a line from (CX, DX) to (GXPOS, GYPOS), drawn down from the
 ; smaller y, along its major axis (MAXUPD, a step each point) with steps on
-; its minor (MINUPD) when the sum passes the major's delta.
-DOGRPH:         JSR     SCALXY         ; "cheaty scaling - just truncate"
-                JSR     XCHGAC
-                JSR     SCALXY
+; its minor (MINUPD) when the sum passes the major's delta. OO-1 (the
+; owner's ruling of 2026-11-19, PC-BASIC's clipping): each end is brought
+; to one pixel past the screen at most (SCALXL), not to its edge as the
+; source's SCALXY truncates, and a line with an end off the screen is drawn
+; by LINCLP, which plots only its pixels on the screen.
+DOGRPH:         STZ     LOFF
+                JSR     SCALXL
+                BCS     :+
+                INC     LOFF
+:               JSR     XCHGAC
+                JSR     SCALXL
+                BCS     DOGRP2
+                INC     LOFF
 DOGRP2:         JSR     YDELT
                 BCC     :+
                 JSR     XCHGAC         ; (CX, DX) the point with the smaller y
 :               MOVW    LMAJ, RBL       ; dy
                 JSR     XDELT          ; dx; C: left
+                LDA     #1             ; LXS: x's step, +1 or -1 (LINCLP's)
+                BCC     :+
+                LDA     #$FF
+:               STA     LXS
                 LDX     GMX
+                LDA     LXS
+                CMP     #$FF           ; C: left
                 LDA     RIGHTV - 2,X
                 LDY     RIGHTV - 1,X
                 BCC     LINCN2
@@ -373,6 +391,7 @@ LINCN2:         STA     T0             ; the x routine
                 LDA     LMAJ + 1
                 SBC     RBH
                 BCS     YDLTBG
+                STZ     LYM
                 MOVW    MINDEL, LMAJ    ; x major: MINDEL dy
                 MOVW    MAXUPD, T0
                 LDA     DOWNV - 2,X
@@ -381,14 +400,19 @@ LINCN2:         STA     T0             ; the x routine
                 STA     MINUPD + 1
                 MOVW    LMAJ, RBL       ; the major delta: dx
                 BRA     LINCN3
-YDLTBG:         MOVW    MINUPD, T0     ; y major
+YDLTBG:         LDA     #1
+                STA     LYM
+                MOVW    MINUPD, T0     ; y major
                 LDA     DOWNV - 2,X
                 STA     MAXUPD
                 LDA     DOWNV - 1,X
                 STA     MAXUPD + 1
                 MOVW    MINDEL, RBL    ; MINDEL dx; the major delta dy
 LINCN3:         MOVW    MAXDEL, LMAJ
-                JSR     MAPXYC
+                LDA     LOFF           ; an end off the screen: LINCLP
+                BEQ     :+
+                JMP     LINCLP
+:               JSR     MAPXYC
                 MOVW    RDL, LMAJ       ; the sum: half the major delta
                 JSR     HLFDE
                 MOVW    RCL, LMAJ       ; the points: the major delta + 1
@@ -425,6 +449,99 @@ LINLOP:         JSR     MAXJMP
                 RTS
 MINJMP:         JMP     (MINUPD)
 MAXJMP:         JMP     (MAXUPD)
+
+; LINCLP (OO-1, the owner's ruling): LINLP3's line, its sum and steps the
+; same, from (CX, DX) with an end off the screen (one pixel past it at most):
+; its point (LX, LY) followed, the cursor mapped (MAPXYC) at the first that
+; is on the screen and moved with it from there, each on the screen set,
+; and the line left at the first off it after (they are one run: the line is
+; straight and the screen convex).
+LINCLP:         MOVW    LX, RCL
+                MOVW    LY, RDL
+                STZ     LVIS           ; 0: none on the screen yet; 1: drawing
+                MOVW    LSUM, MAXDEL
+                LSR     LSUM + 1       ; half the major delta
+                ROR     LSUM
+                MOVW    LCNT, MAXDEL
+                INCW    LCNT
+@pt:            JSR     LONSCR
+                BCC     @off
+                LDA     LVIS
+                BNE     @set
+                INC     LVIS
+                MOVW    RCL, LX
+                MOVW    RDL, LY
+                JSR     MAPXYC
+@set:           JSR     SETC
+                BRA     @step
+@off:           LDA     LVIS
+                BNE     @x             ; past the screen: done
+@step:          CLC
+                LDA     LSUM
+                ADC     MINDEL
+                STA     LSUM
+                LDA     LSUM + 1
+                ADC     MINDEL + 1
+                STA     LSUM + 1
+                LDA     LSUM
+                CMP     MAXDEL
+                LDA     LSUM + 1
+                SBC     MAXDEL + 1
+                BCC     @maj
+                STA     LSUM + 1
+                LDA     LSUM
+                SBC     MAXDEL
+                STA     LSUM
+                LDA     LYM            ; the minor step: x (y major) or y
+                EOR     #1
+                JSR     LSTEP
+@maj:           LDA     LYM            ; the major step
+                JSR     LSTEP
+                LDA     LCNT
+                BNE     :+
+                DEC     LCNT + 1
+:               DEC     LCNT
+                LDA     LCNT
+                ORA     LCNT + 1
+                BNE     @pt
+@x:             RTS
+; LSTEP: A 1 a step of y (down), 0 of x (LXS): the point moved, and the
+; cursor with it while drawing (the move MINUPD or MAXUPD names: DOWNC, or
+; RIGHTC or LEFTC).
+LSTEP:          TAX
+                BEQ     @x
+                INCW    LY
+                LDA     LVIS
+                BEQ     @r
+                JMP     DOWNC
+@x:             LDA     LXS
+                BMI     @l
+                INCW    LX
+                LDA     LVIS
+                BEQ     @r
+                JMP     RIGHTC
+@l:             DECW    LX
+                LDA     LVIS
+                BEQ     @r
+                JMP     LEFTC
+@r:             RTS
+; LONSCR: C set if (LX, LY) is on the screen.
+LONSCR:         LDA     LX + 1
+                BMI     @no
+                LDA     GMAXX
+                CMP     LX
+                LDA     GMAXX + 1
+                SBC     LX + 1
+                BCC     @no
+                LDA     LY + 1
+                BNE     @no
+                LDA     LY
+                CMP     #200
+                BCS     @no
+                SEC
+                RTS
+@no:            CLC
+                RTS
 
 ; HLFDE: DX halved.
 HLFDE:          LSR     RDH
@@ -478,3 +595,11 @@ MAXUPD:         .res    2
 LMAJ:           .res    2              ; DOGRPH's dy, then the major delta
 BOXN:           .res    2              ; DOBOXF's lines
 BOXW:           .res    2              ;   and width
+LOFF:           .res    1              ; DOGRPH: an end off the screen (LINCLP)
+LXS:            .res    1              ;   x's step, +1 or -1
+LYM:            .res    1              ;   1: y the major axis
+LX:             .res    2              ; LINCLP's point
+LY:             .res    2
+LSUM:           .res    2              ;   its sum
+LCNT:           .res    2              ;   the points left
+LVIS:           .res    1              ;   1: drawing (the cursor at the point)

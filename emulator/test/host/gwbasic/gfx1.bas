@@ -1,5 +1,5 @@
 10 REM 7e1's G1: SCREEN 1's pixels, against PC-BASIC's (lines 9000 on dump them there). Each line's major delta
-15 REM is odd, or its minor 0 or equal: the source and PC-BASIC round a half-step pixel apart (7e1 as built)
+15 REM and the clipped part's, odd, or its minor 0 or equal: the source and PC-BASIC round a half step apart (7e1)
 20 SCREEN 1
 30 PSET (10,10): PSET (11,10),1: PSET (12,10),2: PSET (13,10),3: PSET (14,10),0: PSET (15,10),7
 40 PSET (16,10),6: PRESET (17,10): PSET (18,10),3: PRESET (18,10): PRESET (19,10),2: PSET STEP(1,1),1
@@ -9,7 +9,12 @@
 80 PSET (20,100): LINE -(41,110),2: LINE -STEP(11,-5),3: LINE STEP(2,2)-STEP(10,10),1: LINE (70,100)-(81,99)
 90 LINE (250,100)-(220,80),2,B: LINE (300,150)-(260,120),3,BF: LINE (5,190)-(5,190),1,B: LINE (7,190)-(7,190),2,BF
 100 LINE (-20,-10)-(10,15),1,BF: LINE (310,190)-(400,300),2,BF: LINE (150,-30)-(170,5),3,BF: LINE (-5,180)-(3,250),1,BF
-110 REM no line with an end off the screen: the source truncates it there, PC-BASIC clips it (7e1 as built)
+110 LINE (161,100)-(-1000,110),1: LINE (161,100)-(1000,95),2: LINE (160,101)-(170,-1000),3: LINE (160,101)-(150,1000),1
+112 LINE (21,60)-(-30,30),2: LINE (30,40)-(-9,15),3: LINE (300,60)-(345,90),1: LINE (310,30)-(339,47),2
+114 LINE (100,20)-(85,-21),3: LINE (120,15)-(150,-17),1: LINE (100,185)-(81,230),2: LINE (200,180)-(233,215),3
+116 LINE (-10,5)-(5,-10),1: LINE (-20,30)-(25,-15),2: LINE (330,180)-(290,230),1: LINE (10,-10)-(20,-20),3
+118 LINE (-5,50)-(-15,60),3: LINE (400,10)-(300,10),2: LINE (300,10)-(400,60),1,B: LINE (-30,150)-(20,180),3,B
+119 LINE (100,-20)-(140,5),2,B: LINE (250,190)-(280,230),1,B: LINE (-50,-50)-(-10,-10),3,B
 120 PSET (-1,5),3: PSET (320,5),3: PSET (5,-1),3: PSET (5,200),3: PSET (319,199),2: PSET (0,0),1
 130 LINE (60,150)-(80,170),,BF: LINE (90,150)-(110,170),,B: LINE (120,150)-(140,170),3,B: LINE (150,170)-(170,150),0,BF
 140 LINE (240,90)-(319,110),3: LINE (250,95)-(270,105),1,BF: LINE (255,60)-(255,140),2: LINE (0,199)-(319,0),1

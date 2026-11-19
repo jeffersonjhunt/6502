@@ -5,8 +5,10 @@
 ; through aperture slot 1 in W1 (OOLIB's gxmem, the W1 contract):
 ;
 ;   SCALXY    CX, DX (x, y, signed) made a point of the screen: each clipped
-;             to 0 and the mode's last (GENGRP.ASM's DOGRPH: "just
-;             truncate"); carry set if both were on it already
+;             to 0 and the mode's last; carry set if both were on it already
+;             (PSET, POINT, and BF's corners)
+;   SCALXL    the same, but to one pixel past the screen (-1, the last + 1):
+;             DOGRPH's ends (the owner's ruling, PC-BASIC's clipping)
 ;   MAPXYC    C, the graphics cursor, made the pixel at CX, DX (on the
 ;             screen), and the aperture put in W1 on its card bank
 ;   SETC      the cursor's pixel set to the attribute's colour (SETATR's)
@@ -70,6 +72,53 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 CMP     #200
                 BCC     @f
 @yh:            LDA     #199
+                STA     RDL
+                STZ     RDH
+                INY
+@f:             CPY     #1             ; C: Y 0, on the screen
+                ROL     A
+                EOR     #1
+                LSR     A
+                RTS
+
+; SCALXL (OO-1, the owner's ruling of 2026-11-19: PC-BASIC's clipping,
+; found from its outputs): DOGRPH's ends, each coordinate brought to one
+; pixel past the screen at most (-1, or the last + 1), so a line keeps its
+; course across the edge and LINCLP plots only what is on the screen; carry
+; set if the point is on the screen.
+SCALXL:         LDY     #0             ; Y: 1 once off the screen
+                LDA     RCH
+                BPL     :+
+                LDA     #$FF           ; x < 0: -1
+                STA     RCL
+                STA     RCH
+                INY
+                BRA     @y
+:               LDA     GMAXX          ; x > the last: the last + 1
+                CMP     RCL
+                LDA     GMAXX + 1
+                SBC     RCH
+                BCS     @y
+                CLC
+                LDA     GMAXX
+                ADC     #1
+                STA     RCL
+                LDA     GMAXX + 1
+                ADC     #0
+                STA     RCH
+                INY
+@y:             LDA     RDH
+                BPL     :+
+                LDA     #$FF           ; y < 0: -1
+                STA     RDL
+                STA     RDH
+                INY
+                BRA     @f
+:               BNE     @yh
+                LDA     RDL
+                CMP     #200
+                BCC     @f
+@yh:            LDA     #200           ; y > 199: 200
                 STA     RDL
                 STZ     RDH
                 INY

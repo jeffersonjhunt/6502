@@ -1807,16 +1807,16 @@ GENGRP.ASM SCAN1 -> p5/gengrp.s SCAN1 # 7e1: LINE's first point; "@" passed over
 GENGRP.ASM SCAND -> p5/gengrp.s SCAND # SCANN, SCXREL, SCYREL inline; the x pushed on the 6502's stack across the y's formula
 GENGRP.ASM ATRSCN -> p5/gengrp.s ATRSCN
 GENGRP.ASM ATRENT -> p5/gengrp.s ATRENT # ATRFIN, ATRFI2 inline; CX and DX on the 6502's stack across GETBYT
-GENGRP.ASM XDELT -> p5/gengrp.s XDELT # CNEGHL inline; the 8086's borrow in C
+GENGRP.ASM XDELT -> p5/gengrp.s XDELT # CNEGHL inline; the 8086's borrow in C, taken from the difference's sign (an end may be -1)
 GENGRP.ASM NEGHL -> p5/gengrp.s NEGHL
 GENGRP.ASM YDELT -> p5/gengrp.s YDELT
 GENGRP.ASM XCHGY -> p5/gengrp.s XCHGY
 GENGRP.ASM XCHGAC -> p5/gengrp.s XCHGAC
 GENGRP.ASM XCHGX -> p5/gengrp.s XCHGX
 GENGRP.ASM DOLINE -> p5/gengrp.s DOLINE # BOXLIN inline; OO-1: block 1 back in W1 after each line
-GENGRP.ASM DOGRPH -> p5/gengrp.s DOGRPH # DOGRP2, LINCN2, YDLTBG, LINCN3 inline; MINUPD and MAXUPD vectors (JMP (a)), not JMP cells
+GENGRP.ASM DOGRPH -> p5/gengrp.s DOGRPH # DOGRP2, LINCN2, YDLTBG, LINCN3 inline; MINUPD and MAXUPD vectors (JMP (a)), not JMP cells; OO-1, the owner's ruling (2026-11-19): its ends by SCALXL (one past the screen), not SCALXY's truncation, and a line off the screen drawn by LINCLP (PC-BASIC's clipping)
 GENGRP.ASM HLFDE -> p5/gengrp.s HLFDE
-GWSTS.ASM LINLP3 -> p5/gengrp.s LINLP3 # the line's inner loop, after DOGRPH in P5
+GWSTS.ASM LINLP3 -> p5/gengrp.s LINLP3 # the line's inner loop, after DOGRPH in P5; LINCLP the same loop for a clipped line (OO-1)
 GENGRP.ASM BOXLIN -> p5/gengrp.s BOXLIN # in DOLINE's body: LINE ,B
 GENGRP.ASM PPRSET -> p5/gengrp.s PSETC # PRESET's way into PSET: the text pointer's POP, none here
 GENGRP.ASM SCANN -> p5/gengrp.s SCANN # in SCAND's body: SCAN1's "-" alone, the cursor

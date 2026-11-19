@@ -307,12 +307,12 @@ namespace
 // SCREEN 1's pixels against PC-BASIC's (gwbasic/gfx1): PSET and PRESET with and without an attribute (the colours'
 // low 2 bits, PC-BASIC's: 7 is 3, 6 is 2), STEP; LINE in all eight octants, steep and shallow, from either end;
 // -(x,y), -STEP, STEP(x,y)-STEP; B and BF with their corners either way, a 1-pixel box of each, the default and
-// colour 0; BF boxes off every edge; lines off every edge (shallow off the sides, steep off the top and bottom:
-// where PC-BASIC's clipping and the source's truncation agree); PSET off the screen (nothing); the frame's bank
+// colour 0; BF boxes, B boxes and lines off every edge, across a corner and wholly off the screen (PC-BASIC's
+// clipping: the owner's ruling of 2026-11-19); PSET off the screen (nothing); the frame's bank
 // boundary (tile row 12, column 32) crossed by a line and a box. And the layer as PC-BASIC's screen shows it:
 // VSCROLL 236, 20 layer lines above the 200. Guards a picture drawn in the wrong place or colour, or a line or box
-// clipped wrong. Seen failing with (a) RIGHTC's step across a tile column 4, not 32 - 3, and (b) the left pixel
-// in a byte's low 4 bits.
+// clipped wrong. Seen failing with (a) RIGHTC's step across a tile column 4, not 32 - 3, (b) the left pixel in a
+// byte's low 4 bits, and (c) SCALXL bringing an x below 0 to 0, not -1.
 TEST(screen_1_pixels_match_pc_basic)
 {
     CcpRig r;
@@ -327,7 +327,8 @@ TEST(screen_1_pixels_match_pc_basic)
 // 0, 3 is 1), and the rows past the page's first 16 KB (row 102's pair crosses it; a line along it, one across
 // rows 103-104, a box over rows 96-110 and a line down the whole screen); every row shown twice, the mono layer's
 // VSCROLL 440. Guards a row shown once (half-height lines), or the picture's bottom half in the wrong card bank.
-// Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping the next bank (the cached bank kept).
+// Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping the next bank (the cached bank kept), and (c)
+// LINCLP going on past the screen's far edge (its last run plotted off it).
 TEST(screen_2_pixels_match_pc_basic)
 {
     CcpRig r;
@@ -338,27 +339,33 @@ TEST(screen_2_pixels_match_pc_basic)
     CHECK_EQ(compare(r, "gfx2"), 0u);
 }
 
-// Where the source and PC-BASIC part (by hand, from GENGRP.ASM; a recorded deviation, 7e1 as built): a line's end off
-// the screen is truncated to its edge (SCALXY, DOGRPH's "just truncate"), so LINE (300,10)-(400,60),1,B draws its
-// right side on x 319, rows 10-60 (PC-BASIC clips that side away), and LINE (-100,0)-(100,100) runs from (0,0) as a
-// 45-degree line; and a pixel half a step off the line goes the source's way (LINLP3's sum from half the major delta,
-// stepped at it: PC-BASIC steps past it), so LINE (300,10)-(310,50) in SCREEN 2 has x 300 on rows 10 and 11 only.
-// Guards the source's line where an edge or a half step meets it. Seen failing with SCALXY leaving an x past the last
-// as it is.
-TEST(lines_off_the_screen_and_half_steps_are_the_source_s)
+// A line off the screen is clipped as PC-BASIC clips it (the owner's ruling of 2026-11-19, by hand from the rule its
+// outputs show: each end brought to one pixel past the screen at most, the line drawn and only its pixels on the
+// screen set), where the source's SCALXY would truncate it to the edge: LINE (300,10)-(400,60),1,B has no right side
+// (x 400 is x 320, off the screen) and its top ends at x 319; LINE (-100,0)-(100,100) is (-1,0)-(100,100), so x 0 is
+// on row 1, not row 0; LINE (10,-10)-(20,-20), above the screen, draws nothing. And a pixel half a step off the line
+// goes the source's way (the ruling's 2: LINLP3's sum from half the major delta, stepped at it; PC-BASIC steps past
+// it), so LINE (300,10)-(310,50) in SCREEN 2 has x 300 on rows 10 and 11 only. Guards a line where an edge or a half
+// step meets it. Seen failing with SCALXL bringing an x past the last to the last (the source's truncation).
+TEST(lines_off_the_screen_are_clipped_and_half_steps_are_the_source_s)
 {
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) >= 0);
-    enter(r, "SCREEN 1:LINE (300,10)-(400,60),1,B:LINE (-100,0)-(100,100),2", ms(1000));
+    enter(r, "SCREEN 1:LINE (300,10)-(400,60),1,B:LINE (-100,0)-(100,100),2:LINE (10,-10)-(20,-20),3", ms(1000));
     unsigned side = 0;
-    for (unsigned y = 10; y <= 60; ++y)
-        side += pixel(r, 319, y) == 1;
-    CHECK_EQ(side, 51u);
-    CHECK_EQ(pixel(r, 0, 0), 2);
-    CHECK_EQ(pixel(r, 50, 50), 2);
+    for (unsigned y = 11; y <= 59; ++y)
+        side += pixel(r, 319, y) != 0;
+    CHECK_EQ(side, 0u);
+    CHECK_EQ(pixel(r, 319, 10), 1);
+    CHECK_EQ(pixel(r, 319, 60), 1);
+    CHECK_EQ(pixel(r, 0, 0), 0);
+    CHECK_EQ(pixel(r, 0, 1), 2);
     CHECK_EQ(pixel(r, 100, 100), 2);
-    CHECK_EQ(pixel(r, 0, 50), 0);
+    unsigned top = 0;
+    for (unsigned x = 0; x < 40; ++x)
+        top += pixel(r, x, 0) != 0;
+    CHECK_EQ(top, 0u);
     enter(r, "SCREEN 2:LINE (300,10)-(310,50)", ms(1000));
     CHECK_EQ(pixel(r, 300, 10), 1);
     CHECK_EQ(pixel(r, 300, 11), 1);
