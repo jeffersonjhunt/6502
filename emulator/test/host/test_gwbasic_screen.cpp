@@ -1460,10 +1460,16 @@ TEST(the_page_is_the_active_page)
 // $8000, the offset 0, the length $0FA0, then the card's bytes, not bank 8's RAM (filled with $A5 first). CLS, then
 // BLOAD with the offset, and with none (the file's own &H8000:0): the cells and their attributes come back. BSAVE
 // of 4,096 bytes is taken at 25 rows (answer 3). A 100-byte file BLOADed over a full screen changes its 50 cells
-// alone, and so does one whose header says 4,000 with 100 bytes there (DFSTLD stops at the file's end): the rest of
-// the screen as it was. Guards a picture or form saved and loaded by a PC program not coming back, or wiping the
-// rest of the screen. Must fail: (a) BLOAD's FJSR DSPUT left out (the screen stays clear); (b) DSSRUN's DM_VREAD left
-// out (the file holds bank 8's $A5, and the short file writes them over the rest).
+// alone, and so does one whose header says 4,000 with 100 bytes there (DSPUT writes only the bytes the file gave, to
+// its last record's ^Z: review round 1, F3): the rest of the screen as it was, the record's ^Z and padding not on
+// it, as a PC's BLOAD of a short file. A BLOAD to the page forgets P6's cached row: a row printed, then the file
+// BLOADed over it, and SCREEN() reads the file's cell (F1). And a BSAVE of the page followed by a BLOAD to bank 9
+// leaves the screen alone (F2: the BSAVE's staging isn't written to the card by the next BLOAD's DSPUT). Guards a
+// picture or form saved and loaded by a PC program not coming back, or wiping the rest of the screen; a game's
+// SCREEN() test reading a cell from before its BLOAD; a BLOAD to RAM putting an old screen back. Must fail: (a)
+// BLOAD's FJSR DSPUT left out (the screen stays clear); (b) DSSRUN's DM_VREAD left out (the file holds bank 8's
+// $A5); (c) DSSRUN's SEC before FJSR SCPAGP made CLC (ZZZZZZ 65, not 90); (d) DSRUN's STZ DSSCF left out (row 0
+// OLDSCREEN); (e) DSPUT writing the whole run (cells 50-60 the record's ^Z and zeros).
 TEST(bsave_and_bload_the_screen_page)
 {
     CcpRig r;
@@ -1512,6 +1518,9 @@ TEST(bsave_and_bload_the_screen_page)
     CHECK_EQ(row_at(r, 0).substr(0, 50), std::string(50, 'H'));
     CHECK_EQ(attr(r, 0, 49), 'H');
     CHECK_EQ(rest(80), 0u); // the rows past the record's first 121 bytes
+    enter(r, "CLS:LOCATE 5,1:PRINT \"ZZZZZZ\":BSAVE \"M:Z\",0,4000:LOCATE 20,1", ms(1500));
+    enter(r, "CLS:LOCATE 5,1:PRINT \"ABCDEF\";:BLOAD \"M:Z\",0:PRINT SCREEN(5,1):LOCATE 20,1", ms(1500));
+    CHECK_EQ(line(r, 4), std::string("ZZZZZZ 90"));
 }
 
 // D7: a run on the page must lie inside it (the 7c tail's rule, the reach answer 3's): under &H8000, BLOAD of a
