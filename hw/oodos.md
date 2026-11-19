@@ -3917,8 +3917,8 @@ copy of common memory at `$F800` (above).
 | P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
 | P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL | 9.5 KB |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
-| P5 | **the video block:** the text screen driver, SCREEN, COLOR, PALETTE, LOCATE, CLS, WIDTH, the graphics statements (GENGRP, ADVGRP, DRAW), the pixel primitives, and OOLIB's `gxmem`, `gxmode` and `gxpal` linked into it | 10.7–11.5 KB |
-| P6 | the screen editor (SCNDRV, SCNEDT) and the keyboard (cooked keys and the event queue's special keys) | 5.0–6.0 KB |
+| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's | 10.7–11.5 KB; 2.3 KB at 7d1 |
+| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue | 5.0–6.0 KB; 10.7 KB at 7d1 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
 | P8 | room: whatever outgrows its block | — |
 
@@ -4447,7 +4447,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - and two measuring cases, `peek_costs_on_each_route` and `bload_of_64_kb_by_dm_load`.
     - **Expectation changes:** test_gwbasic_stmts' DEF SEG and DEF SEG=4096 give Ok (the plan's two, approved),
       with one line added after them, DEF SEG, so that the case's later USR calls still run under segment 0.
-- **7d: the screen** (P5's text part, on the seed; P6).
+- **7d: the screen** (P6; three branches, the owner's answer 1 of 2026-11-18: **7d1** the text screen, as built
+  below; **7d2** the function keys and the screen as a device: KEY and its line, the soft keys, SCRN: on the
+  screen, LCOPY; **7d3** the screen page for DEF SEG, segments `$8000–$8FFF`).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;
     - SCREEN 0, WIDTH 40 and 80, COLOR with attributes, LOCATE, CLS, CSRLIN, POS, SCREEN();
@@ -4466,6 +4468,109 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - a scroll of the whole text screen: at most 8,000.
 
     The limits are first limits, made firm from the measurement. Raising one is the owner's to allow.
+  - **As built, 7d1** (Proposed, 2026-11-18; feat/gwbasic-7d1 off main `2d8f0f40`, the 7d plan with the owner's
+    answers of 2026-11-18, "recommendations as listed", and answer 4 revised after U2's stop):
+    - **The mode** (answer 2): P5's `GXSTRT` reads CON:'s output (SCB `$24`, function 49); GW-BASIC's own screen
+      (`SCRMOD` bit 7, resident, `LOWRAM`) only when the CRT is in it and `GX_INIT` takes the card, else 7a's console
+      mode, exactly as it was. The three suites set CON:'s output to TTY alone (the 11 approved setup lines).
+    - **Start-up, screen mode:** the event area (layout 2, 256 bytes in `LOWRAM`) opened, `GX_INIT` with it (refused:
+      closed, console mode), `GX_BANK8`; 24 KB of text pages by one `GX_VALLOC`; the console mode `$0A`, so ^S and ^P
+      are GW-BASIC's too and the cooked keys' drain never stops on a ^S; then P6's `SCNIPL`: 80 × 25, the pages
+      cleared, the layer shown by P5's `TXMODE` (CONFIG text with BLINK, TILEBASE the console's font at `$000400`,
+      answer 5; 25 rows centred by VSCROLL 440, answer 10).
+    - **P6, the text screen, whole** (answer 3; the block table above): SCNDRV.ASM's driver and editor
+      (`p6/scndrv.s`), SCNEDT.ASM's INLIN (`p6/scnedt.s`), GWSTS.ASM's screen statements (`p6/gwsts.s`), the OEM's
+      text routines (`p6/oem.s`) and the keyboard (`p6/key.s`). It reaches the card only by function 83's
+      `DM_VREAD`, `DM_VWRITE` and `DM_VCOPY`, never W1, through a one-row cache: a row read on first touch, its
+      written span put back by one `DM_VWRITE` before another row, a scroll, a clear and every return from P6. The
+      cache is kept across returns (only P6 writes the text) and forgotten by a scroll, a clear and a change of page.
+    - **Output:** `OUTDO` puts the console's bytes in `TXBUF` (128, `LOWRAM`); P6's `TXRUN` takes them in one far call
+      when it is full, at `FINPRT`, at every entry of P6's, and before what reads the column or waits for a key
+      (`TXSYNC`: PRINT's commas, TAB and line ends by `PTRGPS`, POS, `POLKEY`, KEYEV's ^S pause; review round 1);
+      `TTYPOS` is P6's cursor after each. PRINT's plain
+      characters go into the cached row in a run (`FASTRN`), and SCNOUT has a fast path at its head for the same
+      case: both do what CTLDSP, CHWRAP and SCROUT do for it.
+    - **Keys** (V2, W1): the resident `EVPOLL` (NEWSTT's `CHKINT`, `POLKEY`, the editor's wait) takes the event queue
+      from its tail; a key pressed goes to P6's `KEYEV` (one far call), which queues the PC's code (a character, or 0
+      and a scan code), takes ^C as the break and ^S as the pause, and drains the cooked twin; SYSTEM drains again.
+      The repeat (answer 8): the last key, while held, 500 ms after its press and every 33 ms after. Caps Lock is
+      GW-BASIC's own, on at start-up, its light by `IN_LEDS`. ESC is the editor's line delete (CHRLDL), as the PC's.
+    - **Statements** (U4): CLS, LOCATE (the cursor's shape checked, not kept: answer 9), WIDTH n[,m] (40 or 80; 25 or
+      30), COLOR (fg 0-31, bg 0-15 shown as its 3 bits, border 0-15), SCREEN 0 with its pages (4 at 80 columns, 8 at
+      40: answer 6; vpage apage's if not given), SCREEN(, CSRLIN, POS (resident: TTYPOS + 1). In console mode each is
+      as it was (answer 7): the statements Advanced Feature, POS Illegal function call, SCREEN( and CSRLIN a formula
+      in parentheses and a variable.
+    - **Sizes** (bytes; at `2d8f0f40` → after 7d1 with review round 1's fixes, the plan's estimates in brackets):
+      free for BASIC 35,767 → 34,979 [~35,130]; resident code and tables 11,022 → 11,421 [~11,270]; fixed RAM 1,584
+      → 1,973, LOWRAM 434 [~1,972]; P1 8,439 (8,436 before the round); P2 5,716 → 5,764; P5 1,991 → 2,314, 9,974 free [~2,420]; **P6 10,679,
+      1,609 free** (the stop line 1,500) [~7,950, high ~8,500: the driver came out above the high ratio]; P8 2,855 →
+      2,940; the flat image's last byte `$91BA` → `$93A1` (the test data at `$9400`: 94 left); GWBASIC.OVL 36,608 →
+      48,000. (Before review round 1, `d5ff7780`: free 34,996, resident 11,404, P2 5,750, P6 10,596 with 1,692 free,
+      the flat image's last byte `$937F`, GWBASIC.OVL 47,744.)
+    - **Cycles** (test_gwbasic_screen, the fast build, after review round 1): `PRINT A$;` with 80 characters, no
+      scroll, **21,167** (the gate 30,000; estimated ~23,000; 21,119 before the round). A whole-window scroll,
+      MKRMNL's SCRLUP from its call to its return, **13,861** on average with the row last printed already back on
+      the card (13,914 before the round, the ticks landing elsewhere; 15,844 with it still to write back, as under
+      LIST: a write the PRINT makes anyway). **The scroll's cap is 14,000** (the owner, 2026-11-18, answer 4 revised
+      after U2 measured 15,466: SCRLUP's own bookkeeping trimmed first, then the figure rounded up to the next 500).
+      A key, EVPOLL's far call to KEYEV with the drain, 1,402 on average over 66 keys (estimated 650 and 1,000; 1,273
+      before the round, whose fixes leave a plain key's path as it was: the average moves with the ticks it meets).
+      A row's `DM_VREAD` or `DM_VWRITE`, about 2,300 each. The core loop 5,250 a pass (5,216 before 7d1) and
+      `PRINT ;` 864 (811 before 7d1, 852 before the round: FINPRT's TXSYNC call), console mode.
+    - **Future (the owner, 2026-11-18):** research into scrolling on the video card itself, a card-side copy engine
+      or a scroll that keeps 7d3's linear screen page, for a future release. The measured breakdown of a scroll: the
+      DMA's own 3,680 bytes at 2 cycles a byte, about 7,360; OODOS's `DM_VCOPY` handling round it, about 4,100 (the
+      call measures about 11,500); GW-BASIC's part about 2,400 (the blank row's fill about 900, the terminator table
+      about 500, the rest the driver's bookkeeping). OODOS is unchanged here.
+    - **Tests** (test_gwbasic_screen, new, labels gwbasic, oodos, bios, sd, backplane, video, usb; about 45 s; T1 in
+      test_gwbasic_core), each seen failing under its mutant, the source then restored:
+      - T1 `the_mode_follows_con_and_the_card`: the test made on VEC_TTY's bit;
+      - T2 `the_banner_and_ok_are_on_gw_basics_own_layer`: OUTDO's screen branch left out;
+      - T3 `keys_come_from_the_queue_once_each`: (a) POLKEY's console path left on in screen mode (each key twice), (b)
+        the queue taken from its head;
+      - T4 `system_leaves_the_ccp_line_empty`: SYSTEM's drains and KEYEV's left out (SYSTEM's alone isn't caught:
+        KEYEV drains each key);
+      - T5 `a_scroll_keeps_every_line`: SCROLL without the cached row written back first;
+      - T6 `ctrl_c_breaks_a_running_program`: KEYEV not taking Ctrl-C (it is queued);
+      - T7 `a_typed_line_is_read_back_from_the_cells`: SCNRDL starting a column right (the plan's "the keys typed,
+        not the cells" has no place to break in this build);
+      - T8 `the_editor_changes_a_listed_line_in_place`: insert's move (MVCHLN) taking its characters a column right.
+        The plan's mutant, the cache kept across a return, is how this build works; a scroll's copy leaving the cache
+        on its row isn't caught either, since the cursor's moves reload the rows they pass;
+      - T9 `a_logical_line_spans_two_rows`: CHWRAP's wrap written as EOL;
+      - T10 `inkey_gives_the_pcs_two_byte_codes` (and the repeat: A held 1 s gives 17): the navigation keys' table
+        one entry off;
+      - T11 `auto_and_edit_on_the_screen`: the preload sent to function 10 in screen mode;
+      - T12 `locate_csrlin_and_pos`: GTLINE's JBE made JB;
+      - T13 `color_and_cls`: the background put in bits 3-0;
+      - T14 `width_40_80_and_30_rows`: the stride left at 160 after WIDTH 40;
+      - T15 `screen_reads_a_cell`: SCREEN( without TXBUF run first (the cell read in the PRINT that wrote it);
+      - T16 `screen_0_pages`: the active page taken from VPAGE;
+      - T17 `print_and_scroll_are_timed`: TXRUN far called for every byte (248,551 cycles).
+    - **Review round 1** (2026-11-18, all eight findings "fix", the owner): each case seen failing on `d5ff7780`
+      (F7's, and F3's second command line, under their fixes undone), and passing with the fixes:
+      - F1 `insert_past_the_row_s_end_wraps_the_line`: MKRMCH keeps CL with CH round MVCHLN, as the source keeps CX
+        (insert typing past a row's end, at the top and on the window's last line, gave "Syntax error");
+      - F2 `output_is_shown_before_a_wait_for_a_key`: `POLKEY` (so CHSNS, INKEY$, INPUT$) and KEYEV's ^S pause run
+        TXBUF first (an overflow message unseen under INPUT$; 51 bytes of LIST unseen while paused);
+      - F3 `a_command_line_error_is_on_the_console`: CMDERR prints with SCRMOD clear and TXBUF emptied, SCRMOD put
+        back for SYSTME's drains (`/Q` and `/M:100`'s Out of memory were never shown);
+      - F4 `tab_and_comma_follow_the_cursor`: `PTRGPS` and POS run TXBUF first (`TXSYNC`), so TAB, commas and POS
+        go by P6's cursor after CHR$(11), CHR$(29) and the rest; OUTDO's own count is kept for the console;
+      - F5 `the_border_shows_in_the_bands`: P6's `BANDS` fills the 25-row layer's rows 26-30 on every page in the
+        border's colour, as the background (its 3 bits: bit 7 is BLINK), at PGINIT and when COLOR changes the
+        border. CLS needn't: the text's rows, CLS and the scroll never touch the bands;
+      - F6 `a_nul_typed_in_console_mode_is_one_inkey` (test_gwbasic_core): INKEY's two-byte path only in screen mode
+        and only if the scan code is queued;
+      - F7 `the_keyboard_s_lights_are_caps_and_num_lock`: KLEDS sets Num Lock's light with Caps Lock's;
+      - F8: these figures, measured.
+    - **Expectation changes:** none. The 11 setup lines and test_gwbasic_core's WIDTH comment, as approved.
+    - **Recorded deviations** (for the owner): ESC is the editor's line delete; the row cache is kept across returns
+      from P6 (written back at each), so T8 has its own mutant; SCNOUT's fast path and TXRUN's run (`FASTRN`) for
+      PRINT's plain characters; the console mode `$0A` in screen mode; the 24 KB of pages allocated once at start-up;
+      ^G does nothing until 7f's BEEP; WIDTH #f, WIDTH LPRINT and WIDTH "device" stay Advanced Feature (their parts
+      are P4's, 93 bytes free); MKRMCH's overflow in P6's own 8 bytes, not BUF; GW-BASIC starts with no key line
+      (7d2's).
 - **7e: graphics** (the rest of P5).
   - **What it holds:**
     - SCREEN 1 and 2, and the OO-1's own modes ([question 9](#phase-7s-questions));
@@ -4541,7 +4646,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 
 | GW-BASIC | On | Missing, or to check |
 |---|---|---|
-| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed |
+| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed |
 | COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
 | PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's |
@@ -4549,7 +4654,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |
 | ON TIMER, TIMER | `EV_MS`, polled at NEWSTT; TIMER from function 105 and the SCB's time, with the milliseconds for the fraction | — |
-| INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)) |
+| INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)). *As built (7d1):* in screen mode the keyboard queue holds the PC's codes, a character or 0 and a scan code, so INKEY$ gives the two-byte keys as they are and INPUT$ a byte at a time; in console mode unchanged |
 | ON KEY(n), KEY | the queue's `EK_KEY` events | — |
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
 | COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |

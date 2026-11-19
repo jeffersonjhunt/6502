@@ -28,7 +28,7 @@ AFLAGS      = -g -I . -I $(BUILD) -I ../include
 BLOCKS      = $(sort $(patsubst %/,%,$(dir $(wildcard p[1-8]/*.s))))
 RES_SRC     = $(wildcard res/*.s)
 RES_OBJ     = $(RES_SRC:res/%.s=$(BUILD)/res/%.o)
-INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc $(BUILD)/homent.inc
+INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc $(BUILD)/homent.inc $(wildcard p6/*.inc)
 FARMISS     = $$(awk '/\.FARMISS$$/ {print "0x" $$2; exit}' $(BUILD)/gwbasic.lbl)
 
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \
@@ -72,16 +72,18 @@ $(BUILD)/$(1)/%.o: $(1)/%.s $(INCS) | $(BUILD)/$(1)
 	ca65 $$(AFLAGS) -D BLOCK_$(1) $(if $(filter p8,$(1)),,-D NOHOME) $$< -o $$@
 $(BUILD)/$(1)_hdr.o: $(BUILD)/$(1)_hdr.s $(BUILD)/entries.inc
 	ca65 $$(AFLAGS) $$< -o $$@
-$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o) $(BUILD)/ressym.o $(BUILD)/ressym.lst $(if $(filter p8,$(1)),home.cfg,blk.cfg)
-	$$(call LD65,-C $(if $(filter p8,$(1)),home.cfg,blk.cfg) $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
+$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o) $(BUILD)/ressym.o $(BUILD)/ressym.lst $(if $(filter p8,$(1)),home.cfg,blk.cfg)
+	$$(call LD65,-C $(if $(filter p8,$(1)),home.cfg,blk.cfg) $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(wildcard $(1)/*.s)) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
 	$$(PYTHON) ../tools/rules.py $$@ --load 0xC800 --map $(BUILD)/$(1).map --code CODE --farcall $$(FARMISS) \
 	    --import $$$$(cat $(BUILD)/ressym.lst) --lbl $(BUILD)/gwbasic.lbl --inline SYNCHR
 endef
 $(foreach b,$(BLOCKS),$(eval $(call BLOCK,$(b))))
 
-# Block P5 also links OOLIB's gxmem.s (7c's tail: P5's seed, p5/seed.s), assembled as the library's own
+# Block P5 also links OOLIB's gxmem.s (7c's tail: P5's seed, p5/seed.s) and gxmode.s (7d1's TXMODE), assembled as the library's own
 # modules are (../Makefile's lib rule), its zero page gwbasic.inc's (p5/seed.s exports GXP, GXQ, GXT).
 $(BUILD)/p5/gxmem.o: ../lib/gxmem.s $(wildcard ../lib/*.inc) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
+	ca65 $(AFLAGS) -I ../lib $< -o $@
+$(BUILD)/p5/gxmode.o: ../lib/gxmode.s $(wildcard ../lib/*.inc) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py
@@ -101,9 +103,11 @@ sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 # (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). P4, the
 # files, is left out (the image has no OODOS), and so are its statements' home block stubs
 # (p8/far4.s); test/flatp4.s stands in for both. P5 (OOLIB, and DEF SEG's router: 7c's tail) is
-# left out too, test/flatp5.s standing in. ctest's
+# left out too, test/flatp5.s standing in, and P6 (the screen: 7d1),
+# test/flatp6.s. ctest's
 # test_gwbasic_math builds the runner itself and runs check.py on this image.
-FLAT_SRC    = test/harness.s test/flatp4.s test/flatp5.s $(RES_SRC) $(filter-out p4/% p5/% p8/far4.s,$(wildcard p[1-8]/*.s))
+FLAT_SRC    = test/harness.s test/flatp4.s test/flatp5.s test/flatp6.s $(RES_SRC) \
+              $(filter-out p4/% p5/% p6/% p8/far4.s,$(wildcard p[1-8]/*.s))
 FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
 EMU         = ../../emulator/components
 CHECK      ?=

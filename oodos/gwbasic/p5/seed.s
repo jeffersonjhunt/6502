@@ -4,8 +4,13 @@
 ; router: a segment is a segment). For now it holds OOLIB's gxmem.s, linked
 ; in (../lib/gxmem.s: GX_INIT, GX_BANK8, GX_BLOCK, GX_W1BACK), and:
 ;
-;   GXSTRT    start-up, from P2's GWINIT, once: GX_INIT with no event area
-;             (A/X 0), then GX_BANK8 whatever GX_INIT answered (with no
+;   GXSTRT    start-up, from P2's GWINIT, once: CON:'s output read (the
+;             SCB's $24, function 49), GX_INIT with no event area (A/X 0),
+;             and the screen chosen from the two (7d1, the owner's answer 2
+;             of 2026-11-18): GW-BASIC's own text layer (SCRMOD bit 7) only
+;             when GX_INIT took it (a revision 2 card, OODOS's interface 8 or
+;             later, with DMA) and CON:'s output includes the CRT; else 7a's
+;             console mode. Then GX_BANK8 whatever GX_INIT answered (with no
 ;             revision 2 card GX_BANK8 is a success that changes nothing,
 ;             bank 8 being RAM already: oolib.inc), then the scratch byte's
 ;             physical address (function 73)
@@ -52,9 +57,13 @@
 ;@entry GXSTRT
 ;@entry DSBYTE
 ;@entry DSRUN
-.export GXSTRT, DSBYTE, DSRUN
+;@entry TXMODE
+.export GXSTRT, DSBYTE, DSRUN, TXMODE
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
-.import FCERR, SAVSEG
+.import FCERR, SAVSEG, SCRMOD, EVAREA
+
+CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
+                                       ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
 
 .code
 
@@ -65,10 +74,34 @@
 ; the program's RAM (B7's question 5), and the scratch byte's physical
 ; address, by function 73 while this block is in W3. Their answers aren't
 ; needed: GX_BLOCK refuses whatever GX_INIT didn't allow.
-GXSTRT:         LDA     #0
+GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byte
+                LDX     #>SCBPB
+                LDY     #S_SCB
+                JSR     BDOS
+                TXA
+                AND     #CON_CRT
+                STA     DSVAL          ; (DSBYTE's, free until a PEEK)
+                BEQ     @none          ; no CRT: no event area, as 7c's tail
+                LDA     #<FTOPEN       ; 7d1: the event area (layout 2), the
+                LDX     #>FTOPEN       ; keys' source on the screen (V2)
+                LDY     #O_FRAME
+                JSR     BDOS
+                LDA     #<EVAREA
+                LDX     #>EVAREA
+                JSR     GX_INIT
+                BCC     @scr
+                LDA     #FT_CLOSE      ; refused: the area closed, the console
+                LDX     #0
+                LDY     #O_FRAME
+                JSR     BDOS
+                BRA     @con
+@none:          LDA     #0
                 TAX
                 JSR     GX_INIT
-                JSR     GX_BANK8
+                BRA     @con
+@scr:           LDA     DSVAL
+                STA     SCRMOD         ; bit 7: the CRT, so GW-BASIC's own screen
+@con:           JSR     GX_BANK8
                 LDA     #<SCRB
                 STA     DSPB
                 LDA     #>SCRB
@@ -91,7 +124,58 @@ GXSTRT:         LDA     #0
                 LDA     SCRP
                 ORA     DSPB
                 STA     SCRP
-                RTS
+; 7d1: the text pages (SCREEN 0's: 4 of 5 KB at 80 columns, 8 of 3 KB at
+; 40; the owner's answer 6), 24 KB of the program's card memory at once:
+; A/X their first card page, for P6's SCNIPL. None to be had: the console.
+                BIT     SCRMOD
+                BPL     @x
+                LDA     #<TXPAGES
+                STA     GX_V
+                LDA     #>TXPAGES
+                STA     GX_V + 1
+                LDA     #4             ; on a kilobyte (VM_UNIT)
+                JSR     GX_VALLOC
+                BCC     @x
+                STZ     SCRMOD
+@x:             RTS
+
+; --- TXMODE (7d1) -------------------------------------------------------------------------
+
+; TXMODE: P6's text page on layer 0: A/X its card page (MAPBASE), the font
+; the console's at $000400, read only (the owner's answer 5); Y: bit 7
+; BLINK, bit 6 25 rows centred (VSCROLL 440: the owner's answer 10), bits
+; 5-2 the border, bit 0 40 columns. The layer alone shown.
+TXMODE:         STA     GX_V
+                STX     GX_V + 1
+                LDA     #<(VM_FONT / VM_PAGE)
+                STA     GX_R
+                LDA     #>(VM_FONT / VM_PAGE)
+                STA     GX_R + 1
+                STY     DSVAL
+                TYA
+                AND     #$81           ; CONFIG: BLINK, and type 0 (80) or 1 (40)
+                TAX
+                LDA     #0
+                JSR     GX_LAYER
+                STZ     GX_X
+                STZ     GX_X + 1
+                STZ     GX_Y
+                STZ     GX_Y + 1
+                BIT     DSVAL
+                BVC     :+
+                LDA     #<440
+                STA     GX_Y
+                LDA     #>440
+                STA     GX_Y + 1
+:               LDA     #0
+                JSR     GX_SCROLL
+                LDA     DSVAL
+                LSR     A
+                LSR     A
+                AND     #$0F
+                JSR     GX_BORDER
+                LDA     #$02           ; layer 0
+                JMP     GX_SHOW
 
 ; --- DSBYTE -------------------------------------------------------------------------------
 
@@ -309,4 +393,8 @@ DSDIR:          .res    1              ; bit 7: a POKE
 DSCB:           .res    9              ; function 83's DM_COPY block
 DSPB:           .res    4              ; function 73's
 SCRB:           .res    1              ; the scratch byte
+.segment "RODATA"
+TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
+FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes
+SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output vector
 SCRP:           .res    3              ; and its physical address (GXSTRT)

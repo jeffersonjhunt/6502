@@ -82,6 +82,7 @@ namespace
         if (com.empty() || ovl.empty())
             return {};
         r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
         return r.to("m:gwbasic", "Ok\r\n");
     }
 

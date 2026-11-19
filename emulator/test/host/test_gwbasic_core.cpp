@@ -75,6 +75,7 @@ namespace
         if (com.empty() || ovl.empty())
             return {};
         r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
         return r.to("m:gwbasic", "Ok\r\n");
     }
 
@@ -241,6 +242,7 @@ namespace
             if (on)
                 from_load(pc, first);
         };
+        r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
         const std::string out = r.cmd("m:gwbasic");
         r.watch = nullptr;
         return out;
@@ -348,6 +350,38 @@ TEST(the_banner_has_the_heading_and_at_least_32768_bytes_free)
         std::printf("  the size gate's figure: %ld\n", g);
     CHECK_EQ(g, n);
     CHECK(got.find(std::to_string(n) + " Bytes free\r\nOk\r\n") != std::string::npos);
+}
+
+// 7d1's choice of screen (the owner's answer 2 of 2026-11-18): GW-BASIC's own text layer only when a revision 2
+// card answers GX_INIT and CON:'s output has the CRT, else 7a's console mode, exactly as it was. SCRMOD
+// (res/oem.s), read by its label once start-up is done (INITFG): bit 7 under CON: = CRT TTY on a revision 2
+// card; 0 under CON: = TTY alone (a user on the serial line, as every other case here is); 0 with a revision 1
+// card whatever CON: is. In console mode the banner and Ok come on the serial line, as ever.
+TEST(the_mode_follows_con_and_the_card)
+{
+    const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+    const std::map<std::string, uint16_t> lab = labels();
+    REQUIRE(!com.empty() && !ovl.empty() && lab.count("SCRMOD") == 1 && lab.count("INITFG") == 1);
+    // GW-BASIC started under CON: = `out` (the SCB's $25: CRT $80, TTY $40) on a card of `revision`: SCRMOD then.
+    auto mode = [&](uint8_t out, unsigned revision, bool console) -> int {
+        CcpRig r({}, {}, {}, revision);
+        CHECK(r.ok);
+        if (!r.ok)
+            return -1;
+        r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, out);
+        const size_t from = r.out.size();
+        r.type("m:gwbasic\r");
+        for (int i = 0; i < 300 && r.phys(lab.at("INITFG")) != 0xFF; ++i)
+            r.run(ms(10));
+        CHECK_EQ(r.phys(lab.at("INITFG")), 0xFF);
+        if (console)
+            CHECK(r.until("Bytes free\r\nOk\r\n", ms(3000), from));
+        return r.phys(lab.at("SCRMOD"));
+    };
+    CHECK_EQ(mode(0xC0, 2, false) & 0x80, 0x80);
+    CHECK_EQ(mode(0x40, 2, true), 0);
+    CHECK_EQ(mode(0xC0, 1, true), 0);
 }
 
 // The loader refuses a GWBASIC.OVL that isn't there or is short, with its message, and the warm boot.
@@ -587,7 +621,7 @@ TEST(errors_in_direct_mode)
     CHECK_EQ(command(r, "PRINT 1+"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "15"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "X=&H12345"), std::string("Overflow\r\n"));
-    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n")); // RENUM until 7b step c; WIDTH is 7d's
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n")); // RENUM until 7b step c; WIDTH: Advanced Feature in console mode
     CHECK_EQ(command(r, "FILES \"NOSUCH.*\""), std::string("File not found\r\n")); // FILES is 7c's
     CHECK_EQ(command(r, "PRINT CVI(\"ab\")"), std::string(" 25185 \r\n")); // CVI is 7c's: PC-BASIC's answer
 }
@@ -1003,6 +1037,29 @@ TEST(extended_statements_dispatch_from_the_home_block_s_table)
     r.type("RUN\r");
     CHECK(r.until("A>", ms(2000), from));
     CHECK(r.out.find("b", from + 5) == std::string::npos);
+}
+
+// Review round 1 (7d1), F6: in console mode INKEY$ is as it was before 7d1, a key a byte: a NUL typed (the
+// console's key 0) gives CHR$(0) alone, and the key after it, Q, is the next INKEY$'s, not taken with it. Guards
+// a NUL read as the PC's two-byte key in console mode (a 2-byte INKEY$, or the next key swallowed). Seen failing
+// with INKEY's two-byte path taken in console mode too, as 7d1 was built.
+TEST(a_nul_typed_in_console_mode_is_one_inkey)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    enter(r, {"10 A$=INKEY$:IF A$=\"\" THEN 10", "20 PRINT \"[\";LEN(A$);ASC(A$);\"]\"",
+              "30 B$=INKEY$:IF B$=\"\" THEN 30", "40 PRINT B$"});
+    const size_t from = r.out.size();
+    r.type("RUN\r");
+    r.run(ms(200));
+    for (int i = 0; i < 2000 && !r.console->key(0); ++i)
+        r.run(1000);
+    r.run(ms(5));
+    for (int i = 0; i < 2000 && !r.console->key('Q'); ++i)
+        r.run(1000);
+    CHECK(r.until("Ok\r\n", ms(2000), from));
+    CHECK_EQ(r.out.substr(from), std::string("RUN\r\n[ 1  0 ]\r\nQ\r\nOk\r\n"));
 }
 
 int main()

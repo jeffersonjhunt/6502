@@ -627,9 +627,10 @@ set(GWBASIC_DIR "${CMAKE_CURRENT_BINARY_DIR}/gwbasic")
 file(GLOB_RECURSE gwbasic_sources CONFIGURE_DEPENDS "${GWBASIC_SRC}/*.s" "${GWBASIC_SRC}/*.inc"
         "${GWBASIC_SRC}/*.cfg" "${GWBASIC_SRC}/tools/*.py")
 list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames.txt") # the ledger's check
-# Block P5 links OOLIB's gxmem.s (7c's tail), so a change to it or to the library's includes rebuilds the blocks
+# Block P5 links OOLIB's gxmem.s (7c's tail) and gxmode.s (7d1), so a change to them or to the library's includes
+# rebuilds the blocks
 file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
-list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" ${gwbasic_oolib})
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" "${OODOS_SRC}/lib/gxmode.s" ${gwbasic_oolib})
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"
@@ -666,6 +667,20 @@ emu_add_test(test_gwbasic_files)
 set_tests_properties(test_gwbasic_files PROPERTIES TIMEOUT 600)
 add_dependencies(test_gwbasic_files gwbasic oodos_sys backplane_bios)
 target_compile_definitions(test_gwbasic_files PRIVATE
+        EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
+        EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
+# test_gwbasic_screen: 7d1's own text screen (block P6), the same way, read from the video card's memory and typed
+# on the USB card.
+emu_add_test(test_gwbasic_screen)
+set_tests_properties(test_gwbasic_screen PROPERTIES TIMEOUT 600)
+add_dependencies(test_gwbasic_screen gwbasic oodos_sys backplane_bios)
+target_compile_definitions(test_gwbasic_screen PRIVATE
         EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
         EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
@@ -956,6 +971,7 @@ set(EMU_TEST_LABELS
     test_gwbasic_core           "gwbasic oodos bios sd backplane"
     test_gwbasic_stmts          "gwbasic oodos bios sd backplane"
     test_gwbasic_files          "gwbasic oodos bios sd backplane"
+    test_gwbasic_screen         "gwbasic oodos bios sd backplane video usb"
     test_gwbasic_math           "gwbasic oodos"
     test_gwbasic_programs       "gwbasic oodos"
     test_sound_driver           "emu sound bridge"

@@ -468,8 +468,8 @@ MAINA:          LDA     AUTLIN
 AUTELN:         STA     BUF,X          ; OUTDO's character, into BUF
                 STZ     BUF+1,X
                 STA     AUTFLG         ; whether there is a "*"
-                LDA     #1
-                STA     PRELOD
+                LDA     #2             ; (7d1: 2, AUTO's: on the screen the cursor stays
+                STA     PRELOD         ;   after it, where EDIT's 1 puts it at the start)
                 RTS
 
 ; AUTAST (GWMAIN.ASM 644, MAINBX's AUTO part, the project's name): A

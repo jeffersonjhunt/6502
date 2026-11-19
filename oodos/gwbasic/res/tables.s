@@ -11,7 +11,7 @@
 .export OPTAB, RELBIT, FRCTBL, DBLDSP, SNGDSP, INTDSP, FUNDSP, NUMCON
 .import FADD, FSUB, FMULT, FDIV, FCOMP, IADD, ISUB, IMULT, INTDIV, ICOMP
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
-.import SGN, VINT, VABS, FIXER, NOTSPK, FILFUN, LPOS, F_PEEK
+.import SGN, VINT, VABS, FIXER, NOTSPK, FILFUN, LPOS, F_PEEK, F_SPOS
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
 
@@ -45,7 +45,7 @@ FUNDSP:
                 .word   LEFT, RIGHT, MID ; LEFT$ RIGHT$ MID$
                 .word   SGN, VINT, VABS
                 .word   F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
-                .word   FRE, NOTSPK, NOTSPK ; FRE INP POS
+                .word   FRE, NOTSPK, F_SPOS ; FRE INP POS (res/oem.s: 7d1's, in screen mode)
                 .word   LEN, F_STR, F_VAL, ASC, CHR ; LEN STR$ VAL ASC CHR$
                 .word   F_PEEK, SPACE  ; PEEK (P1's: res/bistrs.s) SPACE$
                 .word   F_STRO, F_STRH ; OCT$ HEX$

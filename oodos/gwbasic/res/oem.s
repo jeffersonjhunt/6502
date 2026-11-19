@@ -55,8 +55,9 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
-.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR
-.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL
+.export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
+.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC
+.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
 
         OODOS_HEADER
 
@@ -87,8 +88,10 @@ OUTDO:          PHP
                 BEQ     @tolp1
                 JMP     @file
 @tolp1:         JMP     @lpt
-@con:           STA     LSTCHR         ; (SCRN:'s, p4/gioscn.s SCNOL1: W10)
-                CMP     #' '
+@con:           BIT     SCRMOD         ; screen mode: LSTCHR is P6's PUTC's
+                BMI     :+
+                STA     LSTCHR         ; (SCRN:'s, p4/gioscn.s SCNOL1: W10)
+:               CMP     #' '
                 BCC     @ctl
                 PHA
                 LDA     TTYPOS,X       ; at the width: the console wraps itself,
@@ -98,7 +101,9 @@ OUTDO:          PHP
 @col:           INC     TTYPOS,X
                 PLA
                 CMP     #$FF           ; the "not typed" mark: a column, not sent
-                BEQ     @done
+                BNE     @send          ; to the console (to the screen it is: P6's
+                BIT     SCRMOD         ; PRTMAP marks the line with it)
+                BPL     @done
                 BRA     @send
 @ctl:           CMP     #13
                 BNE     @bs
@@ -117,7 +122,9 @@ OUTDO:          PHP
                 INC     A
                 STA     TTYPOS,X
                 LDA     #9
-@send:          JSR     @out
+@send:          BIT     SCRMOD
+                BMI     @txb
+                JSR     @out
 @done:          PLY
                 PLX
                 PLA
@@ -167,6 +174,20 @@ OUTDO:          PHP
                 FJSR    FLUSHP
                 BRA     @done
 @dev:           FJSR    DEVSOT
+                JMP     @done
+; 7d1's screen mode: the byte into TXBUF, which P6 takes as a run (TXRUN,
+; one far call) when it is full, at FINPRT, and at every entry of P6's (the
+; editor's line, a break), as a file's bytes go to P4. TTYPOS has moved as
+; for the console; P6 sets it from its cursor after each run, and the column's
+; readers (PTRGPS: PRINT's commas, TAB and its line ends; POS) run TXBUF
+; first (TXSYNC), since the screen's control codes move the cursor as OUTDO
+; doesn't count.
+@txb:           LDX     TXLEN
+                STA     TXBUF,X
+                INX
+                STX     TXLEN
+                BPL     @done          ; (TXBUF is 128)
+                FJSR    TXRUN
                 JMP     @done
 @out:           PHX                    ; X: the device
                 LDY     #C_WRITE
@@ -243,7 +264,8 @@ FINLPT:         LDA     LPTPOS
                 STA     PTRFIL
                 STA     PTRFIL+1
                 JSR     CRDO
-FINPRT:         LDA     RUNLEN
+FINPRT:         JSR     TXSYNC         ; 7d1: the screen's run out first
+                LDA     RUNLEN
                 ORA     FREFDB+1
                 BNE     @far
                 LDA     NLONLY         ; loading: nothing to close
@@ -279,7 +301,11 @@ QINLIN:         LDA     #'?'
                 JSR     OUTDO
 INLIN:
 SINLIN:         CLC
-INLIN0:         ROR     F_EDPG         ; bit 7: a program line
+INLIN0:         BIT     SCRMOD         ; 7d1: on the screen, P6's editor (C kept)
+                BPL     :+
+                FJSR    SCINLN
+                RTS
+:               ROR     F_EDPG         ; bit 7: a program line
                 LDX     #0             ; X: the characters given first
                 LDA     PRELOD
                 BEQ     @queue
@@ -357,8 +383,13 @@ SCNSEM:         CMP     #';'
 
 ; --- POLKEY, CHKINT (GIOKYB.ASM 346; GWSTS.ASM 996) ---------------------------------------
 
-; CHKINT: NEWSTT's look at the keys, every POLN statements.
-CHKINT:         DEC     POLCNT
+; CHKINT: NEWSTT's look at the keys, every POLN statements; in screen
+; mode (7d1) EVPOLL's at every statement (A, X, Y and the flags not kept:
+; NEWSTT needs none).
+CHKINT:         BIT     SCRMOD
+                BPL     :+
+                JMP     EVPOLL
+:                DEC     POLCNT
                 BEQ     :+
                 RTS
 :               PHA
@@ -373,6 +404,11 @@ POLKEY:         PHP
                 PHA
                 PHX
                 PHY
+                BIT     SCRMOD         ; 7d1: the event queue, what was printed
+                BPL     GETKLP         ; on the screen first (a wait for a key
+                JSR     TXSYNC         ; may follow: INPUT$, INKEY$)
+                JSR     EVPOLL
+                BRA     POLKYX
 GETKLP:         LDY     #C_STAT
                 JSR     BDOS
                 CMP     #0
@@ -400,6 +436,7 @@ POLKYX:         PLY
                 PLP
                 RTS
 
+
 ; ITSCTC: the break. The keyboard queue emptied, both stacks and the text
 ; pointer as the statement began (SAVSTK, SAVTXT); then CNTCCN, which goes
 ; to STOP as GW-BASIC's does: "Break in 20", or in direct mode nothing.
@@ -416,8 +453,12 @@ ITSCTC:         JSR     KYBINI
                 LDA     SAVTXT+1
                 STA     TXTPTR+1
                 JSR     CNTCCN         ; (its return, popped by STOP's CONPOP)
-CNTCCN:         JSR     CRDO           ; EDTBRK: to a new line, AUTO ended
-                STZ     AUTFLG
+CNTCCN:         BIT     SCRMOD         ; EDTBRK: to a new line, AUTO ended
+                BPL     @con
+                FJSR    EDTBRK         ; (7d1: P6's, past the logical line)
+                BRA     :+
+@con:           JSR     CRDO
+:               STZ     AUTFLG
                 JSR     FINPRT
                 LDA     CURLIN         ; $FF in direct mode: STOPRG makes it 0, no message
                 AND     CURLIN+1
@@ -462,6 +503,103 @@ KYBINI:         STZ     KYBQIN         ; INITQ
                 JMP     FINPRT         ; output to the console again (W12: a
                                        ; break's new line goes to the screen)
 
+; TXSYNC (7d1): the screen's bytes waiting in TXBUF run, if any (TXRUN, one
+; far call: TTYPOS then P6's cursor). TXLEN is 0 in console mode. A, X, Y
+; and the flags used.
+TXSYNC:         LDA     TXLEN
+                BEQ     :+
+                FJSR    TXRUN
+:               RTS
+
+; EVPOLL (7d1, hw/oodos.md, "The OEM layer": V2): the event queue (layout 2,
+; EVAREA) taken from its tail, in order. A key pressed goes to P6's KEYEV,
+; one far call, which queues its code in KYBQ; a break it reports goes to
+; ITSCTC. The other events are dropped (7f takes some). The repeat (the
+; owner's answer 8): the last key KEYEV says repeats, while it is held
+; (EV_KEYS), again 500 ms after its press and every 33 ms after that, by
+; EV_MS. A, X, Y and the flags used.
+EVPOLL:         LDX     EVAREA + EV_QTAIL
+                CPX     EVAREA + EV_QHEAD
+                BNE     EVTAKE
+                LDA     RPTKEY
+                BNE     EVRPT
+                RTS
+EVTAKE:         TXA
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                INX
+                CPX     EVAREA + EV_QSLOTS
+                BCC     :+
+                LDX     #0
+:               LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
+                CMP     #EK_KEY
+                BNE     @drop
+                LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
+                BEQ     @up
+                CLC                    ; its repeat's time
+                LDA     EVAREA + EV_QUEUE + EQ_MS,Y
+                ADC     #<500
+                STA     RPTMS
+                LDA     EVAREA + EV_QUEUE + EQ_MS + 1,Y
+                ADC     #>500
+                STA     RPTMS + 1
+                LDA     EVAREA + EV_QUEUE + EQ_CODE,Y
+                PHA
+                LDA     EVAREA + EV_QUEUE + EQ_MODS,Y
+                STX     EVAREA + EV_QTAIL
+                TAX
+                PLA
+                STA     RPTKEY
+                FJSR    KEYEV
+                ASL     A              ; bit 7: the break; bit 6: it repeats
+                BCS     @brk
+                BMI     EVPOLL
+                STZ     RPTKEY
+                BRA     EVPOLL
+@up:            LDA     EVAREA + EV_QUEUE + EQ_CODE,Y
+                CMP     RPTKEY
+                BNE     @drop
+                STZ     RPTKEY
+@drop:          STX     EVAREA + EV_QTAIL
+                BRA     EVPOLL
+@brk:           STZ     RPTKEY
+                JMP     ITSCTC
+EVRPT:          LSR     A              ; still held?
+                LSR     A
+                LSR     A
+                TAX
+                LDA     RPTKEY
+                AND     #7
+                TAY
+                LDA     EVAREA + EV_KEYS,X
+                AND     BITS,Y
+                BEQ     @off
+                SEC                    ; its time come?
+                LDA     EVAREA + EV_MS
+                SBC     RPTMS
+                LDA     EVAREA + EV_MS + 1
+                SBC     RPTMS + 1
+                BMI     @x
+                CLC
+                LDA     RPTMS
+                ADC     #33
+                STA     RPTMS
+                BCC     :+
+                INC     RPTMS + 1
+:               LDA     RPTKEY
+                LDX     EVAREA + EV_MODS
+                FJSR    KEYEV
+                ASL     A
+                BCS     @brk
+@x:             RTS
+@off:           STZ     RPTKEY
+                RTS
+@brk:           STZ     RPTKEY
+                JMP     ITSCTC
+
+
 ; --- CHSNS, INKEY$ (GIOKYB.ASM 520, 817) --------------------------------------------------
 
 ; CHSNS: the keys polled, then the next from the queue: Z clear and A the
@@ -480,6 +618,25 @@ CHSNS:          JSR     POLKEY
 INKEY:          JSR     CHRGTR
                 JSR     CHSNS
                 BEQ     NULRT
+                CMP     #0             ; 7d1: 0 and a scan code, the PC's two-byte
+                BNE     INKEY1         ; key: only the screen's keyboard gives
+                BIT     SCRMOD         ; them (in console mode a 0 is one key),
+                BPL     INKEY1         ; and only if its scan code is queued
+                JSR     KYBGET         ; (else the 0 alone: A still 0)
+                BCS     INKEY1
+                PHA
+                LDA     #2
+                JSR     STRINI         ; DSCTMP: its place
+                LDA     DSCTMP+1
+                STA     RBL
+                LDA     DSCTMP+2
+                STA     RBH
+                LDA     #0
+                STA     (RBL)
+                LDY     #1
+                PLA
+                STA     (RBL),Y
+                JMP     PUTNEW
 INKEY1:         PHA
                 JSR     STRIN1
                 PLA
@@ -493,6 +650,23 @@ NULRT:          LDA     #<DSEGZ
                 STA     VALTYP
                 RTS
 
+; --- POS (GIOSCN.ASM 270) -----------------------------------------------------------------
+
+; F_SPOS: POS(x), the screen's: CSRX (TTYPOS + 1, which OUTDO keeps and P6
+; sets), 1 past the line's end. In console mode Illegal function call, as
+; before (NOTSPK).
+F_SPOS:         BIT     SCRMOD
+                BMI     :+
+                JMP     NOTSPK
+:               JSR     TXSYNC         ; P6's cursor, TXBUF run first
+                LDA     TTYPOS
+                INC     A
+                CMP     LINLEN
+                BCC     :+
+                BEQ     :+
+                LDA     #1
+:               JMP     SNGFLT
+
 ; --- SYSTEM (GIODSK.ASM 1200) -------------------------------------------------------------
 
 ; SYSTEM (nothing may follow it): back to OODOS, every file closed first
@@ -503,19 +677,24 @@ NULRT:          LDA     #<DSEGZ
 SYSTEM:         BEQ     :+
                 RTS
 :               JSR     CLSALL
-SYSTME:         LDA     OLDMOD
+SYSTME:         BIT     SCRMOD         ; 7d1: the cooked keys drained under
+                BPL     :+             ; GW-BASIC's mode first (with ^S's handling
+                JSR     DRAIN          ; off: X2), then again under the old one
+:               LDA     OLDMOD
                 LDX     OLDMOD+1
                 LDY     #C_MODE
                 JSR     BDOS
-@drain:         LDY     #C_STAT
+                JSR     DRAIN
+                JMP     WBOOT
+DRAIN:          LDY     #C_STAT
                 JSR     BDOS
                 CMP     #0
-                BEQ     @boot
+                BEQ     @x
                 LDA     #$FF
                 LDY     #C_RAWIO
                 JSR     BDOS
-                BRA     @drain
-@boot:          JMP     WBOOT
+                BRA     DRAIN
+@x:             RTS
 
 FARMISS:        LDA     #<MMISS
                 STA     PTR
@@ -525,12 +704,32 @@ FARMISS:        LDA     #<MMISS
                 JMP     WBOOT
 
 .rodata
+BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
 MMISS:          .byte   13, 10, "?far call before GW-BASIC was loaded", 13, 10, 0
 
 .segment "LOWRAM"
 KYBQ:           .res    KYBQLN         ; the keyboard queue (hw/oodos.md: in LOWRAM, for 7d's EVPOLL)
 KYBQIN:         .res    1
 KYBQOUT:        .res    1
+; 7d1: which screen GW-BASIC has (hw/oodos.md, 7d1; the owner's answer 2 of
+; 2026-11-18), chosen once at start-up by P5's GXSTRT: bit 7 its own text
+; layer (a revision 2 card answered GX_INIT and CON:'s output has the CRT),
+; else 0, 7a's console mode, exactly as it was. In LOWRAM, since P5 writes it.
+SCRMOD:         .byte   0
+.ifndef FLAT
+; 7d1's: the event area (layout 2, 256 bytes: 16 slots), which P5's GXSTRT
+; opens in screen mode (FT_OPEN, then GX_INIT with it); OUTDO's run for the
+; screen (TXBUF, TXLEN: P6's TXRUN takes it); EVPOLL's repeat. Left out of
+; the flat image, which never has the screen.
+EVAREA:         .res    256
+TXBUF:          .res    128
+.else
+EVAREA          = KBUF
+TXBUF           = KBUF
+.endif
+TXLEN:          .byte   0
+RPTKEY:         .byte   0              ; the key repeating, 0 none
+RPTMS:          .res    2              ; when (EV_MS's low word)
 
 .segment "RAM"
 ; 7c's: OUTDO's run for PTRFIL's file (above); FILOPN, the files open,

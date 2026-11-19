@@ -26,7 +26,7 @@
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
-.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG
+.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD, TXLEN
 
 .code
 
@@ -67,6 +67,24 @@ GWINIT:
                 STZ     SAVSEG
                 STZ     SAVSEG+1
                 FJSR    GXSTRT
+; 7d1: in screen mode (SCRMOD, GXSTRT's choice) ^S and ^P are GW-BASIC's too,
+; so the console mode gets bit 1 as well ($0A: the Programmer's Guide,
+; chapter 8), and the cooked keys' drain (function 11) never stops on a ^S;
+; then SCNIPL's start-up, P6's: the screen cleared, the cursor home, the
+; layer shown, before the banner. A/X: the text pages, GXSTRT's.
+                BIT     SCRMOD
+                BPL     NOSCRN
+                STA     RDL
+                STX     RDH
+                LDA     OLDMOD
+                ORA     #$0A
+                LDX     OLDMOD+1
+                LDY     #C_MODE
+                JSR     BDOS
+                LDA     RDL
+                LDX     RDH
+                FJSR    SCNIPL
+NOSCRN:
 ; CPMVR1's (GWINIT.ASM 158): no CHAIN, no MERGE under way.
                 STZ     CHNFLG
                 STZ     MRGFLG
@@ -318,8 +336,14 @@ PRNTND:         LDA     #$FF           ; errors are BASIC's from now on
 ERRORJ:         JMP     ERROR
 
 ; CMDERR (GWINIT.ASM 445): an error before start-up was done: the heading,
-; the command line blamed, and back to OODOS.
-CMDERR:         LDA     #<HEDING
+; the command line blamed, and back to OODOS. 7d1: to the console even in
+; screen mode (the warm boot shows it again; TXBUF would never be run), so
+; SCRMOD is clear while it prints, and put back for SYSTME's drains.
+CMDERR:         LDA     SCRMOD
+                PHA
+                STZ     SCRMOD
+                STZ     TXLEN
+                LDA     #<HEDING
                 STA     PTR
                 LDA     #>HEDING
                 STA     PTR+1
@@ -329,6 +353,8 @@ CMDERR:         LDA     #<HEDING
                 LDA     #>CERMSG
                 STA     PTR+1
                 JSR     STROUT
+                PLA
+                STA     SCRMOD
                 JMP     SYSTME
 
 .rodata
