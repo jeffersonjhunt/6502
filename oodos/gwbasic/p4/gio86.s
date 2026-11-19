@@ -639,9 +639,10 @@ INCHRI:         JSR     CHSNS
 ; screen page, OODOS's memory, past $FFFFF), so a BSAVE so refused writes no
 ; file (the owner's answer 2). A run on the screen page (7d3) DSRUN stages
 ; in bank 8's RAM, so no byte here changes for it. X bit 7 set if the name
-; had a type, else NAMBAS gives it .BAS; a device is Bad file mode (OO-1, the owner's answer 3: disk files only).
-; The file is BSVFID ($FD), the segment, the offset and the length, each a
-; word low byte first (BHDR), then the bytes.
+; had a type, else NAMBAS gives it .BAS; a device is Bad file mode (OO-1,
+; the owner's answer 3: disk files only). The file is BSVFID ($FD), the
+; segment, the offset and the length, each a word low byte first (BHDR),
+; then the bytes.
 ;
 ; BSAVEP: RDL-RAH the header (DX the segment, BX the offset, AX the length),
 ; RSI-RDI's first byte the run's 20-bit start. The run is copied into file
