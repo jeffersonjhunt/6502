@@ -30,8 +30,6 @@
 ; GXP, gxmem's pointer, which only p5/seed.s exports to it)
 .import GX_W1BACK
 
-;@entry GRPRST
-;@entry GRPINI
 .export GRPRST, GRPINI
 
 ; Push and pull a word of zero page.

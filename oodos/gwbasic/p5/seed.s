@@ -91,6 +91,14 @@
 ;@entry DSRUN
 ;@entry TXMODE
 ;@entry DSPUT
+; 7e1's entries (p5/gfx.s, p5/gengrp.s) after the seed's, so these keep
+; their places in the jump table and the blocks that call them are as they
+; were (gwgen.py numbers the entries by file, then by line).
+;@entry GMODE
+;@entry GCOLOR
+;@entry GCLS
+;@entry GRPRST
+;@entry GRPINI
 .export GXSTRT, DSBYTE, DSRUN, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA

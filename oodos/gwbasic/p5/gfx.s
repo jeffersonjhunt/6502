@@ -43,9 +43,6 @@
 .import GX_VALLOC, GX_VADDR, GX_VFILL, GX_VCOPY, GX_VPUT, GX_LAYER, GX_SCROLL, GX_PALOFS
 .import GX_PALBASE, GX_V, GX_R, GX_X, GX_Y, GX_A, GX_C
 
-;@entry GMODE
-;@entry GCOLOR
-;@entry GCLS
 .export GMODE, GCOLOR, GCLS
 .import BUF
 
