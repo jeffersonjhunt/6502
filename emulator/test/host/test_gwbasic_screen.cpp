@@ -454,6 +454,7 @@ TEST(inkey_gives_the_pcs_two_byte_codes)
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"\""); // 7d2: F1's soft key empty, so it gives the PC's code (a PC program does the same)
     enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
     enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1)):GOTO 10");
     keys(r, "RUN\r");
@@ -849,6 +850,100 @@ TEST(the_key_line_follows_pages_and_width)
     enter(r, "CLS:LOCATE 29,1:PRINT \"ROW29\";:LOCATE 5,1", ms(300));
     CHECK_EQ(line(r, 28), std::string("ROW29"));
     CHECK_EQ(line(r, 29), KEYLINE);
+}
+
+// The soft keys (GIOKYB.ASM's CHKFKY and GETFKY; 7d2, the owner's answers 2 and 3): at Ok, F1 types its text, LIST,
+// with no CR, and Enter lists; F2's RUN and its CR run the program; in a program INKEY$ gives F1's text a byte a call.
+// A text the queue hasn't room for is dropped whole: with 20 keys waiting, F10's 13 bytes don't fit the 11 left, so
+// the program reads the 20 alone. Guards function keys doing nothing, or another key's text. Seen failing with (a) the
+// soft key's place one key on (F1 giving F2's text) and (b) the text queued without the room check (the 11 that fit
+// queued, the rest lost).
+TEST(a_function_key_types_its_text)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 PRINT \"RAN\"");
+    enter(r, "CLS", ms(300));
+    press(r, K_F1);
+    r.run(ms(200));
+    CHECK_EQ(line(r, 1), std::string("LIST"));
+    keys(r, "\r");
+    r.run(ms(400));
+    CHECK_EQ(line(r, 2), std::string("10 PRINT \"RAN\""));
+    press(r, K_F1 + 1);
+    r.run(ms(600));
+    CHECK(last_row(r, "RAN") > 2);
+    CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "RAN")) - 1), std::string("RUN"));
+    enter(r, "NEW");
+    enter(r, "10 K$=\"\":FOR I=1 TO 300:K$=K$+INKEY$:IF LEN(K$)=4 THEN 20");
+    enter(r, "15 NEXT");
+    enter(r, "20 PRINT CHR$(91);K$;CHR$(93)");
+    enter(r, "CLS:RUN", ms(100));
+    press(r, K_F1);
+    CHECK(until_row(r, "]") >= 0);
+    CHECK_EQ(line(r, 0), std::string("[LIST]"));
+    enter(r, "NEW");
+    enter(r, "10 FOR I=1 TO 5000:NEXT:PRINT CHR$(91);");
+    enter(r, "20 K$=\"\":FOR I=1 TO 40:K$=K$+INKEY$:NEXT:PRINT LEN(K$);K$;CHR$(93)");
+    enter(r, "CLS:RUN", ms(50));
+    keys(r, "ABCDEFGHIJKLMNOPQRST");
+    press(r, K_F1 + 9);
+    CHECK_EQ(line(r, 0), std::string()); // the program still waits
+    CHECK(until_row(r, "]", ms(20000)) >= 0);
+    CHECK_EQ(line(r, 0), std::string("[ 20 ABCDEFGHIJKLMNOPQRST]"));
+}
+
+// An empty soft key gives the PC's two-byte code (CHKFKY's: no text, no expansion): after KEY 1,"" INKEY$ reads F1
+// as CHR$(0)+";" (59), and KEY 1 set again types its text. Guards games that read F1 by INKEY$ broken. Seen failing
+// with the empty text's test left out (nothing queued).
+TEST(an_empty_soft_key_gives_the_pc_code)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"\"");
+    enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
+    enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1))");
+    enter(r, "CLS:RUN", ms(200));
+    press(r, K_F1);
+    CHECK(until_row(r, "[") >= 0);
+    CHECK_EQ(line(r, 0), std::string("[ 2  0  59"));
+    enter(r, "KEY 1,\"OK1\":CLS", ms(300));
+    press(r, K_F1);
+    r.run(ms(200));
+    CHECK_EQ(line(r, 1), std::string("OK1"));
+}
+
+// Shifted function keys have no soft text (CHKFKY takes 59-68 alone): Shift-F1 gives CHR$(0)+CHR$(84), Ctrl-F1 94,
+// Alt-F1 104, as 7d1 gives them, while F1 types LIST. Guards a shifted key typing the plain key's text. Seen failing
+// with the expansion taken on the key's usage, not its scan code's range (every F1 expanded).
+TEST(shifted_function_keys_aren_t_expanded)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "10 A$=INKEY$:IF A$=\"\" THEN 10");
+    enter(r, "20 PRINT CHR$(91);LEN(A$);ASC(A$);ASC(RIGHT$(A$,1)):GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    constexpr uint8_t ALT = 0xE2;
+    const std::vector<std::pair<uint8_t, std::string>> want = {
+        {SHIFT, "[ 2  0  84"}, {CTRL, "[ 2  0  94"}, {ALT, "[ 2  0  104"}};
+    for (const auto &[mod, text] : want)
+    {
+        press(r, K_F1, mod);
+        r.run(ms(150));
+        CHECK_EQ(line(r, static_cast<unsigned>(last_row(r, "[ "))), text);
+    }
+    press(r, K_F1); // LIST, a byte an INKEY$
+    r.run(ms(300));
+    const int last = last_row(r, "[ ");
+    REQUIRE(last >= 3);
+    CHECK_EQ(line(r, static_cast<unsigned>(last - 3)), std::string("[ 1  76  76"));
+    CHECK_EQ(line(r, static_cast<unsigned>(last)), std::string("[ 1  84  84"));
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
 }
 
 // SCREEN( reads a cell: PRINT "Q"; then SCREEN(r,c) is 81 and SCREEN(r,c,1) the attribute, in one statement.

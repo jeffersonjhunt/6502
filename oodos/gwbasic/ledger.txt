@@ -933,9 +933,9 @@ GIOKYB.ASM STCTYP -> p6/oem.s STCTYP # screen mode; the shape isn't kept (the ow
 GIOKYB.ASM SETCSR -> p6/oem.s SETCSR
 GIOKYB.ASM KEYIN -> OEM p6/key.s KEYIN # the PC's keys (0 and a scan code) to the editor's functions; IGNNFK's null keys passed over
 GIOKYB.ASM TRPCHK -> later 7f: the cursor keys' ON KEY traps
-GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys' expansion later 7d
+GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys expanded as they are queued, P6's KEYEV (7d2, the owner's answer 2)
 GIOKYB.ASM CKDBLK -> OEM res/oem.s INKEY # the queue's lead byte 0: the PC's two-byte key (screen mode)
-GIOKYB.ASM CHKFKY -> later 7d: a function key's text
+GIOKYB.ASM CHKFKY -> OEM p6/key.s KEYEV # an unshifted F1-F10 (59-68) with a text queues it whole, or nothing if it doesn't fit; SUPRKY's keywords (Alt and a letter) not built (the owner's answer 4): Alt and a letter keeps 0 and its scan code
 GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
 GWSTS.ASM KEYSTT -> later 7f: KEY(n) ON, OFF, STOP (Advanced Feature until ON KEY's traps: the owner's answer 5)
 GWSTS.ASM POLPEN -> later 7f: the light pen's trap
@@ -952,8 +952,10 @@ GIO86.ASM CLSFIL -> p4/gio86.s CLSFIL
 GIO86.ASM LFTQ -> OEM res/oem.s PKQUE # the keyboard queue's room
 GIO86.ASM PUTQ -> OEM res/oem.s PKQUE
 GIO86.ASM INITQ -> OEM res/oem.s KYBINI
-GIO86.ASM PDCBAX -> later 7d: the soft keys' state at KYBINI
-GIOKYB.ASM GETFKY -> later 7d: a function key's next character
+GIO86.ASM PDCBAX -> dropped: no expansion under way to forget (the text is queued whole, KEYEV)
+GIOKYB.ASM GETFKY -> OEM p6/key.s KEYEV # the text's characters queued at once, not a byte a read (CMDOFF not kept)
+GIOKYB.ASM GTSFKY -> dropped: GETFKY's next character from CMDOFF (the text is queued whole)
+GIOKYB.ASM EOKTST -> dropped: GETFKY's end of the text (the text is queued whole)
 GIO86.ASM GETQ -> OEM res/oem.s KYBGET
 GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
 GIO86.ASM SIDSP -> p4/gio86.s SIDSP # TBLDSP in it: DVPTR's entry (p4/giotbl.s), 0 Device unavailable
