@@ -22,7 +22,8 @@
 ;             its 20-bit start returned; a run on the screen page staged
 ;             in bank 8's RAM (7d3)
 ;   DSPUT     after BLOAD's BLDRUN (p8/far4.s): a run DSRUN staged for the
-;             screen page, from bank 8's RAM to the card (7d3)
+;             screen page, from bank 8's RAM to the card, as far as the
+;             file gave bytes (7d3)
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
 ; 8088's does. DSBYTE's routes:
@@ -61,8 +62,9 @@
 ; RAM at its own address, $80000 + its offset (GW-BASIC's after GX_BANK8,
 ; B7's question 1): DSSRUN copies the page's bytes there by DM_VREAD, P4's
 ; BSAVEP saves them from there and P4's BLDRUN loads the file over them, and
-; DSPUT then writes the run to the card by DM_VWRITE (so a file shorter than
-; its header leaves the rest as it was). P4 is unchanged: its DM_COPY and
+; DSPUT then writes to the card by DM_VWRITE the bytes the file gave (a
+; file shorter than its header: those before its last record's ^Z), so the
+; rest stays as it was, as a PC's BLOAD. P4 is unchanged: its DM_COPY and
 ; DM_LOAD reach only GW-BASIC's RAM, and the card only function 83's port
 ; operations. Refused, Illegal function call: in console mode, where
 ; GX_BANK8 refused (bank 8 isn't RAM: a revision 1 bridge, a BIOS before
@@ -85,6 +87,7 @@
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA
 
+ASCCTZ          = 26                   ; ^Z (DSPUT: a file's end)
 CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
                                        ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
 
@@ -343,15 +346,6 @@ DSVX:           STA     DSCB
                 JSR     DSSWAP
                 BRA     DSGO
 
-; DSPUT (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
-; its bytes, staged in bank 8's RAM, to the card (DSVC, DSPH and DSVL as
-; DSSRUN left them: nothing between calls DSBYTE).
-DSPUT:          LDA     DSSCF
-                BEQ     DSRET
-                STZ     DSSCF
-                LDA     #DM_VWRITE
-                BRA     DSVX
-
 ; DSSWAP: DSCB's source and destination swapped.
 DSSWAP:         LDX     #2
 @b:             LDA     DSCB+1,X
@@ -525,6 +519,81 @@ DSSRUN:         BIT     SCRMOD
                 DEC     DSSCF
                 RTS
 @fc:            JMP     FCERR
+
+; DSPUT (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
+; the bytes the file gave, staged in bank 8's RAM, to the card (DSVC, DSPH
+; and DSVL as DSSRUN left them: nothing between calls DSBYTE). Only those
+; (review round 1, F3: a PC's BLOAD of a short file leaves the rest of the
+; screen as it was): the run less the CX that BLDRUN's DFSTLD left (it
+; counts CX down by the bytes it reads, and FINPRT's close keeps AX-DX);
+; and if the file ended first, its last record's bytes only to its first
+; ^Z, the file's end as APPFIN finds it (CP/M's files are whole records:
+; the rest of the record is DSKCLS's ^Z and whatever the buffer held).
+DSPUT:          LDA     DSSCF
+                BNE     :+
+                RTS                    ; no run staged
+:               STZ     DSSCF
+                SEC                    ; DSVL: the bytes read, the run less CX
+                LDA     DSVL
+                SBC     RCL
+                STA     DSVL
+                LDA     DSVL+1
+                SBC     RCH
+                STA     DSVL+1
+                LDA     RCL
+                ORA     RCH
+                BEQ     DSPW           ; the whole run read
+                SEC                    ; the file ended: its last record, DSVL - 128 on (or 0)
+                LDA     DSVL
+                SBC     #128
+                TAX
+                LDA     DSVL+1
+                SBC     #0
+                BCS     :+
+                LDA     #0
+                TAX
+:               STX     DSE            ; DSE (DSRUN's, free now): the run's byte looked at
+                STA     DSE+1
+@z:             LDA     DSE            ; past the bytes read: no ^Z
+                CMP     DSVL
+                LDA     DSE+1
+                SBC     DSVL+1
+                BCS     DSPW
+                CLC                    ; its staged byte to the scratch byte (DM_COPY)
+                LDA     DSPH
+                ADC     DSE
+                STA     DSCB+1
+                LDA     DSPH+1
+                ADC     DSE+1
+                STA     DSCB+2
+                LDA     DSPH+2
+                ADC     #0
+                STA     DSCB+3
+                LDX     #2
+@s:             LDA     SCRP,X
+                STA     DSCB+4,X
+                DEX
+                BPL     @s
+                JSR     DSCALL
+                CMP     #$FF
+                BEQ     DSPW           ; (refused: none, the bytes read kept)
+                LDA     SCRB
+                CMP     #ASCCTZ
+                BEQ     @end
+                INC     DSE
+                BNE     @z
+                INC     DSE+1
+                BRA     @z
+@end:           LDA     DSE            ; the ^Z: the file's end
+                STA     DSVL
+                LDA     DSE+1
+                STA     DSVL+1
+DSPW:           LDA     DSVL           ; none: nothing written
+                ORA     DSVL+1
+                BEQ     @x
+                LDA     #DM_VWRITE
+                JMP     DSVX
+@x:             RTS
 
 .segment "BRAM"
 .assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"

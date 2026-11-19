@@ -1517,7 +1517,9 @@ TEST(bsave_and_bload_the_screen_page)
     enter(r, fill + "BLOAD \"M:H\",0:LOCATE 23,1", ms(1500));
     CHECK_EQ(row_at(r, 0).substr(0, 50), std::string(50, 'H'));
     CHECK_EQ(attr(r, 0, 49), 'H');
-    CHECK_EQ(rest(80), 0u); // the rows past the record's first 121 bytes
+    CHECK_EQ(rest(50), 0u);
+    if (rest(50))
+        std::printf("  row 0: %s\n", row_at(r, 0).c_str());
     enter(r, "CLS:LOCATE 5,1:PRINT \"ZZZZZZ\":BSAVE \"M:Z\",0,4000:LOCATE 20,1", ms(1500));
     enter(r, "CLS:LOCATE 5,1:PRINT \"ABCDEF\";:BLOAD \"M:Z\",0:PRINT SCREEN(5,1):LOCATE 20,1", ms(1500));
     CHECK_EQ(line(r, 4), std::string("ZZZZZZ 90"));
