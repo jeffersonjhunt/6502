@@ -345,13 +345,14 @@ oracle's, so test_gwbasic_files checks their bytes by hand from the source; only
 7e1's graphics (test_gwbasic_gfx): each program draws on SCREEN 1 or 2, and its lines from 9000 dump the screen in
 PC-BASIC by GET, as hex rows (GET's bytes, 80 a row, 2 bits a pixel in SCREEN 1, 1 in SCREEN 2), the screen first
 turned back to SCREEN 0 so nothing printed lands on the picture. The suite puts each program on M: with those lines
-cut, runs it on the OO-1 and reads the same rows from the card through layer 0's registers. Lines with an end off the
-screen, and lines whose major delta is even with a half-step pixel, are left out: there the source (truncation, and
-its sum's rounding) and PC-BASIC (clipping) part, and the suite checks the source's by hand (7e1 as built).
+cut, runs it on the OO-1 and reads the same rows from the card through layer 0's registers. Lines with a half-step
+pixel (an even major delta, the clipped part's for a line off the screen) are left out: there the source's rounding,
+which 7e1 keeps (the owner's ruling), and PC-BASIC's part, and the suite checks the source's by hand. Lines off the
+screen are clipped as PC-BASIC clips them (the owner's ruling, 7e1's U6), so they are compared.
 
 | Program | What |
 |---|---|
-| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes, STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes, BF off every edge; PSET off the screen; the frame's bank boundary |
+| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes, STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes; lines and B and BF boxes off every edge, across a corner and wholly off; PSET off the screen; the frame's bank boundary |
 | `gfx2` | the same in SCREEN 2, and rows past its first 16 KB bank (a pair across it) |
 | `gfx3` | by hand: an array across `$4000-$7FFF` read back after each graphics statement (block 1 in W1) |
 | `gfx7` | POINT: both pixels of a SCREEN 1 byte, SCREEN 2's bits, -1 off every edge, the cursor kept across it |

@@ -4824,7 +4824,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     meaning, VIEW, WINDOW, PMAP, PALETTE, LINE's style, PAINT's tiles, PEN; 7e5 the OO-1's modes 10-12. The scroll's
     gate (answer 2) is the scroll less the interrupt handlers' cycles inside it.
   - **As built, 7e1** (Proposed, 2026-11-19; feat/gwbasic-7e1 off main `f61aca17`, the 7e plan with the owner's
-    answers; units U1 `63058bf1` and `d6708179`, U2 `cda2406c`, U3 `096e7613`, U4 `a4b3dce7`, U5 this record):
+    answers; units U1 `63058bf1` and `d6708179`, U2 `cda2406c`, U3 `096e7613`, U4 `a4b3dce7`, U5 `d0cea684`, and after
+    the owner's rulings on its report (2026-11-19) U6 `0ec7494f`, the clipping, with this record):
     - **The modes** (U1, `p5/gfx.s`, the OEM's): P6's SCRSTT takes SCREEN 0-2 (3-9 and past Illegal function call;
       a graphics mode's page 0 only, CGA's; the same mode again changes nothing, as PC-BASIC) and far calls P5's
       `GMODE`. SCREEN 1 is layer 0 type 2 (CONFIG `$22`: 4-bit 8 x 8 tiles, the map 64 wide), a frame of tiles 0-999
@@ -4851,6 +4852,18 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       at MAPXYC and again only when the cursor crosses a 16 KB bank, and SETC writes SCREEN 2's twin row, in the next
       bank when the pair straddles one. Each statement puts block 1 back (`GX_W1BACK`) before it returns; nothing
       after MAPXYC can end in an error, and nothing between calls resident code or the BDOS.
+    - **Clipping** (U6, the owner's ruling 1 on the report, 2026-11-19: **a departure from the source**, whose SCALXY
+      truncates a line's end to the screen's edge, at the owner's word): a line with an end off the screen is
+      clipped as PC-BASIC clips it. The rule, found from PC-BASIC's outputs alone (its code never read): each end is
+      brought to one pixel past the screen at most, x to -1 or the last + 1 and y to -1 or 200 (`SCALXL`), the line
+      drawn between them by LINLP3's own sum and steps, and only its pixels on the screen set (`LINCLP`: the point
+      followed, the cursor mapped at the first pixel on the screen, the line left at the first off it after). 171
+      probe lines agree pixel for pixel (145 with an end past each edge, across the corners and wholly off, and the
+      first probes' 26); the clamp to the edge itself, the source's, agreed with 8 of the 145. So a line keeps the
+      course of its clamped ends (not the slope of the ends as given: PC-BASIC's own clipping moves the end that
+      far), a B box's side past an edge isn't drawn, and a line wholly off the screen draws nothing. XDELT and YDELT
+      take the greater by the difference's sign, since an end may be -1. PSET, POINT and BF keep SCALXY (a BF's
+      truncated corners fill exactly what a clip would).
     - **The statements** (U3, `p5/gengrp.s`, GENGRP.ASM translated, with GWSTS.ASM's LINLP3): SCAN1, SCAND, PSET,
       PRESET, POINT, ATRSCN and ATRENT, the deltas and exchanges, GLINE with DOBOXF and BOXLOP, DOLINE and BOXLIN,
       DOGRPH, HLFDE, GRPRST, GRPINI. What the 8086 pushes across a formula goes on the 6502's stack, so a POINT in a
@@ -4863,6 +4876,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       **34,792** [~34,800; the stop line 34,768]; the resident core 11,421 → 11,448 (+27: CLEARC's call 11, POINT's
       branch 16) [~+20], fixed RAM 2,133 (LOWRAM 434) unchanged; GWBASIC.COM 14,887 → 14,918; **P5 2,719 → 5,530,
       6,758 free** [~5,600, ~6,650; the stop line 6,000] (gfx 1.0 KB, gfxoem 0.9 KB, gengrp 0.8 KB with their RAM);
+      **after U6 5,944, 6,344 free** (SCALXL and LINCLP, 414);
       **P6 11,412 → 11,647, 641 free** [~11,560; the line 600]; P8 3,161 → 3,210 [~3,220]; P4 12,223 (65 free); P1 8,439,
       P2 5,782, P3 4,985; GWBASIC.OVL 49,280 → 52,352; the flat image's last byte `$9509` → `$9540` (test/flatp5.s's
       stand-ins and `p8/far5.s`). **P1-P4's sources are unchanged, but their images are not byte-identical to
@@ -4871,7 +4885,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       as an immediate). U1 and U2's builds were byte-identical, resident and P1-P4.
     - **Cycles** (the fast build; timed()'s method): `PSET (X%,Y%),1` in SCREEN 2 **2,027** a statement (the gate
       9,000; estimated 3,500-4,000); `LINE (0,0)-(639,199),1` **132,571** (the gate 200,000; estimated 105,000-
-      135,000); for the record, a 7 x 7 BF in SCREEN 1 (LIFEGFX's box, the statement whole) 7,344, `LINE
+      135,000; after U6 131,974: a line on the screen takes LINLP3 as before); for the record, a 7 x 7 BF in SCREEN 1 (LIFEGFX's box, the statement whole) 7,344, `LINE
       (0,0)-(319,199)` in SCREEN 1 68,604, CLS in SCREEN 1 62,484 and in SCREEN 2 64,437. T17: `PRINT A$;` with 80
       characters **21,197** (21,084 on main: P6's code moved by 7e1's routing, the run's loop's branches); the
       whole-window scroll **13,305** without the interrupt handlers inside it (the cap 14,000, answer 2; 13,301 on
@@ -4882,10 +4896,12 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       shard; G11 in test_gwbasic_core), each seen failing under its mutant, run on its own case, the source then
       restored:
       - G1 `screen_1_pixels_match_pc_basic` (gwbasic/gfx1 against PC-BASIC's dump, read through layer 0's map and
-        tiles): (a) RIGHTC's step to the next tile column 1, not 29 (200 rows differ); (b) the left pixel in a byte's
-        low 4 bits (200);
-      - G2 `screen_2_pixels_match_pc_basic` (gfx2): (a) SETC writing row 2y only (200 rows, the pair unequal);
-        (b) a move past a bank not mapping it, the cached bank kept (194);
+        tiles; from U6 with lines and B and BF boxes off every edge again, the approved change): (a) RIGHTC's step to
+        the next tile column 1, not 29 (200 rows differ); (b) the left pixel in a byte's low 4 bits (200); (c, U6)
+        SCALXL bringing an x below 0 to 0, not -1 (80);
+      - G2 `screen_2_pixels_match_pc_basic` (gfx2, the same): (a) SETC writing row 2y only (200 rows, the pair
+        unequal); (b) a move past a bank not mapping it, the cached bank kept (195); (c, U6) LONSCR taking an x past
+        the last as on the screen (48);
       - G3 `block_1_is_back_after_every_graphics_statement` (gfx3, an array across `$4000-$7FFF`): DOLINE without
         `GX_W1BACK` (6,667 elements read wrong);
       - G4 `text_is_over_the_graphics`: (a) VSHOW without the overlay bit (CTRL 3, the text on layer 0); (b) the
@@ -4899,24 +4915,22 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - G10 `graphics_are_timed`: SETC mapping the bank (`NEWBNK`, so `GX_VMAP`) for every pixel (the LINE 295,896);
       - G11 `graphics_are_advanced_feature_in_console_mode` (test_gwbasic_core): PSET's stub without its `SCRMOD`
         test (Illegal function call, P5 reached);
-      - and, by hand, `lines_off_the_screen_and_half_steps_are_the_source_s`: SCALXY leaving an x past the last as it
-        is (the B box's side 2 pixels of 51).
+      - and, by hand, `lines_off_the_screen_are_clipped_and_half_steps_are_the_source_s` (U6's, the approved
+        change: until U6 `lines_off_the_screen_and_half_steps_are_the_source_s`, the truncation, seen failing with
+        SCALXY leaving an x past the last as it is): SCALXL bringing an x past the last to the last, the source's
+        truncation (the B box's side drawn, 49 pixels). The U1-U5 mutants were seen failing on U5's build; U6's on
+        U6's (G1 and G2's (a) and (b) again too).
     - **Expectation changes** (the owner's approved two): `test_gwbasic_screen.cpp:1027` SCREEN 3, not SCREEN 1, the
       refused mode; T17 gated on the scroll less the interrupt handlers' cycles, both printed. No expected output
       changed. T17's own mutant (TXRUN for every byte) wasn't run again under the new method.
     - **Recorded deviations** (for the owner):
-      - **A line with an end off the screen is truncated there** (the source's SCALXY, DOGRPH's "just truncate"):
-        PC-BASIC clips it instead. They agree for BF boxes and for shallow lines off the sides and steep ones off
-        the top and bottom only where the clipped end lands where the truncated one does, not in general: a B box
-        with a side past the edge draws that side on the edge here (PC-BASIC leaves it out), and a line past the
-        edge keeps the slope of its truncated ends. G1 and G2 leave such lines out; the by-hand case holds the
-        source's. *A decision for the owner:* the source's, as built, or PC-BASIC's clipping, written from its
-        meaning (its exact intersection rounding isn't the obvious one: the plan's probes found it moves the
-        clipped end by about one step of the line, not to the edge's intersection).
+      - **A line with an end off the screen is clipped as PC-BASIC clips it** (U6, above): the owner's ruling 1, a
+        departure from the source's truncation. (Until U6 it was truncated, PC-BASIC's pixels differing.)
       - **A half-step pixel goes the source's way:** LINLP3 starts its sum at half the major delta and steps the
         minor axis at it (JB), so with an even major delta a pixel exactly half a step off the line goes toward the
         line's far end; PC-BASIC's goes toward its start (`LINE (300,10)-(310,50)`: x 300 on rows 10-11 here, 10-12
-        there). Odd major deltas, and lines with a minor delta of 0 or the major's, agree; G1 and G2 use those.
+        there). Odd major deltas, and lines with a minor delta of 0 or the major's, agree; G1 and G2 use those (a
+        clipped line's deltas its clamped ends'). Kept, the owner's ruling 2.
       - An attribute past the mode's last colour is that colour (PC-BASIC's: SETATR is the OEM's); `POINT` in
         SCREEN 0 Illegal function call (PC-BASIC's; the source's POINT doesn't ask PIXSIZ); `PSET @(x,y)` and
         `POINT(STEP(...))`, which the source's SCAN1 and SCAND take, PC-BASIC refuses (not tested).
@@ -4928,7 +4942,10 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       PMAP, PALETTE, LINE's style, PEN (7e4); the OO-1's modes (7e5); the books (7g). **The recount** (answer 8): P5
       took 2,811 bytes for an estimate of 2,900 (2,400-3,400), a ratio near the plan's; 6,758 free against 7e2-7e5's
       ~7,300 at the point estimate less the relief's ~2 KB: the relief (DRAW and MACLNG to P3) is still to be decided
-      at 7e2's plan.
+      at 7e2's plan (6,344 free after U6's clipping).
+    - **The owner's rulings on the report** (2026-11-19): 1, the clipping (U6); 2, the half-step tie-break kept; 3,
+      P1-P4's images accepted: the stop rule from now is that they differ only in moved resident addresses (the
+      relocation check); 4, the other deviations accepted as recorded.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
@@ -4987,7 +5004,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed. *As built (7e1):* so, by P5's `GMODE` (a page each, kept); WIDTH 40/80 picks SCREEN 1/2 in a graphics mode; CLS clears the page |
 | COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM. *As built (7e1; answer 10):* no shadow and no gxpal: GW-BASIC's own palette in card memory, its entries copied on the card (`DM_VCOPY`) as COLOR sets them; COLOR in SCREEN 1 the backdrop and the group (PALOFS) |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
-| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line's end off the screen truncated, as the source's (PC-BASIC clips) |
+| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line off the screen clipped as PC-BASIC clips it (each end at most one pixel past the screen, only the pixels on it set: the owner's ruling, not the source's truncation) |
 | SOUND, BEEP | `MU_TONE` on a voice; `SN_BEEP` | SOUND's length is in 1/18.2 s ticks: × 54.9 ms |
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |

@@ -328,7 +328,7 @@ TEST(screen_1_pixels_match_pc_basic)
 // rows 103-104, a box over rows 96-110 and a line down the whole screen); every row shown twice, the mono layer's
 // VSCROLL 440. Guards a row shown once (half-height lines), or the picture's bottom half in the wrong card bank.
 // Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping the next bank (the cached bank kept), and (c)
-// LINCLP going on past the screen's far edge (its last run plotted off it).
+// LONSCR taking an x past the last as on the screen (its pixel plotted into the next row).
 TEST(screen_2_pixels_match_pc_basic)
 {
     CcpRig r;
