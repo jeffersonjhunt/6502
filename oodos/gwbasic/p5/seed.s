@@ -18,18 +18,15 @@
 ;             below $C000 (the callers' own fast path): the 20-bit address
 ;             SAVSEG x 16 + DX routed as hw/oodos.md's DEF SEG section has
 ;             it (below)
-;   DSRUN     BLOAD's and BSAVE's run checked whole, before anything moves:
-;             its 20-bit start returned; a run on the screen page staged
-;             in bank 8's RAM (7d3)
-;   DSPUT     after BLOAD's BLDRUN (p8/far4.s): a run DSRUN staged for the
-;             screen page, from bank 8's RAM to the card, as far as the
-;             file gave bytes (7d3)
+;   DSINFO    7e2: for the home block's DSRUNH (p8/far4.s: BLOAD's and
+;             BSAVE's run checks, 7c's tail and 7d3, the home block's since
+;             7e2), A the graphics mode, X DSB8; DSPUT's entry a stub
 ;   TXMODE    P6's text page shown: on layer 0, or (7e1) on layer 1 over
 ;             the graphics (below)
 ;
 ; 7e1: the graphics are p5/gfx.s (the modes), p5/gfxoem.s (the pixels) and
 ; p5/gengrp.s (the statements). In SCREEN 1 and 2 the screen page (bank 8,
-; DSSCR and DSSRUN) is Illegal function call until 7e3 gives it their
+; DSSCR, and P8's DSSRUN) is Illegal function call until 7e3 gives it their
 ; layout.
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
@@ -55,29 +52,8 @@
 ; this block's own RAM, and calls nothing resident, FCERR included: P5 calls
 ; resident code only with block 1 in W1 (the program's $4000-$7FFF).
 ;
-; DSRUN's run is linear, from segment x 16 + offset for its length (the
-; 8086 wraps the offset inside the segment: a recorded deviation). Refused,
-; Illegal function call: a run past $FFFFF (it would meet bank F, OODOS's);
-; one that meets bank 8 but for a run on the screen page; one with any
-; 16 KB block that function 83 won't copy from, found by a one-byte DM_COPY
-; from each block's first byte (83 decides by the block, so one byte
-; answers for all of it). A length of 0 is no run: nothing checked.
-;
-; 7d3, the screen page (the owner's answers 3-6 of 2026-11-18): a run inside
-; bank 8, in screen mode, whose last byte is below the page's reach (DSRUN
-; routes it by the 20-bit address, as DSBYTE does) is staged in bank 8's own
-; RAM at its own address, $80000 + its offset (GW-BASIC's after GX_BANK8,
-; B7's question 1): DSSRUN copies the page's bytes there by DM_VREAD, P4's
-; BSAVEP saves them from there and P4's BLDRUN loads the file over them, and
-; DSPUT then writes to the card by DM_VWRITE the bytes the file gave (a
-; file shorter than its header: those before its last record's ^Z), so the
-; rest stays as it was, as a PC's BLOAD. P4 is unchanged: its DM_COPY and
-; DM_LOAD reach only GW-BASIC's RAM, and the card only function 83's port
-; operations. Refused, Illegal function call: in console mode, where
-; GX_BANK8 refused (bank 8 isn't RAM: a revision 1 bridge, a BIOS before
-; 0.17; DSB8), a run from bank 7 into bank 8 or from it into bank 9, and one
-; past the reach. The staging takes $80000 up to the reach ($812BF at most):
-; nothing else of GW-BASIC's uses bank 8's RAM.
+; BLOAD's and BSAVE's runs (DSRUN, DSSRUN, DSPUT: 7c's tail and 7d3) are
+; the home block's since 7e2 (p8/far4.s, the owner's option 3).
 ;
 ; The far call rule: every routine returns by RTS, or ends in FCERR with
 ; block 1 in W1.
@@ -88,7 +64,7 @@
 
 ;@entry GXSTRT
 ;@entry DSBYTE
-;@entry DSRUN
+;@entry DSINFO
 ;@entry TXMODE
 ;@entry DSPUT
 ; 7e1's entries (p5/gfx.s, p5/gengrp.s) after the seed's, so these keep
@@ -104,11 +80,10 @@
 ;@entry POINTP
 ;@entry GLINEP
 ;@entry GCELL
-.export GXSTRT, DSBYTE, DSRUN, TXMODE, DSPUT
+.export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA
 
-ASCCTZ          = 26                   ; ^Z (DSPUT: a file's end)
 CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
                                        ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
 
@@ -446,201 +421,23 @@ BLKOF:          LDA     DSA+1,X
                 ROL     A
                 RTS
 
-; --- DSRUN --------------------------------------------------------------------------------
+; --- DSINFO, DSPUT (7e2) ------------------------------------------------------------------
 
-; DSRUN: DX the segment, BX the offset, CX the length (0: none). The run
-; checked whole (above): Illegal function call, nothing moved, if refused;
-; else DX and BL its 20-bit start (DSA).
-DSRUN:          STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
-                LDA     RDL
-                STA     GXQ
-                LDA     RDH
-                STA     GXQ+1
-                LDA     RBL
-                STA     GXP
-                LDA     RBH
-                STA     GXP+1
-                JSR     DSADR
-                LDA     RCL            ; no bytes: no run
-                ORA     RCH
-                BNE     :+
-                JMP     @ok
-:               LDA     RCL            ; DSE: its last byte, DSA + CX - 1
-                BNE     :+
-                DEC     RCH
-:               DEC     RCL
-                CLC
-                LDA     DSA
-                ADC     RCL
-                STA     DSE
-                LDA     DSA+1
-                ADC     RCH
-                STA     DSE+1
-                LDA     DSA+2
-                ADC     #0
-                STA     DSE+2
-                INC     RCL            ; CX back
-                BNE     :+
-                INC     RCH
-:               LDA     DSE+2
-                CMP     #$10
-                BCS     @fc            ; past $FFFFF: into bank F
-                CMP     #8             ; meets bank 8: from it or below, to it or past
-                BCC     @blocks
-                BNE     @past
-                LDA     DSA+2          ; to it: from it, the screen page (7d3); else from below
-                CMP     #8
-                BCC     @fc
-                JSR     DSSRUN
-                BRA     @ok
-@past:          LDA     DSA+2
-                CMP     #9
-                BCC     @fc 
-@blocks:        LDX     #DSE - DSA     ; the last block
-                JSR     BLKOF
-                STA     DSLAST
-                LDX     #0             ; from the first
-                JSR     BLKOF
-@probe:         STA     DSBLK
-                STZ     DSCB+1         ; its first byte: the block x $4000
-                STZ     DSCB+2
-                LSR     A
-                ROR     DSCB+2
-                LSR     A
-                ROR     DSCB+2
-                STA     DSCB+3
-                LDX     #2
-@s:             LDA     SCRP,X         ; to the scratch byte
-                STA     DSCB+4,X
-                DEX
-                BPL     @s
-                JSR     DSCALL
-                CMP     #$FF
-                BEQ     @fc 
-                LDA     DSBLK
-                CMP     DSLAST
-                INC     A
-                BCC     @probe         ; short of the last
-@ok:            LDA     DSA            ; DX, BL: the start
-                STA     RDL
-                LDA     DSA+1
-                STA     RDH
-                LDA     DSA+2
-                STA     RBL
-                RTS
-@fc:            JMP     FCERR
-
-; DSSRUN (7d3): a run inside bank 8, in screen mode, with bank 8 the
-; program's RAM (GX_BANK8): on the active page (P6's SCPAGP, the cache
-; forgotten) within its reach, else Illegal function call. Staged in bank
-; 8's RAM at its own address ($80000 + its offset): the page's bytes copied
-; there by DM_VREAD, and DSSCF set for DSPUT.
-DSSRUN:         BIT     SCRMOD
-                BPL     @fc
-                LDA     GMODEV         ; 7e1: SCREEN 1 and 2's page is 7e3's
-                BNE     @fc
-                BIT     DSB8
-                BMI     @fc
-                SEC
-                FJSR    SCPAGP
-                JSR     DSPAGE
-                BCS     @fc
-                LDX     #2
-@s:             LDA     DSA,X
-                STA     DSPH,X
-                DEX
-                BPL     @s
-                LDA     RCL
-                STA     DSVL
-                LDA     RCH
-                STA     DSVL+1
-                LDA     #DM_VREAD
-                JSR     DSVX
-                DEC     DSSCF
-                RTS
-@fc:            JMP     FCERR
-
-; DSPUT (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
-; the bytes the file gave, staged in bank 8's RAM, to the card (DSVC, DSPH
-; and DSVL as DSSRUN left them: nothing between calls DSBYTE). Only those
-; (review round 1, F3: a PC's BLOAD of a short file leaves the rest of the
-; screen as it was): the run less the CX that BLDRUN's DFSTLD left (it
-; counts CX down by the bytes it reads, and FINPRT's close keeps AX-DX);
-; and if the file ended first, its last record's bytes only to its first
-; ^Z, the file's end as APPFIN finds it (CP/M's files are whole records:
-; the rest of the record is DSKCLS's ^Z and whatever the buffer held).
-DSPUT:          LDA     DSSCF
-                BNE     :+
-                RTS                    ; no run staged
-:               STZ     DSSCF
-                SEC                    ; DSVL: the bytes read, the run less CX
-                LDA     DSVL
-                SBC     RCL
-                STA     DSVL
-                LDA     DSVL+1
-                SBC     RCH
-                STA     DSVL+1
-                LDA     RCL
-                ORA     RCH
-                BEQ     DSPW           ; the whole run read
-                SEC                    ; the file ended: its last record, DSVL - 128 on (or 0)
-                LDA     DSVL
-                SBC     #128
-                TAX
-                LDA     DSVL+1
-                SBC     #0
-                BCS     :+
-                LDA     #0
-                TAX
-:               STX     DSE            ; DSE (DSRUN's, free now): the run's byte looked at
-                STA     DSE+1
-@z:             LDA     DSE            ; past the bytes read: no ^Z
-                CMP     DSVL
-                LDA     DSE+1
-                SBC     DSVL+1
-                BCS     DSPW
-                CLC                    ; its staged byte to the scratch byte (DM_COPY)
-                LDA     DSPH
-                ADC     DSE
-                STA     DSCB+1
-                LDA     DSPH+1
-                ADC     DSE+1
-                STA     DSCB+2
-                LDA     DSPH+2
-                ADC     #0
-                STA     DSCB+3
-                LDX     #2
-@s:             LDA     SCRP,X
-                STA     DSCB+4,X
-                DEX
-                BPL     @s
-                JSR     DSCALL
-                CMP     #$FF
-                BEQ     DSPW           ; (refused: none, the bytes read kept)
-                LDA     SCRB
-                CMP     #ASCCTZ
-                BEQ     @end
-                INC     DSE
-                BNE     @z
-                INC     DSE+1
-                BRA     @z
-@end:           LDA     DSE            ; the ^Z: the file's end
-                STA     DSVL
-                LDA     DSE+1
-                STA     DSVL+1
-DSPW:           LDA     DSVL           ; none: nothing written
-                ORA     DSVL+1
-                BEQ     @x
-                LDA     #DM_VWRITE
-                JMP     DSVX
-@x:             RTS
+; 7e2 (the owner's option 3 of 2026-11-19): BLOAD's and BSAVE's run checks
+; and copies (DSRUN, DSSRUN, DSPUT) are the home block's now (p8/far4.s's
+; DSRUNH, DSPUTH), which calls them without a far call; their entries keep
+; their places in the jump table. DSINFO, DSRUN's: what DSRUNH needs of this
+; block, A the graphics mode (GMODEV) and X DSB8 (bit 7: GX_BANK8 refused).
+; DSPUT's is a stub, unused.
+DSINFO:         LDA     GMODEV
+                LDX     DSB8
+DSPUT:          RTS
 
 .segment "BRAM"
 .assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"
 DSA:            .res    3              ; the 20-bit address (DSADR)
-DSE:            .res    3              ; DSRUN: the run's last byte (just past DSA: BLKOF)
-DSBLK:          .res    1              ; a block (BLKOF; DSRUN's probe)
-DSLAST:         .res    1              ; DSRUN: the run's last block
+DSE:            .res    3              ; DSSCR: the byte (DSPAGE; just past DSA: BLKOF)
+DSBLK:          .res    1              ; a block (BLKOF)
 DSVAL:          .res    1              ; a POKE's byte
 DSDIR:          .res    1              ; bit 7: a POKE
 DSCB:           .res    9              ; function 83's DM_COPY block
@@ -650,7 +447,6 @@ DSVC:           .res    3              ; 7d3: the screen page's card address (DS
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
 DSB8:           .res    1              ; 7d3: bit 7, GX_BANK8 refused (bank 8 not RAM)
-DSSCF:          .res    1              ; 7d3: DSRUN's run staged for the screen page, for DSPUT
 .segment "RODATA"
 TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
 FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes

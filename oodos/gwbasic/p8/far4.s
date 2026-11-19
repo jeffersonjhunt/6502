@@ -54,8 +54,10 @@
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN, BSAVE, BLOAD
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
-.import SYNCHR, SNERR, FCERR, SAVSEG
+.import SYNCHR, SNERR, FCERR, SAVSEG, SCRMOD
 .import FRMEVL, FRESTR, OUTDO, CRDO, STROUT, FRCDBL
+
+ASCCTZ          = 26                   ; ^Z (DSPUTH: a file's end)
 
 .code
 
@@ -264,10 +266,10 @@ SAVES:          FJSR    SAVEP          ; C set: ",A", TXTPTR at the "A"
 ; BSAVE, BLOAD (GIO86.ASM 307, 331; 7c's tail): BPARMS here, which is
 ; parsing alone (the name by P4's NAMSCN, whose FILNAM and FILDEV wait in
 ; P4's RAM, as LIST's NULOPM finds them; the numbers by P1's ADRGET), and
-; the run checked whole by P5's DSRUN (BRUN) before P4's BSAVEP, or after
+; the run checked whole by DSRUNH (BRUN; P5's DSRUN until 7e2) before P4's BSAVEP, or after
 ; BLOADP has read the file's header and before BLDRUN reads the bytes
 ; (p4/gio86.s). 7d3: a run on the screen page DSRUN stages in bank 8's RAM
-; (the page's bytes, for BSAVEP to save), and after BLDRUN P5's DSPUT writes
+; (the page's bytes, for BSAVEP to save), and after BLDRUN DSPUTH writes
 ; it to the card (nothing if the run isn't the page's). The text pointer is
 ; kept, as the 8086's PUSH BX and LODEND's POP BX. BSAVE needs both numbers,
 ; BLOAD at most the offset (SNERR2). BHD8 is the header: the segment, the
@@ -316,7 +318,7 @@ BLOAD:          JSR     BPARMS
                 BPL     @g
 DEFSAD:         JSR     BRUN
                 FJSR    BLDRUN
-                FJSR    DSPUT          ; 7d3: a run on the screen page, staged in bank 8, to the card
+                JSR     DSPUTH         ; 7d3: a run on the screen page, staged in bank 8, to the card
 BBACK:          LDA     BTXP           ; POP BX
                 STA     TXTPTR
                 LDA     BTXP+1
@@ -329,7 +331,7 @@ BKEEP:          LDY     TXTPTR
                 LDY     TXTPTR+1
                 STY     BTXP+1
                 RTS
-; BRUN: BHD8's run checked by DSRUN (DX the segment, BX the offset, CX the
+; BRUN: BHD8's run checked by DSRUNH (DX the segment, BX the offset, CX the
 ; length): Illegal function call if refused. Then RSI-RDI's first byte its
 ; 20-bit start, RDL-RAH the header again, CX the length.
 BRUN:           LDX     #3
@@ -341,7 +343,7 @@ BRUN:           LDX     #3
                 STA     RCL
                 LDA     BHD8+5
                 STA     RCH
-                FJSR    DSRUN          ; DX, BL: the start
+                JSR     DSRUNH         ; DX, BL: the start (7e2: the home block's)
                 LDX     #2
 @b:             LDA     RDL,X
                 STA     RSI,X
@@ -403,6 +405,370 @@ BPARM3:         JSR     SYNCHR
                 LDA     #$FF           ; two
                 RTS
 
+
+; --- DSRUNH, DSPUTH: BLOAD's and BSAVE's runs (7c's tail, 7d3) -----------------------------
+
+; 7e2 (the owner's option 3 of 2026-11-19): moved here from P5's seed
+; (p5/seed.s) to give P5 room, the routines as they were there but for
+; their names and two things: what they need of P5 (its graphics mode and
+; DSB8, GX_BANK8's answer) comes by one far call to P5's DSINFO, on the
+; screen page's path only; and the scratch byte (the probe's DM_COPY
+; target, and DSPUTH's ^Z test) is this block's own, its physical address
+; found by function 73 at the first run (DSSPH). BSAVE and BLOAD call them
+; here without a far call. DSADR, BLKOF, DSPAGE, DSVX, DSSWAP and DSCALL are
+; copies of P5's, which DSBYTE (PEEK and POKE) keeps.
+;
+;   DSRUNH    BLOAD's and BSAVE's run checked whole, before anything moves:
+;             its 20-bit start returned; a run on the screen page staged
+;             in bank 8's RAM (7d3)
+;   DSPUTH    after BLOAD's BLDRUN: a run DSRUNH staged for the screen
+;             page, from bank 8's RAM to the card, as far as the file gave
+;             bytes (7d3)
+;
+; DSRUN's run is linear, from segment x 16 + offset for its length (the
+; 8086 wraps the offset inside the segment: a recorded deviation). Refused,
+; Illegal function call: a run past $FFFFF (it would meet bank F, OODOS's);
+; one that meets bank 8 but for a run on the screen page; one with any
+; 16 KB block that function 83 won't copy from, found by a one-byte DM_COPY
+; from each block's first byte (83 decides by the block, so one byte
+; answers for all of it). A length of 0 is no run: nothing checked.
+;
+; 7d3, the screen page (the owner's answers 3-6 of 2026-11-18): a run inside
+; bank 8, in screen mode, whose last byte is below the page's reach (DSRUN
+; routes it by the 20-bit address, as DSBYTE does) is staged in bank 8's own
+; RAM at its own address, $80000 + its offset (GW-BASIC's after GX_BANK8,
+; B7's question 1): DSSRUN copies the page's bytes there by DM_VREAD, P4's
+; BSAVEP saves them from there and P4's BLDRUN loads the file over them, and
+; DSPUT then writes to the card by DM_VWRITE the bytes the file gave (a
+; file shorter than its header: those before its last record's ^Z), so the
+; rest stays as it was, as a PC's BLOAD. P4 is unchanged: its DM_COPY and
+; DM_LOAD reach only GW-BASIC's RAM, and the card only function 83's port
+; operations. Refused, Illegal function call: in console mode, where
+; GX_BANK8 refused (bank 8 isn't RAM: a revision 1 bridge, a BIOS before
+; 0.17; DSB8), a run from bank 7 into bank 8 or from it into bank 9, and one
+; past the reach. The staging takes $80000 up to the reach ($812BF at most):
+; nothing else of GW-BASIC's uses bank 8's RAM.
+
+; DSRUNH: DX the segment, BX the offset, CX the length (0: none). The run
+; checked whole (above): Illegal function call, nothing moved, if refused;
+; else DX and BL its 20-bit start (DSA).
+DSRUNH:         STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
+                LDA     RDL
+                STA     GXQ
+                LDA     RDH
+                STA     GXQ+1
+                LDA     RBL
+                STA     GXP
+                LDA     RBH
+                STA     GXP+1
+                JSR     DSADR
+                LDA     RCL            ; no bytes: no run
+                ORA     RCH
+                BNE     :+
+                JMP     @ok
+:               LDA     RCL            ; DSE: its last byte, DSA + CX - 1
+                BNE     :+
+                DEC     RCH
+:               DEC     RCL
+                CLC
+                LDA     DSA
+                ADC     RCL
+                STA     DSE
+                LDA     DSA+1
+                ADC     RCH
+                STA     DSE+1
+                LDA     DSA+2
+                ADC     #0
+                STA     DSE+2
+                INC     RCL            ; CX back
+                BNE     :+
+                INC     RCH
+:               LDA     DSE+2
+                CMP     #$10
+                BCS     @fc            ; past $FFFFF: into bank F
+                CMP     #8             ; meets bank 8: from it or below, to it or past
+                BCC     @blocks
+                BNE     @past
+                LDA     DSA+2          ; to it: from it, the screen page (7d3); else from below
+                CMP     #8
+                BCC     @fc
+                JSR     DSSRUN
+                BRA     @ok
+@past:          LDA     DSA+2
+                CMP     #9
+                BCC     @fc 
+@blocks:        LDX     #DSE - DSA     ; the last block
+                JSR     BLKOF
+                STA     DSLAST
+                LDX     #0             ; from the first
+                JSR     BLKOF
+                JSR     DSSPH          ; 7e2: the scratch byte's physical address
+@probe:         STA     DSBLK
+                STZ     DSCB+1         ; its first byte: the block x $4000
+                STZ     DSCB+2
+                LSR     A
+                ROR     DSCB+2
+                LSR     A
+                ROR     DSCB+2
+                STA     DSCB+3
+                LDX     #2
+@s:             LDA     DSSP,X         ; to the scratch byte
+                STA     DSCB+4,X
+                DEX
+                BPL     @s
+                JSR     DSCALL
+                CMP     #$FF
+                BEQ     @fc 
+                LDA     DSBLK
+                CMP     DSLAST
+                INC     A
+                BCC     @probe         ; short of the last
+@ok:            LDA     DSA            ; DX, BL: the start
+                STA     RDL
+                LDA     DSA+1
+                STA     RDH
+                LDA     DSA+2
+                STA     RBL
+                RTS
+@fc:            JMP     FCERR
+
+; DSSRUN (7d3): a run inside bank 8, in screen mode, with bank 8 the
+; program's RAM (GX_BANK8): on the active page (P6's SCPAGP, the cache
+; forgotten) within its reach, else Illegal function call. Staged in bank
+; 8's RAM at its own address ($80000 + its offset): the page's bytes copied
+; there by DM_VREAD, and DSSCF set for DSPUT.
+DSSRUN:         BIT     SCRMOD
+                BPL     @fc
+                FJSR    DSINFO         ; 7e2: P5's GMODEV (A), DSB8 (X)
+                CMP     #0             ; 7e1: SCREEN 1 and 2's page is 7e3's
+                BNE     @fc
+                TXA
+                BMI     @fc
+                SEC
+                FJSR    SCPAGP
+                JSR     DSPAGE
+                BCS     @fc
+                LDX     #2
+@s:             LDA     DSA,X
+                STA     DSPH,X
+                DEX
+                BPL     @s
+                LDA     RCL
+                STA     DSVL
+                LDA     RCH
+                STA     DSVL+1
+                LDA     #DM_VREAD
+                JSR     DSVX
+                DEC     DSSCF
+                RTS
+@fc:            JMP     FCERR
+
+; DSPUTH (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
+; the bytes the file gave, staged in bank 8's RAM, to the card (DSVC, DSPH
+; and DSVL as DSSRUN left them: nothing between calls DSBYTE). Only those
+; (review round 1, F3: a PC's BLOAD of a short file leaves the rest of the
+; screen as it was): the run less the CX that BLDRUN's DFSTLD left (it
+; counts CX down by the bytes it reads, and FINPRT's close keeps AX-DX);
+; and if the file ended first, its last record's bytes only to its first
+; ^Z, the file's end as APPFIN finds it (CP/M's files are whole records:
+; the rest of the record is DSKCLS's ^Z and whatever the buffer held).
+DSPUTH:         LDA     DSSCF
+                BNE     :+
+                RTS                    ; no run staged
+:               STZ     DSSCF
+                SEC                    ; DSVL: the bytes read, the run less CX
+                LDA     DSVL
+                SBC     RCL
+                STA     DSVL
+                LDA     DSVL+1
+                SBC     RCH
+                STA     DSVL+1
+                LDA     RCL
+                ORA     RCH
+                BEQ     DSPW           ; the whole run read
+                SEC                    ; the file ended: its last record, DSVL - 128 on (or 0)
+                LDA     DSVL
+                SBC     #128
+                TAX
+                LDA     DSVL+1
+                SBC     #0
+                BCS     :+
+                LDA     #0
+                TAX
+:               STX     DSE            ; DSE (DSRUNH's, free now): the run's byte looked at
+                STA     DSE+1
+                JSR     DSSPH          ; 7e2: the scratch byte's physical address
+@z:             LDA     DSE            ; past the bytes read: no ^Z
+                CMP     DSVL
+                LDA     DSE+1
+                SBC     DSVL+1
+                BCS     DSPW
+                CLC                    ; its staged byte to the scratch byte (DM_COPY)
+                LDA     DSPH
+                ADC     DSE
+                STA     DSCB+1
+                LDA     DSPH+1
+                ADC     DSE+1
+                STA     DSCB+2
+                LDA     DSPH+2
+                ADC     #0
+                STA     DSCB+3
+                LDX     #2
+@s:             LDA     DSSP,X
+                STA     DSCB+4,X
+                DEX
+                BPL     @s
+                JSR     DSCALL
+                CMP     #$FF
+                BEQ     DSPW           ; (refused: none, the bytes read kept)
+                LDA     DSSB
+                CMP     #ASCCTZ
+                BEQ     @end
+                INC     DSE
+                BNE     @z
+                INC     DSE+1
+                BRA     @z
+@end:           LDA     DSE            ; the ^Z: the file's end
+                STA     DSVL
+                LDA     DSE+1
+                STA     DSVL+1
+DSPW:           LDA     DSVL           ; none: nothing written
+                ORA     DSVL+1
+                BEQ     @x
+                LDA     #DM_VWRITE
+                JMP     DSVX
+@x:             RTS
+
+; DSSPH (7e2): DSSP the physical address of the scratch byte DSSB, by
+; function 73 while this block is in W3, once (DSSPF).
+DSSPH:          PHA
+                LDA     DSSPF
+                BNE     @x
+                LDA     #<DSSB
+                STA     DSPB
+                LDA     #>DSSB
+                STA     DSPB+1
+                LDA     #<DSPB
+                LDX     #>DSPB
+                LDY     #O_PHYSADDR
+                JSR     BDOS
+                LDA     DSPB+2         ; the paragraph x 16 + the offset (0-15)
+                STA     DSSP
+                LDA     DSPB+3
+                STA     DSSP+1
+                STZ     DSSP+2
+                LDX     #4
+@x16:           ASL     DSSP
+                ROL     DSSP+1
+                ROL     DSSP+2
+                DEX
+                BNE     @x16
+                LDA     DSSP
+                ORA     DSPB
+                STA     DSSP
+                DEC     DSSPF
+@x:             PLA
+                RTS
+
+; DSPAGE (7d3): DSVC the page's card address A/X/Y + DSA's offset; C set if
+; DSE's offset (the run's last byte) isn't below the reach, GXT.
+DSPAGE:         CLC
+                ADC     DSA
+                STA     DSVC
+                TXA
+                ADC     DSA+1
+                STA     DSVC+1
+                TYA
+                ADC     #0
+                STA     DSVC+2
+                LDA     DSE
+                CMP     GXT
+                LDA     DSE+1
+                SBC     GXT+1
+                RTS
+
+; DSVX (7d3): function 83's A (DM_VREAD, from the card's DSVC to the
+; physical DSPH; DM_VWRITE, the other way), DSVL bytes.
+DSVX:           STA     DSCB
+                LDX     #2
+@a:             LDA     DSVC,X
+                STA     DSCB+1,X
+                LDA     DSPH,X
+                STA     DSCB+4,X
+                DEX
+                BPL     @a
+                LDA     DSVL
+                STA     DSCB+7
+                LDA     DSVL+1
+                STA     DSCB+8
+                LDA     DSCB
+                CMP     #DM_VREAD
+                BEQ     DSGO
+                JSR     DSSWAP
+                BRA     DSGO
+
+; DSSWAP: DSCB's source and destination swapped.
+DSSWAP:         LDX     #2
+@b:             LDA     DSCB+1,X
+                PHA
+                LDA     DSCB+4,X
+                STA     DSCB+1,X
+                PLA
+                STA     DSCB+4,X
+                DEX
+                BPL     @b
+                RTS
+
+; DSCALL: function 83's DM_COPY of DSCB's one byte. A the result.
+DSCALL:         LDA     #DM_COPY
+                STA     DSCB
+                LDA     #1
+                STA     DSCB+7
+                STZ     DSCB+8
+DSGO:           LDA     #<DSCB
+                LDX     #>DSCB
+                LDY     #O_DMA
+                JMP     BDOS
+
+; DSADR: DSA = GXQ (a segment) x 16 + GXP (an offset), wrapping at 1 MB.
+DSADR:          LDA     GXQ
+                STA     DSA
+                LDA     GXQ+1
+                STA     DSA+1
+                STZ     DSA+2
+                LDX     #4
+@x16:           ASL     DSA
+                ROL     DSA+1
+                ROL     DSA+2
+                DEX
+                BNE     @x16
+                CLC
+                LDA     DSA
+                ADC     GXP
+                STA     DSA
+                LDA     DSA+1
+                ADC     GXP+1
+                STA     DSA+1
+                LDA     DSA+2
+                ADC     #0
+                AND     #$0F
+                STA     DSA+2
+DSRET:          RTS
+
+; BLKOF: A the 16 KB block (0-63) of DSA (X 0) or DSE (X 3), a 20-bit
+; address: A16-A19 x 4 and A14-A15.
+BLKOF:          LDA     DSA+1,X
+                ASL     A
+                LDA     DSA+2,X
+                ROL     A
+                STA     DSBLK
+                LDA     DSA+1,X
+                ASL     A
+                ASL     A
+                LDA     DSBLK
+                ROL     A
+                RTS
+
 .segment "BRAM"
 FLSDSC:         .res    2              ; FILES's name's descriptor, kept (OO-1)
 FLSDRV:         .res    1              ;   its drive, 0 A:
@@ -412,6 +778,20 @@ BTYPE:          .res    1              ; BPARMS: bit 7, the name had a type
 BTXP:           .res    2              ; BSAVE's and BLOAD's text pointer, kept
 BHD8:           .res    6              ; their header: the segment, the offset, the length
 BOF8:           .res    2              ; BLOAD's offset given (CX)
+.assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"
+DSA:            .res    3              ; the 20-bit address (DSADR)
+DSE:            .res    3              ; DSRUNH: the run's last byte (just past DSA: BLKOF)
+DSBLK:          .res    1              ; a block (BLKOF; DSRUNH's probe)
+DSLAST:         .res    1              ; DSRUNH: the run's last block
+DSCB:           .res    9              ; function 83's DM_COPY block
+DSPB:           .res    4              ; function 73's
+DSSB:           .res    1              ; 7e2: the scratch byte
+DSSP:           .res    3              ;   its physical address (DSSPH)
+DSSPF:          .res    1              ;   nonzero once DSSP is found
+DSVC:           .res    3              ; 7d3: the screen page's card address (DSPAGE)
+DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
+DSVL:           .res    2              ;   the bytes
+DSSCF:          .res    1              ; 7d3: DSRUNH's run staged for the screen page, for DSPUTH
 
 .rodata
 FLSBYT:         .byte   " Bytes free", 0 ; FILES's (OO-1)

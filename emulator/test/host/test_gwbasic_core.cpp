@@ -191,14 +191,17 @@ namespace
         CHECK_EQ(command(r, "NEW"), std::string());
         enter(r, lines);
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON"), site = lab.at("FTSITE");
-        const uint16_t farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
-                                                       r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
+        // FARCALL's address, from FTSITE's patched operand, read at RUN, when the resident core is in W0 (read
+        // before, the CPU may be in a BDOS call with OODOS's own block there, and the bytes read 0: 7e2)
+        uint16_t farcall = 0;
         Timed t;
         uint64_t from = 0;
         bool on = false;
         r.watch = [&](uint16_t pc) {
             if (pc == runc && !on)
             {
+                farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
+                                                r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
                 from = r.cpu->cycles();
                 on = true;
             }
