@@ -260,8 +260,7 @@ SWIDTH:         LDA     LOCX
                 STZ     VPAGE
                 JSR     PGINIT
                 JSR     SCNBRK
-                JSR     CLRSCN
-                JSR     KEYDSP         ; the key line on the new last line
+                JSR     CLRSCN         ; (SCNCLR's KEYDSP: the key line on the new last line)
                 JSR     VSHOW
                 CLC
                 RTS

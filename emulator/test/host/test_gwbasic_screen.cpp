@@ -1105,7 +1105,8 @@ TEST(print_and_scroll_are_timed)
 }
 
 // For the record (7d2, unit 6), not gated: what the key line and the soft keys cost. CLS with the key line on (the
-// line drawn again), KEY 1,"X" with it on (drawn again) and with it off, by timed()'s method over 20 passes; and a
+// line drawn again), KEY 1,"X" with it on (drawn again) and with it off, a WIDTH (40 then 80, the cost of one; the
+// line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
 // key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
 // no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
 // while a program reads INKEY$.
@@ -1119,13 +1120,14 @@ TEST(the_key_line_and_soft_keys_cost)
         const uint64_t b = timed(r, {"10 " + stmt + ":I%=I%+1:IF I%<20 THEN 10"});
         return static_cast<double>(b - a) / 20;
     };
-    const double cls = per("CLS"), keyon = per("KEY 1,\"X\"");
+    const double cls = per("CLS"), keyon = per("KEY 1,\"X\""), width = per("WIDTH 40:WIDTH 80") / 2;
     enter(r, "KEY OFF", ms(300));
-    const double clsoff = per("CLS"), keyoff = per("KEY 1,\"X\"");
+    const double clsoff = per("CLS"), keyoff = per("KEY 1,\"X\""), widthoff = per("WIDTH 40:WIDTH 80") / 2;
     enter(r, "KEY ON", ms(300));
     std::printf("  CLS with the key line: %.0f cycles (%.0f with it off)\n", cls, clsoff);
     std::printf("  KEY 1,\"X\" with the key line on: %.0f cycles (%.0f with it off)\n", keyon, keyoff);
-    CHECK(cls > clsoff && keyon > keyoff);
+    std::printf("  WIDTH with the key line: %.0f cycles (%.0f with it off)\n", width, widthoff);
+    CHECK(cls > clsoff && keyon > keyoff && width > widthoff);
     enter(r, "KEY 1,\"\":NEW");
     enter(r, "10 A$=INKEY$:GOTO 10");
     keys(r, "RUN\r");
