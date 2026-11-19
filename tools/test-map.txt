@@ -150,6 +150,7 @@ apple1/README.md                                none
 apple1/                                         apple1
 eater/README.md                                 none
 eater/                                          eater
+basic/lifegfx.bas                               test_gwbasic_gfx
 basic/                                          none
 
 # --- the test tiers themselves -------------------------------------------------------------------------
