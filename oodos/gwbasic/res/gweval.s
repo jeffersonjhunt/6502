@@ -39,7 +39,7 @@
 .import OPTAB, RELBIT, INTDSP, SNGDSP, DBLDSP, FRCTBL, FUNDSP
 .import TMERR, SNERR, MOERR, CAT, STRCMP, FPWRQ, F_FIN, EVALX, STRLTI
 .import PTRGET, USRFN, INSTR, FNDOER, RNDMON, CONFAC
-.import PTRGTN, FCERR, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP
+.import PTRGTN, FCERR, INKEY, OVERR, CRDO, STROUT, LHSMID, STRNGS, VARPT2, FIXINP, SCRMOD
 .export MAKUPL, MAKUPS, OCTCNS, ISMID, FLGSCN, SAVSEG
 
 GETYPR          = GETYP                ; the 8086 has a copy of $GETYP here
@@ -344,7 +344,19 @@ NTERL:          CMP     #VARPTR_TK
 :               CMP     #INSTR_TK
                 BNE     :+
                 JMP     INSTR
-:               CMP     #INKEYS_TK     ; (SCREEN and POINT before it are 7d's)
+:               CMP     #SCREEN_TK     ; 7d1: SCREEN( and CSRLIN, P6's in screen mode
+                BNE     :+             ; (in console mode as before: a formula in
+                BIT     SCRMOD         ; parentheses, a variable)
+                BPL     :+
+                FJSR    SCRNFP
+                RTS
+:               CMP     #CSRLIN_TK
+                BNE     :+
+                BIT     SCRMOD
+                BPL     :+
+                FJSR    CSRLNP
+                RTS
+:               CMP     #INKEYS_TK     ; (POINT before it is 7e's)
                 BNE     :+
                 JMP     INKEY
 :               CMP     #STRINGS_TK    ; STRING$ (P3's: res/far3.s)

@@ -56,8 +56,8 @@
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
-.export PKQUE, EVAREA, TXBUF, TXLEN
-.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP
+.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS
+.import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
 
         OODOS_HEADER
 
@@ -637,6 +637,22 @@ NULRT:          LDA     #<DSEGZ
                 LDA     #VT_STR
                 STA     VALTYP
                 RTS
+
+; --- POS (GIOSCN.ASM 270) -----------------------------------------------------------------
+
+; F_SPOS: POS(x), the screen's: CSRX (TTYPOS + 1, which OUTDO keeps and P6
+; sets), 1 past the line's end. In console mode Illegal function call, as
+; before (NOTSPK).
+F_SPOS:         BIT     SCRMOD
+                BMI     :+
+                JMP     NOTSPK
+:               LDA     TTYPOS
+                INC     A
+                CMP     LINLEN
+                BCC     :+
+                BEQ     :+
+                LDA     #1
+:               JMP     SNGFLT
 
 ; --- SYSTEM (GIODSK.ASM 1200) -------------------------------------------------------------
 

@@ -12,7 +12,6 @@
 # one calls, jumps into or names in a dispatch table has its line) and against the build's maps (every 6502 label
 # named is there). The Makefile's default target runs it, with srcnames.txt, the source's names made from the
 # source by `ledger.py --src ... --write-names srcnames.txt`, so the build needs no copy of the source.
-
 # The spike's (oodos/spike/gwbasic/, carried into res/ at 7a's start)
 #
 # Filled at step I2: every routine of GWMAIN.ASM, GWEVAL.ASM and BIMISC.ASM the spike translated (the statement
@@ -140,7 +139,6 @@ BIMISC.ASM GETSTK -> res/bimisc.s GETSTK
 BIMISC.ASM SYNCHR -> res/bimisc.s SYNCHR
 BIMISC.ASM SYNERR -> res/bimisc.s SYNERR
 BIMISC.ASM ISLET2 -> res/bimisc.s ISLET2
-
 # m: the math (step M of 7a). Every routine of MATH1.ASM and MATH2.ASM: res/ the resident core's (single and
 # integer arithmetic, compares, conversions), p1/ block P1's (output, input, double precision, the functions).
 MATH1.ASM $FOTCI -> p1/fout.s FOTCI
@@ -437,7 +435,6 @@ GWMAIN.ASM FINOVC -> p1/fin.s FINOVC
 GWMAIN.ASM $CLROV -> p1/trans.s CLROV # $FPWR's way out; FINOVC's tail is p1/fin.s's own
 GWDATA.ASM $RNDX -> res/mathfar.s RNDX
 GWDATA.ASM RNDCOP -> res/mathfar.s RNDCOP
-
 # s: the variables and strings (step S of 7a). Every routine of BIPTRG.ASM and BISTRS.ASM, resident (res/biptrg.s,
 # res/bistrs.s) but for STR$ VAL OCT$ HEX$, in P1 (p1/strfn.s); and what they need from GWMAIN.ASM, GWEVAL.ASM,
 # BIMISC.ASM and MATH1.ASM (whose search, block move and GETBCD lines are above, under m). The labels inside a
@@ -547,7 +544,6 @@ GWDATA.ASM DSEGZ -> res/bistrs.s DSEGZ
 GWDATA.ASM MEMSIZ -> res/bistrs.s MEMSIZ
 GWDATA.ASM NAMBUF -> res/biptrg.s NAMBUF
 GWDATA.ASM DEFTBL -> res/biptrg.s DEFTBL
-
 # i1: the interpreter's frame and the console (step I1 of 7a): GWMAIN.ASM's errors, READY, MAIN, the program's
 # entry (CRUNCH, EDENT, CHEAD), RUN, SCNLIN and the pointers back to numbers; GWLIST.ASM; IBMRES.ASM's words and
 # extended dispatch; BIMISC.ASM's program life; GWINIT.ASM's and ITSA86.ASM's start-up; GWDATA.ASM's messages;
@@ -960,7 +956,6 @@ GIOKYB.ASM GETFKY -> later 7d: a function key's next character
 GIO86.ASM GETQ -> OEM res/oem.s KYBGET
 GIO86.ASM BUMPQP -> OEM res/oem.s PKQUE
 GIO86.ASM SIDSP -> p4/gio86.s SIDSP # TBLDSP in it: DVPTR's entry (p4/giotbl.s), 0 Device unavailable
-
 # i2: the statements (step I2 of 7a). Resident: GWMAIN.ASM's FNDFOR, FOR, NXTSCN and WNDSCN, GOSUB and RETURN;
 # NEXT86.ASM's NEXT; FIVEO.ASM's WHILE and WEND, their entries on the BASIC stack (p8/gwmain.s has their
 # layout); and BISTRS.ASM's STROUI. In P1: GWMAIN.ASM's LINE INPUT, INPUT and READ (p1/gwmain.s), GIO86.ASM's
@@ -1110,15 +1105,14 @@ GWMAIN.ASM $STPRN -> res/math1.s STROUT # the message to the console (PTRFIL kep
 GIOSCN.ASM $CATTY -> res/math1.s DV015 # PTRFIL 0 for the message, then back
 GWSTS.ASM VARPT2 -> p3/gwsts.s VARPT2P # from VARPTR, its resident stub res/far3.s VARPT2
 GIO86.ASM GETPTR -> p4/gio86.s GETPTR # an entry, VARPTR's (res/gweval.s); OO-1: the FDB is P4's table's
-GWSTS.ASM SCRENF -> later 7d: SCREEN( as a function
-GWSTS.ASM GETLIN -> later 7d: CSRLIN
+GWSTS.ASM SCRENF -> p6/gwsts.s SCRNFP # an entry, from the resident evaluator in screen mode (res/gweval.s)
+GWSTS.ASM GETLIN -> p6/gwsts.s CSRLNP # an entry, as SCRENF
 GENGRP.ASM POINT -> later 7e: POINT
 DSKCOM.ASM FIXINP -> p4/dskcom.s FIXINPP # its resident stub res/far4.s FIXINP
 GENGRP.ASM GLINE -> later 7e: the graphics LINE (here Advanced Feature)
 DSKCOM.ASM DLINE -> p4/dskcom.s DLINE # an entry, INPDOR in it
 DSKCOM.ASM FILIND -> p4/dskcom.s FILIND # an entry
 GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY
-
 # r1: review round 1 (DD4). What the translated routines reach that the first check didn't follow: tail jumps
 # into another routine's body (a label nothing CALLs, nor makes PUBLIC), and the dispatch tables' targets
 # (IBMRES.ASM's R and R2 in STMDSP, FUNDSP and STMDSX/FUNDSX, which SPCTAB's body runs into; the DW tables of
@@ -1228,7 +1222,7 @@ GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> p3/gweval.s DEFP # its stub p8/far3.s DEF; DEF SEG alone segment 0, the port's DS
 GWMAIN.ASM POKE -> p3/poke.s POKEP # its stub p8/far3.s POKE; segment 0 below $C000 direct, else POKFLT's place, the OEM's p5/seed.s DSBYTE
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
-GIO86.ASM WIDTHS -> later 7d
+GIO86.ASM WIDTHS -> OEM p8/far6.s WIDTH # the screen's WIDTH n[,m] (GWWID) in screen mode; WIDTH #f, LPRINT and "device" Advanced Feature (P4's room)
 BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
 BIMISC.ASM ERASE -> p3/bimisc.s ERASEP # its resident stub res/far3.s ERASE
 GWMAIN.ASM ERRORS -> p3/gwmain.s ERRORSP # its resident stub res/far3.s ERRORS
@@ -1243,8 +1237,8 @@ GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1'
 GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
 DSKCOM.ASM LOAD -> p8/far4.s LOADS # its flag 0; then LRUN3 (p4/dskcom.s LOADP: the resident LOAD is the loader)
 DSKCOM.ASM MERGE -> p4/dskcom.s MERGEP # the stub (p8/far4.s MERGES) drops NEWSTT's return
-GWSTS.ASM COLOR -> later 7d
-GWSTS.ASM CLS -> later 7d
+GWSTS.ASM COLOR -> p6/gwsts.s COLORP # its stub p8/far6.s COLOR; Advanced Feature in console mode
+GWSTS.ASM CLS -> p6/gwsts.s CLSP # its stub p8/far6.s CLS; as COLOR
 GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
 GIO86.ASM BSAVE -> p8/far4.s BSAVE # 7c's tail: parsing and DSRUN's check in the home block, the file in p4/gio86.s BSAVEP (OUTBLK's place: DM_COPY a piece at a time into file 0's buffer)
 GIO86.ASM SNERR2 -> p8/far4.s SNERR2
@@ -1261,13 +1255,13 @@ GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> later 7e
 GENGRP.ASM PRESET -> later 7e
-GWSTS.ASM SCREEN -> later 7d: SCREEN 0 (1 and 2 7e)
+GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0 (1, 2 and the OO-1's modes 7e's); its stub p8/far6.s SCREEN
 GWSTS.ASM KEYS -> later 7d: KEY and the function-key line (KEY(n) 7f)
-GWSTS.ASM LOCATE -> later 7d
+GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 #
 # FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
-GIOSCN.ASM POS -> later 7d
+GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
 GWSTS.ASM PENF -> later 7e: PEN
@@ -1326,7 +1320,6 @@ GIOLPT.ASM LPTSOT -> OEM res/oem.s OUTDO # LPT1's path: CRIFEL, then LPOUT1
 GIO86.ASM CRIFEL -> OEM res/oem.s OUTDO # a printable character at the width after a CR LF
 GIOLPT.ASM LPOUT1 -> OEM res/oem.s LPOUT1 # a CR then an LF; an LF after a CR dropped
 GIO86.ASM UPDPOS -> OEM res/oem.s LPOUT1 # printable characters, CR and BS move the column
-
 # 7b step a1: block P3's first statements (GWMAIN.ASM's ON, RESUME and ERROR, p3/gwmain.s, each reached by a
 # resident stub in res/far3.s) and ON ERROR's trap in the resident ERROR (NTMDCN, above). The labels inside a
 # routine that matter are named too.
@@ -1343,7 +1336,6 @@ GWMAIN.ASM NOTBGL -> p3/gwmain.s NOTBGL # JMP DATA: a tail call
 GWMAIN.ASM GOERR -> p3/gwmain.s GOERR
 GWSTS.ASM ONGOTP -> p3/gwsts.s ONGOTP # step e's; a one-byte token compared with CH 0 (the 8086's AH, 0 from ON's dispatch)
 GWSTS.ASM SETGSB -> p3/gwsts.s SETGSB # step e's
-
 # 7b step a2: SWAP, ERASE and CLEAR (BIMISC.ASM, p3/bimisc.s), OPTION BASE and RANDOMIZE (GWMAIN.ASM, p3/gwmain.s),
 # WRITE (FIVEO.ASM, p3/fiveo.s), STRING$ and MID$ = (BISTRS.ASM, p3/bistrs.s) and VARPTR$ (GWSTS.ASM, p3/gwsts.s), each
 # reached by a resident stub in res/far3.s; and PTRGET's ERASE entry (ERSFIN, ARYEXT, PTRRNZ, above). CLEAR's CLSALL
@@ -1381,7 +1373,6 @@ BISTRS.ASM BIGLEN -> p3/bistrs.s BIGLEN
 BISTRS.ASM MID$LP -> p3/bistrs.s MIDSLP
 GWSTS.ASM VARRT2 -> p3/gwsts.s VARRT2 # JMP PUTNEW: a tail call
 GIODSK.ASM CMPFBC -> p4/giodsk.s CMPFBC # GETFPS and GETFSZ inline; P3's WRTFIN reaches it by its entry CMPFBP (OUTDO's run sent first)
-
 # 7b step b: DEF FN and FN, DEF USR and USR (GWEVAL.ASM, p3/gweval.s, each reached by a resident stub in res/far3.s),
 # and their resident parts: PTRGET's search of the parameters first (NOARYS, PRMSRC, NOTFNS, above), GARBA2's walk
 # of the parameter blocks (ARYVAR) and STKERR's resets (above). The labels inside a routine that matter are named too.
@@ -1442,7 +1433,6 @@ BIPRTU.ASM CRDNUS -> p3/biprtu.s CRDNUS
 BIPRTU.ASM FLDFIN -> p3/biprtu.s FLDFIN # JMP FINPRT: a tail call (its RTS returns through the far call to P1's PRINT)
 BIPRTU.ASM ISSTR1 -> p3/biprtu.s ISSTR1
 BIPRTU.ASM PLSPRT -> p3/biprtu.s PLSPRT
-
 # 7b step e: the event traps' frame: BIMISC.ASM's trap routines (p3/bimisc.s), GWSTS.ASM's general event trapping code
 # (p3/gwsts.s, with GWRAM.ASM's TRPTBL in P3's BRAM), ON event GOSUB (GWMAIN.ASM, p3/gwmain.s), and the resident part:
 # NEWSTT's gate (TRPON), the poll (res/gwmain.s TRPOLL, the project's own), GOSUB2 and RETURN's event entry; the
@@ -1496,7 +1486,6 @@ GWSTS.ASM EOSCKX -> p3/gwsts.s EOSCKX
 GWSTS.ASM JERDNA -> dropped: ONGOTP's Device unavailable for the pen, which no code of the source reaches
 GWMAIN.ASM ONGSB0 -> p3/gwmain.s ONGSB0 # CX and the count in P3's BRAM (ONGCX, ONGCNT), not on the stack
 GWMAIN.ASM RSTRAP -> p3/gwmain.s RSTRAP
-
 # 7c: the file layer (sequential files, block P4)
 GIO86.ASM XFRSTR -> p4/gio86.s XFRSTR # OO-1: only the FIELD buffers move with it (the FDBs are P4's table); PTRFIL never moves; SAVFRE (CHAIN's) moves
 GIO86.ASM PFDCBA -> dropped: FALLOC's and FFREE's register restore (their callers keep nothing in the registers)
@@ -1731,10 +1720,8 @@ GIOCOM.ASM LPRBIN -> p4/giocom.s LPRBIN
 GIOCOM.ASM PARIFN -> p4/giocom.s PARIFN
 GIOCOM.ASM LPARM -> p4/giocom.s LPARM
 GIOCOM.ASM GETPRX -> p4/giocom.s GETPRX
-GWSTS.ASM TRMCOM -> later 7d: SCNINT's (the screen statements' parameters); GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
+GWSTS.ASM TRMCOM -> p6/gwsts.s SCNINT # SCNINT's; GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
 GWSTS.ASM TKEYOF -> later 7d: the function-key line off (SCNTRM's)
-
-
 # 7d1: the text screen (block P6: SCNDRV.ASM's driver and editor, SCNEDT.ASM's INLIN, the OEM's text routines
 # on the card's port with a row cache, the keyboard from the event queue; hw/oodos.md, 7d1 as built)
 SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/oem.s SCNIPL (the pages, the layer)
@@ -1824,3 +1811,15 @@ SCNDRV.ASM MVCH30 -> p6/scndrv.s MVCH30
 SCNDRV.ASM MVC30I -> p6/scndrv.s MVCH30 # an indirect jump to it
 SCNDRV.ASM CSRRET -> p6/scndrv.s CSRADV # its RET, each cursor move's own here
 GWSTS.ASM BEEP -> later 7f: BEEP (CBEEP's bell does nothing until then)
+GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s)
+GWSTS.ASM GTLINE -> p6/gwsts.s GTLINE
+GWSTS.ASM GTPRMS -> p6/gwsts.s GTPRMS # the list in P6's RAM (PCNT, PFLG, PVAL), not BUF
+GWSTS.ASM SCNINT -> p6/gwsts.s SCNINT
+GIO86.ASM CRTWD1 -> OEM p8/far6.s WIDTH # to GWWID
+GIO86.ASM CRTWD -> OEM p8/far6.s WIDTH # to GWWID (a number)
+GIO86.ASM GETWDT -> later 7d: WIDTH #f and WIDTH "device"'s width (P4's room) (7d2)
+GIO86.ASM ERIFN0 -> later 7d: as GETWDT (7d2)
+GIO86.ASM ERFNO1 -> later 7d: as GETWDT (7d2)
+GWSTS.ASM FCERGO -> p6/gwsts.s FCERGO
+GWSTS.ASM NOMORE -> p6/gwsts.s SCNINT # its @nomore
+GWSTS.ASM OMITD -> p6/gwsts.s SCNINT # its @omit

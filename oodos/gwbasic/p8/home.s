@@ -40,6 +40,7 @@
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
+.import WIDTH, COLOR, CLS, SCREEN, LOCATE
 
 .code
 
@@ -90,7 +91,7 @@ STMDSP:         S       ENDST          ; END
                 S       LPRINT         ; LPRINT
                 S       LLIST          ; LLIST
                 S       SNERR          ; (padding)
-                S       ADVERR         ; WIDTH (7d)
+                S       WIDTH          ; WIDTH (p8/far6.s: 7d1's, in screen mode)
                 S       ELSES          ; ELSE
                 S       TON            ; TRON
                 S       TOFF           ; TROFF
@@ -121,14 +122,20 @@ STMDSP:         S       ENDST          ; END
                 S       LOADS          ; LOAD
                 S       MERGES         ; MERGE
                 S       SAVES          ; SAVE
-.repeat BSAVE_TK - SAVE_TK - 1
-                S       ADVERR         ; COLOR CLS MOTOR (7d-7f)
-.endrepeat
+                S       COLOR          ; COLOR (p8/far6.s)
+                S       CLS            ; CLS (p8/far6.s)
+                S       ADVERR         ; MOTOR
+.assert MOTOR_TK + 1 = BSAVE_TK, error, "STMDSP: COLOR CLS MOTOR before BSAVE"
                 S       BSAVE          ; BSAVE (p8/far4.s)
                 S       BLOAD          ; BLOAD (p8/far4.s)
-.repeat LOCATE_TK - BLOAD_TK
-                S       ADVERR         ; SOUND .. LOCATE (7d-7f)
-.endrepeat
+                S       ADVERR         ; SOUND (7f)
+                S       ADVERR         ; BEEP (7f)
+                S       ADVERR         ; PSET (7e)
+                S       ADVERR         ; PRESET (7e)
+                S       SCREEN         ; SCREEN (p8/far6.s; modes but 0 7e's)
+                S       ADVERR         ; KEY (7d2)
+                S       LOCATE         ; LOCATE (p8/far6.s)
+.assert LOCATE_TK - BLOAD_TK = 7, error, "STMDSP: SOUND .. LOCATE after BLOAD"
 .assert * - STMDSP = 2 * NUMCMD, error, "STMDSP: one entry a statement"
 
 ; STMDSX (IBMRES.ASM 553): the extended statements, $FE $81 (FILES) to

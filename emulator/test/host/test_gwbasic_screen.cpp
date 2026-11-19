@@ -504,6 +504,119 @@ TEST(auto_and_edit_on_the_screen)
     CHECK(last_row(r, "30 ") < last_row(r, "20 PRINT 2"));
 }
 
+// LOCATE, CSRLIN and POS: LOCATE 5,10:PRINT "X"; puts X at cell (4,9), and then CSRLIN is 5 and POS(0) 11; after
+// PRINT STRING$(80,"A"); CSRLIN is the next line (GTLINE: the next character goes there); LOCATE 0, LOCATE 26 and
+// LOCATE ,81 are Illegal function call, LOCATE 25 is allowed (the key line is off). Guards a program's screen layout
+// one row off. Seen failing with GTLINE's test of the cursor past the line's end made with BCC alone (the 8086's
+// JBE made JB).
+TEST(locate_csrlin_and_pos)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:LOCATE 5,10:PRINT \"X\";:A=CSRLIN:B=POS(0):LOCATE 12,1:PRINT A;B", ms(400));
+    CHECK_EQ(static_cast<char>(card(r, mapbase(r) + 4 * 160 + 9 * 2)), 'X');
+    CHECK_EQ(line(r, 11), std::string(" 5  11"));
+    enter(r, "CLS:LOCATE 3,1:PRINT STRING$(80,\"A\");:A=CSRLIN:LOCATE 12,1:PRINT A", ms(400));
+    CHECK_EQ(line(r, 11), std::string(" 4"));
+    enter(r, "CLS:LOCATE 3,1:PRINT STRING$(79,\"A\");:A=CSRLIN:LOCATE 12,1:PRINT A", ms(400));
+    CHECK_EQ(line(r, 11), std::string(" 3"));
+    enter(r, "CLS:LOCATE 0", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE 26", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE ,81", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE 25,1:PRINT \"Z\";:LOCATE 10,1", ms(300));
+    CHECK_EQ(line(r, 24), std::string("Z"));
+    CHECK(last_row(r, "Illegal") < 0);
+}
+
+// COLOR and CLS: COLOR 14,1 writes cells $1E; COLOR 30,1 $9E, blinking; COLOR ,,4 sets the border to 4; COLOR 32
+// is Illegal function call; CLS blanks every row of the 25 in the current attribute and homes the cursor. Guards
+// wrong colours. Seen failing with the background put in bits 3-0.
+TEST(color_and_cls)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:COLOR 14,1:PRINT \"Y\";:COLOR 30,1:PRINT \"B\";:COLOR 7,0", ms(300));
+    CHECK_EQ(attr(r, 0, 0), 0x1E);
+    CHECK_EQ(attr(r, 0, 1), 0x9E);
+    enter(r, "COLOR ,,4");
+    CHECK_EQ(reg(r, 0xC481), 4);
+    enter(r, "COLOR 32", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "COLOR 7,2:CLS", ms(300));
+    bool all = true;
+    for (unsigned row = 1; row < 25; ++row)
+        for (unsigned c = row == 1 ? 1 : 0; c < 80; ++c) // (the cursor waits at row 1's first cell)
+            all = all && attr(r, row, c) == 0x27 && card(r, mapbase(r) + row * 160 + c * 2) == ' ';
+    CHECK(all);
+    CHECK_EQ(line(r, 0), std::string("Ok"));
+}
+
+// WIDTH 40 and 80, and 30 rows: WIDTH 40 makes the layer 40 columns (CONFIG's type 1), the line 40 wide and the
+// text 80 bytes a row; WIDTH 80,30 has all 30 rows (decision 8's OO-1 extension; VSCROLL 0), so LOCATE 30,1 works;
+// WIDTH 50 is Illegal function call. Guards 40-column text scattered across the page. Seen failing with the row
+// stride left at 160 after WIDTH 40.
+TEST(width_40_80_and_30_rows)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "WIDTH 40", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    enter(r, "PRINT \"FORTY\":PRINT POS(0)", ms(300));
+    CHECK_EQ(row_at(r, 2, mapbase(r), 40).substr(0, 5), std::string("FORTY"));
+    CHECK_EQ(row_at(r, 3, mapbase(r), 40).substr(0, 3), std::string(" 1 "));
+    enter(r, "LOCATE 5,1:PRINT STRING$(45,\"W\");", ms(300));
+    CHECK_EQ(row_at(r, 4, mapbase(r), 40), std::string(40, 'W'));
+    CHECK_EQ(row_at(r, 5, mapbase(r), 40).substr(0, 5), std::string("WWWWW"));
+    enter(r, "WIDTH 80,30", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x80);
+    CHECK_EQ(reg(r, L0_VSCROLL) | reg(r, L0_VSCROLL + 1) << 8, 0);
+    enter(r, "LOCATE 30,1:PRINT \"THIRTY\";:LOCATE 10,1", ms(300));
+    CHECK_EQ(line(r, 29), std::string("THIRTY"));
+    enter(r, "WIDTH 50", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+}
+
+// SCREEN( reads a cell: PRINT "Q"; then SCREEN(r,c) is 81 and SCREEN(r,c,1) the attribute, in one statement.
+// Guards SCREEN() returning the old character. Seen failing with SCRNFP not running OUTDO's TXBUF first (the "Q"
+// still waiting to be drawn).
+TEST(screen_reads_a_cell)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:LOCATE 3,3:PRINT \"Q\";SCREEN(3,3);SCREEN(3,3,1)", ms(400));
+    CHECK_EQ(line(r, 2), std::string("  Q 81  7"));
+}
+
+// SCREEN 0's pages (the owner's answer 6): SCREEN 0,,1,0 sends PRINT to page 1, unseen (MAPBASE still page 0's);
+// SCREEN 0,,1,1 shows it, page 0 as it was. Guards pages mixed up. Seen failing with the driver writing the
+// visual page, not the active one.
+TEST(screen_0_pages)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "CLS:PRINT \"PAGE ZERO\"", ms(300));
+    const uint32_t page0 = mapbase(r);
+    enter(r, "SCREEN 0,,1,0:CLS:PRINT \"PAGE ONE\"", ms(400));
+    CHECK_EQ(mapbase(r), page0);
+    CHECK_EQ(line(r, 0), std::string("PAGE ZERO"));
+    enter(r, "SCREEN 0,,1,1", ms(300));
+    CHECK(mapbase(r) != page0);
+    CHECK_EQ(line(r, 0), std::string("PAGE ONE"));
+    CHECK_EQ(row_at(r, 0, page0).substr(0, 9), std::string("PAGE ZERO"));
+    enter(r, "SCREEN 1", ms(300));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    enter(r, "SCREEN 0,,4", ms(300));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+}
+
 int main()
 {
     return run_all();

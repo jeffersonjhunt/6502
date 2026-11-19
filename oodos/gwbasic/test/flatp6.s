@@ -7,6 +7,7 @@
 .include "gwbasic.inc"
 
 .export SCNIPL, TXRUN, SCINLN, KEYEV, EDTBRK
+.export CLSP, LOCATP, GWWIDP, COLORP, SCRNP, SCRNFP, CSRLNP
 
 .code
 
@@ -14,4 +15,11 @@ SCNIPL:
 TXRUN:
 SCINLN:
 KEYEV:
-EDTBRK:         RTS
+EDTBRK:
+CLSP:
+LOCATP:
+GWWIDP:
+COLORP:
+SCRNP:
+SCRNFP:
+CSRLNP:         RTS
