@@ -1521,6 +1521,10 @@ TEST(bsave_and_bload_the_screen_page)
     enter(r, "CLS:LOCATE 5,1:PRINT \"ZZZZZZ\":BSAVE \"M:Z\",0,4000:LOCATE 20,1", ms(1500));
     enter(r, "CLS:LOCATE 5,1:PRINT \"ABCDEF\";:BLOAD \"M:Z\",0:PRINT SCREEN(5,1):LOCATE 20,1", ms(1500));
     CHECK_EQ(line(r, 4), std::string("ZZZZZZ 90"));
+    enter(r, "CLS:PRINT \"OLDSCREEN\":BSAVE \"M:O\",0,4000:LOCATE 20,1", ms(1500));
+    enter(r, "CLS:PRINT \"NEW\":DEF SEG=&H9000:BLOAD \"M:O\",0:PRINT PEEK(0):DEF SEG=&H8000:LOCATE 20,1", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("NEW"));
+    CHECK_EQ(line(r, 1), std::string(" 79"));
 }
 
 // D7: a run on the page must lie inside it (the 7c tail's rule, the reach answer 3's): under &H8000, BLOAD of a
