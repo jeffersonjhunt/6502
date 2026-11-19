@@ -274,7 +274,7 @@ FACSNG:         LDX     #RBL           ; the stacked integer
                 JSR     SPOP
                 BRA     SNGDO
 
-; INTDIV: "/" of two integers is single: 1/3 is .3333333.
+; INTDIV: "/" of two integers is single: 1/3 is .3333334 (the source's $FOUT).
 INTDIV:         LDX     #RBL
                 LDA     #2
                 JSR     SPUSH
