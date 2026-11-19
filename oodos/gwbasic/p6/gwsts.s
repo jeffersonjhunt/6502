@@ -539,7 +539,10 @@ KEYOX:          CMP     KEYSW
 @x:             RTS
 
 ; KEYLST: the ten keys, "F", the number, a blank, the text (KEYLSP: a CR as
-; 27), a new line each.
+; 27), a new line each. OO-1: 27 printed would be ESC (DOESC: written where
+; the cursor is, which doesn't move, so the next character covers it); so a
+; blank is printed, and 27 written by SCROUT over its cell (SCNOUT leaves DX
+; at it), as the PC shows the CR (7d2's review round 1, F3).
 KEYLST:         LDA     #1
                 STA     KLEN           ; the key's number
                 STZ     KOFS           ; its place in STRTAB
@@ -558,12 +561,16 @@ KEYLST:         LDA     #1
                 LDX     KOFS
 @c:             LDA     STRTAB,X
                 BEQ     @e
+                PHX
                 CMP     #13            ; KEYLSP
-                BNE     :+
-                LDA     #27
-:               PHX
+                BNE     @p
+                LDA     #' '
                 JSR     PUTC
-                PLX
+                LDA     #27
+                JSR     SCROUT
+                BRA     @n
+@p:             JSR     PUTC
+@n:             PLX
                 INX
                 BRA     @c
 @e:             LDA     #13            ; (PUTC: and an LF)
@@ -576,7 +583,7 @@ KEYLST:         LDA     #1
                 LDA     KLEN
                 CMP     #NMKEYF + 1
                 BCC     @k
-                BRA     KEYOXX
+                JMP     KEYOXX
 
 .segment "BRAM"
 KLEN:           .res    1              ; KEY's length; KEYLST's number

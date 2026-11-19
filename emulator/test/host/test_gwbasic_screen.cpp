@@ -798,6 +798,23 @@ TEST(key_list_lists_the_ten)
     CHECK_EQ(line(r, 24), KEYLINE);
 }
 
+// KEY LIST with a CR in the middle of a key's text (7d2's review round 1, F3): KEY 1,"A"+CHR$(13)+"B" lists as F1,
+// A, 27 (the CR, as the PC shows it), B: the 27 in its own cell and the B after it, not over it; the key line shows
+// the same (KEYDCH). Guards a key's text listed short, a character lost under the 27. Seen failing with KEYLSP's 27
+// printed by PUTC (DOESC: the cursor doesn't move, so the B covered it: "F1 AB").
+TEST(key_list_shows_a_cr_in_the_middle_of_a_text)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"A\"+CHR$(13)+\"B\":CLS:KEY LIST", ms(600));
+    CHECK_EQ(line(r, 0), std::string("F1 A\x1b" "B"));
+    CHECK_EQ(line(r, 1), std::string("F2 RUN\x1b"));
+    CHECK_EQ(line(r, 24).substr(0, 8), std::string("1A\x1b" "B    "));
+    enter(r, "CLS:PRINT \"P\";CHR$(27);\"Q\"", ms(300));
+    CHECK_EQ(line(r, 0), std::string("PQ"));
+}
+
 // ^T (SCNDRV.ASM's LABELK, the OEM's FKYADV): at 80 columns it turns the key line off and on; at 40 columns it shows
 // F1-F5, then F6-F10, then off, then F1-F5 again. Typed in the middle of a line (here turning it on) it changes
 // nothing of the line.
