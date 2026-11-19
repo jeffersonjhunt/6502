@@ -2,7 +2,7 @@
  * @file test_gwbasic_screen.cpp
  * @brief GW-BASIC's own text screen, phases 7d1-7d3 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
  *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY; 7d3's screen page for DEF SEG), run from OODOS's CCP on
- *        backplane.machine.
+ *        backplane.machine; 7e1's SCREEN 1 and 2 are test_gwbasic_gfx's (here SCREEN 3 is the refused mode).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_core does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1024,7 +1024,7 @@ TEST(screen_0_pages)
     CHECK(mapbase(r) != page0);
     CHECK_EQ(line(r, 0), std::string("PAGE ONE"));
     CHECK_EQ(row_at(r, 0, page0).substr(0, 9), std::string("PAGE ZERO"));
-    enter(r, "SCREEN 1", ms(300));
+    enter(r, "SCREEN 3", ms(300));
     CHECK(last_row(r, "Illegal function call") >= 0);
     enter(r, "SCREEN 0,,4", ms(300));
     CHECK(last_row(r, "Illegal function call") >= 0);
@@ -1034,11 +1034,14 @@ TEST(screen_0_pages)
 // --timing's method (the run of a loop with the statement less the run without it, over 200 passes): at most 30,000
 // cycles. A whole-window scroll, MKRMNL's SCRLUP (SCRLUPN) from its JSR to its return, the average over the
 // scrolls of 40 lines (24 lines: 23 rows copied on the card by DM_VCOPY, the terminators, the last row blank), the
-// row last printed already back on the card: at most 14,000, the owner's cap of 2026-11-18 (answer 4, revised: the
-// figure measured after SCRLUP's trim, 13,892, rounded up to the next 500). With the row just printed still to
-// write back, as under LIST, the scroll writes it first: about 2,000 more, a write the PRINT makes anyway. And, for
-// the record, a key's cost: EVPOLL's far call to KEYEV, the cooked twin's drain included. Guards a screen too slow
-// to use. Seen failing with the run bypassed (TXRUN far called for every byte).
+// row last printed already back on the card, less the cycles of the interrupt handlers inside each (the IRQ vector's
+// entry to its RTI: OODOS's tick and the frame's, which land wherever the loader's time before the measurement puts
+// them, 7e's answer 2 of 2026-11-19): at most 14,000, the owner's cap of 2026-11-18 (answer 4, revised: the figure
+// measured after SCRLUP's trim, 13,892, rounded up to the next 500), on the figure without them since 7e1; both
+// printed. With the row just printed still to write back, as under LIST, the scroll writes it first: about 2,000
+// more, a write the PRINT makes anyway. And, for the record, a key's cost: EVPOLL's far call to KEYEV, the cooked
+// twin's drain included. Guards a screen too slow to use. Seen failing with the run bypassed (TXRUN far called for
+// every byte).
 TEST(print_and_scroll_are_timed)
 {
     CcpRig r;
@@ -1056,19 +1059,33 @@ TEST(print_and_scroll_are_timed)
     // The scroll: SCRLUP's calls while 40 lines are printed.
     const auto l6 = lbl_map(std::string("p6.lbl"));
     const uint16_t up = l6.at("SCRLUPN"), kev = l6.at("KEYEV");
-    uint64_t from = 0, total = 0, kfrom = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0;
-    unsigned n = 0, kn = 0;
-    int depth = -1, kdepth = -1;
+    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8); // the IRQ vector's entry
+    uint64_t from = 0, total = 0, kfrom = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0, ifrom = 0, inirq = 0, own = 0;
+    unsigned n = 0, kn = 0, nirq = 0;
+    int depth = -1, kdepth = -1, idepth = -1;
     r.watch = [&](uint16_t pc) {
+        if (depth >= 0 && idepth < 0 && pc == irq) // an interrupt inside the scroll: its handler's cycles
+        {
+            ifrom = r.cpu->cycles();
+            idepth = r.cpu->regs().s;
+            ++nirq;
+        }
+        else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
+        {
+            inirq += r.cpu->cycles() - ifrom;
+            idepth = -1;
+        }
         if (depth < 0 && pc == up)
         {
             from = r.cpu->cycles();
             depth = r.cpu->regs().s;
+            inirq = 0;
         }
-        else if (depth >= 0 && r.cpu->regs().s == depth + 2)
+        else if (depth >= 0 && idepth < 0 && r.cpu->regs().s == depth + 2)
         {
             const uint64_t c = r.cpu->cycles() - from;
             total += c;
+            own += c - inirq;
             lo = std::min(lo, c);
             hi = std::max(hi, c);
             ++n;
@@ -1093,16 +1110,20 @@ TEST(print_and_scroll_are_timed)
     std::printf("  a scroll with the row just printed written back first: %u, %.0f cycles each\n", n, with_row);
     n = 0;
     total = 0;
+    own = 0;
+    nirq = 0;
     lo = ~uint64_t{0};
     hi = 0;
     enter(r, "CLS:FOR I=1 TO 40:PRINT:NEXT", ms(1500));
     std::printf("  (each from %llu to %llu)\n", static_cast<unsigned long long>(lo), static_cast<unsigned long long>(hi));
     r.watch = nullptr;
     const double scroll = n ? static_cast<double>(total) / n : 0, key = kn ? static_cast<double>(ktotal) / kn : 0;
-    std::printf("  a whole-window scroll (SCRLUPN, MKRMNL's SCRLUP): %u, %.0f cycles each (the cap 14,000)\n", n, scroll);
+    const double scroll_own = n ? static_cast<double>(own) / n : 0;
+    std::printf("  a whole-window scroll (SCRLUPN, MKRMNL's SCRLUP): %u, %.0f cycles each with the %u interrupts "
+                "inside them, %.0f without their handlers (the cap 14,000)\n", n, scroll, nirq, scroll_own);
     std::printf("  a key (KEYEV, its drain included): %u, %.0f cycles each\n", kn, key);
     CHECK(n >= 15);
-    CHECK(scroll > 1000 && scroll <= 14000);
+    CHECK(scroll_own > 1000 && scroll_own <= 14000);
 }
 
 // For the record (7d2, unit 6), not gated: what the key line and the soft keys cost. CLS with the key line on (the

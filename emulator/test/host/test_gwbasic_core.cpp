@@ -1075,6 +1075,31 @@ TEST(key_stays_advanced_feature_in_console_mode)
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 
+// The graphics (7e1) stay Advanced Feature in console mode, as the screen's statements do (7d's answer 7): PSET,
+// PRESET, the graphics LINE (input_semicolon_lprint_and_later_forms's too) and SCREEN 1 each say so; POINT is still
+// a formula in parentheses (Syntax error), as before 7e; and the console's card memory (units 0-12, $000000-$0033FF)
+// is as it was. Guards a serial terminal's session drawing on card memory GW-BASIC never set up. Seen failing with
+// PSET's stub (p8/far5.s) without its SCRMOD test.
+TEST(graphics_are_advanced_feature_in_console_mode)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    VideoCard &vid = *r.machine->video_card();
+    std::vector<uint8_t> con(0x3400);
+    for (uint32_t i = 0; i < con.size(); ++i)
+        con[i] = vid.card_peek(i);
+    for (const char *k : {"PSET (1,1),1", "PRESET (2,2)", "LINE (0,0)-(9,9),1,BF", "LINE -(5,5)", "SCREEN 1",
+                          "SCREEN 2:PSET (1,1)"})
+        CHECK_EQ(command(r, k), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT POINT(1,1)"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
+    unsigned moved = 0;
+    for (uint32_t i = 0; i < con.size(); ++i)
+        moved += vid.card_peek(i) != con[i];
+    CHECK_EQ(moved, 0u);
+}
+
 int main()
 {
     return run_all();

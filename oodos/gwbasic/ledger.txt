@@ -807,7 +807,7 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST, SNDINI later 7d-7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST by a far call in screen mode (7e1); SNDINI later 7f
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -923,7 +923,7 @@ GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the 
 GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
 GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
 GWSTS.ASM SNDRST -> later 7f: the break's music reset
-GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
+GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) later 7e: DRAW's (7e2)
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
 GIODSK.ASM PROCHK -> p2/gwmain.s PROCHK # P2's; P3's PRODIR and P4's BINSAV have it inline
@@ -996,7 +996,7 @@ GWMAIN.ASM GOSUB2 -> res/gwmain.s GOSUB2 # reached from the poll (TRPOLL) when G
 GWMAIN.ASM RETURN -> p8/gwmain.s RETURN
 GWMAIN.ASM RTRNOK -> p8/gwmain.s RTRNOK # SAVSTK left past the token, as the 8086's
 GWMAIN.ASM NOTEVT -> p8/gwmain.s NOTEVT # an event's entry first: P3's RTNTRP (the F_TRPO test, RSTTRP; the flag is in P3)
-GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its home block stub p8/gwmain.s LINE; GLINE later 7e, DLINE 7c
+GWMAIN.ASM LINE -> p1/gwmain.s LINEP # its home block stub p8/gwmain.s LINE, which sends LINE alone to P5's GLINEP in screen mode (7e1); DLINE 7c
 GWMAIN.ASM RELINE -> p1/gwmain.s RELINE # LETCN2 as INPCOM, the variable in PTR
 GWMAIN.ASM TRYAGN -> p1/gwmain.s TRYAGN
 GWMAIN.ASM SCNSTR -> p1/gwmain.s SCNSTR
@@ -1110,9 +1110,9 @@ GWSTS.ASM VARPT2 -> p3/gwsts.s VARPT2P # from VARPTR, its resident stub res/far3
 GIO86.ASM GETPTR -> p4/gio86.s GETPTR # an entry, VARPTR's (res/gweval.s); OO-1: the FDB is P4's table's
 GWSTS.ASM SCRENF -> p6/gwsts.s SCRNFP # an entry, from the resident evaluator in screen mode (res/gweval.s)
 GWSTS.ASM GETLIN -> p6/gwsts.s CSRLNP # an entry, as SCRENF
-GENGRP.ASM POINT -> later 7e: POINT
+GENGRP.ASM POINT -> p5/gengrp.s POINTP # the resident evaluator's branch in screen mode (res/gweval.s); OO-1: Illegal function call in SCREEN 0 (PC-BASIC's)
 DSKCOM.ASM FIXINP -> p4/dskcom.s FIXINPP # its resident stub res/far4.s FIXINP
-GENGRP.ASM GLINE -> later 7e: the graphics LINE (here Advanced Feature)
+GENGRP.ASM GLINE -> p5/gengrp.s GLINEP # its home block stub p8/gwmain.s LINE, screen mode; DOBOXF and BOXLOP inline; OO-1: a BF box wholly past one edge draws nothing (BOXOFF, review round 1, F1)
 DSKCOM.ASM DLINE -> p4/dskcom.s DLINE # an entry, INPDOR in it
 DSKCOM.ASM FILIND -> p4/dskcom.s FILIND # an entry
 GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY
@@ -1256,9 +1256,9 @@ GIO86.ASM ERBFM2 -> p4/gio86.s BLOADP
 GIO86.ASM INP16 -> p4/gio86.s INP16 # the header's three words, into BHDR
 GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
-GENGRP.ASM PSET -> later 7e
-GENGRP.ASM PRESET -> later 7e
-GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0 (1, 2 and the OO-1's modes 7e's); its stub p8/far6.s SCREEN
+GENGRP.ASM PSET -> p5/gengrp.s PSETP # its home block stub p8/far5.s PSET, screen mode; PPRSET, PSETC, PSTNOT inline
+GENGRP.ASM PRESET -> p5/gengrp.s PRSETP # its home block stub p8/far5.s PRESET
+GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; the OO-1's modes later 7e: 7e5's); its stub p8/far6.s SCREEN
 GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f
 GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 #
@@ -1267,7 +1267,7 @@ GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
-GWSTS.ASM PENF -> later 7e: PEN
+GWSTS.ASM PENF -> later 7e: PEN (7e4)
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
@@ -1288,10 +1288,10 @@ FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as 
 FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes on to MAIN or CHNENT's SCRTCH (the far call rule)
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
-ADVGRP.ASM PAINT -> later 7e
+ADVGRP.ASM PAINT -> later 7e: PAINT (7e2)
 GWSTS.ASM COMS -> p3/gwsts.s COMSP # its stub p8/far3.s COMS (STMDSX's); ON COM's trap 7f
-ADVGRP.ASM CIRCLE -> later 7e
-ADVGRP.ASM DRAW -> later 7e
+ADVGRP.ASM CIRCLE -> later 7e: CIRCLE (7e2)
+ADVGRP.ASM DRAW -> later 7e: DRAW, with MACLNG (7e2)
 GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
@@ -1301,10 +1301,10 @@ GWSTS.ASM MKDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11
 GWSTS.ASM RMDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
 GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
 GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
-GWSTS.ASM VIEW -> later 7e
-GWSTS.ASM WINDOW -> later 7e
-GWSTS.ASM PMAP -> later 7e
-GWSTS.ASM PALETE -> later 7e: PALETTE
+GWSTS.ASM VIEW -> later 7e: VIEW (7e4)
+GWSTS.ASM WINDOW -> later 7e: WINDOW (7e4)
+GWSTS.ASM PMAP -> later 7e: PMAP (7e4)
+GWSTS.ASM PALETE -> later 7e: PALETTE (7e4)
 GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) the OEM's p6/oem.s LCPYP in screen mode (7d2), Advanced Feature in console mode
 CALL86.ASM CALLSL -> later 7g: CALLS
 DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
@@ -1642,7 +1642,7 @@ DSKCOM.ASM LSETA -> p4/dskcom.s LSETA
 DSKCOM.ASM MAKDSC -> p4/dskcom.s MAKDSC
 DSKCOM.ASM MADESC -> p4/dskcom.s MADESC
 GWSTS.ASM PARSE -> p4/gwsts.s PARSE
-ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (p4/gwsts.s GRPVER gives Advanced Feature)
+ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (7e3; p4/gwsts.s GRPVER gives Advanced Feature)
 GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
 GIODSK.ASM SOUTPS -> p4/giodsk.s SOUTPS
 GIODSK.ASM PGSUB1 -> p4/giodsk.s PGSUB1
@@ -1731,7 +1731,7 @@ SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/o
 SCNDRV.ASM SCNBRK -> p6/scndrv.s SCNBRK
 SCNDRV.ASM SCNSWI -> p6/scndrv.s SCNSWI
 SCNDRV.ASM SCNLOC -> p6/scndrv.s SCNCLR # inline: CSRX and CSRY set where it is called
-SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR
+SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR # GRPINI left out (7e1's review round 1, F2, the owner's word: PC-BASIC's)
 SCNDRV.ASM SCNPOS -> p6/scndrv.s SCNPOS
 SCNDRV.ASM SCNGWI -> dropped: LINLEN is the resident's (res/oem.s), read where it is needed
 SCNDRV.ASM SCNRDT -> p6/scndrv.s SCNRDT
@@ -1802,7 +1802,25 @@ SCNDRV.ASM SCRLU1 -> p6/scndrv.s SCRLU1 # SCRLU0's, which SCRLUD joins
 SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
 SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
 SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
-GENGRP.ASM GRPINI -> later 7e: the graphics cursor home (SCNCLR's)
+GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P5's GMODE and GCLS (a mode's change, CLS); not P6's SCNCLR (7e1's review round 1, F2: PC-BASIC's CLS 2 and CHR$(12) keep the cursor)
+GENGRP.ASM SCAN1 -> p5/gengrp.s SCAN1 # 7e1: LINE's first point; "@" passed over
+GENGRP.ASM SCAND -> p5/gengrp.s SCAND # SCANN, SCXREL, SCYREL inline; the x pushed on the 6502's stack across the y's formula
+GENGRP.ASM ATRSCN -> p5/gengrp.s ATRSCN
+GENGRP.ASM ATRENT -> p5/gengrp.s ATRENT # ATRFIN, ATRFI2 inline; CX and DX on the 6502's stack across GETBYT
+GENGRP.ASM XDELT -> p5/gengrp.s XDELT # CNEGHL inline; the 8086's borrow in C, taken from the difference's sign (an end may be -1)
+GENGRP.ASM NEGHL -> p5/gengrp.s NEGHL
+GENGRP.ASM YDELT -> p5/gengrp.s YDELT
+GENGRP.ASM XCHGY -> p5/gengrp.s XCHGY
+GENGRP.ASM XCHGAC -> p5/gengrp.s XCHGAC
+GENGRP.ASM XCHGX -> p5/gengrp.s XCHGX
+GENGRP.ASM DOLINE -> p5/gengrp.s DOLINE # BOXLIN inline; OO-1: block 1 back in W1 after each line
+GENGRP.ASM DOGRPH -> p5/gengrp.s DOGRPH # DOGRP2, LINCN2, YDLTBG, LINCN3 inline; MINUPD and MAXUPD vectors (JMP (a)), not JMP cells; OO-1, the owner's ruling (2026-11-19): its ends by SCALXL (one past the screen), not SCALXY's truncation, and a line off the screen drawn by LINCLP (PC-BASIC's clipping)
+GENGRP.ASM HLFDE -> p5/gengrp.s HLFDE
+GWSTS.ASM LINLP3 -> p5/gengrp.s LINLP3 # the line's inner loop, after DOGRPH in P5; LINCLP the same loop for a clipped line (OO-1)
+GENGRP.ASM BOXLIN -> p5/gengrp.s BOXLIN # in DOLINE's body: LINE ,B
+GENGRP.ASM PPRSET -> p5/gengrp.s PSETC # PRESET's way into PSET: the text pointer's POP, none here
+GENGRP.ASM SCANN -> p5/gengrp.s SCANN # in SCAND's body: SCAN1's "-" alone, the cursor
+GENGRP.ASM CNEGHL -> p5/gengrp.s CNEGHL # in XDELT's body: YDELT's tail
 GWSTS.ASM KEYDSP -> p6/scndrv.s KEYDSP # the cursor not turned off and on round it (shown only in KEYSIN's wait)
 GWSTS.ASM KEYOX -> p6/gwsts.s KEYOX # KEYSW's change; the scroll window's foot not moved (AH): the last line is always outside it
 GWSTS.ASM KEYOXX -> p6/gwsts.s KEYOXX

@@ -40,7 +40,7 @@
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
-.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY
+.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET
 
 .code
 
@@ -107,7 +107,7 @@ STMDSP:         S       ENDST          ; END
                 S       DEFINT         ; DEFINT
                 S       DEFREA         ; DEFSNG
                 S       DEFDBL         ; DEFDBL
-                S       LINE           ; LINE (LINE INPUT; the graphics LINE is 7e's)
+                S       LINE           ; LINE (LINE INPUT, and 7e1's graphics LINE: p8/gwmain.s)
                 S       WHILE          ; WHILE
                 S       WEND           ; WEND
                 S       ADVERR         ; CALL (7g)
@@ -130,8 +130,8 @@ STMDSP:         S       ENDST          ; END
                 S       BLOAD          ; BLOAD (p8/far4.s)
                 S       ADVERR         ; SOUND (7f)
                 S       ADVERR         ; BEEP (7f)
-                S       ADVERR         ; PSET (7e)
-                S       ADVERR         ; PRESET (7e)
+                S       PSET           ; PSET (p8/far5.s: 7e1's, in screen mode)
+                S       PRESET         ; PRESET (p8/far5.s)
                 S       SCREEN         ; SCREEN (p8/far6.s; modes but 0 7e's)
                 S       KEY            ; KEY (p8/far6.s; KEY(n) 7f's)
                 S       LOCATE         ; LOCATE (p8/far6.s)

@@ -8,19 +8,24 @@
 ; evaluator's (res/oem.s); in console mode they stay Advanced Feature (the
 ; owner's answer 7).
 ;
-;   CLSP      CLS [n]: the active page cleared (CLRSCN), the cursor home
+;   CLSP      CLS [n]: the active page cleared (CLRSCN), the cursor home;
+;             in a graphics mode (7e1) the graphics' page too (P5's GCLS),
+;             CLS 1 the graphics alone, CLS 2 the text alone
 ;   LOCATP    LOCATE [y][,[x][,[cursor][,[start][,stop]]]]
 ;   GWWIDP    WIDTH n[,m] for the screen: 40 or 80 columns, 25 or 30 rows
-;             (30: decision 8's OO-1 extension); the pages cleared
+;             (30: decision 8's OO-1 extension); the pages cleared; in a
+;             graphics mode (7e1) the mode: 40 SCREEN 1, 80 SCREEN 2
 ;   SWIDP     WIDTH "SCRN:",n (P4's SCNSWD, GIOSCN.ASM's): A the width,
 ;             40 or 80 with the rows kept, 255 (the source's infinite) no
 ;             change; Advanced Feature in console mode (7d2's answer 6)
 ;   COLORP    COLOR [fg][,[bg][,border]]: fg 0-31 (16 on: blinking), bg
-;             0-15 (its low 3 bits shown), border 0-15
-;   SCRNP     SCREEN [mode][,[burst][,[apage][,vpage]]]: mode 0 only (1, 2
-;             and the others are 7e's: Illegal function call), the pages
-;             0-3 at 80 columns, 0-7 at 40 (the owner's answer 6); vpage
-;             apage's if not given
+;             0-15 (its low 3 bits shown), border 0-15; in a graphics mode
+;             (7e1) P5's GCOLOR: COLOR [background][,palette]
+;   SCRNP     SCREEN [mode][,[burst][,[apage][,vpage]]]: modes 0, 1 and 2
+;             (7e1: 1 and 2 P5's GMODE, their text on layer 1 over the
+;             graphics; the others Illegal function call), SCREEN 0's pages
+;             0-3 at 80 columns, 0-7 at 40 (the owner's answer 6), a
+;             graphics mode's 0 only; vpage apage's if not given
 ;   SCRNFP    SCREEN(y,x[,z]): the cell's character, or with z not 0 its
 ;             attribute
 ;   CSRLNP    CSRLIN: the line the next character goes on (GTLINE)
@@ -141,9 +146,15 @@ CLSP:           JSR     P6IN
                 CMP     #3             ; CLS 0-2 (the OEM's: 0 all, 1 graphics, 2 text)
                 BCC     :+
                 JMP     FCERR
-:               JSR     EOSCHK
-                JSR     CLRSCN
-                JMP     P6OUT
+:               STA     LOCP
+                JSR     EOSCHK
+                LDA     GMOD           ; 7e1: a graphics mode's page, P5's GCLS
+                BEQ     @t             ; (carry set: CLS 1, the graphics alone)
+                LDA     LOCP
+                FJSR    GCLS
+                BCS     @x
+@t:             JSR     CLRSCN
+@x:             JMP     P6OUT
 
 ; --- LOCATE (GWSTS.ASM 120) ---------------------------------------------------------------
 
@@ -243,17 +254,40 @@ SWIDP:          BIT     SCRMOD
 
 ; SWIDTH (the OEM's): LOCX columns (40, 80), LOCY rows (25, 30): the
 ; driver set for them, every page cleared, page 0 active and shown, home.
-SWIDTH:         LDA     LOCX
+; 7e1: in a graphics mode WIDTH chooses the mode (PC-BASIC's): 40 SCREEN 1,
+; 80 SCREEN 2, 25 rows only; the same mode, nothing.
+SWIDTH:         LDA     GMOD
+                BEQ     @txt
+                LDA     LOCY
+                CMP     #25
+                BNE     @bad
+                LDX     #GMTILE
+                LDA     LOCX
+                CMP     #40
+                BEQ     :+
+                INX
+                CMP     #80
+                BNE     @bad
+:               CPX     GMOD
+                BEQ     @same
+                STX     NMODE
+                JMP     SMODE
+@same:          CLC
+                RTS
+@txt:           LDA     LOCX
                 CMP     #40
                 BEQ     :+
                 CMP     #80
                 BNE     @bad
 :               LDA     LOCY
                 CMP     #25
-                BEQ     :+
+                BEQ     SWSET
                 CMP     #30
-                BNE     @bad
-:               LDA     LOCX
+                BEQ     SWSET
+@bad:           SEC
+                RTS
+; SWSET: SWIDTH's LOCX and LOCY, checked (SMODE's).
+SWSET:          LDA     LOCX
                 LDX     LOCY
                 JSR     SCNSWI
                 STZ     APAGE
@@ -264,14 +298,26 @@ SWIDTH:         LDA     LOCX
                 JSR     VSHOW
                 CLC
                 RTS
-@bad:           SEC
-                RTS
 
 ; --- COLOR (GWSTS.ASM 244) ----------------------------------------------------------------
 
 COLORP:         JSR     P6IN
                 JSR     GTPRMS
+                LDA     GMOD           ; 7e1: a graphics mode's, P5's GCOLOR
+                BNE     @g
                 JSR     SETCLR
+                JCS     GOFCER
+                JMP     P6OUT
+@g:             LDA     PVAL           ; the background, the palette
+                STA     RDL
+                LDA     PFLG
+                STA     RDH
+                LDA     PVAL + 1
+                STA     RBL
+                LDA     PFLG + 1
+                STA     RBH
+                LDA     PCNT
+                FJSR    GCOLOR
                 JCS     GOFCER
                 JMP     P6OUT
 
@@ -340,16 +386,39 @@ SCRNP:          JSR     P6IN
                 JMP     P6OUT
 GOFCER2:        JMP     FCERR
 
-; SCRSTT (the OEM's): SCREEN 0 only (the other modes are 7e's); the burst
-; taken and passed over; the active page and the visual one.
+; SCRSTT (the OEM's): the mode (0, 1, 2; as it is if not given: 7e1; 3-9
+; and the OO-1's own Illegal function call, 7e5's); the burst taken and
+; passed over; the active page and the visual one, SCREEN 0's (a graphics
+; mode has one, CGA's: 0 only). A change of mode (SMODE) sets the new one up
+; (P5's GMODE: its page, its palette, layer 0) and the text for it: its
+; colours the PC's (7, or the mode's 3 or 1 on 0, transparent over the
+; graphics), 40 columns for SCREEN 1, 80 for SCREEN 2, SCREEN 0 the width
+; the mode left (40 after SCREEN 1, 80 after SCREEN 2: PC-BASIC's), 25 rows, every page cleared, on layer 1 over the graphics (VSHOW).
+; The same mode again changes nothing (PC-BASIC's: the picture stays).
 SCRSTT:         LDA     PCNT
                 CMP     #5
                 BCS     @bad
+                LDX     GMOD
                 LDA     PFLG
                 BEQ     :+
-                LDA     PVAL
-                BNE     @bad           ; SCREEN 1, 2 ...: 7e's
-:               LDX     APAGE
+                LDX     PVAL
+:               CPX     #GMMONO + 1
+                BCS     @bad           ; SCREEN 3 ...: no such mode
+                STX     NMODE
+                TXA
+                BEQ     @s0
+                LDA     PFLG + 2       ; a graphics mode: page 0 only
+                BEQ     :+
+                LDA     PVAL + 2
+                BNE     @bad
+:               LDA     PFLG + 3
+                BEQ     :+
+                LDA     PVAL + 3
+                BNE     @bad
+:               CPX     GMOD
+                BEQ     @ok
+                JMP     SMODE
+@s0:            LDX     APAGE
                 LDA     PFLG + 2
                 BEQ     :+
                 LDX     PVAL + 2
@@ -362,7 +431,11 @@ SCRSTT:         LDA     PCNT
                 CPX     NPAGES
                 BCS     @bad
 :               STX     NVP            ; (not given: apage's)
-                LDA     NAP
+                LDA     GMOD           ; from a graphics mode: SCREEN 0 first
+                BEQ     :+
+                JSR     SMODE
+                BCS     @bad
+:               LDA     NAP
                 CMP     APAGE
                 BEQ     :+
                 STA     APAGE
@@ -370,13 +443,34 @@ SCRSTT:         LDA     PCNT
                 JSR     KEYDSP         ; the key line on the new page
 :               LDA     NVP
                 CMP     VPAGE
-                BEQ     :+
+                BEQ     @ok
                 STA     VPAGE
                 JSR     VSHOW
-:               CLC
+@ok:            CLC
                 RTS
 @bad:           SEC
                 RTS
+
+; SMODE (7e1): the mode NMODE, from another (SCRSTT, SWIDTH); carry set,
+; nothing changed, if P5 can't set it up (the card's memory taken).
+SMODE:          LDA     NMODE
+                FJSR    GMODE
+                BCS     @x
+                LDX     NMODE
+                STX     GMOD
+                LDA     MODEFG,X       ; the text's colours: COLOR 7,0 or the mode's
+                STA     FGC
+                STA     ATTR
+                STZ     BGC
+                STZ     BRDC
+                LDA     MODEW,X        ; its width (SCREEN 0: the current, CRTWID)
+                BNE     :+
+                LDA     CRTWID
+:               STA     LOCX
+                LDA     #25
+                STA     LOCY
+                JMP     SWSET
+@x:             RTS
 
 ; --- SCREEN(, CSRLIN (GWSTS.ASM 258) ------------------------------------------------------
 
@@ -584,7 +678,15 @@ KEYLST:         LDA     #1
                 BCC     @k
                 JMP     KEYOXX
 
+.segment "RODATA"
+GMTILE          = 1                    ; the modes (P5's GMODEV)
+GMMONO          = 2
+MODEFG:         .byte   7, 3, 1        ; by mode: the text's colour
+MODEW:          .byte   0, 40, 80      ;   its width (0: the current one)
+
 .segment "BRAM"
+GMOD:           .res    1              ; 7e1: the mode, 0-2, as P5's GMODEV
+NMODE:          .res    1              ;   SCRSTT's and SWIDTH's new one
 KLEN:           .res    1              ; KEY's length; KEYLST's number
 KOFS:           .res    1              ; KEYLST's place
 PMAX            = 8

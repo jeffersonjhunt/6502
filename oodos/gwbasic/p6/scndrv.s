@@ -25,8 +25,8 @@
 ; in C and its ZF in Z where a caller tests them.
 ;
 ; OO-1: the function-key line (KEYSW, LABELK's ^T, KEYDSP's line: 7d2) is
-; the last line, LINCNT, always outside the scroll window; GRPINI (the graphics cursor) is
-; 7e's; the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
+; the last line, LINCNT, always outside the scroll window; SCNCLR doesn't call GRPINI
+; (7e1's review round 1, F2: P5's GCLS centres the graphics cursor for CLS); the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
 ; two-byte (DBLCHR) characters aren't built (DBLCHR is 0 in the source
 ; too).
 
@@ -98,8 +98,10 @@ SCNSWI:         STA     CRTWID
 
 ; --- SCNCLR, SCNPOS (SCNDRV.ASM 251) ------------------------------------------------------
 
-SCNCLR:         JSR     TTBINI
-                JSR     WHOME
+SCNCLR:         JSR     TTBINI         ; (the source's GRPINI here left out: review
+                JSR     WHOME          ; round 1, F2, the owner's word: PC-BASIC's CLS 2
+                                       ; and CHR$(12) keep the graphics cursor; CLS's
+                                       ; page clear, P5's GCLS, centres it)
                 MOVB    CSRY, xDL      ; SCNLOC
                 MOVB    CSRX, xDH
                 JMP     KEYDSP

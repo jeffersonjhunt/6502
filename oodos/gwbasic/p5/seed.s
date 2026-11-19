@@ -24,6 +24,13 @@
 ;   DSPUT     after BLOAD's BLDRUN (p8/far4.s): a run DSRUN staged for the
 ;             screen page, from bank 8's RAM to the card, as far as the
 ;             file gave bytes (7d3)
+;   TXMODE    P6's text page shown: on layer 0, or (7e1) on layer 1 over
+;             the graphics (below)
+;
+; 7e1: the graphics are p5/gfx.s (the modes), p5/gfxoem.s (the pixels) and
+; p5/gengrp.s (the statements). In SCREEN 1 and 2 the screen page (bank 8,
+; DSSCR and DSSRUN) is Illegal function call until 7e3 gives it their
+; layout.
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
 ; 8088's does. DSBYTE's routes:
@@ -77,12 +84,25 @@
 
 .include "gwbasic.inc"
 .include "oolib.inc"
+.include "p5/p5.inc"
 
 ;@entry GXSTRT
 ;@entry DSBYTE
 ;@entry DSRUN
 ;@entry TXMODE
 ;@entry DSPUT
+; 7e1's entries (p5/gfx.s, p5/gengrp.s) after the seed's, so these keep
+; their places in the jump table and the blocks that call them are as they
+; were (gwgen.py numbers the entries by file, then by line).
+;@entry GMODE
+;@entry GCOLOR
+;@entry GCLS
+;@entry GRPRST
+;@entry GRPINI
+;@entry PSETP
+;@entry PRSETP
+;@entry POINTP
+;@entry GLINEP
 .export GXSTRT, DSBYTE, DSRUN, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA
@@ -171,7 +191,10 @@ GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byt
 ; TXMODE: P6's text page on layer 0: A/X its card page (MAPBASE), the font
 ; the console's at $000400, read only (the owner's answer 5); Y: bit 7
 ; BLINK, bit 6 25 rows centred (VSCROLL 440: the owner's answer 10), bits
-; 5-2 the border, bit 0 40 columns. The layer alone shown.
+; 5-2 the border, bit 0 40 columns. The layer alone shown. 7e1: Y's bit 1,
+; the overlay (a graphics mode, the owner's answer 5 of 2026-11-19): the
+; text on layer 1 instead, over the graphics on layer 0, in their palette
+; group (PALOFS, GGRP), and both layers shown.
 TXMODE:         STA     GX_V
                 STX     GX_V + 1
                 LDA     #<(VM_FONT / VM_PAGE)
@@ -182,7 +205,7 @@ TXMODE:         STA     GX_V
                 TYA
                 AND     #$81           ; CONFIG: BLINK, and type 0 (80) or 1 (40)
                 TAX
-                LDA     #0
+                JSR     TXLAY          ; A: the layer
                 JSR     GX_LAYER
                 STZ     GX_X
                 STZ     GX_X + 1
@@ -194,15 +217,27 @@ TXMODE:         STA     GX_V
                 STA     GX_Y
                 LDA     #>440
                 STA     GX_Y + 1
-:               LDA     #0
+:               JSR     TXLAY
                 JSR     GX_SCROLL
                 LDA     DSVAL
                 LSR     A
                 LSR     A
                 AND     #$0F
                 JSR     GX_BORDER
-                LDA     #$02           ; layer 0
-                JMP     GX_SHOW
+                JSR     TXLAY
+                BEQ     @one
+                LDX     GGRP           ; the overlay: layer 1 in the graphics'
+                JSR     GX_PALOFS      ; group, both layers shown
+                LDA     #$06
+                BRA     :+
+@one:           LDA     #$02           ; layer 0
+:               JMP     GX_SHOW
+; TXLAY: A the text's layer: 1 with the overlay (DSVAL's bit 1), else 0; Z
+; by it.
+TXLAY:          LDA     DSVAL
+                AND     #$02
+                LSR     A
+                RTS
 
 ; --- DSBYTE -------------------------------------------------------------------------------
 
@@ -282,6 +317,8 @@ DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or ne
 ; forgotten. One byte by DM_VREAD or DM_VWRITE through the scratch byte.
 DSSCR:          BIT     SCRMOD
                 BPL     DSFC
+                LDA     GMODEV         ; 7e1: SCREEN 1 and 2's page is 7e3's
+                BNE     DSFC
                 LDA     DSA            ; the byte is the run's last (DSPAGE)
                 STA     DSE
                 LDA     DSA+1
@@ -499,6 +536,8 @@ DSRUN:          STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
 ; there by DM_VREAD, and DSSCF set for DSPUT.
 DSSRUN:         BIT     SCRMOD
                 BPL     @fc
+                LDA     GMODEV         ; 7e1: SCREEN 1 and 2's page is 7e3's
+                BNE     @fc
                 BIT     DSB8
                 BMI     @fc
                 SEC
