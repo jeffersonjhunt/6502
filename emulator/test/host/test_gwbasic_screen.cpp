@@ -1576,6 +1576,35 @@ TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
     CHECK_EQ(line(r, 1), std::string("Illegal function call"));
 }
 
+// D9, for the record (7d3, unit 3), not gated: what the screen page costs, by timed()'s method (the run of a loop
+// with the statement less the run of the loop with X=0, over 200 passes): X=PEEK(0) and POKE 0,65 under &H8000 (the
+// page: SCPAGP's far call and one function 83 call) and &H9000 (bank 9, by GX_BLOCK); and a RUN line BLOADing a
+// 4,000-byte screen file and one BSAVEing 4,000 bytes, whole, under each.
+TEST(the_screen_page_costs)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:BSAVE \"M:S\",0,4000", ms(1500));
+    auto pass = [&](const std::string &seg, const std::string &stmt) {
+        const uint64_t a = timed(r, {"10 DEF SEG=" + seg, "20 " + stmt + ":I%=I%+1:IF I%<100 THEN 20"});
+        const uint64_t b = timed(r, {"10 DEF SEG=" + seg, "20 " + stmt + ":I%=I%+1:IF I%<300 THEN 20"});
+        return static_cast<double>(b - a) / 200;
+    };
+    const double none = pass("&H8000", "X=0");
+    const double peek8 = pass("&H8000", "X=PEEK(0)") - none, peek9 = pass("&H9000", "X=PEEK(0)") - none;
+    const double poke8 = pass("&H8000", "POKE 0,65") - none, poke9 = pass("&H9000", "POKE 0,65") - none;
+    std::printf("  X=PEEK(0), less X=0: the page %.0f, bank 9 %.0f; POKE 0,65: the page %.0f, bank 9 %.0f (X=0's loop %.0f)\n",
+                peek8, peek9, poke8, poke9, none);
+    const uint64_t bl8 = timed(r, {"10 DEF SEG=&H8000:BLOAD \"M:S\",0"}), bl9 = timed(r, {"10 DEF SEG=&H9000:BLOAD \"M:S\",0"});
+    const uint64_t bs8 = timed(r, {"10 DEF SEG=&H8000:BSAVE \"M:U\",0,4000"}),
+                   bs9 = timed(r, {"10 DEF SEG=&H9000:BSAVE \"M:U\",0,4000"});
+    std::printf("  a RUN line, whole: BLOAD of 4,000 bytes the page %llu, bank 9 %llu; BSAVE of 4,000 the page %llu, bank 9 %llu\n",
+                static_cast<unsigned long long>(bl8), static_cast<unsigned long long>(bl9),
+                static_cast<unsigned long long>(bs8), static_cast<unsigned long long>(bs9));
+    CHECK(peek8 > 0 && poke8 > 0 && bl8 > 0 && bs8 > 0);
+}
+
 int main()
 {
     return run_all();

@@ -3917,8 +3917,8 @@ copy of common memory at `$F800` (above).
 | P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
 | P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL | 9.5 KB |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
-| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's | 10.7–11.5 KB; 2.3 KB at 7d1 |
-| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2 |
+| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3 |
+| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
 | P8 | room: whatever outgrows its block | — |
 
@@ -4450,7 +4450,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       with one line added after them, DEF SEG, so that the case's later USR calls still run under segment 0.
 - **7d: the screen** (P6; three branches, the owner's answer 1 of 2026-11-18: **7d1** the text screen, as built
   below; **7d2** the function keys and the screen as a device: KEY and its line, the soft keys, SCRN: on the
-  screen, LCOPY; **7d3** the screen page for DEF SEG, segments `$8000–$8FFF`).
+  screen, LCOPY; **7d3** the screen page for DEF SEG, segments `$8000–$8FFF`, as built below).
   - **What it holds:**
     - GW-BASIC's own text layer in its card memory, written through slot 1;
     - SCREEN 0, WIDTH 40 and 80, COLOR with attributes, LOCATE, CLS, CSRLIN, POS, SCREEN();
@@ -4673,7 +4673,90 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       PRINT's map (PRTMAP) takes only the PC's functions (7, 9-13, 28-31), so the program can't turn the key line
       on or off by printing it (corrected at review round 1, F5: this list said a printed ^T was LABELK too); TKEYOF
       dropped (the warm boot shows the console again).
-    - **Not done in 7d2:** KEY(n) and ON KEY (7f); the super-shift keys (answer 4: dropped); 7d3's DEF SEG page.
+    - **Not done in 7d2:** KEY(n) and ON KEY (7f); the super-shift keys (answer 4: dropped).
+  - **As built, 7d3** (Proposed, 2026-11-18; feat/gwbasic-7d3 off main `03195274`, the 7d3 plan with the owner's
+    answers of 2026-11-18, "recommendations as listed"): DEF SEG's screen page. Three units: U1 PEEK and POKE
+    (`bac5a149`), U2 BLOAD and BSAVE (`d3ea5d59`), U3 the timing and this record.
+    - **What the page is** (answers 1-4): bank 8 by the 20-bit address, `$80000` + k, is the active page's byte k
+      (so `&H7FFF:&H100`, `$800F0`, is offset 240, row 1 column 40), in the PC's B800 layout: a cell's character,
+      then its attribute, 160 bytes a row at 80 columns, 80 at 40. The reach: with 25 rows the PC's page, 4,096
+      bytes (2,048 at 40 columns), its last 96 (or 48) the first cells of the band below the text, kept as the card
+      memory they are; with 30 rows the whole text, 4,800 (2,400). Past the reach, the rest of bank 8 (`&H8400` is
+      still refused) and console mode (no page there): Illegal function call, as before, PEEK included.
+      `&HB800` and `&HB000` stay bank B's RAM (question 10's note); a PC listing's `&HB800` needs `&H8000`, for
+      7g's chapter to say. The key line is row 25, inside the page: a POKE there stands until the next KEYDSP.
+    - **PEEK and POKE** (U1): P5's `DSBYTE` sends a bank 8 byte to `DSSCR`: console mode refused; else a far call
+      to P6's `SCPAGP`, the offset checked against the reach (`DSPAGE`), and one byte by function 83's `DM_VREAD` or
+      `DM_VWRITE` through P5's scratch byte (`DSVX`). `SCPAGP` (`p6/scpag.s`, its own file, linked last so no timed
+      P6 path moves: answer 7) runs TXBUF and writes the cached row back (`P6IN`, `P6OUT`), so a PEEK sees what
+      the statement has just printed; for a POKE (C set) it forgets the cached row (`STZ CROW`), so P6's next touch
+      reads the row from the card and SCREEN(), the editor and LCOPY see the POKEd cell (7d1 keeps the row across
+      returns from P6, true only while P6 alone writes the text); it returns the active page's card address
+      (`APG`) and the reach in `GXT`. A PEEK doesn't forget, so a PEEK-then-PRINT loop keeps its row. `p6/oem.s`
+      only exports `APG`, `CROW`, `RWOLO` and `RWOHI`. DSCOPY's swap and DSCALL's tail became `DSSWAP` and `DSGO`,
+      shared with the page's route.
+    - **BLOAD and BSAVE** (U2; answers 5 and 6): `DSRUN` sends a run whose first and last bytes are both in bank 8 to
+      `DSSRUN` (one from bank 7 into bank 8, or from it into bank 9, stays refused): console mode, or `GX_BANK8`
+      refused at start-up (a `$D1` bridge, a BIOS before 0.17: `GXSTRT` keeps its carry in `DSB8`), refused;
+      else `SCPAGP` with the cache forgotten, the run's last byte checked against the reach, and the run **staged in
+      bank 8's own RAM at its own address**, `$80000` + its offset: one `DM_VREAD` copies the page's bytes there,
+      and `DSSCF` marks it. P4's BSAVEP then saves from that RAM and P4's BLDRUN loads into it, both unchanged
+      (their `DM_COPY` and `DM_LOAD` reach only GW-BASIC's RAM, which they may after `GX_BANK8`); BLOAD's stub
+      (`p8/far4.s`) then far calls P5's new `DSPUT`, which writes the run to the card by one `DM_VWRITE`. The page
+      is copied in for BLOAD too, so a file shorter than its header (DFSTLD stops at the file's end) leaves the
+      rest of the screen as it was. `DSRUN` clears `DSSCF` on every entry. The card is reached only by function
+      83's port operations, never by a physical address. **The staging takes bank 8's RAM from `$80000` up to the
+      reach (`$812BF` at most):** nothing else of GW-BASIC's uses it; a later use must keep clear of it or move it.
+    - **Re-entry:** `LOCATE PEEK(0)-60,1` runs `SCPAGP` from inside P6's LOCATE (P6, resident, P1, P5, P6 again).
+      It is safe because P6's statements parse their arguments before they write a cell (the source's order):
+      D2 checks LOCATE and COLOR. A review check for any P6 statement added later (7e's SCREEN routing).
+    - **Sizes** (bytes; at `03195274` → after 7d3, the plan's prototype in brackets): free for BASIC 34,819 →
+      **34,819**; the resident core, fixed RAM, GWBASIC.COM, **P1-P4 byte-identical** to main's (`cmp`; **P4
+      12,223, 65 free**); **P5 2,314 → 2,574, 9,714 free** [2,574] (U1 2,477); **P6 11,357 → 11,412, 876 free** (the
+      stop line 600) [11,412]: `SCPAGP` 52 and its header 3; P8 3,153 → 3,161 [3,161]: BLOAD's `FJSR DSPUT`;
+      GWBASIC.OVL 48,768 → 49,152. The flat image byte-identical (its last byte `$9509`: P5, P6 and `p8/far4.s`
+      aren't in it; test/flatp5.s unchanged, since nothing in the flat image calls `DSPUT`).
+    - **Cycles** (test_gwbasic_screen, the fast build): `PRINT A$;` with 80 characters **21,082** (the gate 30,000;
+      21,082 on main); a whole-window scroll **13,886** (the cap 14,000: **114 to spare**; 13,898 on main: P6's
+      header's 3 bytes moved its code), 15,873 with the row to write back. For the record (D9, timed()'s method,
+      each less the loop with `X=0`): `X=PEEK(0)` on the page **4,644**, in bank 9 (`GX_BLOCK`) 2,051; `POKE 0,65` on
+      the page **4,028**, in bank 9 1,254; a RUN line BLOADing a 4,000-byte screen 117,908 (16 ms), to bank 9
+      105,437; BSAVEing 4,000 bytes 590,137, from bank 9 575,317. A byte on the page costs about 2,600 more than one
+      in bank 9: the far call to `SCPAGP`, `P6IN` and `P6OUT`, and one 1-byte function 83 call (most of it). A
+      whole screen by 4,000 POKEs is about 4 s; BLOAD is the way, about 12,000 cycles more than a BLOAD to RAM. A
+      POKE followed by output on the same row reloads that row (one `DM_VREAD`, about 2,300).
+    - **Tests** (test_gwbasic_screen, screen mode; by hand from the design and the source's meaning; none compared
+      with PC-BASIC, whose `&HB800` isn't this machine's), each seen failing under its mutant, run on its own case,
+      the source then restored:
+      - D1 `def_seg_8000_is_the_active_page_s_cells`: (a) DSPAGE adding only the offset's low byte (POKE 644 at cell
+        66); (b) SCPAGP without the 25-row PC page (the reach 4,000: PEEK(4095) and PEEK(2047) refused);
+      - D2 `peek_sees_what_print_just_wrote`: SCPAGP without `P6IN` and `P6OUT` (`Q 32`, not `Q 81`);
+      - D3 `a_poke_is_seen_on_the_cached_row`: SCPAGP not forgetting the row (`ABXDEF 67`); its editor half (PRINT 1
+        poked to PRINT 7, Up and Enter) doesn't fail under it, since the cursor's moves reload the rows they pass;
+      - D4 `the_page_is_the_active_page`: SCPAGP returning the visual page's address;
+      - D5 (test_gwbasic_files, console mode, existing and unchanged) `bank_8_is_refused_to_peek_and_poke` and
+        `bank_8_is_refused_whole_to_bload_and_bsave`: DSSCR's `SCRMOD` test left out (five of the PEEK and POKE
+        lines fail), DSSRUN's left out (the BLOAD and BSAVE at `&H8400`);
+      - D6 `bsave_and_bload_the_screen_page` (the file read back from M:): (a) BLOAD's `FJSR DSPUT` left out (the
+        screen stays clear); (b) DSSRUN's `DM_VREAD` left out (the file holds bank 8's RAM, and a short file writes
+        it over the rest of the screen);
+      - D7 `a_screen_run_must_lie_inside_the_page`: DSPAGE testing the run's first byte, not its last (the BLOAD at
+        3,800 writes past the reach; BSAVE of 4,097 makes a file);
+      - D8 `a_revision_1_bridge_has_peek_and_poke_but_not_bload`: DSSRUN's `DSB8` test left out (the BSAVE writes a
+        file);
+      - and a measuring case, D9 `the_screen_page_costs`.
+    - **Expectation changes:** none. Comments only: test_gwbasic_files' header and its two T4 cases (console mode;
+      the screen page is test_gwbasic_screen's), test_gwbasic_screen's header (7d1-7d3). The 7d outline's
+      "`&H7FFF:&H100` stays refused" was wrong: it is `$800F0`, inside the page, refused in console mode only.
+    - **Recorded deviations** (for the owner): a BLOAD that fails partway (a disk error inside BLDRUN) leaves the
+      page as it was, since `DSPUT` never runs, where a PC's leaves the part read; with 25 rows a PC file's bytes
+      4,000-4,095 (usually zeros) show as black cells at the bottom band's left until the bands are filled again
+      (COLOR's border, WIDTH), unseen with the default border 0; `PEEK(&H449)` under segment 0 reads GW-BASIC's own
+      TPA, not a BIOS's video mode (the 7c tail's answer 1); the outline's "about 150 bytes in P5" became 260, the
+      run route, its staging and the console and `$D1` checks being the rest.
+    - **Not done in 7d3:** SCREEN 1 and 2's pages for DEF SEG (7e: the `DEF SEG=&H8000: BSAVE "PIC",0,&H9600`
+      example is 7e's to make work; 7d3's reach is SCREEN 0's); the PC's absolute layout of all the pages; the
+      User's Guide's chapter (7g).
 - **7e: graphics** (the rest of P5).
   - **What it holds:**
     - SCREEN 1 and 2, and the OO-1's own modes ([question 9](#phase-7s-questions));
@@ -4762,8 +4845,8 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
 | COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
 | LPRINT, LLIST | LST: (function 5) | LST: takes and drops for now (no parallel port modelled) |
-| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below |
-| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only |
+| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below. *As built (7d3):* bank 8 in screen mode is the active page, by `DM_VREAD` and `DM_VWRITE` (below) |
+| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only. *As built (7d3):* a run on the screen page staged in bank 8's RAM (`DSRUN`'s `DM_VREAD`, then BLOAD's `DSPUT`, a `DM_VWRITE`); P4 unchanged |
 | CALL, USR | a 6502 routine in the TPA (segment 0) | any other segment refused: code in a block is GW-BASIC's own |
 | INP, OUT, WAIT | — | refused (Illegal function call), as the hardware is OODOS's (AGENTS.md); [question 13](#phase-7s-questions) |
 
@@ -4782,11 +4865,19 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   it, PEEK included, is Illegal function call, checked whole before a route is chosen, until 7d; from 7d the same
   test sends it to the screen page through `DM_VWRITE` and `DM_VREAD`, never a physical `DM_COPY`. It is 7c's tail,
   with a must-fail case. OODOS changes nothing for it: OSWIN's slot 1 window stays allowed (the W1 contract).
+  *As built (7d3,* [7d3 as built](#the-sub-phases)*):* in screen mode a byte, or a run whose first and last bytes
+  are in bank 8, below the reach is the active page's (`$80000` + k its byte k, so `&H7FFF:&H100` is in it); the
+  reach is 4,096 bytes with 25 rows (2,048 at 40 columns), the whole text with 30 (4,800, 2,400). Past it, the
+  rest of bank 8, a run from bank 7 or into bank 9, and console mode stay Illegal function call.
 - **Card memory** has 24-bit addresses, which no segment reaches. Decided ([question 10](#phase-7s-questions)): segments `$8000–$8FFF` (the aperture,
   which means nothing fixed to a program) name the current SCREEN page's card memory, so
   `DEF SEG=&H8000: BSAVE "PIC",0,&H9600` saves a SCREEN 2 picture, as a PC program does at `&HB800`. That meaning
   holds whatever AP8 holds (the owner, 2026-11-17, B7's question 1): bank 8's RAM, which `DM_BANK8` gives a program,
-  is never reached by DEF SEG; GW-BASIC may use it internally through `GX_BLOCK` after `GX_BANK8`.
+  is never reached by DEF SEG; GW-BASIC may use it internally through `GX_BLOCK` after `GX_BANK8`. *As built
+  (7d3):* SCREEN 0's page only (SCREEN 1 and 2's, and the example above, are 7e's); a BLOAD's or BSAVE's run
+  on the page is staged in bank 8's RAM at its own address, `$80000` up to the reach (`$812BF` at most), GW-BASIC's
+  one use of that RAM; where `GX_BANK8` refused (bank 8 not RAM) BLOAD and BSAVE of the page are Illegal function
+  call, PEEK and POKE still work.
 - **As built (7c's tail, 2026-11-18;** [7c's tail as built](#the-sub-phases)**):** these routes are P5's `DSBYTE`,
   with segment 0 below `$C000` taken in PEEK's and POKE's own blocks (448 cycles a PEEK); `GX_BLOCK`'s route costs
   1,166 and the `DM_COPY` route 3,334, against the 400 and 1,000 above. `GX_BLOCK` refuses every block with no
@@ -4962,7 +5053,8 @@ alternative is kept as the record of what was weighed.
     `$8000–$8FFF` as the current screen page's card memory, as above. *Alternative:* none: card memory only
     through the graphics statements. *Kept (2026-11-17, the owner, B7's question 1):* once bank 8 can be RAM
     (`DM_BANK8`), these segments still mean the screen page, never bank 8's RAM; no 20-bit range is free for
-    another choice (`&HB800` would hide half of bank B, and bank E is Apple II mode's).
+    another choice (`&HB800` would hide half of bank B, and bank E is Apple II mode's). *Built in 7d3* (2026-11-18,
+    [7d3 as built](#the-sub-phases)): SCREEN 0's active page, by the 20-bit address.
 11. **FARPEEK, FARPOKE and FARMOVE.** *Decided (2026-11-13, the owner): not built.* GW-BASIC uses OOLIB's `GX_BLOCK`
     and function 83, and V1's buffers need no move at all (route (c)). Common memory has 166 bytes left (50 after B7, 2026-11-17).
     *Alternative:* build them as proposed under [Far calls](#far-calls), as an interface addition to the far call
