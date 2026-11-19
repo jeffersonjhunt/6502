@@ -1,7 +1,8 @@
 /**
  * @file test_gwbasic_screen.cpp
- * @brief GW-BASIC's own text screen, phases 7d1 and 7d2 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
- *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY), run from OODOS's CCP on backplane.machine.
+ * @brief GW-BASIC's own text screen, phases 7d1-7d3 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
+ *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY; 7d3's screen page for DEF SEG), run from OODOS's CCP on
+ *        backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_core does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1343,6 +1344,115 @@ TEST(the_keyboard_s_lights_are_caps_and_num_lock)
     press(r, 0x39); // Caps Lock
     r.run(ms(100));
     CHECK_EQ(r.machine->usb_card()->leds(), 0x01);
+}
+
+// --- 7d3: the screen page for DEF SEG (hw/oodos.md, 7d3 as built; the owner's answers of 2026-11-18) ---------------
+
+// D1: under DEF SEG=&H8000 offset k is the active page's byte k, the PC's B800 layout (a cell's character, then its
+// attribute; 160 bytes a row at 80 columns, 80 at 40): POKE 0 and 1 make row 0 column 0 an A in yellow on blue, 158
+// is column 79, 644 row 4 column 2, and PEEK reads them back; at 40 columns 80 is row 1 column 0. The reach (answer
+// 3): 4,096 bytes at 80 x 25, 2,048 at 40 x 25, 4,800 at 80 x 30; its last byte reads, the next is Illegal function
+// call. The page is found by the 20-bit address (answer 1), so &H7FFF:&H100 is row 1 column 40; &H8400 is past the
+// reach (the rest of bank 8 refused, its RAM unchanged). Guards a PC program's screen poked into the wrong cell, or
+// refused where the PC allows it. Must fail: (a) DSPAGE adding only the offset's low byte (POKE 644 lands at cell
+// 66); (b) SCPAGP without the 25-row PC page (the reach 4,000: PEEK(4095) refused).
+TEST(def_seg_8000_is_the_active_page_s_cells)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:POKE 0,65:POKE 1,30:POKE 158,66:POKE 644,88:LOCATE 10,1:"
+             "PRINT PEEK(0);PEEK(1);PEEK(158);PEEK(644)", ms(500));
+    uint32_t mb = mapbase(r);
+    CHECK_EQ(card(r, mb), 'A');
+    CHECK_EQ(card(r, mb + 1), 0x1E);
+    CHECK_EQ(card(r, mb + 158), 'B');
+    CHECK_EQ(card(r, mb + 4 * 160 + 4), 'X');
+    CHECK_EQ(card(r, mb + 132), ' ');
+    CHECK_EQ(line(r, 9), std::string(" 65  30  66  88"));
+    enter(r, "CLS:PRINT PEEK(4095):PRINT PEEK(4096)", ms(400));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    enter(r, "CLS:DEF SEG=&H7FFF:POKE &H100,90:DEF SEG=&H8000:PRINT PEEK(240)", ms(400));
+    CHECK_EQ(card(r, mb + 160 + 80), 'Z');
+    CHECK_EQ(line(r, 0), std::string(" 90"));
+    r.poke(0x84000, 0x3C);
+    enter(r, "CLS:DEF SEG=&H8400:POKE 0,1", ms(400));
+    CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+    enter(r, "WIDTH 40:KEY OFF:CLS:DEF SEG=&H8000:POKE 80,87:POKE 81,30:LOCATE 10,1", ms(800));
+    mb = mapbase(r);
+    CHECK_EQ(columns(r), 40u);
+    CHECK_EQ(card(r, mb + 80), 'W');
+    CHECK_EQ(attr(r, 1, 0), 0x1E);
+    enter(r, "CLS:PRINT PEEK(2047):PRINT PEEK(2048)", ms(400));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    enter(r, "WIDTH 80,30:CLS:PRINT PEEK(4799):PRINT PEEK(4800)", ms(800));
+    CHECK_EQ(line(r, 0).substr(0, 1), std::string(" "));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+    if (line(r, 1) != "Illegal function call")
+        std::printf("  the screen: %s\n", screen(r).c_str());
+}
+
+// D2: a PEEK of the page sees what this statement has just printed (TXBUF's bytes and the cached row written to the
+// card by SCPAGP first): LOCATE 3,1:PRINT "Q";PEEK(320) shows Q 81. And a P6 statement whose argument PEEKs the page
+// (SCPAGP entered again from inside P6's LOCATE and COLOR) works: R at row 7, S in yellow on blue. Guards a program
+// that prints and then tests the screen by PEEK reading the old byte. Must fail: SCPAGP without P6IN and P6OUT (Q 32).
+TEST(peek_sees_what_print_just_wrote)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:LOCATE 3,1:PRINT \"Q\";PEEK(320)", ms(400));
+    CHECK_EQ(line(r, 2), std::string("Q 81"));
+    enter(r, "CLS:POKE 0,67:LOCATE PEEK(0)-60,1:PRINT \"R\";:COLOR PEEK(0)-53,1:PRINT \"S\":COLOR 7,0:LOCATE 12,1",
+          ms(500));
+    CHECK_EQ(line(r, 6), std::string("RS"));
+    CHECK_EQ(attr(r, 6, 0), 0x07);
+    CHECK_EQ(attr(r, 6, 1), 0x1E);
+}
+
+// D3: a POKE on the row P6 has cached is seen by P6 at once (SCPAGP forgets the row before P5 writes the card):
+// LOCATE 5,1:PRINT "ABCDEF";:POKE 644,88:PRINT SCREEN(5,3) shows ABXDEF 88. And the editor enters what is on the
+// card: PRINT 1 typed, its 1 poked to 7, Up to it and Enter runs PRINT 7. Guards a game's collision test by SCREEN()
+// missing a POKEd wall, and the editor entering what was there before the POKE. Must fail: SCPAGP not forgetting the
+// row (ABXDEF 67). (The editor's half doesn't fail under it: the cursor's moves reload the rows they pass.)
+TEST(a_poke_is_seen_on_the_cached_row)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:LOCATE 5,1:PRINT \"ABCDEF\";:POKE 644,88:PRINT SCREEN(5,3)", ms(400));
+    CHECK_EQ(line(r, 4), std::string("ABXDEF 88"));
+    enter(r, "CLS", ms(300));
+    enter(r, "PRINT 1", ms(300));
+    CHECK_EQ(line(r, 1), std::string("PRINT 1"));
+    CHECK_EQ(line(r, 2), std::string(" 1"));
+    enter(r, "POKE 172,55", ms(300));
+    CHECK_EQ(line(r, 1), std::string("PRINT 7"));
+    for (int i = 0; i < 5; ++i)
+        press(r, K_UP);
+    keys(r, "\r");
+    r.run(ms(300));
+    CHECK_EQ(line(r, 2), std::string(" 7"));
+}
+
+// D4: the page is the active page (answer 2): with page 1 active and page 0 shown, POKE 0,80 puts a P in page 1's
+// cell 0, and page 0's stays a blank; SCREEN 0,,1,1 shows it. Guards a program double-buffering by POKE drawing on
+// the page shown. Must fail: SCPAGP returning the visual page's address.
+TEST(the_page_is_the_active_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:SCREEN 0,,1,0:CLS:DEF SEG=&H8000:POKE 0,80:SCREEN 0,,0,0:LOCATE 10,1", ms(800));
+    const uint32_t page0 = mapbase(r);
+    CHECK_EQ(card(r, page0), ' ');
+    enter(r, "SCREEN 0,,1,1", ms(400));
+    CHECK(mapbase(r) != page0);
+    CHECK_EQ(card(r, mapbase(r)), 'P');
+    CHECK_EQ(card(r, page0), ' ');
 }
 
 int main()

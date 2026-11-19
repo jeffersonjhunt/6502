@@ -23,9 +23,13 @@
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
 ; 8088's does. DSBYTE's routes:
-;   1. bank 8, $80000-$8FFFF: Illegal function call, PEEK included, by the
-;      20-bit address, not the segment (B7's question 2), so &H7FFF:&H100 is
-;      caught. Until 7d, which gives segments $8000-$8FFF the screen page;
+;   1. bank 8, $80000-$8FFFF, by the 20-bit address, not the segment (B7's
+;      question 2; 7d3's answer 1), so &H7FFF:&H100 is in it: in screen mode
+;      the active page's card memory (7d3, question 10: DSSCR), its offset
+;      the page's, up to the reach (25 rows the PC's page, 4,096 or 2,048
+;      bytes; 30 rows the text, 4,800 or 2,400), by function 83's DM_VREAD
+;      and DM_VWRITE; past the reach, in console mode, and the rest of bank
+;      8: Illegal function call, PEEK included;
 ;   2. blocks 0-2 (the program's TPA, W0-W2): a load or store there;
 ;   3. any other block: GX_BLOCK, the load or store at $4000 + its place in
 ;      the block, GX_W1BACK (an allocated block, P1-P8's among them, or
@@ -194,7 +198,7 @@ DSBYTE:         STA     DSVAL
                 JSR     DSADR          ; DSA: the 20-bit address
                 LDA     DSA+2
                 CMP     #8
-                BEQ     DSFC           ; 1. bank 8
+                BEQ     DSSCR          ; 1. bank 8: the screen page (7d3)
                 LDX     #0
                 JSR     BLKOF          ; A: its block
                 CMP     #3
@@ -240,7 +244,87 @@ DSCOPY:         LDX     #2
                 JSR     DSCALL
                 LDA     SCRB
                 RTS
-@poke:          LDX     #2             ; the other way round
+@poke:          JSR     DSSWAP         ; the other way round
+                LDA     DSVAL
+                STA     SCRB
+                JSR     DSCALL
+                CMP     #$FF
+                BEQ     DSFC
+                RTS
+DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or never asked)
+
+; DSSCR (7d3): bank 8 in screen mode is the active page's card memory, its
+; byte DSA's offset; else (console mode, or past the reach) Illegal function
+; call. P6's SCPAGP first: TXBUF out, the cached row back, and for a POKE
+; forgotten. One byte by DM_VREAD or DM_VWRITE through the scratch byte.
+DSSCR:          BIT     SCRMOD
+                BPL     DSFC
+                LDA     DSA            ; the byte is the run's last (DSPAGE)
+                STA     DSE
+                LDA     DSA+1
+                STA     DSE+1
+                LDA     DSDIR          ; C: a POKE
+                ASL     A
+                FJSR    SCPAGP
+                JSR     DSPAGE
+                BCS     DSFC
+                LDX     #2
+@s:             LDA     SCRP,X
+                STA     DSPH,X
+                DEX
+                BPL     @s
+                LDA     #1
+                STA     DSVL
+                STZ     DSVL+1
+                LDA     DSVAL
+                STA     SCRB
+                LDA     #DM_VWRITE
+                BIT     DSDIR
+                BMI     :+
+                LDA     #DM_VREAD
+:               JSR     DSVX
+                LDA     SCRB
+                RTS
+
+; DSPAGE (7d3): DSVC the page's card address A/X/Y + DSA's offset; C set if
+; DSE's offset (the run's last byte) isn't below the reach, GXT.
+DSPAGE:         CLC
+                ADC     DSA
+                STA     DSVC
+                TXA
+                ADC     DSA+1
+                STA     DSVC+1
+                TYA
+                ADC     #0
+                STA     DSVC+2
+                LDA     DSE
+                CMP     GXT
+                LDA     DSE+1
+                SBC     GXT+1
+                RTS
+
+; DSVX (7d3): function 83's A (DM_VREAD, from the card's DSVC to the
+; physical DSPH; DM_VWRITE, the other way), DSVL bytes.
+DSVX:           STA     DSCB
+                LDX     #2
+@a:             LDA     DSVC,X
+                STA     DSCB+1,X
+                LDA     DSPH,X
+                STA     DSCB+4,X
+                DEX
+                BPL     @a
+                LDA     DSVL
+                STA     DSCB+7
+                LDA     DSVL+1
+                STA     DSCB+8
+                LDA     DSCB
+                CMP     #DM_VREAD
+                BEQ     DSGO
+                JSR     DSSWAP
+                BRA     DSGO
+
+; DSSWAP: DSCB's source and destination swapped.
+DSSWAP:         LDX     #2
 @b:             LDA     DSCB+1,X
                 PHA
                 LDA     DSCB+4,X
@@ -249,12 +333,7 @@ DSCOPY:         LDX     #2
                 STA     DSCB+4,X
                 DEX
                 BPL     @b
-                LDA     DSVAL
-                STA     SCRB
-                JSR     DSCALL
-                CMP     #$FF
-                BNE     DSRET
-DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or never asked)
+                RTS
 
 ; DSCALL: function 83's DM_COPY of DSCB's one byte. A the result.
 DSCALL:         LDA     #DM_COPY
@@ -262,7 +341,7 @@ DSCALL:         LDA     #DM_COPY
                 LDA     #1
                 STA     DSCB+7
                 STZ     DSCB+8
-                LDA     #<DSCB
+DSGO:           LDA     #<DSCB
                 LDX     #>DSCB
                 LDY     #O_DMA
                 JMP     BDOS
@@ -393,6 +472,9 @@ DSDIR:          .res    1              ; bit 7: a POKE
 DSCB:           .res    9              ; function 83's DM_COPY block
 DSPB:           .res    4              ; function 73's
 SCRB:           .res    1              ; the scratch byte
+DSVC:           .res    3              ; 7d3: the screen page's card address (DSPAGE)
+DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
+DSVL:           .res    2              ;   the bytes
 .segment "RODATA"
 TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
 FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes

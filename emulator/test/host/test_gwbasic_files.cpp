@@ -41,8 +41,9 @@
  *   (W4), FILFCB's names as MS-DOS's parse takes them (W5, W6, W8), KILL and NAME passing over SYS files (W7),
  *   LLIST's CR after an LF (W9), SCRN:'s last character after console output (W10), a break's new line (W12).
  * - 7c's tail, by hand from the source and the design (T1-T12): P5's start-up (GX_INIT, GX_BANK8); DEF SEG, PEEK and
- *   POKE on each route (segment 0's own bytes, GX_BLOCK, DM_COPY, bank 8 refused, OODOS's memory); USR under another
- *   segment; BLOAD and BSAVE, the run checked whole, the file's bytes, the errors; PEEK's and BLOAD's cycles.
+ *   POKE on each route (segment 0's own bytes, GX_BLOCK, DM_COPY, bank 8 refused in console mode, OODOS's memory);
+ *   USR under another segment; BLOAD and BSAVE, the run checked whole, the file's bytes, the errors; PEEK's and
+ *   BLOAD's cycles.
  */
 
 #include "harness.h"
@@ -1742,7 +1743,8 @@ TEST(peek_poke_in_an_allocated_block_and_bank_9_put_block_1_back)
 // T4's PEEK and POKE half (B7's question 2, the owner, 2026-11-17): any access meeting bank 8, $80000-$8FFFF, is
 // Illegal function call, PEEK included, tested on the 20-bit address: &H7FFF:&H100 is $800F0, and &H8400 is bank 8
 // too. Bank 8's RAM (the program's after GX_BANK8) is unchanged; bank 9 still works after. A build that tests the
-// segment ($8000-$8FFF) instead lets &H7FFF:&H100 through (GX_BLOCK maps bank 8's block after GX_BANK8).
+// segment ($8000-$8FFF) instead lets &H7FFF:&H100 through (GX_BLOCK maps bank 8's block after GX_BANK8). This is in
+// console mode; 7d3's screen page is test_gwbasic_screen's (and this case is its console-mode must-fail, D5).
 TEST(bank_8_is_refused_to_peek_and_poke)
 {
     CcpRig r;
