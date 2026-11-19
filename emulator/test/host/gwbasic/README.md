@@ -352,7 +352,7 @@ screen are clipped as PC-BASIC clips them (the owner's ruling, 7e1's U6), so the
 
 | Program | What |
 |---|---|
-| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes, STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes; lines and B and BF boxes off every edge, across a corner and wholly off; PSET off the screen; the frame's bank boundary |
+| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes (the last colour), STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes; lines and B and BF boxes off every edge, across a corner and wholly off, BF boxes wholly past each edge; PSET off the screen; the frame's bank boundary |
 | `gfx2` | the same in SCREEN 2, and rows past its first 16 KB bank (a pair across it) |
 | `gfx3` | by hand: an array across `$4000-$7FFF` read back after each graphics statement (block 1 in W1) |
 | `gfx7` | POINT: both pixels of a SCREEN 1 byte, SCREEN 2's bits, -1 off every edge, the cursor kept across it |

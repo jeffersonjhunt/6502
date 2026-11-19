@@ -1112,7 +1112,7 @@ GWSTS.ASM SCRENF -> p6/gwsts.s SCRNFP # an entry, from the resident evaluator in
 GWSTS.ASM GETLIN -> p6/gwsts.s CSRLNP # an entry, as SCRENF
 GENGRP.ASM POINT -> p5/gengrp.s POINTP # the resident evaluator's branch in screen mode (res/gweval.s); OO-1: Illegal function call in SCREEN 0 (PC-BASIC's)
 DSKCOM.ASM FIXINP -> p4/dskcom.s FIXINPP # its resident stub res/far4.s FIXINP
-GENGRP.ASM GLINE -> p5/gengrp.s GLINEP # its home block stub p8/gwmain.s LINE, screen mode; DOBOXF and BOXLOP inline
+GENGRP.ASM GLINE -> p5/gengrp.s GLINEP # its home block stub p8/gwmain.s LINE, screen mode; DOBOXF and BOXLOP inline; OO-1: a BF box wholly past one edge draws nothing (BOXOFF, review round 1, F1)
 DSKCOM.ASM DLINE -> p4/dskcom.s DLINE # an entry, INPDOR in it
 DSKCOM.ASM FILIND -> p4/dskcom.s FILIND # an entry
 GIOSCN.ASM CALTTY -> res/math1.s DV015 # $CATTY
@@ -1731,7 +1731,7 @@ SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/o
 SCNDRV.ASM SCNBRK -> p6/scndrv.s SCNBRK
 SCNDRV.ASM SCNSWI -> p6/scndrv.s SCNSWI
 SCNDRV.ASM SCNLOC -> p6/scndrv.s SCNCLR # inline: CSRX and CSRY set where it is called
-SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR
+SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR # GRPINI left out (7e1's review round 1, F2, the owner's word: PC-BASIC's)
 SCNDRV.ASM SCNPOS -> p6/scndrv.s SCNPOS
 SCNDRV.ASM SCNGWI -> dropped: LINLEN is the resident's (res/oem.s), read where it is needed
 SCNDRV.ASM SCNRDT -> p6/scndrv.s SCNRDT
@@ -1802,7 +1802,7 @@ SCNDRV.ASM SCRLU1 -> p6/scndrv.s SCRLU1 # SCRLU0's, which SCRLUD joins
 SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
 SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
 SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
-GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P6's SCNCLR far calls it in a graphics mode (7e1), and P5's GMODE and GCLS
+GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P5's GMODE and GCLS (a mode's change, CLS); not P6's SCNCLR (7e1's review round 1, F2: PC-BASIC's CLS 2 and CHR$(12) keep the cursor)
 GENGRP.ASM SCAN1 -> p5/gengrp.s SCAN1 # 7e1: LINE's first point; "@" passed over
 GENGRP.ASM SCAND -> p5/gengrp.s SCAND # SCANN, SCXREL, SCYREL inline; the x pushed on the 6502's stack across the y's formula
 GENGRP.ASM ATRSCN -> p5/gengrp.s ATRSCN

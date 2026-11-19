@@ -292,7 +292,10 @@ GLINEP:         JSR     SCAN1          ; the first point
                 JMP     BOXLIN         ; B: the box
 :               JSR     SYNCHR
                 .byte   'F'            ; BF: filled
-DOBOXF:         JSR     SCALXY
+DOBOXF:         JSR     BOXOFF         ; OO-1 (review round 1, F1): a box wholly
+                BCC     :+             ; past one edge draws nothing (PC-BASIC's;
+                RTS                    ; the truncation would fill that edge)
+:               JSR     SCALXY
                 JSR     XCHGAC
                 JSR     SCALXY
                 JSR     YDELT          ; the lines
@@ -321,6 +324,60 @@ BOXLOP:         JSR     FETCHC
                 ORA     RCH
                 BNE     BOXLOP
                 JMP     GX_W1BACK      ; (OO-1)
+
+; BOXOFF (OO-1): C set if the box (CX, DX)-(GXPOS, GYPOS) lies wholly past
+; one edge of the screen: both x below 0 or past the last, or both y below
+; 0 or past 199.
+BOXOFF:         LDA     RCH
+                AND     GXPOS + 1
+                BMI     @yes           ; both x < 0
+                LDA     RDH
+                AND     GYPOS + 1
+                BMI     @yes           ; both y < 0
+                LDA     RCL
+                LDX     RCH
+                JSR     XPAST
+                BCC     @y
+                LDA     GXPOS
+                LDX     GXPOS + 1
+                JSR     XPAST
+                BCS     @yes
+@y:             LDA     RDL
+                LDX     RDH
+                JSR     YPAST
+                BCC     @no
+                LDA     GYPOS
+                LDX     GYPOS + 1
+                JSR     YPAST
+                BCS     @yes
+@no:            CLC
+                RTS
+@yes:           SEC
+                RTS
+; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199.
+XPAST:          CPX     #$80
+                BCS     @n             ; negative
+                STA     T0
+                STX     T1
+                LDA     GMAXX
+                CMP     T0
+                LDA     GMAXX + 1
+                SBC     T1
+                BCS     @n             ; the last >= x
+                SEC
+                RTS
+@n:             CLC
+                RTS
+YPAST:          CPX     #$80
+                BCS     @n
+                CPX     #0
+                BNE     @p
+                CMP     #200
+                RTS                    ; (C: y >= 200)
+@p:             SEC
+                RTS
+@n:             CLC
+                RTS
 
 ; DOLINE: the line from (CX, DX) to (GXPOS, GYPOS), which are kept: the
 ; cursor's second point back in GXPOS, GYPOS for BOXLIN.

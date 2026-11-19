@@ -392,8 +392,8 @@ GOFCER2:        JMP     FCERR
 ; mode has one, CGA's: 0 only). A change of mode (SMODE) sets the new one up
 ; (P5's GMODE: its page, its palette, layer 0) and the text for it: its
 ; colours the PC's (7, or the mode's 3 or 1 on 0, transparent over the
-; graphics), 40 columns for SCREEN 1, 80 for SCREEN 2, SCREEN 0's as they
-; were, 25 rows, every page cleared, on layer 1 over the graphics (VSHOW).
+; graphics), 40 columns for SCREEN 1, 80 for SCREEN 2, SCREEN 0 the width
+; the mode left (40 after SCREEN 1, 80 after SCREEN 2: PC-BASIC's), 25 rows, every page cleared, on layer 1 over the graphics (VSHOW).
 ; The same mode again changes nothing (PC-BASIC's: the picture stays).
 SCRSTT:         LDA     PCNT
                 CMP     #5
@@ -463,7 +463,7 @@ SMODE:          LDA     NMODE
                 STA     ATTR
                 STZ     BGC
                 STZ     BRDC
-                LDA     MODEW,X        ; its width (SCREEN 0's kept)
+                LDA     MODEW,X        ; its width (SCREEN 0: the current, CRTWID)
                 BNE     :+
                 LDA     CRTWID
 :               STA     LOCX
@@ -682,7 +682,7 @@ KEYLST:         LDA     #1
 GMTILE          = 1                    ; the modes (P5's GMODEV)
 GMMONO          = 2
 MODEFG:         .byte   7, 3, 1        ; by mode: the text's colour
-MODEW:          .byte   0, 40, 80      ;   its width (0: as it was)
+MODEW:          .byte   0, 40, 80      ;   its width (0: the current one)
 
 .segment "BRAM"
 GMOD:           .res    1              ; 7e1: the mode, 0-2, as P5's GMODEV

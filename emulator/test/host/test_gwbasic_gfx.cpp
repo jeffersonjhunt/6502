@@ -304,15 +304,17 @@ namespace
     }
 } // namespace
 
-// SCREEN 1's pixels against PC-BASIC's (gwbasic/gfx1): PSET and PRESET with and without an attribute (the colours'
-// low 2 bits, PC-BASIC's: 7 is 3, 6 is 2), STEP; LINE in all eight octants, steep and shallow, from either end;
+// SCREEN 1's pixels against PC-BASIC's (gwbasic/gfx1): PSET and PRESET with and without an attribute (one past the
+// mode's last colour is the last, PC-BASIC's: 7 and 6 are 3), STEP; LINE in all eight octants, steep and shallow, from either end;
 // -(x,y), -STEP, STEP(x,y)-STEP; B and BF with their corners either way, a 1-pixel box of each, the default and
-// colour 0; BF boxes, B boxes and lines off every edge, across a corner and wholly off the screen (PC-BASIC's
+// colour 0; BF boxes, B boxes and lines off every edge, across a corner and wholly off the screen, BF boxes wholly
+// past each edge (nothing drawn: review round 1, F1) (PC-BASIC's
 // clipping: the owner's ruling of 2026-11-19); PSET off the screen (nothing); the frame's bank
 // boundary (tile row 12, column 32) crossed by a line and a box. And the layer as PC-BASIC's screen shows it:
 // VSCROLL 236, 20 layer lines above the 200. Guards a picture drawn in the wrong place or colour, or a line or box
 // clipped wrong. Seen failing with (a) RIGHTC's step across a tile column 4, not 32 - 3, (b) the left pixel in a
-// byte's low 4 bits, and (c) SCALXL bringing an x below 0 to 0, not -1.
+// byte's low 4 bits, (c) SCALXL bringing an x below 0 to 0, not -1, (d) DOBOXF without BOXOFF's early exit (a
+// box past an edge filling it), and (e) SETATR taking an attribute's low bits, not the last colour.
 TEST(screen_1_pixels_match_pc_basic)
 {
     CcpRig r;
@@ -323,8 +325,8 @@ TEST(screen_1_pixels_match_pc_basic)
     CHECK_EQ(compare(r, "gfx1"), 0u);
 }
 
-// SCREEN 2's pixels against PC-BASIC's (gwbasic/gfx2): the same set at 640 across, the attributes' low bit (2 is
-// 0, 3 is 1), and the rows past the page's first 16 KB (row 102's pair crosses it; a line along it, one across
+// SCREEN 2's pixels against PC-BASIC's (gwbasic/gfx2): the same set at 640 across, the attributes past 1 made 1
+// (PC-BASIC's: 2 and 3 are 1), and the rows past the page's first 16 KB (row 102's pair crosses it; a line along it, one across
 // rows 103-104, a box over rows 96-110 and a line down the whole screen); every row shown twice, the mono layer's
 // VSCROLL 440. Guards a row shown once (half-height lines), or the picture's bottom half in the wrong card bank.
 // Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping the next bank (the cached bank kept), and (c)
@@ -560,10 +562,12 @@ TEST(point_reads_what_was_drawn)
         CHECK_EQ(line(r, i), want[i]);
 }
 
-// RUN and CLS centre the graphics cursor (GENGRP.ASM's GRPRST at CLEARC, GRPINI at SCNCLR), against PC-BASIC's pixels
+// RUN and CLS centre the graphics cursor (GENGRP.ASM's GRPRST at CLEARC, P5's GCLS), against PC-BASIC's pixels
 // (gwbasic/gfx8 in SCREEN 1, gfx9 in SCREEN 2): a PSET, then RUN, then LINE -(0,0) starts at (160,100) (320,100);
-// a PSET, then CLS, then LINE -(319,0); a PSET, then CLEAR, then LINE -(319,199). Guards a program's first relative
-// line starting where the last one ended. Seen failing with CLEARC's GRPRST call left out.
+// a PSET, then CLS, then LINE -(319,0); a PSET, then CLEAR, then LINE -(319,199). And CLS 2 keeps it (PC-BASIC's,
+// by hand from its values: review round 1, F2, a departure from the source's SCNCLR at the owner's word): PSET
+// (10,10),1: CLS 2: PSET STEP(0,0),2 sets (10,10), (160,100) untouched. Guards a program's relative drawing starting
+// in the wrong place. Seen failing with CLEARC's GRPRST call left out, and (F2) with SCNCLR's GRPINI kept.
 TEST(run_and_cls_centre_the_graphics_cursor)
 {
     {
@@ -572,10 +576,18 @@ TEST(run_and_cls_centre_the_graphics_cursor)
         REQUIRE(start(r, "m:gwbasic m:gfx8", {"gfx8"}, ms(8000)) >= 0);
         CHECK_EQ(compare(r, "gfx8"), 0u);
     }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:gfx9", {"gfx9"}, ms(8000)) >= 0);
+        CHECK_EQ(compare(r, "gfx9"), 0u);
+    }
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(start(r, "m:gwbasic m:gfx9", {"gfx9"}, ms(8000)) >= 0);
-    CHECK_EQ(compare(r, "gfx9"), 0u);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:PSET (10,10),1:CLS 2:PSET STEP(0,0),2", ms(1500));
+    CHECK_EQ(pixel(r, 10, 10), 2);
+    CHECK_EQ(pixel(r, 160, 100), 0);
 }
 
 // LIFEGFX (basic/lifegfx.bas, the owner's: SCREEN 1, COLOR 0,1, a LINE ...,BF a cell, LOCATE and PRINT on the
