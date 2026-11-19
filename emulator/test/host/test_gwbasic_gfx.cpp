@@ -307,14 +307,15 @@ namespace
 // SCREEN 1's pixels against PC-BASIC's (gwbasic/gfx1): PSET and PRESET with and without an attribute (one past the
 // mode's last colour is the last, PC-BASIC's: 7 and 6 are 3), STEP; LINE in all eight octants, steep and shallow, from either end;
 // -(x,y), -STEP, STEP(x,y)-STEP; B and BF with their corners either way, a 1-pixel box of each, the default and
-// colour 0; BF boxes, B boxes and lines off every edge, across a corner and wholly off the screen, BF boxes wholly
-// past each edge (nothing drawn: review round 1, F1) (PC-BASIC's
-// clipping: the owner's ruling of 2026-11-19); PSET off the screen (nothing); the frame's bank
-// boundary (tile row 12, column 32) crossed by a line and a box. And the layer as PC-BASIC's screen shows it:
-// VSCROLL 236, 20 layer lines above the 200. Guards a picture drawn in the wrong place or colour, or a line or box
-// clipped wrong. Seen failing with (a) RIGHTC's step across a tile column 4, not 32 - 3, (b) the left pixel in a
-// byte's low 4 bits, (c) SCALXL bringing an x below 0 to 0, not -1, (d) DOBOXF without BOXOFF's early exit (a
-// box past an edge filling it), and (e) SETATR taking an attribute's low bits, not the last colour.
+// colour 0; BF boxes off every edge and across a corner, and wholly past each edge (nothing drawn: review round 1,
+// F1), where PC-BASIC's fill is the IBM manual's (p. 158: the B box's rectangle, clipped); PSET off the screen
+// (nothing); the frame's bank boundary (tile row 12, column 32) crossed by a line and a box. And the layer as
+// PC-BASIC's screen shows it: VSCROLL 236, 20 layer lines above the 200. Lines and B boxes off the screen are
+// lines_off_the_screen_are_clipped_on_their_own_slope's (the IBM spec's fix-up, A6: PC-BASIC's clipping is no longer
+// the expectation). Guards a picture drawn in the wrong place or colour, or a box clipped wrong. Seen failing with
+// (a) RIGHTC's step across a tile column 4, not 32 - 3, (b) the left pixel in a byte's low 4 bits, (c) SCALXL
+// bringing an x below 0 to 0, not -1 (7e1, its lines off the screen since moved), (d) DOBOXF without BOXOFF's early
+// exit (a box past an edge filling it), and (e) SETATR taking an attribute's low bits, not the last colour.
 TEST(screen_1_pixels_match_pc_basic)
 {
     CcpRig r;
@@ -328,9 +329,11 @@ TEST(screen_1_pixels_match_pc_basic)
 // SCREEN 2's pixels against PC-BASIC's (gwbasic/gfx2): the same set at 640 across, the attributes past 1 made 1
 // (PC-BASIC's: 2 and 3 are 1), and the rows past the page's first 16 KB (row 102's pair crosses it; a line along it, one across
 // rows 103-104, a box over rows 96-110 and a line down the whole screen); every row shown twice, the mono layer's
-// VSCROLL 440. Guards a row shown once (half-height lines), or the picture's bottom half in the wrong card bank.
-// Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping the next bank (the cached bank kept), and (c)
-// LONSCR taking an x past the last as on the screen (its pixel plotted into the next row).
+// VSCROLL 440; its BF boxes off the screen as G1's (its lines and B boxes off it are now
+// lines_off_the_screen_are_clipped_on_their_own_slope's). Guards a row shown once (half-height lines), or the
+// picture's bottom half in the wrong card bank. Seen failing with (a) SETC writing row 2y only, (b) DOWNC not mapping
+// the next bank (the cached bank kept), and (c) LONSCR taking an x past the last as on the screen (its pixel plotted
+// into the next row; 7e1, its lines off the screen since moved).
 TEST(screen_2_pixels_match_pc_basic)
 {
     CcpRig r;
@@ -341,33 +344,144 @@ TEST(screen_2_pixels_match_pc_basic)
     CHECK_EQ(compare(r, "gfx2"), 0u);
 }
 
-// A line off the screen is clipped as PC-BASIC clips it (the owner's ruling of 2026-11-19, by hand from the rule its
-// outputs show: each end brought to one pixel past the screen at most, the line drawn and only its pixels on the
-// screen set), where the source's SCALXY would truncate it to the edge: LINE (300,10)-(400,60),1,B has no right side
-// (x 400 is x 320, off the screen) and its top ends at x 319; LINE (-100,0)-(100,100) is (-1,0)-(100,100), so x 0 is
-// on row 1, not row 0; LINE (10,-10)-(20,-20), above the screen, draws nothing. And a pixel half a step off the line
-// goes the source's way (the ruling's 2: LINLP3's sum from half the major delta, stepped at it; PC-BASIC steps past
-// it), so LINE (300,10)-(310,50) in SCREEN 2 has x 300 on rows 10 and 11 only. Guards a line where an edge or a half
-// step meets it. Seen failing with SCALXL bringing an x past the last to the last (the source's truncation).
-TEST(lines_off_the_screen_are_clipped_and_half_steps_are_the_source_s)
+namespace
 {
+    /// A LINE statement's figure: a line, or with `box` the B box on its corners.
+    struct Seg
+    {
+        long x1, y1, x2, y2;
+        int c;
+        bool box = false;
+    };
+
+    /// The test's own reference of a clipped line (the owner's G2: the IBM manual's p. 159, "clipped", taken in its
+    /// plain meaning): every point of the given line, walked as GENGRP.ASM's DOGRPH and GWSTS.ASM's LINLP3 walk it
+    /// (from the end with the smaller y, or the second end if they're level, along the major axis, the ties y's, the
+    /// sum from half the major delta and a minor step whenever it reaches the major delta), set in `pic` where it lies
+    /// on the w x 200 screen. So a line keeps its own slope across the edge.
+    void ref_line(std::vector<int> &pic, long w, long x1, long y1, long x2, long y2, int c)
+    {
+        long x = x2, y = y2, ex = x1, ey = y1;
+        if (y2 > y1)
+        {
+            x = x1;
+            y = y1;
+            ex = x2;
+            ey = y2;
+        }
+        const long dx = std::labs(ex - x), dy = ey - y, xs = ex < x ? -1 : 1;
+        const bool ymaj = dy >= dx;
+        const long maj = ymaj ? dy : dx, mn = ymaj ? dx : dy;
+        long sum = maj / 2;
+        for (long n = 0; n <= maj; ++n)
+        {
+            if (x >= 0 && x < w && y >= 0 && y < 200)
+                pic[static_cast<size_t>(y * w + x)] = c;
+            sum += mn;
+            if (sum >= maj)
+            {
+                sum -= maj;
+                if (ymaj)
+                    x += xs;
+                else
+                    ++y;
+            }
+            if (ymaj)
+                ++y;
+            else
+                x += xs;
+        }
+    }
+    void ref_seg(std::vector<int> &pic, long w, const Seg &g)
+    {
+        if (!g.box)
+            return ref_line(pic, w, g.x1, g.y1, g.x2, g.y2, g.c);
+        ref_line(pic, w, g.x1, g.y2, g.x2, g.y2, g.c);
+        ref_line(pic, w, g.x1, g.y1, g.x2, g.y1, g.c);
+        ref_line(pic, w, g.x2, g.y1, g.x2, g.y2, g.c);
+        ref_line(pic, w, g.x1, g.y1, g.x1, g.y2, g.c);
+    }
+
+    /// SCREEN `mode`'s figures run as a program (CLIP.BAS on M:, three statements a line) and the card's whole screen
+    /// against the reference: the pixels that differ (the first 8 printed).
+    unsigned clipped(int mode, const std::vector<Seg> &segs, uint64_t budget = ms(8000))
+    {
+        const long w = mode == 1 ? 320 : 640;
+        std::string prog = "10 SCREEN " + std::to_string(mode) + "\r\n";
+        std::vector<int> pic(static_cast<size_t>(w * 200), 0);
+        for (size_t i = 0; i < segs.size(); ++i)
+        {
+            const Seg &g = segs[i];
+            char st[96];
+            std::snprintf(st, sizeof st, "LINE (%ld,%ld)-(%ld,%ld),%d%s", g.x1, g.y1, g.x2, g.y2, g.c, g.box ? ",B" : "");
+            prog += (i % 3 ? ":" : std::to_string(20 + 10 * i / 3) + " ") + std::string(st);
+            if (i % 3 == 2 || i + 1 == segs.size())
+                prog += "\r\n";
+            ref_seg(pic, w, g);
+        }
+        CcpRig r;
+        CHECK(r.ok);
+        if (!r.ok)
+            return ~0u;
+        const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+        r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}, {0, "CLIP    BAS", bytes(prog)}});
+        const size_t from = r.out.size();
+        r.type("m:gwbasic m:clip\r");
+        CHECK(r.until("m:gwbasic m:clip\r\n", ms(2000), from));
+        CHECK(until_row(r, "Ok", budget) >= 0);
+        unsigned bad = 0;
+        for (long y = 0; y < 200; ++y)
+            for (long x = 0; x < w; ++x)
+            {
+                const int got = pixel(r, static_cast<unsigned>(x), static_cast<unsigned>(y)),
+                          want = pic[static_cast<size_t>(y * w + x)];
+                if (got != want && ++bad <= 8)
+                    std::printf("  SCREEN %d (%ld,%ld): %d, want %d\n", mode, x, y, got, want);
+            }
+        if (bad)
+            std::printf("  SCREEN %d: %u pixels differ\n", mode, bad);
+        return bad;
+    }
+} // namespace
+
+// A line with an end off the screen is clipped on its own slope (the owner's G2, the IBM spec's fix-up, A6: the IBM
+// manual's p. 159 has out-of-range coordinates clipped; the source's SCALXY truncation is an OEM placeholder, G1), and
+// PC-BASIC, whose clipping moves the far end, is no longer the expectation for these: each picture against the
+// test's own reference (ref_line: the whole given line walked as LINLP3 walks it, its points on the screen set). In
+// SCREEN 1 and 2: 7e1's lines off every edge, across the corners and wholly off (once gfx1's and gfx2's), B boxes
+// past each edge and corner, lines whose far ends lie at +-32,000 (their deltas past 32,767: the sum past 16 bits)
+// in all four directions, a line from past the right edge leftwards, one that passes outside a corner, and LINE
+// (-32768,-32768)-(32767,32767). And a pixel half a step off the line goes the source's way (LINLP3's sum from half the
+// major delta, stepped at it: the owner's ruling 2 of 7e1), so LINE (300,10)-(310,50) in SCREEN 2 has x 300 on rows
+// 10 and 11 only. Guards a picture whose lines bend or shift where they meet an edge. Seen failing with (a) LSKIP's
+// minor move left out (a line from far off shifted), (b) LINCLP's sum without its 17th bit (the long lines), and (c)
+// XDELT's sign by N alone (a delta past 32,767 taken the wrong way).
+TEST(lines_off_the_screen_are_clipped_on_their_own_slope)
+{
+    const std::vector<Seg> one = {
+        {161, 100, -1000, 110, 1}, {161, 100, 1000, 95, 2}, {160, 101, 170, -1000, 3}, {160, 101, 150, 1000, 1},
+        {21, 60, -30, 30, 2}, {30, 40, -9, 15, 3}, {300, 60, 345, 90, 1}, {310, 30, 339, 47, 2},
+        {100, 20, 85, -21, 3}, {120, 15, 150, -17, 1}, {100, 185, 81, 230, 2}, {200, 180, 233, 215, 3},
+        {-10, 5, 5, -10, 1}, {-20, 30, 25, -15, 2}, {330, 180, 290, 230, 1}, {10, -10, 20, -20, 3},
+        {-5, 50, -15, 60, 3}, {400, 10, 300, 10, 2}, {300, 10, 400, 60, 1, true}, {-30, 150, 20, 180, 3, true},
+        {100, -20, 140, 5, 2, true}, {250, 190, 280, 230, 1, true}, {-50, -50, -10, -10, 3, true},
+        {-100, 0, 100, 100, 2}, {-32000, 50, 32000, 60, 3}, {100, -32000, 110, 32000, 1},
+        {32000, 120, -32000, 130, 2}, {200, 32000, 210, -32000, 3}, {1000, 10, -1000, 190, 1},
+        {-100, 300, 400, 250, 2}, {-32768, -32768, 32767, 32767, 3}};
+    CHECK_EQ(clipped(1, one), 0u);
+    const std::vector<Seg> two = {
+        {321, 100, -1000, 110, 1}, {321, 100, 1000, 95, 1}, {320, 101, 330, -1000, 1}, {320, 101, 310, 1000, 1},
+        {40, 60, -61, 30, 1}, {60, 40, -19, 15, 1}, {620, 60, 690, 90, 1}, {630, 30, 679, 47, 1},
+        {200, 20, 185, -21, 1}, {240, 15, 300, -17, 1}, {200, 185, 181, 230, 1}, {400, 180, 433, 215, 1},
+        {-10, 5, 5, -10, 1}, {-40, 30, 50, -15, 1}, {650, 180, 590, 230, 1}, {10, -10, 20, -20, 1},
+        {-5, 50, -15, 60, 1}, {800, 10, 600, 10, 1}, {600, 10, 700, 60, 1, true}, {-30, 150, 20, 180, 1, true},
+        {100, -20, 140, 5, 1, true}, {550, 190, 580, 230, 1, true}, {-50, -50, -10, -10, 1, true},
+        {-32000, 70, 32000, 80, 1}, {450, -32000, 460, 32000, 1}, {32000, 140, -32000, 150, 1},
+        {2000, 5, -2000, 195, 1}, {-32768, -32768, 32767, 32767, 1}, {300, 10, 310, 50, 1}};
+    CHECK_EQ(clipped(2, two), 0u);
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) >= 0);
-    enter(r, "SCREEN 1:LINE (300,10)-(400,60),1,B:LINE (-100,0)-(100,100),2:LINE (10,-10)-(20,-20),3", ms(1000));
-    unsigned side = 0;
-    for (unsigned y = 11; y <= 59; ++y)
-        side += pixel(r, 319, y) != 0;
-    CHECK_EQ(side, 0u);
-    CHECK_EQ(pixel(r, 319, 10), 1);
-    CHECK_EQ(pixel(r, 319, 60), 1);
-    CHECK_EQ(pixel(r, 0, 0), 0);
-    CHECK_EQ(pixel(r, 0, 1), 2);
-    CHECK_EQ(pixel(r, 100, 100), 2);
-    unsigned top = 0;
-    for (unsigned x = 0; x < 40; ++x)
-        top += pixel(r, x, 0) != 0;
-    CHECK_EQ(top, 0u);
     enter(r, "SCREEN 2:LINE (300,10)-(310,50)", ms(1000));
     CHECK_EQ(pixel(r, 300, 10), 1);
     CHECK_EQ(pixel(r, 300, 11), 1);
@@ -375,6 +489,38 @@ TEST(lines_off_the_screen_are_clipped_and_half_steps_are_the_source_s)
     CHECK_EQ(pixel(r, 301, 12), 1);
     CHECK_EQ(pixel(r, 310, 48), 1);
     CHECK_EQ(pixel(r, 310, 50), 1);
+}
+
+// POINT and SCREEN( in a graphics mode, as the IBM manual has them (the IBM spec's fix-up, A7 and A8): POINT's
+// coordinates are absolute (p. 258), so POINT STEP(1,1) is Syntax error (the source's SCAND takes STEP), as is
+// POINT(STEP(1,1)); SCREEN(row,col) of a blank cell with a pixel not 0 among the 8 x 8 under it is 0 (p. 311: graphics
+// there), of a blank cell over none 32, and of a character the character (the text is over the graphics here, the
+// owner's answer 5); SCREEN's z is Illegal function call in a graphics mode (p. 310: text mode only), and still the
+// attribute in SCREEN 0. Guards a program's test of the screen for graphics reading a blank. Seen failing with (a)
+// SCRNFP's far call to GCELL left out (32 for a cell over graphics), (b) SCRNFP taking z in a graphics mode, and (c)
+// POINTP taking STEP.
+TEST(point_and_screen_in_a_graphics_mode_are_the_manual_s)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:PSET (17,9),2:PSET (39,15),1:LOCATE 2,6:PRINT \"A\";:PSET (44,12),3", ms(1500));
+    enter(r, "A=SCREEN(2,3):B=SCREEN(2,4):C=SCREEN(2,5):D=SCREEN(2,6):LOCATE 10,1:PRINT A;B;C;D", ms(1500));
+    CHECK_EQ(line(r, 9), std::string(" 0  32  0  65"));
+    enter(r, "CLS:PRINT POINT STEP(1,1)", ms(800));
+    CHECK_EQ(last_row(r, "Syntax error"), 0);
+    enter(r, "CLS:PRINT POINT(STEP(1,1))", ms(800));
+    CHECK_EQ(last_row(r, "Syntax error"), 0);
+    enter(r, "CLS:PRINT POINT(1,1)", ms(800));
+    CHECK_EQ(line(r, 0), std::string(" 0"));
+    enter(r, "CLS:PRINT SCREEN(1,1,1)", ms(800));
+    CHECK_EQ(last_row(r, "Illegal function call"), 0);
+    enter(r, "CLS:PRINT SCREEN(1,1,0)", ms(800));
+    CHECK_EQ(last_row(r, "Illegal function call"), 0);
+    enter(r, "SCREEN 2:PSET (300,100):A=SCREEN(13,38):B=SCREEN(13,39):LOCATE 5,1:PRINT A;B", ms(1500));
+    CHECK_EQ(line(r, 4), std::string(" 0  32"));
+    enter(r, "SCREEN 0:CLS:PRINT \"Q\";:X=SCREEN(1,1,1):LOCATE 5,1:PRINT X", ms(1500));
+    CHECK_EQ(line(r, 4), std::string(" 7"));
 }
 
 // Block 1 is back in W1 after every graphics statement (hw/oodos.md's testing list: "GX_W1BACK left out after a
@@ -492,9 +638,12 @@ TEST(screen_modes_switch_and_come_back)
 // its card memory: answer 10), its groups the console's CGA colours (1: green, red, brown; 2: cyan, magenta, light
 // grey; 3: white); COLOR 1,0 makes entry 0 (the backdrop behind each transparent pixel) the console's blue and both
 // layers' PALOFS group 1, COLOR ,1 group 2, COLOR ,2 group 1 (an even palette), COLOR 15 the backdrop white; COLOR
-// alone, and COLOR 1 in SCREEN 2, Illegal function call (PC-BASIC's); SCREEN 0's COLOR as 7d1's after it. Guards a
-// program's background or palette in the wrong colours. Seen failing with the palette's parity taken as zero or
-// not (COLOR ,2 gives group 2).
+// alone changes nothing (the IBM manual's p. 44: any parameter may be left out, and leaving it out changes nothing)
+// and a third parameter is Illegal function call (p. 43's form has two), as is COLOR 1 in SCREEN 2 (p. 43); SCREEN
+// 0's COLOR as 7d1's after it. Guards a program's background or palette in the wrong colours. Seen failing with the
+// palette's parity taken as zero or not (COLOR ,2 gives group 2), (the IBM spec's fix-up, A3 and A4) with GCOLOR
+// refusing no parameters and taking a third, and with GTPRMS leaving the flags past its count (COLOR 1,1,1's third
+// taken by the SCREEN 2 after it as an apage: Illegal function call, found by the fix-up).
 TEST(color_on_a_graphics_screen)
 {
     CcpRig r;
@@ -527,7 +676,13 @@ TEST(color_on_a_graphics_screen)
     CHECK_EQ(entry(0), 0x0FFFu);
     CHECK_EQ(reg(r, L0 + L_PALOFS), 1);
     enter(r, "CLS:COLOR", ms(400));
+    CHECK_EQ(last_row(r, "Illegal function call"), -1);
+    CHECK_EQ(entry(0), 0x0FFFu);
+    CHECK_EQ(reg(r, L0 + L_PALOFS), 1);
+    enter(r, "CLS:COLOR 1,1,1", ms(400));
     CHECK_EQ(last_row(r, "Illegal function call"), 0);
+    CHECK_EQ(entry(0), 0x0FFFu);
+    CHECK_EQ(reg(r, L0 + L_PALOFS), 1);
     enter(r, "SCREEN 2:COLOR 1", ms(600));
     CHECK_EQ(last_row(r, "Illegal function call"), 0);
     enter(r, "SCREEN 0:COLOR 2,1:PRINT \"Q\"", ms(600));
@@ -564,10 +719,12 @@ TEST(point_reads_what_was_drawn)
 
 // RUN and CLS centre the graphics cursor (GENGRP.ASM's GRPRST at CLEARC, P5's GCLS), against PC-BASIC's pixels
 // (gwbasic/gfx8 in SCREEN 1, gfx9 in SCREEN 2): a PSET, then RUN, then LINE -(0,0) starts at (160,100) (320,100);
-// a PSET, then CLS, then LINE -(319,0); a PSET, then CLEAR, then LINE -(319,199). And CLS 2 keeps it (PC-BASIC's,
-// by hand from its values: review round 1, F2, a departure from the source's SCNCLR at the owner's word): PSET
-// (10,10),1: CLS 2: PSET STEP(0,0),2 sets (10,10), (160,100) untouched. Guards a program's relative drawing starting
-// in the wrong place. Seen failing with CLEARC's GRPRST call left out, and (F2) with SCNCLR's GRPINI kept.
+// a PSET, then CLS, then LINE -(319,0); a PSET, then CLEAR, then LINE -(319,199). And so do CLS 2 and PRINT
+// CHR$(12), by hand (the source's SCNCLR calls GRPINI; the IBM manual's p. 36 centres it at CLS and is silent on
+// the rest; the IBM spec's fix-up, A1, undoing 7e1's F2): PSET (10,10),1: CLS 2: PSET STEP(0,0),2 sets (160,100),
+// (10,10) kept; PSET (20,20),1: PRINT CHR$(12);: PSET STEP(1,1),3 sets (161,101). Guards a program's relative
+// drawing starting in the wrong place. Seen failing with CLEARC's GRPRST call left out, and (A1) with SCNCLR's
+// GRPINI left out.
 TEST(run_and_cls_centre_the_graphics_cursor)
 {
     {
@@ -586,8 +743,11 @@ TEST(run_and_cls_centre_the_graphics_cursor)
     REQUIRE(r.ok);
     REQUIRE(start(r) >= 0);
     enter(r, "SCREEN 1:PSET (10,10),1:CLS 2:PSET STEP(0,0),2", ms(1500));
-    CHECK_EQ(pixel(r, 10, 10), 2);
-    CHECK_EQ(pixel(r, 160, 100), 0);
+    CHECK_EQ(pixel(r, 10, 10), 1);
+    CHECK_EQ(pixel(r, 160, 100), 2);
+    enter(r, "PSET (20,20),1:PRINT CHR$(12);:PSET STEP(1,1),3", ms(1500));
+    CHECK_EQ(pixel(r, 21, 21), 0);
+    CHECK_EQ(pixel(r, 161, 101), 3);
 }
 
 // LIFEGFX (basic/lifegfx.bas, the owner's: SCREEN 1, COLOR 0,1, a LINE ...,BF a cell, LOCATE and PRINT on the
@@ -706,7 +866,8 @@ uint64_t timed(CcpRig &r, const std::vector<std::string> &lines)
 // The graphics' timing gate (V6), by check.py --timing's method (a loop with the statement less the loop without it,
 // over the passes): in SCREEN 2, PSET (X%,Y%),1 with integer variables at most 9,000 cycles a statement, and LINE
 // (0,0)-(639,199),1 (640 points, each two rows) at most 200,000; for the record, a 7 x 7 BF in SCREEN 1 (LIFEGFX's
-// box), LINE (0,0)-(319,199) there, and CLS in SCREEN 1 and 2. Guards graphics too slow to use. Seen failing with
+// box), LINE (0,0)-(319,199) there, CLS in SCREEN 1 and 2, and a line clipped from ends 32,000 off the screen.
+// Guards graphics too slow to use. Seen failing with
 // the aperture mapped by gxmem's GX_VMAP for every pixel (NEWBNK's cache off).
 TEST(graphics_are_timed)
 {
@@ -724,10 +885,12 @@ TEST(graphics_are_timed)
     const double box = per("SCREEN 1", "LINE (X%,Y%)-(X%+6,Y%+6),3,BF", 50);
     const double line1 = per("SCREEN 1", "LINE (0,0)-(319,199),2", 10);
     const double cls1 = per("SCREEN 1", "CLS", 10), cls2 = per("SCREEN 2", "CLS", 10);
+    const double far = per("SCREEN 2", "LINE (-32000,-32000)-(32000,32000),1", 10);
     std::printf("  PSET (X%%,Y%%),1 in SCREEN 2: %.0f cycles (the gate 9,000)\n", pset);
     std::printf("  LINE (0,0)-(639,199),1 in SCREEN 2: %.0f cycles (the gate 200,000)\n", line2);
     std::printf("  for the record: a 7 x 7 BF in SCREEN 1 %.0f, LINE (0,0)-(319,199) %.0f, CLS in SCREEN 1 %.0f, in "
-                "SCREEN 2 %.0f\n", box, line1, cls1, cls2);
+                "SCREEN 2 %.0f, LINE (-32000,-32000)-(32000,32000) in SCREEN 2 (clipped) %.0f\n", box, line1, cls1, cls2,
+                far);
     CHECK(pset > 500 && pset <= 9000);
     CHECK(line2 > 10000 && line2 <= 200000);
 }

@@ -1328,9 +1328,11 @@ TEST(tab_and_comma_follow_the_cursor)
 
 // Review round 1, F5: with 25 rows the 30-row layer's rows 26-30, the bands above and below the centred text, are
 // the border's colour, as a PC's overscan: after COLOR 15,1:WIDTH 40:COLOR 7,0:CLS they are black (attribute 0),
-// not WIDTH's blue; COLOR ,,4 makes them red on every page (page 1's too), the text's cells as they were. Guards
-// the bands keeping a colour from before (a blue frame round the text) and COLOR's border never showing. Seen
-// failing with PGINIT filling the bands in ATTR, and no fill for COLOR's border, as 7d1 was built.
+// not WIDTH's blue; COLOR ,,4 makes them red on every page (page 1's too), the text's cells as they were; WIDTH 80
+// then makes them black again (the IBM manual's p. 367: a change of width sets the border black; the IBM spec's
+// fix-up, A9). Guards the bands keeping a colour from before (a blue frame round the text) and COLOR's border never
+// showing. Seen failing with PGINIT filling the bands in ATTR, and no fill for COLOR's border, as 7d1 was built, and
+// (A9) with SWSET keeping BRDC.
 TEST(the_border_shows_in_the_bands)
 {
     CcpRig r;
@@ -1348,6 +1350,13 @@ TEST(the_border_shows_in_the_bands)
     {
         CHECK_EQ(card(r, base + row * 80 + 1), 0x40);
         CHECK_EQ(card(r, base + 12 * 256 + row * 80 + 1), 0x40); // page 1 (12 card pages at 40 columns)
+    }
+    enter(r, "WIDTH 80", ms(600)); // a change of width sets the border black (the IBM manual's p. 367)
+    const uint32_t b80 = mapbase(r);
+    for (const unsigned row : {25u, 29u})
+    {
+        CHECK_EQ(card(r, b80 + row * 160 + 1), 0x00);
+        CHECK_EQ(card(r, b80 + 20 * 256 + row * 160 + 1), 0x00); // page 1 (20 card pages at 80 columns)
     }
     enter(r, "WIDTH 80,30", ms(600));
     CHECK_EQ(card(r, mapbase(r) + 29 * 160 + 1), 0x07); // 30 rows: no bands, the text's own

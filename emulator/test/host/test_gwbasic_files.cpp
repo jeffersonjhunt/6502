@@ -301,7 +301,8 @@ TEST(the_file_errors_print_what_pc_basic_prints)
 // on the CCP's current drive, A:, when no drive is named, and A: named is the same drive. Then, by hand, what the
 // source gives that PC-BASIC's drives and devices can't: Q: (past CP/M's P:) and a device name (LPT1:, which the
 // OO-1 has no device table for yet) are Bad file name; a random OPEN is Advanced Feature until X1; PRINT # with no
-// file open is Bad file number (the owner's, 2026-11-14: the source's File not open maps to Bad file mode).
+// file open is Bad file number (the IBM manual's A-4, error 52), and GET and PUT of one Bad file mode (A-3, error 54:
+// the IBM spec's fix-up, A2; seen failing with DPUTG's not-open branch on DERFNO).
 TEST(files_typed_at_the_prompt_by_hand)
 {
     CcpRig r;
@@ -319,6 +320,10 @@ TEST(files_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "OPEN \"FX.DAT\" AS #1 LEN=20:CLOSE"), std::string());
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT EOF(1)"), std::string("Bad file number\r\n"));
+    // GET and PUT of a file not open: Bad file mode (the IBM manual's A-3, error 54, and the source's; the IBM spec's
+    // fix-up, A2), the one place A-4's Bad file number doesn't apply.
+    CHECK_EQ(command(r, "GET #1,1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "PUT #2"), std::string("Bad file mode\r\n"));
     // INPUT$ with no file: the keys typed, not echoed, CR among them as any byte.
     const size_t from = r.out.size();
     r.type("A$=INPUT$(4):PRINT \"<\";A$;\">\";LEN(A$)\r");

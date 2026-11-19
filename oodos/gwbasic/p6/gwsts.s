@@ -113,7 +113,14 @@ EOSCHK:         DECW    TXTPTR
 
 ; GTPRMS (GWSTS.ASM 359): byte parameters to the statement's end, each one
 ; there or not: PCNT of them, PFLG,X nonzero for one given, PVAL,X its value.
-GTPRMS:         STZ     PCNT
+; OO-1: every PFLG cleared first, so one past PCNT reads "not given" (the
+; 8086's are on its stack, counted; SCRSTT reads the pages' flags whatever
+; the count: a COLOR's third parameter was taken for SCREEN's apage).
+GTPRMS:         LDX     #PMAX - 1
+:               STZ     PFLG,X
+                DEX
+                BPL     :-
+                STZ     PCNT
 @l:             JSR     SCNINT
                 LDX     PCNT
                 BCS     @null
@@ -286,8 +293,11 @@ SWIDTH:         LDA     GMOD
                 BEQ     SWSET
 @bad:           SEC
                 RTS
-; SWSET: SWIDTH's LOCX and LOCY, checked (SMODE's).
-SWSET:          LDA     LOCX
+; SWSET: SWIDTH's LOCX and LOCY, checked (SMODE's). The border black (the
+; IBM manual's p. 367: a change of width clears the screen and sets it so;
+; the foreground and background as they were).
+SWSET:          STZ     BRDC
+                LDA     LOCX
                 LDX     LOCY
                 JSR     SCNSWI
                 STZ     APAGE
@@ -474,8 +484,12 @@ SMODE:          LDA     NMODE
 
 ; --- SCREEN(, CSRLIN (GWSTS.ASM 258) ------------------------------------------------------
 
+FCERGO:         JMP     FCERR
+
 ; SCRNFP: TXTPTR at SCREEN's token in a formula: SCREEN(y,x[,z]), the FAC
-; its value.
+; its value. In a graphics mode (the IBM manual, pp. 310-311): z Illegal
+; function call, and a blank cell whose pixels aren't all 0 is 0 (the text
+; is over the graphics here, so a character there is the character).
 SCRNFP:         JSR     P6IN
                 JSR     CHRGTR
                 JSR     SYNCHR
@@ -502,6 +516,8 @@ SCRNFP:         JSR     P6IN
                 LDA     PTERM
                 CMP     #')'
                 BNE     FCERGO
+                LDA     GMOD           ; z in text mode only (the IBM manual's
+                BNE     FCERGO         ; p. 310)
 SCRCHR:         MOVB7   xDL, LOCY
                 MOVB7   xDH, LOCX
                 LDA     LOCP
@@ -509,6 +525,20 @@ SCRCHR:         MOVB7   xDL, LOCY
                 JSR     SCRATR
                 BRA     SCRENX
 :               JSR     SCRINP
+                LDX     GMOD           ; a graphics mode: 0 for a blank cell over
+                BEQ     SCRENX         ; graphics (p. 311; P5's GCELL looks at the
+                CMP     #' '           ; 8 x 8 pixels under it)
+                BNE     SCRENX
+                LDX     LOCY
+                DEX
+                STX     RDL
+                LDX     LOCX
+                DEX
+                STX     RCL
+                FJSR    GCELL
+                LDA     #' '
+                BCC     SCRENX
+                LDA     #0
 SCRENX:         STA     RBL
                 STZ     RBH
                 JSR     MAKINT
@@ -518,7 +548,6 @@ SCRENX:         STA     RBL
                 JSR     P6OUT
                 PLP
                 RTS
-FCERGO:         JMP     FCERR
 
 ; CSRLNP: TXTPTR at CSRLIN's token: the FAC CSRLIN.
 CSRLNP:         JSR     P6IN

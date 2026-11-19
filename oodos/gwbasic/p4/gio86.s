@@ -116,7 +116,7 @@
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
 ERRBFM          = 54
-ERRFNO          = ERRBFN               ; OO-1: the 1983 source maps it to ERRBFM (the owner's, 2026-11-14)
+ERRFNO          = ERRBFN               ; OO-1: the 1983 source maps it to ERRBFM; 52 is the IBM manual's A-4 (GET and PUT: 54, A-3)
 ERRFAO          = 55
 ERRIOE          = 57
 ERRDFL          = 61
@@ -1584,7 +1584,8 @@ SKPNAM:         LDA     (RBL)
 ; --- GET and PUT (GIO86.ASM 627) ----------------------------------------------------------
 
 ; DPUTG: GET or PUT [#]n[, record], X 0 GET, 1 PUT (the 8086's CX, PGTFLG
-; here). The file must be open (DERFNO) and random (Bad file mode); with a
+; here). The file must be open and random, else Bad file mode (54: the IBM
+; manual's A-3, GET or PUT of a closed file, and the source's); with a
 ; record (ADRGET's 0..65535, P1's: a far call), A is 2 GET or 3 PUT, else
 ; 0 or 1, for the device's random function (G_RND: the disk's DSKRND). FDBP
 ; is kept round the record's formula, as the 8086's PUSH SI (a function in
@@ -1592,7 +1593,7 @@ SKPNAM:         LDA     (RBL)
 DPUTG:          STX     PGTFLG
                 JSR     POFNUM
                 JSR     FDBPTR
-                BEQ     ERFNO5
+                BEQ     ERBFM1         ; not open: 54, not ERRFNO's 52
                 LDY     #F_MODE
                 LDA     (FDBP),Y
                 CMP     #MD_RND
@@ -1618,7 +1619,6 @@ DPUTG:          STX     PGTFLG
 RELRND:         LDA     PGTFLG
 RELRN1:         LDX     #G_RND
                 JMP     SIDSP
-ERFNO5:         JMP     DERFNO
 ERBFM1:         JMP     DERBFM
 
 ; GETDAT (the project's own): A/X FDBP's FIELD buffer, the 8086's FD_DAT

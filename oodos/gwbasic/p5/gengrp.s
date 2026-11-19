@@ -36,8 +36,8 @@
 ; GXP, gxmem's pointer, which only p5/seed.s exports to it)
 .import GX_W1BACK
 
-.export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI
-.import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, MAKINT
+.export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI, GCELL
+.import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, SNERR, MAKINT
 
 ; Push and pull a word of zero page.
 .macro  PSHW    zp
@@ -135,8 +135,14 @@ PSTNOT:         RTS
 
 ; POINTP: TXTPTR at POINT's token in a formula. The cursor (C), GXPOS,
 ; GYPOS, GRPACY and GRPACX kept on the 6502's stack across it, so that
-; LINE (x1,y1)-(x2,y2),POINT(x3,y3) draws as it reads.
+; LINE (x1,y1)-(x2,y2),POINT(x3,y3) draws as it reads. OO-1 (the IBM
+; manual, p. 258: the coordinates absolute): POINT STEP, which the source's
+; SCAND takes, is Syntax error.
 POINTP:         JSR     CHRGTR
+                CMP     #STEP_TK
+                BNE     :+
+                JMP     SNERR
+:
                 JSR     FETCHC
                 LDX     #CSIZE - 1     ; C: CSAV and CSAVP
 @c:             LDA     CSAV,X
@@ -176,6 +182,40 @@ PNTNOT:         JSR     MAKINT
                 DECW    TXTPTR         ; the flags for what follows ")"
                 JMP     CHRGTR
 
+; GCELL (OO-1, P6's SCREEN( in a graphics mode: the IBM manual's p. 311):
+; C set if any of the 8 x 8 pixels under the text cell at row RDL, column
+; RCL (from 0) isn't 0. The graphics cursor kept.
+GCELL:          JSR     FETCHC
+                STZ     RCH
+                LDX     #3
+@m:             ASL     RDL            ; x 8: the cell's first pixel
+                ASL     RCL
+                ROL     RCH
+                DEX
+                BNE     @m
+                STZ     RDH
+                LDA     #8
+                STA     GCR
+@r:             JSR     MAPXYC
+                LDA     #8
+                STA     GCN
+@p:             JSR     READC
+                TAX
+                BNE     @x
+                JSR     RIGHTC
+                DEC     GCN
+                BNE     @p
+                INC     RDL
+                DEC     GCR
+                BNE     @r
+                LDX     #0             ; none
+@x:             PHX
+                JSR     GX_W1BACK
+                JSR     STOREC
+                PLX
+                CPX     #1             ; C: a pixel not 0
+                RTS
+
 ; --- ATRSCN (GENGRP.ASM 226) ------------------------------------------------------------------
 
 ; ATRSCN: an attribute, the foreground if the statement ends or it is
@@ -214,9 +254,9 @@ ATRFI2:         PHA
 
 ; XDELT: BX = |GXPOS - CX|, C set if CX was the greater (the 8086's borrow);
 ; YDELT the same of GYPOS and DX; NEGHL: BX negated, C set. OO-1: the
-; greater by the difference's sign, not the borrow, since a line's end may
-; be -1 (SCALXL); the coordinates are within -1 and 640, so it never
-; overflows, and for those on the screen it is the source's borrow.
+; greater by the difference's sign (N xor V), not the borrow, since a
+; line's ends are signed and may lie anywhere (the clipping, DOGRPH): BX up
+; to 65,535, unsigned. For points on the screen it is the source's borrow.
 XDELT:          SEC
                 LDA     GXPOS
                 SBC     RCL
@@ -224,7 +264,9 @@ XDELT:          SEC
                 LDA     GXPOS + 1
                 SBC     RCH
                 STA     RBH
-CNEGHL:         BMI     NEGHL
+CNEGHL:         BVC     :+
+                EOR     #$80
+:               BMI     NEGHL
                 CLC
                 RTS
 NEGHL:          SEC
@@ -411,17 +453,18 @@ BOXLIN:         PSHW    GYPOS          ; y2
 
 ; DOGRPH: a line from (CX, DX) to (GXPOS, GYPOS), drawn down from the
 ; smaller y, along its major axis (MAXUPD, a step each point) with steps on
-; its minor (MINUPD) when the sum passes the major's delta. OO-1 (the
-; owner's ruling of 2026-11-19, PC-BASIC's clipping): each end is brought
-; to one pixel past the screen at most (SCALXL), not to its edge as the
-; source's SCALXY truncates, and a line with an end off the screen is drawn
-; by LINCLP, which plots only its pixels on the screen.
+; its minor (MINUPD) when the sum passes the major's delta. OO-1 (the IBM
+; spec's fix-up, the owner's G2: the IBM manual's p. 159, out-of-range
+; coordinates clipped): the ends are taken as given, not truncated to the
+; edge as the source's SCALXY does (an OEM placeholder, G1), and a line with
+; an end off the screen is drawn by LINCLP: the pixels of the same line, on
+; its own slope, that lie on the screen.
 DOGRPH:         STZ     LOFF
-                JSR     SCALXL
+                JSR     ONSCR
                 BCS     :+
                 INC     LOFF
 :               JSR     XCHGAC
-                JSR     SCALXL
+                JSR     ONSCR
                 BCS     DOGRP2
                 INC     LOFF
 DOGRP2:         JSR     YDELT
@@ -507,12 +550,15 @@ LINLOP:         JSR     MAXJMP
 MINJMP:         JMP     (MINUPD)
 MAXJMP:         JMP     (MAXUPD)
 
-; LINCLP (OO-1, the owner's ruling): LINLP3's line, its sum and steps the
-; same, from (CX, DX) with an end off the screen (one pixel past it at most):
-; its point (LX, LY) followed, the cursor mapped (MAPXYC) at the first that
-; is on the screen and moved with it from there, each on the screen set,
-; and the line left at the first off it after (they are one run: the line is
-; straight and the screen convex).
+; LINCLP (OO-1, the IBM spec's fix-up, G2): LINLP3's line, its sum and
+; steps the same, from (CX, DX) with an end off the screen: its point (LX,
+; LY) followed, the cursor mapped (MAPXYC) at the first that is on the
+; screen and moved with it from there, each on the screen set, and the line
+; left at the first off it after (they are one run: the line is straight
+; and the screen convex). LSKIP first brings the point at once to where its
+; major coordinate meets the screen, so a line from far off costs no more
+; than one on it; the walk then ends where the major coordinate leaves the
+; screen. The deltas may be up to 65,535, so the sum may pass 16 bits.
 LINCLP:         MOVW    LX, RCL
                 MOVW    LY, RDL
                 STZ     LVIS           ; 0: none on the screen yet; 1: drawing
@@ -520,7 +566,9 @@ LINCLP:         MOVW    LX, RCL
                 LSR     LSUM + 1       ; half the major delta
                 ROR     LSUM
                 MOVW    LCNT, MAXDEL
-                INCW    LCNT
+                INCW    LCNT           ; (0: 65,536, the loop's DEC first)
+                JSR     LSKIP
+                BCS     LCLX           ; never on the screen
 @pt:            JSR     LONSCR
                 BCC     @off
                 LDA     LVIS
@@ -532,28 +580,10 @@ LINCLP:         MOVW    LX, RCL
 @set:           JSR     SETC
                 BRA     @step
 @off:           LDA     LVIS
-                BNE     @x             ; past the screen: done
-@step:          CLC
-                LDA     LSUM
-                ADC     MINDEL
-                STA     LSUM
-                LDA     LSUM + 1
-                ADC     MINDEL + 1
-                STA     LSUM + 1
-                LDA     LSUM
-                CMP     MAXDEL
-                LDA     LSUM + 1
-                SBC     MAXDEL + 1
-                BCC     @maj
-                STA     LSUM + 1
-                LDA     LSUM
-                SBC     MAXDEL
-                STA     LSUM
-                LDA     LYM            ; the minor step: x (y major) or y
-                EOR     #1
-                JSR     LSTEP
-@maj:           LDA     LYM            ; the major step
-                JSR     LSTEP
+                BNE     LCLX           ; past the screen: done
+                JSR     LMAJON
+                BCC     LCLX           ; the major coordinate past it: none
+@step:          JSR     LADV
                 LDA     LCNT
                 BNE     :+
                 DEC     LCNT + 1
@@ -561,7 +591,33 @@ LINCLP:         MOVW    LX, RCL
                 LDA     LCNT
                 ORA     LCNT + 1
                 BNE     @pt
-@x:             RTS
+LCLX:           RTS
+; LADV: the walk's step: the sum, a minor step when it passes the major
+; delta, and the major step.
+LADV:           CLC
+                LDA     LSUM
+                ADC     MINDEL
+                STA     LSUM
+                LDA     LSUM + 1
+                ADC     MINDEL + 1
+                STA     LSUM + 1
+                BCS     @min           ; past 16 bits: past the major delta
+                LDA     LSUM
+                CMP     MAXDEL
+                LDA     LSUM + 1
+                SBC     MAXDEL + 1
+                BCC     @maj
+@min:           LDA     LSUM           ; (C set)
+                SBC     MAXDEL
+                STA     LSUM
+                LDA     LSUM + 1
+                SBC     MAXDEL + 1
+                STA     LSUM + 1
+                LDA     LYM            ; the minor step: x (y major) or y
+                EOR     #1
+                JSR     LSTEP
+@maj:           LDA     LYM            ; the major step
+                ; (on into LSTEP)
 ; LSTEP: A 1 a step of y (down), 0 of x (LXS): the point moved, and the
 ; cursor with it while drawing (the move MINUPD or MAXUPD names: DOWNC, or
 ; RIGHTC or LEFTC).
@@ -582,22 +638,183 @@ LSTEP:          TAX
                 BEQ     @r
                 JMP     LEFTC
 @r:             RTS
-; LONSCR: C set if (LX, LY) is on the screen.
-LONSCR:         LDA     LX + 1
-                BMI     @no
-                LDA     GMAXX
-                CMP     LX
-                LDA     GMAXX + 1
-                SBC     LX + 1
-                BCC     @no
-                LDA     LY + 1
-                BNE     @no
-                LDA     LY
-                CMP     #200
-                BCS     @no
-                SEC
+
+LSKNO:          CLC
                 RTS
-@no:            CLC
+; LSKIP: the point moved, as k steps of the walk would move it, to where its
+; major coordinate first meets the screen (y major: from above, y 0;
+; x major: x 0 going right, the last going left), when it starts before
+; the screen; k steps' minor moves are (LSUM + k x MINDEL) / MAXDEL, the sum
+; the remainder (the walk's own arithmetic, at once). C set if the line's
+; points end before it gets there; C clear otherwise, or if no move is needed.
+LSKIP:          LDA     LYM
+                BEQ     @xm
+                LDA     LY + 1         ; y major: above the screen?
+                BPL     LSKNO
+                SEC
+                LDA     #0
+                SBC     LY
+                STA     LK
+                LDA     #0
+                SBC     LY + 1
+                STA     LK + 1
+                STZ     LY
+                STZ     LY + 1
+                BRA     @k
+@xm:            LDA     LXS
+                BMI     @xl
+                LDA     LX + 1         ; going right: left of the screen?
+                BPL     LSKNO
+                SEC
+                LDA     #0
+                SBC     LX
+                STA     LK
+                LDA     #0
+                SBC     LX + 1
+                STA     LK + 1
+                STZ     LX
+                STZ     LX + 1
+                BRA     @k
+@xl:            LDA     LX             ; going left: past the last?
+                LDX     LX + 1
+                JSR     XPAST
+                BCC     LSKNO
+                SEC
+                LDA     LX
+                SBC     GMAXX
+                STA     LK
+                LDA     LX + 1
+                SBC     GMAXX + 1
+                STA     LK + 1
+                MOVW    LX, GMAXX
+@k:             LDA     LCNT           ; 0: 65,536 points, more than any k
+                ORA     LCNT + 1
+                BEQ     :+
+                LDA     LK
+                CMP     LCNT
+                LDA     LK + 1
+                SBC     LCNT + 1
+                BCC     :+
+                RTS                    ; (C set) k points or fewer: none get there
+:               SEC                    ; the points left
+                LDA     LCNT
+                SBC     LK
+                STA     LCNT
+                LDA     LCNT + 1
+                SBC     LK + 1
+                STA     LCNT + 1
+                STZ     LP + 2         ; LP = k x MINDEL (LK shifted out)
+                STZ     LP + 3
+                LDX     #16
+@ml:            LSR     LK + 1
+                ROR     LK
+                BCC     @mr
+                CLC
+                LDA     LP + 2
+                ADC     MINDEL
+                STA     LP + 2
+                LDA     LP + 3
+                ADC     MINDEL + 1
+                STA     LP + 3
+@mr:            ROR     LP + 3
+                ROR     LP + 2
+                ROR     LP + 1
+                ROR     LP
+                DEX
+                BNE     @ml
+                CLC                    ; + the sum
+                LDA     LP
+                ADC     LSUM
+                STA     LP
+                LDA     LP + 1
+                ADC     LSUM + 1
+                STA     LP + 1
+                BCC     :+
+                INC     LP + 2
+                BNE     :+
+                INC     LP + 3
+:               LDX     #16            ; / MAXDEL: the quotient (it fits 16
+@dl:            ASL     LP             ; bits: at most k) in LP, the
+                ROL     LP + 1         ; remainder in LP + 2
+                ROL     LP + 2
+                ROL     LP + 3
+                BCS     @ds            ; past 16 bits: past MAXDEL
+                LDA     LP + 2
+                CMP     MAXDEL
+                LDA     LP + 3
+                SBC     MAXDEL + 1
+                BCC     @dn
+@ds:            LDA     LP + 2         ; (C set)
+                SBC     MAXDEL
+                STA     LP + 2
+                LDA     LP + 3
+                SBC     MAXDEL + 1
+                STA     LP + 3
+                INC     LP
+@dn:            DEX
+                BNE     @dl
+                MOVW    LSUM, LP + 2
+                LDA     LYM            ; the minor coordinate moved: y down, or
+                BNE     @mx            ; x by LXS (y major)
+                CLC
+                LDA     LY
+                ADC     LP
+                STA     LY
+                LDA     LY + 1
+                ADC     LP + 1
+                STA     LY + 1
+                CLC
+                RTS
+@mx:            LDA     LXS
+                BMI     @mxl
+                CLC
+                LDA     LX
+                ADC     LP
+                STA     LX
+                LDA     LX + 1
+                ADC     LP + 1
+                STA     LX + 1
+                CLC
+                RTS
+@mxl:           SEC
+                LDA     LX
+                SBC     LP
+                STA     LX
+                LDA     LX + 1
+                SBC     LP + 1
+                STA     LX + 1
+                CLC
+                RTS
+
+; ONSCR: C set if (CX, DX) is on the screen; LONSCR the same of (LX, LY);
+; LMAJON of the point's major coordinate alone (LYM: y, else x).
+ONSCR:          LDA     RCL
+                LDX     RCH
+                JSR     XON
+                BCC     ONR
+                LDA     RDL
+                LDX     RDH
+                BRA     YON
+LONSCR:         JSR     LXON
+                BCC     ONR
+LYON:           LDA     LY
+                LDX     LY + 1
+YON:            CPX     #$80
+                BCS     ONNO
+                JSR     YPAST
+                BRA     ONINV
+LMAJON:         LDA     LYM
+                BNE     LYON
+LXON:           LDA     LX
+                LDX     LX + 1
+XON:            CPX     #$80
+                BCS     ONNO
+                JSR     XPAST
+ONINV:          ROL     A              ; C: not past
+                EOR     #1
+                LSR     A
+ONR:            RTS
+ONNO:           CLC
                 RTS
 
 ; HLFDE: DX halved.
@@ -660,3 +877,7 @@ LY:             .res    2
 LSUM:           .res    2              ;   its sum
 LCNT:           .res    2              ;   the points left
 LVIS:           .res    1              ;   1: drawing (the cursor at the point)
+LK:             .res    2              ; LSKIP's k, the steps skipped
+LP:             .res    4              ;   k x MINDEL + the sum, then its quotient and remainder
+GCR:            .res    1              ; GCELL's rows
+GCN:            .res    1              ;   and pixels left in the row
