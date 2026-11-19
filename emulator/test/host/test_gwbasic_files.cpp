@@ -705,12 +705,12 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
                                        ' ',  '"',  'X', '"', ':',   0xFE, 0x99, ' '};
     CHECK(got == want);
     CHECK_EQ(word(static_cast<uint16_t>(text + 2)), 10);
-    CHECK_EQ(command(r, "RUN"), std::string("Path/File access error in 10\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string("Path/file access error in 10\r\n"));
     CHECK_EQ(command(r, "CHDIR \"\\\""), std::string());
     CHECK_EQ(command(r, "CHDIR \".\":CHDIR \"\":PRINT \"root\""), std::string("root\r\n"));
     CHECK_EQ(command(r, "CHDIR \"X\""), std::string("Path not found\r\n"));
     CHECK_EQ(command(r, "CHDIR \"\\\\\""), std::string("Path not found\r\n"));
-    CHECK_EQ(command(r, "MKDIR \"\\\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "MKDIR \"\\\""), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "RMDIR \"\\\""), std::string("Path not found\r\n"));
     CHECK_EQ(command(r, "CHDIR"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "RMDIR 1"), std::string("Type mismatch\r\n"));
@@ -921,7 +921,7 @@ TEST(a_drive_with_no_image_is_a_basic_error_and_gw_basic_goes_on)
         return std::string("\r\nOODOS Error On ") + drive + ": Invalid Drive\r\nBDOS Function = " + std::to_string(fn) +
                " File = " + file + "\r\n";
     };
-    auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not Ready\r\n"; };
+    auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not ready\r\n"; };
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"H:X.TXT\""), said("H", 15, "X       .TXT"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"C:X.TXT\""), said("C", 19, "X       .TXT"));
     CHECK_EQ(command(r, "OPEN \"H:X.TXT\" FOR APPEND AS #2"), said("H", 15, "X       .TXT"));
@@ -935,7 +935,7 @@ TEST(a_drive_with_no_image_is_a_basic_error_and_gw_basic_goes_on)
     enter(r, {"10 ON ERROR GOTO 100", "20 OPEN \"I\",#1,\"H:X.TXT\"", "30 PRINT \"not here\"", "40 END",
               "100 PRINT \"ERR\";ERR;\"in\";ERL:RESUME 110", "110 PRINT \"went on\":ON ERROR GOTO 0", "120 OPEN \"I\",#3,\"H:Y\""});
     CHECK_EQ(command(r, "RUN"), bdos("H", 15, "X       .TXT") + "ERR 71 in 20 \r\nwent on\r\n" +
-                                    bdos("H", 15, "Y       .   ") + "Disk not Ready in 120\r\n");
+                                    bdos("H", 15, "Y       .   ") + "Disk not ready in 120\r\n");
     CHECK_EQ(command(r, "PRINT \"after\""), std::string("after\r\n"));
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
@@ -1087,8 +1087,8 @@ TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
     CHECK_EQ(command(r, "OPEN \"LPT1:X\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:BINX\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT9:\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"LPT2:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
-    CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT2:\" FOR OUTPUT AS #1"), std::string("Device unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device unavailable\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR OUTPUT AS #1:PRINT EOF(1)"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "PRINT LOC(1)"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file mode\r\n"));
@@ -1127,8 +1127,8 @@ TEST(width_of_a_file_lprint_and_a_device)
     CHECK_EQ(command(r, "WIDTH \"CONS:\",40"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "WIDTH \"A:\",40"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "WIDTH \"LPT1:\""), std::string("Syntax error\r\n"));
-    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "WIDTH \"SCRN:\",40"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"SCRN:\",40"), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT 1"), std::string(" 1 \r\n"));
 }
 
@@ -1145,7 +1145,7 @@ TEST(width_of_the_screen_s_devices_changes_nothing_in_console_mode)
     const std::string sixty = "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,STRING$(60,\"A\"):CLOSE";
     CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
     for (const char *w : {"WIDTH \"SCRN:\",40", "WIDTH \"KYBD:\",40", "WIDTH \"scrn:\",20", "WIDTH \"kybd:XY\",30"})
-        CHECK_EQ(command(r, w), std::string("Advanced Feature\r\n"));
+        CHECK_EQ(command(r, w), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
     CHECK_EQ(command(r, "WIDTH \"SCRN:\",0"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "WIDTH \"KYBD:\""), std::string("Syntax error\r\n"));
@@ -1175,7 +1175,7 @@ TEST(com1_files_go_to_and_from_aux_by_hand)
                             "COM1:300,N,8,3", "COM1:300,N,8,1.6", "COM1:300,N,8,1,XY", "COM1:,,,,ASC,BIN", "COM1:,,,,LX",
                             "COM1:300 N", "COM1:,,,,BIX"})
         CHECK_EQ(command(r, std::string("OPEN \"") + bad + "\" AS #1"), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"COM2:\" AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"COM2:\" AS #1"), std::string("Device unavailable\r\n"));
     CHECK_EQ(command(r, "OPEN \"COM1:\" AS #1:OPEN \"COM1:\" AS #2"), std::string("File already open\r\n"));
     CHECK_EQ(command(r, "CLOSE"), std::string());
     // The DCB as PCOMOP leaves it, read at the file's first byte out (W3 then P4's).
@@ -1312,11 +1312,11 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     r.watch = nullptr;
     REQUIRE(seen.size() == 4);
     CHECK(seen[1] == seen[0] && seen[2] == seen[0] && seen[3] == seen[0]);
-    CHECK_EQ(command(r, "LCOPY"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "LCOPY 1"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY"), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY 1"), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "LCOPY 256"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "LCOPY 1,2"), std::string("Syntax error\r\n"));
-    CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // no word in the 1983 table: a variable
 }
 
@@ -1538,14 +1538,14 @@ TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
     r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"W7S.TXT\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"R\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" AS #3 LEN=20"), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" AS #3 LEN=20"), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "LOAD \"W7S\""), std::string("File not found\r\n"));
     enter(r, {"10 REM"});
-    CHECK_EQ(command(r, "SAVE \"W7S\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "SAVE \"W7S\""), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7T.TXT\":PRINT #1,\"t\":CLOSE"), std::string()); // the FDBs given back
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
@@ -1578,8 +1578,8 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     {
         const std::string got = command(r, line);
         CHECK(got.find("BDOS Function = 15") != std::string::npos);
-        CHECK(got.size() > 16 && got.substr(got.size() - 16) == "Disk not Ready\r\n");
-        if (got.find("Disk not Ready") == std::string::npos)
+        CHECK(got.size() > 16 && got.substr(got.size() - 16) == "Disk not ready\r\n");
+        if (got.find("Disk not ready") == std::string::npos)
             std::printf("  %s: '%s'\n", line, vis(got).c_str());
     }
     CHECK_EQ(command(r, "PRINT FRE(0)"), fre);
@@ -1592,8 +1592,8 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "A$=STRING$(50,\"s\")"), std::string());
     const std::string fre2 = command(r, "PRINT FRE(0)");
-    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RS.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"RS.TXT\" AS #2 LEN=40"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RS.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"RS.TXT\" AS #2 LEN=40"), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "PRINT FRE(0);LEN(A$)"), fre2.substr(0, fre2.size() - 2) + " 50 \r\n");
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:LSET F$=\"ok\":PUT #1,1:CLOSE"), std::string());
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:GET #1,1:PRINT F$:CLOSE"),

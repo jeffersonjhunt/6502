@@ -43,7 +43,7 @@ The programs of step I2, typed and RUN the same way:
 | `print`, `tabneg` | PRINT: `;`, the print zones of `,`, a line's end, TAB and SPC (and of a negative number), numbers of each type |
 | `read` | READ, DATA and RESTORE: numbers and strings, quoted or not, colons, `RESTORE line`, DATA anywhere |
 | `input` (`input.in`) | INPUT and LINE INPUT: prompts, "? ", several values, quoted strings, a subscript, "?Redo from start" |
-| `e_nf`, `e_nf2`, `e_rg`, `e_od`, `e_dsn`, `e_fn`, `e_wh`, `e_we`, `e_ftm`, `e_ftm2`, `e_ov`, `e_litm` | the errors: NEXT without FOR, RETURN without GOSUB, Out of DATA, Syntax error in a DATA, FOR without NEXT, WHILE without WEND, WEND without WHILE, Type mismatch, Overflow |
+| `e_nf`, `e_nf2`, `e_rg`, `e_od`, `e_dsn`, `e_fn`, `e_wh`, `e_we`, `e_ftm`, `e_ftm2`, `e_ov`, `e_litm` | the errors: NEXT without FOR, RETURN without GOSUB, Out of data, Syntax error in a DATA, FOR without NEXT, WHILE without WEND, WEND without WHILE, Type mismatch, Overflow |
 | `spk_*` | the size spike's seven programs (`oodos/gwbasic/test/check.py --write-programs`) |
 
 Where the 1983 source and PC-BASIC differ, the port keeps the source's behaviour, and `NAME.differ` is what it
@@ -53,8 +53,12 @@ must print instead: its first line, `# why`, says why, the rest is the text, lin
 - `for`: a FOR that runs no times leaves its variable at the start, and STEP 0 never ends;
 - `tabneg`: TAB and SPC of a negative number are of 0;
 - `e_dsn`: READ's Syntax error is in the line of the DATA it was reading;
-- `e_fn`: the message is "FOR Without NEXT";
 - `spk_rnd1`, `spk_rnd3`: 0 MOD 0 is 0.
+
+Where the port follows the IBM BASIC Reference 3.0 (the owner's spec, 2026-11-19) and PC-BASIC doesn't, `NAME.differ`
+is the manual's: `e_od`, `optdd`, `optdd2`, `d_e75` (and `oodos/gwbasic/test/programs/`'s `e_dd`, `e_dd2`): the
+error messages in Appendix A's wording ("Out of data", "Duplicate definition", "Path/file access error"; the IBM spec's
+fix-up, G15), where PC-BASIC prints the 1983 source's. `e_fn` agrees with PC-BASIC now ("FOR without NEXT").
 
 Not checked against PC-BASIC: LINE INPUT keeps the blanks typed at a line's end (OODOS's function 10 gives them;
 GW-BASIC's screen editor reads the line back from the screen, and PC-BASIC drops them), so `input.in` types none
@@ -104,7 +108,7 @@ Step a2's, typed and RUN the same way:
 | `erasefc`, `erasefc2`, `erasesn` | ERASE's errors: an array not there, a simple variable, a subscript |
 | `clear`, `clearrg`, `clearnf` | CLEAR alone, with x, with m; what it drops (variables, arrays, ON ERROR, GOSUB, FOR) |
 | `clearcm`, `clearcm2`, `clearom`, `clearom2`, `clearom3`, `clearfc`, `clearfc2`, `clearfc3`, `clearfc4`, `clearsn` | CLEAR's commas and errors: m 240 or less, more than n, n under the variables (Out of memory); n or m 0, x negative, n past the TPA's top (Illegal function call); too much |
-| `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate Definition; Syntax error |
+| `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate definition; Syntax error |
 | `random`, `randomov`, `randomtm`, `randin` (`randin.in`) | RANDOMIZE n (each kind of seed), its errors; RANDOMIZE alone with the seed typed, a bad line asked for again |
 | `fout7788` | the owner's G5: .7788379, which the 1983 source's $FOUT prints as .778838 (two roundings in $FOTNV); shipped GW-BASIC prints .7788379 (.differ) |
 | `write`, `writemo`, `writesn` | WRITE: numbers, strings, `,` and `;`, alone; Missing operand; Syntax error |

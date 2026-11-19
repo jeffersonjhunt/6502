@@ -778,7 +778,7 @@ TEST(key_n_sets_a_key_and_its_field)
     enter(r, "CLS:KEY 1,5", ms(300));
     CHECK_EQ(line(r, 0), std::string("Type mismatch"));
     enter(r, "CLS:KEY(1) ON", ms(300));
-    CHECK_EQ(line(r, 0), std::string("Advanced Feature"));
+    CHECK_EQ(line(r, 0), std::string("Advanced feature"));
     CHECK_EQ(line(r, 24).substr(0, 8), std::string("1FILES\x1b "));
 }
 
