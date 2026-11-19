@@ -1056,6 +1056,77 @@ TEST(print_and_scroll_are_timed)
     CHECK(scroll > 1000 && scroll <= 14000);
 }
 
+// For the record (7d2, unit 6), not gated: what the key line and the soft keys cost. CLS with the key line on (the
+// line drawn again), KEY 1,"X" with it on (drawn again) and with it off, by timed()'s method over 20 passes; and a
+// key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
+// no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
+// while a program reads INKEY$.
+TEST(the_key_line_and_soft_keys_cost)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    auto per = [&](const std::string &stmt) {
+        const uint64_t a = timed(r, {"10 I%=I%+1:IF I%<20 THEN 10"});
+        const uint64_t b = timed(r, {"10 " + stmt + ":I%=I%+1:IF I%<20 THEN 10"});
+        return static_cast<double>(b - a) / 20;
+    };
+    const double cls = per("CLS"), keyon = per("KEY 1,\"X\"");
+    enter(r, "KEY OFF", ms(300));
+    const double clsoff = per("CLS"), keyoff = per("KEY 1,\"X\"");
+    enter(r, "KEY ON", ms(300));
+    std::printf("  CLS with the key line: %.0f cycles (%.0f with it off)\n", cls, clsoff);
+    std::printf("  KEY 1,\"X\" with the key line on: %.0f cycles (%.0f with it off)\n", keyon, keyoff);
+    CHECK(cls > clsoff && keyon > keyoff);
+    enter(r, "KEY 1,\"\":NEW");
+    enter(r, "10 A$=INKEY$:GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    const uint16_t kev = lbl_map(std::string("p6.lbl")).at("KEYEV");
+    uint64_t kfrom = 0, ktotal = 0;
+    unsigned kn = 0;
+    int kdepth = -1;
+    const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
+        if (kdepth < 0 && pc == kev)
+        {
+            kfrom = r.cpu->cycles();
+            kdepth = r.cpu->regs().s;
+        }
+        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
+        {
+            ktotal += r.cpu->cycles() - kfrom;
+            ++kn;
+            kdepth = -1;
+        }
+    };
+    r.watch = watch;
+    auto avg = [&](uint8_t key) {
+        kn = 0;
+        ktotal = 0;
+        for (int i = 0; i < 8; ++i)
+        {
+            press(r, key);
+            r.run(ms(50));
+        }
+        return kn ? static_cast<double>(ktotal) / kn : 0;
+    };
+    const double plain = avg(0x04), none = avg(K_F1);
+    r.watch = nullptr;
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
+    enter(r, "KEY 1,\"LIST\"");
+    keys(r, "RUN\r");
+    r.run(ms(200));
+    r.watch = watch;
+    const double soft = avg(K_F1);
+    r.watch = nullptr;
+    std::printf("  a key (KEYEV, its drain included): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
+                none, soft);
+    CHECK(soft > none);
+    press(r, 0x06, CTRL);
+    r.run(ms(200));
+}
+
 // Review round 1 (7d1), F1: insert mode that pushes a line past the row's end wraps what runs off onto the next row,
 // and the line entered is the line on the screen: 70 B's in a string, the cursor 20 back, Insert, ten C's (the line
 // grows to 88, two rows), Enter: no Syntax error, and A$ is 80 characters with the C's from its 52nd. The same on the

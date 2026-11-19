@@ -3918,7 +3918,7 @@ copy of common memory at `$F800` (above).
 | P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL | 9.5 KB |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
 | P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's | 10.7–11.5 KB; 2.3 KB at 7d1 |
-| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue | 5.0–6.0 KB; 10.7 KB at 7d1 |
+| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
 | P8 | room: whatever outgrows its block | — |
 
@@ -4572,6 +4572,82 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       ^G does nothing until 7f's BEEP; WIDTH #f, WIDTH LPRINT and WIDTH "device" stay Advanced Feature (their parts
       are P4's, 93 bytes free); MKRMCH's overflow in P6's own 8 bytes, not BUF; GW-BASIC starts with no key line
       (7d2's).
+  - **As built, 7d2** (Proposed, 2026-11-18; feat/gwbasic-7d2 off main `f0cd3d14`, the 7d2 plan with the owner's
+    answers of 2026-11-18, "recommendations as listed", and the owner's decision on the flat image's ceiling):
+    - **The flat test image's ceiling** (U1, the owner's decision): the test data moved up by `$2C00`: the program at
+      `$C000`, the control block at `$CBF0` (still `$BF0` past the program, so a program's workspace, FRE and Out of
+      memory are as they were), the math vectors at `$CC00`, 160 a run to `$FE00`. check.py runs its timing sets in
+      pieces of 160 (`--timing`'s output identical) and asserts the layout; programs.py checks the image's end too.
+    - **WIDTH's other forms** (U2; GIO86.ASM's WIDTHS, the home block's `p8/far6.s`): WIDTH #f,n (F_WID), WIDTH
+      LPRINT n (LPT1's resident width), WIDTH "device",n (the device's G_SWD; a disk Bad file name, CONS: Bad file
+      mode). The file and printer forms work in console mode too (answer 6); WIDTH n and the screen's devices are
+      screen mode's. WIDTHS's tail is a new P4 entry, `DEVSWD`, since the FDBs and the device table are P4's RAM
+      (the plan had the home block store F_WID itself, which it can't reach). SCRN:'s and KYBD:'s SCNSWD set WDTFLG
+      and return C clear, and the home block then far calls P6's `SWIDP` (SWIDTH with the rows kept; 255 no change):
+      P4 had no room for that far call.
+    - **LCOPY** (U3; answer 9): P3's LCOPYP far calls P6's `LCPYP` in screen mode: the visual page's LINCNT rows,
+      the key line's too, each read into the row cache (ROWIN on the visual page, by APGSET's new PGSET entry), sent
+      by function 5 with its trailing blanks dropped and characters below 32 or `$FF` as blanks, a CR LF each;
+      LPTPOS 0 after. n is taken and not used; console mode Advanced Feature.
+    - **KEY and the key line** (U4): GWSTS.ASM's KEYS in P6 (`KEYSP`, by the home block's KEY stub, screen mode only):
+      KEY ON, OFF, LIST (a CR as 27), KEY n,"text" (15 characters kept); KEY( Advanced Feature until 7f (answer 5).
+      KEYDSP whole (GETFMT, KEYADV, KEYDCH, XFGBG inline), the OEM's FKYFMT and FKYADV (10 keys at 80 columns, 5
+      from F1 or F6 at 40), LABELK on ^T. The line is drawn again by CLS, WIDTH and a change of active page, and is
+      on at start-up in screen mode unless a program is named (P2's PRNTND, P6's `SKEYOP`; answer 1). STRTAB, the
+      ten texts with the PC's defaults (answer 3), is resident fixed RAM (answer 8).
+    - **The soft keys** (U5; answer 2): P6's KEYEV queues an unshifted F1-F10's text (scan codes 59-68, CHKFKY's
+      range) as the key is pressed, whole or not at all if the queue hasn't room; an empty text queues the PC's code.
+      Shift, Ctrl and Alt keep their codes; Alt and a letter's keywords are not built (answer 4).
+    - **Sizes** (bytes; at `f0cd3d14` → after 7d2, the plan's estimates in brackets): free for BASIC 34,979 → 34,819
+      [~34,819]; resident code and tables 11,421 → 11,421 [~11,421]; fixed RAM 1,973 → 2,133 (LOWRAM 434) [~2,133];
+      P2 5,764 → 5,782 [~5,780]; P3 4,971 → 4,985 [~4,985]; **P4 12,195 → 12,223, 65 free** (the stop line 64)
+      [~12,222, ~66]; P5 2,314 [2,314]; **P6 10,679 → 11,348, 940 free** (the stop line 600) [~11,190-11,400]; P8
+      2,940 → 3,090 [~3,030]; GWBASIC.OVL 48,000 → 48,768 [~48,128]. The flat image's last byte `$93A1` → `$94CA`
+      (its limit `$9400` → `$C000`) [~`$94A5`]. By unit, P6's free: 1,609, then 1,573 (U2), 1,456 (U3), 1,010 (U4),
+      940 (U5); P4's 65 from U2 on.
+    - **Cycles** (test_gwbasic_screen, the fast build): `PRINT A$;` with 80 characters, no scroll, **21,084** (the
+      gate 30,000; 21,167 at 7d1). A whole-window scroll **13,894** (the cap 14,000; 13,861 at 7d1: the margin 106),
+      15,923 with the row just printed still to write back. A key, KEYEV with its drain: 1,162 on average over 66 keys
+      under T17; in the measuring case A 1,129 (its cooked twin drained), F1 with no text 629, **F1 with LIST 939**
+      (the text's 4 bytes queued: about 310 more). **CLS with the key line 33,540** (19,398 with it off; estimated
+      ~30,000). **KEY 1,"X" with the line on 17,629** (2,389 with it off; estimated ~12,000). None but the first two is
+      gated.
+    - **Tests**, each seen failing under its mutant, run on its own case, the source then restored:
+      - F1 (flat: check.py and programs.py): a flatp6.s with a 12 KB BSS, flat.cfg widened to link it: both stop ("the
+        flat image ends at `$C3A1`, past `$C000`"); and the layout assert, with PER_RUN 300;
+      - W1 `width_of_a_file_lprint_and_a_device` (test_gwbasic_files): (a) F_WID's offset from F_MODE one off; (b)
+        WIDTH LPRINT storing LINLEN, not LINLEN+1. The plan had a disk file's lines broken at its width; the source
+        breaks no disk file's line (CRIFEL is the printers' and COM's), so W1 checks a printer file's width and a
+        disk file's comma zones (PTRWID);
+      - W2 `width_scrn_sets_the_screen`: SCNSWD returning C set (the plan's mutant, WDTFLG's old value passed, has no
+        place in this build: the home block passes RDL);
+      - L1 `lcopy_prints_the_screen_on_lst`: LCPYP reading the active page. Its other mutant, LCPYP without TXBUF's
+        run and the flush, **passes**: FINPRT runs TXBUF and every return from P6 flushes, so nothing waits when LCOPY
+        starts (both kept, as at every entry of P6's);
+      - S1 `scrn_writes_on_the_screen`: P4's SCNOUT sending by function 2, not OUTDO;
+      - Y1 `the_key_line_at_start_up`: (a) PRNTND's BUF test left out; (b) XFGBG not swapping;
+      - Y2 `key_n_sets_a_key_and_its_field`: KEYSP's DEC A left out (a key's text on the next key);
+      - Y3 `key_list_lists_the_ten`: KEYLSP's CR substitution left out;
+      - Y4 `ctrl_t_pages_the_key_line` (with a ^T typed mid-line, the line as typed): FKYADV not going past F6-F10;
+      - Y5 `the_key_line_follows_pages_and_width`: SCRNP's change of page without KEYDSP;
+      - Y6 `key_stays_advanced_feature_in_console_mode` (test_gwbasic_core): the KEY stub's BIT SCRMOD left out;
+      - K1 `a_function_key_types_its_text`: (a) the text's place one key on (F1 types RUN); (b) the text queued
+        without the room check (11 of F10's 13 bytes queued after 20 keys);
+      - K2 `an_empty_soft_key_gives_the_pc_code`: the empty text's test left out (T10 fails under it too);
+      - K3 `shifted_function_keys_aren_t_expanded`: the expansion taken on the key's usage, not its scan code;
+      - and a measuring case, `the_key_line_and_soft_keys_cost`.
+    - **Expectation changes** (the owner's approved list, test_gwbasic_screen): T5 (the 25th row the key line, intact
+      after 40 scrolls), T6 (the row after the typed PRINT 5), T12 and T14 (KEY OFF first), T13 (the 24 rows, and
+      the key line drawn again by CLS in the current attribute), T10 (KEY 1,"" typed first; its expected value as it
+      was). No other expected output changed.
+    - **Recorded deviations** (for the owner): WIDTH "device"'s name evaluated twice (FRMEVL for its type, then
+      NAMSCN); WIDTHS's tail in P4 (DEVSWD) and SCNSWD's SWIDTH call made by the home block, for P4's room; the soft
+      keys expanded as they are queued, a text that doesn't fit dropped whole (answer 2); KEYDSP doesn't turn the
+      cursor off and on (shown only in KEYSIN's wait); KEYOX doesn't move the scroll window's foot (the last line is
+      always outside it); KEY LIST's 27 is written as 7d1's ESC is (DOESC: the cursor doesn't move), so a CR in the
+      middle of a text shows under the character after it; ^T in PRINT's output is LABELK too, as the source's one
+      table has it; TKEYOF dropped (the warm boot shows the console again).
+    - **Not done in 7d2:** KEY(n) and ON KEY (7f); the super-shift keys (answer 4: dropped); 7d3's DEF SEG page.
 - **7e: graphics** (the rest of P5).
   - **What it holds:**
     - SCREEN 1 and 2, and the OO-1's own modes ([question 9](#phase-7s-questions));
@@ -4655,7 +4731,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |
 | ON TIMER, TIMER | `EV_MS`, polled at NEWSTT; TIMER from function 105 and the SCB's time, with the milliseconds for the fraction | — |
-| INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)). *As built (7d1):* in screen mode the keyboard queue holds the PC's codes, a character or 0 and a scan code, so INKEY$ gives the two-byte keys as they are and INPUT$ a byte at a time; in console mode unchanged |
+| INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)). *As built (7d1):* in screen mode the keyboard queue holds the PC's codes, a character or 0 and a scan code, so INKEY$ gives the two-byte keys as they are and INPUT$ a byte at a time; in console mode unchanged. *As built (7d2):* an unshifted F1-F10 whose soft key has a text queues the text instead (P6's KEYEV), whole or not at all |
 | ON KEY(n), KEY | the queue's `EK_KEY` events | — |
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
 | COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
