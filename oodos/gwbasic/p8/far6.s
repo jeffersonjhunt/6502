@@ -8,11 +8,11 @@
 ;             LPT1's; WIDTH "device",n the device's set-width function, by
 ;             P4's DEVSWD (SCRN: and KYBD: the screen's too, P6's SWIDP, so
 ;             screen mode only; CONS: Bad file mode; a disk Bad file name;
-;             P4's room: 7d2's answer 7). The file,
-;             LPRINT and printer forms work in console mode too (7d2's
-;             answer 6). OO-1: the device's name is evaluated twice, once
-;             here for its type and once by P4's NAMSCN (a recorded
-;             deviation: only a user function with side effects could tell)
+;             P4's room: 7d2's answer 7). The file, LPRINT and printer
+;             forms work in console mode too (7d2's answer 6). OO-1: the
+;             device's name is evaluated twice, once here for its type and
+;             once by P4's NAMSCN (a recorded deviation: only a user
+;             function with side effects could tell)
 ;   COLOR CLS SCREEN LOCATE KEY   GWSTS.ASM's (KEY: 7d2)
 
 .include "gwbasic.inc"
