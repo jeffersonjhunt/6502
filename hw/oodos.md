@@ -4703,8 +4703,13 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       and `DSSCF` marks it. P4's BSAVEP then saves from that RAM and P4's BLDRUN loads into it, both unchanged
       (their `DM_COPY` and `DM_LOAD` reach only GW-BASIC's RAM, which they may after `GX_BANK8`); BLOAD's stub
       (`p8/far4.s`) then far calls P5's new `DSPUT`, which writes the run to the card by one `DM_VWRITE`. The page
-      is copied in for BLOAD too, so a file shorter than its header (DFSTLD stops at the file's end) leaves the
-      rest of the screen as it was. `DSRUN` clears `DSSCF` on every entry. The card is reached only by function
+      is copied in for BLOAD too, and `DSPUT` writes only the bytes the file gave (review round 1, F3): the run less
+      the CX that DFSTLD left (it counts CX down by the bytes it reads; the close, FINPRT's, keeps AX-DX), and, when
+      the file ended first, its last record's bytes only up to their first ^Z, the file's end as APPFIN finds it.
+      DFSTLD stops at the end of the file's last **record**, not of its bytes (CP/M's files are whole records; the
+      rest of that record is DSKCLS's ^Z and whatever the buffer held), so before F3 a short file put its record's
+      ^Z and padding on the page. Now a file shorter than its header leaves the rest of the screen as it was, as a
+      PC's BLOAD. `DSRUN` clears `DSSCF` on every entry. The card is reached only by function
       83's port operations, never by a physical address. **The staging takes bank 8's RAM from `$80000` up to the
       reach (`$812BF` at most):** nothing else of GW-BASIC's uses it; a later use must keep clear of it or move it.
     - **Re-entry:** `LOCATE PEEK(0)-60,1` runs `SCPAGP` from inside P6's LOCATE (P6, resident, P1, P5, P6 again).
@@ -4715,13 +4720,20 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       12,223, 65 free**); **P5 2,314 → 2,574, 9,714 free** [2,574] (U1 2,477); **P6 11,357 → 11,412, 876 free** (the
       stop line 600) [11,412]: `SCPAGP` 52 and its header 3; P8 3,153 → 3,161 [3,161]: BLOAD's `FJSR DSPUT`;
       GWBASIC.OVL 48,768 → 49,152. The flat image byte-identical (its last byte `$9509`: P5, P6 and `p8/far4.s`
-      aren't in it; test/flatp5.s unchanged, since nothing in the flat image calls `DSPUT`).
+      aren't in it; test/flatp5.s unchanged, since nothing in the flat image calls `DSPUT`). After review round 1
+      (measured): **P5 2,719, 9,569 free** (the stop line 9,500; F3's clamp and ^Z search 145 bytes); GWBASIC.OVL
+      49,280; free for BASIC **34,819**; P1-P4, the resident core, GWBASIC.COM and the flat image still
+      byte-identical to main's, P6 and P8 to the round's start (F5 is comments only).
     - **Cycles** (test_gwbasic_screen, the fast build): `PRINT A$;` with 80 characters **21,082** (the gate 30,000;
       21,082 on main); a whole-window scroll **13,886** (the cap 14,000: **114 to spare**; 13,898 on main: P6's
       header's 3 bytes moved its code), 15,873 with the row to write back. For the record (D9, timed()'s method,
       each less the loop with `X=0`): `X=PEEK(0)` on the page **4,644**, in bank 9 (`GX_BLOCK`) 2,051; `POKE 0,65` on
       the page **4,028**, in bank 9 1,254; a RUN line BLOADing a 4,000-byte screen 117,908 (16 ms), to bank 9
-      105,437; BSAVEing 4,000 bytes 590,137, from bank 9 575,317. A byte on the page costs about 2,600 more than one
+      105,437; BSAVEing 4,000 bytes 590,137, from bank 9 575,317. After review round 1 (P6 byte-identical, P5
+      grown): `PRINT A$;` **21,084**; the whole-window scroll **13,914** (the cap 14,000: **86 to spare**; 13,886 on
+      the round's start build in the same run, so the 28 come with P5's growth, not P6's code), 15,894 with the row
+      to write back; `X=PEEK(0)` on the page 4,636, `POKE 0,65` 4,026; the RUN line BLOADing a 4,000-byte screen
+      **117,703**, BSAVEing 590,382. A byte on the page costs about 2,600 more than one
       in bank 9: the far call to `SCPAGP`, `P6IN` and `P6OUT`, and one 1-byte function 83 call (most of it). A
       whole screen by 4,000 POKEs is about 4 s; BLOAD is the way, about 12,000 cycles more than a BLOAD to RAM. A
       POKE followed by output on the same row reloads that row (one `DM_VREAD`, about 2,300).
@@ -4736,10 +4748,23 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - D4 `the_page_is_the_active_page`: SCPAGP returning the visual page's address;
       - D5 (test_gwbasic_files, console mode, existing and unchanged) `bank_8_is_refused_to_peek_and_poke` and
         `bank_8_is_refused_whole_to_bload_and_bsave`: DSSCR's `SCRMOD` test left out (five of the PEEK and POKE
-        lines fail), DSSRUN's left out (the BLOAD and BSAVE at `&H8400`);
+        lines fail), DSSRUN's left out (the BLOAD and BSAVE at `&H8400`). In console mode the `SCRMOD` mutants are
+        caught by `SCPAGP`'s `P6OUT` moving TTYPOS (a CR LF before the error, or the POKE's line), not by a card
+        write: LINCNT is 0 there, so the reach is 0 and the POKE is still refused (corrected at review round 1,
+        F4). And the direct check (F4, new) `console_mode_s_screen_page_is_refused`: `DEF SEG=&H8000:POKE 0,1`,
+        `POKE 1,2` and `PEEK(0)` are Illegal function call and the console's card memory (units 0-12, card
+        `$000000-$0033FF`) is unchanged. Under DSSCR's `SCRMOD` test left out its three refusals fail (the CR LF);
+        its card half doesn't fail under that mutant, nor with the reach test left out too (the POKE then goes
+        through, and function 83 doesn't let it reach OODOS's console memory: PEEK reads 0), so it stands as the
+        guard of what the owner's rule says, not as a seen-failing check;
       - D6 `bsave_and_bload_the_screen_page` (the file read back from M:): (a) BLOAD's `FJSR DSPUT` left out (the
-        screen stays clear); (b) DSSRUN's `DM_VREAD` left out (the file holds bank 8's RAM, and a short file writes
-        it over the rest of the screen);
+        screen stays clear); (b) DSSRUN's `DM_VREAD` left out (the file holds bank 8's RAM); and from review round
+        1: (c, F1) DSSRUN's `SEC` before `FJSR SCPAGP` made `CLC`, the cached row kept (`ZZZZZZ 65`, not `ZZZZZZ
+        90`, for SCREEN(5,1) after a BLOAD over row 5); (d, F2) DSRUN's `STZ DSSCF` left out (a BSAVE of the page,
+        then a BLOAD to `&H9000`: the old screen, `OLDSCREEN`, back on row 0); (e, F3) DSPUT without the clamp, and
+        the round's start build (the 107-byte file, its header 4,000, writes its record's ^Z and zeros over cells
+        50-60: 11 cells off). The short-file check is now `rest(50)`, the whole screen past the file's 100 bytes;
+        before F3 it was `rest(80)`, skipping the record's padding;
       - D7 `a_screen_run_must_lie_inside_the_page`: DSPAGE testing the run's first byte, not its last (the BLOAD at
         3,800 writes past the reach; BSAVE of 4,097 makes a file);
       - D8 `a_revision_1_bridge_has_peek_and_poke_but_not_bload`: DSSRUN's `DSB8` test left out (the BSAVE writes a
@@ -4748,12 +4773,28 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Expectation changes:** none. Comments only: test_gwbasic_files' header and its two T4 cases (console mode;
       the screen page is test_gwbasic_screen's), test_gwbasic_screen's header (7d1-7d3). The 7d outline's
       "`&H7FFF:&H100` stays refused" was wrong: it is `$800F0`, inside the page, refused in console mode only.
+    - **Review round 1** (2026-11-19, all five findings "fix", the owner): each new check seen failing under its
+      mutant (or the round's start build) and passing with the fix; the mapped suites (9) pass:
+      - F1: D6's cached-row check (c above), a must-fail for DSSRUN's `SEC`;
+      - F2: D6's BSAVE-then-BLOAD-to-bank-9 check (d above), a must-fail for DSRUN's `STZ DSSCF`;
+      - F3: DSPUT clamped to the bytes the file gave (above, BLOAD and BSAVE), in P5 alone (P4 byte-identical, 65
+        free); D6's short file checked whole (e above). The 7d3 plan's "DFSTLD stops at its end" was wrong: it stops
+        at the last record's end;
+      - F4: D5's guard reworded (above) and the direct console-mode check added;
+      - F5: the comment blocks at `p4/gio86.s` (BSAVEP's) and `p8/far4.s` (BSAVE's) re-wrapped; P4 and P8
+        byte-identical.
+
+      No expected output changed but D6's `rest(80)`, now `rest(50)`.
     - **Recorded deviations** (for the owner): a BLOAD that fails partway (a disk error inside BLDRUN) leaves the
       page as it was, since `DSPUT` never runs, where a PC's leaves the part read; with 25 rows a PC file's bytes
       4,000-4,095 (usually zeros) show as black cells at the bottom band's left until the bands are filled again
       (COLOR's border, WIDTH), unseen with the default border 0; `PEEK(&H449)` under segment 0 reads GW-BASIC's own
       TPA, not a BIOS's video mode (the 7c tail's answer 1); the outline's "about 150 bytes in P5" became 260, the
-      run route, its staging and the console and `$D1` checks being the rest.
+      run route, its staging and the console and `$D1` checks being the rest; a BLOAD to the page of a file shorter
+      than its header ends at the first ^Z of the file's last record (review round 1, F3: CP/M keeps no byte
+      length, and that ^Z is where GW-BASIC's own close ends a file), so such a file whose last record holds a
+      `$1A` among its bytes (an attribute of green on blue, say) is cut there; a file as long as its header is
+      never cut.
     - **Not done in 7d3:** SCREEN 1 and 2's pages for DEF SEG (7e: the `DEF SEG=&H8000: BSAVE "PIC",0,&H9600`
       example is 7e's to make work; 7d3's reach is SCREEN 0's); the PC's absolute layout of all the pages; the
       User's Guide's chapter (7g).
