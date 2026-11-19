@@ -278,8 +278,9 @@ written past it); and a program named on the command line (`GWBASIC PROG`, a nam
 | `d_dir` | CHDIR to `\`, `.`, `""` and another, MKDIR, RMDIR (the directory hook); a number for the path |
 | `d_e58`, `d_e74`, `d_e75`, `d_e76`, `d_e77` | the messages of 58 and 74, and of 75 and 76 (added); 77, past the table |
 
-Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (the source prints no heading and no
-Bytes free line, one blank between names and six a line; its OPEN runs a long name into the type), `d_name` (a null
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (one blank between names and six a
+line, the source's; its OPEN runs a long name into the type; the heading, A:\ on OODOS, and the Bytes free line are
+the IBM manual's, pp. 102-103, which the source doesn't print), `d_name` (a null
 name is Bad file name: NAMFIL), `d_e77` (past the table: Unprintable error). Where the OO-1 differs: `d_dir` (OODOS has
 no directories: CHDIR `""` is the root, MKDIR is Path/File access error; the owner's, 2026-11-13).
 
