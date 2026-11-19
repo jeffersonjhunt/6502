@@ -56,7 +56,7 @@
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
-.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC
+.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC, STRTAB
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
 
         OODOS_HEADER
@@ -744,6 +744,26 @@ FREFDB:         .word   0
 ; device's (OUTDO, above).
 FILWID:         .byte   255
 FILDVC:         .byte   0
+; STRTAB (GWRAM.ASM's): the ten soft keys' texts, 16 bytes each, a 0 after
+; each (at most 15 kept, KEY's), with the PC's defaults (7d2, the owner's
+; answers 3 and 8: resident fixed RAM). P6 reads and writes it (KEY, the key
+; line, KEYEV's expansion).
+.macro  SOFTK   text
+        .local  @k
+@k:             .byte   text, 0
+                .res    16 - (* - @k)
+.endmacro
+STRTAB:         SOFTK   "LIST"
+                SOFTK   {"RUN", 13}
+                SOFTK   {"LOAD", '"'}
+                SOFTK   {"SAVE", '"'}
+                SOFTK   {"CONT", 13}
+                SOFTK   {",", '"', "LPT1:", '"', 13}
+                SOFTK   {"TRON", 13}
+                SOFTK   {"TROFF", 13}
+                SOFTK   "KEY "
+                SOFTK   {"SCREEN 0,0,0", 13}
+.assert * - STRTAB = 160, error, "STRTAB: 10 keys of 16"
 ; GWDATA.ASM's buffers: function 10 reads into BUF-2, its size and length
 ; over the byte before BUF; BUFMIN, a comma for INPUT and READ; BUF, a line
 ; typed (direct statements run from KBUF, which CRUNCH fills); KBUF-1 a

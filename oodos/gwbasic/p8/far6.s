@@ -13,11 +13,11 @@
 ;             answer 6). OO-1: the device's name is evaluated twice, once
 ;             here for its type and once by P4's NAMSCN (a recorded
 ;             deviation: only a user function with side effects could tell)
-;   COLOR CLS SCREEN LOCATE   GWSTS.ASM's
+;   COLOR CLS SCREEN LOCATE KEY   GWSTS.ASM's (KEY: 7d2)
 
 .include "gwbasic.inc"
 
-.export WIDTH, COLOR, CLS, SCREEN, LOCATE
+.export WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY
 .import ADVERR, SCRMOD, CHRGTR, GETBYT, SYNCHR, FRMEVL, FREFAC, FCERR, LINLEN
 
 .code
@@ -99,5 +99,9 @@ SCREEN:         BIT     SCRMOD
 LOCATE:         BIT     SCRMOD
                 BPL     ADV
                 FJSR    LOCATP
+                RTS
+KEY:            BIT     SCRMOD
+                BPL     ADV
+                FJSR    KEYSP
                 RTS
 ADV:            JMP     ADVERR

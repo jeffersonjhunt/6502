@@ -854,7 +854,7 @@ GWINIT.ASM ERRCMD -> p2/gwinit.s GWINIT
 GWINIT.ASM NXTBYT -> p2/gwinit.s NXTBYT
 GWINIT.ASM SMLSTK -> dropped: the BASIC stack is fixed RAM (512 bytes), not carved from the workspace
 GWINIT.ASM PRNTIT -> p2/gwinit.s GWINIT # the OEM's line (GETHED's), then HEDING
-GWINIT.ASM PRNTND -> later 7d: the function-key line (KEYSW)
+GWINIT.ASM PRNTND -> p2/gwinit.s PRNTND # SKEYON (P6's entry SKEYOP) in screen mode unless a program is named (BUF); console mode has no key line
 GWINIT.ASM KEYSOF -> p2/gwinit.s GWINIT # INITFG set
 GWINIT.ASM CMDERR -> p2/gwinit.s CMDERR
 ITSA86.ASM WORDS -> p2/gwinit.s WORDS
@@ -937,6 +937,7 @@ GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys' expansion la
 GIOKYB.ASM CKDBLK -> OEM res/oem.s INKEY # the queue's lead byte 0: the PC's two-byte key (screen mode)
 GIOKYB.ASM CHKFKY -> later 7d: a function key's text
 GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
+GWSTS.ASM KEYSTT -> later 7f: KEY(n) ON, OFF, STOP (Advanced Feature until ON KEY's traps: the owner's answer 5)
 GWSTS.ASM POLPEN -> later 7f: the light pen's trap
 GWSTS.ASM POLSTR -> later 7f: STRIG's trap
 GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
@@ -1256,7 +1257,7 @@ GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> later 7e
 GENGRP.ASM PRESET -> later 7e
 GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0 (1, 2 and the OO-1's modes 7e's); its stub p8/far6.s SCREEN
-GWSTS.ASM KEYS -> later 7d: KEY and the function-key line (KEY(n) 7f)
+GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f
 GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 #
 # FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
@@ -1647,7 +1648,7 @@ GIODSK.ASM GETFP1 -> p4/giodsk.s CMPFBC # inline
 # 7c: the owner's small decisions (2026-11-14): error mode $FE, the command line's switches, FILES and SYS files
 GWEVAL.ASM CNSGET -> p2/gwinit.s CNSGET # GETVAL's number: &H/&O (OCTCNS) or LINGET's
 GIO86.ASM DSKERR -> OEM p4/giodsk.s PBDOS # OO-1: error mode $FE; OODOS's physical errors made GW-BASIC's as DSKERR makes MS-DOS's critical errors
-GWSTS.ASM SKEYON -> later 7d: the function-key line (KEYSW), as GWINIT.ASM PRNTND's
+GWSTS.ASM SKEYON -> p6/gwsts.s SKEYON # P2's entry SKEYOP
 # 7c: CHAIN and COMMON (block P4, p4/fiveo.s; the home block's stubs), LIST's file, VARPTR(#n)
 FIVEO.ASM CBAKBL -> p4/fiveo.s CBAKBL # FNDAAY, BAKCOM, BCKUCM, SKPCOM, COMADY to CHKCST, CLPFIN, CLPSLP in its routine
 FIVEO.ASM VARDLS -> p4/fiveo.s VARDLS # DNCMDS, CLPAKP, DNCMDA to CAYSTR in its routine
@@ -1721,7 +1722,7 @@ GIOCOM.ASM PARIFN -> p4/giocom.s PARIFN
 GIOCOM.ASM LPARM -> p4/giocom.s LPARM
 GIOCOM.ASM GETPRX -> p4/giocom.s GETPRX
 GWSTS.ASM TRMCOM -> p6/gwsts.s SCNINT # SCNINT's; GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
-GWSTS.ASM TKEYOF -> later 7d: the function-key line off (SCNTRM's)
+GWSTS.ASM TKEYOF -> dropped: SCNTRM's key line off at SYSTEM; the warm boot shows the console's screen again
 # 7d1: the text screen (block P6: SCNDRV.ASM's driver and editor, SCNEDT.ASM's INLIN, the OEM's text routines
 # on the card's port with a row cache, the keyboard from the event queue; hw/oodos.md, 7d1 as built)
 SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/oem.s SCNIPL (the pages, the layer)
@@ -1750,7 +1751,7 @@ SCNDRV.ASM SCRDLN -> p6/scndrv.s SCRDLN
 SCNDRV.ASM SCRUTT -> p6/scndrv.s SCRUTT
 SCNDRV.ASM SCRDTT -> p6/scndrv.s SCRDTT
 SCNDRV.ASM PLINIT -> p6/scndrv.s PLINIT
-SCNDRV.ASM LABELK -> later 7d: the key line's ^T (7d2); till then FUNTAB's ^T is CTLIGN
+SCNDRV.ASM LABELK -> p6/scndrv.s LABELK # FUNTAB's ^T
 SCNDRV.ASM SCNMRK -> p6/scndrv.s SCNMRK
 SCNDRV.ASM SCNRDL -> p6/scndrv.s SCNRDL
 SCNDRV.ASM CTLDSP -> p6/scndrv.s CTLDSP
@@ -1800,7 +1801,18 @@ SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
 SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
 SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
 GENGRP.ASM GRPINI -> later 7e: the graphics cursor home (SCNCLR's)
-GWSTS.ASM KEYDSP -> later 7d: the key line (7d2); its KEYSW-off branch is p6/scndrv.s KEYDSP, the last line cleared
+GWSTS.ASM KEYDSP -> p6/scndrv.s KEYDSP # the cursor not turned off and on round it (shown only in KEYSIN's wait)
+GWSTS.ASM KEYOX -> p6/gwsts.s KEYOX # KEYSW's change; the scroll window's foot not moved (AH): the last line is always outside it
+GWSTS.ASM KEYOXX -> p6/gwsts.s KEYOXX
+GWSTS.ASM KEYLST -> p6/gwsts.s KEYLST # by P6's PUTC (screen mode only), the number by hand (1-10), not LINPRT
+GWSTS.ASM KEYLSP -> p6/gwsts.s KEYLST # inline: a CR as 27
+GWSTS.ASM GETFMT -> p6/scndrv.s KEYDSP # inline: FKYFMT's count and first key; the two-digit first key never arises (F1 or F6)
+GWSTS.ASM INTOCH -> p6/scndrv.s KEYDSP # inline: one digit, key 10's 0
+GWSTS.ASM KEYADV -> p6/scndrv.s KEYDSP # inline: the next key
+GWSTS.ASM KADNRM -> dropped: the keys shown never pass F10 (KEYADV's wrap)
+GWSTS.ASM KEYDCH -> p6/scndrv.s KEYDCH
+GWSTS.ASM KEYDB -> p6/scndrv.s KEYDSP # inline: KEYDCH with 0, a blank
+GWSTS.ASM XFGBG -> p6/scndrv.s KEYDSP # inline: the attribute's foreground and background swapped, and put back as it was (GETFBC, SETFBC)
 SCNDRV.ASM WCSABT -> p6/scndrv.s WCSABT # UPDPOS's RET, which WCSADV and WCSREG reach
 SCNDRV.ASM WCSRET -> p6/scndrv.s WCSRET
 SCNDRV.ASM FWDWD3 -> p6/scndrv.s FWDWD3

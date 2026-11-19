@@ -996,6 +996,38 @@ VSHOW:          LDA     BRDC
                 FJSR    TXMODE
                 RTS
 
+; --- FKYFMT, FKYADV (the OEM's: the key line's format) ----------------------------------
+
+; FKYFMT: X the keys the line shows, A the first: 10 from F1 at 80 columns,
+; 5 from FKYST (F1 or F6) at 40; 6 characters each (KEYDSP's).
+FKYFMT:         LDX     #10
+                LDA     #1
+                LDY     CRTWID
+                CPY     #40
+                BNE     @x
+                LDX     #5
+                LDA     FKYST
+@x:             RTS
+
+; FKYADV: Z set (the line off): its first keys, F1; A $FF (on). Z clear:
+; the next keys, at 40 columns F6-F10 after F1-F5, A $FF; past the last
+; (F6-F10, or any at 80 columns) A 0 (off).
+FKYADV:         BNE     @adv
+                LDA     #1
+@set:           STA     FKYST
+                LDA     #$FF
+                RTS
+@adv:           LDA     CRTWID
+                CMP     #40
+                BNE     @off
+                LDA     FKYST
+                CMP     #6
+                BEQ     @off
+                LDA     #6
+                BRA     @set
+@off:           LDA     #0
+                RTS
+
 ; --- The cursor (GIOKYB.ASM's STCTYP and SETCSR; CSRDSP the OEM's) ------------------------
 
 ; STCTYP: C set: the user's cursor (3); else the editor's, insert (1) or
@@ -1096,6 +1128,7 @@ FRC0:           .res    1              ; FASTRN's first place, last, and limit
 FRL:            .res    1
 FRLIM:          .res    1
 SCI:            .res    1              ; a count
+FKYST:          .res    1              ; the key line's first key at 40 columns: 1 or 6
 LCR:            .res    1              ; LCPYP's row
 LCN:            .res    1              ;   and its last cell x 2
 CURON:          .res    1              ; the cursor shown: at CURR, CURC, over CURA
