@@ -12,6 +12,9 @@
 ;   LOCATP    LOCATE [y][,[x][,[cursor][,[start][,stop]]]]
 ;   GWWIDP    WIDTH n[,m] for the screen: 40 or 80 columns, 25 or 30 rows
 ;             (30: decision 8's OO-1 extension); the pages cleared
+;   SWIDP     WIDTH "SCRN:",n (P4's SCNSWD, GIOSCN.ASM's): A the width,
+;             40 or 80 with the rows kept, 255 (the source's infinite) no
+;             change; Advanced Feature in console mode (7d2's answer 6)
 ;   COLORP    COLOR [fg][,[bg][,border]]: fg 0-31 (16 on: blinking), bg
 ;             0-15 (its low 3 bits shown), border 0-15
 ;   SCRNP     SCREEN [mode][,[burst][,[apage][,vpage]]]: mode 0 only (1, 2
@@ -28,12 +31,13 @@
 ;@entry CLSP
 ;@entry LOCATP
 ;@entry GWWIDP
+;@entry SWIDP
 ;@entry COLORP
 ;@entry SCRNP
 ;@entry SCRNFP
 ;@entry CSRLNP
-.export CLSP, LOCATP, GWWIDP, COLORP, SCRNP, SCRNFP, CSRLNP
-.import CHRGTR, SYNCHR, GETBYT, FCERR, SNERR, MAKINT, LINLEN
+.export CLSP, LOCATP, GWWIDP, SWIDP, COLORP, SCRNP, SCRNFP, CSRLNP
+.import CHRGTR, SYNCHR, GETBYT, FCERR, SNERR, MAKINT, LINLEN, ADVERR, SCRMOD
 
 .macro  MOVB7   dst, src
                 LDA     src
@@ -215,6 +219,20 @@ GWWIDP:         JSR     P6IN
 :               JSR     SWIDTH
                 BCS     GOFCER
 @x:             JMP     P6OUT
+
+SWIDP:          BIT     SCRMOD
+                BMI     :+
+                JMP     ADVERR
+:               CMP     #255
+                BEQ     @x
+                STA     LOCX
+                JSR     P6IN
+                LDA     LINCNT
+                STA     LOCY
+                JSR     SWIDTH
+                BCS     GOFCER
+                JMP     P6OUT
+@x:             RTS
 
 ; SWIDTH (the OEM's): LOCX columns (40, 80), LOCY rows (25, 30): the
 ; driver set for them, every page cleared, page 0 active and shown, home.

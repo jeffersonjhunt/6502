@@ -1089,6 +1089,43 @@ TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
     CHECK_EQ(command(r, "CLOSE:PRINT 1"), std::string(" 1 \r\n"));
 }
 
+// WIDTH's file and device forms (GIO86.ASM's WIDTHS; 7d2, the owner's answer 6: in console mode too), by hand from
+// the source: WIDTH #f,n sets an open file's width (F_WID): a printer's file breaks its line there (CRIFEL), and a
+// disk file's width moves PRINT #'s comma zones (PTRWID: at 20 the last zone is column 0, so a comma ends the line;
+// the source breaks no disk file's line at its width, so neither does the port); WIDTH LPRINT n sets
+// LPT1's (the resident LINLEN+1, shared with LPRINT), and WIDTH "LPT1:",n the same by the device's set-width function
+// (P4's DEVSWD: LPTSWD). The errors, the source's: a file not open (Bad file number), a width of 0 (Illegal function
+// call), CONS: (Bad file mode), a disk's name (Bad file name). WIDTH n and WIDTH "SCRN:" are the screen's, Advanced
+// Feature in console mode, as 7d1 left them.
+TEST(width_of_a_file_lprint_and_a_device)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::string back = "OPEN \"I\",#1,\"W.T\":WHILE NOT EOF(1):LINE INPUT #1,A$:PRINT LEN(A$);:WEND:CLOSE";
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W.T\":PRINT #1,\"A\",\"B\":CLOSE"), std::string());
+    CHECK_EQ(command(r, back), std::string(" 15 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W.T\":WIDTH #1,20:PRINT #1,\"A\",\"B\":CLOSE"), std::string());
+    CHECK_EQ(command(r, back), std::string(" 1  1 \r\n"));
+    auto lst = [&](const std::string &line) { return vis(sent_by(r, 5, line)); };
+    CHECK_EQ(lst("OPEN \"LPT1:\" FOR OUTPUT AS #1:WIDTH #1,10:PRINT #1,STRING$(25,\"A\"):CLOSE"),
+             vis(std::string(10, 'A') + "\r\n" + std::string(10, 'A') + "\r\n" + std::string(5, 'A') + "\r\n"));
+    CHECK_EQ(lst("WIDTH LPRINT 20:LPRINT STRING$(30,\"B\")"),
+             vis(std::string(20, 'B') + "\r\n" + std::string(10, 'B') + "\r\n"));
+    CHECK_EQ(lst("WIDTH \"LPT1:\",15:LPRINT STRING$(20,\"C\")"),
+             vis(std::string(15, 'C') + "\r\n" + std::string(5, 'C') + "\r\n"));
+    CHECK_EQ(lst("WIDTH \"lpt1:\",80:LPRINT STRING$(20,\"D\")"), vis(std::string(20, 'D') + "\r\n"));
+    CHECK_EQ(command(r, "WIDTH #3,10"), std::string("Bad file number\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W.T\":WIDTH #1,0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "CLOSE:WIDTH LPRINT 0"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"CONS:\",40"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"A:\",40"), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"LPT1:\""), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"SCRN:\",40"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "PRINT 1"), std::string(" 1 \r\n"));
+}
+
 // COM1: as a file (GIOCOM.ASM's COMOPN, PCOMOP, COMSIN, COMSOT, COMEOF, COMLOC, COMLOF, COMCLS), by hand from the
 // source (PC-BASIC's port isn't the oracle's), on AUX: (OO-1, decision 12: polled; the OEM's routines, p4/oem.s):
 // a byte sent goes by function 4 (watched at the BDOS's entry), one received is read by function 3 when function 7

@@ -1222,7 +1222,7 @@ GWEVAL.ASM FNWAIT -> later 7g: WAIT, refused (question 13)
 GWEVAL.ASM DEF -> p3/gweval.s DEFP # its stub p8/far3.s DEF; DEF SEG alone segment 0, the port's DS
 GWMAIN.ASM POKE -> p3/poke.s POKEP # its stub p8/far3.s POKE; segment 0 below $C000 direct, else POKFLT's place, the OEM's p5/seed.s DSBYTE
 GWEVAL.ASM FNOUT -> later 7g: OUT, refused (question 13)
-GIO86.ASM WIDTHS -> OEM p8/far6.s WIDTH # the screen's WIDTH n[,m] (GWWID) in screen mode; WIDTH #f, LPRINT and "device" Advanced Feature (P4's room)
+GIO86.ASM WIDTHS -> p8/far6.s WIDTH # its tail P4's p4/gio86.s DEVSWD (the FDB and the device table are P4's); WIDTH n[,m] and the screen's devices in screen mode only; the device's name evaluated twice (FRMEVL, then NAMSCN)
 BIMISC.ASM SWAP -> p3/bimisc.s SWAPP # its resident stub res/far3.s SWAP
 BIMISC.ASM ERASE -> p3/bimisc.s ERASEP # its resident stub res/far3.s ERASE
 GWMAIN.ASM ERRORS -> p3/gwmain.s ERRORSP # its resident stub res/far3.s ERRORS
@@ -1698,7 +1698,7 @@ GIOCON.ASM CONSOT -> p4/giocon.s CONSOT # C_DCIO: function 6; OO-1: $FD-$FF not 
 GIOSCN.ASM SCNDSP -> p4/gioscn.s SCNDSP
 GIOSCN.ASM SCNINI -> p4/gioscn.s SCNINI
 GIOSCN.ASM SCNTRM -> p4/gioscn.s SCNCLS # SCNTRM itself (TKEYOF, SCNPOS) the screen's, 7d: GIOTRM's table isn't kept
-GIOSCN.ASM SCNSWD -> p4/gioscn.s SCNOPN # SCNSWD itself, WIDTH's (SWIDTH, the screen editor's): 7d, Advanced Feature here
+GIOSCN.ASM SCNSWD -> p4/gioscn.s SCNSWD # WDTFLG set; its SWIDTH call made by the home block's WIDTH (p8/far6.s), P6's SWIDP, on SCNSWD's C clear (P4's room)
 GIOSCN.ASM SCNSOT -> p4/gioscn.s SCNSOT # TWOBYT (the editor's two-byte characters) 7d's
 GIOSCN.ASM SCNOL1 -> p4/gioscn.s SCNOL1
 GIOSCN.ASM SCNOL2 -> p4/gioscn.s SCNOL2 # SCNOUT: OO-1, the console's OUTDO (PTRFIL 0); no CSRX to move back
@@ -1815,11 +1815,11 @@ GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s)
 GWSTS.ASM GTLINE -> p6/gwsts.s GTLINE
 GWSTS.ASM GTPRMS -> p6/gwsts.s GTPRMS # the list in P6's RAM (PCNT, PFLG, PVAL), not BUF
 GWSTS.ASM SCNINT -> p6/gwsts.s SCNINT
-GIO86.ASM CRTWD1 -> OEM p8/far6.s WIDTH # to GWWID
-GIO86.ASM CRTWD -> OEM p8/far6.s WIDTH # to GWWID (a number)
-GIO86.ASM GETWDT -> later 7d: WIDTH #f and WIDTH "device"'s width (P4's room) (7d2)
-GIO86.ASM ERIFN0 -> later 7d: as GETWDT (7d2)
-GIO86.ASM ERFNO1 -> later 7d: as GETWDT (7d2)
+GIO86.ASM CRTWD1 -> p8/far6.s CRTWD1 # to GWWID, screen mode only
+GIO86.ASM CRTWD -> p8/far6.s NOTLPR # TXTPTR put back, then CRTWD1 (a number)
+GIO86.ASM GETWDT -> p8/far6.s GETWDT
+GIO86.ASM ERIFN0 -> p4/gio86.s DEVSWD # its BEQ ERIFN1
+GIO86.ASM ERFNO1 -> p4/gio86.s GETPTR # its BEQ ERFNO3, the home block's first GETPTR call
 GWSTS.ASM FCERGO -> p6/gwsts.s FCERGO
 GWSTS.ASM NOMORE -> p6/gwsts.s SCNINT # its @nomore
 GWSTS.ASM OMITD -> p6/gwsts.s SCNINT # its @omit

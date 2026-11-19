@@ -16,14 +16,15 @@
 ; console's (OUTDO with PTRFIL 0, as CALTTY does), whose column is TTYPOS
 ; (the 8086's CSRX is TTYPOS + 1) and which wraps at the line's end itself,
 ; so SCNOL2 has no cursor to move back there; the two-byte characters
-; (TWOBYT, the editor's F_EDIT) are 7d's; SCNSWD, WIDTH's, is 7d's (the
-; screen editor's SWIDTH), with WIDTH. The keyboard's file (p4/giokyb.s)
+; (TWOBYT, the editor's F_EDIT) never reach a file. In screen mode (7d1)
+; OUTDO with PTRFIL 0 is GW-BASIC's own screen. SCNSWD, WIDTH "SCRN:"'s, is
+; the screen's WIDTH (7d2). The keyboard's file (p4/giokyb.s)
 ; writes and asks its column here, as the 8086's KYBDSP does.
 
 .include "gwbasic.inc"
 
 .export SCNDSP, SCNINI, SCNSWD, SCNSOT, SCNGPS, SCNGWD, SCNSCW, SCNGCW
-.import DERBFM, INIFDB, DEVBIN, DEVBOT, OUTDO, LINLEN, ADVERR, LSTCHR
+.import DERBFM, INIFDB, DEVBIN, DEVBOT, OUTDO, LINLEN, LSTCHR
 
 .rodata
 
@@ -54,8 +55,13 @@ SCNCLS:
 SCNSCW:
 SCNGCW:         RTS
 
-; SCNSWD (99): WIDTH's (7d's, the screen editor's SWIDTH).
-SCNSWD:         JMP     ADVERR
+; SCNSWD (99): WIDTH's, DL the width: SCRN:'s for the next OPEN, and C
+; clear for the home block's WIDTH to set the screen's (P6's SWIDP, the
+; 8086's SWIDTH call here: P4 has no room for the far call).
+SCNSWD:         LDA     RDL
+                STA     WDTFLG
+                CLC
+                RTS
 
 ; SCNOPN (138): A the device id: output only, the width WDTFLG, the column
 ; the console's (SCNGPS).

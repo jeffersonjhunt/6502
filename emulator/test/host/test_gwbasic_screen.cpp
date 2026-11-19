@@ -582,6 +582,33 @@ TEST(width_40_80_and_30_rows)
     CHECK(until_row(r, "Illegal function call") >= 0);
 }
 
+// WIDTH "SCRN:",n is the screen's WIDTH n with the rows kept (GIOSCN.ASM's SCNSWD; 7d2): WIDTH "SCRN:",40 makes the
+// layer 40 columns (CONFIG $81) and the line 40 wide; WIDTH "SCRN:",255 (the source's infinite width) changes
+// nothing; WIDTH "SCRN:",50 is Illegal function call; WIDTH "SCRN:",80 puts 80 back. Guards WIDTH "SCRN:" a no-op,
+// or a garbled screen. Seen failing with SCNSWD returning C set, as the printers' do (the home block then never
+// calls SWIDP).
+TEST(width_scrn_sets_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "WIDTH \"SCRN:\",40", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    enter(r, "PRINT STRING$(45,\"S\")", ms(300));
+    CHECK_EQ(row_at(r, 2, mapbase(r), 40), std::string(40, 'S'));
+    CHECK_EQ(row_at(r, 3, mapbase(r), 40).substr(0, 6), std::string("SSSSS "));
+    enter(r, "WIDTH \"SCRN:\",255:PRINT \"SAME\"", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    CHECK(last_row(r, "SAME") > 0);
+    enter(r, "WIDTH \"SCRN:\",50", ms(300));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    CHECK_EQ(reg(r, L0_CONFIG), 0x81);
+    enter(r, "WIDTH \"SCRN:\",80", ms(400));
+    CHECK_EQ(reg(r, L0_CONFIG), 0x80);
+    enter(r, "PRINT \"EIGHTY\"", ms(300));
+    CHECK_EQ(line(r, 2), std::string("EIGHTY"));
+}
+
 // SCREEN( reads a cell: PRINT "Q"; then SCREEN(r,c) is 81 and SCREEN(r,c,1) the attribute, in one statement.
 // Guards SCREEN() returning the old character. Seen failing with SCRNFP not running OUTDO's TXBUF first (the "Q"
 // still waiting to be drawn).

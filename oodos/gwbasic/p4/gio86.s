@@ -95,9 +95,10 @@
 ;@entry BSAVEP
 ;@entry BLOADP
 ;@entry BLDRUN
+;@entry DEVSWD
 .export DEVSOT, GIOINP, CDEVID, TBLDSP, GFCODE, FILOPT, UPCASE, INCHSI, BCHRSI, DEVBIN
 .export CRIFEL, UPDPOS, CRDL, CRDH, BXVEC, SCDBIN
-.export NAMSCN, NULOPM, GETPTR, SKPNAM
+.export NAMSCN, NULOPM, GETPTR, SKPNAM, DEVSWD
 .export OPENP, CLOSEP, CLSALP, FILFNP, FILGET, FILINP, FINPRP, FLUSHP
 .export FILSET, FILSCN, FDBPTR, INCHR, INDSKC, BAKCHR, SETPTR, FLUSHR, INIFDB, FFREE
 .export INCHRI, SIDSP, FILNAM, FILMOD, OPNNUM, FDBTAB
@@ -928,6 +929,23 @@ CDEVID:         LDX     #0
 CDEV2:          PLA
                 CPX     #0             ; Z: a disk
                 RTS
+
+; DEVSWD (WIDTHS's tail, GIO86.ASM 234; the home block's WIDTH parses, in
+; p8/far6.s): A and RDL the width, 1-255. C set: PTR at an open file's
+; F_WID (FILWID's), which takes A. C clear: the device NAMSCN left in
+; FILDEV, its set-width function (G_SWD) by TBLDSP; a disk is Bad file
+; name (ERIFN0). C comes back clear from SCRN:'s and KYBD:'s (SCNSWD), for
+; the home block to set the screen's width; set from the others (CDEVID's
+; compare, which LPTSWD and COMSWD keep).
+DEVSWD:         BCC     @dev
+                STA     (PTR)
+                RTS
+@dev:           LDA     FILDEV
+                JSR     CDEVID
+                BEQ     ERIFN1
+                LDY     #G_SWD
+                STY     GFCODE
+                JMP     TBLDSP
 
 ; --- NAMSCN, PARDEV (GIO86.ASM 1486) ------------------------------------------------------
 
