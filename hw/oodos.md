@@ -5325,8 +5325,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       16,777,215; on the OO-1 within CP/M 3's 32 MB, 18 bits of 128-byte records), and F3 with it: LOC the true
       record number (a single or double past 32,767), GET and PUT with no number carrying past 65,535 (FD_PHY as
       the top bits), the 18-bit check on the last byte back. The compacted draft (22 bytes past P4 when tried) is
-      `ibmspec/f3draft2/f3-compacted.diff` in the fix-up's scratch directory, the first draft beside it in
-      `ibmspec/f3draft/`; it is a diff against the code before the cap.
+      kept on branch `wip/gwbasic-f3-draft` (`a758fac2`, on top of `52249dcf`, before the cap); it doesn't link,
+      by those 22 bytes.
     - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
       BASIC 34,775. After the second move (above): P3 5,540 (6,748), P4 12,200 (88); after the interim cap
       (below): P4 12,166 (122). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
