@@ -519,7 +519,7 @@ MKRMN9:         MOVB    xDL, MKDL
                 BCS     MKRMNF
                 JSR     SCRLUD
                 BRA     MKRMNU
-MKRMNF:         JSR     SCRLUP
+MKRMNF:         JSR     SCRLUPN        ; (MKRMNX puts AX, BX, CX back; MKRMNU DX)
 MKRMNU:         MOVB    xDL, MKDL
                 MOVB    xDH, MKDH
                 JSR     CSRUP
@@ -540,6 +540,13 @@ SCRLUD:         PSH     xCL
                 MOVB    xCL, xDL
                 MOVB    xDL, WDOTOP
                 BRA     SCRLU1
+; SCRLUPN (OO-1): SCRLUP for MKRMNL alone, which keeps its own registers:
+; none kept here (the 13,944-cycle scroll's last trim, the owner's answer 4).
+SCRLUPN:        MOVB    xDL, WDOTOP
+                MOVB    xCL, WDOBOT
+                LDA     #1
+                STA     NOSAV
+                JMP     SCRLU2
 SCRLUP:         MOVB    xDL, WDOTOP
 SCRLU0:         PSH     xCL
                 MOVB    xCL, WDOBOT
@@ -550,7 +557,7 @@ SCRLU1:         PSH     xCH
                 PSH     xBL
                 PSH     xDH
                 PSH     xDL
-                LDA     xDL
+SCRLU2:         LDA     xDL
                 STA     xAL
                 STA     xBL
                 INC     xAL            ; from = to + 1
@@ -587,7 +594,11 @@ SCRUL3:         MOVB    xDH, WDOLFT
                 BEQ     SCRUL4
                 JSR     SCRUTT
 SCRUL4:         JSR     PLINIT
-                PULB    xDL
+                LDA     NOSAV
+                BEQ     :+
+                STZ     NOSAV
+                RTS
+:               PULB    xDL
                 PULB    xDH
                 PULB    xBL
                 PULB    xBH
@@ -600,8 +611,16 @@ SCRUL4:         JSR     PLINIT
 ; TSTSCR: after a scroll of lines BL to AL, CSRY, FSTLIN and LSTLNE in it
 ; moved by AH (1 or -1), CSRY kept in the window.
 TSTSCR:         LDX     #0             ; CSRY
-                JSR     TSTWDO
+                LDA     xAL            ; (TSTWDO inline)
+                CMP     CSRY
+                BCC     :+
                 LDA     CSRY
+                CMP     xBL
+                BCC     :+
+                CLC
+                ADC     xAH
+                STA     CSRY
+:                LDA     CSRY
                 CMP     WDOTOP
                 BCC     @top
                 LDA     WDOBOT
@@ -702,14 +721,35 @@ SCRDLN:         PSH     xAH
 SCRUTT:         LDX     xBL
                 STX     TRMCUR
                 LDY     xCL
-@l:             LDA     TTCOL+1,X
-                STA     TTCOL,X
+@l4:            CPY     #4             ; (four lines a turn, then one)
+                BCC     @l
+                LDA     TTCOL+1,X
+                STA     TTCOL+0,X
                 LDA     TTTRM+1,X
-                STA     TTTRM,X
-                INX
-                DEY
+                STA     TTTRM+0,X
+                LDA     TTCOL+2,X
+                STA     TTCOL+1,X
+                LDA     TTTRM+2,X
+                STA     TTTRM+1,X
+                LDA     TTCOL+3,X
+                STA     TTCOL+2,X
+                LDA     TTTRM+3,X
+                STA     TTTRM+2,X
+                LDA     TTCOL+4,X
+                STA     TTCOL+3,X
+                LDA     TTTRM+4,X
+                STA     TTTRM+3,X
+                TXA
+                CLC
+                ADC     #4
+                TAX
+                TYA
+                SEC
+                SBC     #4
+                TAY
+                BNE     @l4
                 BEQ     @e
-                LDA     TTCOL+1,X      ; (two a turn)
+@l:             LDA     TTCOL+1,X
                 STA     TTCOL,X
                 LDA     TTTRM+1,X
                 STA     TTTRM,X
@@ -2344,6 +2384,7 @@ F_INST:         .res    1              ; insert mode
 F_EDP6:         .res    1              ; SCNEDT.ASM's F_EDPG: a program line
 MKINP:          .res    1              ; SCNMRK's, SCNRDL's: an INPUT statement's line
 MKFND:          .res    1
+NOSAV:          .res    1              ; SCRLUPN's: SCRLU1 keeps nothing
 MKDL:           .res    1              ; MKRMNL's DX
 MKDH:           .res    1
 MKF:            .res    1              ; MKRMCH's carry

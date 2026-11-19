@@ -497,12 +497,15 @@ CLREOL:         LDA     xDH
                 BCC     :+
                 RTS
 :               STX     CROW
-@fill:          LDA     CRTWID         ; the scroll's blank row: 40 or 80 cells, 8 a turn,
-                ASL     A              ;   and 8 more for 80
+@fill:          LDA     CRTWID         ; the scroll's blank row: 16 cells a turn
+                ASL     A
                 STA     CDHI
                 TAY
                 LDX     ATTR
-@f:             LDA     #' '
+@f:             CPY     #32            ; (40 columns: 2 turns, then 8 cells left)
+                BCS     :+
+                JMP     @f8
+:               LDA     #' '
                 STA     CACHE - 2,Y
                 STA     CACHE - 4,Y
                 STA     CACHE - 6,Y
@@ -511,20 +514,6 @@ CLREOL:         LDA     xDH
                 STA     CACHE - 12,Y
                 STA     CACHE - 14,Y
                 STA     CACHE - 16,Y
-                TXA
-                STA     CACHE - 1,Y
-                STA     CACHE - 3,Y
-                STA     CACHE - 5,Y
-                STA     CACHE - 7,Y
-                STA     CACHE - 9,Y
-                STA     CACHE - 11,Y
-                STA     CACHE - 13,Y
-                STA     CACHE - 15,Y
-                CPY     #32
-                BCS     :+
-                JMP     @f8
-:
-                LDA     #' '
                 STA     CACHE - 18,Y
                 STA     CACHE - 20,Y
                 STA     CACHE - 22,Y
@@ -534,6 +523,14 @@ CLREOL:         LDA     xDH
                 STA     CACHE - 30,Y
                 STA     CACHE - 32,Y
                 TXA
+                STA     CACHE - 1,Y
+                STA     CACHE - 3,Y
+                STA     CACHE - 5,Y
+                STA     CACHE - 7,Y
+                STA     CACHE - 9,Y
+                STA     CACHE - 11,Y
+                STA     CACHE - 13,Y
+                STA     CACHE - 15,Y
                 STA     CACHE - 17,Y
                 STA     CACHE - 19,Y
                 STA     CACHE - 21,Y
@@ -548,14 +545,25 @@ CLREOL:         LDA     xDH
                 TAY
                 BEQ     @fd
                 JMP     @f
-@f8:            TYA                    ; (16 bytes left: 40 columns' last turn)
-                SEC
-                SBC     #16
-                TAY
-                BEQ     @fd
-                JMP     @f
-@fd:
-                LDA     #2
+@f8:            LDA     #' '           ; (cells 1-8: bytes 0-15)
+                STA     CACHE + 0
+                STA     CACHE + 2
+                STA     CACHE + 4
+                STA     CACHE + 6
+                STA     CACHE + 8
+                STA     CACHE + 10
+                STA     CACHE + 12
+                STA     CACHE + 14
+                TXA
+                STA     CACHE + 1
+                STA     CACHE + 3
+                STA     CACHE + 5
+                STA     CACHE + 7
+                STA     CACHE + 9
+                STA     CACHE + 11
+                STA     CACHE + 13
+                STA     CACHE + 15
+@fd:            LDA     #2
                 STA     CDLO
 @r:             RTS
 @part:          LDA     xDH
