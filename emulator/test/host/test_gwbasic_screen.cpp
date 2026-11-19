@@ -256,150 +256,115 @@ TEST(the_banner_and_ok_are_on_gw_basics_own_layer)
         return cycles;
     }
 
-// 7d1's first light: a line typed on the USB keyboard runs, its output after it.
-TEST(a_typed_print_runs)
+// The keys come from the event queue alone, once each and in order (V2's must-fail): "1", "2" and "3" pressed
+// within one frame, while a program reads INKEY$, come back as "123"; and a program line typed on the USB keyboard
+// runs. Guards doubled or reordered keys. Seen failing with (a) the cooked keys read as well in screen mode
+// (POLKEY's console path left on: each key twice) and (b) the queue taken from its head (newest first).
+TEST(keys_come_from_the_queue_once_each)
 {
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) > 0);
-    enter(r, "PRINT 6*7");
-    const int at = until_row(r, " 42");
-    CHECK(at > 0);
-    std::printf("  the screen: %s\n", screen(r).c_str());
-}
-
-// A probe: PRINT A$; with an 80-character A$ on one row, against an empty A$.
-TEST(probe_print_cost)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    const uint64_t a1 = timed(r, {"10 A$=STRING$(80,65):B$=CHR$(11)", "20 PRINT A$;B$;:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t a2 = timed(r, {"10 A$=STRING$(80,65):B$=CHR$(11)", "20 PRINT A$;B$;:I%=I%+1:IF I%<300 THEN 20"});
-    const uint64_t e1 = timed(r, {"10 A$=\"\":B$=CHR$(11)", "20 PRINT A$;B$;:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t e2 = timed(r, {"10 A$=\"\":B$=CHR$(11)", "20 PRINT A$;B$;:I%=I%+1:IF I%<300 THEN 20"});
-    const double a = static_cast<double>(a2 - a1) / 200, e = static_cast<double>(e2 - e1) / 200;
-    std::printf("  PRINT A$;B$; 80: %.0f a pass; empty: %.0f; the 80 characters: %.0f\n", a, e, a - e);
-    const uint64_t s1 = timed(r, {"20 PRINT:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t s2 = timed(r, {"20 PRINT:I%=I%+1:IF I%<300 THEN 20"});
-    std::printf("  PRINT (a scroll each): %.0f a pass\n", static_cast<double>(s2 - s1) / 200);
-    std::printf("  the screen: %s\n", screen(r).c_str());
-}
-
-// A probe: where the cycles go, by label, for one PRINT of 80 characters.
-TEST(probe_profile)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    std::map<uint16_t, std::string> names;
-    for (const auto &[n, a] : lbl_map(std::string("p6.lbl")))
-        if (a >= 0xC800)
-            names[a] = "p6:" + n;
-    for (const auto &[n, a] : lbl_map(std::string("gwbasic.lbl")))
-        names[a] = n;
-    enter(r, "NEW");
-    enter(r, "10 A$=STRING$(80,65)");
-    enter(r, "20 FOR I=1 TO 40:PRINT:NEXT");
-    std::map<std::string, uint64_t> hist;
-    uint64_t last = r.cpu->cycles();
-    std::string where = "?";
-    bool on = false;
-    const auto lab0 = lbl_map(std::string("gwbasic.lbl"));
-    const uint16_t runc = lab0.at("RUN"), endcon = lab0.at("ENDCON");
-    r.watch = [&](uint16_t pc) {
-        if (pc == runc)
-            on = true;
-        if (pc == endcon)
-            on = false;
-        const uint64_t now = r.cpu->cycles();
-        if (on)
-            hist[where] += now - last;
-        last = now;
-        auto it = names.upper_bound(pc);
-        if (pc >= 0xF800 || (pc >= 0x4000 && pc < 0x8000 && r.nb(1) == 60))
-            where = pc >= 0xF800 ? "common" : "bdos";
-        else if (it == names.begin())
-            where = "?";
-        else
-            where = std::prev(it)->second;
-    };
-    const auto l6 = lbl_map(std::string("p6.lbl"));
-    const uint16_t dmc = l6.at("DMCALL");
-    unsigned ndm = 0;
-    std::map<uint8_t, std::pair<unsigned, uint64_t>> per;
-    uint64_t dmfrom = 0;
-    uint8_t dmop = 0;
-    int depth = -1;
-    auto inner = r.watch;
-    r.watch = [&](uint16_t pc) {
-        inner(pc);
-        if (on && pc == dmc && r.nb(3) == r.nb(3))
-        {
-            ++ndm;
-            dmfrom = r.cpu->cycles();
-            dmop = r.machine->bus().peek(static_cast<uint16_t>(l6.at("DMB")));
-            depth = r.cpu->regs().s;
-        }
-        else if (depth >= 0 && r.cpu->regs().s == depth + 2) // back in DMCALL's caller
-        {
-            per[dmop].first++;
-            per[dmop].second += r.cpu->cycles() - dmfrom;
-            depth = -1;
-        }
-    };
+    enter(r, "10 K$=\"\":FOR I=1 TO 400:K$=K$+INKEY$:NEXT:PRINT CHR$(91);K$;CHR$(93)");
     keys(r, "RUN\r");
-    r.run(ms(3000));
-    r.watch = nullptr;
-    std::printf("  DMCALLs: %u\n", ndm);
-    for (const auto &[op, c] : per)
-        std::printf("  op %u: %u calls, %.0f cycles each\n", op, c.first, static_cast<double>(c.second) / c.first);
-    std::vector<std::pair<uint64_t, std::string>> v;
-    for (const auto &[n, c] : hist)
-        v.push_back({c, n});
-    std::sort(v.rbegin(), v.rend());
-    for (size_t i = 0; i < v.size() && i < 25; ++i)
-        std::printf("  %8llu %s\n", static_cast<unsigned long long>(v[i].first), v[i].second.c_str());
+    r.run(ms(100));
+    UsbCard *usb = r.machine->usb_card();
+    for (const uint8_t u : {uint8_t{0x1E}, uint8_t{0x1F}, uint8_t{0x20}}) // 1 2 3, all inside 15 ms
+    {
+        usb->key(u, true);
+        r.run(ms(2));
+        usb->key(u, false);
+        r.run(ms(3));
+    }
+    const int at = until_row(r, "[", ms(8000));
+    CHECK(at > 0);
+    if (at > 0)
+        CHECK_EQ(line(r, static_cast<unsigned>(at)), std::string("[123]"));
+    enter(r, "20 PRINT 6*7");
+    enter(r, "RUN 20", ms(600));
+    CHECK(until_row(r, " 42") > 0);
 }
 
-// A probe: a whole-window scroll's cycles, SCRLUP's call (MKRMNL's, at a line feed on the window's last line)
-// from its JSR to its return; and a scrolling PRINT against one that doesn't scroll (PRINT CHR$(11); homes).
-TEST(probe_scroll_cost)
+// Keys typed in BASIC, then SYSTEM: the CCP's next line is empty, and the console's screen is back (W1's
+// must-fail). Guards the session's typing replayed into the CCP from the cooked keys. Seen failing with SYSTEM's
+// drains and KEYEV's left out.
+TEST(system_leaves_the_ccp_line_empty)
 {
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) > 0);
-    const auto l6 = lbl_map(std::string("p6.lbl"));
-    const uint16_t up = l6.at("SCRLUP");
-    uint64_t from = 0, total = 0;
-    unsigned n = 0;
-    int depth = -1;
-    r.watch = [&](uint16_t pc) {
-        if (depth < 0 && pc == up && r.nb(3) != 0)
-        {
-            from = r.cpu->cycles();
-            depth = r.cpu->regs().s;
-        }
-        else if (depth >= 0 && r.cpu->regs().s == depth + 2)
-        {
-            total += r.cpu->cycles() - from;
-            ++n;
-            depth = -1;
-        }
-    };
-    enter(r, "FOR I=1 TO 40:PRINT:NEXT");
-    r.watch = nullptr;
-    std::printf("  SCRLUP: %u calls, %.0f cycles each\n", n, n ? static_cast<double>(total) / n : 0.0);
-    const uint64_t a1 = timed(r, {"20 PRINT:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t a2 = timed(r, {"20 PRINT:I%=I%+1:IF I%<300 THEN 20"});
-    const uint64_t b1 = timed(r, {"20 PRINT CHR$(11);:PRINT:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t b2 = timed(r, {"20 PRINT CHR$(11);:PRINT:I%=I%+1:IF I%<300 THEN 20"});
-    const uint64_t c1 = timed(r, {"20 PRINT CHR$(11);:I%=I%+1:IF I%<100 THEN 20"});
-    const uint64_t c2 = timed(r, {"20 PRINT CHR$(11);:I%=I%+1:IF I%<300 THEN 20"});
-    const double a = static_cast<double>(a2 - a1) / 200, b = static_cast<double>(b2 - b1) / 200,
-                 c = static_cast<double>(c2 - c1) / 200;
-    std::printf("  PRINT, scrolling: %.0f a pass; homed then PRINT: %.0f; homed alone: %.0f; the scroll: %.0f\n", a, b, c,
-                a - (b - c));
+    enter(r, "PRINT 12345");
+    CHECK(until_row(r, " 12345") > 0);
+    const size_t from = r.out.size();
+    keys(r, "SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), from));
+    r.run(ms(800));
+    const size_t prompt = r.out.find("A>", from);
+    const std::string after = prompt == std::string::npos ? "?" : r.out.substr(prompt + 2);
+    CHECK_EQ(vis(after), std::string());
+    CHECK_EQ(mapbase(r), 0x002000u);
+}
+
+// 40 numbered PRINTs scroll the window (24 lines) and keep every line: the numbers in order, one a row, up to
+// 40, then Ok, then the cursor's blank line at the window's foot, and the 25th line blank. Guards lines lost or
+// doubled at the bottom while output scrolls. Seen failing with the row cache not written back before SCROLL's
+// DM_VCOPY.
+TEST(a_scroll_keeps_every_line)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "FOR I=1 TO 40:PRINT I:NEXT", ms(1500));
+    const int ok = until_row(r, "Ok");
+    CHECK_EQ(ok, 22);
+    CHECK_EQ(line(r, 21), std::string(" 40"));
+    for (int row = 21, n = 40; row >= 0; --row, --n)
+        CHECK_EQ(line(r, static_cast<unsigned>(row)), " " + std::to_string(n));
+    CHECK_EQ(line(r, 23), std::string());
+    CHECK_EQ(line(r, 24), std::string());
+    CHECK_EQ(row_at(r, 24), std::string(80, ' '));
+    if (ok != 22)
+        std::printf("  the screen: %s\n", screen(r).c_str());
+}
+
+// Ctrl-C on the USB keyboard breaks a running program: "Break in 10" and Ok on the screen, and GW-BASIC still
+// runs (no warm boot). Guards a program that can't be stopped short of Break. Seen failing with KEYEV leaving
+// Ctrl-C (usage $06 with Ctrl) to the cooked path.
+TEST(ctrl_c_breaks_a_running_program)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const size_t since = r.out.size();
+    enter(r, "10 GOTO 10");
+    keys(r, "RUN\r");
+    r.run(ms(300));
+    press(r, 0x06, CTRL);
+    const int at = until_row(r, "Break in 10");
+    CHECK(at > 0);
+    if (at > 0)
+        CHECK_EQ(line(r, static_cast<unsigned>(at + 1)), std::string("Ok"));
+    enter(r, "PRINT 5");
+    CHECK(until_row(r, " 5") > 0);
+    CHECK(r.out.find("A>", since) == std::string::npos);
+}
+
+// A typed line is read back from the cells (SCNRDL): PRINT "AX, a Backspace, B" and Enter runs PRINT "AB" as the
+// screen shows it. Guards the line run not being the line shown. Seen failing with SCNRDL starting a column right
+// of the logical line's start.
+TEST(a_typed_line_is_read_back_from_the_cells)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const int ok = start(r);
+    REQUIRE(ok > 0);
+    keys(r, "PRINT \"AX");
+    press(r, 0x2A); // Backspace
+    keys(r, "B\"\r");
+    r.run(ms(300));
+    CHECK_EQ(line(r, static_cast<unsigned>(ok + 1)), std::string("PRINT \"AB\""));
+    CHECK_EQ(line(r, static_cast<unsigned>(ok + 2)), std::string("AB"));
+    CHECK_EQ(line(r, static_cast<unsigned>(ok + 3)), std::string("Ok"));
 }
 
 int main()

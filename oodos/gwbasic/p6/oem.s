@@ -485,27 +485,76 @@ SCRATR:         LDA     xDL
 ; row needs no read: the cache is put on it as it is written. xD* kept.
 CLREOL:         LDA     xDH
                 CMP     #2
-                BCS     @part
+                BCC     :+
+                JMP     @part
+:
                 LDA     xDL
                 CMP     CROW
                 BEQ     @fill
                 JSR     FLUSH
                 LDA     xDL
                 JSR     ROWADR
-                BCS     @r
-                STX     CROW
-@fill:          LDA     CRTWID
-                ASL     A
+                BCC     :+
+                RTS
+:               STX     CROW
+@fill:          LDA     CRTWID         ; the scroll's blank row: 40 or 80 cells, 8 a turn,
+                ASL     A              ;   and 8 more for 80
+                STA     CDHI
                 TAY
-                STY     CDHI
                 LDX     ATTR
 @f:             LDA     #' '
                 STA     CACHE - 2,Y
+                STA     CACHE - 4,Y
+                STA     CACHE - 6,Y
+                STA     CACHE - 8,Y
+                STA     CACHE - 10,Y
+                STA     CACHE - 12,Y
+                STA     CACHE - 14,Y
+                STA     CACHE - 16,Y
                 TXA
                 STA     CACHE - 1,Y
-                DEY
-                DEY
-                BNE     @f
+                STA     CACHE - 3,Y
+                STA     CACHE - 5,Y
+                STA     CACHE - 7,Y
+                STA     CACHE - 9,Y
+                STA     CACHE - 11,Y
+                STA     CACHE - 13,Y
+                STA     CACHE - 15,Y
+                CPY     #32
+                BCS     :+
+                JMP     @f8
+:
+                LDA     #' '
+                STA     CACHE - 18,Y
+                STA     CACHE - 20,Y
+                STA     CACHE - 22,Y
+                STA     CACHE - 24,Y
+                STA     CACHE - 26,Y
+                STA     CACHE - 28,Y
+                STA     CACHE - 30,Y
+                STA     CACHE - 32,Y
+                TXA
+                STA     CACHE - 17,Y
+                STA     CACHE - 19,Y
+                STA     CACHE - 21,Y
+                STA     CACHE - 23,Y
+                STA     CACHE - 25,Y
+                STA     CACHE - 27,Y
+                STA     CACHE - 29,Y
+                STA     CACHE - 31,Y
+                TYA
+                SEC
+                SBC     #32
+                TAY
+                BEQ     @fd
+                JMP     @f
+@f8:            TYA                    ; (16 bytes left: 40 columns' last turn)
+                SEC
+                SBC     #16
+                TAY
+                BEQ     @fd
+                JMP     @f
+@fd:
                 LDA     #2
                 STA     CDLO
 @r:             RTS
@@ -583,31 +632,33 @@ SCROLL:         LDA     xCL
                 LDA     xBL
                 CMP     xAL
                 BCS     @down
-                LDA     xAL            ; up: CL rows in one copy
-                JSR     ROWADR
-                LDX     #2
-@s1:            LDA     CRADR,X
-                STA     DMB + 1,X
-                DEX
-                BPL     @s1
-                LDA     xBL
-                JSR     ROWADR
-                LDX     #2
-@d1:            LDA     CRADR,X
-                STA     DMB + 4,X
-                DEX
-                BPL     @d1
-                STZ     DMB + 7        ; CL x the stride
-                STZ     DMB + 8
-                LDX     xCL
-@m:             CLC
-                LDA     DMB + 7
-                ADC     STRIDE
+                LDX     xAL            ; up: CL rows in one copy, from row AL
+                CLC                    ;   to row BL of the active page
+                LDA     APG
+                ADC     RWOLO,X
+                STA     DMB + 1
+                LDA     APG + 1
+                ADC     RWOHI,X
+                STA     DMB + 2
+                LDA     APG + 2
+                ADC     #0
+                STA     DMB + 3
+                LDX     xBL
+                CLC
+                LDA     APG
+                ADC     RWOLO,X
+                STA     DMB + 4
+                LDA     APG + 1
+                ADC     RWOHI,X
+                STA     DMB + 5
+                LDA     APG + 2
+                ADC     #0
+                STA     DMB + 6
+                LDX     xCL            ; CL x the stride: row CL+1's offset
+                LDA     RWOLO + 1,X
                 STA     DMB + 7
-                BCC     :+
-                INC     DMB + 8
-:               DEX
-                BNE     @m
+                LDA     RWOHI + 1,X
+                STA     DMB + 8
                 JMP     DMCALL
 @down:          LDA     xCL            ; down: from the last row
                 STA     SCI
@@ -691,19 +742,14 @@ FILL:           STA     DMB + 4
                 INC     DMB + 5
                 BNE     :+
                 INC     DMB + 6
-:               LDA     #$FE           ; SCI x STRIDE - 2
+:               LDX     SCI            ; SCI x STRIDE - 2: row SCI+1's offset less 2
+                SEC
+                LDA     RWOLO + 1,X
+                SBC     #2
                 STA     DMB + 7
-                LDA     #$FF
+                LDA     RWOHI + 1,X
+                SBC     #0
                 STA     DMB + 8
-                LDX     SCI
-@m:             CLC
-                LDA     DMB + 7
-                ADC     STRIDE
-                STA     DMB + 7
-                BCC     :+
-                INC     DMB + 8
-:               DEX
-                BNE     @m
                 JMP     DMCALL
 
 ; PGINIT: for the width (CRTWID): the pages' size (20 card pages at 80
@@ -731,7 +777,7 @@ PGINIT:         LDX     #20
                 ADC     #0
                 STA     RWOHI + 1,X
                 INX
-                CPX     #NMLINE
+                CPX     #NMLINE + 1
                 BCC     @r
                 JSR     APGSET
                 LDA     #0             ; every page: NPAGES x PGSIZE card pages
@@ -917,8 +963,8 @@ PGSIZE:         .res    1              ; a page's card pages
 PGBASE:         .res    2              ; the first page's card page
 STRIDE:         .res    1              ; a row's bytes
 APG:            .res    3              ; the active page's card address
-RWOLO:          .res    NMLINE + 1     ; a row's offset in a page, by row from 1
-RWOHI:          .res    NMLINE + 1
+RWOLO:          .res    NMLINE + 2     ; a row's offset in a page, by row from 1 (row
+RWOHI:          .res    NMLINE + 2     ;   n+1's is n rows' bytes, to 31)
 CROW:           .res    1              ; the row in the cache, 0 none
 CDLO:           .res    1              ; its span to write back: cells CDLO/2 .. CDHI/2
 CDHI:           .res    1              ;   (0: none)

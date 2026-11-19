@@ -885,24 +885,24 @@ GWDATA.ASM DOT -> res/gwmain.s DOT
 GWDATA.ASM OLDLIN -> res/gwmain.s OLDLIN
 GWDATA.ASM OLDTXT -> res/gwmain.s OLDTXT
 GWDATA.ASM DATPTR -> res/bimisc.s DATPTR
-SCNEDT.ASM PINLIN -> OEM res/oem.s PINLIN # function 10, with BUF's preload (ERREDT's line, the keys typed ahead)
+SCNEDT.ASM PINLIN -> OEM res/oem.s PINLIN # console mode: function 10, with BUF's preload; screen mode: a far call to P6's SCINLN
 SCNEDT.ASM QINLIN -> OEM res/oem.s QINLIN
 SCNEDT.ASM INLIN -> OEM res/oem.s INLIN
 SCNEDT.ASM SINLIN -> OEM res/oem.s SINLIN
 SCNEDT.ASM INLIN0 -> OEM res/oem.s INLIN0
-SCNEDT.ASM INLLOP -> dropped: the screen editor's key loop; function 10 edits the line
-SCNEDT.ASM INLRET -> OEM res/oem.s INLIN0 # the trailing blanks dropped; a ^C in the line is the break (ITSCTC)
-SCNEDT.ASM INCRTX -> OEM res/oem.s INCRTX
-SCNEDT.ASM INCRTF -> OEM res/oem.s INCRTF
-SCNEDT.ASM CLRFLG -> OEM res/oem.s INCRTF
+SCNEDT.ASM INLLOP -> p6/scnedt.s INLLOP # screen mode (7d1); console mode: function 10 edits the line (res/oem.s)
+SCNEDT.ASM INLRET -> p6/scnedt.s INLRET # console mode: res/oem.s INLIN0, the trailing blanks dropped; ^C the break
+SCNEDT.ASM INCRTX -> p6/scnedt.s INCRTX # console mode: OEM res/oem.s INCRTX
+SCNEDT.ASM INCRTF -> p6/scnedt.s INCRTF # console mode: OEM res/oem.s INCRTF
+SCNEDT.ASM CLRFLG -> p6/scnedt.s CLRFLG # console mode: OEM res/oem.s INCRTF
 SCNEDT.ASM SCNSEM -> OEM res/oem.s SCNSEM
-SCNEDT.ASM EDTBRK -> OEM res/oem.s CNTCCN # to a new line; AUTFLG cleared
+SCNEDT.ASM EDTBRK -> p6/scnedt.s EDTBRK # an entry, CNTCCN's in screen mode; console mode: OEM res/oem.s CNTCCN
 SCNEDT.ASM ERREDT -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED2 -> p2/gwmain.s ERREDT
 SCNEDT.ASM ERRED3 -> p2/gwmain.s ERRED3
 SCNEDT.ASM EREDIT -> p2/gwmain.s EREDIT # the line into BUF for function 10 to show and edit (PRELOD)
 SCNEDT.ASM EDIT -> p2/gwmain.s EDITP # in P2 with EREDIT, which it falls into; its stub p8/gwmain.s EDIT
-SCNEDT.ASM INLHLP -> dropped: the help key's edit; no screen editor
+SCNEDT.ASM INLHLP -> dropped: the help key's edit; no OO-1 key gives the two-byte edit function (Ctrl-A is a character)
 SCNEDT.ASM DSKCHI -> p4/scnedt.s DSKCHP # an entry, from MAIN (p8/gwmain.s): a line a far call
 SCNEDT.ASM OUTCH1 -> p2/gwlist.s LISPRT # in it: a CR after an LF to a file or device (W9); the console needs none
 GIO86.ASM OUTDO -> OEM res/oem.s OUTDO # the console by function 2, LPT1 by function 5; a file's bytes in RUNBUF, to P4 as runs (FLUSHP)
@@ -917,32 +917,28 @@ GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> p4/gio86.s NULOPM # an entry, LIST's (p2/gwlist.s LIST4)
 GIO86.ASM GIOINI -> p4/gio86.s GIOINP # DOALDV in it: each device's start (DVINI); NLONLY and PTRFIL are start-up's (p2/gwinit.s, which far calls it), FILTAB MEMSIZ + 2 (OO-1), no MS-DOS vectors (MSISET), no STKLOW
 GIO86.ASM GIOTRM -> dropped: every device's end is a RET on the OO-1 (KYBTRM, LPTTRM, COMTRM, CONS's _RET; SCNTRM's function-key line is 7d's); the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
-GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # functions 11 and 6; the function keys and their traps later 7d, 7f
+GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # console mode: functions 11 and 6; screen mode: EVPOLL; the function keys' traps later 7f
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
 GIOKYB.ASM KYBINI -> OEM res/oem.s KYBINI
 GIOKYB.ASM PKQUE -> OEM res/oem.s PKQUE
 GIOKYB.ASM CHSNS -> OEM res/oem.s CHSNS
-GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys; INKMAP and the PC's two-byte keys later 7d
+GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the PC's two-byte keys (0 and a scan code)
 GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
 GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
 GWSTS.ASM SNDRST -> later 7f: the break's music reset
 GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
-SCNDRV.ASM SCNIPL -> later 7d: the screen editor's start-up
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
 GIODSK.ASM PROCHK -> p2/gwmain.s PROCHK # P2's; P3's PRODIR and P4's BINSAV have it inline
 DSKCOM.ASM LRUN -> res/far4.s LRUN # S to HOMSTK, then the home block's HLRUN (p8/far4.s): LRUN2's flag 1
 DSKCOM.ASM PRGFIN -> p4/gio86.s PRGFIN
-SCNDRV.ASM SCNMRK -> dropped: the screen editor's line marks; function 10 edits the line
-SCNDRV.ASM SCNRDL -> dropped: the screen's line read back; function 10 fills BUF
-SCNDRV.ASM SCNBRK -> dropped: the screen driver's flags at a break
-GIOKYB.ASM STCTYP -> dropped: the cursor's shape (insert, overwrite)
-GIOKYB.ASM SETCSR -> dropped: as STCTYP
-GIOKYB.ASM KEYIN -> dropped: the screen editor's key read; function 10 reads the line
+GIOKYB.ASM STCTYP -> p6/oem.s STCTYP # screen mode; the shape isn't kept (the owner's answer 9)
+GIOKYB.ASM SETCSR -> p6/oem.s SETCSR
+GIOKYB.ASM KEYIN -> OEM p6/key.s KEYIN # the PC's keys (0 and a scan code) to the editor's functions; IGNNFK's null keys passed over
 GIOKYB.ASM TRPCHK -> later 7f: the cursor keys' ON KEY traps
 GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys' expansion later 7d
-GIOKYB.ASM CKDBLK -> later 7d: a two-byte key's first byte
+GIOKYB.ASM CKDBLK -> OEM res/oem.s INKEY # the queue's lead byte 0: the PC's two-byte key (screen mode)
 GIOKYB.ASM CHKFKY -> later 7d: a function key's text
 GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
 GWSTS.ASM POLPEN -> later 7f: the light pen's trap
@@ -1427,7 +1423,7 @@ SCNEDT.ASM ERED4 -> p2/gwmain.s EREDIT # LINPRT's number into BUF (LINOUT), not 
 SCNEDT.ASM ERED5 -> p2/gwmain.s EREDIT # BUFLIN into BUF; LISPRT's printing is function 10's preload
 SCNEDT.ASM EFCERR -> p2/gwmain.s EDITP
 SCNEDT.ASM EUSERR -> p2/gwmain.s EREDIT
-SCNEDT.ASM INLOP3 -> dropped: the screen editor's echo of a key (INLLOP's, which INLHLP reaches); function 10 echoes
+SCNEDT.ASM INLOP3 -> p6/scnedt.s INLOP3
 # 7b step d: PRINT USING (BIPRTU.ASM, p3/biprtu.s, reached from P1's PRINT and LPRINT at JPRINU), with its number
 # formatting in P1 (MATH1.ASM's and MATH2.ASM's PRINT USING routines, p1/fout.s, entry PUFOUT) and LEFTUS (p3/bistrs.s).
 # The labels inside PRINUS that matter are named too.
@@ -1527,9 +1523,9 @@ GIO86.ASM RET6 -> p4/gio86.s RET6
 GIO86.ASM FACFPT -> p4/gio86.s FACFPT
 GIO86.ASM GFUNX -> p4/gio86.s GFUNX
 GIO86.ASM FACDSP -> p4/gio86.s FACDSP
-GIOKYB.ASM KBSINX -> later 7d: INCHRI's screen keyboard (the OEM's INCHRI waits on CHSNS)
-GIOKYB.ASM KEYSIN -> later 7d: as KBSINX
-GIOKYB.ASM KYBSI2 -> later 7d: as KBSINX
+GIOKYB.ASM KBSINX -> OEM p4/gio86.s INCHRI # screen mode too: the queue's bytes, a two-byte key as two (CHSNS)
+GIOKYB.ASM KEYSIN -> p6/key.s KEYSIN # the wait drains the cooked keys too (W1)
+GIOKYB.ASM KYBSI2 -> OEM p4/gio86.s INCHRI # as KBSINX
 GIO86.ASM INCHRE -> p4/gio86.s INCHRE
 FIVEO.ASM CHNRET -> p4/fiveo.s CHNRET # an entry: from p8/far4.s LDBIN and p8/gwmain.s MAIN, which go on at NEWSTT
 DSKCOM.ASM QUIT2B -> p4/dskcom.s QUIT2B
@@ -1737,5 +1733,94 @@ GIOCOM.ASM LPARM -> p4/giocom.s LPARM
 GIOCOM.ASM GETPRX -> p4/giocom.s GETPRX
 GWSTS.ASM TRMCOM -> later 7d: SCNINT's (the screen statements' parameters); GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
 GWSTS.ASM TKEYOF -> later 7d: the function-key line off (SCNTRM's)
-SCNDRV.ASM SCNPOS -> later 7d: the cursor's place (SCNTRM's, KEYSIN's)
-SCNDRV.ASM SCNOUT -> later 7d: the screen driver's output; till then p4/gioscn.s SCNOUT, the console's OUTDO (PTRFIL 0), OO-1
+
+
+# 7d1: the text screen (block P6: SCNDRV.ASM's driver and editor, SCNEDT.ASM's INLIN, the OEM's text routines
+# on the card's port with a row cache, the keyboard from the event queue; hw/oodos.md, 7d1 as built)
+SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/oem.s SCNIPL (the pages, the layer)
+SCNDRV.ASM SCNBRK -> p6/scndrv.s SCNBRK
+SCNDRV.ASM SCNSWI -> p6/scndrv.s SCNSWI
+SCNDRV.ASM SCNLOC -> p6/scndrv.s SCNCLR # inline: CSRX and CSRY set where it is called
+SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR
+SCNDRV.ASM SCNPOS -> p6/scndrv.s SCNPOS
+SCNDRV.ASM SCNGWI -> dropped: LINLEN is the resident's (res/oem.s), read where it is needed
+SCNDRV.ASM SCNRDT -> p6/scndrv.s SCNRDT
+SCNDRV.ASM SCNWTT -> p6/scndrv.s SCNWTT
+SCNDRV.ASM TTBINI -> p6/scndrv.s TTBINI
+SCNDRV.ASM SCNOUT -> p6/scndrv.s SCNOUT # OO-1: PRINT's common case inline at its head, and TXRUN's run (p6/oem.s FASTRN)
+SCNDRV.ASM MKRMCI -> p6/scndrv.s MKRMCI
+SCNDRV.ASM SCNRDX -> p6/scndrv.s SCNRDX
+SCNDRV.ASM CHWRAP -> p6/scndrv.s CHWRAP
+SCNDRV.ASM WRAPLF -> p6/scndrv.s WRAPLF
+SCNDRV.ASM MKRMNL -> p6/scndrv.s MKRMNL
+SCNDRV.ASM SCRLUD -> p6/scndrv.s SCRLUD
+SCNDRV.ASM SCRLUP -> p6/scndrv.s SCRLUP
+SCNDRV.ASM SCRLU0 -> p6/scndrv.s SCRLU0
+SCNDRV.ASM TSTSCR -> p6/scndrv.s TSTSCR
+SCNDRV.ASM TSTWDO -> p6/scndrv.s TSTWDO
+SCNDRV.ASM SCRLD0 -> p6/scndrv.s SCRLD0
+SCNDRV.ASM SCRDLN -> p6/scndrv.s SCRDLN
+SCNDRV.ASM SCRUTT -> p6/scndrv.s SCRUTT
+SCNDRV.ASM SCRDTT -> p6/scndrv.s SCRDTT
+SCNDRV.ASM PLINIT -> p6/scndrv.s PLINIT
+SCNDRV.ASM LABELK -> later 7d: the key line's ^T (7d2); till then FUNTAB's ^T is CTLIGN
+SCNDRV.ASM SCNMRK -> p6/scndrv.s SCNMRK
+SCNDRV.ASM SCNRDL -> p6/scndrv.s SCNRDL
+SCNDRV.ASM CTLDSP -> p6/scndrv.s CTLDSP
+SCNDRV.ASM CTLIGN -> p6/scndrv.s CTLIGN
+SCNDRV.ASM CTLIRS -> p6/scndrv.s CTLIRS
+SCNDRV.ASM WCSADV -> p6/scndrv.s WCSADV
+SCNDRV.ASM UPDPOS -> p6/scndrv.s UPDPOS
+SCNDRV.ASM WCSREG -> p6/scndrv.s WCSREG
+SCNDRV.ASM WCSUP -> p6/scndrv.s WCSUP
+SCNDRV.ASM WCSDWN -> p6/scndrv.s WCSDWN
+SCNDRV.ASM LTAB -> p6/scndrv.s LTAB
+SCNDRV.ASM FWDWRD -> p6/scndrv.s FWDWRD
+SCNDRV.ASM FWDWDL -> p6/scndrv.s FWDWDL
+SCNDRV.ASM BCKWRD -> p6/scndrv.s BCKWRD
+SCNDRV.ASM CBEEP -> p6/scndrv.s CBEEP # BEEP is 7f's: the bell does nothing yet
+SCNDRV.ASM CCLRSN -> p6/scndrv.s CCLRSN
+SCNDRV.ASM WHOME -> p6/scndrv.s WHOME
+SCNDRV.ASM WERASE -> p6/scndrv.s WERASE
+SCNDRV.ASM LDELET -> p6/scndrv.s LDELET
+SCNDRV.ASM LTRUNC -> p6/scndrv.s LTRUNC
+SCNDRV.ASM LCLEAR -> p6/scndrv.s LCLEAR
+SCNDRV.ASM WDELET -> p6/scndrv.s WDELET
+SCNDRV.ASM BAKSPC -> p6/scndrv.s BAKSPC
+SCNDRV.ASM CDELET -> p6/scndrv.s CDELET
+SCNDRV.ASM CDELLG -> p6/scndrv.s CDELLG
+SCNDRV.ASM CDUNWP -> p6/scndrv.s CDUNWP
+SCNDRV.ASM CDELPH -> p6/scndrv.s CDELPH
+SCNDRV.ASM LAPPND -> p6/scndrv.s LAPPND
+SCNDRV.ASM LCARET -> p6/scndrv.s LCARET
+SCNDRV.ASM LFEED -> p6/scndrv.s LFEED
+SCNDRV.ASM LINSRT -> p6/scndrv.s LINSRT
+SCNDRV.ASM MKRMCH -> p6/scndrv.s MKRMCH # the overflow in OVB (8 bytes), not BUF
+SCNDRV.ASM LFWRAP -> p6/scndrv.s LFWRAP
+SCNDRV.ASM MVCHLN -> p6/scndrv.s MVCHLN # MVCH32's extra PUSH BX, a slip on a path no insert reaches, left out
+SCNDRV.ASM SCNRTL -> p6/scndrv.s SCNRTL
+SCNDRV.ASM LFTERM -> p6/scndrv.s LFTERM
+SCNDRV.ASM CSRADV -> p6/scndrv.s CSRADV
+SCNDRV.ASM CSRREG -> p6/scndrv.s CSRREG
+SCNDRV.ASM CSRUP -> p6/scndrv.s CSRUP
+SCNDRV.ASM CSRDWN -> p6/scndrv.s CSRDWN
+SCNDRV.ASM LCSADV -> p6/scndrv.s LCSADV
+SCNDRV.ASM LCSREG -> p6/scndrv.s LCSREG
+SCNDRV.ASM LSTART -> p6/scndrv.s LSTART
+SCNDRV.ASM ANCHK -> p6/scndrv.s ANCHK
+SCNDRV.ASM SCRLU1 -> p6/scndrv.s SCRLU1 # SCRLU0's, which SCRLUD joins
+SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
+SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
+SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
+GENGRP.ASM GRPINI -> later 7e: the graphics cursor home (SCNCLR's)
+GWSTS.ASM KEYDSP -> later 7d: the key line (7d2); its KEYSW-off branch is p6/scndrv.s KEYDSP, the last line cleared
+SCNDRV.ASM WCSABT -> p6/scndrv.s WCSABT # UPDPOS's RET, which WCSADV and WCSREG reach
+SCNDRV.ASM WCSRET -> p6/scndrv.s WCSRET
+SCNDRV.ASM FWDWD3 -> p6/scndrv.s FWDWD3
+SCNDRV.ASM FWDWD0 -> p6/scndrv.s FWDWD0
+SCNDRV.ASM CDUWPX -> p6/scndrv.s CDUWPX
+SCNDRV.ASM CDUWXI -> p6/scndrv.s CDUWXI
+SCNDRV.ASM MVCH30 -> p6/scndrv.s MVCH30
+SCNDRV.ASM MVC30I -> p6/scndrv.s MVCH30 # an indirect jump to it
+SCNDRV.ASM CSRRET -> p6/scndrv.s CSRADV # its RET, each cursor move's own here
+GWSTS.ASM BEEP -> later 7f: BEEP (CBEEP's bell does nothing until then)

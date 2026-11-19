@@ -708,7 +708,15 @@ SCRUTT:         LDX     xBL
                 STA     TTTRM,X
                 INX
                 DEY
+                BEQ     @e
+                LDA     TTCOL+1,X      ; (two a turn)
+                STA     TTCOL,X
+                LDA     TTTRM+1,X
+                STA     TTTRM,X
+                INX
+                DEY
                 BNE     @l
+@e:
                 STZ     TTCOL,X
                 LDA     #TRMEOL
                 STA     TTTRM,X
