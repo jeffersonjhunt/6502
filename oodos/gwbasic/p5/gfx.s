@@ -16,15 +16,15 @@
 ;             0, layer 1 off). Carry set, nothing changed, if card memory
 ;             runs out
 ;   GCOLOR    COLOR in SCREEN 1 (the PC's COLOR [background][,palette]):
-;             A the parameters (1-3; a third is taken and not used, as
-;             PC-BASIC takes it), RDL the background (RDH 0: not given),
+;             A the parameters (0-2; none changes nothing, the IBM manual's
+;             p. 44), RDL the background (RDH 0: not given),
 ;             RBL the palette (RBH 0: not given). The background's CGA
 ;             colour (0-15, the low 4 bits) to palette entry 0, the backdrop
 ;             behind every transparent pixel; an even palette is group 1
 ;             (green, red, brown), an odd one group 2 (cyan, magenta, light
 ;             grey), on both layers, so the text's colour 3 follows it as a
-;             PC's does. Carry set (Illegal function call) for no
-;             parameters, more than 3, and in SCREEN 2 (PC-BASIC's)
+;             PC's does. Carry set (Illegal function call) for a third
+;             parameter (p. 43's form has two) and in SCREEN 2 (p. 43)
 ;   GCLS      CLS's graphics part, A CLS's n (0 if not given): the page
 ;             cleared and the cursor centred, but for CLS 2 (the text's);
 ;             carry set for CLS 1, the graphics alone (no text cleared)
@@ -253,10 +253,10 @@ TMAP:           PHY
 GCOLOR:         LDX     GMODEV
                 CPX     #GM_TILE
                 BNE     @fc
-                CMP     #1
-                BCC     @fc
-                CMP     #4
+                CMP     #3             ; a third parameter: the manual's form has two
                 BCS     @fc
+                TAX                    ; none: nothing changes (p. 44: any omitted)
+                BEQ     @x
                 LDA     RDH
                 BEQ     @pal
                 LDA     RDL

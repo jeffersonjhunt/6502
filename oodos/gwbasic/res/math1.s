@@ -489,8 +489,13 @@ IDIV15:         JSR     IDIV16
                 STA     RBH
                 JMP     MAKINT
 
-; IMOD: FACLO = DX MOD BX, with the dividend's sign.
+; IMOD: FACLO = DX MOD BX, with the dividend's sign. OO-1: BX 0 is Division
+; by zero first, so 0 MOD 0 is too (the IBM manual's A-8, error 11; the
+; source's equal operands, tested first, made it 0).
 IMOD:           LDA     RBL
+                ORA     RBH
+                BEQ     IDIV0
+                LDA     RBL
                 CMP     RDL
                 BNE     IMD10
                 LDA     RBH
@@ -503,10 +508,7 @@ IMD10:          JSR     MINCHK         ; -32768 MOD 1 or -1
                 BNE     IMD15
                 JSR     ONECHK
                 BNE     IMD05
-IMD15:          LDA     RBL
-                ORA     RBH
-                BEQ     IDIV0
-                JSR     IDIV16
+IMD15:          JSR     IDIV16
                 LDA     T2
                 STA     RBL
                 LDA     T3

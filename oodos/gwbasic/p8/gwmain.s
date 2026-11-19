@@ -35,7 +35,7 @@
 .import FORCNT, FORFLG, FORVAR, FRCINT, FRCSNG, FRMCHK, FRMEVL, FVALSV, GETIN2, GETSTK
 .import GETYP, GONE, GOTO, ISLET2, LINGET, NXTLIN, ONE, PINLIN, PTRGET, REDDY, REM
 .import RTNTXT, RUNC, SCNERR, SIGNS, SNERR, STPEND, STROUT, SUBFLG, SYNCHR, TMERR
-.import FTSITE, NEXTS, ISFLIO, NEWSTT, SCRMOD
+.import FTSITE, NEXTS, ISFLIO, NEWSTT, SCRMOD, BUF
 
 ERRSN           = 2                    ; GWDATA.ASM's error numbers
 ERRRG           = 3
@@ -573,7 +573,8 @@ REPINI:         LDA     ERRFLG         ; a Syntax error: its line to edit
 ; does (a CHAIN's end, CHNFLG, CHNRET and NEWSTT, as its LDREOF does); a
 ; direct statement in it is Direct statement in file (DIRDO), a
 ; line number too big isn't Syntax error.
-MAIN:           LDA     #$FF           ; CURLIN: direct
+MAIN:           STZ     RUNPND         ; (OO-1: an error on the way, no run)
+                LDA     #$FF           ; CURLIN: direct
                 STA     CURLIN
                 STA     CURLIN+1
                 LDA     #<ENDPRG
@@ -591,7 +592,17 @@ NTAUTO:         JSR     ISFLIO         ; PINLIN's DSKCHI: a line of a file
                 BEQ     :+             ; TXTPTR where NEWSTT starts)
                 FJSR    CHNRET
                 JMP     NEWSTT
-:               JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
+:               LDX     #0             ; OO-1: the file's last line, with no CR,
+@w:             LDA     BUF,X          ; goes in first, as LOAD's does (the IBM
+                BEQ     @run           ; manual's p. 306, RUN filespec loads it);
+                INX                    ; FINIH then runs it. Only blanks and
+                CMP     #' '           ; tabs: nothing to put in, the run at
+                BEQ     @w             ; once (review round 1, F4)
+                CMP     #9
+                BEQ     @w
+                DEC     RUNPND
+                BRA     NTSTOP
+@run:           JSR     RUNC           ; NOTCHN's RUNC and NEWSTT (INCHR's)
                 JMP     NEWSTT
 @kbd:           JSR     PINLIN         ; TXTPTR at BUF-1
                 BCC     NTSTOP
@@ -640,7 +651,10 @@ EDENT:          LDA     RDH            ; the line number, kept
 :               FJSR    EDENT2         ; into the program; it ends at FINI
 ; FINI: after the program has changed, the variables cleared, and MAIN.
 FINIH:          JSR     RUNC           ; FINI (resident FINI, res/home.s, comes here)
-                JMP     MAIN
+                BIT     RUNPND         ; OO-1: a text file's last line put in by
+                BPL     :+             ; a run (MAIN): now NEWSTT, as INCHR's
+                JMP     NEWSTT         ; NOTCHN (RUNC done)
+:               JMP     MAIN
 
 ; --- LIST, LLIST, DELETE: P2's statements ----------------------------------------------
 
@@ -697,3 +711,5 @@ INPRET:         BCC     :+
                 JMP     STPEND
 :               RTS
 
+.segment "BRAM"
+RUNPND:         .res    1              ; OO-1: bit 7, run once the line is in (MAIN, FINIH)

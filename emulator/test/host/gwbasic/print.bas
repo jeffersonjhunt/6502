@@ -5,7 +5,7 @@
 50 PRINT "d"
 60 PRINT 12345678901234,1;
 70 PRINT
-80 PRINT "x";TAB(10);"y";TAB(5);"z";TAB(0);"w"
+80 PRINT "x";TAB(10);"y";TAB(5);"z";TAB(1);"w"
 90 PRINT SPC(3);"s";SPC(0);"t";SPC(85);"v"
 100 PRINT TAB(85);"tab85";TAB(1);"one"
 110 A$="":FOR I=1 TO 30:A$=A$+"ab":NEXT:PRINT A$;A$

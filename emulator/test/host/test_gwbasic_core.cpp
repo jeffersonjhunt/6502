@@ -621,8 +621,8 @@ TEST(errors_in_direct_mode)
     CHECK_EQ(command(r, "PRINT 1+"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "15"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "X=&H12345"), std::string("Overflow\r\n"));
-    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n")); // RENUM until 7b step c; WIDTH: Advanced Feature in console mode
-    CHECK_EQ(command(r, "FILES \"NOSUCH.*\""), std::string("File not found\r\n")); // FILES is 7c's
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced feature\r\n")); // RENUM until 7b step c; WIDTH: Advanced Feature in console mode
+    CHECK_EQ(command(r, "FILES \"NOSUCH.*\""), std::string("A:\\\r\nFile not found\r\n")); // FILES is 7c's
     CHECK_EQ(command(r, "PRINT CVI(\"ab\")"), std::string(" 25185 \r\n")); // CVI is 7c's: PC-BASIC's answer
 }
 
@@ -741,7 +741,7 @@ TEST(input_semicolon_lprint_and_later_forms)
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT #1,USING \"##\";1"), std::string("Bad file number\r\n")); // no file open: 7c's file layer
-    CHECK_EQ(command(r, "LINE (0,0)-(1,1)"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LINE (0,0)-(1,1)"), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "RESTORE 100"), std::string("Undefined line number\r\n"));
     CHECK_EQ(command(r, "NEXT"), std::string("NEXT without FOR\r\n"));
     CHECK_EQ(command(r, "FOR I=1 TO 3:PRINT I;:NEXT"), std::string(" 1  2  3 \r\n"));
@@ -1028,10 +1028,10 @@ TEST(extended_statements_dispatch_from_the_home_block_s_table)
     CcpRig r;
     REQUIRE(r.ok);
     start(r);
-    CHECK_EQ(command(r, "PLAY \"C\""), std::string("Advanced Feature\r\n")); // 7f's
-    CHECK_EQ(command(r, "CALLS 0"), std::string("Advanced Feature\r\n"));    // the last, 7g's
+    CHECK_EQ(command(r, "PLAY \"C\""), std::string("Advanced feature\r\n")); // 7f's
+    CHECK_EQ(command(r, "CALLS 0"), std::string("Advanced feature\r\n"));    // the last, 7g's
     enter(r, {"10 PRINT \"a\";", "20 DRAW \"U1\"", "30 PRINT \"b\""});    // 7e's
-    CHECK_EQ(command(r, "RUN"), std::string("a\r\nAdvanced Feature in 20\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string("a\r\nAdvanced feature in 20\r\n"));
     enter(r, {"20 SYSTEM"});
     const size_t from = r.out.size();
     r.type("RUN\r");
@@ -1071,7 +1071,7 @@ TEST(key_stays_advanced_feature_in_console_mode)
     REQUIRE(r.ok);
     start(r);
     for (const char *k : {"KEY ON", "KEY LIST", "KEY 1,\"X\"", "KEY OFF"})
-        CHECK_EQ(command(r, k), std::string("Advanced Feature\r\n"));
+        CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 
@@ -1091,7 +1091,7 @@ TEST(graphics_are_advanced_feature_in_console_mode)
         con[i] = vid.card_peek(i);
     for (const char *k : {"PSET (1,1),1", "PRESET (2,2)", "LINE (0,0)-(9,9),1,BF", "LINE -(5,5)", "SCREEN 1",
                           "SCREEN 2:PSET (1,1)"})
-        CHECK_EQ(command(r, k), std::string("Advanced Feature\r\n"));
+        CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT POINT(1,1)"), std::string("Syntax error\r\n"));
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
     unsigned moved = 0;

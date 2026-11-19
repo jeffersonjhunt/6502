@@ -834,14 +834,6 @@ SCNEX2:         CMP     #0
                 BNE     CHGPTR
                 DECW    TXTPTR         ; SCNEX3: line 0 left a number
                 BRA     SCNEXT
-; CONDX: LINGT3's way (GWMAIN.ASM 1972): DX = CONLO, the constant CHRGTR has
-; just read, before CHRGTR goes past it (and may read the next constant into
-; CONLO: "GOTO 30 40"; review U2). Z and C as CHRGTR leaves them.
-CONDX:          LDA     CONLO
-                STA     RDL
-                LDA     CONLO+1
-                STA     RDH
-                JMP     CHRGTR
 ; NTERRG (GWMAIN.ASM 3258)
 NTERRG:         CMP     #LINCON
                 BNE     SCNEXT
@@ -895,9 +887,9 @@ SCNPT2:         CMP     #PTRCON
                 LDA     (PTR),Y
                 STA     RCH
                 LDA     #LINCON
-MAKPTR:         LDX     CONTXT         ; CONCHG: at the constant's end, A the token
+MAKPTR:         LDX     CNTXT2         ; CONCHG: at the constant's end, A the token
                 STX     TXTPTR
-                LDX     CONTXT+1
+                LDX     CNTXT2+1
                 STX     TXTPTR+1
                 JSR     CONCH2
 SCNPOP:         LDA     KSRC           ; on from the character after it
@@ -906,6 +898,21 @@ SCNPOP:         LDA     KSRC           ; on from the character after it
                 STA     TXTPTR+1
                 DECW    TXTPTR
 JSCNXT:         JMP     SCNEXT
+; CONDX: LINGT3's way (GWMAIN.ASM 1972): DX = CONLO, the constant CHRGTR has
+; just read, before CHRGTR goes past it (and may read the next constant into
+; CONLO: "GOTO 30 40"; review U2). Z and C as CHRGTR leaves them. OO-1:
+; CONTXT, the end of that constant, kept too (CNTXT2) for MAKPTR, so RENUM
+; changes the reference itself, not a constant after it (the IBM manual's
+; p. 293; the source writes at the last constant CHRGTR read).
+CONDX:          LDA     CONLO
+                STA     RDL
+                LDA     CONLO+1
+                STA     RDH
+                LDA     CONTXT
+                STA     CNTXT2
+                LDA     CONTXT+1
+                STA     CNTXT2+1
+                JMP     CHRGTR
 
 ; --- ERRPRT, ERRFIN (GWMAIN.ASM 511) -----------------------------------------------------
 
@@ -1080,4 +1087,5 @@ SUBTEX:         .byte   "UB", 0
 LINM:           .byte   "Undefined line ", 0 ; GWMAIN.ASM 3286
 
 .segment "BRAM"
+CNTXT2:         .res    2              ; CONDX's CONTXT (OO-1)
 SCNLN:          .res    2              ; SCNPLN: the line being scanned (the 8086's DX)

@@ -1,0 +1,6 @@
+# the IBM manual's prompt (pp. 286-287: "Random Number Seed"; the IBM spec's fix-up, the owner's answer 3), where the 1983 source and PC-BASIC print "Random number seed"
+Random Number Seed (-32768 to 32767)? 7
+ .84815 
+Random Number Seed (-32768 to 32767)? abc
+Random Number Seed (-32768 to 32767)?  7 
+ .7077745 

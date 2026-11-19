@@ -43,7 +43,7 @@ The programs of step I2, typed and RUN the same way:
 | `print`, `tabneg` | PRINT: `;`, the print zones of `,`, a line's end, TAB and SPC (and of a negative number), numbers of each type |
 | `read` | READ, DATA and RESTORE: numbers and strings, quoted or not, colons, `RESTORE line`, DATA anywhere |
 | `input` (`input.in`) | INPUT and LINE INPUT: prompts, "? ", several values, quoted strings, a subscript, "?Redo from start" |
-| `e_nf`, `e_nf2`, `e_rg`, `e_od`, `e_dsn`, `e_fn`, `e_wh`, `e_we`, `e_ftm`, `e_ftm2`, `e_ov`, `e_litm` | the errors: NEXT without FOR, RETURN without GOSUB, Out of DATA, Syntax error in a DATA, FOR without NEXT, WHILE without WEND, WEND without WHILE, Type mismatch, Overflow |
+| `e_nf`, `e_nf2`, `e_rg`, `e_od`, `e_dsn`, `e_fn`, `e_wh`, `e_we`, `e_ftm`, `e_ftm2`, `e_ov`, `e_litm` | the errors: NEXT without FOR, RETURN without GOSUB, Out of data, Syntax error in a DATA, FOR without NEXT, WHILE without WEND, WEND without WHILE, Type mismatch, Overflow |
 | `spk_*` | the size spike's seven programs (`oodos/gwbasic/test/check.py --write-programs`) |
 
 Where the 1983 source and PC-BASIC differ, the port keeps the source's behaviour, and `NAME.differ` is what it
@@ -51,10 +51,19 @@ must print instead: its first line, `# why`, says why, the rest is the text, lin
 `oodos/gwbasic/test/programs/` has it). `NAME.out` stays PC-BASIC's, for the record:
 
 - `for`: a FOR that runs no times leaves its variable at the start, and STEP 0 never ends;
-- `tabneg`: TAB and SPC of a negative number are of 0;
+- `tabneg`: SPC of a negative number and TAB of one below 1 are Illegal function call (the IBM manual's pp. 327, 340;
+  a default of the IBM spec's fix-up, for the owner's veto; the source takes them as 0);
 - `e_dsn`: READ's Syntax error is in the line of the DATA it was reading;
-- `e_fn`: the message is "FOR Without NEXT";
-- `spk_rnd1`, `spk_rnd3`: 0 MOD 0 is 0.
+
+Where the port follows the IBM BASIC Reference 3.0 (the owner's spec, 2026-11-19) and PC-BASIC doesn't, `NAME.differ`
+is the manual's: `e_od`, `optdd`, `optdd2`, `d_e75` (and `oodos/gwbasic/test/programs/`'s `e_dd`, `e_dd2`): the
+error messages in Appendix A's wording ("Out of data", "Duplicate definition", "Path/file access error"; the IBM spec's
+fix-up, G15), where PC-BASIC prints the 1983 source's. `e_fn` agrees with PC-BASIC now ("FOR without NEXT"), and so do
+`spk_rnd1`, `spk_rnd3` (0 MOD 0 is Division by zero: the manual's A-8, a default of the fix-up), `pufc3` (24 digits
+without the point, p. 272), `randomov` (RANDOMIZE 40000 is taken, p. 286), `renumu2` (RENUM changes the reference
+itself, p. 293) and `l_text` (RUN name enters a last line with no CR, p. 306): their `.differ`s are gone. `f_input`
+and `f_write` have the manual's (pp. 133-134: an LF ends INPUT #'s item, and leading spaces, CRs and LFs are passed
+over: review round 1, F1), where PC-BASIC reads a leading LF or an empty line as an empty item.
 
 Not checked against PC-BASIC: LINE INPUT keeps the blanks typed at a line's end (OODOS's function 10 gives them;
 GW-BASIC's screen editor reads the line back from the screen, and PC-BASIC drops them), so `input.in` types none
@@ -104,7 +113,7 @@ Step a2's, typed and RUN the same way:
 | `erasefc`, `erasefc2`, `erasesn` | ERASE's errors: an array not there, a simple variable, a subscript |
 | `clear`, `clearrg`, `clearnf` | CLEAR alone, with x, with m; what it drops (variables, arrays, ON ERROR, GOSUB, FOR) |
 | `clearcm`, `clearcm2`, `clearom`, `clearom2`, `clearom3`, `clearfc`, `clearfc2`, `clearfc3`, `clearfc4`, `clearsn` | CLEAR's commas and errors: m 240 or less, more than n, n under the variables (Out of memory); n or m 0, x negative, n past the TPA's top (Illegal function call); too much |
-| `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate Definition; Syntax error |
+| `option`, `opt01`, `optbs`, `optdd`, `optdd2`, `optsn`, `optsn2`, `optsn3` | OPTION BASE 1 and 0, again, after CLEAR; Duplicate definition; Syntax error |
 | `random`, `randomov`, `randomtm`, `randin` (`randin.in`) | RANDOMIZE n (each kind of seed), its errors; RANDOMIZE alone with the seed typed, a bad line asked for again |
 | `fout7788` | the owner's G5: .7788379, which the 1983 source's $FOUT prints as .778838 (two roundings in $FOTNV); shipped GW-BASIC prints .7788379 (.differ) |
 | `write`, `writemo`, `writesn` | WRITE: numbers, strings, `,` and `;`, alone; Missing operand; Syntax error |
@@ -115,8 +124,7 @@ Step a2's, typed and RUN the same way:
 Where PC-BASIC doesn't do what the 1983 source does, `NAME.differ` has the source's output and says why: `clearcm`,
 `clearcm2` (no Syntax error for a comma with nothing after it); `clearom`, `clearom2`, `clearom3` (CLEAR's stack
 and room checks, which PC-BASIC doesn't make); `opt01` (OPTION BASE 0 when the base is 0 isn't counted); `random`
-(the seed is FRCINT's integer, not the number's bytes; and $FOUT's .778838); `randomov`, `randomtm` (FRCINT's
-Overflow and Type mismatch); `writesn` (the comma goes out after the separator is checked); `strfc4` (a null
+(the seed is FRCINT's integer, not the number's bytes; and $FOUT's .778838); `randomtm` (FRCINT's Type mismatch); `writesn` (the comma goes out after the separator is checked); `strfc4` (a null
 string is Illegal function call). `clearfc4` is the OO-1's own: n past the TPA's top.
 
 By hand in test_gwbasic_stmts (not from PC-BASIC's run of a file): WRITE # (Advanced Feature until 7c), RANDOMIZE
@@ -178,10 +186,10 @@ Step d's, typed and RUN as 7a's, each line labelled:
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`), each checked against a model of MATH1.ASM's and
 MATH2.ASM's PRINT USING routines on `mbf.py`'s arithmetic: `pusng` and `pudbl` (10^16 and more is `$FOUT`'s free
-format after the `%`, the sign lost; `$PUFXE` drops a leading `0` only when the field is too wide; -.0005# rounds to
+format after the `%`, with its sign, the manual's p. 272; `$PUFXE` drops a leading `0` only when the field is too wide; -.0005# rounds to
 -0.001), `puexp` and `pudbl` (`$PUFE` puts the exponent up one after a rounding into a digit more; a negative number
-whose point is at FBUFF+2 loses its sign), `pumisc` (-0 is the integer 0), `pufc2` (the text before the field is
-printed before the missing value is found), `pufc3` (the source counts the point among the 24), `pufc4` and `pufc6`
+whose point is at FBUFF+2 keeps its sign now, the manual's p. 271, as PC-BASIC), `pumisc` (-0 is the integer 0), `pufc2` (the text before the field is
+printed before the missing value is found), `pufc4` and `pufc6`
 (a format with no field and no values is Illegal function call, after it is printed).
 
 By hand in test_gwbasic_stmts: LPRINT USING to LST: (PC-BASIC's printer isn't the oracle's).
@@ -228,11 +236,13 @@ drive is named.
 | `f_errs`, `f_errs2`, `f_e52`, `f_e53`, `f_e54`, `f_e55`, `f_e62`, `f_e64` | the errors, trapped (ERR, ERL), then each's message |
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `f_write` (INPUT # reads a double as a double:
-the source's FINDBL), `f_input` (an LF in an unquoted item is dropped and the item goes on: LPISLF), `f_inps`
+the source's FINDBL; and the manual's leading CR and LF, above), `f_inps`
 (INPUT$ takes the CR and LF before the end as bytes), `f_clear` (CLEAR closes every file), `f_errs` (EOF of an output
-file with nothing in its buffer is -1; INPUT$(0, #f) of an output file is Bad file mode; LEN= on a sequential OPEN
-is Syntax error), `f_errs2` (a name with only a type is Bad file name). Where the OO-1 differs: `f_locof` (CP/M's
-files are whole 128-byte records, so LOF is the records times 128, as on the MS-DOS 1 FCB files the source wrote).
+file with nothing in its buffer is -1; INPUT #, LINE INPUT # and INPUT$ of an output file are Input past end, the
+IBM manual's A-11, a default of the fix-up, INPUT$(0, #f) too; LEN= on a sequential OPEN
+is Syntax error), `f_errs2` (a name with only a type is Bad file name). `f_locof` agrees with PC-BASIC now: LOF
+is the bytes, the ^Z counted (the IBM manual's p. 175; OODOS keeps CP/M 3's last-record byte count, the IBM spec's
+fix-up).
 
 By hand in test_gwbasic_files (PC-BASIC's run of a file can't type at the prompt, nor has the OO-1's drives): END,
 NEW and SYSTEM close every file (each read back, the last after SYSTEM by the CCP's TYPE); `A:` named is the current
@@ -253,8 +263,7 @@ files and reads them back.
 | `l_prot` | SAVE ,P and LOAD: it runs; LIST, EDIT, a line typed, SAVE and SAVE ,A refused; NEW |
 
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `l_merge` (MERGE of a tokenised file is Bad file
-mode, OKGET2's; more after MERGE's name is Syntax error), `l_text` (RUN name of a text file runs at its end at once,
-so a last line with no CR isn't entered: NOTCHN), `l_prot` (by hand: the source refuses LIST, EDIT, line entry and
+mode, OKGET2's; more after MERGE's name is Syntax error), `l_prot` (by hand: the source refuses LIST, EDIT, line entry and
 SAVE of a protected program, PROCHK; PC-BASIC lists and edits it).
 
 By hand in test_gwbasic_files: W2, a tokenised LOAD at the workspace's top (CLEAR ,n puts MEMSIZ 90 bytes past the
@@ -271,8 +280,9 @@ written past it); and a program named on the command line (`GWBASIC PROG`, a nam
 | `d_dir` | CHDIR to `\`, `.`, `""` and another, MKDIR, RMDIR (the directory hook); a number for the path |
 | `d_e58`, `d_e74`, `d_e75`, `d_e76`, `d_e77` | the messages of 58 and 74, and of 75 and 76 (added); 77, past the table |
 
-Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (the source prints no heading and no
-Bytes free line, one blank between names and six a line; its OPEN runs a long name into the type), `d_name` (a null
+Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `d_files` (one blank between names and six a
+line, the source's; its OPEN runs a long name into the type; the heading, A:\ on OODOS, and the Bytes free line are
+the IBM manual's, pp. 102-103, which the source doesn't print), `d_name` (a null
 name is Bad file name: NAMFIL), `d_e77` (past the table: Unprintable error). Where the OO-1 differs: `d_dir` (OODOS has
 no directories: CHDIR `""` is the root, MKDIR is Path/File access error; the owner's, 2026-11-13).
 
@@ -299,8 +309,8 @@ before a pattern; Rename across disks; and the OO-1's Bad file name for a `?` in
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `r_field` (FIELD's total past the record is FIELD
 overflow; record 32768 is Bad record number; the FIELD buffer keeps what was in it; WRITE # pads the record with
 spaces), `r_move` (a closed file's FIELDed strings are null), `r_eof` (EOF is true after OPEN and PUT, until a GET
-reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). Where
-the OO-1 differs: `r_lof` (LOF in whole records, as `f_locof`).
+reads a record that is there), `r_forr` (FOR RANDOM is Syntax error: a random file is OPEN's form with no FOR). `r_lof`
+agrees with PC-BASIC now (LOF in bytes, as `f_locof`).
 
 By hand in test_gwbasic_files: records of LEN 200 and 1,024 with /S: set to 1,024 (MAXREC, as `/S:1024` would set
 it): out of order, across the 128-byte records they span; a record never written; a record's place past 2^23 bytes
@@ -330,7 +340,7 @@ missing name and a drive past P:.
 Where PC-BASIC doesn't do what the 1983 source does (`NAME.differ`): `c_ul` (Undefined line number, with no line: a
 text file is read by MAIN), `c_miss` (the file is opened first, so ON ERROR traps File not found), `c_e5` (a COMMON
 array's count is evaluated: a string is Illegal function call), `c_e7` (and nothing there is Missing operand),
-`c_list` (LLIST goes on into LIST, so it lists to the file; `Q:` is Bad file name on the OO-1).
+`c_list` (LLIST n,"name" is Syntax error, the IBM manual's p. 166, as PC-BASIC; `Q:` is Bad file name on the OO-1).
 
 By hand in test_gwbasic_files: CHAIN MERGE of a tokenised file (Bad file mode, where PC-BASIC fails), and
 VARPTR(#n), the address of file n's FDB in P4's table (its F_MODE byte), Bad file number for a file not open.
@@ -352,7 +362,7 @@ screen are clipped as PC-BASIC clips them (the owner's ruling, 7e1's U6), so the
 
 | Program | What |
 |---|---|
-| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes (the last colour), STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes; lines and B and BF boxes off every edge, across a corner and wholly off, BF boxes wholly past each edge; PSET off the screen; the frame's bank boundary |
+| `gfx1` | SCREEN 1: PSET and PRESET, the default and too-high attributes (the last colour), STEP; LINE in all eight octants, -(x,y), -STEP, STEP-STEP; B and BF both ways, 1-pixel boxes; BF boxes off every edge, across a corner and wholly off, and wholly past each edge (lines and B boxes off the screen are test_gwbasic_gfx's own reference: the IBM spec's fix-up, A6); PSET off the screen; the frame's bank boundary |
 | `gfx2` | the same in SCREEN 2, and rows past its first 16 KB bank (a pair across it) |
 | `gfx3` | by hand: an array across `$4000-$7FFF` read back after each graphics statement (block 1 in W1) |
 | `gfx7` | POINT: both pixels of a SCREEN 1 byte, SCREEN 2's bits, -1 off every edge, the cursor kept across it |

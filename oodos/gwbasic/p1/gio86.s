@@ -27,9 +27,10 @@
 ;@entry PRINTP
 ;@entry LPRNTP
 ;@entry ADRGET
-.export PRINTP, LPRNTP, PTRGPS, PTRWDC, ADRGET
-.import CHRGTR, FRMEVL, GETYP, FOUT, STRLIT, STRPRT, CRDO, FINPRT, OUTDO
-.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID, TXSYNC
+;@entry ADRGTS
+.export PRINTP, LPRNTP, PTRGPS, PTRWDC, ADRGET, ADRGTS
+.import CHRGTR, FRMEVL, GETYP, FOUT, STRLIT, STRPRT, CRDO, FINPRT, OUTDO, SIGNS
+.import SYNCHR, FRQINT, IMOD, LINLEN, FILWID, TXSYNC, FCERR
 
 CLMWID          = 14                   ; OEM.H: the print zones' width
 
@@ -148,25 +149,25 @@ MORCOM:         SEC                    ; the position mod CLMWID, less CLMWID
                 EOR     #$FF           ; NEG, DEC: CLMWID - mod - 1
                 BRA     ASPA2
 
+TBFC:           JMP     FCERR          ; (TABER's)
+
 ; TABER (GIO86.ASM 537): TAB(n) to column n-1 (0-based: n), a new line first
-; if past it; SPC(n), n spaces. Both mod the width (unless 255); a
-; negative n is 0.
+; if past it; SPC(n), n spaces. Both mod the width (unless 255). OO-1 (the
+; IBM manual's pp. 327, 340: SPC 0-255, TAB 1-255): a negative n, TAB(0),
+; and n past 255 are Illegal function call (a default, for the owner's veto;
+; the source takes them as 0, and a large n mod the width).
 TABER:          PHA                    ; TAB_TK or SPC_TK
                 JSR     CHRGTR
                 JSR     ADRGET         ; DX
                 PLA
                 PHA
-                LDX     RDH            ; JG: greater than 0, signed
-                BMI     @zero
-                BNE     TBNONG
-                LDX     RDL
-                BNE     TBNONG
-@zero:          STZ     RDL
-                STZ     RDH
-                BRA     SPCNDC
-TBNONG:         CMP     #SPC_TK        ; TAB: less one
+                LDX     RDH            ; negative, or past 255 (review round 1, F5)
+                BNE     TBFC
+                CMP     #SPC_TK        ; SPC: n as it is
                 BEQ     SPCNDC
-                DECW    RDL
+                LDA     RDL            ; TAB(0)
+                BEQ     TBFC
+                DECW    RDL            ; TAB: less one
 SPCNDC:         LDA     PRTWID         ; mod the width: DL the place to go
                 CMP     #255
                 BEQ     LNOMOD
@@ -253,9 +254,17 @@ PTRWDC:         LDA     PTRFIL+1       ; 0 the console; a file's FDB in W3's
                 RTS
 
 ; ADRGET (GIO86.ASM 766): a formula as 0..65535 in DX (FRQINT's), TXTPTR
-; past it.
+; past it. ADRGTS (OO-1, P4's GET and PUT): the same, C set if the formula
+; was negative (a record number, which FRQINT would take as 65535 for -1).
+ADRGTS:         JSR     FRMEVL
+                JSR     SIGNS          ; (a string: Type mismatch, as FRQINT's)
+                PHA
+                JSR     ADRGE2
+                PLA
+                ASL     A
+                RTS
 ADRGET:         JSR     FRMEVL
-                JSR     FRQINT
+ADRGE2:         JSR     FRQINT
                 LDA     FACLO
                 STA     RDL
                 LDA     FACLO+1

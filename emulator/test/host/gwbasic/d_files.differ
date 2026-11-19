@@ -1,27 +1,44 @@
-# FILES as the 1983 source prints it (GIODSK.ASM FILES): no heading (PC-BASIC prints the directory, Z:\), each name its 8 characters, a "." (a blank for a blank type) and its 3, then one blank (PC-BASIC six), a new line when the next name would end past the width (80: six a line, fewer after a PRINT ;), and no "Bytes free" line; and the source's OPEN runs a name of more than 8 characters into the type (DFLONGNM.X, where PC-BASIC cuts it to DFLONGNM), which FILES finds as FILFCB makes its name (a "." after the 8th).
+# FILES: the IBM manual's heading line, the directory's name (pp. 102-103; on OODOS, which has no directories, the drive's root, A:\; PC-BASIC Z:\), before the names (none for a name not a string or null, as PC-BASIC), and its " n Bytes free" line after them (OODOS's function 46, records x 128: the test card's A: has 7,995,392; the IBM spec's fix-up, the owner's answer 1); the names as the 1983 source prints them (GIODSK.ASM FILES): each its 8 characters, a "." (a blank for a blank type) and its 3, then one blank (PC-BASIC six), a new line when the next name would end past the width (80: six a line); and the source's OPEN runs a name of more than 8 characters into the type (DFLONGNM.X, where PC-BASIC cuts it to DFLONGNM), which FILES finds as FILFCB makes its name (a "." after the 8th).
 a
+A:\
 DFA     .TXT DFB     .TXT 
+ 7995392 Bytes free
 b
+A:\
 DFNOTYPE     
+ 7995392 Bytes free
 c
+A:\
 DFA     .TXT DGA     .TXT 
+ 7995392 Bytes free
 d
+A:\
 error 53 in 70 
 e
+A:\
 DFA     .TXT 
+ 7995392 Bytes free
 f
+A:\
 DFLONGNM.X   
-123456789012345DW1     .TXT DW2     .TXT DW3     .TXT DW4     .TXT
-DW5     .TXT DW6     .TXT DW7     .TXT DW8     .TXT 
-g
+ 7995392 Bytes free
+123456789012345A:\
 DW1     .TXT DW2     .TXT DW3     .TXT DW4     .TXT DW5     .TXT DW6     .TXT
 DW7     .TXT DW8     .TXT 
+ 7995392 Bytes free
+g
+A:\
+DW1     .TXT DW2     .TXT DW3     .TXT DW4     .TXT DW5     .TXT DW6     .TXT
+DW7     .TXT DW8     .TXT 
+ 7995392 Bytes free
 h
 error 13 in 120 
 i
 error 64 in 130 
 j
+A:\
 error 53 in 140 
 k
+A:\
 error 53 in 160 
 done

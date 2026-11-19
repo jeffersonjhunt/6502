@@ -112,6 +112,19 @@ namespace
         return o.substr(line.size() + 2, ok - line.size() - 2);
     }
 
+    /// FILES typed: what it printed, its heading line ("A:\\": the drive, the IBM manual's directory name) and its
+    /// bytes-free line left out (the IBM spec's fix-up: the names alone, as the source prints them).
+    std::string files(CcpRig &r, const std::string &line)
+    {
+        std::string o = command(r, line);
+        if (o.size() >= 5 && o[1] == ':' && o.compare(2, 3, "\\\r\n") == 0)
+            o = o.substr(5);
+        const size_t b = o.rfind(" Bytes free\r\n");
+        if (b != std::string::npos && b + 13 == o.size())
+            o = o.substr(0, o.rfind("\r\n", b) + 2);
+        return o;
+    }
+
     /// emulator/test/host/gwbasic/NAME.bas's lines.
     std::vector<std::string> bas(const std::string &name)
     {
@@ -264,8 +277,9 @@ TEST(input_line_input_and_input_s_print_what_pc_basic_prints)
 }
 
 // Files longer than one record (30 lines) and than several (400 numbers on a line of 2 KB), read back whole and
-// interleaved with another file; LOC (DSKLOC: the records read or written) and LOF (DSKLOF: OO-1, CP/M's size in
-// records, times 128: NAME.differ).
+// interleaved with another file; LOC (DSKLOC: the records read or written) and LOF (DSKLOF: the bytes, the ^Z
+// counted, as PC-BASIC's: the IBM manual's p. 175, from the last record's byte count CLOSE keeps with the file and
+// OPEN reads back, OODOS's CP/M 3 count; the owner's answer 2 of the IBM spec's fix-up).
 TEST(long_files_loc_and_lof_print_what_pc_basic_prints)
 {
     programs({"f_long", "f_locof"});
@@ -301,7 +315,8 @@ TEST(the_file_errors_print_what_pc_basic_prints)
 // on the CCP's current drive, A:, when no drive is named, and A: named is the same drive. Then, by hand, what the
 // source gives that PC-BASIC's drives and devices can't: Q: (past CP/M's P:) and a device name (LPT1:, which the
 // OO-1 has no device table for yet) are Bad file name; a random OPEN is Advanced Feature until X1; PRINT # with no
-// file open is Bad file number (the owner's, 2026-11-14: the source's File not open maps to Bad file mode).
+// file open is Bad file number (the IBM manual's A-4, error 52), and GET and PUT of one Bad file mode (A-3, error 54:
+// the IBM spec's fix-up, A2; seen failing with DPUTG's not-open branch on DERFNO).
 TEST(files_typed_at_the_prompt_by_hand)
 {
     CcpRig r;
@@ -319,6 +334,10 @@ TEST(files_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "OPEN \"FX.DAT\" AS #1 LEN=20:CLOSE"), std::string());
     CHECK_EQ(command(r, "PRINT #1,2"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT EOF(1)"), std::string("Bad file number\r\n"));
+    // GET and PUT of a file not open: Bad file mode (the IBM manual's A-3, error 54, and the source's; the IBM spec's
+    // fix-up, A2), the one place A-4's Bad file number doesn't apply.
+    CHECK_EQ(command(r, "GET #1,1"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "PUT #2"), std::string("Bad file mode\r\n"));
     // INPUT$ with no file: the keys typed, not echoed, CR among them as any byte.
     const size_t from = r.out.size();
     r.type("A$=INPUT$(4):PRINT \"<\";A$;\">\";LEN(A$)\r");
@@ -432,7 +451,7 @@ TEST(print_to_a_file_goes_to_p4_in_runs)
                 f1);
     CHECK_EQ(f1 - f0, 60u);
     CHECK(byte > 0 && byte < 2000);
-    CHECK_EQ(command(r, "OPEN \"I\",#1,\"FTIME.TXT\":PRINT LOF(1):CLOSE"), std::string(" 1664 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"FTIME.TXT\":PRINT LOF(1):CLOSE"), std::string(" 1601 \r\n"));
 }
 
 // LOAD, SAVE and MERGE (DSKCOM.ASM LOAD, LRUN, NOTRN1, BINLOD, MERGE, OKGETM, MAINGO, SAVE, GOODSV, ENDOFS; GIO86.ASM
@@ -614,7 +633,7 @@ TEST(kill_name_and_files_print_what_the_source_prints)
 }
 
 // By hand, from the source, what PC-BASIC's run of a file can't give: FILES with no name lists the current drive's
-// files, as FILES "A:" (ALFILS's "d:*.*"), "*.*" and "a:*.*" do, the same lines; a drive named before a pattern; NAME
+// files (its heading and bytes free the IBM manual's, below), as FILES "A:" (ALFILS's "d:*.*"), "*.*" and "a:*.*" do, the same lines; a drive named before a pattern; NAME
 // to another drive is Rename across disks (SAMDRV's check, before the disk is read); and the OO-1's departures: a "?"
 // in either of NAME's names is Bad file name (CP/M's rename takes none), and a name function 152 refuses (Q:, a type
 // of more than 3) is Bad file name, for KILL, NAME and FILES alike.
@@ -630,17 +649,32 @@ TEST(files_kill_and_name_typed_at_the_prompt_by_hand)
     CHECK_EQ(command(r, "FILES \"A:\""), all);
     CHECK_EQ(command(r, "FILES \"*.*\""), all);
     CHECK_EQ(command(r, "FILES \"a:*.*\""), all);
-    CHECK_EQ(command(r, "FILES \"A:DH?.*\""), std::string("DHA     .TXT DHB     .TXT \r\n"));
+    // The IBM manual's heading (the drive's root, OODOS having no directories) and bytes-free line (pp. 102-103; the
+    // IBM spec's fix-up, the owner's answer 1): the free bytes OODOS's function 46 gives, a multiple of 128, which a
+    // 16 KB file written takes at least 16,384 from; B:, empty, has the heading and File not found.
+    CHECK(all.rfind("A:\\\r\n", 0) == 0);
+    const size_t at = all.rfind("\r\n", all.size() - 3) + 2;
+    const std::string freeline = all.substr(at);
+    CHECK(freeline.size() > 13 && freeline.substr(freeline.size() - 13) == " Bytes free\r\n");
+    const long before = std::atol(freeline.c_str());
+    CHECK(before > 0 && before % 128 == 0);
+    CHECK_EQ(command(r, "FILES \"A:DH?.*\""), "A:\\\r\nDHA     .TXT DHB     .TXT \r\n" + freeline);
+    CHECK_EQ(command(r, "FILES \"B:\""), std::string("B:\\\r\nFile not found\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"DHBIG.TXT\":FOR I=1 TO 128:PRINT #1,STRING$(126,\"x\"):NEXT:CLOSE"),
+             std::string());
+    const std::string after = command(r, "FILES \"DHBIG.TXT\"");
+    CHECK(before - std::atol(after.substr(after.rfind("\r\n", after.size() - 3) + 2).c_str()) >= 16384);
+    CHECK_EQ(command(r, "KILL \"DHBIG.TXT\""), std::string());
     CHECK_EQ(command(r, "NAME \"DHA.TXT\" AS \"B:DHC.TXT\""), std::string("Rename across disks\r\n"));
     CHECK_EQ(command(r, "NAME \"A:DHA.TXT\" AS \"A:DHC.TXT\""), std::string());
-    CHECK_EQ(command(r, "FILES \"DH?.TXT\""), std::string("DHC     .TXT DHB     .TXT \r\n"));
+    CHECK(command(r, "FILES \"DH?.TXT\"").rfind("A:\\\r\nDHC     .TXT DHB     .TXT \r\n ", 0) == 0);
     CHECK_EQ(command(r, "NAME \"DH?.TXT\" AS \"DHD.TXT\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DH*.TXT\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "NAME \"DHB.TXT\" AS \"DHB.TXTX\""), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "KILL \"Q:DHB.TXT\""), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "FILES \"Q:\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "FILES \"Q:\""), std::string("Bad file name\r\n")); // no heading: not A-P (review round 1, F10)
     CHECK_EQ(command(r, "KILL \"A:DH?.TXT\""), std::string());
-    CHECK_EQ(command(r, "FILES \"DH*.*\""), std::string("File not found\r\n"));
+    CHECK_EQ(command(r, "FILES \"DH*.*\""), std::string("A:\\\r\nFile not found\r\n"));
     CHECK(command(r, "FILES").find("DH") == std::string::npos);
 }
 
@@ -655,22 +689,32 @@ TEST(files_leaves_out_system_files)
     REQUIRE(r.ok);
     start(r);
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"DSA.TXT\":CLOSE:OPEN \"O\",#1,\"DSB.TXT\":CLOSE"), std::string());
-    CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSA     .TXT DSB     .TXT \r\n"));
+    // The names alone: FILES's heading (A:\) and its bytes-free line (the IBM manual's) left out.
+    auto names = [&](const std::string &c) {
+        std::string o = command(r, c);
+        if (o.rfind("A:\\\r\n", 0) == 0)
+            o = o.substr(5);
+        const size_t b = o.rfind(" Bytes free\r\n");
+        if (b != std::string::npos && b + 13 == o.size())
+            o = o.substr(0, o.rfind("\r\n", b) + 2);
+        return o;
+    };
+    CHECK_EQ(names("FILES \"DS?.TXT\""), std::string("DSA     .TXT DSB     .TXT \r\n"));
     const std::string all = command(r, "FILES");
     CHECK(all.find("README  .TXT") != std::string::npos);
     CHECK(all.find("WRITEOO1.COM") != std::string::npos);
     CHECK(all.find("SET     .COM") == std::string::npos);
     CHECK(all.find("PIP     .COM") == std::string::npos);
-    CHECK_EQ(command(r, "FILES \"S*.COM\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "FILES \"*.COM\""), std::string("WRITEOO1.COM \r\n"));
+    CHECK_EQ(names("FILES \"S*.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(names("FILES \"*.COM\""), std::string("WRITEOO1.COM \r\n"));
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     r.cmd("set dsa.txt [sys]");
     CHECK(r.cmd("dirsys ds*.txt").find("DSA      TXT") != std::string::npos);
     r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
-    CHECK_EQ(command(r, "FILES \"DS?.TXT\""), std::string("DSB     .TXT \r\n"));
-    CHECK_EQ(command(r, "FILES \"DSA.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(names("FILES \"DS?.TXT\""), std::string("DSB     .TXT \r\n"));
+    CHECK_EQ(names("FILES \"DSA.TXT\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"DSA.TXT\":PRINT EOF(1):CLOSE"), std::string("File not found\r\n")); // W7
     CHECK_EQ(command(r, "KILL \"DS?.TXT\""), std::string());
 }
@@ -700,12 +744,12 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
                                        ' ',  '"',  'X', '"', ':',   0xFE, 0x99, ' '};
     CHECK(got == want);
     CHECK_EQ(word(static_cast<uint16_t>(text + 2)), 10);
-    CHECK_EQ(command(r, "RUN"), std::string("Path/File access error in 10\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string("Path/file access error in 10\r\n"));
     CHECK_EQ(command(r, "CHDIR \"\\\""), std::string());
     CHECK_EQ(command(r, "CHDIR \".\":CHDIR \"\":PRINT \"root\""), std::string("root\r\n"));
     CHECK_EQ(command(r, "CHDIR \"X\""), std::string("Path not found\r\n"));
     CHECK_EQ(command(r, "CHDIR \"\\\\\""), std::string("Path not found\r\n"));
-    CHECK_EQ(command(r, "MKDIR \"\\\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "MKDIR \"\\\""), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "RMDIR \"\\\""), std::string("Path not found\r\n"));
     CHECK_EQ(command(r, "CHDIR"), std::string("Missing operand\r\n"));
     CHECK_EQ(command(r, "RMDIR 1"), std::string("Type mismatch\r\n"));
@@ -724,7 +768,7 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
 // r_seq: one file used as sequential and random in turn. r_sw: LEN past /S: (128 while the switches aren't read)
 // and LEN 0: Illegal function call. r_move: strings, a string array and two FIELD buffers kept right as a random
 // file opens and closes (the string space moved, XFRSTR, and the descriptors with it, UPDSTD); a FIELDed string of a
-// closed file. r_eof: EOF of a random file. r_lof: LOF of one. Where PC-BASIC departs from the 1983 source, or the
+// closed file. r_eof: EOF of a random file. r_lof: LOF of one (the bytes: the furthest PUT's end, as PC-BASIC's). Where PC-BASIC departs from the 1983 source, or the
 // OO-1 from both, NAME.differ.
 TEST(random_files_print_what_pc_basic_prints)
 {
@@ -790,13 +834,45 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
     CHECK_EQ(not_p4, 0);
 }
 
+// The owner's interim cap (2026-11-19, hw/oodos.md: F3 is owed): record numbers stop at 32,767, so LOC can't go
+// negative and GET and PUT can't wrap. By hand: of LEN 2, record 32,767 is PUT and read back, LOC 32767; an
+// explicit 32,768 is Bad record number for PUT and GET, and LOC stays 32767.
+TEST(record_32767_is_the_last_an_explicit_32768_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RCAP.DAT\",2:FIELD #1,2 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"ok\":PUT #1,32767:LSET F$=\"\":GET #1,32767:PRINT F$;LOC(1)",
+              "30 PUT #1,32768:GET #1,32768:PRINT LOC(1):CLOSE:KILL \"RCAP.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("ok 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\n"));
+}
+
+// The owner's interim cap: GET and PUT with no number take the next record, and past 32,767 that is Bad record
+// number, not a wrap to 0 (main's had no check there). By hand: of LEN 2, PUT #1,32766 then PUT alone writes
+// 32,767 (read back, LOC 32767); a PUT alone and a GET alone after it are each Bad record number, LOC 32767 still.
+TEST(get_and_put_with_no_number_stop_after_record_32767)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RCAP.DAT\",2:FIELD #1,2 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"ab\":PUT #1,32766:LSET F$=\"cd\":PUT #1:PRINT LOC(1)",
+              "30 PUT #1:GET #1:PRINT LOC(1):GET #1,32767:PRINT F$:CLOSE:KILL \"RCAP.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\ncd\r\n"));
+}
+
 // By hand, from the source (PC-BASIC's /S: can't be given by oracle.sh): records longer than a 128-byte record. /S:
 // (MAXREC, res/far4.s: the command line's switches aren't read yet) is set to 1,024, the most W4 allows, as GWBASIC
 // /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
-// and LOF (OO-1: whole records). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
-// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^23 bytes
-// (DSKRND's DH: Illegal function call) and the last before it (records 65,528 to 65,535); LEN past /S: (1,025:
-// Illegal function call).
+// and LOF (the bytes). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
+// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); record 32,768 (Bad record number, the
+// owner's interim cap) and 32,767, the last (128-byte records 262,128 to 262,135); LEN past /S: (1,025: Illegal
+// function call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
 TEST(random_records_of_200_and_1024_bytes_by_hand)
 {
     CcpRig r;
@@ -815,7 +891,19 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "40 FOR N=1 TO 5:GET #1,N:PRINT N;LEFT$(A$,2);A$=STRING$(100,64+N);RIGHT$(B$,2):NEXT",
               "50 PRINT LOC(1);LOF(1):CLOSE"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
-                                            " 5  1024 \r\n"));
+                                            " 5  1000 \r\n"));
+    // Records past 65,535 128-byte records (CP/M 3's R2): of LEN 600, record 32,767 is read and 32,768 is Bad record
+    // number (the owner's interim cap), not a wrap to record 0; and a record past 8 MB (record 20,000 of LEN 1,024
+    // starts at 128-byte record 159,992, R2 2) is PUT and read back, with the file's size in bytes (LOF:
+    // 20,480,000), and again from the disk once it is closed and opened.
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",600:ON ERROR GOTO 90",
+              "20 GET #1,32767:PRINT \"ok\":GET #1,32768:PRINT \"on\":CLOSE",
+              "30 OPEN \"R\",#2,\"RFAR.DAT\",1024:FIELD #2,4 AS F$:LSET F$=\"far!\":PUT #2,20000:LSET F$=\"\"",
+              "40 GET #2,20000:PRINT F$;LOF(2):GET #2,19999:PRINT ASC(F$):CLOSE",
+              "50 OPEN \"R\",#2,\"RFAR.DAT\",1024:PRINT LOF(2):CLOSE:KILL \"RFAR.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("ok\r\nerr 63  20 \r\non\r\nfar! 20480000 \r\n 0 \r\n 20480000 \r\n"));
     CHECK_EQ(command(r, "NEW"), std::string());
     enter(r, {"10 OPEN \"R\",#1,\"RKB.DAT\",1024",
               "15 FIELD #1,255 AS A$,255 AS B$,255 AS C$,255 AS D$,4 AS E$",
@@ -825,11 +913,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "45 PRINT N;A$=X$;B$=X$;C$=X$;D$=STRING$(255,96+N);CVI(E$);RIGHT$(E$,2):NEXT",
               "50 GET #1,5:PRINT ASC(A$);ASC(E$);EOF(1);LOC(1);LOF(1)",
               "60 ON ERROR GOTO 90",
-              "70 GET #1,8193:GET #1,8192:PRINT ASC(A$);EOF(1)",
+              "70 GET #1,32768:GET #1,32767:PRINT ASC(A$);EOF(1)",
               "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
-                                            " 0  0 -1  5  3072 \r\nerr 5  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
+                                            " 0  0 -1  5  3072 \r\nerr 63  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
+    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,768 is past the cap: Bad record number; 32,767's
+    // last byte is 128-byte record 262,135's.)
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its
@@ -893,6 +983,57 @@ TEST(a_random_open_collects_the_strings_or_is_out_of_memory)
     CHECK_EQ(command(r, "PRINT LEFT$(B$,4):CLOSE:PRINT F-FRE(0)"), std::string("room\r\n 0 \r\n"));
 }
 
+// Random files' statements in a loop are timed, for the record (the IBM spec's fix-up, P4's relief: LSET and RSET
+// moved to P3, each still one far call from the home block): a program's RUN to its ENDCON, the loop with the
+// statement less the loop without it, over the passes (check.py --timing's method): GET #1,n and PUT #1,n of a
+// 128-byte record, LSET and RSET of a FIELDed string, CVI of one, and FIELD. Not gated: printed.
+TEST(random_file_statements_in_a_loop_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("RUN") == 1 && lab.count("ENDCON") == 1);
+    auto timed = [&](const std::vector<std::string> &lines) {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, lines);
+        uint64_t from = 0, cycles = 0;
+        bool on = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == lab.at("RUN") && !on)
+            {
+                from = r.cpu->cycles();
+                on = true;
+            }
+            else if (on && pc == lab.at("ENDCON"))
+            {
+                cycles = r.cpu->cycles() - from;
+                on = false;
+            }
+        };
+        const std::string out = command(r, "RUN");
+        r.watch = nullptr;
+        CHECK_EQ(out, std::string());
+        CHECK(cycles > 0);
+        return cycles;
+    };
+    const std::string open = "10 OPEN \"R\",#1,\"TIMED.DAT\",128:FIELD #1,2 AS A$,126 AS B$:LSET B$=\"x\":I%=0";
+    auto per = [&](const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed({open, "20 " + loop, "30 CLOSE"});
+        const uint64_t b = timed({open, "20 " + stmt + ":" + loop, "30 CLOSE"});
+        return static_cast<double>(b > a ? b - a : 0) / n;
+    };
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"TIMED.DAT\",128:FIELD #1,128 AS A$:FOR I=1 TO 4:PUT #1,I:NEXT:CLOSE"),
+             std::string());
+    const double put = per("PUT #1,1", 20), get = per("GET #1,2", 20), lset = per("LSET A$=\"ab\"", 50),
+                 rset = per("RSET A$=\"c\"", 50), cvi = per("X%=CVI(A$)", 50), field = per("FIELD #1,2 AS A$", 50),
+                 mki = per("B$=MKI$(I%)", 50);
+    std::printf("  a loop's statement, cycles each: PUT #1,1 %.0f, GET #1,2 %.0f, LSET %.0f, RSET %.0f, CVI %.0f, "
+                "FIELD %.0f, MKI$ %.0f\n", put, get, lset, rset, cvi, field, mki);
+    CHECK(put > 0 && get > 0 && lset > 0 && rset > 0);
+}
+
 int main()
 {
     return run_all();
@@ -916,21 +1057,25 @@ TEST(a_drive_with_no_image_is_a_basic_error_and_gw_basic_goes_on)
         return std::string("\r\nOODOS Error On ") + drive + ": Invalid Drive\r\nBDOS Function = " + std::to_string(fn) +
                " File = " + file + "\r\n";
     };
-    auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not Ready\r\n"; };
+    auto said = [&](const char *drive, int fn, const char *file) { return bdos(drive, fn, file) + "Disk not ready\r\n"; };
+    CHECK_EQ(command(r, "PRINT ERDEV;\"<\";ERDEV$;\">\""), std::string(" 0 <>\r\n"));
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"H:X.TXT\""), said("H", 15, "X       .TXT"));
+    // ERDEV and ERDEV$ (the IBM manual's pp. 91-93; the OO-1's, the owner's answer 2): OODOS's physical error, 4
+    // Invalid Drive, and the drive it was on.
+    CHECK_EQ(command(r, "PRINT ERDEV;\"<\";ERDEV$;\">\""), std::string(" 4 <H:>\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"C:X.TXT\""), said("C", 19, "X       .TXT"));
     CHECK_EQ(command(r, "OPEN \"H:X.TXT\" FOR APPEND AS #2"), said("H", 15, "X       .TXT"));
     CHECK_EQ(command(r, "LOAD \"H:X\""), said("H", 15, "X       .BAS"));
     CHECK_EQ(command(r, "SAVE \"H:X\""), said("H", 19, "X       .BAS"));
     CHECK_EQ(command(r, "KILL \"H:X.TXT\""), said("H", 17, "X       .TXT"));
-    CHECK_EQ(command(r, "FILES \"H:\""), said("H", 17, "????????.???"));
+    CHECK_EQ(files(r, "FILES \"H:\""), said("H", 17, "????????.???"));
     CHECK_EQ(command(r, "NAME \"H:X\" AS \"H:Y\""), said("H", 17, "X       .   "));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"MD.TXT\":PRINT #1,\"kept\":CLOSE"), std::string());
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"MD.TXT\":INPUT #1,A$:CLOSE:PRINT A$"), std::string("kept\r\n"));
     enter(r, {"10 ON ERROR GOTO 100", "20 OPEN \"I\",#1,\"H:X.TXT\"", "30 PRINT \"not here\"", "40 END",
               "100 PRINT \"ERR\";ERR;\"in\";ERL:RESUME 110", "110 PRINT \"went on\":ON ERROR GOTO 0", "120 OPEN \"I\",#3,\"H:Y\""});
     CHECK_EQ(command(r, "RUN"), bdos("H", 15, "X       .TXT") + "ERR 71 in 20 \r\nwent on\r\n" +
-                                    bdos("H", 15, "Y       .   ") + "Disk not Ready in 120\r\n");
+                                    bdos("H", 15, "Y       .   ") + "Disk not ready in 120\r\n");
     CHECK_EQ(command(r, "PRINT \"after\""), std::string("after\r\n"));
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
@@ -1048,10 +1193,11 @@ namespace
 // CR flag), by the rules 7a's LPRINT keeps (T4, T5): a CR followed by an LF, an LF straight after a CR dropped, a
 // TAB moving no column, a CR LF before a printable byte at the width (80). So each PRINT #1 below sends what the
 // same LPRINT sends. BIN sends the bytes as they are; a random OPEN writes as an output one; LIST to "LPT1:" is
-// LLIST's text. LPOS(n) (GIOLPT.ASM LPOS) is the shared column plus 1, n 0 to 2 LPT1's; past them the source's
-// (n - 1) / 2 reads LPT1's flags byte (the CR flag: 2 after a CR) and then LPT2's width (80: 81). The errors: input
-// or append (Bad file mode), an option but BIN, LPT9: (Bad file name), LPT2: and LPT3:, which have no driver on the
-// OO-1 (Device Unavailable), and EOF and LOC of a printer (Bad file mode).
+// LLIST's text. LPOS(n) is LPT1's column plus 1 for n 0 and 1, and 1 for 2 and 3, LPT2: and LPT3:, which have no
+// driver here; past 3 Illegal function call (the IBM manual's p. 178; the IBM spec's fix-up, C-1 item 17 and its Q8
+// default: the source's (n - 1) / 2 read LPT1's flags byte for 2 and LPT2's width past it). The errors: input or
+// append (Bad file mode), an option but BIN, LPT9: (Bad file name), LPT2: and LPT3: (Device unavailable), EOF and LOC
+// of a printer (Bad file mode), and INPUT # from one (Input past end: read from a file opened for output, A-11).
 TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
 {
     CcpRig r;
@@ -1073,20 +1219,21 @@ TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
     enter(r, {"10 PRINT 1", "20 REM two"});
     CHECK_EQ(lst("LIST ,\"LPT1:\""), lst("LLIST"));
     CHECK_EQ(lst("LIST ,\"LPT1:\""), vis("10 PRINT 1\r\n20 REM two\r\n"));
-    CHECK_EQ(command(r, "LPRINT \"AB\";:PRINT LPOS(0);LPOS(1);LPOS(2)"), std::string(" 3  3  3 \r\n"));
+    CHECK_EQ(command(r, "LPRINT \"AB\";:PRINT LPOS(0);LPOS(1);LPOS(2);LPOS(3)"), std::string(" 3  3  1  1 \r\n"));
     CHECK_EQ(command(r, open + "\"ABCD\";:PRINT LPOS(1):CLOSE"), std::string(" 5 \r\n"));
-    CHECK_EQ(command(r, "LPRINT CHR$(13);:PRINT LPOS(0);LPOS(3);LPOS(4);LPOS(5);LPOS(7);LPOS(30)"),
-             std::string(" 1  2  2  1  81  1 \r\n"));
+    CHECK_EQ(command(r, "LPRINT CHR$(13);:PRINT LPOS(0);LPOS(1)"), std::string(" 1  1 \r\n"));
+    CHECK_EQ(command(r, "PRINT LPOS(4)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT LPOS(255)"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR INPUT AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR APPEND AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:X\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:BINX\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT9:\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"LPT2:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
-    CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT2:\" FOR OUTPUT AS #1"), std::string("Device unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device unavailable\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR OUTPUT AS #1:PRINT EOF(1)"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "PRINT LOC(1)"), std::string("Bad file mode\r\n"));
-    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Input past end\r\n")); // read for output (A-11)
     CHECK_EQ(command(r, "CLOSE:PRINT 1"), std::string(" 1 \r\n"));
 }
 
@@ -1122,8 +1269,8 @@ TEST(width_of_a_file_lprint_and_a_device)
     CHECK_EQ(command(r, "WIDTH \"CONS:\",40"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "WIDTH \"A:\",40"), std::string("Bad file name\r\n"));
     CHECK_EQ(command(r, "WIDTH \"LPT1:\""), std::string("Syntax error\r\n"));
-    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "WIDTH \"SCRN:\",40"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH 80"), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "WIDTH \"SCRN:\",40"), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT 1"), std::string(" 1 \r\n"));
 }
 
@@ -1140,7 +1287,7 @@ TEST(width_of_the_screen_s_devices_changes_nothing_in_console_mode)
     const std::string sixty = "OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,STRING$(60,\"A\"):CLOSE";
     CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
     for (const char *w : {"WIDTH \"SCRN:\",40", "WIDTH \"KYBD:\",40", "WIDTH \"scrn:\",20", "WIDTH \"kybd:XY\",30"})
-        CHECK_EQ(command(r, w), std::string("Advanced Feature\r\n"));
+        CHECK_EQ(command(r, w), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, sixty), std::string(60, 'A') + "\r\n");
     CHECK_EQ(command(r, "WIDTH \"SCRN:\",0"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "WIDTH \"KYBD:\""), std::string("Syntax error\r\n"));
@@ -1170,7 +1317,7 @@ TEST(com1_files_go_to_and_from_aux_by_hand)
                             "COM1:300,N,8,3", "COM1:300,N,8,1.6", "COM1:300,N,8,1,XY", "COM1:,,,,ASC,BIN", "COM1:,,,,LX",
                             "COM1:300 N", "COM1:,,,,BIX"})
         CHECK_EQ(command(r, std::string("OPEN \"") + bad + "\" AS #1"), std::string("Bad file name\r\n"));
-    CHECK_EQ(command(r, "OPEN \"COM2:\" AS #1"), std::string("Device Unavailable\r\n"));
+    CHECK_EQ(command(r, "OPEN \"COM2:\" AS #1"), std::string("Device unavailable\r\n"));
     CHECK_EQ(command(r, "OPEN \"COM1:\" AS #1:OPEN \"COM1:\" AS #2"), std::string("File already open\r\n"));
     CHECK_EQ(command(r, "CLOSE"), std::string());
     // The DCB as PCOMOP leaves it, read at the file's first byte out (W3 then P4's).
@@ -1280,8 +1427,11 @@ TEST(scrn_kybd_and_cons_files_by_hand)
 // 63 changes (read at COMSP, P3 in W3). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
 // PC-BASIC where it can tell (d_com: COM(n)'s errors, COM2: Device Unavailable); by hand, LCOPY, the source's LCOPYS
 // parse and then the OEM's LCPY, Advanced Feature until the screen (7d); IOCTL, the source's Advanced Feature
-// (GWSTS.ASM's ERDEV and IOCTL are ADVERR), and ERDEV, which the 1983 table has no word for (IBMRES.ASM's STMDSX
-// names it, its reserved words don't), so it is a variable: Syntax error.
+// (GWSTS.ASM's ERDEV and IOCTL are ADVERR); and ERDEV and ERDEV$, which the 1983 table has no words for, are the IBM
+// manual's read-only variables (p. 91; the IBM spec's fix-up, C-1 item 18): crunched to $FE $95 and $FE $A2 and
+// listed back, 0 and "" (no device error is recorded yet: a default), and ERDEV or ERDEV$ as a statement, an
+// assignment to it included, Syntax error. Seen failing with ETABX's words left out (ERDEV a variable) and EVALX's
+// ERDEV branch left out (Syntax error in a formula).
 TEST(the_com_statement_lcopy_erdev_and_ioctl)
 {
     programs({"d_com"});
@@ -1307,12 +1457,32 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     r.watch = nullptr;
     REQUIRE(seen.size() == 4);
     CHECK(seen[1] == seen[0] && seen[2] == seen[0] && seen[3] == seen[0]);
-    CHECK_EQ(command(r, "LCOPY"), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "LCOPY 1"), std::string("Advanced Feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY"), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "LCOPY 1"), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "LCOPY 256"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "LCOPY 1,2"), std::string("Syntax error\r\n"));
-    CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced Feature\r\n"));
-    CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // no word in the 1983 table: a variable
+    CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // a read-only variable: no statement
+    CHECK_EQ(command(r, "ERDEV=1"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "ERDEV$=\"A\""), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "PRINT ERDEV;LEN(ERDEV$);\"<\";ERDEV$;\">\""), std::string(" 0  0 <>\r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 X=ERDEV+1:Y$=ERDEV$"});
+    CHECK_EQ(command(r, "LIST"), std::string("10 X=ERDEV+1:Y$=ERDEV$\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "PRINT X;LEN(Y$)"), std::string(" 1  0 \r\n"));
+    const uint16_t text = static_cast<uint16_t>(r.phys(0x79) | r.phys(0x7A) << 8); // TXTTAB (gwbasic.inc)
+    std::vector<uint8_t> tok;
+    for (uint16_t i = 4; i < 4 + 16; ++i)
+        tok.push_back(r.phys(static_cast<uint16_t>(text + i)));
+    auto has = [&](uint8_t b) {
+        for (size_t i = 0; i + 1 < tok.size(); ++i)
+            if (tok[i] == 0xFE && tok[i + 1] == b)
+                return true;
+        return false;
+    };
+    CHECK(has(0x95)); // ERDEV, the source's STMDSX token
+    CHECK(has(0xA2)); // ERDEV$, the OO-1's
 }
 
 // The 7c fidelity review's findings (the owner, 2026-11-15: W1-W12, "recommendations as listed"), each by hand
@@ -1365,8 +1535,10 @@ TEST(w3_a_file_with_attributes_open_is_file_already_open)
 }
 
 // W4 (Major): RUN of a text file whose last line ends in a bare LF runs at the file's end (p4/scnedt.s DSKCHP tests
-// LDRUN before the CR/LF rule), as the 8086's NOTCHN jumps to RUNC; the unfinished line is dropped. Without it the
-// CR that ends the load follows the LF, is dropped, and the load waits on the keyboard. CHAIN's end the same.
+// LDRUN before the CR/LF rule), as the 8086's NOTCHN jumps to RUNC. Without it the CR that ends the load follows the
+// LF, is dropped, and the load waits on the keyboard. The unfinished line goes in first, as LOAD's does (the IBM
+// manual's p. 306; the IBM spec's fix-up, C-1 item 15: the source dropped it), so it runs too. CHAIN's end the same,
+// but the unfinished line is still dropped (the source's: item 15 is RUN's).
 TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
 {
     CcpRig r;
@@ -1374,9 +1546,64 @@ TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
     start(r);
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"LF.BAS\":PRINT #1,\"10 PRINT 1\""), std::string());
     CHECK_EQ(command(r, "PRINT #1,\"20 PRINT 2\";CHR$(10);:CLOSE"), std::string());
-    CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n"));
+    CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n 2 \r\n"));
     CHECK_EQ(command(r, "CHAIN \"LF\""), std::string(" 1 \r\n"));
     CHECK_EQ(command(r, "LIST"), std::string("10 PRINT 1\r\n"));
+}
+
+// The IBM spec's fix-up, review round 1 (2026-11-19), by hand, each failing without its fix:
+// - F1: INPUT # skips leading spaces, CRs and LFs before an item (the IBM manual's pp. 133-134), so an LF after a
+//   quoted string or a trailing space, or a blank LF line, doesn't make the next item empty: "abc" LF 5 LF, "3 " LF 5
+//   LF and 1 LF LF 2 read 5, 5 and 2;
+// - F4: RUN of a text file whose last line, with no CR, is only blanks or a tab runs the program, as main's did;
+// - F7: an open APPEND file's LOF is the bytes on the disk and those appended so far: 49 + 300, 349;
+// - F10: FILES of a name whose drive isn't A-P has no heading (Bad file name), and the name is evaluated once
+//   (INPUT$(5) takes five keys, not ten).
+TEST(review_round_1_input_run_append_and_files_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFQ.TXT\":Q$=CHR$(34):L$=CHR$(10)"), std::string());
+    CHECK_EQ(command(r, "PRINT #1,Q$;\"abc\";Q$;L$;\"5\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFQ.TXT\":INPUT #1,A$,B:PRINT A$;B:CLOSE"), std::string("abc 5 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFS.TXT\":PRINT #1,\"3 \";L$;\"5\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFS.TXT\":INPUT #1,A,B:PRINT A;B:CLOSE"), std::string(" 3  5 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"LFB.TXT\":PRINT #1,\"1\";L$;L$;\"2\";L$;:CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"LFB.TXT\":INPUT #1,A,B:PRINT A;B:CLOSE"), std::string(" 1  2 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"T2.BAS\":PRINT #1,\"10 PRINT 1\":PRINT #1,\"20 PRINT 2\""), std::string());
+    CHECK_EQ(command(r, "PRINT #1,\"   \";:CLOSE"), std::string());
+    CHECK_EQ(command(r, "RUN \"T2\""), std::string(" 1 \r\n 2 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"T3.BAS\":PRINT #1,\"10 PRINT 3\":PRINT #1,CHR$(9);:CLOSE"), std::string());
+    CHECK_EQ(command(r, "RUN \"T3\""), std::string(" 3 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"AP.TXT\":PRINT #1,STRING$(47,\"a\"):CLOSE"), std::string());
+    CHECK_EQ(command(r, "OPEN \"A\",#1,\"AP.TXT\":PRINT #1,STRING$(149,\"b\")"), std::string());
+    CHECK_EQ(command(r, "PRINT #1,STRING$(147,\"b\"):PRINT LOF(1):CLOSE"), std::string(" 349 \r\n"));
+    CHECK_EQ(command(r, "OPEN \"I\",#1,\"AP.TXT\":PRINT LOF(1):CLOSE"), std::string(" 350 \r\n"));
+    CHECK_EQ(command(r, "FILES \"1:\""), std::string("Bad file name\r\n"));
+    CHECK_EQ(command(r, "FILES \"@:X\""), std::string("Bad file name\r\n"));
+    const size_t from = r.out.size();
+    r.type("FILES INPUT$(5)\r");
+    r.type("LFQ.*");
+    CHECK(r.until("Ok\r\n", ms(4000), from + 10));
+    CHECK(r.out.find("A:\\\r\nLFQ     .TXT \r\n", from) != std::string::npos);
+}
+
+// F2 (review round 1): a random file only read, its LOF asked, closes cleanly on a read-only drive: CLOSE keeps the
+// last record's byte count (function 30) only if a PUT changed it. Nothing is said, and ERDEV stays 0.
+TEST(review_round_1_a_random_file_only_read_closes_on_a_read_only_drive)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"ROX.DAT\",10:FIELD #1,10 AS A$:LSET A$=\"abc\":PUT #1,3:CLOSE"), std::string());
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
+    r.cmd("set a:[ro]");
+    r.scb(0x25, 0x40); // CON:'s output TTY alone, as the other cases that come back from the CCP
+    CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"ROX.DAT\",10:PRINT LOF(1):CLOSE"), std::string(" 30 \r\n"));
+    CHECK_EQ(command(r, "PRINT ERDEV"), std::string(" 0 \r\n"));
 }
 
 // W5: KILL, NAME and FILES (FILFCB) cut the type that a typeless name of 12 or more characters runs into to 3, as
@@ -1387,11 +1614,11 @@ TEST(w5_a_long_name_with_no_type_is_cut_as_open_cuts_it)
     REQUIRE(r.ok);
     start(r);
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"ABCDEFGHIJKL\":CLOSE"), std::string());
-    CHECK_EQ(command(r, "FILES \"ABCDEFGHIJKL\""), std::string("ABCDEFGH.IJK \r\n"));
+    CHECK_EQ(files(r, "FILES \"ABCDEFGHIJKL\""), std::string("ABCDEFGH.IJK \r\n"));
     CHECK_EQ(command(r, "NAME \"ABCDEFGHIJKLMN\" AS \"W5.TXT\""), std::string());
     CHECK_EQ(command(r, "NAME \"W5.TXT\" AS \"ABCDEFGHIJKLM\""), std::string());
     CHECK_EQ(command(r, "KILL \"ABCDEFGHIJKL\""), std::string());
-    CHECK_EQ(command(r, "FILES \"ABCDEFGH.*\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"ABCDEFGH.*\""), std::string("File not found\r\n"));
 }
 
 // W6: in KILL, NAME and FILES, what follows a "*" in its field is passed over, as MS-DOS's parse does ("*1.BAS" is
@@ -1403,11 +1630,11 @@ TEST(w6_characters_after_a_star_are_passed_over)
     start(r);
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W6A.BAS\":CLOSE:OPEN \"O\",#1,\"W6B.BAS\":CLOSE"), std::string());
     const std::string both = "W6A     .BAS W6B     .BAS \r\n";
-    CHECK_EQ(command(r, "FILES \"W6*.BAS\""), both);
-    CHECK_EQ(command(r, "FILES \"W6*1.BAS\""), both);
-    CHECK_EQ(command(r, "FILES \"W6?.B*X\""), both);
+    CHECK_EQ(files(r, "FILES \"W6*.BAS\""), both);
+    CHECK_EQ(files(r, "FILES \"W6*1.BAS\""), both);
+    CHECK_EQ(files(r, "FILES \"W6?.B*X\""), both);
     CHECK_EQ(command(r, "KILL \"W6*CD.BAS\""), std::string());
-    CHECK_EQ(command(r, "FILES \"W6*.*\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"W6*.*\""), std::string("File not found\r\n"));
 }
 
 // W7 (Major): KILL and NAME pass over a SYS file, as FILES does (SKPSYS, the owner's decision 8) and MS-DOS's FCB
@@ -1429,7 +1656,7 @@ TEST(w7_kill_and_name_pass_over_system_files)
     CHECK_EQ(command(r, "NAME \"PIP.COM\" AS \"W7X.COM\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "NAME \"W7B.COM\" AS \"W7X.COM\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "KILL \"W7?.COM\""), std::string());
-    CHECK_EQ(command(r, "FILES \"W7?.COM\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"W7?.COM\""), std::string("File not found\r\n"));
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
     const std::string dir = r.cmd("dirsys *.com");
@@ -1449,11 +1676,11 @@ TEST(w8_plus_slash_quote_and_control_characters_end_a_name)
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"A+B.TXT\":CLOSE"), std::string());
     CHECK_EQ(command(r, "KILL \"A+B.TXT\""), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "KILL \"A/B.TXT\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "FILES \"A+B.TXT\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "FILES \"A?B.TXT\""), std::string("A+B     .TXT \r\n"));
+    CHECK_EQ(files(r, "FILES \"A+B.TXT\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"A?B.TXT\""), std::string("A+B     .TXT \r\n"));
     CHECK_EQ(command(r, "KILL \"X\"+CHR$(1)"), std::string("File not found\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W8\":CLOSE:KILL \"W8\"+CHR$(34)+\"X\""), std::string());
-    CHECK_EQ(command(r, "FILES \"W8\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"W8\""), std::string("File not found\r\n"));
 }
 
 // W9: LLIST (and LIST to a file or device) sends a CR after a line feed inside a program line (GWLIST.ASM LISPRT
@@ -1533,14 +1760,14 @@ TEST(w7_open_passes_over_a_system_file_and_leaves_it_whole)
     r.scb(0x25, 0x40); // CON:'s output TTY alone (SCB $24, VEC_TTY): 7a's console mode, not 7d's own screen
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "OPEN \"I\",#1,\"W7S.TXT\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"R\",#1,\"W7S.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" AS #3 LEN=20"), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"A\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"W7S.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" AS #3 LEN=20"), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"W7S.TXT\" FOR OUTPUT AS #2"), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "LOAD \"W7S\""), std::string("File not found\r\n"));
     enter(r, {"10 REM"});
-    CHECK_EQ(command(r, "SAVE \"W7S\""), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "SAVE \"W7S\""), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"W7T.TXT\":PRINT #1,\"t\":CLOSE"), std::string()); // the FDBs given back
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
@@ -1573,8 +1800,8 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     {
         const std::string got = command(r, line);
         CHECK(got.find("BDOS Function = 15") != std::string::npos);
-        CHECK(got.size() > 16 && got.substr(got.size() - 16) == "Disk not Ready\r\n");
-        if (got.find("Disk not Ready") == std::string::npos)
+        CHECK(got.size() > 16 && got.substr(got.size() - 16) == "Disk not ready\r\n");
+        if (got.find("Disk not ready") == std::string::npos)
             std::printf("  %s: '%s'\n", line, vis(got).c_str());
     }
     CHECK_EQ(command(r, "PRINT FRE(0)"), fre);
@@ -1587,8 +1814,8 @@ TEST(an_error_in_a_random_open_comes_back_to_ok)
     CHECK(r.to("m:gwbasic", "Ok\r\n").find("Bytes free") != std::string::npos);
     CHECK_EQ(command(r, "A$=STRING$(50,\"s\")"), std::string());
     const std::string fre2 = command(r, "PRINT FRE(0)");
-    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RS.TXT\""), std::string("Path/File access error\r\n"));
-    CHECK_EQ(command(r, "OPEN \"RS.TXT\" AS #2 LEN=40"), std::string("Path/File access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RS.TXT\""), std::string("Path/file access error\r\n"));
+    CHECK_EQ(command(r, "OPEN \"RS.TXT\" AS #2 LEN=40"), std::string("Path/file access error\r\n"));
     CHECK_EQ(command(r, "PRINT FRE(0);LEN(A$)"), fre2.substr(0, fre2.size() - 2) + " 50 \r\n");
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:LSET F$=\"ok\":PUT #1,1:CLOSE"), std::string());
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN.DAT\",10:FIELD #1,10 AS F$:GET #1,1:PRINT F$:CLOSE"),
@@ -1942,8 +2169,8 @@ TEST(bank_8_is_refused_whole_to_bload_and_bsave)
     CHECK_EQ(moved, 0u);
     CHECK_EQ(command(r, "DEF SEG=&HF000:BSAVE \"D\",0,16"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "DEF SEG=&H5FF0:BSAVE \"D\",0,512"), std::string("Illegal function call\r\n"));
-    CHECK_EQ(command(r, "FILES \"C.BAS\""), std::string("File not found\r\n"));
-    CHECK_EQ(command(r, "FILES \"D.BAS\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"C.BAS\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"D.BAS\""), std::string("File not found\r\n"));
     fill(r, 0x90000, 512, 0);
     CHECK_EQ(command(r, "DEF SEG=&H9000:BLOAD \"B\",0:PRINT PEEK(511)"), std::string(" " + std::to_string(pat(511)) + " \r\n"));
     CHECK_EQ(off_pattern(r, 0x90000, 512), 0u);
@@ -2054,7 +2281,7 @@ TEST(bload_and_bsave_errors)
     CHECK_EQ(command(r, "BSAVE \"X\",0,10"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "BLOAD \"T\",0"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "NEW"), std::string());
-    CHECK_EQ(command(r, "FILES \"X.BAS\""), std::string("File not found\r\n"));
+    CHECK_EQ(files(r, "FILES \"X.BAS\""), std::string("File not found\r\n"));
 }
 
 // BLOAD of 65,535 bytes (7c's tail, measured for hw/oodos.md; the design's estimate about 16 ms, by DM_LOAD): the

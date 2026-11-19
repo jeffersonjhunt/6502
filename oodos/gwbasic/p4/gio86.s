@@ -116,7 +116,7 @@
 ERRBFN          = 52                   ; GWDATA.ASM's disk errors
 ERRFNF          = 53
 ERRBFM          = 54
-ERRFNO          = ERRBFN               ; OO-1: the 1983 source maps it to ERRBFM (the owner's, 2026-11-14)
+ERRFNO          = ERRBFN               ; OO-1: the 1983 source maps it to ERRBFM; 52 is the IBM manual's A-4 (GET and PUT: 54, A-3)
 ERRFAO          = 55
 ERRIOE          = 57
 ERRDFL          = 61
@@ -365,7 +365,8 @@ ERBFN1:         JMP     DERBFN
 ; FILINP: "#n," for input (INPUT #, LINE INPUT #); FILGET: for the mode in
 ; CL (MD_SQO: PRINT #, WRITE #), A the character at TXTPTR. Not "#": nothing.
 ; The file must be open (else DERFNO) in that mode, or random (else Bad
-; file mode); then past the comma, and PTRFIL at its FDB (FILSET).
+; file mode; Input past end for input, OO-1: the IBM manual's A-11); then
+; past the comma, and PTRFIL at its FDB (FILSET).
 FILINP:         LDX     #MD_SQI
                 STX     RCL
 FILGET:         CMP     #'#'
@@ -378,9 +379,13 @@ FILGET:         CMP     #'#'
                 PLA
                 CMP     T0
                 BEQ     GDFILM
+                TAX                    ; the mode wanted
                 LDA     T0
                 CMP     #MD_RND        ; a random file takes them all
-                BNE     ERBFM3
+                BEQ     GDFILM
+                CPX     #MD_SQI        ; OO-1: reading a file opened for output
+                BNE     ERBFM3         ; or append is Input past end (the IBM
+                JMP     DERRPE         ; manual's A-11); writing one for input 54
 GDFILM:         JSR     SYNCHR
                 .byte   ','
 ; FILSET (712): PTRFIL at the FDB FILSCN found (the 8086's CX: FDBP).
@@ -1584,7 +1589,8 @@ SKPNAM:         LDA     (RBL)
 ; --- GET and PUT (GIO86.ASM 627) ----------------------------------------------------------
 
 ; DPUTG: GET or PUT [#]n[, record], X 0 GET, 1 PUT (the 8086's CX, PGTFLG
-; here). The file must be open (DERFNO) and random (Bad file mode); with a
+; here). The file must be open and random, else Bad file mode (54: the IBM
+; manual's A-3, GET or PUT of a closed file, and the source's); with a
 ; record (ADRGET's 0..65535, P1's: a far call), A is 2 GET or 3 PUT, else
 ; 0 or 1, for the device's random function (G_RND: the disk's DSKRND). FDBP
 ; is kept round the record's formula, as the 8086's PUSH SI (a function in
@@ -1592,7 +1598,7 @@ SKPNAM:         LDA     (RBL)
 DPUTG:          STX     PGTFLG
                 JSR     POFNUM
                 JSR     FDBPTR
-                BEQ     ERFNO5
+                BEQ     ERBFM1         ; not open: 54, not ERRFNO's 52
                 LDY     #F_MODE
                 LDA     (FDBP),Y
                 CMP     #MD_RND
@@ -1606,11 +1612,12 @@ DPUTG:          STX     PGTFLG
                 PHA
                 LDA     FDBP+1
                 PHA
-                FJSR    ADRGET         ; DX: the record
+                FJSR    ADRGTS         ; DX: the record; C: negative
                 PLA
                 STA     FDBP+1
                 PLA
                 STA     FDBP
+                BCS     ERBRN1         ; (OO-1: -1 isn't record 65535)
                 LDA     PGTFLG
                 CLC
                 ADC     #2
@@ -1618,8 +1625,8 @@ DPUTG:          STX     PGTFLG
 RELRND:         LDA     PGTFLG
 RELRN1:         LDX     #G_RND
                 JMP     SIDSP
-ERFNO5:         JMP     DERFNO
 ERBFM1:         JMP     DERBFM
+ERBRN1:         JMP     DERBRN
 
 ; GETDAT (the project's own): A/X FDBP's FIELD buffer, the 8086's FD_DAT
 ; (FDDAT, by its number). Y used.

@@ -145,7 +145,7 @@ MATH1.ASM $FOTCI -> p1/fout.s FOTCI
 MATH1.ASM $FCI4 -> p1/fout.s FCI4
 MATH1.ASM $FOUTO -> p1/fout.s FOUTO
 MATH1.ASM $FOUTH -> p1/fout.s FOUTH
-MATH1.ASM $PUFXE -> p1/fout.s PUFXE # $CHRGT on TXTPTR, lent as $FOTZS lends it; the signs on the 6502's stack above a 0
+MATH1.ASM $PUFXE -> p1/fout.s PUFXE # $CHRGT on TXTPTR, lent as $FOTZS lends it; the signs on the 6502's stack above a 0; OO-1: fitted from FBUFF when $FOTZS's text starts there (E format's sign, the IBM manual's p. 271)
 MATH1.ASM $FOTZS -> p1/fout.s FOTZS
 MATH1.ASM $FOTZ -> p1/fout.s FOTZ
 MATH1.ASM $FOTZC -> p1/fout.s FOTZC
@@ -339,7 +339,7 @@ MATH1.ASM FIXER -> res/math1.s FIXER
 MATH1.ASM ICOMP -> res/math1.s ICOMP
 MATH1.ASM ICMPA -> later 7a: the interpreter's (ICOMP's AX entry)
 MATH1.ASM INRART -> later 7a: the interpreter's (AL = 1)
-MATH1.ASM IMOD -> res/math1.s IMOD
+MATH1.ASM IMOD -> res/math1.s IMOD # OO-1: a divisor of 0 first, so 0 MOD 0 is Division by zero (the IBM manual's A-8)
 MATH1.ASM LOPTOP -> res/biptrg.s LOPTOP
 MATH1.ASM LOPFND -> res/biptrg.s LOPFND
 MATH1.ASM LOPFD1 -> res/biptrg.s LOPFD1
@@ -414,7 +414,7 @@ MATH2.ASM $NORMD -> p1/dmath.s NORMD
 MATH2.ASM $NORMS -> res/math2.s NORMS
 MATH2.ASM $POLYX -> p1/trans.s POLYX
 MATH2.ASM $POLY -> p1/trans.s POLY
-MATH2.ASM $PUF -> p1/fout.s PUF # $MOVBF, $VCOMP, $MOVBS, $COMPM inline in PUCMP
+MATH2.ASM $PUF -> p1/fout.s PUF # $MOVBF, $VCOMP, $MOVBS, $COMPM inline in PUCMP; OO-1: 10^16 and more keeps its sign (the IBM manual's p. 272)
 MATH2.ASM DPCOM -> p1/fout.s DPCOM
 MATH2.ASM PUFOUT -> p1/fout.s PUFOUT # P1's entry, far called from P3's PRINUS
 MATH2.ASM $PUFOT -> p1/fout.s PUFOT
@@ -684,9 +684,9 @@ GWMAIN.ASM SCNEX3 -> p2/gwmain.s SCNPOP
 GWMAIN.ASM JSCNXT -> p2/gwmain.s SCNPOP
 GWMAIN.ASM SCNPT2 -> p2/gwmain.s SCNPT2
 GWMAIN.ASM MAKPTR -> p2/gwmain.s SCNPT2
-GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at CONTXT (res/gwmain.s CONCH2, the spike's)
+GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at the reference's own end (OO-1: CONDX's CONTXT kept, the IBM manual's p. 293; res/gwmain.s CONCH2, the spike's)
 GWMAIN.ASM DEPTR -> p2/gwmain.s DEPTR
-GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST
+GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST; OO-1: a file's name after the range is Syntax error (P2's LISTP; the IBM manual's p. 166)
 GWLIST.ASM LIST -> p2/gwlist.s LISTP # its home block stub, p8/gwmain.s LIST, drops NEWSTT's return and goes to READY
 GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"name": NAMSCN and NULOPM, P4's, by far calls (7c); POLKEY the OEM's
 GWLIST.ASM LISPRT -> p2/gwlist.s LISPRT
@@ -749,7 +749,7 @@ IBMRES.ASM SPCTAB -> p2/ibmres.s SPCTAB
 IBMRES.ASM STMDSP -> p8/home.s STMDSP # each R and R2 target has its line
 IBMRES.ASM FUNDSP -> res/tables.s FUNDSP # each R and R2 target has its line
 IBMRES.ASM STMDSX -> p8/home.s STMDSX # after STMDSP (7c); SYSTEM 7a's; the rest later (res/todo_i1.s ADVERR)
-IBMRES.ASM FUNDSX -> p4/dskcom.s FUNDSX # OO-1: P4's, EVALNF's far call (FUNDXP) dispatching; KTN to KLEN dropped with Kanji
+IBMRES.ASM FUNDSX -> p3/dskcom.s FUNDSX # OO-1: P3's (P4's until the fix-up's review round 1), EVALNF's far call (FUNDXP) dispatching; KTN to KLEN dropped with Kanji
 IBMRES.ASM ALPTAX -> p2/ibmres.s ALPTAX
 IBMRES.ASM RESLSX -> p2/ibmres.s RESLSX
 IBMRES.ASM CRUNCX -> p2/ibmres.s CRUNCX
@@ -787,7 +787,7 @@ IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
 IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALDT gives Advanced Feature
 IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
-IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P4's FUNDSX (FUNDXP); a token past MKD$ Syntax error
+IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P3's FUNDSX (FUNDXP; P4's until the fix-up's review round 1); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
 GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
 GWEVAL.ASM OCTCNS -> res/gweval.s OCTCNS
@@ -1082,8 +1082,8 @@ GIO86.ASM LINCH2 -> p1/gio86.s LINCH2
 GIO86.ASM COMPRT -> p1/gio86.s COMPRT
 GIO86.ASM CHKCOM -> p1/gio86.s COMPRT
 GIO86.ASM MORCOM -> p1/gio86.s MORCOM
-GIO86.ASM TABER -> p1/gio86.s TABER
-GIO86.ASM TBNONG -> p1/gio86.s TBNONG
+GIO86.ASM TABER -> p1/gio86.s TABER # OO-1: SPC of a negative n, TAB of one below 1, either past 255, Illegal function call (the IBM manual's pp. 327, 340)
+GIO86.ASM TBNONG -> p1/gio86.s TABER # inline: OO-1, the range checks (TBFC) in its place
 GIO86.ASM SPCNDC -> p1/gio86.s SPCNDC
 GIO86.ASM LNOMOD -> p1/gio86.s LNOMOD
 GIO86.ASM DOSIZT -> p1/gio86.s DOSIZT
@@ -1110,7 +1110,7 @@ GWSTS.ASM VARPT2 -> p3/gwsts.s VARPT2P # from VARPTR, its resident stub res/far3
 GIO86.ASM GETPTR -> p4/gio86.s GETPTR # an entry, VARPTR's (res/gweval.s); OO-1: the FDB is P4's table's
 GWSTS.ASM SCRENF -> p6/gwsts.s SCRNFP # an entry, from the resident evaluator in screen mode (res/gweval.s)
 GWSTS.ASM GETLIN -> p6/gwsts.s CSRLNP # an entry, as SCRENF
-GENGRP.ASM POINT -> p5/gengrp.s POINTP # the resident evaluator's branch in screen mode (res/gweval.s); OO-1: Illegal function call in SCREEN 0 (PC-BASIC's)
+GENGRP.ASM POINT -> p5/gengrp.s POINTP # the resident evaluator's branch in screen mode (res/gweval.s); OO-1: Illegal function call in SCREEN 0 (the IBM manual's p. 258, graphics only), STEP Syntax error (p. 258, absolute)
 DSKCOM.ASM FIXINP -> p4/dskcom.s FIXINPP # its resident stub res/far4.s FIXINP
 GENGRP.ASM GLINE -> p5/gengrp.s GLINEP # its home block stub p8/gwmain.s LINE, screen mode; DOBOXF and BOXLOP inline; OO-1: a BF box wholly past one edge draws nothing (BOXOFF, review round 1, F1)
 DSKCOM.ASM DLINE -> p4/dskcom.s DLINE # an entry, INPDOR in it
@@ -1235,7 +1235,7 @@ GWMAIN.ASM RESEQ -> p3/gwmain.s RESEQP # its stub res/far3.s RESEQ: NEWSTT's ret
 CALL86.ASM CALLS -> later 7g: CALL
 FIVEO.ASM WRITE -> p3/fiveo.s WRITEP # its resident stub res/far3.s WRITE; WRITE # (FILGET) 7c's
 GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/far3.s OPTION
-GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM
+GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM; OO-1: a seed past the integers taken (the IBM manual's p. 286), its single's bytes folded
 GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1's: Advanced Feature
 GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
 DSKCOM.ASM LOAD -> p8/far4.s LOADS # its flag 0; then LRUN3 (p4/dskcom.s LOADP: the resident LOAD is the loader)
@@ -1266,7 +1266,7 @@ GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
-GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
+GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1 (the IBM manual's p. 178): 0 and 1 LPT1's, 2 and 3 1 (no driver), past 3 Illegal function call
 GWSTS.ASM PENF -> later 7e: PEN (7e4)
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
@@ -1275,11 +1275,11 @@ GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
 #
 # STMDSX's and FUNDSX's (res/ibmres.s: here ADVERR, Advanced Feature).
-GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES; OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
+GIODSK.ASM FILES -> p4/giodsk.s FILESP # its home stub p8/far4.s FILES (OO-1: the heading and bytes free there, the name evaluated there once, FILESQ: review round 1, F10); OO-1: CP/M's search record at DIRBUF, the attribute bits off; PTRWID and PTRGPS the console's (LINLEN, TTYPOS)
 DSKCOM.ASM FIELD -> p4/dskcom.s FIELDP # its home stub p8/far4.s FIELD
 GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" in either name Bad file name, the new name searched for first (File already exists); an old name that is a SYS file not found (W7)
-DSKCOM.ASM LSET -> p4/dskcom.s LSETP # its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
-DSKCOM.ASM RSET -> p4/dskcom.s RSETP # its home stub p8/far4.s RSET
+DSKCOM.ASM LSET -> p3/dskcom.s LSETP # OO-1: P3 since the IBM spec's fix-up (P4's relief); its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
+DSKCOM.ASM RSET -> p3/dskcom.s RSETP # OO-1: P3 since the fix-up; its home stub p8/far4.s RSET
 GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"; SYS files passed over, each match deleted by name (W7)
 GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
 GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
@@ -1296,9 +1296,9 @@ GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
-GWSTS.ASM CHDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
-GWSTS.ASM MKDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
-GWSTS.ASM RMDIR -> OEM p4/oem.s DIRHK # the directory hook (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
+GWSTS.ASM CHDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
+GWSTS.ASM MKDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s MKDIR; the word added to P2's table (OO-1)
+GWSTS.ASM RMDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
 GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
 GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
 GWSTS.ASM VIEW -> later 7e: VIEW (7e4)
@@ -1307,12 +1307,12 @@ GWSTS.ASM PMAP -> later 7e: PMAP (7e4)
 GWSTS.ASM PALETE -> later 7e: PALETTE (7e4)
 GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) the OEM's p6/oem.s LCPYP in screen mode (7d2), Advanced Feature in console mode
 CALL86.ASM CALLSL -> later 7g: CALLS
-DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
-DSKCOM.ASM CVS -> p4/dskcom.s CVS
-DSKCOM.ASM CVD -> p4/dskcom.s CVD
-DSKCOM.ASM MKI$ -> p4/dskcom.s MKI # FINBCK's PUTNEW
-DSKCOM.ASM MKS$ -> p4/dskcom.s MKS
-DSKCOM.ASM MKD$ -> p4/dskcom.s MKD
+DSKCOM.ASM CVI -> p3/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
+DSKCOM.ASM CVS -> p3/dskcom.s CVS
+DSKCOM.ASM CVD -> p3/dskcom.s CVD
+DSKCOM.ASM MKI$ -> p3/dskcom.s MKI # FINBCK's PUTNEW
+DSKCOM.ASM MKS$ -> p3/dskcom.s MKS
+DSKCOM.ASM MKD$ -> p3/dskcom.s MKD
 KANJ86.ASM KTNFN -> dropped: Kanji
 KANJ86.ASM JISFN -> dropped: Kanji
 KANJ86.ASM KPOSFN -> dropped: Kanji
@@ -1430,7 +1430,7 @@ BIPRTU.ASM PRCCHR -> p3/biprtu.s PRCCHR
 BIPRTU.ASM NUMNUM -> p3/biprtu.s NUMNUM
 BIPRTU.ASM FINNUM -> p3/biprtu.s FINNUM # NOTSCI's return address as a branch, BX kept in USSAV
 BIPRTU.ASM ENDNUS -> p3/biprtu.s ENDNUS
-BIPRTU.ASM ENDNUM -> p3/biprtu.s ENDNUM
+BIPRTU.ASM ENDNUM -> p3/biprtu.s ENDNUM # OO-1: the 24 digits counted without the point (the IBM manual's p. 272)
 BIPRTU.ASM FNSTRF -> p3/biprtu.s FNSTRF
 BIPRTU.ASM CRDNUS -> p3/biprtu.s CRDNUS
 BIPRTU.ASM FLDFIN -> p3/biprtu.s FLDFIN # JMP FINPRT: a tail call (its RTS returns through the far call to P1's PRINT)
@@ -1505,7 +1505,7 @@ GIO86.ASM INCHR -> p4/gio86.s INCHR
 GIO86.ASM INDSKC -> p4/gio86.s INDSKC
 DSKCOM.ASM STRCHR -> p4/dskcom.s STRCHR
 GIO86.ASM BAKCHR -> p4/gio86.s BAKCHR
-DSKCOM.ASM INPDOR -> p4/dskcom.s INPDOR
+DSKCOM.ASM INPDOR -> p4/dskcom.s INPDOR # OO-1: an LF ends INPUT #'s item (the IBM manual's pp. 133-134), not LPISLF's
 GIO86.ASM POFNUM -> p4/gio86.s POFNUM
 GIO86.ASM PORLEN -> p4/gio86.s PORLEN
 GIO86.ASM NAMSC1 -> p4/gio86.s NAMSC1 # OO-1: the name upper case
@@ -1634,13 +1634,13 @@ GIODSK.ASM FILFCB -> p4/giodsk.s FILFCB # C_PARS is function 152; OO-1: a name 1
 GIODSK.ASM GETSUB -> p4/giodsk.s GETSUB # PGSUB1 in it; FD_PHY compared as the 8086's, never set
 GIODSK.ASM GETFSZ -> p4/giodsk.s CMPFBC # inline
 GIODSK.ASM GETFPS -> p4/giodsk.s CMPFBC # inline
-DSKCOM.ASM BLKFIL -> p4/dskcom.s BLKFIL # MAKDSC in it
-GIO86.ASM DPUTG -> p4/gio86.s DPUTG # ADRGET by a far call to P1 (an entry), FDBP kept round it
+DSKCOM.ASM BLKFIL -> p3/dskcom.s BLKFIL # MAKDSC in it
+GIO86.ASM DPUTG -> p4/gio86.s DPUTG # ADRGET by a far call to P1 (an entry), FDBP kept round it; a file not open Bad file mode (54), the source's and the IBM manual's A-3
 GIO86.ASM UPDSTD -> p4/gio86.s UPDSTD
 FIVEO.ASM SKPNAM -> p4/gio86.s SKPNAM # IADAHL inline
-DSKCOM.ASM LSETA -> p4/dskcom.s LSETA
-DSKCOM.ASM MAKDSC -> p4/dskcom.s MAKDSC
-DSKCOM.ASM MADESC -> p4/dskcom.s MADESC
+DSKCOM.ASM LSETA -> p3/dskcom.s LSETA
+DSKCOM.ASM MAKDSC -> p3/dskcom.s MAKDSC
+DSKCOM.ASM MADESC -> p3/dskcom.s MADESC
 GWSTS.ASM PARSE -> p4/gwsts.s PARSE
 ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (7e3; p4/gwsts.s GRPVER gives Advanced Feature)
 GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
@@ -1731,7 +1731,7 @@ SCNDRV.ASM SCNIPL -> p6/scndrv.s SCNIPL8 # P6's start-up entry is the OEM's p6/o
 SCNDRV.ASM SCNBRK -> p6/scndrv.s SCNBRK
 SCNDRV.ASM SCNSWI -> p6/scndrv.s SCNSWI
 SCNDRV.ASM SCNLOC -> p6/scndrv.s SCNCLR # inline: CSRX and CSRY set where it is called
-SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR # GRPINI left out (7e1's review round 1, F2, the owner's word: PC-BASIC's)
+SCNDRV.ASM SCNCLR -> p6/scndrv.s SCNCLR # GRPINI far called in a graphics mode (the source's; 7e1's F2 undone by the IBM spec's fix-up, A1)
 SCNDRV.ASM SCNPOS -> p6/scndrv.s SCNPOS
 SCNDRV.ASM SCNGWI -> dropped: LINLEN is the resident's (res/oem.s), read where it is needed
 SCNDRV.ASM SCNRDT -> p6/scndrv.s SCNRDT
@@ -1802,7 +1802,7 @@ SCNDRV.ASM SCRLU1 -> p6/scndrv.s SCRLU1 # SCRLU0's, which SCRLUD joins
 SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
 SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
 SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
-GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P5's GMODE and GCLS (a mode's change, CLS); not P6's SCNCLR (7e1's review round 1, F2: PC-BASIC's CLS 2 and CHR$(12) keep the cursor)
+GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P5's GMODE and GCLS (a mode's change, CLS), and P6's SCNCLR far (every clear: the source's)
 GENGRP.ASM SCAN1 -> p5/gengrp.s SCAN1 # 7e1: LINE's first point; "@" passed over
 GENGRP.ASM SCAND -> p5/gengrp.s SCAND # SCANN, SCXREL, SCYREL inline; the x pushed on the 6502's stack across the y's formula
 GENGRP.ASM ATRSCN -> p5/gengrp.s ATRSCN

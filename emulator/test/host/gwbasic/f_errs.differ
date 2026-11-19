@@ -1,4 +1,4 @@
-# EOF of an output file with nothing in its buffer is -1 (the 1983 source's EOF: F_ORCT 0 before the device is asked); INPUT$(0, #f) of an output file is Bad file mode (FIXINP checks the file before the count); LEN= on a sequential OPEN is Syntax error (PRLENC). PC-BASIC: Bad file mode, Illegal function call, File already open
+# EOF of an output file with nothing in its buffer is -1 (the 1983 source's EOF: F_ORCT 0 before the device is asked); INPUT #, LINE INPUT # and INPUT$ of a file opened for output are Input past end (the IBM manual's A-11; the IBM spec's fix-up, C-2 item 20: the source's and PC-BASIC's Bad file mode), INPUT$(0, #f) too (FIXINP checks the file before the count); LEN= on a sequential OPEN is Syntax error (PRLENC). PC-BASIC: Bad file mode, Illegal function call, File already open
 a
 error 52 in 40 
 b
@@ -14,9 +14,9 @@ error 62 in 90
 g
 error 55 in 100 
 h
-error 54 in 110 
+error 62 in 110 
 i
-error 54 in 120 
+error 62 in 120 
 j
 -1 
 k
@@ -30,9 +30,9 @@ error 52 in 170
 o
 error 54 in 180 
 p
-error 54 in 190 
+error 62 in 190 
 q
-error 54 in 200 
+error 62 in 200 
 r
 error 64 in 210 
 u

@@ -65,8 +65,9 @@ GONE4:          PLA
 SNERRS:         JMP     SNERR
 
 ; EVALX (IBMRES.ASM 961): EVAL's hook. $FE then DATE$ or TIME$ (DATEF,
-; TIMEF: Advanced Feature), or $FD and a function (EVALNF); anything else
-; back, A as it was.
+; TIMEF: Advanced Feature), ERDEV or ERDEV$ (OO-1: the home block's
+; ERDEVP, its value and EVAL's return), or $FD and a function (EVALNF);
+; anything else back, A as it was.
 EVALX:          CMP     #$FE
                 BEQ     EVALNS
                 CMP     #$FD
@@ -78,7 +79,15 @@ EVALNS:         LDY     #1
                 BEQ     EVALDT
                 CMP     #TIMES_XS
                 BEQ     EVALDT
-                LDA     #$FE
+                CMP     #ERDEV_XS      ; OO-1: ERDEV and ERDEV$, the home
+                BEQ     :+             ; block's (the IBM manual's p. 91: read-
+                CMP     #ERDEVS_XS     ; only variables)
+                BNE     EVALN0
+:               PLA                    ; the hook's return dropped
+                PLA
+                FJSR    ERDEVP
+                RTS
+EVALN0:         LDA     #$FE
                 RTS
 EVALDT:         JMP     ADVERR         ; DATEV, TIMEV: later sub-phases'
 ; EVALNF: the hook's return dropped (POP CX); the function's place in FUNDSX

@@ -901,7 +901,8 @@ PI40:           PLA                    ; POP $FMTCX
 ; --- $PUF: a single or a double (MATH2.ASM 1262) ------------------------------------
 
 ; FBPTR at FBUFF+2. E format is $PUFE's. Fixed: 10^16 and more is $FOUT's
-; free format with a "%" before it. Else $FOTNV brackets the digits into the
+; free format with a "%" before it (OO-1: and the number's sign, which the
+; source loses: FOUT is given the magnitude). Else $FOTNV brackets the digits into the
 ; integer part, A the exponent that undoes it: positive or zero, the digits
 ; are all before the point (zeros first if the field wants them, the
 ; exponent's zeros after them, by $FOTZC, with the commas); negative, the
@@ -926,7 +927,11 @@ PUF10:          LDA     #<(DP00+16*8)  ; $DP16: 10^16
                 STA     FBPTR+1
                 PLA
                 STA     FBPTR
-                JSR     FOUT           ; free format, FBPTR at FBUFF+1
+                LDA     FBUFF+1        ; OO-1: the sign PUFOUT put there kept
+                PHA                    ; (the IBM manual's p. 272; FOUT's is the
+                JSR     FOUT           ; magnitude's): free format, FBPTR at FBUFF+1
+                PLA
+                STA     FBUFF+1
                 DECW    FBPTR
                 LDA     #'%'           ; and the overflow mark before it
                 STA     (FBPTR)
@@ -1360,6 +1365,10 @@ PUFXE:          LDA     FBPTR          ; PUSH BX
                 LDA     FBPTR+1
                 PHA
                 JSR     FOTZS          ; A: a trailing sign, or 0
+                LDX     FBPTR          ; (OO-1: the text's start, for below)
+                STX     T0
+                LDX     FBPTR+1
+                STX     T1
                 PLA                    ; POP BX
                 STA     FBPTR+1
                 PLA
@@ -1378,6 +1387,13 @@ PFX10:          LDA     #0             ; the end
                 STA     TXTPTR
                 LDA     #>FBUFF
                 STA     TXTPTR+1
+                LDA     T0             ; OO-1: $FOTZS's text from FBUFF itself
+                CMP     #<FBUFF        ; (a sign before a leading "0", E format's
+                BNE     PFX20          ; "-.3"): the fitting from there, so the
+                LDA     T1             ; "0" can go and the sign stays (the IBM
+                CMP     #>FBUFF        ; manual's p. 271; the source starts past
+                BNE     PFX20          ; it and loses the sign)
+                DECW    TXTPTR
 PFX20:          INCW    TXTPTR
 PFX30:          SEC                    ; the point's address, less here, less
                 LDA     DPADR          ; the places before the point: 0 when

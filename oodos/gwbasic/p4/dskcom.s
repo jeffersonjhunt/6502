@@ -17,11 +17,8 @@
 ;   SAVEP           SAVE name[,A|,P] (SAVE, GOODSV, ENDOFS)
 ;   FIELDP          FIELD [#]n, w AS v$, ...: strings in a random file's FIELD
 ;                   buffer
-;   LSETP RSETP     LSET, RSET v$ = s$: s$ into v$'s room, left or right
-;                   (BLKFIL, MAKDSC)
-;   CVI CVS CVD     the functions from FUNDSX (FUNDXP, from the resident
-;   MKI MKS MKD     EVALNF): a string's bytes as a number, and a number's
-;                   as a string (MKI$, MKS$, MKD$)
+;   (LSETP, RSETP   LSET and RSET: P3's since the IBM spec's fix-up, p3/dskcom.s)
+;   (CVI to MKD$, FUNDXP: P3's since the fix-up's review round 1, p3/dskcom.s)
 ;
 ; (DSKCOM.ASM's LOAD is LOADP here: the resident LOAD is GW-BASIC's loader,
 ; res/loader.s, whose name the tests read.)
@@ -43,10 +40,10 @@
 ;@entry MERGEP
 ;@entry SAVEP
 ;@entry FIELDP
-;@entry LSETP
-;@entry RSETP
-;@entry FUNDXP
-.export FILIND, DLINE, FIXINPP, LOADP, LOADP2, MERGEP, SAVEP, FIELDP, LSETP, RSETP, FUNDXP
+;@entry LSETR
+;@entry RSETR
+;@entry FUNDXR
+.export FILIND, DLINE, FIXINPP, LOADP, LOADP2, MERGEP, SAVEP, FIELDP, LSETR, RSETR, FUNDXR
 .export CHNENT, OKGETM, PRGFLI
 .import GETDAT, DERFOV, GTBYTC, FRMEQL, GETSPA, DOCNVF, VMOVE, VMOVFM
 .import GETYP, CHRGTR, SYNCHR, PTRGET, CHKSTR, STRLT2, INPCOM, FINPRT, GETBYT
@@ -95,9 +92,10 @@ DLINE:          JSR     FILINP
 ; INPDOR (145): an item from PTRFIL's file. Leading spaces are skipped
 ; (LINE INPUT's kept). A quoted item (a string's, DL ",") runs to its quote,
 ; CRs, LFs and commas in it kept. Else it runs to a terminator, a CR (its LF
-; eaten), or the file's end; an LF is kept in a string read by LINE INPUT
-; (dropped in an unquoted string, and in a number, with a CR after an LF);
-; a zero byte is never kept. 255 bytes end it at once. After a quote or a
+; eaten), or the file's end; an LF is kept in a string read by LINE INPUT,
+; and ends a number or an unquoted string (OO-1: the IBM manual's pp.
+; 133-134; the source drops it and goes on, LPISLF's 5/14/82 fix); a zero
+; byte is never kept. 255 bytes end it at once. After a quote or a
 ; space, the spaces after it and one comma, or a CR and its LF, are skipped
 ; (a byte that isn't is backed up). Then the item, in BUF to a zero, made
 ; the value: $FIN's for a number (DL " "), else a literal (STRLT2: CH DH, DH
@@ -107,10 +105,14 @@ INPDOR:         LDA     TXTPTR         ; PUSH BX: the data pointer
                 LDA     TXTPTR+1
                 STA     INPTXT+1
 NOTNWT:         JSR     INCHR
-                CMP     #' '           ; spaces first skipped
-                BNE     NOTSPC
-                LDX     RDH            ; but not LINE INPUT's (DH 0)
-                BNE     NOTNWT
+                LDX     RDH            ; not LINE INPUT's (DH 0)
+                BEQ     NOTSPC
+                CMP     #' '           ; spaces first skipped (OO-1, review round
+                BEQ     NOTNWT         ; 1, F1: and CRs and LFs, the IBM manual's
+                CMP     #13            ; pp. 133-134)
+                BEQ     NOTNWT
+                CMP     #10
+                BEQ     NOTNWT
 NOTSPC:         CMP     #'"'
                 BNE     NOTQTE
                 LDX     RDL            ; a quote begins a string's item
@@ -133,21 +135,13 @@ LOPCRS:         LDX     RDH            ; quoted: CR and LF kept (the 8086 keeps
                 BEQ     ICASLF
                 CMP     #10
                 BNE     NOTQTL
-LPISLF:         LDX     RDL            ; an LF: kept unless an unquoted string's
-                CPX     #','
-                BEQ     :+
+LPISLF:         LDX     RDL            ; an LF: it ends INPUT #'s item (OO-1, the
+                BNE     NOSKCR         ; IBM manual's pp. 133-134); LINE INPUT's keeps it
                 JSR     STRCHR
-:               JSR     INDSKC
+                JSR     INDSKC
                 BCS     QUITSI
                 CMP     #10            ; (5/14/82: LFs one after another)
-                BEQ     LPISLF
-                CMP     #13
-                BNE     NOTQTL
-                LDX     RDL            ; a CR after LFs: a number's, an
-                CPX     #' '           ; unquoted string's, is dropped
-                BEQ     LPCRGT
-                CPX     #','
-                BEQ     LPCRGT
+                BEQ     LPISLF         ; (a CR after them kept, as the source's)
 NOTQTL:         CMP     #0             ; a zero: never kept (STRLT2's end)
                 BEQ     LPCRGT
                 CMP     RDH
@@ -414,7 +408,7 @@ ENDOFS:         STX     SVOPT
 ; --- FIXINP (DSKCOM.ASM 777) --------------------------------------------------------------
 
 ; INPUT$(n[, [#]f]), from EVAL at INPUT: n bytes (1-255: 0 is Illegal
-; function call) from file f, which mustn't be for output (Bad file mode;
+; function call) from file f, which mustn't be for output (Input past end;
 ; not open: DERFNO), at its end Input past end; or, with no file, n keys
 ; typed, not echoed (INCHRI), every byte as it comes. PTRFIL is kept round
 ; it (PRINT #2, INPUT$(3, #1) prints to file 2): FIXPTR, the 8086's stack.
@@ -442,9 +436,9 @@ FIXINPP:        JSR     CHRGTR
                 JSR     FILSCN
                 BNE     :+
                 JMP     DERFNO
-:               CMP     #MD_SQO
-                BNE     :+
-                JMP     DERBFM
+:               CMP     #MD_SQO        ; for output: Input past end (OO-1, the
+                BNE     :+             ; IBM manual's A-11; the source's Bad file mode)
+                JMP     DERRPE
 :               JSR     FILSET
                 STZ     FIXTTY         ; a file
 REDTTY:         JSR     SYNCHR
@@ -537,240 +531,23 @@ LOPFLD:         LDA     (TXTPTR)       ; more "AS"s? a comma starts one
                 INC     FLDDX+1
                 BRA     LOPFLD
 
-; --- LSET, RSET (DSKCOM.ASM 621) ----------------------------------------------------------
+; --- LSET, RSET: P3's (p3/dskcom.s) -------------------------------------------------------
 
-; LSETP, RSETP: LSET v$ = s$, RSET v$ = s$. s$'s bytes go into v$'s, as many
-; as v$ has room for, the rest of it spaces: after them (LSET) or before
-; (RSET). A null v$ is left as it is. v$'s bytes are changed where they
-; are: a FIELD buffer (below TXTTAB in the 8080's map; here above MEMSIZ, as
-; the 8086's) or the string space; but a v$ whose bytes are a literal in the
-; program gets a copy of its length first (GETSPA), and if that could
-; collect the strings, a temporary for s$ is made first (MAKDSC), if s$ was
-; one: the flags FRESTR leaves (the 8086's PUSHF, "zero if was temp"; they
-; are zero only for a null temporary at FRETOP, so MAKDSC almost never makes
-; it). LRFLG bit 7 is the 8086's carry, LSET; LRVAR v$'s descriptor, LREXP
-; s$'s, LRP FRESTR's flags; LRCL v$'s length (CL), LRCH s$'s (CH), then
-; the bytes to copy and CL the spaces; DX (RDL) the place in v$.
-RSETP:          CLC
-                BRA     LSETA
-LSETP:          SEC
-LSETA:          ROR     LRFLG          ; PUSHF
-                JSR     PTRGET
-                JSR     CHKSTR         ; a string variable
-                LDA     PTR            ; PUSH DX
-                STA     LRVAR
-                LDA     PTR+1
-                STA     LRVAR+1
-                JSR     FRMEQL         ; "=" and s$
-                JSR     FRESTR         ; a string, its temporary freed: BX
-                PHP
-                PLA
-                STA     LRP
-                LDA     RBL
-                STA     LREXP
-                LDA     RBH
-                STA     LREXP+1
-                LDA     (RBL)          ; CH: s$'s length
-                STA     LRCH
-                LDA     LRVAR          ; CL: v$'s
-                STA     RBL
-                LDA     LRVAR+1
-                STA     RBH
-                LDA     (RBL)
-                STA     LRCL
-                BNE     :+
-                RTS                    ; RETCUR: null, not changed
-:               LDY     #1             ; DX: its bytes
-                LDA     (RBL),Y
-                STA     RDL
-                INY
-                LDA     (RBL),Y
-                STA     RDH
-                LDA     TXTTAB         ; at or below TXTTAB: a buffer
-                CMP     RDL
-                LDA     TXTTAB+1
-                SBC     RDH
-                BCS     OLDSTR
-                LDA     VARTAB         ; above VARTAB: the strings'
-                CMP     RDL
-                LDA     VARTAB+1
-                SBC     RDH
-                BCC     OLDSTR
-                CLC                    ; a literal: a copy. Would GETSPA collect?
-                LDA     STREND
-                ADC     LRCL
-                STA     RBL
-                LDA     STREND+1
-                ADC     #0
-                STA     RBH
-                LDA     FRETOP
-                CMP     RBL
-                LDA     FRETOP+1
-                SBC     RBH
-                JCC     MAKDSC
-MADESC:         LDA     LRCL           ; room for v$'s length
-                JSR     GETSPA
-                LDA     RDL            ; PUSH DX round it
-                PHA
-                LDA     RDH
-                PHA
-                JSR     FRESTR         ; s$'s temporary freed, if any
-                PLA
-                STA     RDH
-                PLA
-                STA     RDL
-                LDA     LRVAR          ; v$ at the copy
-                STA     RBL
-                LDA     LRVAR+1
-                STA     RBH
-                LDY     #1
-                LDA     RDL
-                STA     (RBL),Y
-                INY
-                LDA     RDH
-                STA     (RBL),Y
-OLDSTR:         LDA     LRVAR          ; DX: v$'s bytes
-                STA     RBL
-                LDA     LRVAR+1
-                STA     RBH
-                LDY     #1
-                LDA     (RBL),Y
-                STA     RDL
-                INY
-                LDA     (RBL),Y
-                STA     RDH
-                LDA     LREXP          ; PTR2: s$'s
-                STA     RBL
-                LDA     LREXP+1
-                STA     RBH
-                LDY     #1
-                LDA     (RBL),Y
-                STA     PTR2
-                INY
-                LDA     (RBL),Y
-                STA     PTR2+1
-                LDA     LRCL           ; room for all of s$?
-                CMP     LRCH
-                BCS     FILDOK
-                STA     LRCH           ; no: as many as there is
-FILDOK:         SEC                    ; CL: the spaces
-                SBC     LRCH
-                STA     LRCL
-                BIT     LRFLG
-                BMI     :+
-                JSR     BLKFIL         ; RSET: before
-:               LDY     #0             ; COPLOP: CH bytes
-@c:             CPY     LRCH
-                BEQ     LRSTDN
-                LDA     (PTR2),Y
-                STA     (RDL),Y
-                INY
-                BRA     @c
-LRSTDN:         TYA                    ; DX past them
-                CLC
-                ADC     RDL
-                STA     RDL
-                BCC     :+
-                INC     RDH
-:               BIT     LRFLG
-                BPL     :+
-                JSR     BLKFIL         ; LSET: after
-:               RTS
-
-; BLKFIL: CL spaces at DX, DX past them.
-BLKFIL:         LDY     #0
-@b:             CPY     LRCL
-                BEQ     @x
-                LDA     #' '
-                STA     (RDL),Y
-                INY
-                BRA     @b
-@x:             TYA
-                CLC
-                ADC     RDL
-                STA     RDL
-                BCC     :+
-                INC     RDH
-:               RTS
-
-; MAKDSC: GETSPA may collect: if s$ was a temporary (LRP's Z), a temporary
-; is made for it (STRINI of its length, PUTNEW) before MADESC goes on.
-MAKDSC:         LDA     LRP
-                AND     #$02           ; the Z flag
-                BEQ     MAKDS1         ; not a temporary
-                LDA     LRCH
-                JSR     STRINI
-                JSR     PUTNEW
-MAKDS1:         JMP     MADESC
-
-; --- CVI, CVS, CVD, MKI$, MKS$, MKD$ (DSKCOM.ASM 79) ----------------------------------------
-
-; FUNDXP (the project's own): EVALNF's dispatch (res/ibmres.s), X the
-; function's place in FUNDSX (2 x (its token - $81)), the argument in the
-; FAC; back to EVALNF's LABBCK.
-FUNDXP:         JMP     (FUNDSX,X)
-
-; CVI CVS CVD: the string's first 2, 4 or 8 bytes are the value, an
-; integer, a single or a double, as MKI$ and the rest make them (its bytes
-; as they are in memory: the 8086's, an integer's low byte first, MBF's
-; singles and doubles); a shorter string is Illegal function call. AL is
-; one less than the bytes, then VALTYP.
-CVI:            LDA     #1
-                BRA     CVX
-CVS:            LDA     #3
-                BRA     CVX
-CVD:            LDA     #7
-CVX:            PHA
-                JSR     FRESTR         ; BX: the string's descriptor
-                PLA
-                CMP     (RBL)          ; longer than AL?
-                BCC     :+
-                JMP     FCERR
-:               INC     A
-                STA     VALTYP
-                LDY     #1             ; its bytes
-                LDA     (RBL),Y
-                STA     PTR
-                INY
-                LDA     (RBL),Y
-                STA     PTR+1
-                JMP     VMOVFM         ; to the FAC
-
-; MKI MKS MKD: MKI$, MKS$, MKD$: the FAC made an integer, a single or a
-; double (DOCNVF: Overflow, Type mismatch), and its 2, 4 or 8 bytes a new
-; string's (STRINI; VMOVMF, here VMOVE to PTR), its result (FINBCK).
-MKI:            LDA     #2
-                BRA     MKX
-MKS:            LDA     #4
-                BRA     MKX
-MKD:            LDA     #8
-MKX:            PHA
-                JSR     DOCNVF
-                PLA
-                JSR     STRINI         ; DX: its room (DSCPTR's)
-                LDA     RDL
-                STA     PTR
-                LDA     RDH
-                STA     PTR+1
-                JSR     VMOVE
-                JMP     PUTNEW         ; FINBCK (res/bistrs.s: PUTNEW, as LABBCK pops the text pointer)
-
-.rodata
-; FUNDSX (IBMRES.ASM 598): the $FD functions, CVI to MKD$ (OO-1: KTN, JIS,
-; KPOS and KLEN, Kanji's, are dropped).
-FUNDSX:         .word   CVI, CVS, CVD, MKI, MKS, MKD
+; OO-1 (the IBM spec's fix-up, the owner's answer 2: P4's relief): LSET and
+; RSET moved to block P3 whole; they need nothing of P4's, so each is still
+; one far call from the home block's stub. Their two jump table slots here
+; are kept, retired (LSETR, RSETR: an RTS), so P4's later entries keep their
+; places and the blocks that call them are unchanged.
+LSETR:
+RSETR:
+FUNDXR:         RTS                    ; (and FUNDXP's: CVI to MKD$ are P3's too,
+                                       ; review round 1's second move)
 
 .segment "BRAM"
 FLDMAX:         .res    2              ; FIELD's TEMPA: the record's size
 FLDTOT:         .res    2              ; and TEMPB: the widths so far
 FLDDX:          .res    2              ; and its DX: the place in the buffer
 FLDWID:         .res    1              ; and its CL: a clause's width
-LRFLG:          .res    1              ; LSET (bit 7) or RSET
-LRVAR:          .res    2              ; LSET's and RSET's v$ (its descriptor)
-LREXP:          .res    2              ; and s$
-LRP:            .res    1              ; and FRESTR's flags
-LRCL:           .res    1              ; v$'s length (CL), then the spaces
-LRCH:           .res    1              ; s$'s (CH), then the bytes to copy
 INPTXT:         .res    2              ; INPDOR's data pointer
 DLVAR:          .res    2              ; DLINE's variable
 FIXPTR:         .res    2              ; INPUT$'s PTRFIL, kept

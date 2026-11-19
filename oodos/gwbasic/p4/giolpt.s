@@ -28,7 +28,7 @@
 .export LPTDSP, LPTINI, LPOSP
 .import DERBFM, DERIFN, INIFDB, SCDBIN, DEVBIN, DEVBOT, FILOPT
 .import CRIFEL, UPDPOS, CRDL, CRDH, BXVEC
-.import LINLEN, LPCRF, CONINT, SNGFLT
+.import LINLEN, LPCRF, CONINT, SNGFLT, FCERR
 
 .rodata
 
@@ -165,34 +165,19 @@ LPROUT:         PHA
                 PLA
                 RTS
 
-; LPOSP: LPOS(n) (272), n the FAC: 0 is LPT1; else the DCB at (n - 1) / 2,
-; as the source has it (SHR, where the DCBs are 4 bytes apart: so 1 and 2
-; are LPT1, 3 and 4 its flags byte, ...). Its column byte, plus 1. OO-1: the
-; bytes the source reads past LPT1's DCB are what LPTINI leaves in LPT2's and
-; LPT3's (a width of 80, the rest 0: they have no driver here), and past
-; those, where the 8086 reads its keyboard queue, 0.
+; LPOSP: LPOS(n) (272), n the FAC: the printer's column plus 1. OO-1 (the
+; IBM manual's p. 178: 0 or 1 LPT1:, 2 LPT2:, 3 LPT3:; the source reads the
+; DCB at (n - 1) / 2): 0 and 1 LPT1's; 2 and 3, which have no driver here,
+; 1 (column 0); past 3 Illegal function call (a default, for the owner's
+; veto).
 LPOSP:          JSR     CONINT         ; A: n, 0-255
-                CMP     #0
-                BEQ     LPTN0          ; 0: LPT1
-                DEC     A
-                LSR     A              ; the offset
-LPTN0:          TAX
-                BNE     @flg
+                CMP     #4
+                BCC     :+
+                JMP     FCERR
+:               CMP     #2
+                LDA     #0             ; LPT2:, LPT3:
+                BCS     @r
                 LDA     LPTPOS         ; LP1DCB+_LPPOS: LPT1's column
-                BRA     @r
-@flg:           CPX     #1             ; LPT1's _LPFLG: the CR flag, bit 0
-                BNE     @oth
-                LDA     LPCRF
-                ASL     A
-                ROL     A
-                AND     #1
-                BRA     @r
-@oth:           LDA     #0
-                CPX     #3             ; LPT2's and LPT3's widths
-                BEQ     @w
-                CPX     #7
-                BNE     @r
-@w:             LDA     #80
 @r:             INC     A              ; 1 relative
                 JMP     SNGFLT
 

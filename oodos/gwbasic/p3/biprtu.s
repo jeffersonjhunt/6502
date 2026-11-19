@@ -272,10 +272,22 @@ ENDNUM:         LDA     USEND          ; POPF
                 BEQ     :+
                 JMP     FLDFIN
 :               JSR     FRMEVL         ; the value
-                LDA     USDL           ; at most 24 digits
-                CLC
-                ADC     USCL
-                CMP     #25
+                LDA     USCL           ; at most 24 digits (OO-1: the point not
+                BEQ     :+             ; counted, the IBM manual's p. 272; the
+                DEC     A              ; source counts it)
+:               CLC
+                ADC     USDL
+                TAX                    ; (review round 1, F8: a leading "+" and
+                LDA     USDH           ; the floating "$" are places, not digits)
+                AND     #$0C
+                CMP     #$08           ; "+" before: bit 3 alone
+                BNE     :+
+                DEX
+:               LDA     USDH
+                AND     #$10           ; "$$" (or "**$")
+                BEQ     :+
+                DEX
+:               CPX     #25
                 BCC     :+
                 JMP     FCERR
 :               LDA     USDL           ; CX: the places before and after the

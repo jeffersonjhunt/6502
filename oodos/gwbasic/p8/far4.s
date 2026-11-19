@@ -55,6 +55,7 @@
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN, BSAVE, BLOAD
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
 .import SYNCHR, SNERR, FCERR, SAVSEG
+.import FRMEVL, FRESTR, OUTDO, CRDO, STROUT, FRCDBL
 
 .code
 
@@ -64,8 +65,119 @@ CLOSE:          FJSR    CLOSEP
                 RTS
 RESET:          FJSR    RESETP
                 RTS
-FILES:          FJSR    FILESP
-                RTS
+; FILES (OO-1, the IBM spec's fix-up: the IBM manual's pp. 102-103, the
+; owner's answer 1): the directory's name on a line before the names, here
+; the drive's root ("A:\": OODOS has no directories), and the drive's free
+; bytes on a line after them (" n Bytes free": function 46's records x 128,
+; printed as a double); P4's FILESP lists the names as the source does, and
+; is unchanged. The drive is the name's "d:" or the current one (function
+; 25), A-P only. No heading for a name that isn't a string, is null, or
+; names another drive (FILESQ's Type mismatch, Bad file name), nor the free
+; bytes when the listing ends in an error. The name is evaluated once, here,
+; and P4's FILESQ lists from its descriptor (review round 1, F10).
+FILES:          PHP                    ; CHRGTR's Z: no name
+                LDY     #DRV_GET       ; the current drive
+                JSR     BDOS
+                STA     FLSDRV
+                PLP
+                BNE     @name
+                JSR     FLSHED         ; no name: the current drive's
+                DECW    TXTPTR         ; (CHRGTR's Z again for FILESP)
+                JSR     CHRGTR
+                FJSR    FILESP
+                BRA     @free
+@name:          JSR     FRMEVL         ; the name, once (review round 1, F10):
+                JSR     FRESTR         ; P4's FILESQ takes its descriptor (a
+                LDA     RBL            ; number: Type mismatch)
+                STA     FLSDSC
+                LDA     RBH
+                STA     FLSDSC+1
+                LDA     (RBL)          ; its length
+                BEQ     @list          ; null: FILESQ's Bad file name
+                CMP     #2
+                BCC     @h             ; one character: the current drive
+                LDY     #1             ; its bytes
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR+1
+                LDY     #1
+                LDA     (PTR),Y
+                CMP     #':'
+                BNE     @h
+                LDA     (PTR)          ; "d:": its drive, A-P only (else no
+                AND     #$DF           ; heading: FILESQ's Bad file name)
+                SEC
+                SBC     #'A'
+                CMP     #16
+                BCS     @list
+                STA     FLSDRV
+@h:             JSR     FLSHED
+@list:          LDA     FLSDSC
+                STA     RBL
+                LDA     FLSDSC+1
+                STA     RBH
+                FJSR    FILESQ         ; (an error ends it: no free bytes)
+@free:
+                LDA     #<FLSREC       ; function 46's 3 bytes to FLSREC
+                LDX     #>FLSREC
+                LDY     #F_DMAOFF
+                JSR     BDOS
+                LDA     FLSDRV
+                LDY     #DRV_SPACE
+                JSR     BDOS
+                CMP     #0
+                BNE     @x             ; (its error: no line)
+                LDA     FLSREC         ; the records, 24 bits, made a single
+                STA     FACLO          ; (exact), times 128: P4's DSKLOF's way
+                LDA     FLSREC+1
+                STA     FACLO+1
+                LDA     FLSREC+2
+                STA     FACM1
+                LDA     #VT_SNG
+                STA     VALTYP
+                STZ     FACEXP
+                LDA     FACLO
+                ORA     FACLO+1
+                ORA     FACM1
+                BEQ     @dbl
+                LDA     #$80 + 24 + 7
+                STA     FACEXP
+@n:             BIT     FACM1
+                BMI     @sgn
+                DEC     FACEXP
+                ASL     FACLO
+                ROL     FACLO+1
+                ROL     FACM1
+                BRA     @n
+@sgn:           LDA     FACM1
+                AND     #$7F
+                STA     FACM1
+@dbl:           JSR     FRCDBL         ; a double: every digit
+                FJSR    FOUT           ; " n", FBPTR at it
+                LDA     FBPTR
+                STA     PTR
+                LDA     FBPTR+1
+                STA     PTR+1
+                JSR     STROUT
+                LDA     #<FLSBYT
+                STA     PTR
+                LDA     #>FLSBYT
+                STA     PTR+1
+                JSR     STROUT
+                JMP     CRDO
+@x:             RTS
+; FLSHED (OO-1): FILES's heading, FLSDRV's root, "A:\".
+FLSHED:         LDA     FLSDRV
+                CLC
+                ADC     #'A'
+                JSR     OUTDO
+                LDA     #':'
+                JSR     OUTDO
+                LDA     #$5C           ; a backslash
+                JSR     OUTDO
+                JMP     CRDO
 KILL:           FJSR    KILLP
                 RTS
 NAME:           FJSR    NAMEP
@@ -292,8 +404,14 @@ BPARM3:         JSR     SYNCHR
                 RTS
 
 .segment "BRAM"
+FLSDSC:         .res    2              ; FILES's name's descriptor, kept (OO-1)
+FLSDRV:         .res    1              ;   its drive, 0 A:
+FLSREC:         .res    3              ;   the drive's free records (function 46)
 LDFLG:          .res    1              ; LDBIN's RUNFLG, kept over RUNC
 BTYPE:          .res    1              ; BPARMS: bit 7, the name had a type
 BTXP:           .res    2              ; BSAVE's and BLOAD's text pointer, kept
 BHD8:           .res    6              ; their header: the segment, the offset, the length
 BOF8:           .res    2              ; BLOAD's offset given (CX)
+
+.rodata
+FLSBYT:         .byte   " Bytes free", 0 ; FILES's (OO-1)

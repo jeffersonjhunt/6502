@@ -3765,6 +3765,24 @@ dispatch tables that carry the block, and a build that gates the resident size w
 programs print and how numbers are formatted. It runs only in a throwaway container. The port keeps Microsoft's
 copyright and MIT notice.
 
+**Decided (2026-11-19, the owner): the specification is the IBM BASIC Reference 3.0.** The IBM Personal Computer
+BASIC Reference, third edition, May 1984 (BASIC 3.0, order number 6361134), is GW-BASIC's specification, with
+this rule:
+- the source is translated, as before;
+- the behaviour is the manual's where the manual speaks;
+- where it is silent, the source's;
+- where both are silent (the OEM layer the release leaves out: SCALXY, SETATR, SCRINP and the like), the OO-1's
+  choice, designed to the manual's wording and recorded (the owner's G1);
+- PC-BASIC is a test oracle only: an expected output may come from it only where it agrees with the manual, and
+  its behaviour is never a reason by itself.
+
+The manual (the scan, an OCR text and a README) is outside the repository, in
+`~/workspace/references/ibm-basic-3.0/`, read for meaning only: nothing of its text goes into the repository, and
+records cite its printed page numbers (Appendix A's as A-n). The audit of the built port (7a-7e1) and its plans
+against it, and the owner's answers to it ("recommendations as listed"), led to [the IBM spec's
+fix-up](#the-sub-phases) (after 7e1 in the sub-phases), which records what changed, the defaults it applied for
+the owner's veto, and what is left for after 1.0.
+
 ### The plan, phase 7 ###
 
 **Approved by the owner (2026-11-13).** Proposed 2026-11-13; every question at the end decided as recommended
@@ -4176,6 +4194,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       35,961 bytes free.
     - **File not open is Bad file number (52)**, PC-BASIC's answer, as the owner allowed for the four placeholder
       lines; the 1983 source maps it to Bad file mode (54, GWDATA.ASM's ERRFNO): a question for the owner.
+      *Re-cited (the IBM spec's fix-up, B15):* the manual's (A-4, error 52), but for GET and PUT, which are 54
+      (A-3; A2).
     - **The flat test image** leaves P4 out (it has no OODOS); `test/flatp4.s` stands in for its entries, so it
       ends at `$8E53` with its BSS, under check.py's `$9000` (G11).
     - Must-fail: the record's DMA address in block 2 (not P4's buffer); the next record not stepped; CLSALL left out
@@ -4233,7 +4253,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       zeros, for a PUT's read and for a GET past the end alike.
     - **/S:** is `MAXREC` (resident, 2 bytes: start-up will set it from the command line), 128 while the switches are
       passed over; LEN past it is Illegal function call (OO-1: the 1983 source takes any LEN, PC-BASIC refuses past
-      /S:), and it may be raised to 1,024 (W4).
+      /S:), and it may be raised to 1,024 (W4). *Re-cited (B17):* p. 221, recl can't pass /S:'s value; p. 223.
     - **CVI to MKD$** are P4's: the resident EVALNF (IBMRES.ASM's, +56 bytes with the hook's DATE$/TIME$ branch) makes
       one far call to P4's FUNDSX. P3's WRITE # pads a random record through P4's `CMPFBP` (a far call, OUTDO's run
       sent first). P1's ADRGET is an entry, for DPUTG.
@@ -4277,7 +4297,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       LF after a CR dropped, CR LF past its width, 80); KYBD: reads the OEM's keys (INCHRI), ^Z its end; CONS: writes
       by function 6 raw (OO-1: not $FD-$FF, function 6's requests).
     - **G10:** SEVSTT's id must be below the class's count unsigned too, so COM(200) (which passes the source's signed
-      JGE) is Illegal function call, as PC-BASIC gives it, never a flag past TRPTBL.
+      JGE) is Illegal function call, as PC-BASIC gives it, never a flag past TRPTBL. *Re-cited (B16):* p. 46, n is 1
+      or 2.
     - **LCOPY** parses as LCOPYS (a byte, the statement's end), then the OEM's LCPY is Advanced Feature until 7d's
       text layer (the console's screen is OODOS's). ERDEV and IOCTL are the source's Advanced Feature (ERDEV has no
       word in the 1983 table, so it is a variable). GIOTRM is dropped: every device's end is a RET here.
@@ -4804,7 +4825,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - PSET, PRESET, LINE (with B, BF and the style), CIRCLE (with the aspect), PAINT (with tiles), DRAW, POINT;
     - GET and PUT of graphics;
     - VIEW, WINDOW, PMAP;
-    - PALETTE.
+    - ~~PALETTE~~: dropped (the IBM spec's fix-up, the owner's G13: not in BASIC 3.0, and the source's word is a
+      Syntax error).
 
     They use Microsoft's algorithms on the OEM's pixel routines (MAPXYC, SETC, READC, the scan routines).
   - **Size:** P5's rest, about 8 KB; P5 in all 10.7–11.5 KB of 12 KB.
@@ -4821,7 +4843,12 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **The split** (the owner's answers to the 7e plan, 2026-11-19, "recommendations as listed"): 7e1 SCREEN 1 and 2,
     PSET, PRESET, POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on them, GRPRST (LIFEGFX runs); 7e2 CIRCLE,
     PAINT, DRAW; 7e3 GET and PUT, DEF SEG's page in SCREEN 1 and 2 (the PC's CGA layout); 7e4, written from their
-    meaning, VIEW, WINDOW, PMAP, PALETTE, LINE's style, PAINT's tiles, PEN; 7e5 the OO-1's modes 10-12. The scroll's
+    meaning, VIEW, WINDOW, PMAP, PALETTE, LINE's style, PAINT's tiles, PEN; 7e5 the OO-1's modes 10-12. *Revised
+    (2026-11-19, the IBM spec's fix-up, G13 and G16):* 7e4 is VIEW, WINDOW, PMAP, LINE's style, PAINT's tiles and
+    background, PEN and POINT(n) (the one-argument form: the cursor's physical x and y, and with WINDOW its world
+    x and y; pp. 258-259), with the IBM manual as their specification (VIEW pp. 357-361, WINDOW pp. 370-374, PMAP
+    pp. 256-257, the style pp. 156-158, the tiles pp. 237-243) and PC-BASIC the oracle where it agrees; PALETTE
+    and PALETTE USING are dropped (not in 3.0). The scroll's
     gate (answer 2) is the scroll less the interrupt handlers' cycles inside it.
   - **As built, 7e1** (Proposed, 2026-11-19; feat/gwbasic-7e1 off main `f61aca17`, the 7e plan with the owner's
     answers; units U1 `63058bf1` and `d6708179`, U2 `cda2406c`, U3 `096e7613`, U4 `a4b3dce7`, U5 `d0cea684`, and after
@@ -4930,6 +4957,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Recorded deviations** (for the owner):
       - **A line with an end off the screen is clipped as PC-BASIC clips it** (U6, above): the owner's ruling 1, a
         departure from the source's truncation. (Until U6 it was truncated, PC-BASIC's pixels differing.)
+        *Superseded (the IBM spec's fix-up, G2):* clipped on the line's own slope, the plain meaning of p. 159's
+        "clipped", against the test's own reference.
       - **A half-step pixel goes the source's way:** LINLP3 starts its sum at half the major delta and steps the
         minor axis at it (JB), so with an even major delta a pixel exactly half a step off the line goes toward the
         line's far end; PC-BASIC's goes toward its start (`LINE (300,10)-(310,50)`: x 300 on rows 10-11 here, 10-12
@@ -4937,11 +4966,16 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         clipped line's deltas its clamped ends'). Kept, the owner's ruling 2.
       - An attribute past the mode's last colour is that colour (PC-BASIC's: SETATR is the OEM's); `POINT` in
         SCREEN 0 Illegal function call (PC-BASIC's; the source's POINT doesn't ask PIXSIZ); `PSET @(x,y)` and
-        `POINT(STEP(...))`, which the source's SCAN1 and SCAND take, PC-BASIC refuses (not tested).
+        `POINT(STEP(...))`, which the source's SCAN1 and SCAND take, PC-BASIC refuses (not tested). *Re-recorded
+        (the IBM spec's fix-up):* the clamp is **the OO-1's choice** (G5: the manual and the source are both
+        silent past the attribute range, pp. 28, 156, 236, 277); POINT in SCREEN 0 is the manual's (p. 258,
+        graphics only); POINT STEP is Syntax error now (A7, p. 258); `PSET @(x,y)` stays the source's (the manual
+        is silent).
       - The overlay's (answer 5): POINT doesn't see text, PRINT doesn't erase graphics, the text scrolls alone, and
         PRINT CHR$(12) clears the text alone (CLS clears both).
       - DEF SEG's screen page is Illegal function call in SCREEN 1 and 2 (PEEK included) until 7e3.
-      - SCREEN's graphics page is CGA's one: `SCREEN 1,,1` Illegal function call (PC-BASIC's VGA takes it).
+      - SCREEN's graphics page is CGA's one: `SCREEN 1,,1` Illegal function call (PC-BASIC's VGA takes it). *Re-cited
+        (the IBM spec's fix-up, B9):* the manual's (p. 313: apage in text mode only; p. 314).
     - **Not done in 7e1:** CIRCLE, PAINT, DRAW (7e2); GET and PUT, DEF SEG's graphics page (7e3); VIEW, WINDOW,
       PMAP, PALETTE, LINE's style, PEN (7e4); the OO-1's modes (7e5); the books (7g). **The recount** (answer 8): P5
       took 2,811 bytes for an estimate of 2,900 (2,400-3,400), a ratio near the plan's; 6,758 free against 7e2-7e5's
@@ -4955,6 +4989,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - F2 (minor) CLS 2 and PRINT CHR$(12) re-centred the graphics cursor (SCNCLR's GRPINI, the source's), where
         PC-BASIC's keep it: SCNCLR calls it no more (CLS, CLS 0, CLS 1 and a change of mode centre it, as PC-BASIC's
         do, probed); G8 checks CLS 2 by hand from PC-BASIC's values. Mutant: SCNCLR's GRPINI kept (G8: (10,10) 1);
+        *undone by the IBM spec's fix-up (A1): the source's SCNCLR again, every clear centring it;*
       - F3 (minor) G1's and G2's comments said a too-high colour keeps its low bits (it is the last colour, as
         SETATR and PC-BASIC have it), and gfx1's PSET of 6 lay on a clipped line's path: moved to a clear pixel
         (gfx1.out again). Mutant: SETATR taking the low bits (G1: 1 row);
@@ -4967,12 +5002,355 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **The owner's rulings on the report** (2026-11-19): 1, the clipping (U6); 2, the half-step tie-break kept; 3,
       P1-P4's images accepted: the stop rule from now is that they differ only in moved resident addresses (the
       relocation check); 4, the other deviations accepted as recorded.
+- **The IBM spec's fix-up** (2026-11-19; feat/gwbasic-ibmspec off main `c473f3de`, the owner's rule and answers to
+  the audit, "recommendations as listed"): the built port, 7a-7e1, brought into line with its specification, the IBM
+  Personal Computer BASIC Reference, third edition, May 1984 (BASIC 3.0: [the rule](#gw-basic)). Units U1
+  (screen and graphics), U2 (Appendix A's messages), U3 (the language items where the manual speaks), U4 (this
+  record). Pages are the manual's printed numbers, checked on the scan.
+  - **U1, screen and graphics** (the audit's A items):
+    - A1: every clear centres the graphics cursor: SCNCLR calls P5's GRPINI again (the source's), so CLS 2 and PRINT
+      CHR$(12) do as CLS does (p. 36 for CLS; the manual is silent on the rest, so the source stands). 7e1's review
+      F2 is undone.
+    - A2: GET and PUT of a file not open are Bad file mode (54, p. A-3), the source's; every other "not open" stays
+      Bad file number (52, p. A-4).
+    - A3, A4 (G4): COLOR alone in SCREEN 1 changes nothing (p. 44: any parameter may be left out, changing nothing);
+      a third parameter is Illegal function call (p. 43's graphics form has two). Text mode as built.
+    - A6 (G2, with G1): a line with an end off the screen is clipped on its own slope (p. 159: out-of-range
+      coordinates clipped, in 2.0 and later), not by 7e1's U6 rule (PC-BASIC's, which moved the far end). DOGRPH
+      takes the ends as given (the source's SCALXY truncation is an OEM placeholder, G1), and LINCLP walks the given
+      line with LINLP3's own sum and steps, setting its points that are on the screen: the half-step tie-break
+      (7e1's ruling 2) is the source's still. LSKIP brings the walk at once to where its major coordinate meets the
+      screen (k steps' minor moves are the sum plus k times the minor delta, over the major: a 16 x 16 multiply and
+      a 32 / 16 divide), so a line from 32,000 off costs about 100,000 cycles; XDELT's sign is N xor V, for deltas
+      to 65,535, and LINCLP's sum keeps its 17th bit. B boxes are four such lines; a BF box's truncated corners are
+      the same clip (p. 158), and one wholly past an edge draws nothing (review F1). SCALXL is gone.
+    - A7: POINT STEP(x,y) is Syntax error (p. 258: the coordinates absolute; the source's SCAND takes STEP).
+    - A8 (G6): in a graphics mode SCREEN(row,col) is 0 for a blank text cell with any pixel not 0 under it (p. 311;
+      P5's GCELL looks at the 8 x 8), the character where there is one (the text is over the graphics here, the
+      owner's answer 5 of 7e), and SCREEN's z is Illegal function call (p. 310: text mode only).
+    - A9: a change of WIDTH sets the border black (p. 367): SWSET clears BRDC. A WIDTH that keeps the width changes
+      nothing, as before.
+    - **Found on the way:** GTPRMS left the flags past its count as the last statement set them, so after a COLOR
+      with three parameters, SCREEN 1 or 2 read the third as an apage and gave Illegal function call (`COLOR
+      7,0,1:SCREEN 1` failed on main). Every flag is cleared first (7 bytes of P6). Its mutant fails G6.
+  - **U2, Appendix A's wording** (G15): the 13 messages that differ take Appendix A's text together (checked on the
+    scan, A-3 to A-17): Out of data (4), Duplicate definition (10), Device timeout (24), Device fault (25), FOR without
+    NEXT (26), Out of paper (27), Field overflow (50), Device I/O error (57), Device unavailable (68), Disk write
+    protect (70), Disk not ready (71), Advanced feature (73), Path/file access error (75). ERR's numbers are the
+    same. (This record and the code's comments keep the old spelling where they name an error, as "Advanced
+    Feature"; what GW-BASIC prints is the manual's.)
+  - **U3, section C's items where the manual speaks:**
+    - 1: error 26's text (with U2).
+    - 3: an LF ends INPUT #'s number or unquoted string (pp. 133-134); LINE INPUT # keeps it (the source's). The
+      source's LPISLF dropped it and went on. f_input now agrees with PC-BASIC.
+    - 7: PRINT USING of 10^16 and more keeps its sign before the free format: `%-1E+16` (p. 272); the form stays the
+      source's ($FOUT's), where PC-BASIC prints every digit.
+    - 8: E format keeps a negative number's sign in the digit place before the point: `-.3333334000E+00` (p. 271).
+      $PUFXE fits the field from FBUFF when $FOTZS's text starts there.
+    - 9: PRINT USING's 24 digits are counted without the point (p. 272).
+    - 10: RANDOMIZE takes a single or double n (p. 286): within the integers the seed is FRCINT's, as before; past
+      them (|n| of 32,768 or more) it is the single's bytes folded (FACLO's two, FACM1 with FACEXP: the manual is
+      silent on how, so the OO-1's, a default). **Against p. 287's example** (seed 3: .7655695 .3558607 .3742327
+      .1388798; seed 4: .1719568 .5273236 .6879686 .713297): the port gives .2226007 .5941419 .2414202 .2013798 and
+      .628988 .765605 .5551561 .775797 (each after CLEAR or as a program's RUN; the same seed again gives the same
+      run, as p. 287 says). The values differ: IBM 3.0's generator or seeding isn't the 1983 source's, which the
+      port keeps (the manual gives no rule). Kept, by the owner's option A (below: the source's generator, the
+      difference recorded). The prompt differed in case too (p. 286-287 print `Random Number Seed (-32768 to
+      32767)?`, the source `Random number seed`): the manual's since U8 (the owner's answer 3).
+    - 11: RENUM changes the reference itself (p. 293): CONDX keeps CONTXT as the line's constant left it, and MAKPTR
+      writes there, not over a constant after it.
+    - 14: LLIST takes no file name (p. 166): `LLIST 10,"name"` is Syntax error.
+    - 15: RUN of a text file enters a last line with no CR before it runs (p. 306: RUN name loads, as LOAD, which
+      keeps it): MAIN takes the line DSKCHP left and FINIH runs once it is in (RUNPND, P8). CHAIN's end still drops
+      such a line (the source's: item 15 is RUN's). 7c's W4 case now runs both lines.
+    - 17: LPOS(0) and LPOS(1) are LPT1:'s column + 1 (p. 178); 2 and 3 (LPT2:, LPT3:, no driver here) are 1, and past
+      3 Illegal function call (Q8's default).
+    - 18: ERDEV and ERDEV$ are words (pp. 91-93; the 1983 table has none; their values since U7, below): crunched to `$FE $95` (the source's
+      STMDSX token) and `$FE $A2` (the OO-1's), listed back, read in a formula through EVALX's far call to the home
+      block's ERDEVP, and as a statement (an assignment too) Syntax error. Their values are 0 and "": nothing records
+      a device error yet, since OODOS's errors are mapped in P4, which has no room (a default; with P4's relief they
+      can take the BDOS's physical error and the drive). 17 bytes of the resident core.
+    - **Defaults applied** (the audit left the reading open; listed again below, for the owner's veto):
+      - 2, FILES's heading and bytes free: built in U5 (below), after the owner's answer 1: a heading line with
+        the drive's root and a bytes-free line.
+      - 4, LOF in bytes: built in U7 (below), after the owner's answer 2: OODOS keeps CP/M 3's last-record byte
+        count, so LOF is the bytes.
+      - 12: record numbers past 32767 are taken (pp. 113, 279; A-4), up to 65,535 (ADRGET's reach); since U7 (the
+        owner's answer 2) a record whose bytes reach past CP/M 3's 18-bit random record, 128-byte record 262,143
+        (32 MB), is Bad record number, not the source's Illegal function call, and so is one that would cross it;
+        a negative number is Bad record number still (P1's ADRGTS gives FRQINT's sign).
+      - 13: 0 MOD 0 is Division by zero (A-8): IMOD tests the divisor first. spk_rnd1 and spk_rnd3 agree with
+        PC-BASIC now.
+      - 19: SPC(n) of a negative n and TAB(n) of one below 1 are Illegal function call (pp. 327, 340). print.bas's
+        TAB(0) became TAB(1), which prints the same (a new line); tabneg tests the refusals.
+      - 20: reading a file opened for output or append (INPUT #, LINE INPUT #, INPUT$) is Input past end (62, A-11),
+        not Bad file mode; writing one opened for input is 54 still. f_e54 now shows 54 by an OPEN mode of "Q".
+      - Q6, Q9, Q10, Q11: the source's, as built.
+      - Q8: with item 17.
+    - Items 5, 6 and 16 (KEY 15-20, ON PLAY, TIMER) are 7f's.
+  - **Sizes** (bytes; main `c473f3de` → after the fix-up): the resident core 11,448 → 11,465 (EVALX's ERDEV branch),
+    **free for BASIC 34,792 → 34,775** (the stop line 34,768); P1 8,439 → 8,488 (3,800 free); P2 5,782 → 5,815
+    (6,473); P3 4,985 → 5,018 (7,270); **P4 12,223 → 12,220 (65 → 68 free)**: LPOS, LPISLF and DPUTG gave back what
+    A2's, item 12's and item 20's code took; P5 6,047 → 6,472 (6,241 → 5,816: the clipping 349, GCELL 54); P6 11,634
+    → 11,698 (654 → 590); P8 3,210 → 3,272 (9,016).
+  - **Cycles** (the fast build; timed()'s method, after U3): `PSET (X%,Y%),1` in SCREEN 2 **2,027** (the gate
+    9,000); `LINE (0,0)-(639,199),1` **132,800** (200,000); `PRINT A$;` of 80 characters **21,216** (30,000); the
+    whole-window scroll **13,298** less the interrupt handlers in it (14,000; 13,835 with them); for the record, a 7 x 7
+    BF in SCREEN 1 7,524, `LINE (0,0)-(319,199)` 68,894, CLS in SCREEN 1 62,461 and in SCREEN 2 64,362, and `LINE
+    (-32000,-32000)-(32000,32000)` in SCREEN 2, clipped, 101,222.
+  - **Tests,** each new or changed check seen failing under its mutant on its own case (OOE_TEST_CASES), the source
+    then restored; the mapped suites pass at each unit:
+    - U1: G8 (`run_and_cls_centre_the_graphics_cursor`: SCNCLR's GRPINI left out); `files_typed_at_the_prompt_by_hand`
+      (GET #1,1 and PUT #2: DPUTG's not-open branch on DERFNO); G6 (`color_on_a_graphics_screen`: GCOLOR refusing no
+      parameters; taking a third; GTPRMS's flags not cleared); `lines_off_the_screen_are_clipped_on_their_own_slope`,
+      new, against the test's own reference, in SCREEN 1 and 2 (7e1's lines and B boxes off the screen, moved out of
+      gfx1 and gfx2, whose dumps PC-BASIC made again for what is left; lines from +-32,000 and -32768; the half step):
+      LSKIP's minor move left out, the sum's 17th bit left out, XDELT's sign by N alone; `point_and_screen_in_a_
+      graphics_mode_are_the_manual_s`, new: SCRNFP's far call to GCELL left out, z taken in a graphics mode, POINT
+      taking STEP; `the_border_shows_in_the_bands` (WIDTH 80 after COLOR ,,4: SWSET keeping BRDC).
+    - U2: the 13 messages back to the 1983 table's: every changed case fails (core 6, stmts 1, files 9, screen 1, the
+      flat programs e_dd and e_dd2). e_fn.differ is gone; e_od, optdd, optdd2, d_e75, e_dd and e_dd2 have a
+      `.differ` with the manual's text (PC-BASIC prints the source's).
+    - U3: f_input (LPISLF's LF kept); pusng, pudbl (the sign not put back), puexp (the scan from FBUFF+1), pufc3 (the
+      point counted); randomov (FRCINT for all); renumu2 (MAKPTR at CONTXT); r_field (32768 refused; ADRGTS's sign
+      ignored); the LEN 200 and 1,024 records (the reach's check, the last byte's check); spk_rnd1 and spk_rnd3 (IMOD
+      equal operands first); c_list (LLIST's name taken); l_text and W4 (the last line dropped); LPOS (2 and 3 as
+      LPT1's; past 3 taken); ERDEV (ETABX's words, EVALX's branch, the statement's SNERR); tabneg (a negative SPC
+      taken); f_errs (INPUT # and INPUT$ of an output file 54). The math model (test/mbf.py's imod) tests the divisor
+      first.
+    - **Expectation changes:** the audit's, approved; and, as consequences of the defaults: print.bas's TAB(0) is
+      TAB(1) (the same output), f_e54.bas's OPEN "Q" (the 54 it was for), W4's RUN prints both lines, the LPT1
+      case's INPUT #1 is Input past end, and r_field's line 150 shows the zeros GET #1,32768 now reads (as
+      PC-BASIC's).
+  - **The B items, now the manual's** (built before, by PC-BASIC's or the source's, and kept; the records above that
+    cite PC-BASIC for them cite these pages now; PC-BASIC agrees with each):
+
+    | # | Behaviour | Manual |
+    |---|---|---|
+    | B1 | a line off the screen is clipped (its pixels: A6) | p. 159 |
+    | B2 | a BF box wholly past one edge draws nothing; BF fills B's rectangle, clipped | pp. 158-159 |
+    | B3 | WIDTH 80 in SCREEN 1 is SCREEN 2, WIDTH 40 in SCREEN 2 SCREEN 1 | p. 367 |
+    | B4 | any COLOR in SCREEN 2 is Illegal function call | p. 43 |
+    | B5 | SCREEN 0 after a graphics mode has the width it left | pp. 312, 368 |
+    | B6 | the same mode again changes nothing | p. 313 |
+    | B7 | a change of mode erases the screen; white on black, the border black | p. 313 |
+    | B8 | SCREEN 3 and past Illegal function call | pp. 312, 314 |
+    | B9 | `SCREEN 1,,1` Illegal function call | pp. 313-314 |
+    | B10 | POINT in SCREEN 0 Illegal function call | p. 258 |
+    | B11 | POINT off the screen is -1 | p. 258 |
+    | B12 | CLS and a change of mode centre the graphics cursor | p. 36 |
+    | B14 | the default colour is the mode's last | pp. 28, 156, 236, 277 |
+    | B15 | a file not open is Bad file number (52), but for GET and PUT (A2) | p. A-4 |
+    | B16 | COM(200) Illegal function call | p. 46 |
+    | B17 | LEN past /S: Illegal function call | pp. 221, 223 |
+    | B18 | DRAW, CIRCLE, PAINT in SCREEN 0 Illegal function call (7e2's plan) | pp. 28, 72, 236 |
+  - **The OO-1's own, past 3.0** (G3, G5): CLS n (0, 1, 2: the source's CLS takes it, the manual's form is plain CLS,
+    p. 36) and WIDTH n,m (25 or 30 rows: question 8; the manual's forms take a size alone, pp. 366-367) are kept as
+    OO-1 extensions; every CLS form centres the graphics cursor (A1). A colour past the mode's last is that colour
+    (SETATR's clamp), the OO-1's choice where both are silent (G5).
+  - **The defaults, for the owner's veto** (where the audit left a reading open; each is in the code and tests as
+    built, and a veto changes only it):
+    - C-1 item 2, FILES: a heading line with the drive and a bytes-free line: *built in U5* (below; the owner's
+      answer 1).
+    - item 4, LOF: the bytes, OODOS keeping CP/M 3's last-record byte count: *built in U7* (below; answer 2).
+    - item 10's seeding past the integers: the single's bytes folded (FACLO, FACLO+1; FACM1, FACEXP); since review
+      round 1 (F6) for what FRCINT would refuse, by the value.
+    - item 12: *since the owner's interim cap* (2026-11-19, review round 1's record below) records stop at 32,767,
+      main's limit: an explicit number past it, or a GET or PUT with no number that would step past it, is Bad record
+      number; -1 Bad record number. The manual's range, to 16,777,215, is owed (F3, with P4's relief).
+    - item 13: 0 MOD 0 is Division by zero.
+    - item 18's values: *since U7* OODOS's physical error's code and the SCB's error drive (below).
+    - item 19: SPC(n<0), TAB(n<1), and since review round 1 (F5) either past 255, are Illegal function call.
+    - item 20: reading a file opened for output or append is Input past end (62).
+    - Q6, Q9, Q10, Q11: the source's (the tail of a file whose last quoted item never closes; STRING$ of a null
+      string; the format-only cases `c_e5`, `c_e7`, `clearcm2`, `onevnl`; CLEAR closing the files).
+    - Q8: LPOS(2) and LPOS(3) are 1, LPOS(n>3) Illegal function call.
+  - **Found, for the owner** (the manual on the scan, past the audit's list; the first two answered since): RANDOMIZE
+    3 and 4 don't give p. 287's numbers (item 10, above: kept, option A); RANDOMIZE's prompt is "Random Number Seed"
+    in the manual (pp. 286-287), "Random number seed" in the source (the manual's since U8); A-8 says a division by zero can't be trapped by ON ERROR (the
+    source's Division by zero, a message and machine infinity, the program going on, is the same thing in effect).
+  - **For after 1.0** (section D's rest, the owner's G16; 7f and 7e4 take KEY 15-20, PLAY's `>` and `<`, the TIMER
+    seed, ON COM(n), POINT(n)):
+    - DELETE line- (to the end; p. 68);
+    - /D, the double-precision ATN, COS, EXP, LOG, SIN, SQR, TAN (pp. 6, 50, 98, 177, 322, 328, 341);
+    - `<stdin` and `>stdout` on the command line, and EOF(0) (p. 87);
+    - /M:'s second value, the largest block size;
+    - Ctrl-PrtSc, the screen echoed to the printer;
+    - OPEN "COM...,PE", parity checking (pp. 226-232);
+    - IOCTL and IOCTL$ (pp. 139-141), and OPEN of an installed device driver (3.0), both waiting on OODOS;
+    - SHELL (pp. 317-321) and ENVIRON, ENVIRON$ (pp. 81-86), 7g's questions, SHELL an OODOS interface question;
+    - record numbers past 65,535 (ADRGET's 16 bits; the manual's reach is 16,777,215).
+  - **The owner's answers to the first build** (2026-11-19, "recommendations as listed for the four"), built as U5-U8
+    on the same branch:
+    - **U5, FILES** (answer 1): the home block's FILES stub (`p8/far4.s`) prints the heading line before P4's
+      FILESP, which is unchanged, and the bytes-free line after it (pp. 102-103). The heading is the drive's root,
+      `A:\` (OODOS has no directories), the name's `d:` or the current drive (function 25); none for a name that
+      isn't a string or is null (FILESP's Type mismatch, Bad file name), as PC-BASIC; a name with a bad drive
+      (`Q:`) has its heading, then Bad file name. The free bytes are function 46's records x 128, printed as a
+      double: ` 7995392 Bytes free` on the test card's A:. An error in FILESP (File not found) ends it after the
+      heading, as PC-BASIC. P8 +247 bytes. d_files.differ by hand; the hand cases check the heading, the count a
+      multiple of 128 that falls by at least 16,384 for a 16 KB file, and B:'s heading with File not found.
+    - **U6, P4's relief** (answer 2), measured first:
+      - FIELD, LSET, RSET (`p4/dskcom.s`): FIELDP 137 bytes, which needs P4's FILSCN and GETDAT (moved, a far call
+        back into P4 at every FIELD); LSETP and RSETP 313 bytes and 8 of RAM, which use only the resident core's
+        string routines (FRMEQL, FRESTR, GETSPA, STRINI, PUTNEW): no new far call.
+      - The COM driver (`p4/giocom.s`): 1,124 bytes, 35 of tables, 21 of RAM, and 23 P4-local routines it calls
+        (INIFDB, DEVBIN, DEVBOT, FILOPT, the DER* errors, CRIFEL, UPDPOS, GETDAT...), reached through GIOTBL's
+        device dispatch for every byte a COM file moves: a far call each way a byte if moved.
+
+      LSET and RSET are the clean part of the less-connected candidate and moved whole, to `p3/dskcom.s`; FIELD
+      stays. Their two P4 jump-table slots are kept, retired (LSETR, RSETR: an RTS), so P4's later entries keep
+      their places: P1, P2, P5 and P6 are byte-identical to before the move, the resident core differs in 4 bytes
+      (far calls to P3's entries after `dskcom.s`) and P8 in 19. A loop's statement, before → after the move:
+      PUT #1,1 17,120 → 17,025 cycles; GET #1,2 17,259 → 17,130; LSET 2,188 → 2,199; RSET 2,162 → 2,163; CVI
+      2,745 → 2,748; FIELD 2,848 → 2,850 (the case `random_file_statements_in_a_loop_are_timed`). P4 12,220 →
+      11,901 (387 free), P3 5,018 → 5,344.
+    - **U7, with the room** (answer 2):
+      - **LOF in bytes** (p. 175): CLOSE keeps the last record's byte count with the file (function 30, f6': an
+        output file's last record's bytes, the ^Z counted; a random file's size's), OPEN reads it back (CR `$FF`,
+        OODOS 0.6). An input file's LOF is its records less the last one's unused bytes; a random file's the
+        larger of its size at the first PUT or LOF and the furthest byte a PUT has written (record x LEN); an
+        output file's the records x 128 still (its last record is the buffer until the close); an append file's,
+        while open, the records with the old count. The size goes to the FAC as an exact double. f_locof (601, 4)
+        and r_lof (100, 200, 700) agree with PC-BASIC; FTIME's 1,664 is 1,601, LEN 200's five records 1,000. A PUT
+        costs 2,419 cycles more (19,444: the record x LEN multiply each PUT); a GET 176 (17,306: the 3-byte record).
+        That 7d3 BLOAD's ^Z cut could use the count too is left as it was.
+      - **ERDEV and ERDEV$** (pp. 91-93), the OO-1's: a device error is a physical error of OODOS's, which P4's
+        PBDOS keeps (a new P4 entry, ERDVGT, after DSKCHP); ERDEV is its code, appendix A's 1-9 (the high byte 0,
+        where a PC's has the device's attributes), and ERDEV$ the drive it was on, `A:` to `P:`, the SCB's error
+        drive (`$51`, function 49); 0 and "" before any. After an OPEN on H: with no image, ` 4 <H:>`.
+      - **Records to 32 MB:** RECRD is 3 bytes and R2 its top bits, so a random file reaches CP/M 3's 18-bit
+        random record; a record whose last byte is past 128-byte record 262,143 is Bad record number. Record 20,000
+        of LEN 1,024 (past 8 MB) is PUT, read back and sized again from the disk after a reopen; LEN 600's 55,924
+        fits and 55,925 doesn't; LEN 1,024's 32,768 fits and 32,769 doesn't.
+      - P4 11,901 → 12,277 (11 free); P8 3,519 → 3,576.
+    - **U8, RANDOMIZE's prompt** (answer 3): `Random Number Seed (-32768 to 32767)? `, the manual's (pp. 286-287);
+      randin's `.differ` has it.
+    - **Free for BASIC** (answer 4): 34,775, 7 bytes above the floor (34,768). Noted: a later resident change that
+      reaches it comes to the owner.
+    - **RND** (the owner, 2026-11-19, option A): RND stays the manual's repeatable generator (pp. 286-287), the
+      source's, kept; its numbers differ from p. 287's printed ones (seed 3: .2226007 .5941419 .2414202 .2013798
+      here, .7655695 .3558607 .3742327 .1388798 there; seed 4: .628988 .765605 .5551561 .775797 here, .1719568
+      .5273236 .6879686 .713297 there), recorded, with no attempt to reproduce IBM's generator. A true random
+      source is planned with 7f (below).
+    - Mutants, each seen failing on its own case: U5 the heading left out, the free line left out, the drive's
+      letter not taken; U6 LSET's stub on the retired slot; U7 the close's count left out, the open's CR 0,
+      LOFPUT left out, DSKSZ's count ignored, R2 0, the reach's 4 an 8, ERDCOD not kept, ERDEV$'s letter off by
+      one (R2 0 and the reach first passed: the case gained a LOF from the disk after a reopen, and a redundant
+      start check went, then both failed); U8 the source's prompt.
+    - **Sizes after U8:** the resident core 11,465, free for BASIC 34,775; P1 8,488 (3,800 free), P2 5,815
+      (6,473), P3 5,344 (6,944), P4 12,277 (11), P5 6,472 (5,816), P6 11,698 (590), P8 3,576 (8,712).
+    - **Cycles after U8** (the gates): `PSET (X%,Y%),1` 2,027 (9,000); `LINE (0,0)-(639,199),1` 132,774 (200,000);
+      `PRINT A$;` 21,216 (30,000); the scroll 13,300 less the interrupt handlers (14,000; 13,882 with them).
+  - **The defaults, for the owner's veto, now** (U5-U8 applied): FILES's heading is the drive's root (`A:\`), and
+    a name whose drive isn't A-P has none (review round 1, F10); ERDEV's high byte is 0 and ERDEV$ the SCB's error
+    drive; RANDOMIZE's seed that FRCINT would refuse is the single's bytes folded; 0 MOD 0 Division by zero; SPC(n<0),
+    TAB(n<1) and either past 255 Illegal function call; reading a file
+    opened for output Input past end (62); LPOS(2) and LPOS(3) 1, past 3 Illegal function call; Q6, Q9, Q10, Q11
+    the source's.
+  - **The fix-up's review round 1** (2026-11-19; the owner: "recommendations as listed", all ten "fix"; 10 findings,
+    all new, no revisions). Each fix's check seen failing under its mutant on its own case (ibmspec's mut.log); the
+    mapped suites pass:
+    - F1 (major) INPUT # ended the next item empty at an LF after a quoted string or a trailing space, and didn't
+      pass over leading LFs: NOTNWT passes over leading spaces, CRs and LFs for INPUT # (not LINE INPUT #), the
+      manual's pp. 133-134. `"abc"` LF 5, `3 ` LF 5 and 1 LF LF 2 read 5, 5 and 2. f_input's and f_write's `.differ`s
+      follow (an empty line is no item; PC-BASIC reads one). Mutant: the LF's skip left out.
+    - F2 (major) CLOSE of a random file only read, after a LOF, called function 30 and failed on a read-only drive:
+      the count is kept only if it changed (a PUT past the size at open). Mutant: the test left out.
+    - F3 (major) LOC of a random record past 32,767, and GET and PUT without a number past 65,535: **stopped, not
+      built** (P4's room: below).
+    - F4 (minor) RUN of a text file whose last line, with no CR, is only blanks or a tab didn't run: MAIN puts in
+      such a line only if it holds more than blanks and tabs, else runs at once. Mutant: the blank's skip left out.
+    - F5 (minor) SPC and TAB past 255 are Illegal function call (pp. 327, 340); tabneg gains them. Mutant: TABER's
+      test of the high byte by its sign only.
+    - F6 (minor) RANDOMIZE folds only what FRCINT would refuse, decided by the value (-32768 to -32768.49 and up to
+      32767.49 FRCINT's): -32768 seeds the same as a number, an integer variable and at the prompt; 32767.6 is
+      folded, not Overflow (randomov gains it, PC-BASIC's run again). Mutants: the -32768 case folded; 32767.6 to
+      FRCINT.
+    - F7 (minor) an open APPEND file's LOF is the bytes on the disk to the record its buffer goes to and those in the
+      buffer (APPFIN marks the file; DSKSZA): 349 after appending 300 to 49; the veto list's default goes. Mutant:
+      the mark left out.
+    - F8 (minor) PRINT USING's 24 digits don't count a leading `+` or the floating `$` (p. 272). Mutant: the `+`
+      counted.
+    - F9 (nit) the first veto list above corrected (FILES, LOF, 32 MB, ERDEV built).
+    - F10 (nit) FILES's heading only for a drive A-P (`FILES "1:"` Bad file name, no heading), and the name is
+      evaluated once, by the home block, P4's FILESQ listing from its descriptor (FILES INPUT$(5) takes five keys).
+      Mutants: the A-P test left out; FILESQ evaluating again.
+    - **P4's room** (the owner's leave to move one more cold routine): P4 had 11 bytes. Measured: DIRHK (the
+      directory hook, `p4/oem.s`: 53 bytes; called by the home block's CHDIR, MKDIR, RMDIR stubs alone; the
+      resident core's FRMEVL, FRESTR, ERROR only; no file loop runs it) and CVI-MKD$ (`p4/dskcom.s`, FUNDXP and its
+      six functions: 74 bytes and a 12-byte table; called by the resident EVALNF's far call; the resident core's
+      only; CVI is in record loops, a far call either way). DIRHK is the least connected: moved whole to `p3/oem.s`,
+      its P4 slot retired (DIRHR), so P4's later entries keep their places; no cycle added (the stubs far call P3
+      instead). P2, P5, P6 byte-identical; P1 differs only by F5's own fix (TABER two bytes shorter); the resident
+      core in 4 bytes (far calls to P3's entries). F1, F2, F7 and F10's P4 parts then fit, 2 bytes left.
+      **F3 doesn't fit:** its draft (FD_PHY, which nothing set after RNDFIN, made the record number's top bits;
+      DSKRND's next record carried into it; MULHI adding NHI x 65,536 x LEN; LOC's double through LOCDBL; the
+      buffer's never-set record test dropped) needs about 110 bytes of P4. No clean candidate of that size is left:
+      CVI-MKD$ (86) with DIRHK's (53) would not reach it either, and the large ones (CHAIN, 1,446 bytes; the COM
+      driver, 1,124) call P4's routines (PRGFLI, SKPNAM, RUNFLG; the device dispatch per byte), costing far calls
+      past 300 cycles on CHAIN or on every COM byte. Stopped for the owner, with the draft kept.
+    - **The owner's ruling on F3 and P4** (2026-11-19, "recommendations as listed"): a second move, CVI-MKD$ with
+      its table, and F3 built with compaction; if it still doesn't fit, stop. **The second move is built:** FUNDXP,
+      CVI, CVS, CVD, MKI, MKS, MKD and FUNDSX (86 bytes) to `p3/dskcom.s`; P4's slot retired on LSETR's RTS
+      (FUNDXR, no byte); the resident EVALNF's far call goes to P3 instead, no more than before (in a loop CVI 2,745
+      → 2,745 cycles, MKI$ 3,249 → 3,252); P1, P2, P5, P6 byte-identical, the resident core differing in 6 bytes and
+      P8 in 16 (far calls to P3's later entries). P4 12,200 bytes, 88 free; P3 5,540 (6,748 free). **F3 still
+      doesn't fit:** built on the draft and compacted (the record number's top bits in FD_PHY; the next record's
+      carry; MULHI's count in X and Y; LOC's double told by VALTYP, no flag; the buffer's never-set test gone; zero
+      page's wrap for the stores; FNUMX by `(FDBP)`; the end check's branch; DIRHK's stub on RECCOM's RTS), it is
+      22 bytes past P4's end. Stopped again, nothing else moved, the compacted draft kept with the fix-up's notes;
+      LOC still reads FD_LOG as an integer, and GET and PUT with no number still wrap past 65,535.
+    - **The PRINT USING checks this round took from the port's output, redone by hand** from the manual (p. 269:
+      a "+" first prints the number's sign just before it, "$$" a "$" at its immediate left, each one place more):
+      `PRINT USING "+" + 24 "#"; 1` is 23 blanks and `+1`, `"$$" + 23 "#"` 23 blanks and `$1`, 25 "#" Illegal
+      function call. PC-BASIC prints the same three. Nothing changed.
+    - **A P4 relief plan is owed before 7f** (the owner, 2026-11-19): ON COM(n)'s trap touches P4's COM driver, and
+      P4 has 88 bytes free with F3 still to come. The plan: what of P4 is cold and self-contained enough to move,
+      measured as these two moves were, or a split of the file layer between two blocks, with each looped file
+      operation's cost.
+    - **The interim cap** (the owner, 2026-11-19, option A; an OO-1 limit for now, by the owner's ruling): record
+      numbers stop at 32,767 again, main's limit, so LOC can't go negative and GET and PUT can't wrap. DSKRND's
+      JLE is back for an explicit number (past 32,767, or 0 or less, Bad record number), and the next record of a
+      GET or PUT with no number is refused the same way past 32,767 (main's wrapped there). The rest of U7 stays:
+      LOF in bytes, ERDEV's values, the byte count, R2 for 128-byte records past 65,535. The 18-bit check on a
+      record's last byte goes: record 32,767 of LEN 1,024 (MAXREC's most) ends in 128-byte record 262,135, inside
+      CP/M 3's 262,143, so it can't be reached (34 bytes back: P4 12,200 → 12,166, 122 free). Expectations back
+      to main's, as approved: r_field.differ and the gwbasic README's line (32768 Bad record number); the LEN 600
+      and 1,024 hand cases now read 32,767 and refuse 32,768. Two new hand cases, `record_32767_is_the_last_an_
+      explicit_32768_is_refused` and `get_and_put_with_no_number_stop_after_record_32767`, each seen failing on its
+      own case under its mutants: the explicit check gone, the sequential check gone, each cap moved down to
+      32,512 (record 32,767 refused), and DSKLOC reading FD_LOG's high byte (LOC at 32,767 not 32767).
+    - **Owed, with the P4 relief plan before 7f:** the manual's range for record numbers (pp. 113, 279, A-4: up to
+      16,777,215; on the OO-1 within CP/M 3's 32 MB, 18 bits of 128-byte records), and F3 with it: LOC the true
+      record number (a single or double past 32,767), GET and PUT with no number carrying past 65,535 (FD_PHY as
+      the top bits), the 18-bit check on the last byte back. The compacted draft (22 bytes past P4 when tried) is
+      kept on branch `wip/gwbasic-f3-draft` (`a758fac2`, on top of `52249dcf`, before the cap); it doesn't link,
+      by those 22 bytes.
+    - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
+      BASIC 34,775. After the second move (above): P3 5,540 (6,748), P4 12,200 (88); after the interim cap
+      (below): P4 12,166 (122). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
+      interrupt handlers; in a loop, PUT #1,1 18,545, GET #1,2 17,310, LSET 2,187, RSET 2,163, CVI 2,745, FIELD
+      2,849.
+  - **Not done in the fix-up:** review round 1's F3 (above: 22 bytes past P4 after the second move and the
+    compaction; record numbers capped at 32,767 for now, the manual's range owed); the records of 7a-7d are left as written, but for the re-citations above (a line
+    that cites PC-BASIC there for a B item is read with this table). Items 5, 6 and 16 are 7f's.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
     - STICK, STRIG, ON STRIG on the controllers;
     - ON KEY(n) and KEY(n) on the queue;
     - ON TIMER and TIMER on the millisecond counter and function 105.
+    - *Added (2026-11-19, the IBM spec's fix-up, G16):* ON COM(n)'s trap (7c left it to 7f, and this list hadn't
+      it); KEY 15-20, the user-defined trap keys (`KEY n,CHR$(flags)+CHR$(scan code)`, pp. 142-148, 205-208);
+      PLAY's `>` and `<`, an octave up or down (pp. 250-251); RANDOMIZE's seed from TIMER (`RANDOMIZE TIMER`, p.
+      286: the fix-up already takes a single or double seed, so TIMER past 32767 doesn't overflow). Also from
+      the manual: PLAY's P0 is outside P's 1-64 (the source takes it as no pause), and SOUND's shortest duration.
+    - *Planned (the owner, 2026-11-19, option A), its own small plan alongside 7f:* a random source. A new BIOS
+      function returns random bytes from SID voice 3's noise (its oscillator read), only when the sound card's 6510
+      isn't playing (the busy case is that plan's question); the BIOS's jump table grows and its version is raised;
+      OODOS programs reach it through OOLIB too. RND stays the manual's repeatable generator; GW-BASIC gets a
+      recorded OO-1 extension that reseeds RND from the BIOS function.
   - **Size:** 6–8 KB banked.
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.
@@ -5115,7 +5493,8 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
     run): GW-BASIC must not start that way. Decided 2026-11-13 with the patched sites, in place of the
     dispatcher's page table; 7a's build with the lookup off by one is refused by the loader's own page check
     ("GWBASIC.OVL is damaged"), and test_gwbasic_core's loading and far call cases fail;
-  - `.3333334` against the oracle (the expected file fails until [question 3](#phase-7s-questions) is followed);
+  - `.3333334` against the oracle (the expected file fails until [question 3](#phase-7s-questions) is followed;
+    *corrected 2026-11-19, G14:* the port and the oracle both print `.3333334`, the source's);
   - one expected transcript changed by a character;
   - **the key order (V2):** "1", "2", "3" pressed within one frame must come back from INKEY$ as "123", once each.
     A build that also reads the cooked keys (the keys twice), or that drains the queue from the head, fails it;
@@ -5183,7 +5562,9 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   then `$FOTCV`'s .5. Shipped GW-BASIC is generally reported to print `.3333333`, so the shipped `$FOUT` differs
   from this source.
   - **Decided (2026-11-13, the owner, [question 3](#phase-7s-questions)):** the port prints `.3333333`, what
-    shipped GW-BASIC prints.
+    shipped GW-BASIC prints. *Corrected (2026-11-19, the IBM spec's fix-up, the owner's G14):* this record was
+    stale. What is built prints `.3333334`, the source's, and PC-BASIC prints the same (7a's `print.out`, no
+    `.differ`); the IBM manual is silent (it prints no such number), so the source's stands.
   - **Recorded as a deviation:** marked at the routine in the source as a change from the 1983 file, with a flag
     in mbf.py, so both roundings stay tested.
   - **7a's first oracle run** confirms PC-BASIC's `.3333333` and finds the rule: which of `$FOTNV`, `$CSD` and
@@ -5217,7 +5598,9 @@ alternative is kept as the record of what was weighed.
 2. **The oracle.** *Decided (2026-11-13, the owner): as recommended.* PC-BASIC in a throwaway container from
    pinned images, outputs alone committed. It is fetched for 7a's tests, not before.
 3. **`.3333334`.** *Decided (2026-11-13, the owner): as recommended.* The port prints what shipped GW-BASIC
-   prints, `.3333333`, recorded in the source and in mbf.py as a deviation from the 1983 source.
+   prints, `.3333333`, recorded in the source and in mbf.py as a deviation from the 1983 source. *Corrected
+   (2026-11-19, the owner's G14):* the port prints `.3333334`, the source's, which PC-BASIC prints too; the IBM
+   manual is silent. No deviation was ever built; the record is corrected, not the code.
 4. **The home block.** *Decided (2026-11-13, the owner): none.* If 7a's measured size breaks the gate,
    the outermost-far-call form above, which changes nothing in OODOS or FARCALL. *Alternative:* a home block
    from the start, for 4–6 KB more free, under the rule that banked code never calls it.

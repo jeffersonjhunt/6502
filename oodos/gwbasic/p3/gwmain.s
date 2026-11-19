@@ -60,7 +60,7 @@
 .import CHRGTR, SYNCHR, LINGET, LINGT2, FNDLIN, GOTO2, ONTOK, DATA, GETBYT
 .import BUF, PRELOD
 .import ERROR, ERRESM, USERR, REERR, FCERR, ONEFLG, ERRTXT, ONGOTP, SETGSB, RSTTRP
-.import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2
+.import SNERR, DDERR, OPTVAL, FRMEVL, FRCINT, STROUT, QINLIN, RNDX, RNDMN2, GETYP, FRCSNG
 
 .code
 
@@ -305,8 +305,9 @@ OLDOPT:         JMP     CHRGTR         ; GWMAIN.ASM 3363: the terminator
 
 ; --- RANDOMIZE (GWMAIN.ASM 3383) ----------------------------------------------------------
 
-; RANDOMIZE n: n as an integer (-32768..32767, else Overflow) in RNDX+1 and
-; RNDX+2, then RNDMN2 (RND(1)'s step). RANDOMIZE alone: "Random number seed
+; RANDOMIZE n: n as an integer (-32768..32767) in RNDX+1 and RNDX+2 (OO-1:
+; past them, its single's bytes folded, FACLO's two and FACM1 with FACEXP),
+; then RNDMN2 (RND(1)'s step). RANDOMIZE alone: "Random Number Seed
 ; (-32768 to 32767)? " and a line typed (QINLIN), read by $FIN; anything
 ; after the number asks again. The text pointer is kept on the 6502's stack,
 ; as the 8086 keeps BX on its own; C set back for a ^C (QINLIN's C: OODOS's
@@ -317,7 +318,38 @@ RANDOMP:        BEQ     INPRG          ; no argument: ask
                 PHA
                 LDA     TXTPTR
                 PHA
-                JSR     FRCINT         ; normal integers
+                JSR     GETYP          ; OO-1: a single or a double FRCINT would
+                BMI     @int           ; refuse (the IBM manual's p. 286 takes any
+                BEQ     @int           ; number) seeds from its single's bytes
+                LDA     FACEXP         ; folded, where the source's FRCINT gives
+                CMP     #$90           ; Overflow (a default, for the owner's
+                BCC     @lo            ; veto); what it takes, and a string, as
+                BNE     @fold          ; before. By the value (review round 1,
+                LDA     FACM1          ; F6): 32,768 to 65,535.99: only -32768
+                CMP     #$80           ; to -32768.49 rounds into the integers
+                BNE     @fold          ; (the mantissa $800000-$80007F, negative)
+                LDA     FACLO+1
+                BNE     @fold
+                LDA     FACLO
+                BPL     @int
+                BRA     @fold
+@lo:            CMP     #$8F           ; 16,384 to 32,767.99: 32,767.5 and past
+                BNE     @int           ; round out of them (the mantissa $FFFE00
+                LDA     FACM1          ; on, positive)
+                CMP     #$7F
+                BNE     @int
+                LDA     FACLO+1
+                CMP     #$FE
+                BCC     @int
+@fold:          JSR     FRCSNG
+                LDA     FACLO
+                EOR     FACLO+1
+                STA     RBL
+                LDA     FACM1
+                EOR     FACEXP
+                STA     RBH
+                BRA     STRNDS
+@int:           JSR     FRCINT         ; normal integers
                 BRA     STRNDS
 ; INPRG (GWMAIN.ASM 3389)
 INPRG:          LDA     TXTPTR+1
@@ -645,7 +677,7 @@ SCCALL:         FJSR    SCCPTR
                 RTS
 
 .rodata
-RANMES:         .byte   "Random number seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412
+RANMES:         .byte   "Random Number Seed (-32768 to 32767)", 0 ; GWMAIN.ASM 3412; OO-1: the IBM manual's case (pp. 286-287)
 
 .segment "BRAM"
 ONGCX:          .res    2              ; ON event GOSUB: CL, CH (the 8086 keeps CX on its stack)

@@ -1,4 +1,4 @@
-# a double read by INPUT # is read as a double (the 1983 source's FILIND, 6/27/80: FINDBL); PC-BASIC reads 1E+20 as a single, then makes it double
+# a double read by INPUT # is read as a double (the 1983 source's FILIND, 6/27/80: FINDBL); PC-BASIC reads 1E+20 as a single, then makes it double; and (the IBM manual's pp. 133-134, the fix-up's review round 1, F1) INPUT # passes over leading CRs and LFs, so line 50's empty line is no item: the quoted string is line 150's first (PC-BASIC reads it as an empty item)
 ["plain",1,-2.5,"with, comma"]
 ["",0]
 []
@@ -6,6 +6,6 @@
 [1E+20,.3333334,-.3333333333333333]
 <plain> 1 -2.5 <with, comma>
 <> 0 
-<><quoted ><part"><12>
- 0  1D+20  .3333334 
- 0 
+<quoted ><part"><12><end>
+ 1D+20  .3333334 -.3333333333333333 
+-1 

@@ -16,42 +16,17 @@
 
 .include "gwbasic.inc"
 
-;@entry DIRHK
-.export DIRHK
-.import FRMEVL, FRESTR, ERROR
+;@entry DIRHR
+.export DIRHR
 
-ERRPAE          = 75                   ; Path/File access error
-ERRPNF          = 76                   ; Path not found
-
+; OO-1 (the IBM spec's fix-up, review round 1: P4's room): DIRHK is P3's
+; now (p3/oem.s), whole: it uses only the resident core's FRMEVL, FRESTR and
+; ERROR, so the home block's stubs far call P3 instead, no new far call. Its
+; jump table slot here is kept, retired (DIRHR: an RTS), so P4's later
+; entries keep their places.
 .code
 
-DIRHK:          PHX
-                JSR     FRMEVL         ; the path
-                JSR     FRESTR         ; a string, its temporary freed; RBL its descriptor
-                PLX
-                BNE     NOTCHD
-                LDA     (RBL)          ; CHDIR: "" is the root
-                BEQ     DIROK
-                CMP     #1
-                BNE     ERPNF
-                LDY     #1
-                LDA     (RBL),Y
-                STA     PTR
-                INY
-                LDA     (RBL),Y
-                STA     PTR+1
-                LDA     (PTR)
-                CMP     #$5C           ; "\"
-                BEQ     DIROK
-                CMP     #'.'
-                BEQ     DIROK
-ERPNF:          LDA     #ERRPNF
-                JMP     ERROR
-NOTCHD:         DEX                    ; RMDIR
-                BNE     ERPNF
-                LDA     #ERRPAE        ; MKDIR
-                JMP     ERROR
-DIROK:          RTS
+DIRHR:          RTS
 
 ; --- COM1's OEM routines (GIOCOM.ASM's INICOM, SNDCOM, RECCOM, STACOM,
 ; TRMCOM; the 1983 source has none: the project's own) -----------------------
