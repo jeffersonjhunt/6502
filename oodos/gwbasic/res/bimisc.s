@@ -27,7 +27,7 @@
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
 .import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, HOMSTK, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL, BUF, LRUN
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL, BUF, LRUN, SCRMOD
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
@@ -188,8 +188,9 @@ RUNC:           LDA     TXTTAB
 ; BASE, RND's seed back, no ON ERROR, nothing to CONT, the strings gone, DATA
 ; from the start; then STKINI. TXTPTR is kept. Every event trap off, with
 ; no line (P3's INITRP); the source calls INITRP twice, round GRPRST (the
-; graphics' reset), and the second finds nothing more to do: once here till
-; 7e brings GRPRST. Every file is closed (CLSALL), but those NLONLY keeps
+; graphics' reset), and the second finds nothing more to do: once here, and
+; GRPRST after it (P5's, 7e1: in screen mode only, so console mode's far
+; calls are as they were). Every file is closed (CLSALL), but those NLONLY keeps
 ; (file 0 while a load is under way, or all for LOAD ,R and CHAIN); NLONLY
 ; then 0 unless a load is under way (CLRDS1). A CHAIN MERGE (MRGFLG) leaves
 ; the DEF types, OPTION BASE and every file as they are (LEVDTB); a CHAIN
@@ -200,7 +201,10 @@ CLEARC:         LDA     TXTPTR
                 LDA     TXTPTR+1
                 STA     TEMP+1
                 FJSR    INITRP         ; init the trap table
-                LDA     MRGFLG         ; a CHAIN MERGE: the types left alone
+                BIT     SCRMOD         ; reset the graphics (7e1)
+                BPL     :+
+                FJSR    GRPRST
+:               LDA     MRGFLG         ; a CHAIN MERGE: the types left alone
                 BNE     LEVDTB
                 STZ     OPTFLG         ; no OPTION BASE seen
                 STZ     OPTVAL         ; OPTION BASE 0

@@ -35,7 +35,7 @@
 .import FORCNT, FORFLG, FORVAR, FRCINT, FRCSNG, FRMCHK, FRMEVL, FVALSV, GETIN2, GETSTK
 .import GETYP, GONE, GOTO, ISLET2, LINGET, NXTLIN, ONE, PINLIN, PTRGET, REDDY, REM
 .import RTNTXT, RUNC, SCNERR, SIGNS, SNERR, STPEND, STROUT, SUBFLG, SYNCHR, TMERR
-.import FTSITE, NEXTS, ISFLIO, NEWSTT
+.import FTSITE, NEXTS, ISFLIO, NEWSTT, SCRMOD
 
 ERRSN           = 2                    ; GWDATA.ASM's error numbers
 ERRRG           = 3
@@ -675,7 +675,9 @@ EDTMAI:         PLA
 ; NEWSTT's return, so it is called from here, with nothing of the far call
 ; left on the 6502's stack. (OODOS's function 10 gives the ^C as a
 ; character, and SINLIN's ITSCTC breaks at once, so 7a's SINLIN doesn't
-; return that way.) LINE alone (graphics, 7e) is Advanced Feature, in P1.
+; return that way.) LINE alone, the graphics' (7e1), is P5's GLINEP in
+; screen mode (no hop through P1), and in console mode P1's LINEP, Advanced
+; Feature as it was.
 PRINT:          FJSR    PRINTP
                 RTS
 LPRINT:         FJSR    LPRNTP
@@ -684,7 +686,13 @@ READ:           FJSR    READP
                 RTS
 INPUT:          FJSR    INPUTP
                 BRA     INPRET
-LINE:           FJSR    LINEP
+LINE:           CMP     #INPUT_TK
+                BEQ     :+
+                BIT     SCRMOD
+                BPL     :+
+                FJSR    GLINEP
+                RTS
+:               FJSR    LINEP
 INPRET:         BCC     :+
                 JMP     STPEND
 :               RTS

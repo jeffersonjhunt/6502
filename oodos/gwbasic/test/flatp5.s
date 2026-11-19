@@ -4,15 +4,22 @@
 ; nor any memory but its own: P5 is left out of it (the Makefile's FLAT_SRC)
 ; and its entries come here. Start-up's GXSTRT does nothing; DSBYTE (PEEK
 ; and POKE outside segment 0's $0000-$BFFF) and DSRUN (BLOAD, BSAVE) are
-; Advanced Feature.
+; Advanced Feature. 7e1's graphics entries, which the resident core and the
+; home block call in screen mode only (SCRMOD, never set here), are
+; Advanced Feature too, GRPRST nothing.
 
 .include "gwbasic.inc"
 
-.export GXSTRT, DSBYTE, DSRUN
+.export GXSTRT, DSBYTE, DSRUN, GRPRST, POINTP, PSETP, PRSETP, GLINEP
 .import ADVERR
 
 .code
 
-GXSTRT:         RTS
+GXSTRT:
+GRPRST:         RTS
 DSBYTE:
-DSRUN:          JMP     ADVERR
+DSRUN:
+POINTP:
+PSETP:
+PRSETP:
+GLINEP:         JMP     ADVERR

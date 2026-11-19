@@ -356,7 +356,13 @@ NTERL:          CMP     #VARPTR_TK
                 BPL     :+
                 FJSR    CSRLNP
                 RTS
-:               CMP     #INKEYS_TK     ; (POINT before it is 7e's)
+:               CMP     #POINT_TK      ; 7e1: POINT, P5's in screen mode (in console
+                BNE     :+             ; mode a formula in parentheses, as before)
+                BIT     SCRMOD
+                BPL     :+
+                FJSR    POINTP
+                RTS
+:               CMP     #INKEYS_TK
                 BNE     :+
                 JMP     INKEY
 :               CMP     #STRINGS_TK    ; STRING$ (P3's: res/far3.s)

@@ -99,6 +99,10 @@
 ;@entry GCLS
 ;@entry GRPRST
 ;@entry GRPINI
+;@entry PSETP
+;@entry PRSETP
+;@entry POINTP
+;@entry GLINEP
 .export GXSTRT, DSBYTE, DSRUN, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA
