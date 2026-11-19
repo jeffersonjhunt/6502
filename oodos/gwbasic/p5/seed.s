@@ -19,7 +19,10 @@
 ;             SAVSEG x 16 + DX routed as hw/oodos.md's DEF SEG section has
 ;             it (below)
 ;   DSRUN     BLOAD's and BSAVE's run checked whole, before anything moves:
-;             its 20-bit start returned
+;             its 20-bit start returned; a run on the screen page staged
+;             in bank 8's RAM (7d3)
+;   DSPUT     after BLOAD's BLDRUN (p8/far4.s): a run DSRUN staged for the
+;             screen page, from bank 8's RAM to the card (7d3)
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
 ; 8088's does. DSBYTE's routes:
@@ -47,10 +50,25 @@
 ; DSRUN's run is linear, from segment x 16 + offset for its length (the
 ; 8086 wraps the offset inside the segment: a recorded deviation). Refused,
 ; Illegal function call: a run past $FFFFF (it would meet bank F, OODOS's);
-; one that meets bank 8; one with any 16 KB block that function 83 won't
-; copy from, found by a one-byte DM_COPY from each block's first byte (83
-; decides by the block, so one byte answers for all of it). A length of 0
-; is no run: nothing checked.
+; one that meets bank 8 but for a run on the screen page; one with any
+; 16 KB block that function 83 won't copy from, found by a one-byte DM_COPY
+; from each block's first byte (83 decides by the block, so one byte
+; answers for all of it). A length of 0 is no run: nothing checked.
+;
+; 7d3, the screen page (the owner's answers 3-6 of 2026-11-18): a run inside
+; bank 8, in screen mode, whose last byte is below the page's reach (DSRUN
+; routes it by the 20-bit address, as DSBYTE does) is staged in bank 8's own
+; RAM at its own address, $80000 + its offset (GW-BASIC's after GX_BANK8,
+; B7's question 1): DSSRUN copies the page's bytes there by DM_VREAD, P4's
+; BSAVEP saves them from there and P4's BLDRUN loads the file over them, and
+; DSPUT then writes the run to the card by DM_VWRITE (so a file shorter than
+; its header leaves the rest as it was). P4 is unchanged: its DM_COPY and
+; DM_LOAD reach only GW-BASIC's RAM, and the card only function 83's port
+; operations. Refused, Illegal function call: in console mode, where
+; GX_BANK8 refused (bank 8 isn't RAM: a revision 1 bridge, a BIOS before
+; 0.17; DSB8), a run from bank 7 into bank 8 or from it into bank 9, and one
+; past the reach. The staging takes $80000 up to the reach ($812BF at most):
+; nothing else of GW-BASIC's uses bank 8's RAM.
 ;
 ; The far call rule: every routine returns by RTS, or ends in FCERR with
 ; block 1 in W1.
@@ -62,7 +80,8 @@
 ;@entry DSBYTE
 ;@entry DSRUN
 ;@entry TXMODE
-.export GXSTRT, DSBYTE, DSRUN, TXMODE
+;@entry DSPUT
+.export GXSTRT, DSBYTE, DSRUN, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA
 
@@ -106,6 +125,7 @@ GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byt
 @scr:           LDA     DSVAL
                 STA     SCRMOD         ; bit 7: the CRT, so GW-BASIC's own screen
 @con:           JSR     GX_BANK8
+                ROR     DSB8           ; 7d3: bit 7, GX_BANK8 refused (bank 8 isn't RAM)
                 LDA     #<SCRB
                 STA     DSPB
                 LDA     #>SCRB
@@ -323,6 +343,15 @@ DSVX:           STA     DSCB
                 JSR     DSSWAP
                 BRA     DSGO
 
+; DSPUT (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
+; its bytes, staged in bank 8's RAM, to the card (DSVC, DSPH and DSVL as
+; DSSRUN left them: nothing between calls DSBYTE).
+DSPUT:          LDA     DSSCF
+                BEQ     DSRET
+                STZ     DSSCF
+                LDA     #DM_VWRITE
+                BRA     DSVX
+
 ; DSSWAP: DSCB's source and destination swapped.
 DSSWAP:         LDX     #2
 @b:             LDA     DSCB+1,X
@@ -390,7 +419,8 @@ BLKOF:          LDA     DSA+1,X
 ; DSRUN: DX the segment, BX the offset, CX the length (0: none). The run
 ; checked whole (above): Illegal function call, nothing moved, if refused;
 ; else DX and BL its 20-bit start (DSA).
-DSRUN:          LDA     RDL
+DSRUN:          STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
+                LDA     RDL
                 STA     GXQ
                 LDA     RDH
                 STA     GXQ+1
@@ -401,8 +431,9 @@ DSRUN:          LDA     RDL
                 JSR     DSADR
                 LDA     RCL            ; no bytes: no run
                 ORA     RCH
-                BEQ     @ok
-                LDA     RCL            ; DSE: its last byte, DSA + CX - 1
+                BNE     :+
+                JMP     @ok
+:               LDA     RCL            ; DSE: its last byte, DSA + CX - 1
                 BNE     :+
                 DEC     RCH
 :               DEC     RCL
@@ -424,7 +455,13 @@ DSRUN:          LDA     RDL
                 BCS     @fc            ; past $FFFFF: into bank F
                 CMP     #8             ; meets bank 8: from it or below, to it or past
                 BCC     @blocks
-                LDA     DSA+2
+                BNE     @past
+                LDA     DSA+2          ; to it: from it, the screen page (7d3); else from below
+                CMP     #8
+                BCC     @fc
+                JSR     DSSRUN
+                BRA     @ok
+@past:          LDA     DSA+2
                 CMP     #9
                 BCC     @fc 
 @blocks:        LDX     #DSE - DSA     ; the last block
@@ -461,6 +498,34 @@ DSRUN:          LDA     RDL
                 RTS
 @fc:            JMP     FCERR
 
+; DSSRUN (7d3): a run inside bank 8, in screen mode, with bank 8 the
+; program's RAM (GX_BANK8): on the active page (P6's SCPAGP, the cache
+; forgotten) within its reach, else Illegal function call. Staged in bank
+; 8's RAM at its own address ($80000 + its offset): the page's bytes copied
+; there by DM_VREAD, and DSSCF set for DSPUT.
+DSSRUN:         BIT     SCRMOD
+                BPL     @fc
+                BIT     DSB8
+                BMI     @fc
+                SEC
+                FJSR    SCPAGP
+                JSR     DSPAGE
+                BCS     @fc
+                LDX     #2
+@s:             LDA     DSA,X
+                STA     DSPH,X
+                DEX
+                BPL     @s
+                LDA     RCL
+                STA     DSVL
+                LDA     RCH
+                STA     DSVL+1
+                LDA     #DM_VREAD
+                JSR     DSVX
+                DEC     DSSCF
+                RTS
+@fc:            JMP     FCERR
+
 .segment "BRAM"
 .assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"
 DSA:            .res    3              ; the 20-bit address (DSADR)
@@ -475,6 +540,8 @@ SCRB:           .res    1              ; the scratch byte
 DSVC:           .res    3              ; 7d3: the screen page's card address (DSPAGE)
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
+DSB8:           .res    1              ; 7d3: bit 7, GX_BANK8 refused (bank 8 not RAM)
+DSSCF:          .res    1              ; 7d3: DSRUN's run staged for the screen page, for DSPUT
 .segment "RODATA"
 TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
 FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes

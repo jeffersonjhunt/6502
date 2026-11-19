@@ -1894,7 +1894,8 @@ namespace
 // into it, and BSAVE from it (no file made). Bank 8's RAM and card memory's slot 1 bank (the program's first, card
 // $040000) are unchanged; bank 9 still works after. And a BSAVE that meets OODOS's memory (bank F; bank 5 into bank
 // 6) is Illegal function call with no file written. A build whose DSRUN leaves out the bank 8 test writes bank 8 by
-// DM_LOAD, which OODOS allows after GX_BANK8.
+// DM_LOAD, which OODOS allows after GX_BANK8. This is in console mode; 7d3's screen page is test_gwbasic_screen's (and
+// this case is its console-mode must-fail, D5).
 TEST(bank_8_is_refused_whole_to_bload_and_bsave)
 {
     CcpRig r;

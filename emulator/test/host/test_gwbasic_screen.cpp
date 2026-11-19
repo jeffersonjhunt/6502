@@ -1455,6 +1455,127 @@ TEST(the_page_is_the_active_page)
     CHECK_EQ(card(r, page0), ' ');
 }
 
+// D6: BSAVE and BLOAD of the screen page (answer 5: staged in bank 8's RAM, the card reached by function 83). Two
+// lines, one in yellow on blue, BSAVEd at &H8000:0 for 4,000 bytes: the file (read from M:) is $FD, the segment
+// $8000, the offset 0, the length $0FA0, then the card's bytes, not bank 8's RAM (filled with $A5 first). CLS, then
+// BLOAD with the offset, and with none (the file's own &H8000:0): the cells and their attributes come back. BSAVE
+// of 4,096 bytes is taken at 25 rows (answer 3). A 100-byte file BLOADed over a full screen changes its 50 cells
+// alone, and so does one whose header says 4,000 with 100 bytes there (DFSTLD stops at the file's end): the rest of
+// the screen as it was. Guards a picture or form saved and loaded by a PC program not coming back, or wiping the
+// rest of the screen. Must fail: (a) BLOAD's FJSR DSPUT left out (the screen stays clear); (b) DSSRUN's DM_VREAD left
+// out (the file holds bank 8's $A5, and the short file writes them over the rest).
+TEST(bsave_and_bload_the_screen_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    for (uint32_t i = 0; i < 4800; ++i)
+        r.poke(0x80000 + i, 0xA5);
+    enter(r, "KEY OFF:CLS:PRINT \"FIRST\":COLOR 14,1:PRINT \"SECOND\":COLOR 7,0:DEF SEG=&H8000:BSAVE \"M:S\",0,4000:"
+             "LOCATE 20,1", ms(1500));
+    const uint32_t mb = mapbase(r);
+    const std::vector<uint8_t> d = m_data(r, 0, "S       BAS");
+    REQUIRE(d.size() >= 4007);
+    CHECK(std::vector<uint8_t>(d.begin(), d.begin() + 7) == std::vector<uint8_t>({0xFD, 0x00, 0x80, 0x00, 0x00, 0xA0, 0x0F}));
+    unsigned bad = 0;
+    for (uint32_t i = 0; i < 19 * 160; ++i) // the rows above LOCATE's Ok
+        bad += d[7 + i] != card(r, mb + i);
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(d[7 + 160 + 1], 0x1E);
+    for (const std::string how : {"BLOAD \"M:S\",0", "BLOAD \"M:S\""})
+    {
+        enter(r, "CLS:" + how + ":LOCATE 20,1", ms(1500));
+        CHECK_EQ(line(r, 0), std::string("FIRST"));
+        CHECK_EQ(line(r, 1), std::string("SECOND"));
+        CHECK_EQ(attr(r, 0, 0), 0x07);
+        CHECK_EQ(attr(r, 1, 0), 0x1E);
+    }
+    enter(r, "CLS:BSAVE \"M:T\",0,4096", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("Ok"));
+    const std::vector<uint8_t> t = m_data(r, 0, "T       BAS");
+    CHECK(t.size() >= 4103 && t[5] == 0x00 && t[6] == 0x10);
+    enter(r, "CLS:PRINT \"HUNDRED\":BSAVE \"M:C\",0,100", ms(1500));
+    enter(r, "OPEN \"M:H.BAS\" FOR OUTPUT AS 1:PRINT #1,CHR$(253);CHR$(0);CHR$(128);CHR$(0);CHR$(0);CHR$(160);"
+             "CHR$(15);STRING$(100,72);:CLOSE 1", ms(1500));
+    // 22 rows filled, LOCATE 23's Ok on the next: the window's foot is row 24, with the key line off too (7d2)
+    const std::string fill = "CLS:FOR I=0 TO 21:LOCATE I+1,1:PRINT STRING$(80,65+I);:NEXT:";
+    auto rest = [&](unsigned from_cell) { // the filled rows' cells from from_cell, each as the fill left it
+        unsigned off = 0;
+        for (unsigned c = from_cell; c < 22 * 80; ++c)
+            off += card(r, mb + 2 * c) != 'A' + c / 80 || card(r, mb + 2 * c + 1) != 0x07;
+        return off;
+    };
+    enter(r, fill + "BLOAD \"M:C\",0:LOCATE 23,1", ms(1500));
+    CHECK_EQ(row_at(r, 0).substr(0, 50), std::string("HUNDRED") + std::string(43, ' '));
+    CHECK_EQ(rest(50), 0u);
+    enter(r, fill + "BLOAD \"M:H\",0:LOCATE 23,1", ms(1500));
+    CHECK_EQ(row_at(r, 0).substr(0, 50), std::string(50, 'H'));
+    CHECK_EQ(attr(r, 0, 49), 'H');
+    CHECK_EQ(rest(80), 0u); // the rows past the record's first 121 bytes
+}
+
+// D7: a run on the page must lie inside it (the 7c tail's rule, the reach answer 3's): under &H8000, BLOAD of a
+// 512-byte file at offset 3,800 (past 4,096), BSAVE of 4,097 bytes, a BLOAD from bank 7 into bank 8 (&H7FF0:0), a
+// BSAVE from bank 8 into bank 9 (&H8FF0:0) and a BLOAD at &H8400:0 (bank 8 past the page) are each Illegal function
+// call, the page and bank 8's RAM unchanged and no file written. Guards a BLOAD writing past the page into the next
+// page's card memory, or past bank 8. Must fail: DSPAGE's test made on the run's first byte (DSA), not its last.
+TEST(a_screen_run_must_lie_inside_the_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:FOR I=1 TO 4:PRINT STRING$(80,70);:NEXT:DEF SEG=&H8000:BSAVE \"M:F\",0,512:LOCATE 10,1",
+          ms(1500));
+    REQUIRE(m_data(r, 0, "F       BAS").size() >= 519);
+    const uint32_t mb = mapbase(r);
+    r.poke(0x84000, 0x3C);
+    for (const std::string stmt : {"DEF SEG=&H8000:BLOAD \"M:F\",3800", "DEF SEG=&H8000:BSAVE \"M:U\",0,4097",
+                                   "DEF SEG=&H7FF0:BLOAD \"M:F\",0", "DEF SEG=&H8FF0:BSAVE \"M:U\",0,512",
+                                   "DEF SEG=&H8400:BLOAD \"M:F\",0"})
+    {
+        enter(r, "CLS", ms(300));
+        std::vector<uint8_t> page(4800);
+        for (uint32_t i = 0; i < page.size(); ++i)
+            page[i] = card(r, mb + i);
+        enter(r, stmt, ms(1500));
+        CHECK_EQ(line(r, 2), std::string("Illegal function call"));
+        unsigned moved = 0;
+        for (uint32_t i = 5 * 160; i < page.size(); ++i) // below the line typed, its error, Ok and the cursor
+            moved += card(r, mb + i) != page[i];
+        CHECK_EQ(moved, 0u);
+        if (line(r, 2) != "Illegal function call" || moved)
+            std::printf("  %s: %s\n", stmt.c_str(), screen(r, 4).c_str());
+    }
+    CHECK(m_data(r, 0, "U       BAS").empty());
+    CHECK_EQ(r.phys(0x84000), 0x3C);
+}
+
+// D8: on a revision 1 north bridge ($D1, test_oodos_video's revision_1_bridge()), where GX_BANK8 refuses and bank 8
+// isn't RAM, PEEK and POKE of the page work, and BSAVE and BLOAD of it are Illegal function call (answer 6), with no
+// file written. Guards, on such a machine, a BSAVE that writes the console's card memory (aperture slot 0) to a file,
+// or a BLOAD refused partway. Must fail: DSSRUN's DSB8 test left out.
+TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
+{
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    const std::string bridge = "northbridge  backplane";
+    const size_t at = text.find(bridge);
+    REQUIRE(at != std::string::npos);
+    text.insert(at + bridge.size(), " revision=1");
+    CcpRig r({}, text);
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:POKE 160,65:PRINT PEEK(160)", ms(600));
+    CHECK_EQ(line(r, 0), std::string(" 65"));
+    enter(r, "CLS:BSAVE \"M:S\",0,100", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("Illegal function call"));
+    CHECK(m_data(r, 0, "S       BAS").empty());
+    enter(r, "CLS:DEF SEG:BSAVE \"M:N\",&H1000,100", ms(1500));
+    CHECK(!m_data(r, 0, "N       BAS").empty());
+    enter(r, "CLS:PRINT \"KEPT\":DEF SEG=&H8000:BLOAD \"M:N\",0", ms(1500));
+    CHECK_EQ(line(r, 0), std::string("KEPT"));
+    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
+}
+
 int main()
 {
     return run_all();

@@ -154,7 +154,9 @@ SAVES:          FJSR    SAVEP          ; C set: ",A", TXTPTR at the "A"
 ; P4's RAM, as LIST's NULOPM finds them; the numbers by P1's ADRGET), and
 ; the run checked whole by P5's DSRUN (BRUN) before P4's BSAVEP, or after
 ; BLOADP has read the file's header and before BLDRUN reads the bytes
-; (p4/gio86.s). The text pointer is kept, as the 8086's PUSH BX and
+; (p4/gio86.s). 7d3: a run on the screen page DSRUN stages in bank 8's RAM
+; (the page's bytes, for BSAVEP to save), and after BLDRUN P5's DSPUT writes
+; it to the card (nothing if the run isn't the page's). The text pointer is kept, as the 8086's PUSH BX and
 ; LODEND's POP BX. BSAVE needs both numbers, BLOAD at most the offset
 ; (SNERR2). BHD8 is the header: the segment, the offset, the length.
 BSAVE:          JSR     BPARMS
@@ -201,6 +203,7 @@ BLOAD:          JSR     BPARMS
                 BPL     @g
 DEFSAD:         JSR     BRUN
                 FJSR    BLDRUN
+                FJSR    DSPUT          ; 7d3: a run on the screen page, staged in bank 8, to the card
 BBACK:          LDA     BTXP           ; POP BX
                 STA     TXTPTR
                 LDA     BTXP+1
