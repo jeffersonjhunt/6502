@@ -1302,7 +1302,7 @@ GWSTS.ASM VIEW -> later 7e
 GWSTS.ASM WINDOW -> later 7e
 GWSTS.ASM PMAP -> later 7e
 GWSTS.ASM PALETE -> later 7e: PALETTE
-GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) Advanced Feature until the screen, 7d
+GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) the OEM's p6/oem.s LCPYP in screen mode (7d2), Advanced Feature in console mode
 CALL86.ASM CALLSL -> later 7g: CALLS
 DSKCOM.ASM CVI -> p4/dskcom.s CVI # FUNDSX's, from EVALNF by one far call
 DSKCOM.ASM CVS -> p4/dskcom.s CVS

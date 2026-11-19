@@ -609,6 +609,99 @@ TEST(width_scrn_sets_the_screen)
     CHECK_EQ(line(r, 2), std::string("EIGHTY"));
 }
 
+namespace
+{
+    /// What LST: is sent (BDOS function 5, watched at the BDOS's entry) while `line` is typed and run.
+    std::string lst_of(CcpRig &r, const std::string &line, uint64_t settle = ms(1500))
+    {
+        std::string got;
+        r.watch = [&](uint16_t pc) {
+            const Registers g = r.cpu->regs();
+            if (pc == 0x0203 && g.y == 5)
+                got += static_cast<char>(g.a);
+        };
+        enter(r, line, settle);
+        r.watch = nullptr;
+        return got;
+    }
+    /// Rows 0 to `rows` - 1 of the text at `base` as LCOPY prints them: a character below 32 or $FF a blank, the
+    /// trailing blanks dropped, a CR and an LF after each.
+    std::string as_lcopy(CcpRig &r, uint32_t base, unsigned rows, int blank_row = -1)
+    {
+        std::string out;
+        for (unsigned i = 0; i < rows; ++i)
+        {
+            std::string s = static_cast<int>(i) == blank_row ? std::string() : row_at(r, i, base);
+            for (char &c : s)
+                if (static_cast<unsigned char>(c) < 32 || static_cast<unsigned char>(c) == 0xFF)
+                    c = ' ';
+            while (!s.empty() && s.back() == ' ')
+                s.pop_back();
+            out += s + "\r\n";
+        }
+        return out;
+    }
+} // namespace
+
+// LCOPY prints the screen on LST: (GWSTS.ASM's LCPY, the OEM's: the owner's answer 9): every one of the page's 25
+// rows, each as the card holds it with its trailing blanks dropped and a CR LF after it, what the statement before it
+// printed ("ABC", in the same line) among them; LCOPY's n is taken and not used. With page 1 active and page 0 shown,
+// it prints page 0, what is on the screen. In console mode it stays Advanced Feature (test_gwbasic_files). Guards a
+// printout missing what was just printed, or the wrong page's. Seen failing with LCPYP reading the active page (and
+// not failing with its TXBUF run and flush left out: FINPRT runs TXBUF and every return from P6 flushes the cache,
+// so nothing waits when LCOPY starts; both are kept, as at every entry of P6's).
+TEST(lcopy_prints_the_screen_on_lst)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::string got = lst_of(r, "CLS:LOCATE 5,3:PRINT \"ONE\":LOCATE 12,40:PRINT \"TWO\":LOCATE 20,1:PRINT \"ABC\";:LCOPY 1");
+    const int ok = last_row(r, "Ok");
+    CHECK_EQ(ok, 20);
+    CHECK_EQ(line(r, 19), std::string("ABC"));
+    const std::string want = as_lcopy(r, mapbase(r), 25, ok); // the Ok came after the copy
+    CHECK_EQ(vis(got), vis(want));
+    size_t lines = 0;
+    for (size_t p = got.find("\r\n"); p != std::string::npos; p = got.find("\r\n", p + 2))
+        ++lines;
+    CHECK_EQ(lines, 25u);
+    CHECK(got.find("  ONE\r\n") != std::string::npos);
+    CHECK(got.find(std::string(39, ' ') + "TWO\r\n") != std::string::npos);
+    CHECK(got.find("\r\nABC\r\n") != std::string::npos);
+    enter(r, "CLS:PRINT \"VISUAL\"", ms(300));
+    const uint32_t page0 = mapbase(r);
+    const std::string shown = lst_of(r, "SCREEN 0,,1,0:CLS:PRINT \"ACT\"+\"IVE\":LCOPY"); // ("ACTIVE" typed would be on page 0)
+    CHECK_EQ(mapbase(r), page0);
+    CHECK_EQ(vis(shown), vis(as_lcopy(r, page0, 25)));
+    CHECK(shown.find("VISUAL") != std::string::npos);
+    CHECK(shown.find("ACTIVE") == std::string::npos);
+    enter(r, "SCREEN 0,,0,0", ms(300));
+}
+
+// SCRN: is GW-BASIC's own screen in screen mode (GIOSCN.ASM's SCNSOT, SCNOL1, SCNOL2; 7c's device, 7d1's screen):
+// a file OPENed on "SCRN:" prints on the layer, a CR as a new line, a comma to the next zone, and nothing goes to the
+// serial line; at 40 columns a 45-character PRINT #1 wraps at 40. Guards SCRN: output on the serial line, or
+// unwrapped, under screen mode. Seen failing with P4's SCNOUT sending by function 2, not OUTDO.
+TEST(scrn_writes_on_the_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const size_t from = r.out.size();
+    enter(r, "CLS:OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,\"HELLO\";CHR$(13);\"AB\":PRINT #1,1,2:CLOSE", ms(600));
+    CHECK_EQ(line(r, 0), std::string("HELLO"));
+    CHECK_EQ(line(r, 1), std::string("AB"));
+    CHECK_EQ(line(r, 2), std::string(" 1             2"));
+    CHECK_EQ(line(r, 3), std::string("Ok"));
+    CHECK_EQ(vis(r.out.substr(from)), std::string());
+    enter(r, "WIDTH 40", ms(400));
+    enter(r, "CLS:OPEN \"SCRN:\" FOR OUTPUT AS #1:PRINT #1,STRING$(45,\"Z\"):CLOSE", ms(600));
+    CHECK_EQ(row_at(r, 0, mapbase(r), 40), std::string(40, 'Z'));
+    CHECK_EQ(line(r, 1), std::string("ZZZZZ"));
+    CHECK_EQ(line(r, 2), std::string("Ok"));
+    CHECK_EQ(vis(r.out.substr(from)), std::string());
+}
+
 // SCREEN( reads a cell: PRINT "Q"; then SCREEN(r,c) is 81 and SCREEN(r,c,1) the attribute, in one statement.
 // Guards SCREEN() returning the old character. Seen failing with SCRNFP not running OUTDO's TXBUF first (the "Q"
 // still waiting to be drawn).
