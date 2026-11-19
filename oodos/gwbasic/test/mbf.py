@@ -376,12 +376,14 @@ def idiv(d, b):
 
 
 def imod(d, b):
+    # OO-1 (the IBM spec's fix-up, C-1 item 13): a divisor of 0 first, so 0 MOD 0 is Division by zero (the IBM
+    # manual's A-8); the source tests equal operands first and gives 0.
+    if b == 0:
+        raise Overflow(1, (d >> 8) & 0xFF, msg="Division by zero")
     if b == d:
         return 0, INT
     if d == -32768 and b in (1, -1):
         return 0, INT
-    if b == 0:
-        raise Overflow(1, (d >> 8) & 0xFF, msg="Division by zero")
     r = abs(d) % abs(b)
     return (-r if d < 0 else r), INT
 

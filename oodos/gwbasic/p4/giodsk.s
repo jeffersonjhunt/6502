@@ -631,17 +631,18 @@ DIRFLG          = 4                    ; PGSUB1's: on, write; off, read
 
 ; DSKRND: GET or PUT, A the function (0 GET the next record, 1 PUT it, 2 GET
 ; record DX, from 1, 3 PUT it), FDBP the file's FDB; RNDAL is the 8086's
-; AL. The next is FD_LOG + 1; a record given must be 1..32767 (DX signed
-; above 0: else Bad record number). FD_LOG is it, FD_OPS 0. Its first byte
-; is (record - 1) x FD_SIZ: DX the 128-byte record, BX the place in it (a
-; place past 2^23, a record past 65535, is Illegal function call; LEN 128 is
+; AL. The next is FD_LOG + 1; a record given must be 1..65535 (OO-1: the
+; IBM manual's p. 113 and A-4 take records past 32767, which the source's
+; JLE refuses; 0 is Bad record number). FD_LOG is it, FD_OPS 0. Its first
+; byte is (record - 1) x FD_SIZ: DX the 128-byte record, BX the place in it
+; (a record reaching past 128-byte record 65535, 8 MB, the port's reach, is
+; Bad record number, OO-1: the source's Illegal function call; LEN 128 is
 ; the record itself). Then the record is moved a 128-byte record at a time,
 ; CX bytes each (what is left of it, or of the record), between its FIELD
 ; buffer (LBUFF) and the FDB's buffer (PBUFF): GET reads each (GETSUB) and
 ; copies; PUT reads one it only partly fills, copies into it, and writes it
 ; (PUTSUB). RECRD is the 128-byte record, DX the bytes left, BX the place.
 ER_BRN:         JMP     DERBRN         ; Bad record number
-ER_FC:          JMP     FCERR
 DSKRND:         STA     RNDAL
                 AND     #RELFLG
                 BNE     RAND1
@@ -655,10 +656,9 @@ DSKRND:         STA     RNDAL
                 ADC     #0
                 STA     RDH
                 BRA     RAND2
-RAND1:          LDA     RDH            ; JLE: 0, or past 32767
-                BMI     ER_BRN
-                ORA     RDL
-                BEQ     ER_BRN
+RAND1:          LDA     RDH            ; 0: Bad record number (OO-1: past 32767
+                ORA     RDL            ; too, the source's JLE, is taken: the IBM
+                BEQ     ER_BRN         ; manual's p. 113, A-4)
 RAND2:          LDY     #FD_LOG        ; the next logical
                 LDA     RDL
                 STA     (FDBP),Y
@@ -688,8 +688,8 @@ RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 ROL     RNDPRD+1
                 ROL     RNDPRD+2
                 ROL     RNDPRD+3
-                LDA     RNDPRD+3       ; DH: too big
-                BNE     ER_FC
+                LDA     RNDPRD+3       ; DH: past the reach (OO-1: Bad record
+                BNE     ER_BRN         ; number; the source's Illegal function call)
                 LDA     RNDPRD+2       ; DX: the 128-byte record
                 STA     RDH
                 LDA     RNDPRD+1
@@ -698,6 +698,24 @@ RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
                 LSR     A
                 STA     RBL
                 STZ     RBH
+                LDY     #FD_SIZ        ; OO-1: its last byte's record past 65,535
+                CLC                    ; too (P + size - 1, over 128, added)
+                ADC     (FDBP),Y
+                TAX
+                INY
+                LDA     #0
+                ADC     (FDBP),Y
+                CPX     #1             ; less one
+                SBC     #0
+                DEX
+                CPX     #$80
+                ROL     A
+                CLC
+                ADC     RDL
+                LDA     RDH
+                ADC     #0
+                BCC     RAND4
+                JMP     DERBRN
 RAND4:          LDA     RDL            ; RECRD: the record
                 STA     RECRD
                 LDA     RDH

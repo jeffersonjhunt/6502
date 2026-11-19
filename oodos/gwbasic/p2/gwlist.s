@@ -48,7 +48,12 @@ LISTP:          JSR     SCNLIN         ; RCL: the first line; LSTMAX the last nu
                 DECW    TXTPTR
                 JSR     CHRGTR
                 BEQ     LIST4
-                JSR     SYNCHR
+                LDA     PTRFIL         ; OO-1: LLIST (PTRFIL the printer's
+                AND     PTRFIL+1       ; $FFFF) takes no name: Syntax error (the
+                INC     A              ; IBM manual's p. 166; the source's falls
+                BNE     :+             ; into LIST's)
+                JMP     SNERR
+:               JSR     SYNCHR
                 .byte   ','
                 LDA     RCH            ; PUSH CX: the first line, round them
                 PHA

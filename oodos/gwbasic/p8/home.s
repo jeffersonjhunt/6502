@@ -30,8 +30,9 @@
 ;@entry HREADY
 ;@entry HGONE4
 ;@entry HFINI
-.export HREADY, HGONE4, HFINI
-.import TOPS, GONE4, READY, FINIH
+;@entry ERDEVP
+.export HREADY, HGONE4, HFINI, ERDEVP
+.import TOPS, GONE4, READY, FINIH, CHRGTR, MAKINT, DSEGZ
 .import ENDST, GOTO, IFS, LET, REM, DATA, ELSES, PRINT, SNERR
 .import RUN, STOP, LIST, LLIST, SCRATH, CONT, TON, TOFF, DELETE, ADVERR
 .import FOR, NEXT, INPUT, READ, RESTORE, GOSUB, RETURN, LPRINT, LINE, WHILE, WEND
@@ -49,6 +50,28 @@ HREADY:         TSX                    ; STKINI's top: the S under the far call
                 JMP     READY
 HGONE4:         JMP     GONE4
 HFINI:          JMP     FINIH
+
+; ERDEVP (OO-1: the IBM manual's pp. 91-93): ERDEV or ERDEV$ in a formula
+; (the resident EVALX's, TXTPTR at its $FE), read-only variables: the last
+; device error's code, and its device's name. Nothing records a device
+; error yet (P4, the files' block, where OODOS's errors are mapped, has no
+; room: a default, for the owner's veto), so ERDEV is 0 and ERDEV$ "".
+; Returns as EVAL, past the token, CHRGTR's flags.
+ERDEVP:         INCW    TXTPTR         ; the token
+                LDA     (TXTPTR)
+                CMP     #ERDEVS_XS
+                BEQ     @s
+                STZ     RBL            ; ERDEV: 0
+                STZ     RBH
+                JSR     MAKINT
+                JMP     CHRGTR
+@s:             LDA     #<DSEGZ        ; ERDEV$: the null string
+                STA     FACLO
+                LDA     #>DSEGZ
+                STA     FACLO+1
+                LDA     #VT_STR
+                STA     VALTYP
+                JMP     CHRGTR
 
 .segment "HOMTAB"
 .export STMDSP
@@ -162,9 +185,11 @@ STMDSX:         S       FILES          ; FILES
                 S       ADVERR         ; DATE$ .. PAINT
 .endrepeat
                 S       COMS           ; COM (p8/far3.s)
-.repeat CHDIR_XS - COM_XS - 1
-                S       ADVERR         ; CIRCLE .. IOCTL (ERDEV and IOCTL: the source's, Advanced Feature)
+.repeat ERDEV_XS - COM_XS - 1
+                S       ADVERR         ; CIRCLE .. TIMER
 .endrepeat
+                S       SNERR          ; ERDEV: OO-1, a read-only variable (the IBM manual's p. 91)
+                S       ADVERR         ; IOCTL: the source's, Advanced Feature
                 S       CHDIR          ; CHDIR
                 S       MKDIR          ; MKDIR
                 S       RMDIR          ; RMDIR

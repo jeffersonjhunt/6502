@@ -569,6 +569,7 @@ PMAP_XS         = $9E
 PALETTE_XS      = $9F
 LCOPY_XS        = $A0
 CALLS_XS        = $A1
+ERDEVS_XS       = $A2                  ; OO-1: ERDEV$, a token past the statements (a formula's only)
 CVI_XF          = $81
 CVS_XF          = $82
 CVD_XF          = $83

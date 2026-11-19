@@ -365,6 +365,8 @@ DTABX:
                 Q       "DRAW", DRAW_XS
                 .byte   0
 ETABX:
+                Q       "ERDEV$", ERDEVS_XS ; OO-1: the IBM manual's (p. 91), not in the 1983 table
+                Q       "ERDEV", ERDEV_XS ; OO-1: the same
                 .byte   0
 FTABX:
                 Q       "FIELD", FIELD_XS

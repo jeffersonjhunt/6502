@@ -1,4 +1,4 @@
-# the 1983 source: LLIST goes on into LIST (GWLIST.ASM), so LLIST n,"name" lists to the file as LIST does; and a drive past P: is Bad file name (the OO-1's drives, PARDEV), where PC-BASIC gives Syntax error and Path not found
+# LLIST n,"name" is Syntax error (the IBM manual's p. 166: LLIST takes no name; the IBM spec's fix-up, C-1 item 14: the 1983 source's LLIST goes on into LIST and lists to the file), as PC-BASIC; a drive past P: is Bad file name (the OO-1's drives, PARDEV), where PC-BASIC gives Path not found
 Ok
 10 PRINT "HELLO"
 20 REM LISTED
@@ -8,6 +8,7 @@ Ok
 LIST 20-,"L2.TXT"
 Ok
 LLIST 10,"L3.TXT"
+Syntax error
 Ok
 OPEN "I",#1,"L1.TXT":FOR I=1 TO 3:LINE INPUT #1,A$:PRINT A$:NEXT:?EOF(1):CLOSE
 10 PRINT "HELLO"
@@ -21,8 +22,7 @@ OPEN "I",#1,"L2.TXT":FOR I=1 TO 2:LINE INPUT #1,A$:PRINT A$:NEXT:?EOF(1):CLOSE
 -1 
 Ok
 OPEN "I",#1,"L3.TXT":LINE INPUT #1,A$:PRINT A$:?EOF(1):CLOSE
-10 PRINT "HELLO"
--1 
+File not found
 Ok
 NEW
 Ok

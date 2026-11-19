@@ -800,8 +800,9 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
 // /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
 // and LOF (OO-1: whole records). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
 // MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^23 bytes
-// (DSKRND's DH: Illegal function call) and the last before it (records 65,528 to 65,535); LEN past /S: (1,025:
-// Illegal function call).
+// (DSKRND's DH: Bad record number, the IBM spec's fix-up, C-1 item 12's default: past the port's reach; the source's
+// Illegal function call) and the last before it (records 65,528 to 65,535); LEN past /S: (1,025: Illegal function
+// call).
 TEST(random_records_of_200_and_1024_bytes_by_hand)
 {
     CcpRig r;
@@ -821,6 +822,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "50 PRINT LOC(1);LOF(1):CLOSE"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
                                             " 5  1024 \r\n"));
+    // A record that reaches past 128-byte record 65,535 (the port's reach) is Bad record number (the IBM spec's fix-up,
+    // C-1 item 12's default), not a wrap to record 0: of LEN 200, record 41,943 ends in 65,535, 41,944 past it.
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",200:ON ERROR GOTO 90",
+              "20 GET #1,41943:PRINT \"ok\":GET #1,41944:PRINT \"on\"",
+              "30 CLOSE:END", "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("ok\r\nerr 63  20 \r\non\r\n"));
     CHECK_EQ(command(r, "NEW"), std::string());
     enter(r, {"10 OPEN \"R\",#1,\"RKB.DAT\",1024",
               "15 FIELD #1,255 AS A$,255 AS B$,255 AS C$,255 AS D$,4 AS E$",
@@ -834,7 +842,7 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
-                                            " 0  0 -1  5  3072 \r\nerr 5  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
+                                            " 0  0 -1  5  3072 \r\nerr 63  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its
@@ -1053,10 +1061,11 @@ namespace
 // CR flag), by the rules 7a's LPRINT keeps (T4, T5): a CR followed by an LF, an LF straight after a CR dropped, a
 // TAB moving no column, a CR LF before a printable byte at the width (80). So each PRINT #1 below sends what the
 // same LPRINT sends. BIN sends the bytes as they are; a random OPEN writes as an output one; LIST to "LPT1:" is
-// LLIST's text. LPOS(n) (GIOLPT.ASM LPOS) is the shared column plus 1, n 0 to 2 LPT1's; past them the source's
-// (n - 1) / 2 reads LPT1's flags byte (the CR flag: 2 after a CR) and then LPT2's width (80: 81). The errors: input
-// or append (Bad file mode), an option but BIN, LPT9: (Bad file name), LPT2: and LPT3:, which have no driver on the
-// OO-1 (Device Unavailable), and EOF and LOC of a printer (Bad file mode).
+// LLIST's text. LPOS(n) is LPT1's column plus 1 for n 0 and 1, and 1 for 2 and 3, LPT2: and LPT3:, which have no
+// driver here; past 3 Illegal function call (the IBM manual's p. 178; the IBM spec's fix-up, C-1 item 17 and its Q8
+// default: the source's (n - 1) / 2 read LPT1's flags byte for 2 and LPT2's width past it). The errors: input or
+// append (Bad file mode), an option but BIN, LPT9: (Bad file name), LPT2: and LPT3: (Device unavailable), EOF and LOC
+// of a printer (Bad file mode), and INPUT # from one (Input past end: read from a file opened for output, A-11).
 TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
 {
     CcpRig r;
@@ -1078,10 +1087,11 @@ TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
     enter(r, {"10 PRINT 1", "20 REM two"});
     CHECK_EQ(lst("LIST ,\"LPT1:\""), lst("LLIST"));
     CHECK_EQ(lst("LIST ,\"LPT1:\""), vis("10 PRINT 1\r\n20 REM two\r\n"));
-    CHECK_EQ(command(r, "LPRINT \"AB\";:PRINT LPOS(0);LPOS(1);LPOS(2)"), std::string(" 3  3  3 \r\n"));
+    CHECK_EQ(command(r, "LPRINT \"AB\";:PRINT LPOS(0);LPOS(1);LPOS(2);LPOS(3)"), std::string(" 3  3  1  1 \r\n"));
     CHECK_EQ(command(r, open + "\"ABCD\";:PRINT LPOS(1):CLOSE"), std::string(" 5 \r\n"));
-    CHECK_EQ(command(r, "LPRINT CHR$(13);:PRINT LPOS(0);LPOS(3);LPOS(4);LPOS(5);LPOS(7);LPOS(30)"),
-             std::string(" 1  2  2  1  81  1 \r\n"));
+    CHECK_EQ(command(r, "LPRINT CHR$(13);:PRINT LPOS(0);LPOS(1)"), std::string(" 1  1 \r\n"));
+    CHECK_EQ(command(r, "PRINT LPOS(4)"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT LPOS(255)"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR INPUT AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR APPEND AS #1"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:X\" FOR OUTPUT AS #1"), std::string("Bad file name\r\n"));
@@ -1091,7 +1101,7 @@ TEST(lpt1_files_go_to_lst_as_lprint_does_by_hand)
     CHECK_EQ(command(r, "OPEN \"LPT3:\" FOR OUTPUT AS #1"), std::string("Device unavailable\r\n"));
     CHECK_EQ(command(r, "OPEN \"LPT1:\" FOR OUTPUT AS #1:PRINT EOF(1)"), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "PRINT LOC(1)"), std::string("Bad file mode\r\n"));
-    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Bad file mode\r\n"));
+    CHECK_EQ(command(r, "INPUT #1,A"), std::string("Input past end\r\n")); // read for output (A-11)
     CHECK_EQ(command(r, "CLOSE:PRINT 1"), std::string(" 1 \r\n"));
 }
 
@@ -1285,8 +1295,11 @@ TEST(scrn_kybd_and_cons_files_by_hand)
 // 63 changes (read at COMSP, P3 in W3). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
 // PC-BASIC where it can tell (d_com: COM(n)'s errors, COM2: Device Unavailable); by hand, LCOPY, the source's LCOPYS
 // parse and then the OEM's LCPY, Advanced Feature until the screen (7d); IOCTL, the source's Advanced Feature
-// (GWSTS.ASM's ERDEV and IOCTL are ADVERR), and ERDEV, which the 1983 table has no word for (IBMRES.ASM's STMDSX
-// names it, its reserved words don't), so it is a variable: Syntax error.
+// (GWSTS.ASM's ERDEV and IOCTL are ADVERR); and ERDEV and ERDEV$, which the 1983 table has no words for, are the IBM
+// manual's read-only variables (p. 91; the IBM spec's fix-up, C-1 item 18): crunched to $FE $95 and $FE $A2 and
+// listed back, 0 and "" (no device error is recorded yet: a default), and ERDEV or ERDEV$ as a statement, an
+// assignment to it included, Syntax error. Seen failing with ETABX's words left out (ERDEV a variable) and EVALX's
+// ERDEV branch left out (Syntax error in a formula).
 TEST(the_com_statement_lcopy_erdev_and_ioctl)
 {
     programs({"d_com"});
@@ -1317,7 +1330,27 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     CHECK_EQ(command(r, "LCOPY 256"), std::string("Illegal function call\r\n"));
     CHECK_EQ(command(r, "LCOPY 1,2"), std::string("Syntax error\r\n"));
     CHECK_EQ(command(r, "IOCTL #1,\"X\""), std::string("Advanced feature\r\n"));
-    CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // no word in the 1983 table: a variable
+    CHECK_EQ(command(r, "ERDEV"), std::string("Syntax error\r\n")); // a read-only variable: no statement
+    CHECK_EQ(command(r, "ERDEV=1"), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "ERDEV$=\"A\""), std::string("Syntax error\r\n"));
+    CHECK_EQ(command(r, "PRINT ERDEV;LEN(ERDEV$);\"<\";ERDEV$;\">\""), std::string(" 0  0 <>\r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 X=ERDEV+1:Y$=ERDEV$"});
+    CHECK_EQ(command(r, "LIST"), std::string("10 X=ERDEV+1:Y$=ERDEV$\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string());
+    CHECK_EQ(command(r, "PRINT X;LEN(Y$)"), std::string(" 1  0 \r\n"));
+    const uint16_t text = static_cast<uint16_t>(r.phys(0x79) | r.phys(0x7A) << 8); // TXTTAB (gwbasic.inc)
+    std::vector<uint8_t> tok;
+    for (uint16_t i = 4; i < 4 + 16; ++i)
+        tok.push_back(r.phys(static_cast<uint16_t>(text + i)));
+    auto has = [&](uint8_t b) {
+        for (size_t i = 0; i + 1 < tok.size(); ++i)
+            if (tok[i] == 0xFE && tok[i + 1] == b)
+                return true;
+        return false;
+    };
+    CHECK(has(0x95)); // ERDEV, the source's STMDSX token
+    CHECK(has(0xA2)); // ERDEV$, the OO-1's
 }
 
 // The 7c fidelity review's findings (the owner, 2026-11-15: W1-W12, "recommendations as listed"), each by hand
@@ -1370,8 +1403,10 @@ TEST(w3_a_file_with_attributes_open_is_file_already_open)
 }
 
 // W4 (Major): RUN of a text file whose last line ends in a bare LF runs at the file's end (p4/scnedt.s DSKCHP tests
-// LDRUN before the CR/LF rule), as the 8086's NOTCHN jumps to RUNC; the unfinished line is dropped. Without it the
-// CR that ends the load follows the LF, is dropped, and the load waits on the keyboard. CHAIN's end the same.
+// LDRUN before the CR/LF rule), as the 8086's NOTCHN jumps to RUNC. Without it the CR that ends the load follows the
+// LF, is dropped, and the load waits on the keyboard. The unfinished line goes in first, as LOAD's does (the IBM
+// manual's p. 306; the IBM spec's fix-up, C-1 item 15: the source dropped it), so it runs too. CHAIN's end the same,
+// but the unfinished line is still dropped (the source's: item 15 is RUN's).
 TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
 {
     CcpRig r;
@@ -1379,7 +1414,7 @@ TEST(w4_run_of_a_file_ending_in_a_bare_lf_runs)
     start(r);
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"LF.BAS\":PRINT #1,\"10 PRINT 1\""), std::string());
     CHECK_EQ(command(r, "PRINT #1,\"20 PRINT 2\";CHR$(10);:CLOSE"), std::string());
-    CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n"));
+    CHECK_EQ(command(r, "RUN \"LF\""), std::string(" 1 \r\n 2 \r\n"));
     CHECK_EQ(command(r, "CHAIN \"LF\""), std::string(" 1 \r\n"));
     CHECK_EQ(command(r, "LIST"), std::string("10 PRINT 1\r\n"));
 }

@@ -1,4 +1,4 @@
-# PUF10: 10^16 and more is $FOUT's free format after the "%" (of the magnitude: the sign is lost), where PC-BASIC prints all the digits; $PUFXE drops a leading "0" only when the field is too wide, so 4E-6 fits as .00000, .25 keeps $0.25 and .5 $0.50 (PC-BASIC: %0.00000, $.25, $.50)
+# PUF10: 10^16 and more is $FOUT's free format after the "%", with its sign (the IBM manual's p. 272: the source loses it; the IBM spec's fix-up, C-1 item 7), where PC-BASIC prints all the digits; $PUFXE drops a leading "0" only when the field is too wide, so 4E-6 fits as .00000, .25 keeps $0.25 and .5 $0.50 (PC-BASIC: %0.00000, $.25, $.50)
 f1  1.50-1.50 0.00 0.50
 f2 123.46%-123.46  0.00
 f3 0.130.140.15-.13
@@ -6,7 +6,7 @@ f4 10.0099.99%100.00%-100.00
 f5 %100.00%-10.00
 f6 .50%-.50%1.00.00
 f7      1000000 10000000000   123456789
-f8 % 1E+16% 1E+16% 1.5E+20
+f8 % 1E+16%-1E+16% 1.5E+20
 f9 .00001.00000.00123
 f10 1.50000000003.1415900000
 f11  13 14 -0  0

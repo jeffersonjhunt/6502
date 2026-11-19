@@ -145,7 +145,7 @@ MATH1.ASM $FOTCI -> p1/fout.s FOTCI
 MATH1.ASM $FCI4 -> p1/fout.s FCI4
 MATH1.ASM $FOUTO -> p1/fout.s FOUTO
 MATH1.ASM $FOUTH -> p1/fout.s FOUTH
-MATH1.ASM $PUFXE -> p1/fout.s PUFXE # $CHRGT on TXTPTR, lent as $FOTZS lends it; the signs on the 6502's stack above a 0
+MATH1.ASM $PUFXE -> p1/fout.s PUFXE # $CHRGT on TXTPTR, lent as $FOTZS lends it; the signs on the 6502's stack above a 0; OO-1: fitted from FBUFF when $FOTZS's text starts there (E format's sign, the IBM manual's p. 271)
 MATH1.ASM $FOTZS -> p1/fout.s FOTZS
 MATH1.ASM $FOTZ -> p1/fout.s FOTZ
 MATH1.ASM $FOTZC -> p1/fout.s FOTZC
@@ -339,7 +339,7 @@ MATH1.ASM FIXER -> res/math1.s FIXER
 MATH1.ASM ICOMP -> res/math1.s ICOMP
 MATH1.ASM ICMPA -> later 7a: the interpreter's (ICOMP's AX entry)
 MATH1.ASM INRART -> later 7a: the interpreter's (AL = 1)
-MATH1.ASM IMOD -> res/math1.s IMOD
+MATH1.ASM IMOD -> res/math1.s IMOD # OO-1: a divisor of 0 first, so 0 MOD 0 is Division by zero (the IBM manual's A-8)
 MATH1.ASM LOPTOP -> res/biptrg.s LOPTOP
 MATH1.ASM LOPFND -> res/biptrg.s LOPFND
 MATH1.ASM LOPFD1 -> res/biptrg.s LOPFD1
@@ -414,7 +414,7 @@ MATH2.ASM $NORMD -> p1/dmath.s NORMD
 MATH2.ASM $NORMS -> res/math2.s NORMS
 MATH2.ASM $POLYX -> p1/trans.s POLYX
 MATH2.ASM $POLY -> p1/trans.s POLY
-MATH2.ASM $PUF -> p1/fout.s PUF # $MOVBF, $VCOMP, $MOVBS, $COMPM inline in PUCMP
+MATH2.ASM $PUF -> p1/fout.s PUF # $MOVBF, $VCOMP, $MOVBS, $COMPM inline in PUCMP; OO-1: 10^16 and more keeps its sign (the IBM manual's p. 272)
 MATH2.ASM DPCOM -> p1/fout.s DPCOM
 MATH2.ASM PUFOUT -> p1/fout.s PUFOUT # P1's entry, far called from P3's PRINUS
 MATH2.ASM $PUFOT -> p1/fout.s PUFOT
@@ -684,9 +684,9 @@ GWMAIN.ASM SCNEX3 -> p2/gwmain.s SCNPOP
 GWMAIN.ASM JSCNXT -> p2/gwmain.s SCNPOP
 GWMAIN.ASM SCNPT2 -> p2/gwmain.s SCNPT2
 GWMAIN.ASM MAKPTR -> p2/gwmain.s SCNPT2
-GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at CONTXT (res/gwmain.s CONCH2, the spike's)
+GWMAIN.ASM CONCHG -> p2/gwmain.s SCNPT2 # CONCH2 at the reference's own end (OO-1: CONDX's CONTXT kept, the IBM manual's p. 293; res/gwmain.s CONCH2, the spike's)
 GWMAIN.ASM DEPTR -> p2/gwmain.s DEPTR
-GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST
+GWLIST.ASM LLIST -> p8/gwmain.s LLIST # PTRFIL to LPT1, then LIST; OO-1: a file's name after the range is Syntax error (P2's LISTP; the IBM manual's p. 166)
 GWLIST.ASM LIST -> p2/gwlist.s LISTP # its home block stub, p8/gwmain.s LIST, drops NEWSTT's return and goes to READY
 GWLIST.ASM LIST4 -> p2/gwlist.s LIST4 # LIST ,"name": NAMSCN and NULOPM, P4's, by far calls (7c); POLKEY the OEM's
 GWLIST.ASM LISPRT -> p2/gwlist.s LISPRT
@@ -1082,8 +1082,8 @@ GIO86.ASM LINCH2 -> p1/gio86.s LINCH2
 GIO86.ASM COMPRT -> p1/gio86.s COMPRT
 GIO86.ASM CHKCOM -> p1/gio86.s COMPRT
 GIO86.ASM MORCOM -> p1/gio86.s MORCOM
-GIO86.ASM TABER -> p1/gio86.s TABER
-GIO86.ASM TBNONG -> p1/gio86.s TBNONG
+GIO86.ASM TABER -> p1/gio86.s TABER # OO-1: SPC of a negative n, TAB of one below 1, Illegal function call (the IBM manual's pp. 327, 340)
+GIO86.ASM TBNONG -> p1/gio86.s TABER # inline: OO-1, the range checks (TBFC) in its place
 GIO86.ASM SPCNDC -> p1/gio86.s SPCNDC
 GIO86.ASM LNOMOD -> p1/gio86.s LNOMOD
 GIO86.ASM DOSIZT -> p1/gio86.s DOSIZT
@@ -1235,7 +1235,7 @@ GWMAIN.ASM RESEQ -> p3/gwmain.s RESEQP # its stub res/far3.s RESEQ: NEWSTT's ret
 CALL86.ASM CALLS -> later 7g: CALL
 FIVEO.ASM WRITE -> p3/fiveo.s WRITEP # its resident stub res/far3.s WRITE; WRITE # (FILGET) 7c's
 GWMAIN.ASM OPTION -> p3/gwmain.s OPTIONP # OPTION BASE; its resident stub res/far3.s OPTION
-GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM
+GWMAIN.ASM RANDOM -> p3/gwmain.s RANDOMP # RANDOMIZE; its resident stub res/far3.s RANDOM; OO-1: a seed past the integers taken (the IBM manual's p. 286), its single's bytes folded
 GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1's: Advanced Feature
 GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
 DSKCOM.ASM LOAD -> p8/far4.s LOADS # its flag 0; then LRUN3 (p4/dskcom.s LOADP: the resident LOAD is the loader)
@@ -1266,7 +1266,7 @@ GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
-GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1: past LPT1's DCB, LPTINI's bytes, then 0
+GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1 (the IBM manual's p. 178): 0 and 1 LPT1's, 2 and 3 1 (no driver), past 3 Illegal function call
 GWSTS.ASM PENF -> later 7e: PEN (7e4)
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
@@ -1430,7 +1430,7 @@ BIPRTU.ASM PRCCHR -> p3/biprtu.s PRCCHR
 BIPRTU.ASM NUMNUM -> p3/biprtu.s NUMNUM
 BIPRTU.ASM FINNUM -> p3/biprtu.s FINNUM # NOTSCI's return address as a branch, BX kept in USSAV
 BIPRTU.ASM ENDNUS -> p3/biprtu.s ENDNUS
-BIPRTU.ASM ENDNUM -> p3/biprtu.s ENDNUM
+BIPRTU.ASM ENDNUM -> p3/biprtu.s ENDNUM # OO-1: the 24 digits counted without the point (the IBM manual's p. 272)
 BIPRTU.ASM FNSTRF -> p3/biprtu.s FNSTRF
 BIPRTU.ASM CRDNUS -> p3/biprtu.s CRDNUS
 BIPRTU.ASM FLDFIN -> p3/biprtu.s FLDFIN # JMP FINPRT: a tail call (its RTS returns through the far call to P1's PRINT)
@@ -1505,7 +1505,7 @@ GIO86.ASM INCHR -> p4/gio86.s INCHR
 GIO86.ASM INDSKC -> p4/gio86.s INDSKC
 DSKCOM.ASM STRCHR -> p4/dskcom.s STRCHR
 GIO86.ASM BAKCHR -> p4/gio86.s BAKCHR
-DSKCOM.ASM INPDOR -> p4/dskcom.s INPDOR
+DSKCOM.ASM INPDOR -> p4/dskcom.s INPDOR # OO-1: an LF ends INPUT #'s item (the IBM manual's pp. 133-134), not LPISLF's
 GIO86.ASM POFNUM -> p4/gio86.s POFNUM
 GIO86.ASM PORLEN -> p4/gio86.s PORLEN
 GIO86.ASM NAMSC1 -> p4/gio86.s NAMSC1 # OO-1: the name upper case

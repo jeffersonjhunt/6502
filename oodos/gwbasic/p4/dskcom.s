@@ -95,9 +95,10 @@ DLINE:          JSR     FILINP
 ; INPDOR (145): an item from PTRFIL's file. Leading spaces are skipped
 ; (LINE INPUT's kept). A quoted item (a string's, DL ",") runs to its quote,
 ; CRs, LFs and commas in it kept. Else it runs to a terminator, a CR (its LF
-; eaten), or the file's end; an LF is kept in a string read by LINE INPUT
-; (dropped in an unquoted string, and in a number, with a CR after an LF);
-; a zero byte is never kept. 255 bytes end it at once. After a quote or a
+; eaten), or the file's end; an LF is kept in a string read by LINE INPUT,
+; and ends a number or an unquoted string (OO-1: the IBM manual's pp.
+; 133-134; the source drops it and goes on, LPISLF's 5/14/82 fix); a zero
+; byte is never kept. 255 bytes end it at once. After a quote or a
 ; space, the spaces after it and one comma, or a CR and its LF, are skipped
 ; (a byte that isn't is backed up). Then the item, in BUF to a zero, made
 ; the value: $FIN's for a number (DL " "), else a literal (STRLT2: CH DH, DH
@@ -133,21 +134,13 @@ LOPCRS:         LDX     RDH            ; quoted: CR and LF kept (the 8086 keeps
                 BEQ     ICASLF
                 CMP     #10
                 BNE     NOTQTL
-LPISLF:         LDX     RDL            ; an LF: kept unless an unquoted string's
-                CPX     #','
-                BEQ     :+
+LPISLF:         LDX     RDL            ; an LF: it ends INPUT #'s item (OO-1, the
+                BNE     NOSKCR         ; IBM manual's pp. 133-134); LINE INPUT's keeps it
                 JSR     STRCHR
-:               JSR     INDSKC
+                JSR     INDSKC
                 BCS     QUITSI
                 CMP     #10            ; (5/14/82: LFs one after another)
-                BEQ     LPISLF
-                CMP     #13
-                BNE     NOTQTL
-                LDX     RDL            ; a CR after LFs: a number's, an
-                CPX     #' '           ; unquoted string's, is dropped
-                BEQ     LPCRGT
-                CPX     #','
-                BEQ     LPCRGT
+                BEQ     LPISLF         ; (a CR after them kept, as the source's)
 NOTQTL:         CMP     #0             ; a zero: never kept (STRLT2's end)
                 BEQ     LPCRGT
                 CMP     RDH
@@ -414,7 +407,7 @@ ENDOFS:         STX     SVOPT
 ; --- FIXINP (DSKCOM.ASM 777) --------------------------------------------------------------
 
 ; INPUT$(n[, [#]f]), from EVAL at INPUT: n bytes (1-255: 0 is Illegal
-; function call) from file f, which mustn't be for output (Bad file mode;
+; function call) from file f, which mustn't be for output (Input past end;
 ; not open: DERFNO), at its end Input past end; or, with no file, n keys
 ; typed, not echoed (INCHRI), every byte as it comes. PTRFIL is kept round
 ; it (PRINT #2, INPUT$(3, #1) prints to file 2): FIXPTR, the 8086's stack.
@@ -442,9 +435,9 @@ FIXINPP:        JSR     CHRGTR
                 JSR     FILSCN
                 BNE     :+
                 JMP     DERFNO
-:               CMP     #MD_SQO
-                BNE     :+
-                JMP     DERBFM
+:               CMP     #MD_SQO        ; for output: Input past end (OO-1, the
+                BNE     :+             ; IBM manual's A-11; the source's Bad file mode)
+                JMP     DERRPE
 :               JSR     FILSET
                 STZ     FIXTTY         ; a file
 REDTTY:         JSR     SYNCHR

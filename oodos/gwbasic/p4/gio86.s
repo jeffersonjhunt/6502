@@ -365,7 +365,8 @@ ERBFN1:         JMP     DERBFN
 ; FILINP: "#n," for input (INPUT #, LINE INPUT #); FILGET: for the mode in
 ; CL (MD_SQO: PRINT #, WRITE #), A the character at TXTPTR. Not "#": nothing.
 ; The file must be open (else DERFNO) in that mode, or random (else Bad
-; file mode); then past the comma, and PTRFIL at its FDB (FILSET).
+; file mode; Input past end for input, OO-1: the IBM manual's A-11); then
+; past the comma, and PTRFIL at its FDB (FILSET).
 FILINP:         LDX     #MD_SQI
                 STX     RCL
 FILGET:         CMP     #'#'
@@ -378,9 +379,13 @@ FILGET:         CMP     #'#'
                 PLA
                 CMP     T0
                 BEQ     GDFILM
+                TAX                    ; the mode wanted
                 LDA     T0
                 CMP     #MD_RND        ; a random file takes them all
-                BNE     ERBFM3
+                BEQ     GDFILM
+                CPX     #MD_SQI        ; OO-1: reading a file opened for output
+                BNE     ERBFM3         ; or append is Input past end (the IBM
+                JMP     DERRPE         ; manual's A-11); writing one for input 54
 GDFILM:         JSR     SYNCHR
                 .byte   ','
 ; FILSET (712): PTRFIL at the FDB FILSCN found (the 8086's CX: FDBP).
@@ -1607,11 +1612,12 @@ DPUTG:          STX     PGTFLG
                 PHA
                 LDA     FDBP+1
                 PHA
-                FJSR    ADRGET         ; DX: the record
+                FJSR    ADRGTS         ; DX: the record; C: negative
                 PLA
                 STA     FDBP+1
                 PLA
                 STA     FDBP
+                BCS     ERBRN1         ; (OO-1: -1 isn't record 65535)
                 LDA     PGTFLG
                 CLC
                 ADC     #2
@@ -1620,6 +1626,7 @@ RELRND:         LDA     PGTFLG
 RELRN1:         LDX     #G_RND
                 JMP     SIDSP
 ERBFM1:         JMP     DERBFM
+ERBRN1:         JMP     DERBRN
 
 ; GETDAT (the project's own): A/X FDBP's FIELD buffer, the 8086's FD_DAT
 ; (FDDAT, by its number). Y used.
