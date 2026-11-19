@@ -1765,6 +1765,28 @@ TEST(bank_8_is_refused_to_peek_and_poke)
     CHECK_EQ(command(r, "DEF SEG=&H9000:POKE 0,9:PRINT PEEK(0)"), std::string(" 9 \r\n"));
 }
 
+// T4's PEEK and POKE half, the screen page's side (7d3 review round 1, F4): in console mode a POKE under DEF
+// SEG=&H8000 is Illegal function call and the console's card memory (OODOS's units 0-12, card $000000-$0033FF, which
+// CON:'s TTY-only output never writes) is unchanged, with the PEEK of it refused too. Guards a program poking the
+// PC's screen in console mode writing OODOS's own console text. Must fail: DSSCR's SCRMOD test left out.
+TEST(console_mode_s_screen_page_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    VideoCard &vid = *r.machine->video_card();
+    std::vector<uint8_t> con(0x3400);
+    for (uint32_t i = 0; i < con.size(); ++i)
+        con[i] = vid.card_peek(i);
+    CHECK_EQ(command(r, "DEF SEG=&H8000:POKE 0,1"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "POKE 1,2"), std::string("Illegal function call\r\n"));
+    CHECK_EQ(command(r, "PRINT PEEK(0)"), std::string("Illegal function call\r\n"));
+    unsigned moved = 0;
+    for (uint32_t i = 0; i < con.size(); ++i)
+        moved += vid.card_peek(i) != con[i];
+    CHECK_EQ(moved, 0u);
+}
+
 // T9, B7's question 3: with no revision 2 card GX_INIT says GE_VERSION and GX_BLOCK refuses every block, so DEF SEG
 // reaches bank 9 and an allocated block (P8's) by the 1-byte DM_COPY route instead: the bytes POKEd are in physical
 // memory and PEEK reads them, and W1 stays block 1 throughout. A build that takes GX_BLOCK's refusal as the end
