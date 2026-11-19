@@ -5150,15 +5150,16 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     (SETATR's clamp), the OO-1's choice where both are silent (G5).
   - **The defaults, for the owner's veto** (where the audit left a reading open; each is in the code and tests as
     built, and a veto changes only it):
-    - C-1 item 2, FILES: a heading line with the drive and a bytes-free line. *Not built* (P4's room, above).
-    - item 4, LOF: the bytes, OODOS keeping CP/M 3's last-record byte count. *Not built* (P4's room); records x 128
-      meanwhile, an OO-1 limit.
-    - item 10's seeding past the integers: the single's bytes folded (FACLO, FACLO+1; FACM1, FACEXP).
-    - item 12: records up to the port's reach (65,535 128-byte records, 8 MB), past it or across it Bad record
-      number; -1 Bad record number.
+    - C-1 item 2, FILES: a heading line with the drive and a bytes-free line: *built in U5* (below; the owner's
+      answer 1).
+    - item 4, LOF: the bytes, OODOS keeping CP/M 3's last-record byte count: *built in U7* (below; answer 2).
+    - item 10's seeding past the integers: the single's bytes folded (FACLO, FACLO+1; FACM1, FACEXP); since review
+      round 1 (F6) for what FRCINT would refuse, by the value.
+    - item 12: records past 32767 taken, *since U7* to CP/M 3's 18-bit random record (32 MB), past it or across it
+      Bad record number; -1 Bad record number.
     - item 13: 0 MOD 0 is Division by zero.
-    - item 18's values: ERDEV 0 and ERDEV$ "" until a device error is recorded.
-    - item 19: SPC(n<0) and TAB(n<1) are Illegal function call.
+    - item 18's values: *since U7* OODOS's physical error's code and the SCB's error drive (below).
+    - item 19: SPC(n<0), TAB(n<1), and since review round 1 (F5) either past 255, are Illegal function call.
     - item 20: reading a file opened for output or append is Input past end (62).
     - Q6, Q9, Q10, Q11: the source's (the tail of a file whose last quoted item never closes; STRING$ of a null
       string; the format-only cases `c_e5`, `c_e7`, `clearcm2`, `onevnl`; CLEAR closing the files).
@@ -5241,12 +5242,58 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Cycles after U8** (the gates): `PSET (X%,Y%),1` 2,027 (9,000); `LINE (0,0)-(639,199),1` 132,774 (200,000);
       `PRINT A$;` 21,216 (30,000); the scroll 13,300 less the interrupt handlers (14,000; 13,882 with them).
   - **The defaults, for the owner's veto, now** (U5-U8 applied): FILES's heading is the drive's root (`A:\`), and
-    a name with a bad drive prints it before its error; LOF of an open APPEND file uses its old byte count until it
-    is closed; ERDEV's high byte is 0 and ERDEV$ the SCB's error drive; RANDOMIZE's seed past the integers is the
-    single's bytes folded; 0 MOD 0 Division by zero; SPC(n<0) and TAB(n<1) Illegal function call; reading a file
+    a name whose drive isn't A-P has none (review round 1, F10); ERDEV's high byte is 0 and ERDEV$ the SCB's error
+    drive; RANDOMIZE's seed that FRCINT would refuse is the single's bytes folded; 0 MOD 0 Division by zero; SPC(n<0),
+    TAB(n<1) and either past 255 Illegal function call; reading a file
     opened for output Input past end (62); LPOS(2) and LPOS(3) 1, past 3 Illegal function call; Q6, Q9, Q10, Q11
     the source's.
-  - **Not done in the fix-up:** the records of 7a-7d are left as written, but for the re-citations above (a line
+  - **The fix-up's review round 1** (2026-11-19; the owner: "recommendations as listed", all ten "fix"; 10 findings,
+    all new, no revisions). Each fix's check seen failing under its mutant on its own case (ibmspec's mut.log); the
+    mapped suites pass:
+    - F1 (major) INPUT # ended the next item empty at an LF after a quoted string or a trailing space, and didn't
+      pass over leading LFs: NOTNWT passes over leading spaces, CRs and LFs for INPUT # (not LINE INPUT #), the
+      manual's pp. 133-134. `"abc"` LF 5, `3 ` LF 5 and 1 LF LF 2 read 5, 5 and 2. f_input's and f_write's `.differ`s
+      follow (an empty line is no item; PC-BASIC reads one). Mutant: the LF's skip left out.
+    - F2 (major) CLOSE of a random file only read, after a LOF, called function 30 and failed on a read-only drive:
+      the count is kept only if it changed (a PUT past the size at open). Mutant: the test left out.
+    - F3 (major) LOC of a random record past 32,767, and GET and PUT without a number past 65,535: **stopped, not
+      built** (P4's room: below).
+    - F4 (minor) RUN of a text file whose last line, with no CR, is only blanks or a tab didn't run: MAIN puts in
+      such a line only if it holds more than blanks and tabs, else runs at once. Mutant: the blank's skip left out.
+    - F5 (minor) SPC and TAB past 255 are Illegal function call (pp. 327, 340); tabneg gains them. Mutant: TABER's
+      test of the high byte by its sign only.
+    - F6 (minor) RANDOMIZE folds only what FRCINT would refuse, decided by the value (-32768 to -32768.49 and up to
+      32767.49 FRCINT's): -32768 seeds the same as a number, an integer variable and at the prompt; 32767.6 is
+      folded, not Overflow (randomov gains it, PC-BASIC's run again). Mutants: the -32768 case folded; 32767.6 to
+      FRCINT.
+    - F7 (minor) an open APPEND file's LOF is the bytes on the disk to the record its buffer goes to and those in the
+      buffer (APPFIN marks the file; DSKSZA): 349 after appending 300 to 49; the veto list's default goes. Mutant:
+      the mark left out.
+    - F8 (minor) PRINT USING's 24 digits don't count a leading `+` or the floating `$` (p. 272). Mutant: the `+`
+      counted.
+    - F9 (nit) the first veto list above corrected (FILES, LOF, 32 MB, ERDEV built).
+    - F10 (nit) FILES's heading only for a drive A-P (`FILES "1:"` Bad file name, no heading), and the name is
+      evaluated once, by the home block, P4's FILESQ listing from its descriptor (FILES INPUT$(5) takes five keys).
+      Mutants: the A-P test left out; FILESQ evaluating again.
+    - **P4's room** (the owner's leave to move one more cold routine): P4 had 11 bytes. Measured: DIRHK (the
+      directory hook, `p4/oem.s`: 53 bytes; called by the home block's CHDIR, MKDIR, RMDIR stubs alone; the
+      resident core's FRMEVL, FRESTR, ERROR only; no file loop runs it) and CVI-MKD$ (`p4/dskcom.s`, FUNDXP and its
+      six functions: 74 bytes and a 12-byte table; called by the resident EVALNF's far call; the resident core's
+      only; CVI is in record loops, a far call either way). DIRHK is the least connected: moved whole to `p3/oem.s`,
+      its P4 slot retired (DIRHR), so P4's later entries keep their places; no cycle added (the stubs far call P3
+      instead). P2, P5, P6 byte-identical; P1 differs only by F5's own fix (TABER two bytes shorter); the resident
+      core in 4 bytes (far calls to P3's entries). F1, F2, F7 and F10's P4 parts then fit, 2 bytes left.
+      **F3 doesn't fit:** its draft (FD_PHY, which nothing set after RNDFIN, made the record number's top bits;
+      DSKRND's next record carried into it; MULHI adding NHI x 65,536 x LEN; LOC's double through LOCDBL; the
+      buffer's never-set record test dropped) needs about 110 bytes of P4. No clean candidate of that size is left:
+      CVI-MKD$ (86) with DIRHK's (53) would not reach it either, and the large ones (CHAIN, 1,446 bytes; the COM
+      driver, 1,124) call P4's routines (PRGFLI, SKPNAM, RUNFLG; the device dispatch per byte), costing far calls
+      past 300 cycles on CHAIN or on every COM byte. Stopped for the owner, with the draft kept.
+    - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
+      BASIC 34,775. Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
+      interrupt handlers; in a loop, PUT #1,1 18,545, GET #1,2 17,310, LSET 2,187, RSET 2,163, CVI 2,745, FIELD
+      2,849.
+  - **Not done in the fix-up:** review round 1's F3 (above, P4's room); the records of 7a-7d are left as written, but for the re-citations above (a line
     that cites PC-BASIC there for a B item is read with this table). Items 5, 6 and 16 are 7f's.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
