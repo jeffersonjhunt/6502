@@ -17,12 +17,13 @@
 ; SCREEN 0: Illegal function call after the colour, as ATRSCN's ATRFI2),
 ; RBL/RBH and RSI GTASPC's pair (the aspect x 256 and its inverse). Out, for
 ; P5 (P3 can't reach P5's RAM): RDL/RDH CSTCNT, RBL/RBH CENCNT, RAL CLINEF,
-; RAH CPLOTF, RCL/RCH CNPNTS, RSI ASPECT, RDI the radius, RBP and PTR the
-; centre, T0 the colour (P5's SETATR makes it the attribute), T1 CSCLXY.
-; Every error is raised here, before P5 draws anything. OO-1: the graphics
-; cursor is P5's, so it moves to the centre (SCAN1's) only when the
-; statement parses: an error in the colour, the angles or the aspect leaves
-; it where it was (the source's SCAN1 has moved it already).
+; RAH CPLOTF, RCL/RCH CNPNTS, RSI ASPECT, RDI the radius, T0 the colour
+; (P5's SETATR makes it the attribute), T1 CSCLXY. Every error is raised
+; here, before P5 draws anything. The graphics cursor is P5's: the centre
+; goes to it by a far call to P5's CIRCC as soon as it is parsed (SCAN1's
+; place), so an error in the colour, the angles or the aspect leaves the
+; cursor at the centre, as the source's does (the owner's ruling of
+; 2026-11-19).
 
 .include "gwbasic.inc"
 
@@ -61,9 +62,9 @@ CIRCA:          MOVW    CCURX, RCL
                 STA     CPIX
                 MOVW    CASP, RBL
                 MOVW    CINV, RSI
-                JSR     CSCAN1         ; the centre
-                MOVW    CCENX, RCL
-                MOVW    CCENY, RDL
+                JSR     CSCAN1         ; the centre, to P5's cursor at once (the
+                FJSR    CIRCC          ; source's SCAN1: an error after it leaves
+                                       ; the cursor there; the owner's ruling)
                 JSR     SYNCHR
                 .byte   ','
                 JSR     GETIN2         ; the radius
@@ -162,8 +163,6 @@ CIRC2:          ; (BX the aspect, a fraction of 256)
                 STA     RAH
                 MOVW    RCL, CNPNTS
                 MOVW    RDI, CRAD
-                MOVW    RBP, CCENX
-                MOVW    PTR, CCENY
                 LDA     CATR
                 STA     T0
                 LDA     CSCLXY
@@ -310,8 +309,6 @@ CFG:            .res    1              ; the mode's foreground (in)
 CPIX:           .res    1              ; PIXSIZ (in)
 CASP:           .res    2              ; GTASPC's aspect (in)
 CINV:           .res    2              ;   and its inverse
-CCENX:          .res    2              ; the centre
-CCENY:          .res    2
 CRAD:           .res    2              ; the radius (the source's GXPOS)
 CATR:           .res    1              ; the colour
 CNPNTS:         .res    2              ; the points an octant

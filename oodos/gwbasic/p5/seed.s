@@ -82,6 +82,7 @@
 ;@entry GCELL
 ; 7e2's (p5/advgrp.s), after the rest.
 ;@entry CIRCP
+;@entry CIRCC
 .export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA

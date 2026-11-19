@@ -1153,6 +1153,39 @@ TEST(circle_arcs_and_radius_lines)
     CHECK_EQ(far2(pc, got), 0u);
 }
 
+// CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2. A negative radius takes the source's loop (the manual is
+// silent: no check, G9), about 13 s of points off the screen, and the OO-1's poll in it (every 256 steps: block 1
+// back, POLKEY) lets Ctrl-C break it: Break within a second, W1 block 1 again, and the next line typed runs. And the
+// cursor is the centre as soon as it is parsed (the source's SCAN1): CIRCLE (50,60),10,1,9 is Illegal function call
+// (an angle past 2 x PI) and the LINE -(0,0) after it starts at (50,60). Guards a program that can't be stopped, and a
+// relative drawing after an error starting elsewhere. Seen failing with (a) the poll left out (Break only after the
+// loop) and (b) CIRCA's handoff of the centre left out (the line from (160,100)).
+TEST(circle_breaks_and_keeps_its_centre)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "10 SCREEN 1:CIRCLE (160,100),-5:PRINT \"DONE\"");
+    keys(r, "RUN\r");
+    r.run(ms(1000));
+    const uint64_t t0 = r.cpu->cycles();
+    press(r, 0x06, 0xE0);
+    const int at = until_row(r, "Break in 10", ms(2000));
+    CHECK(at >= 0);
+    std::printf("  Break %.2f s after Ctrl-C\n", static_cast<double>(r.cpu->cycles() - t0) / 7.16e6);
+    CHECK(r.cpu->cycles() - t0 <= ms(1000));
+    CHECK_EQ(last_row(r, "DONE"), -1);
+    CHECK_EQ(r.nb(1), 1);
+    enter(r, "PRINT 6*7", ms(500));
+    CHECK(last_row(r, " 42") >= 0);
+    enter(r, "CLS:CIRCLE (50,60),10,1,9", ms(1000));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    enter(r, "LINE -(0,0),2", ms(1000));
+    CHECK_EQ(pixel(r, 50, 60), 2);
+    CHECK_EQ(pixel(r, 25, 30), 2);
+    CHECK_EQ(pixel(r, 160, 100), 0);
+}
+
 /// RUN's cycles, from the RUN statement to the end's ENDCON (check.py --timing's method), the program `lines` typed
 /// first (after NEW).
 uint64_t timed(CcpRig &r, const std::vector<std::string> &lines)

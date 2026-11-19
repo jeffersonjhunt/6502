@@ -22,7 +22,8 @@
 .include "p5/p5.inc"
 .import GX_W1BACK
 
-.export CIRCP
+.export CIRCP, CIRCC
+.import POLKEY
 
 ; Zero page: the loop's, and CIRCA's results from CZ, in the order
 ; CIRCA leaves them from DX on.
@@ -95,8 +96,6 @@ CIRCP:          JSR     GTASPC         ; for CIRCA: GTASPC's pair, the cursor,
                 STA     CZ,X
                 DEX
                 BPL     @o
-                MOVW    GRPACX, RBP    ; the cursor: the centre (SCAN1's)
-                MOVW    GRPACY, PTR
                 LDA     T1
                 STA     CSCLXY
                 MOVW    CRCX, RDI      ; X = the radius x 2
@@ -173,8 +172,20 @@ CRCLP2:         SEC                    ; SUM + 2Y + 1
                 SBC     T1
                 STA     CRCSUM + 1
                 DECW    CRCX
-CNODEX:         INCW    CRCY
-                JMP     CIRCLP
+CNODEX:         INC     CRCY           ; Y + 1
+                BNE     :+
+                INC     CRCY + 1       ; OO-1 (the owner's ruling of 2026-11-19):
+                JSR     GX_W1BACK      ; every 256 steps Ctrl-C's poll, block 1
+                JSR     POLKEY         ; back (the next point's MAPXYC maps the
+:               JMP     CIRCLP         ; aperture again), for a radius's long loop
+
+; CIRCC: from P3's CIRCA, the centre parsed (CX, DX): the cursor (GRPACX,
+; GRPACY) and GXPOS, GYPOS made it, as SCAN1 makes them.
+CIRCC:          MOVW    GRPACX, RCL
+                MOVW    GXPOS, RCL
+                MOVW    GRPACY, RDL
+                MOVW    GYPOS, RDL
+                RTS
 
 ; CPLSCX: DE scaled by the aspect (SCALEY) to DX, BX the unscaled; the two
 ; swapped when the aspect was over 1 (CSCLXY: x scaled, not y).
