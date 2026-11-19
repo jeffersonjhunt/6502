@@ -923,7 +923,7 @@ GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the 
 GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
 GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
 GWSTS.ASM SNDRST -> later 7f: the break's music reset
-GENGRP.ASM GRPRST -> later 7e: CLEARC's graphics reset
+GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # DRAW's scale and angle (DRWSCL, DRWANG) later 7e: DRAW's (7e2)
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
 GIODSK.ASM PROCHK -> p2/gwmain.s PROCHK # P2's; P3's PRODIR and P4's BINSAV have it inline
@@ -1258,7 +1258,7 @@ GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> later 7e
 GENGRP.ASM PRESET -> later 7e
-GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0 (1, 2 and the OO-1's modes 7e's); its stub p8/far6.s SCREEN
+GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; the OO-1's modes later 7e: 7e5's); its stub p8/far6.s SCREEN
 GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f
 GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
 #
@@ -1802,7 +1802,7 @@ SCNDRV.ASM SCRLU1 -> p6/scndrv.s SCRLU1 # SCRLU0's, which SCRLUD joins
 SCNDRV.ASM SCRLD1 -> p6/scndrv.s SCRLD1 # SCRLD0's, which SCRDLN joins
 SCNDRV.ASM DOESC -> p6/scndrv.s DOESC # the OO-1 has no escape sequences (SCROUT's C clear)
 SCNDRV.ASM CTLDPY -> p6/scndrv.s CTLDPY
-GENGRP.ASM GRPINI -> later 7e: the graphics cursor home (SCNCLR's)
+GENGRP.ASM GRPINI -> p5/gengrp.s GRPINI # P6's SCNCLR far calls it in a graphics mode (7e1), and P5's GMODE and GCLS
 GWSTS.ASM KEYDSP -> p6/scndrv.s KEYDSP # the cursor not turned off and on round it (shown only in KEYSIN's wait)
 GWSTS.ASM KEYOX -> p6/gwsts.s KEYOX # KEYSW's change; the scroll window's foot not moved (AH): the last line is always outside it
 GWSTS.ASM KEYOXX -> p6/gwsts.s KEYOXX

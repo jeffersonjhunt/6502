@@ -28,7 +28,7 @@ AFLAGS      = -g -I . -I $(BUILD) -I ../include
 BLOCKS      = $(sort $(patsubst %/,%,$(dir $(wildcard p[1-8]/*.s))))
 RES_SRC     = $(wildcard res/*.s)
 RES_OBJ     = $(RES_SRC:res/%.s=$(BUILD)/res/%.o)
-INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc $(BUILD)/homent.inc $(wildcard p6/*.inc)
+INCS        = gwbasic.inc ../include/oodos.inc $(BUILD)/entries.inc $(BUILD)/homent.inc $(wildcard p5/*.inc p6/*.inc)
 FARMISS     = $$(awk '/\.FARMISS$$/ {print "0x" $$2; exit}' $(BUILD)/gwbasic.lbl)
 
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \

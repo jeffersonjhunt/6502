@@ -52,3 +52,4 @@ CHRDWN          = 31
 CHRDEL          = 127
 CHREDT          = 1
 .global PRTMAP, EDTMAP, SCRATR, FGC, BGC, BRDC, CROW, NPAGES, STRIDE, CACHE, CURON, APGSET
+.global GMOD                           ; 7e1: the mode (p6/gwsts.s), 0 SCREEN 0, 1 and 2 the graphics

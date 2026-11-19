@@ -26,7 +26,7 @@
 ;
 ; OO-1: the function-key line (KEYSW, LABELK's ^T, KEYDSP's line: 7d2) is
 ; the last line, LINCNT, always outside the scroll window; GRPINI (the graphics cursor) is
-; 7e's; the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
+; P5's, far called in a graphics mode only (7e1); the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
 ; two-byte (DBLCHR) characters aren't built (DBLCHR is 0 in the source
 ; too).
 
@@ -99,7 +99,10 @@ SCNSWI:         STA     CRTWID
 ; --- SCNCLR, SCNPOS (SCNDRV.ASM 251) ------------------------------------------------------
 
 SCNCLR:         JSR     TTBINI
-                JSR     WHOME
+                LDA     GMOD           ; GRPINI, P5's: a graphics mode's (7e1)
+                BEQ     :+
+                FJSR    GRPINI
+:               JSR     WHOME
                 MOVB    CSRY, xDL      ; SCNLOC
                 MOVB    CSRX, xDH
                 JMP     KEYDSP

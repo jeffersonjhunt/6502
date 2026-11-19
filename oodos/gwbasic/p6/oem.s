@@ -977,7 +977,8 @@ PGADR:          TAY
 ; VSHOW: the visual page on layer 0, through P5's TXMODE (OOLIB's GX_LAYER,
 ; GX_SCROLL, GX_BORDER, GX_SHOW): A/X its card page, Y BLINK, 25 rows
 ; centred (the owner's answer 10: VSCROLL 440, 40 lines above and below),
-; the border in bits 5-2, 40 columns in bit 0.
+; the border in bits 5-2, 40 columns in bit 0; in a graphics mode (7e1) on
+; layer 1, over the graphics, bit 1.
 VSHOW:          LDA     BRDC
                 ASL     A
                 ASL     A
@@ -990,6 +991,9 @@ VSHOW:          LDA     BRDC
                 CPX     #40
                 BNE     :+
                 ORA     #$01
+:               LDX     GMOD           ; 7e1: a graphics mode, the text on layer 1
+                BEQ     :+             ; over it (TXMODE's overlay)
+                ORA     #$02
 :               PHA
                 LDA     VPAGE
                 JSR     PGADR

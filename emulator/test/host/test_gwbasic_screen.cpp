@@ -1024,7 +1024,7 @@ TEST(screen_0_pages)
     CHECK(mapbase(r) != page0);
     CHECK_EQ(line(r, 0), std::string("PAGE ONE"));
     CHECK_EQ(row_at(r, 0, page0).substr(0, 9), std::string("PAGE ZERO"));
-    enter(r, "SCREEN 1", ms(300));
+    enter(r, "SCREEN 3", ms(300));
     CHECK(last_row(r, "Illegal function call") >= 0);
     enter(r, "SCREEN 0,,4", ms(300));
     CHECK(last_row(r, "Illegal function call") >= 0);
