@@ -4836,7 +4836,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       BUF). GW-BASIC's palette (answer 10): 4 card pages at the first graphics mode, the console's 512 bytes copied
       in, groups 1 (green, red, brown), 2 (cyan, magenta, light grey) and 3 (white) from its CGA entries; PALBASE on
       it in SCREEN 1 and 2, back to 0 in SCREEN 0. P6's `SMODE` then sets the text for the mode: the PC's colours
-      (7, or 3 and 1 on background 0), SCREEN 1 40 columns, SCREEN 2 80, SCREEN 0 the width it had, 25 rows, every
+      (7, or 3 and 1 on background 0), SCREEN 1 40 columns, SCREEN 2 80, SCREEN 0 the width the mode left (40 after
+      SCREEN 1, 80 after SCREEN 2, PC-BASIC's; review round 1, F4), 25 rows, every
       page cleared. WIDTH 40/80 in a graphics mode is SCREEN 1/2 (PC-BASIC's), WIDTH n,30 Illegal function call.
     - **The text over the graphics** (answer 5): P5's `TXMODE` takes an overlay bit (P6's VSHOW sets it in a
       graphics mode): the text page on layer 1, its PALOFS the graphics' group, CTRL both layers. P6 draws the text
@@ -4845,7 +4846,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       backdrop behind every transparent pixel; an even palette group 1, an odd one group 2, both layers; a third
       parameter taken and not used (PC-BASIC's); COLOR alone and any COLOR in SCREEN 2 Illegal function call
       (PC-BASIC's). **CLS** in a graphics mode clears the page and the text; CLS 1 the graphics alone, CLS 2 the
-      text alone. SCNCLR far calls GRPINI in a graphics mode, as the source's does, so CLS centres the cursor.
+      text alone. CLS, CLS 0 and CLS 1 centre the graphics cursor (GCLS's GRPINI), as a change of mode does
+      (GMODE); CLS 2 and PRINT CHR$(12) keep it (PC-BASIC's: review round 1, F2, a departure from the source, whose
+      SCNCLR calls GRPINI, at the owner's word).
     - **The pixels** (U2, `p5/gfxoem.s`, the OEM's): MAPXYC, SCALXY, SETC, READC, the four moves, NSETCX (a whole
       byte at once where a run covers one), FETCHC and STOREC, for the two frames. The cursor is gxmem's GXP (the
       byte in W1), its bank, its mask, and the tiles' byte and row in the tile; the aperture is mapped (`GX_VMAP`)
@@ -4862,8 +4865,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       first probes' 26); the clamp to the edge itself, the source's, agreed with 8 of the 145. So a line keeps the
       course of its clamped ends (not the slope of the ends as given: PC-BASIC's own clipping moves the end that
       far), a B box's side past an edge isn't drawn, and a line wholly off the screen draws nothing. XDELT and YDELT
-      take the greater by the difference's sign, since an end may be -1. PSET, POINT and BF keep SCALXY (a BF's
-      truncated corners fill exactly what a clip would).
+      take the greater by the difference's sign, since an end may be -1. PSET, POINT and BF keep SCALXY: a BF's
+      truncated corners fill what a clip would when the box reaches the screen, and a box wholly past one edge
+      draws nothing (DOBOXF's BOXOFF, review round 1, F1: truncated, it filled that edge's row or column).
     - **The statements** (U3, `p5/gengrp.s`, GENGRP.ASM translated, with GWSTS.ASM's LINLP3): SCAN1, SCAND, PSET,
       PRESET, POINT, ATRSCN and ATRENT, the deltas and exchanges, GLINE with DOBOXF and BOXLOP, DOLINE and BOXLIN,
       DOGRPH, HLFDE, GRPRST, GRPINI. What the 8086 pushes across a formula goes on the 6502's stack, so a POINT in a
@@ -4943,6 +4947,23 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       took 2,811 bytes for an estimate of 2,900 (2,400-3,400), a ratio near the plan's; 6,758 free against 7e2-7e5's
       ~7,300 at the point estimate less the relief's ~2 KB: the relief (DRAW and MACLNG to P3) is still to be decided
       at 7e2's plan (6,344 free after U6's clipping).
+    - **Review round 1** (2026-11-19, the owner: all four "fix"; 4 findings, all new, no revisions), each fix's
+      check seen failing under its mutant on its own case, the source then restored; the mapped suites pass:
+      - F1 (major) a BF box wholly past one edge filled that edge (its corners truncated onto it), where PC-BASIC
+        draws nothing: DOBOXF's BOXOFF returns first; gfx1 and gfx2 gain such a box past each edge (PC-BASIC's dumps
+        again). Mutant: BOXOFF's early exit taken out (G1: 40 rows differ);
+      - F2 (minor) CLS 2 and PRINT CHR$(12) re-centred the graphics cursor (SCNCLR's GRPINI, the source's), where
+        PC-BASIC's keep it: SCNCLR calls it no more (CLS, CLS 0, CLS 1 and a change of mode centre it, as PC-BASIC's
+        do, probed); G8 checks CLS 2 by hand from PC-BASIC's values. Mutant: SCNCLR's GRPINI kept (G8: (10,10) 1);
+      - F3 (minor) G1's and G2's comments said a too-high colour keeps its low bits (it is the last colour, as
+        SETATR and PC-BASIC have it), and gfx1's PSET of 6 lay on a clipped line's path: moved to a clear pixel
+        (gfx1.out again). Mutant: SETATR taking the low bits (G1: 1 row);
+      - F4 (nit) SCREEN 0's width worded as the one it had: it is the one the graphics mode left (p6/gwsts.s and
+        above).
+
+      After the round: P5 6,047 bytes, 6,241 free; P6 11,634, 654 free; free for BASIC 34,792; P1-P4 differ from
+      main's only in moved resident addresses (the relocation check). `PSET (X%,Y%),1` 2,031, `LINE
+      (0,0)-(639,199),1` 131,977.
     - **The owner's rulings on the report** (2026-11-19): 1, the clipping (U6); 2, the half-step tie-break kept; 3,
       P1-P4's images accepted: the stop rule from now is that they differ only in moved resident addresses (the
       relocation check); 4, the other deviations accepted as recorded.
