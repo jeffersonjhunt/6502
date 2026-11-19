@@ -3917,8 +3917,8 @@ copy of common memory at `$F800` (above).
 | P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
 | P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL | 9.5 KB |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
-| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3 |
-| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3 |
+| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1 |
+| P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 *7e1:* SCREEN's modes 1 and 2 (SCRSTT, SMODE), WIDTH's, COLOR's and CLS's way to P5, the text over the graphics | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3, 11.6 KB at 7e1 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
 | P8 | room: whatever outgrows its block | — |
 
@@ -4818,6 +4818,117 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     The same rule for the limits as 7d's. A plotted pixel inside a LINE or CIRCLE costs an estimated 60–120, with no
     far call. A PAINT of a full SCREEN 2 is the slow case, to be timed. LINE BF fills each row's run by
     `DM_VFILL` (`GX_FRECT`'s way) if that is faster than plotting, as measured.
+  - **The split** (the owner's answers to the 7e plan, 2026-11-19, "recommendations as listed"): 7e1 SCREEN 1 and 2,
+    PSET, PRESET, POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on them, GRPRST (LIFEGFX runs); 7e2 CIRCLE,
+    PAINT, DRAW; 7e3 GET and PUT, DEF SEG's page in SCREEN 1 and 2 (the PC's CGA layout); 7e4, written from their
+    meaning, VIEW, WINDOW, PMAP, PALETTE, LINE's style, PAINT's tiles, PEN; 7e5 the OO-1's modes 10-12. The scroll's
+    gate (answer 2) is the scroll less the interrupt handlers' cycles inside it.
+  - **As built, 7e1** (Proposed, 2026-11-19; feat/gwbasic-7e1 off main `f61aca17`, the 7e plan with the owner's
+    answers; units U1 `63058bf1` and `d6708179`, U2 `cda2406c`, U3 `096e7613`, U4 `a4b3dce7`, U5 this record):
+    - **The modes** (U1, `p5/gfx.s`, the OEM's): P6's SCRSTT takes SCREEN 0-2 (3-9 and past Illegal function call;
+      a graphics mode's page 0 only, CGA's; the same mode again changes nothing, as PC-BASIC) and far calls P5's
+      `GMODE`. SCREEN 1 is layer 0 type 2 (CONFIG `$22`: 4-bit 8 x 8 tiles, the map 64 wide), a frame of tiles 0-999
+      (tile = column + 40 x row) and a blank one, 1,000, for the rest of the 64 x 32 map, VSCROLL 236; SCREEN 2 is
+      type 5, each graphics row on two layer rows, VSCROLL 440. Each page is one `GX_VALLOC` at its mode's first use
+      (142 card pages, 150), on a card bank (so a byte's bank is its offset's top 2 bits), kept until SYSTEM,
+      cleared by `DM_VFILL` at each change of mode and CLS (SCREEN 1's map written once, by 32 `DM_VWRITE`s from
+      BUF). GW-BASIC's palette (answer 10): 4 card pages at the first graphics mode, the console's 512 bytes copied
+      in, groups 1 (green, red, brown), 2 (cyan, magenta, light grey) and 3 (white) from its CGA entries; PALBASE on
+      it in SCREEN 1 and 2, back to 0 in SCREEN 0. P6's `SMODE` then sets the text for the mode: the PC's colours
+      (7, or 3 and 1 on background 0), SCREEN 1 40 columns, SCREEN 2 80, SCREEN 0 the width it had, 25 rows, every
+      page cleared. WIDTH 40/80 in a graphics mode is SCREEN 1/2 (PC-BASIC's), WIDTH n,30 Illegal function call.
+    - **The text over the graphics** (answer 5): P5's `TXMODE` takes an overlay bit (P6's VSHOW sets it in a
+      graphics mode): the text page on layer 1, its PALOFS the graphics' group, CTRL both layers. P6 draws the text
+      as in SCREEN 0, so PRINT, the editor, the key line and the scroll cost what they do there.
+    - **COLOR** in SCREEN 1 (P5's `GCOLOR`): the background's CGA colour (its low 4 bits) to palette entry 0, the
+      backdrop behind every transparent pixel; an even palette group 1, an odd one group 2, both layers; a third
+      parameter taken and not used (PC-BASIC's); COLOR alone and any COLOR in SCREEN 2 Illegal function call
+      (PC-BASIC's). **CLS** in a graphics mode clears the page and the text; CLS 1 the graphics alone, CLS 2 the
+      text alone. SCNCLR far calls GRPINI in a graphics mode, as the source's does, so CLS centres the cursor.
+    - **The pixels** (U2, `p5/gfxoem.s`, the OEM's): MAPXYC, SCALXY, SETC, READC, the four moves, NSETCX (a whole
+      byte at once where a run covers one), FETCHC and STOREC, for the two frames. The cursor is gxmem's GXP (the
+      byte in W1), its bank, its mask, and the tiles' byte and row in the tile; the aperture is mapped (`GX_VMAP`)
+      at MAPXYC and again only when the cursor crosses a 16 KB bank, and SETC writes SCREEN 2's twin row, in the next
+      bank when the pair straddles one. Each statement puts block 1 back (`GX_W1BACK`) before it returns; nothing
+      after MAPXYC can end in an error, and nothing between calls resident code or the BDOS.
+    - **The statements** (U3, `p5/gengrp.s`, GENGRP.ASM translated, with GWSTS.ASM's LINLP3): SCAN1, SCAND, PSET,
+      PRESET, POINT, ATRSCN and ATRENT, the deltas and exchanges, GLINE with DOBOXF and BOXLOP, DOLINE and BOXLIN,
+      DOGRPH, HLFDE, GRPRST, GRPINI. What the 8086 pushes across a formula goes on the 6502's stack, so a POINT in a
+      coordinate's formula (POINT re-enters P5) keeps it, as POINT keeps the cursor. PSET's and PRESET's stubs are
+      the home block's (`p8/far5.s`), LINE's stub sends LINE alone to P5 in screen mode; the evaluator's POINT
+      branch and CLEARC's GRPRST are resident, screen mode only. Console mode is as it was: each statement Advanced
+      Feature, POINT a Syntax error. P5's new entries are named in `p5/seed.s` after its own, so the jump table's
+      old entries keep their places (`d6708179`: U1 had them first and moved P1-P3).
+    - **Sizes** (bytes; at `f61aca17` → after 7e1, the plan's estimates in brackets): free for BASIC 34,819 →
+      **34,792** [~34,800; the stop line 34,768]; the resident core 11,421 → 11,448 (+27: CLEARC's call 11, POINT's
+      branch 16) [~+20], fixed RAM 2,133 (LOWRAM 434) unchanged; GWBASIC.COM 14,887 → 14,918; **P5 2,719 → 5,530,
+      6,758 free** [~5,600, ~6,650; the stop line 6,000] (gfx 1.0 KB, gfxoem 0.9 KB, gengrp 0.8 KB with their RAM);
+      **P6 11,412 → 11,647, 641 free** [~11,560; the line 600]; P8 3,161 → 3,210 [~3,220]; P4 12,223 (65 free); P1 8,439,
+      P2 5,782, P3 4,985; GWBASIC.OVL 49,280 → 52,352; the flat image's last byte `$9509` → `$9540` (test/flatp5.s's
+      stand-ins and `p8/far5.s`). **P1-P4's sources are unchanged, but their images are not byte-identical to
+      main's** (the plan's gate): they name resident addresses, and every one past CLEARC moved by 11, or 27 past
+      the evaluator's branch (a relocation check: every differing byte is such an address, or its low or high byte
+      as an immediate). U1 and U2's builds were byte-identical, resident and P1-P4.
+    - **Cycles** (the fast build; timed()'s method): `PSET (X%,Y%),1` in SCREEN 2 **2,027** a statement (the gate
+      9,000; estimated 3,500-4,000); `LINE (0,0)-(639,199),1` **132,571** (the gate 200,000; estimated 105,000-
+      135,000); for the record, a 7 x 7 BF in SCREEN 1 (LIFEGFX's box, the statement whole) 7,344, `LINE
+      (0,0)-(319,199)` in SCREEN 1 68,604, CLS in SCREEN 1 62,484 and in SCREEN 2 64,437. T17: `PRINT A$;` with 80
+      characters **21,197** (21,084 on main: P6's code moved by 7e1's routing, the run's loop's branches); the
+      whole-window scroll **13,305** without the interrupt handlers inside it (the cap 14,000, answer 2; 13,301 on
+      main by the plan's probe), 13,867 with them (37 interrupts in 19 scrolls; 13,914 on main). **LIFEGFX** (the
+      R-pentomino, the suite's G9): a generation **110.8 M cycles, 15.5 s** (the plan's measure of the BASIC alone,
+      a random board, 113.9 M): the interpreter's, not the drawing's.
+    - **Tests** (test_gwbasic_gfx, new: labels gwbasic, oodos, bios, sd, backplane, video, usb, about 35 s, no
+      shard; G11 in test_gwbasic_core), each seen failing under its mutant, run on its own case, the source then
+      restored:
+      - G1 `screen_1_pixels_match_pc_basic` (gwbasic/gfx1 against PC-BASIC's dump, read through layer 0's map and
+        tiles): (a) RIGHTC's step to the next tile column 1, not 29 (200 rows differ); (b) the left pixel in a byte's
+        low 4 bits (200);
+      - G2 `screen_2_pixels_match_pc_basic` (gfx2): (a) SETC writing row 2y only (200 rows, the pair unequal);
+        (b) a move past a bank not mapping it, the cached bank kept (194);
+      - G3 `block_1_is_back_after_every_graphics_statement` (gfx3, an array across `$4000-$7FFF`): DOLINE without
+        `GX_W1BACK` (6,667 elements read wrong);
+      - G4 `text_is_over_the_graphics`: (a) VSHOW without the overlay bit (CTRL 3, the text on layer 0); (b) the
+        text's attribute's background 7 (`$73`);
+      - G5 `screen_modes_switch_and_come_back`: TXMODE's SCREEN 0 showing layer 1 too (the text layer can't be read
+        from the start: GW-BASIC's own Ok isn't found);
+      - G6 `color_on_a_graphics_screen`: the palette's parity taken as zero or not (COLOR ,2 gives group 2);
+      - G7 `point_reads_what_was_drawn` (gfx7, PC-BASIC's values): READC's nibble taken the other way;
+      - G8 `run_and_cls_centre_the_graphics_cursor` (gfx8, gfx9): CLEARC's GRPRST left out (100 rows);
+      - G9 `lifegfx_draws_the_board`: DOBOXF's first INC BX left out (49 pixels);
+      - G10 `graphics_are_timed`: SETC mapping the bank (`NEWBNK`, so `GX_VMAP`) for every pixel (the LINE 295,896);
+      - G11 `graphics_are_advanced_feature_in_console_mode` (test_gwbasic_core): PSET's stub without its `SCRMOD`
+        test (Illegal function call, P5 reached);
+      - and, by hand, `lines_off_the_screen_and_half_steps_are_the_source_s`: SCALXY leaving an x past the last as it
+        is (the B box's side 2 pixels of 51).
+    - **Expectation changes** (the owner's approved two): `test_gwbasic_screen.cpp:1027` SCREEN 3, not SCREEN 1, the
+      refused mode; T17 gated on the scroll less the interrupt handlers' cycles, both printed. No expected output
+      changed. T17's own mutant (TXRUN for every byte) wasn't run again under the new method.
+    - **Recorded deviations** (for the owner):
+      - **A line with an end off the screen is truncated there** (the source's SCALXY, DOGRPH's "just truncate"):
+        PC-BASIC clips it instead. They agree for BF boxes and for shallow lines off the sides and steep ones off
+        the top and bottom only where the clipped end lands where the truncated one does, not in general: a B box
+        with a side past the edge draws that side on the edge here (PC-BASIC leaves it out), and a line past the
+        edge keeps the slope of its truncated ends. G1 and G2 leave such lines out; the by-hand case holds the
+        source's. *A decision for the owner:* the source's, as built, or PC-BASIC's clipping, written from its
+        meaning (its exact intersection rounding isn't the obvious one: the plan's probes found it moves the
+        clipped end by about one step of the line, not to the edge's intersection).
+      - **A half-step pixel goes the source's way:** LINLP3 starts its sum at half the major delta and steps the
+        minor axis at it (JB), so with an even major delta a pixel exactly half a step off the line goes toward the
+        line's far end; PC-BASIC's goes toward its start (`LINE (300,10)-(310,50)`: x 300 on rows 10-11 here, 10-12
+        there). Odd major deltas, and lines with a minor delta of 0 or the major's, agree; G1 and G2 use those.
+      - An attribute past the mode's last colour is that colour (PC-BASIC's: SETATR is the OEM's); `POINT` in
+        SCREEN 0 Illegal function call (PC-BASIC's; the source's POINT doesn't ask PIXSIZ); `PSET @(x,y)` and
+        `POINT(STEP(...))`, which the source's SCAN1 and SCAND take, PC-BASIC refuses (not tested).
+      - The overlay's (answer 5): POINT doesn't see text, PRINT doesn't erase graphics, the text scrolls alone, and
+        PRINT CHR$(12) clears the text alone (CLS clears both).
+      - DEF SEG's screen page is Illegal function call in SCREEN 1 and 2 (PEEK included) until 7e3.
+      - SCREEN's graphics page is CGA's one: `SCREEN 1,,1` Illegal function call (PC-BASIC's VGA takes it).
+    - **Not done in 7e1:** CIRCLE, PAINT, DRAW (7e2); GET and PUT, DEF SEG's graphics page (7e3); VIEW, WINDOW,
+      PMAP, PALETTE, LINE's style, PEN (7e4); the OO-1's modes (7e5); the books (7g). **The recount** (answer 8): P5
+      took 2,811 bytes for an estimate of 2,900 (2,400-3,400), a ratio near the plan's; 6,758 free against 7e2-7e5's
+      ~7,300 at the point estimate less the relief's ~2 KB: the relief (DRAW and MACLNG to P3) is still to be decided
+      at 7e2's plan.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
@@ -4873,10 +4984,10 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 
 | GW-BASIC | On | Missing, or to check |
 |---|---|---|
-| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed |
-| COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM |
+| SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed. *As built (7e1):* so, by P5's `GMODE` (a page each, kept); WIDTH 40/80 picks SCREEN 1/2 in a graphics mode; CLS clears the page |
+| COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM. *As built (7e1; answer 10):* no shadow and no gxpal: GW-BASIC's own palette in card memory, its entries copied on the card (`DM_VCOPY`) as COLOR sets them; COLOR in SCREEN 1 the backdrop and the group (PALOFS) |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
-| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's |
+| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line's end off the screen truncated, as the source's (PC-BASIC clips) |
 | SOUND, BEEP | `MU_TONE` on a voice; `SN_BEEP` | SOUND's length is in 1/18.2 s ticks: × 54.9 ms |
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |
@@ -5090,6 +5201,8 @@ alternative is kept as the record of what was weighed.
      used.
 
    *Alternative:* the OO-1's modes only, which breaks PC listings' coordinates.
+   *As built (7e1):* SCREEN 1 and 2 as decided, their text on layer 1 over the graphics (the 7e plan's answer 5);
+   10-12 are 7e5's (answer 3: the numbers kept).
 10. **Card memory from DEF SEG** (from 7d, which makes the screen pages). *Decided (2026-11-13, the owner):* segments
     `$8000–$8FFF` as the current screen page's card memory, as above. *Alternative:* none: card memory only
     through the graphics statements. *Kept (2026-11-17, the owner, B7's question 1):* once bank 8 can be RAM

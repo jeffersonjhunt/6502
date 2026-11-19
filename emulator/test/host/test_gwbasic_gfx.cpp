@@ -46,6 +46,18 @@ namespace
         return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
     }
 
+    /// A link's labels (ld65's -Ln): the resident core's (gwbasic.lbl) or a block's (p5.lbl).
+    std::map<std::string, uint16_t> lbl_map(const std::string &lbl = "gwbasic.lbl")
+    {
+        std::map<std::string, uint16_t> out;
+        std::ifstream f(BUILD + "/" + lbl);
+        std::string al, addr, name;
+        while (f >> al >> addr >> name)
+            if (al == "al" && name.size() > 1 && name[0] == '.')
+                out[name.substr(1)] = static_cast<uint16_t>(std::stoul(addr, nullptr, 16));
+        return out;
+    }
+
     // The video card's registers (revision 2: the Technical Reference, chapter 6; oodos/lib/gx.inc).
     constexpr uint16_t CTRL = 0xC480, PALBASE = 0xC48A, L0 = 0xC490, L1 = 0xC4A0;
     constexpr uint16_t L_CONFIG = 0, L_MAP = 1, L_TILE = 3, L_VSCROLL = 7, L_PALOFS = 9;
@@ -637,6 +649,68 @@ TEST(lifegfx_draws_the_board)
                 std::printf("  (%u,%u): %d, want %d\n", x, y, pixel(r, x, y), want);
         }
     CHECK_EQ(bad, 0u);
+}
+
+/// RUN's cycles, from the RUN statement to the end's ENDCON (check.py --timing's method), the program `lines` typed
+/// first (after NEW).
+uint64_t timed(CcpRig &r, const std::vector<std::string> &lines)
+{
+    const std::map<std::string, uint16_t> lab = lbl_map();
+    enter(r, "NEW");
+    for (const std::string &l : lines)
+        enter(r, l);
+    const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON");
+    uint64_t from = 0, cycles = 0;
+    bool on = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == runc && !on)
+        {
+            from = r.cpu->cycles();
+            on = true;
+        }
+        else if (on && pc == endcon)
+        {
+            cycles = r.cpu->cycles() - from;
+            on = false;
+        }
+    };
+    keys(r, "RUN\r");
+    const uint64_t end = r.cpu->cycles() + ms(60000);
+    while (cycles == 0 && r.cpu->cycles() < end)
+        r.run(ms(10));
+    r.watch = nullptr;
+    r.run(ms(200));
+    CHECK(cycles > 0);
+    return cycles;
+}
+
+// The graphics' timing gate (V6), by check.py --timing's method (a loop with the statement less the loop without it,
+// over the passes): in SCREEN 2, PSET (X%,Y%),1 with integer variables at most 9,000 cycles a statement, and LINE
+// (0,0)-(639,199),1 (640 points, each two rows) at most 200,000; for the record, a 7 x 7 BF in SCREEN 1 (LIFEGFX's
+// box), LINE (0,0)-(319,199) there, and CLS in SCREEN 1 and 2. Guards graphics too slow to use. Seen failing with
+// the aperture mapped by gxmem's GX_VMAP for every pixel (NEWBNK's cache off).
+TEST(graphics_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    auto per = [&](const std::string &setup, const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + loop});
+        const uint64_t b = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + stmt + ":" + loop});
+        return static_cast<double>(b - a) / n;
+    };
+    const double pset = per("SCREEN 2", "PSET (X%,Y%),1", 100);
+    const double line2 = per("SCREEN 2", "LINE (0,0)-(639,199),1", 10);
+    const double box = per("SCREEN 1", "LINE (X%,Y%)-(X%+6,Y%+6),3,BF", 50);
+    const double line1 = per("SCREEN 1", "LINE (0,0)-(319,199),2", 10);
+    const double cls1 = per("SCREEN 1", "CLS", 10), cls2 = per("SCREEN 2", "CLS", 10);
+    std::printf("  PSET (X%%,Y%%),1 in SCREEN 2: %.0f cycles (the gate 9,000)\n", pset);
+    std::printf("  LINE (0,0)-(639,199),1 in SCREEN 2: %.0f cycles (the gate 200,000)\n", line2);
+    std::printf("  for the record: a 7 x 7 BF in SCREEN 1 %.0f, LINE (0,0)-(319,199) %.0f, CLS in SCREEN 1 %.0f, in "
+                "SCREEN 2 %.0f\n", box, line1, cls1, cls2);
+    CHECK(pset > 500 && pset <= 9000);
+    CHECK(line2 > 10000 && line2 <= 200000);
 }
 
 int main()
