@@ -1258,7 +1258,7 @@ GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> p5/gengrp.s PSETP # its home block stub p8/far5.s PSET, screen mode; PPRSET, PSETC, PSTNOT inline
 GENGRP.ASM PRESET -> p5/gengrp.s PRSETP # its home block stub p8/far5.s PRESET
-GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; the OO-1's modes later 7e: 7e5's); its stub p8/far6.s SCREEN, which parses it (GTPRMS: 7e5's M6)
+GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; 7e5: and the OO-1's SCREEN 10, 11 and 12, modes 3-5, an OO-1 extension past the IBM manual's 0-2); its stub p8/far6.s SCREEN, which parses it (GTPRMS: 7e5's M6)
 GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f; KEY n,"text" the stub's own (p8/far6.s KEYDEF, 7e5's M6), the line then drawn by P6's KEYDP
 GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE, which parses it (7e5's M6)
 #
