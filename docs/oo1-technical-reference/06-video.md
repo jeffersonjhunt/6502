@@ -27,7 +27,8 @@ isn't locked to the CPU, so code can't time a mode change to a cycle mid-frame.
 
 CTRL ([`$C480`](#reg-c480)) turns things on: bit 0 the display, bit 1 layer 0, bit 2 layer 1, bit 3 the sprites.
 With the display off the screen is black, but the timing and its interrupts run on. Each layer's CONFIG
-([`$C490`](#reg-c490), [`$C4A0`](#reg-c4a0)) gives it one of six types, in bits 2–0:
+([`$C490`](#reg-c490), [`$C4A0`](#reg-c4a0)) gives it one of six types, in bits 2–0, or on revision 2 one of
+eight:
 
 | Type | Layer | Its own pixels | MAPBASE holds | TILEBASE holds |
 |---|---|---|---|---|
@@ -37,9 +38,11 @@ With the display off the screen is black, but the timing and its interrupts run 
 | 3 | bitmap 256: 8 bits a pixel, shown 2×2 | 256×240 | the image | |
 | 4 | bitmap 512: 4 bits a pixel | 512×480 | the image | |
 | 5 | mono: 1 bit a pixel | 640×480 | the image | |
-| 6, 7 | unassigned: draws nothing | | | |
+| 6 | bitmap 640: 8 bits a pixel, revision 2 (*proposed*) | 1,024×480, 640 shown | the image | |
+| 7 | direct 640: 12-bit colour a pixel, no palette, revision 2 (*proposed*) | 640×480 | the image | |
 
-A layer of type 6 or 7 is drawn as if it were off.
+On revision 1, types 6 and 7 are unassigned: a layer of either is drawn as if it were off. On revision 2 they are
+the two 640×480 colour layers ([below](#bitmap-640-and-direct-640)).
 
 ### What shows where
 
@@ -55,8 +58,10 @@ Each pixel of the screen is built back to front:
 6. sprites at depth 3.
 
 A layer pixel or sprite pixel whose value is 0, before PALOFS is added, is transparent: what is behind it shows.
-Text, tile and mono layers cover the whole screen. The two bitmaps cover x 64–575 only, and BORDER shows on either
-side. With both layers off, or both unassigned, the whole screen is BORDER, and the sprites are drawn over it.
+Direct 640 is the exception: its pixel of 0 is opaque black, and a pixel with bit 15 set is the transparent one
+([below](#bitmap-640-and-direct-640)). Text, tile and mono layers, bitmap 640 and direct 640 cover the whole
+screen. Bitmap 256 and bitmap 512 cover x 64–575 only, and BORDER shows on either side. With both layers off, or
+both unassigned, the whole screen is BORDER, and the sprites are drawn over it.
 
 ### Text
 
@@ -104,7 +109,50 @@ Status: **emulated**
 - **Mono** is 640×480 at 1 bit a pixel, 80 bytes a row, the leftmost pixel in bit 7. A 1 is colour PALOFS × 16 + 1;
   a 0 is transparent. 37.5 KB.
 
-Both bitmaps sit at x 64–575, centred, with BORDER either side.
+Both bitmaps sit at x 64–575, centred, with BORDER either side. Revision 2 adds two that fill the screen,
+[bitmap 640 and direct 640](#bitmap-640-and-direct-640).
+
+### Bitmap 640 and direct 640
+
+Status: **proposed**
+
+Revision 2's layer types 6 and 7 ([hw/video640.md](../../hw/video640.md)) are 640×480 colour pictures that cover
+the whole screen, x 0–639: BORDER shows nowhere under them. Revision 1 draws neither.
+
+| | Type 6, bitmap 640 | Type 7, direct 640 |
+|---|---|---|
+| A pixel | a byte, a palette index | a word, low byte first: byte 0 green in bits 7–4 and blue in bits 3–0, byte 1 red in bits 3–0, as a [palette entry](#the-palette) is |
+| Colours | 256 of the 4,096, through the palette at PALBASE | all 4,096, with no palette |
+| A row | 1,024 bytes, 4 pages | 1,280 bytes, 5 pages, rows packed |
+| Pixel (x, y) at | MAPBASE × 256 + y × 1,024 + x | MAPBASE × 256 + y × 1,280 + 2x |
+| The layer | 1,024×480, of which 640 across are shown | 640×480 |
+| A screen | 491,520 bytes (480 KB, 1,920 pages) | 614,400 bytes (600 KB, 2,400 pages) |
+| Transparent | a pixel of 0 | a pixel with bit 15 set (byte 1's bit 7, `$8000`) |
+| PALOFS | not used, as bitmap 256 | not used: no palette |
+
+- **Bitmap 640's rows** are 1,024 bytes: pixel *x* of a row is at its offset *x*, and the 384 bytes past x 639 are
+  the layer's own pixels, shown when HSCROLL moves them on ([Scrolling](#scrolling)). A row is four pages, so a row
+  on a 1 KB boundary never crosses a 16 KB aperture slot: a slot holds 16 rows.
+- **Direct 640's word** is `$0RGB`, the palette entry's 12 bits. Bits 12–14 are not used: the card ignores them,
+  and software writes them 0 so that a later card may give them a meaning. Bit 15 set makes the pixel transparent,
+  so `$0000` is opaque black: a byte fill of `$00` clears a screen to black, and one of `$FF` makes it all
+  transparent. A word never crosses a slot (it is at an even address).
+- **Direct 640's rows straddle slots.** Rows are 5 pages apart, so a 16 KB slot boundary falls inside 4 rows in
+  every 64: from a base on a 16 KB boundary, rows 12, 25, 38 and 51 of each 64, 30 of the 480. Software that
+  writes along a row through the aperture maps the next slot at the boundary; OOLIB maps each pixel by its own
+  address.
+- **What shows where** is as [above](#what-shows-where): either type may be on either layer, and a sprite's colour
+  is still a palette index, over or under a direct 640 layer. A direct 640 layer 1 shows layer 0 and depth-2
+  sprites wherever its words have bit 15 set; a direct 640 layer 0 shows depth-1 sprites there, and palette entry 0
+  where no other layer covers. Both layers may be direct 640 at once.
+- **Through the port:** a row or a whole screen is one stream at PSTEP 1 (both are contiguous). A bitmap 640 column
+  is PSTEP 1,024. A direct 640 column is two byte streams at PSTEP 1,280, the low bytes from 2*x* and the high bytes
+  from 2*x* + 1, and a fill of one colour is two streams at PSTEP 2, the low byte at the even addresses and the high
+  byte at the odd, the DMA's source held on one byte each time (OODOS's function 83, `DM_VFILLW`).
+
+The emulator draws both on `rev=2` only. The decision, its dates and the owner's assumption for the real board,
+that the card's memory keeps up with a direct 640 layer beside the other layer and the sprites, are in
+[hw/video640.md](../../hw/video640.md).
 
 ### Scrolling
 
@@ -113,7 +161,8 @@ Status: **emulated**
 Each layer has HSCROLL and VSCROLL, 10 bits each, in the layer's own pixels: a tile layer and bitmap 256 scroll in
 steps of two screen pixels both ways, a 40-column text layer in steps of two across and one down. A scroll moves the
 picture left or up, and it wraps within the layer: within the map for tiles (256 to 1,024 pixels each way), within
-640×480 for 80-column text and mono, 320×480 for 40-column text, 512×480 for bitmap 512, and 256×240 for bitmap 256.
+640×480 for 80-column text, mono and direct 640, 320×480 for 40-column text, 512×480 for bitmap 512, 256×240 for
+bitmap 256, and 1,024×480 for bitmap 640, so a picture up to 1,024 wide scrolls across with no seam.
 A text layer has no cells past its 80×30 or 40×30, so scrolling one rotates the screen.
 
 The scroll registers, and every base register, take effect at the start of vertical blank, line 480: to show on the
@@ -185,8 +234,9 @@ Status: **emulated**
 
 The palette is 256 entries of two bytes, 512 bytes, in video memory at PALBASE ([`$C482`](#reg-c482)). Byte 0 is
 green in bits 7–4 and blue in bits 3–0; byte 1 is red in bits 3–0, its bits 7–4 not used. That is 12 bits a
-colour, 4,096 colours. Every colour of the layers and the sprites is a palette index, BORDER's too. The splash and
-Apple II mode have colours of their own.
+colour, 4,096 colours. Every colour of the layers and the sprites is a palette index, BORDER's too, but for a
+direct 640 layer's, which is the 12 bits themselves ([above](#bitmap-640-and-direct-640)). The splash and Apple II
+mode have colours of their own.
 
 The card reads the palette from memory for each line it draws, so a change to it shows from the next line drawn: a
 fade done by DMA in the vertical blank shows whole on the next frame. PALBASE itself is latched at vertical blank,
@@ -541,7 +591,8 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
 | PCTL | `$C4BE` | bit 0: DRQ enable. Bit 1: the direction, 0 to the card (DMA writes PDATA), 1 from the card (DMA reads it). Bit 2: PADDR steps down. The other bits read 0 |
 
 - **The step** lets one stream write a column or a rectangle: 160 for a column of the 80-column text screen (80
-  cells of 2 bytes a row), 256 for a column of bitmap 256 or bitmap 512 (256 bytes a row), 80 for one of mono.
+  cells of 2 bytes a row), 256 for a column of bitmap 256 or bitmap 512 (256 bytes a row), 80 for one of mono,
+  1,024 for one of bitmap 640, and 1,280 for direct 640's, in two passes: the low bytes, then the high bytes.
   PSTEP 0 holds the card address, so every access is the same byte. The BIOS's fills step 2, with the DMA's
   source held on one byte.
 - **PADDR wraps** at the end of the fitted memory, up or down. Set at or past that end, it reads back as written and
@@ -1049,7 +1100,7 @@ R/W. Not latched: a write shows from the next line drawn.
 | 5 | MAP_W64 | tiles: 1, the map is 64 entries wide (else 32) |
 | 4 | TILE8BPP | tiles: 1, 8 bits a pixel (else 4) |
 | 3 | TILE16 | tiles: 1, 16×16 tiles (else 8×8) |
-| 2–0 | TYPE | 0 text 80×30, 1 text 40×30, 2 tiles, 3 bitmap 256, 4 bitmap 512, 5 mono, 6–7 nothing |
+| 2–0 | TYPE | 0 text 80×30, 1 text 40×30, 2 tiles, 3 bitmap 256, 4 bitmap 512, 5 mono; revision 2, 6 bitmap 640, 7 direct 640 (*proposed*); revision 1, 6–7 nothing |
 
 #### Reset
 
@@ -1063,8 +1114,9 @@ R/W. Not latched: a write shows from the next line drawn.
 
 A layer type ignores the bits that aren't its own, and every bit reads back as written. backplane.inc names
 `VIDEO_TEXT80B` (`$80`: text 80×30, blinking), `VIDEO_TEXT40` (`$01`), `VIDEO_TILE` (`$02`: 8×8 tiles at 4 bits) and
-`VIDEO_MAP_W64` (`$20`). The BIOS writes `$80` at boot and on Break. [Modes and layers](#modes-and-layers) has the
-types.
+`VIDEO_MAP_W64` (`$20`), and for revision 2 `VIDEO_BITMAP640` (`$06`), `VIDEO_DIRECT640` (`$07`) and
+`VIDEO_DIRECT_T` (`$80`, direct 640's transparent bit, in a pixel's byte 1). The BIOS writes `$80` at boot and on
+Break, and never types 6 or 7. [Modes and layers](#modes-and-layers) has the types.
 
 <a id="reg-c491"></a>
 ### $C491 VIDEO_L0_MAP_R1: layer 0's map
