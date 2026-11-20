@@ -25,8 +25,8 @@
 ;   FIELD     FIELD [#]n, w AS v$, ... (p4/dskcom.s FIELDP)
 ;   LSET      LSET, RSET v$ = s$ (p4/dskcom.s LSETP, RSETP)
 ;   RSET
-;   PUT       PUT, GET [#]n[, record] (p4/gwsts.s PUTP, GETP: a graphics
-;   GET       PUT or GET is 7e's)
+;   PUT       PUT, GET [#]n[, record] (p4/gwsts.s PUTP, GETP); a graphics
+;   GET       PUT or GET, P5's GPUTG (7e3)
 ;   BSAVE     BSAVE name, offset, length and BLOAD name[, offset] (7c's
 ;   BLOAD     tail): BPARMS here, then p4/gio86.s BSAVEP and BLOADP
 ;   CHAIN     CHAIN [MERGE] name[, [line][, ALL][, DELETE range]]
@@ -54,7 +54,7 @@
 .export OPEN, CLOSE, RESET, LOADS, MERGES, SAVES, HLRUN
 .export FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN, BSAVE, BLOAD
 .import SCRTCH, RUNC, FINPRT, NEWSTT, READY, MAIN, OMERR, EDTMAI, LIST, CHRGTR, TOPS
-.import SYNCHR, SNERR, FCERR, SAVSEG, SCRMOD
+.import SYNCHR, SNERR, FCERR, SAVSEG, SCRMOD, TXSYNC
 .import FRMEVL, FRESTR, OUTDO, CRDO, STROUT, FRCDBL
 
 ASCCTZ          = 26                   ; ^Z (DSPUTH: a file's end)
@@ -190,9 +190,38 @@ LSET:           FJSR    LSETP
                 RTS
 RSET:           FJSR    RSETP
                 RTS
-PUT:            FJSR    PUTP
+; PUT, GET (7e3): GWSTS.ASM's PARSE's test here: "(" or "@" after the word
+; is the graphics statement (P5's GPUTG, the corners there: the owner's
+; answer 1), and so is GET's STEP (answer 5: the IBM manual's p. 115, a
+; relative first corner; a file's GET can't begin with it), in screen mode,
+; TXBUF emptied first (P5's rows pass through it: answer 3). Anything else,
+; and every graphics form in console mode, P4's PUTP and GETP as before
+; (Advanced Feature for the graphics there, its GRPVER).
+PUT:            CMP     #'('
+                BEQ     :+
+                CMP     #'@'
+                BNE     PUTF
+:               BIT     SCRMOD
+                BPL     PUTF
+                LDX     #1
+                BRA     GPUTH
+PUTF:           FJSR    PUTP
                 RTS
-GET:            FJSR    GETP
+GET:            BIT     SCRMOD
+                BPL     GETF
+                CMP     #'('
+                BEQ     :+
+                CMP     #'@'
+                BEQ     :+
+                CMP     #STEP_TK
+                BNE     GETF
+:               LDX     #0
+GPUTH:          PHX
+                JSR     TXSYNC
+                PLA
+                FJSR    GPUTG
+                RTS
+GETF:           FJSR    GETP
                 RTS
 CHDIR:          LDX     #0
                 BRA     DIRGO

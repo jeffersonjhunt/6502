@@ -1281,8 +1281,8 @@ GIODSK.ASM NAME -> p4/giodsk.s NAMEP # its home stub p8/far4.s NAME; OO-1: "?" i
 DSKCOM.ASM LSET -> p3/dskcom.s LSETP # OO-1: P3 since the IBM spec's fix-up (P4's relief); its home stub p8/far4.s LSET; FRESTR's flags kept as the 8086's PUSHF
 DSKCOM.ASM RSET -> p3/dskcom.s RSETP # OO-1: P3 since the fix-up; its home stub p8/far4.s RSET
 GIODSK.ASM KILL -> p4/giodsk.s KILLP # its home stub p8/far4.s KILL; OO-1: a search (17) for C_OPEN and C_CLOS, as CP/M's open refuses "?"; SYS files passed over, each match deleted by name (W7)
-GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT; a graphics PUT (GPUTG) 7e's: Advanced Feature
-GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET; a graphics GET (GPUTG) 7e's: Advanced Feature
+GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT, which (7e3) sends a graphics PUT to P5's GPUTG in screen mode; in console mode P4's GRPVER, Advanced Feature
+GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET, the same (and GET's STEP, the owner's answer 5)
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as COMMON's JMP DATA
 FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes on to MAIN or CHNENT's SCRTCH (the far call rule)
@@ -1290,7 +1290,7 @@ GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
 ADVGRP.ASM PAINT -> p5/advgrp.s PAINTP # its home block stub p8/far5.s PAINT, screen mode; PNTCOR the fill (DRAW's P too); GOTBRD inline; OO-1 (the IBM manual's p. 236): a start off the screen paints nothing, no error (CHKRNG not called); a string paint or a background Advanced Feature until 7e4 (the owner's G12); CKCNTC with block 1 put back (PNTLOP)
 ADVGRP.ASM INTQUE -> p5/advgrp.s INTQUE # the queue's end A/X (FRETOP, or DRAW's P's cap, OO-1) and Y (0: GARBA2 allowed); INTQU2 inline
-ADVGRP.ASM CHKRNG -> dropped: PAINT's start off the screen paints nothing (the IBM manual's p. 236; PAINTP's SCALXY test); GET and PUT's later 7e3
+ADVGRP.ASM CHKRNG -> p5/advgrp.s CHKRNG # GET and PUT's (7e3); PAINT doesn't call it: its start off the screen paints nothing (the IBM manual's p. 236; PAINTP's SCALXY test)
 ADVGRP.ASM SCANR1 -> p5/advgrp.s SCANR1
 ADVGRP.ASM SCANL1 -> p5/advgrp.s SCANL1 # CSAVEA the run's x (PCSX), the cursor re-made by PSTOR
 ADVGRP.ASM ENTST1 -> p5/advgrp.s ENTST1 # FETCHC's place: the cursor's (x, y), PNX and PNY
@@ -1682,7 +1682,15 @@ DSKCOM.ASM LSETA -> p3/dskcom.s LSETA
 DSKCOM.ASM MAKDSC -> p3/dskcom.s MAKDSC
 DSKCOM.ASM MADESC -> p3/dskcom.s MADESC
 GWSTS.ASM PARSE -> p4/gwsts.s PARSE
-ADVGRP.ASM GPUTG -> later 7e: the graphics GET and PUT (7e3; p4/gwsts.s GRPVER gives Advanced Feature)
+ADVGRP.ASM GPUTG -> p5/advgrp.s GPUTG # 7e3: its home block stubs p8/far4.s PUT and GET, screen mode ("(" or "@", GET's STEP too: the owner's answer 5), TXSYNC first; the corners here (SCAN1, SCAND, the deltas), the array and the action by one far call to p3/advgrp.s GPUTA (MULBLP, UMULT, the header, DIVBLP inline there); OEM.H's PGINIT, NREAD, NWRITE the OO-1's (p5/gfxoem.s: the rows through TXBUF, the byte paths); CPAT put back (OO-1)
+ADVGRP.ASM PUT1 -> p3/advgrp.s PUT1 # the action word (none XOR); MAPXYC after GPUTA returns (P5's); OO-1: a comma and no word Syntax error (the IBM manual's form, p. 281)
+ADVGRP.ASM PFUNLP -> p3/advgrp.s PFUNLP # an unknown word: carry back to P5, nothing drawn, NEWSTT's Syntax error
+ADVGRP.ASM PUT20 -> p3/advgrp.s PUT20
+ADVGRP.ASM PUT2 -> p3/advgrp.s PUT2 # the header read, the far corner (PRNGER's carry); its CHKRNG P5's
+ADVGRP.ASM GOPGIN -> p5/advgrp.s GOPGIN
+ADVGRP.ASM PGLOOP -> p5/advgrp.s PGLOOP # PGLOO2, PGLOO3 inline
+ADVGRP.ASM GTARRY -> p3/advgrp.s GTARRY # OO-1 (the owner's answer 6, the IBM manual's pp. 116, 281): a string array Type mismatch
+ADVGRP.ASM GFUNTB -> p3/advgrp.s GFUNTB
 GIODSK.ASM FILOUX -> p4/giodsk.s FILOUX
 GIODSK.ASM SOUTPS -> p4/giodsk.s SOUTPS
 GIODSK.ASM PGSUB1 -> p4/giodsk.s PGSUB1

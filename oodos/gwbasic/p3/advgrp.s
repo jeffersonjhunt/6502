@@ -24,11 +24,16 @@
 ; the centre leaves the cursor at the centre (the owner's U2b ruling, and
 ; its revision after F1) and one in the angles or the aspect the attribute
 ; the colour, as the source's do.
+;
+; And GPUTA (7e3): from P5's GPUTG, by one far call, GET's and PUT's array
+; (GTARRY), GET's size check and header, PUT's action word (GFUNTB), header
+; and far corner (below).
 
 .include "gwbasic.inc"
 
-.export CIRCA
+.export CIRCA, GPUTA
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG, FRCINT, FMULS
+.import PTRGET, SUBFLG, UMULT, TMERR, SNERR
 .import FCOMP, FDIVS, MAKINT, PUSHF, POPR
 
 .macro  PSHW    zp
@@ -252,6 +257,200 @@ CONE:           LDA     #$81
                 STZ     RDL
                 RTS
 
+; --- GET and PUT's array (ADVGRP.ASM 845, 950, 1060; 7e3) -------------------------------
+
+; GPUTA (7e3): from P5's GPUTG (p5/advgrp.s) by one far call (the owner's
+; answer 1), TXTPTR past the corners (P5's SCAN1 and SCAND: the cursor is
+; P5's). In: RAL 0 GET, 1 PUT; RAH PIXSIZ; RCL/RCH, RDL/RDH the corner; for
+; GET RBL/RBH the pixels a row (MAXDEL) and RSI the rows (MINDEL). GTARRY's
+; array (numeric: the owner's answer 6), then for GET its size (MULBLP: the
+; bits, the pixels x PIXSIZ; their bytes, (bits + 7) / 8, x the rows by
+; UMULT, + 4) against the array's, Illegal function call with nothing
+; written, then the header (element 0 the bits, 1 the rows); for PUT (PUT1's
+; part) the action word (GFUNTB; none XOR; any other returns with carry set,
+; nothing drawn, for NEWSTT's Syntax error), the header read, and the far
+; corner (x + the bits over PIXSIZ - 1, y + the rows - 1: a carry Illegal
+; function call; P5's CHKRNG then checks it). Out, carry clear: RSI the
+; data's address past the header, RBL/RBH the bits a row, RDI the rows, RAL
+; the action (0-4, GFUNTB's order); PUT's far corner in RCL/RCH, RDL/RDH.
+; Nothing here moves W1, so the array is read and written wherever it is.
+GPUTA:          LDA     RAL
+                STA     GAPUT
+                LDA     RAH
+                STA     GAPIX
+                MOVW    GAX, RCL
+                MOVW    GAY, RDL
+                MOVW    GABX, RBL
+                MOVW    GARW, RSI
+                LDA     #3             ; (GET: no action)
+                STA     GAACT
+                JSR     GTARRY
+                LDA     GAPUT
+                BEQ     :+
+                JMP     PUT1
+:               MOVW    RBL, GABX      ; MULBLP: the bits, MAXDEL x PIXSIZ
+                LDA     GAPIX
+                CMP     #2
+                BNE     :+
+                ASL     RBL
+                ROL     RBH
+:               MOVW    GABT, RBL
+                CLC                    ; their bytes, (bits + 7) / 8
+                LDA     RBL
+                ADC     #7
+                STA     RDL
+                LDA     RBH
+                ADC     #0
+                STA     RDH
+                LDX     #3
+@h:             LSR     RDH            ; HLFDE
+                ROR     RDL
+                DEX
+                BNE     @h
+                MOVW    RCL, GARW      ; x MINDEL (UMULT)
+                JSR     UMULT
+                CLC                    ; + 4, + the data's start: the end it needs
+                LDA     RDL
+                ADC     #4
+                STA     RDL
+                LDA     RDH
+                ADC     #0
+                STA     RDH
+                CLC
+                LDA     RDL
+                ADC     GAD
+                STA     RDL
+                LDA     RDH
+                ADC     GAD + 1
+                STA     RDH
+                BCS     GAFC           ; past 64 KB
+                LDA     GAE            ; the array's end below it: too small
+                CMP     RDL
+                LDA     GAE + 1
+                SBC     RDH
+                BCC     GAFC
+                MOVW    PTR, GAD       ; the header: the bits, the rows
+                LDY     #3
+@w:             LDA     GABT,Y         ; (GABT then GARW)
+                STA     (PTR),Y
+                DEY
+                BPL     @w
+GAOUT:          CLC                    ; out: past the header
+                LDA     GAD
+                ADC     #4
+                STA     RSI
+                LDA     GAD + 1
+                ADC     #0
+                STA     RSI + 1
+                MOVW    RBL, GABT
+                MOVW    RDI, GARW
+                LDA     GAACT
+                STA     RAL
+                CLC
+                RTS
+GAFC:           JMP     FCERR
+
+; PUT1 (ADVGRP.ASM 950): the action word, PFUNLP's search of GFUNTB.
+PUT1:           DECW    TXTPTR
+                JSR     CHRGTR
+                BNE     :+
+                LDX     #4             ; none: XOR
+                BRA     PUT2
+:               JSR     SYNCHR
+                .byte   ','
+                BNE     :+             ; OO-1: a comma and no word, Syntax error (the IBM
+                JMP     SNERR          ; manual's form, p. 281; the source's NEWSTT finds the end)
+:               LDX     #4
+PFUNLP:         CMP     GFUNTB,X
+                BEQ     PUT20
+                DEX
+                BPL     PFUNLP
+                SEC                    ; none of them: for NEWSTT's Syntax error
+                RTS
+PUT20:          PHX
+                JSR     CHRGTR         ; past the word
+                PLX
+PUT2:           STX     GAACT
+                MOVW    PTR, GAD       ; the header
+                LDY     #3
+@r:             LDA     (PTR),Y
+                STA     GABT,Y
+                DEY
+                BPL     @r
+                MOVW    RCL, GABT      ; the pixels: the bits over PIXSIZ (DIVBLP)
+                LDA     GAPIX
+                CMP     #2
+                BNE     :+
+                LSR     RCH
+                ROR     RCL
+:               DECW    RCL            ; a count
+                CLC                    ; + x: the far x
+                LDA     RCL
+                ADC     GAX
+                STA     RCL
+                LDA     RCH
+                ADC     GAX + 1
+                STA     RCH
+                BCS     PFC            ; PRNGER
+                MOVW    RDL, GARW      ; the far y: y + the rows - 1
+                DECW    RDL
+                CLC
+                LDA     RDL
+                ADC     GAY
+                STA     RDL
+                LDA     RDH
+                ADC     GAY + 1
+                STA     RDH
+                BCS     PFC
+                JMP     GAOUT
+PFC:            JMP     FCERR
+
+; GTARRY (ADVGRP.ASM 1060): the comma, then the array named (PTRGET with
+; SUBFLG 1: arrays only, no subscripts, as ERASE's; not there, Illegal
+; function call: no array is made). OO-1 (the owner's answer 6, the IBM
+; manual's pp. 116, 281: the array must be numeric): a string array is Type
+; mismatch, before anything is written. GAD its data's first byte (past the
+; dimensions), GAE the byte past its end (the size before the dimensions'
+; count, from it).
+GTARRY:         JSR     SYNCHR
+                .byte   ','
+                LDA     #1
+                STA     SUBFLG
+                JSR     PTRGET
+                BNE     PFC            ; not there
+                STZ     SUBFLG
+                LDA     VALTYP
+                CMP     #VT_STR
+                BNE     :+
+                JMP     TMERR
+:               SEC                    ; the size, the word before BX
+                LDA     RBL
+                SBC     #2
+                STA     PTR
+                LDA     RBH
+                SBC     #0
+                STA     PTR + 1
+                CLC
+                LDA     (PTR)
+                ADC     RBL
+                STA     GAE
+                LDY     #1
+                LDA     (PTR),Y
+                ADC     RBH
+                STA     GAE + 1
+                LDA     (RBL)          ; the data: BX + 1 + 2 x the dimensions (the
+                ASL     A              ; 8086's byte add)
+                SEC
+                ADC     RBL
+                STA     GAD
+                LDA     RBH
+                ADC     #0
+                STA     GAD + 1
+                RTS
+
+.segment "RODATA"
+GFUNTB:         .byte   OR_TK, AND_TK, PRESET_TK, PSET_TK, XOR_TK ; PUT's actions, 0-4
+
 .segment "BRAM"
 CFG:            .res    1              ; the mode's foreground (in)
 CPIX:           .res    1              ; PIXSIZ (in)
@@ -266,3 +465,14 @@ CLINEF:         .res    1              ; bit 0: a line from the start, bit 7 fro
 CPLOTF:         .res    1              ; 0: plot between start and end; $FF: outside
 CSCLXY:         .res    1              ; 1: scaling x (an aspect over 1)
 CGF:            .res    1              ; CGTCNT's flag for CLINEF
+GAPUT:          .res    1              ; 7e3: GET 0, PUT 1 (in)
+GAPIX:          .res    1              ;   PIXSIZ (in)
+GAX:            .res    2              ;   the corner (in)
+GAY:            .res    2
+GABX:           .res    2              ;   GET's pixels a row (in)
+.assert GARW = GABT + 2, error, "GPUTA's header: the bits, then the rows"
+GABT:           .res    2              ;   the bits a row
+GARW:           .res    2              ;   the rows
+GAD:            .res    2              ;   the array's data
+GAE:            .res    2              ;   the byte past its end
+GAACT:          .res    1              ;   PUT's action
