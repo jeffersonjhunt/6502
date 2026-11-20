@@ -14,7 +14,14 @@
 .include "gwbasic.inc"
 
 .export PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
-.import ADVERR, SCRMOD
+.import ADVERR, SCRMOD, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR
+
+.macro  MOVW    dst, src
+                LDA     src
+                STA     dst
+                LDA     src + 1
+                STA     dst + 1
+.endmacro
 
 .code
 
@@ -38,12 +45,192 @@ DRAW:           BIT     SCRMOD
                 BPL     ADV
                 FJSR    DRAWP
                 RTS
+ADV:            JMP     ADVERR
+; VIEW (7e4; the IBM manual's pp. 357-360): VIEW [[SCREEN](x1,y1)-(x2,y2)
+; [,[fill][,[border]]]], each coordinate an integer (GETIN2: rounded), the
+; colours 0-255 (GETBYT); no STEP (Syntax error at the "("). VIEW SCREEN
+; alone is VIEW alone, the whole screen (OO-1: the manual's brackets, the
+; owner's answer 7, E6). The parse is kept in this block's RAM (a statement
+; never re-enters it), then checked: a graphics mode (P5's DSINFO: GMODEV),
+; each corner on the screen (0 to 319 or 639, 0 to 199), x1 <> x2 and y1 <>
+; y2, else Illegal function call; the corners sorted. Then one far call to
+; P5's GVIEW (p5/gfx.s), which draws: A the flags (bit 7 corners, 6
+; SCREEN, 5 a fill, 4 a border), RSI on the viewport's corner (2 bytes and
+; 1), its last x and y from the corner (2 and 1), the fill and the border;
+; the border box (x1 - 1, y1 - 1)-(x2 + 1, y2 + 1) in RCL/RCH, RDL/RDH,
+; RBL/RBH, RAL/RAH.
 VIEW:           BIT     SCRMOD
                 BPL     ADV
+                STZ     VWF
+                JSR     VEND
+                BEQ     @call          ; VIEW alone
+                LDX     #$80
+                CMP     #SCREEN_TK
+                BNE     :+
+                JSR     CHRGTR
+                BEQ     @call          ; VIEW SCREEN alone
+                LDX     #$C0
+:               STX     VWF
+                JSR     VPAIR          ; (x1,y1)
+                MOVW    VX1, VX2
+                MOVW    VY1, VY2
+                JSR     SYNCHR
+                .byte   MINUTK
+                JSR     VPAIR          ; (x2,y2)
+                JSR     VEND
+                BEQ     @call
+                JSR     SYNCHR
+                .byte   ','
+                CMP     #','
+                BEQ     @nf            ; no fill
+                JSR     GETBYT
+                STA     VFIL
+                LDA     #$20
+                TSB     VWF
+                JSR     VEND
+                BEQ     @call
+@nf:            JSR     SYNCHR
+                .byte   ','
+                JSR     GETBYT
+                STA     VBRD
+                LDA     #$10
+                TSB     VWF
+@call:          FJSR    DSINFO         ; A: the mode
+                TAX
+                BNE     :+
+                JMP     FCERR          ; SCREEN 0
+:               BIT     VWF
+                BMI     :+
+                JMP     @go            ; no corners
+:
+                LDA     #<319          ; x: 0 to the mode's last
+                LDY     #>319
+                CPX     #1
+                BEQ     :+
+                LDA     #<639
+                LDY     #>639
+:               LDX     #VX1 - VX1
+                JSR     VCHK
+                LDX     #VX2 - VX1
+                JSR     VCHK
+                LDA     #199           ; y: 0 to 199
+                LDY     #0
+                LDX     #VY1 - VX1
+                JSR     VCHK
+                LDX     #VY2 - VX1
+                JSR     VCHK
+                LDX     #VX1 - VX1     ; sorted, each pair unequal
+                JSR     VSORT
+                LDX     #VY1 - VX1
+                JSR     VSORT
+                MOVW    RSI, VX1       ; the viewport: the corner, the last x and y
+                LDA     VY1
+                STA     RSI + 2
+                SEC
+                LDA     VX2
+                SBC     VX1
+                STA     RSI + 3
+                LDA     VX2 + 1
+                SBC     VX1 + 1
+                STA     RSI + 4
+                SEC
+                LDA     VY2
+                SBC     VY1
+                STA     RSI + 5
+                LDA     VFIL
+                STA     RSI + 6
+                LDA     VBRD
+                STA     RSI + 7
+                SEC                    ; the border box
+                LDA     VX1
+                SBC     #1
+                STA     RCL
+                LDA     VX1 + 1
+                SBC     #0
+                STA     RCH
+                SEC
+                LDA     VY1
+                SBC     #1
+                STA     RDL
+                LDA     #0
+                SBC     #0
+                STA     RDH
+                CLC
+                LDA     VX2
+                ADC     #1
+                STA     RBL
+                LDA     VX2 + 1
+                ADC     #0
+                STA     RBH
+                CLC
+                LDA     VY2
+                ADC     #1
+                STA     RAL
+                LDA     #0
+                ADC     #0
+                STA     RAH
+@go:            LDA     VWF
                 FJSR    GVIEW
                 RTS
+; VCHK: the corner word at VX1 + X no more than A/Y (unsigned: a negative
+; one is past it), else Illegal function call.
+VCHK:           CMP     VX1,X
+                TYA
+                SBC     VX1 + 1,X
+                BCC     VFC
+                RTS
+; VSORT: the pair at VX1 + X and VX2 + X sorted; equal, Illegal function call.
+VSORT:          LDA     VX2,X
+                CMP     VX1,X
+                LDA     VX2 + 1,X
+                SBC     VX1 + 1,X
+                BCS     @s
+                LDY     #2             ; swapped
+@w:             LDA     VX1,X
+                PHA
+                LDA     VX2,X
+                STA     VX1,X
+                PLA
+                STA     VX2,X
+                INX
+                DEY
+                BNE     @w
+                RTS
+@s:             LDA     VX2,X
+                CMP     VX1,X
+                BNE     @x
+                LDA     VX2 + 1,X
+                CMP     VX1 + 1,X
+                BEQ     VFC
+@x:             RTS
+VFC:            JMP     FCERR
+; VPAIR: "(x,y)": VX2 x, VY2 y (the last pair's; the first copied by the
+; caller). VEND: Z at the statement's end, A the character.
+VPAIR:          JSR     SYNCHR
+                .byte   '('
+                JSR     GETIN2
+                MOVW    VX2, RDL
+                JSR     SYNCHR
+                .byte   ','
+                JSR     GETIN2
+                MOVW    VY2, RDL
+                JSR     SYNCHR
+                .byte   ')'
+VEND:           DECW    TXTPTR
+                JMP     CHRGTR
 WINDOW:         BIT     SCRMOD
-                BPL     ADV
+                BMI     :+
+                JMP     ADVERR
+:
                 FJSR    WINSET
                 RTS
-ADV:            JMP     ADVERR
+
+.segment "BRAM"
+VWF:            .res    1              ; VIEW's flags (GVIEW's A)
+VX1:            .res    2              ;   its corners: x1, y1 (VSORT's: VX2 4 on)
+VY1:            .res    2
+VX2:            .res    2
+VY2:            .res    2
+.assert VX2 - VX1 = 4 && VY2 - VY1 = 4, error, "VIEW's corners: VSORT's order"
+VFIL:           .res    1              ;   the fill
+VBRD:           .res    1              ;   the border

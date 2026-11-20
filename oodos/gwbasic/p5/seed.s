@@ -491,7 +491,7 @@ DSGPK:          LDA     DSA+1
                 JMP     DSFC           ; past the reach
 :               JSR     DSGXY
                 BCS     @gap
-                JSR     MAPXYC
+                JSR     MAPABS         ; 7e4: the screen's, whatever the viewport
                 LDA     #1
                 JSR     GPSETN
                 LDA     #<DSVAL
@@ -645,7 +645,7 @@ DSPMIN:         STA     DSVL
                 STA     DSVL
 :               RTS
 ; DSGPC: the piece's cursor (MAPXYC), DSVL CGA bytes by PSET, through TXBUF.
-DSGPC:          JSR     MAPXYC
+DSGPC:          JSR     MAPABS         ; 7e4: the screen's, whatever the viewport
                 LDA     DSVL
                 JSR     GPSETN
                 JMP     GPTX

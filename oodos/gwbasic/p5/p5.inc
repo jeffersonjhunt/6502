@@ -16,8 +16,9 @@
 
 ; p5/gfx.s
 .global GMODEV, GMX, GGRP, GBASE, GMAXX, GRPSIZ, PIXSIZ, GETFBC, SETATR, CPAT, GTASPC, PIXMSK, PIXPAT
+.global VWOX, VWOY, VWSX, VWSY, VWON, VWMX, VWMY, LSTYL ; 7e4: the viewport, LINE's style
 ; p5/gfxoem.s
-.global MAPXYC, SCALXY, SETC, READC, RIGHTC, LEFTC, DOWNC, UPC, NSETCX
+.global MAPXYC, MAPABS, SCALXY, SETC, READC, RIGHTC, LEFTC, DOWNC, UPC, NSETCX
 .global FETCHC, STOREC, REMAP, RIGHTV, LEFTV, DOWNV, CSAV
 .global CBANK, CMASK, CXB, CY7
 .global NEWBNK
@@ -27,6 +28,7 @@
 ; p5/gengrp.s
 .global GRPACX, GRPACY, GXPOS, GYPOS, ATRBYT, GRPINI, DOGRPH, SCAN1
 .global SCAND, XDELT, YDELT, XCHGX, XCHGY ; 7e3: GET and PUT's corners (p5/advgrp.s)
+.global DOBOXF, BOXLIN, VSOFF ; 7e4: VIEW's fill and border (p5/gfx.s), DRAW's M (p5/advgrp.s)
 
 GM_TEXT         = 0                    ; GMODEV: SCREEN 0
 GM_TILE         = 1                    ;   SCREEN 1: the tile frame

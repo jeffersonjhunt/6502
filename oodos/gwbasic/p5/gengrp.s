@@ -37,6 +37,7 @@
 .import GX_W1BACK
 
 .export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI, GCELL
+.import VWRSTW
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, SNERR, MAKINT
 
 ; Push and pull a word of zero page.
@@ -108,10 +109,30 @@ SCANN:          BNE     @abs
                 LDA     GRPACY + 1
                 ADC     RDH
                 STA     RDH
-@abs:           MOVW    GRPACX, RCL
+                BRA     SCANS
+@abs:           JSR     VSOFF          ; 7e4: absolute, VIEW SCREEN's offset off
+SCANS:          MOVW    GRPACX, RCL
                 MOVW    GXPOS, RCL
                 MOVW    GRPACY, RDL
                 MOVW    GYPOS, RDL
+                RTS
+
+; VSOFF (OO-1, 7e4): CX, DX an absolute point made the viewport's: VIEW
+; SCREEN's offset (VWSX, VWSY; 0 under VIEW, and with none) taken off.
+VSOFF:          SEC
+                LDA     RCL
+                SBC     VWSX
+                STA     RCL
+                LDA     RCH
+                SBC     VWSX + 1
+                STA     RCH
+                SEC
+                LDA     RDL
+                SBC     VWSY
+                STA     RDL
+                BCS     :+
+                DEC     RDH
+:
                 RTS
 
 ; --- PSET, PRESET, POINT (GENGRP.ASM 155) -----------------------------------------------------
@@ -184,7 +205,8 @@ PNTNOT:         JSR     MAKINT
 
 ; GCELL (OO-1, P6's SCREEN( in a graphics mode: the IBM manual's p. 311):
 ; C set if any of the 8 x 8 pixels under the text cell at row RDL, column
-; RCL (from 0) isn't 0. The graphics cursor kept.
+; RCL (from 0) isn't 0. The graphics cursor kept. 7e4: the cell's pixels
+; the screen's, whatever the viewport (MAPABS).
 GCELL:          JSR     FETCHC
                 STZ     RCH
                 LDX     #3
@@ -196,7 +218,7 @@ GCELL:          JSR     FETCHC
                 STZ     RDH
                 LDA     #8
                 STA     GCR
-@r:             JSR     MAPXYC
+@r:             JSR     MAPABS
                 LDA     #8
                 STA     GCN
 @p:             JSR     READC
@@ -369,7 +391,7 @@ BOXLOP:         JSR     FETCHC
 
 ; BOXOFF (OO-1): C set if the box (CX, DX)-(GXPOS, GYPOS) lies wholly past
 ; one edge of the screen: both x below 0 or past the last, or both y below
-; 0 or past 199.
+; 0 or past 199 (7e4: the viewport's edges).
 BOXOFF:         LDA     RCH
                 AND     GXPOS + 1
                 BMI     @yes           ; both x < 0
@@ -396,14 +418,15 @@ BOXOFF:         LDA     RCH
                 RTS
 @yes:           SEC
                 RTS
-; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199.
+; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199
+; (7e4: the viewport's, VWMX and VWMY).
 XPAST:          CPX     #$80
                 BCS     @n             ; negative
                 STA     T0
                 STX     T1
-                LDA     GMAXX
+                LDA     VWMX
                 CMP     T0
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     T1
                 BCS     @n             ; the last >= x
                 SEC
@@ -414,8 +437,9 @@ YPAST:          CPX     #$80
                 BCS     @n
                 CPX     #0
                 BNE     @p
-                CMP     #200
-                RTS                    ; (C: y >= 200)
+                CLC
+                SBC     VWMY
+                RTS                    ; (C: y > VWMY)
 @p:             SEC
                 RTS
 @n:             CLC
@@ -681,12 +705,12 @@ LSKIP:          LDA     LYM
                 BCC     LSKNO
                 SEC
                 LDA     LX
-                SBC     GMAXX
+                SBC     VWMX
                 STA     LK
                 LDA     LX + 1
-                SBC     GMAXX + 1
+                SBC     VWMX + 1
                 STA     LK + 1
-                MOVW    LX, GMAXX
+                MOVW    LX, VWMX
 @k:             LDA     LCNT           ; 0: 65,536 points, more than any k
                 ORA     LCNT + 1
                 BEQ     :+
@@ -829,6 +853,7 @@ GRPRST:         PSHW    RCL            ; CX and BX kept (DX isn't, as the source
                 STZ     DRWSCL         ; DRAW's scale and angle (7e2; and TA's, OO-1)
                 STZ     DRWANG
                 STZ     DRWTA
+                JSR     VWRSTW         ; 7e4: RUN, CLEAR and NEW end VIEW and WINDOW
                 JSR     GRPINI
                 SEC
                 JSR     GETFBC

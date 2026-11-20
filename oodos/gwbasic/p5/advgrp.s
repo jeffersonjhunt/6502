@@ -689,7 +689,7 @@ DRWOP:          CPY     #1
                 BCC     DRW0
                 BEQ     DRW1
                 CPY     #3
-                BCC     DRWABS
+                BCC     DRW2
                 BEQ     DRW3
                 CPY     #4
                 BEQ     DRW4
@@ -713,7 +713,10 @@ DRW0:           JSR     PIXSIZ
                 RTS
 DRW1:           PHA
                 JSR     GTABSC
-                PLA
+                BRA     DRW2P
+DRW2:           PHA                    ; 7e4: an absolute M, VIEW SCREEN's offset off
+                JSR     VSOFF
+DRW2P:          PLA
 DRWABS:         STA     DRWFLG
                 BIT     DRWFLG         ; B: just the position
                 BMI     DSTPOS

@@ -5,11 +5,14 @@
 ; through aperture slot 1 in W1 (OOLIB's gxmem, the W1 contract):
 ;
 ;   SCALXY    CX, DX (x, y, signed) made a point of the screen: each clipped
-;             to 0 and the mode's last; carry set if both were on it already
+;             to 0 and the mode's last (7e4: the viewport's, VWMX and VWMY);
+;             carry set if both were on it already
 ;             (PSET, POINT, and BF's corners; a line's ends are clipped by
 ;             p5/gengrp.s's LINCLP)
 ;   MAPXYC    C, the graphics cursor, made the pixel at CX, DX (on the
-;             screen), and the aperture put in W1 on its card bank
+;             screen), and the aperture put in W1 on its card bank. 7e4: CX,
+;             DX the viewport's, its corner (VWOX, VWOY) added for the card,
+;             CX and DX kept; MAPABS the same of a point of the screen
 ;   SETC      the cursor's pixel set to the attribute's colour (SETATR's)
 ;   READC     A the cursor's pixel's attribute
 ;   RIGHTC LEFTC DOWNC UPC   the cursor moved by a pixel (off the screen
@@ -73,14 +76,14 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 STZ     RCH
                 INY
                 BRA     @y
-:               LDA     GMAXX          ; x > the last
+:               LDA     VWMX           ; x > the last
                 CMP     RCL
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     RCH
                 BCS     @y
-                LDA     GMAXX
+                LDA     VWMX
                 STA     RCL
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 STA     RCH
                 INY
 @y:             LDA     RDH
@@ -90,10 +93,10 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 INY
                 BRA     @f
 :               BNE     @yh            ; y > 255
-                LDA     RDL
-                CMP     #200
-                BCC     @f
-@yh:            LDA     #199
+                LDA     VWMY
+                CMP     RDL
+                BCS     @f
+@yh:            LDA     VWMY
                 STA     RDL
                 STZ     RDH
                 INY
@@ -105,7 +108,29 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
 
 ; --- MAPXYC -----------------------------------------------------------------------------------
 
-MAPXYC:         LDX     GMX
+MAPXYC:         LDA     RCL            ; 7e4: the viewport's corner added, CX and DX kept
+                PHA
+                CLC
+                ADC     VWOX
+                STA     RCL
+                LDA     RCH
+                PHA
+                ADC     VWOX + 1
+                STA     RCH
+                LDA     RDL
+                PHA
+                CLC
+                ADC     VWOY
+                STA     RDL
+                JSR     MAPABS
+                PLA
+                STA     RDL
+                PLA
+                STA     RCH
+                PLA
+                STA     RCL
+                RTS
+MAPABS:         LDX     GMX
                 JMP     (MAPV - 2,X)
 
 ; The tiles: T2:T1 the byte's offset (above).
@@ -514,13 +539,14 @@ UPT:            LDA     CY7
 ;           the skip: BX the count, CL the flag; the cursor left at the
 ;           run's leftmost pixel (the cursor's own if none)
 ;   TUPC    a row up, TDOWNC down: carry set, and no move, at row 0 or 199
+;           (7e4: the viewport's last, VWMY)
 ;   PNTINI  A the border's attribute: past the mode's last colour the last
 ;           (as SETATR); carry clear (every attribute is legal)
 ;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC); DX kept
 SCANR:          STZ     RCL
-@skip:          LDA     GMAXX          ; past the edge: none
+@skip:          LDA     VWMX           ; past the edge: none (7e4: the viewport's)
                 CMP     PNX
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     PNX + 1
                 BCC     @none
                 JSR     READC
@@ -545,9 +571,9 @@ SCANR:          STZ     RCL
                 STZ     RBL
                 STZ     RBH
                 BRA     @in
-@r:             LDA     GMAXX          ; the edge: the run's end
+@r:             LDA     VWMX           ; the edge: the run's end
                 CMP     PNX
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     PNX + 1
                 BCC     @x
                 JSR     READC
@@ -593,7 +619,7 @@ TUPC:           LDA     PNY
                 CLC
                 RTS
 TDOWNC:         LDA     PNY
-                CMP     #199
+                CMP     VWMY
                 BCS     TEDGE
                 INC     PNY
                 JSR     DOWNC

@@ -43,8 +43,8 @@
 .import GX_VALLOC, GX_VADDR, GX_VFILL, GX_VCOPY, GX_VPUT, GX_LAYER, GX_SCROLL, GX_PALOFS
 .import GX_PALBASE, GX_V, GX_R, GX_X, GX_Y, GX_A, GX_C
 
-.export GMODE, GCOLOR, GCLS, GVIEW, GVWGET
-.import BUF, ADVERR
+.export GMODE, GCOLOR, GCLS, GVIEW, GVWGET, VWRST, VWRSTW
+.import BUF, GFLG
 
 .code
 
@@ -55,6 +55,7 @@ GMODE:          STA     GNEW
                 BNE     GMGFX
                 STZ     GMODEV         ; SCREEN 0: the console's palette back
                 STZ     GMX
+                STZ     GFLG           ; 7e4: no graphics, no window
                 LDA     #0
                 TAX
                 JSR     GX_PALBASE
@@ -130,6 +131,9 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 STA     GMAXX + 1
                 LDA     GGRPT - 2,X    ; SCREEN 1's palette 1, SCREEN 2's white
                 STA     GGRP
+                LDA     #1             ; 7e4: a graphics mode, no window (GFLG),
+                STA     GFLG           ; the viewport the whole screen
+                JSR     VWRST
                 JSR     GPAGE          ; the page cleared, the cursor centred
                 SEC                    ; 7e2: DRAW's colour the mode's foreground (the IBM
                 JSR     GETFBC         ; manual's p. 74: C's default the mode's last)
@@ -285,10 +289,17 @@ GCOLOR:         LDX     GMODEV
 
 GCLS:           CMP     #2             ; CLS 2: the text alone
                 BEQ     @t
+                LDX     VWON           ; 7e4: a viewport
+                BNE     @v
                 PHA
                 JSR     GPAGE
                 PLA
                 CMP     #1             ; C: CLS 1, the graphics alone
+                RTS
+@v:             LDA     #0             ; the viewport alone cleared, the cursor at its
+                JSR     VFILL          ; centre, and the text left (CLS 1's path: the
+                JSR     GRPINI         ; IBM manual's p. 36, no home; 7e's answer 5,
+                SEC                    ; the overlay: the text isn't the graphics')
                 RTS
 @t:             CLC
                 RTS
@@ -332,19 +343,135 @@ PALE:           ASL     A
                 PLA
                 RTS
 
-; --- GVIEW, GVWGET (7e4): U0's stand-ins ------------------------------------------------
+; --- The viewport (7e4): VWRST, GVIEW, GVWGET, VFILL ---------------------------------------
 
-GVIEW:          JMP     ADVERR
-GVWGET:         RTS
+; The OO-1's (the IBM manual's pp. 357-360; the source's VIEW falls into
+; ADVERR). Every coordinate this block keeps (the graphics cursor GRPACX and
+; GRPACY, GXPOS and GYPOS, LINCLP's LX and LY, PAINT's PNX and PNY) is the
+; viewport's, from its corner: 0 to VWMX across and 0 to VWMY down, the
+; screen's GMAXX and 199 with no viewport. MAPXYC adds the corner (VWOX,
+; VWOY) for the card; SCAND takes VIEW SCREEN's offset (VWSX, VWSY: the
+; corner under VIEW SCREEN, else 0) off an absolute point. So every
+; statement's clipping is the viewport's with no code of its own.
+;
+;   VWRST   the viewport the whole screen, and the line style solid (LSTYL:
+;           GLINEP's, p5/gengrp.s); VWRSTW the same and the window ended
+;           (GFLG's bits 7 and 6): GMODE and GRPRST (RUN, CLEAR, NEW)
+;   GVIEW   VIEW, from the home block's stub (p8/far5.s), which has parsed
+;           and checked it (the mode, the corners on the screen, sorted,
+;           unequal): A bit 7 corners given, bit 6 SCREEN, bit 5 a fill,
+;           bit 4 a border; RSI on the viewport (GVB: VWOX, VWOY, VWMX,
+;           VWMY, the fill, the border), RCL/RCH, RDL/RDH the border box's
+;           first corner (x1 - 1, y1 - 1), RBL/RBH, RAL/RAH its second. The
+;           viewport the whole screen; the border box drawn there, each side
+;           clipped to the screen as any line; the viewport set (VIEW SCREEN
+;           its points absolute: VWSX, VWSY its corner), the fill over it;
+;           no corners (VIEW, VIEW SCREEN alone) the whole screen. Then the
+;           cursor at its centre (GRPINI), and with a WINDOW on P1's WINRSC
+;           maps it onto the new viewport
+;   GVWGET  RDL/RDH VWMX, RBL VWMY, RBH/RAL VWSX, RAH VWSY (for P1)
+;   VFILL   A an attribute (SETATR's): the viewport filled with it
+;           (DOBOXF), CPAT back to ATRBYT's
+VWRSTW:         LDA     GFLG
+                AND     #$3F
+                STA     GFLG
+VWRST:          LDX     #VWON - VWOX
+@z:             STZ     VWOX,X
+                DEX
+                BPL     @z
+                LDA     GMAXX
+                STA     VWMX
+                LDA     GMAXX + 1
+                STA     VWMX + 1
+                LDA     #199
+                STA     VWMY
+                LDA     #$FF
+                STA     LSTYL
+                STA     LSTYL + 1
+                RTS
+
+GVIEW:          STA     GVF
+                LDX     #GVBN - 1      ; the viewport, the fill and the border kept
+@k:             LDA     RSI,X
+                STA     GVB,X
+                DEX
+                BPL     @k
+                JSR     VWRST
+                BIT     GVF
+                BPL     @end           ; VIEW alone: the whole screen
+                LDA     GVF
+                AND     #$10
+                BEQ     @set
+                LDA     GVB + 7        ; the border, one pixel outside
+                JSR     SETATR
+                LDA     RBL
+                STA     GXPOS
+                LDA     RBH
+                STA     GXPOS + 1
+                LDA     RAL
+                STA     GYPOS
+                LDA     RAH
+                STA     GYPOS + 1
+                JSR     BOXLIN
+@set:           LDX     #VWMY - VWOX   ; the viewport
+@v:             LDA     GVB,X
+                STA     VWOX,X
+                DEX
+                BPL     @v
+                INC     VWON
+                BIT     GVF            ; VIEW SCREEN: its points absolute
+                BVC     @f
+                LDX     #VWMX - VWOX - 1
+@s:             LDA     VWOX,X         ; (VWSX, VWSY as VWOX, VWOY)
+                STA     VWSX,X
+                DEX
+                BPL     @s
+@f:             LDA     GVF
+                AND     #$20
+                BEQ     @end
+                LDA     GVB + 6        ; the fill
+                JSR     VFILL
+@end:           JSR     GRPINI         ; the cursor at the centre
+                LDA     ATRBYT         ; CPAT back (the border's)
+                JSR     SETATR
+                BIT     GFLG           ; a WINDOW: onto the new viewport
+                BPL     @x
+                JSR     GVWGET
+                FJSR    WINRSC
+@x:             RTS
+
+GVWGET:         LDX     #VWSY - VWMX   ; (VWMX to VWSY)
+@g:             LDA     VWMX,X
+                STA     RDL,X
+                DEX
+                BPL     @g
+                RTS
+
+VFILL:          JSR     SETATR
+                STZ     RCL
+                STZ     RCH
+                STZ     RDL
+                STZ     RDH
+                LDA     VWMX
+                STA     GXPOS
+                LDA     VWMX + 1
+                STA     GXPOS + 1
+                LDA     VWMY
+                STA     GYPOS
+                STZ     GYPOS + 1
+                JSR     DOBOXF
+                LDA     ATRBYT
+                JMP     SETATR
 
 ; --- The OEM's: GRPSIZ, PIXSIZ, GETFBC, SETATR ----------------------------------------------
 
-; GRPSIZ: CX the last x (319, 639), DX the last y (199).
-GRPSIZ:         LDA     GMAXX
+; GRPSIZ: CX the last x (319, 639), DX the last y (199); 7e4: the
+; viewport's (VWMX, VWMY).
+GRPSIZ:         LDA     VWMX
                 STA     RCL
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 STA     RCH
-                LDA     #199
+                LDA     VWMY
                 STA     RDL
                 STZ     RDH
                 RTS
@@ -433,3 +560,17 @@ GMAXX:          .res    2              ; its last x
 GPAGES:         .res    4              ; SCREEN 1's and 2's pages (0: none yet)
 GPAL:           .res    2              ; GW-BASIC's palette (0: none yet)
 CPAT:           .res    1              ; SETATR's pattern: the attribute in every pixel of a byte
+; 7e4: the viewport, in GVIEW's order (VWOX to VWMY), then VIEW SCREEN's
+; (VWSX, VWSY as VWOX, VWOY) and P1's (GVWGET: VWMX to VWSY)
+VWOX:           .res    2              ; its corner on the screen, for MAPXYC
+VWOY:           .res    1
+VWMX:           .res    2              ; its last x and y, from the corner (GMAXX and 199 without)
+VWMY:           .res    1
+VWSX:           .res    2              ; VIEW SCREEN's offset (its corner; else 0), for SCAND
+VWSY:           .res    1
+VWON:           .res    1              ; nonzero: a viewport set (GCLS)
+LSTYL:          .res    2              ; LINE's style (p5/gengrp.s): $FFFF, solid, but inside GLINEP
+GVF:            .res    1              ; GVIEW's flags
+GVB:            .res    8              ;   the viewport (VWOX to VWMY), the fill, the border
+GVBN            = * - GVB
+.assert VWMY - VWOX = 5 && VWSX - VWOX = 6 && VWSY - VWSX = 2, error, "the viewport's RAM: GVIEW's and GVWGET's order"
