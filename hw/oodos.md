@@ -5489,15 +5489,23 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **As built, 7e3** (Proposed, 2026-11-19; feat/gwbasic-7e3 off main `47da0b1a`, the 7e3 plan with the owner's
     answers, "recommendations as listed"; units U0 `e49ccf09`, U1 `1d1c1b12`, U2 `99ba2889`, U3 `d3e89533`, U4
     `4f424b9f`, U5 with this record):
-    - **S1** (U0, the space plan's): INITSA (with GREADY, 57 bytes) is the loader's, at the end of `res/loader.s`'s
-      LOADER segment (bimisc.o links before loader.o, so "the segment's end" means loader.s's end: a judgement, the
-      ledger's line names it); what it writes there is behind it (the zero before the program, the loader's first
-      byte, and NODSKS's end link), and an LRUN's load reaches it only after its JMP. CONT, TON, TOFF and TONOFF are
-      the home block's (`p8/gwmain.s`; HOMTAB alone dispatches them). The source's one other caller of TOFF, the
-      resident SCRTCH, clears TRCFLG itself (`LDA #0`, `STA TRCFLG`: one byte more than the JSR, a judgement). Free
-      for BASIC +99 (the plan's +97). A corner, recorded: a `/M:` top inside the loader's last 60 or so bytes puts
-      GWINIT's zero for VAL inside INITSA before it runs (on main the same was true of 3 bytes, the loader's `JMP
-      INITSA`); such a top leaves BASIC about 1 KB.
+    - **S1** (U0, the space plan's): INITSA (with GREADY, 57 bytes) is the loader's (`res/loader.s`): since review
+      round 1 (F1) right after its FJSR GWINIT, which falls into it (the loader's `JMP INITSA` gone); at U0 it was at
+      the LOADER segment's end (bimisc.o links before loader.o). What it writes in the workspace is behind it (the
+      zero before the program, the loader's first byte, and NODSKS's end link), and an LRUN's load reaches it only
+      after its JMP. CONT, TON, TOFF and TONOFF are the home block's (`p8/gwmain.s`; HOMTAB alone dispatches them).
+      The source's one other caller of TOFF, the resident SCRTCH, clears TRCFLG itself (`LDA #0`, `STA TRCFLG`: one
+      byte more than the JSR, a judgement). Free for BASIC +99 (the plan's +97).
+    - **The /M: start-up guard** (review round 1, F1, the owner's option B): GWINIT's one write to the workspace
+      before INITSA runs is a /M: top's zero for VAL, at n - 1. On U0's build two windows of start-up code still to
+      run were exposed: INITSA and GREADY (57 bytes, then at the loader's end) and the loader's `JMP INITSA` (3
+      bytes, about 290 before it: main's exposure too); tops landing there hung or printed false errors (`GWBASIC
+      /M:15344` hung after the heading, 15348 said GWBASIC.OVL was damaged). P2's DONCMD keeps the source's floor
+      (MAPINI's 32 bytes above TXTTAB) and also refuses, as the command line's error, a top whose n - 1 falls in
+      `[INITSA, INITEND)`, INITEND the label past GREADY's JMP: 57 values of n, each leaving about 830-890 bytes
+      free. P2 +24 bytes (6,449 free); free for BASIC 34,874 unchanged; the other blocks byte-identical. The case is
+      test_gwbasic_files' `the_command_line_s_switches_are_read_and_m_sets_the_top` (INITSA + 1, + 8 and INITEND
+      refused; INITEND + 1 starts and runs PRINT); its mutant, the guard removed, hangs at INITEND.
     - **GET and PUT** (U1, U2; ADVGRP.ASM's GPUTG, PUT1, GOPGIN, PGLOOP, GTARRY, GFUNTB and CHKRNG, translated, the
       owner's answers 1, 3, 4, 5, 6): the home block's stubs (`p8/far4.s`) send `(` or `@` after the word, and GET's
       STEP (answer 5, the manual's p. 115), to P5's `GPUTG` in screen mode, TXBUF emptied first (TXSYNC); every
@@ -5537,8 +5545,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       **34,874** [34,872; the line 34,850]; the resident core 11,465 → 11,366, the loader 1,069 → 1,126, fixed RAM
       2,133 (LOWRAM 434) unchanged; GWBASIC.COM 14,937 → 14,895; GWBASIC.OVL 59,392 → 61,696. **P3 8,014 → 8,504,
       4,274 → 3,784 free** [3,872; the line 3,500]; **P5 8,241 → 9,737, 4,047 → 2,551 free** [2,822, range
-      2,516-3,034; the line 2,500]; **P8 4,335 → 4,559, 7,953 → 7,729 free** [7,775; the line 7,000]. **P1, P2, P4
-      and P6 differ from main's only in moved resident addresses** (the relocation check: each differing byte a moved
+      2,516-3,034; the line 2,500]; **P8 4,335 → 4,559, 7,953 → 7,729 free** [7,775; the line 7,000]; P2 5,815 →
+      5,839 after review round 1 (F1's guard). **P1, P4 and P6 (and P2 until F1) differ from main's only in moved
+      resident addresses** (the relocation check: each differing byte a moved
       resident label's word, or its low or high byte as an immediate; P1 304 words and 15 bytes, P2 140 and 11, P4
       176 and 6, P6 115 and 1), and are byte-identical to U0's build. P5 took 1,496 for the plan's 1,225 (the high end
       1,531), P3 490 for 402: the byte paths and the SCREEN 2 twin's fast case (for the BLOAD gate, below), PGINIT's

@@ -24,7 +24,7 @@
 ;@entry GWINIT
 ;@entry CMDERR
 .export GWINIT, CMDERR
-.import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK
+.import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK, INITSA, INITEND
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
 .import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD, TXLEN
 
@@ -273,6 +273,17 @@ DONCMD:         LDA     MSWFLG
                 LDA     TXTTAB+1
                 SBC     RBH
                 BCS     GOMERR
+                LDA     MSWSIZ         ; OO-1 (7e3, review F1): VAL's zero, at n - 1,
+                CMP     #<(INITSA + 1) ; not on the start-up code still to run (the
+                LDA     MSWSIZ+1       ; loader's INITSA to INITEND), else the
+                SBC     #>(INITSA + 1) ; command line's error too
+                BCC     :+
+                LDA     MSWSIZ
+                CMP     #<(INITEND + 1)
+                LDA     MSWSIZ+1
+                SBC     #>(INITEND + 1)
+                BCC     GOMERR
+:
                 LDA     MSWSIZ         ; the new top: VAL's zero, then MEMSIZ
                 STA     PTR
                 LDA     MSWSIZ+1
