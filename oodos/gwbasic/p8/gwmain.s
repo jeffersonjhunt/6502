@@ -20,6 +20,7 @@
 ;   LIST LLIST ...     P2's statements' stubs: LIST, LLIST, DELETE, EDIT
 ;   PRINT LPRINT ...   P1's statements' stubs: PRINT, LPRINT, INPUT, LINE
 ;                      INPUT, READ
+;   CONT TON TOFF      CONT, TRON, TROFF (BIMISC.ASM's; 7e3's S1)
 ;
 ; Resident code reaches READY, GONE4 and FINI only through res/home.s, which
 ; sets the 6502's stack back to its base and far calls the home block, so W3
@@ -30,17 +31,18 @@
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, RETURN
 .export DEFSTR, DEFINT, DEFREA, DEFDBL, READY, MAIN, FINIH
 .export LIST, LLIST, DELETE, EDIT, EDTMAI, LSTRDY
-.export PRINT, LPRINT, INPUT, LINE, READ, INPRET
+.export PRINT, LPRINT, INPUT, LINE, READ, INPRET, CONT, TON, TOFF
 .import BAKSP, CHRGTR, CRDONZ, DATA, DEFTBL, DOCNVF, ENDFOR, ENDPRG, ERROR, FINLPT
 .import FORCNT, FORFLG, FORVAR, FRCINT, FRCSNG, FRMCHK, FRMEVL, FVALSV, GETIN2, GETSTK
 .import GETYP, GONE, GOTO, ISLET2, LINGET, NXTLIN, ONE, PINLIN, PTRGET, REDDY, REM
 .import RTNTXT, RUNC, SCNERR, SIGNS, SNERR, STPEND, STROUT, SUBFLG, SYNCHR, TMERR
-.import FTSITE, NEXTS, ISFLIO, NEWSTT, SCRMOD, BUF
+.import FTSITE, NEXTS, ISFLIO, NEWSTT, SCRMOD, BUF, OLDTXT, OLDLIN
 
 ERRSN           = 2                    ; GWDATA.ASM's error numbers
 ERRRG           = 3
 ERRFN           = 26
 ERRWH           = 29
+ERRCN           = 17                   ; Can't continue
 FORSIZ          = 20                   ; the BASIC stack's entries (the FOR section)
 GOSSIZ          = 8
 WHLSIZ          = 8
@@ -710,6 +712,31 @@ LINE:           CMP     #INPUT_TK
 INPRET:         BCC     :+
                 JMP     STPEND
 :               RTS
+
+; --- CONT, TRON, TROFF (BIMISC.ASM 639) ----------------------------------------------
+
+; CONT: on from OLDTXT (0: Can't continue), at OLDLIN. OO-1 (7e3's S1): the
+; home block's, as HOMTAB alone dispatches them; the resident SCRTCH clears
+; TRCFLG itself.
+CONT:           LDA     OLDTXT
+                ORA     OLDTXT+1
+                BNE     :+
+                LDA     #ERRCN         ; RESERR
+                JMP     ERROR
+:               LDA     OLDTXT
+                STA     TXTPTR
+                LDA     OLDTXT+1
+                STA     TXTPTR+1
+                LDA     OLDLIN
+                STA     CURLIN
+                LDA     OLDLIN+1
+                STA     CURLIN+1
+                RTS
+TON:            LDA     #$FF
+                BRA     TONOFF
+TOFF:           LDA     #0
+TONOFF:         STA     TRCFLG
+                RTS
 
 .segment "BRAM"
 RUNPND:         .res    1              ; OO-1: bit 7, run once the line is in (MAIN, FINIH)

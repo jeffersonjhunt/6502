@@ -829,10 +829,10 @@ BIMISC.ASM CONSTP -> res/bimisc.s CONSTP # the message flag in C, not Z, through
 BIMISC.ASM STPEND -> res/bimisc.s STPEND
 BIMISC.ASM ENDCON -> res/bimisc.s ENDCON
 BIMISC.ASM DIRIS -> res/bimisc.s DIRIS
-BIMISC.ASM CONT -> res/bimisc.s CONT
-BIMISC.ASM RESERR -> res/bimisc.s CONT # RESUME's way in, later 7b
-BIMISC.ASM TON -> res/bimisc.s TON
-BIMISC.ASM TOFF -> res/bimisc.s TOFF
+BIMISC.ASM CONT -> p8/gwmain.s CONT # 7e3 S1
+BIMISC.ASM RESERR -> p8/gwmain.s CONT # RESUME's way in, later 7b
+BIMISC.ASM TON -> p8/gwmain.s TON
+BIMISC.ASM TOFF -> p8/gwmain.s TOFF # SCRTCH (resident) clears TRCFLG itself
 BIMISC.ASM ISFLIO -> res/oem.s ISFLIO
 BIMISC.ASM CTRLPT -> dropped: ^C and ^O echoed by the screen editor; function 10 shows them itself
 GWINIT.ASM INIT -> p2/gwinit.s GWINIT # the memory map from the loader's start to the TPA's top; the BASIC stack fixed RAM
@@ -858,8 +858,8 @@ GWINIT.ASM PRNTND -> p2/gwinit.s PRNTND # SKEYON (P6's entry SKEYOP) in screen m
 GWINIT.ASM KEYSOF -> p2/gwinit.s GWINIT # INITFG set
 GWINIT.ASM CMDERR -> p2/gwinit.s CMDERR
 ITSA86.ASM WORDS -> p2/gwinit.s WORDS
-ITSA86.ASM INITSA -> res/bimisc.s INITSA # a program named on the command line: LRUN, CURLIN 65534 (OO-1: zero page)
-ITSA86.ASM GREADY -> res/bimisc.s INITSA
+ITSA86.ASM INITSA -> res/loader.s INITSA # a program named on the command line: LRUN, CURLIN 65534 (OO-1: zero page)
+ITSA86.ASM GREADY -> res/loader.s INITSA
 ITSA86.ASM MAPINI -> p2/gwinit.s GWINIT # no data segment to move: the bytes free message; /M:'s room check in DONCMD (OO-1: before start-up is done)
 ITSA86.ASM MAPINX -> p2/gwinit.s GWINIT
 ITSA86.ASM MAXRQ1 -> dropped: MAPINI's segment arithmetic
