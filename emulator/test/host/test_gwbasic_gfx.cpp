@@ -1,8 +1,8 @@
 /**
  * @file test_gwbasic_gfx.cpp
- * @brief GW-BASIC's graphics, phase 7e1 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET, PRESET,
- *        POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on a graphics screen), run from OODOS's CCP on
- *        backplane.machine.
+ * @brief GW-BASIC's graphics, phases 7e1-7e3 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET,
+ *        PRESET, POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on a graphics screen; 7e2's CIRCLE, PAINT and
+ *        DRAW; 7e3's GET and PUT), run from OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_screen does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1552,6 +1552,233 @@ TEST(circle_paint_and_draw_are_timed)
     CHECK(circ > 10000 && circ <= 400000);
     CHECK(paint2 > 1000000 && paint2 <= 40000000);
     CHECK(draw > 10000 && draw <= 500000);
+}
+
+
+// --- 7e3: GET and PUT of graphics ---------------------------------------------------------------------------------
+
+namespace
+{
+    /// A program's text output after SCREEN 0 (NAME.out's lines, their trailing blanks dropped).
+    std::vector<std::string> out_lines(const std::string &name)
+    {
+        std::vector<std::string> want;
+        std::string l;
+        for (const char c : read_text(EMU_GWBASIC_PROGRAMS "/" + name + ".out"))
+            if (c == '\n')
+            {
+                while (!l.empty() && (l.back() == ' ' || l.back() == '\r'))
+                    l.pop_back();
+                want.push_back(l);
+                l.clear();
+            }
+            else
+                l += c;
+        return want;
+    }
+
+    /// GET of the whole screen into A%(8001), typed at the prompt: the array's 16,004 bytes as they are in the TPA,
+    /// read when the resident NEWSTT runs after the GET (the program's blocks in W0-W2, block 1 back in W1), found by
+    /// its first word (the bits, 640). Empty if never seen.
+    std::vector<uint8_t> get_whole(CcpRig &r, unsigned last_x)
+    {
+        enter(r, "DIM A%(8001):PRINT \"V \";HEX$(VARPTR(A%(0)))", ms(1000));
+        const int row = last_row(r, "V ");
+        unsigned addr = 0;
+        if (row < 0 || std::sscanf(line(r, static_cast<unsigned>(row)).c_str(), "V %x", &addr) != 1)
+            return {};
+        std::vector<uint8_t> got;
+        const uint16_t newstt = lbl_map().at("NEWSTT");
+        auto pk = [&](unsigned a) { return r.machine->bus().peek(static_cast<uint16_t>(a)); };
+        r.watch = [&](uint16_t pc) {
+            if (pc != newstt || !got.empty() || (pk(addr) | pk(addr + 1) << 8) != 640)
+                return;
+            for (unsigned i = 0; i < 16004; ++i)
+                got.push_back(pk(addr + i));
+        };
+        keys(r, "GET (0,0)-(" + std::to_string(last_x) + ",199),A%\r");
+        r.run(ms(2000));
+        r.watch = nullptr;
+        return got;
+    }
+} // namespace
+
+// G21 (7e3): GET reads what PC-BASIC's GET read: gfx1 and gfx21 (SCREEN 1), gfx2 and gfx16 (SCREEN 2) run with their
+// lines from 9000 cut, then a whole-screen GET typed at the prompt; the array, read from the TPA, equals PC-BASIC's
+// (NAME.out: the header 640 and 200, then its dump's rows, which are GET's bytes) byte for byte. Guards a saved
+// screen or sprite garbled, a PC program's tests of its own arrays failing. Seen failing with (a) SCREEN 1's byte
+// path packing a tile byte's right pixel into the higher pair, (b) SCREEN 2's byte path not mapping the next bank
+// when a row crosses W1's end (GNXHI's BANKUP left out).
+TEST(get_reads_what_pc_basic_s_get_read)
+{
+    for (const auto &[name, w] : std::vector<std::pair<std::string, unsigned>>{
+             {"gfx1", 319}, {"gfx21", 319}, {"gfx2", 639}, {"gfx16", 639}})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:" + name, {name}, ms(60000)) >= 0);
+        const std::vector<uint8_t> got = get_whole(r, w);
+        REQUIRE(got.size() == 16004u);
+        const std::vector<std::string> want = expected(name);
+        REQUIRE(want.size() == 200u);
+        CHECK_EQ(got[0] | got[1] << 8, 640);
+        CHECK_EQ(got[2] | got[3] << 8, 200);
+        unsigned bad = 0;
+        for (unsigned y = 0; y < 200; ++y)
+        {
+            std::string s;
+            for (unsigned b = 0; b < 80; ++b)
+            {
+                char h[3];
+                std::snprintf(h, sizeof h, "%02X", got[4 + y * 80 + b]);
+                s += h;
+            }
+            if (s != want[y] && ++bad <= 4)
+                std::printf("  %s row %u:\n    want %s\n    got  %s\n", name.c_str(), y, want[y].c_str(), s.c_str());
+        }
+        if (bad)
+            std::printf("  %s: %u rows of 200 differ\n", name.c_str(), bad);
+        CHECK_EQ(bad, 0u);
+    }
+}
+
+// G22 (7e3): GET's array layout matches PC-BASIC's (gwbasic/gfx24, the IBM manual's pp. 116-117): element 0 the bits
+// (the pixels x 2 in SCREEN 1, x 1 in SCREEN 2), element 1 the rows, each row padded to a byte with 0 bits, the
+// leftmost pixel high; rectangles aligned and not, the corners reversed, 1 x 1, 8, 9, 12 and 13 wide, in both modes;
+// the elements printed after SCREEN 0, exactly PC-BASIC's. Guards an image's size or padding wrong, so a PUT (here or
+// a PC's) misplaces it. Seen failing with (a) element 0 the pixels, not the bits; (b) a row's last byte's spare bits
+// set, not cleared.
+TEST(get_array_layout_matches_pc_basic)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx24", {"gfx24"}, ms(60000)) >= 0);
+    const std::vector<std::string> want = out_lines("gfx24");
+    REQUIRE(want.size() >= 16u);
+    for (unsigned i = 0; i < 16; ++i)
+        CHECK_EQ(line(r, i), want[i]);
+}
+
+// G23 (7e3): PUT's actions match PC-BASIC's (the IBM manual's pp. 282-284), SCREEN 1's frame (gwbasic/gfx25) and
+// SCREEN 2's (gfx28) against PC-BASIC's dumps: a 4 x 4 (or 10 x 4) sprite by PSET, PRESET, AND, OR, XOR and the
+// default (XOR) on backgrounds of every colour at each x MOD 4 (or 8), wider sprites aligned and not, XOR twice (the
+// background back), AND and OR over a pattern, a SCREEN 2 array PUT in SCREEN 1 (4 pixels of 2 bits), 7 bits in
+// SCREEN 1 (3 pixels), and in SCREEN 2 rows across the page's first 16 KB (row 102's pair). Guards sprites in the
+// wrong colours, an XOR animation leaving trails. Seen failing with (a) PRESET storing the array as PSET (GBPRE's and
+// GOPP's complement left out), (b) SCREEN 2's byte path writing row 2y only (the twin unequal).
+TEST(put_actions_match_pc_basic)
+{
+    for (const std::string name : {"gfx25", "gfx28"})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:" + name, {name}, ms(60000)) >= 0);
+        CHECK_EQ(compare(r, name), 0u);
+    }
+}
+
+// G24 (7e3): GET and PUT's errors are the source's (gwbasic/gfx26: 47 codes, PC-BASIC's where it agrees; and by
+// hand where the source or the manual decides): an array exactly big enough and one byte short (Illegal function
+// call, nothing written), single, double and 2-D arrays, a string array (Type mismatch: the owner's answer 6, the
+// manual's pp. 116, 281), one not dimensioned; an action word after GET, an unknown one, a comma and none (Syntax
+// error: the manual's form, p. 281; the source's NEWSTT would take the end), no array, one corner, PUT STEP, the
+// edges (310 fits, 311 doesn't; 190 fits, 191 doesn't; -1, 32767). By hand, the source's: an empty array (width or
+// height 0: Illegal function call, 40-41), a 3,000-bit row (42), "@" taken (43-44), GET into K%(5) filling from
+// element 0 before the Syntax error (45), the cursor at GET's first corner when it is off the screen (46), GET's
+// first corner by STEP (the owner's answer 5, 48), SCREEN 0 (49-50). After every error the array P() across $4000
+// reads back unchanged (C: none bad) and the next line runs. Guards a refused GET writing past its array, an error
+// leaving the aperture in W1. Seen failing with (a) GPUTA's size check an element short (2: B%(15) taken), (b) PUT's
+// far corner's CHKRNG left out (four refusals gone, the PUTs past the right and bottom edges among them).
+TEST(get_and_put_errors_are_the_source_s)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx26", {"gfx26"}, ms(120000)) >= 0);
+    std::string shown;
+    for (unsigned row = 0; row < 10; ++row)
+    {
+        const std::string l = line(r, row);
+        if (l == "Ok")
+            break;
+        shown += l;
+    }
+    std::string pc;
+    for (const std::string &l : out_lines("gfx26"))
+        pc += l;
+    auto items = [](const std::string &text) {
+        std::map<std::string, std::string> m;
+        size_t i = 0;
+        while ((i = text.find('|', i)) != std::string::npos)
+        {
+            const size_t c = text.find(':', i), j = text.find('|', i + 1);
+            const std::string k = text.substr(i + 1, c - i - 1);
+            std::string v = text.substr(c + 1, j == std::string::npos ? std::string::npos : j - c - 1);
+            while (!v.empty() && v.back() == ' ')
+                v.pop_back();
+            if (c != std::string::npos)
+                m[k] = v;
+            i = j == std::string::npos ? text.size() : j;
+        }
+        // (the canary's line has no colon: "C n b")
+        const size_t ci = text.find("|C ");
+        if (ci != std::string::npos)
+            m["C"] = text.substr(ci + 2);
+        return m;
+    };
+    std::map<std::string, std::string> ours = items(shown), want = items(pc);
+    REQUIRE(want.size() >= 40u);
+    // the source's and the manual's, where PC-BASIC differs
+    const std::map<std::string, std::string> hand = {{"40", " 5"}, {"41", " 5"}, {"42", " 5"}, {"43", " 0"},
+                                                       {"44", " 0"}, {"45", " 2  20  10"}, {"46", " 5  2"},
+                                                       {"48", " 0  20  10"}};
+    for (const auto &[k, v] : hand)
+        want[k] = v;
+    unsigned bad = 0;
+    for (const auto &[k, v] : want)
+    {
+        std::string o = ours.count(k) ? ours[k] : "(none)";
+        auto squeeze = [](std::string t) {
+            std::string u;
+            for (const char c : t)
+                if (c != ' ')
+                    u += c;
+                else if (!u.empty() && u.back() != ' ')
+                    u += ' ';
+            while (!u.empty() && u.back() == ' ')
+                u.pop_back();
+            return u;
+        };
+        if (k == "C") // the canary's bad count alone (the errors' count follows the source's codes)
+            o = squeeze(o).substr(squeeze(o).rfind(' ') + 1);
+        const std::string w = k == "C" ? std::string("0") : squeeze(v);
+        if (squeeze(o) != w && ++bad <= 8)
+            std::printf("  %s: %s, want %s\n", k.c_str(), o.c_str(), w.c_str());
+    }
+    CHECK_EQ(bad, 0u);
+}
+
+// G25 (7e3): GET and PUT keep block 1 (G3's method, gwbasic/gfx27): the sprite's array S() lies in $4000-$7FFF (its
+// rows pass through TXBUF), Q() across $4000 and P() across $8000 as canaries; in both modes a 48 x 48 (96 x 48)
+// sprite GET, PUT by PSET unaligned and aligned and by XOR, each GET back equal to the first, and both canaries read
+// back after each of the 14 GETs and PUTs. Guards a program's variables taken from or written to the card. Seen
+// failing with NWRITE drawing the row straight from the array (not through TXBUF: the rows in $4000-$7FFF read from
+// card memory).
+TEST(get_and_put_keep_block_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx27", {"gfx27"}, ms(120000)) >= 0);
+    const int at = last_row(r, "CHECKS");
+    REQUIRE(at >= 0);
+    CHECK_EQ(line(r, static_cast<unsigned>(at)), std::string("CHECKS 14 BAD 0 DIFF 0"));
+    const int q = last_row(r, "Q ");
+    REQUIRE(q >= 0);
+    unsigned q0 = 0, q1 = 0, s0 = 0, s1 = 0, p0 = 0, p1 = 0;
+    CHECK(std::sscanf(line(r, static_cast<unsigned>(q)).c_str(), "Q %x %x S %x %x P %x %x", &q0, &q1, &s0, &s1, &p0,
+                      &p1) == 6);
+    CHECK(q0 < 0x4000 && q1 >= 0x4000);
+    CHECK(s0 >= 0x4000 && s1 < 0x8000);
+    CHECK(p0 < 0x8000 && p1 >= 0x8000);
 }
 
 int main()

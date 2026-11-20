@@ -2,7 +2,9 @@
  * @file test_gwbasic_screen.cpp
  * @brief GW-BASIC's own text screen, phases 7d1-7d3 (hw/oodos.md, "The plan, phase 7": block P6; 7d2's function
  *        keys, their line, WIDTH "SCRN:", SCRN: and LCOPY; 7d3's screen page for DEF SEG), run from OODOS's CCP on
- *        backplane.machine; 7e1's SCREEN 1 and 2 are test_gwbasic_gfx's (here SCREEN 3 is the refused mode).
+ *        backplane.machine; 7e1's SCREEN 1 and 2 are test_gwbasic_gfx's (here SCREEN 3 is the refused mode), but
+ *        for 7e3's DEF SEG page in SCREEN 1 and 2 (the PC's CGA layout) and GET, PUT and the page's cost (G26-G28),
+ *        which are here with the page's other cases.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_core does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1740,6 +1742,247 @@ TEST(the_screen_page_costs)
     // page, a far call site's place: 4,646 and 4,035 on main, 4,643 and 4,033 here), so main's figures + 50 (7e2's
     // review round 1, F2), not a cycle of noise
     CHECK(peek8 <= 4646 + 50 && poke8 <= 4035 + 50);
+}
+
+// --- 7e3: DEF SEG's page in SCREEN 1 and 2, and GET and PUT's cost -------------------------------------------------
+
+namespace
+{
+    /// A graphics pixel at (x, y) as layer 0 shows it (SCREEN 1's tile frame, SCREEN 2's mono pairs: -1 if the pair
+    /// differs), as test_gwbasic_gfx's pixel().
+    int gpixel(CcpRig &r, unsigned x, unsigned y)
+    {
+        const uint8_t config = reg(r, L0_CONFIG);
+        const uint32_t map = mapbase(r);
+        if ((config & 7) == 2)
+        {
+            const uint32_t e = map + ((y / 8) * 64 + x / 8) * 2;
+            const unsigned tile = card(r, e) | (card(r, e + 1) & 3) << 8;
+            const uint8_t b = card(r, (reg(r, L0_TILE) | reg(r, L0_TILE + 1) << 8) * 256u + tile * 32 + (y % 8) * 4 + (x % 8) / 2);
+            return x % 2 ? b & 0x0F : b >> 4;
+        }
+        const unsigned bit = 7 - x % 8;
+        const int a = card(r, map + (2 * y) * 80 + x / 8) >> bit & 1, b = card(r, map + (2 * y + 1) * 80 + x / 8) >> bit & 1;
+        return a == b ? a : -1;
+    }
+    /// The PC's CGA byte k (7e's answer 9: the even rows from 0, the odd from &H2000, 80 bytes a row, the leftmost
+    /// pixel high) of the card's picture, by the test's own encoding; -1 for a gap's (&H1F40-&H1FFF, &H3F40-&H3FFF)
+    /// or a pixel layer 0 can't show.
+    int cga(CcpRig &r, unsigned k)
+    {
+        const unsigned off = k & 0x1FFF;
+        if (off >= 0x1F40)
+            return -1;
+        const bool mono = (reg(r, L0_CONFIG) & 7) == 5;
+        const unsigned y = 2 * (off / 80) + (k >= 0x2000), per = mono ? 8 : 4, bits = mono ? 1 : 2;
+        int v = 0;
+        for (unsigned i = 0; i < per; ++i)
+        {
+            const int p = gpixel(r, (off % 80) * per + i, y);
+            if (p < 0 || p >= (1 << bits))
+                return -1;
+            v = v << bits | p;
+        }
+        return v;
+    }
+    /// The card's CGA bytes that differ from `want` (the gaps' left out), the first few printed.
+    unsigned cga_differ(CcpRig &r, const std::vector<uint8_t> &want, size_t from = 0)
+    {
+        unsigned bad = 0;
+        for (unsigned k = 0; k < 0x4000; ++k)
+        {
+            if ((k & 0x1FFF) >= 0x1F40)
+                continue;
+            const int c = cga(r, k);
+            if (c != want[from + k] && ++bad <= 6)
+                std::printf("  CGA byte %04X: %d, want %d\n", k, c, want[from + k]);
+        }
+        if (bad)
+            std::printf("  %u CGA bytes differ\n", bad);
+        return bad;
+    }
+} // namespace
+
+// G26 (7e3): DEF SEG=&H8000 is the PC's CGA page in SCREEN 1 and 2 (7e's answer 9; by hand, PC-BASIC's values at its
+// &HB800 where they agree): PEEK of known pixels on even and odd rows (SCREEN 1: 1, 2, 3, 0 at (0-3,100) are &H6C at
+// 4,000; SCREEN 2: E8 40 0 there, &H10 at &H2000 + 4,000), POKE 4160,&HE4 and &H2000+4161,&H81 then the card's
+// pixels; the gaps (&H1F40, &H3FFF) read back a POKE, are bank 8's RAM at their own address, and survive a change of
+// mode (the owner's answer 7); &H4000 Illegal function call, PEEK and POKE (7d3's reach); and after SCREEN 0 the page
+// is SCREEN 0's text again (D1's). Guards a PC program PEEKing or POKEing the screen in the wrong place. Seen failing
+// with (a) the odd bank's bit left out (its rows taken as the even rows), (b) SCREEN 2's POKE without its twin row.
+TEST(def_seg_8000_is_the_cga_page_in_screen_1_and_2)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    for (int m = 1; m <= 2; ++m)
+    {
+        enter(r, "NEW");
+        enter(r, "10 ON ERROR GOTO 900:SCREEN " + std::to_string(m) + ":DEF SEG=&H8000:G0=PEEK(&H1F40)");
+        enter(r, "20 PSET (0,100),1:PSET (1,100),2:PSET (2,100),3:PSET (3,101),1:PSET (4,100),3:PSET (8,102),1:PSET (9,100),1");
+        enter(r, "30 A=PEEK(4000):B=PEEK(4001):C=PEEK(4002):D=PEEK(&H2000+4000):F=PEEK(4080)");
+        enter(r, "40 POKE 4160,&HE4:POKE &H2000+4161,&H81:POKE &H1F40,77:POKE &H3FFF,55:G1=PEEK(&H1F40):G2=PEEK(&H3FFF)");
+        enter(r, "50 E=0:X=PEEK(&H4000):E1=E:E=0:POKE &H4000,1:E2=E:END");
+        enter(r, "900 E=ERR:RESUME NEXT");
+        enter(r, "RUN", ms(3000));
+        if (m == 1)
+        {
+            const int want[] = {3, 2, 1, 0};
+            for (unsigned x = 0; x < 4; ++x)
+                CHECK_EQ(gpixel(r, x, 104), want[x]);
+            const int odd[] = {2, 0, 0, 1};
+            for (unsigned x = 0; x < 4; ++x)
+                CHECK_EQ(gpixel(r, 4 + x, 105), odd[x]);
+        }
+        else
+        {
+            for (unsigned x = 0; x < 8; ++x)
+                CHECK_EQ(gpixel(r, x, 104), (0xE4 >> (7 - x)) & 1);
+            for (unsigned x = 0; x < 8; ++x)
+                CHECK_EQ(gpixel(r, 8 + x, 105), (0x81 >> (7 - x)) & 1);
+        }
+        CHECK_EQ(r.phys(0x81F40), 77);
+        CHECK_EQ(r.phys(0x83FFF), 55);
+        enter(r, "SCREEN 0:KEY OFF:CLS:PRINT A;B;C;D;F;G0;G1;G2;E1;E2", ms(1500));
+        CHECK_EQ(line(r, 0), m == 1 ? std::string(" 108  192  16  1  0  0  77  55  5  5")
+                                    : std::string(" 232  64  0  16  0  77  77  55  5  5"));
+    }
+    enter(r, "CLS:PRINT \"Q\":PRINT PEEK(0)", ms(1000));
+    CHECK_EQ(line(r, 1), std::string(" 81"));
+}
+
+// G27 (7e3): BSAVE and BLOAD of the graphics page, the files on M:: a whole-page BSAVE in each mode is the test's own
+// CGA encoding of the card (the header $FD, &H8000, 0, &H4000; the gaps bank 8's RAM's, POKEd); CLS and BLOAD give
+// the card back; a file the test wrote from a known CGA image (on M: before GW-BASIC starts) shows it, its gaps'
+// bytes in bank 8's RAM; a 100-byte BLOAD at &H2000 sets rows 1 and 3 and nothing else; a file shorter than its
+// header writes only its bytes (7d3's F3 clamp); BLOAD of 16 KB at &H2000 is Illegal function call, the page
+// unchanged. Guards a PC picture BLOADed garbled, a BSAVEd screen not coming back. Seen failing with (a) DSGXY's gap
+// test left out (the gaps taken as rows 200-205: the odd rows from the wrong bytes), (b) BSAVE's fill left out (the
+// file holds bank 8's RAM).
+TEST(bsave_and_bload_the_graphics_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> img = {0xFD, 0x00, 0x80, 0x00, 0x00, 0x00, 0x40};
+    for (unsigned k = 0; k < 0x4000; ++k)
+        img.push_back(static_cast<uint8_t>((k & 0x1FFF) >= 0x1F40 ? 0x5A : (k * 7 + k / 80 + 3) & 0xFF));
+    std::vector<uint8_t> shortf = {0xFD, 0x00, 0x80, 0x00, 0x00, 0x00, 0x40};
+    for (unsigned k = 0; k < 200; ++k)
+        shortf.push_back(0xFF);
+    r.put_m({{0, "K       BAS", img}, {0, "H       BAS", shortf}});
+    REQUIRE(start(r) > 0);
+    for (int m = 1; m <= 2; ++m)
+    {
+        const std::string sm = "SCREEN " + std::to_string(m) + ":";
+        enter(r, "KEY OFF:" + sm + "DEF SEG=&H8000:CIRCLE (100,100),80,1:LINE (0,0)-(300,199),2:LINE (5,5)-(60,40),3,BF", ms(3000));
+        enter(r, "POKE &H1F40," + std::to_string(10 + m) + ":POKE &H3FFF," + std::to_string(20 + m), ms(800));
+        std::vector<uint8_t> card8(0x4000);
+        for (unsigned k = 0; k < 0x4000; ++k)
+            card8[k] = static_cast<uint8_t>(cga(r, k));
+        enter(r, "BSAVE \"M:G\",0,&H4000", ms(4000));
+        const std::vector<uint8_t> d = m_data(r, 0, "G       BAS");
+        REQUIRE(d.size() >= 0x4007u);
+        CHECK(std::vector<uint8_t>(d.begin(), d.begin() + 7) == std::vector<uint8_t>({0xFD, 0x00, 0x80, 0x00, 0x00, 0x00, 0x40}));
+        unsigned bad = 0;
+        for (unsigned k = 0; k < 0x4000; ++k)
+            if ((k & 0x1FFF) < 0x1F40 && d[7 + k] != card8[k] && ++bad <= 4)
+                std::printf("  mode %d: the file's byte %04X %02X, the card's %02X\n", m, k, d[7 + k], card8[k]);
+        CHECK_EQ(bad, 0u);
+        CHECK_EQ(d[7 + 0x1F40], 10 + m);
+        CHECK_EQ(d[7 + 0x3FFF], 20 + m);
+        enter(r, "CLS:BLOAD \"M:G\",0", ms(4000));
+        CHECK_EQ(cga_differ(r, card8), 0u);
+        enter(r, "CLS:BLOAD \"M:K\",0", ms(4000));
+        CHECK_EQ(cga_differ(r, img, 7), 0u);
+        CHECK_EQ(r.phys(0x81F40), 0x5A);
+        CHECK_EQ(r.phys(0x83FFF), 0x5A);
+        enter(r, "CLS:FOR K=0 TO 99:POKE &H2000+K,&HAA:NEXT:BSAVE \"M:P\",&H2000,100:CLS:BLOAD \"M:P\"", ms(4000));
+        unsigned rows = 0, off = 0;
+        for (unsigned k = 0; k < 0x4000; ++k)
+        {
+            if ((k & 0x1FFF) >= 0x1F40)
+                continue;
+            const int want = k >= 0x2000 && k < 0x2064 ? 0xAA : 0;
+            rows += want != 0 && cga(r, k) == want;
+            off += cga(r, k) != want;
+        }
+        CHECK_EQ(rows, 100u);
+        CHECK_EQ(off, 0u);
+        enter(r, "CLS:LINE (0,0)-(639,199),1,BF:BLOAD \"M:H\",0", ms(4000));
+        unsigned kept = 0;
+        for (unsigned k = 200; k < 0x1F40; ++k)
+            kept += cga(r, k) == (m == 1 ? 0x55 : 0xFF);
+        CHECK_EQ(kept, 0x1F40u - 200);
+        for (unsigned k = 0; k < 200; ++k)
+            CHECK_EQ(cga(r, k), 0xFF);
+        std::vector<uint8_t> before(0x4000);
+        for (unsigned k = 0; k < 0x4000; ++k)
+            before[k] = static_cast<uint8_t>(cga(r, k));
+        enter(r, "NEW");
+        enter(r, "10 ON ERROR GOTO 90:E=0:BLOAD \"M:G\",&H2000:END");
+        enter(r, "90 E=ERR:RESUME NEXT");
+        enter(r, "RUN", ms(4000));
+        CHECK_EQ(cga_differ(r, before), 0u);
+        enter(r, "SCREEN 0:CLS:PRINT E:DEF SEG=&H8000", ms(1500));
+        CHECK_EQ(line(r, 0), std::string(" 5"));
+    }
+}
+
+// G28 (7e3): GET, PUT and the graphics page are timed, timed()'s method (a loop with the statement less the loop
+// without) and D9's (BRUN's check and BLOAD's tail after BLDRUN, the interrupt handlers left out), the owner's
+// answer 8's gates: a 16 x 16 SCREEN 1 sprite at x MOD 4 = 1, PUT by XOR and GET, at most 100,000 cycles each; a
+// whole SCREEN 2 GET and PUT (PSET) at most 1,500,000 each; a 16 KB BLOAD to &H8000, after the read, at most
+// 1,500,000 in SCREEN 2 and 2,500,000 in SCREEN 1; PEEK and POKE on SCREEN 2's page at most 6,000. For the record:
+// the sprite at x MOD 4 = 0 (the byte path), the whole SCREEN 1 GET and PUT, a whole-page BSAVE less one of bank 9
+// (BSAVE's check and fill, timed()'s way). Guards
+// animation or a picture's load too slow to use. Seen failing with the byte paths' test inverted (an aligned row by
+// the pixel path: the whole-screen PUT over 1.5 M).
+TEST(get_put_and_the_page_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY OFF");
+    auto per = [&](const std::string &setup, const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed(r, {"10 " + setup + ":X%=101:Y%=50:I%=0", "20 " + loop});
+        const uint64_t b = timed(r, {"10 " + setup + ":X%=101:Y%=50:I%=0", "20 " + stmt + ":" + loop});
+        return static_cast<double>(b - a) / n;
+    };
+    const std::string spr = "DEFINT A-Z:DIM S%(65):SCREEN 1:LINE (100,50)-(115,65),2,BF:GET (100,50)-(115,65),S%";
+    const double put1 = per(spr, "PUT (X%,Y%),S%,XOR", 20), get1 = per(spr, "GET (X%,Y%)-STEP(15,15),S%", 20);
+    const double put0 = per(spr, "PUT (100,Y%),S%,XOR", 20), get0 = per(spr, "GET (100,Y%)-STEP(15,15),S%", 20);
+    const std::string w2 = "DEFINT A-Z:DIM A%(8001):SCREEN 2:LINE (0,0)-(639,199),1:GET (0,0)-(639,199),A%";
+    const double getw = per(w2, "GET (0,0)-(639,199),A%", 3), putw = per(w2, "PUT (0,0),A%,PSET", 3);
+    const std::string w1 = "DEFINT A-Z:DIM A%(8001):SCREEN 1:LINE (0,0)-(319,199),1:GET (0,0)-(319,199),A%";
+    const double getw1 = per(w1, "GET (0,0)-(319,199),A%", 3), putw1 = per(w1, "PUT (0,0),A%,PSET", 3);
+    const std::string pg = "SCREEN 2:DEF SEG=&H8000";
+    const double none = per(pg, "X=0", 100);
+    const double peek = per(pg, "X=PEEK(4000)", 100) - none, poke = per(pg, "POKE 4000,65", 100) - none;
+    enter(r, "SCREEN 2:LINE (0,0)-(639,199),1:DEF SEG=&H8000:BSAVE \"M:P2\",0,&H4000", ms(4000));
+    enter(r, "SCREEN 1:LINE (0,0)-(319,199),2:DEF SEG=&H8000:BSAVE \"M:P1\",0,&H4000", ms(4000));
+    const auto [c2, t2] = run_check_cycles(r, {"10 SCREEN 2:DEF SEG=&H8000:BLOAD \"M:P2\",0"});
+    const auto [c1, t1] = run_check_cycles(r, {"10 SCREEN 1:DEF SEG=&H8000:BLOAD \"M:P1\",0"});
+    enter(r, "KILL \"M:P1.BAS\":KILL \"M:P2.BAS\"", ms(1500)); // (M:'s room for the BSAVE)
+    const double s2 = static_cast<double>(timed(r, {"10 SCREEN 2:DEF SEG=&H8000:BSAVE \"M:Q2\",0,&H4000"})) -
+                      static_cast<double>(timed(r, {"10 SCREEN 2:DEF SEG=&H9000:BSAVE \"M:Q2\",0,&H4000"}));
+    std::printf("  a 16 x 16 SCREEN 1 sprite at x MOD 4 = 1: PUT XOR %.0f, GET %.0f cycles (the gates 100,000)\n", put1, get1);
+    std::printf("  a whole SCREEN 2 GET %.0f, PUT PSET %.0f (the gates 1,500,000)\n", getw, putw);
+    std::printf("  a 16 KB BLOAD to &H8000, the check and the tail after the read: SCREEN 2 %llu + %llu (the gate "
+                "1,500,000), SCREEN 1 %llu + %llu (2,500,000)\n", static_cast<unsigned long long>(c2),
+                static_cast<unsigned long long>(t2), static_cast<unsigned long long>(c1), static_cast<unsigned long long>(t1));
+    std::printf("  PEEK(4000) and POKE 4000,65 on SCREEN 2's page, less X=0: %.0f, %.0f (the gate 6,000)\n", peek, poke);
+    std::printf("  for the record: the sprite at x MOD 4 = 0 PUT XOR %.0f, GET %.0f; the whole SCREEN 1 GET %.0f, PUT "
+                "PSET %.0f; BSAVE of SCREEN 2's page less one of bank 9 (its check and fill) %.0f\n", put0, get0,
+                getw1, putw1, s2);
+    CHECK(put1 > 1000 && put1 <= 100000);
+    CHECK(get1 > 1000 && get1 <= 100000);
+    CHECK(getw > 10000 && getw <= 1500000);
+    CHECK(putw > 10000 && putw <= 1500000);
+    CHECK(t2 > 10000 && c2 + t2 <= 1500000);
+    CHECK(t1 > 10000 && c1 + t1 <= 2500000);
+    CHECK(peek > 100 && peek <= 6000);
+    CHECK(poke > 100 && poke <= 6000);
 }
 
 int main()
