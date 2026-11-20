@@ -759,6 +759,35 @@ namespace
     }
 } // namespace
 
+TEST(types_6_and_7_are_nothing_on_revision_1)
+{
+    // Revision 2's bitmap 640 and direct 640 (hw/video640.md) are not revision 1's: a layer of either
+    // is drawn as if it were off, so the screen is BORDER, whatever the memory holds.
+    for (uint8_t type : {uint8_t{6}, uint8_t{7}})
+    {
+        Rig r;
+        std::fill(r.vram.begin(), r.vram.end(), uint8_t{0x55});
+        for (unsigned i = 0; i < 256; ++i)
+            r.colour(i, GREEN);
+        r.colour(9, GREY);
+        r.reg(VideoCard::BORDER, 9);
+        r.reg(L0 + VideoCard::CONFIG, type);
+        r.reg(L0 + VideoCard::MAPBASE, 16);
+        r.reg(L1 + VideoCard::CONFIG, type);
+        r.reg(L1 + VideoCard::MAPBASE, 0x40);
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::LAYER1_ON);
+        r.show();
+        unsigned bad = 0;
+        for (unsigned y = 0; y < VideoCard::HEIGHT; ++y)
+            for (unsigned x = 0; x < VideoCard::WIDTH; ++x)
+                bad += r.px(x, y) != rgba(GREY);
+        if (bad)
+            std::printf("  type %u: %u pixels not BORDER\n", type, bad);
+        CHECK_EQ(bad, 0u);
+        CHECK_EQ(r.card.peek(L0 + VideoCard::CONFIG), type);
+    }
+}
+
 TEST(the_machine_needs_banks_8_to_b_in_one_ram_line)
 {
     std::string error;

@@ -20,6 +20,8 @@ namespace ooe::emu
     {
         constexpr uint32_t BLACK = 0xFF000000;
         constexpr int16_t UNCOVERED = -1;
+        /// A direct 640 pixel in the line: DIRECT | its 12 bits (all > 0, so it covers as a palette index does).
+        constexpr int16_t DIRECT = 0x1000;
         constexpr uint16_t SCROLL_MASK = 0x3FF;
         constexpr unsigned BLINK_FRAMES = 16; ///< on, then off: about 1.9 Hz, as on the PC
 
@@ -74,6 +76,17 @@ namespace ooe::emu
                 return s;
             }
         } // namespace splash
+    } // namespace
+
+    namespace
+    {
+        /// Direct 640's colours: the 4,096 rgba() values, built once.
+        const std::array<uint32_t, 4096> DIRECT_RGBA = [] {
+            std::array<uint32_t, 4096> t{};
+            for (unsigned i = 0; i < t.size(); ++i)
+                t[i] = VideoCard::rgba(static_cast<uint16_t>(i));
+            return t;
+        }();
     } // namespace
 
     VideoCard::VideoCard() : front_(WIDTH * HEIGHT, BLACK), back_(WIDTH * HEIGHT, BLACK) { set_cpu_hz(NATIVE_HZ); }
@@ -633,7 +646,7 @@ namespace ooe::emu
                 c = l1[x];
             if (s.depth == 3)
                 c = s.colour;
-            out[x] = c == UNCOVERED ? pal[border_] : pal[static_cast<uint8_t>(c)];
+            out[x] = c == UNCOVERED ? pal[border_] : c >= DIRECT ? DIRECT_RGBA[c & 0xFFF] : pal[static_cast<uint8_t>(c)];
         }
     }
 
@@ -713,8 +726,16 @@ namespace ooe::emu
         case TILE:
             draw_tiles(l, y, line);
             break;
+        case BITMAP640:
+            if (rev_ == 2)
+                draw_bitmap640(l, y, line);
+            break; // revision 1: nothing
+        case DIRECT640:
+            if (rev_ == 2)
+                draw_direct640(l, y, line);
+            break;
         default:
-            break; // types 6 and 7: nothing
+            break;
         }
     }
 
@@ -783,6 +804,33 @@ namespace ooe::emu
                 const uint8_t b = vram(row + sx / 2);
                 put(line[x], sx & 1 ? b & 0x0F : b >> 4, l.palofs);
             }
+        }
+    }
+
+    void VideoCard::draw_bitmap640(const Layer &l, unsigned y, int16_t *line) const
+    {
+        // Revision 2's type 6 (hw/video640.md): 1,024x480 at 8 bits, rows of 1,024 bytes, 640 shown across
+        // the whole screen. The colour is the pixel: PALOFS isn't used.
+        const unsigned sy = (y + l.live_vscroll) % HEIGHT;
+        const uint32_t row = base(l.live_mapbase) + sy * BITMAP640_ROW;
+        for (unsigned x = 0; x < WIDTH; ++x)
+            put(line[x], vram(row + ((x + l.live_hscroll) % BITMAP640_ROW)), 0);
+    }
+
+    void VideoCard::draw_direct640(const Layer &l, unsigned y, int16_t *line) const
+    {
+        // Revision 2's type 7: 640x480 of words, $0RGB low byte first (a palette entry's layout), rows of
+        // 1,280 bytes. Bit 15 set is transparent; bits 12-14 are ignored; 0 is opaque black.
+        const unsigned sy = (y + l.live_vscroll) % HEIGHT;
+        const uint32_t row = base(l.live_mapbase) + sy * DIRECT640_ROW;
+        for (unsigned x = 0; x < WIDTH; ++x)
+        {
+            const uint32_t at = row + ((x + l.live_hscroll) % WIDTH) * 2;
+            const unsigned w = vram(at) | unsigned{vram(at + 1)} << 8;
+            if (!(w & 0x8000))
+                line[x] = static_cast<int16_t>(DIRECT | (w & 0x0FFF));
+            else if (line[x] == UNCOVERED)
+                line[x] = 0; // the layer covers it, transparently
         }
     }
 

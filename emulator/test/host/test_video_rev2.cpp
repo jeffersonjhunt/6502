@@ -7,8 +7,9 @@
  * The first cases drive the card alone, its "CPU clock" the pixel clock (as test_video's do);
  * the later ones put it on a backplane machine: backplane.machine itself with the revision
  * chosen by MachineOptions, so the aperture, RAM C and DMA channel 1 are wired as its lines say.
- * Revision 1 keeps test_video. Last, the debugger's `vram` (VideoCard::command), on the card and
- * through a Debugger as the app wires it.
+ * Then layer types 6 and 7, bitmap 640 and direct 640 (hw/video640.md). Revision 1 keeps test_video.
+ * Last, the debugger's `vram` (VideoCard::command), on the card and through a Debugger as the app
+ * wires it.
  */
 
 #include "harness.h"
@@ -1019,6 +1020,268 @@ TEST(the_bases_high_bytes_latch_at_line_480)
             std::printf("  %s didn't take effect at line 480\n", c.what);
         CHECK_EQ(r.px(c.x, 300), rgba(c.after));
     }
+}
+
+// --- bitmap 640 and direct 640, layer types 6 and 7 (hw/video640.md) ---------------------------
+
+namespace
+{
+    constexpr unsigned W = VideoCard::WIDTH, H = VideoCard::HEIGHT;
+    constexpr uint32_t B640 = VideoCard::BITMAP640_ROW, D640 = VideoCard::DIRECT640_ROW;
+
+    /// 256 different colours, one an entry: the high 8 bits are the index.
+    uint16_t entry_colour(unsigned i) { return static_cast<uint16_t>(i << 4 | ((i * 7) & 0xF)); }
+    void palette(Rig &r, uint32_t pal)
+    {
+        for (unsigned i = 0; i < 256; ++i)
+            r.colour(pal, i, entry_colour(i));
+    }
+    void word(Rig &r, uint32_t at, uint16_t w)
+    {
+        r.card.card_poke(at, static_cast<uint8_t>(w));
+        r.card.card_poke(at + 1, static_cast<uint8_t>(w >> 8));
+    }
+    /// The frame against `want(x, y)`: the pixels that differ, the first of them printed.
+    template <typename F> unsigned frame_differs(const Rig &r, F want)
+    {
+        unsigned bad = 0;
+        for (unsigned y = 0; y < H; ++y)
+            for (unsigned x = 0; x < W; ++x)
+                if (r.px(x, y) != want(x, y) && !bad++)
+                    std::printf("  (%u, %u): %08x, wanted %08x\n", x, y, r.px(x, y), want(x, y));
+        return bad;
+    }
+    /// A layer of `type` at card address `at` (on a 256-byte unit) on layer `l`.
+    void layer(Rig &r, uint8_t l, uint8_t type, uint32_t at)
+    {
+        r.reg(l + VideoCard::CONFIG, type);
+        r.reg16(l + R2::MAPBASE, static_cast<uint16_t>(at >> 8));
+    }
+} // namespace
+
+TEST(type_6_draws_640_by_480_at_a_byte_a_pixel)
+{
+    // A pattern that differs along every row and from row to row, at the 1,024-byte stride: the whole
+    // frame through the palette, x 0-639 covered (BORDER nowhere), PALOFS changing nothing.
+    Rig r;
+    const uint32_t img = 0x040000, pal = 0x1A0000;
+    palette(r, pal);
+    auto pix = [](unsigned x, unsigned y) { return static_cast<uint8_t>(x + 3 * y + (x >> 8) * 29); };
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < B640; ++x)
+            r.card.card_poke(img + y * B640 + x, pix(x, y));
+    layer(r, L0, VideoCard::BITMAP640, img);
+    r.reg(L0 + R2::PALOFS, 3);
+    r.reg16(R2::PALBASE, static_cast<uint16_t>(pal >> 8));
+    r.reg(VideoCard::BORDER, 0x11);
+    r.colour(pal, 0x11, 0xABC); // BORDER's own colour, nowhere in the picture
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(r.card.peek(L0 + VideoCard::CONFIG), VideoCard::BITMAP640);
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) {
+                 const uint8_t v = pix(x, y);
+                 return rgba(v == 0x11 ? 0xABC : entry_colour(v));
+             }),
+             0u);
+}
+
+TEST(type_6_scrolls_and_wraps_at_1024_and_480)
+{
+    Rig r;
+    const uint32_t img = 0x0C0400; // on a 1 KB boundary, not 16 KB
+    palette(r, 0);
+    auto pix = [](unsigned x, unsigned y) { return static_cast<uint8_t>(5 * x + 3 * y + (x >> 8) * 17); };
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < B640; ++x)
+            r.card.card_poke(img + y * B640 + x, pix(x, y));
+    layer(r, L1, VideoCard::BITMAP640, img);
+    r.reg16(L1 + R2::HSCROLL, 900);
+    r.reg16(L1 + R2::VSCROLL, 470);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER1_ON);
+    r.show();
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) {
+                 return rgba(entry_colour(pix((x + 900) % 1024, (y + 470) % 480)));
+             }),
+             0u);
+}
+
+TEST(type_7_draws_every_12_bit_colour_directly)
+{
+    // All 4,096 colours, bits 12-14 set on every odd pixel, the palette scrambled; then a flip between
+    // two 600 KB buffers, written mid-frame, at line 480.
+    Rig r;
+    const uint32_t a = 0x040000, b = a + D640 * H; // $040000 and $0D6000
+    uint32_t seed = 0x2468ACE1;
+    for (unsigned i = 0; i < 256; ++i)
+    {
+        seed = seed * 1103515245 + 12345;
+        r.colour(0, i, static_cast<uint16_t>(seed >> 16));
+    }
+    auto colour = [](unsigned x, unsigned y, unsigned off) { return static_cast<uint16_t>((y * W + x + off) % 4096); };
+    auto spare = [](unsigned x) { return static_cast<uint16_t>(x & 1 ? ((x >> 1) % 7 + 1) << 12 : 0); };
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < W; ++x)
+        {
+            word(r, a + y * D640 + 2 * x, colour(x, y, 0) | spare(x));
+            word(r, b + y * D640 + 2 * x, colour(x, y, 1234));
+        }
+    layer(r, L0, VideoCard::DIRECT640, a);
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return rgba(colour(x, y, 0)); }), 0u);
+    r.card.tick(100 * VideoCard::LINE_CLOCKS); // the beam at line 100
+    r.reg16(L0 + R2::MAPBASE, static_cast<uint16_t>(b >> 8));
+    r.card.tick(FRAME - 100 * VideoCard::LINE_CLOCKS); // this frame: still A
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return rgba(colour(x, y, 0)); }), 0u);
+    r.card.tick(FRAME); // after the vertical blank: B, whole
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return rgba(colour(x, y, 1234)); }), 0u);
+}
+
+TEST(type_7_wraps_at_640_and_480)
+{
+    Rig r;
+    const uint32_t img = 0x100000;
+    auto colour = [](unsigned x, unsigned y) { return static_cast<uint16_t>((x * 5 + y * 77) & 0xFFF); };
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < W; ++x)
+            word(r, img + y * D640 + 2 * x, colour(x, y));
+    layer(r, L0, VideoCard::DIRECT640, img);
+    r.reg16(L0 + R2::HSCROLL, 1000); // 360 across
+    r.reg16(L0 + R2::VSCROLL, 479);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return rgba(colour((x + 1000) % 640, (y + 479) % 480)); }),
+             0u);
+}
+
+TEST(type_7_s_transparent_bit_shows_the_layer_below)
+{
+    // Layer 1 direct 640 in four bands across: $8000, $FFFF (both transparent), $0000 (opaque black) and
+    // $0F00 (red); under it type 6 (all entry 5), then 80-column text (every pixel lit, entry 6), then
+    // nothing (palette entry 0, never BORDER).
+    Rig r;
+    const uint32_t top = 0x100000, b6 = 0x040000, font = 0x0C0000, text = 0x0C1000;
+    r.colour(0, 0, 0x123);
+    r.colour(0, 5, 0x0F0);
+    r.colour(0, 6, 0x00F);
+    r.colour(0, 9, 0x456);
+    r.reg(VideoCard::BORDER, 9);
+    const uint16_t bands[4] = {0x8000, 0xFFFF, 0x0000, 0x0F00};
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < W; ++x)
+            word(r, top + y * D640 + 2 * x, bands[x / 160]);
+    for (uint32_t i = 0; i < B640 * H; ++i)
+        r.card.card_poke(b6 + i, 5);
+    for (unsigned row = 0; row < 16; ++row)
+        r.card.card_poke(font + 'X' * 16 + row, 0xFF);
+    for (unsigned c = 0; c < 80 * 30; ++c)
+    {
+        r.card.card_poke(text + 2 * c, 'X');
+        r.card.card_poke(text + 2 * c + 1, 0x06);
+    }
+    layer(r, L1, VideoCard::DIRECT640, top);
+    struct Below
+    {
+        const char *what;
+        uint16_t colour; ///< what the transparent bands show
+        bool on;
+    };
+    for (const Below &below : {Below{"type 6", 0x0F0, true}, Below{"text", 0x00F, true}, Below{"nothing", 0x123, false}})
+    {
+        if (below.colour == 0x0F0)
+            layer(r, L0, VideoCard::BITMAP640, b6);
+        else
+        {
+            layer(r, L0, VideoCard::TEXT80, text);
+            r.reg16(L0 + R2::TILEBASE, static_cast<uint16_t>(font >> 8));
+        }
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER1_ON | (below.on ? VideoCard::LAYER0_ON : 0));
+        r.show();
+        const unsigned bad = frame_differs(r, [&](unsigned x, unsigned) {
+            const uint16_t want[4] = {below.colour, below.colour, 0x000, 0xF00};
+            return rgba(want[x / 160]);
+        });
+        if (bad)
+            std::printf("  over %s\n", below.what);
+        CHECK_EQ(bad, 0u);
+    }
+}
+
+TEST(a_layer_over_type_7)
+{
+    // Type 6 on layer 1 over type 7: its 0s show type 7's colours exactly, its other pixels the palette.
+    Rig r;
+    const uint32_t d = 0x040000, b6 = 0x100000;
+    for (unsigned i = 0; i < 256; ++i)
+        r.colour(0, i, static_cast<uint16_t>(0xFFF - i)); // nothing like the direct colours
+    auto colour = [](unsigned x, unsigned y) { return static_cast<uint16_t>((y * W + x) % 4096); };
+    for (unsigned y = 0; y < H; ++y)
+    {
+        for (unsigned x = 0; x < W; ++x)
+            word(r, d + y * D640 + 2 * x, colour(x, y));
+        for (unsigned x = 0; x < B640; ++x)
+            r.card.card_poke(b6 + y * B640 + x, x < 64 ? 7 : 0);
+    }
+    layer(r, L0, VideoCard::DIRECT640, d);
+    layer(r, L1, VideoCard::BITMAP640, b6);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::LAYER1_ON);
+    r.show();
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return rgba(x < 64 ? 0xFFF - 7 : colour(x, y)); }), 0u);
+}
+
+TEST(sprites_over_and_under_type_7)
+{
+    // Layer 0 direct 640: x 0-319 opaque red, 320-639 transparent ($8000). Sprite 0 at depth 1 across the
+    // edge shows only on the transparent side; sprites at depths 2 and 3 show over both; a sprite's colour
+    // is a palette entry (8 bits; 4 bits with its palette offset). Collisions are the sprites' alone.
+    Rig r;
+    const uint32_t d = 0x040000, table = 0x1A0000, img8 = 0x1A1000, img4 = 0x1A1100;
+    r.colour(0, 0, 0x123);
+    r.colour(0, 0x21, 0x0F0);
+    r.colour(0, 0x43, 0x00F);
+    for (unsigned y = 0; y < H; ++y)
+        for (unsigned x = 0; x < W; ++x)
+            word(r, d + y * D640 + 2 * x, x < 320 ? 0x0F00 : 0x8000);
+    for (unsigned i = 0; i < 256; ++i)
+        r.card.card_poke(img8 + i, 0x21); // 16x16 at 8 bits
+    for (unsigned i = 0; i < 128; ++i)
+        r.card.card_poke(img4 + i, 0x33); // 16x16 at 4 bits
+    // entry: image unit (2 bytes, bit 15 8 bits), X, Y (320x240), flags (depth << 2, group << 4), size
+    auto sprite = [&](unsigned n, uint32_t image, bool bpp8, unsigned x, unsigned y, unsigned depth, unsigned group,
+                      unsigned palofs) {
+        const uint32_t e = table + n * 8;
+        const unsigned unit = image >> 8;
+        const uint8_t bytes[8] = {static_cast<uint8_t>(unit), static_cast<uint8_t>((unit >> 8) | (bpp8 ? 0x80 : 0)),
+                                  static_cast<uint8_t>(x), static_cast<uint8_t>(x >> 8), static_cast<uint8_t>(y),
+                                  static_cast<uint8_t>(y >> 8), static_cast<uint8_t>(depth << 2 | group << 4),
+                                  static_cast<uint8_t>(0x50 | palofs)}; // 16x16
+        for (unsigned i = 0; i < 8; ++i)
+            r.card.card_poke(e + i, bytes[i]);
+    };
+    sprite(0, img8, true, 150, 10, 1, 4, 0);  // screen x 300-331, y 20-51: depth 1
+    sprite(1, img8, true, 150, 40, 2, 1, 0);  // y 80-111: depth 2
+    sprite(2, img4, false, 150, 70, 3, 2, 4); // y 140-171: depth 3, colour $43
+    sprite(3, img8, true, 152, 42, 2, 1, 0);  // behind sprite 1, sharing its group: a collision
+    sprite(4, img8, true, 145, 12, 1, 4, 0);  // behind sprite 0, under the red: a collision all the same
+    layer(r, L0, VideoCard::DIRECT640, d);
+    r.reg16(R2::SPRBASE, static_cast<uint16_t>(table >> 8));
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::SPRITES_ON);
+    r.show();
+    const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+        // a 16x16 sprite at (sx, sy) of the 320x240 space covers 32x32 screen pixels
+        auto at = [&](unsigned sx, unsigned sy) { return x >= 2 * sx && x < 2 * sx + 32 && y >= 2 * sy && y < 2 * sy + 32; };
+        const bool s0 = at(150, 10) || at(145, 12), s1 = at(150, 40) || at(152, 42), s2 = at(150, 70);
+        if (s1)
+            return rgba(0x0F0);
+        if (s2)
+            return rgba(0x00F);
+        if (x < 320)
+            return rgba(0xF00); // depth 1 hidden by the opaque direct pixels
+        return rgba(s0 ? 0x0F0 : 0x123);
+    });
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(r.card.peek(VideoCard::STATUS) & 0x0F, 0x05); // groups 1 and 4
 }
 
 TEST(video_revision_takes_0_1_or_2_only)
