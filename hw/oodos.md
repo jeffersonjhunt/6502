@@ -5487,8 +5487,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       takes its own copy); the books (7g). The whole-block space plan (P4's relief widened: 7e3-7e5, 7f, F3) comes to
       the owner before 7e3, as ruled; P5 has 3,993 free for 7e3-7e5 against their ~3,580 at the point estimate.
   - **As built, 7e3** (Proposed, 2026-11-19; feat/gwbasic-7e3 off main `47da0b1a`, the 7e3 plan with the owner's
-    answers, "recommendations as listed"; units U0 `e49ccf09`, U1 `1d1c1b12`, U2 `99ba2889`, U3 `d3e89533`, U4 `4f424b9f`, U5
-    with this record):
+    answers, "recommendations as listed"; units U0 `e49ccf09`, U1 `1d1c1b12`, U2 `99ba2889`, U3 `d3e89533`, U4
+    `4f424b9f`, U5 with this record):
     - **S1** (U0, the space plan's): INITSA (with GREADY, 57 bytes) is the loader's, at the end of `res/loader.s`'s
       LOADER segment (bimisc.o links before loader.o, so "the segment's end" means loader.s's end: a judgement, the
       ledger's line names it); what it writes there is behind it (the zero before the program, the loader's first
@@ -5552,11 +5552,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       the tail after BLDRUN) **920 + 1,012,118** in SCREEN 2 (1,500,000; 0.8-1.2 M) and **920 + 1,980,922** in
       SCREEN 1 (2,500,000; 1.2-1.6 M); PEEK(4000) and POKE 4000,65 on SCREEN 2's page **4,765** and **3,992**
       (6,000); for the record a whole SCREEN 1 GET 2,749,758 and PUT PSET 1,907,808, and a whole-page BSAVE less one
-      of bank 9 (the check and the fill) 1,064,262. The earlier gates (as they are): `PSET (X%,Y%),1` 2,011 (9,000); the whole LINE
-      132,696 (200,000); CIRCLE r=50 310,166 (400,000); the whole SCREEN 2 PAINT 28.11 M (40 M); the 100-move DRAW
-      328,378 (500,000); `PRINT A$;` 20,983 (30,000); the scroll 13,300 less the interrupt handlers (14,000); D9's
-      SCREEN 0 page: PEEK 4,644 and POKE 4,030 (main's + 50: 4,696, 4,085), BLOAD 7,893 + 6,675 and BSAVE 7,893
-      (main's + 300).
+      of bank 9 (the check and the fill) 1,064,262. The earlier gates (as they are): `PSET (X%,Y%),1` 2,011
+      (9,000); the whole LINE 132,696 (200,000); CIRCLE r=50 310,166 (400,000); the whole SCREEN 2 PAINT 28.11 M
+      (40 M); the 100-move DRAW 328,378 (500,000); `PRINT A$;` 20,983 (30,000); the scroll 13,300 less the interrupt
+      handlers (14,000); D9's SCREEN 0 page: PEEK 4,644 and POKE 4,030 (main's + 50: 4,696, 4,085), BLOAD 7,893 +
+      6,675 and BSAVE 7,893 (main's + 300).
     - **Tests** (test_gwbasic_gfx G21-G25, test_gwbasic_screen G26-G28, test_gwbasic_core G11; gwbasic/gfx24-gfx28,
       the .out files PC-BASIC's by oracle.sh; each seen failing under its mutant on its own case (OOE_TEST_CASES), the
       source then restored):
