@@ -195,10 +195,14 @@ test("SPRCTL's full-resolution bit shows on the Devices tab's Sprites row", asyn
   const sprites = page.getByTestId("dev-video").locator('[data-reg="Sprites"]');
   await expect(sprites).toHaveText(/^off · table \$000000$/);
   await page.getByTestId("crt").click();
-  await page.keyboard.type("C48E: 01");
+  await page.keyboard.type("C48E"); // the colon as Shift+; (the USB card takes key codes)
+  await page.keyboard.press("Shift+Semicolon");
+  await page.keyboard.type(" 01");
   await page.keyboard.press("Enter");
   await expect(sprites).toHaveText("off · table $000000 · full");
-  await page.keyboard.type("C48E: 00");
+  await page.keyboard.type("C48E");
+  await page.keyboard.press("Shift+Semicolon");
+  await page.keyboard.type(" 00");
   await page.keyboard.press("Enter");
   await expect(sprites).toHaveText("off · table $000000");
 });

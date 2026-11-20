@@ -1389,8 +1389,8 @@ namespace
                 if (!d)
                     continue;
                 const unsigned w = 8u << ((b7 >> 4) & 3), h = 8u << (b7 >> 6);
-                const unsigned sx = r.card.card_peek(e + 2) | (r.card.card_peek(e + 3) & 3) << 8;
-                const unsigned sy = r.card.card_peek(e + 4) | (r.card.card_peek(e + 5) & 3) << 8;
+                const unsigned sx = r.card.card_peek(e + 2) | (r.card.card_peek(e + 3) & 3u) << 8;
+                const unsigned sy = r.card.card_peek(e + 4) | (r.card.card_peek(e + 5) & 3u) << 8;
                 const unsigned row = (ly - sy) & 0x3FF;
                 if (row >= h)
                     continue;
