@@ -27,7 +27,7 @@
 .import GX_W1BACK
 
 .export CIRCP, CIRCC, PAINTP, DRWOP, GPUTG
-.import POLKEY, CHRGTR, SYNCHR, FRMEVL, CONINT, GETBYT, FCERR, ADVERR, OMERR, GARBA2
+.import POLKEY, CHRGTR, SYNCHR, FRMEVL, CONINT, GETBYT, FCERR, OMERR, GARBA2, FREFAC, FRESTR, TXBUF
 
 ; Zero page: the loop's, and CIRCA's results from CZ, in the order
 ; CIRCA leaves them from DX on.
@@ -323,15 +323,21 @@ CPLFIN:         DEC     CPLN
 
 ; --- PAINT (ADVGRP.ASM 121) -------------------------------------------------------------------
 
-; PAINTP: PAINT [STEP](x,y)[,[paint][,boundary]]. The queue first (INTQUE,
-; free memory, a garbage collection under 1,000 bytes), then the start
-; (SCAN1: the cursor moves there), the paint (ATRSCN's: the foreground if
-; none) and the boundary (the paint's if none: PNTINI). OO-1 (the owner's
-; G12 until 7e4): a string paint (a tile) or a fourth argument (the
-; background) Advanced Feature. The IBM manual's p. 236 (the owner's ruling
-; under the IBM spec): a start off the screen paints nothing, no error, the
-; cursor moved there as SCAN1 has it (the source's CHKRNG gives Illegal
-; function call).
+; PAINTP: PAINT [STEP](x,y)[,[paint][,[boundary][,background]]]. The queue
+; first (INTQUE, free memory, a garbage collection under 1,000 bytes), then
+; the start (SCAN1: the cursor moves there), the paint (ATRSCN's: the
+; foreground if none) and the boundary (the paint's if none: PNTINI). The
+; IBM manual's p. 236 (the owner's ruling under the IBM spec): a start off
+; the screen paints nothing, no error, the cursor moved there as SCAN1 has
+; it (the source's CHKRNG gives Illegal function call). 7e4 (pp. 236-245;
+; the owner's answers 5 and 7): a string paint is a tile, 1-64 bytes (else
+; Illegal function call), copied to TXBUF here, before the aperture is
+; mapped (PTILE); the boundary's default then the mode's foreground; the
+; background a string's first byte ("" none; a number Type mismatch; with a
+; numeric paint taken and not used); with none given CHR$(0) (the owner's
+; answer 13: a blank area isn't "already painted"); a tile with three bytes
+; in a row equal to the background, or wholly it, Illegal function call
+; (p. 243), the default's as any.
 PAINTP:         LDA     FRETOP         ; the queue: free memory to FRETOP
                 LDX     FRETOP + 1
                 LDY     #0             ;   with a collection
@@ -339,7 +345,9 @@ PAINTP:         LDA     FRETOP         ; the queue: free memory to FRETOP
                 JSR     SCAN1
                 PSHW    RCL            ; the start
                 PSHW    RDL
-                SEC                    ; the paint: ATRSCN's, a string refused
+                STZ     TILEF
+                STZ     TBGF
+                SEC                    ; the paint: ATRSCN's, or a tile
                 JSR     GETFBC
                 STA     RDL
                 DECW    TXTPTR
@@ -352,28 +360,48 @@ PAINTP:         LDA     FRETOP         ; the queue: free memory to FRETOP
                 JSR     FRMEVL
                 LDA     VALTYP
                 CMP     #VT_STR
-                JEQ     PADV           ; a tile: 7e4's
-                JSR     CONINT
-@pfin:          JSR     PIXSIZ         ; (ATRFI2's)
+                BNE     @num
+                JSR     PTILE          ; a tile
+                SEC                    ; the boundary's default: the foreground
+                JSR     GETFBC
+                STA     RDL
+                BRA     @pix
+@num:           JSR     CONINT
+@pfin:          LDA     RDL
+                JSR     SETATR
+                STA     ATRBYT         ; the boundary's default: the paint
+                STA     RDL
+@pix:           JSR     PIXSIZ         ; (ATRFI2's)
                 BNE     :+
                 JMP     FCERR
-:               LDA     RDL
-                JSR     SETATR
-                STA     ATRBYT         ; the boundary's default: the paint's
-                STA     RDL
-                DECW    TXTPTR
+:               DECW    TXTPTR
                 JSR     CHRGTR
                 BEQ     GOTBRD
                 JSR     SYNCHR
                 .byte   ','
                 CMP     #','
-                BEQ     PADV           ; a background with no boundary: 7e4's
+                BEQ     @bg            ; a background with no boundary
                 JSR     GETBYT
                 LDA     (TXTPTR)
                 CMP     #','
-                BEQ     PADV           ; a background: 7e4's
+                BNE     GOTBRD
+@bg:            LDA     RDL            ; the background (the boundary kept)
+                PHA
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL
+                BIT     TILEF
+                BPL     @bx            ; a numeric paint: not used
+                JSR     PBACK
+@bx:            PLA
+                STA     RDL
 GOTBRD:         LDA     RDL
                 JSR     PNTINI
+                BIT     TILEF          ; 7e4: the tile refused, or set up
+                BPL     :+
+                JSR     PREFU
+                JSR     TSET
+:
                 PULW    RDL
                 PULW    RCL
                 JSR     SCALXY         ; off the screen: nothing (p. 236)
@@ -386,6 +414,7 @@ PNTCOR:         JSR     MAPXYC
                 MOVW    PNX, RCL
                 LDA     RDL
                 STA     PNY
+                JSR     TROWS          ; 7e4: the tile's row
                 LDA     #1             ; the skip count: one (none of the border)
                 STA     RDL
                 STZ     RDH
@@ -399,8 +428,10 @@ PNTCOR:         JSR     MAPXYC
                 JSR     ENTST1
                 LDA     #$C0           ; and paint up now
                 BRA     STPAIN
-PNTX:           JMP     GX_W1BACK      ; (OO-1)
-PADV:           JMP     ADVERR
+PNTX:           LDA     ATRBYT         ; 7e4: CPAT back (a tile's pixels set it)
+                JSR     SETATR
+                JMP     GX_W1BACK      ; (OO-1)
+
 PNTLOP:         JSR     GX_W1BACK      ; CKCNTC, with block 1 in W1 (OO-1)
                 JSR     POLKEY
 PNTLP1:         JSR     GETQ           ; the next entry (A its direction, 0 none)
@@ -690,9 +721,9 @@ DRWOP:          CPY     #1
                 BEQ     DRW1
                 CPY     #3
                 BCC     DRW2
-                BEQ     DRW3
+                JEQ     DRW3
                 CPY     #4
-                BEQ     DRW4
+                JEQ     DRW4
                 LDA     RAL            ; 5
                 STA     DRWSCL
                 LDA     RAH
@@ -703,7 +734,9 @@ DRWOP:          CPY     #1
 DRW0:           JSR     PIXSIZ
                 BNE     :+
                 JMP     FCERR
-:               JSR     GTASPC
+:               LDA     ATRBYT         ; 7e4: CPAT ATRBYT's (a tiled PAINT broken off)
+                JSR     SETATR
+                JSR     GTASPC
                 LDA     DRWSCL
                 STA     RAL
                 LDA     DRWANG
@@ -734,7 +767,8 @@ DNSTOR:         RTS
 DRW3:           JSR     SETATR
                 STA     ATRBYT
                 RTS
-DRW4:           LDA     RCL            ; the paint: the colour from now
+DRW4:           STZ     TILEF          ; 7e4: no tile
+                LDA     RCL            ; the paint: the colour from now
                 JSR     SETATR
                 STA     ATRBYT
                 LDA     RCH
@@ -899,6 +933,64 @@ CHKRNG:         JSR     SCALXY
                 BCS     :+
                 JMP     FCERR
 :               RTS
+
+
+; PTILE (7e4): the FAC's string the tile: 1-64 bytes, else Illegal function
+; call; copied to TXBUF (TLEN its bytes), TILEF set.
+PTILE:          JSR     FREFAC         ; BX: the descriptor
+                LDA     (RBL)
+                BEQ     PTFC
+                CMP     #65
+                BCS     PTFC
+                STA     TLEN
+                JSR     PSTR
+@c:             LDA     (PTR),Y
+                STA     TXBUF,Y
+                INY
+                CPY     TLEN
+                BNE     @c
+                LDA     #$80
+                STA     TILEF
+                STZ     TBG            ; the background CHR$(0) unless one is given (the
+                INC     TBGF           ; owner's answer 13)
+                RTS
+PTFC:           JMP     FCERR
+; PSTR: PTR the string's text (BX its descriptor), Y 0.
+PSTR:           LDY     #1
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR + 1
+                LDY     #0
+                RTS
+; PBACK (7e4): the FAC the background, a string (else Type mismatch): its
+; first byte TBG ("" none: the default's CHR$(0)).
+PBACK:          JSR     FRESTR
+                LDA     (RBL)
+                BEQ     PRX
+                JSR     PSTR
+                LDA     (PTR)
+                STA     TBG
+PRX:            RTS
+; PREFU (7e4): a tile refused (Illegal function call) if three of its bytes
+; in a row, or all of them, are the background's (the IBM manual's p. 243;
+; the default CHR$(0)'s too, the owner's answer 13).
+PREFU:          LDY     #0
+                LDX     #0             ; the run of tile bytes equal to it
+@r:             LDA     TXBUF,Y
+                CMP     TBG
+                BEQ     :+
+                LDX     #$FF
+:               INX
+                CPX     #3
+                BCS     PTFC
+                INY
+                CPY     TLEN
+                BNE     @r
+                CPX     TLEN           ; a tile wholly the background
+                BEQ     PTFC
+                RTS
 
 
 .segment "BRAM"

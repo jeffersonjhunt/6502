@@ -568,6 +568,8 @@ SCANR:          STZ     RCL
                 STX     PCSX
                 LDX     PNX + 1
                 STX     PCSX + 1
+                LDX     TBGF           ; 7e4: the run all the background's, so far
+                STX     TALLB
                 STZ     RBL
                 STZ     RBH
                 BRA     @in
@@ -579,20 +581,18 @@ SCANR:          STZ     RCL
                 JSR     READC
 @in:            CMP     PBORD
                 BEQ     @x
-                CMP     ATRBYT
-                BEQ     :+
-                LDA     #1             ; changed
-                STA     RCL
-                JSR     SETC
-:               INCW    RBL
+                JSR     PCHG
+                INCW    RBL
                 JSR     RIGHTC
                 INCW    PNX
                 BRA     @r
-@x:             RTS
+@x:             JMP     TEND
 
 SCANL:          STZ     RBL
                 STZ     RBH
                 STZ     RCL
+                LDX     TBGF           ; 7e4: (SCANR's)
+                STX     TALLB
 @l:             LDA     PNX             ; x 0: the edge
                 ORA     PNX + 1
                 BEQ     @x
@@ -601,21 +601,18 @@ SCANL:          STZ     RBL
                 JSR     READC
                 CMP     PBORD
                 BEQ     @back
-                CMP     ATRBYT
-                BEQ     :+
-                LDA     #1
-                STA     RCL
-                JSR     SETC
-:               INCW    RBL
+                JSR     PCHG
+                INCW    RBL
                 BRA     @l
 @back:          JSR     RIGHTC         ; the border: back to the run's leftmost
                 INCW    PNX
-@x:             RTS
+@x:             JMP     TEND
 
 TUPC:           LDA     PNY
                 BEQ     TEDGE
                 DEC     PNY
                 JSR     UPC
+                JSR     TROWS          ; 7e4: the tile's row
                 CLC
                 RTS
 TDOWNC:         LDA     PNY
@@ -623,6 +620,7 @@ TDOWNC:         LDA     PNY
                 BCS     TEDGE
                 INC     PNY
                 JSR     DOWNC
+                JSR     TROWS
                 CLC
                 RTS
 TEDGE:          SEC
@@ -652,7 +650,111 @@ PSTOR:          LDA     RCL
                 STA     RDL
                 PLA
                 STA     RDH
-                RTS
+                ; (on into TROWS: 7e4, the tile's row)
+
+; --- PAINT's tiles (7e4) --------------------------------------------------------------------
+
+; The OO-1's (the IBM manual's pp. 236-245; the source has no tiles). A
+; string paint is a tile of 1-64 bytes, copied by PAINTP (p5/advgrp.s) to
+; TXBUF before the aperture is mapped (TXBUF is below $4000: readable with
+; the aperture in W1; the home block's PAINT stub emptied it, TXSYNC). Row y
+; takes byte y MOD TLEN; each byte's pixels across from the high bits (2
+; bits a pixel in SCREEN 1, 1 in SCREEN 2), the pixel at x MOD 4 or 8 of
+; the viewport's own x (the owner's answer 7). The background (TBG, a
+; string's first byte) lets the fill pass through rows already painted with
+; it: a run that changed nothing still counts as painted when its old pixels
+; are all the background's row pattern (TEND).
+;
+;   TROWS   PNY's row of the tile split into TCOL (a pixel's colour at each
+;           place); nothing if no tile
+;   TSET    the tile's set-up, after the parse: TBITS, TPN, TPM, the
+;           background's row (TBGP)
+;   PCHG    A a run's pixel's old value (not the border): set to the fill's
+;           (ATRBYT's, or the tile's at PNX, CPAT its pattern), RCL 1 if it
+;           changed
+;   TEND    a run's end: with a background, RCL 1 if every pixel of the run
+;           was the background's
+TROWS:          BIT     TILEF
+                BPL     TRX
+                LDA     PNY            ; y MOD TLEN
+                SEC
+@m:             SBC     TLEN
+                BCS     @m
+                ADC     TLEN
+                TAY
+                LDA     TXBUF,Y
+                LDY     #0
+                ; (on into TSPLIT)
+; TSPLIT: the tile byte A's pixels' colours to TCOL + Y on.
+TSPLIT:         STA     TROW
+                TYA
+                CLC
+                ADC     TPN
+                STA     TTOP
+@p:             LDA     #0
+                LDX     TBITS
+@b:             ASL     TROW
+                ROL     A
+                DEX
+                BNE     @b
+                STA     TCOL,Y
+                INY
+                CPY     TTOP
+                BNE     @p
+TRX:            RTS
+
+TSET:           JSR     PIXSIZ         ; 2, 1: a pixel's bits
+                STA     TBITS
+                LSR     A              ; the pixels a byte: 4, 8; less one
+                LDA     #4
+                BCC     :+
+                LDA     #8
+:               STA     TPN
+                DEC     A
+                STA     TPM
+                LDA     TBG
+                LDY     #TBGP - TCOL
+                BRA     TSPLIT
+
+PCHG:           BIT     TILEF
+                BMI     @t
+                CMP     ATRBYT
+                BEQ     @x
+@s:             LDA     #1             ; changed
+                STA     RCL
+                JMP     SETC
+@t:             TAY                    ; the tile's pixel here
+                LDA     PNX
+                AND     TPM
+                TAX
+                TYA
+                CMP     TBGP,X
+                BEQ     :+
+                STZ     TALLB          ; not the background's
+:               CMP     TCOL,X
+                BEQ     @x
+                LDY     TCOL,X         ; its pattern, as SETATR's
+                LDA     PIXPAT,Y
+                LDX     GMODEV
+                CPX     #GM_TILE
+                BEQ     :+
+                TYA
+                BEQ     :+
+                LDA     #$FF
+:               STA     CPAT
+                BRA     @s
+@x:             RTS
+
+TEND:           BIT     TILEF
+                BPL     @x
+                LDA     TALLB
+                BEQ     @x
+                LDA     RBL
+                ORA     RBH
+                BEQ     @x
+                LDA     #1
+                STA     RCL
+@x:             RTS
 
 ; --- GET and PUT's rows, DEF SEG's bytes (7e3, U1): PGINIT, NREAD, NWRITE ---------------
 
@@ -1177,3 +1279,15 @@ PCSX:           .res    2              ;   SCANR's run's first pixel's x (the so
 PBORD:          .res    1              ;   the border's attribute (PNTINI)
 GPCPAT:         .res    1              ; 7e3: CPAT, kept for PGINIT's caller
 GOPV:           .res    2              ;   GOPB's routine, by the action (not zero page: rule 2)
+TILEF:          .res    1              ; 7e4: bit 7, PAINT's paint a tile (TXBUF)
+TLEN:           .res    1              ;   its bytes
+TBG:            .res    1              ;   the background's byte
+TBGF:           .res    1              ;   1: a background given
+TALLB:          .res    1              ;   a run's pixels all the background's so far
+TBITS:          .res    1              ;   a pixel's bits
+TPN:            .res    1              ;   the pixels a byte
+TPM:            .res    1              ;   less one
+TROW:           .res    1              ;   TSPLIT's byte
+TTOP:           .res    1              ;   and its end
+TCOL:           .res    8              ;   the row's pixels' colours, by x MOD TPN
+TBGP:           .res    8              ;   the background's

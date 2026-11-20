@@ -14,7 +14,7 @@
 .include "gwbasic.inc"
 
 .export PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
-.import ADVERR, SCRMOD, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG
+.import ADVERR, SCRMOD, TXSYNC, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG
 
 .macro  MOVW    dst, src
                 LDA     src
@@ -39,6 +39,7 @@ CIRCLE:         BIT     SCRMOD
                 RTS
 PAINT:          BIT     SCRMOD
                 BPL     ADV
+                JSR     TXSYNC         ; 7e4: TXBUF emptied, for a tile (7e3's answer 3)
                 FJSR    PAINTP
                 RTS
 DRAW:           BIT     SCRMOD
