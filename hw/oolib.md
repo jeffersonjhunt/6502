@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)); the 640×480 colour layers built 2026-11-20, OODOS 0.12 (interface version 13, [video640.md](video640.md)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -1507,6 +1507,27 @@ and more in L5:
     874, a few up to 1,007, and 4,672-5,405 with the next piece inside it. `GX_BLOCK`, already mapped, costs 16
     cycles (was 7).
   - **OOUI** (`UI_IFACE` 1) is unchanged: it maps through `GX_VMAP`.
+- **640×480 colour layers, interface version 13** (*proposed 2026-11-20, built on feat/video-640, OODOS 0.12*;
+  [video640.md](video640.md), the owner's answers 0-23): video card revision 2's layer types 6 (bitmap 640: 1,024 ×
+  480 at a byte through the palette, 640 shown) and 7 (direct 640: 640 × 480 of `$0RGB` words, bit 15
+  transparent), beside the frozen video-rev2.md.
+  - **Function 83's `DM_VFILLW`** (operation 12, `DM_OPS` 13): a word's fill of card memory, two passes through the
+    port at PSTEP 2 (the low byte at the even offsets from the destination, the high at the odd), refused as
+    `DM_VFILL` is. OODOS's port loop takes the step (PORTLOOP); `DM_VWRITE`, `DM_VREAD` and `DM_VFILL` are as
+    they were.
+  - **`GX_BMP`'s `GB_640` (3) and `GB_DIRECT` (4)**; a type past 4 refused (carry, `GE_FORMAT`), where any A was
+    stored before. On `GB_DIRECT` every drawing colour is a word in A/X and `GX_POINT` returns A/X; the old types
+    don't read X. `GX_FRECT` fills whole rows in calls of 64 (bitmap 640) or 51 (direct 640) rows, part rows a call
+    each, a direct 640 colour by `DM_VFILL` when its bytes are equal (answer 22) and else by `DM_VFILLW`;
+    `GX_BCOPY` doubles direct rows' bytes; `GX_FLOOD` compares words.
+  - **`GX_FGH` and `GX_BGH`** (gxtext.s's): `GX_TEXT`'s colours' high bytes on `GB_DIRECT`. They are not in
+    gxmem.s, which GW-BASIC links: GWBASIC.COM and .OVL are byte for byte as before, and so is OOUI.BNK, which links
+    none of the modules that changed.
+  - **`GX_ASSET`** takes a part of 1 to 1,572,864 bytes (was 131,072), every part type; its record counter carries
+    past record 65,535 (answer 23). Nothing it took before loads differently.
+  - **mkasset.py's `bitmap640` and `direct640`**; VIEW shows both, relinked with no code change.
+  - **Costs** are [video640.md's "As built"](video640.md): a whole direct 640 fill 0.116 s, a 600 KB part loaded in
+    0.67 s, `GX_PLOT` 443 cycles on bitmap 640 and 498 on direct 640 (406 on bitmap 256).
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
@@ -1614,6 +1635,7 @@ question 15.
     version (hw/diag.md's D1, 2026-11-13), 10 OODOS 0.10's function 75's A = 2, the ROM's diagnostics (hw/diag.md's D3c,
     2026-11-14, P2-1), 11 OODOS 0.11's function 75's A = 3, Apple II mode with ROM A's image X (hw/design.md's B5,
     2026-11-16), 12 OODOS 0.11's function 83's `DM_BANK8` and WIN1H in the W1 contract (hw/design.md's B7,
-    2026-11-17). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
+    2026-11-17), 13 OODOS 0.12's function 83's `DM_VFILLW` and the 640×480 colour layers (`GB_640`, `GB_DIRECT`,
+    their word colours, `GX_FGH`/`GX_BGH`, GX_ASSET's limit; hw/video640.md, 2026-11-20). **Decided (2026-11-13, the owner, EE3):** from 9 the interface number
     also marks OODOS's own additions a program needs to detect, OOLIB's or not, since it is the one number a
     program can ask for (OODOS's own version changes only at a release).

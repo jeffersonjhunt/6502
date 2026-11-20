@@ -684,6 +684,14 @@ with block 1, and bank 8's blocks 32–39 join the W1 map for `GX_BLOCK`. A prog
 as before. A program that loads card memory by DMA through physical `$84000` (slot 1's old window) must not call
 it: that address is then RAM, and a DMA address can't name `$E04000`.
 
+**A screen** of the 640×480 colour layers (since OODOS 0.12, interface version 13,
+[hw/video640.md](../../hw/video640.md)): a bitmap 640 is 1,920 card pages (480 KB, rows of 1,024 bytes), a direct
+640 2,400 (600 KB, rows of 1,280); the program's part holds three bitmap 640 screens or two direct 640 ones, a
+double buffer. Take them on 16 KB (an alignment of 64) and a bitmap 640 row never crosses a slot. A direct 640 row
+does, at 4 rows in every 64 (rows 12, 25, 38 and 51 of each 64 from a base on 16 KB): the library maps each pixel
+by its own address, so its draws are right there, but a program that writes along a row through `GX_VMAP`'s window
+itself must map the next page at the slot's end.
+
 Before interface version 8, on revision 1, the card drew from banks 8–B in 1 KB units: the library's `GX_ALLOC`,
 `GX_FREE` and `GX_UNIT`, which `GX_VALLOC`, `GX_VFREE` and `GX_VADDR` replace.
 
@@ -728,8 +736,10 @@ put:    .byte   DM_VWRITE
 `DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time. For card memory
 (since OODOS 0.9, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
 `DM_VFILL` fills it, and `DM_VCOPY` copies within it: a scroll of a bitmap, a cleared screen, the console's font read
-for text. Through the port a byte is a cycle of DMA, so 60 KB is about 8.6 ms of it, the CPU held. The library fills a bitmap's whole rows in one call
-(`GX_FRECT`, by `DM_VFILL`) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
+for text. Through the port a byte is a cycle of DMA, so 60 KB is about 8.6 ms of it, the CPU held. `DM_VFILLW`
+(since OODOS 0.12, interface version 13) fills it with a word, a direct 640 colour, in two passes at the port's
+step 2. The library fills a bitmap's whole rows in one call (`GX_FRECT`, by `DM_VFILL`, or `DM_VFILLW` for a direct
+640 colour whose two bytes differ) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
 
 ### The vertical-blank slots
 
@@ -784,19 +794,26 @@ card memory all free. Then:
 - **Tiles** (`gxtile.s`): `GX_TMAP` (a map's card page in A/X, its width in Y), `GX_TPUT`, `GX_TGET`, `GX_TFILL`
   (by `DM_VCOPY`).
 - **Bitmaps** (`gxbmp.s`): `GX_BMP` names the bitmap (its type in A, its first card page in `GX_V`), drawn through
-  slot 1; bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
+  slot 1; bitmap 256 (`GB_256`, 8 bits a pixel), bitmap 512 (`GB_512`, 4) and mono (`GB_MONO`, 1), and since OODOS
+  0.12 (interface version 13) bitmap 640 (`GB_640`, layer type 6: 1,024 × 480 at 8 bits, 640 shown) and direct
+  640 (`GB_DIRECT`, type 7: 640 × 480, a word a pixel). On `GB_DIRECT` every colour is a word, A its low byte and X
+  its high, `$0RGB` as a palette entry is (`$8000` transparent, `$0000` black; bits 12–14 written 0), and
+  `GX_POINT` returns A/X; on the other bitmaps X isn't read. `GX_BMP` refuses a type past `GB_DIRECT` (carry set,
+  `GE_FORMAT`, the bitmap as it was; before interface version 13 it took any A). `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
   `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
   refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
   height does nothing. A copy's rows are each one card copy forward, as memcpy, not memmove: moving a strip right
   on the same rows repeats its first bytes, so copy through another place for that.
 - **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's (read from the card a character at a time, by
-  `DM_VREAD`) or the program's: `GX_FONT`, `GX_TEXT`.
+  `DM_VREAD`) or the program's: `GX_FONT`, `GX_TEXT`. On `GB_DIRECT` its colours are words: `GX_FGH:GX_FG` and
+  `GX_BGH:GX_BG` (the high bytes since interface version 13).
 - **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads each part into the card at the page it names, or
   at pages it allocates, 4 KB at a time by `DM_LOAD` into a staging buffer, `GX_STAGE` (physical: `$BF000`, bank
   B's last 4 KB, unless the program moves it), and `DM_VWRITE` on. Each part is checked first (its type, its place
   in the file, its records against its bytes, its pages free and the program's), and every page the file took is
-  freed again if a part is refused.
+  freed again if a part is refused. A part is 1 to 1,572,864 bytes, the program's part of card memory, since
+  interface version 13 (131,072 before).
 
 A program links only the modules it calls. Coordinates and values go in the `GX_` variables; a refusal is the carry
 set with an error in A (`GE_`).
@@ -811,7 +828,9 @@ width and height); each part starts on a 1 KB boundary of the file, so it loads 
 each padded to 256 bytes, a card page, and a sprite table's entries count them in pages from the images' part, which
 `GX_ASSET` moves on by where that part went. The library reads format 4 alone: format 3, revision 1's (a unit, one
 byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
-`sprites`, `palette`), puts the parts of several into one file so a program loads them in one call (`combine`: a
+`sprites`, `palette`, and since OODOS 0.12 `bitmap640`, a PNG up to 1,024 × 480 in 256 colours, its palette part
+first, and `direct640`, a PNG up to 640 × 480 in its own 12-bit colours, alpha below 128 the transparent `$8000`, no
+palette part), puts the parts of several into one file so a program loads them in one call (`combine`: a
 palette that repeats one already taken is left out; one sprite images part and one sprite table at most), and checks
 one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
 
@@ -830,6 +849,13 @@ the worst case is later work ([hw/oolib.md](../../hw/oolib.md#open-questions), q
 measured on DMA revision 2 (B2, *proposed*), where each copy selects channel 1 and puts the controller's CONTROL
 back, and each card transfer begins with a poll of the cards. The figures are
 recorded with their source in [hw/oolib.md, "Video card revision 2"](../../hw/oolib.md#the-plan).
+
+The 640×480 colour layers (since OODOS 0.12; measured in test_oodos_gfx, recorded in
+[hw/video640.md](../../hw/video640.md)): a whole direct 640 screen filled by `GX_FRECT` takes 0.116 s (`DM_VFILLW`,
+ten calls) or 0.113 s (`DM_VFILL`, for black or clear), a whole bitmap 640 0.092 s, a bitmap 640's 640 shown
+columns 0.213 s (a fill a row); a 600 KB part loaded by `GX_ASSET` from an `oodos-8m` drive 0.67 s. `GX_PLOT`,
+from its first instruction to its return: 406 cycles on a bitmap 256, 443 on a bitmap 640, 498 on a direct 640,
+and 514 where it maps the next slot along a straddling row.
 
 ## Linking the library into an overlay
 

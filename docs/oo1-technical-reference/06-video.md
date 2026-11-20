@@ -150,6 +150,12 @@ the whole screen, x 0–639: BORDER shows nowhere under them. Revision 1 draws n
   from 2*x* + 1, and a fill of one colour is two streams at PSTEP 2, the low byte at the even addresses and the high
   byte at the odd, the DMA's source held on one byte each time (OODOS's function 83, `DM_VFILLW`).
 
+**Costs** (measured in the emulator, [hw/video640.md, "As built"](../../hw/video640.md)): a whole screen through the
+port, by DMA from a byte held still, is a cycle a byte: 0.092 s for a bitmap 640 (491,520 bytes) and 0.113–0.116 s for
+a direct 640 (614,400), filled by OOLIB's `GX_FRECT`. The emulator draws a frame of one direct 640 layer in about
+0.7 ms natively and 0.9 ms as WebAssembly with an opaque picture (1.4 and 1.6 ms when half its pixels are
+transparent at random, the worst case), of the 16.7 ms a frame lasts.
+
 The emulator draws both on `rev=2` only. The decision, its dates and the owner's assumption for the real board,
 that the card's memory keeps up with a direct 640 layer beside the other layer and the sprites, are in
 [hw/video640.md](../../hw/video640.md).

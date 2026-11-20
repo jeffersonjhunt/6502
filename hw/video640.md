@@ -109,7 +109,7 @@ as WebAssembly run by node; a frame is 16,683 µs):
 | type 6 + type 7 + 32 sprites | 901 | 1,142 |
 | type 7 + type 7 + 32 sprites | 963 | 1,234 |
 
-These were measured on a prototype before the build; the as-built figures are below.
+These were measured on a prototype before the build; the as-built figures are below ("As built").
 
 #### What it adds beside video-rev2.md ####
 
@@ -118,3 +118,67 @@ These were measured on a prototype before the build; the as-built figures are be
   added.
 - OODOS's function 83 operation 12, `DM_VFILLW`; OOLIB interface 13 (`GB_640`, `GB_DIRECT`, word colours,
   `GX_FGH` and `GX_BGH`, GX_ASSET's limit); mkasset's `bitmap640` and `direct640`; VIEW relinked.
+
+#### As built (2026-11-20, branch feat/video-640) ####
+
+**Status: built in the emulator; proposed for the board** (OODOS 0.12, OOLIB interface version 13).
+
+- **The units:** U1 the record and the Technical Reference's definition; U2 the emulator's two renderers (revision 2
+  only), then drawn without a branch (below); U3 the debugger's names; U4 mkasset's `bitmap640` and `direct640`;
+  U5 function 83's `DM_VFILLW` (operation 12, `DM_OPS` 13) and interface 13; U6 OOLIB's `GB_640`, `GB_DIRECT`,
+  word colours, `GX_FGH`/`GX_BGH` and GX_ASSET's limit; U7 VIEW relinked (no code change); U8 the books and OODOS
+  0.12. The cards (`emulator/test/host/sd`) were rebuilt after U5, U6 and U8 (answer 21).
+- **The owner's later answers** (2026-11-20, at U5, answers 20-23): the three tests that patch FT_INFO to an older
+  interface search for the byte 13; the cards rebuilt at the end of each unit that changes a file on them;
+  `GX_FRECT` on a direct 640 bitmap uses `DM_VFILL` when the colour's two bytes are equal, `DM_VFILLW` otherwise;
+  GX_ASSET's record counter carries into its third byte (a part past record 65,535), tested with a sparse file
+  (test_oodos_gfx, `an_asset_part_past_record_65535_loads`: record 0 and records 65,528-65,591 on B:, no 8 MB file).
+- **Found on the way:** `GX_FRECT`'s test for a whole-width rectangle added the width's high byte with the
+  compare's carry, not the add's; it held for widths of 256, 512 and 1,024, whose low byte rolls over to 0, and not
+  for 640, so a full-width direct 640 fill went a row at a time. Fixed in U6 (G2 guards it).
+- **Byte for byte:** GWBASIC.COM, GWBASIC.OVL and OOUI.BNK are main's (ffa7305f) at every unit; VIEW.COM's own
+  object links with main's library into main's VIEW.COM, so it differs only in the library's modules (gxasset).
+
+**Frame time, as built** (µs a frame, the card alone, the plan's benchmark; native g++ -O2, and WebAssembly in the
+repo's emsdk image run by node). Random words make half of a direct 640 layer transparent at random, which no
+branch predictor learns: the worst case. An opaque picture (every word's bit 15 clear) is what a photograph is.
+Runs differ by about 5%.
+
+| Layers on | Native, random | Native, opaque | WASM, random | WASM, opaque |
+|---|---|---|---|---|
+| text 80 (the console, for scale) | 2,390 | | 1,385 | |
+| bitmap 256 | 588 | | 768 | |
+| type 6 | 631 | 645 | 740 | 745 |
+| type 7 | 1,399 | 679 | 1,617 | 884 |
+| text 80 + text 80 + 32 sprites | 4,405 | | 2,292 | |
+| type 7 + text 80 + 32 sprites | 3,399 | 2,885 | 1,864 | 1,966 |
+| type 6 + type 7 + 32 sprites | 1,710 | 952 | 1,881 | 1,141 |
+| type 7 + type 7 + 32 sprites | 2,068 | 971 | 1,673 | 1,287 |
+
+With the branch the first build had (bit 15 tested, then what is below), random words cost 2,037 native and 2,425
+WebAssembly for a type 7 layer; the select brought them to 1,313-1,399 and 1,617, the opaque case unchanged.
+
+**The library and OODOS, as built** (test_oodos_gfx and test_oodos_video, the fast build, recorded, not gated but
+for G2's 0.15 s):
+
+| What | Measured |
+|---|---|
+| A whole direct 640 screen by `GX_FRECT`, `$0F00` (`DM_VFILLW`, 10 calls) | 828,508 cycles, 0.116 s |
+| The same in black, clear or `$0F0F` (`DM_VFILL`, 10 calls) | 806,824-809,934 cycles, 0.113 s |
+| A whole bitmap 640 (1,024 × 480) by `GX_FRECT` (`DM_VFILL`, 8 calls of 64 rows) | 662,137 cycles, 0.092 s |
+| A bitmap 640's 640 shown columns (a `DM_VFILL` a row, 480) | 1,525,797 cycles, 0.213 s |
+| 65,536 bytes by one `DM_VFILLW`, with L4TEST's command line | 145,322 cycles |
+| A 600 KB part by `GX_ASSET` from an `oodos-8m` drive | 0.67 s |
+| VIEW of a bitmap 640 (480 KB) and of a direct 640 (600 KB), from the command to "Press a key" | 0.91 s, 1.02 s |
+| `GX_PLOT`, its first instruction to its return: bitmap 256, bitmap 640, direct 640 | 406, 443, 498 cycles |
+| `GX_PLOT` on direct 640 where it maps the next slot (row 12, x 511 then 512) | 514 cycles |
+
+The loads are slower than the plan's estimate (about 0.28 s for 600 KB): each 4 KB piece is a `DM_LOAD` and a
+`DM_VWRITE`, two function calls and their checks; loading straight to the card by DMA (OOLIB's question 13) would
+take most of that away.
+
+**Memory:** a bitmap 640 screen is 1,920 card pages and a direct 640 2,400, of the program's 6,144: three bitmap
+640s, or two direct 640s (a double buffer, 1,200 KB, with 336 KB left), as planned. **Code:** OODOS.SYS 42,752 →
+42,880 bytes (`DM_VFILLW` and the step in the port's loop); `gxbmp` 2,715 → 3,035 bytes of code and 20 → 33 of
+tables, its BSS +3; `gxtext` 315 → 326, BSS +2; `gxasset` 877 → 882 (VIEW.COM 6,308 → 6,313); `video_card.cpp` +~60 lines and a 16 KB table.
+
