@@ -200,6 +200,41 @@ def main():
     check([struct.unpack_from("<H", tab, n * 8)[0] for n in range(4)] == [0, 1, 2, 3], "the table's images, in pages")
     check(tab[6] == 3 << 2 and tab[7] == (1 << 6 | 1 << 4), "the table's depth and size")
 
+    # --full (hw/sprites640.md): each entry's X and Y in 640 x 480 (x wrapped at 600), byte 3 bit 7 set, its bits
+    # 6-2 and byte 5's bits 7-2 0, the other bytes as without it. Without --full the table is as it always was:
+    # the placement written out again here as mkasset had it before --full, for sheets of 4, 64 and 16 frames.
+    def table_of(parts):
+        return m.part_bytes(m.build(parts), find(m.parse(m.build(parts)), m.AT_SPRTABLE))
+
+    def doubled_table(frames, sw, sh, bpp):
+        t, per = bytearray(512), max(1, (sw * sh * bpp // 8 + 255) // 256)
+        for n in range(frames):
+            x, y = 8 + (n * (sw + 4)) % 300, 8 + (n * (sw + 4)) // 300 * (sh + 4)
+            struct.pack_into("<HHHBB", t, n * 8, n * per | (0x8000 if bpp == 8 else 0), x, y, 3 << 2,
+                             m.SIZES[sh] << 6 | m.SIZES[sw] << 4)
+        return bytes(t)
+
+    c15 = [(i * 273) & 0xFFF for i in range(1, 16)]
+    many = [[rgb12(c15[(x // 8 + y // 8) % 15]) for x in range(64)] for y in range(64)]  # 64 frames of 8 x 8
+    big = [[rgb12(c15[(x // 64 + y) % 15]) for x in range(1024)] for y in range(64)]    # 16 of 64 x 64
+    for png, sw, sh, bpp, frames in ((s["SHIP"][0], 16, 16, 4, 4), (m.write_png(64, 64, many), 8, 8, 4, 64),
+                                     (m.write_png(1024, 64, big), 64, 64, 8, 16)):
+        plain = table_of(m.sprites(png, sw, sh, bpp, table=True))
+        check(plain == doubled_table(frames, sw, sh, bpp), "%d x %d: without --full, the table as before" % (sw, sh))
+        full = table_of(m.sprites(png, sw, sh, bpp, table=True, full=True))
+        ok = True
+        for n in range(64):
+            e, f = plain[n * 8:n * 8 + 8], full[n * 8:n * 8 + 8]
+            if n >= frames:
+                ok = ok and f == bytes(8)
+                continue
+            x, y = f[2] | (f[3] & 3) << 8, f[4] | (f[5] & 3) << 8
+            ok = ok and f[3] & 0x80 and not f[3] & 0x7C and not f[5] & 0xFC
+            ok = ok and x == 8 + (n * (sw + 4)) % 600 and y == 8 + (n * (sw + 4)) // 600 * (sh + 4)
+            ok = ok and f[0:2] == e[0:2] and f[6:8] == e[6:8]
+        check(ok, "%d x %d: --full's entries at 640 x 480 with byte 3 bit 7" % (sw, sh))
+    raises(lambda: m.sprites(s["SHIP"][0], 16, 16, full=True), "--full without --table")
+
     # combine: the parts of several files in one, in order; a palette that differs kept, a repeated one once.
     tiles_f, ship_f = make(*s["TILES"]), make(*s["SHIP"])
     src = [(tiles_f, p) for p in m.parse(tiles_f)] + [(ship_f, p) for p in m.parse(ship_f)]
