@@ -73,6 +73,7 @@ CIRCA:          LDA     RAL
                 JSR     FRMEVL         ; IBM manual's p. 373)
                 JSR     FRCSNG
                 FJSR    WINRAD
+                MOVW    RDL, RBL       ; (T5)
                 BRA     @r
 @g:             JSR     GETIN2         ; the radius
 @r:             MOVW    CRAD, RDL

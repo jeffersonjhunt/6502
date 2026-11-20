@@ -39,7 +39,7 @@
 .export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI, GCELL
 .import VWRSTW
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, SNERR, MAKINT
-.import FRMEVL, FRCSNG, INTFR2, CONINT, GFLG
+.import FRMEVL, FRCSNG, INTFR2, CONINT, GFLG, OVERR
 
 ; Push and pull a word of zero page.
 .macro  PSHW    zp
@@ -157,7 +157,9 @@ SCANW:          JSR     FRCSNG         ; x, on the 6502's stack across y
                 BRA     SCANS
 
 ; VSOFF (OO-1, 7e4): CX, DX an absolute point made the viewport's: VIEW
-; SCREEN's offset (VWSX, VWSY; 0 under VIEW, and with none) taken off.
+; SCREEN's offset (VWSX, VWSY; 0 under VIEW, and with none) taken off. Past
+; the integer range Overflow (review round 1, F3: the owner's answer 16).
+; Only from a statement's parse, before anything is drawn.
 VSOFF:          SEC
                 LDA     RCL
                 SBC     VWSX
@@ -165,14 +167,17 @@ VSOFF:          SEC
                 LDA     RCH
                 SBC     VWSX + 1
                 STA     RCH
+                BVS     VSOV
                 SEC
                 LDA     RDL
                 SBC     VWSY
                 STA     RDL
-                BCS     :+
-                DEC     RDH
-:
+                LDA     RDH
+                SBC     #0
+                STA     RDH
+                BVS     VSOV
                 RTS
+VSOV:           JMP     OVERR
 
 ; --- PSET, PRESET, POINT (GENGRP.ASM 155) -----------------------------------------------------
 

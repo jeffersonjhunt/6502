@@ -1922,6 +1922,16 @@ TEST(view_draws_inside_its_viewport)
     CHECK_EQ(pixel(r, 99, 50), 0);
     enter(r, "VIEW:CLS:LOCATE 10,1:POKE 0,255:VIEW (100,50)-(200,150):PRINT SCREEN(1,1);SCREEN(1,2)", ms(1500));
     CHECK_EQ(line(r, 9), std::string(" 0  32")); // the cell over the POKEd pixels graphics, the next blank
+    // Review round 1, F3 (the owner's answer 16): VIEW SCREEN's corner taken off a point past the integer range is
+    // Overflow, nothing drawn (not a wrap to the viewport's far side).
+    enter(r, "SCREEN 2:VIEW SCREEN (100,50)-(199,149):LINE (-32700,100)-(150,100),1", ms(2000));
+    CHECK(last_row(r, "Overflow") >= 0);
+    enter(r, "VIEW:CLS:VIEW SCREEN (100,50)-(199,149):LINE (-32700,60)-(150,70),1,BF", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
+    unsigned lit = 0;
+    for (unsigned x = 100; x < 200; ++x)
+        lit += pixel(r, x, 100) + pixel(r, x, 65);
+    CHECK_EQ(lit, 0u);
 }
 
 // G30 (7e4): VIEW's errors, CLS in a viewport and the words. gfx29's errors against PC-BASIC's (G29); by hand: CLS in a
@@ -1998,6 +2008,12 @@ TEST(window_and_pmap_match_pc_basic)
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) >= 0);
+    // Review round 1, F2: PMAP under VIEW SCREEN past the integer range, the corner added or taken off, Overflow
+    // (answer 7): 32,670 + 100, and -32,768 - 100.
+    enter(r, "SCREEN 2:CLS:VIEW SCREEN (100,0)-(199,99):WINDOW (0,0)-(1,1):PRINT PMAP(330,0)", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
+    enter(r, "VIEW:CLS:VIEW SCREEN (100,0)-(199,99):PRINT PMAP(-32768!,2)", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
     enter(r, "SCREEN 1:CIRCLE (160,100),27,3", ms(2000));
     unsigned plain = 0;
     for (unsigned y = 60; y <= 140; ++y)
@@ -2065,6 +2081,17 @@ TEST(view_and_window_end_at_run_and_screen)
 TEST(line_styles_match_pc_basic)
 {
     CHECK_EQ(against_pc("gfx34", {{12, "BF style err 2"}, {24, "clip rl F0F0 3333000033330000"}}), 0u);
+    // Review round 1, F5: a hex constant then "." is the source's: CRUNCH makes the "." a constant 0 of its own
+    // (OCTCNS stops at it), the line is drawn with &H5555, then NEWSTT's Syntax error (PC-BASIC's parser errs first).
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:CLS:LINE (0,120)-(15,120),3,,&H5555.", ms(2000));
+    CHECK_EQ(last_row(r, "Syntax error"), 0);
+    CHECK_EQ(pixel(r, 0, 120), 3);
+    CHECK_EQ(pixel(r, 1, 120), 0);
+    CHECK_EQ(pixel(r, 2, 120), 3);
+    CHECK_EQ(pixel(r, 15, 120), 0);
 }
 
 // G35 (7e4): PAINT's tiles (the manual's pp. 236-245). gwbasic/gfx35 and gfx36, their results against PC-BASIC's:
@@ -2097,6 +2124,11 @@ TEST(paint_tiles_match_pc_basic)
     CHECK(until_row(r, "DONE", ms(5000)) >= 0);
     CHECK_EQ(pixel(r, 1, 4), 1);
     CHECK_EQ(pixel(r, 2, 7), 2);
+    // Review round 1, F1: a numeric paint's string background is taken and not used, its temporary freed: fifteen
+    // in a row, then a string formula, with no String formula too complex.
+    enter(r, "CLS:LINE (0,0)-(20,20),2,B:FOR I=1 TO 15:PAINT (10,10),1,2,\"x\":NEXT:PRINT \"OK\"+STR$(I)", ms(4000));
+    CHECK(until_row(r, "OK 16", ms(5000)) >= 0);
+    CHECK_EQ(last_row(r, "String formula too complex"), -1);
 }
 
 // G36 (7e4): VIEW, WINDOW, the style and the tiles keep block 1 (G3's method, gwbasic/gfx37: an array across $4000,

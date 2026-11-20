@@ -391,8 +391,13 @@ PAINTP:         LDA     FRETOP         ; the queue: free memory to FRETOP
                 .byte   ','
                 JSR     FRMEVL
                 BIT     TILEF
-                BPL     @bx            ; a numeric paint: not used
-                JSR     PBACK
+                BMI     @t
+                LDA     VALTYP         ; a numeric paint: not used, a string's
+                CMP     #VT_STR        ; temporary freed (review round 1, F1)
+                BNE     @bx
+                JSR     FREFAC
+                BRA     @bx
+@t:             JSR     PBACK
 @bx:            PLA
                 STA     RDL
 GOTBRD:         LDA     RDL

@@ -39,7 +39,7 @@
 ;@entry WPNT
 ;@entry WINRAD
 .export WINSET, WINRSC, WINXY, PMAPP, WPNT, WINRAD
-.import FCERR, GFLG, FCOMP, FSUBS, FADDS, FMULS, FDIVS, FRCINT, FLT, MOVFR, MOVRF, MAKINT
+.import OVERR, GFLG, FSUBS, FADDS, FMULS, FDIVS, FRCINT, FLT, MOVFR, MOVRF, MAKINT
 
 .macro  MOVW    dst, src
                 LDA     src
@@ -54,52 +54,37 @@ WAX0            = 16                   ; x's v0, s, o; y's 12 on
 WMX             = 40                   ; the viewport's last x (2), y (1), VIEW SCREEN's x (2), y (1)
 WSX             = WMX + 3
 WSY             = WMX + 5
-WT              = 46                   ; WAXIS's span
-WTX             = 50                   ; WINXY's x and y
-WTY             = 54
-WSC             = WT                   ; WINSET's corners, before they're checked (WT's to WTY's,
-WEND            = WSC + 16             ;   free until WAXIS)
+WT              = 47                   ; WAXIS's span (T3: after y's offset's high byte)
+WTX             = 51                   ; WINXY's x and y
+WTY             = 55
+WEND            = WTY + 4
 
 .code
 
-WINSET:         STA     WFL
+; WAXB: Y A's axis's place (0 x, 1 y).
+WAXB:           LDY     #WAX0
+                CMP     #0
+                BEQ     WSRTS
+                LDY     #WAX0 + 12
+WSRTS:          RTS
+WINSET:         STA     WFL            ; (review trim T1: checked and sorted by P8)
                 LDA     GFLG
-                LSR     A
-                BCS     :+
-WFC:            JMP     FCERR          ; not a graphics mode
-:               BIT     WFL
-                BMI     @c
-                LDA     GFLG           ; WINDOW alone: ended
                 AND     #$3F
+                ORA     WFL
                 STA     GFLG
-                RTS
-@c:             LDX     #15
-@k:             LDA     RDL,X
-                STA     W + WSC,X
-                DEX
-                BPL     @k
-                LDY     #WSC           ; x, then y
-                JSR     WSORT
-                LDY     #WSC + 4
-                JSR     WSORT
-                LDX     #15            ; checked: the window's
-@m:             LDA     W + WSC,X
+                BPL     WSRTS          ; WINDOW alone: ended
+                LDX     #15
+@m:             LDA     RDL,X
                 STA     W + WC,X
                 DEX
                 BPL     @m
-                LDA     GFLG
-                AND     #$3F
-                ORA     #$80
-                BIT     WFL
-                BVC     :+
-                ORA     #$40
-:               STA     GFLG
                 FJSR    GVWGET
-WINRSC:         LDX     #WT - WMX - 1
+WINRSC:         LDX     #5
 @v:             LDA     RDL,X
                 STA     W + WMX,X
                 DEX
                 BPL     @v
+                STZ     W + WMX + 6    ; (T3: y's offset a word)
                 LDX     #0
                 JSR     WAXIS
                 LDX     #1
@@ -154,6 +139,9 @@ WAXIS:          STX     WAX
                 JSR     STF            ; s (the FAC kept)
                 LDY     WV
                 JSR     LDR            ; v0
+                LDY     WB             ; (T2) v0 to its place
+                LDX     #RDL
+                JSR     Z2W
                 JSR     FMULS
                 LDA     FACM1          ; o = -(v0 x s)
                 EOR     #$80
@@ -162,46 +150,7 @@ WAXIS:          STX     WAX
                 CLC
                 ADC     #8
                 TAY
-                JSR     STF
-                LDX     WB             ; v0
-                LDY     WV
-                LDA     #4
-                STA     WN
-@c:             LDA     W,Y
-                STA     W,X
-                INX
-                INY
-                DEC     WN
-                BNE     @c
-                RTS
-
-; WSORT: the pair at W + Y and W + Y + 8 sorted; equal, Illegal function call.
-WSORT:          PHY
-                JSR     LDR            ; the first
-                PLY
-                PHY
-                TYA
-                CLC
-                ADC     #8
-                TAY
-                JSR     LDF            ; the second
-                JSR     FCOMP          ; 1: the second the greater
-                PLY
-                CMP     #0
-                BNE     :+
-                JMP     FCERR          ; equal
-:               BPL     @x
-                LDX     #4
-@w:             LDA     W,Y
-                PHA
-                LDA     W + 8,Y
-                STA     W,Y
-                PLA
-                STA     W + 8,Y
-                INY
-                DEX
-                BNE     @w
-@x:             RTS
+                JMP     STF
 
 WINXY:          STA     WFL
                 LDY     #WTX
@@ -269,12 +218,6 @@ W2Z:            LDA     #4
                 BNE     @l
                 RTS
 
-; WAXB: Y A's axis's place (0 x, 1 y).
-WAXB:           LDY     #WAX0
-                CMP     #0
-                BEQ     :+
-                LDY     #WAX0 + 12
-:               RTS
 
 ; WFWD: A the axis, the FAC v: BX = FRCINT((v - v0) x s).
 WFWD:           JSR     WAXB
@@ -289,7 +232,11 @@ WFWD:           JSR     WAXB
                 STA     FACM1
                 JMP     FRCINT
 
-; WINV: A the axis, DX p: the FAC = (p - o) / s.
+; WINV: A the axis, DX p: the FAC = (p - o) / s. WPNT (T4) falls in.
+WPNT:           LDX     RCL
+                STX     RDL
+                LDX     RCH
+                STX     RDH
 WINV:           STA     WAX
                 JSR     FLT
                 JSR     MOVRF          ; p
@@ -311,13 +258,7 @@ WINV:           STA     WAX
                 JSR     LDF            ; s
                 JMP     FDIVS
 
-PMAPP:          STA     WN2
-                LDA     GFLG
-                LSR     A
-                BCC     WFC2           ; not a graphics mode
-                LDA     WN2
-                CMP     #4
-                BCS     WFC2
+PMAPP:          STA     WN2            ; (T6: the mode and n checked by P8)
                 JSR     MOVFR
                 LDA     #VT_SNG
                 STA     VALTYP
@@ -328,15 +269,17 @@ PMAPP:          STA     WN2
                 BMI     :+
                 JMP     FRCINT
 :               JSR     WFWD           ; (A the axis)
-                LDX     WN2            ; + VIEW SCREEN's offset
-                JSR     WOFFX
+                LDA     WN2            ; + VIEW SCREEN's offset (T3)
+                ASL     A
+                TAX
                 CLC
                 LDA     RBL
                 ADC     W + WSX,X
                 STA     RBL
                 LDA     RBH
-                ADC     T0
+                ADC     W + WSX + 1,X
                 STA     RBH
+                BVS     WOV            ; (review round 1, F2: past 32,767 Overflow)
                 JMP     MAKINT
 @inv:           JSR     FRCINT         ; 2, 3: the integer physical point
                 MOVW    RDL, RBL
@@ -345,51 +288,34 @@ PMAPP:          STA     WN2
                 JMP     FLT            ; no window: as a single
 :               LDA     WN2
                 AND     #1
+                ASL     A
                 TAX
-                JSR     WOFFX
                 SEC
                 LDA     RDL
                 SBC     W + WSX,X
                 STA     RDL
                 LDA     RDH
-                SBC     T0
+                SBC     W + WSX + 1,X
                 STA     RDH
+                BVS     WOV
                 LDA     WN2
                 AND     #1
                 JMP     WINV
-WFC2:           JMP     FCERR
-; WOFFX: X the axis (0, 1): X its offset's place from WSX (0, 2), T0 the
-; offset's high byte (y's is 0).
-WOFFX:          STZ     T0
-                CPX     #0
-                BNE     :+
-                LDA     W + WSX + 1
-                STA     T0
-                RTS
-:               LDX     #WSY - WSX
-                RTS
-
-WPNT:           STA     WAX
-                MOVW    RDL, RCL
-                LDA     WAX
-                JMP     WINV
-
+WOV:            JMP     OVERR
 WINRAD:         LDY     #WAX0 + 4      ; x's s
                 JSR     LDR
                 JSR     FMULS
-                JSR     FRCINT
-                MOVW    RDL, RBL
-                RTS
+                JMP     FRCINT         ; (T5: BX; P3 takes it)
 
 .segment "BRAM"
 W:              .res    WEND           ; (above)
 WFL:            .res    1              ; WINSET's flags, WINXY's STEP
 WAX:            .res    1              ; an axis
-WK:             .res    1              ;   its corners' offset
-WV:             .res    1              ;   its v0's corner
-WB:             .res    1              ;   its place
 WN:             .res    1              ; a count
-WN2:            .res    1              ; PMAP's n
-WCX:            .res    2              ; WINXY's cursor
-WCY:            .res    2
-WPX:            .res    2              ;   its x, mapped
+WN2             = WFL                  ; (T7) PMAP's n
+WK              = W + WTX              ; (T7) WAXIS's: WTX free then
+WV              = W + WTX + 1
+WB              = W + WTX + 2
+WCX             = W + WT               ; (T7) WINXY's cursor: WT free then
+WCY             = W + WT + 2
+WPX             = W + WTX              ; (T7) after WTX is read

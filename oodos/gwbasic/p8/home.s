@@ -42,7 +42,7 @@
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
 .import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
-.import SYNCHR, FRMEVL, FRCSNG, PUSHF, POPR, GETBYT, SCRMOD
+.import SYNCHR, FRMEVL, FRCSNG, PUSHF, POPR, GETBYT, SCRMOD, GFLG, FCERR
 
 .code
 
@@ -126,10 +126,16 @@ PMAPH:          BIT     SCRMOD
                 JSR     SYNCHR
                 .byte   ')'
                 JSR     POPR           ; BXDX: x
+                LDA     GFLG           ; (T6: P1's checks, here)
+                LSR     A
                 PLA
+                BCC     PMFC
+                CMP     #4
+                BCS     PMFC
                 FJSR    PMAPP
                 DECW    TXTPTR         ; the flags for what follows ")"
                 JMP     CHRGTR
+PMFC:           JMP     FCERR
 
 .rodata
 ERDSCB:         .byte   $51, 0, 0, 0   ; function 49: get SCB $51, the drive of the last physical error

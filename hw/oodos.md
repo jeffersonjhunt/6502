@@ -5720,9 +5720,25 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       it is (answer 3); E9 PMAP and POINT(n) in SCREEN 0 Illegal function call (the manual); E10 a styled BF Syntax
       error; E11, E12, E13 and E15 (answer 7); E14 PAINT off the screen moves the cursor (the source's); E16 lines on
       their own slope (A6); E18 CLS in a viewport leaves the text (answer 7); the tile's default background (answer
-      13). Judgements: VIEW's checks in the home block (P5's room); `LINE ...,3,,&H5555.` (a constant then ".") is
-      outside 7e4: the port takes it as &H5555, PC-BASIC draws nothing, left out of gfx34 (a question for the number
-      parser, not the style); CIRCLE's ring is the source's (148 pixels for radius 27, window or not; PC-BASIC 140).
+      13). Judgements: VIEW's checks in the home block (P5's room); CIRCLE's ring is the source's (148 pixels for
+      radius 27, window or not; PC-BASIC 140). `LINE ...,3,,&H5555.` (a hex constant then ".") is the source's
+      behaviour, older than 7e4 (review round 1, F5): CRUNCH stores &H5555 (OCTCNS stops at the "."), the "." is
+      crunched as a constant 0 of its own, the line is drawn with &H5555, then NEWSTT finds the stray constant: Syntax
+      error (PC-BASIC's parser errs before it draws). Left out of gfx34's comparison, G34 checks it by hand.
+    - **Review round 1** (the owner, 2026-11-20, "recommendations as listed"):
+      - F1: a numeric paint's string background is taken and not used and its temporary freed (it leaked one of the
+        ten: String formula too complex after ten such PAINTs); G35 runs fifteen in a row.
+      - F2: PMAP under VIEW SCREEN, the corner added (0, 1) or taken off (2, 3), past the integer range is Overflow
+        (answer 7), not a wrap; G31 checks both ways.
+      - F3: taking VIEW SCREEN's corner off an absolute point (VSOFF: SCAND, DRAW's M) that leaves the integer range
+        is **Overflow**, nothing drawn: the owner's choice under rule 4 (answer 16; the source and the manual are
+        silent; clamping, which would change a sloped line's slope, declined); G29 checks a line and a BF box.
+      - F4 (room): the reviewer's trims T1-T7: WINDOW's mode check and the corners' sorting in the home block's
+        stub, PMAP's mode and n checks in PMAPH (errors and their order unchanged), WAXIS's v0 stored as it is
+        loaded, VIEW SCREEN's y offset a word (WOFFX gone), WPNT falling into WINV, WINRAD's result taken by P3's
+        CIRCA, P1's scratch shared within W. P1 2,968 → 3,134 free (with F2's 8 bytes), P8 7,085 → 6,985, P3 3,763
+        → 3,755, P5 1,500 → 1,480 (F1, F3).
+      - F5: the `&H5555.` case recorded as the source's (above).
     - **Not done in 7e4:** PEN (7f); the OO-1's modes, which must take the viewport's origin, the style and the tiles
       in their own pixel routines (7e5, whose plan starts with the reserve's (a)); the books (7g), with VIEW SCREEN's
       reading (answer 3), the tile's default background and the overlay's CLS. Then one review round, the triage gate,

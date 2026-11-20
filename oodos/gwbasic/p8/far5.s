@@ -14,7 +14,7 @@
 .include "gwbasic.inc"
 
 .export PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
-.import ADVERR, SCRMOD, TXSYNC, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG
+.import ADVERR, SCRMOD, TXSYNC, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG, GFLG, FCOMP
 
 .macro  MOVW    dst, src
                 LDA     src
@@ -262,14 +262,58 @@ WINDOW:         BIT     SCRMOD
                 JSR     WSNG           ; y2
                 JSR     SYNCHR
                 .byte   ')'
+                JSR     WMODE          ; (T1: P1's checks, here)
+                LDX     #0
+                JSR     WSRT           ; x
+                LDX     #4
+                JSR     WSRT           ; y
                 LDX     #15
 @c:             LDA     WCRN,X
                 STA     RDL,X
                 DEX
                 BPL     @c
-@call:          LDA     VWF
+                BRA     @go
+@call:          JSR     WMODE
+@go:            LDA     VWF
                 FJSR    WINSET
                 RTS
+WMODE:          LDA     GFLG           ; not a graphics mode
+                LSR     A
+                BCS     :+
+                JMP     FCERR
+:               RTS
+; WSRT: WCRN + X and WCRN + 8 + X sorted; equal, Illegal function call.
+WSRT:           PHX
+                TXA
+                TAY
+                LDX     #0
+@l:             LDA     WCRN,Y
+                STA     RDL,X
+                LDA     WCRN + 8,Y
+                STA     FACLO,X
+                INX
+                INY
+                CPX     #4
+                BNE     @l
+                LDA     #VT_SNG
+                STA     VALTYP
+                JSR     FCOMP          ; 1: the second the greater
+                PLX
+                CMP     #0
+                BNE     :+
+                JMP     FCERR
+:               BPL     @x
+                LDY     #4
+@w:             LDA     WCRN,X
+                PHA
+                LDA     WCRN + 8,X
+                STA     WCRN,X
+                PLA
+                STA     WCRN + 8,X
+                INX
+                DEY
+                BNE     @w
+@x:             RTS
 ; WSNG: a single, to WCRN + Y.
 WSNG:           PHY
                 JSR     FRMEVL
