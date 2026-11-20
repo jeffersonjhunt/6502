@@ -174,20 +174,34 @@ SWIDP:          BIT     SCRMOD
 ; SWIDTH (the OEM's): LOCX columns (40, 80), LOCY rows (25, 30): the
 ; driver set for them, every page cleared, page 0 active and shown, home.
 ; 7e1: in a graphics mode WIDTH chooses the mode (PC-BASIC's): 40 SCREEN 1,
-; 80 SCREEN 2, 25 rows only; the same mode, nothing.
+; 80 SCREEN 2, 25 rows only; the same mode, nothing. 7e5 (the owner's answer
+; 4, the OO-1's): in SCREEN 10 and 11 the pair's other at the other width
+; (80 in SCREEN 10 is SCREEN 11, 40 in 11 is 10), in SCREEN 12 80 alone,
+; their 30 rows only.
 SWIDTH:         LDA     GMOD
                 BEQ     @txt
-                LDA     LOCY
-                CMP     #25
+                LDX     #GMTILE        ; the pair: 1 and 2, 25 rows; or 10 and 11, 30
+                LDA     #25
+                LDY     GMOD
+                CPY     #GMM10
+                BCC     :+
+                LDX     #GMM10
+                LDA     #30
+:               CMP     LOCY
                 BNE     @bad
-                LDX     #GMTILE
                 LDA     LOCX
                 CMP     #40
-                BEQ     :+
-                INX
+                BEQ     @w
                 CMP     #80
                 BNE     @bad
-:               CPX     GMOD
+                INX
+                CPY     #GMM12         ; SCREEN 12's 80: itself
+                BNE     @c
+                INX
+                BRA     @c
+@w:             CPY     #GMM12         ; SCREEN 12's 40: none
+                BEQ     @bad
+@c:             CPX     GMOD
                 BEQ     @same
                 STX     NMODE
                 JMP     SMODE
@@ -309,7 +323,8 @@ SCRNP:          JSR     PREGS          ; 7e5: the stub's GTPRMS
 GOFCER2:        JMP     FCERR
 
 ; SCRSTT (the OEM's): the mode (0, 1, 2; as it is if not given: 7e1; 3-9
-; and the OO-1's own Illegal function call, 7e5's); the burst taken and
+; and 13 on Illegal function call; 7e5: 10, 11 and 12 the OO-1's own, modes
+; 3-5, an OO-1 extension past the IBM manual's 0-2); the burst taken and
 ; passed over; the active page and the visual one, SCREEN 0's (a graphics
 ; mode has one, CGA's: 0 only). A change of mode (SMODE) sets the new one up
 ; (P5's GMODE: its page, its palette, layer 0) and the text for it: its
@@ -317,16 +332,25 @@ GOFCER2:        JMP     FCERR
 ; graphics), 40 columns for SCREEN 1, 80 for SCREEN 2, SCREEN 0 the width
 ; the mode left (40 after SCREEN 1, 80 after SCREEN 2: PC-BASIC's), 25 rows, every page cleared, on layer 1 over the graphics (VSHOW).
 ; The same mode again changes nothing (PC-BASIC's: the picture stays).
+SSBAD:          SEC                    ; (7e5: within reach)
+                RTS
 SCRSTT:         LDA     PCNT
                 CMP     #5
-                BCS     @bad
+                BCS     SSBAD
                 LDX     GMOD
                 LDA     PFLG
-                BEQ     :+
+                BEQ     @m
                 LDX     PVAL
-:               CPX     #GMMONO + 1
-                BCS     @bad           ; SCREEN 3 ...: no such mode
-                STX     NMODE
+                CPX     #GMMONO + 1
+                BCC     @m
+                TXA                    ; 7e5: SCREEN 10-12, modes 3-5 (C set)
+                SBC     #10 - GMM10
+                CMP     #GMM10
+                BCC     @bad           ; SCREEN 3-9: no such mode
+                CMP     #GMM12 + 1
+                BCS     @bad           ; 13 on
+                TAX
+@m:             STX     NMODE
                 TXA
                 BEQ     @s0
                 LDA     PFLG + 2       ; a graphics mode: page 0 only
@@ -389,8 +413,11 @@ SMODE:          LDA     NMODE
                 BNE     :+
                 LDA     CRTWID
 :               STA     LOCX
-                LDA     #25
-                STA     LOCY
+                LDA     #25            ; 25 rows; 7e5: SCREEN 10-12 the layer's 30
+                CPX     #GMM10
+                BCC     :+
+                LDA     #30
+:               STA     LOCY
                 JMP     SWSET
 @x:             RTS
 
@@ -601,11 +628,13 @@ KEYLST:         LDA     #1
 .segment "RODATA"
 GMTILE          = 1                    ; the modes (P5's GMODEV)
 GMMONO          = 2
-MODEFG:         .byte   7, 3, 1        ; by mode: the text's colour
-MODEW:          .byte   0, 40, 80      ;   its width (0: the current one)
+GMM10           = 3                    ; 7e5: SCREEN 10, 11, 12
+GMM12           = 5
+MODEFG:         .byte   7, 3, 1, 15, 15, 1 ; by mode: the text's colour (the mode's last)
+MODEW:          .byte   0, 40, 80, 40, 80, 80 ; its width (0: the current one)
 
 .segment "BRAM"
-GMOD:           .res    1              ; 7e1: the mode, 0-2, as P5's GMODEV
+GMOD:           .res    1              ; 7e1: the mode, 0-2 (7e5: 0-5), as P5's GMODEV
 NMODE:          .res    1              ;   SCRSTT's and SWIDTH's new one
 KLEN:           .res    1              ; KEYLST's number
 KOFS:           .res    1              ; KEYLST's place
