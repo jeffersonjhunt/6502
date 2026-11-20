@@ -430,6 +430,65 @@ TEST(view_shows_a_bitmap_256_as_its_png_says)
     key_back(r, from);
 }
 
+TEST(view_shows_a_bitmap_640_as_its_png_says)
+{
+    // VIEW640.OGX (check_mkasset.py's, 640 x 480 at 200 colours: a 491,520-byte part past GX_ASSET's old 17 bits):
+    // CONFIG 6, the whole frame pixel for pixel through its palette, x 0-639 (BORDER nowhere).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint64_t c0 = r.cpu->cycles();
+    const size_t from = view(r, "VIEW640.OGX", "VIEW640 OGX");
+    std::printf("  VIEW to its line: %.2f s, the 480 KB load in it\n", static_cast<double>(r.cpu->cycles() - c0) / HZ);
+    const std::vector<uint8_t> asset = read_bytes(UTILS + "/assets/VIEW640.OGX");
+    CHECK_EQ(vreg(r, 0x10), 6); // bitmap 640
+    CHECK_EQ(vreg(r, 0x00), 0x03);
+    const unsigned pal = vreg2(r, 0x0A), map = vreg2(r, 0x11);
+    CHECK(pal >= PAGE0 && map >= PAGE0);
+    const std::vector<uint8_t> pb(asset.begin() + 1024, asset.begin() + 1024 + 512);
+    const std::vector<uint8_t> px(asset.begin() + 2048, asset.begin() + 2048 + 1024 * 480);
+    const uint32_t *f = vid(r).frame();
+    unsigned wrong = 0;
+    for (unsigned y = 0; y < 480; ++y)
+        for (unsigned x = 0; x < 640; ++x)
+        {
+            const unsigned i = px[y * 1024 + x];
+            wrong += f[y * 640 + x] != VideoCard::rgba(static_cast<uint16_t>((pb[2 * i + 1] & 15) << 8 | pb[2 * i]));
+        }
+    CHECK_EQ(wrong, 0u);
+    key_back(r, from);
+}
+
+TEST(view_shows_a_direct_640_with_its_transparent_square)
+{
+    // VIEW16.OGX: 640 x 480 of all 4,096 colours, no palette part, a 100 x 100 square of $8000 at (200, 150):
+    // CONFIG 7, every pixel its own 12 bits, the square palette entry 0 (the console's palette, PALBASE 0, whose
+    // entry 0 is set here to a colour the picture's black can't be mistaken for).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint64_t c0 = r.cpu->cycles();
+    const size_t from = view(r, "VIEW16.OGX", "VIEW16  OGX");
+    std::printf("  VIEW to its line: %.2f s, the 600 KB load in it\n", static_cast<double>(r.cpu->cycles() - c0) / HZ);
+    const std::vector<uint8_t> asset = read_bytes(UTILS + "/assets/VIEW16.OGX");
+    CHECK_EQ(vreg(r, 0x10), 7); // direct 640
+    CHECK_EQ(vreg2(r, 0x0A), 0u);
+    cpoke(r, 0x000000, {0x45, 0x06}); // entry 0: $645
+    r.run(ms(40));
+    const uint32_t *f = vid(r).frame();
+    unsigned wrong = 0, square = 0;
+    for (unsigned y = 0; y < 480; ++y)
+        for (unsigned x = 0; x < 640; ++x)
+        {
+            const unsigned w = asset[1024 + y * 1280 + 2 * x] | asset[1024 + y * 1280 + 2 * x + 1] << 8;
+            const uint32_t want = VideoCard::rgba(static_cast<uint16_t>(w & 0x8000 ? 0x645 : w & 0xFFF));
+            square += (w & 0x8000) != 0;
+            wrong += f[y * 640 + x] != want;
+        }
+    CHECK_EQ(square, 10000u);
+    CHECK_EQ(wrong, 0u);
+    cpoke(r, 0x000000, {0x00, 0x00});
+    key_back(r, from);
+}
+
 TEST(view_shows_a_bitmap_512_tiles_and_sprites)
 {
     {

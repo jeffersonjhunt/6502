@@ -1326,12 +1326,24 @@ ends. A palette in the file sets the colours; a bitmap or a tile map shows on th
 says it was made; a sprite table turns the sprites on. Any key ends it. Ending any other way (^C, Break) puts the
 console's screen back too: the warm boot does.
 
+Since OODOS 0.12, VIEW also shows the video card's two full-screen colour pictures
+([hw/video640.md](../../hw/video640.md)), which `mkasset.py` makes with `bitmap640` and `direct640`:
+
+| Kind | What it is | The file | Loading it from the SD card |
+|---|---|---|---|
+| bitmap 640 | 640×480 (up to 1,024 wide) in 256 colours of 4,096 | about 481 KB | about 0.9 s |
+| direct 640 | 640×480 in all 4,096 colours, no palette | about 601 KB | about 1.0 s |
+
+A bitmap 640 wider than 640 shows its left 640 columns. A direct 640 picture's transparent pixels show the
+console's palette entry 0, black.
+
 #### Errors
 
 - `VIEW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file, or
   one that can't be read.
 - `Not an asset file.`: the file isn't an asset file of format 4 (since OODOS 0.9; an older file, of format 3, needs
-  making again with `mkasset.py`).
+  making again with `mkasset.py`). A VIEW.COM from before OODOS 0.12 says this for a part larger than 128 KB, as
+  bitmap 640's and direct 640's are.
 - `Not enough video memory.`: the file's parts need more of the card's memory than there is.
 - `Needs OODOS's interface 8.`: an older OODOS, or no revision 2 video card. `Video memory W1 can't reach.` and
   `The asset wasn't loaded.`: a part OODOS refused.
@@ -1340,7 +1352,7 @@ Each sets the return code to `$FF00`.
 
 #### Since
 
-OODOS 0.5; the card's own memory and asset format 4 since OODOS 0.9.
+OODOS 0.5; the card's own memory and asset format 4 since OODOS 0.9; bitmap 640 and direct 640 since OODOS 0.12.
 
 #### Status
 
