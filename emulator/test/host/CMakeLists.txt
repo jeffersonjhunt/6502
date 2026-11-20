@@ -691,8 +691,12 @@ target_compile_definitions(test_gwbasic_screen PRIVATE
 
 # test_gwbasic_gfx: 7e's graphics (block P5: SCREEN 1 and 2, PSET, LINE, POINT), the same way, the pixels read from
 # the video card's memory through the layers' registers and compared with PC-BASIC's (gwbasic/gfx*.out).
+# Split in two (7e5, the owner's answer 18): with 7e5's cases the whole suite would run near its 600 s, so two
+# shares (hw/testing.md, item 6), both with the suite's labels: any graphics path chooses both, and
+# test_gwbasic_gfx_cases (check_split.py) holds every case to exactly one of them.
+set(EMU_SPLIT_test_gwbasic_gfx 2)
 emu_add_test(test_gwbasic_gfx)
-set_tests_properties(test_gwbasic_gfx PROPERTIES TIMEOUT 600)
+emu_suite_properties(test_gwbasic_gfx TIMEOUT 600)
 add_dependencies(test_gwbasic_gfx gwbasic oodos_sys backplane_bios)
 target_compile_definitions(test_gwbasic_gfx PRIVATE
         EMU_GWBASIC_BUILD="${GWBASIC_DIR}"

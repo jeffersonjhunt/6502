@@ -1990,6 +1990,34 @@ TEST(get_put_and_the_page_are_timed)
     CHECK(poke > 100 && poke <= 6000);
 }
 
+// G38 (7e5): the screen statements parse in the home block (the space plan's M6): each with an error in its
+// arguments gives main's error and leaves the screen as it was (the mark's text and colour, the mode, the width,
+// the key line): LOCATE 99, LOCATE 1,81, COLOR 1,99, SCREEN 1,,9, WIDTH 50, KEY 11,"X" and CLS 3 Illegal function
+// call, KEY 1,3 Type mismatch; and KEY 1's new text is drawn on the key line. Guards a statement half done on a bad
+// argument. Seen failing with CLS's stub taking CLS 3 as CLS (its range check left out: the screen cleared).
+TEST(screen_statements_parse_in_the_home_block)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::string key0 = line(r, 24);
+    for (const auto &[stmt, err] : {std::pair<const char *, const char *>{"LOCATE 99", "Illegal function call"},
+                                    {"LOCATE 1,81", "Illegal function call"}, {"COLOR 1,99", "Illegal function call"},
+                                    {"SCREEN 1,,9", "Illegal function call"}, {"WIDTH 50", "Illegal function call"},
+                                    {"KEY 11,\"X\"", "Illegal function call"}, {"KEY 1,3", "Type mismatch"},
+                                    {"CLS 3", "Illegal function call"}})
+    {
+        enter(r, "CLS:LOCATE 10,5:PRINT \"MK\";:LOCATE 3,1:" + std::string(stmt), ms(600));
+        CHECK(until_row(r, err, ms(500)) >= 0);
+        CHECK_EQ(line(r, 9), std::string("    MK"));
+        CHECK_EQ(attr(r, 9, 4), 0x07);
+        CHECK_EQ(reg(r, L0_CONFIG) & 7, 0);
+        CHECK_EQ(line(r, 24), key0);
+    }
+    enter(r, "CLS:KEY 1,\"ABC\"", ms(600));
+    CHECK_EQ(line(r, 24).substr(0, 4), std::string("1ABC"));
+}
+
 int main()
 {
     return run_all();
