@@ -153,6 +153,28 @@ def main():
     check([struct.unpack_from("<H", tab, n * 8)[0] for n in range(4)] == [0, 1, 2, 3], "the table's images, in pages")
     check(tab[6] == 3 << 2 and tab[7] == (1 << 6 | 1 << 4), "the table's depth and size")
 
+    # combine: the parts of several files in one, in order; a palette that differs kept, a repeated one once.
+    tiles_f, ship_f = make(*s["TILES"]), make(*s["SHIP"])
+    src = [(tiles_f, p) for p in m.parse(tiles_f)] + [(ship_f, p) for p in m.parse(ship_f)]
+    parts, pals = m.combine([tiles_f, ship_f])
+    both = m.build(parts)
+    got = m.parse(both)
+    check([g[0] for g in got] == [p[0] for _, p in src] and pals == 2,
+          "combine: every part in order, the two different palettes kept")
+    check(all(m.part_bytes(both, g) == m.part_bytes(f, p) and g[1:3] == p[1:3] and g[5:] == p[5:]
+              for g, (f, p) in zip(got, src)), "combine: each part's bytes, CONFIG, page, size and width kept")
+    parts, pals = m.combine([tiles_f, tiles_f])
+    check([p.kind for p in parts] == [m.AT_PALETTE, m.AT_TILES, m.AT_MAP, m.AT_TILES, m.AT_MAP] and pals == 1,
+          "combine: a palette equal to one taken left out")
+    raises(lambda: m.combine([ship_f, ship_f]), "combine: two sprite images parts")
+    table_only = m.build([p for p in m.sprites(s["SHIP"][0], 8, 8, table=True) if p.kind == m.AT_SPRTABLE])
+    raises(lambda: m.combine([table_only]), "combine: a sprite table without its images")
+    at = m.build([m.Part(m.AT_RAW, bytes(600), unit=0x0400)])
+    raises(lambda: m.combine([at, at]), "combine: two parts at the same card page")
+    nxt = m.build([m.Part(m.AT_RAW, bytes(600), unit=0x0404)])
+    check(len(m.combine([at, nxt])[0]) == 2, "combine: parts at card pages one after the other")
+    raises(lambda: m.combine([tiles_f, tiles_f, ship_f]), "combine: eight parts")
+
     # The limits.
     big = m.write_png(257, 10, picture(257, 10, [0x111]))
     raises(lambda: m.bitmap256(big), "a bitmap 256 wider than 256")
