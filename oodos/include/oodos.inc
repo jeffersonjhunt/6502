@@ -311,7 +311,11 @@ DM_VBSET        = 4                    ; block: +1 a slot (0-3), +2-4 the source
                                        ;   blank after the program sets the slot's EV_VBGO bit
 DM_POINTER      = 5                    ; block: +1 a sprite (0-63; $FF off), +2 and +3 the hotspot: its X and
                                        ;   Y set from the mouse's at each vertical blank (a layout-2 area),
-                                       ;   in the table SPRBASE names, when that is in the program's part
+                                       ;   in the table SPRBASE names, when that is in the program's part;
+                                       ;   +1 DM_PTRFULL + the sprite (interface version 14): the same, its
+                                       ;   entry's byte 3 bit 7 set too (full resolution while SPRCTL's FULL
+                                       ;   is set, hw/sprites640.md); 128-254 refused
+DM_PTRFULL      = 64                   ; DM_POINTER's +1: DM_PTRFULL + a sprite, a full-resolution pointer
 DM_CONSOLE      = 6                    ; the console's screen shown again, as the warm boot shows it
 DM_VWRITE       = 7                    ; block: +1-3 the source (physical), +4-6 the destination (card),
                                        ;   +7-8 the length: through the card's port, by channel 1

@@ -96,6 +96,7 @@ SLLEN:          .res    2 * DM_SLOTS
 VGO:            .res    1              ; VBWORK's: the go bits left to do
 PTRON:          .res    1              ; 1: the pointer on
 PTRSPR:         .res    1              ; its sprite, 0-63
+PTRFULL:        .res    1              ; VIDEO_SPRX_FULL for a full-resolution pointer (DM_POINTER's 64 + n), or 0
 PHOTX:          .res    1              ; its hotspot
 PHOTY:          .res    1
 PSTAGE:         .res    4              ; X and Y as they go to the sprite's entry
@@ -563,13 +564,15 @@ VBCALC:         LDA     PTRON
                 STA     VBON
                 RTS
 
-; +1 the sprite (0-63, $FF off), +2 and +3 its hotspot. On only with a
-; layout-2 area open (MXS and MYS are kept only then) and a video card.
+; +1 the sprite (0-63, $FF off; 64 + the sprite for a full-resolution
+; pointer, interface version 14: its entry's byte 3 bit 7 set each frame,
+; hw/sprites640.md), +2 and +3 its hotspot. On only with a layout-2 area
+; open (MXS and MYS are kept only then) and a video card.
 DM_POINTERX:    BLOCK
                 JSR     PGET
                 CMP     #$FF
                 BEQ     @off
-                CMP     #64
+                CMP     #2 * DM_PTRFULL
                 BCS     @no
                 STA     T0
                 BIT     EVON
@@ -589,7 +592,12 @@ DM_POINTERX:    BLOCK
                 LDA     T1
                 STA     PHOTX
                 LDA     T0
+                AND     #DM_PTRFULL - 1
                 STA     PTRSPR
+                LDA     T0
+                ASL     A              ; DM_PTRFULL + n's bit 6 to bit 7: byte 3's FULL, or 0
+                AND     #VIDEO_SPRX_FULL
+                STA     PTRFULL
                 LDA     #1
                 STA     PTRON
                 JSR     VBCALC
@@ -603,6 +611,7 @@ DM_POINTERX:    BLOCK
                 JMP     DM00
 @no:            JMP     RETFF
 .assert EVON_L2 = $80, error, "DM_POINTER tests layout 2 by EVON's bit 7"
+.assert DM_PTRFULL = $40 && VIDEO_SPRX_FULL = $80, error, "DM_POINTER's ASL takes DM_PTRFULL's bit to FULL"
 
 DM_CONSOLEX:    JSR     CRTREGS
                 JMP     DM00
@@ -1228,6 +1237,7 @@ VBWORK:         LDA     NB_WIN1
                 LDA     MXS + 1
                 SBC     #0
                 AND     #3
+                ORA     PTRFULL        ; byte 3's FULL for a full-resolution pointer
                 STA     PSTAGE + 1
                 SEC
                 LDA     MYS
