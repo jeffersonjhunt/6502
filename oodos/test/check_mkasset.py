@@ -68,8 +68,15 @@ def samples():
             inside = 3 <= x % 16 < 13 and 3 <= y < 13
             row.append(rgb12(c16[1 + f]) if inside else (0, 0, 0, 0))
         sheet.append(row)
+    c4096 = list(range(4096))
+    photo = picture(640, 480, c4096, 5)
+    for y in range(150, 250):              # a transparent square
+        for x in range(200, 300):
+            photo[y][x] = (0, 0, 0, 0)
     return {
         "VIEW8": (m.write_png(256, 240, picture(256, 240, c200)), ("bitmap256",)),
+        "VIEW640": (m.write_png(640, 480, picture(640, 480, c200, 2)), ("bitmap640",)),
+        "VIEW16": (m.write_png(640, 480, photo), ("direct640",)),
         "VIEW4": (m.write_png(512, 480, picture(512, 480, c16, 3)), ("bitmap512",)),
         "TILES": (m.write_png(128, 64, tile_rows), ("tiles",)),
         "SHIP": (m.write_png(64, 16, sheet), ("sprites", 16, 16)),
@@ -82,6 +89,10 @@ def make(png, args):
         return m.build(m.bitmap256(png))
     if kind == "bitmap512":
         return m.build(m.bitmap512(png))
+    if kind == "bitmap640":
+        return m.build(m.bitmap640(png))
+    if kind == "direct640":
+        return m.build(m.direct640(png))
     if kind == "tiles":
         return m.build(m.tiles(png))
     return m.build(m.sprites(png, args[1], args[2], table=True))
@@ -122,6 +133,42 @@ def main():
              for y in range(0, 480, 7) for x in range(512))
     check(ok and len(bmp) == 256 * 480, "bitmap 512 round trip")
     check(find(parts, m.AT_BITMAP)[5] == 122880 and find(parts, m.AT_BITMAP)[4] == 960, "a part past 64 KB")
+
+    # A bitmap 640 (revision 2's type 6): rows 1,024 bytes apart, 640 and 1,024 wide, each pixel's entry its colour.
+    c200 = [(i * 37 + 5) & 0xFFF for i in range(200)]
+    for w, png in ((640, s["VIEW640"][0]), (1024, m.write_png(1024, 480, picture(1024, 480, c200, 4)))):
+        data = m.build(m.bitmap640(png))
+        parts = m.parse(data)
+        _, _, rows6 = m.read_png(png)
+        bmp6 = find(parts, m.AT_BITMAP)
+        pal = pal_of(data, find(parts, m.AT_PALETTE))
+        b = m.part_bytes(data, bmp6)
+        check([p[0] for p in parts] == [m.AT_PALETTE, m.AT_BITMAP], "bitmap 640's parts (%d wide)" % w)
+        check(bmp6[1] == m.BITMAP640 and bmp6[5] == 491520 and (bmp6[6], bmp6[7]) == (w // 8, 60),
+              "bitmap 640's CONFIG 6, 491,520 bytes, AP_W %d, AP_H 60" % (w // 8))
+        ok = all(rgb12(pal[b[y * 1024 + x]]) == rows6[y][x] for y in range(480) for x in range(w))
+        check(ok, "bitmap 640 round trip, rows 1,024 apart (%d wide)" % w)
+        check(not any(b[y * 1024 + x] for y in range(480) for x in range(w, 1024)), "bitmap 640: past the width 0")
+
+    # A direct 640 (type 7): every pixel its 12 bits, low byte first, bits 12-14 0; the square $8000; no palette.
+    data = make(*s["VIEW16"])
+    parts = m.parse(data)
+    _, _, rows7 = m.read_png(s["VIEW16"][0])
+    check([p[0] for p in parts] == [m.AT_BITMAP] and parts[0][1] == m.DIRECT640 and parts[0][5] == 614400 and
+          (parts[0][6], parts[0][7]) == (80, 60), "direct 640: one part, CONFIG 7, 614,400 bytes, no palette")
+    d = m.part_bytes(data, parts[0])
+
+    def want7(p):
+        c = m.to12(p)
+        return 0x8000 if c is None else c
+    ok = all(struct.unpack_from("<H", d, y * 1280 + 2 * x)[0] == want7(rows7[y][x]) for y in range(480)
+             for x in range(640))
+    check(ok, "direct 640 round trip, rows 1,280 apart")
+    check(struct.unpack_from("<H", d, 200 * 1280 + 2 * 250)[0] == 0x8000, "direct 640: the square transparent")
+    check(len({m.to12(c) for row in rows7 for c in row if c[3]}) == 4096, "direct 640: all 4,096 colours")
+    black = m.build(m.direct640(m.write_png(2, 1, [[(0, 0, 0, 255), (255, 0, 0, 255)]])))
+    check(m.part_bytes(black, m.parse(black)[0])[:4] == bytes([0, 0, 0, 0x0F]), "direct 640: black $0000, red $0F00")
+    check(m.part_bytes(black, m.parse(black)[0])[4:6] == bytes([0, 0x80]), "direct 640: past the width $8000")
 
     # Tiles and a map: the picture made again from them.
     data = make(*s["TILES"])
@@ -174,16 +221,36 @@ def main():
     nxt = m.build([m.Part(m.AT_RAW, bytes(600), unit=0x0404)])
     check(len(m.combine([at, nxt])[0]) == 2, "combine: parts at card pages one after the other")
     raises(lambda: m.combine([tiles_f, tiles_f, ship_f]), "combine: eight parts")
+    view16 = make(*s["VIEW16"])
+    parts, pals = m.combine([view16, ship_f])
+    got = m.parse(m.build(parts))
+    check([g[0] for g in got] == [m.AT_BITMAP, m.AT_PALETTE, m.AT_SPRITES, m.AT_SPRTABLE] and got[0][5] == 614400 and
+          m.part_bytes(m.build(parts), got[0]) == m.part_bytes(view16, m.parse(view16)[0]),
+          "combine: a direct 640 and a sprites file, every part in order")
 
     # The limits.
     big = m.write_png(257, 10, picture(257, 10, [0x111]))
     raises(lambda: m.bitmap256(big), "a bitmap 256 wider than 256")
     many = m.write_png(32, 32, picture(32, 32, [i * 3 for i in range(300)]))
     raises(lambda: m.bitmap256(many), "300 colours in 256")
+    raises(lambda: m.bitmap640(m.write_png(1025, 480, picture(1025, 480, [0x111]))), "a bitmap 640 wider than 1,024")
+    raises(lambda: m.direct640(m.write_png(641, 480, picture(641, 480, [0x111]))), "a direct 640 wider than 640")
+    raises(lambda: m.direct640(m.write_png(8, 481, picture(8, 481, [0x111]))), "a direct 640 taller than 480")
+    raises(lambda: m.bitmap640(many), "300 colours in a bitmap 640")
+    q = m.bitmap640(many, quantize=True)
+    qpal = [(q[0].data[2 * i + 1] & 15) << 8 | q[0].data[2 * i] for i in range(256)]
+    _, _, mrows = m.read_png(many)
+
+    def nearest(c):
+        return min(range(256), key=lambda i: (sum((((c >> k) & 15) - ((qpal[i] >> k) & 15)) ** 2 for k in (0, 4, 8)), i))
+    check(all(q[1].data[y * 1024 + x] == nearest(m.to12(mrows[y][x])) for y in range(32) for x in range(32)),
+          "a bitmap 640 with --quantize: each pixel the nearest kept")
     check(len(m.palette_of([rgb12(i * 3) for i in range(300)], 256, True)[0]) == 256, "--quantize keeps 256")
     raises(lambda: m.bitmap512(m.write_png(8, 8, picture(8, 8, list(range(1, 40))))), "39 colours at 4 bits")
     raises(lambda: m.build([m.Part(m.AT_RAW, b"x")] * 8), "eight parts")
-    raises(lambda: m.Part(m.AT_RAW, bytes(131073)), "a part past 17 bits")
+    raises(lambda: m.Part(m.AT_RAW, bytes(1572865)), "a part past the program's card memory")
+    check(len(m.Part(m.AT_RAW, bytes(131073)).data) == 131073, "a part past 17 bits taken")
+    check(m.parse(m.build([m.Part(m.AT_RAW, bytes(614400))]))[0][5] == 614400, "a part of 614,400 bytes taken")
     good = m.build([m.Part(m.AT_RAW, b"abc")])
     raises(lambda: m.parse(b"OGY" + good[3:]), "no magic")
     raises(lambda: m.parse(good[:3] + b"\x02" + good[4:]), "format 2")

@@ -2,6 +2,8 @@
 
     python3 -I mkasset.py bitmap256 picture.png PICTURE.OGX
     python3 -I mkasset.py bitmap512 picture.png PICTURE.OGX
+    python3 -I mkasset.py bitmap640 picture.png PICTURE.OGX
+    python3 -I mkasset.py direct640 photo.png PHOTO.OGX
     python3 -I mkasset.py tiles level.png LEVEL.OGX [--tile 8|16] [--bpp 4|8] [--map 32|64]
     python3 -I mkasset.py sprites ship.png SHIP.OGX --size 16x16 [--bpp 4|8] [--table]
     python3 -I mkasset.py palette colours.png COLOURS.OGX
@@ -17,18 +19,23 @@ The standard library alone: a PNG is read with zlib (8 bits a channel: greyscale
 2, 4 or 8 bits, with its tRNS; not interlaced). Colours become the card's 12 bits (4 a channel, rounded); a
 picture with more of them than its bitmap holds (256, or 16 at 4 bits) is refused, unless --quantize keeps the
 most used and gives each other pixel the nearest of them. A pixel with alpha below 128 is transparent: colour 0
-(the card shows what is under it), and the palette's entry 0 is then kept for it.
+(the card shows what is under it), and the palette's entry 0 is then kept for it. A direct 640 picture has no
+palette: each pixel is its own 12 bits, and a transparent one the word $8000.
 
 The file (oodos/include/oolib.inc's AH_* and AP_*): record 0 a 16-byte header ('OGX', the format 4, the parts,
 11 bytes 0) and up to 7 parts of 16 bytes: the type (AT_*), the layer CONFIG it was made for, its card page (2
 bytes: video card revision 2's memory, card address / 256, a multiple of 4 in the program's part $0400-$1BFF;
 $FFFF: any, the library allocates), its first record (2 bytes), its records (2), its length in bytes (3), its
-width and height as the type counts them, 3 bytes 0. Each part starts on a 1 KB boundary of the file and is
+width and height as the type counts them, 3 bytes 0. A part is 1 to 1,572,864 bytes, the program's part of
+card memory. Each part starts on a 1 KB boundary of the file and is
 padded to one, so its sectors come off the card in whole reads (function 83's DM_LOAD, then DM_VWRITE to the
 card's memory). The rest of record 0, and of its 1 KB, is 0. Format 3 (revision 1's video units) isn't read.
 
 The card's layouts (Technical Reference chapter 6): bitmap 256 is 256 x 240 at a byte a pixel; bitmap 512 is
-512 x 480 at 4 bits, the left pixel high, 256 bytes a row; tiles are 8 x 8 or 16 x 16 at 4 or 8 bits, row by
+512 x 480 at 4 bits, the left pixel high, 256 bytes a row; bitmap 640 (revision 2's type 6) is up to 1,024 x
+480 at a byte a pixel, 1,024 bytes a row (the bytes past the picture's width 0); direct 640 (type 7) is 640 x
+480 of 2-byte pixels, $0RGB low byte first as a palette entry is, bits 12-14 0 and bit 15 transparent, 1,280
+bytes a row (a row past the picture's width transparent); tiles are 8 x 8 or 16 x 16 at 4 or 8 bits, row by
 row; a map is 2-byte entries (the tile's number, bits 0-9; H and V flip, 10 and 11; the palette offset, 12-15);
 a sprite image is its pixels row by row, on 256 bytes (revision 2's sprite table counts images in card pages), a
 sprite's entry 8 bytes (its image's card page, relative to the sprite images' part, in bits 0-14 with bit 15
@@ -54,9 +61,10 @@ AT_MAP, AT_TILES, AT_PALETTE, AT_SPRITES, AT_SPRTABLE, AT_BITMAP, AT_FONT, AT_RA
 TYPES = {AT_MAP: "map", AT_TILES: "tiles", AT_PALETTE: "palette", AT_SPRITES: "sprites", AT_SPRTABLE: "sprite table",
          AT_BITMAP: "bitmap", AT_FONT: "font", AT_RAW: "raw"}
 # CONFIG's layer types and bits (Technical Reference chapter 6)
-TILE, BITMAP256, BITMAP512 = 2, 3, 4
+TILE, BITMAP256, BITMAP512, BITMAP640, DIRECT640 = 2, 3, 4, 6, 7
 TILE16, TILE8BPP, MAP_W64, MAP_H64 = 0x08, 0x10, 0x20, 0x40
-MAX_BYTES = 1 << 17                    # a part's length: 17 bits
+MAX_BYTES = (PROG_PAGES[1] - PROG_PAGES[0]) * PAGE  # a part's length: the program's part, 1,572,864
+TRANSPARENT = 0x8000                   # direct 640: bit 15, a pixel that shows what is under it
 MAX_PIXELS = 1 << 22                   # a PNG's pixels at most: 2048 x 2048, far past any asset
 
 
@@ -248,7 +256,7 @@ class Part:
         if not data:
             raise AssetError("an empty part")
         if len(data) > MAX_BYTES:
-            raise AssetError("a part of %d bytes: 131,072 at most" % len(data))
+            raise AssetError("a part of %d bytes: %s at most" % (len(data), format(MAX_BYTES, ",")))
         self.kind, self.data, self.config, self.unit, self.w, self.h = kind, bytes(data), config, unit, w, h
 
 
@@ -343,6 +351,32 @@ def bitmap512(png, quantize=False):
         for x in range(w):
             out[y * 256 + x // 2] |= index(rows[y][x]) << (0 if x & 1 else 4)
     return [Part(AT_PALETTE, palette_bytes(pal)), Part(AT_BITMAP, out, BITMAP512, w=w // 8, h=h // 8)]
+
+
+def bitmap640(png, quantize=False):
+    """Revision 2's type 6: up to 1,024 x 480 at a byte a pixel, rows of 1,024 bytes, and the palette."""
+    w, h, rows = read_png(png)
+    if w > 1024 or h > 480:
+        raise AssetError("%d x %d: a bitmap 640 is 1,024 x 480 at most" % (w, h))
+    pal, index = palette_of([p for r in rows for p in r], 256, quantize)
+    out = bytearray(1024 * h)
+    for y in range(h):
+        for x in range(w):
+            out[y * 1024 + x] = index(rows[y][x])
+    return [Part(AT_PALETTE, palette_bytes(pal)), Part(AT_BITMAP, out, BITMAP640, w=w // 8, h=h // 8)]
+
+
+def direct640(png):
+    """Revision 2's type 7: 640 x 480 of $0RGB words, rows of 1,280 bytes; no palette."""
+    w, h, rows = read_png(png)
+    if w > 640 or h > 480:
+        raise AssetError("%d x %d: a direct 640 is 640 x 480 at most" % (w, h))
+    out = bytearray(struct.pack("<H", TRANSPARENT) * (640 * h))
+    for y in range(h):
+        for x in range(w):
+            c = to12(rows[y][x])
+            struct.pack_into("<H", out, y * 1280 + 2 * x, TRANSPARENT if c is None else c)
+    return [Part(AT_BITMAP, out, DIRECT640, w=w // 8, h=h // 8)]
 
 
 def tiles(png, size=8, bpp=4, map_w=32, quantize=False):
@@ -446,7 +480,7 @@ def combine(files):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="kind", required=True)
-    for k in ("bitmap256", "bitmap512", "tiles", "sprites", "palette"):
+    for k in ("bitmap256", "bitmap512", "bitmap640", "tiles", "sprites", "palette"):
         s = sub.add_parser(k)
         s.add_argument("png")
         s.add_argument("out")
@@ -459,6 +493,9 @@ def main(argv=None):
             s.add_argument("--size", required=True)
             s.add_argument("--bpp", type=int, choices=(4, 8), default=4)
             s.add_argument("--table", action="store_true")
+    s = sub.add_parser("direct640")
+    s.add_argument("png")
+    s.add_argument("out")
     c = sub.add_parser("combine")
     c.add_argument("out")
     c.add_argument("files", nargs="+")
@@ -486,6 +523,10 @@ def main(argv=None):
             parts = bitmap256(png, a.quantize)
         elif a.kind == "bitmap512":
             parts = bitmap512(png, a.quantize)
+        elif a.kind == "bitmap640":
+            parts = bitmap640(png, a.quantize)
+        elif a.kind == "direct640":
+            parts = direct640(png)
         elif a.kind == "tiles":
             parts = tiles(png, a.tile, a.bpp, a.map, a.quantize)
         elif a.kind == "sprites":
