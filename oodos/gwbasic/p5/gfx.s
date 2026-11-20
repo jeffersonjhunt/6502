@@ -131,6 +131,10 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 LDA     GGRPT - 2,X    ; SCREEN 1's palette 1, SCREEN 2's white
                 STA     GGRP
                 JSR     GPAGE          ; the page cleared, the cursor centred
+                SEC                    ; 7e2: DRAW's colour the mode's foreground (the IBM
+                JSR     GETFBC         ; manual's p. 74: C's default the mode's last)
+                JSR     SETATR
+                STA     ATRBYT
                 LDX     GMX            ; layer 0: the frame or the mono rows
                 LDA     GMAP - 2,X
                 CLC
@@ -374,6 +378,23 @@ SETATR:         LDX     GMODEV
                 CLC
                 RTS
 
+; GTASPC (7e2; the OEM's, OEM.H names it): BX the screen's aspect x 256 and
+; DX its inverse x 256, for CIRCLE's default and DRAW's A1 and A3: the IBM
+; manual's 5/6 in SCREEN 1 and 5/12 in SCREEN 2 (pp. 30, 77), each x 256 to
+; the nearest (213, 107; 307, 614: the owner's G8). SCREEN 0's (no
+; graphics: CIRCLE and DRAW are Illegal function call there) 1.
+GTASPC:         LDX     GMX
+                LDA     ASPBX,X
+                STA     RBL
+                LDA     ASPBX + 1,X
+                STA     RBH
+                LDA     ASPDX,X
+                STA     RDL
+                LDA     ASPDX + 1,X
+                STA     RDH
+                RTS
+
+
 .segment "RODATA"
 ; GW-BASIC's palette's groups: the console's CGA entries (PALSRC) to theirs.
 PALSRC:         .byte   2, 4, 6, 3, 5, 7, 15
@@ -394,6 +415,8 @@ PIXBIT:         .byte   0, 2, 1
 PIXFG:          .byte   0, 3, 1
 PIXMSK:         .byte   0, 3, 1        ;   the last colour
 PIXPAT:         .byte   $00, $11, $22, $33
+ASPBX:          .word   256, 213, 107  ; GTASPC, by mode (GMX)
+ASPDX:          .word   256, 307, 614
 
 .segment "BRAM"
 GMODEV:         .res    1              ; the mode: GM_TEXT, GM_TILE, GM_MONO

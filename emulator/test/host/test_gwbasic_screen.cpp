@@ -1621,10 +1621,87 @@ TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
     CHECK_EQ(line(r, 1), std::string("Illegal function call"));
 }
 
-// D9, for the record (7d3, unit 3), not gated: what the screen page costs, by timed()'s method (the run of a loop
-// with the statement less the run of the loop with X=0, over 200 passes): X=PEEK(0) and POKE 0,65 under &H8000 (the
-// page: SCPAGP's far call and one function 83 call) and &H9000 (bank 9, by GX_BLOCK); and a RUN line BLOADing a
-// 4,000-byte screen file and one BSAVEing 4,000 bytes, whole, under each.
+/// The cycles one RUN of `lines` spends in the home block's BRUN (BLOAD's and BSAVE's run check: P5's DSRUN by a far
+/// call until 7e2, the home block's DSRUNH since) and in BLOAD's tail after BLDRUN (P5's DSPUT, DSPUTH since 7e2),
+/// each counted from its first instruction to its return, with the home block in W3 (NB_WIN3 as at RUN), less the
+/// interrupt handlers inside it (the IRQ vector's entry to its RTI, as T17's: where the tick lands moves with the
+/// blocks' layout: 7e2's review round 1). So the disk operation, which depends on what else is on M:, is left out.
+std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std::string> &lines)
+{
+    const std::map<std::string, uint16_t> lab = lbl_map(), l8 = lbl_map("p8.lbl");
+    enter(r, "PRINT CHR$(12);");
+    enter(r, "NEW");
+    for (const std::string &l : lines)
+        enter(r, l);
+    const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON"), brun = l8.at("BRUN");
+    const uint16_t tail = static_cast<uint16_t>(l8.at("DEFSAD") + 9), bback = l8.at("BBACK"); // JSR BRUN 3, FJSR BLDRUN 6
+    int home = -1;
+    uint64_t from = 0, check = 0, after = 0;
+    uint16_t ret = 0;
+    uint8_t sp = 0;
+    int in = 0; // 1 in BRUN, 2 in the tail
+    bool done = false;
+    const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
+    uint64_t ifrom = 0, inirq = 0; // an interrupt inside a span: its handler's cycles, left out (T17's way)
+    int idepth = -1;
+    r.watch = [&](uint16_t pc) {
+        if (in != 0 && idepth < 0 && pc == irq)
+        {
+            ifrom = r.cpu->cycles();
+            idepth = r.cpu->regs().s;
+            return;
+        }
+        if (idepth >= 0)
+        {
+            if (r.cpu->regs().s == idepth + 3)
+            {
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            else
+                return;
+        }
+        if (pc == runc && home < 0)
+            home = r.nb(3);
+        if (home < 0 || r.nb(3) != home)
+            return;
+        const uint8_t s = r.cpu->regs().s;
+        if (in == 0 && pc == brun)
+        {
+            in = 1, from = r.cpu->cycles(), sp = s, inirq = 0;
+            ret = static_cast<uint16_t>((r.machine->bus().peek(static_cast<uint16_t>(0x101 + s)) |
+                                         r.machine->bus().peek(static_cast<uint16_t>(0x102 + s)) << 8) + 1);
+        }
+        else if (in == 1 && pc == ret && s == static_cast<uint8_t>(sp + 2))
+            in = 0, check += r.cpu->cycles() - from - inirq;
+        else if (in == 0 && pc == tail)
+            in = 2, from = r.cpu->cycles(), inirq = 0;
+        else if (in == 2 && pc == bback)
+            in = 0, after += r.cpu->cycles() - from - inirq;
+        else if (pc == endcon)
+            done = true;
+    };
+    keys(r, "RUN\r");
+    const uint64_t end = r.cpu->cycles() + ms(20000);
+    while (!done && r.cpu->cycles() < end)
+        r.run(ms(10));
+    r.watch = nullptr;
+    r.run(ms(200));
+    CHECK(done && check > 0);
+    return {check, after};
+}
+
+// D9 (7d3, unit 3): what the screen page costs, by timed()'s method (the run of a loop with the statement less the
+// run of the loop with X=0, over 200 passes): X=PEEK(0) and POKE 0,65 under &H8000 (the page: SCPAGP's far call and
+// one function 83 call) and &H9000 (bank 9, by GX_BLOCK); and a RUN line BLOADing a 4,000-byte screen file and one
+// BSAVEing 4,000 bytes, whole, under each, for the record. Gated since 7e2 (the owner's option 3, which moved BLOAD's
+// and BSAVE's run checks and copies from P5 to the home block): BLOAD to the page (BRUN's check and the tail after
+// BLDRUN) and BSAVE (BRUN's) at most 300 cycles over main's, and PEEK and POKE on the page (P5's DSSCR, not moved) at most
+// 50 over main's (the layout's noise). Guards the move slowing a program's screen saves. Seen failing with DSSPH finding the scratch
+// byte's address by function 73 at every call, not once.
+// main 593aa176's, by run_check_cycles (7e2's unit 0, before the move; measured again in review round 1 with the
+// interrupt handlers left out): BLOAD to the page 7,869 in BRUN and 6,952 after BLDRUN, BSAVE 7,869 in BRUN.
+constexpr uint64_t BLOAD8_MAIN = 7869 + 6952, BSAVE8_MAIN = 7869;
 TEST(the_screen_page_costs)
 {
     CcpRig r;
@@ -1648,6 +1725,21 @@ TEST(the_screen_page_costs)
                 static_cast<unsigned long long>(bl8), static_cast<unsigned long long>(bl9),
                 static_cast<unsigned long long>(bs8), static_cast<unsigned long long>(bs9));
     CHECK(peek8 > 0 && poke8 > 0 && bl8 > 0 && bs8 > 0);
+    // 7e2 (the owner's option 3): the run checks and copies moved from P5 to the home block; BLOAD and BSAVE to the
+    // page at most 300 cycles more than main's (BRUN's check, BLOAD's tail), PEEK and POKE (P5's DSSCR) no more.
+    const auto [bc8, bt8] = run_check_cycles(r, {"10 DEF SEG=&H8000:BLOAD \"M:S\",0"});
+    const auto [sc8, st8] = run_check_cycles(r, {"10 DEF SEG=&H8000:BSAVE \"M:U\",0,4000"});
+    const auto [bc9, bt9] = run_check_cycles(r, {"10 DEF SEG=&H9000:BLOAD \"M:S\",0"});
+    std::printf("  the run's check and BLOAD's tail: BLOAD to the page %llu + %llu, BSAVE %llu; BLOAD to bank 9 %llu + %llu\n",
+                static_cast<unsigned long long>(bc8), static_cast<unsigned long long>(bt8),
+                static_cast<unsigned long long>(sc8), static_cast<unsigned long long>(bc9),
+                static_cast<unsigned long long>(bt9));
+    CHECK(bc8 + bt8 <= BLOAD8_MAIN + 300);
+    CHECK(sc8 <= BSAVE8_MAIN + 300);
+    // PEEK and POKE: DSSCR's code is unchanged, but its cycles move a few with P5's layout (a branch crossing a
+    // page, a far call site's place: 4,646 and 4,035 on main, 4,643 and 4,033 here), so main's figures + 50 (7e2's
+    // review round 1, F2), not a cycle of noise
+    CHECK(peek8 <= 4646 + 50 && poke8 <= 4035 + 50);
 }
 
 int main()

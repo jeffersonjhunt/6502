@@ -15,13 +15,16 @@
 ; 400 lines, centred by VSCROLL; GW-BASIC's text over them on layer 1.
 
 ; p5/gfx.s
-.global GMODEV, GMX, GGRP, GBASE, GMAXX, GRPSIZ, PIXSIZ, GETFBC, SETATR, CPAT
+.global GMODEV, GMX, GGRP, GBASE, GMAXX, GRPSIZ, PIXSIZ, GETFBC, SETATR, CPAT, GTASPC, PIXMSK
 ; p5/gfxoem.s
 .global MAPXYC, SCALXY, SETC, READC, RIGHTC, LEFTC, DOWNC, UPC, NSETCX
 .global FETCHC, STOREC, REMAP, RIGHTV, LEFTV, DOWNV, CSAV
 .global CBANK, CMASK, CXB, CY7
+.global NEWBNK
+.global DRWSCL, DRWANG, DRWTA ; p5/advgrp.s (7e2)
+.global SCANR, SCANL, TUPC, TDOWNC, PNTINI, PSTOR, PNX, PNY, PCSX, PBORD ; 7e2: PAINT's
 ; p5/gengrp.s
-.global GRPACX, GRPACY, GXPOS, GYPOS, ATRBYT, GRPINI
+.global GRPACX, GRPACY, GXPOS, GYPOS, ATRBYT, GRPINI, DOGRPH, SCAN1
 
 GM_TEXT         = 0                    ; GMODEV: SCREEN 0
 GM_TILE         = 1                    ;   SCREEN 1: the tile frame

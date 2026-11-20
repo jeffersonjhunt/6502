@@ -1,0 +1,8 @@
+10 REM 7e2's G14: a whole SCREEN 2 painted from its centre, then a diamond cleared and one painted in again
+20 SCREEN 2
+30 PAINT (320,100),1
+40 LINE (320,11)-(409,100),0: LINE -(320,189),0: LINE -(231,100),0: LINE -(320,11),0: PAINT (320,100),0,0
+50 LINE (100,61)-(139,100),0: LINE -(100,139),0: LINE -(61,100),0: LINE -(100,61),0: PAINT (100,100),1,0
+9000 DIM A%(8001): GET (0,0)-(639,199),A%: SCREEN 0: WIDTH 80: PRINT A%(0);A%(1)
+9010 FOR Y=0 TO 199: R$="": FOR I=0 TO 39: V=A%(2+Y*40+I): L=V AND 255: H=INT(V/256) AND 255
+9020 R$=R$+RIGHT$("0"+HEX$(L),2)+RIGHT$("0"+HEX$(H),2): NEXT: PRINT R$: NEXT

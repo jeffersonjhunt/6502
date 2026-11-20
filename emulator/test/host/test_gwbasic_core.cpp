@@ -191,14 +191,17 @@ namespace
         CHECK_EQ(command(r, "NEW"), std::string());
         enter(r, lines);
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON"), site = lab.at("FTSITE");
-        const uint16_t farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
-                                                       r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
+        // FARCALL's address, from FTSITE's patched operand, read at RUN, when the resident core is in W0 (read
+        // before, the CPU may be in a BDOS call with OODOS's own block there, and the bytes read 0: 7e2)
+        uint16_t farcall = 0;
         Timed t;
         uint64_t from = 0;
         bool on = false;
         r.watch = [&](uint16_t pc) {
             if (pc == runc && !on)
             {
+                farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
+                                                r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
                 from = r.cpu->cycles();
                 on = true;
             }
@@ -1076,10 +1079,11 @@ TEST(key_stays_advanced_feature_in_console_mode)
 }
 
 // The graphics (7e1) stay Advanced Feature in console mode, as the screen's statements do (7d's answer 7): PSET,
-// PRESET, the graphics LINE (input_semicolon_lprint_and_later_forms's too) and SCREEN 1 each say so; POINT is still
+// PRESET, the graphics LINE (input_semicolon_lprint_and_later_forms's too), SCREEN 1 and (7e2) CIRCLE, PAINT and
+// DRAW each say so; POINT is still
 // a formula in parentheses (Syntax error), as before 7e; and the console's card memory (units 0-12, $000000-$0033FF)
 // is as it was. Guards a serial terminal's session drawing on card memory GW-BASIC never set up. Seen failing with
-// PSET's stub (p8/far5.s) without its SCRMOD test.
+// PSET's stub (p8/far5.s) without its SCRMOD test, and (7e2) CIRCLE's without its.
 TEST(graphics_are_advanced_feature_in_console_mode)
 {
     CcpRig r;
@@ -1090,7 +1094,7 @@ TEST(graphics_are_advanced_feature_in_console_mode)
     for (uint32_t i = 0; i < con.size(); ++i)
         con[i] = vid.card_peek(i);
     for (const char *k : {"PSET (1,1),1", "PRESET (2,2)", "LINE (0,0)-(9,9),1,BF", "LINE -(5,5)", "SCREEN 1",
-                          "SCREEN 2:PSET (1,1)"})
+                          "SCREEN 2:PSET (1,1)", "CIRCLE (5,5),3", "PAINT (5,5),1", "DRAW \"U1\""})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT POINT(1,1)"), std::string("Syntax error\r\n"));
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));

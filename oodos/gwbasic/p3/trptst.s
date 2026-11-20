@@ -23,6 +23,11 @@
 .include "gwbasic.inc"
 
 ;@entry TRPTSP
+; 7e2's entries (p3/advgrp.s, p3/draw.s), here, P3's last file, so the
+; entries before them keep their places (gwgen.py numbers them by file,
+; then by line).
+;@entry CIRCA
+;@entry DRAWP
 .export TRPTSP
 .import EVTRP, EVADR, EVSET, TRPCNT
 

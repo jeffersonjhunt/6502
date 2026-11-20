@@ -471,6 +471,141 @@ UPT:            LDA     CY7
                 STA     GXP + 1
                 BRA     BANKDN
 
+; --- PAINT's (7e2, U1): SCANR, SCANL, TUPC, TDOWNC, PNTINI, PSTOR -------------------------
+
+; The OEM's routines ADVGRP.ASM's PAINT calls and the release leaves to the
+; OEM (OEM.H names them), the OO-1's, their contracts read from how PAINT
+; uses them. PAINT keeps the cursor's pixel (PNX, PNY) beside C, so a queue
+; entry is (x, y), re-made by PSTOR (MAPXYC), and the edges are known.
+; READC's attribute is compared with the border's (PBORD, PNTINI's) and the
+; fill's (ATRBYT, SETATR's).
+;
+;   SCANR   DX the skip count. Over border pixels rightwards while DX is
+;           above 0, DX less one each; none left, or the screen's edge: BX
+;           0. Else PCSX the run's first pixel's x, and each pixel from it
+;           that isn't the border set to the fill, to the border or the
+;           edge: BX the count, CL 1 if any pixel changed (else 0), DX what
+;           was left, the cursor one past the run (x the last + 1 at the
+;           edge: nothing is drawn there)
+;   SCANL   from the pixel left of the cursor leftwards, the same without
+;           the skip: BX the count, CL the flag; the cursor left at the
+;           run's leftmost pixel (the cursor's own if none)
+;   TUPC    a row up, TDOWNC down: carry set, and no move, at row 0 or 199
+;   PNTINI  A the border's attribute: past the mode's last colour the last
+;           (as SETATR); carry clear (every attribute is legal)
+;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC); DX kept
+SCANR:          STZ     RCL
+@skip:          LDA     GMAXX          ; past the edge: none
+                CMP     PNX
+                LDA     GMAXX + 1
+                SBC     PNX + 1
+                BCC     @none
+                JSR     READC
+                CMP     PBORD
+                BNE     @run
+                LDA     RDL            ; a border pixel skipped
+                BNE     :+
+                DEC     RDH
+:               DEC     RDL
+                JSR     RIGHTC
+                INCW    PNX
+                LDA     RDL
+                ORA     RDH
+                BNE     @skip
+@none:          STZ     RBL
+                STZ     RBH
+                RTS
+@run:           LDX     PNX            ; (A the pixel, kept)
+                STX     PCSX
+                LDX     PNX + 1
+                STX     PCSX + 1
+                STZ     RBL
+                STZ     RBH
+                BRA     @in
+@r:             LDA     GMAXX          ; the edge: the run's end
+                CMP     PNX
+                LDA     GMAXX + 1
+                SBC     PNX + 1
+                BCC     @x
+                JSR     READC
+@in:            CMP     PBORD
+                BEQ     @x
+                CMP     ATRBYT
+                BEQ     :+
+                LDA     #1             ; changed
+                STA     RCL
+                JSR     SETC
+:               INCW    RBL
+                JSR     RIGHTC
+                INCW    PNX
+                BRA     @r
+@x:             RTS
+
+SCANL:          STZ     RBL
+                STZ     RBH
+                STZ     RCL
+@l:             LDA     PNX             ; x 0: the edge
+                ORA     PNX + 1
+                BEQ     @x
+                JSR     LEFTC
+                DECW    PNX
+                JSR     READC
+                CMP     PBORD
+                BEQ     @back
+                CMP     ATRBYT
+                BEQ     :+
+                LDA     #1
+                STA     RCL
+                JSR     SETC
+:               INCW    RBL
+                BRA     @l
+@back:          JSR     RIGHTC         ; the border: back to the run's leftmost
+                INCW    PNX
+@x:             RTS
+
+TUPC:           LDA     PNY
+                BEQ     TEDGE
+                DEC     PNY
+                JSR     UPC
+                CLC
+                RTS
+TDOWNC:         LDA     PNY
+                CMP     #199
+                BCS     TEDGE
+                INC     PNY
+                JSR     DOWNC
+                CLC
+                RTS
+TEDGE:          SEC
+                RTS
+
+PNTINI:         LDX     GMODEV
+                CMP     PIXMSK,X
+                BCC     :+
+                LDA     PIXMSK,X
+:               STA     PBORD
+                CLC
+                RTS
+
+PSTOR:          LDA     RCL
+                STA     PNX
+                LDA     RCH
+                STA     PNX + 1
+                LDA     RDH            ; DX kept (an entry's count)
+                PHA
+                LDA     RDL
+                PHA
+                LDA     PNY
+                STA     RDL
+                STZ     RDH
+                JSR     MAPXYC
+                PLA
+                STA     RDL
+                PLA
+                STA     RDH
+                RTS
+
+
 .segment "RODATA"
 ; By mode, 1 and 2.
 MAPV:           .word   MAPT, MAPM
@@ -494,3 +629,7 @@ CSAV:           .res    CSIZ           ; FETCHC's
 CSAVP:          .res    2
 .assert * - CSAV = CSIZE, error, "CSIZE (p5/p5.inc): CSAV and CSAVP"
 MAPBANK:        .res    1              ; the bank NEWBNK put in slot 1
+PNX:             .res    2              ; 7e2: PAINT's pixel, the cursor's x
+PNY:             .res    1              ;   and y
+PCSX:           .res    2              ;   SCANR's run's first pixel's x (the source's CSAVEA)
+PBORD:          .res    1              ;   the border's attribute (PNTINI)
