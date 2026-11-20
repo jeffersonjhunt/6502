@@ -109,6 +109,28 @@ test("Card memory: vram shows the card's own memory, and a write shows on VGA", 
   await expect(box.getByTestId("vram-error")).toHaveText("bad byte '1G'");
 });
 
+test("a direct 640 layer: the Devices tab names it and VGA shows its word's colour", async ({ page }) => {
+  // Revision 2's layer type 7 (hw/video640.md): layer 0 set to direct 640 at the monitor, over the
+  // text screen's card memory; then its first word, $0F00 (bytes 00 0F), is red at (0, 0).
+  await booted(page);
+  await pastSplash(page);
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C490"); // the colon as Shift+; (the USB card takes key codes)
+  await page.keyboard.press("Shift+Semicolon");
+  await page.keyboard.type(" 07");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText("C490: 80"); // the store: CONFIG was text 80, blinking
+  await phosphor(page, "Colour");
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
+  await expect(page.getByTestId("dev-video").locator('[data-reg="Layer 0"]')).toHaveText(/^direct 640 · image \$002000/);
+  const box = page.getByTestId("dev-vram");
+  await box.getByTestId("vram-input").fill("2000 = 00 0F");
+  await box.getByTestId("vram-go").click();
+  await expect(box.getByTestId("vram-dump")).toContainText("002000  00 0F");
+  await expect.poll(() => pixel(page, 0, 0)).toEqual([255, 0, 0]);
+});
+
 test("the page credits its fonts, in Settings' About", async ({ page }) => {
   await booted(page);
   await page.getByTestId("about-link").click(); // under the panel
