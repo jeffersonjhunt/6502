@@ -186,6 +186,23 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
   await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\");
 });
 
+test("SPRCTL's full-resolution bit shows on the Devices tab's Sprites row", async ({ page }) => {
+  // hw/sprites640.md: $C48E on the revision 2 card, written at the monitor.
+  await booted(page);
+  await pastSplash(page);
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
+  const sprites = page.getByTestId("dev-video").locator('[data-reg="Sprites"]');
+  await expect(sprites).toHaveText(/^off · table \$000000$/);
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C48E: 01");
+  await page.keyboard.press("Enter");
+  await expect(sprites).toHaveText("off · table $000000 · full");
+  await page.keyboard.type("C48E: 00");
+  await page.keyboard.press("Enter");
+  await expect(sprites).toHaveText("off · table $000000");
+});
+
 test("on VGA the keyboard is the USB card's; on Terminal it is the serial line's", async ({ page }) => {
   await booted(page);
   await openDebugger(page);

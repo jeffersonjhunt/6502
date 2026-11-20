@@ -456,7 +456,8 @@ export function devicesView(port: MachinePort) {
         ...row("Layer 0", describeLayer2(r.subarray(0x10, 0x20), (ctrl & 3) === 3)),
         ...row("Layer 1", describeLayer2(r.subarray(0x20, 0x30), (ctrl & 5) === 5)),
         ...row("Palette", `${page(r, 0x0a)}  border ${r[1]}`),
-        ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${page(r, 0x0c)}${collided}`),
+        // SPRCTL ($0E) bit 0: full-resolution sprites (hw/sprites640.md)
+        ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${page(r, 0x0c)}${r[0x0e] & 1 ? " · full" : ""}${collided}`),
         ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
         ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
         ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),
