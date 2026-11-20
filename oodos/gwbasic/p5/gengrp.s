@@ -422,29 +422,54 @@ XCHGX:          LDA     RCL
 ; --- LINE (GENGRP.ASM 323) --------------------------------------------------------------------
 
 ; GLINEP: TXTPTR after LINE (not INPUT: the home block's stub, p8/gwmain.s).
+; 7e4 (the IBM manual's pp. 156-159): [,[attribute][,[B]][,style]], the
+; style an integer (GETIN2), a 16-bit mask whose 1 bits plot (LSTYL, $FFFF
+; outside a LINE statement): BF takes none (NEWSTT's Syntax error at the
+; comma). The OO-1's (the owner's answer 9): the first point drawn takes
+; bit 15, in the order DOGRPH draws, a B box's four sides one mask on in
+; BOXLIN's order, each statement from bit 15 again; a clipped line counts
+; from its given start (answer 7, E11: LSKIP).
 GLINEP:         JSR     SCAN1          ; the first point
                 PSHW    RCL
                 PSHW    RDL
                 JSR     SYNCHR
                 .byte   MINUTK
                 JSR     SCAND          ; the second
+                STZ     GLB
                 JSR     ATRSCN
-                PHP                    ; Z: the statement ended
-                PLX
-                PULW    RDL
-                PULW    RCL
-                PHX
-                PLP
-                BNE     :+
-                JMP     DOLINE         ; a line
-:               JSR     SYNCHR
+                BEQ     @ln            ; the statement ended: a line
+                JSR     SYNCHR
                 .byte   ','
+                CMP     #','
+                BEQ     @st            ; ",,": a line's style
                 JSR     SYNCHR
                 .byte   'B'
-                BNE     :+
-                JMP     BOXLIN         ; B: the box
-:               JSR     SYNCHR
+                BEQ     @bx            ; B: the box
+                CMP     #','
+                BEQ     @bs            ; B,style
+                JSR     SYNCHR
                 .byte   'F'            ; BF: filled
+                PULW    RDL
+                PULW    RCL
+                BRA     DOBOXF
+@bs:            DEC     GLB            ; (bit 7: the box)
+@st:            JSR     SYNCHR
+                .byte   ','
+                JSR     GETIN2         ; the style (nothing after it can fail)
+                MOVW    LSTYL, RDL
+                BIT     GLB
+                BMI     @bx
+@ln:            PULW    RDL
+                PULW    RCL
+                JSR     DOLINE         ; a line
+                BRA     @end
+@bx:            PULW    RDL
+                PULW    RCL
+                JSR     BOXLIN
+@end:           LDA     #$FF           ; solid again
+                STA     LSTYL
+                STA     LSTYL + 1
+                RTS
 DOBOXF:         JSR     BOXOFF         ; OO-1 (review round 1, F1): a box wholly
                 BCC     :+             ; past one edge draws nothing (PC-BASIC's;
                 RTS                    ; the truncation would fill that edge)
@@ -633,7 +658,14 @@ LINCN3:         MOVW    MAXDEL, LMAJ
                 ; (on into LINLP3)
 
 ; LINLP3 (GWSTS.ASM 486): the line's inner loop. DX the sum, CX the points.
-LINLP3:         JSR     SETC
+; 7e4: each point turns LINE's style (LSTYL) a bit left, the bit out of
+; bit 15 back into bit 0, and is set only for a 1 (STYSET).
+LINLP3:         ASL     LSTYL
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+                JSR     SETC
+:
                 CLC
                 LDA     RDL
                 ADC     MINDEL
@@ -682,7 +714,12 @@ LINCLP:         MOVW    LX, RCL
                 INCW    LCNT           ; (0: 65,536, the loop's DEC first)
                 JSR     LSKIP
                 BCS     LCLX           ; never on the screen
-@pt:            JSR     LONSCR
+@pt:            ASL     LSTYL          ; 7e4: the style turned at every point of the walk
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+:               ROR     LBIT           ;   (bit 7: this point's bit)
+                JSR     LONSCR
                 BCC     @off
                 LDA     LVIS
                 BNE     @set
@@ -690,7 +727,9 @@ LINCLP:         MOVW    LX, RCL
                 MOVW    RCL, LX
                 MOVW    RDL, LY
                 JSR     MAPXYC
-@set:           JSR     SETC
+@set:           BIT     LBIT
+                BPL     @step
+                JSR     SETC
                 BRA     @step
 @off:           LDA     LVIS
                 BNE     LCLX           ; past the screen: done
@@ -809,7 +848,17 @@ LSKIP:          LDA     LYM
                 SBC     LCNT + 1
                 BCC     :+
                 RTS                    ; (C set) k points or fewer: none get there
-:               SEC                    ; the points left
+:               LDA     LK             ; 7e4: the style turned by the points skipped
+                AND     #15
+                TAX
+                BEQ     @t
+@tl:            ASL     LSTYL
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+:               DEX
+                BNE     @tl
+@t:             SEC                    ; the points left
                 LDA     LCNT
                 SBC     LK
                 STA     LCNT
@@ -998,3 +1047,5 @@ LK:             .res    2              ; LSKIP's k, the steps skipped
 LP:             .res    4              ;   k x MINDEL + the sum, then its quotient and remainder
 GCR:            .res    1              ; GCELL's rows
 GCN:            .res    1              ;   and pixels left in the row
+GLB:            .res    1              ; 7e4: GLINEP's bit 7, a box with a style
+LBIT:           .res    1              ;   LINCLP's: bit 7 the point's style bit
