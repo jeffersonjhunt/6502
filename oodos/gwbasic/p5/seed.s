@@ -314,18 +314,24 @@ DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or ne
 ; forgotten. One byte by DM_VREAD or DM_VWRITE through the scratch byte.
 DSSCR:          BIT     SCRMOD
                 BPL     DSFC
-                LDA     GMODEV         ; 7e3: SCREEN 1 and 2's page, the PC's CGA layout
-                BEQ     :+
-                JMP     DSGPK
-:
                 LDA     DSA            ; the byte is the run's last (DSPAGE)
                 STA     DSE
                 LDA     DSA+1
                 STA     DSE+1
-                LDA     DSDIR          ; C: a POKE
+                LDA     GMODEV         ; 7e3: SCREEN 1 and 2's page, the PC's CGA layout
+                BEQ     @t
+                CMP     #GM_M10        ; 7e5: the OO-1's modes, the layer's own bytes
+                BCS     @lin
+                JMP     DSGPK
+@lin:           JSR     DSINFO         ; (T0-T2 the page, GXT its reach)
+                LDA     T0
+                LDX     T1
+                LDY     T2
+                BRA     @pg
+@t:             LDA     DSDIR          ; C: a POKE
                 ASL     A
                 FJSR    SCPAGP
-                JSR     DSPAGE
+@pg:            JSR     DSPAGE
                 BCS     DSFC
                 LDX     #2
 @s:             LDA     SCRP,X
@@ -346,7 +352,8 @@ DSSCR:          BIT     SCRMOD
                 RTS
 
 ; DSPAGE (7d3): DSVC the page's card address A/X/Y + DSA's offset; C set if
-; DSE's offset (the run's last byte) isn't below the reach, GXT.
+; DSE's offset (the run's last byte) isn't below the reach, GXT (7e5: 0 the
+; whole 64 KB, SCREEN 11's).
 DSPAGE:         CLC
                 ADC     DSA
                 STA     DSVC
@@ -356,11 +363,15 @@ DSPAGE:         CLC
                 TYA
                 ADC     #0
                 STA     DSVC+2
+                LDA     GXT
+                ORA     GXT+1
+                CMP     #1             ; (0: C clear)
+                BCC     :+
                 LDA     DSE
                 CMP     GXT
                 LDA     DSE+1
                 SBC     GXT+1
-                RTS
+:               RTS
 
 ; DSVX (7d3): function 83's A (DM_VREAD, from the card's DSVC to the
 ; physical DSPH; DM_VWRITE, the other way), DSVL bytes.
@@ -452,8 +463,24 @@ BLKOF:          LDA     DSA+1,X
 ; their places in the jump table. DSINFO, DSRUN's: what DSRUNH needs of this
 ; block, A the graphics mode (GMODEV) and X DSB8 (bit 7: GX_BANK8 refused);
 ; 7e5: and for VIEW's checks (p8/far5.s) RDI the mode's last x, RBP its last
-; y. DSPUT's is a stub, unused.
-DSINFO:         LDA     GMAXX
+; y; in the OO-1's modes, for DEF SEG's page (the layer's own bytes, by
+; SCREEN 0's route: the owner's answer 6), T0-T2 the page's card address
+; and GXT its reach (61,440; 0, the whole 64 KB, SCREEN 11's rows 0-255;
+; 38,400). DSPUT's is a stub, unused.
+DSINFO:         LDA     GMODEV
+                CMP     #GM_M10
+                BCC     @n
+                STZ     T0
+                LDA     GBASE
+                STA     T1
+                LDA     GBASE + 1
+                STA     T2
+                LDX     GMX
+                LDA     DSRCH - 2 * GM_M10,X
+                STA     GXT
+                LDA     DSRCH - 2 * GM_M10 + 1,X
+                STA     GXT+1
+@n:             LDA     GMAXX
                 STA     RDI
                 LDA     GMAXX + 1
                 STA     RDI + 1
@@ -693,3 +720,4 @@ SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output
 SCRP:           .res    3              ; and its physical address (GXSTRT)
 D80:            .word   80 * 64, 80 * 32, 80 * 16, 80 * 8, 80 * 4, 80 * 2, 80 ; 7e3: DSGXY's \ 80
 D80N            = * - D80
+DSRCH:          .word   61440, 0, 38400 ; 7e5: DEF SEG's reach in SCREEN 10, 11, 12

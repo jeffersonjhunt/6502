@@ -885,8 +885,37 @@ PGINIT:         STA     GPACT
                 STA     GOUB
                 JSR     PIXSIZ
                 STA     GPPN
+                LDA     RBL            ; 7e5: the row's bits, for its pieces (PGPCE)
+                STA     GPRB
+                LDA     RBH
+                STA     GPRB + 1
+                RTS
+
+; PGPCE (7e5): the row's next piece, GPRL its bits left: at most 1,024 bits
+; (TXBUF's 128 bytes; a row of SCREEN 10 or 11 is up to 2,048), GPRL less
+; them. Its bytes, its whole CGA bytes if it starts on one and its pixels
+; after (7e3's PGINIT's): every piece but the last is whole bytes, so the
+; next starts on a byte of the array.
+PGPCE:          LDA     GPRL + 1
+                CMP     #>1024
+                BCC     @all
+                STZ     RBL
+                LDA     #>1024
+                STA     RBH
+                BRA     @s
+@all:           LDA     GPRL
+                STA     RBL
+                LDA     GPRL + 1
+                STA     RBH
+@s:             SEC
+                LDA     GPRL
+                SBC     RBL
+                STA     GPRL
+                LDA     GPRL + 1
+                SBC     RBH
+                STA     GPRL + 1
                 LDA     RBL            ; T2 the bits past the whole bytes, T0 those
-                AND     #7             ; (a row's at most 641 bits: CHKRNG's)
+                AND     #7             ; (a piece's at most 1,024 bits)
                 STA     T2
                 LDA     RBH
                 STA     T1
@@ -943,9 +972,14 @@ GPSETN:         STA     GPNB
                 RTS
 
 ; NREAD, NWRITE: a row through TXBUF (above); then RSI past it (GADV) and
-; the cursor's bank mapped again.
-NREAD:          JSR     GPTX
-                JSR     GROWR
+; the cursor's bank mapped again. 7e5: in pieces (PGPCE), the cursor
+; carried on from one to the next and put back at the row's first pixel
+; after the last (GBACK).
+NREAD:          JSR     FETCHC
+                JSR     GPROW
+@p:             JSR     PGPCE
+                JSR     GPTX
+                JSR     GROWR1
                 JSR     GX_W1BACK
                 LDY     #0
 @c:             LDA     TXBUF,Y
@@ -953,8 +987,14 @@ NREAD:          JSR     GPTX
                 INY
                 CPY     GPBYT
                 BNE     @c
-                BRA     GADV
-NWRITE:         JSR     GX_W1BACK
+                JSR     GADV
+                JSR     GPMORE
+                BNE     @p
+                JMP     GBACK
+NWRITE:         JSR     FETCHC
+                JSR     GPROW
+@p:             JSR     PGPCE
+                JSR     GX_W1BACK
                 LDY     #0
 @c:             LDA     (RSI),Y
                 STA     TXBUF,Y
@@ -963,7 +1003,19 @@ NWRITE:         JSR     GX_W1BACK
                 BNE     @c
                 JSR     GADV
                 JSR     GPTX
-                JMP     GROWW
+                JSR     GROWW1
+                JSR     GPMORE
+                BNE     @p
+                JMP     GBACK
+; GPROW (7e5): GPRL the row's bits; GPMORE: Z if none are left.
+GPROW:          LDA     GPRB
+                STA     GPRL
+                LDA     GPRB + 1
+                STA     GPRL + 1
+                RTS
+GPMORE:         LDA     GPRL
+                ORA     GPRL + 1
+                RTS
 GADV:           CLC
                 LDA     RSI
                 ADC     GPBYT
@@ -979,9 +1031,13 @@ GPTX:           LDA     #<TXBUF
                 RTS
 
 ; GROWR: the row into (PTR): GPNB CGA bytes, then GPN0 pixels packed. The
-; cursor back at the row's first pixel (GBACK).
+; cursor back at the row's first pixel (GBACK). 7e5: GROWR1 the same, the
+; cursor left past the row (NREAD's pieces).
 GROWR:          JSR     FETCHC
-                LDY     #0
+                JSR     GROWR1
+GBACK:          JSR     STOREC
+                JMP     REMAP
+GROWR1:         LDY     #0
                 LDX     GPNB
                 BEQ     :+
                 JSR     GBRD
@@ -1008,21 +1064,18 @@ GROWR:          JSR     FETCHC
                 DECW    GPN
                 BRA     @px
 @end:           LDA     GPBN           ; a part byte: left-justified, its spare bits 0
-                BEQ     GBACK
+                BEQ     GPRTS
 @al:            ASL     GPBB
                 INC     GPBN
                 LDA     GPBN
                 CMP     #8
                 BCC     @al
-                JSR     GPSTB
-GBACK:          JSR     STOREC
-                JMP     REMAP
 GPSTB:          LDA     GPBB
                 LDY     GPI
                 STA     (PTR),Y
                 INC     GPI
                 STZ     GPBN
-                RTS
+GPRTS:          RTS
 ; GPPX: the pixel loop's start, Y the buffer's place.
 GPPX:           STY     GPI
                 STZ     GPBN
@@ -1033,9 +1086,12 @@ GPPX:           STY     GPI
                 RTS
 
 ; GROWW: the row from (PTR), by the action: GPNB CGA bytes, then GPN0 pixels;
-; SCREEN 2's byte path's twin row last. The cursor back (GBACK).
+; SCREEN 2's byte path's twin row last. The cursor back (GBACK). 7e5:
+; GROWW1 the same, the cursor left past the row but for SCREEN 2's twin.
 GROWW:          JSR     FETCHC
-                STZ     GTWD
+                JSR     GROWW1
+                JMP     GBACK
+GROWW1:         STZ     GTWD
                 LDY     #0
                 LDX     GPNB
                 BEQ     :+
@@ -1081,7 +1137,7 @@ GROWW:          JSR     FETCHC
                 BNE     @b
                 LDA     GPNB
                 BNE     :+
-@b:             JMP     GBACK
+@b:             RTS
 :
                 JSR     STOREC
                 JSR     REMAP
@@ -1097,7 +1153,7 @@ GROWW:          JSR     FETCHC
                 JSR     GNXHI
 :               DEX
                 BNE     @w
-                JMP     GBACK
+                RTS
 
 ; GBRD: X CGA bytes from the cursor into (PTR),Y on; Y and the cursor past
 ; them.
@@ -1168,9 +1224,11 @@ TNIB:           TAX
 ; results back in (PTR) for the twin; Y and the cursor past them.
 GBWR:           STX     GDN
                 LDA     GPACT
-                LDX     GMX
-                CPX     #2 * GM_TILE
+                LDX     GMODEV
+                CPX     #GM_TILE
                 BEQ     @t
+                CPX     #GM_MONO       ; 7e5: the twin's PSET at once SCREEN 2's alone; the
+                BNE     @m             ; OO-1's modes have none, each action byte by byte
                 CMP     #3
                 BNE     @m
                 CLC                    ; PSET: the row and its twin at once by Y (Y 0, the
@@ -1352,6 +1410,8 @@ PCSX:           .res    2              ;   SCANR's run's first pixel's x (the so
 PBORD:          .res    1              ;   the border's attribute (PNTINI)
 GPCPAT:         .res    1              ; 7e3: CPAT, kept for PGINIT's caller
 GOPV:           .res    2              ;   GOPB's routine, by the action (not zero page: rule 2)
+GPRB:           .res    2              ; 7e5: a row's bits (PGINIT)
+GPRL:           .res    2              ;   and those left for its pieces (PGPCE)
 TILEF:          .res    1              ; 7e4: bit 7, PAINT's paint a tile (TXBUF)
 TLEN:           .res    1              ;   its bytes
 TBG:            .res    1              ;   the background's byte

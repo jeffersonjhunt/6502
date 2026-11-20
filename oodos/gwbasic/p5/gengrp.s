@@ -300,18 +300,34 @@ PNTN:           JSR     CONINT         ; n
 ; GCELL (OO-1, P6's SCREEN( in a graphics mode: the IBM manual's p. 311):
 ; C set if any of the 8 x 8 pixels under the text cell at row RDL, column
 ; RCL (from 0) isn't 0. The graphics cursor kept. 7e4: the cell's pixels
-; the screen's, whatever the viewport (MAPABS).
+; the screen's, whatever the viewport (MAPABS). 7e5: the mode's cell (8 x 8
+; in SCREEN 1, 2 and 10, 8 x 16 in 11 and 12), its column less the columns
+; beside the bitmap (4 in SCREEN 10, 8 in 11): a cell beside it has no
+; pixels (C clear, a blank's a blank: the owner's answer 11).
 GCELL:          JSR     FETCHC
+                LDX     GMODEV
+                SEC
+                LDA     RCL
+                SBC     GCOT - 1,X     ; the column over the picture
+                CMP     GCWT - 1,X
+                BCS     @none          ; beside it (or before: unsigned)
+                STA     RCL
+                LDA     GCHT - 1,X     ; the cell's rows
+                STA     GCR
                 STZ     RCH
+                STZ     RDH
                 LDX     #3
 @m:             ASL     RDL            ; x 8: the cell's first pixel
+                ROL     RDH
                 ASL     RCL
                 ROL     RCH
                 DEX
                 BNE     @m
-                STZ     RDH
-                LDA     #8
-                STA     GCR
+                LDA     GCR            ; 16 rows: y x 16
+                CMP     #16
+                BCC     @r
+                ASL     RDL
+                ROL     RDH
 @r:             JSR     MAPABS
                 LDA     #8
                 STA     GCN
@@ -321,10 +337,10 @@ GCELL:          JSR     FETCHC
                 JSR     RIGHTC
                 DEC     GCN
                 BNE     @p
-                INC     RDL
+                INCW    RDL            ; (7e5: y a word)
                 DEC     GCR
                 BNE     @r
-                LDX     #0             ; none
+@none:          LDX     #0             ; none
 @x:             PHX
                 JSR     GX_W1BACK
                 JSR     STOREC
@@ -1019,6 +1035,13 @@ GRPINI:         JSR     GRPSIZ
                 STA     GRPACY + 1
                 ROR     GRPACY
                 RTS
+
+.segment "RODATA"
+; 7e5: GCELL's, by mode from 1: the columns beside the picture, those over
+; it, a cell's rows.
+GCOT:           .byte   0, 0, 4, 8, 0
+GCWT:           .byte   40, 80, 32, 64, 80
+GCHT:           .byte   8, 8, 8, 16, 16
 
 .segment "BRAM"
 GRPACX:         .res    2              ; the graphics cursor (the graphics accumulator)
