@@ -1,7 +1,9 @@
 ; OOLIB's text on a bitmap (include/oolib.inc, "Graphics"; hw/oolib.md,
 ; L4): an 8 x 16 font, 256 characters of 16 bytes (the leftmost pixel in
 ; bit 7), drawn a pixel at a time by gxbmp.s's GX_PLOT on the bitmap
-; GX_BMP named. The console's font (card $000400, OODOS's) is read a
+; GX_BMP named; on a direct 640 bitmap (GB_DIRECT, interface version 13)
+; its colours are words, GX_FGH:GX_FG and GX_BGH:GX_BG (the high bytes
+; here, not in gxmem.s, which GW-BASIC links byte for byte). The console's font (card $000400, OODOS's) is read a
 ; character at a time, its 16 bytes copied by function 83's DM_VREAD into
 ; the library's own (OODOS's card memory is a source a program may read,
 ; never a destination, and slot 0's block 32 isn't in the W1 map); so the
@@ -9,6 +11,7 @@
 ; wants its data.
 
         .setcpu "65C02"
+        .macpack longbranch
         .include "oodos.inc"
         .include "oolib.inc"
         .include "gx.inc"
@@ -17,6 +20,8 @@ CONSOLE_FONT    = VM_FONT              ; the console's font, on the card
 .assert <CONSOLE_FONT = 0, error, "CONGLYPH adds to the font's middle byte"
 
         .bss
+GX_FGH: .res    1                      ; GB_DIRECT: GX_FG's and GX_BG's high bytes (0 at load)
+GX_BGH: .res    1
 font:   .res    2                      ; the font in use, a CPU address; 0 the console's
 glyph:  .res    16                     ; the console's character, as copied
 gphys:  .res    3                      ; glyph's physical address
@@ -110,12 +115,16 @@ GLYPH:  lda     GX_X
         ldx     #8
 @pix:   asl     bits
         bcc     @bg
-        lda     GX_FG
+        lda     GX_FGH                  ; (GX_PLOT reads X only on GB_DIRECT)
+        ldy     GX_FG
         bra     @plot
 @bg:    lda     GX_OPAQUE
         beq     @skip
-        lda     GX_BG
+        lda     GX_BGH
+        ldy     GX_BG
 @plot:  phx
+        tax
+        tya
         jsr     GX_PLOT
         plx
 @skip:  inc     GX_X
@@ -133,7 +142,7 @@ GLYPH:  lda     GX_X
 @ny:    inc     frow
         lda     frow
         cmp     #16
-        bne     @row
+        jne     @row
         lda     sy
         sta     GX_Y
         lda     sy + 1

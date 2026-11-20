@@ -2,7 +2,8 @@
  * @file test_oodos_gfx.cpp
  * @brief OOLIB's L4 (hw/oolib.md, "The plan"): the linked graphics library (oodos/lib/gx*.s) and VIEW.COM, on
  * video card revision 2 (hw/video-rev2.md, interface version 8): the program's card memory handed out in card
- * pages, drawn through aperture slot 1 in W1, copied and filled on the card by function 83.
+ * pages, drawn through aperture slot 1 in W1, copied and filled on the card by function 83; and since interface
+ * version 13 (hw/video640.md) bitmap 640 (GB_640, layer type 6) and direct 640 (GB_DIRECT, type 7, word colours).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * GXTEST (oodos/test/gx/gxtest.s), run by GO, calls a library routine for each command: a letter at $3900,
@@ -150,9 +151,10 @@ namespace
     {
         unsigned mode, w, h, row;
         std::vector<uint8_t> b;
+        /// GB_*: 0 bitmap 256, 1 bitmap 512, 2 mono, 3 bitmap 640 (1,024 x 480 a byte), 4 direct 640 (a word).
         explicit Bmp(unsigned m)
-            : mode(m), w(m == 0 ? 256 : m == 1 ? 512 : 640), h(m == 0 ? 240 : 480), row(m == 2 ? 80 : 256),
-              b(static_cast<size_t>(row) * h, 0)
+            : mode(m), w(m == 0 ? 256 : m == 1 ? 512 : m == 3 ? 1024 : 640), h(m == 0 ? 240 : 480),
+              row(m == 2 ? 80 : m == 3 ? 1024 : m == 4 ? 1280 : 256), b(static_cast<size_t>(row) * h, 0)
         {
         }
         bool off(int x, int y) const { return x < 0 || y < 0 || x >= static_cast<int>(w) || y >= static_cast<int>(h); }
@@ -160,8 +162,13 @@ namespace
         {
             if (off(x, y))
                 return;
-            if (mode == 0)
+            if (mode == 0 || mode == 3)
                 b[y * row + x] = static_cast<uint8_t>(c);
+            else if (mode == 4)
+            {
+                b[y * row + 2 * x] = static_cast<uint8_t>(c);
+                b[y * row + 2 * x + 1] = static_cast<uint8_t>(c >> 8);
+            }
             else if (mode == 1)
             {
                 uint8_t &v = b[y * row + x / 2];
@@ -178,8 +185,10 @@ namespace
         {
             if (off(x, y))
                 return 0;
-            if (mode == 0)
+            if (mode == 0 || mode == 3)
                 return b[y * row + x];
+            if (mode == 4)
+                return b[y * row + 2 * x] | b[y * row + 2 * x + 1] << 8;
             if (mode == 1)
                 return x & 1 ? b[y * row + x / 2] & 15 : b[y * row + x / 2] >> 4;
             return (b[y * row + x / 8] >> (7 - (x & 7))) & 1;
@@ -272,10 +281,44 @@ namespace
         word(r, "GX_Y2", static_cast<unsigned>(y2));
     }
 
+    /// Command `c` with a colour: A its low byte, X its high (a word on GB_DIRECT; 0 on the others).
+    std::string gxc(CcpRig &r, char c, unsigned colour, uint64_t budget = ms(8000))
+    {
+        return gx(r, c, static_cast<uint8_t>(colour), static_cast<uint8_t>(colour >> 8), 0, budget);
+    }
+
+    /// GX_TEXT of `s` at (x, y) in the console's font, by the library and the reference: fg, and bg if opaque.
+    void text_both(CcpRig &r, Bmp &ref, int x, int y, const std::string &s, unsigned fg, unsigned bg, bool opaque)
+    {
+        gx(r, 'G', 0, 0);
+        r.poke(at("GX_FG"), static_cast<uint8_t>(fg));
+        r.poke(at("GX_FGH"), static_cast<uint8_t>(fg >> 8));
+        r.poke(at("GX_BG"), static_cast<uint8_t>(bg));
+        r.poke(at("GX_BGH"), static_cast<uint8_t>(bg >> 8));
+        r.poke(at("GX_OPAQUE"), opaque ? 1 : 0);
+        std::vector<uint8_t> z(s.begin(), s.end());
+        z.push_back(0);
+        r.poke(TEXT, z);
+        xy(r, x, y);
+        gx(r, 'T', static_cast<uint8_t>(TEXT), static_cast<uint8_t>(TEXT >> 8), 0, ms(20000));
+        for (size_t c = 0; c < s.size(); ++c)
+            for (unsigned row = 0; row < 16; ++row)
+            {
+                const uint8_t bits = card(r, 0x000400 + static_cast<uint8_t>(s[c]) * 16u + row); // the console's font
+                for (unsigned k = 0; k < 8; ++k)
+                    if (bits & (0x80 >> k) || opaque)
+                        ref.plot(static_cast<int>(x + c * 8 + k), static_cast<int>(y + row), bits & (0x80 >> k) ? fg : bg);
+            }
+    }
+
     /// The same drawn by the library and the reference, at mode `mode`, from card page `page`.
     void draw_all(CcpRig &r, unsigned mode, unsigned page, Bmp &ref)
     {
-        const unsigned c1 = mode == 2 ? 1 : 5, c2 = mode == 2 ? 1 : 9, c3 = mode == 2 ? 0 : 3;
+        // The colours: bytes, mono's bits, or direct 640's words (none with its two bytes equal, so the fills
+        // are DM_VFILLW's; and a transparent one).
+        const bool wide = mode == 4;
+        const unsigned c1 = wide ? 0x0F00 : mode == 2 ? 1 : 5, c2 = wide ? 0x05A0 : mode == 2 ? 1 : 9,
+                       c3 = wide ? 0x0033 : mode == 2 ? 0 : 3, c4 = wide ? 0x8000 : mode == 2 ? 1 : 7;
         const int w = static_cast<int>(ref.w), h = static_cast<int>(ref.h);
         bmp_at(r, mode, page);
         xy(r, 0, 0, w - 1, h - 1); // the whole bitmap cleared
@@ -284,39 +327,55 @@ namespace
         for (const auto &[x, y] : std::vector<std::pair<int, int>>{{0, 0}, {7, 3}, {100, 50}, {w - 1, h - 1}, {w, 5}})
         {
             xy(r, x, y);
-            gx(r, 'P', static_cast<uint8_t>(c1));
+            gxc(r, 'P', c1);
             ref.plot(x, y, c1);
         }
         xy(r, 10, 10, 150, 90); // lines: shallow, steep and backwards, off the edge
-        gx(r, 'N', static_cast<uint8_t>(c2));
+        gxc(r, 'N', c2);
         ref.line(10, 10, 150, 90, c2);
         xy(r, 20, 200, 30, 12);
-        gx(r, 'N', static_cast<uint8_t>(c1));
+        gxc(r, 'N', c1);
         ref.line(20, 200, 30, 12, c1);
         xy(r, 200, 100, w + 20, 130);
-        gx(r, 'N', static_cast<uint8_t>(c2));
+        gxc(r, 'N', c2);
         ref.line(200, 100, w + 20, 130, c2);
         xy(r, 40, 120, 90, 160);
-        gx(r, 'R', static_cast<uint8_t>(c2));
+        gxc(r, 'R', c2);
         ref.rect(40, 120, 90, 160, c2);
         xy(r, 60, 130, 70, 150); // inside the rectangle, a filled one
-        gx(r, 'F', static_cast<uint8_t>(c1));
+        gxc(r, 'F', c1);
         ref.frect(60, 130, 70, 150, c1);
         xy(r, 0, 220, w - 1, 225); // a band the full width
-        gx(r, 'F', static_cast<uint8_t>(c2));
+        gxc(r, 'F', c2);
         ref.frect(0, 220, w - 1, 225, c2);
         xy(r, 180, 60);
         word(r, "GX_R", 30);
-        gx(r, 'C', static_cast<uint8_t>(c1));
+        gxc(r, 'C', c1);
         ref.circle(180, 60, 30, c1);
         xy(r, 180, 60); // the circle's inside flooded
-        gx(r, 'O', static_cast<uint8_t>(c3 ? c3 : 1), 0, 0, ms(30000));
+        gxc(r, 'O', c3 ? c3 : 1, ms(30000));
         ref.flood(180, 60, c3 ? c3 : 1);
         xy(r, 50, 125); // the rectangle's inside, round the filled one
-        gx(r, 'O', static_cast<uint8_t>(c3 ? 7 : 1), 0, 0, ms(30000));
-        ref.flood(50, 125, c3 ? 7 : 1);
+        gxc(r, 'O', c4, ms(30000));
+        ref.flood(50, 125, c4);
+        if (wide)
+        {
+            // Direct 640's rows that straddle a 16 KB slot from a base on 16 KB: 12, 25, 38 and 51 (5 pages a
+            // row): a line along row 12, a full-width fill of row 25, a part-row fill across 51, text over 38-53.
+            xy(r, 0, 12, w - 1, 12);
+            gxc(r, 'N', 0x0ABC);
+            ref.line(0, 12, w - 1, 12, 0x0ABC);
+            xy(r, 0, 25, w - 1, 25);
+            gxc(r, 'F', 0x0123);
+            ref.frect(0, 25, w - 1, 25, 0x0123);
+            xy(r, 300, 50, 639, 51);
+            gxc(r, 'F', 0x0F0F);
+            ref.frect(300, 50, 639, 51, 0x0F0F);
+            text_both(r, ref, 400, 38, "STRADDLE", 0x00FF, 0x0F00, true);
+        }
         xy(r, 7, 3);
-        CHECK_EQ(hexa(gx(r, 'p')), ref.point(7, 3));
+        const std::string p = gx(r, 'p');
+        CHECK_EQ(wide ? hexax(p) : hexa(p), ref.point(7, 3));
     }
 
     /// VIEW with B:name83 (an asset check_mkasset.py wrote), to its "Press a key" line.
@@ -442,13 +501,14 @@ TEST(view_s_refusals)
 
 TEST(plot_line_rectangles_circle_and_flood_at_8_4_and_1_bits)
 {
+    // And at bitmap 640's byte and direct 640's word (interface version 13, hw/video640.md), on 16 KB.
     CcpRig r;
     REQUIRE(r.ok);
     start_gx(r);
     CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
-    for (const unsigned mode : {0u, 1u, 2u})
+    for (const unsigned mode : {0u, 1u, 2u, 3u, 4u})
     {
-        const unsigned pages = mode == 0 ? 240 : mode == 1 ? 480 : 150; // 60 KB, 120 KB, 37.5 KB
+        const unsigned pages = mode == 0 ? 240 : mode == 1 ? 480 : mode == 2 ? 150 : mode == 3 ? 1920 : 2400; // 60 KB, 120 KB, 37.5 KB, 480 KB, 600 KB
         const std::string a = valloc(r, pages, 64);                        // on 16 KB
         REQUIRE(a.substr(6) == "00");
         const unsigned page = hexax(a);
@@ -456,7 +516,41 @@ TEST(plot_line_rectangles_circle_and_flood_at_8_4_and_1_bits)
         CHECK(page >= PAGE0 && page % 64 == 0);
         Bmp ref(mode);
         draw_all(r, mode, page, ref);
-        CHECK(same_bmp(r, page, ref, mode == 0 ? "bitmap 256" : mode == 1 ? "bitmap 512" : "mono"));
+        static const char *const NAMES[] = {"bitmap 256", "bitmap 512", "mono", "bitmap 640", "direct 640"};
+        CHECK(same_bmp(r, page, ref, NAMES[mode]));
+        // GX_PLOT's cost, recorded (not gated): from its first instruction to the return after GXTEST's JSR to it
+        // (its own cycles and the JMP's), the least of 8 (an interrupt inside one adds to it), at a pixel whose
+        // bank is mapped already; on direct 640 also across row 12's slot boundary (x 511, then 512).
+        uint16_t back = 0;
+        for (uint16_t q = 0x0300; q < 0x2000 && !back; ++q)
+            if (r.phys(q) == 0x20 && r.phys(q + 1) == static_cast<uint8_t>(at("call")) &&
+                r.phys(q + 2) == static_cast<uint8_t>(at("call") >> 8))
+                back = static_cast<uint16_t>(q + 3);
+        REQUIRE(back != 0);
+        auto plot_cycles = [&](int px0, int py0, int px1, int py1) {
+            uint64_t best = ~uint64_t{0};
+            for (unsigned k = 0; k < 8; ++k)
+            {
+                xy(r, px0, py0);
+                gxc(r, 'P', 1);
+                xy(r, px1, py1);
+                uint64_t t0 = 0, took = 0;
+                r.watch = [&](uint16_t pc) {
+                    if (pc == at("GX_PLOT"))
+                        t0 = r.cpu->cycles();
+                    else if (pc == back && t0 && !took)
+                        took = r.cpu->cycles() - t0;
+                };
+                gxc(r, 'P', 1);
+                r.watch = nullptr;
+                best = std::min(best, took);
+            }
+            return best;
+        };
+        std::printf("  %s: GX_PLOT %llu cycles\n", NAMES[mode], static_cast<unsigned long long>(plot_cycles(5, 5, 6, 5)));
+        if (mode == 4)
+            std::printf("  direct 640: GX_PLOT across a slot (row 12, x 511 then 512) %llu cycles\n",
+                        static_cast<unsigned long long>(plot_cycles(511, 12, 512, 12)));
         vfree(r, page, pages);
     }
     // The pages: the first unit for one page (a unit, 4 pages, the grain), eight units aligned to 8 after it,
@@ -765,10 +859,47 @@ namespace
         f.resize(1024 + 9 * 1024, 0x77); // data: 9 KB of $77
         return f;
     }
-    std::string asset(CcpRig &r, const std::string &name83)
+    constexpr uint8_t AT_RAW = 8, AT_BITMAP = 6;
+    struct BigPart
+    {
+        uint8_t type;
+        uint32_t bytes;
+        uint32_t seed;
+    };
+    /// An asset file of parts of `bytes` each, on their 1 KB of the file, their data noise from `seed` (`data`
+    /// false: the header alone, for a part refused before it is read).
+    std::vector<uint8_t> big_asset(const std::vector<BigPart> &parts, bool data = true)
+    {
+        std::vector<uint8_t> f(1024, 0);
+        f[0] = 'O', f[1] = 'G', f[2] = 'X', f[3] = 4, f[4] = static_cast<uint8_t>(parts.size());
+        unsigned record = 8;
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            const BigPart &p = parts[i];
+            const unsigned records = (p.bytes + 127) / 128;
+            const uint8_t e[16] = {p.type, 0, 0xFF, 0xFF, static_cast<uint8_t>(record), static_cast<uint8_t>(record >> 8),
+                                   static_cast<uint8_t>(records), static_cast<uint8_t>(records >> 8),
+                                   static_cast<uint8_t>(p.bytes), static_cast<uint8_t>(p.bytes >> 8),
+                                   static_cast<uint8_t>(p.bytes >> 16), 0, 0, 0, 0, 0};
+            std::copy(e, e + 16, f.begin() + 16 + 16 * static_cast<long>(i));
+            if (data)
+            {
+                uint32_t x = p.seed * 2654435761u + 1;
+                for (uint32_t k = 0; k < p.bytes; ++k)
+                {
+                    x ^= x << 13, x ^= x >> 17, x ^= x << 5;
+                    f.push_back(static_cast<uint8_t>(x >> 8));
+                }
+                f.resize((f.size() + 1023) / 1024 * 1024, 0);
+            }
+            record += (p.bytes + 1023) / 1024 * 8;
+        }
+        return f;
+    }
+    std::string asset(CcpRig &r, const std::string &name83, uint8_t drive = 13)
     {
         std::vector<uint8_t> fcb(36, 0);
-        fcb[0] = 13; // M:
+        fcb[0] = drive; // 13 M:, 2 B:
         for (unsigned i = 0; i < 11; ++i)
             fcb[1 + i] = static_cast<uint8_t>(name83[i]);
         r.poke(0x3A80, fcb);
@@ -915,6 +1046,246 @@ TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
     CHECK_EQ(asset(r, "GOOD    OGX").substr(6), std::string("00"));
     CHECK(cmem(r, 0x042800, 1024) == std::vector<uint8_t>(1024, 0x77));
     CHECK_EQ(card(r, 0x042C00), 0);
+    // Interface version 13 (hw/video640.md): a part up to the program's part of card memory. Two 600 KB screens
+    // (direct 640's) load; a third file, 200 KB then 600 KB, is refused (GE_MEMORY) with its first part's pages
+    // freed (1,084 pages are left in one run past TAKEN's); a part of $180001 bytes is GE_FORMAT before anything is read. From B: (M: is too small).
+    const std::vector<uint8_t> big1 = big_asset({{AT_BITMAP, 614400, 1}}), big2 = big_asset({{AT_BITMAP, 614400, 2}}),
+                               big3 = big_asset({{AT_RAW, 204800, 3}, {AT_BITMAP, 614400, 4}}),
+                               past = big_asset({{AT_RAW, 0x180001, 5}}, false);
+    unsigned blk = B_DIRBLOCKS;
+    for (const auto &[name, f] : {std::pair{"BIG1    OGX", &big1}, {"BIG2    OGX", &big2}, {"BIG3    OGX", &big3},
+                                  {"PAST    OGX", &past}})
+    {
+        put_b(r, name, *f, blk);
+        blk += static_cast<unsigned>((f->size() + B_BLS - 1) / B_BLS);
+    }
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(asset(r, "BIG1    OGX", 2).substr(6), std::string("00"));
+    std::printf("  a 600 KB part from B: by GX_ASSET: %.3f s\n", static_cast<double>(r.cpu->cycles() - c0) / HZ);
+    const unsigned p1 = r.phys(at("GX_HDR") + 18) | r.phys(at("GX_HDR") + 19) << 8;
+    CHECK(cmem(r, p1 * 256u, 614400) == std::vector<uint8_t>(big1.begin() + 1024, big1.begin() + 1024 + 614400));
+    CHECK_EQ(asset(r, "BIG2    OGX", 2).substr(6), std::string("00"));
+    const unsigned p2 = r.phys(at("GX_HDR") + 18) | r.phys(at("GX_HDR") + 19) << 8;
+    CHECK(cmem(r, p2 * 256u, 614400) == std::vector<uint8_t>(big2.begin() + 1024, big2.begin() + 1024 + 614400));
+    a = asset(r, "BIG3    OGX", 2);
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("03 01")); // GE_MEMORY
+    CHECK_EQ(valloc(r, 800).substr(6), std::string("00"));       // its 200 KB back, and taken
+    a = asset(r, "PAST    OGX", 2);
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("06 01")); // GE_FORMAT
+}
+
+TEST(an_asset_part_past_record_65535_loads)
+{
+    // Answer 23 (2026-11-20): GX_ASSET's record counter carries into its third byte. A sparse file on B: of our own
+    // making: record 0 its header, and one 8 KB part at records 65,528-65,591 (extents 511 and 512), nothing between.
+    // The part's second 4 KB piece starts at record 65,560, past 16 bits; without the carry it would read record 24,
+    // never written, and GX_ASSET would say GE_FILE.
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> head(1024, 0);
+    head[0] = 'O', head[1] = 'G', head[2] = 'X', head[3] = 4, head[4] = 1;
+    const uint8_t e[16] = {AT_RAW, 0, 0xFF, 0xFF, 0xF8, 0xFF, 64, 0, 0x00, 0x20, 0x00, 0, 0, 0, 0, 0}; // record 65,528
+    std::copy(e, e + 16, head.begin() + 16);
+    std::vector<uint8_t> part(8192);
+    uint32_t x = 99;
+    for (auto &v : part)
+        x ^= x << 13, x ^= x >> 17, x ^= x << 5, v = static_cast<uint8_t>(x >> 8);
+    // oodos-8m: 4 KB blocks of 32 records, 16-bit pointers, 8 a directory entry (two extents of 128 records).
+    const unsigned b0 = 1000, b1 = 1001, b2 = 1002, b3 = 1003;
+    std::vector<uint8_t> dir;
+    for (uint32_t sct = 0; sct < B_ENTRIES * 32 / SECTOR; ++sct)
+    {
+        const std::vector<uint8_t> sec = r.read_unit(B_UNIT, sct);
+        dir.insert(dir.end(), sec.begin(), sec.end());
+    }
+    unsigned ent = 0;
+    auto entry = [&](unsigned ext, unsigned rc, std::initializer_list<std::pair<unsigned, unsigned>> blocks) {
+        while (dir[ent * 32] != 0xE5 || ent % 4 == 3)
+            ++ent;
+        uint8_t *d = &dir[ent * 32];
+        std::fill(d, d + 32, 0);
+        const char *name = "SPARSE  OGX";
+        for (unsigned i = 0; i < 11; ++i)
+            d[1 + i] = static_cast<uint8_t>(name[i]);
+        d[12] = static_cast<uint8_t>(ext & 0x1F);
+        d[14] = static_cast<uint8_t>(ext >> 5);
+        d[15] = static_cast<uint8_t>(rc);
+        for (const auto &[k, blk] : blocks)
+        {
+            d[16 + 2 * k] = static_cast<uint8_t>(blk);
+            d[17 + 2 * k] = static_cast<uint8_t>(blk >> 8);
+        }
+        ++ent;
+    };
+    entry(0, 8, {{0, b0}});             // records 0-7: the header
+    entry(511, 128, {{7, b1}});         // extents 510-511, block 7: records 65,504-65,535
+    entry(512, 56, {{0, b2}, {1, b3}}); // extent 512: records 65,536-65,591
+    unit_write(r, B_UNIT, 0, dir);
+    unit_write(r, B_UNIT, b0 * (B_BLS / SECTOR), head);
+    std::vector<uint8_t> blk1(B_BLS, 0);
+    std::copy(part.begin(), part.begin() + 1024, blk1.begin() + 24 * 128); // records 65,528-65,535
+    unit_write(r, B_UNIT, b1 * (B_BLS / SECTOR), blk1);
+    unit_write(r, B_UNIT, b2 * (B_BLS / SECTOR), std::vector<uint8_t>(part.begin() + 1024, part.begin() + 5120));
+    std::vector<uint8_t> blk3(B_BLS, 0);
+    std::copy(part.begin() + 5120, part.end(), blk3.begin());
+    unit_write(r, B_UNIT, b3 * (B_BLS / SECTOR), blk3);
+    start_gx(r);
+    gx(r, 'I');
+    const std::string a = asset(r, "SPARSE  OGX", 2);
+    CHECK_EQ(a.substr(6), std::string("00"));
+    if (a.substr(6) != "00")
+        std::printf("  GX_ASSET: %s\n", a.c_str());
+    const unsigned page = r.phys(at("GX_HDR") + 18) | r.phys(at("GX_HDR") + 19) << 8;
+    CHECK(cmem(r, page * 256u, 8192) == part);
+}
+
+TEST(full_screen_fills_at_both_new_types_are_dma_runs)
+{
+    // GX_FRECT of a whole bitmap 640 (rows of 1,024: DM_VFILLs of 64 rows), of its 640 shown columns (a DM_VFILL a
+    // row, the 384 bytes past them untouched), and of a whole direct 640: $0F00 by DM_VFILLW (51 rows a call),
+    // $0000, $FFFF and $0F0F (two bytes equal) by DM_VFILL (answer 22). Bytes exact; each whole fill under 0.15 s.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned page = alloc(r, 2400, 64);
+    const uint32_t at0 = page * 256u;
+    cpoke(r, at0 + 614400, {0xA5});
+    const uint16_t vfill = sym("DM_VFILLX"), vfillw = sym("DM_VFILLWX");
+    unsigned nf = 0, nw = 0;
+    r.watch = [&](uint16_t pc) { nf += pc == vfill, nw += pc == vfillw; };
+    auto fill = [&](unsigned mode, int x1, unsigned colour, const char *what) {
+        bmp_at(r, mode, page);
+        xy(r, 0, 0, x1, 479);
+        nf = nw = 0;
+        const uint64_t c0 = r.cpu->cycles();
+        gxc(r, 'F', colour, ms(20000));
+        const double secs = static_cast<double>(r.cpu->cycles() - c0) / HZ;
+        std::printf("  %s: %.0f cycles, %.3f s, %u DM_VFILL, %u DM_VFILLW\n", what, secs * HZ, secs, nf, nw);
+        return secs;
+    };
+    CHECK(fill(3, 1023, 0x5A, "bitmap 640, 1,024 x 480 of $5A") < 0.15);
+    CHECK_EQ(nf, 8u);
+    CHECK(cmem(r, at0, 491520) == std::vector<uint8_t>(491520, 0x5A));
+    fill(3, 639, 0x33, "bitmap 640, 640 x 480 of $33");
+    CHECK_EQ(nf, 480u);
+    {
+        const std::vector<uint8_t> got = cmem(r, at0, 491520);
+        unsigned bad = 0;
+        for (unsigned y = 0; y < 480; ++y)
+            for (unsigned x = 0; x < 1024; ++x)
+                bad += got[y * 1024 + x] != (x < 640 ? 0x33 : 0x5A);
+        CHECK_EQ(bad, 0u); // the rows' tails, past x 639, kept
+    }
+    CHECK(fill(4, 639, 0x0F00, "direct 640 of $0F00") < 0.15);
+    CHECK_EQ(nw, 10u);
+    CHECK_EQ(nf, 0u);
+    {
+        std::vector<uint8_t> want(614400);
+        for (size_t i = 0; i < want.size(); ++i)
+            want[i] = i & 1 ? 0x0F : 0x00;
+        CHECK(cmem(r, at0, 614400) == want);
+    }
+    for (const unsigned c : {0x0000u, 0xFFFFu, 0x0F0Fu})
+    {
+        char what[40];
+        std::snprintf(what, sizeof what, "direct 640 of $%04X", c);
+        CHECK(fill(4, 639, c, what) < 0.15);
+        CHECK_EQ(nf, 10u);
+        CHECK_EQ(nw, 0u);
+        CHECK(cmem(r, at0, 614400) == std::vector<uint8_t>(614400, static_cast<uint8_t>(c)));
+    }
+    r.watch = nullptr;
+    CHECK_EQ(card(r, at0 + 614400), 0xA5);
+}
+
+TEST(gx_bcopy_and_flood_on_the_new_types)
+{
+    // Rectangles copied at both strides (an odd x on direct 640: its pixels are words); a flood of a word colour
+    // bounded by one that differs from it in red alone (its high byte).
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned page = alloc(r, 2400, 64);
+    for (const unsigned mode : {3u, 4u})
+    {
+        Bmp ref(mode);
+        uint32_t x = 7 + mode;
+        for (auto &v : ref.b)
+            x ^= x << 13, x ^= x >> 17, x ^= x << 5, v = static_cast<uint8_t>(x >> 8);
+        cpoke(r, page * 256u, ref.b);
+        bmp_at(r, mode, page);
+        const int sx = mode == 3 ? 100 : 33, sy = 20, cw = mode == 3 ? 300 : 101, ch = 40, dx = mode == 3 ? 700 : 400,
+                  dy = 300;
+        xy(r, sx, sy, cw, ch);
+        word(r, "GX_DX", static_cast<unsigned>(dx));
+        word(r, "GX_DY", static_cast<unsigned>(dy));
+        CHECK_EQ(gx(r, 'y').substr(6), std::string("00"));
+        const Bmp src = ref;
+        for (int yy = 0; yy < ch; ++yy)
+            for (int xx = 0; xx < cw; ++xx)
+                ref.plot(dx + xx, dy + yy, src.point(sx + xx, sy + yy));
+        CHECK(same_bmp(r, page, ref, mode == 3 ? "bitmap 640's copy" : "direct 640's copy"));
+        xy(r, sx, sy, static_cast<int>(ref.w) - sx, ch); // past the right edge: refused
+        CHECK_EQ(gx(r, 'y').substr(0, 2), std::string("08"));
+    }
+    // The flood: all $0123, a rectangle's outline of $0923 (red alone differs), its inside flooded $0F00.
+    Bmp ref(4);
+    bmp_at(r, 4, page);
+    xy(r, 0, 0, 639, 479);
+    gxc(r, 'F', 0x0123, ms(20000));
+    ref.frect(0, 0, 639, 479, 0x0123);
+    xy(r, 100, 100, 300, 200);
+    gxc(r, 'R', 0x0923);
+    ref.rect(100, 100, 300, 200, 0x0923);
+    xy(r, 200, 150);
+    gxc(r, 'O', 0x0F00, ms(60000));
+    ref.flood(200, 150, 0x0F00);
+    CHECK(same_bmp(r, page, ref, "direct 640's flood"));
+    xy(r, 200, 150);
+    CHECK_EQ(gx(r, 'p').substr(0, 5), std::string("00 0F")); // GX_POINT: A/X
+    xy(r, 640, 0);
+    CHECK_EQ(gx(r, 'p').substr(0, 5), std::string("00 00")); // off the bitmap: 0/0
+}
+
+TEST(gx_bmp_refuses_a_mode_past_4)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned page = alloc(r, 240);
+    bmp_at(r, 0, page);
+    for (const uint8_t m : {uint8_t{5}, uint8_t{0x80}, uint8_t{0xFF}})
+    {
+        word(r, "GX_V", page + 4);
+        const std::string a = gx(r, 'B', m);
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("06 01")); // GE_FORMAT
+    }
+    CHECK_EQ(gx(r, 'B', 4).substr(6), std::string("00")); // GB_DIRECT taken: carry clear
+    bmp_at(r, 0, page);
+    xy(r, 3, 3);
+    gx(r, 'P', 9);
+    CHECK_EQ(card(r, page * 256u + 3 * 256 + 3), 9); // bitmap 256 still, at its page
+}
+
+TEST(text_in_direct_colour)
+{
+    // GX_TEXT on GB_DIRECT: GX_FGH:GX_FG and GX_BGH:GX_BG, opaque and not.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned page = alloc(r, 2400, 64);
+    Bmp ref(4);
+    bmp_at(r, 4, page);
+    xy(r, 0, 0, 639, 479);
+    gxc(r, 'F', 0x0234, ms(20000));
+    ref.frect(0, 0, 639, 479, 0x0234);
+    text_both(r, ref, 10, 20, "OK", 0x0F00, 0x00F0, true);
+    text_both(r, ref, 200, 300, "Hi", 0x8FFF, 0x0F0F, false);
+    CHECK(same_bmp(r, page, ref, "direct 640's text"));
 }
 
 TEST(a_filled_rectangle_wholly_off_the_bitmap_draws_nothing_at_once)
