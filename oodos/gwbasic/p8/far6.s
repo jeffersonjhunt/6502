@@ -162,9 +162,11 @@ ADV:            JMP     ADVERR
 ; and the column on the line (LINLEN), the cursor, start and stop checked
 ; (CSRATR); then P6's LOCATP: RDL the line, RDH bit 7 not given (the
 ; cursor's then), RBL the column, RBH the same, P6 checking the line against
-; its rows and the key line. (A statement with two errors, a line past the
-; last and a later argument's, now gives the later's: the space plan's M6
-; has P6 check what needs its state after the parse.)
+; its rows and the key line. The source's order kept (the owner's answer 13
+; to the 7e5 build's report): a line given with more after it is checked
+; against the last row as soon as it is parsed, by P6's LOCLIM (one more
+; far call then), so LOCATE 99,"A" is Illegal function call, not Type
+; mismatch; a line alone is checked by LOCATP, nothing after it to fail.
 LOCATE:         BIT     SCRMOD
                 BPL     ADV
                 JSR     SCNINT         ; the line
@@ -173,6 +175,11 @@ LOCATE:         BIT     SCRMOD
                 BCS     :+
                 TAX
                 BEQ     LFC            ; 0
+                LDA     SNEND          ; more after it: its row checked now
+                BNE     :+
+                FJSR    LOCLIM         ; A: the last row (LINCNT, less 1 with the key line)
+                CMP     LCY
+                BCC     LFC
 :               JSR     SCNINT         ; the column
                 STA     LCX
                 ROR     LCXN

@@ -6,7 +6,8 @@
 
 ;@entry SCPAGP
 ;@entry KEYDP
-.export SCPAGP, KEYDP
+;@entry LOCLIM
+.export SCPAGP, KEYDP, LOCLIM
 .import APG, CROW, RWOLO, RWOHI
 
 .code
@@ -48,3 +49,11 @@ KEYDP:          JSR     P6IN
                 BEQ     :+
                 JSR     KEYDSP
 :               JMP     P6OUT
+
+; LOCLIM (7e5: the owner's answer 13): for the home block's LOCATE (p8/far6.s),
+; A the last row a line may name: LINCNT, less 1 with the key line on (KEYSW
+; $FF), as LOCATP checks it.
+LOCLIM:         LDA     LINCNT
+                CLC
+                ADC     KEYSW
+                RTS

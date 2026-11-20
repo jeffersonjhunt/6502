@@ -516,9 +516,11 @@ TEST(auto_and_edit_on_the_screen)
 
 // LOCATE, CSRLIN and POS: LOCATE 5,10:PRINT "X"; puts X at cell (4,9), and then CSRLIN is 5 and POS(0) 11; after
 // PRINT STRING$(80,"A"); CSRLIN is the next line (GTLINE: the next character goes there); LOCATE 0, LOCATE 26 and
-// LOCATE ,81 are Illegal function call, LOCATE 25 is allowed (the key line is off). Guards a program's screen layout
-// one row off. Seen failing with GTLINE's test of the cursor past the line's end made with BCC alone (the 8086's
-// JBE made JB).
+// LOCATE ,81 are Illegal function call, LOCATE 25 is allowed (the key line is off). And LOCATE 26,"A", two errors,
+// gives the row's, the first, as the source's order has it (7e5, the owner's answer 13: the home block's stub
+// checks the row as soon as it is parsed, not after the rest). Guards a program's screen layout one row off, and an
+// error report that names the wrong fault. Seen failing with GTLINE's test of the cursor past the line's end made
+// with BCC alone (the 8086's JBE made JB); and (7e5) with the stub's early row check left out (Type mismatch).
 TEST(locate_csrlin_and_pos)
 {
     CcpRig r;
@@ -535,6 +537,9 @@ TEST(locate_csrlin_and_pos)
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "CLS:LOCATE 26", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE 26,\"A\"", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    CHECK(last_row(r, "Type mismatch") < 0);
     enter(r, "CLS:LOCATE ,81", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "KEY OFF:CLS:LOCATE 25,1:PRINT \"Z\";:LOCATE 10,1", ms(300));
