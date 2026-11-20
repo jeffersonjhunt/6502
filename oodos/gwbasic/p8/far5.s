@@ -14,7 +14,7 @@
 .include "gwbasic.inc"
 
 .export PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
-.import ADVERR, SCRMOD, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR
+.import ADVERR, SCRMOD, CHRGTR, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG
 
 .macro  MOVW    dst, src
                 LDA     src
@@ -109,12 +109,15 @@ VIEW:           BIT     SCRMOD
                 BEQ     :+
                 LDA     #<639
                 LDY     #>639
-:               LDX     #VX1 - VX1
+:               STA     VLIM
+                STY     VLIM + 1
+                LDX     #VX1 - VX1
                 JSR     VCHK
                 LDX     #VX2 - VX1
                 JSR     VCHK
                 LDA     #199           ; y: 0 to 199
-                LDY     #0
+                STA     VLIM
+                STZ     VLIM + 1
                 LDX     #VY1 - VX1
                 JSR     VCHK
                 LDX     #VY2 - VX1
@@ -172,10 +175,11 @@ VIEW:           BIT     SCRMOD
 @go:            LDA     VWF
                 FJSR    GVIEW
                 RTS
-; VCHK: the corner word at VX1 + X no more than A/Y (unsigned: a negative
+; VCHK: the corner word at VX1 + X no more than VLIM (unsigned: a negative
 ; one is past it), else Illegal function call.
-VCHK:           CMP     VX1,X
-                TYA
+VCHK:           LDA     VLIM
+                CMP     VX1,X
+                LDA     VLIM + 1
                 SBC     VX1 + 1,X
                 BCC     VFC
                 RTS
@@ -218,11 +222,65 @@ VPAIR:          JSR     SYNCHR
                 .byte   ')'
 VEND:           DECW    TXTPTR
                 JMP     CHRGTR
+; WINDOW (7e4; the IBM manual's pp. 370-374): WINDOW [[SCREEN](x1,y1)-
+; (x2,y2)], each coordinate a single (FRMEVL, FRCSNG), kept in this block's
+; RAM; then one far call to P1's WINSET (p1/window.s), which checks the
+; mode and the corners: A the flags (bit 7 corners, 6 SCREEN), x1, y1, x2
+; and y2 in the pseudo-registers, 4 bytes each from RDL.
 WINDOW:         BIT     SCRMOD
                 BMI     :+
                 JMP     ADVERR
-:
+:               STZ     VWF
+                JSR     VEND
+                BEQ     @call          ; WINDOW alone
+                LDX     #$80
+                CMP     #SCREEN_TK
+                BNE     :+
+                JSR     CHRGTR
+                LDX     #$C0
+:               STX     VWF
+                JSR     SYNCHR
+                .byte   '('
+                LDY     #0
+                JSR     WSNG           ; x1
+                JSR     SYNCHR
+                .byte   ','
+                LDY     #4
+                JSR     WSNG           ; y1
+                JSR     SYNCHR
+                .byte   ')'
+                JSR     SYNCHR
+                .byte   MINUTK
+                JSR     SYNCHR
+                .byte   '('
+                LDY     #8
+                JSR     WSNG           ; x2
+                JSR     SYNCHR
+                .byte   ','
+                LDY     #12
+                JSR     WSNG           ; y2
+                JSR     SYNCHR
+                .byte   ')'
+                LDX     #15
+@c:             LDA     WCRN,X
+                STA     RDL,X
+                DEX
+                BPL     @c
+@call:          LDA     VWF
                 FJSR    WINSET
+                RTS
+; WSNG: a single, to WCRN + Y.
+WSNG:           PHY
+                JSR     FRMEVL
+                JSR     FRCSNG
+                PLY
+                LDX     #0
+@s:             LDA     FACLO,X
+                STA     WCRN,Y
+                INY
+                INX
+                CPX     #4
+                BCC     @s
                 RTS
 
 .segment "BRAM"
@@ -234,3 +292,5 @@ VY2:            .res    2
 .assert VX2 - VX1 = 4 && VY2 - VY1 = 4, error, "VIEW's corners: VSORT's order"
 VFIL:           .res    1              ;   the fill
 VBRD:           .res    1              ;   the border
+VLIM:           .res    2              ;   VCHK's limit
+WCRN:           .res    16             ; WINDOW's corners, x1, y1, x2, y2

@@ -404,14 +404,12 @@ GVIEW:          STA     GVF
                 BEQ     @set
                 LDA     GVB + 7        ; the border, one pixel outside
                 JSR     SETATR
-                LDA     RBL
-                STA     GXPOS
-                LDA     RBH
-                STA     GXPOS + 1
-                LDA     RAL
-                STA     GYPOS
-                LDA     RAH
-                STA     GYPOS + 1
+                LDX     #3             ; the second corner (and the cursor's,
+@b:             LDA     RBL,X          ;   which DOLINE takes back for BOXLIN)
+                STA     GXPOS,X
+                STA     GRPACX,X
+                DEX
+                BPL     @b
                 JSR     BOXLIN
 @set:           LDX     #VWMY - VWOX   ; the viewport
 @v:             LDA     GVB,X

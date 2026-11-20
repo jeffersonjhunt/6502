@@ -39,6 +39,7 @@
 .export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI, GCELL
 .import VWRSTW
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, SNERR, MAKINT
+.import FRMEVL, FRCSNG, INTFR2, CONINT, GFLG
 
 ; Push and pull a word of zero page.
 .macro  PSHW    zp
@@ -67,7 +68,11 @@
 ; SCAN1: the first point of two: "@" passed over; none (a "-" next) the
 ; graphics cursor. SCAND: (x,y) or STEP(x,y), STEP's relative to the
 ; cursor. Both: the cursor (GRPACX, GRPACY) and GXPOS, GYPOS made the point,
-; CX x and DX y.
+; CX x and DX y. 7e4: SCANDX takes it on from the first formula evaluated
+; (POINTP's way in), Z relative; under a WINDOW (GFLG bit 7) x and y are
+; singles, mapped by P1's WINXY to the viewport's point (STEP in world
+; units from the cursor mapped back); else integers, an absolute point's
+; VIEW SCREEN offset taken off (VSOFF).
 SCAN1:          LDA     (TXTPTR)
                 CMP     #'@'
                 BNE     :+
@@ -85,7 +90,12 @@ SCAND:          LDA     (TXTPTR)
                 JSR     CHRGTR
 :               JSR     SYNCHR
                 .byte   '('
-                JSR     GETIN2         ; x
+                JSR     FRMEVL         ; x
+                PLP
+SCANDX:         PHP
+                BIT     GFLG
+                BMI     SCANW          ; a window
+                JSR     INTFR2
                 PSHW    RDL
                 JSR     SYNCHR
                 .byte   ','
@@ -116,6 +126,35 @@ SCANS:          MOVW    GRPACX, RCL
                 MOVW    GRPACY, RDL
                 MOVW    GYPOS, RDL
                 RTS
+SCANW:          JSR     FRCSNG         ; x, on the 6502's stack across y
+                LDX     #3
+@p:             LDA     FACLO,X
+                PHA
+                DEX
+                BPL     @p
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL         ; y
+                JSR     FRCSNG
+                JSR     SYNCHR
+                .byte   ')'
+                LDX     #0             ; x in BXDX
+@q:             PLA
+                STA     RDL,X
+                INX
+                CPX     #4
+                BCC     @q
+                PLP
+                BNE     @a
+                LDA     #$80           ; STEP
+                BRA     @g
+@a:             LDA     #0
+@g:             PHA
+                MOVW    RCL, GRPACX
+                MOVW    RSI, GRPACY
+                PLA
+                FJSR    WINXY
+                BRA     SCANS
 
 ; VSOFF (OO-1, 7e4): CX, DX an absolute point made the viewport's: VIEW
 ; SCREEN's offset (VWSX, VWSY; 0 under VIEW, and with none) taken off.
@@ -158,13 +197,19 @@ PSTNOT:         RTS
 ; GYPOS, GRPACY and GRPACX kept on the 6502's stack across it, so that
 ; LINE (x1,y1)-(x2,y2),POINT(x3,y3) draws as it reads. OO-1 (the IBM
 ; manual, p. 258: the coordinates absolute): POINT STEP, which the source's
-; SCAND takes, is Syntax error.
+; SCAND takes, is Syntax error. 7e4 (pp. 258-260): POINT(n), n 0-3 (rounded;
+; else Illegal function call): 0 and 1 the cursor's x and y (VIEW SCREEN's
+; offset added: absolute there), 2 and 3 the same under a WINDOW mapped back
+; to world coordinates (P1's WPNT), else as 0 and 1; and (x,y) -1 off the
+; viewport (the owner's answer 4). SCREEN 0 Illegal function call first.
 POINTP:         JSR     CHRGTR
                 CMP     #STEP_TK
                 BNE     :+
                 JMP     SNERR
-:
-                JSR     FETCHC
+:               JSR     PIXSIZ         ; OO-1: SCREEN 0 has no pixels (PC-BASIC's)
+                BNE     :+
+                JMP     FCERR
+:               JSR     FETCHC
                 LDX     #CSIZE - 1     ; C: CSAV and CSAVP
 @c:             LDA     CSAV,X
                 PHA
@@ -174,11 +219,15 @@ POINTP:         JSR     CHRGTR
                 PSHW    GXPOS
                 PSHW    GRPACY
                 PSHW    GRPACX
-                JSR     SCAND
-                JSR     PIXSIZ         ; OO-1: SCREEN 0 has no pixels (PC-BASIC's)
-                BNE     :+
-                JMP     FCERR
-:               JSR     SCALXY
+                JSR     SYNCHR
+                .byte   '('
+                JSR     FRMEVL
+                LDA     (TXTPTR)
+                CMP     #')'
+                BEQ     PNTN           ; POINT(n)
+                LDA     #1             ; (Z clear: absolute)
+                JSR     SCANDX
+                JSR     SCALXY
                 LDA     #$FF           ; -1: not on the screen
                 STA     RBL
                 STA     RBH
@@ -189,7 +238,7 @@ POINTP:         JSR     CHRGTR
                 STZ     RBH
                 JSR     GX_W1BACK      ; (OO-1)
 PNTNOT:         JSR     MAKINT
-                PULW    GRPACX
+PNTRST:         PULW    GRPACX
                 PULW    GRPACY
                 PULW    GXPOS
                 PULW    GYPOS
@@ -202,6 +251,46 @@ PNTNOT:         JSR     MAKINT
                 JSR     STOREC
                 DECW    TXTPTR         ; the flags for what follows ")"
                 JMP     CHRGTR
+PNTN:           JSR     CONINT         ; n
+                CMP     #4
+                BCC     :+
+                JMP     FCERR
+:               PHA
+                JSR     SYNCHR
+                .byte   ')'
+                PLA
+                LSR     A              ; C: y; A: 1 for 2 and 3
+                PHP
+                BEQ     @p             ; 0, 1
+                BIT     GFLG
+                BPL     @p             ; no window
+                PLP                    ; the cursor's axis mapped back
+                BCS     @wy
+                MOVW    RCL, GRPACX
+                LDA     #0
+                BRA     @w
+@wy:            MOVW    RCL, GRPACY
+                LDA     #1
+@w:             FJSR    WPNT
+                JMP     PNTRST
+@p:             PLP                    ; the cursor, VIEW SCREEN's offset added
+                BCS     @y
+                CLC
+                LDA     GRPACX
+                ADC     VWSX
+                STA     RBL
+                LDA     GRPACX + 1
+                ADC     VWSX + 1
+                STA     RBH
+                JMP     PNTNOT
+@y:             CLC
+                LDA     GRPACY
+                ADC     VWSY
+                STA     RBL
+                LDA     GRPACY + 1
+                ADC     #0
+                STA     RBH
+                JMP     PNTNOT
 
 ; GCELL (OO-1, P6's SCREEN( in a graphics mode: the IBM manual's p. 311):
 ; C set if any of the 8 x 8 pixels under the text cell at row RDL, column
