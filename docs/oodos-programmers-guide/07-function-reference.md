@@ -3439,11 +3439,14 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 9 | `DM_VFILL` | +1 the byte, +2–4 the destination (card), +5–6 the length | fills card memory |
   | 10 | `DM_VCOPY` | +1–3 the source (card), +4–6 the destination (card), +7–8 the length | copies within card memory |
   | 11 | `DM_BANK8` | +1 and +2 to fill | makes bank 8 the program's RAM, the aperture then only at `$E00000` |
+  | 12 | `DM_VFILLW` | +1–2 a word (low byte first), +3–5 the destination (card), +6–7 the length in bytes | fills card memory with a word: a direct 640 colour |
 
   Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
   version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since OODOS 0.11
   (interface version 12, B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's
-  `GX_BANK8` ([chapter 8](08-game-services.md#video-memory)) rather than by itself.
+  `GX_BANK8` ([chapter 8](08-game-services.md#video-memory)) rather than by itself. Operation 12 is since OODOS
+  0.12 (interface version 13, [hw/video640.md](../../hw/video640.md)), for the direct 640 layer, whose pixels are
+  words; OOLIB's `GX_FRECT` uses it on a `GB_DIRECT` bitmap.
 
 #### Exit
 
@@ -3466,7 +3469,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 11 (past 10 below interface version 12), one that needs a
+A = X = `$FF`, and nothing done, for an operation past 12 (past 11 below interface version 13, past 10 below 12), one that needs a
 block given none (`DM_BANK8` among them), a block in memory that
 isn't the program's (the I/O hole, flash), and:
 
@@ -3478,8 +3481,8 @@ isn't the program's (the I/O hole, flash), and:
 - **A card destination** outside the program's part, `$040000–$1BFFFF` (OODOS's `$000000–$03FFFF`, Apple II
   mode's `$1C0000–$1FFFFF`, past the fitted memory, or wrapping past `$FFFFFF`). A card source may be anywhere in
   the fitted memory: the console's font at `$000400`, for text on a bitmap.
-- **The card operations** (4 and 7–10) with no revision 2 video card or no DMA controller: every byte they move goes
-  by DMA.
+- **The card operations** (4, 7–10 and 12) with no revision 2 video card or no DMA controller: every byte they move
+  goes by DMA.
 - `DM_LOAD`: a count of 0 or past 512. Function 33's errors otherwise, as its error mode says ([function
   45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
   that was never opened has no blocks: A = 1, no records.
@@ -3490,7 +3493,7 @@ isn't the program's (the I/O hole, flash), and:
   ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
   bank 8's RAM. Nothing is changed: bank 8 stays as it was, the aperture with a revision 2 video card and RAM
   without one.
-- `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a piece through the port that didn't end (no DMA controller answering, or one
+- `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`, `DM_VFILLW`: a piece through the port that didn't end (no DMA controller answering, or one
   starved): A = X = `$FF`, the pieces before it done and none after.
 
 An OODOS before L4 answers 83 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says
@@ -3515,6 +3518,10 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
   interrupts masked for each piece, so the frame handler's copies, on the same port and channel, come between pieces
   and never meet the port half set. The card asks for every byte at once, so a piece runs with the CPU held, a cycle
   a byte. The port's PCTL is 0 after each piece, its DMA request off.
+- `DM_VFILLW` is two passes through the port, as `DM_VFILL`'s, with the port's step 2: the word's low byte to the
+  destination and every second byte on, (length + 1) ÷ 2 of them, then its high byte from the destination + 1,
+  length ÷ 2 of them, each from a byte held still. An odd length ends on a low byte; a length of 1 writes the low
+  byte alone. A row of direct 640 pixels, or a whole screen, is one call per 64 KB.
 - `DM_VCOPY` borrows aperture slots 2 and 3 for each piece, the source's card bank in one and the destination's in
   the other, copies from one window to the other by channel 3, interrupts masked, and puts both slots back. No piece
   crosses a card bank of either side. A copy down over itself is exact; up over itself it runs forward, as `DM_COPY`
@@ -3545,11 +3552,13 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
 33 with a multi-sector count of 128 (test_oodos_load, on DMA revision 2, B2). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call.
 `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a cycle a byte by DMA, the CPU held, and each 2 KB piece's setting up: 60 KB
 (61,440 bytes) is about 61,500 cycles of DMA, 8.6 ms at 7.16 MHz. test_oodos_video measures 17 ms for it, a round
-trip that includes its rig's command line. What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
+trip that includes its rig's command line. `DM_VFILLW`: the same, a cycle a byte, in two passes: a whole direct 640
+screen (614,400 bytes, ten calls from OOLIB's `GX_FRECT`) measures 828,508 cycles, 0.116 s, in test_oodos_gfx, the
+same as by `DM_VFILL` (806,824, 0.113 s). What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
 
 #### Since
 
-OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface version 8); operation 11 since OODOS 0.11 (interface version 12).
+OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface version 8); operation 11 since OODOS 0.11 (interface version 12); operation 12 since OODOS 0.12 (interface version 13).
 
 #### Status
 

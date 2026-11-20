@@ -718,6 +718,8 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
 **Decided.** The card's block is `$C480–$C4FF` (module ID `0x9`). The registers only set up the display; all
 display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snooped video banks 8–B. This is revision
 1, ID `$91`; revision 2 (proposed) moves the bases and the layers' registers ([below](#video-card-revision-2)).
+*Revision 2's layer types 6 and 7, bitmap 640 and direct 640 (proposed 2026-11-20), two 640×480 colour layers in
+CONFIG's spare TYPE values, are recorded in [video640.md](video640.md), beside the frozen video-rev2.md.*
 
 - **Base registers** are one byte in **1 KB units** of video memory: physical address `$80000 + base × 1024`.
   Sprite images use 12-bit addresses in 64-byte units.

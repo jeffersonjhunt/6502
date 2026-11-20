@@ -156,7 +156,8 @@ FREEALL:
 
 ; The part at GXP checked against what the library needs (review F5: the
 ; file is untrusted, whatever mkasset.py's check said): a type of 1-8,
-; its first record a multiple of 8 and not 0, 1 to 131,072 bytes, its
+; its first record a multiple of 8 and not 0, 1 to 1,572,864 bytes (the
+; program's part of card memory, interface version 13), its
 ; records the bytes' (rounded up); then its card pages, its bytes' rounded
 ; up to 256: allocated if it says $FFFF, else taken where it says (a page
 ; on a unit, the run in the program's part, none of it taken already);
@@ -176,11 +177,11 @@ LOADP:  ldy     #AP_TYPE
         txa
         ora     (GXP),y
         beq     @bad
-        ldy     #AP_BYTES + 2           ; 1 to $20000 bytes
+        ldy     #AP_BYTES + 2           ; 1 to ASSET_MAX bytes
         lda     (GXP),y
-        cmp     #3
+        cmp     #^ASSET_MAX + 1
         bcs     @bad
-        cmp     #2
+        cmp     #^ASSET_MAX
         bne     @nz
         dey
         lda     (GXP),y
@@ -222,7 +223,7 @@ LOADP:  ldy     #AP_TYPE
 @bad:   lda     #GE_FORMAT
         sec
         rts
-@good:  ldy     #AP_BYTES + 2           ; GX_V = the pages: (bytes + 255) / 256 (1-512)
+@good:  ldy     #AP_BYTES + 2           ; GX_V = the pages: (bytes + 255) / 256 (1-6,144)
         lda     (GXP),y
         sta     GXT + 1
         dey
@@ -231,7 +232,7 @@ LOADP:  ldy     #AP_TYPE
         dey
         lda     (GXP),y
         beq     @whole
-        inc     GXT                     ; (a part page: never past $200, the bytes 1 to $20000)
+        inc     GXT                     ; (a part page: never past $1800, the bytes 1 to ASSET_MAX)
         bne     @whole
         inc     GXT + 1
 @whole: lda     GXT
@@ -348,6 +349,8 @@ LOADP:  ldy     #AP_TYPE
         sta     lblk + 3
         bcc     @left
         inc     lblk + 4
+        bne     @left
+        inc     lblk + 5                ; past record 65,535 (answer 23)
 @left:  sec
         lda     rest
         sbc     lblk + 6
@@ -357,6 +360,8 @@ LOADP:  ldy     #AP_TYPE
         bra     @chunk
 @done:  clc
 @no:    rts
+ASSET_MAX       = VM_PROG_END - VM_PROG ; a part's bytes at most: the program's part, $180000
+.assert (ASSET_MAX & $FFFF) = 0, error, "LOADP compares the top byte alone"
 STAGE_RECS      = 32                   ; 4 KB a piece: a CP/M block of oodos-8m, one READ
 STAGE_DEF       = $BF000               ; bank B's last 4 KB: the program's RAM on revision 2
 .assert STAGE_RECS * 128 = 4096, error, "the staging buffer is 4 KB"

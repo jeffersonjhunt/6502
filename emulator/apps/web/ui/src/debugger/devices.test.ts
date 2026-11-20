@@ -24,6 +24,15 @@ describe("Devices tab", () => {
     expect(describeLayer(Uint8Array.from([0x02, 4, 16, 0, 0, 0, 0, 0]), true)).toBe("tile · map $81000 · tiles $84000");
   });
 
+  test("revision 2's types 6 and 7 by name, revision 1's by number", () => {
+    expect(describeLayer2(Uint8Array.from([0x06, 0x00, 0x04, 0, 0, 0x84, 0x03, 0, 0, 0]), true)).toBe(
+      "bitmap 640 · image $040000 · scroll 900,0",
+    );
+    expect(describeLayer2(Uint8Array.from([0x07, 0x60, 0x13, 0, 0, 0, 0, 0, 0, 0]), false)).toBe("off (direct 640) · image $136000");
+    expect(describeLayer(Uint8Array.from([0x06, 64, 0, 0, 0, 0, 0, 0]), true)).toBe("type 6 · image $90000");
+    expect(describeLayer(Uint8Array.from([0x07, 64, 0, 0, 0, 0, 0, 0]), true)).toBe("type 7 · image $90000");
+  });
+
   test("the video card as the BIOS leaves it", async () => {
     const port = new FakePort();
     const regs: Record<number, number> = { 0x00: 0x03, 0x04: 0x00, 0x05: 0x01, 0x06: 0xe0, 0x07: 0x01, 0x08: 0x80, 0x10: 0x80, 0x11: 8, 0x12: 1, 0x7f: 0x91 };

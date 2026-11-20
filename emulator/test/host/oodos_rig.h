@@ -939,7 +939,9 @@ namespace oodos_rig
         /// `data` as B:'s user-0 file `name83` (8 + 3), on an empty B: (its label alone): blocks from the
         /// first after the directory, entries of 8 blocks (EXM 1) in the free slots that aren't the date
         /// stamps' (every fourth). The last record ^Z-padded.
-        inline void put_b(CcpRig &r, const std::string &name83, const std::vector<uint8_t> &data)
+        /// (`first`: the file's first block, so several files can be put one after another.)
+        inline void put_b(CcpRig &r, const std::string &name83, const std::vector<uint8_t> &data,
+                          unsigned first_block = B_DIRBLOCKS)
         {
             std::vector<uint8_t> dir;
             for (uint32_t s = 0; s < B_ENTRIES * 32 / SECTOR; ++s)
@@ -949,7 +951,7 @@ namespace oodos_rig
             }
             const unsigned records = static_cast<unsigned>((data.size() + RECORD - 1) / RECORD);
             const unsigned blocks = static_cast<unsigned>((records * RECORD + B_BLS - 1) / B_BLS);
-            unsigned e = 0, block = B_DIRBLOCKS;
+            unsigned e = 0, block = first_block;
             for (unsigned first = 0; first < blocks; first += 8)
             {
                 while (dir[e * 32] != 0xE5 || e % 4 == 3)

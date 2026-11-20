@@ -5,7 +5,7 @@
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's video card (module ID 9): VGA 640x480 from snooped memory.
  * @version 0.2.0
- * @date 2026-11-16
+ * @date 2026-11-20
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -62,6 +62,14 @@
  * direction reads $FFFF, a write is dropped, and PADDR doesn't step. The
  * request means room for two bytes; the emulated port always has it. The
  * aperture answers word cycles on both lanes, as any memory does.
+ *
+ * Layer types (CONFIG bits 2-0): 0 text 80, 1 text 40, 2 tiles, 3 bitmap 256, 4 bitmap 512,
+ * 5 mono; on revision 2 also 6 bitmap 640 (1,024x480 at a byte through the palette, rows of 1,024
+ * bytes, 640 shown) and 7 direct 640 (640x480 of $0RGB words, low byte first, no palette; bit 15
+ * transparent, 0 opaque black), both covering the whole width (hw/video640.md, proposed). Revision 1
+ * draws 6 and 7 as nothing. The compositor builds each layer's line in int16_t: -1 uncovered (the
+ * border), 0 transparent, 1-255 a palette entry, $1000 | 12 bits a direct colour, then looks up the
+ * palette, or for a direct colour a table of its rgba().
  *
  * Time. VGA 640x480 at 60 Hz: 800 pixel clocks a line at 25.175 MHz, 525
  * lines, 480 of them shown. The card is timed: tick() turns CPU cycles
@@ -214,6 +222,8 @@ namespace ooe::emu
         static constexpr uint8_t IN_VBLANK = 0x80;
         static constexpr uint8_t SPLASH_ON = 0x01; ///< SPLASH: playing (or about to, at the next vertical blank)
         static constexpr uint8_t TEXT80 = 0, TEXT40 = 1, TILE = 2, BITMAP256 = 3, BITMAP512 = 4, MONO = 5;
+        static constexpr uint8_t BITMAP640 = 6, DIRECT640 = 7; ///< revision 2 only (hw/video640.md)
+        static constexpr unsigned BITMAP640_ROW = 1024, DIRECT640_ROW = 1280; ///< their rows, in bytes
         static constexpr uint8_t BLINK = 0x80; ///< CONFIG: attribute bit 7 blinks
         static constexpr uint8_t TILE16 = 0x08, TILE8BPP = 0x10; ///< CONFIG, tile layers: 16x16 tiles, 8 bits
         static constexpr uint8_t MAP_W64 = 0x20, MAP_H64 = 0x40; ///< CONFIG, tile layers: map 64 wide, 64 high
@@ -335,12 +345,16 @@ namespace ooe::emu
         void advance(uint64_t clocks);
         void start_line(unsigned y);
         void draw_line(unsigned y);
-        /// Layer pixels into `line`: palette indices; -1 where nothing covers (border), 0 transparent.
+        /// Layer pixels into `line`: palette indices; -1 where nothing covers (border), 0 transparent,
+        /// $1000 | 12 bits a direct 640 colour (no palette).
         void draw_layer(const Layer &l, unsigned y, int16_t *line) const;
         void draw_text(const Layer &l, unsigned y, int16_t *line, bool wide) const;
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
         void draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const;
         void draw_tiles(const Layer &l, unsigned y, int16_t *line) const;
+        /// Revision 2's types 6 and 7: the whole width, a byte through the palette or a direct word.
+        void draw_bitmap640(const Layer &l, unsigned y, int16_t *line) const;
+        void draw_direct640(const Layer &l, unsigned y, int16_t *line) const;
         /// Apple II mode: line y of the IIe's display, 560x384 centred.
         void draw_apple(unsigned y, uint32_t *out) const;
         uint8_t apple(uint32_t bank, uint16_t addr) const { return apple_ram_ ? apple_ram_[bank << 16 | addr] : 0; }

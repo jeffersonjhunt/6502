@@ -148,19 +148,28 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               DM_VCOPY); 0 rows, nothing
 ;   GX_SCROLL   A a layer: its scrolls GX_X and GX_Y (0-1023)
 ;   GX_BMP      A the bitmap (GB_*), GX_V its first card page: what GX_PLOT
-;               and the rest draw on
+;               and the rest draw on; carry clear. A past GB_DIRECT: carry
+;               set, A GE_FORMAT, the bitmap as it was (interface 13);
+;               GB_DIRECT under an OODOS below interface 13: GE_VERSION
+;               On GB_DIRECT every colour below is a word, A low and X high
+;               ($0RGB; $8000 transparent, $0000 black); on the others X is
+;               not read
 ;   GX_PLOT     A a colour at (GX_X, GX_Y); off the bitmap, nothing
-;   GX_POINT    A the colour at (GX_X, GX_Y); 0 off the bitmap
+;   GX_POINT    A the colour at (GX_X, GX_Y); 0 off the bitmap (GB_DIRECT:
+;               A/X, 0/0 off it)
 ;   GX_LINE     A a colour from (GX_X, GX_Y) to (GX_X2, GX_Y2)
 ;   GX_RECT     A a colour: the rectangle's outline, corners (GX_X, GX_Y)
 ;               and (GX_X2, GX_Y2)
-;   GX_FRECT    A a colour: the rectangle filled (whole rows by DM_VFILL)
+;   GX_FRECT    A a colour: the rectangle filled (whole rows by DM_VFILL; on
+;               GB_DIRECT whole and part rows by DM_VFILLW, or DM_VFILL
+;               when the colour's two bytes are equal); carry clear, or set
+;               and A GE_DMA if function 83 refused a fill (interface 13)
 ;   GX_CIRCLE   A a colour: the circle about (GX_X, GX_Y), radius GX_R
 ;   GX_FLOOD    A a colour: the region of (GX_X, GX_Y)'s colour around it,
 ;               4-connected, filled by spans; carry set if its stack ran out
 ;               (what it reached filled)
 ;   GX_BCOPY    the rectangle at (GX_X, GX_Y), GX_X2 wide and GX_Y2 high,
-;               copied on the card by DM_VCOPY to (GX_DX, GX_DY): 8 bits a
+;               copied on the card by DM_VCOPY to (GX_DX, GX_DY): 8 or 16 bits a
 ;               pixel, or 4 with even x and widths; GE_BOUNDS otherwise
 ;               (mono, an odd x or width at 4 bits), and for a rectangle
 ;               that leaves the bitmap (a copy isn't clipped, as a draw is,
@@ -176,7 +185,8 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               program's memory, or 0: the console's, a character at a time
 ;               from the card by DM_VREAD
 ;   GX_TEXT     A/X a string ending in 0, drawn at (GX_X, GX_Y) in GX_FG,
-;               on GX_BG if GX_OPAQUE isn't 0; GX_X moved on 8 a character
+;               on GX_BG if GX_OPAQUE isn't 0; GX_X moved on 8 a character.
+;               On GB_DIRECT the colours are GX_FGH:GX_FG and GX_BGH:GX_BG
 ;   GX_ASSET    A/X an FCB (drive and name set): the asset file opened, its
 ;               header read into GX_HDR and each part loaded into the card
 ;               at the page it names, or at pages allocated for it ($FFFF),
@@ -201,12 +211,16 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 .global GX_TMAP, GX_TPUT, GX_TGET, GX_TFILL, GX_SCROLL
 .global GX_BMP, GX_PLOT, GX_POINT, GX_LINE, GX_RECT, GX_FRECT, GX_CIRCLE, GX_FLOOD, GX_BCOPY, GX_FLIP
 .global GX_FONT, GX_TEXT, GX_ASSET
-.global GX_X, GX_Y, GX_X2, GX_Y2, GX_DX, GX_DY, GX_R, GX_FG, GX_BG, GX_OPAQUE
+.global GX_X, GX_Y, GX_X2, GX_Y2, GX_DX, GX_DY, GX_R, GX_FG, GX_BG, GX_OPAQUE, GX_FGH, GX_BGH
 .global GX_W1MAP, GX_UNITS, GX_VUNITS, GX_HDR, GX_STAGE, GX_PALU, GX_SPRU, GX_PAL, GX_SPR
 
 GB_256          = 0                    ; GX_BMP: bitmap 256 (256 x 240, 8 bits a pixel, 256 bytes a row)
 GB_512          = 1                    ;   bitmap 512 (512 x 480, 4 bits, 256 bytes a row)
 GB_MONO         = 2                    ;   mono (640 x 480, 1 bit, 80 bytes a row)
+GB_640          = 3                    ;   bitmap 640 (layer type 6: 1,024 x 480, 8 bits, 1,024 bytes a
+                                       ;   row; interface version 13, hw/video640.md)
+GB_DIRECT       = 4                    ;   direct 640 (type 7: 640 x 480, a $0RGB word a pixel, bit 15
+                                       ;   transparent, 1,280 bytes a row): colours are words, A/X
 
 GE_VERSION      = 1                    ; OODOS's interface below 8, no DMA area, or no revision 2 card
 GE_MAP          = 2                    ; a block the W1 map hasn't
@@ -227,7 +241,7 @@ AP_CONFIG       = 1                    ; the layer's CONFIG bits it was made for
 AP_UNIT         = 2                    ; its card page, 2 bytes, $FFFF any (GX_ASSET writes the one it took)
 AP_RECORD       = 4                    ; its first record in the file, 2 bytes (a multiple of 8)
 AP_RECORDS      = 6                    ; its records, 2 bytes
-AP_BYTES        = 8                    ; its length in bytes, 3 bytes (17 bits)
+AP_BYTES        = 8                    ; its length in bytes, 3 bytes (1 to 1,572,864: interface 13)
 AP_W            = 11                   ; its width and height, as its type counts them (a map's
 AP_H            = 12                   ;   entries, a bitmap's or sprite's pixels / 8); +13-15 0
 AP_LEN          = 16

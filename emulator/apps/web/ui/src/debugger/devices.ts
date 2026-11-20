@@ -50,6 +50,8 @@ export function keyText(key: number): string {
   return `$${hex(key, 2)} ${text}${key & 0x80 ? " · new" : ""}`;
 }
 const TYPES = ["text 80×30", "text 40×30", "tile", "bitmap 256", "bitmap 512", "mono 640×480", "type 6", "type 7"];
+/** Revision 2's: types 6 and 7 are bitmap 640 and direct 640 (hw/video640.md). */
+const TYPES2 = [...TYPES.slice(0, 6), "bitmap 640", "direct 640"];
 
 /** What the Apple's screen shows, from its switches. */
 export function appleVideo(s: AppleState): string {
@@ -203,7 +205,7 @@ export function soundPortText(c: SoundCpu): string {
 export function describeLayer2(r: Uint8Array, on: boolean): string {
   const config = r[0];
   const type = config & 7;
-  const parts = [on ? TYPES[type] : `off (${TYPES[type]})`];
+  const parts = [on ? TYPES2[type] : `off (${TYPES2[type]})`];
   if (type <= 1) parts.push(`text ${page(r, 1)}`, `font ${page(r, 3)}`);
   else if (type === 2) parts.push(`map ${page(r, 1)}`, `tiles ${page(r, 3)}`);
   else parts.push(`image ${page(r, 1)}`);

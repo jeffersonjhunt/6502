@@ -327,7 +327,11 @@ DM_BANK8        = 11                   ; block (interface version 12; B7): bank 
                                        ;   ($0E, 1: $E04000; 0, 0 with no revision 2 video card): A = 0.
                                        ;   $FF $FF on a revision 1 north bridge (NB_ID $D1) or under a ROM
                                        ;   BIOS older than 0.17, nothing changed
-DM_OPS          = 12
+DM_VFILLW       = 12                   ; block (interface version 13; hw/video640.md): +1-2 a word (low
+                                       ;   byte first), +3-5 the destination (card), +6-7 the length in
+                                       ;   bytes (0: 65,536): the low byte at the destination's even offsets
+                                       ;   from it, the high byte at the odd, through the port at PSTEP 2
+DM_OPS          = 13
 DM_PAGE0        = $0400                ; DM_INFO's +13-14 on a 2 MB card: the program's first card page
 DM_PAGEEND      = $1C00                ;   and +15-16, the page past its last (Apple II mode's from there)
 DM_SLOTS        = 4                    ; DM_INFO's X

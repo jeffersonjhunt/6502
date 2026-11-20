@@ -8,7 +8,11 @@
 ; The bitmaps (Technical Reference chapter 6): bitmap 256 is 256 x 240, a
 ; byte a pixel, 256 bytes a row; bitmap 512 is 512 x 480, 4 bits a pixel
 ; (the left one in the high 4), 256 bytes a row; mono is 640 x 480, a bit
-; a pixel (the left one in bit 7), 80 bytes a row. Coordinates are words;
+; a pixel (the left one in bit 7), 80 bytes a row; bitmap 640 (GB_640,
+; layer type 6, interface version 13) is 1,024 x 480, a byte a pixel,
+; 1,024 bytes a row; direct 640 (GB_DIRECT, type 7) is 640 x 480, a word a
+; pixel ($0RGB, low byte first; bit 15 transparent), 1,280 bytes a row,
+; its colours words in A/X (colour, colourh). Coordinates are words;
 ; anything off the bitmap isn't drawn, and reads 0.
 
         .setcpu "65C02"
@@ -23,6 +27,7 @@ STACK           = 255                  ; GX_FLOOD's seeds (fsp a byte)
 bmode:  .res    1                      ; GB_*
 bunit:  .res    2                      ; the bitmap's first card page
 colour: .res    1
+colourh: .res   1                      ; GB_DIRECT: the colour's high byte (X)
 sub:    .res    1                      ; the pixel in its byte: 4 bits, 0 the high; mono, its bit
 px:     .res    2                      ; the pixel the routines draw: PADDR's
 py:     .res    2
@@ -40,6 +45,8 @@ hi:     .res    2
 row:    .res    2
 mtmp:   .res    2                      ; PCALC's, for mono
 target: .res    1                      ; GX_FLOOD's
+targeth: .res   1                      ;   (GB_DIRECT: a word)
+nrows:  .res    1                      ; GX_FRECT's rows a fill
 fsp:    .res    1
 fny:    .res    2
 inrun:  .res    1
@@ -55,18 +62,45 @@ crows:  .res    2
 ; The bitmap's width and height, by GB_*.
         .pushseg
         .rodata
-WLO:    .byte   <256, <512, <640
-WHI:    .byte   >256, >512, >640
-HLO:    .byte   <240, <480, <480
-HHI:    .byte   >240, >480, >480
+WLO:    .byte   <256, <512, <640, <1024, <640
+WHI:    .byte   >256, >512, >640, >1024, >640
+HLO:    .byte   <240, <480, <480, <480, <480
+HHI:    .byte   >240, >480, >480, >480, >480
+BANDS:  .byte   128, 128, 0, 64, 51     ; GX_FRECT's whole rows a fill: 64 KB at most
         .popseg
+.assert GB_640 = 3 && GB_DIRECT = 4, error, "the tables' order is GB_*'s"
 
-; A the bitmap (GB_*), GX_V its first card page.
-GX_BMP: sta     bmode
+; A the bitmap (GB_*), GX_V its first card page: carry clear; past
+; GB_DIRECT, carry set and A GE_FORMAT, nothing changed. GB_DIRECT needs
+; OODOS's interface 13 (function 83's DM_VFILLW, which GX_FRECT uses):
+; below it, carry set and A GE_VERSION, nothing changed (review round 1,
+; F1; asked of function 80 here, so gxmem.s, which GW-BASIC links, keeps no
+; copy of the version).
+GX_IFACE_DIRECT = 13
+GX_BMP: cmp     #GB_DIRECT + 1
+        bcs     @no
+        cmp     #GB_DIRECT
+        bne     @take
+        lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        cmp     #$FF                    ; no function 80: A = X = $FF
+        beq     @old
+        cmp     #GX_IFACE_DIRECT
+        bcc     @old
+        lda     #GB_DIRECT
+@take:  sta     bmode
         lda     GX_V
         sta     bunit
         lda     GX_V + 1
         sta     bunit + 1
+        clc
+        rts
+@old:   lda     #GE_VERSION
+        sec
+        rts
+@no:    lda     #GE_FORMAT
         rts
 
 ; Carry set if (px, py) is off the bitmap.
@@ -91,13 +125,17 @@ PCALC:  jsr     OFF
         jsr     GX_VADDR
         lda     bmode
         cmp     #GB_MONO
-        beq     @mono
+        jeq     @mono
         cmp     #GB_512
         beq     @four
+        cmp     #GB_640
+        jeq     @b640
+        cmp     #GB_DIRECT
+        jeq     @dir
         lda     px                      ; 8 bits: y x 256 + x
         ldx     py
         ldy     #0
-        bra     @add
+        jmp     @add
 @four:  lda     px + 1                  ; 4 bits: y x 256 + x / 2
         lsr     a
         lda     px
@@ -109,7 +147,7 @@ PCALC:  jsr     OFF
         pla
         ldx     py
         ldy     py + 1
-        bra     @add
+        jmp     @add
 @mono:  lda     py                      ; mono: y x 80 + x / 8: y x 64 + y x 16
         sta     GXT
         lda     py + 1
@@ -154,6 +192,48 @@ PCALC:  jsr     OFF
         sta     sub
         pla
         ldy     #0
+        jmp     @add
+@b640:  lda     py                      ; bitmap 640: y x 1,024 + x
+        sta     GXT
+        lda     py + 1
+        sta     GXT + 1
+        asl     GXT
+        rol     GXT + 1
+        asl     GXT
+        rol     GXT + 1
+        lda     GXT                     ; (x's high byte is 0-3: y x 4's low has bits 1-0 clear)
+        ora     px + 1
+        tax
+        ldy     GXT + 1
+        lda     px
+        jmp     @add
+@dir:   lda     py                      ; direct 640: y x 1,280 + 2x = (y x 5) x 256 + 2x
+        sta     GXT
+        lda     py + 1
+        sta     GXT + 1
+        asl     GXT
+        rol     GXT + 1
+        asl     GXT
+        rol     GXT + 1
+        clc
+        lda     GXT
+        adc     py
+        sta     GXT
+        lda     GXT + 1
+        adc     py + 1
+        sta     GXT + 1
+        lda     px                      ; 2x
+        asl     a
+        sta     mtmp
+        lda     px + 1
+        rol     a
+        clc
+        adc     GXT
+        tax
+        lda     GXT + 1
+        adc     #0
+        tay
+        lda     mtmp
 @add:   clc                             ; GX_A += Y:X:A
         adc     GX_A
         sta     GX_A
@@ -183,9 +263,17 @@ PPLOT:  jsr     PADDR
         beq     @mono
         cmp     #GB_512
         beq     @four
+        cmp     #GB_DIRECT
+        beq     @word
         lda     colour
         sta     (GXP)
 @no:    rts
+@word:  lda     colour                  ; a word: low byte first (never across a slot: it is even)
+        sta     (GXP)
+        lda     colourh
+        ldy     #1
+        sta     (GXP),y
+        rts
 @four:  lda     colour
         and     #$0F
         ldx     sub
@@ -220,7 +308,8 @@ PPLOT:  jsr     PADDR
         sta     (GXP)
         rts
 
-; A = the colour at (px, py), 0 off the bitmap.
+; A = the colour at (px, py), 0 off the bitmap; GB_DIRECT, A/X the word
+; (0/0 off it).
 PPOINT: jsr     PADDR
         bcs     @zero
         lda     bmode
@@ -228,6 +317,13 @@ PPOINT: jsr     PADDR
         beq     @mono
         cmp     #GB_512
         beq     @four
+        cmp     #GB_DIRECT
+        beq     @word
+        lda     (GXP)
+        rts
+@word:  ldy     #1
+        lda     (GXP),y
+        tax
         lda     (GXP)
         rts
 @four:  lda     (GXP)
@@ -247,7 +343,20 @@ PPOINT: jsr     PADDR
         lda     #1
         rts
 @zero:  lda     #0
+        tax
         rts
+
+; Z set if (px, py)'s colour is GX_FLOOD's target: a byte, or GB_DIRECT's word.
+PSAME:  jsr     PPOINT
+        cmp     target
+        bne     @r
+        lda     bmode
+        cmp     #GB_DIRECT
+        bne     @yes
+        cpx     targeth
+        rts
+@yes:   lda     #0                      ; (Z set)
+@r:     rts
 
 ; (px, py) = (GX_X, GX_Y).
 FROMXY: lda     GX_X
@@ -262,6 +371,7 @@ FROMXY: lda     GX_X
 
 GX_PLOT:
         sta     colour
+        stx     colourh
         jsr     FROMXY
         jmp     PPLOT
 
@@ -274,6 +384,7 @@ GX_POINT:
 ; (err += dy), e2 <= dx steps y (err += dx).
 GX_LINE:
         sta     colour
+        stx     colourh
         jsr     FROMXY
         sec                             ; dx and sx
         lda     GX_X2
@@ -481,6 +592,7 @@ EMPTY:  lda     hi
 
 GX_RECT:
         sta     colour
+        stx     colourh
         jsr     ORDERX                  ; the top and bottom rows
         lda     GX_Y
         sta     py
@@ -506,11 +618,17 @@ GX_RECT:
         sta     px + 1
         jmp     VRUN
 
-; Filled: rows from the top. A bitmap 256 or 512 row is 256 bytes, so rows
-; the full width are one run, a DM_VFILL of rows x 256 bytes; part rows of a
-; bitmap 256 a DM_VFILL each; the rest pixel by pixel.
+; Filled: rows from the top. Rows the full width are one run: a DM_VFILL of
+; rows x 256 bytes (bitmap 256 and 512, 128 rows a call) or x 1,024 (bitmap
+; 640, 64), or a word fill of rows x 1,280 (direct 640, 51); part rows of a
+; bitmap 256 or 640 a DM_VFILL each, of a direct 640 a word fill each; the
+; rest pixel by pixel. A word fill is DM_VFILL when the colour's two bytes
+; are equal ($0000 black, $FFFF clear), else DM_VFILLW (interface 13).
+; Carry clear, or set with A GE_DMA if function 83 refused a fill (since
+; interface 13; carry was undefined before).
 GX_FRECT:
         sta     colour
+        stx     colourh
         jsr     ORDERXC
         lda     bmode
         cmp     #GB_MONO
@@ -529,15 +647,17 @@ GX_FRECT:
         lda     lo
         ora     lo + 1
         jne     @part
-        ldx     bmode                   ; x from 0 to the width - 1?
-        lda     hi
+        ldx     bmode                   ; x from 0 to the width - 1? (hi + 1 = the width: its high
+        lda     hi                      ; byte with the add's carry, then the low: 640 has one)
         clc
         adc     #1
-        cmp     WLO,x
-        jne     @part
+        tay
         lda     hi + 1
         adc     #0
         cmp     WHI,x
+        jne     @part
+        tya
+        cmp     WLO,x
         jne     @part
         jsr     ORDERYC                 ; whole rows: a fill of up to 128 rows x 256 bytes
         lda     lo
@@ -555,14 +675,14 @@ GX_FRECT:
         inc     crows
         bne     @band
         inc     crows + 1
-@band:  lda     crows + 1               ; n = the rows left, 128 at most
-        bne     @128
+@band:  ldx     bmode                   ; n = the rows left, BANDS' at most
+        lda     crows + 1
+        bne     @max
         lda     crows
-        cmp     #128
+        cmp     BANDS,x
         bcc     @n
-@128:   lda     #128
-@n:     sta     GXB + 6
-        stz     GXB + 5
+@max:   lda     BANDS,x
+@n:     sta     nrows
         stz     px
         stz     px + 1
         lda     row
@@ -571,9 +691,23 @@ GX_FRECT:
         sta     py + 1
         jsr     PCALC
         bcs     @done
-        jsr     FILLB
+        lda     nrows                   ; the bytes: n pages, n x 4 (bitmap 640), n x 5 (direct)
+        ldx     bmode
+        cpx     #GB_640
+        bne     @p5
+        asl     a
+        asl     a
+        bra     @pg
+@p5:    cpx     #GB_DIRECT
+        bne     @pg
+        asl     a
+        asl     a
+        clc
+        adc     nrows
+@pg:    jsr     FILLN
         jsr     GXDMA
-        lda     GXB + 6
+        bcs     @fail                   ; refused: carry set, A GE_DMA (review round 1, F1)
+        lda     nrows
         tax
         clc
         adc     row
@@ -589,11 +723,16 @@ GX_FRECT:
         dec     crows + 1
 @rc:    ora     crows + 1
         bne     @band
-@done:  rts
-@part:  lda     bmode                   ; bitmap 256: a fill a row
+@done:  clc                             ; carry clear: drawn (or nothing on the bitmap)
+@fail:  rts
+@part:  lda     bmode                   ; bitmap 256 or 640, direct 640: a fill a row
         cmp     #GB_256
-        bne     @plot
-        jsr     ORDERYC
+        beq     @parts
+        cmp     #GB_640
+        beq     @parts
+        cmp     #GB_DIRECT
+        jne     @plot
+@parts: jsr     ORDERYC
         lda     lo
         sta     row
         lda     lo + 1
@@ -612,15 +751,21 @@ GX_FRECT:
         sec
         lda     hi
         sbc     lo
-        sta     GXB + 5                 ; the run's bytes (256 at most: the width)
+        sta     GXT                     ; the run's pixels (1,024 at most: the width)
         lda     hi + 1
         sbc     lo + 1
-        sta     GXB + 6
-        inc     GXB + 5
+        sta     GXT + 1
+        inc     GXT
         bne     @len
-        inc     GXB + 6
-@len:   jsr     FILLB
+        inc     GXT + 1
+@len:   lda     bmode                   ; direct: 2 bytes a pixel
+        cmp     #GB_DIRECT
+        bne     @run
+        asl     GXT
+        rol     GXT + 1
+@run:   jsr     FILLR
         jsr     GXDMA
+        bcs     @fail
 @next:  jsr     ORDERYC
         lda     row
         cmp     hi
@@ -631,7 +776,8 @@ GX_FRECT:
         bne     @row
         inc     row + 1
         bra     @row
-@end:   rts
+@end:   clc
+        rts
 @plot:  jsr     ORDERYC                 ; pixel by pixel
         lda     lo
         sta     row
@@ -710,8 +856,9 @@ MONOBAND:
         sta     GXB + 2,x
         dex
         bpl     @a
-        jmp     GXDMA
-@done:  rts
+        jmp     GXDMA                   ; (its carry: GX_FRECT's)
+@done:  clc                             ; off the bitmap: nothing, carry clear
+        rts
 
 ; ORDERX and ORDERY with hi clipped to the bitmap's last column or row.
 ORDERXC:
@@ -745,6 +892,37 @@ CLIP:   sta     GXT + 1                 ; hi = the last if past it
         sta     hi + 1
 @ok:    rts
 
+; GXB a fill of nrows' A pages (FILLN) or of GXT bytes (FILLR) at GX_A:
+; DM_VFILL, or for direct 640 with the colour's bytes different DM_VFILLW
+; (+1-2 the word, +3-5 the destination, +6-7 the length).
+FILLN:  stz     GXT
+        sta     GXT + 1
+FILLR:  lda     bmode
+        cmp     #GB_DIRECT
+        bne     @byte
+        lda     colour
+        cmp     colourh
+        beq     @byte                   ; the bytes equal: a byte fill does
+        lda     #DM_VFILLW
+        sta     GXB
+        lda     colour
+        sta     GXB + 1
+        lda     colourh
+        sta     GXB + 2
+        ldx     #2
+@a:     lda     GX_A,x
+        sta     GXB + 3,x
+        dex
+        bpl     @a
+        lda     GXT
+        sta     GXB + 6
+        lda     GXT + 1
+        sta     GXB + 7
+        rts
+@byte:  lda     GXT
+        sta     GXB + 5
+        lda     GXT + 1
+        sta     GXB + 6
 ; GXB a DM_VFILL of the colour (doubled for 4 bits) at GX_A; its length
 ; at GXB + 5-6 already.
 FILLB:  lda     #DM_VFILL
@@ -773,6 +951,7 @@ FILLB:  lda     #DM_VFILL
 ; x); y + 1, then d < 0: d += 2y + 1, else x - 1 and d += 2(y - x) + 1.
 GX_CIRCLE:
         sta     colour
+        stx     colourh
         lda     GX_R
         sta     ldx_                    ; x
         lda     GX_R + 1
@@ -892,27 +1071,32 @@ TWO:    stx     ta
 ; within the span made a seed. Carry set if the seeds overflowed.
 GX_FLOOD:
         sta     colour
+        stx     colourh
         stz     full
         jsr     GX_POINT
         sta     target
-        cmp     colour
-        jeq     @done                   ; nothing to change
-        jsr     OFF
+        stx     targeth
+        cmp     colour                  ; nothing to change: the same colour (GB_DIRECT: the same word)
+        bne     @go
+        lda     bmode
+        cmp     #GB_DIRECT
+        jne     @done
+        cpx     colourh
+        jeq     @done
+@go:    jsr     OFF
         jcs     @done
         stz     fsp
         jsr     PUSH                    ; (px, py): FROMXY's
 @pop:   lda     fsp
         jeq     @end
         jsr     POP
-        jsr     PPOINT
-        cmp     target
+        jsr     PSAME
         bne     @pop
 @left:  lda     px                      ; xl: left while the old colour
         ora     px + 1
         beq     @lend
         jsr     DECX
-        jsr     PPOINT
-        cmp     target
+        jsr     PSAME
         beq     @left
         jsr     INCX
 @lend:  lda     px
@@ -922,8 +1106,7 @@ GX_FLOOD:
 @right: jsr     INCX                    ; xr: right while the old colour
         jsr     OFF
         bcs     @rend
-        jsr     PPOINT
-        cmp     target
+        jsr     PSAME
         beq     @right
 @rend:  jsr     DECX
         lda     px
@@ -971,8 +1154,7 @@ SEEDS:  lda     fny
         stz     inrun
         jsr     OFF                     ; a row off the bitmap: none
         bcs     @done
-@x:     jsr     PPOINT
-        cmp     target
+@x:     jsr     PSAME
         bne     @not
         lda     inrun
         bne     @next
@@ -1096,9 +1278,14 @@ GX_BCOPY:
         sta     cw + 1
         lda     bmode
         cmp     #GB_512
-        bne     @rows
+        bne     @dbl
         lsr     cw + 1
         ror     cw
+        bra     @rows
+@dbl:   cmp     #GB_DIRECT              ; direct 640: 2 bytes a pixel
+        bne     @rows
+        asl     cw
+        rol     cw + 1
 @rows:  lda     GX_Y2
         sta     crows
         lda     GX_Y2 + 1

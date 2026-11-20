@@ -100,6 +100,8 @@ PHOTX:          .res    1              ; its hotspot
 PHOTY:          .res    1
 PSTAGE:         .res    4              ; X and Y as they go to the sprite's entry
 FILLB:          .res    1              ; DM_FILL's byte, a DMA's source
+FILLH:          .res    1              ; DM_VFILLW's high byte, the second pass's source
+PSTEPB:         .res    1              ; PORTLOOP's PSTEP: 1, or 2 for DM_VFILLW's passes
 VMAP:           .res    8              ; DM_INFO's W1 map, as it is made
 VLEN:           .res    2              ; a destination's length less 1, for its checks
 VSRC:           .res    3              ; DM_VBSET's source and destination
@@ -125,7 +127,7 @@ F_DMAOP:        LDX     PX
                 TAX
                 JMP     (DMJUMPS,X)
 DMJUMPS:        .word   DM_INFOX, DM_LOADX, DM_COPYX, DM_FILLX, DM_VBSETX, DM_POINTERX, DM_CONSOLEX
-                .word   DM_VWRITEX, DM_VREADX, DM_VFILLX, DM_VCOPYX, DM_BANK8X
+                .word   DM_VWRITEX, DM_VREADX, DM_VFILLX, DM_VCOPYX, DM_BANK8X, DM_VFILLWX
 .assert (* - DMJUMPS) / 2 = DM_OPS, error, "DMJUMPS has an entry for each of oodos.inc's DM_*"
 
 DMFF:           JMP     RETFF
@@ -700,6 +702,84 @@ DM_VFILLX:      BLOCK
                 JMP     PORTRUN
 @no:            JMP     RETFF
 
+; +1-2 the word (low byte first), +3-5 the destination (card), +6-7 the
+; length in bytes (0: 65,536), checked as DM_VFILL's (interface version 13;
+; hw/video640.md: a direct 640 colour fill). Two passes through the port at
+; PSTEP 2, each from a byte held still as DM_VFILL's: the low byte to the
+; destination and every second byte on, (length + 1) / 2 of them; then the
+; high byte from the destination + 1, length / 2 of them (none for a
+; length of 1). A pass that times out ends it, refused.
+FILLH_PHYS      = SYS_BLOCK * $4000 + FILLH
+DM_VFILLWX:     BLOCK
+                JSR     PGET
+                STA     FILLB
+                JSR     PGET
+                STA     FILLH
+                JSR     GETSG
+                JSR     SG2DST
+                JSR     GETLEN         ; VLEN: the length less 1
+                JSR     CDSTOK
+                BCS     @no
+                JSR     CDST2V         ; VDST: the destination, for the second pass
+                LDA     VLEN + 1       ; the low bytes: VLEN / 2 + 1, 1-32,768
+                LSR     A
+                STA     VLEFT + 1
+                LDA     VLEN
+                ROR     A
+                STA     VLEFT
+                INC     VLEFT
+                BNE     @lo
+                INC     VLEFT + 1
+@lo:            LDA     VLEFT          ; kept: the pass counts VLEFT down to 0
+                STA     VSRC
+                LDA     VLEFT + 1
+                STA     VSRC + 1
+                LDA     #<FILLB_PHYS
+                LDX     #>FILLB_PHYS
+                JSR     WPASS
+                BCS     @no
+                LDA     VSRC           ; the high bytes: as many if VLEN is odd, one fewer if even
+                STA     VLEFT
+                LDA     VSRC + 1
+                STA     VLEFT + 1
+                LDA     VLEN
+                LSR     A
+                BCS     @hi
+                LDA     VLEFT
+                BNE     @dec
+                DEC     VLEFT + 1
+@dec:           DEC     VLEFT
+                LDA     VLEFT
+                ORA     VLEFT + 1
+                BEQ     @done          ; a length of 1: the low byte alone
+@hi:            LDX     #2             ; from the destination + 1
+@dst:           LDA     VDST,X
+                STA     DSTP,X
+                DEX
+                BPL     @dst
+                INC     DSTP
+                BNE     @go
+                INC     DSTP + 1
+                BNE     @go
+                INC     DSTP + 2
+@go:            LDA     #<FILLH_PHYS
+                LDX     #>FILLH_PHYS
+                JSR     WPASS
+                BCS     @no
+@done:          JMP     DM00
+@no:            JMP     RETFF
+; One pass: from the byte at A/X in OODOS's block (its bank SYS_BLOCK's), held,
+; VLEFT bytes to DSTP and every second byte on. Carry set if it timed out.
+WPASS:          STA     SRCP
+                STX     SRCP + 1
+                LDA     #^FILLB_PHYS
+                STA     SRCP + 2
+                LDA     #DMA_DEMAND_OUT | DMA_HOLD
+                LDX     #VIDEO_PCTL_DRQ
+                LDY     #2
+                JMP     PORTLOOP
+.assert ^FILLB_PHYS = ^FILLH_PHYS, error, "WPASS's sources share a bank"
+
 ; +1-3 the source (card, the fitted memory), +4-6 the destination (card,
 ; the program's part), +7-8 the length: a piece at a time, none crossing a
 ; bank of either, the source's bank in slot 2 and the destination's in slot
@@ -796,9 +876,18 @@ GETLEN:         JSR     PGET
 ; PORT_PIECE at most, each masked, the port and the channel set for it, so
 ; that the frame handler's copies may come between. Ends the function: A =
 ; X = 0, or $FF if a piece timed out (PORTGO), the pieces after it not run.
+; PORTLOOP is the same with Y the port's step (1, or 2: DM_VFILLW's, each
+; piece's card address on by twice its bytes), returning carry set if a
+; piece timed out, clear when all ran.
 PORT_PIECE      = 2048
-PORTRUN:        STA     PMODE
+PORTRUN:        LDY     #1
+                JSR     PORTLOOP
+                BCS     @late
+                JMP     DM00
+@late:          JMP     RETFF
+PORTLOOP:       STA     PMODE
                 STX     PPCTL
+                STY     PSTEPB
 @piece:         LDA     VLEFT + 1      ; this piece: PORT_PIECE, or what is left
                 BEQ     @last          ; (0: 65,536 left, a whole piece)
                 CMP     #>PORT_PIECE
@@ -836,7 +925,7 @@ PORTRUN:        STA     PMODE
                 STA     DMA_COUNT
                 LDA     DCOUNT + 1
                 STA     DMA_COUNT + 1
-                LDA     #1
+                LDA     PSTEPB
                 STA     VIDEO_PSTEP
                 STZ     VIDEO_PSTEP + 1
                 LDA     PMODE
@@ -846,7 +935,8 @@ PORTRUN:        STA     PMODE
                 STA     DMA_CONTROL
                 BCS     @late
                 PLP
-                CLC                    ; on by the piece: the card's address
+                LDY     PSTEPB         ; on by the piece, times the step: the card's address
+@step:          CLC
                 LDA     DSTP
                 ADC     DCOUNT
                 STA     DSTP
@@ -855,7 +945,9 @@ PORTRUN:        STA     PMODE
                 STA     DSTP + 1
                 BCC     @card
                 INC     DSTP + 2
-@card:          LDA     PMODE          ; and the physical one, unless held (a fill)
+@card:          DEY
+                BNE     @step
+                LDA     PMODE          ; and the physical one, unless held (a fill)
                 AND     #DMA_HOLD
                 BNE     @left
                 CLC
@@ -877,9 +969,11 @@ PORTRUN:        STA     PMODE
                 ORA     VLEFT
                 BEQ     @end
                 JMP     @piece
-@end:           JMP     DM00
+@end:           CLC
+                RTS
 @late:          PLP                    ; a piece that didn't end: refused (review F4)
-                JMP     RETFF
+                SEC
+                RTS
 .assert <PORT_PIECE = 0, error, "PORTRUN's pieces are whole pages"
 
 ; Channel 1 to or from the card's port, masked by the caller, the master
