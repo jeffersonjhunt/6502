@@ -1155,7 +1155,7 @@ TEST(circle_arcs_and_radius_lines)
 
 // CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2. A negative radius takes the source's loop (the manual is
 // silent: no check, G9), about 13 s of points off the screen, and the OO-1's poll in it (every 256 steps: block 1
-// back, POLKEY) lets Ctrl-C break it: Break within a second, W1 block 1 again, and the next line typed runs. And the
+// back, POLKEY) lets Ctrl-C break it: Break within a second, and the next line typed runs and reads an array element past $4000 (block 1 in W1). And the
 // cursor is the centre as soon as it is parsed (the source's SCAN1): CIRCLE (50,60),10,1,9 is Illegal function call
 // (an angle past 2 x PI) and the LINE -(0,0) after it starts at (50,60). Guards a program that can't be stopped, and a
 // relative drawing after an error starting elsewhere. Seen failing with (a) the poll left out (Break only after the
@@ -1165,7 +1165,7 @@ TEST(circle_breaks_and_keeps_its_centre)
     CcpRig r;
     REQUIRE(r.ok);
     REQUIRE(start(r) >= 0);
-    enter(r, "10 SCREEN 1:CIRCLE (160,100),-5:PRINT \"DONE\"");
+    enter(r, "10 SCREEN 1:DIM X%(6000):X%(6000)=777:CIRCLE (160,100),-5:PRINT \"DONE\"");
     keys(r, "RUN\r");
     r.run(ms(1000));
     const uint64_t t0 = r.cpu->cycles();
@@ -1175,15 +1175,264 @@ TEST(circle_breaks_and_keeps_its_centre)
     std::printf("  Break %.2f s after Ctrl-C\n", static_cast<double>(r.cpu->cycles() - t0) / 7.16e6);
     CHECK(r.cpu->cycles() - t0 <= ms(1000));
     CHECK_EQ(last_row(r, "DONE"), -1);
-    CHECK_EQ(r.nb(1), 1);
-    enter(r, "PRINT 6*7", ms(500));
-    CHECK(last_row(r, " 42") >= 0);
+    enter(r, "PRINT X%(6000)", ms(500)); // past $4000: block 1 in W1
+    CHECK(last_row(r, " 777") >= 0);
     enter(r, "CLS:CIRCLE (50,60),10,1,9", ms(1000));
     CHECK(last_row(r, "Illegal function call") >= 0);
     enter(r, "LINE -(0,0),2", ms(1000));
     CHECK_EQ(pixel(r, 50, 60), 2);
     CHECK_EQ(pixel(r, 25, 30), 2);
     CHECK_EQ(pixel(r, 160, 100), 0);
+}
+
+// G14 (7e2): PAINT's pixels against PC-BASIC's, exact (gwbasic/gfx15 in SCREEN 1, gfx16 and gfx17 in SCREEN 2): the
+// source's algorithm (ADVGRP.ASM's scan lines and queue) on the OEM's SCANR, SCANL, TUPC and TDOWNC (the OO-1's,
+// their contracts read from PAINT's use). A boundary colour and the default (the paint's), nested boxes, a one-pixel
+// leak, a box crossed by a line of the paint colour (the source's pruning: the far side left), triangles of LINEs, a
+// start on the border, a paint of 0 where all is 0, the comb of 160 slots, a whole screen and a ring painted inside
+// and out. Guards a fill leaking out of its shape or stopping short of its border. Seen failing with (a) TDOWNC
+// moving past row 199 and (b) ENTSLR's already-painted test left out (the pruned box painted below its line).
+TEST(paint_matches_pc_basic)
+{
+    for (const char *name : {"gfx15", "gfx16", "gfx17"})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, std::string("m:gwbasic m:") + name, {name}, ms(30000)) >= 0);
+        std::printf("  %s:\n", name);
+        CHECK_EQ(compare(r, name), 0u);
+    }
+}
+
+// G15 (7e2): PAINT's queue lives in free memory, STREND to FRETOP (the source's), here above $4000 (gwbasic/gfx18: an
+// array from below $4000 to past it, so the queue's entries lie in $4000-$7FFF, where the aperture is while PAINT
+// draws: each put and taken with block 1 in W1): the comb's pixels PC-BASIC's, the array's 3,001 elements read
+// back, FRE(0) the same after. And by hand: with under 12 bytes free, Out of memory at once (INTQUE's floor); with
+// about 200 free, the comb's queue fills and Out of memory part way, the strings and an array past $4000 intact;
+// Ctrl-C during a whole screen's fill gives Break, and that array element reads back (block 1 in W1). Guards a big PAINT corrupting the program's variables, or one that
+// can't be stopped. Seen failing with (a) PUTQ without its block 1 (the entries written to the card) and (b) the
+// poll (CKCNTC) left out of PNTLOP.
+TEST(paint_queue_lives_in_free_memory)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:gfx18", {"gfx18"}, ms(60000)) >= 0);
+        CHECK_EQ(compare(r, "gfx18"), 0u);
+        enter(r, "PRINT \"P\";HEX$(P0);\" \";HEX$(P1):PRINT \"B\";B;F0-F1", ms(1000));
+        unsigned lo = 0, hi = 0;
+        const int p = last_row(r, "P");
+        REQUIRE(p >= 0);
+        CHECK(std::sscanf(line(r, static_cast<unsigned>(p)).c_str(), "P%x %x", &lo, &hi) == 2);
+        CHECK(lo < 0x4000 && hi >= 0x4000);
+        CHECK_EQ(line(r, static_cast<unsigned>(p + 1)), std::string("B 0  0"));
+    }
+    // Ctrl-C during a whole screen's fill: Break, and an array element past $4000 read back (block 1 in W1)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r) >= 0);
+        enter(r, "10 SCREEN 2:DIM X%(6000):X%(6000)=777:PAINT (320,100),1", ms(100));
+        keys(r, "RUN\r");
+        r.run(ms(1500));
+        press(r, 0x06, 0xE0);
+        CHECK(until_row(r, "Break in 10", ms(1000)) >= 0);
+        unsigned filled = 0;
+        for (unsigned y = 0; y < 200; ++y)
+            filled += pixel(r, 0, y) == 1;
+        CHECK(filled < 200); // stopped before the fill's end
+        enter(r, "PRINT \"X\";X%(6000)", ms(1000));
+        CHECK(last_row(r, "X 777") >= 0);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    // under 12 bytes free: strings take the space
+    enter(r, "SCREEN 2:DIM S$(200):DIM X%(6000):X%(6000)=777:N=0:F=0", ms(1000));
+    enter(r, "F=FRE(0)-8:WHILE F>250:S$(N)=SPACE$(250):N=N+1:F=FRE(0)-8:WEND:S$(N)=SPACE$(F):PRINT \"Z\"+\"9\";FRE(0)", ms(100));
+    until_row(r, "Z9", ms(60000));
+    std::printf("  %s\n", line(r, static_cast<unsigned>(std::max(0, last_row(r, "Z9")))).c_str());
+    enter(r, "PAINT (1,1),1", ms(2000));
+    CHECK(last_row(r, "Out of memory") >= 0);
+    enter(r, "CLS:PRINT \"X\";X%(6000)", ms(1000));
+    CHECK(last_row(r, "X 777") >= 0);
+    // about 200 bytes free: the comb's queue fills part way; the strings and the array intact
+    enter(r, "CLEAR:CLS:DIM S$(200):DIM X%(6000):X%(6000)=777:N=0:F=0", ms(2000));
+    enter(r, "FOR X=0 TO 636 STEP 4:LINE (X,0)-(X,90),1:NEXT", ms(6000));
+    enter(r, "F=FRE(0)-210:WHILE F>250:S$(N)=SPACE$(250):N=N+1:F=FRE(0)-210:WEND:PRINT \"W\"+\"7\";F;N", ms(100));
+    until_row(r, "W7", ms(60000));
+    enter(r, "S$(N)=SPACE$(F):PRINT \"Z\"+\"9\";FRE(0)", ms(100));
+    until_row(r, "Z9", ms(60000));
+    std::printf("  %s\n", line(r, static_cast<unsigned>(std::max(0, last_row(r, "Z9")))).c_str());
+    enter(r, "PAINT (1,95),1", ms(10000));
+    CHECK(last_row(r, "Out of memory") >= 0);
+    enter(r, "CLS:B=0:FOR I=0 TO N-1:B=B-(LEN(S$(I))<>250)-(ASC(S$(I))<>32):NEXT:PRINT \"Q\";B;X%(6000)", ms(8000));
+    CHECK(last_row(r, "Q 0  777") >= 0);
+}
+
+// G16 (7e2): DRAW's pixels against PC-BASIC's, exact (gwbasic/gfx19 in SCREEN 1, gfx20 in SCREEN 2): U D L R E F G H,
+// M both ways, B, N, C, S 1-12 with negative moves (DSCLDE's truncation toward 0), A0-A3 (A1 and A3 by moves
+// the aspect makes whole, R and U: the source rounds, PC-BASIC truncates; a turned L and A3's D, where PC-BASIC
+// parts from the source, by hand), X with VARPTR$ and by name, =var; single and integer,
+// lower case, spaces and ";", U D L R across every edge, LINE -( ) and PSET STEP after; and by hand, moves from far
+// off the screen and diagonals across the edges clipped as LINE's (the true clipping, the owner's G11; PC-BASIC's own
+// clipping moves the far end, so differs) against the test's reference. Guards a turtle drawing in the wrong place, a scaled shape the wrong size, the cursor wrong after.
+// Seen failing with (a) DSCLDE truncating a negative value down (S3 L5 4, not 3) and (b) DRWFLG not cleared after a
+// move (N sticks).
+TEST(draw_matches_pc_basic)
+{
+    for (const char *name : {"gfx19", "gfx20"})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, std::string("m:gwbasic m:") + name, {name}, ms(20000)) >= 0);
+        std::printf("  %s:\n", name);
+        CHECK_EQ(compare(r, name), 0u);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:DRAW \"BM-500,-500 C2 M20,190 BM300,-40 C3 M250,250 BM10,150 C1 G20 BM310,150 F30 BM200,10 E30\"",
+          ms(2000));
+    Ref ref(1); // (BM-500,-500 is relative: from the centre, to (-340,-400))
+    ref.line(20, 190, -340, -400, 2), ref.line(250, 250, 300, -40, 3);
+    ref.line(-10, 170, 10, 150, 1), ref.line(340, 180, 310, 150, 1), ref.line(230, -20, 200, 10, 1);
+    CHECK_EQ(compare_ref(r, ref), 0u);
+    // A3 by the source (GOSCAL's rounding, its swap and negation; PC-BASIC parts from it here): D10 is 12 left
+    enter(r, "CLS:DRAW \"BM80,80 C3 A3 D10 A0\"", ms(1500));
+    CHECK_EQ(pixel(r, 68, 80), 3);
+    CHECK_EQ(pixel(r, 74, 80), 3);
+    CHECK_EQ(pixel(r, 67, 80), 0);
+    CHECK_EQ(pixel(r, 80, 90), 0);
+    enter(r, "CLS:DRAW \"BM80,80 C2 A1 L12 A0\"", ms(1500)); // L12 turned: down 10 (12 x 213/256, rounded)
+    CHECK_EQ(pixel(r, 80, 90), 2);
+    CHECK_EQ(pixel(r, 80, 91), 0);
+}
+
+// G17 (7e2): DRAW's TA and P (not in the source; the IBM manual's, pp. 74-75, the owner's answer 9; the turn's
+// arithmetic the OO-1's), against PC-BASIC where it agrees (gwbasic/gfx21): TA 30, -45, 45, 90, 120, 200, 270 with S4
+// and S8, P inside a box and a diamond, the colour after P. And by hand, where PC-BASIC parts from the manual: P sets
+// the drawing colour to its paint even when it paints nothing (the manual's "figure color", the owner's G10:
+// DRAW "C1 P3,0 R9" from a pixel of 0, the border, paints nothing and draws the R9 in 3, where PC-BASIC keeps 1);
+// A n after TA n turns by A alone (the OO-1's: the one angle). Guards a rotated figure drawn wrong, a filled shape
+// left empty. Seen failing with (a) TA's turn's sine term's sign flipped and (b) P's border taken as its paint.
+TEST(draw_turns_and_paints)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:gfx21", {"gfx21"}, ms(20000)) >= 0);
+        CHECK_EQ(compare(r, "gfx21"), 0u);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:DRAW \"BM20,20 C1 P3,0 R9\"", ms(1500));
+    CHECK_EQ(pixel(r, 20, 20), 3);
+    CHECK_EQ(pixel(r, 29, 20), 3);
+    CHECK_EQ(pixel(r, 30, 20), 0);
+    CHECK_EQ(pixel(r, 20, 21), 0);
+    enter(r, "DRAW \"BM100,100 C2 TA45 A1 R12 TA0\"", ms(1500)); // A1 alone: up 10 (12 x 5/6)
+    CHECK_EQ(pixel(r, 100, 90), 2);
+    CHECK_EQ(pixel(r, 100, 95), 2);
+    CHECK_EQ(pixel(r, 108, 92), 0);
+}
+
+// G18 (7e2): the errors of DRAW, CIRCLE and PAINT (gwbasic/gfx22: 78 statements, each code against PC-BASIC's but
+// the six the source or the manual decides: DRAW "R99999" Illegal function call (NUML01's overflow, D6), "R1 ;;; U1"
+// Illegal function call (a ";" alone is no command, D7), "R--5" a move of 5 (each "-" negates, D9), CIRCLE with a
+// negative radius no error (no check, the owner's G9), PAINT's tile and background Advanced Feature until 7e4 (G12));
+// with S0 Illegal function call (the manual's p. 74) and PAINT off the screen no error (p. 236), as PC-BASIC has
+// them. And by hand: "U;" a move of 0 (the source's empty number, D8); a recursive X Out of memory (MCLXEQ's GETSTK,
+// D15), and the next line runs; DRAW, CIRCLE and PAINT in SCREEN 0 Illegal function call; PAINT off the screen leaves
+// the cursor where SCAN1 put it (LINE -(0,0) from (400,100)); after each error an array element past $4000 reads
+// back. Guards an error in a drawing statement leaving the aperture in W1, or a runaway X crashing the interpreter.
+// Seen failing with MCLXEQ without its stack check (the recursive X overruns the 6502 stack).
+TEST(graphics_errors_are_the_source_s)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        REQUIRE(start(r, "m:gwbasic m:gfx22", {"gfx22"}, ms(120000)) >= 0);
+        // the codes, 3 columns each, wrapped at 80 (here) or 78 (PC-BASIC's dump): read as words
+        auto words = [](const std::string &text) {
+            std::vector<int> v;
+            size_t i = 0;
+            while (i < text.size())
+            {
+                while (i < text.size() && (text[i] == ' ' || text[i] == '\r' || text[i] == '\n'))
+                    ++i;
+                size_t j = i;
+                while (j < text.size() && text[j] >= '0' && text[j] <= '9')
+                    ++j;
+                if (j == i)
+                    break;
+                v.push_back(std::atoi(text.substr(i, j - i).c_str()));
+                i = j;
+            }
+            return v;
+        };
+        const std::vector<int> pc = words(read_text(EMU_GWBASIC_PROGRAMS "/gfx22.out"));
+        std::string shown;
+        for (unsigned row = 0; row < 4; ++row)
+        {
+            std::string l = line(r, row); // (padded: a code may wrap across two rows)
+            l.resize(80, ' ');
+            if (l.find("Ok") != std::string::npos)
+                break;
+            shown += l;
+        }
+        const std::vector<int> ours = words(shown);
+        REQUIRE(pc.size() >= 78 && ours.size() >= 78);
+        const std::map<int, int> source = {{9, 5}, {25, 5}, {28, 0}, {43, 0}, {69, 73}, {70, 73}};
+        unsigned bad = 0;
+        for (int i = 0; i < 78; ++i)
+        {
+            const auto s = source.find(i);
+            const int want = s == source.end() ? pc[static_cast<size_t>(i)] : s->second;
+            if (ours[static_cast<size_t>(i)] != want && ++bad <= 8)
+                std::printf("  statement %d: %d, want %d (PC-BASIC's %d)\n", i, ours[static_cast<size_t>(i)], want,
+                            pc[static_cast<size_t>(i)]);
+        }
+        CHECK_EQ(bad, 0u);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:DIM X%(6000):X%(6000)=777:DRAW \"BM50,50 C1 U; R5\"", ms(1500));
+    CHECK_EQ(pixel(r, 50, 50), 1);
+    CHECK_EQ(pixel(r, 50, 49), 0);
+    CHECK_EQ(pixel(r, 55, 50), 1);
+    enter(r, "A$=\"R1XA$;\":DRAW \"XA$;\"", ms(3000));
+    CHECK(last_row(r, "Out of memory") >= 0);
+    enter(r, "CLS:PRINT \"X\";X%(6000)", ms(1000));
+    CHECK(last_row(r, "X 777") >= 0);
+    enter(r, "PAINT (400,100),1:LINE -(0,0),2", ms(1500));
+    CHECK_EQ(pixel(r, 0, 0), 2);
+    CHECK_EQ(pixel(r, 316, 79), 2); // on the line from (400,100): 316 x 100/400 = 79
+    CHECK_EQ(pixel(r, 160, 100), 0);
+    for (const char *stmt : {"DRAW \"R5\"", "CIRCLE (10,10),5", "PAINT (10,10),1"})
+    {
+        enter(r, "SCREEN 0:CLS", ms(800));
+        enter(r, stmt, ms(800));
+        CHECK(last_row(r, "Illegal function call") >= 1);
+        enter(r, "PRINT \"X\";X%(6000)", ms(800));
+        CHECK(last_row(r, "X 777") >= 0);
+    }
+}
+
+// G19 (7e2): block 1 is back in W1 after CIRCLE, PAINT and DRAW (G3's method, gwbasic/gfx23: an array across
+// $4000-$7FFF, filled, then read back after a circle, an arc with radius lines, a PAINT, a DRAW with X, a DRAW with P
+// and one with TA: 6 checks). Guards a program's variables read from the card after a drawing. Seen failing with
+// CIRCP's exit without GX_W1BACK.
+TEST(block_1_is_back_after_circle_paint_and_draw)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx23", {"gfx23"}, ms(60000)) >= 0);
+    const int at = last_row(r, "CHECKS");
+    REQUIRE(at >= 0);
+    CHECK_EQ(line(r, static_cast<unsigned>(at)), std::string("CHECKS 6 BAD 0"));
 }
 
 /// RUN's cycles, from the RUN statement to the end's ENDCON (check.py --timing's method), the program `lines` typed
@@ -1249,6 +1498,40 @@ TEST(graphics_are_timed)
                 far);
     CHECK(pset > 500 && pset <= 9000);
     CHECK(line2 > 10000 && line2 <= 200000);
+}
+
+
+// G20 (7e2): CIRCLE, PAINT and DRAW are timed (timed()'s method, a loop with the statement less the loop without):
+// CIRCLE (320,100),50,1 in SCREEN 2 at most 400,000 cycles; a whole SCREEN 2 PAINT (128,000 pixels, from the centre)
+// at most 40 M; a 100-move DRAW (A$, 50 x "R3D3", in SCREEN 2) at most 500,000 (the owner's answer 13); for the
+// record SCREEN 1's whole PAINT, CIRCLE r=100 in SCREEN 1, and the DRAW with TA30. Guards graphics too slow to use.
+// Seen failing with SCANR re-making the cursor by MAPXYC at each pixel (the whole PAINT over 40 M).
+TEST(circle_paint_and_draw_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    auto per = [&](const std::string &setup, const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed(r, {"10 " + setup + ":I%=0", "20 " + loop});
+        const uint64_t b = timed(r, {"10 " + setup + ":I%=0", "20 " + stmt + ":" + loop});
+        return static_cast<double>(b - a) / n;
+    };
+    const double circ = per("SCREEN 2", "CIRCLE (320,100),50,1", 10);
+    const double paint2 = per("SCREEN 2", "CLS:PAINT (320,100),1", 2) - per("SCREEN 2", "CLS", 2);
+    const std::string moves = "A$=\"\":FOR J=1 TO 50:A$=A$+\"R3D3\":NEXT:DRAW \"BM10,10\"";
+    const double draw = per("SCREEN 2:" + moves, "DRAW \"BM10,10\"+A$", 5) - per("SCREEN 2:" + moves, "DRAW \"BM10,10\"", 5);
+    const double circ1 = per("SCREEN 1", "CIRCLE (160,100),100,1", 5);
+    const double paint1 = per("SCREEN 1", "CLS:PAINT (160,100),1", 2) - per("SCREEN 1", "CLS", 2);
+    const double drawta = per("SCREEN 2:" + moves, "DRAW \"BM10,10 TA30\"+A$", 2) - per("SCREEN 2:" + moves, "DRAW \"BM10,10 TA30\"", 2);
+    std::printf("  CIRCLE (320,100),50,1 in SCREEN 2: %.0f cycles (the gate 400,000)\n", circ);
+    std::printf("  a whole SCREEN 2 PAINT: %.0f cycles (the gate 40,000,000)\n", paint2);
+    std::printf("  a 100-move DRAW in SCREEN 2: %.0f cycles (the gate 500,000)\n", draw);
+    std::printf("  for the record: CIRCLE r=100 in SCREEN 1 %.0f, a whole SCREEN 1 PAINT %.0f, the DRAW with TA30 %.0f\n",
+                circ1, paint1, drawta);
+    CHECK(circ > 10000 && circ <= 400000);
+    CHECK(paint2 > 1000000 && paint2 <= 40000000);
+    CHECK(draw > 10000 && draw <= 500000);
 }
 
 int main()

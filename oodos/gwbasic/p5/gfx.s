@@ -131,6 +131,10 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 LDA     GGRPT - 2,X    ; SCREEN 1's palette 1, SCREEN 2's white
                 STA     GGRP
                 JSR     GPAGE          ; the page cleared, the cursor centred
+                SEC                    ; 7e2: DRAW's colour the mode's foreground (the IBM
+                JSR     GETFBC         ; manual's p. 74: C's default the mode's last)
+                JSR     SETATR
+                STA     ATRBYT
                 LDX     GMX            ; layer 0: the frame or the mono rows
                 LDA     GMAP - 2,X
                 CLC

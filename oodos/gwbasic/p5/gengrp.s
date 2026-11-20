@@ -28,7 +28,7 @@
 ; is P5's RAM, as POINT saves and restores it. OO-1: the drawing (MAPXYC on)
 ; maps the aperture into W1, and each statement puts block 1 back
 ; (GX_W1BACK) before it returns; nothing after MAPXYC can end in an error.
-; DRAW's scale and angle, which GRPRST clears, are 7e2's.
+; DRAW's scale and angle, which GRPRST clears, are p5/advgrp.s's (7e2).
 
 .include "gwbasic.inc"
 .include "p5/p5.inc"
@@ -826,6 +826,9 @@ HLFDE:          LSR     RDH
 
 GRPRST:         PSHW    RCL            ; CX and BX kept (DX isn't, as the source's)
                 PSHW    RBL
+                STZ     DRWSCL         ; DRAW's scale and angle (7e2; and TA's, OO-1)
+                STZ     DRWANG
+                STZ     DRWTA
                 JSR     GRPINI
                 SEC
                 JSR     GETFBC

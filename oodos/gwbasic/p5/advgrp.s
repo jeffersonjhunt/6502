@@ -22,8 +22,8 @@
 .include "p5/p5.inc"
 .import GX_W1BACK
 
-.export CIRCP, CIRCC
-.import POLKEY
+.export CIRCP, CIRCC, PAINTP, DRWOP
+.import POLKEY, CHRGTR, SYNCHR, FRMEVL, CONINT, GETBYT, FCERR, ADVERR, OMERR, GARBA2
 
 ; Zero page: the loop's, and CIRCA's results from CZ, in the order
 ; CIRCA leaves them from DX on.
@@ -320,6 +320,432 @@ CPLFIN:         DEC     CPLN
                 MOVW    CYOFF, CDE
                 JMP     CPLOT
 
+; --- PAINT (ADVGRP.ASM 121) -------------------------------------------------------------------
+
+; PAINTP: PAINT [STEP](x,y)[,[paint][,boundary]]. The queue first (INTQUE,
+; free memory, a garbage collection under 1,000 bytes), then the start
+; (SCAN1: the cursor moves there), the paint (ATRSCN's: the foreground if
+; none) and the boundary (the paint's if none: PNTINI). OO-1 (the owner's
+; G12 until 7e4): a string paint (a tile) or a fourth argument (the
+; background) Advanced Feature. The IBM manual's p. 236 (the owner's ruling
+; under the IBM spec): a start off the screen paints nothing, no error, the
+; cursor moved there as SCAN1 has it (the source's CHKRNG gives Illegal
+; function call).
+PAINTP:         LDA     FRETOP         ; the queue: free memory to FRETOP
+                LDX     FRETOP + 1
+                LDY     #0             ;   with a collection
+                JSR     INTQUE
+                JSR     SCAN1
+                PSHW    RCL            ; the start
+                PSHW    RDL
+                SEC                    ; the paint: ATRSCN's, a string refused
+                JSR     GETFBC
+                STA     RDL
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     @pfin
+                JSR     SYNCHR
+                .byte   ','
+                CMP     #','
+                BEQ     @pfin          ; null: the default
+                JSR     FRMEVL
+                LDA     VALTYP
+                CMP     #VT_STR
+                JEQ     PADV           ; a tile: 7e4's
+                JSR     CONINT
+@pfin:          JSR     PIXSIZ         ; (ATRFI2's)
+                BNE     :+
+                JMP     FCERR
+:               LDA     RDL
+                JSR     SETATR
+                STA     ATRBYT         ; the boundary's default: the paint's
+                STA     RDL
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     GOTBRD
+                JSR     SYNCHR
+                .byte   ','
+                CMP     #','
+                BEQ     PADV           ; a background with no boundary: 7e4's
+                JSR     GETBYT
+                LDA     (TXTPTR)
+                CMP     #','
+                BEQ     PADV           ; a background: 7e4's
+GOTBRD:         LDA     RDL
+                JSR     PNTINI
+                PULW    RDL
+                PULW    RCL
+                JSR     SCALXY         ; off the screen: nothing (p. 236)
+                BCC     PNTX
+                ; (on into PNTCOR)
+
+; PNTCOR: the fill from (CX, DX), on the screen, in ATRBYT to PBORD, with
+; the queue set up (INTQUE). DRAW's P comes here too.
+PNTCOR:         JSR     MAPXYC
+                MOVW    PNX, RCL
+                LDA     RDL
+                STA     PNY
+                LDA     #1             ; the skip count: one (none of the border)
+                STA     RDL
+                STZ     RDH
+                JSR     SCANR1         ; right from the start
+                BEQ     PNTX           ; on the border: nothing
+                PSHW    RBL            ; the count to the right
+                JSR     SCANL1         ; and left
+                PULW    RDL
+                JSR     ADDBD          ; DX: the run's count
+                LDA     #$40           ; an entry down
+                JSR     ENTST1
+                LDA     #$C0           ; and paint up now
+                BRA     STPAIN
+PNTX:           JMP     GX_W1BACK      ; (OO-1)
+PADV:           JMP     ADVERR
+PNTLOP:         JSR     GX_W1BACK      ; CKCNTC, with block 1 in W1 (OO-1)
+                JSR     POLKEY
+PNTLP1:         JSR     GETQ           ; the next entry (A its direction, 0 none)
+                BEQ     PNTX
+                PHA
+                JSR     PSTOR          ; STOREC
+                PLA
+STPAIN:         STA     PDIREC
+                ASL     A              ; 0: done; C: up
+                BEQ     PNTX
+                PSHW    RDL
+                BCC     PDOWN
+                JSR     TUPC
+                BRA     PDOWN2
+PDOWN:          JSR     TDOWNC
+PDOWN2:         PULW    RDL            ; (C kept)
+                BCS     PNTLP1         ; past the screen: the next
+PNTLP2:         JSR     SCANR1
+                BEQ     PNTLP1         ; nothing painted: the next
+                JSR     SCANL1
+                MOVW    RDL, RBL       ; DX: the left count
+                LDA     LFPROG         ; the line already painted: no overhang
+                BEQ     PNTLP3
+                LDA     RBH            ; the left count past 1: an overhang
+                BNE     :+             ; entry the other way
+                LDA     RBL
+                CMP     #2
+                BCC     PNTLP3
+:               LDA     PDIREC
+                EOR     #$FF
+                JSR     ENTST1
+PNTLP3:         MOVW    RBL, MOVCNT    ; the run's count: the right's and left's
+                JSR     ADDBD
+                JSR     ENTSLR
+                MOVW    RCL, PCSX      ; back to the right scan's end
+                JSR     PSTOR
+PNTLP4:         SEC                    ; SKPCNT - MOVCNT: more border to skip?
+                LDA     SKPCNT
+                SBC     MOVCNT
+                STA     RBL
+                LDA     SKPCNT + 1
+                SBC     MOVCNT + 1
+                STA     RBH
+                BMI     PNTLP6         ; a right overhang
+                ORA     RBL
+                BEQ     GOPLOP         ; none: the scan's end
+                MOVW    RDL, RBL
+                JSR     SCANR1         ; on right
+                BEQ     GOPLOP
+                LDA     RTPROG         ; already painted: no entry
+                BEQ     PNTLP4
+                MOVW    RDL, RBL       ; an entry at the run's start, this way
+                MOVW    QX, PCSX
+                LDA     PDIREC
+                JSR     PUTQ
+                BRA     PNTLP4
+PNTLP6:         SEC                    ; -(SKPCNT - MOVCNT) - 2: an entry the
+                LDA     #<-2           ; other way if it isn't negative
+                SBC     RBL
+                STA     RDL
+                LDA     #>-2
+                SBC     RBH
+                STA     RDH
+                BMI     GOPLOP
+                INCW    RDL            ; from the overhang's start, -(SKPCNT -
+                MOVW    RBL, RDL       ; MOVCNT) - 1 to the left
+@l:             JSR     LEFTC
+                DECW    PNX
+                LDA     RBL
+                BNE     :+
+                DEC     RBH
+:               DEC     RBL
+                LDA     RBL
+                ORA     RBH
+                BNE     @l
+                LDA     PDIREC
+                EOR     #$FF
+                JSR     ENTST1
+GOPLOP:         JMP     PNTLOP
+
+; ADDBD: DX = BX + DX.
+ADDBD:          CLC
+                LDA     RBL
+                ADC     RDL
+                STA     RDL
+                LDA     RBH
+                ADC     RDH
+                STA     RDH
+                RTS
+
+; ENTSLR: an entry this way at the cursor, unless the line was painted
+; already (neither scan changed a pixel). ENTST1: A's way at the cursor.
+; DX the count. PUTQ: the entry (QX, PNY, A, DX).
+ENTSLR:         LDA     LFPROG
+                ORA     RTPROG
+                BEQ     QRET
+                LDA     PDIREC
+ENTST1:         PHA
+                MOVW    QX, PNX
+                PLA
+PUTQ:           STA     QDIR
+                CLC                    ; the queue's length + 6
+                LDA     PSNLEN
+                ADC     #6
+                STA     PSNLEN
+                LDA     PSNLEN + 1
+                ADC     #0
+                STA     PSNLEN + 1
+                LDA     PSNLEN         ; at its size or past: Out of memory
+                CMP     QUELEN
+                LDA     PSNLEN + 1
+                SBC     QUELEN + 1
+                BCC     :+
+                JSR     GX_W1BACK      ; (OO-1)
+                JMP     OMERR
+:               LDX     #QUEINP - QPTRS
+                JSR     QAT            ; PTR the entry's place, block 1 if needed
+                LDY     #0
+                LDA     QX
+                STA     (PTR),Y
+                INY
+                LDA     QX + 1
+                STA     (PTR),Y
+                INY
+                LDA     PNY
+                STA     (PTR),Y
+                INY
+                LDA     QDIR
+                STA     (PTR),Y
+                INY
+                LDA     RDL
+                STA     (PTR),Y
+                INY
+                LDA     RDH
+                STA     (PTR),Y
+                BIT     QW1
+                BPL     QRET
+                LDA     CBANK          ; (OO-1) the aperture back
+                JMP     NEWBNK
+QRET:           RTS
+
+; GETQ: an entry taken: A its direction (0: none left), CX its x, PNY its
+; y, DX its count. Block 1 left in W1 if the entry was there.
+GETQ:           LDA     PSNLEN
+                ORA     PSNLEN + 1
+                BEQ     QRET           ; (A 0)
+                SEC
+                LDA     PSNLEN
+                SBC     #6
+                STA     PSNLEN
+                BCS     :+
+                DEC     PSNLEN + 1
+:               LDX     #QUEOUT - QPTRS
+                JSR     QAT
+                LDY     #5
+                LDA     (PTR),Y
+                STA     RDH
+                DEY
+                LDA     (PTR),Y
+                STA     RDL
+                DEY
+                LDA     (PTR),Y
+                PHA                    ; the direction
+                DEY
+                LDA     (PTR),Y
+                STA     PNY
+                DEY
+                LDA     (PTR),Y
+                STA     RCH
+                LDA     (PTR)
+                STA     RCL
+                PLA
+                RTS
+
+; QAT: X QUEINP's or QUEOUT's offset in QPTRS: PTR its entry, wrapped (WRAP:
+; to the queue's start when the entry wouldn't end before QTOP), the
+; pointer moved past it; QW1 bit 7 and block 1 put back in W1 if the entry
+; may lie in $4000-$7FFF (OO-1: the aperture is there while PAINT draws).
+QAT:            CLC                    ; WRAP
+                LDA     QPTRS,X
+                ADC     #6
+                TAY
+                LDA     QPTRS + 1,X
+                ADC     #0
+                CPY     QTOP
+                SBC     QTOP + 1
+                BCC     :+
+                LDA     STREND         ; past the end: the start
+                STA     QPTRS,X
+                LDA     STREND + 1
+                STA     QPTRS + 1,X
+:               LDA     QPTRS,X
+                STA     PTR
+                CLC
+                ADC     #6
+                STA     QPTRS,X
+                LDA     QPTRS + 1,X
+                STA     PTR + 1
+                ADC     #0
+                STA     QPTRS + 1,X
+                STZ     QW1
+                LDA     PTR + 1        ; $3F00-$7FFF: block 1 there
+                CMP     #$3F
+                BCC     @x
+                CMP     #$80
+                BCS     @x
+                DEC     QW1
+                JMP     GX_W1BACK
+@x:             RTS
+
+; INTQUE: the queue in free memory, from STREND to A/X (FRETOP, or DRAW's
+; P's cap), Y 0 with a garbage collection if under 1,000 bytes are free
+; (DRAW's P: none, Y not 0); under 12 bytes Out of memory.
+INTQUE:         STA     QTOP
+                STX     QTOP + 1
+                TYA
+                BNE     @len
+                JSR     QFREE
+                LDA     RBH
+                CMP     #>1000
+                BCC     :+
+                BNE     @len
+                LDA     RBL
+                CMP     #<1000
+                BCS     @len
+:               JSR     GARBA2
+                MOVW    QTOP, FRETOP
+@len:           JSR     QFREE
+                LDA     RBH
+                BNE     :+
+                LDA     RBL
+                CMP     #12
+                BCS     :+
+                JMP     OMERR
+:               MOVW    QUELEN, RBL
+                STZ     PSNLEN
+                STZ     PSNLEN + 1
+                MOVW    QUEINP, STREND
+                MOVW    QUEOUT, STREND
+                RTS
+; QFREE: BX = QTOP - STREND.
+QFREE:          SEC
+                LDA     QTOP
+                SBC     STREND
+                STA     RBL
+                LDA     QTOP + 1
+                SBC     STREND + 1
+                STA     RBH
+                RTS
+
+; SCANR1: SCANR, SKPCNT and MOVCNT kept, RTPROG its flag; Z by BX.
+SCANR1:         JSR     SCANR
+                MOVW    SKPCNT, RDL
+                MOVW    MOVCNT, RBL
+                LDA     RCL
+                STA     RTPROG
+                LDA     RBL
+                ORA     RBH
+                RTS
+; SCANL1: the cursor back at the run's start (PCSX), the right scan's end
+; kept in PCSX; SCANL; LFPROG its flag (A).
+SCANL1:         MOVW    RCL, PCSX
+                MOVW    PCSX, PNX
+                JSR     PSTOR
+                JSR     SCANL
+                LDA     RCL
+                STA     LFPROG
+                RTS
+
+; --- DRAW's drawing (ADVGRP.ASM 1254) ---------------------------------------------------------
+
+; DRWOP: from P3's DRAWP (p3/draw.s), Y the operation:
+;   0  the start: PIXSIZ (SCREEN 0: Illegal function call, before the
+;      string is read, the source's DRAW); out BX and DX GTASPC's pair, RAL
+;      DRWSCL, RAH DRWANG, RCL TA's state (OO-1)
+;   1  a relative move, BX and DX: GTABSC, then 2
+;   2  DRWABS: CX, DX, A DRWFLG (bit 7 B: no line; bit 6 N: the cursor
+;      stays); the line drawn as LINE's is (DOGRPH's clipping: the owner's
+;      G11; DRWABS's SCALXY left out)
+;   3  C: A the colour, SETATR's (ATRBYT)
+;   4  P (OO-1): RCL the paint, RCH the border, BX the queue's end: the
+;      paint becomes the drawing colour (ATRBYT), then PAINT's fill at the
+;      cursor (none off the screen), the queue with no garbage collection
+;   5  RAL DRWSCL, RAH DRWANG, RCL TA's state kept here (GRPRST clears them)
+DRWOP:          CPY     #1
+                BCC     DRW0
+                BEQ     DRW1
+                CPY     #3
+                BCC     DRWABS
+                BEQ     DRW3
+                CPY     #4
+                BEQ     DRW4
+                LDA     RAL            ; 5
+                STA     DRWSCL
+                LDA     RAH
+                STA     DRWANG
+                LDA     RCL
+                STA     DRWTA
+                RTS
+DRW0:           JSR     PIXSIZ
+                BNE     :+
+                JMP     FCERR
+:               JSR     GTASPC
+                LDA     DRWSCL
+                STA     RAL
+                LDA     DRWANG
+                STA     RAH
+                LDA     DRWTA
+                STA     RCL
+                RTS
+DRW1:           PHA
+                JSR     GTABSC
+                PLA
+DRWABS:         STA     DRWFLG
+                BIT     DRWFLG         ; B: just the position
+                BMI     DSTPOS
+                PSHW    RCL
+                PSHW    RDL
+                JSR     CLINE2
+                JSR     GX_W1BACK      ; (OO-1)
+                PULW    RDL
+                PULW    RCL
+DSTPOS:         BIT     DRWFLG         ; N: the cursor stays
+                BVS     DNSTOR
+                MOVW    GRPACX, RCL
+                MOVW    GRPACY, RDL
+DNSTOR:         RTS
+DRW3:           JSR     SETATR
+                STA     ATRBYT
+                RTS
+DRW4:           LDA     RCL            ; the paint: the colour from now
+                JSR     SETATR
+                STA     ATRBYT
+                LDA     RCH
+                JSR     PNTINI
+                LDA     RBL            ; the queue, no collection
+                LDX     RBH
+                LDY     #1
+                JSR     INTQUE
+                MOVW    RCL, GRPACX
+                MOVW    RDL, GRPACY
+                JSR     SCALXY         ; off the screen: nothing
+                BCS     :+
+                RTS
+:               JMP     PNTCOR
+
 ; CLINE2: a line from (CX, DX) to the cursor (GRPACX, GRPACY).
 CLINE2:         MOVW    GXPOS, GRPACX
                 MOVW    GYPOS, GRPACY
@@ -386,3 +812,23 @@ SCAL2:          STA     T0             ; T3:T2:T1 = A x DE
                 STA     RDH
                 RTS
 
+
+.segment "BRAM"
+PDIREC:         .res    1              ; PAINT: the way, $40 down, $C0 up
+SKPCNT:         .res    2              ;   SCANR's skip count left
+MOVCNT:         .res    2              ;   its run's count
+RTPROG:         .res    1              ;   the right scan changed a pixel
+LFPROG:         .res    1              ;   the left scan
+QX:             .res    2              ;   an entry's x
+QDIR:           .res    1              ;   and its way
+QW1:            .res    1              ;   bit 7: block 1 put in W1 for it
+QTOP:           .res    2              ; the queue: its end (FRETOP, or a cap)
+QUELEN:         .res    2              ;   its size
+PSNLEN:         .res    2              ;   its length now
+QPTRS:
+QUEINP:         .res    2              ;   where an entry goes
+QUEOUT:         .res    2              ;   where one is taken
+DRWFLG:         .res    1              ; DRAW: DRWABS's B and N (DRWOP 2)
+DRWSCL:         .res    1              ;   S (0 none: GRPRST's)
+DRWANG:         .res    1              ;   A
+DRWTA:          .res    1              ;   1: TA's turn (OO-1)

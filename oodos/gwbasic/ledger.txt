@@ -923,7 +923,7 @@ GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the 
 GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
 GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
 GWSTS.ASM SNDRST -> later 7f: the break's music reset
-GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) later 7e: DRAW's (7e2)
+GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) and TA's state (DRWTA, OO-1) cleared, P5's since 7e2
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
 GIODSK.ASM PROCHK -> p2/gwmain.s PROCHK # P2's; P3's PRODIR and P4's BINSAV have it inline
@@ -1288,7 +1288,17 @@ FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as 
 FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes on to MAIN or CHNENT's SCRTCH (the far call rule)
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
-ADVGRP.ASM PAINT -> later 7e: PAINT (7e2)
+ADVGRP.ASM PAINT -> p5/advgrp.s PAINTP # its home block stub p8/far5.s PAINT, screen mode; PNTCOR the fill (DRAW's P too); GOTBRD inline; OO-1 (the IBM manual's p. 236): a start off the screen paints nothing, no error (CHKRNG not called); a string paint or a background Advanced Feature until 7e4 (the owner's G12); CKCNTC with block 1 put back (PNTLOP)
+ADVGRP.ASM INTQUE -> p5/advgrp.s INTQUE # the queue's end A/X (FRETOP, or DRAW's P's cap, OO-1) and Y (0: GARBA2 allowed); INTQU2 inline
+ADVGRP.ASM CHKRNG -> dropped: PAINT's start off the screen paints nothing (the IBM manual's p. 236; PAINTP's SCALXY test); GET and PUT's later 7e3
+ADVGRP.ASM SCANR1 -> p5/advgrp.s SCANR1
+ADVGRP.ASM SCANL1 -> p5/advgrp.s SCANL1 # CSAVEA the run's x (PCSX), the cursor re-made by PSTOR
+ADVGRP.ASM ENTST1 -> p5/advgrp.s ENTST1 # FETCHC's place: the cursor's (x, y), PNX and PNY
+ADVGRP.ASM ENTSLR -> p5/advgrp.s ENTSLR # ENTST0 inline
+ADVGRP.ASM ENTSTK -> p5/advgrp.s PUTQ # ENTST9 inline: the entry at CSAVEA's x (QX)
+ADVGRP.ASM PUTQ -> p5/advgrp.s PUTQ # the entry (x, y, the way, the count), not the 8086's address and mask: re-made by PSTOR (OO-1); block 1 put in W1 for an entry in $3F00-$7FFF and the aperture back after
+ADVGRP.ASM GETQ -> p5/advgrp.s GETQ # A 0 (CH's place) when none
+ADVGRP.ASM WRAP -> p5/advgrp.s QAT # with the pointer's move and the W1 rule (OO-1)
 GWSTS.ASM COMS -> p3/gwsts.s COMSP # its stub p8/far3.s COMS (STMDSX's); ON COM's trap 7f
 ADVGRP.ASM CIRCLE -> p5/advgrp.s CIRCP # its home block stub p8/far5.s CIRCLE, screen mode; the parse (SCAN1, GETIN2, CNPNTS, ATRSCN's, the angles, the aspect, CIRC1, CIRC11, CIRC2, CSTPLT) in p3/advgrp.s CIRCA by one far call (7e2, the owner's option 1), the centre handed to P5's CIRCC as soon as it is parsed (SCAN1's place); OO-1: CIRCLP's Ctrl-C poll every 256 steps (the owner's ruling)
 ADVGRP.ASM CGTCNT -> p3/advgrp.s CGTCNT # CGTC2 inline; the flag byte on the 6502's stack across FRMEVL
@@ -1300,7 +1310,28 @@ ADVGRP.ASM CLINE2 -> p5/advgrp.s CLINE2 # DOGRPH's true clipping (the IBM spec's
 ADVGRP.ASM GTABSC -> p5/advgrp.s GTABSC
 ADVGRP.ASM CPLOT4 -> p5/advgrp.s CPLOT4 # CPLOT, CNBTWN, CLINEC, CLINSC, CLINE, CBTWEN, GCPLFN, CPLTIT, CPLFIN inline: HL, DE and the count in zero page (CHL, CDE, CPLN), not the 8086's stack
 ADVGRP.ASM CPLSCX -> p5/advgrp.s CPLSCX # XCHBD the swap
-ADVGRP.ASM DRAW -> later 7e: DRAW, with MACLNG (7e2)
+ADVGRP.ASM DRAW -> p3/draw.s DRAWP # its home block stub p8/far5.s DRAW, screen mode; PIXSIZ's test and the state by P5's DRWOP 0 (7e2, the owner's answer 1: the parse in P3, the drawing in P5)
+MACLNG.ASM MACLNG -> p3/maclng.s MACLNG # MCLNEW, MCLOOP, MCLSCN, MSCNLP, MISCMD, VSNARG, VSNAR0, ISCMD3, MNOARG inline: each string's address and length on the 6502's stack, 3 bytes a level; OO-1: MCLOUT the first string's address, for DRAW's P
+MACLNG.ASM FETCHZ -> p3/maclng.s FETCHZ # GOFCER's FCERR
+MACLNG.ASM DECFET -> p3/maclng.s DECFET
+MACLNG.ASM VALSCN -> p3/maclng.s VALSCN # VALSC3, VALSC2, NUMLOP inline; each "-" counted (NEGD's return pushed in the 8086), negated once at the end
+ADVGRP.ASM DSCLDE -> p3/draw.s DSCLDE # DSCLP, DSCPOS inline
+ADVGRP.ASM GOSCAL -> p3/draw.s GOSCAL # GOSC2 and SCALE2's multiply (the 8086's MUL as an 8 x 16 shift and add) inline
+MACLNG.ASM MCLNEW -> p3/maclng.s MCLNEW # in MACLNG's body: a string pushed
+ADVGRP.ASM DOMOVR -> p3/draw.s DOMOVR # ASPLS0, ASPLS1, DMULP, ASLSS1, ANGEVN inline; ANGPOS's GTABSC P5's (DRWOP 1); OO-1: TA's turn (TATURN) when it is set, the manual's
+ADVGRP.ASM DRWABS -> p5/advgrp.s DRWABS # P5's DRWOP 2 (1: GTABSC first); DSTPOS, DNSTOR inline; OO-1 (the owner's G11): no SCALXY, the line clipped by DOGRPH; DRWFLG cleared by P3's DRWOPF
+MACLNG.ASM ISLET2 -> res/bimisc.s ISLET2 # MACLNG.ASM's copy of BIMISC.ASM's
+MACLNG.ASM NEGD -> p3/maclng.s NEGD
+MACLNG.ASM MCLXEQ -> p3/maclng.s MCLXEQ # DRWTAB's X; the place pushed on the 6502's stack, GETSTK's room checked (the BASIC stack and the 6502's)
+MACLNG.ASM SCNVAR -> p3/maclng.s SCNVAR # SCNVR2, SCNVLP, SCNV2 inline; ISVAR's PTRGET with TXTPTR at BUF, then RETVAR; VARPTR$'s form by RETVAR
+MACLNG.ASM SCNFC -> p3/maclng.s MCLFC # FCERR
+MACLNG.ASM VALSC2 -> p3/maclng.s VALSC2 # NUMLOP, NUML01 inline: an overflow past 16 bits Illegal function call (SCNFC)
+MACLNG.ASM VARGET -> p3/maclng.s VARGET
+ADVGRP.ASM NCFCER -> p3/draw.s NCFCER # DSCALE's entry too (S0 also refused: the IBM manual's p. 74, OO-1)
+ADVGRP.ASM SCALE2 -> p5/advgrp.s SCALE2 # CIRCLE's; DRAW's GOSCAL has its own copy in P3 (p3/draw.s)
+GWSTS.ASM GOFCER -> res/gwmain.s FCERR # JMP FCERR; the name MACLNG.ASM's FETCHZ reaches is its own GOFCER (p3/maclng.s MCLFC), the ledger resolving it here
+MACLNG.ASM VALSC3 -> p3/maclng.s VALSC3
+MACLNG.ASM FETCHR -> p3/maclng.s FETCHR # FETCH2 inline; C set for a character, clear at the end (the 8086's Z)
 GWSTS.ASM PLAYS -> later 7f: PLAY
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it

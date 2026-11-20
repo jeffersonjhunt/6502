@@ -6,10 +6,12 @@
 ;
 ;   PSET PRESET   GENGRP.ASM's
 ;   CIRCLE        ADVGRP.ASM's (7e2): P5's CIRCP, which parses it in P3
+;   PAINT         ADVGRP.ASM's (7e2): P5's PAINTP
+;   DRAW          ADVGRP.ASM's (7e2): P3's DRAWP (its drawing P5's DRWOP)
 
 .include "gwbasic.inc"
 
-.export PSET, PRESET, CIRCLE
+.export PSET, PRESET, CIRCLE, PAINT, DRAW
 .import ADVERR, SCRMOD
 
 .code
@@ -25,5 +27,13 @@ PRESET:         BIT     SCRMOD
 CIRCLE:         BIT     SCRMOD
                 BPL     ADV
                 FJSR    CIRCP
+                RTS
+PAINT:          BIT     SCRMOD
+                BPL     ADV
+                FJSR    PAINTP
+                RTS
+DRAW:           BIT     SCRMOD
+                BPL     ADV
+                FJSR    DRAWP
                 RTS
 ADV:            JMP     ADVERR

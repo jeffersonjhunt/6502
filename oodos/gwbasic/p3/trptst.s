@@ -27,6 +27,7 @@
 ; entries before them keep their places (gwgen.py numbers them by file,
 ; then by line).
 ;@entry CIRCA
+;@entry DRAWP
 .export TRPTSP
 .import EVTRP, EVADR, EVSET, TRPCNT
 

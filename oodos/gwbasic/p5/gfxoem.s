@@ -493,7 +493,7 @@ UPT:            LDA     CY7
 ;   TUPC    a row up, TDOWNC down: carry set, and no move, at row 0 or 199
 ;   PNTINI  A the border's attribute: past the mode's last colour the last
 ;           (as SETATR); carry clear (every attribute is legal)
-;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC)
+;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC); DX kept
 SCANR:          STZ     RCL
 @skip:          LDA     GMAXX          ; past the edge: none
                 CMP     PNX
@@ -515,10 +515,10 @@ SCANR:          STZ     RCL
 @none:          STZ     RBL
                 STZ     RBH
                 RTS
-@run:           LDA     PNX
-                STA     PCSX
-                LDA     PNX + 1
-                STA     PCSX + 1
+@run:           LDX     PNX            ; (A the pixel, kept)
+                STX     PCSX
+                LDX     PNX + 1
+                STX     PCSX + 1
                 STZ     RBL
                 STZ     RBH
                 BRA     @in
@@ -591,10 +591,19 @@ PSTOR:          LDA     RCL
                 STA     PNX
                 LDA     RCH
                 STA     PNX + 1
+                LDA     RDH            ; DX kept (an entry's count)
+                PHA
+                LDA     RDL
+                PHA
                 LDA     PNY
                 STA     RDL
                 STZ     RDH
-                JMP     MAPXYC
+                JSR     MAPXYC
+                PLA
+                STA     RDL
+                PLA
+                STA     RDH
+                RTS
 
 
 .segment "RODATA"
