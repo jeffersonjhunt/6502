@@ -487,11 +487,15 @@ SETATR:         LDX     GMODEV
                 RTS
 
 ; CPATOF (7e5): A an attribute (at most the mode's last) as a byte with it
-; in every pixel: in each nibble in SCREEN 1 (a 4-bit tile's), in every bit
-; in SCREEN 2. Y kept.
+; in every pixel: in each nibble in SCREEN 1 (a 4-bit tile's) and SCREEN 11,
+; in every bit in SCREEN 2 and 12, SCREEN 10's the byte itself. Y kept.
 CPATOF:         LDX     GMODEV
                 CPX     #GM_TILE
                 BEQ     @n
+                CPX     #GM_M11        ; 7e5: SCREEN 11 a nibble a pixel too
+                BEQ     @n
+                CPX     #GM_M10        ;   SCREEN 10 a byte: itself
+                BEQ     @x
                 TAX                    ; a bit a pixel: 0 or every bit
                 BEQ     @x
                 LDA     #$FF
