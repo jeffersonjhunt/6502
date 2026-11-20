@@ -111,6 +111,7 @@ namespace ooe::emu
         ctrl_ = border_ = 0;
         palbase_ = live_palbase_ = sprbase_ = live_sprbase_ = 0;
         ien_ = isr_ = 0;
+        sprctl_ = 0;
         coll_ = frame_coll_ = 0;
         match_line_ = 0;
         layers_ = {};
@@ -331,6 +332,7 @@ namespace ooe::emu
         case Rev2::PALBASE + 1: return hi(palbase_);
         case Rev2::SPRBASE: return lo(sprbase_);
         case Rev2::SPRBASE + 1: return hi(sprbase_);
+        case Rev2::SPRCTL: return sprctl_;
         case Rev2::PADDR: return static_cast<uint8_t>(paddr_);
         case Rev2::PADDR + 1: return static_cast<uint8_t>(paddr_ >> 8);
         case Rev2::PADDR + 2: return static_cast<uint8_t>(paddr_ >> 16);
@@ -387,6 +389,7 @@ namespace ooe::emu
         case Rev2::PALBASE + 1: set_hi(palbase_, data, 0xFFFF); break;
         case Rev2::SPRBASE: set_lo(sprbase_, data); break;
         case Rev2::SPRBASE + 1: set_hi(sprbase_, data, 0xFFFF); break;
+        case Rev2::SPRCTL: sprctl_ = data & Rev2::SPR_FULL; break;
         case Rev2::PADDR: paddr_ = (paddr_ & 0xFFFF00) | data; break;
         case Rev2::PADDR + 1: paddr_ = (paddr_ & 0xFF00FF) | uint32_t{data} << 8; break;
         case Rev2::PADDR + 2: paddr_ = (paddr_ & 0x00FFFF) | uint32_t{data} << 16; break;
@@ -629,12 +632,20 @@ namespace ooe::emu
             draw_layer(layers_[0], y, l0.data());
         if (ctrl_ & LAYER1_ON)
             draw_layer(layers_[1], y, l1.data());
-        std::array<SpritePixel, SPRITE_WIDTH> spr{};
+        // SPRCTL 0 (and revision 1): the 320-wide sprite line, read at x / 2. SPRCTL 1: the 640-wide one.
+        const bool full = rev_ == 2 && (sprctl_ & Rev2::SPR_FULL);
+        std::array<SpritePixel, WIDTH> spr{};
         if (ctrl_ & SPRITES_ON)
-            draw_sprites(y / 2, spr.data());
+        {
+            if (full)
+                draw_sprites640(y, spr.data());
+            else
+                draw_sprites320(y / 2, spr.data());
+        }
+        const unsigned shift = full ? 0 : 1;
         for (unsigned x = 0; x < WIDTH; ++x)
         {
-            const SpritePixel s = spr[x / 2];
+            const SpritePixel s = spr[x >> shift];
             int c = l0[x] == UNCOVERED && l1[x] == UNCOVERED ? UNCOVERED : 0;
             if (s.depth == 1)
                 c = s.colour;
@@ -650,7 +661,68 @@ namespace ooe::emu
         }
     }
 
-    void VideoCard::draw_sprites(unsigned ly, SpritePixel *line)
+    void VideoCard::draw_sprites640(unsigned y, SpritePixel *line)
+    {
+        // SPRCTL 1 (hw/sprites640.md): the line 640 wide. An entry with byte 3 bit 7 set is full resolution: its
+        // row from the screen line, its pixel at x (0-639). The others are doubled: the row from y / 2, the pixel
+        // at 2x and 2x + 1 (x 0-319). One count of 32 and one front order cover both sizes; each screen pixel has
+        // its own collision mask, so two doubled sprites collide just as in the 320-wide space.
+        std::array<uint8_t, WIDTH> masks{};
+        const uint32_t table = base(live_sprbase_);
+        unsigned drawn = 0;
+        for (unsigned n = 0; n < SPRITES && drawn < SPRITES_PER_LINE; ++n)
+        {
+            const uint32_t e = table + n * 8;
+            const uint8_t flags = vram(e + 6), size = vram(e + 7), xhi = vram(e + 3);
+            const unsigned depth = (flags >> 2) & 3;
+            if (!depth)
+                continue;
+            const bool one = xhi & Rev2::SPRX_FULL;
+            const unsigned w = 8u << ((size >> 4) & 3), h = 8u << (size >> 6);
+            const unsigned sx = (vram(e + 2) | (xhi & 3u) << 8);
+            const unsigned sy = (vram(e + 4) | (vram(e + 5) & 3u) << 8);
+            const unsigned row = ((one ? y : y / 2) - sy) & 0x3FF;
+            if (row >= h)
+                continue;
+            ++drawn;
+            const unsigned image = vram(e) | (vram(e + 1) & 0x7Fu) << 8; // revision 2's 15 bits
+            const bool bpp8 = vram(e + 1) & 0x80;
+            const unsigned ty = flags & 0x02 ? h - 1 - row : row;
+            const uint32_t at = uint32_t{image} * 256 + ty * (bpp8 ? w : w / 2);
+            const uint8_t group = flags >> 4, palofs = size & 0x0F;
+            const unsigned span = one ? WIDTH : SPRITE_WIDTH, k = one ? 1 : 2; // k: screen pixels a sprite pixel
+            for (unsigned i = 0; i < w; ++i)
+            {
+                const unsigned x = (sx + i) & 0x3FF;
+                if (x >= span)
+                    continue;
+                const unsigned tx = flags & 0x01 ? w - 1 - i : i;
+                unsigned v;
+                if (bpp8)
+                    v = vram(at + tx);
+                else
+                {
+                    const uint8_t b = vram(at + tx / 2);
+                    v = tx & 1 ? b & 0x0F : b >> 4;
+                }
+                if (!v)
+                    continue; // transparent
+                const uint8_t colour = static_cast<uint8_t>(bpp8 ? v : (unsigned{palofs} << 4) | v);
+                for (unsigned q = x * k, end = q + k; q < end; ++q)
+                {
+                    if (masks[q] & group)
+                        frame_coll_ |= static_cast<uint8_t>(masks[q] & group);
+                    masks[q] |= group;
+                    if (line[q].depth)
+                        continue; // a lower-numbered sprite is already here, in front
+                    line[q].colour = colour;
+                    line[q].depth = static_cast<uint8_t>(depth);
+                }
+            }
+        }
+    }
+
+    void VideoCard::draw_sprites320(unsigned ly, SpritePixel *line)
     {
         // 64 entries of 8 bytes (VERA's): the lowest-numbered 32 on this line are drawn, and a
         // lower number is in front. Collision groups (masks) record where opaque pixels overlap.

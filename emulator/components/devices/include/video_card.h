@@ -29,6 +29,7 @@
  *
  *   $00 CTRL  $01 BORDER  $04 IEN  $05 ISR  $06-$07 LINE  $08 STATUS  $09 SPLASH
  *   $0A-$0B PALBASE  $0C-$0D SPRBASE      card address / 256, low byte first
+ *   $0E SPRCTL        bit 0 FULL: full-resolution sprites (hw/sprites640.md, proposed)
  *   layer n at $10 + n x $10:  +0 CONFIG  +1-2 MAPBASE  +3-4 TILEBASE
  *                              +5-6 HSCROLL  +7-8 VSCROLL  +9 PALOFS
  *   $30-$37 SLOT0-3   aperture pages (16 KB), low byte first; /RESET: SLOTn = n
@@ -37,7 +38,8 @@
  *   $3E PCTL          bit 0 DRQ enable, bit 1 from the card, bit 2 step down
  *   $3F MEMSIZE       64 KB units fitted: 32     $7F ID  $92
  *
- * Every other byte reads 0. Bases are 24-bit card addresses (unit x 256);
+ * Every other byte reads 0 (SPRCTL, at the map's reserved $0E, is an addition beside the frozen
+ * record). Bases are 24-bit card addresses (unit x 256);
  * the sprite image address is 15 bits of 256-byte units (byte 0, then byte 1
  * bits 0-6; bit 7 is still the depth). Card memory past MEMSIZE reads $FF
  * and ignores writes, by scanout, the aperture and the port alike. The
@@ -142,6 +144,14 @@
  * groups share a bit are a collision: at the vertical blank after it,
  * STATUS COLL holds the shared groups and ISR's collision bit is set.
  *
+ * Full-resolution sprites (revision 2, hw/sprites640.md, proposed): while SPRCTL bit 0 is set, an
+ * entry whose byte 3 bit 7 is set is drawn a sprite pixel a screen pixel, its X and Y in 640x480
+ * units (still 10 bits, wrapping at 1,024; 0-639 and 0-479 visible). With SPRCTL 0 the bit means
+ * nothing and every sprite is drawn by the 320-wide path, unchanged. With SPRCTL 1 the line is built
+ * 640 wide: a doubled sprite's pixel goes to two screen pixels, a full one's to one; the 32 a line and
+ * the front order run across both sizes, and collisions are found per screen pixel, which for two
+ * doubled sprites is the same as in the 320-wide space.
+ *
  * Boot splash (SPLASH, hw/design.md "Boot splash"): the One Off Endeavors
  * logo and the VINTAGE FAST stamp, drawn by the card itself from its own ROM (splash_rom.h, the FPGA's
  * block RAM: splashgen.py makes both), not from video memory, so the BIOS
@@ -216,6 +226,9 @@ namespace ooe::emu
             static constexpr uint8_t SLOT0 = 0x30; ///< SLOTn at SLOT0 + 2n, two bytes
             static constexpr uint8_t PADDR = 0x38, PDATA = 0x3B, PSTEP = 0x3C, PCTL = 0x3E, MEMSIZE = 0x3F;
             static constexpr uint8_t PCTL_DRQ = 0x01, PCTL_FROM_CARD = 0x02, PCTL_DOWN = 0x04;
+            static constexpr uint8_t SPRCTL = 0x0E;   ///< hw/sprites640.md (proposed): bit 0 SPR_FULL
+            static constexpr uint8_t SPR_FULL = 0x01; ///< SPRCTL: byte 3 bit 7 makes a sprite full resolution
+            static constexpr uint8_t SPRX_FULL = 0x80; ///< a sprite entry's byte 3 (X high) bit 7
         };
         static constexpr uint8_t DISPLAY = 0x01, LAYER0_ON = 0x02, LAYER1_ON = 0x04, SPRITES_ON = 0x08;
         static constexpr uint8_t VBLANK = 0x01, LINE_MATCH = 0x02, COLLISION = 0x04;
@@ -358,8 +371,11 @@ namespace ooe::emu
         /// Apple II mode: line y of the IIe's display, 560x384 centred.
         void draw_apple(unsigned y, uint32_t *out) const;
         uint8_t apple(uint32_t bank, uint16_t addr) const { return apple_ram_ ? apple_ram_[bank << 16 | addr] : 0; }
-        /// Line `ly` of the 320x240 sprite space; sprite collisions are noted for the frame.
-        void draw_sprites(unsigned ly, SpritePixel *line);
+        /// Line `ly` of the 320x240 sprite space, every sprite doubled (SPRCTL 0, or revision 1); sprite
+        /// collisions are noted for the frame.
+        void draw_sprites320(unsigned ly, SpritePixel *line);
+        /// Screen line `y`, 640 wide (SPRCTL 1): doubled and full-resolution sprites; collisions per screen pixel.
+        void draw_sprites640(unsigned y, SpritePixel *line);
         /// The boot splash's line y, from the card's ROM.
         void draw_splash(unsigned y, uint32_t *out) const;
         /// Vertical blank: start, advance or end the splash.
@@ -386,6 +402,7 @@ namespace ooe::emu
         uint16_t palbase_{0}, live_palbase_{0}; ///< revision 1: the low byte only
         uint16_t sprbase_{0}, live_sprbase_{0};
         uint8_t ien_{0}, isr_{0};
+        uint8_t sprctl_{0};     ///< revision 2's SPRCTL: bit 0 only
         uint8_t coll_{0};       ///< STATUS COLL: the groups in the last frame with a collision
         uint8_t frame_coll_{0}; ///< groups that collided in the frame being drawn
         uint16_t match_line_{0};

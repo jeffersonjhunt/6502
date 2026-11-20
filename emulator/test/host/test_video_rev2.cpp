@@ -7,7 +7,8 @@
  * The first cases drive the card alone, its "CPU clock" the pixel clock (as test_video's do);
  * the later ones put it on a backplane machine: backplane.machine itself with the revision
  * chosen by MachineOptions, so the aperture, RAM C and DMA channel 1 are wired as its lines say.
- * Then layer types 6 and 7, bitmap 640 and direct 640 (hw/video640.md). Revision 1 keeps test_video.
+ * Then layer types 6 and 7, bitmap 640 and direct 640 (hw/video640.md), and full-resolution sprites
+ * (SPRCTL, hw/sprites640.md). Revision 1 keeps test_video.
  * Last, the debugger's `vram` (VideoCard::command), on the card and through a Debugger as the app
  * wires it.
  */
@@ -95,7 +96,7 @@ namespace
     /// The bytes revision 2 reserves: they read 0 whatever is written.
     bool reserved(unsigned o)
     {
-        if (o == 0x02 || o == 0x03 || o == 0x0E || o == 0x0F)
+        if (o == 0x02 || o == 0x03 || o == 0x0F) // $0E is SPRCTL (hw/sprites640.md)
             return true;
         if (o >= 0x10 && o < 0x30)
             return (o & 0xF) >= 0xA;
@@ -150,7 +151,7 @@ TEST(reserved_bytes_read_0_whatever_is_written)
         CHECK_EQ(r.card.peek(o), 0x00);
         ++n;
     }
-    CHECK_EQ(n, 4u + 2 * 6 + 63);
+    CHECK_EQ(n, 3u + 2 * 6 + 63);
 }
 
 TEST(registers_read_back_at_their_frozen_addresses)
@@ -1282,6 +1283,515 @@ TEST(sprites_over_and_under_type_7)
     });
     CHECK_EQ(bad, 0u);
     CHECK_EQ(r.card.peek(VideoCard::STATUS) & 0x0F, 0x05); // groups 1 and 4
+}
+
+// --- full-resolution sprites (hw/sprites640.md) -------------------------------------------------
+
+namespace
+{
+    /// Entry n of the sprite table at `table`: the image at card address `image` (on a 256-byte unit), X and Y
+    /// (10 bits; `full` sets byte 3 bit 7), byte 6 (groups, depth, flips) and byte 7 (sizes, palette offset).
+    void entry(Rig &r, uint32_t table, unsigned n, uint32_t image, bool bpp8, unsigned x, unsigned y, bool full,
+               uint8_t b6, uint8_t b7)
+    {
+        const unsigned unit = image >> 8;
+        const uint8_t e[8] = {static_cast<uint8_t>(unit),
+                              static_cast<uint8_t>(((unit >> 8) & 0x7F) | (bpp8 ? 0x80 : 0)),
+                              static_cast<uint8_t>(x),
+                              static_cast<uint8_t>(((x >> 8) & 3) | (full ? R2::SPRX_FULL : 0)),
+                              static_cast<uint8_t>(y),
+                              static_cast<uint8_t>((y >> 8) & 3),
+                              b6,
+                              b7};
+        for (unsigned i = 0; i < 8; ++i)
+            r.card.card_poke(table + n * 8 + i, e[i]);
+    }
+    /// Byte 6: the collision groups, the depth (0-3) and the flips (bit 0 H, bit 1 V).
+    constexpr uint8_t attrs(unsigned depth, unsigned groups = 0, unsigned flips = 0)
+    {
+        return static_cast<uint8_t>(groups << 4 | depth << 2 | flips);
+    }
+    /// Byte 7: the width and height codes (0-3: 8, 16, 32, 64) and the palette offset.
+    constexpr uint8_t dims(unsigned wcode, unsigned hcode, unsigned palofs = 0)
+    {
+        return static_cast<uint8_t>(hcode << 6 | wcode << 4 | palofs);
+    }
+    /// A sprite image's pixel (tx, ty) as the card colours it: a palette index, 0 transparent.
+    unsigned image_px(const Rig &r, uint32_t image, bool bpp8, unsigned w, unsigned tx, unsigned ty, unsigned palofs)
+    {
+        if (bpp8)
+            return r.card.card_peek(image + ty * w + tx);
+        const uint8_t b = r.card.card_peek(image + ty * (w / 2) + tx / 2);
+        const unsigned v = tx & 1 ? b & 0x0F : b >> 4;
+        return v ? (palofs << 4 | v) : 0;
+    }
+    /// A w x h image that differs along every row and down every column, some of its pixels transparent.
+    void pattern(Rig &r, uint32_t image, bool bpp8, unsigned w, unsigned h, unsigned seed)
+    {
+        for (unsigned ty = 0; ty < h; ++ty)
+            for (unsigned tx = 0; tx < w; ++tx)
+            {
+                unsigned v = (tx * 7 + ty * 13 + seed) & (bpp8 ? 0xFF : 0x0F);
+                if ((tx + 2 * ty + seed) % 5 == 0)
+                    v = 0;
+                if (bpp8)
+                    r.card.card_poke(image + ty * w + tx, static_cast<uint8_t>(v));
+                else
+                {
+                    const uint32_t at = image + ty * (w / 2) + tx / 2;
+                    const uint8_t b = r.card.card_peek(at);
+                    r.card.card_poke(at, static_cast<uint8_t>(tx & 1 ? (b & 0xF0) | v : (b & 0x0F) | v << 4));
+                }
+            }
+    }
+    /// The sprite pixel (tx, ty) that a sprite at (sx, sy), w x h, puts at screen pixel (x, y), its positions in
+    /// screen pixels / `scale` (1 full resolution, 2 doubled) and wrapping at 1,024. False where it puts none.
+    bool covers(unsigned x, unsigned y, unsigned sx, unsigned sy, unsigned w, unsigned h, unsigned scale, unsigned &tx,
+                unsigned &ty)
+    {
+        tx = (x / scale - sx) & 0x3FF;
+        ty = (y / scale - sy) & 0x3FF;
+        return tx < w && ty < h;
+    }
+    std::vector<uint32_t> grab(const Rig &r) { return std::vector<uint32_t>(r.card.frame(), r.card.frame() + W * H); }
+    /// The table at `table`, sprites on and full resolution on or off, the palette at 0.
+    void sprites_on(Rig &r, uint32_t table, bool full, uint8_t layers = 0)
+    {
+        r.reg16(R2::SPRBASE, static_cast<uint16_t>(table >> 8));
+        r.reg(R2::SPRCTL, full ? R2::SPR_FULL : 0);
+        r.reg(VideoCard::CTRL, static_cast<uint8_t>(VideoCard::DISPLAY | VideoCard::SPRITES_ON | layers));
+    }
+
+    /// Today's rules for doubled sprites, written out again from the definition (chapter 6, "Sprites"): each
+    /// line of the 320x240 space, the 32 lowest-numbered sprites that cover it, a lower number in front,
+    /// collisions where opaque pixels share a spot and a group bit; over two mono layers (PALOFS 1 and 2).
+    struct Reference
+    {
+        std::vector<uint32_t> frame;
+        uint8_t coll{0};
+    };
+    Reference doubled_reference(const Rig &r, uint32_t table, uint32_t mono0, uint32_t mono1)
+    {
+        auto pal = [&](unsigned i) {
+            return rgba(static_cast<uint16_t>(r.card.card_peek(2 * i) | (r.card.card_peek(2 * i + 1) & 0x0F) << 8));
+        };
+        auto mono = [&](uint32_t at, unsigned x, unsigned y) { return (r.card.card_peek(at + y * 80 + x / 8) >> (7 - x % 8)) & 1; };
+        Reference out{std::vector<uint32_t>(W * H), 0};
+        for (unsigned ly = 0; ly < H / 2; ++ly)
+        {
+            uint8_t colour[320] = {}, depth[320] = {}, mask[320] = {};
+            unsigned drawn = 0;
+            for (unsigned n = 0; n < 64 && drawn < 32; ++n)
+            {
+                const uint32_t e = table + n * 8;
+                const uint8_t b6 = r.card.card_peek(e + 6), b7 = r.card.card_peek(e + 7);
+                const unsigned d = (b6 >> 2) & 3;
+                if (!d)
+                    continue;
+                const unsigned w = 8u << ((b7 >> 4) & 3), h = 8u << (b7 >> 6);
+                const unsigned sx = r.card.card_peek(e + 2) | (r.card.card_peek(e + 3) & 3) << 8;
+                const unsigned sy = r.card.card_peek(e + 4) | (r.card.card_peek(e + 5) & 3) << 8;
+                const unsigned row = (ly - sy) & 0x3FF;
+                if (row >= h)
+                    continue;
+                ++drawn;
+                const uint32_t image = (r.card.card_peek(e) | (r.card.card_peek(e + 1) & 0x7Fu) << 8) * 256u;
+                const bool bpp8 = r.card.card_peek(e + 1) & 0x80;
+                const unsigned ty = b6 & 2 ? h - 1 - row : row;
+                for (unsigned i = 0; i < w; ++i)
+                {
+                    const unsigned x = (sx + i) & 0x3FF;
+                    if (x >= 320)
+                        continue;
+                    const unsigned v = image_px(r, image, bpp8, w, b6 & 1 ? w - 1 - i : i, ty, b7 & 0x0F);
+                    if (!v)
+                        continue;
+                    out.coll |= mask[x] & (b6 >> 4);
+                    mask[x] |= b6 >> 4;
+                    if (depth[x])
+                        continue;
+                    colour[x] = static_cast<uint8_t>(v);
+                    depth[x] = static_cast<uint8_t>(d);
+                }
+            }
+            for (unsigned y = 2 * ly; y < 2 * ly + 2; ++y)
+                for (unsigned x = 0; x < W; ++x)
+                {
+                    const unsigned s = x / 2;
+                    unsigned c = 0; // both layers cover: entry 0 where all is transparent
+                    if (depth[s] == 1)
+                        c = colour[s];
+                    if (mono(mono0, x, y))
+                        c = 0x11;
+                    if (depth[s] == 2)
+                        c = colour[s];
+                    if (mono(mono1, x, y))
+                        c = 0x21;
+                    if (depth[s] == 3)
+                        c = colour[s];
+                    out.frame[y * W + x] = pal(c);
+                }
+        }
+        return out;
+    }
+} // namespace
+
+TEST(a_full_sprite_is_drawn_1_to_1_in_640_units)
+{
+    // Over a mono layer and over a bitmap 640 layer: 8x8, 16x16 and 64x64 sprites at 4 and 8 bits, full
+    // resolution at the odd place (101, 77) of 640x480, in front. Each screen pixel of the box is one image
+    // pixel (the layer where it is transparent); the layer is exact everywhere else.
+    const uint32_t lay = 0x040000, table = 0x1A0000, image = 0x1A1000;
+    for (uint8_t type : {VideoCard::MONO, VideoCard::BITMAP640})
+        for (unsigned code : {0u, 1u, 3u})
+            for (bool bpp8 : {false, true})
+            {
+                Rig r;
+                palette(r, 0);
+                const unsigned n = 8u << code;
+                auto layer_px = [&](unsigned x, unsigned y) -> unsigned {
+                    if (type == VideoCard::MONO)
+                        return (r.card.card_peek(lay + y * 80 + x / 8) >> (7 - x % 8)) & 1;
+                    return r.card.card_peek(lay + y * B640 + x);
+                };
+                for (unsigned y = 0; y < H; ++y)
+                    for (unsigned x = 0; x < (type == VideoCard::MONO ? 80u : B640); ++x)
+                        r.card.card_poke(lay + y * (type == VideoCard::MONO ? 80u : B640) + x,
+                                         static_cast<uint8_t>(x * 37 + y * 11 + (x >> 8) * 29));
+                pattern(r, image, bpp8, n, n, code * 3 + bpp8);
+                entry(r, table, 0, image, bpp8, 101, 77, true, attrs(3), dims(code, code, 6));
+                layer(r, L0, type, lay);
+                sprites_on(r, table, true, VideoCard::LAYER0_ON);
+                r.show();
+                const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+                    unsigned tx, ty;
+                    if (covers(x, y, 101, 77, n, n, 1, tx, ty))
+                        if (const unsigned v = image_px(r, image, bpp8, n, tx, ty, 6))
+                            return rgba(entry_colour(v));
+                    return rgba(entry_colour(layer_px(x, y)));
+                });
+                if (bad)
+                    std::printf("  over %s: %ux%u at %u bits\n", type == VideoCard::MONO ? "mono" : "bitmap 640", n, n,
+                                bpp8 ? 8 : 4);
+                CHECK_EQ(bad, 0u);
+            }
+}
+
+TEST(the_full_bit_needs_sprctl)
+{
+    // SPRCTL: bit 0 alone, 0 at reset and after /RESET. Byte 3 bit 7 means nothing while it is 0, and with it
+    // set byte 3's bits 6-2 and byte 5's bits 7-2 still mean nothing: an old table shows as it did.
+    Rig r;
+    CHECK_EQ(r.card.peek(R2::SPRCTL), 0x00);
+    r.reg(R2::SPRCTL, 0xFF);
+    CHECK_EQ(r.card.peek(R2::SPRCTL), 0x01);
+    r.reg(R2::SPRCTL, 0xFE);
+    CHECK_EQ(r.card.peek(R2::SPRCTL), 0x00);
+    r.reg(R2::SPRCTL, 0x01);
+    r.card.bus_reset();
+    CHECK_EQ(r.card.peek(R2::SPRCTL), 0x00);
+
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    palette(r, 0);
+    pattern(r, image, true, 16, 16, 1);
+    auto table_with = [&](uint8_t b3, uint8_t b5) { // ORed into each entry's bytes 3 and 5
+        entry(r, table, 0, image, true, 101, 77, false, attrs(3), dims(1, 1));
+        entry(r, table, 1, image, true, 276, 30, false, attrs(3), dims(1, 1)); // X high 1
+        for (unsigned n : {0u, 1u})
+        {
+            r.card.card_poke(table + n * 8 + 3, static_cast<uint8_t>(r.card.card_peek(table + n * 8 + 3) | b3));
+            r.card.card_poke(table + n * 8 + 5, static_cast<uint8_t>(r.card.card_peek(table + n * 8 + 5) | b5));
+        }
+    };
+    sprites_on(r, table, false);
+    table_with(0, 0);
+    r.show();
+    const auto plain = grab(r);
+    table_with(0x80, 0);
+    r.show();
+    CHECK(grab(r) == plain); // SPRCTL 0: bit 7 ignored
+    table_with(0xFC, 0xFC);
+    r.show();
+    CHECK(grab(r) == plain); // and every other spare bit
+    r.reg(R2::SPRCTL, R2::SPR_FULL);
+    table_with(0x7C, 0xFC);
+    r.show();
+    CHECK(grab(r) == plain); // SPRCTL 1, bit 7 clear: doubled, the junk ignored
+    table_with(0x80, 0);
+    r.show();
+    const auto full = grab(r);
+    CHECK(full != plain); // bit 7 counts now
+    table_with(0xFC, 0xFC);
+    r.show();
+    CHECK(grab(r) == full);
+}
+
+TEST(doubled_sprites_are_unchanged_with_sprctl_on_or_off)
+{
+    // 20 seeded random tables of 64 doubled sprites (every size, depth, flip and group, both colour depths,
+    // junk in byte 3's bits 6-2 and byte 5's bits 7-2; every fourth table 64 sprites 64 high crowding the top
+    // lines, past 32 a line) over two mono layers. With SPRCTL 0 (byte 3 bit 7 random too) and with SPRCTL 1
+    // (bit 7 clear) each frame and COLL equal a reference that applies today's rules on its own.
+    Rig r;
+    uint32_t seed = 2026;
+    auto rnd = [&] {
+        seed = seed * 1103515245 + 12345;
+        return (seed >> 16) & 0xFF;
+    };
+    for (uint32_t a = 0; a < VideoCard::MEMORY_SIZE; ++a)
+        r.card.card_poke(a, static_cast<uint8_t>(rnd() < 100 ? 0 : rnd()));
+    const uint32_t mono0 = 0x010000, mono1 = 0x020000, table = 0x1C0000;
+    auto setup = [&](bool full) {
+        r.card.bus_reset(); // COLL 0
+        layer(r, L0, VideoCard::MONO, mono0);
+        r.reg(L0 + R2::PALOFS, 1);
+        layer(r, L1, VideoCard::MONO, mono1);
+        r.reg(L1 + R2::PALOFS, 2);
+        sprites_on(r, table, full, VideoCard::LAYER0_ON | VideoCard::LAYER1_ON);
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::LAYER1_ON); // latch first
+        r.show();
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::LAYER1_ON | VideoCard::SPRITES_ON);
+        r.show();
+    };
+    unsigned crowded = 0;
+    for (unsigned trial = 0; trial < 20; ++trial)
+    {
+        const bool crowd = trial % 4 == 0;
+        for (unsigned n = 0; n < 64; ++n)
+        {
+            const unsigned x = (1000 + (rnd() | rnd() << 8) % 344) & 0x3FF; // -24 to 319
+            const unsigned y = crowd ? rnd() % 40 : (1000 + (rnd() | rnd() << 8) % 264) & 0x3FF;
+            const uint8_t e[8] = {static_cast<uint8_t>(rnd()), static_cast<uint8_t>((rnd() & 0x80) | (rnd() & 0x1F)),
+                                  static_cast<uint8_t>(x), static_cast<uint8_t>((x >> 8) | (rnd() & 0x7C)),
+                                  static_cast<uint8_t>(y), static_cast<uint8_t>((y >> 8) | (rnd() & 0xFC)),
+                                  static_cast<uint8_t>(rnd()),
+                                  static_cast<uint8_t>(crowd ? 0xC0 | (rnd() & 0x3F) : rnd())};
+            for (unsigned i = 0; i < 8; ++i)
+                r.card.card_poke(table + n * 8 + i, e[i]);
+        }
+        const Reference want = doubled_reference(r, table, mono0, mono1);
+        crowded += crowd;
+        for (bool full : {false, true})
+        {
+            for (unsigned n = 0; n < 64; ++n)
+            {
+                const uint32_t b3 = table + n * 8 + 3;
+                r.card.card_poke(b3, static_cast<uint8_t>((r.card.card_peek(b3) & 0x7F) | (full ? 0 : rnd() & 0x80)));
+            }
+            setup(full);
+            const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) { return want.frame[y * W + x]; });
+            const uint8_t coll = r.card.peek(VideoCard::STATUS) & 0x0F;
+            if (bad || coll != want.coll)
+                std::printf("  table %u, SPRCTL %u: %u pixels, COLL $%X (wanted $%X)\n", trial, full, bad, coll, want.coll);
+            CHECK_EQ(bad, 0u);
+            CHECK_EQ(coll, want.coll);
+        }
+    }
+    CHECK_EQ(crowded, 5u);
+}
+
+TEST(a_full_and_a_doubled_sprite_collide_in_screen_pixels)
+{
+    // Sprite 0 groups %0011, sprite 1 %0110: a collision is COLL $2. A doubled 8x8 at X 10 covers screen 20-35;
+    // a full one at screen 36 misses it, at 35 hits it. Full ones at X 1 (1-8) and 9 (9-16) miss; at 8 they hit.
+    // Then the same down Y.
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    struct Case
+    {
+        bool full0;
+        unsigned x0, y0;
+        bool full1;
+        unsigned x1, y1;
+        uint8_t coll;
+    };
+    const Case cases[] = {
+        {false, 10, 10, true, 36, 20, 0}, {false, 10, 10, true, 35, 20, 2}, {true, 1, 20, true, 9, 20, 0},
+        {true, 1, 20, true, 8, 20, 2},    {false, 10, 10, true, 20, 36, 0}, {false, 10, 10, true, 20, 35, 2},
+        {true, 20, 1, true, 20, 9, 0},    {true, 20, 1, true, 20, 8, 2},
+    };
+    for (const Case &c : cases)
+    {
+        Rig r;
+        for (unsigned i = 0; i < 64; ++i)
+            r.card.card_poke(image + i, 0x21); // 8x8, every pixel opaque
+        entry(r, table, 0, image, true, c.x0, c.y0, c.full0, attrs(3, 0x3), dims(0, 0));
+        entry(r, table, 1, image, true, c.x1, c.y1, c.full1, attrs(3, 0x6), dims(0, 0));
+        sprites_on(r, table, true);
+        r.show();
+        const uint8_t coll = r.card.peek(VideoCard::STATUS) & 0x0F;
+        if (coll != c.coll)
+            std::printf("  %s (%u, %u) and %s (%u, %u): COLL $%X\n", c.full0 ? "full" : "doubled", c.x0, c.y0,
+                        c.full1 ? "full" : "doubled", c.x1, c.y1, coll);
+        CHECK_EQ(coll, c.coll);
+        CHECK_EQ((r.card.peek(VideoCard::ISR) & VideoCard::COLLISION) != 0, c.coll != 0);
+    }
+}
+
+TEST(full_sprites_wrap_at_1024_and_show_0_to_639)
+{
+    // A 16x16 full sprite: at (1016, 1016) its last 8x8 at the top left; at X 632 its left 8 columns at the
+    // right edge and nothing at the left; at X 640 or Y 480 nothing; at Y 472 its top 8 rows.
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    struct Place
+    {
+        unsigned x, y, shown;
+    };
+    for (const Place p : {Place{1016, 1016, 64}, Place{632, 100, 128}, Place{640, 100, 0}, Place{100, 480, 0},
+                          Place{100, 472, 128}})
+    {
+        Rig r;
+        palette(r, 0);
+        pattern(r, image, true, 16, 16, 9);
+        entry(r, table, 0, image, true, p.x, p.y, true, attrs(3), dims(1, 1));
+        sprites_on(r, table, true);
+        r.show();
+        unsigned shown = 0; // the box's screen pixels, opaque or not
+        const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+            unsigned tx, ty;
+            if (covers(x, y, p.x, p.y, 16, 16, 1, tx, ty))
+            {
+                ++shown;
+                if (const unsigned v = image_px(r, image, true, 16, tx, ty, 0))
+                    return rgba(entry_colour(v));
+            }
+            return rgba(entry_colour(0)); // BORDER 0: no layer is on
+        });
+        if (bad)
+            std::printf("  at (%u, %u)\n", p.x, p.y);
+        CHECK_EQ(bad, 0u);
+        CHECK_EQ(shown, p.shown);
+    }
+}
+
+TEST(full_sprites_flip)
+{
+    // A 16x8 image that is the same no way round, at 4 and 8 bits, flipped H, V and both, full resolution.
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    for (bool bpp8 : {false, true})
+        for (unsigned flips : {1u, 2u, 3u})
+        {
+            Rig r;
+            palette(r, 0);
+            pattern(r, image, bpp8, 16, 8, 4);
+            entry(r, table, 0, image, bpp8, 201, 99, true, attrs(3, 0, flips), dims(1, 0, 3));
+            sprites_on(r, table, true);
+            r.show();
+            const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+                unsigned tx, ty;
+                if (covers(x, y, 201, 99, 16, 8, 1, tx, ty))
+                    if (const unsigned v = image_px(r, image, bpp8, 16, flips & 1 ? 15 - tx : tx, flips & 2 ? 7 - ty : ty, 3))
+                        return rgba(entry_colour(v));
+                return rgba(entry_colour(0));
+            });
+            if (bad)
+                std::printf("  %u bits, flips %u\n", bpp8 ? 8 : 4, flips);
+            CHECK_EQ(bad, 0u);
+        }
+}
+
+TEST(full_sprites_order_depth_and_the_32_a_line)
+{
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    {
+        // Full sprites at depths 1, 2 and 3 over text 80 (layer 1) over bitmap 640 (layer 0): depth 1 shows where
+        // both layers are transparent, 2 where layer 1 is, 3 everywhere; each screen pixel on its own.
+        Rig r;
+        palette(r, 0);
+        const uint32_t bmp = 0x040000, font = 0x0C0000, cells = 0x0C1000;
+        for (unsigned y = 0; y < H; ++y)
+            for (unsigned x = 0; x < W; ++x)
+                r.card.card_poke(bmp + y * B640 + x, static_cast<uint8_t>((x + y) % 3 ? 0 : x * 5 + y));
+        for (unsigned row = 0; row < 16; ++row)
+            r.card.card_poke(font + 16 + row, row % 4 < 2 ? 0xA5 : 0x5A); // character 1
+        for (unsigned c = 0; c < 80 * 30; ++c)
+        {
+            r.card.card_poke(cells + 2 * c, 1);
+            r.card.card_poke(cells + 2 * c + 1, 0x0F); // foreground 15, background 0: transparent
+        }
+        layer(r, L0, VideoCard::BITMAP640, bmp);
+        layer(r, L1, VideoCard::TEXT80, cells);
+        r.reg16(L1 + R2::TILEBASE, static_cast<uint16_t>(font >> 8));
+        pattern(r, image, true, 32, 32, 2);
+        const unsigned xs[3] = {101, 301, 501};
+        for (unsigned d = 1; d <= 3; ++d)
+            entry(r, table, d - 1, image, true, xs[d - 1], 100, true, attrs(d), dims(2, 2));
+        sprites_on(r, table, true, VideoCard::LAYER0_ON | VideoCard::LAYER1_ON);
+        r.show();
+        const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+            const unsigned l0 = r.card.card_peek(bmp + y * B640 + x);
+            const unsigned l1 = (r.card.card_peek(font + 16 + y % 16) >> (7 - x % 8)) & 1 ? 15 : 0;
+            unsigned s = 0, d = 0;
+            for (unsigned k = 0; k < 3 && !d; ++k)
+            {
+                unsigned tx, ty;
+                if (covers(x, y, xs[k], 100, 32, 32, 1, tx, ty) && (s = image_px(r, image, true, 32, tx, ty, 0)))
+                    d = k + 1;
+            }
+            unsigned c = 0;
+            if (d == 1)
+                c = s;
+            if (l0)
+                c = l0;
+            if (d == 2)
+                c = s;
+            if (l1)
+                c = l1;
+            if (d == 3)
+                c = s;
+            return rgba(entry_colour(c));
+        });
+        CHECK_EQ(bad, 0u);
+    }
+    for (bool full_first : {true, false})
+    {
+        // A full sprite 0 in front of a doubled sprite 1, and the other way round: a lower number is in front,
+        // whatever the sizes. The full one is 16x16 at (400, 300); the doubled at (196, 146), screen 392-423.
+        Rig r;
+        palette(r, 0);
+        for (unsigned i = 0; i < 256; ++i)
+        {
+            r.card.card_poke(image + i, 0x31);
+            r.card.card_poke(image + 0x100 + i, 0x32);
+        }
+        entry(r, table, full_first ? 0 : 1, image, true, 400, 300, true, attrs(2), dims(1, 1));
+        entry(r, table, full_first ? 1 : 0, image + 0x100, true, 196, 146, false, attrs(2), dims(1, 1));
+        sprites_on(r, table, true);
+        r.show();
+        const unsigned bad = frame_differs(r, [&](unsigned x, unsigned y) {
+            unsigned tx, ty;
+            const bool f = covers(x, y, 400, 300, 16, 16, 1, tx, ty), d = covers(x, y, 196, 146, 16, 16, 2, tx, ty);
+            if (f && (full_first || !d))
+                return rgba(entry_colour(0x31));
+            if (d)
+                return rgba(entry_colour(0x32));
+            return rgba(entry_colour(0));
+        });
+        if (bad)
+            std::printf("  the %s sprite numbered 0\n", full_first ? "full" : "doubled");
+        CHECK_EQ(bad, 0u);
+    }
+    {
+        // 34 sprites on lines 100-107, full and doubled in turn, each at its own place across: the first 32 are
+        // drawn, the 33rd (full) and 34th (doubled) aren't.
+        Rig r;
+        palette(r, 0);
+        for (unsigned i = 0; i < 64; ++i)
+            r.card.card_poke(image + i, 0x44);
+        for (unsigned n = 0; n < 34; ++n)
+        {
+            const bool full = n % 2 == 0;
+            entry(r, table, n, image, true, full ? 18 * n : 9 * n, full ? 100 : 50, full, attrs(3), dims(0, 0));
+        }
+        sprites_on(r, table, true);
+        r.show();
+        for (unsigned n = 0; n < 34; ++n)
+        {
+            const bool drawn = r.px(18 * n + 3, 103) == rgba(entry_colour(0x44));
+            if (drawn != (n < 32))
+                std::printf("  sprite %u %s\n", n, drawn ? "drawn" : "not drawn");
+            CHECK_EQ(drawn, n < 32);
+        }
+    }
 }
 
 TEST(video_revision_takes_0_1_or_2_only)
