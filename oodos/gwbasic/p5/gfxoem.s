@@ -92,13 +92,15 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 STZ     RDH
                 INY
                 BRA     @f
-:               BNE     @yh            ; y > 255
-                LDA     VWMY
+:               LDA     VWMY           ; y > the last (7e5: a word)
                 CMP     RDL
+                LDA     VWMY + 1
+                SBC     RDH
                 BCS     @f
-@yh:            LDA     VWMY
+                LDA     VWMY
                 STA     RDL
-                STZ     RDH
+                LDA     VWMY + 1
+                STA     RDH
                 INY
 @f:             CPY     #1             ; C: Y 0, on the screen
                 ROL     A
@@ -122,7 +124,13 @@ MAPXYC:         LDA     RCL            ; 7e4: the viewport's corner added, CX an
                 CLC
                 ADC     VWOY
                 STA     RDL
+                LDA     RDH            ; (7e5: y a word)
+                PHA
+                ADC     VWOY + 1
+                STA     RDH
                 JSR     MAPABS
+                PLA
+                STA     RDH
                 PLA
                 STA     RDL
                 PLA
@@ -340,26 +348,26 @@ READC:          LDA     (GXP)
 ; NSETCX: a whole byte at once where the run covers it (CMASK at its first
 ; pixel and a byte's pixels left): SETC with every bit, then RIGHTC from its
 ; last pixel to the next byte's first.
-NSETCX:         LDX     GMX
+NSETCX:         LDX     GMODEV
                 LDA     CMASK
-                CMP     NSFST - 2,X
+                CMP     NSFST - 1,X
                 BNE     @one
                 LDA     RBH
                 BNE     @byte
                 LDA     RBL
-                CMP     NSPPB - 2,X
+                CMP     NSPPB - 1,X
                 BCC     @one
 @byte:          LDA     #$FF
                 STA     CMASK
                 JSR     SETC
-                LDX     GMX
-                LDA     NSLST - 2,X
+                LDX     GMODEV
+                LDA     NSLST - 1,X
                 STA     CMASK
                 JSR     RIGHTC
-                LDX     GMX
+                LDX     GMODEV
                 SEC
                 LDA     RBL
-                SBC     NSPPB - 2,X
+                SBC     NSPPB - 1,X
                 STA     RBL
                 BCS     @n
                 DEC     RBH
@@ -539,7 +547,7 @@ UPT:            LDA     CY7
 ;           the skip: BX the count, CL the flag; the cursor left at the
 ;           run's leftmost pixel (the cursor's own if none)
 ;   TUPC    a row up, TDOWNC down: carry set, and no move, at row 0 or 199
-;           (7e4: the viewport's last, VWMY)
+;           (7e4: the viewport's last, VWMY; 7e5: PNY a word)
 ;   PNTINI  A the border's attribute: past the mode's last colour the last
 ;           (as SETATR); carry clear (every attribute is legal)
 ;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC); DX kept
@@ -609,16 +617,19 @@ SCANL:          STZ     RBL
 @x:             JMP     TEND
 
 TUPC:           LDA     PNY
+                ORA     PNY + 1
                 BEQ     TEDGE
-                DEC     PNY
+                DECW    PNY
                 JSR     UPC
                 JSR     TROWS          ; 7e4: the tile's row
                 CLC
                 RTS
 TDOWNC:         LDA     PNY
                 CMP     VWMY
+                LDA     PNY + 1
+                SBC     VWMY + 1
                 BCS     TEDGE
-                INC     PNY
+                INCW    PNY
                 JSR     DOWNC
                 JSR     TROWS
                 CLC
@@ -644,7 +655,8 @@ PSTOR:          LDA     RCL
                 PHA
                 LDA     PNY
                 STA     RDL
-                STZ     RDH
+                LDA     PNY + 1
+                STA     RDH
                 JSR     MAPXYC
                 PLA
                 STA     RDL
@@ -676,11 +688,14 @@ PSTOR:          LDA     RCL
 ;           was the background's
 TROWS:          BIT     TILEF
                 BPL     TRX
-                LDA     PNY            ; y MOD TLEN
-                SEC
-@m:             SBC     TLEN
-                BCS     @m
-                ADC     TLEN
+                LDA     PNY            ; y MOD TLEN (7e5: y a word)
+                LDX     PNY + 1
+@m:             SEC
+@n:             SBC     TLEN
+                BCS     @n
+                DEX
+                BPL     @m
+                ADC     TLEN           ; (C clear)
                 TAY
                 LDA     TXBUF,Y
                 LDY     #0
@@ -733,15 +748,9 @@ PCHG:           BIT     TILEF
                 STZ     TALLB          ; not the background's
 :               CMP     TCOL,X
                 BEQ     @x
-                LDY     TCOL,X         ; its pattern, as SETATR's
-                LDA     PIXPAT,Y
-                LDX     GMODEV
-                CPX     #GM_TILE
-                BEQ     :+
-                TYA
-                BEQ     :+
-                LDA     #$FF
-:               STA     CPAT
+                LDA     TCOL,X         ; its pattern, as SETATR's
+                JSR     CPATOF
+                STA     CPAT
                 BRA     @s
 @x:             RTS
 
@@ -831,11 +840,11 @@ PGINIT:         STA     GPACT
 ; GPNB: the whole CGA bytes, if the row starts on one (8 bits each, either
 ; mode); GPN0 the pixels after.
                 STZ     GPNB
-                LDX     GMX
+                LDX     GMODEV
                 LDA     CMASK
-                CMP     NSFST - 2,X
+                CMP     NSFST - 1,X
                 BNE     @p
-                CPX     #2 * GM_TILE
+                CPX     #GM_TILE
                 BNE     :+
                 LDA     CXB            ; SCREEN 1: a tile byte pair's first
                 LSR     A
@@ -990,16 +999,8 @@ GROWW:          JSR     FETCHC
                 LDA     GPV
                 JSR     GOPP
                 AND     GOU
-                LDX     GMX            ; its pattern (SETATR's): the value in each nibble,
-                CPX     #2 * GM_TILE   ; or in every bit
-                BNE     @m
-                TAY
-                LDA     PIXPAT,Y
-                BRA     @c
-@m:             TAX
-                BEQ     @c
-                LDA     #$FF
-@c:             STA     CPAT
+                JSR     CPATOF         ; its pattern (SETATR's)
+                STA     CPAT
                 JSR     SETC
                 JSR     RIGHTC
                 DECW    GPN
@@ -1253,9 +1254,9 @@ LEFTV:          .word   LEFTT, LEFTM
 DOWNV:          .word   DOWNT, DOWNM
 UPV:            .word   UPT, UPM
 BIT7:           .byte   $80, $40, $20, $10, $08, $04, $02, $01
-NSFST:          .word   $F0, $80       ; NSETCX's: a byte's first pixel,
-NSLST:          .word   $0F, $01       ;   its last,
-NSPPB:          .word   2, 8           ;   its pixels
+NSFST:          .byte   $F0, $80       ; NSETCX's: a byte's first pixel (7e5: bytes, by
+NSLST:          .byte   $0F, $01       ;   its last,                 GMODEV from 1),
+NSPPB:          .byte   2, 8           ;   its pixels
 GOUBT:          .byte   $33, $FF       ; 7e3: GBPRE's complement, by mode (1, 2)
 GOPT:           .word   GBOR, GBAND, GBPRE, GBPS, GBXOR ; 7e3: GOPB's, by action
 ; 7e3: T16, a CGA nibble (two pixels, the left in bits 3-2) as a tile byte
@@ -1274,7 +1275,7 @@ CSAVP:          .res    2
 .assert * - CSAV = CSIZE, error, "CSIZE (p5/p5.inc): CSAV and CSAVP"
 MAPBANK:        .res    1              ; the bank NEWBNK put in slot 1
 PNX:             .res    2              ; 7e2: PAINT's pixel, the cursor's x
-PNY:             .res    1              ;   and y
+PNY:            .res    2              ;   and y (7e5: a word)
 PCSX:           .res    2              ;   SCANR's run's first pixel's x (the source's CSAVEA)
 PBORD:          .res    1              ;   the border's attribute (PNTINI)
 GPCPAT:         .res    1              ; 7e3: CPAT, kept for PGINIT's caller

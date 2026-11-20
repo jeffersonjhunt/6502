@@ -450,9 +450,18 @@ BLKOF:          LDA     DSA+1,X
 ; and copies (DSRUN, DSSRUN, DSPUT) are the home block's now (p8/far4.s's
 ; DSRUNH, DSPUTH), which calls them without a far call; their entries keep
 ; their places in the jump table. DSINFO, DSRUN's: what DSRUNH needs of this
-; block, A the graphics mode (GMODEV) and X DSB8 (bit 7: GX_BANK8 refused).
-; DSPUT's is a stub, unused.
-DSINFO:         LDA     GMODEV
+; block, A the graphics mode (GMODEV) and X DSB8 (bit 7: GX_BANK8 refused);
+; 7e5: and for VIEW's checks (p8/far5.s) RDI the mode's last x, RBP its last
+; y. DSPUT's is a stub, unused.
+DSINFO:         LDA     GMAXX
+                STA     RDI
+                LDA     GMAXX + 1
+                STA     RDI + 1
+                LDA     GMAXY
+                STA     RBP
+                LDA     GMAXY + 1
+                STA     RBP + 1
+                LDA     GMODEV
                 LDX     DSB8
 DSPUT:          RTS
 

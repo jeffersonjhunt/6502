@@ -173,7 +173,7 @@ VSOFF:          SEC
                 SBC     VWSY
                 STA     RDL
                 LDA     RDH
-                SBC     #0
+                SBC     VWSY + 1       ; (7e5: a word)
                 STA     RDH
                 BVS     VSOV
                 RTS
@@ -293,7 +293,7 @@ PNTN:           JSR     CONINT         ; n
                 ADC     VWSY
                 STA     RBL
                 LDA     GRPACY + 1
-                ADC     #0
+                ADC     VWSY + 1
                 STA     RBH
                 JMP     PNTNOT
 
@@ -538,28 +538,21 @@ BOXOFF:         LDA     RCH
 @yes:           SEC
                 RTS
 ; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199
-; (7e4: the viewport's, VWMX and VWMY).
-XPAST:          CPX     #$80
+; (7e4: the viewport's, VWMX and VWMY; 7e5: y a word, so one compare for
+; both). Y not kept.
+XPAST:          LDY     #0
+                BRA     :+
+YPAST:          LDY     #2             ; (VWMY - VWMX: p5/gfx.s asserts it)
+:               CPX     #$80
                 BCS     @n             ; negative
                 STA     T0
                 STX     T1
-                LDA     VWMX
+                LDA     VWMX,Y
                 CMP     T0
-                LDA     VWMX + 1
+                LDA     VWMX + 1,Y
                 SBC     T1
                 BCS     @n             ; the last >= x
                 SEC
-                RTS
-@n:             CLC
-                RTS
-YPAST:          CPX     #$80
-                BCS     @n
-                CPX     #0
-                BNE     @p
-                CLC
-                SBC     VWMY
-                RTS                    ; (C: y > VWMY)
-@p:             SEC
                 RTS
 @n:             CLC
                 RTS

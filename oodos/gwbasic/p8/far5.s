@@ -53,11 +53,13 @@ ADV:            JMP     ADVERR
 ; alone is VIEW alone, the whole screen (OO-1: the manual's brackets, the
 ; owner's answer 7, E6). The parse is kept in this block's RAM (a statement
 ; never re-enters it), then checked: a graphics mode (P5's DSINFO: GMODEV),
-; each corner on the screen (0 to 319 or 639, 0 to 199), x1 <> x2 and y1 <>
+; each corner on the screen (0 to 319 or 639, 0 to 199; 7e5: to the mode's
+; last x and y, DSINFO's RDI and RBP), x1 <> x2 and y1 <>
 ; y2, else Illegal function call; the corners sorted. Then one far call to
 ; P5's GVIEW (p5/gfx.s), which draws: A the flags (bit 7 corners, 6
 ; SCREEN, 5 a fill, 4 a border), RSI on the viewport's corner (2 bytes and
-; 1), its last x and y from the corner (2 and 1), the fill and the border;
+; 2), its last x and y from the corner (2 and 2), the fill and the border
+; (T0, T1: 7e5's words);
 ; the border box (x1 - 1, y1 - 1)-(x2 + 1, y2 + 1) in RCL/RCH, RDL/RDH,
 ; RBL/RBH, RAL/RAH.
 VIEW:           BIT     SCRMOD
@@ -104,21 +106,12 @@ VIEW:           BIT     SCRMOD
                 BMI     :+
                 JMP     @go            ; no corners
 :
-                LDA     #<319          ; x: 0 to the mode's last
-                LDY     #>319
-                CPX     #1
-                BEQ     :+
-                LDA     #<639
-                LDY     #>639
-:               STA     VLIM
-                STY     VLIM + 1
+                MOVW    VLIM, RDI      ; x: 0 to the mode's last (7e5: DSINFO's)
                 LDX     #VX1 - VX1
                 JSR     VCHK
                 LDX     #VX2 - VX1
                 JSR     VCHK
-                LDA     #199           ; y: 0 to 199
-                STA     VLIM
-                STZ     VLIM + 1
+                MOVW    VLIM, RBP      ; y: 0 to the mode's last
                 LDX     #VY1 - VX1
                 JSR     VCHK
                 LDX     #VY2 - VX1
@@ -128,23 +121,25 @@ VIEW:           BIT     SCRMOD
                 LDX     #VY1 - VX1
                 JSR     VSORT
                 MOVW    RSI, VX1       ; the viewport: the corner, the last x and y
-                LDA     VY1
-                STA     RSI + 2
+                MOVW    RSI + 2, VY1
                 SEC
                 LDA     VX2
                 SBC     VX1
-                STA     RSI + 3
+                STA     RSI + 4
                 LDA     VX2 + 1
                 SBC     VX1 + 1
-                STA     RSI + 4
+                STA     RSI + 5
                 SEC
                 LDA     VY2
                 SBC     VY1
-                STA     RSI + 5
-                LDA     VFIL
                 STA     RSI + 6
-                LDA     VBRD
+                LDA     VY2 + 1
+                SBC     VY1 + 1
                 STA     RSI + 7
+                LDA     VFIL
+                STA     RSI + 8
+                LDA     VBRD
+                STA     RSI + 9
                 SEC                    ; the border box
                 LDA     VX1
                 SBC     #1
@@ -156,7 +151,7 @@ VIEW:           BIT     SCRMOD
                 LDA     VY1
                 SBC     #1
                 STA     RDL
-                LDA     #0
+                LDA     VY1 + 1
                 SBC     #0
                 STA     RDH
                 CLC
@@ -170,7 +165,7 @@ VIEW:           BIT     SCRMOD
                 LDA     VY2
                 ADC     #1
                 STA     RAL
-                LDA     #0
+                LDA     VY2 + 1
                 ADC     #0
                 STA     RAH
 @go:            LDA     VWF
@@ -335,6 +330,7 @@ VY1:            .res    2
 VX2:            .res    2
 VY2:            .res    2
 .assert VX2 - VX1 = 4 && VY2 - VY1 = 4, error, "VIEW's corners: VSORT's order"
+.assert RSI + 9 = T1, error, "GVIEW's viewport, the fill and the border: RSI on to T1"
 VFIL:           .res    1              ;   the fill
 VBRD:           .res    1              ;   the border
 VLIM:           .res    2              ;   VCHK's limit

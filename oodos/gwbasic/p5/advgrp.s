@@ -417,8 +417,7 @@ GOTBRD:         LDA     RDL
 ; the queue set up (INTQUE). DRAW's P comes here too.
 PNTCOR:         JSR     MAPXYC
                 MOVW    PNX, RCL
-                LDA     RDL
-                STA     PNY
+                MOVW    PNY, RDL       ; (7e5: y a word)
                 JSR     TROWS          ; 7e4: the tile's row
                 LDA     #1             ; the skip count: one (none of the border)
                 STA     RDL
@@ -529,7 +528,9 @@ ADDBD:          CLC
 
 ; ENTSLR: an entry this way at the cursor, unless the line was painted
 ; already (neither scan changed a pixel). ENTST1: A's way at the cursor.
-; DX the count. PUTQ: the entry (QX, PNY, A, DX).
+; DX the count. PUTQ: the entry (QX, PNY, A, DX). 7e5: y's ninth bit in
+; the direction's byte, bit 0 (the way is its bit 7, and bit 6 set: never
+; 0), so an entry is 6 bytes as before.
 ENTSLR:         LDA     LFPROG
                 ORA     RTPROG
                 BEQ     QRET
@@ -537,7 +538,10 @@ ENTSLR:         LDA     LFPROG
 ENTST1:         PHA
                 MOVW    QX, PNX
                 PLA
-PUTQ:           STA     QDIR
+PUTQ:           AND     #$80           ; (7e5) the way, never 0, y's bit 8
+                ORA     #$40
+                ORA     PNY + 1
+                STA     QDIR
                 CLC                    ; the queue's length + 6
                 LDA     PSNLEN
                 ADC     #6
@@ -600,6 +604,8 @@ GETQ:           LDA     PSNLEN
                 DEY
                 LDA     (PTR),Y
                 PHA                    ; the direction
+                AND     #1             ; (7e5) y's bit 8
+                STA     PNY + 1
                 DEY
                 LDA     (PTR),Y
                 STA     PNY
