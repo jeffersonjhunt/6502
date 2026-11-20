@@ -1240,8 +1240,8 @@ GIO86.ASM OPEN -> p4/gio86.s OPENP # its home stub p8/far4.s OPEN; random is X1'
 GIO86.ASM CLOSE -> p4/gio86.s CLOSEP # its home stub p8/far4.s CLOSE
 DSKCOM.ASM LOAD -> p8/far4.s LOADS # its flag 0; then LRUN3 (p4/dskcom.s LOADP: the resident LOAD is the loader)
 DSKCOM.ASM MERGE -> p4/dskcom.s MERGEP # the stub (p8/far4.s MERGES) drops NEWSTT's return
-GWSTS.ASM COLOR -> p6/gwsts.s COLORP # its stub p8/far6.s COLOR; Advanced Feature in console mode
-GWSTS.ASM CLS -> p6/gwsts.s CLSP # its stub p8/far6.s CLS; as COLOR
+GWSTS.ASM COLOR -> p6/gwsts.s COLORP # its stub p8/far6.s COLOR, which parses it (GTPRMS: 7e5's M6); Advanced Feature in console mode
+GWSTS.ASM CLS -> p6/gwsts.s CLSP # its stub p8/far6.s CLS; as COLOR; n parsed by the stub (7e5's M6)
 GIOCAS.ASM MOTOR -> dropped: the cassette's motor; the OO-1 has no cassette (Advanced Feature)
 GIO86.ASM BSAVE -> p8/far4.s BSAVE # 7c's tail: parsing and DSRUN's check in the home block, the file in p4/gio86.s BSAVEP (OUTBLK's place: DM_COPY a piece at a time into file 0's buffer)
 GIO86.ASM SNERR2 -> p8/far4.s SNERR2
@@ -1258,9 +1258,9 @@ GWSTS.ASM SOUNDS -> later 7f: SOUND
 GWSTS.ASM BEEPS -> later 7f: BEEP
 GENGRP.ASM PSET -> p5/gengrp.s PSETP # its home block stub p8/far5.s PSET, screen mode; PPRSET, PSETC, PSTNOT inline
 GENGRP.ASM PRESET -> p5/gengrp.s PRSETP # its home block stub p8/far5.s PRESET
-GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; the OO-1's modes later 7e: 7e5's); its stub p8/far6.s SCREEN
-GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f
-GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE
+GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; the OO-1's modes later 7e: 7e5's); its stub p8/far6.s SCREEN, which parses it (GTPRMS: 7e5's M6)
+GWSTS.ASM KEYS -> p6/gwsts.s KEYSP # its stub p8/far6.s KEY: screen mode only, Advanced Feature in console mode; KEY( Advanced Feature until 7f; KEY n,"text" the stub's own (p8/far6.s KEYDEF, 7e5's M6), the line then drawn by P6's KEYDP
+GWSTS.ASM LOCATE -> p6/gwsts.s LOCATP # its stub p8/far6.s LOCATE, which parses it (7e5's M6)
 #
 # FUNDSP's functions (res/tables.s: here NOTSPK, Illegal function call).
 GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
@@ -1771,7 +1771,7 @@ GIOCOM.ASM LPRBIN -> p4/giocom.s LPRBIN
 GIOCOM.ASM PARIFN -> p4/giocom.s PARIFN
 GIOCOM.ASM LPARM -> p4/giocom.s LPARM
 GIOCOM.ASM GETPRX -> p4/giocom.s GETPRX
-GWSTS.ASM TRMCOM -> p6/gwsts.s SCNINT # SCNINT's; GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
+GWSTS.ASM TRMCOM -> p8/far6.s SCNINT # SCNINT's (P6's until 7e5's M6); GIOCOM.ASM's TRMCOM is another, the OEM's COM end (an EXTRN): p4/oem.s TRMCOM
 GWSTS.ASM TKEYOF -> dropped: SCNTRM's key line off at SYSTEM; the warm boot shows the console's screen again
 # 7d1: the text screen (block P6: SCNDRV.ASM's driver and editor, SCNEDT.ASM's INLIN, the OEM's text routines
 # on the card's port with a row cache, the keyboard from the event queue; hw/oodos.md, 7d1 as built)
@@ -1891,15 +1891,15 @@ SCNDRV.ASM MVCH30 -> p6/scndrv.s MVCH30
 SCNDRV.ASM MVC30I -> p6/scndrv.s MVCH30 # an indirect jump to it
 SCNDRV.ASM CSRRET -> p6/scndrv.s CSRADV # its RET, each cursor move's own here
 GWSTS.ASM BEEP -> later 7f: BEEP (CBEEP's bell does nothing until then)
-GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s)
+GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s, which parses it: 7e5's M6)
 GWSTS.ASM GTLINE -> p6/gwsts.s GTLINE
-GWSTS.ASM GTPRMS -> p6/gwsts.s GTPRMS # the list in P6's RAM (PCNT, PFLG, PVAL), not BUF
-GWSTS.ASM SCNINT -> p6/gwsts.s SCNINT
+GWSTS.ASM GTPRMS -> p8/far6.s GTPRMS # the list in the home block's RAM (PCNT, PFLG, PVAL), not BUF, then in the pseudo-registers for P6's PREGS (7e5's M6: P6's until then)
+GWSTS.ASM SCNINT -> p8/far6.s SCNINT # 7e5's M6 (P6's until then); SCREEN('s own in P6, SFINT (the 7e5 plan's answer 7)
 GIO86.ASM CRTWD1 -> p8/far6.s CRTWD1 # to GWWID, screen mode only
 GIO86.ASM CRTWD -> p8/far6.s NOTLPR # TXTPTR put back, then CRTWD1 (a number)
 GIO86.ASM GETWDT -> p8/far6.s GETWDT
 GIO86.ASM ERIFN0 -> p4/gio86.s DEVSWD # its BEQ ERIFN1
 GIO86.ASM ERFNO1 -> p4/gio86.s GETPTR # its BEQ ERFNO3, the home block's first GETPTR call
 GWSTS.ASM FCERGO -> p6/gwsts.s FCERGO
-GWSTS.ASM NOMORE -> p6/gwsts.s SCNINT # its @nomore
-GWSTS.ASM OMITD -> p6/gwsts.s SCNINT # its @omit
+GWSTS.ASM NOMORE -> p8/far6.s SCNINT # its @nomore
+GWSTS.ASM OMITD -> p8/far6.s SCNINT # its @omit
