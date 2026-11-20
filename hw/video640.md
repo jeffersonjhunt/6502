@@ -42,6 +42,11 @@ the Technical Reference's [chapter 6, "Bitmap 640 and direct
    - **The record:** this file, the Technical Reference's chapter 6, a pointer in design.md's "Video registers"
      and an entry in oolib.md; video-rev2.md untouched.
 
+5. **(2026-11-20, answers 16-19 at U5)** FT_INFO's interface byte reads 13 wherever a test expects it, SYSINFO's
+   reports too; OODOS 0.12's version expectations approved in advance; function 83's "no such operation" case moves
+   to operation 13; and **mkasset's direct640 pads a PNG narrower than 640 with the transparent word `$8000`**, as
+   bitmap640's 0 bytes are transparent on type 6: what is past a picture shows what is under it, on either type.
+
 #### The owner's assumption for the real board ####
 
 **The video card keeps up** (decision 0, "assume the video card can keep up"): scanout of a direct 640 layer, 1,280

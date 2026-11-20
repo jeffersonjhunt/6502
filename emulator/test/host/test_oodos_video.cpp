@@ -3,7 +3,8 @@
  * @brief OOLIB's L4 (hw/oolib.md, "The plan"): function 83's DM_INFO, copies, fills, vertical-blank slots,
  * pointer and console; the W1 contract; and the warm boot's video part. On video card revision 2 (hw/video-rev2.md,
  * interface version 8): the slots' destinations and the pointer's table in the card's own memory, written through
- * its port; the card operations DM_VWRITE, DM_VREAD, DM_VFILL and DM_VCOPY; aperture slot 0 the console's.
+ * its port; the card operations DM_VWRITE, DM_VREAD, DM_VFILL and DM_VCOPY; aperture slot 0 the console's. And
+ * DM_VFILLW (interface version 13, hw/video640.md): a word's fill, two passes at PSTEP 2.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * OODOS.SYS booted as test_oodos_sound boots it (oodos_rig.h). L4TEST (oodos/sys/test/l4test.s), run by
@@ -32,7 +33,7 @@ namespace
     constexpr unsigned EV_VBGO = 12;
     // oodos.inc's
     constexpr uint8_t DM_INFO = 0, DM_COPY = 2, DM_FILL = 3, DM_VBSET = 4, DM_POINTER = 5, DM_CONSOLE = 6, DM_VWRITE = 7,
-                      DM_VREAD = 8, DM_VFILL = 9, DM_VCOPY = 10, DM_OPS = 12;
+                      DM_VREAD = 8, DM_VFILL = 9, DM_VCOPY = 10, DM_VFILLW = 12, DM_OPS = 13;
     // backplane.inc's revision 2 registers, as offsets in the card's block
     constexpr uint8_t V_PALBASE = 0x0A, V_SPRBASE = 0x0C, V_L0 = 0x10, V_L1 = 0x20, V_SLOT0 = 0x30, V_PCTL = 0x3E;
     constexpr uint8_t IN_MOUSE = 4, MC_ALLOC = 55, MC_FREE = 57;
@@ -205,7 +206,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("0C 0F")); // interface 12, areas frame, input, sound, DMA
+    CHECK_EQ(command(r, 'F', "F"), std::string("0D 0F")); // interface 13, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -485,6 +486,67 @@ TEST(the_card_operations_move_bytes_through_the_port_and_the_slots_and_refuse_wh
     CHECK(cat({cmem(r, 0x000000, 0x1400), cmem(r, 0x003400, 0x3CC00)}) == oodos);
     CHECK(cmem(r, 0x1C0000, 0x100) == std::vector<uint8_t>(apple.begin() + 0x100, apple.end()));
     CHECK_EQ(f83op(r, DM_VWRITE), std::string("FF FF")); // a block needed
+}
+
+TEST(dm_vfillw_fills_a_word_pattern)
+{
+    // A direct 640 colour fill: three rows of 1,280 bytes of $0F00 (red) from row 12 of a screen at $040000, which
+    // straddles a 16 KB slot; the bytes either side untouched. Then lengths that end on a low byte (7, 1) and
+    // 65,536 (0), in many pieces; refused, nothing written, outside the program's part.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    const uint32_t row12 = 0x040000 + 12 * 1280;
+    auto words = [](uint16_t w, size_t n) {
+        std::vector<uint8_t> b(n);
+        for (size_t i = 0; i < n; ++i)
+            b[i] = static_cast<uint8_t>(i & 1 ? w >> 8 : w);
+        return b;
+    };
+    cpoke(r, row12 - 1, {0x77});
+    cpoke(r, row12 + 3840, {0x88});
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0x0F00), a3(row12), w2(3840)})), std::string("00 00"));
+    CHECK(cmem(r, row12, 3840) == words(0x0F00, 3840));
+    CHECK(row12 < 0x044000 && row12 + 1280 > 0x044000); // the row crosses the slot's end
+    CHECK_EQ(vid(r).card_peek(row12 - 1), 0x77);
+    CHECK_EQ(vid(r).card_peek(row12 + 3840), 0x88);
+    CHECK(cmem(r, row12 + 3840, 64) == cat({{0x88}, std::vector<uint8_t>(63, 0)})); // nothing past it, odd or even
+    cpoke(r, 0x050000, std::vector<uint8_t>(16, 0x99));
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0x1234), a3(0x050001), w2(7)})), std::string("00 00"));
+    CHECK(cmem(r, 0x050000, 16) == std::vector<uint8_t>({0x99, 0x34, 0x12, 0x34, 0x12, 0x34, 0x12, 0x34, 0x99, 0x99,
+                                                          0x99, 0x99, 0x99, 0x99, 0x99, 0x99}));
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0xABCD), a3(0x050009), w2(1)})), std::string("00 00"));
+    CHECK(cmem(r, 0x050008, 3) == std::vector<uint8_t>({0x99, 0xCD, 0x99}));
+    cpoke(r, 0x06FFFF, {0x55});
+    cpoke(r, 0x080000, {0x66});
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0x8000), a3(0x070000), w2(0)})), std::string("00 00"));
+    std::printf("  65,536 bytes by DM_VFILLW, the call and L4TEST's line: %llu cycles\n",
+                static_cast<unsigned long long>(r.cpu->cycles() - c0));
+    CHECK(cmem(r, 0x070000, 65536) == words(0x8000, 65536));
+    CHECK_EQ(vid(r).card_peek(0x06FFFF), 0x55);
+    CHECK_EQ(vid(r).card_peek(0x080000), 0x66);
+    const std::vector<uint8_t> before = cmem(r, 0x03FF00, 0x200), end = cmem(r, 0x1BFF00, 0x200);
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0xFFFF), a3(0x03FFFE), w2(4)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0xFFFF), a3(0x1BFFFE), w2(4)})), std::string("FF FF"));
+    CHECK(cmem(r, 0x03FF00, 0x200) == before && cmem(r, 0x1BFF00, 0x200) == end);
+    CHECK_EQ(f83(r, cat({{DM_VFILLW}, w2(0x0F0F), a3(0x1BFFFC), w2(4)})), std::string("00 00")); // its last bytes
+    CHECK(cmem(r, 0x1BFFFC, 4) == words(0x0F0F, 4));
+    CHECK_EQ(f83op(r, DM_VFILLW), std::string("FF FF")); // a block needed
+    CHECK_EQ(vreg(r, V_PCTL), 0);
+}
+
+TEST(op_13_is_refused)
+{
+    // DM_OPS is 13: operation 12 is DM_VFILLW, and 13 the first that isn't one, with a block or without.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    cpoke(r, 0x050000, std::vector<uint8_t>(16, 0));
+    CHECK_EQ(f83op(r, 13), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{13}, w2(0x0F00), a3(0x050000), w2(16)})), std::string("FF FF"));
+    CHECK(cmem(r, 0x050000, 16) == std::vector<uint8_t>(16, 0));
+    CHECK_EQ(f83op(r, 0xFF), std::string("FF FF"));
 }
 
 TEST(a_card_transfer_that_doesnt_end_is_refused_and_the_next_goes_on)
@@ -940,7 +1002,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("0C 0F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("0D 0F"));
     }
 }
 
@@ -992,7 +1054,7 @@ TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_ba
 
 namespace
 {
-    constexpr uint8_t DM_BANK8 = 11, DM_OPS_B7 = 12; // oodos.inc's, since interface 12
+    constexpr uint8_t DM_BANK8 = 11, DM_NONE = 13; // oodos.inc's DM_BANK8, since interface 12; 13 its DM_OPS since 13
     constexpr uint16_t NB_MAPREG = 0xC6A5;
 
     std::string bank8(CcpRig &r) { return f83(r, {DM_BANK8, 0xEE, 0xEE}); }
@@ -1120,15 +1182,15 @@ TEST(the_warm_boot_ends_dm_bank8)
 
 TEST(dm_bank8_needs_a_block_and_is_the_last_operation)
 {
-    // D5. Operation 11 with X = 0 (no block for +1 and +2): refused, MAP kept; operation 12 isn't one, with a block
-    // or without.
+    // D5. Operation 11 with X = 0 (no block for +1 and +2): refused, MAP kept; operation 13 isn't one, with a block
+    // or without (12 is DM_VFILLW since interface 13, hw/video640.md).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
     CHECK_EQ(f83op(r, DM_BANK8), std::string("FF FF"));
     CHECK_EQ(r.bridge().map(), 1);
-    CHECK_EQ(f83op(r, DM_OPS_B7), std::string("FF FF"));
-    CHECK_EQ(f83(r, {DM_OPS_B7, 0xEE, 0xEE}), std::string("FF FF"));
+    CHECK_EQ(f83op(r, DM_NONE), std::string("FF FF"));
+    CHECK_EQ(f83(r, {DM_NONE, 0xEE, 0xEE}), std::string("FF FF"));
     CHECK_EQ(r.bridge().map(), 1);
     CHECK_EQ(r.machine->bus().peek(NB_MAPREG), 1);
 }
