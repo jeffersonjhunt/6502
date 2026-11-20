@@ -823,14 +823,15 @@ namespace ooe::emu
         // 1,280 bytes. Bit 15 set is transparent; bits 12-14 are ignored; 0 is opaque black.
         const unsigned sy = (y + l.live_vscroll) % HEIGHT;
         const uint32_t row = base(l.live_mapbase) + sy * DIRECT640_ROW;
-        for (unsigned x = 0; x < WIDTH; ++x)
+        unsigned sx = l.live_hscroll % WIDTH;
+        for (unsigned x = 0; x < WIDTH; ++x, sx = sx + 1 == WIDTH ? 0 : sx + 1)
         {
-            const uint32_t at = row + ((x + l.live_hscroll) % WIDTH) * 2;
+            const uint32_t at = row + sx * 2;
             const unsigned w = vram(at) | unsigned{vram(at + 1)} << 8;
-            if (!(w & 0x8000))
-                line[x] = static_cast<int16_t>(DIRECT | (w & 0x0FFF));
-            else if (line[x] == UNCOVERED)
-                line[x] = 0; // the layer covers it, transparently
+            // Without a branch (a picture's transparent pixels are no pattern a predictor learns): opaque, the
+            // direct colour; transparent, what is below, or 0 (covered, transparently) where nothing was.
+            const int16_t below = line[x] == UNCOVERED ? int16_t{0} : line[x];
+            line[x] = !(w & 0x8000) ? static_cast<int16_t>(DIRECT | (w & 0x0FFF)) : below;
         }
     }
 
