@@ -811,7 +811,9 @@ width and height); each part starts on a 1 KB boundary of the file, so it loads 
 each padded to 256 bytes, a card page, and a sprite table's entries count them in pages from the images' part, which
 `GX_ASSET` moves on by where that part went. The library reads format 4 alone: format 3, revision 1's (a unit, one
 byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
-`sprites`, `palette`), and checks one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
+`sprites`, `palette`), puts the parts of several into one file so a program loads them in one call (`combine`: a
+palette that repeats one already taken is left out; one sprite images part and one sprite table at most), and checks
+one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
 
 ### What graphics costs
 

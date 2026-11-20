@@ -5,7 +5,13 @@
     python3 -I mkasset.py tiles level.png LEVEL.OGX [--tile 8|16] [--bpp 4|8] [--map 32|64]
     python3 -I mkasset.py sprites ship.png SHIP.OGX --size 16x16 [--bpp 4|8] [--table]
     python3 -I mkasset.py palette colours.png COLOURS.OGX
+    python3 -I mkasset.py combine GAME.OGX LEVEL.OGX SHIP.OGX
     python3 -I mkasset.py check PICTURE.OGX
+
+combine puts the parts of asset files this tool made into one file, in order, so GX_ASSET loads them in one call:
+a palette that repeats one already taken, byte for byte, is left out (palettes that differ are all kept, in order,
+and the tool says so); one sprite images part and one sprite table at most, and a table only with its images
+(GX_ASSET places the table by the images' part); parts at named card pages mustn't overlap; 7 parts at most.
 
 The standard library alone: a PNG is read with zlib (8 bits a channel: greyscale, RGB, RGBA, or indexed at 1,
 2, 4 or 8 bits, with its tRNS; not interlaced). Colours become the card's 12 bits (4 a channel, rounded); a
@@ -408,6 +414,35 @@ def palette(png, quantize=False):
     return [Part(AT_PALETTE, palette_bytes(pal))]
 
 
+def combine(files):
+    """The parts of `files` (format 4 files' bytes), in order, for one file: a palette equal to one already
+    taken left out. (parts, the number of different palettes kept)"""
+    parts, palettes = [], []
+    for data in files:
+        for p in parse(data):
+            kind, config, unit, _, _, _, w, h = p
+            body = part_bytes(data, p)
+            if kind == AT_PALETTE:
+                if body in palettes:
+                    continue
+                palettes.append(body)
+            parts.append(Part(kind, body, config, unit, w, h))
+    images = sum(p.kind == AT_SPRITES for p in parts)
+    tables = sum(p.kind == AT_SPRTABLE for p in parts)
+    if images > 1 or tables > 1:
+        raise AssetError("%d sprite images parts and %d sprite tables: one of each at most (GX_ASSET places the "
+                         "table by the images' part)" % (images, tables))
+    if tables and not images:
+        raise AssetError("a sprite table without its images")
+    named = sorted((p.unit, p.unit + (len(p.data) + PAGE - 1) // PAGE) for p in parts if p.unit != ANY)
+    for (a, a_end), (b, _) in zip(named, named[1:]):
+        if a_end > b:
+            raise AssetError("parts at card pages $%04X and $%04X overlap" % (a, b))
+    if len(parts) > MAX_PARTS:
+        raise AssetError("%d parts: %d at most" % (len(parts), MAX_PARTS))
+    return parts, len(palettes)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="kind", required=True)
@@ -424,10 +459,21 @@ def main(argv=None):
             s.add_argument("--size", required=True)
             s.add_argument("--bpp", type=int, choices=(4, 8), default=4)
             s.add_argument("--table", action="store_true")
+    c = sub.add_parser("combine")
+    c.add_argument("out")
+    c.add_argument("files", nargs="+")
     c = sub.add_parser("check")
     c.add_argument("file")
     a = ap.parse_args(argv)
     try:
+        if a.kind == "combine":
+            parts, palettes = combine([open(f, "rb").read() for f in a.files])
+            out = build(parts)
+            parse(out)
+            open(a.out, "wb").write(out)
+            if palettes > 1:
+                print("mkasset: %d different palettes kept, in order" % palettes, file=sys.stderr)
+            return 0
         if a.kind == "check":
             data = open(a.file, "rb").read()
             for i, p in enumerate(parse(data)):
