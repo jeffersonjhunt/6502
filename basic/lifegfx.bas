@@ -4,6 +4,7 @@
 40 DEFINT A-Z
 50 W=40: H=24: S=8
 60 DIM G(41,25), N(41,25)
+65 KEY OFF: CLS
 70 PRINT "Conway's Game of Life"
 80 PRINT "1 random   2 two gliders   3 R-pentomino"
 90 INPUT "Pattern";P
@@ -26,6 +27,7 @@
 270 LOCATE 1,1: PRINT "Gen";GN;"  Pop";PP;"  ";
 280 IF INKEY$="" THEN 210
 290 SCREEN 0: WIDTH 80
+295 KEY ON
 300 PRINT "Stopped at generation";GN;"with";PP;"cells."
 310 END
 1000 REM Draw cell X,Y: a filled box if alive, cleared if dead
