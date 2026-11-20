@@ -8,10 +8,12 @@
 ;   CIRCLE        ADVGRP.ASM's (7e2): P5's CIRCP, which parses it in P3
 ;   PAINT         ADVGRP.ASM's (7e2): P5's PAINTP
 ;   DRAW          ADVGRP.ASM's (7e2): P3's DRAWP (its drawing P5's DRWOP)
+;   VIEW WINDOW   the OO-1's (7e4; the source's are Advanced Feature):
+;                 P5's GVIEW, P1's WINSET
 
 .include "gwbasic.inc"
 
-.export PSET, PRESET, CIRCLE, PAINT, DRAW
+.export PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
 .import ADVERR, SCRMOD
 
 .code
@@ -35,5 +37,13 @@ PAINT:          BIT     SCRMOD
 DRAW:           BIT     SCRMOD
                 BPL     ADV
                 FJSR    DRAWP
+                RTS
+VIEW:           BIT     SCRMOD
+                BPL     ADV
+                FJSR    GVIEW
+                RTS
+WINDOW:         BIT     SCRMOD
+                BPL     ADV
+                FJSR    WINSET
                 RTS
 ADV:            JMP     ADVERR

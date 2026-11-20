@@ -41,7 +41,8 @@
 .import OPEN, CLOSE, RESET, LOADS, MERGES, SAVES
 .import FILES, KILL, NAME, CHDIR, MKDIR, RMDIR, FIELD, LSET, RSET, PUT, GET, CHAIN
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
-.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, PAINT, DRAW
+.import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
+.import SYNCHR, FRMEVL, FRCSNG, PUSHF, POPR, GETBYT, SCRMOD
 
 .code
 
@@ -60,8 +61,11 @@ HFINI:          JMP     FINIH
 ; (ERDVGT): ERDEV is its code (the high byte 0, where a PC's has the device's
 ; attributes), 0 before any; ERDEV$ the drive it was on, "A:" to "P:" (the
 ; SCB's error drive, $51), "" before any. Returns as EVAL, past the token,
-; CHRGTR's flags.
+; CHRGTR's flags. 7e4: and PMAP (PMAPH, below).
 ERDEVP:         INCW    TXTPTR         ; the token
+                LDA     (TXTPTR)
+                CMP     #PMAP_XS
+                BEQ     PMAPH
                 FJSR    ERDVGT         ; RBL: the code
                 STZ     RBH
                 LDA     (TXTPTR)
@@ -97,6 +101,34 @@ ERDEVP:         INCW    TXTPTR         ; the token
                 LDA     #':'
                 STA     (PTR),Y
                 JSR     PUTNEW
+                JMP     CHRGTR
+
+; PMAPH (OO-1, 7e4; the IBM manual's pp. 256-257: the source has no PMAP
+; function): PMAP(x,n), TXTPTR at its second token byte. Console mode:
+; Syntax error, as it was (no graphics there: 7d's answer 7). x a single
+; (FRMEVL, FRCSNG), n a byte (GETBYT: rounded, 0-255 else Illegal function
+; call); then P1's PMAPP (p1/window.s) by one far call, x in BXDX and n in
+; A, which leaves the value in the FAC. Returns as EVAL, CHRGTR's flags for
+; what follows ")".
+PMAPH:          BIT     SCRMOD
+                BMI     :+
+                JMP     SNERR
+:               JSR     CHRGTR
+                JSR     SYNCHR
+                .byte   '('
+                JSR     FRMEVL         ; x
+                JSR     FRCSNG
+                JSR     PUSHF
+                JSR     SYNCHR
+                .byte   ','
+                JSR     GETBYT         ; n
+                PHA
+                JSR     SYNCHR
+                .byte   ')'
+                JSR     POPR           ; BXDX: x
+                PLA
+                FJSR    PMAPP
+                DECW    TXTPTR         ; the flags for what follows ")"
                 JMP     CHRGTR
 
 .rodata
@@ -225,9 +257,14 @@ STMDSX:         S       FILES          ; FILES
                 S       CHDIR          ; CHDIR
                 S       MKDIR          ; MKDIR
                 S       RMDIR          ; RMDIR
-.repeat LCOPY_XS - RMDIR_XS - 1
-                S       ADVERR         ; SHELL .. PALETTE
-.endrepeat
+.assert VIEW_XS - RMDIR_XS = 3, error, "STMDSX: SHELL ENVIRON before VIEW"
+                S       ADVERR         ; SHELL (7g's question)
+                S       ADVERR         ; ENVIRON (7g's question)
+                S       VIEW           ; VIEW (p8/far5.s, 7e4)
+                S       WINDOW         ; WINDOW (p8/far5.s, 7e4)
+                S       SNERR          ; PMAP: OO-1 (7e4), a function only (ERDEVP's)
+                S       SNERR          ; PALETTE: the source's (GWSTS.ASM PALETE: JMP SNERR; dropped, the IBM spec's G13)
+.assert * - STMDSX = 2 * (LCOPY_XS - FILES_XS), error, "STMDSX: PALETTE before LCOPY"
                 S       LCOPY          ; LCOPY (p8/far3.s)
                 S       ADVERR         ; CALLS
 .assert * - STMDSX = 2 * NUMSTX, error, "STMDSX: one entry an extended statement"

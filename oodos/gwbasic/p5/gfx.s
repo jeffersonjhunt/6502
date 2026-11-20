@@ -43,8 +43,8 @@
 .import GX_VALLOC, GX_VADDR, GX_VFILL, GX_VCOPY, GX_VPUT, GX_LAYER, GX_SCROLL, GX_PALOFS
 .import GX_PALBASE, GX_V, GX_R, GX_X, GX_Y, GX_A, GX_C
 
-.export GMODE, GCOLOR, GCLS
-.import BUF
+.export GMODE, GCOLOR, GCLS, GVIEW, GVWGET
+.import BUF, ADVERR
 
 .code
 
@@ -331,6 +331,11 @@ PALE:           ASL     A
                 TAY
                 PLA
                 RTS
+
+; --- GVIEW, GVWGET (7e4): U0's stand-ins ------------------------------------------------
+
+GVIEW:          JMP     ADVERR
+GVWGET:         RTS
 
 ; --- The OEM's: GRPSIZ, PIXSIZ, GETFBC, SETATR ----------------------------------------------
 

@@ -9,12 +9,13 @@
 ; DSPUT's slot is P5's retired one-byte stub, and is one here. The graphics
 ; entries (7e1, 7e2), which the resident core, P3 and the home block call in
 ; screen mode only (SCRMOD, never set here), are Advanced Feature too,
-; GRPRST and CIRCC nothing.
+; GRPRST and CIRCC nothing; and 7e4's, GVIEW Advanced Feature, GVWGET (P1's
+; window asks it the viewport, in screen mode only) nothing.
 
 .include "gwbasic.inc"
 
 .export GXSTRT, DSBYTE, DSINFO, DSPUT, GRPRST, POINTP, PSETP, PRSETP, GLINEP, CIRCP, CIRCC, PAINTP, DRWOP
-.export GPUTG, DSGRUN
+.export GPUTG, DSGRUN, GVIEW, GVWGET
 .import ADVERR
 
 .code
@@ -23,6 +24,7 @@ GXSTRT:
 GRPRST:
 DSINFO:
 DSPUT:
+GVWGET:
 CIRCC:          RTS
 DSBYTE:
 POINTP:
@@ -33,4 +35,5 @@ CIRCP:
 PAINTP:
 DRWOP:
 GPUTG:
+GVIEW:
 DSGRUN:         JMP     ADVERR

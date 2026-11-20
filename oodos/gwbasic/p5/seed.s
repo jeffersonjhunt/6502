@@ -90,6 +90,9 @@
 ; 7e3's (p5/advgrp.s, here), after 7e2's.
 ;@entry GPUTG
 ;@entry DSGRUN
+; 7e4's (p5/gfx.s), after 7e3's.
+;@entry GVIEW
+;@entry GVWGET
 .export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT, DSGRUN
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA, TXBUF
