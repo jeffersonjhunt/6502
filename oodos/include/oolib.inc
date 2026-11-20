@@ -149,7 +149,8 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;   GX_SCROLL   A a layer: its scrolls GX_X and GX_Y (0-1023)
 ;   GX_BMP      A the bitmap (GB_*), GX_V its first card page: what GX_PLOT
 ;               and the rest draw on; carry clear. A past GB_DIRECT: carry
-;               set, A GE_FORMAT, the bitmap as it was (interface 13)
+;               set, A GE_FORMAT, the bitmap as it was (interface 13);
+;               GB_DIRECT under an OODOS below interface 13: GE_VERSION
 ;               On GB_DIRECT every colour below is a word, A low and X high
 ;               ($0RGB; $8000 transparent, $0000 black); on the others X is
 ;               not read
@@ -161,7 +162,8 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               and (GX_X2, GX_Y2)
 ;   GX_FRECT    A a colour: the rectangle filled (whole rows by DM_VFILL; on
 ;               GB_DIRECT whole and part rows by DM_VFILLW, or DM_VFILL
-;               when the colour's two bytes are equal)
+;               when the colour's two bytes are equal); carry clear, or set
+;               and A GE_DMA if function 83 refused a fill (interface 13)
 ;   GX_CIRCLE   A a colour: the circle about (GX_X, GX_Y), radius GX_R
 ;   GX_FLOOD    A a colour: the region of (GX_X, GX_Y)'s colour around it,
 ;               4-connected, filled by spans; carry set if its stack ran out

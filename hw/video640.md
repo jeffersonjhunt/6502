@@ -182,3 +182,15 @@ take most of that away.
 42,880 bytes (`DM_VFILLW` and the step in the port's loop); `gxbmp` 2,715 → 3,035 bytes of code and 20 → 33 of
 tables, its BSS +3; `gxtext` 315 → 326, BSS +2; `gxasset` 877 → 882 (VIEW.COM 6,308 → 6,313); `video_card.cpp` +~60 lines and a 16 KB table.
 
+**Review round 1** (2026-11-20, the owner: "recommendations as listed"; 4 findings, all new):
+
+- **F1 (minor):** under an OODOS older than 0.12 a `GB_DIRECT` bitmap drew lines and text but its fills, by
+  `DM_VFILLW`, were refused in silence. `GX_BMP` now asks function 80 for the interface itself (in gxbmp.s, so
+  gxmem.s, which GW-BASIC links, is unchanged) and refuses `GB_DIRECT` below 13 with `GE_VERSION`, the bitmap kept;
+  `GB_640` needs nothing new. `GX_FRECT` returns function 83's refusal (carry set, `GE_DMA`) and carry clear
+  otherwise, mono's whole rows included. Test: `gx_bmp_s_direct_640_needs_interface_13_and_frect_says_a_refused_fill`.
+- **F2 (nit):** gxtext.s said `GX_FGH` and `GX_BGH` are 0 at load; OODOS doesn't clear BSS, so a program sets them.
+- **F3 (nit):** tests at the limit itself: mkasset takes a part of exactly 1,572,864 bytes, and GX_ASSET's check
+  passes one (all 6,144 pages taken, then freed when its records aren't there), one byte more refused
+  (`an_asset_part_of_exactly_the_program_s_part_passes_the_check`).
+- **F4 (nit):** the User's Guide's bitmap 640 file is about 482 KB (493,568 bytes).

@@ -20,7 +20,8 @@ CONSOLE_FONT    = VM_FONT              ; the console's font, on the card
 .assert <CONSOLE_FONT = 0, error, "CONGLYPH adds to the font's middle byte"
 
         .bss
-GX_FGH: .res    1                      ; GB_DIRECT: GX_FG's and GX_BG's high bytes (0 at load)
+GX_FGH: .res    1                      ; GB_DIRECT: GX_FG's and GX_BG's high bytes; a program sets them
+                                       ;   (OODOS doesn't clear BSS: never 0 by default)
 GX_BGH: .res    1
 font:   .res    2                      ; the font in use, a CPU address; 0 the console's
 glyph:  .res    16                     ; the console's character, as copied

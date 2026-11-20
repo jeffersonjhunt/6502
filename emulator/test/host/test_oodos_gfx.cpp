@@ -1133,6 +1133,25 @@ TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
     CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("06 01")); // GE_FORMAT
 }
 
+TEST(an_asset_part_of_exactly_the_program_s_part_passes_the_check)
+{
+    // Review round 1, F3: a part of 1,572,864 bytes ($180000, the limit) passes LOADP's size check and takes all
+    // 6,144 of the program's card pages; its records aren't in the 1 KB file, so loading ends GE_FILE and the pages
+    // are freed again. One byte more is GE_FORMAT, before any page is taken.
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> exact = big_asset({{AT_RAW, 0x180000, 1}}, false), over = big_asset({{AT_RAW, 0x180001, 1}}, false);
+    r.put_m({{0, "EXACT   OGX", exact}, {0, "OVER    OGX", over}});
+    start_gx(r);
+    gx(r, 'I');
+    std::string a = asset(r, "EXACT   OGX");
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("05 01"));  // GE_FILE: checked, its pages taken, no records
+    CHECK_EQ(r.phys(at("GX_HDR") + 16 + 2) | r.phys(at("GX_HDR") + 16 + 3) << 8, 0x0400); // all of them, from $0400
+    a = asset(r, "OVER    OGX");
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("06 01"));  // GE_FORMAT
+    CHECK_EQ(valloc(r, 6144).substr(6), std::string("00"));      // every page free again
+}
+
 TEST(an_asset_part_past_record_65535_loads)
 {
     // Answer 23 (2026-11-20): GX_ASSET's record counter carries into its third byte. A sparse file on B: of our own
@@ -1598,6 +1617,33 @@ TEST(gx_bank8_needs_interface_12)
     CHECK_EQ(gx(n, '8').substr(6), std::string("00"));
     CHECK_EQ(n.phys(at("GXAPH")), 0);
     CHECK_EQ(n.phys(at("GX_OK")), 0);
+}
+
+TEST(gx_bmp_s_direct_640_needs_interface_13_and_frect_says_a_refused_fill)
+{
+    // Review round 1, F1: under an OODOS of interface 12 (FT_INFO patched as above), GX_BMP refuses GB_DIRECT
+    // (GE_VERSION: its fills need function 83's DM_VFILLW), the bitmap kept; GB_640 is taken. And GX_FRECT gives
+    // function 83's refusal: a bitmap 640 named where its rows run past the program's part, filled whole.
+    CcpRig r;
+    REQUIRE(r.ok);
+    ft_info_as(r, 12);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    const unsigned page = alloc(r, 1920, 64);
+    bmp_at(r, 3, page);
+    CHECK_EQ(gx(r, 'B', 3).substr(6), std::string("00")); // GB_640 taken
+    word(r, "GX_V", page);
+    const std::string d = gx(r, 'B', 4);
+    CHECK_EQ(d.substr(0, 2) + d.substr(5), std::string("01 01")); // GE_VERSION
+    xy(r, 5, 5);
+    gx(r, 'P', 0x77);
+    CHECK_EQ(card(r, page * 256u + 5 * 1024 + 5), 0x77); // still bitmap 640, at its page
+    xy(r, 0, 0, 1023, 479);
+    CHECK_EQ(gx(r, 'F', 0x11, 0, 0, ms(20000)).substr(6), std::string("00")); // a fill done: carry clear
+    word(r, "GX_V", 0x1B00); // 1,920 pages from $1B00 run past $1C00: function 83 refuses
+    CHECK_EQ(gx(r, 'B', 3).substr(6), std::string("00"));
+    const std::string f = gx(r, 'F', 0x22, 0, 0, ms(20000));
+    CHECK_EQ(f.substr(0, 2) + f.substr(5), std::string("04 01")); // GE_DMA
 }
 
 TEST(a_program_that_calls_only_gx_init_keeps_ap8_and_block_33)

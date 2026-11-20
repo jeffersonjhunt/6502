@@ -249,6 +249,8 @@ def main():
     raises(lambda: m.bitmap512(m.write_png(8, 8, picture(8, 8, list(range(1, 40))))), "39 colours at 4 bits")
     raises(lambda: m.build([m.Part(m.AT_RAW, b"x")] * 8), "eight parts")
     raises(lambda: m.Part(m.AT_RAW, bytes(1572865)), "a part past the program's card memory")
+    exact = m.build([m.Part(m.AT_RAW, bytes(1572864))])  # the limit itself (review round 1, F3)
+    check(m.parse(exact)[0][5] == 1572864 and m.parse(exact)[0][4] == 12288, "a part of exactly 1,572,864 bytes taken")
     check(len(m.Part(m.AT_RAW, bytes(131073)).data) == 131073, "a part past 17 bits taken")
     check(m.parse(m.build([m.Part(m.AT_RAW, bytes(614400))]))[0][5] == 614400, "a part of 614,400 bytes taken")
     good = m.build([m.Part(m.AT_RAW, b"abc")])

@@ -71,15 +71,34 @@ BANDS:  .byte   128, 128, 0, 64, 51     ; GX_FRECT's whole rows a fill: 64 KB at
 .assert GB_640 = 3 && GB_DIRECT = 4, error, "the tables' order is GB_*'s"
 
 ; A the bitmap (GB_*), GX_V its first card page: carry clear; past
-; GB_DIRECT, carry set and A GE_FORMAT, nothing changed.
+; GB_DIRECT, carry set and A GE_FORMAT, nothing changed. GB_DIRECT needs
+; OODOS's interface 13 (function 83's DM_VFILLW, which GX_FRECT uses):
+; below it, carry set and A GE_VERSION, nothing changed (review round 1,
+; F1; asked of function 80 here, so gxmem.s, which GW-BASIC links, keeps no
+; copy of the version).
+GX_IFACE_DIRECT = 13
 GX_BMP: cmp     #GB_DIRECT + 1
         bcs     @no
-        sta     bmode
+        cmp     #GB_DIRECT
+        bne     @take
+        lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        cmp     #$FF                    ; no function 80: A = X = $FF
+        beq     @old
+        cmp     #GX_IFACE_DIRECT
+        bcc     @old
+        lda     #GB_DIRECT
+@take:  sta     bmode
         lda     GX_V
         sta     bunit
         lda     GX_V + 1
         sta     bunit + 1
         clc
+        rts
+@old:   lda     #GE_VERSION
+        sec
         rts
 @no:    lda     #GE_FORMAT
         rts
@@ -605,6 +624,8 @@ GX_RECT:
 ; bitmap 256 or 640 a DM_VFILL each, of a direct 640 a word fill each; the
 ; rest pixel by pixel. A word fill is DM_VFILL when the colour's two bytes
 ; are equal ($0000 black, $FFFF clear), else DM_VFILLW (interface 13).
+; Carry clear, or set with A GE_DMA if function 83 refused a fill (since
+; interface 13; carry was undefined before).
 GX_FRECT:
         sta     colour
         stx     colourh
@@ -685,6 +706,7 @@ GX_FRECT:
         adc     nrows
 @pg:    jsr     FILLN
         jsr     GXDMA
+        bcs     @fail                   ; refused: carry set, A GE_DMA (review round 1, F1)
         lda     nrows
         tax
         clc
@@ -701,7 +723,8 @@ GX_FRECT:
         dec     crows + 1
 @rc:    ora     crows + 1
         bne     @band
-@done:  rts
+@done:  clc                             ; carry clear: drawn (or nothing on the bitmap)
+@fail:  rts
 @part:  lda     bmode                   ; bitmap 256 or 640, direct 640: a fill a row
         cmp     #GB_256
         beq     @parts
@@ -742,6 +765,7 @@ GX_FRECT:
         rol     GXT + 1
 @run:   jsr     FILLR
         jsr     GXDMA
+        bcs     @fail
 @next:  jsr     ORDERYC
         lda     row
         cmp     hi
@@ -752,7 +776,8 @@ GX_FRECT:
         bne     @row
         inc     row + 1
         bra     @row
-@end:   rts
+@end:   clc
+        rts
 @plot:  jsr     ORDERYC                 ; pixel by pixel
         lda     lo
         sta     row
@@ -831,8 +856,9 @@ MONOBAND:
         sta     GXB + 2,x
         dex
         bpl     @a
-        jmp     GXDMA
-@done:  rts
+        jmp     GXDMA                   ; (its carry: GX_FRECT's)
+@done:  clc                             ; off the bitmap: nothing, carry clear
+        rts
 
 ; ORDERX and ORDERY with hi clipped to the bitmap's last column or row.
 ORDERXC:

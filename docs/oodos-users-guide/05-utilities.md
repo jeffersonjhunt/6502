@@ -1331,7 +1331,7 @@ Since OODOS 0.12, VIEW also shows the video card's two full-screen colour pictur
 
 | Kind | What it is | The file | Loading it from the SD card |
 |---|---|---|---|
-| bitmap 640 | 640×480 (up to 1,024 wide) in 256 colours of 4,096 | about 481 KB | about 0.9 s |
+| bitmap 640 | 640×480 (up to 1,024 wide) in 256 colours of 4,096 | about 482 KB | about 0.9 s |
 | direct 640 | 640×480 in all 4,096 colours, no palette | about 601 KB | about 1.0 s |
 
 A bitmap 640 wider than 640 shows its left 640 columns. A direct 640 picture's transparent pixels show the

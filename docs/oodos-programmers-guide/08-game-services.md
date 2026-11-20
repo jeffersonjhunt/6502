@@ -798,8 +798,11 @@ card memory all free. Then:
   0.12 (interface version 13) bitmap 640 (`GB_640`, layer type 6: 1,024 × 480 at 8 bits, 640 shown) and direct
   640 (`GB_DIRECT`, type 7: 640 × 480, a word a pixel). On `GB_DIRECT` every colour is a word, A its low byte and X
   its high, `$0RGB` as a palette entry is (`$8000` transparent, `$0000` black; bits 12–14 written 0), and
-  `GX_POINT` returns A/X; on the other bitmaps X isn't read. `GX_BMP` refuses a type past `GB_DIRECT` (carry set,
-  `GE_FORMAT`, the bitmap as it was; before interface version 13 it took any A). `GX_PLOT`, `GX_POINT`,
+  `GX_POINT` returns A/X; on the other bitmaps X isn't read; a program sets the high bytes it uses (`GX_FGH`,
+  `GX_BGH` included: OODOS doesn't clear a program's BSS). `GX_BMP` refuses a type past `GB_DIRECT` (carry set,
+  `GE_FORMAT`, the bitmap as it was; before interface version 13 it took any A), and `GB_DIRECT` under an OODOS
+  whose interface is below 13 (`GE_VERSION`: its fills need function 83's `DM_VFILLW`); `GB_640` needs nothing
+  new. `GX_FRECT` says a fill function 83 refused (carry set, `GE_DMA`), carry clear otherwise. `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
   `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
   refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
