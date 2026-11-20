@@ -13,25 +13,24 @@
 ;   RESTORE RESFIN         the DATA pointer
 ;   STOP ENDST CONSTP      STOP, END, and ^C's break (STPEND, ENDCON):
 ;   STPEND ENDCON          "Break in 20" or nothing, then READY
-;   CONT                   on from OLDTXT
-;   TON TOFF               TRON, TROFF
 ;   OMERR                  Out of memory, the links fixed first
 ;
-; and ITSA86.ASM's INITSA, the end of start-up.
+; CONT, TRON and TROFF are the home block's (p8/gwmain.s), and ITSA86.ASM's
+; INITSA, the end of start-up, the loader's (res/loader.s): 7e3's S1, room
+; for BASIC.
 
 .include "gwbasic.inc"
 
 .export SYNCHR, GETSTK, ISLET2, SPUSH, SPOP, SPUSHA, SPOPA
 .export SCRATH, SCRTCH, NODSKS, RUNC, CLEARC, STKINI, STKERR, RESTORE, RESFIN
-.export STOP, STOPRG, ENDST, STPEND, ENDCON, CONT, TON, TOFF, OMERR, INITSA, GTMPRT
+.export STOP, STOPRG, ENDST, STPEND, ENDCON, OMERR, GTMPRT
 .export TOPMEM, TOPS, DATPTR, BSTACK, BSTOP
-.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, HOMSTK, CRDONZ, FINLPT
+.import CHRGTR, SNERR, ERROR, LINGET, FNDLIN, USERR, GOREADY, CRDONZ, FINLPT
 .import FINPRT, MEMSIZ, TEMPST, DEFTBL, OPTVAL, SUBFLG, RNDX, RNDCOP
-.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL, BUF, LRUN, SCRMOD
+.import ONEFLG, OLDLIN, OLDTXT, PRMLN2, CLSALL, SCRMOD
 
 NUMLEV          = 16                   ; words GETSTK keeps spare, as the 8086's NUMLEV
 ERROM           = 7                    ; Out of memory
-ERRCN           = 17                   ; Can't continue
 STKSIZ          = 512                  ; the BASIC stack (hw/oodos.md, "The plan, phase 7")
 
 .code
@@ -164,7 +163,8 @@ SCRTCH:         LDA     TXTTAB
                 STA     PTR
                 LDA     TXTTAB+1
                 STA     PTR+1
-                JSR     TOFF           ; A = 0
+                LDA     #0             ; TROFF (the source's CALL TOFF: TOFF is the
+                STA     TRCFLG         ; home block's, 7e3's S1)
                 STZ     PROFLG         ; no longer a protected program
                 STZ     AUTFLG
                 STZ     PTRFLG
@@ -387,61 +387,6 @@ DIRIS:          JSR     FINLPT
                 BCC     :+
                 FJSR    BRKMSG
 :               JMP     GOREADY        ; READY, in the home block (res/home.s)
-
-; --- CONT, TRON, TROFF (BIMISC.ASM 639) ----------------------------------------------
-
-; CONT: on from OLDTXT (0: Can't continue), at OLDLIN.
-CONT:           LDA     OLDTXT
-                ORA     OLDTXT+1
-                BNE     :+
-                LDA     #ERRCN         ; RESERR
-                JMP     ERROR
-:               LDA     OLDTXT
-                STA     TXTPTR
-                LDA     OLDTXT+1
-                STA     TXTPTR+1
-                LDA     OLDLIN
-                STA     CURLIN
-                LDA     OLDLIN+1
-                STA     CURLIN+1
-                RTS
-TON:            LDA     #$FF
-                BRA     TONOFF
-TOFF:           LDA     #0
-TONOFF:         STA     TRCFLG
-                RTS
-
-; --- INITSA (ITSA86.ASM 52) ------------------------------------------------------
-
-; The end of start-up, from the loader once P2's INIT has set memory up and
-; printed the heading: the 6502's stack top kept, NEW, the zero before the
-; program, and READY; or, with a program named on the command line (P2's
-; GWINIT put its name in BUF, a quote first: the 8086's TEMP8), LRUN, with
-; TXTPTR there and CURLIN start-up's 65534 (the 8086's data segment starts
-; it so; OO-1: zero page isn't), so an error loading it ends GW-BASIC.
-INITSA:         TSX
-                STX     TOPS
-                STX     HOMSTK         ; the base, under the home block's far call
-                JSR     NODSKS
-                LDA     TXTTAB
-                STA     PTR
-                LDA     TXTTAB+1
-                STA     PTR+1
-                DECW    PTR
-                LDA     #0
-                STA     (PTR)
-                LDA     BUF            ; a file named?
-                BEQ     GREADY
-                LDA     #<BUF
-                STA     TXTPTR
-                LDA     #>BUF
-                STA     TXTPTR+1
-                LDA     #<65534
-                STA     CURLIN
-                LDA     #>65534
-                STA     CURLIN+1
-                JMP     LRUN           ; LRUN's far call into the home block
-GREADY:         JMP     GOREADY        ; the far call into the home block
 
 .segment "RAM"
 ; GWDATA.ASM's, and the BASIC stack (hw/oodos.md, "The plan, phase 7": fixed RAM)

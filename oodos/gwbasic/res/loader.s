@@ -39,9 +39,9 @@
 
 .include "gwbasic.inc"
 
-.export LOAD, PAGBLK, FCADDR
+.export LOAD, PAGBLK, FCADDR, INITSA, INITEND
 .import __FARFIX_RUN__, __FARFIX_SIZE__, __FARFIX_LOAD__, __LOADER_RUN__, __BSS_RUN__
-.import STROUT, INITSA
+.import STROUT, TOPS, HOMSTK, NODSKS, BUF, LRUN, GOREADY
 
 LBUF            = __FARFIX_RUN__ + __FARFIX_SIZE__ ; the header record, then the buffers
 LHDR            = (LBUF + $FF) & $FF00 ; the OVL's header record (128 bytes)
@@ -393,8 +393,48 @@ LOAD:           CLD
                 STA     LCNT + 1
                 STZ     LBLK
                 JSR     LPATCH
-                FJSR    GWINIT
-                JMP     INITSA         ; the end of start-up (res/bimisc.s)
+                FJSR    GWINIT         ; then the end of start-up, INITSA
+
+; --- INITSA (ITSA86.ASM 52) ------------------------------------------------------
+
+; The end of start-up, from the loader once P2's INIT has set memory up and
+; printed the heading: the 6502's stack top kept, NEW, the zero before the
+; program, and READY; or, with a program named on the command line (P2's
+; GWINIT put its name in BUF, a quote first: the 8086's TEMP8), LRUN, with
+; TXTPTR there and CURLIN start-up's 65534 (the 8086's data segment starts
+; it so; OO-1: zero page isn't), so an error loading it ends GW-BASIC.
+; OO-1 (7e3's S1, room for BASIC): it is the loader's, run straight after
+; GWINIT, so its bytes are the workspace's once it has jumped away. What it
+; writes there is behind it: the zero before the program is the loader's
+; first byte (TXTTAB - 1) and NODSKS's end link the two after it; an LRUN's
+; load reaches it only after its JMP. Before it runs, GWINIT's one write to
+; the workspace is a /M: top's zero for VAL, and P2's DONCMD refuses a top
+; that would put it here, INITSA to INITEND (7e3's review round 1, F1).
+INITSA:         TSX
+                STX     TOPS
+                STX     HOMSTK         ; the base, under the home block's far call
+                JSR     NODSKS
+                LDA     TXTTAB
+                STA     PTR
+                LDA     TXTTAB+1
+                STA     PTR+1
+                DECW    PTR
+                LDA     #0
+                STA     (PTR)
+                LDA     BUF            ; a file named?
+                BEQ     GREADY
+                LDA     #<BUF
+                STA     TXTPTR
+                LDA     #>BUF
+                STA     TXTPTR+1
+                LDA     #<65534
+                STA     CURLIN
+                LDA     #>65534
+                STA     CURLIN+1
+                JMP     LRUN           ; LRUN's far call into the home block
+GREADY:         JMP     GOREADY        ; the far call into the home block
+INITEND:                               ; (DONCMD's guard: the start-up code's end)
+
 
 LBAD:           LDA     #<MBAD
                 LDX     #>MBAD

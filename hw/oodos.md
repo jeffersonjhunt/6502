@@ -3933,12 +3933,12 @@ copy of common memory at `$F800` (above).
 |---|---|---|
 | P1 | math: PRINT USING's formatting, `$FOUT`, `$FIN`, double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; PRINT, LPRINT, INPUT | 8.5 KB |
 | P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
-| P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL; *7e2:* CIRCLE's parse (`p3/advgrp.s`), DRAW and MACLNG (`p3/draw.s`, `p3/maclng.s`: the owner's answer 1, a statement's parsing in P3) | 9.5 KB; 8.1 KB at 7e2 |
+| P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL; *7e2:* CIRCLE's parse (`p3/advgrp.s`), DRAW and MACLNG (`p3/draw.s`, `p3/maclng.s`: the owner's answer 1, a statement's parsing in P3); *7e3:* GET's and PUT's array, size, header and action word (`GPUTA`, `p3/advgrp.s`) | 9.5 KB; 8.1 KB at 7e2, 8.5 KB at 7e3 |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
-| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2 |
+| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) *7e3:* GET and PUT (`GPUTG`, its corners; the OEM's rows, PGINIT, NREAD, NWRITE, with the byte paths), DEF SEG's page in SCREEN 1 and 2 (`DSGPK`, `DSGRUN`) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2, 9.7 KB at 7e3 |
 | P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 *7e1:* SCREEN's modes 1 and 2 (SCRSTT, SMODE), WIDTH's, COLOR's and CLS's way to P5, the text over the graphics | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3, 11.6 KB at 7e1 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
-| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs | 4.3 KB at 7e2 |
+| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`) | 4.3 KB at 7e2, 4.6 KB at 7e3 |
 
 - **One copy of OOLIB's video state.** `gxmem` keeps the block in W1, the bank in slot 1, the card memory map and
   the W1 map. A second copy in another block would get out of step, as [ooui.md](ooui.md#u3a-the-blocks) found for
@@ -4973,7 +4973,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         is silent).
       - The overlay's (answer 5): POINT doesn't see text, PRINT doesn't erase graphics, the text scrolls alone, and
         PRINT CHR$(12) clears the text alone (CLS clears both).
-      - DEF SEG's screen page is Illegal function call in SCREEN 1 and 2 (PEEK included) until 7e3.
+      - DEF SEG's screen page is Illegal function call in SCREEN 1 and 2 (PEEK included) until 7e3. *Closed (7e3):*
+        the PC's CGA page there now.
       - SCREEN's graphics page is CGA's one: `SCREEN 1,,1` Illegal function call (PC-BASIC's VGA takes it). *Re-cited
         (the IBM spec's fix-up, B9):* the manual's (p. 313: apage in text mode only; p. 314).
     - **Not done in 7e1:** CIRCLE, PAINT, DRAW (7e2); GET and PUT, DEF SEG's graphics page (7e3); VIEW, WINDOW,
@@ -5485,6 +5486,136 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       LINE's style, PAINT's tiles and background, PEN, POINT(n) (7e4); the OO-1's modes (7e5); PLAY's MACLNG (7f
       takes its own copy); the books (7g). The whole-block space plan (P4's relief widened: 7e3-7e5, 7f, F3) comes to
       the owner before 7e3, as ruled; P5 has 3,993 free for 7e3-7e5 against their ~3,580 at the point estimate.
+  - **As built, 7e3** (Proposed, 2026-11-19; feat/gwbasic-7e3 off main `47da0b1a`, the 7e3 plan with the owner's
+    answers, "recommendations as listed"; units U0 `e49ccf09`, U1 `1d1c1b12`, U2 `99ba2889`, U3 `d3e89533`, U4
+    `4f424b9f`, U5 with this record):
+    - **S1** (U0, the space plan's): INITSA (with GREADY, 57 bytes) is the loader's (`res/loader.s`): since review
+      round 1 (F1) right after its FJSR GWINIT, which falls into it (the loader's `JMP INITSA` gone); at U0 it was at
+      the LOADER segment's end (bimisc.o links before loader.o). What it writes in the workspace is behind it (the
+      zero before the program, the loader's first byte, and NODSKS's end link), and an LRUN's load reaches it only
+      after its JMP. CONT, TON, TOFF and TONOFF are the home block's (`p8/gwmain.s`; HOMTAB alone dispatches them).
+      The source's one other caller of TOFF, the resident SCRTCH, clears TRCFLG itself (`LDA #0`, `STA TRCFLG`: one
+      byte more than the JSR, a judgement). Free for BASIC +99 (the plan's +97).
+    - **The /M: start-up guard** (review round 1, F1, the owner's option B): GWINIT's one write to the workspace
+      before INITSA runs is a /M: top's zero for VAL, at n - 1. On U0's build two windows of start-up code still to
+      run were exposed: INITSA and GREADY (57 bytes, then at the loader's end) and the loader's `JMP INITSA` (3
+      bytes, about 290 before it: main's exposure too); tops landing there hung or printed false errors (`GWBASIC
+      /M:15344` hung after the heading, 15348 said GWBASIC.OVL was damaged). P2's DONCMD keeps the source's floor
+      (MAPINI's 32 bytes above TXTTAB) and also refuses, as the command line's error, a top whose n - 1 falls in
+      `[INITSA, INITEND)`, INITEND the label past GREADY's JMP: 57 values of n, each leaving about 830-890 bytes
+      free. P2 +24 bytes (6,449 free); free for BASIC 34,874 unchanged; the other blocks byte-identical. The case is
+      test_gwbasic_files' `the_command_line_s_switches_are_read_and_m_sets_the_top` (INITSA + 1, + 8 and INITEND
+      refused; INITEND + 1 starts and runs PRINT); its mutant, the guard removed, hangs at INITEND.
+    - **GET and PUT** (U1, U2; ADVGRP.ASM's GPUTG, PUT1, GOPGIN, PGLOOP, GTARRY, GFUNTB and CHKRNG, translated, the
+      owner's answers 1, 3, 4, 5, 6): the home block's stubs (`p8/far4.s`) send `(` or `@` after the word, and GET's
+      STEP (answer 5, the manual's p. 115), to P5's `GPUTG` in screen mode, TXBUF emptied first (TXSYNC); every
+      graphics form in console mode, and every other form, goes to P4's PUTP and GETP as before (console mode's
+      Advanced Feature, P4's GRPVER). `GPUTG` (`p5/advgrp.s`) parses the corners with P5's own SCAN1 and SCAND (the
+      cursor at once, the source's), CHKRNG each, and GET's deltas (MINDEL the rows, MAXDEL the pixels, the corner
+      the lesser); one far call to P3's `GPUTA` (`p3/advgrp.s`: GTARRY, PTRGET with SUBFLG 1, a string array Type
+      mismatch (answer 6); GET's size by MULBLP and UMULT against the array, Illegal function call before the header
+      is written; PUT1's action word by GFUNTB, none XOR; the header read; the far corner, PRNGER's carry); PUT's far
+      corner by CHKRNG back in P5; then MAPXYC, PGINIT and PGLOOP, CPAT put back (the pixel path sets it for each
+      pixel), block 1 back. Every error comes before MAPXYC.
+    - **The OEM's rows** (U1, `p5/gfxoem.s`, the OO-1's: OEM.H names PGINIT, NREAD and NWRITE, the release has no
+      code): the manual's format (pp. 116-117; each pixel PIXSIZ bits, high bits first, a row left-justified on a
+      byte, its spare bits 0), the contract read from PGLOOP's use (the cursor back at the row's first pixel). Each
+      row passes through TXBUF (answer 3): NREAD reads it there, puts block 1 back and copies it to the array; NWRITE
+      copies it with block 1 in W1, maps the cursor's bank again (NEWBNK) and draws it. A pixel: READC, the action
+      (OR, AND, PRESET's complement, PSET, XOR), SETC with the new value's pattern. The byte paths (answer 4), where
+      a row starts on a CGA byte: SCREEN 2's card byte itself, SCREEN 1's tile byte pair (two nibbles each: T16 and
+      TNIB), the action on them bit by bit; PSET's SCREEN 2 row and twin written at once by Y where neither passes
+      W1's end, else the twin in a second pass from the results. A part last pixel isn't drawn (the source's count).
+      The row state is zero page from DBUFF, the floating point's scratch (CIRCLE's too, never at once): a judgement
+      for room (P5 was at 2,466 free with it in BRAM).
+    - **DEF SEG's page in SCREEN 1 and 2** (U3; 7e's answer 9, the owner's answers 2 and 7): bank 8's byte k
+      (`&H8000:k`) is the PC's CGA byte k; the reach `&H4000`. PEEK and POKE (`p5/seed.s` DSSCR's branch, `DSGPK`):
+      the row and byte by DSGXY (k \ 80 by a shift-and-subtract), MAPXYC, one CGA byte by the rows' byte path with
+      PSET through P5's scratch byte (not TXBUF: a PEEK may come in the middle of a PRINT). BSAVE and BLOAD (P8's
+      `DSGSR`, DSPUTH's branch; P5's `DSGRUN` by one far call, answer 2): the run below `&H4000` is staged at its own
+      address as SCREEN 0's; BSAVE's staging filled from the card, BLOAD's bytes (the ones the file gave, after 7d3's
+      ^Z clamp) written to it, in pieces along the rows through TXBUF. BSAVE tells itself from BLOAD by DSBSV
+      (BSAVE sets it, BKEEP clears it, so D9's spans and BLOAD's code are as they were). No SCPAGP: the text page
+      isn't reached in a graphics mode.
+    - **The gaps** (answer 7): `&H1F40-&H1FFF` and `&H3F40-&H3FFF` are bank 8's RAM at their own address, reached by
+      GX_BLOCK (bank 8's first block, GW-BASIC's after GX_BANK8); a PEEK reads back a POKE, BSAVE saves them and BLOAD
+      keeps a file's there (the staging is their own place, never filled or written to the card), and a change of
+      mode doesn't clear them: the OO-1's choice, the source and the manual silent.
+    - **Sizes** (bytes; main `47da0b1a` → after 7e3, the plan's point in brackets): free for BASIC 34,775 →
+      **34,874** [34,872; the line 34,850]; the resident core 11,465 → 11,366, the loader 1,069 → 1,126, fixed RAM
+      2,133 (LOWRAM 434) unchanged; GWBASIC.COM 14,937 → 14,895; GWBASIC.OVL 59,392 → 61,696. **P3 8,014 → 8,504,
+      4,274 → 3,784 free** [3,872; the line 3,500]; **P5 8,241 → 9,737, 4,047 → 2,551 free** [2,822, range
+      2,516-3,034; the line 2,500]; **P8 4,335 → 4,559, 7,953 → 7,729 free** [7,775; the line 7,000]; P2 5,815 →
+      5,839 after review round 1 (F1's guard). **P1, P4 and P6 (and P2 until F1) differ from main's only in moved
+      resident addresses** (the relocation check: each differing byte a moved
+      resident label's word, or its low or high byte as an immediate; P1 304 words and 15 bytes, P2 140 and 11, P4
+      176 and 6, P6 115 and 1), and are byte-identical to U0's build. P5 took 1,496 for the plan's 1,225 (the high end
+      1,531), P3 490 for 402: the byte paths and the SCREEN 2 twin's fast case (for the BLOAD gate, below), PGINIT's
+      byte counts, and GET's and PUT's parse in full. **The recount for 7e4-7e5** (the space plan's 1,080 and 920):
+      2,551 → ~1,471 after 7e4 (its line 1,400: 71 short) → ~551 after 7e5 (the floor 512): the space plan's reserve
+      (a)-(c), in order, is for 7e4's plan to weigh.
+    - **Cycles** (the fast build; G28, timed()'s and D9's methods): `PUT (X%,Y%),S%,XOR` of a 16 x 16 SCREEN 1 sprite
+      at x MOD 4 = 1 **66,962** (the gate 100,000; estimated 50,000-75,000), its GET **63,156** (100,000;
+      35,000-55,000); at x MOD 4 = 0 (the byte path) 26,997 and 29,247; a whole SCREEN 2 GET **708,427** and PUT PSET
+      **876,598** (1,500,000 each; 0.7-1.0 M, 0.8-1.1 M); a 16 KB BLOAD to `&H8000` after the read (BRUN's check and
+      the tail after BLDRUN) **920 + 1,012,118** in SCREEN 2 (1,500,000; 0.8-1.2 M) and **920 + 1,980,922** in
+      SCREEN 1 (2,500,000; 1.2-1.6 M); PEEK(4000) and POKE 4000,65 on SCREEN 2's page **4,765** and **3,992**
+      (6,000); for the record a whole SCREEN 1 GET 2,749,758 and PUT PSET 1,907,808, and a whole-page BSAVE less one
+      of bank 9 (the check and the fill) 1,064,262. The earlier gates (as they are): `PSET (X%,Y%),1` 2,011
+      (9,000); the whole LINE 132,696 (200,000); CIRCLE r=50 310,166 (400,000); the whole SCREEN 2 PAINT 28.11 M
+      (40 M); the 100-move DRAW 328,378 (500,000); `PRINT A$;` 20,983 (30,000); the scroll 13,300 less the interrupt
+      handlers (14,000); D9's SCREEN 0 page: PEEK 4,644 and POKE 4,030 (main's + 50: 4,696, 4,085), BLOAD 7,893 +
+      6,675 and BSAVE 7,893 (main's + 300).
+    - **Tests** (test_gwbasic_gfx G21-G25, test_gwbasic_screen G26-G28, test_gwbasic_core G11; gwbasic/gfx24-gfx28,
+      the .out files PC-BASIC's by oracle.sh; each seen failing under its mutant on its own case (OOE_TEST_CASES), the
+      source then restored):
+      - G21 `get_reads_what_pc_basic_s_get_read` (gfx1, gfx21, gfx2, gfx16, then a whole-screen GET read from the
+        TPA, byte for byte PC-BASIC's dump): (a) TNIB packing a tile byte's right pixel high; (b) GNXHI not mapping
+        the next bank;
+      - G22 `get_array_layout_matches_pc_basic` (gfx24): (a) element 0 the pixels (MULBLP's doubling left out); (b) a
+        part byte's spare bits set;
+      - G23 `put_actions_match_pc_basic` (gfx25, gfx28: the frames by `compare`): (a) PRESET as PSET (GBPRE's and
+        GOPP's complement left out); (b) SCREEN 2's byte path writing row 2y only;
+      - G24 `get_and_put_errors_are_the_source_s` (gfx26, 47 codes): (a) GPUTA's size check an element short; (b)
+        PUT's far corner's CHKRNG left out;
+      - G25 `get_and_put_keep_block_1` (gfx27): NWRITE drawing straight from the array, not through TXBUF;
+      - G26 `def_seg_8000_is_the_cga_page_in_screen_1_and_2`: (a) DSGXY without the odd bank's bit; (b) SCREEN 2's
+        POKE without its twin row;
+      - G27 `bsave_and_bload_the_graphics_page` (files on M:, one written by the test from a known CGA image): (a)
+        DSGXY's gap test left out; (b) BSAVE's fill left out;
+      - G28 `get_put_and_the_page_are_timed`: the byte paths' test inverted (the whole SCREEN 2 GET and PUT past
+        1.5 M; SCREEN 1's 11.3 M and 18.3 M);
+      - G11 (test_gwbasic_core, the approved change: GET (0,0)-(1,1),A%, PUT (0,0),A% and PUT @(0,0),A%,PSET added):
+        GET's stub without its SCRMOD test.
+      The mutants are logged in the scratchpad's 7e3/mut.log. G26-G28 are test_gwbasic_screen's, with the page's
+      other cases and D9's run_check_cycles (G28's placement a judgement: the plan had it in test_gwbasic_gfx).
+    - **Expectation changes:** G11's list only (approved). No other expected output changed; D1-D9, G1-G20 and the
+      file GET and PUT cases pass unchanged.
+    - **Recorded deviations and judgements** (for the owner):
+      - **A comma with no action word after PUT (`PUT (0,0),A%,`) is Syntax error** (the manual's form, p. 281,
+        `[,action]`; PC-BASIC agrees). The source's PFUNLP returns for NEWSTT's Syntax error, but with nothing after
+        the comma NEWSTT finds the statement's end and nothing is said: the plan took the source's for Syntax error
+        there. A departure from the source on the manual's syntax: the owner's to confirm.
+      - **DSGRUN reaches the staging by GX_BLOCK, not function 83's DM_COPY** (the plan's): bank 8's RAM is
+        GW-BASIC's after GX_BANK8 (B7's question 1) and in OOLIB's W1 map, so a piece's bytes are copied by the CPU
+        with no BDOS call; no TXBUF physical address is needed. For the BLOAD gates: with DM_COPY a 16 KB BLOAD cost
+        about 165,000 cycles more.
+      - From the plan's E-table, as decided: E2 `@` taken (the source's); E4 GET into `K%(5)` fills from element 0,
+        then Syntax error; E5 the cursor at GET's first corner when that is off the screen; E6 an empty array's PUT
+        Illegal function call; E7 a short array's PUT reads on past it (only reads); E8 a 1,500-pixel row Illegal
+        function call (the manual's p. 285 and the source's); E9 the gaps real bytes (answer 7); E10 the page past
+        `&H3FFF` (a PEEK, a POKE, a run whose last byte is past it) Illegal function call; E11 `&H8000`, not
+        `&HB800`; E12 the page is the graphics alone (the text over them isn't in a GET, a PEEK or a BSAVE).
+      - Where bank 8 isn't GW-BASIC's RAM (GX_BANK8 refused: DSB8), a gap's PEEK is 0 and its POKE does nothing
+        (BLOAD and BSAVE of the page are refused there already): the OO-1's choice.
+      - A file shorter than its header whose last record covers a gap leaves that record's ^Z padding in the gap's
+        bytes (P4's BLDRUN loads whole records into the staging; DSPUTH's clamp is the card's alone): a corner.
+      - PUT's pixel path sets CPAT for each pixel and puts it back at the end (the source's PUT doesn't touch the
+        drawing attribute): the OO-1's.
+      - SCREEN 1's tile nibbles are taken as the pixel's 2 bits (AND 3) by GET and PEEK; SETATR never writes more.
+    - **Not done in 7e3:** VIEW, WINDOW, PMAP, POINT(n), LINE's style, PAINT's tiles and background, PEN (7e4); the
+      OO-1's modes and their DEF SEG reach (7e5); the books, with the `&H8000` note (7g). Then one review round, the
+      triage gate, fixes, merge on the owner's word.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
@@ -5553,7 +5684,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed. *As built (7e1):* so, by P5's `GMODE` (a page each, kept); WIDTH 40/80 picks SCREEN 1/2 in a graphics mode; CLS clears the page |
 | COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM. *As built (7e1; answer 10):* no shadow and no gxpal: GW-BASIC's own palette in card memory, its entries copied on the card (`DM_VCOPY`) as COLOR sets them; COLOR in SCREEN 1 the backdrop and the group (PALOFS) |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
-| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line off the screen clipped as PC-BASIC clips it (each end at most one pixel past the screen, only the pixels on it set: the owner's ruling, not the source's truncation). *As built (7e2):* CIRCLE (ADVGRP.ASM's ring and arcs, its parse in P3), PAINT (the source's queue in free memory on the OO-1's SCANR, SCANL, TUPC, TDOWNC, PNTINI), DRAW (MACLNG in P3; TA and P the OO-1's, the manual's), GTASPC 213/107 (the manual's 5/6, 5/12) |
+| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line off the screen clipped as PC-BASIC clips it (each end at most one pixel past the screen, only the pixels on it set: the owner's ruling, not the source's truncation). *As built (7e2):* CIRCLE (ADVGRP.ASM's ring and arcs, its parse in P3), PAINT (the source's queue in free memory on the OO-1's SCANR, SCANL, TUPC, TDOWNC, PNTINI), DRAW (MACLNG in P3; TA and P the OO-1's, the manual's), GTASPC 213/107 (the manual's 5/6, 5/12). *As built (7e3):* GET and PUT (ADVGRP.ASM's, the corners in P5, the array in P3) on the OEM's PGINIT, NREAD and NWRITE (`p5/gfxoem.s`: the manual's array format, the five actions, each row through TXBUF, the byte paths where a row starts on a CGA byte) |
 | SOUND, BEEP | `MU_TONE` on a voice; `SN_BEEP` | SOUND's length is in 1/18.2 s ticks: × 54.9 ms |
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |
@@ -5563,8 +5694,8 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
 | COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
 | LPRINT, LLIST | LST: (function 5) | LST: takes and drops for now (no parallel port modelled) |
-| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below. *As built (7d3):* bank 8 in screen mode is the active page, by `DM_VREAD` and `DM_VWRITE` (below) |
-| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only. *As built (7d3):* a run on the screen page staged in bank 8's RAM (`DSRUN`'s `DM_VREAD`, then BLOAD's `DSPUT`, a `DM_VWRITE`); P4 unchanged. *As built (7e2):* those checks and copies are the home block's (`DSRUNH`, `DSPUTH`), P5's state by its `DSINFO` |
+| DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below. *As built (7d3):* bank 8 in screen mode is the active page, by `DM_VREAD` and `DM_VWRITE` (below). *As built (7e3):* in SCREEN 1 and 2 the PC's CGA page (below), through the aperture |
+| BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only. *As built (7d3):* a run on the screen page staged in bank 8's RAM (`DSRUN`'s `DM_VREAD`, then BLOAD's `DSPUT`, a `DM_VWRITE`); P4 unchanged. *As built (7e2):* those checks and copies are the home block's (`DSRUNH`, `DSPUTH`), P5's state by its `DSINFO`. *As built (7e3):* SCREEN 1 and 2's page staged the same way, `$80000-$83FFF`, converted to and from the card by P5's `DSGRUN` |
 | CALL, USR | a 6502 routine in the TPA (segment 0) | any other segment refused: code in a block is GW-BASIC's own |
 | INP, OUT, WAIT | — | refused (Illegal function call), as the hardware is OODOS's (AGENTS.md); [question 13](#phase-7s-questions) |
 
@@ -5595,7 +5726,12 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   (7d3):* SCREEN 0's page only (SCREEN 1 and 2's, and the example above, are 7e's); a BLOAD's or BSAVE's run
   on the page is staged in bank 8's RAM at its own address, `$80000` up to the reach (`$812BF` at most), GW-BASIC's
   one use of that RAM; where `GX_BANK8` refused (bank 8 not RAM) BLOAD and BSAVE of the page are Illegal function
-  call, PEEK and POKE still work.
+  call, PEEK and POKE still work. *As built (7e3,* [7e3 as built](#the-sub-phases)*):* in SCREEN 1 and 2 the page is
+  the PC's CGA layout, 16 KB (7e's answer 9): byte k is row 2 x ((k AND `&H1FFF`) \ 80) + (k >= `&H2000`), byte
+  (k AND `&H1FFF`) MOD 80 of it, the leftmost pixel in the high bits; `&H4000` and past Illegal function call. The gaps
+  `&H1F40-&H1FFF` and `&H3F40-&H3FFF` are bank 8's RAM at their own address (the owner's answer 7), and a BLOAD's or
+  BSAVE's run is staged at its own address as SCREEN 0's, so bank 8's RAM `$80000-$83FFF` is GW-BASIC's in a graphics
+  mode; the text over the graphics isn't in the page.
 - **As built (7c's tail, 2026-11-18;** [7c's tail as built](#the-sub-phases)**):** these routes are P5's `DSBYTE`,
   with segment 0 below `$C000` taken in PEEK's and POKE's own blocks (448 cycles a PEEK); `GX_BLOCK`'s route costs
   1,166 and the `DM_COPY` route 3,334, against the 400 and 1,000 above. `GX_BLOCK` refuses every block with no

@@ -616,6 +616,21 @@ TEST(the_command_line_s_switches_are_read_and_m_sets_the_top)
     CHECK(least.find("\r\n29 Bytes free\r\n") != std::string::npos); // 33 above TXTTAB: the least taken
     r.type("SYSTEM\r");
     CHECK(r.until("A>", ms(4000), r.out.size()));
+    // 7e3's review round 1, F1: a top whose VAL zero (at n - 1) would land on the start-up code still to run (the
+    // loader's INITSA to INITEND, after GWINIT) is the command line's error too; the next one up starts and runs.
+    REQUIRE(lab.count("INITSA") == 1 && lab.count("INITEND") == 1);
+    for (const unsigned n : {lab.at("INITSA") + 1u, lab.at("INITSA") + 8u, static_cast<unsigned>(lab.at("INITEND"))})
+    {
+        const std::string o = r.cmd("m:gwbasic /m:" + std::to_string(n));
+        CHECK(o.find(refused) != std::string::npos);
+        if (o.find(refused) == std::string::npos)
+            std::printf("  /m:%u: '%s'\n", n, vis(o).c_str());
+    }
+    const std::string above = r.to("m:gwbasic /m:" + std::to_string(lab.at("INITEND") + 1), "Ok\r\n");
+    CHECK(above.find(" Bytes free\r\n") != std::string::npos);
+    CHECK_EQ(command(r, "PRINT 6*7"), std::string(" 42 \r\n"));
+    r.type("SYSTEM\r");
+    CHECK(r.until("A>", ms(4000), r.out.size()));
 }
 
 // KILL (GIODSK.ASM KILL, KILL2), NAME (NAME, SAMDRV, NA_FNF, NA_FAE) and FILES (FILES, NOARG, ALFILS, GOTNAM, FILNXT,

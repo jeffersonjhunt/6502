@@ -28,6 +28,8 @@
 ; then by line).
 ;@entry CIRCA
 ;@entry DRAWP
+; 7e3's (p3/advgrp.s), after them.
+;@entry GPUTA
 .export TRPTSP
 .import EVTRP, EVADR, EVSET, TRPCNT
 

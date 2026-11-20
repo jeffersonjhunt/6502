@@ -367,3 +367,15 @@ screen are clipped as PC-BASIC clips them (the owner's ruling, 7e1's U6), so the
 | `gfx3` | by hand: an array across `$4000-$7FFF` read back after each graphics statement (block 1 in W1) |
 | `gfx7` | POINT: both pixels of a SCREEN 1 byte, SCREEN 2's bits, -1 off every edge, the cursor kept across it |
 | `gfx8`, `gfx9` | RUN, CLS and CLEAR centre the graphics cursor: SCREEN 1 and SCREEN 2 |
+
+7e3's GET and PUT (test_gwbasic_gfx): `gfx25` and `gfx28` are compared as frames, as above; `gfx24` and `gfx26` print
+their results after SCREEN 0, PC-BASIC's in `NAME.out` (test_gwbasic_gfx's G24 takes the source's or the manual's
+value by hand where PC-BASIC parts from them, and says which); `gfx27` checks itself.
+
+| Program | What |
+|---|---|
+| `gfx24` | GET's array: element 0 the bits, 1 the rows, each row padded to a byte; aligned and not, reversed corners, 1 x 1, 8, 9, 12, 13 wide, both modes |
+| `gfx25` | PUT's six actions in SCREEN 1 on every background colour at each x MOD 4, wider sprites aligned and not, XOR twice, AND and OR over a pattern, a SCREEN 2 array, 7 bits |
+| `gfx26` | GET and PUT's errors, in order: the array's size and type, the action word, the edges, `@`, a subscript, the cursor after an error, GET's STEP, SCREEN 0; an array across `$4000` read back after each |
+| `gfx27` | by hand: GET and PUT with the sprite's array in `$4000-$7FFF` (its rows through TXBUF), canaries across `$4000` and `$8000` |
+| `gfx28` | PUT's actions in SCREEN 2, and rows across the page's first 16 KB (row 102's pair) |

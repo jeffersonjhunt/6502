@@ -21,13 +21,15 @@
 ;   DSINFO    7e2: for the home block's DSRUNH (p8/far4.s: BLOAD's and
 ;             BSAVE's run checks, 7c's tail and 7d3, the home block's since
 ;             7e2), A the graphics mode, X DSB8; DSPUT's entry a stub
+;   DSGRUN    7e3: a BSAVE's or BLOAD's run on SCREEN 1 or 2's page, between
+;             bank 8's RAM (the staging) and the card, from the home block's
+;             DSSRUN and DSPUTH (below)
 ;   TXMODE    P6's text page shown: on layer 0, or (7e1) on layer 1 over
 ;             the graphics (below)
 ;
 ; 7e1: the graphics are p5/gfx.s (the modes), p5/gfxoem.s (the pixels) and
-; p5/gengrp.s (the statements). In SCREEN 1 and 2 the screen page (bank 8,
-; DSSCR, and P8's DSSRUN) is Illegal function call until 7e3 gives it their
-; layout.
+; p5/gengrp.s (the statements). 7e3: in SCREEN 1 and 2 the screen page is
+; the PC's CGA layout (DSGPK, DSGRUN, below).
 ;
 ; The address is the segment x 16 + the offset, wrapping at 1 MB as an
 ; 8088's does. DSBYTE's routes:
@@ -85,9 +87,20 @@
 ;@entry CIRCC
 ;@entry PAINTP
 ;@entry DRWOP
-.export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT
+; 7e3's (p5/advgrp.s, here), after 7e2's.
+;@entry GPUTG
+;@entry DSGRUN
+.export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT, DSGRUN
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
-.import FCERR, SAVSEG, SCRMOD, EVAREA
+.import FCERR, SAVSEG, SCRMOD, EVAREA, TXBUF
+
+; 7e3: DSGRUN's and DSGXY's, in zero page: the floating point's scratch past
+; GET and PUT's rows' (p5/gfxoem.s), which nothing uses while a statement
+; draws or a PEEK runs (DSK and DSN live only inside DSGRUN, a statement's).
+DSR             = DBUFF + 23           ; DSGXY: the byte in the row
+DSK             = FBPTR                ; DSGRUN: the offset
+DSN             = FBPTR + 2            ;   the bytes left
+.assert DSN + 1 < SPN, error, "DSGRUN's zero page past FOUT's scratch"
 
 CON_CRT         = $80                  ; an SCB vector's high byte: bit 15, the CRT (the Programmer's
                                        ;   Guide, chapter 4: bit 15 CRT, 14 TTY, 13 LPT)
@@ -298,8 +311,10 @@ DSFC:           JMP     FCERR          ; (block 1 in W1: GX_BLOCK refused, or ne
 ; forgotten. One byte by DM_VREAD or DM_VWRITE through the scratch byte.
 DSSCR:          BIT     SCRMOD
                 BPL     DSFC
-                LDA     GMODEV         ; 7e1: SCREEN 1 and 2's page is 7e3's
-                BNE     DSFC
+                LDA     GMODEV         ; 7e3: SCREEN 1 and 2's page, the PC's CGA layout
+                BEQ     :+
+                JMP     DSGPK
+:
                 LDA     DSA            ; the byte is the run's last (DSPAGE)
                 STA     DSE
                 LDA     DSA+1
@@ -438,6 +453,212 @@ DSINFO:         LDA     GMODEV
                 LDX     DSB8
 DSPUT:          RTS
 
+; --- SCREEN 1 and 2's page (7e3) ----------------------------------------------------------
+
+; 7e3 (7e's answer 9; the owner's answers 2 and 7 to the 7e3 plan): in a
+; graphics mode bank 8's byte k (&H8000:k) is the PC's CGA byte k: the even
+; rows from 0 and the odd from &H2000, 80 bytes a row, the leftmost pixel in
+; the high bits; its row 2 x ((k AND &H1FFF) \ 80) + (k >= &H2000), its byte
+; in the row (k AND &H1FFF) MOD 80, from x = that x 4 (SCREEN 1) or x 8
+; (SCREEN 2). The reach is &H4000; past it Illegal function call (7d3's
+; rule). The gaps, &H1F40-&H1FFF and &H3F40-&H3FFF, no row's, are bank 8's
+; RAM at their own address (answer 7: real bytes, as a PC's CGA RAM is; a
+; PEEK reads back a POKE, BSAVE and BLOAD carry them, a change of mode
+; doesn't clear them: the OO-1's choice, the source and the manual silent).
+; The page is the graphics alone: the text over them isn't in it (7e's
+; answer 5), and no SCPAGP (the text page isn't reached).
+;
+;   DSGPK   PEEK's and POKE's byte (DSSCR's branch): one CGA byte by GROWR
+;           or GROWW with PSET (p5/gfxoem.s), through DSVAL, not TXBUF (a PEEK
+;           may come in the middle of a PRINT); a gap's by GX_BLOCK, or PEEK
+;           0 and POKE nothing where bank 8 isn't GW-BASIC's RAM
+;   DSGRUN  BSAVE's or BLOAD's run, from the home block (p8/far4.s): RBL/RBH
+;           its first offset, RDL/RDH its bytes (0: none); C set BSAVE (the
+;           card to the staging, bank 8's RAM at the run's own address,
+;           $80000 + k, for P4's BSAVEP), clear BLOAD (the staging, where P4's
+;           BLDRUN put the file, to the card: the bytes the file gave,
+;           DSPUTH's count). In pieces along the rows, at most 80 bytes each,
+;           through TXBUF: the staging's side with it in W1 (GX_BLOCK, no
+;           BDOS call), the card's by GROWR or GROWW through the aperture;
+;           block 1 back at the end. A gap is passed over: its bytes are the
+;           staging's own.
+DSGPK:          LDA     DSA+1
+                CMP     #$40
+                BCC     :+
+                JMP     DSFC           ; past the reach
+:               JSR     DSGXY
+                BCS     @gap
+                JSR     MAPXYC
+                LDA     #1
+                JSR     GPSETN
+                LDA     #<DSVAL
+                STA     PTR
+                LDA     #>DSVAL
+                STA     PTR+1
+                BIT     DSDIR
+                BMI     @poke
+                JSR     GROWR
+                BRA     @x
+@poke:          JSR     GROWW
+@x:             JSR     GX_W1BACK
+                LDA     DSVAL
+                RTS
+@gap:           LDA     #$80000 / $4000 ; bank 8's first block, in W1
+                JSR     GX_BLOCK
+                BCS     @none
+                LDA     DSA
+                STA     GXP
+                LDA     DSA+1
+                ORA     #$40
+                STA     GXP+1
+                JSR     DSDO
+                PHA
+                JSR     GX_W1BACK
+                PLA
+                RTS
+@none:          LDA     #0
+                RTS
+
+; DSGXY: DSA's offset k (below &H4000) as the cursor's point: RCL/RCH x,
+; RDL/RDH y, DSR the byte in the row; C set (nothing else) if it is a gap's.
+DSGXY:          LDA     DSA
+                STA     T0
+                LDA     DSA+1
+                AND     #$1F
+                STA     T1
+                LDA     T0             ; (k AND &H1FFF) >= &H1F40: a gap
+                CMP     #<$1F40
+                LDA     T1
+                SBC     #>$1F40
+                BCS     @x
+                STZ     T2             ; T2 its row in the bank, T0 the byte: \ 80, MOD 80
+                LDX     #0
+@d:             SEC
+                LDA     T0
+                SBC     D80,X
+                TAY
+                LDA     T1
+                SBC     D80+1,X
+                BCC     :+
+                STA     T1
+                STY     T0
+:               ROL     T2
+                INX
+                INX
+                CPX     #D80N
+                BNE     @d
+                LDA     T0
+                STA     DSR
+                LDA     DSA+1          ; y: twice the row, and the odd bank's bit
+                AND     #$20
+                CMP     #$20
+                LDA     T2
+                ROL     A
+                STA     RDL
+                STZ     RDH
+                STZ     RCH            ; x: the byte x 4, or x 8
+                LDA     T0
+                ASL     A
+                ROL     RCH
+                ASL     A
+                ROL     RCH
+                LDX     GMODEV
+                CPX     #GM_MONO
+                BNE     :+
+                ASL     A
+                ROL     RCH
+:               STA     RCL
+                CLC
+@x:             RTS
+
+DSGRUN:         ROR     DSDIR          ; bit 7: BSAVE
+                LDA     RBL
+                STA     DSK
+                LDA     RBH
+                STA     DSK+1
+                LDA     RDL
+                STA     DSN
+                LDA     RDH
+                STA     DSN+1
+@p:             LDA     DSN
+                ORA     DSN+1
+                BEQ     @x
+                LDA     DSK
+                STA     DSA
+                LDA     DSK+1
+                STA     DSA+1
+                JSR     DSGXY
+                BCS     @gap
+                SEC                    ; the piece: to the row's end, at most the rest
+                LDA     #80
+                SBC     DSR
+                JSR     DSPMIN
+                BIT     DSDIR
+                BMI     @save
+                JSR     DSSTG          ; BLOAD: the staging's bytes to TXBUF, then the card
+@c:             LDA     (PTR),Y
+                STA     TXBUF,Y
+                INY
+                CPY     DSVL
+                BNE     @c
+                JSR     DSGPC
+                JSR     GROWW
+                BRA     @n
+@save:          JSR     DSGPC          ; BSAVE: the card's to TXBUF, then the staging
+                JSR     GROWR
+                JSR     DSSTG
+@s:             LDA     TXBUF,Y
+                STA     (PTR),Y
+                INY
+                CPY     DSVL
+                BNE     @s
+                BRA     @n
+@gap:           SEC                    ; a gap, to its end: &H2000 - (k AND &H1FFF), 1-192
+                LDA     #0
+                SBC     DSA
+                JSR     DSPMIN
+@n:             CLC
+                LDA     DSK
+                ADC     DSVL
+                STA     DSK
+                BCC     :+
+                INC     DSK+1
+:               SEC
+                LDA     DSN
+                SBC     DSVL
+                STA     DSN
+                BCS     @p
+                DEC     DSN+1
+                BRA     @p
+@x:             JMP     GX_W1BACK
+; DSPMIN: DSVL the piece, A or the bytes left (DSN) if fewer.
+DSPMIN:         STA     DSVL
+                STZ     DSVL+1
+                LDA     DSN+1
+                BNE     :+
+                LDA     DSN
+                CMP     DSVL
+                BCS     :+
+                STA     DSVL
+:               RTS
+; DSGPC: the piece's cursor (MAPXYC), DSVL CGA bytes by PSET, through TXBUF.
+DSGPC:          JSR     MAPXYC
+                LDA     DSVL
+                JSR     GPSETN
+                JMP     GPTX
+; DSSTG: the staging, bank 8's RAM, in W1 (GX_BLOCK: GW-BASIC's after
+; GX_BANK8, which DSSRUN has checked): PTR the piece's byte there ($4000 +
+; k), Y 0.
+DSSTG:          LDA     #$80000 / $4000
+                JSR     GX_BLOCK
+                LDA     DSA
+                STA     PTR
+                LDA     DSA+1
+                ORA     #$40
+                STA     PTR+1
+                LDY     #0
+                RTS
+
 .segment "BRAM"
 .assert DSE = DSA + 3, error, "BLKOF takes DSE as DSA + 3"
 DSA:            .res    3              ; the 20-bit address (DSADR)
@@ -452,8 +673,11 @@ DSVC:           .res    3              ; 7d3: the screen page's card address (DS
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
 DSB8:           .res    1              ; 7d3: bit 7, GX_BANK8 refused (bank 8 not RAM)
+
 .segment "RODATA"
 TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
 FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes
 SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output vector
 SCRP:           .res    3              ; and its physical address (GXSTRT)
+D80:            .word   80 * 64, 80 * 32, 80 * 16, 80 * 8, 80 * 4, 80 * 2, 80 ; 7e3: DSGXY's \ 80
+D80N            = * - D80

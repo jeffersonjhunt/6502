@@ -9,6 +9,9 @@
 ;             the rest of its parse by one far call to P3's CIRCA (p3/advgrp.s),
 ;             then the circle's loop (CIRCLP) and its plotting (CPLOT8,
 ;             CPLOT4, CPLOT), with SCALE, GTABSC and CLINE2
+;   GPUTG     7e3: GET and PUT of graphics, the corners here, the array and
+;             the action by one far call to P3's GPUTA, the rows by the
+;             OEM's PGINIT, NREAD and NWRITE (p5/gfxoem.s); CHKRNG
 ;
 ; The 8086's registers are the pseudo-registers, as in p5/gengrp.s: BX
 ; (HL in the source's comments) RBL/RBH, DX (DE) RDL/RDH, CX RCL/RCH. What
@@ -23,7 +26,7 @@
 .include "p5/p5.inc"
 .import GX_W1BACK
 
-.export CIRCP, CIRCC, PAINTP, DRWOP
+.export CIRCP, CIRCC, PAINTP, DRWOP, GPUTG
 .import POLKEY, CHRGTR, SYNCHR, FRMEVL, CONINT, GETBYT, FCERR, ADVERR, OMERR, GARBA2
 
 ; Zero page: the loop's, and CIRCA's results from CZ, in the order
@@ -811,6 +814,90 @@ SCAL2:          STA     T0             ; T3:T2:T1 = A x DE
                 RTS
 
 
+; --- GET and PUT (ADVGRP.ASM 845) ---------------------------------------------------------
+
+; GPUTG (7e3): GET (A 0) or PUT (A 1) of graphics, from the home block's
+; stubs (p8/far4.s: the character after the word "(" or "@", or GET's STEP,
+; the owner's answer 5; screen mode; TXBUF emptied), TXTPTR at it.
+;   GET [STEP](x1,y1)-[STEP](x2,y2),array
+;   PUT (x,y),array[,OR|AND|PRESET|PSET|XOR]
+; The mode's test (PIXSIZ), the first corner by SCAN1 (the cursor at once,
+; as CIRCLE's centre), CHKRNG; for GET the "-", the second by SCAND, CHKRNG,
+; and the deltas (MINDEL the rows, MAXDEL the pixels), the corner made the
+; lesser of each. Then one far call to P3's GPUTA (p3/advgrp.s: the owner's
+; answer 1) for the array (GTARRY, numeric: answer 6), GET's size check and
+; header, PUT's action word, header and far corner; the corner and the deltas
+; go in the pseudo-registers, the data's address, the bits a row, the rows
+; and the action come back (and PUT's far corner, which CHKRNG checks here).
+; An unknown action word comes back with carry set: nothing drawn, NEWSTT's
+; Syntax error. Then MAPXYC, PGINIT and PGLOOP (the OEM's, p5/gfxoem.s), CPAT
+; back, block 1 back. Every error comes before MAPXYC (7e1's rule).
+GPUTG:          STA     GPPUT
+                JSR     PIXSIZ
+                BNE     :+
+                JMP     FCERR          ; not a graphics mode
+:               JSR     SCAN1          ; the first corner
+                JSR     CHKRNG
+                LDA     GPPUT
+                BNE     PUT1
+                JSR     SYNCHR
+                .byte   MINUTK
+                PSHW    RCL
+                PSHW    RDL
+                JSR     SCAND          ; GET's second
+                JSR     CHKRNG
+                PULW    RDL
+                PULW    RCL
+                JSR     YDELT
+                BCC     :+
+                JSR     XCHGY          ; DX the lesser
+:               INCW    RBL            ; a count
+                MOVW    RSI, RBL       ; the rows (MINDEL)
+                JSR     XDELT
+                BCC     :+
+                JSR     XCHGX          ; CX the lesser
+:               INCW    RBL            ; the pixels (MAXDEL), BX for GPUTA
+PUT1:           MOVW    GPCX, RCL      ; the corner
+                MOVW    GPCY, RDL
+                LDA     GPPUT
+                STA     RAL
+                JSR     PIXSIZ
+                STA     RAH
+                FJSR    GPUTA          ; the array, the header, the action (P3)
+                BCS     GPUTX          ; an unknown action: NEWSTT's Syntax error
+                LDA     GPPUT
+                BEQ     GOPGIN
+                JSR     CHKRNG         ; PUT's far corner on the screen
+GOPGIN:         MOVW    GPROWS, RDI
+                MOVW    RCL, GPCX
+                MOVW    RDL, GPCY
+                JSR     MAPXYC
+                LDA     RAL            ; the action; RBL/RBH the bits, RSI the data
+                JSR     PGINIT
+; PGLOOP: each row NREAD or NWRITE, then DOWNC.
+PGLOOP:         LDA     GPPUT
+                BNE     :+
+                JSR     NREAD
+                BRA     @d
+:               JSR     NWRITE
+@d:             JSR     DOWNC
+                DECW    GPROWS
+                LDA     GPROWS
+                ORA     GPROWS + 1
+                BNE     PGLOOP
+                LDA     GPCPAT         ; (OO-1) the attribute's pattern back
+                STA     CPAT
+                JMP     GX_W1BACK
+GPUTX:          RTS
+
+; CHKRNG (ADVGRP.ASM 1348): CX, DX on the screen (SCALXY), else Illegal
+; function call.
+CHKRNG:         JSR     SCALXY
+                BCS     :+
+                JMP     FCERR
+:               RTS
+
+
 .segment "BRAM"
 PDIREC:         .res    1              ; PAINT: the way, $40 down, $C0 up
 SKPCNT:         .res    2              ;   SCANR's skip count left
@@ -830,3 +917,7 @@ DRWFLG:         .res    1              ; DRAW: DRWABS's B and N (DRWOP 2)
 DRWSCL:         .res    1              ;   S (0 none: GRPRST's)
 DRWANG:         .res    1              ;   A
 DRWTA:          .res    1              ;   1: TA's turn (OO-1)
+GPPUT:          .res    1              ; 7e3: GET 0, PUT 1 (the source's PUTFLG)
+GPCX:           .res    2              ;   the corner, MAPXYC's
+GPCY:           .res    2
+GPROWS:         .res    2              ;   the rows left
