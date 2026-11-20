@@ -3,7 +3,8 @@
  * @brief OOLIB's L4 (hw/oolib.md, "The plan"): the linked graphics library (oodos/lib/gx*.s) and VIEW.COM, on
  * video card revision 2 (hw/video-rev2.md, interface version 8): the program's card memory handed out in card
  * pages, drawn through aperture slot 1 in W1, copied and filled on the card by function 83; and since interface
- * version 13 (hw/video640.md) bitmap 640 (GB_640, layer type 6) and direct 640 (GB_DIRECT, type 7, word colours).
+ * version 13 (hw/video640.md) bitmap 640 (GB_640, layer type 6) and direct 640 (GB_DIRECT, type 7, word colours);
+ * since interface version 14 (hw/sprites640.md) full-resolution sprites (GX_SPRFULL, GX_SPRFPOS).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * GXTEST (oodos/test/gx/gxtest.s), run by GO, calls a library routine for each command: a letter at $3900,
@@ -1766,3 +1767,90 @@ TEST(a_frame_hook_that_maps_slot_1_leaves_the_interrupted_code_its_own_w1)
 }
 
 int main() { return run_all(); }
+
+// --- full-resolution sprites (hw/sprites640.md, interface version 14) ------------------------------
+
+TEST(full_sprites_through_oolib)
+{
+    // GX_SPRFULL 1 sets SPRCTL's FULL. GX_SPRFPOS puts sprite 3 at (101, 77) of 640 x 480 with its byte 3's bit 7,
+    // GX_SPRPOS sprite 4 at (50, 38) of 320 x 240 without; after GX_SPRSHOW the card's table has both, and the
+    // frame shows sprite 3 a pixel a pixel, in front of sprite 4's 2 x 2 pixels. GX_SPRPOS on sprite 3: doubled at
+    // (101, 77) of 320 x 240, the bit clear. GX_SPRFPOS again, then GX_SPRFULL 0: SPRCTL 0, and sprite 3 is
+    // doubled though its bit is set.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    gx(r, 'Z');
+    const unsigned table = vreg2(r, 0x0C);
+    const unsigned img = alloc(r, 1);
+    auto pix = [](unsigned x, unsigned y) { return static_cast<uint8_t>((x + 2 * y) % 5 ? x * 7 + y * 13 + 1 : 0); };
+    for (unsigned y = 0; y < 16; ++y)
+        for (unsigned x = 0; x < 16; ++x)
+            cpoke(r, img * 256 + y * 16 + x, {pix(x, y)});
+    CHECK_EQ(gx(r, 'e', 1).substr(6), std::string("00"));
+    CHECK_EQ(vreg(r, 0x0E), 0x01);
+    xy(r, 101, 77);
+    gx(r, 't', 3);
+    xy(r, 50, 38);
+    gx(r, 'X', 4);
+    for (const uint8_t s : {uint8_t{3}, uint8_t{4}})
+    {
+        word(r, "GX_V", img | 0x8000); // 8 bits a pixel
+        gx(r, 'V', s);
+        gx(r, 'Y', s, 0x0C, 0x50); // depth 3; 16 x 16
+    }
+    gx(r, 'z');
+    gx(r, 'S', 0x08);
+    r.run(ms(60));
+    const uint8_t lo = static_cast<uint8_t>(img), hi = static_cast<uint8_t>(0x80 | img >> 8);
+    CHECK(cmem(r, table * 256u + 3 * 8, 8) == (std::vector<uint8_t>{lo, hi, 101, 0x80, 77, 0, 0x0C, 0x50}));
+    CHECK(cmem(r, table * 256u + 4 * 8, 8) == (std::vector<uint8_t>{lo, hi, 50, 0, 38, 0, 0x0C, 0x50}));
+    // The frame: sprite 3 (in front) full or doubled at (101, 77), sprite 4 doubled at (50, 38), BORDER elsewhere.
+    auto frame_is = [&](bool full3, const char *what) {
+        const unsigned pal = vreg2(r, 0x0A), border = vreg(r, 0x01);
+        const uint32_t *f = vid(r).frame();
+        unsigned bad = 0;
+        for (unsigned y = 0; y < VideoCard::HEIGHT; ++y)
+            for (unsigned x = 0; x < VideoCard::WIDTH; ++x)
+            {
+                const unsigned k = full3 ? 1 : 2;
+                unsigned v = 0;
+                if (x / k >= 101 && x / k < 117 && y / k >= 77 && y / k < 93)
+                    v = pix(x / k - 101, y / k - 77);
+                if (!v && x / 2 >= 50 && x / 2 < 66 && y / 2 >= 38 && y / 2 < 54)
+                    v = pix(x / 2 - 50, y / 2 - 38);
+                const uint32_t want = VideoCard::rgba(entry(r, pal, v ? v : border));
+                if (f[y * VideoCard::WIDTH + x] != want && !bad++)
+                    std::printf("  %s: (%u, %u) %08x, wanted %08x\n", what, x, y, f[y * VideoCard::WIDTH + x], want);
+            }
+        return bad;
+    };
+    CHECK_EQ(frame_is(true, "full"), 0u);
+    xy(r, 101, 77);
+    gx(r, 'X', 3); // GX_SPRPOS: doubled
+    gx(r, 'z');
+    r.run(ms(60));
+    CHECK_EQ(card(r, table * 256u + 3 * 8 + 3), 0x00);
+    CHECK_EQ(frame_is(false, "GX_SPRPOS's"), 0u);
+    gx(r, 't', 3); // full again, then FULL off: the bit means nothing
+    CHECK_EQ(gx(r, 'e', 0).substr(6), std::string("00"));
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+    gx(r, 'z');
+    r.run(ms(60));
+    CHECK_EQ(card(r, table * 256u + 3 * 8 + 3), 0x80);
+    CHECK_EQ(frame_is(false, "SPRCTL 0's"), 0u);
+}
+
+TEST(gx_sprfull_needs_interface_14)
+{
+    // Under an OODOS of interface 13 (FT_INFO patched, as above), whose warm boot doesn't clear SPRCTL, GX_SPRFULL
+    // gives GE_VERSION and leaves SPRCTL 0, so no program leaves it set for the next.
+    CcpRig r;
+    REQUIRE(r.ok);
+    ft_info_as(r, 13);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    CHECK_EQ(ac(gx(r, 'e', 1)), std::string("01 01"));
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+}

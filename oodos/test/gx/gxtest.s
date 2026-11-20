@@ -18,6 +18,10 @@
 ;       GX_BANK8 made slot 1's window, and counts its calls in HOOKN; A = 0:
 ;       the hook off. A/X function 80's
 ;   q   A lines of 60 characters by C_WRITESTR (the console busy)
+;
+; For full-resolution sprites (hw/sprites640.md, interface version 14):
+;   e   GX_SPRFULL (A 1 on, 0 off)
+;   t   GX_SPRFPOS (A the sprite; GX_X and GX_Y poked)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -206,6 +210,8 @@ cmds:   CMD     'I', c_init
         CMD     's', c_st
         CMD     'j', c_hook
         CMD     'q', c_lines
+        CMD     'e', GX_SPRFULL
+        CMD     't', GX_SPRFPOS
 CMDS_LEN = * - cmds
 
         .data
