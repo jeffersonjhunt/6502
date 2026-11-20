@@ -547,6 +547,30 @@ TEST(view_shows_a_bitmap_512_tiles_and_sprites)
     }
 }
 
+TEST(view_shows_a_full_sprite_table_1_to_1)
+{
+    // SHIPF.OGX: SHIP.OGX's sheet with mkasset's --full (hw/sprites640.md). VIEW turns SPRCTL's FULL on, so the
+    // table's sprites are a pixel a pixel at 640 x 480 places: sprite 1 at (28, 8), its green inside x 31-40 and
+    // y 11-20 of the screen. GX_CONSOLE (DM_CONSOLE) clears SPRCTL as VIEW ends.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const size_t from = view(r, "SHIPF.OGX", "SHIPF   OGX");
+    CHECK(vreg(r, 0x00) & 0x08);
+    CHECK_EQ(vreg(r, 0x0E), 0x01);
+    const unsigned table = vreg2(r, 0x0C);
+    CHECK_EQ(card(r, table * 256 + 8 + 2), 28);
+    CHECK_EQ(card(r, table * 256 + 8 + 3), 0x80); // byte 3: FULL
+    const uint32_t *f = vid(r).frame();
+    const uint32_t green = VideoCard::rgba(0x0F0);
+    unsigned wrong = 0;
+    for (unsigned y = 9; y < 23; ++y)
+        for (unsigned x = 29; x < 43; ++x)
+            wrong += (f[y * 640 + x] == green) != (x >= 31 && x <= 40 && y >= 11 && y <= 20);
+    CHECK_EQ(wrong, 0u);
+    key_back(r, from);
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+}
+
 TEST(view_s_refusals)
 {
     CcpRig r;

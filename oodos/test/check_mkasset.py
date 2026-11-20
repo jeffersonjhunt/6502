@@ -80,6 +80,7 @@ def samples():
         "VIEW4": (m.write_png(512, 480, picture(512, 480, c16, 3)), ("bitmap512",)),
         "TILES": (m.write_png(128, 64, tile_rows), ("tiles",)),
         "SHIP": (m.write_png(64, 16, sheet), ("sprites", 16, 16)),
+        "SHIPF": (m.write_png(64, 16, sheet), ("sprites", 16, 16, "full")),  # its table full resolution
     }
 
 
@@ -95,7 +96,7 @@ def make(png, args):
         return m.build(m.direct640(png))
     if kind == "tiles":
         return m.build(m.tiles(png))
-    return m.build(m.sprites(png, args[1], args[2], table=True))
+    return m.build(m.sprites(png, args[1], args[2], table=True, full=args[3:] == ("full",)))
 
 
 def main():
