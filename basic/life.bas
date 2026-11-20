@@ -4,6 +4,7 @@
 40 DEFINT A-Z
 50 W=39: H=23
 60 DIM G(40,24), N(40,24)
+65 KEY OFF: CLS
 70 A$=CHR$(219)+CHR$(219): D$="  "
 80 PRINT "Conway's Game of Life"
 90 PRINT "1 random   2 two gliders   3 R-pentomino"
@@ -27,6 +28,7 @@
 270 LOCATE 1,1: PRINT "Gen";GN;"  Pop";PP;"  ";
 280 IF INKEY$="" THEN 210
 290 LOCATE 24,1: PRINT "Stopped at generation";GN;"with";PP;"cells.";
+295 KEY ON
 300 END
 1000 REM Draw cell X,Y: two solid blocks if alive, two spaces if dead
 1010 LOCATE Y+1,2*X-1
