@@ -5359,9 +5359,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **CIRCLE** (U2, U2b; ADVGRP.ASM's, translated): the whole parse in P3's `CIRCA` (`p3/advgrp.s`, the owner's
       option 1: the centre with STEP, the radius, CNPNTS, the colour, CGTCNT and CMPONE's point counts, the aspect),
       reached by one far call from P5's `CIRCP` (`p5/advgrp.s`), which hands it the cursor, the foreground, PIXSIZ
-      and GTASPC's pair and takes the results back in the pseudo-registers; the centre goes to P5's cursor at once
-      (`CIRCC`, one more crossing: the owner's ruling on U2's stop, so an error in the colour, the angles or the
-      aspect leaves the cursor at the centre, as the source's SCAN1 has it). P5 has the half-unit loop (CIRCLP),
+      and GTASPC's pair and takes the results back in the pseudo-registers; the centre goes to P5's cursor (`CIRCC`,
+      one more crossing: the owner's ruling on U2's stop) together with the colour, made the attribute (SETATR,
+      ATRBYT), as soon as the colour is parsed (review round 1, F1), so an error in the angles or the aspect leaves
+      the cursor at the centre and the attribute the colour, as the source's SCAN1 and ATRSCN have them; an error in
+      the radius or the colour itself leaves the cursor where it was (recorded below). P5 has the half-unit loop (CIRCLP),
       CPLOT8, CPLOT4, CPLOT, CPLSCX, SCALE with SCAL2's 8 x 16 multiply, GTABSC, and CLINE2 to DOGRPH (the true
       clipping) for a radius line. The ring and the arc ends are the source's (the owner's answers 3 and G7: the
       manual is silent on the pixels; no longer a deviation).
@@ -5441,6 +5443,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       - A change of mode makes DRAW's colour the mode's foreground (GMODE, the manual's p. 74: C's default the
         mode's last); until now only RUN and CLEAR's GRPRST did, so a DRAW after SCREEN 2 with no C drew in 0.
       - SCAN1's centre in P3 is a copy (`CSCAN1`) of P5's SCAN1 and SCAND.
+      - The cursor and the colour reach P5 together, once the colour is parsed (one crossing, the owner's choice for
+        F1): an error in the radius or in the colour itself (Illegal function call past 255, a syntax error, SCREEN
+        0's) leaves the cursor where it was, where the source's SCAN1 has moved it already.
       - PC-BASIC, the oracle, parts from the source (and isn't followed) in: CIRCLE's ring and arc ends (within a
         pixel, two for the radius lines); A1 and A3 of moves the aspect doesn't make whole, and of some it does (a
         turned L, A3's D); the half-step tie-break (7e1's ruling); DRAW's lines across an edge (PC-BASIC moves the
@@ -5448,6 +5453,22 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         nothing is painted.
       - test_gwbasic_core's timed() reads FARCALL's address at RUN, not before (the CPU may be in a BDOS call with
         OODOS's block in W0: on U0's build it read 0, and the far calls weren't counted); a harness fix.
+    - **Review round 1** (2026-11-19, the owner: all three "fix"; 3 findings, all new, no revisions), each fix's check
+      seen failing under its mutant on its own case, the source then restored; the mapped suites pass:
+      - F1 (minor) CIRCLE made its colour the attribute only after P3's parse, so an error in the angles or the
+        aspect left the old attribute, where the source's ATRSCN has set it (DRAW "C1":CIRCLE (100,100),10,2,9, then
+        a DRAW move in 1, not 2): P3's CATRS hands the colour to P5 with the centre in the CIRCC far call (no extra
+        crossing), CIRCC's SETATR and ATRBYT (none in SCREEN 0, ATRFI2 refusing it first); the case added to
+        `circle_breaks_and_keeps_its_centre`. Mutant: CIRCC's colour left out (the move in 1). CIRCLE r=50 in SCREEN 2
+        310,154 cycles (310,100 before);
+      - F2 (nit) D9's PEEK and POKE gate was main's figures exactly, though DSSCR's cycles move a few with P5's layout:
+        main's + 50 now, with the reason in the test;
+      - F3 (nit) `test/flatp5.s` described and exported DSRUN: it has DSINFO and the retired DSPUT slot now.
+
+      After the round: P5 8,300 bytes, 3,988 free; P3 8,183, 4,105 free; P8 7,953 free; free for BASIC 34,775; P1, P2,
+      P4 and P6 byte-identical to main's. Cycles: CIRCLE r=50 310,154, the whole SCREEN 2 PAINT 28.24 M, the 100-move
+      DRAW 328,280; PEEK and POKE on the page 4,645 and 4,035; BLOAD to the page 8,374 + 6,907 (main 15,305), BSAVE
+      8,125.
     - **Not done in 7e2:** GET and PUT of graphics, DEF SEG's page in SCREEN 1 and 2 (7e3); VIEW, WINDOW, PMAP,
       LINE's style, PAINT's tiles and background, PEN, POINT(n) (7e4); the OO-1's modes (7e5); PLAY's MACLNG (7f
       takes its own copy); the books (7g). The whole-block space plan (P4's relief widened: 7e3-7e5, 7f, F3) comes to

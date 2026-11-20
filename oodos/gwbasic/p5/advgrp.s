@@ -101,9 +101,6 @@ CIRCP:          JSR     GTASPC         ; for CIRCA: GTASPC's pair, the cursor,
                 MOVW    CRCX, RDI      ; X = the radius x 2
                 ASL     CRCX
                 ROL     CRCX + 1
-                LDA     T0             ; the colour: the attribute (ATRFI2's SETATR)
-                JSR     SETATR
-                STA     ATRBYT
                 STZ     CRCY           ; Y = 0
                 STZ     CRCY + 1
                 STZ     CRCSUM         ; SUM = 0
@@ -179,13 +176,21 @@ CNODEX:         INC     CRCY           ; Y + 1
                 JSR     POLKEY         ; back (the next point's MAPXYC maps the
 :               JMP     CIRCLP         ; aperture again), for a radius's long loop
 
-; CIRCC: from P3's CIRCA, the centre parsed (CX, DX): the cursor (GRPACX,
-; GRPACY) and GXPOS, GYPOS made it, as SCAN1 makes them.
-CIRCC:          MOVW    GRPACX, RCL
+; CIRCC: from P3's CIRCA, the centre (CX, DX) and the colour (A) parsed: the
+; cursor (GRPACX, GRPACY) and GXPOS, GYPOS made the centre, as SCAN1 makes
+; them, and (with pixels: ATRFI2 refuses SCREEN 0 first) the colour the
+; attribute, SETATR's and ATRBYT, as ATRSCN makes it (review round 1, F1).
+CIRCC:          TAY                    ; (the colour kept)
+                MOVW    GRPACX, RCL
                 MOVW    GXPOS, RCL
                 MOVW    GRPACY, RDL
                 MOVW    GYPOS, RDL
-                RTS
+                TYA
+                LDX     GMODEV         ; SCREEN 0: none
+                BEQ     @x
+                JSR     SETATR
+                STA     ATRBYT
+@x:             RTS
 
 ; CPLSCX: DE scaled by the aspect (SCALEY) to DX, BX the unscaled; the two
 ; swapped when the aspect was over 1 (CSCLXY: x scaled, not y).

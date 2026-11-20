@@ -1676,8 +1676,8 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
 // one function 83 call) and &H9000 (bank 9, by GX_BLOCK); and a RUN line BLOADing a 4,000-byte screen file and one
 // BSAVEing 4,000 bytes, whole, under each, for the record. Gated since 7e2 (the owner's option 3, which moved BLOAD's
 // and BSAVE's run checks and copies from P5 to the home block): BLOAD to the page (BRUN's check and the tail after
-// BLDRUN) and BSAVE (BRUN's) at most 300 cycles over main's, and PEEK and POKE on the page (P5's DSSCR, not moved) no
-// more than main's. Guards the move slowing a program's screen saves. Seen failing with DSSPH finding the scratch
+// BLDRUN) and BSAVE (BRUN's) at most 300 cycles over main's, and PEEK and POKE on the page (P5's DSSCR, not moved) at most
+// 50 over main's (the layout's noise). Guards the move slowing a program's screen saves. Seen failing with DSSPH finding the scratch
 // byte's address by function 73 at every call, not once.
 // main 593aa176's, by run_check_cycles (7e2's unit 0, before the move): BLOAD to the page 8,111 in BRUN and 7,194
 // after BLDRUN, BSAVE 8,111 in BRUN.
@@ -1716,7 +1716,10 @@ TEST(the_screen_page_costs)
                 static_cast<unsigned long long>(bt9));
     CHECK(bc8 + bt8 <= BLOAD8_MAIN + 300);
     CHECK(sc8 <= BSAVE8_MAIN + 300);
-    CHECK(peek8 <= 4646 && poke8 <= 4035);
+    // PEEK and POKE: DSSCR's code is unchanged, but its cycles move a few with P5's layout (a branch crossing a
+    // page, a far call site's place: 4,646 and 4,035 on main, 4,643 and 4,033 here), so main's figures + 50 (7e2's
+    // review round 1, F2), not a cycle of noise
+    CHECK(peek8 <= 4646 + 50 && poke8 <= 4035 + 50);
 }
 
 int main()

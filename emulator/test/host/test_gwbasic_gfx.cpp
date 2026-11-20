@@ -1153,13 +1153,15 @@ TEST(circle_arcs_and_radius_lines)
     CHECK_EQ(far2(pc, got), 0u);
 }
 
-// CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2. A negative radius takes the source's loop (the manual is
-// silent: no check, G9), about 13 s of points off the screen, and the OO-1's poll in it (every 256 steps: block 1
-// back, POLKEY) lets Ctrl-C break it: Break within a second, and the next line typed runs and reads an array element past $4000 (block 1 in W1). And the
-// cursor is the centre as soon as it is parsed (the source's SCAN1): CIRCLE (50,60),10,1,9 is Illegal function call
-// (an angle past 2 x PI) and the LINE -(0,0) after it starts at (50,60). Guards a program that can't be stopped, and a
-// relative drawing after an error starting elsewhere. Seen failing with (a) the poll left out (Break only after the
-// loop) and (b) CIRCA's handoff of the centre left out (the line from (160,100)).
+// CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2, and review round 1's F1. A negative radius takes the
+// source's loop (the manual is silent: no check, G9), about 13 s of points off the screen, and the OO-1's poll in it
+// (every 256 steps: block 1 back, POLKEY) lets Ctrl-C break it: Break within a second, and the next line typed runs
+// and reads an array element past $4000 (block 1 in W1). The cursor is the centre and the colour the drawing colour
+// once the colour is parsed (the source's SCAN1 and ATRSCN, before the angles): CIRCLE (50,60),10,1,9 is Illegal
+// function call (an angle past 2 x PI) and the LINE -(0,0) after it starts at (50,60); after DRAW "C1":CIRCLE
+// (100,100),10,2,9 a DRAW move is in 2. Guards a program that can't be stopped, and drawing after an error starting
+// elsewhere or in another colour. Seen failing with (a) the poll left out (Break only after the loop), (b) CIRCA's
+// handoff of the centre left out (the line from (160,100)) and (c) CIRCC's colour left out (the move in 1).
 TEST(circle_breaks_and_keeps_its_centre)
 {
     CcpRig r;
@@ -1183,6 +1185,11 @@ TEST(circle_breaks_and_keeps_its_centre)
     CHECK_EQ(pixel(r, 50, 60), 2);
     CHECK_EQ(pixel(r, 25, 30), 2);
     CHECK_EQ(pixel(r, 160, 100), 0);
+    // and the colour is the attribute as soon as it is parsed (review round 1, F1: the source's ATRSCN)
+    enter(r, "CLS:DRAW \"C1\":CIRCLE (100,100),10,2,9", ms(1500));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    enter(r, "DRAW \"BM20,20 R10\"", ms(1500));
+    CHECK_EQ(pixel(r, 25, 20), 2);
 }
 
 // G14 (7e2): PAINT's pixels against PC-BASIC's, exact (gwbasic/gfx15 in SCREEN 1, gfx16 and gfx17 in SCREEN 2): the

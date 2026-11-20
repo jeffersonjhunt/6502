@@ -17,13 +17,14 @@
 ; SCREEN 0: Illegal function call after the colour, as ATRSCN's ATRFI2),
 ; RBL/RBH and RSI GTASPC's pair (the aspect x 256 and its inverse). Out, for
 ; P5 (P3 can't reach P5's RAM): RDL/RDH CSTCNT, RBL/RBH CENCNT, RAL CLINEF,
-; RAH CPLOTF, RCL/RCH CNPNTS, RSI ASPECT, RDI the radius, T0 the colour
-; (P5's SETATR makes it the attribute), T1 CSCLXY. Every error is raised
-; here, before P5 draws anything. The graphics cursor is P5's: the centre
-; goes to it by a far call to P5's CIRCC as soon as it is parsed (SCAN1's
-; place), so an error in the colour, the angles or the aspect leaves the
-; cursor at the centre, as the source's does (the owner's ruling of
-; 2026-11-19).
+; RAH CPLOTF, RCL/RCH CNPNTS, RSI ASPECT, RDI the radius, T1 CSCLXY.
+; Every error is raised here, before P5 draws anything. The graphics cursor and the attribute are
+; P5's: the centre and the colour go to it together by one far call to P5's
+; CIRCC as soon as the colour is parsed (ATRSCN's place), so an error in the
+; angles or the aspect leaves the cursor at the centre and the attribute the
+; colour, as the source's does (the owner's rulings of 2026-11-19; review
+; round 1, F1). OO-1: an error in the radius or the colour itself leaves the
+; cursor where it was (the source's SCAN1 has moved it already).
 
 .include "gwbasic.inc"
 
@@ -62,9 +63,9 @@ CIRCA:          MOVW    CCURX, RCL
                 STA     CPIX
                 MOVW    CASP, RBL
                 MOVW    CINV, RSI
-                JSR     CSCAN1         ; the centre, to P5's cursor at once (the
-                FJSR    CIRCC          ; source's SCAN1: an error after it leaves
-                                       ; the cursor there; the owner's ruling)
+                JSR     CSCAN1         ; the centre (to P5 with the colour, CATRS)
+                MOVW    CCENX, RCL
+                MOVW    CCENY, RDL
                 JSR     SYNCHR
                 .byte   ','
                 JSR     GETIN2         ; the radius
@@ -163,8 +164,6 @@ CIRC2:          ; (BX the aspect, a fraction of 256)
                 STA     RAH
                 MOVW    RCL, CNPNTS
                 MOVW    RDI, CRAD
-                LDA     CATR
-                STA     T0
                 LDA     CSCLXY
                 STA     T1
                 RTS
@@ -185,6 +184,10 @@ CATRS:          LDA     CFG
                 JSR     GETBYT
 @fin:           LDA     RDL
                 STA     CATR
+                MOVW    RCL, CCENX     ; to P5's CIRCC: the centre the cursor, and
+                MOVW    RDL, CCENY     ; the colour the attribute (SETATR, ATRBYT)
+                LDA     CATR           ;   (review round 1, F1: as soon as it is
+                FJSR    CIRCC          ;   parsed, the source's ATRSCN)
                 LDA     CPIX
                 BNE     :+
                 JMP     FCERR          ; no graphics (SCREEN 0)
@@ -311,6 +314,8 @@ CASP:           .res    2              ; GTASPC's aspect (in)
 CINV:           .res    2              ;   and its inverse
 CRAD:           .res    2              ; the radius (the source's GXPOS)
 CATR:           .res    1              ; the colour
+CCENX:          .res    2              ; the centre, until CATRS hands it to P5
+CCENY:          .res    2
 CNPNTS:         .res    2              ; the points an octant
 CSTCNT:         .res    2              ; the start's count
 CENCNT:         .res    2              ; the end's
