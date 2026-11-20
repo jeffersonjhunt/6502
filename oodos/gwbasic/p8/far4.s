@@ -316,6 +316,7 @@ BSAVE:          JSR     BPARMS
                 STA     BHD8+4,X
                 DEX
                 BPL     @h
+                DEC     DSBSV          ; 7e3: BSAVE's (DSGSR fills the graphics page's staging)
                 JSR     BRUN
                 LDX     BTYPE
                 FJSR    BSAVEP
@@ -354,8 +355,10 @@ BBACK:          LDA     BTXP           ; POP BX
                 STA     TXTPTR+1
                 RTS
 SNERR2:         JMP     SNERR
-; BKEEP: the text pointer kept (PUSH BX); A kept.
-BKEEP:          LDY     TXTPTR
+; BKEEP: the text pointer kept (PUSH BX); A kept. 7e3: DSBSV cleared (a
+; BLOAD's; BSAVE then sets it, for DSGSR).
+BKEEP:          STZ     DSBSV
+                LDY     TXTPTR
                 STY     BTXP
                 LDY     TXTPTR+1
                 STY     BTXP+1
@@ -477,6 +480,14 @@ BPARM3:         JSR     SYNCHR
 ; 0.17; DSB8), a run from bank 7 into bank 8 or from it into bank 9, and one
 ; past the reach. The staging takes $80000 up to the reach ($812BF at most):
 ; nothing else of GW-BASIC's uses bank 8's RAM.
+;
+; 7e3, SCREEN 1 and 2's page (the PC's CGA layout, 7e's answer 9; the owner's
+; answers 2 and 7 of the 7e3 plan): DSSRUN's DSGSR, the run's last byte below
+; &H4000, staged the same way, $80000 up to $83FFF; BSAVE's staging filled
+; from the card and BLOAD's written to it by P5's DSGRUN (one far call each),
+; which only P5 may do (the aperture). The gaps (&H1F40-&H1FFF, &H3F40-&H3FFF)
+; are bank 8's RAM at their own address: never filled, never written to the
+; card, so BSAVE saves them and BLOAD keeps the file's there.
 
 ; DSRUNH: DX the segment, BX the offset, CX the length (0: none). The run
 ; checked whole (above): Illegal function call, nothing moved, if refused;
@@ -569,10 +580,10 @@ DSRUNH:         STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
 DSSRUN:         BIT     SCRMOD
                 BPL     @fc
                 FJSR    DSINFO         ; 7e2: P5's GMODEV (A), DSB8 (X)
-                CMP     #0             ; 7e1: SCREEN 1 and 2's page is 7e3's
-                BNE     @fc
-                TXA
-                BMI     @fc
+                CPX     #$80
+                BCS     @fc            ; GX_BANK8 refused
+                CMP     #0
+                BNE     DSGSR          ; 7e3: SCREEN 1 and 2's page
                 SEC
                 FJSR    SCPAGP
                 JSR     DSPAGE
@@ -592,6 +603,49 @@ DSSRUN:         BIT     SCRMOD
                 RTS
 @fc:            JMP     FCERR
 
+; DSGSR (7e3): SCREEN 1 and 2's page, the PC's CGA layout (P5's DSGRUN:
+; p5/seed.s): the run's last byte below &H4000, else Illegal function call;
+; staged at its own address as SCREEN 0's (DSPH, DSVL; DSSCF 1, a graphics
+; run, for DSPUTH). BSAVE's (DSBSV) staging filled from the card by DSGRUN,
+; TXBUF emptied first; BLOAD's not (DSPUTH writes only the bytes the file
+; gave). No SCPAGP: the text page isn't reached in a graphics mode. CX kept.
+DSGSR:          LDA     DSE+1
+                CMP     #$40
+                BCS     @fc
+                LDX     #2
+@s:             LDA     DSA,X
+                STA     DSPH,X
+                DEX
+                BPL     @s
+                LDA     RCL
+                STA     DSVL
+                LDA     RCH
+                STA     DSVL+1
+                LDA     #1
+                STA     DSSCF
+                BIT     DSBSV
+                BPL     @x
+                JSR     TXSYNC
+                LDA     RCH            ; CX kept (BRUN's)
+                PHA
+                LDA     RCL
+                PHA
+                STA     RDL            ; DSGRUN: BX the offset, DX the bytes, C set
+                LDA     RCH
+                STA     RDH
+                LDA     DSA
+                STA     RBL
+                LDA     DSA+1
+                STA     RBH
+                SEC
+                FJSR    DSGRUN
+                PLA
+                STA     RCL
+                PLA
+                STA     RCH
+@x:             RTS
+@fc:            JMP     FCERR
+
 ; DSPUTH (7d3): after BLOAD's BLDRUN, a run DSRUN put on the screen page:
 ; the bytes the file gave, staged in bank 8's RAM, to the card (DSVC, DSPH
 ; and DSVL as DSSRUN left them: nothing between calls DSBYTE). Only those
@@ -604,7 +658,8 @@ DSSRUN:         BIT     SCRMOD
 DSPUTH:         LDA     DSSCF
                 BNE     :+
                 RTS                    ; no run staged
-:               STZ     DSSCF
+:               STA     DSSCG          ; 7e3: 1, a graphics run
+                STZ     DSSCF
                 SEC                    ; DSVL: the bytes read, the run less CX
                 LDA     DSVL
                 SBC     RCL
@@ -664,8 +719,21 @@ DSPUTH:         LDA     DSSCF
 DSPW:           LDA     DSVL           ; none: nothing written
                 ORA     DSVL+1
                 BEQ     @x
+                LDA     DSSCG          ; 7e3: SCREEN 1 and 2's page by P5's DSGRUN
+                BPL     @g
                 LDA     #DM_VWRITE
                 JMP     DSVX
+@g:             LDA     DSVL           ; BX the offset, DX the bytes, C clear: to the card
+                STA     RDL
+                LDA     DSVL+1
+                STA     RDH
+                LDA     DSA
+                STA     RBL
+                LDA     DSA+1
+                STA     RBH
+                JSR     TXSYNC
+                CLC
+                FJSR    DSGRUN
 @x:             RTS
 
 ; DSSPH (7e2): DSSP the physical address of the scratch byte DSSB, by
@@ -821,6 +889,9 @@ DSVC:           .res    3              ; 7d3: the screen page's card address (DS
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
 DSSCF:          .res    1              ; 7d3: DSRUNH's run staged for the screen page, for DSPUTH
+                                       ;   ($FF SCREEN 0's; 7e3: 1 SCREEN 1 or 2's)
+DSSCG:          .res    1              ; 7e3: DSPUTH's copy of it
+DSBSV:          .res    1              ; 7e3: bit 7 a BSAVE (BRUN serves both)
 
 .rodata
 FLSBYT:         .byte   " Bytes free", 0 ; FILES's (OO-1)
