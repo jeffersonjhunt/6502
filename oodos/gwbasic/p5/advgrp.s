@@ -5,7 +5,8 @@
 ; phase 7": 7e2; the owner's answer 1 and option 1 of 2026-11-19: the
 ; parsing in P3, the drawing here, where the aperture is mapped):
 ;
-;   CIRCP     CIRCLE: its parse by one far call to P3's CIRCA (p3/advgrp.s),
+;   CIRCP     CIRCLE: the centre by SCAN1 (the cursor at once, the source's),
+;             the rest of its parse by one far call to P3's CIRCA (p3/advgrp.s),
 ;             then the circle's loop (CIRCLP) and its plotting (CPLOT8,
 ;             CPLOT4, CPLOT), with SCALE, GTABSC and CLINE2
 ;
@@ -81,10 +82,9 @@ CPLN            = CZ + 23              ;   the points left of four
 
 ; --- CIRCLE (ADVGRP.ASM 460) ------------------------------------------------------------------
 
-CIRCP:          JSR     GTASPC         ; for CIRCA: GTASPC's pair, the cursor,
-                MOVW    RSI, RDL       ; the foreground, PIXSIZ
-                MOVW    RCL, GRPACX
-                MOVW    RDL, GRPACY
+CIRCP:          JSR     SCAN1          ; the centre: the cursor (the source's)
+                JSR     GTASPC         ; for CIRCA: GTASPC's pair, the
+                MOVW    RSI, RDL       ; foreground, PIXSIZ
                 SEC
                 JSR     GETFBC
                 STA     RAL
@@ -176,17 +176,10 @@ CNODEX:         INC     CRCY           ; Y + 1
                 JSR     POLKEY         ; back (the next point's MAPXYC maps the
 :               JMP     CIRCLP         ; aperture again), for a radius's long loop
 
-; CIRCC: from P3's CIRCA, the centre (CX, DX) and the colour (A) parsed: the
-; cursor (GRPACX, GRPACY) and GXPOS, GYPOS made the centre, as SCAN1 makes
-; them, and (with pixels: ATRFI2 refuses SCREEN 0 first) the colour the
-; attribute, SETATR's and ATRBYT, as ATRSCN makes it (review round 1, F1).
-CIRCC:          TAY                    ; (the colour kept)
-                MOVW    GRPACX, RCL
-                MOVW    GXPOS, RCL
-                MOVW    GRPACY, RDL
-                MOVW    GYPOS, RDL
-                TYA
-                LDX     GMODEV         ; SCREEN 0: none
+; CIRCC: from P3's CIRCA, the colour (A) parsed: (with pixels: ATRFI2
+; refuses SCREEN 0 first) the attribute, SETATR's and ATRBYT, as ATRSCN
+; makes it (review round 1, F1).
+CIRCC:          LDX     GMODEV         ; SCREEN 0: none
                 BEQ     @x
                 JSR     SETATR
                 STA     ATRBYT

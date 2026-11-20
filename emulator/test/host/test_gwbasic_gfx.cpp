@@ -1153,15 +1153,16 @@ TEST(circle_arcs_and_radius_lines)
     CHECK_EQ(far2(pc, got), 0u);
 }
 
-// CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2, and review round 1's F1. A negative radius takes the
-// source's loop (the manual is silent: no check, G9), about 13 s of points off the screen, and the OO-1's poll in it
-// (every 256 steps: block 1 back, POLKEY) lets Ctrl-C break it: Break within a second, and the next line typed runs
-// and reads an array element past $4000 (block 1 in W1). The cursor is the centre and the colour the drawing colour
-// once the colour is parsed (the source's SCAN1 and ATRSCN, before the angles): CIRCLE (50,60),10,1,9 is Illegal
-// function call (an angle past 2 x PI) and the LINE -(0,0) after it starts at (50,60); after DRAW "C1":CIRCLE
-// (100,100),10,2,9 a DRAW move is in 2. Guards a program that can't be stopped, and drawing after an error starting
-// elsewhere or in another colour. Seen failing with (a) the poll left out (Break only after the loop), (b) CIRCA's
-// handoff of the centre left out (the line from (160,100)) and (c) CIRCC's colour left out (the move in 1).
+// CIRCLE's two owner's rulings of 2026-11-19 on 7e2's U2, review round 1's F1 and F1's revision of U2b. A negative
+// radius takes the source's loop (the manual is silent: no check, G9), about 13 s of points off the screen, and the
+// OO-1's poll in it (every 256 steps: block 1 back, POLKEY) lets Ctrl-C break it: Break within a second, and the next
+// line typed runs and reads an array element past $4000 (block 1 in W1). The cursor is the centre at once (the
+// source's SCAN1, P5's) and the colour the drawing colour once it is parsed (ATRSCN's): after an error in the angles
+// (CIRCLE (50,60),10,1,9: an angle past 2 x PI), the radius (a string) or the colour (300), the LINE -(0,0) after it
+// starts at the centre; after DRAW "C1":CIRCLE (100,100),10,2,9 a DRAW move is in 2. Guards a program that can't be
+// stopped, and drawing after an error starting elsewhere or in another colour. Seen failing with (a) the poll left
+// out (Break only after the loop), (b) the centre's SCAN1 deferred until after CIRCA (the line from (160,100); the
+// radius's and colour's errors too) and (c) CIRCC's colour left out (the move in 1).
 TEST(circle_breaks_and_keeps_its_centre)
 {
     CcpRig r;
@@ -1185,6 +1186,18 @@ TEST(circle_breaks_and_keeps_its_centre)
     CHECK_EQ(pixel(r, 50, 60), 2);
     CHECK_EQ(pixel(r, 25, 30), 2);
     CHECK_EQ(pixel(r, 160, 100), 0);
+    // an error in the radius (a string: Type mismatch) or the colour (300: Illegal function call) leaves the cursor
+    // at the centre too (the source's SCAN1 has moved it: F1's revision of the U2b ruling)
+    enter(r, "CLS:CIRCLE (60,80),\"X\"", ms(1000));
+    CHECK(last_row(r, "Type mismatch") >= 0);
+    enter(r, "LINE -(0,0),3", ms(1000));
+    CHECK_EQ(pixel(r, 60, 80), 3);
+    CHECK_EQ(pixel(r, 30, 40), 3);
+    enter(r, "CLS:CIRCLE (90,60),10,300", ms(1000));
+    CHECK(last_row(r, "Illegal function call") >= 0);
+    enter(r, "LINE -(0,0),1", ms(1000));
+    CHECK_EQ(pixel(r, 90, 60), 1);
+    CHECK_EQ(pixel(r, 45, 30), 1);
     // and the colour is the attribute as soon as it is parsed (review round 1, F1: the source's ATRSCN)
     enter(r, "CLS:DRAW \"C1\":CIRCLE (100,100),10,2,9", ms(1500));
     CHECK(last_row(r, "Illegal function call") >= 0);

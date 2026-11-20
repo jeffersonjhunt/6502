@@ -5,26 +5,25 @@
 ; "The plan, phase 7": 7e2, U2; the owner's answer 1 and option 1 of
 ; 2026-11-19: a statement's parsing in P3, its drawing in P5):
 ;
-;   CIRCA     from P5's CIRCP (p5/advgrp.s), by one far call a CIRCLE:
-;             CIRCLE [STEP](x,y),r[,[c][,[start][,[end][,aspect]]]] parsed
-;             at TXTPTR, the centre (SCAN1), the radius (GETIN2), the
-;             colour (ATRSCN's parse), the start and end (CGTCNT, CMPONE)
-;             and the aspect, with CNPNTS (the radius x SQR(2)/2), all the
-;             floating point of the statement
+;   CIRCA     from P5's CIRCP (p5/advgrp.s), by one far call a CIRCLE,
+;             TXTPTR past the centre (P5's SCAN1, the source's, has made it
+;             the graphics cursor): the rest of CIRCLE [STEP](x,y),r[,[c][,
+;             [start][,[end][,aspect]]]], the radius (GETIN2), the colour
+;             (ATRSCN's parse), the start and end (CGTCNT, CMPONE) and the
+;             aspect, with CNPNTS (the radius x SQR(2)/2), all the floating
+;             point of the statement
 ;
-; In: RCL/RCH and RDL/RDH the graphics cursor (GRPACX, GRPACY: STEP's
-; base), RAL the mode's foreground (the default colour), RAH PIXSIZ (0 in
+; In: RAL the mode's foreground (the default colour), RAH PIXSIZ (0 in
 ; SCREEN 0: Illegal function call after the colour, as ATRSCN's ATRFI2),
 ; RBL/RBH and RSI GTASPC's pair (the aspect x 256 and its inverse). Out, for
 ; P5 (P3 can't reach P5's RAM): RDL/RDH CSTCNT, RBL/RBH CENCNT, RAL CLINEF,
 ; RAH CPLOTF, RCL/RCH CNPNTS, RSI ASPECT, RDI the radius, T1 CSCLXY.
-; Every error is raised here, before P5 draws anything. The graphics cursor and the attribute are
-; P5's: the centre and the colour go to it together by one far call to P5's
-; CIRCC as soon as the colour is parsed (ATRSCN's place), so an error in the
-; angles or the aspect leaves the cursor at the centre and the attribute the
-; colour, as the source's does (the owner's rulings of 2026-11-19; review
-; round 1, F1). OO-1: an error in the radius or the colour itself leaves the
-; cursor where it was (the source's SCAN1 has moved it already).
+; Every error is raised here, before P5 draws anything. The attribute is
+; P5's: the colour goes to it by a far call to P5's CIRCC as soon as it is
+; parsed (ATRSCN's place: review round 1, F1). So an error anywhere after
+; the centre leaves the cursor at the centre (the owner's U2b ruling, and
+; its revision after F1) and one in the angles or the aspect the attribute
+; the colour, as the source's do.
 
 .include "gwbasic.inc"
 
@@ -55,18 +54,13 @@
 
 ; --- CIRCLE (ADVGRP.ASM 460) ------------------------------------------------------------------
 
-CIRCA:          MOVW    CCURX, RCL
-                MOVW    CCURY, RDL
-                LDA     RAL
+CIRCA:          LDA     RAL
                 STA     CFG
                 LDA     RAH
                 STA     CPIX
                 MOVW    CASP, RBL
                 MOVW    CINV, RSI
-                JSR     CSCAN1         ; the centre (to P5 with the colour, CATRS)
-                MOVW    CCENX, RCL
-                MOVW    CCENY, RDL
-                JSR     SYNCHR
+                JSR     SYNCHR         ; (the centre P5's: its SCAN1)
                 .byte   ','
                 JSR     GETIN2         ; the radius
                 MOVW    CRAD, RDL
@@ -184,10 +178,9 @@ CATRS:          LDA     CFG
                 JSR     GETBYT
 @fin:           LDA     RDL
                 STA     CATR
-                MOVW    RCL, CCENX     ; to P5's CIRCC: the centre the cursor, and
-                MOVW    RDL, CCENY     ; the colour the attribute (SETATR, ATRBYT)
-                LDA     CATR           ;   (review round 1, F1: as soon as it is
-                FJSR    CIRCC          ;   parsed, the source's ATRSCN)
+                FJSR    CIRCC          ; to P5's CIRCC: the colour the attribute
+                                       ; (SETATR, ATRBYT) as soon as it is parsed,
+                                       ; the source's ATRSCN (review round 1, F1)
                 LDA     CPIX
                 BNE     :+
                 JMP     FCERR          ; no graphics (SCREEN 0)
@@ -259,63 +252,13 @@ CONE:           LDA     #$81
                 STZ     RDL
                 RTS
 
-; CSCAN1: GENGRP.ASM's SCAN1 and SCAND (p5/gengrp.s's), for P3: "@" passed
-; over; none (a "-" next) the cursor; (x,y) or STEP(x,y), STEP's relative
-; to the cursor (CCURX, CCURY). CX x and DX y.
-CSCAN1:         LDA     (TXTPTR)
-                CMP     #'@'
-                BNE     :+
-                JSR     CHRGTR
-:               STZ     RCL            ; no coordinates: the cursor (-0)
-                STZ     RCH
-                STZ     RDL
-                STZ     RDH
-                CMP     #MINUTK
-                BEQ     @rel           ; (Z: relative)
-                LDA     (TXTPTR)
-                CMP     #STEP_TK
-                PHP                    ; Z: relative
-                BNE     :+
-                JSR     CHRGTR
-:               JSR     SYNCHR
-                .byte   '('
-                JSR     GETIN2         ; x
-                PSHW    RDL
-                JSR     SYNCHR
-                .byte   ','
-                JSR     GETIN2         ; y
-                JSR     SYNCHR
-                .byte   ')'
-                PULW    RCL
-                PLP
-@rel:           BNE     @x
-                CLC                    ; relative: the cursor added
-                LDA     CCURX
-                ADC     RCL
-                STA     RCL
-                LDA     CCURX + 1
-                ADC     RCH
-                STA     RCH
-                CLC
-                LDA     CCURY
-                ADC     RDL
-                STA     RDL
-                LDA     CCURY + 1
-                ADC     RDH
-                STA     RDH
-@x:             RTS
-
 .segment "BRAM"
-CCURX:          .res    2              ; the graphics cursor, P5's (in)
-CCURY:          .res    2
 CFG:            .res    1              ; the mode's foreground (in)
 CPIX:           .res    1              ; PIXSIZ (in)
 CASP:           .res    2              ; GTASPC's aspect (in)
 CINV:           .res    2              ;   and its inverse
 CRAD:           .res    2              ; the radius (the source's GXPOS)
 CATR:           .res    1              ; the colour
-CCENX:          .res    2              ; the centre, until CATRS hands it to P5
-CCENY:          .res    2
 CNPNTS:         .res    2              ; the points an octant
 CSTCNT:         .res    2              ; the start's count
 CENCNT:         .res    2              ; the end's

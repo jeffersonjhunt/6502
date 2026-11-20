@@ -1300,7 +1300,7 @@ ADVGRP.ASM PUTQ -> p5/advgrp.s PUTQ # the entry (x, y, the way, the count), not 
 ADVGRP.ASM GETQ -> p5/advgrp.s GETQ # A 0 (CH's place) when none
 ADVGRP.ASM WRAP -> p5/advgrp.s QAT # with the pointer's move and the W1 rule (OO-1)
 GWSTS.ASM COMS -> p3/gwsts.s COMSP # its stub p8/far3.s COMS (STMDSX's); ON COM's trap 7f
-ADVGRP.ASM CIRCLE -> p5/advgrp.s CIRCP # its home block stub p8/far5.s CIRCLE, screen mode; the parse (SCAN1, GETIN2, CNPNTS, ATRSCN's, the angles, the aspect, CIRC1, CIRC11, CIRC2, CSTPLT) in p3/advgrp.s CIRCA by one far call (7e2, the owner's option 1), the centre handed to P5's CIRCC as soon as it is parsed (SCAN1's place); OO-1: CIRCLP's Ctrl-C poll every 256 steps (the owner's ruling)
+ADVGRP.ASM CIRCLE -> p5/advgrp.s CIRCP # its home block stub p8/far5.s CIRCLE, screen mode; SCAN1 here (the cursor at once); the rest of the parse (GETIN2, CNPNTS, ATRSCN's, the angles, the aspect, CIRC1, CIRC11, CIRC2, CSTPLT) in p3/advgrp.s CIRCA by one far call (7e2, the owner's option 1), the colour handed back to P5's CIRCC as soon as it is parsed (ATRSCN's SETATR and ATRBYT: review round 1, F1); OO-1: CIRCLP's Ctrl-C poll every 256 steps (the owner's ruling)
 ADVGRP.ASM CGTCNT -> p3/advgrp.s CGTCNT # CGTC2 inline; the flag byte on the 6502's stack across FRMEVL
 ADVGRP.ASM CMPONE -> p3/advgrp.s CMPONE # MOVRI's 1 by CONE (also FDIV's dividend, CIRC1)
 ADVGRP.ASM CPLOT8 -> p5/advgrp.s CPLOT8 # the swaps by XCHBD
