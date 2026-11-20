@@ -37,7 +37,30 @@
 .include "p5/p5.inc"
 ; OOLIB's (oolib.inc, vmem.inc: not included here, since gwbasic.inc defines
 ; GXP, gxmem's pointer, which only p5/seed.s exports to it)
-.import GX_VMAP
+.import GX_VMAP, GX_W1BACK, TXBUF
+
+; 7e3: GET and PUT's row state, and DEF SEG's, in zero page: the floating
+; point's scratch from DBUFF, which nothing uses while a statement draws or
+; a PEEK runs (CIRCLE's too, p5/advgrp.s's CZ: never at once).
+GPACT           = DBUFF                ; the action (PGINIT)
+GOU             = DBUFF + 3            ;   a pixel's bits (3, 1)
+GOUB            = DBUFF + 4            ;   a byte's complement ($33, $FF)
+GPPN            = DBUFF + 5            ;   PIXSIZ
+GPBYT           = DBUFF + 6            ;   the array's bytes a row
+GPNB            = DBUFF + 7            ;   the byte path's CGA bytes a row
+GPN0            = DBUFF + 8            ;   the pixels after them a row
+GPN             = DBUFF + 10           ;   the pixels left
+GPI             = DBUFF + 12           ;   the buffer's place
+GPBB            = DBUFF + 13           ;   the byte being packed or unpacked
+GPBN            = DBUFF + 14           ;   its bits so far, or left
+GPV             = DBUFF + 15           ;   a pixel's bits
+GOLD            = DBUFF + 16           ;   the pixel's old value (READC)
+GOT             = DBUFF + 17           ;   TNIB's and GBRD's scratch
+GOT2            = DBUFF + 18
+GDN             = DBUFF + 19           ;   GBRD's and GBWR's bytes left
+GTW             = DBUFF + 20           ;   GBWR: SCREEN 2's twin row's pointer
+GTWD            = DBUFF + 22           ;   nonzero once GBWR has written the twin
+.assert GTWD < FBPTR, error, "GET and PUT's zero page past the floating point's scratch"
 
 .code
 
@@ -605,6 +628,493 @@ PSTOR:          LDA     RCL
                 STA     RDH
                 RTS
 
+; --- GET and PUT's rows, DEF SEG's bytes (7e3, U1): PGINIT, NREAD, NWRITE ---------------
+
+; The OEM's routines ADVGRP.ASM's GET and PUT call and the release leaves to
+; the OEM (OEM.H names PGINIT, NREAD and NWRITE), the OO-1's: their contract
+; read from PGLOOP's use (a row from the cursor rightwards, the cursor left
+; at the row's first pixel for PGLOOP's DOWNC), their format the IBM
+; manual's (pp. 116-117): each pixel PIXSIZ bits, high bits first, the row
+; left-justified on a byte, its last byte's spare bits 0, the bytes in
+; screen order. While the aperture is in W1 the array may not be readable
+; (any of it may lie in $4000-$7FFF), so each row passes through TXBUF
+; (LOWRAM, below $4000, which the home block's stubs emptied by TXSYNC, and
+; nothing in a GET or PUT prints): NREAD reads the row into TXBUF, puts block
+; 1 back and copies it to the array; NWRITE copies it from the array with
+; block 1 in W1, then draws it from TXBUF. Each maps the cursor's bank again
+; after (NEWBNK). Nothing here can end in an error.
+;
+;   PGINIT  RBL/RBH the bits a row, RSI the data's address, A the action (0
+;           OR, 1 AND, 2 PRESET, 3 PSET, 4 XOR: GFUNTB's order), the cursor
+;           at the row's first pixel (MAPXYC): the bytes a row, the pixels
+;           (the bits over PIXSIZ, the source's: a part pixel isn't drawn),
+;           the byte path's bytes, CPAT kept (GPCPAT, for the caller to put
+;           back)
+;   NREAD   GET's row: the cursor's row into the array at RSI, RSI past it
+;   NWRITE  PUT's: the array's row at RSI onto the screen by the action,
+;           RSI past it
+;   GROWR GROWW   the row to or from (PTR) alone (DEF SEG's pieces through
+;           TXBUF, and PEEK's and POKE's byte, DSVAL)
+;   GPSETN  GROWR and GROWW set for A whole CGA bytes by PSET (DEF SEG)
+;
+; A pixel: READC, the action with the array's bits (GOPP), SETC with the new
+; value's pattern in CPAT, RIGHTC. The byte paths (the owner's answer 4),
+; where the row starts on a CGA byte (SCREEN 2 x MOD 8 = 0, SCREEN 1 x MOD
+; 4 = 0): a CGA byte at a time (GBRD, GBWR), SCREEN 2's the card byte itself,
+; its twin row written after in a second pass from the results, SCREEN 1's
+; two tile bytes of two nibbles each (T16, TNIB), the action on them bit by
+; bit (GOPB); the rest of the row by the pixels.
+PGINIT:         STA     GPACT
+                ASL     A
+                TAX
+                LDA     GOPT,X
+                STA     GOPV
+                LDA     GOPT + 1,X
+                STA     GOPV + 1
+                LDA     CPAT
+                STA     GPCPAT
+                LDX     GMODEV
+                LDA     PIXMSK,X       ; a pixel's bits: 3, 1
+                STA     GOU
+                LDA     GOUBT - 1,X    ; a byte's: $33 (two nibbles), $FF
+                STA     GOUB
+                JSR     PIXSIZ
+                STA     GPPN
+                LDA     RBL            ; T2 the bits past the whole bytes, T0 those
+                AND     #7             ; (a row's at most 641 bits: CHKRNG's)
+                STA     T2
+                LDA     RBH
+                STA     T1
+                LDA     RBL
+                LDX     #3
+@b:             LSR     T1
+                ROR     A
+                DEX
+                BNE     @b
+                STA     T0
+                LDX     T2             ; the bytes a row: and one for a part
+                CPX     #1
+                ADC     #0
+                STA     GPBYT
+                LDA     RBL            ; the pixels, unaligned: all of them
+                STA     GPN0
+                LDA     RBH
+                STA     GPN0 + 1
+; GPNB: the whole CGA bytes, if the row starts on one (8 bits each, either
+; mode); GPN0 the pixels after.
+                STZ     GPNB
+                LDX     GMX
+                LDA     CMASK
+                CMP     NSFST - 2,X
+                BNE     @p
+                CPX     #2 * GM_TILE
+                BNE     :+
+                LDA     CXB            ; SCREEN 1: a tile byte pair's first
+                LSR     A
+                BCS     @p
+:               LDA     T0
+                STA     GPNB
+                LDA     T2
+                STA     GPN0
+                STZ     GPN0 + 1
+@p:             LDA     GPPN           ; bits over PIXSIZ: the pixels (a part pixel left)
+                CMP     #2
+                BNE     :+
+                LSR     GPN0 + 1
+                ROR     GPN0
+:               RTS
+
+; GPSETN: A whole CGA bytes, by PSET (DEF SEG's page).
+GPSETN:         STA     GPNB
+                STZ     GPN0
+                STZ     GPN0 + 1
+                LDA     #3
+                STA     GPACT
+                LDA     #<GBPS
+                STA     GOPV
+                LDA     #>GBPS
+                STA     GOPV + 1
+                RTS
+
+; NREAD, NWRITE: a row through TXBUF (above); then RSI past it (GADV) and
+; the cursor's bank mapped again.
+NREAD:          JSR     GPTX
+                JSR     GROWR
+                JSR     GX_W1BACK
+                LDY     #0
+@c:             LDA     TXBUF,Y
+                STA     (RSI),Y
+                INY
+                CPY     GPBYT
+                BNE     @c
+                BRA     GADV
+NWRITE:         JSR     GX_W1BACK
+                LDY     #0
+@c:             LDA     (RSI),Y
+                STA     TXBUF,Y
+                INY
+                CPY     GPBYT
+                BNE     @c
+                JSR     GADV
+                JSR     GPTX
+                JMP     GROWW
+GADV:           CLC
+                LDA     RSI
+                ADC     GPBYT
+                STA     RSI
+                BCC     :+
+                INC     RSI + 1
+:               LDA     CBANK
+                JMP     NEWBNK
+GPTX:           LDA     #<TXBUF
+                STA     PTR
+                LDA     #>TXBUF
+                STA     PTR + 1
+                RTS
+
+; GROWR: the row into (PTR): GPNB CGA bytes, then GPN0 pixels packed. The
+; cursor back at the row's first pixel (GBACK).
+GROWR:          JSR     FETCHC
+                LDY     #0
+                LDX     GPNB
+                BEQ     :+
+                JSR     GBRD
+:               JSR     GPPX
+@px:            LDA     GPN
+                ORA     GPN + 1
+                BEQ     @end
+                JSR     READC
+                AND     GOU
+                LDX     GPPN
+@s:             ASL     GPBB
+                DEX
+                BNE     @s
+                ORA     GPBB
+                STA     GPBB
+                CLC
+                LDA     GPBN
+                ADC     GPPN
+                STA     GPBN
+                CMP     #8
+                BCC     :+
+                JSR     GPSTB
+:               JSR     RIGHTC
+                DECW    GPN
+                BRA     @px
+@end:           LDA     GPBN           ; a part byte: left-justified, its spare bits 0
+                BEQ     GBACK
+@al:            ASL     GPBB
+                INC     GPBN
+                LDA     GPBN
+                CMP     #8
+                BCC     @al
+                JSR     GPSTB
+GBACK:          JSR     STOREC
+                JMP     REMAP
+GPSTB:          LDA     GPBB
+                LDY     GPI
+                STA     (PTR),Y
+                INC     GPI
+                STZ     GPBN
+                RTS
+; GPPX: the pixel loop's start, Y the buffer's place.
+GPPX:           STY     GPI
+                STZ     GPBN
+                LDA     GPN0
+                STA     GPN
+                LDA     GPN0 + 1
+                STA     GPN + 1
+                RTS
+
+; GROWW: the row from (PTR), by the action: GPNB CGA bytes, then GPN0 pixels;
+; SCREEN 2's byte path's twin row last. The cursor back (GBACK).
+GROWW:          JSR     FETCHC
+                STZ     GTWD
+                LDY     #0
+                LDX     GPNB
+                BEQ     :+
+                JSR     GBWR
+:               JSR     GPPX
+@px:            LDA     GPN
+                ORA     GPN + 1
+                BEQ     @end
+                LDA     GPBN           ; the array's next bits
+                BNE     :+
+                LDY     GPI
+                LDA     (PTR),Y
+                STA     GPBB
+                INC     GPI
+                LDA     #8
+                STA     GPBN
+:               LDA     #0
+                LDX     GPPN
+@g:             ASL     GPBB
+                ROL     A
+                DEX
+                BNE     @g
+                STA     GPV
+                SEC
+                LDA     GPBN
+                SBC     GPPN
+                STA     GPBN
+                JSR     READC
+                STA     GOLD
+                LDA     GPV
+                JSR     GOPP
+                AND     GOU
+                LDX     GMX            ; its pattern (SETATR's): the value in each nibble,
+                CPX     #2 * GM_TILE   ; or in every bit
+                BNE     @m
+                TAY
+                LDA     PIXPAT,Y
+                BRA     @c
+@m:             TAX
+                BEQ     @c
+                LDA     #$FF
+@c:             STA     CPAT
+                JSR     SETC
+                JSR     RIGHTC
+                DECW    GPN
+                BRA     @px
+@end:           LDX     GMX            ; SCREEN 2's byte path: the twin row, 80 on,
+                CPX     #2 * GM_MONO   ; unless GBWR wrote it
+                BNE     @b
+                LDA     GTWD
+                BNE     @b
+                LDA     GPNB
+                BNE     :+
+@b:             JMP     GBACK
+:
+                JSR     STOREC
+                JSR     REMAP
+                LDA     #80
+                JSR     ADDP
+                LDX     GPNB
+                LDY     #0
+@w:             LDA     (PTR),Y
+                STA     (GXP)
+                INY
+                INC     GXP
+                BNE     :+
+                JSR     GNXHI
+:               DEX
+                BNE     @w
+                JMP     GBACK
+
+; GBRD: X CGA bytes from the cursor into (PTR),Y on; Y and the cursor past
+; them.
+GBRD:           STX     GDN
+                LDX     GMX
+                CPX     #2 * GM_TILE
+                BEQ     @t
+                CLC                    ; SCREEN 2: by Y at once (Y 0, the row's start) where
+                LDA     GXP            ; they don't pass W1's end
+                ADC     GDN
+                LDA     GXP + 1
+                ADC     #0
+                BMI     @m
+                LDX     GDN
+@f:             LDA     (GXP),Y
+                STA     (PTR),Y
+                INY
+                DEX
+                BNE     @f
+                BRA     GSKIP
+@m:             LDA     (GXP)
+                STA     (PTR),Y
+                INY
+                INC     GXP
+                BNE     :+
+                JSR     GNXHI
+:               DEC     GDN
+                BNE     @m
+                RTS
+@t:             LDA     (GXP)          ; SCREEN 1: two tile bytes, the left pixel high
+                JSR     TNIB
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                STA     GOT
+                INC     GXP            ; (never wraps: the pair's first byte is 0 or 2 mod 4)
+                LDA     (GXP)
+                JSR     TNIB
+                ORA     GOT
+                STA     (PTR),Y
+                INY
+                JSR     TSTEP
+                DEC     GDN
+                BNE     @t
+                RTS
+; GSKIP: GXP past the Y bytes done by Y (inside W1, no bank crossed).
+GSKIP:          TYA
+                CLC
+                ADC     GXP
+                STA     GXP
+                BCC     :+
+                INC     GXP + 1
+:               RTS
+; TNIB: a tile byte's two pixels (nibbles, 0-3) as a CGA nibble, the left
+; pixel in bits 3-2.
+TNIB:           TAX
+                AND     #$30
+                LSR     A
+                LSR     A
+                STA     GOT2
+                TXA
+                AND     #$03
+                ORA     GOT2
+                RTS
+
+; GBWR: X CGA bytes from (PTR),Y on to the cursor by the action, SCREEN 2's
+; results back in (PTR) for the twin; Y and the cursor past them.
+GBWR:           STX     GDN
+                LDA     GPACT
+                LDX     GMX
+                CPX     #2 * GM_TILE
+                BEQ     @t
+                CMP     #3
+                BNE     @m
+                CLC                    ; PSET: the row and its twin at once by Y (Y 0, the
+                LDA     GXP            ; row's start) where they don't pass W1's end
+                ADC     #80
+                STA     GTW
+                LDA     GXP + 1
+                ADC     #0
+                STA     GTW + 1
+                CLC
+                LDA     GTW
+                ADC     GDN
+                LDA     GTW + 1
+                ADC     #0
+                BMI     @m             ; (past it: as any action, GBPS's, the twin after)
+                LDX     GDN
+@f:             LDA     (PTR),Y
+                STA     (GXP),Y
+                STA     (GTW),Y
+                INY
+                DEX
+                BNE     @f
+                INC     GTWD           ; the twin written
+                BRA     GSKIP
+@m:             LDA     (PTR),Y
+                JSR     GOPB
+                STA     (GXP)
+                STA     (PTR),Y
+                INY
+                INC     GXP
+                BNE     :+
+                JSR     GNXHI
+:               DEC     GDN
+                BNE     @m
+                RTS
+@t:             CMP     #3             ; SCREEN 1: the high nibble to the pair's first
+                BNE     @to
+@tp:            LDA     (PTR),Y        ; (PSET: no action)
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                TAX
+                LDA     T16,X
+                STA     (GXP)
+                INC     GXP
+                LDA     (PTR),Y
+                AND     #$0F
+                TAX
+                LDA     T16,X
+                STA     (GXP)
+                INY
+                LDA     CXB            ; (TSTEP, inline)
+                EOR     #2
+                STA     CXB
+                BEQ     :+
+                INC     GXP
+                DEC     GDN
+                BNE     @tp
+                RTS
+:               JSR     TSTEP2
+                DEC     GDN
+                BNE     @tp
+                RTS
+@to:            LDA     (PTR),Y
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                TAX
+                LDA     T16,X
+                JSR     GOPB
+                STA     (GXP)
+                INC     GXP
+                LDA     (PTR),Y
+                AND     #$0F
+                TAX
+                LDA     T16,X
+                JSR     GOPB
+                STA     (GXP)
+                INY
+                JSR     TSTEP
+                DEC     GDN
+                BNE     @to
+                RTS
+
+; TSTEP: SCREEN 1, from a pair's second tile byte to the next pair: the
+; tile's other half (CXB 0 to 2), or the next tile's first (2 to 0, 29 on).
+TSTEP:          LDA     CXB
+                EOR     #2
+                STA     CXB
+                BEQ     TSTEP2
+                INC     GXP            ; (1 mod 4: never wraps)
+                RTS
+TSTEP2:         LDA     #29
+                CLC
+                ADC     GXP
+                STA     GXP
+                BCC     @x
+                PHY
+                INC     GXP + 1
+                JSR     BANKUP
+                PLY
+@x:             RTS
+; GNXHI: GXP's high byte on, into the next bank past W1's end; X and Y kept.
+GNXHI:          PHX
+                PHY
+                INC     GXP + 1
+                JSR     BANKUP
+                PLY
+                PLX
+                RTS
+
+; GOPB: A the array's bits (a card byte, or a tile byte's two nibbles) by
+; the action with (GXP)'s. GOPP: A the array's pixel by the action with
+; GOLD's; the caller masks it (GOU).
+GOPB:           JMP     (GOPV)
+GBOR:           ORA     (GXP)
+                RTS
+GBAND:          AND     (GXP)
+                RTS
+GBPRE:          EOR     GOUB           ; the complement: 3 - v, 1 - v in each pixel
+GBPS:           RTS
+GBXOR:          EOR     (GXP)
+                RTS
+GOPP:           LDX     GPACT
+                BEQ     @or
+                DEX
+                BEQ     @and
+                DEX
+                BEQ     @pre
+                DEX
+                BEQ     @x
+                EOR     GOLD           ; XOR
+                RTS
+@or:            ORA     GOLD
+                RTS
+@and:           AND     GOLD
+                RTS
+@pre:           EOR     #$FF
+@x:             RTS
+
 
 .segment "RODATA"
 ; By mode, 1 and 2.
@@ -618,6 +1128,12 @@ BIT7:           .byte   $80, $40, $20, $10, $08, $04, $02, $01
 NSFST:          .word   $F0, $80       ; NSETCX's: a byte's first pixel,
 NSLST:          .word   $0F, $01       ;   its last,
 NSPPB:          .word   2, 8           ;   its pixels
+GOUBT:          .byte   $33, $FF       ; 7e3: GBPRE's complement, by mode (1, 2)
+GOPT:           .word   GBOR, GBAND, GBPRE, GBPS, GBXOR ; 7e3: GOPB's, by action
+; 7e3: T16, a CGA nibble (two pixels, the left in bits 3-2) as a tile byte
+; (the left pixel's nibble high).
+T16:            .byte   $00, $01, $02, $03, $10, $11, $12, $13
+                .byte   $20, $21, $22, $23, $30, $31, $32, $33
 
 .segment "BRAM"
 CBANK:          .res    1              ; C, the cursor: its bank in the page
@@ -633,3 +1149,5 @@ PNX:             .res    2              ; 7e2: PAINT's pixel, the cursor's x
 PNY:             .res    1              ;   and y
 PCSX:           .res    2              ;   SCANR's run's first pixel's x (the source's CSAVEA)
 PBORD:          .res    1              ;   the border's attribute (PNTINI)
+GPCPAT:         .res    1              ; 7e3: CPAT, kept for PGINIT's caller
+GOPV:           .res    2              ;   GOPB's routine, by the action (not zero page: rule 2)

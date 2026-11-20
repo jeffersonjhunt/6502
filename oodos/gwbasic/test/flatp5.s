@@ -14,6 +14,7 @@
 .include "gwbasic.inc"
 
 .export GXSTRT, DSBYTE, DSINFO, DSPUT, GRPRST, POINTP, PSETP, PRSETP, GLINEP, CIRCP, CIRCC, PAINTP, DRWOP
+.export GPUTG, DSGRUN
 .import ADVERR
 
 .code
@@ -30,4 +31,6 @@ PRSETP:
 GLINEP:
 CIRCP:
 PAINTP:
-DRWOP:          JMP     ADVERR
+DRWOP:
+GPUTG:
+DSGRUN:         JMP     ADVERR
