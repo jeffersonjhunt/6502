@@ -1,0 +1,24 @@
+after view cursor 46 46
+rel points 3 0 1-1-1 cur-5-5
+abs 9,9= 2 10,10= 3 100,100= 1 101,101= 2 50,50= 1 105= 0 bord 2 2 2
+after VIEW alone cursor 160 100
+vs pts 0 3 2 2 abs 0 3 1 2
+edge border 0 2 2 2 0
+edge border2 2 2 2
+sorted 0 0 0
+x320 err 5
+x1=x2 err 5
+neg err 5
+y200 err 5
+fill4 err 0
+bord4 err 0
+3commas err 2
+one pt err 2
+step err 2
+step2 err 2
+view screen alone err 2
+full ok err 0
+round err 0 0 3 0 3 3 3
+fill -1 err 5
+fill 255 err 0 3
+cls cursor 46 46 pix 0

@@ -1,0 +1,13 @@
+circle r1 w6 n 140 x 133 187 y 78 122
+circle r1 asp1 n 152 x 133 187 y 73 127
+draw under window n 11 x 160 170 y 100 100
+vw pmap 0 99 99 0 .1010101 0 pt 99 0 1 1 abs 3 0 0 n 11 x 160 170 y 100 100
+wv pmap 99 0
+box cur 99 0 100 100
+cls under window 50 50 .5050504 .4949495 99
+screen 2 resets? 1
+width resets? 1
+get w 66 21
+paint w 160 100 5.015674 4.974874
+point world 0 2-1 0
+screen0 pmap err 0 0 window err 5 view err 5 point0 err 0
