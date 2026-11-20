@@ -1623,8 +1623,9 @@ TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
 
 /// The cycles one RUN of `lines` spends in the home block's BRUN (BLOAD's and BSAVE's run check: P5's DSRUN by a far
 /// call until 7e2, the home block's DSRUNH since) and in BLOAD's tail after BLDRUN (P5's DSPUT, DSPUTH since 7e2),
-/// each counted from its first instruction to its return, with the home block in W3 (NB_WIN3 as at RUN). So the disk
-/// operation, which depends on what else is on M:, is left out.
+/// each counted from its first instruction to its return, with the home block in W3 (NB_WIN3 as at RUN), less the
+/// interrupt handlers inside it (the IRQ vector's entry to its RTI, as T17's: where the tick lands moves with the
+/// blocks' layout: 7e2's review round 1). So the disk operation, which depends on what else is on M:, is left out.
 std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std::string> &lines)
 {
     const std::map<std::string, uint16_t> lab = lbl_map(), l8 = lbl_map("p8.lbl");
@@ -1640,7 +1641,26 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
     uint8_t sp = 0;
     int in = 0; // 1 in BRUN, 2 in the tail
     bool done = false;
+    const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
+    uint64_t ifrom = 0, inirq = 0; // an interrupt inside a span: its handler's cycles, left out (T17's way)
+    int idepth = -1;
     r.watch = [&](uint16_t pc) {
+        if (in != 0 && idepth < 0 && pc == irq)
+        {
+            ifrom = r.cpu->cycles();
+            idepth = r.cpu->regs().s;
+            return;
+        }
+        if (idepth >= 0)
+        {
+            if (r.cpu->regs().s == idepth + 3)
+            {
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            else
+                return;
+        }
         if (pc == runc && home < 0)
             home = r.nb(3);
         if (home < 0 || r.nb(3) != home)
@@ -1648,16 +1668,16 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
         const uint8_t s = r.cpu->regs().s;
         if (in == 0 && pc == brun)
         {
-            in = 1, from = r.cpu->cycles(), sp = s;
+            in = 1, from = r.cpu->cycles(), sp = s, inirq = 0;
             ret = static_cast<uint16_t>((r.machine->bus().peek(static_cast<uint16_t>(0x101 + s)) |
                                          r.machine->bus().peek(static_cast<uint16_t>(0x102 + s)) << 8) + 1);
         }
         else if (in == 1 && pc == ret && s == static_cast<uint8_t>(sp + 2))
-            in = 0, check += r.cpu->cycles() - from;
+            in = 0, check += r.cpu->cycles() - from - inirq;
         else if (in == 0 && pc == tail)
-            in = 2, from = r.cpu->cycles();
+            in = 2, from = r.cpu->cycles(), inirq = 0;
         else if (in == 2 && pc == bback)
-            in = 0, after += r.cpu->cycles() - from;
+            in = 0, after += r.cpu->cycles() - from - inirq;
         else if (pc == endcon)
             done = true;
     };
@@ -1679,9 +1699,9 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
 // BLDRUN) and BSAVE (BRUN's) at most 300 cycles over main's, and PEEK and POKE on the page (P5's DSSCR, not moved) at most
 // 50 over main's (the layout's noise). Guards the move slowing a program's screen saves. Seen failing with DSSPH finding the scratch
 // byte's address by function 73 at every call, not once.
-// main 593aa176's, by run_check_cycles (7e2's unit 0, before the move): BLOAD to the page 8,111 in BRUN and 7,194
-// after BLDRUN, BSAVE 8,111 in BRUN.
-constexpr uint64_t BLOAD8_MAIN = 8111 + 7194, BSAVE8_MAIN = 8111;
+// main 593aa176's, by run_check_cycles (7e2's unit 0, before the move; measured again in review round 1 with the
+// interrupt handlers left out): BLOAD to the page 7,869 in BRUN and 6,952 after BLDRUN, BSAVE 7,869 in BRUN.
+constexpr uint64_t BLOAD8_MAIN = 7869 + 6952, BSAVE8_MAIN = 7869;
 TEST(the_screen_page_costs)
 {
     CcpRig r;

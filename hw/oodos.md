@@ -5469,6 +5469,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
         CIRCLE r=50 in SCREEN 2 310,445 cycles;
       - F2 (nit) D9's PEEK and POKE gate was main's figures exactly, though DSSCR's cycles move a few with P5's layout:
         main's + 50 now, with the reason in the test;
+      - With the revision, D9's BLOAD gate failed with no code of its changed (8,125 → 8,812 in BRUN): the spans
+        held the interrupt handlers that land in them, and where the tick lands moves with the blocks' layout. They
+        are left out now (T17's way: the IRQ vector's entry to its RTI) and main measured again: BLOAD to the page
+        7,869 + 6,952 and BSAVE 7,869 on main, 7,890 + 6,665 and 7,883 here (BLOAD to bank 9 3,140 + 302 → 2,883 +
+        18); the +300 limit kept. Its mutant (DSSPH by function 73 at every run: 9,425) seen failing again;
       - F3 (nit) `test/flatp5.s` described and exported DSRUN: it has DSINFO and the retired DSPUT slot now.
 
       After the round: P5 8,241 bytes, 4,047 free; P3 8,014, 4,274 free (8,300 and 3,988, 8,183 and 4,105 before
