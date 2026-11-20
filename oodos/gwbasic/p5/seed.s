@@ -90,6 +90,9 @@
 ; 7e3's (p5/advgrp.s, here), after 7e2's.
 ;@entry GPUTG
 ;@entry DSGRUN
+; 7e4's (p5/gfx.s), after 7e3's.
+;@entry GVIEW
+;@entry GVWGET
 .export GXSTRT, DSBYTE, DSINFO, TXMODE, DSPUT, DSGRUN
 .exportzp GXP, GXQ, GXT                ; gxmem's (lib/zpgxmem.s's), at gwbasic.inc's addresses
 .import FCERR, SAVSEG, SCRMOD, EVAREA, TXBUF
@@ -488,7 +491,7 @@ DSGPK:          LDA     DSA+1
                 JMP     DSFC           ; past the reach
 :               JSR     DSGXY
                 BCS     @gap
-                JSR     MAPXYC
+                JSR     MAPABS         ; 7e4: the screen's, whatever the viewport
                 LDA     #1
                 JSR     GPSETN
                 LDA     #<DSVAL
@@ -642,7 +645,7 @@ DSPMIN:         STA     DSVL
                 STA     DSVL
 :               RTS
 ; DSGPC: the piece's cursor (MAPXYC), DSVL CGA bytes by PSET, through TXBUF.
-DSGPC:          JSR     MAPXYC
+DSGPC:          JSR     MAPABS         ; 7e4: the screen's, whatever the viewport
                 LDA     DSVL
                 JSR     GPSETN
                 JMP     GPTX

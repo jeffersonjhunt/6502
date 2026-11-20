@@ -1,0 +1,15 @@
+fill ring 0 1 0 1
+cls ring 0 0 0
+step remap 0 199
+cursor after window 96 139 30.09404 30.15075
+cursor after window off 96 139 96
+vs+w pmap 0 99 99 0 .1010101 1.10101
+sorted 0 199 319 0
+ws circle n 140 x 133 187 y 78 122
+types  160 3.134796E-03 0
+neg-160-100-3.134796-50.75376
+bf clip 0 0 0-1 0 0
+style view 00000000000000000000000000000000
+line cur 319 0 160 100
+neg r err 5
+pmap big no w err 6 inv 6 32

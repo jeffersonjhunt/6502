@@ -9,7 +9,8 @@
 ;             TXTPTR past the centre (P5's SCAN1, the source's, has made it
 ;             the graphics cursor): the rest of CIRCLE [STEP](x,y),r[,[c][,
 ;             [start][,[end][,aspect]]]], the radius (GETIN2), the colour
-;             (ATRSCN's parse), the start and end (CGTCNT, CMPONE) and the
+;             (ATRSCN's parse; 7e4: under a WINDOW scaled, P1's WINRAD), the
+;             start and end (CGTCNT, CMPONE) and the
 ;             aspect, with CNPNTS (the radius x SQR(2)/2), all the floating
 ;             point of the statement
 ;
@@ -34,7 +35,7 @@
 .export CIRCA, GPUTA
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, FRMEVL, FRCSNG, FRCINT, FMULS
 .import PTRGET, SUBFLG, UMULT, TMERR, SNERR
-.import FCOMP, FDIVS, MAKINT, PUSHF, POPR
+.import FCOMP, FDIVS, MAKINT, PUSHF, POPR, GFLG
 
 .macro  PSHW    zp
                 LDA     zp + 1
@@ -67,8 +68,15 @@ CIRCA:          LDA     RAL
                 MOVW    CINV, RSI
                 JSR     SYNCHR         ; (the centre P5's: its SCAN1)
                 .byte   ','
-                JSR     GETIN2         ; the radius
-                MOVW    CRAD, RDL
+                BIT     GFLG           ; 7e4: under a WINDOW the radius a single,
+                BPL     @g             ; scaled by its x scale (P1's WINRAD: the
+                JSR     FRMEVL         ; IBM manual's p. 373)
+                JSR     FRCSNG
+                FJSR    WINRAD
+                MOVW    RDL, RBL       ; (T5)
+                BRA     @r
+@g:             JSR     GETIN2         ; the radius
+@r:             MOVW    CRAD, RDL
                 MOVW    RBL, RDL       ; MKINTC
                 JSR     MAKINT
                 JSR     FRCSNG

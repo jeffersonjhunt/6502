@@ -10,8 +10,9 @@
 ;             statement (7e's); anything else back to GONE2's caller, for
 ;             MID$ = (ISMID) or Syntax error
 ;   EVALX     a formula's $FE DATE$ or TIME$ (later sub-phases': Advanced
-;             Feature for now), or $FD and a function (EVALNF: CVI to MKD$,
-;             P4's, by one far call; KTN to KLEN, Kanji's, dropped)
+;             Feature for now), ERDEV, ERDEV$ or (7e4) PMAP (the home block's
+;             ERDEVP), or $FD and a function (EVALNF: CVI to MKD$, P4's, by
+;             one far call; KTN to KLEN, Kanji's, dropped)
 
 .include "gwbasic.inc"
 
@@ -66,8 +67,10 @@ SNERRS:         JMP     SNERR
 
 ; EVALX (IBMRES.ASM 961): EVAL's hook. $FE then DATE$ or TIME$ (DATEF,
 ; TIMEF: Advanced Feature), ERDEV or ERDEV$ (OO-1: the home block's
-; ERDEVP, its value and EVAL's return), or $FD and a function (EVALNF);
-; anything else back, A as it was.
+; ERDEVP, its value and EVAL's return), PMAP (OO-1, 7e4: the source's table
+; has no PMAP function; ERDEVP is the $FE functions' dispatcher, the space
+; plan's answer 10), or $FD and a function (EVALNF); anything else back, A
+; as it was.
 EVALX:          CMP     #$FE
                 BEQ     EVALNS
                 CMP     #$FD
@@ -79,6 +82,8 @@ EVALNS:         LDY     #1
                 BEQ     EVALDT
                 CMP     #TIMES_XS
                 BEQ     EVALDT
+                CMP     #PMAP_XS       ; OO-1, 7e4: PMAP, the home block's
+                BEQ     :+
                 CMP     #ERDEV_XS      ; OO-1: ERDEV and ERDEV$, the home
                 BEQ     :+             ; block's (the IBM manual's p. 91: read-
                 CMP     #ERDEVS_XS     ; only variables)

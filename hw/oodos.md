@@ -3931,14 +3931,14 @@ copy of common memory at `$F800` (above).
 
 | Block | What | 6502, estimated |
 |---|---|---|
-| P1 | math: PRINT USING's formatting, `$FOUT`, `$FIN`, double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; PRINT, LPRINT, INPUT | 8.5 KB |
-| P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
-| P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL; *7e2:* CIRCLE's parse (`p3/advgrp.s`), DRAW and MACLNG (`p3/draw.s`, `p3/maclng.s`: the owner's answer 1, a statement's parsing in P3); *7e3:* GET's and PUT's array, size, header and action word (`GPUTA`, `p3/advgrp.s`) | 9.5 KB; 8.1 KB at 7e2, 8.5 KB at 7e3 |
+| P1 | math: PRINT USING's formatting, `$FOUT`, `$FIN`, double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; PRINT, LPRINT, INPUT; *7e4:* WINDOW's map, PMAP, POINT(2) and (3) (`p1/window.s`) | 8.5 KB; 9.3 KB at 7e4 |
+| P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages; *7e4:* VIEW, WINDOW and PMAP in the extended word table | 5.8 KB |
+| P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL; *7e2:* CIRCLE's parse (`p3/advgrp.s`), DRAW and MACLNG (`p3/draw.s`, `p3/maclng.s`: the owner's answer 1, a statement's parsing in P3); *7e3:* GET's and PUT's array, size, header and action word (`GPUTA`, `p3/advgrp.s`); *7e4:* CIRCLE's radius under a WINDOW | 9.5 KB; 8.1 KB at 7e2, 8.5 KB at 7e3 and 7e4 |
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
-| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) *7e3:* GET and PUT (`GPUTG`, its corners; the OEM's rows, PGINIT, NREAD, NWRITE, with the byte paths), DEF SEG's page in SCREEN 1 and 2 (`DSGPK`, `DSGRUN`) | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2, 9.7 KB at 7e3 |
+| P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) *7e3:* GET and PUT (`GPUTG`, its corners; the OEM's rows, PGINIT, NREAD, NWRITE, with the byte paths), DEF SEG's page in SCREEN 1 and 2 (`DSGPK`, `DSGRUN`) *7e4:* the viewport (`GVIEW`, `GVWGET`, MAPXYC's corner, MAPABS), the window's hook in SCAND, POINT(n), LINE's style, PAINT's tiles | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2, 9.7 KB at 7e3, 10.5 KB at 7e4 |
 | P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 *7e1:* SCREEN's modes 1 and 2 (SCRSTT, SMODE), WIDTH's, COLOR's and CLS's way to P5, the text over the graphics | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3, 11.6 KB at 7e1 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
-| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`) | 4.3 KB at 7e2, 4.6 KB at 7e3 |
+| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`); *7e4:* VIEW's and WINDOW's stubs (VIEW's checks), PMAP's parse (ERDEVP) | 4.3 KB at 7e2, 4.6 KB at 7e3, 5.1 KB at 7e4 |
 
 - **One copy of OOLIB's video state.** `gxmem` keeps the block in W1, the bank in slot 1, the card memory map and
   the W1 map. A second copy in another block would get out of step, as [ooui.md](ooui.md#u3a-the-blocks) found for
@@ -4848,7 +4848,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     background, PEN and POINT(n) (the one-argument form: the cursor's physical x and y, and with WINDOW its world
     x and y; pp. 258-259), with the IBM manual as their specification (VIEW pp. 357-361, WINDOW pp. 370-374, PMAP
     pp. 256-257, the style pp. 156-158, the tiles pp. 237-243) and PC-BASIC the oracle where it agrees; PALETTE
-    and PALETTE USING are dropped (not in 3.0). The scroll's
+    and PALETTE USING are dropped (not in 3.0). *Revised (2026-11-20, the 7e4 plan's answer 1):* PEN moves to 7f
+    (PENF and PENS with an OEM RDPEN that reports no pen). The scroll's
     gate (answer 2) is the scroll less the interrupt handlers' cycles inside it.
   - **As built, 7e1** (Proposed, 2026-11-19; feat/gwbasic-7e1 off main `f61aca17`, the 7e plan with the owner's
     answers; units U1 `63058bf1` and `d6708179`, U2 `cda2406c`, U3 `096e7613`, U4 `a4b3dce7`, U5 `d0cea684`, and after
@@ -5616,6 +5617,132 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Not done in 7e3:** VIEW, WINDOW, PMAP, POINT(n), LINE's style, PAINT's tiles and background, PEN (7e4); the
       OO-1's modes and their DEF SEG reach (7e5); the books, with the `&H8000` note (7g). Then one review round, the
       triage gate, fixes, merge on the owner's word.
+  - **As built, 7e4** (Proposed, 2026-11-20; feat/gwbasic-7e4 off main `ae8b59d9`, the 7e4 plan with the owner's
+    answers, "recommendations as listed", and their rulings 10-13 during the build; units U0 `04fe0c99`, U1
+    `2c154cc0` with its fixes in `db5438af`, the words `38bafb85`, U2 `db5438af`, U3 `c76911bc`, U4 `20a8f6a4`, U5
+    and U6 with this record). VIEW, WINDOW, PMAP, POINT(n), LINE's style and PAINT's tiles are written from the IBM
+    manual's meaning (pp. 156-159, 236-245, 256-260, 357-361, 370-374): the 1983 source has only their words (its
+    VIEW, WINDOW and PMAP fall into ADVERR, its PALETE is `JMP SNERR`).
+    - **The words** (the owner's answer 10): the 1983 extended word table (`p2/ibmres.s`, ALPTAX) has no VIEW,
+      WINDOW or PMAP, so CRUNCH read them as names. They are added (VTABX, WTABX, PTABX: `$FE $9C-$9E`) as OO-1
+      words, after DIRWRD's and ERDEV's precedent, and are **reserved as in BASIC 3.0**: the OO-1's addition (only
+      the exact names: WINDOWS or VIEWX stay variables). PALETTE isn't added (dropped, the IBM spec's G13): as a name
+      it is Syntax error, as before. P2 is no longer relocation only: its image is main's but for the three entries
+      (14 bytes) and moved addresses (128 words, 1 byte). In console mode VIEW and WINDOW are Advanced Feature and
+      `PRINT PMAP(1,0)` Syntax error (it was an array element), G11's change (answer 12).
+    - **The route:** STMDSX sends VIEW and WINDOW to stubs in `p8/far5.s` (Advanced Feature in console mode); PMAP
+      as a statement and PALETTE are Syntax error. The resident EVALX sends `$FE PMAP` in a formula to the home
+      block's ERDEVP (the space plan's answer 10), which parses `PMAP(x,n)` (x a single, n by GETBYT) and far calls
+      P1's PMAPP. GFLG, one byte of LOWRAM: bit 0 a graphics mode (P5's GMODE), bit 7 a window, bit 6 WINDOW SCREEN
+      (P1's WINSET), read by P5, P1 and P3.
+    - **The viewport** (U1, P5): every coordinate P5 keeps is the viewport's, from its corner: MAPXYC adds the
+      corner (VWOX, VWOY) for the card and keeps CX and DX; MAPABS, MAPXYC without it, serves SCREEN('s GCELL and DEF
+      SEG's page (DSGPK, DSGPC), which stay the screen's. The limits in SCALXY, XPAST, YPAST, LSKIP, SCANR, TDOWNC and
+      GRPSIZ are the viewport's (VWMX, VWMY), so every statement clips to it with no code of its own; SCAND and DRAW's
+      absolute M take VIEW SCREEN's offset (VWSX, VWSY) off; POINT(0) and (1) add it back. The home block's stub
+      parses and checks VIEW (the mode by DSINFO; each corner on the screen, x1 <> x2, y1 <> y2, else Illegal function
+      call; sorted: P5's room, a judgement) and P5's GVIEW draws: the border box one pixel outside, each side clipped
+      as any line, then the viewport and its fill, GRPINI. CLS in a viewport clears it alone and leaves the text
+      (GCLS, CLS 1's path). GMODE (a change of mode, WIDTH's included) and GRPRST (RUN, CLEAR, NEW) end VIEW and
+      WINDOW; VIEW alone ends the viewport.
+    - **The window** (U2, `p1/window.s`, P1): each axis p = FRCINT((v - v0) x s), s = (the viewport's last) / (v2 -
+      v1), v0 = v1, but for y without SCREEN (y up: v0 = y2, s negated). The cursor stays physical; STEP adds world
+      units to the cursor mapped back (WINXY); POINT(2) and (3) map the cursor back (WPNT); PMAP 0 and 1 give the
+      physical point, absolute under VIEW SCREEN (answer 3), 2 and 3 the world value of FRCINT(x); CIRCLE's radius is
+      scaled by the x scale (WINRAD, from P3's CIRCA). P5's SCAND evaluates the first formula before taking its type
+      (SCANDX): under a window x and y are singles; else integers, as before.
+    - **WINDOW's inverse map** (the owner's answer 11, the OO-1's choice): back from a physical point v = (p - o) /
+      s, o = -(v0 x s), chosen on accuracy. The candidates, in GW-BASIC's own single precision (the port's arithmetic,
+      bit for bit: `test/mbf.py`), against the exact value (Python's fractions), over 20 windows (spans from 0.001 to
+      2E10, offsets to 1E6 and -32,000, both orders, y up and down) and every physical point of 320, 640 and 200
+      (46,400 values): (p - o) / s mean 0.87 ulp of the exact value, 1,434 values past 1 ulp, at most 1.74 ulp of the
+      window's larger corner; v0 + p / s 1.29, 6,690, 2.00; v0 + p x d / n 1.44, 5,740, 1.81; (p x d + v0 x n) / n
+      1.16, 3,557, 1.74; v0 + p x (1/s) 7,282 past 1 ulp and an overflow. The printed digits are the source's FOUT's
+      (G31 checks each within a unit of its last digit of the exact value).
+    - **POINT(n)** (U2): POINTP evaluates `(` and the first formula, then `)` is POINT(n) (n rounded, 0-3, else
+      Illegal function call) and `,` the (x,y) form; SCREEN 0 Illegal function call before either; (x,y) past the
+      viewport -1 (answer 4).
+    - **LINE's style** (U3, P5): `[,[attribute][,[B]][,style]]`, the style an integer (GETIN2) in LSTYL, `$FFFF`
+      outside a LINE statement (CIRCLE's lines and DRAW unchanged); a styled BF Syntax error (the manual, E10). Each
+      point of LINLP3's and LINCLP's walk turns it a bit left (STYSET inline), set only for a 1; LSKIP turns it by the
+      points it skips. The owner's answer 9, the OO-1's: bit 15 first, in DOGRPH's order, each statement from bit 15,
+      a B box one mask on in BOXLIN's order; a clipped line counted from its given start (answer 7, E11).
+    - **PAINT's tiles** (U4, P5): a string paint is a tile of 1-64 bytes (else Illegal function call: E12), copied by
+      PAINTP to TXBUF before the aperture is mapped (answer 5; the stub's TXSYNC); the boundary's default the mode's
+      foreground. Row y takes byte y MOD the length, its pixels from the high bits at x MOD 4 or 8 of the viewport's x
+      (TROWS, TSPLIT; PCHG sets each pixel to the tile's, CPAT its pattern). The background: a string's first byte
+      ("" none; a number Type mismatch, E13; with a numeric paint taken and not used); a run that changed nothing
+      still counts as painted when its old pixels are all the background's (TEND); three tile bytes in a row equal to
+      it, or the whole tile, Illegal function call (the manual's p. 243). **With no background given it is CHR$(0)**
+      (the owner's answer 13, the OO-1's choice under rule 4: a blank area isn't "already painted", so it shouldn't end
+      a fill, the manual's p. 243 read for meaning; and the manual's own refusal applies to that default, so CHR$(0),
+      CHR$(0)+CHR$(0) or three 00 bytes in a row are Illegal function call). CPAT goes back to ATRBYT's at PAINT's
+      end and at DRAW's start (a tiled PAINT broken off by ^C or Out of memory). The reserve's (b) isn't used: P5 was
+      1,500 free after U4, over its 1,450 (answer 6).
+    - **PEN** (answer 1): nothing in 7e4; PENF and PENS, with an OEM RDPEN reporting no pen, are 7f's.
+    - **Sizes** (bytes; main `ae8b59d9` → after 7e4, the plan's point in brackets): free for BASIC 34,874 → **34,869**
+      [34,869; the line 34,850]; GWBASIC.COM 14,892 → 14,897, GWBASIC.OVL 61,696 → 64,128; **P1 3,802 → 2,968 free** [3,334; the line 2,900]; **P2 6,449 →
+      6,435** (the words); **P3 3,784 → 3,763** [3,750; the line 3,500]; **P5 2,551 → 1,500** [1,525, 7e3's ratio
+      1,348; the line 1,400]; **P8 7,729 → 7,085** [7,421; the line 6,500]. P4 and P6 differ from main's only in moved
+      resident addresses (P4 95 words and 1 byte, P6 96 words); P3 differs by CIRCA's radius. P1 took ~810 for the plan's 468 (window.s in full, its 74 bytes of RAM); P5
+      ~1,050 for 1,026.
+    - **Cycles** (G37 and the earlier gates, the fast build, timed()'s method): `PSET (X%,Y%),1` under VIEW (10,10)-(300,190) in SCREEN 2
+      **2,181** (the gate 9,000; estimated ~2,060), with no viewport 2,146 (was 2,011: MAPXYC's corner and SCANDX's
+      test); under WINDOW (0,0)-(639,199) **10,137** (15,000; ~7,500); a whole SCREEN 2 PAINT with a two-byte tile
+      **29,653,425** (50 M; 33-38 M), solid 29,510,302 (40 M; was 28.1 M: PCHG's call a pixel); LINE (0,0)-(639,199)
+      **147,264** (200,000; ~145,700, the style's turn at every point). For the record: PSET under VIEW SCREEN 4,262,
+      PSET STEP(1,1) under the window 19,595, `X=PMAP(X%,0)` 6,607, the styled `,,&HAAAA` LINE 117,933, `VIEW
+      (0,0)-(639,199),1,1` 3,935,363, CLS in a half-screen viewport 1,727,463. The earlier gates held: CIRCLE r=50
+      334,303 (400,000), the 100-move DRAW 346,330 (500,000), GET and PUT's sprite 63,587 and 67,679 (100,000), PRINT
+      A$; 20,982 (30,000), the scroll's 13,299 (14,000).
+    - **Tests** (test_gwbasic_gfx G29-G37, test_gwbasic_core G11; gwbasic/gfx29-gfx37, the .out files PC-BASIC's
+      by oracle.sh; each seen failing under its mutant on its own case, OOE_TEST_CASES, the source then restored):
+      - G29 `view_draws_inside_its_viewport` (gfx29, gfx30 against PC-BASIC's; by hand DEF SEG's page and SCREEN(
+        absolute): (a) MAPXYC without the corner; (b) SCALXY's clamp on GMAXX; (c) DSGPK by MAPXYC, not MAPABS;
+      - G30 `view_errors_cls_and_the_words`: GCLS ignoring VWON;
+      - G31 `window_and_pmap_match_pc_basic` (gfx31-gfx33; the singles against the exact values): (a) no y inversion;
+        (b) WFWD truncating (INT);
+      - G32 `point_n_reports_the_cursor`: POINT(2) the physical with a window;
+      - G33 `view_and_window_end_at_run_and_screen`: GRPRST without VWRSTW;
+      - G34 `line_styles_match_pc_basic` (gfx34): (a) the mask turned right; (b) BOXLIN restarting it at each side;
+      - G35 `paint_tiles_match_pc_basic` (gfx35, gfx36; the default's refusals by hand, under a time limit): (a)
+        TROWS's row for PNY + 1; (b) TEND left out; (c) no default background; (d) the default's refusal left out;
+      - G36 `view_window_style_and_tiles_keep_block_1` (gfx37): the tile copied to TXBUF after MAPXYC;
+      - G37 `view_window_style_and_tiles_are_timed`: STYSET mapping the bank at every point;
+      - G11 (test_gwbasic_core, answer 12): VIEW's stub without its SCRMOD test.
+      The mutants are logged in the scratchpad's 7e4/mut.log.
+    - **Expectation changes:** G18 (`{69,73}` and `{70,73}` dropped: PC-BASIC's 0) and G11 (answer 12), as approved.
+      No other expected output changed.
+    - **Recorded deviations and judgements** (for the owner): E1 RUN ends VIEW and WINDOW (the manual); E2 CLEAR and
+      NEW too (answer 7); E3 a SCREEN that changes nothing keeps them (answer 2); E4 the fill and CLS the viewport
+      alone, no ring (the manual); E5 sorted corners' border drawn (the manual); E6 VIEW SCREEN alone the whole screen
+      (answer 7); E7 POINT past the viewport -1 (answer 4); E8 VIEW SCREEN with WINDOW mapped onto the viewport where
+      it is (answer 3); E9 PMAP and POINT(n) in SCREEN 0 Illegal function call (the manual); E10 a styled BF Syntax
+      error; E11, E12, E13 and E15 (answer 7); E14 PAINT off the screen moves the cursor (the source's); E16 lines on
+      their own slope (A6); E18 CLS in a viewport leaves the text (answer 7); the tile's default background (answer
+      13). Judgements: VIEW's checks in the home block (P5's room); CIRCLE's ring is the source's (148 pixels for
+      radius 27, window or not; PC-BASIC 140). `LINE ...,3,,&H5555.` (a hex constant then ".") is the source's
+      behaviour, older than 7e4 (review round 1, F5): CRUNCH stores &H5555 (OCTCNS stops at the "."), the "." is
+      crunched as a constant 0 of its own, the line is drawn with &H5555, then NEWSTT finds the stray constant: Syntax
+      error (PC-BASIC's parser errs before it draws). Left out of gfx34's comparison, G34 checks it by hand.
+    - **Review round 1** (the owner, 2026-11-20, "recommendations as listed"):
+      - F1: a numeric paint's string background is taken and not used and its temporary freed (it leaked one of the
+        ten: String formula too complex after ten such PAINTs); G35 runs fifteen in a row.
+      - F2: PMAP under VIEW SCREEN, the corner added (0, 1) or taken off (2, 3), past the integer range is Overflow
+        (answer 7), not a wrap; G31 checks both ways.
+      - F3: taking VIEW SCREEN's corner off an absolute point (VSOFF: SCAND, DRAW's M) that leaves the integer range
+        is **Overflow**, nothing drawn: the owner's choice under rule 4 (answer 16; the source and the manual are
+        silent; clamping, which would change a sloped line's slope, declined); G29 checks a line and a BF box.
+      - F4 (room): the reviewer's trims T1-T7: WINDOW's mode check and the corners' sorting in the home block's
+        stub, PMAP's mode and n checks in PMAPH (errors and their order unchanged), WAXIS's v0 stored as it is
+        loaded, VIEW SCREEN's y offset a word (WOFFX gone), WPNT falling into WINV, WINRAD's result taken by P3's
+        CIRCA, P1's scratch shared within W. P1 2,968 → 3,134 free (with F2's 8 bytes), P8 7,085 → 6,985, P3 3,763
+        → 3,755, P5 1,500 → 1,480 (F1, F3).
+      - F5: the `&H5555.` case recorded as the source's (above).
+    - **Not done in 7e4:** PEN (7f); the OO-1's modes, which must take the viewport's origin, the style and the tiles
+      in their own pixel routines (7e5, whose plan starts with the reserve's (a)); the books (7g), with VIEW SCREEN's
+      reading (answer 3), the tile's default background and the overlay's CLS. Then one review round, the triage gate,
+      fixes, merge on the owner's word.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
@@ -5684,7 +5811,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | SCREEN, WIDTH, CLS | OOLIB's `GX_LAYER`, `GX_SHOW`, `GX_VALLOC`; `GX_CONSOLE` at SYSTEM. *As built (7d1):* the layer by P5's `TXMODE` (`GX_LAYER`, `GX_SCROLL`, `GX_BORDER`, `GX_SHOW`), the pages by one `GX_VALLOC` at start-up; no `GX_CONSOLE`: the warm boot shows the console again | PC's SCREEN 1 (320 × 200) fits no bitmap: bitmap 256 is 256 wide, bitmap 512 can't double 320. Decided ([question 9](#phase-7s-questions)): a 4-bit tile layer used as a frame, a tile a cell (40 × 25, 1,000 tiles), plotted by GW-BASIC's own routine. SCREEN 2 (640 × 200): mono, each row drawn twice. Neither needs OOLIB changed. *As built (7e1):* so, by P5's `GMODE` (a page each, kept); WIDTH 40/80 picks SCREEN 1/2 in a graphics mode; CLS clears the page |
 | COLOR, PALETTE | the text layer's attributes; `GX_PALSET`, `GX_PALSHOW` (slot 1) | `GX_PALINIT`'s shadow is in P5. `DM_VBSET` takes a physical source and function 73 translates W3's block, so it should work. 7e checks it, and if not, the shadow (512 bytes) goes to fixed RAM. *As built (7e1; answer 10):* no shadow and no gxpal: GW-BASIC's own palette in card memory, its entries copied on the card (`DM_VCOPY`) as COLOR sets them; COLOR in SCREEN 1 the backdrop and the group (PALOFS) |
 | LOCATE, CSRLIN, POS | the text driver's own cursor (a cell attribute, as the console's) | — |
-| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line off the screen clipped as PC-BASIC clips it (each end at most one pixel past the screen, only the pixels on it set: the owner's ruling, not the source's truncation). *As built (7e2):* CIRCLE (ADVGRP.ASM's ring and arcs, its parse in P3), PAINT (the source's queue in free memory on the OO-1's SCANR, SCANL, TUPC, TDOWNC, PNTINI), DRAW (MACLNG in P3; TA and P the OO-1's, the manual's), GTASPC 213/107 (the manual's 5/6, 5/12). *As built (7e3):* GET and PUT (ADVGRP.ASM's, the corners in P5, the array in P3) on the OEM's PGINIT, NREAD and NWRITE (`p5/gfxoem.s`: the manual's array format, the five actions, each row through TXBUF, the byte paths where a row starts on a CGA byte) |
+| PSET, PRESET, POINT, LINE, CIRCLE, PAINT, DRAW, GET/PUT, VIEW, WINDOW | Microsoft's code; the primitives through slot 1 (`GX_VMAP`) | PAINT's tile patterns and CIRCLE's aspect are GW-BASIC's, so its pixels match the oracle's. *As built (7e1):* PSET, PRESET, POINT, LINE with B and BF on P5's own pixel routines (`p5/gfxoem.s`), slot 1 mapped at a bank's crossing; a line off the screen clipped as PC-BASIC clips it (each end at most one pixel past the screen, only the pixels on it set: the owner's ruling, not the source's truncation). *As built (7e2):* CIRCLE (ADVGRP.ASM's ring and arcs, its parse in P3), PAINT (the source's queue in free memory on the OO-1's SCANR, SCANL, TUPC, TDOWNC, PNTINI), DRAW (MACLNG in P3; TA and P the OO-1's, the manual's), GTASPC 213/107 (the manual's 5/6, 5/12). *As built (7e3):* GET and PUT (ADVGRP.ASM's, the corners in P5, the array in P3) on the OEM's PGINIT, NREAD and NWRITE (`p5/gfxoem.s`: the manual's array format, the five actions, each row through TXBUF, the byte paths where a row starts on a CGA byte)  *As built (7e4):* VIEW, WINDOW, PMAP, POINT(n), LINE's style and PAINT's tiles are the OO-1's, from the manual: the viewport inside P5's coordinates (MAPXYC adds its corner), the window's map in P1, the tile in TXBUF |
 | SOUND, BEEP | `MU_TONE` on a voice; `SN_BEEP` | SOUND's length is in 1/18.2 s ticks: × 54.9 ms |
 | PLAY, ON PLAY | GW-BASIC parses the string, `MU_NOTE` and `MU_INSTR`; `MU_EVENT`, `MU_COUNT` for the queue's count | MB's 32 notes a voice is the L6 queue as decided. Nothing missing |
 | STICK, STRIG, ON STRIG | the event area's controllers 1 and 2 (`EV_CTL`); `EK_CTL` events latch STRIG's "pressed since" | STICK's 0–255 range, against a PC's roughly 1–200: kept 0–255 and documented |

@@ -37,7 +37,9 @@
 .import GX_W1BACK
 
 .export PSETP, PRSETP, POINTP, GLINEP, GRPRST, GRPINI, GCELL
+.import VWRSTW
 .import CHRGTR, CHRGT2, SYNCHR, GETIN2, GETBYT, FCERR, SNERR, MAKINT
+.import FRMEVL, FRCSNG, INTFR2, CONINT, GFLG, OVERR
 
 ; Push and pull a word of zero page.
 .macro  PSHW    zp
@@ -66,7 +68,11 @@
 ; SCAN1: the first point of two: "@" passed over; none (a "-" next) the
 ; graphics cursor. SCAND: (x,y) or STEP(x,y), STEP's relative to the
 ; cursor. Both: the cursor (GRPACX, GRPACY) and GXPOS, GYPOS made the point,
-; CX x and DX y.
+; CX x and DX y. 7e4: SCANDX takes it on from the first formula evaluated
+; (POINTP's way in), Z relative; under a WINDOW (GFLG bit 7) x and y are
+; singles, mapped by P1's WINXY to the viewport's point (STEP in world
+; units from the cursor mapped back); else integers, an absolute point's
+; VIEW SCREEN offset taken off (VSOFF).
 SCAN1:          LDA     (TXTPTR)
                 CMP     #'@'
                 BNE     :+
@@ -84,7 +90,12 @@ SCAND:          LDA     (TXTPTR)
                 JSR     CHRGTR
 :               JSR     SYNCHR
                 .byte   '('
-                JSR     GETIN2         ; x
+                JSR     FRMEVL         ; x
+                PLP
+SCANDX:         PHP
+                BIT     GFLG
+                BMI     SCANW          ; a window
+                JSR     INTFR2
                 PSHW    RDL
                 JSR     SYNCHR
                 .byte   ','
@@ -108,11 +119,65 @@ SCANN:          BNE     @abs
                 LDA     GRPACY + 1
                 ADC     RDH
                 STA     RDH
-@abs:           MOVW    GRPACX, RCL
+                BRA     SCANS
+@abs:           JSR     VSOFF          ; 7e4: absolute, VIEW SCREEN's offset off
+SCANS:          MOVW    GRPACX, RCL
                 MOVW    GXPOS, RCL
                 MOVW    GRPACY, RDL
                 MOVW    GYPOS, RDL
                 RTS
+SCANW:          JSR     FRCSNG         ; x, on the 6502's stack across y
+                LDX     #3
+@p:             LDA     FACLO,X
+                PHA
+                DEX
+                BPL     @p
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL         ; y
+                JSR     FRCSNG
+                JSR     SYNCHR
+                .byte   ')'
+                LDX     #0             ; x in BXDX
+@q:             PLA
+                STA     RDL,X
+                INX
+                CPX     #4
+                BCC     @q
+                PLP
+                BNE     @a
+                LDA     #$80           ; STEP
+                BRA     @g
+@a:             LDA     #0
+@g:             PHA
+                MOVW    RCL, GRPACX
+                MOVW    RSI, GRPACY
+                PLA
+                FJSR    WINXY
+                BRA     SCANS
+
+; VSOFF (OO-1, 7e4): CX, DX an absolute point made the viewport's: VIEW
+; SCREEN's offset (VWSX, VWSY; 0 under VIEW, and with none) taken off. Past
+; the integer range Overflow (review round 1, F3: the owner's answer 16).
+; Only from a statement's parse, before anything is drawn.
+VSOFF:          SEC
+                LDA     RCL
+                SBC     VWSX
+                STA     RCL
+                LDA     RCH
+                SBC     VWSX + 1
+                STA     RCH
+                BVS     VSOV
+                SEC
+                LDA     RDL
+                SBC     VWSY
+                STA     RDL
+                LDA     RDH
+                SBC     #0
+                STA     RDH
+                BVS     VSOV
+                RTS
+VSOV:           JMP     OVERR
 
 ; --- PSET, PRESET, POINT (GENGRP.ASM 155) -----------------------------------------------------
 
@@ -137,13 +202,19 @@ PSTNOT:         RTS
 ; GYPOS, GRPACY and GRPACX kept on the 6502's stack across it, so that
 ; LINE (x1,y1)-(x2,y2),POINT(x3,y3) draws as it reads. OO-1 (the IBM
 ; manual, p. 258: the coordinates absolute): POINT STEP, which the source's
-; SCAND takes, is Syntax error.
+; SCAND takes, is Syntax error. 7e4 (pp. 258-260): POINT(n), n 0-3 (rounded;
+; else Illegal function call): 0 and 1 the cursor's x and y (VIEW SCREEN's
+; offset added: absolute there), 2 and 3 the same under a WINDOW mapped back
+; to world coordinates (P1's WPNT), else as 0 and 1; and (x,y) -1 off the
+; viewport (the owner's answer 4). SCREEN 0 Illegal function call first.
 POINTP:         JSR     CHRGTR
                 CMP     #STEP_TK
                 BNE     :+
                 JMP     SNERR
-:
-                JSR     FETCHC
+:               JSR     PIXSIZ         ; OO-1: SCREEN 0 has no pixels (PC-BASIC's)
+                BNE     :+
+                JMP     FCERR
+:               JSR     FETCHC
                 LDX     #CSIZE - 1     ; C: CSAV and CSAVP
 @c:             LDA     CSAV,X
                 PHA
@@ -153,11 +224,15 @@ POINTP:         JSR     CHRGTR
                 PSHW    GXPOS
                 PSHW    GRPACY
                 PSHW    GRPACX
-                JSR     SCAND
-                JSR     PIXSIZ         ; OO-1: SCREEN 0 has no pixels (PC-BASIC's)
-                BNE     :+
-                JMP     FCERR
-:               JSR     SCALXY
+                JSR     SYNCHR
+                .byte   '('
+                JSR     FRMEVL
+                LDA     (TXTPTR)
+                CMP     #')'
+                BEQ     PNTN           ; POINT(n)
+                LDA     #1             ; (Z clear: absolute)
+                JSR     SCANDX
+                JSR     SCALXY
                 LDA     #$FF           ; -1: not on the screen
                 STA     RBL
                 STA     RBH
@@ -168,7 +243,7 @@ POINTP:         JSR     CHRGTR
                 STZ     RBH
                 JSR     GX_W1BACK      ; (OO-1)
 PNTNOT:         JSR     MAKINT
-                PULW    GRPACX
+PNTRST:         PULW    GRPACX
                 PULW    GRPACY
                 PULW    GXPOS
                 PULW    GYPOS
@@ -181,10 +256,51 @@ PNTNOT:         JSR     MAKINT
                 JSR     STOREC
                 DECW    TXTPTR         ; the flags for what follows ")"
                 JMP     CHRGTR
+PNTN:           JSR     CONINT         ; n
+                CMP     #4
+                BCC     :+
+                JMP     FCERR
+:               PHA
+                JSR     SYNCHR
+                .byte   ')'
+                PLA
+                LSR     A              ; C: y; A: 1 for 2 and 3
+                PHP
+                BEQ     @p             ; 0, 1
+                BIT     GFLG
+                BPL     @p             ; no window
+                PLP                    ; the cursor's axis mapped back
+                BCS     @wy
+                MOVW    RCL, GRPACX
+                LDA     #0
+                BRA     @w
+@wy:            MOVW    RCL, GRPACY
+                LDA     #1
+@w:             FJSR    WPNT
+                JMP     PNTRST
+@p:             PLP                    ; the cursor, VIEW SCREEN's offset added
+                BCS     @y
+                CLC
+                LDA     GRPACX
+                ADC     VWSX
+                STA     RBL
+                LDA     GRPACX + 1
+                ADC     VWSX + 1
+                STA     RBH
+                JMP     PNTNOT
+@y:             CLC
+                LDA     GRPACY
+                ADC     VWSY
+                STA     RBL
+                LDA     GRPACY + 1
+                ADC     #0
+                STA     RBH
+                JMP     PNTNOT
 
 ; GCELL (OO-1, P6's SCREEN( in a graphics mode: the IBM manual's p. 311):
 ; C set if any of the 8 x 8 pixels under the text cell at row RDL, column
-; RCL (from 0) isn't 0. The graphics cursor kept.
+; RCL (from 0) isn't 0. The graphics cursor kept. 7e4: the cell's pixels
+; the screen's, whatever the viewport (MAPABS).
 GCELL:          JSR     FETCHC
                 STZ     RCH
                 LDX     #3
@@ -196,7 +312,7 @@ GCELL:          JSR     FETCHC
                 STZ     RDH
                 LDA     #8
                 STA     GCR
-@r:             JSR     MAPXYC
+@r:             JSR     MAPABS
                 LDA     #8
                 STA     GCN
 @p:             JSR     READC
@@ -311,29 +427,54 @@ XCHGX:          LDA     RCL
 ; --- LINE (GENGRP.ASM 323) --------------------------------------------------------------------
 
 ; GLINEP: TXTPTR after LINE (not INPUT: the home block's stub, p8/gwmain.s).
+; 7e4 (the IBM manual's pp. 156-159): [,[attribute][,[B]][,style]], the
+; style an integer (GETIN2), a 16-bit mask whose 1 bits plot (LSTYL, $FFFF
+; outside a LINE statement): BF takes none (NEWSTT's Syntax error at the
+; comma). The OO-1's (the owner's answer 9): the first point drawn takes
+; bit 15, in the order DOGRPH draws, a B box's four sides one mask on in
+; BOXLIN's order, each statement from bit 15 again; a clipped line counts
+; from its given start (answer 7, E11: LSKIP).
 GLINEP:         JSR     SCAN1          ; the first point
                 PSHW    RCL
                 PSHW    RDL
                 JSR     SYNCHR
                 .byte   MINUTK
                 JSR     SCAND          ; the second
+                STZ     GLB
                 JSR     ATRSCN
-                PHP                    ; Z: the statement ended
-                PLX
-                PULW    RDL
-                PULW    RCL
-                PHX
-                PLP
-                BNE     :+
-                JMP     DOLINE         ; a line
-:               JSR     SYNCHR
+                BEQ     @ln            ; the statement ended: a line
+                JSR     SYNCHR
                 .byte   ','
+                CMP     #','
+                BEQ     @st            ; ",,": a line's style
                 JSR     SYNCHR
                 .byte   'B'
-                BNE     :+
-                JMP     BOXLIN         ; B: the box
-:               JSR     SYNCHR
+                BEQ     @bx            ; B: the box
+                CMP     #','
+                BEQ     @bs            ; B,style
+                JSR     SYNCHR
                 .byte   'F'            ; BF: filled
+                PULW    RDL
+                PULW    RCL
+                BRA     DOBOXF
+@bs:            DEC     GLB            ; (bit 7: the box)
+@st:            JSR     SYNCHR
+                .byte   ','
+                JSR     GETIN2         ; the style (nothing after it can fail)
+                MOVW    LSTYL, RDL
+                BIT     GLB
+                BMI     @bx
+@ln:            PULW    RDL
+                PULW    RCL
+                JSR     DOLINE         ; a line
+                BRA     @end
+@bx:            PULW    RDL
+                PULW    RCL
+                JSR     BOXLIN
+@end:           LDA     #$FF           ; solid again
+                STA     LSTYL
+                STA     LSTYL + 1
+                RTS
 DOBOXF:         JSR     BOXOFF         ; OO-1 (review round 1, F1): a box wholly
                 BCC     :+             ; past one edge draws nothing (PC-BASIC's;
                 RTS                    ; the truncation would fill that edge)
@@ -369,7 +510,7 @@ BOXLOP:         JSR     FETCHC
 
 ; BOXOFF (OO-1): C set if the box (CX, DX)-(GXPOS, GYPOS) lies wholly past
 ; one edge of the screen: both x below 0 or past the last, or both y below
-; 0 or past 199.
+; 0 or past 199 (7e4: the viewport's edges).
 BOXOFF:         LDA     RCH
                 AND     GXPOS + 1
                 BMI     @yes           ; both x < 0
@@ -396,14 +537,15 @@ BOXOFF:         LDA     RCH
                 RTS
 @yes:           SEC
                 RTS
-; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199.
+; XPAST, YPAST: C set if A/X (signed) is past the last x, or past 199
+; (7e4: the viewport's, VWMX and VWMY).
 XPAST:          CPX     #$80
                 BCS     @n             ; negative
                 STA     T0
                 STX     T1
-                LDA     GMAXX
+                LDA     VWMX
                 CMP     T0
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     T1
                 BCS     @n             ; the last >= x
                 SEC
@@ -414,8 +556,9 @@ YPAST:          CPX     #$80
                 BCS     @n
                 CPX     #0
                 BNE     @p
-                CMP     #200
-                RTS                    ; (C: y >= 200)
+                CLC
+                SBC     VWMY
+                RTS                    ; (C: y > VWMY)
 @p:             SEC
                 RTS
 @n:             CLC
@@ -520,7 +663,14 @@ LINCN3:         MOVW    MAXDEL, LMAJ
                 ; (on into LINLP3)
 
 ; LINLP3 (GWSTS.ASM 486): the line's inner loop. DX the sum, CX the points.
-LINLP3:         JSR     SETC
+; 7e4: each point turns LINE's style (LSTYL) a bit left, the bit out of
+; bit 15 back into bit 0, and is set only for a 1 (STYSET).
+LINLP3:         ASL     LSTYL
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+                JSR     SETC
+:
                 CLC
                 LDA     RDL
                 ADC     MINDEL
@@ -569,7 +719,12 @@ LINCLP:         MOVW    LX, RCL
                 INCW    LCNT           ; (0: 65,536, the loop's DEC first)
                 JSR     LSKIP
                 BCS     LCLX           ; never on the screen
-@pt:            JSR     LONSCR
+@pt:            ASL     LSTYL          ; 7e4: the style turned at every point of the walk
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+:               ROR     LBIT           ;   (bit 7: this point's bit)
+                JSR     LONSCR
                 BCC     @off
                 LDA     LVIS
                 BNE     @set
@@ -577,7 +732,9 @@ LINCLP:         MOVW    LX, RCL
                 MOVW    RCL, LX
                 MOVW    RDL, LY
                 JSR     MAPXYC
-@set:           JSR     SETC
+@set:           BIT     LBIT
+                BPL     @step
+                JSR     SETC
                 BRA     @step
 @off:           LDA     LVIS
                 BNE     LCLX           ; past the screen: done
@@ -681,12 +838,12 @@ LSKIP:          LDA     LYM
                 BCC     LSKNO
                 SEC
                 LDA     LX
-                SBC     GMAXX
+                SBC     VWMX
                 STA     LK
                 LDA     LX + 1
-                SBC     GMAXX + 1
+                SBC     VWMX + 1
                 STA     LK + 1
-                MOVW    LX, GMAXX
+                MOVW    LX, VWMX
 @k:             LDA     LCNT           ; 0: 65,536 points, more than any k
                 ORA     LCNT + 1
                 BEQ     :+
@@ -696,7 +853,17 @@ LSKIP:          LDA     LYM
                 SBC     LCNT + 1
                 BCC     :+
                 RTS                    ; (C set) k points or fewer: none get there
-:               SEC                    ; the points left
+:               LDA     LK             ; 7e4: the style turned by the points skipped
+                AND     #15
+                TAX
+                BEQ     @t
+@tl:            ASL     LSTYL
+                ROL     LSTYL + 1
+                BCC     :+
+                INC     LSTYL
+:               DEX
+                BNE     @tl
+@t:             SEC                    ; the points left
                 LDA     LCNT
                 SBC     LK
                 STA     LCNT
@@ -829,6 +996,7 @@ GRPRST:         PSHW    RCL            ; CX and BX kept (DX isn't, as the source
                 STZ     DRWSCL         ; DRAW's scale and angle (7e2; and TA's, OO-1)
                 STZ     DRWANG
                 STZ     DRWTA
+                JSR     VWRSTW         ; 7e4: RUN, CLEAR and NEW end VIEW and WINDOW
                 JSR     GRPINI
                 SEC
                 JSR     GETFBC
@@ -884,3 +1052,5 @@ LK:             .res    2              ; LSKIP's k, the steps skipped
 LP:             .res    4              ;   k x MINDEL + the sum, then its quotient and remainder
 GCR:            .res    1              ; GCELL's rows
 GCN:            .res    1              ;   and pixels left in the row
+GLB:            .res    1              ; 7e4: GLINEP's bit 7, a box with a style
+LBIT:           .res    1              ;   LINCLP's: bit 7 the point's style bit

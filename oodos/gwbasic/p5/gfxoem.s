@@ -5,11 +5,14 @@
 ; through aperture slot 1 in W1 (OOLIB's gxmem, the W1 contract):
 ;
 ;   SCALXY    CX, DX (x, y, signed) made a point of the screen: each clipped
-;             to 0 and the mode's last; carry set if both were on it already
+;             to 0 and the mode's last (7e4: the viewport's, VWMX and VWMY);
+;             carry set if both were on it already
 ;             (PSET, POINT, and BF's corners; a line's ends are clipped by
 ;             p5/gengrp.s's LINCLP)
 ;   MAPXYC    C, the graphics cursor, made the pixel at CX, DX (on the
-;             screen), and the aperture put in W1 on its card bank
+;             screen), and the aperture put in W1 on its card bank. 7e4: CX,
+;             DX the viewport's, its corner (VWOX, VWOY) added for the card,
+;             CX and DX kept; MAPABS the same of a point of the screen
 ;   SETC      the cursor's pixel set to the attribute's colour (SETATR's)
 ;   READC     A the cursor's pixel's attribute
 ;   RIGHTC LEFTC DOWNC UPC   the cursor moved by a pixel (off the screen
@@ -73,14 +76,14 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 STZ     RCH
                 INY
                 BRA     @y
-:               LDA     GMAXX          ; x > the last
+:               LDA     VWMX           ; x > the last
                 CMP     RCL
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     RCH
                 BCS     @y
-                LDA     GMAXX
+                LDA     VWMX
                 STA     RCL
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 STA     RCH
                 INY
 @y:             LDA     RDH
@@ -90,10 +93,10 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
                 INY
                 BRA     @f
 :               BNE     @yh            ; y > 255
-                LDA     RDL
-                CMP     #200
-                BCC     @f
-@yh:            LDA     #199
+                LDA     VWMY
+                CMP     RDL
+                BCS     @f
+@yh:            LDA     VWMY
                 STA     RDL
                 STZ     RDH
                 INY
@@ -105,7 +108,29 @@ SCALXY:         LDY     #0             ; Y: 1 once a coordinate was clipped
 
 ; --- MAPXYC -----------------------------------------------------------------------------------
 
-MAPXYC:         LDX     GMX
+MAPXYC:         LDA     RCL            ; 7e4: the viewport's corner added, CX and DX kept
+                PHA
+                CLC
+                ADC     VWOX
+                STA     RCL
+                LDA     RCH
+                PHA
+                ADC     VWOX + 1
+                STA     RCH
+                LDA     RDL
+                PHA
+                CLC
+                ADC     VWOY
+                STA     RDL
+                JSR     MAPABS
+                PLA
+                STA     RDL
+                PLA
+                STA     RCH
+                PLA
+                STA     RCL
+                RTS
+MAPABS:         LDX     GMX
                 JMP     (MAPV - 2,X)
 
 ; The tiles: T2:T1 the byte's offset (above).
@@ -514,13 +539,14 @@ UPT:            LDA     CY7
 ;           the skip: BX the count, CL the flag; the cursor left at the
 ;           run's leftmost pixel (the cursor's own if none)
 ;   TUPC    a row up, TDOWNC down: carry set, and no move, at row 0 or 199
+;           (7e4: the viewport's last, VWMY)
 ;   PNTINI  A the border's attribute: past the mode's last colour the last
 ;           (as SETATR); carry clear (every attribute is legal)
 ;   PSTOR   C made (RCL/RCH, PNY), PNX that x (MAPXYC); DX kept
 SCANR:          STZ     RCL
-@skip:          LDA     GMAXX          ; past the edge: none
+@skip:          LDA     VWMX           ; past the edge: none (7e4: the viewport's)
                 CMP     PNX
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     PNX + 1
                 BCC     @none
                 JSR     READC
@@ -542,31 +568,31 @@ SCANR:          STZ     RCL
                 STX     PCSX
                 LDX     PNX + 1
                 STX     PCSX + 1
+                LDX     TBGF           ; 7e4: the run all the background's, so far
+                STX     TALLB
                 STZ     RBL
                 STZ     RBH
                 BRA     @in
-@r:             LDA     GMAXX          ; the edge: the run's end
+@r:             LDA     VWMX           ; the edge: the run's end
                 CMP     PNX
-                LDA     GMAXX + 1
+                LDA     VWMX + 1
                 SBC     PNX + 1
                 BCC     @x
                 JSR     READC
 @in:            CMP     PBORD
                 BEQ     @x
-                CMP     ATRBYT
-                BEQ     :+
-                LDA     #1             ; changed
-                STA     RCL
-                JSR     SETC
-:               INCW    RBL
+                JSR     PCHG
+                INCW    RBL
                 JSR     RIGHTC
                 INCW    PNX
                 BRA     @r
-@x:             RTS
+@x:             JMP     TEND
 
 SCANL:          STZ     RBL
                 STZ     RBH
                 STZ     RCL
+                LDX     TBGF           ; 7e4: (SCANR's)
+                STX     TALLB
 @l:             LDA     PNX             ; x 0: the edge
                 ORA     PNX + 1
                 BEQ     @x
@@ -575,28 +601,26 @@ SCANL:          STZ     RBL
                 JSR     READC
                 CMP     PBORD
                 BEQ     @back
-                CMP     ATRBYT
-                BEQ     :+
-                LDA     #1
-                STA     RCL
-                JSR     SETC
-:               INCW    RBL
+                JSR     PCHG
+                INCW    RBL
                 BRA     @l
 @back:          JSR     RIGHTC         ; the border: back to the run's leftmost
                 INCW    PNX
-@x:             RTS
+@x:             JMP     TEND
 
 TUPC:           LDA     PNY
                 BEQ     TEDGE
                 DEC     PNY
                 JSR     UPC
+                JSR     TROWS          ; 7e4: the tile's row
                 CLC
                 RTS
 TDOWNC:         LDA     PNY
-                CMP     #199
+                CMP     VWMY
                 BCS     TEDGE
                 INC     PNY
                 JSR     DOWNC
+                JSR     TROWS
                 CLC
                 RTS
 TEDGE:          SEC
@@ -626,7 +650,111 @@ PSTOR:          LDA     RCL
                 STA     RDL
                 PLA
                 STA     RDH
-                RTS
+                ; (on into TROWS: 7e4, the tile's row)
+
+; --- PAINT's tiles (7e4) --------------------------------------------------------------------
+
+; The OO-1's (the IBM manual's pp. 236-245; the source has no tiles). A
+; string paint is a tile of 1-64 bytes, copied by PAINTP (p5/advgrp.s) to
+; TXBUF before the aperture is mapped (TXBUF is below $4000: readable with
+; the aperture in W1; the home block's PAINT stub emptied it, TXSYNC). Row y
+; takes byte y MOD TLEN; each byte's pixels across from the high bits (2
+; bits a pixel in SCREEN 1, 1 in SCREEN 2), the pixel at x MOD 4 or 8 of
+; the viewport's own x (the owner's answer 7). The background (TBG, a
+; string's first byte) lets the fill pass through rows already painted with
+; it: a run that changed nothing still counts as painted when its old pixels
+; are all the background's row pattern (TEND).
+;
+;   TROWS   PNY's row of the tile split into TCOL (a pixel's colour at each
+;           place); nothing if no tile
+;   TSET    the tile's set-up, after the parse: TBITS, TPN, TPM, the
+;           background's row (TBGP)
+;   PCHG    A a run's pixel's old value (not the border): set to the fill's
+;           (ATRBYT's, or the tile's at PNX, CPAT its pattern), RCL 1 if it
+;           changed
+;   TEND    a run's end: with a background, RCL 1 if every pixel of the run
+;           was the background's
+TROWS:          BIT     TILEF
+                BPL     TRX
+                LDA     PNY            ; y MOD TLEN
+                SEC
+@m:             SBC     TLEN
+                BCS     @m
+                ADC     TLEN
+                TAY
+                LDA     TXBUF,Y
+                LDY     #0
+                ; (on into TSPLIT)
+; TSPLIT: the tile byte A's pixels' colours to TCOL + Y on.
+TSPLIT:         STA     TROW
+                TYA
+                CLC
+                ADC     TPN
+                STA     TTOP
+@p:             LDA     #0
+                LDX     TBITS
+@b:             ASL     TROW
+                ROL     A
+                DEX
+                BNE     @b
+                STA     TCOL,Y
+                INY
+                CPY     TTOP
+                BNE     @p
+TRX:            RTS
+
+TSET:           JSR     PIXSIZ         ; 2, 1: a pixel's bits
+                STA     TBITS
+                LSR     A              ; the pixels a byte: 4, 8; less one
+                LDA     #4
+                BCC     :+
+                LDA     #8
+:               STA     TPN
+                DEC     A
+                STA     TPM
+                LDA     TBG
+                LDY     #TBGP - TCOL
+                BRA     TSPLIT
+
+PCHG:           BIT     TILEF
+                BMI     @t
+                CMP     ATRBYT
+                BEQ     @x
+@s:             LDA     #1             ; changed
+                STA     RCL
+                JMP     SETC
+@t:             TAY                    ; the tile's pixel here
+                LDA     PNX
+                AND     TPM
+                TAX
+                TYA
+                CMP     TBGP,X
+                BEQ     :+
+                STZ     TALLB          ; not the background's
+:               CMP     TCOL,X
+                BEQ     @x
+                LDY     TCOL,X         ; its pattern, as SETATR's
+                LDA     PIXPAT,Y
+                LDX     GMODEV
+                CPX     #GM_TILE
+                BEQ     :+
+                TYA
+                BEQ     :+
+                LDA     #$FF
+:               STA     CPAT
+                BRA     @s
+@x:             RTS
+
+TEND:           BIT     TILEF
+                BPL     @x
+                LDA     TALLB
+                BEQ     @x
+                LDA     RBL
+                ORA     RBH
+                BEQ     @x
+                LDA     #1
+                STA     RCL
+@x:             RTS
 
 ; --- GET and PUT's rows, DEF SEG's bytes (7e3, U1): PGINIT, NREAD, NWRITE ---------------
 
@@ -1151,3 +1279,15 @@ PCSX:           .res    2              ;   SCANR's run's first pixel's x (the so
 PBORD:          .res    1              ;   the border's attribute (PNTINI)
 GPCPAT:         .res    1              ; 7e3: CPAT, kept for PGINIT's caller
 GOPV:           .res    2              ;   GOPB's routine, by the action (not zero page: rule 2)
+TILEF:          .res    1              ; 7e4: bit 7, PAINT's paint a tile (TXBUF)
+TLEN:           .res    1              ;   its bytes
+TBG:            .res    1              ;   the background's byte
+TBGF:           .res    1              ;   1: a background given
+TALLB:          .res    1              ;   a run's pixels all the background's so far
+TBITS:          .res    1              ;   a pixel's bits
+TPN:            .res    1              ;   the pixels a byte
+TPM:            .res    1              ;   less one
+TROW:           .res    1              ;   TSPLIT's byte
+TTOP:           .res    1              ;   and its end
+TCOL:           .res    8              ;   the row's pixels' colours, by x MOD TPN
+TBGP:           .res    8              ;   the background's

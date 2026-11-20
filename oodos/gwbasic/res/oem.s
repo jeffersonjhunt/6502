@@ -56,7 +56,7 @@
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
-.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC, STRTAB
+.export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC, STRTAB, GFLG
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
 
         OODOS_HEADER
@@ -716,6 +716,12 @@ KYBQOUT:        .res    1
 ; layer (a revision 2 card answered GX_INIT and CON:'s output has the CRT),
 ; else 0, 7a's console mode, exactly as it was. In LOWRAM, since P5 writes it.
 SCRMOD:         .byte   0
+; 7e4: the graphics' state that more than one block reads (hw/oodos.md,
+; 7e4): bit 0 a graphics mode (P5's GMODE), bit 7 a WINDOW on, bit 6 WINDOW
+; SCREEN (P1's WINSET; P5's GMODE and GRPRST end them). P5's SCAN1, P1's
+; window and P3's CIRCLE test it, so no block reads another's RAM. In LOWRAM,
+; since P5 writes it.
+GFLG:           .byte   0
 .ifndef FLAT
 ; 7d1's: the event area (layout 2, 256 bytes: 16 slots), which P5's GXSTRT
 ; opens in screen mode (FT_OPEN, then GX_INIT with it); OUTDO's run for the

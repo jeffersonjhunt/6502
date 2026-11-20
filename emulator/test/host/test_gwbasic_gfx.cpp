@@ -1,8 +1,9 @@
 /**
  * @file test_gwbasic_gfx.cpp
- * @brief GW-BASIC's graphics, phases 7e1-7e3 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET,
+ * @brief GW-BASIC's graphics, phases 7e1-7e4 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET,
  *        PRESET, POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on a graphics screen; 7e2's CIRCLE, PAINT and
- *        DRAW; 7e3's GET and PUT), run from OODOS's CCP on backplane.machine.
+ *        DRAW; 7e3's GET and PUT; 7e4's VIEW, WINDOW, PMAP, POINT(n), LINE's style and PAINT's tiles), run from
+ *        OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_screen does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -1359,9 +1360,9 @@ TEST(draw_turns_and_paints)
 }
 
 // G18 (7e2): the errors of DRAW, CIRCLE and PAINT (gwbasic/gfx22: 78 statements, each code against PC-BASIC's but
-// the six the source or the manual decides: DRAW "R99999" Illegal function call (NUML01's overflow, D6), "R1 ;;; U1"
+// the four the source or the manual decides: DRAW "R99999" Illegal function call (NUML01's overflow, D6), "R1 ;;; U1"
 // Illegal function call (a ";" alone is no command, D7), "R--5" a move of 5 (each "-" negates, D9), CIRCLE with a
-// negative radius no error (no check, the owner's G9), PAINT's tile and background Advanced Feature until 7e4 (G12));
+// negative radius no error (no check, the owner's G9); since 7e4 PAINT's tile and background, PC-BASIC's 0 too);
 // with S0 Illegal function call (the manual's p. 74) and PAINT off the screen no error (p. 236), as PC-BASIC has
 // them. And by hand: "U;" a move of 0 (the source's empty number, D8); a recursive X Out of memory (MCLXEQ's GETSTK,
 // D15), and the next line runs; DRAW, CIRCLE and PAINT in SCREEN 0 Illegal function call; PAINT off the screen leaves
@@ -1404,7 +1405,7 @@ TEST(graphics_errors_are_the_source_s)
         }
         const std::vector<int> ours = words(shown);
         REQUIRE(pc.size() >= 78 && ours.size() >= 78);
-        const std::map<int, int> source = {{9, 5}, {25, 5}, {28, 0}, {43, 0}, {69, 73}, {70, 73}};
+        const std::map<int, int> source = {{9, 5}, {25, 5}, {28, 0}, {43, 0}};
         unsigned bad = 0;
         for (int i = 0; i < 78; ++i)
         {
@@ -1779,6 +1780,418 @@ TEST(get_and_put_keep_block_1)
     CHECK(q0 < 0x4000 && q1 >= 0x4000);
     CHECK(s0 >= 0x4000 && s1 < 0x8000);
     CHECK(p0 < 0x8000 && p1 >= 0x8000);
+}
+
+// --- 7e4: VIEW, WINDOW, PMAP, POINT(n), LINE's style, PAINT's tiles --------------------------------------------
+
+namespace
+{
+    /// gwbasic/NAME run (it ends in SCREEN 0 with its results in R$(0) to R$(N-1)): each R$ read back, typed as a
+    /// PRINT at the prompt, its rows joined. Empty if the program never ended.
+    std::vector<std::string> results(const std::string &name, uint64_t budget = ms(300000))
+    {
+        CcpRig r;
+        CHECK(r.ok);
+        if (!r.ok || start(r, "m:gwbasic m:" + name, {name}, budget) < 0)
+            return {};
+        enter(r, "WIDTH 80:CLS:PRINT \"N\";N", ms(1500));
+        const int row = last_row(r, "N ");
+        int n = row < 0 ? 0 : std::atoi(line(r, static_cast<unsigned>(row)).c_str() + 1);
+        std::vector<std::string> out;
+        for (int i = 0; i < n; ++i)
+        {
+            enter(r, "CLS:PRINT R$(" + std::to_string(i) + ");\"~\"", ms(400));
+            std::string s;
+            for (unsigned k = 0; k < 6; ++k)
+            {
+                std::string t = line(r, k);
+                const size_t z = t.find('~');
+                if (z != std::string::npos)
+                {
+                    s += t.substr(0, z);
+                    break;
+                }
+                s += t;
+                t.resize(columns(r), ' ');
+                if (line(r, k).size() < columns(r))
+                    s += " "; // (a row that ended short: never, but for a blank's sake)
+            }
+            while (!s.empty() && s.back() == ' ')
+                s.pop_back();
+            out.push_back(s);
+        }
+        return out;
+    }
+
+    /// NAME.out's lines, PC-BASIC's (its blank lines, a 40-column wrap, left out).
+    std::vector<std::string> pc_lines(const std::string &name)
+    {
+        std::vector<std::string> want;
+        for (std::string l : out_lines(name))
+            if (!l.empty())
+                want.push_back(l);
+        return want;
+    }
+
+    /// The results against PC-BASIC's, each line but those `own` gives (the source's or the OO-1's, by hand): the
+    /// lines that differ (the first 8 printed), and the count.
+    unsigned against_pc(const std::string &name, const std::map<size_t, std::string> &own, uint64_t budget = ms(300000))
+    {
+        const std::vector<std::string> got = results(name, budget), want = pc_lines(name);
+        CHECK_EQ(got.size(), want.size());
+        unsigned bad = 0;
+        for (size_t i = 0; i < want.size() && i < got.size(); ++i)
+        {
+            const auto o = own.find(i);
+            const std::string &w = o == own.end() ? want[i] : o->second;
+            if (got[i] != w && ++bad <= 8)
+                std::printf("  %s line %zu:\n    want %s\n    got  %s\n", name.c_str(), i, w.c_str(), got[i].c_str());
+        }
+        return bad;
+    }
+
+    /// The numbers in a line of results (PRINT's: "-1.5E-03" and the like), in order.
+    std::vector<double> numbers(const std::string &s)
+    {
+        std::vector<double> v;
+        const char *p = s.c_str();
+        while (*p)
+        {
+            if ((*p >= '0' && *p <= '9') || *p == '.' || ((*p == '-') && (p[1] == '.' || (p[1] >= '0' && p[1] <= '9'))))
+            {
+                char *e = nullptr;
+                v.push_back(std::strtod(p, &e));
+                p = e;
+            }
+            else
+                ++p;
+        }
+        return v;
+    }
+    /// A printed single (7 digits) within one unit of its last digit of the exact value.
+    bool near_exact(double printed, double exact)
+    {
+        if (exact == 0)
+            return printed == 0;
+        const double unit = std::pow(10.0, std::floor(std::log10(std::fabs(exact))) - 6);
+        return std::fabs(printed - exact) <= unit * 1.01;
+    }
+} // namespace
+
+// G29 (7e4): VIEW draws inside its viewport (the IBM manual's pp. 357-360). gwbasic/gfx29 and gfx30, their results
+// against PC-BASIC's: the viewport's relative points and VIEW SCREEN's absolute ones, the border one pixel outside
+// (each side only where it is on the screen), the fill, the corners sorted and rounded, the colour clamp; PSET,
+// horizontal and vertical lines, BF, CIRCLE, PAINT bounded by the viewport's edges, DRAW from its corner, GET and PUT
+// inside it and Illegal function call past it. By hand (the plan's E-table): the cursor at the viewport's centre by
+// GRPINI's arithmetic, 45 for 91 pixels (E15, the owner's answer 7); POINT -1 past the viewport (answer 4); the
+// sorted corners' border drawn (E5, the manual); VIEW SCREEN alone the whole screen (E6, answer 7); the fill and CLS
+// the viewport's alone, no ring (E4, the manual); a line across the edge on its own slope (A6: the diagonal's pixels,
+// and CIRCLE's crossings of it at 17 and 93); PAINT off the viewport moving the cursor (E14, the source's). And
+// DEF SEG's page and SCREEN( stay the screen's with a viewport set. Guards a program's drawing spilling out of its
+// panel, or placed at the screen's corner, not the panel's. Seen failing with (a) MAPXYC without the viewport's
+// corner, (b) SCALXY's x clamp on GMAXX, not VWMX (a PSET past the viewport's right edge drawn), (c) DSGPC by MAPXYC,
+// not MAPABS (a BLOAD's byte offset by the viewport).
+TEST(view_draws_inside_its_viewport)
+{
+    CHECK_EQ(against_pc("gfx29", {{0, "after view cursor 45 45"}, {1, "rel points 3-1 1-1-1 cur-5-5"},
+                                  {4, "vs pts-1 3-1-1 abs 0 3 1 2"}, {7, "sorted 1 1 1"}, {18, "view screen alone err 0"},
+                                  {23, "cls cursor 45 45 pix 0"}}),
+             0u);
+    const std::string ring = "2222222222", out = "22222222222222222222";
+    std::string row60 = ring + std::string(91, '3') + out, col50 = row60, diag = ring + std::string(91, '1') + out;
+    row60[60] = '1';
+    col50[50] = '1';
+    diag[17] = '3';
+    diag[93] = '3';
+    CHECK_EQ(against_pc("gfx30", {{0, "row60 " + row60}, {1, "col50 " + col50}, {2, "diag " + diag},
+                                  {4, "vsrow50 " + ring + std::string(91, '3') + out},
+                                  {9, "paint off view err 0 cur 200 45 0"}, {16, "cls in view home 45 45"}}),
+             0u);
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:VIEW (100,50)-(200,150):DEF SEG=&H8000:POKE 0,255:A=PEEK(1):POKE 1,&H1B", ms(1500));
+    CHECK_EQ(pixel(r, 0, 0), 3);
+    CHECK_EQ(pixel(r, 3, 0), 3);
+    CHECK_EQ(pixel(r, 100, 50), 0);
+    CHECK_EQ(pixel(r, 5, 0), 1);
+    CHECK_EQ(pixel(r, 7, 0), 3);
+    enter(r, "PSET (150,50),2:PSET (-1,0),3:PSET (101,100),1:PSET (100,100),3", ms(1500));
+    CHECK_EQ(pixel(r, 250, 100), 0); // past the viewport's right edge: nothing
+    CHECK_EQ(pixel(r, 200, 150), 3);
+    CHECK_EQ(pixel(r, 99, 50), 0);
+    enter(r, "VIEW:CLS:LOCATE 10,1:POKE 0,255:VIEW (100,50)-(200,150):PRINT SCREEN(1,1);SCREEN(1,2)", ms(1500));
+    CHECK_EQ(line(r, 9), std::string(" 0  32")); // the cell over the POKEd pixels graphics, the next blank
+    // Review round 1, F3 (the owner's answer 16): VIEW SCREEN's corner taken off a point past the integer range is
+    // Overflow, nothing drawn (not a wrap to the viewport's far side).
+    enter(r, "SCREEN 2:VIEW SCREEN (100,50)-(199,149):LINE (-32700,100)-(150,100),1", ms(2000));
+    CHECK(last_row(r, "Overflow") >= 0);
+    enter(r, "VIEW:CLS:VIEW SCREEN (100,50)-(199,149):LINE (-32700,60)-(150,70),1,BF", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
+    unsigned lit = 0;
+    for (unsigned x = 100; x < 200; ++x)
+        lit += pixel(r, x, 100) + pixel(r, x, 65);
+    CHECK_EQ(lit, 0u);
+}
+
+// G30 (7e4): VIEW's errors, CLS in a viewport and the words. gfx29's errors against PC-BASIC's (G29); by hand: CLS in a
+// viewport clears it alone and leaves the border, the text and the text cursor (E18, the owner's answer 7; the
+// manual's p. 36: no home), its graphics cursor at the viewport's centre; CLS after VIEW alone the page; PALETTE and
+// PMAP as statements Syntax error (PALETTE the source's, G13; PMAP a function only); VIEW and WINDOW in SCREEN 0
+// Illegal function call. Guards CLS wiping a program's whole screen or its text when it meant one panel. Seen failing
+// with GCLS ignoring VWON (the whole page cleared).
+TEST(view_errors_cls_and_the_words)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:LINE (0,0)-(319,199),2,BF:LOCATE 20,3:PRINT \"KEEP\";:VIEW (10,10)-(100,100),1,3:CLS", ms(3000));
+    CHECK_EQ(pixel(r, 50, 50), 0);
+    CHECK_EQ(pixel(r, 9, 50), 3);
+    CHECK_EQ(pixel(r, 101, 101), 3);
+    CHECK_EQ(pixel(r, 200, 50), 2);
+    CHECK_EQ(pixel(r, 5, 5), 2);
+    CHECK(last_row(r, "KEEP") == 19);
+    enter(r, "PRINT POINT(0);POINT(1)", ms(1000));
+    CHECK(last_row(r, " 45  45") >= 0);
+    enter(r, "VIEW:CLS", ms(2000));
+    CHECK_EQ(pixel(r, 200, 50), 0);
+    CHECK_EQ(pixel(r, 9, 50), 0);
+    CHECK(last_row(r, "KEEP") < 0);
+    for (const char *k : {"PALETTE", "PALETTE 1,2", "PMAP 1,2"})
+    {
+        enter(r, std::string("CLS:") + k, ms(800));
+        CHECK_EQ(last_row(r, "Syntax error"), 0);
+    }
+    for (const char *k : {"VIEW (0,0)-(9,9)", "VIEW", "WINDOW (0,0)-(1,1)", "WINDOW", "PRINT PMAP(1,0)", "PRINT POINT(0)"})
+    {
+        enter(r, std::string("SCREEN 0:CLS:") + k, ms(1000));
+        CHECK_EQ(last_row(r, "Illegal function call"), 0);
+    }
+}
+
+// G31 (7e4): WINDOW and PMAP (the manual's pp. 256-257, 370-374). gwbasic/gfx31, gfx32 and gfx33, their results
+// against PC-BASIC's: the manual's two examples, PMAP 0-3 under WINDOW and WINDOW SCREEN, the rounding to the nearest
+// physical point, sorting, STEP in world units from the cursor mapped back, the errors and Overflow, VIEW with WINDOW
+// both ways, CIRCLE's radius by the window's x scale, DRAW in pixels, GET's and PAINT's corners. By hand: the singles
+// mapped back, (p - o) / s (the owner's answer 11), the port's own digits (the source's FOUT) each checked within a
+// unit of its last digit of the exact value; VIEW SCREEN with WINDOW mapped onto the viewport where it is, PMAP 0 and
+// 1 absolute (answer 3); PMAP and POINT(n) in SCREEN 0 Illegal function call (E9, the manual); CIRCLE's ring the
+// source's (148 pixels for radius 27, as with no window); a negative radius no error (G9, the source's). Guards a
+// plotted graph upside down or a pixel off, PMAP converting wrong. Seen failing with (a) WAXIS not inverting y without
+// SCREEN, (b) WFWD truncating (INT) where FRCINT rounds.
+TEST(window_and_pmap_match_pc_basic)
+{
+    const std::string inv = "pmap inv-1 1 1-1 3.134796E-03-5.025126E-03-.9937304";
+    CHECK_EQ(against_pc("gfx31", {{1, inv}, {2, "pset00 pt 160 100 3.134796E-03-5.025126E-03"},
+                                  {13, "step 96 139 3.009405 3.015076"}}),
+             0u);
+    CHECK_EQ(against_pc("gfx32", {{0, "circle r1 w6 n 148 x 133 187 y 78 122"},
+                                  {6, "cls under window 50 50 .5050505 .4949495 99"},
+                                  {10, "paint w 160 100 5.015674 4.974875"},
+                                  {12, "screen0 pmap err 5 2 window err 5 view err 5 point0 err 5"}}),
+             0u);
+    CHECK_EQ(against_pc("gfx33", {{0, "fill ring 2 1 2 1"}, {1, "cls ring 2 0 2"},
+                                  {5, "vs+w pmap 10 109 109 10 0 1"}, {7, "ws circle n 148 x 133 187 y 78 122"},
+                                  {9, "neg-160-100-3.134796-50.75377"}, {13, "neg r err 0"}}),
+             0u);
+    // The port's own digits against the exact values: WINDOW (-1,-1)-(1,1) in SCREEN 1 (x = -1 + 2p/319, y = 1 -
+    // 2p/199), WINDOW (0,0)-(10,10) (10p/319, 10 - 10p/199), (0,0)-(1,1) in a 100 x 100 viewport (p/99, 1 - p/99),
+    // (0,0)-(100,100) (100p/319, 100 - 100p/199).
+    const std::vector<double> a = numbers(inv);
+    REQUIRE(a.size() == 7);
+    CHECK(near_exact(a[4], -1 + 2 * 160.0 / 319) && near_exact(a[5], 1 - 2 * 100.0 / 199) && near_exact(a[6], -1 + 2.0 / 319));
+    CHECK(near_exact(3.009405, 10 * 96.0 / 319) && near_exact(3.015076, 10 - 10 * 139.0 / 199));
+    CHECK(near_exact(.5050505, 50.0 / 99) && near_exact(.4949495, 1 - 50.0 / 99));
+    CHECK(near_exact(5.015674, 10 * 160.0 / 319) && near_exact(4.974875, 10 - 10 * 100.0 / 199));
+    CHECK(near_exact(-50.75377, 100 - 100 * 300.0 / 199) && near_exact(-3.134796, 100 * -10.0 / 319));
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    // Review round 1, F2: PMAP under VIEW SCREEN past the integer range, the corner added or taken off, Overflow
+    // (answer 7): 32,670 + 100, and -32,768 - 100.
+    enter(r, "SCREEN 2:CLS:VIEW SCREEN (100,0)-(199,99):WINDOW (0,0)-(1,1):PRINT PMAP(330,0)", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
+    enter(r, "VIEW:CLS:VIEW SCREEN (100,0)-(199,99):PRINT PMAP(-32768!,2)", ms(2000));
+    CHECK_EQ(last_row(r, "Overflow"), 0);
+    enter(r, "SCREEN 1:CIRCLE (160,100),27,3", ms(2000));
+    unsigned plain = 0;
+    for (unsigned y = 60; y <= 140; ++y)
+        for (unsigned x = 130; x <= 190; ++x)
+            plain += pixel(r, x, y) > 0;
+    CHECK_EQ(plain, 148u);
+}
+
+// G32 (7e4): POINT(n) reports the cursor (the manual's pp. 258-260): gfx31's p. 260 example exact (5 15 5 184, 5 184
+// 5 15, 5 15 5 15: G31), POINT(0-3) after PSET under WINDOW, VIEW and VIEW SCREEN (G29, G31); by hand POINT(n) inside a
+// coordinate's formula (PSET (POINT(0)+1,POINT(1))), after LINE, CIRCLE and DRAW, and POINT(2) and (3) under a window
+// after LINE. Guards a program reading back its pen position wrong. Seen failing with POINTP's n path taking POINT(2)
+// as the physical one with a window on.
+TEST(point_n_reports_the_cursor)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:PSET (10,20):PSET (POINT(0)+1,POINT(1)),2:LOCATE 2,1:PRINT POINT(0);POINT(1);POINT(11,20)", ms(1500));
+    CHECK(last_row(r, " 11  20  2") >= 0);
+    enter(r, "CLS:LINE (5,6)-(70,80):CIRCLE (100,90),20:DRAW \"BM30,40 R5 D7\":LOCATE 2,1:PRINT POINT(0);POINT(1)", ms(2000));
+    CHECK(last_row(r, " 35  47") >= 0);
+    enter(r, "CLS:WINDOW (0,0)-(10,10):LINE (1,1)-(5,5):LOCATE 2,1:PRINT POINT(0);POINT(1);POINT(2);POINT(3)", ms(2000));
+    CHECK(last_row(r, " 160  100  5.015674  4.974875") >= 0);
+    enter(r, "CLS:PRINT POINT(2.6);POINT(-.4)", ms(1500)); // n rounded (CINT): 3 and 0
+    CHECK(last_row(r, " 4.974875  160") >= 0);
+}
+
+// G33 (7e4): VIEW and WINDOW end at RUN, CLEAR, NEW (E1, the manual; E2, the owner's answer 7), a SCREEN to the
+// other mode and WIDTH's mode change, VIEW alone (the viewport) and WINDOW alone (the window); CLS keeps them, and so
+// does a SCREEN that changes nothing (the owner's answer 2). Guards a program RUN after another drawing inside the
+// last one's viewport or window. Seen failing with GRPRST without VWRSTW (RUN keeps the viewport).
+TEST(view_and_window_end_at_run_and_screen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    int k = 0;
+    auto state = [&](const std::string &stmt) {
+        enter(r, "SCREEN 1:VIEW (10,10)-(109,109):WINDOW (0,0)-(1,1):" + stmt, ms(2500));
+        const std::string tag = "Q" + std::to_string(++k);
+        enter(r, "PRINT \"" + tag + "\";PMAP(1,0);POINT(0)", ms(1500));
+        const int at = last_row(r, tag);
+        return at < 0 ? std::string() : line(r, static_cast<unsigned>(at)).substr(line(r, static_cast<unsigned>(at)).find(tag) + tag.size());
+    };
+    CHECK_EQ(state("CLS"), std::string(" 99  50"));
+    CHECK_EQ(state("SCREEN 1"), std::string(" 99  50"));
+    CHECK_EQ(state("SCREEN 2"), std::string(" 1  320"));
+    CHECK_EQ(state("WIDTH 80"), std::string(" 1  320"));
+    CHECK_EQ(state("CLEAR"), std::string(" 1  160"));
+    CHECK_EQ(state("VIEW"), std::string(" 319  160"));
+    CHECK_EQ(state("WINDOW"), std::string(" 1  50"));
+    CHECK_EQ(state("NEW"), std::string(" 1  160"));
+    enter(r, "10 X=1", ms(800));
+    CHECK_EQ(state("RUN"), std::string(" 1  160"));
+}
+
+// G34 (7e4): LINE's style (the manual's pp. 156-159). gwbasic/gfx34's pixels against PC-BASIC's: each direction, the B
+// boxes, two segments and two statements, &H8000, &H8001, -1, 0, the null colour, rounding, Overflow, Type mismatch,
+// Syntax error and Missing operand. By hand: a styled BF Syntax error (E10, the manual); a clipped line counted from its
+// given start (E11, the owner's answer 7). The style's order, the owner's answer 9: bit 15 first, in DOGRPH's order, a
+// box one mask on in BOXLIN's order, each statement from bit 15. Guards dashed lines solid or in the wrong phase: a PC
+// listing's graph axes drawn wrong. Seen failing with (a) the mask turned right (bit 0 first), (b) BOXLIN restarting
+// the mask at each side.
+TEST(line_styles_match_pc_basic)
+{
+    CHECK_EQ(against_pc("gfx34", {{12, "BF style err 2"}, {24, "clip rl F0F0 3333000033330000"}}), 0u);
+    // Review round 1, F5: a hex constant then "." is the source's: CRUNCH makes the "." a constant 0 of its own
+    // (OCTCNS stops at it), the line is drawn with &H5555, then NEWSTT's Syntax error (PC-BASIC's parser errs first).
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1:CLS:LINE (0,120)-(15,120),3,,&H5555.", ms(2000));
+    CHECK_EQ(last_row(r, "Syntax error"), 0);
+    CHECK_EQ(pixel(r, 0, 120), 3);
+    CHECK_EQ(pixel(r, 1, 120), 0);
+    CHECK_EQ(pixel(r, 2, 120), 3);
+    CHECK_EQ(pixel(r, 15, 120), 0);
+}
+
+// G35 (7e4): PAINT's tiles (the manual's pp. 236-245). gwbasic/gfx35 and gfx36, their results against PC-BASIC's:
+// tiles in SCREEN 1 and 2, the row y MOD the length, the bits from the high end at x MOD 4 or 8 of the viewport's x,
+// the default boundary, the manual's p. 245 example both halves, the ring, the background's refusals; and with no
+// background given a striped tile fills a blank box (the default CHR$(0), the owner's answer 13). By hand: a tile
+// past 64 bytes Illegal function call (E12), a numeric background Type mismatch (E13), PAINT off the screen moving
+// the cursor (E14, the source's), the centres of odd viewports (E15) and POINT past the viewport -1 (answer 4); and the
+// default's refusal (answer 13): a tile with three 00 bytes in a row, CHR$(0), CHR$(0)+CHR$(0) Illegal function call,
+// each under a time limit. Guards a tiled fill in the wrong pattern, or one that never ends. Seen failing with (a)
+// TROWS's row for PNY + 1, (b) the background's rule left out (the example's second half stops after two rows), (c)
+// no default background (a striped tile stops after one row), (d) the default's refusal left out (the run never ends:
+// the time limit).
+TEST(paint_tiles_match_pc_basic)
+{
+    CHECK_EQ(against_pc("gfx35", {{13, "65 err 5 0"}, {21, "bg num err 13"}, {64, "tile off screen err 0 cur 400 10"}}), 0u);
+    CHECK_EQ(against_pc("gfx36", {{129, "centre 92 46 46 2 1 1 3 1 1"}, {130, "vs centre 55 55 after cls 55 55"},
+                                  {132, "pt 95-1"}}),
+             0u);
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    for (const char *t : {"CHR$(0)", "CHR$(0)+CHR$(0)", "CHR$(85)+CHR$(0)+CHR$(0)+CHR$(0)+CHR$(85)"})
+    {
+        enter(r, "SCREEN 1:CLS:LINE (0,0)-(40,20),3,B:PAINT (10,10)," + std::string(t) + ",3", ms(1500));
+        CHECK_EQ(until_row(r, "Illegal function call", ms(3000)), 0);
+        enter(r, "CLS", ms(500));
+    }
+    enter(r, "CLS:LINE (0,0)-(40,20),3,B:PAINT (10,10),CHR$(85)+CHR$(0)+CHR$(0)+CHR$(170),3:PRINT \"DONE\"", ms(1500));
+    CHECK(until_row(r, "DONE", ms(5000)) >= 0);
+    CHECK_EQ(pixel(r, 1, 4), 1);
+    CHECK_EQ(pixel(r, 2, 7), 2);
+    // Review round 1, F1: a numeric paint's string background is taken and not used, its temporary freed: fifteen
+    // in a row, then a string formula, with no String formula too complex.
+    enter(r, "CLS:LINE (0,0)-(20,20),2,B:FOR I=1 TO 15:PAINT (10,10),1,2,\"x\":NEXT:PRINT \"OK\"+STR$(I)", ms(4000));
+    CHECK(until_row(r, "OK 16", ms(5000)) >= 0);
+    CHECK_EQ(last_row(r, "String formula too complex"), -1);
+}
+
+// G36 (7e4): VIEW, WINDOW, the style and the tiles keep block 1 (G3's method, gwbasic/gfx37: an array across $4000,
+// the tile's string in $4000-$7FFF by CLEAR's top; VIEW with a fill and border, CLS in it, a styled LINE, PAINT with
+// the tile, WINDOW's PSET, PMAP and POINT(2), WINDOW alone: every element read back after each, and the tile's pattern
+// exact). Guards a program's variables read from or written to the card, or the tile read from the card. Seen failing
+// with the tile copied to TXBUF after MAPXYC (the aperture in W1: the pattern from card memory).
+TEST(view_window_style_and_tiles_keep_block_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx37", {"gfx37"}, ms(120000)) >= 0);
+    const int at = last_row(r, "CHECKS");
+    REQUIRE(at >= 0);
+    CHECK_EQ(line(r, static_cast<unsigned>(at)), std::string("CHECKS 7 BAD 0"));
+    CHECK(last_row(r, "TILE 2103210312301230") >= 0);
+    const int q = last_row(r, "Q ");
+    REQUIRE(q >= 0);
+    unsigned q0 = 0, q1 = 0, t = 0;
+    CHECK(std::sscanf(line(r, static_cast<unsigned>(q)).c_str(), "Q %x %x T %x", &q0, &q1, &t) == 3);
+    CHECK(q0 < 0x4000 && q1 >= 0x4000);
+    CHECK(t >= 0x4000 && t < 0x8000);
+}
+
+// G37 (7e4): the gates (the owner's answer 8): PSET (X%,Y%),1 under VIEW (10,10)-(300,190) in SCREEN 2 at most 9,000
+// cycles; under WINDOW (0,0)-(639,199) at most 15,000; a whole SCREEN 2 PAINT with a two-byte tile at most 50 M; the
+// whole LINE's 200,000 with the style's turn at every point (G16's, as it was); for the record the same under VIEW
+// SCREEN, PSET STEP under a window, PMAP, a styled LINE, VIEW with its fill and border, and CLS in a viewport. Guards
+// graphics too slow to use. Seen failing with STYSET mapping the cursor's bank at every point (NEWBNK: the LINE past
+// 200,000).
+TEST(view_window_style_and_tiles_are_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    auto per = [&](const std::string &setup, const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + loop});
+        const uint64_t b = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + stmt + ":" + loop});
+        return static_cast<double>(b - a) / n;
+    };
+    const double vpset = per("SCREEN 2:VIEW (10,10)-(300,190)", "PSET (X%,Y%),1", 100);
+    const double wpset = per("SCREEN 2:WINDOW (0,0)-(639,199)", "PSET (X%,Y%),1", 50);
+    const std::string tile = "T$=CHR$(&HAA)+CHR$(&H55)";
+    const double tpaint = per("SCREEN 2:" + tile, "CLS:PAINT (320,100),T$,1", 1) - per("SCREEN 2:" + tile, "CLS", 1);
+    const double line2 = per("SCREEN 2", "LINE (0,0)-(639,199),1", 10);
+    const double vspset = per("SCREEN 2:VIEW SCREEN (10,10)-(300,190)", "PSET (X%,Y%),1", 100);
+    const double step = per("SCREEN 2:WINDOW (0,0)-(639,199)", "PSET STEP(1,1),1", 50);
+    const double pmap = per("SCREEN 2:WINDOW (0,0)-(639,199)", "X=PMAP(X%,0)", 50);
+    const double styled = per("SCREEN 2", "LINE (0,0)-(639,199),1,,&HAAAA", 10);
+    const double view = per("SCREEN 2", "VIEW (0,0)-(639,199),1,1", 5);
+    const double vcls = per("SCREEN 2:VIEW (0,0)-(319,199)", "CLS", 5);
+    std::printf("  PSET (X%%,Y%%),1 under VIEW in SCREEN 2: %.0f cycles (the gate 9,000)\n", vpset);
+    std::printf("  PSET (X%%,Y%%),1 under WINDOW (0,0)-(639,199): %.0f cycles (the gate 15,000)\n", wpset);
+    std::printf("  a whole SCREEN 2 PAINT with a two-byte tile: %.0f cycles (the gate 50,000,000)\n", tpaint);
+    std::printf("  LINE (0,0)-(639,199),1 in SCREEN 2: %.0f cycles (the gate 200,000)\n", line2);
+    std::printf("  for the record: PSET under VIEW SCREEN %.0f, PSET STEP(1,1) under the window %.0f, X=PMAP(X%%,0) %.0f, "
+                "the styled LINE %.0f, VIEW (0,0)-(639,199),1,1 %.0f, CLS in a half-screen viewport %.0f\n",
+                vspset, step, pmap, styled, view, vcls);
+    CHECK(vpset > 500 && vpset <= 9000);
+    CHECK(wpset > 2000 && wpset <= 15000);
+    CHECK(tpaint > 1000000 && tpaint <= 50000000);
+    CHECK(line2 > 10000 && line2 <= 200000);
 }
 
 int main()

@@ -1267,7 +1267,7 @@ GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1 (the IBM manual's p. 178): 0 and 1 LPT1's, 2 and 3 1 (no driver), past 3 Illegal function call
-GWSTS.ASM PENF -> later 7e: PEN (7e4)
+GWSTS.ASM PENF -> later 7f: PEN (the owner's answer 1 to the 7e4 plan: PENF and PENS with an OEM RDPEN that reports no pen)
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
@@ -1341,10 +1341,10 @@ GWSTS.ASM MKDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM s
 GWSTS.ASM RMDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s RMDIR; the word added to P2's table (OO-1)
 GWSTS.ASM SHELL -> later 7g: SHELL (a question for 7g)
 GWSTS.ASM ENVIRON -> later 7g: ENVIRON, ENVIRON$ (a question for 7g)
-GWSTS.ASM VIEW -> later 7e: VIEW (7e4)
-GWSTS.ASM WINDOW -> later 7e: WINDOW (7e4)
-GWSTS.ASM PMAP -> later 7e: PMAP (7e4)
-GWSTS.ASM PALETE -> later 7e: PALETTE (7e4)
+GWSTS.ASM VIEW -> OEM p8/far5.s VIEW # 7e4, from the IBM manual (pp. 357-361; the source's falls into ADVERR): the home block's parse and checks, P5's GVIEW (p5/gfx.s) the viewport; the word added to P2's table (VIEWRD, the owner's answer 10)
+GWSTS.ASM WINDOW -> OEM p8/far5.s WINDOW # 7e4, from the IBM manual (pp. 370-374): the home block's parse, P1's WINSET (p1/window.s) the map; the word added to P2's table (VIEWRD)
+GWSTS.ASM PMAP -> OEM p8/home.s PMAPH # 7e4, from the IBM manual (pp. 256-257): a function, ERDEVP's dispatch from EVALX, P1's PMAPP; as a statement Syntax error; the word added to P2's table (VIEWRD)
+GWSTS.ASM PALETE -> res/gwmain.s SNERR # the source's JMP SNERR (STMDSX's PALETTE entry); PALETTE dropped (the IBM spec's G13), no word in P2's table
 GWSTS.ASM LCOPYS -> p3/gwsts.s LCOPYP # its stub p8/far3.s LCOPY; LCPY (the OEM's screen copy) the OEM's p6/oem.s LCPYP in screen mode (7d2), Advanced Feature in console mode
 CALL86.ASM CALLSL -> later 7g: CALLS
 DSKCOM.ASM CVI -> p3/dskcom.s CVI # FUNDSX's, from EVALNF by one far call

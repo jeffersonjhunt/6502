@@ -338,7 +338,10 @@ LINRES:         .byte   RESTORE_TK, AUTO_TK, RENUM_TK, DELETE_TK, EDIT_TK
 ; CHDIR, MKDIR and RMDIR are added, each at its letter's end, crunched to
 ; STMDSX's tokens ($FE $97-$99, IBMRES.ASM's R CHDIR and the rest), which
 ; the 1983 table has no words for (so it crunched them as names); their
-; statements are OODOS's directory hook (p4/oem.s DIRHK).
+; statements are OODOS's directory hook (p4/oem.s DIRHK). VIEWRD (7e4, the
+; owner's answer 10 of 2026-11-20): VIEW, WINDOW and PMAP added the same way
+; ($FE $9C-$9E, IBMRES.ASM's R VIEW, R WINDOW, R PMAP), reserved as in the
+; IBM BASIC 3.0 manual; PALETTE isn't (dropped: the IBM spec's G13).
 ALPTAX:         .word   ATABX, BTABX, CTABX, DTABX, ETABX, FTABX, GTABX, HTABX
                 .word   ITABX, JTABX, KTABX, LTABX, MTABX, NTABX, OTABX, PTABX
                 .word   QTABX, RTABX, STABX, TTABX, UTABX, VTABX, WTABX, XTABX
@@ -404,6 +407,7 @@ PTABX:
                 Q       "PUT", PUT_XS
                 Q       "PAINT", PAINT_XS
                 Q       "PLAY", PLAY_XS
+                Q       "PMAP", PMAP_XS ; OO-1 (7e4): VIEWRD, below
                 .byte   0
 QTABX:
                 .byte   0
@@ -421,8 +425,10 @@ TTABX:
 UTABX:
                 .byte   0
 VTABX:
+                Q       "VIEW", VIEW_XS ; OO-1 (7e4): VIEWRD, below
                 .byte   0
 WTABX:
+                Q       "WINDOW", WINDOW_XS ; OO-1 (7e4): VIEWRD, below
                 .byte   0
 XTABX:
                 .byte   0
