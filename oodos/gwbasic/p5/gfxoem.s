@@ -138,7 +138,8 @@ MAPXYC:         LDA     RCL            ; 7e4: the viewport's corner added, CX an
                 PLA
                 STA     RCL
                 RTS
-MAPABS:         LDX     GMX
+MAPABS:         STZ     T3             ; 7e5: the offset's third byte (MAPC's)
+                LDX     GMX
                 JMP     (MAPV - 2,X)
 
 ; The tiles: T2:T1 the byte's offset (above).
@@ -188,26 +189,24 @@ MAPM:           LDA     RDL            ; y x 32
                 STA     T1
                 STZ     T2
                 LDX     #5
-@a:             ASL     T1
-                ROL     T2
-                DEX
-                BNE     @a
-                LDA     T1
-                STA     T3
-                LDA     T2
+                JSR     MSHL
+                LDX     #2             ; y x 128
+                ; (on into MROW)
+; MROW (7e5): T2:T1 + T2:T1 x 2^X (a row's offset, its two parts), then MXB.
+MROW:           LDA     T1
                 STA     T4
-                ASL     T1             ; y x 128
-                ROL     T2
-                ASL     T1
-                ROL     T2
+                LDA     T2
+                STA     T5
+                JSR     MSHL
                 CLC
                 LDA     T1
-                ADC     T3
+                ADC     T4
                 STA     T1
                 LDA     T2
-                ADC     T4
+                ADC     T5
                 STA     T2
-                LDA     RCH            ; + x / 8
+; MXB (7e5): + x / 8, CMASK x's bit (bit 7 the leftmost), on into MAPC.
+MXB:            LDA     RCH            ; + x / 8
                 STA     T4
                 LDA     RCL
                 LSR     T4
@@ -224,7 +223,8 @@ MAPM:           LDA     RDL            ; y x 32
                 AND     #7
                 TAX
                 LDA     BIT7,X
-; MAPC: CMASK A; GXP the offset T2:T1's place in W1, its bank mapped.
+; MAPC: CMASK A; GXP the offset T2:T1's place in W1, its bank mapped. 7e5:
+; the offset three bytes, T3 the third: its bank its bits 14 and up.
 MAPC:           STA     CMASK
                 LDA     T1
                 STA     GXP
@@ -232,28 +232,33 @@ MAPC:           STA     CMASK
                 AND     #$3F
                 ORA     #>G_CPU
                 STA     GXP + 1
-                LDA     T2             ; its bank: the offset's top 2 bits
+                LDA     T2             ; its bank: T3 x 4 and T2's top 2 bits
                 ASL     A
-                ROL     A
-                ROL     A
-                AND     #3
+                ROL     T3
+                ASL     A
+                ROL     T3
+                LDA     T3
                 ; (on into NEWBNK)
 
-; NEWBNK: the page's bank A (0-2) in slot 1 and W1 (GX_VMAP), CBANK A;
-; GXP kept. A bank off the page (past the screen: no pixel is drawn there)
-; is only noted.
+; NEWBNK: the page's bank A (0-2; 7e5: to the mode's last, GNBNK's, 0-7) in
+; slot 1 and W1 (GX_VMAP), CBANK A; GXP kept. A bank off the page (past the
+; screen: no pixel is drawn there) is only noted.
 NEWBNK:         STA     CBANK
-                CMP     #3
+                LDX     GMODEV
+                CMP     GNBNK - 1,X
                 BCS     @x
                 STA     MAPBANK
-                LSR     A              ; x 64 card pages (A 0-2)
+                LSR     A              ; x 64 card pages: (A AND 3) x 64, C bit 2
                 ROR     A
                 ROR     A
-                CLC
+                LDX     #0
+                BCC     :+
+                INX                    ;   (7e5: x 256 pages for banks 4-7)
+:               CLC
                 ADC     GBASE
                 TAY
-                LDA     GBASE + 1
-                ADC     #0
+                TXA
+                ADC     GBASE + 1
                 TAX
                 LDA     GXP            ; (GX_VMAP's GXP is the bank's first byte)
                 STA     T5
@@ -266,6 +271,43 @@ NEWBNK:         STA     CBANK
                 LDA     T6
                 STA     GXP + 1
 @x:             RTS
+
+; MSHL (7e5): T2:T1 shifted left X times (X at least 1).
+MSHL:           ASL     T1
+                ROL     T2
+                DEX
+                BNE     MSHL
+                RTS
+
+; The OO-1's (7e5): SCREEN 10, a byte a pixel, 256 a row: the offset y x
+; 256 + x; SCREEN 11, a nibble a pixel, the left high, 256 bytes a row: y x
+; 256 + x / 2; SCREEN 12, a bit, 80 bytes a row: y x 80 + x / 8 (y x 16 +
+; y x 64).
+MAP10:          LDA     RCL
+                STA     T1
+                LDA     #$FF
+MAPY:           LDX     RDL            ; T3:T2 y
+                STX     T2
+                LDX     RDH
+                STX     T3
+                BRA     MAPC
+MAP11:          LDA     RCH
+                LSR     A
+                LDA     RCL
+                ROR     A
+                STA     T1
+                LDA     #$F0           ; x even: the high nibble
+                BCC     MAPY
+                LDA     #$0F
+                BRA     MAPY
+MAP12:          LDA     RDL            ; y x 16
+                STA     T1
+                LDA     RDH
+                STA     T2
+                LDX     #4
+                JSR     MSHL
+                LDX     #2             ; + y x 64
+                JMP     MROW
 
 ; REMAP: after STOREC, the cursor's bank mapped if a move left another.
 REMAP:          LDA     CBANK
@@ -328,13 +370,19 @@ SETM:           LDA     (GXP)
                 STA     GXP
                 RTS
 
+; READC: 7e5, by the mode's bits a pixel (PIXBIT): a nibble's (SCREEN 1's
+; tiles, SCREEN 11), the left down 4 bits; a byte's (SCREEN 10) itself; a
+; bit's 0 or 1.
 READC:          LDA     (GXP)
                 AND     CMASK
-                LDX     GMX
-                CPX     #2 * GM_TILE
-                BNE     @m
-                BIT     CMASK          ; the left pixel: down 4 bits
+                LDX     GMODEV
+                LDY     PIXBIT,X
+                DEY
+                BEQ     @m             ; a bit
+                BIT     CMASK          ; the left pixel, or the byte: bit 7
                 BPL     @x
+                CPY     #7
+                BEQ     @x             ; the byte
                 LSR     A
                 LSR     A
                 LSR     A
@@ -526,6 +574,29 @@ UPT:            LDA     CY7
                 SBC     #>(1280 - 28)
                 STA     GXP + 1
                 BRA     BANKDN
+; 7e5: SCREEN 12's rows, 80 bytes; SCREEN 11's nibbles (a byte for two);
+; SCREEN 10's bytes; both 256 bytes a row, GXP's high byte.
+DOWN12:         LDA     #80
+                JMP     ADDP
+UP12:           LDA     #80
+                JMP     SUBP
+RIGHT11:        LDA     CMASK
+                EOR     #$FF
+                STA     CMASK
+                BPL     MV2            ; $0F: the same byte
+RIGHT10:        INC     GXP
+                BNE     MV2
+DOWN256:        INC     GXP + 1
+                JMP     BANKUP
+LEFT11:         LDA     CMASK
+                EOR     #$FF
+                STA     CMASK
+                BMI     MV2            ; $F0: the same byte
+LEFT10:         LDA     #1
+                JMP     SUBP
+UP256:          DEC     GXP + 1
+                JMP     BANKDN
+MV2:            RTS
 
 ; --- PAINT's (7e2, U1): SCANR, SCANL, TUPC, TDOWNC, PNTINI, PSTOR -------------------------
 
@@ -718,13 +789,10 @@ TSPLIT:         STA     TROW
                 BNE     @p
 TRX:            RTS
 
-TSET:           JSR     PIXSIZ         ; 2, 1: a pixel's bits
+TSET:           JSR     PIXSIZ         ; 2, 1: a pixel's bits (7e5: 8, 4, 1 too)
                 STA     TBITS
-                LSR     A              ; the pixels a byte: 4, 8; less one
-                LDA     #4
-                BCC     :+
-                LDA     #8
-:               STA     TPN
+                LDA     TPNT - 1,X     ; the pixels a byte: 4, 8 (1, 2, 8); less one
+                STA     TPN
                 DEC     A
                 STA     TPM
                 LDA     TBG
@@ -854,11 +922,12 @@ PGINIT:         STA     GPACT
                 LDA     T2
                 STA     GPN0
                 STZ     GPN0 + 1
-@p:             LDA     GPPN           ; bits over PIXSIZ: the pixels (a part pixel left)
-                CMP     #2
-                BNE     :+
+@p:             LDA     GPPN           ; bits over PIXSIZ: the pixels (a part pixel left;
+@d:             LSR     A              ; 7e5: PIXSIZ 1, 2, 4 or 8)
+                BEQ     :+
                 LSR     GPN0 + 1
                 ROR     GPN0
+                BRA     @d
 :               RTS
 
 ; GPSETN: A whole CGA bytes, by PSET (DEF SEG's page).
@@ -1247,17 +1316,20 @@ GOPP:           LDX     GPACT
 
 .segment "RODATA"
 ; By mode, 1 and 2.
-MAPV:           .word   MAPT, MAPM
-SETV:           .word   SETT, SETM
-RIGHTV:         .word   RIGHTT, RIGHTM
-LEFTV:          .word   LEFTT, LEFTM
-DOWNV:          .word   DOWNT, DOWNM
-UPV:            .word   UPT, UPM
+; 7e5: and 3-5, SCREEN 10, 11, 12 (one row a pixel: SETT, no twin).
+MAPV:           .word   MAPT, MAPM, MAP10, MAP11, MAP12
+SETV:           .word   SETT, SETM, SETT, SETT, SETT
+RIGHTV:         .word   RIGHTT, RIGHTM, RIGHT10, RIGHT11, RIGHTM
+LEFTV:          .word   LEFTT, LEFTM, LEFT10, LEFT11, LEFTM
+DOWNV:          .word   DOWNT, DOWNM, DOWN256, DOWN256, DOWN12
+UPV:            .word   UPT, UPM, UP256, UP256, UP12
 BIT7:           .byte   $80, $40, $20, $10, $08, $04, $02, $01
-NSFST:          .byte   $F0, $80       ; NSETCX's: a byte's first pixel (7e5: bytes, by
-NSLST:          .byte   $0F, $01       ;   its last,                 GMODEV from 1),
-NSPPB:          .byte   2, 8           ;   its pixels
-GOUBT:          .byte   $33, $FF       ; 7e3: GBPRE's complement, by mode (1, 2)
+NSFST:          .byte   $F0, $80, $FF, $F0, $80 ; NSETCX's: a byte's first pixel (7e5:
+NSLST:          .byte   $0F, $01, $FF, $0F, $01 ;   bytes, by GMODEV from 1), its last,
+NSPPB:          .byte   2, 8, 1, 2, 8  ;   its pixels
+GNBNK:          .byte   3, 3, 4, 8, 3  ; 7e5: the page's banks (NEWBNK)
+TPNT:           .byte   4, 8, 1, 2, 8  ; 7e5: a tile byte's pixels (TSET: 8 / the bits)
+GOUBT:          .byte   $33, $FF, $FF, $FF, $FF ; 7e3: GBPRE's complement, by mode (1-5)
 GOPT:           .word   GBOR, GBAND, GBPRE, GBPS, GBXOR ; 7e3: GOPB's, by action
 ; 7e3: T16, a CGA nibble (two pixels, the left in bits 3-2) as a tile byte
 ; (the left pixel's nibble high).
