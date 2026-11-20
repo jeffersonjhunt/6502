@@ -531,6 +531,15 @@
   "status": "proposed"
  },
  {
+  "equate": "VIDEO_SPRCTL",
+  "address": "$C48E",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c48e",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
   "equate": "VIDEO_L0",
   "address": "$C490",
   "module": "9",

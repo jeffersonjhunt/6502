@@ -189,7 +189,9 @@ to their reset values. Text is drawn from the IIe's character ROM, which the BIO
 
 Status: **emulated**
 
-Sprites share the tile layers' 320×240, each sprite pixel shown as 2×2. CTRL bit 3 turns them on. The table is 64
+Sprites share the tile layers' 320×240, each sprite pixel shown as 2×2. On revision 2 a sprite may instead be
+full resolution, a sprite pixel a screen pixel at 640×480 positions ([below](#full-resolution-sprites)). CTRL bit 3
+turns them on. The table is 64
 entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layout:
 
 | Byte | Bits | Meaning |
@@ -199,9 +201,12 @@ entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layo
 | 1 | 6–4 | not used |
 | 1 | 3–0 | the image's address bits 11–8 |
 | 2 | 7–0 | X bits 7–0 |
-| 3 | 1–0 | X bits 9–8; bits 7–2 not used |
+| 3 | 7 | FULL: on revision 2 while SPRCTL's bit 0 is set, the sprite is full resolution ([below](#full-resolution-sprites)); otherwise ignored |
+| 3 | 6–2 | not used: write 0 |
+| 3 | 1–0 | X bits 9–8 |
 | 4 | 7–0 | Y bits 7–0 |
-| 5 | 1–0 | Y bits 9–8; bits 7–2 not used |
+| 5 | 7–2 | not used: write 0 |
+| 5 | 1–0 | Y bits 9–8 |
 | 6 | 7–4 | collision groups, a mask |
 | 6 | 3–2 | depth: 0 off, 1 behind both layers, 2 between them, 3 in front |
 | 6 | 1 | V flip |
@@ -214,7 +219,8 @@ entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layo
   its high 4 bits. A pixel of 0 is transparent. A 4-bit sprite's colour is its palette offset × 16 + the pixel; an
   8-bit sprite's is the pixel.
 - **X and Y** wrap at 1,024, so a sprite can start off the left or the top: a 16-pixel sprite at X = 1,016 shows its
-  right half at the left edge. The visible part is X 0–319 and Y 0–239.
+  right half at the left edge. The visible part is X 0–319 and Y 0–239. The unused bits of bytes 3 and 5 are
+  ignored; software writes them 0, so that a later card may give them a meaning, as byte 3's bit 7 now has one.
 - **On each line** the card draws the 32 lowest-numbered sprites whose rows cover it, depth 0 not counted; any more
   aren't drawn on that line. The 32 are counted whether or not they are on the screen across. A lower-numbered
   sprite is in front of a higher-numbered one, whatever their depths.
@@ -233,6 +239,49 @@ hw/design.md, "Video" ([`hw/design.md:556`](../../hw/design.md#video)), puts a c
 about 72 µs. The DMA controller takes two cycles a byte for a memory-to-memory copy
 (`DmaController::transfer()` in `emulator/components/devices/dma_controller.cpp`), so it is about 143 µs at 7.16 MHz.
 With WIDE and both addresses even it takes two cycles a word, 1 + 512 cycles, about 72 µs.
+
+### Full-resolution sprites
+
+Status: **proposed**
+
+On revision 2 a sprite can be drawn at full resolution, one screen pixel a sprite pixel, at a position in the
+screen's own 640×480 ([hw/sprites640.md](../../hw/sprites640.md)). Two things make a sprite full resolution:
+SPRCTL's FULL bit ([`$C48E`](#reg-c48e)), which a program sets once, and its own entry's byte 3 bit 7
+(`VIDEO_SPRX_FULL`). With SPRCTL 0, as at reset and after OODOS's warm boot, byte 3 bit 7 means nothing and every
+sprite is drawn as [above](#sprites), whatever the unused bits hold; so a table written for a card without the
+register shows as it did. Sprites of the two sizes can be on the screen at once.
+
+| | A doubled sprite (byte 3 bit 7 clear, or SPRCTL 0) | A full-resolution sprite (SPRCTL 1, byte 3 bit 7 set) |
+|---|---|---|
+| A sprite pixel | 2×2 screen pixels | 1×1 |
+| X and Y | 320×240 units, 10 bits | 640×480 units, 10 bits |
+| Visible | X 0–319, Y 0–239 | X 0–639, Y 0–479 |
+| Wrap | at 1,024 | at 1,024 |
+| Width and height (byte 7's codes) | 8, 16, 32 or 64 sprite pixels: 16–128 screen pixels | 8, 16, 32 or 64 screen pixels |
+
+- **Positions.** X and Y still wrap at 1,024, not at 640 or 480: a 64-pixel full-resolution sprite at X 1,000
+  shows its right 40 pixels at the left edge, and one at X 600 its left 40 at the right edge, with nothing at the
+  left. X 640–1,023 and Y 480–1,023 are off the screen.
+- **The image** is the same bytes at either size: row by row at its card page, 4 or 8 bits a pixel. One image can be
+  shown both ways, by the flag alone. The palette offset, the depth, the collision groups and the flips mean what
+  they do for a doubled sprite; a flip reverses the sprite's own width or height, so at full resolution it reverses
+  screen pixels.
+- **On each line** the card draws the 32 lowest-numbered sprites whose rows cover it, of either size, depth 0 not
+  counted. A doubled sprite's row covers two lines (its row is (line ÷ 2 − Y) mod 1,024), a full-resolution
+  sprite's one ((line − Y) mod 1,024). A lower-numbered sprite is in front of a higher-numbered one, whatever their
+  sizes and depths.
+- **Depth** is decided at each screen pixel: a full-resolution sprite between the layers shows through layer 1's
+  transparent pixels one by one.
+- **Collisions** are found in screen pixels. A doubled sprite's opaque pixel covers its four screen pixels, a
+  full-resolution sprite's one, and two sprites collide where opaque pixels of both cover one screen pixel and their
+  groups share a bit. Two doubled sprites collide exactly as they would with SPRCTL 0; two full-resolution sprites
+  side by side (pixels at X 1–8 and 9–16) don't.
+- **The pointer.** OODOS's pointer sprite is doubled unless a program asks function 83's `DM_POINTER` for a
+  full-resolution one ([the Programmer's Guide, chapter 7](../oodos-programmers-guide/07-function-reference.md#bdos-83)).
+
+The emulator draws them on `rev=2` only. The decision, its dates and the owner's assumption for the real board, that
+the card fetches 32 full-resolution sprites a line as it does 32 doubled ones, are in
+[hw/sprites640.md](../../hw/sprites640.md).
 
 ## The palette
 
@@ -344,11 +393,12 @@ the program's `DM_BANK8` bank 8 is its RAM: the refusal lifts and the map takes 
 **Registers.** A program may write the drawing registers, but not IEN (OODOS's: the vertical blank alone) nor
 SPLASH, and of ISR only bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt,
 and turns off a line or collision interrupt a program enables). SLOT0, SLOT2 and SLOT3 and the data port's
-registers (PADDR, PDATA, PSTEP, PCTL) are OODOS's; OOLIB writes SLOT1 alone. Collisions are read from STATUS and
+registers (PADDR, PDATA, PSTEP, PCTL) are OODOS's; OOLIB writes SLOT1 alone. A program may write SPRCTL
+([`$C48E`](#reg-c48e)) to show full-resolution sprites; the warm boot clears it. Collisions are read from STATUS and
 ISR: OODOS keeps no copy of them.
 
 **The warm boot** (and function 83's `DM_CONSOLE`) sets the card's registers back as CRTINIT sets them: CTRL `$03`
-(the display and layer 0 on), BORDER, PALBASE and SPRBASE 0, layer 0 80×30 text (CONFIG `$80`) with its map at the
+(the display and layer 0 on), BORDER, PALBASE, SPRBASE and SPRCTL 0, layer 0 80×30 text (CONFIG `$80`) with its map at the
 text and its tiles at the font, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone. The warm boot alone
 also turns the port's DMA request off and puts SLOT0–SLOT3 on card banks 0, 16, 2 and 3: slot 1 on the program's
 first bank, so block 33 never shows OODOS's part. It copies nothing: the console's memory was never the program's,
@@ -364,8 +414,8 @@ module), from the frame handler
 Status: **emulated**
 
 - **Each line** is drawn as the beam reaches the end of its 640 visible pixels, from video memory and the registers
-  as they are at that moment. A change to memory, the palette, CTRL, BORDER, CONFIG or PALOFS shows from the next
-  line drawn.
+  as they are at that moment. A change to memory, the palette, CTRL, BORDER, CONFIG, PALOFS or SPRCTL shows from
+  the next line drawn.
 - **At the start of vertical blank**, line 480, the card latches PALBASE, SPRBASE and each layer's MAPBASE,
   TILEBASE, HSCROLL and VSCROLL. Written at any other time, they read back at once but take effect at the next line
   480, so one write flips between two buffers without tearing. To show on the next frame, they must be written
@@ -636,9 +686,10 @@ rest move to make room for two-byte bases:
 | layer +3–4 HSCROLL, +5–6 VSCROLL | +5–6 HSCROLL, +7–8 VSCROLL |
 | layer +7 PALOFS | +9 PALOFS |
 | none | SLOT0–SLOT3 `$C4B0–$C4B7`, PADDR `$C4B8`, PDATA `$C4BB`, PSTEP `$C4BC`, PCTL `$C4BE`, MEMSIZE `$C4BF` |
+| none | SPRCTL `$C48E` (*proposed*, [hw/sprites640.md](../../hw/sprites640.md)) |
 | ID `$91` | ID `$92` |
 
-`$C48E–$C48F`, each layer's +A–+F and `$C4C0–$C4FE` read 0. Software that knows only revision 1 tests the ID and
+`$C48F`, each layer's +A–+F and `$C4C0–$C4FE` read 0. Software that knows only revision 1 tests the ID and
 leaves a `$92` card alone.
 
 ### The sprite table on revision 2
@@ -653,7 +704,7 @@ in 256-byte units, reaching 8 MB.
 | 0 | 7–0 | the image's unit number, bits 7–0 |
 | 1 | 7 | 1: 8 bits a pixel; 0: 4 bits |
 | 1 | 6–0 | the unit number's bits 14–8 |
-| 2–7 | | as revision 1 ([Sprites](#sprites)) |
+| 2–7 | | as revision 1 ([Sprites](#sprites)), byte 3's bit 7 the FULL flag ([Full-resolution sprites](#full-resolution-sprites)) |
 
 The image is at the unit number × 256 in card memory.
 
@@ -1081,6 +1132,45 @@ All: a card address in 256-byte units, low byte first: the sprite table (64 entr
 #### Notes
 
 Revision 1's is [VIDEO_SPRBASE_R1](#reg-c483). BIOS 0.13 writes `$0000` at boot and on Break. On revision 2 an entry's image address is 15 bits of 256-byte units: byte 0, then byte 1's bits 6–0; byte 1's bit 7 is still the colour depth.
+
+<a id="reg-c48e"></a>
+### $C48E VIDEO_SPRCTL: full-resolution sprites, on revision 2
+
+#### Equates
+
+`VIDEO_SPRCTL`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–1 | | 0; a write is ignored |
+| 0 | FULL | 1: a sprite entry's byte 3 bit 7 makes that sprite full resolution; 0: byte 3 bit 7 is ignored |
+
+#### Reset
+
+`$00`: every sprite doubled, as on a card without the register.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+A write shows from the next line drawn, as CTRL's does; a program sets it once, before its first table. backplane.inc
+names `VIDEO_SPR_FULL` (`$01`, this register's bit) and `VIDEO_SPRX_FULL` (`$80`, the entry's byte 3 bit 7).
+OODOS's warm boot and function 83's `DM_CONSOLE` write 0, so one program's setting never reaches the next; the BIOS
+leaves it alone, and only /RESET clears it under the monitor. What a full-resolution sprite is: [Full-resolution
+sprites](#full-resolution-sprites). Revision 1 has no SPRCTL (`$C48E` reads `$FF` there, as every address it doesn't answer) and draws every
+sprite doubled.
 
 <a id="reg-c490"></a>
 ### $C490 VIDEO_L0_CONFIG: layer 0's type
