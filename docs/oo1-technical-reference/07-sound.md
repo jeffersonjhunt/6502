@@ -63,7 +63,7 @@ Status: **emulated**
 To take the SIDs, stop the 6510 (clear RUN), then write the registers. Writing every register 0 turns off each
 voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:469-488 -->
+<!-- listing: ../../backplane/bios/bios.s:487-506 -->
 ```
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
@@ -535,6 +535,12 @@ at `$00`.
 
 The card's 6510 sees SID A at `$D400`. [The SIDs](#the-sids) and [A voice](#a-voice) say what the registers do. On
 a C64 the write-only registers don't read back, so code written for one doesn't expect them to.
+
+Since BIOS 0.18 the ROM reads OSC3 as a seed for random numbers: [`$C818`'s function
+`$A2`](03-boot.md#the-bioss-entry-points), which OODOS's function 82 reaches as `SN_NOISE`. While the 6510 is
+stopped it puts voice 3 on noise at frequency `$FFFF` (FREQ_LO3 and FREQ_HI3 `$FF`, CONTROL3 `$80`: the gate off, so
+silent) and leaves it so, until something writes those registers; QUIET's `$00` stops the noise register where it
+is (it keeps its state: no TEST).
 
 <a id="reg-c520"></a>
 ### $C520 SOUND_SIDB: SID B's registers
