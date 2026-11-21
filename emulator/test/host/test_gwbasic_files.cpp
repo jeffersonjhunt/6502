@@ -1225,9 +1225,10 @@ TEST(record_65536_of_len_128_is_read_from_the_disk)
 // 512). Each block, as the loader (res/loader.s: the header's 16-bit first record and count, function 83's DM_LOAD)
 // put it in its own block (PAGBLK's, at the block's $0800), is its link's image: every byte of its code and data
 // and of its FARFIX list, P8's included (the list is its image's last bytes), but the far call sites the loader
-// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's OOLIB modules' DATA and BSS), which
-// runs change, and P5's SCRP (p5/seed.s: a variable in RODATA, the scratch byte's physical address, set at start-up). Must-fail: a loader
-// that reads a block's records from the wrong place.
+// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's and P7's OOLIB modules' DATA and BSS),
+// which runs change. 7f: P7, the eighth block, too (its code is the smallest: OOLIB's music, with the driver's
+// image in DATA, is most of it); P5's SCRP moved from RODATA to BRAM (F3's review F7), so it needs no exception.
+// Must-fail: a loader that reads a block's records from the wrong place.
 TEST(each_block_of_the_overlay_loads_from_its_place)
 {
     CcpRig r;
@@ -1236,7 +1237,7 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
     const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
     REQUIRE(lab.count("PAGBLK") == 1);
     CHECK(file("GWBASIC.OVL").size() > 65536); // (the case is for an overlay past 64 KB)
-    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 8u})
+    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u})
     {
         const std::vector<uint8_t> img = file("p" + std::to_string(page) + ".bin");
         REQUIRE(img.size() > 4);
@@ -1254,10 +1255,6 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
                 }
                 else if (l.rfind("Exports", 0) == 0)
                     break;
-            const std::map<std::string, uint16_t> own = link_labels("p" + std::to_string(page) + ".lbl");
-            if (own.count("SCRP"))
-                for (unsigned j = 0; j < 3; ++j)
-                    site[own.at("SCRP") - 0xC800u + j] = true;
         }
         const unsigned fix = img[0] | img[1] << 8, nfix = img[2] | img[3] << 8;
         for (unsigned k = 0; k < nfix; ++k)
@@ -1276,7 +1273,7 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
             if (r.phys(base + i) != img[i] && ++differ <= 4)
                 std::printf("  P%u: byte $%04X is %02X, the link's %02X\n", page, 0xC800 + i, r.phys(base + i), img[i]);
         }
-        CHECK(compared > 4000);
+        CHECK(compared > (page == 7 ? 900u : 4000u));
         CHECK_EQ(differ, 0u);
     }
 }
