@@ -670,11 +670,11 @@ TEST(the_library_refuses_to_map_below_interface_8)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #14
-    // (interface 14 since function 83's full-resolution pointer, hw/sprites640.md), LDX #$0F.
+    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #15
+    // (interface 15 since function 82's SN_NOISE, the SID seed), LDX #$0F.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 14 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 15 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 7);
@@ -1503,12 +1503,12 @@ namespace
         r.poke(0x4000, B_RAM);
         vid(r).card_poke(SLOT1_AT, B_CARD);
     }
-    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #14, LDX #$0F).
+    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #15, LDX #$0F).
     void ft_info_as(CcpRig &r, uint8_t v)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 14 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 15 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, v);
