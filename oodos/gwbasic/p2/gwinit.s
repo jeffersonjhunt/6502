@@ -26,7 +26,7 @@
 .export GWINIT, CMDERR
 .import STROUT, CRDO, SYSTME, LOAD, MEMSIZ, TEMPST, TOPMEM, BSTOP, BSTACK, INITSA, INITEND
 .import INITFG, OLDMOD, BUFMIN, KBUF, ERROR, BUF, CHRGTR
-.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD, TXLEN
+.import MAKUPL, SYNCHR, SNERR, LINGET, OCTCNS, SAVSEG, SCRMOD, TXLEN, MAXREC
 
 .code
 
@@ -195,10 +195,14 @@ ISSLH:          CMP     #'/'
 FNDSLH:         LDA     #0             ; the name ends at the "/"
                 STA     (TXTPTR)
 ; SCANSW (GWINIT.ASM 237): the switches, each "/" and a letter, a colon and
-; a number (GETVAL). /M: is the memory's top (MSWSIZ, MSWFLG set); /S: and
-; /F: are read and ignored, as the 8086's ("GIO has dynamic record size",
-; "dynamic number of files": OO-1, the files are 3 and /S: stays 128, the
-; owner's, 2026-11-14); /C: is read and ignored (OO-1: COM1's buffer isn't
+; a number (GETVAL). /M: is the memory's top (MSWSIZ, MSWFLG set); /F: is
+; read and ignored, as the 8086's ("dynamic number of files": OO-1, the
+; files are 3, the owner's, 2026-11-14). /S: (OO-1, F3, the owner's answer
+; 2, 2026-11-21, which narrows that decision to /F:) is the most a random
+; file's LEN may be, MAXREC, 1 to 32,767, as the IBM manual's OPEN has it
+; (p. 221), 128 if it isn't given; 0 or past 32,767 is the command line's
+; error (the source's WASS reads it and ignores it: "GIO has dynamic record
+; size"). /C: is read and ignored (OO-1: COM1's buffer isn't
 ; sized, so CSWFLG and CSWSIZ aren't kept). Any other letter, or a switch
 ; not followed by "/" or the end, is Syntax error, which before start-up is
 ; done is CMDERR's "Error detected in command line".
@@ -226,8 +230,18 @@ FOK:            DECW    TXTPTR         ; that character again
                 JSR     SYNCHR
                 .byte   '/'
                 BRA     SCANS1
+WASS:           JSR     GETVAL         ; OO-1 (F3): MAXREC, 1 to 32,767
+                LDA     RDH
+                BMI     @e
+                ORA     RDL
+                BEQ     @e
+                LDA     RDL
+                STA     MAXREC
+                LDA     RDH
+                STA     MAXREC+1
+                BRA     FOK
+@e:             JMP     SNERR          ; (CMDERR's, before start-up is done)
 WASC:                                  ; OO-1: /C: read, not kept
-WASS:                                  ; the source's: any value, ignored
 WASF:           JSR     GETVAL
                 BRA     FOK
 ; GETVAL (GWINIT.ASM 272): the letter passed, a colon, then CNSGET's number

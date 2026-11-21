@@ -1285,7 +1285,7 @@ GWSTS.ASM PUT -> p4/gwsts.s PUTP # its home stub p8/far4.s PUT, which (7e3) send
 GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET, the same (and GET's STEP, the owner's answer 5)
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as COMMON's JMP DATA
-FIVEO.ASM CHAIN -> p4/fiveo.s CHAINP # its home block stub p8/far4.s CHAIN goes on to MAIN or CHNENT's SCRTCH (the far call rule)
+FIVEO.ASM CHAIN -> p8/chain.s CHAINP # its home block stub p8/far4.s CHAIN (a JSR since F3's M4) goes on to MAIN or CHNENT's SCRTCH (the far call rule)
 GWSTS.ASM DATES -> later 7f: DATE$, on function 105
 GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
 ADVGRP.ASM PAINT -> p5/advgrp.s PAINTP # its home block stub p8/far5.s PAINT, screen mode; PNTCOR the fill (DRAW's P too); GOTBRD inline; OO-1 (the IBM manual's p. 236): a start off the screen paints nothing, no error (CHKRNG not called); a string paint or a background Advanced Feature until 7e4 (the owner's G12); CKCNTC with block 1 put back (PNTLOP)
@@ -1559,7 +1559,7 @@ GIOKYB.ASM KBSINX -> OEM p4/gio86.s INCHRI # screen mode too: the queue's bytes,
 GIOKYB.ASM KEYSIN -> p6/key.s KEYSIN # the wait drains the cooked keys too (W1)
 GIOKYB.ASM KYBSI2 -> OEM p4/gio86.s INCHRI # as KBSINX
 GIO86.ASM INCHRE -> p4/gio86.s INCHRE
-FIVEO.ASM CHNRET -> p4/fiveo.s CHNRET # an entry: from p8/far4.s LDBIN and p8/gwmain.s MAIN, which go on at NEWSTT
+FIVEO.ASM CHNRET -> p8/chain.s CHNRET # from p8/far4.s LDBIN and p8/gwmain.s MAIN by JSR (F3's M4), which go on at NEWSTT; SAVFRE by P4's p4/fiveo.s SAVFGT
 DSKCOM.ASM QUIT2B -> p4/dskcom.s QUIT2B
 GIO86.ASM BCHRSI -> p4/gio86.s BCHRSI
 GIO86.ASM GETNZB -> p4/gio86.s GETNZB # OO-1: past NMFILE is Bad file number too
@@ -1677,7 +1677,7 @@ GIODSK.ASM GETFPS -> p4/giodsk.s CMPFBC # inline
 DSKCOM.ASM BLKFIL -> p3/dskcom.s BLKFIL # MAKDSC in it
 GIO86.ASM DPUTG -> p4/gio86.s DPUTG # ADRGET by a far call to P1 (an entry), FDBP kept round it; a file not open Bad file mode (54), the source's and the IBM manual's A-3
 GIO86.ASM UPDSTD -> p4/gio86.s UPDSTD
-FIVEO.ASM SKPNAM -> p4/gio86.s SKPNAM # IADAHL inline
+FIVEO.ASM SKPNAM -> p4/gio86.s SKPNAM # IADAHL inline; XFRSTR's; a copy in p8/chain.s SKPNAM for CHAIN's COMMON scan and CDVARS (F3's M4)
 DSKCOM.ASM LSETA -> p3/dskcom.s LSETA
 DSKCOM.ASM MAKDSC -> p3/dskcom.s MAKDSC
 DSKCOM.ASM MADESC -> p3/dskcom.s MADESC
@@ -1699,20 +1699,21 @@ GIODSK.ASM GETFP1 -> p4/giodsk.s CMPFBC # inline
 GWEVAL.ASM CNSGET -> p2/gwinit.s CNSGET # GETVAL's number: &H/&O (OCTCNS) or LINGET's
 GIO86.ASM DSKERR -> OEM p4/giodsk.s PBDOS # OO-1: error mode $FE; OODOS's physical errors made GW-BASIC's as DSKERR makes MS-DOS's critical errors
 GWSTS.ASM SKEYON -> p6/gwsts.s SKEYON # P2's entry SKEYOP
-# 7c: CHAIN and COMMON (block P4, p4/fiveo.s; the home block's stubs), LIST's file, VARPTR(#n)
-FIVEO.ASM CBAKBL -> p4/fiveo.s CBAKBL # FNDAAY, BAKCOM, BCKUCM, SKPCOM, COMADY to CHKCST, CLPFIN, CLPSLP in its routine
-FIVEO.ASM VARDLS -> p4/fiveo.s VARDLS # DNCMDS, CLPAKP, DNCMDA to CAYSTR in its routine
-FIVEO.ASM CDVARS -> p4/fiveo.s CDVARS # DNCCLS and NTMDLT in its routine; MOVE1's 3 bytes inline
-FIVEO.ASM AFTCOM -> p4/fiveo.s AFTCOM
-FIVEO.ASM NXTCOM -> p4/fiveo.s NXTCOM
-FIVEO.ASM SCNSMP -> p4/fiveo.s SCNSMP
-FIVEO.ASM FNDAAY -> p4/fiveo.s FNDAAY
-FIVEO.ASM SKPCOM -> p4/fiveo.s SKPCOM
-FIVEO.ASM COMADY -> p4/fiveo.s COMADY
-FIVEO.ASM CLPFIN -> p4/fiveo.s CLPFIN
-FIVEO.ASM DNCMDS -> p4/fiveo.s DNCMDS
-FIVEO.ASM DNCMDA -> p4/fiveo.s DNCMDA
-FIVEO.ASM DNCCLS -> p4/fiveo.s DNCCLS
+# 7c: CHAIN and COMMON (block P4, p4/fiveo.s; the home block's stubs; moved whole to the home block's p8/chain.s at F3's M4,
+# P4 keeping SAVFRE, CHNSTP and SAVFGT in p4/fiveo.s), LIST's file, VARPTR(#n)
+FIVEO.ASM CBAKBL -> p8/chain.s CBAKBL # FNDAAY, BAKCOM, BCKUCM, SKPCOM, COMADY to CHKCST, CLPFIN, CLPSLP in its routine
+FIVEO.ASM VARDLS -> p8/chain.s VARDLS # DNCMDS, CLPAKP, DNCMDA to CAYSTR in its routine
+FIVEO.ASM CDVARS -> p8/chain.s CDVARS # DNCCLS and NTMDLT in its routine; MOVE1's 3 bytes inline
+FIVEO.ASM AFTCOM -> p8/chain.s AFTCOM
+FIVEO.ASM NXTCOM -> p8/chain.s NXTCOM
+FIVEO.ASM SCNSMP -> p8/chain.s SCNSMP
+FIVEO.ASM FNDAAY -> p8/chain.s FNDAAY
+FIVEO.ASM SKPCOM -> p8/chain.s SKPCOM
+FIVEO.ASM COMADY -> p8/chain.s COMADY
+FIVEO.ASM CLPFIN -> p8/chain.s CLPFIN
+FIVEO.ASM DNCMDS -> p8/chain.s DNCMDS
+FIVEO.ASM DNCMDA -> p8/chain.s DNCMDA
+FIVEO.ASM DNCCLS -> p8/chain.s DNCCLS # NTMDLT's JMP OKGETM and JMP CHNENT, and SAVFRE's store, in P4's p4/fiveo.s CHNSTP (a far call, F3's M4)
 # 7c: LPRINT and COM1: the devices as files (block P4: GIOTBL.ASM's table, GIOLPT.ASM, GIOCOM.ASM, GIOSCN.ASM,
 # GIOKYB.ASM, GIOCON.ASM; the OEM's COM routines on AUX:, p4/oem.s; COM and LCOPY in P3, their stubs in the home block)
 GIOTBL.ASM _DVTBL -> p4/giotbl.s DEVTBL

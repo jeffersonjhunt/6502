@@ -3,7 +3,8 @@
 ; the math and programs on the bare W65C02S core, with no OODOS, so no file
 ; can open there (nor a device's: LPOS, DEVSOT, GIOINP here too, the 7c
 ; devices step's): P4 is left out of it (the Makefile's FLAT_SRC), and so are
-; its statements' home block stubs (p8/far4.s), which keeps the image under
+; its statements' home block stubs (p8/far4.s) and CHAIN (p8/chain.s, since
+; F3's M4), which keeps the image under
 ; check.py's limit (G11: $9000 until 7c, $9400 until 7d2, then $C000); its entries and those stubs come here. A file
 ; statement (and CHDIR, MKDIR, RMDIR, CHAIN, LIST's file), VARPTR(#n), and
 ; CVI to MKD$, are Advanced Feature; the output hooks find nothing to flush,

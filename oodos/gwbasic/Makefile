@@ -105,12 +105,12 @@ sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 # -D FLAT (a far call is a JSR) and linked as one image at $0300 with the math harness first
 # (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). P4, the
 # files, is left out (the image has no OODOS), and so are its statements' home block stubs
-# (p8/far4.s); test/flatp4.s stands in for both. P5 (OOLIB, and DEF SEG's router: 7c's tail) is
+# (p8/far4.s) and CHAIN (p8/chain.s, F3's M4); test/flatp4.s stands in for them. P5 (OOLIB, and DEF SEG's router: 7c's tail) is
 # left out too, test/flatp5.s standing in, and P6 (the screen: 7d1),
 # test/flatp6.s. ctest's
 # test_gwbasic_math builds the runner itself and runs check.py on this image.
 FLAT_SRC    = test/harness.s test/flatp4.s test/flatp5.s test/flatp6.s $(RES_SRC) \
-              $(filter-out p4/% p5/% p6/% p8/far4.s,$(sort $(wildcard p[1-8]/*.s)))
+              $(filter-out p4/% p5/% p6/% p8/far4.s p8/chain.s,$(sort $(wildcard p[1-8]/*.s)))
 FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
 EMU         = ../../emulator/components
 CHECK      ?=

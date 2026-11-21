@@ -28,7 +28,8 @@
  *   buffer; records of any LEN on CP/M's 128-byte records, read and written through the FDB's buffer in P4 (V1),
  *   records past the end as zeros (X1); the FIELD buffers taken from the TPA's string space and given back.
  * - The owner's small decisions (2026-11-14), by hand: error mode $FE, so a drive with no image is a BASIC error;
- *   the command line's switches (/F: /S: /C: read and ignored, /M: the workspace's top); FILES leaving out SYS files;
+ *   the command line's switches (/F: /C: read and ignored, /S: the most LEN may be since F3, /M: the workspace's
+ *   top); FILES leaving out SYS files;
  *   a CR after an LF going on with a loaded line; a name of more than 8 characters and a type, Bad file name.
  * - CHAIN and COMMON (7c's CHAIN step): COMMON's variables, ALL, a line, MERGE with DELETE, the DEF types, a file
  *   open across it, the errors; LIST and LLIST to a file; VARPTR(#n), by hand: the FDB's place in P4's table.
@@ -54,6 +55,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -364,7 +366,7 @@ TEST(each_record_goes_to_and_from_p4_s_own_ram)
     const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
     REQUIRE(p4.count("FDB0") == 1);
     const uint16_t fdb0 = p4.at("FDB0");
-    constexpr uint16_t FDBLEN = 184, DATOFS = 48, FILES = 4; // gwbasic.inc
+    constexpr uint16_t FDBLEN = 185, DATOFS = 48, FILES = 4; // gwbasic.inc (185 since F3: F_CLOCH)
     const std::vector<uint8_t> image = file("p4.bin");
     REQUIRE(image.size() > 4 + 3 * 8);
     uint16_t dma = 0;
@@ -564,9 +566,11 @@ TEST(a_program_named_on_the_command_line_runs)
 }
 
 // The command line's switches (GWINIT.ASM SCANSW, SCANS1, FOK, WASC, WASS, WASF, GETVAL; GWEVAL.ASM CNSGET; ITSA86.ASM
-// MAPCLC's and MAPINI's checks), by hand from the source (the owner's decision 6, 2026-11-14): /F: and /S: read and
-// ignored, /C: too (OO-1), /M:n the workspace's top as CLEAR's n (MEMSIZ n - 2): FRE(0) is less by the TPA's top less
-// n, the bytes free 4 less than n less TXTTAB, a hex n (&H) taken. A letter that isn't a switch, a missing colon,
+// MAPCLC's and MAPINI's checks), by hand from the source (the owner's decision 6, 2026-11-14): /F: read and ignored,
+// /S: the most LEN may be (F3, the owner's answer 2: FRE isn't moved by it at start-up, the FIELD buffer being taken
+// at the OPEN; its own cases are the_largest_record_length_by_hand's), /C: read and ignored too (OO-1), /M:n the
+// workspace's top as CLEAR's n (MEMSIZ n - 2): FRE(0) is less by the TPA's top less n, the bytes free 4 less than n
+// less TXTTAB, a hex n (&H) taken. A letter that isn't a switch, a missing colon,
 // something after the number that isn't "/", an n past the TPA's top or too near TXTTAB: the heading, "Error detected
 // in command line", and back to the CCP (CMDERR, before start-up is done).
 TEST(the_command_line_s_switches_are_read_and_m_sets_the_top)
@@ -779,8 +783,9 @@ TEST(chdir_mkdir_and_rmdir_crunch_to_their_tokens_and_reach_the_directory_hook)
 // MKD$ and CVI, CVS, CVD round trips and their bytes, on edge values; their errors. r_field: FIELD's errors (FIELD
 // overflow past the record, Bad file mode, Bad file number, Illegal function call, Type mismatch), GET and PUT of a
 // sequential file, a FIELDed string assigned by LET (it leaves the buffer) and LSET then (a copy of the literal),
-// Bad record number (0, 32768, -1), PRINT # and INPUT # in the FIELD buffer, PRINT # past it, WRITE #'s padding.
-// r_seq: one file used as sequential and random in turn. r_sw: LEN past /S: (128 while the switches aren't read)
+// Bad record number (0, -1; since F3 record 32768 is taken, zeros past the end), PRINT # and INPUT # in the FIELD
+// buffer, PRINT # past it, WRITE #'s padding.
+// r_seq: one file used as sequential and random in turn. r_sw: LEN past /S: (128 with no /S:)
 // and LEN 0: Illegal function call. r_move: strings, a string array and two FIELD buffers kept right as a random
 // file opens and closes (the string space moved, XFRSTR, and the descriptors with it, UPDSTD); a FIELDed string of a
 // closed file. r_eof: EOF of a random file. r_lof: LOF of one (the bytes: the furthest PUT's end, as PC-BASIC's). Where PC-BASIC departs from the 1983 source, or the
@@ -811,7 +816,7 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
     const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
     REQUIRE(p4.count("FDB0") == 1);
     const uint16_t fdb0 = p4.at("FDB0");
-    constexpr uint16_t FDBLEN = 184, DATOFS = 48, FILES = 4; // gwbasic.inc
+    constexpr uint16_t FDBLEN = 185, DATOFS = 48, FILES = 4; // gwbasic.inc (185 since F3: F_CLOCH)
     const std::vector<uint8_t> image = file("p4.bin");
     REQUIRE(image.size() > 4 + 3 * 8);
     uint16_t dma = 0;
@@ -849,10 +854,10 @@ TEST(each_random_record_goes_to_and_from_p4_s_own_ram)
     CHECK_EQ(not_p4, 0);
 }
 
-// The owner's interim cap (2026-11-19, hw/oodos.md: F3 is owed): record numbers stop at 32,767, so LOC can't go
-// negative and GET and PUT can't wrap. By hand: of LEN 2, record 32,767 is PUT and read back, LOC 32767; an
-// explicit 32,768 is Bad record number for PUT and GET, and LOC stays 32767.
-TEST(record_32767_is_the_last_an_explicit_32768_is_refused)
+// F3: the cap gone (the owner's interim cap of 2026-11-19 was until F3): records go on to the IBM manual's
+// 16,777,215. By hand: of LEN 2, record 32,767 is PUT and read back, LOC 32767; an explicit 32,768 is PUT and GET,
+// and LOC is 32768 (a double past 32,767: the owner's answer 3).
+TEST(record_32768_follows_32767)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -862,13 +867,13 @@ TEST(record_32767_is_the_last_an_explicit_32768_is_refused)
               "20 LSET F$=\"ok\":PUT #1,32767:LSET F$=\"\":GET #1,32767:PRINT F$;LOC(1)",
               "30 PUT #1,32768:GET #1,32768:PRINT LOC(1):CLOSE:KILL \"RCAP.DAT\":END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
-    CHECK_EQ(command(r, "RUN"), std::string("ok 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string("ok 32767 \r\n 32768 \r\n"));
 }
 
-// The owner's interim cap: GET and PUT with no number take the next record, and past 32,767 that is Bad record
-// number, not a wrap to 0 (main's had no check there). By hand: of LEN 2, PUT #1,32766 then PUT alone writes
-// 32,767 (read back, LOC 32767); a PUT alone and a GET alone after it are each Bad record number, LOC 32767 still.
-TEST(get_and_put_with_no_number_stop_after_record_32767)
+// F3: GET and PUT with no number take the next record, past 32,767 too (the interim cap gone). By hand: of LEN 2,
+// PUT #1,32766 then PUT alone writes 32,767 (LOC 32767); a PUT alone writes 32,768 and a GET alone reads 32,769,
+// past the end (zeros), LOC 32769; record 32,767 is still "cd".
+TEST(get_and_put_with_no_number_go_on_after_32767)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -878,16 +883,16 @@ TEST(get_and_put_with_no_number_stop_after_record_32767)
               "20 LSET F$=\"ab\":PUT #1,32766:LSET F$=\"cd\":PUT #1:PRINT LOC(1)",
               "30 PUT #1:GET #1:PRINT LOC(1):GET #1,32767:PRINT F$:CLOSE:KILL \"RCAP.DAT\":END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
-    CHECK_EQ(command(r, "RUN"), std::string(" 32767 \r\nerr 63  30 \r\nerr 63  30 \r\n 32767 \r\ncd\r\n"));
+    CHECK_EQ(command(r, "RUN"), std::string(" 32767 \r\n 32769 \r\ncd\r\n"));
 }
 
 // By hand, from the source (PC-BASIC's /S: can't be given by oracle.sh): records longer than a 128-byte record. /S:
-// (MAXREC, res/far4.s: the command line's switches aren't read yet) is set to 1,024, the most W4 allows, as GWBASIC
-// /S:1024 would set it. LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
+// (MAXREC, res/far4.s) is set to 1,024 by hand, as GWBASIC /S:1024 sets it (F3: P2's WASS). LEN 200: records PUT out of order, each GET back across the 128-byte records it spans; LOC,
 // and LOF (the bytes). LEN 1,024 (eight records each): three PUT out of order, four 255-byte strings and a
-// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); record 32,768 (Bad record number, the
-// owner's interim cap) and 32,767, the last (128-byte records 262,128 to 262,135); LEN past /S: (1,025: Illegal
-// function call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
+// MKI$ FIELDed in each, GET back; a record never written (zeros, EOF true); a record whose place passes 2^25 bytes
+// (Bad record number past CP/M 3's 18-bit random record, the owner's answer 2; the source's Illegal function call
+// past 16 bits) and the last before it (128-byte records 262,136 to 262,143); LEN past /S: (1,025: Illegal function
+// call). LOF is the bytes (the IBM manual's p. 175): 1,000 for five records of 200.
 TEST(random_records_of_200_and_1024_bytes_by_hand)
 {
     CcpRig r;
@@ -907,13 +912,13 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "50 PRINT LOC(1);LOF(1):CLOSE"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 AA-1  1\r\n 2 BB-1  2\r\n 3 CC-1  3\r\n 4 DD-1  4\r\n 5 EE-1  5\r\n"
                                             " 5  1000 \r\n"));
-    // Records past 65,535 128-byte records (CP/M 3's R2): of LEN 600, record 32,767 is read and 32,768 is Bad record
-    // number (the owner's interim cap), not a wrap to record 0; and a record past 8 MB (record 20,000 of LEN 1,024
-    // starts at 128-byte record 159,992, R2 2) is PUT and read back, with the file's size in bytes (LOF:
-    // 20,480,000), and again from the disk once it is closed and opened.
+    // Records to CP/M 3's whole reach, 18 bits of 128-byte records, 32 MB (the owner's answer 2): of LEN 600, record
+    // 55,924 ends in 128-byte record 262,143, and 55,925 would cross past it: Bad record number, not a wrap to record
+    // 0; and a record past 8 MB (record 20,000 of LEN 1,024 starts at 128-byte record 159,992, R2 2) is PUT and read
+    // back, with the file's size in bytes (LOF: 20,480,000), and again from the disk once it is closed and opened.
     CHECK_EQ(command(r, "NEW"), std::string());
     enter(r, {"10 OPEN \"R\",#1,\"RBIG.DAT\",600:ON ERROR GOTO 90",
-              "20 GET #1,32767:PRINT \"ok\":GET #1,32768:PRINT \"on\":CLOSE",
+              "20 GET #1,55924:PRINT \"ok\":GET #1,55925:PRINT \"on\":CLOSE",
               "30 OPEN \"R\",#2,\"RFAR.DAT\",1024:FIELD #2,4 AS F$:LSET F$=\"far!\":PUT #2,20000:LSET F$=\"\"",
               "40 GET #2,20000:PRINT F$;LOF(2):GET #2,19999:PRINT ASC(F$):CLOSE",
               "50 OPEN \"R\",#2,\"RFAR.DAT\",1024:PRINT LOF(2):CLOSE:KILL \"RFAR.DAT\":END",
@@ -928,13 +933,352 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
               "45 PRINT N;A$=X$;B$=X$;C$=X$;D$=STRING$(255,96+N);CVI(E$);RIGHT$(E$,2):NEXT",
               "50 GET #1,5:PRINT ASC(A$);ASC(E$);EOF(1);LOC(1);LOF(1)",
               "60 ON ERROR GOTO 90",
-              "70 GET #1,32768:GET #1,32767:PRINT ASC(A$);EOF(1)",
+              "70 GET #1,32769:GET #1,32768:PRINT ASC(A$);EOF(1)",
               "80 CLOSE:OPEN \"R\",#1,\"RKB2.DAT\",1025:END",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 1 -1 -1 -1 -1  1 ok\r\n 2 -1 -1 -1 -1  2 ok\r\n 3 -1 -1 -1 -1  3 ok\r\n"
                                             " 0  0 -1  5  3072 \r\nerr 63  70 \r\n 0 -1 \r\nerr 5  80 \r\n"));
-    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,768 is past the cap: Bad record number; 32,767's
-    // last byte is 128-byte record 262,135's.)
+    // (LOF in bytes: 3 records of 1,024, the furthest PUT's end; 32,769's place passes 32 MB, CP/M 3's reach: Bad
+    // record number; 32,768's last byte is 128-byte record 262,143's.)
+}
+
+// F3's new cases (the owner's answers of 2026-11-21), by hand from the IBM manual (GET p. 113, PUT p. 279, A-4's
+// error 63: records 1 to 16,777,215; LOC pp. 170-171; LOF pp. 175-176) and n x LEN against CP/M 3's 32 MB
+// (33,554,432 bytes, the owner's answer 2), not PC-BASIC's (rule 5: its reach and LOC's type aren't the spec). Each
+// program writes a sparse file (a far record takes a block and a directory entry) and KILLs it.
+
+// N1: explicit record numbers past 32,767 and 65,535 (answer 1: RECNUM). Of LEN 2, records 1 and 2 PUT first, then
+// 32,768, 65,535, 65,536, 65,537, 100,000 and 1,000,000, each with its own text, LOC after each; each GET back, LOC
+// again; records 1 and 2 still their own. A single past 32,767 is rounded to the nearest, a half up (answer 8):
+// GET #1,65536.6 reads 65,537; and (answer 11) 32,767.4 is 32,767, 32,767.5 and 32,767.99 are 32,768, not
+// Overflow, seen by LOC; and halves past 32,767 go up (answer 8): 70,000.5 is 70,001, 5,000,000.5 (a single still
+// holds the half below 2^23: RECNUM's FADDH) 5,000,001 (review round 1, F5). A string is Type mismatch, -1 and 0 Bad record number. Must-fail: a record number cut to
+// 16 bits (PUT #1,65537 writes record 1's place).
+TEST(records_past_32767_and_65535_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN1.DAT\",2:FIELD #1,2 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"r1\":PUT #1,1:LSET F$=\"r2\":PUT #1,2",
+              "30 FOR K=1 TO 6:READ N:LSET F$=CHR$(64+K)+CHR$(96+K):PUT #1,N:PRINT LOC(1);:NEXT:PRINT",
+              "40 RESTORE:FOR K=1 TO 6:READ N:GET #1,N:PRINT F$;LOC(1);:NEXT:PRINT",
+              "50 GET #1,1:PRINT F$;:GET #1,2:PRINT F$",
+              "60 GET #1,65536.6:PRINT F$;LOC(1):GET #1,\"x\":GET #1,-1:GET #1,0:PRINT LOC(1)",
+              "70 GET #1,32767.4:PRINT LOC(1);:GET #1,32767.5:PRINT LOC(1);:GET #1,32767.99:PRINT LOC(1)",
+              "75 GET #1,70000.5:PRINT LOC(1);:GET #1,5000000.5:PRINT LOC(1)",
+              "80 CLOSE:KILL \"RN1.DAT\":END:DATA 32768,65535,65536,65537,100000,1000000",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 32768  65535  65536  65537  100000  1000000 \r\n"
+                                            "Aa 32768 Bb 65535 Cc 65536 Dd 65537 Ee 100000 Ff 1000000 \r\n"
+                                            "r1r2\r\n"
+                                            "Dd 65537 \r\nerr 13  60 \r\nerr 63  60 \r\nerr 63  60 \r\n 65537 \r\n"
+                                            " 32767  32768  32768 \r\n 70001  5000001 \r\n"));
+}
+
+// N2: GET and PUT with no number go on past 65,535 (FD_LOG's carry into FD_LOGH). Of LEN 2: records 1 and 2 PUT,
+// then PUT #1,65534 and PUT #1 three times (65,535 to 65,537), LOC 65537; GET #1,65534 and GET #1 three times, each
+// text back, LOC 65537; records 1 and 2 untouched; and, read as LEN 1 (record 262,143, no borrow), record 131,072's
+// place never written. Must-fail: main's old wrap, the next after 65,535 record 1's place;
+// the current record's borrow out of NHI left out (65,536 read from 131,071's place).
+TEST(get_and_put_with_no_number_go_on_past_65535)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN2.DAT\",2:FIELD #1,2 AS F$",
+              "20 LSET F$=\"r1\":PUT #1,1:LSET F$=\"r2\":PUT #1,2",
+              "30 LSET F$=\"w0\":PUT #1,65534:FOR K=1 TO 3:LSET F$=\"w\"+CHR$(48+K):PUT #1:NEXT:PRINT LOC(1)",
+              "40 LSET F$=\"\":GET #1,65534:PRINT F$;:FOR K=1 TO 3:GET #1:PRINT F$;:NEXT:PRINT LOC(1)",
+              "50 GET #1,1:PRINT F$;:GET #1,2:PRINT F$:CLOSE",
+              "60 OPEN \"R\",#1,\"RN2.DAT\",1:FIELD #1,1 AS F$:GET #1,262143:PRINT ASC(F$):CLOSE:KILL \"RN2.DAT\""});
+    CHECK_EQ(command(r, "RUN"), std::string(" 65537 \r\nw0w1w2w3 65537 \r\nr1r2\r\n 0 \r\n"));
+}
+
+// N3: the last record, and 32 MB (answers 2 and 8). LEN 1: record 16,777,215 PUT and read, LOC and LOF 16777215;
+// then PUT #1 (the next, 16,777,216) and an explicit 16,777,216 each Bad record number, LOC 16777215 still, and a GET
+// alone after GET #1,16777214 reads 16,777,215. LEN 3: 11,184,810 (its last byte 33,554,429) PUT and read,
+// 11,184,811 (past 32 MB) refused, and GET #1 after it too, LOC 11184810. LEN 128: 262,144 PUT and read, 262,145
+// refused. LEN 1,024 (MAXREC set as /S:1024 sets it):
+// 32,768 (its last byte 32 MB's last) PUT and read, 32,769 refused; 2,097,153 refused ((n - 1) x LEN 2^31) with
+// record 1 still its own; after both LOC 32768 and GET #1 after GET #1,32767 reads 32,768. Must-fail: the 32 MB check
+// after the doubling (the draft's: 2,097,153 written over record 1); LEN 128's own check moved up a 128-byte
+// record's top bits (262,145 taken); the next record's 24-bit cap left out (PUT #1
+// after 16,777,215 taken); the cap too low; the store before the check (LOC the refused number).
+TEST(the_last_record_and_32_mb_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN3.DAT\",1:FIELD #1,1 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"z\":PUT #1,16777215:LSET F$=\"\":GET #1,16777215:PRINT F$;LOC(1);LOF(1)",
+              "30 PUT #1:PRINT LOC(1):PUT #1,16777216:PRINT LOC(1)",
+              "40 LSET F$=\"\":GET #1,16777214:GET #1:PRINT F$;LOC(1):CLOSE:KILL \"RN3.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("z 16777215  16777215 \r\nerr 63  30 \r\n 16777215 \r\nerr 63  30 \r\n"
+                                            " 16777215 \r\nz 16777215 \r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN3.DAT\",3:FIELD #1,3 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"abc\":PUT #1,11184810:LSET F$=\"\":GET #1,11184810:PRINT F$;LOC(1)",
+              "30 PUT #1,11184811:PRINT LOC(1):GET #1:PRINT LOC(1):CLOSE:KILL \"RN3.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("abc 11184810 \r\nerr 63  30 \r\n 11184810 \r\nerr 63  30 \r\n"
+                                            " 11184810 \r\n"));
+    // LEN 128, the default, its own check (RAND3's: the record its own 128-byte record, past 262,143 refused; review
+    // round 1, F2): 262,144 PUT and read, 262,145 refused, LOC 262144 still.
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN3.DAT\":FIELD #1,4 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"edge\":PUT #1,262144:LSET F$=\"\":GET #1,262144:PRINT F$;LOC(1)",
+              "30 PUT #1,262145:PRINT LOC(1):CLOSE:KILL \"RN3.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("edge 262144 \r\nerr 63  30 \r\n 262144 \r\n"));
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MAXREC") == 1);
+    r.poke(lab.at("MAXREC"), 1024 & 0xFF);
+    r.poke(lab.at("MAXREC") + 1u, 1024 >> 8);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN3.DAT\",1024:FIELD #1,4 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"one!\":PUT #1,1:LSET F$=\"last\":PUT #1,32768:LSET F$=\"\":GET #1,32768:PRINT F$;LOC(1)",
+              "30 LSET F$=\"bad!\":PUT #1,32769:PUT #1,2097153:PRINT LOC(1)",
+              "40 GET #1,1:PRINT F$;LOC(1):GET #1,32767:GET #1:PRINT F$;LOC(1):CLOSE:KILL \"RN3.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("last 32768 \r\nerr 63  30 \r\nerr 63  30 \r\n 32768 \r\none! 1 \r\n"
+                                            "last 32768 \r\n"));
+}
+
+namespace
+{
+    /// A CcpRig with GW-BASIC started with `tail` on its command line (its switches): what it printed to its first Ok.
+    std::string start_with(CcpRig &r, const std::string &tail)
+    {
+        const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+        CHECK(!com.empty() && !ovl.empty());
+        r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, 0x40); // CON:'s output TTY alone, as start()
+        return r.to("m:gwbasic " + tail, "Ok\r\n");
+    }
+} // namespace
+
+// Review round 1, F1: MULHI's two refusals of a product past 32 bits (NHI x 65,536 x LEN), each before the 32 MB
+// test. /S:1024, LEN 1,024: record 4,194,305's current, 4,194,304, has NHI 64, and its addend reaches 2^16 in the
+// high word (MULHI's @o): Bad record number, record 1 untouched, LOC as it was. /S:32767, LEN 32,767: 196,609
+// (NHI 3) and 131,173 (NHI 2, the low product's high word 49) each carry out of the high word's add; the second's
+// wrapped sum would be inside 32 MB (a place in records 96 and 97), so only the carry refuses it. Must-fail: the
+// @o test removed (4,194,305 written over record 1). (The carry's own BCS can't be seen failing: a carry needs
+// LEN x 2^(j+1) past 2^16, so any later bit of NHI meets the @o test, and with none MULHI returns with that carry
+// set; the BCS only makes the exit early.)
+TEST(mulhi_s_refusals_past_32_bits_by_hand)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_with(r, "/s:1024");
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, {"10 OPEN \"R\",#1,\"RM1.DAT\",1024:FIELD #1,4 AS F$:ON ERROR GOTO 90",
+                  "20 LSET F$=\"one!\":PUT #1,1:LSET F$=\"bad!\":PUT #1,4194305:PRINT LOC(1)",
+                  "30 GET #1,1:PRINT F$;LOC(1):CLOSE:KILL \"RM1.DAT\":END",
+                  "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+        CHECK_EQ(command(r, "RUN"), std::string("err 63  20 \r\n 1 \r\none! 1 \r\n"));
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_with(r, "/s:32767");
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RM2.DAT\",32767:FIELD #1,4 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"one!\":PUT #1,1:LSET F$=\"bad!\":PUT #1,196609:PRINT LOC(1):PUT #1,131173:PRINT LOC(1)",
+              "30 GET #1,1:PRINT F$;LOC(1):CLOSE:KILL \"RM2.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("err 63  20 \r\n 1 \r\nerr 63  20 \r\n 1 \r\none! 1 \r\n"));
+}
+
+// Review round 1, F3 (the owner's answer 17, the OO-1's choice): OPEN with no LEN takes the smaller of 128 and /S:,
+// so a /S: below 128 doesn't refuse the plain OPEN. /S:64: OPEN "R" with no LEN is LEN 64 (FIELD of 64 taken, of
+// 65 Field overflow), a record PUT and read back; LEN 65 Illegal function call. Must-fail: the default 128 always
+// (the OPEN Illegal function call).
+TEST(open_s_default_len_is_s_if_smaller_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_with(r, "/s:64");
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RS64.DAT\":ON ERROR GOTO 90:FIELD #1,65 AS X$:FIELD #1,64 AS A$",
+              "20 LSET A$=\"sixty-four\":PUT #1,2:LSET A$=\"\":GET #1,2:PRINT LEFT$(A$,10);LOC(1);LOF(1)",
+              "30 CLOSE:OPEN \"R\",#2,\"RS65.DAT\",65:CLOSE:KILL \"RS64.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("err 50  10 \r\nsixty-four 2  128 \r\nerr 5  30 \r\n"));
+}
+
+// N4: the largest record length (answer 2: /S:n is MAXREC, 1 to 32,767). GW-BASIC started with /S:32767: MAXREC
+// 32767; OPEN of LEN 32,767 lowers FRE(0) by 32,767; the record filled by PRINT # in pieces (128 of 255 bytes, then
+// 127: the FIELD buffer's sequential use), PUT at 1 and 1,024, the buffer filled with "-" again, each record read
+// back by INPUT$ piece by piece, every byte
+// checked; LOF 33,553,408; record 1,025 (past 32 MB) Bad record number; LEN 32,768 Overflow (OPEN's LEN is an
+// integer: the source's). /S:0 and
+// /S:32768 are the command line's error. (Without /S:, LEN 129 is Illegal function call: r_sw.) Must-fail: WASS not
+// keeping /S: (LEN 32,767 refused); DSKRND's bytes-left count taken as one byte (the record's tail not moved).
+TEST(the_largest_record_length_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+    REQUIRE(!com.empty() && !ovl.empty());
+    r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+    r.scb(0x25, 0x40); // CON:'s output TTY alone, as start()
+    const std::string refused = "(C) Copyright Microsoft 1982         \r\n\r\nError detected in command line\r\n";
+    for (const std::string &tail : std::vector<std::string>{"/s:0", "/s:32768"})
+    {
+        const std::string o = r.cmd("m:gwbasic " + tail);
+        CHECK(o.find(refused) != std::string::npos);
+        if (o.find(refused) == std::string::npos)
+            std::printf("  '%s': '%s'\n", tail.c_str(), vis(o).c_str());
+    }
+    r.to("m:gwbasic /s:32767", "Ok\r\n");
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("MAXREC") == 1);
+    CHECK_EQ(r.phys(lab.at("MAXREC")) | r.phys(lab.at("MAXREC") + 1u) << 8, 32767);
+    CHECK_EQ(command(r, "F=FRE(0)"), std::string());
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"RN4.DAT\",32767:PRINT F-FRE(0):CLOSE"), std::string(" 32767 \r\n"));
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN4.DAT\",32767:ON ERROR GOTO 90",
+              "20 FOR K=1 TO 129:N=255:IF K=129 THEN N=127",
+              "30 PRINT #1,STRING$(N,33+K MOD 90);:NEXT:PUT #1,1:PUT #1,1024",
+              "35 FOR K=1 TO 129:N=255:IF K=129 THEN N=127",
+              "36 PRINT #1,STRING$(N,\"-\");:NEXT",
+              "40 FOR R=1 TO 1024 STEP 1023:GET #1,R:B=0:FOR K=1 TO 129:N=255:IF K=129 THEN N=127",
+              "50 IF INPUT$(N,#1)<>STRING$(N,33+K MOD 90) THEN B=B+1",
+              "60 NEXT:PRINT R;B;:NEXT:PRINT LOF(1)",
+              "70 GET #1,1025:CLOSE:OPEN \"R\",#1,\"RN4B.DAT\",32768:END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    const std::string run = r.to("RUN", "Ok\r\n", ms(600000)); // (some 30 s of the machine's: 32 KB a way, a byte at a time)
+    CHECK_EQ(run.substr(std::min<size_t>(run.size(), 5)),
+             std::string(" 1  0  1024  0  33553408 \r\nerr 63  70 \r\nerr 6  70 \r\nOk\r\n"));
+    CHECK_EQ(command(r, "KILL \"RN4.DAT\""), std::string());
+}
+
+// N5: LOC and LOF at the edges (answers 3 and 4). A new random file: LOC 0 and LOF 0; at 32,767 LOC(1)/3 is an
+// integer's division (10922.33), at 32,768 a double's (10922.66666666667); PUT #1,LOC(1) (p. 171) rewrites record
+// 100,000. The manual's p. 176 example: LEN 128, record 100,000 PUT, CLOSE, OPEN, GET #1,LOF(1)/128 reads it. LEN 2:
+// record 16,777,215 PUT, CLOSE, OPEN: LOF 33554430 from the disk (function 35's 262,144 records, R2 4, and the byte
+// count 126). A sequential output file's count (F_CLOC, 24 bits) set near the edge in its FDB at DSKLOC's entry (P4
+// in W3), then records written: LOC 32767 an integer, 32768 a double, 65536 after a record's carry. Must-fail: LOC
+// always a double (10922.66666666667 at 32,767); DSKSZ's R2 masked to 2 bits (LOF 126); F_CLOC's top byte not
+// carried (LOC 0 at 65,536).
+TEST(loc_and_lof_at_the_edges_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN5.DAT\",2:FIELD #1,2 AS F$",
+              "20 PRINT LOC(1);LOF(1):LSET F$=\"ab\":PUT #1,32767:PRINT LOC(1)/3:PUT #1:PRINT LOC(1)/3",
+              "30 PUT #1,100000:LSET F$=\"cd\":PUT #1,LOC(1):LSET F$=\"\":GET #1,100000:PRINT F$;LOC(1):CLOSE",
+              "40 KILL \"RN5.DAT\":OPEN \"R\",#1,\"RN5.DAT\",128:FIELD #1,4 AS F$:LSET F$=\"far!\":PUT #1,100000:CLOSE",
+              "50 OPEN \"R\",#1,\"RN5.DAT\",128:FIELD #1,4 AS F$:PRINT LOF(1):GET #1,LOF(1)/128:PRINT F$;LOC(1):CLOSE",
+              "60 KILL \"RN5.DAT\":OPEN \"R\",#1,\"RN5.DAT\",2:FIELD #1,2 AS F$:LSET F$=\"zz\":PUT #1,16777215:CLOSE",
+              "70 OPEN \"R\",#1,\"RN5.DAT\",2:PRINT LOF(1):CLOSE:KILL \"RN5.DAT\""});
+    CHECK_EQ(command(r, "RUN"), std::string(" 0  0 \r\n 10922.33 \r\n 10922.66666666667 \r\ncd 100000 \r\n"
+                                            " 12800000 \r\nfar! 100000 \r\n 33554430 \r\n"));
+    const std::map<std::string, uint16_t> p4 = link_labels("p4.lbl");
+    REQUIRE(p4.count("FDB0") == 1 && p4.count("DSKLOC") == 1);
+    const uint16_t fdb1 = static_cast<uint16_t>(p4.at("FDB0") + 185), dskloc = p4.at("DSKLOC");
+    constexpr uint16_t F_CLOC = 38, F_CLOCH = 184; // gwbasic.inc
+    long set = -1;
+    r.watch = [&](uint16_t pc) {
+        if (pc != dskloc || set < 0) // (W3 holds P4 here)
+            return;
+        r.machine->bus().write(static_cast<uint16_t>(fdb1 + F_CLOC), static_cast<uint8_t>(set & 0xFF));
+        r.machine->bus().write(static_cast<uint16_t>(fdb1 + F_CLOC + 1), static_cast<uint8_t>(set >> 8 & 0xFF));
+        r.machine->bus().write(static_cast<uint16_t>(fdb1 + F_CLOCH), static_cast<uint8_t>(set >> 16));
+        set = -1;
+    };
+    CHECK_EQ(command(r, "OPEN \"O\",#1,\"RN5.TXT\":PRINT LOC(1)"), std::string(" 0 \r\n"));
+    set = 32767;
+    CHECK_EQ(command(r, "PRINT LOC(1)/3"), std::string(" 10922.33 \r\n"));
+    set = 32768;
+    CHECK_EQ(command(r, "PRINT LOC(1)/3"), std::string(" 10922.66666666667 \r\n"));
+    set = 65535;
+    CHECK_EQ(command(r, "PRINT LOC(1)"), std::string(" 65535 \r\n"));
+    CHECK_EQ(command(r, "PRINT #1,STRING$(255,\"x\");\"x\";:PRINT LOC(1)"), std::string(" 65536 \r\n"));
+    r.watch = nullptr;
+    CHECK_EQ(command(r, "CLOSE:KILL \"RN5.TXT\""), std::string());
+}
+
+// N6: of LEN 128, record 65,536's 128-byte record is 65,535, which the source's PGSUB1 took for the buffer's (FD_PHY
+// + 1, never set, matching it alone) and didn't read. PUT 65,535, 65,536 and 65,537, each its own text; GET
+// #1,65536 straight after the PUT of 65,537 returns 65,536's. Must-fail: PGSUB1's buffer test put back.
+TEST(record_65536_of_len_128_is_read_from_the_disk)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN6.DAT\",128:FIELD #1,4 AS F$",
+              "20 FOR N=65535 TO 65537:LSET F$=STR$(N-65530):PUT #1,N:NEXT",
+              "30 GET #1,65536:PRINT F$:GET #1,65535:PRINT F$:GET #1,65537:PRINT F$:CLOSE:KILL \"RN6.DAT\""});
+    CHECK_EQ(command(r, "RUN"), std::string(" 6  \r\n 5  \r\n 7  \r\n"));
+}
+
+// F3 (the owner's answer 14): GWBASIC.OVL passed 64 KB at F3 (65,664 bytes, 513 records: P8's last record is record
+// 512). Each block, as the loader (res/loader.s: the header's 16-bit first record and count, function 83's DM_LOAD)
+// put it in its own block (PAGBLK's, at the block's $0800), is its link's image: every byte of its code and data
+// and of its FARFIX list, P8's included (the list is its image's last bytes), but the far call sites the loader
+// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's OOLIB modules' DATA and BSS), which
+// runs change, and P5's SCRP (p5/seed.s: a variable in RODATA, the scratch byte's physical address, set at start-up). Must-fail: a loader
+// that reads a block's records from the wrong place.
+TEST(each_block_of_the_overlay_loads_from_its_place)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("PAGBLK") == 1);
+    CHECK(file("GWBASIC.OVL").size() > 65536); // (the case is for an overlay past 64 KB)
+    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 8u})
+    {
+        const std::vector<uint8_t> img = file("p" + std::to_string(page) + ".bin");
+        REQUIRE(img.size() > 4);
+        std::vector<bool> site(img.size(), false); // the sites, and the block's RAM, from its map's segment list
+        {
+            std::ifstream m(BUILD + "/p" + std::to_string(page) + ".map");
+            std::string name, a, b;
+            for (std::string l; std::getline(m, l);)
+                if (l.rfind("BRAM ", 0) == 0 || l.rfind("DATA ", 0) == 0 || l.rfind("BSS ", 0) == 0)
+                {
+                    std::istringstream(l) >> name >> a >> b;
+                    for (unsigned long k = std::stoul(a, nullptr, 16); k <= std::stoul(b, nullptr, 16); ++k)
+                        if (k - 0xC800 < img.size())
+                            site[k - 0xC800] = true;
+                }
+                else if (l.rfind("Exports", 0) == 0)
+                    break;
+            const std::map<std::string, uint16_t> own = link_labels("p" + std::to_string(page) + ".lbl");
+            if (own.count("SCRP"))
+                for (unsigned j = 0; j < 3; ++j)
+                    site[own.at("SCRP") - 0xC800u + j] = true;
+        }
+        const unsigned fix = img[0] | img[1] << 8, nfix = img[2] | img[3] << 8;
+        for (unsigned k = 0; k < nfix; ++k)
+        {
+            const unsigned at = fix - 0xC800 + 2 * k, s = (img[at] | img[at + 1] << 8) - 0xC800;
+            for (unsigned j = 0; j < 3 && s + j < img.size(); ++j)
+                site[s + j] = true;
+        }
+        const uint32_t base = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + page)) * 0x4000u + 0x800;
+        unsigned differ = 0, compared = 0;
+        for (uint32_t i = 4; i < img.size(); ++i) // (the header's list address and count, then the code)
+        {
+            if (site[i])
+                continue;
+            ++compared;
+            if (r.phys(base + i) != img[i] && ++differ <= 4)
+                std::printf("  P%u: byte $%04X is %02X, the link's %02X\n", page, 0xC800 + i, r.phys(base + i), img[i]);
+        }
+        CHECK(compared > 4000);
+        CHECK_EQ(differ, 0u);
+    }
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its
@@ -1001,7 +1345,12 @@ TEST(a_random_open_collects_the_strings_or_is_out_of_memory)
 // Random files' statements in a loop are timed, for the record (the IBM spec's fix-up, P4's relief: LSET and RSET
 // moved to P3, each still one far call from the home block): a program's RUN to its ENDCON, the loop with the
 // statement less the loop without it, over the passes (check.py --timing's method): GET #1,n and PUT #1,n of a
-// 128-byte record, LSET and RSET of a FIELDed string, CVI of one, and FIELD. Not gated: printed.
+// 128-byte record, LSET and RSET of a FIELDed string, CVI of one, and FIELD; printed. N8 (F3, the owner's answer 6):
+// GET #1,2 and PUT #1,1 no slower than main's (17,161 and 18,513 on this rig, measured at F3's U0 on main b1d10088);
+// of LEN 100, GET #1 and PUT #1 (the next record) at records past 70,000 within 600 cycles of the same at records past
+// 100, and GET #1,70000 (a single, through RECNUM's FADDH and QINT, and MULHI) within 1,500 of GET #1,100: gated.
+// Must-fail: MULHI as the draft's loop, NHI times (its mutant run with the far records at 16,000,000 of LEN 2, NHI
+// 244, by OOE_F3_FAR=16000000 OOE_F3_LEN=2: LEN 100 reaches only NHI 5 within 32 MB).
 TEST(random_file_statements_in_a_loop_are_timed)
 {
     CcpRig r;
@@ -1033,12 +1382,13 @@ TEST(random_file_statements_in_a_loop_are_timed)
         return cycles;
     };
     const std::string open = "10 OPEN \"R\",#1,\"TIMED.DAT\",128:FIELD #1,2 AS A$,126 AS B$:LSET B$=\"x\":I%=0";
-    auto per = [&](const std::string &stmt, int n) {
+    auto per_open = [&](const std::string &with, const std::string &stmt, int n) {
         const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
-        const uint64_t a = timed({open, "20 " + loop, "30 CLOSE"});
-        const uint64_t b = timed({open, "20 " + stmt + ":" + loop, "30 CLOSE"});
+        const uint64_t a = timed({with, "20 " + loop, "30 CLOSE"});
+        const uint64_t b = timed({with, "20 " + stmt + ":" + loop, "30 CLOSE"});
         return static_cast<double>(b > a ? b - a : 0) / n;
     };
+    auto per = [&](const std::string &stmt, int n) { return per_open(open, stmt, n); };
     CHECK_EQ(command(r, "OPEN \"R\",#1,\"TIMED.DAT\",128:FIELD #1,128 AS A$:FOR I=1 TO 4:PUT #1,I:NEXT:CLOSE"),
              std::string());
     const double put = per("PUT #1,1", 20), get = per("GET #1,2", 20), lset = per("LSET A$=\"ab\"", 50),
@@ -1047,6 +1397,26 @@ TEST(random_file_statements_in_a_loop_are_timed)
     std::printf("  a loop's statement, cycles each: PUT #1,1 %.0f, GET #1,2 %.0f, LSET %.0f, RSET %.0f, CVI %.0f, "
                 "FIELD %.0f, MKI$ %.0f\n", put, get, lset, rset, cvi, field, mki);
     CHECK(put > 0 && get > 0 && lset > 0 && rset > 0);
+    // N8: LEN 100, the records written first (100 to 130 and FAR to FAR + 30), so every PUT reads and writes as the
+    // other does; each loop's GET or PUT alone starts at the record after its open line's.
+    const std::string far = std::getenv("OOE_F3_FAR") ? std::getenv("OOE_F3_FAR") : "70000", // (the mutant's run)
+                      len = std::getenv("OOE_F3_LEN") ? std::getenv("OOE_F3_LEN") : "100";
+    CHECK_EQ(command(r, "OPEN \"R\",#1,\"TIMED.DAT\"," + len + ":FIELD #1," + len + " AS A$"), std::string());
+    CHECK_EQ(command(r, "FOR I=0 TO 30:PUT #1,100+I:PUT #1," + far + "+I:NEXT:CLOSE"), std::string());
+    auto at = [&](const std::string &stmt, const std::string &from) {
+        return "10 OPEN \"R\",#1,\"TIMED.DAT\"," + len + ":FIELD #1," + len + " AS A$:I%=0:" + stmt + " #1," + from;
+    };
+    const double get_lo = per_open(at("GET", "99"), "GET #1", 20), get_hi = per_open(at("GET", far), "GET #1", 20),
+                 put_lo = per_open(at("PUT", "99"), "PUT #1", 20), put_hi = per_open(at("PUT", far), "PUT #1", 20),
+                 get100 = per_open(at("GET", "99"), "GET #1,100", 20),
+                 get70k = per_open(at("GET", far), "GET #1," + far, 20);
+    std::printf("  LEN %s, cycles each: GET #1 %.0f at 100, %.0f past %s; PUT #1 %.0f and %.0f; GET #1,100 %.0f, "
+                "GET #1,%s %.0f\n", len.c_str(), get_lo, get_hi, far.c_str(), put_lo, put_hi, get100, far.c_str(), get70k);
+    CHECK(get <= 17161 && put <= 18513);
+    CHECK(get_hi <= get_lo + 600);
+    CHECK(put_hi <= put_lo + 600);
+    CHECK(get70k <= get100 + 1500);
+    CHECK_EQ(command(r, "KILL \"TIMED.DAT\""), std::string());
 }
 
 int main()
@@ -1160,7 +1530,7 @@ TEST(list_to_a_file_prints_what_pc_basic_prints)
 
 // By hand, from the source, what PC-BASIC can't give: CHAIN MERGE of a tokenised file is Bad file mode (OKGET2;
 // PC-BASIC fails); VARPTR(#n) (GIO86.ASM GETPTR) is the address of file n's FDB's F_MODE (OO-1: P4's FDB table,
-// p4.lbl's FDB0, FDBLEN = 184 bytes apart; F_MODE at 1), as an integer, so negative in $C800-$F7FF; Bad file number
+// p4.lbl's FDB0, FDBLEN = 185 bytes apart since F3; F_MODE at 1), as an integer, so negative in $C800-$F7FF; Bad file number
 // for a file not open or past NMFILE.
 TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
 {
@@ -1174,7 +1544,7 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
     CHECK_EQ(command(r, "A=1:CHAIN MERGE \"CMT\""), std::string("Bad file mode\r\n"));
     CHECK_EQ(command(r, "CHAIN \"CMT\""), std::string("TOKENISED\r\n"));
     auto varptr = [&](int n) { // PRINT's form of the integer: its sign, or a space
-        const int a = p4.at("FDB0") + n * 184 + 1, s = a >= 32768 ? a - 65536 : a;
+        const int a = p4.at("FDB0") + n * 185 + 1, s = a >= 32768 ? a - 65536 : a;
         return (s < 0 ? "" : " ") + std::to_string(s) + " \r\n";
     };
     CHECK_EQ(command(r, "OPEN \"O\",#1,\"VP1.TXT\":OPEN \"O\",#3,\"VP3.TXT\""), std::string());
@@ -1183,6 +1553,81 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
     CHECK_EQ(command(r, "PRINT VARPTR(#2)"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "PRINT VARPTR(#4)"), std::string("Bad file number\r\n"));
     CHECK_EQ(command(r, "CLOSE:PRINT VARPTR(#1)"), std::string("Bad file number\r\n"));
+}
+
+// N7 (F3's M4: CHAIN moved whole to the home block, P8; the owner's answer 6): CHAIN of a one-line text program
+// that ENDs, timed from RUN to that END's ENDCN2 (ENDCON's, after END's CONPOP), less the cycles of the interrupt
+// handlers inside it (the IRQ vector's entry to its RTI: T17's and D9's method, test_gwbasic_screen; review round 1,
+// F6), with the far calls (each a JSR to FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the
+// interrupts counted. M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two
+// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig (main b1d10088), + 400 (answer 6).
+// CHAIN's other two ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated (the
+// owner's word). Must-fail: a build whose CHAIN crosses three times more.
+TEST(chain_is_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("RUN") == 1 && lab.count("ENDCN2") == 1 && lab.count("FTSITE") == 1);
+    enter(r, {"10 END"});
+    CHECK_EQ(command(r, "SAVE \"CHT\",A"), std::string());
+    CHECK_EQ(command(r, "SAVE \"CHB\""), std::string());
+    auto timed = [&](const std::string &line, unsigned &farcalls, unsigned &irqs) {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, {line});
+        const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCN2"), site = lab.at("FTSITE");
+        uint16_t farcall = 0;
+        const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
+        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
+        int idepth = -1;
+        bool on = false;
+        farcalls = 0;
+        irqs = 0;
+        r.watch = [&](uint16_t pc) {
+            if (on && idepth < 0 && pc == irq) // an interrupt inside the run: its handler's cycles, left out
+            {
+                ifrom = r.cpu->cycles();
+                idepth = r.cpu->regs().s;
+                ++irqs;
+                return;
+            }
+            if (idepth >= 0)
+            {
+                if (r.cpu->regs().s != idepth + 3)
+                    return;
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            if (pc == runc && !on)
+            {
+                farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
+                                                r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
+                from = r.cpu->cycles();
+                on = true;
+            }
+            else if (on && pc == endcon)
+            {
+                cycles = r.cpu->cycles() - from - inirq;
+                on = false;
+            }
+            else if (on && pc == farcall)
+                ++farcalls;
+        };
+        CHECK_EQ(command(r, "RUN"), std::string());
+        r.watch = nullptr;
+        CHECK(cycles > 0);
+        return cycles;
+    };
+    unsigned ft = 0, fb = 0, fm = 0, it = 0, ib = 0, im = 0;
+    const uint64_t text = timed("10 CHAIN \"CHT\"", ft, it), tok = timed("10 CHAIN \"CHB\"", fb, ib),
+                   merge = timed("10 CHAIN MERGE \"CHT\",10", fm, im);
+    std::printf("  CHAIN of 10 END, cycles (far calls, interrupts): a text file %llu (%u, %u), tokenised %llu (%u, %u), "
+                "MERGE %llu (%u, %u)\n",
+                static_cast<unsigned long long>(text), ft, it, static_cast<unsigned long long>(tok), fb, ib,
+                static_cast<unsigned long long>(merge), fm, im);
+    CHECK(text <= 66521 + 400); // main b1d10088 66,521 on this rig, the handlers left out
+    CHECK_EQ(command(r, "KILL \"CHT.BAS\":KILL \"CHB.BAS\""), std::string());
 }
 
 namespace
