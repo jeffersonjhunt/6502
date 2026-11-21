@@ -17,7 +17,7 @@ breakpoint off if it is left on the diagnostics' own P3 address, `$BD1A5`, and o
 ([chapter 12](12-front-panel.md#reset)); then, with switch 19 up and flash block 23 holding the diagnostics linked
 with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written nothing yet; anything else, or
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
-BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.17:
+BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.18:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2. Before the copy, at `BOOT2`, on a revision 2 north
    bridge (ID `$D2`, *proposed*, B7) it sets WIN0H–WIN3H and VECH to 0 and writes MAP whole: AP8 1 with a revision 2
@@ -32,11 +32,11 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.17` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.18` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:116-195 -->
+<!-- listing: ../../backplane/bios/bios.s:130-209 -->
 ```
 RESET:
                 LDX     #$FF
@@ -156,7 +156,7 @@ Status: **emulated**
 The BIOS starts with a table of jumps at fixed addresses, so a new entry never moves another. From the monitor,
 `C803R` and so on run one. A program calls ECHO with `JSR $C80F`.
 
-<!-- listing: ../../backplane/bios/bios.s:75-86 -->
+<!-- listing: ../../backplane/bios/bios.s:89-100 -->
 ```
 ; Entry points at fixed addresses, for the monitor (nnnnR) and programs:
 ; nine of them. The ninth, $C818, dispatches the functions after these, so
@@ -182,7 +182,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
 | `$C812` | the diagnostics | Since BIOS 0.14 ([chapter 15](15-diagnostics.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23, with the panel's switches 16–18 as their options. With no diagnostics in the flash it says `NO DIAGNOSTICS IN THE FLASH` (or that they are another build's) and goes back to the monitor. It never returns |
 | `$C815` | the diagnostics, for a program | Since BIOS 0.14: A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive; the switches don't count), with no `Y` asked; anything else is `$C812`. With no diagnostics in the flash it returns, carry set, A, X, Y and W2 as they were. OODOS's `DIAG` reaches it through function 75 with A = 2. The last of the eight; the functions after it go through `$C818` |
-| `$C818` | the dispatching entry | Since BIOS 0.16 (*proposed*; on BIOS 0.15 and before `$C818` was the first byte after the table, so a call there restarted the machine). A program asks with a two-byte token, Y = `$5A` and X = `$A0` + the function, and A the function's argument. Function `$A1` is Apple II mode with image A, 0–3: the card and DMA checks as `$C806`'s, then `NO APPLE IIE ROM IN FLASH IMAGE n` and the monitor if that image isn't good. With the token and A over 3, function `$A0` (the flash update, reached only from the menu in BIOS 0.16) or a function `$A2–$AF` (reserved), it returns, carry set, with A, X, Y and the windows as they were. Without the token, as `C818R` from the monitor (which leaves X 0), it prints a menu, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR`, and takes a key: `F` is [the flash update](#the-flash-update), a digit 0–3 Apple II mode with that image, any other key the monitor. OODOS's `APPLE2 n` reaches function `$A1` through function 75 with A = 3. No entry is added after it |
+| `$C818` | the dispatching entry | Since BIOS 0.16 (*proposed*; on BIOS 0.15 and before `$C818` was the first byte after the table, so a call there restarted the machine). A program asks with a two-byte token, Y = `$5A` and X = `$A0` + the function, and A the function's argument. Function `$A1` is Apple II mode with image A, 0–3: the card and DMA checks as `$C806`'s, then `NO APPLE IIE ROM IN FLASH IMAGE n` and the monitor if that image isn't good. Function `$A2` (since BIOS 0.18) returns a byte of noise from SID A's voice 3, a seed for random numbers: carry clear, the byte in A, X and Y as they were. It puts voice 3 on noise at frequency `$FFFF` with the gate off (silent once voice 3's envelope has finished, always so under OODOS, where a released card's SID registers are zeroed; unless its registers say it is so already) and leaves it so, so the noise runs on between calls, waits 23 of the noise register's steps (about 2,800 cycles), so that two calls never give bytes that are shifts of each other, and reads [OSC3](07-sound.md#reg-c500); a register stuck at 0 (a read of 0, and another 8 steps later) has TEST pulsed and is waited for again, at most 4 times: a chip still stuck after that is refused as a busy card is. It uses no RAM or zero page, and 4 bytes of stack. With no sound card, or while the card's 6510 runs (CTRL's RUN), it refuses as below. OODOS's function 82 reaches it as `SN_NOISE`. With the token and A over 3, function `$A0` (the flash update, reached only from the menu in BIOS 0.16) or a function `$A3–$AF` (reserved), it returns, carry set, with A, X, Y and the windows as they were. Without the token, as `C818R` from the monitor (which leaves X 0), it prints a menu, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR`, and takes a key: `F` is [the flash update](#the-flash-update), a digit 0–3 Apple II mode with that image, any other key the monitor. OODOS's `APPLE2 n` reaches function `$A1` through function 75 with A = 3. No entry is added after it |
 
 ## The monitor
 

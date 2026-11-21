@@ -84,8 +84,8 @@ SS_LENGTH       = 3                    ;   bytes, at most 16 KB
 SS_RECORD       = 5                    ;   the record of the file it starts at
 SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
-SYS_MAJOR       = 0                    ; 0.13: full-resolution sprites, DM_POINTER 64 + n (interface 14); the version's one source
-SYS_MINOR       = 13                   ; (mksys.py reads both from here)
+SYS_MAJOR       = 0                    ; 0.14: SN_NOISE, the SID seed (interface 15); the version's one source
+SYS_MINOR       = 14                   ; (mksys.py reads both from here)
 ; The banners (OOLDR's, the cold boot's, PIP's) print the version as SYS_VERSION_TEXT writes it: the major as one
 ; digit, the minor as one or two ("0.9", "0.10")
 .assert SYS_MAJOR <= 9 && SYS_MINOR <= 99, error, "SYS_MAJOR is printed as one digit, SYS_MINOR as one or two"

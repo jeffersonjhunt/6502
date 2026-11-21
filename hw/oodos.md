@@ -1,6 +1,6 @@
 # OODOS: One Off DOS #
 
-Draft, 2026-10-26; OODOS 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+Draft, 2026-10-26; OODOS 0.14 since 2026-11-21 (function 82's `SN_NOISE`, the SID seed, through the ROM BIOS 0.18's `$C818` function `$A2`, OOLIB interface 15); 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
 W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
 **proposed**; open questions are collected at the end.
 
@@ -6008,6 +6008,18 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       isn't playing (the busy case is that plan's question); the BIOS's jump table grows and its version is raised;
       OODOS programs reach it through OOLIB too. RND stays the manual's repeatable generator; GW-BASIC gets a
       recorded OO-1 extension that reseeds RND from the BIOS function.
+      *As built (2026-11-21, feat/sid-noise; the owner's answers 1-14 under "The SID seed"):* BIOS 0.18's
+      `$C818` function `$A2` (the nine-entry table stays closed: ROMCALL's function list is what grows), one byte
+      of SID A's voice 3 noise in A: refused with no card or while CTRL's RUN is set; voice 3 put on noise at
+      `$FFFF`, gate off, and left so; 23 noise steps waited before the read (about 2,800 cycles: 2,877 measured, the
+      gate 3,500); a zero read and another 8 steps later pulse TEST, at most 4 times, then refused as a busy card
+      (18,905 cycles for a stuck chip, recorded; under OODOS that loses one or two millisecond ticks, the window
+      being 2.6 tick periods and the VIA holding one flag: an OO-1 limit the owner accepted, answer 15). It lives in a segment of its own at the ROM's end, so code after
+      ROMCALL moves only 7 bytes (a 104-byte move stalled two test_bios key cases: [testing.md](testing.md)'s
+      known fragility). OODOS 0.14's function 82 `SN_NOISE` (20; OOLIB interface 15): +1 n (1-16), the bytes at +2,
+      one ROM call a byte with W3 and VEC on block 63 and interrupts off for it (3,179 cycles at most, the gate
+      4,000; 3 bytes 10,323, the gate 15,000), `SN_BUSY` while `SC_6510` is claimed by anyone, X = `$FB` under a
+      ROM BIOS before 0.18. GW-BASIC's `RANDOMIZE SOUND` is 7f's U7, on this.
   - **Size:** 6–8 KB banked.
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.

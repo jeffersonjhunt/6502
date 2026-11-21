@@ -31,6 +31,7 @@
 ;       their address, and put back before anything else
 ;   U   U aa xx: MBOX + 1's byte written to SID A's $D418 and MBOX + 2's
 ;       to SID B's, then read back as V does
+;   F   F aa xx: function 80's FT_INFO, X = 0 (OOLIB's interface version)
 ;
 ; DOCHOOK counts its calls at DCNT ($2180) and keeps the interrupt
 ; register OODOS gave it (HZP) at DLAST ($2181), and its S at DS ($2182);
@@ -181,6 +182,13 @@ c_k:    lda     #<KBLK
         SAY     "K"
         rts
 
+c_f:    lda     #FT_INFO
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        SAY     "F"
+        rts
+
 c_z:    lda     MBOX + 1
         ldx     #0
         jsr     f82
@@ -305,6 +313,7 @@ cmds:   CMD     'K', c_k
         CMD     'U', c_u
         CMD     'V', c_v
         CMD     'B', c_b
+        CMD     'F', c_f
 CMDS_LEN = * - cmds
 hblk:   .byte   SN_DOCHOOK
         .word   DOCHOOK

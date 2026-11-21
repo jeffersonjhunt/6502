@@ -240,6 +240,17 @@ either; for now it is a known limit (review finding H1).
 suites and the others, and give `emu` to a non-`emu` suite that alone reaches emulator lines; run it with the
 coverage check, when a device or a suite is added.
 
+**Known fragility (found 2026-11-21, the SID seed's R-U1; to fix later as its own item, the owner's answer
+12):** `test_bios.cpp`'s `Board::run` services the console only when `cpu->cycles() % 64 <= 7` after an
+instruction. With DMA channel 2 holding the bus under a burst limit, a monitor loop whose period, stolen cycles
+included, keeps clear of that window never gets its keys: moving the code after ROMCALL by 86 bytes or more (so
+GETKEY's poll loop, `input.s`, crosses a page and takes 24 cycles, not 23) made
+`c806_stops_a_programs_dma_before_its_fills` and
+`apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_to_it` stall ("only 3 of 6 keys were
+taken"). The harness's sampling, not the ROM: real keys arrive whenever they come. BIOS 0.18 put its new code at
+the ROM's end so that nothing moved that far; the fix (sampling the console by elapsed cycles, not by a phase of
+the count) is for later.
+
 pinled (the firmware this harness was copied from) has its own `harness.h`, without the case selection; the
 two now differ there.
 
