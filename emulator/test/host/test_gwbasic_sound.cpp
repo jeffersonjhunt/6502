@@ -1115,6 +1115,67 @@ TEST(timer_is_timed)
 }
 
 
+// N25 (the manual's p. 329, GWSTS.ASM's STICKF): the DE-9 sticks: STICK(0) latches both and gives 1's X; STICK(1)-
+// (3) the latched 1's Y, 2's X and Y, unchanged when the sticks move until the next STICK(0); a digital stick reads
+// 0, 128 or 255 (the OEM table's decision, against a PC's 1-200); STICK(4) Illegal function call. Guards a game
+// reading a stale or the wrong axis. Seen failing with STICK(1) read afresh.
+TEST(stick_reads_the_joysticks)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    JoystickPorts *j = r.machine->joysticks();
+    REQUIRE(j != nullptr);
+    j->set(0, JoystickPorts::LEFT | JoystickPorts::DOWN);
+    j->set(1, JoystickPorts::RIGHT);
+    r.run(ms(100));
+    CHECK_EQ(said(r, "PRINT STICK(0);STICK(1);STICK(2);STICK(3)"), std::string(" 0  255  255  128"));
+    j->set(0, JoystickPorts::UP);
+    j->set(1, 0);
+    r.run(ms(100));
+    CHECK_EQ(said(r, "PRINT STICK(1);STICK(2);STICK(3)"), std::string(" 255  255  128")); // the latch
+    CHECK_EQ(said(r, "PRINT STICK(0);STICK(1);STICK(2);STICK(3)"), std::string(" 128  0  128  128"));
+    CHECK_EQ(said(r, "PRINT STICK(4)"), std::string("Illegal function call"));
+}
+
+// N26 (the manual's pp. 331-335, GWSTS.ASM's STRIGF and POLSTR): a press shorter than a statement is latched:
+// STRIG(0) -1 once, then 0; STRIG(1) -1 while held, 0 after; joystick 2's STRIG(2), (3); STRIG(4)-(7) 0 (the DE-9
+// sticks have one button); STRIG(8) Illegal function call; ON STRIG(0) GOSUB with STRIG(0) ON: one GOSUB a press.
+// Guards a short press missed. Seen failing with the latch set from EV_CTL's bits now, not the events.
+TEST(strig_latches_a_press_and_on_strig_traps_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    JoystickPorts *j = r.machine->joysticks();
+    REQUIRE(j != nullptr);
+    CHECK_EQ(said(r, "PRINT STRIG(0);STRIG(2)"), std::string(" 0  0"));
+    j->set(0, JoystickPorts::FIRE);
+    r.run(ms(60));
+    j->set(0, 0);
+    j->set(1, JoystickPorts::FIRE);
+    r.run(ms(100));
+    CHECK_EQ(said(r, "PRINT STRIG(0);STRIG(0);STRIG(1);STRIG(2);STRIG(3);STRIG(4);STRIG(5);STRIG(6);STRIG(7)"),
+             std::string("-1  0  0 -1 -1  0  0  0  0"));
+    j->set(1, 0);
+    r.run(ms(100));
+    CHECK_EQ(said(r, "PRINT STRIG(3);STRIG(2)"), std::string(" 0  0"));
+    CHECK_EQ(said(r, "PRINT STRIG(8)"), std::string("Illegal function call"));
+    run_prog(r, {"10 ON STRIG(0) GOSUB 100:STRIG(0) ON", "20 IF INKEY$<>\"9\" THEN 20", "30 PRINT N:END",
+                 "100 N=N+1:RETURN"},
+             ms(300));
+    for (int i = 0; i < 3; ++i)
+    {
+        j->set(0, JoystickPorts::FIRE);
+        r.run(ms(60));
+        j->set(0, 0);
+        r.run(ms(150));
+    }
+    keys(r, "9");
+    r.run(ms(500));
+    CHECK_EQ(line(r, 2), std::string(" 3"));
+}
+
 
 int main()
 {

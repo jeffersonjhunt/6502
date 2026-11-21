@@ -1299,8 +1299,8 @@ GWSTS.ASM FCERRI -> res/gwmain.s FCERR # ONESUB's and STRIGF's: CONINT's own Ill
 GWSTS.ASM ONESUB -> res/gweval.s CONINT # 7f: PENF's (and STRIGF's, STICKF's): CONINT on the FAC FUNDSP's call evaluated
 GWSTS.ASM COMTRP -> p7/event.s TRPPOL # its EVTRP on COMOFF (COM1: COM2 has no driver)
 GWSTS.ASM PENF -> p7/event.s JOYFP # PEN(0) TSTCEV; RDPEN the OEM's: no pen, 0 (the owner's answer 1 to the 7e4 plan); ONESUB as CONINT
-GWSTS.ASM STICKF -> later 7f: STICK
-GWSTS.ASM STRIGF -> later 7f: STRIG
+GWSTS.ASM STICKF -> p7/event.s JOYSS # RDSTIK the OEM's, on EV_CTL (0-255: the OEM table's); STICK(0) latches both sticks; console mode Advanced Feature (the owner's answer 4)
+GWSTS.ASM STRIGF -> p7/event.s STRIGF # RDTRIG the OEM's: an even n STREV's latch (cleared), an odd n EC_BITS now; OO-1: the latch whether or not STRIG(n) ON (the plan's)
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
 GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
@@ -1568,7 +1568,7 @@ GWSTS.ASM GETSU2 -> p3/gwsts.s GETSU2
 GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: later 7c-7f; the test trigger in 7b); Z set back, not trapped
 GWSTS.ASM NOT_ON -> p3/gwsts.s NOT_ON
 GWSTS.ASM EVCLR -> p3/gwsts.s EVCLR # an entry
-GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF, STRIGF: later 7f); the result in RBL, RBH (the 8086's BX)
+GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF's, P7's); the result in RBL, RBH (the 8086's BX)
 GWSTS.ASM TSTEVX -> p3/gwsts.s TSTEVX
 GWSTS.ASM EOSCKX -> p3/gwsts.s EOSCKX
 GWSTS.ASM JERDNA -> dropped: ONGOTP's Device unavailable for the pen, which no code of the source reaches

@@ -962,7 +962,7 @@ TEST(three_hundred_traps_leave_both_stacks_as_they_were)
 // in NEWSTT's visits. A visit the console's 1 kHz tick lands in (over 100 cycles) is left out of both sums, and
 // counted. With no trap on (the program never turns one on); and with KEY(1) ON (raised after line 10) and nothing
 // requested. 7a's NEWSTT was LDA ONGSBF / BEQ NEWST1, 6 cycles (3 + 3, taken); each is given against it. The
-// limits have room over the plan's figures.
+// limits have room over the plan's figures. 7f (E7): and N32's polled sources, below.
 TEST(the_trap_test_at_newstt_is_timed)
 {
     TrapRig t;
@@ -1016,6 +1016,58 @@ TEST(the_trap_test_at_newstt_is_timed)
                 none, none - 6, one, one - 6);
     CHECK(none >= 5 && none <= 6);
     CHECK(one >= 15 && one <= 24);
+    // N32 (7f, E7; the owner's answer 11): with ON TIMER armed (a deadline never reached) and with ON COM(1) armed (no
+    // byte waiting), the polled sources' cost averaged over the statements: every 16th polls them (one far call to
+    // P7's TRPPOL, MSNOW and the deadline, or P4's COMRDY and function 7). Here every visit counts, the interrupt
+    // handlers' cycles left out of it (T17's method), for n 1,000 and 3,000. Gates: at most 60 and 110. Guards a game
+    // slowed by an armed timer. Seen failing with the poll every statement, not every 16.
+    const uint16_t irq = static_cast<uint16_t>(t.r.machine->bus().peek(0xFFFE) | t.r.machine->bus().peek(0xFFFF) << 8);
+    auto polled = [&](const std::string &arm, unsigned n) {
+        Window w;
+        uint64_t from = 0, ifrom = 0, inirq = 0;
+        bool in = false;
+        int idepth = -1;
+        t.r.watch = [&](uint16_t pc) {
+            if (in && idepth < 0 && pc == irq)
+            {
+                ifrom = t.r.cpu->cycles();
+                idepth = t.r.cpu->regs().s;
+            }
+            else if (idepth >= 0 && t.r.cpu->regs().s == idepth + 3)
+            {
+                inirq += t.r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            if (pc == t.lab.newstt && idepth < 0)
+            {
+                from = t.r.cpu->cycles();
+                inirq = 0;
+                in = true;
+            }
+            else if (pc == t.lab.newst1 && in && idepth < 0)
+            {
+                in = false;
+                w.cycles += t.r.cpu->cycles() - from - inirq;
+                ++w.visits;
+            }
+        };
+        const std::string got = t.run({"10 " + arm, "20 I%=I%+1 : IF I%<" + std::to_string(n) + " THEN 20", "30 END",
+                                       "100 RETURN"},
+                                      {});
+        t.r.watch = nullptr;
+        CHECK_EQ(got, std::string());
+        return w;
+    };
+    auto avg = [&](const std::string &arm) {
+        const Window a = polled(arm, 1000), b = polled(arm, 3000);
+        CHECK(b.visits > a.visits);
+        return static_cast<double>(b.cycles - a.cycles) / (b.visits - a.visits);
+    };
+    const double timer = avg("ON TIMER(1000) GOSUB 100:TIMER ON"), com = avg("ON COM(1) GOSUB 100:COM(1) ON");
+    std::printf("  NEWSTT with ON TIMER armed: %.2f cycles a statement (the gate 60); with ON COM(1) armed: %.2f (110)\n",
+                timer, com);
+    CHECK(timer > 18 && timer <= 60);
+    CHECK(com > 18 && com <= 110);
 }
 
 int main()

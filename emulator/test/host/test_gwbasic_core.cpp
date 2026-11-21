@@ -503,6 +503,33 @@ TEST(the_loader_refuses_far_call_sites_outside_their_block)
     }
 }
 
+// N37 (7f): the overlay holds eight blocks, P1-P8 (GWBASIC.OVL's header: its count, each page once), the loader
+// takes eight blocks of the pool (AMAP, blocks 4-23: the free ones before and after start-up), and a far call into
+// P7 after start-up runs (TIMER, in console mode). Guards P7's page missing, a far call to it landing in FARMISS.
+// Seen failing with mkgw.py given no P7.
+TEST(the_overlay_loads_eight_blocks)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> o = file("GWBASIC.OVL");
+    REQUIRE(o.size() > 128);
+    CHECK_EQ(o[5], 8u);
+    unsigned pages = 0;
+    for (unsigned i = 0; i < o[5] && i < 8; ++i)
+        pages |= 1u << o[8 + 8 * i];
+    CHECK_EQ(pages, 0x1FEu); // 1-8
+    auto taken = [&] {
+        unsigned n = 0;
+        for (uint32_t i = 0; i < 20; ++i)
+            n += r.phys(SYS_BLOCK_PHYS + sym("AMAP") + i) != 0;
+        return n;
+    };
+    const unsigned before = taken();
+    start(r);
+    CHECK_EQ(taken() - before, 8u);
+    CHECK_EQ(command(r, "PRINT TIMER>0"), std::string("-1 \r\n"));
+}
+
 // No memory for the blocks: every block of banks 1-5 taken (function 55's map, AMAP, as the loader starts).
 TEST(the_loader_refuses_with_no_memory_for_the_blocks)
 {
@@ -1120,7 +1147,7 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 
 // N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
 // Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n), PLAY
-// ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions; and the ones that don't need it work as in screen
+// ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions, STICK, STRIG; and the ones that don't need it work as in screen
 // mode: BEEP (function 82's SN_BEEP: nothing printed), PEN, ON COM(1) and COM(1) ON, TIMER, DATE$, TIME$ and
 // ON TIMER (the 2nd GOSUB after 1-3 s, by FT_COUNT's ms: console mode opens no event area). Guards a statement in console mode
 // waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
@@ -1131,7 +1158,8 @@ TEST(console_mode_keeps_its_guard)
     REQUIRE(r.ok);
     start(r);
     for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",
-                          "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)"})
+                          "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)",
+                          "PRINT STICK(0)", "PRINT STRIG(0)"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "BEEP"), std::string());
     CHECK_EQ(command(r, "PEN ON:PRINT PEN(0);PEN(9)"), std::string(" 0  0 \r\n"));

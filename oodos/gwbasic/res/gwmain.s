@@ -112,6 +112,8 @@ GONLET:         JMP     LET
 ; trigger's test did (7b's 18 cycles with a trap on).
 TRPOLL:         LDA     POLSRC         ; a polled source armed, or the trigger?
                 BEQ     TRPOL1
+                DEC     TRPN           ; every POLLN statements
+                BNE     TRPOL1
                 JMP     TRPSRC         ; (out of line, below: GONE3's branches)
 TRPOL1:         LDA     ONGSBF         ; NEWSTT's own test: an event's GOSUB?
                 BEQ     NEWST1
@@ -871,15 +873,14 @@ RUN:            BNE     :+
                 CMP     #PTRCON
                 BEQ     CONRUN
                 JMP     LRUN
-; TRPSRC (7f): TRPOLL's sources, POLSRC nonzero: every POLLN statements
-; P7's TRPPOL, which polls the armed sources and takes the test-only trigger
-; (bit 7; the test sets TRPN to 1 with it, so it is taken at once).
-TRPSRC:         DEC     TRPN           ; every POLLN statements
-                BNE     :+
-                LDA     #POLLN
+; TRPSRC (7f): TRPOLL's sources, POLSRC nonzero, every POLLN statements (its
+; count TRPOLL's): P7's TRPPOL, which polls the armed sources and takes the
+; test-only trigger (bit 7; the test sets TRPN to 1 with it, so it is taken
+; at once).
+TRPSRC:         LDA     #POLLN
                 STA     TRPN
                 FJSR    TRPPOL         ; P7: ON TIMER's and ON COM's sources, the trigger
-:               JMP     TRPOL1
+                JMP     TRPOL1
 
 CONRUN:         JSR     CLEARC         ; TXTPTR kept
                 PUSHRET NEWSTT         ; RUNC2

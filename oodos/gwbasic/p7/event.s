@@ -25,7 +25,16 @@
 ;             the function as FINGO has it: PEN(n) GWSTS.ASM's PENF, n 0-9,
 ;             the OEM's RDPEN reporting no pen (0; PEN(0) the trap's
 ;             request tested and cleared, TSTCEV), past 9 Illegal function
-;             call (7e4's answer 1); STICK, STRIG later (U6)
+;             call (7e4's answer 1); STICK(n) (STICKF, the OEM's RDSTIK on
+;             EV_CTL): STICK(0) latches controllers 1 and 2's X and Y (0-255:
+;             a digital stick 0, 128, 255) and gives 1's X, STICK(1)-(3) the
+;             latched 1's Y, 2's X and Y, past 3 Illegal function call;
+;             STRIG(n) (STRIGF, the OEM's RDTRIG): an even n pressed since the
+;             last read (STREV's latch, cleared), an odd n down now
+;             (EC_BITS), STRIG(0)-(3) the controllers' first fire button,
+;             (4)-(7) their second (the DE-9 sticks have none: 0), past 7
+;             Illegal function call. STICK and STRIG Advanced Feature in
+;             console mode (the owner's answer 4: no event area)
 ;   XFUNP     the home block's ERDEVP, A the token: PLAY(n) (p7/play.s
 ;             PLAYN), TIMER, DATE$ and TIME$ (p7/time.s TIMEP, DATEF, TIMEF)
 ;
@@ -34,7 +43,7 @@
 .include "gwbasic.inc"
 
 .export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT
-.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, TIMEP, DATEF, TIMEF, TIMSET, TIMPOL
+.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, SCRMOD, TIMEP, DATEF, TIMEF, TIMSET, TIMPOL
 .import MU_EVENT, MU_COUNT             ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
 
 CB_FIRE2        = CB_FIRE * 2          ; the second fire button (the DE-9 sticks have one)
@@ -143,7 +152,7 @@ ONSETP:         CMP     #0
 ; the trap's request tested and cleared (TSTCEV), PEN(1)-(9) the OEM's RDPEN:
 ; no pen, 0. As FUNDSP's: the argument in the FAC, the value back in it.
 JOYFP:          CPX     #2 * (PEN_FN - ONEFUN)
-                BNE     @fc            ; STICK, STRIG: U6
+                BNE     JOYSS          ; STICK, STRIG
                 JSR     CONINT
                 CMP     #10
                 BCS     @fc
@@ -155,6 +164,58 @@ JOYFP:          CPX     #2 * (PEN_FN - ONEFUN)
                 FJSR    TSTCEV
 :               JMP     MAKINT
 @fc:            JMP     FCERR
+
+; STICKF, STRIGF (GWSTS.ASM 1771, 1813): console mode Advanced Feature.
+JOYSS:          BIT     SCRMOD
+                BMI     :+
+                JMP     ADVERR
+:               PHX
+                JSR     CONINT         ; n
+                PLX
+                STZ     RBH
+                CPX     #2 * (STICK_FN - ONEFUN)
+                BNE     STRIGF
+                CMP     #4             ; STICK: 0-3
+                BCS     JFC
+                TAY
+                BNE     @lat
+                LDA     EVAREA + EV_CTL + EC_X ; STICK(0): both sticks latched
+                STA     STKL
+                LDA     EVAREA + EV_CTL + EC_Y
+                STA     STKL + 1
+                LDA     EVAREA + EV_CTL + EC_LEN + EC_X
+                STA     STKL + 2
+                LDA     EVAREA + EV_CTL + EC_LEN + EC_Y
+                STA     STKL + 3
+@lat:           LDA     STKL,Y
+                STA     RBL
+                JMP     MAKINT
+STRIGF:         CMP     #8             ; STRIG: 0-7
+                BCS     JFC
+                LSR     A              ; k, C: odd (now)
+                TAY
+                LDX     #0
+                BCS     @now
+                LDA     STRLAT,Y       ; pressed since: the latch, cleared
+                PHA
+                LDA     #0
+                STA     STRLAT,Y
+                PLA
+                BRA     @ret
+@now:           AND     #1             ; controller k AND 1
+                BEQ     :+
+                LDX     #EC_LEN
+:               LDA     #CB_FIRE       ; the first button, or (k 2, 3) the second
+                CPY     #2
+                BCC     :+
+                ASL     A
+:               AND     EVAREA + EV_CTL + EC_BITS,X
+                BEQ     @ret
+                LDA     #$FF
+@ret:           STA     RBL            ; -1 or 0
+                STA     RBH
+                JMP     MAKINT
+JFC:            JMP     FCERR
 
 XFUNP:          CMP     #PLAY_XS
                 BNE     :+
@@ -175,3 +236,4 @@ PLYN:           .res    1              ; ON PLAY(n)'s n, 0 none
 CTLB:           .res    2              ; controllers 1 and 2's EC_BITS as last seen
 STT:            .res    1              ; STREV's
 STRLAT:         .res    4              ; STRIG(0), (2), (4), (6): pressed since the last read ($FF)
+STKL:           .res    4              ; STICK(0)'s latch: 1's X, Y, 2's X, Y
