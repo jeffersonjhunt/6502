@@ -1138,7 +1138,10 @@ TEST(print_and_scroll_are_timed)
 // line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
 // key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
 // no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
-// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls).
+// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls;
+// answer 29: both F1 figures in the same RUN). A record, not a guard (the owner's answer 31): its last check, text
+// costing more than none, shows only that the text path is taken; what F1 queues (its text counted and then
+// dropped, or the test for a text inverted) is guarded by a_function_key_types_its_text.
 TEST(the_key_line_and_soft_keys_cost)
 {
     CcpRig r;
@@ -1215,13 +1218,10 @@ TEST(the_key_line_and_soft_keys_cost)
         return kn ? static_cast<double>(ktotal) / kn : 0;
     };
     const double plain = avg(0x04), none = avg(K_F1);
-    r.watch = nullptr;
-    press(r, 0x06, CTRL);
-    r.run(ms(200));
-    enter(r, "KEY 1,\"LIST\"");
-    keys(r, "RUN\r");
-    r.run(ms(200));
-    r.watch = watch;
+    // 7f (the owner's answer 29): F1's text given in the same RUN (STRTAB, resident, written as KEY 1,"LIST" writes
+    // it), so the only difference between the two F1 figures is whether F1 has text.
+    const uint16_t strtab = lbl_map().at("STRTAB");
+    r.poke(strtab, std::vector<uint8_t>{'L', 'I', 'S', 'T', 0});
     const double soft = avg(K_F1);
     r.watch = nullptr;
     std::printf("  a key (KEYEV, less its interrupts and drain calls): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,

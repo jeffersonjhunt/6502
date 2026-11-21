@@ -1165,8 +1165,10 @@ TEST(strig_latches_a_press_and_on_strig_traps_it)
 // The owner's answer 11's gate: a key with no trap armed costs within 30 cycles of main's. P6's KEYEV from its entry
 // to its return (EVPOLL's far call to it), the interrupt handlers inside it left out (T17's method), the BDOS calls
 // of its cooked-key drain too (how many there are depends on when the key's cooked twin comes: a race, not the
-// code's), averaged over 8 presses each of A and of F1 (no text) while a program reads INKEY$, no trap on. Main
-// 80a70aa6 measured so on this rig: A 280, F1 340. Seen failing with KTRAP called with no trap on (KTON's test
+// code's), averaged over 8 presses each of A and of F1 (no text) while a program reads INKEY$, no trap on. The
+// owner's answer 29: re-anchored to main fa501cfb (the SID merge and the fractal programs), measured on this rig by
+// this method, an interrupt inside a BDOS call counted once (answer 28), on 2026-11-21: A 280, F1 368 (the first
+// anchor, main 80a70aa6 by the method before answer 28, was 280 and 340). Seen failing with KTRAP called with no trap on (KTON's test
 // left out).
 TEST(a_key_s_cost_with_no_trap_armed)
 {
@@ -1227,10 +1229,10 @@ TEST(a_key_s_cost_with_no_trap_armed)
     };
     const double a = avg(0x04), f1 = avg(0x3A);
     r.watch = nullptr;
-    std::printf("  KEYEV, no trap armed, less its interrupts and BDOS calls: A %.0f cycles, F1 %.0f (main 80a70aa6: "
-                "A 280, F1 340; the gate + 30)\n", a, f1);
-    CHECK(a > 100 && a <= 280 + 30); // main 80a70aa6 on this rig (2026-11-21), the same method
-    CHECK(f1 > 100 && f1 <= 340 + 30);
+    std::printf("  KEYEV, no trap armed, less its interrupts and BDOS calls: A %.0f cycles, F1 %.0f (main fa501cfb: "
+                "A 280, F1 368; the gate + 30)\n", a, f1);
+    CHECK(a > 100 && a <= 280 + 30); // main fa501cfb on this rig (2026-11-21), the fixed method (answer 29)
+    CHECK(f1 > 100 && f1 <= 368 + 30);
 }
 
 // N36 (7f's U7; the SID seed plan's answers 8, 10 and 11, the owner's extension): RANDOMIZE SOUND seeds RND from
