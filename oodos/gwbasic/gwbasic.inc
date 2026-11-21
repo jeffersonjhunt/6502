@@ -289,6 +289,15 @@ GXT             = $EE                  ; gxmem's scratch (GX_BLOCK's bit)
 ; the other's value there.
 MUP             = GXQ                  ; mu.s's block pointer (MU_INSTR, MU_TONE)
 
+; 7f (the owner's answer 20): nonzero once this run has used sound (SOUND,
+; BEEP and the bell, PLAY, the driver's start: P7 sets it), so P3's INITRP
+; far calls P7's SNDINI at CLEARC only then, and a CHAIN or RUN with no
+; sound makes no crossing for it; SNDINI clears it. $5F is free: no
+; module's equate names it (PRINT USING's USP-USDH end at $5E), and no
+; image's code (the resident core, P1-P8 with OOLIB's modules linked in)
+; reaches it, by a scan of every zero page operand (7f's record).
+SNDUSE          = $5F
+
 ; --- 7c's CHAIN ($D6, $D7) -------------------------------------------------------
 ;
 ; A CHAIN under way (GWDATA.ASM's CHNFLG and MRGFLG, set by P4's CHAINP,

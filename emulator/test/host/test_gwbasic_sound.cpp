@@ -539,6 +539,39 @@ TEST(run_and_system_free_the_6510)
     CHECK(!running(r));
 }
 
+// The owner's answer 20: CLEARC far calls P7's SNDINI only when the run used sound (SNDUSE); a CHAIN from a run that
+// played still resets the sound: MB notes queued, then CHAIN to a saved program: the 6510 given back (SN_RELEASE,
+// CTRL's RUN off) and the chained program's PLAY(0) 0; and a CHAIN from a run with no sound makes no SN_ call.
+// Guards a CHAIN that leaves the last program's music playing, or the driver held. Seen failing with INITRP's test
+// of SNDUSE inverted.
+TEST(chain_after_sound_still_resets_the_sound)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "NEW");
+    enter(r, "10 PRINT PLAY(0)");
+    enter(r, "SAVE \"M:C2\",A", ms(1500));
+    Sound s;
+    s.watch(r);
+    run_prog(r, {"10 PLAY \"MB L1 CDEF\":CHAIN \"M:C2\""}, ms(2500));
+    if (s.entries.size() != 4u)
+    {
+        std::printf("  the screen: %s\n", screen(r).c_str());
+        for (const Entry &e : s.entries)
+            std::printf("  entry at %.1f: voice %u word %u len %u gate %u\n", as_ms(e.at), e.voice, e.freq, e.len, e.gate);
+    }
+    CHECK_EQ(s.entries.size(), 4u);
+    CHECK_EQ(s.releases, 1u);
+    CHECK(!running(r));
+    CHECK_EQ(line(r, 2), std::string(" 0"));
+    const unsigned rel = s.releases;
+    run_prog(r, {"10 CHAIN \"M:C2\""}, ms(2500));
+    r.watch = nullptr;
+    CHECK_EQ(s.releases, rel);
+    CHECK_EQ(line(r, 2), std::string(" 0"));
+}
+
 // N20 (the owner's answer 3): BEEP and PRINT CHR$(7) in screen mode, and BEEP in console mode (test_gwbasic_core's
 // G11 case), sound the bell by function 82's SN_BEEP, 800 Hz for 250 ms, and claim nothing (no SN_LOAD). Guards
 // BEEP silent. Seen failing with ^G's route left out of P6 (CBEEP's far call).

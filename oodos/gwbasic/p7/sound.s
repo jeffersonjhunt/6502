@@ -84,6 +84,7 @@ SNDINI:         LDA     #120
                 STA     NOTE1L
                 STA     OCTAVE
                 STZ     DRVON
+                STZ     SNDUSE         ; (the owner's answer 20)
                 JMP     MU_QUIT        ; (MU_STOP's work with it; PE_STATE if not
                                        ;   started, nothing done)
 ; SNDRST: DONOTE's AL 255, the background music off and the queue emptied:
@@ -98,7 +99,9 @@ SNDRST:         LDA     #0             ; (PE_STATE if not started: nothing done)
 ; owner's answer 3), then POLKEY's look at the keys (CHKINT).
 BEEPP:          JSR     BELLP
                 JMP     CHKINT
-BELLP:          LDA     #<BEEPB
+BELLP:          LDA     #1             ; sound used this run (answer 20)
+                STA     SNDUSE
+                LDA     #<BEEPB
                 LDX     #>BEEPB
                 LDY     #O_SOUND
                 JMP     BDOS
@@ -109,7 +112,11 @@ BELLP:          LDA     #<BEEPB
 ; manual's p. 323: 0 to 65,535), negative Illegal function call too, where
 ; the source would queue its integer as a length. Then y x 22, the 2.5 ms
 ; units DONOTE takes, 65,535 at most (FRQINT: P1's), and DOSND.
-SOUNDP:         JSR     GETIN2         ; DX: the frequency
+SOUNDP:         PHA                    ; sound used this run (the owner's answer 20)
+                LDA     #1
+                STA     SNDUSE
+                PLA
+                JSR     GETIN2         ; DX: the frequency
                 LDA     RDH
                 BNE     :+
                 LDA     RDL
@@ -201,6 +208,7 @@ DONOTE:         STA     NOTESC
                 RTS
 @on:            LDA     #1             ; (PLAY(n)'s: played this run)
                 STA     DRVON
+                STA     SNDUSE
                 LDA     MMODE          ; MF: voice 0 empty first; MB: room
                 BEQ     :+
                 LDA     #MUQMAX - 1
@@ -477,14 +485,18 @@ XFUNP:          CMP     #PLAY_XS
 .rodata
 BEEPB:          .byte   SN_BEEP, <800, >800, <250, >250 ; function 82: the bell
 
+.data
+; GWSTS.ASM's PLAY state (GWRAM.ASM's BEATS ... MMODE), SNDINI's defaults;
+; OO-1: in DATA with them, as the overlay loads it, since CLEARC calls SNDINI
+; only once a run has used sound (the owner's answer 20).
+BEATS:          .byte   120            ; T: quarter notes a minute
+MSCALE:         .byte   3              ; 1 ML, 2 MS, 3 MN
+MMODE:          .byte   0              ; 0 MF, 1 MB
+NOTELN:         .byte   4              ; L: the length
+NOTE1L:         .byte   4              ; this note's
+OCTAVE:         .byte   4              ; O
+
 .segment "BRAM"
-; GWSTS.ASM's PLAY state (GWRAM.ASM's BEATS ... MMODE), SNDINI's.
-BEATS:          .res    1              ; T: quarter notes a minute
-MSCALE:         .res    1              ; 1 ML, 2 MS, 3 MN
-MMODE:          .res    1              ; 0 MF, 1 MB
-NOTELN:         .res    1              ; L: the length
-NOTE1L:         .res    1              ; this note's
-OCTAVE:         .res    1              ; O
 ; DONOTE's
 NOTEHZ:         .res    2              ; the frequency (CX)
 NOTEU:          .res    2              ; the length, 2.5 ms units (DX)

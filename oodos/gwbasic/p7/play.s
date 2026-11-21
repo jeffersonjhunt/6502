@@ -41,7 +41,9 @@
 .code
 
 ; PLAYS (GWSTS.ASM 556): MACLNG with PLYTAB.
-PLAYP:          LDA     #<PLYTAB
+PLAYP:          LDA     #1             ; sound used this run (the owner's answer 20)
+                STA     SNDUSE
+                LDA     #<PLYTAB
                 LDX     #>PLYTAB
                 JMP     MACLNG
 

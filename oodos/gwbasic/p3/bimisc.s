@@ -422,7 +422,8 @@ FRETP2:         LDA     ONGSBF         ; SUB AL,1 / JB: not below 0
 
 ; INITRP (BIMISC.ASM 454): every trap off, with no GOSUB line; none waiting.
 ; OO-1 (7f): then CLEARC's SNDINI (P7's: PLAY's state, the driver quit), by
-; one far call, as CLEARC reaches INITRP by one.
+; one far call, as CLEARC reaches INITRP by one, only if the run used sound
+; (SNDUSE, gwbasic.inc: the owner's answer 20).
 INITRP:         LDX     #3 * NUMTRP - 1
                 LDA     #0
 INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
@@ -430,8 +431,10 @@ INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
                 BPL     INITP0
                 STA     ONGSBF
                 STA     TRPON          ; OO-1: no trap on
-                FJSR    SNDINI         ; OO-1 (7f): CLEARC's sound reset
-                RTS
+                LDA     SNDUSE         ; OO-1 (7f): CLEARC's sound reset, if
+                BEQ     :+             ; this run used sound (the owner's
+                FJSR    SNDINI         ; answer 20)
+:               RTS
 
 ; GOTRP (BIMISC.ASM 475): from NEWSTT's poll, with ONGSBF nonzero. Not in ON
 ; ERROR's handler (ONEFLG), nor in a direct statement (CURLIN 65535): C
