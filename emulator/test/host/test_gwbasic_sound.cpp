@@ -1182,7 +1182,7 @@ TEST(a_key_s_cost_with_no_trap_armed)
     int depth = -1, idepth = -1, bdepth = -1;
     r.watch = [&](uint16_t pc) {
         const auto &g = r.cpu->regs();
-        if (depth >= 0 && idepth < 0 && pc == irq)
+        if (depth >= 0 && idepth < 0 && bdepth < 0 && pc == irq) // (one inside a BDOS call: the call's)
         {
             ifrom = r.cpu->cycles();
             idepth = g.s;

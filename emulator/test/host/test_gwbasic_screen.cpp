@@ -1170,7 +1170,7 @@ TEST(the_key_line_and_soft_keys_cost)
     int kdepth = -1, kidepth = -1, kbdepth = -1;
     const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
         const auto &g = r.cpu->regs();
-        if (kdepth >= 0 && kidepth < 0 && pc == kirq)
+        if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && pc == kirq) // (one inside a BDOS call: the call's)
         {
             kifrom = r.cpu->cycles();
             kidepth = g.s;
