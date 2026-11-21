@@ -1863,7 +1863,11 @@ TEST(def_seg_8000_is_the_cga_page_in_screen_1_and_2)
 // header writes only its bytes (7d3's F3 clamp); BLOAD of 16 KB at &H2000 is Illegal function call, the page
 // unchanged. Guards a PC picture BLOADed garbled, a BSAVEd screen not coming back. Seen failing with (a) DSGXY's gap
 // test left out (the gaps taken as rows 200-205: the odd rows from the wrong bytes), (b) BSAVE's fill left out (the
-// file holds bank 8's RAM).
+// file holds bank 8's RAM). F3 (the owner's answer 15): GWBASIC.OVL past 64 KB takes one 2 KB block more of M:, which
+// this case had filled exactly, so its files are given back after their last use in each mode (KILL "M:G.BAS",
+// "M:P.BAS": KILL takes the name as given, BSAVE's ".BAS" with it), the 16 KB BLOAD at &H2000 is K's (the same
+// header as G's) so G's last use is before P's BSAVE, and P's file is checked at once (a Disk full fails here, by
+// name). Seen failing with the KILLs left out (P's BSAVE Disk full).
 TEST(bsave_and_bload_the_graphics_page)
 {
     CcpRig r;
@@ -1897,11 +1901,17 @@ TEST(bsave_and_bload_the_graphics_page)
         CHECK_EQ(d[7 + 0x3FFF], 20 + m);
         enter(r, "CLS:BLOAD \"M:G\",0", ms(4000));
         CHECK_EQ(cga_differ(r, card8), 0u);
+        enter(r, "KILL \"M:G.BAS\"", ms(1500)); // (G's last use: M:'s room for P)
         enter(r, "CLS:BLOAD \"M:K\",0", ms(4000));
         CHECK_EQ(cga_differ(r, img, 7), 0u);
         CHECK_EQ(r.phys(0x81F40), 0x5A);
         CHECK_EQ(r.phys(0x83FFF), 0x5A);
-        enter(r, "CLS:FOR K=0 TO 99:POKE &H2000+K,&HAA:NEXT:BSAVE \"M:P\",&H2000,100:CLS:BLOAD \"M:P\"", ms(4000));
+        enter(r, "CLS:FOR K=0 TO 99:POKE &H2000+K,&HAA:NEXT:BSAVE \"M:P\",&H2000,100", ms(4000));
+        const std::vector<uint8_t> pf = m_data(r, 0, "P       BAS");
+        REQUIRE(pf.size() >= 107u); // (BSAVE's Disk full, or no file, fails here)
+        CHECK(std::vector<uint8_t>(pf.begin(), pf.begin() + 7) == std::vector<uint8_t>({0xFD, 0x00, 0x80, 0x00, 0x20, 0x64, 0x00}));
+        CHECK_EQ(static_cast<size_t>(std::count(pf.begin() + 7, pf.begin() + 107, uint8_t{0xAA})), size_t{100});
+        enter(r, "CLS:BLOAD \"M:P\"", ms(4000));
         unsigned rows = 0, off = 0;
         for (unsigned k = 0; k < 0x4000; ++k)
         {
@@ -1913,6 +1923,7 @@ TEST(bsave_and_bload_the_graphics_page)
         }
         CHECK_EQ(rows, 100u);
         CHECK_EQ(off, 0u);
+        enter(r, "KILL \"M:P.BAS\"", ms(1500)); // (P's last use)
         enter(r, "CLS:LINE (0,0)-(639,199),1,BF:BLOAD \"M:H\",0", ms(4000));
         unsigned kept = 0;
         for (unsigned k = 200; k < 0x1F40; ++k)
@@ -1924,7 +1935,7 @@ TEST(bsave_and_bload_the_graphics_page)
         for (unsigned k = 0; k < 0x4000; ++k)
             before[k] = static_cast<uint8_t>(cga(r, k));
         enter(r, "NEW");
-        enter(r, "10 ON ERROR GOTO 90:E=0:BLOAD \"M:G\",&H2000:END");
+        enter(r, "10 ON ERROR GOTO 90:E=0:BLOAD \"M:K\",&H2000:END");
         enter(r, "90 E=ERR:RESUME NEXT");
         enter(r, "RUN", ms(4000));
         CHECK_EQ(cga_differ(r, before), 0u);

@@ -5952,7 +5952,12 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       `p5/seed.s` keeps in RODATA). Mutant: the loader dropping a first record's high byte. The next limit: the
       header's 16-bit first record, 65,535 records (8 MB), far past the format's own most, 1 + 8 x 96 records
       (98,432 bytes). The 2 KB block more it takes on a drive did matter: the rig's M: (OODOS's memory drive) was
-      exactly full in `bsave_and_bload_the_graphics_page`, whose last BSAVE then met Disk full.
+      exactly full in `bsave_and_bload_the_graphics_page`, whose last BSAVE then met Disk full, unseen by the case
+      (it reads no error). The owner's answer 15: the case keeps its files on M: and gives each back after its last
+      use in each mode (`KILL "M:G.BAS"`, `"M:P.BAS"`: KILL takes a name as given, BSAVE adds `.BAS`, so an earlier
+      `KILL "M:G"` was File not found), its 16 KB BLOAD at &H2000 is K's (the same header as G's) so that G's last use
+      comes before P's BSAVE, and P's file is checked at once (its header and 100 bytes), so a Disk full fails the
+      case by name; seen failing with the KILLs left out. Every other check and expected result is as it was.
     - **Judgements:** RECNUM's test for 32,767.5 is on the single's top 16 mantissa bits (FACEXP `$8F`, all ones);
       a second Bad record number jump in DSKRND (ER_BRM) for branch reach; FD_LOGH keeps FD_PHY's two bytes so
       FD_LOG and FD_OPS keep their offsets, as the plan's 185-byte FDB has it; N8's far point is read from the
