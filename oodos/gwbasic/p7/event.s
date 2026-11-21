@@ -11,13 +11,12 @@
 ;             the notes waiting in MB fall from n to n - 1 (OO-1: the source
 ;             has no PLAY event); EK_CTL: STREV; the rest dropped
 ;   STREV     a controller's change (EC_BITS, controllers 1 and 2): each
-;             fire button newly pressed latched for STRIG(0), (2), (4), (6)
-;             (pressed since the last read) and its trap requested (P3's
-;             EVTRP: GWSTS.ASM's POLSTR, on the events)
-;   TRPPOL    TRPOLL's, every POLLN statements while POLSRC is nonzero: the
-;             test-only trigger (bit 7: P3's TRPTSP), ON COM(1)'s byte
-;             waiting (bit 1: P4's COMRDY; GIOCOM.ASM's POLCOM), ON TIMER's
-;             deadline (bit 0: p7/time.s TIMPOL)
+;             fire button newly pressed: its trap requested (P3's EVTRP:
+;             GWSTS.ASM's POLSTR, on the events) and, if that didn't trap
+;             it, latched for STRIG(0), (2), (4), (6) (pressed since the last
+;             read: the manual's p. 333)
+;   TRPPOL    retired: an RTS (the owner's answers 23-24: ON TIMER by the tick
+;             hook, ON COM's trap deferred until AUX: has a receive buffer)
 ;   ONSETP    ON PLAY(n) and ON TIMER(n) (P3's ONGOTP): A 0 PLAY, n 1-32
 ;             (the manual's p. 211), kept for SNDEV; A 1 TIMER (p7/time.s
 ;             TIMSET); A the event's id back
@@ -43,7 +42,7 @@
 .include "gwbasic.inc"
 
 .export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT
-.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, SCRMOD, TIMEP, DATEF, TIMEF, TIMSET, TIMPOL
+.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, SCRMOD, TIMEP, DATEF, TIMEF, TIMSET
 .import MU_EVENT, MU_COUNT             ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
 
 CB_FIRE2        = CB_FIRE * 2          ; the second fire button (the DE-9 sticks have one)
@@ -101,35 +100,30 @@ STREV:          LDA     EVAREA + EV_QUEUE + EQ_CODE,Y
                 BEQ     EVPX
                 TXA
                 ORA     #2
-; STRHIT: trigger A (0-3: STRIG(2A)) pressed: latched, and its trap asked.
+; STRHIT: trigger A (0-3: STRIG(2A)) pressed: its trap asked (EVTRP), and,
+; unless that trapped it, latched (the manual's p. 333: a press that a trap
+; takes doesn't count for the even STRIG functions; the source's STRIGF tests
+; and clears the trap's request there instead: the manual's meaning followed).
 STRHIT:         PHX
-                TAX
-                LDA     #$FF
-                STA     STRLAT,X
-                TXA
+                PHA
                 CLC
                 ADC     #STROFF
-                FJSR    EVTRP
+                FJSR    EVTRP          ; Z clear: trapped
+                BNE     @t
+                PLX
+                LDA     #$FF
+                STA     STRLAT,X
+                PLX
+                RTS
+@t:             PLX                    ; (k dropped)
                 PLX
                 RTS
 
 ; --- TRPPOL, ONSETP ------------------------------------------------------------------------
 
-TRPPOL:         BIT     POLSRC         ; the test-only trigger: P3's
-                BPL     :+
-                FJSR    TRPTSP
-:               LDA     POLSRC         ; ON COM(1): a byte waiting
-                AND     #PS_COM
-                BEQ     :+
-                FJSR    COMRDY
-                BCC     :+
-                LDA     #COMOFF
-                FJSR    EVTRP
-:               LDA     POLSRC         ; ON TIMER: the deadline
-                AND     #PS_TIMER
-                BEQ     :+
-                JMP     TIMPOL
-:               RTS
+; TRPPOL: retired (an RTS: 7f's ON TIMER is the tick hook's, ON COM deferred;
+; the owner's answers 23-24): its entry stays, as a retired entry does.
+TRPPOL:         RTS
 
 ONSETP:         CMP     #0
                 BNE     @tim

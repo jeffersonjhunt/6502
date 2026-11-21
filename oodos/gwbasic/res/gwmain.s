@@ -54,7 +54,7 @@
 .export USERR, ERESET, ERRESM, BAKSP, PRGEND, RUN, ENDPRG, FTSITE
 .export DOT, OLDLIN, OLDTXT, ERRTXT, ONEFLG, INITFG, REDDY, ONE
 .export GOSUB, NXTLIN, FVALSV, FORVAR, ENDFOR, FORFLG, FORCNT, SCNERR, RTNTXT
-.export NEWST1, GOSUB2, TRPON, POLSRC, TRPTST, TRPN, CURLIN ; (the zero page ones for the label file: the tests)
+.export NEWST1, GOSUB2, TRPON, TRPTST, CURLIN ; (the zero page ones for the label file: the tests)
 .export LETCN2, INPCOM, LETCN4, DATSNE, DATLIN
 .import NUMCON, OUTDO, NEWSTX, ISMID, LRUN, GOGON4, GOREADY
 .ifdef FLAT
@@ -103,18 +103,12 @@ GONLET:         JMP     LET
 ; the sources polled, then ONGSBF's test (which can be nonzero only while a
 ; trap is on) and GOTRP (P3). GOTRP returns C set for a trap taken (the far
 ; call rule: the 8086's GOTRP jumps to GOSUB2 itself), and the poll goes on
-; into GOSUB2; else back to NEWST1. 7f: the sources raised from events (the
-; keys, STRIG, PLAY) are raised as the events come (EVPOLL); the polled ones,
-; ON TIMER's clock and ON COM(1)'s byte waiting, only while POLSRC says one
-; is armed (P3 keeps it), every POLLN statements, by one far call (P7's
-; TRPPOL). POLSRC's bit 7 is the test-only trigger (p3/trptst.s), its
-; operation in TRPTST, taken by TRPPOL; with POLSRC 0 the poll costs what the
-; trigger's test did (7b's 18 cycles with a trap on).
-TRPOLL:         LDA     POLSRC         ; a polled source armed, or the trigger?
+; into GOSUB2; else back to NEWST1. The sources' polls are 7d-7f's; until
+; then TRPTST, the test-only trigger, stands in their place (p3/trptst.s),
+; and goes when they come.
+TRPOLL:         LDA     TRPTST         ; test only: a trigger (7d-7f: the sources' polls)
                 BEQ     TRPOL1
-                DEC     TRPN           ; every POLLN statements
-                BNE     TRPOL1
-                JMP     TRPSRC         ; (out of line, below: GONE3's branches)
+                FJSR    TRPTSP
 TRPOL1:         LDA     ONGSBF         ; NEWSTT's own test: an event's GOSUB?
                 BEQ     NEWST1
                 FJSR    GOTRP          ; possible ON GOSUB
@@ -873,15 +867,6 @@ RUN:            BNE     :+
                 CMP     #PTRCON
                 BEQ     CONRUN
                 JMP     LRUN
-; TRPSRC (7f): TRPOLL's sources, POLSRC nonzero, every POLLN statements (its
-; count TRPOLL's): P7's TRPPOL, which polls the armed sources and takes the
-; test-only trigger (bit 7; the test sets TRPN to 1 with it, so it is taken
-; at once).
-TRPSRC:         LDA     #POLLN
-                STA     TRPN
-                FJSR    TRPPOL         ; P7: ON TIMER's and ON COM's sources, the trigger
-                JMP     TRPOL1
-
 CONRUN:         JSR     CLEARC         ; TXTPTR kept
                 PUSHRET NEWSTT         ; RUNC2
                 JMP     GOTO
@@ -909,8 +894,6 @@ OLDTXT:         .res    2              ; and text; 0: nothing to continue
 ERRTXT:         .res    2              ; RESUME's: the erring statement's text (SAVTXT)
 ONEFLG:         .res    1              ; in ON ERROR's routine: nonzero (NTMDCN decrements it)
 INITFG:         .res    1              ; start-up done: errors are BASIC's
-TRPN:           .byte   POLLN          ; 7f: TRPOLL's count of statements to the next poll (the tests' label)
-TRPTST:         .byte   0              ; 7f: the test-only trigger's operation (p3/trptst.s), POLSRC's bit 7 its flag
 .ifdef FLAT
 .export ERRHOOK
 ERRHOOK:        .res    2              ; the flat harness's error entry, or 0 (test/harness.s)

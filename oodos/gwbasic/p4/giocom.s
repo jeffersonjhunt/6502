@@ -35,15 +35,14 @@
 ; effect: TTY has no modem lines to wait on. COM2 has no driver (DVPTR's 0:
 ; Device unavailable), so GCMDCB's DCB is always COM1's (CM1DCB). The BDOS's
 ; AUX: functions give no error, so CKCMER finds none. ON COM(n)'s trap from a
-; byte waiting (POLCOM, CHKINT's): 7f's COMRDY, for P7's TRPPOL, every 16
-; statements while ON COM(1)'s trap is on (the resident TRPOLL's POLSRC).
+; byte waiting (POLCOM, CHKINT's) is 7f's.
 
 .include "gwbasic.inc"
 
-.export COMDSP, COMINI, COMRDY
+.export COMDSP, COMINI
 .import DERBFM, DERIFN, DERFAO, DERBRN, INIFDB, SCDBIN, DEVBIN, DEVBOT, FILOPT
 .import CRIFEL, UPDPOS, CRDL, CRDH, BXVEC, INCHSI, BCHRSI, GETDAT, FILMOD
-.import MAKINT, POLKEY, ERROR, FDBPTR
+.import MAKINT, POLKEY, ERROR
 .import INICOM, RECCOM, SNDCOM, STACOM, TRMCOM
 
 ; The DCB's _CMFLG bits.
@@ -492,40 +491,6 @@ COMLOC:         JSR     GCOMSZ
                 BNE     CMLOCX
                 INC     RBH
 CMLOCX:         RTS
-
-; COMRDY (OO-1, 7f; POLCOM's test): C set if a byte waits on COM1: one
-; backed up in an open COM1 file's FDB (F_BAKC: INPUT$ or EOF read it),
-; else AUX:'s, function 7. FDBP kept.
-COMRDY:         LDA     FDBP+1
-                PHA
-                LDA     FDBP
-                PHA
-                LDA     #NMFILE
-@f:             PHA
-                JSR     FDBPTR         ; open?
-                BEQ     @n
-                LDY     #F_DEV
-                LDA     (FDBP),Y
-                CMP     #DEVCM1
-                BNE     @n
-                LDY     #F_FLGS
-                LDA     (FDBP),Y
-                AND     #FL_BKC
-                BEQ     @n
-                PLA                    ; backed up: one waits
-                SEC
-                BRA     @x
-@n:             PLA
-                DEC     A
-                BNE     @f
-                LDY     #A_STATIN      ; AUX:'s input status: nonzero, a byte
-                JSR     BDOS
-                CMP     #1
-@x:             PLA
-                STA     FDBP
-                PLA
-                STA     FDBP+1
-                RTS
 
 ; COMLOF (618): the room for bytes (CX), an integer in the FAC.
 COMLOF:         JSR     COMLOC

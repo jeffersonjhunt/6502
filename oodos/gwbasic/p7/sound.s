@@ -34,9 +34,7 @@
 ;             the queue (EVAREA + EV_QUEUE + Y): EK_SOUND's byte to MU_EVENT
 ;             (the voices' counts: PLAY(n)); EK_CTL STREV's (U6); the rest
 ;             dropped
-;   TRPPOL    TRPOLL's, every POLLN statements while POLSRC is nonzero: the
-;             test-only trigger (bit 7: P3's TRPTSP), then the polled sources
-;             armed (ON TIMER, ON COM(1)), none for now
+;   TRPPOL    retired (an RTS, p7/event.s)
 ;   JOYFP     PEN(n), STICK(n), STRIG(n) from FUNDSP (the resident JOYF), X the
 ;             function as FINGO has it: Illegal function call for now
 ;   XFUNP     the home block's ERDEVP: PLAY(n) (p7/play.s PLAYN); DATE$,
@@ -61,10 +59,11 @@
 ;@entry DATESP
 ;@entry TIMESP
 ;@entry TIMONP
+;@entry TIMOFP
 .export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
-.import SCRMOD, EVAREA
+.import SCRMOD, EVAREA, TIMON, TIMOFP
 .include "oolib.inc"
 
 MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
@@ -88,7 +87,10 @@ SNDINI:         LDA     #120
                 STA     OCTAVE
                 STZ     DRVON
                 STZ     SNDUSE         ; (the owner's answer 20)
-                JMP     MU_QUIT        ; (MU_STOP's work with it; PE_STATE if not
+                LDA     TIMON          ; (7f: SYSTEM's too: ON TIMER's hook off)
+                BEQ     :+
+                JSR     TIMOFP
+:               JMP     MU_QUIT        ; (MU_STOP's work with it; PE_STATE if not
                                        ;   started, nothing done)
 ; SNDRST: DONOTE's AL 255, the background music off and the queue emptied:
 ; MU_STOP of voice 0, if the driver was started (SOUND x,0 with nothing

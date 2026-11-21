@@ -30,8 +30,7 @@
  *   longest field the source allows, with the program after FBUFF LISTed; and, by hand, LPRINT USING to LST:.
  * - Step e: the event traps' frame. ON event GOSUB's forms and errors against PC-BASIC (NAME.differ where it
  *   departs from the 1983 source); and, by hand from the source (PC-BASIC has no way to raise a trap from outside),
- *   the traps raised through the test-only trigger (p3/trptst.s: TRPTST, with POLSRC's bit 7, TRPN 1 and TRPON
- *   (7f), written by their labels at
+ *   the traps raised through the test-only trigger (p3/trptst.s: TRPTST, with TRPON, written by their labels at
  *   chosen statements): a trap taken once at the next statement, RETURN to the statement after; a request while
  *   OFF forgotten, while STOPped kept; a request during the trap's own GOSUB taken after its RETURN (RSTTRP); none
  *   in direct mode or in ON ERROR's handler; a trap with GOSUB 0; three at once in TRPTBL's order; RUN and CLEAR
@@ -722,32 +721,27 @@ namespace
     /// The labels the trap cases need from gwbasic.lbl.
     struct TrapLabels
     {
-        uint16_t newstt = 0, newst1 = 0, trpon = 0, trptst = 0, polsrc = 0, trpn = 0, curlin = 0;
+        uint16_t newstt = 0, newst1 = 0, trpon = 0, trptst = 0, curlin = 0;
         bool ok = false;
         TrapLabels()
         {
             const std::map<std::string, uint16_t> lab = labels();
-            for (const char *n : {"NEWSTT", "NEWST1", "TRPON", "TRPTST", "POLSRC", "TRPN", "CURLIN"})
+            for (const char *n : {"NEWSTT", "NEWST1", "TRPON", "TRPTST", "CURLIN"})
                 CHECK(lab.count(n) == 1);
             ok = lab.count("NEWSTT") && lab.count("NEWST1") && lab.count("TRPON") && lab.count("TRPTST") &&
-                 lab.count("POLSRC") && lab.count("TRPN") && lab.count("CURLIN");
+                 lab.count("CURLIN");
             if (!ok)
                 return;
             newstt = lab.at("NEWSTT");
             newst1 = lab.at("NEWST1");
             trpon = lab.at("TRPON");
             trptst = lab.at("TRPTST");
-            polsrc = lab.at("POLSRC");
-            trpn = lab.at("TRPN");
             curlin = lab.at("CURLIN");
         }
-        /// The trigger pulled: its operation in TRPTST, POLSRC's bit 7, TRPN 1 (the poll at the next NEWSTT: 7f's
-        /// TRPOLL polls its sources every 16 statements) and TRPON 1.
+        /// The trigger pulled: its operation in TRPTST and TRPON 1.
         template <class B> void trigger(B &bus, uint8_t op) const
         {
             bus.poke(trptst, op);
-            bus.poke(polsrc, static_cast<uint8_t>(bus.peek(polsrc) | 0x80));
-            bus.poke(trpn, 1);
             bus.poke(trpon, 1);
         }
     };
@@ -1016,11 +1010,11 @@ TEST(the_trap_test_at_newstt_is_timed)
                 none, none - 6, one, one - 6);
     CHECK(none >= 5 && none <= 6);
     CHECK(one >= 15 && one <= 24);
-    // N32 (7f, E7; the owner's answer 11): with ON TIMER armed (a deadline never reached) and with ON COM(1) armed (no
-    // byte waiting), the polled sources' cost averaged over the statements: every 16th polls them (one far call to
-    // P7's TRPPOL, MSNOW and the deadline, or P4's COMRDY and function 7). Here every visit counts, the interrupt
-    // handlers' cycles left out of it (T17's method), for n 1,000 and 3,000. Gates: at most 60 and 110. Guards a game
-    // slowed by an armed timer. Seen failing with the poll every statement, not every 16.
+    // N32 (7f, E7; the owner's answer 23): with ON TIMER armed (TIMER ON, n 1,000 s: never reached) NEWSTT costs what
+    // one trap on costs: the timer is OOLIB's tick hook, resident (TIMHK), and NEWSTT polls nothing for it. Every
+    // visit counts here, the interrupt handlers' cycles left out of it (T17's method: the hook runs in one), for n
+    // 1,000 and 3,000. The gate: one trap on's, 15-24. Guards a game slowed by an armed timer. Seen failing with
+    // NEWSTT's ONGSBF test left out (P3's GOTRP every statement).
     const uint16_t irq = static_cast<uint16_t>(t.r.machine->bus().peek(0xFFFE) | t.r.machine->bus().peek(0xFFFF) << 8);
     auto polled = [&](const std::string &arm, unsigned n) {
         Window w;
@@ -1063,11 +1057,9 @@ TEST(the_trap_test_at_newstt_is_timed)
         CHECK(b.visits > a.visits);
         return static_cast<double>(b.cycles - a.cycles) / (b.visits - a.visits);
     };
-    const double timer = avg("ON TIMER(1000) GOSUB 100:TIMER ON"), com = avg("ON COM(1) GOSUB 100:COM(1) ON");
-    std::printf("  NEWSTT with ON TIMER armed: %.2f cycles a statement (the gate 60); with ON COM(1) armed: %.2f (110)\n",
-                timer, com);
-    CHECK(timer > 18 && timer <= 60);
-    CHECK(com > 18 && com <= 110);
+    const double timer = avg("ON TIMER(1000) GOSUB 100:TIMER ON");
+    std::printf("  NEWSTT with ON TIMER armed: %.2f cycles a statement (one trap on's gate, 15-24)\n", timer);
+    CHECK(timer >= 15 && timer <= 24);
 }
 
 int main()

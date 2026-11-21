@@ -22,8 +22,7 @@
 ;@entry PRGFLI
 ;@entry CHNSTP
 ;@entry SAVFGT
-;@entry COMRDY
-; (7f: COMRDY, p4/giocom.s's, P7's TRPPOL's far call for ON COM(1), last; ERDVGT: p4/giodsk.s's, OO-1, after DSKCHP so P4's other entries keep their places; PRGFLI, p4/dskcom.s's, and
+; (ERDVGT: p4/giodsk.s's, OO-1, after DSKCHP so P4's other entries keep their places; PRGFLI, p4/dskcom.s's, and
 ; CHNSTP and SAVFGT, p4/fiveo.s's, the home block's p8/chain.s's far calls since F3's M4, after them, for the same)
 .export DSKCHP
 .import INCHR, LDRUN, BUF, ERROR, ERDVGT, FILESQ

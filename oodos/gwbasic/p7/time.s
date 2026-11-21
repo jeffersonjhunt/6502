@@ -21,19 +21,20 @@
 ;   TIMESP    TIME$ = string (TIMES, PRSTIM): h, m, s (and hundredths) with :
 ;             or . between, each part may be left off (0); OO-1 (answer 8):
 ;             104 sets the hour and the minute, the seconds 0
-;   TIMONP    TIMER ON's deadline: now + ON TIMER(n)'s n x 1,000 ms
+;   TIMONP    TIMER ON (the owner's answer 23): the resident TIMHK set as
+;             OOLIB's tick hook, every 1,000 ms, counting ON TIMER(n)'s n down
+;             (TIMCNT) and asking for the trap when it runs out; TIMOFP the
+;             hook off (TIMER OFF; CLEARC by P3's INITRP; SYSTEM by SNDINI)
 ;   TIMSET    ON TIMER(n)'s n (ONSETP's): 1-86,400 (the manual's p. 217), else
-;             Illegal function call
-;   TIMPOL    TRPPOL's for ON TIMER: past the deadline, the request (EVTRP)
-;             and the deadline moved on by n x 1,000 ms
+;             Illegal function call; kept in TIMN (resident, the hook's)
 ;
 ; The far call rule: each returns by RTS, or ends in an error.
 
 .include "gwbasic.inc"
 
-.export TIMEP, DATEF, TIMEF, DATESP, TIMESP, TIMONP, TIMSET, TIMPOL
+.export TIMEP, DATEF, TIMEF, DATESP, TIMESP, TIMONP, TIMOFP, TIMSET
 .import FCERR, CHRGTR, SYNCHR, FRMEVL, FRESTR, STRINI, PUTNEW, DSCTMP, FDIVS, FRCSNG, QINT
-.import MSNOW, MSN
+.import MSNOW, MSN, TIMN, TIMCNT, TIMREQ, TIMON, TIMHK
 
 .code
 
@@ -614,7 +615,7 @@ GNUM16:         STZ     T0
 ; --- ON TIMER ------------------------------------------------------------------------------
 
 ; TIMSET: ON TIMER(n)'s n in the FAC: 1-86,400, else Illegal function call;
-; TIMMS its ms (n x 1,000).
+; TIMN n.
 TIMSET:         JSR     FRCSNG
                 BIT     FACM1          ; negative
                 BMI     @fc
@@ -634,72 +635,41 @@ TIMSET:         JSR     FRCSNG
                 LDA     RDL
                 CMP     #$81
                 BCS     @fc
-@ok:            LDA     RDL            ; TSEC = n, then T0-T3 = n x 1,000
-                STA     TSEC
+@ok:            LDA     RDL            ; TIMN = n (the hook reads it only at a
+                STA     TIMN           ; reload, so a byte at a time does)
                 LDA     RDH
-                STA     TSEC+1
+                STA     TIMN+1
                 LDA     RBL
-                STA     TSEC+2
-                LDX     #3
-:               STZ     T0,X
-                DEX
-                BPL     :-
-                LDX     #10
-                JSR     ADDSH
-                LDX     #4
-                JSR     SUBSH
-                LDX     #3
-                JSR     SUBSH
-                LDX     #3
-:               LDA     T0,X
-                STA     TIMMS,X
-                DEX
-                BPL     :-
-                LDA     #$FF           ; (TSEC is TIMER's too: its second anew)
-                STA     TLAST
+                STA     TIMN+2
                 RTS
 @fc:            JMP     FCERR
 
-; TIMONP: the deadline, now + TIMMS.
-TIMONP:         JSR     MSNOW
-                CLC
+; TIMONP (the owner's answer 23): TIMER ON: the countdown from n (TIMN) and
+; the resident TIMHK set as OOLIB's tick hook, every 1,000 ms (FT_TICKHOOK),
+; TIMON its flag. TIMOFP: the hook taken off (TIMER OFF, CLEARC, SYSTEM).
+TIMONP:         LDX     #2
+:               LDA     TIMN,X
+                STA     TIMCNT,X
+                DEX
+                BPL     :-
+                STZ     TIMREQ
+                LDA     #<TIMHB
+                LDX     #>TIMHB
+                LDY     #O_FRAME
+                JSR     BDOS
+                LDA     #1
+                STA     TIMON
+                RTS
+TIMOFP:         LDA     #FT_TICKHOOK   ; (no block: the hook off)
                 LDX     #0
-                LDY     #4
-:               LDA     MSN,X
-                ADC     TIMMS,X
-                STA     DEADL,X
-                INX
-                DEY
-                BNE     :-
+                LDY     #O_FRAME
+                JSR     BDOS
+                STZ     TIMON
+                STZ     TIMREQ
                 RTS
 
-; TIMPOL: past the deadline (now - DEADL not negative): EVTRP on TIMOFF, and
-; the deadline on by TIMMS.
-TIMPOL:         JSR     MSNOW
-                SEC
-                LDA     MSN
-                SBC     DEADL
-                LDA     MSN+1
-                SBC     DEADL+1
-                LDA     MSN+2
-                SBC     DEADL+2
-                LDA     MSN+3
-                SBC     DEADL+3
-                BMI     @x
-                CLC
-                LDX     #0
-                LDY     #4
-:               LDA     DEADL,X
-                ADC     TIMMS,X
-                STA     DEADL,X
-                INX
-                DEY
-                BNE     :-
-                LDA     #TIMOFF
-                FJSR    EVTRP
-@x:             RTS
-
 .rodata
+TIMHB:          .byte   FT_TICKHOOK, <TIMHK, >TIMHK, <1000, >1000 ; function 80: the hook, every 1,000 ms
 DAYSPM:         .byte   31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
 
 .segment "BRAM"
@@ -713,5 +683,3 @@ TM:             .res    1              ;   the month, and the hour (TIMESP's)
 TD:             .res    1              ;   the day, and the minute
 TSP:            .res    2              ; DATE$= and TIME$='s string
 TSN:            .res    1              ;   and its bytes left
-TIMMS:          .res    4              ; ON TIMER(n)'s n x 1,000
-DEADL:          .res    4              ; TIMER ON's deadline (the ms counter)

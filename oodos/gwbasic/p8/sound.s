@@ -16,8 +16,8 @@
 ;   DATES     DATE$ = string, TIMES TIME$ = string: P7's DATESP, TIMESP, both
 ;             modes (the owner's answer 4)
 ;   TIMERS    TIMER ON, OFF, STOP (OO-1; the manual's p. 344): ON TIMER(n)'s
-;             trap by P3's SETEV1 on TIMOFF, TIMER ON's deadline first (P7's
-;             TIMONP); both modes
+;             trap by P3's SETEV1 on TIMOFF; TIMER ON sets the tick hook
+;             first (P7's TIMONP), TIMER OFF takes it off (TIMOFP); both modes
 ;   PLAYS     PLAY string: P7's PLAYP in screen mode; Advanced Feature in
 ;             console mode (answer 4). OO-1 (7f): PLAY ON, OFF or STOP, ON
 ;             PLAY(n)'s trap, by P3's SETEV1 on PLYOFF
@@ -90,9 +90,12 @@ DATES:          FJSR    DATESP
                 RTS
 TIMES:          FJSR    TIMESP
                 RTS
-TIMERS:         CMP     #ON_TK         ; TIMER ON: its deadline first
+TIMERS:         CMP     #ON_TK         ; TIMER ON: the tick hook first; OFF: off
                 BNE     :+
                 FJSR    TIMONP
+:               CMP     #OFF_TK
+                BNE     :+
+                FJSR    TIMOFP
 :               DECW    TXTPTR
                 LDX     #TIMOFF
                 BRA     EVSTM

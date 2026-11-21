@@ -969,7 +969,7 @@ GWSTS.ASM POLSTR -> OEM p7/event.s STREV # 7f: on each EK_CTL event, not polled:
 GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
 GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
 GWSTS.ASM EVSET -> p3/gwsts.s EVSET
-GIOCOM.ASM POLCOM -> p7/event.s TRPPOL # 7f: every 16 statements while ON COM(1)'s trap is on (POLSRC), P4's COMRDY; COM2 has no driver: its trap never fires
+GIOCOM.ASM POLCOM -> later 7g: ON COM(n)'s trap deferred (the owner, 2026-11-21, 7f's answer 24) until OODOS gives AUX: an interrupt-filled receive buffer (phase 7's question 12 reopened); COM(n) ON/OFF/STOP set the flag, nothing raises it
 GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
@@ -1297,10 +1297,10 @@ GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP
 BIPRTU.ASM FCERR3 -> res/gwmain.s FCERR # 7f: PENF's FCERR3, which the ledger finds by its first definition, BIPRTU.ASM's: a JMP FCERR either way
 GWSTS.ASM FCERRI -> res/gwmain.s FCERR # ONESUB's and STRIGF's: CONINT's own Illegal function call
 GWSTS.ASM ONESUB -> res/gweval.s CONINT # 7f: PENF's (and STRIGF's, STICKF's): CONINT on the FAC FUNDSP's call evaluated
-GWSTS.ASM COMTRP -> p7/event.s TRPPOL # its EVTRP on COMOFF (COM1: COM2 has no driver)
+GWSTS.ASM COMTRP -> later 7g: POLCOM's (ON COM deferred, 7f's answer 24)
 GWSTS.ASM PENF -> p7/event.s JOYFP # PEN(0) TSTCEV; RDPEN the OEM's: no pen, 0 (the owner's answer 1 to the 7e4 plan); ONESUB as CONINT
 GWSTS.ASM STICKF -> p7/event.s JOYSS # RDSTIK the OEM's, on EV_CTL (0-255: the OEM table's); STICK(0) latches both sticks; console mode Advanced Feature (the owner's answer 4)
-GWSTS.ASM STRIGF -> p7/event.s STRIGF # RDTRIG the OEM's: an even n STREV's latch (cleared), an odd n EC_BITS now; OO-1: the latch whether or not STRIG(n) ON (the plan's)
+GWSTS.ASM STRIGF -> p7/event.s STRIGF # RDTRIG the OEM's: an even n STREV's latch (cleared), an odd n EC_BITS now; a press that a trap took isn't latched (the manual's p. 333, the owner's answer 24 item 4), where the source tests and clears the request
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
 GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
@@ -1378,7 +1378,7 @@ GWSTS.ASM PLYNU3 -> p7/play.s PLYNU3 # PLYNU4 (OO-1: the shift 7 - O, the owner'
 GWSTS.ASM PLYRET -> p7/play.s PLYRET
 GWSTS.ASM PPAUS2 -> p7/play.s PPAUS2
 GWSTS.ASM PLAYS -> p7/play.s PLAYP # the home block's PLAY stub, screen mode (the owner's answer 4); MACLNG P7's own copy (p7/maclng.s)
-GWSTS.ASM TIMER -> p7/time.s TIMEP # OO-1: the source's TIMER is ADVERR; the manual's (p. 344): function 105's seconds since midnight and the ms counter's fraction (the owner's answer 7); ON TIMER and TIMER ON/OFF/STOP the OO-1's (p7/time.s TIMSET, TIMONP, TIMPOL)
+GWSTS.ASM TIMER -> p7/time.s TIMEP # OO-1: the source's TIMER is ADVERR; the manual's (p. 344): function 105's seconds since midnight and the ms counter's fraction (the owner's answer 7); ON TIMER and TIMER ON/OFF/STOP the OO-1's: the resident tick hook TIMHK (answer 23), p7/time.s TIMSET, TIMONP, TIMOFP
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
 GWSTS.ASM CHDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
@@ -1774,7 +1774,7 @@ GIOLPT.ASM GLPDCB -> dropped: OO-1, LPT1's DCB alone (LINLEN+1, LPTPOS, LPCRF: r
 GIOCOM.ASM COMDSP -> p4/giocom.s COMDSP
 GIOCOM.ASM COMINI -> p4/giocom.s COMINI
 GIOCOM.ASM COMTRM -> p4/giocom.s COMSCW # a RET
-GIOCOM.ASM POLCM1 -> p4/giocom.s COMRDY # a byte backed up in an open COM1 file, else function 7
+GIOCOM.ASM POLCM1 -> later 7g: POLCOM's (ON COM deferred, 7f's answer 24)
 GIOCOM.ASM GCOMSZ -> p4/giocom.s GCOMSZ # STACOM the OEM's (p4/oem.s): AUX:'s status, function 7
 GIOCOM.ASM CKCMER -> p4/giocom.s CKCMER # COMOPN in its routine: INICOM the OEM's (p4/oem.s); OO-1: the speed and the rest kept, not set (the owner, 2026-11-14)
 GIOCOM.ASM PCOMOP -> p4/giocom.s PCOMOP # LPARM's options in its routine

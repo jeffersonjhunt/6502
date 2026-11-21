@@ -55,6 +55,7 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
+.export TIMHK, TIMN, TIMCNT, TIMREQ, TIMON
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
 .export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC, STRTAB, GFLG
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
@@ -512,6 +513,34 @@ TXSYNC:         LDA     TXLEN
                 FJSR    TXRUN
 :               RTS
 
+; TIMHK (7f, the owner's answer 23): ON TIMER's tick hook, OOLIB's (function
+; 80's FT_TICKHOOK, every 1,000 ms, set and taken off by P7's TIMONP and
+; TIMOFP): resident, as a hook must be (no far call, no BDOS, interrupts off,
+; within its 300 cycles). TIMCNT, the seconds left, counted down; at 0 the
+; trap asked for (TIMREQ, ONGSBF one up, so NEWSTT's poll goes to P3's GOTRP,
+; which turns TIMREQ into TIMER's request: P3's EVTRP) and the count from
+; TIMN again.
+TIMHK:          LDX     #0             ; TIMCNT less 1, 24 bits
+@d:             DEC     TIMCNT,X
+                LDA     TIMCNT,X
+                CMP     #$FF           ; a borrow: the next byte
+                BNE     @z
+                INX
+                CPX     #3
+                BNE     @d
+@z:             LDA     TIMCNT
+                ORA     TIMCNT+1
+                ORA     TIMCNT+2
+                BNE     @x
+                LDX     #2             ; run out: from TIMN again
+@r:             LDA     TIMN,X
+                STA     TIMCNT,X
+                DEX
+                BPL     @r
+                INC     TIMREQ         ; the trap asked for
+                INC     ONGSBF
+@x:             RTS
+
 ; EVPOLL (7d1, hw/oodos.md, "The OEM layer": V2): the event queue (layout 2,
 ; EVAREA) taken from its tail, in order. A key pressed goes to P6's KEYEV,
 ; one far call, which queues its code in KYBQ; a break it reports goes to
@@ -796,4 +825,8 @@ F_EDPG:         .res    1              ; PINLIN: bit 7 a program line
 SEMFLG:         .res    1              ; INPUT;
 PRELOD:         .res    1              ; BUF holds a line to edit (ERREDT)
 POLCNT:         .byte   POLN           ; CHKINT's count
+TIMN:           .res    3              ; 7f: ON TIMER(n)'s n (P7's TIMSET)
+TIMCNT:         .res    3              ;   TIMHK's seconds left
+TIMREQ:         .res    1              ;   nonzero: TIMHK asks for ON TIMER's trap (P3's GOTRP takes it)
+TIMON:          .res    1              ;   nonzero while TIMHK is the tick hook (P7's TIMONP, TIMOFP)
 OLDMOD:         .res    2              ; the console mode before GW-BASIC (GWINIT)

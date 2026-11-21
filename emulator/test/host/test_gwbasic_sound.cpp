@@ -780,8 +780,10 @@ TEST(play_mb_runs_in_the_background_and_play_n_counts)
     CHECK(!running(r));
 }
 
-// N33 (the owner's answer 11: a PLAY note at most 8,000 cycles in MB, the interrupts left out): PLAY "MB T255 L64"
-// with 16 notes against one note, T17's method; the difference over 15. Guards MB falling behind its own notes.
+// N33 (the owner's answer 11, its gate 9,000 by answer 24: a PLAY note in MB, the interrupts left out): PLAY "MB
+// T255 L64" with 16 notes against one note, T17's method; the difference over 15. About 5,100 of a note is function
+// 82's: OOLIB's seven SN_SENDs and the card's busy retries (a note sent as one block is OOLIB's backlog). Guards MB
+// falling behind its own notes.
 // Seen failing with MU_TONE called twice a note.
 TEST(play_s_note_cost_is_timed)
 {
@@ -798,9 +800,9 @@ TEST(play_s_note_cost_is_timed)
     const double per = static_cast<double>(many - one) / 15;
     std::printf("  of which function 82: %.0f cycles a note, %.1f calls\n",
                 static_cast<double>(s.bdos_cycles - 2 * b1) / 15, (s.bdos_calls - 2.0 * n1) / 15);
-    std::printf("  PLAY in MB: %.0f cycles a note, the interrupts left out (the gate 8,000); one note's PLAY %llu\n", per,
+    std::printf("  PLAY in MB: %.0f cycles a note, the interrupts left out (the gate 9,000); one note's PLAY %llu\n", per,
                 static_cast<unsigned long long>(one));
-    CHECK(per > 1000 && per <= 8000);
+    CHECK(per > 1000 && per <= 9000);
 }
 
 // N17 (the manual's p. 211, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one GOSUB,
@@ -934,33 +936,6 @@ TEST(key_n_s_range_is_1_to_20)
     CHECK(until_row(r, "F15", ms(10)) < 0);
 }
 
-// N30 (GIOCOM.ASM's POLCOM; the owner's decision 12: polled): ON COM(1) GOSUB with COM(1) ON, a byte sent on AUX:
-// (TTY, CONIN: the USB keyboard's alone): the GOSUB within 16 statements of TRPOLL's poll, and INPUT$(1,#1) the
-// byte; a byte an ASCII file's EOF(1) has read and backed up (COMEOF's BCHRSI: none waiting at AUX: any more) still
-// a trap. Guards a terminal
-// program that never sees its input. Seen failing with P4's backed-up byte not seen by COMRDY.
-TEST(on_com_traps_a_byte_waiting)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    r.scb(0x22, 0x00); // CONIN: CRT alone, so AUX: (TTY) is the line's alone
-    r.scb(0x23, 0x80);
-    run_prog(r, {"10 OPEN \"COM1:\" AS #1:ON COM(1) GOSUB 100:COM(1) ON", "20 IF N=0 THEN 20",
-                 "30 PRINT \"got\";ASC(INPUT$(1,#1)):CLOSE:END", "100 N=1:RETURN"},
-             ms(300));
-    for (int i = 0; i < 2000 && !r.console->key('A'); ++i)
-        r.run(1000);
-    r.run(ms(800));
-    CHECK_EQ(line(r, 2), std::string("GOT 65")); // (Caps Lock on: the program typed in capitals)
-    run_prog(r, {"10 OPEN \"COM1:,,,,ASC\" AS #1:ON COM(1) GOSUB 100", "20 IF EOF(1) THEN 20", "30 COM(1) ON",
-                 "40 IF N=0 THEN 40", "50 PRINT \"got\";ASC(INPUT$(1,#1)):CLOSE:END", "100 N=1:RETURN"},
-             ms(300));
-    for (int i = 0; i < 2000 && !r.console->key('B'); ++i)
-        r.run(1000);
-    r.run(ms(1500));
-    CHECK_EQ(line(r, 2), std::string("GOT 66"));
-}
 
 // N31 (GWSTS.ASM's PENF and PENS; 7e4's answer 1: no light pen): PEN(0)-(9) 0, PEN(10) Illegal function call; PEN
 // ON, OFF and STOP taken; ON PEN GOSUB never taken. Guards nothing on real hardware (no pen: the range only). Seen
@@ -1022,10 +997,12 @@ TEST(timer_counts_the_seconds_since_midnight)
     CHECK(m == " 0" || m == " 1");
 }
 
-// N22 (the manual's p. 217): ON TIMER(1) GOSUB with TIMER ON: about one GOSUB a second (the 5th after 4-6 s), by TIMER ON's
-// deadline moved on by n x 1,000 ms (TRPOLL's poll every 16 statements); TIMER STOP after TIMER ON remembers (the
+// N22 (the manual's p. 217): ON TIMER(1) GOSUB with TIMER ON: about one GOSUB a second (the 5th after 4-6 s), by
+// the resident tick hook TIMHK (the owner's answer 23: OOLIB's, every 1,000 ms, counting n down and starting again);
+// the hook set by TIMER ON and taken off by CLEARC (NEW); TIMER STOP after TIMER ON remembers (the
 // GOSUB at the next TIMER ON), TIMER OFF forgets; ON TIMER(0) and (86401) Illegal function call, (86400) taken.
-// Guards a timer trap firing every statement, or never. Seen failing with the deadline not moved on after a request.
+// Guards a timer trap firing every statement, or never. Seen failing with TIMHK's count not started again after a
+// request (one GOSUB).
 TEST(on_timer_fires_every_n_seconds)
 {
     CcpRig r;
@@ -1043,9 +1020,16 @@ TEST(on_timer_fires_every_n_seconds)
                  ms(4000));
         CHECK_EQ(line(r, 2), std::string(how) == "STOP" ? std::string(" 1") : std::string(" 0"));
     }
-    CHECK_EQ(said(r, "ON TIMER(0) GOSUB 10"), std::string("Illegal function call"));
-    CHECK_EQ(said(r, "ON TIMER(86401) GOSUB 10"), std::string("Illegal function call"));
-    CHECK_EQ(said(r, "ON TIMER(86400) GOSUB 10"), std::string());
+    // The hook (the owner's answer 23): TIMER ON sets it (TIMON), and CLEARC takes it off (NEW here), as do TIMER
+    // OFF and SYSTEM.
+    const uint16_t timon = lbl_map().at("TIMON");
+    run_prog(r, {"10 ON TIMER(5) GOSUB 100:TIMER ON:END", "100 RETURN"}, ms(500));
+    CHECK_EQ(r.phys(timon), 1); // (the TPA's own byte: the CPU's W0 may be OODOS's in a BDOS call)
+    enter(r, "NEW");
+    CHECK_EQ(r.phys(timon), 0);
+    CHECK_EQ(said(r, "ON TIMER(0) GOSUB 0"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON TIMER(86401) GOSUB 0"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON TIMER(86400) GOSUB 0"), std::string());
 }
 
 // N23 (the manual's p. 286): RANDOMIZE TIMER seeds from the clock: runs at 10:00:00 and 10:00:05 give different
@@ -1140,7 +1124,8 @@ TEST(stick_reads_the_joysticks)
 
 // N26 (the manual's pp. 331-335, GWSTS.ASM's STRIGF and POLSTR): a press shorter than a statement is latched:
 // STRIG(0) -1 once, then 0; STRIG(1) -1 while held, 0 after; joystick 2's STRIG(2), (3); STRIG(4)-(7) 0 (the DE-9
-// sticks have one button); STRIG(8) Illegal function call; ON STRIG(0) GOSUB with STRIG(0) ON: one GOSUB a press.
+// sticks have one button); STRIG(8) Illegal function call; ON STRIG(0) GOSUB with STRIG(0) ON: one GOSUB a press,
+// and the presses trapped don't set STRIG(0) (p. 333; the owner's answer 24 item 4).
 // Guards a short press missed. Seen failing with the latch set from EV_CTL's bits now, not the events.
 TEST(strig_latches_a_press_and_on_strig_traps_it)
 {
@@ -1161,7 +1146,7 @@ TEST(strig_latches_a_press_and_on_strig_traps_it)
     r.run(ms(100));
     CHECK_EQ(said(r, "PRINT STRIG(3);STRIG(2)"), std::string(" 0  0"));
     CHECK_EQ(said(r, "PRINT STRIG(8)"), std::string("Illegal function call"));
-    run_prog(r, {"10 ON STRIG(0) GOSUB 100:STRIG(0) ON", "20 IF INKEY$<>\"9\" THEN 20", "30 PRINT N:END",
+    run_prog(r, {"10 ON STRIG(0) GOSUB 100:STRIG(0) ON", "20 IF INKEY$<>\"9\" THEN 20", "30 PRINT N;STRIG(0):END",
                  "100 N=N+1:RETURN"},
              ms(300));
     for (int i = 0; i < 3; ++i)
@@ -1173,9 +1158,80 @@ TEST(strig_latches_a_press_and_on_strig_traps_it)
     }
     keys(r, "9");
     r.run(ms(500));
-    CHECK_EQ(line(r, 2), std::string(" 3"));
+    CHECK_EQ(line(r, 2), std::string(" 3  0")); // (the trapped presses not latched: the manual's p. 333)
 }
 
+
+// The owner's answer 11's gate: a key with no trap armed costs within 30 cycles of main's. P6's KEYEV from its entry
+// to its return (EVPOLL's far call to it), the interrupt handlers inside it left out (T17's method), the BDOS calls
+// of its cooked-key drain too (how many there are depends on when the key's cooked twin comes: a race, not the
+// code's), averaged over 8 presses each of A and of F1 (no text) while a program reads INKEY$, no trap on. Main
+// 80a70aa6 measured so on this rig: A 280, F1 340. Seen failing with KTRAP called with no trap on (KTON's test
+// left out).
+TEST(a_key_s_cost_with_no_trap_armed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    enter(r, "KEY 1,\"\"");
+    run_prog(r, {"10 A$=INKEY$:GOTO 10"}, ms(300));
+    const uint16_t kev = lbl_map("p6.lbl").at("KEYEV");
+    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
+    uint64_t from = 0, total = 0, ifrom = 0, out = 0, bfrom = 0;
+    unsigned n = 0;
+    int depth = -1, idepth = -1, bdepth = -1;
+    r.watch = [&](uint16_t pc) {
+        const auto &g = r.cpu->regs();
+        if (depth >= 0 && idepth < 0 && pc == irq)
+        {
+            ifrom = r.cpu->cycles();
+            idepth = g.s;
+        }
+        else if (idepth >= 0 && g.s == idepth + 3)
+        {
+            out += r.cpu->cycles() - ifrom;
+            idepth = -1;
+        }
+        if (depth >= 0 && idepth < 0 && bdepth < 0 && pc == 0x0203)
+        {
+            bfrom = r.cpu->cycles();
+            bdepth = g.s;
+        }
+        else if (bdepth >= 0 && idepth < 0 && g.s == bdepth + 2)
+        {
+            out += r.cpu->cycles() - bfrom;
+            bdepth = -1;
+        }
+        if (depth < 0 && pc == kev)
+        {
+            from = r.cpu->cycles();
+            depth = g.s;
+            out = 0;
+        }
+        else if (depth >= 0 && idepth < 0 && bdepth < 0 && g.s == depth + 2)
+        {
+            total += r.cpu->cycles() - from - out;
+            ++n;
+            depth = -1;
+        }
+    };
+    auto avg = [&](uint8_t key) {
+        n = 0;
+        total = 0;
+        for (int i = 0; i < 8; ++i)
+        {
+            press(r, key);
+            r.run(ms(50));
+        }
+        return n ? static_cast<double>(total) / n : 0.0;
+    };
+    const double a = avg(0x04), f1 = avg(0x3A);
+    r.watch = nullptr;
+    std::printf("  KEYEV, no trap armed, less its interrupts and BDOS calls: A %.0f cycles, F1 %.0f (main 80a70aa6: "
+                "A 280, F1 340; the gate + 30)\n", a, f1);
+    CHECK(a > 100 && a <= 280 + 30); // main 80a70aa6 on this rig (2026-11-21), the same method
+    CHECK(f1 > 100 && f1 <= 340 + 30);
+}
 
 int main()
 {
