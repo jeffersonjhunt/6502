@@ -6013,7 +6013,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       of SID A's voice 3 noise in A: refused with no card or while CTRL's RUN is set; voice 3 put on noise at
       `$FFFF`, gate off, and left so; 23 noise steps waited before the read (about 2,800 cycles: 2,877 measured, the
       gate 3,500); a zero read and another 8 steps later pulse TEST, at most 4 times, then refused as a busy card
-      (18,905 cycles for a stuck chip, recorded). It lives in a segment of its own at the ROM's end, so code after
+      (18,905 cycles for a stuck chip, recorded; under OODOS that loses one millisecond tick, an OO-1 limit the
+      owner accepted, answer 15). It lives in a segment of its own at the ROM's end, so code after
       ROMCALL moves only 7 bytes (a 104-byte move stalled two test_bios key cases: [testing.md](testing.md)'s
       known fragility). OODOS 0.14's function 82 `SN_NOISE` (20; OOLIB interface 15): +1 n (1-16), the bytes at +2,
       one ROM call a byte with W3 and VEC on block 63 and interrupts off for it (3,179 cycles at most, the gate
