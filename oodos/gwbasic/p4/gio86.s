@@ -1571,7 +1571,8 @@ UPDSTX:         CLC                    ; BX past it
 
 ; SKPNAM (FIVEO.ASM 701): BX at a variable: A its VALTYP, BX past its name
 ; (the 8086's IADAHL: the type, two letters, the count of the rest, the
-; rest), Z set if it is a string.
+; rest), Z set if it is a string. (CHAIN's COMMON scan has its own copy in
+; the home block, p8/chain.s, since F3's M4.)
 SKPNAM:         LDA     (RBL)
                 PHA
                 LDY     #3

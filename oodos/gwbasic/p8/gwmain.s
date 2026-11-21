@@ -27,6 +27,7 @@
 ; holds the home block whenever this code runs.
 
 .include "gwbasic.inc"
+.import CHNRET
 
 .export FOR, FNDFOR, FORADV, FORSSP, NXTSCN, WNDSCN, RETURN
 .export DEFSTR, DEFINT, DEFREA, DEFDBL, READY, MAIN, FINIH
@@ -590,9 +591,9 @@ NTAUTO:         JSR     ISFLIO         ; PINLIN's DSKCHI: a line of a file
                 BEQ     @kbd           ; LOAD or MERGE reads as text
                 FJSR    DSKCHP         ; TXTPTR at BUF-1; C set: its end, run
                 BCC     NTSTOP
-                LDA     CHNFLG         ; a CHAIN's end: LDREOF's CHNRET (P4's;
+                LDA     CHNFLG         ; a CHAIN's end: LDREOF's CHNRET (p8/chain.s;
                 BEQ     :+             ; TXTPTR where NEWSTT starts)
-                FJSR    CHNRET
+                JSR     CHNRET
                 JMP     NEWSTT
 :               LDX     #0             ; OO-1: the file's last line, with no CR,
 @w:             LDA     BUF,X          ; goes in first, as LOAD's does (the IBM

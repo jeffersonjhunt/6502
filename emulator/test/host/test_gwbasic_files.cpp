@@ -1185,6 +1185,68 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
     CHECK_EQ(command(r, "CLOSE:PRINT VARPTR(#1)"), std::string("Bad file number\r\n"));
 }
 
+// N7 (F3's M4: CHAIN moved whole to the home block, P8; the owner's answer 6): CHAIN of a one-line text program
+// that ENDs, timed from RUN to that END's ENDCN2 (ENDCON's, after END's CONPOP), with the far calls (each a JSR to
+// FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the interrupts (IRQ's vector reached) counted.
+// M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two (CHAINP itself, CHNRET):
+// the gate is main's 68,279, measured on this rig before M4 (main b1d10088), + 400 (answer 6). CHAIN's other two
+// ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated: a run that long
+// takes about 11 of the tick's interrupts, ~190 cycles each, and which side of one it ends moves its figure by
+// that much. Must-fail: a build whose CHAIN crosses three times more.
+TEST(chain_is_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("RUN") == 1 && lab.count("ENDCN2") == 1 && lab.count("FTSITE") == 1);
+    enter(r, {"10 END"});
+    CHECK_EQ(command(r, "SAVE \"CHT\",A"), std::string());
+    CHECK_EQ(command(r, "SAVE \"CHB\""), std::string());
+    auto timed = [&](const std::string &line, unsigned &farcalls, unsigned &irqs) {
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, {line});
+        const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCN2"), site = lab.at("FTSITE");
+        uint16_t farcall = 0;
+        const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
+        uint64_t from = 0, cycles = 0;
+        bool on = false;
+        farcalls = 0;
+        irqs = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == runc && !on)
+            {
+                farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
+                                                r.machine->bus().peek(static_cast<uint16_t>(site + 2)) << 8);
+                from = r.cpu->cycles();
+                on = true;
+            }
+            else if (on && pc == endcon)
+            {
+                cycles = r.cpu->cycles() - from;
+                on = false;
+            }
+            else if (on && pc == farcall)
+                ++farcalls;
+            else if (on && pc == irq)
+                ++irqs;
+        };
+        CHECK_EQ(command(r, "RUN"), std::string());
+        r.watch = nullptr;
+        CHECK(cycles > 0);
+        return cycles;
+    };
+    unsigned ft = 0, fb = 0, fm = 0, it = 0, ib = 0, im = 0;
+    const uint64_t text = timed("10 CHAIN \"CHT\"", ft, it), tok = timed("10 CHAIN \"CHB\"", fb, ib),
+                   merge = timed("10 CHAIN MERGE \"CHT\",10", fm, im);
+    std::printf("  CHAIN of 10 END, cycles (far calls, interrupts): a text file %llu (%u, %u), tokenised %llu (%u, %u), "
+                "MERGE %llu (%u, %u)\n",
+                static_cast<unsigned long long>(text), ft, it, static_cast<unsigned long long>(tok), fb, ib,
+                static_cast<unsigned long long>(merge), fm, im);
+    CHECK(text <= 68279 + 400);
+    CHECK_EQ(command(r, "KILL \"CHT.BAS\":KILL \"CHB.BAS\""), std::string());
+}
+
 namespace
 {
     /// What a BDOS function (5 L_WRITE: LST:; 4 A_WRITE: AUX:) is sent while `line` is typed and run to its Ok,
