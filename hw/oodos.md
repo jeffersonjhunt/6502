@@ -5805,7 +5805,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       3,133** [3,124; 2,500]; P2 6,435 (relocation only: no resident address moved); **P3 3,755 → 3,369** [3,443;
       3,300: SCREEN 10's palette and VCOLOR's modes took 187 for the plan's 70]; P4 122 (relocation only); **P5 1,480 → 976** [861;
       512; U6's recount: over 650, so neither the reserve's (c) nor (b)]; **P6 590 → 795** [810; 750]; **P8 6,985 →
-      6,427** [6,590; 6,000]. The resident core is byte-identical to main.
+      6,423** (6,427 before review round 1's F1) [6,590; 6,000]. The resident core is byte-identical to main.
     - **Cycles** (the fast build, timed()'s method; G46): `PSET (X%,Y%),1` **2,421** in SCREEN 10, **1,690** in 11,
       **2,885** in 12 (the gate 9,000 each); the corner-to-corner LINE **41,475** (100,000), **90,936** (170,000),
       **119,675** (200,000); the whole-window scroll of 40 x 30 in SCREEN 10 **10,138** (14,000) and of 80 x 30 in
@@ -5839,9 +5839,20 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       scroll's gate 16,500 (answer 19). No other expected result changed.
     - **Judgements:** G43 in the gfx suite (above); LOCATE's early check by a far call to P6, the row count being
       P6's (one more crossing for `LOCATE y,x`).
+    - **Review round 1** (the owner, 2026-11-20, "recommendations as listed"):
+      - F1 (critical): LOCATE's stub tested each argument's "not given" on the carry its ROR left (the flag of the
+        LOCATE eight before), so after eight given rows `LOCATE ,10` was Illegal function call, and after eight left
+        out the row's early check was passed over. Each now tests its own (PHP, ROR, PLP); P8 6,427 → 6,423 free.
+      - F2 (major, a revision of answer 13): test_gwbasic_screen's `locate_with_arguments_left_out_after_any_history`
+        runs LOCATE with arguments left out, and the row's own checks (`LOCATE 26,"A"`, `LOCATE 26,5` with a good
+        column), fresh, after eight given rows and after eight left out, each main's result; seen failing with (a)
+        F1's bug put back and (b) the row's early check left out.
+      - Not restructured (answer 1's tables): SCREEN 13 in 7g needs more than a table entry, since these pick modes by
+        compares: CPATOF (`p5/gfx.s`, its pattern by mode), VCOLOR (`p3/vpal.s`, COLOR's forms by mode), and P6's
+        SWIDTH and SCRSTT (`p6/gwsts.s`, WIDTH's pairs and SCREEN's numbers).
     - **Not done in 7e5:** SCREEN 13 (7g); the books (7g), which must name SCREEN 10-12 as the OO-1's, past the
-      manual, with the overlay's columns beside the bitmaps and the fixed 256 colours. Then one review round, the
-      triage gate, fixes, merge on the owner's word.
+      manual, with the overlay's columns beside the bitmaps and the fixed 256 colours. Then the triage gate, fixes,
+      merge on the owner's word.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;

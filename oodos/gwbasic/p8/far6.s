@@ -171,7 +171,9 @@ LOCATE:         BIT     SCRMOD
                 BPL     ADV
                 JSR     SCNINT         ; the line
                 STA     LCY
+                PHP                    ; (review round 1, F1: its own C, not ROR's)
                 ROR     LCYN
+                PLP
                 BCS     :+
                 TAX
                 BEQ     LFC            ; 0
@@ -182,7 +184,9 @@ LOCATE:         BIT     SCRMOD
                 BCC     LFC
 :               JSR     SCNINT         ; the column
                 STA     LCX
+                PHP
                 ROR     LCXN
+                PLP
                 BCS     :+
                 DEC     A              ; not 0
                 CMP     LINLEN

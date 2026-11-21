@@ -2018,6 +2018,47 @@ TEST(screen_statements_parse_in_the_home_block)
     CHECK_EQ(line(r, 24).substr(0, 4), std::string("1ABC"));
 }
 
+// LOCATE with arguments left out, whatever came before (7e5, review round 1, F1 and F2): the home block's stub
+// tests each argument's own "not given" flag. In a fresh session, after LOCATE ,5 and seven LOCATE 1,1 (eight
+// lines given before), and after eight LOCATE ,5 (eight left out): LOCATE 5 moves to row 5 keeping the column,
+// LOCATE ,10 to column 10 keeping the row, LOCATE ,,1 and LOCATE ,,0,7,7 change neither, each with no error; ten
+// LOCATEs in a loop, the row and the column given in turn, each its letter where it says; LOCATE 0,1 refused; and
+// the row's own check: LOCATE 26,"A" (two errors) Illegal function call, no Type mismatch, and LOCATE 26,5 (the
+// column good) Illegal function call, the cursor not moved. Main's results, every one. Guards a program's LOCATE
+// with a row or column left out refused, or the row's check skipped, after other LOCATEs. Seen failing with (a) the
+// stub's tests made on ROR's carry (F1: LOCATE ,10 refused after eight given rows), (b) the row's early check left
+// out (Type mismatch).
+TEST(locate_with_arguments_left_out_after_any_history)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    std::string given = "LOCATE ,5", omitted;
+    for (int i = 0; i < 7; ++i)
+        given += ":LOCATE 1,1";
+    for (int i = 0; i < 8; ++i)
+        omitted += (i ? ":" : "") + std::string("LOCATE ,5");
+    for (const std::string &history : {std::string("A=0"), given, omitted})
+    {
+        enter(r, "KEY OFF:CLS:" + history + ":LOCATE 1,1:LOCATE 5:PRINT \"A\";:LOCATE ,10:PRINT \"B\";:LOCATE ,,1:"
+                 "LOCATE ,,0,7,7:PRINT \"C\";:LOCATE 12,1", ms(800));
+        CHECK_EQ(line(r, 4), std::string("A        BC"));
+        CHECK_EQ(last_row(r, "Illegal function call"), -1);
+        enter(r, "CLS:" + history + ":FOR I=1 TO 10:LOCATE I+2:LOCATE ,I*3:PRINT CHR$(64+I);:NEXT:LOCATE 20,1", ms(1500));
+        for (int i = 1; i <= 10; ++i)
+            CHECK_EQ(line(r, static_cast<unsigned>(i + 1)), std::string(static_cast<size_t>(i * 3 - 1), ' ') + static_cast<char>(64 + i));
+        CHECK_EQ(last_row(r, "Illegal function call"), -1);
+        enter(r, "CLS:" + history + ":LOCATE 0,1", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        enter(r, "CLS:" + history + ":LOCATE 26,\"A\"", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        CHECK_EQ(last_row(r, "Type mismatch"), -1);
+        enter(r, "CLS:" + history + ":LOCATE 10,3:PRINT \"P\";:LOCATE 26,5:PRINT \"Q\";", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        CHECK_EQ(line(r, 9), std::string("  P"));
+    }
+}
+
 int main()
 {
     return run_all();
