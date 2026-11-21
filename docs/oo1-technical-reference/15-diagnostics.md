@@ -139,7 +139,7 @@ Status: **emulated**
 **The serial line** (19,200 baud, 8 bits, no parity, as the BIOS sets it) has the whole report: the title, a line
 for each stage with its result at column 60, and under each card stage a line for each test, `PASS`, `FAIL`, `SKIP`
 with why on the line under it, or `INFO` for a measurement, each failure's detail under it. A card stage's tests come
-before its own line. The run's form follows stage 2: `BIOS 0.17`, the pass, and `QUICK` or `FULL`, with `LOOP` and
+before its own line. The run's form follows stage 2: `BIOS 0.18`, the pass, and `QUICK` or `FULL`, with `LOOP` and
 `ASK` as asked. Then `TESTS: n PASSED, n FAILED, n SKIPPED, n MEASURED`, the `RESULT` line (`ALL PASSED`, or the
 stages failed, and the lamps' code) and the keys:
 
