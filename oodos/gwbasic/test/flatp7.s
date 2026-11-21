@@ -6,9 +6,13 @@
 
 .include "gwbasic.inc"
 
-.export SNDINI, SNDRST
+.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP
 
 .code
 
 SNDINI:
-SNDRST:         RTS
+SNDRST:
+EVP7:
+TRPPOL:
+JOYFP:
+XFUNP:          RTS

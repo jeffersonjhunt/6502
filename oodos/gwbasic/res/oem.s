@@ -514,7 +514,10 @@ TXSYNC:         LDA     TXLEN
 ; EVPOLL (7d1, hw/oodos.md, "The OEM layer": V2): the event queue (layout 2,
 ; EVAREA) taken from its tail, in order. A key pressed goes to P6's KEYEV,
 ; one far call, which queues its code in KYBQ; a break it reports goes to
-; ITSCTC. The other events are dropped (7f takes some). The repeat (the
+; ITSCTC. 7f: every other event goes to P7's EVP7, one far call, Y its
+; slot's offset in the queue (EVAREA + EV_QUEUE + Y), which takes a note's
+; end (EK_SOUND: SNDEV) and a controller's change (EK_CTL: STREV) and drops
+; the rest; a key's release is dropped here. The repeat (the
 ; owner's answer 8): the last key KEYEV says repeats, while it is held
 ; (EV_KEYS), again 500 ms after its press and every 33 ms after that, by
 ; EV_MS. A, X, Y and the flags used.
@@ -535,7 +538,7 @@ EVTAKE:         TXA
                 LDX     #0
 :               LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
                 CMP     #EK_KEY
-                BNE     @drop
+                BNE     @oth
                 LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
                 BEQ     @up
                 CLC                    ; its repeat's time
@@ -564,6 +567,9 @@ EVTAKE:         TXA
                 STZ     RPTKEY
 @drop:          STX     EVAREA + EV_QTAIL
                 BRA     EVPOLL
+@oth:           STX     EVAREA + EV_QTAIL ; 7f: P7's, Y the slot
+                FJSR    EVP7
+                JMP     EVPOLL
 @brk:           STZ     RPTKEY
                 JMP     ITSCTC
 EVRPT:          LSR     A              ; still held?

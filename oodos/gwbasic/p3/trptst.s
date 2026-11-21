@@ -1,13 +1,15 @@
 ; The event traps' test-only trigger, the project's own (7b step e): no
 ; source raises an event trap before 7c-7f, so test_gwbasic_stmts raises
-; them through TRPTST (gwbasic.inc), a resident zero page byte it writes by
-; its label (gwbasic.lbl) at a chosen statement, with TRPON nonzero, so that
-; NEWSTT's poll (res/gwmain.s TRPOLL) runs and calls this:
+; them through TRPTST (res/gwmain.s), a resident byte it writes by its
+; label (gwbasic.lbl) at a chosen statement, with POLSRC's bit 7 (gwbasic.inc,
+; 7f: TRPTST was that zero page byte until 7f's polled sources took it) and
+; TRPON nonzero, and TRPN 1, so that NEWSTT's poll (res/gwmain.s TRPOLL)
+; runs at once and P7's TRPPOL calls this:
 ;
-;   TRPTSP    TRPTST cleared, and TRPON counted again from the table
+;   TRPTSP    POLSRC's bit 7 cleared, and TRPON counted again from the table
 ;             (TRPCNT), since the test wrote it; then TRPTST's operation on
 ;             its event, as a source or a statement would do it, which keeps
-;             TRPON itself (ONTRP, OFFTRP), as it will for 7f's statements
+;             TRPON itself (ONTRP, OFFTRP), as it does for 7f's statements
 ;
 ; TRPTST:
 ;
@@ -18,7 +20,8 @@
 ;   bits 4-0  the event's id (gwbasic.inc: PENOFF, KEYOFF + n - 1, COMOFF +
 ;             n - 1, STROFF + n / 2)
 ;
-; 7d-7f's sources replace the trigger's place in the poll; this goes then.
+; 7f: the polled sources (ON TIMER, ON COM) share the poll with it, by
+; POLSRC's other bits; it stays, the tests' way to raise any event.
 
 .include "gwbasic.inc"
 
@@ -31,12 +34,13 @@
 ; 7e3's (p3/advgrp.s), after them.
 ;@entry GPUTA
 .export TRPTSP
-.import EVTRP, EVADR, EVSET, TRPCNT
+.import EVTRP, EVADR, EVSET, TRPCNT, TRPTST
 
 .code
 
-TRPTSP:         LDA     TRPTST
-                STZ     TRPTST
+TRPTSP:         LDA     #PS_TEST       ; the trigger taken
+                TRB     POLSRC
+                LDA     TRPTST
                 PHA
                 JSR     TRPCNT         ; TRPON as the table has it
                 PLA

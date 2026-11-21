@@ -30,7 +30,8 @@
  *   longest field the source allows, with the program after FBUFF LISTed; and, by hand, LPRINT USING to LST:.
  * - Step e: the event traps' frame. ON event GOSUB's forms and errors against PC-BASIC (NAME.differ where it
  *   departs from the 1983 source); and, by hand from the source (PC-BASIC has no way to raise a trap from outside),
- *   the traps raised through the test-only trigger (p3/trptst.s: TRPTST, with TRPON, written by their labels at
+ *   the traps raised through the test-only trigger (p3/trptst.s: TRPTST, with POLSRC's bit 7, TRPN 1 and TRPON
+ *   (7f), written by their labels at
  *   chosen statements): a trap taken once at the next statement, RETURN to the statement after; a request while
  *   OFF forgotten, while STOPped kept; a request during the trap's own GOSUB taken after its RETURN (RSTTRP); none
  *   in direct mode or in ON ERROR's handler; a trap with GOSUB 0; three at once in TRPTBL's order; RUN and CLEAR
@@ -717,22 +718,33 @@ namespace
     /// The labels the trap cases need from gwbasic.lbl.
     struct TrapLabels
     {
-        uint16_t newstt = 0, newst1 = 0, trpon = 0, trptst = 0, curlin = 0;
+        uint16_t newstt = 0, newst1 = 0, trpon = 0, trptst = 0, polsrc = 0, trpn = 0, curlin = 0;
         bool ok = false;
         TrapLabels()
         {
             const std::map<std::string, uint16_t> lab = labels();
-            for (const char *n : {"NEWSTT", "NEWST1", "TRPON", "TRPTST", "CURLIN"})
+            for (const char *n : {"NEWSTT", "NEWST1", "TRPON", "TRPTST", "POLSRC", "TRPN", "CURLIN"})
                 CHECK(lab.count(n) == 1);
             ok = lab.count("NEWSTT") && lab.count("NEWST1") && lab.count("TRPON") && lab.count("TRPTST") &&
-                 lab.count("CURLIN");
+                 lab.count("POLSRC") && lab.count("TRPN") && lab.count("CURLIN");
             if (!ok)
                 return;
             newstt = lab.at("NEWSTT");
             newst1 = lab.at("NEWST1");
             trpon = lab.at("TRPON");
             trptst = lab.at("TRPTST");
+            polsrc = lab.at("POLSRC");
+            trpn = lab.at("TRPN");
             curlin = lab.at("CURLIN");
+        }
+        /// The trigger pulled: its operation in TRPTST, POLSRC's bit 7, TRPN 1 (the poll at the next NEWSTT: 7f's
+        /// TRPOLL polls its sources every 16 statements) and TRPON 1.
+        template <class B> void trigger(B &bus, uint8_t op) const
+        {
+            bus.poke(trptst, op);
+            bus.poke(polsrc, static_cast<uint8_t>(bus.peek(polsrc) | 0x80));
+            bus.poke(trpn, 1);
+            bus.poke(trpon, 1);
         }
     };
 
@@ -761,8 +773,7 @@ namespace
                 for (const Raise &x : raises)
                     if (x.line == line && x.nth == n)
                     {
-                        r.machine->bus().poke(lab.trptst, x.op);
-                        r.machine->bus().poke(lab.trpon, 1);
+                        lab.trigger(r.machine->bus(), x.op);
                     }
             };
         }
@@ -914,8 +925,7 @@ TEST(three_hundred_traps_leave_both_stacks_as_they_were)
             if (pc == all.at("IFS") && raise)
             {
                 ++u.raised;
-                r.machine->bus().poke(lab.trptst, u.raised == 1 ? ON | KEY1 : REQ | KEY1);
-                r.machine->bus().poke(lab.trpon, 1);
+                lab.trigger(r.machine->bus(), u.raised == 1 ? ON | KEY1 : REQ | KEY1);
             }
             else if (pc == lab.newst1 && u.first)
             {

@@ -75,7 +75,7 @@ START:          CLD
                 STZ     TRCFLG
                 STZ     ONGSBF
                 STZ     TRPON          ; no event trap on, no test trigger (7b step e)
-                STZ     TRPTST
+                STZ     POLSRC
                 STZ     ERRFLG
                 STZ     PTRFLG
                 STZ     FMTAL

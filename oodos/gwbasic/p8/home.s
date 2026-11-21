@@ -61,11 +61,19 @@ HFINI:          JMP     FINIH
 ; (ERDVGT): ERDEV is its code (the high byte 0, where a PC's has the device's
 ; attributes), 0 before any; ERDEV$ the drive it was on, "A:" to "P:" (the
 ; SCB's error drive, $51), "" before any. Returns as EVAL, past the token,
-; CHRGTR's flags. 7e4: and PMAP (PMAPH, below).
+; CHRGTR's flags. 7e4: and PMAP (PMAPH, below). 7f: DATE$, TIME$, PLAY(n)
+; and TIMER are P7's (XFUNP, one far call, A the token, TXTPTR at it).
 ERDEVP:         INCW    TXTPTR         ; the token
                 LDA     (TXTPTR)
                 CMP     #PMAP_XS
                 BEQ     PMAPH
+                CMP     #ERDEV_XS      ; 7f: not ERDEV or ERDEV$: P7's
+                BEQ     :+
+                CMP     #ERDEVS_XS
+                BEQ     :+
+                FJSR    XFUNP
+                RTS
+:
                 FJSR    ERDVGT         ; RBL: the code
                 STZ     RBH
                 LDA     (TXTPTR)

@@ -779,13 +779,13 @@ GWSTS.ASM PENS -> later 7f: PEN as a statement
 GWSTS.ASM STRIGS -> later 7f: STRIG as a statement
 GWSTS.ASM DATEF -> later 7f: DATE$
 GWSTS.ASM TIMEF -> later 7f: TIME$
-IBMRES.ASM PENV -> later 7f: PEN as a statement (PENS); res/ibmres.s PENV gives Advanced Feature
+IBMRES.ASM PENV -> later 7f: PEN as a statement (PENS); res/ibmres.s PENV hands it to the home block's HPENST (p8/sound.s): Advanced Feature until U4
 IBMRES.ASM STRIGV -> later 7f: STRIG as a statement (STRIGS); likewise
 IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here (the 8086 doesn't check)
 IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
 IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
-IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALDT gives Advanced Feature
+IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALX hands it to ERDEVP, then P7's XFUNP (p7/sound.s): Advanced Feature until U5
 IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
 IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P3's FUNDSX (FUNDXP; P4's until the fix-up's review round 1); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL

@@ -231,7 +231,13 @@ USDH            = $5E                  ; DH: the field's flags (PUFOUT's A)
 ; INITRP). Both bytes are exported (res/gwmain.s), for the label file that
 ; test_gwbasic_stmts writes them by.
 TRPON           = $EC                  ; OO-1: nonzero while any event trap is on (T_ON)
-TRPTST          = $ED                  ; test only: a trap trigger for the poll (p3/trptst.s); 7d-7f's sources replace it
+POLSRC          = $ED                  ; 7f: the polled sources armed (P3 keeps bits 0-1): bit 0 ON TIMER, bit 1
+                                       ;   ON COM(1); bit 7 the test-only trigger (its operation in the resident
+                                       ;   TRPTST, p3/trptst.s); 0: the poll costs what TRPTST's test cost (7b)
+PS_TIMER        = $01
+PS_COM          = $02
+PS_TEST         = $80
+POLLN           = 16                   ; 7f: the statements between two polls of the armed sources (TRPPOL)
 
 ; --- 7c's, the file layer ($DA-$DD) ---------------------------------------------
 ;
