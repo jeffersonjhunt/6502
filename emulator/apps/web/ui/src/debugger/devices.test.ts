@@ -51,6 +51,9 @@ describe("Devices tab", () => {
     port.memory.set(VIDEO + 0x08, 0x86); // in vertical blank, groups 2 and 4 collided
     await v.refresh();
     expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
+    port.memory.set(VIDEO + 0x0e, 0xff); // revision 1 has no SPRCTL: $C48E reads $FF, and means nothing
+    await v.refresh();
+    expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
   });
 
   test("a revision 2 card: card memory addresses, the slots, the port", async () => {
@@ -68,6 +71,12 @@ describe("Devices tab", () => {
     expect(text(v.element, "Layer 0")).toBe("text 80×30 · text $002000 · font $000400 · blink · scroll 300,3 · palofs 2");
     expect(text(v.element, "Layer 1")).toBe("off (text 80×30) · text $000000 · font $000000");
     expect(text(v.element, "Palette")).toBe("$010000  border 0");
+    expect(text(v.element, "Sprites")).toBe("on · table $045100 · collided: groups $3");
+    port.memory.set(VIDEO + 0x0e, 0x01); // SPRCTL's FULL: full-resolution sprites (hw/sprites640.md)
+    await v.refresh();
+    expect(text(v.element, "Sprites")).toBe("on · table $045100 · full · collided: groups $3");
+    port.memory.set(VIDEO + 0x0e, 0x00);
+    await v.refresh();
     expect(text(v.element, "Sprites")).toBe("on · table $045100 · collided: groups $3");
     expect(text(v.element, "IEN / ISR")).toBe("$00 / $04  collision");
     expect(text(v.element, "Slots")).toBe("$000000 $004000 $008000 $1FC000");

@@ -206,7 +206,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("0D 0F")); // interface 13, areas frame, input, sound, DMA
+    CHECK_EQ(command(r, 'F', "F"), std::string("0E 0F")); // interface 14, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -846,6 +846,63 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     CHECK_EQ(r.phys(AREA + 106), 0);                 // the stream's underruns
 }
 
+TEST(dm_pointer_full_sets_byte_3_bit_7)
+{
+    // DM_POINTER's 64 + the sprite (interface version 14, hw/sprites640.md): each frame the pointer's entry gets
+    // its X and Y with byte 3's bit 7 (FULL) set, in the program's own units, here 640 x 480 (the mouse at
+    // 639 x 479). DM_POINTER 3 again: the bit clear. DM_INFO's +4 says sprite 3 either way; 128 is refused.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f81(r, {IN_MOUSE, 1, 0x7F, 0x02, 0xDF, 0x01}), std::string("00 00")); // absolute, 639 x 479
+    vset2(r, V_SPRBASE, 0x0900);                                                    // SPRBASE: card $090000
+    cpoke(r, 0x090000, std::vector<uint8_t>(64 * 8, 0));
+    CHECK_EQ(f83(r, {DM_POINTER, 64 + 3, 0, 0}), std::string("00 00"));
+    UsbCard *usb = r.machine->usb_card();
+    usb->mouse_to(500, 400);
+    r.run(ms(50));
+    auto entry = [&](unsigned n) { return cmem(r, 0x090000 + n * 8 + 2, 4); };
+    const std::vector<uint8_t> full{0xF4, 0x81, 0x90, 0x01}, doubled{0xF4, 0x01, 0x90, 0x01}, none(4, 0);
+    CHECK(entry(3) == full);
+    for (int f = 0; f < 3; ++f) // each frame
+    {
+        cpoke(r, 0x090000 + 3 * 8 + 2, none);
+        r.run(ms(17));
+        CHECK(entry(3) == full);
+    }
+    CHECK(entry(0) == none); // no other entry written
+    CHECK_EQ(command(r, 'I', "INFO").substr(0, 14), std::string("20 04 20040403"));
+    CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
+    r.run(ms(50));
+    CHECK(entry(3) == doubled);
+    CHECK_EQ(command(r, 'I', "INFO").substr(0, 14), std::string("20 04 20040403"));
+    CHECK_EQ(f83(r, {DM_POINTER, 128, 0, 0}), std::string("FF FF"));
+    CHECK_EQ(f83(r, {DM_POINTER, 254, 0, 0}), std::string("FF FF"));
+    r.run(ms(50));
+    CHECK(entry(3) == doubled); // refused: the pointer as it was
+    CHECK_EQ(f83(r, {DM_POINTER, 64 + 63, 0, 0}), std::string("00 00")); // the last: sprite 63, full
+    r.run(ms(50));
+    CHECK(entry(63) == full);
+}
+
+TEST(the_warm_boot_and_dm_console_clear_sprctl)
+{
+    // SPRCTL ($C48E, hw/sprites640.md) set by a program is 0 again after the warm boot, and after DM_CONSOLE, so
+    // the next program's sprites (and whatever its table's byte 3 holds) show doubled until it sets it.
+    CcpRig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+    open(r, "X");
+    vset(r, 0x0E, 0x01);
+    CHECK_EQ(vreg(r, 0x0E), 0x01);
+    wboot(r);
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+    open(r, "X");
+    vset(r, 0x0E, 0x01);
+    CHECK_EQ(f83op(r, DM_CONSOLE), std::string("00 00"));
+    CHECK_EQ(vreg(r, 0x0E), 0x00);
+}
+
 TEST(the_pointer_follows_the_mouse_less_its_hotspot)
 {
     CcpRig r;
@@ -858,7 +915,9 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     vset2(r, V_SPRBASE, 0x0900);                                                    // SPRBASE: card $090000
     cpoke(r, 0x090000 + 3 * 8, std::vector<uint8_t>(8, 0));
     CHECK_EQ(f83(r, {DM_POINTER, 3, 2, 1}), std::string("00 00"));
-    CHECK_EQ(f83(r, {DM_POINTER, 64, 0, 0}), std::string("FF FF"));
+    CHECK_EQ(f83(r, {DM_POINTER, 128, 0, 0}), std::string("FF FF")); // 128-254 refused
+    CHECK_EQ(f83(r, {DM_POINTER, 64, 0, 0}), std::string("00 00"));  // taken since interface 14: sprite 0, full resolution
+    CHECK_EQ(f83(r, {DM_POINTER, 3, 2, 1}), std::string("00 00"));   // sprite 3 again
     UsbCard *usb = r.machine->usb_card();
     usb->mouse_to(100, 50);
     r.run(ms(50));
@@ -1002,7 +1061,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("0D 0F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("0E 0F"));
     }
 }
 

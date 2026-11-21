@@ -141,6 +141,17 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;   GX_COLL     A the groups that collided in the last frame (STATUS);
 ;               carry set if the card flagged a collision (ISR bit 2,
 ;               cleared)
+;   GX_SPRFULL  (since OODOS 0.13, interface version 14; hw/sprites640.md)
+;               A 1: full-resolution sprites on (SPRCTL's FULL), A 0: off;
+;               carry clear. Under an OODOS below interface 14 (whose warm
+;               boot doesn't clear SPRCTL), carry set and A GE_VERSION,
+;               SPRCTL untouched
+;   GX_SPRFPOS  (interface version 14) A a sprite (0-63): X and Y from GX_X,
+;               GX_Y (0-1023) in the screen's 640 x 480, and the entry's
+;               byte 3 bit 7 set: full resolution while GX_SPRFULL has it
+;               on. GX_SPRPOS writes the bit clear (doubled, 320 x 240), so
+;               the position call chooses the size. Groups and GX_COLL are
+;               the card's at both sizes: screen pixels
 ;   GX_TMAP     A/X a map's card page, Y its width in entries (32, 64)
 ;   GX_TPUT     X the column, Y the row: GX_V's entry put in the map
 ;   GX_TGET     X the column, Y the row: A/X the entry
@@ -208,6 +219,7 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 .global GX_LAYER, GX_PALOFS, GX_SHOW, GX_BORDER, GX_CONSOLE, GX_PALBASE, GX_SPRBASE
 .global GX_PALINIT, GX_PALSET, GX_PALLOAD, GX_PALSHOW, GX_FADE
 .global GX_SPRINIT, GX_SPRPOS, GX_SPRIMG, GX_SPRATTR, GX_SPRSHOW, GX_COLL
+.global GX_SPRFULL, GX_SPRFPOS
 .global GX_TMAP, GX_TPUT, GX_TGET, GX_TFILL, GX_SCROLL
 .global GX_BMP, GX_PLOT, GX_POINT, GX_LINE, GX_RECT, GX_FRECT, GX_CIRCLE, GX_FLOOD, GX_BCOPY, GX_FLIP
 .global GX_FONT, GX_TEXT, GX_ASSET

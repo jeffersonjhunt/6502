@@ -9,7 +9,11 @@
 ; the card pages they name, or at pages the library hands out; then the
 ; palette's page is PALBASE, a
 ; bitmap or a tile map (with its tiles) is layer 0 as its CONFIG says, and
-; a sprite table is SPRBASE with the sprites on. It says "Press a key to
+; a sprite table is SPRBASE with the sprites on, and full-resolution
+; sprites allowed (GX_SPRFULL 1, so a table made with mkasset's --full shows
+; as made; one without it shows as before; under an OODOS older than
+; interface 14 the call is refused and the table shows doubled, as it did:
+; hw/sprites640.md). The warm boot clears SPRCTL again. It says "Press a key to
 ; stop." (into the console's text, unseen while the asset shows: question
 ; 10), waits for a key at the console (function 6), puts the console's
 ; screen back and ends. The warm boot would put it back anyway.
@@ -136,6 +140,8 @@ start:  jsr     UT_INIT
         lda     unit
         ldx     unit + 1
         jsr     GX_SPRBASE
+        lda     #1                      ; full-resolution sprites allowed: byte 3 bit 7 counts
+        jsr     GX_SPRFULL              ;   (refused below interface 14: doubled, as before)
         lda     #$08
         tsb     ctrl
 @next:  jsr     nextp

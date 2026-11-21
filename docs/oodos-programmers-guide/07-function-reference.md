@@ -3432,7 +3432,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 2 | `DM_COPY` | +1–3 the source, +4–6 the destination (physical), +7–8 the length | copies by DMA |
   | 3 | `DM_FILL` | +1 the byte, +2–4 the destination (physical), +5–6 the length | fills by DMA |
   | 4 | `DM_VBSET` | +1 a slot (0–3), +2–4 the source (physical), +5–7 the destination (card), +8–9 the length (1–1,024; 0 frees the slot) | sets a vertical-blank copy |
-  | 5 | `DM_POINTER` | +1 a sprite (0–63; `$FF` off), +2 and +3 the hotspot's X and Y | moves the sprite with the mouse |
+  | 5 | `DM_POINTER` | +1 a sprite (0–63; 64 + the sprite for a full-resolution pointer, since OODOS 0.13; `$FF` off), +2 and +3 the hotspot's X and Y | moves the sprite with the mouse |
   | 6 | `DM_CONSOLE` | none | shows the console's screen again |
   | 7 | `DM_VWRITE` | +1–3 the source (physical), +4–6 the destination (card), +7–8 the length | copies system memory to card memory, through the card's port |
   | 8 | `DM_VREAD` | +1–3 the source (card), +4–6 the destination (physical), +7–8 the length | copies card memory to system memory, the same way |
@@ -3487,7 +3487,7 @@ isn't the program's (the I/O hole, flash), and:
   45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
   that was never opened has no blocks: A = 1, no records.
 - `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
-- `DM_POINTER`: a sprite past 63; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
+- `DM_POINTER`: a +1 of 128–254 (before OODOS 0.13, interface version 14: past 63); no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
   card of revision 2 or no DMA controller. `$FF` (off) is always taken.
 - `DM_BANK8`: a revision 1 north bridge (ID `$D1`), which has no MAP, or a ROM BIOS before 0.17
   ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
@@ -3533,9 +3533,13 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
   through the port, from the area's mouse X and Y less the hotspot, modulo 1,024; only while the entry is in the
   program's part of card memory (not while SPRBASE is the console's, 0, as the warm boot leaves it). The program
   draws the image, sets the entry's other bytes, and puts the mouse in absolute mode with limits 319 and 239
-  ([function 81's](#bdos-81) `IN_MOUSE`): the sprites' space is 320 × 240.
+  ([function 81's](#bdos-81) `IN_MOUSE`): the sprites' space is 320 × 240. Since OODOS 0.13 (interface version
+  14), +1 = `DM_PTRFULL` (64) + the sprite is the same sprite with its byte 3's bit 7 set each frame too: a
+  full-resolution sprite once the program sets the card's SPRCTL ([the Technical
+  Reference](../oo1-technical-reference/06-video.md#full-resolution-sprites)), in the screen's 640 × 480, the mouse's
+  limits then 639 and 479. `DM_INFO`'s +4 says the sprite, 0–63, either way.
 - `DM_CONSOLE` sets the video card's registers as the cold boot set them for the console (CTRL, BORDER, PALBASE,
-  SPRBASE, the layers): its text, font and palette are where they were, so what was printed meanwhile shows.
+  SPRBASE, the layers; since OODOS 0.13 SPRCTL 0, every sprite doubled): its text, font and palette are where they were, so what was printed meanwhile shows.
 - The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does. It also
   turns the port's DMA request off and puts the aperture's slots 0–3 on card banks 0, 16, 2 and 3: slot 1 on the
   program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. On a `$D2` north bridge it sets

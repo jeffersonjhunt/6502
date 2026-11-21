@@ -5,7 +5,7 @@
     python3 -I mkasset.py bitmap640 picture.png PICTURE.OGX
     python3 -I mkasset.py direct640 photo.png PHOTO.OGX
     python3 -I mkasset.py tiles level.png LEVEL.OGX [--tile 8|16] [--bpp 4|8] [--map 32|64]
-    python3 -I mkasset.py sprites ship.png SHIP.OGX --size 16x16 [--bpp 4|8] [--table]
+    python3 -I mkasset.py sprites ship.png SHIP.OGX --size 16x16 [--bpp 4|8] [--table [--full]]
     python3 -I mkasset.py palette colours.png COLOURS.OGX
     python3 -I mkasset.py combine GAME.OGX LEVEL.OGX SHIP.OGX
     python3 -I mkasset.py check PICTURE.OGX
@@ -413,11 +413,16 @@ def tiles(png, size=8, bpp=4, map_w=32, quantize=False):
 SIZES = {8: 0, 16: 1, 32: 2, 64: 3}
 
 
-def sprites(png, sw, sh, bpp=4, table=False, quantize=False):
+def sprites(png, sw, sh, bpp=4, table=False, quantize=False, full=False):
     """The frames of a sheet, left to right and down, each sw x sh, and the palette; with `table`, a sprite
-    table whose first entries show them in a row (depth 3, at x = 8 + 4 * sw * n... wrapped, y = 8)."""
+    table whose first entries show them in a row (depth 3, at x = 8 + (sw + 4) * n, wrapped at 300 to rows sh + 4
+    apart from y = 8, in the doubled sprites' 320 x 240). With `full` too, the table's sprites are full resolution
+    (hw/sprites640.md): X and Y in the screen's 640 x 480 (x wrapped at 600 instead), and each entry's byte 3 bit
+    7 set, which the card counts once the program sets SPRCTL's FULL (OOLIB's GX_SPRFULL; VIEW does)."""
     if sw not in SIZES or sh not in SIZES:
         raise AssetError("a sprite is 8, 16, 32 or 64 pixels a side")
+    if full and not table:
+        raise AssetError("--full is the table's: it needs --table")
     w, h, rows = read_png(png)
     if w % sw or h % sh:
         raise AssetError("%d x %d isn't whole %d x %d sprites" % (w, h, sw, sh))
@@ -434,9 +439,12 @@ def sprites(png, sw, sh, bpp=4, table=False, quantize=False):
     if table:
         t = bytearray(512)
         per = len(frames[0]) // PAGE
+        across = 600 if full else 300
         for n in range(len(frames)):
             image = n * per | (0x8000 if bpp == 8 else 0)
-            x, y = 8 + (n * (sw + 4)) % 300, 8 + (n * (sw + 4)) // 300 * (sh + 4)
+            x, y = 8 + (n * (sw + 4)) % across, 8 + (n * (sw + 4)) // across * (sh + 4)
+            if full:
+                x |= 0x8000  # byte 3 bit 7: FULL
             struct.pack_into("<HHHBB", t, n * 8, image, x, y, 3 << 2, SIZES[sh] << 6 | SIZES[sw] << 4)
         parts.append(Part(AT_SPRTABLE, bytes(t), w=len(frames)))
     return parts
@@ -493,6 +501,7 @@ def main(argv=None):
             s.add_argument("--size", required=True)
             s.add_argument("--bpp", type=int, choices=(4, 8), default=4)
             s.add_argument("--table", action="store_true")
+            s.add_argument("--full", action="store_true", help="the table's sprites full resolution, 640 x 480")
     s = sub.add_parser("direct640")
     s.add_argument("png")
     s.add_argument("out")
@@ -531,7 +540,7 @@ def main(argv=None):
             parts = tiles(png, a.tile, a.bpp, a.map, a.quantize)
         elif a.kind == "sprites":
             sw, _, sh = a.size.partition("x")
-            parts = sprites(png, int(sw), int(sh), a.bpp, a.table, a.quantize)
+            parts = sprites(png, int(sw), int(sh), a.bpp, a.table, a.quantize, a.full)
         else:
             parts = palette(png, a.quantize)
         out = build(parts)

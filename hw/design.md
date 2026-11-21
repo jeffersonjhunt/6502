@@ -720,6 +720,8 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 1, ID `$91`; revision 2 (proposed) moves the bases and the layers' registers ([below](#video-card-revision-2)).
 *Revision 2's layer types 6 and 7, bitmap 640 and direct 640 (proposed 2026-11-20), two 640×480 colour layers in
 CONFIG's spare TYPE values, are recorded in [video640.md](video640.md), beside the frozen video-rev2.md.*
+*Revision 2's full-resolution sprites (proposed 2026-11-20), SPRCTL at `$C48E` and a sprite entry's byte 3 bit 7,
+so a sprite is drawn 1×1 at 640×480 positions, are recorded in [sprites640.md](sprites640.md), beside it too.*
 
 - **Base registers** are one byte in **1 KB units** of video memory: physical address `$80000 + base × 1024`.
   Sprite images use 12-bit addresses in 64-byte units.

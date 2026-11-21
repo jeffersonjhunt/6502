@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)); the 640×480 colour layers built 2026-11-20, OODOS 0.12 (interface version 13, [video640.md](video640.md)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)); the 640×480 colour layers built 2026-11-20, OODOS 0.12 (interface version 13, [video640.md](video640.md)); full-resolution sprites built 2026-11-20, OODOS 0.13 (interface version 14, [sprites640.md](sprites640.md)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -1528,6 +1528,25 @@ and more in L5:
   - **mkasset.py's `bitmap640` and `direct640`**; VIEW shows both, relinked with no code change.
   - **Costs** are [video640.md's "As built"](video640.md): a whole direct 640 fill 0.116 s, a 600 KB part loaded in
     0.67 s, `GX_PLOT` 443 cycles on bitmap 640 and 498 on direct 640 (406 on bitmap 256).
+- **Full-resolution sprites, interface version 14** (*proposed 2026-11-20, built on feat/sprites640, OODOS 0.13*;
+  [sprites640.md](sprites640.md), the owner's answers 0-11): video card revision 2's SPRCTL (`$C48E`, bit 0 FULL)
+  and a sprite entry's byte 3 bit 7, so a sprite is drawn a pixel a pixel at 640 × 480 places, beside doubled ones.
+  - **OODOS:** the warm boot and `DM_CONSOLE` write SPRCTL 0 (CRTREGS), so no program's setting reaches the next;
+    function 83's `DM_POINTER` takes +1 = `DM_PTRFULL` (64) + the sprite for a full-resolution pointer, its entry's
+    byte 3 bit 7 set each frame (refused before: growth); 128-254 refused. `DM_INFO`'s +4 is still 0-63 or `$FF`.
+  - **Two modules of their own:** `gxsctl.s`'s `GX_SPRFULL` (A 1 on, 0 off; `GE_VERSION` below interface 14,
+    SPRCTL untouched) and `gxsprf.s`'s `GX_SPRFPOS` (a 640-unit position, byte 3's bit 7 set), apart so a program
+    that keeps its own table and only sets FULL doesn't link gxspr.s (review round 1, F3; `gxsctl` sorts before
+    gxspr and gxsprf under C and en_US alike). `GX_SPRPOS` and the rest of gxspr.s are
+    byte for byte as before (it writes the bit clear, so the position call chooses the size); OOUI.BNK and
+    GWBASIC.COM and .OVL too.
+  - **mkasset.py's `sprites --table --full`**; VIEW calls `GX_SPRFULL` 1 with a table (a refusal under an older
+    OODOS ignored: the table shows doubled).
+  - **The library's archive** lists its modules in byte order (`LIBSRC` sorted, answer 11): the locale's collation
+    had put gxsprf before gxspr locally and after it in make_card.sh's container.
+  - **Costs:** OODOS 13 bytes of code and 1 of BSS; `gxsctl` 31 bytes of code (VIEW.COM 6,313 → 6,349 bytes);
+    `gxsprf` 56, which takes in gxspr.s's 222 and its 514-byte shadow; `GX_SPRFPOS` is
+    `GX_SPRPOS` and an `ORA`, 2 cycles more. The card's frame times are [sprites640.md's "As built"](sprites640.md).
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

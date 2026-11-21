@@ -406,6 +406,7 @@ CRTREG0:        LDA     CLOCKS         ; the card: its interrupts but the frame 
                 STZ     VIDEO_PALBASE + 1
                 STZ     VIDEO_SPRBASE
                 STZ     VIDEO_SPRBASE + 1
+                STZ     VIDEO_SPRCTL   ; every sprite doubled (hw/sprites640.md): no program's FULL left on
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG

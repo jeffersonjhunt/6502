@@ -1337,6 +1337,13 @@ Since OODOS 0.12, VIEW also shows the video card's two full-screen colour pictur
 A bitmap 640 wider than 640 shows its left 640 columns. A direct 640 picture's transparent pixels show the
 console's palette entry 0, black.
 
+Since OODOS 0.13, a sprite table made with `mkasset.py sprites --table --full` shows its sprites at full resolution,
+one screen pixel for each of a sprite's pixels, at places across the whole 640×480
+([hw/sprites640.md](../../hw/sprites640.md)); a table made without `--full` shows as before, each sprite pixel 2×2.
+An OODOS older than 0.13 reads a `--full` table's places as the doubled sprites' own: its sprites show 2×2 at twice
+their places, and those placed in the screen's right or bottom half (`mkasset.py` puts a long sheet's later frames
+there) don't show at all.
+
 #### Errors
 
 - `VIEW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file, or
