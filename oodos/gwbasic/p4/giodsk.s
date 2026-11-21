@@ -57,9 +57,10 @@
 ;     end (X1), function 33 gives 1 (unwritten data) or 4 (an unwritten
 ;     extent): READS has zeroed the buffer, and takes any code but 0 for the
 ;     end, so the record is zeros, as the 8086's is past MS-DOS's end;
-;   - LEN past /S: (MAXREC, res/far4.s: at most 1,024, W4; 128 while the
-;     command line's switches aren't read) is Illegal function call, as
-;     GW-BASIC gives it; the 1983 source takes any LEN (its FDBs are dynamic).
+;   - LEN past /S: (MAXREC, res/far4.s: 128, or the command line's /S:, at
+;     most 32,767: OO-1, F3) is Illegal function call, as the IBM manual's
+;     OPEN gives it (p. 221); the 1983 source takes any LEN (its FDBs are
+;     dynamic).
 
 .include "gwbasic.inc"
 
@@ -69,7 +70,7 @@
 ;@entry NAMEP
 ;@entry CMPFBP
 .export DSKDSP, DSKOPN, RESETP, PROSAV, PDECOD, FILESP, KILLP, NAMEP, CMPFBP
-.export BUFPHY, BXFER, P73, WRITES, LDBLK, ERDVGT, FILESQ
+.export BUFPHY, BXFER, P73, WRITES, LDBLK, ERDVGT, FILESQ, NHI
 .import FREFDB, FILNAM, FILMOD, INIFDB, CLSALP, FDBTAB, GETDAT, FLUSHR, DERFOV, DERBRN
 .import MAXREC, ERROR
 .import DEVBOT, BINPSV, GTMPRT, CHRGTR
@@ -125,19 +126,38 @@ NOTEOF:         STZ     RBL
 ER_BFM:         JMP     DERBFM
 
 ; DSKLOC: BX the records read or written (F_CLOC), or a random file's last
-; record (FD_LOG).
+; record (FD_LOG). OO-1 (F3, the owner's answers 3 and 4): each is 24 bits
+; (F_CLOCH, FD_LOGH their top bytes: a random file's record to 16,777,215,
+; a sequential file's 128-byte records to 262,144), and LOC is an integer
+; through 32,767, as the source's, and past it the FAC's exact double
+; (TOFAC, as LOF's): VALTYP double tells LOC so (CONINT made the file
+; number's an integer).
 DSKLOC:         LDY     #F_MODE
                 LDA     (FDBP),Y
-                LDY     #F_CLOC
                 CMP     #MD_RND
-                BNE     LOC1
+                BNE     @s
+                LDY     #FD_LOGH
+                LDA     (FDBP),Y
                 LDY     #FD_LOG
-LOC1:           LDA     (FDBP),Y
+                BRA     LOC1
+@s:             LDY     #F_CLOCH
+                LDA     (FDBP),Y
+                LDY     #F_CLOC
+LOC1:           STA     LOFV+2         ; the top byte
+                LDA     (FDBP),Y
                 STA     RBL
+                STA     LOFV
                 INY
                 LDA     (FDBP),Y
                 STA     RBH
+                STA     LOFV+1
+                LDA     LOFV+2         ; past 32,767: a double
+                BNE     @d
+                BIT     RBH
+                BMI     @d
                 RTS
+@d:             STZ     LOFV+3
+                JMP     TOFAC
 
 ; DSKLOF: the file's size in bytes, a double in the FAC. OO-1 (the IBM
 ; spec's fix-up, the owner's answer 2: the IBM manual's p. 175, the bytes,
@@ -302,8 +322,10 @@ LOFINI:         LDA     LOFCNT,X
                 PLX
 @x:             RTS
 
-; LOFPUT (OO-1): a PUT's end, record x LEN (FD_LOG x FD_SIZ), kept in LMX
-; if it is past what LMX has (LOFINI first). RBL, RBH, RDL, RDH used.
+; LOFPUT (OO-1): a PUT's end, record x LEN (FD_LOG x FD_SIZ, FD_LOGH its
+; record's top byte since F3: MULHI), kept in LMX if it is past what LMX has
+; (LOFINI first). DSKRND has checked it is within 32 MB. RBL, RBH, RDL, RDH,
+; NHI used.
 LOFPUT:         JSR     FNUMX
                 JSR     LOFINI
                 LDY     #FD_SIZ
@@ -318,8 +340,12 @@ LOFPUT:         JSR     FNUMX
                 INY
                 LDA     (FDBP),Y
                 STA     RDH
+                LDY     #FD_LOGH       ; (F3: the record's top byte)
+                LDA     (FDBP),Y
+                STA     NHI
                 PHX
                 JSR     RNDMUL
+                JSR     MULHI
                 PLX
                 TXA                    ; Y: LMX's first byte
                 ASL     A
@@ -340,6 +366,39 @@ LOFPUT:         JSR     FNUMX
                 DEY
                 DEX
                 BPL     @c
+@x:             RTS
+
+; MULHI (OO-1, F3): RNDPRD + NHI x 65,536 x BX (LEN): NHI's bits from the
+; lowest, BX shifted left a place a bit (MHA, 3 bytes), each set bit's MHA
+; added to RNDPRD's high word, till no bit is left (one pass for NHI 1,
+; eight at most); C set if the sum passes 32 bits. NHI used; X and Y kept.
+MULHI:          CLC
+                LDA     NHI
+                BEQ     @x
+                LDA     RBL
+                STA     MHA
+                LDA     RBH
+                STA     MHA+1
+                STZ     MHA+2
+@l:             LSR     NHI
+                BCC     @s
+                CLC
+                LDA     RNDPRD+2
+                ADC     MHA
+                STA     RNDPRD+2
+                LDA     RNDPRD+3
+                ADC     MHA+1
+                STA     RNDPRD+3
+                BCS     @x             ; past 32 bits
+                LDA     MHA+2
+                BNE     @o             ; (MHA past 16 bits: so is the sum)
+@s:             LDA     NHI            ; (C clear here)
+                BEQ     @x
+                ASL     MHA
+                ROL     MHA+1
+                ROL     MHA+2
+                BRA     @l
+@o:             SEC
 @x:             RTS
 
 ; DSKGPS: A the column. DSKGWD: A the width, 255 for a disk file. DSKSCW,
@@ -373,7 +432,7 @@ DSKOPN:         STA     ODEV           ; the device, till INIFDB
                 BNE     DSKOP1
                 LDA     #DATPSC        ; else a record's bytes
                 STA     RCL
-DSKOP1:         LDA     MAXREC         ; OO-1 (W4): more than /S: is Illegal
+DSKOP1:         LDA     MAXREC         ; OO-1: more than /S: is Illegal
                 CMP     RCL            ; function call
                 LDA     MAXREC+1
                 SBC     RCH
@@ -492,7 +551,8 @@ SYSCHK:         STZ     FILNAM + 12    ; EX, S1, S2: the first extent's entry
                 JMP     ERROR
 @r:             RTS
 ; OPNSET: open. (FCB_RC's 128: OO-1, CP/M's records are 128 bytes.) OO-1:
-; the drive filled in, as MS-DOS's open does. F_CLOC, F_ORCT, F_BREM zero.
+; the drive filled in, as MS-DOS's open does. F_CLOC (F_CLOCH too: OO-1,
+; F3), F_ORCT, F_BREM zero.
 OPNSET:         LDY     #FCB_DV
                 LDA     (FDBP),Y
                 BNE     @drv
@@ -502,6 +562,8 @@ OPNSET:         LDY     #FCB_DV
                 LDY     #FCB_DV
                 STA     (FDBP),Y
 @drv:           LDA     #0
+                LDY     #F_CLOCH
+                STA     (FDBP),Y
                 LDY     #F_CLOC
 @z:             STA     (FDBP),Y
                 INY
@@ -523,10 +585,10 @@ OPNSET:         LDY     #FCB_DV
 OPNFIN:         STZ     FREFDB         ; open: FINPRT leaves it
                 STZ     FREFDB+1
                 RTS
-; RNDFIN: FD_PHY to the FDB's end zero (the FIELD buffer isn't: the 8086's
+; RNDFIN: FD_LOGH to the FDB's end zero (the FIELD buffer isn't: the 8086's
 ; count stops at FD_DAT, so it holds what the string space left there).
 RNDFIN:         LDA     #0
-                LDY     #FD_PHY
+                LDY     #FD_LOGH
 @z:             STA     (FDBP),Y
                 INY
                 CPY     #FDBLEN
@@ -830,50 +892,66 @@ RELFLG          = 2                    ; on, a record given; off, the next
 DIRFLG          = 4                    ; PGSUB1's: on, write; off, read
 
 ; DSKRND: GET or PUT, A the function (0 GET the next record, 1 PUT it, 2 GET
-; record DX, from 1, 3 PUT it), FDBP the file's FDB; RNDAL is the 8086's
-; AL. The next is FD_LOG + 1; a record given must be 1..65535 (OO-1: the
-; IBM manual's p. 113 and A-4 take records past 32767, which the source's
-; JLE refuses; 0 is Bad record number). FD_LOG is it, FD_OPS 0. Its first
-; byte is (record - 1) x FD_SIZ: DX the 128-byte record, BX the place in it
-; (OO-1, the owner's answer 2: RECRD has CP/M 3's 18 bits, 32 MB, R2 its top
-; ones; a record reaching past 128-byte record 262,143 is Bad record number,
-; the source's Illegal function call past 16 bits; LEN 128 is the record
-; itself). Then the record is moved a 128-byte record at a time,
-; CX bytes each (what is left of it, or of the record), between its FIELD
-; buffer (LBUFF) and the FDB's buffer (PBUFF): GET reads each (GETSUB) and
-; copies; PUT reads one it only partly fills, copies into it, and writes it
-; (PUTSUB). RECRD is the 128-byte record, DX the bytes left, BX the place.
+; record DX, from 1, 3 PUT it: NHI its top byte, P4's RECNUM's), FDBP the
+; file's FDB; RNDAL is the 8086's AL. OO-1 (F3, the owner's answers 1 and 8):
+; records are the IBM manual's 1 to 16,777,215 (pp. 113, 279, A-4: the
+; source's JLE refuses past 32,767), 24 bits, FD_LOGH the top byte of FD_LOG.
+; In one pass, every refusal before anything is stored, so a refused record
+; leaves LOC and the next record as they were:
+;   1. the record: the one given (0 is Bad record number), or the next,
+;      FD_LOG + 1 with its carry into FD_LOGH (past 16,777,215: Bad record
+;      number); kept in RNDREC;
+;   2. the current, record - 1 (DX and NHI, NHI's borrow with it);
+;   3. its first byte, current x FD_SIZ: DX the 128-byte record, BX the place
+;      in it. LEN 128: the current itself, its 128-byte record past 262,143
+;      Bad record number. Else RNDMUL (DX x LEN) and MULHI (NHI x 65,536 x
+;      LEN), past 32 bits Bad record number; then its last byte, that +
+;      LEN - 1, must be within CP/M 3's 32 MB (the owner's answer 2: 18 bits
+;      of 128-byte records, R2 its top ones), else Bad record number; then
+;      doubled and split (/ 128), as the source's;
+;   4. only then FD_LOG and FD_LOGH the record (LOC's), FD_OPS 0, and a PUT's
+;      end kept for LOF (LOFPUT).
+; Then the record is moved a 128-byte record at a time, CX bytes each (what
+; is left of it, or of the record), between its FIELD buffer (LBUFF) and the
+; FDB's buffer (PBUFF): GET reads each (GETSUB) and copies; PUT reads one it
+; only partly fills, copies into it, and writes it (PUTSUB). RECRD is the
+; 128-byte record, DX the bytes left, BX the place.
 ER_BRN:         JMP     DERBRN         ; Bad record number
 DSKRND:         STA     RNDAL
                 AND     #RELFLG
                 BNE     RAND1
-                LDY     #FD_LOG        ; DX: the next, FD_LOG + 1
+                LDY     #FD_LOG        ; DX, NHI: the next, FD_LOG + 1
+                SEC
                 LDA     (FDBP),Y
-                CLC
-                ADC     #1
+                ADC     #0
                 STA     RDL
                 INY
                 LDA     (FDBP),Y
                 ADC     #0
                 STA     RDH
-                BMI     ER_BRN         ; OO-1: past 32767 Bad record number too,
-                BRA     RAND2          ; not a wrap (the owner's interim cap)
-RAND1:          LDA     RDH            ; JLE: 0, or past 32767 (OO-1: the
-                BMI     ER_BRN         ; owner's interim cap, 2026-11-19; the
-                ORA     RDL            ; IBM manual's range, pp. 113, 279, A-4,
-                BEQ     ER_BRN         ; is owed, hw/oodos.md)
-RAND2:          LDY     #FD_LOG        ; the next logical
-                LDA     RDL
-                STA     (FDBP),Y
-                INY
+                LDY     #FD_LOGH
+                LDA     (FDBP),Y
+                ADC     #0
+                STA     NHI
+                BCS     ER_BRN         ; OO-1: past 16,777,215
+                BRA     RAND2
+RAND1:          LDA     RDL            ; 0: Bad record number
+                ORA     RDH
+                ORA     NHI
+                BEQ     ER_BRN
+RAND2:          LDA     RDL            ; RNDREC: the record, stored at step 4
+                STA     RNDREC
                 LDA     RDH
-                STA     (FDBP),Y
-                DECW    RDL            ; DX: the current, from 0
-                LDY     #FD_OPS        ; the output place 0
-                LDA     #0
-                STA     (FDBP),Y
-                INY
-                STA     (FDBP),Y
+                STA     RNDREC+1
+                LDA     NHI
+                STA     RNDREC+2
+                LDA     RDL            ; DX, NHI: the current, from 0
+                BNE     :+
+                LDA     RDH
+                BNE     @h
+                DEC     NHI
+@h:             DEC     RDH
+:               DEC     RDL
                 LDY     #FD_SIZ        ; BX: the record's length
                 LDA     (FDBP),Y
                 STA     RBL
@@ -885,17 +963,40 @@ RAND2:          LDY     #FD_LOG        ; the next logical
                 CMP     #DATPSC
                 BNE     RANDM
 RAND3:          STZ     RBL            ; BX: the place 0
-                STZ     RECRD+2        ; (OO-1: below 65,536)
+                LDA     NHI            ; OO-1: past 128-byte record 262,143
+                CMP     #4
+                BCS     ER_BRN
+                STA     RECRD+2
                 BRA     RAND4
-RANDM:          JSR     RNDMUL         ; the byte's place, x 2 (for / 128)
-                ASL     RNDPRD
+ER_BRM:         JMP     DERBRN         ; (Bad record number, in reach)
+RANDM:          JSR     RNDMUL         ; the byte's place (OO-1: 32 bits)
+                JSR     MULHI
+                BCS     ER_BRM
+                SEC                    ; OO-1: its last byte, + LEN - 1, within
+                LDA     RBL            ; 32 MB (2^25)
+                SBC     #1
+                STA     RCL
+                LDA     RBH
+                SBC     #0
+                STA     RCH
+                CLC
+                LDA     RNDPRD
+                ADC     RCL
+                LDA     RNDPRD+1
+                ADC     RCH
+                LDA     RNDPRD+2
+                ADC     #0
+                LDA     RNDPRD+3
+                ADC     #0
+                BCS     ER_BRM
+                CMP     #2
+                BCS     ER_BRM
+                ASL     RNDPRD         ; x 2 (for / 128)
                 ROL     RNDPRD+1
                 ROL     RNDPRD+2
                 ROL     RNDPRD+3
                 LDA     RNDPRD+3       ; OO-1: the 128-byte record's top bits
-                STA     RECRD+2        ; (CP/M 3's R2): record 32,767 of LEN 1,024
-                                       ; (MAXREC's most) ends in 128-byte record
-                                       ; 262,135, inside 18 bits, so no check
+                STA     RECRD+2        ; (CP/M 3's R2, 0-3)
                 LDA     RNDPRD+2       ; DX: the 128-byte record
                 STA     RDH
                 LDA     RNDPRD+1
@@ -908,6 +1009,20 @@ RAND4:          LDA     RDL            ; RECRD: the record
                 STA     RECRD
                 LDA     RDH
                 STA     RECRD+1
+                LDY     #FD_LOG        ; step 4: the record LOC's, the next's
+                LDA     RNDREC
+                STA     (FDBP),Y
+                INY
+                LDA     RNDREC+1
+                STA     (FDBP),Y
+                LDY     #FD_LOGH
+                LDA     RNDREC+2
+                STA     (FDBP),Y
+                LDY     #FD_OPS        ; the output place 0
+                LDA     #0
+                STA     (FDBP),Y
+                INY
+                STA     (FDBP),Y
                 LDA     RNDAL          ; OO-1: a PUT's end kept for LOF (LOFPUT)
                 AND     #PGFLAG
                 BEQ     :+
@@ -1042,9 +1157,10 @@ RNDMUL:         STZ     RNDPRD+2
                 RTS
 
 ; PUTSUB: record RECRD written from the buffer; GETSUB: read into it
-; (PGSUB1). The record the buffer holds is FD_PHY's (less one), which
-; nothing sets after RNDFIN zeroes it, as in the 8086: so a read is always
-; made (but for record 65535). F_CLOC the record (READS and WRITES step it),
+; (PGSUB1). A read is always made: the source's test of FD_PHY, the record
+; the buffer holds, which nothing set after RNDFIN zeroed it, took 128-byte
+; record 65,535 alone for the buffer's and skipped its read (OO-1, F3: the
+; test dropped, FD_PHY now FD_LOGH). F_CLOC the record (READS and WRITES step it),
 ; F_ORCT and F_BREM 128 (READS sets them by its read), CP/M's R0-R1 the
 ; record and R2 its top bits (OO-1: 18 in all); then WRITES, or READS: a record past the file's end comes
 ; back zeros, F_ORCT 0 (X1). RNDAL's DIRFLG is set or cleared, as the
@@ -1055,29 +1171,14 @@ PUTSUB:         LDA     RNDAL
 GETSUB:         LDA     RNDAL
                 AND     #$FF - DIRFLG
 PGSUB1:         STA     RNDAL
-                LDA     RECRD+2        ; OO-1: past 65,535 never the buffer's
-                BNE     NTREDS
-                CLC                    ; BX: the record + 1
-                LDA     RECRD
-                ADC     #1
-                TAX
-                LDA     RECRD+1
-                ADC     #0
-                LDY     #FD_PHY + 1    ; in the buffer?
-                CMP     (FDBP),Y
-                BNE     NTREDS
-                TXA
-                DEY
-                CMP     (FDBP),Y
-                BNE     NTREDS
-                LDA     RNDAL          ; read: there already
-                AND     #DIRFLG
-                BEQ     PGRET
 NTREDS:         LDY     #F_CLOC        ; CURLOC: the record
                 LDA     RECRD
                 STA     (FDBP),Y
                 INY
                 LDA     RECRD+1
+                STA     (FDBP),Y
+                LDY     #F_CLOCH       ; (OO-1, F3: its top bits)
+                LDA     RECRD+2
                 STA     (FDBP),Y
                 LDA     #DATPSC
                 LDY     #F_ORCT
@@ -1098,23 +1199,14 @@ NTREDS:         LDY     #F_CLOC        ; CURLOC: the record
                 BEQ     GET1
                 JMP     WRITES
 GET1:           JMP     READS
-PGRET:          RTS
 
 ; --- READS, WRITES, SETBUF, ACCFIL (GIODSK.ASM 599) ---------------------------------------
 
 ; READS ($READS): the next record into the buffer (zeroed first), F_CLOC
-; one on. F_ORCT and F_BREM 128, or 0 at the end (any code but 0): Z set
-; then.
-READS:          LDY     #F_CLOC
-                LDA     (FDBP),Y
-                INC     A
-                STA     (FDBP),Y
-                BNE     :+
-                INY
-                LDA     (FDBP),Y
-                INC     A
-                STA     (FDBP),Y
-:               LDA     #0
+; one on (CLOCUP). F_ORCT and F_BREM 128, or 0 at the end (any code but 0):
+; Z set then.
+READS:          JSR     CLOCUP
+                LDA     #0
                 LDY     #DATOFS
 @z:             STA     (FDBP),Y
                 INY
@@ -1155,17 +1247,27 @@ WRITES:         PHA
                 LDA     #MD_SQI
                 STA     (FDBP),Y
                 JMP     DERDFL
-WRITE1:         LDY     #F_CLOC
+WRITE1:         JSR     CLOCUP
+                PLA
+                RTS
+; CLOCUP (the project's own): F_CLOC one on, its carry into F_CLOCH (OO-1,
+; F3, the owner's answer 4: 24 bits, so LOC counts a file's 128-byte records
+; to CP/M 3's 262,144, where the source's 16 bits went negative past 32,767).
+CLOCUP:         LDY     #F_CLOC
                 LDA     (FDBP),Y
                 INC     A
                 STA     (FDBP),Y
-                BNE     :+
+                BNE     @x
                 INY
                 LDA     (FDBP),Y
                 INC     A
                 STA     (FDBP),Y
-:               PLA
-                RTS
+                BNE     @x
+                LDY     #F_CLOCH
+                LDA     (FDBP),Y
+                INC     A
+                STA     (FDBP),Y
+@x:             RTS
 ER_TMF:         JMP     DERTMF
 ER_IOE:         JMP     DERIOE
 
@@ -2150,6 +2252,9 @@ RNDAL:          .res    1              ; DSKRND's function (the 8086's AL)
 RNDPRD:         .res    4              ; RNDMUL's product (the 8086's DX:AX)
 LOFV            = RNDPRD               ; OO-1: DSKSZ's and TOFAC's size in bytes (RNDMUL isn't
                                        ;   called between)
+NHI:            .res    1              ; OO-1 (F3): a record number's top byte (RECNUM, DSKRND, LOFPUT)
+MHA:            .res    3              ; MULHI's LEN, shifted
+RNDREC:         .res    3              ; DSKRND's record, till it is checked
 RECRD:          .res    3              ; GWDATA.ASM's: the 128-byte record (OO-1: 18 bits)
 LBUFF:          .res    2              ; and the place in the FIELD buffer
 PBUFF:          .res    2              ; and in the FDB's buffer

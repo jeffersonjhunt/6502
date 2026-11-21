@@ -106,6 +106,7 @@
 .export DERBFN, DERFNF, DERBFM, DERFNO, DERFAO, DERIOE, DERDFL, DERRPE, DERIFN, DERTMF, DERDNA
 .export DERFAE, DERRAD, DERFOV, DERBRN, DPUTG, GETDAT, BSAVEP, BLOADP, BLDRUN
 .import FRMEVL, FRESTR, SYNCHR, CHRGTR, GETBYT, CONINT, INTID2, FINPRT, MAKINT
+.import SIGNS, GETYP, FRCINT, FRCSNG, FADDH, QINT, NHI
 .import GARBA2, MEMSIZ
 .import ERROR, FCERR, SNERR, ADVERR, CHSNS, RUNBUF, FILOPN, FREFDB
 .import FIXINPP
@@ -336,9 +337,15 @@ EOF:            JSR     FACFPT
 ERFNO4:         JMP     DERFNO
 
 ; LOC(n): the device's LOC (DSKLOC: the records read or written), as an
-; integer. LOF(n): its LOF, which makes the FAC itself (DSKLOF).
+; integer; OO-1 (F3, the owner's answers 3 and 4): past 32,767 a disk file's
+; is the FAC itself, an exact double, which DSKLOC makes (VALTYP double).
+; LOF(n): its LOF, which makes the FAC itself (DSKLOF).
 LOC:            LDX     #G_LOC
 GENFUN:         JSR     FACDSP
+                LDA     VALTYP
+                CMP     #VT_DBL
+                BNE     GFUNX
+                RTS
 GFUNX:          JMP     MAKINT
 LOF:            LDX     #G_LOF
                 JMP     FACDSP
@@ -1592,10 +1599,11 @@ SKPNAM:         LDA     (RBL)
 ; DPUTG: GET or PUT [#]n[, record], X 0 GET, 1 PUT (the 8086's CX, PGTFLG
 ; here). The file must be open and random, else Bad file mode (54: the IBM
 ; manual's A-3, GET or PUT of a closed file, and the source's); with a
-; record (ADRGET's 0..65535, P1's: a far call), A is 2 GET or 3 PUT, else
-; 0 or 1, for the device's random function (G_RND: the disk's DSKRND). FDBP
-; is kept round the record's formula, as the 8086's PUSH SI (a function in
-; it, LOF say, finds an FDB of its own).
+; record (OO-1, F3: RECNUM's, DX and NHI, where the source's ADRGET takes
+; 16 bits), A is 2 GET or 3 PUT, else 0 or 1, for the device's random
+; function (G_RND: the disk's DSKRND). FDBP is kept round the record's
+; formula, as the 8086's PUSH SI (a function in it, LOF say, finds an FDB of
+; its own).
 DPUTG:          STX     PGTFLG
                 JSR     POFNUM
                 JSR     FDBPTR
@@ -1613,12 +1621,12 @@ DPUTG:          STX     PGTFLG
                 PHA
                 LDA     FDBP+1
                 PHA
-                FJSR    ADRGTS         ; DX: the record; C: negative
+                JSR     FRMEVL
                 PLA
                 STA     FDBP+1
                 PLA
                 STA     FDBP
-                BCS     ERBRN1         ; (OO-1: -1 isn't record 65535)
+                JSR     RECNUM         ; DX, NHI: the record
                 LDA     PGTFLG
                 CLC
                 ADC     #2
@@ -1628,6 +1636,40 @@ RELRN1:         LDX     #G_RND
                 JMP     SIDSP
 ERBFM1:         JMP     DERBFM
 ERBRN1:         JMP     DERBRN
+
+; RECNUM (OO-1, F3, the owner's answers 1 and 8): the FAC a record number,
+; the IBM manual's 1 to 16,777,215 (pp. 113, 279, A-4), to DX and NHI (its
+; top byte). A string is Type mismatch (SIGNS), a negative number Bad record
+; number. An integer is itself; a number below 32,768 FRCINT's, as before F3
+; (ADRGET's); from 32,768 the nearest integer, a half up: its single
+; (FRCSNG), .5 added below 2^23 (FADDH: above it a single has no fraction),
+; then QINT's BL:DX. Past 16,777,215 Bad record number. 0 is DSKRND's.
+RECNUM:         JSR     SIGNS
+                BMI     ERBRN1
+                STZ     NHI
+                JSR     GETYP
+                BMI     @i             ; an integer
+                LDA     FACEXP
+                CMP     #$80 + 16      ; below 32,768: FRCINT
+                BCS     @b
+@i:             JSR     FRCINT         ; BX
+                LDA     RBL
+                STA     RDL
+                LDA     RBH
+                STA     RDH
+                RTS
+@b:             JSR     FRCSNG
+                LDA     FACEXP
+                CMP     #$80 + 24      ; 2^23 or more: no fraction
+                BCS     @q
+                JSR     FADDH
+@q:             LDA     FACEXP         ; past 2^24 - 1
+                CMP     #$80 + 25
+                BCS     ERBRN1
+                JSR     QINT           ; BL:DX
+                LDA     RBL
+                STA     NHI
+                RTS
 
 ; GETDAT (the project's own): A/X FDBP's FIELD buffer, the 8086's FD_DAT
 ; (FDDAT, by its number). Y used.

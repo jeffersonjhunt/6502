@@ -25,10 +25,11 @@
 ;
 ; And one variable P4 reads (OO-1):
 ;
-;   MAXREC    /S:, the most a random file's LEN may be (W4: at most 1,024;
-;             GW-BASIC's own default, 128, while the command line's switches
-;             are passed over). Resident, so start-up (P2) can set it from
-;             the command line, as GWINIT.ASM's WASS reads /S:.
+;   MAXREC    /S:, the most a random file's LEN may be: GW-BASIC's own
+;             default, 128, or /S:n's n, 1 to 32,767 (OO-1, F3: the owner's
+;             answer 2; W4's 1,024 gone, as records are moved a 128-byte
+;             record at a time through the FDB's buffer). Resident, so
+;             start-up (P2's WASS) sets it from the command line.
 
 .include "gwbasic.inc"
 
@@ -53,4 +54,4 @@ LRUN:           LDX     HOMSTK
                 FJSR    HLRUN          ; never returns
 
 .segment "RAM"
-MAXREC:         .word   DATPSC         ; /S: (OO-1: W4)
+MAXREC:         .word   DATPSC         ; /S: (OO-1, F3: P2's WASS)

@@ -315,6 +315,7 @@ F_NUM           = 0                    ; the file number, 0-3
 F_MODE          = 1                    ; the mode (MD_*); 0: the FDB is free
 F_FCB           = 2                    ; the FCB, 36 bytes
 F_CLOC          = 38                   ; sequential: records read or written; random: the last + 1
+                                       ;   (OO-1, F3: its top byte F_CLOCH, past the random fields)
 F_ORCT          = 40                   ; the bytes in the buffer (input: when read; output: so far)
 F_BREM          = 41                   ; the bytes left to read in it
 F_CODE          = 42                   ; FC_ASC or FC_BIN
@@ -326,10 +327,13 @@ F_POS           = 47                   ; the column
 FDBSIZ          = 48                   ; the device-independent part's size
 DATOFS          = 48                   ; the record's buffer, 128 bytes (DATPSC)
 FD_SIZ          = DATOFS + 128         ; random: the record's length
-FD_PHY          = FD_SIZ + 2           ; the physical record in the buffer
-FD_LOG          = FD_PHY + 2           ; the logical record
+FD_LOGH         = FD_SIZ + 2           ; OO-1 (F3): the logical record's top byte (the source's FD_PHY,
+                                       ;   the physical record in the buffer, which nothing set; its
+                                       ;   second byte unused)
+FD_LOG          = FD_LOGH + 2          ; the logical record (its low 16 bits)
 FD_OPS          = FD_LOG + 2           ; the place in the record
-FDBLEN          = FD_OPS + 2           ; an FDB's bytes
+F_CLOCH         = FD_OPS + 2           ; OO-1 (F3, the owner's answer 4): F_CLOC's top byte, 24 bits
+FDBLEN          = F_CLOCH + 1          ; an FDB's bytes (185)
 DATPSC          = 128                  ; a record's bytes
 FCB_DV          = F_FCB + 0            ; the drive: 0 the current one, 1 A:
 FCB_FN          = F_FCB + 1            ; the name, 8 bytes, then the type, 3
