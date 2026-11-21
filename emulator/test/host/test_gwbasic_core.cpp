@@ -1119,8 +1119,9 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 }
 
 // N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
-// Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n); and the ones that
-// don't work as in screen mode: BEEP (function 82's SN_BEEP: nothing printed). Guards a statement in console mode
+// Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n), PLAY
+// ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions; and the ones that don't need it work as in screen
+// mode: BEEP (function 82's SN_BEEP: nothing printed), PEN, ON COM(1) and COM(1) ON. Guards a statement in console mode
 // waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
 // the note queued and MF's wait run to the clock).
 TEST(console_mode_keeps_its_guard)
@@ -1128,9 +1129,12 @@ TEST(console_mode_keeps_its_guard)
     CcpRig r;
     REQUIRE(r.ok);
     start(r);
-    for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)"})
+    for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",
+                          "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "BEEP"), std::string());
+    CHECK_EQ(command(r, "PEN ON:PRINT PEN(0);PEN(9)"), std::string(" 0  0 \r\n"));
+    CHECK_EQ(command(r, "ON COM(1) GOSUB 0:COM(1) ON:COM(1) OFF"), std::string());
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 

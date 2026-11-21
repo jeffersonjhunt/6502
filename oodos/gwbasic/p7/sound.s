@@ -57,9 +57,9 @@
 ;@entry BEEPP
 ;@entry BELLP
 ;@entry PLAYP
-.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
+;@entry ONSETP
+.export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
-.import PLAYN
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
 .import SCRMOD, EVAREA
 .include "oolib.inc"
@@ -457,30 +457,6 @@ MSNOW:          BIT     SCRMOD
                 DEX
                 BPL     :-
                 RTS
-
-; --- The hand-offs (U1) --------------------------------------------------------------------
-
-; EVP7: Y the event's slot (EVAREA + EV_QUEUE + Y).
-EVP7:           LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
-                CMP     #EK_SOUND
-                BNE     @x
-                LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
-                JMP     MU_EVENT       ; the voices' counts (MU_COUNT)
-@x:             RTS
-TRPPOL:         BIT     POLSRC         ; the test-only trigger: P3's
-                BPL     :+
-                FJSR    TRPTSP
-:               RTS
-JOYFP:          JMP     FCERR
-XFUNP:          CMP     #PLAY_XS
-                BNE     :+
-                JMP     PLAYN
-:               CMP     #DATES_XS
-                BEQ     :+
-                CMP     #TIMES_XS
-                BEQ     :+
-                JMP     SNERR
-:               JMP     ADVERR
 
 .rodata
 BEEPB:          .byte   SN_BEEP, <800, >800, <250, >250 ; function 82: the bell

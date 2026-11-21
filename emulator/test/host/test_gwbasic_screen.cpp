@@ -764,7 +764,7 @@ TEST(the_key_line_at_start_up)
 
 // KEY n,"text" (GWSTS.ASM's KEYS): KEY 1,"FILES"+CHR$(13) shows field 1 as "1FILES" and 27 (the CR), and key 2
 // unchanged; KEY 2,STRING$(20,"X") keeps 15 (KEY LIST shows them); KEY 0 and KEY 11 are Illegal function call,
-// KEY 1,5 Type mismatch, KEY(1) ON Advanced Feature (7f's, the owner's answer 5). Guards a key's text landing on
+// KEY 1,5 Type mismatch, KEY(1) ON taken (7f, E6: it was Advanced Feature until 7f). Guards a key's text landing on
 // another key. Seen failing with STRTAB's place one key on (KEYSP's DEC A left out).
 TEST(key_n_sets_a_key_and_its_field)
 {
@@ -785,7 +785,7 @@ TEST(key_n_sets_a_key_and_its_field)
     enter(r, "CLS:KEY 1,5", ms(300));
     CHECK_EQ(line(r, 0), std::string("Type mismatch"));
     enter(r, "CLS:KEY(1) ON", ms(300));
-    CHECK_EQ(line(r, 0), std::string("Advanced feature"));
+    CHECK_EQ(line(r, 0), std::string("Ok")); // (7f, E6)
     CHECK_EQ(line(r, 24).substr(0, 8), std::string("1FILES\x1b "));
 }
 

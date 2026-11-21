@@ -7,6 +7,8 @@
 ;@entry SCPAGP
 ;@entry KEYDP
 ;@entry LOCLIM
+; 7f's (p6/key.s KTSET), last, so the entries before it keep their places.
+;@entry KTSET
 .export SCPAGP, KEYDP, LOCLIM
 .import APG, CROW, RWOLO, RWOHI
 

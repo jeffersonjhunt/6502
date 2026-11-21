@@ -1883,7 +1883,7 @@ TEST(scrn_kybd_and_cons_files_by_hand)
 // The COM statement (GWSTS.ASM COMS: SEVSTT for COM(1) and COM(2)) and G10 (the owner's, 2026-11-14): an event id
 // past TRPTBL's range is Illegal function call, never a write past it: COM(200) passes the source's signed JGE (199
 // is negative) and would set the flag of event 214, 642 bytes into P3's RAM; with the guard, no byte past TRPTBL's
-// 63 changes (read at COMSP, P3 in W3). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
+// 87 changes (read at COMSP, P3 in W3; 63 until 7f's 29 events, E5). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
 // PC-BASIC where it can tell (d_com: COM(n)'s errors, COM2: Device Unavailable); by hand, LCOPY, the source's LCOPYS
 // parse and then the OEM's LCPY, Advanced Feature until the screen (7d); IOCTL, the source's Advanced Feature
 // (GWSTS.ASM's ERDEV and IOCTL are ADVERR); and ERDEV and ERDEV$, which the 1983 table has no words for, are the IBM
@@ -1899,7 +1899,7 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     start(r);
     const std::map<std::string, uint16_t> p3 = link_labels("p3.lbl");
     REQUIRE(p3.count("TRPTBL") == 1 && p3.count("COMSP") == 1);
-    const uint16_t past = static_cast<uint16_t>(p3.at("TRPTBL") + 3 * 21), end = 0xF800; // NUMTRP 21
+    const uint16_t past = static_cast<uint16_t>(p3.at("TRPTBL") + 3 * 29), end = 0xF800; // NUMTRP 29 (7f, E5: 21 until 7f)
     std::vector<std::vector<uint8_t>> seen;
     r.watch = [&](uint16_t pc) {
         if (pc != p3.at("COMSP"))

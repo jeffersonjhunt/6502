@@ -681,12 +681,12 @@ TEST(lprint_using_goes_to_lpt1)
 // ON event GOSUB (GWMAIN.ASM NTOERR, ONGSB0, RSTRAP; GWSTS.ASM ONGOTP, NT2BTK, NTONPN, ONFUN, ONFUN1, ONSTM, ONGOTX,
 // GETSUB, SETGSB, EVADR), with no event raised, so no trap is taken: ON KEY(1) and KEY(14), with spaces; ON COM(1)
 // and (2); ON PEN; ON STRIG(0), (2), (4) and (6); GOSUB 0; a rounded n; ON's numeric form still right after them.
-// ON TIMER(n) and ON PLAY(n) GOSUB: TIMER isn't a reserved word in the 1983 source (TIMER(1) is an array's element,
-// 0, and ON 0 GOSUB goes on), and PLAY is a statement's token, which ON's numeric form doesn't take. Then the errors:
+// 7f: ON TIMER(n) and ON PLAY(n) GOSUB are the OO-1's events (the source has neither; the IBM manual's pp. 211, 217),
+// set and not taken with no TIMER ON or PLAY ON. Then the errors:
 // KEY(0), KEY(256), KEY(-1), COM(0), COM(3), STRIG(1) and STRIG(8) (Illegal function call), a missing line, and
 // Syntax error for two lines, GOTO, no "(", no ")", no GOSUB, something after the line. Where PC-BASIC departs from
-// the source (.differ): KEY(15) (the source has 14 key traps, NMKEYT), GOSUB with no line (the source's LINGET
-// gives 0: the trap's line cleared), ON PLAY(n).
+// the source (.differ): GOSUB with no line (the source's LINGET gives 0: the trap's line cleared). (7f, E3 and E4:
+// KEY(15), 20 key traps now, and ON PLAY(n) print what PC-BASIC prints.)
 TEST(on_event_gosub_prints_what_pc_basic_prints_or_the_source_says)
 {
     programs({"onev", "ontimer", "onevnl", "onevfc0", "onevfc1", "onevfc2", "onevfc3", "onevfc4", "onevfc5", "onevfc6",

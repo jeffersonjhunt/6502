@@ -385,20 +385,29 @@ G_BOT           = 28
 
 ; The traps' flags (BIMISC.ASM; the routines shift them: don't change) and
 ; TRPTBL's events (OEM.H, GWSTS.ASM): 3 bytes each, the flag and the GOSUB
-; line's pointer (its link), in event id order: the pen, the 14 keys, the 2
-; COM ports, the 4 triggers.
+; line's pointer (its link), in event id order: the pen, the 20 keys (7f:
+; the manual's 14 and KEY 15-20's, contiguous: the owner's answer 9), the 2
+; COM ports, the 4 triggers, and (OO-1, 7f: the source has neither) PLAY and
+; TIMER.
 T_ON            = 1                    ; the trap is on
 T_STOP          = 2                    ; stopped: a request is remembered, not taken
 T_REQ           = 4                    ; requested: the event has happened
-NMKEYT          = 14                   ; OEM.H: the function key traps
+NMKEYT          = 20                   ; OEM.H's 14 function key traps; 7f: KEY 15-20 too
 NMCOMT          = 2                    ; the COM ports
 NMPENT          = 1                    ; the light pens
 NMSTRT          = 4                    ; the joystick triggers
-NUMTRP          = NMKEYT + NMCOMT + NMPENT + NMSTRT
+NMPLYT          = 1                    ; 7f: PLAY's
+NMTIMT          = 1                    ; 7f: TIMER's
+NUMTRP          = NMKEYT + NMCOMT + NMPENT + NMSTRT + NMPLYT + NMTIMT
 PENOFF          = 0                    ; GWSTS.ASM: each class's first event id
 KEYOFF          = PENOFF + NMPENT
 COMOFF          = KEYOFF + NMKEYT
 STROFF          = COMOFF + NMCOMT
+PLYOFF          = STROFF + NMSTRT      ; 7f
+TIMOFF          = PLYOFF + NMPLYT      ; 7f
+.assert NUMTRP <= 32, error, "TRPTST's operation holds an event id in 5 bits"
+NMKEYF          = 10                   ; GWSTS.ASM: the soft keys (KEY n,"text"), 1-10
+NMKEYD          = 6                    ; 7f: KEY 15-20, the keys a program defines
 
 ; --- Value types ------------------------------------------------------------
 VT_INT          = 2

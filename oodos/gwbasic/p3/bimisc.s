@@ -342,7 +342,11 @@ GOMERR:         JMP     OMERR          ; BIMISC.ASM 892
 ;
 ; OO-1: TRPON, NEWSTT's gate (gwbasic.inc), is kept here, right after each
 ; change to a trap's T_ON: ONTRP sets it, OFFTRP counts the table again
-; (TRPCNT), INITRP clears it. No other routine changes T_ON.
+; (TRPCNT), INITRP clears it. No other routine changes T_ON. 7f: with it,
+; POLUPD keeps POLSRC's bits 0 and 1 (ON TIMER's and ON COM(1)'s traps on:
+; the resident TRPOLL's polled sources) and tells P6 whether any key's trap
+; is on (KTSET, one far call, only when that changes: P6's KEYEV matches a
+; key against the traps only then).
 
 ; ONTRP (BIMISC.ASM 352): the trap on, its request kept. A request kept while
 ; it was off or stopped now counts (SETTP2). The STAs keep CMP's Z.
@@ -352,6 +356,7 @@ ONTRP:          LDA     (RBL)
                 CMP     (RBL)
                 STA     (RBL)
                 STA     TRPON          ; OO-1: a trap is on (A has T_ON)
+                JSR     POLUPD         ; (7f; the flags and A kept)
                 BEQ     ONTRP0         ; no change in status
                 AND     #T_REQ
                 BNE     SETTP2         ; a delayed trap request
@@ -424,14 +429,25 @@ FRETP2:         LDA     ONGSBF         ; SUB AL,1 / JB: not below 0
 ; OO-1 (7f): then CLEARC's SNDINI (P7's: PLAY's state, the driver quit), by
 ; one far call, as CLEARC reaches INITRP by one, only if the run used sound
 ; (SNDUSE, gwbasic.inc: the owner's answer 20).
-INITRP:         LDX     #3 * NUMTRP - 1
+INITRP:         LDX     #NUMTRP - 1    ; OO-1 (7f): a third of the table a pass
                 LDA     #0
 INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
+                STA     TRPTBL + NUMTRP,X
+                STA     TRPTBL + 2 * NUMTRP,X
                 DEX
                 BPL     INITP0
                 STA     ONGSBF
                 STA     TRPON          ; OO-1: no trap on
-                LDA     SNDUSE         ; OO-1 (7f): CLEARC's sound reset, if
+                LDA     POLSRC         ; (7f: POLUPD's, every trap off: no polled
+                AND     #PS_TEST       ; source, and P6 told if a key's trap was
+                STA     POLSRC         ; on)
+                LDA     KTARM
+                BEQ     :+
+                STZ     KTARM
+                LDA     #0
+                CLC
+                FJSR    KTSET
+:               LDA     SNDUSE         ; OO-1 (7f): CLEARC's sound reset, if
                 BEQ     :+             ; this run used sound (the owner's
                 FJSR    SNDINI         ; answer 20)
 :               RTS
@@ -502,7 +518,41 @@ TRPCNT:         LDA     #0
                 BPL     @t
                 AND     #T_ON
                 STA     TRPON
+; POLUPD (OO-1, 7f): POLSRC's bits 0 and 1 from TIMER's and COM(1)'s T_ON,
+; its bit 7 (the test-only trigger) kept; and P6 told by KTSET if whether a
+; key's trap is on has changed (KTARM, its last). A, X, the flags kept.
+POLUPD:         PHP
+                PHA
+                PHX
+                LDA     TRPTBL + 3 * COMOFF
+                AND     #T_ON          ; bit 0 ...
+                ASL     A              ; ... to bit 1
+                ORA     TRPTBL + 3 * TIMOFF
+                AND     #PS_TIMER + PS_COM
+                STA     PTMP
+                LDA     POLSRC
+                AND     #PS_TEST
+                ORA     PTMP
+                STA     POLSRC
+                LDA     #0             ; any key's trap on?
+                LDX     #3 * (NMKEYT - 1)
+:               ORA     TRPTBL + 3 * KEYOFF,X
+                DEX
+                DEX
+                DEX
+                BPL     :-
+                AND     #T_ON
+                CMP     KTARM
+                BEQ     :+
+                STA     KTARM
+                CLC                    ; (C clear: the flag)
+                FJSR    KTSET
+:               PLX
+                PLA
+                PLP
                 RTS
 
 .segment "BRAM"
 SWPTMP:         .res    8              ; SWAP's first value (GWDATA.ASM's SWPTMP)
+PTMP:           .res    1              ; 7f: POLUPD's
+KTARM:          .res    1              ; 7f: T_ON if a key's trap was on at the last KTSET

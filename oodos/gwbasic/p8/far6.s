@@ -143,8 +143,9 @@ SCREEN:         BIT     SCRMOD
                 RTS
 KEY:            BIT     SCRMOD
                 BPL     ADV
-                CMP     #'('           ; KEY(n), ON, OFF, LIST: P6's
-                BEQ     @p6
+                CMP     #'('           ; 7f: KEY(n) ON, OFF, STOP
+                BEQ     KEYSTT
+                CMP     #ON_TK         ; ON, OFF, LIST: P6's
                 CMP     #ON_TK
                 BEQ     @p6
                 CMP     #OFF_TK
@@ -155,6 +156,35 @@ KEY:            BIT     SCRMOD
 @p6:            FJSR    KEYSP
                 RTS
 ADV:            JMP     ADVERR
+
+; KEYSTT (GWSTS.ASM 1310, 7f): KEY(n) ON, OFF or STOP, n 1-20 (the manual's
+; p. 147; OO-1: KEY(0), which SEVSTT would take as every key, Illegal
+; function call too, the manual's), parsed here (the space plan's answer 1)
+; in SEVSTT's order: "(", n, ")", the token, the statement's end, then n's
+; range; then P3's SETEV1 on event KEYOFF + n - 1.
+KEYSTT:         JSR     SYNCHR
+                .byte   '('
+                JSR     GETBYT         ; n
+                PHA
+                JSR     SYNCHR
+                .byte   ')'
+                PHA                    ; ON, OFF or STOP
+                JSR     CHRGTR         ; the statement must end
+                BEQ     :+
+                JMP     SNERR
+:               PLA
+                PLX
+                DEX                    ; 0-19
+                CPX     #NMKEYT
+                BCS     LFC
+                PHA
+                TXA
+                CLC
+                ADC     #KEYOFF
+                TAX
+                PLA
+                FJSR    SETEV1
+                RTS
 
 ; --- LOCATE, KEY n,"text" (GWSTS.ASM 120, 1332; 7e5: M6) --------------------------------
 
@@ -237,13 +267,18 @@ CSRATR:         LDA     LOCG
                 CLC
 @x:             RTS
 
-NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys
+; (NMKEYF, the soft keys: gwbasic.inc's)
 
 ; KEYDEF: KEY n,"text": key n (1-10), its text's first 15 characters (a 0
 ; after) in STRTAB (resident); then P6's KEYDP draws the line again if it
 ; is on.
 KEYDEF:         JSR     GETBYT         ; the key's number
-                DEC     A
+                CMP     #NMKEYF + 5    ; 7f: KEY 15-20
+                BCC     :+
+                CMP     #NMKEYF + 5 + NMKEYD
+                BCS     :+
+                JMP     KEYD15
+:               DEC     A
                 CMP     #NMKEYF
                 BCS     LFC            ; 1 to 10, else Illegal function call
                 ASL     A              ; x 16: its place in STRTAB
@@ -278,6 +313,68 @@ KEYDEF:         JSR     GETBYT         ; the key's number
 @end:           STZ     STRTAB,X       ; the 0 after it
                 FJSR    KEYDP
                 RTS
+
+; KEYD15 (7f; the manual's pp. 144-147): KEY n,CHR$(KBflag)+CHR$(scan
+; code), n 15-20, the string exactly 2 bytes (else Illegal function call).
+; The scan code (the PC's, 1-83) to the USB key's HID usage (SCNHID); 0, the
+; predefined keys' codes (59-68, 72, 75, 77, 80: "has no effect", p. 145)
+; and past 83, never matched. KBflag kept as Caps Lock (&H40), Alt (&H08),
+; Ctrl (&H04) and the Shifts as one (&H01, &H02 and &H03 each "a Shift"),
+; in P6's order (KTSET's); OO-1 (the owner's answer 15): Num Lock's &H20 dropped (the OO-1's
+; keypad is always digits: no Num Lock to latch); OO-1: Ctrl and C never
+; matched (^C is the break, before any trap). Then P6's KTSET.
+KEYD15:         SEC
+                SBC     #NMKEYF + 5    ; 0-5
+                PHA
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL
+                JSR     FRESTR         ; BX: the descriptor
+                LDA     (RBL)
+                CMP     #2
+                BNE     KD15FC
+                LDY     #1
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR+1
+                LDY     #1
+                LDA     (PTR),Y        ; the scan code
+                LDX     #0
+                CMP     #SCNHN
+                BCS     :+
+                TAX
+                LDA     SCNHID,X
+                TAX
+:               LDA     (PTR)          ; KBflag, in P6's order (EV_MODS's left
+                STA     PTR            ; keys: bit 0 Ctrl, 1 Shift, 2 Alt), Caps
+                AND     #$40           ; Lock bit 6
+                LSR     PTR            ; &H01, &H02: a Shift
+                BCC     :+
+                ORA     #$02
+:               LSR     PTR
+                BCC     :+
+                ORA     #$02
+:               LSR     PTR            ; &H04: Ctrl
+                BCC     :+
+                ORA     #$01
+:               LSR     PTR            ; &H08: Alt
+                BCC     :+
+                ORA     #$04
+:               CPX     #$06           ; Ctrl-C: never
+                BNE     :+
+                BIT     #$01
+                BEQ     :+
+                LDX     #0
+:               PHX                    ; Y: the usage, X: the state
+                TAX
+                PLY
+                PLA                    ; A: n - 15
+                SEC                    ; (C set: a definition)
+                FJSR    KTSET
+                RTS
+KD15FC:         JMP     FCERR
 
 ; --- SCNINT, EOSCHK, GTPRMS (GWSTS.ASM 432, 359; 7e5: moved from P6) -------------------
 
@@ -427,3 +524,16 @@ LCXN:           .res    1              ;   bit 7: not given
 LOCP:           .res    3              ; LOCATE's cursor, start, stop
 LOCG:           .res    3              ;   each: 1 not given
 .assert RBL + PMAX <= PTR, error, "GTPRMS's values in the pseudo-registers"
+
+.rodata
+; SCNHID (7f): the PC's scan codes 0-83 (the IBM manual's appendix E) as the
+; USB keys' HID usages, 0 none or a predefined key's (KEY 15-20's, KEYD15).
+SCNHID:
+                .byte   $00, $29, $1E, $1F, $20, $21, $22, $23, $24, $25, $26, $27   ; 0-11
+                .byte   $2D, $2E, $2A, $2B, $14, $1A, $08, $15, $17, $1C, $18, $0C   ; 12-23
+                .byte   $12, $13, $2F, $30, $28, $E0, $04, $16, $07, $09, $0A, $0B   ; 24-35
+                .byte   $0D, $0E, $0F, $33, $34, $35, $E1, $31, $1D, $1B, $06, $19   ; 36-47
+                .byte   $05, $11, $10, $36, $37, $38, $E5, $55, $E2, $2C, $39, $00   ; 48-59
+                .byte   $00, $00, $00, $00, $00, $00, $00, $00, $00, $53, $47, $4A   ; 60-71
+                .byte   $00, $4B, $56, $00, $5D, $00, $57, $4D, $00, $4E, $49, $4C   ; 72-83
+SCNHN           = * - SCNHID

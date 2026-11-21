@@ -458,8 +458,9 @@ TEST(sound_s_ranges_by_hand)
 
 // N18 (the owner's answer 6): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times: each after the first
 // is sent as the one before ends; ^C during the third: Ok (the break), MU_STOP of voice 0 (SNDRST's) and the gate
-// off; a note's end lost (the EK_SOUND events dropped by the watch's own hand: the queue's tail moved past them)
-// still lets the next go, by the clock (the queue's end + 100 ms, then MU_STOP). Guards ^C leaving a tone on; a
+// off; a note's end lost (each EK_SOUND event's kind made 0 by the watch as it lands, so EVPOLL drops it) still
+// lets the next go, by the
+// clock (the queue's end + 100 ms, then MU_STOP). Guards ^C leaving a tone on; a
 // program hung for ever on a lost event. Seen failing with (a) SNDRST left out of the break, (b) the clock's end of
 // the wait left out.
 TEST(play_mf_waits_and_ctrl_c_breaks_it)
@@ -495,9 +496,11 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
     r.watch = [&](uint16_t pc) {
         snd(pc);
         Bus &bus = r.machine->bus();
-        const uint8_t tail = bus.peek(static_cast<uint16_t>(ev + 17)), head = bus.peek(static_cast<uint16_t>(ev + 16));
-        if (lose && tail != head && bus.peek(static_cast<uint16_t>(ev + 128 + tail * 8)) == 6) // EK_SOUND
-            bus.poke(static_cast<uint16_t>(ev + 17), static_cast<uint8_t>((tail + 1) % bus.peek(static_cast<uint16_t>(ev + 18))));
+        const unsigned slots = bus.peek(static_cast<uint16_t>(ev + 18));
+        if (lose && slots)
+            for (unsigned i = 0; i < slots; ++i) // each EK_SOUND event's kind made 0: dropped as an unknown one
+                if (bus.peek(static_cast<uint16_t>(ev + 128 + i * 8)) == 6)
+                    bus.poke(static_cast<uint16_t>(ev + 128 + i * 8), 0);
     };
     run_prog(r, {"10 SOUND 440,9.1:SOUND 440,9.1"}, ms(1500));
     r.watch = nullptr;
@@ -798,6 +801,201 @@ TEST(play_s_note_cost_is_timed)
     std::printf("  PLAY in MB: %.0f cycles a note, the interrupts left out (the gate 8,000); one note's PLAY %llu\n", per,
                 static_cast<unsigned long long>(one));
     CHECK(per > 1000 && per <= 8000);
+}
+
+// N17 (the manual's p. 211, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one GOSUB,
+// as the buffer falls from 2 to 1 (the 3rd note's end); PLAY STOP after PLAY ON remembers it (taken at the next PLAY
+// ON: a trap never turned on remembers nothing, BIMISC.ASM's REQTRP), PLAY OFF forgets
+// it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, or refilled
+// twice. Seen failing with the request at n + 1 to n.
+TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    for (const char *how : {"PLAY ON", "PLAY ON:PLAY STOP", "PLAY ON:PLAY OFF"})
+    {
+        run_prog(r, {std::string("10 ON PLAY(2) GOSUB 100:") + how, "20 PLAY \"MB T255 L16 CDEF\"",
+                     "30 IF PLAY(0)>0 THEN 30", "40 PLAY ON:PRINT \"N=\";N;P:END", "100 N=N+1:P=PLAY(0):RETURN"},
+                 ms(1500));
+        const std::string h(how);
+        const std::string want = h.find("OFF") != std::string::npos ? "N= 0  0" : h.find("STOP") != std::string::npos
+                                                                                     ? "N= 1  0"
+                                                                                     : "N= 1  1"; // (1 left: n - 1)
+        if (line(r, 2) != want)
+            std::printf("  %s: %s\n", how, screen(r).c_str());
+        CHECK_EQ(line(r, 2), want);
+    }
+    CHECK_EQ(said(r, "ON PLAY(0) GOSUB 10"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON PLAY(33) GOSUB 10"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON PLAY(32) GOSUB 10"), std::string());
+}
+
+// N27 (the manual's pp. 145-148, GWSTS.ASM's KEYTRP, GIOKYB.ASM's TRPCHK): ON KEY(1) with KEY(1) ON, F1 pressed: one
+// GOSUB, and F1's soft key text not queued (p. 145: a trapped key doesn't reach the buffer); KEY(11), Cursor Up,
+// likewise; an untrapped F9 still gives its text ("KEY "); KEY(1) STOP remembers a press (the GOSUB at KEY(1) ON),
+// KEY(1) OFF forgets it (and F1 types its text). Guards a trapped key also typed into the program. Seen failing with
+// the trapped key also queued.
+TEST(on_key_traps_the_function_and_cursor_keys)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 ON KEY(1) GOSUB 100:KEY(1) ON:ON KEY(11) GOSUB 200:KEY(11) ON",
+                 "20 A$=INKEY$:IF A$<>\"\" THEN K$=K$+A$", "30 IF RIGHT$(K$,1)<>\"x\" THEN 20",
+                 "40 PRINT N;M;K$:END", "100 N=N+1:RETURN", "200 M=M+1:RETURN"},
+             ms(300));
+    press(r, 0x3A); // F1
+    press(r, 0x52); // Up
+    press(r, 0x42); // F9: "KEY "
+    keys(r, "x");
+    r.run(ms(500));
+    CHECK_EQ(line(r, 2), std::string(" 1  1 KEY X")); // (Caps Lock on: GW-BASIC's own at start-up)
+    for (const char *how : {"STOP", "OFF"})
+    {
+        run_prog(r, {std::string("10 ON KEY(1) GOSUB 100:KEY(1) ON:KEY(1) ") + how, "20 FOR I=1 TO 1500:NEXT",
+                     "30 KEY(1) ON:K$=\"\"", "40 A$=INKEY$:IF A$<>\"\" THEN K$=K$+A$:GOTO 40",
+                     "50 PRINT N;K$:END", "100 N=N+1:RETURN"},
+                 ms(200));
+        press(r, 0x3A);
+        r.run(ms(2500));
+        CHECK_EQ(line(r, 2), std::string(how) == "STOP" ? std::string(" 1") : std::string(" 0 LIST"));
+    }
+}
+
+// N28 (the manual's pp. 144-147): KEY 15,CHR$(&H40)+CHR$(25) traps P only with Caps Lock on (GW-BASIC's own, on at
+// start-up), so with Caps Lock off P types; KEY 20,CHR$(&H04+&H03)+CHR$(30) traps Ctrl-Shift-A, and
+// KEY 18,CHR$(&H04+&H01)+CHR$(31) Ctrl and the left Shift with S (&H01, &H02, &H03 each "a Shift"); the OO-1's
+// Num Lock (the owner's answer 15): its &H20 ignored, so KEY 17,CHR$(&H60)+CHR$(49) traps N as KEY 15 traps P; a
+// definition for Ctrl-C never traps (the break). Guards a program's hot key never firing, or firing on the unshifted
+// key. Seen failing with Caps Lock's bit left out of the match.
+TEST(key_15_to_20_trap_their_own_keys)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    UsbCard *usb = r.machine->usb_card();
+    auto chord = [&](uint8_t m1, uint8_t m2, uint8_t key) {
+        usb->key(m1, true);
+        usb->key(m2, true);
+        r.run(ms(10));
+        press(r, key);
+        usb->key(m2, false);
+        usb->key(m1, false);
+        r.run(ms(20));
+    };
+    run_prog(r, {"10 KEY 15,CHR$(&H40)+CHR$(25):ON KEY(15) GOSUB 100:KEY(15) ON",
+                 "12 KEY 17,CHR$(&H60)+CHR$(49):ON KEY(17) GOSUB 400:KEY(17) ON",
+                 "15 KEY 20,CHR$(&H04+&H03)+CHR$(30):ON KEY(20) GOSUB 200:KEY(20) ON",
+                 "18 KEY 18,CHR$(&H04+&H01)+CHR$(31):ON KEY(18) GOSUB 300:KEY(18) ON",
+                 "20 A$=INKEY$:IF A$<>\"\" THEN K$=K$+A$", "30 IF RIGHT$(K$,1)<>\"9\" THEN 20",
+                 "40 PRINT N;M;O;Q;K$:END", "100 N=N+1:RETURN", "200 M=M+1:RETURN", "300 O=O+1:RETURN",
+                 "400 Q=Q+1:RETURN"},
+             ms(400));
+    press(r, 0x13); // P, Caps Lock on: trapped
+    press(r, 0x11); // N: trapped (Num Lock's bit ignored)
+    press(r, 0x39); // Caps Lock off
+    press(r, 0x13); // p: typed
+    chord(CTRL, SHIFT, 0x04);     // Ctrl-Shift-A
+    chord(CTRL, SHIFT, 0x16);     // Ctrl-(left) Shift-S
+    keys(r, "9");
+    r.run(ms(500));
+    CHECK_EQ(line(r, 2), std::string(" 1  1  1  1 p9"));
+    press(r, 0x39); // Caps Lock on again
+    run_prog(r, {"10 KEY 16,CHR$(&H04)+CHR$(46):ON KEY(16) GOSUB 100:KEY(16) ON", "20 GOTO 20", "100 PRINT \"T\":RETURN"},
+             ms(300));
+    press(r, 0x06, CTRL); // ^C: the break, never the trap
+    CHECK(until_row(r, "Break") >= 0);
+}
+
+// N29 (the manual's p. 147; G10's guard): KEY(n) is 1-20: KEY(21) ON and KEY(0) ON Illegal function call, and
+// TRPTBL's bytes past the keys (COM(1)'s) unchanged by them; KEY 15,"x" (not 2 bytes) Illegal function call; KEY
+// 11,"x" as the source (Illegal function call); KEY LIST still the ten soft keys. Guards a write past the keys
+// (G10). Seen failing with KEYSTT's guard at 21 removed.
+TEST(key_n_s_range_is_1_to_20)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::map<std::string, uint16_t> lab = lbl_map(), p3 = lbl_map("p3.lbl");
+    REQUIRE(lab.count("PAGBLK") == 1 && p3.count("TRPTBL") == 1);
+    const uint32_t com1 = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + 3u)) * 0x4000u + 0x800u +
+                          (p3.at("TRPTBL") - 0xC800u) + 3u * 21u;
+    for (const char *k : {"KEY(21) ON", "KEY(0) ON", "KEY 15,\"X\"", "KEY 11,\"X\"", "KEY(1) GO"})
+        CHECK_EQ(said(r, k), std::string(k) == "KEY(1) GO" ? std::string("Syntax error") : std::string("Illegal function call"));
+    CHECK_EQ(r.phys(com1), 0);
+    CHECK_EQ(said(r, "KEY(20) ON"), std::string());
+    CHECK_EQ(said(r, "KEY 15,CHR$(0)+CHR$(30)"), std::string());
+    CHECK_EQ(said(r, "KEY LIST"), std::string("F1 LIST"));
+    unsigned listed = 0;
+    for (unsigned i = 0; i < 25; ++i)
+        listed += line(r, i).rfind("F", 0) == 0 && line(r, i).size() > 2 && line(r, i)[2] == ' ' ? 1u : 0u;
+    CHECK(listed >= 9u);
+    CHECK(until_row(r, "F15", ms(10)) < 0);
+}
+
+// N30 (GIOCOM.ASM's POLCOM; the owner's decision 12: polled): ON COM(1) GOSUB with COM(1) ON, a byte sent on AUX:
+// (TTY, CONIN: the USB keyboard's alone): the GOSUB within 16 statements of TRPOLL's poll, and INPUT$(1,#1) the
+// byte; a byte an ASCII file's EOF(1) has read and backed up (COMEOF's BCHRSI: none waiting at AUX: any more) still
+// a trap. Guards a terminal
+// program that never sees its input. Seen failing with P4's backed-up byte not seen by COMRDY.
+TEST(on_com_traps_a_byte_waiting)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    r.scb(0x22, 0x00); // CONIN: CRT alone, so AUX: (TTY) is the line's alone
+    r.scb(0x23, 0x80);
+    run_prog(r, {"10 OPEN \"COM1:\" AS #1:ON COM(1) GOSUB 100:COM(1) ON", "20 IF N=0 THEN 20",
+                 "30 PRINT \"got\";ASC(INPUT$(1,#1)):CLOSE:END", "100 N=1:RETURN"},
+             ms(300));
+    for (int i = 0; i < 2000 && !r.console->key('A'); ++i)
+        r.run(1000);
+    r.run(ms(800));
+    CHECK_EQ(line(r, 2), std::string("GOT 65")); // (Caps Lock on: the program typed in capitals)
+    run_prog(r, {"10 OPEN \"COM1:,,,,ASC\" AS #1:ON COM(1) GOSUB 100", "20 IF EOF(1) THEN 20", "30 COM(1) ON",
+                 "40 IF N=0 THEN 40", "50 PRINT \"got\";ASC(INPUT$(1,#1)):CLOSE:END", "100 N=1:RETURN"},
+             ms(300));
+    for (int i = 0; i < 2000 && !r.console->key('B'); ++i)
+        r.run(1000);
+    r.run(ms(1500));
+    CHECK_EQ(line(r, 2), std::string("GOT 66"));
+}
+
+// N31 (GWSTS.ASM's PENF and PENS; 7e4's answer 1: no light pen): PEN(0)-(9) 0, PEN(10) Illegal function call; PEN
+// ON, OFF and STOP taken; ON PEN GOSUB never taken. Guards nothing on real hardware (no pen: the range only). Seen
+// failing with the range 0-10.
+TEST(pen_reports_no_pen)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    CHECK_EQ(said(r, "PRINT PEN(0);PEN(1);PEN(9)"), std::string(" 0  0  0"));
+    CHECK_EQ(said(r, "PRINT PEN(10)"), std::string("Illegal function call"));
+    for (const char *k : {"PEN ON", "PEN OFF", "PEN STOP"})
+        CHECK_EQ(said(r, k), std::string());
+    CHECK_EQ(said(r, "PEN GO"), std::string("Syntax error"));
+    run_prog(r, {"10 ON PEN GOSUB 100:PEN ON:FOR I=1 TO 50:NEXT:PRINT N:END", "100 N=N+1:RETURN"}, ms(800));
+    CHECK_EQ(line(r, 2), std::string(" 0"));
+}
+
+// N39 (7f's plan): with a key's trap on, every other key still types: KEY(1) ON (direct mode: nothing traps there),
+// a line typed and run, and F9's text; and in a program with KEY(1) ON, Enter and letters through INKEY$. Guards
+// typing broken by the match. Seen failing with KTRAP taking every key.
+TEST(every_key_still_types_with_traps_armed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    CHECK_EQ(said(r, "KEY(1) ON:PRINT 3*4"), std::string(" 12"));
+    run_prog(r, {"10 ON KEY(1) GOSUB 100:KEY(1) ON", "20 A$=INKEY$:IF A$<>\"\" THEN K$=K$+A$",
+                 "30 IF RIGHT$(K$,1)<>\"x\" THEN 20", "40 PRINT K$:END", "100 RETURN"},
+             ms(300));
+    keys(r, "ab1");
+    press(r, 0x42); // F9
+    keys(r, "x");
+    r.run(ms(500));
+    CHECK_EQ(line(r, 2), std::string("AB1KEY X")); // (Caps Lock on)
 }
 
 int main()

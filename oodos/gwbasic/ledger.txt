@@ -775,12 +775,12 @@ IBMRES.ASM MORLNP -> p2/gwlist.s MORPUR
 IBMRES.ASM MORLN1 -> p2/gwlist.s MORLN1
 IBMRES.ASM NEWSTX -> res/ibmres.s NEWSTX
 IBMRES.ASM GIIRET -> res/ibmres.s GIIRET
-GWSTS.ASM PENS -> later 7f: PEN as a statement
-GWSTS.ASM STRIGS -> later 7f: STRIG as a statement
+GWSTS.ASM PENS -> p8/sound.s HPENST # PEN ON, OFF, STOP: P3's SETEV1 on PENOFF (EVSTM); RDPEN's switch has no pen to switch (7e4's answer 1); both modes (the owner's answer 4)
+GWSTS.ASM STRIGS -> p8/sound.s HPENST # STRIG(n) by P3's SEVSTT; STRIG ON, OFF taken (STRIG1, STROK inline); screen mode (the owner's answer 4)
 GWSTS.ASM DATEF -> later 7f: DATE$
 GWSTS.ASM TIMEF -> later 7f: TIME$
-IBMRES.ASM PENV -> later 7f: PEN as a statement (PENS); res/ibmres.s PENV hands it to the home block's HPENST (p8/sound.s): Advanced Feature until U4
-IBMRES.ASM STRIGV -> later 7f: STRIG as a statement (STRIGS); likewise
+IBMRES.ASM PENV -> res/ibmres.s PENV # NEWSTX's return dropped, the home block's HPENST (p8/sound.s)
+IBMRES.ASM STRIGV -> res/ibmres.s PENV # the same as PENV's: HPENST tells them apart
 IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here (the 8086 doesn't check)
 IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
 IBMRES.ASM EVALX -> res/ibmres.s EVALX
@@ -913,7 +913,7 @@ GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> p4/gio86.s NULOPM # an entry, LIST's (p2/gwlist.s LIST4)
 GIO86.ASM GIOINI -> p4/gio86.s GIOINP # DOALDV in it: each device's start (DVINI); NLONLY and PTRFIL are start-up's (p2/gwinit.s, which far calls it), FILTAB MEMSIZ + 2 (OO-1), no MS-DOS vectors (MSISET), no STKLOW
 GIO86.ASM GIOTRM -> dropped: every device's end is a RET on the OO-1 (KYBTRM, LPTTRM, COMTRM, CONS's _RET; SCNTRM's function-key line is 7d's); the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
-GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # console mode: functions 11 and 6; screen mode: EVPOLL; the function keys' traps later 7f
+GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # console mode: functions 11 and 6; screen mode: EVPOLL; the keys' traps P6's KTRAP (7f)
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
 GIOKYB.ASM KYBINI -> OEM res/oem.s KYBINI
@@ -932,18 +932,18 @@ DSKCOM.ASM PRGFIN -> p4/gio86.s PRGFIN
 GIOKYB.ASM STCTYP -> p6/oem.s STCTYP # screen mode; the shape isn't kept (the owner's answer 9)
 GIOKYB.ASM SETCSR -> p6/oem.s SETCSR
 GIOKYB.ASM KEYIN -> OEM p6/key.s KEYIN # the PC's keys (0 and a scan code) to the editor's functions; IGNNFK's null keys passed over
-GIOKYB.ASM TRPCHK -> later 7f: the cursor keys' ON KEY traps
+GIOKYB.ASM TRPCHK -> OEM p6/key.s KTRAP # 7f: keys 1-14 by the PC's code KXLAT gives, 15-20 by their definitions; a trapped key not queued
 GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys expanded as they are queued, P6's KEYEV (7d2, the owner's answer 2)
 GIOKYB.ASM CKDBLK -> OEM res/oem.s INKEY # the queue's lead byte 0: the PC's two-byte key (screen mode)
 GIOKYB.ASM CHKFKY -> OEM p6/key.s KEYEV # an unshifted F1-F10 (59-68) with a text queues it whole, or nothing if it doesn't fit; SUPRKY's keywords (Alt and a letter) not built (the owner's answer 4): Alt and a letter keeps 0 and its scan code
-GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
-GWSTS.ASM KEYSTT -> later 7f: KEY(n) ON, OFF, STOP (Advanced Feature until ON KEY's traps: the owner's answer 5)
-GWSTS.ASM POLPEN -> later 7f: the light pen's trap
-GWSTS.ASM POLSTR -> later 7f: STRIG's trap
+GWSTS.ASM KEYTRP -> p6/key.s KTRAP # its EVTRP on KEYOFF + n - 1
+GWSTS.ASM KEYSTT -> p8/far6.s KEYSTT # 7f: parsed in the home block, SEVSTT's order, n 1-20 (OO-1: KEY(0) Illegal function call, the manual's); P3's SETEV1
+GWSTS.ASM POLPEN -> dropped: no light pen (RDPEN reports none, 7e4's answer 1): ON PEN never fires
+GWSTS.ASM POLSTR -> OEM p7/event.s STREV # 7f: on each EK_CTL event, not polled: a press latched, its trap asked (EVTRP)
 GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
 GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
 GWSTS.ASM EVSET -> p3/gwsts.s EVSET
-GIOCOM.ASM POLCOM -> later 7f: COM1's trap, ON COM(n) from a byte waiting (CHKINT's; COM(n)'s flag is 7c's, p3/gwsts.s COMSP)
+GIOCOM.ASM POLCOM -> p7/event.s TRPPOL # 7f: every 16 statements while ON COM(1)'s trap is on (POLSRC), P4's COMRDY; COM2 has no driver: its trap never fires
 GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
@@ -1268,7 +1268,11 @@ GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1 (the IBM manual's p. 178): 0 and 1 LPT1's, 2 and 3 1 (no driver), past 3 Illegal function call
-GWSTS.ASM PENF -> later 7f: PEN (the owner's answer 1 to the 7e4 plan: PENF and PENS with an OEM RDPEN that reports no pen)
+BIPRTU.ASM FCERR3 -> res/gwmain.s FCERR # 7f: PENF's FCERR3, which the ledger finds by its first definition, BIPRTU.ASM's: a JMP FCERR either way
+GWSTS.ASM FCERRI -> res/gwmain.s FCERR # ONESUB's and STRIGF's: CONINT's own Illegal function call
+GWSTS.ASM ONESUB -> res/gweval.s CONINT # 7f: PENF's (and STRIGF's, STICKF's): CONINT on the FAC FUNDSP's call evaluated
+GWSTS.ASM COMTRP -> p7/event.s TRPPOL # its EVTRP on COMOFF (COM1: COM2 has no driver)
+GWSTS.ASM PENF -> p7/event.s JOYFP # PEN(0) TSTCEV; RDPEN the OEM's: no pen, 0 (the owner's answer 1 to the 7e4 plan); ONESUB as CONINT
 GWSTS.ASM STICKF -> later 7f: STICK
 GWSTS.ASM STRIGF -> later 7f: STRIG
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
@@ -1517,7 +1521,7 @@ BIMISC.ASM GOTRP2 -> p3/bimisc.s GOTRP2 # DX and CX back with C set for the poll
 GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: later 7c, 7f); JGE kept signed
 GWSTS.ASM SEVST1 -> p3/gwsts.s SEVST1
 GWSTS.ASM SEVST2 -> p3/gwsts.s SEVST2
-GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry (PENS: later 7f)
+GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry; 7f: SETEV1 its entry by an event's id (PENS, KEYSTT, PLAY and TIMER's statements)
 GWSTS.ASM FCERR1 -> p3/gwsts.s FCERR1
 GWSTS.ASM SNERR1 -> p3/gwsts.s SNERR1
 GWSTS.ASM SEVALL -> p3/gwsts.s SEVALL
@@ -1744,7 +1748,7 @@ GIOLPT.ASM GLPDCB -> dropped: OO-1, LPT1's DCB alone (LINLEN+1, LPTPOS, LPCRF: r
 GIOCOM.ASM COMDSP -> p4/giocom.s COMDSP
 GIOCOM.ASM COMINI -> p4/giocom.s COMINI
 GIOCOM.ASM COMTRM -> p4/giocom.s COMSCW # a RET
-GIOCOM.ASM POLCM1 -> later 7f: POLCOM's, ON COM(n)'s trap
+GIOCOM.ASM POLCM1 -> p4/giocom.s COMRDY # a byte backed up in an open COM1 file, else function 7
 GIOCOM.ASM GCOMSZ -> p4/giocom.s GCOMSZ # STACOM the OEM's (p4/oem.s): AUX:'s status, function 7
 GIOCOM.ASM CKCMER -> p4/giocom.s CKCMER # COMOPN in its routine: INICOM the OEM's (p4/oem.s); OO-1: the speed and the rest kept, not set (the owner, 2026-11-14)
 GIOCOM.ASM PCOMOP -> p4/giocom.s PCOMOP # LPARM's options in its routine
