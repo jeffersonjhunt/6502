@@ -1154,6 +1154,12 @@ and more in L5:
     ROMNOISE's own), so OODOS's millisecond counter loses one or two ticks (the window is 2.6 periods of 7,159
     cycles; the VIA holds one flag, served at the PLP, and no catch-up follows). Accepted: a working chip never
     takes that path, and a stuck one gives `SN_BUSY` once rather than a hang.
+- **Interface 16: the serial line (OODOS 0.15, 2026-11-21; [oodos.md, "The serial receive
+  buffer"](oodos.md#the-serial-receive-buffer)).** OOLIB's sixth area, `OA_SERIAL` (`$20`), FT_INFO's X `$2F`:
+  OODOS's interrupt keeps the serial line's bytes in a 255-byte ring that functions 3 and 7 read; the event area's
+  +13, `EV_RXCNT`, counts COM1's arrivals modulo 256 (0 at FT_OPEN, every layout; +14, `EV_RXCNT2`, kept for COM2);
+  function 85, `O_SERIAL`: `SR_INFO`, `SR_STATUS`, `SR_FLUSH`. No queue event, and no linked-library routine (a
+  program calls 85 as it calls 80-83). Measured: 247 cycles a byte (277 with an area), the tick's 162 unchanged.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.

@@ -87,11 +87,16 @@ What the emulator models:
   (bit 7). Reading DATA clears RDRF; reading STATUS clears IRQ. While RDRF is set the host holds its next byte back,
   so nothing is ever overrun: a paste into the terminal arrives whole. With DTR off, keys typed at the terminal are
   lost. Enter arrives as CR, `$0D`.
+- **The paced line,** for tests (`Acia6551::send_paced`, the rig's `serial_paced`): a sender with no flow control,
+  as a real line is. Its bytes come one a character time, CTRL's rate and word at 7,159,090 Hz (3,729 cycles at
+  19,200 baud, 8 data bits, 1 stop bit), whatever RDRF says. A byte that comes while RDRF is still set is lost: the
+  held byte stays, OVRN (STATUS bit 2) is set, with no interrupt, and reading DATA clears OVRN, as WDC's datasheet
+  has the W65C51N do. The terminal, the WebUI and the rig's `type()` still wait.
 - **Interrupts.** Only receiving interrupts, on IRQL bit 6, which the VIA shares. The line stays low until STATUS is
   read ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)).
 
-Not modelled: the baud rate and the character's time, parity, framing and overrun errors, echo mode, and the modem
-lines, which read as asserted. CTRL and CMD's upper bits are stored and read back, and change nothing.
+Not modelled: the waiting sender's character time, parity (the W65C51N has none) and framing errors, echo mode, and
+the modem lines, which read as asserted. The overrun is modelled on the paced line alone. CTRL and CMD's upper bits are stored and read back, and change nothing.
 
 **/RESET doesn't reset it.** The 6551 is the one device in the emulator that doesn't hear /RESET: the reset button,
 START, Ctrl-Reset and entering Apple II mode leave its CMD and CTRL as they were. Only a power-on sets them afresh,
@@ -125,7 +130,8 @@ TXINNER:        DEC                    ; Decrement A.
 ```
 
 OODOS's BIOS does the same: its TTY device writes the same two values when it is initialized, and waits out each
-character the same way ([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)).
+character the same way; since OODOS 0.15 it then turns the receive interrupt on (CMD `$09`) and takes the line's
+bytes by interrupt into a ring of 255 ([chapter 4](04-interrupts.md#under-oodos)) ([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)).
 
 The wait is in cycles, so at a slower clock it is longer in time and still enough.
 
@@ -323,7 +329,7 @@ turns off DTR and the transmitter, and IRQ is cleared. CTRL, RDRF and the receiv
 | 5 | DCD | 0, always: asserted |
 | 4 | TDRE | 1, always: the W65C51N's stuck flag |
 | 3 | RDRF | 1: a received byte is waiting in DATA. Reading DATA clears it |
-| 2 | OVRN | 0, always: nothing is overrun |
+| 2 | OVRN | 1: a byte on the paced line came while RDRF was set, and was lost. Reading DATA clears it; no interrupt. 0, always, from the waiting sender |
 | 1 | FE | 0, always: no framing errors |
 | 0 | PE | 0, always: no parity errors |
 
@@ -386,9 +392,11 @@ R/W.
 
 #### Notes
 
-The BIOS and OODOS write `$0B`: DTR on, the receive interrupt off, the transmitter on, no parity, no echo. A program
-that turns the receive interrupt on brings its own IRQ handler ([chapter 4](04-interrupts.md#irq-and-nmi)), and turns
-it off again before it leaves. The 6551 doesn't hear /RESET: the BIOS writes `$0B` again when it boots and when the
+The BIOS writes `$0B`: DTR on, the receive interrupt off, the transmitter on, no parity, no echo. A program under the
+monitor that turns the receive interrupt on brings its own IRQ handler ([chapter 4](04-interrupts.md#irq-and-nmi)),
+and turns it off again before it leaves. **OODOS** (0.15 on) keeps `$09`, the receive interrupt on, for its receive
+buffer ([chapter 4](04-interrupts.md#under-oodos)): the command register is OODOS's, and the warm boot puts `$09`
+back whatever a program wrote. The 6551 doesn't hear /RESET: the BIOS writes `$0B` again when it boots and when the
 monitor starts, but the reset that enters Apple II mode runs the IIe's ROM, which leaves CMD as it was.
 
 <a id="reg-c303"></a>

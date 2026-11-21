@@ -101,7 +101,8 @@ sound, USB and console cards and the VIA's IER. The bridge clears TIE, and the D
 channel's mode and terminal count, all eight, and puts each CARD and CONTROL back to their reset values
 ([chapter 5](05-dma.md#apple-ii-mode)). **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
 kept, and with its receive interrupt on, a byte arriving pulls /IRQ in Apple II mode. Enter the mode with the 6551's
-receive interrupt off (CMD bit 1 set). The monitor's is: it writes `$0B` to ACIA_CMD.
+receive interrupt off (CMD bit 1 set). The monitor's is: it writes `$0B` to ACIA_CMD. OODOS, which keeps it on,
+turns it off when it leaves for the ROM or Apple II mode (function 75), as its other interrupts.
 
 ## VEC and the vectors
 
@@ -133,8 +134,13 @@ W3 holds.
   saves A, X, Y and W0, puts W0 on OODOS's system block (31) without moving S, and reads IRQL and IRQH once each.
   It touches nothing of the BDOS's, and puts back every window it changes.
 - **What OODOS turns on:** timer 1 of the serial card's VIA, free-running at 1 kHz (ACR `$40`, a latch of 7,157:
-  a period of 7,159 cycles), for its millisecond counter; and the video card's vertical blank (VIDEO_IEN bit 0),
-  for its frame counter. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
+  a period of 7,159 cycles), for its millisecond counter; the video card's vertical blank (VIDEO_IEN bit 0),
+  for its frame counter; and, since OODOS 0.15, the 6551 stand-in's receive interrupt (ACIA_CMD `$09`), for the
+  serial line's receive buffer ([hw/oodos.md, "The serial receive buffer"](../../hw/oodos.md#the-serial-receive-buffer)).
+  ID 6 that isn't timer 1 alone goes to that service first: STATUS read (its IRQ cleared), and with RDRF set the
+  byte into a 255-byte ring in OODOS's memory, 247 cycles a byte from the interrupt to its RTI; with the ring full
+  the byte is left in the chip and the receive interrupt turned off, until the BIOS, reading, takes it and turns it
+  on again. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
   Cold boot finds the VIA by its IER, which reads bit 7 set (on a machine without one, `$C34E` is the 6551
   stand-in's command register, `$0B`), and the video card by its ID. Without the VIA, ID 6's interrupt is the
   6551's, and the dispatcher leaves `$C340–$C34F` alone: they are the 6551's registers again. It quiets the
@@ -142,8 +148,9 @@ W3 holds.
 - **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
   bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
   interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 (all eight, each selected in
-  turn with CONTROL put back after) and the terminal count of each channel that had it on (another's is its driver's to read), the 6551's receive and transmit interrupts
-  (ACIA_CMD bit 1 set, bits 3-2 `%10`, the rest kept; then its STATUS read), the clock's TIE. The warm boot does
+  turn with CONTROL put back after) and the terminal count of each channel that had it on (another's is its driver's to read), the 6551's transmit interrupt
+  (ACIA_CMD bits 3-2 `%10`, its receive interrupt bit 1 put back to OODOS's, the rest kept; then its STATUS read,
+  and a byte waiting taken into the ring), the clock's TIE. The warm boot does
   the same at each program's end, keeping only OODOS's two, and sets timer 1 up again (ACR, its latch if it
   changed, its enable), in case a program changed it; putting the latch back clears timer 1's flag, so it can cost
   the counter a tick.

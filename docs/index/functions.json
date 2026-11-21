@@ -632,11 +632,11 @@
  {
   "number": 85,
   "name": "O_SERIAL",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-85",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.15",
+  "status": "built"
  },
  {
   "number": 98,

@@ -470,6 +470,11 @@ The physical devices:
 
 When OODOS starts, CON: is CRT and TTY both, AUX: is TTY and LST: is LPT.
 
+What comes on the serial line while a program is busy isn't lost: OODOS keeps up to 255 bytes for it, in order. When
+the program ends, OODOS empties that store, so what a sender is still sending doesn't become commands at the prompt.
+A program that reads the serial line as data may ask you to take TTY out of the console first (`DEVICE CONIN:=CRT`),
+since the console reads the serial line too.
+
 #### Forms
 
 ```
