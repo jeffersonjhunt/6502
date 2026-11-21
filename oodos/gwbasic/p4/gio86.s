@@ -1640,18 +1640,27 @@ ERBRN1:         JMP     DERBRN
 ; RECNUM (OO-1, F3, the owner's answers 1 and 8): the FAC a record number,
 ; the IBM manual's 1 to 16,777,215 (pp. 113, 279, A-4), to DX and NHI (its
 ; top byte). A string is Type mismatch (SIGNS), a negative number Bad record
-; number. An integer is itself; a number below 32,768 FRCINT's, as before F3
-; (ADRGET's); from 32,768 the nearest integer, a half up: its single
-; (FRCSNG), .5 added below 2^23 (FADDH: above it a single has no fraction),
-; then QINT's BL:DX. Past 16,777,215 Bad record number. 0 is DSKRND's.
+; number. An integer is itself; a number below 32,767.5 FRCINT's, as before
+; F3 (ADRGET's); from 32,767.5 (the owner's answer 11: FRCINT would be
+; Overflow there) the nearest integer, a half up: its single (FRCSNG), .5
+; added below 2^23 (FADDH: above it a single has no fraction), then QINT's
+; BL:DX. Past 16,777,215 Bad record number. 0 is DSKRND's.
 RECNUM:         JSR     SIGNS
                 BMI     ERBRN1
                 STZ     NHI
                 JSR     GETYP
                 BMI     @i             ; an integer
                 LDA     FACEXP
-                CMP     #$80 + 16      ; below 32,768: FRCINT
+                CMP     #$80 + 16      ; 32,768 or more: the single's way
                 BCS     @b
+                CMP     #$80 + 15      ; below 16,384: FRCINT
+                BNE     @i
+                LDA     FACM1          ; 32,767.5 to 32,767.99...: the top 16
+                CMP     #$7F           ; bits of the mantissa ones (positive;
+                BNE     @i             ; the 16th the half's)
+                LDA     FACLO+1
+                CMP     #$FF
+                BEQ     @b
 @i:             JSR     FRCINT         ; BX
                 LDA     RBL
                 STA     RDL
