@@ -3390,7 +3390,8 @@ sound (`OA_SOUND`).
   CONTROL3 `$80`: silent; the volume isn't touched), so the noise register runs on between calls and a later byte
   depends on the time between them, until something writes those registers (a claimant's program, the warm boot's
   silence). A claimant that sets voice 1's SYNC or RING without setting voice 3 hears it against that noise. Each
-  byte is one call of the ROM, with interrupts off for it (about 2,900 cycles, under a tick: none is lost) and on
+  byte is one call of the ROM, with interrupts off for it (about 2,900 cycles, under a tick: none is lost; but a chip whose noise register stays stuck at 0 is refused
+  only after about 18,950 cycles, and one or two millisecond ticks are lost then, an OO-1 limit) and on
   between bytes; for it OODOS moves W3 and VEC to the ROM BIOS's copy (block 63) and back, so a Break meanwhile goes
   to the ROM's monitor, as Break always does. The bytes are only as unpredictable as the time the noise has run: a
   call soon after a power-on gives nearly the same bytes each time.

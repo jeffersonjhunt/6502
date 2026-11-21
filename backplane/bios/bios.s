@@ -521,8 +521,10 @@ GREETING:       .byte   $0D, "BACKPLANE BIOS ", BIOS_VERSION, $0D, 0 ; (diag.inc
 ; they were ($A2 and $5A); refused, carry set, A, X and Y as they were, with
 ; no sound card, or while the card's 6510 runs (CTRL's RUN: it owns the SIDs,
 ; and drops the host's writes). Voice 3 is put on noise at the top frequency
-; ($FFFF: a noise step every 16 SID clocks) with the gate off, so silent, unless
-; its registers say it is so already (they read back as last written); it is
+; ($FFFF: a noise step every 16 SID clocks) with the gate off, so silent once
+; voice 3's envelope has finished (always so under OODOS, where a released
+; card's SID registers are zeroed), unless its registers say it is so already
+; (they read back as last written); it is
 ; left so, so the noise register runs on between calls and a later byte
 ; depends on the time between them (until the warm boot's QUIET, Break or a
 ; program writes voice 3). The register is a shift register: OSC3 is 8 of its

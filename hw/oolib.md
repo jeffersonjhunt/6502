@@ -1150,8 +1150,9 @@ and more in L5:
     interrupts off at most 3,179 a ROM call (the gate 4,000; under the 7,159-cycle tick, so none lost: 16 bytes
     kept the millisecond counter's time). Voice 3 is left on noise, silent, until the warm boot or a claimant.
   - *An OO-1 limit (the owner's answer 15, 2026-11-21):* a chip whose noise register stays stuck at 0 is refused
-    after 4 recoveries, about 18,900 cycles with interrupts off for that one ROM call, so OODOS's millisecond
-    counter loses one tick (the VIA holds one flag: two periods of 7,159 cycles pass). Accepted: a working chip never
+    after 4 recoveries, about 18,950 cycles with interrupts off for that one ROM call (the ROM's 18,905 and
+    ROMNOISE's own), so OODOS's millisecond counter loses one or two ticks (the window is 2.6 periods of 7,159
+    cycles; the VIA holds one flag, served at the PLP, and no catch-up follows). Accepted: a working chip never
     takes that path, and a stuck one gives `SN_BUSY` once rather than a hang.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies

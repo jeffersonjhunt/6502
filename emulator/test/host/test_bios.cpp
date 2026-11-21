@@ -1935,7 +1935,6 @@ TEST(noise_is_refused_while_the_6510_runs)
         REQUIRE(t.b.ok());
         Board &b = t.b;
         splash_stopped(b);
-    splash_stopped(b);
         sid_marked(b);
         const std::vector<uint8_t> before = sid_regs(b);
         b.machine->bus().write(SOUND_CTRL_IO, SoundCard::CTRL_RUN);
@@ -1978,7 +1977,6 @@ TEST(noise_recovers_a_stuck_register)
         REQUIRE(t.b.ok());
         Board &b = t.b;
         splash_stopped(b);
-    splash_stopped(b);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3), 0xFF);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3 + 1), 0xFF);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + CTRL3), 0x80);
@@ -1999,7 +1997,6 @@ TEST(noise_recovers_a_stuck_register)
         REQUIRE(t.b.ok());
         Board &b = t.b;
         splash_stopped(b);
-    splash_stopped(b);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3), 0xFF);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3 + 1), 0xFF);
         b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + CTRL3), 0x80);
