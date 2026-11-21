@@ -476,14 +476,20 @@ TEST(the_loader_refuses_far_call_sites_outside_their_block)
         {"a site's page of 9", [&](std::vector<uint8_t> &o) { page(o) = 9; }},
         {"a site's page of 200", [&](std::vector<uint8_t> &o) { page(o) = 200; }},
         {"a site's page the file hasn't", // the highest page 1-8 the header doesn't name (8 was, until 7c's home
-         [&](std::vector<uint8_t> &o) {   // block took page 8)
-             uint8_t none = 0;
+         [&](std::vector<uint8_t> &o) {   // block took page 8); 7f (the owner's answer 13): with all eight named,
+             uint8_t none = 0;            // the header's last entry dropped, and its page the one
              for (uint8_t p = 8; p >= 1 && !none; --p)
              {
                  bool has = false;
                  for (unsigned i = 0; i < o[5]; ++i)
                      has = has || entry(o, i)[0] == p;
                  none = has ? 0 : p;
+             }
+             if (none == 0)
+             {
+                 REQUIRE(o[5] > P2 + 1);
+                 none = entry(o, o[5] - 1u)[0];
+                 o[5] = static_cast<uint8_t>(o[5] - 1u);
              }
              REQUIRE(none != 0);
              page(o) = none;

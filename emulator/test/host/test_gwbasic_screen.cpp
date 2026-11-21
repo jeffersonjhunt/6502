@@ -1867,7 +1867,9 @@ TEST(def_seg_8000_is_the_cga_page_in_screen_1_and_2)
 // this case had filled exactly, so its files are given back after their last use in each mode (KILL "M:G.BAS",
 // "M:P.BAS": KILL takes the name as given, BSAVE's ".BAS" with it), the 16 KB BLOAD at &H2000 is K's (the same
 // header as G's) so G's last use is before P's BSAVE, and P's file is checked at once (a Disk full fails here, by
-// name). Seen failing with the KILLs left out (P's BSAVE Disk full).
+// name). Seen failing with the KILLs left out (P's BSAVE Disk full). 7f (the owner's answer 14 to its U0 stop): P7,
+// the eighth block, takes M:'s room again (M: is OODOS's banks C-D, not the rig's to enlarge), so GWBASIC.COM, whose
+// last use is its start, is given back first (KILL "M:GWBASIC.COM"); every check is as it was.
 TEST(bsave_and_bload_the_graphics_page)
 {
     CcpRig r;
@@ -1880,6 +1882,7 @@ TEST(bsave_and_bload_the_graphics_page)
         shortf.push_back(0xFF);
     r.put_m({{0, "K       BAS", img}, {0, "H       BAS", shortf}});
     REQUIRE(start(r) > 0);
+    enter(r, "KILL \"M:GWBASIC.COM\"", ms(1500)); // (7f: its last use was the start; M:'s room for G)
     for (int m = 1; m <= 2; ++m)
     {
         const std::string sm = "SCREEN " + std::to_string(m) + ":";

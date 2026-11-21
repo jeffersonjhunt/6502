@@ -2738,7 +2738,9 @@ TEST(oo1_modes_are_timed)
 // a byte, the left high, 64 KB (rows 0-255); SCREEN 12 eight, the leftmost in bit 7, 38,400; past the reach Illegal
 // function call; DEF SEG=&H8000: BSAVE "PIC",0,&H9600 in SCREEN 12 saves the picture, and after CLS BLOAD puts it
 // back, the text over it not in it. Guards a BSAVEd picture that doesn't BLOAD back. Seen failing with DSSCR taking
-// SCREEN 1 and 2's CGA route for SCREEN 12.
+// SCREEN 1 and 2's CGA route for SCREEN 12. 7f (the owner's answer 14 to its U0 stop): P7, the eighth block, takes
+// M:'s room (OODOS's banks C-D, not the rig's to enlarge), so GWBASIC.COM, whose last use was the start, is given
+// back before the picture's BSAVE; every check is as it was.
 TEST(oo1_modes_def_seg_page)
 {
     CcpRig r;
@@ -2764,6 +2766,7 @@ TEST(oo1_modes_def_seg_page)
     CHECK_EQ(line(r, 4), std::string(" 128  129"));
     enter(r, "CLS:A=PEEK(38400)", ms(600));
     CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "KILL \"M:GWBASIC.COM\"", ms(1500)); // (7f, the owner's answer 14: its last use was the start; M:'s room)
     enter(r, "CLS:CIRCLE (320,240),200,1:LINE (0,0)-(639,479),1:LINE (100,300)-(200,400),1,BF:LOCATE 2,1:PRINT CHR$(84)+\"XQ\"",
           ms(3000));
     std::vector<uint8_t> pic(38400);
