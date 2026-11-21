@@ -1138,7 +1138,7 @@ TEST(print_and_scroll_are_timed)
 // line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
 // key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
 // no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
-// while a program reads INKEY$.
+// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls).
 TEST(the_key_line_and_soft_keys_cost)
 {
     CcpRig r;
@@ -1162,18 +1162,43 @@ TEST(the_key_line_and_soft_keys_cost)
     keys(r, "RUN\r");
     r.run(ms(200));
     const uint16_t kev = lbl_map(std::string("p6.lbl")).at("KEYEV");
-    uint64_t kfrom = 0, ktotal = 0;
+    // 7f (the owner's answer 25): the interrupt handlers inside it and its drain's BDOS calls left out, as
+    // test_gwbasic_sound's key-cost gate measures (how many drain calls there are is a race with the cooked twin).
+    const uint16_t kirq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
+    uint64_t kfrom = 0, ktotal = 0, kifrom = 0, kbfrom = 0, kout = 0;
     unsigned kn = 0;
-    int kdepth = -1;
+    int kdepth = -1, kidepth = -1, kbdepth = -1;
     const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
+        const auto &g = r.cpu->regs();
+        if (kdepth >= 0 && kidepth < 0 && pc == kirq)
+        {
+            kifrom = r.cpu->cycles();
+            kidepth = g.s;
+        }
+        else if (kidepth >= 0 && g.s == kidepth + 3)
+        {
+            kout += r.cpu->cycles() - kifrom;
+            kidepth = -1;
+        }
+        if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && pc == 0x0203)
+        {
+            kbfrom = r.cpu->cycles();
+            kbdepth = g.s;
+        }
+        else if (kbdepth >= 0 && kidepth < 0 && g.s == kbdepth + 2)
+        {
+            kout += r.cpu->cycles() - kbfrom;
+            kbdepth = -1;
+        }
         if (kdepth < 0 && pc == kev)
         {
             kfrom = r.cpu->cycles();
-            kdepth = r.cpu->regs().s;
+            kdepth = g.s;
+            kout = 0;
         }
-        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
+        else if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && g.s == kdepth + 2)
         {
-            ktotal += r.cpu->cycles() - kfrom;
+            ktotal += r.cpu->cycles() - kfrom - kout;
             ++kn;
             kdepth = -1;
         }
@@ -1199,7 +1224,7 @@ TEST(the_key_line_and_soft_keys_cost)
     r.watch = watch;
     const double soft = avg(K_F1);
     r.watch = nullptr;
-    std::printf("  a key (KEYEV, its drain included): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
+    std::printf("  a key (KEYEV, less its interrupts and drain calls): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
                 none, soft);
     CHECK(soft > none);
     press(r, 0x06, CTRL);
