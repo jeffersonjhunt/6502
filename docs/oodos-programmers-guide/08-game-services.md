@@ -762,6 +762,13 @@ card's sprite table (at SPRBASE, which must be in the program's part of card mem
 the sprite's other bytes, and puts the mouse in absolute mode with limits 319 and 239 ([function
 81's](07-function-reference.md#bdos-81) `IN_MOUSE`), since sprites live in a 320 × 240 space.
 
+Since OODOS 0.13 (interface version 14) the pointer can be a full-resolution sprite, one screen pixel a sprite pixel
+([the Technical Reference](../oo1-technical-reference/06-video.md#full-resolution-sprites)), so a paint program on a
+640 × 480 bitmap points at the pixel: the program turns full-resolution sprites on (`GX_SPRFULL` with A = 1, below),
+puts the mouse's limits at 639 and 479, and asks `DM_POINTER` for `DM_PTRFULL` (64) + its sprite. OODOS then sets
+the entry's byte 3 bit 7 with X and Y each frame. Without the 64 the pointer stays doubled, in 320 × 240, whatever
+SPRCTL says; OOUI's pointer is doubled.
+
 ### The library
 
 `GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (8 at least, with `OA_DMA`, and a
@@ -791,6 +798,12 @@ card memory all free. Then:
   of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG` (the image in `GX_V` as revision 2's table holds it: bits 0–14
   its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
   `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
+  Since OODOS 0.13 (interface version 14; `gxsprf.s`, a module of its own, so a program that doesn't call them links
+  what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; `GE_VERSION` below
+  interface 14, SPRCTL untouched) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
+  640 × 480, the entry's byte 3 bit 7 set). `GX_SPRPOS` writes the bit clear, so the position call chooses the size:
+  a sprite moved by `GX_SPRFPOS` is full resolution, by `GX_SPRPOS` doubled. The groups and `GX_COLL` work at both
+  sizes, in screen pixels. The warm boot sets SPRCTL to 0 again.
 - **Tiles** (`gxtile.s`): `GX_TMAP` (a map's card page in A/X, its width in Y), `GX_TPUT`, `GX_TGET`, `GX_TFILL`
   (by `DM_VCOPY`).
 - **Bitmaps** (`gxbmp.s`): `GX_BMP` names the bitmap (its type in A, its first card page in `GX_V`), drawn through
@@ -835,7 +848,8 @@ byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from
 first, and `direct640`, a PNG up to 640 × 480 in its own 12-bit colours, alpha below 128 the transparent `$8000`, no
 palette part), puts the parts of several into one file so a program loads them in one call (`combine`: a
 palette that repeats one already taken is left out; one sprite images part and one sprite table at most), and checks
-one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
+one (`check`). Since OODOS 0.13, `sprites --table --full` makes the table's sprites full resolution: their places in
+640 × 480 and each entry's byte 3 bit 7 set, shown so once the program calls `GX_SPRFULL` (VIEW does). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
 
 ### What graphics costs
 

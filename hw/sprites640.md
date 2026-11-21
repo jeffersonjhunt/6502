@@ -42,6 +42,10 @@ is in [oolib.md, "Full-resolution sprites, interface version 14"](oolib.md#the-p
    `DM_POINTER` 64 is taken and the refusal moves to 128; and OODOS 0.13's version lines, wherever 0.12 appears as
    an expectation, as the 0.11 → 0.12 release had them (greetings, version words, PIP's and OOLDR's banners,
    SYSINFO's goldens).
+3. **(2026-11-20, at U7, answer 11: "fix 1")** OOLIB's archive lists its modules in byte order under any locale
+   (oodos/Makefile's `LIBSRC` sorted, as `UISRC` is): the locale's collation had put `gxsprf` before `gxspr` here
+   and after it in make_card.sh's container, so VIEW.COM, which links both, was laid out two ways. The mutant gap
+   below is accepted.
 
 #### The owner's assumption for the real board ####
 
@@ -156,3 +160,53 @@ sets SPRCTL and keeps big doubled sprites: 31% of a frame native, 23% as WebAsse
 - OODOS: SPRCTL cleared by the warm boot and `DM_CONSOLE`; `DM_POINTER`'s 64 + the sprite; OOLIB interface 14.
 - OOLIB's `gxsprf.s` (`GX_SPRFULL`, `GX_SPRFPOS`); mkasset's `sprites --table --full`; VIEW sets SPRCTL with a
   table.
+
+#### As built (2026-11-20, branch feat/sprites640) ####
+
+**Status: built in the emulator; proposed for the board** (OODOS 0.13, OOLIB interface version 14).
+
+- **The units:** U1 the record and the Technical Reference's definition; U2 the emulator (SPRCTL, `draw_sprites640`,
+  today's path kept as `draw_sprites320`, its body unchanged); U3 the debugger's ` · full`; U4 OODOS (CRTREGS's
+  SPRCTL 0, `DM_POINTER`'s 64 + n, interface 14); U5 OOLIB's `gxsprf.s`; U6 mkasset's `--full`; U7 VIEW's
+  `GX_SPRFULL`, and the Makefile's sorted `LIBSRC` (answer 11); U8 the books and OODOS 0.13. The cards were rebuilt
+  after U4, U7 and OODOS 0.13; the sort needed none (the cards were already in byte order).
+- **Byte for byte** as main 77cc7cf6's (cmp): GWBASIC.COM, GWBASIC.OVL, OOUI.BNK (the Makefile's build and
+  test/ui's), and a probe linking every export of gxspr.s from oolib.lib. OOUI.BNK holds none of gxspr.s's code (its
+  sprite calls are linked on the program's side), so the probe is what sees a change there. mkasset without `--full`
+  writes the same bytes as before. With the sort, of the 32 programs the test tree links, GXTEST, MUTEST, PBTEST
+  (test programs) and VIEW.COM change, each only in the order of a pair of modules (gxspr and gxsprf, mu and munote,
+  pb and pbcard).
+- **The tests** (each seen failing under its mutants, each run on its own case): S1-S7 in test_video_rev2, S8 the
+  existing sprite cases unchanged, W1 (vitest), W2 (vga.spec), O1-O3 (test_oodos_video), G1-G2 (test_oodos_gfx), G3
+  the byte-for-byte compare, M1 (check_mkasset), X1 (VIEW). **One gap, accepted (answer 11):** S3's mutant (b), a
+  doubled sprite's mask set on one pixel of its pair, can't fail S3: with doubled sprites alone the two masks of a
+  pair always agree. S4 (a full-resolution sprite against a doubled one's odd pixel) fails under it; both runs are
+  recorded.
+- **Found on the way:** S3's reference failed the WebAssembly build's `-Wsign-conversion` (clang), which g++ doesn't
+  warn of; W2 at first typed the monitor's colon as text, where the USB keyboard takes key codes (Shift+;).
+
+**Frame time, as built** (µs a frame, the card alone, the plan's benchmark; native g++ -O2, and WebAssembly from the
+repo's emsdk image run by that image's node; main's card and this one interleaved twice on a quiet host, the lower
+kept; a frame is 16,683 µs). "Main" for a full-resolution row is main's card drawing the same table doubled (it has
+no SPRCTL).
+
+| Layers | Sprites | Main, native | Built, native | Main, WASM | Built, WASM |
+|---|---|---|---|---|---|
+| text 80 + text 80 | none | 3,997 | 3,984 | 2,120 | 2,128 |
+| text 80 + text 80 | 64 × 64×64, 8 bits, doubled, SPRCTL 0 | 4,559 | 4,554 | 2,895 | 2,920 |
+| text 80 + text 80 | **the same, SPRCTL 1 (the 640 path)** | 4,612 | **5,057** | 2,901 | **3,844** |
+| text 80 + text 80 | 64 × 64×64, 8 bits, full resolution | 4,381 | 4,375 | 2,686 | 2,846 |
+| text 80 + text 80 | 64 × 64×64, 8 bits, half of each | 4,657 | 4,720 | 2,782 | 3,307 |
+| direct 640 + direct 640 | 64 × 64×64, 8 bits, doubled, SPRCTL 0 | 2,382 | 2,474 | 2,040 | 2,066 |
+| direct 640 + direct 640 | the same, SPRCTL 1 | 2,413 | 2,919 | 2,041 | 2,889 |
+| direct 640 + direct 640 | 64 × 64×64, 8 bits, full resolution | 2,240 | 2,252 | 1,838 | 2,132 |
+
+The dearest case, doubled sprites drawn by the 640 path, is 5,057 µs native (30% of a frame) against the prototype's
+5,156; an earlier run of it on a busy host gave 5,322. As WebAssembly it is 3,844 µs (23%) against the prototype's
+3,765, within the runs' spread; the same binaries under the host's own node (20, not the image's 24) ran about 2.5
+times slower for main's card and this one alike, so only figures from one runtime compare. With SPRCTL 0 the card is
+within 4% of main's, both ways; full-resolution sprites cost about what the same table doubled does (natively a
+little less; as WebAssembly 3% less over text, 3% more over two direct 640 layers).
+
+**Code:** OODOS 13 bytes and 1 of BSS (OODOS.SYS still 42,880 bytes); `gxsprf` 87 bytes, in a program only with
+gxspr.s's 222 and its 514-byte shadow (VIEW.COM 6,313 → 6,627 bytes); `video_card.cpp` +~55 lines.

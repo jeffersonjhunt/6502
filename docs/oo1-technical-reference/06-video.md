@@ -279,6 +279,11 @@ register shows as it did. Sprites of the two sizes can be on the screen at once.
 - **The pointer.** OODOS's pointer sprite is doubled unless a program asks function 83's `DM_POINTER` for a
   full-resolution one ([the Programmer's Guide, chapter 7](../oodos-programmers-guide/07-function-reference.md#bdos-83)).
 
+**Costs** (measured in the emulator, [hw/sprites640.md, "As built"](../../hw/sprites640.md)): with SPRCTL 0 a frame
+takes what it did. The dearest case is 64 doubled sprites of 64 × 64 drawn while SPRCTL is 1 (each doubled pixel then
+written twice): about 5.1 ms of the frame's 16.7 natively and 3.8 ms as WebAssembly, over two text layers. The
+same table at full resolution costs about what it does doubled.
+
 The emulator draws them on `rev=2` only. The decision, its dates and the owner's assumption for the real board, that
 the card fetches 32 full-resolution sprites a line as it does 32 doubled ones, are in
 [hw/sprites640.md](../../hw/sprites640.md).
