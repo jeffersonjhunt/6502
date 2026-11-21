@@ -8,11 +8,13 @@
 ;   SOUND     SOUND x,y: P7's SOUNDP in screen mode; Advanced Feature in
 ;             console mode (the owner's answer 4: it needs the event queue)
 ;   BEEP      BEEP: P7's BEEPP, in both modes (answer 3)
+;   PLAYS     PLAY string: P7's PLAYP in screen mode; Advanced Feature in
+;             console mode (answer 4)
 
 .include "gwbasic.inc"
 
 ;@entry HPENST
-.export HPENST, SOUND, BEEP
+.export HPENST, SOUND, BEEP, PLAYS
 .import ADVERR, SCRMOD
 
 .code
@@ -25,4 +27,8 @@ SOUND:          BIT     SCRMOD
                 RTS
 SADV:           JMP     ADVERR
 BEEP:           FJSR    BEEPP
+                RTS
+PLAYS:          BIT     SCRMOD
+                BPL     SADV
+                FJSR    PLAYP
                 RTS

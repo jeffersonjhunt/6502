@@ -1312,7 +1312,7 @@ ADVGRP.ASM GTABSC -> p5/advgrp.s GTABSC
 ADVGRP.ASM CPLOT4 -> p5/advgrp.s CPLOT4 # CPLOT, CNBTWN, CLINEC, CLINSC, CLINE, CBTWEN, GCPLFN, CPLTIT, CPLFIN inline: HL, DE and the count in zero page (CHL, CDE, CPLN), not the 8086's stack
 ADVGRP.ASM CPLSCX -> p5/advgrp.s CPLSCX # XCHBD the swap
 ADVGRP.ASM DRAW -> p3/draw.s DRAWP # its home block stub p8/far5.s DRAW, screen mode; PIXSIZ's test and the state by P5's DRWOP 0 (7e2, the owner's answer 1: the parse in P3, the drawing in P5)
-MACLNG.ASM MACLNG -> p3/maclng.s MACLNG # MCLNEW, MCLOOP, MCLSCN, MSCNLP, MISCMD, VSNARG, VSNAR0, ISCMD3, MNOARG inline: each string's address and length on the 6502's stack, 3 bytes a level; OO-1: MCLOUT the first string's address, for DRAW's P
+MACLNG.ASM MACLNG -> p3/maclng.s MACLNG # MCLNEW, MCLOOP, MCLSCN, MSCNLP, MISCMD, VSNARG, VSNAR0, ISCMD3, MNOARG inline: each string's address and length on the 6502's stack, 3 bytes a level; OO-1: MCLOUT the first string's address, for DRAW's P; 7f: assembled a second time into P7 for PLAY (p7/maclng.s includes this file: one source, two copies, the space plan's answer 4), MCLC2 exported for PLYNOT
 MACLNG.ASM FETCHZ -> p3/maclng.s FETCHZ # GOFCER's FCERR
 MACLNG.ASM DECFET -> p3/maclng.s DECFET
 MACLNG.ASM VALSCN -> p3/maclng.s VALSCN # VALSC3, VALSC2, NUMLOP inline; each "-" counted (NEGD's return pushed in the 8086), negated once at the end
@@ -1333,7 +1333,21 @@ ADVGRP.ASM SCALE2 -> p5/advgrp.s SCALE2 # CIRCLE's; DRAW's GOSCAL has its own co
 GWSTS.ASM GOFCER -> res/gwmain.s FCERR # JMP FCERR; the name MACLNG.ASM's FETCHZ reaches is its own GOFCER (p3/maclng.s MCLFC), the ledger resolving it here
 MACLNG.ASM VALSC3 -> p3/maclng.s VALSC3
 MACLNG.ASM FETCHR -> p3/maclng.s FETCHR # FETCH2 inline; C set for a character, clear at the end (the 8086's Z)
-GWSTS.ASM PLAYS -> later 7f: PLAY
+GWSTS.ASM PLYLEN -> p7/play.s PLYLEN # OO-1: the number checked whole (DLARG), the manual's 1-64
+GWSTS.ASM PLYMET -> p7/play.s PLYMET # PLYMOD, PLYDUR inline
+GWSTS.ASM PLYNOT -> p7/play.s PLYNOT # PLYFLT, PLYNO2, PLYSHP inline; the letter from MACLNG's MCLC2
+GWSTS.ASM PLYNUM -> p7/play.s PLYNUM # OO-1: the number checked whole (0-84)
+GWSTS.ASM POCTAV -> p7/play.s POCTAV # OO-1: the number checked whole (0-6)
+GWSTS.ASM PPAUSE -> p7/play.s PPAUSE # OO-1: P0 Illegal function call (the manual: 1-64; the source takes it as no pause)
+GWSTS.ASM PTEMPO -> p7/play.s PTEMPO # OO-1: the number checked whole (32-255)
+GWSTS.ASM PLGOFC -> p7/play.s PLGOFC
+GWSTS.ASM PLYMER -> p7/play.s PLYMET # its JMP FCERR inline
+GWSTS.ASM PLYNO9 -> p7/play.s PLYDOX # OO-1: one entry, the gate by MSCALE (DOSND's A), where the source sends the shortened note then a pause (PLYNO6-PLYNO8 with it)
+GWSTS.ASM PLYNO3 -> p7/play.s PLYNO3
+GWSTS.ASM PLYNU3 -> p7/play.s PLYNU3 # PLYNU4 (OO-1: the shift 7 - O, the owner's answer 2), PLYNO4, PLYDOT, PLYDO2, PLYDOX inline
+GWSTS.ASM PLYRET -> p7/play.s PLYRET
+GWSTS.ASM PPAUS2 -> p7/play.s PPAUS2
+GWSTS.ASM PLAYS -> p7/play.s PLAYP # the home block's PLAY stub, screen mode (the owner's answer 4); MACLNG P7's own copy (p7/maclng.s)
 GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)

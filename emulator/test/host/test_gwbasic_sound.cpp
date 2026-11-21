@@ -170,10 +170,12 @@ namespace
     {
         enter(r, "CLS");
         enter(r, text, settle);
+        const unsigned cols = columns(r);
         for (unsigned i = 0; i + 1 < 25; ++i)
-            if (line(r, i) == text)
+            if (text.rfind(line(r, i), 0) == 0 && !line(r, i).empty()) // its first row (a long line wraps)
             {
-                const std::string next = line(r, i + 1);
+                const unsigned rows = static_cast<unsigned>((text.size() + cols - 1) / cols);
+                const std::string next = line(r, i + std::max(1u, rows));
                 return next == "Ok" ? std::string() : next;
             }
         std::printf("  '%s' not echoed: %s\n", text.c_str(), screen(r).c_str());
@@ -202,6 +204,8 @@ namespace
         std::vector<std::vector<uint8_t>> beeps;          ///< SN_BEEP's blocks: +1-2 Hz, +3-4 ms
         std::vector<std::vector<uint8_t>> loads;          ///< SN_LOAD's blocks
         unsigned releases = 0;
+        uint64_t bdos_cycles = 0; ///< function 82's cycles, its calls (the interrupts inside included)
+        unsigned bdos_calls = 0;
         std::vector<uint8_t> pend;
         unsigned need = 0;
         uint64_t pend_at = 0;
@@ -248,6 +252,8 @@ namespace
                 if (in && pc == ret && g.s == ret_s)
                 {
                     in = false;
+                    bdos_cycles += r.cpu->cycles() - call_at;
+                    ++bdos_calls;
                     if (g.a == 0)
                         done(blk, call_at);
                     return;
@@ -282,6 +288,73 @@ namespace
         enter(r, "CLS");
         keys(r, "RUN\r");
         r.run(budget);
+    }
+    /// NOTTAB's top octave (GWSTS.ASM), C to B, and a note's Hz in octave o (the owner's answer 2: shifted right
+    /// by 7 - o, rounded by the last bit out, as PLYNU4's ADC).
+    const unsigned NOTTAB[12] = {4186, 4435, 4699, 4978, 5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902};
+    unsigned note_hz(unsigned i, unsigned o)
+    {
+        const unsigned sh = 7 - o;
+        return (NOTTAB[i] >> sh) + ((NOTTAB[i] >> (sh - 1)) & 1);
+    }
+    /// PLAY's units for tempo t and length l (96,000 / (t x l)), and the dots (x 3 / 2 each).
+    unsigned play_units(unsigned t, unsigned l, unsigned dots = 0)
+    {
+        unsigned u = 96000 / (t * l);
+        for (unsigned d = 0; d < dots; ++d)
+            u = u * 3 / 2;
+        return u;
+    }
+
+    /// RUN's cycles from the RUN statement to the end's ENDCON, less the interrupt handlers' inside it (T17's
+    /// method: the IRQ vector's entry to its RTI), the program `lines` typed after NEW; the far calls counted too.
+    uint64_t run_cycles(CcpRig &r, const std::vector<std::string> &lines, uint64_t budget = ms(5000))
+    {
+        const std::map<std::string, uint16_t> lab = lbl_map();
+        enter(r, "CLS");
+        enter(r, "NEW");
+        for (const std::string &l : lines)
+            enter(r, l, ms(150));
+        enter(r, "CLS");
+        const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON");
+        const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
+        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
+        int idepth = -1;
+        bool on = false;
+        const auto before = r.watch;
+        r.watch = [&](uint16_t pc) {
+            if (before)
+                before(pc);
+            if (on && idepth < 0 && pc == irq)
+            {
+                ifrom = r.cpu->cycles();
+                idepth = r.cpu->regs().s;
+            }
+            else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
+            {
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            if (pc == runc && !on)
+            {
+                from = r.cpu->cycles();
+                on = true;
+                inirq = 0;
+            }
+            else if (on && idepth < 0 && pc == endcon)
+            {
+                cycles = r.cpu->cycles() - from - inirq;
+                on = false;
+            }
+        };
+        keys(r, "RUN\r");
+        const uint64_t end = r.cpu->cycles() + budget;
+        while (cycles == 0 && r.cpu->cycles() < end)
+            r.run(ms(10));
+        r.watch = before;
+        r.run(ms(100));
+        CHECK(cycles > 0);
+        return cycles;
     }
 } // namespace
 
@@ -521,6 +594,178 @@ TEST(p7_s_driver_image_loads_from_its_block)
     CHECK_EQ(src, want);
 }
 
+// N12 (the manual's pp. 250-251; the owner's answer 2): each note's frequency word from NOTTAB shifted right by
+// 7 - the octave and rounded (O3's C 262 Hz, middle C; O4's A 880), on MU_TONE's arithmetic: C and B in every
+// octave, A in O3 and O4, N1 (O0's C), N42, N84 (O6's B), N0 a rest (0); > and < one octave up or down, held at 6
+// and 0, across PLAYs too (p. 250's PLAY ">A" again and again). All in MB at T255 L64 (13 ms notes), so nothing
+// waits. Guards a tune an octave off or a note wrong on the card. Seen failing with (a) > not held at 6, (b)
+// PLYNU4's rounding (the last bit out) left out.
+TEST(play_s_notes_and_octaves_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    std::vector<unsigned> want;
+    std::string tune = "MB T255 L64";
+    for (unsigned o = 0; o <= 6; ++o)
+    {
+        tune += " O" + std::to_string(o) + " C B";
+        want.push_back(pal(note_hz(0, o)));
+        want.push_back(pal(note_hz(11, o)));
+    }
+    tune += " O3 A O4 A N1 N42 N84 N0";
+    for (const unsigned hz : {note_hz(9, 3), note_hz(9, 4), note_hz(0, 0), note_hz(5, 3), note_hz(11, 6), 0u})
+        want.push_back(pal(hz));
+    CHECK_EQ(said(r, "PLAY \"" + tune + "\""), std::string());
+    r.run(ms(500));
+    CHECK_EQ(said(r, "PLAY \"O5 >C >C >C O1 <C <C <C\""), std::string());
+    for (const unsigned o : {6u, 6u, 6u, 0u, 0u, 0u})
+        want.push_back(pal(note_hz(0, o)));
+    CHECK_EQ(said(r, "PLAY \"O4\":PLAY \">A\":PLAY \">A\":PLAY \">A\""), std::string());
+    for (const unsigned o : {5u, 6u, 6u})
+        want.push_back(pal(note_hz(9, o)));
+    r.watch = nullptr;
+    CHECK_EQ(note_hz(0, 3), 262u); // middle C
+    CHECK_EQ(note_hz(9, 4), 880u); // (the owner's answer 2)
+    REQUIRE(s.entries.size() == want.size());
+    unsigned bad = 0;
+    for (size_t i = 0; i < want.size(); ++i)
+        if (s.entries[i].freq != want[i] && ++bad <= 4)
+            std::printf("  note %zu: the word %u, want %u\n", i, s.entries[i].freq, want[i]);
+    CHECK_EQ(bad, 0u);
+}
+
+// N13 (the manual's pp. 251-253, the source's PPAUS2 and PLYDOT): the lengths from 96,000 / (T x L) units of 2.5
+// ms, in ms; L1, L4, L64; A16 the same as L16A; T32 and T255; one and two dots (x 3 / 2 each); the gates: MN 7/8,
+// ML the whole, MS 3/4 (of the units, at least 1, as ms); a rest's gate the whole (P4). In MB. Guards rhythm wrong:
+// notes run together or clipped. Seen failing with MS's gate as 7/8.
+TEST(play_s_lengths_tempo_dots_and_styles)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    CHECK_EQ(said(r, "PLAY \"MB L1 C L4 C L64 C A16 L16 A T32 L4 C T255 C T120 C. C.. ML C MS C P4\""), std::string());
+    r.watch = nullptr;
+    struct Want
+    {
+        unsigned units, gate_units;
+    };
+    auto mn = [](unsigned u) { return std::max(1u, u * 7 / 8); };
+    auto msg = [](unsigned u) { return std::max(1u, u * 3 / 4); };
+    const unsigned l1 = play_units(120, 1), l4 = play_units(120, 4), l64 = play_units(120, 64), l16 = play_units(120, 16);
+    const unsigned t32 = play_units(32, 4), t255 = play_units(255, 4), d1 = play_units(120, 4, 1), d2 = play_units(120, 4, 2);
+    const std::vector<Want> want = {{l1, mn(l1)},   {l4, mn(l4)},   {l64, mn(l64)}, {l16, mn(l16)}, {l16, mn(l16)},
+                                    {t32, mn(t32)}, {t255, mn(t255)}, {d1, mn(d1)}, {d2, mn(d2)},  {l4, l4},
+                                    {l4, msg(l4)},  {l4, l4}};
+    CHECK_EQ(l4, 200u);
+    CHECK_EQ(units_ms(l4), 500u);
+    REQUIRE(s.entries.size() == want.size());
+    for (size_t i = 0; i < want.size(); ++i)
+    {
+        CHECK_EQ(s.entries[i].len, units_ms(want[i].units));
+        CHECK_EQ(s.entries[i].gate, units_ms(want[i].gate_units));
+    }
+    CHECK_EQ(s.entries.back().freq, 0u); // P4: a rest
+}
+
+// N14 (the manual's pp. 249-253): B#, E#, C-, F- Illegal function call; O7, L0, L65, T31, N85, P0 (the manual's
+// 1-64, where the source takes it as no pause), P65; a ";" after MF (p. 253); X with a numeric variable Type
+// mismatch; and an error leaves the notes queued before it playing (no STOP). Guards a bad string half-played or
+// crashing the parser. Seen failing with P0 taken (the source's).
+TEST(play_s_errors_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    for (const char *k : {"B#", "E#", "C-", "F-", "O7", "L0", "L65", "T31", "N85", "P0", "P65", "MF;C", "MQ"})
+        CHECK_EQ(said(r, std::string("PLAY \"") + k + "\""), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "A=5:PLAY \"XA;\""), std::string("Type mismatch"));
+    Sound s;
+    s.watch(r);
+    CHECK_EQ(said(r, "PLAY \"MB L1 C D N85\""), std::string("Illegal function call"));
+    r.watch = nullptr;
+    CHECK_EQ(s.entries.size(), 2u);
+    CHECK(s.stops.empty());
+    CHECK(running(r));
+    CHECK_EQ(said(r, "PRINT PLAY(0)"), std::string(" 2"));
+}
+
+// N15 (the manual's p. 253): X runs a string, =name; a number, and VARPTR$ both: XA$; and "X"+VARPTR$(A$) play
+// A$'s notes, O=I; and "O="+VARPTR$(I) set the octave from I. Guards substrings or variables not played. Seen
+// failing with P7's MACLNG table without X (MCLXEQ).
+TEST(play_x_and_variables_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    CHECK_EQ(said(r, "A$=\"CDE\":I=2:PLAY \"MB T255 L64 XA$; O=I; C\""), std::string());
+    CHECK_EQ(said(r, "PLAY \"X\"+VARPTR$(A$)+\"O=\"+VARPTR$(I)+\"D\""), std::string());
+    r.watch = nullptr;
+    const std::vector<unsigned> want = {pal(note_hz(0, 4)), pal(note_hz(2, 4)), pal(note_hz(4, 4)), pal(note_hz(0, 2)),
+                                        pal(note_hz(0, 2)), pal(note_hz(2, 2)), pal(note_hz(4, 2)), pal(note_hz(2, 2))};
+    REQUIRE(s.entries.size() == want.size());
+    for (size_t i = 0; i < want.size(); ++i)
+        CHECK_EQ(s.entries[i].freq, want[i]);
+}
+
+// N16 (the manual's pp. 252-255): MB runs in the background: a program goes on at once, PLAY(0) counts the notes
+// waiting (5, then each one fewer as one ends, to 0); in MF PLAY(0) is 0; the 33rd note of one PLAY waits for the
+// first to end (32 a voice); RUN stops the music and PLAY(0) is 0 again. Guards a program blocked by MB, or
+// PLAY(n) wrong in a game's music loop. Seen failing with PLAY(n) counting in MF.
+TEST(play_mb_runs_in_the_background_and_play_n_counts)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 PLAY \"MB T120 L8 CDEFG\":M=-1", "20 N=PLAY(0):IF N<>M THEN PRINT N;:M=N", "30 IF N>0 THEN 20",
+                 "40 PLAY \"MF C\":PRINT PLAY(0)"},
+             ms(2500));
+    CHECK_EQ(line(r, 2), std::string(" 5  4  3  2  1  0  0")); // (row 1: RUN; line 40's 0 after the count's)
+    Sound s;
+    s.watch(r);
+    CHECK_EQ(said(r, "PLAY \"MB T255 L8 " + std::string(33, 'C') + "\"", ms(1200)), std::string());
+    REQUIRE(s.entries.size() == 33u);
+    const double w31 = as_ms(s.entries[31].at - s.entries[0].at), w32 = as_ms(s.entries[32].at - s.entries[0].at);
+    const double note = units_ms(play_units(255, 8));
+    std::printf("  from the first note: the 32nd sent after %.1f ms, the 33rd after %.1f ms (a note %.0f ms)\n", w31, w32,
+                note);
+    CHECK(w31 < note - 20);
+    CHECK(w32 > note - 5 && w32 < note + 30);
+    CHECK_EQ(said(r, "SOUND 37,0:PLAY \"MB L1 CDEF\":PRINT PLAY(0)"), std::string(" 4")); // (the 33 stopped first)
+    run_prog(r, {"10 PRINT PLAY(0)"}, ms(500));
+    r.watch = nullptr;
+    CHECK_EQ(line(r, 2), std::string(" 0"));
+    CHECK(!running(r));
+}
+
+// N33 (the owner's answer 11: a PLAY note at most 8,000 cycles in MB, the interrupts left out): PLAY "MB T255 L64"
+// with 16 notes against one note, T17's method; the difference over 15. Guards MB falling behind its own notes.
+// Seen failing with MU_TONE called twice a note.
+TEST(play_s_note_cost_is_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    const uint64_t one = run_cycles(r, {"10 PLAY \"MB T255 L64 C\""});
+    const uint64_t b1 = s.bdos_cycles;
+    const unsigned n1 = s.bdos_calls;
+    const uint64_t many = run_cycles(r, {"10 PLAY \"MB T255 L64 CDEFGABCDEFGABCD\""});
+    r.watch = nullptr;
+    const double per = static_cast<double>(many - one) / 15;
+    std::printf("  of which function 82: %.0f cycles a note, %.1f calls\n",
+                static_cast<double>(s.bdos_cycles - 2 * b1) / 15, (s.bdos_calls - 2.0 * n1) / 15);
+    std::printf("  PLAY in MB: %.0f cycles a note, the interrupts left out (the gate 8,000); one note's PLAY %llu\n", per,
+                static_cast<unsigned long long>(one));
+    CHECK(per > 1000 && per <= 8000);
+}
 
 int main()
 {

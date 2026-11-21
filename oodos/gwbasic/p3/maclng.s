@@ -22,11 +22,12 @@
 ; and the 6502's). VALSCN counts its "-" signs (each the source's NEGD,
 ; negating once more) and negates at the end. MCLOUT keeps the first string's
 ; address, for DRAW's P (p3/draw.s: its queue kept below it, OO-1). PLAY (7f)
-; takes its own copy (7f's plan).
+; takes its own copy, this file assembled again into P7 (p7/maclng.s); MCLC2,
+; the command's character x 2, is exported for PLAY's notes (PLYNOT).
 
 .include "gwbasic.inc"
 
-.export MACLNG, FETCHR, FETCHZ, DECFET, VALSCN, VALSC3, NEGD, MCLOUT
+.export MACLNG, FETCHR, FETCHZ, DECFET, VALSCN, VALSC3, VALSC2, NEGD, MCLOUT, MCLC2
 .import FRMEVL, FRESTR, GETBCD, FRCINT, FCERR, PTRGET, RETVAR, GETSTK, ISLET2, BUF
 
 .code

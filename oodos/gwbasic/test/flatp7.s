@@ -6,7 +6,7 @@
 
 .include "gwbasic.inc"
 
-.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP, SOUNDP, BEEPP, BELLP
+.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP, SOUNDP, BEEPP, BELLP, PLAYP
 
 .code
 
@@ -18,4 +18,5 @@ JOYFP:
 XFUNP:
 SOUNDP:
 BEEPP:
-BELLP:          RTS
+BELLP:
+PLAYP:          RTS

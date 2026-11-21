@@ -39,8 +39,9 @@
 ;             armed (ON TIMER, ON COM(1)), none for now
 ;   JOYFP     PEN(n), STICK(n), STRIG(n) from FUNDSP (the resident JOYF), X the
 ;             function as FINGO has it: Illegal function call for now
-;   XFUNP     the home block's ERDEVP: DATE$, TIME$ (Advanced Feature for
-;             now), PLAY(n), TIMER (Syntax error for now), A the token
+;   XFUNP     the home block's ERDEVP: PLAY(n) (p7/play.s PLAYN); DATE$,
+;             TIME$ (Advanced Feature for now), TIMER (Syntax error for
+;             now), A the token
 ;
 ; The far call rule: each returns by RTS, or ends in an error.
 
@@ -55,8 +56,10 @@
 ;@entry SOUNDP
 ;@entry BEEPP
 ;@entry BELLP
+;@entry PLAYP
 .export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
-.export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE
+.export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
+.import PLAYN
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
 .import SCRMOD, EVAREA
 .include "oolib.inc"
@@ -80,6 +83,7 @@ SNDINI:         LDA     #120
                 STA     NOTELN
                 STA     NOTE1L
                 STA     OCTAVE
+                STZ     DRVON
                 JMP     MU_QUIT        ; (MU_STOP's work with it; PE_STATE if not
                                        ;   started, nothing done)
 ; SNDRST: DONOTE's AL 255, the background music off and the queue emptied:
@@ -186,14 +190,18 @@ DONOTE:         STA     NOTESC
                 BNE     :+
                 CLC
                 RTS
-:               LDA     #0             ; PAL
+:               LDA     DRVON          ; started already this run
+                BNE     @on
+                LDA     #0             ; PAL
                 JSR     MU_INIT
                 BCC     @on
                 CMP     #PE_STATE      ; started already
                 BEQ     @on
                 SEC
                 RTS
-@on:            LDA     MMODE          ; MF: voice 0 empty first; MB: room
+@on:            LDA     #1             ; (PLAY(n)'s: played this run)
+                STA     DRVON
+                LDA     MMODE          ; MF: voice 0 empty first; MB: room
                 BEQ     :+
                 LDA     #MUQMAX - 1
 :               JSR     WAITQ
@@ -218,6 +226,26 @@ DONOTE:         STA     NOTESC
                 LDA     NOTEU+1
                 SBC     T1
                 STA     NOTEU+1
+                LDA     T0             ; the last entry's units and style again:
+                CMP     LASTU          ; its ms as they were (TONEB's; the owner's
+                BNE     @calc          ; gate, a note at most 8,000 cycles)
+                LDA     T1
+                CMP     LASTU+1
+                BNE     @calc
+                LDA     NOTESC
+                CMP     LASTSC
+                BNE     @calc
+                LDA     TONEB+3
+                STA     T0
+                LDA     TONEB+4
+                STA     T1
+                JMP     @hz
+@calc:          LDA     T0
+                STA     LASTU
+                LDA     T1
+                STA     LASTU+1
+                LDA     NOTESC
+                STA     LASTSC
                 LDX     #3             ; the gate: all, 3/4 (x 3, / 4), 7/8 (x 7, / 8)
                 CPX     NOTESC
                 BEQ     @mn
@@ -272,7 +300,7 @@ DONOTE:         STA     NOTESC
                 STA     TONEB+5
                 LDA     T3
                 STA     TONEB+6
-                LDA     NOTEHZ
+@hz:            LDA     NOTEHZ
                 STA     TONEB+1
                 LDA     NOTEHZ+1
                 STA     TONEB+2
@@ -399,17 +427,17 @@ WAITQ:          STA     WLIM
 ; event area: function 80's FT_COUNT, its block's +1-4.
 MSNOW:          BIT     SCRMOD
                 BPL     @con
-@r:             LDX     #3
-:               LDA     EVAREA + EV_MS,X
-                STA     MSN,X
-                DEX
-                BPL     :-
-                LDX     #3
-:               LDA     EVAREA + EV_MS,X
-                CMP     MSN,X
+@r:             LDA     EVAREA + EV_MS ; (each step changes the low byte, so a
+                STA     MSN            ; low byte that reads the same after the
+                LDA     EVAREA + EV_MS + 1 ; rest means none came between: the
+                STA     MSN+1          ; two reads agree)
+                LDA     EVAREA + EV_MS + 2
+                STA     MSN+2
+                LDA     EVAREA + EV_MS + 3
+                STA     MSN+3
+                LDA     EVAREA + EV_MS
+                CMP     MSN
                 BNE     @r
-                DEX
-                BPL     :-
                 RTS
 @con:           LDA     #<FTCB
                 LDX     #>FTCB
@@ -436,7 +464,10 @@ TRPPOL:         BIT     POLSRC         ; the test-only trigger: P3's
                 FJSR    TRPTSP
 :               RTS
 JOYFP:          JMP     FCERR
-XFUNP:          CMP     #DATES_XS
+XFUNP:          CMP     #PLAY_XS
+                BNE     :+
+                JMP     PLAYN
+:               CMP     #DATES_XS
                 BEQ     :+
                 CMP     #TIMES_XS
                 BEQ     :+
@@ -459,7 +490,10 @@ NOTEHZ:         .res    2              ; the frequency (CX)
 NOTEU:          .res    2              ; the length, 2.5 ms units (DX)
 NOTESC:         .res    1              ; the gate's scale
 TONEB:          .res    MU_NLEN        ; MU_TONE's block
+LASTU:          .res    2              ; its entry's units, and
+LASTSC:         .res    1              ;   gate's scale (0: none yet)
 QEND:           .res    4              ; when voice 0's queue ends, by the ms counter
 WLIM:           .res    1              ; WAITQ's
+DRVON:          .res    1              ; 1 once this run has started the driver (SNDINI clears it)
 MSN:            .res    4              ; MSNOW's
 FTCB:           .res    5              ; function 80's FT_COUNT block
