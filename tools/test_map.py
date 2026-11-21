@@ -10,7 +10,7 @@ DIR is a configured CMake build of the emulator with its tests (default emulator
 and their labels are read from it (ctest --show-only=json-v1). `select` prints which path chose which labels
 and which suites, and writes to D: suites (the CTest names chosen, one a line), sanitize (those of them
 that are the emulator's own: the label emu), steps (the steps beyond ctest: web,
-docs, oodos, interop), labels and cxx (1 if a path is the emulator's C++ or its build, else 0). It fails on a path no rule
+docs, oodos, interop, gwlocale), labels and cxx (1 if a path is the emulator's C++ or its build, else 0). It fails on a path no rule
 maps, so a change can't go unexamined.
 """
 
@@ -24,13 +24,14 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP = os.path.join(REPO, "tools", "test-map.txt")
-SPECIAL = {"all", "self", "web", "none"}
+SPECIAL = {"all", "self", "web", "none", "gwlocale"}
 # The label that marks the emulator's own suites (CPU, bus, machine, devices), the only ones the sanitizers
 # run (hw/testing.md, item 4): a kind of suite, not a part, so no path chooses it.
 EMU = "emu"
 # The steps a label adds beyond its ctest suites: interop (cpmtools reading the cards OODOS writes) for
 # OODOS and the SD card's code, the cards, make_card.sh, the diskdefs.
-STEPS = {"web": ["web"], "docs": ["docs"], "oodos": ["oodos", "interop"], "sd": ["interop"]}
+STEPS = {"web": ["web"], "docs": ["docs"], "oodos": ["oodos", "interop"], "sd": ["interop"],
+         "gwlocale": ["gwlocale"]}  # GW-BASIC built under two locales, compared (tools/gwlocale.sh)
 
 
 def die(msg):

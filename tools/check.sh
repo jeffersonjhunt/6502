@@ -128,6 +128,7 @@ oodos_only() {
         python3 -I -B "$repo/oodos/test/test_model.py"
 }
 docs_check() { make -C "$repo/docs" check; }
+gwlocale() { "$repo/tools/gwlocale.sh"; }
 oodos_checks() { oodos_only && docs_check; }
 build() { cd "$emu" && cmake --preset "$1" && cmake --build --preset "$1" -j"$(nproc)"; }
 # skips LOG: "N entries, S skipped, R not run" from a ctest run's output; the names of the skipped after.
@@ -296,6 +297,7 @@ if [ "$tier" = changed ]; then
     fi
     case " $steps " in *" oodos "*) step oodos-checks oodos_only ;; esac
     case " $steps " in *" docs "*) step docs-check docs_check ;; esac
+    case " $steps " in *" gwlocale "*) step gwbasic-locale gwlocale ;; esac
     case " $steps " in *" web "*)
         # The page holds every card, the BIOS and the demo card: the whole e2e suite on Chromium, WebKit's
         # smoke set (as full does).
@@ -312,6 +314,7 @@ if [ "$tier" = changed ]; then
     fi
 else
     step oodos-checks oodos_checks
+    step gwbasic-locale gwlocale
     preset=fast
     step native-fast native fast "$(nproc)"
     if [ "$tier" = full ]; then
