@@ -269,8 +269,12 @@ SN_HOLD         = 17                   ; the 6510 held (RUN off, no reset), each
                                        ;   the bytes kept; refused if it isn't running [SC_6510]
 SN_GO           = 18                   ; a hold undone: the $D418s back, RUN on; refused if not held [SC_6510]
 SN_VOLUME       = 19                   ; block: +1 VOLL, +2 VOLR, the master volumes (255 unity; revision 2)
-SN_OPS          = 20
-SN_BUSY         = $FE                  ; A when channel 2 is busy (X $FF)
+SN_NOISE        = 20                   ; block: +1 n (1-16), +2... n bytes of SID A's voice 3 noise, a seed
+                                       ;   (the ROM BIOS's $C818 function $A2; interface version 15): SN_BUSY
+                                       ;   while SC_6510 is claimed, by anyone; X = $FB a ROM BIOS before 0.18
+SN_OPS          = 21
+SN_BUSY         = $FE                  ; A (X $FF) when what the operation needs is busy: channel 2 with the stream,
+                                       ;   the 6510's mailbox, or SC_6510 claimed (SN_NOISE)
 SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
 SC_STREAM       = $02                  ;   the PCM stream (revision 2),
 SC_DOC          = $04                  ;   the ES5503 (revision 2)

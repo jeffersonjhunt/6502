@@ -1054,6 +1054,89 @@ TEST(lifegfx_draws_the_board)
     CHECK_EQ(bad, 0u);
 }
 
+// FRACTALGFX (basic/fractalgfx.bas, the owner's ask: fractal.bas's Mandelbrot set in SCREEN 1, a pixel a point, a
+// colour for how soon it escapes) runs: line 60 made FOR Y=96 TO 99 and 330 END in the copy put on M:, so it draws
+// the four rows next to the axis and their mirrors (rows 96-103, through the main cardioid, the bulb to its left and
+// the needle) and stops in SCREEN 1. Those rows match the test's own escape counts of the same points (single
+// floats; the BASIC's are Microsoft's binary format, so a point on a colour's edge may round the other way: at most
+// 1 in 100 may differ, and how many did is printed), each row and its mirror are the same pixels, and every other
+// row below the text's two is 0. The four rows' time is printed (not gated). Guards the program the owner asked for
+// not running or drawing the wrong picture. Seen failing with line 160's two assignments swapped (B from the new A).
+TEST(fractalgfx_draws_the_set)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::string prog;
+    {
+        std::string t = read_text(EMU_GWBASIC_PROGRAMS "/../../../../basic/fractalgfx.bas"), cur;
+        for (const char c : t)
+            if (c == '\n')
+            {
+                if (cur.rfind("60 ", 0) == 0)
+                    cur = "60 FOR Y=96 TO 99";
+                if (cur.rfind("330 ", 0) == 0)
+                    cur = "330 END";
+                if (!cur.empty())
+                    prog += cur + "\r\n";
+                cur.clear();
+            }
+            else if (c != '\r')
+                cur += c;
+    }
+    REQUIRE(prog.find("60 FOR Y=96 TO 99") != std::string::npos);
+    REQUIRE(prog.find("330 END") != std::string::npos);
+    const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+    REQUIRE(!com.empty() && !ovl.empty());
+    r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}, {0, "FRACGFX BAS", bytes(prog)}});
+    const size_t from = r.out.size();
+    r.type("m:gwbasic m:fracgfx\r");
+    CHECK(r.until("m:gwbasic m:fracgfx\r\n", ms(2000), from));
+    const uint64_t t0 = r.cpu->cycles();
+    REQUIRE(until_row(r, "Ok", ms(600000)) >= 0);
+    const uint64_t t1 = r.cpu->cycles();
+    std::printf("  four rows of FRACTALGFX (eight drawn): %llu cycles, %.1f s\n",
+                static_cast<unsigned long long>(t1 - t0), static_cast<double>(t1 - t0) / 7.16e6);
+    CHECK_EQ(reg(r, L0 + L_CONFIG), 0x22);
+    // The test's own picture: fractal.bas's region, the program's steps and colours.
+    const auto want = [](unsigned x, unsigned y) {
+        const float cb = (static_cast<float>(y) - 99.5f) * .01f, s = cb * cb;
+        const float ca = static_cast<float>(x) * .01117f - 1.786f, p = ca - .25f, q = p * p + s;
+        if (q * (q + p) <= s / 4 || (ca + 1) * (ca + 1) + s <= .0625f)
+            return 0;
+        float a = ca, b = cb;
+        for (int i = 1; i <= 16; ++i)
+        {
+            const float aa = a * a, bb = b * b;
+            if (aa + bb > 4)
+                return i > 8 ? 3 : i > 4 ? 2 : i > 2 ? 1 : 0;
+            b = 2 * a * b + cb, a = aa - bb + ca;
+        }
+        return 0;
+    };
+    unsigned off = 0, mirror = 0, stray = 0, lit = 0;
+    for (unsigned y = 16; y < 200; ++y)
+        for (unsigned x = 0; x < 320; ++x)
+        {
+            const int got = pixel(r, x, y);
+            if (y < 96 || y > 103)
+            {
+                if (got != 0 && ++stray <= 8)
+                    std::printf("  (%u,%u): %d outside the drawn rows\n", x, y, got);
+                continue;
+            }
+            lit += got != 0;
+            if (y <= 99 && got != pixel(r, x, 199 - y) && ++mirror <= 8)
+                std::printf("  (%u,%u): %d, its mirror %d\n", x, y, got, pixel(r, x, 199 - y));
+            if (y <= 99 && got != want(x, y) && ++off <= 8)
+                std::printf("  (%u,%u): %d, the test's own %d\n", x, y, got, want(x, y));
+        }
+    std::printf("  %u of 1,280 points differ from the test's own counts; %u pixels lit\n", off, lit);
+    CHECK_EQ(stray, 0u);
+    CHECK_EQ(mirror, 0u);
+    CHECK(off <= 12u);
+    CHECK(lit >= 200u);
+}
+
 // G12 (7e2): CIRCLE's ring is the 1983 source's (ADVGRP.ASM's half-unit loop and octants, the owner's answer 3: the
 // IBM manual is silent on the pixels), exact against the test's own reference of it (Ref::circle), and every lit pixel
 // within one pixel of one of PC-BASIC's (gwbasic/gfx12, SCREEN 1, and gfx13, SCREEN 2: their .out, by oracle.sh),

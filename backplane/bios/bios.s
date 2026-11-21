@@ -30,9 +30,11 @@
 ; $C818 is the dispatching entry, for the functions after the eight: a program
 ; asks with Y = $5A and X = $A0 + the function, A its argument (two bytes, as
 ; $C815's, so the monitor's R, which leaves X 0, can't match them). $A1 is
-; Apple II mode with image A, 0-3 (apple.s). $A0, the flash update (flash.s),
-; is the menu's alone, so with the token it is refused as $A2-$AF are: back,
-; carry set, A, X, Y and the windows as they were, as $A1 with A over 3 is.
+; Apple II mode with image A, 0-3 (apple.s). $A2 (BIOS 0.18) is a byte of SID
+; A's voice 3 noise, in A (NOISE, below): it returns. $A0, the flash update
+; (flash.s), is the menu's alone, so with the token it is refused as $A3-$AF
+; are: back, carry set, A, X, Y and the windows as they were, as $A1 with A
+; over 3 is.
 ; Without the token (C818R) it is a menu: F the flash update, 0-3 Apple II
 ; mode with that image, any other key the monitor.
 ;
@@ -66,6 +68,18 @@ SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B
 DST   = $02
 
 BLOCK63 = 63                           ; RAM block 63: physical $FC000-$FFFFF
+SID_FREQ3 = $0E                        ; a SID's voice 3: its frequency (2 bytes), control, and OSC3
+SID_CTRL3 = $12
+SID_OSC3  = $1B
+SID_NOISE = $80                        ; control: the noise waveform
+SID_TEST  = $08                        ; control: TEST
+; NOISE's waits, in NWAIT's turns (with Y = 3, and 1): from CONTROL3's write
+; to OSC3's read about 2,770 cycles, 381 SID clocks on PAL (985,248 Hz) at
+; 7.16 MHz, where 23 noise steps need 369 at $FFFF (23 x 2^20 / 65,535 =
+; 368.006); and about 965, 132 clocks, where 8 need 129. NTSC's clock is faster.
+NOISE_W23 = 36
+NOISE_W8  = 188
+NOISE_TRIES = 5                        ; the first read and 4 after TEST (answer 13)
 BLOCK2  = 2
 BOOTMODE = $04                         ; 0 BOOT, 1 MONBOOT: kept in block 0 while the boot runs
 FLASH31 = NB_ROM | NB_RO | 31          ; the flash's top block, where reset maps W3
@@ -324,15 +338,19 @@ DIAGPGM:        CMP     #$A5
                 JMP     DIAGGO
 
 ; $C818: a program's function, with the token (Y = $5A, X $A0-$AF): $A1 Apple
-; II mode with image A (A 0-3); anything else back, carry set, nothing changed.
-; Without the token, the menu.
+; II mode with image A (A 0-3); $A2 a noise byte (NOISE); anything else back,
+; carry set, nothing changed. Without the token, the menu.
 ROMCALL:        CPY     #$5A
                 BNE     MENU
                 CPX     #$A0
                 BCC     MENU
                 CPX     #$B0
                 BCS     MENU
-                CPX     #$A1           ; $A0 (the update, the menu's only) and $A2-$AF: none
+                CPX     #$A2           ; the noise byte (BIOS 0.18), at the ROM's end
+                BNE     @a1
+                JMP     NOISE
+@a1:
+                CPX     #$A1           ; $A0 (the update, the menu's only) and $A3-$AF: none
                 BNE     @none
                 CMP     #IIE_IMAGES
                 BCS     @none          ; no image 4 or over: block 4 is the character sets'
@@ -497,6 +515,92 @@ QUIET:
                 RTS
 
 GREETING:       .byte   $0D, "BACKPLANE BIOS ", BIOS_VERSION, $0D, 0 ; (diag.inc's BIOS_VMAJ, BIOS_VMIN)
+
+; $C818's function $A2 (BIOS 0.18): a byte of SID A's voice 3 noise, read
+; from OSC3, as a seed. Back with carry clear and the byte in A, X and Y as
+; they were ($A2 and $5A); refused, carry set, A, X and Y as they were, with
+; no sound card, or while the card's 6510 runs (CTRL's RUN: it owns the SIDs,
+; and drops the host's writes). Voice 3 is put on noise at the top frequency
+; ($FFFF: a noise step every 16 SID clocks) with the gate off, so silent once
+; voice 3's envelope has finished (always so under OODOS, where a released
+; card's SID registers are zeroed), unless its registers say it is so already
+; (they read back as last written); it is
+; left so, so the noise register runs on between calls and a later byte
+; depends on the time between them (until the warm boot's QUIET, Break or a
+; program writes voice 3). The register is a shift register: OSC3 is 8 of its
+; bits, so the read waits for 23 steps first, the whole register moved on,
+; and two calls never give bytes that are shifts of each other. A register
+; stuck at 0 (a real chip's, after noise was combined with another waveform)
+; reads 0 again 8 steps later: TEST pulsed, which moves it off 0, and the wait
+; again; after 4 such recoveries with no other byte, refused as a busy card is
+; (the owner's answer 13). With CTRL's BOTH, SID B's voice 3 is set the same:
+; silent too. No RAM and no zero page: the stack holds A, the recoveries'
+; count and NWAIT's return. About 2,800 cycles (the wait); 3,800 when OSC3
+; reads 0 once; a recovery about 3,800 more; a stuck chip's refusal about
+; 19,000. In its own segment at the ROM's end, so that no code after ROMCALL
+; moves more than its jump (answer 12).
+.segment "NOISE"
+NOISE:          PHA                    ; A, for a refusal
+                LDA     SOUND_ID
+                AND     #$F0           ; any revision
+                CMP     #SOUND_TYPE
+                BNE     @no
+                LDA     SOUND_CTRL
+                AND     #SOUND_RUN
+                BNE     @no
+                LDA     SOUND_SIDA + SID_CTRL3
+                CMP     #SID_NOISE
+                BNE     @set
+                LDA     SOUND_SIDA + SID_FREQ3
+                AND     SOUND_SIDA + SID_FREQ3 + 1
+                CMP     #$FF
+                BEQ     @go            ; on noise at the top already: it runs on from where it is
+@set:           LDA     #$FF
+                STA     SOUND_SIDA + SID_FREQ3
+                STA     SOUND_SIDA + SID_FREQ3 + 1
+                LDA     #SID_NOISE     ; noise, the gate off, no TEST: the register from where it stopped
+                STA     SOUND_SIDA + SID_CTRL3
+@go:            LDA     #NOISE_TRIES   ; the reads before a refusal, on the stack
+                PHA
+@wait:          LDX     #NOISE_W23
+                LDY     #3
+                JSR     NWAIT
+                LDA     SOUND_SIDA + SID_OSC3
+                BNE     @got
+                LDX     #NOISE_W8
+                LDY     #1
+                JSR     NWAIT
+                LDA     SOUND_SIDA + SID_OSC3
+                BNE     @got
+                TSX
+                DEC     $0101,X        ; the count
+                BEQ     @stuck
+                LDA     #SID_NOISE | SID_TEST ; stuck at 0: TEST, then noise again
+                STA     SOUND_SIDA + SID_CTRL3
+                LDA     #SID_NOISE
+                STA     SOUND_SIDA + SID_CTRL3
+                BRA     @wait
+@got:           TAX
+                PLA                    ; the count
+                PLA                    ; A as it came
+                TXA
+                LDX     #$A2           ; X and Y as they came
+                LDY     #$5A
+                CLC
+                RTS
+@stuck:         PLA                    ; the count
+                LDX     #$A2
+                LDY     #$5A
+@no:            PLA
+                SEC
+                RTS
+
+; X + 256 x (Y - 1) turns of 5 cycles (X 0: 256), and about 5 x Y more.
+NWAIT:          DEX
+                BNE     NWAIT
+                DEY
+                BNE     NWAIT
+                RTS
 
 .segment "DTRAMP"                     ; the diagnostics' ways back: fixed, under the vectors
 TBOOT:          JMP     BOOT
