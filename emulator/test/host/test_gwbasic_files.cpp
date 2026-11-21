@@ -55,6 +55,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -1144,6 +1145,66 @@ TEST(record_65536_of_len_128_is_read_from_the_disk)
               "20 FOR N=65535 TO 65537:LSET F$=STR$(N-65530):PUT #1,N:NEXT",
               "30 GET #1,65536:PRINT F$:GET #1,65535:PRINT F$:GET #1,65537:PRINT F$:CLOSE:KILL \"RN6.DAT\""});
     CHECK_EQ(command(r, "RUN"), std::string(" 6  \r\n 5  \r\n 7  \r\n"));
+}
+
+// F3 (the owner's answer 14): GWBASIC.OVL passed 64 KB at F3 (65,664 bytes, 513 records: P8's last record is record
+// 512). Each block, as the loader (res/loader.s: the header's 16-bit first record and count, function 83's DM_LOAD)
+// put it in its own block (PAGBLK's, at the block's $0800), is its link's image: every byte of its code and data
+// and of its FARFIX list, P8's included (the list is its image's last bytes), but the far call sites the loader
+// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's OOLIB modules' DATA and BSS), which
+// runs change, and P5's SCRP (p5/seed.s: a variable in RODATA, the scratch byte's physical address, set at start-up). Must-fail: a loader
+// that reads a block's records from the wrong place.
+TEST(each_block_of_the_overlay_loads_from_its_place)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
+    REQUIRE(lab.count("PAGBLK") == 1);
+    CHECK(file("GWBASIC.OVL").size() > 65536); // (the case is for an overlay past 64 KB)
+    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 8u})
+    {
+        const std::vector<uint8_t> img = file("p" + std::to_string(page) + ".bin");
+        REQUIRE(img.size() > 4);
+        std::vector<bool> site(img.size(), false); // the sites, and the block's RAM, from its map's segment list
+        {
+            std::ifstream m(BUILD + "/p" + std::to_string(page) + ".map");
+            std::string name, a, b;
+            for (std::string l; std::getline(m, l);)
+                if (l.rfind("BRAM ", 0) == 0 || l.rfind("DATA ", 0) == 0 || l.rfind("BSS ", 0) == 0)
+                {
+                    std::istringstream(l) >> name >> a >> b;
+                    for (unsigned long k = std::stoul(a, nullptr, 16); k <= std::stoul(b, nullptr, 16); ++k)
+                        if (k - 0xC800 < img.size())
+                            site[k - 0xC800] = true;
+                }
+                else if (l.rfind("Exports", 0) == 0)
+                    break;
+            const std::map<std::string, uint16_t> own = link_labels("p" + std::to_string(page) + ".lbl");
+            if (own.count("SCRP"))
+                for (unsigned j = 0; j < 3; ++j)
+                    site[own.at("SCRP") - 0xC800u + j] = true;
+        }
+        const unsigned fix = img[0] | img[1] << 8, nfix = img[2] | img[3] << 8;
+        for (unsigned k = 0; k < nfix; ++k)
+        {
+            const unsigned at = fix - 0xC800 + 2 * k, s = (img[at] | img[at + 1] << 8) - 0xC800;
+            for (unsigned j = 0; j < 3 && s + j < img.size(); ++j)
+                site[s + j] = true;
+        }
+        const uint32_t base = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + page)) * 0x4000u + 0x800;
+        unsigned differ = 0, compared = 0;
+        for (uint32_t i = 4; i < img.size(); ++i) // (the header's list address and count, then the code)
+        {
+            if (site[i])
+                continue;
+            ++compared;
+            if (r.phys(base + i) != img[i] && ++differ <= 4)
+                std::printf("  P%u: byte $%04X is %02X, the link's %02X\n", page, 0xC800 + i, r.phys(base + i), img[i]);
+        }
+        CHECK(compared > 4000);
+        CHECK_EQ(differ, 0u);
+    }
 }
 
 // The FIELD buffers are in the TPA (hw/oodos.md, "The plan, phase 7": a FIELDed string's descriptor points into its

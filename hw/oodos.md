@@ -5941,6 +5941,18 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       dump's two rows after it the GET past the end's zeros, as PC-BASIC's `r_field.out`, the header's
       record-past-32767 clause and its wrong FIELD-buffer clause gone (the gwbasic README's line with them); E5 the
       switches case's comment; E6 the FDB's 185 in three cases. No other expected result changed.
+    - **The overlay past 64 KB** (the owner's answer 14): GWBASIC.OVL is 65,280 bytes on main, 65,536 after U1-U4 and
+      **65,664** (513 records) after F3, so P8's last record, which holds its FARFIX list's end, is record 512, the
+      first past 64 KB. Nothing that reads it uses a byte offset: `tools/mkgw.py` writes each block's first record
+      and record count as 16-bit words (records, 128 bytes), and the loader (`res/loader.s`) passes the first record
+      to function 83's DM_LOAD as a 24-bit record number (R0-R1, R2 0) with the count; a block is at most 12,288
+      bytes (96 records), 8 blocks at most. Shown by `each_block_of_the_overlay_loads_from_its_place`
+      (test_gwbasic_files): every block, P8 last, as loaded into its block (PAGBLK's, at its $0800) is its link's
+      image but the patched far call sites and its RAM (BRAM; P5's OOLIB DATA and BSS, and SCRP, a variable that
+      `p5/seed.s` keeps in RODATA). Mutant: the loader dropping a first record's high byte. The next limit: the
+      header's 16-bit first record, 65,535 records (8 MB), far past the format's own most, 1 + 8 x 96 records
+      (98,432 bytes). The 2 KB block more it takes on a drive did matter: the rig's M: (OODOS's memory drive) was
+      exactly full in `bsave_and_bload_the_graphics_page`, whose last BSAVE then met Disk full.
     - **Judgements:** RECNUM's test for 32,767.5 is on the single's top 16 mantissa bits (FACEXP `$8F`, all ones);
       a second Bad record number jump in DSKRND (ER_BRM) for branch reach; FD_LOGH keeps FD_PHY's two bytes so
       FD_LOG and FD_OPS keep their offsets, as the plan's 185-byte FDB has it; N8's far point is read from the
