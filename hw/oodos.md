@@ -5898,7 +5898,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       FRCINT's Overflow); a record whose last byte passes 32 MB is Bad record number, checked before anything moves
       (LOC and the next record unchanged); past 16,777,215 Bad record number for the next record too; FD_PHY renamed
       FD_LOGH; P1's ADRGTS left in place unused; LOF of a full 32 MB file as any file's (33,554,430 for record
-      16,777,215 of LEN 2). From the source where the manual is silent: OPEN's LEN 32,768 is Overflow (an integer).
+      16,777,215 of LEN 2); OPEN with no LEN the smaller of 128 and /S: (answer 17, review round 1's F3); the FIELD
+      buffers taken at OPEN, not set aside at start-up by /F: and /S: (review round 1's F4). From the source where
+      the manual is silent: OPEN's LEN 32,768 is Overflow (an integer).
     - **Sizes** (bytes free; main `b1d10088` → after U0 → after F3, the plan's point in brackets; the stop lines of
       answer 7): free for BASIC 34,869 → 34,869 → **34,869** [34,869; 34,850]; P1 3,133 (byte-identical) [2,500];
       P2 6,435 → **6,409** (WASS's 26) [6,415]; P3 3,369 (byte-identical) [3,300]; **P4 122 → 1,550 → 1,278**
@@ -5962,7 +5964,33 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       a second Bad record number jump in DSKRND (ER_BRM) for branch reach; FD_LOGH keeps FD_PHY's two bytes so
       FD_LOG and FD_OPS keep their offsets, as the plan's 185-byte FDB has it; N8's far point is read from the
       environment only for its mutant's run.
-    - **Not done in F3:** one review round, the triage gate, fixes, merge on the owner's word; the books (7g) should
+    - **Review round 1** (the owner, 2026-11-21, "recommendations as listed"; 7 findings, 5 new, 2 revisions of
+      answer 2):
+      - F1 (minor) MULHI's refusals of a product past 32 bits reached by `mulhi_s_refusals_past_32_bits_by_hand`:
+        /S:1024, LEN 1,024, record 4,194,305 (NHI 64: the addend 2^16, the @o test) Bad record number, record 1
+        untouched; /S:32767, LEN 32,767, records 196,609 and 131,173 (a carry out of the high word; the second's
+        wrapped sum inside 32 MB). Mutant: the @o test removed. The carry's own BCS can't be seen failing: a carry
+        at NHI's bit j needs LEN x 2^(j+1) past 2^16, so a later set bit meets the @o test and with none MULHI
+        returns with the carry set, refused either way; it stays as the early exit.
+      - F2 (minor) LEN 128's own check (RAND3): N3 gains 262,144 (taken) and 262,145 (Bad record number, LOC
+        unchanged). Mutant: `CMP #4` made `#5`.
+      - F3 (minor, a revision of answer 2; the owner's answer 17, an OO-1 choice): OPEN with no LEN takes the
+        smaller of 128 and /S:, so a /S: below 128 doesn't refuse the plain OPEN (DSKOPN, P4 +13 bytes);
+        `open_s_default_len_is_s_if_smaller_by_hand` (/S:64: LEN 64, FIELD of 65 Field overflow, LEN 65 Illegal
+        function call). Mutant: the default 128 always.
+      - F4 (nit, a revision of answer 2): **an OO-1 choice, recorded:** the FIELD buffers are taken from the TPA at
+        each OPEN (LEN bytes), not set aside at start-up by /F: and /S: as the manual's memory map has it, so FRE(0)
+        after start-up doesn't fall with /S:, and an OPEN of a long LEN can be Out of memory.
+      - F5 (nit) N1 gains 70,000.5 → 70,001 and 5,000,000.5 → 5,000,001 (a half below 2^23, RECNUM's FADDH).
+        Mutant: the threshold lowered to $80+23.
+      - F6 (nit) N7 now times CHAIN less the interrupt handlers inside it (the IRQ vector's entry to its RTI, T17's
+        and D9's method): main 66,521 (14 far calls, 11 interrupts) → F3 66,851 (15, 10), +330; the gate main +
+        400, 66,921. Tokenised 75,630 → 75,959 (+329), MERGE 65,530 → 65,867 (+337), printed. The raw figures were
+        68,279 → 68,452. N7's mutant (three more crossings) still fails: 67,781.
+      - F7 (nit) SCRP (`p5/seed.s`, written at start-up) sits in P5's RODATA: it moves to BRAM at P5's next change
+        (likely 7f); F3 keeps P5 byte-identical, so it stays, and the overlay's load check names it.
+      - Sizes after the round: P4 1,278 → **1,265** free (the line 1,200); the rest as above.
+    - **Not done in F3:** the triage gate, merge on the owner's word; the books (7g) should
       say that a dense file meets Disk full at the card's drive size (8 MB or 32 MB) long before 16,777,215 records.
 - **7f: sound, input and events** (P7).
   - **What it holds:**

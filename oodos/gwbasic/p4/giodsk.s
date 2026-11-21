@@ -414,7 +414,8 @@ DSKGCW:         RTS
 
 ; DSKOPN: file OPNNUM opened on disk A (FILDEV: 0 the current drive, 1 A:),
 ; FILMOD its mode, FILNAM its name, CX a random file's length (0 the
-; default, a record; past MAXREC, OO-1: Illegal function call), which is its
+; default, a record, or /S:'s if smaller: OO-1, F3; past MAXREC, OO-1:
+; Illegal function call), which is its
 ; FIELD buffer's (INIFDB's FALLOC). The FDB (INIFDB: every mode, width 255, column 0) is
 ; FREFDB's until the file is open, so an error first frees it (FINPRT). Its
 ; FCB gets the drive, name and type, the rest zero. OUTPUT: no other file
@@ -430,8 +431,13 @@ DSKOPN:         STA     ODEV           ; the device, till INIFDB
                 LDA     RCL            ; a length asked for?
                 ORA     RCH
                 BNE     DSKOP1
-                LDA     #DATPSC        ; else a record's bytes
-                STA     RCL
+                LDA     #DATPSC        ; else a record's bytes (OO-1, F3, the
+                LDX     MAXREC+1       ; owner's answer 17: or /S:'s, if
+                BNE     @d             ; smaller)
+                CMP     MAXREC
+                BCC     @d
+                LDA     MAXREC
+@d:             STA     RCL
 DSKOP1:         LDA     MAXREC         ; OO-1: more than /S: is Illegal
                 CMP     RCL            ; function call
                 LDA     MAXREC+1

@@ -951,7 +951,8 @@ TEST(random_records_of_200_and_1024_bytes_by_hand)
 // 32,768, 65,535, 65,536, 65,537, 100,000 and 1,000,000, each with its own text, LOC after each; each GET back, LOC
 // again; records 1 and 2 still their own. A single past 32,767 is rounded to the nearest, a half up (answer 8):
 // GET #1,65536.6 reads 65,537; and (answer 11) 32,767.4 is 32,767, 32,767.5 and 32,767.99 are 32,768, not
-// Overflow, seen by LOC. A string is Type mismatch, -1 and 0 Bad record number. Must-fail: a record number cut to
+// Overflow, seen by LOC; and halves past 32,767 go up (answer 8): 70,000.5 is 70,001, 5,000,000.5 (a single still
+// holds the half below 2^23: RECNUM's FADDH) 5,000,001 (review round 1, F5). A string is Type mismatch, -1 and 0 Bad record number. Must-fail: a record number cut to
 // 16 bits (PUT #1,65537 writes record 1's place).
 TEST(records_past_32767_and_65535_by_hand)
 {
@@ -966,13 +967,14 @@ TEST(records_past_32767_and_65535_by_hand)
               "50 GET #1,1:PRINT F$;:GET #1,2:PRINT F$",
               "60 GET #1,65536.6:PRINT F$;LOC(1):GET #1,\"x\":GET #1,-1:GET #1,0:PRINT LOC(1)",
               "70 GET #1,32767.4:PRINT LOC(1);:GET #1,32767.5:PRINT LOC(1);:GET #1,32767.99:PRINT LOC(1)",
+              "75 GET #1,70000.5:PRINT LOC(1);:GET #1,5000000.5:PRINT LOC(1)",
               "80 CLOSE:KILL \"RN1.DAT\":END:DATA 32768,65535,65536,65537,100000,1000000",
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string(" 32768  65535  65536  65537  100000  1000000 \r\n"
                                             "Aa 32768 Bb 65535 Cc 65536 Dd 65537 Ee 100000 Ff 1000000 \r\n"
                                             "r1r2\r\n"
                                             "Dd 65537 \r\nerr 13  60 \r\nerr 63  60 \r\nerr 63  60 \r\n 65537 \r\n"
-                                            " 32767  32768  32768 \r\n"));
+                                            " 32767  32768  32768 \r\n 70001  5000001 \r\n"));
 }
 
 // N2: GET and PUT with no number go on past 65,535 (FD_LOG's carry into FD_LOGH). Of LEN 2: records 1 and 2 PUT,
@@ -998,10 +1000,12 @@ TEST(get_and_put_with_no_number_go_on_past_65535)
 // N3: the last record, and 32 MB (answers 2 and 8). LEN 1: record 16,777,215 PUT and read, LOC and LOF 16777215;
 // then PUT #1 (the next, 16,777,216) and an explicit 16,777,216 each Bad record number, LOC 16777215 still, and a GET
 // alone after GET #1,16777214 reads 16,777,215. LEN 3: 11,184,810 (its last byte 33,554,429) PUT and read,
-// 11,184,811 (past 32 MB) refused, and GET #1 after it too, LOC 11184810. LEN 1,024 (MAXREC set as /S:1024 sets it):
+// 11,184,811 (past 32 MB) refused, and GET #1 after it too, LOC 11184810. LEN 128: 262,144 PUT and read, 262,145
+// refused. LEN 1,024 (MAXREC set as /S:1024 sets it):
 // 32,768 (its last byte 32 MB's last) PUT and read, 32,769 refused; 2,097,153 refused ((n - 1) x LEN 2^31) with
 // record 1 still its own; after both LOC 32768 and GET #1 after GET #1,32767 reads 32,768. Must-fail: the 32 MB check
-// after the doubling (the draft's: 2,097,153 written over record 1); the next record's 24-bit cap left out (PUT #1
+// after the doubling (the draft's: 2,097,153 written over record 1); LEN 128's own check moved up a 128-byte
+// record's top bits (262,145 taken); the next record's 24-bit cap left out (PUT #1
 // after 16,777,215 taken); the cap too low; the store before the check (LOC the refused number).
 TEST(the_last_record_and_32_mb_by_hand)
 {
@@ -1023,6 +1027,14 @@ TEST(the_last_record_and_32_mb_by_hand)
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string("abc 11184810 \r\nerr 63  30 \r\n 11184810 \r\nerr 63  30 \r\n"
                                             " 11184810 \r\n"));
+    // LEN 128, the default, its own check (RAND3's: the record its own 128-byte record, past 262,143 refused; review
+    // round 1, F2): 262,144 PUT and read, 262,145 refused, LOC 262144 still.
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RN3.DAT\":FIELD #1,4 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"edge\":PUT #1,262144:LSET F$=\"\":GET #1,262144:PRINT F$;LOC(1)",
+              "30 PUT #1,262145:PRINT LOC(1):CLOSE:KILL \"RN3.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("edge 262144 \r\nerr 63  30 \r\n 262144 \r\n"));
     const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
     REQUIRE(lab.count("MAXREC") == 1);
     r.poke(lab.at("MAXREC"), 1024 & 0xFF);
@@ -1035,6 +1047,68 @@ TEST(the_last_record_and_32_mb_by_hand)
               "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
     CHECK_EQ(command(r, "RUN"), std::string("last 32768 \r\nerr 63  30 \r\nerr 63  30 \r\n 32768 \r\none! 1 \r\n"
                                             "last 32768 \r\n"));
+}
+
+namespace
+{
+    /// A CcpRig with GW-BASIC started with `tail` on its command line (its switches): what it printed to its first Ok.
+    std::string start_with(CcpRig &r, const std::string &tail)
+    {
+        const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
+        CHECK(!com.empty() && !ovl.empty());
+        r.put_m({{0, "GWBASIC COM", com}, {0, "GWBASIC OVL", ovl}});
+        r.scb(0x25, 0x40); // CON:'s output TTY alone, as start()
+        return r.to("m:gwbasic " + tail, "Ok\r\n");
+    }
+} // namespace
+
+// Review round 1, F1: MULHI's two refusals of a product past 32 bits (NHI x 65,536 x LEN), each before the 32 MB
+// test. /S:1024, LEN 1,024: record 4,194,305's current, 4,194,304, has NHI 64, and its addend reaches 2^16 in the
+// high word (MULHI's @o): Bad record number, record 1 untouched, LOC as it was. /S:32767, LEN 32,767: 196,609
+// (NHI 3) and 131,173 (NHI 2, the low product's high word 49) each carry out of the high word's add; the second's
+// wrapped sum would be inside 32 MB (a place in records 96 and 97), so only the carry refuses it. Must-fail: the
+// @o test removed (4,194,305 written over record 1). (The carry's own BCS can't be seen failing: a carry needs
+// LEN x 2^(j+1) past 2^16, so any later bit of NHI meets the @o test, and with none MULHI returns with that carry
+// set; the BCS only makes the exit early.)
+TEST(mulhi_s_refusals_past_32_bits_by_hand)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_with(r, "/s:1024");
+        CHECK_EQ(command(r, "NEW"), std::string());
+        enter(r, {"10 OPEN \"R\",#1,\"RM1.DAT\",1024:FIELD #1,4 AS F$:ON ERROR GOTO 90",
+                  "20 LSET F$=\"one!\":PUT #1,1:LSET F$=\"bad!\":PUT #1,4194305:PRINT LOC(1)",
+                  "30 GET #1,1:PRINT F$;LOC(1):CLOSE:KILL \"RM1.DAT\":END",
+                  "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+        CHECK_EQ(command(r, "RUN"), std::string("err 63  20 \r\n 1 \r\none! 1 \r\n"));
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_with(r, "/s:32767");
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RM2.DAT\",32767:FIELD #1,4 AS F$:ON ERROR GOTO 90",
+              "20 LSET F$=\"one!\":PUT #1,1:LSET F$=\"bad!\":PUT #1,196609:PRINT LOC(1):PUT #1,131173:PRINT LOC(1)",
+              "30 GET #1,1:PRINT F$;LOC(1):CLOSE:KILL \"RM2.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("err 63  20 \r\n 1 \r\nerr 63  20 \r\n 1 \r\none! 1 \r\n"));
+}
+
+// Review round 1, F3 (the owner's answer 17, the OO-1's choice): OPEN with no LEN takes the smaller of 128 and /S:,
+// so a /S: below 128 doesn't refuse the plain OPEN. /S:64: OPEN "R" with no LEN is LEN 64 (FIELD of 64 taken, of
+// 65 Field overflow), a record PUT and read back; LEN 65 Illegal function call. Must-fail: the default 128 always
+// (the OPEN Illegal function call).
+TEST(open_s_default_len_is_s_if_smaller_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_with(r, "/s:64");
+    CHECK_EQ(command(r, "NEW"), std::string());
+    enter(r, {"10 OPEN \"R\",#1,\"RS64.DAT\":ON ERROR GOTO 90:FIELD #1,65 AS X$:FIELD #1,64 AS A$",
+              "20 LSET A$=\"sixty-four\":PUT #1,2:LSET A$=\"\":GET #1,2:PRINT LEFT$(A$,10);LOC(1);LOF(1)",
+              "30 CLOSE:OPEN \"R\",#2,\"RS65.DAT\",65:CLOSE:KILL \"RS64.DAT\":END",
+              "90 PRINT \"err\";ERR;ERL:RESUME NEXT"});
+    CHECK_EQ(command(r, "RUN"), std::string("err 50  10 \r\nsixty-four 2  128 \r\nerr 5  30 \r\n"));
 }
 
 // N4: the largest record length (answer 2: /S:n is MAXREC, 1 to 32,767). GW-BASIC started with /S:32767: MAXREC
@@ -1482,13 +1556,13 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
 }
 
 // N7 (F3's M4: CHAIN moved whole to the home block, P8; the owner's answer 6): CHAIN of a one-line text program
-// that ENDs, timed from RUN to that END's ENDCN2 (ENDCON's, after END's CONPOP), with the far calls (each a JSR to
-// FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the interrupts (IRQ's vector reached) counted.
-// M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two (CHAINP itself, CHNRET):
-// the gate is main's 68,279, measured on this rig before M4 (main b1d10088), + 400 (answer 6). CHAIN's other two
-// ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated: a run that long
-// takes about 11 of the tick's interrupts, ~190 cycles each, and which side of one it ends moves its figure by
-// that much. Must-fail: a build whose CHAIN crosses three times more.
+// that ENDs, timed from RUN to that END's ENDCN2 (ENDCON's, after END's CONPOP), less the cycles of the interrupt
+// handlers inside it (the IRQ vector's entry to its RTI: T17's and D9's method, test_gwbasic_screen; review round 1,
+// F6), with the far calls (each a JSR to FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the
+// interrupts counted. M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two
+// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig (main b1d10088), + 400 (answer 6).
+// CHAIN's other two ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated (the
+// owner's word). Must-fail: a build whose CHAIN crosses three times more.
 TEST(chain_is_timed)
 {
     CcpRig r;
@@ -1505,11 +1579,26 @@ TEST(chain_is_timed)
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCN2"), site = lab.at("FTSITE");
         uint16_t farcall = 0;
         const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
-        uint64_t from = 0, cycles = 0;
+        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
+        int idepth = -1;
         bool on = false;
         farcalls = 0;
         irqs = 0;
         r.watch = [&](uint16_t pc) {
+            if (on && idepth < 0 && pc == irq) // an interrupt inside the run: its handler's cycles, left out
+            {
+                ifrom = r.cpu->cycles();
+                idepth = r.cpu->regs().s;
+                ++irqs;
+                return;
+            }
+            if (idepth >= 0)
+            {
+                if (r.cpu->regs().s != idepth + 3)
+                    return;
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
             if (pc == runc && !on)
             {
                 farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
@@ -1519,13 +1608,11 @@ TEST(chain_is_timed)
             }
             else if (on && pc == endcon)
             {
-                cycles = r.cpu->cycles() - from;
+                cycles = r.cpu->cycles() - from - inirq;
                 on = false;
             }
             else if (on && pc == farcall)
                 ++farcalls;
-            else if (on && pc == irq)
-                ++irqs;
         };
         CHECK_EQ(command(r, "RUN"), std::string());
         r.watch = nullptr;
@@ -1539,7 +1626,7 @@ TEST(chain_is_timed)
                 "MERGE %llu (%u, %u)\n",
                 static_cast<unsigned long long>(text), ft, it, static_cast<unsigned long long>(tok), fb, ib,
                 static_cast<unsigned long long>(merge), fm, im);
-    CHECK(text <= 68279 + 400);
+    CHECK(text <= 66521 + 400); // main b1d10088 66,521 on this rig, the handlers left out
     CHECK_EQ(command(r, "KILL \"CHT.BAS\":KILL \"CHB.BAS\""), std::string());
 }
 
