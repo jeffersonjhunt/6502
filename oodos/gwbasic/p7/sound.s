@@ -60,10 +60,11 @@
 ;@entry TIMESP
 ;@entry TIMONP
 ;@entry TIMOFP
-.export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
+;@entry SNDRND
+.export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN, SNDRND
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
-.import SCRMOD, EVAREA, TIMON, TIMOFP
+.import SCRMOD, EVAREA, TIMON, TIMOFP, ERROR, RNDX, RNDMN2
 .include "oolib.inc"
 
 MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
@@ -432,6 +433,42 @@ WAITQ:          STA     WLIM
                 JMP     MU_STOP
 @x:             RTS
 
+; --- SNDRND (7f's U7) -----------------------------------------------------------------------
+
+; SNDRND (OO-1, the owner's extension: the SID seed plan's answer 8):
+; RANDOMIZE SOUND, TXTPTR at SOUND's token: the statement must end; GW-BASIC's
+; own driver, started this run (DRVON), quit first if nothing is queued (the
+; next SOUND or PLAY starts it again), else Device unavailable; then
+; function 82's SN_NOISE for 3 bytes of SID A's voice 3 noise, RND's three
+; seed bytes (RNDX: the plan's answer 11), and RND's step as RANDOMIZE n's
+; (RNDMN2). Refused (another program's 6510, an OODOS before 0.14 or no
+; card): Device unavailable (68).
+ERRDNA          = 68
+SNDRND:         JSR     CHRGTR
+                BEQ     :+
+                JMP     SNERR
+:               LDA     DRVON
+                BEQ     @n
+                LDA     #0             ; notes queued: the driver isn't idle
+                JSR     MU_COUNT
+                BNE     @dna
+                JSR     MU_QUIT
+                STZ     DRVON
+@n:             LDA     #<NOISEB
+                LDX     #>NOISEB
+                LDY     #O_SOUND
+                JSR     BDOS
+                CMP     #0
+                BNE     @dna
+                LDX     #2
+:               LDA     NOISEB + 2,X
+                STA     RNDX,X
+                DEX
+                BPL     :-
+                JMP     RNDMN2
+@dna:           LDA     #ERRDNA
+                JMP     ERROR
+
 ; --- MSNOW ---------------------------------------------------------------------------------
 
 ; MSNOW: MSN the millisecond counter (32 bits). Screen mode: EVAREA's
@@ -478,6 +515,7 @@ NOTE1L:         .byte   4              ; this note's
 OCTAVE:         .byte   4              ; O
 
 .data
+NOISEB:         .byte   SN_NOISE, 3, 0, 0, 0 ; function 82's block: three noise bytes (SNDRND's)
 FTCB:           .byte   FT_COUNT, 0, 0, 0, 0 ; function 80's FT_COUNT block (console mode's ms)
 
 .segment "BRAM"

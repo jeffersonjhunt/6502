@@ -1233,6 +1233,50 @@ TEST(a_key_s_cost_with_no_trap_armed)
     CHECK(f1 > 100 && f1 <= 340 + 30);
 }
 
+// N36 (7f's U7; the SID seed plan's answers 8, 10 and 11, the owner's extension): RANDOMIZE SOUND seeds RND from
+// SID A's voice 3 noise, function 82's SN_NOISE: RND's three seed bytes are the three the call returned (P7's block,
+// read from its block in memory), then RND's step once (24 bits: x 214,013 + 2,531,011); two reseeds give different
+// sequences; after PLAY in MB with nothing queued any more it works (GW-BASIC's idle driver quit) and the next PLAY
+// plays (the driver loaded again); with MB notes queued, Device unavailable. Guards a seed that is always the same;
+// the next PLAY silent. Seen failing with (a) the driver not started again after the reseed's quit (DRVON kept),
+// (b) RNDX's low byte not written.
+TEST(randomize_s_sid_reseed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::map<std::string, uint16_t> lab = lbl_map(), p7 = lbl_map("p7.lbl");
+    REQUIRE(lab.count("RNDX") == 1 && lab.count("PAGBLK") == 1 && p7.count("NOISEB") == 1);
+    const uint32_t noise = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + 7u)) * 0x4000u + 0x800u + (p7.at("NOISEB") - 0xC800u);
+    auto seed_ok = [&] {
+        const uint32_t n = r.phys(noise + 2) | r.phys(noise + 3) << 8 | static_cast<uint32_t>(r.phys(noise + 4)) << 16;
+        const uint32_t want = (n * 214013u + 2531011u) & 0xFFFFFFu;
+        const uint32_t got = r.phys(lab.at("RNDX")) | r.phys(lab.at("RNDX") + 1u) << 8 |
+                             static_cast<uint32_t>(r.phys(lab.at("RNDX") + 2u)) << 16;
+        if (got != want)
+            std::printf("  the noise %06X: RNDX %06X, want %06X\n", n, got, want);
+        return got == want;
+    };
+    CHECK_EQ(said(r, "RANDOMIZE SOUND"), std::string());
+    CHECK(seed_ok());
+    const std::string a = said(r, "RANDOMIZE SOUND:PRINT RND;RND");
+    const std::string b = said(r, "RANDOMIZE SOUND:PRINT RND;RND");
+    CHECK(a != b);
+    CHECK(a.find('.') != std::string::npos);
+    Sound s;
+    s.watch(r);
+    CHECK_EQ(said(r, "PLAY \"MB T255 L64 C\""), std::string());
+    r.run(ms(200));
+    CHECK_EQ(said(r, "RANDOMIZE SOUND"), std::string());
+    CHECK(seed_ok());
+    CHECK(!running(r)); // the idle driver quit
+    CHECK_EQ(said(r, "PLAY \"MB T255 L64 D\""), std::string());
+    CHECK_EQ(s.entries.size(), 2u);
+    CHECK_EQ(s.loads.size(), 2u);
+    CHECK_EQ(said(r, "PLAY \"MB L1 CDEF\":RANDOMIZE SOUND"), std::string("Device unavailable"));
+    r.watch = nullptr;
+}
+
 int main()
 {
     return run_all();
