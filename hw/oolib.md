@@ -1534,16 +1534,18 @@ and more in L5:
   - **OODOS:** the warm boot and `DM_CONSOLE` write SPRCTL 0 (CRTREGS), so no program's setting reaches the next;
     function 83's `DM_POINTER` takes +1 = `DM_PTRFULL` (64) + the sprite for a full-resolution pointer, its entry's
     byte 3 bit 7 set each frame (refused before: growth); 128-254 refused. `DM_INFO`'s +4 is still 0-63 or `$FF`.
-  - **`gxsprf.s`**, a module of its own: `GX_SPRFULL` (A 1 on, 0 off; `GE_VERSION` below interface 14, SPRCTL
-    untouched) and `GX_SPRFPOS` (a 640-unit position, byte 3's bit 7 set). `GX_SPRPOS` and the rest of gxspr.s are
+  - **Two modules of their own:** `gxsctl.s`'s `GX_SPRFULL` (A 1 on, 0 off; `GE_VERSION` below interface 14,
+    SPRCTL untouched) and `gxsprf.s`'s `GX_SPRFPOS` (a 640-unit position, byte 3's bit 7 set), apart so a program
+    that keeps its own table and only sets FULL doesn't link gxspr.s (review round 1, F3; `gxsctl` sorts before
+    gxspr and gxsprf under C and en_US alike). `GX_SPRPOS` and the rest of gxspr.s are
     byte for byte as before (it writes the bit clear, so the position call chooses the size); OOUI.BNK and
     GWBASIC.COM and .OVL too.
   - **mkasset.py's `sprites --table --full`**; VIEW calls `GX_SPRFULL` 1 with a table (a refusal under an older
     OODOS ignored: the table shows doubled).
   - **The library's archive** lists its modules in byte order (`LIBSRC` sorted, answer 11): the locale's collation
     had put gxsprf before gxspr locally and after it in make_card.sh's container.
-  - **Costs:** OODOS 13 bytes of code and 1 of BSS; `gxsprf` 87 bytes of code, only in programs that call it (which
-    then link gxspr.s's 222 and its 514-byte shadow too: VIEW.COM 6,313 → 6,627 bytes); `GX_SPRFPOS` is
+  - **Costs:** OODOS 13 bytes of code and 1 of BSS; `gxsctl` 31 bytes of code (VIEW.COM 6,313 → 6,349 bytes);
+    `gxsprf` 56, which takes in gxspr.s's 222 and its 514-byte shadow; `GX_SPRFPOS` is
     `GX_SPRPOS` and an `ORA`, 2 cycles more. The card's frame times are [sprites640.md's "As built"](sprites640.md).
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step

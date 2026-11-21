@@ -1340,7 +1340,9 @@ console's palette entry 0, black.
 Since OODOS 0.13, a sprite table made with `mkasset.py sprites --table --full` shows its sprites at full resolution,
 one screen pixel for each of a sprite's pixels, at places across the whole 640×480
 ([hw/sprites640.md](../../hw/sprites640.md)); a table made without `--full` shows as before, each sprite pixel 2×2.
-An OODOS older than 0.13 shows a `--full` table's sprites 2×2.
+An OODOS older than 0.13 reads a `--full` table's places as the doubled sprites' own: its sprites show 2×2 at twice
+their places, and those placed in the screen's right or bottom half (`mkasset.py` puts a long sheet's later frames
+there) don't show at all.
 
 #### Errors
 

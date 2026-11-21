@@ -158,7 +158,7 @@ sets SPRCTL and keeps big doubled sprites: 31% of a frame native, 23% as WebAsse
 - SPRCTL at `$C48E` (video-rev2.md has it reserved), and the entry's byte 3 bit 7; `$C48F` stays reserved.
 - backplane.inc's `VIDEO_SPRCTL`, `VIDEO_SPR_FULL` and `VIDEO_SPRX_FULL`.
 - OODOS: SPRCTL cleared by the warm boot and `DM_CONSOLE`; `DM_POINTER`'s 64 + the sprite; OOLIB interface 14.
-- OOLIB's `gxsprf.s` (`GX_SPRFULL`, `GX_SPRFPOS`); mkasset's `sprites --table --full`; VIEW sets SPRCTL with a
+- OOLIB's `gxsctl.s` (`GX_SPRFULL`) and `gxsprf.s` (`GX_SPRFPOS`); mkasset's `sprites --table --full`; VIEW sets SPRCTL with a
   table.
 
 #### As built (2026-11-20, branch feat/sprites640) ####
@@ -167,15 +167,17 @@ sets SPRCTL and keeps big doubled sprites: 31% of a frame native, 23% as WebAsse
 
 - **The units:** U1 the record and the Technical Reference's definition; U2 the emulator (SPRCTL, `draw_sprites640`,
   today's path kept as `draw_sprites320`, its body unchanged); U3 the debugger's ` · full`; U4 OODOS (CRTREGS's
-  SPRCTL 0, `DM_POINTER`'s 64 + n, interface 14); U5 OOLIB's `gxsprf.s`; U6 mkasset's `--full`; U7 VIEW's
+  SPRCTL 0, `DM_POINTER`'s 64 + n, interface 14); U5 OOLIB's `gxsprf.s` (`GX_SPRFULL` moved to `gxsctl.s` in review round 1); U6 mkasset's `--full`; U7 VIEW's
   `GX_SPRFULL`, and the Makefile's sorted `LIBSRC` (answer 11); U8 the books and OODOS 0.13. The cards were rebuilt
   after U4, U7 and OODOS 0.13; the sort needed none (the cards were already in byte order).
 - **Byte for byte** as main 77cc7cf6's (cmp): GWBASIC.COM, GWBASIC.OVL, OOUI.BNK (the Makefile's build and
   test/ui's), and a probe linking every export of gxspr.s from oolib.lib. OOUI.BNK holds none of gxspr.s's code (its
   sprite calls are linked on the program's side), so the probe is what sees a change there. mkasset without `--full`
-  writes the same bytes as before. With the sort, of the 32 programs the test tree links, GXTEST, MUTEST, PBTEST
-  (test programs) and VIEW.COM change, each only in the order of a pair of modules (gxspr and gxsprf, mu and munote,
-  pb and pbcard).
+  writes the same bytes as before. Of the 32 programs the test tree links (review round 1, F4, each built from main
+  77cc7cf6 and from the branch under both locales): under LC_ALL=C, as make_card.sh's container builds the cards,
+  GXTEST and VIEW.COM differ in content (the new calls) and PIP.COM in its banner (0.13); MUTEST and PBTEST are byte
+  for byte main's. Under en_US.UTF-8, against main built so, MUTEST and PBTEST differ too, only in the order of a
+  pair of modules (mu and munote, pb and pbcard: main's unsorted list followed the locale), their sizes the same.
 - **The tests** (each seen failing under its mutants, each run on its own case): S1-S7 in test_video_rev2, S8 the
   existing sprite cases unchanged, W1 (vitest), W2 (vga.spec), O1-O3 (test_oodos_video), G1-G2 (test_oodos_gfx), G3
   the byte-for-byte compare, M1 (check_mkasset), X1 (VIEW). **One gap, accepted (answer 11):** S3's mutant (b), a
@@ -208,5 +210,19 @@ times slower for main's card and this one alike, so only figures from one runtim
 within 4% of main's, both ways; full-resolution sprites cost about what the same table doubled does (natively a
 little less; as WebAssembly 3% less over text, 3% more over two direct 640 layers).
 
-**Code:** OODOS 13 bytes and 1 of BSS (OODOS.SYS still 42,880 bytes); `gxsprf` 87 bytes, in a program only with
-gxspr.s's 222 and its 514-byte shadow (VIEW.COM 6,313 → 6,627 bytes); `video_card.cpp` +~55 lines.
+**Code:** OODOS 13 bytes and 1 of BSS (OODOS.SYS still 42,880 bytes); `gxsctl` 31 bytes (VIEW.COM 6,313 → 6,349
+bytes; 6,627 before review round 1's F3, when `GX_SPRFULL` shared `gxsprf` and took in gxspr.s); `gxsprf` 56, in a
+program only with gxspr.s's 222 and its 514-byte shadow; `video_card.cpp` +~55 lines.
+
+**Review round 1** (2026-11-20, the owner: "recommendations as listed"; 4 findings, 3 new, 1 a revision of answer
+11):
+
+- **F1 (minor):** no test wrote SPRCTL mid-frame, so a card latching it at line 480 would have passed. Test
+  `sprctl_is_not_latched_a_write_shows_from_the_next_line` (test_video_rev2): SPRCTL written as the beam starts line
+  200, lines 0-199 of that frame drawn doubled and 200 on full resolution; seen failing with SPRCTL latched at the
+  vertical blank. Chapter 6's `$C48E` notes say the rule as tested.
+- **F2 (nit):** the User's Guide's VIEW: an older OODOS shows a `--full` table's sprites 2×2 at twice their places,
+  those in the screen's right or bottom half not at all.
+- **F3 (nit):** `GX_SPRFULL` in `gxsctl.s`, apart from `GX_SPRFPOS`: VIEW.COM 6,627 → 6,349 bytes, with no 514-byte
+  shadow. GWBASIC.COM, .OVL, OOUI.BNK (both builds) and the gxspr.s probe still byte for byte main 77cc7cf6's.
+- **F4 (nit):** the byte-for-byte paragraph above names its baselines.

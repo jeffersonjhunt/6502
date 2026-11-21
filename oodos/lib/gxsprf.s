@@ -1,42 +1,17 @@
-; OOLIB's full-resolution sprites (include/oolib.inc, "Graphics";
-; hw/sprites640.md; interface version 14): GX_SPRFULL turns the card's
-; SPRCTL FULL bit on or off, and GX_SPRFPOS puts a sprite at a 640 x 480
-; position with its entry's byte 3 bit 7 set, so that it is drawn a sprite
-; pixel a screen pixel while FULL is on. A module of its own, so gxspr.s,
-; and every program that doesn't call these (OOUI.BNK among them), links
-; the same bytes as before. The shadow is gxspr.s's GX_SPR.
+; OOLIB's full-resolution sprite positions (include/oolib.inc, "Graphics";
+; hw/sprites640.md; interface version 14): GX_SPRFPOS puts a sprite at a
+; 640 x 480 position with its entry's byte 3 bit 7 set, so that it is drawn
+; a sprite pixel a screen pixel while SPRCTL's FULL is on (gxsctl.s's
+; GX_SPRFULL). A module of its own, so gxspr.s, and every program that
+; doesn't call it (OOUI.BNK among them), links the same bytes as before. The
+; shadow is gxspr.s's GX_SPR.
 
         .setcpu "65C02"
         .include "oodos.inc"
         .include "oolib.inc"
         .include "gx.inc"
 
-GX_IFACE_FULL   = 14                   ; OODOS's warm boot clears SPRCTL from here on
-
         .code
-
-; A 1 on, 0 off (bit 0). Function 80 asked for the interface, as GX_BMP
-; does for GB_DIRECT: below 14, or no function 80, carry set and A
-; GE_VERSION, SPRCTL untouched. Carry clear otherwise.
-GX_SPRFULL:
-        and     #VID_SPR_FULL
-        pha
-        lda     #FT_INFO
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80: A = X = $FF
-        beq     @old
-        cmp     #GX_IFACE_FULL
-        bcc     @old
-        pla
-        sta     VID_SPRCTL
-        clc
-        rts
-@old:   pla
-        lda     #GE_VERSION
-        sec
-        rts
 
 ; A a sprite: GX_X and GX_Y into its shadow entry's bytes 2-5, byte 3 with
 ; FULL. As GX_SPRPOS but for the bit.

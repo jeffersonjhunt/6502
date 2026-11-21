@@ -798,8 +798,8 @@ card memory all free. Then:
   of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG` (the image in `GX_V` as revision 2's table holds it: bits 0–14
   its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
   `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
-  Since OODOS 0.13 (interface version 14; `gxsprf.s`, a module of its own, so a program that doesn't call them links
-  what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; `GE_VERSION` below
+  Since OODOS 0.13 (interface version 14; `gxsctl.s` and `gxsprf.s`, modules of their own, so a program that doesn't
+  call them links what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; `GE_VERSION` below
   interface 14, SPRCTL untouched) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
   640 × 480, the entry's byte 3 bit 7 set). `GX_SPRPOS` writes the bit clear, so the position call chooses the size:
   a sprite moved by `GX_SPRFPOS` is full resolution, by `GX_SPRPOS` doubled. The groups and `GX_COLL` work at both

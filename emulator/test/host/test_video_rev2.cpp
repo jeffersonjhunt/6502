@@ -1794,6 +1794,42 @@ TEST(full_sprites_order_depth_and_the_32_a_line)
     }
 }
 
+TEST(sprctl_is_not_latched_a_write_shows_from_the_next_line)
+{
+    // SPRCTL isn't latched at line 480, as SPRBASE is: written as the beam starts line 200, it shows from line 200 of
+    // that same frame (review round 1, F1). A 64 x 64 sprite with byte 3 bit 7, at (101, 150): full resolution it
+    // covers lines 150-213 at x 101-164; doubled, lines 300-427 at x 202-329. In the frame of the write, lines 0-199
+    // are drawn doubled (none of it there) and lines 200 on full resolution: rows 50-63 on lines 200-213, and
+    // nothing on 300-427.
+    Rig r;
+    const uint32_t table = 0x1A0000, image = 0x1A1000;
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS;
+    palette(r, 0);
+    pattern(r, image, true, 64, 64, 5);
+    entry(r, table, 0, image, true, 101, 150, true, attrs(3), dims(3, 3));
+    sprites_on(r, table, false);
+    r.show(); // the beam back at the start of line 0
+    REQUIRE(r.card.beam_line() == 0);
+    auto want = [&](unsigned x, unsigned y, bool full) {
+        unsigned tx, ty;
+        if (covers(x, y, 101, 150, 64, 64, full ? 1 : 2, tx, ty))
+            if (const unsigned v = image_px(r, image, true, 64, tx, ty, 0))
+                return rgba(entry_colour(v));
+        return rgba(entry_colour(0));
+    };
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return want(x, y, false); }), 0u); // doubled: 300-427
+    r.card.tick(200 * LINE);
+    CHECK_EQ(r.card.beam_line(), 200u); // lines 0-199 drawn, 200 not yet
+    r.reg(R2::SPRCTL, R2::SPR_FULL);
+    r.card.tick(FRAME - 200 * LINE); // the rest of the frame, through its vertical blank
+    unsigned shown = 0;
+    for (unsigned y = 200; y < 214; ++y)
+        for (unsigned x = 101; x < 165; ++x)
+            shown += r.px(x, y) != rgba(entry_colour(0));
+    CHECK(shown > 0);
+    CHECK_EQ(frame_differs(r, [&](unsigned x, unsigned y) { return want(x, y, y >= 200); }), 0u);
+}
+
 TEST(video_revision_takes_0_1_or_2_only)
 {
     for (unsigned rev : {3u, 9u})

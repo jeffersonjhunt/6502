@@ -1170,7 +1170,10 @@ R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
 
 #### Notes
 
-A write shows from the next line drawn, as CTRL's does; a program sets it once, before its first table. backplane.inc
+SPRCTL isn't latched at line 480, as SPRBASE is: a write shows from the next line drawn, in the same frame, as
+CTRL's does, so lines drawn before it keep the sizes they had (written as the beam starts line 200, lines 0–199 of
+that frame are drawn as before and lines 200–479 by the new setting). A program sets it once, before its first
+table. backplane.inc
 names `VIDEO_SPR_FULL` (`$01`, this register's bit) and `VIDEO_SPRX_FULL` (`$80`, the entry's byte 3 bit 7).
 OODOS's warm boot and function 83's `DM_CONSOLE` write 0, so one program's setting never reaches the next; the BIOS
 leaves it alone, and only /RESET clears it under the monitor. What a full-resolution sprite is: [Full-resolution
