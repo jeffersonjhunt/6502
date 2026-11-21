@@ -6008,6 +6008,17 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       isn't playing (the busy case is that plan's question); the BIOS's jump table grows and its version is raised;
       OODOS programs reach it through OOLIB too. RND stays the manual's repeatable generator; GW-BASIC gets a
       recorded OO-1 extension that reseeds RND from the BIOS function.
+      *As built (2026-11-21, feat/sid-noise; the owner's answers 1-14 under "The SID seed"):* BIOS 0.18's
+      `$C818` function `$A2` (the nine-entry table stays closed: ROMCALL's function list is what grows), one byte
+      of SID A's voice 3 noise in A: refused with no card or while CTRL's RUN is set; voice 3 put on noise at
+      `$FFFF`, gate off, and left so; 23 noise steps waited before the read (about 2,800 cycles: 2,877 measured, the
+      gate 3,500); a zero read and another 8 steps later pulse TEST, at most 4 times, then refused as a busy card
+      (18,905 cycles for a stuck chip, recorded). It lives in a segment of its own at the ROM's end, so code after
+      ROMCALL moves only 7 bytes (a 104-byte move stalled two test_bios key cases: [testing.md](testing.md)'s
+      known fragility). OODOS 0.14's function 82 `SN_NOISE` (20; OOLIB interface 15): +1 n (1-16), the bytes at +2,
+      one ROM call a byte with W3 and VEC on block 63 and interrupts off for it (3,179 cycles at most, the gate
+      4,000; 3 bytes 10,323, the gate 15,000), `SN_BUSY` while `SC_6510` is claimed by anyone, X = `$FB` under a
+      ROM BIOS before 0.18. GW-BASIC's `RANDOMIZE SOUND` is 7f's U7, on this.
   - **Size:** 6–8 KB banked.
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.

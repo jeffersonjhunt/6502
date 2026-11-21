@@ -1136,6 +1136,19 @@ and more in L5:
     The function 15 entry's Cycles say the look may read the Disk II on O: and P:. Owner: "from OODOS 0.6; before
     it, ..." is the books' marker for a behaviour change; F_SIZE's user (`SCB_USER`, not `EXTUSER`) is on the
     backlog. Block 60 1,426 bytes free (debug 1,410): the look 67 bytes in all.
+- **The SID seed: `SN_NOISE`, in function 82** (2026-11-21; [oodos.md](oodos.md)'s 7f note, the owner's answers
+  under "The SID seed").
+  - *As built:* `SN_NOISE` 20 (`SN_OPS` 21), in block 61: a block of +1 n (1-16) and the n bytes at +2, each one call
+    of the ROM BIOS 0.18's `$C818` function `$A2` (ROMNOISE: interrupts off, NB_WIN3 and NB_VEC read and set to
+    block 63 read-only, JSR `$C818` with the token, both put back, PLP). OODOS's first ROM call that returns: it
+    runs from W2, so it can move W3; VEC moves with it so a Break meanwhile reaches the ROM's monitor. No claim, as
+    `SN_BEEP`; `SN_BUSY` while `SC_6510` is claimed by anyone (OODOS knows what is claimed, not by whom; a claimant
+    reads OSC3 itself) or the ROM refuses; A = X = `$FF` for no card or n out of range; A = `$FF`, X = `$FB` under a
+    ROM BIOS before 0.18 (bdos.s's ROM18, as NEWROM). No linked-library routine: a program's code can't reach W3.
+    OOLIB interface 15, OODOS 0.14. Block 61: 1,532 bytes free (108 used); block 60: 1,155 free (20 for ROM18).
+  - *Measured:* 1 byte 3,691 cycles, 3 bytes 10,323 (the gate 15,000), 16 bytes 51,465, the BDOS call whole;
+    interrupts off at most 3,179 a ROM call (the gate 4,000; under the 7,159-cycle tick, so none lost: 16 bytes
+    kept the millisecond counter's time). Voice 3 is left on noise, silent, until the warm boot or a claimant.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.
