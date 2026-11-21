@@ -83,7 +83,10 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 # tools/w1.py: none of its segments in W1's $4000-$7FFF (the W1 contract), or the build fails.
 # Each module's zero page, lib/zpNAME.s, goes into the archive right after NAME, so ld65 lays a
 # program's zero page out as it would with the bytes in NAME itself (libzp.py check holds it).
-LIBSRC = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+# Sorted: $(wildcard) lists in the locale's collation (gxsprf before gxspr, munote before mu under
+# en_US, the other way under C, make_card.sh's container), and the archive's order is the link's, so a
+# program linking both would differ; $(sort) is byte order under any locale, as UISRC's (hw/sprites640.md).
+LIBSRC = $(sort $(patsubst lib/%.s,%,$(wildcard lib/*.s)))
 LIBS = $(foreach m,$(filter-out zp%,$(LIBSRC)),$(m) $(filter zp$(m),$(LIBSRC)))
 $(if $(filter-out $(LIBS),$(LIBSRC)),$(error lib/: zero page modules without their code: $(filter-out $(LIBS),$(LIBSRC))))
 OOLIB_USERS = playsid view
