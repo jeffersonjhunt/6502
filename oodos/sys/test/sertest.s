@@ -12,6 +12,11 @@
 ;       Fletcher sums (A the bytes' sum, B the sum of A after each, both
 ;       modulo 65,536); S7 xx, function 7 after
 ;   P   R's, then busy and read again: N2 nnnn A2 aaaa B2 bbbb
+;   S   busy, then function 85 (O_SERIAL): INFO aa xx, INFOB pp ss (SR_INFO,
+;       with no block and with one); ST aa xx and STB, SR_STATUS's +2-+6
+;       (waiting, room, lost low and high, flags); one byte by function 3,
+;       GOT cc; ST2 and STB2 after it; BAD1 aa xx (port 1), BAD3 aa xx
+;       (operation 3); FL aa xx (SR_FLUSH), ST3 and STB3; then R's reading
 ;   Z   busy, then the warm boot with nothing read
 ;   Q   S7 xx: function 7 at once, then the warm boot
 ;   C   CMD cc: the 6551's command register as the program finds it
@@ -74,7 +79,10 @@ start:  ldx     #1
         cmp     #'Z'
         beq     done
         pha
-        jsr     readall
+        cmp     #'S'
+        bne     :+
+        jsr     case_s
+:       jsr     readall
         lda     #<sn
         ldx     #>sn
         jsr     report
@@ -136,6 +144,137 @@ case_c: lda     #<scmd
         jsr     HEX2
         jsr     CRLF
         jmp     WBOOT
+
+; S: function 85 after busy (n units): INFO aa xx and INFOB pp ss (SR_INFO
+; with no block and with one); ST aa xx and STB, SR_STATUS's +2-+6 (waiting,
+; room, lost low and high, flags); one byte read by 3, GOT cc, and ST2 aa xx
+; STB2 the same after it; BAD1 aa xx (port 1), BAD3 aa xx (operation 3); FL
+; aa xx (SR_FLUSH), ST3 aa xx STB3; then R's reading: N A B, S7.
+case_s: lda     #SR_INFO
+        ldx     #0
+        ldy     #O_SERIAL
+        jsr     BDOS
+        phx
+        pha
+        lda     #<sinfo
+        ldx     #>sinfo
+        jsr     PUTS
+        pla
+        plx
+        jsr     pair
+        lda     #SR_INFO
+        sta     srblk
+        lda     #<srblk
+        ldx     #>srblk
+        ldy     #O_SERIAL
+        jsr     BDOS
+        lda     #<sinfob
+        ldx     #>sinfob
+        jsr     PUTS
+        lda     srblk + 1
+        jsr     HEX2
+        lda     srblk + 2
+        jsr     HEX2
+        jsr     CRLF
+        lda     #<sst
+        ldx     #>sst
+        jsr     status
+        ldy     #A_READ
+        jsr     BDOS
+        pha
+        lda     #<sgot
+        ldx     #>sgot
+        jsr     PUTS
+        pla
+        jsr     HEX2
+        jsr     CRLF
+        lda     #<sst2
+        ldx     #>sst2
+        jsr     status
+        lda     #SR_STATUS              ; port 1: none
+        sta     srblk
+        lda     #1
+        sta     srblk + 1
+        lda     #<srblk
+        ldx     #>srblk
+        ldy     #O_SERIAL
+        jsr     BDOS
+        phx
+        pha
+        lda     #<sbad1
+        ldx     #>sbad1
+        jsr     PUTS
+        pla
+        plx
+        jsr     pair
+        lda     #SR_OPS                 ; an operation past the last
+        ldx     #0
+        ldy     #O_SERIAL
+        jsr     BDOS
+        phx
+        pha
+        lda     #<sbad3
+        ldx     #>sbad3
+        jsr     PUTS
+        pla
+        plx
+        jsr     pair
+        lda     #SR_FLUSH
+        sta     srblk
+        stz     srblk + 1
+        lda     #<srblk
+        ldx     #>srblk
+        ldy     #O_SERIAL
+        jsr     BDOS
+        phx
+        pha
+        lda     #<sfl
+        ldx     #>sfl
+        jsr     PUTS
+        pla
+        plx
+        jsr     pair
+        lda     #<sst3
+        ldx     #>sst3
+        jsr     status
+        rts
+
+; "label aa xx" for SR_STATUS on port 0 by a block, then "labelB" and its +2-+6.
+status: sta     PTR
+        stx     PTR + 1
+        lda     #SR_STATUS
+        sta     srblk
+        stz     srblk + 1
+        lda     #<srblk
+        ldx     #>srblk
+        ldy     #O_SERIAL
+        jsr     BDOS
+        phx
+        pha
+        lda     PTR
+        ldx     PTR + 1
+        jsr     PUTS
+        pla
+        plx
+        jsr     pair
+        jsr     nextl                  ; its second label
+        ldx     #5
+        ; fall through
+; X bytes of srblk from +2 as hex, CR LF.
+srhex:  lda     #<(srblk + 2)
+        sta     PTR
+        lda     #>(srblk + 2)
+        sta     PTR + 1
+        jsr     HEXN
+        jmp     CRLF
+
+; A and X as "aa xx", CR LF.
+pair:   phx
+        jsr     HEX2
+        jsr     SPACE
+        pla
+        jsr     HEX2
+        jmp     CRLF
 
 ; '0'-'9', 'A'-'F' to 0-15.
 hexdig: sec
@@ -274,9 +413,19 @@ sn:     .byte   "N $", " A $", " B $"
 sn2:    .byte   "N2 $", " A2 $", " B2 $"
 ss7:    .byte   "S7 $"
 scmd:   .byte   "CMD $"
+sinfo:  .byte   "INFO $"
+sinfob: .byte   "INFOB $"
+sst:    .byte   "ST $", "STB $"
+sst2:   .byte   "ST2 $", "STB2 $"
+sst3:   .byte   "ST3 $", "STB3 $"
+sgot:   .byte   "GOT $"
+sbad1:  .byte   "BAD1 $"
+sbad3:  .byte   "BAD3 $"
+sfl:    .byte   "FL $"
 
         .data
 scbblk: .byte   $22, 0, 0, 0           ; function 49: CONIN:'s vector
+srblk:  .res    7                      ; function 85's block
 evblk:  .byte   FT_OPEN
         .word   AREA
         .byte   16                     ; the size: 16, or 0 (256)

@@ -1,6 +1,7 @@
 ; The serial line's receive buffer (hw/oodos.md, "OODOS: a receive buffer
 ; for the serial line"): a ring a port, filled by the dispatcher, emptied
-; by the BIOS (TTYIST, TTYIN). COM1 alone for now, on the stand-in W65C51N; written so that the
+; by the BIOS (TTYIST, TTYIN), and function 85, O_SERIAL, OOLIB's sixth
+; area. COM1 alone for now, on the stand-in W65C51N; written so that the
 ; TL16C552A is another back end: only RXPUT, SRPULL, RXFLUSH and RXDEAF
 ; (below) touch the chip.
 ;
@@ -19,9 +20,9 @@
 .setcpu "65C02"
 .include "sys.inc"
 .include "oodos.inc"
-.import DEAFEN, EVON, EVBLK
-.importzp EVP
-.export SERID6, RXDEAF, SRPULL, RXFLUSH
+.import DEAFEN, EVON, EVBLK, RETFF, PGET, PPUT
+.importzp EVP, PX, T0, T1, T2, T3      ; the BDOS's (bdos.inc), for 85
+.export SERID6, RXDEAF, SRPULL, RXFLUSH, F_SERIO
 .export RXHEAD, RXTAIL, RXLOST, RXFLG
 
 .segment "SYSBSS"
@@ -125,3 +126,83 @@ RXDEAF:         LDA     ACIA_CMD
                 JMP     RXPUT
 @done:          RTS
 .assert RX_STOPPED = ACIA_CMD_RXOFF, error, "RXDEAF ORs RXFLG into the command"
+
+; ---------------------------------------------------------------------------
+; Function 85, the serial line: X = 0, A the operation; else A/X a block, +0
+; the operation, its parameters after (oodos.inc's SR_*). With no block,
+; SR_STATUS and SR_FLUSH are COM1's. A = X = $FF for an operation that
+; isn't one or a port that isn't there.
+
+.segment "BDOS"
+
+F_SERIO:        LDX     PX
+                BEQ     @op            ; X = 0: A is the operation
+                JSR     PGET           ; the block's +0; PP then at +1
+@op:            CMP     #SR_OPS
+                BCS     @ff
+                TAY
+                BEQ     SRINFO
+                LDX     PX
+                BEQ     @port0
+                PHY
+                JSR     PGET           ; +1, the port
+                PLY
+                CMP     #SR_PORTS
+                BCS     @ff
+@port0:         CPY     #SR_FLUSH
+                BEQ     SRFLUSH
+                BRA     SRSTAT
+@ff:            JMP     RETFF
+
+; SR_INFO: A = the ports (bit 0 COM1), X = the ring's size less 1; a block
+; gets them at +1 and +2.
+SRINFO:         LDX     PX
+                BEQ     @ret
+                LDA     #SR_COM1
+                JSR     PPUT
+                LDA     #RXSIZE - 1
+                JSR     PPUT
+@ret:           LDA     #SR_COM1
+                LDX     #RXSIZE - 1
+                RTS
+
+; SR_STATUS: A = the bytes waiting, X = the flags (SF_*); a block gets +2
+; those waiting, +3 the room, +4-5 RXLOST, +6 the flags. One moment's.
+SRSTAT:         PHP
+                SEI
+                LDA     RXHEAD
+                SEC
+                SBC     RXTAIL
+                STA     T0
+                LDA     RXLOST
+                STA     T1
+                LDA     RXLOST + 1
+                STA     T2
+                LDA     RXFLG
+                BEQ     @flags
+                LDA     #SF_STOPPED
+@flags:         STA     T3
+                PLP
+                LDX     PX
+                BEQ     @ret
+                LDA     T0
+                JSR     PPUT
+                LDA     #RXSIZE - 1
+                SEC
+                SBC     T0
+                JSR     PPUT
+                LDA     T1
+                JSR     PPUT
+                LDA     T2
+                JSR     PPUT
+                LDA     T3
+                JSR     PPUT
+@ret:           LDA     T0
+                LDX     T3
+                RTS
+
+; SR_FLUSH: RXFLUSH, in block 62 (W3 on it for the call). A = X = 0.
+SRFLUSH:        CALLRES RXFLUSH
+                LDA     #0
+                TAX
+                RTS

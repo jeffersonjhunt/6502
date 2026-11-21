@@ -131,6 +131,7 @@ OA_INPUT        = $02                  ;   81, input (L2)
 OA_SOUND        = $04                  ;   82, sound (L3)
 OA_DMA          = $08                  ;   83, DMA and loading (L4)
 OA_VIDEO        = $10                  ;   84, video memory (not yet)
+OA_SERIAL       = $20                  ;   85, the serial line's receive buffer (interface 16)
 
 ; Function 80's operations. X = 0: A is the operation, with no block. Else
 ; A/X is a block, its +0 the operation and its parameters after.
@@ -348,6 +349,17 @@ DM_PAGEEND      = $1C00                ;   and +15-16, the page past its last (A
 DM_SLOTS        = 4                    ; DM_INFO's X
 DM_BUDGET       = 1024                 ; the slots' bytes, all four
 
+; Function 85's operations (X = 0: A is the operation; else A/X a block, +0
+; the operation, +1 the port). A = X = $FF for one that isn't, or a port
+; that isn't there; with no block, SR_STATUS and SR_FLUSH are COM1's.
+SR_INFO         = 0                    ; A = the ports (SR_COM1), X = the ring's size less 1 (255); a block +1, +2
+SR_STATUS       = 1                    ; A = bytes waiting, X = SF_*; a block +2 waiting, +3 room, +4-5 lost, +6 SF_*
+SR_FLUSH        = 2                    ; the ring emptied, the lost count 0, the receiver on; A = X = 0
+SR_OPS          = 3
+SR_COM1         = $01                  ; SR_INFO's ports: bit n port n (0, COM1)
+SR_PORTS        = 1                    ; the ports there are: 0 only
+SF_STOPPED      = $01                  ; SR_STATUS's flags: the ring full, the receiver stopped until a byte is read
+
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
 P_TERMCPM       = 0
@@ -436,5 +448,6 @@ O_FRAME         = 80                   ; frame and timing (OOLIB's first area: h
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)
 O_DMA           = 83                   ; DMA and loading (OOLIB's fourth: hw/oolib.md, L4)
+O_SERIAL        = 85                   ; the serial line's receive buffer (OOLIB's sixth area, interface 16)
 
 .endif

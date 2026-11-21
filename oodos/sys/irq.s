@@ -799,7 +799,7 @@ FT_INFOX:       LDX     PX
 @ret:           LDA     #OOLIB_IFACE
                 LDX     #OOLIB_AREAS
                 RTS
-.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA, error, "L4 has frame and timing, input, sound, and DMA"
+.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA | OA_SERIAL, error, "frame and timing, input, sound, DMA, and the serial line"
 .assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.

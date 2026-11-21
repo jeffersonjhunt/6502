@@ -630,6 +630,15 @@
   "status": "built"
  },
  {
+  "number": 85,
+  "name": "O_SERIAL",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
   "number": 98,
   "name": "DRV_FREE",
   "documented": true,

@@ -39,6 +39,7 @@ namespace
 {
     constexpr uint32_t BYTE_CYCLES = 3729; ///< 19,200 baud, 8-N-1
     constexpr uint32_t AREA = 0x2000;      ///< SERTEST's event area, in block 0
+    constexpr unsigned EV_VBGO = 12, EV_RXCNT = 13, EV_RXCNT2 = 14; ///< oodos.inc's
 
     /// n bytes of a pattern with every value in it.
     std::string pattern(size_t n, unsigned seed = 0)
@@ -366,6 +367,85 @@ TEST(the_warm_boot_quiets_a_program_s_6551_and_keeps_oodos_s_receiver_interrupt)
     const size_t from = start(r, "sertest.com", " Q"); // a program's end: the warm boot
     ran(r, from);
     CHECK_EQ(r.acia().command(), 0x09);
+}
+
+// ---- S3: the event area's EV_RXCNT and function 85 ------------------------------------------------------
+
+TEST(the_event_area_s_plus_13_counts_each_byte_from_0_at_the_open)
+{
+    // R1: with a layout 1 area and with a layout 2 one, +13 (EV_RXCNT) counts the bytes the ring took, modulo
+    // 256; +14 (COM2's) and +15 stay 0, and +12 (EV_VBGO, whose bits start vertical-blank copies) stays 0. A
+    // second program's area at the same place starts again from 0.
+    for (const char *layout : {"1", "2"})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        // Each stream once the area is open (EVON): what the ring takes before that isn't counted.
+        const uint32_t evon = SYS_BLOCK_PHYS + sym("EVON");
+        REQUIRE(r.phys(evon) == 0);
+        size_t from = start(r, "sertest.com", std::string(" R06") + layout);
+        for (int i = 0; i < 100 && !r.phys(evon); ++i)
+            r.run(1000);
+        r.serial_paced(pattern(200, 8));
+        CHECK_EQ(field(ran(r, from), "N").substr(0, 4), std::string("00C8"));
+        CHECK_EQ(r.phys(AREA + EV_RXCNT), 200);
+        CHECK_EQ(r.phys(AREA + EV_RXCNT2), 0);
+        CHECK_EQ(r.phys(AREA + 15), 0);
+        CHECK_EQ(r.phys(AREA + EV_VBGO), 0);
+        from = start(r, "sertest.com", std::string(" R02") + layout);
+        for (int i = 0; i < 100 && !r.phys(evon); ++i)
+            r.run(1000);
+        r.serial_paced(pattern(10, 9));
+        CHECK_EQ(field(ran(r, from), "N").substr(0, 4), std::string("000A"));
+        CHECK_EQ(r.phys(AREA + EV_RXCNT), 10);
+    }
+}
+
+TEST(with_no_event_area_nothing_is_written_where_one_was)
+{
+    // R2: an area opened and closed, its 256 bytes then $5A: a stream after it writes none of them.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "sertest.com", " R06X");
+    r.serial_paced(pattern(200, 10));
+    CHECK_EQ(field(ran(r, from), "N").substr(0, 4), std::string("00C8"));
+    bool kept = true;
+    for (unsigned i = 0; i < 256; ++i)
+        kept = kept && r.phys(AREA + i) == 0x5A;
+    CHECK(kept);
+}
+
+TEST(function_85_says_the_ring_s_state_and_flushes_it)
+{
+    // R3-R5: T3's overflow (400 paced bytes into a full ring), then SERTEST's S: SR_INFO; SR_STATUS stopped,
+    // 255 waiting, no room, nothing lost yet (the chip's OVRN is seen when its byte is taken); one byte read, so
+    // SRPULL takes the chip's: 255 waiting again, not stopped, 1 overrun seen; port 1 and operation 3 refused;
+    // SR_FLUSH: empty, the count 0; and the line takes bytes again.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::string data = pattern(400, 11), after = pattern(50, 12);
+    const size_t from = start(r, "sertest.com", " S0A");
+    r.serial_paced(data);
+    REQUIRE(r.until("\r\nSTB3 ", ms(6000), from));
+    REQUIRE(r.until("\r\n", ms(500), r.out.rfind("STB3 ")));
+    r.serial_paced(after);
+    const std::string o = ran(r, from);
+    char got[8];
+    std::snprintf(got, sizeof got, "%02X", static_cast<uint8_t>(data[0]));
+    CHECK_EQ(field(o, "INFO"), std::string("01 FF"));
+    CHECK_EQ(field(o, "INFOB"), std::string("01FF"));
+    CHECK_EQ(field(o, "ST"), std::string("FF 01"));
+    CHECK_EQ(field(o, "STB"), std::string("FF00000001"));
+    CHECK_EQ(field(o, "GOT"), std::string(got));
+    CHECK_EQ(field(o, "ST2"), std::string("FF 00"));
+    CHECK_EQ(field(o, "STB2"), std::string("FF00010000"));
+    CHECK_EQ(field(o, "BAD1"), std::string("FF FF"));
+    CHECK_EQ(field(o, "BAD3"), std::string("FF FF"));
+    CHECK_EQ(field(o, "FL"), std::string("00 00"));
+    CHECK_EQ(field(o, "ST3"), std::string("00 00"));
+    CHECK_EQ(field(o, "STB3"), std::string("00FF000000"));
+    CHECK_EQ(field(o, "N"), sums(after));
+    CHECK_EQ(r.acia().overruns(), 144u);
 }
 
 int main() { return run_all(); }
