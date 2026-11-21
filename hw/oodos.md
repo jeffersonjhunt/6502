@@ -3934,11 +3934,11 @@ copy of common memory at `$F800` (above).
 | P1 | math: PRINT USING's formatting, `$FOUT`, `$FIN`, double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; PRINT, LPRINT, INPUT; *7e4:* WINDOW's map, PMAP, POINT(2) and (3) (`p1/window.s`) | 8.5 KB; 9.3 KB at 7e4 |
 | P2 | program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages; *7e4:* VIEW, WINDOW and PMAP in the extended word table | 5.8 KB |
 | P3 | the other statements: RENUM, AUTO, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, ON ERROR and RESUME, the event traps, CALL; *7e2:* CIRCLE's parse (`p3/advgrp.s`), DRAW and MACLNG (`p3/draw.s`, `p3/maclng.s`: the owner's answer 1, a statement's parsing in P3); *7e3:* GET's and PUT's array, size, header and action word (`GPUTA`, `p3/advgrp.s`); *7e4:* CIRCLE's radius under a WINDOW *7e5:* the palette's writes (`p3/vpal.s`: the space plan's reserve (a)), SCREEN 10's palette made | 9.5 KB; 8.1 KB at 7e2, 8.5 KB at 7e3 and 7e4, 8.7 KB at 7e5 |
-| P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE | 8.5 KB |
+| P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE; *F3:* CHAIN out to P8 (M4: SAVFRE, CHNSTP, SAVFGT stay), records to 16,777,215 (RECNUM, MULHI) | 8.5 KB; 11.0 KB at F3 |
 | P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) *7e3:* GET and PUT (`GPUTG`, its corners; the OEM's rows, PGINIT, NREAD, NWRITE, with the byte paths), DEF SEG's page in SCREEN 1 and 2 (`DSGPK`, `DSGRUN`) *7e4:* the viewport (`GVIEW`, `GVWGET`, MAPXYC's corner, MAPABS), the window's hook in SCAND, POINT(n), LINE's style, PAINT's tiles *7e5:* SCREEN 10, 11 and 12 (their pages, SCREEN 10's palette's allocation, the pixels, y past 255, GET and PUT in pieces, DEF SEG's linear page); the palette's writes out to P3 | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2, 9.7 KB at 7e3, 10.5 KB at 7e4, 11.0 KB at 7e5 |
 | P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 *7e1:* SCREEN's modes 1 and 2 (SCRSTT, SMODE), WIDTH's, COLOR's and CLS's way to P5, the text over the graphics *7e5:* the statements' parse out to P8 (M6), SCREEN 10-12's numbers, rows and widths | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3, 11.6 KB at 7e1, 11.2 KB at 7e5 |
 | P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
-| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`); *7e4:* VIEW's and WINDOW's stubs (VIEW's checks), PMAP's parse (ERDEVP) *7e5:* the screen statements' parse (M6: SCNINT, GTPRMS, CSRATR, KEY n,"text") | 4.3 KB at 7e2, 4.6 KB at 7e3, 5.1 KB at 7e4, 5.6 KB at 7e5 |
+| P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`); *7e4:* VIEW's and WINDOW's stubs (VIEW's checks), PMAP's parse (ERDEVP) *7e5:* the screen statements' parse (M6: SCNINT, GTPRMS, CSRATR, KEY n,"text") *F3:* CHAIN and COMMON's work (M4: `p8/chain.s`) | 4.3 KB at 7e2, 4.6 KB at 7e3, 5.1 KB at 7e4, 5.6 KB at 7e5, 7.2 KB at F3 |
 
 - **One copy of OOLIB's video state.** `gxmem` keeps the block in W1, the bank in slot 1, the card memory map and
   the W1 map. A second copy in another block would get out of step, as [ooui.md](ooui.md#u3a-the-blocks) found for
@@ -4122,7 +4122,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - random files of any LEN on 128-byte records: record *n* is bytes (*n* − 1) × LEN on, read and written
       through the 128-byte records it spans, one at a time, through the file's own 128-byte buffer in P4 (a
       random file has no sequential use for it), read, changed and written back for a part record. /S:, the most
-      LEN may be, is at most 1,024 (W4; GW-BASIC's own limit is 32,767);
+      LEN may be, is at most 1,024 (W4; GW-BASIC's own limit is 32,767; *F3: /S: to 32,767, W4's 1,024 gone*);
     - **past the file's end** (X1): a PUT whose record ends partway through a 128-byte record must read that
       record first, and there function 33 returns 1 (unwritten data) or 4 (past the extent). In the
       read-modify-write, a 33 that returns 1 or 4 gives a buffer of zeros, the new bytes go into it, and the 34
@@ -4254,6 +4254,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **/S:** is `MAXREC` (resident, 2 bytes: start-up will set it from the command line), 128 while the switches are
       passed over; LEN past it is Illegal function call (OO-1: the 1983 source takes any LEN, PC-BASIC refuses past
       /S:), and it may be raised to 1,024 (W4). *Re-cited (B17):* p. 221, recl can't pass /S:'s value; p. 223.
+      *F3 (the owner's answer 2, revising decision 6): /S:n is MAXREC, 1 to 32,767, set by P2's WASS.*
     - **CVI to MKD$** are P4's: the resident EVALNF (IBMRES.ASM's, +56 bytes with the hook's DATE$/TIME$ branch) makes
       one far call to P4's FUNDSX. P3's WRITE # pads a random record through P4's `CMPFBP` (a far call, OUTDO's run
       sent first). P1's ADRGET is an entry, for DPUTG.
@@ -4312,7 +4313,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **7c as built, in sum** (Proposed, 2026-11-15; feat/gwbasic-7c, the owner's decisions of 2026-11-14 and 15):
     - **Done:** the home block and STMDSX in it; files (sequential, random on 128-byte records with X1's rule,
       route (c) checked); LOAD, SAVE, MERGE and a program on the command line with its switches (SCANSW: /F:, /S:,
-      /C: read and ignored, /M: as CLEAR's n); KILL, NAME, FILES (SYS files left out) and the directory hook;
+      /C: read and ignored, /M: as CLEAR's n; *F3: /S: kept as MAXREC*); KILL, NAME, FILES (SYS files left out) and the directory hook;
       CHAIN and COMMON, LIST to a file, VARPTR(#n); the devices as files; error mode $FE at start-up, so a drive
       with no image is a BASIC error (OODOS's physical errors mapped as the source's DSKERR maps MS-DOS's).
     - **Held back (the owner, 2026-11-14), done in 7c's tail (2026-11-18, [below](#the-sub-phases)):** P5's seed and
@@ -5159,7 +5160,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       round 1 (F6) for what FRCINT would refuse, by the value.
     - item 12: *since the owner's interim cap* (2026-11-19, review round 1's record below) records stop at 32,767,
       main's limit: an explicit number past it, or a GET or PUT with no number that would step past it, is Bad record
-      number; -1 Bad record number. The manual's range, to 16,777,215, is owed (F3, with P4's relief).
+      number; -1 Bad record number. The manual's range, to 16,777,215, is owed (F3, with P4's relief). *Built in
+      F3 (below, "As built, F3"): 1 to 16,777,215 within 32 MB; the cap gone.*
     - item 13: 0 MOD 0 is Division by zero.
     - item 18's values: *since U7* OODOS's physical error's code and the SCB's error drive (below).
     - item 19: SPC(n<0), TAB(n<1), and since review round 1 (F5) either past 255, are Illegal function call.
@@ -5181,7 +5183,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - OPEN "COM...,PE", parity checking (pp. 226-232);
     - IOCTL and IOCTL$ (pp. 139-141), and OPEN of an installed device driver (3.0), both waiting on OODOS;
     - SHELL (pp. 317-321) and ENVIRON, ENVIRON$ (pp. 81-86), 7g's questions, SHELL an OODOS interface question;
-    - record numbers past 65,535 (ADRGET's 16 bits; the manual's reach is 16,777,215).
+    - ~~record numbers past 65,535 (ADRGET's 16 bits; the manual's reach is 16,777,215).~~ *Built in F3 (below).*
   - **The owner's answers to the first build** (2026-11-19, "recommendations as listed for the four"), built as U5-U8
     on the same branch:
     - **U5, FILES** (answer 1): the home block's FILES stub (`p8/far4.s`) prints the heading line before P4's
@@ -5260,7 +5262,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - F2 (major) CLOSE of a random file only read, after a LOF, called function 30 and failed on a read-only drive:
       the count is kept only if it changed (a PUT past the size at open). Mutant: the test left out.
     - F3 (major) LOC of a random record past 32,767, and GET and PUT without a number past 65,535: **stopped, not
-      built** (P4's room: below).
+      built** (P4's room: below). *Built in F3 (below, "As built, F3").*
     - F4 (minor) RUN of a text file whose last line, with no CR, is only blanks or a tab didn't run: MAIN puts in
       such a line only if it holds more than blanks and tabs, else runs at once. Mutant: the blank's skip left out.
     - F5 (minor) SPC and TAB past 255 are Illegal function call (pp. 327, 340); tabneg gains them. Mutant: TABER's
@@ -5322,13 +5324,15 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       and 1,024 hand cases now read 32,767 and refuse 32,768. Two new hand cases, `record_32767_is_the_last_an_
       explicit_32768_is_refused` and `get_and_put_with_no_number_stop_after_record_32767`, each seen failing on its
       own case under its mutants: the explicit check gone, the sequential check gone, each cap moved down to
-      32,512 (record 32,767 refused), and DSKLOC reading FD_LOG's high byte (LOC at 32,767 not 32767).
+      32,512 (record 32,767 refused), and DSKLOC reading FD_LOG's high byte (LOC at 32,767 not 32767). *Closed by F3
+      (below): the cap's code gone, its two cases now E1's and E2's.*
     - **Owed, with the P4 relief plan before 7f:** the manual's range for record numbers (pp. 113, 279, A-4: up to
       16,777,215; on the OO-1 within CP/M 3's 32 MB, 18 bits of 128-byte records), and F3 with it: LOC the true
       record number (a single or double past 32,767), GET and PUT with no number carrying past 65,535 (FD_PHY as
       the top bits), the 18-bit check on the last byte back. The compacted draft (22 bytes past P4 when tried) is
       kept on branch `wip/gwbasic-f3-draft` (`a758fac2`, on top of `52249dcf`, before the cap); it doesn't link,
-      by those 22 bytes.
+      by those 22 bytes. *Closed by F3 (below, "As built, F3"): M4 made the room, and the draft, its faults fixed and
+      its compaction undone, is built; the draft branch is kept.*
     - Sizes after the round: P1 8,486 (3,802 free), P3 5,451 (6,837), P4 12,286 (2), P8 3,596 (8,692); free for
       BASIC 34,775. After the second move (above): P3 5,540 (6,748), P4 12,200 (88); after the interim cap
       (below): P4 12,166 (122). Cycles: PSET 2,023; the full LINE 132,750; `PRINT A$;` 21,215; the scroll 13,299 less the
@@ -5853,6 +5857,96 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Not done in 7e5:** SCREEN 13 (7g); the books (7g), which must name SCREEN 10-12 as the OO-1's, past the
       manual, with the overlay's columns beside the bitmaps and the fixed 256 colours. Then the triage gate, fixes,
       merge on the owner's word.
+  - **As built, F3** (Proposed, 2026-11-21; feat/gwbasic-f3 off main `b1d10088`, the F3 plan with the owner's
+    answers 1-9, "all recommendations as listed", and 10-11 at U5's stop; commits U0 `31fcb35f`, U1-U4 `7a4a9a48` (one
+    commit: their edits overlap in the same files, accepted by the owner), then U5's tests and this record). F3 is
+    this branch's merge; `wip/gwbasic-f3-draft` (`a758fac2`, on `52249dcf`) is **kept**, the compacted attempt it
+    was built from (answer 9: no branch is deleted).
+    - **M4** (U0, answer 5): FIVEO.ASM's CHAIN moved whole from P4 to the home block's new `p8/chain.s` (CHAINP,
+      CBAKBL, VARDLS, CDVARS, CHNRET, CMNSRC and their RAM; SKPNAM copied in, P4's kept for XFRSTR). P4 keeps
+      SAVFRE (XFRSTR moves it with the string space, as the source's does) and a shrunken `p4/fiveo.s`: CHNSTP
+      (SAVFRE from BX, then OKGETM for X 0 or CHNENT for X 1, X back as it came) and SAVFGT (BX SAVFRE). Three P4
+      entries named last in `p4/scnedt.s` (PRGFLI, CHNSTP, SAVFGT); CHAINP's and CHNRET's slots retired onto one RTS
+      (CHAINR, CHNRTR). The stubs (`p8/far4.s` CHAIN and LDBIN, `p8/gwmain.s` MAIN) JSR CHAINP and CHNRET. A CHAIN
+      crosses three times where it crossed twice. The flat test image leaves `p8/chain.s` out with `p8/far4.s`.
+    - **Records** (U1, U2; answers 1 and 8): the IBM manual's 1 to 16,777,215 (pp. 113, 279, A-4), within CP/M 3's
+      32 MB (answer 2). FD_PHY, which nothing set after RNDFIN, is renamed FD_LOGH, FD_LOG's top byte (its second
+      byte unused). DSKRND in one pass, every refusal before anything is stored: the record (given, 0 refused; or
+      the next, FD_LOG + 1 carrying into FD_LOGH, past 16,777,215 refused), the current (n - 1, NHI's borrow), then
+      LEN 128's 128-byte record past 262,143 refused, else RNDMUL and MULHI (NHI x 65,536 x LEN, a shift-and-add from
+      NHI's low bit, ended when no bit is left), past 32 bits refused, and the last byte, product + LEN - 1, past
+      2^25 refused **before** the doubling (the draft checked after it, where the top bit is lost: record 2,097,153
+      of LEN 1,024 landed on record 1); only then FD_LOG and FD_LOGH, FD_OPS 0, LOFPUT (n x LEN with MULHI). An
+      explicit number is P4's RECNUM (`p4/gio86.s`): SIGNS (a string Type mismatch, negative Bad record number), an
+      integer as it is, below 32,767.5 FRCINT as before, from 32,767.5 its single (FRCSNG), FADDH below 2^23, QINT;
+      past 2^24 - 1 Bad record number. DPUTG's far call to P1's ADRGTS goes (ADRGTS stays in P1, unused, retired at
+      P1's next change: answer 8). PGSUB1's buffer test stays dropped (the draft's): it matched only 128-byte record
+      65,535, whose GET then returned the buffer's last record.
+    - **LOC** (U1, U3; answers 3 and 4): a random file's FD_LOG and FD_LOGH, a sequential file's F_CLOC with its new
+      top byte F_CLOCH (the FDB 184 → 185 bytes; CLOCUP for READS and WRITES; OPNSET and NTREDS): an integer through
+      32,767, an exact double past it (TOFAC, as LOF's), LOC testing VALTYP. The draft's copy put the bytes in the
+      wrong order (record 40,000 read as 2,862,350,336); fixed.
+    - **/S:** (U4, answer 2, which narrows the owner's decision 6 of 2026-11-14 to /F:): P2's WASS keeps /S:n in
+      MAXREC for 1 <= n <= 32,767, else the command line's error; 128 with no /S:. W4's 1,024 is gone (records are
+      moved a 128-byte record at a time through the FDB's buffer, the FIELD buffer in the TPA).
+    - **Undone from the draft** (its compaction, which leaned on layouts by accident): RAND2's `$FE,X` zero-page
+      wrap, FNUMX by `(FDBP)` (F_NUM at 0), DIRHR on RECCOM's RTS (`p4/oem.s` keeps main's text), TOFAC's loop (it
+      was a byte longer than the three stores). The interim cap's code and comments are gone (the cap note above is
+      closed by F3).
+    - **The OO-1's choices** (rule 4, the owner's, answers 8 and 11): a record number past 32,767 rounded to the
+      nearest, a half up, through its single, and so from 32,767.5 (answer 11: 32,767.5 to 32,767.99 are 32,768, not
+      FRCINT's Overflow); a record whose last byte passes 32 MB is Bad record number, checked before anything moves
+      (LOC and the next record unchanged); past 16,777,215 Bad record number for the next record too; FD_PHY renamed
+      FD_LOGH; P1's ADRGTS left in place unused; LOF of a full 32 MB file as any file's (33,554,430 for record
+      16,777,215 of LEN 2). From the source where the manual is silent: OPEN's LEN 32,768 is Overflow (an integer).
+    - **Sizes** (bytes free; main `b1d10088` → after U0 → after F3, the plan's point in brackets; the stop lines of
+      answer 7): free for BASIC 34,869 → 34,869 → **34,869** [34,869; 34,850]; P1 3,133 (byte-identical) [2,500];
+      P2 6,435 → **6,409** (WASS's 26) [6,415]; P3 3,369 (byte-identical) [3,300]; **P4 122 → 1,550 → 1,278**
+      [1,287; 1,200]: U1 184, U2 54, U3 18, answer 11's test 16; P5 976 [512]; P6 795 [750]; **P8 6,423 → 4,923**
+      [4,921; 4,700]. Proved by `cmp` against main's build: the resident core (`gwbasic.res`, GWBASIC.COM), P1, P3,
+      P5 and P6 byte-identical throughout; P8 U0's from U0 on; P2 differs only by WASS's 26 bytes (every other
+      differing byte a relocated address past it, a branch offset across it, or an immediate address byte). OODOS
+      0.13, OOLIB interface 14, the BIOS and OOUI unchanged.
+    - **Cycles** (test_gwbasic_files, this rig; main's re-measured at U0 on main `b1d10088`): `GET #1,2` 17,161 →
+      **17,058**, `PUT #1,1` 18,513 → **18,325** (the gate: no slower); of LEN 100, `GET #1` 25,055 at record 100,
+      25,249 past 70,000 (+194; the gate +600), `PUT #1` 43,354 and 43,806 (+452); `GET #1,100` 28,647, `GET
+      #1,70000` 29,536 (+889; the gate +1,500); CHAIN of a one-line text program 68,279 → **68,593** after U0, 68,452
+      after F3 (10 interrupts, not 11; the gate 68,679), 15 far calls for 14. CHAIN of a tokenised file (77,388 → 77,861) and CHAIN MERGE
+      (67,133 → 67,232) are printed, not gated (the owner's word): such a run takes about 11 tick interrupts of
+      ~190 cycles, and the tokenised one took one more after M4, MERGE one fewer; the extra crossing is ~285 either
+      way. For the record, not gated: at record 16,000,000 of LEN 2 (NHI 244) `GET #1` is +413 over record 100 and
+      `PUT #1` +1,084 (MULHI's eight steps twice, and the far extents). A side effect seen at U0, which changed no
+      GET or PUT code: the FDB table's place moved (FDB0 `$F38A` → `$EE00`), and GET #1,2 took 176 cycles more there
+      (page crossings in the record's copy); U2's RECNUM more than gave it back. The earlier gates hold: P1, P3, P5,
+      P6 and the resident core are byte-identical, so PSET, LINE, `PRINT A$;` and the scrolls are unchanged.
+    - **Tests** (test_gwbasic_files; each new check seen failing under its mutant on its own case, OOE_TEST_CASES, the
+      source then restored; logged in the scratchpad's f3/mut.log): N1 `records_past_32767_and_65535_by_hand`
+      ((a) RECNUM's NHI left 0: record 1 overwritten, (b) DSKLOC from FD_LOG alone, (c) no FADDH: 65,536.6 read as
+      65,536, (d) answer 11's: the old FRCINT path, 32,767.5 Overflow); N2 `get_and_put_with_no_number_go_on_past_
+      65535` ((a) the carry into FD_LOGH left out, (b) the current's borrow left out: seen once record 131,072's
+      place is read as LEN 1, since a PUT and GET with the same wrong place agree); N3 `the_last_record_and_32_mb_by_
+      hand` ((a) the draft's check after the doubling, (b) the next record's 24-bit cap left out, (c) the cap too
+      low, (d) the store before the check); N4 `the_largest_record_length_by_hand` (/S:32767, LEN 32,767 PUT at 1
+      and 1,024 and read back whole: (a) WASS not keeping /S:, (b) the bytes-left count one byte, seen once the
+      buffer is refilled before the GETs); N5 `loc_and_lof_at_the_edges_by_hand` (the manual's p. 176 example; F_CLOC
+      set in the FDB at DSKLOC's entry: (a) LOC always a double, (b) DSKSZ's R2 masked to 2 bits, (c) F_CLOCH not
+      carried); N6 `record_65536_of_len_128_is_read_from_the_disk` (PGSUB1's test put back); N7 `chain_is_timed`
+      (three more crossings); N8 in `random_file_statements_in_a_loop_are_timed`, its gates checked (MULHI as the
+      draft's NHI-times loop, run by OOE_F3_FAR=16000000 OOE_F3_LEN=2: `GET #1` +8,756). M4's mutants on the existing
+      CHAIN and COMMON cases, which pass unchanged: SAVFGT's low byte twice, CHNSTP's X test inverted, P8's SKPNAM
+      stepping 3, MAIN's CHNRET a far call to the retired slot.
+    - **Expectation changes** (approved): E1 `record_32768_follows_32767`, E2 `get_and_put_with_no_number_go_on_
+      after_32767` (the cap's two cases, their outputs); E3 the LEN 600 and 1,024 edges back to U7's (55,924 and
+      55,925; 32,769 and 32,768), outputs unchanged; E4 `r_field.differ` without `err 63  130`, and (answer 10) its
+      dump's two rows after it the GET past the end's zeros, as PC-BASIC's `r_field.out`, the header's
+      record-past-32767 clause and its wrong FIELD-buffer clause gone (the gwbasic README's line with them); E5 the
+      switches case's comment; E6 the FDB's 185 in three cases. No other expected result changed.
+    - **Judgements:** RECNUM's test for 32,767.5 is on the single's top 16 mantissa bits (FACEXP `$8F`, all ones);
+      a second Bad record number jump in DSKRND (ER_BRM) for branch reach; FD_LOGH keeps FD_PHY's two bytes so
+      FD_LOG and FD_OPS keep their offsets, as the plan's 185-byte FDB has it; N8's far point is read from the
+      environment only for its mutant's run.
+    - **Not done in F3:** one review round, the triage gate, fixes, merge on the owner's word; the books (7g) should
+      say that a dense file meets Disk full at the card's drive size (8 MB or 32 MB) long before 16,777,215 records.
 - **7f: sound, input and events** (P7).
   - **What it holds:**
     - SOUND, PLAY (foreground and MB background), BEEP, ON PLAY(n) on the music driver;
