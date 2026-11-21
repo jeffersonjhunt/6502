@@ -1557,7 +1557,9 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
 // handlers inside it (the IRQ vector's entry to its RTI: T17's and D9's method, test_gwbasic_screen; review round 1,
 // F6), with the far calls (each a JSR to FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the
 // interrupts counted. M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two
-// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig (main b1d10088), + 400 (answer 6).
+// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig, + 400 (answer 6). 7f (the owner's
+// answer 17, 2026-11-21): re-anchored to main 80a70aa6 (F3 merged), re-measured on this rig that day at 66,851 (the
+// first anchor, main b1d10088, was 66,521); the rule is unchanged.
 // CHAIN's other two ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated (the
 // owner's word). Must-fail: a build whose CHAIN crosses three times more.
 TEST(chain_is_timed)
@@ -1623,7 +1625,7 @@ TEST(chain_is_timed)
                 "MERGE %llu (%u, %u)\n",
                 static_cast<unsigned long long>(text), ft, it, static_cast<unsigned long long>(tok), fb, ib,
                 static_cast<unsigned long long>(merge), fm, im);
-    CHECK(text <= 66521 + 400); // main b1d10088 66,521 on this rig, the handlers left out
+    CHECK(text <= 66851 + 400); // main 80a70aa6 66,851 on this rig (2026-11-21), the handlers left out
     CHECK_EQ(command(r, "KILL \"CHT.BAS\":KILL \"CHB.BAS\""), std::string());
 }
 
