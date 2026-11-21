@@ -66,8 +66,8 @@ change affects: that has to be written down, and checked against coverage.
 
 | Tier | When | What |
 | --- | --- | --- |
-| `quick` | Before staging, as now | Unchanged: every suite, fast build, a few minutes |
-| `changed` | Each branch, before review and merge | The suites the branch's paths choose, in the fast build; sanitizers on those that are emulator suites (`emu`), when emulator C++ changed; the oodos checks if `oodos` is chosen, the books' check if `docs` is; if `web` is, the WebAssembly build, vitest, the page build, the whole e2e suite on Chromium and WebKit's smoke set; interop if `oodos` or `sd` is |
+| `quick` | Before staging, as now | Unchanged: every suite, fast build, a few minutes; the oodos checks and the GW-BASIC locale check |
+| `changed` | Each branch, before review and merge | The suites the branch's paths choose, in the fast build; sanitizers on those that are emulator suites (`emu`), when emulator C++ changed; the oodos checks if `oodos` is chosen, the books' check if `docs` is; if `web` is, the WebAssembly build, vitest, the page build, the whole e2e suite on Chromium and WebKit's smoke set; interop if `oodos` or `sd` is; the GW-BASIC locale check if `gwlocale` is (`oodos/gwbasic/`, `oodos/lib/`) |
 | `full` | A release whose emulator C++ changed | `quick`, plus the sanitizer build of the emulator suites only (label `emu`), the whole e2e suite on Chromium and WebKit's smoke set, interop |
 
 `quick` already runs every suite in the fast build, so nothing goes untested. What goes is the sanitizers on
@@ -139,7 +139,8 @@ then prints each path, its rule, its labels and how many suites they choose, and
 sanitizer suites in all. It runs the chosen suites (`ctest --preset fast -R` with their exact names: the same as
 `-L` with those labels, and it takes the suites a path names by `self` too); the oodos checks if `oodos` is
 chosen, `make -C docs check` if `docs` is, the WebAssembly build, vitest, the page build, the whole e2e suite on
-Chromium and WebKit's smoke set if `web` is, and interop if `oodos` or `sd` is. Before any of it, it checks for the
+Chromium and WebKit's smoke set if `web` is, interop if `oodos` or `sd` is, and the GW-BASIC locale check
+(`tools/gwlocale.sh`, the step `gwbasic-locale`) if `gwlocale` is. Before any of it, it checks for the
 tools those need (ca65, ld65 and cc65 from the build's cache; vasm when a chosen entry carries `eater`, whatever
 path chose it; docker for the web steps and interop) and fails naming what's missing; it fails on a path whose
 rule isn't `none` but chose no suite and no step (a `test_foo.cpp` no CMake file registers); and when every
@@ -177,6 +178,14 @@ A share can't be shorter than its longest case; splitting those cases would chan
 Under `dev`, in `check.sh changed main` at 4 jobs with the host's load about 12 (2026-11-11): the long case's
 entry 71.8 s, the shares 31.3 and 40.1 s, against 120 s each (the whole suite had been 104-120 s, and timed out
 once at 120.1 under load 17).
+
+**The GW-BASIC locale check** (the owner, 2026-11-20, fix/gwbasic-sort): `$(wildcard)` lists in the locale's
+collation (glob), and GW-BASIC's link order is its images' layout, so an unsorted source list made GWBASIC.COM and
+.OVL differ between LC_ALL=C and en_US.UTF-8 (`res/todo_i1.s` before `res/todo.s` under en_US). The Makefile's lists
+are `$(sort ...)` now, and `tools/gwlocale.sh` builds GW-BASIC under both locales into directories of its own and
+compares the two images byte for byte; it skips, saying so, where en_US.UTF-8 isn't installed. The map's special
+label `gwlocale` (a step, no suite: `tools/test_map.py`'s STEPS) chooses it for `oodos/gwbasic/` and `oodos/lib/`;
+`quick` and `full` run it always. Seen failing with RES_SRC's `$(sort)` removed (both images differ).
 
 `test_gwbasic_gfx` is split in two (the owner, 2026-11-20, GW-BASIC 7e5's answer 18): with 7e5's cases (43 in
 all, 36 before) the whole suite would have run near its 600 s. Its two shares carry the suite's labels, so any

@@ -12,6 +12,7 @@
 #   self   the suite the file is named for (emulator/test/host/test_NAME.cpp or .py: test_NAME)
 #   web    the WebAssembly build and its tests, vitest, the page build, the e2e smoke set
 #   none   nothing to run: prose, editor settings, code no test runs (every build still builds it)
+#   gwlocale  GW-BASIC built under LC_ALL=C and en_US.UTF-8 and its images compared (tools/gwlocale.sh)
 # or a suite's name (test_NAME), for a file only that suite reads.
 #
 # The labels on the suites were checked against coverage (tools/test_coverage.py, hw/testing.md item 7):
@@ -137,10 +138,11 @@ backplane/bios/                                 bios docs web
 backplane/README.md                             none
 oodos/include/                                  oodos docs
 oodos/lib/mudrv/                                oodos test_mudrv docs
+oodos/lib/                                      oodos gwlocale docs
 oodos/diskdefs                                  oodos docs web
 oodos/spike/                                    none
 oodos/gwbasic/tools/oracle.sh                   none
-oodos/gwbasic/                                  gwbasic docs
+oodos/gwbasic/                                  gwbasic gwlocale docs
 oodos/README.md                                 docs
 # W1HTEST, B7's test program that writes WIN1H itself: only these suites run it.
 oodos/sys/test/w1htest.s                        test_oodos_sys test_oodos_input test_oodos_clock test_oodos_utils_rom
@@ -155,6 +157,7 @@ basic/                                          none
 
 # --- the test tiers themselves -------------------------------------------------------------------------
 tools/check.sh                                  tools
+tools/gwlocale.sh                               gwlocale tools
 tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
