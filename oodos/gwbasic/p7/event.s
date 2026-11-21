@@ -16,24 +16,25 @@
 ;             EVTRP: GWSTS.ASM's POLSTR, on the events)
 ;   TRPPOL    TRPOLL's, every POLLN statements while POLSRC is nonzero: the
 ;             test-only trigger (bit 7: P3's TRPTSP), ON COM(1)'s byte
-;             waiting (bit 1: P4's COMRDY; GIOCOM.ASM's POLCOM)
+;             waiting (bit 1: P4's COMRDY; GIOCOM.ASM's POLCOM), ON TIMER's
+;             deadline (bit 0: p7/time.s TIMPOL)
 ;   ONSETP    ON PLAY(n) and ON TIMER(n) (P3's ONGOTP): A 0 PLAY, n 1-32
-;             (the manual's p. 211), kept for SNDEV; A the event's id back
+;             (the manual's p. 211), kept for SNDEV; A 1 TIMER (p7/time.s
+;             TIMSET); A the event's id back
 ;   JOYFP     PEN(n), STICK(n), STRIG(n) from FUNDSP (the resident JOYF), X
 ;             the function as FINGO has it: PEN(n) GWSTS.ASM's PENF, n 0-9,
 ;             the OEM's RDPEN reporting no pen (0; PEN(0) the trap's
 ;             request tested and cleared, TSTCEV), past 9 Illegal function
 ;             call (7e4's answer 1); STICK, STRIG later (U6)
-;   XFUNP     the home block's ERDEVP: PLAY(n) (p7/play.s PLAYN); DATE$,
-;             TIME$ (Advanced Feature for now), TIMER (Syntax error for
-;             now), A the token
+;   XFUNP     the home block's ERDEVP, A the token: PLAY(n) (p7/play.s
+;             PLAYN), TIMER, DATE$ and TIME$ (p7/time.s TIMEP, DATEF, TIMEF)
 ;
 ; The far call rule: each returns by RTS, or ends in an error.
 
 .include "gwbasic.inc"
 
 .export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT
-.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE
+.import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, TIMEP, DATEF, TIMEF, TIMSET, TIMPOL
 .import MU_EVENT, MU_COUNT             ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
 
 CB_FIRE2        = CB_FIRE * 2          ; the second fire button (the DE-9 sticks have one)
@@ -115,6 +116,10 @@ TRPPOL:         BIT     POLSRC         ; the test-only trigger: P3's
                 BCC     :+
                 LDA     #COMOFF
                 FJSR    EVTRP
+:               LDA     POLSRC         ; ON TIMER: the deadline
+                AND     #PS_TIMER
+                BEQ     :+
+                JMP     TIMPOL
 :               RTS
 
 ONSETP:         CMP     #0
@@ -127,7 +132,9 @@ ONSETP:         CMP     #0
                 STA     PLYN
                 LDA     #PLYOFF
                 RTS
-@tim:           JMP     SNERR          ; (TIMER: U5)
+@tim:           JSR     TIMSET         ; TIMER(n): 1-86,400
+                LDA     #TIMOFF
+                RTS
 @fc:            JMP     FCERR
 
 ; --- JOYFP ---------------------------------------------------------------------------------
@@ -152,12 +159,13 @@ JOYFP:          CPX     #2 * (PEN_FN - ONEFUN)
 XFUNP:          CMP     #PLAY_XS
                 BNE     :+
                 JMP     PLAYN
+:               CMP     #TIMER_XS
+                BNE     :+
+                JMP     TIMEP
 :               CMP     #DATES_XS
-                BEQ     :+
-                CMP     #TIMES_XS
-                BEQ     :+
-                JMP     SNERR
-:               JMP     ADVERR
+                BNE     :+
+                JMP     DATEF
+:               JMP     TIMEF          ; (TIME$: ERDEVP's last)
 
 MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
 

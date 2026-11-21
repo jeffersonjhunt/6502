@@ -1121,7 +1121,8 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 // N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
 // Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n), PLAY
 // ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions; and the ones that don't need it work as in screen
-// mode: BEEP (function 82's SN_BEEP: nothing printed), PEN, ON COM(1) and COM(1) ON. Guards a statement in console mode
+// mode: BEEP (function 82's SN_BEEP: nothing printed), PEN, ON COM(1) and COM(1) ON, TIMER, DATE$, TIME$ and
+// ON TIMER (the 2nd GOSUB after 1-3 s, by FT_COUNT's ms: console mode opens no event area). Guards a statement in console mode
 // waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
 // the note queued and MF's wait run to the clock).
 TEST(console_mode_keeps_its_guard)
@@ -1135,6 +1136,11 @@ TEST(console_mode_keeps_its_guard)
     CHECK_EQ(command(r, "BEEP"), std::string());
     CHECK_EQ(command(r, "PEN ON:PRINT PEN(0);PEN(9)"), std::string(" 0  0 \r\n"));
     CHECK_EQ(command(r, "ON COM(1) GOSUB 0:COM(1) ON:COM(1) OFF"), std::string());
+    const std::string t = command(r, "PRINT TIMER>0;LEN(DATE$);LEN(TIME$)");
+    CHECK_EQ(t, std::string("-1  10  8 \r\n"));
+    enter(r, {"NEW", "10 ON TIMER(1) GOSUB 100:TIMER ON:T=TIMER", "20 IF N<2 THEN 20", "30 E=TIMER-T:TIMER OFF:PRINT N;E>1;E<3:END",
+              "100 N=N+1:RETURN"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 2 -1 -1 \r\n"));
     CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 

@@ -998,6 +998,124 @@ TEST(every_key_still_types_with_traps_armed)
     CHECK_EQ(line(r, 2), std::string("AB1KEY X")); // (Caps Lock on)
 }
 
+// N21 (the manual's p. 344; the owner's answer 7): TIMER is the seconds since midnight, a single: at 23:59:58 its
+// whole part 86,398 or 86,399; over half a second it never goes back, its fraction below 1 a second; across midnight
+// it starts again from 0. Guards a clock read wrong by the minutes' factor, or TIMER going backwards. Seen failing
+// with the minutes x 60 left out. (The fraction's cap at .999 isn't reached with the RTC running: holding the
+// rig's clock at one second still let the next show, so no case forces it.)
+TEST(timer_counts_the_seconds_since_midnight)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    r.set_time(2026, 11, 21, 23, 59, 58);
+    const std::string t = said(r, "PRINT INT(TIMER)");
+    CHECK(t == " 86398" || t == " 86399");
+    r.set_time(2026, 11, 21, 10, 0, 0);
+    run_prog(r, {"10 A=TIMER:B=A:N=0", "20 C=TIMER:IF C<B THEN N=N+1", "30 B=C:IF C<A+.5 AND C>=A THEN 20",
+                 "40 PRINT N;C-A<.6:END"},
+             ms(1500));
+    CHECK_EQ(line(r, 2), std::string(" 0 -1"));
+    r.set_time(2026, 11, 21, 23, 59, 59);
+    r.run(ms(1500));
+    const std::string m = said(r, "PRINT INT(TIMER)");
+    CHECK(m == " 0" || m == " 1");
+}
+
+// N22 (the manual's p. 217): ON TIMER(1) GOSUB with TIMER ON: about one GOSUB a second (the 5th after 4-6 s), by TIMER ON's
+// deadline moved on by n x 1,000 ms (TRPOLL's poll every 16 statements); TIMER STOP after TIMER ON remembers (the
+// GOSUB at the next TIMER ON), TIMER OFF forgets; ON TIMER(0) and (86401) Illegal function call, (86400) taken.
+// Guards a timer trap firing every statement, or never. Seen failing with the deadline not moved on after a request.
+TEST(on_timer_fires_every_n_seconds)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    r.set_time(2026, 11, 21, 10, 0, 0);
+    run_prog(r, {"10 ON TIMER(1) GOSUB 100:TIMER ON:T=TIMER", "20 IF N<5 THEN 20",
+                 "30 E=TIMER-T:TIMER OFF:PRINT N;E>4;E<6:END", "100 N=N+1:RETURN"},
+             ms(7000));
+    CHECK_EQ(line(r, 2), std::string(" 5 -1 -1")); // (5 GOSUBs in about 5 s: TIMER's own fraction lags by < 1 s)
+    for (const char *how : {"STOP", "OFF"})
+    {
+        run_prog(r, {std::string("10 ON TIMER(1) GOSUB 100:TIMER ON:TIMER ") + how + ":T=TIMER",
+                     "20 IF TIMER<T+2.5 THEN 20", "30 TIMER ON:TIMER OFF:PRINT N:END", "100 N=N+1:RETURN"},
+                 ms(4000));
+        CHECK_EQ(line(r, 2), std::string(how) == "STOP" ? std::string(" 1") : std::string(" 0"));
+    }
+    CHECK_EQ(said(r, "ON TIMER(0) GOSUB 10"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON TIMER(86401) GOSUB 10"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "ON TIMER(86400) GOSUB 10"), std::string());
+}
+
+// N23 (the manual's p. 286): RANDOMIZE TIMER seeds from the clock: runs at 10:00:00 and 10:00:05 give different
+// RND sequences, and TIMER past 32,767 is no Overflow. Guards every run of a game the same; Overflow after 9 a.m.
+// Seen failing with RANDOMIZE's seed through FRCINT.
+TEST(randomize_timer_seeds_from_the_clock)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    std::vector<std::string> got;
+    for (const unsigned sec : {0u, 5u})
+    {
+        r.set_time(2026, 11, 21, 10, 0, sec);
+        run_prog(r, {"10 RANDOMIZE TIMER:PRINT RND;RND"}, ms(800));
+        got.push_back(line(r, 2));
+    }
+    CHECK(got[0] != got[1]);
+    for (const std::string &g : got)
+        CHECK(g.find("Overflow") == std::string::npos && g.find('.') != std::string::npos);
+}
+
+// N24 (the manual's pp. 57-58 and TIME$; the owner's answer 8): DATE$ "mm-dd-yyyy" and TIME$ "hh:mm:ss" from the
+// rig's clock, on 29 February 2028, 1 March 2028, 31 December 2099; DATE$= in mm-dd-yyyy and mm/dd/yyyy, one-digit
+// month and day; a two-digit year (19yy: before 2000), 1999, 2100, 2-30, 13-1, an empty string Illegal function call;
+// TIME$= "1:2" and "13:45:30" set the hour and the minute (the seconds 0: function 104's); 24:00 and 1:60 Illegal
+// function call. Guards a wrong date on the files OODOS stamps; a leap day lost. Seen failing with the leap year
+// test left out.
+TEST(date_and_time_by_hand)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    r.set_time(2028, 2, 29, 10, 0, 0);
+    CHECK_EQ(said(r, "PRINT DATE$;\" \";LEFT$(TIME$,5)"), std::string("02-29-2028 10:00"));
+    r.set_time(2028, 3, 1, 23, 59, 30);
+    CHECK_EQ(said(r, "PRINT DATE$;\" \";LEFT$(TIME$,5)"), std::string("03-01-2028 23:59"));
+    r.set_time(2099, 12, 31, 7, 8, 9);
+    CHECK_EQ(said(r, "PRINT DATE$"), std::string("12-31-2099"));
+    for (const auto &[set, want] : std::vector<std::pair<std::string, std::string>>{
+             {"03-15-2030", "03-15-2030"}, {"3/5/2031", "03-05-2031"}, {"2-29-2028", "02-29-2028"}, {"12/31/2099", "12-31-2099"}})
+    {
+        CHECK_EQ(said(r, "DATE$=\"" + set + "\""), std::string());
+        CHECK_EQ(said(r, "PRINT DATE$"), want);
+    }
+    for (const char *bad : {"1-1-84", "1/1/26", "1-1-1999", "1-1-2100", "2-30-2030", "2-29-2030", "13-1-2030", "0-1-2030", "1-1", ""})
+        CHECK_EQ(said(r, std::string("DATE$=\"") + bad + "\""), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "TIME$=\"1:2\":PRINT TIME$"), std::string("01:02:00"));
+    CHECK_EQ(said(r, "TIME$=\"13:45:30\":PRINT LEFT$(TIME$,5)"), std::string("13:45"));
+    for (const char *bad : {"24:00", "1:60", "1:2:60", ""})
+        CHECK_EQ(said(r, std::string("TIME$=\"") + bad + "\""), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "PRINT DATE$"), std::string("12-31-2099"));
+}
+
+// N34 (the owner's answer 11: TIMER at most 10,000 cycles): T=TIMER in a loop against the loop with T=0, the
+// interrupts left out (T17's method). Guards a TIMER too slow for a game's frame loop.
+TEST(timer_is_timed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const uint64_t none = run_cycles(r, {"10 FOR I=1 TO 50:T=0:NEXT"});
+    const uint64_t with = run_cycles(r, {"10 FOR I=1 TO 50:T=TIMER:NEXT"});
+    const double per = (static_cast<double>(with) - static_cast<double>(none)) / 50;
+    std::printf("  T=TIMER: %.0f cycles, the interrupts left out (the gate 10,000)\n", per);
+    CHECK(per > 500 && per <= 10000);
+}
+
+
+
 int main()
 {
     return run_all();

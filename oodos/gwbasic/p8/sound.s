@@ -13,6 +13,11 @@
 ;   SOUND     SOUND x,y: P7's SOUNDP in screen mode; Advanced Feature in
 ;             console mode (the owner's answer 4: it needs the event queue)
 ;   BEEP      BEEP: P7's BEEPP, in both modes (answer 3)
+;   DATES     DATE$ = string, TIMES TIME$ = string: P7's DATESP, TIMESP, both
+;             modes (the owner's answer 4)
+;   TIMERS    TIMER ON, OFF, STOP (OO-1; the manual's p. 344): ON TIMER(n)'s
+;             trap by P3's SETEV1 on TIMOFF, TIMER ON's deadline first (P7's
+;             TIMONP); both modes
 ;   PLAYS     PLAY string: P7's PLAYP in screen mode; Advanced Feature in
 ;             console mode (answer 4). OO-1 (7f): PLAY ON, OFF or STOP, ON
 ;             PLAY(n)'s trap, by P3's SETEV1 on PLYOFF
@@ -20,7 +25,7 @@
 .include "gwbasic.inc"
 
 ;@entry HPENST
-.export HPENST, SOUND, BEEP, PLAYS
+.export HPENST, SOUND, BEEP, PLAYS, DATES, TIMES, TIMERS
 .import ADVERR, SCRMOD, CHRGTR, SNERR
 
 .code
@@ -81,3 +86,13 @@ PLAYS:          BIT     SCRMOD
                 BRA     EVSTM
 @play:          FJSR    PLAYP
                 RTS
+DATES:          FJSR    DATESP
+                RTS
+TIMES:          FJSR    TIMESP
+                RTS
+TIMERS:         CMP     #ON_TK         ; TIMER ON: its deadline first
+                BNE     :+
+                FJSR    TIMONP
+:               DECW    TXTPTR
+                LDX     #TIMOFF
+                BRA     EVSTM

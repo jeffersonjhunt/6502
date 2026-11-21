@@ -58,6 +58,9 @@
 ;@entry BELLP
 ;@entry PLAYP
 ;@entry ONSETP
+;@entry DATESP
+;@entry TIMESP
+;@entry TIMONP
 .export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
@@ -472,6 +475,9 @@ NOTELN:         .byte   4              ; L: the length
 NOTE1L:         .byte   4              ; this note's
 OCTAVE:         .byte   4              ; O
 
+.data
+FTCB:           .byte   FT_COUNT, 0, 0, 0, 0 ; function 80's FT_COUNT block (console mode's ms)
+
 .segment "BRAM"
 ; DONOTE's
 NOTEHZ:         .res    2              ; the frequency (CX)
@@ -484,4 +490,3 @@ QEND:           .res    4              ; when voice 0's queue ends, by the ms co
 WLIM:           .res    1              ; WAITQ's
 DRVON:          .res    1              ; 1 once this run has started the driver (SNDINI clears it)
 MSN:            .res    4              ; MSNOW's
-FTCB:           .res    5              ; function 80's FT_COUNT block

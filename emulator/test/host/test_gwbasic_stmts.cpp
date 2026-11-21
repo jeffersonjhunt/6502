@@ -422,9 +422,9 @@ TEST(varptr_string_prints_what_pc_basic_prints)
 
 // By hand, from the source and 7a's state (none of it can come from PC-BASIC's run of a file):
 // - WRITE # is a file's (FILGET, 7c): with no file open, Bad file number, as PRINT # gives;
-// - RANDOMIZE TIMER: TIMER isn't a reserved word in the 1983 source's crunch table (IBMRES.ASM's TTABX has TIME$
-//   alone; TIMER is 7f's), so it is a variable, 0, and RANDOMIZE TIMER is RANDOMIZE 0 (each after CLEAR, which
-//   starts RND's state again);
+// - RANDOMIZE TIMER: 7f: TIMER is the seconds since midnight (the IBM manual's p. 344; E2): with the rig's clock
+//   at 10:00:00, INT(TIMER) is 36,000 (or 36,001 if a second passes), and RANDOMIZE TIMER seeds RND otherwise than
+//   RANDOMIZE 0, with no Overflow (TIMER past 32,767: the seed's fold);
 // - CLEAR ,n is the workspace's top (OO-1): FRE(0) with nothing in the workspace is n - TXTTAB - 4 (the program's
 //   two zero bytes, VAL's zero at n - 1, MEMSIZ at n - 2), so CLEAR at the TPA's top (start-up's: its "Bytes free"
 //   + TXTTAB + 4) gives the start-up's bytes free again; one past it is Illegal function call (MAXMEM);
@@ -438,9 +438,13 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
     const std::map<std::string, uint16_t> lab = labels();
     REQUIRE(lab.count("LOAD") == 1);
     CHECK_EQ(command(r, "WRITE #1,2"), std::string("Bad file number\r\n"));
-    CHECK_EQ(command(r, "PRINT TIMER"), std::string(" 0 \r\n"));
+    r.set_time(2026, 11, 21, 10, 0, 0);
+    const std::string t = command(r, "PRINT INT(TIMER)");
+    CHECK(t == std::string(" 36000 \r\n") || t == std::string(" 36001 \r\n"));
     const std::string seeded = command(r, "CLEAR:RANDOMIZE 0:PRINT RND;RND");
-    CHECK_EQ(command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND"), seeded);
+    const std::string timed = command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND");
+    CHECK(timed != seeded);
+    CHECK(timed.find("Overflow") == std::string::npos && timed.find("error") == std::string::npos);
     // Review round 1, F6: -32768 seeds the same as a number, an integer variable and at the prompt (FRCINT's), and
     // 32767.6, which FRCINT would round out of the integers, is folded, not Overflow.
     const std::string m32768 = command(r, "CLEAR:RANDOMIZE -32768:PRINT RND");

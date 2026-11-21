@@ -777,16 +777,42 @@ IBMRES.ASM NEWSTX -> res/ibmres.s NEWSTX
 IBMRES.ASM GIIRET -> res/ibmres.s GIIRET
 GWSTS.ASM PENS -> p8/sound.s HPENST # PEN ON, OFF, STOP: P3's SETEV1 on PENOFF (EVSTM); RDPEN's switch has no pen to switch (7e4's answer 1); both modes (the owner's answer 4)
 GWSTS.ASM STRIGS -> p8/sound.s HPENST # STRIG(n) by P3's SEVSTT; STRIG ON, OFF taken (STRIG1, STROK inline); screen mode (the owner's answer 4)
-GWSTS.ASM DATEF -> later 7f: DATE$
-GWSTS.ASM TIMEF -> later 7f: TIME$
+GWSTS.ASM PRSDAT -> p7/time.s DATESP # its parse (TMSTR: SYNCHR EQULTK, FRMEVL, FRESTR)
+GWSTS.ASM SETDAT -> p7/time.s SETDT # OO-1: function 104 (its seconds 0)
+GWSTS.ASM PRSTIM -> p7/time.s TIMESP # its parse
+GWSTS.ASM SETTIM -> p7/time.s SETDT # OO-1: function 104, the day as 105 has it
+GWSTS.ASM GETDAT -> p7/time.s GETDT # OO-1: function 105 (DAYYMD the date)
+GWSTS.ASM GETTIM -> p7/time.s GETDT # OO-1: function 105
+GWSTS.ASM PUTCH2 -> p7/time.s PUTCH2
+DSKCOM.ASM PUTCHR -> dropped: 7f: the ledger finds DATEF's and TIMEF's PUTCHR by the name's first definition, DSKCOM.ASM's (unused); GWSTS.ASM's PUTCHR is p7/time.s PUTCHR
+GWSTS.ASM DATSEP -> p7/time.s DATSEP
+GWSTS.ASM GNUM16 -> p7/time.s GNUM16
+GWSTS.ASM GNUM8 -> p7/time.s GNUM8
+GWSTS.ASM DATERR -> p7/time.s DATERR
+GWSTS.ASM TIMSEP -> p7/time.s TIMSEP
+GWSTS.ASM TIMERR -> p7/time.s DATERR
+GWSTS.ASM CKLEAP -> p7/time.s MLEN
+GWSTS.ASM GDTIME -> p7/time.s GETDT
+GWSTS.ASM SETFEB -> p7/time.s MLEN
+GWSTS.ASM BCDBIN -> p7/time.s BCDBIN
+GWSTS.ASM BINBCD -> p7/time.s BINBCD
+GWSTS.ASM DIGIT -> p7/time.s GNUM16 # inline
+GWSTS.ASM DIGITX -> p7/time.s TNEXT
+GWSTS.ASM DYOFYR -> p7/time.s DATESP # its month and day checks, and the day count, inline
+GWSTS.ASM SDTIME -> p7/time.s SETDT
+GWSTS.ASM SDTIMX -> p7/time.s GETDT
+GWSTS.ASM PUTCHR -> p7/time.s PUTCHR
+GWSTS.ASM RET2 -> p7/time.s GNUM16 # its RTS, inline
+GWSTS.ASM DATEF -> p7/time.s DATEF # OO-1: from function 105's day count (DAYYMD; the OEM's GETDAT); PUTCHR, PUTCH2 with it
+GWSTS.ASM TIMEF -> p7/time.s TIMEF # OO-1: function 105 (the OEM's GETTIM)
 IBMRES.ASM PENV -> res/ibmres.s PENV # NEWSTX's return dropped, the home block's HPENST (p8/sound.s)
 IBMRES.ASM STRIGV -> res/ibmres.s PENV # the same as PENV's: HPENST tells them apart
 IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here (the 8086 doesn't check)
 IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
 IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
-IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALX hands it to ERDEVP, then P7's XFUNP (p7/sound.s): Advanced Feature until U5
-IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
+IBMRES.ASM DATEV -> res/ibmres.s EVALX # 7f: EVALX hands DATE$ to the home block's ERDEVP, then P7's XFUNP (p7/event.s): DATEF
+IBMRES.ASM TIMEV -> res/ibmres.s EVALX # likewise: TIMEF
 IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P3's FUNDSX (FUNDXP; P4's until the fix-up's review round 1); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
 GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
@@ -1291,8 +1317,8 @@ GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET, the same (and GE
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as COMMON's JMP DATA
 FIVEO.ASM CHAIN -> p8/chain.s CHAINP # its home block stub p8/far4.s CHAIN (a JSR since F3's M4) goes on to MAIN or CHNENT's SCRTCH (the far call rule)
-GWSTS.ASM DATES -> later 7f: DATE$, on function 105
-GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
+GWSTS.ASM DATES -> p7/time.s DATESP # PRSDAT, DATSEP, GNUM8, GNUM16, DIGIT, DIGITX inline; OO-1 (the owner's answer 8): a year outside 2000-2099 Illegal function call, a two-digit one too (the manual's 19yy); the month and the day checked (DYOFYR's); the OEM's SETDAT function 104
+GWSTS.ASM TIMES -> p7/time.s TIMESP # PRSTIM, TIMSEP inline; OO-1 (answer 8): function 104 sets the hour and the minute, the seconds 0
 ADVGRP.ASM PAINT -> p5/advgrp.s PAINTP # its home block stub p8/far5.s PAINT, screen mode; PNTCOR the fill (DRAW's P too); GOTBRD inline; OO-1 (the IBM manual's p. 236): a start off the screen paints nothing, no error (CHKRNG not called); a string paint or a background Advanced Feature until 7e4 (the owner's G12); CKCNTC with block 1 put back (PNTLOP)
 ADVGRP.ASM INTQUE -> p5/advgrp.s INTQUE # the queue's end A/X (FRETOP, or DRAW's P's cap, OO-1) and Y (0: GARBA2 allowed); INTQU2 inline
 ADVGRP.ASM CHKRNG -> p5/advgrp.s CHKRNG # GET and PUT's (7e3); PAINT doesn't call it: its start off the screen paints nothing (the IBM manual's p. 236; PAINTP's SCALXY test)
@@ -1352,7 +1378,7 @@ GWSTS.ASM PLYNU3 -> p7/play.s PLYNU3 # PLYNU4 (OO-1: the shift 7 - O, the owner'
 GWSTS.ASM PLYRET -> p7/play.s PLYRET
 GWSTS.ASM PPAUS2 -> p7/play.s PPAUS2
 GWSTS.ASM PLAYS -> p7/play.s PLAYP # the home block's PLAY stub, screen mode (the owner's answer 4); MACLNG P7's own copy (p7/maclng.s)
-GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
+GWSTS.ASM TIMER -> p7/time.s TIMEP # OO-1: the source's TIMER is ADVERR; the manual's (p. 344): function 105's seconds since midnight and the ms counter's fraction (the owner's answer 7); ON TIMER and TIMER ON/OFF/STOP the OO-1's (p7/time.s TIMSET, TIMONP, TIMPOL)
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
 GWSTS.ASM CHDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
