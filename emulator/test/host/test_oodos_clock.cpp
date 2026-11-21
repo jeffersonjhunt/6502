@@ -435,12 +435,13 @@ static std::string no_via_machine()
     return text;
 }
 
-TEST(without_the_via_the_6551_s_interrupt_is_turned_off_and_its_key_kept)
+TEST(without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept)
 {
     // No VIA: no millisecond clock, and ID 6's interrupt is the 6551's, its registers mirrored where the
-    // VIA's would be. A program turns its receive interrupt on (against the rules) and reads a key: the
-    // dispatcher mustn't take the VIA's paths (they would write the 6551's command and status at $C34E
-    // and $C34D, and read its data at $C344 as timer 1's), but turn the interrupt off and leave the key.
+    // VIA's would be. A program turns its receive interrupt on (OODOS's own since the serial receive
+    // buffer, so on already) and reads a key: the dispatcher mustn't take the VIA's paths (they would write
+    // the 6551's command and status at $C34E and $C34D, and read its data at $C344 as timer 1's), but take
+    // the key into the serial line's ring for function 1, the receiver's interrupt left on.
     const std::string text = no_via_machine();
     REQUIRE(!text.empty());
     CcpRig r({}, text);
@@ -452,7 +453,7 @@ TEST(without_the_via_the_6551_s_interrupt_is_turned_off_and_its_key_kept)
     CHECK(r.until("\r\nA>", ms(2000), from));
     const std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "KEY"), std::string("51 00"));
-    CHECK(!field(o, "CMD").empty() && (hx(field(o, "CMD").substr(0, 2)) & 0x02) != 0); // off again
+    CHECK(!field(o, "CMD").empty() && (hx(field(o, "CMD").substr(0, 2)) & 0x02) == 0); // OODOS's: on
     CHECK_EQ(ms_count(r), 0u);
     const std::string d = r.cmd("dir m:"); // the serial line still both ways: echoed, answered, prompted
     CHECK(d.find("dir m:\r\n") == 0);

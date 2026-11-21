@@ -157,7 +157,10 @@ EV_MS           = 4                    ; the millisecond counter, 4 bytes, low f
 EV_FRAMES       = 8                    ; the frame counter, 4 bytes
 EV_VBGO         = 12                   ; the vertical-blank copies' go bits (L4): bit n starts slot n
                                        ;   (set it with TSB; OODOS clears it when the copy is done)
-EV_LEN          = 16                   ; layout 1's size: +3 and +13-15 reserved, 0
+EV_RXCNT        = 13                   ; COM1's bytes received, modulo 256 (interface 16): 0 at the open,
+                                       ;   +1 each byte the serial line's ring takes while it is open
+EV_RXCNT2       = 14                   ; COM2's, kept: 0
+EV_LEN          = 16                   ; layout 1's size: +3 and +15 reserved, 0
 EV_LAYOUT1      = 1
 ; Layout 2 (L2): input. Reserved bytes are 0.
 EV_QHEAD        = 16                   ; the queue: the next slot OODOS writes (OODOS's)
