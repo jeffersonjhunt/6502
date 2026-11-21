@@ -43,6 +43,7 @@
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
 .import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
 .import SYNCHR, FRMEVL, FRCSNG, PUSHF, POPR, GETBYT, SCRMOD, GFLG, FCERR
+.import SOUND, BEEP
 
 .code
 
@@ -226,8 +227,8 @@ STMDSP:         S       ENDST          ; END
 .assert MOTOR_TK + 1 = BSAVE_TK, error, "STMDSP: COLOR CLS MOTOR before BSAVE"
                 S       BSAVE          ; BSAVE (p8/far4.s)
                 S       BLOAD          ; BLOAD (p8/far4.s)
-                S       ADVERR         ; SOUND (7f)
-                S       ADVERR         ; BEEP (7f)
+                S       SOUND          ; SOUND (p8/sound.s, 7f)
+                S       BEEP           ; BEEP (p8/sound.s, 7f)
                 S       PSET           ; PSET (p8/far5.s: 7e1's, in screen mode)
                 S       PRESET         ; PRESET (p8/far5.s)
                 S       SCREEN         ; SCREEN (p8/far6.s; modes but 0 7e's)

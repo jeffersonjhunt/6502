@@ -807,7 +807,7 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST by a far call in screen mode (7e1); SNDINI later 7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST by a far call in screen mode (7e1); SNDINI by INITRP's far call (7f)
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -921,8 +921,8 @@ GIOKYB.ASM PKQUE -> OEM res/oem.s PKQUE
 GIOKYB.ASM CHSNS -> OEM res/oem.s CHSNS
 GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the PC's two-byte keys (0 and a scan code)
 GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
-GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
-GWSTS.ASM SNDRST -> later 7f: the break's music reset
+GWSTS.ASM SNDINI -> p7/sound.s SNDINI # INITRP's far call (CLEARC), and SYSTEM's; OO-1: the driver quit (the owner's answer 5)
+GWSTS.ASM SNDRST -> p7/sound.s SNDRST # the resident ITSCTC's far call, and SOUND x,0's: MU_STOP of voice 0
 GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) and TA's state (DRWTA, OO-1) cleared, P5's since 7e2
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
@@ -1254,8 +1254,9 @@ GIO86.ASM DEFSAD -> p8/far4.s DEFSAD
 GIO86.ASM LODEND -> p4/gio86.s LODEND
 GIO86.ASM ERBFM2 -> p4/gio86.s BLOADP
 GIO86.ASM INP16 -> p4/gio86.s INP16 # the header's three words, into BHDR
-GWSTS.ASM SOUNDS -> later 7f: SOUND
-GWSTS.ASM BEEPS -> later 7f: BEEP
+GWSTS.ASM SOUNDS -> p7/sound.s SOUNDP # the home block's SOUND stub, screen mode (the owner's answer 4); OO-1: a negative duration Illegal function call (answer 19), a length past 65,535 ms up to three entries back to back (answer 18); EOSCHK as P7's EOSP7
+GWSTS.ASM DOSND -> p7/sound.s DOSND # JDNOTE and DNOTOK with it; DONOTE the OEM's, on the music driver (p7/sound.s DONOTE)
+GWSTS.ASM BEEPS -> p7/sound.s BEEPP # OO-1: function 82's SN_BEEP, both modes (the owner's answer 3)
 GENGRP.ASM PSET -> p5/gengrp.s PSETP # its home block stub p8/far5.s PSET, screen mode; PPRSET, PSETC, PSTNOT inline
 GENGRP.ASM PRESET -> p5/gengrp.s PRSETP # its home block stub p8/far5.s PRESET
 GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; 7e5: and the OO-1's SCREEN 10, 11 and 12, modes 3-5, an OO-1 extension past the IBM manual's 0-2); its stub p8/far6.s SCREEN, which parses it (GTPRMS: 7e5's M6)
@@ -1891,7 +1892,7 @@ SCNDRV.ASM CDUWXI -> p6/scndrv.s CDUWXI
 SCNDRV.ASM MVCH30 -> p6/scndrv.s MVCH30
 SCNDRV.ASM MVC30I -> p6/scndrv.s MVCH30 # an indirect jump to it
 SCNDRV.ASM CSRRET -> p6/scndrv.s CSRADV # its RET, each cursor move's own here
-GWSTS.ASM BEEP -> later 7f: BEEP (CBEEP's bell does nothing until then)
+GWSTS.ASM BEEP -> p7/sound.s BEEPP # CBEEP's bell: P6's far call to BELLP (the bell alone)
 GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s, which parses it: 7e5's M6)
 GWSTS.ASM GTLINE -> p6/gwsts.s GTLINE
 GWSTS.ASM GTPRMS -> p8/far6.s GTPRMS # the list in the home block's RAM (PCNT, PFLG, PVAL), not BUF, then in the pseudo-registers for P6's PREGS (7e5's M6: P6's until then)

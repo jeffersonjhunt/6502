@@ -5,13 +5,24 @@
 ;
 ;   HPENST    PEN and STRIG as statements (the resident NEWSTX's, TXTPTR at
 ;             the function's byte): U1 a stub, Advanced Feature as before
+;   SOUND     SOUND x,y: P7's SOUNDP in screen mode; Advanced Feature in
+;             console mode (the owner's answer 4: it needs the event queue)
+;   BEEP      BEEP: P7's BEEPP, in both modes (answer 3)
 
 .include "gwbasic.inc"
 
 ;@entry HPENST
-.export HPENST
-.import ADVERR
+.export HPENST, SOUND, BEEP
+.import ADVERR, SCRMOD
 
 .code
 
 HPENST:         JMP     ADVERR
+
+SOUND:          BIT     SCRMOD
+                BPL     SADV
+                FJSR    SOUNDP
+                RTS
+SADV:           JMP     ADVERR
+BEEP:           FJSR    BEEPP
+                RTS

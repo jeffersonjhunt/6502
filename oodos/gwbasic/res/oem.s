@@ -441,7 +441,8 @@ POLKYX:         PLY
 ; pointer as the statement began (SAVSTK, SAVTXT); then CNTCCN, which goes
 ; to STOP as GW-BASIC's does: "Break in 20", or in direct mode nothing.
 ; (The music's reset, SNDRST, is 7f's.)
-ITSCTC:         JSR     KYBINI
+ITSCTC:         FJSR    SNDRST         ; 7f: the music stopped (POLKEY's SNDRST)
+                JSR     KYBINI
                 LDX     SAVSTK
                 TXS
                 LDA     SAVSTK+1
@@ -683,7 +684,8 @@ F_SPOS:         BIT     SCRMOD
 SYSTEM:         BEQ     :+
                 RTS
 :               JSR     CLSALL
-SYSTME:         BIT     SCRMOD         ; 7d1: the cooked keys drained under
+SYSTME:         FJSR    SNDINI         ; 7f: the 6510 given back (P7)
+                BIT     SCRMOD         ; 7d1: the cooked keys drained under
                 BPL     :+             ; GW-BASIC's mode first (with ^S's handling
                 JSR     DRAIN          ; off: X2), then again under the old one
 :               LDA     OLDMOD

@@ -1118,6 +1118,22 @@ TEST(graphics_are_advanced_feature_in_console_mode)
     CHECK_EQ(moved, 0u);
 }
 
+// N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
+// Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND; and the ones that
+// don't work as in screen mode: BEEP (function 82's SN_BEEP: nothing printed). Guards a statement in console mode
+// waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
+// the note queued and MF's wait run to the clock).
+TEST(console_mode_keeps_its_guard)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    for (const char *k : {"SOUND 440,1", "SOUND 9,9"})
+        CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "BEEP"), std::string());
+    CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
+}
+
 // G38 (7e5, console mode): the screen statements M6 moved to the home block (the space plan's M6: their arguments
 // parsed by their stubs) are Advanced Feature before any argument is parsed, as before: COLOR 99, LOCATE 0, CLS 9,
 // SCREEN 1,,9 and WIDTH 80,30, each an error in its argument in screen mode, and COLOR 300, LOCATE 1,"A", CLS 300,

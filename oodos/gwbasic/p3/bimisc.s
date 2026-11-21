@@ -421,6 +421,8 @@ FRETP2:         LDA     ONGSBF         ; SUB AL,1 / JB: not below 0
                 RTS
 
 ; INITRP (BIMISC.ASM 454): every trap off, with no GOSUB line; none waiting.
+; OO-1 (7f): then CLEARC's SNDINI (P7's: PLAY's state, the driver quit), by
+; one far call, as CLEARC reaches INITRP by one.
 INITRP:         LDX     #3 * NUMTRP - 1
                 LDA     #0
 INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
@@ -428,6 +430,7 @@ INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
                 BPL     INITP0
                 STA     ONGSBF
                 STA     TRPON          ; OO-1: no trap on
+                FJSR    SNDINI         ; OO-1 (7f): CLEARC's sound reset
                 RTS
 
 ; GOTRP (BIMISC.ASM 475): from NEWSTT's poll, with ONGSBF nonzero. Not in ON

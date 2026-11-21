@@ -5,17 +5,35 @@
 ; the space plan's answer 8: the eighth block, allocated at 7f). It links
 ; OOLIB's music (../lib/mu.s, mutone.s, physof.s: the Makefile's LIB_p7),
 ; its zero page word MUP gwbasic.inc's alias of GXQ, exported here. This
-; file holds GWSTS.ASM's sound reset, the OEM's part on the music driver:
+; file holds GWSTS.ASM's SOUND, BEEP and the sound reset, and the OEM's
+; DONOTE on the music driver (voice 0, one voice as the PC's):
 ;
-;   SNDINI    CLEARC's: PLAY's state to its defaults, and SNDRST
-;   SNDRST    the break's: the music stopped
+;   SNDINI    CLEARC's (P3's INITRP far calls it: RUN, NEW, CLEAR) and
+;             SYSTEM's: PLAY's state to its defaults, then the driver quit
+;             if it was started (the owner's answer 5: each program starts
+;             with the 6510 free)
+;   SNDRST    the break's (the resident ITSCTC) and SOUND x,0's: voice 0
+;             stopped (MU_STOP), if the driver was started
+;   SOUNDP    SOUND x,y (the home block's stub, screen mode: the owner's
+;             answer 4), TXTPTR at x
+;   BEEPP     BEEP, and ^G's bell (P6's CBEEP): function 82's SN_BEEP, 800
+;             Hz for 250 ms, the USB card's speaker, no claim of the 6510, in
+;             both modes (the owner's answer 3: the OEM's); BELLP the bell
+;             alone, for P6's CBEEP (^G in screen mode), which prints
+;   DONOTE    the OEM's (GWSTS.ASM's EXTRN): a note queued on voice 0, the
+;             driver started first (MU_INIT, at a run's first note), MF's or
+;             MB's wait before it (WAITQ), then MU_TONE, the length in the
+;             source's 2.5 ms units turned to ms (x 5 / 2, rounded), the
+;             gate time by PLAY's style
+;   MSNOW     the millisecond counter, 32 bits: EVAREA's EV_MS read until two
+;             reads agree (screen mode), else function 80's FT_COUNT
 ;
-; And the resident core's and the home block's hand-offs (7f's U1), each a
-; stub until its unit:
+; And the resident core's and the home block's hand-offs (7f's U1):
 ;
 ;   EVP7      EVPOLL's: an event that isn't a key's, Y its slot's offset in
-;             the queue (EVAREA + EV_QUEUE + Y; EK_SOUND: SNDEV; EK_CTL:
-;             STREV; the rest dropped); dropped for now
+;             the queue (EVAREA + EV_QUEUE + Y): EK_SOUND's byte to MU_EVENT
+;             (the voices' counts: PLAY(n)); EK_CTL STREV's (U6); the rest
+;             dropped
 ;   TRPPOL    TRPOLL's, every POLLN statements while POLSRC is nonzero: the
 ;             test-only trigger (bit 7: P3's TRPTSP), then the polled sources
 ;             armed (ON TIMER, ON COM(1)), none for now
@@ -24,7 +42,7 @@
 ;   XFUNP     the home block's ERDEVP: DATE$, TIME$ (Advanced Feature for
 ;             now), PLAY(n), TIMER (Syntax error for now), A the token
 ;
-; U0: SNDINI and SNDRST stubs, an RTS each; U2 fills them.
+; The far call rule: each returns by RTS, or ends in an error.
 
 .include "gwbasic.inc"
 
@@ -34,15 +52,385 @@
 ;@entry TRPPOL
 ;@entry JOYFP
 ;@entry XFUNP
-.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP
-.import FCERR, SNERR, ADVERR
+;@entry SOUNDP
+;@entry BEEPP
+;@entry BELLP
+.export SNDINI, SNDRST, EVP7, TRPPOL, JOYFP, XFUNP, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
+.export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE
+.import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
+.import SCRMOD, EVAREA
+.include "oolib.inc"
+
+MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
+
 .exportzp MUP                          ; mu.s's and mutone.s's (lib/zpmu.s's), at gwbasic.inc's address
 
 .code
 
-SNDINI:         RTS
-SNDRST:         RTS
-EVP7:           RTS
+; --- SNDINI, SNDRST (GWSTS.ASM 822, 840) -----------------------------------------------------
+
+; SNDINI: BEATS 120, MSCALE 3 (MN), MMODE 0 (MF), NOTELN and NOTE1L 4,
+; OCTAVE 4; then the sound off (SNDRST's) and, OO-1, the driver quit.
+SNDINI:         LDA     #120
+                STA     BEATS
+                LDA     #3
+                STA     MSCALE
+                STZ     MMODE
+                LDA     #4
+                STA     NOTELN
+                STA     NOTE1L
+                STA     OCTAVE
+                JMP     MU_QUIT        ; (MU_STOP's work with it; PE_STATE if not
+                                       ;   started, nothing done)
+; SNDRST: DONOTE's AL 255, the background music off and the queue emptied:
+; MU_STOP of voice 0, if the driver was started (SOUND x,0 with nothing
+; sounding starts nothing).
+SNDRST:         LDA     #0             ; (PE_STATE if not started: nothing done)
+                JMP     MU_STOP
+
+; --- BEEP, SOUND (GWSTS.ASM 856, 877) --------------------------------------------------------
+
+; BEEPS: 800 Hz for 1/4 s (OO-1: function 82's SN_BEEP, the OEM's, the
+; owner's answer 3), then POLKEY's look at the keys (CHKINT).
+BEEPP:          JSR     BELLP
+                JMP     CHKINT
+BELLP:          LDA     #<BEEPB
+                LDX     #>BEEPB
+                LDY     #O_SOUND
+                JMP     BDOS
+
+; SOUNDS: SOUND x,y. x an integer, at least 37 (Illegal function call
+; below), y the duration in clock ticks (18.2 a second), a single: 0 the
+; sound stopped (SNDRST); 65,536 or more Illegal function call; OO-1 (the
+; manual's p. 323: 0 to 65,535), negative Illegal function call too, where
+; the source would queue its integer as a length. Then y x 22, the 2.5 ms
+; units DONOTE takes, 65,535 at most (FRQINT: P1's), and DOSND.
+SOUNDP:         JSR     GETIN2         ; DX: the frequency
+                LDA     RDH
+                BNE     :+
+                LDA     RDL
+                CMP     #37
+                BCS     :+
+SNDFCE:         JMP     FCERR          ; at least 37 Hz
+:               LDA     RDH
+                PHA
+                LDA     RDL
+                PHA
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL         ; the duration
+                JSR     EOSP7          ; the statement's end
+                JSR     FRCSNG
+                LDA     FACEXP
+                BNE     SOUNL4
+                PLA                    ; 0: the sound off
+                PLA
+                JMP     SNDRST
+SOUNL4:         CMP     #$91           ; 65,536 or more
+                BCS     SNDFCE
+                BIT     FACM1          ; OO-1: negative
+                BMI     SNDFCE
+                JSR     PUSHF          ; y
+                LDA     #22            ; x 22
+                JSR     CONIA
+                JSR     FRCSNG
+                JSR     POPR           ; BXDX: y
+                JSR     FMULS
+                LDA     FACEXP
+                CMP     #$91           ; past 65,535: 65,535
+                BCC     SOUNL5
+                LDA     #$90
+                STA     FACEXP
+                LDA     #$7F
+                STA     FACM1
+                LDA     #$FF
+                STA     FACLO+1
+                STZ     FACLO
+SOUNL5:         FJSR    FRQINT         ; BX: the units
+                PLA                    ; CX: the frequency
+                STA     NOTEHZ
+                PLA
+                STA     NOTEHZ+1
+                LDA     RBL
+                STA     NOTEU
+                LDA     RBH
+                STA     NOTEU+1
+                LDA     #1             ; SOUND's note whole (legato)
+; DOSND: the note with MMODE's wait (DONOTE), A the gate's scale (MSCALE's
+; meaning: 1 all, 2 3/4, 3 7/8). DONOTE's error (no sound card) is Illegal
+; function call, as the source's; then POLKEY's look at the keys.
+DOSND:          JSR     DONOTE
+                BCS     SNDFCE
+                JMP     CHKINT
+
+; EOSP7: the statement must end at TXTPTR, else Syntax error (GWSTS.ASM's
+; EOSCHK, P3's: here too, not worth a far call).
+EOSP7:          DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     :+
+                JMP     SNERR
+:               RTS
+
+; --- DONOTE: the OEM's note on the music driver --------------------------------------------
+
+; NOTEHZ the frequency (0 a rest), NOTEU the length in 2.5 ms units (0
+; nothing), A the gate's scale (1 legato, 2 staccato 3/4, 3 normal 7/8),
+; MMODE MF (0) or MB (1). The driver started if it isn't (MU_INIT, PAL's
+; clock: C set back if refused: no card, or the 6510 another's). A length
+; past 65,535 ms (26,214 units) goes as more than one entry, the first
+; waited for as MMODE says, the rest straight after it (OO-1: the driver's
+; length is 16 bits of ms; SOUND's 65,535 ticks are 163,837). C clear back.
+DONOTE:         STA     NOTESC
+                LDA     NOTEU
+                ORA     NOTEU+1
+                BNE     :+
+                CLC
+                RTS
+:               LDA     #0             ; PAL
+                JSR     MU_INIT
+                BCC     @on
+                CMP     #PE_STATE      ; started already
+                BEQ     @on
+                SEC
+                RTS
+@on:            LDA     MMODE          ; MF: voice 0 empty first; MB: room
+                BEQ     :+
+                LDA     #MUQMAX - 1
+:               JSR     WAITQ
+@chunk:         LDA     NOTEU+1        ; this entry: at most 26,214 units
+                CMP     #>26214
+                BCC     @all
+                BNE     @big
+                LDA     NOTEU
+                CMP     #<26214 + 1
+                BCC     @all
+@big:           LDA     #<26214
+                LDX     #>26214
+                BRA     @n
+@all:           LDA     NOTEU
+                LDX     NOTEU+1
+@n:             STA     T0             ; T0-T1: the entry's units
+                STX     T1
+                SEC                    ; what's left
+                LDA     NOTEU
+                SBC     T0
+                STA     NOTEU
+                LDA     NOTEU+1
+                SBC     T1
+                STA     NOTEU+1
+                LDX     #3             ; the gate: all, 3/4 (x 3, / 4), 7/8 (x 7, / 8)
+                CPX     NOTESC
+                BEQ     @mn
+                LDA     NOTESC
+                CMP     #2
+                BEQ     @ms
+                LDA     T0             ; legato: the whole note
+                LDX     T1
+                BRA     @g
+@ms:            LDA     #3
+                LDX     #2
+                BRA     @mul
+@mn:            LDA     #7
+@mul:           STA     T6             ; T2-T4 = units x A, then >> X
+                STX     T7
+                STZ     T2
+                STZ     T3
+                STZ     T4
+@m:             CLC
+                LDA     T2
+                ADC     T0
+                STA     T2
+                LDA     T3
+                ADC     T1
+                STA     T3
+                BCC     :+
+                INC     T4
+:               DEC     T6
+                BNE     @m
+@sh:            LSR     T4
+                ROR     T3
+                ROR     T2
+                DEC     T7
+                BNE     @sh
+                LDA     T2
+                LDX     T3
+                BNE     @g
+                CMP     #0
+                BNE     @g
+                INC     A              ; at least 1
+@g:             STA     T2             ; T2-T3: the gate's units
+                STX     T3
+                LDX     #0             ; the length and the gate to ms
+                JSR     UNITMS
+                LDX     #2
+                JSR     UNITMS
+                LDA     T0
+                STA     TONEB+3
+                LDA     T1
+                STA     TONEB+4
+                LDA     T2
+                STA     TONEB+5
+                LDA     T3
+                STA     TONEB+6
+                LDA     NOTEHZ
+                STA     TONEB+1
+                LDA     NOTEHZ+1
+                STA     TONEB+2
+                STZ     TONEB          ; voice 0
+                LDA     #<TONEB
+                LDX     #>TONEB
+                JSR     MU_TONE
+                BCS     @x             ; (refused: the driver stopped)
+                JSR     MSNOW          ; the queue's end: from now if it had ended
+                SEC
+                LDA     QEND
+                SBC     MSN
+                LDA     QEND+1
+                SBC     MSN+1
+                LDA     QEND+2
+                SBC     MSN+2
+                LDA     QEND+3
+                SBC     MSN+3
+                BPL     :+             ; QEND still to come
+                LDX     #3
+@c:             LDA     MSN,X
+                STA     QEND,X
+                DEX
+                BPL     @c
+:               CLC                    ; QEND + the entry's ms
+                LDA     QEND
+                ADC     T0
+                STA     QEND
+                LDA     QEND+1
+                ADC     T1
+                STA     QEND+1
+                BCC     :+
+                INC     QEND+2
+                BNE     :+
+                INC     QEND+3
+:               LDA     NOTEU          ; more of it: straight after
+                ORA     NOTEU+1
+                BEQ     @ok
+                JMP     @chunk
+@ok:            CLC
+@x:             RTS
+
+; UNITMS: T0+X (2 bytes, 2.5 ms units) to ms, x 5 / 2 rounded: 26,214 at
+; most, so 65,535 at most.
+UNITMS:         LDA     T0,X           ; x 4 + 1 (T4-T6), 17 bits
+                STA     T4
+                LDA     T1,X
+                STA     T5
+                STZ     T6
+                ASL     T4
+                ROL     T5
+                ROL     T6
+                ASL     T4
+                ROL     T5
+                ROL     T6
+                CLC                    ; + 1: x 5
+                LDA     T4
+                ADC     T0,X
+                STA     T4
+                LDA     T5
+                ADC     T1,X
+                STA     T5
+                BCC     :+
+                INC     T6
+:               INC     T4             ; + 1, / 2: rounded
+                BNE     :+
+                INC     T5
+                BNE     :+
+                INC     T6
+:               LSR     T6
+                ROR     T5
+                ROR     T4
+                LDA     T4
+                STA     T0,X
+                LDA     T5
+                STA     T1,X
+                RTS
+
+; WAITQ: until voice 0 holds no more than A entries (MF's 0, MB's 31: the
+; driver's 32), the events taken meanwhile (CHKINT, screen mode's EVPOLL:
+; the note ends, the keys, ^C's break); or until the clock passes the
+; queue's end by 100 ms, when MU_STOP sets the count to 0 (the owner's
+; answer 6: an end lost to a full event queue can't hang the program).
+WAITQ:          STA     WLIM
+@w:             LDA     #0
+                JSR     MU_COUNT
+                CMP     WLIM
+                BCC     @x
+                BEQ     @x
+                JSR     CHKINT
+                JSR     MSNOW          ; now - (QEND + 100), 32 bits
+                CLC
+                LDA     QEND
+                ADC     #100
+                STA     T4
+                LDA     QEND+1
+                ADC     #0
+                STA     T5
+                LDA     QEND+2
+                ADC     #0
+                STA     T6
+                LDA     QEND+3
+                ADC     #0
+                STA     T7
+                SEC
+                LDA     MSN
+                SBC     T4
+                LDA     MSN+1
+                SBC     T5
+                LDA     MSN+2
+                SBC     T6
+                LDA     MSN+3
+                SBC     T7
+                BMI     @w             ; not yet
+                LDA     #0             ; lost: the count put right
+                JMP     MU_STOP
+@x:             RTS
+
+; --- MSNOW ---------------------------------------------------------------------------------
+
+; MSNOW: MSN the millisecond counter (32 bits). Screen mode: EVAREA's
+; EV_MS, read until two reads agree (the Programmer's Guide, chapter 8: the
+; interrupt may write it between two bytes); console mode, which opens no
+; event area: function 80's FT_COUNT, its block's +1-4.
+MSNOW:          BIT     SCRMOD
+                BPL     @con
+@r:             LDX     #3
+:               LDA     EVAREA + EV_MS,X
+                STA     MSN,X
+                DEX
+                BPL     :-
+                LDX     #3
+:               LDA     EVAREA + EV_MS,X
+                CMP     MSN,X
+                BNE     @r
+                DEX
+                BPL     :-
+                RTS
+@con:           LDA     #<FTCB
+                LDX     #>FTCB
+                LDY     #O_FRAME
+                JSR     BDOS
+                LDX     #3
+:               LDA     FTCB+1,X
+                STA     MSN,X
+                DEX
+                BPL     :-
+                RTS
+
+; --- The hand-offs (U1) --------------------------------------------------------------------
+
+; EVP7: Y the event's slot (EVAREA + EV_QUEUE + Y).
+EVP7:           LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
+                CMP     #EK_SOUND
+                BNE     @x
+                LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
+                JMP     MU_EVENT       ; the voices' counts (MU_COUNT)
+@x:             RTS
 TRPPOL:         BIT     POLSRC         ; the test-only trigger: P3's
                 BPL     :+
                 FJSR    TRPTSP
@@ -54,3 +442,24 @@ XFUNP:          CMP     #DATES_XS
                 BEQ     :+
                 JMP     SNERR
 :               JMP     ADVERR
+
+.rodata
+BEEPB:          .byte   SN_BEEP, <800, >800, <250, >250 ; function 82: the bell
+
+.segment "BRAM"
+; GWSTS.ASM's PLAY state (GWRAM.ASM's BEATS ... MMODE), SNDINI's.
+BEATS:          .res    1              ; T: quarter notes a minute
+MSCALE:         .res    1              ; 1 ML, 2 MS, 3 MN
+MMODE:          .res    1              ; 0 MF, 1 MB
+NOTELN:         .res    1              ; L: the length
+NOTE1L:         .res    1              ; this note's
+OCTAVE:         .res    1              ; O
+; DONOTE's
+NOTEHZ:         .res    2              ; the frequency (CX)
+NOTEU:          .res    2              ; the length, 2.5 ms units (DX)
+NOTESC:         .res    1              ; the gate's scale
+TONEB:          .res    MU_NLEN        ; MU_TONE's block
+QEND:           .res    4              ; when voice 0's queue ends, by the ms counter
+WLIM:           .res    1              ; WAITQ's
+MSN:            .res    4              ; MSNOW's
+FTCB:           .res    5              ; function 80's FT_COUNT block
