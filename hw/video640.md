@@ -194,3 +194,13 @@ tables, its BSS +3; `gxtext` 315 → 326, BSS +2; `gxasset` 877 → 882 (VIEW.CO
   passes one (all 6,144 pages taken, then freed when its records aren't there), one byte more refused
   (`an_asset_part_of_exactly_the_program_s_part_passes_the_check`).
 - **F4 (nit):** the User's Guide's bitmap 640 file is about 482 KB (493,568 bytes).
+
+**After the merge** (fix/port-cycles, 2026-11-20, the owner's answers in the D9 fix): U5 made the port's piece loop
+a subroutine taking the step (PORTRUN called PORTLOOP with Y = 1), which every `DM_VWRITE`, `DM_VREAD` and
+`DM_VFILL` paid for: 33 cycles a call. GW-BASIC's PEEK and POKE of its screen page are one of each, so on main
+67906af8 test_gwbasic_screen's D9 measured 4,706 and 4,078 (from 4,673 and 4,046 on 7e5 alone, and on main with
+U5's video.s taken back) against its 4,696. The loop is now one macro made twice: PORTRUN at step 1 as before,
+cycle for cycle (4,673 and 4,046 again), and PORTLOOP at step 2 for `DM_VFILLW` alone, which is a little faster too
+(65,536 bytes 144,810 cycles, was 145,322; a whole direct 640 fill of `$0F00` 808,534, was 828,717). Interfaces
+unchanged.
+
