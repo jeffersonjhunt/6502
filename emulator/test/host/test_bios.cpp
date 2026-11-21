@@ -1692,7 +1692,7 @@ TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_ove
 {
     // Back, carry set, with A, X, Y and the windows as they were: X = $A7 (reserved), $A0 (the flash update,
     // the menu's alone, Q18) and $A1 with A = 4 (block 4 is the character sets', not an image).
-    for (const auto &[a, x] : {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}})
+    for (const auto &[a, x] : {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}, {2, 0xA3}})
     {
         TwoImages t;
         REQUIRE(t.b.ok());
@@ -1708,6 +1708,374 @@ TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_ove
         CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);          // carry set
         CHECK_EQ(bus.peek_physical(0x314), 0x07);                 // W1 and W2 as the program left them
         CHECK_EQ(bus.peek_physical(0x315), 0x09);
+    }
+}
+
+namespace
+{
+    // The SID seed (BIOS 0.18, $C818's function $A2: sidrng.md's R1-R5 and the owner's answer 13).
+    constexpr uint16_t SOUND_IO = 0xC500, SOUND_CTRL_IO = 0xC540;
+    constexpr unsigned FREQ3 = 0x0E, CTRL3 = 0x12, VOL = 0x18;
+    constexpr uint16_t JSR_AT = 0x0311, BACK_AT = 0x0314; ///< c818_call's JSR $C818, and the instruction after it
+    constexpr uint64_t STEP_CLOCKS = 369; ///< SID clocks for 23 noise steps at $FFFF: 23 x 2^20 / 65,535 = 368.006
+
+    uint32_t noise_step(uint32_t r) { return ((r << 1) | (((r >> 22) ^ (r >> 17)) & 1u)) & 0x7FFFFFu; }
+
+    /// The SID registers as the card holds them (both chips, as written).
+    std::vector<uint8_t> sid_regs(Board &b)
+    {
+        std::vector<uint8_t> v;
+        for (unsigned chip = 0; chip < 2; ++chip)
+            for (uint8_t x : b.machine->sound_card()->sid(chip))
+                v.push_back(x);
+        return v;
+    }
+
+    /// A read of OSC3 by NOISE: voice 3's register and OSC3 as the instruction began, OSC3 after it, and the A it got.
+    struct NoiseRead
+    {
+        uint32_t reg;
+        uint8_t before, after, a;
+        uint64_t clocks; ///< the SID clocks then
+    };
+
+    /// Watches a Board's NOISE: each OSC3 read (LDA $C51B in the ROM), and each call of c818_call's JSR (its
+    /// cycles and SID clocks at the JSR and back).
+    struct NoiseWatch
+    {
+        Board &b;
+        std::vector<NoiseRead> reads;
+        std::vector<uint64_t> call_cycles, call_clocks; ///< at each JSR $C818
+        std::vector<uint64_t> back_cycles;              ///< at the instruction after it
+        std::vector<std::vector<uint8_t>> back_regs;    ///< the SIDs' registers then (the program's BRK quiets them)
+        std::function<void()> also;                     ///< each step too, if set
+        bool pending = false;
+
+        explicit NoiseWatch(Board &board) : b(board)
+        {
+            b.on_step = [this] { step(); };
+        }
+        ~NoiseWatch() { b.on_step = nullptr; }
+        SoundCard &card() { return *b.machine->sound_card(); }
+        uint8_t osc3() { return static_cast<uint8_t>(card().chip(0).waveform(2) >> 4); }
+        void step()
+        {
+            const uint16_t pc = b.cpu->regs().pc;
+            Decoder &bus = b.machine->bus();
+            if (pending)
+            {
+                reads.back().after = osc3();
+                reads.back().a = b.cpu->regs().a;
+                pending = false;
+            }
+            if (pc >= 0xC800 && bus.peek(pc) == 0xAD && bus.peek(static_cast<uint16_t>(pc + 1)) == 0x1B &&
+                bus.peek(static_cast<uint16_t>(pc + 2)) == 0xC5)
+            {
+                reads.push_back({card().chip(0).voice(2).noise, osc3(), 0, 0, card().sid_clocks()});
+                pending = true;
+            }
+            if (pc == JSR_AT)
+            {
+                call_cycles.push_back(b.cpu->cycles());
+                call_clocks.push_back(card().sid_clocks());
+            }
+            if (pc == BACK_AT)
+            {
+                back_cycles.push_back(b.cpu->cycles());
+                back_regs.push_back(sid_regs(b));
+            }
+            if (also)
+                also();
+        }
+    };
+
+    /// The boot splash's 6510 stopped (CTRL's RUN off), as it is once the splash's 5 s are over: NOISE refuses while
+    /// it runs, and these cases run sooner.
+    void splash_stopped(Board &b)
+    {
+        const uint8_t ctrl = b.machine->sound_card()->ctrl();
+        b.machine->bus().write(SOUND_CTRL_IO, static_cast<uint8_t>(ctrl & ~SoundCard::CTRL_RUN));
+    }
+
+
+    /// Voices 1 and 2, voice 3's other registers and the volume set to values of their own.
+    void sid_marked(Board &b)
+    {
+        for (unsigned reg = 0; reg <= VOL; ++reg)
+            if (reg != FREQ3 && reg != FREQ3 + 1 && reg != CTRL3)
+                b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + reg), static_cast<uint8_t>(0x30 + reg * 3));
+    }
+
+    /// The 4,096 bytes of 4,096 calls at $1000-$1FFF, then BRK; $0F the A of a refusal's carry ($EE none).
+    std::vector<uint8_t> noise_loop()
+    {
+        return {0xA9, 0xEE, 0x85, 0x0F,             // LDA #$EE; STA $0F
+                0xA9, 0x00, 0x85, 0x10,             // LDA #0; STA $10
+                0xA9, 0x10, 0x85, 0x11,             // LDA #$10; STA $11: the pointer $1000
+                0xA9, 0x00, 0xA2, 0xA2, 0xA0, 0x5A, // loop ($030C): LDA #0; LDX #$A2; LDY #$5A
+                0x20, 0x18, 0xC8,                   // JSR $C818
+                0xB0, 0x11,                         // BCS fail
+                0xA0, 0x00, 0x91, 0x10,             // LDY #0; STA ($10),Y
+                0xE6, 0x10, 0xD0, 0xED,             // INC $10; BNE loop
+                0xE6, 0x11, 0xA5, 0x11,             // INC $11; LDA $11
+                0xC9, 0x20, 0xD0, 0xE5,             // CMP #$20; BNE loop
+                0x00,                               // BRK
+                0x85, 0x0F, 0x00};                  // fail: STA $0F; BRK
+    }
+} // namespace
+
+TEST(noise_returns_osc3_after_its_wait)
+{
+    // R1. A program's two calls of $C818's $A2: A is OSC3 as NOISE read it (voice 3's noise output then, read
+    // through the rig), carry clear, X and Y as they were; at least 23 noise steps from each call to its read;
+    // voice 3 left $FFFF, $80; the volume, voices 1 and 2 and voice 3's other registers as they were. Gate (answer
+    // 9 and 14): a call at most 3,500 cycles.
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    Board &b = t.b;
+    splash_stopped(b);
+    for (int call = 0; call < 2; ++call) // the first sets voice 3; the second finds it so
+    {
+        sid_marked(b); // each time: the program's BRK quiets the SIDs
+        if (call == 1)
+        {
+            b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3), 0xFF);
+            b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3 + 1), 0xFF);
+            b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + CTRL3), 0x80);
+        }
+        const std::vector<uint8_t> before = sid_regs(b);
+        NoiseWatch w(b);
+        for (uint32_t i = 0x310; i < 0x316; ++i)
+            b.machine->bus().write_physical(i, 0xEE);
+        put_program(b, c818_call(0x37, 0xA2));
+        b.run(BOOT, "300R\r");
+        Decoder &bus = b.machine->bus();
+        REQUIRE(w.call_cycles.size() == 1 && w.back_cycles.size() == 1);
+        REQUIRE(w.reads.size() == 1); // one read: no zero
+        const NoiseRead &r = w.reads[0];
+        CHECK(r.a == r.before || r.a == r.after);
+        CHECK_EQ(bus.peek_physical(0x310), r.a);
+        CHECK(r.a != 0);
+        CHECK_EQ(bus.peek_physical(0x311), 0xA2);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x00); // carry clear
+        CHECK(r.clocks - w.call_clocks[0] >= STEP_CLOCKS);
+        REQUIRE(w.back_regs.size() == 1);
+        const std::vector<uint8_t> &after = w.back_regs[0];
+        for (size_t i = 0; i < after.size(); ++i)
+        {
+            const size_t reg = i % SoundCard::SID_REGS;
+            if (i < SoundCard::SID_REGS && (reg == FREQ3 || reg == FREQ3 + 1))
+                CHECK_EQ(after[i], 0xFF);
+            else if (i < SoundCard::SID_REGS && reg == CTRL3)
+                CHECK_EQ(after[i], 0x80);
+            else // and SID B as it was: CTRL's BOTH is off
+                CHECK_EQ(after[i], before[i]);
+        }
+        const uint64_t cycles = w.back_cycles[0] - w.call_cycles[0];
+        std::printf("  call %d: %llu cycles, %llu SID clocks to the read\n", call + 1,
+                    static_cast<unsigned long long>(cycles), static_cast<unsigned long long>(r.clocks - w.call_clocks[0]));
+        CHECK(cycles <= 3500);
+    }
+}
+
+TEST(noise_bytes_differ_and_spread)
+{
+    // R2. 4,096 calls: every value 1-255 seen (OSC3 0 is read again 8 steps later, so 0 too, rarely), each value's
+    // count within the binomial's 5 sigma (mean 16, sigma 3.99: at most 36), and no call's register at its read a
+    // shift of the call before's by fewer than 23 steps (two bytes that would share the register's bits).
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    Board &b = t.b;
+    splash_stopped(b);
+    NoiseWatch w(b);
+    put_program(b, noise_loop());
+    b.machine->bus().write_physical(0x0F, 0x00);
+    b.run(BOOT, "300R\r");
+    b.run(16'000'000);
+    REQUIRE(b.machine->bus().peek_physical(0x0F) == 0xEE); // no refusal
+    Decoder &bus = b.machine->bus();
+    std::array<unsigned, 256> count{};
+    for (uint32_t i = 0; i < 4096; ++i)
+        ++count[bus.peek_physical(0x1000 + i)];
+    unsigned seen = 0, most = 0;
+    for (unsigned v = 1; v < 256; ++v)
+    {
+        seen += count[v] != 0;
+        most = std::max(most, count[v]);
+    }
+    CHECK_EQ(seen, 255u);
+    CHECK(most <= 36u);
+    REQUIRE(w.reads.size() >= 4096);
+    std::vector<uint32_t> got; // the reads that gave a call's byte (not 0: a 0 is read again 8 steps later)
+    for (const NoiseRead &r : w.reads)
+        if (r.a != 0)
+            got.push_back(r.reg);
+    REQUIRE(got.size() == 4096);
+    size_t shifted = 0;
+    for (size_t i = 1; i < got.size(); ++i)
+    {
+        uint32_t r = got[i - 1];
+        for (unsigned k = 1; k < 23; ++k)
+        {
+            r = noise_step(r);
+            shifted += r == got[i];
+        }
+    }
+    CHECK_EQ(shifted, size_t{0});
+    std::printf("  %zu reads, the most of one value %u\n", w.reads.size(), most);
+}
+
+TEST(noise_is_refused_while_the_6510_runs)
+{
+    // R3. CTRL's RUN set (the card's 6510 owns the SIDs, and drops the host's writes): back, carry set, A, X, Y as
+    // they were, no SID register written; with no sound card, the same.
+    {
+        TwoImages t;
+        REQUIRE(t.b.ok());
+        Board &b = t.b;
+        splash_stopped(b);
+    splash_stopped(b);
+        sid_marked(b);
+        const std::vector<uint8_t> before = sid_regs(b);
+        b.machine->bus().write(SOUND_CTRL_IO, SoundCard::CTRL_RUN);
+        NoiseWatch w(b);
+        put_program(b, c818_call(0x37, 0xA2));
+        b.run(BOOT, "300R\r");
+        Decoder &bus = b.machine->bus();
+        CHECK_EQ(bus.peek_physical(0x310), 0x37);
+        CHECK_EQ(bus.peek_physical(0x311), 0xA2);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);
+        REQUIRE(w.back_regs.size() == 1);
+        CHECK(w.back_regs[0] == before); // at the return: the program's BRK then quiets them
+        CHECK(w.reads.empty());
+    }
+    {
+        Board b(false, true, {}, "", {"sound"});
+        REQUIRE(b.ok());
+        REQUIRE(b.machine->sound_card() == nullptr);
+        b.reset();
+        b.run(BOOT);
+        put_program(b, c818_call(0x37, 0xA2));
+        b.run(BOOT, "300R\r");
+        Decoder &bus = b.machine->bus();
+        CHECK_EQ(bus.peek_physical(0x310), 0x37);
+        CHECK_EQ(bus.peek_physical(0x311), 0xA2);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);
+    }
+}
+
+#ifdef EMU_FAULT_HOOKS
+TEST(noise_recovers_a_stuck_register)
+{
+    // R4 (R-U3's setter): voice 3's register 0, as a real chip's can be left: OSC3 reads 0 and 0 again 8 steps
+    // later, so TEST is pulsed and the wait run again: a byte that isn't 0 comes back, carry clear. Also the path
+    // with one zero read (the register made non-zero after the first read): no TEST. Both recorded (answer 14).
+    {
+        TwoImages t;
+        REQUIRE(t.b.ok());
+        Board &b = t.b;
+        splash_stopped(b);
+    splash_stopped(b);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3), 0xFF);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3 + 1), 0xFF);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + CTRL3), 0x80);
+        b.machine->sound_card()->set_sid_noise(0, 2, 0);
+        NoiseWatch w(b);
+        put_program(b, c818_call(0x37, 0xA2));
+        b.run(BOOT, "300R\r");
+        Decoder &bus = b.machine->bus();
+        REQUIRE(w.back_cycles.size() == 1);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x00);
+        CHECK(bus.peek_physical(0x310) != 0);
+        CHECK_EQ(w.reads.size(), size_t{3}); // 0, 0 again, then after TEST
+        CHECK(b.machine->sound_card()->chip(0).voice(2).noise != 0);
+        std::printf("  a recovery: %llu cycles\n", static_cast<unsigned long long>(w.back_cycles[0] - w.call_cycles[0]));
+    }
+    {
+        TwoImages t;
+        REQUIRE(t.b.ok());
+        Board &b = t.b;
+        splash_stopped(b);
+    splash_stopped(b);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3), 0xFF);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + FREQ3 + 1), 0xFF);
+        b.machine->bus().write(static_cast<uint16_t>(SOUND_IO + CTRL3), 0x80);
+        b.machine->sound_card()->set_sid_noise(0, 2, 0);
+        NoiseWatch w(b);
+        w.also = [&] {
+            if (w.reads.size() == 1 && !w.pending)
+                b.machine->sound_card()->set_sid_noise(0, 2, 0x123456); // after the first read: 0 once
+        };
+        put_program(b, c818_call(0x37, 0xA2));
+        b.run(BOOT, "300R\r");
+        REQUIRE(w.back_cycles.size() == 1);
+        CHECK_EQ(w.reads.size(), size_t{2});
+        CHECK_EQ(b.machine->bus().peek_physical(0x313) & 0x01, 0x00);
+        std::printf("  one zero read: %llu cycles\n", static_cast<unsigned long long>(w.back_cycles[0] - w.call_cycles[0]));
+    }
+}
+
+TEST(noise_refuses_a_chip_that_stays_stuck)
+{
+    // The owner's answer 13: a register that stays 0 whatever TEST does (the setter at every instruction) is
+    // refused after 4 recoveries, as a busy card is: carry set, A, X, Y as they were, within 25,000 cycles
+    // (5 reads' waits, about 19,000).
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    Board &b = t.b;
+    splash_stopped(b);
+    NoiseWatch w(b);
+    w.also = [&] { b.machine->sound_card()->set_sid_noise(0, 2, 0); };
+    for (uint32_t i = 0x310; i < 0x316; ++i)
+        b.machine->bus().write_physical(i, 0xEE);
+    put_program(b, c818_call(0x37, 0xA2));
+    b.run(BOOT, "300R\r");
+    Decoder &bus = b.machine->bus();
+    REQUIRE(w.call_cycles.size() == 1);
+    REQUIRE(w.back_cycles.size() == 1); // it came back
+    CHECK_EQ(bus.peek_physical(0x310), 0x37);
+    CHECK_EQ(bus.peek_physical(0x311), 0xA2);
+    CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+    CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);
+    CHECK_EQ(w.reads.size(), size_t{10}); // 5 x (a read, and one 8 steps later)
+    const uint64_t cycles = w.back_cycles[0] - w.call_cycles[0];
+    std::printf("  a stuck chip refused: %llu cycles\n", static_cast<unsigned long long>(cycles));
+    CHECK(cycles <= 25'000);
+}
+#endif
+
+TEST(the_dispatching_entry_still_refuses_the_rest)
+{
+    // R5. With $A2 taken, $A0 and $A3-$AF are refused as before, carry set, A, X, Y as they were, and none of them
+    // writes a SID register; $A1 with A over 3 too (its own case above takes it to Apple II mode).
+    std::vector<uint8_t> xs = {0xA0};
+    for (uint8_t x = 0xA3; x <= 0xAF; ++x)
+        xs.push_back(x);
+    TwoImages t;
+    REQUIRE(t.b.ok());
+    Board &b = t.b;
+    splash_stopped(b);
+    for (const uint8_t x : xs)
+    {
+        sid_marked(b); // again each time: the program's BRK quiets them
+        const std::vector<uint8_t> before = sid_regs(b);
+        NoiseWatch w(b);
+        for (uint32_t i = 0x310; i < 0x316; ++i)
+            b.machine->bus().write_physical(i, 0xEE);
+        put_program(b, c818_call(0x37, x));
+        b.run(BOOT, "300R\r");
+        Decoder &bus = b.machine->bus();
+        CHECK_EQ(bus.peek_physical(0x310), 0x37);
+        CHECK_EQ(bus.peek_physical(0x311), x);
+        CHECK_EQ(bus.peek_physical(0x312), 0x5A);
+        CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);
+        REQUIRE(w.back_regs.size() == 1);
+        CHECK(w.back_regs[0] == before);
+        CHECK(w.reads.empty());
+        CHECK(!b.bridge().apple());
     }
 }
 
