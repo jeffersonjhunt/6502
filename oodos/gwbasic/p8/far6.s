@@ -16,17 +16,31 @@
 ;             once by P4's NAMSCN (a recorded deviation: only a user
 ;             function with side effects could tell)
 ;   COLOR CLS SCREEN LOCATE KEY   GWSTS.ASM's (KEY: 7d2)
+;
+; 7e5 (U0, the space plan's M6; the owner's answers to it of 2026-11-19 and
+; to the 7e5 plan, 2026-11-20): each stub here parses its statement's
+; arguments, GWSTS.ASM's SCNINT, EOSCHK and GTPRMS translated (moved from P6,
+; their code unchanged), with the checks that need nothing of P6's (CLS's n,
+; LOCATE's 0, its column against LINLEN, its cursor, start and stop: the
+; OEM's CSRATR), then makes the one far call it made before, the values in
+; the pseudo-registers, to the same entry of P6's, which checks what needs
+; its state (LOCATE's line against LINCNT and the key line, WIDTH's rows,
+; the mode's colours) and acts. KEY n,"text" is all here (STRTAB is
+; resident), the line then drawn again by P6's KEYDP. In console mode every
+; stub is Advanced Feature first, nothing parsed.
 
 .include "gwbasic.inc"
 
 .export WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY
 .import ADVERR, SCRMOD, CHRGTR, GETBYT, SYNCHR, FRMEVL, FREFAC, FCERR, LINLEN
+.import SNERR, FRESTR, STRTAB
 
 .code
 
 WIDTH:          CMP     #'#'
-                BEQ     WIDFIL
-                CMP     #','
+                BNE     :+
+                JMP     WIDFIL
+:                CMP     #','
                 BEQ     CRTWD1
                 CMP     #LPRINT_TK
                 BNE     NOTLPR
@@ -63,7 +77,22 @@ NOTLPR:         LDA     TXTPTR+1       ; a string or a number?
                 FJSR    SWIDP          ; SCNSWD's SWIDTH
 @x:             RTS
 CRTWD1:         BIT     SCRMOD
-                BPL     ADV
+                BMI     :+
+                JMP     ADVERR
+:               JSR     SCNINT         ; 7e5: the columns (LINLEN if none)
+                BCC     :+
+                LDA     LINLEN
+:               STA     LCX
+                JSR     SCNINT         ;   the rows (P6's LINCNT if none)
+                STA     LCY
+                ROR     LCYN
+                JSR     EOSCHK
+                LDA     LCX
+                STA     RDL
+                LDA     LCY
+                STA     RBL
+                LDA     LCYN
+                STA     RBH
                 FJSR    GWWIDP
                 RTS
 WIDFIL:         JSR     CHRGTR         ; WIDTH #f,n
@@ -93,25 +122,261 @@ GETWDT:         JSR     GETBYT
 FCER:           JMP     FCERR
 COLOR:          BIT     SCRMOD
                 BPL     ADV
+                JSR     GTPRMS         ; 7e5: P6's SETCLR or P5's GCOLOR checks them
                 FJSR    COLORP
                 RTS
 CLS:            BIT     SCRMOD
                 BPL     ADV
-                FJSR    CLSP
+                JSR     SCNINT         ; 7e5: n, 0-2 (0 if none)
+                BCS     :+
+                CMP     #3             ; CLS 0-2 (the OEM's: 0 all, 1 graphics, 2 text)
+                BCS     FCER
+:               PHA
+                JSR     EOSCHK
+                PLA
+                FJSR    CLSP           ; (A n)
                 RTS
 SCREEN:         BIT     SCRMOD
                 BPL     ADV
+                JSR     GTPRMS         ; 7e5: P6's SCRSTT checks them
                 FJSR    SCRNP
-                RTS
-LOCATE:         BIT     SCRMOD
-                BPL     ADV
-                FJSR    LOCATP
                 RTS
 KEY:            BIT     SCRMOD
                 BPL     ADV
-                FJSR    KEYSP
+                CMP     #'('           ; KEY(n), ON, OFF, LIST: P6's
+                BEQ     @p6
+                CMP     #ON_TK
+                BEQ     @p6
+                CMP     #OFF_TK
+                BEQ     @p6
+                CMP     #LIST_TK
+                BEQ     @p6
+                JMP     KEYDEF
+@p6:            FJSR    KEYSP
                 RTS
 ADV:            JMP     ADVERR
+
+; --- LOCATE, KEY n,"text" (GWSTS.ASM 120, 1332; 7e5: M6) --------------------------------
+
+; LOCATE [y][,[x][,[cursor][,[start][,stop]]]]: parsed here, the line not 0
+; and the column on the line (LINLEN), the cursor, start and stop checked
+; (CSRATR); then P6's LOCATP: RDL the line, RDH bit 7 not given (the
+; cursor's then), RBL the column, RBH the same, P6 checking the line against
+; its rows and the key line. The source's order kept (the owner's answer 13
+; to the 7e5 build's report): a line given with more after it is checked
+; against the last row as soon as it is parsed, by P6's LOCLIM (one more
+; far call then), so LOCATE 99,"A" is Illegal function call, not Type
+; mismatch; a line alone is checked by LOCATP, nothing after it to fail.
+LOCATE:         BIT     SCRMOD
+                BPL     ADV
+                JSR     SCNINT         ; the line
+                STA     LCY
+                PHP                    ; (review round 1, F1: its own C, not ROR's)
+                ROR     LCYN
+                PLP
+                BCS     :+
+                TAX
+                BEQ     LFC            ; 0
+                LDA     SNEND          ; more after it: its row checked now
+                BNE     :+
+                FJSR    LOCLIM         ; A: the last row (LINCNT, less 1 with the key line)
+                CMP     LCY
+                BCC     LFC
+:               JSR     SCNINT         ; the column
+                STA     LCX
+                PHP
+                ROR     LCXN
+                PLP
+                BCS     :+
+                DEC     A              ; not 0
+                CMP     LINLEN
+                BCS     LFC
+:               LDX     #0             ; the cursor, its start and stop: checked
+@c:             PHX
+                JSR     SCNINT
+                PLX
+                STA     LOCP,X
+                LDA     #0
+                ROL     A              ; 1: not given
+                STA     LOCG,X
+                INX
+                CPX     #3
+                BCC     @c
+                JSR     EOSCHK
+                JSR     CSRATR
+                BCS     LFC
+                LDA     LCY
+                STA     RDL
+                LDA     LCYN
+                STA     RDH
+                LDA     LCX
+                STA     RBL
+                LDA     LCXN
+                STA     RBH
+                FJSR    LOCATP
+                RTS
+
+LFC:            JMP     FCERR
+
+; CSRATR (the OEM's): LOCATE's cursor (0 or 1), start and stop (0-31),
+; checked; not kept (the owner's answer 9). C set: out of range.
+CSRATR:         LDA     LOCG
+                BNE     :+
+                LDA     LOCP
+                CMP     #2
+                BCS     @x
+:               LDX     #1
+@s:             LDA     LOCG,X
+                BNE     :+
+                LDA     LOCP,X
+                CMP     #32
+                BCS     @x
+:               INX
+                CPX     #3
+                BCC     @s
+                CLC
+@x:             RTS
+
+NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys
+
+; KEYDEF: KEY n,"text": key n (1-10), its text's first 15 characters (a 0
+; after) in STRTAB (resident); then P6's KEYDP draws the line again if it
+; is on.
+KEYDEF:         JSR     GETBYT         ; the key's number
+                DEC     A
+                CMP     #NMKEYF
+                BCS     LFC            ; 1 to 10, else Illegal function call
+                ASL     A              ; x 16: its place in STRTAB
+                ASL     A
+                ASL     A
+                ASL     A
+                PHA
+                JSR     SYNCHR
+                .byte   ','
+                JSR     FRMEVL
+                JSR     FRESTR         ; BX: the descriptor
+                PLX
+                LDA     (RBL)
+                CMP     #16
+                BCC     :+
+                LDA     #15            ; 0 to 15 characters
+:               STA     LCX
+                LDY     #1
+                LDA     (RBL),Y
+                STA     PTR
+                INY
+                LDA     (RBL),Y
+                STA     PTR+1
+                LDY     #0
+@cp:            CPY     LCX
+                BEQ     @end
+                LDA     (PTR),Y
+                STA     STRTAB,X
+                INX
+                INY
+                BRA     @cp
+@end:           STZ     STRTAB,X       ; the 0 after it
+                FJSR    KEYDP
+                RTS
+
+; --- SCNINT, EOSCHK, GTPRMS (GWSTS.ASM 432, 359; 7e5: moved from P6) -------------------
+
+; SCNINT: an optional byte parameter. C clear: A its value, PTERM what ended
+; it (a comma or ")" passed over); C set: none (A 0). SNEND nonzero when the
+; statement ended there (the 8086's ZF).
+SCNINT:         DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     @nomore
+                CMP     #','
+                BEQ     @omit
+                JSR     GETBYT
+                PHA
+                DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     @trmok
+                CMP     #','
+                BEQ     @trmcom
+                CMP     #')'
+                BEQ     @trmcom
+                PLA
+                JMP     FCERR
+@trmcom:        STA     PTERM
+                INCW    TXTPTR
+                STZ     SNEND
+                PLA
+                CLC
+                RTS
+@trmok:         STA     PTERM
+                LDA     #1
+                STA     SNEND
+                PLA
+                CLC
+                RTS
+@omit:          INCW    TXTPTR
+                STA     PTERM
+                STZ     SNEND
+                LDA     #0
+                SEC
+                RTS
+@nomore:        STA     PTERM
+                LDA     #1
+                STA     SNEND
+                LDA     #0
+                SEC
+                RTS
+
+; EOSCHK: the statement must end here, else Syntax error.
+EOSCHK:         DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     :+
+                JMP     SNERR
+:               RTS
+
+; GTPRMS (GWSTS.ASM 359): byte parameters to the statement's end, each one
+; there or not: PCNT of them, PFLG,X nonzero for one given, PVAL,X its value.
+; OO-1: every PFLG cleared first, so one past PCNT reads "not given" (the
+; 8086's are on its stack, counted; SCRSTT reads the pages' flags whatever
+; the count: a COLOR's third parameter was taken for SCREEN's apage). 7e5:
+; then the list in the pseudo-registers for P6's PREGS: RDL PCNT, RDH a bit
+; for each given (bit 0 the first), RBL on the values.
+GTPRMS:         LDX     #PMAX - 1
+:               STZ     PFLG,X
+                DEX
+                BPL     :-
+                STZ     PCNT
+@l:             JSR     SCNINT
+                LDX     PCNT
+                BCS     @null
+                STA     PVAL,X
+                LDA     #$FF
+                STA     PFLG,X
+                INC     PCNT
+                LDA     SNEND
+                BNE     @x
+                LDA     PCNT
+                CMP     #PMAX
+                BCC     @l
+                JMP     FCERR
+@null:          LDA     SNEND          ; nothing at the end: not counted
+                BNE     @x
+                STZ     PFLG,X
+                STZ     PVAL,X
+                INC     PCNT
+                LDA     PCNT
+                CMP     #PMAX
+                BCC     @l
+                JMP     FCERR
+@x:             LDX     #PMAX - 1      ; 7e5: the list to the pseudo-registers
+@m:             LDA     PFLG,X
+                CMP     #1
+                ROL     RDH
+                LDA     PVAL,X
+                STA     RBL,X
+                DEX
+                BPL     @m
+                LDA     PCNT
+                STA     RDL
+                RTS
 
 ; SCNDEV: Z set in console mode if the device NAMSCN has just taken is
 ; SCRN: or KYBD: (its string's descriptor still at RBL, FRESTR's; its text
@@ -147,3 +412,18 @@ SCNDEV:         LDA     SCRMOD
 @x:             RTS
 @no:            LDA     #1             ; Z clear
                 RTS
+
+.segment "BRAM"
+PMAX            = 8
+PCNT:           .res    1              ; GTPRMS's list
+PFLG:           .res    PMAX
+PVAL:           .res    PMAX
+PTERM:          .res    1              ; SCNINT's terminator
+SNEND:          .res    1              ; and whether the statement ended
+LCY:            .res    1              ; LOCATE's line, WIDTH's rows
+LCYN:           .res    1              ;   bit 7: not given
+LCX:            .res    1              ; LOCATE's column, WIDTH's columns, KEY's length
+LCXN:           .res    1              ;   bit 7: not given
+LOCP:           .res    3              ; LOCATE's cursor, start, stop
+LOCG:           .res    3              ;   each: 1 not given
+.assert RBL + PMAX <= PTR, error, "GTPRMS's values in the pseudo-registers"

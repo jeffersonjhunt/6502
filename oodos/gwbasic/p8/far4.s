@@ -582,11 +582,13 @@ DSSRUN:         BIT     SCRMOD
                 FJSR    DSINFO         ; 7e2: P5's GMODEV (A), DSB8 (X)
                 CPX     #$80
                 BCS     @fc            ; GX_BANK8 refused
+                CMP     #3             ; 7e5: the OO-1's modes, SCREEN 0's route: the page
+                BCS     @lin           ; and its reach DSINFO's (T0-T2, GXT)
                 CMP     #0
                 BNE     DSGSR          ; 7e3: SCREEN 1 and 2's page
                 SEC
                 FJSR    SCPAGP
-                JSR     DSPAGE
+@pg:            JSR     DSPAGE
                 BCS     @fc
                 LDX     #2
 @s:             LDA     DSA,X
@@ -601,6 +603,10 @@ DSSRUN:         BIT     SCRMOD
                 JSR     DSVX
                 DEC     DSSCF
                 RTS
+@lin:           LDA     T0
+                LDX     T1
+                LDY     T2
+                BRA     @pg
 @fc:            JMP     FCERR
 
 ; DSGSR (7e3): SCREEN 1 and 2's page, the PC's CGA layout (P5's DSGRUN:
@@ -778,11 +784,15 @@ DSPAGE:         CLC
                 TYA
                 ADC     #0
                 STA     DSVC+2
+                LDA     GXT            ; (7e5: 0 the whole 64 KB, SCREEN 11's)
+                ORA     GXT+1
+                CMP     #1
+                BCC     :+
                 LDA     DSE
                 CMP     GXT
                 LDA     DSE+1
                 SBC     GXT+1
-                RTS
+:               RTS
 
 ; DSVX (7d3): function 83's A (DM_VREAD, from the card's DSVC to the
 ; physical DSPH; DM_VWRITE, the other way), DSVL bytes.

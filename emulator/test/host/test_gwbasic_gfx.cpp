@@ -1,8 +1,9 @@
 /**
  * @file test_gwbasic_gfx.cpp
- * @brief GW-BASIC's graphics, phases 7e1-7e4 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET,
+ * @brief GW-BASIC's graphics, phases 7e1-7e5 (hw/oodos.md, "The plan, phase 7": block P5's SCREEN 1 and 2, PSET,
  *        PRESET, POINT, LINE with STEP, B and BF, COLOR, WIDTH and CLS on a graphics screen; 7e2's CIRCLE, PAINT and
- *        DRAW; 7e3's GET and PUT; 7e4's VIEW, WINDOW, PMAP, POINT(n), LINE's style and PAINT's tiles), run from
+ *        DRAW; 7e3's GET and PUT; 7e4's VIEW, WINDOW, PMAP, POINT(n), LINE's style and PAINT's tiles; 7e5's SCREEN
+ *        10, 11 and 12, the OO-1's own modes), run from
  *        OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -2192,6 +2193,596 @@ TEST(view_window_style_and_tiles_are_timed)
     CHECK(wpset > 2000 && wpset <= 15000);
     CHECK(tpaint > 1000000 && tpaint <= 50000000);
     CHECK(line2 > 10000 && line2 <= 200000);
+}
+
+// --- 7e5: the OO-1's modes, SCREEN 10, 11 and 12 ------------------------------------------------------------------
+
+namespace
+{
+    /// 7e5: the pixel at (x, y) as layer 0 shows it in the OO-1's modes: bitmap 256 (type 3, a byte a pixel, 256 a
+    /// row), bitmap 512 (type 4, a nibble, the left high, 256 bytes a row), mono 640 x 480 (type 5, a bit, single rows
+    /// of 80 bytes); SCREEN 1's and 2's by pixel().
+    int opix(CcpRig &r, unsigned x, unsigned y)
+    {
+        const uint8_t type = reg(r, L0 + L_CONFIG) & 7;
+        const uint32_t map = reg16(r, L0 + L_MAP) * 256u;
+        if (type == 3)
+            return card(r, map + y * 256 + x);
+        if (type == 4)
+        {
+            const uint8_t b = card(r, map + y * 256 + x / 2);
+            return x % 2 ? b & 0x0F : b >> 4;
+        }
+        if (type == 5)
+            return card(r, map + y * 80 + x / 8) >> (7 - x % 8) & 1;
+        return pixel(r, x, y);
+    }
+    /// Layer 0's pixels, w x h, row by row.
+    std::vector<int> snap(CcpRig &r, unsigned w, unsigned h)
+    {
+        std::vector<int> v(static_cast<size_t>(w) * h);
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x)
+                v[static_cast<size_t>(y) * w + x] = opix(r, x, y);
+        return v;
+    }
+    /// Palette entry e at PALBASE.
+    unsigned pentry(CcpRig &r, unsigned e)
+    {
+        const uint32_t pal = reg16(r, PALBASE) * 256u;
+        return static_cast<unsigned>(card(r, pal + 2 * e) | card(r, pal + 2 * e + 1) << 8);
+    }
+    /// `stmt` typed, then run until the text shows FIN (the statement ends PRINT CHR$(70)+"IN", so the line typed
+    /// never matches).
+    bool run_fin(CcpRig &r, const std::string &stmt, uint64_t budget = ms(30000))
+    {
+        enter(r, "CLS 2", ms(200));
+        enter(r, stmt + ":PRINT CHR$(70)+\"IN\"", ms(200));
+        return until_row(r, "FIN", budget) >= 0;
+    }
+    /// The points of LINE's walk from (x1, y1) to (x2, y2) (the test's own reference, Ref::line's: from the smaller y,
+    /// the sum from half the major delta), all of them, on the screen or off.
+    std::vector<std::pair<int, int>> walk(int x1, int y1, int x2, int y2)
+    {
+        if (y2 < y1)
+            std::swap(x1, x2), std::swap(y1, y2);
+        const int dy = y2 - y1, xs = x2 >= x1 ? 1 : -1, dx = std::abs(x2 - x1);
+        const bool ymaj = dy >= dx;
+        const int maj = ymaj ? dy : dx, mn = ymaj ? dx : dy;
+        int sum = maj / 2, x = x1, y = y1;
+        std::vector<std::pair<int, int>> out;
+        for (int i = 0; i <= maj; ++i)
+        {
+            out.push_back({x, y});
+            sum += mn;
+            if (sum >= maj)
+            {
+                sum -= maj;
+                if (ymaj)
+                    x += xs;
+                else
+                    ++y;
+            }
+            if (ymaj)
+                ++y;
+            else
+                x += xs;
+        }
+        return out;
+    }
+} // namespace
+
+// G39 (7e5): the OO-1's modes set up their layers (the 7e5 plan's modes table; the owner's answers 2, 4 and 11).
+// SCREEN 10: layer 0 type 3 (bitmap 256), SCREEN 11 type 4 (bitmap 512), SCREEN 12 type 5 (mono), each unscrolled;
+// layer 1 the text over it at 40, 80 and 80 columns and 30 rows (VSCROLL 0), PALOFS 15, 0 and 3, both layers shown;
+// PALBASE SCREEN 10's own palette (entries 0-15 the console's, 16 + 40r + 5g + b the 6 x 8 x 5 set by its levels
+// (v x 15 + n / 2) / n, 16 black and 255 white), GW-BASIC's for 11 and 12; the graphics cursor at (128,120),
+// (256,240) and (320,240) (POINT(0), POINT(1)); a change of mode clears the page, the same mode again keeps it;
+// SCREEN 0 after them 25 rows again (VSCROLL 440); SCREEN 10,,1, SCREEN 13 and SCREEN 9 Illegal function call.
+// Guards a program's SCREEN 12 showing garbage, or nothing. Seen failing with GCONF's SCREEN 11 entry 3 (bitmap 256
+// shown for 11).
+TEST(oo1_modes_set_up_their_layers)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 1", ms(800));
+    const unsigned gwpal = reg16(r, PALBASE);
+    struct Mode
+    {
+        const char *n;
+        unsigned type, text, palofs;
+        const char *cur;
+    };
+    for (const Mode &m : {Mode{"10", 3, 1, 15, " 128  120"}, Mode{"11", 4, 0, 0, " 256  240"},
+                          Mode{"12", 5, 0, 3, " 320  240"}})
+    {
+        enter(r, std::string("SCREEN ") + m.n + ":PRINT POINT(0);POINT(1)", ms(2500));
+        CHECK_EQ(reg(r, L0 + L_CONFIG) & 7, static_cast<int>(m.type));
+        CHECK_EQ(reg16(r, L0 + L_VSCROLL), 0);
+        CHECK_EQ(reg(r, L1 + L_CONFIG) & 7, static_cast<int>(m.text));
+        CHECK_EQ(reg16(r, L1 + L_VSCROLL), 0);
+        CHECK_EQ(reg(r, L1 + L_PALOFS), static_cast<int>(m.palofs));
+        CHECK_EQ(reg(r, CTRL) & 0x07, 0x07);
+        CHECK(until_row(r, m.cur, ms(500)) >= 0);
+        CHECK(std::string(m.n) == "10" ? reg16(r, PALBASE) != gwpal : reg16(r, PALBASE) == gwpal);
+    }
+    enter(r, "SCREEN 10", ms(800));
+    unsigned bad = 0;
+    auto level = [](unsigned v, unsigned n) { return (v * 15 + n / 2) / n; };
+    for (unsigned e = 0; e < 256; ++e)
+    {
+        unsigned want = static_cast<unsigned>(card(r, 2 * e) | card(r, 2 * e + 1) << 8); // the console's
+        if (e >= 16)
+        {
+            const unsigned k = e - 16, rr = k / 40, g = k % 40 / 5, b = k % 5;
+            want = (level(g, 7) << 4 | level(b, 4)) | level(rr, 5) << 8;
+        }
+        if (pentry(r, e) != want && ++bad <= 4)
+            std::printf("  SCREEN 10's entry %u: %04X, want %04X\n", e, pentry(r, e), want);
+    }
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(pentry(r, 16), 0x0000u);
+    CHECK_EQ(pentry(r, 255), 0x0FFFu);
+    enter(r, "PSET (5,5),7:PSET (6,6),9:SCREEN 10", ms(800));
+    CHECK_EQ(opix(r, 5, 5), 7); // the same mode again: the picture stays
+    enter(r, "SCREEN 11:PSET (300,400),12:SCREEN 10", ms(1500));
+    CHECK_EQ(opix(r, 5, 5), 0); // a change of mode: the page cleared
+    CHECK_EQ(opix(r, 6, 6), 0);
+    enter(r, "SCREEN 11", ms(1500));
+    CHECK_EQ(opix(r, 300, 400), 0);
+    enter(r, "SCREEN 0", ms(800));
+    CHECK_EQ(reg16(r, L0 + L_VSCROLL), 440);
+    CHECK_EQ(reg(r, CTRL) & 0x04, 0);
+    for (const char *bad_mode : {"SCREEN 10,,1", "SCREEN 13", "SCREEN 9"})
+    {
+        enter(r, std::string("CLS:") + bad_mode, ms(800));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    }
+}
+
+// G40 (7e5): the OO-1's modes draw as SCREEN 1 and 2 do (the plan's cross-check, gwbasic/gfx40): one subroutine of
+// PSET, PRESET, LINE in both slopes, B, BF, a styled LINE, CIRCLE with its aspect given (whole and an arc), PAINT
+// without a tile, DRAW without A or TA, GET and PUT by PSET and XOR, VIEW with WINDOW over a viewport of the same
+// size, drawn in SCREEN 1, 10 and 11 in colours 1-3 inside x 0-255 and y 0-199, and in SCREEN 2 and 12 in 1 inside y
+// 0-199 (with more to x 639): every pixel of the shared region the same, the rest of the new modes' pages 0. SCREEN
+// 1's and 2's are checked against PC-BASIC by G1, G2, G8, G29, G34 and G35, so the oracle reaches the new modes only
+// through the port's own checked drawing. Guards a pixel off by one, or in the wrong colour, in the new modes. Seen
+// failing with (a) MAP11's left pixel in the low nibble, (b) RIGHT11 not stepping to the next byte.
+TEST(oo1_modes_draw_as_screen_1_and_2_do)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx40", {"gfx40"}, ms(8000)) >= 0);
+    const std::string k3 = "K1=1:K2=2:K3=3:GOSUB 1000", k1 = "K1=1:K2=1:K3=1:GOSUB 1000:GOSUB 2000";
+    auto differ = [&](const std::vector<int> &a, unsigned aw, const std::vector<int> &b, unsigned bw, unsigned w,
+                      unsigned h, const char *what) {
+        unsigned n = 0;
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x)
+                if (a[y * aw + x] != b[y * bw + x] && ++n <= 4)
+                    std::printf("  %s (%u,%u): %d, want %d\n", what, x, y, b[y * bw + x], a[y * aw + x]);
+        return n;
+    };
+    REQUIRE(run_fin(r, "SCREEN 1:" + k3));
+    std::vector<int> s1(256 * 200);
+    unsigned lit = 0;
+    for (unsigned y = 0; y < 200; ++y)
+        for (unsigned x = 0; x < 256; ++x)
+            lit += (s1[y * 256 + x] = pixel(r, x, y)) != 0;
+    CHECK(lit > 2000);
+    REQUIRE(run_fin(r, "SCREEN 10:" + k3));
+    const std::vector<int> s10 = snap(r, 256, 240);
+    CHECK_EQ(differ(s1, 256, s10, 256, 256, 200, "SCREEN 10"), 0u);
+    unsigned extra = 0;
+    for (unsigned i = 256 * 200; i < s10.size(); ++i)
+        extra += s10[i] != 0;
+    REQUIRE(run_fin(r, "SCREEN 11:" + k3));
+    const std::vector<int> s11 = snap(r, 512, 480);
+    CHECK_EQ(differ(s1, 256, s11, 512, 256, 200, "SCREEN 11"), 0u);
+    for (unsigned y = 0; y < 480; ++y)
+        for (unsigned x = 0; x < 512; ++x)
+            extra += (y >= 200 || x >= 256) && s11[y * 512 + x] != 0;
+    REQUIRE(run_fin(r, "SCREEN 2:" + k1));
+    std::vector<int> s2(640 * 200);
+    for (unsigned y = 0; y < 200; ++y)
+        for (unsigned x = 0; x < 640; ++x)
+            s2[y * 640 + x] = pixel(r, x, y);
+    REQUIRE(run_fin(r, "SCREEN 12:" + k1));
+    const std::vector<int> s12 = snap(r, 640, 480);
+    CHECK_EQ(differ(s2, 640, s12, 640, 640, 200, "SCREEN 12"), 0u);
+    for (unsigned i = 640 * 200; i < s12.size(); ++i)
+        extra += s12[i] != 0;
+    CHECK_EQ(extra, 0u);
+}
+
+// G41 (7e5): the OO-1's modes draw past row 255 (gwbasic/gfx42, in SCREEN 11 and 12, by hand): a figure of lines,
+// a B box, a BF box, a circle and a point at y 120 and again 256 rows down, the same pixels (each across a 16 KB bank:
+// SCREEN 11's every 64 rows, SCREEN 12's every 204.8); LINE (0,0)-(last,479) and (200,300)-(last,700) on the test's
+// own walk (the second clipped at the bottom on its own slope); a BF across row 256 filled; a BF wholly below the
+// screen nothing (BOXOFF); a PAINT of a region over rows 220-470 against the test's own flood fill; POINT at the
+// bottom corner and past it (-1); GET of the bottom corner PUT at the top, the same; VIEW and WINDOW over the lower
+// half. Guards the lower half of SCREEN 11 or 12 drawn over the upper, or clipped away. Seen failing with (a) MAPC
+// dropping the offset's bit 16 (T3), (b) YPAST ignoring y's high byte, (c) PAINT's PNY one byte, (d) NEWBNK refusing
+// bank 3 and past.
+TEST(oo1_modes_draw_past_row_255)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx42", {"gfx42"}, ms(8000)) >= 0);
+    for (const auto &[scr, mx, paint] : {std::tuple<const char *, int, int>{"11", 511, 2}, {"12", 639, 1}})
+    {
+        const unsigned w = static_cast<unsigned>(mx) + 1;
+        REQUIRE(run_fin(r, std::string("SCREEN ") + scr + ":MX=" + std::to_string(mx) + ":K=1:P=" +
+                               std::to_string(paint) + ":GOSUB 1000"));
+        std::vector<int> a = snap(r, w, 480);
+        auto at = [&](const std::vector<int> &v, int x, int y) { return v[static_cast<size_t>(y) * w + x]; };
+        unsigned bad = 0, lit = 0;
+        for (int y = 120; y <= 215; ++y)
+            for (int x = 0; x <= 120; ++x)
+            {
+                lit += at(a, x, y) != 0;
+                if (at(a, x, y) != at(a, x, y + 256) && ++bad <= 4)
+                    std::printf("  SCREEN %s (%d,%d) %d, 256 down %d\n", scr, x, y, at(a, x, y), at(a, x, y + 256));
+            }
+        CHECK(lit > 300);
+        for (const auto &[px, py] : walk(0, 0, mx, 479))
+            bad += at(a, px, py) != 1;
+        for (const auto &[px, py] : walk(200, 300, mx, 700))
+            if (py <= 479)
+                bad += at(a, px, py) != 1;
+        for (int y = 250; y <= 262; ++y)
+            for (int x = 300; x <= 320; ++x)
+                bad += at(a, x, y) != 1;
+        for (int x = 10; x <= 50; ++x)
+            bad += at(a, x, 479) != 0;
+        CHECK_EQ(bad, 0u);
+        // PAINT against the flood fill (4-connected, the border colour 1) of what was there
+        std::vector<int> want = a;
+        std::vector<std::pair<int, int>> stack = {{360, 230}};
+        while (!stack.empty())
+        {
+            const auto [x, y] = stack.back();
+            stack.pop_back();
+            if (x < 0 || y < 0 || x > mx || y > 479)
+                continue;
+            int &c = want[static_cast<size_t>(y) * w + x];
+            if (c == 1 || c == 100)
+                continue;
+            c = 100;
+            stack.push_back({x + 1, y});
+            stack.push_back({x - 1, y});
+            stack.push_back({x, y + 1});
+            stack.push_back({x, y - 1});
+        }
+        unsigned filled = 0;
+        for (int &c : want)
+            if (c == 100)
+                c = paint, ++filled;
+        CHECK(filled > 5000);
+        REQUIRE(run_fin(r, "GOSUB 2000", ms(60000)));
+        const std::vector<int> b = snap(r, w, 480);
+        unsigned pb = 0;
+        for (size_t i = 0; i < b.size(); ++i)
+            if (b[i] != want[i] && ++pb <= 4)
+                std::printf("  SCREEN %s's PAINT at (%zu,%zu): %d, want %d\n", scr, i % w, i / w, b[i], want[i]);
+        CHECK_EQ(pb, 0u);
+        REQUIRE(run_fin(r, "GOSUB 3000"));
+        CHECK(until_row(r, "P 1 0-1", ms(500)) >= 0);
+        const std::vector<int> c = snap(r, w, 480);
+        unsigned pc = 0;
+        for (int y = 0; y < 10; ++y)
+            for (int x = 0; x < 12; ++x)
+                pc += at(c, x, y) != at(b, mx - 11 + x, 470 + y);
+        CHECK_EQ(pc, 0u);
+        CHECK_EQ(at(c, 10, 250), 1);
+        for (int x = 20; x <= 100; ++x)
+            CHECK_EQ(at(c, x, 240), 1);
+        CHECK_EQ(at(c, (mx + 1) / 2, 360), 1);
+    }
+}
+
+// G42 (7e5): GET, PUT and the tiles in the OO-1's modes (gwbasic/gfx43, by hand from the definition: the owner's
+// answer 11, GET's arrays at 8, 4 and 1 bits a pixel in the IBM manual's format, a tile byte one, two or eight
+// pixels). GET's header (the bits a row, the width x 8, 4, 1; the rows); a whole row of 256 pixels in SCREEN 10 and
+// 512 in SCREEN 11 (256 bytes: TXBUF's pieces) and SCREEN 12's 640, GET then PUT by PSET, OR, AND, PRESET and XOR
+// on a row of 85's pattern, and from an odd x (SCREEN 11's nibbles unaligned); a small array's bytes (SCREEN 10 a
+// byte a pixel, SCREEN 11 two from an odd x, the left high, SCREEN 12 eight); PAINT with a tile, its pixels by y MOD
+// the length and x MOD the pixels a byte; POINT 0-255. Guards a sprite wider than 128 bytes garbled, or LOWRAM past
+// TXBUF overwritten. Seen failing with NREAD taking a whole 256-byte row into TXBUF (PGPCE's piece the row).
+TEST(oo1_modes_get_put_and_tiles)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx43", {"gfx43"}, ms(8000)) >= 0);
+    struct Mode
+    {
+        const char *n;
+        int mx, mc;
+        const char *tile, *out;
+    };
+    for (const Mode &m : {Mode{"10", 255, 255, "CHR$(1)+CHR$(2)", "H 80 10 C 20 1 201 403 R 200"},
+                          Mode{"11", 511, 15, "CHR$(&H12)", "H 40 10 C 10 1 3412 0 R 15"},
+                          Mode{"12", 639, 1, "CHR$(&HAA)", "H 10 10 C 4 1 A0 0 R 1"}})
+    {
+        REQUIRE(run_fin(r, std::string("SCREEN ") + m.n + ":MX=" + std::to_string(m.mx) + ":MC=" + std::to_string(m.mc) +
+                               ":T$=" + m.tile + ":GOSUB 1000", ms(60000)));
+        CHECK(until_row(r, m.out, ms(500)) >= 0);
+        const unsigned w = static_cast<unsigned>(m.mx) + 1;
+        const std::vector<int> s = snap(r, w, 210);
+        auto at = [&](int x, int y) { return s[static_cast<size_t>(y) * w + x]; };
+        const int pat = 85 & m.mc;
+        unsigned bad = 0;
+        for (int x = 0; x <= m.mx; ++x)
+        {
+            const int v0 = x % (m.mc + 1), v1 = m.mc - v0;
+            const int want[][2] = {{v0, v1}, {v0, v1}, {pat | v0, pat | v1}, {pat & v0, pat & v1},
+                                   {m.mc - v0, m.mc - v1}, {pat ^ v0, pat ^ v1}};
+            const int rows[] = {0, 100, 110, 120, 130, 140};
+            for (int k = 0; k < 6; ++k)
+                for (int j = 0; j < 2; ++j)
+                    if (at(x, rows[k] + j) != want[k][j] && ++bad <= 6)
+                        std::printf("  SCREEN %s row %d x %d: %d, want %d\n", m.n, rows[k] + j, x, at(x, rows[k] + j),
+                                    want[k][j]);
+            for (int j = 0; j < 2; ++j)
+                bad += at(x, 150 + j) != (x == 0 || x == m.mx ? 0 : (j ? v1 : v0));
+        }
+        for (int y = 161; y <= 199; ++y)
+            for (int x = 11; x <= 59; ++x)
+            {
+                const int want = m.mc == 255 ? 1 + y % 2 : m.mc == 15 ? 1 + x % 2 : (x % 8) % 2 == 0;
+                if (at(x, y) != want && ++bad <= 6)
+                    std::printf("  SCREEN %s's tile (%d,%d): %d, want %d\n", m.n, x, y, at(x, y), want);
+            }
+        CHECK_EQ(bad, 0u);
+    }
+}
+
+// G44 (7e5): the text and WIDTH in the OO-1's modes (the owner's answers 3 and 4): 30 rows, the key line on row 30
+// and LOCATE 30 with the key line off, 31 Illegal function call; SCREEN 10's 40 columns, its columns 1-4 beside the
+// picture taking text; WIDTH 80 in SCREEN 10 is SCREEN 11 and WIDTH 40 in 11 is 10, WIDTH 40 in 12 and any rows but
+// 30 Illegal function call; COLOR [background] in 10 and 11 (entry 0 the CGA colour), a second parameter and COLOR
+// in 12 Illegal function call; SCREEN( over the picture 0 for a cell with pixels, beside it a blank (answer 11);
+// CLS 1 the graphics alone, CLS 2 the text alone. Guards the text misplaced over the picture, or LOCATE refusing row
+// 30. Seen failing with GCELL without the bitmaps' column offset (GCOT 0).
+TEST(oo1_modes_text_and_width)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    enter(r, "SCREEN 10:KEY ON", ms(2000));
+    CHECK_EQ(columns(r), 40u);
+    CHECK(line(r, 29).find("LIST") != std::string::npos);
+    enter(r, "KEY OFF:CLS:LOCATE 30,1:PRINT \"R30\";:LOCATE 5,1:PRINT \"AB\"", ms(800));
+    CHECK_EQ(line(r, 29), std::string("R30"));
+    CHECK_EQ(line(r, 4).substr(0, 2), std::string("AB"));
+    enter(r, "LOCATE 31,1", ms(500));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "CLS:PSET (0,0),5:PSET (64,0),5:LOCATE 10,1:PRINT SCREEN(1,5);SCREEN(1,1);SCREEN(1,6);SCREEN(1,13)", ms(800));
+    CHECK_EQ(line(r, 9), std::string(" 0  32  32  0"));
+    enter(r, "CLS:COLOR 1", ms(500));
+    CHECK_EQ(pentry(r, 0), 0x000Au);
+    enter(r, "CLS:COLOR 1,2", ms(500));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "CLS:WIDTH 80", ms(2000));
+    CHECK_EQ(reg(r, L0 + L_CONFIG) & 7, 4);
+    CHECK_EQ(columns(r), 80u);
+    enter(r, "CLS:PSET (0,0),5:LOCATE 10,1:PRINT SCREEN(1,9);SCREEN(1,8);SCREEN(1,73)", ms(800));
+    CHECK_EQ(line(r, 9), std::string(" 0  32  32"));
+    enter(r, "CLS:COLOR 4", ms(500));
+    CHECK_EQ(pentry(r, 0), 0x0A00u);
+    enter(r, "CLS:WIDTH 80,25", ms(800));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "CLS:WIDTH 40", ms(2000));
+    CHECK_EQ(reg(r, L0 + L_CONFIG) & 7, 3);
+    enter(r, "SCREEN 12:CLS:WIDTH 40", ms(2000));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    CHECK_EQ(reg(r, L0 + L_CONFIG) & 7, 5);
+    enter(r, "CLS:WIDTH 80:COLOR 1", ms(800));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    CHECK_EQ(reg(r, L0 + L_CONFIG) & 7, 5);
+    enter(r, "CLS:PSET (5,5),1:PRINT CHR$(81)+\"Z\":CLS 1", ms(800));
+    CHECK_EQ(opix(r, 5, 5), 0);
+    CHECK(last_row(r, "QZ") >= 0);
+    enter(r, "PSET (5,5),1:CLS 2", ms(800));
+    CHECK_EQ(opix(r, 5, 5), 1);
+    CHECK_EQ(last_row(r, "QZ"), -1);
+    enter(r, "SCREEN 0", ms(1000));
+    CHECK_EQ(reg16(r, L0 + L_VSCROLL), 440);
+}
+
+// G45 (7e5): the OO-1's modes keep block 1 (G3's method, gwbasic/gfx44): S() in $4000-$7FFF (a 200 x 16 sprite's
+// rows: SCREEN 10's 200 bytes in two pieces through TXBUF), Q() across $4000 and P() across $8000 as canaries; in
+// SCREEN 10, 11 and 12 PSET, PRESET, LINE, BF, B, PAINT, CIRCLE, DRAW, GET, PUT by PSET and XOR, a GET back equal to
+// the first, POINT, VIEW with its fill and border, CLS, COLOR, SCREEN(: both canaries read back after each. Guards a
+// program's variables read from or written to the card. Seen failing with NWRITE's piece copied from the array with
+// the aperture in W1 (after GADV's NEWBNK).
+TEST(oo1_modes_keep_block_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r, "m:gwbasic m:gfx44", {"gfx44"}, ms(120000)) >= 0);
+    const int at = last_row(r, "CHECKS");
+    REQUIRE(at >= 0);
+    CHECK_EQ(line(r, static_cast<unsigned>(at)), std::string("CHECKS 59 BAD 0 DIFF 0"));
+    const int q = last_row(r, "Q ");
+    REQUIRE(q >= 0);
+    unsigned q0 = 0, q1 = 0, s0 = 0, s1 = 0, p0 = 0, p1 = 0;
+    CHECK(std::sscanf(line(r, static_cast<unsigned>(q)).c_str(), "Q %x %x S %x %x P %x %x", &q0, &q1, &s0, &s1, &p0,
+                      &p1) == 6);
+    CHECK(q0 < 0x4000 && q1 >= 0x4000);
+    CHECK(s0 >= 0x4000 && s1 < 0x8000);
+    CHECK(p0 < 0x8000 && p1 >= 0x8000);
+}
+
+// G46 (7e5): the OO-1's modes are timed (the owner's answers 5 and 10; timed()'s method): PSET (X%,Y%),1 at most
+// 9,000 cycles in each; the corner-to-corner LINE at most 100,000 in SCREEN 10, 170,000 in 11 and 200,000 in 12; the
+// whole-window scroll (T17's method: SCRLUPN's call less the interrupt handlers inside it) of 80 x 30 in SCREEN 12's
+// overlay at most 16,500, measured first, in a fresh session with the key line on (the owner's answers 17 and 19:
+// main's own 80 x 30 scroll in SCREEN 0 is the same 15,976 in a fresh session, 13,649 of it the card's copies by
+// function 83, so the planning's 15,736, measured after scrolls at other widths, was not a fresh session's; the gate
+// the next 500 up; the same scroll late in the case printed beside it, not gated), and of 40 x 30
+// in SCREEN 10's at most 14,000; for the record a whole PAINT from the centre,
+// CIRCLE r=100, the 100-move DRAW, GET and PUT of a 48 x 48 sprite, CLS, and the first SCREEN 10, 11 and 12 (the
+// page's allocation, its clearing, SCREEN 10's palette) and a later one. Guards graphics or the text too slow to use.
+// Seen failing with NEWBNK mapping the bank at every point (SETC: each LINE past its gate).
+TEST(oo1_modes_are_timed)
+{
+    // the whole-window scroll, T17's method: `mode` set, its rows written, then 40 PRINTs' scrolls
+    auto scroll = [](CcpRig &q, const std::string &mode) {
+        const auto l6 = lbl_map(std::string("p6.lbl"));
+        const uint16_t up = l6.at("SCRLUPN");
+        const uint16_t irq = static_cast<uint16_t>(reg(q, 0xFFFE) | reg(q, 0xFFFF) << 8);
+        enter(q, mode + ":CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));
+        uint64_t from = 0, ifrom = 0, inirq = 0, own = 0;
+        unsigned n = 0;
+        int depth = -1, idepth = -1;
+        q.watch = [&](uint16_t pc) {
+            if (depth >= 0 && idepth < 0 && pc == irq)
+            {
+                ifrom = q.cpu->cycles();
+                idepth = q.cpu->regs().s;
+            }
+            else if (idepth >= 0 && q.cpu->regs().s == idepth + 3)
+            {
+                inirq += q.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            if (depth < 0 && pc == up)
+            {
+                from = q.cpu->cycles();
+                depth = q.cpu->regs().s;
+                inirq = 0;
+            }
+            else if (depth >= 0 && idepth < 0 && q.cpu->regs().s == depth + 2)
+            {
+                own += q.cpu->cycles() - from - inirq;
+                ++n;
+                depth = -1;
+            }
+        };
+        enter(q, "CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));
+        q.watch = nullptr;
+        CHECK(n >= 10);
+        return n ? static_cast<double>(own) / n : 0;
+    };
+    double sc12 = 0;
+    {
+        CcpRig f; // first, in a fresh session, the key line on (the default)
+        REQUIRE(f.ok);
+        REQUIRE(start(f) >= 0);
+        sc12 = scroll(f, "SCREEN 12");
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    std::map<std::string, double> first;
+    const uint64_t base = timed(r, {"10 REM"});
+    for (const char *m : {"10", "11", "12"}) // each its first use, from the mode before
+        first[m] = static_cast<double>(timed(r, {std::string("10 SCREEN ") + m}) - base);
+    for (const char *m : {"10", "11", "12"}) // and again, from SCREEN 0
+    {
+        enter(r, "SCREEN 0", ms(1500));
+        first[std::string(m) + " again"] = static_cast<double>(timed(r, {std::string("10 SCREEN ") + m}) - base);
+    }
+    enter(r, "SCREEN 0", ms(1500));
+    auto per = [&](const std::string &setup, const std::string &stmt, int n) {
+        const std::string loop = "I%=I%+1:IF I%<" + std::to_string(n) + " THEN 20";
+        const uint64_t a = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + loop});
+        const uint64_t b = timed(r, {"10 " + setup + ":X%=100:Y%=50:I%=0", "20 " + stmt + ":" + loop});
+        return static_cast<double>(b - a) / n;
+    };
+    const double p10 = per("SCREEN 10", "PSET (X%,Y%),1", 100), p11 = per("SCREEN 11", "PSET (X%,Y%),1", 100);
+    const double p12 = per("SCREEN 12", "PSET (X%,Y%),1", 100);
+    const double l10 = per("SCREEN 10", "LINE (0,0)-(255,239),1", 10);
+    const double l11 = per("SCREEN 11", "LINE (0,0)-(511,479),1", 10);
+    const double l12 = per("SCREEN 12", "LINE (0,0)-(639,479),1", 10);
+    std::map<std::string, double> rec;
+    for (const auto &[m, cx, cy] : {std::tuple<const char *, int, int>{"10", 128, 120}, {"11", 256, 240}, {"12", 320, 240}})
+    {
+        const std::string sc = std::string("SCREEN ") + m, c = std::to_string(cx) + "," + std::to_string(cy);
+        rec[std::string("PAINT ") + m] = per(sc, "CLS:PAINT (" + c + "),1", 1) - per(sc, "CLS", 1);
+        rec[std::string("CIRCLE ") + m] = per(sc, "CIRCLE (" + c + "),100,1", 5);
+        const std::string moves = "A$=\"\":FOR J=1 TO 50:A$=A$+\"R3D3\":NEXT:DRAW \"BM10,10\"";
+        rec[std::string("DRAW ") + m] = per(sc + ":" + moves, "DRAW \"BM10,10\"+A$", 5) -
+                                        per(sc + ":" + moves, "DRAW \"BM10,10\"", 5);
+        const std::string spr = sc + ":DIM S%(1200):LINE (0,0)-(47,47),1,BF:GET (0,0)-(47,47),S%";
+        rec[std::string("GET ") + m] = per(spr, "GET (0,0)-(47,47),S%", 10);
+        rec[std::string("PUT ") + m] = per(spr, "PUT (100,100),S%,PSET", 10);
+        rec[std::string("CLS ") + m] = per(sc, "CLS", 5);
+    }
+    const double late12 = scroll(r, "SCREEN 12:KEY OFF"), sc10 = scroll(r, "SCREEN 10:KEY OFF");
+    std::printf("  PSET (X%%,Y%%),1: SCREEN 10 %.0f, 11 %.0f, 12 %.0f cycles (the gate 9,000)\n", p10, p11, p12);
+    std::printf("  LINE corner to corner: SCREEN 10 %.0f (100,000), 11 %.0f (170,000), 12 %.0f (200,000)\n", l10, l11,
+                l12);
+    std::printf("  the whole-window scroll: 80 x 30 in SCREEN 12 %.0f first (16,500; late in the case, the key line off, "
+                "%.0f, not gated), 40 x 30 in SCREEN 10 %.0f (14,000)\n", sc12, late12, sc10);
+    std::printf("  for the record:");
+    for (const auto &[k, v] : rec)
+        std::printf(" %s %.0f,", k.c_str(), v);
+    for (const auto &[k, v] : first)
+        std::printf(" first SCREEN %s %.0f,", k.c_str(), v);
+    std::printf("\n");
+    CHECK(p10 > 500 && p10 <= 9000);
+    CHECK(p11 > 500 && p11 <= 9000);
+    CHECK(p12 > 500 && p12 <= 9000);
+    CHECK(l10 > 10000 && l10 <= 100000);
+    CHECK(l11 > 10000 && l11 <= 170000);
+    CHECK(l12 > 10000 && l12 <= 200000);
+    CHECK(sc12 > 1000 && sc12 <= 16500);
+    CHECK(sc10 > 1000 && sc10 <= 14000);
+}
+
+// G43 (7e5): DEF SEG's page in the OO-1's modes (the owner's answer 6): &H8000's byte k is the layer's own byte k
+// of the page (MAPBASE on), by SCREEN 0's route: SCREEN 10 a byte a pixel, its reach 61,440; SCREEN 11 two pixels
+// a byte, the left high, 64 KB (rows 0-255); SCREEN 12 eight, the leftmost in bit 7, 38,400; past the reach Illegal
+// function call; DEF SEG=&H8000: BSAVE "PIC",0,&H9600 in SCREEN 12 saves the picture, and after CLS BLOAD puts it
+// back, the text over it not in it. Guards a BSAVEd picture that doesn't BLOAD back. Seen failing with DSSCR taking
+// SCREEN 1 and 2's CGA route for SCREEN 12.
+TEST(oo1_modes_def_seg_page)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) >= 0);
+    auto lin = [&](uint32_t k) { return card(r, reg16(r, L0 + L_MAP) * 256u + k); };
+    enter(r, "KEY OFF:SCREEN 10:DEF SEG=&H8000:POKE 0,7:POKE 61439,200:PSET (1,0),9:LOCATE 5,1:PRINT PEEK(1);PEEK(61439)",
+          ms(3000));
+    CHECK_EQ(lin(0), 7);
+    CHECK_EQ(lin(61439), 200);
+    CHECK_EQ(line(r, 4), std::string(" 9  200"));
+    for (const char *past : {"A=PEEK(61440)", "POKE 61440,1"})
+    {
+        enter(r, std::string("CLS:") + past, ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    }
+    enter(r, "SCREEN 11:POKE 65535,&H5A:PSET (2,0),12:LOCATE 5,1:PRINT PEEK(1);PEEK(65535)", ms(3000));
+    CHECK_EQ(lin(65535), 0x5A);
+    CHECK_EQ(line(r, 4), std::string(" 192  90")); // pixel 2 the high nibble of byte 1
+    enter(r, "SCREEN 12:POKE 0,&HFF:POKE 38399,&H81:PSET (8,0):LOCATE 5,1:PRINT PEEK(1);PEEK(38399)", ms(3000));
+    CHECK_EQ(lin(0), 0xFF);
+    CHECK_EQ(lin(38399), 0x81);
+    CHECK_EQ(line(r, 4), std::string(" 128  129"));
+    enter(r, "CLS:A=PEEK(38400)", ms(600));
+    CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "CLS:CIRCLE (320,240),200,1:LINE (0,0)-(639,479),1:LINE (100,300)-(200,400),1,BF:LOCATE 2,1:PRINT CHR$(84)+\"XQ\"",
+          ms(3000));
+    std::vector<uint8_t> pic(38400);
+    for (uint32_t k = 0; k < pic.size(); ++k)
+        pic[k] = lin(k);
+    enter(r, "BSAVE \"M:PIC\",0,&H9600", ms(4000));
+    const std::vector<uint8_t> d = m_data(r, 0, "PIC     BAS");
+    REQUIRE(d.size() >= 38407u);
+    CHECK(std::vector<uint8_t>(d.begin(), d.begin() + 7) == std::vector<uint8_t>({0xFD, 0x00, 0x80, 0x00, 0x00, 0x00, 0x96}));
+    unsigned bad = 0;
+    for (uint32_t k = 0; k < pic.size(); ++k)
+        bad += d[7 + k] != pic[k];
+    CHECK_EQ(bad, 0u);
+    enter(r, "CLS:BLOAD \"M:PIC\",0", ms(4000));
+    bad = 0;
+    for (uint32_t k = 0; k < pic.size(); ++k)
+        bad += lin(k) != pic[k];
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(last_row(r, "TXQ"), -1);
 }
 
 int main()
