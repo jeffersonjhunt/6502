@@ -15,7 +15,7 @@
 ; 400 lines, centred by VSCROLL; GW-BASIC's text over them on layer 1.
 
 ; p5/gfx.s
-.global GMODEV, GMX, GGRP, GBASE, GMAXX, GRPSIZ, PIXSIZ, GETFBC, SETATR, CPAT, GTASPC, PIXMSK, PIXPAT
+.global GMODEV, GMX, GGRP, GBASE, GMAXX, GMAXY, GRPSIZ, PIXSIZ, GETFBC, SETATR, CPAT, GTASPC, PIXMSK, CPATOF, PIXBIT
 .global VWOX, VWOY, VWSX, VWSY, VWON, VWMX, VWMY, LSTYL ; 7e4: the viewport, LINE's style
 ; p5/gfxoem.s
 .global MAPXYC, MAPABS, SCALXY, SETC, READC, RIGHTC, LEFTC, DOWNC, UPC, NSETCX
@@ -34,6 +34,9 @@
 GM_TEXT         = 0                    ; GMODEV: SCREEN 0
 GM_TILE         = 1                    ;   SCREEN 1: the tile frame
 GM_MONO         = 2                    ;   SCREEN 2: the doubled mono rows
+GM_M10          = 3                    ;   7e5, the OO-1's: SCREEN 10, bitmap 256
+GM_M11          = 4                    ;   SCREEN 11, bitmap 512
+GM_M12          = 5                    ;   SCREEN 12, mono 640 x 480
 TILES           = 1000                 ; SCREEN 1: the frame's tiles, then the blank one
 T1PAGES         = 126                  ;   its tiles' card pages (1,001 x 32 bytes, 32,032)
 T1BYTES         = (TILES + 1) * 32

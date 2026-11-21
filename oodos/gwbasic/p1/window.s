@@ -12,7 +12,8 @@
 ;           (a window) and 6 (WINDOW SCREEN) set, the viewport asked of P5
 ;           (GVWGET), and the map made (WINRSC)
 ;   WINRSC  the map for a viewport (from P5's GVIEW, or WINSET): RDL/RDH its
-;           last x, RBL its last y, RBH/RAL and RAH VIEW SCREEN's offset
+;           last x, RBL/RBH its last y, RAL/RAH and RCL/RCH VIEW SCREEN's
+;           offset (7e5: y a word, past 255)
 ;   WINXY   a world point to the viewport's: x in BXDX, y in the FAC
 ;           (singles), A bit 7 STEP (the cursor, RCL/RCH and RSI, mapped back
 ;           and the point added), out CX, DX; Overflow past 32,767
@@ -51,12 +52,12 @@
 ; W's layout (offsets): the corners, the axes (v0, s, o each), the viewport.
 WC              = 0                    ; x1, y1, x2, y2 (4 bytes each)
 WAX0            = 16                   ; x's v0, s, o; y's 12 on
-WMX             = 40                   ; the viewport's last x (2), y (1), VIEW SCREEN's x (2), y (1)
-WSX             = WMX + 3
-WSY             = WMX + 5
-WT              = 47                   ; WAXIS's span (T3: after y's offset's high byte)
-WTX             = 51                   ; WINXY's x and y
-WTY             = 55
+WMX             = 40                   ; the viewport's last x, y, VIEW SCREEN's x, y (7e5: words)
+WSX             = WMX + 4
+WSY             = WMX + 6
+WT              = 48                   ; WAXIS's span
+WTX             = 52                   ; WINXY's x and y
+WTY             = 56
 WEND            = WTY + 4
 
 .code
@@ -79,12 +80,11 @@ WINSET:         STA     WFL            ; (review trim T1: checked and sorted by 
                 DEX
                 BPL     @m
                 FJSR    GVWGET
-WINRSC:         LDX     #5
+WINRSC:         LDX     #7             ; (7e5: P5's GVWGET, four words)
 @v:             LDA     RDL,X
                 STA     W + WMX,X
                 DEX
                 BPL     @v
-                STZ     W + WMX + 6    ; (T3: y's offset a word)
                 LDX     #0
                 JSR     WAXIS
                 LDX     #1
@@ -109,9 +109,7 @@ WAXIS:          STX     WAX
                 BNE     @y
                 MOVW    RDL, W + WMX
                 BRA     @n
-@y:             LDA     W + WMX + 2
-                STA     RDL
-                STZ     RDH
+@y:             MOVW    RDL, W + WMX + 2
 @n:             JSR     FLT            ; the viewport's last
                 JSR     MOVRF
                 LDY     #WT

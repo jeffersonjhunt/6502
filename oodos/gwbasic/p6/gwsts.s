@@ -2,8 +2,9 @@
 ; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; GWSTS.ASM's screen statements, translated, in block P6 (hw/oodos.md,
-; "The plan, phase 7": 7d1, U4), with the OEM's parts they call (CSRATR,
-; SWIDTH, SETCLR, SCRSTT: the OO-1's, the project's own). Each is reached in
+; "The plan, phase 7": 7d1, U4), with the OEM's parts they call (SWIDTH,
+; SETCLR, SCRSTT: the OO-1's, the project's own; CSRATR the home block's
+; since 7e5). Each is reached in
 ; screen mode only, from its home block stub (p8/far6.s) or the resident
 ; evaluator's (res/oem.s); in console mode they stay Advanced Feature (the
 ; owner's answer 7).
@@ -33,6 +34,14 @@
 ;             Advanced Feature until then: the owner's answer 5)
 ;   SKEYOP    SKEYON at start-up (P2's PRNTND, in screen mode with no
 ;             program named: the owner's answer 1)
+;
+; 7e5 (U0, the space plan's M6): the statements' arguments are parsed by
+; their home block stubs (p8/far6.s: SCNINT, GTPRMS and the parses, moved
+; there), which far call these once, as before, with the values in the
+; pseudo-registers; each entry here checks what needs P6's state (LINCNT,
+; KEYSW, the mode) and acts. KEY n,"text" is written by its stub (STRTAB is
+; resident) and the line drawn again by P6's KEYDP (p6/scpag.s). SCREEN('s
+; parse is its own (SFINT: the owner's answer 7 to the 7e5 plan).
 
 .include "gwbasic.inc"
 .include "p6/p6.inc"
@@ -48,8 +57,8 @@
 ;@entry KEYSP
 ;@entry SKEYOP
 .export CLSP, LOCATP, GWWIDP, SWIDP, COLORP, SCRNP, SCRNFP, CSRLNP, KEYSP, SKEYOP
-.import CHRGTR, SYNCHR, GETBYT, FCERR, SNERR, MAKINT, LINLEN, ADVERR, SCRMOD
-.import FRMEVL, FRESTR, STRTAB
+.import CHRGTR, SYNCHR, GETBYT, FCERR, MAKINT, LINLEN, ADVERR, SCRMOD
+.import STRTAB
 
 .macro  MOVB7   dst, src
                 LDA     src
@@ -58,103 +67,32 @@
 
 .code
 
-; --- SCNINT, EOSCHK (GWSTS.ASM 432) -------------------------------------------------------
+; --- PREGS (7e5: M6) ---------------------------------------------------------------------
 
-; SCNINT: an optional byte parameter. C clear: A its value, PTERM what ended
-; it (a comma or ")" passed over); C set: none (A 0). SNEND nonzero when the
-; statement ended there (the 8086's ZF).
-SCNINT:         DECW    TXTPTR
-                JSR     CHRGTR
-                BEQ     @nomore
-                CMP     #','
-                BEQ     @omit
-                JSR     GETBYT
-                PHA
-                DECW    TXTPTR
-                JSR     CHRGTR
-                BEQ     @trmok
-                CMP     #','
-                BEQ     @trmcom
-                CMP     #')'
-                BEQ     @trmcom
-                PLA
-                JMP     FCERR
-@trmcom:        STA     PTERM
-                INCW    TXTPTR
-                STZ     SNEND
-                PLA
-                CLC
-                RTS
-@trmok:         STA     PTERM
-                LDA     #1
-                STA     SNEND
-                PLA
-                CLC
-                RTS
-@omit:          INCW    TXTPTR
-                STA     PTERM
-                STZ     SNEND
-                LDA     #0
-                SEC
-                RTS
-@nomore:        STA     PTERM
-                LDA     #1
-                STA     SNEND
-                LDA     #0
-                SEC
-                RTS
-
-; EOSCHK: the statement must end here, else Syntax error.
-EOSCHK:         DECW    TXTPTR
-                JSR     CHRGTR
-                BEQ     :+
-                JMP     SNERR
-:               RTS
-
-; GTPRMS (GWSTS.ASM 359): byte parameters to the statement's end, each one
-; there or not: PCNT of them, PFLG,X nonzero for one given, PVAL,X its value.
-; OO-1: every PFLG cleared first, so one past PCNT reads "not given" (the
-; 8086's are on its stack, counted; SCRSTT reads the pages' flags whatever
-; the count: a COLOR's third parameter was taken for SCREEN's apage).
-GTPRMS:         LDX     #PMAX - 1
-:               STZ     PFLG,X
-                DEX
-                BPL     :-
-                STZ     PCNT
-@l:             JSR     SCNINT
-                LDX     PCNT
-                BCS     @null
+; PREGS: the home block's GTPRMS (p8/far6.s), from the pseudo-registers:
+; RDL the count, RDH a bit for each given (bit 0 the first), RBL on their
+; values (0 not given); PCNT, PFLG,X ($80 given, else 0) and PVAL,X for the
+; first PMAX, as GTPRMS left them.
+PREGS:          LDA     RDL
+                STA     PCNT
+                LDX     #0
+@u:             LDA     RBL,X
                 STA     PVAL,X
-                LDA     #$FF
+                LDA     #0
+                LSR     RDH
+                ROR     A
                 STA     PFLG,X
-                INC     PCNT
-                LDA     SNEND
-                BNE     @x
-                LDA     PCNT
-                CMP     #PMAX
-                BCC     @l
-                JMP     FCERR
-@null:          LDA     SNEND          ; nothing at the end: not counted
-                BNE     @x
-                STZ     PFLG,X
-                STZ     PVAL,X
-                INC     PCNT
-                LDA     PCNT
-                CMP     #PMAX
-                BCC     @l
-                JMP     FCERR
-@x:             RTS
+                INX
+                CPX     #PMAX
+                BCC     @u
+                RTS
 
 ; --- CLS (GWSTS.ASM 104) ------------------------------------------------------------------
 
-CLSP:           JSR     P6IN
-                JSR     SCNINT
-                BCS     :+
-                CMP     #3             ; CLS 0-2 (the OEM's: 0 all, 1 graphics, 2 text)
-                BCC     :+
-                JMP     FCERR
-:               STA     LOCP
-                JSR     EOSCHK
+; CLSP: A n, 0-2 (the OEM's: 0 all, 1 graphics, 2 text; 0 not given),
+; checked by the stub.
+CLSP:           STA     LOCP
+                JSR     P6IN
                 LDA     GMOD           ; 7e1: a graphics mode's page, P5's GCLS
                 BEQ     @t             ; (carry set: CLS 1, the graphics alone)
                 LDA     LOCP
@@ -165,76 +103,50 @@ CLSP:           JSR     P6IN
 
 ; --- LOCATE (GWSTS.ASM 120) ---------------------------------------------------------------
 
-LOCATP:         JSR     P6IN
-                JSR     SCNINT         ; the line
-                BCC     YLCPRM
-                JSR     GTLINE
-YLCPRM:         CMP     #0
-                BEQ     GOFCER
+; LOCATP: from the stub, which has parsed and checked the rest (the column
+; on the line, the cursor, its start and stop): RDL the line, RDH bit 7 not
+; given; RBL the column, RBH bit 7 not given.
+LOCATP:         LDA     RDL
                 STA     LOCY
-                LDA     LINCNT         ; the last row: LINCNT, less 1 with the key
+                LDA     RBL
+                STA     LOCX
+                LDA     RDH
+                STA     LOCG
+                LDA     RBH
+                STA     LOCG + 1
+                JSR     P6IN
+                LDA     LOCY
+                BIT     LOCG           ; the line not given: the cursor's
+                BPL     YLCPRM
+                JSR     GTLINE
+                STA     LOCY
+YLCPRM:         LDA     LINCNT         ; the last row: LINCNT, less 1 with the key
                 CLC                    ; line (KEYSW $FF: 7d2), the line compared
                 ADC     KEYSW          ; with it, so no row wraps (255 is past it)
                 CMP     LOCY
                 BCC     GOFCER
-                JSR     SCNINT         ; the column
-                BCC     XLCPRM
+                BIT     LOCG + 1       ; the column not given: the cursor's
+                BPL     :+
                 JSR     SCNPOS
                 LDA     xDH
-XLCPRM:         STA     LOCX
-                DEC     A              ; not 0
-                CMP     LINLEN
-                BCS     GOFCER
-                LDX     #0             ; the cursor, its start and stop: checked
-@c:             PHX
-                JSR     SCNINT
-                PLX
-                STA     LOCP,X
-                LDA     #0
-                ROL     A              ; 1: not given
-                STA     LOCG,X
-                INX
-                CPX     #3
-                BCC     @c
-                JSR     EOSCHK
-                JSR     CSRATR
-                BCS     GOFCER
-                MOVB7   CSRX, LOCX     ; SCNLOC
+                STA     LOCX
+:               MOVB7   CSRX, LOCX     ; SCNLOC
                 MOVB7   CSRY, LOCY
                 JMP     P6OUT          ; (CSRDSP's user cursor, 3: none shown, answer 9)
 GOFCER:         JMP     FCERR
 
-; CSRATR (the OEM's): LOCATE's cursor (0 or 1), start and stop (0-31),
-; checked; not kept (the owner's answer 9). C set: out of range.
-CSRATR:         LDA     LOCG
-                BNE     :+
-                LDA     LOCP
-                CMP     #2
-                BCS     @x
-:               LDX     #1
-@s:             LDA     LOCG,X
-                BNE     :+
-                LDA     LOCP,X
-                CMP     #32
-                BCS     @x
-:               INX
-                CPX     #3
-                BCC     @s
-                CLC
-@x:             RTS
-
 ; --- WIDTH (GWSTS.ASM 190) ----------------------------------------------------------------
 
-GWWIDP:         JSR     P6IN
-                JSR     SCNINT
-                BCC     :+
-                LDA     LINLEN
-:               STA     LOCX
-                JSR     SCNINT
-                BCC     :+
+; GWWIDP: from the stub: RDL the columns (LINLEN if not given), RBL the
+; rows, RBH bit 7 not given (LINCNT then).
+GWWIDP:         LDA     RDL
+                STA     LOCX
+                LDA     RBL
+                BIT     RBH
+                BPL     :+
                 LDA     LINCNT
 :               STA     LOCY
-                JSR     EOSCHK
+                JSR     P6IN
                 LDA     LOCX
                 CMP     LINLEN
                 BNE     :+
@@ -262,20 +174,34 @@ SWIDP:          BIT     SCRMOD
 ; SWIDTH (the OEM's): LOCX columns (40, 80), LOCY rows (25, 30): the
 ; driver set for them, every page cleared, page 0 active and shown, home.
 ; 7e1: in a graphics mode WIDTH chooses the mode (PC-BASIC's): 40 SCREEN 1,
-; 80 SCREEN 2, 25 rows only; the same mode, nothing.
+; 80 SCREEN 2, 25 rows only; the same mode, nothing. 7e5 (the owner's answer
+; 4, the OO-1's): in SCREEN 10 and 11 the pair's other at the other width
+; (80 in SCREEN 10 is SCREEN 11, 40 in 11 is 10), in SCREEN 12 80 alone,
+; their 30 rows only.
 SWIDTH:         LDA     GMOD
                 BEQ     @txt
-                LDA     LOCY
-                CMP     #25
+                LDX     #GMTILE        ; the pair: 1 and 2, 25 rows; or 10 and 11, 30
+                LDA     #25
+                LDY     GMOD
+                CPY     #GMM10
+                BCC     :+
+                LDX     #GMM10
+                LDA     #30
+:               CMP     LOCY
                 BNE     @bad
-                LDX     #GMTILE
                 LDA     LOCX
                 CMP     #40
-                BEQ     :+
-                INX
+                BEQ     @w
                 CMP     #80
                 BNE     @bad
-:               CPX     GMOD
+                INX
+                CPY     #GMM12         ; SCREEN 12's 80: itself
+                BNE     @c
+                INX
+                BRA     @c
+@w:             CPY     #GMM12         ; SCREEN 12's 40: none
+                BEQ     @bad
+@c:             CPX     GMOD
                 BEQ     @same
                 STX     NMODE
                 JMP     SMODE
@@ -311,8 +237,8 @@ SWSET:          STZ     BRDC
 
 ; --- COLOR (GWSTS.ASM 244) ----------------------------------------------------------------
 
-COLORP:         JSR     P6IN
-                JSR     GTPRMS
+COLORP:         JSR     PREGS          ; 7e5: the stub's GTPRMS
+                JSR     P6IN
                 LDA     GMOD           ; 7e1: a graphics mode's, P5's GCOLOR
                 BNE     @g
                 JSR     SETCLR
@@ -389,15 +315,16 @@ SETCLR:         LDA     PCNT
 
 ; --- SCREEN (GWSTS.ASM 350) ---------------------------------------------------------------
 
-SCRNP:          JSR     P6IN
-                JSR     GTPRMS
+SCRNP:          JSR     PREGS          ; 7e5: the stub's GTPRMS
+                JSR     P6IN
                 JSR     SCRSTT
                 BCS     GOFCER2
                 JMP     P6OUT
 GOFCER2:        JMP     FCERR
 
 ; SCRSTT (the OEM's): the mode (0, 1, 2; as it is if not given: 7e1; 3-9
-; and the OO-1's own Illegal function call, 7e5's); the burst taken and
+; and 13 on Illegal function call; 7e5: 10, 11 and 12 the OO-1's own, modes
+; 3-5, an OO-1 extension past the IBM manual's 0-2); the burst taken and
 ; passed over; the active page and the visual one, SCREEN 0's (a graphics
 ; mode has one, CGA's: 0 only). A change of mode (SMODE) sets the new one up
 ; (P5's GMODE: its page, its palette, layer 0) and the text for it: its
@@ -405,16 +332,25 @@ GOFCER2:        JMP     FCERR
 ; graphics), 40 columns for SCREEN 1, 80 for SCREEN 2, SCREEN 0 the width
 ; the mode left (40 after SCREEN 1, 80 after SCREEN 2: PC-BASIC's), 25 rows, every page cleared, on layer 1 over the graphics (VSHOW).
 ; The same mode again changes nothing (PC-BASIC's: the picture stays).
+SSBAD:          SEC                    ; (7e5: within reach)
+                RTS
 SCRSTT:         LDA     PCNT
                 CMP     #5
-                BCS     @bad
+                BCS     SSBAD
                 LDX     GMOD
                 LDA     PFLG
-                BEQ     :+
+                BEQ     @m
                 LDX     PVAL
-:               CPX     #GMMONO + 1
-                BCS     @bad           ; SCREEN 3 ...: no such mode
-                STX     NMODE
+                CPX     #GMMONO + 1
+                BCC     @m
+                TXA                    ; 7e5: SCREEN 10-12, modes 3-5 (C set)
+                SBC     #10 - GMM10
+                CMP     #GMM10
+                BCC     @bad           ; SCREEN 3-9: no such mode
+                CMP     #GMM12 + 1
+                BCS     @bad           ; 13 on
+                TAX
+@m:             STX     NMODE
                 TXA
                 BEQ     @s0
                 LDA     PFLG + 2       ; a graphics mode: page 0 only
@@ -477,14 +413,40 @@ SMODE:          LDA     NMODE
                 BNE     :+
                 LDA     CRTWID
 :               STA     LOCX
-                LDA     #25
-                STA     LOCY
+                LDA     #25            ; 25 rows; 7e5: SCREEN 10-12 the layer's 30
+                CPX     #GMM10
+                BCC     :+
+                LDA     #30
+:               STA     LOCY
                 JMP     SWSET
 @x:             RTS
 
 ; --- SCREEN(, CSRLIN (GWSTS.ASM 258) ------------------------------------------------------
 
 FCERGO:         JMP     FCERR
+
+; SFINT (7e5: the owner's answer 7): SCREEN('s byte parameter, as SCNINT
+; (GWSTS.ASM's) takes one that must be there: none (the statement's end, or
+; a comma) Illegal function call, else GETBYT's value in A, PTERM what ended
+; it (a comma or ")" passed over; the statement's end not).
+SFINT:          DECW    TXTPTR
+                JSR     CHRGTR
+                BEQ     FCERGO
+                CMP     #','
+                BEQ     FCERGO
+                JSR     GETBYT
+                PHA
+                DECW    TXTPTR
+                JSR     CHRGTR
+                STA     PTERM
+                BEQ     @x
+                CMP     #','
+                BEQ     @p
+                CMP     #')'
+                BNE     FCERGO
+@p:             INCW    TXTPTR
+@x:             PLA
+                RTS
 
 ; SCRNFP: TXTPTR at SCREEN's token in a formula: SCREEN(y,x[,z]), the FAC
 ; its value. In a graphics mode (the IBM manual, pp. 310-311): z Illegal
@@ -494,14 +456,12 @@ SCRNFP:         JSR     P6IN
                 JSR     CHRGTR
                 JSR     SYNCHR
                 .byte   '('
-                JSR     SCNINT         ; y, 1-LINCNT
-                BCS     FCERGO
+                JSR     SFINT          ; y, 1-LINCNT
                 STA     LOCY
                 DEC     A
                 CMP     LINCNT
                 BCS     FCERGO
-                JSR     SCNINT         ; x, 1-LINLEN
-                BCS     FCERGO
+                JSR     SFINT          ; x, 1-LINLEN
                 STA     LOCX
                 DEC     A
                 CMP     LINLEN
@@ -510,8 +470,7 @@ SCRNFP:         JSR     P6IN
                 LDA     PTERM
                 CMP     #')'
                 BEQ     SCRCHR
-                JSR     SCNINT         ; z
-                BCS     FCERGO
+                JSR     SFINT          ; z
                 STA     LOCP
                 LDA     PTERM
                 CMP     #')'
@@ -579,10 +538,10 @@ GTLINE:         LDA     CSRY
 
 ; --- KEY (GWSTS.ASM 1332) -----------------------------------------------------------------
 
-NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys
+NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys (p8/far6.s's too)
 
-; KEYSP: TXTPTR at what follows KEY, A it. KEY n,"text": key n (1-10), its
-; text's first 15 characters (a 0 after), the line drawn again if it is on.
+; KEYSP: TXTPTR at what follows KEY, A it: "(", ON, OFF or LIST (7e5: KEY
+; n,"text" is the home block's, p8/far6.s, its line drawn by KEYDP).
 KEYSP:          PHA
                 JSR     P6IN
                 PLA
@@ -592,55 +551,14 @@ KEYSP:          PHA
 :               CMP     #ON_TK
                 BEQ     KEYON
                 CMP     #OFF_TK
-                BEQ     KEYOF
-                CMP     #LIST_TK
-                BEQ     KEYLST
-                JSR     GETBYT         ; the key's number
-                DEC     A
-                CMP     #NMKEYF
-                BCS     KEYFCE         ; 1 to 10, else Illegal function call
-                ASL     A              ; x 16: its place in STRTAB
-                ASL     A
-                ASL     A
-                ASL     A
-                PHA
-                JSR     SYNCHR
-                .byte   ','
-                JSR     FRMEVL
-                JSR     FRESTR         ; BX: the descriptor
-                PLX
-                LDA     (RBL)
-                CMP     #16
-                BCC     KEY1
-                LDA     #15            ; 0 to 15 characters
-KEY1:           STA     KLEN
-                LDY     #1
-                LDA     (RBL),Y
-                STA     PTR
-                INY
-                LDA     (RBL),Y
-                STA     PTR+1
-                LDY     #0
-@cp:            CPY     KLEN
-                BEQ     @end
-                LDA     (PTR),Y
-                STA     STRTAB,X
-                INX
-                INY
-                BRA     @cp
-@end:           STZ     STRTAB,X       ; the 0 after it
-                LDA     KEYSW
-                BEQ     NODSPK         ; off: the last line left as it is
-                JSR     KEYDSP
-NODSPK:         JMP     P6OUT
-KEYFCE:         JMP     FCERR
+                BNE     KEYLST         ; (LIST)
+                LDA     #0
+                JSR     KEYOX
+                BRA     KEYOXX
 
 KEYON:          JSR     SKEYON
 KEYOXX:         JSR     CHRGTR         ; past ON, OFF, LIST
                 JMP     P6OUT
-KEYOF:          LDA     #0
-                JSR     KEYOX
-                BRA     KEYOXX
 
 ; SKEYOP: SKEYON from P2's start-up.
 SKEYOP:         JSR     P6IN
@@ -710,24 +628,25 @@ KEYLST:         LDA     #1
 .segment "RODATA"
 GMTILE          = 1                    ; the modes (P5's GMODEV)
 GMMONO          = 2
-MODEFG:         .byte   7, 3, 1        ; by mode: the text's colour
-MODEW:          .byte   0, 40, 80      ;   its width (0: the current one)
+GMM10           = 3                    ; 7e5: SCREEN 10, 11, 12
+GMM12           = 5
+MODEFG:         .byte   7, 3, 1, 15, 15, 1 ; by mode: the text's colour (the mode's last)
+MODEW:          .byte   0, 40, 80, 40, 80, 80 ; its width (0: the current one)
 
 .segment "BRAM"
-GMOD:           .res    1              ; 7e1: the mode, 0-2, as P5's GMODEV
+GMOD:           .res    1              ; 7e1: the mode, 0-2 (7e5: 0-5), as P5's GMODEV
 NMODE:          .res    1              ;   SCRSTT's and SWIDTH's new one
-KLEN:           .res    1              ; KEY's length; KEYLST's number
+KLEN:           .res    1              ; KEYLST's number
 KOFS:           .res    1              ; KEYLST's place
-PMAX            = 8
-PCNT:           .res    1              ; GTPRMS's list
+PMAX            = 4                    ; 7e5: the stub's GTPRMS's list (PREGS), the first 4
+PCNT:           .res    1
 PFLG:           .res    PMAX
 PVAL:           .res    PMAX
-PTERM:          .res    1              ; SCNINT's terminator
-SNEND:          .res    1              ; and whether the statement ended
+PTERM:          .res    1              ; SFINT's terminator
 LOCX:           .res    1
 LOCY:           .res    1
-LOCP:           .res    3              ; LOCATE's cursor, start, stop (and SCREEN('s z)
-LOCG:           .res    3              ;   each: 1 not given
+LOCP:           .res    1              ; CLS's n, SCREEN('s z
+LOCG:           .res    2              ; LOCATP's: bit 7, the line, the column not given
 NFG:            .res    1
 NBG:            .res    1
 NAP:            .res    1

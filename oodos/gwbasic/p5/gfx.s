@@ -8,7 +8,8 @@
 ;             use, kept until SYSTEM; SCREEN 1's tile map written then) and
 ;             GW-BASIC's palette (one GX_VALLOC of 4 pages at the first
 ;             graphics mode: the console's 512 bytes copied in, then its
-;             groups: answer 10) allocated, the page cleared (DM_VFILL),
+;             groups: answer 10; 7e5, its writes P3's VPAL, the space
+;             plan's reserve (a)) allocated, the page cleared (DM_VFILL),
 ;             layer 0 the graphics (GX_LAYER, GX_SCROLL, its PALOFS the
 ;             mode's group), PALBASE GW-BASIC's palette, the background
 ;             black, the graphics cursor centred (GRPINI). 0: PALBASE the
@@ -24,7 +25,8 @@
 ;             (green, red, brown), an odd one group 2 (cyan, magenta, light
 ;             grey), on both layers, so the text's colour 3 follows it as a
 ;             PC's does. Carry set (Illegal function call) for a third
-;             parameter (p. 43's form has two) and in SCREEN 2 (p. 43)
+;             parameter (p. 43's form has two) and in SCREEN 2 (p. 43).
+;             7e5: the checks and the background P3's VCOLOR
 ;   GCLS      CLS's graphics part, A CLS's n (0 if not given): the page
 ;             cleared and the cursor centred, but for CLS 2 (the text's);
 ;             carry set for CLS 1, the graphics alone (no text cleared)
@@ -40,8 +42,8 @@
 .include "p5/p5.inc"
 ; OOLIB's (oolib.inc, vmem.inc: not included here, since gwbasic.inc defines
 ; GXP, gxmem's pointer, which only p5/seed.s exports to it)
-.import GX_VALLOC, GX_VADDR, GX_VFILL, GX_VCOPY, GX_VPUT, GX_LAYER, GX_SCROLL, GX_PALOFS
-.import GX_PALBASE, GX_V, GX_R, GX_X, GX_Y, GX_A, GX_C
+.import GX_VALLOC, GX_VADDR, GX_VFILL, GX_VPUT, GX_LAYER, GX_SCROLL, GX_PALOFS
+.import GX_PALBASE, GX_V, GX_R, GX_X, GX_Y, GX_A
 
 .export GMODE, GCOLOR, GCLS, GVIEW, GVWGET, VWRST, VWRSTW
 .import BUF, GFLG
@@ -61,38 +63,27 @@ GMODE:          STA     GNEW
                 JSR     GX_PALBASE
                 CLC
 GMFAIL:         RTS                    ; (and carry set: no card memory)
-GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
-                ORA     GPAL + 1
+GMGFX:          LDX     GNEW           ; the mode's palette, at its first use: GW-BASIC's,
+                LDY     GPLX - 1,X     ; or SCREEN 10's own (7e5)
+                LDA     GPALS,Y
+                ORA     GPALS + 1,Y
                 BNE     @page
+                PHY
                 LDA     #4
                 STA     GX_V
                 STZ     GX_V + 1
                 LDA     #0
                 JSR     GX_VALLOC
+                PLY
                 BCS     GMFAIL
-                STA     GPAL
-                STX     GPAL + 1
-                JSR     PALC           ; GX_C: the palette's card address
-                STZ     GX_A           ; the console's 512 bytes
-                STZ     GX_A + 1
-                STZ     GX_A + 2
-                STZ     GX_V
-                LDA     #>512
-                STA     GX_V + 1
-                JSR     GX_VCOPY
-                LDX     #0             ; its groups' entries, from its CGA entries
-@grp:           PHX
-                LDA     PALSRC,X
-                JSR     PALA           ; GX_A: entry A of GW-BASIC's palette
-                PLX
-                PHX
-                LDA     PALDST,X
-                JSR     PALC1          ; GX_C: entry A
-                JSR     PAL2
-                PLX
-                INX
-                CPX     #PALDST - PALSRC
-                BCC     @grp
+                STA     GPALS,Y
+                TXA
+                STA     GPALS + 1,Y
+                TYA                    ; 7e5 (U1, the reserve's (a)): its entries set by
+                LSR     A              ; P3's VPAL: 1 GW-BASIC's, 2 SCREEN 10's
+                INC     A
+                LDX     GNEW
+                JSR     GVPAL
 @page:          LDA     GNEW           ; the mode's page, at its first use
                 ASL     A
                 TAX                    ; (GPAGES - 2),X: its card page
@@ -102,7 +93,8 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 PHX
                 LDA     GSIZE - 2,X
                 STA     GX_V
-                STZ     GX_V + 1
+                LDA     GSIZE - 1,X    ; (7e5: SCREEN 11's 480 pages)
+                STA     GX_V + 1
                 LDA     #GALIGN
                 JSR     GX_VALLOC
                 PLY
@@ -129,7 +121,12 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 STA     GMAXX
                 LDA     GMAXT - 1,X
                 STA     GMAXX + 1
-                LDA     GGRPT - 2,X    ; SCREEN 1's palette 1, SCREEN 2's white
+                LDA     GMAXYT - 2,X   ; 7e5: and down, 200
+                STA     GMAXY
+                LDA     GMAXYT - 1,X
+                STA     GMAXY + 1
+                LDX     GMODEV
+                LDA     GGRPT - 1,X    ; SCREEN 1's palette 1, SCREEN 2's white
                 STA     GGRP
                 LDA     #1             ; 7e4: a graphics mode, no window (GFLG),
                 STA     GFLG           ; the viewport the whole screen
@@ -139,8 +136,8 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 JSR     GETFBC         ; manual's p. 74: C's default the mode's last)
                 JSR     SETATR
                 STA     ATRBYT
-                LDX     GMX            ; layer 0: the frame or the mono rows
-                LDA     GMAP - 2,X
+                LDX     GMODEV         ; layer 0: the frame or the mono rows
+                LDA     GMAP - 1,X
                 CLC
                 ADC     GBASE
                 STA     GX_V
@@ -151,7 +148,7 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 STA     GX_R
                 LDA     GBASE + 1
                 STA     GX_R + 1
-                LDA     GCONF - 2,X
+                LDA     GCONF - 1,X
                 TAX
                 LDA     #0
                 JSR     GX_LAYER
@@ -167,26 +164,42 @@ GMGFX:          LDA     GPAL           ; the palette, at the first graphics mode
                 LDX     GGRP
                 LDA     #0
                 JSR     GX_PALOFS
-                LDA     #0             ; the background black (the console's entry 0)
-                JSR     BACKG
-                LDA     GPAL
-                LDX     GPAL + 1
+                STZ     RDL            ; the background black (the console's entry 0:
+                LDA     #0             ; P3's VPAL, 7e5)
+                LDX     GMODEV
+                JSR     GVPAL
+                LDA     RCL            ; PALBASE the mode's palette (GVPAL's GVPG)
+                LDX     RCH
                 JSR     GX_PALBASE
                 CLC
                 RTS
 
 ; GPAGE: the mode's page cleared (its tiles, or all its rows: rows 400-479
 ; of the mono layer, under the bands, too), and the graphics cursor centred.
+; 7e5: in pieces of at most 61,440 bytes (GX_VFILL's count is 16 bits:
+; SCREEN 11's 122,880 two).
 GPAGE:          LDA     GBASE
                 LDX     GBASE + 1
                 JSR     GX_VADDR
-                LDX     GMX
+                LDX     GMODEV
+                LDY     GPCS - 1,X
+@p:             LDX     GMX
                 LDA     GBYTES - 2,X
                 STA     GX_V
                 LDA     GBYTES - 1,X
                 STA     GX_V + 1
                 LDA     #0
-                JSR     GX_VFILL
+                PHY
+                JSR     GX_VFILL       ; (GX_A kept)
+                PLY
+                CLC                    ; the next piece, 61,440 on
+                LDA     GX_A + 1
+                ADC     #>61440
+                STA     GX_A + 1
+                BCC     :+
+                INC     GX_A + 2
+:               DEY
+                BNE     @p
                 JMP     GRPINI
 
 ; TMAP: SCREEN 1's map, its 32 rows of 64 entries, each written by one
@@ -258,34 +271,25 @@ TMAP:           PHY
 
 ; --- GCOLOR, GCLS -----------------------------------------------------------------------------
 
-GCOLOR:         LDX     GMODEV
-                CPX     #GM_TILE
-                BNE     @fc
-                CMP     #3             ; a third parameter: the manual's form has two
-                BCS     @fc
-                TAX                    ; none: nothing changes (p. 44: any omitted)
+; 7e5 (U1): the parameters' checks and the background by P3's VCOLOR (the
+; palette's write is P3's: the reserve's (a)), the group here.
+GCOLOR:         PHA                    ; (the count, across GVPG: the owner's answer 12)
+                LDX     GMODEV
+                STX     RAL
+                JSR     GVPG           ; (the mode's palette)
+                PLA
+                FJSR    VCOLOR
+                BCS     @x
+                TAX                    ; the palette's group, if given: both layers
                 BEQ     @x
-                LDA     RDH
-                BEQ     @pal
-                LDA     RDL
-                AND     #$0F
-                JSR     BACKG
-@pal:           LDA     RBH
-                BEQ     @x
-                LDA     RBL            ; even: group 1; odd: 2
-                AND     #1
-                INC     A
                 STA     GGRP
-                TAX
                 LDA     #0
                 JSR     GX_PALOFS
                 LDX     GGRP
                 LDA     #1
                 JSR     GX_PALOFS
-@x:             CLC
-                RTS
-@fc:            SEC
-                RTS
+                CLC
+@x:             RTS
 
 GCLS:           CMP     #2             ; CLS 2: the text alone
                 BEQ     @t
@@ -304,43 +308,18 @@ GCLS:           CMP     #2             ; CLS 2: the text alone
 @t:             CLC
                 RTS
 
-; BACKG: palette entry 0 the console's entry A (a CGA colour, 0-15).
-BACKG:          ASL     A
-                STA     GX_A
-                STZ     GX_A + 1
-                STZ     GX_A + 2
-                LDA     #0
-                JSR     PALC1
-PAL2:           LDA     #2             ; one entry, two bytes
-                STA     GX_V
-                STZ     GX_V + 1
-                JMP     GX_VCOPY
-
-; PALA, PALC1: GX_A or GX_C entry A of GW-BASIC's palette (its card
-; address + 2A); PALC: GX_C its first byte. PALE: A/X/Y that address, low
-; byte first.
-PALA:           JSR     PALE
-                STA     GX_A
-                STX     GX_A + 1
-                STY     GX_A + 2
-                RTS
-PALC:           LDA     #0
-PALC1:          JSR     PALE
-                STA     GX_C
-                STX     GX_C + 1
-                STY     GX_C + 2
-                RTS
-PALE:           ASL     A
-                PHA
-                LDA     #0
-                ROL     A
-                CLC
-                ADC     GPAL
-                TAX
-                LDA     GPAL + 1
-                ADC     #0
-                TAY
+; GVPAL (7e5, U1): P3's VPAL, A the operation, on mode X's palette (GVPG:
+; RCL/RCH its card page, GW-BASIC's, or SCREEN 10's own, U3).
+GVPAL:          PHA
+                JSR     GVPG
                 PLA
+                FJSR    VPAL
+                RTS
+GVPG:           LDY     GPLX - 1,X
+                LDA     GPALS,Y
+                STA     RCL
+                LDA     GPALS + 1,Y
+                STA     RCH
                 RTS
 
 ; --- The viewport (7e4): VWRST, GVIEW, GVWGET, VFILL ---------------------------------------
@@ -361,7 +340,8 @@ PALE:           ASL     A
 ;           and checked it (the mode, the corners on the screen, sorted,
 ;           unequal): A bit 7 corners given, bit 6 SCREEN, bit 5 a fill,
 ;           bit 4 a border; RSI on the viewport (GVB: VWOX, VWOY, VWMX,
-;           VWMY, the fill, the border), RCL/RCH, RDL/RDH the border box's
+;           VWMY, words since 7e5, then the fill and the border: on into T0
+;           and T1), RCL/RCH, RDL/RDH the border box's
 ;           first corner (x1 - 1, y1 - 1), RBL/RBH, RAL/RAH its second. The
 ;           viewport the whole screen; the border box drawn there, each side
 ;           clipped to the screen as any line; the viewport set (VIEW SCREEN
@@ -369,7 +349,8 @@ PALE:           ASL     A
 ;           no corners (VIEW, VIEW SCREEN alone) the whole screen. Then the
 ;           cursor at its centre (GRPINI), and with a WINDOW on P1's WINRSC
 ;           maps it onto the new viewport
-;   GVWGET  RDL/RDH VWMX, RBL VWMY, RBH/RAL VWSX, RAH VWSY (for P1)
+;   GVWGET  RDL/RDH VWMX, RBL/RBH VWMY, RAL/RAH VWSX, RCL/RCH VWSY (for
+;           P1; 7e5: each a word)
 ;   VFILL   A an attribute (SETATR's): the viewport filled with it
 ;           (DOBOXF), CPAT back to ATRBYT's
 VWRSTW:         LDA     GFLG
@@ -383,8 +364,10 @@ VWRST:          LDX     #VWON - VWOX
                 STA     VWMX
                 LDA     GMAXX + 1
                 STA     VWMX + 1
-                LDA     #199
+                LDA     GMAXY          ; 7e5: the mode's last y, a word
                 STA     VWMY
+                LDA     GMAXY + 1
+                STA     VWMY + 1
                 LDA     #$FF
                 STA     LSTYL
                 STA     LSTYL + 1
@@ -402,7 +385,7 @@ GVIEW:          STA     GVF
                 LDA     GVF
                 AND     #$10
                 BEQ     @set
-                LDA     GVB + 7        ; the border, one pixel outside
+                LDA     GVB + 9        ; the border, one pixel outside
                 JSR     SETATR
                 LDX     #3             ; the second corner (and the cursor's,
 @b:             LDA     RBL,X          ;   which DOLINE takes back for BOXLIN)
@@ -411,7 +394,7 @@ GVIEW:          STA     GVF
                 DEX
                 BPL     @b
                 JSR     BOXLIN
-@set:           LDX     #VWMY - VWOX   ; the viewport
+@set:           LDX     #VWMY + 1 - VWOX ; the viewport
 @v:             LDA     GVB,X
                 STA     VWOX,X
                 DEX
@@ -420,14 +403,14 @@ GVIEW:          STA     GVF
                 BIT     GVF            ; VIEW SCREEN: its points absolute
                 BVC     @f
                 LDX     #VWMX - VWOX - 1
-@s:             LDA     VWOX,X         ; (VWSX, VWSY as VWOX, VWOY)
+@s:             LDA     VWOX,X         ; (VWSX, VWSY as VWOX, VWOY, words)
                 STA     VWSX,X
                 DEX
                 BPL     @s
 @f:             LDA     GVF
                 AND     #$20
                 BEQ     @end
-                LDA     GVB + 6        ; the fill
+                LDA     GVB + 8        ; the fill
                 JSR     VFILL
 @end:           JSR     GRPINI         ; the cursor at the centre
                 LDA     ATRBYT         ; CPAT back (the border's)
@@ -438,7 +421,7 @@ GVIEW:          STA     GVF
                 FJSR    WINRSC
 @x:             RTS
 
-GVWGET:         LDX     #VWSY - VWMX   ; (VWMX to VWSY)
+GVWGET:         LDX     #VWSY + 1 - VWMX ; (VWMX to VWSY, words)
 @g:             LDA     VWMX,X
                 STA     RDL,X
                 DEX
@@ -456,7 +439,8 @@ VFILL:          JSR     SETATR
                 STA     GXPOS + 1
                 LDA     VWMY
                 STA     GYPOS
-                STZ     GYPOS + 1
+                LDA     VWMY + 1
+                STA     GYPOS + 1
                 JSR     DOBOXF
                 LDA     ATRBYT
                 JMP     SETATR
@@ -464,14 +448,15 @@ VFILL:          JSR     SETATR
 ; --- The OEM's: GRPSIZ, PIXSIZ, GETFBC, SETATR ----------------------------------------------
 
 ; GRPSIZ: CX the last x (319, 639), DX the last y (199); 7e4: the
-; viewport's (VWMX, VWMY).
+; viewport's (VWMX, VWMY; 7e5: a word).
 GRPSIZ:         LDA     VWMX
                 STA     RCL
                 LDA     VWMX + 1
                 STA     RCH
                 LDA     VWMY
                 STA     RDL
-                STZ     RDH
+                LDA     VWMY + 1
+                STA     RDH
                 RTS
 
 ; PIXSIZ: A the bits a pixel (2, 1; 0 in SCREEN 0: no graphics), Z by it.
@@ -495,17 +480,34 @@ SETATR:         LDX     GMODEV
                 BCC     :+
                 LDA     PIXMSK,X
 :               PHA
-                TAY
-                LDA     PIXPAT,Y
-                CPX     #GM_TILE
-                BEQ     :+
-                LDA     #0             ; mono: 0 or 1 in every bit
-                CPY     #0
-                BEQ     :+
-                LDA     #$FF
-:               STA     CPAT
+                JSR     CPATOF
+                STA     CPAT
                 PLA
                 CLC
+                RTS
+
+; CPATOF (7e5): A an attribute (at most the mode's last) as a byte with it
+; in every pixel: in each nibble in SCREEN 1 (a 4-bit tile's) and SCREEN 11,
+; in every bit in SCREEN 2 and 12, SCREEN 10's the byte itself. Y kept.
+CPATOF:         LDX     GMODEV
+                CPX     #GM_TILE
+                BEQ     @n
+                CPX     #GM_M11        ; 7e5: SCREEN 11 a nibble a pixel too
+                BEQ     @n
+                CPX     #GM_M10        ;   SCREEN 10 a byte: itself
+                BEQ     @x
+                TAX                    ; a bit a pixel: 0 or every bit
+                BEQ     @x
+                LDA     #$FF
+@x:             RTS
+@n:             PHA                    ; a nibble a pixel
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                STA     CPT
+                PLA
+                ORA     CPT
                 RTS
 
 ; GTASPC (7e2; the OEM's, OEM.H names it): BX the screen's aspect x 256 and
@@ -526,27 +528,33 @@ GTASPC:         LDX     GMX
 
 
 .segment "RODATA"
-; GW-BASIC's palette's groups: the console's CGA entries (PALSRC) to theirs.
-PALSRC:         .byte   2, 4, 6, 3, 5, 7, 15
-PALDST:         .byte   17, 18, 19, 33, 34, 35, 49
 ; By mode, 1 and 2 (the tables from mode 1): page size, its cleared bytes,
 ; layer 0's CONFIG (tiles: 4 bits, 8 x 8, the map 64 wide; mono), its map
 ; past the page (SCREEN 1's after the tiles), VSCROLL (the tiles' 20 layer
 ; lines above the 200, the mono layer's 40 above the 400).
-GSIZE:          .word   T1PAGES + MAPPAGES, M2PAGES
-GBYTES:         .word   T1BYTES, M2BYTES
-GCONF:          .word   $22, $05
-GMAP:           .word   T1PAGES, 0
-GVS:            .word   256 - 20, 480 - 40
-GMAXT:          .word   319, 639
-GGRPT:          .word   2, 3
-; By mode, 0-2.
-PIXBIT:         .byte   0, 2, 1
-PIXFG:          .byte   0, 3, 1
-PIXMSK:         .byte   0, 3, 1        ;   the last colour
-PIXPAT:         .byte   $00, $11, $22, $33
-ASPBX:          .word   256, 213, 107  ; GTASPC, by mode (GMX)
-ASPDX:          .word   256, 307, 614
+; 7e5 (U3): and the OO-1's, SCREEN 10, 11 and 12, modes 3-5 (GM_M10 on: the
+; OO-1's choices, the owner's answer 11 to the 7e5 plan): bitmap 256 (type
+; 3, 240 pages: 61,440 bytes, a byte a pixel), bitmap 512 (type 4, 480
+; pages, two pieces to clear, a nibble a pixel, the left high), mono (type
+; 5, 150 pages, a row 80 bytes); none scrolled; SCREEN 10's colours its own
+; palette's entries (PALOFS 15 for the text over it: entry 255), SCREEN
+; 11's GW-BASIC's group 0 (the console's CGA colours), SCREEN 12's group 3.
+GSIZE:          .word   T1PAGES + MAPPAGES, M2PAGES, 240, 480, M2PAGES
+GBYTES:         .word   T1BYTES, M2BYTES, 61440, 61440, M2BYTES
+GVS:            .word   256 - 20, 480 - 40, 0, 0, 0
+GMAXT:          .word   319, 639, 255, 511, 639
+GMAXYT:         .word   199, 199, 239, 479, 479 ; 7e5: the last y
+GCONF:          .byte   $22, $05, $03, $04, $05 ; 7e5: bytes, by GMODEV from 1
+GMAP:           .byte   T1PAGES, 0, 0, 0, 0
+GGRPT:          .byte   2, 3, 15, 0, 3
+GPCS:           .byte   1, 1, 1, 2, 1  ;   GPAGE's pieces
+GPLX:           .byte   0, 0, 2, 0, 0  ;   the palette (GPALS's): GW-BASIC's, SCREEN 10's
+; By mode, 0-5.
+PIXBIT:         .byte   0, 2, 1, 8, 4, 1
+PIXFG:          .byte   0, 3, 1, 255, 15, 1
+PIXMSK:         .byte   0, 3, 1, 255, 15, 1 ; the last colour
+ASPBX:          .word   256, 213, 107, 256, 256, 256 ; GTASPC, by mode (GMX); 7e5: the
+ASPDX:          .word   256, 307, 614, 256, 256, 256 ;   OO-1's, 1 (7e's answer 4)
 
 .segment "BRAM"
 GMODEV:         .res    1              ; the mode: GM_TEXT, GM_TILE, GM_MONO
@@ -555,20 +563,24 @@ GNEW:           .res    1              ; GMODE's
 GGRP:           .res    1              ; the graphics' palette group (PALOFS)
 GBASE:          .res    2              ; the mode's page (a card page, on a card bank)
 GMAXX:          .res    2              ; its last x
-GPAGES:         .res    4              ; SCREEN 1's and 2's pages (0: none yet)
-GPAL:           .res    2              ; GW-BASIC's palette (0: none yet)
+GMAXY:          .res    2              ;   and y (7e5)
+GPAGES:         .res    10             ; SCREEN 1's, 2's (7e5: 10's, 11's, 12's) pages (0: none yet)
+GPALS:                                 ; the palettes (0: none yet):
+GPAL:           .res    2              ;   GW-BASIC's
+GPAL10:         .res    2              ;   SCREEN 10's own (7e5)
 CPAT:           .res    1              ; SETATR's pattern: the attribute in every pixel of a byte
+CPT:            .res    1              ; CPATOF's
 ; 7e4: the viewport, in GVIEW's order (VWOX to VWMY), then VIEW SCREEN's
 ; (VWSX, VWSY as VWOX, VWOY) and P1's (GVWGET: VWMX to VWSY)
 VWOX:           .res    2              ; its corner on the screen, for MAPXYC
-VWOY:           .res    1
-VWMX:           .res    2              ; its last x and y, from the corner (GMAXX and 199 without)
-VWMY:           .res    1
+VWOY:           .res    2              ;   (7e5: y a word, as each below)
+VWMX:           .res    2              ; its last x and y, from the corner (GMAXX and GMAXY without)
+VWMY:           .res    2
 VWSX:           .res    2              ; VIEW SCREEN's offset (its corner; else 0), for SCAND
-VWSY:           .res    1
+VWSY:           .res    2
 VWON:           .res    1              ; nonzero: a viewport set (GCLS)
 LSTYL:          .res    2              ; LINE's style (p5/gengrp.s): $FFFF, solid, but inside GLINEP
 GVF:            .res    1              ; GVIEW's flags
-GVB:            .res    8              ;   the viewport (VWOX to VWMY), the fill, the border
+GVB:            .res    10             ;   the viewport (VWOX to VWMY), the fill, the border
 GVBN            = * - GVB
-.assert VWMY - VWOX = 5 && VWSX - VWOX = 6 && VWSY - VWSX = 2, error, "the viewport's RAM: GVIEW's and GVWGET's order"
+.assert VWMY - VWOX = 6 && VWSX - VWOX = 8 && VWSY - VWSX = 2 && VWMY - VWMX = 2, error, "the viewport's RAM: GVIEW's, GVWGET's and XPAST's order"

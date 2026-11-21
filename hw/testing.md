@@ -178,6 +178,12 @@ Under `dev`, in `check.sh changed main` at 4 jobs with the host's load about 12 
 entry 71.8 s, the shares 31.3 and 40.1 s, against 120 s each (the whole suite had been 104-120 s, and timed out
 once at 120.1 under load 17).
 
+`test_gwbasic_gfx` is split in two (the owner, 2026-11-20, GW-BASIC 7e5's answer 18): with 7e5's cases (43 in
+all, 36 before) the whole suite would have run near its 600 s. Its two shares carry the suite's labels, so any
+graphics path chooses both, and `test_gwbasic_gfx_cases` holds every case to one of them (seen failing, as a
+check, with a case left out of the second: "lost"). Alone, in the fast build (2026-11-20): 227 and 306 s, before
+7e5's G43 joined them (about 15 s more), against 600 s each.
+
 **7. The coverage check,** `tools/test_coverage.py`, on the `coverage` preset (Debug, gcc `--coverage`, no
 sanitizers). It runs every suite alone (each with its own `GCOV_PREFIX`, so 8 run at once), reads with `gcov` the
 repo's files each one executes (a line run at least once), maps each through the map, and fails on a suite that

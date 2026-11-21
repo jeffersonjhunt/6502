@@ -516,9 +516,11 @@ TEST(auto_and_edit_on_the_screen)
 
 // LOCATE, CSRLIN and POS: LOCATE 5,10:PRINT "X"; puts X at cell (4,9), and then CSRLIN is 5 and POS(0) 11; after
 // PRINT STRING$(80,"A"); CSRLIN is the next line (GTLINE: the next character goes there); LOCATE 0, LOCATE 26 and
-// LOCATE ,81 are Illegal function call, LOCATE 25 is allowed (the key line is off). Guards a program's screen layout
-// one row off. Seen failing with GTLINE's test of the cursor past the line's end made with BCC alone (the 8086's
-// JBE made JB).
+// LOCATE ,81 are Illegal function call, LOCATE 25 is allowed (the key line is off). And LOCATE 26,"A", two errors,
+// gives the row's, the first, as the source's order has it (7e5, the owner's answer 13: the home block's stub
+// checks the row as soon as it is parsed, not after the rest). Guards a program's screen layout one row off, and an
+// error report that names the wrong fault. Seen failing with GTLINE's test of the cursor past the line's end made
+// with BCC alone (the 8086's JBE made JB); and (7e5) with the stub's early row check left out (Type mismatch).
 TEST(locate_csrlin_and_pos)
 {
     CcpRig r;
@@ -535,6 +537,9 @@ TEST(locate_csrlin_and_pos)
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "CLS:LOCATE 26", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
+    enter(r, "CLS:LOCATE 26,\"A\"", ms(300));
+    CHECK(until_row(r, "Illegal function call") >= 0);
+    CHECK(last_row(r, "Type mismatch") < 0);
     enter(r, "CLS:LOCATE ,81", ms(300));
     CHECK(until_row(r, "Illegal function call") >= 0);
     enter(r, "KEY OFF:CLS:LOCATE 25,1:PRINT \"Z\";:LOCATE 10,1", ms(300));
@@ -1983,6 +1988,75 @@ TEST(get_put_and_the_page_are_timed)
     CHECK(t1 > 10000 && c1 + t1 <= 2500000);
     CHECK(peek > 100 && peek <= 6000);
     CHECK(poke > 100 && poke <= 6000);
+}
+
+// G38 (7e5): the screen statements parse in the home block (the space plan's M6): each with an error in its
+// arguments gives main's error and leaves the screen as it was (the mark's text and colour, the mode, the width,
+// the key line): LOCATE 99, LOCATE 1,81, COLOR 1,99, SCREEN 1,,9, WIDTH 50, KEY 11,"X" and CLS 3 Illegal function
+// call, KEY 1,3 Type mismatch; and KEY 1's new text is drawn on the key line. Guards a statement half done on a bad
+// argument. Seen failing with CLS's stub taking CLS 3 as CLS (its range check left out: the screen cleared).
+TEST(screen_statements_parse_in_the_home_block)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::string key0 = line(r, 24);
+    for (const auto &[stmt, err] : {std::pair<const char *, const char *>{"LOCATE 99", "Illegal function call"},
+                                    {"LOCATE 1,81", "Illegal function call"}, {"COLOR 1,99", "Illegal function call"},
+                                    {"SCREEN 1,,9", "Illegal function call"}, {"WIDTH 50", "Illegal function call"},
+                                    {"KEY 11,\"X\"", "Illegal function call"}, {"KEY 1,3", "Type mismatch"},
+                                    {"CLS 3", "Illegal function call"}})
+    {
+        enter(r, "CLS:LOCATE 10,5:PRINT \"MK\";:LOCATE 3,1:" + std::string(stmt), ms(600));
+        CHECK(until_row(r, err, ms(500)) >= 0);
+        CHECK_EQ(line(r, 9), std::string("    MK"));
+        CHECK_EQ(attr(r, 9, 4), 0x07);
+        CHECK_EQ(reg(r, L0_CONFIG) & 7, 0);
+        CHECK_EQ(line(r, 24), key0);
+    }
+    enter(r, "CLS:KEY 1,\"ABC\"", ms(600));
+    CHECK_EQ(line(r, 24).substr(0, 4), std::string("1ABC"));
+}
+
+// LOCATE with arguments left out, whatever came before (7e5, review round 1, F1 and F2): the home block's stub
+// tests each argument's own "not given" flag. In a fresh session, after LOCATE ,5 and seven LOCATE 1,1 (eight
+// lines given before), and after eight LOCATE ,5 (eight left out): LOCATE 5 moves to row 5 keeping the column,
+// LOCATE ,10 to column 10 keeping the row, LOCATE ,,1 and LOCATE ,,0,7,7 change neither, each with no error; ten
+// LOCATEs in a loop, the row and the column given in turn, each its letter where it says; LOCATE 0,1 refused; and
+// the row's own check: LOCATE 26,"A" (two errors) Illegal function call, no Type mismatch, and LOCATE 26,5 (the
+// column good) Illegal function call, the cursor not moved. Main's results, every one. Guards a program's LOCATE
+// with a row or column left out refused, or the row's check skipped, after other LOCATEs. Seen failing with (a) the
+// stub's tests made on ROR's carry (F1: LOCATE ,10 refused after eight given rows), (b) the row's early check left
+// out (Type mismatch).
+TEST(locate_with_arguments_left_out_after_any_history)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    std::string given = "LOCATE ,5", omitted;
+    for (int i = 0; i < 7; ++i)
+        given += ":LOCATE 1,1";
+    for (int i = 0; i < 8; ++i)
+        omitted += (i ? ":" : "") + std::string("LOCATE ,5");
+    for (const std::string &history : {std::string("A=0"), given, omitted})
+    {
+        enter(r, "KEY OFF:CLS:" + history + ":LOCATE 1,1:LOCATE 5:PRINT \"A\";:LOCATE ,10:PRINT \"B\";:LOCATE ,,1:"
+                 "LOCATE ,,0,7,7:PRINT \"C\";:LOCATE 12,1", ms(800));
+        CHECK_EQ(line(r, 4), std::string("A        BC"));
+        CHECK_EQ(last_row(r, "Illegal function call"), -1);
+        enter(r, "CLS:" + history + ":FOR I=1 TO 10:LOCATE I+2:LOCATE ,I*3:PRINT CHR$(64+I);:NEXT:LOCATE 20,1", ms(1500));
+        for (int i = 1; i <= 10; ++i)
+            CHECK_EQ(line(r, static_cast<unsigned>(i + 1)), std::string(static_cast<size_t>(i * 3 - 1), ' ') + static_cast<char>(64 + i));
+        CHECK_EQ(last_row(r, "Illegal function call"), -1);
+        enter(r, "CLS:" + history + ":LOCATE 0,1", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        enter(r, "CLS:" + history + ":LOCATE 26,\"A\"", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        CHECK_EQ(last_row(r, "Type mismatch"), -1);
+        enter(r, "CLS:" + history + ":LOCATE 10,3:PRINT \"P\";:LOCATE 26,5:PRINT \"Q\";", ms(600));
+        CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+        CHECK_EQ(line(r, 9), std::string("  P"));
+    }
 }
 
 int main()

@@ -102,7 +102,6 @@ PHOTY:          .res    1
 PSTAGE:         .res    4              ; X and Y as they go to the sprite's entry
 FILLB:          .res    1              ; DM_FILL's byte, a DMA's source
 FILLH:          .res    1              ; DM_VFILLW's high byte, the second pass's source
-PSTEPB:         .res    1              ; PORTLOOP's PSTEP: 1, or 2 for DM_VFILLW's passes
 VMAP:           .res    8              ; DM_INFO's W1 map, as it is made
 VLEN:           .res    2              ; a destination's length less 1, for its checks
 VSRC:           .res    3              ; DM_VBSET's source and destination
@@ -785,7 +784,6 @@ WPASS:          STA     SRCP
                 STA     SRCP + 2
                 LDA     #DMA_DEMAND_OUT | DMA_HOLD
                 LDX     #VIDEO_PCTL_DRQ
-                LDY     #2
                 JMP     PORTLOOP
 .assert ^FILLB_PHYS = ^FILLH_PHYS, error, "WPASS's sources share a bank"
 
@@ -883,20 +881,18 @@ GETLEN:         JSR     PGET
 ; SRCP (physical) and DSTP (card) on, VLEFT bytes (0: 65,536) through the
 ; port by channel 1, A its mode and X the port's PCTL: in pieces of
 ; PORT_PIECE at most, each masked, the port and the channel set for it, so
-; that the frame handler's copies may come between. Ends the function: A =
-; X = 0, or $FF if a piece timed out (PORTGO), the pieces after it not run.
-; PORTLOOP is the same with Y the port's step (1, or 2: DM_VFILLW's, each
-; piece's card address on by twice its bytes), returning carry set if a
-; piece timed out, clear when all ran.
+; that the frame handler's copies may come between. PORTRUN, at the port's
+; step 1, ends the function: A = X = 0, or $FF if a piece timed out
+; (PORTGO), the pieces after it not run. PORTLOOP, at step 2 (DM_VFILLW's
+; passes: each piece's card address on by twice its bytes), returns carry
+; set if a piece timed out, clear when all ran. One loop, PORTPIECES, made
+; twice, so that DM_VWRITE, DM_VREAD and DM_VFILL pay nothing for the step
+; (GW-BASIC's PEEK and POKE of its screen page are one of each: 33 cycles
+; once, when the step was a variable and PORTRUN called PORTLOOP).
 PORT_PIECE      = 2048
-PORTRUN:        LDY     #1
-                JSR     PORTLOOP
-                BCS     @late
-                JMP     DM00
-@late:          JMP     RETFF
-PORTLOOP:       STA     PMODE
+.macro PORTPIECES step, ends
+                STA     PMODE
                 STX     PPCTL
-                STY     PSTEPB
 @piece:         LDA     VLEFT + 1      ; this piece: PORT_PIECE, or what is left
                 BEQ     @last          ; (0: 65,536 left, a whole piece)
                 CMP     #>PORT_PIECE
@@ -934,7 +930,7 @@ PORTLOOP:       STA     PMODE
                 STA     DMA_COUNT
                 LDA     DCOUNT + 1
                 STA     DMA_COUNT + 1
-                LDA     PSTEPB
+                LDA     #step
                 STA     VIDEO_PSTEP
                 STZ     VIDEO_PSTEP + 1
                 LDA     PMODE
@@ -944,18 +940,18 @@ PORTLOOP:       STA     PMODE
                 STA     DMA_CONTROL
                 BCS     @late
                 PLP
-                LDY     PSTEPB         ; on by the piece, times the step: the card's address
-@step:          CLC
+.repeat step                           ; on by the piece, times the step: the card's address
+                CLC
                 LDA     DSTP
                 ADC     DCOUNT
                 STA     DSTP
                 LDA     DSTP + 1
                 ADC     DCOUNT + 1
                 STA     DSTP + 1
-                BCC     @card
+                BCC     :+
                 INC     DSTP + 2
-@card:          DEY
-                BNE     @step
+:
+.endrepeat
                 LDA     PMODE          ; and the physical one, unless held (a fill)
                 AND     #DMA_HOLD
                 BNE     @left
@@ -978,11 +974,20 @@ PORTLOOP:       STA     PMODE
                 ORA     VLEFT
                 BEQ     @end
                 JMP     @piece
+.if ends
+@end:           JMP     DM00
+@late:          PLP                    ; a piece that didn't end: refused (review F4)
+                JMP     RETFF
+.else
 @end:           CLC
                 RTS
-@late:          PLP                    ; a piece that didn't end: refused (review F4)
+@late:          PLP                    ; a piece that didn't end: carry set
                 SEC
                 RTS
+.endif
+.endmacro
+PORTRUN:        PORTPIECES 1, 1
+PORTLOOP:       PORTPIECES 2, 0
 .assert <PORT_PIECE = 0, error, "PORTRUN's pieces are whole pages"
 
 ; Channel 1 to or from the card's port, masked by the caller, the master

@@ -1080,12 +1080,13 @@ TEST(key_stays_advanced_feature_in_console_mode)
 
 // The graphics (7e1) stay Advanced Feature in console mode, as the screen's statements do (7d's answer 7): PSET,
 // PRESET, the graphics LINE (input_semicolon_lprint_and_later_forms's too), SCREEN 1, (7e2) CIRCLE, PAINT and
-// DRAW, (7e3) GET and PUT of graphics, and (7e4) VIEW, WINDOW, a styled LINE and a tiled PAINT each say so; POINT,
+// DRAW, (7e3) GET and PUT of graphics, (7e4) VIEW, WINDOW, a styled LINE and a tiled PAINT, and (7e5, the owner's
+// approved change) SCREEN 10, 11 and 12, the OO-1's modes, each say so; POINT,
 // POINT(n) included, is still a formula in parentheses (Syntax error), as before 7e, and so is PMAP (7e4: a reserved
 // word now, the owner's answer 10, so no longer an array's name); and the console's card memory (units 0-12,
 // $000000-$0033FF) is as it was. Guards a serial terminal's session drawing on card memory GW-BASIC never set up. Seen failing with
 // PSET's stub (p8/far5.s) without its SCRMOD test, (7e2) CIRCLE's without its, and (7e3) GET's (p8/far4.s) without
-// its, and (7e4) VIEW's (Illegal function call: P5 reached).
+// its, (7e4) VIEW's (Illegal function call: P5 reached), and (7e5) SCREEN's (p8/far6.s) without its.
 TEST(graphics_are_advanced_feature_in_console_mode)
 {
     CcpRig r;
@@ -1098,7 +1099,8 @@ TEST(graphics_are_advanced_feature_in_console_mode)
     for (const char *k : {"PSET (1,1),1", "PRESET (2,2)", "LINE (0,0)-(9,9),1,BF", "LINE -(5,5)", "SCREEN 1",
                           "SCREEN 2:PSET (1,1)", "CIRCLE (5,5),3", "PAINT (5,5),1", "DRAW \"U1\"",
                           "GET (0,0)-(1,1),A%", "PUT (0,0),A%", "PUT @(0,0),A%,PSET", "VIEW (0,0)-(9,9)", "VIEW",
-                          "WINDOW (0,0)-(1,1)", "WINDOW", "LINE (0,0)-(9,9),1,,&HAAAA", "PAINT (5,5),CHR$(85),1"})
+                          "WINDOW (0,0)-(1,1)", "WINDOW", "LINE (0,0)-(9,9),1,,&HAAAA", "PAINT (5,5),CHR$(85),1",
+                          "SCREEN 10", "SCREEN 11", "SCREEN 12"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
     CHECK_EQ(command(r, "PRINT POINT(1,1)"), std::string("Syntax error\r\n"));
     CHECK_EQ(command(r, "PRINT POINT(1)"), std::string("Syntax error\r\n"));
@@ -1108,6 +1110,23 @@ TEST(graphics_are_advanced_feature_in_console_mode)
     for (uint32_t i = 0; i < con.size(); ++i)
         moved += vid.card_peek(i) != con[i];
     CHECK_EQ(moved, 0u);
+}
+
+// G38 (7e5, console mode): the screen statements M6 moved to the home block (the space plan's M6: their arguments
+// parsed by their stubs) are Advanced Feature before any argument is parsed, as before: COLOR 99, LOCATE 0, CLS 9,
+// SCREEN 1,,9 and WIDTH 80,30, each an error in its argument in screen mode, and COLOR 300, LOCATE 1,"A", CLS 300,
+// SCREEN 300 and WIDTH 300, each an error in its parse, say Advanced feature here. Guards a
+// serial terminal's COLOR giving Illegal function call. Seen failing with COLOR's stub parsing before its SCRMOD
+// test.
+TEST(screen_statements_are_advanced_feature_before_their_arguments)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    for (const char *k : {"COLOR 99", "LOCATE 0", "CLS 9", "SCREEN 1,,9", "WIDTH 80,30", "COLOR 300", "LOCATE 1,\"A\"",
+                          "CLS 300", "SCREEN 300", "WIDTH 300"})
+        CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
+    CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 
 int main()

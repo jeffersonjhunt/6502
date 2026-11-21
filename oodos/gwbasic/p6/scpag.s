@@ -5,7 +5,9 @@
 .include "p6/p6.inc"
 
 ;@entry SCPAGP
-.export SCPAGP
+;@entry KEYDP
+;@entry LOCLIM
+.export SCPAGP, KEYDP, LOCLIM
 .import APG, CROW, RWOLO, RWOHI
 
 .code
@@ -37,4 +39,21 @@ SCPAGP:         PHP
                 LDA     APG
                 LDX     APG + 1
                 LDY     APG + 2
+                RTS
+
+; KEYDP (7e5: the space plan's M6): after the home block's KEY n,"text"
+; (p8/far6.s) has written the key's text (STRTAB), the key line drawn again
+; if it is on (GWSTS.ASM's KEY's end); else the last line as it is.
+KEYDP:          JSR     P6IN
+                LDA     KEYSW
+                BEQ     :+
+                JSR     KEYDSP
+:               JMP     P6OUT
+
+; LOCLIM (7e5: the owner's answer 13): for the home block's LOCATE (p8/far6.s),
+; A the last row a line may name: LINCNT, less 1 with the key line on (KEYSW
+; $FF), as LOCATP checks it.
+LOCLIM:         LDA     LINCNT
+                CLC
+                ADC     KEYSW
                 RTS

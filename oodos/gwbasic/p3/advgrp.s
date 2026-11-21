@@ -296,12 +296,13 @@ GPUTA:          LDA     RAL
                 LDA     GAPUT
                 BEQ     :+
                 JMP     PUT1
-:               MOVW    RBL, GABX      ; MULBLP: the bits, MAXDEL x PIXSIZ
-                LDA     GAPIX
-                CMP     #2
-                BNE     :+
+:               MOVW    RBL, GABX      ; MULBLP: the bits, MAXDEL x PIXSIZ (7e5: 1,
+                LDA     GAPIX          ; 2, 4 or 8, a shift each halving)
+@m:             LSR     A
+                BEQ     :+
                 ASL     RBL
                 ROL     RBH
+                BRA     @m
 :               MOVW    GABT, RBL
                 CLC                    ; their bytes, (bits + 7) / 8
                 LDA     RBL
@@ -385,12 +386,13 @@ PUT2:           STX     GAACT
                 STA     GABT,Y
                 DEY
                 BPL     @r
-                MOVW    RCL, GABT      ; the pixels: the bits over PIXSIZ (DIVBLP)
-                LDA     GAPIX
-                CMP     #2
-                BNE     :+
+                MOVW    RCL, GABT      ; the pixels: the bits over PIXSIZ (DIVBLP;
+                LDA     GAPIX          ; 7e5: 1, 2, 4 or 8)
+@d:             LSR     A
+                BEQ     :+
                 LSR     RCH
                 ROR     RCL
+                BRA     @d
 :               DECW    RCL            ; a count
                 CLC                    ; + x: the far x
                 LDA     RCL
