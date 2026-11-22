@@ -1550,9 +1550,10 @@ TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
 
 int main() { return run_all(); }
 
-TEST(the_interface_is_15)
+TEST(the_interface_is_16)
 {
-    // Function 80's FT_INFO: OOLIB's interface version, and its areas: frame and timing, input, sound and DMA.
+    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 16 and its areas, $2F: frame and
+    // timing, input, sound, DMA and the serial line.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
