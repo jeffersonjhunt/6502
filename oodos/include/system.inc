@@ -85,7 +85,7 @@ SS_RECORD       = 5                    ;   the record of the file it starts at
 SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
 SYS_MAJOR       = 0                    ; 0.15: the serial receive buffer, function 85 (interface 16); the version's one source
-SYS_MINOR       = 15                   ; (mksys.py reads both from here)
+SYS_MINOR       = 16                   ; (mksys.py reads both from here)
 ; The banners (OOLDR's, the cold boot's, PIP's) print the version as SYS_VERSION_TEXT writes it: the major as one
 ; digit, the minor as one or two ("0.9", "0.10")
 .assert SYS_MAJOR <= 9 && SYS_MINOR <= 99, error, "SYS_MAJOR is printed as one digit, SYS_MINOR as one or two"

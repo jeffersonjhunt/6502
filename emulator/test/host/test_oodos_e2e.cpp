@@ -127,7 +127,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return m;
         }
-        if (!m.until("BACKPLANE BIOS 0.19\r\\\r", 0, 120))
+        if (!m.until("BACKPLANE BIOS 0.20\r\\\r", 0, 120))
             return m;
         if (!m.s->insert_sd(m.card, error))
         {
@@ -160,9 +160,9 @@ TEST(power_on_boots_the_card_after_the_splash_to_the_prompt)
     REQUIRE(m.s != nullptr);
     REQUIRE(m.s->insert_sd(std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card"), error));
     REQUIRE(m.until("\nA>", 0, 1200));
-    const size_t greeted = m.out.find("BACKPLANE BIOS 0.19\r");
+    const size_t greeted = m.out.find("BACKPLANE BIOS 0.20\r");
     const size_t booting = m.out.find("\rBOOTING THE SD CARD: A KEY FOR THE MONITOR\r");
-    const size_t ooldr = m.out.find("\rOOLDR 0.15\r");
+    const size_t ooldr = m.out.find("\rOOLDR 0.16\r");
     CHECK(greeted != std::string::npos);
     CHECK(booting != std::string::npos && booting > greeted);
     CHECK(ooldr != std::string::npos && ooldr > booting);
@@ -199,7 +199,7 @@ TEST(c80cr_boots_oodos_from_the_card_to_the_prompt)
 {
     Oo1 m = booted();
     REQUIRE(m.s != nullptr);
-    CHECK(m.out.find("\rOOLDR 0.15\r") != std::string::npos);
+    CHECK(m.out.find("\rOOLDR 0.16\r") != std::string::npos);
     CHECK(m.out.find("OODOS") != std::string::npos);
     CHECK(m.out.find("\nA>") != std::string::npos);
     CHECK(!m.s->stopped());

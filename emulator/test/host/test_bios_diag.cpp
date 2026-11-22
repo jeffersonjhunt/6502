@@ -272,7 +272,7 @@ namespace
     };
 
     const std::string PROMPT = "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S";
-    const std::string GREETING = "BACKPLANE BIOS 0.19\r";
+    const std::string GREETING = "BACKPLANE BIOS 0.20\r";
     const std::string RESULT = "RESULT: ";
 
     /// Switch 19 up, the reset, the prompt, CONT: the core runs. @return whether the prompt came
@@ -1884,7 +1884,7 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
     CHECK_EQ(bridge_of(r).winh(1), 0x00);
     CHECK_EQ(bridge_of(r).window(1), 0x01);
     CHECK_EQ(bridge_of(r).map(), 0x01); // the card: AP8 set again
-    CHECK(r.screen_has("BACKPLANE BIOS 0.19"));
+    CHECK(r.screen_has("BACKPLANE BIOS 0.20"));
     r.machine->bus().write_bus(0x04123, 0x5C); // RAM block 1
     const size_t from = r.out.size();
     r.type("4123\r");
