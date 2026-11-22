@@ -85,7 +85,6 @@
 .import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for 77
 .export BDOSENT
-.export ROM18                          ; for sound.s's SN_NOISE
 
 ASCII_CR        = $0D
 ASCII_LF        = $0A
@@ -399,23 +398,6 @@ NEWROM:         PHA
                 BCS     @new           ; 1.0 and on
                 LDA     ROMVER + 1
                 CMP     #16            ; 0.16 and on: carry set
-                BRA     @new
-@old:           CLC
-@new:           PLA
-                RTS
-
-; Carry set if the ROM BIOS that is running is 0.18 or later, as NEWROM: its
-; dispatching entry's function $A2, the SID's noise (function 82's SN_NOISE),
-; is there; 0.16 and 0.17 refuse $A2 harmlessly, but 0.15's $C818 is START.
-; A kept.
-ROM18:          PHA
-                LDA     ROMVER
-                CMP     #$FF
-                BEQ     @old           ; not found
-                CMP     #1
-                BCS     @new           ; 1.0 and on
-                LDA     ROMVER + 1
-                CMP     #18            ; 0.18 and on: carry set
                 BRA     @new
 @old:           CLC
 @new:           PLA

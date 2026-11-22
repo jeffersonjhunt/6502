@@ -105,7 +105,7 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("0F 0F"));        // interface 15 (82's SN_NOISE, the SID seed), frame and timing, input, sound, DMA
+    CHECK_EQ(field(o, "INFO"), std::string("0F 0F"));        // interface 15, frame and timing, input, sound, DMA
     CHECK_EQ(field(o, "INFOB"), std::string("0F0F0302"));    // and both clocks, layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});

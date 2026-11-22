@@ -74,7 +74,7 @@ TEST(oodos_sys_is_built_to_its_format)
     const SysFile s = SysFile::parse(f);
     CHECK_EQ(s.error, std::string());
     CHECK_EQ(s.major, 0);
-    CHECK_EQ(s.minor, 14); // 0.14: SN_NOISE, the SID seed (interface 15)
+    CHECK_EQ(s.minor, 14); // 0.14 (interface 15)
     CHECK_EQ(s.entry, sym("COLD"));
     CHECK(s.entry >= 0xC800);
     REQUIRE(s.segments.size() == 4u);
