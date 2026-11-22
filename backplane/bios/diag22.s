@@ -205,6 +205,7 @@ STAGE7:
                 jsr     NB8
                 jsr     NB9
                 jsr     NB10
+                jsr     NB12
                 lda     #DR_PASS
                 jmp     CEND
 
@@ -774,6 +775,95 @@ NB10:
 @steps:         TD      "MS: NOT 1000 +/- 1 ACROSS A SECOND"
                 rts
 @back:          TD      "MS: BACKWARDS ACROSS A CARRY"
+                rts
+
+; NB12, the common hole (north bridge revision 3, hw/future/north-bridge-rev3.md, "The common hole"): on $D3
+; only, else SKIP (NB11 is the deferred WINnH and MAP check's number). A tested RAM block's top 2 KB, seen through
+; W1 at $7800-$7FFF, gets a tag at $7800 and its complement at $7FF0, and VEC's vectors at $7FFA (a Break while
+; the hole is on still lands in the core). With interrupts off, HOLE EN on it: $F800 and $FFF0 must read the tags
+; and $F7FF W3's own byte; then with RO set a write at $F800 must leave the block as it was; and with HOLE 0, $F800
+; is W3's again. HOLE is 0 and W1 on block 1 at the end, whatever the outcome.
+NB12:
+                TB      "NB12 THE COMMON HOLE"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     #$FF
+@b:             jsr     GOODBLK
+                jcs     @none
+                cmp     DG_W0
+                beq     @b
+                sta     DG_BLK
+                lda     NB_VEC         ; VEC's block in W1: its six vector bytes on the stack
+                sta     NB_WIN1
+                ldx     #5
+@v:             lda     $7FFA,x
+                pha
+                dex
+                bpl     @v
+                lda     DG_BLK
+                sta     NB_WIN1
+                ldx     #0
+@v2:            pla
+                sta     $7FFA,x
+                inx
+                cpx     #6
+                bne     @v2
+                lda     DG_BLK         ; the tags
+                sta     $7800
+                eor     #$FF
+                sta     $7FF0
+                lda     $F7FF          ; W3's bytes, with the hole off
+                sta     T_REV
+                lda     $F800
+                sta     T_N
+                php
+                sei
+                lda     DG_BLK
+                ora     #NB_HOLE_EN
+                sta     NB_HOLE
+                lda     $F800
+                cmp     DG_BLK
+                jne     @badmap
+                lda     $FFF0
+                eor     #$FF
+                cmp     DG_BLK
+                jne     @badmap
+                lda     $F7FF
+                cmp     T_REV
+                jne     @badmap
+                lda     DG_BLK
+                ora     #NB_HOLE_EN | NB_HOLE_RO
+                sta     NB_HOLE
+                lda     DG_BLK
+                eor     #$FF
+                sta     $F800          ; dropped
+                stz     NB_HOLE
+                plp
+                lda     $F800
+                cmp     T_N
+                jne     @badoff
+                lda     $7800          ; the block, through W1
+                ldx     #1
+                stx     NB_WIN1
+                cmp     DG_BLK
+                jne     @badro
+                jmp     TPASS
+@badmap:        stz     NB_HOLE
+                plp
+                ldx     #1
+                stx     NB_WIN1
+                TD      "F800-FFFF DIDN'T SHOW THE BLOCK'S TOP"
+                rts
+@badoff:        ldx     #1
+                stx     NB_WIN1
+                TD      "HOLE 0 DIDN'T GIVE F800 BACK TO W3"
+                rts
+@badro:         TD      "A WRITE WITH RO SET CHANGED THE BLOCK"
+                rts
+@none:          TS      "NO TESTED BLOCK"
                 rts
 
 ; MSF set within 1.1 ms: 716 passes of 11 cycles (204, then 256 twice), carry clear; else carry set. A, X, Y.

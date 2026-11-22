@@ -152,12 +152,14 @@ namespace ooe::test
     ///   never restarted by the DS3231's second. The chip's second starts at a phase of its own against the count
     ///   (437 ms here: the emulated chip, set at power-on, would otherwise start on a millisecond of the count's).
     /// - MsfNotClearedBy1: a 1 written to TBCTL's MSF leaves it set (OVR and MSIE as written).
+    /// - HoleIgnoresRo: a write to HOLE loses its RO bit, so the hole takes writes whatever RO says.
     struct BridgeFault : ooe::emu::Device
     {
         enum class Kind
         {
             MssNotRestarted,
             MsfNotClearedBy1,
+            HoleIgnoresRo,
         };
         ooe::emu::BackplaneBridge *bridge{nullptr};
         ooe::emu::Decoder *bus{nullptr};
@@ -186,6 +188,8 @@ namespace ooe::test
             bus->sync();
             if (kind == Kind::MsfNotClearedBy1 && offset == ooe::emu::BackplaneBridge::TBCTL)
                 data = static_cast<uint8_t>(data & ~ooe::emu::BackplaneBridge::TB_MSF);
+            if (kind == Kind::HoleIgnoresRo && offset == ooe::emu::BackplaneBridge::HOLE)
+                data = static_cast<uint8_t>(data & ~ooe::emu::BackplaneBridge::HOLE_RO);
             bridge->write(offset, data);
         }
     };

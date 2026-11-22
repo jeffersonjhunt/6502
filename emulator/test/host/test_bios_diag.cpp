@@ -1980,6 +1980,43 @@ TEST(nb10_fails_when_msf_isnt_cleared)
     CHECK(after_test(r, "NB10").find("MSF: A 1 WRITTEN DIDN'T CLEAR IT") != std::string::npos);
 }
 
+// --- Revision 3: NB12, the common hole (N18; hw/future/north-bridge-rev3.md, "The common hole") ---------------
+
+TEST(nb12_passes_on_revision_3_and_skips_on_2)
+{
+    // NB12 on the default revision 3 bridge: the hole shows a tested block's top 2 KB, keeps it with RO, and
+    // gives $F800 back to W3 when off; HOLE 0 after it. On a revision 2 bridge it SKIPs, saying so.
+    {
+        Rig r(0, EMU_BIOS_ROM);
+        REQUIRE(r.ok());
+        faulted_run(r);
+        CHECK(ends(test_line(r, "NB12"), "PASS"));
+        CHECK(ends(stage_line(r, 7), "PASS"));
+        CHECK_EQ(bridge_of(r).hole(), 0x00);
+    }
+    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB12"), "SKIP"));
+    CHECK(after_test(r, "NB12").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb12_fails_when_the_hole_ignores_ro)
+{
+    // A bridge whose HOLE loses its RO bit: NB12's write lands in the block, and it FAILs, naming RO. Must fail with
+    // NB12's RO compare removed (the fault would pass).
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::HoleIgnoresRo));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB12"), "FAIL"));
+    CHECK(after_test(r, "NB12").find("A WRITE WITH RO SET CHANGED THE BLOCK") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "FAIL"));
+    CHECK_EQ(bridge_of(r).hole(), 0x00);
+}
+
 // --- Revision 3: NB9, the random number chip (N7; hw/future/random-source.md, "The ROM BIOS 0.20") ------------
 
 namespace
