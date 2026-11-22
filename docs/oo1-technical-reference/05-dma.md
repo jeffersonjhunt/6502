@@ -201,8 +201,10 @@ module) still runs when REQ starts it: card to memory writes `$FF`, the floating
 
 OODOS's BIOS reads the SD card on channel 0 and copies M:, the RAM disk, on channel 3
 ([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)). Its copies on channel 3 go 2 KB at a time, 4,096 cycles each with
-the CPU held: the VIA's timer 1 interrupts each 7,159 cycles for OODOS's millisecond counter, and has one flag, so a
-copy held across two of its periods would lose a tick. Between the blocks the CPU takes the interrupt.
+the CPU held, under the north bridge's tick (7,159 cycles), so a tick due is taken between the blocks, on time.
+The bridge's counter loses nothing however long the CPU is held, but the tick's hooks and the sticks keep their
+timing that way. (Before OODOS 0.16 the tick was the VIA's timer 1, with one flag, and a copy held across two of
+its periods lost a tick.)
 
 Since OOLIB's L3, channel 2 is OODOS's too: its function 82 loads the sound card's RAM and the ES5503's wave RAM on it,
 and feeds the card's PCM stream from two buffers of a program's, always 4 KB a piece (4,096 cycles at most with the

@@ -1805,10 +1805,11 @@ SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
 ; enable on for them, and CONTROL put back after, SELECT with it (the SELECT
 ; rule: an interrupt between blocks finds the window here and leaves it
 ; here); each given up after about 0.1 s. The CPU waits through a block
-; transfer, 2 cycles a byte, and can take no interrupt in it: one longer than
-; a tick (7,159 cycles) could cover two of timer 1's expiries, and the VIA
-; has one flag, so a tick would be lost (the console's scroll is 4,640
-; bytes). Between blocks a pending interrupt is taken, if the caller has
+; transfer, 2 cycles a byte, and can take no interrupt in it: blocks under
+; a tick (7,159 cycles) let the tick due be taken between them, on time (the
+; bridge's counter loses nothing either way; before OODOS 0.16 the VIA's
+; timer 1 had one flag, and a tick would have been lost; the console's
+; scroll is 4,640 bytes). Between blocks a pending interrupt is taken, if the caller has
 ; them on. A copy up over itself (crt.s's erase, a byte at a time) comes out
 ; as one transfer's would: each block starts where the last ended. DCOUNT,
 ; SRCP and DSTP are kept, as they were before the blocks: the addresses are

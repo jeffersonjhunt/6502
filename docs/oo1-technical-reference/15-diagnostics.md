@@ -89,7 +89,7 @@ bridge they pass over blocks 32–35 while a revision 2 card makes bank 8 the ap
 | 4 | 23 | the address lines and the blocks: every block tagged, then all read back. A wrong tag names a line (`ADDRESS LINE A5`), two lines, two blocks as one, or a block answering as W0's |
 | 5 | 23 | address in address over all of RAM |
 | 6 | 23 | March C− over all of RAM, background `$00` (a full run: `$00`, `$55`, `$33`, `$0F`); W0's own first 512 bytes last, from another block that passed |
-| 7 | 22 | the north bridge and the clock: NB1 its ID and revision (since BIOS 0.17, revision 2, `$D2`, exactly: a `$D1` bridge is `NOT KNOWN TO THIS BUILD` and the stage says `SKIP`); NB2 W0's window bits, each block as itself; NB3 IRQL and IRQH, and DMA's line; NB4 the clock chip (BUSY, SEC stepping a second); NB5 the CPU's clock by the DS3231 and NB6 by 60 video frames; NB7 WAIT0–3 and VEC read back; NB8 a read-only window keeping its RAM |
+| 7 | 22 | the north bridge and the clock: NB1 its ID and revision (since BIOS 0.17, revision 2, `$D2`, and since BIOS 0.20 revision 3, `$D3`: a `$D1` bridge is `NOT KNOWN TO THIS BUILD` and the stage says `SKIP`); NB2 W0's window bits, each block as itself; NB3 IRQL and IRQH, and DMA's line; NB4 the clock chip (BUSY, SEC stepping a second); NB5 the CPU's clock by the DS3231 and NB6 by 60 video frames; NB7 WAIT0–3 and VEC read back; NB8 a read-only window keeping its RAM; since BIOS 0.20, on a revision 3 bridge (`$D3`; on `$D2` each `SKIP`s): NB9 the random number chip (a locked chip, its pool not one value nor one 4-byte group repeated, a fresh draw within 150 ms), NB10 the timebase (MSF and IRQH bit 5, the counter across a second, MSS at three second changes, SYNC) and NB12 the common hole (a tested block's top 2 KB at `$F800–$FFFF`, RO, and W3's again with HOLE 0). NB11 is kept for the deferred WINnH and MAP readback |
 | 8 | 22 | DMA, revision 2 (ID `$82`; a revision 1 controller is skipped): D1 the ID, and each channel's registers through CONTROL's SELECT, 0–7, CARD among them, then each CARD put back to its reset value, and CONTROL's BURST and SELECT bits (a channel whose window reads `$FF` and drops a pattern counts as not fitted, and the count is on D1's line: 8 since B3 (4 in B2)); D2–D4 on channel 3, selected again after D1; D2 a fill of all of RAM, checked by the CPU; D3 a copy between two blocks, up and down; D4 a 2 KB fill's time; D5 the terminal count and an abort part way |
 | 9 | 22 | the video card: V1 its ID and MEMSIZE; V2 every register that reads back; V3 the beam's lines and a frame's cycles; V4 all of card memory, address in address (a full run adds the march); V5 past MEMSIZE; V6 the data port against the aperture; V7 DMA channel 1 to the card and back |
 | 10 | 22 | the sound card: S1 its ID and codecs; S2 its 64 KB of RAM through RAMDATA; S3 DMA channel 2 into it; S4 the 6510's test program starting; S5 the mailbox both ways; S6 the 6510's sum of S3's bytes; S7 the SIDs' voice 3; S8 the ES5503's 128 KB of wave RAM; S9 a PCM stream's rate. A full run writes S2 and S8 twice, the second time with the key complemented |
@@ -139,15 +139,16 @@ Status: **emulated**
 **The serial line** (19,200 baud, 8 bits, no parity, as the BIOS sets it) has the whole report: the title, a line
 for each stage with its result at column 60, and under each card stage a line for each test, `PASS`, `FAIL`, `SKIP`
 with why on the line under it, or `INFO` for a measurement, each failure's detail under it. A card stage's tests come
-before its own line. The run's form follows stage 2: `BIOS 0.19`, the pass, and `QUICK` or `FULL`, with `LOOP` and
+before its own line. The run's form follows stage 2: `BIOS 0.20`, the pass, and `QUICK` or `FULL`, with `LOOP` and
 `ASK` as asked. Then `TESTS: n PASSED, n FAILED, n SKIPPED, n MEASURED`, the `RESULT` line (`ALL PASSED`, or the
 stages failed, and the lamps' code) and the keys:
 
 ```
  6  MARCH, ALL RAM, BACKGROUND 00 ......................... PASS
-    NB1  ID $D2; STATUS'S REVISION 2 ...................... PASS
+    NB1  ID $D3; STATUS'S REVISION 3 ...................... PASS
     ...
-    NB8  A READ-ONLY WINDOW KEEPS ITS RAM ................. PASS
+    NB10 THE TIMEBASE ..................................... PASS
+    NB12 THE COMMON HOLE .................................. PASS
  7  NORTH BRIDGE AND CLOCK ................................ PASS
     ...
 13  INTERACTIVE ........................................... SKIP
@@ -189,7 +190,8 @@ and boots. With switch 19 still up, the next hard reset asks again.
 Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
-every card: **a quick run 58.7 s, a full run 171.8 s.** The prompt, unanswered, waits 5.97 s. Both were measured
+every card: **a quick run 61.6 s with BIOS 0.20 on north bridge revision 3** (NB9, NB10 and NB12 added; BIOS 0.19's
+was 58.7 s), **a full run 171.8 s** (BIOS 0.19's). The prompt, unanswered, waits 5.97 s. Both were measured
 with BIOS 0.17's test of all 64 RAM blocks (B7, *proposed*), 2.2 s and 6.2 s longer than with bank 8 passed over
 (56.5 s and 165.6 s, with DMA revision 2: B2, *proposed*). On real hardware
 the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.

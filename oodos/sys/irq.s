@@ -10,10 +10,11 @@
 ; empty (the BDOS stub starts it afresh at each call), so the same S points
 ; into free stack there. It reads IRQL and IRQH and answers each card:
 ;
-;   the VIA (ID 6)     timer 1, free-running at 1 kHz: the millisecond
-;                      counter, the event area's copy, the tick hook; with
-;                      a layout-2 area open, the sticks and the paddles
-;                      (input.s's L2TICK, when something changed or is due)
+;   the bridge (ID D)  the 1 kHz tick (north bridge revision 3: TBCTL's
+;                      MSF; the counter is the bridge's): the event area's
+;                      copy, the tick hook; with a layout-2 area open, the
+;                      sticks and the paddles (input.s's L2TICK, when
+;                      something changed or is due)
 ;   video (ID 9)       vertical blank: the frame counter, the event area,
 ;                      the frame hook
 ;   the 6551 (ID 6)    a byte on the serial line, into its ring (serial.s's
@@ -26,8 +27,7 @@
 ;
 ; It touches no BDOS state, only its own (here) and the windows, which it
 ; puts back as they were. WIN1H too (B7): it runs with WIN1H 0, and puts back
-; what it read, on a revision 2 north bridge only (the value tells: 0, or
-; $FF where there is no register, is never written). The event area is the
+; what it read (0 is never written). The event area is the
 ; program's memory: W1 is put on its block for the writes and back after.
 ; A hook gets its own WIN1H (HK_W1H, the program's when it set the hook).
 ;
@@ -43,12 +43,13 @@
 ; tick isn't lost while it runs (its budget, 8,000 cycles, is more than a
 ; tick); a vertical blank while it still runs is counted, but the hook
 ; isn't called again for it (FHSKIP counts those). Neither may call the
-; BDOS, use DMA, far call, write the VIA's ACR, IER or IFR, or touch timer
-; 1 but to read T1CH or its latch (reading T1CL clears the tick's flag).
+; BDOS, use DMA, far call (FARCALL's operand is one slot in the common
+; hole), write the VIA's IER, IFR or ACR but timer 1's bits, or touch the
+; bridge's timebase. Timer 1 is the program's, polled (OODOS 0.16).
 ; A hook stacks on page 1 of the W0 it was set with. Budgets:
 ; 8,000 cycles a frame hook, 300 a tick hook; not enforced. A debug build
-; (OOLIB_DEBUG, `make DEBUG=1`) measures each hook by timer 1 and keeps the
-; most each took, for FT_COSTS.
+; (OOLIB_DEBUG, `make DEBUG=1`) measures each hook by the bridge's MS0 and
+; TBSUB and keeps the most each took, for FT_COSTS.
 ;
 ; Function 80, frame and timing: X = 0, A the operation, no parameters;
 ; else A/X a block, +0 the operation (oodos.inc's FT_*), its parameters

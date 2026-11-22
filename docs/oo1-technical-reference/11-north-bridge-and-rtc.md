@@ -62,9 +62,12 @@ Status: **emulated**
 - **WAIT0–WAIT3** ([`$C68A`–`$C68D`](#reg-c68a)) are read/write storage, reserved for a turbo mode: since B2
   (*proposed*) they slow nothing. A slow card asks for wait states by /WAIT, which the bridge turns into RDY for the
   CPU ([chapter 5](05-dma.md#the-controller)). The ROM's diagnostics keep their options in WAIT3.
-- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D2`: module D, revision 2, the bridge with WIN0H–WIN3H, VECH and MAP
-  (*proposed*, emulated as step B7). A revision 1 bridge reads `$D1` and has none of them; the emulator keeps it as
-  a machine-file option. Software writes the new registers only after reading `$D2`. Every block with registers has
+- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D3`: module D, revision 3, revision 2's bridge with
+  [the timebase](#the-timebase), [the random number chip](#the-random-number-chip) and
+  [the common hole](#the-common-hole) (*proposed*, emulated, the emulator's default). Revision 2 (`$D2`) has
+  WIN0H–WIN3H, VECH and MAP; revision 1 (`$D1`) has none of them; the emulator keeps both as machine-file options.
+  Software uses a register only after reading an ID that has it: on an older bridge the new offsets read `$FF` and
+  drop writes. Every block with registers has
   its ID byte at `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
 
 ### Turbo
@@ -99,7 +102,9 @@ Status: **emulated**
 - **At power-on**, while /RESET is still held, it sets the DS3231's square wave to 1 Hz and reads the time. The
   first instruction finds SEC–YEAR valid and BUSY clear.
 - **Once a second**, on each falling edge of the square wave, it reads the seven time registers and the chip's
-  status into SEC–YEAR, LOST and ALARM, and sets TICK. With TIE set, TICK interrupts on IRQH bit 5.
+  status into SEC–YEAR, LOST and ALARM, and sets TICK. On revisions 1 and 2, with TIE set, TICK interrupts on IRQH
+  bit 5; revision 3 dropped that interrupt (TIE reads 0) and gives bit 5 to [the tick](#the-timebase): TICK is a
+  flag to poll.
 - **One transaction at a time.** BUSY is set from the request until the transaction ends, and its effect lands at
   the end. A transaction takes its bits' time at 400 kHz: 9 bits a byte, and one for each START, repeated START and
   STOP.
@@ -171,6 +176,69 @@ emulator starts, and keeps it from then on:
 - The chip's 250 ms start-up after power-on isn't modelled: it answers at once.
 - In Apple II mode the transactions are timed at the Apple clock.
 - The WebUI steps the count back into line with the host's clock, by whole seconds, once it is 2 s out.
+
+## The timebase
+
+Status: **proposed** (north bridge revision 3, `$D3`; emulated)
+
+Revision 3 gives the machine its 1 kHz tick and a millisecond counter of its own, from the master oscillator (OSC,
+14.31818 MHz), so the time base needs no card and no software counting.
+
+- **The tick.** The k-th tick comes at 157,500 k / 11 oscillator clocks (rounded down) after the counter starts: a
+  millisecond exactly over every 11, 7,159 native cycles or 7,160. Each sets [TBCTL](#reg-c6a8)'s MSF; with MSIE
+  set, MSF interrupts on [IRQH](#reg-c689) bit 5 (ID D). A tick that comes while MSF is still set sets OVR too, so
+  one interrupt can stand for several ticks. Writing 1 to MSF or OVR clears it.
+- **The counter.** [MS0–MS3](#reg-c6a9) count the ticks, 32 bits, from 0 at a hard reset (a /RESET pulse leaves
+  them running). Reading MS0 latches MS1–MS3 and [TBSUB](#reg-c6ad), the native cycles into the millisecond, so
+  MS0 first and the rest after give one moment. A handler's read of MS0 takes a new latch: outside a handler, read
+  all four with interrupts off.
+- **The time to the millisecond.** [MSSL and MSSH](#reg-c69c) count 0–999 from each of the DS3231's seconds, and
+  reading SEC latches them with MIN–YEAR, so SEC–YEAR and MSS are one moment's time. TBCTL's SYNC says MSS is in
+  step with the chip: it is set by a second's read and clears when no edge has come for 1.1 s.
+- **Reads with side effects:** MS0 and SEC latch. Read each with a load (`LDA`, `LDX`, `LDY`), never a
+  read-modify-write or a 16-bit read, which can read twice.
+- **Resets:** any reset clears MSF, OVR and MSIE, so no tick interrupts until software turns MSIE on. In Apple II
+  mode the registers are hidden and the counter runs on. The BIOS's Break writes `$C0` to TBCTL (both flags
+  cleared, MSIE off), with no ID check: an older bridge drops the write.
+- **Under OODOS 0.16** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with `$E0`,
+  and its millisecond counter is the bridge's. A program reads it through function 80
+  ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)).
+
+## The random number chip
+
+Status: **proposed** (north bridge revision 3; emulated)
+
+An ATECC608B on the bridge's I²C bus gives random bytes. The bridge drives it: at power-on, while /RESET is held, it
+checks that the chip answers and that its configuration is locked, and fills a pool of 32 bytes; whenever the pool
+is emptied it draws the next 32 (about 26 ms), trying three times before it reports a fault.
+
+- [RNGST](#reg-c699): READY (the pool holds a byte), CHIP (a chip answered at power-on), LOCKED (its configuration
+  is locked: an unlocked part gives a fixed pattern, so it is no source), FAULT (a draw failed three times), BUSY
+  (a draw under way). Writing DRAW clears FAULT and starts a fresh draw.
+- [RNGCNT](#reg-c69a) is the bytes left; a read of [RNGDATA](#reg-c69b) takes the next, `$00` when the pool is
+  empty. Read RNGDATA with a load only.
+- **Under OODOS 0.16** the registers are OODOS's: a program asks
+  [function 78](../oodos-programmers-guide/07-function-reference.md#bdos-78).
+- **The emulated chip** gives a fixed stream by default, the same bytes every run, for tests; the apps take the
+  host's random device. The machine file's `rng_chip=locked|unlocked|none` sets what the bridge finds
+  ([chapter 14](14-emulator-notes.md)).
+
+## The common hole
+
+Status: **proposed** (north bridge revision 3; emulated)
+
+[HOLE](#reg-c6a6) maps CPU `$F800–$FFFF` to one RAM block's top 2 KB whatever W3 holds, so common memory has one
+copy that every block W3 maps shows.
+
+- With EN set, every native CPU cycle to `$F800–$FFFF` goes to RAM at BLOCK × `$4000` + `$3800` + (the address AND
+  `$07FF`), ahead of VEC and W3: W3's ROM bit, RO bit and WIN3H don't reach it, and a vector pull reads the hole
+  whatever VEC holds. HOLE's RO drops writes. `$C800–$F7FF` is still W3's; the I/O hole is decoded first.
+- HOLE is `$00` at every reset, so the ROM and its vectors are never behind it. DMA and the Console card use
+  physical addresses and reach the same RAM at the block's `$3800–$3FFF`. Apple II mode's map ignores it.
+- **The ROM never runs with the hole on:** an ordinary `JMP ($FFFA)` would read the hole's bytes, not the ROM's.
+  OODOS 0.16 writes `$BE` (EN, block 62, where its common memory is) at its cold boot and 0 on every way it hands
+  the machine to the ROM (Break, Apple II mode, the diagnostics).
+- The ROM's diagnostics test it as NB12 ([chapter 15](15-diagnostics.md)).
 
 ## Registers
 
@@ -440,7 +508,7 @@ R/W. Writing TICK as 1 clears it, and writing SET as 1 sends SEC–YEAR to the c
 | Bit | Name | Meaning |
 |---|---|---|
 | 7 | TICK | 1: a second's read has happened. Write 1 to clear |
-| 6 | TIE | 1: TICK interrupts, on IRQH bit 5 |
+| 6 | TIE | revisions 1 and 2: 1, TICK interrupts on IRQH bit 5. Revision 3: reads 0 and a write is ignored |
 | 5 | ALARM | 1: the chip's status had A1F or A2F set when the bridge last read it (read-only) |
 | 4–3 | | 0 |
 | 2 | LOST | 1: the chip's oscillator stopped (OSF), so the time is invalid until set (read-only) |
@@ -518,7 +586,7 @@ R, as [IRQL](#reg-c688).
 |---|---|---|
 | 7 | ID F | no module: reads 1 |
 | 6 | ID E | 0: the console card |
-| 5 | ID D | 0: the bridge's own: RTCCTL's TICK, with TIE |
+| 5 | ID D | 0: the bridge's own: revision 3's tick (TBCTL's MSF, with MSIE); before it RTCCTL's TICK, with TIE |
 | 4 | ID C | the Disk II has no interrupt: reads 1 |
 | 3 | ID B | 0: the USB card |
 | 2 | ID A | 0: the sound card |
@@ -1630,12 +1698,14 @@ R.
 
 #### Bits
 
-All: the type, module D, in bits 7–4, and the revision in bits 3–0: 2 (*proposed*, B7), the bridge with
+All: the type, module D, in bits 7–4, and the revision in bits 3–0: 3 (*proposed*), revision 2's bridge with
+[the timebase](#the-timebase), [the random number chip](#the-random-number-chip) and
+[the common hole](#the-common-hole); 2 (*proposed*, B7), the bridge with
 [WIN0H–WIN3H, VECH and MAP](#the-high-window-registers-and-map); 1 on a revision 1 bridge, which has none of them.
 
 #### Reset
 
-`$D2` (`$D1` on revision 1).
+`$D3` (`$D2` on revision 2, `$D1` on revision 1).
 
 #### Status
 
@@ -1643,6 +1713,7 @@ All: the type, module D, in bits 7–4, and the revision in bits 3–0: 2 (*prop
 
 #### Notes
 
-`NB_ID_V1` (`$D1`) and `NB_ID_V2` (`$D2`) are the two values. Software writes [WIN0H–WIN3H](#reg-c6a0),
+`NB_ID_V1` (`$D1`), `NB_ID_V2` (`$D2`) and `NB_ID_V3` (`$D3`) are the values. OODOS 0.16 runs only on `$D3`: on
+any other bridge its cold boot says so and goes to the ROM's monitor. Software writes [WIN0H–WIN3H](#reg-c6a0),
 [VECH](#reg-c6a4) and [MAP](#reg-c6a5) only after reading `$D2`: on `$D1` it reaches the aperture by block 32 as
 before. NB_ID is read as an ID byte, so a program reads it under SYSINFO's exception only (AGENTS.md).

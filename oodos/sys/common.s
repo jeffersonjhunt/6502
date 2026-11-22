@@ -228,7 +228,7 @@ STUBRET:        SEI                    ; off again till the program's P is back
                 LDA     ST_W0
                 STA     NB_WIN0        ; the program's zero page and stack
                 TXS
-                STY     NB_WIN3        ; the program's block, its copy of this
+                STY     NB_WIN3        ; the program's block: this goes on, in the hole
                 PLA
                 PLX
                 PLP

@@ -103,10 +103,12 @@ block is kept on the 6502's stack, so code in one block may far call another. Th
 `$0000–$BFFF`, stays mapped throughout. `test_oodos_sys` measures a far call at 281 cycles more than a `JSR` and
 its `RTS`.
 
-The block must have common memory in its top 2 KB, `$F800–$FFFF`, since FARCALL itself, the BDOS's entry and the
-interrupt entry are there whatever W3 holds. OODOS doesn't put it there yet: 53–56 allocate a block and copy nothing
-into it, so for now a program copies common memory into a block it far calls itself. Which block is marked for code, and
-who copies common memory, is left to phase 7 ([hw/oodos.md, "Open Questions"](../../hw/oodos.md#open-questions)).
+The block needs no common memory of its own. FARCALL itself, the BDOS's entry and the interrupt entry are at
+`$F800–$FFFF`, and since OODOS 0.16 (interface 17) that is the north bridge's common hole: OODOS's 2 KB whatever block
+W3 holds ([the Technical Reference, chapter 11](../oo1-technical-reference/11-north-bridge-and-rtc.md#the-common-hole)).
+So a block from 53–56 can be far called as it is, and W3 shows a block's `$C800–$F7FF` only, its own top 2 KB being
+plain RAM reached through W0–W2 or DMA. A program for an older OODOS copied common memory into the block itself; a
+program that relies on the hole checks function 80's `FT_INFO` for interface 17.
 
 FARCALL is the far call table's one entry so far. FARPEEK, FARPOKE and FARMOVE, for bytes at physical addresses, are
 proposed ([hw/oodos.md, "Far calls"](../../hw/oodos.md#far-calls)), not built: a program reaches physical memory by
@@ -185,9 +187,9 @@ matters to a draw that crosses blocks. That holds while WIN1H stays 0; from inte
 writes (below). The library checks `FT_INFO`'s version at its start (`GX_INIT`) and refuses to
 map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 33–47 in W1); a change to the
 contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
-`$BFFD` in block 2; FARCALL needs common memory in W3's block).
+`$BFFD` in block 2; FARCALL's block is mapped in W3, under the common hole).
 
-**Interface version 12** (since OODOS 0.11, B7: a revision 2 north bridge, ID `$D2`). After the program's `GX_BANK8`,
+**Interface version 12** (since OODOS 0.11, B7: a revision 2 north bridge, ID `$D2`; every bridge OODOS 0.16 runs on, revision 3, has WIN1H). After the program's `GX_BANK8`,
 which asks for function 83's `DM_BANK8`, **OOLIB may write `NB_WIN1H`** (`$C6A1`) too: slot 1 is then WIN1H `$0E`
 with WIN1 1, the aperture's own place at `$E04000`, and every other block of the map is WIN1H 0. OOLIB writes WIN1H
 first, then WIN1, and goes back by WIN1H 0, then the block. A map is then two writes, which an interrupt can split;

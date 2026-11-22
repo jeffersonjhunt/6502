@@ -2782,7 +2782,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.19`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
-  | +8-9 | FARCALL's address in common memory |
+  | +8-9 | FARCALL's address in common memory (since OODOS 0.16 the north bridge's common hole: a far-called block needs no copy of it) |
 
 - A/X = FARCALL's address.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
@@ -3163,6 +3163,89 @@ An OODOS before it hasn't function 78 and answers it as any function it hasn't, 
 #### CP/M 3
 
 OODOS's own: CP/M 3 has no function 78 (OODOS's range, 72 on).
+
+#### Example
+
+[`docs/examples/dice.s`](../examples/dice.s), built and run from the CCP by `test_docs_examples`:
+
+<!-- listing: ../examples/dice.s -->
+```
+; DICE: rolls five dice by BDOS function 78, O_RANDOM, then ends by the warm
+; boot. The Programmer's Guide's example for function 78. RN_FILL fills the
+; block's bytes from the north bridge's random number chip; a byte of 252 or
+; more is drawn again, so that each face of 1-6 is as likely (252 = 42 x 6).
+
+        .include "oodos.inc"
+
+        OODOS_HEADER
+
+DICE    = 5
+
+        .zeropage
+n:      .res    1                       ; the dice still to roll
+
+        .code
+start:  lda     #RN_INFO                ; a source? (X = 0: no block)
+        ldx     #0
+        ldy     #O_RANDOM
+        jsr     BDOS
+        and     #RS_CHIP
+        beq     none
+        lda     #<head
+        ldx     #>head
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        lda     #DICE
+        sta     n
+roll:   lda     #<blk                   ; one byte into blk + 2
+        ldx     #>blk
+        ldy     #O_RANDOM
+        jsr     BDOS
+        cmp     #0
+        bne     none                    ; $FF $FF: refused
+        lda     blk + 2
+        cmp     #252
+        bcs     roll                    ; drawn again
+@mod:   cmp     #6                      ; A mod 6
+        bcc     @face
+        sbc     #6
+        bcs     @mod                    ; (carry still set: always)
+@face:  clc
+        adc     #'1'
+        ldy     #C_WRITE
+        jsr     BDOS
+        lda     #' '
+        ldy     #C_WRITE
+        jsr     BDOS
+        dec     n
+        bne     roll
+        lda     #<crlf
+        ldx     #>crlf
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        jmp     WBOOT
+none:   lda     #<nosrc
+        ldx     #>nosrc
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        jmp     WBOOT
+
+        .data
+blk:    .byte   RN_FILL, 1, 0           ; the operation, n, the byte
+
+        .rodata
+head:   .byte   "Five dice: $"
+crlf:   .byte   13, 10, '$'
+nosrc:  .byte   "No random source", 13, 10, '$'
+```
+
+At the prompt, with DICE.COM on M:, on the emulator's fixed stream ([`dice.out`](../examples/dice.out)); on a real
+chip each run differs:
+
+<!-- listing: ../examples/dice.out -->
+```
+Five dice: 2 3 3 6 3 
+```
 
 <a id="bdos-80"></a>
 ### 80 O_FRAME: frame and timing
