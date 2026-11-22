@@ -6091,11 +6091,11 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       KEY 15-20 are Advanced Feature; ON PLAY(n) and ON STRIG(n) GOSUB set their line (answer 24 item 3: E3 and
       `onev` unchanged); TIMER, ON TIMER, DATE$, TIME$, BEEP (its `SN_BEEP` block watched: review round 1, T5) and PEN work there.
     - **Cycles** (answer 11's gates, 24's for a note; measured at the merge candidate): NEWSTT 5.00 with no trap
-      on, 18.00 with one, @NEWSTT@ with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
+      on, 18.00 with one, 18.02 with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
       case, within 30 of it); a PLAY note in MB about 7,700-8,300 (9,000: about 5,000 of it function 82's sends and
-      the card's busy retries; one block a note is OOLIB's backlog); TIMER @TIMER@ (10,000); a key with no trap
+      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,409 (10,000); a key with no trap
       armed, KEYEV less its interrupts and its BDOS calls, an interrupt inside a BDOS call counted once (answer
-      28), A 297 and F1 355 against main `fa501cfb`'s 280 and 368 (+30: answer 29's anchor); CHAIN @CHAIN@ (main's
+      28), A 297 and F1 355 against main `fa501cfb`'s 280 and 368 (+30: answer 29's anchor; since U7 came out, some presses of A cost about 200 more, a race of the method's, not the code's, so the case's average fails: review round 1's open item); CHAIN 66,654 (main's
       66,851 re-measured + 400: answer 17); every earlier gate held. `the_key_line_and_soft_keys_cost` measures the
       key line's CLS, KEY and WIDTH and both F1s in one RUN, less interrupts and drain (answers 25, 28, 29): a
       record, not a guard (answer 31; what F1 queues is `a_function_key_types_its_text`'s to guard).
