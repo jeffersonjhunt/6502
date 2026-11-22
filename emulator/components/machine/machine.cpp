@@ -231,20 +231,20 @@ namespace ooe::emu
             if (type == "northbridge")
             {
                 if (w.size() < 2 || w[1] != "backplane")
-                    return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]'");
+                    return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2|3]'");
                 bool bootsel = false, revised = false;
                 uint8_t revision = BackplaneBridge::REVISION; // the default (step B7)
                 for (size_t i = 2; i < w.size(); ++i)
                 {
                     if (w[i] == "bootsel" && !bootsel)
                         bootsel = true;
-                    else if ((w[i] == "revision=1" || w[i] == "revision=2") && !revised)
+                    else if ((w[i] == "revision=1" || w[i] == "revision=2" || w[i] == "revision=3") && !revised)
                     {
                         revision = static_cast<uint8_t>(w[i].back() - '0');
                         revised = true;
                     }
                     else
-                        return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]', not '" +
+                        return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2|3]', not '" +
                                     w[i] + "'");
                 }
                 if (m->bridge_)

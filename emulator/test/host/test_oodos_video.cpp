@@ -1065,15 +1065,22 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
     }
 }
 
-TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
+namespace
 {
-    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
-    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
-    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
-    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    /// The machine file with `revision=N` on its north bridge line.
+    std::string bridge_revision(unsigned n)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " revision=" + std::to_string(n));
+        return text;
+    }
+
+    /// O5's body: with MAP 0 the console and DM_VCOPY reach the aperture at $E00000, bank 8's RAM untouched.
+    void aperture_at_e00000(CcpRig &r)
+    {
     open(r, "X");
     const std::vector<uint8_t> ram = noise(0x10000, 7);
     r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
@@ -1107,6 +1114,29 @@ TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_ba
     };
     for (unsigned n = 0; n < 30; ++n)
         CHECK_EQ(row(n), std::string("K 00 00"));
+    }
+} // namespace
+
+TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
+{
+    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
+    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
+    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
+    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD2);
+    aperture_at_e00000(r);
+}
+
+TEST(on_a_revision_3_bridge_slot_0_s_window_is_at_e00000)
+{
+    // N1, the sweep: crt.s's NB_ID test is "revision 2 or more", so on a $D3 bridge the console's window is the
+    // aperture's own at $E00000, as on $D2: O5 again on revision 3.
+    CcpRig r({}, bridge_revision(3));
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD3);
+    aperture_at_e00000(r);
 }
 
 // --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 D1-D5; proposed) ------------------------------------------

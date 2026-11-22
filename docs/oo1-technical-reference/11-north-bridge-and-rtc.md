@@ -939,6 +939,182 @@ cleared on the way.
 Wait for BUSY ([RTCCTL](#reg-c687) bit 0) to clear before reading. A write to the status register (`$0F`) updates
 LOST and ALARM when it ends.
 
+<a id="reg-c699"></a>
+### $C699 NB_RNGST: the random source's state
+
+#### Equates
+
+`NB_RNGST`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W. Only bit 0 can be written, so a read-modify-write is harmless.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | READY | read: the pool holds at least one byte |
+| 6 | CHIP | read: an ATECC608B answered at power-on |
+| 5 | LOCKED | read: the chip's configuration zone is locked, so the bridge draws from it |
+| 4 | FAULT | read: the last draw failed all three tries |
+| 3–1 | | 0 |
+| 0 | BUSY / DRAW | read: a draw is under way. Write 1 (DRAW): clear FAULT and, unless a draw is under way, empty the pool and draw 32 fresh bytes. Writing 0 does nothing |
+
+#### Reset
+
+READY, CHIP and LOCKED as the power-on set-up found them; FAULT and BUSY 0. A reset that isn't the power-on one
+keeps the pool.
+
+#### Status
+
+**proposed**
+
+Revision 3 only (`$D3`): on revisions 1 and 2 the offset reads `$FF`, which would look like READY and CHIP, so
+read [NB_ID](#reg-c6ff) first.
+
+#### Notes
+
+The bridge fills a pool of 32 bytes from the chip by itself and refills it when the last byte is taken. It never
+interrupts; software polls READY. After a FAULT it doesn't draw again until DRAW is written. Under OODOS the
+registers are OODOS's: a program asks function 78. The bits' equates are `NB_RNG_READY`, `NB_RNG_CHIP`,
+`NB_RNG_LOCKED`, `NB_RNG_FAULT`, `NB_RNG_BUSY` and `NB_RNG_DRAW`.
+
+<a id="reg-c69a"></a>
+### $C69A NB_RNGCNT: the bytes in the pool
+
+#### Equates
+
+`NB_RNGCNT`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R.
+
+#### Bits
+
+All: how many bytes the pool holds, 0–32.
+
+#### Reset
+
+32 on a board with a locked chip, after the power-on draw; else 0.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+<a id="reg-c69b"></a>
+### $C69B NB_RNGDATA: the pool's next byte
+
+#### Equates
+
+`NB_RNGDATA`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R. **A read takes the byte from the pool.**
+
+#### Bits
+
+All: the next random byte. With the pool empty it reads `$00` and takes nothing, so test READY in
+[RNGST](#reg-c699) first.
+
+#### Reset
+
+The pool's first byte.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+#### Notes
+
+Read it with a load (LDA, LDX or LDY), never a read-modify-write instruction or a 16-bit read, either of which can
+read it twice. Taking the last byte starts a refill. A debugger's look doesn't take a byte.
+
+<a id="reg-c69c"></a>
+### $C69C NB_MSSL: milliseconds into the second, low byte
+
+#### Equates
+
+`NB_MSSL`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from the latch that reading [SEC](#reg-c690) takes.
+
+#### Bits
+
+All: bits 7–0 of MSS, the milliseconds into the DS3231's current second, 0–999, binary.
+
+#### Reset
+
+Counting from the power-on read of the time until the first square-wave edge, then from each edge.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+#### Notes
+
+Read SEC first, then MIN to YEAR, then MSSL and MSSH: all from one moment. MSS holds at 999 if a second runs long,
+and starts again at each of the chip's seconds, so software never corrects it. SYNC in [TBCTL](#reg-c6a8) says
+whether it is in step with the chip.
+
+<a id="reg-c69d"></a>
+### $C69D NB_MSSH: milliseconds into the second, high byte
+
+#### Equates
+
+`NB_MSSH`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from SEC's latch, as [MSSL](#reg-c69c).
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–2 | | 0 |
+| 1–0 | | bits 9–8 of MSS |
+
+#### Reset
+
+As [MSSL](#reg-c69c).
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
 <a id="reg-c6a0"></a>
 ### $C6A0 NB_WIN0H: window 0's A20–A23
 
@@ -1161,6 +1337,238 @@ AP8 only for a program that asks, by function 83's `DM_BANK8`
 ([the Programmer's Guide, chapter 7](../oodos-programmers-guide/07-function-reference.md#bdos-83)). The Console card
 and the bus spy, driving the bus themselves, see bank 8 as the RAM card's whatever AP8 holds. Apple II mode's map
 ignores it.
+
+<a id="reg-c6a8"></a>
+### $C6A8 NB_TBCTL: the timebase's control
+
+#### Equates
+
+`NB_TBCTL`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W. A read clears nothing. Writing 1 to MSF or OVR clears it and 0 leaves it; MSIE takes the value written. So
+writing back what was read clears exactly the flags that were set and keeps MSIE.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | MSF | a tick has come since the last acknowledge |
+| 6 | OVR | a tick came while MSF was still set: one interrupt stands for two or more ticks |
+| 5 | MSIE | MSF interrupts, on IRQH bit 5 (ID D) |
+| 4 | SYNC | read-only: [MSS](#reg-c69c) is in step with the DS3231's second |
+| 3–0 | | 0 |
+
+#### Reset
+
+MSF, OVR and MSIE 0 at every reset. SYNC 0 after power-on until the first second's read lands; a later reset keeps
+it.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF` and a write is lost, so the BIOS's Break may write it
+without checking the ID.
+
+#### Notes
+
+The tick is 1 kHz from the master oscillator: the k-th comes 157,500 k / 11 oscillator clocks (rounded down) after
+the counter starts, so a period is 7,159 native cycles, or 7,160 twice in every 11 ms. SYNC clears when no edge
+has come from the chip for 1.1 s. Under OODOS 0.16 the timebase is OODOS's: its tick acknowledges with `$E0`. The bits' equates are `NB_TB_MSF`,
+`NB_TB_OVR`, `NB_TB_MSIE` and `NB_TB_SYNC`.
+
+<a id="reg-c6a9"></a>
+### $C6A9 NB_MS0: the millisecond counter, low byte
+
+#### Equates
+
+`NB_MS0`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R. **A read latches MS1–MS3 and TBSUB.**
+
+#### Bits
+
+All: bits 7–0 of the 32-bit count of ticks, live.
+
+#### Reset
+
+0 while /RESET is held at a hard reset, counting from its release. A /RESET pulse (Apple II mode, Ctrl-Reset
+there) leaves it running.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+#### Notes
+
+Read MS0 first, then [MS1–MS3](#reg-c6aa): the four bytes are one moment. A later read of MS0 takes a new latch,
+so a read of all four must not be interrupted by another reader: OODOS reads them with interrupts off outside its
+handlers. Read it with a load, never a read-modify-write or a 16-bit read. The count goes round after 2³² ms,
+about 49.7 days.
+
+<a id="reg-c6aa"></a>
+### $C6AA NB_MS1: the millisecond counter, bits 15–8
+
+#### Equates
+
+`NB_MS1`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from MS0's latch.
+
+#### Bits
+
+All: bits 15–8 of the count, as it was when [MS0](#reg-c6a9) was last read.
+
+#### Reset
+
+0.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+<a id="reg-c6ab"></a>
+### $C6AB NB_MS2: the millisecond counter, bits 23–16
+
+#### Equates
+
+`NB_MS2`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from MS0's latch.
+
+#### Bits
+
+All: bits 23–16 of the count, as [MS1](#reg-c6aa).
+
+#### Reset
+
+0.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+<a id="reg-c6ac"></a>
+### $C6AC NB_MS3: the millisecond counter, bits 31–24
+
+#### Equates
+
+`NB_MS3`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from MS0's latch.
+
+#### Bits
+
+All: bits 31–24 of the count, as [MS1](#reg-c6aa).
+
+#### Reset
+
+0.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+<a id="reg-c6ad"></a>
+### $C6AD NB_TBSUBL: cycles into the millisecond, low byte
+
+#### Equates
+
+`NB_TBSUBL`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from MS0's latch.
+
+#### Bits
+
+All: bits 7–0 of how far into the current millisecond the latch was taken, in native cycles, 0–7,159 (the
+oscillator clocks since the last tick, halved).
+
+#### Reset
+
+Counting from /RESET's release.
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
+
+#### Notes
+
+For timing short stretches of code to the cycle: OODOS's debug build times its hooks by it.
+
+<a id="reg-c6ae"></a>
+### $C6AE NB_TBSUBH: cycles into the millisecond, high byte
+
+#### Equates
+
+`NB_TBSUBH`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R, from MS0's latch.
+
+#### Bits
+
+All: bits 15–8 of [TBSUB](#reg-c6ad) (0–`$1B`).
+
+#### Reset
+
+As [TBSUBL](#reg-c6ad).
+
+#### Status
+
+**proposed**
+
+Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 <a id="reg-c6ff"></a>
 ### $C6FF NB_ID: the north bridge's ID

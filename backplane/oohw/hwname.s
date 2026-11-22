@@ -57,7 +57,7 @@ nF:     .byte   "(reserved)", 0
 ; The IDs with tests here: the serial card's $61 (hw/design.md, from D1),
 ; and backplane.inc's.
 known:  .byte   HW_SERIAL_ID, SD_ID_V1, DMA_ID_V2, VIDEO_ID_V2, SOUND_ID_V1, SOUND_ID_V2, USB_ID_V1
-        .byte   DISK2_ID_V1, HW_NB_ID, HW_NB_ID2, CONSOLE_ID_V1
+        .byte   DISK2_ID_V1, HW_NB_ID, HW_NB_ID2, HW_NB_ID3, CONSOLE_ID_V1
 KNOWN_LEN = * - known
 
         OOHW_BSS

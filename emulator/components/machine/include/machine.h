@@ -61,10 +61,11 @@
  * 340-34F, inside the stand-in 6551's 300-37F.
  *
  * Without a `northbridge` line every CPU address is memory with A16-A23
- * low. `northbridge backplane [bootsel] [revision=1|2]` fits the backplane's
+ * low. `northbridge backplane [bootsel] [revision=1|2|3]` fits the backplane's
  * north bridge (backplane_bridge.h): the windows, VEC, ROM space, the I/O
  * hole and the DS3231 real-time clock; revision 2 (ID $D2) adds WIN0H-WIN3H,
- * VECH and MAP, revision 1 (ID $D1) is B1's, and the default is
+ * VECH and MAP, revision 3 (ID $D3) the random source and the timebase,
+ * revision 1 (ID $D1) is B1's, and the default is
  * BackplaneBridge::REVISION, 2 (step B7). Its registers are at io
  * 680-6FF (module D, its IRQ wired: the clock's tick), and it is named
  * `northbridge`. The clock starts at the host's local time unless the

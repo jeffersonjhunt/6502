@@ -22,8 +22,12 @@
  * bridge's own ID, D, on PS0-PS3 (memory_select()), and the DMA
  * controller's memory to memory cycles its 8.
  *
- * Two revisions (step B7, proposed; the constructor's `revision`, a machine
- * file's `revision=1|2`; REVISION and ID are the default's):
+ * Three revisions (step B7, proposed; the constructor's `revision`, a machine
+ * file's `revision=1|2|3`; REVISION and ID are the default's):
+ *
+ * - Revision 3, ID $D3 (hw/future/north-bridge-rev3.md, random-source.md):
+ *   revision 2's registers, and in time the random source ($19-$1B) and the
+ *   timebase ($1C-$1D, $28-$2E). Until those are built they read $FF.
  *
  * - Revision 2, ID $D2 (hw/design.md, "The video aperture moved out of
  *   RAM"): WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
@@ -53,7 +57,7 @@
  *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS   $07 RTCCTL
  *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
  *   $17 RTCREG   $18 RTCDATA   $20-$23 WIN0H-WIN3H   $24 VECH   $25 MAP
- *   $7F ID (WIN0H-MAP on revision 2 only)
+ *   $7F ID (WIN0H-MAP on revision 2 or more)
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
  * ROM A read-only ($DF); with /BOOTSEL held they map RAM block 63 ($3F).
@@ -182,14 +186,14 @@ namespace ooe::emu
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
         /// `rtc`: the DS3231 on the CPU card; nullptr, a new one at 2000-01-01 00:00:00.
-        /// `revision`: 1 or WIDE (2); anything else is taken as 1.
+        /// `revision`: 1, WIDE (2) or 3; anything else is taken as 1.
         explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr,
                                  uint8_t revision = REVISION);
 
         uint8_t revision() const { return revision_; }
         uint8_t id() const { return static_cast<uint8_t>(MODULE << 4 | revision_); }
-        /// Revision 2: WINnH, VECH and MAP.
-        bool wide() const { return revision_ == WIDE; }
+        /// Revision 2 or more: WINnH, VECH and MAP.
+        bool wide() const { return revision_ >= WIDE; }
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
         void attach(Decoder *decoder)

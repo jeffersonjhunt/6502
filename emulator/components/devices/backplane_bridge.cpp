@@ -22,7 +22,7 @@ namespace ooe::emu
     } // namespace
 
     BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc, uint8_t revision)
-        : revision_(revision == WIDE ? WIDE : uint8_t{1}), bootsel_(bootsel),
+        : revision_(revision == WIDE || revision == 3 ? revision : uint8_t{1}), bootsel_(bootsel),
           rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
     {
         apply_reset();

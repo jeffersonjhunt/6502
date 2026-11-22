@@ -3371,6 +3371,28 @@ TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
     }
 }
 
+TEST(w1htest_runs_on_a_revision_3_bridge)
+{
+    // N1, the sweep: on a $D3 bridge W1HTEST's W1HON writes WIN1H, as on $D2 (its NB_ID test is "revision 2 or
+    // more"), and OODOS's stub keeps it across C_WRITESTR: O1 again on revision 3.
+    std::string text = revision_1_machine();
+    const size_t at = text.find(" revision=1");
+    REQUIRE(at != std::string::npos);
+    text.replace(at, 11, " revision=3");
+    Rig r(sd_image("oodos.sparse"), {}, text);
+    REQUIRE(r.ok);
+    CHECK_EQ(r.bridge().id(), 0xD3);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.boot());
+    mark_w1(r);
+    const std::string o = r.go("w1htest.com", " S");
+    CHECK(o.find("\r\nHELLO\r\n") != std::string::npos);
+    CHECK_EQ(field(o, "W1H"), std::string("0E"));
+    CHECK_EQ(field(o, "B0"), hex(B_CARD, 2));
+    CHECK_EQ(field(o, "B1"), hex(B_CARD, 2));
+    CHECK_EQ(r.bridge().winh(1), 0);
+}
+
 TEST(on_a_revision_1_bridge_oodos_never_writes_c6a0_to_c6a5)
 {
     // O7. A $D1 bridge has no WINnH, VECH or MAP: they read $FF. OODOS boots, prints, takes ticks and runs a tick

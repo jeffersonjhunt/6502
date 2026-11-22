@@ -96,9 +96,9 @@ START:
                 LDA     NB_STATUS
                 AND     #NB_STATUS_BOOTSEL
                 BNE     RESET          ; booted from RAM: no flash to go back to
-                LDX     NB_ID          ; (B7) WIN0H 0 for the stub, on a $D2 bridge: a program
+                LDX     NB_ID          ; (B7) WIN0H 0 for the stub, on a bridge of revision 2 or more: a program
                 CPX     #NB_ID_V2      ; that jumped to C800R may have left it set, and
-                BNE     @w0            ; BOOT2's NBSET comes only after the stub
+                BCC     @w0            ; BOOT2's NBSET comes only after the stub
                 STZ     NB_WIN0H
 @w0:            STZ     NB_WIN0
                 LDX     #STUB_END - STUB - 1
@@ -164,7 +164,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
-                NBSET                  ; on a $D2 bridge: WINnH and VECH 0, AP8 by the video card (A kept)
+                NBSET                  ; revision 2 or more: WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1
@@ -376,7 +376,7 @@ MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: 
 MROM:           .byte   $0D, "ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
-; blocks 0-2 (W3 and VEC are the BIOS's; on a $D2 bridge every WINnH and
+; blocks 0-2 (W3 and VEC are the BIOS's; on revision 2 or more every WINnH and
 ; VECH 0 and MAP as the boot sets it), the cards quiet, the text screen
 ; (VSCREEN finds it from the ID bytes), then the monitor.
 BREAK:

@@ -30,7 +30,7 @@ NB_RTCDATA      = NB + $18             ; ...into here; writing here writes it. W
 NB_ID           = NB + $7F
 ; Revision 2 (ID $D2, step B7, proposed; hw/design.md, "The video aperture moved out of RAM"): A20-A23
 ; for each window (bits 3-0; a window with the ROM bit set ignores its WINnH), for VEC's vector pulls,
-; and MAP. Write them only after NB_ID reads $D2: on revision 1 ($D1) the offsets read $FF.
+; and MAP. Write them only after NB_ID reads $D2 or more: on revision 1 ($D1) the offsets read $FF.
 NB_WIN0H        = NB + $20             ; W0's A20-A23
 NB_WIN1H        = NB + $21
 NB_WIN2H        = NB + $22
@@ -40,12 +40,39 @@ NB_MAP          = NB + $25             ; bit 0, AP8: bank 8 goes to the video ca
 NB_MAP_AP8      = $01
 NB_ID_V1        = $D1                  ; revision 1: no WINnH, VECH or MAP
 NB_ID_V2        = $D2
+NB_ID_V3        = $D3                  ; revision 3: revision 2's, the random source and the timebase
+; Revision 3 (ID $D3; hw/future/north-bridge-rev3.md, random-source.md): use these only after NB_ID reads
+; $D3: on $D1 and $D2 the offsets read $FF and drop writes. MS0 and SEC latch when read, and RNGDATA gives
+; up its byte: read each with a load (LDA, LDX, LDY), never a read-modify-write or a 16-bit read.
+NB_RNGST        = NB + $19             ; the random source: READY CHIP LOCKED FAULT . . . BUSY; write DRAW
+NB_RNGCNT       = NB + $1A             ; the bytes in the pool, 0-32
+NB_RNGDATA      = NB + $1B             ; the pool's next byte, taken by the read ($00 when empty)
+NB_MSSL         = NB + $1C             ; ms into the DS3231's second, 0-999: low byte, from SEC's latch
+NB_MSSH         = NB + $1D             ;   and high
+NB_TBCTL        = NB + $28             ; the timebase: MSF OVR MSIE SYNC; write 1 to MSF, OVR to clear
+NB_MS0          = NB + $29             ; the millisecond counter, low byte, live: reading it latches MS1-MS3, TBSUB
+NB_MS1          = NB + $2A
+NB_MS2          = NB + $2B
+NB_MS3          = NB + $2C
+NB_TBSUBL       = NB + $2D             ; native cycles into the millisecond (0-7,159), from MS0's latch
+NB_TBSUBH       = NB + $2E
+NB_RNG_READY    = $80                  ; RNGST: the pool holds a byte
+NB_RNG_CHIP     = $40                  ; RNGST: a chip answered at power-on
+NB_RNG_LOCKED   = $20                  ; RNGST: its configuration is locked, so the bridge draws from it
+NB_RNG_FAULT    = $10                  ; RNGST: the last draw failed three tries
+NB_RNG_BUSY     = $01                  ; RNGST read: a draw under way
+NB_RNG_DRAW     = $01                  ; RNGST write: clear FAULT, empty the pool and draw 32 fresh bytes
+NB_TB_MSF       = $80                  ; TBCTL: a tick since the last acknowledge; write 1 to clear
+NB_TB_OVR       = $40                  ; TBCTL: a tick came while MSF was set; write 1 to clear
+NB_TB_MSIE      = $20                  ; TBCTL: MSF interrupts (IRQH bit 5, ID $D); takes the value written
+NB_TB_SYNC      = $10                  ; TBCTL: MSS is in step with the DS3231's second (read-only)
 
 NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
 NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card
 NB_IRQ_USB      = $08                  ; IRQH bit 3, ID B: the USB card
 NB_IRQ_DMA      = $01                  ; IRQH bit 0, ID 8: the DMA controller's terminal counts
 NB_IRQ_SOUND    = $04                  ; IRQH bit 2, ID A: the sound card (the mailbox, the ES5503)
+NB_IRQ_NB       = $20                  ; IRQH bit 5, ID D: the north bridge (revision 3: TBCTL's MSF; 2: TICK)
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
 CART_BLOCK      = 32                   ; flash block: ROM B's first 16 KB, the game cartridge's (a ROM BIOS
@@ -56,7 +83,7 @@ IIE_ID_AT       = $3BB3                ; in an image ($FBB3): IIE_ID if it is a 
 IIE_ID          = $06
 NB_STATUS_BOOTSEL = $01                ; booted from RAM (the bus spy loaded it)
 NB_RTC_TICK     = $80                  ; RTCCTL: the second's read happened; write 1 to clear
-NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D)
+NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D); revision 2; reads 0 on 3
 NB_RTC_ALARM    = $20                  ; RTCCTL: the DS3231 flagged an alarm (A1F or A2F)
 NB_RTC_LOST     = $04                  ; RTCCTL: the DS3231's oscillator stopped (OSF): set the time
 NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231 (reads 0)

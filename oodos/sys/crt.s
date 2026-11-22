@@ -19,7 +19,7 @@
 ; unit 8 ($002000), a character and an attribute a cell. Aperture slot 0
 ; always shows bank 0 (CRTINIT sets it, the warm boot puts it back, and no
 ; program writes SLOT0), so its window is the console's: on a revision 2
-; north bridge (NB_ID $D2; B7) the aperture's own, $E00000-$E03FFF, which
+; north bridge or later (NB_ID $D2 or more; B7) the aperture's own, $E00000-$E03FFF, which
 ; W1 reaches with WIN1H $0E and block 0, and on revision 1 bank 8's, block 32
 ; at $80000-$83FFF (CRTINIT chooses: CVH, CVB, and CVA for DMA). The BIOS
 ; maps W1 there for the call (VMAP0: WIN1H, then WIN1) and back on the
@@ -66,7 +66,7 @@ CP:             .res    2              ; a cell, in W1
 CVH:            .res    1              ; slot 0's window for W1: WIN1H ($0E; 0 on a revision 1 bridge),
 CVB:            .res    1              ;   the block (0; 32), and the window's physical bank for DMA
 CVA:            .res    1              ;   ($E0; $08): CRTINIT's, card or no card (DM_VCOPY's too)
-NB2:            .res    1              ; bit 7 ($FF): a revision 2 north bridge (NB_ID $D2); 0 not
+NB2:            .res    1              ; bit 7 ($FF): revision 2 or more (NB_ID $D2+); 0 not
 
 .segment "BIOS"
 
@@ -321,7 +321,7 @@ CRTINIT:        STZ     CVOK
                 STZ     NB2
                 LDA     NB_ID
                 CMP     #NB_ID_V2
-                BNE     @v1
+                BCC     @v1
                 DEC     NB2            ; $FF: bit 7
                 LDA     #VIDEO_APER_H
                 LDX     #0

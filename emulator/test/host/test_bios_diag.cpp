@@ -1891,6 +1891,21 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
     CHECK(r.until("4123: 5C", ms(500), from));
 }
 
+TEST(stage_7_takes_d3)
+{
+    // N1, the sweep: stage 7 takes the bridge at revision 2 or 3, and NB1 names the ID it read. On a $D3 bridge the
+    // stage runs and passes (revision 3 is revision 2's registers so far), NB1 says $D3, and the run passes. Must
+    // fail if CARDIS is still asked for revision 2 alone (the stage would SKIP).
+    Rig r(SW19, EMU_BIOS_ROM, with_bridge(3));
+    REQUIRE(r.ok());
+    REQUIRE(bridge_of(r).id() == 0xD3);
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 7), "PASS"));
+    CHECK(test_line(r, "NB1").find("ID $D3; STATUS'S REVISION 3") != std::string::npos);
+    CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+}
+
 TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
 {
     // R10. Stage 7 takes the bridge at revision 2, ID $D2 exactly (b7-plan.md, question 7): a $D1 bridge has no

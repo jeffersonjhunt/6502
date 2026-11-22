@@ -439,8 +439,8 @@ APPLEEND:
 
 ; WIN0H-WIN3H and VECH to 0, and MAP written whole: AP8 set (bank 8 the
 ; video card's aperture, as old programs know it) with a revision 2 video
-; card, clear (bank 8 RAM) without one; on a revision 2 north bridge only
-; (NB_ID $D2), since on revision 1 those offsets aren't registers (B7; hw/
+; card, clear (bank 8 RAM) without one; on a north bridge of revision 2 or
+; more (NB_ID $D2+), since on revision 1 those offsets aren't registers (B7; hw/
 ; design.md, "The video aperture moved out of RAM"). For ROMAPPLE, and for
 ; WARM and NMI once W0 is on the system block (they clear WIN0H inline
 ; first, since a JSR through a WIN0H left set, or a read-only W0, would lose
@@ -449,7 +449,7 @@ APPLEEND:
 ; FARCALL keeps its cycles (no branch of its across a page).
 WINH0:          LDA     NB_ID
                 CMP     #NB_ID_V2
-                BNE     @done
+                BCC     @done
                 STZ     NB_WIN0H
                 STZ     NB_WIN1H
                 STZ     NB_WIN2H

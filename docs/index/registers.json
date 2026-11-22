@@ -1755,6 +1755,51 @@
   "status": "emulated"
  },
  {
+  "equate": "NB_RNGST",
+  "address": "$C699",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c699",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_RNGCNT",
+  "address": "$C69A",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c69a",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_RNGDATA",
+  "address": "$C69B",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c69b",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MSSL",
+  "address": "$C69C",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c69c",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MSSH",
+  "address": "$C69D",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c69d",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
   "equate": "NB_WIN0H",
   "address": "$C6A0",
   "module": "D",
@@ -1805,6 +1850,69 @@
   "module": "D",
   "documented": true,
   "anchor": "reg-c6a5",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_TBCTL",
+  "address": "$C6A8",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6a8",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MS0",
+  "address": "$C6A9",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6a9",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MS1",
+  "address": "$C6AA",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6aa",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MS2",
+  "address": "$C6AB",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6ab",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_MS3",
+  "address": "$C6AC",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6ac",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_TBSUBL",
+  "address": "$C6AD",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6ad",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "NB_TBSUBH",
+  "address": "$C6AE",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6ae",
   "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
   "status": "proposed"
  },

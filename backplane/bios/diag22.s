@@ -185,8 +185,11 @@ STAGE7:
                 lda     #7
                 jsr     SBEGIN
                 ldx     #$D
-                lda     #2             ; ID $D2 exactly (B7); $D1 SKIPs, not known
-                jsr     CARDIS
+                lda     HW_REV + $D    ; ID $D2 or $D3 (B7, revision 3); $D1 SKIPs, not known
+                cmp     #3
+                beq     @rev
+                lda     #2
+@rev:           jsr     CARDIS
                 bcc     @card
                 rts
 @card:          jsr     NB1
@@ -200,7 +203,10 @@ STAGE7:
                 jmp     CEND
 
 NB1:
-                TB      "NB1  ID $D2; STATUS'S REVISION "
+                TB      "NB1  ID $"
+                lda     NB_ID
+                jsr     HEX2
+                SAY     "; STATUS'S REVISION "
                 lda     NB_STATUS
                 lsr     a
                 lsr     a
@@ -1415,12 +1421,12 @@ SLOTS:
                 stz     VIDEO_PCTL
                 rts
 
-; W1 on aperture slot A (0-3): on a $D2 north bridge WIN1H $0E and block A
+; W1 on aperture slot A (0-3): on a $D2+ north bridge WIN1H $0E and block A
 ; ($E00000 + A x $4000, whatever AP8 says); on a $D1 one block 32 + A (bank 8).
 ; A and X.
 APW1:           ldx     NB_ID
                 cpx     #NB_ID_V2
-                bne     @v1
+                bcc     @v1
                 ldx     #VIDEO_APER_H
                 stx     NB_WIN1H
                 sta     NB_WIN1
@@ -1428,10 +1434,10 @@ APW1:           ldx     NB_ID
 @v1:            ora     #32
                 sta     NB_WIN1
                 rts
-; W1 back on RAM block 1 (WIN1H 0 on a $D2 bridge). A only.
+; W1 back on RAM block 1 (WIN1H 0 on a $D2+ bridge). A only.
 W1HOME:         lda     NB_ID
                 cmp     #NB_ID_V2
-                bne     @b
+                bcc     @b
                 stz     NB_WIN1H
 @b:             lda     #1
                 sta     NB_WIN1

@@ -2688,6 +2688,38 @@ TEST(c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0)
     }
 }
 
+TEST(a_revision_3_bridge_boots_as_revision_2_does)
+{
+    // N1, the sweep (hw/future/north-bridge-rev3.md): every test of NB_ID is "revision 2 or more", so a $D3 bridge
+    // takes revision 2's paths. With no video card BOOT2's NBSET clears AP8; with one it keeps it and the monitor's
+    // screen comes through the aperture; and START clears WIN0H before its stub runs in RAM block 0.
+    {
+        Board b = bridge_board(3, false);
+        REQUIRE(b.ok());
+        b.reset();
+        CHECK_EQ(b.bridge().id(), 0xD3);
+        CHECK_EQ(b.bridge().map(), 0x01);
+        CHECK_EQ(b.run(BOOT), GREETING);
+        CHECK_EQ(b.bridge().map(), 0x00); // NBSET
+        CHECK(winh_clear(b.bridge()));
+    }
+    {
+        Board b = bridge_board(3);
+        REQUIRE(b.ok());
+        b.reset();
+        b.run(BOOT);
+        CHECK_EQ(b.bridge().map(), 0x01);
+        CHECK(b.find_row("BACKPLANE BIOS 0.19") >= 0); // VPUTC through $E00000
+        // A program leaves WIN0H on $03 (no memory) and jumps to $C800: the stub still runs and the boot greets.
+        const std::vector<uint8_t> p = {0xA9, 0x03, 0x8D, 0xA0, 0xC6, 0x4C, 0x00, 0xC8}; // STA NB_WIN0H; JMP $C800
+        for (size_t i = 0; i < p.size(); ++i)
+            b.machine->bus().write_bus(static_cast<uint32_t>(0x04000 + i), p[i]);
+        CHECK(has(b.run(SPLASH_TIME, "4000R\r"), GREETING.c_str()));
+        CHECK(winh_clear(b.bridge()));
+        CHECK_EQ(b.bridge().window(1), 0x01);
+    }
+}
+
 TEST(c818_apple_ii_mode_with_win2h_left_on_0e_starts_the_image)
 {
     // R11. A program that leaves WIN2H on $0E and calls $C818's $A1 with image 0: APPLE clears WIN0H-WIN2H on a $D2
