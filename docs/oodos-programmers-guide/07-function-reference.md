@@ -2774,7 +2774,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.18`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.19`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -3065,7 +3065,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- A = the ROM BIOS's version's major number, X its minor (0 and 18 for `BACKPLANE BIOS 0.18`).
+- A = the ROM BIOS's version's major number, X its minor (0 and 19 for `BACKPLANE BIOS 0.19`).
 - A = X = `$FF`: the version isn't known: the cold boot found no `BACKPLANE BIOS ` greeting in the ROM's copy in RAM
   block 63 (a ROM of the owner's without one, or OODOS loaded without the ROM's reset), or the word after it isn't
   two numbers to 255 with a `.` between.
@@ -3077,7 +3077,7 @@ None.
 
 #### Side effects
 
-None. The version is the one the cold boot read for its boot status (`BIOS 0.18`); a program can't read it itself,
+None. The version is the one the cold boot read for its boot status (`BIOS 0.19`); a program can't read it itself,
 since the ROM's copy is in OODOS's block 63, which [function 83](#bdos-83) refuses as a source too.
 
 #### Cycles
@@ -3132,7 +3132,7 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
   12 OODOS 0.11's [function 83](#bdos-83)'s `DM_BANK8`, and WIN1H in the W1 contract,
   [chapter 5](05-memory-and-banking.md#the-w1-contract); 13 OODOS 0.12's function 83 `DM_VFILLW` and the 640x480
   colour layers; 14 OODOS 0.13's full-resolution pointer (`DM_POINTER` 64 + n) and SPRCTL cleared at the warm boot;
-  15 OODOS 0.14's [function 82](#bdos-82)'s `SN_NOISE`),
+  15 OODOS 0.14's, nothing a program uses),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
@@ -3309,21 +3309,15 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 17 | `SN_HOLD` | none | holds the 6510 where it is, each SID's volume nibble 0 | 6510 |
   | 18 | `SN_GO` | none | lets a held 6510 go on, the volumes back | 6510 |
   | 19 | `SN_VOLUME` | +1 VOLL, +2 VOLR (0–255, 255 unity) | sets the card's master volumes (revision 2) | |
-  | 20 | `SN_NOISE` | +1 n (1–16), +2… n bytes to fill | n bytes of SID A's voice 3 noise, a seed for random numbers | |
 
   Operations 17–19 (`SN_HOLD`, `SN_GO`, `SN_VOLUME`) are since OODOS 0.6 (OOLIB's interface version 5, [function 80's](#bdos-80) `FT_INFO`); an OODOS before them
-  refuses them, A = X = `$FF`. Operation 20 (`SN_NOISE`) is since OODOS 0.14 (interface version 15), and needs the
-  ROM BIOS 0.18 or later; an OODOS before it refuses it, A = X = `$FF`.
+  refuses them, A = X = `$FF`.
 
 #### Exit
 
 - `SN_INFO`: A = the card's revision (0 with no sound card), X = its CODECS (`$83` on revision 2: raw PCM, MP3, the
   ES5503; 0 on revision 1). With a block: +1 and +2 the same, +3 the parts no one has claimed that the machine has.
 - `SN_BUFFER`: A = the buffer that took it, 0 or 1, X = 0.
-- `SN_NOISE`: A = 0, X = 0, and n bytes at +2: each one the ROM BIOS's (`$C818`'s function `$A2`,
-  [the Technical Reference, chapter 3](../oo1-technical-reference/03-boot.md#the-bioss-entry-points)), read from
-  voice 3's OSC3 after 23 of the noise register's steps, so no byte shares the register's bits with the one before
-  it.
 - `SN_STATUS`: A = the stream's state (the card's STATE: 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5
   ended, `$80` up an error), X = the buffers free (bit 0 buffer 0, bit 1 buffer 1). With a block, of one moment: +1
   and +2 the same, +3–4 the FIFO's room in 256-byte units, +5–8 the frames played, +9–10 an MP3's kbit/s, +11–12 the
@@ -3333,7 +3327,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 20, one that needs a block given none, a block in memory that
+A = X = `$FF`, and nothing done, for an operation past 19, one that needs a block given none, a block in memory that
 isn't the program's (the I/O hole, flash), an operation whose part isn't claimed, and:
 
 - `SN_CLAIM`: no parts asked for, a part the machine hasn't (the stream needs revision 2 and the DMA controller, the
@@ -3349,16 +3343,10 @@ isn't the program's (the I/O hole, flash), an operation whose part isn't claimed
 - `SN_HOLD`: the 6510 not running (CTRL's RUN off): never started, stopped, or held already. A second hold so
   keeps what the first kept. `SN_GO`: the 6510 not held.
 - `SN_VOLUME`: a card before revision 2, which has no master volume.
-- `SN_NOISE`: n 0 or over 16, or no sound card. Under a ROM BIOS before 0.18 (function 77's version), A = `$FF`
-  and X = `$FB`, as [function 75](#bdos-75) says it, and the ROM isn't called (on 0.15 and before `$C818` would
-  restart the machine).
 
 A = `$FE` (`SN_BUSY`), X = `$FF`, and nothing done, when what it needs is busy: `SN_LOAD` and `SN_WAVE` while a
 stream buffer is still going to the card (DMA channel 2), `SN_BUFFER` while the buffer whose turn it is is still in
-use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 1). `SN_NOISE` is `SN_BUSY` while
-`SC_6510` is claimed, by this program, another or an RSX (the claimant owns the SIDs, and reads OSC3 itself; OODOS
-knows what is claimed, not by whom), and when the ROM refuses (the card's 6510 running, or a chip whose noise
-register stays stuck at 0 after four tries); the bytes it gave before that stay at +2. Try again later. An OODOS before
+use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 1). Try again later. An OODOS before
 L3 answers 82 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is
 sound (`OA_SOUND`).
 
@@ -3386,15 +3374,6 @@ sound (`OA_SOUND`).
   turns RUN off (if the program set it while held), writes the two kept bytes back, A's first (with CTRL's BOTH a write to A reaches B too), then sets RUN, again
   without RESET: the 6510 carries on from the instruction it was held at. `SN_STOP`, `SN_START`, `SN_RELEASE` of
   the 6510 and the warm boot forget a hold. While held, the SIDs are the program's to write, as when stopped.
-- `SN_NOISE` leaves SID A's voice 3 on noise at frequency `$FFFF` with the gate off (FREQ_LO3, FREQ_HI3 `$FF`,
-  CONTROL3 `$80`: silent; the volume isn't touched), so the noise register runs on between calls and a later byte
-  depends on the time between them, until something writes those registers (a claimant's program, the warm boot's
-  silence). A claimant that sets voice 1's SYNC or RING without setting voice 3 hears it against that noise. Each
-  byte is one call of the ROM, with interrupts off for it (about 2,900 cycles, under a tick: none is lost; but a chip whose noise register stays stuck at 0 is refused
-  only after about 18,950 cycles, and one or two millisecond ticks are lost then, an OO-1 limit) and on
-  between bytes; for it OODOS moves W3 and VEC to the ROM BIOS's copy (block 63) and back, so a Break meanwhile goes
-  to the ROM's monitor, as Break always does. The bytes are only as unpredictable as the time the noise has run: a
-  call soon after a power-on gives nearly the same bytes each time.
 - `SN_VOLUME` writes VOLL and VOLR. They scale every source on the card: the stream, the ES5503 and each SID's
   `$D418` volume nibble as the chip gets it (the register still reads back as written). It needs no claim.
 - `SN_STREAM` writes PCMCTL (FLUSH, then RUN), CODEC, RATE, PCMFMT, POS (0) and DRQSEL (1), and the DMA controller's
@@ -3419,9 +3398,7 @@ sound (`OA_SOUND`).
 #### Cycles
 
 `SN_BEEP` takes its length (test_oodos_sound: 1,000 Hz for 100 ms toggles the speaker 193 times, the call 106 ms
-with its line printed). `SN_NOISE` (test_oodos_sound): 3,691 cycles for 1 byte, 10,323 for 3, 51,465 for 16, the
-BDOS call whole; interrupts off at most 3,179 cycles a byte. A byte whose first read is 0 takes about 1,000 more
-(it is read again 8 steps later), one of a stuck register about 3,800 more a try. What sound costs between calls is [chapter 8's](08-game-services.md#what-sound-costs). The
+with its line printed). What sound costs between calls is [chapter 8's](08-game-services.md#what-sound-costs). The
 rest: not measured.
 
 #### Since
