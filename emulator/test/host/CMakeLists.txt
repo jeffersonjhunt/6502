@@ -197,7 +197,9 @@ set(EMU_SLOW_test_bios_diag
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
         a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
-        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
+        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build
+        nb10_fails_when_mss_isnt_restarted
+        nb10_fails_when_msf_isnt_cleared)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -1061,3 +1063,4 @@ foreach(t ${all_tests})
     endif()
 endforeach()
 add_dependencies(test_bios_diag backplane_bios)
+add_dependencies(test_bios backplane_bios)

@@ -416,6 +416,8 @@ IRQ:            PHA
 QUIET:
                 LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
                 STA     NB_RTCCTL
+                LDA     #NB_TB_MSF | NB_TB_OVR ; (revision 3) the timebase's flags cleared, MSIE off:
+                STA     NB_TBCTL       ; no ID check, since an older bridge drops the write
                 LDA     DMA_ID
                 CMP     #DMA_ID_V2
                 BNE     @sd

@@ -15,6 +15,7 @@
  * whatever is fitted: the diagnostics clear AP8 and test it (b7-plan.md, question 6).
  */
 
+#include "backplane_bridge.h"
 #include "decoder.h"
 #include "cpu6502.h"
 #include "machine.h"
@@ -142,4 +143,65 @@ namespace ooe::test
         f.or_mask = or_mask;
         return fault_over(m, f, bad, ram);
     }
+
+    /// A north bridge revision 3 whose timebase is wrong in one way, for NB10 (hw/future/north-bridge-rev3.md): mapped
+    /// over the bridge's registers ($C680-$C6FF) after the machine is built, it passes every access through to the
+    /// bridge (caught up to the cycle first: the bridge is timed and this isn't) but for its fault. Its IRQ is the
+    /// bridge's own mapping's, which stays.
+    /// - MssNotRestarted: MSS as the free-running millisecond count modulo 1,000, latched by SEC as the bridge's is,
+    ///   never restarted by the DS3231's second. The chip's second starts at a phase of its own against the count
+    ///   (437 ms here: the emulated chip, set at power-on, would otherwise start on a millisecond of the count's).
+    /// - MsfNotClearedBy1: a 1 written to TBCTL's MSF leaves it set (OVR and MSIE as written).
+    struct BridgeFault : ooe::emu::Device
+    {
+        enum class Kind
+        {
+            MssNotRestarted,
+            MsfNotClearedBy1,
+        };
+        ooe::emu::BackplaneBridge *bridge{nullptr};
+        ooe::emu::Decoder *bus{nullptr};
+        Kind kind{Kind::MssNotRestarted};
+        uint16_t mss{0};
+
+        size_t size() const override { return 0x80; }
+        uint8_t read(uint32_t offset) override
+        {
+            bus->sync();
+            const uint8_t v = bridge->read(offset);
+            if (kind == Kind::MssNotRestarted)
+            {
+                if (offset == ooe::emu::BackplaneBridge::SEC)
+                    mss = static_cast<uint16_t>((bridge->ms() + 437) % 1000);
+                if (offset == ooe::emu::BackplaneBridge::MSSL)
+                    return static_cast<uint8_t>(mss);
+                if (offset == ooe::emu::BackplaneBridge::MSSH)
+                    return static_cast<uint8_t>(mss >> 8);
+            }
+            return v;
+        }
+        uint8_t peek(uint32_t offset) const override { return bridge->peek(offset); }
+        void write(uint32_t offset, uint8_t data) override
+        {
+            bus->sync();
+            if (kind == Kind::MsfNotClearedBy1 && offset == ooe::emu::BackplaneBridge::TBCTL)
+                data = static_cast<uint8_t>(data & ~ooe::emu::BackplaneBridge::TB_MSF);
+            bridge->write(offset, data);
+        }
+    };
+
+    /// `f` over machine `m`'s north bridge registers, as fault `kind`. @return whether it could be mapped
+    inline bool bridge_fault(ooe::emu::Machine &m, BridgeFault &f, BridgeFault::Kind kind)
+    {
+        f.bridge = m.backplane_bridge();
+        f.bus = &m.bus();
+        f.kind = kind;
+        if (!f.bridge)
+            return false;
+        m.bus().map(ooe::emu::Mapping{ooe::emu::bus_address(ooe::emu::Space::Io, ooe::emu::BackplaneBridge::REGISTERS),
+                                      ooe::emu::bus_address(ooe::emu::Space::Io, ooe::emu::BackplaneBridge::REGISTERS + 0x7F),
+                                      &f, ooe::emu::BackplaneBridge::MODULE});
+        return true;
+    }
+
 } // namespace ooe::test

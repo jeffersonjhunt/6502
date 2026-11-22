@@ -219,11 +219,14 @@ T_GOOD:         .res    1
 ; stopped (all eight channels, each one's CARD back to its reset module; X and Y
 ; not kept), the SD card's command abandoned, every card's interrupt off, the
 ; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
-; clock's TIE off, the VIA's interrupts off. The breakpoint is left alone.
+; clock's TIE off, the timebase's MSIE off (revision 3; an older bridge drops
+; the write), the VIA's interrupts off. The breakpoint is left alone.
 .macro QUIETM
         .local sd, idle, chans, chan, card, usb, video, sound, sid, panel, via
                 lda     #NB_RTC_TICK
                 sta     NB_RTCCTL
+                lda     #NB_TB_MSF | NB_TB_OVR
+                sta     NB_TBCTL
                 lda     DMA_ID
                 cmp     #DMA_ID_V2
                 bne     sd

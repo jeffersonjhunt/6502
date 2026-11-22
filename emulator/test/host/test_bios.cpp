@@ -2066,6 +2066,29 @@ TEST(break_turns_the_clocks_tick_off_and_the_time_runs_on)
     CHECK_EQ(bus.peek(0xC687) & 0x40, 0);
 }
 
+TEST(break_turns_the_bridge_s_tick_off)
+{
+    // N6 (hw/future/north-bridge-rev3.md, "Break"): a program turns on revision 3's tick interrupt (TBCTL's MSIE)
+    // and spins with interrupts off; Break (the ROM's QUIET) writes TBCTL $C0: MSIE off and both flags cleared, so
+    // the monitor runs with no tick interrupting. Must fail with QUIET's TBCTL write removed.
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    REQUIRE(b.bridge().timebase());
+    put_program(b, {0x78,                         // SEI
+                    0xA9, 0x20, 0x8D, 0xA8, 0xC6, // LDA #MSIE; STA NB_TBCTL
+                    0x4C, 0x06, 0x03});           // JMP *
+    b.run(BOOT, "300R\r");
+    REQUIRE((b.bridge().tbctl() & BackplaneBridge::TB_MSIE) != 0);
+    REQUIRE(b.machine->bus().irq());
+    b.cpu->nmi();
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK_EQ(b.bridge().tbctl() & BackplaneBridge::TB_MSIE, 0); // (MSF and OVR come back with the ticks: nothing acknowledges)
+    CHECK(!b.machine->bus().irq());
+    CHECK(cli_runs(b));
+}
+
 TEST(break_finds_the_screen_whatever_its_zero_page_says)
 {
     Board b;

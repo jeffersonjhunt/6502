@@ -48,6 +48,9 @@ T_CH:           .res    1              ; D1: the channel
 T_FIT:          .res    1              ;   how many are fitted
 T_FITS:         .res    1              ;   which (bit n channel n)
 T_UNFIT:        .res    1              ;   $FF if T_CH isn't, else 0
+T_MS:           .res    4              ; NB10: MS0-MS3 as last read
+T_MSB:          .res    4              ;   at the first SEC change, then the difference
+T_MSP:          .res    3              ;   MS0-MS2 before, for the never-backwards test
                 DTVARS
 
 .segment "D22"
@@ -199,6 +202,7 @@ STAGE7:
                 jsr     NB6
                 jsr     NB7
                 jsr     NB8
+                jsr     NB10
                 lda     #DR_PASS
                 jmp     CEND
 
@@ -537,6 +541,184 @@ NB8:
 @bad:           TD      "THE WRITE CHANGED THE BLOCK"
                 rts
 @none:          TS      "NO TESTED BLOCK"
+                rts
+
+; NB10, the timebase (north bridge revision 3, hw/future/north-bridge-rev3.md): on $D3 only, else SKIP. With
+; interrupts off throughout: MSF sets within 1.1 ms of being cleared, and a read doesn't clear it; with MSIE, IRQH
+; bit 5 reads 0 while MSF is set and 1 once it is cleared, then MSIE off. Then across three of the DS3231's
+; seconds (three SEC changes): MSS reads 0 or 1 at each change and never more than 999; MS0-MS3 gain 1,000 +/- 1
+; between the first change and the second; MS0-MS2, read through the latch, never go backwards. Then SYNC set. A
+; FAIL names the step. Its counts are in D22ZP (T_MS, T_MSB, T_MSP).
+NB10:
+                TB      "NB10 THE TIMEBASE"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     #NB_TB_MSF | NB_TB_OVR ; both cleared, MSIE off
+                sta     NB_TBCTL
+                lda     NB_TBCTL
+                bpl     @wait
+                lda     #NB_TB_MSF | NB_TB_OVR ; a tick just then: once more
+                sta     NB_TBCTL
+                lda     NB_TBCTL
+                bpl     @wait
+                TD      "MSF: A 1 WRITTEN DIDN'T CLEAR IT"
+                rts
+@wait:          jsr     MSFW
+                bcc     @set
+                TD      "MSF: NOT SET WITHIN 1.1 MS"
+                rts
+@set:           lda     NB_TBCTL
+                bmi     @irq
+                TD      "MSF: A READ CLEARED IT"
+                rts
+@irq:           lda     #NB_TB_MSIE    ; MSF left set, MSIE on: the line low
+                sta     NB_TBCTL
+                lda     NB_IRQH
+                and     #NB_IRQ_NB
+                beq     @low
+                lda     #NB_TB_MSF | NB_TB_OVR
+                sta     NB_TBCTL
+                TD      "IRQH BIT 5: HIGH WITH MSF AND MSIE SET"
+                rts
+@low:           lda     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE ; the acknowledge: the line high again
+                sta     NB_TBCTL
+                lda     NB_IRQH
+                ldx     #NB_TB_MSF | NB_TB_OVR ; MSIE off
+                stx     NB_TBCTL
+                and     #NB_IRQ_NB
+                bne     @secs
+                TD      "IRQH BIT 5: STILL LOW WITH MSF CLEARED"
+                rts
+@secs:          stz     T_REV          ; the SEC changes seen
+                lda     NB_SEC
+                sta     T_SEC0
+                jsr     MSREAD
+                jsr     MSKEEP
+                stz     T_K            ; the give-up: 6 x 65,536 passes of the same second (about 4 s)
+                stz     T_K + 1
+                lda     #6
+                sta     T_SEC1
+@loop:          lda     NB_SEC         ; SEC, then MSS, from its latch
+                tax
+                lda     NB_MSSH
+                cmp     #3
+                jcc     @in
+                jne     @past
+                lda     NB_MSSL
+                cmp     #$E8
+                jcs     @past
+@in:            cpx     T_SEC0
+                jeq     @same
+                stx     T_SEC0         ; a new second: MSS 0 or 1
+                lda     NB_MSSH
+                jne     @late
+                lda     NB_MSSL
+                cmp     #2
+                jcs     @late
+                inc     T_REV
+                lda     T_REV
+                cmp     #1
+                jne     @two
+                jsr     MSREAD         ; the first change: MS kept
+                jsr     MSKEEP
+                ldx     #3
+@k:             lda     T_MS,x
+                sta     T_MSB,x
+                dex
+                bpl     @k
+                jmp     @loop
+@two:           cmp     #2
+                jne     @three
+                jsr     MSREAD         ; the second: 1,000 +/- 1 on
+                sec
+                lda     T_MS
+                sbc     T_MSB
+                sta     T_MSB
+                lda     T_MS + 1
+                sbc     T_MSB + 1
+                sta     T_MSB + 1
+                lda     T_MS + 2
+                sbc     T_MSB + 2
+                ora     T_MS + 3
+                jne     @steps         ; (T_MS + 3 is 0 here: MS is under 2^24 within 4.6 hours of a reset)
+                lda     T_MSB + 1
+                cmp     #>1000
+                jne     @steps
+                lda     T_MSB
+                cmp     #<999
+                jcc     @steps
+                cmp     #<1001 + 1
+                jcs     @steps
+                jsr     MSKEEP
+                jmp     @loop
+@three:         lda     NB_TBCTL
+                and     #NB_TB_SYNC
+                bne     @sync
+                TD      "SYNC: CLEAR"
+                rts
+@sync:          jmp     TPASS
+@same:          jsr     MSREAD         ; MS0-MS2 never backwards
+                lda     T_MS + 2
+                cmp     T_MSP + 2
+                jcc     @back
+                jne     @fwd
+                lda     T_MS + 1
+                cmp     T_MSP + 1
+                jcc     @back
+                jne     @fwd
+                lda     T_MS
+                cmp     T_MSP
+                jcc     @back
+@fwd:           jsr     MSKEEP
+                dec     T_K
+                jne     @loop1
+                dec     T_K + 1
+                jne     @loop1
+                dec     T_SEC1
+                jne     @loop1
+                TD      "SEC: NOT THREE CHANGES IN 4 S"
+                rts
+@loop1:         jmp     @loop
+@past:          TD      "MSS: PAST 999"
+                rts
+@late:          TD      "MSS: NOT 0 OR 1 AT A NEW SECOND"
+                rts
+@steps:         TD      "MS: NOT 1000 +/- 1 ACROSS A SECOND"
+                rts
+@back:          TD      "MS: BACKWARDS ACROSS A CARRY"
+                rts
+
+; MSF set within 1.1 ms: 716 passes of 11 cycles (204, then 256 twice), carry clear; else carry set. A, X, Y.
+MSFW:           ldx     #204
+                ldy     #3
+@m:             lda     NB_TBCTL
+                bmi     @ok
+                dex
+                bne     @m
+                dey
+                bne     @m
+                sec
+                rts
+@ok:            clc
+                rts
+
+; MS0-MS3 into T_MS, MS0 first (its read latches the rest). A and X.
+MSREAD:         ldx     #0
+@r:             lda     NB_MS0,x
+                sta     T_MS,x
+                inx
+                cpx     #4
+                bne     @r
+                rts
+; T_MS's low three bytes into T_MSP. A and X.
+MSKEEP:         ldx     #2
+@c:             lda     T_MS,x
+                sta     T_MSP,x
+                dex
+                bpl     @c
                 rts
 
 ; --- Stage 8: DMA --------------------------------------------------------------

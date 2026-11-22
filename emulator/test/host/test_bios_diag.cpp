@@ -951,7 +951,7 @@ TEST(a_loop_runs_two_passes_and_a_key_ends_it_after_the_second)
 {
     Rig r(SW19 | SW17);
     REQUIRE(enter(r));
-    REQUIRE(r.until("PASS 2  QUICK LOOP", ms(60'000)));
+    REQUIRE(r.until("PASS 2  QUICK LOOP", ms(75'000)));
     r.key(' ');
     REQUIRE(to_result(r));
     const std::string text = report(r);
@@ -1117,7 +1117,7 @@ TEST(a_pass_count_above_255_is_printed_whole)
     REQUIRE(r.until(" 3  CPU", ms(5000)));
     r.poke(0x00012, 0x2B); // DG_PASS = 299, in W0's block 0
     r.poke(0x00013, 0x01);
-    REQUIRE(r.until("PASS 300  QUICK LOOP", ms(60'000)));
+    REQUIRE(r.until("PASS 300  QUICK LOOP", ms(75'000)));
     r.key(' ');
     CHECK(to_result(r));
 }
@@ -1930,6 +1930,54 @@ TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
     CHECK(ends(stage_line(r, 9), "PASS"));
     CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
     CHECK_EQ(bridge_of(r).map(), 0x01); // nothing wrote MAP: a $D1 bridge has none (it reads its reset value)
+}
+
+// --- Revision 3: NB10, the timebase (N6; hw/future/north-bridge-rev3.md, "The ROM BIOS 0.20") ---------------
+
+TEST(nb10_passes_on_revision_3_and_skips_on_2)
+{
+    // NB10 on the default revision 3 bridge: MSF, IRQH bit 5, MS across a second, MSS at three second changes and
+    // SYNC all pass. On a revision 2 bridge it SKIPs, saying so, and the run still passes.
+    {
+        Rig r(0, EMU_BIOS_ROM);
+        REQUIRE(r.ok());
+        REQUIRE(bridge_of(r).id() == 0xD3);
+        faulted_run(r);
+        CHECK(ends(test_line(r, "NB10"), "PASS"));
+        CHECK(ends(stage_line(r, 7), "PASS"));
+    }
+    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "SKIP"));
+    CHECK(after_test(r, "NB10").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb10_fails_when_mss_isnt_restarted)
+{
+    // A bridge whose MSS is the free-running count modulo 1,000, never restarted by the DS3231's second: NB10
+    // FAILs at a second's change, naming MSS. Must fail with NB10's MSS compare removed (the fault would pass).
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::MssNotRestarted));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "FAIL"));
+    CHECK(after_test(r, "NB10").find("MSS: NOT 0 OR 1 AT A NEW SECOND") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "FAIL"));
+}
+
+TEST(nb10_fails_when_msf_isnt_cleared)
+{
+    // A bridge whose MSF a 1 doesn't clear: NB10 FAILs at once, naming MSF.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::MsfNotClearedBy1));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "FAIL"));
+    CHECK(after_test(r, "NB10").find("MSF: A 1 WRITTEN DIDN'T CLEAR IT") != std::string::npos);
 }
 
 int main()
