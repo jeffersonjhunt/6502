@@ -73,8 +73,10 @@ namespace
     }
 
     /// The two Hz figures checked and taken out, and the time: what the golden file holds.
-    /// `want_frame` false: the machine has no video frame to measure by.
-    std::string normal(const std::string &got, bool want_frame = true)
+    /// `want_frame` false: the machine has no video frame to measure by. `rtc_hz` and `rtc_part`: the clock
+    /// chip's figure and its bound (a part of `rtc_hz`), for a case whose chip is skewed.
+    std::string normal(const std::string &got, bool want_frame = true, double rtc_hz = NATIVE_HZ,
+                       double rtc_part = 0.00002)
     {
         std::string s = got;
         const std::regex rtc("([0-9],[0-9]{3},[0-9]{3}) Hz by the clock chip");
@@ -90,11 +92,11 @@ namespace
         if (std::regex_search(s, m, rtc))
         {
             const double v = hz(m[1]);
-            const bool ok = std::abs(v - NATIVE_HZ) <= NATIVE_HZ * 0.00002;
-            std::printf("  %.0f Hz by the clock chip\n", v);
+            const bool ok = std::abs(v - rtc_hz) <= rtc_hz * rtc_part;
+            std::printf("  %.0f Hz by the clock chip (%+.0f from %.0f)\n", v, v - rtc_hz, rtc_hz);
             CHECK(ok);
             if (!ok)
-                std::printf("  by the clock chip: %.0f Hz, not within 0.002%% of 7,159,090\n", v);
+                std::printf("  by the clock chip: %.0f Hz, not within %.4f%% of %.0f\n", v, rtc_part * 100, rtc_hz);
         }
         else
         {
@@ -185,6 +187,17 @@ namespace
                 out += l + "\n";
         }
         return out;
+    }
+
+    /// backplane.machine with rng_chip=`chip` on its north bridge's line (N13: SYSINFO's RANDOM line).
+    std::string with_rng(const std::string &chip)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " rng_chip=" + chip);
+        return text;
     }
 
     /// A rig with the build's SYSINFO on M:.
@@ -343,6 +356,13 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
     // 3,000-3,400 cycles a pass) just after that poll at the first window's end, and the last at the third's too,
     // so the handler runs over the change. With the first form two windows of three were out by the burst, the
     // middle one with them (7,170,533 Hz).
+    // The clock chip's figure is held to the rate the skewed chip gives (NATIVE_HZ over 1 + SKEW_PPM ppm), within
+    // 0.004% (N13, the owner's answer of 2026-11-22): this case guards the exclusion, not the precision, and its
+    // readings scatter about 150 Hz from run to run against a skew of 20 ppm, so the precise cases' 0.002% would
+    // fail it by where a stamp falls. A spoiled change kept is several times further out (the mutant: build-log).
+    constexpr double SKEW_PPM = 20;
+    const double skewed_hz = NATIVE_HZ / (1 + SKEW_PPM * 1e-6);
+    constexpr double PART = 0.00004;
     struct Seen
     {
         std::vector<uint64_t> changes; ///< the bridge's seconds changing, from the measurement's start
@@ -363,7 +383,7 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
         // (the tick 0.9 cycles a second against the second, where the VIA's slid 90). Locked, the tick lands at the
         // same place before every SEC change, and its long pass that reads the paddles covered change 0 in every
         // run, a third spoiled change beside this case's two bursts.
-        nb->rtc()->set_skew_ppm(20);
+        nb->rtc()->set_skew_ppm(SKEW_PPM);
         unsigned calls = 0;
         bool polled = false;
         int sec = -1;
@@ -409,7 +429,7 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
         if (at.empty())
         {
             start = s.changes[0];
-            normal(s.out); // undisturbed
+            normal(s.out, true, skewed_hz, PART); // undisturbed
         }
         else
             CHECK_EQ(s.changes[0], start); // booted alike: the same up to the first burst
@@ -426,7 +446,7 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
     CHECK_EQ(fired, 2u);
     REQUIRE(!s.changes.empty());
     CHECK_EQ(s.changes[0], start);
-    normal(s.out);
+    normal(s.out, true, skewed_hz, PART);
 }
 
 TEST(a_card_left_out_loses_its_line_and_its_section)
@@ -452,6 +472,29 @@ TEST(a_card_left_out_loses_its_line_and_its_section)
         if (n != c.lines)
             std::printf("    %zu lines differ from sysinfo.txt, not %zu\n", n, c.lines);
     }
+}
+
+TEST(the_random_line_says_what_rn_info_says)
+{
+    // Random-source O7 (less its revision 2 golden: OODOS 0.16 refuses that bridge): the RANDOM line from function
+    // 78's RN_INFO. The golden's ATECC608B on the north bridge (a locked chip, sysinfo.txt); rng_chip=unlocked "not
+    // locked", none "none", each one line changed from sysinfo.txt (two in differing()'s count). Must fail with the line's RS bit tested wrongly.
+    struct Case
+    {
+        const char *chip, *file, *line;
+    };
+    for (const Case &c : {Case{"unlocked", "sysinfo_rngunlocked.txt", "  RANDOM     not locked"},
+                          Case{"none", "sysinfo_norng.txt", "  RANDOM     none"}})
+    {
+        std::printf("  rng_chip=%s\n", c.chip);
+        InfoRig r(with_rng(c.chip));
+        REQUIRE(r.ok);
+        const std::string got = normal(run(r, "m:sysinfo /all"));
+        CHECK(golden(c.file, got));
+        CHECK(got.find(std::string(c.line) + "\n") != std::string::npos);
+        CHECK_EQ(differing(got, full_golden()), size_t{2});
+    }
+    CHECK(full_golden().find("  RANDOM     ATECC608B on the north bridge\n") != std::string::npos);
 }
 
 TEST(a_revision_changed_changes_its_lines)

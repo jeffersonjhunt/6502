@@ -10,6 +10,7 @@ SYSTEM
              for programs: a 47K TPA, 320 KB in banks 1-5 (320 KB free)
              and banks 9-B, 192 KB
   BOOTED     from the flash, at power-on
+  RANDOM     ATECC608B on the north bridge
 
 CARDS
   ADDR   ID   CARD                          REVISION

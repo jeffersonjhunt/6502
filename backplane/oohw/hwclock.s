@@ -30,9 +30,11 @@
 ; it; the pair leaves such a change out, and spreads what is left over the
 ; most windows. (An interrupt between two changes costs nothing: the timer
 ; counts through it.) When every change has a handler at it, as OODOS's
-; millisecond one can for several seconds running (its 7,159 cycles slide
-; 90 a second against the clock chip's), each stamp is early by where the
-; change fell in it, which moves by those 90 cycles a second: within 0.0014%.
+; millisecond one can for several seconds running (since OODOS 0.16 the
+; north bridge's tick, which slides against the clock chip's second by the
+; crystals' error alone; before it the VIA's 7,159 cycles, 90 a second),
+; each stamp is early by where the change fell in it, which moves only as
+; slowly as that slide.
 ;
 ; Why (B5, 2026-11-16; hw/diag.md, D3a review, has the first forms): the
 ; form before read the timer at the start of a 142-cycle pass and the byte

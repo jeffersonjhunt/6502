@@ -365,10 +365,43 @@ system: lda     #<ssystem
         beq     @reset
         lda     #<spoweron
         ldx     #>spoweron
-        jmp     comma
+        bra     @how
 @reset: lda     #<sareset
         ldx     #>sareset
-        jmp     comma
+@how:   jsr     comma
+        jsr     nl
+        ; fall into random
+
+; "  RANDOM     ATECC608B on the north bridge": function 78's RN_INFO
+; (interface 17; hw/future/random-source.md), not the hardware: SYSINFO's
+; exception doesn't grow. An OODOS before 78 answers $FF $FF: none.
+random: lda     #<srandom
+        ldx     #>srandom
+        jsr     puts
+        lda     #RN_INFO
+        ldx     #0
+        ldy     #O_RANDOM
+        jsr     BDOS
+        cpx     #0
+        bne     @none                   ; no function 78
+        bit     #RS_CHIP
+        bne     @chip
+        bit     #RS_UNLOCKED
+        bne     @unl
+@none:  lda     #<srnone
+        ldx     #>srnone
+        jmp     puts
+@unl:   lda     #<srunlocked
+        ldx     #>srunlocked
+        jmp     puts
+@chip:  and     #RS_FAULT
+        bne     @fail
+        lda     #<srchip
+        ldx     #>srchip
+        jmp     puts
+@fail:  lda     #<srfailed
+        ldx     #>srfailed
+        jmp     puts
 
 ; " at n.nnn MHz" from the Hz at A/X, to the nearest kHz.
 mhz:    sta     p
@@ -1521,6 +1554,11 @@ sfrom_ram: .byte "from RAM (/BOOTSEL)$"
 sfrom_flash: .byte "from the flash$"
 spoweron: .byte "at power-on$"
 sareset: .byte  "at a reset$"
+srandom: .byte  "  RANDOM     $"
+srchip: .byte   "ATECC608B on the north bridge$"
+srnone: .byte   "none$"
+srunlocked: .byte "not locked$"
+srfailed: .byte "failed$"
 scards: .byte   "CARDS$"
 scardhd: .byte  "  ADDR   ID   CARD                          REVISION$"
 NAMECOL = 30                            ; the revision's column after the name's start
