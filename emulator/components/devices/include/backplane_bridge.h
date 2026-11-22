@@ -50,6 +50,13 @@
  * The Console card, driving the bus itself, sees bank 8 as the RAM's either
  * way.
  *
+ * Revision 3's common hole, HOLE ($26: bit 7 EN, bit 6 RO, bits 5-0 the
+ * block): with EN set, every native CPU cycle to $F800-$FFFF goes to RAM at
+ * the block's top 2 KB (block x $4000 + $3800), ahead of VEC and W3, whose
+ * ROM, RO and WINnH bits don't reach it; HOLE's RO drops writes. $00 at every
+ * reset and the /RESET pulse; the Apple II map comes first, and DMA (physical
+ * addresses) is untouched. Before revision 3 $26 reads $FF and drops writes.
+ *
  * While VPB is low, $C000-$FFFF goes through VEC instead of W3. The I/O hole,
  * $C000-$C7FF, is decoded ahead of the windows; module n's registers are at
  * $C000 + n x $80. This bridge is both the router (NorthBridge) and the
@@ -59,7 +66,7 @@
  *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
  *   $17 RTCREG   $18 RTCDATA   $19-$1B RNGST RNGCNT RNGDATA
  *   $1C/$1D MSSL/MSSH   $20-$23 WIN0H-WIN3H
- *   $24 VECH   $25 MAP   $28 TBCTL   $29-$2C MS0-MS3   $2D/$2E TBSUBL/H
+ *   $24 VECH   $25 MAP   $26 HOLE   $28 TBCTL   $29-$2C MS0-MS3   $2D/$2E TBSUBL/H
  *   $7F ID (WIN0H-MAP on revision 2 or more)
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
@@ -206,6 +213,7 @@ namespace ooe::emu
             WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23 (revision 2)
             VECH = 0x24,  ///< revision 2
             MAP = 0x25,   ///< revision 2
+            HOLE = 0x26,  ///< revision 3: the common hole
             RNGST = 0x19, ///< revision 3: the random source
             RNGCNT = 0x1A,
             RNGDATA = 0x1B,
@@ -324,6 +332,9 @@ namespace ooe::emu
         uint8_t winh(unsigned n) const { return winh_[n & 3]; }
         uint8_t vech() const { return vech_; }
         uint8_t map() const { return map_; }
+        uint8_t hole() const { return hole_; } ///< HOLE (revision 3; 0 before)
+        static constexpr uint8_t HOLE_EN = 0x80, HOLE_RO = 0x40, HOLE_BLOCK = 0x3F;
+        static constexpr uint16_t HOLE_BASE = 0xF800; ///< the hole: $F800-$FFFF
 
         // The real-time clock
         /// The CPU clock tick()'s cycles run at in native mode (0: NATIVE_HZ); Apple II mode's is APPLE_HZ.
@@ -441,6 +452,7 @@ namespace ooe::emu
         std::array<uint8_t, 4> winh_{};
         uint8_t vech_{0};
         uint8_t map_{MAP_AP8};
+        uint8_t hole_{0}; ///< HOLE: 0 at every reset
         uint8_t mode_{0};
         std::array<uint8_t, 4> wait_{};
         bool reset_wanted_{false};

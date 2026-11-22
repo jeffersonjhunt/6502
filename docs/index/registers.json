@@ -1854,6 +1854,15 @@
   "status": "proposed"
  },
  {
+  "equate": "NB_HOLE",
+  "address": "$C6A6",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c6a6",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "proposed"
+ },
+ {
   "equate": "NB_TBCTL",
   "address": "$C6A8",
   "module": "D",

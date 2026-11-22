@@ -370,6 +370,23 @@ TEST(vbl_follows_the_apples_frame_in_cpu_cycles)
     CHECK(!blank());                                        // the next frame, 17,030 cycles on
 }
 
+TEST(apple_ii_mode_ignores_the_hole)
+{
+    // H6 (N15; hw/future/north-bridge-rev3.md, "The common hole"): HOLE's EN set, then MODE's APPLE: before the
+    // /RESET pulse $F800 is already the IIe's map (its ROM image), and after it HOLE reads 0. Must fail with the hole
+    // decoded ahead of the Apple map.
+    Apple a;
+    REQUIRE(a.ok());
+    a.bus().write(0xC6A6, 0x80 | 20); // HOLE: EN, block 20
+    a.bus().write_physical(20 * 0x4000 + 0x3800, 0x5A);
+    CHECK_EQ(a.bus().read(0xF800), 0x5A); // native: the hole
+    a.bus().write(MODE, BackplaneBridge::MODE_APPLE);
+    CHECK_EQ(a.bus().read(0xF800), rom_byte(0xF800)); // the IIe's, though EN is still set
+    if (a.bus().take_reset())
+        a.bus().pulse_reset();
+    CHECK_EQ(a.bridge->hole(), 0x00);
+}
+
 TEST(a_reset_pulse_puts_the_iies_switches_back)
 {
     Apple a;

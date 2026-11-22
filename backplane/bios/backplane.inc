@@ -49,6 +49,7 @@ NB_RNGCNT       = NB + $1A             ; the bytes in the pool, 0-32
 NB_RNGDATA      = NB + $1B             ; the pool's next byte, taken by the read ($00 when empty)
 NB_MSSL         = NB + $1C             ; ms into the DS3231's second, 0-999: low byte, from SEC's latch
 NB_MSSH         = NB + $1D             ;   and high
+NB_HOLE         = NB + $26             ; the common hole: EN RO BLOCK(6); $00 at every reset (OODOS's: $BE)
 NB_TBCTL        = NB + $28             ; the timebase: MSF OVR MSIE SYNC; write 1 to MSF, OVR to clear
 NB_MS0          = NB + $29             ; the millisecond counter, low byte, live: reading it latches MS1-MS3, TBSUB
 NB_MS1          = NB + $2A
@@ -66,6 +67,8 @@ NB_TB_MSF       = $80                  ; TBCTL: a tick since the last acknowledg
 NB_TB_OVR       = $40                  ; TBCTL: a tick came while MSF was set; write 1 to clear
 NB_TB_MSIE      = $20                  ; TBCTL: MSF interrupts (IRQH bit 5, ID $D); takes the value written
 NB_TB_SYNC      = $10                  ; TBCTL: MSS is in step with the DS3231's second (read-only)
+NB_HOLE_EN      = $80                  ; HOLE: native CPU cycles to $F800-$FFFF go to the block's top 2 KB
+NB_HOLE_RO      = $40                  ; HOLE: CPU writes into the hole are dropped
 
 NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
 NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card

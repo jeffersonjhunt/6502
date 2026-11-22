@@ -48,6 +48,7 @@ namespace ooe::emu
         winh_ = {};
         vech_ = 0;
         map_ = MAP_AP8; // whatever is fitted: old software's bank 8 is the aperture
+        hole_ = 0;      // the common hole off: every reset, and the /RESET pulse
         mode_ = 0;
         wait_ = {};
     }
@@ -143,6 +144,11 @@ namespace ooe::emu
         }
         if (cpu_addr >= IO_HOLE && cpu_addr < IO_HOLE + IO_SIZE)
             return Route{bus_address(Space::Io, cpu_addr - IO_HOLE), true};
+        if ((hole_ & HOLE_EN) && cpu_addr >= HOLE_BASE) // ahead of VEC and W3: their ROM, RO and WINnH don't reach it
+        {
+            const uint32_t at = static_cast<uint32_t>(hole_ & HOLE_BLOCK) << WINDOW_SHIFT | (cpu_addr & WINDOW_MASK);
+            return Route{bus_address(Space::Memory, redirect(at)), (hole_ & HOLE_RO) == 0};
+        }
         const unsigned n = cpu_addr >> WINDOW_SHIFT;
         const bool vec = n == 3 && vector_pull;
         const uint8_t reg = vec ? vec_ : win_[n];
@@ -242,6 +248,8 @@ namespace ooe::emu
             return wide() ? vech_ : 0xFF;
         case MAP:
             return wide() ? map_ : 0xFF;
+        case HOLE:
+            return timebase() ? hole_ : uint8_t{0xFF};
         case RNGST:
             return timebase() ? rngst() : uint8_t{0xFF};
         case RNGCNT:
@@ -343,6 +351,10 @@ namespace ooe::emu
         case MAP:
             if (wide())
                 map_ = static_cast<uint8_t>(data & MAP_AP8);
+            break;
+        case HOLE:
+            if (timebase())
+                hole_ = data;
             break;
         case RNGST:
             if (timebase() && (data & RNG_DRAW))

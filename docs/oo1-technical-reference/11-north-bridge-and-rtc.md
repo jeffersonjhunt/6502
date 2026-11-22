@@ -1338,6 +1338,49 @@ AP8 only for a program that asks, by function 83's `DM_BANK8`
 and the bus spy, driving the bus themselves, see bank 8 as the RAM card's whatever AP8 holds. Apple II mode's map
 ignores it.
 
+<a id="reg-c6a6"></a>
+### $C6A6 NB_HOLE: the common hole
+
+#### Equates
+
+`NB_HOLE`
+
+#### Module
+
+D, the north bridge
+
+#### Access
+
+R/W, read back as written; a read has no side effect. A change applies from the next bus cycle.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | EN | 1: every native CPU cycle to `$F800–$FFFF` goes to RAM at BLOCK × `$4000` + `$3800` + (the address AND `$07FF`), the block's top 2 KB, ahead of VEC and W3 |
+| 6 | RO | 1: CPU writes into the hole are lost |
+| 5–0 | BLOCK | the RAM block, in the first megabyte |
+
+#### Reset
+
+`$00` at every reset, hard or a /RESET pulse, with /BOOTSEL or without.
+
+#### Status
+
+**proposed**
+
+Emulated as unit N15 of north bridge revision 3. Revision 3 only: on revisions 1 and 2 the offset reads `$FF` and a
+write is lost.
+
+#### Notes
+
+With EN set, W3's ROM bit, its RO bit and WIN3H don't reach `$F800–$FFFF`, and a vector pull reads the hole whatever
+VEC holds; `$C800–$F7FF` is still W3's. The I/O hole is decoded first, and Apple II mode's map ignores it. DMA and
+the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS 0.16 writes
+`$BE` (EN, block 62, where common memory is) at its cold boot and writes 0 on every way it hands the machine to the
+ROM, since an ordinary `JMP ($FFFA)` would read OODOS's bytes through the hole: the ROM never runs with it on. The
+bits' equates are `NB_HOLE_EN` and `NB_HOLE_RO`. The design is in hw/future/north-bridge-rev3.md, "The common hole".
+
 <a id="reg-c6a8"></a>
 ### $C6A8 NB_TBCTL: the timebase's control
 
