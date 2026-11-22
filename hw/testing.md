@@ -83,7 +83,7 @@ line; a split suite's entries all get its labels. Configuring fails on a CTest e
 | --- | --- |
 | The core (a change there chooses every suite) | `cpu`, `bus`, `machine` |
 | The rest of the emulator | `debug` (the debugger, the trace, symbols), `app` (apps/emu) |
-| A device each | `acia`, `bridge`, `console`, `disk2`, `dma`, `es5503`, `iie` (Apple II mode's I/O), `joy`, `lcd`, `pia`, `rtc`, `sd`, `sid`, `sound`, `usb`, `via`, `video` |
+| A device each | `acia`, `bridge`, `console`, `disk2`, `dma`, `es5503`, `iie` (Apple II mode's I/O), `joy`, `lcd`, `pia`, `rng` (the north bridge's random number chip), `rtc`, `sd`, `sid`, `sound`, `usb`, `via`, `video` |
 | The whole machine | `backplane`: the suite builds `machines/backplane.machine`, so it runs every card on it |
 | The software a suite runs | `bios`, `oodos`, `apple` (the owner's Apple IIe ROMs and disks), `apple1`, `eater`, `docs`, `tools` (the tiers' own scripts), `split` (a split's `_cases` check) |
 | A kind of suite | `emu`: the emulator's own suites, the only ones the sanitizers run |

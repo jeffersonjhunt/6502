@@ -57,6 +57,7 @@ emulator/tools/trace_diff.py                    debug
 emulator/components/devices/*acia6551*          acia backplane web
 emulator/components/devices/*apple_io*          iie bridge backplane web docs
 emulator/components/devices/*backplane_bridge*  bridge backplane web
+emulator/components/devices/*atecc608*          rng bridge backplane web
 emulator/components/devices/*console_card*      console backplane web
 emulator/components/devices/*disk2_card*        disk2 backplane web
 emulator/components/devices/*disk_image*        disk2 web
@@ -163,6 +164,7 @@ tools/gwlocale.sh                               gwlocale tools
 tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
+tools/atecc_crc.py                              rng
 
 # --- prose, licenses and settings ----------------------------------------------------------------------
 hw/                                             docs
