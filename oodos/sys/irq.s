@@ -60,7 +60,7 @@
 .include "oodos.inc"
 .import NMI
 .importzp PA, PX, PP, T0, T1, T2, T3, T4, T5 ; the BDOS's (bdos.inc), for 80
-.import RETFF, PGET, PPUT
+.import RETFF, PGET, PPUT, B_TIME          ; bdos.s's (B_TIME: FT_CLOCK)
 .import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
 .import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
 .import VBON                           ; video.s's
@@ -85,7 +85,7 @@ VIAL:           .res    1              ; IRQL for the VIA alone, <~NB_IRQ_VIA, i
 ; A hook's record in HK: sys.inc's HK_*, HF, HT, HD
 
 .segment "SYSBSS"
-CLOCKS:         .res    1              ; CLK_FRAME, CLK_MS: the clocks cold boot started
+CLOCKS:         .res    1              ; CLK_FRAME, CLK_MS, CLK_T1: the clocks cold boot started
 FRAMES:         .res    4              ; the frame counter (the millisecond counter is the bridge's: MS0-MS3)
 IW0:            .res    1              ; W0 as the interrupt found it ($SYS_BLOCK: the BDOS's)
 EVON:           .res    1              ; 1: the event area open
@@ -677,6 +677,8 @@ CLKINIT:        STZ     CLOCKS
                 STZ     VIA_ACR        ; timer 1 the program's: not loaded
                 LDA     #<~NB_IRQ_VIA
                 STA     VIAL           ; VIASRV, and the sticks' ports, from here
+                LDA     #CLK_T1        ; FC_T1: timer 1 the program's (interface 17)
+                TSB     CLOCKS
 @tick:          LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE
                 STA     NB_TBCTL       ; the tick: north bridge revision 3's, MSIE on
                 LDA     #CLK_MS
@@ -707,7 +709,7 @@ F_FRAME:        LDX     PX
                 JMP     (FTJUMPS,X)
 @ff:            JMP     RETFF
 FTJUMPS:        .word   FT_INFOX, FT_COUNTX, FT_OPENX, FT_CLOSEX, FT_WAITX, FT_DELAYX
-                .word   FT_FHOOKX, FT_THOOKX, FT_COSTSX
+                .word   FT_FHOOKX, FT_THOOKX, FT_COSTSX, FT_CLOCKX
 .assert (* - FTJUMPS) / 2 = FT_OPS, error, "FTJUMPS has an entry for each of oodos.inc's FT_*"
 
 ; OOLIB's interface version in A and the service areas in X; a block gets
@@ -727,7 +729,7 @@ FT_INFOX:       LDX     PX
                 LDX     #OOLIB_AREAS
                 RTS
 .assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA | OA_SERIAL, error, "frame and timing, input, sound, DMA, and the serial line"
-.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
+.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS && CLK_T1 = FC_T1, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; The bridge's millisecond counter and FRAMES at one moment, into SNAP: with
 ; interrupts off, so no handler's read of MS0 takes a new latch between this
@@ -954,6 +956,48 @@ F_RANDOM:       LDX     PX
                 JSR     PPUT
                 DEC     T0
                 BNE     @byte
+                LDA     #0
+                TAX
+                RTS
+@no:            JMP     RETFF
+
+; FT_CLOCK (interface 17): the time of day to the millisecond, from one latch.
+; T_GET's TGET (the BIOS's TIME, A = 0) reads SEC first, which latches MIN to
+; YEAR and MSSL-MSSH with it, and sets the SCB's date and time, T_GET's side
+; effect; MSSL and MSSH are then read from that latch (no handler reads SEC
+; to take another). +1-4 the DAT, +5 the seconds (BCD), +6-7 the ms into the
+; second, +8 FK_SYNC (TBCTL's SYNC) and FK_LOST (RTCCTL's LOST). A block only;
+; A = X = $FF past 2155, as T_GET.
+FT_CLOCKX:      LDX     PX
+                BEQ     @no
+                LDA     #0
+                JSR     B_TIME
+                BCS     @no            ; past 2155
+                LDX     #0
+@dat:           LDA     SCB_DATE,X
+                JSR     PPUT
+                INX
+                CPX     #4
+                BNE     @dat
+                LDA     SCB_SEC
+                JSR     PPUT
+                LDA     NB_MSSL        ; from TGET's SEC's latch
+                JSR     PPUT
+                LDA     NB_MSSH
+                JSR     PPUT
+                LDX     #0
+                LDA     NB_TBCTL
+                AND     #NB_TB_SYNC
+                BEQ     @lost
+                LDX     #FK_SYNC
+@lost:          LDA     NB_RTCCTL
+                AND     #NB_RTC_LOST
+                BEQ     @put
+                TXA
+                ORA     #FK_LOST
+                TAX
+@put:           TXA
+                JSR     PPUT
                 LDA     #0
                 TAX
                 RTS

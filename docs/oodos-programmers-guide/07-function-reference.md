@@ -3185,6 +3185,7 @@ OODOS's own: CP/M 3 has no function 78 (OODOS's range, 72 on).
   | 6 | `FT_FRAMEHOOK` | +1–2 the hook's address, 0 none | sets the frame hook, or takes it off |
   | 7 | `FT_TICKHOOK` | +1–2 the hook's address, 0 none; +3–4 every n ms | sets the tick hook, or takes it off |
   | 8 | `FT_COSTS` | 6 bytes to fill | the hooks' costs, as a debug build counts them |
+  | 9 | `FT_CLOCK` | 8 bytes to fill | the time of day to the millisecond (interface 17) |
 
 #### Exit
 
@@ -3198,20 +3199,29 @@ OODOS's own: CP/M 3 has no function 78 (OODOS's range, 72 on).
   [chapter 5](05-memory-and-banking.md#the-w1-contract); 13 OODOS 0.12's function 83 `DM_VFILLW` and the 640x480
   colour layers; 14 OODOS 0.13's full-resolution pointer (`DM_POINTER` 64 + n) and SPRCTL cleared at the warm boot;
   15 OODOS 0.14's, nothing a program uses; 16 OODOS 0.15's [function 85](#bdos-85), the serial line's
-  receive buffer, and the event area's `EV_RXCNT`),
+  receive buffer, and the event area's `EV_RXCNT`; 17 OODOS 0.16's [function 78](#bdos-78), the random source,
+  `FC_T1` and `FT_CLOCK`),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83); `OA_SERIAL`, `$20`: [function 85](#bdos-85), since
   interface 16). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
-  serial card's VIA), +4 the highest event area layout it writes (2).
+  north bridge's since OODOS 0.16, the serial card's VIA before it; `FC_T1` `$04`, since interface 17: the VIA's
+  timer 1 is the program's to use, polled, with no interrupt, set when the VIA is there and never before 17), +4
+  the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
   frame counter, each low byte first, read at one moment.
 - `FT_OPEN`, `FT_CLOSE`, `FT_DELAY`, `FT_FRAMEHOOK`, `FT_TICKHOOK`: A = 0, X = 0.
 - `FT_WAIT`: returns at the frame wanted. A/X = the frame counter's low word.
 - `FT_COSTS`: +1–2 the most cycles a frame hook took, +3–4 a tick hook, +5–6 the frames whose hook wasn't called
   because the last was still running, each since the warm boot. A = 1 if this OODOS counts the cycles (a debug
-  build, on a machine with the VIA, whose timer 1 it counts by), 0 if not, and then +1–4 are 0. X = 0.
+  build, which counts them by the north bridge's timebase), 0 if not, and then +1–4 are 0. X = 0.
+- `FT_CLOCK`: +1–4 the date and time as [function 105](#bdos-105) gives them (the day number, the hour and the
+  minute in BCD), +5 the seconds in BCD, +6–7 the milliseconds into that second (0–999), +8 `FK_SYNC` (`$01`: the
+  milliseconds are in step with the clock chip's second) and `FK_LOST` (`$02`: the clock chip's time is invalid,
+  its oscillator stopped: set the time), ORed. All of it from one latch of the clock, so the milliseconds belong to
+  the second given. It sets the date and time in the SCB as function 105 does. A = X = 0; A = X = `$FF` with no
+  block, or past 2155, as function 105.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors

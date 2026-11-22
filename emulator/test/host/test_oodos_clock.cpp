@@ -103,12 +103,52 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("10 2F"));        // interface 16 (85, the serial receive buffer), frame and timing, input, sound, DMA, serial
-    CHECK_EQ(field(o, "INFOB"), std::string("102F0302"));    // and both clocks, layouts to 2
+    CHECK_EQ(field(o, "INFO"), std::string("11 2F"));        // interface 17 (78, FC_T1, FT_CLOCK), frame and timing, input, sound, DMA, serial
+    CHECK_EQ(field(o, "INFOB"), std::string("112F0702"));    // both clocks and FC_T1 (a VIA), layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
     CHECK_EQ(v.substr(0, 4), std::string("000F"));            // OODOS 0.15 (question 15)
     CHECK_EQ(v.substr(20), std::string("EEEE"));              // 10 bytes, as on main: 11 and 12 untouched
+}
+
+TEST(ft_clock_reads_the_time_to_the_ms)
+{
+    // O8 (random-source.md's R6; nb3 N12): FT_CLOCK, with no block refused; with one, the DAT and the seconds as
+    // T_GET gives them, and the ms into the second from the same latch: two calls with a 250 ms FT_DELAY between are
+    // 250-300 ms apart by their own seconds and ms (the first's line is printed between). FK_SYNC set, FK_LOST
+    // clear. Past 2155 refused, as T_GET. Must fail with MSSL read before SEC (the last latch's ms: the two calls'
+    // ms the same).
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.run(ms(1500)); // past the clock chip's first edge since CcpRig set it: the bridge's SYNC (1.1 s from an edge)
+    const std::string o = r.go("l1test.com", " C");
+    CHECK_EQ(field(o, "CNB"), std::string("FF FF"));
+    CHECK_EQ(field(o, "CLOCK"), std::string("00 00"));
+    CHECK_EQ(field(o, "CLOCK2"), std::string("00 00"));
+    const std::string a = field(o, "CLK1"), b = field(o, "CLK2");
+    REQUIRE(a.size() == 16 && b.size() == 16);
+    auto byte = [](const std::string &s, size_t i) { return static_cast<unsigned>(std::stoul(s.substr(2 * i, 2), nullptr, 16)); };
+    auto when = [&](const std::string &s) {
+        const unsigned days = byte(s, 0) | byte(s, 1) << 8, h = byte(s, 2), m = byte(s, 3), sec = byte(s, 4);
+        const unsigned ms = byte(s, 5) | byte(s, 6) << 8;
+        CHECK(ms < 1000);
+        CHECK_EQ(byte(s, 7), 0x01u); // FK_SYNC, not FK_LOST
+        auto bin = [](unsigned v) { return (v >> 4) * 10 + (v & 15); };
+        return ((static_cast<uint64_t>(days) * 24 + bin(h)) * 60 + bin(m)) * 60'000 + bin(sec) * 1000 + ms;
+    };
+    const uint64_t t1 = when(a), t2 = when(b);
+    std::printf("  CLK1 %s, CLK2 %s: %lld ms apart\n", a.c_str(), b.c_str(), static_cast<long long>(t2 - t1));
+    CHECK(t2 >= t1 + 250 && t2 <= t1 + 300);
+    // 2026-10-30 is day 17,835 from 1 January 1978 (day 1); CcpRig set 12:00:00 at its boot.
+    CHECK_EQ(byte(a, 0) | byte(a, 1) << 8, 17'835u);
+    CHECK_EQ(byte(a, 2), 0x12u);
+    {
+        CcpRig late;
+        REQUIRE(late.ok);
+        late.set_time(2156, 1, 1, 0, 0, 0);
+        const std::string p = late.go("l1test.com", " C");
+        CHECK_EQ(field(p, "CLOCK"), std::string("FF FF"));
+    }
 }
 
 TEST(the_event_area_is_refused_where_it_cant_be_and_written_where_it_can)
@@ -142,7 +182,7 @@ TEST(the_event_area_is_refused_where_it_cant_be_and_written_where_it_can)
                                after = hexbytes(field(o, "AFTER"));
     REQUIRE(a.size() == 32 && c.size() == 8 && after.size() == 16);
     CHECK_EQ(a[EV_LAYOUT], 1);
-    CHECK_EQ(a[EV_CLOCKS], 3);
+    CHECK_EQ(a[EV_CLOCKS], 7); // FC_FRAME, FC_MS and FC_T1 (a VIA: interface 17)
     CHECK_EQ(a[EV_SIZE], 32);
     bool zeros = a[3] == 0;
     for (size_t i = 12; i < 32; ++i)
@@ -347,7 +387,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
-    CHECK_EQ(field(o, "ALIVE"), std::string("10 2F")); // FT_INFO answers: OOLIB 16, frame and timing, input, sound, DMA and serial
+    CHECK_EQ(field(o, "ALIVE"), std::string("11 2F")); // FT_INFO answers: OOLIB 17, frame and timing, input, sound, DMA and serial
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 80")); // vertical blank alone; none of the VIA's (N9: the tick is the bridge's)
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
     s.check("through it", 2, 1);

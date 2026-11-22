@@ -64,6 +64,9 @@
 ;       timer 1 is the program's, so that much is within the rules) and timer
 ;       1's enable written (IER isn't the program's: the dispatcher turns it
 ;       off); the warm boot at once
+;   C   FT_CLOCK (interface 17): with no block CNB aa xx (refused); then
+;       CLOCK aa xx and its block's 8 bytes (CLK1), FT_DELAY of 250, the same
+;       (CLOCK2, CLK2); the warm boot
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -138,6 +141,9 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'G'
         bne     :+
         jmp     case_g
+:       cmp     #'C'
+        bne     :+
+        jmp     case_c
 :       cmp     #'U'
         bne     :+
         jmp     case_u
@@ -220,6 +226,23 @@ case_i: lda     #FT_INFO
         ldy     #O_VERSION
         jsr     BDOS
         DUMP    "VER", vbuf, 12
+        jmp     WBOOT
+
+; ---- C ---------------------------------------------------------------------
+
+case_c: lda     #FT_CLOCK
+        ldx     #0
+        jsr     f80
+        SAY     "CNB"
+        CALL80  kblk
+        SAY     "CLOCK"
+        DUMP    "CLK1", kblk + 1, 8
+        lda     #<250
+        ldx     #>250
+        jsr     delay
+        CALL80  kblk
+        SAY     "CLOCK2"
+        DUMP    "CLK2", kblk + 1, 8
         jmp     WBOOT
 
 ; ---- A ---------------------------------------------------------------------
@@ -788,6 +811,8 @@ btblk:  .byte   FT_TICKHOOK
 
         .data
 iblk:   .byte   FT_INFO, 0, 0, 0, 0
+kblk:   .byte   FT_CLOCK
+        .res    8
 dblk:   .byte   FT_DELAY, 0, 0
 cblk:   .byte   FT_COUNT
         .res    8

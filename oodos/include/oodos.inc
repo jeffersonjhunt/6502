@@ -144,9 +144,14 @@ FT_DELAY        = 5                    ; block: +1-2 a count of milliseconds
 FT_FRAMEHOOK    = 6                    ; block: +1-2 the frame hook, 0 none; no block: none
 FT_TICKHOOK     = 7                    ; block: +1-2 the tick hook, 0 none, +3-4 every n ms; no block: none
 FT_COSTS        = 8                    ; block: +1-2, +3-4 each hook's most cycles, +5-6 frame hooks missed
-FT_OPS          = 9
+FT_CLOCK        = 9                    ; block (interface 17): +1-4 a DAT as T_GET's, +5 seconds (BCD), +6-7 the ms
+                                       ;   into the second (0-999), +8 FK_*; one latch; $FF $FF past 2155
+FT_OPS          = 10
 FC_FRAME        = $01                  ; FT_INFO's A, EV_CLOCKS: the frame counter runs (a video card)
-FC_MS           = $02                  ;   the millisecond counter runs (the serial card's VIA)
+FC_MS           = $02                  ;   the millisecond counter runs (the north bridge's)
+FC_T1           = $04                  ;   the VIA's timer 1 is the program's, polled (interface 17): never set before
+FK_SYNC         = $01                  ; FT_CLOCK's +8: the ms are in step with the clock chip's second
+FK_LOST         = $02                  ;   the clock chip's time is invalid (its oscillator stopped): set it
 
 ; The event area (FT_OPEN): the program's memory, which OODOS's interrupt
 ; handlers write. Layout 1 (L1); a later layout only adds after EV_LEN. An
