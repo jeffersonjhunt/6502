@@ -116,6 +116,7 @@
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 .export TESC                           ; and TTYOUT's escape state
+.import RXHEAD, RXTAIL, SRPULL, RXFLUSH  ; serial.s's
 
 DPB_LEN         = 17
 DPH_LEN         = 25
@@ -337,15 +338,39 @@ CRTIN:          JSR     CRTIST
                 AND     #$7F
                 RTS
 
-; The serial line: the 6551 stand-in.
-TTYIST:         LDA     ACIA_STATUS
-                AND     #$08
-                BEQ     NOIN
-                BRA     READY
+; The serial line: its receive ring (serial.s), which the dispatcher fills
+; from the 6551 stand-in. With the receiver's interrupt off (the ring was
+; full, or the monitor's $0B, or a program's), a byte in the chip would
+; never come: SRPULL takes it and turns the interrupt on again, TTYIST
+; when the ring is empty and TTYIN after each byte it takes.
+TTYIST:         LDA     RXHEAD
+                CMP     RXTAIL
+                BNE     READY
+                JSR     TTYPULL
+                LDA     RXHEAD
+                CMP     RXTAIL
+                BNE     READY
+                BRA     NOIN
 TTYIN:          JSR     TTYIST
                 BEQ     TTYIN
-                LDA     ACIA_DATA
+                LDX     RXTAIL
+                LDA     RXBUF,X
+                INC     RXTAIL         ; the consumer's index: no interrupt moves it
+                PHA
+                JSR     TTYPULL
+                PLA
                 RTS
+; SRPULL if the receiver's interrupt is off, with interrupts off. Keeps Y.
+TTYPULL:        LDA     ACIA_CMD
+                AND     #ACIA_CMD_RXOFF
+                BEQ     @on
+                PHY
+                PHP
+                SEI
+                CALLRES SRPULL
+                PLP
+                PLY
+@on:            RTS
 ; The screen's VT52 subset (crt.s) goes out on the serial line as ANSI, as a
 ; PC's terminal program and the WebUI's Terminal read it: ESC A-D, H, J and K
 ; as ESC [ and the same letter; ESC E (clear) as ESC [H ESC [2J; ESC Y row
@@ -461,8 +486,9 @@ DEVINI:         CMP     #DEV_CRT
                 BNE     @done
                 LDA     #$1F           ; 8-N-1, 19,200
                 STA     ACIA_CTRL
-                LDA     #$0B           ; no parity, no echo, no interrupts
-                STA     ACIA_CMD
+                LDA     #$0B           ; no parity, no echo, the transmitter on (RTS low), its
+                STA     ACIA_CMD       ; interrupt off; the receiver's turned on by RXFLUSH
+                CALLRES RXFLUSH        ; the ring empty, the receiver's interrupt on: CMD $09
 @done:          RTS
 
 DEVTBL:         LDA     #<CHRTBL

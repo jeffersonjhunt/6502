@@ -91,6 +91,33 @@ system's memory, where the program copies it from with MOVE (XMOVE from bank 0 t
 bytes, CP/M 3's: the name (6 characters, blank-padded), the mode (bit 0 input, bit 1 output, bit 3 serial) and the
 baud rate's code (15 for 19,200; 0 for none); a 0 byte ends the table.
 
+## The serial line's receive buffer
+
+Since OODOS 0.15 TTY's input is buffered. OODOS's interrupt takes each byte from the serial line as it comes and
+keeps it in a ring of 255 bytes, so a byte that arrives while the program is busy elsewhere waits for it, where
+before only the last one did. Functions 3 and 7 read the ring as they read the line before: 7 says whether a
+byte waits, 3 takes the next, in the order they came. So does the console, through TTY in CON:.
+
+- **When the ring is full** OODOS takes no more: the next byte stays in the serial chip, and the line's receiver is
+  stopped until the program reads one. Nothing in the ring is written over. Bytes that keep coming while the
+  receiver is stopped are lost in the chip (the sender isn't held back: the stand-in serial chip has no flow
+  control), and counted. Read the line often enough, or ask [function 85](07-function-reference.md#bdos-85) how
+  full it is.
+- **At each program's end** the warm boot empties the ring, so what a sender still sends as a program ends never
+  reaches the CCP as command lines. A program that wants the bytes reads them before it ends.
+- **The console shares the line.** CON: reads TTY too, by default, and the BDOS looks at the console before each
+  character it prints (for ^S and ^C), so a program that prints while bytes wait on AUX: can have the console take
+  some of them as keys. A program that uses AUX: for data takes TTY out of CONIN: while it runs, with function 49 on
+  SCB `$22` (the vector's bit 14 cleared; `$8000`, CRT alone, is the usual value), and puts the vector back before
+  it ends. At the prompt, `DEVICE CONIN:=CRT` does the same.
+- **The event area's +13** (`EV_RXCNT`) counts the bytes the ring takes while an event area is open, modulo 256
+  ([chapter 8](08-game-services.md#the-serial-line)): a program that compares it with the value it saw last knows
+  a byte came, with no BDOS call.
+- **What it costs:** 247 cycles of interrupt for each byte (277 with an event area open), measured by
+  `test_oodos_serial`; nothing while the line is quiet. A stream at 19,200 baud, 1,920 bytes a second, takes
+  about 7% of the CPU.
+- The speed stays 19,200 baud, 8 data bits, no parity, 1 stop bit; DEVICE can't change it.
+
 ## Direct BIOS calls: function 50
 
 A program calls the BIOS only through [function 50](07-function-reference.md#bdos-50): the BIOS's jump table, at

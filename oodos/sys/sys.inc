@@ -16,6 +16,8 @@
 ;   $0A00-$0A0F  the way to the monitor (common.s: TRAMP), written there
 ;                each time
 ;   $0B00-$0CFF  function 10's line and the previous line (bdossys.s)
+;   $0D00-$0DFF  RXBUF: the serial line's receive ring, COM1's (serial.s);
+;                $0E00-$0EFF kept for COM2's
 ;   $1000-$2FFF  the drives' allocation vectors (ALV), 1 KB a drive's slot
 ;                (bdosdisk.s), made at each login
 ;   $3000-$37FF  and O:'s and P:'s (slots 8 and 9, 6c)
@@ -59,6 +61,9 @@ TRAMP           = $0A00
 LINEBUF         = $0B00                ; function 10's line, 255 bytes
 PREVBUF         = $0C00                ; the previous line
 SYS_CLEAR_END   = $0D00
+RXBUF           = $0D00                ; COM1's receive ring (serial.s): 256 bytes, 255 usable;
+RXSIZE          = 256                  ;   $0E00 kept for COM2's. Not cleared: its indices (SYSBSS) are
+.assert RXBUF >= SYS_CLEAR_END && RXBUF + 2 * RXSIZE <= ALV_BASE, error, "the rings are outside what cold boot clears and the ALVs"
 
 ; The SCB's fields (CP/M 3's offsets: the Programmer's Guide, Appendix A)
 SCB_VERSION     = SCB + $05            ; $31
@@ -147,24 +152,41 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 15                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 82's SN_NOISE, the SID seed: 15)
-OOLIB_AREAS     = $0F                  ; the service areas there are (FT_INFO's): frame and timing (80),
-                                       ; input (81), sound (82), DMA and loading (83)
+OOLIB_IFACE     = 16                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 82's SN_NOISE, the SID seed: 15, 85's serial receive buffer and EV_RXCNT: 16)
+OOLIB_AREAS     = $2F                  ; the service areas there are (FT_INFO's): frame and timing (80),
+                                       ; input (81), sound (82), DMA and loading (83), the serial line (85)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
 PAD_MS          = 4                    ; the paddles read this many ms after PTRIG (255 counts: 2.8 ms)
 UBATCH          = 16                   ; the USB FIFO's events taken an interrupt at most (input.s)
-R62_DEAF        = 0                    ; irq.s's CALL62: input.s's R62TAB, DEAFEN
+R62_ID6         = 0                    ; irq.s's CALL62: input.s's R62TAB, SERID6 (serial.s): the serial
+                                       ;   line's byte, or DEAFEN
 R62_OTHER       = 2                    ;   IRQOTH: a card's interrupt not the VIA's or the video card's
 R62_TICK        = 4                    ;   L2TICK: the sticks and the paddles
-;   (the debug build's, below)
 R61_IRQ         = 0                    ; irq.s's CALL61: sound.s's R61TAB, SNDIRQ (block 61)
 R61_FRAME       = 2                    ;   SFIELDS: the event area's sound part
 R61_QUIET       = 4                    ;   SNDQUIET: the warm boot's
 R61_INIT        = 6                    ;   SNDINIT: cold boot's
 R61_VB          = 8                    ;   VBWORK: the vertical-blank copies and the pointer (video.s, L4)
 R61_WARM        = 10                   ;   VBQUIET: the warm boot's video part
-R62_HKON        = 6                    ;   a debug build's HKON and HOOKCOST: a hook's cycles
-R62_HKCOST      = 8                    ;   counted (irq.s)
+R61_HKON        = 12                   ;   a debug build's HKON and HOOKCOST: a hook's cycles
+R61_HKCOST      = 14                   ;   counted (irq.s)
+
+; The serial line (serial.s): the 6551's status bits, RXFLG's
+ACIA_OVRN       = $04                  ; STATUS: a byte lost (cleared by reading data)
+ACIA_RDRF       = $08                  ; STATUS: a byte received
+RX_STOPPED      = ACIA_CMD_RXOFF       ; RXFLG: the ring full, the receiver's interrupt off
+
+; Block 62's routine `target` from block 60 or 61 (the BDOS's or the BIOS's
+; code: not W3), with W3 on block 62 for the call and back after. Uses A.
+.macro CALLRES target
+                LDA     NB_WIN3
+                PHA
+                LDA     #RES_BLOCK
+                STA     NB_WIN3
+                JSR     target
+                PLA
+                STA     NB_WIN3
+.endmacro
 
 ; A hook's record in irq.s's HK (L1; the ES5503's, L3)
 HK_ON           = 0                    ; 1: set
