@@ -2294,11 +2294,17 @@ ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen an
 ; doesn't boot: it says so on the ROM BIOS's console and the serial line, through the ROM's ECHO ($C80F), and goes
 ; to the ROM's BREAK, with no interrupt of OODOS's on and nothing on the card written. It runs here in W2 (block 61),
 ; so it can put W3 and VEC on the ROM's copy (block 63) and go on; W0 goes back to block 0 first, the BIOS's zero
-; page (ECHO's $E0-$E7, its cursor) and stack. On $D3 it returns at once, A changed.
+; page (ECHO's $E0-$E7, its cursor) and stack. On $D3 it turns the common hole on and returns, A changed:
+; HOLE $BE, EN with RO clear (FARCALL writes its operand there) on block 62, where common memory is, so with W3
+; and VEC on 62 (OOLDR's) no byte the CPU sees changes; before BINIT, so every later path, Break in the boot too,
+; has it (hw/future/north-bridge-rev3.md, "The common hole"). Nothing else turns it on.
 NB3CHK:         LDA     NB_ID
                 CMP     #NB_ID_V3
                 BNE     @old
+                LDA     #NB_HOLE_EN | RES_BLOCK
+                STA     NB_HOLE
                 RTS
+.assert (NB_HOLE_EN | RES_BLOCK) = $BE, error, "NB3CHK writes HOLE $BE: EN, RO clear, block 62"
 @old:           STZ     NB_WIN0        ; the BIOS's zero page and stack: OODOS's are left behind
                 LDX     #$FF
                 TXS

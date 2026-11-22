@@ -524,13 +524,6 @@ namespace oodos_rig
         return text.substr(from, text.find('\r', from) - from);
     }
 
-    /// Common memory's 2 KB copied into block b's top, as OODOS will do for a block allocated for code.
-    inline void give_common(Rig &r, unsigned b)
-    {
-        for (uint32_t i = 0; i < 0x800; ++i)
-            r.poke(b * BLOCK + 0x3800 + i, r.phys(COMMON_PHYS + i));
-    }
-
     /// A booted rig with the committed card's A.IMG as A: and again, read-only, as B:.
     struct Booted : Rig
     {

@@ -331,7 +331,7 @@ CALLHOOK:       LDA     NB_WIN1
                 LDA     HK + HK_WIN + 2,Y
                 STA     NB_WIN2
                 LDA     HK + HK_WIN + 3,Y
-                STA     NB_WIN3        ; its common memory the same: this goes on
+                STA     NB_WIN3        ; the hole the same: this goes on
                 LDA     HK + HK_W1H,Y  ; its WIN1H (B7): the dispatcher's is 0, so only if it isn't
                 BEQ     @w1h
                 STA     NB_WIN1H

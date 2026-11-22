@@ -735,6 +735,62 @@ TEST(a_refusal_by_c815_after_oodos_has_left_restarts_the_machine)
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS again
 }
 
+namespace
+{
+    /// HOLE as the PC first reaches the ROM's code ($C800-$F7FF, W3 on its block 63), into `seen` (-1 until then).
+    void hole_at_the_rom(RomRig &r, int &seen)
+    {
+        r.watch = [&r, &seen](uint16_t pc) {
+            if (seen < 0 && pc >= 0xC800 && pc < 0xF800 && r.machine->bus().peek(0xC683) == (0x40 | 63))
+                seen = r.machine->bus().peek(0xC6A6);
+        };
+    }
+} // namespace
+
+TEST(every_way_into_the_rom_finds_the_hole_off)
+{
+    // O-H2 (N16; hw/future/north-bridge-rev3.md, "The common hole"): HOLE read as the PC first reaches the ROM's
+    // code ($C800-$F7FF with W3 on its block): $00 by WOZMON (Break's tramp), by APPLE2 ($C806, APPLESRC), by DIAG
+    // ($C815, ROMENTRY) and by APPLE2 n ($C818, ROMENTRY), where it was $BE at the prompt. Must fail with TRAMPSRC's,
+    // APPLESRC's or ROMENTRY's write removed (the ROM reading OODOS's bytes at $FFF4-$FFFF).
+    {
+        std::printf("  WOZMON\n");
+        RomRig r;
+        REQUIRE(r.ok);
+        CHECK_EQ(r.nb(0x26), 0xBE);
+        int seen = -1;
+        hole_at_the_rom(r, seen);
+        CHECK(!r.to("WOZMON", "\\\r").empty());
+        r.watch = nullptr;
+        CHECK_EQ(seen, 0);
+    }
+    const auto iie = stand_in_rom();
+    for (const char *line : {"APPLE2", "APPLE2 0"})
+    {
+        std::printf("  %s\n", line);
+        RomRig r({iie->path});
+        REQUIRE(r.ok);
+        int seen = -1;
+        hole_at_the_rom(r, seen);
+        CHECK(apple2_reaches_the_loop(r, line));
+        r.watch = nullptr;
+        CHECK_EQ(seen, 0);
+    }
+    {
+        std::printf("  DIAG\n");
+        RomRig r;
+        REQUIRE(r.ok);
+        r.to("DIAG", "(Y/N)?");
+        int seen = -1;
+        hole_at_the_rom(r, seen);
+        const size_t from = r.out.size();
+        r.type("Y\r");
+        CHECK(r.until(" 1  FLASH", ms(2000), from));
+        r.watch = nullptr;
+        CHECK_EQ(seen, 0);
+    }
+}
+
 TEST(romapple_leaves_win1h_0_for_the_roms_apple)
 {
     // O6's ROMAPPLE part (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) puts WIN1H on $0E, clears MAP's

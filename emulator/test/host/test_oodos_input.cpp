@@ -627,7 +627,7 @@ TEST(the_tick_costs_its_measured_cycles)
     open(r, "1");
     const Costs one = time_interrupts(r, ms(600));
     Costs::print("layout 1, a tick", one.tick);
-    CHECK_EQ(Costs::mode(one.tick), 189u); // measured (N10): BIT TBCTL, the acknowledge, MS0's low byte
+    CHECK_EQ(Costs::mode(one.tick), 188u); // measured (N16, code placement; N10 189): BIT TBCTL, the acknowledge, MS0's low byte
     wboot(r);
     open(r, "2");
     const Costs two = time_interrupts(r, ms(600));

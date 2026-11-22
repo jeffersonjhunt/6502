@@ -1,7 +1,8 @@
 ; OODOS's common memory, $F800-$FFFF (hw/oodos.md, "The system, phase 2"):
-; the same 2 KB in every block W3 maps, so it is there whatever block a
-; program has in W3, and code here can switch W3 under itself (the next
-; instruction comes from the new block's copy, at the same address).
+; the same 2 KB whatever block W3 maps, since OODOS 0.16 by the north
+; bridge's common hole (HOLE $BE, NB3CHK: block 62's top 2 KB at $F800-$FFFF
+; whatever W3 holds), so code here can switch W3 under itself and the next
+; instruction comes from the same bytes. No block needs a copy.
 ;
 ;   $F800   the BIOS's jump table: CP/M 3's 30 entries in CP/M 3's order
 ;           (system.inc's BIOS), for the BDOS: they jump into block 61, so
@@ -16,11 +17,12 @@
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
 ;   NMI and the vectors; IRQ, the interrupt dispatcher, is irq.s's (L1)
 ;
-; Common memory keeps no state and is never written, so a program may have
-; it in W3 read-only, or in flash: the stub keeps what it must on the
-; program's own stack (three bytes under its P on the way in, A and X on the
-; way out), with interrupts off. FARCALL's operand is its own, in the
-; caller's block, for the length of one call.
+; Common memory keeps no state but FARCALL's operand, one slot for every
+; block now (hooks may not far call, so no far call nests across an
+; interrupt): the hole's RO stays clear for it. W3's own RO and ROM bits
+; don't reach the hole, so a program may have a block in W3 read-only. The
+; stub keeps what it must on the program's own stack (three bytes under its P
+; on the way in, A and X on the way out), with interrupts off.
 ;
 ; Interrupts (hw/oolib.md, question 14): the BDOS runs with them on, and
 ; programs and the CCP do. They are off only while the stub moves the
@@ -138,7 +140,7 @@ LDOOR:          CLD                    ; the loader's arithmetic is binary
                 LDY     NB_WIN3
                 PHY
                 LDY     #RES_BLOCK
-                STY     NB_WIN3        ; block 62's copy of this, from the next instruction
+                STY     NB_WIN3        ; the hole: this goes on, from the next instruction
                 JSR     LOADER
                 PLY
                 STY     NB_WIN3
@@ -193,7 +195,7 @@ STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
                 LDA     #BIOS_BLOCK
                 STA     NB_WIN2
                 LDA     #RES_BLOCK
-                STA     NB_WIN3        ; block 62's copy of this, from the next instruction
+                STA     NB_WIN3        ; the hole: this goes on, from the next instruction
                 LDX     #$FF
                 TXS
                 CLD
@@ -244,7 +246,7 @@ STUBRET:        SEI                    ; off again till the program's P is back
 WARM:           SEI
                 CLD
                 LDA     #RES_BLOCK
-                STA     NB_WIN3        ; this code goes on, in block 62's copy
+                STA     NB_WIN3        ; this code goes on, in the hole
                 STA     NB_VEC
                 LDA     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: no stack
                 BMI     @w0            ; yet (a $D1 bridge reads $FF there: nothing written)
@@ -295,11 +297,10 @@ WARM:           SEI
 ; maps the block into W3, calls the target, and maps the caller's block
 ; back. A, X, Y and the flags reach the target as the caller left them, and
 ; come back as the target left them. The old block goes on the 6502's stack,
-; so far calls nest. The block must have common memory in its top 2 KB:
-; OODOS doesn't put it there yet (53-56 copy nothing; hw/oodos.md defers it
-; to phase 7), so the program copies it in itself. This is OODOS's code, not
-; a program's: it reads its frame in page 1 by address, and modifies its own
-; operand, in the block it is leaving.
+; so far calls nest. The block needs no common memory of its own: the hole
+; shows OODOS's at $F800-$FFFF whatever W3 maps (OODOS 0.16, interface 17).
+; This is OODOS's code, not a program's: it reads its frame in page 1 by
+; address, and modifies its own operand, in the hole.
 FARCALL:        PHP
                 CLD                    ; binary adds below; PLP gives the caller's D back
                 PHA
@@ -401,11 +402,13 @@ NMI:            SEI
                 DEX
                 BPL     @copy
                 JMP     TRAMP
-TRAMPSRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
+TRAMPSRC:       STZ     NB_HOLE        ; position-independent: it runs at TRAMP. The common hole off:
+                LDA     #NB_RO | ROM_BLOCK ; the ROM never runs with it on, and JMP ($FFFA) is a read
                 STA     NB_WIN3
                 STA     NB_VEC
                 JMP     ($FFFA)        ; block 63's: the ROM's BREAK
 TRAMPEND:
+.assert TRAMPEND - TRAMPSRC <= 16, error, "the tramp is TRAMP's 16 bytes at most (sys.inc)"
 
 ; Apple II mode for function 75: as NMI leaves for the ROM, but to its $C806
 ; (APPLE: it checks the IIe ROM again, copies it to bank E, clears banks 0-3
@@ -429,11 +432,13 @@ ROMAPPLE:       SEI
                 DEX
                 BPL     @copy
                 JMP     TRAMP
-APPLESRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
+APPLESRC:       STZ     NB_HOLE        ; position-independent: it runs at TRAMP. The hole off (the
+                LDA     #NB_RO | ROM_BLOCK ; /RESET pulse would clear it too: the ROM never runs with it on)
                 STA     NB_WIN3
                 STA     NB_VEC
                 JMP     $C806          ; the ROM's APPLE
 APPLEEND:
+.assert APPLEEND - APPLESRC <= 16, error, "the tramp is TRAMP's 16 bytes at most (sys.inc)"
 
 ; WIN0H-WIN3H and VECH to 0, and MAP written whole: AP8 set (bank 8 the
 ; video card's aperture, as old programs know it) with a revision 2 video
@@ -476,6 +481,8 @@ WINH0:          STZ     NB_WIN0H
 ; mode by image too.)
 .segment "RES2"
 ROMENTRY:       SEI
+                STZ     NB_HOLE        ; the common hole off (ENTSRC has no room): W3 is block 62 here, so
+                                       ; the same bytes stay; an NMI now takes VEC 62's, the same $FFFA
                 PHA                    ; A for the entry, on the BDOS's stack (W0 the system's)
                 LDA     DISK2_Q7OFF    ; as NMI: the Disk II's write mode and motor off
                 LDA     DISK2_MOTOROFF

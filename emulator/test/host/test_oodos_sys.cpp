@@ -361,7 +361,7 @@ TEST(the_bdos_stub_keeps_all_four_windows_s_and_returns_d_clear)
 {
     Booted r;
     REQUIRE(r.ok);
-    give_common(r, 20);                                   // the home block
+    r.poke(20 * BLOCK + 0x3800, std::vector<uint8_t>(0x800, 0x00)); // the home block, with no common memory (the hole)
     const std::string home = "HOME BLOCK\r\n$";
     r.poke(20 * BLOCK + 0x800, std::vector<uint8_t>(home.begin(), home.end()));
     r.set_time(2030, 6, 15, 9, 15, 30);
@@ -378,26 +378,21 @@ TEST(the_bdos_stub_keeps_all_four_windows_s_and_returns_d_clear)
     CHECK(o.find("\r\nA>") != std::string::npos);         // the warm boot put the windows back
 }
 
-TEST(the_bdos_stub_writes_nothing_in_w3_so_it_may_be_read_only)
+TEST(the_bdos_stub_writes_nothing_in_common_memory)
 {
-    // STUBTEST with a tail: the home block in W3 read-only, common memory in it.
+    // STUBTEST with a tail: the home block in W3 read-only, with no copy of common memory (OODOS 0.16's hole), and
+    // the hole itself read-only (HOLE's RO): the stub works, so it writes nothing in common memory (block E's E1).
     Booted r;
     REQUIRE(r.ok);
-    give_common(r, 20);
+    r.poke(20 * BLOCK + 0x3800, std::vector<uint8_t>(0x800, 0x00));
+    r.machine->bus().write(static_cast<uint16_t>(NB + 0x26), 0xBE | 0x40); // HOLE: EN, RO, block 62
     const std::string home = "HOME BLOCK\r\n$";
     r.poke(20 * BLOCK + 0x800, std::vector<uint8_t>(home.begin(), home.end()));
-    std::vector<uint8_t> common(0x800);
-    for (uint32_t i = 0; i < 0x800; ++i)
-        common[i] = r.phys(20 * BLOCK + 0x3800 + i);
     const std::string o = r.go("stubtest.com", " RO");
     CHECK(o.find("\r\nW1 STRING\r\nHOME BLOCK\r\n") != std::string::npos);
     CHECK_EQ(field(o, "WINDOWS"), std::string("03 04 05 54 "));
     CHECK_EQ(field(o, "NOFUNC"), std::string("FFFF"));
     CHECK(o.find("\r\nA>") != std::string::npos);
-    bool same = true;
-    for (uint32_t i = 0; i < 0x800; ++i)
-        same = same && r.phys(20 * BLOCK + 0x3800 + i) == common[i];
-    CHECK(same);
 }
 
 TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
@@ -405,8 +400,8 @@ TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
     Booted r;
     REQUIRE(r.ok);
     const uint16_t far = sym("FARCALL");
-    give_common(r, 20);
-    give_common(r, 21);
+    for (unsigned b : {20u, 21u})
+        r.poke(b * BLOCK + 0x3800, std::vector<uint8_t>(0x800, 0x00)); // no copies: the hole (block E's E2)
     // Block 20 at $C800: record A X Y P WIN3 at $0290, far call block 21 with $44 $55 $66,
     // record what came back at $0295, return $77 $88 $99 with P $C3.
     const std::vector<uint8_t> t20 = {
@@ -747,6 +742,7 @@ TEST(break_and_brk_reach_the_roms_monitor_with_w3_and_vec_on_block_63)
         const size_t at = r.out.size();
         r.type("C683\r");                                    // the monitor works: WIN3 as it reads it
         CHECK(r.until("C683: 7F", ms(1000), at));
+        CHECK_EQ(r.nb(0x26), 0x00);                          // the common hole off (E5)
     }
     {
         Booted r;
@@ -759,7 +755,61 @@ TEST(break_and_brk_reach_the_roms_monitor_with_w3_and_vec_on_block_63)
         CHECK(r.until("\\\r", ms(1000), from));
         CHECK_EQ(r.nb(3), ROM_BLOCK_RO);
         CHECK_EQ(r.nb(4), ROM_BLOCK_RO);
+        CHECK_EQ(r.nb(0x26), 0x00);
     }
+}
+
+namespace
+{
+    /// Block 20's code at $C800 (W3's code window) for FARTEST's far call: C_WRITE 'H', then `tail`, then RTS.
+    void far_target(Rig &r, const std::vector<uint8_t> &tail)
+    {
+        std::vector<uint8_t> code = {0xA9, 'H', 0xA0, 0x02, 0x20, 0x03, 0x02}; // LDA #'H' / LDY #C_WRITE / JSR BDOS
+        code.insert(code.end(), tail.begin(), tail.end());
+        code.push_back(0x60);
+        r.poke(20 * BLOCK + 0x3800, std::vector<uint8_t>(0x800, 0x00)); // its top 2 KB: BRKs, no copy
+        r.poke(20 * BLOCK + 0x800, code);
+    }
+} // namespace
+
+TEST(the_hole_is_on_at_the_prompt)
+{
+    // O-H1 (N16; hw/future/north-bridge-rev3.md, "The common hole"): HOLE reads $BE at A>, and a far call into
+    // block 20, whose top 2 KB is all $00 (BRKs), makes a BDOS call there and takes 100 ticks there, and comes back.
+    // Must fail with NB3CHK's write left out.
+    Booted r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.nb(0x26), 0xBE);
+    // LDA MS0 / CLC / ADC #100 / STA $02B0; wait: LDA MS0 / CMP $02B0 / BNE wait
+    far_target(r, {0xAD, 0xA9, 0xC6, 0x18, 0x69, 100, 0x8D, 0xB0, 0x02, 0xAD, 0xA9, 0xC6, 0xCD, 0xB0, 0x02, 0xD0, 0xF8});
+    const uint32_t ms0 = r.bridge().ms();
+    const std::string o = r.go("fartest.com");
+    CHECK(o.find("H") != std::string::npos);
+    CHECK(o.find("\r\nA>") != std::string::npos);
+    CHECK(r.bridge().ms() - ms0 >= 100);
+    CHECK_EQ(r.nb(0x26), 0xBE);
+}
+
+TEST(break_from_a_block_with_no_copy_reaches_the_monitor)
+{
+    // O-H3: Break while a far-called block with no copy of common memory is in W3 (block 20, spinning): the ROM's
+    // monitor, with the hole off. Must fail with TRAMPSRC's write after its JMP (Break loops in OODOS's NMI).
+    Booted r;
+    REQUIRE(r.ok);
+    far_target(r, {0x80, 0xFE}); // BRA *
+    UsbCard *usb = r.machine->usb_card();
+    r.poke_com(read_bytes(SYS + "/fartest.com"));
+    r.type("GO\r");
+    for (int i = 0; i < 100 && r.nb(3) != 20; ++i)
+        r.run(ms(10));
+    REQUIRE(r.nb(3) == 20);
+    const size_t from = r.out.size();
+    usb->key(UsbCard::PAUSE, true);
+    r.run(ms(20));
+    usb->key(UsbCard::PAUSE, false);
+    CHECK(r.until("\\\r", ms(1000), from));
+    CHECK_EQ(r.nb(3), ROM_BLOCK_RO);
+    CHECK_EQ(r.nb(0x26), 0x00);
 }
 
 TEST(an_irq_that_isnt_brk_returns)
