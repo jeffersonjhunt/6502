@@ -52,8 +52,18 @@
 ;       find no file, $FF, each later one the last pass's, 0-3); then the
 ;       last pass's file read back: KREAD, the open's A and the records that
 ;       didn't read or weren't as written
-;   U   ACR changed (timer 1 free-running still, and on PB7) and timer 1's
-;       enable written again, the latch left alone; the warm boot at once
+;   F   the event area open (layout 1, 32 bytes), then FT_COUNT (with its
+;       block) FCALLS times in a loop, nothing printed (test_oodos_clock's O2
+;       and O3 watch SNAP and the area); CLOSE; the warm boot
+;   G   the event area open, then 8 passes: interrupts off for about 20 ms
+;       (SEI at GSEI, a spin, CLI at GCLI; GS: about 3 ms), then 20 ms with
+;       them on; CLOSE;
+;       the warm boot (ticks run together, OVR, a frame and a tick at once:
+;       test_oodos_clock's O3 and the_tick_and_another_card_together)
+;   U   ACR changed (timer 1 free-running, and on PB7: since OODOS 0.16
+;       timer 1 is the program's, so that much is within the rules) and timer
+;       1's enable written (IER isn't the program's: the dispatcher turns it
+;       off); the warm boot at once
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -68,6 +78,7 @@ SENTS   = 100                           ; H B's sentinels
 SCROLLS = 120
 KPASSES = 16
 KRECS   = 8                             ; 1 KB: four sectors
+FCALLS  = 40000                         ; F's FT_COUNTs
 HW1     = $4000                         ; the hooks' records, in W1 as they see it
 
         .zeropage
@@ -121,6 +132,12 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'K'
         bne     :+
         jmp     case_k
+:       cmp     #'F'
+        bne     :+
+        jmp     case_f
+:       cmp     #'G'
+        bne     :+
+        jmp     case_g
 :       cmp     #'U'
         bne     :+
         jmp     case_u
@@ -667,7 +684,55 @@ case_k: lda     #$FF                    ; errors come back, not said
         SAY     "KREAD"
         jmp     WBOOT
 
-case_u: lda     #VIA_ACR_T1FREE | $80   ; PB7 timer 1's too: against the rules, harmless
+case_f: CALL80  oblk
+        lda     #<FCALLS
+        sta     spin
+        lda     #>FCALLS
+        sta     spin + 1
+@c:     CALL80  cblk                    ; FT_COUNT, its 8 bytes into cblk + 1
+        lda     spin
+        bne     @d
+        dec     spin + 1
+@d:     dec     spin
+        lda     spin
+        ora     spin + 1
+        bne     @c
+        lda     #FT_CLOSE
+        ldx     #0
+        jsr     f80
+        jmp     WBOOT
+
+case_g: CALL80  oblk
+        lda     #8
+        sta     kx
+        lda     #112                    ; the hold: 20 ms, or GS's 3
+        ldx     mode2
+        cpx     #'S'
+        bne     :+
+        lda     #17
+:       sta     bad
+gpass:  sei
+GSEI:   ldy     bad
+        jsr     spinY
+        cli
+GCLI:   jsr     spin20
+        dec     kx
+        bne     gpass
+        lda     #FT_CLOSE
+        ldx     #0
+        jsr     f80
+        jmp     WBOOT
+; About 20 ms of spinning: 112 x 256 passes of 5 cycles (spinY: Y x 256).
+spin20: ldy     #112
+spinY:
+@o:     ldx     #0
+@i:     dex
+        bne     @i
+        dey
+        bne     @o
+        rts
+
+case_u: lda     #VIA_ACR_T1FREE | $80   ; PB7 timer 1's too: the program's since OODOS 0.16
         sta     VIA_ACR
         lda     #VIA_IER_SET | VIA_IRQ_T1
         sta     VIA_IER

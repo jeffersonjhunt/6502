@@ -14,6 +14,7 @@
 #include "oodos_rig.h"
 #include "disk2_rig.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -26,7 +27,7 @@ using namespace disk2_rig;
 
 namespace
 {
-    constexpr double TICK = 7159.0;
+    constexpr double TICK = 78750.0 / 11; // the bridge's tick (N10)
     constexpr double FRAME = 7159090.0 * 800 * 525 / 25175000;
 
     uint32_t word32(Rig &r, uint32_t a)
@@ -39,33 +40,36 @@ namespace
     void timed(Dr &r, const std::string &line, double pct)
     {
         const uint64_t c0 = r.cpu->cycles();
-        const uint32_t m0 = word32(r, SYS_BLOCK_PHYS + sym("MS")), f0 = word32(r, SYS_BLOCK_PHYS + sym("FRAMES"));
+        const uint32_t m0 = ms_count(r), f0 = word32(r, SYS_BLOCK_PHYS + sym("FRAMES"));
         const std::string o = r.c(line);
         CHECK(o.find("Error") == std::string::npos);
         const double want = static_cast<double>(r.cpu->cycles() - c0) / TICK;
         const double fwant = static_cast<double>(r.cpu->cycles() - c0) / FRAME;
-        const double got = word32(r, SYS_BLOCK_PHYS + sym("MS")) - m0, fgot = word32(r, SYS_BLOCK_PHYS + sym("FRAMES")) - f0;
+        const double got = ms_count(r) - m0, fgot = word32(r, SYS_BLOCK_PHYS + sym("FRAMES")) - f0;
         std::printf("  %s: %.0f ms counted, %.1f in the cycles (%.2f%% off); %.0f frames, %.1f\n", line.c_str(), got,
                     want, 100 * (got - want) / want, fgot, fwant);
         CHECK(want > 1000);
-        CHECK(std::abs(got - want) <= want * pct / 100);
+        CHECK(std::abs(got - want) <= std::max(1.0, want * pct / 100)); // pct 0: exact, to the counter's ms
         CHECK(std::abs(fgot - fwant) <= 2);
     }
 } // namespace
 
-TEST(a_disk_ii_read_is_caught_up)
+TEST(a_disk_ii_read_keeps_exact_time)
 {
+    // O4 (N10): the driver masks interrupts for each sector field, and the bridge counts every millisecond
+    // meanwhile: the counter is exact through the read (it was the catch-up's half a percent).
     Dr r;
     REQUIRE(r.ok);
-    timed(r, "pip m:=o:pattern.bin", 1.5);
+    timed(r, "pip m:=o:pattern.bin", 0);
     CHECK(m_data(r, 0, "PATTERN BIN") == records(gen(20000, 5))); // and read right
 }
 
-TEST(a_disk_ii_write_is_caught_up)
+TEST(a_disk_ii_write_keeps_exact_time)
 {
+    // O4 (N10), a write: exact too.
     Dr r(true, true, {{0, "X       BIN", gen(5120, 11)}});
     REQUIRE(r.ok);
-    timed(r, "pip o:=m:x.bin", 1.5);
+    timed(r, "pip o:=m:x.bin", 0);
 }
 
 TEST(a_disk_ii_write_keeps_up_under_a_full_budget_frame_hook)

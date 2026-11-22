@@ -26,18 +26,16 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    constexpr double TICK = 7159.0;                          ///< cycles a millisecond: timer 1's period
+    constexpr double TICK = 78750.0 / 11;                    ///< cycles a millisecond: the bridge's tick (N10)
     constexpr double FRAME = 7159090.0 * 800 * 525 / 25175000; ///< cycles a frame: 640x480 at 59.94 Hz
     constexpr uint32_t HOOKS = 5 * BLOCK;                    ///< L1TEST's hook records, block 5
     constexpr uint16_t VIA_IER = 0xC34E, VIDEO_IEN = 0xC484, VIA_T1LL = 0xC346, VIA_T1LH = 0xC347, VIA_ACR = 0xC34B;
-    constexpr unsigned TICK_LATCH = 7157; ///< sys.inc's: timer 1's latch, free-running
     constexpr unsigned EV_LAYOUT = 0, EV_CLOCKS = 1, EV_SIZE = 2, EV_MS = 4, EV_FRAMES = 8; ///< oodos.inc's
 
     uint32_t word32(Rig &r, uint32_t a)
     {
         return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
     }
-    uint32_t ms_count(Rig &r) { return word32(r, SYS_BLOCK_PHYS + sym("MS")); }
     uint32_t frame_count(Rig &r) { return word32(r, SYS_BLOCK_PHYS + sym("FRAMES")); }
     unsigned word16(Rig &r, uint32_t a) { return r.phys(a) | r.phys(a + 1) << 8; }
     uint16_t l1(const std::string &name) { return labels(SYS + "/l1test.lbl").at(name); }
@@ -232,7 +230,7 @@ static void hooks_gone(CcpRig &r)
     CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("HK")), 0);      // the frame hook's record off
     CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("HK") + 16), 0); // the tick hook's
     CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("EVON")), 0);
-    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0); // timer 1 alone (bit 7 reads 1)
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80); // none of the VIA's on (bit 7 reads 1): the tick is the bridge's (N9)
     CHECK_EQ(r.machine->bus().peek(VIDEO_IEN), 0x01);
     s.check("after the warm boot", 1, 1);
 }
@@ -350,8 +348,8 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
     CHECK_EQ(field(o, "ALIVE"), std::string("10 2F")); // FT_INFO answers: OOLIB 16, frame and timing, input, sound, DMA and serial
-    CHECK_EQ(field(o, "VIEN VIER"), std::string("01 C0")); // vertical blank and timer 1 alone
-    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
+    CHECK_EQ(field(o, "VIEN VIER"), std::string("01 80")); // vertical blank alone; none of the VIA's (N9: the tick is the bridge's)
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
     s.check("through it", 2, 1);
 }
 
@@ -375,52 +373,6 @@ TEST(a_scrolling_screen_loses_no_tick)
     s.check("120 lines scrolled", 1, 1);
 }
 
-TEST(a_stopped_timer_ends_a_delay_and_the_warm_boot_starts_it_again)
-{
-    // A program stops timer 1 (against the rules): its enable off, one-shot, another latch. FT_DELAY
-    // gives up (A = X = $FF) when the ms counter has stood still for 4 frames, rather than waiting for
-    // ever; the warm boot puts timer 1 back as cold boot had it, and the counter goes on from where it was.
-    CcpRig r;
-    REQUIRE(r.ok);
-    const std::string o = r.go("l1test.com", " T");
-    CHECK_EQ(field(o, "DELAY"), std::string("FF FF"));
-    const std::vector<uint8_t> t0 = hexbytes(field(o, "T0")), t1 = hexbytes(field(o, "T1"));
-    REQUIRE(t0.size() == 8 && t1.size() == 8);
-    const long frames = static_cast<long>(le32(t1, 4) - le32(t0, 4)), msd = static_cast<long>(le32(t1, 0) - le32(t0, 0));
-    std::printf("  FT_DELAY with timer 1 stopped: %ld frames, %ld ms counted\n", frames, msd);
-    CHECK(frames >= 4 && frames <= 8); // its 4 frames, and T0's printing
-    CHECK(msd <= 20);                  // T0's line, at 19,200 baud, before the timer stopped
-    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x40);
-    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
-    CHECK_EQ(r.machine->bus().peek(VIA_T1LL) | r.machine->bus().peek(VIA_T1LH) << 8, static_cast<int>(TICK_LATCH));
-    const uint32_t before = ms_count(r);
-    r.run(ms(50)); // timer 1 reloads from the latch at its next expiry (up to 9 ms, from $FFFF)
-    Span s(r);
-    r.run(ms(1000));
-    s.check("after the warm boot", 1, 1);
-    CHECK(ms_count(r) >= le32(t1, 0) && ms_count(r) - before >= 1000); // from where it was: not cleared
-    const std::string d = r.go("l1test.com", " D");
-    CHECK_EQ(field(d, "DELAY"), std::string("00 00")); // and a delay waits again
-}
-
-TEST(a_changed_acr_is_put_back_by_the_warm_boot_losing_no_tick)
-{
-    // A program changes ACR (timer 1 free-running still, now on PB7 too) and writes timer 1's enable
-    // again, the latch left alone: the warm boot puts ACR back, and with the latch as it was writes no
-    // T1LH (which would clear a tick due then), so the counter keeps time across it to the tick.
-    CcpRig r;
-    REQUIRE(r.ok);
-    r.run(ms(100));
-    Span s(r);
-    const std::string o = r.go("l1test.com", " U");
-    CHECK(o.find("\r\nA>") != std::string::npos);
-    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x40);
-    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
-    CHECK_EQ(r.machine->bus().peek(VIA_T1LL) | r.machine->bus().peek(VIA_T1LH) << 8, static_cast<int>(TICK_LATCH));
-    r.run(ms(500));
-    s.check("across the warm boot", 1, 1);
-}
-
 /// backplane.machine without the VIA (and the joysticks on it): the 6551 answers all of $C300-$C37F.
 static std::string no_via_machine()
 {
@@ -437,8 +389,8 @@ static std::string no_via_machine()
 
 TEST(without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept)
 {
-    // No VIA: no millisecond clock, and ID 6's interrupt is the 6551's, its registers mirrored where the
-    // VIA's would be. A program turns its receive interrupt on (OODOS's own since the serial receive
+    // No VIA: ID 6's interrupt is the 6551's, its registers mirrored where the VIA's would be. (Since N9 the
+    // millisecond clock is the bridge's, so it runs: FC_MS with the frame clock.) A program turns its receive interrupt on (OODOS's own since the serial receive
     // buffer, so on already) and reads a key: the dispatcher mustn't take the VIA's paths (they would write
     // the 6551's command and status at $C34E and $C34D, and read its data at $C344 as timer 1's), but take
     // the key into the serial line's ring for function 1, the receiver's interrupt left on.
@@ -446,7 +398,7 @@ TEST(without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept)
     REQUIRE(!text.empty());
     CcpRig r({}, text);
     REQUIRE(r.ok);
-    REQUIRE(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) == 0x01); // the frame clock alone
+    REQUIRE(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) == 0x03); // the frame clock, and the bridge's ms (N9)
     const size_t from = start(r, "l1test.com", " R");
     CHECK(r.calls(1)); // function 1, C_READ
     r.type("Q");
@@ -454,10 +406,185 @@ TEST(without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept)
     const std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "KEY"), std::string("51 00"));
     CHECK(!field(o, "CMD").empty() && (hx(field(o, "CMD").substr(0, 2)) & 0x02) == 0); // OODOS's: on
-    CHECK_EQ(ms_count(r), 0u);
+    CHECK(ms_count(r) > 0u); // the bridge's tick, no VIA needed
     const std::string d = r.cmd("dir m:"); // the serial line still both ways: echoed, answered, prompted
     CHECK(d.find("dir m:\r\n") == 0);
     CHECK(d.size() > 12 && d.substr(d.size() - 4) == "\r\nA>");
+}
+
+TEST(the_tick_is_the_bridge_s)
+{
+    // O1 (hw/future/north-bridge-rev3.md, N9). At the prompt the tick is north bridge revision 3's: TBCTL's MSIE
+    // set; the VIA has no interrupt of OODOS's on (IER $80: none), ACR $00, and timer 1's latch is as the test
+    // left it before the cold boot ($1234: OODOS loads it no more); FT_INFO's clocks have FC_MS, and the
+    // millisecond counter follows emulated time. Must fail with CLKINIT still loading timer 1.
+    before_boot() = [](Rig &b) {
+        b.machine->bus().write(VIA_T1LL, 0x34);
+        b.machine->bus().write(VIA_T1LH, 0x12);
+    };
+    CcpRig r;
+    before_boot() = nullptr;
+    REQUIRE(r.ok);
+    r.run(ms(100));
+    CHECK(r.bridge().tbctl() & BackplaneBridge::TB_MSIE);
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
+    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x00);
+    CHECK_EQ(r.machine->bus().peek(VIA_T1LL) | r.machine->bus().peek(VIA_T1LH) << 8, 0x1234);
+    CHECK(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) & 0x02); // FC_MS
+    Span s(r);
+    r.run(ms(1000));
+    s.check("the bridge's tick", 1, 1);
+}
+
+TEST(timer_1_is_the_program_s)
+{
+    // O5. T1TEST runs the VIA's timer 1 itself, polled: 64 one-shots, every flag seen; then free-running on PB7
+    // for 10 s, a flag each 65,536 cycles, every one seen (none cleared under it by OODOS), while OODOS's tick
+    // loses none. The warm boot after puts ACR to $00 and leaves every VIA interrupt off. Must fail with the
+    // dispatcher taking timer 1's flag as the tick (its enable on, VIASRV reading T1CL).
+    CcpRig r;
+    REQUIRE(r.ok);
+    Span s(r);
+    const std::string o = r.go("t1test.com", "", ms(12'000));
+    CHECK_EQ(field(o, "ONE"), std::string("40"));
+    const unsigned freed = hx(field(o, "FREE")), msd = hx(field(o, "MS"));
+    const double want = msd * (78'750.0 / 11) / 65'536;
+    std::printf("  free-running: %u flags in %u ms (%.1f by the cycles a ms)\n", freed, msd, want);
+    CHECK(msd >= 10'000 && msd <= 10'010);
+    CHECK(std::abs(static_cast<double>(freed) - want) <= 2);
+    s.check("timer 1 the program's, 10 s", 1, 1);
+    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x00);
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
+}
+
+TEST(the_tick_and_another_card_together)
+{
+    // Flag 5 (N9): the tick and the video card's vertical blank pending at once: L1TEST G holds interrupts off for
+    // about 20 ms (SEI, a spin, CLI), so both are waiting at its CLI. The dispatcher's long way serves both: TICK
+    // runs, the frame counts, and nothing is DEAFENed (the tick's IRQH bit 5 isn't taken for "any other card"), so
+    // MSIE stays on. Must fail with the long way leaving the tick out (bit 5 then reaches R62_OTHER, which
+    // DEAFENs).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint16_t tick = sym("TICK"), deafen = sym("DEAFEN"), gsei = l1("GSEI"), gcli = l1("GCLI");
+    unsigned ticks = 0, deafs = 0;
+    bool held = false, after = false;
+    uint64_t until = 0;
+    uint32_t f0 = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == gsei && !held)
+        {
+            held = true; // interrupts off from here: the frame count before the hold
+            f0 = frame_count(r);
+        }
+        if (pc == gcli && held && !after)
+        {
+            after = true; // (the interrupts waiting at the CLI are served by now)
+            until = r.cpu->cycles() + ms(2);
+        }
+        if (held && (!after || r.cpu->cycles() < until))
+        {
+            ticks += pc == tick;
+            deafs += pc == deafen;
+        }
+    };
+    start(r, "l1test.com", " G");
+    for (int i = 0; i < 100 && !(after && r.cpu->cycles() >= until); ++i)
+        r.run(ms(5));
+    const uint32_t frames = frame_count(r) - f0;
+    r.watch = nullptr;
+    std::printf("  after 20 ms held: TICK %u, DEAFEN %u, frames +%u\n", ticks, deafs, frames);
+    CHECK(after);
+    CHECK(ticks >= 1);
+    CHECK_EQ(deafs, 0u);
+    CHECK(frames >= 1);
+    CHECK(r.bridge().tbctl() & BackplaneBridge::TB_MSIE);
+}
+
+TEST(ft_count_is_never_torn)
+{
+    // O2 (N10). An event area open, so the tick's handler reads MS0 itself (a new latch); L1TEST F calls FT_COUNT in a
+    // loop. At each call's SNAPIT the counter is put just before a carry into MS1 (set_ms), and the loop's own
+    // period sweeps where in the copy the tick lands. Every result is whole: at least the count at the call and
+    // at most the count after, never MS0 from one latch and MS1-MS3 from the handler's. Must fail with SNAPIT's
+    // interrupts-off removed, or with MS1 read before MS0.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint16_t ftc = sym("FT_COUNTX"), snapit = sym("SNAPIT");
+    const uint32_t snap = SYS_BLOCK_PHYS + sym("SNAP");
+    bool counting = false, in = false;
+    uint32_t lo = 0;
+    unsigned calls = 0, torn = 0, landed = 0;
+    r.bridge().set_ms(0x00FFFF00);
+    r.watch = [&](uint16_t pc) {
+        if (pc == ftc)
+            counting = true;
+        else if (pc == snapit && counting)
+        {
+            lo = r.bridge().ms() | 0xFF; // the next tick carries
+            r.bridge().set_ms(lo);
+            in = true;
+        }
+        else if (pc == ftc + 3 && in)
+        {
+            const uint32_t v = word32(r, snap), hi = r.bridge().ms();
+            ++calls;
+            landed += hi != lo;
+            if ((v < lo || v > hi) && torn++ < 3)
+                std::printf("  FT_COUNT read $%08X between $%08X and $%08X\n", v, lo, hi);
+            in = counting = false;
+        }
+    };
+    r.go("l1test.com", " F", ms(30'000));
+    r.watch = nullptr;
+    std::printf("  %u FT_COUNTs, %u with the tick inside SNAPIT's copy or around it\n", calls, landed);
+    CHECK(calls >= 39'000);
+    CHECK(landed >= 20);
+    CHECK_EQ(torn, 0u);
+}
+
+TEST(the_area_s_counter_is_whole_after_ticks_run_together)
+{
+    // O3 (N10). An event area open (L1TEST GS); as GS turns interrupts off for 3 ms, from its second pass on, the
+    // counter is put 2 ms before a carry into MS3, so ticks run together across the carry (OVR). The pass that
+    // takes them, at the CLI, leaves the area's EV_MS whole, all four bytes, not the low byte alone. A pass whose
+    // hold a vertical blank fell in is left out: the frame's pass writes the area whole itself (EVALL). Must fail
+    // with OVR's test removed from TICK's area path.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint32_t area = l1("area");
+    const uint16_t tick = sym("TICK"), gsei = l1("GSEI"), gcli = l1("GCLI");
+    bool held = false, released = false;
+    unsigned holds = 0, checked = 0, wrong = 0;
+    uint32_t f0 = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == gsei && ++holds >= 2)
+        {
+            r.bridge().set_ms((r.bridge().ms() | 0x00FFFFFF) - 1);
+            f0 = frame_count(r);
+            held = true;
+        }
+        else if (pc == gcli && held)
+            released = true; // the merged pass ran at the CLI, just before
+        else if (pc == tick && released)
+        {
+            const uint32_t got = word32(r, area + EV_MS), want = r.bridge().ms() - 1;
+            if (frame_count(r) == f0) // no frame in the hold
+            {
+                ++checked;
+                if (got != want && wrong++ < 3)
+                    std::printf("  the area's EV_MS $%08X, the bridge's $%08X before this tick\n", got, want);
+            }
+            held = released = false;
+        }
+    };
+    start(r, "l1test.com", " GS");
+    for (int i = 0; i < 100 && holds < 9; ++i)
+        r.run(ms(5));
+    r.watch = nullptr;
+    std::printf("  %u holds across a carry with no frame in them, %u not whole after\n", checked, wrong);
+    CHECK(checked >= 3);
+    CHECK_EQ(wrong, 0u);
 }
 
 TEST(a_hook_runs_with_the_win1h_its_program_had_and_the_bdos_gets_win1h_0_back)

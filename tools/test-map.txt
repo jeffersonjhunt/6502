@@ -148,6 +148,8 @@ oodos/gwbasic/                                  gwbasic gwlocale docs
 oodos/README.md                                 docs
 # W1HTEST, B7's test program that writes WIN1H itself: only these suites run it.
 oodos/sys/test/w1htest.s                        test_oodos_sys test_oodos_input test_oodos_clock test_oodos_utils_rom
+# T1TEST, the program's timer 1 (N9): only test_oodos_clock runs it.
+oodos/sys/test/t1test.s                         test_oodos_clock
 oodos/                                          oodos docs
 docs/                                           docs
 apple1/README.md                                none

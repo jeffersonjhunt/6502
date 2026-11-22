@@ -41,11 +41,6 @@ namespace
 
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     uint8_t sys(Rig &r, const char *name) { return r.phys(SYS_BLOCK_PHYS + sym(name)); }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
     uint8_t vreg(Rig &r, uint8_t off) { return vid(r).peek(off); }
     void vset(Rig &r, uint8_t off, uint8_t v) { r.machine->bus().write(static_cast<uint16_t>(VIDEO + off), v); }
@@ -184,7 +179,7 @@ namespace
                 const unsigned c = static_cast<unsigned>(r.cpu->cycles() + 6 - c0);
                 if (r.phys(frames) != f)
                     ++out.frame[c];
-                else if (l == 0xBF && h == 0xFF)
+                else if (l == 0xFF && h == 0xDF) // the bridge's tick alone (N9)
                     ++out.tick[c];
                 in = false;
                 if (each)
@@ -691,13 +686,13 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     time_interrupts(r, none, ms(300));
     Costs::print("no area, a frame", none.frame);
     Costs::print("no area, a tick", none.tick);
-    CHECK_EQ(Costs::mode(none.tick), 162u); // with B7's 17 for WIN1H
-    CHECK_EQ(Costs::mode(none.frame), 215u); // L3's 199 (main 0497570), +16 since B7 (its 17, less a page crossing the move took away)
+    CHECK_EQ(Costs::mode(none.tick), 142u); // the bridge's tick (N10; 162 with timer 1's)
+    CHECK_EQ(Costs::mode(none.frame), 231u); // 215 before N9: the long way's test of IRQH bit 5 (the tick) added
     open(r, "2");
     Costs area2;
     time_interrupts(r, area2, ms(200));
     Costs::print("layout 2, no slot, a frame", area2.frame);
-    CHECK_EQ(Costs::mode(area2.frame), 412u); // L3's 389, the 7 of VBON's test, and B7's 16 (as :633)
+    CHECK_EQ(Costs::mode(area2.frame), 447u); // 412 before N9: the tick's test on the long way and IRQOTH's (N9, N10)
     const std::vector<uint8_t> src = noise(512, 4);
     r.poke(0x10000, src);
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));

@@ -42,11 +42,6 @@ namespace
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     unsigned area16(Rig &r, unsigned off) { return area(r, off) | area(r, off + 1) << 8; }
     uint32_t area32(Rig &r, unsigned off) { return area16(r, off) | static_cast<uint32_t>(area16(r, off + 2)) << 16; }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     uint8_t io(Rig &r, uint16_t a) { return r.machine->bus().peek(a); }
     unsigned io16(Rig &r, uint16_t a) { return io(r, a) | io(r, static_cast<uint16_t>(a + 1)) << 8; }
 
@@ -164,7 +159,7 @@ namespace
             else if (pc == end && in)
             {
                 const unsigned c = static_cast<unsigned>(r.cpu->cycles() + 6 - c0);
-                if (l == 0xBF && h == 0xFF && r.phys(frames) == f)
+                if (l == 0xFF && h == 0xDF && r.phys(frames) == f) // the bridge's tick alone (N9)
                     Costs::add(out.tick, c);
                 else if (!(h & 0x08))
                     Costs::add(out.usb, c);
@@ -323,8 +318,7 @@ TEST(the_paddles_are_read_in_a_frame_whose_ms_counter_jumps_past_their_time)
     usb.set_paddle(0, 100);
     open(r, "2");
     r.run(ms(40));
-    const uint32_t padfrm = SYS_BLOCK_PHYS + sym("PADFRM"), msp = SYS_BLOCK_PHYS + sym("MS"),
-                   frames = SYS_BLOCK_PHYS + sym("FRAMES");
+    const uint32_t padfrm = SYS_BLOCK_PHYS + sym("PADFRM"), frames = SYS_BLOCK_PHYS + sym("FRAMES");
     bool done = false;
     for (int tries = 0; tries < 20 && !done; ++tries)
     {
@@ -333,10 +327,10 @@ TEST(the_paddles_are_read_in_a_frame_whose_ms_counter_jumps_past_their_time)
             r.run(100); // a frame begins
         for (int i = 0; i < 100 && r.phys(padfrm) != r.phys(frames); ++i)
             r.run(100); // and its first tick sends PTRIG
-        if (r.phys(padfrm) != r.phys(frames) || r.phys(msp) >= 240)
+        if (r.phys(padfrm) != r.phys(frames) || (r.bridge().ms() & 0xFF) >= 240)
             continue; // (no carry to make)
         usb.set_paddle(0, static_cast<uint8_t>(110 + tries));
-        r.poke(msp, static_cast<uint8_t>(r.phys(msp) + 10));
+        r.bridge().set_ms(r.bridge().ms() + 10); // the counter jumps (N10: the bridge's, set_ms())
         const uint8_t f = r.phys(frames);
         for (int i = 0; i < 1000 && r.phys(frames) == f; ++i)
             r.run(100);
@@ -614,31 +608,32 @@ TEST(a_layout_1_program_is_as_l1_left_it)
     wboot(r);
 }
 
-TEST(the_tick_costs_l1_s_145_cycles_with_no_layout_2_area)
+TEST(the_tick_costs_its_measured_cycles)
 {
-    // The dispatcher's cost for a tick alone: with no area exactly L1's (145 cycles, the interrupt's 7
-    // and the RTI included); a layout-1 area's and a layout-2 area's, said; and the USB card's
-    // interrupt for a key, said.
+    // O6 (N9 and N10): the dispatcher's cost for a tick alone, the bridge's (IRQL $FF, IRQH $DF), the interrupt's 7
+    // and the RTI included: with no area 142 (162 with timer 1's tick and OODOS's own MS, to 0.15), with a layout-1
+    // area 189 (201 before); a layout-2 area's, said; and the USB card's interrupt for a key, said. The bridge's
+    // counter has no carry to take, so a tick has one cost.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
     const Costs none = time_interrupts(r, ms(600));
     Costs::print("no area, a tick", none.tick);
     REQUIRE(!none.tick.empty());
-    CHECK_EQ(Costs::mode(none.tick), 162u); // L1's 145, and B7's 17 for WIN1H (irq.s's DISPATCH)
+    CHECK_EQ(Costs::mode(none.tick), 142u); // measured (N10): the fast path's two polls, TICK's acknowledge
     for (const auto &[c, n] : none.tick)
-        CHECK(c == 162 || (c == 176 && n <= 3)); // and L1's 159 (+17) at MS's carry, once in 256 ms
+        CHECK_EQ(c, 142u); // every tick (no carry of OODOS's own to take since N10)
     wboot(r);
     open(r, "1");
     const Costs one = time_interrupts(r, ms(600));
     Costs::print("layout 1, a tick", one.tick);
-    CHECK_EQ(Costs::mode(one.tick), 162u + 39u);
+    CHECK_EQ(Costs::mode(one.tick), 189u); // measured (N10): BIT TBCTL, the acknowledge, MS0's low byte
     wboot(r);
     open(r, "2");
     const Costs two = time_interrupts(r, ms(600));
     Costs::print("layout 2, a tick", two.tick);
     Costs::print("layout 2, other interrupts", two.other);
-    CHECK(Costs::mode(two.tick) > 162u + 39u && Costs::mode(two.tick) < 300u);
+    CHECK(Costs::mode(two.tick) > 189u && Costs::mode(two.tick) < 300u); // 242 measured (N10; 249 at 0.15)
     const Costs key = time_interrupts(r, ms(60), [&] { r.machine->usb_card()->key(A_KEY, true); });
     Costs::print("layout 2, the USB card's interrupt for a key", key.usb);
     CHECK(!key.usb.empty());

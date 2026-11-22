@@ -779,6 +779,10 @@ namespace oodos_rig
             return f;
         }
 
+        /// The millisecond counter: north bridge revision 3's MS, read with no latch taken (OODOS 0.16 keeps none of
+        /// its own).
+        inline uint32_t ms_count(Rig &r) { return r.bridge().ms(); }
+
         /// OODOS.SYS booted with the card's A.IMG as A: and B.IMG (empty) as B:.
         struct CcpRig : Rig
         {

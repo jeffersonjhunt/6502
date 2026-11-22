@@ -148,8 +148,8 @@ BIOS_MAJOR      = 0
 BIOS_MINOR      = 2
 
 ; The clocks (irq.s; hw/oolib.md, "The plan", L1)
-TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,090 Hz: timer 1's period
-TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
+TICK_CYCLES     = 7159                 ; the CPU's whole cycles a millisecond (the bridge's tick is 78,750 / 11:
+                                       ; the debug build's whole-tick constant, and DMAGO's piece's bound)
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
 OOLIB_IFACE     = 16                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 15 adds nothing a program uses, 85's serial receive buffer and EV_RXCNT: 16)
@@ -193,8 +193,8 @@ HK_ON           = 0                    ; 1: set
 HK_ADDR         = 1                    ; its address less 1, for RTS
 HK_WIN          = 3                    ; its windows, W0-W3
 HK_S            = 7                    ; the dispatcher's S while it runs
-HK_C0           = 8                    ; debug: timer 1's count at its call,
-HK_M0           = 10                   ;   and MS's low byte
+HK_C0           = 8                    ; debug: the bridge's TBSUB at its call,
+HK_M0           = 10                   ;   and MS0, from the same latch
 HK_MAX          = 11                   ;   the most cycles it took, since the warm boot
 HK_ZP           = 13                   ; the ES5503 hook's: the byte of its zero page that gets $E0's value
 HK_W1H          = 14                   ; its WIN1H, with HK_WIN's W1 (B7)

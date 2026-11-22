@@ -49,11 +49,6 @@ namespace
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     unsigned area16(Rig &r, unsigned off) { return area(r, off) | area(r, off + 1) << 8; }
     uint32_t area32(Rig &r, unsigned off) { return area16(r, off) | static_cast<uint32_t>(area16(r, off + 2)) << 16; }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     SoundCard &card(Rig &r) { return *r.machine->sound_card(); }
     uint8_t reg(Rig &r, uint8_t offset) { return card(r).peek(offset); }
     uint8_t sys(Rig &r, const char *name) { return r.phys(SYS_BLOCK_PHYS + sym(name)); }
@@ -193,7 +188,7 @@ namespace
                     ++out.dma[c];
                 else if (r.phys(frames) != f)
                     ++out.frame[c];
-                else if (l == 0xBF && h == 0xFF)
+                else if (l == 0xFF && h == 0xDF) // the bridge's tick alone (N9)
                     ++out.tick[c];
                 in = false;
             }
@@ -702,7 +697,7 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 249u); // L2's 234, +15 since B7 (its 17, less page crossings the move took away)
+    CHECK_EQ(Costs::mode(costs.tick), 242u); // the bridge's tick, a layout-2 area (N10; 249 with timer 1's)
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
@@ -851,7 +846,7 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 249u); // a layout-2 area's tick, L2's (+15, B7, as :705): the stream costs it nothing
+    CHECK_EQ(Costs::mode(costs.tick), 242u); // a layout-2 area's tick (N10; 249 before): the stream costs it nothing
 }
 
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)

@@ -358,6 +358,12 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
         BackplaneBridge *nb = r.machine->backplane_bridge();
         UsbCard *usb = r.machine->usb_card();
         REQUIRE(nb != nullptr && usb != nullptr);
+        // The DS3231 20 ppm fast, as a board's TCXO is against the bridge's crystal (N10, the owner's answer of
+        // 2026-11-22): in the emulator the bridge's tick and the chip's second come from one clock, so they phase-lock
+        // (the tick 0.9 cycles a second against the second, where the VIA's slid 90). Locked, the tick lands at the
+        // same place before every SEC change, and its long pass that reads the paddles covered change 0 in every
+        // run, a third spoiled change beside this case's two bursts.
+        nb->rtc()->set_skew_ppm(20);
         unsigned calls = 0;
         bool polled = false;
         int sec = -1;
