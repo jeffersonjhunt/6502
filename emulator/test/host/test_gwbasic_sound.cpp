@@ -2,7 +2,7 @@
  * @file test_gwbasic_sound.cpp
  * @brief GW-BASIC's sound, input and events, phase 7f (hw/oodos.md, "The plan, phase 7": block P7): SOUND, BEEP,
  *        PLAY and its traps on OOLIB's music driver, TIMER and ON TIMER, DATE$ and TIME$, STICK, STRIG and their
- *        traps, ON KEY(n) and KEY 15-20, ON COM(n), PEN; run from OODOS's CCP on backplane.machine.
+ *        traps, ON KEY(n) and KEY 15-20, PEN (ON COM(n)'s trap deferred: 7f's answer 24); run from OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * As test_gwbasic_screen does: oodos/gwbasic's Makefile builds GWBASIC.COM and GWBASIC.OVL into the build tree
@@ -426,8 +426,9 @@ TEST(sound_x_0_stops_and_does_nothing_when_silent)
 
 // N11 (the manual's p. 323: 37 to 32,767 Hz, 0 to 65,535 ticks; the owner's answer 19: a negative duration Illegal
 // function call): 36 Illegal function call, 37 and 32,767 taken; 65,535 ticks taken (three entries back to back,
-// the owner's answer 18: 65,535 x 22 units held at 65,535, 163,838 ms, past the driver's 16-bit length), 65,536
-// and -1 Illegal function call. Guards a frequency below the range sent to the SID. Seen failing with the 37 check
+// the owner's answer 18: 65,535 x 22 units held at 65,535, 163,838 ms, past the driver's 16-bit length: about
+// 2 min 44 s at most, a temporary OO-1 limit, review round 1's C9), 65,536 and -1 Illegal function call; a
+// negative frequency Illegal function call (C5); .0015 the driver's 1 ms, waited for (C7). Guards a frequency below the range sent to the SID. Seen failing with the 37 check
 // one low.
 TEST(sound_s_ranges_by_hand)
 {
@@ -442,6 +443,8 @@ TEST(sound_s_ranges_by_hand)
     CHECK_EQ(said(r, "SOUND 32767,1"), std::string());
     CHECK_EQ(said(r, "SOUND 440,65536"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "SOUND 440,-1"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "SOUND -1,1"), std::string("Illegal function call")); // (review round 1, C5)
+    CHECK_EQ(said(r, "SOUND -32768,1"), std::string("Illegal function call"));
     REQUIRE(s.entries.size() == 2u);
     CHECK_EQ(s.entries[0].freq, pal(37));
     CHECK_EQ(s.entries[1].freq, pal(32767)); // (held at $FFFF)
@@ -454,6 +457,19 @@ TEST(sound_s_ranges_by_hand)
     CHECK_EQ(s.entries[3].len, 65535u);
     CHECK_EQ(s.entries[4].len, units_ms(65535 - 2 * 26214));
     CHECK(s.entries[4].at - s.entries[2].at < ms(50)); // back to back, the first waited for alone
+    // SOUND's shortest, .0015 (the manual's p. 323; x 22 is 0 units): the driver's shortest, 1 ms, gated the whole,
+    // and waited for as any in MF (the plan; review round 1, C7): after a 1,000 ms note, about 1,000 ms later.
+    said(r, "SOUND 440,0"); // (the long one stopped)
+    s.watch(r);
+    const size_t n = s.entries.size();
+    CHECK_EQ(said(r, "SOUND 440,18.2:SOUND 880,.0015", ms(1500)), std::string());
+    r.watch = nullptr;
+    REQUIRE(s.entries.size() == n + 2);
+    CHECK_EQ(s.entries[n + 1].freq, pal(880));
+    CHECK_EQ(s.entries[n + 1].len, 1u);
+    CHECK_EQ(s.entries[n + 1].gate, 1u);
+    const double gap = as_ms(s.entries[n + 1].at - s.entries[n].at);
+    CHECK(gap > 950 && gap < 1100);
 }
 
 // N18 (the owner's answer 6): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times: each after the first
@@ -511,9 +527,10 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
 }
 
 // N19 (the owner's answer 5): after RUN, NEW, CLEAR and SYSTEM the 6510 is given back (SN_RELEASE; CTRL's RUN off),
-// and PLAY's state is the defaults again (SNDINI's: here MB's left by a run gone, so the next run's SOUND waits as
-// MF). Guards a .sid player refused after GW-BASIC; a new run inheriting the last one's mode. Seen failing with
-// CLEARC's SNDINI not called (INITRP's far call left out).
+// and PLAY's state is the defaults again (SNDINI's; review round 1, T1): MB O6 T255 L64 MS set and played, then the
+// next PLAY's C has O4's word, T120 L4's 500 ms and MN's gate, and its D waits for it (MF). Guards a .sid player
+// refused after GW-BASIC; a new run inheriting the last one's mode. Seen failing with (a) CLEARC's SNDINI not called
+// (INITRP's far call left out), (b) SNDINI's stores dropped.
 TEST(run_and_system_free_the_6510)
 {
     CcpRig r;
@@ -523,7 +540,8 @@ TEST(run_and_system_free_the_6510)
     s.watch(r);
     for (const char *what : {"RUN", "NEW", "CLEAR"})
     {
-        CHECK_EQ(said(r, "SOUND 440,2"), std::string());
+        // (review round 1, T1) PLAY's state set away from every default, and a note played with it
+        CHECK_EQ(said(r, "PLAY \"MB O6 T255 L64 MS C\""), std::string());
         CHECK(running(r));
         const unsigned before = s.releases;
         if (std::string(what) == "RUN")
@@ -532,6 +550,17 @@ TEST(run_and_system_free_the_6510)
             enter(r, what);
         CHECK_EQ(s.releases, before + 1);
         CHECK(!running(r));
+        // then the defaults (O4 L4 T120 MN MF): C's word, 500 ms with MN's gate, and D sent as C ends (MF)
+        const size_t n = s.entries.size();
+        CHECK_EQ(said(r, "PLAY \"CD\"", ms(1200)), std::string());
+        REQUIRE(s.entries.size() == n + 2);
+        const Entry &c = s.entries[n], &d = s.entries[n + 1];
+        CHECK_EQ(c.freq, pal(note_hz(0, 4)));
+        CHECK_EQ(c.len, units_ms(play_units(120, 4)));
+        CHECK_EQ(c.gate, units_ms(play_units(120, 4) * 7 / 8));
+        const double gap = as_ms(d.at - c.at);
+        CHECK(gap > 480 && gap < 560);
+        r.run(ms(600));
     }
     CHECK_EQ(said(r, "SOUND 440,2"), std::string());
     CHECK(running(r));
@@ -576,7 +605,7 @@ TEST(chain_after_sound_still_resets_the_sound)
 }
 
 // N20 (the owner's answer 3): BEEP and PRINT CHR$(7) in screen mode, and BEEP in console mode (test_gwbasic_core's
-// G11 case), sound the bell by function 82's SN_BEEP, 800 Hz for 250 ms, and claim nothing (no SN_LOAD). Guards
+// console_mode_keeps_its_guard, its SN_BEEP block watched: review round 1, T5), sound the bell by function 82's SN_BEEP, 800 Hz for 250 ms, and claim nothing (no SN_LOAD). Guards
 // BEEP silent. Seen failing with ^G's route left out of P6 (CBEEP's far call).
 TEST(beep_and_ctrl_g_sound_the_bell)
 {
@@ -1000,9 +1029,10 @@ TEST(timer_counts_the_seconds_since_midnight)
 // N22 (the manual's p. 217): ON TIMER(1) GOSUB with TIMER ON: about one GOSUB a second (the 5th after 4-6 s), by
 // the resident tick hook TIMHK (the owner's answer 23: OOLIB's, every 1,000 ms, counting n down and starting again);
 // the hook set by TIMER ON and taken off by CLEARC (NEW); TIMER STOP after TIMER ON remembers (the
-// GOSUB at the next TIMER ON), TIMER OFF forgets; ON TIMER(0) and (86401) Illegal function call, (86400) taken.
-// Guards a timer trap firing every statement, or never. Seen failing with TIMHK's count not started again after a
-// request (one GOSUB).
+// GOSUB at the next TIMER ON), TIMER OFF forgets; TIMER ON 5 Syntax error with no hook set (review round 1, C4); ON
+// TIMER(0) and (86401) Illegal function call, (86400) taken; ON TIMER(n) with TIMER on starts the count again (C2).
+// Guards a timer trap firing every statement, or never. Seen failing with (a) TIMHK's count not started again after
+// a request (one GOSUB), (b) TIMSET's restart left out (C2), (c) TIMERS' end checked after its far call (C4).
 TEST(on_timer_fires_every_n_seconds)
 {
     CcpRig r;
@@ -1027,9 +1057,78 @@ TEST(on_timer_fires_every_n_seconds)
     CHECK_EQ(r.phys(timon), 1); // (the TPA's own byte: the CPU's W0 may be OODOS's in a BDOS call)
     enter(r, "NEW");
     CHECK_EQ(r.phys(timon), 0);
+    CHECK_EQ(said(r, "TIMER ON 5"), std::string("Syntax error")); // (review round 1, C4: the end checked first)
+    CHECK_EQ(r.phys(timon), 0);
     CHECK_EQ(said(r, "ON TIMER(0) GOSUB 0"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON TIMER(86401) GOSUB 0"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON TIMER(86400) GOSUB 0"), std::string());
+    // ON TIMER(n) with TIMER on starts the count again from n (the manual's p. 217; review round 1, C2): TIMER ON
+    // before any ON TIMER, and an ON TIMER(3600) changed to (1), each 2 GOSUBs in under 5 s.
+    for (const char *arm : {"TIMER ON:ON TIMER(1) GOSUB 100", "ON TIMER(3600) GOSUB 100:TIMER ON:ON TIMER(1) GOSUB 100"})
+    {
+        run_prog(r, {std::string("10 ") + arm + ":T=TIMER", "20 IF N<2 AND TIMER<T+5 THEN 20",
+                     "30 TIMER OFF:PRINT N:END", "100 N=N+1:RETURN"},
+                 ms(6000));
+        CHECK_EQ(line(r, 2), std::string(" 2"));
+    }
+}
+
+// The tick hook asks once (review round 1, C1): ON TIMER(1) with TIMER ON, and four seconds' expiries in one
+// statement (MF's second SOUND waiting for the first's 80 ticks); its GOSUB sets ON TIMER(1000). After it NEWSTT's
+// trap test costs what it costs with ON TIMER(1000) armed and nothing asked (the hook's ONGSBF counted only as TIMREQ
+// goes 0 to 1, so none is left over with no request behind it): NEWSTT to NEWST1, averaged over a loop's 2,400
+// visits, the interrupt handlers' cycles left out (T17's method), within 30 cycles of each other. Guards every
+// statement far calling P3's GOTRP after a long wait. Seen failing with TIMHK's ONGSBF counted at every expiry.
+TEST(a_long_wait_leaves_no_timer_request_behind)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    const std::map<std::string, uint16_t> lab = lbl_map();
+    const uint16_t newstt = lab.at("NEWSTT"), newst1 = lab.at("NEWST1");
+    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
+    auto per = [&](const std::string &arm) {
+        uint64_t from = 0, ifrom = 0, inirq = 0, cycles = 0;
+        unsigned visits = 0;
+        bool in = false;
+        int idepth = -1;
+        r.watch = [&](uint16_t pc) {
+            if (in && idepth < 0 && pc == irq)
+            {
+                ifrom = r.cpu->cycles();
+                idepth = r.cpu->regs().s;
+            }
+            else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
+            {
+                inirq += r.cpu->cycles() - ifrom;
+                idepth = -1;
+            }
+            if (pc == newstt && idepth < 0)
+            {
+                from = r.cpu->cycles();
+                inirq = 0;
+                in = true;
+            }
+            else if (pc == newst1 && in && idepth < 0)
+            {
+                in = false;
+                cycles += r.cpu->cycles() - from - inirq;
+                ++visits;
+            }
+        };
+        run_prog(r, {"10 " + arm, "20 I%=I%+1:IF I%<1200 THEN 20", "30 TIMER OFF:END",
+                     "100 ON TIMER(1000) GOSUB 100:N=N+1:RETURN"},
+                 ms(12000));
+        r.watch = nullptr;
+        CHECK(visits > 2400);
+        return visits ? static_cast<double>(cycles) / visits : 0.0;
+    };
+    const double waited = per("ON TIMER(1) GOSUB 100:TIMER ON:SOUND 440,80:SOUND 440,1");
+    CHECK_EQ(said(r, "PRINT N"), std::string(" 1")); // (the GOSUB taken once)
+    const double armed = per("ON TIMER(1000) GOSUB 100:TIMER ON");
+    std::printf("  NEWSTT after the long wait: %.1f cycles a statement, with ON TIMER armed only %.1f (within 30)\n",
+                waited, armed);
+    CHECK(waited - armed < 30 && armed - waited < 30);
 }
 
 // N23 (the manual's p. 286): RANDOMIZE TIMER seeds from the clock: runs at 10:00:00 and 10:00:05 give different
@@ -1233,50 +1332,6 @@ TEST(a_key_s_cost_with_no_trap_armed)
                 "A 280, F1 368; the gate + 30)\n", a, f1);
     CHECK(a > 100 && a <= 280 + 30); // main fa501cfb on this rig (2026-11-21), the fixed method (answer 29)
     CHECK(f1 > 100 && f1 <= 368 + 30);
-}
-
-// N36 (7f's U7; the SID seed plan's answers 8, 10 and 11, the owner's extension): RANDOMIZE SOUND seeds RND from
-// SID A's voice 3 noise, function 82's SN_NOISE: RND's three seed bytes are the three the call returned (P7's block,
-// read from its block in memory), then RND's step once (24 bits: x 214,013 + 2,531,011); two reseeds give different
-// sequences; after PLAY in MB with nothing queued any more it works (GW-BASIC's idle driver quit) and the next PLAY
-// plays (the driver loaded again); with MB notes queued, Device unavailable. Guards a seed that is always the same;
-// the next PLAY silent. Seen failing with (a) the driver not started again after the reseed's quit (DRVON kept),
-// (b) RNDX's low byte not written.
-TEST(randomize_s_sid_reseed)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    const std::map<std::string, uint16_t> lab = lbl_map(), p7 = lbl_map("p7.lbl");
-    REQUIRE(lab.count("RNDX") == 1 && lab.count("PAGBLK") == 1 && p7.count("NOISEB") == 1);
-    const uint32_t noise = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + 7u)) * 0x4000u + 0x800u + (p7.at("NOISEB") - 0xC800u);
-    auto seed_ok = [&] {
-        const uint32_t n = r.phys(noise + 2) | r.phys(noise + 3) << 8 | static_cast<uint32_t>(r.phys(noise + 4)) << 16;
-        const uint32_t want = (n * 214013u + 2531011u) & 0xFFFFFFu;
-        const uint32_t got = r.phys(lab.at("RNDX")) | r.phys(lab.at("RNDX") + 1u) << 8 |
-                             static_cast<uint32_t>(r.phys(lab.at("RNDX") + 2u)) << 16;
-        if (got != want)
-            std::printf("  the noise %06X: RNDX %06X, want %06X\n", n, got, want);
-        return got == want;
-    };
-    CHECK_EQ(said(r, "RANDOMIZE SOUND"), std::string());
-    CHECK(seed_ok());
-    const std::string a = said(r, "RANDOMIZE SOUND:PRINT RND;RND");
-    const std::string b = said(r, "RANDOMIZE SOUND:PRINT RND;RND");
-    CHECK(a != b);
-    CHECK(a.find('.') != std::string::npos);
-    Sound s;
-    s.watch(r);
-    CHECK_EQ(said(r, "PLAY \"MB T255 L64 C\""), std::string());
-    r.run(ms(200));
-    CHECK_EQ(said(r, "RANDOMIZE SOUND"), std::string());
-    CHECK(seed_ok());
-    CHECK(!running(r)); // the idle driver quit
-    CHECK_EQ(said(r, "PLAY \"MB T255 L64 D\""), std::string());
-    CHECK_EQ(s.entries.size(), 2u);
-    CHECK_EQ(s.loads.size(), 2u);
-    CHECK_EQ(said(r, "PLAY \"MB L1 CDEF\":RANDOMIZE SOUND"), std::string("Device unavailable"));
-    r.watch = nullptr;
 }
 
 int main()

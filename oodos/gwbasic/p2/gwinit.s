@@ -66,15 +66,6 @@ GWINIT:
 ; event area, then GX_BANK8 (B7's question 5).
                 STZ     SAVSEG
                 STZ     SAVSEG+1
-; 7f's U7 (the SID seed plan's answer 10): one byte of SID A's voice 3 noise
-; by function 82's SN_NOISE, thrown away, so the noise has run since start-up
-; when a program's RANDOMIZE SOUND reads it; refused (the 6510 claimed, an
-; OODOS before 0.14, no card), nothing done. (Before GXSTRT, whose A/X the
-; next lines take.)
-                LDA     #<NOISB
-                LDX     #>NOISB
-                LDY     #O_SOUND
-                JSR     BDOS
                 FJSR    GXSTRT
 ; 7d1: in screen mode (SCRMOD, GXSTRT's choice) ^S and ^P are GW-BASIC's too,
 ; so the console mode gets bit 1 as well ($0A: the Programmer's Guide,
@@ -399,8 +390,6 @@ CMDERR:         LDA     SCRMOD
                 STA     SCRMOD
                 JMP     SYSTME
 
-.data
-NOISB:          .byte   SN_NOISE, 1, 0 ; function 82's block: one byte, thrown away (in DATA: written)
 .rodata
 OEMHED:         .byte   "GW-BASIC for the OO-1", 0        ; GETHED's, the OO-1's
 HEDING:         .byte   13, 10, "(C) Copyright Microsoft 1982"

@@ -447,7 +447,8 @@ TSTEVX:         STX     RBL
 
 ; COMSP: COMS, COM(n) ON, OFF or STOP: SEVSTT for the COM class (NMCOMT
 ; events from COMOFF), TXTPTR at the "(". The trap's flag is set as the
-; source sets it; ON COM(n)'s trap from a byte waiting (POLCOM) is 7f's.
+; source sets it; ON COM(n)'s trap from a byte waiting (POLCOM) is deferred
+; until AUX: has a receive buffer (7f's answer 24).
 COMSP:          LDA     #NMCOMT
                 STA     RCL
                 LDA     #COMOFF

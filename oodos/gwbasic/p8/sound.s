@@ -90,12 +90,21 @@ DATES:          FJSR    DATESP
                 RTS
 TIMES:          FJSR    TIMESP
                 RTS
-TIMERS:         CMP     #ON_TK         ; TIMER ON: the tick hook first; OFF: off
+TIMERS:         PHA                    ; (review round 1, C4: the statement's end
+                JSR     CHRGTR         ; checked before anything is done)
+                BEQ     :+
+                JMP     SNERR
+:               PLA
+                PHA
+                CMP     #ON_TK         ; TIMER ON: the tick hook first; OFF: off
                 BNE     :+
                 FJSR    TIMONP
-:               CMP     #OFF_TK
+:               PLA
+                PHA
+                CMP     #OFF_TK
                 BNE     :+
                 FJSR    TIMOFP
-:               DECW    TXTPTR
+:               PLA
                 LDX     #TIMOFF
-                BRA     EVSTM
+                FJSR    SETEV1         ; (another token: Syntax error)
+                RTS

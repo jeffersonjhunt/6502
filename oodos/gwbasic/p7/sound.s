@@ -60,11 +60,10 @@
 ;@entry TIMESP
 ;@entry TIMONP
 ;@entry TIMOFP
-;@entry SNDRND
-.export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN, SNDRND
+.export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
-.import SCRMOD, EVAREA, TIMON, TIMOFP, ERROR, RNDX, RNDMN2
+.import SCRMOD, EVAREA, TIMON, TIMOFP
 .include "oolib.inc"
 
 MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
@@ -123,7 +122,8 @@ SOUNDP:         PHA                    ; sound used this run (the owner's answer
                 STA     SNDUSE
                 PLA
                 JSR     GETIN2         ; DX: the frequency
-                LDA     RDH
+                LDA     RDH            ; (review round 1, C5: negative, past the
+                BMI     SNDFCE         ; manual's 32,767, Illegal function call too)
                 BNE     :+
                 LDA     RDL
                 CMP     #37
@@ -190,20 +190,18 @@ EOSP7:          DECW    TXTPTR
 
 ; --- DONOTE: the OEM's note on the music driver --------------------------------------------
 
-; NOTEHZ the frequency (0 a rest), NOTEU the length in 2.5 ms units (0
-; nothing), A the gate's scale (1 legato, 2 staccato 3/4, 3 normal 7/8),
+; NOTEHZ the frequency (0 a rest), NOTEU the length in 2.5 ms units (0: the
+; driver's shortest, 1 ms, waited for as any: the plan, SOUND's .0015; review
+; round 1, C7), A the gate's scale (1 legato, 2 staccato 3/4, 3 normal 7/8),
 ; MMODE MF (0) or MB (1). The driver started if it isn't (MU_INIT, PAL's
 ; clock: C set back if refused: no card, or the 6510 another's). A length
 ; past 65,535 ms (26,214 units) goes as more than one entry, the first
 ; waited for as MMODE says, the rest straight after it (OO-1: the driver's
-; length is 16 bits of ms; SOUND's 65,535 ticks are 163,837). C clear back.
+; length is 16 bits of ms). SOUND's own units are held at 65,535 (y x 22
+; clipped: about 2 min 44 s at most, a temporary OO-1 limit, review round 1,
+; C9). C clear back.
 DONOTE:         STA     NOTESC
-                LDA     NOTEU
-                ORA     NOTEU+1
-                BNE     :+
-                CLC
-                RTS
-:               LDA     DRVON          ; started already this run
+                LDA     DRVON          ; started already this run
                 BNE     @on
                 LDA     #0             ; PAL
                 JSR     MU_INIT
@@ -306,7 +304,14 @@ DONOTE:         STA     NOTESC
                 JSR     UNITMS
                 LDX     #2
                 JSR     UNITMS
-                LDA     T0
+                LDA     T0             ; (C7: 0 ms, SOUND's shortest: the driver's
+                ORA     T1             ; shortest, 1 ms, gated the whole)
+                BNE     :+
+                LDA     #1
+                STA     T0
+                STA     T2
+                STZ     T3
+:               LDA     T0
                 STA     TONEB+3
                 LDA     T1
                 STA     TONEB+4
@@ -433,42 +438,6 @@ WAITQ:          STA     WLIM
                 JMP     MU_STOP
 @x:             RTS
 
-; --- SNDRND (7f's U7) -----------------------------------------------------------------------
-
-; SNDRND (OO-1, the owner's extension: the SID seed plan's answer 8):
-; RANDOMIZE SOUND, TXTPTR at SOUND's token: the statement must end; GW-BASIC's
-; own driver, started this run (DRVON), quit first if nothing is queued (the
-; next SOUND or PLAY starts it again), else Device unavailable; then
-; function 82's SN_NOISE for 3 bytes of SID A's voice 3 noise, RND's three
-; seed bytes (RNDX: the plan's answer 11), and RND's step as RANDOMIZE n's
-; (RNDMN2). Refused (another program's 6510, an OODOS before 0.14 or no
-; card): Device unavailable (68).
-ERRDNA          = 68
-SNDRND:         JSR     CHRGTR
-                BEQ     :+
-                JMP     SNERR
-:               LDA     DRVON
-                BEQ     @n
-                LDA     #0             ; notes queued: the driver isn't idle
-                JSR     MU_COUNT
-                BNE     @dna
-                JSR     MU_QUIT
-                STZ     DRVON
-@n:             LDA     #<NOISEB
-                LDX     #>NOISEB
-                LDY     #O_SOUND
-                JSR     BDOS
-                CMP     #0
-                BNE     @dna
-                LDX     #2
-:               LDA     NOISEB + 2,X
-                STA     RNDX,X
-                DEX
-                BPL     :-
-                JMP     RNDMN2
-@dna:           LDA     #ERRDNA
-                JMP     ERROR
-
 ; --- MSNOW ---------------------------------------------------------------------------------
 
 ; MSNOW: MSN the millisecond counter (32 bits). Screen mode: EVAREA's
@@ -515,7 +484,6 @@ NOTE1L:         .byte   4              ; this note's
 OCTAVE:         .byte   4              ; O
 
 .data
-NOISEB:         .byte   SN_NOISE, 3, 0, 0, 0 ; function 82's block: three noise bytes (SNDRND's)
 FTCB:           .byte   FT_COUNT, 0, 0, 0, 0 ; function 80's FT_COUNT block (console mode's ms)
 
 .segment "BRAM"

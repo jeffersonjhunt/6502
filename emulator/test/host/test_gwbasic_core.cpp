@@ -1148,7 +1148,7 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 // N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
 // Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n), PLAY
 // ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions, STICK, STRIG; and the ones that don't need it work as in screen
-// mode: BEEP (function 82's SN_BEEP: nothing printed), PEN, ON COM(1) and COM(1) ON, TIMER, DATE$, TIME$ and
+// mode: BEEP (function 82's SN_BEEP, 800 Hz 250 ms, its block watched: nothing printed), PEN, ON COM(1) and COM(1) ON, TIMER, DATE$, TIME$ and
 // ON TIMER (the 2nd GOSUB after 1-3 s, by FT_COUNT's ms: console mode opens no event area). Guards a statement in console mode
 // waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
 // the note queued and MF's wait run to the clock).
@@ -1161,7 +1161,26 @@ TEST(console_mode_keeps_its_guard)
                           "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)",
                           "PRINT STICK(0)", "PRINT STRIG(0)"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
+    // BEEP sounds the bell by function 82's SN_BEEP (16), 800 Hz for 250 ms (review round 1, T5): its block seen at
+    // the BDOS's entry ($0203, Y 82, A/X the block)
+    std::vector<std::vector<uint8_t>> beeps;
+    r.watch = [&](uint16_t pc) {
+        const auto &g = r.cpu->regs();
+        if (pc != 0x0203 || g.y != 82 || g.x == 0)
+            return;
+        const uint16_t at = static_cast<uint16_t>(g.a | g.x << 8);
+        if (r.machine->bus().peek(at) != 16)
+            return;
+        std::vector<uint8_t> b;
+        for (uint16_t i = 0; i < 5; ++i)
+            b.push_back(r.machine->bus().peek(static_cast<uint16_t>(at + i)));
+        beeps.push_back(b);
+    };
     CHECK_EQ(command(r, "BEEP"), std::string());
+    r.watch = nullptr;
+    REQUIRE(beeps.size() == 1u);
+    CHECK_EQ(beeps[0][1] | beeps[0][2] << 8, 800);
+    CHECK_EQ(beeps[0][3] | beeps[0][4] << 8, 250);
     CHECK_EQ(command(r, "PEN ON:PRINT PEN(0);PEN(9)"), std::string(" 0  0 \r\n"));
     CHECK_EQ(command(r, "ON COM(1) GOSUB 0:COM(1) ON:COM(1) OFF"), std::string());
     const std::string t = command(r, "PRINT TIMER>0;LEN(DATE$);LEN(TIME$)");

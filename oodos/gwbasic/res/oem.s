@@ -517,7 +517,7 @@ TXSYNC:         LDA     TXLEN
 ; 80's FT_TICKHOOK, every 1,000 ms, set and taken off by P7's TIMONP and
 ; TIMOFP): resident, as a hook must be (no far call, no BDOS, interrupts off,
 ; within its 300 cycles). TIMCNT, the seconds left, counted down; at 0 the
-; trap asked for (TIMREQ, ONGSBF one up, so NEWSTT's poll goes to P3's GOTRP,
+; trap asked for, once until P3 takes it (TIMREQ 0 to 1 and ONGSBF one up, so NEWSTT's poll goes to P3's GOTRP,
 ; which turns TIMREQ into TIMER's request: P3's EVTRP) and the count from
 ; TIMN again.
 TIMHK:          LDX     #0             ; TIMCNT less 1, 24 bits
@@ -537,7 +537,9 @@ TIMHK:          LDX     #0             ; TIMCNT less 1, 24 bits
                 STA     TIMCNT,X
                 DEX
                 BPL     @r
-                INC     TIMREQ         ; the trap asked for
+                LDA     TIMREQ         ; the trap asked for, once (review round 1, C1:
+                BNE     @x             ; ONGSBF counted only as TIMREQ goes 0 to 1)
+                INC     TIMREQ
                 INC     ONGSBF
 @x:             RTS
 

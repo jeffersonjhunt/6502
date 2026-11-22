@@ -946,7 +946,7 @@ GIOKYB.ASM KYBINI -> OEM res/oem.s KYBINI
 GIOKYB.ASM PKQUE -> OEM res/oem.s PKQUE
 GIOKYB.ASM CHSNS -> OEM res/oem.s CHSNS
 GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the PC's two-byte keys (0 and a scan code)
-GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
+GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM later 7g (ON COM deferred, 7f's answer 24), POLPEN dropped (no pen), POLSTR as P7's STREV
 GWSTS.ASM SNDINI -> p7/sound.s SNDINI # INITRP's far call (CLEARC), and SYSTEM's; OO-1: the driver quit (the owner's answer 5)
 GWSTS.ASM SNDRST -> p7/sound.s SNDRST # the resident ITSCTC's far call, and SOUND x,0's: MU_STOP of voice 0
 GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) and TA's state (DRWTA, OO-1) cleared, P5's since 7e2
@@ -1544,7 +1544,7 @@ BIMISC.ASM GOTRPL -> p3/bimisc.s GOTRPL
 BIMISC.ASM GOTRP1 -> p3/bimisc.s GOTRP1
 BIMISC.ASM GOTRPX -> p3/bimisc.s GOTRPX
 BIMISC.ASM GOTRP2 -> p3/bimisc.s GOTRP2 # DX and CX back with C set for the poll's GOSUB2 (the 8086's stack shuffle and JMP)
-GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: later 7c, 7f); JGE kept signed
+GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: 7c, 7f); JGE kept signed
 GWSTS.ASM SEVST1 -> p3/gwsts.s SEVST1
 GWSTS.ASM SEVST2 -> p3/gwsts.s SEVST2
 GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry; 7f: SETEV1 its entry by an event's id (PENS, KEYSTT, PLAY and TIMER's statements)
@@ -1565,7 +1565,7 @@ GWSTS.ASM ONSTM -> p3/gwsts.s ONSTM
 GWSTS.ASM ONGOTX -> p3/gwsts.s ONGOTX
 GWSTS.ASM GETSUB -> p3/gwsts.s GETSUB
 GWSTS.ASM GETSU2 -> p3/gwsts.s GETSU2
-GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: later 7c-7f; the test trigger in 7b); Z set back, not trapped
+GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: the keys, STRIG, PLAY, TIMER by 7f, COM later 7g; the test trigger in 7b); Z set back, not trapped
 GWSTS.ASM NOT_ON -> p3/gwsts.s NOT_ON
 GWSTS.ASM EVCLR -> p3/gwsts.s EVCLR # an entry
 GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF's, P7's); the result in RBL, RBH (the 8086's BX)
@@ -1862,7 +1862,7 @@ SCNDRV.ASM LTAB -> p6/scndrv.s LTAB
 SCNDRV.ASM FWDWRD -> p6/scndrv.s FWDWRD
 SCNDRV.ASM FWDWDL -> p6/scndrv.s FWDWDL
 SCNDRV.ASM BCKWRD -> p6/scndrv.s BCKWRD
-SCNDRV.ASM CBEEP -> p6/scndrv.s CBEEP # BEEP is 7f's: the bell does nothing yet
+SCNDRV.ASM CBEEP -> p6/scndrv.s CBEEP # ^G: P7's BELLP (function 82's SN_BEEP, 7f)
 SCNDRV.ASM CCLRSN -> p6/scndrv.s CCLRSN
 SCNDRV.ASM WHOME -> p6/scndrv.s WHOME
 SCNDRV.ASM WERASE -> p6/scndrv.s WERASE

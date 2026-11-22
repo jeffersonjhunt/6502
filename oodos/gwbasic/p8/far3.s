@@ -61,14 +61,7 @@ CLEAR:          FJSR    CLEARP
                 JMP     CLEARC         ; GCLERC (BIMISC.ASM 811)
 OPTION:         FJSR    OPTIONP
                 RTS
-RANDOM:         PHP                    ; (RANDOMP takes CHRGTR's Z: no argument)
-                CMP     #SOUND_TK      ; 7f's U7: RANDOMIZE SOUND, P7's
-                BNE     :+
-                PLP
-                FJSR    SNDRND
-                RTS
-:               PLP
-                FJSR    RANDOMP
+RANDOM:         FJSR    RANDOMP
                 JMP     INPRET         ; C set: STPEND
 WRITE:          FJSR    WRITEP
                 RTS

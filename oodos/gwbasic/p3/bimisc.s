@@ -338,7 +338,10 @@ GOMERR:         JMP     OMERR          ; BIMISC.ASM 892
 ; that are on and requested and not stopped (T_ON+T_REQ exactly), for
 ; NEWSTT's poll; FRETP2 never takes it below 0. The 8086's CLI and STI have
 ; no counterpart: the OO-1's sources are polled at NEWSTT, never raised in an
-; interrupt (OO-1:), so nothing can come between a flag's load and its store.
+; interrupt (OO-1:), so nothing can come between a flag's load and its store;
+; but for 7f's tick hook (res/oem.s TIMHK), which in an interrupt sets TIMREQ
+; and adds one to ONGSBF, each by a single instruction, once until GOTRP takes
+; it (review round 1, C1).
 ;
 ; OO-1: TRPON, NEWSTT's gate (gwbasic.inc), is kept here, right after each
 ; change to a trap's T_ON: ONTRP sets it, OFFTRP counts the table again
@@ -427,7 +430,10 @@ FRETP2:         LDA     ONGSBF         ; SUB AL,1 / JB: not below 0
 ; OO-1 (7f): then CLEARC's SNDINI (P7's: PLAY's state, the driver quit), by
 ; one far call, as CLEARC reaches INITRP by one, only if the run used sound
 ; (SNDUSE, gwbasic.inc: the owner's answer 20).
-INITRP:         LDX     #NUMTRP - 1    ; OO-1 (7f): a third of the table a pass
+INITRP:         LDA     TIMON          ; OO-1 (7f): ON TIMER's tick hook off first,
+                BEQ     :+             ; so it can't count ONGSBF up after it is 0
+                FJSR    TIMOFP         ; (review round 1, C1)
+:               LDX     #NUMTRP - 1    ; OO-1 (7f): a third of the table a pass
                 LDA     #0
 INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
                 STA     TRPTBL + NUMTRP,X
@@ -443,9 +449,6 @@ INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
                 LDA     #0
                 CLC
                 FJSR    KTSET
-:               LDA     TIMON          ; OO-1 (7f): ON TIMER's tick hook off
-                BEQ     :+
-                FJSR    TIMOFP
 :               LDA     SNDUSE         ; OO-1 (7f): CLEARC's sound reset, if
                 BEQ     :+             ; this run used sound (the owner's
                 FJSR    SNDINI         ; answer 20)

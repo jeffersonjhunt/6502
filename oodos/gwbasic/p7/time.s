@@ -635,24 +635,31 @@ TIMSET:         JSR     FRCSNG
                 LDA     RDL
                 CMP     #$81
                 BCS     @fc
-@ok:            LDA     RDL            ; TIMN = n (the hook reads it only at a
-                STA     TIMN           ; reload, so a byte at a time does)
+@ok:            LDA     TIMON          ; (review round 1, C3: the hook off while TIMN
+                PHA                    ; is written)
+                BEQ     :+
+                JSR     TIMOFP
+:               LDA     RDL
+                STA     TIMN
                 LDA     RDH
                 STA     TIMN+1
                 LDA     RBL
                 STA     TIMN+2
-                RTS
+                PLA                    ; C2 (the manual's p. 217): with TIMER on, the
+                BEQ     :+             ; count starts again from the new n
+                JMP     TIMONP
+:               RTS
 @fc:            JMP     FCERR
 
 ; TIMONP (the owner's answer 23): TIMER ON: the countdown from n (TIMN) and
 ; the resident TIMHK set as OOLIB's tick hook, every 1,000 ms (FT_TICKHOOK),
 ; TIMON its flag. TIMOFP: the hook taken off (TIMER OFF, CLEARC, SYSTEM).
-TIMONP:         LDX     #2
+TIMONP:         JSR     TIMOFP         ; (review round 1, C3: the hook off while
+                LDX     #2             ; TIMCNT is written, and a request given back)
 :               LDA     TIMN,X
                 STA     TIMCNT,X
                 DEX
                 BPL     :-
-                STZ     TIMREQ
                 LDA     #<TIMHB
                 LDX     #>TIMHB
                 LDY     #O_FRAME
@@ -665,8 +672,13 @@ TIMOFP:         LDA     #FT_TICKHOOK   ; (no block: the hook off)
                 LDY     #O_FRAME
                 JSR     BDOS
                 STZ     TIMON
+                LDA     TIMREQ         ; (C1: a request not yet taken: its ONGSBF given
+                BEQ     :+             ; back)
                 STZ     TIMREQ
-                RTS
+                LDA     ONGSBF
+                BEQ     :+
+                DEC     ONGSBF
+:               RTS
 
 .rodata
 TIMHB:          .byte   FT_TICKHOOK, <TIMHK, >TIMHK, <1000, >1000 ; function 80: the hook, every 1,000 ms

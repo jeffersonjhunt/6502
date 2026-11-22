@@ -146,7 +146,6 @@ KEY:            BIT     SCRMOD
                 CMP     #'('           ; 7f: KEY(n) ON, OFF, STOP
                 BEQ     KEYSTT
                 CMP     #ON_TK         ; ON, OFF, LIST: P6's
-                CMP     #ON_TK
                 BEQ     @p6
                 CMP     #OFF_TK
                 BEQ     @p6
