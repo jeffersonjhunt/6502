@@ -179,7 +179,7 @@ namespace ooe::emu
     public:
         static constexpr uint8_t MODULE = 0xD;                     ///< the ID its registers use
         static constexpr uint32_t REGISTERS = MODULE * 0x80;      ///< offset in the I/O hole: $C680
-        static constexpr uint8_t REVISION = 2;                    ///< the default revision (revision()): 2 since B7
+        static constexpr uint8_t REVISION = 3;                    ///< the default revision (revision()): 3 since N5
         static constexpr uint8_t ID = MODULE << 4 | REVISION;     ///< the default's +$7F: type and revision (id())
         static constexpr uint8_t WIDE = 2;                        ///< the revision with WINnH, VECH and MAP
         static constexpr uint8_t TIMEBASE = 3;                    ///< the revision with the timebase

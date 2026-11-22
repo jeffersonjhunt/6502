@@ -67,8 +67,8 @@
  * VECH and MAP, revision 3 (ID $D3) the random source and the timebase
  * (`rng_chip=locked|unlocked|none`, default locked: the ATECC608B fitted),
  * revision 1 (ID $D1) is B1's, and the default is
- * BackplaneBridge::REVISION, 2 (step B7). Its registers are at io
- * 680-6FF (module D, its IRQ wired: the clock's tick), and it is named
+ * BackplaneBridge::REVISION, 3 (OODOS 0.16 needs it). Its registers are at
+ * io 680-6FF (module D, its IRQ wired: the timebase's tick), and it is named
  * `northbridge`. The clock starts at the host's local time unless the
  * options give one.
  *

@@ -1125,7 +1125,7 @@ TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_ba
     // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    REQUIRE(r.bridge().id() == 0xD3); // the default since N5 (revision 2's registers and more)
     aperture_at_e00000(r);
 }
 
@@ -1185,7 +1185,7 @@ TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
     // untouched.
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    REQUIRE(r.bridge().id() == 0xD3); // the default since N5
     open(r, "X");
     REQUIRE(r.bridge().map() == 1);
     put_bus(r, 0x80000, std::vector<uint8_t>(0x100, 0x11));

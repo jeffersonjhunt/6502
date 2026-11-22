@@ -598,7 +598,7 @@ TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
     {
         InfoRig r;
         REQUIRE(r.ok);
-        REQUIRE(r.bridge().id() == 0xD2);
+        REQUIRE(r.bridge().id() == 0xD3); // the default since N5: revision 2's MAP and more
         CHECK_EQ(clause(run(r, "m:sysinfo system")), with);
         r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());

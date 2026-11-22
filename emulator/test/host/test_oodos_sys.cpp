@@ -3509,7 +3509,7 @@ TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
     // $08 bank or CRTOUT's block 32, would.) The warm boot sets AP8 again.
     Booted r;
     REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    REQUIRE(r.bridge().id() == 0xD3); // the default since N5
     Bank8Cycles seen(r);
     r.cpu->set_observer(&seen);
     r.machine->bus().set_dma_observer(&seen);

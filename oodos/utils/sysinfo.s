@@ -21,7 +21,7 @@
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
-;            a revision 2 north bridge, NB_MAP's AP8 for what bank 8 is:
+;            a north bridge of revision 2 or more, NB_MAP's AP8 for what bank 8 is:
 ;            B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
@@ -574,9 +574,9 @@ memory: lda     #<smemory
         sta     vunits
         cmp     #0
         beq     @prog
-        lda     HW_REV + $D             ; a revision 2 north bridge (B7): bank 8 is the aperture
-        cmp     #2                      ;   only while MAP's AP8 is set, else the RAM card's
-        bne     @aper
+        lda     HW_REV + $D             ; a north bridge of revision 2 or more (B7): bank 8 is
+        cmp     #2                      ;   the aperture only while MAP's AP8 is set, else the
+        bcc     @aper                   ;   RAM card's
         lda     NB_MAP
         and     #NB_MAP_AP8
         beq     @prog

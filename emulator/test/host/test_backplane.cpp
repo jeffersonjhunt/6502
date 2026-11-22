@@ -88,7 +88,7 @@ TEST(reset_maps_ram_blocks_0_to_2_and_the_top_of_rom_a)
     CHECK_EQ(top.where, bus_address(Space::Flash, 0x7FFFC));
     CHECK(!top.writable);
     CHECK_EQ(r.bus.module_at(0xE000), BackplaneBridge::MODULE); // memory by address: PS0-PS3 carry the bridge's D
-    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD2);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD3); // revision 3, the default since N5
 }
 
 TEST(bootsel_starts_with_w3_and_vec_on_ram_block_63)

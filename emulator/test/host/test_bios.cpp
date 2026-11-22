@@ -391,7 +391,7 @@ TEST(bootsel_boots_the_same_image_from_ram)
     CHECK_EQ(b.bridge().window(3), 0x3F);
     CHECK_EQ(b.run(BOOT), GREETING);
     CHECK_EQ(b.bridge().window(3), 0x7F);
-    CHECK(has(b.run(BOOT, "C686\r"), "C686: 23")); // revision 2, power-on, BOOTSEL
+    CHECK(has(b.run(BOOT, "C686\r"), "C686: 33")); // revision 3 (N5's default), power-on, BOOTSEL
 }
 
 TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
@@ -2042,7 +2042,8 @@ TEST(break_clears_a_front_panel_key_already_pending)
 
 TEST(break_turns_the_clocks_tick_off_and_the_time_runs_on)
 {
-    Board b;
+    // On a revision 2 bridge (N5): TIE's 1 Hz interrupt is revision 2's; revision 3 has none.
+    Board b(false, true, {}, "", {}, 0, {}, {}, 2);
     REQUIRE(b.ok());
     BackplaneBridge *bridge = b.machine->backplane_bridge();
     REQUIRE(bridge != nullptr);

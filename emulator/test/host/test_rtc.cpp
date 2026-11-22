@@ -22,6 +22,8 @@
 #include "symbols.h"
 
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -47,8 +49,10 @@ namespace
             MachineOptions opt;
             opt.rtc = std::make_shared<Ds3231>(t, lost);
             std::string error;
-            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n", "rtc.machine",
-                               opt, error);
+            // Revision 2 (N5, block A): TIE's 1 Hz interrupt is revision 2's; revision 3's timebase is
+            // test_nb_timebase's, and the random source's C5 has its own machine below.
+            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel revision=2\nram 00000-FFFFF module=0\n",
+                               "rtc.machine", opt, error);
             if (!m)
                 std::printf("  %s\n", error.c_str());
             bridge = m->backplane_bridge();
@@ -420,7 +424,12 @@ TEST(a_program_reads_the_time_and_takes_the_tick_interrupt)
     opt.rom_override = flash_image(code, 0xC900);
     opt.rtc_time = START;
     std::string error;
-    auto m = Machine::load(EMU_MACHINE_DIR "/backplane.machine", opt, error);
+    std::ifstream file(EMU_MACHINE_DIR "/backplane.machine"); // at revision 2: TIE's interrupt (N5)
+    std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const size_t at = text.find("northbridge  backplane");
+    REQUIRE(at != std::string::npos);
+    text.insert(at + 22, " revision=2");
+    auto m = Machine::build(text, "backplane.machine", opt, error);
     if (!m)
         std::printf("  %s\n", error.c_str());
     REQUIRE(m != nullptr);
