@@ -94,6 +94,9 @@ SRPULL:         STZ     RXFLG
 
 ; The ring emptied, RXLOST 0, the receiver on, and a byte the chip held
 ; dropped: the warm boot's (WBDMA, after DEAFEN), DEVINI's and SR_FLUSH's.
+; It ends on a STATUS read with RDRF clear: a byte that came after the
+; STATUS read and before a DATA read would leave the 6551's IRQ flag set
+; with RDRF clear, an interrupt SERID6 would take for a stray (DEAFEN).
 RXFLUSH:        PHP
                 SEI
                 STZ     RXHEAD
@@ -103,9 +106,11 @@ RXFLUSH:        PHP
                 STZ     RXFLG
                 LDA     ACIA_CMD
                 AND     #<~ACIA_CMD_RXOFF
-                STA     ACIA_CMD       ; on first: a byte after the read below interrupts
-                LDA     ACIA_STATUS
-                LDA     ACIA_DATA      ; (its OVRN with it)
+                STA     ACIA_CMD       ; on first: a byte after the last read below interrupts
+@drop:          LDA     ACIA_DATA      ; a held byte dropped (its OVRN with it), then STATUS:
+                LDA     ACIA_STATUS    ; its IRQ flag cleared, and a byte that came meanwhile
+                BIT     #ACIA_RDRF     ; dropped too
+                BNE     @drop
                 PLP
                 RTS
 

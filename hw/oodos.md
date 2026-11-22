@@ -6376,7 +6376,9 @@ its card's plan (answer 1).
 - **The warm boot and `DEVINI` empty the ring** (answer 5; `RXFLUSH`): RXLOST 0, not stopped, the receiver on, and a
   byte the chip held dropped. Otherwise a sender still streaming when a program ends would feed the CCP up to 255
   bytes as command lines, since CON: reads TTY. `DEVINI` writes CTRL `$1F` and CMD `$0B`, then `RXFLUSH` makes it
-  `$09`.
+  `$09`. It reads DATA, then STATUS, again while RDRF is set, so it ends on a STATUS read (review round 1,
+  S1): a byte that came between a STATUS read and a DATA read would leave the 6551's IRQ flag set with RDRF clear,
+  and `SERID6` would take that interrupt for a stray, `DEAFEN` turning off a layout-2 area's USB events.
 - **`CLKOFF`** (function 75: the monitor's way out, Apple II mode, the diagnostics) turns the receiver's interrupt
   off (CMD bit 1, as the monitor's `$0B` has it): the 6551 isn't reset by /RESET, and a byte would pull /IRQ in
   Apple II mode.
@@ -6431,7 +6433,7 @@ unchanged, no millisecond lost):
   37]; block 60, the BDOS, 1,155 → 1,010 (function 85, 145 bytes); block 61, the BIOS, 1,532 → 1,532: bios.s grew
   68 bytes (TTYIST, TTYIN, TTYPULL, DEVINI), taken from the gap before disk2.s's page-aligned code, which stays
   where it was [1,532 → 1,340: the debug counters' 192 bytes moved there]; block 62's code window, RES, RES2 and RESBSS to
-  `$F7FF`, 219 → 53 [16 → 41, with the debug counters moved out]; common memory 34 → 34 [24 → 24], unchanged.
+  `$F7FF`, 219 → 49 [16 → 37, with the debug counters moved out]; common memory 34 → 34 [24 → 24], unchanged.
 
 ### Limits of the stand-in ###
 

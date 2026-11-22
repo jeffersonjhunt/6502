@@ -448,4 +448,61 @@ TEST(function_85_says_the_ring_s_state_and_flushes_it)
     CHECK_EQ(r.acia().overruns(), 144u);
 }
 
+// ---- review round 1 ------------------------------------------------------------------------------------
+
+TEST(a_byte_in_the_flush_s_window_leaves_no_interrupt_for_deafen)
+{
+    // Round 1's S1: a byte that comes inside SR_FLUSH's reads (here at its first read of DATA, put there by the
+    // test, as a sender a cycle sooner or later would) is dropped with the rest, and the flush leaves the
+    // 6551's IRQ flag clear. Were it left set with RDRF clear, SERID6 would take the interrupt for a stray and
+    // DEAFEN would turn off the USB card's events for the program's open layout-2 area.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint16_t flush = sym("RXFLUSH");
+    const uint32_t at = 0xF8000u + (flush - 0xC000u); // block 62's code, physical
+    uint16_t data_read = 0;
+    for (uint16_t i = 0; i < 64 && !data_read; ++i)
+        if (r.phys(at + i) == 0xAD && r.phys(at + i + 1) == 0x00 && r.phys(at + i + 2) == 0xC3) // LDA ACIA_DATA
+            data_read = static_cast<uint16_t>(flush + i);
+    REQUIRE(data_read != 0);
+    bool injected = false;
+    r.watch = [&](uint16_t pc) {
+        if (!injected && pc == data_read && r.nb(3) == 62 && r.acia().command() == 0x09)
+            injected = r.acia().receive(0x55);
+    };
+    const size_t from = start(r, "sertest.com", " S012");
+    r.serial_paced("AB"); // for its function 3 (GOT); the other is flushed
+    REQUIRE(r.until("\r\nINFO ", ms(3000), from));
+    CHECK_EQ(r.machine->bus().peek(0xC5B0), 0x0F); // USB_IEN: the layout-2 area's events on
+    REQUIRE(r.until("\r\nFL ", ms(3000), from));
+    r.run(ms(5));
+    r.watch = nullptr;
+    CHECK(injected);
+    CHECK_EQ(r.machine->bus().peek(0xC5B0), 0x0F); // still: no DEAFEN for the flush's byte
+    ran(r, from);
+}
+
+TEST(a_byte_held_with_the_receive_interrupt_off_is_found_by_function_7)
+{
+    // Round 1's S2: the ring empty, the receiver's interrupt turned off behind OODOS's back (as the monitor's
+    // $0B or a program's write leaves it, not a full ring), and a byte held in the chip, which raises nothing:
+    // function 7 (TTYIST) looks at the chip itself (TTYPULL, keyed on CMD bit 1), so it says $FF and 3 gets
+    // the byte; the interrupt is on again, and the line takes a stream after it.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "sertest.com", " P04");
+    r.run(ms(20)); // SERTEST busy, CONIN: on CRT alone: nothing reads TTY now
+    r.machine->bus().write(0xC302, static_cast<uint8_t>(r.acia().command() | Acia6551::CMD_RX_IRQ_OFF));
+    REQUIRE(r.acia().receive('Q'));
+    CHECK(!r.acia().irq());
+    REQUIRE(r.until("\r\nN ", ms(4000), from));
+    CHECK_EQ(r.acia().command() & Acia6551::CMD_RX_IRQ_OFF, 0);
+    const std::string after = pattern(20, 13);
+    r.serial_paced(after);
+    const std::string o = ran(r, from);
+    CHECK_EQ(field(o, "N"), sums("Q"));
+    CHECK_EQ(field(o, "N2"), sums(after, "2"));
+    CHECK_EQ(r.acia().overruns(), 0u);
+}
+
 int main() { return run_all(); }

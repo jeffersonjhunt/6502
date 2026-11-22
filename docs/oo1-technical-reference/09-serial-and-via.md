@@ -395,8 +395,10 @@ R/W.
 The BIOS writes `$0B`: DTR on, the receive interrupt off, the transmitter on, no parity, no echo. A program under the
 monitor that turns the receive interrupt on brings its own IRQ handler ([chapter 4](04-interrupts.md#irq-and-nmi)),
 and turns it off again before it leaves. **OODOS** (0.15 on) keeps `$09`, the receive interrupt on, for its receive
-buffer ([chapter 4](04-interrupts.md#under-oodos)): the command register is OODOS's, and the warm boot puts `$09`
-back whatever a program wrote. The 6551 doesn't hear /RESET: the BIOS writes `$0B` again when it boots and when the
+buffer ([chapter 4](04-interrupts.md#under-oodos)): the command register is OODOS's. The warm boot sets the
+transmitter's control back to `%10` and the receive interrupt to OODOS's (on, off while the ring is full), keeps the
+other bits as a program left them (parity, echo and DTR: a program that clears DTR leaves the receiver off until
+DEVINI), and empties the ring. The 6551 doesn't hear /RESET: the BIOS writes `$0B` again when it boots and when the
 monitor starts, but the reset that enters Apple II mode runs the IIe's ROM, which leaves CMD as it was.
 
 <a id="reg-c303"></a>

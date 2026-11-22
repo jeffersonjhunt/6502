@@ -492,8 +492,9 @@ CALL61:         LDA     NB_WIN2
 ; The debug build's counters, in block 61 (BIOS), reached by CALL61 (L3's
 ; step (b): out of common memory, which L3 needs; out of block 62 since the
 ; serial line's receive buffer, which needs its room there). Each keeps Y.
-; Going through CALL61 adds about 40 cycles to each hook's measured cost
-; (the switch back after HKON, and to HOOKCOST before its count).
+; Going through CALL61 adds about 48 cycles to each hook's measured cost
+; (the switch back after HKON, and to HOOKCOST before its count): the tick
+; hook of test_oodos_clock_debug measures 479, against 431 with neither.
 .segment "BIOS"
 
 ; Hook Y's call: timer 1's count and MS's low byte, for HOOKCOST.
