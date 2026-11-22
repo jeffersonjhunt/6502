@@ -150,6 +150,8 @@ oodos/README.md                                 docs
 oodos/sys/test/w1htest.s                        test_oodos_sys test_oodos_input test_oodos_clock test_oodos_utils_rom
 # T1TEST, the program's timer 1 (N9): only test_oodos_clock runs it.
 oodos/sys/test/t1test.s                         test_oodos_clock
+# RNDTEST, function 78's (N11): only test_oodos_random runs it.
+oodos/sys/test/rndtest.s                        test_oodos_random
 oodos/                                          oodos docs
 docs/                                           docs
 apple1/README.md                                none

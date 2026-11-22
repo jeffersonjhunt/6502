@@ -64,10 +64,11 @@
 .import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
 .import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
 .import VBON                           ; video.s's
-.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
+.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, F_RANDOM, CALL61, CALLHOOK, HOOKADDR, SETHOOK
 .export HK, DHON, DMACTL, WBDMA
 .import DMAWARM                        ; video.s's (block 61)
 .import RXDEAF, RXFLUSH                ; serial.s's (block 62)
+.import RNGOK, RNGNEW, RNGBYTE         ; bios.s's: 78's driver
 .export CLOCKS, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
@@ -920,6 +921,41 @@ FT_WAITX:       LDA     CLOCKS
                 JSR     SNAPIT
                 LDA     SNAP + 4
                 LDX     SNAP + 5
+                RTS
+@no:            JMP     RETFF
+
+; 78: the random source (interface 17; hw/future/random-source.md). X = 0: A
+; is the operation; else A/X a block, its +0 the operation. RN_INFO: A the
+; RS_* bits (0: no chip), X 0. RN_FILL (a block): +1 n (1-255), n bytes of the
+; chip's to +2 on; A = X = 0, or $FF $FF refused (n 0, no source, the chip
+; failed twice: the bytes at +2 then undefined). Waits on the bridge (its
+; driver, bios.s's RNGBYTE) with interrupts on.
+F_RANDOM:       LDX     PX
+                BEQ     @op
+                JSR     PGET           ; the block's +0; PP then at +1
+@op:            CMP     #RN_INFO
+                BNE     @fill
+                JSR     RNGOK
+                LDX     #0
+                RTS
+@fill:          CMP     #RN_FILL
+                BNE     @no
+                LDX     PX
+                BEQ     @no            ; RN_FILL takes a block
+                JSR     PGET           ; n
+                CMP     #0
+                BEQ     @no
+                STA     T0
+                JSR     RNGOK
+                BCS     @no            ; no source
+                JSR     RNGNEW
+@byte:          JSR     RNGBYTE
+                BCS     @no
+                JSR     PPUT
+                DEC     T0
+                BNE     @byte
+                LDA     #0
+                TAX
                 RTS
 @no:            JMP     RETFF
 

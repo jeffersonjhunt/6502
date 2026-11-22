@@ -404,7 +404,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial test_oodos_random)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     emu_suite_properties(${name} TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -1010,6 +1010,7 @@ set(EMU_TEST_LABELS
     test_oodos_mu               "oodos bios sd sound sid backplane"
     test_oodos_c                "oodos bios sd backplane"
     test_oodos_sysinfo          "oodos bios sd video sound usb rtc console backplane"
+    test_oodos_random           "oodos rng bridge backplane"
     test_oodos_serial           "oodos bios sd acia backplane"
     test_oodos_model            "oodos bios sd backplane"
     test_oodos_model_py         "oodos"

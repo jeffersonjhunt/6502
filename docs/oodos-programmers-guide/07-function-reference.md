@@ -3104,6 +3104,66 @@ version: a program that must tell the two apart asks [function 80's](#bdos-80) `
 
 OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
 
+<a id="bdos-78"></a>
+### 78 O_RANDOM: the random source
+
+#### Entry
+
+- Y = 78 (`O_RANDOM`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation. A block is never
+  in the zero page or the stack, so its address's high byte is never 0. The operations are oodos.inc's `RN_` names:
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `RN_INFO` | none | says whether there is a source |
+  | 1 | `RN_FILL` | +1 n (1–255); the bytes land at +2 on | fills n bytes from the chip |
+
+#### Exit
+
+- `RN_INFO`: A is `RS_CHIP` (`$01`: a locked chip on north bridge revision 3, so a source), `RS_UNLOCKED` (`$02`: a
+  chip whose configuration isn't locked, so no source) and `RS_FAULT` (`$04`: its last draw failed), ORed; 0 is no
+  chip. X = 0.
+- `RN_FILL`: A = X = 0, and the n bytes at +2 to +1 + n are the chip's. Nothing past +1 + n is written.
+- A = X = `$FF`: refused: an operation it doesn't have, `RN_FILL` without a block or with n 0, no source (`RN_INFO`
+  not `RS_CHIP`), or the chip failed twice in the call. After a refusal of a fill under way the bytes at +2 on are
+  undefined.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None but the refusal above.
+
+#### Side effects
+
+The bytes come from a pool of 32 that the north bridge keeps filled from the ATECC608B on its I²C bus
+([the Technical Reference, chapter 11](../oo1-technical-reference/11-north-bridge-and-rtc.md#reg-c699)). Taking the
+pool's last byte starts the bridge's next draw, about 26 ms for 32 bytes, and `RN_FILL` waits for it with interrupts
+on, at most 400 ms a byte. If the bridge reports a draw's failure (three tries), the call asks it once for a fresh
+draw; a second failure refuses the call.
+
+A 16-bit number is an `RN_FILL` of 2. For many numbers a frame, or a sequence to replay from a seed, take a seed
+from here and run a generator of the program's own: the chip gives about 1,200 bytes a second.
+
+#### Cycles
+
+About 600 for the call and 20 a byte while the pool lasts; a refill about 26 ms. Not measured.
+
+#### Since
+
+OODOS 0.16 (interface version 17, function 80's `FT_INFO`).
+
+An OODOS before it hasn't function 78 and answers it as any function it hasn't, A = X = `$FF`: a program checks
+[function 80's](#bdos-80) `FT_INFO` for interface 17 first.
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 78 (OODOS's range, 72 on).
+
 <a id="bdos-80"></a>
 ### 80 O_FRAME: frame and timing
 

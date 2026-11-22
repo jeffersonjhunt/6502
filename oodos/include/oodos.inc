@@ -356,6 +356,15 @@ SR_COM1         = $01                  ; SR_INFO's ports: bit n port n (0, COM1)
 SR_PORTS        = 1                    ; the ports there are: 0 only
 SF_STOPPED      = $01                  ; SR_STATUS's flags: the ring full, the receiver stopped until a byte is read
 
+; Function 78's operations (OODOS 0.16, interface 17; the random source on
+; north bridge revision 3): X = 0, A is the operation; else A/X a block, +0
+; the operation. A = X = $FF for one that isn't, or refused.
+RN_INFO         = 0                    ; A = RS_* (0: no chip), X = 0
+RN_FILL         = 1                    ; a block: +1 n (1-255), n bytes to +2 on; A = X = 0, or $FF $FF refused
+RS_CHIP         = $01                  ; RN_INFO: a locked chip: a source
+RS_UNLOCKED     = $02                  ; RN_INFO: a chip that isn't locked: no source
+RS_FAULT        = $04                  ; RN_INFO: its last draw failed
+
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
 P_TERMCPM       = 0
@@ -440,6 +449,7 @@ O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode, 2 its diagnostics (X the options; interface 10), 3 Apple II mode with ROM A's image X (interface 11)
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 O_ROMVER        = 77                   ; the ROM BIOS's version: A major, X minor; $FF $FF unknown (interface 9)
+O_RANDOM        = 78                   ; the random source: the ATECC608B on north bridge revision 3 (interface 17)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)

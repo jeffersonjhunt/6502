@@ -104,11 +104,13 @@
 
 .setcpu "65C02"
 .include "sys.inc"
+.include "oodos.inc"                    ; 78's RS_ names (RNGOK)
 .import WARM, COLD
 .import CRTINIT, CRTOUT
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
+.export RNGOK, RNGNEW, RNGBYTE
 .export NB3CHK, BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .export RAWF, DRVAPL, MNTGEN           ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
@@ -168,6 +170,8 @@ TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
+RNGW:           .res    2              ; RNGBYTE's wait: MS0-MS1 at its start
+RNGD:           .res    1              ; 1 once this call has written DRAW (RNGBYTE's one retry)
 RAWF:           .res    1              ; not 0: function 76's READ or WRITE, a DOS 3.3 sector (6d)
 MNTGEN:         .res    SD_DRIVES      ; each unit's mount changes, counted (UNITS), never cleared
 D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
@@ -2190,6 +2194,97 @@ BIN2BCD:        LDY     #0             ; A (0-99): tens in Y
                 RTS
 
 ; ---------------------------------------------------------------------------
+; The random source (hw/future/random-source.md, "The BIOS's driver"): the
+; north bridge's pool of the ATECC608B's bytes, by its registers, beside
+; TIME as TIME drives SET: a register read, a bounded poll. Not a jump-table
+; entry: function 78 is the interface. Interrupts stay as they are.
+;
+; RNGOK: RN_INFO's answer in A (RS_CHIP: a locked chip, a source;
+; RS_UNLOCKED; RS_FAULT: its last draw failed), carry clear if it is a
+; source. NB_ID $D3 (NB3CHK made sure of it at the cold boot), RNGST's CHIP
+; and LOCKED. A only.
+RNGOK:          LDA     NB_ID
+                CMP     #NB_ID_V3
+                BNE     @none
+                LDA     NB_RNGST
+                BIT     #NB_RNG_CHIP
+                BEQ     @none
+                BIT     #NB_RNG_LOCKED
+                BEQ     @unlocked
+                AND     #NB_RNG_FAULT
+                BEQ     @chip
+                LDA     #RS_CHIP | RS_FAULT
+                CLC
+                RTS
+@chip:          LDA     #RS_CHIP
+                CLC
+                RTS
+@unlocked:      AND     #NB_RNG_FAULT
+                BEQ     @u
+                LDA     #RS_UNLOCKED | RS_FAULT
+                SEC
+                RTS
+@u:             LDA     #RS_UNLOCKED
+                SEC
+                RTS
+@none:          LDA     #0
+                SEC
+                RTS
+.assert NB_RNG_FAULT = $10 && RS_FAULT = $04, error, "RNGOK's FAULT: RNGST's bit 4, RS_FAULT bit 2"
+
+; RNGNEW: a call's start: its one DRAW not yet written.
+RNGNEW:         STZ     RNGD
+                RTS
+
+; RNGBYTE: the pool's next byte in A, carry clear; carry set if the source
+; failed. It waits for READY or FAULT, at most RNG_MS by the bridge's
+; counter (longer than the bridge's three tries at their give-up, about
+; 310 ms, so it sees FAULT rather than racing the retries). On FAULT it
+; writes DRAW once in the call (RNGD) and waits again; a second failure, or
+; the wait running out, fails it. RNGDATA read with a load: its read takes
+; the byte. A and X.
+RNG_MS          = 400
+RNGBYTE:        JSR     @now           ; the wait's start
+                STA     RNGW
+                STX     RNGW + 1
+@poll:          LDA     NB_RNGST
+                BMI     @ready         ; READY
+                AND     #NB_RNG_FAULT
+                BNE     @fault
+                JSR     @now           ; now - start, against RNG_MS
+                SEC
+                SBC     RNGW
+                TXA
+                SBC     RNGW + 1
+                CMP     #>RNG_MS
+                BCC     @poll
+                BNE     @fail
+                JSR     @now
+                SEC
+                SBC     RNGW
+                CMP     #<RNG_MS
+                BCC     @poll
+@fail:          SEC
+                RTS
+@fault:         LDA     RNGD
+                BNE     @fail          ; DRAW written once already
+                INC     RNGD
+                LDA     #NB_RNG_DRAW   ; FAULT cleared, a fresh draw
+                STA     NB_RNGST
+                BRA     RNGBYTE
+@ready:         LDA     NB_RNGDATA
+                CLC
+                RTS
+.assert NB_RNG_READY = $80, error, "RNGBYTE tests READY by BMI"
+; The bridge's MS0-MS1 in A and X, MS0 first (its read latches MS1), with
+; interrupts off between (a handler's read of MS0 would take a new latch).
+@now:           PHP
+                SEI
+                LDA     NB_MS0
+                LDX     NB_MS1
+                PLP
+                RTS
+
 ; Cold boot's part (block 62's COLD calls these)
 
 ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen and the 6551, A and X kept

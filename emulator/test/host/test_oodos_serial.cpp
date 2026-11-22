@@ -97,26 +97,30 @@ namespace
     Passes time_passes(Rig &r, const std::function<bool()> &done, uint64_t budget)
     {
         Passes out;
-        const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
+        const uint16_t irq = sym("IRQ"), end = sym("IRQEND"), tick = sym("TICK");
+        bool ticked = false;
         const uint32_t frames = SYS_BLOCK_PHYS + sym("FRAMES");
         uint64_t c0 = 0;
         uint8_t head = 0, f = 0;
         uint32_t m = 0;
         bool in = false;
         r.watch = [&](uint16_t pc) {
+            if (pc == tick)
+                ticked = true;
             if (pc == irq)
             {
                 c0 = r.cpu->cycles() - 7;
                 head = rxhead(r);
                 f = r.phys(frames);
                 m = ms_count(r);
+                ticked = false;
                 in = true;
             }
             else if (pc == end && in)
             {
                 const unsigned c = static_cast<unsigned>(r.cpu->cycles() + 6 - c0);
                 out.longest = std::max(out.longest, c);
-                if (rxhead(r) == static_cast<uint8_t>(head + 1) && r.phys(frames) == f && ms_count(r) == m)
+                if (rxhead(r) == static_cast<uint8_t>(head + 1) && r.phys(frames) == f && ms_count(r) == m && !ticked)
                     ++out.bytes[c];
                 in = false;
             }
