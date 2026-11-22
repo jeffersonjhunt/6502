@@ -455,6 +455,76 @@ TEST(a_program_reads_the_time_and_takes_the_tick_interrupt)
     std::remove(opt.rom_override.c_str());
 }
 
+TEST(the_clock_keeps_its_second_through_draws)
+{
+    // Random source C5 (hw/future/random-source.md), on a revision 3 bridge: a program drains the random pool for
+    // 5 s straight, so draws run back to back on the bus the clock shares. Each second's read still lands: TICK
+    // each second, SEC one on each time, and RTCCTL's BUSY never held by a draw: at most a Refresh's 132 bits
+    // and the one chip transaction it waited behind (a response, 326). Must fail with one BUSY shared by both,
+    // or a draw sent as one long transaction.
+    MachineOptions opt;
+    opt.rtc = std::make_shared<Ds3231>(START);
+    std::string error;
+    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel revision=3\nram 00000-FFFFF module=0\n",
+                            "rtc3.machine", opt, error);
+    REQUIRE(m != nullptr);
+    BackplaneBridge *bridge = m->backplane_bridge();
+    bridge->set_cpu_hz(HZ); // a bit a cycle
+    Decoder &bus = m->bus();
+    bus.reset();
+    constexpr uint16_t RNGST = NB + BackplaneBridge::RNGST, RNGDATA = NB + BackplaneBridge::RNGDATA;
+    unsigned seconds = 0, ticks = 0, wrong = 0, taken = 0;
+    uint64_t since = 0, longest = 0, total = 0, last = 0;
+    bool busy = false;
+    uint8_t sec = bus.read(SEC);
+    const uint64_t end = bus.now() + 5ull * HZ;
+    while (bus.now() < end)
+    {
+        for (int i = 0; i < 4; ++i)
+            bus.idle();
+        bus.sync();
+        if (bridge->rtcctl() & BackplaneBridge::RTC_BUSY)
+        {
+            total += bus.now() - last;
+            if (!busy)
+                since = bus.now();
+            busy = true;
+            longest = std::max(longest, bus.now() - since);
+        }
+        else
+            busy = false;
+        last = bus.now();
+        if (bridge->rtcctl() & BackplaneBridge::RTC_TICK)
+        {
+            ++ticks;
+            bus.write(RTCCTL, BackplaneBridge::RTC_TICK);
+        }
+        if (bus.read(RNGST) & BackplaneBridge::RNG_READY)
+        {
+            bus.read(RNGDATA);
+            ++taken;
+        }
+        const uint8_t now = bus.read(SEC);
+        if (now != sec)
+        {
+            ++seconds;
+            const unsigned want = ((sec >> 4) * 10 + (sec & 15) + 1) % 60;
+            if ((now >> 4) * 10u + (now & 15u) != want)
+                ++wrong;
+            sec = now;
+        }
+    }
+    std::printf("  %u seconds, %u ticks, %u bytes drawn (%u draws), RTCCTL's BUSY at most %llu bits, %llu in all\n",
+                seconds, ticks, taken, bridge->rng_counts().draws, static_cast<unsigned long long>(longest),
+                static_cast<unsigned long long>(total));
+    CHECK(seconds >= 4 && seconds <= 5);
+    CHECK_EQ(ticks, seconds);
+    CHECK_EQ(wrong, 0u);
+    CHECK(bridge->rng_counts().draws >= 100);
+    CHECK(longest <= BackplaneBridge::REFRESH_BITS + 9 * 34 + 1 + 12); // (+ the loop's 12 cycles a pass)
+    CHECK(total <= (seconds + 1) * (BackplaneBridge::REFRESH_BITS + 9 * 34 + 1 + 12)); // the clock's alone
+}
+
 TEST(a_session_keeps_the_clock_through_a_power_cycle)
 {
     const std::string image = flash_image({0xDB}, 0xC800); // STP

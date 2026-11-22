@@ -27,8 +27,8 @@
  *
  * - Revision 3, ID $D3 (hw/future/north-bridge-rev3.md, random-source.md):
  *   revision 2's registers, the timebase ($1C-$1D, $28-$2E, below) and in
- *   time the random source ($19-$1B, reading $FF until it is built). RTCCTL's
- *   TIE reads 0 and ignores writes: the 1 Hz TICK can't interrupt.
+ *   the random source ($19-$1B, below). RTCCTL's TIE reads 0 and ignores
+ *   writes: the 1 Hz TICK can't interrupt.
  *
  * - Revision 2, ID $D2 (hw/design.md, "The video aperture moved out of
  *   RAM"): WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
@@ -57,7 +57,8 @@
  *
  *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS   $07 RTCCTL
  *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
- *   $17 RTCREG   $18 RTCDATA   $1C/$1D MSSL/MSSH   $20-$23 WIN0H-WIN3H
+ *   $17 RTCREG   $18 RTCDATA   $19-$1B RNGST RNGCNT RNGDATA
+ *   $1C/$1D MSSL/MSSH   $20-$23 WIN0H-WIN3H
  *   $24 VECH   $25 MAP   $28 TBCTL   $29-$2C MS0-MS3   $2D/$2E TBSUBL/H
  *   $7F ID (WIN0H-MAP on revision 2 or more)
  *
@@ -125,6 +126,26 @@
  * clears MS and the divider (they start at the release); a /RESET pulse
  * leaves them; any reset clears MSF, OVR and MSIE. peek() takes no latch.
  *
+ * The random source (revision 3; hw/future/random-source.md): an ATECC608B
+ * (atecc608.h) on the same I²C bus, driven by the bridge alone, which keeps
+ * a pool of 32 bytes. A draw is a run of short transactions with the bus free
+ * between them, queued with the clock's one at a time and timed by their bits:
+ * the wake byte ($00 at 100 kHz, SDA low 80 µs), 1.5 ms, the wake check (a
+ * 4-byte read: $04 $11 $33 $43), the Random command (a constant group), a poll
+ * 1 ms after it and every 1 ms (a NAK while the chip works) up to 100 ms, the
+ * response (count 35: 32 bytes and a CRC, checked), then sleep. A failed try
+ * ends with sleep and the I²C software reset, and is tried again from the
+ * wake: three tries, then FAULT and an empty pool. RNGST: READY (a byte in the
+ * pool), CHIP, LOCKED, FAULT, BUSY (a draw under way); DRAW (a 1 written)
+ * clears FAULT and, unless a draw is under way, empties the pool and draws.
+ * Taking the pool's last byte from RNGDATA starts a draw, unless FAULT is set;
+ * RNGDATA reads $00 with the pool empty. RTCCTL's BUSY is the clock's
+ * transactions alone. At power-on the set-up (wake, the lock byte's Read,
+ * and on a locked chip the first draw) is done at once, as the clock's, so the
+ * first instruction finds 32 bytes; a chip that doesn't answer is CHIP clear
+ * and never addressed again, and an unlocked one is never drawn from. A later
+ * reset keeps the pool. peek() takes no byte.
+ *
  * At power-on (the first reset) the bridge sets the square wave to 1 Hz
  * (INTCN and RS cleared, the rest of the control register kept) and reads
  * the time, all while /RESET is held, so the first instruction sees a
@@ -146,6 +167,7 @@
 #include <string>
 
 #include "apple_io.h"
+#include "atecc608.h"
 #include "decoder.h"
 #include "device.h"
 #include "ds3231.h"
@@ -184,6 +206,9 @@ namespace ooe::emu
             WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23 (revision 2)
             VECH = 0x24,  ///< revision 2
             MAP = 0x25,   ///< revision 2
+            RNGST = 0x19, ///< revision 3: the random source
+            RNGCNT = 0x1A,
+            RNGDATA = 0x1B,
             MSSL = 0x1C,  ///< revision 3: MSS from SEC's latch
             MSSH = 0x1D,
             TBCTL = 0x28, ///< revision 3: the timebase
@@ -207,6 +232,20 @@ namespace ooe::emu
         static constexpr uint64_t OSC_11MS = 157'500;         ///< OSC clocks in 11 ms: 9 ticks of 14,318, 2 of 14,319
         static constexpr uint64_t SYNC_OSC = 1100 * OSC_11MS / 11; ///< SYNC's timeout, 1.1 s of OSC
         static constexpr unsigned MSS_MAX = 999;
+        // RNGST (revision 3)
+        static constexpr uint8_t RNG_READY = 0x80, RNG_CHIP = 0x40, RNG_LOCKED = 0x20, RNG_FAULT = 0x10,
+                                 RNG_BUSY = 0x01, RNG_DRAW = 0x01;
+        static constexpr unsigned POOL = 32, TRIES = 3;
+        static constexpr uint32_t WAKE_HZ = 100'000;   ///< the wake byte's rate
+        static constexpr uint32_t WAKE_LOW_US = 80;    ///< SDA low for the $00 byte at 100 kHz
+        static constexpr uint32_t WAKE_DELAY_US = 1'500, POLL_US = 1'000, GIVE_UP_US = 100'000;
+        // The chip's transactions, in bits (9 a byte, 1 for each START and STOP)
+        static constexpr unsigned WAKE_BITS = 11;    ///< at WAKE_HZ
+        static constexpr unsigned CHECK_BITS = 47;   ///< START, address, 4 bytes, STOP
+        static constexpr unsigned COMMAND_BITS = 83; ///< START, address, word address, 7 bytes, STOP
+        static constexpr unsigned POLL_BITS = 11;    ///< START, address, and its ACK or NAK
+        static constexpr unsigned SLEEP_BITS = 20;   ///< START, address, word address, STOP
+        static constexpr unsigned RESET_BITS = 12;   ///< START, nine SCL pulses, START, STOP
         static constexpr uint32_t NATIVE_HZ = 7'159'090; ///< 14.31818 MHz / 2
         static constexpr uint32_t I2C_HZ = 400'000;
         // I²C bits a transaction takes: 9 a byte, one for each START, repeated START and STOP.
@@ -314,6 +353,25 @@ namespace ooe::emu
         /// The counter, TBCTL, MSS and SYNC in words, for the debugger.
         std::string describe_timebase() const;
 
+        // The random source (revision 3)
+        /// The chip fitted (a locked one, the fixed stream, by default; nullptr: none). Before the first
+        /// reset: the power-on set-up is the chip's.
+        void set_rng_chip(std::unique_ptr<Atecc608> chip) { chip_ = std::move(chip); }
+        /// The chip, for tests' fault injection (nullptr: none).
+        Atecc608 *rng_chip() { return chip_.get(); }
+        uint8_t rngst() const;
+        size_t pool_size() const { return pool_.size(); }
+        /// What the engine did: draws started, tries failed, polls made, and for the last draw the cycles from
+        /// the command's end to its first poll.
+        struct RngCounts
+        {
+            unsigned draws{0}, failures{0}, polls{0};
+            uint64_t first_poll{0};
+        };
+        const RngCounts &rng_counts() const { return counts_; }
+        /// RNGST, the pool and the counts in words, for the debugger.
+        std::string describe_random() const;
+
     private:
         /// The DS3231's control bits that pick SQW: the bridge's, kept 0.
         static constexpr uint8_t SQW_BITS = Ds3231::INTCN | Ds3231::RS2 | Ds3231::RS1;
@@ -324,6 +382,21 @@ namespace ooe::emu
             Set,     ///< write the time, clear OSF
             Read,    ///< RTCREG into RTCDATA
             Write,   ///< RTCDATA to RTCREG, read back
+            // The random source's: never RTCCTL's BUSY
+            Wake,     ///< the $00 byte at 100 kHz
+            Check,    ///< the wake answer read
+            Command,  ///< Random, or the lock byte's Read (reg 1)
+            Poll,     ///< the address, for a read: ACK or NAK
+            Response, ///< the rest of the group (reg: its count)
+            Sleep,    ///< word address $01
+            SwReset,  ///< the I²C software reset
+        };
+        /// What follows a draw's sleep.
+        enum class After : uint8_t
+        {
+            Done,  ///< the pool filled, or the set-up over
+            Retry, ///< the software reset, then the wake again
+            Fault, ///< three tries failed
         };
         struct Transaction
         {
@@ -336,7 +409,12 @@ namespace ooe::emu
         void apply_reset();
         void rtc_reset();
         void retime();
-        uint64_t cost(Op op) const;
+        uint64_t cost(const Transaction &t) const;
+        static bool clock_op(Op op) { return op <= Op::Write; }
+        void rng_start();
+        void rng_fail();
+        void rng_after(Op op, uint32_t us); ///< `op` queued `us` after now
+        void rng_now();                     ///< the power-on set-up, run at once
         void queue(const Transaction &t);
         void finish(const Transaction &t);
         void read_time();
@@ -391,5 +469,20 @@ namespace ooe::emu
         bool synced_{false};             ///< an edge's read has landed since power-on
         int64_t r_osc_{0};               ///< R: where MSS counts from
         uint64_t edge_osc_{0};           ///< the last SQW edge
+
+        // The random source
+        std::unique_ptr<Atecc608> chip_;
+        std::deque<uint8_t> pool_;
+        bool rng_chip_{false}, rng_locked_{false}, rng_fault_{false}, drawing_{false};
+        bool setup_{false};               ///< the power-on set-up: the lock byte's Read first
+        bool reading_lock_{false};        ///< the command under way is the lock byte's Read
+        unsigned try_{0};
+        After after_{After::Done};
+        uint64_t rng_wait_{0};            ///< cycles until rng_next_ is queued (0: nothing waits)
+        Op rng_next_{Op::Wake};
+        uint64_t since_command_{0};       ///< cycles since the command's end, for the give-up
+        bool first_poll_{false};
+        std::vector<uint8_t> resp_;
+        RngCounts counts_;
     };
 } // namespace ooe::emu

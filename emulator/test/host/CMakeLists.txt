@@ -938,7 +938,7 @@ set(EMU_TEST_LABELS
     test_ds3231                 "emu rtc"
     test_rtc                    "emu rtc bridge debug backplane"
     test_nb_timebase            "emu bridge rtc dma video backplane"
-    test_nb_random              "emu bridge rng"
+    test_nb_random              "emu bridge rng video backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
     test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
     test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"

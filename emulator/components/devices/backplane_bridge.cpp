@@ -22,10 +22,20 @@ namespace ooe::emu
         constexpr uint32_t WINDOW_MASK = (1u << WINDOW_SHIFT) - 1;
     } // namespace
 
+    namespace
+    {
+        // The two commands the bridge sends, each a constant group with its CRC.
+        const std::vector<uint8_t> RANDOM_GROUP = {0x07, Atecc608::OP_RANDOM, 0x00, 0x00, 0x00, 0x24, 0xCD};
+        const std::vector<uint8_t> LOCK_GROUP = {0x07, Atecc608::OP_READ, 0x00, 0x15, 0x00, 0x17, 0x5D};
+        const std::vector<uint8_t> WAKE_ANSWER = {0x04, Atecc608::ST_WOKEN, 0x33, 0x43};
+    } // namespace
+
     BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc, uint8_t revision)
         : revision_(revision == WIDE || revision == 3 ? revision : uint8_t{1}), bootsel_(bootsel),
           rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
     {
+        if (revision_ >= TIMEBASE)
+            chip_ = std::make_unique<Atecc608>();
         apply_reset();
         retime();
     }
@@ -63,6 +73,14 @@ namespace ooe::emu
             r_osc_ = 0;
             edge_osc_ = 0;
             synced_ = false;
+            // The random source's set-up, all while /RESET is held.
+            if (timebase() && chip_)
+            {
+                chip_->set_cpu_hz(hz_);
+                setup_ = true;
+                rng_start();
+                rng_now();
+            }
         }
         reset_seen_ = true;
         // A hard reset: the counter and the divider held at 0, starting at the release.
@@ -162,6 +180,16 @@ namespace ooe::emu
             ms_latch_ = ms_;
             tbsub_latch_ = static_cast<uint16_t>((osc_ - tick_at(ticks_)) / 2);
         }
+        if (offset == RNGDATA && timebase())
+        {
+            if (pool_.empty())
+                return 0x00; // nothing taken
+            const uint8_t b = pool_.front();
+            pool_.pop_front();
+            if (pool_.empty() && !rng_fault_ && !drawing_ && rng_locked_)
+                rng_start(); // the last byte: refill
+            return b;
+        }
         return peek(offset);
     }
 
@@ -214,6 +242,12 @@ namespace ooe::emu
             return wide() ? vech_ : 0xFF;
         case MAP:
             return wide() ? map_ : 0xFF;
+        case RNGST:
+            return timebase() ? rngst() : uint8_t{0xFF};
+        case RNGCNT:
+            return timebase() ? static_cast<uint8_t>(pool_.size()) : uint8_t{0xFF};
+        case RNGDATA:
+            return timebase() ? (pool_.empty() ? uint8_t{0x00} : pool_.front()) : uint8_t{0xFF};
         case MSSL:
             return timebase() ? static_cast<uint8_t>(mss_latch_) : uint8_t{0xFF};
         case MSSH:
@@ -310,6 +344,17 @@ namespace ooe::emu
             if (wide())
                 map_ = static_cast<uint8_t>(data & MAP_AP8);
             break;
+        case RNGST:
+            if (timebase() && (data & RNG_DRAW))
+            {
+                rng_fault_ = false;
+                if (!drawing_ && rng_locked_)
+                {
+                    pool_.clear();
+                    rng_start();
+                }
+            }
+            break;
         case TBCTL:
             if (timebase())
             {
@@ -339,6 +384,11 @@ namespace ooe::emu
         const uint32_t hz = apple() ? APPLE_HZ : cpu_hz_;
         if (!queue_.empty())
             left_ = (left_ * hz + hz_ - 1) / hz_;
+        if (rng_wait_)
+            rng_wait_ = std::max<uint64_t>(1, (rng_wait_ * hz + hz_ - 1) / hz_);
+        since_command_ = since_command_ * hz / hz_;
+        if (chip_)
+            chip_->set_cpu_hz(hz);
         hz_ = hz;
         rtc_->set_cpu_hz(hz);
         osc_rate();
@@ -403,10 +453,10 @@ namespace ooe::emu
                                     (sync ? TB_SYNC : 0));
     }
 
-    uint64_t BackplaneBridge::cost(Op op) const
+    uint64_t BackplaneBridge::cost(const Transaction &t) const
     {
         unsigned bits = 0;
-        switch (op)
+        switch (t.op)
         {
         case Op::Refresh:
             bits = REFRESH_BITS;
@@ -420,6 +470,26 @@ namespace ooe::emu
         case Op::Write:
             bits = WRITE_BITS + 9 + READ_BITS + 9;
             break;
+        case Op::Wake:
+            return (uint64_t{WAKE_BITS} * hz_ + WAKE_HZ - 1) / WAKE_HZ;
+        case Op::Check:
+            bits = CHECK_BITS;
+            break;
+        case Op::Command:
+            bits = COMMAND_BITS;
+            break;
+        case Op::Poll:
+            bits = POLL_BITS;
+            break;
+        case Op::Response:
+            bits = 9 * (t.reg ? t.reg - 1u : 0u) + 1; // the group's other bytes, and STOP
+            break;
+        case Op::Sleep:
+            bits = SLEEP_BITS;
+            break;
+        case Op::SwReset:
+            bits = RESET_BITS;
+            break;
         }
         return (uint64_t{bits} * hz_ + I2C_HZ - 1) / I2C_HZ;
     }
@@ -431,7 +501,7 @@ namespace ooe::emu
                 if (q.op == Op::Refresh)
                     return; // that edge is missed
         if (queue_.empty())
-            left_ = cost(t.op);
+            left_ = cost(t);
         queue_.push_back(t);
     }
 
@@ -444,17 +514,26 @@ namespace ooe::emu
                 step = std::min(step, left_);
             if (timebase())
                 step = std::min(step, until_tick()); // each tick on its own cycle
+            if (rng_wait_)
+                step = std::min(step, rng_wait_);
             rtc_->advance(step);
+            if (chip_)
+                chip_->advance(step);
             count_osc(step);
+            since_command_ += step;
             cycles -= step;
+            // The random source's wait first: one set by the transaction finishing below starts after this step.
+            const bool waited = rng_wait_ && (rng_wait_ -= step) == 0;
             if (!queue_.empty() && (left_ -= step) == 0)
             {
                 const Transaction t = queue_.front();
                 queue_.pop_front();
                 if (!queue_.empty())
-                    left_ = cost(queue_.front().op);
+                    left_ = cost(queue_.front());
                 finish(t);
             }
+            if (waited)
+                queue(Transaction{rng_next_});
             if (rtc_->take_edge())
             {
                 edge_osc_ = osc_;
@@ -504,7 +583,192 @@ namespace ooe::emu
             if (t.reg == Ds3231::STATUS)
                 status_ = rtc_data_;
             break;
+        case Op::Wake:
+            chip_->wake(uint64_t{WAKE_LOW_US} * hz_ / 1'000'000);
+            rng_after(Op::Check, WAKE_DELAY_US);
+            break;
+        case Op::Check:
+        {
+            std::vector<uint8_t> w;
+            if (chip_->address(true))
+                for (unsigned i = 0; i < WAKE_ANSWER.size(); ++i)
+                    w.push_back(chip_->read());
+            if (w != WAKE_ANSWER)
+            {
+                if (setup_ && try_ == 1 && w.empty())
+                {
+                    // No answer at power-on: no chip, never addressed again.
+                    setup_ = drawing_ = false;
+                    rng_chip_ = false;
+                    chip_.reset();
+                    break;
+                }
+                rng_fail();
+                break;
+            }
+            if (setup_)
+                rng_chip_ = true;
+            Transaction c{Op::Command};
+            reading_lock_ = setup_ && !rng_locked_;
+            c.reg = reading_lock_;
+            queue(c);
+            break;
         }
+        case Op::Command:
+            if (!chip_->address(false))
+            {
+                rng_fail();
+                break;
+            }
+            chip_->write(Atecc608::WA_COMMAND, t.reg ? LOCK_GROUP : RANDOM_GROUP);
+            since_command_ = 0;
+            first_poll_ = true;
+            rng_after(Op::Poll, POLL_US);
+            break;
+        case Op::Poll:
+            ++counts_.polls;
+            if (first_poll_)
+            {
+                // From the command's end to this poll's start.
+                counts_.first_poll = since_command_ - cost(t);
+                first_poll_ = false;
+            }
+            if (chip_->address(true))
+            {
+                resp_.assign(1, chip_->read());
+                Transaction r{Op::Response};
+                r.reg = resp_[0];
+                queue(r);
+            }
+            else if (since_command_ >= uint64_t{GIVE_UP_US} * hz_ / 1'000'000)
+                rng_fail(); // the give-up
+            else
+                rng_after(Op::Poll, POLL_US);
+            break;
+        case Op::Response:
+        {
+            for (unsigned i = 1; i < t.reg; ++i)
+                resp_.push_back(chip_->read());
+            const size_t want = reading_lock_ ? 7 : 3 + POOL;
+            const bool whole = resp_.size() == want && resp_[0] == want &&
+                               Atecc608::crc(resp_.data(), want - 2) == (resp_[want - 2] | resp_[want - 1] << 8);
+            if (!whole)
+            {
+                rng_fail();
+                break;
+            }
+            if (reading_lock_)
+            {
+                reading_lock_ = false;
+                rng_locked_ = resp_[4] != Atecc608::UNLOCKED; // LockConfig, byte 87
+                if (!rng_locked_)
+                {
+                    after_ = After::Done; // never drawn from
+                    queue(Transaction{Op::Sleep});
+                    break;
+                }
+                queue(Transaction{Op::Command}); // the first draw, on the same wake
+                break;
+            }
+            pool_.assign(resp_.begin() + 1, resp_.begin() + 1 + POOL);
+            after_ = After::Done;
+            queue(Transaction{Op::Sleep});
+            break;
+        }
+        case Op::Sleep:
+            if (chip_->address(false))
+                chip_->write(Atecc608::WA_SLEEP, {});
+            if (after_ == After::Retry)
+                queue(Transaction{Op::SwReset});
+            else
+            {
+                if (after_ == After::Fault)
+                    rng_fault_ = true;
+                drawing_ = setup_ = false;
+            }
+            break;
+        case Op::SwReset:
+            queue(Transaction{Op::Wake});
+            break;
+        }
+    }
+
+    void BackplaneBridge::rng_start()
+    {
+        drawing_ = true;
+        try_ = 1;
+        ++counts_.draws;
+        queue(Transaction{Op::Wake});
+    }
+
+    void BackplaneBridge::rng_fail()
+    {
+        ++counts_.failures;
+        if (try_ < TRIES)
+        {
+            ++try_;
+            after_ = After::Retry;
+        }
+        else
+            after_ = After::Fault;
+        queue(Transaction{Op::Sleep});
+    }
+
+    void BackplaneBridge::rng_after(Op op, uint32_t us)
+    {
+        rng_next_ = op;
+        rng_wait_ = std::max<uint64_t>(1, uint64_t{us} * hz_ / 1'000'000);
+    }
+
+    void BackplaneBridge::rng_now()
+    {
+        // Only the set-up's transactions are queued at power-on: run them, and the waits between, at once.
+        while (true)
+        {
+            if (!queue_.empty())
+            {
+                chip_ ? chip_->advance(left_) : void();
+                since_command_ += left_;
+                const Transaction t = queue_.front();
+                queue_.pop_front();
+                if (!queue_.empty())
+                    left_ = cost(queue_.front());
+                finish(t);
+            }
+            else if (rng_wait_)
+            {
+                if (chip_)
+                    chip_->advance(rng_wait_);
+                since_command_ += rng_wait_;
+                rng_wait_ = 0;
+                queue(Transaction{rng_next_});
+            }
+            else
+                break;
+        }
+    }
+
+    uint8_t BackplaneBridge::rngst() const
+    {
+        return static_cast<uint8_t>((pool_.empty() ? 0 : RNG_READY) | (rng_chip_ ? RNG_CHIP : 0) |
+                                    (rng_locked_ ? RNG_LOCKED : 0) | (rng_fault_ ? RNG_FAULT : 0) |
+                                    (drawing_ ? RNG_BUSY : 0));
+    }
+
+    std::string BackplaneBridge::describe_random() const
+    {
+        if (!timebase())
+            return "no random source: the bridge is revision " + std::to_string(revision_) + "\n";
+        const uint8_t st = rngst();
+        std::string flags;
+        for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RNG_READY, " READY"}, {RNG_CHIP, " CHIP"},
+                                        {RNG_LOCKED, " LOCKED"}, {RNG_FAULT, " FAULT"}, {RNG_BUSY, " BUSY"}})
+            if (st & bit)
+                flags += name;
+        char buf[256];
+        std::snprintf(buf, sizeof buf, "RNGST    $%02X%s\npool     %zu bytes  draws %u, tries failed %u\n", st,
+                      flags.c_str(), pool_.size(), counts_.draws, counts_.failures);
+        return buf;
     }
 
     void BackplaneBridge::set_rtc_time(const Ds3231::Time &t, unsigned ms)
@@ -516,10 +780,12 @@ namespace ooe::emu
 
     uint8_t BackplaneBridge::rtcctl() const
     {
-        // SET is a strobe: a pending one shows as BUSY, so writing back what was read can't resend it.
+        // SET is a strobe: a pending one shows as BUSY, so writing back what was read can't resend it. BUSY is
+        // the clock's transactions alone: the random source's have RNGST's.
+        const bool busy = std::any_of(queue_.begin(), queue_.end(), [](const Transaction &t) { return clock_op(t.op); });
         return static_cast<uint8_t>((tick_ ? RTC_TICK : 0) | (tie_ ? RTC_TIE : 0) |
                                     (status_ & (Ds3231::A1F | Ds3231::A2F) ? RTC_ALARM : 0) |
-                                    (status_ & Ds3231::OSF ? RTC_LOST : 0) | (queue_.empty() ? 0 : RTC_BUSY));
+                                    (status_ & Ds3231::OSF ? RTC_LOST : 0) | (busy ? RTC_BUSY : 0));
     }
 
     bool BackplaneBridge::set_pending() const
@@ -558,7 +824,7 @@ namespace ooe::emu
                       (reg(Ds3231::TEMP_LSB) >> 6) * 25, reg(7), reg(8), reg(9), reg(10), reg(11), reg(12), reg(13));
         out += buf;
         if (timebase())
-            out += describe_timebase();
+            out += describe_timebase() + describe_random();
         return out;
     }
 

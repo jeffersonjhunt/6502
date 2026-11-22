@@ -23,7 +23,8 @@
  * (readClock): SEC-YEAR as the bridge last read them from its DS3231, as
  * a date and time, RTCCTL's flags, and the chip's own control, status,
  * alarm, aging and temperature registers; on a revision 3 bridge its
- * timebase too: TBCTL, the millisecond counter, MSS and SYNC.
+ * timebase too: TBCTL, the millisecond counter, MSS and SYNC; and its
+ * random source's RNGST and pool.
  */
 
 import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SdInfo, SoundCpu } from "../port/machine-port";
@@ -144,6 +145,11 @@ export function rtcctlText(v: number, setPending = false): string {
 /** Revision 3's TBCTL in words. */
 export function tbctlText(v: number): string {
   return bits(v, [[0x80, "MSF"], [0x40, "OVR"], [0x20, "MSIE"], [0x10, "SYNC"]]);
+}
+
+/** Revision 3's RNGST in words. */
+export function rngstText(v: number): string {
+  return bits(v, [[0x80, "READY"], [0x40, "CHIP"], [0x20, "LOCKED"], [0x10, "FAULT"], [0x01, "BUSY"]]);
 }
 
 /** The DS3231's control register ($0E) in words. */
@@ -292,7 +298,7 @@ export function devicesView(port: MachinePort) {
     h(
       "p",
       { class: "hint" },
-      "The north bridge's DS3231 (ID D): RTCCTL at $C687, SEC-YEAR at $C690-$C696 (reading SEC latches all seven), RTCREG and RTCDATA at $C697-$C698. Set from this computer's clock when the page opened. On revision 3, the timebase: TBCTL at $C6A8, MS0-MS3 at $C6A9-$C6AC, MSS at $C69C-$C69D.",
+      "The north bridge's DS3231 (ID D): RTCCTL at $C687, SEC-YEAR at $C690-$C696 (reading SEC latches all seven), RTCREG and RTCDATA at $C697-$C698. Set from this computer's clock when the page opened. On revision 3, the timebase: TBCTL at $C6A8, MS0-MS3 at $C6A9-$C6AC, MSS at $C69C-$C69D; and the random source: RNGST, RNGCNT and RNGDATA at $C699-$C69B.",
     ),
   );
 
@@ -437,6 +443,7 @@ export function devicesView(port: MachinePort) {
             ...row("MSS", `${c.timebase.mss}${c.timebase.tbctl & 0x10 ? "" : " · not in step (SYNC clear)"}`),
           ]
         : []),
+      ...(c.random ? row("RNGST", `$${hex(c.random.rngst, 2)}  ${rngstText(c.random.rngst)} · ${c.random.count} bytes in the pool`) : []),
     );
   };
 

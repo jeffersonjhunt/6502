@@ -157,6 +157,8 @@ export interface ClockState {
   chip: Uint8Array;
   /** The timebase, on a revision 3 bridge (none before): TBCTL, the millisecond counter and MSS, read with no latch. */
   timebase?: TimebaseState;
+  /** The random source, on a revision 3 bridge: RNGST and the bytes in its pool. */
+  random?: { rngst: number; count: number };
 }
 
 /** North bridge revision 3's timebase (ClockState.timebase). */

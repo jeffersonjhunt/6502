@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -334,5 +334,10 @@ describe("Devices tab", () => {
     await view.refresh();
     expect(text(rtc, "MSS")).toBe("999 · not in step (SYNC clear)");
     expect(tbctlText(0x00)).toBe("none");
+    expect(rtc.querySelector('[data-reg="RNGST"]')).toBeNull();
+    port.clock = { ...port.clock, random: { rngst: 0xe0, count: 32 } };
+    await view.refresh();
+    expect(text(rtc, "RNGST")).toBe("$E0  READY · CHIP · LOCKED · 32 bytes in the pool");
+    expect(rngstText(0x51)).toBe("CHIP · FAULT · BUSY");
   });
 });
