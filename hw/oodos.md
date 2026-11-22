@@ -6025,7 +6025,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       the noise seed goes, from the BIOS and OODOS on a branch of its own, and 7f's U7 was taken out before 7f
       merged (RND keeps the manual's generator; RANDOMIZE TIMER is the manual's clock seed); the random source
       gets a plan of its own.
-  - **Size:** 6–8 KB banked. *As built: P7 5,740 bytes (6,548 free), below.*
+  - **Size:** 6–8 KB banked. *As built: P7 5,744 bytes (6,544 free), below.*
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.
   - **As built, 7f** (Proposed, 2026-11-21; feat/gwbasic-7f off main `80a70aa6`, the 7f plan with the owner's answers
@@ -6045,7 +6045,7 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       72,704 bytes (568 records); the overlay check covers P7. M: lost the room for two cases' BSAVEs: both now KILL
       `M:GWBASIC.COM` first (answer 14: M: is OODOS's banks C-D, not the rig's to enlarge).
     - **Room** (the lines of answer 10; none crossed): free for BASIC 34,769 (34,768), P1 3,133 (2,500), P2 6,404
-      (6,000), P3 3,172 (3,000), P4 1,265 (1,200), P5 976 (512), P6 623 (600), P7 6,548 (4,000), P8 4,453 (4,000);
+      (6,000), P3 3,172 (3,000), P4 1,265 (1,200), P5 976 (512), P6 623 (600), P7 6,544 (4,000), P8 4,453 (4,000);
       HOMTAB 6 of 9 (HPENST, `p8/sound.s`).
     - **SOUND, BEEP, the reset** (`p7/sound.s`): SOUND translated (37 Hz at least; ticks x 22 in 2.5 ms units;
       OO-1: a negative duration Illegal function call, answer 19, and a negative frequency, the manual's 37-32,767,
@@ -6094,12 +6094,12 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **Console mode** (answer 4): SOUND, PLAY, PLAY(n), PLAY ON/OFF/STOP, STICK, STRIG (all forms), KEY(n) and
       KEY 15-20 are Advanced Feature; ON PLAY(n) and ON STRIG(n) GOSUB set their line (answer 24 item 3: E3 and
       `onev` unchanged); TIMER, ON TIMER, DATE$, TIME$, BEEP (its `SN_BEEP` block watched: review round 1, T5) and PEN work there.
-    - **Cycles** (answer 11's gates, 24's for a note; measured at the merge candidate): NEWSTT 5.00 with no trap
+    - **Cycles** (answer 11's gates, 24's for a note; measured at the merge candidate, main `4fd9ade8` merged in): NEWSTT 5.00 with no trap
       on, 18.00 with one, 18.00 with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
       case, within 30 of it); a PLAY note in MB about 7,700-8,300 (9,000: about 5,000 of it function 82's sends and
-      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,400 (10,000); a key with no trap
+      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,402 (10,000); a key with no trap
       armed, KEYEV less its interrupts and its BDOS calls, A 297 and F1 354 against main `fa501cfb`'s 280 and 340
-      (+30), every press the same; CHAIN 66,584 (main's
+      (+30), every press the same; CHAIN 66,596 (main's
       66,851 re-measured + 400: answer 17); every earlier gate held. `the_key_line_and_soft_keys_cost` measures the
       key line's CLS, KEY and WIDTH and both F1s in one RUN, less interrupts and drain (answers 25, 28, 29): a
       record, not a guard (answer 31; what F1 queues is `a_function_key_types_its_text`'s to guard).
