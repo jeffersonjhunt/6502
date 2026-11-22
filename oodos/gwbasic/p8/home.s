@@ -43,6 +43,7 @@
 .import COMS, LCOPY, POKE, BSAVE, BLOAD
 .import WIDTH, COLOR, CLS, SCREEN, LOCATE, KEY, PSET, PRESET, CIRCLE, PAINT, DRAW, VIEW, WINDOW
 .import SYNCHR, FRMEVL, FRCSNG, PUSHF, POPR, GETBYT, SCRMOD, GFLG, FCERR
+.import SOUND, BEEP, PLAYS, DATES, TIMES, TIMERS
 
 .code
 
@@ -61,11 +62,19 @@ HFINI:          JMP     FINIH
 ; (ERDVGT): ERDEV is its code (the high byte 0, where a PC's has the device's
 ; attributes), 0 before any; ERDEV$ the drive it was on, "A:" to "P:" (the
 ; SCB's error drive, $51), "" before any. Returns as EVAL, past the token,
-; CHRGTR's flags. 7e4: and PMAP (PMAPH, below).
+; CHRGTR's flags. 7e4: and PMAP (PMAPH, below). 7f: DATE$, TIME$, PLAY(n)
+; and TIMER are P7's (XFUNP, one far call, A the token, TXTPTR at it).
 ERDEVP:         INCW    TXTPTR         ; the token
                 LDA     (TXTPTR)
                 CMP     #PMAP_XS
                 BEQ     PMAPH
+                CMP     #ERDEV_XS      ; 7f: not ERDEV or ERDEV$: P7's
+                BEQ     :+
+                CMP     #ERDEVS_XS
+                BEQ     :+
+                FJSR    XFUNP
+                RTS
+:
                 FJSR    ERDVGT         ; RBL: the code
                 STZ     RBH
                 LDA     (TXTPTR)
@@ -218,8 +227,8 @@ STMDSP:         S       ENDST          ; END
 .assert MOTOR_TK + 1 = BSAVE_TK, error, "STMDSP: COLOR CLS MOTOR before BSAVE"
                 S       BSAVE          ; BSAVE (p8/far4.s)
                 S       BLOAD          ; BLOAD (p8/far4.s)
-                S       ADVERR         ; SOUND (7f)
-                S       ADVERR         ; BEEP (7f)
+                S       SOUND          ; SOUND (p8/sound.s, 7f)
+                S       BEEP           ; BEEP (p8/sound.s, 7f)
                 S       PSET           ; PSET (p8/far5.s: 7e1's, in screen mode)
                 S       PRESET         ; PRESET (p8/far5.s)
                 S       SCREEN         ; SCREEN (p8/far6.s; modes but 0 7e's)
@@ -248,16 +257,16 @@ STMDSX:         S       FILES          ; FILES
                 S       RESET          ; RESET
                 S       DATA           ; COMMON (FIVEO.ASM's COMMON: JMP DATA)
                 S       CHAIN          ; CHAIN (p8/far4.s)
-.repeat PAINT_XS - CHAIN_XS - 1
-                S       ADVERR         ; DATE$, TIME$
-.endrepeat
+.assert DATES_XS = CHAIN_XS + 1 && PAINT_XS = CHAIN_XS + 3, error, "STMDSX: DATE$ TIME$ after CHAIN"
+                S       DATES          ; DATE$ = (p8/sound.s, 7f)
+                S       TIMES          ; TIME$ = (p8/sound.s, 7f)
                 S       PAINT          ; PAINT (p8/far5.s, 7e2)
                 S       COMS           ; COM (p8/far3.s)
                 S       CIRCLE         ; CIRCLE (p8/far5.s, 7e2)
                 S       DRAW           ; DRAW (p8/far5.s, 7e2)
-.repeat ERDEV_XS - DRAW_XS - 1
-                S       ADVERR         ; PLAY, TIMER
-.endrepeat
+.assert PLAY_XS = DRAW_XS + 1 && ERDEV_XS = DRAW_XS + 3, error, "STMDSX: PLAY TIMER after DRAW"
+                S       PLAYS          ; PLAY (p8/sound.s, 7f)
+                S       TIMERS         ; TIMER ON, OFF, STOP (p8/sound.s, 7f)
                 S       SNERR          ; ERDEV: OO-1, a read-only variable (the IBM manual's p. 91)
                 S       ADVERR         ; IOCTL: the source's, Advanced Feature
                 S       CHDIR          ; CHDIR

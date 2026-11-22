@@ -37,6 +37,9 @@
 
 ;@entry VPAL
 ;@entry VCOLOR
+; 7f's (p3/gwsts.s SETEV1), here, P3's last file, so the entries before it
+; keep their places (tools/gwgen.py numbers them by file, then by line).
+;@entry SETEV1
 .export VPAL, VCOLOR
 .import BUF
 

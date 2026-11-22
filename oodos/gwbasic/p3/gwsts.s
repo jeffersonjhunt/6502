@@ -38,9 +38,9 @@
 ;@entry COMSP
 ;@entry LCOPYP
 .export VARPT2P
-.export SEVSTT, SET1EV, SEVALL, EVSET, EVADR, ONGOTP, SETGSB, EVTRP, EVCLR, TSTCEV
+.export SEVSTT, SET1EV, SEVALL, EVSET, EVADR, ONGOTP, SETGSB, EVTRP, EVCLR, TSTCEV, SETEV1
 .export EOSCHK, EOSCH1, TRPTBL, COMSP, LCOPYP
-.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT, ADVERR, SCRMOD
+.import CHRGTR, SYNCHR, PTRGTN, STRINI, PUTNEW, FCERR, SNERR, GETBYT, ADVERR, SCRMOD, FRMEVL
 .import ONTRP, OFFTRP, STPTRP, REQTRP, FRETRP
 
 .code
@@ -143,6 +143,14 @@ SEVST2:         STA     RAL
 ; SET1EV (GWSTS.ASM 1057): one event ON, OFF or STOP (A), its flag at DX.
 SET1EV:         JSR     EVSET
                 RTS
+; SETEV1 (OO-1, 7f): event X ON, OFF or STOP (A, the token; another Syntax
+; error), for the home block's KEY(n), PEN, PLAY and TIMER statements, their
+; parse their stubs' (the space plan's answer 1).
+SETEV1:         PHA
+                TXA
+                JSR     EVADR          ; DX: its flag
+                PLA
+                BRA     SET1EV
 
 FCERR1:         JMP     FCERR          ; GWSTS.ASM 1060
 SNERR1:         JMP     SNERR          ; GWSTS.ASM 1061
@@ -217,10 +225,10 @@ EVADR:          STZ     RDH            ; DX = AX: the event id
 ; Anything else: C set, TXTPTR as it came, for ON's numeric form. A is the
 ; character at TXTPTR either way. A two-byte token ($FD-$FF and a byte) is
 ; compared as AX, CH its first byte; a one-byte token with CH 0 (the 8086's
-; AH, which ON's dispatch left 0). ON TIMER(n) and ON PLAY(n) aren't events
-; in this source (TIMER isn't a reserved word here; PLAY is a statement's):
-; ON's numeric form takes them. The text pointer saved goes on the 6502's
-; stack, as the 8086's PUSH BX.
+; AH, which ON's dispatch left 0). The text pointer saved goes on the 6502's
+; stack, as the 8086's PUSH BX. OO-1 (7f; the source has neither): ON
+; PLAY(n) and ON TIMER(n), n a formula (the manual's 1-32 and 1-86,400),
+; which P7's ONSETP checks and keeps (A 0 PLAY, 1 TIMER).
 ONGOTP:         LDX     TXTPTR+1       ; the text pointer, in case it isn't ours
                 PHX
                 LDX     TXTPTR
@@ -263,7 +271,27 @@ NTONPN:         CMP     #STRIG_FN      ; $STR2B: ON STRIG(n)?
                 LDA     #STROFF
                 LDX     #NMSTRT
                 BRA     ONFUNC
-@not:           PLX                    ; not an event: the entry's text pointer
+@not:           CPX     #$FE           ; OO-1 (7f): ON PLAY(n), ON TIMER(n)?
+                BNE     @no
+                LDY     #0
+                CMP     #PLAY_XS
+                BEQ     @pt
+                INY
+                CMP     #TIMER_XS
+                BNE     @no
+@pt:            PHY
+                JSR     CHRGTR         ; past the token
+                JSR     SYNCHR
+                .byte   '('
+                JSR     FRMEVL         ; n
+                JSR     SYNCHR
+                .byte   ')'
+                PLA
+                FJSR    ONSETP         ; P7: n checked and kept; A the event's id
+                STA     RCH
+                STZ     RCL
+                JMP     ONSTM
+@no:            PLX                    ; not an event: the entry's text pointer
                 STX     TXTPTR
                 PLX
                 STX     TXTPTR+1
@@ -419,7 +447,8 @@ TSTEVX:         STX     RBL
 
 ; COMSP: COMS, COM(n) ON, OFF or STOP: SEVSTT for the COM class (NMCOMT
 ; events from COMOFF), TXTPTR at the "(". The trap's flag is set as the
-; source sets it; ON COM(n)'s trap from a byte waiting (POLCOM) is 7f's.
+; source sets it; ON COM(n)'s trap from a byte waiting (POLCOM) is deferred
+; until AUX: has a receive buffer (7f's answer 24).
 COMSP:          LDA     #NMCOMT
                 STA     RCL
                 LDA     #COMOFF

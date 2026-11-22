@@ -70,13 +70,16 @@ $(BUILD)/ressym.lst: $(BUILD)/ressym.s
 # P8 is the home block (p8/home.s): linked by home.cfg, which puts STMDSP at HOMTAB; the other blocks are
 # assembled with NOHOME, so none can name the home block's entries (gwbasic.inc), and none links with its
 # labels, so no banked code calls it.
+# The OOLIB modules a block links (below): P5's gxmem and gxmode, P7's music (7f).
+LIB_p5      = $(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o
+LIB_p7      = $(BUILD)/p7/mu.o $(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o
 define BLOCK
 $(BUILD)/$(1)/%.o: $(1)/%.s $(INCS) | $(BUILD)/$(1)
 	ca65 $$(AFLAGS) -D BLOCK_$(1) $(if $(filter p8,$(1)),,-D NOHOME) $$< -o $$@
 $(BUILD)/$(1)_hdr.o: $(BUILD)/$(1)_hdr.s $(BUILD)/entries.inc
 	ca65 $$(AFLAGS) $$< -o $$@
-$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(sort $(wildcard $(1)/*.s))) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o) $(BUILD)/ressym.o $(BUILD)/ressym.lst $(if $(filter p8,$(1)),home.cfg,blk.cfg)
-	$$(call LD65,-C $(if $(filter p8,$(1)),home.cfg,blk.cfg) $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(sort $(wildcard $(1)/*.s))) $(if $(filter p5,$(1)),$(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
+$(BUILD)/$(1).bin: $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(sort $(wildcard $(1)/*.s))) $(LIB_$(1)) $(BUILD)/ressym.o $(BUILD)/ressym.lst $(if $(filter p8,$(1)),home.cfg,blk.cfg)
+	$$(call LD65,-C $(if $(filter p8,$(1)),home.cfg,blk.cfg) $(BUILD)/$(1)_hdr.o $(patsubst $(1)/%.s,$(BUILD)/$(1)/%.o,$(sort $(wildcard $(1)/*.s))) $(LIB_$(1)) $(BUILD)/ressym.o -o $$@ -m $(BUILD)/$(1).map -Ln $(BUILD)/$(1).lbl,$$@)
 	$$(PYTHON) ../tools/rules.py $$@ --load 0xC800 --map $(BUILD)/$(1).map --code CODE --farcall $$(FARMISS) \
 	    --import $$$$(cat $(BUILD)/ressym.lst) --lbl $(BUILD)/gwbasic.lbl --inline SYNCHR
 endef
@@ -87,6 +90,18 @@ $(foreach b,$(BLOCKS),$(eval $(call BLOCK,$(b))))
 $(BUILD)/p5/gxmem.o: ../lib/gxmem.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 $(BUILD)/p5/gxmode.o: ../lib/gxmode.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
+	ca65 $(AFLAGS) -I ../lib $< -o $@
+
+# Block P7 (7f) links OOLIB's music: mu.s (MU_INIT to MU_COUNT, with the driver's image, mudrv.bin, made
+# here as the oodos Makefile's lib rule makes it), mutone.s (MU_TONE) and physof.s, assembled as the
+# library's own modules are, MUP gwbasic.inc's (p7/sound.s exports it). munote.s isn't linked: PLAY's notes
+# go through MU_TONE in Hz, as the source's (7f's plan, the owner's answer 1).
+$(BUILD)/p7/mudrv.bin: ../lib/mudrv/mudrv.s ../lib/mudrv/mudrv.cfg | $(BUILD)/p7
+	ca65 ../lib/mudrv/mudrv.s -o $(BUILD)/p7/mudrv.o
+	ld65 -C ../lib/mudrv/mudrv.cfg $(BUILD)/p7/mudrv.o -o $@
+$(BUILD)/p7/mu.o: ../lib/mu.s $(BUILD)/p7/mudrv.bin $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
+	ca65 $(AFLAGS) -I ../lib --bin-include-dir $(BUILD)/p7 $< -o $@
+$(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o: $(BUILD)/p7/%.o: ../lib/%.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py
@@ -106,11 +121,11 @@ sizes: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin)
 # (test/flat.cfg), for test/check.py on the emulator's W65C02S core (test/run6502.cpp). P4, the
 # files, is left out (the image has no OODOS), and so are its statements' home block stubs
 # (p8/far4.s) and CHAIN (p8/chain.s, F3's M4); test/flatp4.s stands in for them. P5 (OOLIB, and DEF SEG's router: 7c's tail) is
-# left out too, test/flatp5.s standing in, and P6 (the screen: 7d1),
-# test/flatp6.s. ctest's
+# left out too, test/flatp5.s standing in, P6 (the screen: 7d1),
+# test/flatp6.s, and P7 (sound, input and events: 7f), test/flatp7.s. ctest's
 # test_gwbasic_math builds the runner itself and runs check.py on this image.
-FLAT_SRC    = test/harness.s test/flatp4.s test/flatp5.s test/flatp6.s $(RES_SRC) \
-              $(filter-out p4/% p5/% p6/% p8/far4.s p8/chain.s,$(sort $(wildcard p[1-8]/*.s)))
+FLAT_SRC    = test/harness.s test/flatp4.s test/flatp5.s test/flatp6.s test/flatp7.s $(RES_SRC) \
+              $(filter-out p4/% p5/% p6/% p7/% p8/far4.s p8/chain.s,$(sort $(wildcard p[1-8]/*.s)))
 FLAT_OBJ    = $(FLAT_SRC:%.s=$(BUILD)/flat/%.o)
 EMU         = ../../emulator/components
 CHECK      ?=

@@ -712,12 +712,13 @@ DSVC:           .res    3              ; 7d3: the screen page's card address (DS
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
 DSB8:           .res    1              ; 7d3: bit 7, GX_BANK8 refused (bank 8 not RAM)
+SCRP:           .res    3              ; the scratch byte's physical address (GXSTRT; 7f: moved here
+                                       ;   from RODATA, F3's review F7)
 
 .segment "RODATA"
 TXPAGES         = 96                   ; card pages: 8 x 12, or 4 x 20
 FTOPEN:         .byte   FT_OPEN, <EVAREA, >EVAREA, 0 ; function 80: the area, 256 bytes
 SCBPB:          .byte   $24, 0, 0, 0   ; function 49: get SCB $24, CON:'s output vector
-SCRP:           .res    3              ; and its physical address (GXSTRT)
 D80:            .word   80 * 64, 80 * 32, 80 * 16, 80 * 8, 80 * 4, 80 * 2, 80 ; 7e3: DSGXY's \ 80
 D80N            = * - D80
 DSRCH:          .word   61440, 0, 38400 ; 7e5: DEF SEG's reach in SCREEN 10, 11, 12

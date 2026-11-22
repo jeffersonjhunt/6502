@@ -55,6 +55,7 @@
 .export OUTDO, CRDO, CRDONZ, CRFIN, FINLPT, FINPRT, ISFLIO, LINLEN
 .export PINLIN, QINLIN, INLIN, SINLIN, SCNSEM, SEMFLG, PRELOD, BUF, BUFMIN, KBUF
 .export POLKEY, CHKINT, CHSNS, KYBINI, INKEY, SYSTEM, SYSTME, OLDMOD, FARMISS
+.export TIMHK, TIMN, TIMCNT, TIMREQ, TIMON
 .export RUNBUF, FILOPN, FREFDB, FILWID, FILDVC, LPCRF, KYBQIN, KYBQOUT, LSTCHR, SCRMOD
 .export PKQUE, EVAREA, TXBUF, TXLEN, F_SPOS, TXSYNC, STRTAB, GFLG
 .import STROUT, CHRGTR, STRIN1, SETSTR, DSEGZ, STOPRG, CLSALL, STRINI, PUTNEW, DSCTMP, NOTSPK, SNGFLT
@@ -441,7 +442,8 @@ POLKYX:         PLY
 ; pointer as the statement began (SAVSTK, SAVTXT); then CNTCCN, which goes
 ; to STOP as GW-BASIC's does: "Break in 20", or in direct mode nothing.
 ; (The music's reset, SNDRST, is 7f's.)
-ITSCTC:         JSR     KYBINI
+ITSCTC:         FJSR    SNDRST         ; 7f: the music stopped (POLKEY's SNDRST)
+                JSR     KYBINI
                 LDX     SAVSTK
                 TXS
                 LDA     SAVSTK+1
@@ -511,10 +513,43 @@ TXSYNC:         LDA     TXLEN
                 FJSR    TXRUN
 :               RTS
 
+; TIMHK (7f, the owner's answer 23): ON TIMER's tick hook, OOLIB's (function
+; 80's FT_TICKHOOK, every 1,000 ms, set and taken off by P7's TIMONP and
+; TIMOFP): resident, as a hook must be (no far call, no BDOS, interrupts off,
+; within its 300 cycles). TIMCNT, the seconds left, counted down; at 0 the
+; trap asked for, once until P3 takes it (TIMREQ 0 to 1 and ONGSBF one up, so NEWSTT's poll goes to P3's GOTRP,
+; which turns TIMREQ into TIMER's request: P3's EVTRP) and the count from
+; TIMN again.
+TIMHK:          LDX     #0             ; TIMCNT less 1, 24 bits
+@d:             DEC     TIMCNT,X
+                LDA     TIMCNT,X
+                CMP     #$FF           ; a borrow: the next byte
+                BNE     @z
+                INX
+                CPX     #3
+                BNE     @d
+@z:             LDA     TIMCNT
+                ORA     TIMCNT+1
+                ORA     TIMCNT+2
+                BNE     @x
+                LDX     #2             ; run out: from TIMN again
+@r:             LDA     TIMN,X
+                STA     TIMCNT,X
+                DEX
+                BPL     @r
+                LDA     TIMREQ         ; the trap asked for, once (review round 1, C1:
+                BNE     @x             ; ONGSBF counted only as TIMREQ goes 0 to 1)
+                INC     TIMREQ
+                INC     ONGSBF
+@x:             RTS
+
 ; EVPOLL (7d1, hw/oodos.md, "The OEM layer": V2): the event queue (layout 2,
 ; EVAREA) taken from its tail, in order. A key pressed goes to P6's KEYEV,
 ; one far call, which queues its code in KYBQ; a break it reports goes to
-; ITSCTC. The other events are dropped (7f takes some). The repeat (the
+; ITSCTC. 7f: every other event goes to P7's EVP7, one far call, Y its
+; slot's offset in the queue (EVAREA + EV_QUEUE + Y), which takes a note's
+; end (EK_SOUND: SNDEV) and a controller's change (EK_CTL: STREV) and drops
+; the rest; a key's release is dropped here. The repeat (the
 ; owner's answer 8): the last key KEYEV says repeats, while it is held
 ; (EV_KEYS), again 500 ms after its press and every 33 ms after that, by
 ; EV_MS. A, X, Y and the flags used.
@@ -535,7 +570,7 @@ EVTAKE:         TXA
                 LDX     #0
 :               LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
                 CMP     #EK_KEY
-                BNE     @drop
+                BNE     @oth
                 LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
                 BEQ     @up
                 CLC                    ; its repeat's time
@@ -564,6 +599,9 @@ EVTAKE:         TXA
                 STZ     RPTKEY
 @drop:          STX     EVAREA + EV_QTAIL
                 BRA     EVPOLL
+@oth:           STX     EVAREA + EV_QTAIL ; 7f: P7's, Y the slot
+                FJSR    EVP7
+                JMP     EVPOLL
 @brk:           STZ     RPTKEY
                 JMP     ITSCTC
 EVRPT:          LSR     A              ; still held?
@@ -677,7 +715,8 @@ F_SPOS:         BIT     SCRMOD
 SYSTEM:         BEQ     :+
                 RTS
 :               JSR     CLSALL
-SYSTME:         BIT     SCRMOD         ; 7d1: the cooked keys drained under
+SYSTME:         FJSR    SNDINI         ; 7f: the 6510 given back (P7)
+                BIT     SCRMOD         ; 7d1: the cooked keys drained under
                 BPL     :+             ; GW-BASIC's mode first (with ^S's handling
                 JSR     DRAIN          ; off: X2), then again under the old one
 :               LDA     OLDMOD
@@ -788,4 +827,8 @@ F_EDPG:         .res    1              ; PINLIN: bit 7 a program line
 SEMFLG:         .res    1              ; INPUT;
 PRELOD:         .res    1              ; BUF holds a line to edit (ERREDT)
 POLCNT:         .byte   POLN           ; CHKINT's count
+TIMN:           .res    3              ; 7f: ON TIMER(n)'s n (P7's TIMSET)
+TIMCNT:         .res    3              ;   TIMHK's seconds left
+TIMREQ:         .res    1              ;   nonzero: TIMHK asks for ON TIMER's trap (P3's GOTRP takes it)
+TIMON:          .res    1              ;   nonzero while TIMHK is the tick hook (P7's TIMONP, TIMOFP)
 OLDMOD:         .res    2              ; the console mode before GW-BASIC (GWINIT)

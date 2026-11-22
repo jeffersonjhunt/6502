@@ -3939,7 +3939,7 @@ copy of common memory at `$F800` (above).
 | P4 | files: OPEN, CLOSE, GET, PUT, FIELD, the device dispatch, LOAD, SAVE, MERGE, KILL, NAME, FILES, BLOAD, BSAVE, DEF SEG with PEEK and POKE; *F3:* CHAIN out to P8 (M4: SAVFRE, CHNSTP, SAVFGT stay), records to 16,777,215 (RECNUM, MULHI) | 8.5 KB; 11.0 KB at F3 |
 | P5 | **the video block:** OOLIB's state and everything that moves W1: `gxmem`, `gxmode` and `gxpal` linked into it, the text screen's two set-up entries (`TXMODE`; `GXSTRT`'s pages), PALETTE, the graphics statements (GENGRP, ADVGRP, DRAW) and the pixel primitives. *Revised (the owner, 2026-11-18, 7d's question 3):* the text driver and the screen statements are P6's; *7d3:* DEF SEG's screen page (`DSBYTE`'s and `DSRUN`'s bank 8 routes, `DSPUT`) *7e1:* SCREEN 1 and 2's set-up, the palette, COLOR's and CLS's graphics (`p5/gfx.s`), the pixel routines (`p5/gfxoem.s`), GENGRP (`p5/gengrp.s`) *7e2:* CIRCLE's and PAINT's drawing and DRAW's (ADVGRP.ASM: `p5/advgrp.s`), PAINT's OEM routines, GTASPC; BLOAD's and BSAVE's run checks moved out to P8 (the owner's option 3) *7e3:* GET and PUT (`GPUTG`, its corners; the OEM's rows, PGINIT, NREAD, NWRITE, with the byte paths), DEF SEG's page in SCREEN 1 and 2 (`DSGPK`, `DSGRUN`) *7e4:* the viewport (`GVIEW`, `GVWGET`, MAPXYC's corner, MAPABS), the window's hook in SCAND, POINT(n), LINE's style, PAINT's tiles *7e5:* SCREEN 10, 11 and 12 (their pages, SCREEN 10's palette's allocation, the pixels, y past 255, GET and PUT in pieces, DEF SEG's linear page); the palette's writes out to P3 | 10.7–11.5 KB; 2.3 KB at 7d1, 2.6 KB at 7d3, 5.4 KB at 7e1, 8.3 KB at 7e2, 9.7 KB at 7e3, 10.5 KB at 7e4, 11.0 KB at 7e5 |
 | P6 | the text screen, whole (*revised, the owner, 2026-11-18, 7d's question 3*): the screen driver and editor (SCNDRV, SCNEDT), the OEM's text routines on function 83's port with a one-row cache (it never moves W1), SCREEN 0's statements (CLS, LOCATE, WIDTH, COLOR, SCREEN, SCREEN(, CSRLIN), and the keyboard from the event queue; *7d2:* KEY and the key line, the soft keys' expansion (their table, STRTAB, resident), WIDTH "SCRN:"'s SWIDP, LCOPY's LCPYP; *7d3:* `SCPAGP`, the screen page's card address and reach for P5 *7e1:* SCREEN's modes 1 and 2 (SCRSTT, SMODE), WIDTH's, COLOR's and CLS's way to P5, the text over the graphics *7e5:* the statements' parse out to P8 (M6), SCREEN 10-12's numbers, rows and widths | 5.0–6.0 KB; 10.7 KB at 7d1, 11.3 KB at 7d2, 11.4 KB at 7d3, 11.6 KB at 7e1, 11.2 KB at 7e5 |
-| P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image) | 6–8 KB |
+| P7 | sound and devices: SOUND, PLAY's parser, BEEP, ON PLAY, STICK, STRIG, the COM and LPT device code, OOLIB's `mu`, `munote`, `mutone` (2.3 KB, with the driver's image). *As built (7f):* SOUND, BEEP, PLAY (its own MACLNG), the reset, DONOTE on OOLIB's `mu`, `mutone`, `physof` (no `munote`); TIMER, DATE$, TIME$, ON TIMER's hook control; STICK, STRIG, PEN; the events' hand-offs (SNDEV, STREV). The COM and LPT code stayed in P4 | 6–8 KB; 5.7 KB at 7f |
 | P8 | room: whatever outgrows its block; *7e2:* BLOAD's and BSAVE's run checks and copies (`DSRUNH`, `DSPUTH`, from P5: the owner's option 3), CIRCLE's, PAINT's and DRAW's stubs; *7e3:* CONT, TRON, TROFF (S1, from the resident core), GET's and PUT's stubs, SCREEN 1 and 2's page runs (`DSGSR`); *7e4:* VIEW's and WINDOW's stubs (VIEW's checks), PMAP's parse (ERDEVP) *7e5:* the screen statements' parse (M6: SCNINT, GTPRMS, CSRATR, KEY n,"text") *F3:* CHAIN and COMMON's work (M4: `p8/chain.s`) | 4.3 KB at 7e2, 4.6 KB at 7e3, 5.1 KB at 7e4, 5.6 KB at 7e5, 7.2 KB at F3 |
 
 - **One copy of OOLIB's video state.** `gxmem` keeps the block in W1, the bank in slot 1, the card memory map and
@@ -6012,9 +6012,106 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       recorded OO-1 extension that reseeds RND from the BIOS function.
       *Added and removed before release (the owner's decision, 2026-11-21):* built as BIOS 0.18's `$C818`
       function `$A2` and OODOS 0.14's function 82 operation 20 (`SN_NOISE`), then taken out in BIOS 0.19.
-  - **Size:** 6–8 KB banked.
+      GW-BASIC's `RANDOMIZE SOUND` was 7f's U7, on this. *Retired (the owner, 2026-11-21):* the noise seed goes,
+      from the BIOS and OODOS on a branch of its own, and 7f's U7 was taken out before 7f merged (RND keeps the
+      manual's generator; RANDOMIZE TIMER is the manual's clock seed); the random source gets a plan of its own.
+  - **Size:** 6–8 KB banked. *As built: P7 5,744 bytes (6,544 free), below.*
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.
+  - **As built, 7f** (Proposed, 2026-11-21; feat/gwbasic-7f off main `80a70aa6`, the 7f plan with the owner's answers
+    1-12, "recommendations as listed", 13-31 at its stops, 32 on review round 1 and 33 on its key-cost case; main
+    `fa501cfb` merged in).
+    - **On the current sound card** (the owner, 2026-11-21): SOUND, PLAY and BEEP are built on today's card, OOLIB's
+      music driver on its 6510 and function 82's `SN_BEEP`; they will be reworked on the new sound device (a card
+      revision that plays a block of notes in one transfer with 32-bit lengths, and does the beep), after its
+      spec. Review round 1's C6 (a SOUND past 65,535 ms in MB refused as its later entries meet a full queue) was
+      skipped for that reason.
+    - **The blocks.** P7, the eighth, allocated: GW-BASIC takes 8 blocks (128 KB of the pool's 320). P7 links OOLIB's
+      `mu.s` (with the driver's image, `mudrv.bin`, assembled by GW-BASIC's Makefile), `mutone.s` and `physof.s`
+      (`munote.s` isn't: PLAY's notes go through `MU_TONE` in Hz, answer 1); `MUP` is an alias of GXQ (`$E0`),
+      safe because P5 never calls P7 and P7 holds it across no far call. MACLNG is assembled a second time into P7
+      (`p7/maclng.s` includes `p3/maclng.s`). P5's SCRP moved from RODATA to BRAM (F3's review F7): P5 differs from
+      main only by that move's relocation (shown by a build with a 3-byte pad left in RODATA). GWBASIC.OVL is
+      72,704 bytes (568 records); the overlay check covers P7. M: lost the room for two cases' BSAVEs: both now KILL
+      `M:GWBASIC.COM` first (answer 14: M: is OODOS's banks C-D, not the rig's to enlarge).
+    - **Room** (the lines of answer 10; none crossed): free for BASIC 34,769 (34,768), P1 3,133 (2,500), P2 6,404
+      (6,000), P3 3,172 (3,000), P4 1,265 (1,200), P5 976 (512), P6 623 (600), P7 6,544 (4,000), P8 4,453 (4,000);
+      HOMTAB 6 of 9 (HPENST, `p8/sound.s`).
+    - **SOUND, BEEP, the reset** (`p7/sound.s`): SOUND translated (37 Hz at least; ticks x 22 in 2.5 ms units;
+      OO-1: a negative duration Illegal function call, answer 19, and a negative frequency, the manual's 37-32,767,
+      review round 1's C5; a length past 65,535 ms as up to three entries back to back, re-struck at each join, an
+      OO-1 limit, answer 18; the ticks x 22 held at 65,535 units, so a SOUND is about 2 min 44 s at most, a
+      temporary OO-1 limit until the sound device's 32-bit lengths, C9; the shortest, .0015, 0 units, plays the
+      driver's shortest, 1 ms, waited for as any, C7); BEEP and ^G on function 82's `SN_BEEP` (800 Hz,
+      250 ms, both modes, answer 3); SNDINI (PLAY's defaults, `MU_QUIT`) at CLEARC only once a run used sound
+      (SNDUSE, zero page `$5F`, proved free by a scan of every zero page operand: answer 20) and at SYSTEM; SNDRST
+      (`MU_STOP` of voice 0) at ^C and SOUND x,0. DONOTE, the OEM's: `MU_INIT` at a run's first note (PAL), MF one
+      note deep and MB 32, each wait ended also by the clock (the queue's end + 100 ms, then `MU_STOP`: answer 6).
+    - **PLAY** (`p7/play.s`): PLYTAB and its routines translated; one entry a note with its gate (MN 7/8, MS 3/4,
+      ML all); the octave the manual's (7 - O: O3's C 262 Hz, O4's A 880, answer 2); `>` and `<`; P0 and every
+      number past the manual's range Illegal function call; the dotted note's overflow test the source's (answer 21:
+      an overflow it misses plays short); PLAY(n) MU_COUNT in MB, 0 in MF. PLAY ON/OFF/STOP and ON PLAY(n) (n 1-32):
+      the request as MB's count falls from n to n - 1 (SNDEV).
+    - **The traps**: TRPTBL 29 events (keys 1-20 contiguous, COM 21-22, STRIG 23-26, PLAY 27, TIMER 28: answer 9).
+      KEY(n) ON/OFF/STOP (n 1-20; KEY(0) Illegal function call, the manual's) parsed in P8; KEY 15-20's
+      definitions (the scan code to the USB key's usage; the predefined codes and Ctrl-C never) kept in P6, matched
+      in KEYEV by usage and shift state (both Shifts one, Ctrl, Alt, Caps Lock as GW-BASIC latches it; OO-1, answer
+      15: Num Lock ignored, the OO-1's keypad being always digits); keys 1-14 by KXLAT's codes; a trapped key isn't
+      queued. P6 matches only while P3 says a key's trap is on (KTSET). STRIG(n) ON/OFF/STOP, STRIG ON/OFF (taken),
+      STREV on each EK_CTL event; PEN ON/OFF/STOP and PEN(n) 0 (no pen).
+    - **ON TIMER** (answer 23): TIMER ON sets OOLIB's tick hook, every 1,000 ms, to the resident TIMHK (no far call,
+      no BDOS, interrupts off, about 40 cycles), which counts n down and asks for the trap (TIMREQ, ONGSBF): once,
+      however many expiries come before NEWSTT polls (ONGSBF counted only as TIMREQ goes 0 to 1; TIMER OFF, TIMER ON
+      and CLEARC give back one not taken, CLEARC taking the hook off before it clears ONGSBF: review round 1, C1);
+      P3's GOTRP turns that into TIMER's request. ON TIMER(n) with TIMER on starts the count again from n (the
+      manual's p. 217, C2); TIMER ON and ON TIMER(n) take the hook off while they write the 24-bit count (C3);
+      TIMER ON, OFF and STOP check the statement's end before they act (C4). TIMER OFF, CLEARC (RUN, NEW, CHAIN) and SYSTEM take it off; END leaves
+      it on (answer 26: the trap stays on, CONT may follow). NEWSTT with ON TIMER armed costs one trap on's 18
+      cycles; both modes.
+    - **ON COM deferred** (answer 24): ON COM(n) and COM(n) ON/OFF/STOP set the flag as on main; nothing raises the
+      trap. **Before OODOS 1.0:** AUX: needed an interrupt-filled receive buffer (phase 7's question 12, reopened),
+      built since in OODOS 0.15 (function 85, merged into 7f from main `4fd9ade8`); ON COM's source on it is a later
+      GW-BASIC step's.
+    - **TIMER, DATE$, TIME$** (`p7/time.s`, both modes): TIMER function 105's seconds plus the ms counter's time
+      since TIMER first saw that second, at most .999 (answer 7); DATE$ and TIME$ read from 105 and set by 104
+      (DATES's and TIMES's parses translated; a year outside 2000-2099, a two-digit one too, Illegal function call;
+      the seconds 0 after either: OO-1 limits, answer 8); TIMER in P2's word table (answer 16).
+    - **STICK, STRIG**: STICK(0) latches both sticks (0-255), 1-3 the latch; STRIG's even n the press since the
+      last read, but a press a trap takes not latched (the manual's p. 333, answer 24 item 4), the odd n now; 4-7
+      the second button.
+    - **The noise seed retired** (the owner, 2026-11-21): U7's RANDOMIZE SOUND and its start-up noise read were
+      taken out on review round 1 (answer 32); RANDOMIZE is main's.
+    - **Console mode** (answer 4): SOUND, PLAY, PLAY(n), PLAY ON/OFF/STOP, STICK, STRIG (all forms), KEY(n) and
+      KEY 15-20 are Advanced Feature; ON PLAY(n) and ON STRIG(n) GOSUB set their line (answer 24 item 3: E3 and
+      `onev` unchanged); TIMER, ON TIMER, DATE$, TIME$, BEEP (its `SN_BEEP` block watched: review round 1, T5) and PEN work there.
+    - **Cycles** (answer 11's gates, 24's for a note; measured at the merge candidate, main `4fd9ade8` merged in): NEWSTT 5.00 with no trap
+      on, 18.00 with one, 18.00 with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
+      case, within 30 of it); a PLAY note in MB about 7,700-8,300 (9,000: about 5,000 of it function 82's sends and
+      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,402 (10,000); a key with no trap
+      armed, KEYEV less its interrupts and its BDOS calls, A 297 and F1 354 against main `fa501cfb`'s 280 and 340
+      (+30), every press the same; CHAIN 66,596 (main's
+      66,851 re-measured + 400: answer 17); every earlier gate held. `the_key_line_and_soft_keys_cost` measures the
+      key line's CLS, KEY and WIDTH and both F1s in one RUN, less interrupts and drain (answers 25, 28, 29): a
+      record, not a guard (answer 31; what F1 queues is `a_function_key_types_its_text`'s to guard).
+    - **The timing method** (answer 33, after the owner's "find out what the 200 cycles are first"): every GW-BASIC
+      timing case now uses `emulator/test/host/gw_timing.h`, which finds each end by its return address as well
+      as S. By S alone, a tick inside a BDOS call (OODOS runs on its own stack page, S set to `$FF`) could bring
+      S to the caller's value: the call's leaving out ended inside the interrupt handler, about 200 cycles of the
+      handler were counted, and the span itself ended inside OODOS. Once U7 came out, 4 of 8 A presses were caught
+      this way (A 452 against 297). An interrupt's time also now includes the CPU's 7 entry cycles. Main
+      `fa501cfb` re-measured by it: the key gate's anchor A 280 and F1 340 (answer 29's 368 had a tick counted
+      in it); CHAIN 66,635; a scroll 13,286 without its handlers. Every gate held by it, on main and the branch,
+      twice each with the same figures. The key-cost case also presses A 24 times at gaps 997 cycles apart, so
+      that a tick lands inside a drain call (7 or 8 of them do), and checks every press costs the same; with the
+      method's PC test dropped it fails (A 297-1,397).
+    - **Tests**: `test_gwbasic_sound` (labels gwbasic, oodos, bios, sd, backplane, video, usb, sound, sid, via, joy,
+      rtc), N9-N39 but N30 (removed with ON COM) and N36 (removed with U7), and N32, N35, N37 (in test_gwbasic_stmts'
+      timing case and test_gwbasic_core); review round 1's: `a_long_wait_leaves_no_timer_request_behind` (C1), ON
+      TIMER's restart and TIMER ON's end in N22 (C2, C4), the negative frequency and the shortest SOUND in N11 (C5,
+      C7), N19 setting MB O6 T255 L64 MS and checking the next PLAY at the defaults (T1), console BEEP's `SN_BEEP`
+      block (T5); each mutant seen failing on its own case. Changed results: E1-E6 and E8 as approved, E5
+      also the COM case's table end (answer 24, item 5). N21 can't force TIMER's .999 cap (the
+      rig's clock didn't hold); N24 checks TIME$ to the minute after a set.
 - **7g: the release.**
   - GWBASIC.COM and GWBASIC.OVL on the cards (`make_card.sh`), with LICENSE.TXT.
   - The User's Guide's GW-BASIC chapter (the OO-1's differences, not a BASIC manual), and the Programmer's Guide's
@@ -6308,7 +6405,8 @@ alternative is kept as the record of what was weighed.
 12. **COM's receive buffer.** *Decided (2026-11-13, the owner):* 7c ships COM1 polled, documented as losing characters
     while BASIC is busy. A receive buffer filled by the serial card's interrupt becomes an OODOS question of its
     own (an addition to the dispatcher and AUX), with the serial card's model. *Alternative:* that addition
-    first. *Built (2026-11-21, OODOS 0.15):* [the serial receive buffer](#the-serial-receive-buffer), on the 6551
+    first. *Reopened (2026-11-21, 7f's answers 23 and 24):* ON COM's trap needs that buffer, so ON COM is deferred
+    from 7f. *Built (2026-11-21, OODOS 0.15):* [the serial receive buffer](#the-serial-receive-buffer), on the 6551
     stand-in (the owner's answer 1: the TL16C552A's back end comes with its card); ON COM(n), LOC and LOF on it are a
     later GW-BASIC step's.
 13. **INP, OUT and WAIT.** *Decided (2026-11-13, the owner): refused.* *Alternative:* OUT and INP on the VIA's user port

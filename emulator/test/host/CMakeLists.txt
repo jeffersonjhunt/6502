@@ -631,6 +631,10 @@ list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames
 # rebuilds the blocks
 file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
 list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" "${OODOS_SRC}/lib/gxmode.s" ${gwbasic_oolib})
+# Block P7 (7f) links OOLIB's music: mu.s with the driver's image (lib/mudrv/, assembled by GW-BASIC's Makefile),
+# mutone.s and physof.s.
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s"
+        "${OODOS_SRC}/lib/mudrv/mudrv.s" "${OODOS_SRC}/lib/mudrv/mudrv.cfg")
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"
@@ -681,6 +685,21 @@ emu_add_test(test_gwbasic_screen)
 set_tests_properties(test_gwbasic_screen PROPERTIES TIMEOUT 600)
 add_dependencies(test_gwbasic_screen gwbasic oodos_sys backplane_bios)
 target_compile_definitions(test_gwbasic_screen PRIVATE
+        EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
+        EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
+# test_gwbasic_sound: 7f's sound, input and events (block P7), the same way, read from the machine: the music
+# driver's commands as P7 hands them to function 82, the SID and the card, the RTC, the joystick ports, the USB
+# keyboard.
+emu_add_test(test_gwbasic_sound)
+set_tests_properties(test_gwbasic_sound PROPERTIES TIMEOUT 600)
+add_dependencies(test_gwbasic_sound gwbasic oodos_sys backplane_bios)
+target_compile_definitions(test_gwbasic_sound PRIVATE
         EMU_GWBASIC_BUILD="${GWBASIC_DIR}"
         EMU_GWBASIC_PROGRAMS="${CMAKE_CURRENT_LIST_DIR}/gwbasic"
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
@@ -991,6 +1010,7 @@ set(EMU_TEST_LABELS
     test_gwbasic_stmts          "gwbasic oodos bios sd backplane"
     test_gwbasic_files          "gwbasic oodos bios sd backplane"
     test_gwbasic_screen         "gwbasic oodos bios sd backplane video usb"
+    test_gwbasic_sound          "gwbasic oodos bios sd backplane video usb sound sid via joy rtc"
     test_gwbasic_gfx            "gwbasic oodos bios sd backplane video usb"
     test_gwbasic_math           "gwbasic oodos"
     test_gwbasic_programs       "gwbasic oodos"

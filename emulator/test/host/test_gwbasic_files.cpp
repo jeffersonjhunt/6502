@@ -50,6 +50,7 @@
 #include "harness.h"
 #include "oodos_rig.h"
 #include "video_card.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1225,9 +1226,10 @@ TEST(record_65536_of_len_128_is_read_from_the_disk)
 // 512). Each block, as the loader (res/loader.s: the header's 16-bit first record and count, function 83's DM_LOAD)
 // put it in its own block (PAGBLK's, at the block's $0800), is its link's image: every byte of its code and data
 // and of its FARFIX list, P8's included (the list is its image's last bytes), but the far call sites the loader
-// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's OOLIB modules' DATA and BSS), which
-// runs change, and P5's SCRP (p5/seed.s: a variable in RODATA, the scratch byte's physical address, set at start-up). Must-fail: a loader
-// that reads a block's records from the wrong place.
+// patched (each JSR's operand and page) and the block's RAM (BRAM, and P5's and P7's OOLIB modules' DATA and BSS),
+// which runs change. 7f: P7, the eighth block, too (its code is the smallest: OOLIB's music, with the driver's
+// image in DATA, is most of it); P5's SCRP moved from RODATA to BRAM (F3's review F7), so it needs no exception.
+// Must-fail: a loader that reads a block's records from the wrong place.
 TEST(each_block_of_the_overlay_loads_from_its_place)
 {
     CcpRig r;
@@ -1236,7 +1238,7 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
     const std::map<std::string, uint16_t> lab = link_labels("gwbasic.lbl");
     REQUIRE(lab.count("PAGBLK") == 1);
     CHECK(file("GWBASIC.OVL").size() > 65536); // (the case is for an overlay past 64 KB)
-    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 8u})
+    for (const unsigned page : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u})
     {
         const std::vector<uint8_t> img = file("p" + std::to_string(page) + ".bin");
         REQUIRE(img.size() > 4);
@@ -1254,10 +1256,6 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
                 }
                 else if (l.rfind("Exports", 0) == 0)
                     break;
-            const std::map<std::string, uint16_t> own = link_labels("p" + std::to_string(page) + ".lbl");
-            if (own.count("SCRP"))
-                for (unsigned j = 0; j < 3; ++j)
-                    site[own.at("SCRP") - 0xC800u + j] = true;
         }
         const unsigned fix = img[0] | img[1] << 8, nfix = img[2] | img[3] << 8;
         for (unsigned k = 0; k < nfix; ++k)
@@ -1276,7 +1274,7 @@ TEST(each_block_of_the_overlay_loads_from_its_place)
             if (r.phys(base + i) != img[i] && ++differ <= 4)
                 std::printf("  P%u: byte $%04X is %02X, the link's %02X\n", page, 0xC800 + i, r.phys(base + i), img[i]);
         }
-        CHECK(compared > 4000);
+        CHECK(compared > (page == 7 ? 900u : 4000u));
         CHECK_EQ(differ, 0u);
     }
 }
@@ -1560,7 +1558,9 @@ TEST(chain_merge_of_a_tokenised_file_and_varptr_of_a_file_by_hand)
 // handlers inside it (the IRQ vector's entry to its RTI: T17's and D9's method, test_gwbasic_screen; review round 1,
 // F6), with the far calls (each a JSR to FARCALL, as print_to_a_file_goes_to_p4_in_runs counts them) and the
 // interrupts counted. M4 makes CHAINP's far calls to P4 three (PRGFLI, CHNSTP, SAVFGT) where main made two
-// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig (main b1d10088), + 400 (answer 6).
+// (CHAINP itself, CHNRET): the gate is main's figure, measured so on this rig, + 400 (answer 6). 7f (the owner's
+// answer 17, 2026-11-21): re-anchored to main 80a70aa6 (F3 merged), re-measured on this rig that day at 66,851 (the
+// first anchor, main b1d10088, was 66,521); the rule is unchanged.
 // CHAIN's other two ways on, a tokenised file (LDBIN's end) and CHAIN MERGE (OKGETM), are printed, not gated (the
 // owner's word). Must-fail: a build whose CHAIN crosses three times more.
 TEST(chain_is_timed)
@@ -1578,27 +1578,14 @@ TEST(chain_is_timed)
         enter(r, {line});
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCN2"), site = lab.at("FTSITE");
         uint16_t farcall = 0;
-        const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
-        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
-        int idepth = -1;
+        gw_timing::LeftOut left(r, false); // an interrupt inside the run: its handler's cycles, left out
+        uint64_t from = 0, cycles = 0;     // (gw_timing.h's method since 7f's answer 33)
+        uint64_t &inirq = left.out;
         bool on = false;
         farcalls = 0;
-        irqs = 0;
         r.watch = [&](uint16_t pc) {
-            if (on && idepth < 0 && pc == irq) // an interrupt inside the run: its handler's cycles, left out
-            {
-                ifrom = r.cpu->cycles();
-                idepth = r.cpu->regs().s;
-                ++irqs;
+            if (left.inside(pc, on))
                 return;
-            }
-            if (idepth >= 0)
-            {
-                if (r.cpu->regs().s != idepth + 3)
-                    return;
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
             if (pc == runc && !on)
             {
                 farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
@@ -1616,6 +1603,7 @@ TEST(chain_is_timed)
         };
         CHECK_EQ(command(r, "RUN"), std::string());
         r.watch = nullptr;
+        irqs = left.irqs;
         CHECK(cycles > 0);
         return cycles;
     };
@@ -1626,7 +1614,7 @@ TEST(chain_is_timed)
                 "MERGE %llu (%u, %u)\n",
                 static_cast<unsigned long long>(text), ft, it, static_cast<unsigned long long>(tok), fb, ib,
                 static_cast<unsigned long long>(merge), fm, im);
-    CHECK(text <= 66521 + 400); // main b1d10088 66,521 on this rig, the handlers left out
+    CHECK(text <= 66851 + 400); // main 80a70aa6 66,851 on this rig (2026-11-21), the handlers left out
     CHECK_EQ(command(r, "KILL \"CHT.BAS\":KILL \"CHB.BAS\""), std::string());
 }
 
@@ -1884,7 +1872,7 @@ TEST(scrn_kybd_and_cons_files_by_hand)
 // The COM statement (GWSTS.ASM COMS: SEVSTT for COM(1) and COM(2)) and G10 (the owner's, 2026-11-14): an event id
 // past TRPTBL's range is Illegal function call, never a write past it: COM(200) passes the source's signed JGE (199
 // is negative) and would set the flag of event 214, 642 bytes into P3's RAM; with the guard, no byte past TRPTBL's
-// 63 changes (read at COMSP, P3 in W3). ON COM(n) GOSUB takes its line (its trap from the port is 7f's). Against
+// 87 changes (read at COMSP, P3 in W3; 63 until 7f's 29 events, E5). ON COM(n) GOSUB takes its line (its trap from the port deferred: 7f's answer 24). Against
 // PC-BASIC where it can tell (d_com: COM(n)'s errors, COM2: Device Unavailable); by hand, LCOPY, the source's LCOPYS
 // parse and then the OEM's LCPY, Advanced Feature until the screen (7d); IOCTL, the source's Advanced Feature
 // (GWSTS.ASM's ERDEV and IOCTL are ADVERR); and ERDEV and ERDEV$, which the 1983 table has no words for, are the IBM
@@ -1900,7 +1888,7 @@ TEST(the_com_statement_lcopy_erdev_and_ioctl)
     start(r);
     const std::map<std::string, uint16_t> p3 = link_labels("p3.lbl");
     REQUIRE(p3.count("TRPTBL") == 1 && p3.count("COMSP") == 1);
-    const uint16_t past = static_cast<uint16_t>(p3.at("TRPTBL") + 3 * 21), end = 0xF800; // NUMTRP 21
+    const uint16_t past = static_cast<uint16_t>(p3.at("TRPTBL") + 3 * 29), end = 0xF800; // NUMTRP 29 (7f, E5: 21 until 7f)
     std::vector<std::vector<uint8_t>> seen;
     r.watch = [&](uint16_t pc) {
         if (pc != p3.at("COMSP"))

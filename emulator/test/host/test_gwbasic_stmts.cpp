@@ -40,6 +40,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -421,9 +422,9 @@ TEST(varptr_string_prints_what_pc_basic_prints)
 
 // By hand, from the source and 7a's state (none of it can come from PC-BASIC's run of a file):
 // - WRITE # is a file's (FILGET, 7c): with no file open, Bad file number, as PRINT # gives;
-// - RANDOMIZE TIMER: TIMER isn't a reserved word in the 1983 source's crunch table (IBMRES.ASM's TTABX has TIME$
-//   alone; TIMER is 7f's), so it is a variable, 0, and RANDOMIZE TIMER is RANDOMIZE 0 (each after CLEAR, which
-//   starts RND's state again);
+// - RANDOMIZE TIMER: 7f: TIMER is the seconds since midnight (the IBM manual's p. 344; E2): with the rig's clock
+//   at 10:00:00, INT(TIMER) is 36,000 (or 36,001 if a second passes), and RANDOMIZE TIMER seeds RND otherwise than
+//   RANDOMIZE 0, with no Overflow (TIMER past 32,767: the seed's fold);
 // - CLEAR ,n is the workspace's top (OO-1): FRE(0) with nothing in the workspace is n - TXTTAB - 4 (the program's
 //   two zero bytes, VAL's zero at n - 1, MEMSIZ at n - 2), so CLEAR at the TPA's top (start-up's: its "Bytes free"
 //   + TXTTAB + 4) gives the start-up's bytes free again; one past it is Illegal function call (MAXMEM);
@@ -437,9 +438,13 @@ TEST(write_file_randomize_timer_and_clear_by_hand)
     const std::map<std::string, uint16_t> lab = labels();
     REQUIRE(lab.count("LOAD") == 1);
     CHECK_EQ(command(r, "WRITE #1,2"), std::string("Bad file number\r\n"));
-    CHECK_EQ(command(r, "PRINT TIMER"), std::string(" 0 \r\n"));
+    r.set_time(2026, 11, 21, 10, 0, 0);
+    const std::string t = command(r, "PRINT INT(TIMER)");
+    CHECK(t == std::string(" 36000 \r\n") || t == std::string(" 36001 \r\n"));
     const std::string seeded = command(r, "CLEAR:RANDOMIZE 0:PRINT RND;RND");
-    CHECK_EQ(command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND"), seeded);
+    const std::string timed = command(r, "CLEAR:RANDOMIZE TIMER:PRINT RND;RND");
+    CHECK(timed != seeded);
+    CHECK(timed.find("Overflow") == std::string::npos && timed.find("error") == std::string::npos);
     // Review round 1, F6: -32768 seeds the same as a number, an integer variable and at the prompt (FRCINT's), and
     // 32767.6, which FRCINT would round out of the integers, is folded, not Overflow.
     const std::string m32768 = command(r, "CLEAR:RANDOMIZE -32768:PRINT RND");
@@ -680,12 +685,12 @@ TEST(lprint_using_goes_to_lpt1)
 // ON event GOSUB (GWMAIN.ASM NTOERR, ONGSB0, RSTRAP; GWSTS.ASM ONGOTP, NT2BTK, NTONPN, ONFUN, ONFUN1, ONSTM, ONGOTX,
 // GETSUB, SETGSB, EVADR), with no event raised, so no trap is taken: ON KEY(1) and KEY(14), with spaces; ON COM(1)
 // and (2); ON PEN; ON STRIG(0), (2), (4) and (6); GOSUB 0; a rounded n; ON's numeric form still right after them.
-// ON TIMER(n) and ON PLAY(n) GOSUB: TIMER isn't a reserved word in the 1983 source (TIMER(1) is an array's element,
-// 0, and ON 0 GOSUB goes on), and PLAY is a statement's token, which ON's numeric form doesn't take. Then the errors:
+// 7f: ON TIMER(n) and ON PLAY(n) GOSUB are the OO-1's events (the source has neither; the IBM manual's pp. 211, 217),
+// set and not taken with no TIMER ON or PLAY ON. Then the errors:
 // KEY(0), KEY(256), KEY(-1), COM(0), COM(3), STRIG(1) and STRIG(8) (Illegal function call), a missing line, and
 // Syntax error for two lines, GOTO, no "(", no ")", no GOSUB, something after the line. Where PC-BASIC departs from
-// the source (.differ): KEY(15) (the source has 14 key traps, NMKEYT), GOSUB with no line (the source's LINGET
-// gives 0: the trap's line cleared), ON PLAY(n).
+// the source (.differ): GOSUB with no line (the source's LINGET gives 0: the trap's line cleared). (7f, E3 and E4:
+// KEY(15), 20 key traps now, and ON PLAY(n) print what PC-BASIC prints.)
 TEST(on_event_gosub_prints_what_pc_basic_prints_or_the_source_says)
 {
     programs({"onev", "ontimer", "onevnl", "onevfc0", "onevfc1", "onevfc2", "onevfc3", "onevfc4", "onevfc5", "onevfc6",
@@ -734,6 +739,12 @@ namespace
             trptst = lab.at("TRPTST");
             curlin = lab.at("CURLIN");
         }
+        /// The trigger pulled: its operation in TRPTST and TRPON 1.
+        template <class B> void trigger(B &bus, uint8_t op) const
+        {
+            bus.poke(trptst, op);
+            bus.poke(trpon, 1);
+        }
     };
 
     /// GW-BASIC started, with a watch that raises each of `raises` as it comes (Raise's rule); the visits to NEWSTT
@@ -761,8 +772,7 @@ namespace
                 for (const Raise &x : raises)
                     if (x.line == line && x.nth == n)
                     {
-                        r.machine->bus().poke(lab.trptst, x.op);
-                        r.machine->bus().poke(lab.trpon, 1);
+                        lab.trigger(r.machine->bus(), x.op);
                     }
             };
         }
@@ -914,8 +924,7 @@ TEST(three_hundred_traps_leave_both_stacks_as_they_were)
             if (pc == all.at("IFS") && raise)
             {
                 ++u.raised;
-                r.machine->bus().poke(lab.trptst, u.raised == 1 ? ON | KEY1 : REQ | KEY1);
-                r.machine->bus().poke(lab.trpon, 1);
+                lab.trigger(r.machine->bus(), u.raised == 1 ? ON | KEY1 : REQ | KEY1);
             }
             else if (pc == lab.newst1 && u.first)
             {
@@ -948,7 +957,7 @@ TEST(three_hundred_traps_leave_both_stacks_as_they_were)
 // in NEWSTT's visits. A visit the console's 1 kHz tick lands in (over 100 cycles) is left out of both sums, and
 // counted. With no trap on (the program never turns one on); and with KEY(1) ON (raised after line 10) and nothing
 // requested. 7a's NEWSTT was LDA ONGSBF / BEQ NEWST1, 6 cycles (3 + 3, taken); each is given against it. The
-// limits have room over the plan's figures.
+// limits have room over the plan's figures. 7f (E7): and N32's polled sources, below.
 TEST(the_trap_test_at_newstt_is_timed)
 {
     TrapRig t;
@@ -1002,6 +1011,48 @@ TEST(the_trap_test_at_newstt_is_timed)
                 none, none - 6, one, one - 6);
     CHECK(none >= 5 && none <= 6);
     CHECK(one >= 15 && one <= 24);
+    // N32 (7f, E7; the owner's answer 23): with ON TIMER armed (TIMER ON, n 1,000 s: never reached) NEWSTT costs what
+    // one trap on costs: the timer is OOLIB's tick hook, resident (TIMHK), and NEWSTT polls nothing for it. Every
+    // visit counts here, the interrupt handlers' cycles left out of it (T17's method, gw_timing.h's since 7f's answer
+    // 33: the hook runs in one), for n
+    // 1,000 and 3,000. The gate: one trap on's, 15-24. Guards a game slowed by an armed timer. Seen failing with
+    // NEWSTT's ONGSBF test left out (P3's GOTRP every statement).
+    auto polled = [&](const std::string &arm, unsigned n) {
+        Window w;
+        gw_timing::LeftOut left(t.r, false);
+        uint64_t from = 0;
+        bool in = false;
+        t.r.watch = [&](uint16_t pc) {
+            if (left.inside(pc, in))
+                return;
+            if (pc == t.lab.newstt)
+            {
+                from = t.r.cpu->cycles();
+                left.out = 0;
+                in = true;
+            }
+            else if (pc == t.lab.newst1 && in)
+            {
+                in = false;
+                w.cycles += t.r.cpu->cycles() - from - left.out;
+                ++w.visits;
+            }
+        };
+        const std::string got = t.run({"10 " + arm, "20 I%=I%+1 : IF I%<" + std::to_string(n) + " THEN 20", "30 END",
+                                       "100 RETURN"},
+                                      {});
+        t.r.watch = nullptr;
+        CHECK_EQ(got, std::string());
+        return w;
+    };
+    auto avg = [&](const std::string &arm) {
+        const Window a = polled(arm, 1000), b = polled(arm, 3000);
+        CHECK(b.visits > a.visits);
+        return static_cast<double>(b.cycles - a.cycles) / (b.visits - a.visits);
+    };
+    const double timer = avg("ON TIMER(1000) GOSUB 100:TIMER ON");
+    std::printf("  NEWSTT with ON TIMER armed: %.2f cycles a statement (one trap on's gate, 15-24)\n", timer);
+    CHECK(timer >= 15 && timer <= 24);
 }
 
 int main()

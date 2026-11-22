@@ -21,6 +21,20 @@
 ;             while function 11 says ready, function 6 reads and drops). A =
 ;             $40 back if the key repeats, else 0
 ;   KEYINI    Caps Lock on, its light
+;   KTSET     7f: C clear, A nonzero if a key's trap is on (P3's POLUPD); C
+;             set, KEY 15-20's definition n - 15 in A, X its shift state
+;             (KBflag in EV_MODS's order: bit 0 Ctrl, 1 a Shift, 2 Alt, 6
+;             Caps Lock; Num Lock's dropped: the owner's answer 15), Y the
+;             key's HID usage (0 never: the home block's parse, from the scan
+;             code)
+;
+; ON KEY(n) (7f, the manual's pp. 144-148): while a key's trap is on, a key
+; pressed is matched before it is queued: keys 1-14 by the PC's code that
+; KXLAT gives (0 and F1-F10's 59-68, the cursor keys' 72, 75, 77, 80), then
+; 15-20 by their definitions (the usage, and the shift state: either Shift,
+; Ctrl, Alt, Caps Lock as GW-BASIC latches it); a match is P3's EVTRP, and a
+; key it traps (the trap on, a program running) is dropped, not queued
+; (p. 145). Ctrl-C is the break before any trap (OO-1, recorded).
 ;   KEYSIN    the next byte of the keyboard queue, waited for with the
 ;             editor's cursor shown, the cooked keys drained each time round
 ;   KEYIN     the editor's next key: A AL; C set for a two-byte one, X its
@@ -29,12 +43,13 @@
 ;             no text, a shifted one) is passed over
 ;
 ; The US layout, as OOUI's UCHAR has it; the keypad as digits (Num Lock on).
+; (7f: KTSET's entry is p6/scpag.s's, P6's last file.)
 
 .include "gwbasic.inc"
 .include "p6/p6.inc"
 
 ;@entry KEYEV
-.export KEYEV, KEYINI
+.export KEYEV, KEYINI, KTSET
 .import CHSNS, PKQUE, KYBQIN, KYBQOUT, EVAREA, TXLEN, TXRUN, STRTAB
 
 K_CTRL          = $11                  ; EV_MODS: left or right
@@ -55,13 +70,20 @@ KEYEV:          STA     KUSE
 @nc:            JSR     KXLAT
                 JCS     @none
                 LDA     KTWO
-                BNE     @q
+                BNE     @t
                 LDA     KC1
                 CMP     #3             ; ^C: the break
-                BNE     @ns
+                BNE     @t
                 JSR     KDRAIN
                 LDA     #$80
                 RTS
+@t:             LDA     KTON           ; 7f: a key's trap on?
+                BEQ     @nt
+                JSR     KTRAP
+                JCS     @none          ; trapped: not queued
+@nt:            LDA     KTWO
+                BNE     @q
+                LDA     KC1
 @ns:            CMP     #$13           ; ^S: the pause, what was printed on
                 BNE     @q             ; the screen first (as LIST's lines)
                 JSR     KDRAIN
@@ -318,6 +340,71 @@ KLEDS:          LDA     #IN_LEDS
                 LDY     #O_INPUT
                 JMP     BDOS
 
+; KTSET (7f): see above.
+KTSET:          BCS     @def
+                STA     KTON
+                RTS
+@def:           STA     KTNX
+                TYA
+                LDY     KTNX
+                STA     KDUSE,Y
+                TXA
+                STA     KDFLG,Y
+                RTS
+
+; KTRAP (7f): the key (KUSE, KMOD; KXLAT's KTWO, KC2) against the traps: C set
+; back if P3's EVTRP took it (its trap on, a program running).
+KTRAP:          LDA     KTWO           ; keys 1-14: F1-F10 (59-68), 72 75 77 80
+                BEQ     @def
+                LDA     KC2
+                SEC
+                SBC     #59
+                CMP     #10
+                BCC     @hit
+                LDX     #3
+:               LDA     KC2
+                CMP     KCUR,X
+                BEQ     @cur
+                DEX
+                BPL     :-
+@def:           LDA     KMOD           ; 15-20: the shift state now: EV_MODS's
+                LSR     A              ; left and right as one (bit 0 Ctrl, 1
+                LSR     A              ; Shift, 2 Alt), Caps Lock bit 6
+                LSR     A
+                LSR     A
+                ORA     KMOD
+                AND     #$07
+                BIT     CAPS
+                BPL     :+
+                ORA     #$40
+:               STA     KTNX
+                LDX     #NMKEYD - 1
+@d:             LDA     KDUSE,X
+                BEQ     @n
+                CMP     KUSE
+                BNE     @n
+                LDA     KDFLG,X
+                CMP     KTNX
+                BEQ     @dhit
+@n:             DEX
+                BPL     @d
+                CLC
+                RTS
+@cur:           TXA                    ; 11-14
+                CLC
+                ADC     #10
+                BRA     @hit
+@dhit:          TXA                    ; 15-20
+                CLC
+                ADC     #14
+@hit:           CLC                    ; the key's event id
+                ADC     #KEYOFF
+                FJSR    EVTRP          ; Z clear: trapped
+                CLC
+                BEQ     :+
+                SEC
+:               RTS
+
 KEYINI:         LDA     #$FF
                 STA     CAPS
                 JMP     KLEDS
@@ -395,6 +482,8 @@ ALTLET:         .byte   30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50
 NAVP:           .byte   82, 71, 73, 83, 79, 81, 77, 75, 80, 72
 NAVC:           .byte   82, 119, 132, 83, 117, 118, 116, 115, 80, 72
 KPAD:           .byte   "/*-+", 13, "1234567890."
+; KCUR (7f): keys 11-14's codes, Cursor Up, Left, Right, Down (the manual's p. 148).
+KCUR:           .byte   72, 75, 77, 80
 ; EDSCN, EDFUN: the editor's keys (the IBM editor's): Up, Down, Left,
 ; Right, Home, End, Ins, Del, Ctrl-Left, Ctrl-Right, Ctrl-End, Ctrl-Home.
 EDSCN:          .byte   72, 80, 75, 77, 71, 79, 82, 83, 115, 116, 117, 119
@@ -412,3 +501,7 @@ KROOM:          .res    1              ; the queue's room
 KSX:            .res    1              ; the soft key's text, its place in STRTAB
 CAPS:           .res    1              ; bit 7: Caps Lock on
 LEDB:           .res    2              ; function 81's block
+KTON:           .res    1              ; 7f: nonzero while a key's trap is on (KTSET)
+KTNX:           .res    1              ;   KTSET's and KTRAP's
+KDUSE:          .res    NMKEYD         ; KEY 15-20: each one's usage (0: none, or never),
+KDFLG:          .res    NMKEYD         ;   and its shift state

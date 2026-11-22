@@ -476,14 +476,20 @@ TEST(the_loader_refuses_far_call_sites_outside_their_block)
         {"a site's page of 9", [&](std::vector<uint8_t> &o) { page(o) = 9; }},
         {"a site's page of 200", [&](std::vector<uint8_t> &o) { page(o) = 200; }},
         {"a site's page the file hasn't", // the highest page 1-8 the header doesn't name (8 was, until 7c's home
-         [&](std::vector<uint8_t> &o) {   // block took page 8)
-             uint8_t none = 0;
+         [&](std::vector<uint8_t> &o) {   // block took page 8); 7f (the owner's answer 13): with all eight named,
+             uint8_t none = 0;            // the header's last entry dropped, and its page the one
              for (uint8_t p = 8; p >= 1 && !none; --p)
              {
                  bool has = false;
                  for (unsigned i = 0; i < o[5]; ++i)
                      has = has || entry(o, i)[0] == p;
                  none = has ? 0 : p;
+             }
+             if (none == 0)
+             {
+                 REQUIRE(o[5] > P2 + 1);
+                 none = entry(o, o[5] - 1u)[0];
+                 o[5] = static_cast<uint8_t>(o[5] - 1u);
              }
              REQUIRE(none != 0);
              page(o) = none;
@@ -495,6 +501,33 @@ TEST(the_loader_refuses_far_call_sites_outside_their_block)
         REQUIRE(r.ok);
         says(what, refused(r, damage), DAMAGED);
     }
+}
+
+// N37 (7f): the overlay holds eight blocks, P1-P8 (GWBASIC.OVL's header: its count, each page once), the loader
+// takes eight blocks of the pool (AMAP, blocks 4-23: the free ones before and after start-up), and a far call into
+// P7 after start-up runs (TIMER, in console mode). Guards P7's page missing, a far call to it landing in FARMISS.
+// Seen failing with mkgw.py given no P7.
+TEST(the_overlay_loads_eight_blocks)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> o = file("GWBASIC.OVL");
+    REQUIRE(o.size() > 128);
+    CHECK_EQ(o[5], 8u);
+    unsigned pages = 0;
+    for (unsigned i = 0; i < o[5] && i < 8; ++i)
+        pages |= 1u << o[8 + 8 * i];
+    CHECK_EQ(pages, 0x1FEu); // 1-8
+    auto taken = [&] {
+        unsigned n = 0;
+        for (uint32_t i = 0; i < 20; ++i)
+            n += r.phys(SYS_BLOCK_PHYS + sym("AMAP") + i) != 0;
+        return n;
+    };
+    const unsigned before = taken();
+    start(r);
+    CHECK_EQ(taken() - before, 8u);
+    CHECK_EQ(command(r, "PRINT TIMER>0"), std::string("-1 \r\n"));
 }
 
 // No memory for the blocks: every block of banks 1-5 taken (function 55's map, AMAP, as the loader starts).
@@ -1031,7 +1064,7 @@ TEST(extended_statements_dispatch_from_the_home_block_s_table)
     CcpRig r;
     REQUIRE(r.ok);
     start(r);
-    CHECK_EQ(command(r, "PLAY \"C\""), std::string("Advanced feature\r\n")); // 7f's
+    CHECK_EQ(command(r, "IOCTL 1,\"x\""), std::string("Advanced feature\r\n")); // the source's (7f, E1: was PLAY's)
     CHECK_EQ(command(r, "CALLS 0"), std::string("Advanced feature\r\n"));    // the last, 7g's
     enter(r, {"10 PRINT \"a\";", "20 DRAW \"U1\"", "30 PRINT \"b\""});    // 7e's
     CHECK_EQ(command(r, "RUN"), std::string("a\r\nAdvanced feature in 20\r\n"));
@@ -1110,6 +1143,52 @@ TEST(graphics_are_advanced_feature_in_console_mode)
     for (uint32_t i = 0; i < con.size(); ++i)
         moved += vid.card_peek(i) != con[i];
     CHECK_EQ(moved, 0u);
+}
+
+// N35 (7f; the owner's answer 4, E8): in console mode, which opens no event queue, the statements that need one are
+// Advanced Feature, each before its arguments (the stubs' SCRMOD test, as the graphics'): SOUND, PLAY, PLAY(n), PLAY
+// ON/STOP, STRIG(n) ON, STRIG ON, KEY(n) ON and KEY 15-20's definitions, STICK, STRIG; and the ones that don't need it work as in screen
+// mode: BEEP (function 82's SN_BEEP, 800 Hz 250 ms, its block watched: nothing printed), PEN, ON COM(1) and COM(1) ON, TIMER, DATE$, TIME$ and
+// ON TIMER (the 2nd GOSUB after 1-3 s, by FT_COUNT's ms: console mode opens no event area). Guards a statement in console mode
+// waiting on events that never come. Seen failing with SOUND's stub without its SCRMOD test (the driver started,
+// the note queued and MF's wait run to the clock).
+TEST(console_mode_keeps_its_guard)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start(r);
+    for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",
+                          "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)",
+                          "PRINT STICK(0)", "PRINT STRIG(0)"})
+        CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
+    // BEEP sounds the bell by function 82's SN_BEEP (16), 800 Hz for 250 ms (review round 1, T5): its block seen at
+    // the BDOS's entry ($0203, Y 82, A/X the block)
+    std::vector<std::vector<uint8_t>> beeps;
+    r.watch = [&](uint16_t pc) {
+        const auto &g = r.cpu->regs();
+        if (pc != 0x0203 || g.y != 82 || g.x == 0)
+            return;
+        const uint16_t at = static_cast<uint16_t>(g.a | g.x << 8);
+        if (r.machine->bus().peek(at) != 16)
+            return;
+        std::vector<uint8_t> b;
+        for (uint16_t i = 0; i < 5; ++i)
+            b.push_back(r.machine->bus().peek(static_cast<uint16_t>(at + i)));
+        beeps.push_back(b);
+    };
+    CHECK_EQ(command(r, "BEEP"), std::string());
+    r.watch = nullptr;
+    REQUIRE(beeps.size() == 1u);
+    CHECK_EQ(beeps[0][1] | beeps[0][2] << 8, 800);
+    CHECK_EQ(beeps[0][3] | beeps[0][4] << 8, 250);
+    CHECK_EQ(command(r, "PEN ON:PRINT PEN(0);PEN(9)"), std::string(" 0  0 \r\n"));
+    CHECK_EQ(command(r, "ON COM(1) GOSUB 0:COM(1) ON:COM(1) OFF"), std::string());
+    const std::string t = command(r, "PRINT TIMER>0;LEN(DATE$);LEN(TIME$)");
+    CHECK_EQ(t, std::string("-1  10  8 \r\n"));
+    enter(r, {"NEW", "10 ON TIMER(1) GOSUB 100:TIMER ON:T=TIMER", "20 IF N<2 THEN 20", "30 E=TIMER-T:TIMER OFF:PRINT N;E>1;E<3:END",
+              "100 N=N+1:RETURN"});
+    CHECK_EQ(command(r, "RUN"), std::string(" 2 -1 -1 \r\n"));
+    CHECK_EQ(command(r, "PRINT 3"), std::string(" 3 \r\n"));
 }
 
 // G38 (7e5, console mode): the screen statements M6 moved to the home block (the space plan's M6: their arguments

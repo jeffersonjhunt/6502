@@ -775,18 +775,44 @@ IBMRES.ASM MORLNP -> p2/gwlist.s MORPUR
 IBMRES.ASM MORLN1 -> p2/gwlist.s MORLN1
 IBMRES.ASM NEWSTX -> res/ibmres.s NEWSTX
 IBMRES.ASM GIIRET -> res/ibmres.s GIIRET
-GWSTS.ASM PENS -> later 7f: PEN as a statement
-GWSTS.ASM STRIGS -> later 7f: STRIG as a statement
-GWSTS.ASM DATEF -> later 7f: DATE$
-GWSTS.ASM TIMEF -> later 7f: TIME$
-IBMRES.ASM PENV -> later 7f: PEN as a statement (PENS); res/ibmres.s PENV gives Advanced Feature
-IBMRES.ASM STRIGV -> later 7f: STRIG as a statement (STRIGS); likewise
+GWSTS.ASM PENS -> p8/sound.s HPENST # PEN ON, OFF, STOP: P3's SETEV1 on PENOFF (EVSTM); RDPEN's switch has no pen to switch (7e4's answer 1); both modes (the owner's answer 4)
+GWSTS.ASM STRIGS -> p8/sound.s HPENST # STRIG(n) by P3's SEVSTT; STRIG ON, OFF taken (STRIG1, STROK inline); screen mode (the owner's answer 4)
+GWSTS.ASM PRSDAT -> p7/time.s DATESP # its parse (TMSTR: SYNCHR EQULTK, FRMEVL, FRESTR)
+GWSTS.ASM SETDAT -> p7/time.s SETDT # OO-1: function 104 (its seconds 0)
+GWSTS.ASM PRSTIM -> p7/time.s TIMESP # its parse
+GWSTS.ASM SETTIM -> p7/time.s SETDT # OO-1: function 104, the day as 105 has it
+GWSTS.ASM GETDAT -> p7/time.s GETDT # OO-1: function 105 (DAYYMD the date)
+GWSTS.ASM GETTIM -> p7/time.s GETDT # OO-1: function 105
+GWSTS.ASM PUTCH2 -> p7/time.s PUTCH2
+DSKCOM.ASM PUTCHR -> dropped: 7f: the ledger finds DATEF's and TIMEF's PUTCHR by the name's first definition, DSKCOM.ASM's (unused); GWSTS.ASM's PUTCHR is p7/time.s PUTCHR
+GWSTS.ASM DATSEP -> p7/time.s DATSEP
+GWSTS.ASM GNUM16 -> p7/time.s GNUM16
+GWSTS.ASM GNUM8 -> p7/time.s GNUM8
+GWSTS.ASM DATERR -> p7/time.s DATERR
+GWSTS.ASM TIMSEP -> p7/time.s TIMSEP
+GWSTS.ASM TIMERR -> p7/time.s DATERR
+GWSTS.ASM CKLEAP -> p7/time.s MLEN
+GWSTS.ASM GDTIME -> p7/time.s GETDT
+GWSTS.ASM SETFEB -> p7/time.s MLEN
+GWSTS.ASM BCDBIN -> p7/time.s BCDBIN
+GWSTS.ASM BINBCD -> p7/time.s BINBCD
+GWSTS.ASM DIGIT -> p7/time.s GNUM16 # inline
+GWSTS.ASM DIGITX -> p7/time.s TNEXT
+GWSTS.ASM DYOFYR -> p7/time.s DATESP # its month and day checks, and the day count, inline
+GWSTS.ASM SDTIME -> p7/time.s SETDT
+GWSTS.ASM SDTIMX -> p7/time.s GETDT
+GWSTS.ASM PUTCHR -> p7/time.s PUTCHR
+GWSTS.ASM RET2 -> p7/time.s GNUM16 # its RTS, inline
+GWSTS.ASM DATEF -> p7/time.s DATEF # OO-1: from function 105's day count (DAYYMD; the OEM's GETDAT); PUTCHR, PUTCH2 with it
+GWSTS.ASM TIMEF -> p7/time.s TIMEF # OO-1: function 105 (the OEM's GETTIM)
+IBMRES.ASM PENV -> res/ibmres.s PENV # NEWSTX's return dropped, the home block's HPENST (p8/sound.s)
+IBMRES.ASM STRIGV -> res/ibmres.s PENV # the same as PENV's: HPENST tells them apart
 IBMRES.ASM GONE4 -> res/ibmres.s GONE4 # a token past CALLS is Syntax error here (the 8086 doesn't check)
 IBMRES.ASM SNERRS -> res/ibmres.s SNERRS
 IBMRES.ASM EVALX -> res/ibmres.s EVALX
 IBMRES.ASM EVALNS -> res/ibmres.s EVALNS
-IBMRES.ASM DATEV -> later 7f: DATE$ (DATEF), with TIMER; res/ibmres.s EVALDT gives Advanced Feature
-IBMRES.ASM TIMEV -> later 7f: TIME$ (TIMEF), likewise
+IBMRES.ASM DATEV -> res/ibmres.s EVALX # 7f: EVALX hands DATE$ to the home block's ERDEVP, then P7's XFUNP (p7/event.s): DATEF
+IBMRES.ASM TIMEV -> res/ibmres.s EVALX # likewise: TIMEF
 IBMRES.ASM EVALNF -> res/ibmres.s EVALNF # the $FD functions: one far call to P3's FUNDSX (FUNDXP; P4's until the fix-up's review round 1); a token past MKD$ Syntax error
 GWEVAL.ASM MAKUPL -> res/gweval.s MAKUPL
 GWEVAL.ASM MAKUPS -> res/gweval.s MAKUPS
@@ -807,7 +833,7 @@ BIMISC.ASM NODSKS -> res/bimisc.s NODSKS
 BIMISC.ASM SCRATH -> res/bimisc.s SCRATH
 BIMISC.ASM SCRTCH -> res/bimisc.s SCRTCH
 BIMISC.ASM RUNC -> res/bimisc.s RUNC
-BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST by a far call in screen mode (7e1); SNDINI later 7f
+BIMISC.ASM CLEARC -> res/bimisc.s CLEARC # INITRP once, by a far call (7b step e); CLSALL by its resident stub (7c), NLONLY's CLRDS1 (7c), MRGFLG and CHNFLG (7c's CHAIN); GRPRST by a far call in screen mode (7e1); SNDINI by INITRP's far call (7f)
 BIMISC.ASM INITRP -> p3/bimisc.s INITRP # an entry, CLEARC's far call; TRPON cleared too (OO-1)
 BIMISC.ASM LOPDFT -> res/bimisc.s LOPDFT
 BIMISC.ASM LEVDTB -> res/bimisc.s LEVDTB
@@ -913,16 +939,16 @@ GIO86.ASM NAMSCN -> p4/gio86.s NAMSCN
 GIO86.ASM NULOPM -> p4/gio86.s NULOPM # an entry, LIST's (p2/gwlist.s LIST4)
 GIO86.ASM GIOINI -> p4/gio86.s GIOINP # DOALDV in it: each device's start (DVINI); NLONLY and PTRFIL are start-up's (p2/gwinit.s, which far calls it), FILTAB MEMSIZ + 2 (OO-1), no MS-DOS vectors (MSISET), no STKLOW
 GIO86.ASM GIOTRM -> dropped: every device's end is a RET on the OO-1 (KYBTRM, LPTTRM, COMTRM, CONS's _RET; SCNTRM's function-key line is 7d's); the disk files need none (SYSTEM closes them, CLSALL), no MS-DOS vectors (MSIRST)
-GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # console mode: functions 11 and 6; screen mode: EVPOLL; the function keys' traps later 7f
+GIOKYB.ASM POLKEY -> OEM res/oem.s POLKEY # console mode: functions 11 and 6; screen mode: EVPOLL; the keys' traps P6's KTRAP (7f)
 GIOKYB.ASM ITSCTC -> OEM res/oem.s ITSCTC
 GIOKYB.ASM CNTCCN -> OEM res/oem.s CNTCCN
 GIOKYB.ASM KYBINI -> OEM res/oem.s KYBINI
 GIOKYB.ASM PKQUE -> OEM res/oem.s PKQUE
 GIOKYB.ASM CHSNS -> OEM res/oem.s CHSNS
 GIOKYB.ASM INKEY -> OEM res/oem.s INKEY # one-byte keys, and in screen mode the PC's two-byte keys (0 and a scan code)
-GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM, POLPEN, POLSTR later 7c, 7f
-GWSTS.ASM SNDINI -> later 7f: CLEARC's sound reset
-GWSTS.ASM SNDRST -> later 7f: the break's music reset
+GWSTS.ASM CHKINT -> OEM res/oem.s CHKINT # POLKEY once in 16 statements; POLCOM later 7g (ON COM deferred, 7f's answer 24), POLPEN dropped (no pen), POLSTR as P7's STREV
+GWSTS.ASM SNDINI -> p7/sound.s SNDINI # INITRP's far call (CLEARC), and SYSTEM's; OO-1: the driver quit (the owner's answer 5)
+GWSTS.ASM SNDRST -> p7/sound.s SNDRST # the resident ITSCTC's far call, and SOUND x,0's: MU_STOP of voice 0
 GENGRP.ASM GRPRST -> p5/gengrp.s GRPRST # the resident CLEARC far calls it in screen mode (7e1); DRAW's scale and angle (DRWSCL, DRWANG) and TA's state (DRWTA, OO-1) cleared, P5's since 7e2
 GIODSK.ASM SYSTEM -> OEM res/oem.s SYSTEM # CLSALL by its resident stub (7c)
 GIODSK.ASM SYSTME -> OEM res/oem.s SYSTME # GWTERM's part: the console mode back, the keys drained (X2)
@@ -932,18 +958,18 @@ DSKCOM.ASM PRGFIN -> p4/gio86.s PRGFIN
 GIOKYB.ASM STCTYP -> p6/oem.s STCTYP # screen mode; the shape isn't kept (the owner's answer 9)
 GIOKYB.ASM SETCSR -> p6/oem.s SETCSR
 GIOKYB.ASM KEYIN -> OEM p6/key.s KEYIN # the PC's keys (0 and a scan code) to the editor's functions; IGNNFK's null keys passed over
-GIOKYB.ASM TRPCHK -> later 7f: the cursor keys' ON KEY traps
+GIOKYB.ASM TRPCHK -> OEM p6/key.s KTRAP # 7f: keys 1-14 by the PC's code KXLAT gives, 15-20 by their definitions; a trapped key not queued
 GIOKYB.ASM CONIN -> OEM res/oem.s CHSNS # the queue; the soft keys expanded as they are queued, P6's KEYEV (7d2, the owner's answer 2)
 GIOKYB.ASM CKDBLK -> OEM res/oem.s INKEY # the queue's lead byte 0: the PC's two-byte key (screen mode)
 GIOKYB.ASM CHKFKY -> OEM p6/key.s KEYEV # an unshifted F1-F10 (59-68) with a text queues it whole, or nothing if it doesn't fit; SUPRKY's keywords (Alt and a letter) not built (the owner's answer 4): Alt and a letter keeps 0 and its scan code
-GWSTS.ASM KEYTRP -> later 7f: ON KEY(n)'s trap
-GWSTS.ASM KEYSTT -> later 7f: KEY(n) ON, OFF, STOP (Advanced Feature until ON KEY's traps: the owner's answer 5)
-GWSTS.ASM POLPEN -> later 7f: the light pen's trap
-GWSTS.ASM POLSTR -> later 7f: STRIG's trap
+GWSTS.ASM KEYTRP -> p6/key.s KTRAP # its EVTRP on KEYOFF + n - 1
+GWSTS.ASM KEYSTT -> p8/far6.s KEYSTT # 7f: parsed in the home block, SEVSTT's order, n 1-20 (OO-1: KEY(0) Illegal function call, the manual's); P3's SETEV1
+GWSTS.ASM POLPEN -> dropped: no light pen (RDPEN reports none, 7e4's answer 1): ON PEN never fires
+GWSTS.ASM POLSTR -> OEM p7/event.s STREV # 7f: on each EK_CTL event, not polled: a press latched, its trap asked (EVTRP)
 GWSTS.ASM EOSCH1 -> p3/gwsts.s EOSCH1 # EOSCHK's DECW before it in P3 too (its line above: DELETE's, P2's inline)
 GWSTS.ASM EVADR -> p3/gwsts.s EVADR # 16 bits, as the 8086's AX
 GWSTS.ASM EVSET -> p3/gwsts.s EVSET
-GIOCOM.ASM POLCOM -> later 7f: COM1's trap, ON COM(n) from a byte waiting (CHKINT's; COM(n)'s flag is 7c's, p3/gwsts.s COMSP)
+GIOCOM.ASM POLCOM -> later 7g: ON COM(n)'s trap deferred (the owner, 2026-11-21, 7f's answer 24) until OODOS gives AUX: an interrupt-filled receive buffer (phase 7's question 12 reopened); COM(n) ON/OFF/STOP set the flag, nothing raises it
 GIO86.ASM PTRDSP -> p4/gio86.s PTRDSP # a file's (FLUSHR's); the console's and LPT1's are the OEM's OUTDO
 GIO86.ASM PTRGPS -> OEM res/oem.s CRDONZ # the device's column
 GIO86.ASM TBLDSP -> OEM res/oem.s FINLPT # LPT1's column
@@ -1254,8 +1280,9 @@ GIO86.ASM DEFSAD -> p8/far4.s DEFSAD
 GIO86.ASM LODEND -> p4/gio86.s LODEND
 GIO86.ASM ERBFM2 -> p4/gio86.s BLOADP
 GIO86.ASM INP16 -> p4/gio86.s INP16 # the header's three words, into BHDR
-GWSTS.ASM SOUNDS -> later 7f: SOUND
-GWSTS.ASM BEEPS -> later 7f: BEEP
+GWSTS.ASM SOUNDS -> p7/sound.s SOUNDP # the home block's SOUND stub, screen mode (the owner's answer 4); OO-1: a negative duration Illegal function call (answer 19), a length past 65,535 ms up to three entries back to back (answer 18); EOSCHK as P7's EOSP7
+GWSTS.ASM DOSND -> p7/sound.s DOSND # JDNOTE and DNOTOK with it; DONOTE the OEM's, on the music driver (p7/sound.s DONOTE)
+GWSTS.ASM BEEPS -> p7/sound.s BEEPP # OO-1: function 82's SN_BEEP, both modes (the owner's answer 3)
 GENGRP.ASM PSET -> p5/gengrp.s PSETP # its home block stub p8/far5.s PSET, screen mode; PPRSET, PSETC, PSTNOT inline
 GENGRP.ASM PRESET -> p5/gengrp.s PRSETP # its home block stub p8/far5.s PRESET
 GWSTS.ASM SCREEN -> p6/gwsts.s SCRNP # SCREEN 0, 1 and 2 (7e1: SCRSTT's modes, P5's GMODE; 7e5: and the OO-1's SCREEN 10, 11 and 12, modes 3-5, an OO-1 extension past the IBM manual's 0-2); its stub p8/far6.s SCREEN, which parses it (GTPRMS: 7e5's M6)
@@ -1267,9 +1294,13 @@ GWEVAL.ASM FNINP -> later 7g: INP, refused (question 13)
 GIOSCN.ASM POS -> res/oem.s F_SPOS # FUNDSP's; CSRX is TTYPOS + 1; Illegal function call in console mode, as before
 GWMAIN.ASM PEEK -> p1/peek.s PEEKP # FUNDSP's resident F_PEEK (res/bistrs.s); PRODIR inline; segment 0 below $C000 direct, else PEKFLT's place, the OEM's p5/seed.s DSBYTE; bank 8 the screen page in screen mode, 7d3
 GIOLPT.ASM LPOS -> p4/giolpt.s LPOSP # its resident stub res/far4.s LPOS (FUNDSP's); OO-1 (the IBM manual's p. 178): 0 and 1 LPT1's, 2 and 3 1 (no driver), past 3 Illegal function call
-GWSTS.ASM PENF -> later 7f: PEN (the owner's answer 1 to the 7e4 plan: PENF and PENS with an OEM RDPEN that reports no pen)
-GWSTS.ASM STICKF -> later 7f: STICK
-GWSTS.ASM STRIGF -> later 7f: STRIG
+BIPRTU.ASM FCERR3 -> res/gwmain.s FCERR # 7f: PENF's FCERR3, which the ledger finds by its first definition, BIPRTU.ASM's: a JMP FCERR either way
+GWSTS.ASM FCERRI -> res/gwmain.s FCERR # ONESUB's and STRIGF's: CONINT's own Illegal function call
+GWSTS.ASM ONESUB -> res/gweval.s CONINT # 7f: PENF's (and STRIGF's, STICKF's): CONINT on the FAC FUNDSP's call evaluated
+GWSTS.ASM COMTRP -> later 7g: POLCOM's (ON COM deferred, 7f's answer 24)
+GWSTS.ASM PENF -> p7/event.s JOYFP # PEN(0) TSTCEV; RDPEN the OEM's: no pen, 0 (the owner's answer 1 to the 7e4 plan); ONESUB as CONINT
+GWSTS.ASM STICKF -> p7/event.s JOYSS # RDSTIK the OEM's, on EV_CTL (0-255: the OEM table's); STICK(0) latches both sticks; console mode Advanced Feature (the owner's answer 4)
+GWSTS.ASM STRIGF -> p7/event.s STRIGF # RDTRIG the OEM's: an even n STREV's latch (cleared), an odd n EC_BITS now; a press that a trap took isn't latched (the manual's p. 333, the owner's answer 24 item 4), where the source tests and clears the request
 GIO86.ASM EOF -> p4/gio86.s EOF # by FILFNP, the resident FILFUN's (res/far4.s)
 GIO86.ASM LOC -> p4/gio86.s LOC # by FILFNP
 GIO86.ASM LOF -> p4/gio86.s LOF # by FILFNP
@@ -1286,8 +1317,8 @@ GWSTS.ASM GET -> p4/gwsts.s GETP # its home stub p8/far4.s GET, the same (and GE
 GIODSK.ASM RESET -> p4/giodsk.s RESETP # its home stub p8/far4.s RESET
 FIVEO.ASM COMMON -> res/gwmain.s DATA # STMDSX's COMMON is DATA (p8/home.s), as COMMON's JMP DATA
 FIVEO.ASM CHAIN -> p8/chain.s CHAINP # its home block stub p8/far4.s CHAIN (a JSR since F3's M4) goes on to MAIN or CHNENT's SCRTCH (the far call rule)
-GWSTS.ASM DATES -> later 7f: DATE$, on function 105
-GWSTS.ASM TIMES -> later 7f: TIME$, on function 105
+GWSTS.ASM DATES -> p7/time.s DATESP # PRSDAT, DATSEP, GNUM8, GNUM16, DIGIT, DIGITX inline; OO-1 (the owner's answer 8): a year outside 2000-2099 Illegal function call, a two-digit one too (the manual's 19yy); the month and the day checked (DYOFYR's); the OEM's SETDAT function 104
+GWSTS.ASM TIMES -> p7/time.s TIMESP # PRSTIM, TIMSEP inline; OO-1 (answer 8): function 104 sets the hour and the minute, the seconds 0
 ADVGRP.ASM PAINT -> p5/advgrp.s PAINTP # its home block stub p8/far5.s PAINT, screen mode; PNTCOR the fill (DRAW's P too); GOTBRD inline; OO-1 (the IBM manual's p. 236): a start off the screen paints nothing, no error (CHKRNG not called); a string paint or a background Advanced Feature until 7e4 (the owner's G12); CKCNTC with block 1 put back (PNTLOP)
 ADVGRP.ASM INTQUE -> p5/advgrp.s INTQUE # the queue's end A/X (FRETOP, or DRAW's P's cap, OO-1) and Y (0: GARBA2 allowed); INTQU2 inline
 ADVGRP.ASM CHKRNG -> p5/advgrp.s CHKRNG # GET and PUT's (7e3); PAINT doesn't call it: its start off the screen paints nothing (the IBM manual's p. 236; PAINTP's SCALXY test)
@@ -1311,7 +1342,7 @@ ADVGRP.ASM GTABSC -> p5/advgrp.s GTABSC
 ADVGRP.ASM CPLOT4 -> p5/advgrp.s CPLOT4 # CPLOT, CNBTWN, CLINEC, CLINSC, CLINE, CBTWEN, GCPLFN, CPLTIT, CPLFIN inline: HL, DE and the count in zero page (CHL, CDE, CPLN), not the 8086's stack
 ADVGRP.ASM CPLSCX -> p5/advgrp.s CPLSCX # XCHBD the swap
 ADVGRP.ASM DRAW -> p3/draw.s DRAWP # its home block stub p8/far5.s DRAW, screen mode; PIXSIZ's test and the state by P5's DRWOP 0 (7e2, the owner's answer 1: the parse in P3, the drawing in P5)
-MACLNG.ASM MACLNG -> p3/maclng.s MACLNG # MCLNEW, MCLOOP, MCLSCN, MSCNLP, MISCMD, VSNARG, VSNAR0, ISCMD3, MNOARG inline: each string's address and length on the 6502's stack, 3 bytes a level; OO-1: MCLOUT the first string's address, for DRAW's P
+MACLNG.ASM MACLNG -> p3/maclng.s MACLNG # MCLNEW, MCLOOP, MCLSCN, MSCNLP, MISCMD, VSNARG, VSNAR0, ISCMD3, MNOARG inline: each string's address and length on the 6502's stack, 3 bytes a level; OO-1: MCLOUT the first string's address, for DRAW's P; 7f: assembled a second time into P7 for PLAY (p7/maclng.s includes this file: one source, two copies, the space plan's answer 4), MCLC2 exported for PLYNOT
 MACLNG.ASM FETCHZ -> p3/maclng.s FETCHZ # GOFCER's FCERR
 MACLNG.ASM DECFET -> p3/maclng.s DECFET
 MACLNG.ASM VALSCN -> p3/maclng.s VALSCN # VALSC3, VALSC2, NUMLOP inline; each "-" counted (NEGD's return pushed in the 8086), negated once at the end
@@ -1332,8 +1363,22 @@ ADVGRP.ASM SCALE2 -> p5/advgrp.s SCALE2 # CIRCLE's; DRAW's GOSCAL has its own co
 GWSTS.ASM GOFCER -> res/gwmain.s FCERR # JMP FCERR; the name MACLNG.ASM's FETCHZ reaches is its own GOFCER (p3/maclng.s MCLFC), the ledger resolving it here
 MACLNG.ASM VALSC3 -> p3/maclng.s VALSC3
 MACLNG.ASM FETCHR -> p3/maclng.s FETCHR # FETCH2 inline; C set for a character, clear at the end (the 8086's Z)
-GWSTS.ASM PLAYS -> later 7f: PLAY
-GWSTS.ASM TIMER -> later 7f: TIMER, ON TIMER
+GWSTS.ASM PLYLEN -> p7/play.s PLYLEN # OO-1: the number checked whole (DLARG), the manual's 1-64
+GWSTS.ASM PLYMET -> p7/play.s PLYMET # PLYMOD, PLYDUR inline
+GWSTS.ASM PLYNOT -> p7/play.s PLYNOT # PLYFLT, PLYNO2, PLYSHP inline; the letter from MACLNG's MCLC2
+GWSTS.ASM PLYNUM -> p7/play.s PLYNUM # OO-1: the number checked whole (0-84)
+GWSTS.ASM POCTAV -> p7/play.s POCTAV # OO-1: the number checked whole (0-6)
+GWSTS.ASM PPAUSE -> p7/play.s PPAUSE # OO-1: P0 Illegal function call (the manual: 1-64; the source takes it as no pause)
+GWSTS.ASM PTEMPO -> p7/play.s PTEMPO # OO-1: the number checked whole (32-255)
+GWSTS.ASM PLGOFC -> p7/play.s PLGOFC
+GWSTS.ASM PLYMER -> p7/play.s PLYMET # its JMP FCERR inline
+GWSTS.ASM PLYNO9 -> p7/play.s PLYDOX # OO-1: one entry, the gate by MSCALE (DOSND's A), where the source sends the shortened note then a pause (PLYNO6-PLYNO8 with it)
+GWSTS.ASM PLYNO3 -> p7/play.s PLYNO3
+GWSTS.ASM PLYNU3 -> p7/play.s PLYNU3 # PLYNU4 (OO-1: the shift 7 - O, the owner's answer 2), PLYNO4, PLYDOT, PLYDO2, PLYDOX inline
+GWSTS.ASM PLYRET -> p7/play.s PLYRET
+GWSTS.ASM PPAUS2 -> p7/play.s PPAUS2
+GWSTS.ASM PLAYS -> p7/play.s PLAYP # the home block's PLAY stub, screen mode (the owner's answer 4); MACLNG P7's own copy (p7/maclng.s)
+GWSTS.ASM TIMER -> p7/time.s TIMEP # OO-1: the source's TIMER is ADVERR; the manual's (p. 344): function 105's seconds since midnight and the ms counter's fraction (the owner's answer 7); ON TIMER and TIMER ON/OFF/STOP the OO-1's: the resident tick hook TIMHK (answer 23), p7/time.s TIMSET, TIMONP, TIMOFP
 GWSTS.ASM ERDEV -> res/todo_i1.s ADVERR # the source's: ERDEV falls into ADVERR (STMDSX's entry); the 1983 table has no word for it
 GWSTS.ASM IOCTL -> res/todo_i1.s ADVERR # the source's: IOCTL falls into ADVERR (STMDSX's entry)
 GWSTS.ASM CHDIR -> OEM p3/oem.s DIRHK # the directory hook (P3's since the IBM spec's fix-up's review round 1) (the owner's, 2026-11-13), its home stub p8/far4.s CHDIR; the word added to P2's table (OO-1)
@@ -1499,10 +1544,10 @@ BIMISC.ASM GOTRPL -> p3/bimisc.s GOTRPL
 BIMISC.ASM GOTRP1 -> p3/bimisc.s GOTRP1
 BIMISC.ASM GOTRPX -> p3/bimisc.s GOTRPX
 BIMISC.ASM GOTRP2 -> p3/bimisc.s GOTRP2 # DX and CX back with C set for the poll's GOSUB2 (the 8086's stack shuffle and JMP)
-GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: later 7c, 7f); JGE kept signed
+GWSTS.ASM SEVSTT -> p3/gwsts.s SEVSTT # an entry (KEYSTT, COMS, STRIGS: 7c, 7f); JGE kept signed
 GWSTS.ASM SEVST1 -> p3/gwsts.s SEVST1
 GWSTS.ASM SEVST2 -> p3/gwsts.s SEVST2
-GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry (PENS: later 7f)
+GWSTS.ASM SET1EV -> p3/gwsts.s SET1EV # an entry; 7f: SETEV1 its entry by an event's id (PENS, KEYSTT, PLAY and TIMER's statements)
 GWSTS.ASM FCERR1 -> p3/gwsts.s FCERR1
 GWSTS.ASM SNERR1 -> p3/gwsts.s SNERR1
 GWSTS.ASM SEVALL -> p3/gwsts.s SEVALL
@@ -1520,10 +1565,10 @@ GWSTS.ASM ONSTM -> p3/gwsts.s ONSTM
 GWSTS.ASM ONGOTX -> p3/gwsts.s ONGOTX
 GWSTS.ASM GETSUB -> p3/gwsts.s GETSUB
 GWSTS.ASM GETSU2 -> p3/gwsts.s GETSU2
-GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: later 7c-7f; the test trigger in 7b); Z set back, not trapped
+GWSTS.ASM EVTRP -> p3/gwsts.s EVTRP # an entry (the sources: the keys, STRIG, PLAY, TIMER by 7f, COM later 7g; the test trigger in 7b); Z set back, not trapped
 GWSTS.ASM NOT_ON -> p3/gwsts.s NOT_ON
 GWSTS.ASM EVCLR -> p3/gwsts.s EVCLR # an entry
-GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF, STRIGF: later 7f); the result in RBL, RBH (the 8086's BX)
+GWSTS.ASM TSTCEV -> p3/gwsts.s TSTCEV # an entry (PENF's, P7's); the result in RBL, RBH (the 8086's BX)
 GWSTS.ASM TSTEVX -> p3/gwsts.s TSTEVX
 GWSTS.ASM EOSCKX -> p3/gwsts.s EOSCKX
 GWSTS.ASM JERDNA -> dropped: ONGOTP's Device unavailable for the pen, which no code of the source reaches
@@ -1729,7 +1774,7 @@ GIOLPT.ASM GLPDCB -> dropped: OO-1, LPT1's DCB alone (LINLEN+1, LPTPOS, LPCRF: r
 GIOCOM.ASM COMDSP -> p4/giocom.s COMDSP
 GIOCOM.ASM COMINI -> p4/giocom.s COMINI
 GIOCOM.ASM COMTRM -> p4/giocom.s COMSCW # a RET
-GIOCOM.ASM POLCM1 -> later 7f: POLCOM's, ON COM(n)'s trap
+GIOCOM.ASM POLCM1 -> later 7g: POLCOM's (ON COM deferred, 7f's answer 24)
 GIOCOM.ASM GCOMSZ -> p4/giocom.s GCOMSZ # STACOM the OEM's (p4/oem.s): AUX:'s status, function 7
 GIOCOM.ASM CKCMER -> p4/giocom.s CKCMER # COMOPN in its routine: INICOM the OEM's (p4/oem.s); OO-1: the speed and the rest kept, not set (the owner, 2026-11-14)
 GIOCOM.ASM PCOMOP -> p4/giocom.s PCOMOP # LPARM's options in its routine
@@ -1817,7 +1862,7 @@ SCNDRV.ASM LTAB -> p6/scndrv.s LTAB
 SCNDRV.ASM FWDWRD -> p6/scndrv.s FWDWRD
 SCNDRV.ASM FWDWDL -> p6/scndrv.s FWDWDL
 SCNDRV.ASM BCKWRD -> p6/scndrv.s BCKWRD
-SCNDRV.ASM CBEEP -> p6/scndrv.s CBEEP # BEEP is 7f's: the bell does nothing yet
+SCNDRV.ASM CBEEP -> p6/scndrv.s CBEEP # ^G: P7's BELLP (function 82's SN_BEEP, 7f)
 SCNDRV.ASM CCLRSN -> p6/scndrv.s CCLRSN
 SCNDRV.ASM WHOME -> p6/scndrv.s WHOME
 SCNDRV.ASM WERASE -> p6/scndrv.s WERASE
@@ -1891,7 +1936,7 @@ SCNDRV.ASM CDUWXI -> p6/scndrv.s CDUWXI
 SCNDRV.ASM MVCH30 -> p6/scndrv.s MVCH30
 SCNDRV.ASM MVC30I -> p6/scndrv.s MVCH30 # an indirect jump to it
 SCNDRV.ASM CSRRET -> p6/scndrv.s CSRADV # its RET, each cursor move's own here
-GWSTS.ASM BEEP -> later 7f: BEEP (CBEEP's bell does nothing until then)
+GWSTS.ASM BEEP -> p7/sound.s BEEPP # CBEEP's bell: P6's far call to BELLP (the bell alone)
 GWSTS.ASM GWWID -> p6/gwsts.s GWWIDP # an entry, WIDTH's (p8/far6.s, which parses it: 7e5's M6)
 GWSTS.ASM GTLINE -> p6/gwsts.s GTLINE
 GWSTS.ASM GTPRMS -> p8/far6.s GTPRMS # the list in the home block's RAM (PCNT, PFLG, PVAL), not BUF, then in the pseudo-registers for P6's PREGS (7e5's M6: P6's until then)

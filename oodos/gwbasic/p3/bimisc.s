@@ -42,7 +42,7 @@
 .export ONTRP, OFFTRP, STPTRP, RSTTRP, REQTRP, SETTRP, FRETRP, INITRP, GOTRP, TRPCNT
 .import CHRGTR, SYNCHR, PTRGET, SPUSH, SPOP, SPUSHA, SPOPA, TMERR, FCERR, SNERR
 .import OMERR, INTID2, SUBFLG, MEMSIZ, TOPMEM, BSTACK, FRMQNT, CLSALL
-.import ONEFLG, GETSTK, TRPTBL
+.import ONEFLG, GETSTK, TRPTBL, TIMREQ, TIMON, EVTRP
 
 CLRMIN          = 2 * 110 + 20         ; (2*NUMLEV)+20: OEM.H's NUMLEV, 110
 
@@ -338,11 +338,16 @@ GOMERR:         JMP     OMERR          ; BIMISC.ASM 892
 ; that are on and requested and not stopped (T_ON+T_REQ exactly), for
 ; NEWSTT's poll; FRETP2 never takes it below 0. The 8086's CLI and STI have
 ; no counterpart: the OO-1's sources are polled at NEWSTT, never raised in an
-; interrupt (OO-1:), so nothing can come between a flag's load and its store.
+; interrupt (OO-1:), so nothing can come between a flag's load and its store;
+; but for 7f's tick hook (res/oem.s TIMHK), which in an interrupt sets TIMREQ
+; and adds one to ONGSBF, each by a single instruction, once until GOTRP takes
+; it (review round 1, C1).
 ;
 ; OO-1: TRPON, NEWSTT's gate (gwbasic.inc), is kept here, right after each
 ; change to a trap's T_ON: ONTRP sets it, OFFTRP counts the table again
-; (TRPCNT), INITRP clears it. No other routine changes T_ON.
+; (TRPCNT), INITRP clears it. No other routine changes T_ON. 7f: with it,
+; POLUPD tells P6 whether any key's trap is on (KTSET, one far call, only
+; when that changes: P6's KEYEV matches a key against the traps only then).
 
 ; ONTRP (BIMISC.ASM 352): the trap on, its request kept. A request kept while
 ; it was off or stopped now counts (SETTP2). The STAs keep CMP's Z.
@@ -352,6 +357,7 @@ ONTRP:          LDA     (RBL)
                 CMP     (RBL)
                 STA     (RBL)
                 STA     TRPON          ; OO-1: a trap is on (A has T_ON)
+                JSR     POLUPD         ; (7f; the flags and A kept)
                 BEQ     ONTRP0         ; no change in status
                 AND     #T_REQ
                 BNE     SETTP2         ; a delayed trap request
@@ -421,14 +427,32 @@ FRETP2:         LDA     ONGSBF         ; SUB AL,1 / JB: not below 0
                 RTS
 
 ; INITRP (BIMISC.ASM 454): every trap off, with no GOSUB line; none waiting.
-INITRP:         LDX     #3 * NUMTRP - 1
+; OO-1 (7f): then CLEARC's SNDINI (P7's: PLAY's state, the driver quit), by
+; one far call, as CLEARC reaches INITRP by one, only if the run used sound
+; (SNDUSE, gwbasic.inc: the owner's answer 20).
+INITRP:         LDA     TIMON          ; OO-1 (7f): ON TIMER's tick hook off first,
+                BEQ     :+             ; so it can't count ONGSBF up after it is 0
+                FJSR    TIMOFP         ; (review round 1, C1)
+:               LDX     #NUMTRP - 1    ; OO-1 (7f): a third of the table a pass
                 LDA     #0
 INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
+                STA     TRPTBL + NUMTRP,X
+                STA     TRPTBL + 2 * NUMTRP,X
                 DEX
                 BPL     INITP0
                 STA     ONGSBF
                 STA     TRPON          ; OO-1: no trap on
-                RTS
+                LDA     KTARM          ; (7f: POLUPD's, every trap off: P6 told if
+                                       ;   a key's trap was on)
+                BEQ     :+
+                STZ     KTARM
+                LDA     #0
+                CLC
+                FJSR    KTSET
+:               LDA     SNDUSE         ; OO-1 (7f): CLEARC's sound reset, if
+                BEQ     :+             ; this run used sound (the owner's
+                FJSR    SNDINI         ; answer 20)
+:               RTS
 
 ; GOTRP (BIMISC.ASM 475): from NEWSTT's poll, with ONGSBF nonzero. Not in ON
 ; ERROR's handler (ONEFLG), nor in a direct statement (CURLIN 65535): C
@@ -438,7 +462,19 @@ INITP0:         STA     TRPTBL,X       ; the flag, and the line's pointer too
 ; back with DX its line's pointer and CX its flag's address: the resident
 ; poll then jumps to GOSUB2 (the far call rule: the 8086 drops its return
 ; and jumps to GOSUB2 from here). None: C clear. TXTPTR is kept for GOSUB2.
-GOTRP:          LDA     ONEFLG
+GOTRP:          LDA     TIMREQ         ; OO-1 (7f): the tick hook's ON TIMER: its
+                BEQ     :+             ; ONGSBF given back, and TIMER's request
+                STZ     TIMREQ         ; as a source's (EVTRP: it counts ONGSBF
+                LDA     ONGSBF         ; if the trap is on and not stopped)
+                BEQ     @t
+                DEC     ONGSBF
+@t:             LDA     #TIMOFF
+                JSR     EVTRP
+                LDA     ONGSBF
+                BNE     :+
+                CLC                    ; nothing waiting now
+                RTS
+:               LDA     ONEFLG
                 BEQ     :+
                 CLC
                 RTS                    ; can't trap from the error trap
@@ -496,7 +532,29 @@ TRPCNT:         LDA     #0
                 BPL     @t
                 AND     #T_ON
                 STA     TRPON
+; POLUPD (OO-1, 7f): P6 told by KTSET if whether a key's trap is on has
+; changed (KTARM, its last). A, X, the flags kept.
+POLUPD:         PHP
+                PHA
+                PHX
+                LDA     #0             ; any key's trap on?
+                LDX     #3 * (NMKEYT - 1)
+:               ORA     TRPTBL + 3 * KEYOFF,X
+                DEX
+                DEX
+                DEX
+                BPL     :-
+                AND     #T_ON
+                CMP     KTARM
+                BEQ     :+
+                STA     KTARM
+                CLC                    ; (C clear: the flag)
+                FJSR    KTSET
+:               PLX
+                PLA
+                PLP
                 RTS
 
 .segment "BRAM"
 SWPTMP:         .res    8              ; SWAP's first value (GWDATA.ASM's SWPTMP)
+KTARM:          .res    1              ; 7f: T_ON if a key's trap was on at the last KTSET
