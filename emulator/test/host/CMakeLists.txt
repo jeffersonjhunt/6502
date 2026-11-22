@@ -199,7 +199,10 @@ set(EMU_SLOW_test_bios_diag
         ram_b_left_out_is_not_answering
         on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build
         nb10_fails_when_mss_isnt_restarted
-        nb10_fails_when_msf_isnt_cleared)
+        nb10_fails_when_msf_isnt_cleared
+        nb9_fails_unlocked
+        nb9_fails_a_constant_chip
+        nb9_skips_without_a_chip)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)

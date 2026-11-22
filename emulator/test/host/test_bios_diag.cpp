@@ -1980,6 +1980,70 @@ TEST(nb10_fails_when_msf_isnt_cleared)
     CHECK(after_test(r, "NB10").find("MSF: A 1 WRITTEN DIDN'T CLEAR IT") != std::string::npos);
 }
 
+// --- Revision 3: NB9, the random number chip (N7; hw/future/random-source.md, "The ROM BIOS 0.20") ------------
+
+namespace
+{
+    /// backplane.machine at revision 3 with rng_chip=`chip`.
+    std::string with_chip(const std::string &chip)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " rng_chip=" + chip);
+        return text;
+    }
+} // namespace
+
+TEST(nb9_passes_with_a_locked_chip)
+{
+    // NB9 on the default machine (a locked ATECC608B, the fixed stream): its 32 bytes neither one value nor one
+    // 4-byte group repeated, then DRAW refills within 150 ms: PASS.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "PASS"));
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb9_fails_unlocked)
+{
+    // rng_chip=unlocked: CHIP without LOCKED: FAIL, "NOT LOCKED".
+    Rig r(0, EMU_BIOS_ROM, with_chip("unlocked"));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("NOT LOCKED") != std::string::npos);
+}
+
+TEST(nb9_fails_a_constant_chip)
+{
+    // A chip answering every Random with one constant byte (the fault injector): its 32 bytes are one value: FAIL.
+    // Must fail with NB9's byte compare removed.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BackplaneBridge *nb = r.machine->backplane_bridge();
+    REQUIRE(nb != nullptr && nb->rng_chip() != nullptr);
+    nb->rng_chip()->set_constant(0x5A);
+    nb->write(BackplaneBridge::RNGST, BackplaneBridge::RNG_DRAW); // the pool drawn again from the constant chip
+    r.run(ms(40));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("32 BYTES OF ONE VALUE") != std::string::npos);
+}
+
+TEST(nb9_skips_without_a_chip)
+{
+    // rng_chip=none: SKIP, "NO RANDOM NUMBER CHIP"; the stage still passes.
+    Rig r(0, EMU_BIOS_ROM, with_chip("none"));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "SKIP"));
+    CHECK(after_test(r, "NB9").find("NO RANDOM NUMBER CHIP") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
 int main()
 {
     if (!std::ifstream(EMU_BIOS_ROM))

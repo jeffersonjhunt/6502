@@ -48,6 +48,7 @@ T_CH:           .res    1              ; D1: the channel
 T_FIT:          .res    1              ;   how many are fitted
 T_FITS:         .res    1              ;   which (bit n channel n)
 T_UNFIT:        .res    1              ;   $FF if T_CH isn't, else 0
+T_RND:          .res    32             ; NB9: the pool's 32 bytes
 T_MS:           .res    4              ; NB10: MS0-MS3 as last read
 T_MSB:          .res    4              ;   at the first SEC change, then the difference
 T_MSP:          .res    3              ;   MS0-MS2 before, for the never-backwards test
@@ -202,6 +203,7 @@ STAGE7:
                 jsr     NB6
                 jsr     NB7
                 jsr     NB8
+                jsr     NB9
                 jsr     NB10
                 lda     #DR_PASS
                 jmp     CEND
@@ -541,6 +543,89 @@ NB8:
 @bad:           TD      "THE WRITE CHANGED THE BLOCK"
                 rts
 @none:          TS      "NO TESTED BLOCK"
+                rts
+
+; NB9, the random number chip (north bridge revision 3, hw/future/random-source.md): on $D3 only, else SKIP;
+; no chip, SKIP; a chip not locked, FAIL. Then the pool's 32 bytes, read through RNGDATA: FAIL if they are all one
+; value or one 4-byte group repeated (an unlocked part's fixed pattern is such a group). Then DRAW: BUSY must clear
+; with READY set within 150 ms; FAIL on FAULT. Its sample is in D22ZP (T_RND).
+NB9:
+                TB      "NB9  THE RANDOM NUMBER CHIP"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     NB_RNGST
+                and     #NB_RNG_CHIP
+                bne     @chip
+                TS      "NO RANDOM NUMBER CHIP"
+                rts
+@chip:          lda     NB_RNGST
+                and     #NB_RNG_LOCKED
+                bne     @locked
+                TD      "NOT LOCKED"
+                rts
+@locked:        ldx     #0
+@byte:          phx
+                jsr     RNGW           ; a byte there (the pool full on a good board)
+                plx
+                bcs     @slow
+                lda     NB_RNGDATA     ; a load: the read takes the byte
+                sta     T_RND,x
+                inx
+                cpx     #32
+                bne     @byte
+                ldx     #31            ; all one value?
+@one:           lda     T_RND,x
+                cmp     T_RND
+                bne     @group
+                dex
+                bne     @one
+                TD      "32 BYTES OF ONE VALUE"
+                rts
+@group:         ldx     #4             ; one 4-byte group repeated?
+@rep:           lda     T_RND,x
+                cmp     T_RND - 4,x
+                bne     @draw
+                inx
+                cpx     #32
+                bne     @rep
+                TD      "ONE 4-BYTE GROUP REPEATED"
+                rts
+@draw:          lda     #NB_RNG_DRAW
+                sta     NB_RNGST
+                jsr     RNGW
+                bcs     @slow
+                jmp     TPASS
+@slow:          cmp     #0
+                bne     @fault
+                TD      "NO FRESH BYTES WITHIN 150 MS"
+                rts
+@fault:         TD      "THE DRAW FAILED (FAULT)"
+                rts
+
+; Wait up to about 150 ms (191 x 256 passes of 22 cycles) for the pool: READY with BUSY clear, carry clear; FAULT,
+; carry set and A not 0; the time out, carry set and A 0. A and T_K.
+RNGW:           stz     T_K
+                lda     #191
+                sta     T_K + 1
+@w:             lda     NB_RNGST
+                bit     #NB_RNG_FAULT
+                bne     @fault
+                and     #NB_RNG_READY | NB_RNG_BUSY
+                cmp     #NB_RNG_READY
+                beq     @ok
+                dec     T_K
+                bne     @w
+                dec     T_K + 1
+                bne     @w
+                lda     #0
+                sec
+                rts
+@fault:         sec
+                rts
+@ok:            clc
                 rts
 
 ; NB10, the timebase (north bridge revision 3, hw/future/north-bridge-rev3.md): on $D3 only, else SKIP. With
