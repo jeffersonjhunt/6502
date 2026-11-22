@@ -6,6 +6,8 @@
 
 #include "ds3231.h"
 
+#include <cmath>
+
 #include <algorithm>
 
 namespace ooe::emu
@@ -219,9 +221,21 @@ namespace ooe::emu
 
     void Ds3231::set_cpu_hz(uint32_t hz)
     {
+        base_hz_ = hz ? hz : NATIVE_HZ;
+        rate(static_cast<uint32_t>(std::llround(base_hz_ * 1e6 / (1e6 + skew_ppm_))));
+    }
+
+    void Ds3231::set_skew_ppm(double ppm)
+    {
+        skew_ppm_ = ppm;
+        set_cpu_hz(base_hz_);
+    }
+
+    void Ds3231::rate(uint32_t hz)
+    {
         // The same fraction of the second, and of a conversion's time, at the new clock.
         const uint32_t was = hz_;
-        hz_ = hz ? hz : NATIVE_HZ;
+        hz_ = hz;
         phase_ = phase_ * hz_ / was;
         if (converting())
             conv_until_ = now_ + ((conv_until_ - now_) * hz_ + was - 1) / was;

@@ -233,6 +233,7 @@ emu_add_test(test_flash) # the flash's two chips (step B5): commands, busy times
 emu_add_test(test_ds3231)
 emu_add_test(test_rtc)
 target_compile_definitions(test_rtc PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+emu_add_test(test_nb_timebase) # north bridge revision 3's timebase (hw/future/north-bridge-rev3.md, B1-B9)
 emu_add_test(test_joyports)
 target_compile_definitions(test_joyports PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 emu_add_test(test_bios)
@@ -934,6 +935,7 @@ set(EMU_TEST_LABELS
     test_flash                  "emu flash bridge"
     test_ds3231                 "emu rtc"
     test_rtc                    "emu rtc bridge debug backplane"
+    test_nb_timebase            "emu bridge rtc dma video backplane web"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
     test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
     test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"

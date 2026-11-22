@@ -155,6 +155,17 @@ export interface ClockState {
   rtcdata: number;
   /** The DS3231's own registers, $00-$12. */
   chip: Uint8Array;
+  /** The timebase, on a revision 3 bridge (none before): TBCTL, the millisecond counter and MSS, read with no latch. */
+  timebase?: TimebaseState;
+}
+
+/** North bridge revision 3's timebase (ClockState.timebase). */
+export interface TimebaseState {
+  tbctl: number;
+  /** MS0-MS3: milliseconds since the hard reset. */
+  ms: number;
+  /** Milliseconds into the DS3231's second, 0-999. */
+  mss: number;
 }
 
 /** The Disk II card as it is (FrameState.disk, readDisk2). */

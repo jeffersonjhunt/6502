@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <numeric>
 
 #include "emu_log.h"
 
@@ -57,8 +58,18 @@ namespace ooe::emu
             read_time();
             read_status();
             latch_ = time_;
+            // The timebase from 0, R at the release (the power-on read's end), not in step until an edge's read.
+            osc_ = frac_ = 0;
+            r_osc_ = 0;
+            edge_osc_ = 0;
+            synced_ = false;
         }
         reset_seen_ = true;
+        // A hard reset: the counter and the divider held at 0, starting at the release.
+        tb_base_ = osc_;
+        ticks_ = 0;
+        ms_ = ms_latch_ = 0;
+        tbsub_latch_ = 0;
         rtc_reset();
         retime();
         apple_io_.clock_changed(false); // native mode again (the card caught up at the old clock in its reset)
@@ -69,6 +80,7 @@ namespace ooe::emu
         tick_ = false;
         tie_ = false;
         rtc_reg_ = 0;
+        msf_ = ovr_ = msie_ = false; // any reset: no tick interrupts until software turns MSIE on
     }
 
     void BackplaneBridge::reset_pulse()
@@ -141,7 +153,15 @@ namespace ooe::emu
         if ((offset == IRQL || offset == IRQH) && decoder_)
             decoder_->sync(); // the poll sees every card as of this cycle
         if (offset == SEC)
+        {
             latch_ = time_;
+            mss_latch_ = static_cast<uint16_t>(mss());
+        }
+        if (offset == MS0 && timebase())
+        {
+            ms_latch_ = ms_;
+            tbsub_latch_ = static_cast<uint16_t>((osc_ - tick_at(ticks_)) / 2);
+        }
         return peek(offset);
     }
 
@@ -194,6 +214,22 @@ namespace ooe::emu
             return wide() ? vech_ : 0xFF;
         case MAP:
             return wide() ? map_ : 0xFF;
+        case MSSL:
+            return timebase() ? static_cast<uint8_t>(mss_latch_) : uint8_t{0xFF};
+        case MSSH:
+            return timebase() ? static_cast<uint8_t>(mss_latch_ >> 8) : uint8_t{0xFF};
+        case TBCTL:
+            return timebase() ? tbctl() : uint8_t{0xFF};
+        case MS0:
+            return timebase() ? static_cast<uint8_t>(ms_) : uint8_t{0xFF}; // live
+        case MS0 + 1:
+        case MS0 + 2:
+        case MS0 + 3:
+            return timebase() ? static_cast<uint8_t>(ms_latch_ >> 8 * (offset - MS0)) : uint8_t{0xFF};
+        case TBSUBL:
+            return timebase() ? static_cast<uint8_t>(tbsub_latch_) : uint8_t{0xFF};
+        case TBSUBH:
+            return timebase() ? static_cast<uint8_t>(tbsub_latch_ >> 8) : uint8_t{0xFF};
         case ID_REG:
             return id();
         default:
@@ -227,7 +263,7 @@ namespace ooe::emu
         case RTCCTL:
             if (data & RTC_TICK)
                 tick_ = false;
-            tie_ = (data & RTC_TIE) != 0;
+            tie_ = !timebase() && (data & RTC_TIE) != 0; // revision 3: TIE reads 0, the write ignored
             if (data & RTC_SET)
             {
                 Transaction t{Op::Set};
@@ -274,6 +310,16 @@ namespace ooe::emu
             if (wide())
                 map_ = static_cast<uint8_t>(data & MAP_AP8);
             break;
+        case TBCTL:
+            if (timebase())
+            {
+                if (data & TB_MSF)
+                    msf_ = false;
+                if (data & TB_OVR)
+                    ovr_ = false;
+                msie_ = (data & TB_MSIE) != 0;
+            }
+            break;
         default:
             break; // read-only or unused
         }
@@ -295,6 +341,66 @@ namespace ooe::emu
             left_ = (left_ * hz + hz_ - 1) / hz_;
         hz_ = hz;
         rtc_->set_cpu_hz(hz);
+        osc_rate();
+    }
+
+    void BackplaneBridge::osc_rate()
+    {
+        // OSC is 2 x NATIVE_HZ by definition; Apple II mode's cycle is 14 OSC clocks, every 65th 16: 912 in 65.
+        uint64_t num = 2, den = 1;
+        if (apple())
+            num = 912, den = 65;
+        else if (hz_ != NATIVE_HZ)
+            num = 2ull * NATIVE_HZ, den = hz_;
+        const uint64_t g = std::gcd(num, den);
+        num /= g;
+        den /= g;
+        frac_ = frac_ * den / den_; // the same fraction of an OSC clock
+        num_ = num;
+        den_ = den;
+    }
+
+    uint64_t BackplaneBridge::until_tick() const
+    {
+        // A tick at OSC clock T lands in the cycle holding T and is seen from the cycle after: osc_ > T.
+        if (osc_ > tick_at(ticks_ + 1))
+            return 1; // (count_osc() takes every tick it reaches: never so)
+        const uint64_t need = (tick_at(ticks_ + 1) + 1 - osc_) * den_ - frac_; // den_ths of OSC to go (> 0)
+        return (need + num_ - 1) / num_;
+    }
+
+    void BackplaneBridge::count_osc(uint64_t cycles)
+    {
+        const uint64_t total = frac_ + cycles * num_;
+        osc_ += total / den_;
+        frac_ = total % den_;
+        if (!timebase())
+            return;
+        while (osc_ > tick_at(ticks_ + 1))
+        {
+            ++ticks_;
+            ++ms_;
+            if (msf_)
+                ovr_ = true; // one interrupt for two ticks: the counter has both
+            msf_ = true;
+        }
+    }
+
+    unsigned BackplaneBridge::mss() const
+    {
+        const int64_t d = static_cast<int64_t>(osc_) - r_osc_;
+        if (d <= 0)
+            return 0;
+        // The largest j with floor(157,500 j / 11) <= d: MSS's own divider, from R.
+        const uint64_t j = (11 * static_cast<uint64_t>(d) + 10) / OSC_11MS;
+        return static_cast<unsigned>(std::min<uint64_t>(j, MSS_MAX));
+    }
+
+    uint8_t BackplaneBridge::tbctl() const
+    {
+        const bool sync = synced_ && osc_ - edge_osc_ < SYNC_OSC;
+        return static_cast<uint8_t>((msf_ ? TB_MSF : 0) | (ovr_ ? TB_OVR : 0) | (msie_ ? TB_MSIE : 0) |
+                                    (sync ? TB_SYNC : 0));
     }
 
     uint64_t BackplaneBridge::cost(Op op) const
@@ -336,7 +442,10 @@ namespace ooe::emu
             uint64_t step = std::min(cycles, rtc_->until_event());
             if (!queue_.empty())
                 step = std::min(step, left_);
+            if (timebase())
+                step = std::min(step, until_tick()); // each tick on its own cycle
             rtc_->advance(step);
+            count_osc(step);
             cycles -= step;
             if (!queue_.empty() && (left_ -= step) == 0)
             {
@@ -347,7 +456,12 @@ namespace ooe::emu
                 finish(t);
             }
             if (rtc_->take_edge())
-                queue(Transaction{Op::Refresh});
+            {
+                edge_osc_ = osc_;
+                Transaction t{Op::Refresh};
+                t.osc = osc_;
+                queue(t);
+            }
         }
     }
 
@@ -367,6 +481,8 @@ namespace ooe::emu
             read_time();
             read_status();
             tick_ = true;
+            r_osc_ = static_cast<int64_t>(t.osc); // SEC-YEAR and MSS change together: MSS from the new edge
+            synced_ = true;
             break;
         case Op::Set:
             for (unsigned i = 0; i < TIME_REGS; ++i)
@@ -375,6 +491,7 @@ namespace ooe::emu
             rtc_->write(Ds3231::STATUS, (status_ & Ds3231::EN32KHZ) | Ds3231::A2F | Ds3231::A1F);
             time_ = t.time;
             status_ = static_cast<uint8_t>(status_ & ~Ds3231::OSF);
+            r_osc_ = static_cast<int64_t>(osc_); // the chip's second restarted: MSS from 0 with the time sent
             break;
         case Op::Read:
             rtc_data_ = rtc_->read(t.reg);
@@ -394,6 +511,7 @@ namespace ooe::emu
     {
         rtc_->set_time(t, ms);
         read_time();
+        r_osc_ = static_cast<int64_t>(osc_) - static_cast<int64_t>(uint64_t{std::min(ms, MSS_MAX)} * OSC_11MS / 11);
     }
 
     uint8_t BackplaneBridge::rtcctl() const
@@ -439,6 +557,25 @@ namespace ooe::emu
                       reg(Ds3231::CONTROL), reg(Ds3231::STATUS), reg(Ds3231::AGING), reg(Ds3231::TEMP_MSB),
                       (reg(Ds3231::TEMP_LSB) >> 6) * 25, reg(7), reg(8), reg(9), reg(10), reg(11), reg(12), reg(13));
         out += buf;
+        if (timebase())
+            out += describe_timebase();
         return out;
+    }
+
+    std::string BackplaneBridge::describe_timebase() const
+    {
+        if (!timebase())
+            return "no timebase: the bridge is revision " + std::to_string(revision_) + "\n";
+        const uint8_t ctl = tbctl();
+        std::string flags;
+        for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{TB_MSF, " MSF"}, {TB_OVR, " OVR"},
+                                        {TB_MSIE, " MSIE"}, {TB_SYNC, " SYNC"}})
+            if (ctl & bit)
+                flags += name;
+        char buf[256];
+        std::snprintf(buf, sizeof buf, "MS       %u ($%08X)  %u.%03u s\nTBCTL    $%02X%s\nMSS      %u%s\n", ms_, ms_,
+                      ms_ / 1000, ms_ % 1000, ctl, flags.c_str(), mss(),
+                      ctl & TB_SYNC ? "" : "  (not in step with the DS3231)");
+        return buf;
     }
 } // namespace ooe::emu

@@ -123,6 +123,8 @@ export interface CoreMachine {
   setRtc(ms: number): void;
   syncRtc(ms: number): void;
   rtc(): Uint8Array;
+  /** Revision 3's timebase: TBCTL, MS0-MS3, MSSL, MSSH (no latch taken); empty before revision 3. */
+  timebase(): Uint8Array;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean; frame: number; frameEn: number; raster: number };
   appleMode(): boolean;
   appleSwitches(): number;
@@ -662,7 +664,9 @@ export class WasmPort implements MachinePort {
   async readClock(): Promise<ClockState | null> {
     const r = this.machine.rtc();
     if (!r.length) return null;
-    return { time: r.slice(0, 7), rtcctl: r[7], setPending: r[10] !== 0, rtcreg: r[8], rtcdata: r[9], chip: r.slice(16, 16 + 0x13) };
+    const t = this.machine.timebase();
+    const timebase = t.length ? { tbctl: t[0], ms: (t[1] | (t[2] << 8) | (t[3] << 16) | (t[4] << 24)) >>> 0, mss: t[5] | (t[6] << 8) } : undefined;
+    return { time: r.slice(0, 7), rtcctl: r[7], setPending: r[10] !== 0, rtcreg: r[8], rtcdata: r[9], chip: r.slice(16, 16 + 0x13), timebase };
   }
 
   async readSound(): Promise<SoundCpu | null> {

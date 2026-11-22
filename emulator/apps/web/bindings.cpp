@@ -113,7 +113,9 @@
  * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
  * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, 10 1 while a SET is pending (it reads
  * 0 in RTCCTL), then from 16 the DS3231's registers
- * $00-$12; empty without the backplane's bridge.
+ * $00-$12; empty without the backplane's bridge. timebase() is north bridge
+ * revision 3's, read with no latch taken: a Uint8Array(7) of TBCTL, MS0-MS3
+ * and MSSL-MSSH; empty before revision 3.
  *
  * A `.sid` tune: loadSid(bytes, song) starts it on the card (song 0: its
  * start song; false, with error(), if it is not one or there is no card),
@@ -481,6 +483,20 @@ namespace
                 rtc_[RTC_CHIP + r] = b->rtc()->read(r);
             return val(emscripten::typed_memory_view(rtc_.size(), rtc_.data()));
         }
+        /// North bridge revision 3's timebase, taking no latch: TBCTL, MS's four bytes (low first), MSS's two;
+        /// empty before revision 3 (or with no bridge). A view good until the next call.
+        val timebase()
+        {
+            const BackplaneBridge *b = session_->bridge();
+            if (!b || !b->timebase())
+                return val(emscripten::typed_memory_view(size_t{0}, tb_.data()));
+            tb_[0] = b->tbctl();
+            for (unsigned i = 0; i < 4; ++i)
+                tb_[1 + i] = static_cast<uint8_t>(b->ms() >> 8 * i);
+            tb_[5] = static_cast<uint8_t>(b->mss());
+            tb_[6] = static_cast<uint8_t>(b->mss() >> 8);
+            return val(emscripten::typed_memory_view(tb_.size(), tb_.data()));
+        }
 
         int sound_voice(unsigned chip, unsigned voice) const
         {
@@ -596,6 +612,7 @@ namespace
         std::array<float, LIGHT_COUNT> lights_{};
         static constexpr size_t RTC_CHIP = 16;
         std::array<uint8_t, RTC_CHIP + Ds3231::REGISTERS> rtc_{};
+        std::array<uint8_t, 7> tb_{};
         std::vector<float> audio_ = std::vector<float>(2 * 24'000); ///< half a second at 48 kHz, as much as the card keeps
         std::vector<Session::TraceRow> rows_;
         std::vector<uint32_t> packed_;
@@ -713,6 +730,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("setRtc", &WebMachine::set_rtc)
         .function("syncRtc", &WebMachine::sync_rtc)
         .function("rtc", &WebMachine::rtc)
+        .function("timebase", &WebMachine::timebase)
         .function("hasJoysticks", &WebMachine::has_joysticks)
         .function("setJoystick", &WebMachine::set_joystick)
         .function("joystick", &WebMachine::joystick)

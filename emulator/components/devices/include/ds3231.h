@@ -132,6 +132,9 @@ namespace ooe::emu
 
         /// The CPU clock advance()'s cycles run at; 0 = NATIVE_HZ.
         void set_cpu_hz(uint32_t hz);
+        /// Test only: the chip's crystal `ppm` parts per million fast (+) or slow (-) against the CPU clock, so a
+        /// second is that much shorter or longer in cycles (a real crystal's error against the bridge's).
+        void set_skew_ppm(double ppm);
         /// Cycles to the next second or square-wave edge (at least 1).
         uint64_t until_event() const;
         /// `cycles` (at most until_event()) of emulated time.
@@ -163,7 +166,10 @@ namespace ooe::emu
         uint8_t aging_{0};
         bool conv_forced_{false};
 
-        uint32_t hz_{NATIVE_HZ};
+        uint32_t hz_{NATIVE_HZ};      ///< cycles in the chip's second: base_hz_ with the skew
+        uint32_t base_hz_{NATIVE_HZ}; ///< the CPU clock set_cpu_hz() gave
+        double skew_ppm_{0};
+        void rate(uint32_t hz);
         uint64_t phase_{0};       ///< cycles into the current second
         uint64_t now_{0};         ///< cycles since the chip was made
         uint64_t conv_until_{0};  ///< BSY until this cycle

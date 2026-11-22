@@ -22,7 +22,8 @@
  * command's UNIT, LBA and COUNT. Then the north bridge's real-time clock
  * (readClock): SEC-YEAR as the bridge last read them from its DS3231, as
  * a date and time, RTCCTL's flags, and the chip's own control, status,
- * alarm, aging and temperature registers.
+ * alarm, aging and temperature registers; on a revision 3 bridge its
+ * timebase too: TBCTL, the millisecond counter, MSS and SYNC.
  */
 
 import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SdInfo, SoundCpu } from "../port/machine-port";
@@ -138,6 +139,11 @@ export function clockTime(t: Uint8Array): string {
 /** RTCCTL in words. SET reads 0, so a pending one is BUSY, and `setPending` (the bridge's queue) says so. */
 export function rtcctlText(v: number, setPending = false): string {
   return bits(v, [[0x80, "TICK"], [0x40, "TIE"], [0x20, "ALARM"], [0x04, "LOST"], [0x01, setPending ? "BUSY (SET)" : "BUSY"]]);
+}
+
+/** Revision 3's TBCTL in words. */
+export function tbctlText(v: number): string {
+  return bits(v, [[0x80, "MSF"], [0x40, "OVR"], [0x20, "MSIE"], [0x10, "SYNC"]]);
 }
 
 /** The DS3231's control register ($0E) in words. */
@@ -286,7 +292,7 @@ export function devicesView(port: MachinePort) {
     h(
       "p",
       { class: "hint" },
-      "The north bridge's DS3231 (ID D): RTCCTL at $C687, SEC-YEAR at $C690-$C696 (reading SEC latches all seven), RTCREG and RTCDATA at $C697-$C698. Set from this computer's clock when the page opened.",
+      "The north bridge's DS3231 (ID D): RTCCTL at $C687, SEC-YEAR at $C690-$C696 (reading SEC latches all seven), RTCREG and RTCDATA at $C697-$C698. Set from this computer's clock when the page opened. On revision 3, the timebase: TBCTL at $C6A8, MS0-MS3 at $C6A9-$C6AC, MSS at $C69C-$C69D.",
     ),
   );
 
@@ -424,6 +430,13 @@ export function devicesView(port: MachinePort) {
       ...row("Status", `$${hex(r[0x0f], 2)}  ${clockStatus(r[0x0f])}`),
       ...row("Alarms", `1: ${alarm(0x07, 4)} · 2: ${alarm(0x0b, 3)}`),
       ...row("Aging", `$${hex(r[0x10], 2)} · ${r[0x11]}.${pad((r[0x12] >> 6) * 25)} °C`),
+      ...(c.timebase
+        ? [
+            ...row("TBCTL", `$${hex(c.timebase.tbctl, 2)}  ${tbctlText(c.timebase.tbctl)}`),
+            ...row("MS", `${c.timebase.ms} · ${(c.timebase.ms / 1000).toFixed(3)} s`),
+            ...row("MSS", `${c.timebase.mss}${c.timebase.tbctl & 0x10 ? "" : " · not in step (SYNC clear)"}`),
+          ]
+        : []),
     );
   };
 
