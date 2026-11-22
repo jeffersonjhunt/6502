@@ -6027,7 +6027,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
   - **Cycles:** each note is an `SN_SEND` (a BDOS call, about 450 or more), queued on the 6510's 32 entries a voice,
     so the CPU doesn't keep time. STICK is a load from the event area after one far call.
   - **As built, 7f** (Proposed, 2026-11-21; feat/gwbasic-7f off main `80a70aa6`, the 7f plan with the owner's answers
-    1-12, "recommendations as listed", 13-31 at its stops and 32 on review round 1; main `fa501cfb` merged in).
+    1-12, "recommendations as listed", 13-31 at its stops, 32 on review round 1 and 33 on its key-cost case; main
+    `fa501cfb` merged in).
     - **On the current sound card** (the owner, 2026-11-21): SOUND, PLAY and BEEP are built on today's card, OOLIB's
       music driver on its 6510 and function 82's `SN_BEEP`; they will be reworked on the new sound device (a card
       revision that plays a block of notes in one transfer with 32-bit lengths, and does the beep), after its
@@ -6091,14 +6092,25 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       KEY 15-20 are Advanced Feature; ON PLAY(n) and ON STRIG(n) GOSUB set their line (answer 24 item 3: E3 and
       `onev` unchanged); TIMER, ON TIMER, DATE$, TIME$, BEEP (its `SN_BEEP` block watched: review round 1, T5) and PEN work there.
     - **Cycles** (answer 11's gates, 24's for a note; measured at the merge candidate): NEWSTT 5.00 with no trap
-      on, 18.00 with one, 18.02 with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
+      on, 18.00 with one, 18.00 with ON TIMER armed (15-24), and the same after a wait of several expiries (C1's
       case, within 30 of it); a PLAY note in MB about 7,700-8,300 (9,000: about 5,000 of it function 82's sends and
-      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,409 (10,000); a key with no trap
-      armed, KEYEV less its interrupts and its BDOS calls, an interrupt inside a BDOS call counted once (answer
-      28), A 297 and F1 355 against main `fa501cfb`'s 280 and 368 (+30: answer 29's anchor; since U7 came out, some presses of A cost about 200 more, a race of the method's, not the code's, so the case's average fails: review round 1's open item); CHAIN 66,654 (main's
+      the card's busy retries; one block a note is OOLIB's backlog); TIMER 8,400 (10,000); a key with no trap
+      armed, KEYEV less its interrupts and its BDOS calls, A 297 and F1 354 against main `fa501cfb`'s 280 and 340
+      (+30), every press the same; CHAIN 66,584 (main's
       66,851 re-measured + 400: answer 17); every earlier gate held. `the_key_line_and_soft_keys_cost` measures the
       key line's CLS, KEY and WIDTH and both F1s in one RUN, less interrupts and drain (answers 25, 28, 29): a
       record, not a guard (answer 31; what F1 queues is `a_function_key_types_its_text`'s to guard).
+    - **The timing method** (answer 33, after the owner's "find out what the 200 cycles are first"): every GW-BASIC
+      timing case now uses `emulator/test/host/gw_timing.h`, which finds each end by its return address as well
+      as S. By S alone, a tick inside a BDOS call (OODOS runs on its own stack page, S set to `$FF`) could bring
+      S to the caller's value: the call's leaving out ended inside the interrupt handler, about 200 cycles of the
+      handler were counted, and the span itself ended inside OODOS. Once U7 came out, 4 of 8 A presses were caught
+      this way (A 452 against 297). An interrupt's time also now includes the CPU's 7 entry cycles. Main
+      `fa501cfb` re-measured by it: the key gate's anchor A 280 and F1 340 (answer 29's 368 had a tick counted
+      in it); CHAIN 66,635; a scroll 13,286 without its handlers. Every gate held by it, on main and the branch,
+      twice each with the same figures. The key-cost case also presses A 24 times at gaps 997 cycles apart, so
+      that a tick lands inside a drain call (7 or 8 of them do), and checks every press costs the same; with the
+      method's PC test dropped it fails (A 297-1,397).
     - **Tests**: `test_gwbasic_sound` (labels gwbasic, oodos, bios, sd, backplane, video, usb, sound, sid, via, joy,
       rtc), N9-N39 but N30 (removed with ON COM) and N36 (removed with U7), and N32, N35, N37 (in test_gwbasic_stmts'
       timing case and test_gwbasic_core); review round 1's: `a_long_wait_leaves_no_timer_request_behind` (C1), ON

@@ -22,6 +22,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1066,48 +1067,43 @@ TEST(print_and_scroll_are_timed)
     // The scroll: SCRLUP's calls while 40 lines are printed.
     const auto l6 = lbl_map(std::string("p6.lbl"));
     const uint16_t up = l6.at("SCRLUPN"), kev = l6.at("KEYEV");
-    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8); // the IRQ vector's entry
-    uint64_t from = 0, total = 0, kfrom = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0, ifrom = 0, inirq = 0, own = 0;
+    // (gw_timing.h's method since 7f's answer 33: each end by its return address as well as S)
+    gw_timing::LeftOut left(r, false);
+    gw_timing::CallSpan span, kspan;
+    uint64_t total = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0, own = 0, inirq = 0;
     unsigned n = 0, kn = 0, nirq = 0;
-    int depth = -1, kdepth = -1, idepth = -1;
     r.watch = [&](uint16_t pc) {
-        if (depth >= 0 && idepth < 0 && pc == irq) // an interrupt inside the scroll: its handler's cycles
+        // the key's span counts everything, its drain and any interrupt; so it is followed before the scroll's
+        // interrupts are left out
+        if (!kspan.open && pc == kev)
+            kspan.enter(r);
+        else if (kspan.returned(r, pc))
         {
-            ifrom = r.cpu->cycles();
-            idepth = r.cpu->regs().s;
-            ++nirq;
+            ktotal += r.cpu->cycles() - kspan.from;
+            ++kn;
         }
-        else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
+        const unsigned before = left.irqs;
+        const uint64_t before_out = left.out;
+        if (left.inside(pc, span.open)) // an interrupt inside the scroll: its handler's cycles
         {
-            inirq += r.cpu->cycles() - ifrom;
-            idepth = -1;
+            nirq += left.irqs - before;
+            return;
         }
-        if (depth < 0 && pc == up)
+        inirq += left.out - before_out;
+        left.out = 0;
+        if (!span.open && pc == up)
         {
-            from = r.cpu->cycles();
-            depth = r.cpu->regs().s;
+            span.enter(r);
             inirq = 0;
         }
-        else if (depth >= 0 && idepth < 0 && r.cpu->regs().s == depth + 2)
+        else if (span.returned(r, pc))
         {
-            const uint64_t c = r.cpu->cycles() - from;
+            const uint64_t c = r.cpu->cycles() - span.from;
             total += c;
             own += c - inirq;
             lo = std::min(lo, c);
             hi = std::max(hi, c);
             ++n;
-            depth = -1;
-        }
-        if (kdepth < 0 && pc == kev)
-        {
-            kfrom = r.cpu->cycles();
-            kdepth = r.cpu->regs().s;
-        }
-        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
-        {
-            ktotal += r.cpu->cycles() - kfrom;
-            ++kn;
-            kdepth = -1;
         }
     };
     // First PRINT I: the scroll then also writes back the row just printed (DM_VWRITE), a write the PRINT makes,
@@ -1138,7 +1134,8 @@ TEST(print_and_scroll_are_timed)
 // line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
 // key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
 // no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
-// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls;
+// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls,
+// by gw_timing.h's method since answer 33;
 // answer 29: both F1 figures in the same RUN). A record, not a guard (the owner's answer 31): its last check, text
 // costing more than none, shows only that the text path is taken; what F1 queues (its text counted and then
 // dropped, or the test for a text inverted) is guarded by a_function_key_types_its_text.
@@ -1167,43 +1164,23 @@ TEST(the_key_line_and_soft_keys_cost)
     const uint16_t kev = lbl_map(std::string("p6.lbl")).at("KEYEV");
     // 7f (the owner's answer 25): the interrupt handlers inside it and its drain's BDOS calls left out, as
     // test_gwbasic_sound's key-cost gate measures (how many drain calls there are is a race with the cooked twin).
-    const uint16_t kirq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
-    uint64_t kfrom = 0, ktotal = 0, kifrom = 0, kbfrom = 0, kout = 0;
+    // (gw_timing.h's method since 7f's answer 33: each end by its return address as well as S)
+    gw_timing::LeftOut left(r, true);
+    gw_timing::CallSpan span;
+    uint64_t ktotal = 0;
     unsigned kn = 0;
-    int kdepth = -1, kidepth = -1, kbdepth = -1;
     const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
-        const auto &g = r.cpu->regs();
-        if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && pc == kirq) // (one inside a BDOS call: the call's)
+        if (left.inside(pc, span.open))
+            return;
+        if (!span.open && pc == kev)
         {
-            kifrom = r.cpu->cycles();
-            kidepth = g.s;
+            span.enter(r);
+            left.out = 0;
         }
-        else if (kidepth >= 0 && g.s == kidepth + 3)
+        else if (span.returned(r, pc))
         {
-            kout += r.cpu->cycles() - kifrom;
-            kidepth = -1;
-        }
-        if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && pc == 0x0203)
-        {
-            kbfrom = r.cpu->cycles();
-            kbdepth = g.s;
-        }
-        else if (kbdepth >= 0 && kidepth < 0 && g.s == kbdepth + 2)
-        {
-            kout += r.cpu->cycles() - kbfrom;
-            kbdepth = -1;
-        }
-        if (kdepth < 0 && pc == kev)
-        {
-            kfrom = r.cpu->cycles();
-            kdepth = g.s;
-            kout = 0;
-        }
-        else if (kdepth >= 0 && kidepth < 0 && kbdepth < 0 && g.s == kdepth + 2)
-        {
-            ktotal += r.cpu->cycles() - kfrom - kout;
+            ktotal += r.cpu->cycles() - span.from - left.out;
             ++kn;
-            kdepth = -1;
         }
     };
     r.watch = watch;
@@ -1673,26 +1650,11 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
     uint8_t sp = 0;
     int in = 0; // 1 in BRUN, 2 in the tail
     bool done = false;
-    const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
-    uint64_t ifrom = 0, inirq = 0; // an interrupt inside a span: its handler's cycles, left out (T17's way)
-    int idepth = -1;
+    gw_timing::LeftOut left(r, false); // an interrupt inside a span: its handler's cycles, left out (T17's way,
+    uint64_t &inirq = left.out;          // gw_timing.h's since 7f's answer 33)
     r.watch = [&](uint16_t pc) {
-        if (in != 0 && idepth < 0 && pc == irq)
-        {
-            ifrom = r.cpu->cycles();
-            idepth = r.cpu->regs().s;
+        if (left.inside(pc, in != 0))
             return;
-        }
-        if (idepth >= 0)
-        {
-            if (r.cpu->regs().s == idepth + 3)
-            {
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            else
-                return;
-        }
         if (pc == runc && home < 0)
             home = r.nb(3);
         if (home < 0 || r.nb(3) != home)

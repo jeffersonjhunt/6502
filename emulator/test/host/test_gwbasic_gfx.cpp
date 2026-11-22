@@ -24,6 +24,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cmath>
 #include <cstdio>
@@ -2715,33 +2716,23 @@ TEST(oo1_modes_are_timed)
     auto scroll = [](CcpRig &q, const std::string &mode) {
         const auto l6 = lbl_map(std::string("p6.lbl"));
         const uint16_t up = l6.at("SCRLUPN");
-        const uint16_t irq = static_cast<uint16_t>(reg(q, 0xFFFE) | reg(q, 0xFFFF) << 8);
         enter(q, mode + ":CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));
-        uint64_t from = 0, ifrom = 0, inirq = 0, own = 0;
+        gw_timing::LeftOut left(q, false); // (gw_timing.h's method since 7f's answer 33)
+        gw_timing::CallSpan span;
+        uint64_t own = 0;
         unsigned n = 0;
-        int depth = -1, idepth = -1;
         q.watch = [&](uint16_t pc) {
-            if (depth >= 0 && idepth < 0 && pc == irq)
+            if (left.inside(pc, span.open))
+                return;
+            if (!span.open && pc == up)
             {
-                ifrom = q.cpu->cycles();
-                idepth = q.cpu->regs().s;
+                span.enter(q);
+                left.out = 0;
             }
-            else if (idepth >= 0 && q.cpu->regs().s == idepth + 3)
+            else if (span.returned(q, pc))
             {
-                inirq += q.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            if (depth < 0 && pc == up)
-            {
-                from = q.cpu->cycles();
-                depth = q.cpu->regs().s;
-                inirq = 0;
-            }
-            else if (depth >= 0 && idepth < 0 && q.cpu->regs().s == depth + 2)
-            {
-                own += q.cpu->cycles() - from - inirq;
+                own += q.cpu->cycles() - span.from - left.out;
                 ++n;
-                depth = -1;
             }
         };
         enter(q, "CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));

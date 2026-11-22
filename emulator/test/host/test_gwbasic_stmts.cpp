@@ -40,6 +40,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1012,36 +1013,28 @@ TEST(the_trap_test_at_newstt_is_timed)
     CHECK(one >= 15 && one <= 24);
     // N32 (7f, E7; the owner's answer 23): with ON TIMER armed (TIMER ON, n 1,000 s: never reached) NEWSTT costs what
     // one trap on costs: the timer is OOLIB's tick hook, resident (TIMHK), and NEWSTT polls nothing for it. Every
-    // visit counts here, the interrupt handlers' cycles left out of it (T17's method: the hook runs in one), for n
+    // visit counts here, the interrupt handlers' cycles left out of it (T17's method, gw_timing.h's since 7f's answer
+    // 33: the hook runs in one), for n
     // 1,000 and 3,000. The gate: one trap on's, 15-24. Guards a game slowed by an armed timer. Seen failing with
     // NEWSTT's ONGSBF test left out (P3's GOTRP every statement).
-    const uint16_t irq = static_cast<uint16_t>(t.r.machine->bus().peek(0xFFFE) | t.r.machine->bus().peek(0xFFFF) << 8);
     auto polled = [&](const std::string &arm, unsigned n) {
         Window w;
-        uint64_t from = 0, ifrom = 0, inirq = 0;
+        gw_timing::LeftOut left(t.r, false);
+        uint64_t from = 0;
         bool in = false;
-        int idepth = -1;
         t.r.watch = [&](uint16_t pc) {
-            if (in && idepth < 0 && pc == irq)
-            {
-                ifrom = t.r.cpu->cycles();
-                idepth = t.r.cpu->regs().s;
-            }
-            else if (idepth >= 0 && t.r.cpu->regs().s == idepth + 3)
-            {
-                inirq += t.r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            if (pc == t.lab.newstt && idepth < 0)
+            if (left.inside(pc, in))
+                return;
+            if (pc == t.lab.newstt)
             {
                 from = t.r.cpu->cycles();
-                inirq = 0;
+                left.out = 0;
                 in = true;
             }
-            else if (pc == t.lab.newst1 && in && idepth < 0)
+            else if (pc == t.lab.newst1 && in)
             {
                 in = false;
-                w.cycles += t.r.cpu->cycles() - from - inirq;
+                w.cycles += t.r.cpu->cycles() - from - left.out;
                 ++w.visits;
             }
         };

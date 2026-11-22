@@ -50,6 +50,7 @@
 #include "harness.h"
 #include "oodos_rig.h"
 #include "video_card.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1577,27 +1578,14 @@ TEST(chain_is_timed)
         enter(r, {line});
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCN2"), site = lab.at("FTSITE");
         uint16_t farcall = 0;
-        const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
-        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
-        int idepth = -1;
+        gw_timing::LeftOut left(r, false); // an interrupt inside the run: its handler's cycles, left out
+        uint64_t from = 0, cycles = 0;     // (gw_timing.h's method since 7f's answer 33)
+        uint64_t &inirq = left.out;
         bool on = false;
         farcalls = 0;
-        irqs = 0;
         r.watch = [&](uint16_t pc) {
-            if (on && idepth < 0 && pc == irq) // an interrupt inside the run: its handler's cycles, left out
-            {
-                ifrom = r.cpu->cycles();
-                idepth = r.cpu->regs().s;
-                ++irqs;
+            if (left.inside(pc, on))
                 return;
-            }
-            if (idepth >= 0)
-            {
-                if (r.cpu->regs().s != idepth + 3)
-                    return;
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
             if (pc == runc && !on)
             {
                 farcall = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(site + 1)) |
@@ -1615,6 +1603,7 @@ TEST(chain_is_timed)
         };
         CHECK_EQ(command(r, "RUN"), std::string());
         r.watch = nullptr;
+        irqs = left.irqs;
         CHECK(cycles > 0);
         return cycles;
     };

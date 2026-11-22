@@ -22,6 +22,7 @@
 #include "harness.h"
 #include "oodos_rig.h"
 #include "sound_card.h"
+#include "gw_timing.h"
 
 #include <cmath>
 #include <cstdio>
@@ -307,7 +308,7 @@ namespace
     }
 
     /// RUN's cycles from the RUN statement to the end's ENDCON, less the interrupt handlers' inside it (T17's
-    /// method: the IRQ vector's entry to its RTI), the program `lines` typed after NEW; the far calls counted too.
+    /// method, gw_timing.h's: the IRQ's entry to its RTI's return), the program `lines` typed after NEW.
     uint64_t run_cycles(CcpRig &r, const std::vector<std::string> &lines, uint64_t budget = ms(5000))
     {
         const std::map<std::string, uint16_t> lab = lbl_map();
@@ -317,33 +318,24 @@ namespace
             enter(r, l, ms(150));
         enter(r, "CLS");
         const uint16_t runc = lab.at("RUN"), endcon = lab.at("ENDCON");
-        const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
-        uint64_t from = 0, cycles = 0, ifrom = 0, inirq = 0;
-        int idepth = -1;
+        gw_timing::LeftOut left(r, false);
+        uint64_t from = 0, cycles = 0;
         bool on = false;
         const auto before = r.watch;
         r.watch = [&](uint16_t pc) {
             if (before)
                 before(pc);
-            if (on && idepth < 0 && pc == irq)
-            {
-                ifrom = r.cpu->cycles();
-                idepth = r.cpu->regs().s;
-            }
-            else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
-            {
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
+            if (left.inside(pc, on))
+                return;
             if (pc == runc && !on)
             {
                 from = r.cpu->cycles();
                 on = true;
-                inirq = 0;
+                left.out = 0;
             }
-            else if (on && idepth < 0 && pc == endcon)
+            else if (on && pc == endcon)
             {
-                cycles = r.cpu->cycles() - from - inirq;
+                cycles = r.cpu->cycles() - from - left.out;
                 on = false;
             }
         };
@@ -1086,33 +1078,24 @@ TEST(a_long_wait_leaves_no_timer_request_behind)
     REQUIRE(start(r) > 0);
     const std::map<std::string, uint16_t> lab = lbl_map();
     const uint16_t newstt = lab.at("NEWSTT"), newst1 = lab.at("NEWST1");
-    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
     auto per = [&](const std::string &arm) {
-        uint64_t from = 0, ifrom = 0, inirq = 0, cycles = 0;
+        gw_timing::LeftOut left(r, false);
+        uint64_t from = 0, cycles = 0;
         unsigned visits = 0;
         bool in = false;
-        int idepth = -1;
         r.watch = [&](uint16_t pc) {
-            if (in && idepth < 0 && pc == irq)
-            {
-                ifrom = r.cpu->cycles();
-                idepth = r.cpu->regs().s;
-            }
-            else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
-            {
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            if (pc == newstt && idepth < 0)
+            if (left.inside(pc, in))
+                return;
+            if (pc == newstt)
             {
                 from = r.cpu->cycles();
-                inirq = 0;
+                left.out = 0;
                 in = true;
             }
-            else if (pc == newst1 && in && idepth < 0)
+            else if (pc == newst1 && in)
             {
                 in = false;
-                cycles += r.cpu->cycles() - from - inirq;
+                cycles += r.cpu->cycles() - from - left.out;
                 ++visits;
             }
         };
@@ -1265,10 +1248,13 @@ TEST(strig_latches_a_press_and_on_strig_traps_it)
 // to its return (EVPOLL's far call to it), the interrupt handlers inside it left out (T17's method), the BDOS calls
 // of its cooked-key drain too (how many there are depends on when the key's cooked twin comes: a race, not the
 // code's), averaged over 8 presses each of A and of F1 (no text) while a program reads INKEY$, no trap on. The
-// owner's answer 29: re-anchored to main fa501cfb (the SID merge and the fractal programs), measured on this rig by
-// this method, an interrupt inside a BDOS call counted once (answer 28), on 2026-11-21: A 280, F1 368 (the first
-// anchor, main 80a70aa6 by the method before answer 28, was 280 and 340). Seen failing with KTRAP called with no trap on (KTON's test
-// left out).
+// owner's answer 33: by gw_timing.h's method (each end by its return address as well as S: a tick inside a drain
+// call once ended the call's leaving out, and the span, by S alone, counting some 200 cycles of the handler), re-
+// anchored to main fa501cfb measured so on this rig on 2026-11-21: A 280, F1 340 (answer 29's 368 had a tick
+// counted in it). Every press of a key costs the same; and the method itself: 24 presses of A at gaps 997 cycles
+// apart put a tick inside a drain call (at least one does), and still cost the same. Seen failing with (a) KTRAP
+// called with no trap on (KTON's test left out), (b) a BDOS call's end found by S alone (gw_timing.h's PC test
+// dropped).
 TEST(a_key_s_cost_with_no_trap_armed)
 {
     CcpRig r;
@@ -1277,61 +1263,60 @@ TEST(a_key_s_cost_with_no_trap_armed)
     enter(r, "KEY 1,\"\"");
     run_prog(r, {"10 A$=INKEY$:GOTO 10"}, ms(300));
     const uint16_t kev = lbl_map("p6.lbl").at("KEYEV");
-    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8);
-    uint64_t from = 0, total = 0, ifrom = 0, out = 0, bfrom = 0;
-    unsigned n = 0;
-    int depth = -1, idepth = -1, bdepth = -1;
+    gw_timing::LeftOut left(r, true);
+    gw_timing::CallSpan span;
+    uint64_t total = 0, lo = ~uint64_t{0}, hi = 0;
+    unsigned n = 0, ticked = 0; // (ticked: a tick inside one of the drain's BDOS calls)
+    bool tick = false;
     r.watch = [&](uint16_t pc) {
-        const auto &g = r.cpu->regs();
-        if (depth >= 0 && idepth < 0 && bdepth < 0 && pc == irq) // (one inside a BDOS call: the call's)
+        if (left.in_bdos && pc == left.irq)
+            tick = true;
+        if (left.inside(pc, span.open))
+            return;
+        if (!span.open && pc == kev)
         {
-            ifrom = r.cpu->cycles();
-            idepth = g.s;
+            span.enter(r);
+            left.out = 0;
+            tick = false;
         }
-        else if (idepth >= 0 && g.s == idepth + 3)
+        else if (span.returned(r, pc))
         {
-            out += r.cpu->cycles() - ifrom;
-            idepth = -1;
-        }
-        if (depth >= 0 && idepth < 0 && bdepth < 0 && pc == 0x0203)
-        {
-            bfrom = r.cpu->cycles();
-            bdepth = g.s;
-        }
-        else if (bdepth >= 0 && idepth < 0 && g.s == bdepth + 2)
-        {
-            out += r.cpu->cycles() - bfrom;
-            bdepth = -1;
-        }
-        if (depth < 0 && pc == kev)
-        {
-            from = r.cpu->cycles();
-            depth = g.s;
-            out = 0;
-        }
-        else if (depth >= 0 && idepth < 0 && bdepth < 0 && g.s == depth + 2)
-        {
-            total += r.cpu->cycles() - from - out;
+            const uint64_t c = r.cpu->cycles() - span.from - left.out;
+            total += c;
+            lo = std::min(lo, c);
+            hi = std::max(hi, c);
+            ticked += tick;
             ++n;
-            depth = -1;
         }
     };
-    auto avg = [&](uint8_t key) {
-        n = 0;
-        total = 0;
-        for (int i = 0; i < 8; ++i)
+    // 8 presses 50 ms apart (or `sweep`: 24, each gap 997 cycles longer than the last, so the tick lands across the
+    // drain's calls)
+    auto avg = [&](uint8_t key, bool sweep = false) {
+        n = ticked = 0;
+        total = hi = 0;
+        lo = ~uint64_t{0};
+        for (unsigned i = 0; i < (sweep ? 24u : 8u); ++i)
         {
             press(r, key);
-            r.run(ms(50));
+            r.run(ms(50) + (sweep ? i * 997u : 0u));
         }
         return n ? static_cast<double>(total) / n : 0.0;
     };
-    const double a = avg(0x04), f1 = avg(0x3A);
+    const double a = avg(0x04);
+    const uint64_t alo = lo, ahi = hi;
+    const double f1 = avg(0x3A);
+    const uint64_t flo = lo, fhi = hi;
+    avg(0x04, true);
     r.watch = nullptr;
-    std::printf("  KEYEV, no trap armed, less its interrupts and BDOS calls: A %.0f cycles, F1 %.0f (main fa501cfb: "
-                "A 280, F1 368; the gate + 30)\n", a, f1);
-    CHECK(a > 100 && a <= 280 + 30); // main fa501cfb on this rig (2026-11-21), the fixed method (answer 29)
-    CHECK(f1 > 100 && f1 <= 368 + 30);
+    std::printf("  KEYEV, no trap armed, less its interrupts and BDOS calls: A %.0f cycles (%llu-%llu), F1 %.0f "
+                "(%llu-%llu) (main fa501cfb: A 280, F1 340; the gate + 30)\n", a, (unsigned long long)alo,
+                (unsigned long long)ahi, f1, (unsigned long long)flo, (unsigned long long)fhi);
+    std::printf("  A swept: %u presses, %u with a tick inside a drain call, %llu-%llu cycles\n", n, ticked,
+                (unsigned long long)lo, (unsigned long long)hi);
+    CHECK(a > 100 && a <= 280 + 30); // main fa501cfb on this rig (2026-11-21), gw_timing.h's method (answer 33)
+    CHECK(f1 > 100 && f1 <= 340 + 30);
+    CHECK(ticked > 0);
+    CHECK(hi - lo <= 30);
 }
 
 int main()
