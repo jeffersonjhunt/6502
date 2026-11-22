@@ -28,7 +28,9 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,
   the sound card's 6510, the VIA's ACR, IER and IFR, and its timer 1 (don't write it, nor read `T1CL`, which clears
-  the tick's flag). The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
+  the tick's flag), and the serial line's receive (the 6551's CMD and its interrupt, its STATUS and DATA; later the
+  TL16C552A's IER, MCR and FIFO control): a program reads AUX: by functions 3 and 7, and asks function 85 for the
+  rest (the owner, 2026-11-21). The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
   or one the program allocated), under the W1 contract (OOLIB interface 4,
   [the Programmer's Guide, chapter 5](docs/oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)); a
   program draws through OOLIB, not by writing `NB_WIN1` or `NB_WIN1H` itself, and keeps its code and data out of

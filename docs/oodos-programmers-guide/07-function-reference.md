@@ -176,6 +176,9 @@ None.
 - AUX: is the devices the SCB's AUX: input vector names: TTY, the serial line, unless DEVICE has moved it. TTY is
   part of CON: too, so this function and the console read the same line, and a character goes to whichever asks
   first.
+- TTY's input is buffered (OODOS 0.15): what came on the line while the program wasn't reading waits in a ring of 255
+  bytes, and this function takes the oldest, so a program can find a backlog where before it found at most one byte
+  ([chapter 4](04-console-devices-scb.md#the-serial-lines-receive-buffer)). The warm boot empties it.
 - A vector with no device that has input (none, or LPT alone) returns ^Z (`$1A`) at once.
 - Nothing is echoed; ^S, ^Q, ^P and ^C are characters like any other.
 
@@ -335,7 +338,9 @@ None.
 
 #### Side effects
 
-None.
+None. TTY's character waits in its receive buffer (OODOS 0.15), up to 255 of them: `$FF` until the program has
+taken them all ([chapter 4](04-console-devices-scb.md#the-serial-lines-receive-buffer)). [Function
+85](#bdos-85) says how many.
 
 #### Cycles
 
@@ -3132,10 +3137,12 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
   12 OODOS 0.11's [function 83](#bdos-83)'s `DM_BANK8`, and WIN1H in the W1 contract,
   [chapter 5](05-memory-and-banking.md#the-w1-contract); 13 OODOS 0.12's function 83 `DM_VFILLW` and the 640x480
   colour layers; 14 OODOS 0.13's full-resolution pointer (`DM_POINTER` 64 + n) and SPRCTL cleared at the warm boot;
-  15 OODOS 0.14's [function 82](#bdos-82)'s `SN_NOISE`),
+  15 OODOS 0.14's [function 82](#bdos-82)'s `SN_NOISE`; 16 OODOS 0.15's [function 85](#bdos-85), the serial line's
+  receive buffer, and the event area's `EV_RXCNT`),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
-  82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
+  82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83); `OA_SERIAL`, `$20`: [function 85](#bdos-85), since
+  interface 16). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
   serial card's VIA), +4 the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
@@ -3597,6 +3604,66 @@ OODOS 0.5; operations 7–10 and the card addresses since OODOS 0.9 (interface v
 
 OODOS's own: CP/M 3 has no function 83 (OODOS's range, 72 on). It is OOLIB's fourth service area
 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
+
+<a id="bdos-85"></a>
+### 85 O_SERIAL: the serial line's receive buffer
+
+#### Entry
+
+- Y = 85 (`O_SERIAL`).
+- X = 0: A is the operation, and it takes no parameters (`SR_STATUS` and `SR_FLUSH` are then COM1's).
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and +1 the port
+  (0, COM1), as [function 80's](#bdos-80). The operations are oodos.inc's `SR_` names:
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `SR_INFO` | 2 bytes to fill (optional) | says which ports there are and the ring's size |
+  | 1 | `SR_STATUS` | +1 the port; 5 bytes to fill | says what waits in the port's ring, and what was lost |
+  | 2 | `SR_FLUSH` | +1 the port | empties the port's ring |
+
+#### Exit
+
+- `SR_INFO`: A = the ports, a bit each (`SR_COM1`, `$01`: COM1 alone), X = the bytes a ring holds (255). With a
+  block: +1 and +2 the same.
+- `SR_STATUS`: A = the bytes waiting in the ring, X = the flags (`SF_STOPPED`, `$01`: the ring is full and the line's
+  receiver is stopped until a byte is read). With a block: +2 the bytes waiting, +3 the room left (255 less them),
+  +4–5 the overruns seen since the last flush (low byte first), +6 the flags. All read at one moment.
+- `SR_FLUSH`: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+A = X = `$FF`, and nothing done, for an operation past 2 or a port that isn't there (any but 0). An OODOS before
+0.15 (interface version 16) answers 85 as a function it doesn't have, the same: [function 80's](#bdos-80) `FT_INFO`
+says whether there is a receive buffer (`OA_SERIAL`, `$20`).
+
+#### Side effects
+
+- The ring is filled by OODOS's interrupt as bytes come: up to 255, kept in order until functions 3 or 1 (and the
+  console's look) take them ([chapter 4](04-console-devices-scb.md#the-serial-lines-receive-buffer)). Function 7
+  says whether one waits, 3 takes the next.
+- **The lost count** is the overruns the chip flagged, each at least one byte lost: they happen only while the ring
+  is full and the receiver stopped, or while interrupts are off longer than a character takes (3,729 cycles at
+  19,200 baud). It is counted as the chip's next byte is taken, so it shows after a read.
+- `SR_FLUSH` empties the ring, sets the lost count to 0, drops a byte the chip held, and starts the receiver if it
+  was stopped. The warm boot does the same at each program's end, and so does the BIOS's DEVINI for TTY.
+- None of the operations reads a byte.
+
+#### Cycles
+
+Not measured. The interrupt's own cost is in [chapter 4](04-console-devices-scb.md#the-serial-lines-receive-buffer).
+
+#### Since
+
+OODOS 0.15
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+None: OODOS's own (OOLIB's sixth service area; [chapter 8](08-game-services.md#the-serial-line)).
 
 <a id="bdos-98"></a>
 ### 98 DRV_FREE: free blocks not closed

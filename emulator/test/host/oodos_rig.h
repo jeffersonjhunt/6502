@@ -21,6 +21,7 @@
 #include "sd_images.h"
 #include "test_support.h"
 
+#include "acia6551.h"
 #include "backplane_bridge.h"
 #include "console.h"
 #include "machine.h"
@@ -316,6 +317,11 @@ namespace oodos_rig
         }
 
         BackplaneBridge &bridge() { return *machine->backplane_bridge(); }
+        /// The serial line's 6551 (the stand-in), and bytes on its paced line: one a period (`cycles`, 0:
+        /// CONTROL's rate, 3,729 at 19,200), whatever the chip has unread, so a byte not taken in time is
+        /// lost to an overrun (Acia6551::send_paced), where type() waits for each.
+        Acia6551 &acia() { return *machine->find_as<Acia6551>("terminal"); }
+        void serial_paced(const std::string &bytes, uint32_t cycles = 0) { acia().send_paced(bytes, cycles); }
         SdCard &sd() { return *machine->sd_card(); }
         uint8_t nb(unsigned reg) { return machine->bus().peek(static_cast<uint16_t>(NB + reg)); }
         uint8_t phys(uint32_t a) const { return machine->bus().peek_physical(a); }

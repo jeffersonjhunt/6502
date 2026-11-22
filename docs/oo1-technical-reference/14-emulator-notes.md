@@ -351,8 +351,8 @@ emulator; each link goes to the note.
 - **Serial and the VIA** ([chapter 9](09-serial-and-via.md))
   - A 6551 stands in for the TL16C552A, mirrored through the block, so `$C37F` reads its CTRL, not an ID
     ([COM1, COM2 and LPT](09-serial-and-via.md#com1-com2-and-lpt), [`$C303`](09-serial-and-via.md#reg-c303)).
-  - The 6551 sends a byte at once. Its baud rate, character time, parity, framing and overrun errors, echo mode and
-    modem lines aren't modelled ([The stand-in 6551](09-serial-and-via.md#the-stand-in-6551),
+  - The 6551 sends a byte at once. Its character time from the terminal, parity, framing errors, echo mode and
+    modem lines aren't modelled; the overrun and the character time are, on the tests' paced line only ([The stand-in 6551](09-serial-and-via.md#the-stand-in-6551),
     [`$C302`](09-serial-and-via.md#reg-c302)).
   - The 6551 doesn't hear /RESET: only a power-on sets its CMD and CTRL
     ([The stand-in 6551](09-serial-and-via.md#the-stand-in-6551)).

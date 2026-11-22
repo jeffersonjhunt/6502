@@ -1,6 +1,6 @@
 # OODOS: One Off DOS #
 
-Draft, 2026-10-26; OODOS 0.14 since 2026-11-21 (function 82's `SN_NOISE`, the SID seed, through the ROM BIOS 0.18's `$C818` function `$A2`, OOLIB interface 15); 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+Draft, 2026-10-26; OODOS 0.15 since 2026-11-21 (the serial line's receive buffer and function 85, OOLIB interface 16, [below](#the-serial-receive-buffer)); 0.14 since 2026-11-21 (function 82's `SN_NOISE`, the SID seed, through the ROM BIOS 0.18's `$C818` function `$A2`, OOLIB interface 15); 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
 W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
 **proposed**; open questions are collected at the end.
 
@@ -943,7 +943,9 @@ tests.
   of CON:, so function 3 and the console read the same line and a key goes to whichever asks first; LST: is LPT,
   which drops what it's sent and is always ready, as the Guide has an output device that isn't there do nothing.
   7 and 8 return `$FF` or 0. The BIOS's input from a vector with no input device (none, or LPT alone, as a
-  program may set with 49) returns ^Z at once, as the Guide has it, where it waited for ever before.
+  program may set with 49) returns ^Z at once, as the Guide has it, where it waited for ever before. Since OODOS 0.15
+  TTY's input comes from a receive ring the interrupt fills ([the serial receive buffer](#the-serial-receive-buffer)):
+  up to 255 bytes wait in order.
 - **Function 10** is the banked CP/M 3's (the Guide's Table 3-3), on a line kept in the system block (`$0B00`, and
   the previous line at `$0C00`, 255 bytes each): the cursor anywhere in the line, typing inserting at it. rub/del
   and ^H (backspace: the character before the cursor taken out; with 2E `$FF` or 2F 0, at the line's end, rub/del's
@@ -6080,7 +6082,7 @@ functions alone, with a layout-1 area (the clocks, no keys) and no STICK, STRIG 
 | INKEY$, INPUT$ | the event queue alone, by `EVPOLL` (below): each `EK_KEY` translated from its HID usage and modifiers to a character, as OOUI's `uipoll.s` does (`UCHAR`, a US keyboard), or to a PC extended code (CHR$(0) + a scan code) for the keys with no character | ^C is BASIC's break: function 109's console mode (bit 3) keeps it from the warm boot, and it reaches GW-BASIC as an event. Break (Pause) still goes to the monitor, as everywhere ([question 14](#phase-7s-questions)). *As built (7d1):* in screen mode the keyboard queue holds the PC's codes, a character or 0 and a scan code, so INKEY$ gives the two-byte keys as they are and INPUT$ a byte at a time; in console mode unchanged. *As built (7d2):* an unshifted F1-F10 whose soft key has a text queues the text instead (P6's KEYEV), whole or not at all |
 | ON KEY(n), KEY | the queue's `EK_KEY` events | — |
 | files, LOAD, SAVE | the FCB functions; 44 with 33 and 34 for random blocks; 152 to parse names | — |
-| COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | **Missing:** a receive buffer. TTY is polled, so characters are lost while BASIC is busy, and ON COM can't be done well. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
+| COM | AUX: (functions 3, 4, 7, 8); the speed by function 50's DEVINI on the device table | The receive buffer is built (OODOS 0.15, [the serial receive buffer](#the-serial-receive-buffer)): 255 bytes kept while BASIC is busy, `EV_RXCNT` for ON COM's trap and function 85 for LOC, LOF and overflow, which a later GW-BASIC step uses. COM2 and LPT wait for the serial card's TL16C552A in the emulator; a 6551 stands in. [Question 12](#phase-7s-questions) |
 | LPRINT, LLIST | LST: (function 5) | LST: takes and drops for now (no parallel port modelled) |
 | DEF SEG, PEEK, POKE | see below | FARPEEK, FARPOKE and FARMOVE ([Far calls](#far-calls)) aren't needed ([question 11](#phase-7s-questions)). *As built (7c's tail):* P5's `DSBYTE`, as below. *As built (7d3):* bank 8 in screen mode is the active page, by `DM_VREAD` and `DM_VWRITE` (below). *As built (7e3):* in SCREEN 1 and 2 the PC's CGA page (below), through the aperture |
 | BLOAD, BSAVE | `DM_LOAD` into a staging buffer, then `DM_COPY` past the 7-byte header; BSAVE a record at a time through the buffer (`DM_COPY`, function 21) | no DMA write of a file: none needed. *As built (7c's tail):* BLOAD's whole records by `DM_LOAD` straight to their place, the rest of record 0 and the last part record by `DM_COPY` from the file's buffer; BSAVE by `DM_COPY` into the buffer a piece at a time; the run checked whole first by P5's `DSRUN`; disk files only. *As built (7d3):* a run on the screen page staged in bank 8's RAM (`DSRUN`'s `DM_VREAD`, then BLOAD's `DSPUT`, a `DM_VWRITE`); P4 unchanged. *As built (7e2):* those checks and copies are the home block's (`DSRUNH`, `DSPUTH`), P5's state by its `DSINFO`. *As built (7e3):* SCREEN 1 and 2's page staged the same way, `$80000-$83FFF`, converted to and from the card by P5's `DSGRUN` |
@@ -6316,7 +6318,9 @@ alternative is kept as the record of what was weighed.
 12. **COM's receive buffer.** *Decided (2026-11-13, the owner):* 7c ships COM1 polled, documented as losing characters
     while BASIC is busy. A receive buffer filled by the serial card's interrupt becomes an OODOS question of its
     own (an addition to the dispatcher and AUX), with the serial card's model. *Alternative:* that addition
-    first.
+    first. *Built (2026-11-21, OODOS 0.15):* [the serial receive buffer](#the-serial-receive-buffer), on the 6551
+    stand-in (the owner's answer 1: the TL16C552A's back end comes with its card); ON COM(n), LOC and LOF on it are a
+    later GW-BASIC step's.
 13. **INP, OUT and WAIT.** *Decided (2026-11-13, the owner): refused.* *Alternative:* OUT and INP on the VIA's user port
     alone, under OOLIB's claim (question 6 there).
 14. **Breaking a program.** *Decided (2026-11-13, the owner):* ^C breaks, through function 109's mode, and it reaches
@@ -6328,6 +6332,153 @@ alternative is kept as the record of what was weighed.
       in OODOS and a new OOLIB interface version, 11 or later (9 is function 77's, 10 function 75's A = 2).
     - **While GW-BASIC runs, the monitor can't stop it.** A GW-BASIC that has hung (a primitive's endless loop, a
       bad POKE) needs Ctrl-Reset.
+
+## The serial receive buffer ##
+
+**Built (2026-11-21), OODOS 0.15, OOLIB interface 16** (`feat/serial-rx`, from main `fa501cfb`). It answers phase
+7's [question 12](#phase-7s-questions): a receive buffer filled by the serial line's interrupt, an addition to the
+dispatcher and AUX. The owner made it a 1.0 item on 2026-11-21: GW-BASIC's ON COM(n) waits for it. Nothing in
+GW-BASIC changed. Units S1–S5; the owner's answers below.
+
+### Before it ###
+
+TTY's input was polled: `TTYIST` read the 6551's RDRF, `TTYIN` spun on it. The receiver's interrupt was off
+(`DEVINI`'s CMD `$0B`), and `DEAFEN` turned it off again if a program turned it on. The 6551 holds one byte, and a
+real one overruns about a character after RDRF sets (19,200 baud, 10 bits: **3,729 cycles** at 7,159,090 Hz), so a
+byte that came while a program wasn't calling functions 3 or 7 was lost. The emulator lost nothing: its senders
+(the console, the rig's `type()`, the WebUI's Terminal) wait until the chip takes each byte.
+
+The 6551 is a stand-in: the OO-1's serial card is the TL16C552A ([design.md](design.md)), and no real OO-1 has a
+6551. The design is the chip's only as far as four routines (below); the TL16C552A gets a back end of its own in
+its card's plan (answer 1).
+
+### The design, as built ###
+
+- **One ring a port**, 256 bytes, 255 usable (head = tail is empty), COM1's at block 31 `$0D00–$0DFF` (`RXBUF`,
+  `sys.inc`), `$0E00` kept for COM2's; `sys.inc` asserts both pages are outside what cold boot clears and below the
+  allocation vectors. The indices and the rest are in SYSBSS (`serial.s`): RXHEAD (the interrupt's), RXTAIL
+  (TTYIN's), RXLOST (2 bytes) and RXFLG. Neither side turns interrupts off to move its own index. At 19,200 the
+  ring holds 133 ms of a stream.
+- **The interrupt.** ID 6 that isn't timer 1 alone came to `DEAF62` by both routes (the VIA's `@none`, and no VIA)
+  and so to R62TAB's entry 0. That entry is now `SERID6` (`R62_ID6`, in RES2): with the receiver not stopped and
+  RDRF set, the byte goes into the ring (`RXPUT`); otherwise `DEAFEN`, as before. Common memory and the tick's fast
+  path are unchanged byte for byte; a byte that comes with a tick is served on the next pass (the line is level).
+- **Overflow never discards** (answer 3). With the ring full, `RXPUT` leaves the byte in the chip, turns the
+  receiver's interrupt off and sets RXFLG's `RX_STOPPED`. `TTYIN`, after each byte it takes, finds the interrupt
+  off and calls `SRPULL` (interrupts off): the interrupt on first, then a byte the chip holds taken (one that came
+  while the interrupt was off raises nothing when it goes on, in the emulator; the real chip's behaviour is
+  unchecked, and `SRPULL` relies on neither). `TTYIST` with the ring empty does the same, so a byte left while the
+  interrupt was off for any other reason (the monitor's `$0B`, a program's write) is never stranded. Only the chip's
+  overrun loses bytes; `RXPUT` counts the overruns its OVRN shows (at least one byte each) in RXLOST.
+- **`DEAFEN`** keeps the 6551's command OODOS's (`RXDEAF`): the receiver's interrupt on (off while stopped), the
+  transmitter's off (TIC `%10`, RTS low), the rest kept; its flag cleared, and a byte it was interrupting for taken,
+  since nothing would raise it again.
+- **The warm boot and `DEVINI` empty the ring** (answer 5; `RXFLUSH`): RXLOST 0, not stopped, the receiver on, and a
+  byte the chip held dropped. Otherwise a sender still streaming when a program ends would feed the CCP up to 255
+  bytes as command lines, since CON: reads TTY. `DEVINI` writes CTRL `$1F` and CMD `$0B`, then `RXFLUSH` makes it
+  `$09`. It reads DATA, then STATUS, again while RDRF is set, so it ends on a STATUS read (review round 1,
+  S1): a byte that came between a STATUS read and a DATA read would leave the 6551's IRQ flag set with RDRF clear,
+  and `SERID6` would take that interrupt for a stray, `DEAFEN` turning off a layout-2 area's USB events.
+- **`CLKOFF`** (function 75: the monitor's way out, Apple II mode, the diagnostics) turns the receiver's interrupt
+  off (CMD bit 1, as the monitor's `$0B` has it): the 6551 isn't reset by /RESET, and a byte would pull /IRQ in
+  Apple II mode.
+- **Cold boot:** BINIT's `DEVINI` runs with SYSBSS cleared and before the first CLI, so the ring is empty and
+  consistent before any interrupt.
+- **Functions 3, 4, 7 and 8 keep their meaning** (the interface rule): 7 is `$FF` while a byte waits, 3 returns
+  the next in arrival order, 4 and 8 are unchanged; DEVTBL, CHRTBL and the SCB's vectors are unchanged. What a
+  caller newly sees is **type-ahead**: up to 255 bytes that came while it wasn't looking, CP/M 3's meaning of
+  AUXIN (the owner accepted it, with the two below).
+- **The receiver's interrupt is on under OODOS**, which changed one test's expectation
+  (`test_oodos_clock`'s no-VIA case, renamed `without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept`).
+- **CON: keeps TTY** (answer 9): the console's look before each character out, function 109's ^C-only status and
+  GW-BASIC's console-mode POLKEY take AUX: bytes as keys, as before, now from the ring in order. A program using
+  AUX: for data takes TTY out of CONIN: while it does (`DEVICE CONIN:=CRT`, or function 49 on SCB `$22`; the
+  Programmer's Guide, chapter 4, says how).
+- **No flow control on the stand-in** (answer 4): the 6551's RTS is tied to its transmitter. The TL16C552A's plan
+  brings RTS/CTS (its automatic RTS/CTS to be checked against its datasheet there); no XON/XOFF. **19,200 fixed**
+  (answer 10).
+
+**The signal** (answer 6): the event area's **+13, `EV_RXCNT`**, COM1's bytes received modulo 256, 0 at FT_OPEN, +1
+for each byte the ring takes while the area is open, in every layout; **+14, `EV_RXCNT2`**, kept for COM2, 0. No
+queue event. A program compares +13 with the value it saw last: no BDOS call.
+
+**Function 85, `O_SERIAL`** (answer 7), OOLIB's sixth area (`OA_SERIAL` `$20` in FT_INFO's X): `SR_INFO` (the
+ports, the ring's size less 1), `SR_STATUS` (bytes waiting, room, RXLOST, `SF_STOPPED`), `SR_FLUSH`. The Programmer's
+Guide's [function 85](../docs/oodos-programmers-guide/07-function-reference.md#bdos-85) is its entry. The owner kept
+it apart from 3, 4, 7 and 8: AUX: is a vector, not the port; those are CP/M 3's; and X = 0 is a documented result.
+
+### Where the code is ###
+
+The code is `oodos/sys/serial.s`; `bios.s`'s `TTYIST`, `TTYIN` (`TTYPULL`) and `DEVINI`, `irq.s`'s `DEAFEN`,
+`CLKOFF` and `WBDMA`, `input.s`'s R62TAB. Block 62 had no room for the debug build: its RESBSS overflowed by 150
+bytes there. The debug build's hook counters (`HKON`, `T1NOW`, `ADDTK`, `HOOKCOST`, OOLIB_DEBUG only) moved to
+block 61, reached by `CALL61` (`R61_HKON`, `R61_HKCOST`) in place of `CALL62`, the same bytes in `CALLHOOK`; a
+build without OOLIB_DEBUG is unchanged by it.
+
+### Measured ###
+
+Measured on the emulator by `test_oodos_serial` (the plan's gates: at most 320 cycles a byte, the tick's pass
+unchanged, no millisecond lost):
+
+- **A byte's pass**, the interrupt's 7 cycles and the RTI included, the VIA present, no tick or frame in it: **247
+  cycles** with no event area, **277** with a layout 1 area (EV_RXCNT written through W1), 200 bytes of each. At
+  19,200 baud, 1,920 bytes a second, that is 474,240 cycles a second, 6.6% of the CPU while a stream runs flat out
+  (7.4% with an area); nothing while the line is quiet. The estimate was about 280 and 245.
+- **The longest pass of any kind** beside a stream: 247 cycles with no area, 404 with one (a tick's with the area's
+  counters), far under a character's 3,729.
+- **The tick:** 162 cycles (L1's 145 and B7's 17), 1,023 ticks of a second of stream; `test_oodos_input`'s 145 case
+  passes unchanged. A second's stream (250 bytes) and the millisecond counter: 1,000 ms counted in 1,000.0 by the
+  cycles.
+- **Free space** (main `fa501cfb` → this; the debug build, OOLIB_DEBUG, in brackets): SYSBSS 45 → 40 bytes [42 →
+  37]; block 60, the BDOS, 1,155 → 1,010 (function 85, 145 bytes); block 61, the BIOS, 1,532 → 1,532: bios.s grew
+  68 bytes (TTYIST, TTYIN, TTYPULL, DEVINI), taken from the gap before disk2.s's page-aligned code, which stays
+  where it was [1,532 → 1,340: the debug counters' 192 bytes moved there]; block 62's code window, RES, RES2 and RESBSS to
+  `$F7FF`, 219 → 49 [16 → 37, with the debug counters moved out]; common memory 34 → 34 [24 → 24], unchanged.
+
+### Limits of the stand-in ###
+
+Against the 6551's slack of one character (3,729 cycles at 19,200), OODOS's longer interrupt-off windows:
+
+| Window | Length | |
+|---|---|---|
+| A byte's own pass | 247 cycles (277 with an event area), measured | fits |
+| The longest pass beside a stream | 404 cycles, measured | fits |
+| A tick hook (interrupts off; budget, not enforced) | 300 | fits |
+| A USB pass (UBATCH events) | under 7,159 (`test_oodos_input`); not measured against 3,729 | not known |
+| SN_NOISE's ROM call (OODOS 0.14) | 3,179 at most | fits, narrowly |
+| A DMA piece (function 83's loads; the CPU held a cycle a byte) | up to 4 KB, 4,096 cycles or more; not measured | **over** |
+| A Disk II field (`D2MASK`, interrupts off; 224 cycles a disk byte) | about 12–16 ms | **over** by far |
+
+The windows over a character lose bytes on a real 6551; no real OO-1 has one, and the emulator's own senders wait.
+On the TL16C552A the FIFO (16 bytes: 59,700 cycles at 19,200) covers a DMA piece but not a Disk II field; only
+flow control covers that, in that card's plan. Recorded as an OO-1 limit, not fixed here.
+
+### The owner's answers (2026-11-21) ###
+
+"plan the OODOS serial receive buffer", then on the plan: "recommendations as listed, keep function 85".
+
+1. Build on the 6551 stand-in now, the design not tied to the chip; the TL16C552A gets its own card plan later.
+2. A 256-byte ring a port (255 usable), COM1 at block 31 `$0D00`, `$0E00` kept for COM2.
+3. Overflow never discards: the byte stays in the chip, the receiver's interrupt off until a read pulls; only the
+   chip's overrun loses bytes, counted.
+4. No flow control on the stand-in; RTS/CTS on the TL16C552A; no XON/XOFF.
+5. The warm boot and DEVINI empty the ring.
+6. The signal: event area +13 (`EV_RXCNT`, COM1's arrivals modulo 256), +14 kept for COM2; no queue event.
+7. Function 85 `O_SERIAL` (OOLIB's sixth area, `OA_SERIAL` `$20`): `SR_INFO`, `SR_STATUS`, `SR_FLUSH`. Kept apart
+   from 3, 4, 7 and 8.
+8. OOLIB interface 16, OODOS 0.15, on `feat/serial-rx` from `fa501cfb`, beside 7f.
+9. CON: keeps TTY by default; the books (and later GW-BASIC's OPEN "COM1:") say how to take it out.
+10. 19,200 stays fixed; soft baud with the TL16C552A.
+11. AGENTS.md: the serial line's receive added to what OODOS owns.
+
+The behaviour changes the owner accepted by name: type-ahead to 255 bytes, the receiver's interrupt on under OODOS,
+FT_INFO's X gaining `OA_SERIAL`.
+
+### What GW-BASIC's ON COM(n) builds on ###
+
+A later GW-BASIC step, not this one: TRPOLL's test of `EV_RXCNT` against its last copy (about 8 cycles, no BDOS
+call; in console mode, a 16-byte layout 1 area for it, or function 7 each statement); LOC(1), LOF(1) and "Communication
+buffer overflow" from `SR_STATUS`; OPEN "COM1:" taking TTY out of CONIN: while it is open.
 
 ## Testing ##
 

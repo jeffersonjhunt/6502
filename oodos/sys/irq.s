@@ -16,6 +16,8 @@
 ;                      (input.s's L2TICK, when something changed or is due)
 ;   video (ID 9)       vertical blank: the frame counter, the event area,
 ;                      the frame hook
+;   the 6551 (ID 6)    a byte on the serial line, into its ring (serial.s's
+;                      SERID6, through block 62)
 ;   anything else      the USB card's events with a layout-2 area open
 ;                      (input.s's IRQOTH); else a card interrupting that
 ;                      OODOS didn't turn on (a program broke the rules):
@@ -65,6 +67,7 @@
 .export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
 .export HK, DHON, DMACTL, WBDMA
 .import DMAWARM                        ; video.s's (block 61)
+.import RXDEAF, RXFLUSH                ; serial.s's (block 62)
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
@@ -181,8 +184,8 @@ DISPATCH:       LDA     NB_WIN0
                 BNE     @novia
                 BIT     VIAL
                 BMI     @isvia
-                JSR     DEAF62         ; no VIA: the 6551 (DEAFEN), its registers under $C34x;
-                BRA     @novia         ; then the video card's, as with a VIA
+                JSR     DEAF62         ; no VIA: the 6551 (SERID6, or DEAFEN), its registers under
+                BRA     @novia         ; $C34x; then the video card's, as with a VIA
 @isvia:         JSR     VIASRV
 @novia:         LDA     NB_IRQH
                 AND     #NB_IRQ_VIDEO
@@ -210,8 +213,8 @@ DISPATCH:       LDA     NB_WIN0
 IRQEND:         RTI                    ; (test_oodos_input times the dispatcher to here)
 
 ; The VIA (cold boot found one: VIAL): timer 1 the tick; any other flag
-; enabled (OODOS enables none) turned off. Nothing at all (the stand-in
-; 6551, a program's, on the same ID): DEAFEN.
+; enabled (OODOS enables none) turned off. Nothing at all: the stand-in
+; 6551, on the same ID: its byte into the ring (SERID6), or DEAFEN.
 VIASRV:         LDA     VIA_IFR
                 AND     VIA_IER
                 AND     #<~VIA_IER_SET
@@ -227,9 +230,10 @@ VIASRV:         LDA     VIA_IFR
                 RTS
 @none:          ; fall through
 
-; DEAFEN, in block 62's code window, whatever W3 has; CALL62, input.s's
-; R62 routine X there.
-DEAF62:         LDX     #R62_DEAF
+; ID 6's other source, the 6551 (serial.s's SERID6, which DEAFENs if it
+; isn't the 6551), in block 62's code window, whatever W3 has; CALL62,
+; input.s's R62 routine X there.
+DEAF62:         LDX     #R62_ID6
 CALL62:         LDA     NB_WIN3
                 PHA
                 LDA     #RES_BLOCK
@@ -344,8 +348,8 @@ CALLHOOK:       LDA     NB_WIN1
                 STA     NB_WIN1H
 @w1h:
 .ifdef OOLIB_DEBUG
-                LDX     #R62_HKON      ; its start counted (HKON, block 62's): Y kept
-                JSR     CALL62
+                LDX     #R61_HKON      ; its start counted (HKON, block 61's): Y kept
+                JSR     CALL61
 .endif
                 CPY     #HT            ; carry set: the tick hook's (kept to the BCS)
                 LDA     HK + HK_ADDR + 1,Y
@@ -380,8 +384,8 @@ HKBACK:         LDA     #SYS_BLOCK
                 LDX     HK + HK_S,Y
                 TXS
 .ifdef OOLIB_DEBUG
-                LDX     #R62_HKCOST    ; its cycles counted (HOOKCOST, block 62's): Y kept
-                JSR     CALL62
+                LDX     #R61_HKCOST    ; its cycles counted (HOOKCOST, block 61's): Y kept
+                JSR     CALL61
 .endif
                 LDA     NB_WIN1H       ; WIN1H 0 again (B7), whatever the hook left there (a
                 BEQ     @w1h           ; frame hook may map W1 itself): the register's, not
@@ -485,11 +489,13 @@ CALL61:         LDA     NB_WIN2
 
 
 .ifdef OOLIB_DEBUG
-; The debug build's counters, in block 62's code window (RES), reached by
-; CALL62 (L3's step (b): out of common memory, which L3 needs). Each keeps
-; Y. Going through CALL62 adds about 35 cycles to each hook's measured
-; cost (the switch back after HKON, and to HOOKCOST before its count).
-.segment "RES"
+; The debug build's counters, in block 61 (BIOS), reached by CALL61 (L3's
+; step (b): out of common memory, which L3 needs; out of block 62 since the
+; serial line's receive buffer, which needs its room there). Each keeps Y.
+; Going through CALL61 adds about 48 cycles to each hook's measured cost
+; (the switch back after HKON, and to HOOKCOST before its count): the tick
+; hook of test_oodos_clock_debug measures 479, against 431 with neither.
+.segment "BIOS"
 
 ; Hook Y's call: timer 1's count and MS's low byte, for HOOKCOST.
 HKON:           JSR     T1NOW
@@ -672,11 +678,8 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 STA     DMA_CONTROL    ; CONTROL as DEAFEN found it, SELECT with it
 .assert DMA_MODE_IRQ = $80, error, "DEAFEN's mask: the interrupt bit is MODE's bit 7"
 .assert DMA_SEL7 = 14 && DMA_SEL2 = 4 && DMA_SEL = $0E, error, "DEAFEN's X is SELECT's field, 2 x the channel"
-@acia:          LDA     ACIA_CMD       ; the stand-in 6551's, should a program have turned them
-                AND     #<~ACIA_CMD_TXMASK ; on: its receiver's interrupt off, and its
-                ORA     #ACIA_CMD_RXOFF | ACIA_CMD_TXOFF ; transmitter's (RTS low), the rest kept;
-                STA     ACIA_CMD
-                LDA     ACIA_STATUS    ; then its flag cleared, with nothing to set it again
+@acia:          JSR     RXDEAF         ; the stand-in 6551's: OODOS's receiver interrupt on (off
+                                       ; while the ring is full), its transmitter's off (serial.s)
                 LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video         ; no VIA: $C34E would be the 6551's command
@@ -707,9 +710,13 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 @done:          RTS
 
 ; OODOS's own interrupts off, for leaving it (Apple II mode, function 75):
-; the clocks', and the USB card's (a layout-2 area's).
+; the clocks', the USB card's (a layout-2 area's), and the serial line's
+; receiver (the 6551 isn't reset by /RESET; the monitor's own command, $0B,
+; has it off too). Keeps X and Y.
 CLKOFF:         STZ     USB_IEN
                 STZ     SOUND_IEN      ; and the sound card's (L3's)
+                LDA     #ACIA_CMD_RXOFF
+                TSB     ACIA_CMD
                 LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video
@@ -793,7 +800,7 @@ FT_INFOX:       LDX     PX
 @ret:           LDA     #OOLIB_IFACE
                 LDX     #OOLIB_AREAS
                 RTS
-.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA, error, "L4 has frame and timing, input, sound, and DMA"
+.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA | OA_SERIAL, error, "frame and timing, input, sound, DMA, and the serial line"
 .assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.
@@ -1168,8 +1175,10 @@ FT_COSTSX:      LDX     PX
 ; The warm boot's in place of DEAFEN (input.s's WBQUIET; B5): the DMA
 ; controller's channels 4-7 stopped and every CARD put back (video.s's
 ; DMAWARM, in block 61, through W2 as CALL61 maps it, without a CALL61 entry
-; so that nothing in block 61 moves), then DEAFEN. In RES2, so that nothing
-; in RES moves: WBQUIET's JSR is the same length.
+; so that nothing in block 61 moves), then DEAFEN, then the serial line's
+; ring emptied (serial.s's RXFLUSH: what a sender still streaming sent the
+; program isn't the CCP's). In RES2, so that nothing in RES moves:
+; WBQUIET's JSR is the same length.
 .segment "RES2"
 WBDMA:          LDA     NB_WIN2
                 PHA
@@ -1178,4 +1187,5 @@ WBDMA:          LDA     NB_WIN2
                 JSR     DMAWARM
                 PLA
                 STA     NB_WIN2
-                JMP     DEAFEN
+                JSR     DEAFEN
+                JMP     RXFLUSH

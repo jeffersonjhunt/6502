@@ -1798,5 +1798,5 @@ TEST(the_interface_is_15)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(command(r, 'F', "F"), std::string("0F 0F"));
+    CHECK_EQ(command(r, 'F', "F"), std::string("10 2F"));
 }
