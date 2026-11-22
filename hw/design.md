@@ -1780,6 +1780,9 @@ ports added 2026-10-30, [below](#the-via-and-the-joystick-ports))
   routing and interrupt summary below.
 - The W65C51N was considered and rejected: its stuck transmit flag makes DMA and interrupt-driven transmit
   unreliable.
+- **Under OODOS** (0.15 on) the line's receive is interrupt-driven into a ring a port (COM1's at block 31 `$0D00`,
+  `$0E00` kept for COM2's), on the 6551 stand-in for now; the TL16C552A's back end (its FIFO, RTS/CTS) comes with
+  this card's own plan ([oodos.md, "The serial receive buffer"](oodos.md#the-serial-receive-buffer)).
 
 **Serial card registers (decided)** (`$C300–$C37F`). The 552A's own registers are mapped directly in PC order, so
 16550 and LPT driver code needs only its base addresses changed.

@@ -1136,6 +1136,12 @@ and more in L5:
     The function 15 entry's Cycles say the look may read the Disk II on O: and P:. Owner: "from OODOS 0.6; before
     it, ..." is the books' marker for a behaviour change; F_SIZE's user (`SCB_USER`, not `EXTUSER`) is on the
     backlog. Block 60 1,426 bytes free (debug 1,410): the look 67 bytes in all.
+- **Interface 16: the serial line (OODOS 0.15, 2026-11-21; [oodos.md, "The serial receive
+  buffer"](oodos.md#the-serial-receive-buffer)).** OOLIB's sixth area, `OA_SERIAL` (`$20`), FT_INFO's X `$2F`:
+  OODOS's interrupt keeps the serial line's bytes in a 255-byte ring that functions 3 and 7 read; the event area's
+  +13, `EV_RXCNT`, counts COM1's arrivals modulo 256 (0 at FT_OPEN, every layout; +14, `EV_RXCNT2`, kept for COM2);
+  function 85, `O_SERIAL`: `SR_INFO`, `SR_STATUS`, `SR_FLUSH`. No queue event, and no linked-library routine (a
+  program calls 85 as it calls 80-83). Measured: 247 cycles a byte (277 with an area), the tick's 162 unchanged.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.

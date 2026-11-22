@@ -61,6 +61,9 @@
 .import QEV, EVK, EVC, EVV             ; input.s's
 .export F_SOUND, R61, SIENSET, SCLAIM, SIEN, C2ON
 .import VBWORK, VBQUIET                ; video.s's
+.ifdef OOLIB_DEBUG
+.import HKON, HOOKCOST                 ; irq.s's (a debug build)
+.endif
 
 CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most with the CPU held
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
@@ -107,6 +110,10 @@ SVOLB:          .res    1
 R61:            JMP     (R61TAB,X)
 R61TAB:         .word   SNDIRQ, SFIELDS, SNDQUIET, SNDINIT
                 .word   VBWORK, VBQUIET ; video.s's (L4)
+.ifdef OOLIB_DEBUG
+                .word   HKON, HOOKCOST ; irq.s's hook counters (a debug build)
+.assert R61_HKON = 12 && R61_HKCOST = 14, error, "R61TAB's debug entries are sys.inc's R61_HKON, R61_HKCOST"
+.endif
 .assert R61_IRQ = 0 && R61_FRAME = 2 && R61_QUIET = 4 && R61_INIT = 6, error, "R61TAB is in sys.inc's R61_* order"
 .assert R61_VB = 8 && R61_WARM = 10, error, "R61TAB's video entries are sys.inc's R61_VB, R61_WARM"
 

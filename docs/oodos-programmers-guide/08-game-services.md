@@ -26,10 +26,10 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
-and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
-now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
+and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound), `OA_DMA` (`$08`, 83, DMA and loading)
+and `OA_SERIAL` (`$20`, 85, the serial line, since interface 16) now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
 function it doesn't have, A = X = `$FF`, so a version of `$FF` means none. A program that needs what isn't there
 says so and ends, rather than calling it. [Function 72](07-function-reference.md#bdos-72) says OODOS's own version,
 as before.
@@ -114,7 +114,9 @@ area:   .res    EV_LEN
 | +4–7 | `EV_MS` | the millisecond counter |
 | +8–11 | `EV_FRAMES` | the frame counter |
 | +12 | `EV_VBGO` | the vertical-blank copies' go bits (L4, [below](#the-vertical-blank-slots)), 0 at the open |
-| +13–15 | | reserved, 0 |
+| +13 | `EV_RXCNT` | the serial line's bytes received (COM1's) while the area is open, modulo 256, 0 at the open (interface 16, [below](#the-serial-line)) |
+| +14 | `EV_RXCNT2` | kept for a second port, 0 |
+| +15 | | reserved, 0 |
 
 - **The area must** be at least 16 bytes (`EV_LEN`; up to 256, given as 0), in one of W0–W2's 16 KB windows
   without crossing into the next, and in the program's own RAM: its blocks 0–2, or a block it allocated in banks 1–5 and mapped. OODOS writes
@@ -929,9 +931,33 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 `pb`, `pbcard` and `physof` have none. The build checks, as `oolib.lib` is made (`libzp.py check`), that no other
 module has zero page of its own and that each `zpNAME` follows its `NAME`.
 
+## The serial line
+
+Since interface version 16 (OODOS 0.15) the serial line's input is buffered: OODOS's interrupt keeps up to 255
+received bytes in a ring, and functions 3 and 7 read it ([chapter 4](04-console-devices-scb.md#the-serial-lines-receive-buffer)).
+`FT_INFO`'s X has `OA_SERIAL` (`$20`) then. Two things serve a program that waits on the line:
+
+- **The event area's +13, `EV_RXCNT`:** the bytes the ring has taken while the area is open, modulo 256, 0 at
+  `FT_OPEN`, in every layout. It counts arrivals, not bytes waiting, so it stays right whoever reads them. A game or
+  a terminal tests it with one load and a compare against its last copy; a change means something came, with no
+  BDOS call. +14 (`EV_RXCNT2`) is kept for a second port, 0.
+- **[Function 85](07-function-reference.md#bdos-85), `O_SERIAL`:** `SR_INFO` (the ports, the ring's size),
+  `SR_STATUS` (the bytes waiting, the room left, the overruns counted, whether the receiver is stopped) and
+  `SR_FLUSH` (the ring emptied).
+
+```
+        lda     area + EV_RXCNT
+        cmp     lastrx
+        beq     :+              ; nothing new
+        sta     lastrx
+        jsr     takeall         ; function 7 and 3 until 7 says 0
+:
+```
+
 ## When the program ends
 
-The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, and every interrupt enable the
+The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, the serial line's receive ring
+emptied, and every interrupt enable the
 program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). For the input it turns the
 USB card's interrupt off, puts the mouse back in relative mode with the limits a reset gives (639, 479), the LEDs
 off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 1 to 4 in order: what the cold

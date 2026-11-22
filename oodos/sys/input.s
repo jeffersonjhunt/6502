@@ -52,8 +52,9 @@
 .import RETFF, PGET, PPUT
 .import DEAFEN, WBDMA, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .ifdef OOLIB_DEBUG
-.import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
+.import FHMAX, THMAX                   ; irq.s's (a debug build)
 .endif
+.import SERID6                         ; serial.s's
 .import CALL61, SIEN, C2ON          ; irq.s's, sound.s's
 .export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT, QEV, EVK, EVC, EVV, MXS, MYS
 
@@ -84,12 +85,8 @@ IRQY:           .res    1              ; IRQOTH's: IRQH's bits that aren't stray
 
 ; irq.s's CALL62: routine X (sys.inc's R62_*).
 R62:            JMP     (R62TAB,X)
-R62TAB:         .word   DEAFEN, IRQOTH, L2TICK
-.ifdef OOLIB_DEBUG
-                .word   HKON, HOOKCOST ; irq.s's hook counters (a debug build)
-.assert R62_HKON = 6 && R62_HKCOST = 8, error, "R62TAB's debug entries are sys.inc's R62_HKON, R62_HKCOST"
-.endif
-.assert R62_DEAF = 0 && R62_OTHER = 2 && R62_TICK = 4, error, "R62TAB is in sys.inc's R62_* order"
+R62TAB:         .word   SERID6, IRQOTH, L2TICK ; (SERID6: serial.s's)
+.assert R62_ID6 = 0 && R62_OTHER = 2 && R62_TICK = 4, error, "R62TAB is in sys.inc's R62_* order"
 
 BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
 

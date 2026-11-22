@@ -108,6 +108,7 @@
 #define O_INPUT          81
 #define O_SOUND          82
 #define O_DMA            83
+#define O_SERIAL         85
 
 /* END: written from oodos.inc. */
 
