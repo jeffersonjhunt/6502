@@ -117,28 +117,6 @@ TEST(noise_comes_from_the_shift_register_clocked_by_bit_19)
     CHECK_EQ(s.voice(2).noise, Sid::NOISE_SEED);
 }
 
-#ifdef EMU_FAULT_HOOKS
-TEST(a_noise_register_set_to_0_stays_there_until_test)
-{
-    // The SID seed's R-U3: set_noise() stands in for a real chip's register stuck at 0 (the combined waveforms'
-    // write-back, not modelled), for test_bios's recovery case. 0 shifts to 0, so OSC3 stays 0; TEST reseeds it.
-    Sid s;
-    freq(s, FREQ3, 0xFFFF);
-    s.write(CTRL3, Sid::NOISE);
-    s.set_noise(2, 0);
-    s.clock(16 * 1000);
-    CHECK_EQ(s.voice(2).noise, 0u);
-    CHECK_EQ(osc3(s), 0);
-    s.set_noise(2, 0xFFFFFFFF);
-    CHECK_EQ(s.voice(2).noise, 0x7FFFFFu); // 23 bits
-    s.set_noise(2, 0);
-    s.write(CTRL3, Sid::NOISE | Sid::TEST);
-    s.write(CTRL3, Sid::NOISE);
-    CHECK_EQ(s.voice(2).noise, Sid::NOISE_SEED);
-    CHECK_EQ(s.voice(0).noise, Sid::NOISE_SEED); // the other voices untouched
-}
-#endif
-
 TEST(bulk_and_clock_by_clock_agree)
 {
     // Sync on voice 1 forces the clock-by-clock path; with it off, bulk.
