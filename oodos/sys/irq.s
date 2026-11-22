@@ -144,9 +144,8 @@ DISPATCH:       LDA     NB_WIN0
                 STA     IW0
                 PHY
                 LDA     NB_WIN1H       ; and its WIN1H (B7), 0 while the dispatcher runs: cleared
-                PHA                    ; only when it isn't 0, and never on a revision 1 bridge
-                BEQ     @w1h           ; (no register: $FF)
-                BMI     @w1h
+                PHA                    ; only when it isn't 0
+                BEQ     @w1h
                 STZ     NB_WIN1H
 @w1h:           LDA     NB_IRQL
                 CMP     VIAL
@@ -171,7 +170,6 @@ DISPATCH:       LDA     NB_WIN0
                 BNE     @some
                 PLA                    ; no card interrupting: nothing to answer; WIN1H back
                 BEQ     @none
-                BMI     @none
                 STA     NB_WIN1H
 @none:          PLY
                 PLA
@@ -203,7 +201,6 @@ DISPATCH:       LDA     NB_WIN0
                 JSR     CALL62
 @out:           PLA                    ; the interrupted WIN1H, as it was read
                 BEQ     @back
-                BMI     @back
                 STA     NB_WIN1H
 @back:          PLY
                 PLA
@@ -389,8 +386,7 @@ HKBACK:         LDA     #SYS_BLOCK
 .endif
                 LDA     NB_WIN1H       ; WIN1H 0 again (B7), whatever the hook left there (a
                 BEQ     @w1h           ; frame hook may map W1 itself): the register's, not
-                BMI     @w1h           ; the record's; never written on a revision 1 bridge
-                STZ     NB_WIN1H
+                STZ     NB_WIN1H       ; the record's
 @w1h:           PLA
                 STA     NB_WIN3
                 PLA

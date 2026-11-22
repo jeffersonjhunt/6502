@@ -109,7 +109,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
+.export NB3CHK, BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .export RAWF, DRVAPL, MNTGEN           ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
@@ -2191,6 +2191,51 @@ BIN2BCD:        LDY     #0             ; A (0-99): tens in Y
 
 ; ---------------------------------------------------------------------------
 ; Cold boot's part (block 62's COLD calls these)
+
+ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen and the 6551, A and X kept
+
+; NB3CHK (OODOS 0.16; hw/future/north-bridge-rev3.md, "Revision 3 required"): the cold boot's first act, before
+; BINIT turns anything on. OODOS's tick and counter are north bridge revision 3's, so on any other bridge it
+; doesn't boot: it says so on the ROM BIOS's console and the serial line, through the ROM's ECHO ($C80F), and goes
+; to the ROM's BREAK, with no interrupt of OODOS's on and nothing on the card written. It runs here in W2 (block 61),
+; so it can put W3 and VEC on the ROM's copy (block 63) and go on; W0 goes back to block 0 first, the BIOS's zero
+; page (ECHO's $E0-$E7, its cursor) and stack. On $D3 it returns at once, A changed.
+NB3CHK:         LDA     NB_ID
+                CMP     #NB_ID_V3
+                BNE     @old
+                RTS
+@old:           STZ     NB_WIN0        ; the BIOS's zero page and stack: OODOS's are left behind
+                LDX     #$FF
+                TXS
+                LDA     #NB_RO | ROM_BLOCK
+                STA     NB_WIN3
+                STA     NB_VEC
+                LDX     #0
+@say:           LDA     NB3MSG,X
+                BEQ     @id
+                JSR     ROM_ECHO
+                INX
+                BRA     @say
+@id:            LDA     NB_ID          ; the ID it read, $Dn
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                JSR     @hex
+                LDA     NB_ID
+                AND     #$0F
+                JSR     @hex
+                LDA     #'.'
+                JSR     ROM_ECHO
+                LDA     #$0D
+                JSR     ROM_ECHO
+                JMP     ($FFFA)        ; block 63's NMI vector: the ROM's BREAK, to the monitor
+@hex:           CMP     #10
+                BCC     @dig
+                ADC     #'A' - '0' - 10 - 1
+@dig:           ADC     #'0'
+                JMP     ROM_ECHO
+NB3MSG:         .byte   $0D, .sprintf("OODOS %d.%d NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $", OODOS_MAJOR, OODOS_MINOR), 0
 
 ; The devices, the drives, the banks.
 BINIT:          LDX     #2 * NTB - 1   ; every track buffer empty (6d's fourth review: a warm

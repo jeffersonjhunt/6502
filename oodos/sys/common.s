@@ -385,10 +385,8 @@ FCRET:          PHP                    ; the target's return: the old block back
 NMI:            SEI
                 LDA     DISK2_Q7OFF
                 LDA     DISK2_MOTOROFF
-                LDA     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: the program's
-                BMI     @w0            ; stack may be nowhere (a $D1 bridge reads $FF: nothing written)
-                STZ     NB_WIN0H
-@w0:            LDA     #SYS_BLOCK
+                STZ     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: the program's stack may be nowhere
+                LDA     #SYS_BLOCK
                 STA     NB_WIN0
                 JSR     WINH0          ; (B7) on the system's stack, for an older ROM's BREAK too
                 LDA     D2WRIT
@@ -439,18 +437,14 @@ APPLEEND:
 
 ; WIN0H-WIN3H and VECH to 0, and MAP written whole: AP8 set (bank 8 the
 ; video card's aperture, as old programs know it) with a revision 2 video
-; card, clear (bank 8 RAM) without one; on a north bridge of revision 2 or
-; more (NB_ID $D2+), since on revision 1 those offsets aren't registers (B7; hw/
-; design.md, "The video aperture moved out of RAM"). For ROMAPPLE, and for
+; card, clear (bank 8 RAM) without one (B7; hw/design.md, "The video aperture
+; moved out of RAM"): every bridge OODOS 0.16 runs on has them (NB3CHK). For ROMAPPLE, and for
 ; WARM and NMI once W0 is on the system block (they clear WIN0H inline
 ; first, since a JSR through a WIN0H left set, or a read-only W0, would lose
 ; its return address: diag.inc's NBSET is inline for the same reason).
 ; Uses A and X. After ROMAPPLE, so that
 ; FARCALL keeps its cycles (no branch of its across a page).
-WINH0:          LDA     NB_ID
-                CMP     #NB_ID_V2
-                BCC     @done
-                STZ     NB_WIN0H
+WINH0:          STZ     NB_WIN0H
                 STZ     NB_WIN1H
                 STZ     NB_WIN2H
                 STZ     NB_WIN3H
@@ -461,7 +455,7 @@ WINH0:          LDA     NB_ID
                 BNE     @map
                 INX                    ; NB_MAP_AP8
 @map:           STX     NB_MAP
-@done:          RTS
+                RTS
 .assert NB_MAP_AP8 = 1, error, "WINH0's INX sets AP8"
 
 ; The ROM's entries that take a two-byte token, for function 75: A = 2 the

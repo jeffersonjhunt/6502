@@ -18,10 +18,10 @@
 ; unit 1 ($000400, copied from flash block 30, as VINIT does), the text at
 ; unit 8 ($002000), a character and an attribute a cell. Aperture slot 0
 ; always shows bank 0 (CRTINIT sets it, the warm boot puts it back, and no
-; program writes SLOT0), so its window is the console's: on a revision 2
-; north bridge or later (NB_ID $D2 or more; B7) the aperture's own, $E00000-$E03FFF, which
-; W1 reaches with WIN1H $0E and block 0, and on revision 1 bank 8's, block 32
-; at $80000-$83FFF (CRTINIT chooses: CVH, CVB, and CVA for DMA). The BIOS
+; program writes SLOT0), so its window is the console's: the aperture's own,
+; $E00000-$E03FFF, which W1 reaches with WIN1H $0E and block 0 (every bridge
+; OODOS 0.16 runs on is revision 3, with WINnH: CVH, CVB, and CVA for DMA,
+; set by CRTINIT). The BIOS
 ; maps W1 there for the call (VMAP0: WIN1H, then WIN1) and back on the
 ; BDOS's block 60 with WIN1H 0 before it returns (VUNMAP); scrolling and
 ; erasing are DMA copies within the window, as video.s's.
@@ -36,7 +36,7 @@
 .include "vmem.inc"
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
-.export CRTINIT, CRTOUT, CRTREGS, CVA, NB2
+.export CRTINIT, CRTOUT, CRTREGS, CVA
 .import CLOCKS                         ; irq.s's
 .exportzp CESC                         ; WARM resets it
 
@@ -63,10 +63,9 @@ CUNDER:         .res    1              ; the attribute under the cursor
 CP:             .res    2              ; a cell, in W1
 
 .segment "SYSBSS"
-CVH:            .res    1              ; slot 0's window for W1: WIN1H ($0E; 0 on a revision 1 bridge),
-CVB:            .res    1              ;   the block (0; 32), and the window's physical bank for DMA
-CVA:            .res    1              ;   ($E0; $08): CRTINIT's, card or no card (DM_VCOPY's too)
-NB2:            .res    1              ; bit 7 ($FF): revision 2 or more (NB_ID $D2+); 0 not
+CVH:            .res    1              ; slot 0's window for W1: WIN1H ($0E),
+CVB:            .res    1              ;   the block (0), and the window's physical bank for DMA
+CVA:            .res    1              ;   ($E0): CRTINIT's, card or no card (DM_VCOPY's too)
 
 .segment "BIOS"
 
@@ -315,22 +314,13 @@ ROWHI:
 ; The screen, from nothing: the font (flash block 30, a page at a time through
 ; SECBUF, since a window can't show both), the palette, a clear screen and the
 ; card's registers for it; and the USB keyboard's Pause/Break on /NMI. First,
-; card or no card, where slot 0's window is (CVH, CVB, CVA, NB2: B7).
+; card or no card, where slot 0's window is (CVH, CVB, CVA: B7).
 CRTINIT:        STZ     CVOK
                 STZ     CESC
-                STZ     NB2
-                LDA     NB_ID
-                CMP     #NB_ID_V2
-                BCC     @v1
-                DEC     NB2            ; $FF: bit 7
                 LDA     #VIDEO_APER_H
                 LDX     #0
                 LDY     #^VIDEO_APERTURE2
-                BRA     @at
-@v1:            LDA     #0
-                LDX     #VBLOCK
-                LDY     #^VM_APERTURE
-@at:            STA     CVH
+                STA     CVH
                 STX     CVB
                 STY     CVA
                 LDA     VIDEO_ID

@@ -3225,25 +3225,26 @@ namespace
             r.poke(0xE04000, B_CARD);
     }
 
-    /// backplane.machine with a revision 1 north bridge (no WINnH, VECH or MAP; NB_ID $D1), or unchanged if it
-    /// has no northbridge line (the test's ID check then fails).
-    std::string revision_1_machine()
+    /// backplane.machine with its north bridge at revision=`n` (unchanged if it has no northbridge line: the
+    /// test's ID check then fails).
+    std::string revision_machine(unsigned n)
     {
         std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
         const std::string line = "northbridge  backplane";
         const size_t at = text.find(line);
         if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=1");
+            text.insert(at + line.size(), " revision=" + std::to_string(n));
         return text;
     }
 
-    /// Every CPU write to $C6A0-$C6A5 (WIN0H-MAP), counted.
-    struct NewRegWrites : CycleObserver
+    /// Every CPU write to the SD card's CMD or DATA ($C383, $C38C), counted: a command or a sector's byte. (The
+    /// ROM's Break, QUIET, writes IEN and CTRL, which change nothing on the card.)
+    struct SdWrites : CycleObserver
     {
         unsigned writes = 0;
         void on_cycle(const BusCycle &c) override
         {
-            if (!c.dma && c.write && c.addr >= NB_WINH && c.addr <= NB_MAPREG)
+            if (!c.dma && c.write && (c.addr == 0xC380 + SdCard::CMD || c.addr == 0xC380 + SdCard::DATA))
                 ++writes;
         }
     };
@@ -3371,15 +3372,48 @@ TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
     }
 }
 
+TEST(oodos_refuses_an_older_bridge)
+{
+    // O7 (hw/future/north-bridge-rev3.md, "Revision 3 required"). On a revision 1 or 2 bridge OODOS's cold boot reads
+    // NB_ID first and stops: the line naming the bridge it found, on the ROM's console and the serial line, then the
+    // monitor's prompt. Nothing of OODOS's was turned on: the VIA's IER, TBCTL (none there: $FF), the video card's
+    // IEN and the 6551's command register are as the ROM BIOS left them, and no CPU cycle wrote the SD card. Must
+    // fail with the check accepting $D2 and up, or with the check after BINIT (the card's IEN written first).
+    const std::string want = "OODOS 0.15 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D"; // (the version: N20)
+    for (const unsigned rev : {1u, 2u})
+    {
+        std::printf("  revision %u\n", rev);
+        Rig r(sd_image("oodos.sparse"), {}, revision_machine(rev));
+        REQUIRE(r.ok);
+        REQUIRE(r.bridge().id() == 0xD0 + rev);
+        REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+        Decoder &bus = r.machine->bus();
+        const uint8_t ier = bus.peek(0xC34E), tbctl = bus.peek(0xC6A8), vien = bus.peek(0xC484),
+                      acia = bus.peek(0xC302);
+        SdWrites sd;
+        r.cpu->set_observer(&sd);
+        const size_t from = r.out.size();
+        CHECK(!r.boot()); // no A>
+        r.cpu->set_observer(nullptr);
+        const std::string o = r.out.substr(from);
+        const size_t at = o.find(want + std::to_string(rev) + ".");
+        if (at == std::string::npos)
+            std::printf("  the serial line: %s\n", ccp::vis(o).c_str());
+        CHECK(at != std::string::npos);
+        CHECK(at != std::string::npos && o.find("\\", at) != std::string::npos); // the monitor's prompt after it
+        CHECK_EQ(bus.peek(0xC34E), ier);
+        CHECK_EQ(bus.peek(0xC6A8), tbctl);
+        CHECK_EQ(bus.peek(0xC484), vien);
+        CHECK_EQ(bus.peek(0xC302), acia);
+        CHECK_EQ(sd.writes, 0u);
+    }
+}
+
 TEST(w1htest_runs_on_a_revision_3_bridge)
 {
     // N1, the sweep: on a $D3 bridge W1HTEST's W1HON writes WIN1H, as on $D2 (its NB_ID test is "revision 2 or
     // more"), and OODOS's stub keeps it across C_WRITESTR: O1 again on revision 3.
-    std::string text = revision_1_machine();
-    const size_t at = text.find(" revision=1");
-    REQUIRE(at != std::string::npos);
-    text.replace(at, 11, " revision=3");
-    Rig r(sd_image("oodos.sparse"), {}, text);
+    Rig r(sd_image("oodos.sparse"), {}, revision_machine(3));
     REQUIRE(r.ok);
     CHECK_EQ(r.bridge().id(), 0xD3);
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
@@ -3391,31 +3425,6 @@ TEST(w1htest_runs_on_a_revision_3_bridge)
     CHECK_EQ(field(o, "B0"), hex(B_CARD, 2));
     CHECK_EQ(field(o, "B1"), hex(B_CARD, 2));
     CHECK_EQ(r.bridge().winh(1), 0);
-}
-
-TEST(on_a_revision_1_bridge_oodos_never_writes_c6a0_to_c6a5)
-{
-    // O7. A $D1 bridge has no WINnH, VECH or MAP: they read $FF. OODOS boots, prints, takes ticks and runs a tick
-    // hook and a frame hook (W1HTEST's H, whose W1HON writes nothing there), and no CPU cycle writes $C6A0-$C6A5:
-    // the stub keeps a $FF read as 0, and the dispatcher and HKBACK leave a $FF alone.
-    Rig r(sd_image("oodos.sparse"), {}, revision_1_machine());
-    REQUIRE(r.ok);
-    CHECK_EQ(r.bridge().id(), 0xD1);
-    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
-    NewRegWrites seen;
-    r.cpu->set_observer(&seen);
-    REQUIRE(r.boot());
-    mark_w1(r, false);
-    const std::string s = r.go("w1htest.com", " S");
-    const std::string h = r.go("w1htest.com", " H", ms(8000));
-    r.cpu->set_observer(nullptr);
-    CHECK_EQ(seen.writes, 0u);
-    // It ran: the stub (WIN1H reads $FF; W1 RAM block 1 throughout), the ticks and frames, and both hooks.
-    CHECK(s.find("\r\nHELLO\r\n") != std::string::npos);
-    check_fields(s, {{"W1H", "FF"}, {"B0", "5B"}, {"B1", "5B"}});
-    check_fields(h, {{"TB", "5B"}, {"TH", "FF"}, {"FB", "5B"}, {"FH", "FF"}, {"B1", "5B"}});
-    CHECK(hexval(field(h, "TN")) >= 150); // about 200 ticks in FT_DELAY's 200 ms, and 12 frames
-    CHECK(hexval(field(h, "FN")) >= 8);
 }
 
 TEST(an_irq_no_card_asserts_puts_the_interrupted_win1h_back)

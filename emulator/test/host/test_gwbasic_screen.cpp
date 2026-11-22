@@ -1604,32 +1604,8 @@ TEST(a_screen_run_must_lie_inside_the_page)
     CHECK_EQ(r.phys(0x84000), 0x3C);
 }
 
-// D8: on a revision 1 north bridge ($D1, test_oodos_video's revision_1_bridge()), where GX_BANK8 refuses and bank 8
-// isn't RAM, PEEK and POKE of the page work, and BSAVE and BLOAD of it are Illegal function call (answer 6), with no
-// file written. Guards, on such a machine, a BSAVE that writes the console's card memory (aperture slot 0) to a file,
-// or a BLOAD refused partway. Must fail: DSSRUN's DSB8 test left out.
-TEST(a_revision_1_bridge_has_peek_and_poke_but_not_bload)
-{
-    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-    const std::string bridge = "northbridge  backplane";
-    const size_t at = text.find(bridge);
-    REQUIRE(at != std::string::npos);
-    text.insert(at + bridge.size(), " revision=1");
-    CcpRig r({}, text);
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    enter(r, "KEY OFF:CLS:DEF SEG=&H8000:POKE 160,65:PRINT PEEK(160)", ms(600));
-    CHECK_EQ(line(r, 0), std::string(" 65"));
-    enter(r, "CLS:BSAVE \"M:S\",0,100", ms(1500));
-    CHECK_EQ(line(r, 0), std::string("Illegal function call"));
-    CHECK(m_data(r, 0, "S       BAS").empty());
-    enter(r, "CLS:DEF SEG:BSAVE \"M:N\",&H1000,100", ms(1500));
-    CHECK(!m_data(r, 0, "N       BAS").empty());
-    enter(r, "CLS:PRINT \"KEPT\":DEF SEG=&H8000:BLOAD \"M:N\",0", ms(1500));
-    CHECK_EQ(line(r, 0), std::string("KEPT"));
-    CHECK_EQ(line(r, 1), std::string("Illegal function call"));
-}
-
+// (D8, the revision 1 bridge's PEEK, POKE, BSAVE and BLOAD, was retired with N8: OODOS 0.16 refuses that bridge.
+// GW-BASIC's DSB8 test of GX_BANK8 stays, for a ROM BIOS before 0.17.)
 /// The cycles one RUN of `lines` spends in the home block's BRUN (BLOAD's and BSAVE's run check: P5's DSRUN by a far
 /// call until 7e2, the home block's DSRUNH since) and in BLOAD's tail after BLDRUN (P5's DSPUT, DSPUTH since 7e2),
 /// each counted from its first instruction to its return, with the home block in W3 (NB_WIN3 as at RUN), less the

@@ -1161,15 +1161,6 @@ namespace
         for (size_t i = 0; i < b.size(); ++i)
             r.machine->bus().write_bus(at + static_cast<uint32_t>(i), b[i]);
     }
-    std::string revision_1_bridge()
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=1");
-        return text;
-    }
     void romver(Rig &r, uint8_t major, uint8_t minor)
     {
         r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), major);
@@ -1219,19 +1210,11 @@ TEST(dm_bank8_with_no_revision_2_video_card_succeeds_with_no_window)
     CHECK_EQ(r.bridge().map(), 0);
 }
 
-TEST(dm_bank8_is_refused_on_a_revision_1_bridge_and_under_a_rom_before_0_17)
+TEST(dm_bank8_is_refused_under_a_rom_before_0_17)
 {
-    // D3. A revision 1 north bridge has no MAP: $FF $FF, the block untouched. A ROM BIOS older than 0.17 (OODOS's
-    // record of it, cold.s's ROMVER, made 0.16) would draw the monitor's screen through bank 8 on a Break: $FF
-    // $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF (not found) is refused.
-    {
-        CcpRig r({}, revision_1_bridge());
-        REQUIRE(r.ok);
-        REQUIRE(r.bridge().id() == 0xD1);
-        open(r, "X");
-        CHECK_EQ(bank8(r), std::string("FF FF"));
-        CHECK_EQ(bank8_block(r), std::string("EEEE"));
-    }
+    // D3. A ROM BIOS older than 0.17 (OODOS's record of it, cold.s's ROMVER, made 0.16) would draw the monitor's
+    // screen through bank 8 on a Break: $FF $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF
+    // (not found) is refused. (The revision 1 bridge's half went with N8: OODOS 0.16 refuses that bridge, O7.)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");

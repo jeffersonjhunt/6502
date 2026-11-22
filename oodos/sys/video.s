@@ -78,7 +78,7 @@
 .importzp EVP                          ; irq.s's
 .import EVON, EVBLK, CLOCKS
 .import MXS, MYS                       ; input.s's
-.import CRTREGS, CVA, NB2              ; crt.s's
+.import CRTREGS, CVA                   ; crt.s's
 .importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for DM_BANK8
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
 .export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM, BANK8
@@ -623,13 +623,11 @@ DM_CONSOLEX:    JSR     CRTREGS
 ; WINH0 sets AP8 again where there is a revision 2 video card. +1 and +2
 ; get slot 1's window for W1: WIN1H $0E and block 1, or 0 and 0 with no
 ; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
-; Refused, nothing changed, on a revision 1 north bridge (crt.s's NB2: no
-; MAP) and under a ROM BIOS older than 0.17 (cold.s's ROMVER, as bdos.s's
-; NEWROM compares it; $FF $FF not found), whose Break would draw the
-; monitor's screen through bank 8.
+; Refused, nothing changed, under a ROM BIOS older than 0.17 (cold.s's
+; ROMVER, as bdos.s's NEWROM compares it; $FF $FF not found), whose Break
+; would draw the monitor's screen through bank 8. (Every bridge OODOS 0.16
+; runs on has MAP: NB3CHK.)
 DM_BANK8X:      BLOCK
-                BIT     NB2
-                BPL     @no            ; revision 1: no MAP
                 LDA     ROMVER
                 CMP     #$FF
                 BEQ     @no            ; not found
