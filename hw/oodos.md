@@ -6251,8 +6251,10 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
 - **Tests that must fail first,** each broken once on purpose and caught:
   - a byte of `$FOTB` changed (the table check);
   - the gate's budget lowered under the build's size (the size gate);
-  - the loader's copy of common memory skipped (the first far call's interrupt, or its BDOS call, goes astray: a
-    test with a tick during a far call fails);
+  - *(retired at OODOS 0.16, nb-rev3's N17: the loader makes no copy of common memory, the north bridge's hole
+    shows it in every block. Its guard is OODOS's: NB3CHK's write of HOLE left out fails `the_hole_is_on_at_the_prompt`
+    and `the_loader_loads_the_blocks_and_gw_basic_says_ok` both.)* the loader's copy of common memory skipped (the
+    first far call's interrupt, or its BDOS call, goes astray: a test with a tick during a far call fails);
   - `GX_W1BACK` left out after a PSET (a test whose variables sit in `$4000–$7FFF` reads them wrong);
   - the loader's page table (`PAGBLK`) off by one as it patches the far call sites (the wrong block's code would
     run): GW-BASIC must not start that way. Decided 2026-11-13 with the patched sites, in place of the

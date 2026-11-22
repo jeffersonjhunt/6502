@@ -5,7 +5,8 @@
 ; Carry clear, or set and A: UX_STATE (UISTATE not on a page: checked first),
 ; UX_BUSY (loaded already), UX_LOAD (no file, a short read, not an OOUI.BNK),
 ; UX_VERSION (a file older than this program's interface, or one needing
-; more UISTATE or imports than it gives), UX_MEMORY (no block free), UX_GX
+; more UISTATE or imports than it gives, or an OODOS before interface 17,
+; whose blocks would have no common memory: checked before a block is taken), UX_MEMORY (no block free), UX_GX
 ; (OOLIB refused a block in W1: GX_INIT not called first, or it refused). On
 ; a refusal after the first block is taken, every block taken is freed
 ; (function 57), the W1 map read again (GX_REMAP) and block 1 put back in
@@ -14,10 +15,9 @@
 ; How (mkbank.py's file): record 0, the header, by DM_LOAD into UISTATE's
 ; first 128 bytes (physical, function 73: the DMA address and segment are
 ; never changed); a block for each of the file's by function 55; each image
-; by DM_LOAD to its block's $0800 on; then each block in W1 (GX_BLOCK), the
-; top 2 KB of common memory copied to its top 2 KB ($7800-$7FFF) for
-; FARCALL, and its fixups applied, a record at a time into UISTATE's second
-; 128 bytes; then block 1 back (GX_W1BACK), the file closed, UISTATE zeroed
+; by DM_LOAD to its block's $0800 on; then each block in W1 (GX_BLOCK) and
+; its fixups applied, a record at a time into UISTATE's second 128 bytes
+; (no copy of common memory: OODOS 0.16's hole shows it in every block); then block 1 back (GX_W1BACK), the file closed, UISTATE zeroed
 ; (a program's BSS isn't cleared, and OOUI's state starts at 0: round 1's D2)
 ; and the stubs filled from the header's entry table. Everything it uses is
 ; in UISTATE or below, outside $4000-$7FFF.
@@ -231,7 +231,15 @@ ui_load:
         bcs     @far
 @old:   lda     #UX_VERSION
         jmp     CLOSE
-@far:   jsr     HEADOK                  ; its lengths and entries in range (review C2)
+@far:   lda     #FT_INFO                ; OODOS's interface 17 or more: the common hole
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        cmp     #$FF                    ; no function 80
+        beq     @old
+        cmp     #17
+        bcc     @old
+        jsr     HEADOK                  ; its lengths and entries in range (review C2)
         bcc     @hok
         jmp     @short
 @hok:   lda     #<lver                  ; FARCALL's address (function 72), import 0
@@ -399,21 +407,12 @@ IMAGE:  lda     lb                      ; HDR + 10 + 8 x lb: its image's record 
 @w1:    ldy     lb
         lda     lblks,y
         jsr     GX_BLOCK
-        bcc     @common
+        bcc     @fixups
         lda     #UX_GX
         sta     lerr
         sec
         rts
-@common:
-        ldx     #0                      ; $F800-$FFFF to $7800-$7FFF, 256 bytes x 8
-@c:
-.repeat 8, i
-        lda     $F800 + i * $100,x
-        sta     $7800 + i * $100,x
-.endrepeat
-        inx
-        bne     @c
-        lda     lb                      ; the fixups: their first record and count
+@fixups: lda    lb                      ; the fixups: their first record and count
         asl     a
         asl     a
         asl     a

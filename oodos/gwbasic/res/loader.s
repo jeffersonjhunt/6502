@@ -6,8 +6,9 @@
 ;
 ;   0. The console's output state cleared (PTRFIL, TTYPOS, LPTPOS: what
 ;      the previous program left in zero page could send the messages to
-;      LST:), and function 80's FT_INFO asked for OA_DMA: an OODOS without
-;      function 83 is refused with its own message.
+;      LST:), and function 80's FT_INFO asked for interface 17 or more and
+;      OA_DMA: an OODOS before 0.16 (no common hole: a far-called block would
+;      have no common memory) or without function 83 is refused, MOLD.
 ;   1. FARCALL's address, from function 72.
 ;   2. GWBASIC.OVL opened on the drive GWBASIC.COM came from (the base page's
 ;      $0250), in the current user, and its header record read and checked:
@@ -16,13 +17,12 @@
 ;      records the length's, rounded up to a record (96 at most).
 ;   3. A block allocated for each of its blocks (function 55: anywhere in
 ;      banks 1-5; the warm boot frees them, as it frees any).
-;   4. Common memory, $F800-$FFFF, copied by the CPU to a buffer once.
+;   4. (Nothing: common memory, $F800-$FFFF, is the north bridge's hole
+;      under OODOS 0.16, the same whatever block W3 maps, so no block needs
+;      a copy: interface 17.)
 ;   5. Each block's image loaded into a buffer by function 83's DM_LOAD, its
 ;      far call sites patched (FARCALL's address, and each page's block),
-;      and the image put at the block's $0800 ($C800 in W3) and common memory
-;      at its $3800 ($F800) by DM_COPY. So GW-BASIC copies common memory into
-;      its own blocks, as OOUI's ui_load does, and OODOS is unchanged
-;      (question 6, decided 2026-11-13).
+;      and the image put at the block's $0800 ($C800 in W3) by DM_COPY.
 ;   6. The resident core's own far call sites patched.
 ;
 ; Nothing the file says is used unchecked (a damaged or hostile GWBASIC.OVL
@@ -45,8 +45,7 @@
 
 LBUF            = __FARFIX_RUN__ + __FARFIX_SIZE__ ; the header record, then the buffers
 LHDR            = (LBUF + $FF) & $FF00 ; the OVL's header record (128 bytes)
-LCOM            = LHDR + $100          ; common memory's copy, 2 KB
-LIMG            = LCOM + $800          ; a block's image, 12 KB at most
+LIMG            = LHDR + $100          ; a block's image, 12 KB at most
 ; In the header record's page, past the record: transient, as the buffers.
 LLO             = LHDR + $80           ; LPATCH: the lowest site, as linked
 LHI             = LHDR + $82           ; and the highest (its page byte the image's last)
@@ -73,7 +72,6 @@ LVER:           .res    10             ; function 72's answer
 LMCB:           .res    5              ; function 55's MCB
 LDM:            .res    11             ; function 83's block
 LPHYS:          .res    4              ; function 73's answer: the paragraph, the offset
-LCOMP:          .res    3              ; LCOM's physical address
 LIMGP:          .res    3              ; LIMG's physical address
 LN:             .res    1              ; the blocks in the file
 LI:             .res    1              ; the block being loaded
@@ -95,6 +93,8 @@ LOAD:           CLD
                 JSR     BDOS
                 CMP     #$FF           ; no function 80: A = X = $FF
                 BEQ     @old
+                CMP     #17            ; interface 17: the common hole (OODOS 0.16)
+                BCC     @old
                 TXA
                 AND     #OA_DMA
                 BNE     @new
@@ -218,23 +218,6 @@ LOAD:           CLD
                 LDA     LI
                 CMP     LN
                 JNE     @alloc
-                ; 4. Common memory to LCOM, by the CPU.
-                LDX     #0
-@cm:
-.repeat 8, k
-                LDA     $F800 + k * $100,X
-                STA     LCOM + k * $100,X
-.endrepeat
-                INX
-                BNE     @cm
-                LDA     #<LCOM
-                LDX     #>LCOM
-                JSR     LPHYSA
-                LDX     #2
-@cp:            LDA     LDM + 1,X      ; (LPHYSA leaves it in LDM+1-3)
-                STA     LCOMP,X
-                DEX
-                BPL     @cp
                 LDA     #<LIMG
                 LDX     #>LIMG
                 JSR     LPHYSA
@@ -347,24 +330,6 @@ LOAD:           CLD
                 LDA     LHDR + 6,X
                 STA     LDM + 7
                 LDA     LHDR + 7,X
-                STA     LDM + 8
-                JSR     LDMA
-                CMP     #0
-                JNE     LBAD
-                LDA     #DM_COPY       ; and common memory to its $3800
-                STA     LDM
-                LDY     #2
-@d3:            LDA     LCOMP,Y
-                STA     LDM + 1,Y
-                DEY
-                BPL     @d3
-                LDX     LE
-                JSR     LDEST
-                LDA     LDM + 5
-                ORA     #$38
-                STA     LDM + 5
-                STZ     LDM + 7
-                LDA     #>$800
                 STA     LDM + 8
                 JSR     LDMA
                 CMP     #0
@@ -572,6 +537,6 @@ LPATCH:         LDA     LCNT
 MNOOVL:         .byte   "GWBASIC.OVL not found", 13, 10, 0
 MNOMEM:         .byte   "No memory for GW-BASIC's blocks", 13, 10, 0
 MBAD:           .byte   "GWBASIC.OVL is damaged", 13, 10, 0
-MOLD:           .byte   "GW-BASIC needs a newer OODOS", 13, 10, 0
+MOLD:           .byte   "GW-BASIC needs OODOS 0.16 or newer", 13, 10, 0
 OVLNAM:         .byte   "GWBASIC OVL"
 OVLMAG:         .byte   "GWB", $1A

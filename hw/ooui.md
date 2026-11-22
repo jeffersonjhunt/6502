@@ -1376,7 +1376,9 @@ program's 320 KB.
   - the picker's crossings counted in a listing poll and in a selection move: 3 and 4 (round 3, F1), with its rows filled in
     one crossing (E3).
 - **Must-fails:**
-  - the copy of common memory left out: the first call never comes back, and the case fails on its time limit;
+  - *(retired at OODOS 0.16, nb-rev3's N17: ui_load makes no copy, the north bridge's hole shows common memory in
+    every block; NB3CHK's write of HOLE left out fails `a_window_with_labels_buttons_and_a_check_box` instead)* the
+    copy of common memory left out: the first call never comes back, and the case fails on its time limit;
   - a kind of fixup skipped: the frames differ;
   - in `test/check_tools.py`:
     - a test object in block A that does `JSR` to a block B symbol: ld65 stops the build (D3);
@@ -1512,7 +1514,7 @@ program's 320 KB.
 
   The two hand must-fails, run on 2026-11-12, each broke the window's case:
   - common memory not copied into the blocks: `a_window_with_labels_buttons_and_a_check_box` NOT OK, 12 failed
-    assertions;
+    assertions (retired at OODOS 0.16 with the copy: see above);
   - the page fixups skipped in ui_load: the same, 12 failed assertions.
 - **C5.** The dispatchers' headers say that A, X, Y, the carry and V are kept across a crossing, and N and Z
   aren't.

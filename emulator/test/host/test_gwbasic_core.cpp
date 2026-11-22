@@ -265,7 +265,7 @@ namespace
     constexpr unsigned BLK_BASE = 0xC800;
 
     const std::string DAMAGED = "GWBASIC.OVL is damaged\r\n", NO_OVL = "GWBASIC.OVL not found\r\n",
-                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs a newer OODOS\r\n";
+                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs OODOS 0.16 or newer\r\n";
 
     /// `got` says `message`, has no Ok, and ends at the CCP's prompt.
     void says(const std::string &what, const std::string &got, const std::string &message)
@@ -565,6 +565,33 @@ TEST(the_loader_refuses_an_oodos_without_function_83)
     });
     CHECK(answered >= 1u);
     says("an OODOS without function 83", got, OLD);
+}
+
+// An OODOS before interface 17 (N17; hw/future/north-bridge-rev3.md, "The common hole"): FT_INFO answered with
+// A = 16 and every area; the loader refuses it, MOLD, rather than far call into blocks with no common memory.
+// Must fail with the loader's CMP #17 removed.
+TEST(the_loader_refuses_an_oodos_before_interface_17)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    unsigned answered = 0;
+    const std::string got = refused(r, {}, true, [&](uint16_t pc, bool) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // the BDOS's entry, FT_INFO: return A = 16, X = $2F
+        {
+            Registers n = g;
+            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
+                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
+            n.pc = static_cast<uint16_t>(ret + 1);
+            n.s = static_cast<uint8_t>(g.s + 2);
+            n.a = 16;
+            n.x = 0x2F;
+            r.cpu->set_regs(n);
+            ++answered;
+        }
+    });
+    CHECK(answered >= 1u);
+    says("an OODOS of interface 16", got, OLD);
 }
 
 // A stale zero page (DD3): PTRFIL left as LPT1's ($FFFF) and the columns at the margin by what ran before; the
