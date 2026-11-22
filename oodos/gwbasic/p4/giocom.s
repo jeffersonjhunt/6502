@@ -35,7 +35,8 @@
 ; effect: TTY has no modem lines to wait on. COM2 has no driver (DVPTR's 0:
 ; Device unavailable), so GCMDCB's DCB is always COM1's (CM1DCB). The BDOS's
 ; AUX: functions give no error, so CKCMER finds none. ON COM(n)'s trap from a
-; byte waiting (POLCOM, CHKINT's) is 7f's.
+; byte waiting (POLCOM, CHKINT's) is deferred until AUX: has a receive buffer
+; (7f's answer 24).
 
 .include "gwbasic.inc"
 

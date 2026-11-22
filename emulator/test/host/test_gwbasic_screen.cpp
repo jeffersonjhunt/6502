@@ -22,6 +22,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -764,7 +765,7 @@ TEST(the_key_line_at_start_up)
 
 // KEY n,"text" (GWSTS.ASM's KEYS): KEY 1,"FILES"+CHR$(13) shows field 1 as "1FILES" and 27 (the CR), and key 2
 // unchanged; KEY 2,STRING$(20,"X") keeps 15 (KEY LIST shows them); KEY 0 and KEY 11 are Illegal function call,
-// KEY 1,5 Type mismatch, KEY(1) ON Advanced Feature (7f's, the owner's answer 5). Guards a key's text landing on
+// KEY 1,5 Type mismatch, KEY(1) ON taken (7f, E6: it was Advanced Feature until 7f). Guards a key's text landing on
 // another key. Seen failing with STRTAB's place one key on (KEYSP's DEC A left out).
 TEST(key_n_sets_a_key_and_its_field)
 {
@@ -785,7 +786,7 @@ TEST(key_n_sets_a_key_and_its_field)
     enter(r, "CLS:KEY 1,5", ms(300));
     CHECK_EQ(line(r, 0), std::string("Type mismatch"));
     enter(r, "CLS:KEY(1) ON", ms(300));
-    CHECK_EQ(line(r, 0), std::string("Advanced feature"));
+    CHECK_EQ(line(r, 0), std::string("Ok")); // (7f, E6)
     CHECK_EQ(line(r, 24).substr(0, 8), std::string("1FILES\x1b "));
 }
 
@@ -1066,48 +1067,43 @@ TEST(print_and_scroll_are_timed)
     // The scroll: SCRLUP's calls while 40 lines are printed.
     const auto l6 = lbl_map(std::string("p6.lbl"));
     const uint16_t up = l6.at("SCRLUPN"), kev = l6.at("KEYEV");
-    const uint16_t irq = static_cast<uint16_t>(reg(r, 0xFFFE) | reg(r, 0xFFFF) << 8); // the IRQ vector's entry
-    uint64_t from = 0, total = 0, kfrom = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0, ifrom = 0, inirq = 0, own = 0;
+    // (gw_timing.h's method since 7f's answer 33: each end by its return address as well as S)
+    gw_timing::LeftOut left(r, false);
+    gw_timing::CallSpan span, kspan;
+    uint64_t total = 0, ktotal = 0, lo = ~uint64_t{0}, hi = 0, own = 0, inirq = 0;
     unsigned n = 0, kn = 0, nirq = 0;
-    int depth = -1, kdepth = -1, idepth = -1;
     r.watch = [&](uint16_t pc) {
-        if (depth >= 0 && idepth < 0 && pc == irq) // an interrupt inside the scroll: its handler's cycles
+        // the key's span counts everything, its drain and any interrupt; so it is followed before the scroll's
+        // interrupts are left out
+        if (!kspan.open && pc == kev)
+            kspan.enter(r);
+        else if (kspan.returned(r, pc))
         {
-            ifrom = r.cpu->cycles();
-            idepth = r.cpu->regs().s;
-            ++nirq;
+            ktotal += r.cpu->cycles() - kspan.from;
+            ++kn;
         }
-        else if (idepth >= 0 && r.cpu->regs().s == idepth + 3)
+        const unsigned before = left.irqs;
+        const uint64_t before_out = left.out;
+        if (left.inside(pc, span.open)) // an interrupt inside the scroll: its handler's cycles
         {
-            inirq += r.cpu->cycles() - ifrom;
-            idepth = -1;
+            nirq += left.irqs - before;
+            return;
         }
-        if (depth < 0 && pc == up)
+        inirq += left.out - before_out;
+        left.out = 0;
+        if (!span.open && pc == up)
         {
-            from = r.cpu->cycles();
-            depth = r.cpu->regs().s;
+            span.enter(r);
             inirq = 0;
         }
-        else if (depth >= 0 && idepth < 0 && r.cpu->regs().s == depth + 2)
+        else if (span.returned(r, pc))
         {
-            const uint64_t c = r.cpu->cycles() - from;
+            const uint64_t c = r.cpu->cycles() - span.from;
             total += c;
             own += c - inirq;
             lo = std::min(lo, c);
             hi = std::max(hi, c);
             ++n;
-            depth = -1;
-        }
-        if (kdepth < 0 && pc == kev)
-        {
-            kfrom = r.cpu->cycles();
-            kdepth = r.cpu->regs().s;
-        }
-        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
-        {
-            ktotal += r.cpu->cycles() - kfrom;
-            ++kn;
-            kdepth = -1;
         }
     };
     // First PRINT I: the scroll then also writes back the row just printed (DM_VWRITE), a write the PRINT makes,
@@ -1138,7 +1134,11 @@ TEST(print_and_scroll_are_timed)
 // line drawn once, by CLRSCN: 7d2's review round 1, F4) with it on and off, by timed()'s method over 20 passes; and a
 // key's cost, EVPOLL's far call to KEYEV with its drain, for a plain key (A: its cooked twin drained too), for F1 with
 // no text (the PC's code queued) and for F1 with its text (LIST: 4 bytes queued), each the average over 8 presses
-// while a program reads INKEY$.
+// while a program reads INKEY$ (7f, the owner's answer 25: less the interrupt handlers and the drain's BDOS calls,
+// by gw_timing.h's method since answer 33;
+// answer 29: both F1 figures in the same RUN). A record, not a guard (the owner's answer 31): its last check, text
+// costing more than none, shows only that the text path is taken; what F1 queues (its text counted and then
+// dropped, or the test for a text inverted) is guarded by a_function_key_types_its_text.
 TEST(the_key_line_and_soft_keys_cost)
 {
     CcpRig r;
@@ -1162,20 +1162,25 @@ TEST(the_key_line_and_soft_keys_cost)
     keys(r, "RUN\r");
     r.run(ms(200));
     const uint16_t kev = lbl_map(std::string("p6.lbl")).at("KEYEV");
-    uint64_t kfrom = 0, ktotal = 0;
+    // 7f (the owner's answer 25): the interrupt handlers inside it and its drain's BDOS calls left out, as
+    // test_gwbasic_sound's key-cost gate measures (how many drain calls there are is a race with the cooked twin).
+    // (gw_timing.h's method since 7f's answer 33: each end by its return address as well as S)
+    gw_timing::LeftOut left(r, true);
+    gw_timing::CallSpan span;
+    uint64_t ktotal = 0;
     unsigned kn = 0;
-    int kdepth = -1;
     const std::function<void(uint16_t)> watch = [&](uint16_t pc) {
-        if (kdepth < 0 && pc == kev)
+        if (left.inside(pc, span.open))
+            return;
+        if (!span.open && pc == kev)
         {
-            kfrom = r.cpu->cycles();
-            kdepth = r.cpu->regs().s;
+            span.enter(r);
+            left.out = 0;
         }
-        else if (kdepth >= 0 && r.cpu->regs().s == kdepth + 2)
+        else if (span.returned(r, pc))
         {
-            ktotal += r.cpu->cycles() - kfrom;
+            ktotal += r.cpu->cycles() - span.from - left.out;
             ++kn;
-            kdepth = -1;
         }
     };
     r.watch = watch;
@@ -1190,16 +1195,13 @@ TEST(the_key_line_and_soft_keys_cost)
         return kn ? static_cast<double>(ktotal) / kn : 0;
     };
     const double plain = avg(0x04), none = avg(K_F1);
-    r.watch = nullptr;
-    press(r, 0x06, CTRL);
-    r.run(ms(200));
-    enter(r, "KEY 1,\"LIST\"");
-    keys(r, "RUN\r");
-    r.run(ms(200));
-    r.watch = watch;
+    // 7f (the owner's answer 29): F1's text given in the same RUN (STRTAB, resident, written as KEY 1,"LIST" writes
+    // it), so the only difference between the two F1 figures is whether F1 has text.
+    const uint16_t strtab = lbl_map().at("STRTAB");
+    r.poke(strtab, std::vector<uint8_t>{'L', 'I', 'S', 'T', 0});
     const double soft = avg(K_F1);
     r.watch = nullptr;
-    std::printf("  a key (KEYEV, its drain included): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
+    std::printf("  a key (KEYEV, less its interrupts and drain calls): A %.0f cycles, F1 with no text %.0f, F1 with LIST %.0f\n", plain,
                 none, soft);
     CHECK(soft > none);
     press(r, 0x06, CTRL);
@@ -1648,26 +1650,11 @@ std::pair<uint64_t, uint64_t> run_check_cycles(CcpRig &r, const std::vector<std:
     uint8_t sp = 0;
     int in = 0; // 1 in BRUN, 2 in the tail
     bool done = false;
-    const uint16_t irq = static_cast<uint16_t>(r.machine->bus().peek(0xFFFE) | r.machine->bus().peek(0xFFFF) << 8);
-    uint64_t ifrom = 0, inirq = 0; // an interrupt inside a span: its handler's cycles, left out (T17's way)
-    int idepth = -1;
+    gw_timing::LeftOut left(r, false); // an interrupt inside a span: its handler's cycles, left out (T17's way,
+    uint64_t &inirq = left.out;          // gw_timing.h's since 7f's answer 33)
     r.watch = [&](uint16_t pc) {
-        if (in != 0 && idepth < 0 && pc == irq)
-        {
-            ifrom = r.cpu->cycles();
-            idepth = r.cpu->regs().s;
+        if (left.inside(pc, in != 0))
             return;
-        }
-        if (idepth >= 0)
-        {
-            if (r.cpu->regs().s == idepth + 3)
-            {
-                inirq += r.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            else
-                return;
-        }
         if (pc == runc && home < 0)
             home = r.nb(3);
         if (home < 0 || r.nb(3) != home)
@@ -1867,7 +1854,9 @@ TEST(def_seg_8000_is_the_cga_page_in_screen_1_and_2)
 // this case had filled exactly, so its files are given back after their last use in each mode (KILL "M:G.BAS",
 // "M:P.BAS": KILL takes the name as given, BSAVE's ".BAS" with it), the 16 KB BLOAD at &H2000 is K's (the same
 // header as G's) so G's last use is before P's BSAVE, and P's file is checked at once (a Disk full fails here, by
-// name). Seen failing with the KILLs left out (P's BSAVE Disk full).
+// name). Seen failing with the KILLs left out (P's BSAVE Disk full). 7f (the owner's answer 14 to its U0 stop): P7,
+// the eighth block, takes M:'s room again (M: is OODOS's banks C-D, not the rig's to enlarge), so GWBASIC.COM, whose
+// last use is its start, is given back first (KILL "M:GWBASIC.COM"); every check is as it was.
 TEST(bsave_and_bload_the_graphics_page)
 {
     CcpRig r;
@@ -1880,6 +1869,7 @@ TEST(bsave_and_bload_the_graphics_page)
         shortf.push_back(0xFF);
     r.put_m({{0, "K       BAS", img}, {0, "H       BAS", shortf}});
     REQUIRE(start(r) > 0);
+    enter(r, "KILL \"M:GWBASIC.COM\"", ms(1500)); // (7f: its last use was the start; M:'s room for G)
     for (int m = 1; m <= 2; ++m)
     {
         const std::string sm = "SCREEN " + std::to_string(m) + ":";

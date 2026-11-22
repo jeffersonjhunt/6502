@@ -24,6 +24,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "gw_timing.h"
 
 #include <cmath>
 #include <cstdio>
@@ -2715,33 +2716,23 @@ TEST(oo1_modes_are_timed)
     auto scroll = [](CcpRig &q, const std::string &mode) {
         const auto l6 = lbl_map(std::string("p6.lbl"));
         const uint16_t up = l6.at("SCRLUPN");
-        const uint16_t irq = static_cast<uint16_t>(reg(q, 0xFFFE) | reg(q, 0xFFFF) << 8);
         enter(q, mode + ":CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));
-        uint64_t from = 0, ifrom = 0, inirq = 0, own = 0;
+        gw_timing::LeftOut left(q, false); // (gw_timing.h's method since 7f's answer 33)
+        gw_timing::CallSpan span;
+        uint64_t own = 0;
         unsigned n = 0;
-        int depth = -1, idepth = -1;
         q.watch = [&](uint16_t pc) {
-            if (depth >= 0 && idepth < 0 && pc == irq)
+            if (left.inside(pc, span.open))
+                return;
+            if (!span.open && pc == up)
             {
-                ifrom = q.cpu->cycles();
-                idepth = q.cpu->regs().s;
+                span.enter(q);
+                left.out = 0;
             }
-            else if (idepth >= 0 && q.cpu->regs().s == idepth + 3)
+            else if (span.returned(q, pc))
             {
-                inirq += q.cpu->cycles() - ifrom;
-                idepth = -1;
-            }
-            if (depth < 0 && pc == up)
-            {
-                from = q.cpu->cycles();
-                depth = q.cpu->regs().s;
-                inirq = 0;
-            }
-            else if (depth >= 0 && idepth < 0 && q.cpu->regs().s == depth + 2)
-            {
-                own += q.cpu->cycles() - from - inirq;
+                own += q.cpu->cycles() - span.from - left.out;
                 ++n;
-                depth = -1;
             }
         };
         enter(q, "CLS:FOR I=1 TO 40:PRINT:NEXT", ms(2500));
@@ -2821,7 +2812,9 @@ TEST(oo1_modes_are_timed)
 // a byte, the left high, 64 KB (rows 0-255); SCREEN 12 eight, the leftmost in bit 7, 38,400; past the reach Illegal
 // function call; DEF SEG=&H8000: BSAVE "PIC",0,&H9600 in SCREEN 12 saves the picture, and after CLS BLOAD puts it
 // back, the text over it not in it. Guards a BSAVEd picture that doesn't BLOAD back. Seen failing with DSSCR taking
-// SCREEN 1 and 2's CGA route for SCREEN 12.
+// SCREEN 1 and 2's CGA route for SCREEN 12. 7f (the owner's answer 14 to its U0 stop): P7, the eighth block, takes
+// M:'s room (OODOS's banks C-D, not the rig's to enlarge), so GWBASIC.COM, whose last use was the start, is given
+// back before the picture's BSAVE; every check is as it was.
 TEST(oo1_modes_def_seg_page)
 {
     CcpRig r;
@@ -2847,6 +2840,7 @@ TEST(oo1_modes_def_seg_page)
     CHECK_EQ(line(r, 4), std::string(" 128  129"));
     enter(r, "CLS:A=PEEK(38400)", ms(600));
     CHECK(until_row(r, "Illegal function call", ms(500)) >= 0);
+    enter(r, "KILL \"M:GWBASIC.COM\"", ms(1500)); // (7f, the owner's answer 14: its last use was the start; M:'s room)
     enter(r, "CLS:CIRCLE (320,240),200,1:LINE (0,0)-(639,479),1:LINE (100,300)-(200,400),1,BF:LOCATE 2,1:PRINT CHR$(84)+\"XQ\"",
           ms(3000));
     std::vector<uint8_t> pic(38400);

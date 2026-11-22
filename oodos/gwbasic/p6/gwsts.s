@@ -538,7 +538,7 @@ GTLINE:         LDA     CSRY
 
 ; --- KEY (GWSTS.ASM 1332) -----------------------------------------------------------------
 
-NMKEYF          = 10                   ; GWSTS.ASM's: the soft keys (p8/far6.s's too)
+; (NMKEYF, the soft keys: gwbasic.inc's)
 
 ; KEYSP: TXTPTR at what follows KEY, A it: "(", ON, OFF or LIST (7e5: KEY
 ; n,"text" is the home block's, p8/far6.s, its line drawn by KEYDP).

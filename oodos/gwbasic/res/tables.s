@@ -11,7 +11,7 @@
 .export OPTAB, RELBIT, FRCTBL, DBLDSP, SNGDSP, INTDSP, FUNDSP, NUMCON
 .import FADD, FSUB, FMULT, FDIV, FCOMP, IADD, ISUB, IMULT, INTDIV, ICOMP
 .import DMULT, DDIV, DADD, DSUB, DCOMP, FRCDBL, FRCINT, CHKSTR, FRCSNG
-.import SGN, VINT, VABS, FIXER, NOTSPK, FILFUN, LPOS, F_PEEK, F_SPOS
+.import SGN, VINT, VABS, FIXER, NOTSPK, FILFUN, LPOS, F_PEEK, F_SPOS, JOYF
 .import LEFT, RIGHT, MID, FRE, LEN, ASC, CHR, SPACE, F_STR, F_VAL, F_STRO, F_STRH
 .import F_SQR, F_RND, F_SIN, F_LOG, F_EXP, F_COS, F_TAN, F_ATN
 
@@ -52,6 +52,6 @@ FUNDSP:
                 .word   LPOS           ; LPOS (P4's: res/far4.s)
                 .word   FRCINT, FRCSNG, FRCDBL, FIXER
 .repeat 3
-                .word   NOTSPK         ; PEN STICK STRIG
+                .word   JOYF           ; PEN STICK STRIG (7f: P7's, res/far4.s)
 .endrepeat
                 .word   FILFUN, FILFUN, FILFUN ; EOF LOC LOF (P4's: res/far4.s)

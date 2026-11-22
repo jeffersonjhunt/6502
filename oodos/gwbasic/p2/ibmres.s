@@ -341,7 +341,10 @@ LINRES:         .byte   RESTORE_TK, AUTO_TK, RENUM_TK, DELETE_TK, EDIT_TK
 ; statements are OODOS's directory hook (p4/oem.s DIRHK). VIEWRD (7e4, the
 ; owner's answer 10 of 2026-11-20): VIEW, WINDOW and PMAP added the same way
 ; ($FE $9C-$9E, IBMRES.ASM's R VIEW, R WINDOW, R PMAP), reserved as in the
-; IBM BASIC 3.0 manual; PALETTE isn't (dropped: the IBM spec's G13).
+; IBM BASIC 3.0 manual; PALETTE isn't (dropped: the IBM spec's G13). TIMWRD
+; (7f, the owner's answer 16): TIMER added the same way ($FE $94, IBMRES.ASM's
+; R TIMER), the manual's function and TIMER ON/OFF/STOP (P7's), which the 1983
+; table had no word for (G6).
 ALPTAX:         .word   ATABX, BTABX, CTABX, DTABX, ETABX, FTABX, GTABX, HTABX
                 .word   ITABX, JTABX, KTABX, LTABX, MTABX, NTABX, OTABX, PTABX
                 .word   QTABX, RTABX, STABX, TTABX, UTABX, VTABX, WTABX, XTABX
@@ -421,6 +424,7 @@ STABX:
                 .byte   0
 TTABX:
                 Q       "TIME$", TIMES_XS
+                Q       "TIMER", TIMER_XS ; OO-1 (7f, the owner's answer 16): TIMWRD, below
                 .byte   0
 UTABX:
                 .byte   0

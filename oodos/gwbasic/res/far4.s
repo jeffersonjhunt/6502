@@ -11,6 +11,9 @@
 ;             function in X as FINGO has it (p4/gio86.s FILFNP)
 ;   FIXINP    INPUT$(n[, [#]f]) from EVAL (res/gweval.s): FILFUN with X 0
 ;             (p4/dskcom.s FIXINPP)
+;   JOYF      7f: PEN(n), STICK(n), STRIG(n) from FUNDSP (res/tables.s): P7's
+;             JOYFP, X the function as FINGO has it (here beside FILFUN, its
+;             like: one far call for three)
 ;   LPOS      LPOS(n) from FUNDSP (res/tables.s): GIOLPT.ASM's, P4's
 ;             (p4/giolpt.s LPOSP), beside LPT1:'s file
 ;   LRUN      RUN "file" (DSKCOM.ASM's LRUN), from the resident RUN, and a
@@ -33,7 +36,7 @@
 
 .include "gwbasic.inc"
 
-.export CLSALL, FILFUN, FIXINP, LRUN, MAXREC, LPOS
+.export CLSALL, FILFUN, FIXINP, LRUN, MAXREC, LPOS, JOYF
 .import FILOPN, HOMSTK
 
 .code
@@ -48,6 +51,8 @@ LPOS:           FJSR    LPOSP
                 RTS
 FIXINP:         LDX     #0
 FILFUN:         FJSR    FILFNP
+                RTS
+JOYF:           FJSR    JOYFP
                 RTS
 LRUN:           LDX     HOMSTK
                 TXS

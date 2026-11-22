@@ -26,7 +26,7 @@
 ;
 ; OO-1: the function-key line (KEYSW, LABELK's ^T, KEYDSP's line: 7d2) is
 ; the last line, LINCNT, always outside the scroll window; GRPINI (the graphics cursor) is
-; P5's, far called in a graphics mode only (7e1); the bell (CBEEP's BEEP) is 7f's, so a ^G does nothing yet; the PC's
+; P5's, far called in a graphics mode only (7e1); the bell (CBEEP's BEEP) is P7's BELLP (7f); the PC's
 ; two-byte (DBLCHR) characters aren't built (DBLCHR is 0 in the source
 ; too).
 
@@ -1292,8 +1292,10 @@ BCKWD8:         JSR     CSRUP
 
 ; --- Home, clear, erase, truncate (SCNDRV.ASM 1404) ---------------------------------------
 
-; CBEEP: the bell (BEEP is 7f's: OO-1, nothing yet), then SCNPOS.
-CBEEP:          JMP     SCNPOS
+; CBEEP: the bell (7f: P7's BELLP, function 82's SN_BEEP, the OEM's BEEP:
+; the owner's answer 3), then SCNPOS.
+CBEEP:          FJSR    BELLP
+                JMP     SCNPOS
 
 CCLRSN:         CLC
                 LDA     #2

@@ -106,6 +106,7 @@ emulator/test/host/fixtures/                    none
 emulator/test/host/README.md                    docs
 emulator/test/host/test_docs_examples.cpp       self docs
 emulator/test/host/gwbasic/                     gwbasic
+emulator/test/host/gw_timing.h                  gwbasic
 emulator/test/host/test_*                       self
 emulator/tools/fetch_fixtures.py                test_fetch_fixtures
 emulator/tools/make_sd_images.sh                sd
