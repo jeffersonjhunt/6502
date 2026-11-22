@@ -34,7 +34,7 @@ DG_VERSION      = 1                    ; ROM DIAGNOSTICS 0.1
 ; the diagnostics' header line and the BIOS block 23 records (DG_LINKED) are all
 ; made from these
 BIOS_VMAJ       = 0
-BIOS_VMIN       = 18
+BIOS_VMIN       = 19
 .define BIOS_VERSION .sprintf("%d.%d", BIOS_VMAJ, BIOS_VMIN)
 DG_B21          = NB_ROM | NB_RO | 21  ; the three blocks as W2 maps them
 DG_B22          = NB_ROM | NB_RO | 22

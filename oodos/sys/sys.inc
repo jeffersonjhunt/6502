@@ -152,7 +152,7 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 16                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 82's SN_NOISE, the SID seed: 15, 85's serial receive buffer and EV_RXCNT: 16)
+OOLIB_IFACE     = 16                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 15 adds nothing a program uses, 85's serial receive buffer and EV_RXCNT: 16)
 OOLIB_AREAS     = $2F                  ; the service areas there are (FT_INFO's): frame and timing (80),
                                        ; input (81), sound (82), DMA and loading (83), the serial line (85)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)

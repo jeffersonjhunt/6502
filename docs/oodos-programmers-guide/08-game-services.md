@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (function 82's `SN_NOISE`, [below](#the-noise-a-seed)), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound), `OA_DMA` (`$08`, 83, DMA and loading)
 and `OA_SERIAL` (`$20`, 85, the serial line, since interface 16) now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -471,29 +471,6 @@ runs. If `SN_DOCHOOK` is refused, no hook is set, as with the frame and tick hoo
 when it is done. The tone is timed in cycles with interrupts left on, so the ticks lower it about 2%; the length is
 timed by the millisecond counter.
 
-### The noise, a seed
-
-`SN_NOISE` gives a program bytes for a random seed: +1 n, 1–16, and the n bytes come back at +2. Each is SID A's
-voice 3 noise, read by the ROM BIOS (0.18 or later) after the noise register has moved on 23 steps, so no byte
-shares the register's bits with the one before it. It needs no claim, and it is `SN_BUSY` while anyone has the 6510
-claimed: a program that has the SIDs reads [OSC3](../oo1-technical-reference/07-sound.md#reg-c500) itself, with
-voice 3 on noise. Under an older ROM BIOS it is refused with X = `$FB`.
-
-```
-        lda     #<seed
-        ldx     #>seed
-        ldy     #O_SOUND
-        jsr     BDOS            ; A = 0: seed+2 to seed+4 are the noise
-        ...
-seed:   .byte   SN_NOISE, 3, 0, 0, 0
-```
-
-The register is a linear shift register, so the bytes are only as unpredictable as the time it has run: OODOS leaves
-voice 3 on noise, silent, after the call, and the time a person takes between two calls (to press a key, say) is
-what makes the second worth having. A call right after a power-on gives nearly the same bytes each time; one at a
-program's start, and another when the player first presses a key, is the way to use it. A byte costs about 2,900
-cycles with interrupts off.
-
 ### .sid tunes
 
 A C64 `.sid` file is a tune's own 6502 code. Playing one is file work with nothing to share, so it is in **OOLIB's
@@ -655,8 +632,7 @@ Nothing a tick: the tick with no area is 162 cycles and with a layout-2 area 249
 a piece is an interrupt of about 705 to 875 cycles (705 and 874 the usual ones), a few up to about 1,010; with room
 in the FIFO the next piece's 4,096 cycles of DMA come inside it, 4,672 to 5,405 cycles in all. 44.1 kHz 16-bit stereo
 is 43 pieces a second, under 0.5% of the CPU. A frame with the stream claimed and a layout-2 area open costs about
-300 cycles more (715 against 412), for the area's sound part. `SN_NOISE` costs about 3,300 cycles a byte, and
-3,700 for one ([function 82](07-function-reference.md#bdos-82)'s cycles). These are measured on DMA revision 2 (B2,
+300 cycles more (715 against 412), for the area's sound part. These are measured on DMA revision 2 (B2,
 *proposed*), with the dispatcher's 17 cycles for WIN1H 0 (since OODOS 0.11, B7), at B7's final build.
 
 ## Graphics

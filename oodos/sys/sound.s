@@ -56,7 +56,6 @@
 .include "oodos.inc"
 .importzp PX, PP, T0, T1, T2, T3, T4, T5, SG ; the BDOS's (bdos.inc), for 82
 .import RETFF, PGET, PPUT, SEGOK
-.import ROM18                          ; bdos.s's: the ROM BIOS 0.18 or later, for SN_NOISE
 .importzp EVP                          ; irq.s's
 .import EVON, EVBLK, MS, CLOCKS, UCARD, HK, DHON, CALLHOOK, HOOKADDR, SETHOOK ; irq.s's
 .import QEV, EVK, EVC, EVV             ; input.s's
@@ -857,7 +856,7 @@ F_SOUND:        LDX     PX
 SNFF:           JMP     RETFF
 SNJUMPS:        .word   SN_INFOX, SN_CLAIMX, SN_RELEASEX, SN_LOADX, SN_STARTX, SN_STOPX, SN_SENDX
                 .word   SN_STREAMX, SN_BUFFERX, SN_PAUSEX, SN_RESUMEX, SN_SEEKX, SN_ENDX, SN_STATUSX
-                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX, SN_HOLDX, SN_GOX, SN_VOLUMEX, SN_NOISEX
+                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX, SN_HOLDX, SN_GOX, SN_VOLUMEX
 .assert (* - SNJUMPS) / 2 = SN_OPS, error, "SNJUMPS has an entry for each of oodos.inc's SN_*"
 
 ; The part A claimed, or the function ends: A = X = $FF.
@@ -1442,74 +1441,3 @@ SN_BEEPX:       BLOCK
 @done:          JMP     SN00
 @no:            JMP     RETFF
 
-; +1 n (1-16), +2... n bytes of SID A's voice 3 noise, a seed (the SID
-; seed, OODOS 0.14, interface 15): one call of the ROM BIOS's dispatching
-; entry, function $A2, a byte (ROMNOISE), interrupts on between them. No
-; claim needed, as SN_BEEP needs none. SN_BUSY while SC_6510 is claimed, by
-; any program or RSX (its claimant owns the SIDs; SCLAIM says what is
-; claimed, not by whom), and if the ROM refuses after all (the card's 6510
-; running, or a stuck chip it couldn't free): bytes written before it stay.
-; Refused, A = X = $FF, with no card or n out of range; A = $FF, X = $FB
-; under a ROM BIOS before 0.18, as function 75 says it, with no ROM call.
-SN_NOISEX:      BLOCK
-                JSR     PGET           ; n
-                STA     T0
-                DEC     A
-                CMP     #16
-                BCS     @no            ; 0, or over 16
-                LDA     SREV
-                BEQ     @no            ; no card
-                JSR     ROM18
-                BCC     @old
-                LDA     #SC_6510
-                AND     SCLAIM
-                BNE     @busy
-@byte:          JSR     ROMNOISE
-                BCS     @busy
-                JSR     PPUT
-                DEC     T0
-                BNE     @byte
-                JMP     SN00
-@busy:          JMP     SNBUSY
-@old:           LDA     #$FF
-                LDX     #$FB
-                RTS
-@no:            JMP     RETFF
-
-; One byte from the ROM BIOS's $C818, function $A2 (the token Y = $5A, X =
-; $A2; A 0): a call that returns, OODOS's first (function 75's ROMENTRY never
-; comes back). This is block 61's code, in W2, so it can move W3 under itself:
-; W3 and VEC (read first) go to block 63, the ROM BIOS's RAM copy, read-only,
-; and back as they were, with interrupts off from before the first write to
-; after the last, about 2,900 cycles (under the 7,159 of a tick: none lost).
-; VEC moves with W3 so that a Break (NMI) meanwhile reaches the ROM's BREAK,
-; the monitor, as Break does at any time; between the two writes, each way,
-; one instruction's NMI would take the other block's vector (accepted, as the
-; ROM's own STUB accepts it). The ROM uses no RAM and no zero page, only the
-; stack (the system block's, in W0). A the byte, carry clear; carry set if the
-; ROM refused. X and Y not kept.
-ROMNOISE:       PHP
-                SEI
-                LDA     NB_WIN3
-                PHA
-                LDA     NB_VEC
-                PHA
-                LDA     #NB_RO | ROM_BLOCK
-                STA     NB_WIN3
-                STA     NB_VEC
-                LDA     #0
-                LDX     #$A2           ; the function
-                LDY     #$5A           ; the token
-                JSR     $C818
-                TAY                    ; the byte
-                PLA
-                STA     NB_VEC
-                PLA
-                STA     NB_WIN3
-                LDX     #0
-                BCC     @ok
-                INX                    ; refused
-@ok:            PLP                    ; interrupts as they were
-                TYA
-                CPX     #1             ; carry: the refusal
-                RTS

@@ -137,13 +137,6 @@ namespace ooe::emu
         /// The filter's state: its low-pass and band-pass outputs.
         std::array<float, 2> filter_state() const { return {lp_, bp_}; }
 
-#ifdef EMU_FAULT_HOOKS
-        /// Test-only (the SID seed's R-U3, the owner's answer 5): voice `n`'s noise register set to `r` (23 bits).
-        /// A real chip's register can be left stuck at 0 when noise was combined with another waveform (the
-        /// combined waveforms' write-back, which this model lacks); 0 here sticks the same way until TEST. Native
-        /// test builds only (devices/CMakeLists.txt: EMU_FAULT_HOOKS), never the WebUI's.
-        void set_noise(unsigned n, uint32_t r) { voices_[n % 3].noise = r & 0x7FFFFF; }
-#endif
         const std::array<uint8_t, REGS> &regs() const { return regs_; }
         const Voice &voice(unsigned n) const { return voices_[n % 3]; }
         /// Voice `n`'s 12-bit waveform output now.

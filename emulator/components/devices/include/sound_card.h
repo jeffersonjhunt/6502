@@ -435,13 +435,6 @@ namespace ooe::emu
             fault_or_ = or_mask;
         }
         void clear_ram_fault() { fault_on_ = false; }
-        /// Test-only (the SID seed's R-U3): SID `chip`'s voice `voice` noise register set to `r`, the chips
-        /// first brought up to now (Sid::set_noise()).
-        void set_sid_noise(unsigned chip, unsigned voice, uint32_t r)
-        {
-            catch_up();
-            chips_[chip & 1].set_noise(voice, r);
-        }
 #endif
         // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
         /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps

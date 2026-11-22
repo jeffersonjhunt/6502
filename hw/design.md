@@ -479,23 +479,6 @@ with up to 16 MB, so the reasoning isn't lost.
    `BACKPLANE BIOS 0.14`. The [Technical Reference's chapter 15](../docs/oo1-technical-reference/15-diagnostics.md)
    is the diagnostics' reference.
 
-   *(BIOS 0.18, 2026-11-21: the SID seed, the owner's answers of 2026-11-21.)* The dispatching entry `$C818`
-   gains function `$A2` (the first of `$A2–$AF`, so the nine-entry table stays closed and no ROM address moves): a
-   byte of SID A's voice 3 noise, read from OSC3, as a seed for random numbers, in A with carry clear, X and Y as
-   they were. It refuses (carry set, A, X, Y as they were) with no sound card or while the card's 6510 runs (CTRL's
-   RUN: the 6510 owns the SIDs, and the host's writes are dropped). Voice 3 is put on noise at `$FFFF` with the
-   gate off, silent, unless it reads back so already, and left so, so the register runs on between calls; the call
-   waits 23 noise steps before its read (about 2,800 cycles), so two calls never give bytes that are shifts of each
-   other, and a register stuck at 0 (two zero reads 8 steps apart: a real chip's, after noise combined with another
-   waveform) has TEST pulsed and is waited for again, 4 times at most, then refused as a busy card is (answer 13
-   of the R-U1 stop). No RAM and no zero page. It lives in its own segment at the ROM's end (NOISE, after FLASH),
-   so the code after ROMCALL moves only by ROMCALL's 7-byte jump (answer 12). Costs: about 2,800 cycles a call
-   (gated at 3,500), 3,800 when OSC3 reads 0 once, a recovery about 3,800 more, a stuck chip's refusal about
-   19,000 (recorded, not gated: answer 14). OODOS reaches it through function
-   82's `SN_NOISE` (OODOS 0.14). The noise is only as unpredictable as the time it has run: after a power-on
-   or TEST the register begins from the same state (QUIET only stops it where it is), so a byte read soon after is
-   nearly the same each time; the time a person takes between two reads is what makes them worth having.
-
 **From the ESP32 (override)**
 
 1. The bus spy holds /RESET low and pulls BE low, so the CPU and the north bridge float, as they do for the Console
