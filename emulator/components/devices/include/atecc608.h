@@ -9,7 +9,7 @@
  *
  * @copyright Copyright (c) 2026 Jefferson J. Hunt (MIT)
  *
- * hw/future/random-source.md is the spec; this models only what the north
+ * hw/design.md, "The random source", is the design; this models only what the north
  * bridge (revision 3) uses of the part, from its documented behaviour, in our
  * own words. The bus is modelled a transaction at a time: the bridge says
  * when SDA was held low (wake()), offers an address byte (address(), which

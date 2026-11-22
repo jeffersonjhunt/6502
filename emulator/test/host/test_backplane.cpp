@@ -195,7 +195,7 @@ TEST(vector_pulls_go_through_vec)
     CHECK_EQ(cpu.regs().pc, 0x2000);
 }
 
-// --- revision 3's common hole (N15, the hole plan's H2; hw/future/north-bridge-rev3.md, "The common hole") ------
+// --- revision 3's common hole (N15, the hole plan's H2; hw/design.md, "The common hole") ------
 
 namespace
 {

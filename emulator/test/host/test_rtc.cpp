@@ -466,7 +466,7 @@ TEST(a_program_reads_the_time_and_takes_the_tick_interrupt)
 
 TEST(the_clock_keeps_its_second_through_draws)
 {
-    // Random source C5 (hw/future/random-source.md), on a revision 3 bridge: a program drains the random pool for
+    // Random source C5 (hw/design.md, "The random source"), on a revision 3 bridge: a program drains the random pool for
     // 5 s straight, so draws run back to back on the bus the clock shares. Each second's read still lands: TICK
     // each second, SEC one on each time, and RTCCTL's BUSY never held by a draw: at most a Refresh's 132 bits
     // and the one chip transaction it waited behind (a response, 326). Must fail with one BUSY shared by both,

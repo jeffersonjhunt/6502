@@ -281,6 +281,110 @@ than on main in the fast build (three alternating rounds, 2026-11-11), so the ti
 Now that the plan is built, a branch's check is `tools/check.sh changed`, and its report names what that chose.
 
 
+## North bridge revision 3's tests ##
+
+Status: **built** (2026-11-22). The specs' test tables, moved here as built: each case, the failure it guards and the mutant it must fail under. The suites: `test_nb_timebase` and `test_nb_random` (labels `bridge`, `rng`), `test_oodos_random`, and new cases in the existing ones.
+
+### The timebase's and the hole's ###
+
+Each must-fail case is seen failing under its mutant, on its own case; each mutant is a defect plausible in real
+bridge logic, wiring or hand-written 6502 code ([hw/testing.md](#): the new suite gets its labels,
+`bridge` and `rtc`, and a map rule).
+
+**The bridge** (`test_nb_timebase.cpp`, new):
+
+| # | Case | The real failure it guards | Must fail under |
+|---|---|---|---|
+| B1 | `ticks_come_at_the_crystal_s_millisecond`: ticks 1-1,100 each on cycle ⌊78,750 k / 11⌋ from the release; MS 1,100 | drift: a divider that rounds (12.7 ppm fast, 1.1 s a day) | the 2-in-11 step removed (7,159 always); the long periods on the wrong count (3 in 11) |
+| B2 | `the_latch_holds_four_bytes_across_a_carry`: `set_ms($00FFFFFE)`, MS0 read, the carry, then MS1-MS3: one moment; TBSUB from the same latch | a torn 32-bit read | MS1-MS3 read live; TBSUB not latched |
+| B3 | `msf_interrupts_until_acknowledged`: MSF with MSIE pulls IRQH bit 5; a read leaves it; a 0 written leaves it; a 1 written lets it go; MSIE off lets it go | the interrupt not acknowledged, or acknowledged by a read | the acknowledge done by a read (as the VIA's `T1CL`); `irq()` not gated by MSIE |
+| B4 | `a_tick_under_dma_is_counted`: a 64 KB copy holding the CPU 18 ms: MS +18 exactly, MSF and OVR set, one interrupt | a missed tick under DMA | the counter stepped by the acknowledge, not the tick; OVR never set |
+| B5 | `mss_restarts_with_each_second`: the chip skewed +1,000 and -1,000 ppm, 30 s: at each SEC change MSS 0 or 1; never past 999; SEC and MSS from one latch never the old second with 0 | the ms-into-second not reset; a torn time | MSS from the free-running tick modulo 1,000 (not reset); MSSL/MSSH read live, not from SEC's latch |
+| B6 | `the_tick_needs_no_clock_chip`: SQW stopped: SYNC clear 1.1 s after the last edge, MSS 999, the tick and MS unaffected; SYNC clear from power-on to the first edge | a bridge whose tick or MSS hangs on the DS3231 | the tick taken from SQW's divider; SYNC never cleared |
+| B7 | `tie_is_gone_on_revision_3`: TICK set each second and cleared by 1; TIE written 1 reads 0, no interrupt; revision 2 as before | an unexpected 1 Hz interrupt in the tick's fast path | TIE kept on revision 3 |
+| B8 | `resets_and_apple_ii_mode`: a hard reset: MS 0 at the first instruction, MSIE off; a /RESET pulse: MS runs on, MSIE off; in Apple II mode MS gains 1,000 a second | a counter that slows sevenfold in Apple II mode, or restarts on Ctrl-Reset | the divider counting PHI2; the pulse clearing MS |
+| B9 | `a_peek_latches_nothing`: the debugger reads MS0 and SEC; a CPU read of MS1 still gives the CPU's latch | the WebUI's memory view tearing OODOS's reads | `peek()` calling `read()` |
+
+**OODOS** (`test_oodos_clock`, `test_oodos_clock_disk2`, `test_oodos_input`, `test_oodos_clock_debug`, on CcpRig,
+revision 3):
+
+| # | Case | The real failure it guards | Must fail under |
+|---|---|---|---|
+| O1 | `the_tick_is_the_bridge_s`: at the prompt MSIE set, VIA IER 0, ACR 0, timer 1's latch as the test left it; `FC_MS` and `FC_T1`; `FT_COUNT` follows MS | OODOS still driving the VIA | CLKINIT still loading timer 1 |
+| O2 | `ft_count_is_never_torn`: an event area open, `FT_COUNT` in a loop across MS's 24-bit carry, its start swept a cycle at a time against the tick: every result whole and monotonic | a torn read when the handler's latch lands between MS0 and MS3 | `FT_COUNT`'s interrupts-off removed; MS1 read before MS0 |
+| O3 | `the_area_s_counter_is_whole_after_ticks_run_together`: just before a carry, interrupts held off 3 ms (a test program's SEI loop); EV_MS's four bytes right at the next tick | the area's high bytes a carry behind | OVR's test removed from the area path |
+| O4 | `a_disk_ii_read_keeps_exact_time`: a sector read and a write on O:, MS as the bridge's, exact | time lost or counted twice under the masked fields | CATCHUP still adding its ticks |
+| O5 | `timer_1_is_the_program_s`: a program runs timer 1 one-shot and free-running with PB7, polling IFR bit 6, through 10 s; it sees every flag, OODOS's tick loses none; the warm boot puts ACR to 0, IER off | the program's flag cleared under it by OODOS | the dispatcher's VIASRV still taking timer 1's flag as the tick (reading `T1CL`) |
+| O6 | the tick's cost (`test_oodos_input`): the measured figures, no area, layout 1, layout 2, pinned | a regression in the fast path | (the pin) |
+| O7 | `oodos_refuses_an_older_bridge` (`test_oodos_sys`): `revision=1` and `revision=2`: the line naming `$D1` or `$D2`, then the monitor's prompt; no OODOS interrupt on (VIA IER, TBCTL, VIDEO_IEN, ACIA_CMD as the BIOS left them), the card not written | OODOS half-running on a bridge without the tick | the ID check accepting `$D2` and up; the check after CLKINIT (an interrupt turned on first) |
+| O8 | `ft_clock_reads_the_time_to_the_ms`: the DAT as `T_GET`'s; ms 0-999; called across a second, never the old second with the new ms; `FK_SYNC`; `revision=2` refused | a torn or wrong time to the ms | MSSL read before SEC (no latch) |
+| O9 | `hook_costs_by_the_bridge` (`test_oodos_clock_debug`): the tick hook measured within 4 cycles of OODOS 0.15's 479 less the tick's saving, timer 1 untouched | a debug build that disturbs the program's timer 1 | TBSUB read without MS0's latch |
+
+The existing hook, stick, paddle, delay and "loses no tick" cases run on revision 3 unchanged.
+
+**The diagnostics** (`test_bios_diag`): NB10 PASS on revision 3, SKIP on revision 2, FAIL with a bridge fault option
+(MSS not restarted; MSF not cleared by a 1). Mutant: NB10's MSS compare removed, so the fault passes, and the case
+must fail.
+
+**Expectation changes (need approval):**
+
+- the tick's cost pins (`test_oodos_input`) and the books' figures (measured in T3); the Disk II cases'
+  tolerance (`test_oodos_clock_disk2`), made exact; `FT_INFO`'s interface 17 and its clocks byte; the tests'
+  `ms_count()` and `sym("MS")` reads taking the bridge's counter;
+- `test_rtc`'s `tick_with_tie_interrupts_as_irqh_bit_5` and `a_program_reads_the_time_and_takes_the_tick_interrupt`
+  pinned to `revision=2` (the bridge's behaviour there is unchanged);
+- **retired, with the VIA tick:** `test_oodos_clock`'s `a_stopped_timer_ends_a_delay_and_the_warm_boot_starts_it_again`
+  and `a_changed_acr_is_put_back_by_the_warm_boot_losing_no_tick` (the second replaced by O5's ACR check), and
+  `without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept`'s expectation of no ms counter (it keeps its
+  6551 checks; `FC_MS` is now set);
+- **OODOS's revision 1 cases, retired** (OODOS 0.16 refuses `$D1`; O7 replaces them): `test_oodos_sysinfo`'s
+  `on_a_revision_1_north_bridge_its_row_says_d1_and_revision_1`, `test_gwbasic_screen`'s
+  `a_revision_1_bridge_has_peek_and_poke_but_not_bload`, and the `revision=1` cases of `test_oodos_video`,
+  `test_oodos_gfx` and `test_oodos_sys` (each helper that inserts ` revision=1`);
+- **unchanged:** the ROM's and the emulator's own revision 1 and 2 cases (`test_bios`, `test_bios_diag`,
+  `test_video_rev2`, `test_session`, `test_machine`), since the BIOS keeps all three revisions;
+- the random source's O5 (`an_old_bridge_has_no_source`, `revision=2`) becomes O7's refusal.
+
+Anything else that changes output is a finding to bring back.
+
+### The random source's ###
+
+Each must-fail case is seen failing under its mutant, on its own case; each mutant is a defect plausible in real
+wiring, bridge logic or hand-written 6502 code.
+
+**The bridge and the chip** (`test_nb_random.cpp`, new; `test_rtc` for C5):
+
+| # | Case | The real failure it guards | Must fail under |
+|---|---|---|---|
+| C1 | `pool_full_at_power_on`: RNGCNT 32, READY, CHIP, LOCKED, BUSY clear at the first instruction; the bytes are the stream's first 32 | a board whose first program finds no bytes, or the wrong ones | the power-on draw skipped; the pool read from the wrong end |
+| C2 | `an_unlocked_chip_is_never_drawn`: `rng_chip=unlocked`: CHIP set, LOCKED clear, RNGCNT 0, no Random on the bus | a mis-built board handing out the fixed pattern | the lock check removed; byte 86 tested instead of 87 |
+| C3 | `crc_and_count_are_checked`: one corrupted response retried, the pool right; three, FAULT and an empty pool; a status group not taken as data. The bridge's CRC equals `atecc_crc.py`'s check values | corrupted bytes, or an error group read as 35 bytes | the CRC check removed; the count check removed; the bit order reversed |
+| C4 | `no_chip_no_hang`: `rng_chip=none`: CHIP clear, BUSY never stuck, the clock's second unaffected | a board without the part, or a dead one, hanging the bus | a poll without its give-up |
+| C5 | `the_clock_keeps_its_second_through_draws`: draws for 5 s straight: TICK each second, SEC right, RTCCTL's BUSY never set by a draw | a draw holding the bus across SQW's edge | one shared BUSY; a draw sent as one long transaction |
+| C6 | `refill_after_the_last_byte`: 32 read, BUSY, 32 more that continue the stream; DRAW after FAULT clears it and refills | a pool that empties once and stays empty | the refill trigger removed; DRAW not clearing FAULT |
+| C7 | `the_chip_is_woken_for_every_draw`: a second draw 2 s after the first | the second and later draws failing because the chip slept | the wake skipped after the first draw |
+| C8 | `a_peek_takes_nothing`: the debugger reads RNGDATA ten times, RNGCNT unchanged | the WebUI's memory view draining the pool | `peek()` calling `read()` |
+| C9 | `the_chip_is_polled`: the model's Random time set to 40 ms: the draw still succeeds, and the bridge's first read comes 1 ms after the command | a fixed wait that reads too early on a slower part | a fixed 23 ms wait in place of the poll |
+
+**OODOS** (`test_oodos_random.cpp`, new, on CcpRig with the fixed stream):
+
+| # | Case | The real failure it guards | Must fail under |
+|---|---|---|---|
+| O1 | `rn_fill_gives_the_chip_s_bytes`: n 1, 2, 32, 33, 255, exactly the stream's next n, nothing past +2+n | a write past the caller's block; bytes skipped across a refill | the count compare off by one; a refill byte read twice |
+| O2 | `rn_fill_waits_for_ready`: n 64 straight after n 32, never `$00`s | an empty pool's `$00`s handed out | the READY wait removed |
+| O3 | `rn_fill_recovers_from_a_fault`: one draw's three tries failed, DRAW written, bytes right; two draws failed, refused, no hang | a game hanging on a flaky chip, or given garbage | DRAW not written; the give-up removed |
+| O4 | `rn_info_says_what_there_is`: locked; unlocked `RS_UNLOCKED`, RN_FILL refused; none 0, refused | a program unable to tell why it has no numbers | RS_UNLOCKED's test inverted |
+| O5 | `an_old_bridge_has_no_source`: `revision=2`, RN_INFO 0, RN_FILL refused at once | `$FF` from unused offsets taken as READY, CHIP and data | the NB_ID check removed |
+| O6 | `the_interface_is_17`: FT_INFO; every existing function's cases unchanged | a program unable to tell whether 78 exists | (the pin) |
+| O7 | SYSINFO's goldens: locked, unlocked, none, revision 2 | a wrong RANDOM line | the line's RS bit tested wrongly |
+
+**The diagnostics** (`test_bios_diag`): NB9 PASS on a good machine; FAIL with `rng_chip=unlocked` and with the
+injector making the chip answer a constant; SKIP with no chip. Mutant: NB9's byte compare removed, so the constant
+chip passes, and the case must fail.
+
+**Expectation changes (need approval):** NB_ID `$D2` to `$D3` in goldens; the version pins; SYSINFO's new line.
+Anything else that changes output is a finding to bring back.
+
 ## Open questions ##
 
 1. Is `full` still wanted at all, or are `changed` on each branch and `quick` before each release enough?

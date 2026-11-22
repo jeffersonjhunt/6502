@@ -373,7 +373,7 @@ system: lda     #<ssystem
         ; fall into random
 
 ; "  RANDOM     ATECC608B on the north bridge": function 78's RN_INFO
-; (interface 17; hw/future/random-source.md), not the hardware: SYSINFO's
+; (interface 17; hw/design.md, "The random source"), not the hardware: SYSINFO's
 ; exception doesn't grow. An OODOS before 78 answers $FF $FF: none.
 random: lda     #<srandom
         ldx     #>srandom

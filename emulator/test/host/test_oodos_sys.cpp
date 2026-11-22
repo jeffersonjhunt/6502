@@ -774,7 +774,7 @@ namespace
 
 TEST(the_hole_is_on_at_the_prompt)
 {
-    // O-H1 (N16; hw/future/north-bridge-rev3.md, "The common hole"): HOLE reads $BE at A>, and a far call into
+    // O-H1 (N16; hw/design.md, "The common hole"): HOLE reads $BE at A>, and a far call into
     // block 20, whose top 2 KB is all $00 (BRKs), makes a BDOS call there and takes 100 ticks there, and comes back.
     // Must fail with NB3CHK's write left out.
     Booted r;
@@ -3424,7 +3424,7 @@ TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
 
 TEST(oodos_refuses_an_older_bridge)
 {
-    // O7 (hw/future/north-bridge-rev3.md, "Revision 3 required"). On a revision 1 or 2 bridge OODOS's cold boot reads
+    // O7 (hw/oodos.md, "Revision 3 required"). On a revision 1 or 2 bridge OODOS's cold boot reads
     // NB_ID first and stops: the line naming the bridge it found, on the ROM's console and the serial line, then the
     // monitor's prompt. Nothing of OODOS's was turned on: the VIA's IER, TBCTL (none there: $FF), the video card's
     // IEN and the 6551's command register are as the ROM BIOS left them, and no CPU cycle wrote the SD card. Must

@@ -749,7 +749,7 @@ namespace
 
 TEST(every_way_into_the_rom_finds_the_hole_off)
 {
-    // O-H2 (N16; hw/future/north-bridge-rev3.md, "The common hole"): HOLE read as the PC first reaches the ROM's
+    // O-H2 (N16; hw/design.md, "The common hole"): HOLE read as the PC first reaches the ROM's
     // code ($C800-$F7FF with W3 on its block): $00 by WOZMON (Break's tramp), by APPLE2 ($C806, APPLESRC), by DIAG
     // ($C815, ROMENTRY) and by APPLE2 n ($C818, ROMENTRY), where it was $BE at the prompt. Must fail with TRAMPSRC's,
     // APPLESRC's or ROMENTRY's write removed (the ROM reading OODOS's bytes at $FFF4-$FFFF).

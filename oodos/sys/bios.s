@@ -2195,7 +2195,7 @@ BIN2BCD:        LDY     #0             ; A (0-99): tens in Y
                 RTS
 
 ; ---------------------------------------------------------------------------
-; The random source (hw/future/random-source.md, "The BIOS's driver"): the
+; The random source (hw/oodos.md, "The BIOS's driver"): the
 ; north bridge's pool of the ATECC608B's bytes, by its registers, beside
 ; TIME as TIME drives SET: a register read, a bounded poll. Not a jump-table
 ; entry: function 78 is the interface. Interrupts stay as they are.
@@ -2290,7 +2290,7 @@ RNGBYTE:        JSR     @now           ; the wait's start
 
 ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen and the 6551, A and X kept
 
-; NB3CHK (OODOS 0.16; hw/future/north-bridge-rev3.md, "Revision 3 required"): the cold boot's first act, before
+; NB3CHK (OODOS 0.16; hw/oodos.md, "Revision 3 required"): the cold boot's first act, before
 ; BINIT turns anything on. OODOS's tick and counter are north bridge revision 3's, so on any other bridge it
 ; doesn't boot: it says so on the ROM BIOS's console and the serial line, through the ROM's ECHO ($C80F), and goes
 ; to the ROM's BREAK, with no interrupt of OODOS's on and nothing on the card written. It runs here in W2 (block 61),
@@ -2298,7 +2298,7 @@ ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen an
 ; page (ECHO's $E0-$E7, its cursor) and stack. On $D3 it turns the common hole on and returns, A changed:
 ; HOLE $BE, EN with RO clear (FARCALL writes its operand there) on block 62, where common memory is, so with W3
 ; and VEC on 62 (OOLDR's) no byte the CPU sees changes; before BINIT, so every later path, Break in the boot too,
-; has it (hw/future/north-bridge-rev3.md, "The common hole"). Nothing else turns it on.
+; has it (hw/design.md, "The common hole"). Nothing else turns it on.
 NB3CHK:         LDA     NB_ID
                 CMP     #NB_ID_V3
                 BNE     @old

@@ -1932,7 +1932,7 @@ TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
     CHECK_EQ(bridge_of(r).map(), 0x01); // nothing wrote MAP: a $D1 bridge has none (it reads its reset value)
 }
 
-// --- Revision 3: NB10, the timebase (N6; hw/future/north-bridge-rev3.md, "The ROM BIOS 0.20") ---------------
+// --- Revision 3: NB10, the timebase (N6; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ---------------
 
 TEST(nb10_passes_on_revision_3_and_skips_on_2)
 {
@@ -1980,7 +1980,7 @@ TEST(nb10_fails_when_msf_isnt_cleared)
     CHECK(after_test(r, "NB10").find("MSF: A 1 WRITTEN DIDN'T CLEAR IT") != std::string::npos);
 }
 
-// --- Revision 3: NB12, the common hole (N18; hw/future/north-bridge-rev3.md, "The common hole") ---------------
+// --- Revision 3: NB12, the common hole (N18; hw/design.md, "The common hole") ---------------
 
 TEST(nb12_passes_on_revision_3_and_skips_on_2)
 {
@@ -2017,7 +2017,7 @@ TEST(nb12_fails_when_the_hole_ignores_ro)
     CHECK_EQ(bridge_of(r).hole(), 0x00);
 }
 
-// --- Revision 3: NB9, the random number chip (N7; hw/future/random-source.md, "The ROM BIOS 0.20") ------------
+// --- Revision 3: NB9, the random number chip (N7; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ------------
 
 namespace
 {

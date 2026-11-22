@@ -238,7 +238,7 @@ FJUMPS:
                 .word   F_FRAME, F_INPUT, F_SOUND, F_DMAOP ; 154: 80 (L1), 81 (L2), 82 (L3), 83 (L4)
                 .word   F_ROMVER ; 162: 77 (interface 9, hw/diag.md D1-1)
                 .word   F_SERIO ; 164: 85 (interface 16, serial.s)
-                .word   F_RANDOM ; 166: 78 (interface 17; hw/future/random-source.md)
+                .word   F_RANDOM ; 166: 78 (interface 17; hw/design.md, "The random source")
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19

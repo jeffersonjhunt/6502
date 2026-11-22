@@ -144,7 +144,7 @@ namespace ooe::test
         return fault_over(m, f, bad, ram);
     }
 
-    /// A north bridge revision 3 whose timebase is wrong in one way, for NB10 (hw/future/north-bridge-rev3.md): mapped
+    /// A north bridge revision 3 whose timebase is wrong in one way, for NB10 (hw/design.md, "The north bridge, revision 3"): mapped
     /// over the bridge's registers ($C680-$C6FF) after the machine is built, it passes every access through to the
     /// bridge (caught up to the cycle first: the bridge is timed and this isn't) but for its fault. Its IRQ is the
     /// bridge's own mapping's, which stays.

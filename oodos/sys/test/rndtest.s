@@ -1,5 +1,5 @@
 ; RNDTEST: function 78, the random source (OODOS 0.16, interface 17;
-; hw/future/random-source.md), for test_oodos_random.cpp. The command tail:
+; hw/design.md, "The random source"), for test_oodos_random.cpp. The command tail:
 ;
 ;   I        INFO aa xx (RN_INFO, no block)
 ;   F n ...  for each n (two hex digits, space between): RN_FILL of n into

@@ -567,7 +567,7 @@ TEST(the_loader_refuses_an_oodos_without_function_83)
     says("an OODOS without function 83", got, OLD);
 }
 
-// An OODOS before interface 17 (N17; hw/future/north-bridge-rev3.md, "The common hole"): FT_INFO answered with
+// An OODOS before interface 17 (N17; hw/design.md, "The common hole"): FT_INFO answered with
 // A = 16 and every area; the loader refuses it, MOLD, rather than far call into blocks with no common memory.
 // Must fail with the loader's CMP #17 removed.
 TEST(the_loader_refuses_an_oodos_before_interface_17)

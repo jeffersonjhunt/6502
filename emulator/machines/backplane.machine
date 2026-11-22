@@ -7,7 +7,7 @@
 # the BIOS starts in flash and shadows itself into bank F (hw/design.md,
 # "Boot"). Its registers are at $C680. Add `bootsel` to start with W3 on RAM
 # block 63 instead, as when the bus spy has loaded RAM. It is revision 3
-# (ID $D3; hw/future/north-bridge-rev3.md): revision 2's WIN0H-WIN3H and VECH
+# (ID $D3; hw/design.md, "The north bridge, revision 3"): revision 2's WIN0H-WIN3H and VECH
 # (A20-A23) and MAP (AP8 sends bank 8 to the video aperture), and the
 # timebase (the 1 kHz tick, its interrupt as module D, the millisecond
 # counter) and the random number chip. OODOS 0.16 needs it. `revision=2` and

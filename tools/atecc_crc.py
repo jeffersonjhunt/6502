@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The ATECC608B's CRC-16, our own oracle for the emulator's (hw/future/random-source.md, "The emulator").
+"""The ATECC608B's CRC-16, our own oracle for the emulator's (hw/design.md, "The random source in the emulator").
 
 Polynomial $8005, the register starting at 0, each byte fed least significant bit first, no final reflection;
 the chip sends it low byte first. `atecc_crc.py HEX...` prints the two bytes it would send for those bytes;

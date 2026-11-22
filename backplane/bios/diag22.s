@@ -546,7 +546,7 @@ NB8:
 @none:          TS      "NO TESTED BLOCK"
                 rts
 
-; NB9, the random number chip (north bridge revision 3, hw/future/random-source.md): on $D3 only, else SKIP;
+; NB9, the random number chip (north bridge revision 3, hw/design.md, "The random source"): on $D3 only, else SKIP;
 ; no chip, SKIP; a chip not locked, FAIL. Then the pool's 32 bytes, read through RNGDATA: FAIL if they are all one
 ; value or one 4-byte group repeated (an unlocked part's fixed pattern is such a group). Then DRAW: BUSY must clear
 ; with READY set within 150 ms; FAIL on FAULT. Its sample is in D22ZP (T_RND).
@@ -629,7 +629,7 @@ RNGW:           stz     T_K
 @ok:            clc
                 rts
 
-; NB10, the timebase (north bridge revision 3, hw/future/north-bridge-rev3.md): on $D3 only, else SKIP. With
+; NB10, the timebase (north bridge revision 3, hw/design.md, "The north bridge, revision 3"): on $D3 only, else SKIP. With
 ; interrupts off throughout: MSF sets within 1.1 ms of being cleared, and a read doesn't clear it; with MSIE, IRQH
 ; bit 5 reads 0 while MSF is set and 1 once it is cleared, then MSIE off. Then across three of the DS3231's
 ; seconds (three SEC changes): MSS reads 0 or 1 at each change and never more than 999; MS0-MS3 gain 1,000 +/- 1
@@ -777,7 +777,7 @@ NB10:
 @back:          TD      "MS: BACKWARDS ACROSS A CARRY"
                 rts
 
-; NB12, the common hole (north bridge revision 3, hw/future/north-bridge-rev3.md, "The common hole"): on $D3
+; NB12, the common hole (north bridge revision 3, hw/design.md, "The common hole"): on $D3
 ; only, else SKIP (NB11 is the deferred WINnH and MAP check's number). A tested RAM block's top 2 KB, seen through
 ; W1 at $7800-$7FFF, gets a tag at $7800 and its complement at $7FF0, and VEC's vectors at $7FFA (a Break while
 ; the hole is on still lands in the core). With interrupts off, HOLE EN on it: $F800 and $FFF0 must read the tags

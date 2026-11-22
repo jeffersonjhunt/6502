@@ -1,6 +1,6 @@
 /**
  * @file test_oodos_random.cpp
- * @brief OODOS 0.16's function 78, the random source (hw/future/random-source.md, its tests O1-O4).
+ * @brief OODOS 0.16's function 78, the random source (hw/oodos.md, "The random source in OODOS"; its tests O1-O4 in hw/testing.md).
  * @copyright Copyright (c) 2026 Jefferson J. Hunt (MIT)
  *
  * RNDTEST (oodos/sys/test/rndtest.s) calls function 78 on CcpRig, whose

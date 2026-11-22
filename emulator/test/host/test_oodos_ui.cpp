@@ -2983,7 +2983,7 @@ namespace
 
 TEST(ui_load_refuses_an_oodos_before_interface_17)
 {
-    // C-H2 (N17; hw/future/north-bridge-rev3.md, "The common hole"): function 80's FT_INFO answered with A = 16
+    // C-H2 (N17; hw/design.md, "The common hole"): function 80's FT_INFO answered with A = 16
     // during ui_load: UX_VERSION and no block taken, since its blocks would have no common memory. Must fail with
     // ui_load's interface check removed.
     CcpRig r;

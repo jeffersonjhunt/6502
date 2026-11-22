@@ -1,5 +1,5 @@
 ; T1TEST: the VIA's timer 1 as a program's, polled (OODOS 0.16, FT_INFO's
-; FC_T1; hw/future/north-bridge-rev3.md, "The VIA's timer 1, given to
+; FC_T1; hw/oodos.md, "The VIA's timer 1, given to
 ; programs", case O5), for test_oodos_clock.cpp. A line a result:
 ;
 ;   ONE nn    64 one-shots of 1,000 cycles (ACR's bits 7-6 %00), each flag

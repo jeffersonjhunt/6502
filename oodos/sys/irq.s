@@ -927,7 +927,7 @@ FT_WAITX:       LDA     CLOCKS
                 RTS
 @no:            JMP     RETFF
 
-; 78: the random source (interface 17; hw/future/random-source.md). X = 0: A
+; 78: the random source (interface 17; hw/design.md, "The random source"). X = 0: A
 ; is the operation; else A/X a block, its +0 the operation. RN_INFO: A the
 ; RS_* bits (0: no chip), X 0. RN_FILL (a block): +1 n (1-255), n bytes of the
 ; chip's to +2 on; A = X = 0, or $FF $FF refused (n 0, no source, the chip

@@ -1447,7 +1447,7 @@ VEC holds; `$C800–$F7FF` is still W3's. The I/O hole is decoded first, and App
 the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS 0.16 writes
 `$BE` (EN, block 62, where common memory is) at its cold boot and writes 0 on every way it hands the machine to the
 ROM, since an ordinary `JMP ($FFFA)` would read OODOS's bytes through the hole: the ROM never runs with it on. The
-bits' equates are `NB_HOLE_EN` and `NB_HOLE_RO`. The design is in hw/future/north-bridge-rev3.md, "The common hole".
+bits' equates are `NB_HOLE_EN` and `NB_HOLE_RO`. The design is in hw/design.md, "The common hole".
 
 <a id="reg-c6a8"></a>
 ### $C6A8 NB_TBCTL: the timebase's control

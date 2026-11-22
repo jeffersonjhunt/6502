@@ -113,7 +113,7 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
 
 TEST(ft_clock_reads_the_time_to_the_ms)
 {
-    // O8 (random-source.md's R6; nb3 N12): FT_CLOCK, with no block refused; with one, the DAT and the seconds as
+    // O8 (the random source's R6; nb3 N12): FT_CLOCK, with no block refused; with one, the DAT and the seconds as
     // T_GET gives them, and the ms into the second from the same latch: two calls with a 250 ms FT_DELAY between are
     // 250-300 ms apart by their own seconds and ms (the first's line is printed between). FK_SYNC set, FK_LOST
     // clear. Past 2155 refused, as T_GET. Must fail with MSSL read before SEC (the last latch's ms: the two calls'
@@ -454,7 +454,7 @@ TEST(without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept)
 
 TEST(the_tick_is_the_bridge_s)
 {
-    // O1 (hw/future/north-bridge-rev3.md, N9). At the prompt the tick is north bridge revision 3's: TBCTL's MSIE
+    // O1 (hw/design.md, "The north bridge, revision 3", N9). At the prompt the tick is north bridge revision 3's: TBCTL's MSIE
     // set; the VIA has no interrupt of OODOS's on (IER $80: none), ACR $00, and timer 1's latch is as the test
     // left it before the cold boot ($1234: OODOS loads it no more); FT_INFO's clocks have FC_MS, and the
     // millisecond counter follows emulated time. Must fail with CLKINIT still loading timer 1.

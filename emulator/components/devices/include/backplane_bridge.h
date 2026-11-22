@@ -25,7 +25,7 @@
  * Three revisions (step B7, proposed; the constructor's `revision`, a machine
  * file's `revision=1|2|3`; REVISION and ID are the default's):
  *
- * - Revision 3, ID $D3 (hw/future/north-bridge-rev3.md, random-source.md):
+ * - Revision 3, ID $D3 (hw/design.md, "The north bridge, revision 3"):
  *   revision 2's registers, the timebase ($1C-$1D, $28-$2E, below) and in
  *   the random source ($19-$1B, below). RTCCTL's TIE reads 0 and ignores
  *   writes: the 1 Hz TICK can't interrupt.
@@ -133,7 +133,7 @@
  * clears MS and the divider (they start at the release); a /RESET pulse
  * leaves them; any reset clears MSF, OVR and MSIE. peek() takes no latch.
  *
- * The random source (revision 3; hw/future/random-source.md): an ATECC608B
+ * The random source (revision 3; hw/design.md, "The random source"): an ATECC608B
  * (atecc608.h) on the same I²C bus, driven by the bridge alone, which keeps
  * a pool of 32 bytes. A draw is a run of short transactions with the bus free
  * between them, queued with the clock's one at a time and timed by their bits:

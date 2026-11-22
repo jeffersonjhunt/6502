@@ -994,8 +994,9 @@ questions say where it leans on them.
      blocks are the program's, like any it allocates, and the warm boot frees them.
   3. `GX_REMAP` puts the blocks in the W1 map.
   4. Each block's image goes to the block's `$0800-$37FF`, which is `$C800-$F7FF` when the block is in W3.
-  5. Each block is put in W1 through OOLIB (`GX_BLOCK`). Common memory is copied from `$F800-$FFFF` to the
-     block's top 2 KB (`$7800-$7FFF` in W1), as FARCALL needs. The block's fixups are applied.
+  5. Each block is put in W1 through OOLIB (`GX_BLOCK`), and its fixups are applied. (Before OODOS 0.16 common
+     memory was copied from `$F800-$FFFF` to the block's top 2 KB here, as FARCALL needed; since 0.16 the north
+     bridge's common hole shows it in every block, and `ui_load` refuses an OODOS before interface 17, UX_VERSION.)
   6. Block 1 goes back in W1 (`GX_W1BACK`).
   7. **All of `UISTATE` is zeroed** (D2). The fixup buffer was in it, and nothing in it may start out as it was
      found: a program's `BSS` isn't cleared. `uopen` (today in `DATA` for that reason, `uicore.s`) and every other
@@ -1217,8 +1218,9 @@ pays nothing for them.
   - OOLIB maps W1 and slot 1 as its contract allows. W3 holds OOUI's block all the while, and W1 never touches it.
 - **The BDOS** is `JSR $0203`, as now. The BDOS's entry saves W3 (`ST_W3`) and puts it back, so the BDOS returns
   into the block. The functions OOUI uses are unchanged.
-- **An interrupt** that comes while a block is in W3 is answered from the block's copy of common memory, which
-  therefore must be exact. It is: the loader copies it from the running OODOS.
+- **An interrupt** that comes while a block is in W3 is answered from common memory, which since OODOS 0.16 is the
+  north bridge's common hole: OODOS's own bytes, whatever block W3 holds (before it, from the block's copy, which the
+  loader made from the running OODOS).
 
 **Callbacks.** A list's row routine (`UF_ROUTINE`) and the picker's column routine are the program's code, called
 by `JSR` from block B (the row routine) or C (the column routine), with W3 still on that block.
@@ -1265,9 +1267,9 @@ So phase 2 changes the tool, and runs it like this:
   allocated blocks.
 - **Memory.** The blocks are allocated by function 55 and freed by the warm boot, or by `ui_load` itself on a
   refusal. A segment may reach banks 1-5, so `DM_LOAD` can load them.
-- **Common memory** is read and copied, never written, as the Programmer's Guide says a program does for now:
+- **Common memory** is never written by OOUI, and since OODOS 0.16 not copied either:
   [chapter 5, "Far calls"](../docs/oodos-programmers-guide/05-memory-and-banking.md#far-calls-farcall-and-the-far-call-table).
-  FARCALL writes its own operand in the caller's copy, as it always does.
+  FARCALL writes its own operand, in the hole's one slot.
 - **No hardware of its own:** no interrupts, DMA channels or VIA registers.
 - **The program's state** is left as found: the user is put back, and the DMA address and segment are never
   changed.
@@ -2240,7 +2242,8 @@ the next small phase's question.
 **The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopened answer 3, and the owner
 chose three blocks (round 2). None of these needs an OODOS or OOLIB change.
 
-1. **Common memory in OOUI's blocks:** rely on the interim copy. *Answered.*
+1. **Common memory in OOUI's blocks:** rely on the interim copy. *Answered.* *Closed (OODOS 0.16, 2026-11-22):* the
+   north bridge's common hole replaced the copy.
 2. **`OOUI.BNK` on the card:** in phase 2, a line in `make_card.sh` and the cards regenerated. *Answered.* The
    file's SYS attribute isn't needed, since `ui_load` opens it in user 0 (D8).
 3. **Two blocks or three.** *Answered: three* (the owner, round 2, 2026-11-11): A, the core and the menus; B, the

@@ -2068,7 +2068,7 @@ TEST(break_turns_the_clocks_tick_off_and_the_time_runs_on)
 
 TEST(break_turns_the_bridge_s_tick_off)
 {
-    // N6 (hw/future/north-bridge-rev3.md, "Break"): a program turns on revision 3's tick interrupt (TBCTL's MSIE)
+    // N6 (hw/design.md, "Power-on, resets, Apple II mode and Break"): a program turns on revision 3's tick interrupt (TBCTL's MSIE)
     // and spins with interrupts off; Break (the ROM's QUIET) writes TBCTL $C0: MSIE off and both flags cleared, so
     // the monitor runs with no tick interrupting. Must fail with QUIET's TBCTL write removed.
     Board b;
@@ -2714,7 +2714,7 @@ TEST(c800r_with_win0h_left_set_runs_its_stub_in_ram_block_0)
 
 TEST(a_revision_3_bridge_boots_as_revision_2_does)
 {
-    // N1, the sweep (hw/future/north-bridge-rev3.md): every test of NB_ID is "revision 2 or more", so a $D3 bridge
+    // N1, the sweep (hw/design.md, "The north bridge, revision 3"): every test of NB_ID is "revision 2 or more", so a $D3 bridge
     // takes revision 2's paths. With no video card BOOT2's NBSET clears AP8; with one it keeps it and the monitor's
     // screen comes through the aperture; and START clears WIN0H before its stub runs in RAM block 0.
     {

@@ -3,7 +3,7 @@
  * @brief North bridge revision 3's random source: the ATECC608B model, its CRC, and the bridge's engine.
  * @copyright Copyright (c) 2026 Jefferson J. Hunt (MIT)
  *
- * hw/future/random-source.md is the spec (its tests C1-C9; C5 is test_rtc's).
+ * hw/design.md, "The random source", is the design (its tests C1-C9 in hw/testing.md; C5 is test_rtc's).
  * The chip's CRC is checked against tools/atecc_crc.py, an oracle written
  * apart from the C++ routine. Then the bridge's engine on revision 3, with
  * the fixed stream (Atecc608::splitmix(1)): every byte a test sees is known.

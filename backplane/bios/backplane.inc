@@ -41,7 +41,7 @@ NB_MAP_AP8      = $01
 NB_ID_V1        = $D1                  ; revision 1: no WINnH, VECH or MAP
 NB_ID_V2        = $D2
 NB_ID_V3        = $D3                  ; revision 3: revision 2's, the random source and the timebase
-; Revision 3 (ID $D3; hw/future/north-bridge-rev3.md, random-source.md): use these only after NB_ID reads
+; Revision 3 (ID $D3; hw/design.md, "The north bridge, revision 3"): use these only after NB_ID reads
 ; $D3: on $D1 and $D2 the offsets read $FF and drop writes. MS0 and SEC latch when read, and RNGDATA gives
 ; up its byte: read each with a load (LDA, LDX, LDY), never a read-modify-write or a 16-bit read.
 NB_RNGST        = NB + $19             ; the random source: READY CHIP LOCKED FAULT . . . BUSY; write DRAW

@@ -135,7 +135,7 @@ Each line is one of these, and anything else is an error:
 | `$BFFD–$BFFF` | W2 | the BDOS's entry: a `JMP` to the stub in common memory, the TPA's top (phase 2, below) |
 | `$C000–$C7FF` | — | the I/O hole, always there |
 | `$C800–$F7FF` | W3 | the **code window** (12 KB): OODOS's resident code, or a program's banked code during a far call |
-| `$F800–$FFFF` | W3 | **common memory** (2 KB): the BDOS entry stub, the BIOS jump table, the far call table, interrupt entry |
+| `$F800–$FFFF` | the hole | **common memory** (2 KB): the BDOS entry stub, the BIOS jump table, the far call table, interrupt entry. Since OODOS 0.16 the north bridge's common hole, whatever W3 holds |
 
 **The base page** keeps CP/M's offsets, so ported code keeps its constants:
 
@@ -183,12 +183,13 @@ back in A (low) and X (high), as CP/M 3 returns it in A and HL.
 | Banks C–D | the M: RAM disk |
 | Banks 1–5 | blocks programs can ask for (GW-BASIC's banked code, below) |
 
-**Common memory is in every block W3 maps.** Whatever block is in W3, its top 2 KB is the same copy of common
-memory, put there by OODOS when the block is allocated for code. So the BDOS entry, the interrupt entry and the far
-call table are always at the same addresses, and a far call can swap W3 without losing them. *(Not built yet: 3c's
-53–56 allocate blocks but copy nothing into them, so a program puts common memory in a block it far calls
-itself; deferred to phase 7, below.)* Common memory keeps
-no state of its own: that lives in the system's zero page block.
+**Common memory is the same whatever block W3 maps.** Since OODOS 0.16 it is north bridge revision 3's common
+hole: HOLE `$BE` maps `$F800–$FFFF` to block 62's top 2 KB whatever W3 holds
+([design.md](design.md#the-common-hole); [OODOS 0.16](#oodos-016-north-bridge-revision-3)). So the BDOS entry, the
+interrupt entry and the far call table are always at the same addresses, a far call can swap W3 without losing
+them, and no block needs a copy. *(Before 0.16 each far-called block needed its own copy, which the program made:
+GW-BASIC's loader and OOUI's ui_load did; 0.16 dropped both.)* Common memory keeps no state but FARCALL's operand,
+one slot now for every block; the rest lives in the system's zero page block.
 
 **Entering the BDOS.** The stub in common memory saves the program's stack pointer and window registers, points
 W0 at the system's zero page and stack, and W1–W2 at the BDOS and BIOS. On the way out it puts them back and does
@@ -303,9 +304,8 @@ common memory holds a small table, found through function 72, beside the BIOS's 
 - **FARCALL:** map a block into W3's code window (the program names the block and an address in `$C800–$F7FF`),
   JSR there, and put W3 back on the way out. The block's code may call FARCALL again; the table keeps a stack of
   the blocks. The program's own memory, `$0000–$BFFF`, stays mapped throughout, so banked code sees all of it.
-- A block allocated for code gets common memory copied into its top 2 KB, so 12 KB of each is the program's.
-  *(Not done yet: 3c allocates blocks without it; deferred to phase 7, with the home block and the lean FARCALL,
-  under [Open Questions](#open-questions).)*
+- A block allocated for code needs no copy of common memory: the hole shows OODOS's at `$F800–$FFFF` (OODOS 0.16),
+  so 12 KB of each, `$C800–$F7FF`, is the program's code window and its top 2 KB plain RAM.
 - **FARPEEK, FARPOKE, FARMOVE:** bytes and runs of bytes at physical addresses, for DEF SEG, PEEK, POKE, BLOAD and
   BSAVE. FARMOVE uses the DMA controller.
 
@@ -448,7 +448,8 @@ A machine with no OODOS card still boots to the monitor as now.
   the code window.)
 - **The BDOS stub** saves the program's S, P and WIN0–WIN3, switches to the system's windows and stack, calls the
   BDOS, and puts them back. With interrupts off while it switches; what it keeps before the switch goes on the
-  program's own stack, so common memory is never written and may be read-only in a program's W3.
+  program's own stack, so the stub writes nothing in common memory (it runs with the hole's RO set: 0.16's
+  `the_bdos_stub_writes_nothing_in_common_memory`); a program's W3 may be read-only, which doesn't reach the hole.
 - **The program's memory from the system:** through the saved windows, as physical addresses, by DMA
   (MOVE/XMOVE, or a byte at a time where that's all it is).
 - **Programs call the BIOS through function 50 only.** The jump table in common memory is the BDOS's.
@@ -456,13 +457,13 @@ A machine with no OODOS card still boots to the monitor as now.
   MOVE that returns `$FFFF` either was refused or ended at `$FFFF`, and the program tells which by whether its
   destination + count is `$FFFF`.
 
-**Common memory** (`$F800–$FFFF`, the same in every block W3 maps) holds:
+**Common memory** (`$F800–$FFFF`, the north bridge's common hole since 0.16: the same whatever block W3 maps) holds:
 
 | Address | What |
 |---|---|
 | `$F800` | the BIOS jump table: CP/M 3's 30 entries, in CP/M 3's order, 3 bytes each |
 | after it | the BDOS stub, the warm boot entry, FARCALL, the interrupt and NMI entries |
-| `$FFFA–$FFFF` | the NMI, reset and IRQ vectors (VEC is block 62) |
+| `$FFFA–$FFFF` | the NMI, reset and IRQ vectors (VEC is block 62; the hole wins over VEC anyway) |
 
 The addresses after the jump table aren't fixed: programs find FARCALL through function 72.
 
@@ -546,8 +547,8 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   so a buffer may cross windows mapped anywhere (READ and WRITE then go through the system block's buffer).
 - **FARCALL** is the spike's code unchanged: 281 cycles over a JSR/RTS on the emulator, as in the spike.
 - **Break and BRK:** common memory is in W3 and can't move W3 and go on, so it maps the system block into W0,
-  writes four instructions there (W3 and VEC to block 63, read-only, then `JMP ($FFFA)`, block 63's NMI vector)
-  and jumps to them. The monitor's BREAK puts W0–W2 back on blocks 0–2.
+  writes five instructions there (HOLE 0, since 0.16, so the ROM never runs with the hole on; W3 and VEC to block
+  63, read-only; then `JMP ($FFFA)`, block 63's NMI vector) and jumps to them. The monitor's BREAK puts W0–W2 back on blocks 0–2.
 - **The stand-in CCP** runs in the code window as a program does, with the program's windows, zero page and stack.
   Its command word is made capitals; the tail goes to `$0280` as typed, its leading space too; the FCBs are blanked,
   not parsed (phase 4). A program starts with A, X and Y 0, D clear, interrupts off, and the warm boot's address on
@@ -3865,6 +3866,9 @@ only if a cost measured in a sub-phase forces it.
 3. **Common memory in an allocated block. GW-BASIC can do without OODOS doing it.**
    - **Decided (2026-11-13, the owner):** GW-BASIC's loader copies common memory into each of its code blocks, as `ui_load` does. No
      block is marked for code, and 53–58 are unchanged.
+   - **Closed (2026-11-22, OODOS 0.16):** north bridge revision 3's common hole shows common memory in every block,
+     so the loader's copy and ui_load's went ([OODOS 0.16](#oodos-016-north-bridge-revision-3)); both refuse an
+     OODOS before interface 17.
    - **How, as a cost estimate:**
      1. The loader copies `$F800–$FFFF` into a buffer in the free workspace once, by CPU: about 29,000 cycles.
      2. It puts the buffer into each block's `$3800–$3FFF` by function 83's `DM_COPY`: about 4,600 cycles a block.
@@ -6569,6 +6573,360 @@ A later GW-BASIC step, not this one: TRPOLL's test of `EV_RXCNT` against its las
 call; in console mode, a 16-byte layout 1 area for it, or function 7 each statement); LOC(1), LOF(1) and "Communication
 buffer overflow" from `SR_STATUS`; OPEN "COM1:" taking TTY out of CONIN: while it is open.
 
+## OODOS 0.16: north bridge revision 3 ##
+
+Status: **built** (2026-11-22, feat/nb-rev3, units N1-N23). OODOS 0.16 needs north bridge revision 3
+([design.md](design.md#the-north-bridge-revision-3)): its tick and millisecond counter are the bridge's, function 78
+gives the random source, and common memory is the bridge's common hole. OOLIB interface 17. The text below is the
+specs' OODOS parts, moved here as built; the figures measured are in [As built](#revision-3-as-built).
+
+### Revision 3 in brief ###
+
+| Area | What | Status |
+|---|---|---|
+| The revision | north bridge revision 3, `$D3`: the random source ([design.md](design.md#the-random-source)) and the timebase | **Decided** |
+| The tick | 1 kHz, from the master oscillator (OSC, 14.31818 MHz), exact over every 11 ms; its own flag, enable and acknowledge; IRQH bit 5 | **Decided** (the tick on the bridge); the details Proposed |
+| The millisecond counter | 32 bits, free-running, cleared by a hard reset, read through a latch | **Decided** (the counter); the details Proposed |
+| Time to the millisecond | MSS, 0-999, restarted by each of the DS3231's seconds, latched with SEC-YEAR | **Decided** (the count); the details Proposed |
+| The 1 Hz TICK interrupt | dropped: TIE reads 0 on revision 3; TICK and ALARM stay as flags to poll | **Decided** (the owner, 2026-11-21: [Q2](#revision-3s-questions)) |
+| Registers | MSS at `$1C-$1D`; TBCTL, MS0-MS3 and TBSUB at `$28-$2E`; HOLE at `$26`; no collision with `$19-$1B` | Proposed |
+| OODOS 0.16 | requires revision 3: the tick is the bridge's alone, the VIA timer 1 tick retired; on `$D1` or `$D2` it refuses to boot, with a message | **Decided** (the owner, 2026-11-21: [Q1](#revision-3s-questions)); the refusal Proposed |
+| What goes | the VIA's tick, OODOS's own `MS`, the Disk II's catch-up, `T1NOW`, `FT_DELAY`'s stopped-timer check, OODOS's revision 1 paths | Proposed |
+| The VIA's timer 1 | the program's under OODOS 0.16, polled only: IER stays OODOS's, timed calls go through the tick hook; AGENTS.md's rule changes | **Decided** (the owner, 2026-11-21: [Q3](#revision-3s-questions)); the exact terms Proposed |
+| OOLIB | interface 17 (with the random source's function 78): `FC_T1`, `FT_CLOCK` | Proposed |
+| The cost | a tick about 139 cycles from 162, estimated; measured in T3 | Proposed |
+| The common hole | HOLE at `$26`: `$F800-$FFFF` mapped to one block's top 2 KB whatever W3 holds, off at every reset; OODOS turns it on (block 62) and off on every way into the ROM | **Decided** (the owner, 2026-11-22: [the common hole](design.md#the-common-hole)) |
+| Versions | as the random source's: north bridge `$D3`, ROM BIOS 0.20, OODOS 0.16, OOLIB interface 17 | Proposed |
+
+### OODOS 0.16's parts ###
+
+#### Revision 3 required ####
+
+**Decided (the owner, 2026-11-21: "require revision 3").** OODOS 0.16 has one tick, the bridge's. The VIA timer 1
+tick is retired entirely: no fallback for `$D1` or `$D2`.
+
+**On an older bridge OODOS refuses to boot (Proposed).** The cold boot's first act, before it turns anything on,
+is to read NB_ID. Anything but `$D3`: it prints, on the BIOS's console and the serial line,
+
+    OODOS 0.16 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D2.
+
+and goes back to the monitor through the BIOS's Break, with no interrupt of OODOS's on and nothing of the card
+written. A refusal is plain: the machine says why, and nothing half-works. *Not taken:* booting without a
+millisecond counter (`FC_MS` clear), as OODOS does today without a VIA. It would boot, but `FT_DELAY`, the tick
+hook, the beep, the sticks' sampling and the random source (revision 3's too) would all be missing, and a program
+that didn't check `FT_INFO` would fail in ways harder to read than one line at boot. The owner's "require" reads as
+the refusal, so this isn't a question.
+
+**What that simplifies.** Every machine OODOS 0.16 runs on has the bridge's tick and counter, and revision 2's
+registers (WINnH, VECH, MAP), since revision 3 has them:
+
+- one tick path; OODOS's own `MS`, `MSACC`, the Disk II's `CATCHUP`, `T1NOW` and `ADDTK`'s timer use, and the
+  warm boot's timer 1 latch check, all go;
+- `CLK_MS` is always set, so its tests in `disk2.s`, `sound.s` and `input.s` go (the sticks test VIAL, below);
+- `FT_DELAY`'s check for a stopped counter goes: the bridge's counter can't stop, so the `$FF` return it guarded
+  can't come (no caller loses a result it could get);
+- OODOS's revision 1 paths go: the `$D2` tests in `crt.s` (NB2), `common.s` (WINH0) and the dispatcher's
+  "WIN1H reads `$FF`: no register" case become unconditional or go, and so do refusals whose only reason was a
+  `$D1` bridge (`GX_BANK8`'s, GW-BASIC's DSB8 test of it). T3 sweeps them, each named in its review;
+- the random source's "a bridge before revision 3" answers (`RN_INFO` 0, its O5 case) can't come under OODOS
+  0.16; `RNGOK` keeps its CHIP and LOCKED test.
+
+The ROM BIOS keeps supporting revisions 1 and 2: its diagnostics and boot run on all three.
+
+#### Cold boot, the warm boot, leaving ####
+
+- **CLKINIT**, after the ID check: TBCTL `$E0` (both flags cleared, MSIE on); `CLK_MS` in CLOCKS, always. The VIA,
+  if there is one, gets IER `$7F`, its IFR cleared and ACR `$00`; timer 1 isn't loaded. VIAL (the dispatcher's "a
+  VIA is there") is set by the VIA's presence, as now.
+- **DEAFEN and the warm boot**: TBCTL `$E0` again (MSIE on, in case a program wrote it), every VIA interrupt off, and
+  ACR `$00`, as /RESET leaves it, so a program's timer modes and PB7 output end with it (timer 2 and the shift
+  register too, as hw/oolib.md's question 6 has it). Timer 1's latch is no longer compared or written: it is the
+  program's, and nothing of OODOS's depends on it.
+- **CLKOFF** (function 75: Apple II mode, the monitor) writes TBCTL `$C0`, MSIE off.
+- **`CLK_MS` stops meaning "a VIA".** Two places use it for the VIA's ports: L2OPEN's reading of the sticks
+  (`input.s`) and the layout-2 tick's sampling, which take VIAL instead. Elsewhere it is always set now, and its
+  tests go.
+
+#### The dispatcher ####
+
+The fast path tests IRQL for `$FF` (`INC A`, as today's no-card test) and IRQH for `$DF`, and calls TICK. No VIA
+register is read. VIASRV treats every VIA flag as a stray: turned off, its flag cleared. In particular a program's
+timer 1 can't reach the tick: its IER bit is off, and the dispatcher never reads `T1CL`.
+
+#### The tick ####
+
+- **The acknowledge** is the handler's first write: `LDA #$E0` `STA NB_TBCTL` (MSF and OVR cleared, MSIE kept). A
+  tick that comes during the handler sets MSF again and interrupts after the RTI.
+- **No event area:** nothing else for the counter: it is the bridge's. Then the tick hook's count, as now.
+- **An event area open:** TBCTL is read first (`BIT`: OVR in V), then acknowledged, then EV_MS's low byte written
+  from MS0. All four bytes are written (EVALL, from the latch) when EVDIRTY is set (the open), when MS0 reads 0 (the
+  low byte went round), or when OVR was set (ticks ran together, perhaps across a carry). So the area's counter is
+  whole at the next tick whatever held the interrupt off.
+- **The tick hook** still counts interrupts, every *n*, as now: ticks that ran together are one call. **The sticks
+  and the paddles** are still sampled at the tick, on the VIA's ports (OODOS's in layout 2, as now).
+
+#### The counter in OODOS ####
+
+OODOS's own `MS` goes. Every reader takes the bridge's counter:
+
+- **In a handler** (interrupts off): as it likes, a byte or all four. The USB events' and the mailbox's stamps,
+  PADDUE's compare and EVALL read the bridge.
+- **Elsewhere** (the BDOS's `FT_COUNT`, `FT_DELAY`'s wait, SNAPIT): all four with interrupts off, about 20 cycles,
+  so that a handler's latch can't come between MS0 and MS3. A single byte may be read with them on.
+- **`FT_COUNT`** gives the bridge's count, and `FT_DELAY` waits on it. Their meaning doesn't change: a millisecond
+  is a count, now exactly one of the crystal's. `FT_DELAY`'s stopped-counter check goes ([above](#revision-3-required)).
+- **EV_MS** is the bridge's count, as above.
+
+#### The Disk II ####
+
+The driver still masks interrupts for each sector field. **CATCHUP goes** (with `MSACC` and the driver's byte
+count's use for time); the unmask sets EVDIRTY, so the event area's counter is written whole at the next tick. The
+bridge counted every millisecond meanwhile, so the counter is exact through a read or a write (today it is "about
+half a percent"). The tick that comes at the unmask carries OVR. Ticks for the hook are missed as now.
+
+#### DMA's 2 KB pieces ####
+
+**Kept, with a new reason.** DMAGO's 2 KB pieces and the sound stream's pieces under a tick were for a counter that
+lost a millisecond to two expiries under one flag. Now a longer piece loses no time (OVR, and the area's
+counter written whole), but it would still merge tick interrupts, so the hook and the sticks' sampling miss a tick,
+and it would hold off the serial line's receive interrupt and the stream's next piece for longer. So the pieces
+stay; the comment and the `.assert`'s reason in `bios.s` change, and the Technical Reference's chapter 5 says so.
+
+#### The debug build's hook costs ####
+
+`FT_COSTS` (the `OOLIB_DEBUG` build) times hooks by timer 1 today (`T1NOW`). It reads MS0 then TBSUB (one latch)
+instead, and adds whole ticks as now; `T1NOW` and its late-flag reasoning go. So a debug build never touches the
+program's timer 1. `FT_COSTS`'s A (1: counted) is always 1.
+
+#### Interface 17: `FC_T1` and `FT_CLOCK` ####
+
+OOLIB's interface goes to 17 with the random source's function 78 (one release; interface 17 covers both). No
+existing call changes (the owner's rule: interfaces only grow).
+
+- **`FC_T1` (`$04`)**, a new bit in `FT_INFO`'s clocks (+3) and EV_CLOCKS: **the VIA's timer 1 is the program's**.
+  OODOS 0.16 sets it whenever a VIA is fitted; an OODOS before 0.16 never does, so a program that may run on one
+  tests it before touching timer 1. `FC_MS` keeps its meaning, "the millisecond counter runs", now always set; its
+  comment in oodos.inc stops naming the VIA.
+- **`FT_CLOCK` (function 80, operation 9; `FT_OPS` 10):** the time of day to the millisecond, from one latch. Block
+  form only: +0 `FT_CLOCK`; the result at +1: +1-4 a DAT as `T_GET`'s (the day, the hour and the minute, BCD),
+  +5 the seconds, BCD, +6-7 the milliseconds into the second (0-999), +8 `FK_SYNC` `$01` (SYNC) and `FK_LOST`
+  `$02` (LOST). A = X = 0; A = X = `$FF` for a clock past 2155 (as `T_GET`). Its side effect is `T_GET`'s: the
+  SCB's date and time. It is for `TIMER` in GW-BASIC (not built yet) and for anything that stamps events in wall
+  time. (Proposed.)
+
+#### The VIA's timer 1, given to programs ####
+
+Where `FT_INFO` says `FC_T1`, timer 1 is the program's, **polled only** (**Decided**, the owner, 2026-11-21: [Q3](#revision-3s-questions)):
+
+- its counter and latches, read and written: `T1CL`, `T1CH`, `T1LL`, `T1LH`;
+- ACR's bits 7-6, timer 1's mode (one-shot or free-running; PB7 as its output), written with the rest of ACR kept as
+  read;
+- its flag, IFR bit 6, polled, and cleared as the chip clears it (reading `T1CL`, writing `T1CH`);
+- **not its interrupt.** IER stays OODOS's: OODOS owns the vectors, so a timer 1 interrupt would have no handler of
+  the program's; the dispatcher turns it off. A program that needs a timed call has the tick hook.
+
+The warm boot takes it back (ACR `$00`). Hooks follow the program's rule: they may use timer 1 too. (Under an
+OODOS before 0.16, which never sets `FC_T1`, the old rule stands.)
+
+#### The cycle saving ####
+
+Today's tick with no event area and no hook is 162 cycles (`test_oodos_input`'s pin): the interrupt's 7, IRQ's 19,
+the dispatcher's 30 to its poll, the fast path's 37, TICK's 33 and the way out, 36. On OODOS 0.16, estimated:
+
+| Part | Today | OODOS 0.16 | Saved |
+|---|---|---|---|
+| the fast path: two polls tested, then TICK | 37 (with the VIA's IFR and IER checked) | 22 (IRQL by `INC A`, IRQH by `CMP #$DF`, no VIA) | 15 |
+| TICK, no area, no hook | 33 (`T1CL` read, `MS` counted) | 25 (EVON, the acknowledge, THON) | 8 |
+| **a tick** | **162** (2.26% of the CPU) | **about 139** (1.94%) | **about 23** |
+| a tick with a layout-1 area | 201 | about 188 (OVR and the wrap tested; no `MS` to count) | about 13 |
+
+About 23,000 cycles a second, 0.3% of the CPU: a modest saving. What revision 3 buys is mostly elsewhere: a counter
+that is exact and loses nothing, a tick on every machine, and timer 1 for programs. T3 measures the figures with
+`test_oodos_input`'s Costs and pins them; the books take the measured ones.
+
+#### SYSINFO ####
+
+No new hardware reads: AGENTS.md's SYSINFO list doesn't grow. Its north bridge line names `$D3` (the random source's
+`hwname.s` change); under OODOS 0.16 it never meets `$D1` or `$D2`. `HW_CLOCK`'s notes on OODOS's millisecond
+handler sliding 90 cycles a second against the DS3231 change: the tick now slides by the crystal's error alone. Its
+goldens change only by the random source's line and the revision's name.
+
+### The random source in OODOS ###
+
+#### The BIOS's driver ####
+
+In `oodos/sys/bios.s` beside `TIME`, driving the registers as TIME drives SET: a register write, then a bounded
+poll. It is **not** a BIOS jump-table entry; function 78 is the interface.
+
+- `RNGOK`: NB_ID is `$D3`, and RNGST has CHIP and LOCKED both set.
+- `RNGFILL` (n bytes to a buffer): for each byte, wait for READY or FAULT, then load RNGDATA. The wait gives up
+  after 400 ms, longer than the bridge's three tries at their give-up (about 310 ms), so the driver sees FAULT
+  rather than racing the retries. If FAULT is seen, write DRAW once and wait again; if that fails too, the call
+  fails.
+- Interrupts stay as they are: the tick runs through the wait.
+
+The ROM BIOS has no driver: nothing in the ROM needs random numbers. It changes only for the diagnostics.
+
+#### Function 78 `O_RANDOM` ####
+
+**Decided:** two operations. 78 is free (72-77 are OODOS's own; 80-83 and 85 are OOLIB's areas; 84 is
+OA_VIDEO's unassigned slot). It is OODOS's own (no OA bit), found by the interface version.
+
+| Op | Form | Result |
+|---|---|---|
+| `RN_INFO` (0) | Y = 78, A = 0, X = 0 | A = `RS_CHIP` `$01` (a locked chip on a revision 3 bridge: a source), `RS_UNLOCKED` `$02` (a chip that isn't locked: no source), `RS_FAULT` `$04` (its last draw failed); 0 = no chip, or a bridge before revision 3. X = 0 |
+| `RN_FILL` (1) | A/X = a block: +0 1, +1 n (1-255); the bytes land at +2 | A = 0: n bytes from the chip. A = X = `$FF`: refused (n 0, no source, or the chip failed twice; the bytes at +2 are then undefined) |
+
+- **X = 0 means A is the operation**, as in OODOS's other functions. A block is never in the zero page or the
+  stack, so its address's high byte is never 0.
+- **A 16-bit number is an `RN_FILL` of 2**, so no result can be mistaken for a refusal.
+- **Cost:** the BDOS's dispatch (about 600 cycles) plus about 20 cycles a byte while the pool lasts. An `RN_FILL` of
+  255 waits for 7 refills, about 180 ms at the planning figure.
+- **OOLIB's interface goes to 17** for it (OODOS's additions are marked by the interface number, as from
+  interface 9). No existing call changes (the owner's rule: interfaces only grow). An older OODOS answers 78 as a
+  function it doesn't have, so a program checks FT_INFO's interface version first.
+
+#### SYSINFO's RANDOM line ####
+
+A new line from `RN_INFO`, not from the hardware (**Decided**):
+
+    RANDOM   ATECC608B on the north bridge          (or: none / not locked / failed)
+
+AGENTS.md's SYSINFO list doesn't grow; the random number registers join what OODOS owns (**Decided**). `hwname.s`
+learns `$D3`.
+
+### AGENTS.md ###
+
+The rule "Don't take over what OODOS owns" changes (the owner's decision gives timer 1 back; the wording is
+proposed):
+
+> ... the DMA channels, the north bridge's windows **and its timebase (TBCTL, MS0-MS3, TBSUB, MSS)**, the sound
+> card's 6510, the VIA's IER and IFR, **and its ACR but for timer 1's mode bits (7-6). Timer 1 is the program's,
+> polled: its counter, its latches, ACR's bits 7-6 (the rest of ACR kept as read), its IFR flag; never its IER
+> bit. (OODOS 0.16 needs north bridge revision 3; a program that may run on an older OODOS checks `FT_INFO`'s
+> `FC_T1` first.)**
+
+SYSINFO's exception is unchanged: it writes timer 2 only, never ACR, IER or timer 1.
+
+### Revision 3's versions ###
+
+As the random source's spec has them, unchanged: **north bridge revision 3, `$D3`; ROM BIOS 0.20; OODOS 0.16; OOLIB
+interface 17.** The two parts ship as one revision and one release: interface 17 is function 78 and this document's
+`FC_T1` and `FT_CLOCK` together. If the owner splits them, the second to land takes interface 18.
+
+### The units, as planned ###
+
+T1 is this document; it and the random source's R1 are the revision's spec. The rest go beside the random source's
+units, the emulator's work in one change with its bridge:
+
+1. **T1, the spec:** this document, approved; its hardware sections into hw/design.md.
+2. **T2, the emulator:** the bridge's timebase (with R3's revision 3 bridge), the skew and `set_ms()` hooks, the
+   debugger and WebUI lists; `test_nb_timebase` B1-B9; `test_rtc`'s TIE case pinned to revision 2.
+3. **T3, OODOS's tick on the bridge:** the cold boot's refusal of `$D1` and `$D2`; CLKINIT, DEAFEN, CLKOFF, the
+   dispatcher, TICK, the counter's readers; the VIA tick, `MS`, CATCHUP, `T1NOW` and `FT_DELAY`'s stopped-counter
+   check removed; the sweep of OODOS's revision 1 paths; the debug build's costs; O1-O7 and O9; the retired cases
+   above; the cost measured and pinned.
+4. **T4, interface 17's timing:** `FC_T1`, `FT_CLOCK`; O8; AGENTS.md's rule; function 80's entry.
+5. **T5, the ROM BIOS 0.20:** Break's TBCTL, NB10 and its `test_bios_diag` cases (with R2's `$D3` sweep and NB9).
+6. **T6, the books and records:** the list above, with the measured figures; `make -C docs check`.
+7. **T7, the release:** OODOS 0.16 with the random source; the cards rebuilt; the site.
+
+### Revision 3's risks ###
+
+- **The saving is small** (about 23 cycles a tick, estimated); the case for revision 3 rests on exact, lossless time
+  and on freeing the serial card and timer 1. If the measured saving is less, nothing else changes.
+- **The latch's discipline.** One MS0 latch shared by every reader means a multi-byte read outside a handler must
+  mask interrupts; a reader that forgets tears its read only when a handler's read lands between its bytes. O2
+  sweeps for it; the books say it.
+- **OODOS 0.16 won't boot on a revision 1 or 2 machine.** No such board is built, and the site's emulator and
+  `backplane.machine` run revision 3; a machine file someone wrote with `revision=2` gets the refusal's line, not a
+  half-working system. Cards built for 0.16 boot only on revision 3.
+- **The bridge's logic grows again,** on top of the random source's engine: the FPGA looks likelier still.
+
+### The random source's risks ###
+
+- **Execution time is the chip's, not ours.** Polling makes the bridge right whatever it is; only throughput moves.
+  The 100 ms give-up is four times the planning figure and a seventh of the watchdog's minimum.
+- **EEPROM wear is unverified.** No 608 document read says whether Random writes the chip's EEPROM (its endurance
+  is 400,000 writes a byte); they list only mode `$00`. The refill is on demand, so wear could only come from a
+  program draining the pool without end. R3 can't settle it; a question to Microchip, or a look at the full data
+  sheet under NDA, would.
+- **The bridge's logic grows:** a sequencer, the pool and a CRC checker. It may not fit two CPLDs.
+- **RNGDATA's read side effect:** a stray reader drains the pool. Only OODOS reads it, and the debugger's `peek()`
+  is guarded (C8).
+- **No source on a machine without the chip** (an old bridge in the emulator, `rng_chip=none`, a board missing the
+  part): a program gets a refusal, not numbers. The books say to check `RN_INFO`.
+
+### Revision 3's questions ###
+
+All three decided by the owner, 2026-11-21. None is left open.
+
+1. **Keep OODOS's VIA tick for bridges before revision 3?** **Decided: "require revision 3".** OODOS 0.16 has the
+   bridge's tick alone; the VIA timer 1 tick is retired, with no fallback for `$D1` or `$D2`. On an older bridge
+   OODOS refuses to boot, with a line naming the bridge ([Revision 3 required](#revision-3-required)).
+   *Not taken:* keeping the VIA tick as a fallback; booting with no millisecond counter.
+2. **The 1 Hz TICK interrupt: drop it, or keep it for the alarm?** **Decided: dropped** ("recommendations as
+   listed"). On revision 3 TIE reads 0 and ignores writes; TICK and ALARM stay as flags to poll (the ROM's launcher
+   polls TICK). *Not taken:* TIE as "ALARM interrupts", which would put a second source on ID D for the tick's fast
+   path to tell apart.
+3. **Timer 1 for programs: polled only, or with an interrupt?** **Decided: polled only** ("recommendations as
+   listed"). IER stays OODOS's; a program polls timer 1's flag, and timed calls go through the tick hook.
+   *Not taken:* an OOLIB timer-1 hook, which would put a VIA check back in the dispatcher's path.
+### The random source's questions ###
+
+Both decided by the owner, 2026-11-21: "recommendations as listed".
+
+1. **Which factory-locked variant?** **Decided:** ATECC608B-TNGTLSS (Trust&GO TLS, SOIC), 7-bit address `$35`:
+   a stock part, locked, I²C, power-on self test off.* *Alternatives:* TrustFLEX TLS (`$36`), whose production parts
+   go through Microchip's provisioning flow; TrustCUSTOM, configured through Microchip's tools.
+2. **hw/design.md's "Real-time clock" says the DS3231 ignores I²C while its RST is low.** Its data sheet says RST
+   doesn't affect the I²C interface, and that the 250 ms hold is skipped when the oscillator isn't running. Nothing
+   breaks (the bridge orders its own power-on transactions), but the decided text is wrong. **Decided:** when
+   R1's text goes into hw/design.md, say the bridge holds /RESET until its own set-up is done, and drop "ignores
+   I²C meanwhile".
+
+### Revision 3, as built ###
+
+The units (feat/nb-rev3, from main `2818ad37`), each its own commit with the tree green after it, and what each
+measured. Free bytes are `make -C oodos/sys sizes`'s.
+
+| Unit | Commit | What |
+|---|---|---|
+| N1 | `383e599d` | the equates, the ID, the sweep |
+| N2 | `2cec0c6e` | the emulator's timebase |
+| N3 | `ad65b2fb` | the ATECC608B model, `tools/atecc_crc.py` |
+| N4 | `a8cb35c4` | the bridge's random number engine |
+| N5 | `827e90fe` | revision 3 the emulator's default |
+| N6 | `e82aff8d` | the ROM: QUIET's TBCTL, NB10 |
+| N7 | `f6af797b` | the ROM: NB9 |
+| N8 | `4eb86bb2` | NB3CHK; OODOS's revision 1 paths removed |
+| N9+N10 | `9537d764` | the tick and the millisecond counter are the bridge's |
+| N11 | `3b642881` | the random driver and function 78 |
+| N12 | `5788c88e` | interface 17: `FC_T1`, `FT_CLOCK` |
+| N13 | `3cf2f754` | SYSINFO's RANDOM line |
+| N14-N18 | `00ad834f` `23d0cfb3` `ad054977` `b377c07d` `f253c9a9` | the common hole: the spec, the emulator, OODOS, the callers, NB12 |
+| N19 | `a469a169` | AGENTS.md |
+| N20 | `ccc6ffa2` | OODOS 0.16, the ROM BIOS 0.20 |
+| N21-N23 | | the books, the records, the gate |
+
+**The tick's cost** (the dispatcher, the interrupt's 7 and the RTI included): 142 cycles with no event area (162 at
+OODOS 0.15, with the VIA's tick and OODOS's own counter; the spec's estimate was 139), 188 with a layout-1 area (201),
+241 with layout 2 (249); a frame 231 (215), 447 with a layout-2 area (412). At N10 the figures were 189 and 242; N16's
+six bytes in common memory moved TICK from `$FDF6` to `$FDFC`, across the `$FE00` page, and one taken branch no
+longer crosses a page (the owner re-pinned them, 2026-11-22). The exact-value cycle pins move with code placement in
+common memory; making them ceilings is a possible later change, not taken. The debug build's tick hook: 438 (478).
+GW-BASIC's PLAY 8,243 cycles (7,706; its gate 9,000). BASIC's free bytes 34,772 (34,769: the loader lost its copy).
+
+**Free bytes** (blocks 60, 61, 62, common memory, SYSBSS; zero page 0 throughout): 0.15 1,051 / 1,652 / 93 / 58 / 52
+(after N9+N10); after N11 988 / 1,396 / 93 / 58 / 49 (block 61's BIOS segment is page-aligned: the driver cost a page);
+after N12 911 / 1,396 / 88 / 58 / 49; after N16 911 / 1,396 / 85 / 52 / 49. The ROM's D22CODE ends at `$BD55`.
+
+**What changed in the tests' method, each the owner's** (2026-11-22): the slow share's loop waits 60 s to 75 s (N6);
+SYSINFO's clock case run with the DS3231 20 ppm fast, since in the emulator the tick and the chip's second share one
+clock and phase-lock (N10), and from N13 held to the skewed rate within 0.004% (its mutant 12.9 times the bound out);
+test_oodos_serial's byte pass no longer counts a pass that reached TICK (N11); the three tick pins above (N16). The
+emulator gives the bridge and the DS3231 one crystal; independent crystals are a possible later change, not taken.
+
 ## Testing ##
 
 **Done (phase 1, 2026-10-26)** ([oodos/README.md](../oodos/README.md) has the commands)
@@ -7269,6 +7627,9 @@ entries and indexes in docs/ are.
   *Decided for phase 7 (2026-11-13, the owner):* GW-BASIC's loader copies common memory into its own blocks, as OOUI's
   `ui_load` does, and OODOS stays as it is. Copying at allocation for a flagged MCB stays possible later, as an
   addition ([phase 7's question 6](#phase-7s-questions)).
+
+  *Closed (2026-11-22, OODOS 0.16):* the north bridge's common hole shows common memory whatever block W3 maps, so
+  no block needs a copy and nobody copies ([OODOS 0.16](#oodos-016-north-bridge-revision-3)).
 - **Phase 7's other questions,** all decided (2026-11-13, the owner): the source, the oracle, `.3333334`, OOLIB's place, the screen, the
   modes, DEF SEG on card memory, FARPEEK, COM's buffer, INP and OUT, and ^C: [Phase 7's
   questions](#phase-7s-questions).

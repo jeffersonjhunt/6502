@@ -3,7 +3,7 @@
  * @brief North bridge revision 3's timebase: the 1 kHz tick, the millisecond counter and MSS.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * hw/future/north-bridge-rev3.md ("The timebase", and its tests B1-B9) is the
+ * hw/design.md ("The timebase"; its tests B1-B9 in hw/testing.md) is the
  * spec; backplane_bridge.h says how the emulator times it. The CPU runs at
  * NATIVE_HZ, so a cycle is two OSC clocks and tick k comes floor(157,500 k /
  * 11) OSC clocks after the reset's release: in cycle floor(78,750 k / 11),

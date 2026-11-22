@@ -372,7 +372,7 @@ TEST(vbl_follows_the_apples_frame_in_cpu_cycles)
 
 TEST(apple_ii_mode_ignores_the_hole)
 {
-    // H6 (N15; hw/future/north-bridge-rev3.md, "The common hole"): HOLE's EN set, then MODE's APPLE: before the
+    // H6 (N15; hw/design.md, "The common hole"): HOLE's EN set, then MODE's APPLE: before the
     // /RESET pulse $F800 is already the IIe's map (its ROM image), and after it HOLE reads 0. Must fail with the hole
     // decoded ahead of the Apple map.
     Apple a;
