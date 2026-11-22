@@ -23,12 +23,13 @@ as here.
 | The millisecond counter | 32 bits, free-running, cleared by a hard reset, read through a latch | **Decided** (the counter); the details Proposed |
 | Time to the millisecond | MSS, 0-999, restarted by each of the DS3231's seconds, latched with SEC-YEAR | **Decided** (the count); the details Proposed |
 | The 1 Hz TICK interrupt | dropped: TIE reads 0 on revision 3; TICK and ALARM stay as flags to poll | **Decided** (the owner, 2026-11-21: [Q2](#open-questions)) |
-| Registers | MSS at `$1C-$1D`; TBCTL, MS0-MS3 and TBSUB at `$28-$2E`; no collision with `$19-$1B` | Proposed |
+| Registers | MSS at `$1C-$1D`; TBCTL, MS0-MS3 and TBSUB at `$28-$2E`; HOLE at `$26`; no collision with `$19-$1B` | Proposed |
 | OODOS 0.16 | requires revision 3: the tick is the bridge's alone, the VIA timer 1 tick retired; on `$D1` or `$D2` it refuses to boot, with a message | **Decided** (the owner, 2026-11-21: [Q1](#open-questions)); the refusal Proposed |
 | What goes | the VIA's tick, OODOS's own `MS`, the Disk II's catch-up, `T1NOW`, `FT_DELAY`'s stopped-timer check, OODOS's revision 1 paths | Proposed |
 | The VIA's timer 1 | the program's under OODOS 0.16, polled only: IER stays OODOS's, timed calls go through the tick hook; AGENTS.md's rule changes | **Decided** (the owner, 2026-11-21: [Q3](#open-questions)); the exact terms Proposed |
 | OOLIB | interface 17 (with the random source's function 78): `FC_T1`, `FT_CLOCK` | Proposed |
 | The cost | a tick about 139 cycles from 162, estimated; measured in T3 | Proposed |
+| The common hole | HOLE at `$26`: `$F800-$FFFF` mapped to one block's top 2 KB whatever W3 holds, off at every reset; OODOS turns it on (block 62) and off on every way into the ROM | **Decided** (the owner, 2026-11-22: [the common hole](#the-common-hole)) |
 | Versions | as the random source's: north bridge `$D3`, ROM BIOS 0.20, OODOS 0.16, OOLIB interface 17 | Proposed |
 
 ## Why ##
@@ -63,6 +64,7 @@ bridge each second as now, gives the time of day to the millisecond with no drif
 | The tick and the millisecond counter | [below](#the-tick) | TBCTL, MS0-MS3, TBSUB, `$28-$2E` | ID D, IRQH bit 5 |
 | The time to the millisecond | [below](#the-time-to-the-millisecond) | MSSL, MSSH, `$1C-$1D` | none |
 | The 1 Hz TICK | [below](#the-1-hz-tick) | RTCCTL's TIE reads 0 | dropped |
+| The common hole | [below](#the-common-hole) | HOLE, `$26` | none |
 | The ID | `$D3`; STATUS's bits 7-4 read 3 | `$7F` | |
 
 Software uses any revision 3 register only after reading NB_ID as `$D3`: on `$D1` and `$D2` the new offsets read
@@ -155,7 +157,7 @@ revision 2.
 ### The registers ###
 
 Offsets from `$C680`. The table is revision 3's whole map: revision 2's registers are unchanged, and `$1E-$1F`,
-`$26-$27` and `$2F-$7E` stay free.
+`$27` and `$2F-$7E` stay free.
 
 | Offset | Name | Access | Purpose | Reset |
 |---|---|---|---|---|
@@ -165,6 +167,7 @@ Offsets from `$C680`. The table is revision 3's whole map: revision 2's register
 | `$19-$1B` | RNGST, RNGCNT, RNGDATA | | the random source ([random-source.md](random-source.md#the-registers)) | |
 | `$1C` | MSSL | read | MSS's low byte, from SEC's latch | |
 | `$1D` | MSSH | read | MSS's high byte (0-3), from SEC's latch | |
+| `$26` | HOLE | read/write | the common hole: **bit 7 EN**, **bit 6 RO**, **bits 5-0 BLOCK** ([below](#the-common-hole)) | `$00` at every reset |
 | `$28` | TBCTL | read/write | **Bit 7 MSF:** a tick since the last acknowledge; write 1 to clear. **Bit 6 OVR:** a tick came while MSF was set; write 1 to clear. **Bit 5 MSIE:** MSF interrupts, on IRQH bit 5 (ID D); takes the value written. **Bit 4 SYNC:** MSS is in step with the DS3231's second (read-only). Bits 3-0 read 0 | MSF, OVR, MSIE 0; SYNC 0 after power-on, kept by a later reset |
 | `$29` | MS0 | read | the millisecond counter's low byte, live; **reading it latches MS1-MS3 and TBSUB** | 0 at /RESET's release (hard reset) |
 | `$2A-$2C` | MS1-MS3 | read | the counter's other bytes, from MS0's latch | 0 |
@@ -189,6 +192,7 @@ Offsets from `$C680`. The table is revision 3's whole map: revision 2's register
   the counter; a /RESET pulse doesn't.
 - **Apple II mode.** The bridge's registers are hidden, the /RESET pulse that enters the mode has cleared MSIE, and
   the counter runs on at the same rate, since it counts OSC, not PHI2. Nothing in Apple II mode sees it.
+- **HOLE** is `$00` after every reset, so the ROM and its vectors are never behind the hole ([below](#the-common-hole)).
 - **Break** (the ROM BIOS 0.20): beside RTCCTL's `$80` it writes `$C0` to TBCTL, both flags cleared and MSIE off,
   with no ID check (on an older bridge the write is dropped). Break leaves the counter running.
 
@@ -208,6 +212,92 @@ reads. It is small beside the random source's engine.
 - **The tick from the DS3231's 32 kHz output.** It would lock the counter to the chip (±2 ppm), but 32.768 kHz
   doesn't divide to 1 kHz (a 30 µs jitter), it needs a pin wired to the bridge, and the tick would stop with the
   chip. MSS already gives the chip's time to the millisecond.
+
+## The common hole ##
+
+The owner's idea, decided with the plan's recommendations on 2026-11-22 (nb3's hole plan, questions 1-12): once
+OODOS turns it on, the bridge maps CPU `$F800-$FFFF` to one piece of RAM whatever W3 holds, so common memory has one
+copy and no block needs its own.
+
+### The register ###
+
+**`$26` HOLE**, read/write, revision 3 only (on `$D1` and `$D2` it reads `$FF` and drops writes, as the other
+revision 3 offsets do).
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | EN | 1: native CPU cycles to `$F800-$FFFF` go to the hole |
+| 6 | RO | 1: CPU writes into the hole are dropped |
+| 5-0 | BLOCK | the RAM block whose top 2 KB is the hole: physical BLOCK × `$4000` + `$3800` |
+
+- **`$00` at every reset:** power-on, a hard reset, /BOOTSEL, and the /RESET pulse that enters Apple II mode (and
+  Ctrl-Reset there). Nothing that runs from a reset meets the hole until software sets EN.
+- **It takes effect on the next cycle**, as a window write does. It reads back as written; a read has no side
+  effect.
+- `$27` stays free. **backplane.inc:** `NB_HOLE`, `NB_HOLE_EN` `$80`, `NB_HOLE_RO` `$40`.
+
+### What it maps ###
+
+- **A block in the first megabyte** (A20-A23 0), named by BLOCK; the hole is always that block's top 2 KB, so
+  `$F8xx-$FFxx` is the offset W3 would give if W3 held the block. OODOS writes `$BE`: EN, RO clear, block 62, where
+  its common memory already is (physical `$0FB800`). With W3 on block 62, turning the hole on or off changes no byte
+  the CPU sees.
+- **2 KB, fixed.** No size bit: a 4 KB hole would take 2 KB from every banked code block and gains OODOS nothing.
+- **Every CPU read or write** of `$F800-$FFFF` in native mode with EN set is a RAM cycle at the hole's address.
+  W3's ROM bit, its RO bit and WIN3H don't reach it; HOLE's RO decides writes. The I/O hole (`$C000-$C7FF`) is
+  decoded first, as now. MAP's AP8 applies as to any window cycle with WINnH 0 (only BLOCK 32-35, which OODOS never
+  names).
+- **The hole wins over VEC.** The decode order is: EN and `$F800-$FFFF`, the hole; else VPB low and
+  `$C000-$FFFF`, VEC; else W3. A vector pull with EN set reads the hole, so while OODOS runs the vectors are common
+  memory's whatever VEC holds. `$C800-$F7FF` is still W3's block.
+- **The hole may hold state.** RO clear lets FARCALL write its operand (FCRD) there, one slot shared by every block
+  now. Nothing else keeps state there yet; the stub's scratch, if it comes, is its own measured change.
+- **No interaction with /BOOTSEL** (it sets W3's and VEC's reset value; HOLE is `$00` either way), **nor with DMA**:
+  the hole decodes CPU addresses only, and DMA to `$0FB800-$0FBFFF` reaches the same RAM the CPU sees there.
+- **Apple II mode** ignores it: the IIe map comes first, and the /RESET pulse that enters the mode clears EN.
+
+### Into the ROM ###
+
+`JMP ($FFFA)` and `JMP ($FFFC)` are ordinary reads, not vector pulls, so with EN set they read OODOS's vectors, not
+the ROM's; and the diagnostics' way back (DTRAMP at `$FFF4`) and the ROM's own vectors sit under the hole. The rule:
+**the ROM never runs with the hole on.** A hard reset clears it. OODOS clears it on every way it hands the machine
+to the ROM:
+
+- **Break and BRK:** TRAMPSRC writes HOLE 0 before its `JMP ($FFFA)` (TRAMP runs from low RAM).
+- **Apple II mode** (function 75's ROMAPPLE): APPLESRC writes HOLE 0 (the /RESET pulse would clear it too; the write
+  keeps the rule).
+- **The diagnostics and Apple II mode by image** (ROMENTRY): HOLE 0 right after its SEI, before the tramp's copy,
+  since its tramp has no room. W3 is block 62 there, so the same bytes stay in place.
+- **The refusal of a `$D1` or `$D2` bridge** (NB3CHK) runs before the hole is on.
+
+The ROM's QUIET doesn't write HOLE: OODOS has always cleared it by then. A program that wrecks the hole loses Break
+until a hard reset, as a stray write over block 62's `$FFFA` does today.
+
+### OODOS 0.16 and its callers ###
+
+- **Cold boot:** NB3CHK writes `$BE` to HOLE as its last act once NB_ID reads `$D3`, before BINIT, so every later
+  path, Break during the boot included, has the hole. Nothing else turns it on; HOLE is OODOS's (AGENTS.md).
+- **No more copies:** FARCALL, the stub, the warm boot, CALL62 and CALLHOOK don't change, but each now goes on in the
+  hole where it went on in block 62's copy, and an interrupt while a far-called block is in W3 is answered from the
+  hole. GW-BASIC's loader and OOUI's `ui_load` drop their copies of common memory and refuse an OODOS before
+  interface 17 (GW-BASIC's MOLD; OOUI's UX_VERSION). OOLIB interface 17 names it: a far-called block needs no copy.
+- **The code window stays 12 KB** (`$C800-$F7FF`): what a block gains is its own top 2 KB back as RAM, reachable
+  through W0-W2 or DMA, and no copy to keep right.
+- **NB12** (the ROM BIOS 0.20's diagnostics, revision 3 only) tests the hole as NB7 and NB8 test VEC and the RO bit.
+
+### What it costs ###
+
+Eight flip-flops (EN, RO, BLOCK); a hit term, EN and native and A15-A11 all 1, a sibling of the I/O hole's decode;
+and W3's block mux grows from two ways (WIN3, VEC) to three, with ROM forced 0, RO from HOLE and A20-A23 0. About 15
+macrocells, small beside the random source's engine and the timebase.
+
+### Considered and not taken ###
+
+- **Fixed at physical `$0FB800`:** saves six flip-flops and bakes OODOS's layout into the bridge.
+- **SRAM on the CPU card:** neither DMA nor the console card could reach it, OOLDR would have to fill it by CPU, and
+  it would be a second copy of the truth. Remapping costs only decode and keeps one RAM.
+- **VEC first:** OODOS keeps VEC on 62, which gives the same bytes; the hole first makes that hold whatever VEC is.
+- **QUIET clearing HOLE:** no case could fail without it, and OODOS 0.16 doesn't need ROM 0.20.
 
 ## OODOS 0.16 ##
 
