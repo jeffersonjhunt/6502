@@ -1,4 +1,4 @@
-10 REM Big integer addition in AppleSoft BASIC
+10 REM Big integer addition in BASIC
 20 REM   (pure string arithmetic, no IF…THEN for padding)
 30 INPUT "Enter first number:";A$
 40 INPUT "Enter second number:";B$

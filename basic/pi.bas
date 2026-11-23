@@ -1,4 +1,4 @@
-10 REM Spigot algorithm to compute digits of Pi in AppleSoft BASIC
+10 REM Spigot algorithm to compute digits of Pi in BASIC
 20 REM Ask user for number of digits
 30 INPUT "Number of digits to calculate: "; N
 40 REM Compute required array size P = INT((10 * N) / 3) + 1
