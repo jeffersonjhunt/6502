@@ -1,0 +1,139 @@
+(kicad_sch
+  (version 20230121)
+  (generator eeschema)
+  (uuid "b711ef29-df2f-4509-afae-a05406a610d5")
+  (paper "A3")
+  (title_block
+    (title "OO-1 Video Card: direct board")
+    (date "2026-11-20")
+    (rev "0.1")
+    (company "One Off Endeavors"))
+  (lib_symbols)
+  (sheet
+    (at 30.48 40.64)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "13e182c9-e2e5-4eef-90dd-de692eb3d046")
+    (property "Sheetname" "Bus interface"
+      (at 30.48 39.94 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "bus.kicad_sch"
+      (at 30.48 61.56 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "2")))))
+  (sheet
+    (at 93.98 40.64)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "4fe64236-4c8a-4000-8773-bdf6f5277fe2")
+    (property "Sheetname" "Video outputs"
+      (at 93.98 39.94 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "video.kicad_sch"
+      (at 93.98 61.56 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "3")))))
+  (sheet
+    (at 157.48 40.64)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "d4acdd69-3b04-4271-be15-b6960e945751")
+    (property "Sheetname" "Clocks"
+      (at 157.48 39.94 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "clocks.kicad_sch"
+      (at 157.48 61.56 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "4")))))
+  (sheet
+    (at 220.98 40.64)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "3995ef72-4f9f-470c-a5be-8b5c5f7806ca")
+    (property "Sheetname" "FPGA"
+      (at 220.98 39.94 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fpga.kicad_sch"
+      (at 220.98 61.56 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "5")))))
+  (sheet
+    (at 30.48 78.74)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "91de175b-0f3e-418a-999e-3dfb6655dd75")
+    (property "Sheetname" "SDRAM"
+      (at 30.48 78.04 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "sdram.kicad_sch"
+      (at 30.48 99.66 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "6")))))
+  (sheet
+    (at 93.98 78.74)
+    (size 50.8 20.32)
+    (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0))
+    (uuid "7c1d02e4-65c6-4858-ad2d-5874940a9cc9")
+    (property "Sheetname" "Power"
+      (at 93.98 78.04 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "power.kicad_sch"
+      (at 93.98 99.66 0)
+      (effects
+        (font (size 1.27 1.27))
+        (justify left top)))
+    (instances
+      (project "direct"
+        (path "/b711ef29-df2f-4509-afae-a05406a610d5" (page "7")))))
+  (text "OO-1 video card, direct board: the ECP5 and two SDRAMs (32-bit) soldered down. Skeleton: the bus, video\nand clock sheets are the carrier's; the FPGA, SDRAM and power sheets are to come."
+    (at 30.48 123.74 0)
+    (effects
+      (font (size 1.8 1.8))
+      (justify left top))
+    (uuid "2a6916d6-c23e-49e9-be27-c10206c8c9b2"))
+  (sheet_instances
+    (path "/" (page "1"))))

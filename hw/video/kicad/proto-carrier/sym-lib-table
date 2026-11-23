@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "oo_video")(type "KiCad")(uri "${KIPRJMOD}/../lib/oo_video.kicad_sym")(options "")(descr "OO-1 video card symbols"))
+)
