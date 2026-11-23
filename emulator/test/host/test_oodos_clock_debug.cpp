@@ -24,9 +24,9 @@ TEST(a_debug_build_counts_the_hooks_cycles)
     CcpRig r;
     REQUIRE(r.ok);
     const uint64_t c0 = r.cpu->cycles();
-    const uint32_t m0 = r.phys(SYS_BLOCK_PHYS + sym("MS")) | r.phys(SYS_BLOCK_PHYS + sym("MS") + 1) << 8;
+    const uint32_t m0 = ms_count(r) & 0xFFFF;
     const std::string o = r.go("l1test.com", " B", ms(8000));
-    const uint32_t m1 = r.phys(SYS_BLOCK_PHYS + sym("MS")) | r.phys(SYS_BLOCK_PHYS + sym("MS") + 1) << 8;
+    const uint32_t m1 = ms_count(r) & 0xFFFF;
     CHECK_EQ(field(o, "COSTS"), std::string("01 00")); // counted
     const std::string c = field(o, "COST");
     REQUIRE(c.size() == 12);
@@ -44,6 +44,34 @@ TEST(a_debug_build_counts_the_hooks_cycles)
     const double got = static_cast<double>((m1 - m0) & 0xFFFF);
     std::printf("  %.0f ms counted, %.1f in the cycles\n", got, want);
     CHECK(got >= want - 2 && got <= want + 2);
+}
+
+TEST(hook_costs_by_the_bridge)
+{
+    // O9 (N10). The debug build times its hooks by the bridge's MS0 and TBSUB from one latch, not by timer 1: L1TEST
+    // B's tick hook (about 300 cycles) measures HOOK_TICK cycles, within 4, and no CPU cycle touches timer 1's
+    // registers ($C344-$C347), which are the program's. Must fail with TBSUB read without MS0's latch.
+    constexpr unsigned HOOK_TICK = 438; // measured (N10; 478 by timer 1 at N8, the plan's 479)
+    struct T1Cycles : CycleObserver
+    {
+        unsigned n = 0;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.dma && c.addr >= 0xC344 && c.addr <= 0xC347)
+                ++n;
+        }
+    } t1;
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.cpu->set_observer(&t1);
+    const std::string o = r.go("l1test.com", " B", ms(8000));
+    r.cpu->set_observer(nullptr);
+    const std::string c = field(o, "COST");
+    REQUIRE(c.size() == 12);
+    const unsigned tick = hexval(c.substr(6, 2) + c.substr(4, 2));
+    std::printf("  the tick hook by the bridge: %u cycles (pinned %u); timer 1 touched %u times\n", tick, HOOK_TICK, t1.n);
+    CHECK(tick + 4 >= HOOK_TICK && tick <= HOOK_TICK + 4);
+    CHECK_EQ(t1.n, 0u);
 }
 
 int main() { return run_all(); }

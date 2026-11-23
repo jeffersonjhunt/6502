@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)); the 640×480 colour layers built 2026-11-20, OODOS 0.12 (interface version 13, [video640.md](video640.md)); full-resolution sprites built 2026-11-20, OODOS 0.13 (interface version 14, [sprites640.md](sprites640.md)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 and released 2026-11-13, OODOS 0.9 (interface version 8, [below](#the-plan)); function 77 and function 75's A = 2 released 2026-11-14, OODOS 0.10 (interface versions 9 and 10, [diag.md](diag.md)); function 75's A = 3 and bank 8 as RAM released 2026-11-18, OODOS 0.11 (interface versions 11 and 12, [design.md](design.md#b7-as-built)); the 640×480 colour layers built 2026-11-20, OODOS 0.12 (interface version 13, [video640.md](video640.md)); full-resolution sprites built 2026-11-20, OODOS 0.13 (interface version 14, [sprites640.md](sprites640.md)); the serial receive buffer, OODOS 0.15 (interface 16); north bridge revision 3, OODOS 0.16 (interface 17: function 78, `FC_T1`, `FT_CLOCK`, the common hole; [oodos.md](oodos.md#oodos-016-north-bridge-revision-3)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -1606,6 +1606,8 @@ question 15.
 7. **A hardware timer.** *Answered (proposed 2026-10-30): a W65C22S on the serial card*
    ([design.md](design.md#the-via-and-the-joystick-ports)): timer 1 is OODOS's system tick, timer 2 and the ports are
    the program's, and programs may hook the tick (with question 3's rules). The rate is question 11.
+   *Changed (OODOS 0.16, 2026-11-22, the owner):* the tick is north bridge revision 3's
+   ([design.md](design.md#the-timebase)), and timer 1 goes back to programs, polled: interface 17's `FC_T1`.
 8. **Asset formats and tools.** Which formats, and which Linux tools (a PNG to tiles converter, a palette tool, a
    map editor's export) come with OOLIB?
    **Recommended:** one small header (a magic, a type, a version, the sizes) for tiles, maps, palettes and

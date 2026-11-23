@@ -53,9 +53,9 @@ their image number in W0's zero page and FINDIMG's return address on its stack:
 <!-- listing: ../../backplane/bios/apple.s:57-87 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0 below 1 MB first, whatever a program
+APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, whatever a program
                 CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
-                BNE     @w0            ; WOZMON all use it
+                BCC     @w0            ; WOZMON all use it
                 STZ     NB_WIN0H
 @w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
@@ -77,9 +77,9 @@ APPLEN:         LDX     NB_ID          ; a $D2 bridge: W0 below 1 MB first, what
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; a $D2 bridge: W1-W2 below 1 MB too, whatever a program
+@rom:           LDX     NB_ID          ; revision 2 or more: W1-W2 under 1 MB, whatever a program
                 CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
-                BNE     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
+                BCC     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
                 STZ     NB_WIN1H
                 STZ     NB_WIN2H
 @low:

@@ -144,9 +144,14 @@ FT_DELAY        = 5                    ; block: +1-2 a count of milliseconds
 FT_FRAMEHOOK    = 6                    ; block: +1-2 the frame hook, 0 none; no block: none
 FT_TICKHOOK     = 7                    ; block: +1-2 the tick hook, 0 none, +3-4 every n ms; no block: none
 FT_COSTS        = 8                    ; block: +1-2, +3-4 each hook's most cycles, +5-6 frame hooks missed
-FT_OPS          = 9
+FT_CLOCK        = 9                    ; block (interface 17): +1-4 a DAT as T_GET's, +5 seconds (BCD), +6-7 the ms
+                                       ;   into the second (0-999), +8 FK_*; one latch; $FF $FF past 2155
+FT_OPS          = 10
 FC_FRAME        = $01                  ; FT_INFO's A, EV_CLOCKS: the frame counter runs (a video card)
-FC_MS           = $02                  ;   the millisecond counter runs (the serial card's VIA)
+FC_MS           = $02                  ;   the millisecond counter runs (the north bridge's)
+FC_T1           = $04                  ;   the VIA's timer 1 is the program's, polled (interface 17): never set before
+FK_SYNC         = $01                  ; FT_CLOCK's +8: the ms are in step with the clock chip's second
+FK_LOST         = $02                  ;   the clock chip's time is invalid (its oscillator stopped): set it
 
 ; The event area (FT_OPEN): the program's memory, which OODOS's interrupt
 ; handlers write. Layout 1 (L1); a later layout only adds after EV_LEN. An
@@ -333,8 +338,8 @@ DM_BANK8        = 11                   ; block (interface version 12; B7): bank 
                                        ;   program's RAM until the warm boot (MAP's AP8 cleared), and +1
                                        ;   WIN1H, +2 the block that put aperture slot 1's window in W1
                                        ;   ($0E, 1: $E04000; 0, 0 with no revision 2 video card): A = 0.
-                                       ;   $FF $FF on a revision 1 north bridge (NB_ID $D1) or under a ROM
-                                       ;   BIOS older than 0.17, nothing changed
+                                       ;   $FF $FF under a ROM BIOS older than 0.17 (or, before OODOS
+                                       ;   0.16, on a revision 1 north bridge), nothing changed
 DM_VFILLW       = 12                   ; block (interface version 13; hw/video640.md): +1-2 a word (low
                                        ;   byte first), +3-5 the destination (card), +6-7 the length in
                                        ;   bytes (0: 65,536): the low byte at the destination's even offsets
@@ -355,6 +360,15 @@ SR_OPS          = 3
 SR_COM1         = $01                  ; SR_INFO's ports: bit n port n (0, COM1)
 SR_PORTS        = 1                    ; the ports there are: 0 only
 SF_STOPPED      = $01                  ; SR_STATUS's flags: the ring full, the receiver stopped until a byte is read
+
+; Function 78's operations (OODOS 0.16, interface 17; the random source on
+; north bridge revision 3): X = 0, A is the operation; else A/X a block, +0
+; the operation. A = X = $FF for one that isn't, or refused.
+RN_INFO         = 0                    ; A = RS_* (0: no chip), X = 0
+RN_FILL         = 1                    ; a block: +1 n (1-255), n bytes to +2 on; A = X = 0, or $FF $FF refused
+RS_CHIP         = $01                  ; RN_INFO: a locked chip: a source
+RS_UNLOCKED     = $02                  ; RN_INFO: a chip that isn't locked: no source
+RS_FAULT        = $04                  ; RN_INFO: its last draw failed
 
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
@@ -440,6 +454,7 @@ O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode, 2 its diagnostics (X the options; interface 10), 3 Apple II mode with ROM A's image X (interface 11)
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 O_ROMVER        = 77                   ; the ROM BIOS's version: A major, X minor; $FF $FF unknown (interface 9)
+O_RANDOM        = 78                   ; the random source: the ATECC608B on north bridge revision 3 (interface 17)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)

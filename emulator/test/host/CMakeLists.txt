@@ -197,7 +197,14 @@ set(EMU_SLOW_test_bios_diag
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
         a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
-        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
+        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build
+        nb10_fails_when_mss_isnt_restarted
+        nb10_fails_when_msf_isnt_cleared
+        nb9_fails_unlocked
+        nb9_fails_a_constant_chip
+        nb9_skips_without_a_chip
+        nb9_fails_a_repeated_group
+        nb12_fails_when_the_hole_ignores_ro)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
@@ -233,6 +240,9 @@ emu_add_test(test_flash) # the flash's two chips (step B5): commands, busy times
 emu_add_test(test_ds3231)
 emu_add_test(test_rtc)
 target_compile_definitions(test_rtc PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+emu_add_test(test_nb_timebase) # north bridge revision 3's timebase (hw/design.md, "The timebase"; tests B1-B9 in hw/testing.md)
+emu_add_test(test_nb_random) # revision 3's random source: the ATECC608B model, its CRC (hw/design.md, "The random source")
+target_compile_definitions(test_nb_random PRIVATE ATECC_CRC_PY="${PROJECT_SOURCE_DIR}/../tools/atecc_crc.py")
 emu_add_test(test_joyports)
 target_compile_definitions(test_joyports PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 emu_add_test(test_bios)
@@ -396,7 +406,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial test_oodos_random)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     emu_suite_properties(${name} TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -934,6 +944,8 @@ set(EMU_TEST_LABELS
     test_flash                  "emu flash bridge"
     test_ds3231                 "emu rtc"
     test_rtc                    "emu rtc bridge debug backplane"
+    test_nb_timebase            "emu bridge rtc dma video backplane"
+    test_nb_random              "emu bridge rng video backplane"
     test_joyports               "emu joy via acia bridge debug backplane lcd"
     test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
     test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"
@@ -1000,6 +1012,7 @@ set(EMU_TEST_LABELS
     test_oodos_mu               "oodos bios sd sound sid backplane"
     test_oodos_c                "oodos bios sd backplane"
     test_oodos_sysinfo          "oodos bios sd video sound usb rtc console backplane"
+    test_oodos_random           "oodos rng bridge backplane"
     test_oodos_serial           "oodos bios sd acia backplane"
     test_oodos_model            "oodos bios sd backplane"
     test_oodos_model_py         "oodos"
@@ -1056,3 +1069,4 @@ foreach(t ${all_tests})
     endif()
 endforeach()
 add_dependencies(test_bios_diag backplane_bios)
+add_dependencies(test_bios backplane_bios)

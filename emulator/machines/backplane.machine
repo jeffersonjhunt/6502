@@ -6,12 +6,14 @@
 # W0-W2 are RAM blocks 0-2 and W3 is the top 16 KB of ROM A, read-only, so
 # the BIOS starts in flash and shadows itself into bank F (hw/design.md,
 # "Boot"). Its registers are at $C680. Add `bootsel` to start with W3 on RAM
-# block 63 instead, as when the bus spy has loaded RAM. It is revision 2
-# (ID $D2, step B7, proposed): WIN0H-WIN3H and VECH give A20-A23, and MAP's
-# AP8 sends bank 8 to the video aperture. `revision=1` gives B1's bridge
-# (ID $D1, no WINnH, VECH or MAP), for tests. The bridge owns the
-# DS3231 real-time clock (ds3231.h), which starts at the host's local time;
-# its tick interrupts as module D.
+# block 63 instead, as when the bus spy has loaded RAM. It is revision 3
+# (ID $D3; hw/design.md, "The north bridge, revision 3"): revision 2's WIN0H-WIN3H and VECH
+# (A20-A23) and MAP (AP8 sends bank 8 to the video aperture), and the
+# timebase (the 1 kHz tick, its interrupt as module D, the millisecond
+# counter) and the random number chip. OODOS 0.16 needs it. `revision=2` and
+# `revision=1` (B1's, no WINnH, VECH or MAP) are the older bridges, for the
+# ROM's tests. The bridge owns the DS3231 real-time clock (ds3231.h), which
+# starts at the host's local time.
 #
 # The bus is the new one (hw/design.md, "The new bus"): 24-bit physical
 # addresses, and memory chosen by address, not by module ID. The RAM card

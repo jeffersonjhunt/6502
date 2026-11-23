@@ -67,7 +67,7 @@ Where the 6502 or the OO-1 needs it, OODOS does its own thing, and this guide sa
 | `$BFFD-$BFFF` | a `JMP` to the BDOS: the TPA's top |
 | `$C000-$C7FF` | the I/O registers, always there; OODOS's, not the program's |
 | `$C800-$F7FF` | OODOS's resident code: the CCP; during a far call, the program's own banked code |
-| `$F800-$FFFF` | common memory: the BDOS's entry, the BIOS's jump table, FARCALL, the interrupt entry |
+| `$F800-$FFFF` | common memory: the BDOS's entry, the BIOS's jump table, FARCALL, the interrupt entry. The same whatever block is in W3 (the north bridge's common hole, OODOS 0.16): a program never writes there |
 
 The BDOS and the BIOS run on their own zero page and stack, in other blocks, so a call never touches the program's
 `$00-$EF`, and takes six bytes of its stack: the return address and four the entry saves the registers in. FCB and DMA

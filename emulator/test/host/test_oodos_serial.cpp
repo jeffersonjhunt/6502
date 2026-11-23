@@ -70,11 +70,6 @@ namespace
         return r.out.substr(from);
     }
     uint8_t rxhead(Rig &r) { return r.phys(SYS_BLOCK_PHYS + sym("RXHEAD")); }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
 
     /// Each dispatcher pass over a stretch, from the interrupt's first cycle (7 before IRQ) to its RTI's last
     /// (IRQEND's, 6): those that took a byte into the ring and nothing else (no tick, no frame), and the
@@ -102,26 +97,30 @@ namespace
     Passes time_passes(Rig &r, const std::function<bool()> &done, uint64_t budget)
     {
         Passes out;
-        const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
+        const uint16_t irq = sym("IRQ"), end = sym("IRQEND"), tick = sym("TICK");
+        bool ticked = false;
         const uint32_t frames = SYS_BLOCK_PHYS + sym("FRAMES");
         uint64_t c0 = 0;
         uint8_t head = 0, f = 0;
         uint32_t m = 0;
         bool in = false;
         r.watch = [&](uint16_t pc) {
+            if (pc == tick)
+                ticked = true;
             if (pc == irq)
             {
                 c0 = r.cpu->cycles() - 7;
                 head = rxhead(r);
                 f = r.phys(frames);
                 m = ms_count(r);
+                ticked = false;
                 in = true;
             }
             else if (pc == end && in)
             {
                 const unsigned c = static_cast<unsigned>(r.cpu->cycles() + 6 - c0);
                 out.longest = std::max(out.longest, c);
-                if (rxhead(r) == static_cast<uint8_t>(head + 1) && r.phys(frames) == f && ms_count(r) == m)
+                if (rxhead(r) == static_cast<uint8_t>(head + 1) && r.phys(frames) == f && ms_count(r) == m && !ticked)
                     ++out.bytes[c];
                 in = false;
             }
@@ -225,7 +224,7 @@ TEST(without_the_via_a_paced_burst_arrives_whole_and_the_frame_clock_runs)
     REQUIRE(!text.empty());
     CcpRig r({}, text);
     REQUIRE(r.ok);
-    REQUIRE(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) == 0x01); // the frame clock alone
+    REQUIRE(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) == 0x03); // the frame clock, and the bridge's ms (N9)
     const uint32_t frames = SYS_BLOCK_PHYS + sym("FRAMES");
     const uint8_t f0 = r.phys(frames);
     const std::string data = pattern(200, 3);
@@ -237,24 +236,24 @@ TEST(without_the_via_a_paced_burst_arrives_whole_and_the_frame_clock_runs)
     CHECK(static_cast<uint8_t>(r.phys(frames) - f0) >= 10);
 }
 
-TEST(a_paced_stream_costs_the_tick_nothing_and_loses_no_millisecond)
+TEST(a_paced_stream_costs_the_tick_nothing)
 {
-    // T5: the tick's own pass is as it was (162 cycles with no area: L1's 145 and B7's 17), and through a
-    // second of a stream (250 bytes, one each 28,636 cycles) the ms counter keeps the cycles' count.
+    // T5: through a second of a stream (250 bytes, one each 28,636 cycles) the tick's own pass is as it was (142
+    // cycles with no area). The ms counted is printed as a record only: it is the bridge's, which counts the cycles
+    // whatever OODOS does, so a check of it couldn't fail (review r1's T8).
     CcpRig r;
     REQUIRE(r.ok);
     const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
     std::map<unsigned, unsigned> ticks;
     uint64_t c0 = 0;
-    uint32_t m = 0;
-    uint8_t head = 0;
+    uint8_t head = 0, l = 0, h = 0;
     bool in = false;
     r.watch = [&](uint16_t pc) {
         if (pc == irq)
-            c0 = r.cpu->cycles() - 7, m = ms_count(r), head = rxhead(r), in = true;
+            c0 = r.cpu->cycles() - 7, l = r.nb(8), h = r.nb(9), head = rxhead(r), in = true;
         else if (pc == end && in)
         {
-            if (ms_count(r) == m + 1 && rxhead(r) == head)
+            if (l == 0xFF && h == 0xDF && rxhead(r) == head) // the bridge's tick alone (N9), no byte with it
                 ++ticks[static_cast<unsigned>(r.cpu->cycles() + 6 - c0)];
             in = false;
         }
@@ -272,8 +271,7 @@ TEST(a_paced_stream_costs_the_tick_nothing_and_loses_no_millisecond)
         if (k > n)
             best = c, n = k;
     std::printf("  a tick: %u cycles (x%u); %u ms counted in %.1f\n", best, n, got, want);
-    CHECK_EQ(best, 162u);
-    CHECK(std::abs(static_cast<double>(got) - want) <= 1);
+    CHECK_EQ(best, 142u); // the bridge's tick (N10; 162 with timer 1's)
     ran(r, from);
     CHECK_EQ(r.acia().overruns(), 0u);
 }

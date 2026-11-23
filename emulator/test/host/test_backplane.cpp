@@ -88,7 +88,7 @@ TEST(reset_maps_ram_blocks_0_to_2_and_the_top_of_rom_a)
     CHECK_EQ(top.where, bus_address(Space::Flash, 0x7FFFC));
     CHECK(!top.writable);
     CHECK_EQ(r.bus.module_at(0xE000), BackplaneBridge::MODULE); // memory by address: PS0-PS3 carry the bridge's D
-    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD2);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::ID_REG), 0xD3); // revision 3, the default since N5
 }
 
 TEST(bootsel_starts_with_w3_and_vec_on_ram_block_63)
@@ -193,6 +193,128 @@ TEST(vector_pulls_go_through_vec)
     cpu.set_regs(regs);
     cpu.irq();
     CHECK_EQ(cpu.regs().pc, 0x2000);
+}
+
+// --- revision 3's common hole (N15, the hole plan's H2; hw/design.md, "The common hole") ------
+
+namespace
+{
+    constexpr uint16_t HOLE = NB + BackplaneBridge::HOLE;
+    constexpr uint8_t HOLE_ON_20 = BackplaneBridge::HOLE_EN | 20; ///< EN, RO clear, block 20
+    constexpr uint32_t HOLE_20 = 20 * 0x4000 + 0x3800;            ///< block 20's top 2 KB
+} // namespace
+
+TEST(the_hole_is_off_after_every_reset_and_absent_before_revision_3)
+{
+    // H1. Power-on, a hard reset, /BOOTSEL and the /RESET pulse each leave HOLE $00 and $F800 W3's; revision 2 reads
+    // $FF at $26 and drops a write. Must fail with EN kept through the /RESET pulse, or revision 2 answering at $26.
+    Rig r;
+    r.rom_a.poke(0x7F800, 0xA5); // W3 at reset: ROM A's top block, $DF
+    CHECK_EQ(r.bus.read(HOLE), 0x00); // power-on
+    r.bus.write(HOLE, HOLE_ON_20);
+    CHECK_EQ(r.bus.read(HOLE), HOLE_ON_20); // as written
+    r.bus.pulse_reset();
+    CHECK_EQ(r.bus.read(HOLE), 0x00);
+    CHECK_EQ(r.bus.read(0xF800), 0xA5);
+    r.bus.write(HOLE, HOLE_ON_20);
+    r.bus.reset(); // a hard reset
+    CHECK_EQ(r.bus.read(HOLE), 0x00);
+    CHECK_EQ(r.bus.read(0xF800), 0xA5);
+    Rig b(true); // /BOOTSEL: W3 on RAM block 63
+    b.ram.write(0xFF800, 0x3C);
+    b.bus.write(HOLE, HOLE_ON_20);
+    b.bus.reset();
+    CHECK_EQ(b.bus.read(HOLE), 0x00);
+    CHECK_EQ(b.bus.read(0xF800), 0x3C);
+    Rig two(false, 2);
+    two.rom_a.poke(0x7F800, 0xA5);
+    CHECK_EQ(two.bus.read(HOLE), 0xFF);
+    two.bus.write(HOLE, HOLE_ON_20);
+    CHECK_EQ(two.bridge.hole(), 0x00);
+    CHECK_EQ(two.bus.read(0xF800), 0xA5);
+}
+
+TEST(the_hole_maps_f800_to_ffff_whatever_w3_holds)
+{
+    // H2. W3 on RAM block 5, on the flash (its ROM bit), and on block 5 with WIN3H set: $F800, $FC00 and $FFFF read
+    // and write block 20's top 2 KB; $F7FF stays W3's; $C7FF is the I/O hole's. Must fail with A11 left out ($F000 up
+    // taken), WIN3H applied to the hole, or W3's ROM bit applied to it.
+    Rig r;
+    r.bus.write(NB + 3, 0x05); // W3 = RAM block 5
+    r.bus.write(HOLE, HOLE_ON_20);
+    const uint16_t at[] = {0xF800, 0xFC00, 0xFFFF};
+    uint8_t v = 0x10;
+    for (uint16_t a : at)
+    {
+        r.bus.write(a, v);
+        CHECK_EQ(r.ram.read(HOLE_20 + (a & 0x7FF)), v);
+        CHECK_EQ(r.ram.read(0x14000 + (a & 0x3FFF)), 0x00); // block 5's own top, untouched
+        CHECK_EQ(r.bus.read(a), v);
+        ++v;
+    }
+    r.bus.write(0xF7FF, 0x5A); // just below: W3's block 5
+    CHECK_EQ(r.ram.read(0x14000 + 0x37FF), 0x5A);
+    CHECK_EQ(r.ram.read(HOLE_20 - 1), 0x00);
+    r.bus.write(0xF000, 0x6B); // $F000-$F7FF is W3's too
+    CHECK_EQ(r.ram.read(0x14000 + 0x3000), 0x6B);
+    r.bus.write(0xC7FF, 0x7C); // the I/O hole, decoded first
+    CHECK_EQ(r.ram.read(0x14000 + 0x07FF), 0x00);
+    r.rom_a.poke(0x7F800, 0xA5);
+    r.bus.write(NB + 3, 0x80 | 31); // W3 = ROM A's top block: its ROM bit doesn't reach the hole
+    CHECK_EQ(r.bus.read(0xF800), 0x10);
+    r.bus.write(0xF801, 0x21);
+    CHECK_EQ(r.ram.read(HOLE_20 + 1), 0x21);
+    r.bus.write(NB + 3, 0x05);
+    r.bus.write(NB + BackplaneBridge::WIN0H + 3, 0x01); // WIN3H 1: A20 for W3, not for the hole
+    CHECK_EQ(r.bus.read(0xFC00), 0x11);
+    CHECK_EQ(r.bus.last_access().physical, HOLE_20 + 0x400u);
+}
+
+TEST(vector_pulls_come_from_the_hole)
+{
+    // H3. VEC on the flash and EN set: a vector pull reads the hole. Must fail with VEC's choice ahead of the hole.
+    Rig r;
+    r.rom_a.poke(0x7FFFE, 0x00); // VEC at reset: the flash's top block, one IRQ vector
+    r.rom_a.poke(0x7FFFF, 0x30);
+    r.ram.write(HOLE_20 + 0x7FE, 0x00); // the hole's: another
+    r.ram.write(HOLE_20 + 0x7FF, 0x40);
+    r.bus.write(HOLE, HOLE_ON_20);
+    Cpu6502 cpu(r.bus, Cpu6502::Model::W65C02S);
+    Registers regs;
+    regs.pc = 0x0200;
+    regs.p = 0x20; // I clear
+    cpu.set_regs(regs);
+    cpu.irq();
+    CHECK_EQ(cpu.regs().pc, 0x4000);
+}
+
+TEST(the_hole_s_ro_drops_writes_and_w3_s_does_not_reach_it)
+{
+    // H4. HOLE's RO set: a write is dropped; W3's RO set with HOLE's clear: a write lands. Must fail with W3's RO
+    // used in the hole.
+    Rig r;
+    r.ram.write(HOLE_20, 0x11);
+    r.bus.write(HOLE, HOLE_ON_20 | BackplaneBridge::HOLE_RO);
+    r.bus.write(0xF800, 0x22);
+    CHECK_EQ(r.ram.read(HOLE_20), 0x11);
+    CHECK_EQ(r.bus.read(0xF800), 0x11);
+    r.bus.write(NB + 3, 0x40 | 0x05); // W3 = RAM block 5, read-only
+    r.bus.write(HOLE, HOLE_ON_20);
+    r.bus.write(0xF800, 0x33); // FARCALL's operand write
+    CHECK_EQ(r.ram.read(HOLE_20), 0x33);
+}
+
+TEST(dma_and_the_cpu_see_the_same_hole)
+{
+    // H5. A physical write (as DMA makes, or the console card) into block 20's $3800 is read at CPU $F800, and a CPU
+    // write at $F900 is at physical $53900: one RAM, not a store of the hole's own. Must fail with the hole modelled
+    // as its own 2 KB.
+    Rig r;
+    r.bus.write(HOLE, HOLE_ON_20);
+    r.bus.write_physical(HOLE_20, 0x77);
+    CHECK_EQ(r.bus.read(0xF800), 0x77);
+    r.bus.write(0xF900, 0x66);
+    CHECK_EQ(r.bus.peek_physical(HOLE_20 + 0x100), 0x66);
 }
 
 TEST(irq_poll_reads_0_for_interrupting_modules)

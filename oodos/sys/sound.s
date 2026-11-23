@@ -57,7 +57,7 @@
 .importzp PX, PP, T0, T1, T2, T3, T4, T5, SG ; the BDOS's (bdos.inc), for 82
 .import RETFF, PGET, PPUT, SEGOK
 .importzp EVP                          ; irq.s's
-.import EVON, EVBLK, MS, CLOCKS, UCARD, HK, DHON, CALLHOOK, HOOKADDR, SETHOOK ; irq.s's
+.import EVON, EVBLK, CLOCKS, UCARD, HK, DHON, CALLHOOK, HOOKADDR, SETHOOK ; irq.s's
 .import QEV, EVK, EVC, EVV             ; input.s's
 .export F_SOUND, R61, SIENSET, SCLAIM, SIEN, C2ON
 .import VBWORK, VBQUIET                ; video.s's
@@ -187,11 +187,11 @@ SNDQUIET:       LDA     #SC_ALL
                 BNE     @eq
 @done:          RTS
 
-; The mailbox stamp's time (L5a): MS into the area's EV_SMMS, W1 on its
+; The mailbox stamp's time (L5a): the bridge's MS0-MS3 into the area's EV_SMMS, W1 on its
 ; block and Y = EV_SMMS - 1. Y = EV_SMCNT after.
-SMTIME:         LDX     #0
+SMTIME:         LDX     #0             ; (in a handler: MS0 first, its read latching MS1-MS3)
 @ms:            INY
-                LDA     MS,X
+                LDA     NB_MS0,X
                 STA     (EVP),Y
                 INX
                 CPX     #4
@@ -812,9 +812,9 @@ BEEPQ:          LDA     #<BEEP_DIV     ; SG/SG+1/SG+2 the dividend, becoming the
 BEEPGO:         JSR     BEEPQ          ; T4/T5 the half period, in the delay loop's 5 cycles
                 PHP
                 SEI
-                LDA     MS             ; SG/SG + 1 the start
-                STA     SG
-                LDA     MS + 1
+                LDA     NB_MS0         ; SG/SG + 1 the start: MS0 then MS1 from its latch,
+                STA     SG             ; interrupts off between
+                LDA     NB_MS1
                 STA     SG + 1
                 PLP
 BEEPHALF:       LDA     USB_SPKR       ; (any access toggles it)
@@ -825,13 +825,13 @@ BEEPHALF:       LDA     USB_SPKR       ; (any access toggles it)
                 BNE     @d
                 DEY
 @d:             JSR     BEEPD
-                PHP                    ; MS - start, against the length: MS read whole
+                PHP                    ; MS - start, against the length: MS0-MS1 read whole
                 SEI
                 SEC
-                LDA     MS
+                LDA     NB_MS0
                 SBC     SG
                 TAX
-                LDA     MS + 1
+                LDA     NB_MS1
                 SBC     SG + 1
                 PLP
                 CMP     T3
@@ -1421,9 +1421,6 @@ SN_BEEPX:       BLOCK
                 JSR     PGET
                 STA     T3
                 LDA     UCARD
-                BEQ     @no
-                LDA     CLOCKS
-                AND     #CLK_MS
                 BEQ     @no
                 LDA     T1             ; 20 to 20,000
                 CMP     #>20000

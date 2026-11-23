@@ -73,8 +73,10 @@ namespace
     }
 
     /// The two Hz figures checked and taken out, and the time: what the golden file holds.
-    /// `want_frame` false: the machine has no video frame to measure by.
-    std::string normal(const std::string &got, bool want_frame = true)
+    /// `want_frame` false: the machine has no video frame to measure by. `rtc_hz` and `rtc_part`: the clock
+    /// chip's figure and its bound (a part of `rtc_hz`), for a case whose chip is skewed.
+    std::string normal(const std::string &got, bool want_frame = true, double rtc_hz = NATIVE_HZ,
+                       double rtc_part = 0.00002)
     {
         std::string s = got;
         const std::regex rtc("([0-9],[0-9]{3},[0-9]{3}) Hz by the clock chip");
@@ -90,11 +92,11 @@ namespace
         if (std::regex_search(s, m, rtc))
         {
             const double v = hz(m[1]);
-            const bool ok = std::abs(v - NATIVE_HZ) <= NATIVE_HZ * 0.00002;
-            std::printf("  %.0f Hz by the clock chip\n", v);
+            const bool ok = std::abs(v - rtc_hz) <= rtc_hz * rtc_part;
+            std::printf("  %.0f Hz by the clock chip (%+.0f from %.0f)\n", v, v - rtc_hz, rtc_hz);
             CHECK(ok);
             if (!ok)
-                std::printf("  by the clock chip: %.0f Hz, not within 0.002%% of 7,159,090\n", v);
+                std::printf("  by the clock chip: %.0f Hz, not within %.4f%% of %.0f\n", v, rtc_part * 100, rtc_hz);
         }
         else
         {
@@ -187,6 +189,17 @@ namespace
         return out;
     }
 
+    /// backplane.machine with rng_chip=`chip` on its north bridge's line (N13: SYSINFO's RANDOM line).
+    std::string with_rng(const std::string &chip)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " rng_chip=" + chip);
+        return text;
+    }
+
     /// A rig with the build's SYSINFO on M:.
     struct InfoRig : CcpRig
     {
@@ -249,12 +262,12 @@ namespace
         return s;
     }
 
-    /// FT_INFOX's LDA #16 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
+    /// FT_INFOX's LDA #17 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
     void report_interface_8(CcpRig &r)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 16 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, 8);
@@ -343,6 +356,13 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
     // 3,000-3,400 cycles a pass) just after that poll at the first window's end, and the last at the third's too,
     // so the handler runs over the change. With the first form two windows of three were out by the burst, the
     // middle one with them (7,170,533 Hz).
+    // The clock chip's figure is held to the rate the skewed chip gives (NATIVE_HZ over 1 + SKEW_PPM ppm), within
+    // 0.004% (N13, the owner's answer of 2026-11-22): this case guards the exclusion, not the precision, and its
+    // readings scatter about 150 Hz from run to run against a skew of 20 ppm, so the precise cases' 0.002% would
+    // fail it by where a stamp falls. A spoiled change kept is several times further out (the mutant: build-log).
+    constexpr double SKEW_PPM = 20;
+    const double skewed_hz = NATIVE_HZ / (1 + SKEW_PPM * 1e-6);
+    constexpr double PART = 0.00004;
     struct Seen
     {
         std::vector<uint64_t> changes; ///< the bridge's seconds changing, from the measurement's start
@@ -358,6 +378,12 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
         BackplaneBridge *nb = r.machine->backplane_bridge();
         UsbCard *usb = r.machine->usb_card();
         REQUIRE(nb != nullptr && usb != nullptr);
+        // The DS3231 20 ppm fast, as a board's TCXO is against the bridge's crystal (N10, the owner's answer of
+        // 2026-11-22): in the emulator the bridge's tick and the chip's second come from one clock, so they phase-lock
+        // (the tick 0.9 cycles a second against the second, where the VIA's slid 90). Locked, the tick lands at the
+        // same place before every SEC change, and its long pass that reads the paddles covered change 0 in every
+        // run, a third spoiled change beside this case's two bursts.
+        nb->rtc()->set_skew_ppm(SKEW_PPM);
         unsigned calls = 0;
         bool polled = false;
         int sec = -1;
@@ -403,7 +429,7 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
         if (at.empty())
         {
             start = s.changes[0];
-            normal(s.out); // undisturbed
+            normal(s.out, true, skewed_hz, PART); // undisturbed
         }
         else
             CHECK_EQ(s.changes[0], start); // booted alike: the same up to the first burst
@@ -420,7 +446,7 @@ TEST(an_interrupt_after_the_last_poll_before_a_change_is_kept_out_of_the_clock)
     CHECK_EQ(fired, 2u);
     REQUIRE(!s.changes.empty());
     CHECK_EQ(s.changes[0], start);
-    normal(s.out);
+    normal(s.out, true, skewed_hz, PART);
 }
 
 TEST(a_card_left_out_loses_its_line_and_its_section)
@@ -446,6 +472,29 @@ TEST(a_card_left_out_loses_its_line_and_its_section)
         if (n != c.lines)
             std::printf("    %zu lines differ from sysinfo.txt, not %zu\n", n, c.lines);
     }
+}
+
+TEST(the_random_line_says_what_rn_info_says)
+{
+    // Random-source O7 (less its revision 2 golden: OODOS 0.16 refuses that bridge): the RANDOM line from function
+    // 78's RN_INFO. The golden's ATECC608B on the north bridge (a locked chip, sysinfo.txt); rng_chip=unlocked "not
+    // locked", none "none", each one line changed from sysinfo.txt (two in differing()'s count). Must fail with the line's RS bit tested wrongly.
+    struct Case
+    {
+        const char *chip, *file, *line;
+    };
+    for (const Case &c : {Case{"unlocked", "sysinfo_rngunlocked.txt", "  RANDOM     not locked"},
+                          Case{"none", "sysinfo_norng.txt", "  RANDOM     none"}})
+    {
+        std::printf("  rng_chip=%s\n", c.chip);
+        InfoRig r(with_rng(c.chip));
+        REQUIRE(r.ok);
+        const std::string got = normal(run(r, "m:sysinfo /all"));
+        CHECK(golden(c.file, got));
+        CHECK(got.find(std::string(c.line) + "\n") != std::string::npos);
+        CHECK_EQ(differing(got, full_golden()), size_t{2});
+    }
+    CHECK(full_golden().find("  RANDOM     ATECC608B on the north bridge\n") != std::string::npos);
 }
 
 TEST(a_revision_changed_changes_its_lines)
@@ -496,19 +545,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 16, 77 the ROM BIOS 0.19 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 17, 77 the ROM BIOS 0.20 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
-    CHECK(o.find("FINFO 10 2F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 13\n") != std::string::npos);
+    CHECK(o.find("FINFO 11 2F\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 14\n") != std::string::npos);
     std::smatch m;
-    CHECK(std::regex_search(o, m, std::regex("V72 000F000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 13") == std::string::npos || m.empty())
+    CHECK(std::regex_search(o, m, std::regex("V72 0010000200044001[0-9A-F]{4}A55A")));
+    if (o.find("ROMV 00 14") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.19\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.20\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
@@ -561,25 +610,6 @@ TEST(one_section_alone_and_a_wrong_word)
     CHECK_EQ(run(r, "m:sysinfo memory"), std::string("SYSINFO {section} {/ALL}"));
 }
 
-TEST(on_a_revision_1_north_bridge_its_row_says_d1_and_revision_1)
-{
-    // O8 (B7, b7-plan.md §4): the north bridge's ID is $D2 on revision 2 (the golden's row) and $D1 on revision 1
-    // (the emulator's `revision=1`): both known to SYSINFO (oohw's hwname.s), each by its own revision.
-    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-    const std::string line = "northbridge  backplane";
-    const size_t at = text.find(line);
-    REQUIRE(at != std::string::npos);
-    text.insert(at + line.size(), " revision=1");
-    InfoRig r(text);
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD1);
-    const std::string got = normal(run(r, "m:sysinfo /all"), false);
-    CHECK(got.find("\n  $C680  $D1  north bridge                  1\n") != std::string::npos);
-    CHECK(got.find("$D1  (not known") == std::string::npos);
-    if (got.find("  $C680  $D1  north bridge") == std::string::npos)
-        std::printf("%s\n", got.c_str());
-}
-
 TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
 {
     // D6 (B7, b7-plan.md §4, as C18 left it): on a $D2 bridge SYSINFO reads MAP's AP8 to say what bank 8 is, with
@@ -598,7 +628,7 @@ TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
     {
         InfoRig r;
         REQUIRE(r.ok);
-        REQUIRE(r.bridge().id() == 0xD2);
+        REQUIRE(r.bridge().id() == 0xD3); // the default since N5: revision 2's MAP and more
         CHECK_EQ(clause(run(r, "m:sysinfo system")), with);
         r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());

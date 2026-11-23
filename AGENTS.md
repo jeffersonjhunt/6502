@@ -27,10 +27,15 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
 - **A program is a `.COM` (or `.PRL`) file on the card, not ROM.** It starts with `OODOS_HEADER`, runs at `$0300`,
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,
-  the sound card's 6510, the VIA's ACR, IER and IFR, and its timer 1 (don't write it, nor read `T1CL`, which clears
-  the tick's flag), and the serial line's receive (the 6551's CMD and its interrupt, its STATUS and DATA; later the
-  TL16C552A's IER, MCR and FIFO control): a program reads AUX: by functions 3 and 7, and asks function 85 for the
-  rest (the owner, 2026-11-21). The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
+  its common hole (HOLE), its timebase (TBCTL, MS0-MS3, TBSUB, MSS) and its random number registers (RNGST, RNGCNT,
+  RNGDATA, `$19-$1B`: a program asks function 78), the sound card's 6510, the VIA's IER and IFR, and its ACR but for
+  timer 1's mode bits (7-6), and the serial line's receive (the 6551's CMD and its interrupt, its STATUS and DATA;
+  later the TL16C552A's IER, MCR and FIFO control): a program reads AUX: by functions 3 and 7, and asks function 85
+  for the rest (the owner, 2026-11-21). **Timer 1 is the program's, polled** (the owner, 2026-11-21; OODOS 0.16,
+  which needs north bridge revision 3): its counter, its latches, ACR's bits 7-6 (the rest of ACR kept as read) and
+  its IFR flag, never its IER bit; a program that may run on an older OODOS checks function 80's `FT_INFO` for
+  `FC_T1` first. **`$F800-$FFFF` is common memory whatever W3 holds** (OODOS 0.16's common hole, the owner,
+  2026-11-22): a program never writes there, and a far-called block needs no copy of it. The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
   or one the program allocated), under the W1 contract (OOLIB interface 4,
   [the Programmer's Guide, chapter 5](docs/oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)); a
   program draws through OOLIB, not by writing `NB_WIN1` or `NB_WIN1H` itself, and keeps its code and data out of
@@ -44,7 +49,7 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   other program, RSX or library may claim it, by name or by copying its code; anything else still asks first, as
   above. The list, cut to what SYSINFO reads and writes:
   - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; `NB_MAP` (its AP8, read only after
-    `NB_ID` reads `$D2`, to say what bank 8 is); `VIDEO_MEMSIZE`; `USB_DEVICES`; the SD card's ID and `SD_STATUS`;
+    `NB_ID` reads `$D2` or more, to say what bank 8 is); `VIDEO_MEMSIZE`; `USB_DEVICES`; the SD card's ID and `SD_STATUS`;
     the console card's SWR and PANEL; `NB_SEC` polled for the clock (how that meets the bridge's own I²C reads on
     real hardware is unknown, as `hwclock.s` says).
   - **The VIA's timer 2** (EE5): `T2CL` and `T2CH` written and read, for `HW_CLOCK`'s count. That changes only

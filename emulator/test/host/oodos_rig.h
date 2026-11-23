@@ -292,6 +292,9 @@ namespace oodos_rig
                 if (!images[n].empty())
                     opt.apple_roms[n] = {images[n]};
             opt.disk2_sequencer = disk2_sequencer;
+            // A fixed time, on a second (review r1's C2): with the host's, the chip's first edge, and so the bridge's
+            // SYNC before CcpRig's set_time, fell where the host's clock put it.
+            opt.rtc_time = Ds3231::Time{2026, 10, 30, 12, 0, 0, (days(2026, 10, 30) - 1) % 7 + 1};
             std::string error;
             machine = Machine::build(machine_text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : machine_text,
                                      "backplane.machine", opt, error);
@@ -305,7 +308,7 @@ namespace oodos_rig
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
             machine->bus().reset();
             cpu->reset();
-            if (!until("BACKPLANE BIOS 0.19\r\\\r", ms(2000)))
+            if (!until("BACKPLANE BIOS 0.20\r\\\r", ms(2000)))
             {
                 std::printf("  the ROM BIOS didn't reach its monitor\n");
                 return;
@@ -522,13 +525,6 @@ namespace oodos_rig
             return "<no " + key + ">";
         const size_t from = at + key.size() + 2;
         return text.substr(from, text.find('\r', from) - from);
-    }
-
-    /// Common memory's 2 KB copied into block b's top, as OODOS will do for a block allocated for code.
-    inline void give_common(Rig &r, unsigned b)
-    {
-        for (uint32_t i = 0; i < 0x800; ++i)
-            r.poke(b * BLOCK + 0x3800 + i, r.phys(COMMON_PHYS + i));
     }
 
     /// A booted rig with the committed card's A.IMG as A: and again, read-only, as B:.
@@ -778,6 +774,10 @@ namespace oodos_rig
             static std::function<void(Rig &)> f;
             return f;
         }
+
+        /// The millisecond counter: north bridge revision 3's MS, read with no latch taken (OODOS 0.16 keeps none of
+        /// its own).
+        inline uint32_t ms_count(Rig &r) { return r.bridge().ms(); }
 
         /// OODOS.SYS booted with the card's A.IMG as A: and B.IMG (empty) as B:.
         struct CcpRig : Rig

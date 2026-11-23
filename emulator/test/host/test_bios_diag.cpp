@@ -272,7 +272,7 @@ namespace
     };
 
     const std::string PROMPT = "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S";
-    const std::string GREETING = "BACKPLANE BIOS 0.19\r";
+    const std::string GREETING = "BACKPLANE BIOS 0.20\r";
     const std::string RESULT = "RESULT: ";
 
     /// Switch 19 up, the reset, the prompt, CONT: the core runs. @return whether the prompt came
@@ -951,7 +951,7 @@ TEST(a_loop_runs_two_passes_and_a_key_ends_it_after_the_second)
 {
     Rig r(SW19 | SW17);
     REQUIRE(enter(r));
-    REQUIRE(r.until("PASS 2  QUICK LOOP", ms(60'000)));
+    REQUIRE(r.until("PASS 2  QUICK LOOP", ms(75'000)));
     r.key(' ');
     REQUIRE(to_result(r));
     const std::string text = report(r);
@@ -1117,7 +1117,7 @@ TEST(a_pass_count_above_255_is_printed_whole)
     REQUIRE(r.until(" 3  CPU", ms(5000)));
     r.poke(0x00012, 0x2B); // DG_PASS = 299, in W0's block 0
     r.poke(0x00013, 0x01);
-    REQUIRE(r.until("PASS 300  QUICK LOOP", ms(60'000)));
+    REQUIRE(r.until("PASS 300  QUICK LOOP", ms(75'000)));
     r.key(' ');
     CHECK(to_result(r));
 }
@@ -1884,11 +1884,26 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
     CHECK_EQ(bridge_of(r).winh(1), 0x00);
     CHECK_EQ(bridge_of(r).window(1), 0x01);
     CHECK_EQ(bridge_of(r).map(), 0x01); // the card: AP8 set again
-    CHECK(r.screen_has("BACKPLANE BIOS 0.19"));
+    CHECK(r.screen_has("BACKPLANE BIOS 0.20"));
     r.machine->bus().write_bus(0x04123, 0x5C); // RAM block 1
     const size_t from = r.out.size();
     r.type("4123\r");
     CHECK(r.until("4123: 5C", ms(500), from));
+}
+
+TEST(stage_7_takes_d3)
+{
+    // N1, the sweep: stage 7 takes the bridge at revision 2 or 3, and NB1 names the ID it read. On a $D3 bridge the
+    // stage runs and passes (revision 3 is revision 2's registers so far), NB1 says $D3, and the run passes. Must
+    // fail if CARDIS is still asked for revision 2 alone (the stage would SKIP).
+    Rig r(SW19, EMU_BIOS_ROM, with_bridge(3));
+    REQUIRE(r.ok());
+    REQUIRE(bridge_of(r).id() == 0xD3);
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 7), "PASS"));
+    CHECK(test_line(r, "NB1").find("ID $D3; STATUS'S REVISION 3") != std::string::npos);
+    CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
 }
 
 TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
@@ -1915,6 +1930,172 @@ TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
     CHECK(ends(stage_line(r, 9), "PASS"));
     CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
     CHECK_EQ(bridge_of(r).map(), 0x01); // nothing wrote MAP: a $D1 bridge has none (it reads its reset value)
+}
+
+// --- Revision 3: NB10, the timebase (N6; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ---------------
+
+TEST(nb10_passes_on_revision_3_and_skips_on_2)
+{
+    // NB10 on the default revision 3 bridge: MSF, IRQH bit 5, MS across a second, MSS at three second changes and
+    // SYNC all pass. On a revision 2 bridge it SKIPs, saying so, and the run still passes.
+    {
+        Rig r(0, EMU_BIOS_ROM);
+        REQUIRE(r.ok());
+        REQUIRE(bridge_of(r).id() == 0xD3);
+        faulted_run(r);
+        CHECK(ends(test_line(r, "NB10"), "PASS"));
+        CHECK(ends(stage_line(r, 7), "PASS"));
+    }
+    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "SKIP"));
+    CHECK(after_test(r, "NB10").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb10_fails_when_mss_isnt_restarted)
+{
+    // A bridge whose MSS is the free-running count modulo 1,000, never restarted by the DS3231's second: NB10
+    // FAILs at a second's change, naming MSS. Must fail with NB10's MSS compare removed (the fault would pass).
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::MssNotRestarted));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "FAIL"));
+    CHECK(after_test(r, "NB10").find("MSS: NOT 0 OR 1 AT A NEW SECOND") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "FAIL"));
+}
+
+TEST(nb10_fails_when_msf_isnt_cleared)
+{
+    // A bridge whose MSF a 1 doesn't clear: NB10 FAILs at once, naming MSF.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::MsfNotClearedBy1));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB10"), "FAIL"));
+    CHECK(after_test(r, "NB10").find("MSF: A 1 WRITTEN DIDN'T CLEAR IT") != std::string::npos);
+}
+
+// --- Revision 3: NB12, the common hole (N18; hw/design.md, "The common hole") ---------------
+
+TEST(nb12_passes_on_revision_3_and_skips_on_2)
+{
+    // NB12 on the default revision 3 bridge: the hole shows a tested block's top 2 KB, keeps it with RO, and
+    // gives $F800 back to W3 when off; HOLE 0 after it. On a revision 2 bridge it SKIPs, saying so.
+    {
+        Rig r(0, EMU_BIOS_ROM);
+        REQUIRE(r.ok());
+        faulted_run(r);
+        CHECK(ends(test_line(r, "NB12"), "PASS"));
+        CHECK(ends(stage_line(r, 7), "PASS"));
+        CHECK_EQ(bridge_of(r).hole(), 0x00);
+    }
+    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB12"), "SKIP"));
+    CHECK(after_test(r, "NB12").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb12_fails_when_the_hole_ignores_ro)
+{
+    // A bridge whose HOLE loses its RO bit: NB12's write lands in the block, and it FAILs, naming RO. Must fail with
+    // NB12's RO compare removed (the fault would pass).
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BridgeFault f;
+    REQUIRE(bridge_fault(*r.machine, f, BridgeFault::Kind::HoleIgnoresRo));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB12"), "FAIL"));
+    CHECK(after_test(r, "NB12").find("A WRITE WITH RO SET CHANGED THE BLOCK") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "FAIL"));
+    CHECK_EQ(bridge_of(r).hole(), 0x00);
+}
+
+// --- Revision 3: NB9, the random number chip (N7; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ------------
+
+namespace
+{
+    /// backplane.machine at revision 3 with rng_chip=`chip`.
+    std::string with_chip(const std::string &chip)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " rng_chip=" + chip);
+        return text;
+    }
+} // namespace
+
+TEST(nb9_passes_with_a_locked_chip)
+{
+    // NB9 on the default machine (a locked ATECC608B, the fixed stream): its 32 bytes neither one value nor one
+    // 4-byte group repeated, then DRAW refills within 150 ms: PASS.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "PASS"));
+    CHECK(ends(stage_line(r, 7), "PASS"));
+}
+
+TEST(nb9_fails_unlocked)
+{
+    // rng_chip=unlocked: CHIP without LOCKED: FAIL, "NOT LOCKED".
+    Rig r(0, EMU_BIOS_ROM, with_chip("unlocked"));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("NOT LOCKED") != std::string::npos);
+}
+
+TEST(nb9_fails_a_constant_chip)
+{
+    // A chip answering every Random with one constant byte (the fault injector): its 32 bytes are one value: FAIL.
+    // Must fail with NB9's byte compare removed.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BackplaneBridge *nb = r.machine->backplane_bridge();
+    REQUIRE(nb != nullptr && nb->rng_chip() != nullptr);
+    nb->rng_chip()->set_constant(0x5A);
+    nb->write(BackplaneBridge::RNGST, BackplaneBridge::RNG_DRAW); // the pool drawn again from the constant chip
+    r.run(ms(40));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("32 BYTES OF ONE VALUE") != std::string::npos);
+}
+
+TEST(nb9_fails_a_repeated_group)
+{
+    // Review r1's T5. A chip that reads locked but answers every Random with one 4-byte group repeated (the
+    // unlocked part's $FF $FF $00 $00, as a bad lock read would hand out): NB9 FAILs, naming the group. Must fail
+    // with NB9's group check skipped.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BackplaneBridge *nb = r.machine->backplane_bridge();
+    REQUIRE(nb != nullptr && nb->rng_chip() != nullptr);
+    nb->rng_chip()->set_fixed_pattern(true);
+    nb->write(BackplaneBridge::RNGST, BackplaneBridge::RNG_DRAW); // the pool drawn again from the faulty chip
+    r.run(ms(40));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("ONE 4-BYTE GROUP REPEATED") != std::string::npos);
+}
+
+TEST(nb9_skips_without_a_chip)
+{
+    // rng_chip=none: SKIP, "NO RANDOM NUMBER CHIP"; the stage still passes.
+    Rig r(0, EMU_BIOS_ROM, with_chip("none"));
+    REQUIRE(r.ok());
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "SKIP"));
+    CHECK(after_test(r, "NB9").find("NO RANDOM NUMBER CHIP") != std::string::npos);
+    CHECK(ends(stage_line(r, 7), "PASS"));
 }
 
 int main()

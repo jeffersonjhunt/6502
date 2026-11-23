@@ -104,12 +104,14 @@
 
 .setcpu "65C02"
 .include "sys.inc"
+.include "oodos.inc"                    ; 78's RS_ names (RNGOK)
 .import WARM, COLD
 .import CRTINIT, CRTOUT
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
+.export RNGOK, RNGNEW, RNGBYTE
+.export NB3CHK, BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .export RAWF, DRVAPL, MNTGEN           ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
@@ -168,6 +170,8 @@ TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
+RNGW:           .res    2              ; RNGBYTE's wait: MS0-MS1 at its start
+RNGD:           .res    1              ; 1 once this call has written DRAW (RNGBYTE's one retry)
 RAWF:           .res    1              ; not 0: function 76's READ or WRITE, a DOS 3.3 sector (6d)
 MNTGEN:         .res    SD_DRIVES      ; each unit's mount changes, counted (UNITS), never cleared
 D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
@@ -1801,10 +1805,11 @@ SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
 ; enable on for them, and CONTROL put back after, SELECT with it (the SELECT
 ; rule: an interrupt between blocks finds the window here and leaves it
 ; here); each given up after about 0.1 s. The CPU waits through a block
-; transfer, 2 cycles a byte, and can take no interrupt in it: one longer than
-; a tick (7,159 cycles) could cover two of timer 1's expiries, and the VIA
-; has one flag, so a tick would be lost (the console's scroll is 4,640
-; bytes). Between blocks a pending interrupt is taken, if the caller has
+; transfer, 2 cycles a byte, and can take no interrupt in it: blocks under
+; a tick (7,159 cycles) let the tick due be taken between them, on time (the
+; bridge's counter loses nothing either way; before OODOS 0.16 the VIA's
+; timer 1 had one flag, and a tick would have been lost; the console's
+; scroll is 4,640 bytes). Between blocks a pending interrupt is taken, if the caller has
 ; them on. A copy up over itself (crt.s's erase, a byte at a time) comes out
 ; as one transfer's would: each block starts where the last ended. DCOUNT,
 ; SRCP and DSTP are kept, as they were before the blocks: the addresses are
@@ -2190,7 +2195,149 @@ BIN2BCD:        LDY     #0             ; A (0-99): tens in Y
                 RTS
 
 ; ---------------------------------------------------------------------------
+; The random source (hw/oodos.md, "The BIOS's driver"): the
+; north bridge's pool of the ATECC608B's bytes, by its registers, beside
+; TIME as TIME drives SET: a register read, a bounded poll. Not a jump-table
+; entry: function 78 is the interface. Interrupts stay as they are.
+;
+; RNGOK: RN_INFO's answer in A (RS_CHIP: a locked chip, a source;
+; RS_UNLOCKED; RS_FAULT: its last draw failed), carry clear if it is a
+; source. NB_ID $D3 (NB3CHK made sure of it at the cold boot), RNGST's CHIP
+; and LOCKED. A only.
+RNGOK:          LDA     NB_ID
+                CMP     #NB_ID_V3
+                BNE     @none
+                LDA     NB_RNGST
+                BIT     #NB_RNG_CHIP
+                BEQ     @none
+                BIT     #NB_RNG_LOCKED
+                BEQ     @unlocked
+                AND     #NB_RNG_FAULT
+                BEQ     @chip
+                LDA     #RS_CHIP | RS_FAULT
+                CLC
+                RTS
+@chip:          LDA     #RS_CHIP
+                CLC
+                RTS
+@unlocked:      AND     #NB_RNG_FAULT
+                BEQ     @u
+                LDA     #RS_UNLOCKED | RS_FAULT
+                SEC
+                RTS
+@u:             LDA     #RS_UNLOCKED
+                SEC
+                RTS
+@none:          LDA     #0
+                SEC
+                RTS
+.assert NB_RNG_FAULT = $10 && RS_FAULT = $04, error, "RNGOK's FAULT: RNGST's bit 4, RS_FAULT bit 2"
+
+; RNGNEW: a call's start: its one DRAW not yet written.
+RNGNEW:         STZ     RNGD
+                RTS
+
+; RNGBYTE: the pool's next byte in A, carry clear; carry set if the source
+; failed. It waits for READY or FAULT, at most RNG_MS by the bridge's
+; counter (longer than the bridge's three tries at their give-up, about
+; 310 ms, so it sees FAULT rather than racing the retries). On FAULT it
+; writes DRAW once in the call (RNGD) and waits again; a second failure, or
+; the wait running out, fails it. RNGDATA read with a load: its read takes
+; the byte. A and X.
+RNG_MS          = 400
+RNGBYTE:        JSR     @now           ; the wait's start
+                STA     RNGW
+                STX     RNGW + 1
+@poll:          LDA     NB_RNGST
+                BMI     @ready         ; READY
+                AND     #NB_RNG_FAULT
+                BNE     @fault
+                JSR     @now           ; now - start, against RNG_MS
+                SEC
+                SBC     RNGW
+                TXA
+                SBC     RNGW + 1
+                CMP     #>RNG_MS
+                BCC     @poll
+                BNE     @fail
+                JSR     @now
+                SEC
+                SBC     RNGW
+                CMP     #<RNG_MS
+                BCC     @poll
+@fail:          SEC
+                RTS
+@fault:         LDA     RNGD
+                BNE     @fail          ; DRAW written once already
+                INC     RNGD
+                LDA     #NB_RNG_DRAW   ; FAULT cleared, a fresh draw
+                STA     NB_RNGST
+                BRA     RNGBYTE
+@ready:         LDA     NB_RNGDATA
+                CLC
+                RTS
+.assert NB_RNG_READY = $80, error, "RNGBYTE tests READY by BMI"
+; The bridge's MS0-MS1 in A and X, MS0 first (its read latches MS1), with
+; interrupts off between (a handler's read of MS0 would take a new latch).
+@now:           PHP
+                SEI
+                LDA     NB_MS0
+                LDX     NB_MS1
+                PLP
+                RTS
+
 ; Cold boot's part (block 62's COLD calls these)
+
+ROM_ECHO        = $C80F                ; the ROM BIOS's ECHO: A to its screen and the 6551, A and X kept
+
+; NB3CHK (OODOS 0.16; hw/oodos.md, "Revision 3 required"): the cold boot's first act, before
+; BINIT turns anything on. OODOS's tick and counter are north bridge revision 3's, so on any other bridge it
+; doesn't boot: it says so on the ROM BIOS's console and the serial line, through the ROM's ECHO ($C80F), and goes
+; to the ROM's BREAK, with no interrupt of OODOS's on and nothing on the card written. It runs here in W2 (block 61),
+; so it can put W3 and VEC on the ROM's copy (block 63) and go on; W0 goes back to block 0 first, the BIOS's zero
+; page (ECHO's $E0-$E7, its cursor) and stack. On $D3 it turns the common hole on and returns, A changed:
+; HOLE $BE, EN with RO clear (FARCALL writes its operand there) on block 62, where common memory is, so with W3
+; and VEC on 62 (OOLDR's) no byte the CPU sees changes; before BINIT, so every later path, Break in the boot too,
+; has it (hw/design.md, "The common hole"). Nothing else turns it on.
+NB3CHK:         LDA     NB_ID
+                CMP     #NB_ID_V3
+                BNE     @old
+                LDA     #NB_HOLE_EN | RES_BLOCK
+                STA     NB_HOLE
+                RTS
+.assert (NB_HOLE_EN | RES_BLOCK) = $BE, error, "NB3CHK writes HOLE $BE: EN, RO clear, block 62"
+@old:           STZ     NB_WIN0        ; the BIOS's zero page and stack: OODOS's are left behind
+                LDX     #$FF
+                TXS
+                LDA     #NB_RO | ROM_BLOCK
+                STA     NB_WIN3
+                STA     NB_VEC
+                LDX     #0
+@say:           LDA     NB3MSG,X
+                BEQ     @id
+                JSR     ROM_ECHO
+                INX
+                BRA     @say
+@id:            LDA     NB_ID          ; the ID it read, $Dn
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                JSR     @hex
+                LDA     NB_ID
+                AND     #$0F
+                JSR     @hex
+                LDA     #'.'
+                JSR     ROM_ECHO
+                LDA     #$0D
+                JSR     ROM_ECHO
+                JMP     ($FFFA)        ; block 63's NMI vector: the ROM's BREAK, to the monitor
+@hex:           CMP     #10
+                BCC     @dig
+                ADC     #'A' - '0' - 10 - 1
+@dig:           ADC     #'0'
+                JMP     ROM_ECHO
+NB3MSG:         .byte   $0D, .sprintf("OODOS %d.%d NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $", OODOS_MAJOR, OODOS_MINOR), 0
 
 ; The devices, the drives, the banks.
 BINIT:          LDX     #2 * NTB - 1   ; every track buffer empty (6d's fourth review: a warm

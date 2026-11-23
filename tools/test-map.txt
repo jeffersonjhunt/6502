@@ -57,6 +57,7 @@ emulator/tools/trace_diff.py                    debug
 emulator/components/devices/*acia6551*          acia backplane web
 emulator/components/devices/*apple_io*          iie bridge backplane web docs
 emulator/components/devices/*backplane_bridge*  bridge backplane web
+emulator/components/devices/*atecc608*          rng bridge backplane web
 emulator/components/devices/*console_card*      console backplane web
 emulator/components/devices/*disk2_card*        disk2 backplane web
 emulator/components/devices/*disk_image*        disk2 web
@@ -147,6 +148,10 @@ oodos/gwbasic/                                  gwbasic gwlocale docs
 oodos/README.md                                 docs
 # W1HTEST, B7's test program that writes WIN1H itself: only these suites run it.
 oodos/sys/test/w1htest.s                        test_oodos_sys test_oodos_input test_oodos_clock test_oodos_utils_rom
+# T1TEST, the program's timer 1 (N9): only test_oodos_clock runs it.
+oodos/sys/test/t1test.s                         test_oodos_clock
+# RNDTEST, function 78's (N11): only test_oodos_random runs it.
+oodos/sys/test/rndtest.s                        test_oodos_random
 oodos/                                          oodos docs
 docs/                                           docs
 apple1/README.md                                none
@@ -163,6 +168,7 @@ tools/gwlocale.sh                               gwlocale tools
 tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
+tools/atecc_crc.py                              rng
 
 # --- prose, licenses and settings ----------------------------------------------------------------------
 hw/                                             docs

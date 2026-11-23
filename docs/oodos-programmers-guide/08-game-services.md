@@ -53,38 +53,43 @@ with ordinary loads: no call at all.
 
 Two counters, 32 bits each, low byte first, from the cold boot on:
 
-- **The millisecond counter** counts timer 1 of the serial card's VIA, which OODOS runs at 1 kHz: 7,159 cycles at
-  7.16 MHz. It is the clock for anything not tied to the picture: timers in a game's logic, timeouts, sound
-  effects played by the CPU. It runs for about 49 days before it goes round.
+- **The millisecond counter** is the north bridge's own (revision 3, which OODOS 0.16 needs): a 1 kHz tick from
+  the master oscillator, a millisecond exactly over every 11, 7,159 or 7,160 cycles at 7.16 MHz. It is the clock for
+  anything not tied to the picture: timers in a game's logic, timeouts, sound effects played by the CPU. It runs
+  for about 49 days before it goes round. (Before OODOS 0.16 it counted timer 1 of the serial card's VIA.)
 - **The frame counter** counts the video card's vertical blanks, 59.94 a second. It is the clock for anything
   drawn. It runs for about 2.3 years.
 
 Both run whatever the program does, in a BDOS call or out of one: the BDOS runs with interrupts on. The rate is
-fixed, so a millisecond is always one count; a program wanting finer timing has timer 2, which a later step gives
-programs.
+fixed, so a millisecond is always one count. **Timer 1 of the VIA is the program's** since OODOS 0.16 (interface 17:
+`FT_INFO`'s `FC_T1`), polled: its counter, its latches, ACR's bits 7–6 (keep the rest of ACR as you read it) and its
+IFR flag, never its IER bit, which stays OODOS's; a timed call goes through the tick hook instead. A program that
+may run on an older OODOS checks `FC_T1` first: there timer 1 is OODOS's tick.
+
+**The time of day to the millisecond.** `FT_CLOCK` (interface 17) fills a block with the date and time as
+[function 105](07-function-reference.md#bdos-105) gives them, the seconds, and the milliseconds into that second,
+all from one latch of the clock, and two flags: `FK_SYNC`, the milliseconds are in step with the clock chip's second,
+and `FK_LOST`, the clock chip's time is invalid ([function 80](07-function-reference.md#bdos-80)).
 
 **On O: and P:** the Disk II driver turns interrupts off for each sector it reads or writes, about 12 ms, because
-the CPU times the disk's bits itself. It adds that time to the millisecond counter afterwards, from the bytes it
-read, so the counter keeps time through it to about half a percent. A sector takes less than a frame, so no frame
-is missed.
+the CPU times the disk's bits itself. The counter is the bridge's, so it loses nothing: the ticks that came
+meanwhile are taken as one at the end, and an open event area's counter is written whole then. A sector takes less
+than a frame, so no frame is missed.
 
-**What the clocks cost.** Each tick is an interrupt: 162 cycles with no event area and no hooks, 2% of the CPU, in
-every program (since OODOS 0.11, B7, with the dispatcher's 17 cycles for WIN1H on a revision 2 north bridge, where
-WIN1H is 0 and nothing needs clearing). While a program that called `GX_BANK8` has slot 1 in W1, WIN1H `$0E`, the
-dispatcher clears it and puts it back, 10 cycles more on every interrupt: a tick 172, a frame 225 (measured at B7's
-final build). An open
-event area of layout 1 adds 39 cycles a tick, one of layout 2 (input) 87, and each hook its
-own time ([the input's cost](#what-input-costs)).
+**What the clocks cost** (OODOS 0.16, measured). Each tick is an interrupt: 142 cycles with no event area and no
+hooks, 2% of the CPU, in every program (162 with OODOS 0.15's VIA tick); a frame is 231. These include the
+dispatcher's 17 cycles for WIN1H, where WIN1H is 0 and nothing needs clearing; while a program that called
+`GX_BANK8` has slot 1 in W1, WIN1H `$0E`, the dispatcher clears it and puts it back, 10 cycles more on every
+interrupt. An open event area of layout 1 makes a tick 188, one of layout 2 (input) 241, and each hook adds its own
+time ([the input's cost](#what-input-costs)).
 
 `FT_COUNT` reads both counters at one moment: A/X has the millisecond counter's low word, and a block gets all 8
 bytes. To wait, there are two calls, both with interrupts on, so the hooks keep running:
 
 - **`FT_WAIT`** returns at the next vertical blank, or after the count of frames in its block's +1. A/X is the
   frame counter's low word then. A game that draws in a loop calls it once a round, so it draws once a frame.
-- **`FT_DELAY`** returns after the count of milliseconds in its block's +1–2, up to 65,535. If the millisecond
-  counter stands still for 4 frames meanwhile, timer 1 has been stopped, against the rules below, and it gives up
-  then with A = X = `$FF` rather than wait for ever. Without a running frame counter (no video card, or its
-  vertical blank turned off) it can't tell, and waits on.
+- **`FT_DELAY`** returns after the count of milliseconds in its block's +1–2, up to 65,535, by the bridge's
+  counter, which can't be stopped. (OODOS 0.15 and before gave up with A = X = `$FF` if timer 1 had been stopped.)
 
 ## The event area
 
@@ -163,18 +168,19 @@ flags, and puts back the windows and the stack it found.
   will run under. A program that changes W0 later and keeps its hooks would have them push into the other block's
   page 1 wherever S points, over what that page holds.
 - **Budgets: 8,000 cycles a frame hook** (about 7% of a frame), **300 a tick hook** (it may run 60 times as often).
-  They aren't enforced. A debug build of OODOS.SYS (`make -C oodos/sys DEBUG=1`) times each hook by timer 1, and
+  They aren't enforced. A debug build of OODOS.SYS (`make -C oodos/sys DEBUG=1`) times each hook by the north
+  bridge's counter (MS0 and TBSUB), and
   `FT_COSTS` says the most each took: from the dispatcher's call to its return, so about 130 cycles more than the
   hook's own, and for a frame hook the ticks taken under it.
 - **The frame hook runs with interrupts on,** so the ticks that come while it runs are counted (its budget is
   longer than a tick). A frame that comes while the frame hook is still running is counted, but the hook isn't
   called again for it; `FT_COSTS` counts those. **The tick hook runs with interrupts off, and must leave them
   off:** no `CLI`. With them on, the next tick could come while it runs and call it again, on top of itself.
-- **Not allowed:** a BDOS call, DMA, a far call, and a write to the VIA's ACR, IER or IFR, which are OODOS's.
-  Timer 1 is OODOS's tick, so its registers are too: a write to `T1CL`, `T1CH`, `T1LL` or `T1LH` changes the
-  tick, and even a *read* of `T1CL` clears timer 1's interrupt flag, so the tick due then is lost. `T1CH` and the
-  latches (`T1LL`, `T1LH`) are safe to read. OOLIB's routines that only touch registers may be called once there
-  are some (L4).
+- **Not allowed:** a BDOS call, DMA, a far call (FARCALL's operand is one slot in common memory, shared by every
+  block, so a far call from a hook would spoil one under way), a write to the VIA's IER or IFR or to ACR's bits but
+  timer 1's, and the north bridge's timebase, which are OODOS's. Since OODOS 0.16 timer 1 is the program's, so a
+  hook may poll it as the program does. OOLIB's routines that only touch registers may be called once there are
+  some (L4).
 
 ## Input
 
@@ -958,20 +964,19 @@ received bytes in a ring, and functions 3 and 7 read it ([chapter 4](04-console-
 
 The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, the serial line's receive ring
 emptied, and every interrupt enable the
-program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). For the input it turns the
+program turned on off again (OODOS keeps only its own: the north bridge's tick and the vertical blank; every VIA
+interrupt off and ACR 0). For the input it turns the
 USB card's interrupt off, puts the mouse back in relative mode with the limits a reset gives (639, 479), the LEDs
 off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 1 to 4 in order: what the cold
 boot sets. For L3's sound it does what the BIOS's Break does to the card, whether a program claimed it or not: the
 6510 stopped, the SIDs silenced, the stream flushed and stopped, the ES5503 stopped; and channel 2 aborted, the card's
 DRQSEL back to 0 and its interrupts off, the ES5503 hook off, every part released, a hold forgotten, and the master
 volumes back at 255, and (from OODOS 0.7; before it, the EQ was left as the program set it) the EQ off with every
-gain 0. Timer 1 is set up again
-as the cold boot left it, should the program have changed it. For L4's graphics it frees the vertical-blank slots,
+gain 0. For L4's graphics it frees the vertical-blank slots,
 turns the pointer off, sets the video card's registers as the cold boot set them for the console (its card memory,
 `$000000–$03FFFF`, was never the program's, so its text shows again as it was), turns the port's DMA request off, and
 puts the aperture's slots on card banks 0, 16, 2 and 3. That is so whether the program ends by `JMP WBOOT`,
-by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
-counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
+by ^C, or by an error. The counters run on, whatever the program did to timer 1. Break goes to the
 monitor with the machine's interrupts off, as it always has; booting OODOS again starts the clocks afresh.
 
 ## Still to come

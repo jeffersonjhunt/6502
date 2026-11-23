@@ -594,6 +594,15 @@
   "status": "built"
  },
  {
+  "number": 78,
+  "name": "O_RANDOM",
+  "documented": true,
+  "anchor": "bdos-78",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.16 (interface version 17, function 80's `FT_INFO`).",
+  "status": "built"
+ },
+ {
   "number": 80,
   "name": "O_FRAME",
   "documented": true,

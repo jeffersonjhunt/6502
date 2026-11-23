@@ -41,11 +41,6 @@ namespace
 
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     uint8_t sys(Rig &r, const char *name) { return r.phys(SYS_BLOCK_PHYS + sym(name)); }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
     uint8_t vreg(Rig &r, uint8_t off) { return vid(r).peek(off); }
     void vset(Rig &r, uint8_t off, uint8_t v) { r.machine->bus().write(static_cast<uint16_t>(VIDEO + off), v); }
@@ -184,7 +179,7 @@ namespace
                 const unsigned c = static_cast<unsigned>(r.cpu->cycles() + 6 - c0);
                 if (r.phys(frames) != f)
                     ++out.frame[c];
-                else if (l == 0xBF && h == 0xFF)
+                else if (l == 0xFF && h == 0xDF) // the bridge's tick alone (N9)
                     ++out.tick[c];
                 in = false;
                 if (each)
@@ -206,7 +201,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("10 2F")); // interface 16, areas frame, input, sound, DMA, serial
+    CHECK_EQ(command(r, 'F', "F"), std::string("11 2F")); // interface 17, areas frame, input, sound, DMA, serial
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -691,13 +686,13 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     time_interrupts(r, none, ms(300));
     Costs::print("no area, a frame", none.frame);
     Costs::print("no area, a tick", none.tick);
-    CHECK_EQ(Costs::mode(none.tick), 162u); // with B7's 17 for WIN1H
-    CHECK_EQ(Costs::mode(none.frame), 215u); // L3's 199 (main 0497570), +16 since B7 (its 17, less a page crossing the move took away)
+    CHECK_EQ(Costs::mode(none.tick), 142u); // the bridge's tick (N10; 162 with timer 1's)
+    CHECK_EQ(Costs::mode(none.frame), 231u); // 215 before N9: the long way's test of IRQH bit 5 (the tick) added
     open(r, "2");
     Costs area2;
     time_interrupts(r, area2, ms(200));
     Costs::print("layout 2, no slot, a frame", area2.frame);
-    CHECK_EQ(Costs::mode(area2.frame), 412u); // L3's 389, the 7 of VBON's test, and B7's 16 (as :633)
+    CHECK_EQ(Costs::mode(area2.frame), 447u); // 412 before N9: the tick's test on the long way and IRQOTH's (N9, N10)
     const std::vector<uint8_t> src = noise(512, 4);
     r.poke(0x10000, src);
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));
@@ -1061,19 +1056,26 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("10 2F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("11 2F"));
     }
 }
 
-TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
+namespace
 {
-    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
-    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
-    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
-    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    /// The machine file with `revision=N` on its north bridge line.
+    std::string bridge_revision(unsigned n)
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        const std::string line = "northbridge  backplane";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), " revision=" + std::to_string(n));
+        return text;
+    }
+
+    /// O5's body: with MAP 0 the console and DM_VCOPY reach the aperture at $E00000, bank 8's RAM untouched.
+    void aperture_at_e00000(CcpRig &r)
+    {
     open(r, "X");
     const std::vector<uint8_t> ram = noise(0x10000, 7);
     r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
@@ -1107,6 +1109,29 @@ TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_ba
     };
     for (unsigned n = 0; n < 30; ++n)
         CHECK_EQ(row(n), std::string("K 00 00"));
+    }
+} // namespace
+
+TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
+{
+    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
+    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
+    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
+    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD3); // the default since N5 (revision 2's registers and more)
+    aperture_at_e00000(r);
+}
+
+TEST(on_a_revision_3_bridge_slot_0_s_window_is_at_e00000)
+{
+    // N1, the sweep: crt.s's NB_ID test is "revision 2 or more", so on a $D3 bridge the console's window is the
+    // aperture's own at $E00000, as on $D2: O5 again on revision 3.
+    CcpRig r({}, bridge_revision(3));
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD3);
+    aperture_at_e00000(r);
 }
 
 // --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 D1-D5; proposed) ------------------------------------------
@@ -1131,15 +1156,6 @@ namespace
         for (size_t i = 0; i < b.size(); ++i)
             r.machine->bus().write_bus(at + static_cast<uint32_t>(i), b[i]);
     }
-    std::string revision_1_bridge()
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=1");
-        return text;
-    }
     void romver(Rig &r, uint8_t major, uint8_t minor)
     {
         r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), major);
@@ -1155,7 +1171,7 @@ TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
     // untouched.
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD2);
+    REQUIRE(r.bridge().id() == 0xD3); // the default since N5
     open(r, "X");
     REQUIRE(r.bridge().map() == 1);
     put_bus(r, 0x80000, std::vector<uint8_t>(0x100, 0x11));
@@ -1189,19 +1205,11 @@ TEST(dm_bank8_with_no_revision_2_video_card_succeeds_with_no_window)
     CHECK_EQ(r.bridge().map(), 0);
 }
 
-TEST(dm_bank8_is_refused_on_a_revision_1_bridge_and_under_a_rom_before_0_17)
+TEST(dm_bank8_is_refused_under_a_rom_before_0_17)
 {
-    // D3. A revision 1 north bridge has no MAP: $FF $FF, the block untouched. A ROM BIOS older than 0.17 (OODOS's
-    // record of it, cold.s's ROMVER, made 0.16) would draw the monitor's screen through bank 8 on a Break: $FF
-    // $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF (not found) is refused.
-    {
-        CcpRig r({}, revision_1_bridge());
-        REQUIRE(r.ok);
-        REQUIRE(r.bridge().id() == 0xD1);
-        open(r, "X");
-        CHECK_EQ(bank8(r), std::string("FF FF"));
-        CHECK_EQ(bank8_block(r), std::string("EEEE"));
-    }
+    // D3. A ROM BIOS older than 0.17 (OODOS's record of it, cold.s's ROMVER, made 0.16) would draw the monitor's
+    // screen through bank 8 on a Break: $FF $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF
+    // (not found) is refused. (The revision 1 bridge's half went with N8: OODOS 0.16 refuses that bridge, O7.)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");

@@ -170,7 +170,7 @@ settled the rule, and its emulator plan's first step is in:
   (`Bus::vector_pull`), and the bus trace records the lines of each cycle as
   they were (`Decoder::last_access`).
 - **`BackplaneBridge`** (`components/devices`), from the machine line
-  `northbridge backplane [bootsel] [revision=1|2]`: four 16 KB windows with
+  `northbridge backplane [bootsel] [revision=1|2|3]`: four 16 KB windows with
   ROM and RO bits, VEC on vector pulls, the I/O hole ahead of the windows,
   and its registers at $C680 with the decided reset values (W3 and VEC on
   the top block of ROM A, or RAM block 63 under /BOOTSEL), STATUS, the

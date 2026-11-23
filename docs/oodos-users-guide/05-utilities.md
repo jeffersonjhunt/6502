@@ -1414,13 +1414,14 @@ CARDS
   $C500  $A2  sound                         2
   $C580  $B1  USB, game port and speaker    1
   $C600  $C1  Disk II controller            1
-  $C680  $D2  north bridge                  2
+  $C680  $D3  north bridge                  3
   $C700  $E1  console (front panel)         1
 ```
 
 - **SYSTEM:** the CPU and its clock, measured for a second against the clock chip and for 60 frames against the
   video card (a few seconds in all); the ROM BIOS's version, OODOS's and its BIOS's, OOLIB's interface; OOUI.BNK
-  on A:, if it is there; the memory fitted and what programs get; how the machine booted.
+  on A:, if it is there; the memory fitted and what programs get; how the machine booted; and the random source,
+  as function 78 reports it: `RANDOM     ATECC608B on the north bridge`, or `none`, `not locked` or `failed`.
 - **CARDS:** a line a card, found by its ID byte. A card that doesn't answer is `not found`; a card at a revision
   SYSINFO doesn't know says so. The serial card of the emulator is a stand-in with no ID.
 - **VIDEO, SOUND:** the cards' memory and parts, and which of the sound card's parts no program has claimed.

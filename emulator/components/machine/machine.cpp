@@ -231,20 +231,26 @@ namespace ooe::emu
             if (type == "northbridge")
             {
                 if (w.size() < 2 || w[1] != "backplane")
-                    return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]'");
+                    return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2|3] "
+                                "[rng_chip=locked|unlocked|none]'");
                 bool bootsel = false, revised = false;
+                std::string rng_chip; // revision 3's random number chip: locked (the default), unlocked, none
                 uint8_t revision = BackplaneBridge::REVISION; // the default (step B7)
                 for (size_t i = 2; i < w.size(); ++i)
                 {
                     if (w[i] == "bootsel" && !bootsel)
                         bootsel = true;
-                    else if ((w[i] == "revision=1" || w[i] == "revision=2") && !revised)
+                    else if ((w[i] == "revision=1" || w[i] == "revision=2" || w[i] == "revision=3") && !revised)
                     {
                         revision = static_cast<uint8_t>(w[i].back() - '0');
                         revised = true;
                     }
+                    else if ((w[i] == "rng_chip=locked" || w[i] == "rng_chip=unlocked" || w[i] == "rng_chip=none") &&
+                             rng_chip.empty())
+                        rng_chip = w[i].substr(9);
                     else
-                        return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2]', not '" +
+                        return fail("northbridge: want 'northbridge backplane [bootsel] [revision=1|2|3] "
+                                    "[rng_chip=locked|unlocked|none]', not '" +
                                     w[i] + "'");
                 }
                 if (m->bridge_)
@@ -262,7 +268,13 @@ namespace ooe::emu
                     const Ds3231::Time now = host_time(ms);
                     rtc = std::make_shared<Ds3231>(now, false, ms);
                 }
+                if (!rng_chip.empty() && revision < BackplaneBridge::TIMEBASE)
+                    return fail("northbridge: rng_chip= is revision 3's");
                 auto bridge = std::make_unique<BackplaneBridge>(bootsel, std::move(rtc), revision);
+                if (bridge->timebase())
+                    bridge->set_rng_chip(rng_chip == "none" ? nullptr
+                                                            : std::make_unique<Atecc608>(rng_chip != "unlocked", true,
+                                                                                         options.rng_source));
                 bridge->attach(&m->bus_);
                 m->bus_.set_bridge(bridge.get());
                 m->bus_.map(Mapping{bus_address(Space::Io, BackplaneBridge::REGISTERS),

@@ -555,11 +555,6 @@ namespace
     constexpr uint8_t PE_STATE = 3, PE_REFUSED = 4;
     const std::string STATE = hex2(PE_STATE) + " 01", REFUSED = hex2(PE_REFUSED) + " 01";
 
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     /// Function 82 with `block` at BUF (K): A as "aa".
     std::string f82(CcpRig &r, const std::vector<uint8_t> &block)
     {

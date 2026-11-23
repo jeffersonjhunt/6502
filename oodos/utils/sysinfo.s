@@ -21,7 +21,7 @@
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
-;            a revision 2 north bridge, NB_MAP's AP8 for what bank 8 is:
+;            a north bridge of revision 2 or more, NB_MAP's AP8 for what bank 8 is:
 ;            B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
@@ -365,10 +365,43 @@ system: lda     #<ssystem
         beq     @reset
         lda     #<spoweron
         ldx     #>spoweron
-        jmp     comma
+        bra     @how
 @reset: lda     #<sareset
         ldx     #>sareset
-        jmp     comma
+@how:   jsr     comma
+        jsr     nl
+        ; fall into random
+
+; "  RANDOM     ATECC608B on the north bridge": function 78's RN_INFO
+; (interface 17; hw/design.md, "The random source"), not the hardware: SYSINFO's
+; exception doesn't grow. An OODOS before 78 answers $FF $FF: none.
+random: lda     #<srandom
+        ldx     #>srandom
+        jsr     puts
+        lda     #RN_INFO
+        ldx     #0
+        ldy     #O_RANDOM
+        jsr     BDOS
+        cpx     #0
+        bne     @none                   ; no function 78
+        bit     #RS_CHIP
+        bne     @chip
+        bit     #RS_UNLOCKED
+        bne     @unl
+@none:  lda     #<srnone
+        ldx     #>srnone
+        jmp     puts
+@unl:   lda     #<srunlocked
+        ldx     #>srunlocked
+        jmp     puts
+@chip:  and     #RS_FAULT
+        bne     @fail
+        lda     #<srchip
+        ldx     #>srchip
+        jmp     puts
+@fail:  lda     #<srfailed
+        ldx     #>srfailed
+        jmp     puts
 
 ; " at n.nnn MHz" from the Hz at A/X, to the nearest kHz.
 mhz:    sta     p
@@ -574,9 +607,9 @@ memory: lda     #<smemory
         sta     vunits
         cmp     #0
         beq     @prog
-        lda     HW_REV + $D             ; a revision 2 north bridge (B7): bank 8 is the aperture
-        cmp     #2                      ;   only while MAP's AP8 is set, else the RAM card's
-        bne     @aper
+        lda     HW_REV + $D             ; a north bridge of revision 2 or more (B7): bank 8 is
+        cmp     #2                      ;   the aperture only while MAP's AP8 is set, else the
+        bcc     @aper                   ;   RAM card's
         lda     NB_MAP
         and     #NB_MAP_AP8
         beq     @prog
@@ -1521,6 +1554,11 @@ sfrom_ram: .byte "from RAM (/BOOTSEL)$"
 sfrom_flash: .byte "from the flash$"
 spoweron: .byte "at power-on$"
 sareset: .byte  "at a reset$"
+srandom: .byte  "  RANDOM     $"
+srchip: .byte   "ATECC608B on the north bridge$"
+srnone: .byte   "none$"
+srunlocked: .byte "not locked$"
+srfailed: .byte "failed$"
 scards: .byte   "CARDS$"
 scardhd: .byte  "  ADDR   ID   CARD                          REVISION$"
 NAMECOL = 30                            ; the revision's column after the name's start

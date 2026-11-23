@@ -130,6 +130,7 @@ namespace ooe::emu
         options.disk2_boot = config_.disk2_boot;
         options.disk2_sequencer = config_.disk2_sequencer;
         options.rtc = rtc_; // the clock, on its battery
+        options.rng_source = config_.rng_source;
         std::unique_ptr<Machine> machine = Machine::load(config_.machine, options, error);
         if (!machine)
             return false;

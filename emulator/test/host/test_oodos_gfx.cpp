@@ -670,11 +670,11 @@ TEST(the_library_refuses_to_map_below_interface_8)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #16
-    // (interface 16 since function 85, the serial receive buffer), LDX #$2F.
+    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #17
+    // (interface 17 since function 78, FC_T1 and FT_CLOCK), LDX #$2F.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 16 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 7);
@@ -1488,27 +1488,18 @@ namespace
         settle(r);
         return r.nb(1);
     }
-    std::string revision_1_bridge()
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=1");
-        return text;
-    }
     /// $4000's two bytes: RAM block 1's, and the card's under card page $0541 (GX_VMAP's bank 21).
     void mark_w1(CcpRig &r)
     {
         r.poke(0x4000, B_RAM);
         vid(r).card_poke(SLOT1_AT, B_CARD);
     }
-    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #16, LDX #$2F).
+    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #17, LDX #$2F).
     void ft_info_as(CcpRig &r, uint8_t v)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 16 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, v);
@@ -1686,30 +1677,6 @@ TEST(a_program_that_calls_only_gx_init_keeps_ap8_and_block_33)
     CHECK_EQ(w1h(r), 0);
     CHECK_EQ(r.phys(at("GXCURH")), 0);
     CHECK_EQ(r.phys(at("GXCUR")), 33);
-}
-
-TEST(on_a_revision_1_bridge_the_library_never_writes_c6a0_to_c6a5)
-{
-    // L7. A $D1 bridge has no WINnH: GX_INIT, GX_BANK8 (refused: GE_VERSION), GX_VMAP, GX_BLOCK and GX_W1BACK
-    // never write $C6A0-$C6A5, and W1 moves as before (blocks 33, 36, 1).
-    CcpRig r({}, revision_1_bridge());
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD1);
-    start_gx(r);
-    NewRegWrites seen;
-    r.cpu->set_observer(&seen);
-    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
-    CHECK_EQ(ac(gx(r, '8')), std::string("01 01"));
-    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
-    CHECK_EQ(w1(r), 33);
-    CHECK_EQ(gx(r, 'b', 36).substr(6), std::string("00"));
-    CHECK_EQ(w1(r), 36);
-    CHECK_EQ(gx(r, 'b', 1).substr(6), std::string("00"));
-    gx(r, 'm', 0x41, 0x05);
-    gx(r, 'w');
-    CHECK_EQ(w1(r), 1);
-    r.cpu->set_observer(nullptr);
-    CHECK_EQ(seen.writes, 0u);
 }
 
 TEST(a_frame_hook_that_maps_slot_1_leaves_the_interrupted_code_its_own_w1)

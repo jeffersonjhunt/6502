@@ -39,9 +39,6 @@
 ;       and the enables as they are (VIEN vv, VIER ii); then timer 2's enable
 ;       on again, and the warm boot
 ;   S   SCROLLS lines, each scrolling the screen (a DMA copy of 4,640 bytes)
-;   T   timer 1 stopped (against the rules): T0 and FT_COUNT's 8; its enable
-;       off, one-shot (ACR 0), the latch $1234; FT_DELAY of 1000: DELAY aa xx
-;       (FF FF, given up); T1 and FT_COUNT's 8; the warm boot
 ;   R   the 6551's receive interrupt on (against the rules); a key by
 ;       function 1: KEY kk; CMD and the 6551's command register; the warm boot
 ;   K   a full-budget frame hook (B's), then KPASSES times: a delay of
@@ -52,8 +49,17 @@
 ;       find no file, $FF, each later one the last pass's, 0-3); then the
 ;       last pass's file read back: KREAD, the open's A and the records that
 ;       didn't read or weren't as written
-;   U   ACR changed (timer 1 free-running still, and on PB7) and timer 1's
-;       enable written again, the latch left alone; the warm boot at once
+;   F   the event area open (layout 1, 32 bytes), then FT_COUNT (with its
+;       block) FCALLS times in a loop, nothing printed (test_oodos_clock's O2
+;       and O3 watch SNAP and the area); CLOSE; the warm boot
+;   G   the event area open, then 8 passes: interrupts off for about 20 ms
+;       (SEI at GSEI, a spin, CLI at GCLI; GS: about 3 ms), then 20 ms with
+;       them on; CLOSE;
+;       the warm boot (ticks run together, OVR, a frame and a tick at once:
+;       test_oodos_clock's O3 and the_tick_and_another_card_together)
+;   C   FT_CLOCK (interface 17): with no block CNB aa xx (refused); then
+;       CLOCK aa xx and its block's 8 bytes (CLK1), FT_DELAY of 250, the same
+;       (CLOCK2, CLK2); the warm boot
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -68,6 +74,7 @@ SENTS   = 100                           ; H B's sentinels
 SCROLLS = 120
 KPASSES = 16
 KRECS   = 8                             ; 1 KB: four sectors
+FCALLS  = 40000                         ; F's FT_COUNTs
 HW1     = $4000                         ; the hooks' records, in W1 as they see it
 
         .zeropage
@@ -112,18 +119,21 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'S'
         bne     :+
         jmp     case_s
-:       cmp     #'T'
-        bne     :+
-        jmp     case_t
 :       cmp     #'R'
         bne     :+
         jmp     case_r
 :       cmp     #'K'
         bne     :+
         jmp     case_k
-:       cmp     #'U'
+:       cmp     #'F'
         bne     :+
-        jmp     case_u
+        jmp     case_f
+:       cmp     #'G'
+        bne     :+
+        jmp     case_g
+:       cmp     #'C'
+        bne     :+
+        jmp     case_c
 :       jmp     WBOOT
 
 ; ---- small helpers ---------------------------------------------------------
@@ -203,6 +213,23 @@ case_i: lda     #FT_INFO
         ldy     #O_VERSION
         jsr     BDOS
         DUMP    "VER", vbuf, 12
+        jmp     WBOOT
+
+; ---- C ---------------------------------------------------------------------
+
+case_c: lda     #FT_CLOCK
+        ldx     #0
+        jsr     f80
+        SAY     "CNB"
+        CALL80  kblk
+        SAY     "CLOCK"
+        DUMP    "CLK1", kblk + 1, 8
+        lda     #<250
+        ldx     #>250
+        jsr     delay
+        CALL80  kblk
+        SAY     "CLOCK2"
+        DUMP    "CLK2", kblk + 1, 8
         jmp     WBOOT
 
 ; ---- A ---------------------------------------------------------------------
@@ -506,23 +533,6 @@ case_s: lda     #SCROLLS
         bne     @line
         jmp     WBOOT
 
-case_t: CALL80  cblk
-        DUMP    "T0", cblk + 1, 8
-        lda     #VIA_IRQ_T1             ; its enable off
-        sta     VIA_IER
-        stz     VIA_ACR                 ; one-shot
-        lda     #$34
-        sta     VIA_T1LL
-        lda     #$12
-        sta     VIA_T1LH
-        lda     #<1000
-        ldx     #>1000
-        jsr     delay
-        SAY     "DELAY"
-        CALL80  cblk
-        DUMP    "T1", cblk + 1, 8
-        jmp     WBOOT
-
 case_r: lda     ACIA_CMD
         and     #<~ACIA_CMD_RXOFF
         sta     ACIA_CMD
@@ -667,11 +677,53 @@ case_k: lda     #$FF                    ; errors come back, not said
         SAY     "KREAD"
         jmp     WBOOT
 
-case_u: lda     #VIA_ACR_T1FREE | $80   ; PB7 timer 1's too: against the rules, harmless
-        sta     VIA_ACR
-        lda     #VIA_IER_SET | VIA_IRQ_T1
-        sta     VIA_IER
+case_f: CALL80  oblk
+        lda     #<FCALLS
+        sta     spin
+        lda     #>FCALLS
+        sta     spin + 1
+@c:     CALL80  cblk                    ; FT_COUNT, its 8 bytes into cblk + 1
+        lda     spin
+        bne     @d
+        dec     spin + 1
+@d:     dec     spin
+        lda     spin
+        ora     spin + 1
+        bne     @c
+        lda     #FT_CLOSE
+        ldx     #0
+        jsr     f80
         jmp     WBOOT
+
+case_g: CALL80  oblk
+        lda     #8
+        sta     kx
+        lda     #112                    ; the hold: 20 ms, or GS's 3
+        ldx     mode2
+        cpx     #'S'
+        bne     :+
+        lda     #17
+:       sta     bad
+gpass:  sei
+GSEI:   ldy     bad
+        jsr     spinY
+        cli
+GCLI:   jsr     spin20
+        dec     kx
+        bne     gpass
+        lda     #FT_CLOSE
+        ldx     #0
+        jsr     f80
+        jmp     WBOOT
+; About 20 ms of spinning: 112 x 256 passes of 5 cycles (spinY: Y x 256).
+spin20: ldy     #112
+spinY:
+@o:     ldx     #0
+@i:     dex
+        bne     @i
+        dey
+        bne     @o
+        rts
 
 ; kfcbb: O:K.BIN, the rest 0.
 kfcb:   ldx     #35
@@ -723,6 +775,8 @@ btblk:  .byte   FT_TICKHOOK
 
         .data
 iblk:   .byte   FT_INFO, 0, 0, 0, 0
+kblk:   .byte   FT_CLOCK
+        .res    8
 dblk:   .byte   FT_DELAY, 0, 0
 cblk:   .byte   FT_COUNT
         .res    8

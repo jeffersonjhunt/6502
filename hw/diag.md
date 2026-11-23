@@ -1688,7 +1688,7 @@ and `W1HOME` puts WIN1H 0 and block 1 back. The boot after the run sets MAP back
 1 with a revision 2 card, else 0); PUTBACKM is unchanged. On a `$D1` bridge `DG_APER` follows `VIDEO_ID` as before
 and bank 8 is passed over while it is the aperture. Stage 7's NB1 takes revision 2 exactly; a `$D1` bridge is `NOT
 KNOWN TO THIS BUILD`, SKIP. The run times, re-measured: a quick run 58.7 s (was 56.5), a full run 171.8 s (was
-165.6). NB9 (WINnH and MAP read back) waits for a later diagnostics BIOS.
+165.6). NB9 (WINnH and MAP read back) waits for a later diagnostics BIOS: renamed NB11 when BIOS 0.20 gave NB9 to the random number chip and NB10 to the timebase (the owner, 2026-11-22, the build plan's question 4); NB12 is the common hole's ([below](#the-rom-bios-020-north-bridge-revision-3)).
 
 **Faults reported** as the block (or card bank), the offset, the physical address, what was read and what was
 expected, and the bits that differ. Stage 4's failures name a line ("A13 stuck", "blocks 17 and 21 answer as one");
@@ -2141,3 +2141,31 @@ at `A>` (P2-1, P2-2). Answers 2, 3, 6, 8 and 9 stand.
    hook in `SoundCard`, the one emulator change, made in D2. *Alternative (not chosen):* a `fault` line in the
    machine-file language.
 9. **Where the library lives. Decided:** `backplane/oohw/`. *Alternative (not chosen):* `oodos/lib/oohw*.s`.
+
+## The ROM BIOS 0.20: north bridge revision 3 ##
+
+Status: **built** (2026-11-22: NB9, NB10 and NB12 in stage 7, Break's TBCTL write). Moved from the two specs as built.
+
+### The timebase and the hole ###
+
+Nothing in the ROM uses a tick before OODOS: the BIOS enables no interrupts. It uses the VIA's timers only in the
+diagnostics (SR2 counts both timers across a loop; NB5's `HW_CLOCK` uses timer 2, and the core's own timer 1
+free-running), and RTCCTL's TICK only as a polled flag (the launcher's prompt, NB4). All keep working on revision 3.
+The changes, beside the random source's (NB9, `$D3` in stage 7, `hwname.s`, the "revision 2 or more" sweep):
+
+- **Break** writes TBCTL `$C0` ([above](design.md#power-on-resets-apple-ii-mode-and-break)).
+- **NB10, the timebase** (after NB9), on `$D3` only, else SKIP: MSF sets within 1.1 ms of being cleared, and a read
+  doesn't clear it; with MSIE, IRQH bit 5 reads 0 while MSF is set and 1 once it is cleared (polled with I set),
+  then MSIE off; MS0-MS3 step by 1,000 ± 1 across one of the DS3231's seconds (two SEC changes) and never go
+  backwards across a low-byte carry read through the latch; at each of three SEC changes MSS reads 0 or 1, and never
+  more than 999 between them; SYNC set. A FAIL names the step.
+
+### The random number chip ###
+
+- **The revision.** The diagnostics' stage 7 check (`diag22.s`) takes `$D3`, and `hwname.s` names it. Every test of
+  NB_ID for exactly `$D2` (WINnH, MAP, AP8, in the BIOS and in OODOS's `crt.s` and `common.s`) becomes "revision 2
+  or more": a sweep with its tests, in R2.
+- **NB9, the random number chip** (a new check after NB4's clock chip): no `$D3`, SKIP; no CHIP, SKIP ("NO RANDOM
+  NUMBER CHIP"); CHIP without LOCKED, FAIL ("NOT LOCKED"); otherwise read 32 bytes and FAIL if they are all one
+  value or one 4-byte group repeated; then DRAW, and BUSY must clear and READY return within 150 ms; FAIL on FAULT.
+

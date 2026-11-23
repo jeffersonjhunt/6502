@@ -30,11 +30,6 @@ namespace
     constexpr uint32_t MBOX = 0x2100, KBLK = 0x2110, FCB = 0x2140; ///< l4test.s's
     constexpr uint8_t DM_LOAD = 1, F_OPEN_FN = 15, F_DMAOFF_FN = 26, F_WRITERAND_FN = 34, O_SOUND_FN = 82;
 
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     std::vector<uint8_t> noise(size_t n, uint32_t seed)
     {
         std::vector<uint8_t> b(n);

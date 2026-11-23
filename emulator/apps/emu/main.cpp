@@ -63,6 +63,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -286,6 +287,10 @@ int main(int argc, char *argv[])
     using namespace ooe::emu;
 
     MachineOptions options;
+    {
+        auto device = std::make_shared<std::random_device>(); // the random number chip's bytes: the host's
+        options.rng_source = [device] { return static_cast<uint8_t>((*device)()); };
+    }
     const char *disk_path = nullptr;
     const char *sd_path = nullptr;
     const char *machine_path = nullptr;

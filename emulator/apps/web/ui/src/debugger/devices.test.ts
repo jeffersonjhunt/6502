@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -324,5 +324,20 @@ describe("Devices tab", () => {
     port.clock = { ...port.clock, rtcctl: 0x04, setPending: false };
     await view.refresh();
     expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock lost");
+    expect(rtc.querySelector('[data-reg="TBCTL"]')).toBeNull(); // no timebase before revision 3
+    port.clock = { ...port.clock, timebase: { tbctl: 0xb0, ms: 123456, mss: 7 } };
+    await view.refresh();
+    expect(text(rtc, "TBCTL")).toBe("$B0  MSF · MSIE · SYNC");
+    expect(text(rtc, "MS")).toBe("123456 · 123.456 s");
+    expect(text(rtc, "MSS")).toBe("7");
+    port.clock = { ...port.clock, timebase: { tbctl: 0xc0, ms: 5, mss: 999 } };
+    await view.refresh();
+    expect(text(rtc, "MSS")).toBe("999 · not in step (SYNC clear)");
+    expect(tbctlText(0x00)).toBe("none");
+    expect(rtc.querySelector('[data-reg="RNGST"]')).toBeNull();
+    port.clock = { ...port.clock, random: { rngst: 0xe0, count: 32 } };
+    await view.refresh();
+    expect(text(rtc, "RNGST")).toBe("$E0  READY · CHIP · LOCKED · 32 bytes in the pool");
+    expect(rngstText(0x51)).toBe("CHIP · FAULT · BUSY");
   });
 });

@@ -3,12 +3,13 @@ OO-1 SYSTEM INFORMATION
 SYSTEM
   CPU        W65C02S at 7.159 MHz
              #,###,### Hz by the clock chip, no video frame to measure by
-  ROM BIOS   0.19
-  OODOS      0.15, its BIOS 0.2; OOLIB interface 16
+  ROM BIOS   0.20
+  OODOS      0.16, its BIOS 0.2; OOLIB interface 17
   OOUI.BNK   none on A:
   MEMORY     1,024 KB fitted
              for programs: a 47K TPA, 320 KB in banks 1-5 (320 KB free)
   BOOTED     from the flash, at power-on
+  RANDOM     ATECC608B on the north bridge
 
 CARDS
   ADDR   ID   CARD                          REVISION
@@ -19,7 +20,7 @@ CARDS
   $C500  $A2  sound                         2
   $C580  $B1  USB, game port and speaker    1
   $C600  $C1  Disk II controller            1
-  $C680  $D2  north bridge                  2
+  $C680  $D3  north bridge                  3
   $C700  $E1  console (front panel)         1
 
 VIDEO      revision 1, which OODOS no longer drives

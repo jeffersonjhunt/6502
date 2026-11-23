@@ -13,7 +13,7 @@
 ;   $002000  the text: 80 x 30 cells of character + attribute
 ;
 ; VPUTC writes cells through aperture slot 0, which it points at card page 0
-; for the moment and puts back, through W2, borrowed the same way: on a $D2
+; for the moment and puts back, through W2, borrowed the same way: on a $D2+
 ; north bridge, WIN2H $0E and block 0 (the aperture at $E00000, whatever AP8
 ; says), and on a $D1 one, block 32 (physical $80000, bank 8). Everything else goes
 ; through the card's data port: VINIT writes the font and the palette into
@@ -56,7 +56,7 @@ CURSOR  = '_'
 CURATTR = $87                          ; light grey, blinking
 
 VBLOCK  = 32                           ; on a $D1 bridge: physical $80000, the aperture's slot 0, through W2
-VBLOCK2 = 0                            ; on a $D2 bridge: with WIN2H $0E, physical $E00000, slot 0
+VBLOCK2 = 0                            ; revision 2 or more: with WIN2H $0E, physical $E00000, slot 0
 VWIN    = $8000
 PAL_CARD  = $000000                    ; card addresses
 FONT_CARD = $000400
@@ -211,8 +211,8 @@ VPUTC:
                 STZ     VIDEO_SLOT0 + 1
                 LDX     NB_ID
                 CPX     #NB_ID_V2
-                BNE     @v1
-                LDX     NB_WIN2H       ; a $D2 bridge: W2 on $E00000, slot 0
+                BCC     @v1
+                LDX     NB_WIN2H       ; revision 2 or more: W2 on $E00000, slot 0
                 PHX
                 LDX     #VIDEO_APER_H
                 STX     NB_WIN2H
@@ -248,7 +248,7 @@ VPUTC:
                 JSR     PUTAT
                 LDX     NB_ID
                 CPX     #NB_ID_V2
-                BNE     @back
+                BCC     @back
                 PLX
                 STX     NB_WIN2H
 @back:          PLX

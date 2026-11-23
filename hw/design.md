@@ -179,7 +179,8 @@ program can look at the first 16 KB of the screen without giving up its zero pag
   `$C000–$FFFF` through the VEC register instead of W3. VEC resets to the same value as W3, so vectors come from
   the flash until the BIOS moves them to RAM, and an OS can point VEC at its own block. The first instructions of
   each handler must still be in a fixed place: either in W3 with W3 left alone, or in a small common area the
-  handler switches through.
+  handler switches through. On revision 3 that common area is the bridge's: the common hole maps `$F800–$FFFF` to
+  one RAM block's top 2 KB whatever W3 holds, ahead of VEC ([below](#the-common-hole)); it is off at every reset.
 - **ROM space.** A window can map flash instead of RAM: blocks 0–31 of ROM A (512 KB) or of ROM B, the game
   cartridge. *(The first design gave them module IDs 4 and 5; on the new bus they answer by their address and have
   no ID: [the new bus](#the-new-bus-memory-by-address-dma-by-module-id-one-backplane), B6.)* A cartridge appears in
@@ -220,14 +221,19 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | `$04` | VEC | read/write | the mapping of `$C000–$FFFF` while VPB is low | `$DF` |
 | `$05` | MODE | write | bit 0 APPLE: writing 1 enters Apple II mode (Apple map, clock ÷14, pulse /RESET); only a hard reset clears it. Bit 1 TURBO: reserved for ÷1 | `$00` |
 | `$06` | STATUS | read | bit 0: booted from RAM (/BOOTSEL); bit 1: the last reset was power-on; bits 4–7: north bridge revision | |
-| `$07` | RTCCTL | read/write | the real-time clock ([below](#real-time-clock)). Bit 7 TICK: a second passed or an alarm fired; write 1 to clear. Bit 6 TIE: TICK interrupts (bit 5 of IRQH, ID `0xD`). Bit 5 ALARM: the DS3231 flagged an alarm. Bit 2 LOST: the DS3231's oscillator stopped (OSF), so the time is invalid until set. Bit 1 SET: write 1 to send SEC–YEAR to the DS3231; a strobe, it reads 0, and BUSY shows the send pending. Bit 0 BUSY: the bridge is talking to the DS3231. Don't read-modify-write it: a TICK read as 1 and written back clears it | TICK, TIE and SET 0; LOST and ALARM follow the DS3231's status |
+| `$07` | RTCCTL | read/write | the real-time clock ([below](#real-time-clock)). Bit 7 TICK: a second passed or an alarm fired; write 1 to clear. Bit 6 TIE: TICK interrupts (bit 5 of IRQH, ID `0xD`); on revision 3 it reads 0 and a write is ignored, the 1 Hz interrupt dropped ([the timebase](#the-timebase)). Bit 5 ALARM: the DS3231 flagged an alarm. Bit 2 LOST: the DS3231's oscillator stopped (OSF), so the time is invalid until set. Bit 1 SET: write 1 to send SEC–YEAR to the DS3231; a strobe, it reads 0, and BUSY shows the send pending. Bit 0 BUSY: the bridge is talking to the DS3231. Don't read-modify-write it: a TICK read as 1 and written back clears it | TICK, TIE and SET 0; LOST and ALARM follow the DS3231's status |
 | `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
 | `$09` | IRQH | read | interrupt poll for IDs 8–F | |
 | `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID: WAITn holds IDs 4n to 4n+3, the lowest ID in bits 1–0. Reserved for turbo; unused at ÷2. **BIOS 0.14 ([diag.md](diag.md)):** the ROM diagnostics own WAIT3 while they run (it carries a program's options and a stage's flag through their no-RAM stages) and write every wait state 0 on the way out | `$00` |
 | `$10`–`$16` | SEC–YEAR | read/write | the time, in BCD as the DS3231's registers `$00–$06` (seconds, minutes, hours, day of week, date, month with the century in bit 7, year). Reading SEC latches all seven, so a read never straddles a second | |
 | `$17` | RTCREG | read/write | a DS3231 register number, for RTCDATA | `$00` |
 | `$18` | RTCDATA | read/write | that DS3231 register (the alarms, control, status, aging, temperature), read or written through the bridge; wait for BUSY clear. A write to the control register (`$0E`) has INTCN, RS2 and RS1 cleared: SQW is the bridge's | |
-| `$7F` | ID | read | north bridge type and revision | |
+| `$19`–`$1B` | RNGST, RNGCNT, RNGDATA | | revision 3: the random source ([below](#the-random-sources-registers)) | |
+| `$1C`–`$1D` | MSSL, MSSH | read | revision 3: milliseconds into the DS3231's second, from SEC's latch ([the timebase](#the-timebase)) | |
+| `$20`–`$25` | WIN0H–WIN3H, VECH, MAP | read/write | revision 2: A20–A23 and AP8 ([above](#the-video-aperture-moved-out-of-ram)) | `$00`, MAP `$01` |
+| `$26` | HOLE | read/write | revision 3: the common hole, EN RO BLOCK ([below](#the-common-hole)) | `$00` |
+| `$28`–`$2E` | TBCTL, MS0–MS3, TBSUBL/H | | revision 3: the tick and the millisecond counter ([the timebase](#the-timebase)) | MSF, OVR, MSIE 0 |
+| `$7F` | ID | read | north bridge type and revision: `$D1`, `$D2`, `$D3` | |
 
 With /BOOTSEL held at reset, WIN3 and VEC start at `$3F` (RAM block 63) instead of `$DF`.
 
@@ -290,8 +296,9 @@ This is too much for a 74HC670 register file, which would also leave no room for
 
 - **At power-on** the bridge sets the DS3231's square wave to 1 Hz (INTCN 0, RS 00) and reads the time. On every
   falling edge of SQW it reads the seven time registers again into SEC–YEAR and sets TICK. The DS3231 holds its
-  RST low for about 250 ms after VCC rises and ignores I²C meanwhile, so its RST is part of the board's reset
-  chain: /RESET stays held until it goes high, and the bridge sets the chip up and reads the time after that.
+  RST low for about 250 ms after VCC rises; its RST doesn't gate I²C (the data sheet; an earlier draft of this said
+  it did), so it is the bridge that orders power-on: /RESET stays held until the bridge's own set-up is done, the
+  DS3231's and on revision 3 the random source's ([the random source on the bridge](#the-random-source-on-the-bridge)).
 - **Alarms:** INT and SQW share a pin and the bridge needs SQW, so alarms can't use it. The bridge reads the
   DS3231's status each second instead and sets ALARM and TICK when A1F or A2F is set; software clears the flag
   through RTCREG/RTCDATA. The bridge keeps INTCN, RS2 and RS1 at 0 on RTCDATA writes to the control register, so
@@ -334,6 +341,603 @@ This is too much for a 74HC670 register file, which would also leave no room for
   OSF clear; its battery never runs flat, and it keeps the time through a power cycle, unless EOSC is set, which stops it there and sets OSF. Its leap-year rule is
   the chip's, every fourth year, so 2100 gets a 29 February. The temperature is always 25.00 °C, the aging register is
   kept but changes nothing, and BSY follows CONV and the chip's own conversion every 64 seconds (125 ms).
+
+### The north bridge, revision 3 ###
+
+Status: **built in the emulator** (OODOS 0.16, the ROM BIOS 0.20, north bridge `$D3`, 2026-11-22: feat/nb-rev3's
+units N1-N23); the hardware is proposed. Revision 3 is revision 2's bridge with three additions: the timebase (a
+1 kHz tick and a millisecond counter of the bridge's own), the random source (an ATECC608B on its I²C bus) and the
+common hole (`$F800-$FFFF` one RAM block's whatever W3 holds). This section is the design record, moved here from
+the two specs that proposed it (hw/future/north-bridge-rev3.md and hw/future/random-source.md, removed as built);
+OODOS's side is [hw/oodos.md, "OODOS 0.16"](oodos.md#oodos-016-north-bridge-revision-3), the ROM's
+[hw/diag.md](diag.md#the-rom-bios-020-north-bridge-revision-3), the tests [hw/testing.md](testing.md#north-bridge-revision-3s-tests).
+
+#### What revision 3 adds ####
+
+| Part | Spec | Registers | Interrupt |
+|---|---|---|---|
+| The random number source: an ATECC608B on the bridge's I²C bus, a 32-byte pool | [below](#the-random-source) | RNGST, RNGCNT, RNGDATA, `$19-$1B` | none |
+| The tick and the millisecond counter | [below](#the-tick) | TBCTL, MS0-MS3, TBSUB, `$28-$2E` | ID D, IRQH bit 5 |
+| The time to the millisecond | [below](#the-time-to-the-millisecond) | MSSL, MSSH, `$1C-$1D` | none |
+| The 1 Hz TICK | [below](#the-1-hz-tick) | RTCCTL's TIE reads 0 | dropped |
+| The common hole | [below](#the-common-hole) | HOLE, `$26` | none |
+| The ID | `$D3`; STATUS's bits 7-4 read 3 | `$7F` | |
+
+Software uses any revision 3 register only after reading NB_ID as `$D3`: on `$D1` and `$D2` the new offsets read
+`$FF` and drop writes. A write is harmless anywhere, so the BIOS's Break may write TBCTL without the check. The ROM
+BIOS still runs on all three revisions; OODOS 0.16 reads NB_ID once, at cold boot, and runs only on `$D3`
+([below](oodos.md#revision-3-required)).
+
+#### Why the timebase moved to the bridge ####
+
+The owner's direction (2026-11-21): move the tick to the north bridge and count its ticks there, with the time of
+day staying the DS3231's ("Could we move the tick to the northbridge AND count those ticks ... then we eliminate an
+entire interrupt from the RTC?"; then, on the adjusted proposal, "yes, add it to the north bridge rev 3 plan").
+Today:
+
+- **OODOS's timebase needs the serial card.** The tick is timer 1 of the serial card's VIA, free-running at a latch
+  of 7,157 (a period of 7,159 cycles). A machine without the VIA has no millisecond counter (`FC_MS` clear), so no
+  `FT_DELAY`, no tick hook and no beep length.
+- **It runs 12.7 ppm fast.** A millisecond is 7,159.09 cycles; the VIA can only count whole ones, so the counter
+  gains about 1.1 s a day before the crystal's own error.
+- **It loses time.** The VIA has one flag, so anything that holds the tick off past a second expiry loses a
+  millisecond. OODOS works round it: DMA copies go 2 KB at a time, the warm boot touches timer 1's latch only if a
+  program changed it, and the Disk II driver, which masks interrupts for each sector field, adds the time back from
+  the bytes it read, to about half a percent.
+- **The tick costs a VIA flag check** in the dispatcher's fast path, and reading `T1CL` to clear it.
+- **Timer 1 is off limits to programs**, even to read its low byte; its hooks may read only `T1CH` and the latches.
+- **The 1 Hz TICK interrupt is unused.** OODOS turns TIE off; nothing in the ROM turns it on.
+
+Revision 3 gives the bridge its own tick and counter. The counter can't lose a millisecond, whatever masks the
+interrupt; the tick needs no card; the VIA's timer 1 goes back to programs; and the DS3231's second, read by the
+bridge each second as now, gives the time of day to the millisecond with no drift handling in software.
+
+#### The timebase ####
+
+##### The tick #####
+
+**The divider.** The bridge counts OSC, the backplane's 14.31818 MHz master clock (exactly 315/22 MHz), which runs
+in every mode: native ÷2, Apple II mode's ÷14 and ÷16, and a turbo if one ever comes. A millisecond is 14,318 2/11
+OSC clocks, so in every 11 ms nine periods are 14,318 clocks and two are 14,319: 157,500 clocks, exactly 11 ms of
+the crystal. Put without the pattern: **the k-th tick comes ⌊157,500 k / 11⌋ OSC clocks after the counter started.**
+A period is never more than one OSC clock (70 ns) from the ideal, and no error builds up within the bridge: the
+counter's rate is the crystal's, and its only drift is the crystal's own tolerance, which the DS3231's second
+corrects for the time of day ([below](#the-time-to-the-millisecond)).
+
+In native cycles (two OSC clocks), a period is 7,159 cycles, or 7,160 once in every 11 ms (78,750 cycles per 11 ms).
+
+**At each tick** the bridge adds 1 to the millisecond counter and sets **MSF**. If MSF was still set, it sets
+**OVR** too: one interrupt now stands for two or more ticks, but the counter has all of them.
+
+**The interrupt.** MSF with **MSIE** set pulls the bridge's /IRQ, ID D, which reads as IRQH bit 5. On revision 3
+that is the bridge's only interrupt: the 1 Hz TICK's is dropped ([below](#the-1-hz-tick)) and the random source has
+none. So a poll of IRQL `$FF` and IRQH `$DF` means the tick and nothing else, with no flag to check.
+
+**The acknowledge.** Writing 1 to MSF clears it, and 1 to OVR clears OVR; writing 0 leaves either as it is. A read
+clears nothing, so a debugger's look or a poll can't lose a tick. MSIE takes the value written. Writing back what
+was read clears exactly the flags that were set and keeps MSIE, so a read-modify-write is safe here (unlike
+RTCCTL).
+
+##### The millisecond counter #####
+
+**MS0-MS3** hold a 32-bit count of ticks, low byte first. It is cleared while /RESET is held at a hard reset (the
+power-on one included) and starts at /RESET's release, so the reset's first instruction finds 0 and the count of
+milliseconds since. A /RESET pulse (entering Apple II mode, Ctrl-Reset there) leaves it running. It is read-only,
+and goes round after 2³² ms: 49 days, 17 hours, 2 minutes and 47.296 seconds.
+
+**The latch.** Reading MS0 copies MS0-MS3 and TBSUB into a latch, and MS1-MS3, TBSUBL and TBSUBH read the latch,
+so the four bytes belong to one moment: read MS0 first. A later read of MS0 takes a new latch, so **a multi-byte
+read must not be interrupted by another reader**: OODOS reads all four with interrupts off outside its handlers
+([below](oodos.md#the-counter-in-oodos)). A debugger's `peek()` takes no latch.
+
+**TBSUB** is how far into the current millisecond the latch was taken: the divider's count of OSC clocks since the
+last tick, halved, so 0-7,159 native cycles. It is for OODOS's debug build, which times hooks by it in place of
+timer 1 ([below](oodos.md#the-debug-builds-hook-costs)).
+
+##### The time to the millisecond #####
+
+**MSS** (MSSL, MSSH) is the milliseconds into the DS3231's current second, 0-999, binary, low byte first.
+
+- **Where a second starts.** The bridge already reads the time at each falling edge of SQW, the DS3231's 1 Hz
+  square wave ([design.md, "Real-time clock"](#real-time-clock)). The edge is where the chip's second
+  begins. MSS counts milliseconds from the edge, by its own divider restarted at the edge (the tick's 2-in-11
+  pattern, from the edge), not by the free-running tick, so it is in step with the chip and not with the counter.
+- **SEC-YEAR and MSS change together.** The time in SEC-YEAR changes when the second's read lands, 330 µs after the
+  edge (longer if a random-source transaction is on the bus: up to 815 µs more). Until then MSS goes on counting the
+  old second; when the read lands, SEC-YEAR take the new time and MSS the milliseconds since the new edge (0, or 1
+  after a long wait). So the time is monotonic, and never the old second with the new second's milliseconds.
+  Precisely: MSS = min(999, the whole milliseconds since R), where R is the edge whose read last landed.
+- **Never 1,000.** MSS holds at 999 if a second runs long against the bridge's crystal (the two can differ by the
+  crystal's tolerance, tens of ppm, a few hundredths of a millisecond a second). Nothing accumulates: every edge
+  starts it again. This is the "no drift handling": software never corrects anything.
+- **Latched with SEC.** Reading SEC copies SEC-YEAR and MSS into the latch, so SEC, MIN to YEAR, then MSSL and MSSH
+  read one moment, to the millisecond. MSSL and MSSH read the latch; read SEC first.
+- **SET** restarts the chip's second (design.md). R becomes the end of SET's transaction, so MSS starts from 0 with
+  the time that was sent. An edge that follows (the emulated chip gives one) restarts it from 0 again, with the same
+  second: still monotonic.
+- **Before the first second.** At power-on R is the end of the power-on read of the time: the bridge doesn't know
+  where in its second the chip is, so MSS is up to a second behind until the first edge. **SYNC** in TBCTL says
+  whether it is in step: clear from power-on until the first edge's read lands.
+- **If the chip stops.** SYNC clears when no edge has come for 1.1 s (a chip missing, dead, or its SQW stuck); MSS
+  then holds at 999 and SEC-YEAR at the last time read. LOST (the chip's OSF) is separate: it says the time is
+  invalid, not that the seconds have stopped. **The tick and the millisecond counter never depend on the DS3231.**
+
+##### The 1 Hz TICK #####
+
+**Decided (the owner, 2026-11-21: [Q2](oodos.md#revision-3s-questions)): the interrupt is dropped.** On revision 3, RTCCTL's TIE reads 0 and writes to it
+are ignored; TICK can't interrupt. TICK itself stays, set at each second's read and cleared by writing 1, and ALARM
+stays: both are flags to poll. The ROM's launcher counts its 5-second prompt by polling TICK (`diag23.s`), which
+needs the flag, not the interrupt.
+
+**Not taken: an alarm-only interrupt** (TIE meaning "ALARM interrupts"). Nothing uses the DS3231's alarms today; a
+program can poll ALARM; and an interrupt for it would be one more thing for OODOS's dispatcher to tell apart from the
+tick in its fast path. If a use comes, a later revision can add it as a new bit, without taking TIE's meaning from
+revision 2.
+
+##### The registers #####
+
+Offsets from `$C680`. The table is revision 3's whole map: revision 2's registers are unchanged, and `$1E-$1F`,
+`$27` and `$2F-$7E` stay free.
+
+| Offset | Name | Access | Purpose | Reset |
+|---|---|---|---|---|
+| `$00-$06`, `$08-$0D`, `$10-$18`, `$20-$25` | as revision 2 | | WIN0-WIN3, VEC, MODE, STATUS, IRQL, IRQH, WAIT0-3, SEC-YEAR, RTCREG, RTCDATA, WIN0H-WIN3H, VECH, MAP | as revision 2 |
+| `$07` | RTCCTL | read/write | as revision 2, but **bit 6 TIE reads 0 and ignores writes** ([above](#the-1-hz-tick)) | as revision 2 |
+| `$10` | SEC | read | as revision 2; reading it latches MSSL and MSSH too | |
+| `$19-$1B` | RNGST, RNGCNT, RNGDATA | | the random source ([below](#the-random-sources-registers)) | |
+| `$1C` | MSSL | read | MSS's low byte, from SEC's latch | |
+| `$1D` | MSSH | read | MSS's high byte (0-3), from SEC's latch | |
+| `$26` | HOLE | read/write | the common hole: **bit 7 EN**, **bit 6 RO**, **bits 5-0 BLOCK** ([below](#the-common-hole)) | `$00` at every reset |
+| `$28` | TBCTL | read/write | **Bit 7 MSF:** a tick since the last acknowledge; write 1 to clear. **Bit 6 OVR:** a tick came while MSF was set; write 1 to clear. **Bit 5 MSIE:** MSF interrupts, on IRQH bit 5 (ID D); takes the value written. **Bit 4 SYNC:** MSS is in step with the DS3231's second (read-only). Bits 3-0 read 0 | MSF, OVR, MSIE 0; SYNC 0 after power-on, kept by a later reset |
+| `$29` | MS0 | read | the millisecond counter's low byte, live; **reading it latches MS1-MS3 and TBSUB** | 0 at /RESET's release (hard reset) |
+| `$2A-$2C` | MS1-MS3 | read | the counter's other bytes, from MS0's latch | 0 |
+| `$2D` | TBSUBL | read | native cycles into the millisecond, 0-7,159, from MS0's latch | |
+| `$2E` | TBSUBH | read | its high byte | |
+| `$7F` | ID | read | **`$D3`** | |
+
+- **IRQH bit 5** (ID D) becomes "the bridge's: TBCTL's MSF, with MSIE" on revision 3.
+- **backplane.inc:** `NB_MSSL`, `NB_MSSH`, `NB_TBCTL`, `NB_MS0`-`NB_MS3`, `NB_TBSUBL`, `NB_TBSUBH`; `NB_TB_MSF`
+  `$80`, `NB_TB_OVR` `$40`, `NB_TB_MSIE` `$20`, `NB_TB_SYNC` `$10`; `NB_IRQ_NB` `$20` (IRQH bit 5); `NB_ID_V3`
+  `$D3` (the random source's spec names it too).
+- **Read side effects:** MS0 and SEC latch. Read them with a load (LDA, LDX or LDY), never a read-modify-write or a
+  16-bit read, each of which can read twice. RNGDATA's rule is the random source's.
+
+##### Power-on, resets, Apple II mode and Break #####
+
+- **Power-on.** The bridge holds /RESET until its set-up is done: the DS3231's, then the random source's (about
+  31 ms). The divider and the counter are held at 0 meanwhile and start at the release. (The wording follows the
+  random source's correction, [its Q2](oodos.md#the-random-sources-questions): the bridge orders its own power-on; the
+  DS3231's RST doesn't gate I²C.)
+- **Any reset** clears MSF, OVR and MSIE, so no tick interrupts until software turns MSIE on. A hard reset clears
+  the counter; a /RESET pulse doesn't.
+- **Apple II mode.** The bridge's registers are hidden, the /RESET pulse that enters the mode has cleared MSIE, and
+  the counter runs on at the same rate, since it counts OSC, not PHI2. Nothing in Apple II mode sees it.
+- **HOLE** is `$00` after every reset, so the ROM and its vectors are never behind the hole ([below](#the-common-hole)).
+- **Break** (the ROM BIOS 0.20): beside RTCCTL's `$80` it writes `$C0` to TBCTL, both flags cleared and MSIE off,
+  with no ID check (on an older bridge the write is dropped). Break leaves the counter running.
+
+##### What the bridge's logic grows by #####
+
+A 14-bit divider with its 2-in-11 step; a 32-bit counter and a 46-bit latch (the counter and TBSUB); MSS's two
+10-bit counts (the old second's and the new one's, swapped when a read lands) with their divider, and a 10-bit latch
+beside SEC-YEAR's; SYNC's 1.1 s timeout; TBCTL. No I²C traffic is added: MSS uses the edges the bridge already
+reads. It is small beside the random source's engine.
+
+##### Considered and not taken #####
+
+- **Counting in OODOS, from the bridge's tick alone.** Ticks held off would still be lost, and the Disk II's
+  catch-up would stay. The owner's decision has the counter in the bridge.
+- **A software wall clock seeded from the DS3231** and counted by the tick: it drifts by the crystal's error and
+  needs correcting each second. MSS gives the same answer with nothing to correct.
+- **The tick from the DS3231's 32 kHz output.** It would lock the counter to the chip (±2 ppm), but 32.768 kHz
+  doesn't divide to 1 kHz (a 30 µs jitter), it needs a pin wired to the bridge, and the tick would stop with the
+  chip. MSS already gives the chip's time to the millisecond.
+
+#### The common hole ####
+
+The owner's idea, decided with the plan's recommendations on 2026-11-22 (nb3's hole plan, questions 1-12): once
+OODOS turns it on, the bridge maps CPU `$F800-$FFFF` to one piece of RAM whatever W3 holds, so common memory has one
+copy and no block needs its own.
+
+##### The register #####
+
+**`$26` HOLE**, read/write, revision 3 only (on `$D1` and `$D2` it reads `$FF` and drops writes, as the other
+revision 3 offsets do).
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | EN | 1: native CPU cycles to `$F800-$FFFF` go to the hole |
+| 6 | RO | 1: CPU writes into the hole are dropped |
+| 5-0 | BLOCK | the RAM block whose top 2 KB is the hole: physical BLOCK × `$4000` + `$3800` |
+
+- **`$00` at every reset:** power-on, a hard reset, /BOOTSEL, and the /RESET pulse that enters Apple II mode (and
+  Ctrl-Reset there). Nothing that runs from a reset meets the hole until software sets EN.
+- **It takes effect on the next cycle**, as a window write does. It reads back as written; a read has no side
+  effect.
+- `$27` stays free. **backplane.inc:** `NB_HOLE`, `NB_HOLE_EN` `$80`, `NB_HOLE_RO` `$40`.
+
+##### What it maps #####
+
+- **A block in the first megabyte** (A20-A23 0), named by BLOCK; the hole is always that block's top 2 KB, so
+  `$F8xx-$FFxx` is the offset W3 would give if W3 held the block. OODOS writes `$BE`: EN, RO clear, block 62, where
+  its common memory already is (physical `$0FB800`). With W3 on block 62, turning the hole on or off changes no byte
+  the CPU sees.
+- **2 KB, fixed.** No size bit: a 4 KB hole would take 2 KB from every banked code block and gains OODOS nothing.
+- **Every CPU read or write** of `$F800-$FFFF` in native mode with EN set is a RAM cycle at the hole's address.
+  W3's ROM bit, its RO bit and WIN3H don't reach it; HOLE's RO decides writes. The I/O hole (`$C000-$C7FF`) is
+  decoded first, as now. MAP's AP8 applies as to any window cycle with WINnH 0 (only BLOCK 32-35, which OODOS never
+  names).
+- **The hole wins over VEC.** The decode order is: EN and `$F800-$FFFF`, the hole; else VPB low and
+  `$C000-$FFFF`, VEC; else W3. A vector pull with EN set reads the hole, so while OODOS runs the vectors are common
+  memory's whatever VEC holds. `$C800-$F7FF` is still W3's block.
+- **The hole may hold state.** RO clear lets FARCALL write its operand (FCRD) there, one slot shared by every block
+  now. Nothing else keeps state there yet; the stub's scratch, if it comes, is its own measured change.
+- **No interaction with /BOOTSEL** (it sets W3's and VEC's reset value; HOLE is `$00` either way), **nor with DMA**:
+  the hole decodes CPU addresses only, and DMA to `$0FB800-$0FBFFF` reaches the same RAM the CPU sees there.
+- **Apple II mode** ignores it: the IIe map comes first, and the /RESET pulse that enters the mode clears EN.
+
+##### Into the ROM #####
+
+`JMP ($FFFA)` and `JMP ($FFFC)` are ordinary reads, not vector pulls, so with EN set they read OODOS's vectors, not
+the ROM's; and the diagnostics' way back (DTRAMP at `$FFF4`) and the ROM's own vectors sit under the hole. The rule:
+**the ROM never runs with the hole on.** A hard reset clears it. OODOS clears it on every way it hands the machine
+to the ROM:
+
+- **Break and BRK:** TRAMPSRC writes HOLE 0 before its `JMP ($FFFA)` (TRAMP runs from low RAM).
+- **Apple II mode** (function 75's ROMAPPLE): APPLESRC writes HOLE 0 (the /RESET pulse would clear it too; the write
+  keeps the rule).
+- **The diagnostics and Apple II mode by image** (ROMENTRY): HOLE 0 right after its SEI, before the tramp's copy,
+  since its tramp has no room. W3 is block 62 there, so the same bytes stay in place.
+- **The refusal of a `$D1` or `$D2` bridge** (NB3CHK) runs before the hole is on.
+
+The ROM's QUIET doesn't write HOLE: OODOS has always cleared it by then. A program that wrecks the hole loses Break
+until a hard reset, as a stray write over block 62's `$FFFA` does today.
+
+##### OODOS 0.16 and its callers #####
+
+- **Cold boot:** NB3CHK writes `$BE` to HOLE as its last act once NB_ID reads `$D3`, before BINIT, so every later
+  path, Break during the boot included, has the hole. Nothing else turns it on; HOLE is OODOS's (AGENTS.md).
+- **No more copies:** FARCALL, the stub, the warm boot, CALL62 and CALLHOOK don't change, but each now goes on in the
+  hole where it went on in block 62's copy, and an interrupt while a far-called block is in W3 is answered from the
+  hole. GW-BASIC's loader and OOUI's `ui_load` drop their copies of common memory and refuse an OODOS before
+  interface 17 (GW-BASIC's MOLD; OOUI's UX_VERSION). OOLIB interface 17 names it: a far-called block needs no copy.
+- **The code window stays 12 KB** (`$C800-$F7FF`): what a block gains is its own top 2 KB back as RAM, reachable
+  through W0-W2 or DMA, and no copy to keep right.
+- **NB12** (the ROM BIOS 0.20's diagnostics, revision 3 only) tests the hole as NB7 and NB8 test VEC and the RO bit.
+
+##### What it costs #####
+
+Eight flip-flops (EN, RO, BLOCK); a hit term, EN and native and A15-A11 all 1, a sibling of the I/O hole's decode;
+and W3's block mux grows from two ways (WIN3, VEC) to three, with ROM forced 0, RO from HOLE and A20-A23 0. About 15
+macrocells, small beside the random source's engine and the timebase.
+
+##### Considered and not taken #####
+
+- **Fixed at physical `$0FB800`:** saves six flip-flops and bakes OODOS's layout into the bridge.
+- **SRAM on the CPU card:** neither DMA nor the console card could reach it, OOLDR would have to fill it by CPU, and
+  it would be a second copy of the truth. Remapping costs only decode and keeps one RAM.
+- **VEC first:** OODOS keeps VEC on 62, which gives the same bytes; the hole first makes that hold whatever VEC is.
+- **QUIET clearing HOLE:** no case could fail without it, and OODOS 0.16 doesn't need ROM 0.20.
+
+#### The random source ####
+
+##### The random source in brief #####
+
+| Area | What | Status |
+|---|---|---|
+| The source | one: an ATECC608B. No LFSR, no software generator in OODOS or OOLIB | **Decided** |
+| Where | on every CPU card, beside the DS3231, on the north bridge's I²C bus | **Decided** |
+| The part | a factory-locked Trust Platform variant. **ATECC608B-TNGTLSS** (Trust&GO TLS), 7-bit address `$35` | **Decided** (the owner, 2026-11-21: [Q1](oodos.md#the-random-sources-questions)) |
+| Not the 608A | the 608A can disturb a shared bus at low clock rates, and its timing differs; the bill of materials says 608B | Proposed |
+| Who drives it | the north bridge, revision 3 (`$D3`): wake, the fixed Random command, polling, the read, the CRC check, sleep | **Decided** (the bridge); the sequence Proposed |
+| Software's view | a 32-byte pool behind three registers, RNGST, RNGCNT and RNGDATA at `$19-$1B` | Proposed |
+| The lock | the bridge reads the configuration zone's lock byte at power-on and never draws from an unlocked chip | Proposed |
+| Writes to the chip | none, ever: the bridge sends only Random, one Read and the wake/sleep sequences | **Decided** |
+| OODOS | function 78 `O_RANDOM`: `RN_INFO` and `RN_FILL`; OOLIB interface 17 | **Decided** (the two operations) |
+| SYSINFO | reports the chip through `RN_INFO`; its hardware exception doesn't grow | **Decided** |
+| AGENTS.md | the random number registers join what OODOS owns | **Decided** |
+| Throughput | about 26 ms a draw of 32 bytes at the planning figure, so about 1,200 bytes a second | Proposed |
+| Versions | north bridge `$D3`; ROM BIOS 0.20; OODOS 0.16, OOLIB interface 17 | Proposed |
+
+##### Why a random source #####
+
+Games need a seed that differs every run and a few numbers a frame; programs now and then need a few unpredictable
+bytes (a shuffle, a temporary file's name). The owner's direction (2026-11-21): the random number comes from
+hardware through the north bridge, as the time does, and the ATECC608 is the one source ("Lets just plan on using
+the ATECC608 and skip the LFSR idea"). Nothing cryptographic uses it today, but its bytes would serve one: they come
+from a NIST SP 800-90 A/B/C generator, which the summary data sheet says the part is built to meet.
+
+**What it can't do:** at about 1,200 bytes a second it serves seeds and a few numbers a frame. A game that wants
+hundreds of numbers a frame, or a sequence it can replay from a seed (a level code, a demo's recording), seeds its
+own generator from function 78 in its own code. OOLIB offers none (**Decided**, 2026-11-21).
+
+GW-BASIC is unaffected: RND stays the manual's generator and `RANDOMIZE TIMER` its reseed.
+
+##### The chip and its fitting #####
+
+**The part.** An ATECC608B in the 8-lead SOIC, a factory-provisioned variant, so it arrives with its configuration
+zone locked (**Decided**). Its pins: 4 ground, 5 SDA, 6 SCL, 8 VCC; 1-3 and 7 not connected. Its supply range is
+2.0-5.5 V, so it runs from the CPU card's logic supply. A 0.1 µF ceramic capacitor at pin 8 is the board's usual
+practice (the documents read don't give a value).
+
+**Which variant (Proposed, [Q1](oodos.md#the-random-sources-questions)).** Microchip sells three provisioned flows; each fixes the address:
+
+| Variant | Ordering (SOIC) | 7-bit address | What it takes to buy |
+|---|---|---|---|
+| **Trust&GO TLS** (recommended) | ATECC608B-TNGTLSS-C (100 a reel), -B (10, bulk), -G (2,000 a reel) | `$35` | nothing: a stock part |
+| TrustFLEX TLS | ATECC608B-TFLXTLSS-PROTO (10, bulk); production by a Secure Exchange Package | `$36` | the prototype parts are stock; production goes through Microchip's provisioning flow |
+| TrustCUSTOM | ATECC608B-TCSMS | as configured (blank parts default to `$60`) | a full configuration through Microchip's tools |
+
+All three come locked, all are I²C parts, and none collides with the DS3231 at `$68`. Trust&GO is recommended
+because it is the only one ordered like any other part. Its I/O levels are fixed to a reference, so the bus side may run at a lower voltage
+than the chip's supply. Power-on self test is off in both the Trust&GO and
+TrustFLEX configurations, which keeps the chip's power-up time short. The bridge's chip address is a constant of its
+build, set to the fitted variant's.
+
+**The address can't move under us.** The provisioned parts allow their I²C address to be changed once, by a command
+(UpdateExtra) that the bridge never sends. Nothing in the OO-1 can send the chip any command but the bridge's fixed
+ones, so the address is the factory's for the board's life.
+
+**The bus.** One I²C bus, the bridge's, at 400 kHz as now; shared pull-ups; software never drives it. Two rules
+follow from the part:
+
+- **The bus runs at 400 kHz except for the wake byte.** The 608B's sheets warn that traffic below roughly 300 kHz
+  can wake the chip by accident. At 400 kHz the DS3231's traffic can't; the one slow byte is the bridge's own wake.
+- **A 608B, not a 608A.** Microchip lists a fix in the 608B for bus contention when the 608A shares a slow bus with
+  other devices; the board's bill of materials names the 608B.
+
+##### The random source on the bridge #####
+
+###### What the bridge does by itself ######
+
+The bridge keeps a **pool of 32 random bytes** filled from the chip, so the CPU only ever reads registers. All the
+chip's traffic is the bridge's; RTCCTL's BUSY stays the clock's own.
+
+**A draw** (one try):
+
+1. **Wake.** The bridge sends one address byte of `$00` (the general-call address, a write) at 100 kHz, then STOP.
+   That holds SDA low for 80 µs, past the chip's 60 µs minimum. The chip doesn't acknowledge it, and the bridge
+   doesn't expect it to. The bridge then leaves the bus idle for the wake delay, 1.5 ms.
+2. **Wake check.** A 4-byte read: the chip answers a fresh wake with a status group of `$11`. Any other answer, or
+   a NAK of its address, fails the try (a status of `$07` means the chip's self test failed).
+3. **The command.** A write to the chip's address with word address `$03`, then the group: count `$07`, opcode
+   `$1B` (Random), mode `$00`, param2 `$0000`, CRC `$24 $CD`. The command never changes, so its CRC is a constant
+   of the bridge; the bridge needs a CRC checker, not a generator for commands.
+4. **Poll.** While the chip works it NAKs its address on a read. The bridge tries a read 1 ms after the command's
+   STOP, then every 1 ms, and gives up after 100 ms. Each NAKed poll is 11 bit times and leaves the bus free
+   between polls.
+5. **The response.** The first acknowledged read is the answer. The bridge reads the count byte, then the rest of
+   the group:
+   - count 35: 32 bytes and a CRC. The CRC must match; the 32 bytes go into the pool.
+   - count 4: a status group (an error: `$FF` CRC or I/O error, `$08` a health test error, `$0F` can't execute,
+     `$07` self test, `$EE` the watchdog). The try fails.
+   - any other count, a bad CRC or a NAK in the middle: the try fails.
+6. **Sleep.** A write with word address `$01`. The chip drops into its low-power sleep and resets its I/O state, so
+   every draw starts from the same state.
+
+**Retries and FAULT.** A failed try is repeated, up to three tries in all. Before a retry the bridge sends the I²C
+software-reset sequence that the part's sheet gives for lost synchronisation (START, nine SCL pulses with SDA
+released, START, STOP), then starts again from the wake. After the third failure FAULT is set and the pool stays
+empty. A health test error clears itself on a later command, the sheets say, so the retries cover a passing one.
+
+**Refill.** When software takes the pool's last byte, the bridge starts a draw on its own. After a FAULT it doesn't
+draw again on its own, so a broken chip can't keep the bus busy. Software asks for a fresh draw with DRAW.
+
+**Sharing the bus with the clock.** Transactions stay one at a time. A draw is a run of short transactions (the
+wake byte, the wake check, the command, each poll, the response, sleep) with the bus free between them, and the
+longest is the response, 815 µs. The second's read of the DS3231 goes in the next gap, so it's delayed by at most
+one transaction and no square-wave edge is missed. RNGST's BUSY covers a draw from start to end; RTCCTL's BUSY
+shows only the clock's transactions, so neither driver's wait grows by the other's work.
+
+**No interrupt.** The bridge doesn't interrupt for the chip; OODOS polls, as it does for SET.
+
+###### Power-on ######
+
+The bridge holds /RESET until its own set-up is done, as revision 2 does for the clock: first the DS3231's (as
+now), then the chip's:
+
+1. Wake and wake check (steps 1-2 above). No answer: CHIP clear, and the bridge never addresses the chip again
+   until the next power-on.
+2. **The lock read:** a Read (opcode `$02`, mode `$00`, 4 bytes from the configuration zone) of word address `$0015`
+   (block 2, word 5: bytes 84-87). The group: `$07 $02 $00 $15 $00`, CRC `$17 $5D`. The answer is a 7-byte group:
+   count, the four bytes, CRC.
+3. **Byte 87 is LockConfig.** `$55` means the configuration zone is unlocked; anything else, locked (Microchip's
+   library tests it that way; locked parts read `$00`). Locked: LOCKED set. Unlocked: LOCKED clear, sleep, and no
+   draw is ever made from that chip.
+4. Locked: the first draw, on the same wake, then sleep.
+
+The whole set-up takes about 31 ms at the planning figures, well inside the chip's watchdog (at least 0.7 s from
+the wake). The chip itself is ready 100 µs after its supply comes up (power-on self test is off on the recommended
+parts). The first instruction finds RNGST valid and, on a good board, 32 bytes waiting with BUSY clear.
+
+The bridge, not the DS3231's RST, sets the order. The DS3231's data sheet says its RST doesn't affect its I²C
+interface, and that RST's 250 ms hold is skipped when its oscillator isn't running. So the bus isn't free because
+the clock is in reset; it is ordered because the bridge does one thing at a time
+([Q2](oodos.md#the-random-sources-questions): the wording in "Real-time clock" needs the same correction).
+
+A hard reset that isn't a power-on doesn't set the chip up again and keeps the pool, as it keeps the clock's state.
+
+###### The random source's registers ######
+
+Offsets from `$C680`, after RTCDATA (`$18`); `$19-$1F` are free today.
+
+| Offset | Name | Access | Purpose | Reset |
+|---|---|---|---|---|
+| `$19` | RNGST | read/write | **Read:** bit 7 READY: the pool holds a byte. Bit 6 CHIP: a chip answered at power-on. Bit 5 LOCKED: its configuration zone is locked, so the bridge draws from it. Bit 4 FAULT: the last draw failed three tries. Bit 0 BUSY: a draw is under way. Bits 3-1 read 0. **Write:** bit 0 DRAW, a strobe. Writing 1 clears FAULT and, unless a draw is under way, empties the pool and draws 32 fresh bytes; writing 0 does nothing. Only DRAW is writable, so a read-modify-write is harmless | READY, CHIP and LOCKED as the power-on set-up found them; FAULT and BUSY 0 |
+| `$1A` | RNGCNT | read | the bytes in the pool, 0-32 | 32 on a good board, else 0 |
+| `$1B` | RNGDATA | read | the pool's next byte; **reading it removes the byte.** With the pool empty it reads `$00` and removes nothing (check READY first). Taking the last byte starts a refill | |
+| `$7F` | ID | read | **`$D3`**: revision 2's registers plus these. STATUS's bits 4-7 read 3 | |
+
+- **Telling the bridges apart:** software uses `$19-$1B` only after reading NB_ID as `$D3`. On `$D1` and `$D2` those
+  offsets read `$FF`, which would look like READY and CHIP set and `$FF` bytes, so the ID check isn't optional.
+- **RNGDATA has a read side effect.** A debugger's look (`peek()`) and the WebUI's memory view must not take bytes;
+  only CPU reads do. Read it with a load (LDA, LDX or LDY), never a read-modify-write instruction or a 16-bit read,
+  each of which can read the address twice. The register's entry says so, as RTCCTL's does.
+
+###### The lock check, and why there are three ######
+
+An unlocked ATECC608 answers Random with a fixed pattern that never changes (Microchip's library says so in its
+tests), and locking is a one-time, irreversible write. A board fitted with a blank part would hand every program the
+same "random" bytes. Three things stop that:
+
+1. **The bill of materials says a factory-locked variant** (**Decided**). Locking is never the OO-1's job: the
+   bridge has no path to write the chip's configuration, so nothing on the machine can make an irreversible change
+   to the board.
+2. **The bridge checks LockConfig at power-on** and won't draw from an unlocked chip. A wrongly built board fails
+   visibly (SYSINFO, the diagnostics, `RN_INFO`) instead of quietly.
+3. **The diagnostics look at the bytes** (NB9): a draw whose 32 bytes are one value, or a 4-byte group repeated,
+   fails. The pattern a third-party driver reports for an unlocked part (`$FF $FF $00 $00` repeated) is such a
+   group.
+
+Random needs only the configuration zone locked; the data zone's lock doesn't matter to it. The recommended parts
+have both locked.
+
+###### Why an engine, not a raw I²C port ######
+
+The owner's direction, and it suits the OO-1: software never drives I²C or holds the bus; a crashed program can't
+stop the clock; OODOS's driver is a few polls, not a packet layer; and nothing can write the chip's configuration.
+The cost is in the bridge's logic: a sequencer with a 100 kHz byte and 400 kHz bytes, a 32-byte pool, a CRC-16
+checker and a few constant command bytes. That is easy in an FPGA and tight in two CPLDs; the bridge's part is still
+open (hw/design.md), and this is one more reason to lean towards the FPGA.
+
+###### Timing ######
+
+At 400 kHz a bit is 2.5 µs (17.9 cycles at 7.16 MHz); at 100 kHz, 10 µs. Bits count 9 a byte and one for each
+START and STOP, as the clock's transactions are counted now.
+
+| Step | Bits | Time |
+|---|---|---|
+| wake: the `$00` byte at 100 kHz, then the wake delay | 11 | 110 µs + 1.5 ms |
+| wake check: START, address, 4 bytes, STOP | 47 | 118 µs |
+| Random: START, address, word address, 7 bytes, STOP | 83 | 208 µs |
+| execution, polled every 1 ms (28 µs a poll) | — | **23 ms planning figure**; 100 ms give-up |
+| response: START, address, 35 bytes, STOP | 326 | 815 µs |
+| sleep: START, address, word address, STOP | 20 | 50 µs |
+| **a draw** | | **≈ 25.8 ms for 32 bytes** at the planning figure |
+| power-on lock read: the 7-byte Read on the first draw's wake | 83 + 74 | ≈ 5.5 ms (Read polled; 5 ms planning figure) |
+
+**Microchip publishes no execution time for the 608B's Random; the part is meant to be polled.** Its library warns
+that the 608B supports only polling, and the 608B's summary says fixed waits must be re-checked against it. The
+23 ms (Random) and 5 ms (Read) figures are the library's fixed-wait figures for the 608 family, used here only to
+plan throughput and to choose the give-up. The bridge waits for the chip's answer, however long it takes up to
+100 ms; a draw takes as long as the chip does.
+
+The figures are the bridge's build constants; the emulator keeps them in one table.
+
+##### Appendix: the chip's facts, checked #####
+
+Each fact the plan held from memory, against Microchip's documents (read for meaning; nothing copied). "Change"
+says whether this spec differs from the plan.
+
+| Fact | The plan's value | Verified value | Source | Change |
+|---|---|---|---|---|
+| Address, blank / TrustCUSTOM part | `$60` | `$60` (7-bit; the library's `$C0` is the 8-bit form) | [S5](#sources) `atca_cfgs.c`; [S1](#sources) (TrustCUSTOM samples are the blank parts) | no |
+| Address, provisioned parts | "other addresses" | Trust&GO TLS `$35`; TrustFLEX TLS `$36`; also, from the library only, Trust&GO LoRa `$59`, TrustFLEX WPC `$38` | [S2](#sources) 2.1; [S3](#sources) 2.1; [S5](#sources) `device_instance.py` | **yes:** `$35`, Trust&GO recommended |
+| Ordering codes | — | TNGTLSS-G/-C/-B (SOIC); TFLXTLSS, TFLXTLSS-PROTO; TCSMS | [S1](#sources) table 3-1; [S2](#sources), [S3](#sources) ordering pages | added |
+| Address changeable? | — | once, by UpdateExtra (byte 85); the bridge never sends it | [S2](#sources), [S3](#sources) 2.1 | added |
+| Wake | SDA low, "tens of µs" | SDA low at least 60 µs (tWLO); the sheets' suggested way is a `$00` byte at 100 kHz; a wake while awake is ignored | [S1](#sources) table 2-2; [S2](#sources) 7.1 | **yes:** the `$00` byte at 100 kHz |
+| Wake delay | ≈ 1.5 ms | tWHI at least 1,500 µs (20 ms if self test runs at wake; off on the recommended parts) | [S1](#sources) table 2-2; [S2](#sources) 5.1.7 | no |
+| Wake answer | — | status `$11`: group `$04 $11 $33 $43` | [S2](#sources) table 4-3; [S5](#sources) `atca_hal.c` | added (the wake check) |
+| Watchdog | ≈ 1.3 s | 0.7 / 1.3 / 1.7 s (min / typ / max) from the wake; 1.3 s on the provisioned parts | [S1](#sources) table 2-2; [S2](#sources), [S3](#sources) 2.1 | no (0.7 s is the bound used) |
+| Random opcode, params | — | opcode `$1B`, mode `$00`, param2 `$0000`, no data | [S2](#sources) 5.1.5; [S3](#sources) 5.1.5; [S5](#sources) `calib_command.h` | no |
+| Random response | count, 32 bytes, CRC | count 35, 32 bytes, CRC | [S2](#sources) 4.1, table 5-20; [S5](#sources) | no |
+| Random execution time | ≈ 23 ms, waited out | **not published for the 608B; poll.** The library's fixed-wait figure: 23 ms | [S5](#sources) `calib_execution.c` (608B "polling only"); [S1](#sources) 4.2 (fixed waits to be re-checked) | **yes:** the bridge polls, 100 ms give-up |
+| Busy behaviour | — | NAKs its address on a read while busy, idle or asleep | [S2](#sources) 7.5 | added (polling) |
+| Packet layout | word address, count, opcode, params, CRC | word address `$03`, then count (counting itself and the CRC), opcode, param1, param2 (low byte first), data, CRC; group 4-155 bytes | [S2](#sources) 4.1, 4.2, 7.2; [S5](#sources) | no |
+| CRC-16 | polynomial, bit order unknown | polynomial `$8005`, register starts at 0, over the count and packet; each byte fed least significant bit first; no final reflection; sent low byte first | [S2](#sources) 4.1; [S5](#sources) `atCRC` | settled; check values in "The emulator" |
+| Word addresses | idle | `$00` reset, `$01` sleep, `$02` idle, `$03` command | [S2](#sources) table 7-2; [S5](#sources) `calib_basic.c` | **yes:** sleep after a draw, not idle |
+| Status codes | — | `$00` ok, `$03` parse, `$07` self test, `$08` health test, `$0F` execution, `$11` woken, `$EE` watchdog, `$FF` CRC or I/O | [S2](#sources) table 4-3 | added |
+| Lost sync | — | the I²C software-reset sequence, then a wake | [S2](#sources) 7.2.2 | **yes:** before each retry |
+| Lock byte | "the lock byte" | LockConfig, configuration byte 87, in word `$0015` (block 2, word 5, bytes 84-87); `$55` unlocked; read by a 4-byte Read (opcode `$02`, mode `$00`) | [S2](#sources) 4.4.1, 5.1.6; [S5](#sources) `calib_helpers.c`, `calib_command.h` | settled |
+| Unlocked Random | a fixed test pattern | a fixed pattern that never changes (Microchip); its bytes, `$FF $FF $00 $00` repeated, only from a third-party driver | [S5](#sources) `test_atcacert_host_hw.c`; [S7](#sources) | no; the bytes **unverified** by Microchip |
+| Which lock Random needs | config only, or data too? | the configuration zone only | [S5](#sources) `test_atcacert_host_hw.c` (gates on the config lock alone) | settled |
+| Power-up | ≈ 1 ms, inside 250 ms | tPU at least 100 µs; longer with power-on self test, which is off on Trust&GO and TrustFLEX | [S1](#sources) table 2-2; [S2](#sources), [S3](#sources) 5.1.7 | no |
+| DS3231 during RST | ignores I²C | RST doesn't affect its I²C; tREC 250-300 ms, skipped if the oscillator isn't running | [S6](#sources) electrical table, note 13 | **yes:** the bridge orders power-on ([Q2](oodos.md#the-random-sources-questions)) |
+| Wake disturbing the DS3231 | believed harmless | the wake is a well-formed transaction to address 0 (general call), which the DS3231's sheet doesn't list; it acknowledges only its own address, so it ignores it | [S6](#sources) I²C section; [S2](#sources) 7.1 | settled by inference, not by a statement |
+| Slow traffic waking the chip | — | traffic below ≈ 300 kHz can wake the 608B; the sheets advise sleep or idle after | [S2](#sources) 7.1 | **yes:** 400 kHz except the wake byte |
+| 608A on a shared bus | — | the 608B fixes bus contention at low clock rates with several devices | [S1](#sources) 4.1 | **yes:** 608B only |
+| Supply | ≈ 2.0-5.5 V | 2.0-5.5 V | [S1](#sources) table 2-5 | no |
+| I²C clock | 400 kHz | up to 1 MHz (the DS3231 caps the bus at 400 kHz) | [S1](#sources) table 2-4; [S6](#sources) | no |
+| Pinout | — | SOIC: 4 GND, 5 SDA, 6 SCL, 8 VCC; others not connected | [S2](#sources) table 1-1 | added |
+| EEPROM wear by Random | — | not stated in any document read | — | **unverified** (a risk) |
+
+###### Sources ######
+
+- **S1.** Microchip, *ATECC608B CryptoAuthentication Device Summary Data Sheet*, DS40002239B. Read from a copy at
+  <https://cdn.sparkfun.com/assets/a/3/7/1/9/ATECC608B_datasheet.pdf>. The full ATECC608B data sheet is under NDA
+  and wasn't read.
+- **S2.** Microchip, *ATECC608B-TNGTLS CryptoAuthentication Data Sheet*, DS40002250A, a complete data sheet:
+  <https://ww1.microchip.com/downloads/en/DeviceDoc/ATECC608B-TNGTLS-CryptoAuthentication-Data-Sheet-DS40002250A.pdf>;
+  its configuration page online:
+  <https://onlinedocs.microchip.com/oxy/GUID-59F7F830-64CA-4EE1-A21D-C5745DEC9509-en-US-2/GUID-FED15817-0399-4A58-AE2A-37A7BE3FDADC.html>.
+- **S3.** Microchip, *ATECC608B-TFLXTLS CryptoAuthentication Data Sheet*, DS40002249A:
+  <https://ww1.microchip.com/downloads/en/DeviceDoc/ATECC608B-TFLXTLS-CryptoAuthentication-Data-Sheet-DS40002249A.pdf>.
+- **S4.** Microchip, *ATECC608A-TFLXTLS CryptoAuthentication Data Sheet*, DS40002138A (for comparison):
+  <https://ww1.microchip.com/downloads/en/DeviceDoc/ATECC608A-TFLXTLS-CryptoAuthentication-Data-Sheet-DS40002138A.pdf>.
+- **S5.** Microchip, *CryptoAuthLib*, <https://github.com/MicrochipTech/cryptoauthlib>, branch main as of
+  2026-11-21: `lib/calib/calib_command.h` and `.c`, `calib_basic.c`, `calib_execution.c`, `calib_helpers.c`,
+  `lib/atca_cfgs.c`, `lib/hal/atca_hal.c`, `harmony/config/device_instance.py`,
+  `test/atcacert/test_atcacert_host_hw.c`.
+- **S6.** Maxim Integrated, *DS3231 Extremely Accurate I²C-Integrated RTC/TCXO/Crystal*, 19-5170 rev. 10. Read
+  from a copy at <https://courses.physics.illinois.edu/PHYS371/sp2023/code/DS3231.pdf>; Analog Devices' own copy
+  (<https://www.analog.com/media/en/technical-documentation/data-sheets/DS3231.pdf>) timed out.
+- **S7.** Tock OS, the `atecc508a` capsule's source (third-party, for the unlocked pattern's bytes only):
+  <https://docs.tockos.org/src/capsules_extra/atecc508a.rs.html>.
+- **Not reached:** Microchip's application note AN8843 on generating random secrets (refused, 403); the ATECC608A
+  and ATECC508A complete data sheets (under NDA; only summaries are public).
+#### Revision 3 in the emulator ####
+
+- **The bridge, revision 3** (with the random source's: `revision=1|2|3`, default 3, ID `$D3`;
+  [backplane_bridge.h](../emulator/components/devices/include/backplane_bridge.h)): the divider in OSC clocks,
+  native cycles × 2, Apple II mode's by its 912 clocks in 65 cycles; the k-th tick at ⌊157,500 k / 11⌋; `tick()`
+  steps to the next tick's exact cycle, as it steps to the DS3231's edges, so MSF lands on its cycle and DMA cycles
+  count; MS, OVR, MSIE, the latches; MSS with R moved when a Refresh lands, its 1.1 s SYNC timeout; TIE reading 0;
+  `irq()` is `MSF && MSIE` on revision 3, `TICK && TIE` before; `peek()` takes no latch. Revisions 1 and 2 read
+  `$FF` at `$1C-$1D` and `$28-$2E`.
+- **The older revisions are kept, for the ROM.** `revision=1|2` stays a machine-file option (Proposed): the ROM
+  BIOS still supports both, and its tests (`test_bios`'s B7 cases, `test_bios_diag`'s, `test_video_rev2`'s
+  revision 1 alias, `test_session`'s `nb2.machine`, `test_machine`'s parsing) run on them unchanged. On those
+  machines OODOS 0.16 refuses to boot, so they lose OODOS and its tick, not the option. No machine file in
+  `emulator/machines/` names an old revision: `backplane.machine` takes the new default, 3, and its comment says
+  OODOS needs it. The WebUI offers no revision choice, so the site always runs revision 3.
+- **The two clocks' rates.** The emulator's NATIVE_HZ is 7,159,090, a whole number, while the divider is 7,159,090.9
+  cycles a second: the emulated DS3231's second is 0.13 ppm short of 1,000 bridge milliseconds, which MSS's hold at
+  999 absorbs. A test-only skew (`Ds3231::set_skew_ppm()`) runs the chip fast or slow against the CPU clock, to
+  test MSS under a real crystal's error.
+- **Test hooks:** `set_ms(value)`, to put the counter just before a carry; and the existing `set_rtc_time()`.
+- **The debugger:** `describe_timebase()` beside `describe_clock()` (the count, TBCTL, MSS, SYNC); the WebUI's
+  `debugger/devices.ts` lists the new registers. The WebUI's whole-second steps of the DS3231 to the host's clock
+  keep the second's phase, so MSS is unaffected; the counter is never stepped (it is emulated time since reset).
+
+##### The random source in the emulator #####
+
+- **The bridge, revision 3** (a machine file's `revision=1|2|3`, default 3; `REVISION` 3, ID `$D3`): RNGST, RNGCNT
+  and RNGDATA, with `peek()` taking nothing; the pool, the refill, DRAW, three tries and FAULT; a draw's steps
+  queued as transactions beside the clock's and timed by their bits, the wake byte at 100 kHz; BUSY kept per owner.
+  At power-on the set-up and the first draw happen at once, as the DS3231's do, so the first instruction sees 32
+  bytes and BUSY clear. The debugger gets a description beside `describe_clock()`, and the WebUI's
+  `debugger/devices.ts` lists the three registers.
+- **The chip** (`components/devices/atecc608.{h,cpp}`, written from the part's documented behaviour in our own
+  words): asleep or awake; woken by SDA low for 60 µs or more, answering `$04 $11 $33 $43` to the first read after;
+  NAKing its address while asleep or busy; the watchdog (asleep again 1.3 s after the wake); the word addresses
+  (`$00` reset, `$01` sleep, `$02` idle, `$03` command); the group parsed byte by byte and its CRC checked (a bad
+  one answers status `$FF`); Random and the 4-byte configuration Read; the lock state (unlocked: Random answers
+  `$FF $FF $00 $00` repeated, the third-party report, since Microchip's documents say only "fixed"). The execution
+  time of each command is a constant of the model (Random 23 ms, Read 5 ms), so tests are repeatable; the bridge
+  polls it as it would the part.
+- **Its source of bytes is injected:** `std::random_device` in the native app; the browser's
+  `crypto.getRandomValues` in the WebUI (through the WASM binding, or Emscripten's `random_device` if that is
+  backed by it, to be confirmed in R3); **a fixed stream in tests and CcpRig** (a seeded splitmix64), so every byte
+  a test sees is known.
+- **Machine options:** `rng_chip=locked|unlocked|none` (default locked), and a test-only fault injector (corrupt
+  the next k responses, NAK the next k addresses, or answer status `$08` k times).
+- **A CRC oracle:** `tools/atecc_crc.py`, our own, about 20 lines, independent of the C++ routine the bridge's
+  checker and the chip model share. Its check values, computed by our routine and matched against the routine in
+  Microchip's library: the wake answer `$04 $11` gives `$33 $43` (the value Microchip's library expects of the part);
+  the Random command gives `$24 $CD`; the lock Read gives `$17 $5D`; the ASCII string `123456789` gives `$BCDD`.
+  (Microchip's library also holds a self-test-failure answer, `$04 $07 $C4 $40`, whose CRC doesn't match its own
+  routine, which gives `$40 $C2`; it isn't used as a check value.)
+- **Revisions 1 and 2** keep `$19-$1B` reading `$FF`; existing tests that pin `revision=1` are unchanged.
 
 ### Module decode ###
 
@@ -1669,6 +2273,9 @@ The cost is one backplane line, plus open-drain drivers for one data bit on each
 **In Apple II mode** /IACK is never used: Apple software polls its own cards. Native-only cards keep quiet while
 AMODE is high.
 
+**The north bridge's own (ID D, IRQH bit 5):** on revisions 1 and 2, RTCCTL's TICK with TIE, once a second; on
+revision 3 the 1 kHz tick, TBCTL's MSF with MSIE, the 1 Hz interrupt dropped ([the timebase](#the-timebase)).
+
 
 ## Input and Ports ##
 
@@ -1874,8 +2481,9 @@ supported. A game reads a stick with one load: `LDA $C341`, then `AND #$1F`.
 an LCD, a sensor, a second keyboard or anything a hobbyist builds, as on the C64's and BBC Micro's user ports.
 
 **Timers.** Both count PHI2, 7.16 MHz.
-- **Timer 1** in free-running mode is OODOS's system tick (proposed: 1 kHz, a latch of 7,157, since a free-running period is the latch + 2 cycles: 7,159 cycles, 0.002% fast; [oolib.md](oolib.md)).
-  It could also drive PB7 as a square wave.
+- **Timer 1** is the program's under OODOS 0.16, polled: one-shot or free-running, and PB7 as a square wave
+  (OODOS's tick is north bridge revision 3's, [the timebase](#the-timebase); IER stays OODOS's). From OOLIB's L1 to
+  OODOS 0.15 it was OODOS's system tick, free-running at 1 kHz, a latch of 7,157 ([oolib.md](oolib.md)).
 - **Timer 2** is the program's: a one-shot delay, or a count of pulses on PB6.
 
 **In Apple mode** the VIA is hidden with the rest of the card, its timers' interrupts are never seen (IRQL is
@@ -3177,6 +3785,10 @@ interface only grows: the jump table gains its ninth entry, function 75 an argum
   annotated.
 
 #### B6: as built ####
+
+*(Revision 3, 2026-11-22: the CPU card gains the random source's ATECC608B-TNGTLSS, 7-bit address `$35`, on the
+north bridge's I²C bus beside the DS3231, with a 0.1 µF capacitor at its pin 8:
+[the chip and its fitting](#the-chip-and-its-fitting). No backplane line changes.)*
 
 **Proposed, docs only (2026-11-17).** Step B6, the pin-out, on `feat/bus-b6` off main `c143b1b` (B1–B5 and the
 fixes after B5), with the owner's answers to its plan (Q1–Q14, "recommendations as listed"; Q3 then withdrawn by the

@@ -83,6 +83,7 @@
 .import F_INPUT                        ; input.s's
 .import F_SOUND                        ; sound.s's
 .import F_DMAOP                        ; video.s's
+.import F_RANDOM                       ; irq.s's (78: oodos.inc's RN_ names there)
 .import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for 77
 .export BDOSENT
@@ -237,6 +238,7 @@ FJUMPS:
                 .word   F_FRAME, F_INPUT, F_SOUND, F_DMAOP ; 154: 80 (L1), 81 (L2), 82 (L3), 83 (L4)
                 .word   F_ROMVER ; 162: 77 (interface 9, hw/diag.md D1-1)
                 .word   F_SERIO ; 164: 85 (interface 16, serial.s)
+                .word   F_RANDOM ; 166: 78 (interface 17; hw/design.md, "The random source")
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
@@ -245,7 +247,7 @@ FIDX:
                 .byte   66, 150, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
-                .byte   $FF, $FF, 78, 144, 146, 148, 152, 162, $FF, $FF ; 70-79
+                .byte   $FF, $FF, 78, 144, 146, 148, 152, 162, 166, $FF ; 70-79: 78 (interface 17)
                 .byte   154, 156, 158, 160, $FF, 164, $FF, $FF, $FF, $FF ; 80-89: 80 (L1), 81 (L2), 82 (L3), 83 (L4), 85
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
@@ -279,6 +281,7 @@ F_VERSION:      LDA     #$31
 F_ROMVER:       LDA     ROMVER
                 LDX     ROMVER + 1
                 RTS
+
 
 ; 75: leave for the ROM BIOS. The changed buffers are written back first, as
 ; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the

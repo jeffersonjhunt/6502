@@ -40,6 +40,7 @@
  */
 
 #include <array>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -71,6 +72,8 @@ namespace ooe::emu
             std::string apple_chars{}; ///< and its character ROM, set 0, or empty
             /// The Disk II card's PROMs (MachineOptions::disk2_boot, disk2_sequencer), or empty.
             std::string disk2_boot{}, disk2_sequencer{};
+            /// The random number chip's bytes (MachineOptions::rng_source); empty, the fixed stream.
+            std::function<uint8_t()> rng_source{};
         };
 
         enum class Stop : uint8_t

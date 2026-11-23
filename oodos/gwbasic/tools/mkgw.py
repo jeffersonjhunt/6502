@@ -13,7 +13,7 @@ GWBASIC.OVL holds the blocks' images, each on a 128-byte record, after a header 
        length in bytes (2), each little-endian
 
 The loader (res/loader.s) reads it. Each image is the block's link from $C800, at most 12,288 bytes
-(to $F7FF: common memory is the loader's to copy in), and starts with the block's header
+(to $F7FF: common memory at $F800-$FFFF is the north bridge's hole under OODOS 0.16; no block holds a copy), and starts with the block's header
 (gwbasic.inc's BLK_FIX), checked here: its FARFIX list inside the image.
 """
 import argparse

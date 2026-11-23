@@ -89,7 +89,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
-                NBSET                  ; on a $D2 bridge: WINnH and VECH 0, AP8 by the video card (A kept)
+                NBSET                  ; revision 2 or more: WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1

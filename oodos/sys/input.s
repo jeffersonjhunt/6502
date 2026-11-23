@@ -48,9 +48,9 @@
 .include "sys.inc"
 .include "oodos.inc"
 .importzp PX, T0, T1, T2, T3, T4      ; the BDOS's (bdos.inc), for 81
-.importzp EVP                          ; irq.s's
+.importzp EVP, VIAL                    ; irq.s's
 .import RETFF, PGET, PPUT
-.import DEAFEN, WBDMA, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
+.import DEAFEN, WBDMA, EVON, EVBLK, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .ifdef OOLIB_DEBUG
 .import FHMAX, THMAX                   ; irq.s's (a debug build)
 .endif
@@ -161,7 +161,7 @@ IRQOTH:         STZ     IRQY
                 INC     A
                 BNE     @deaf
                 LDA     NB_IRQH
-                ORA     #NB_IRQ_VIDEO
+                ORA     #NB_IRQ_VIDEO | NB_IRQ_NB ; the tick isn't a stray (one that came meanwhile: next)
                 ORA     IRQY
                 INC     A
                 BEQ     @done
@@ -398,6 +398,8 @@ L2TICK:         LDA     NB_WIN1
                 PHA
                 LDA     EVBLK
                 STA     NB_WIN1
+                BIT     VIAL           ; the sticks: a VIA's ports
+                BPL     @frame
                 LDA     VIA_ORA_NH     ; port A, no handshake: stick 1
                 AND     #$1F
                 CMP     STKA
@@ -419,17 +421,17 @@ L2TICK:         LDA     NB_WIN1
                 STA     USB_PTRIG      ; (no USB card: nothing there to write)
                 LDA     #1
                 STA     PADARM
-                LDA     MS
+                LDA     NB_MS0
                 CLC
                 ADC     #PAD_MS
                 STA     PADDUE
                 BRA     @out
 .assert PAD_MS >= 1 && PAD_MS < 128, error, "the paddles' due test is MS - PADDUE >= 0, signed"
-@due:           LDA     MS             ; due once MS has reached PADDUE, by any step (the Disk
-                SEC                    ; II's catch-up moves it on more than one at a tick)
+@due:           LDA     NB_MS0         ; due once MS0 has reached PADDUE, by any step (ticks
+                SEC                    ; that ran together move it on more than one)
                 SBC     PADDUE
                 BMI     @out
-                LDA     MS             ; not due again for 128 ms (a new PTRIG comes first)
+                LDA     NB_MS0         ; not due again for 128 ms (a new PTRIG comes first)
                 EOR     #$80
                 STA     PADDUE
                 LDA     PADARM         ; read only what a PTRIG started: none without frames
@@ -611,7 +613,7 @@ QEV:            LDX     QHEAD
                 STA     (EVP),Y
                 INY
                 LDX     #0
-@ms:            LDA     MS,X
+@ms:            LDA     NB_MS0,X       ; (in a handler: MS0 first, latching MS1-MS3)
                 STA     (EVP),Y
                 INY
                 INX
@@ -651,9 +653,8 @@ L2OPEN:         PHP
                 LDA     #$1F           ; the sticks: as their ports read (no VIA: nothing pressed)
                 STA     STKA
                 STA     STKB
-                LDA     CLOCKS
-                AND     #CLK_MS
-                BEQ     @sticks
+                BIT     VIAL           ; the sticks' ports: a VIA's
+                BPL     @sticks
                 LDA     VIA_ORA_NH
                 AND     #$1F
                 STA     STKA
@@ -702,7 +703,7 @@ L2OPEN:         PHP
                 STA     USB_PTRIG
 @counts:        LDA     FRAMES         ; the paddles next read PAD_MS from now, if a PTRIG
                 STA     PADFRM         ; went (a USB card and the video card's frames)
-                LDA     MS
+                LDA     NB_MS0
                 CLC
                 ADC     #PAD_MS
                 STA     PADDUE

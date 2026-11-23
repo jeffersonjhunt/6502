@@ -49,11 +49,6 @@ namespace
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     unsigned area16(Rig &r, unsigned off) { return area(r, off) | area(r, off + 1) << 8; }
     uint32_t area32(Rig &r, unsigned off) { return area16(r, off) | static_cast<uint32_t>(area16(r, off + 2)) << 16; }
-    uint32_t ms_count(Rig &r)
-    {
-        const uint32_t a = SYS_BLOCK_PHYS + sym("MS");
-        return r.phys(a) | r.phys(a + 1) << 8 | r.phys(a + 2) << 16 | static_cast<uint32_t>(r.phys(a + 3)) << 24;
-    }
     SoundCard &card(Rig &r) { return *r.machine->sound_card(); }
     uint8_t reg(Rig &r, uint8_t offset) { return card(r).peek(offset); }
     uint8_t sys(Rig &r, const char *name) { return r.phys(SYS_BLOCK_PHYS + sym(name)); }
@@ -193,7 +188,7 @@ namespace
                     ++out.dma[c];
                 else if (r.phys(frames) != f)
                     ++out.frame[c];
-                else if (l == 0xBF && h == 0xFF)
+                else if (l == 0xFF && h == 0xDF) // the bridge's tick alone (N9)
                     ++out.tick[c];
                 in = false;
             }
@@ -702,7 +697,7 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 249u); // L2's 234, +15 since B7 (its 17, less page crossings the move took away)
+    CHECK_EQ(Costs::mode(costs.tick), 241u); // the bridge's tick, a layout-2 area (N16, code placement; N10 242; 249 with timer 1's)
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
@@ -851,7 +846,7 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 249u); // a layout-2 area's tick, L2's (+15, B7, as :705): the stream costs it nothing
+    CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick (N16, code placement; N10 242; 249 before): the stream costs it nothing
 }
 
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
@@ -1274,6 +1269,32 @@ TEST(the_mailbox_s_last_byte_its_time_and_a_count_are_stamped_in_the_area)
     CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
 }
 
+TEST(the_mailbox_stamp_is_whole_across_a_carry)
+{
+    // Review r1's T1. The 6510's byte stamped in a layout-2 area: as SMTIME starts in the handler, the bridge's counter is moved on
+    // 256 ms, so its MS1 differs from the last latch's. EV_SMMS is the count then, whole. Must fail with SMTIME's
+    // copy taken MS3 first (MS1-MS3 from the last latch: 256 ms early).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    const uint16_t smtime = sym("SMTIME");
+    uint32_t at = 0;
+    unsigned calls = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == smtime && ++calls == 2 && !at) // the first is SN_START's, in the BDOS; the second the byte's
+        {
+            r.bridge().set_ms(r.bridge().ms() + 0x100);
+            at = r.bridge().ms();
+        }
+    };
+    loaded(r, ECHO, true);
+    r.run(ms(5));
+    r.watch = nullptr;
+    REQUIRE(at != 0);
+    std::printf("  at SMTIME $%08X, EV_SMMS $%08X\n", at, area32(r, EV_SMMS));
+    CHECK(area32(r, EV_SMMS) >= at && area32(r, EV_SMMS) <= at + 2);
+}
+
 TEST(before_the_first_byte_the_stamp_is_the_start_s_time_and_a_count_of_0)
 {
     CcpRig r;
@@ -1550,12 +1571,12 @@ TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
 
 int main() { return run_all(); }
 
-TEST(the_interface_is_16)
+TEST(the_interface_is_17)
 {
-    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 16 and its areas, $2F: frame and
+    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 17 and its areas, $2F: frame and
     // timing, input, sound, DMA and the serial line.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(command(r, 'F', "F"), std::string("10 2F"));
+    CHECK_EQ(command(r, 'F', "F"), std::string("11 2F"));
 }

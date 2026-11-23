@@ -22,8 +22,13 @@
  * bridge's own ID, D, on PS0-PS3 (memory_select()), and the DMA
  * controller's memory to memory cycles its 8.
  *
- * Two revisions (step B7, proposed; the constructor's `revision`, a machine
- * file's `revision=1|2`; REVISION and ID are the default's):
+ * Three revisions (step B7, proposed; the constructor's `revision`, a machine
+ * file's `revision=1|2|3`; REVISION and ID are the default's):
+ *
+ * - Revision 3, ID $D3 (hw/design.md, "The north bridge, revision 3"):
+ *   revision 2's registers, the timebase ($1C-$1D, $28-$2E, below) and in
+ *   the random source ($19-$1B, below). RTCCTL's TIE reads 0 and ignores
+ *   writes: the 1 Hz TICK can't interrupt.
  *
  * - Revision 2, ID $D2 (hw/design.md, "The video aperture moved out of
  *   RAM"): WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
@@ -45,6 +50,13 @@
  * The Console card, driving the bus itself, sees bank 8 as the RAM's either
  * way.
  *
+ * Revision 3's common hole, HOLE ($26: bit 7 EN, bit 6 RO, bits 5-0 the
+ * block): with EN set, every native CPU cycle to $F800-$FFFF goes to RAM at
+ * the block's top 2 KB (block x $4000 + $3800), ahead of VEC and W3, whose
+ * ROM, RO and WINnH bits don't reach it; HOLE's RO drops writes. $00 at every
+ * reset and the /RESET pulse; the Apple II map comes first, and DMA (physical
+ * addresses) is untouched. Before revision 3 $26 reads $FF and drops writes.
+ *
  * While VPB is low, $C000-$FFFF goes through VEC instead of W3. The I/O hole,
  * $C000-$C7FF, is decoded ahead of the windows; module n's registers are at
  * $C000 + n x $80. This bridge is both the router (NorthBridge) and the
@@ -52,8 +64,10 @@
  *
  *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS   $07 RTCCTL
  *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
- *   $17 RTCREG   $18 RTCDATA   $20-$23 WIN0H-WIN3H   $24 VECH   $25 MAP
- *   $7F ID (WIN0H-MAP on revision 2 only)
+ *   $17 RTCREG   $18 RTCDATA   $19-$1B RNGST RNGCNT RNGDATA
+ *   $1C/$1D MSSL/MSSH   $20-$23 WIN0H-WIN3H
+ *   $24 VECH   $25 MAP   $26 HOLE   $28 TBCTL   $29-$2C MS0-MS3   $2D/$2E TBSUBL/H
+ *   $7F ID (WIN0H-MAP on revision 2 or more)
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
  * ROM A read-only ($DF); with /BOOTSEL held they map RAM block 63 ($3F).
@@ -102,6 +116,43 @@
  *   control write goes with INTCN and RS cleared: SQW stays the bridge's.
  * - TICK && TIE is the bridge's interrupt: IRQH bit 5, ID 0xD.
  *
+ * The timebase (revision 3): the bridge counts OSC, the 14.31818 MHz master
+ * clock, which is native cycles x 2 and, in Apple II mode, 912 clocks in 65
+ * cycles (any other CPU clock by its ratio to NATIVE_HZ). The k-th tick comes
+ * floor(157,500 k / 11) OSC clocks after a hard reset's release, and tick()
+ * steps to its exact cycle, as it steps to the DS3231's edges, so DMA's cycles
+ * count. At each tick MS (32 bits) gains 1 and MSF is set, OVR too if MSF
+ * already was; MSF && MSIE is the interrupt, IRQH bit 5. TBCTL: a read clears
+ * nothing, a 1 written to MSF or OVR clears it, MSIE takes the value written.
+ * Reading MS0 latches MS1-MS3 and TBSUB (OSC clocks since the last tick,
+ * halved); reading SEC latches MSS too. MSS is min(999, the whole
+ * milliseconds since R), counted by its own 2-in-11 divider from R, the
+ * SQW edge whose Refresh last landed (SET's end, after a SET; the host's
+ * clock's fraction after set_rtc_time()). SYNC: set when an edge's read lands,
+ * clear from power-on until then and 1.1 s after the last edge. A hard reset
+ * clears MS and the divider (they start at the release); a /RESET pulse
+ * leaves them; any reset clears MSF, OVR and MSIE. peek() takes no latch.
+ *
+ * The random source (revision 3; hw/design.md, "The random source"): an ATECC608B
+ * (atecc608.h) on the same I²C bus, driven by the bridge alone, which keeps
+ * a pool of 32 bytes. A draw is a run of short transactions with the bus free
+ * between them, queued with the clock's one at a time and timed by their bits:
+ * the wake byte ($00 at 100 kHz, SDA low 80 µs), 1.5 ms, the wake check (a
+ * 4-byte read: $04 $11 $33 $43), the Random command (a constant group), a poll
+ * 1 ms after it and every 1 ms (a NAK while the chip works) up to 100 ms, the
+ * response (count 35: 32 bytes and a CRC, checked), then sleep. A failed try
+ * ends with sleep and the I²C software reset, and is tried again from the
+ * wake: three tries, then FAULT and an empty pool. RNGST: READY (a byte in the
+ * pool), CHIP, LOCKED, FAULT, BUSY (a draw under way); DRAW (a 1 written)
+ * clears FAULT and, unless a draw is under way, empties the pool and draws.
+ * Taking the pool's last byte from RNGDATA starts a draw, unless FAULT is set;
+ * RNGDATA reads $00 with the pool empty. RTCCTL's BUSY is the clock's
+ * transactions alone. At power-on the set-up (wake, the lock byte's Read,
+ * and on a locked chip the first draw) is done at once, as the clock's, so the
+ * first instruction finds 32 bytes; a chip that doesn't answer is CHIP clear
+ * and never addressed again, and an unlocked one is never drawn from. A later
+ * reset keeps the pool. peek() takes no byte.
+ *
  * At power-on (the first reset) the bridge sets the square wave to 1 Hz
  * (INTCN and RS cleared, the rest of the control register kept) and reads
  * the time, all while /RESET is held, so the first instruction sees a
@@ -123,6 +174,7 @@
 #include <string>
 
 #include "apple_io.h"
+#include "atecc608.h"
 #include "decoder.h"
 #include "device.h"
 #include "ds3231.h"
@@ -134,9 +186,10 @@ namespace ooe::emu
     public:
         static constexpr uint8_t MODULE = 0xD;                     ///< the ID its registers use
         static constexpr uint32_t REGISTERS = MODULE * 0x80;      ///< offset in the I/O hole: $C680
-        static constexpr uint8_t REVISION = 2;                    ///< the default revision (revision()): 2 since B7
+        static constexpr uint8_t REVISION = 3;                    ///< the default revision (revision()): 3 since N5
         static constexpr uint8_t ID = MODULE << 4 | REVISION;     ///< the default's +$7F: type and revision (id())
         static constexpr uint8_t WIDE = 2;                        ///< the revision with WINnH, VECH and MAP
+        static constexpr uint8_t TIMEBASE = 3;                    ///< the revision with the timebase
 
         static constexpr uint8_t ROM = 0x80;
         static constexpr uint8_t RO = 0x40;
@@ -160,6 +213,16 @@ namespace ooe::emu
             WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23 (revision 2)
             VECH = 0x24,  ///< revision 2
             MAP = 0x25,   ///< revision 2
+            HOLE = 0x26,  ///< revision 3: the common hole
+            RNGST = 0x19, ///< revision 3: the random source
+            RNGCNT = 0x1A,
+            RNGDATA = 0x1B,
+            MSSL = 0x1C,  ///< revision 3: MSS from SEC's latch
+            MSSH = 0x1D,
+            TBCTL = 0x28, ///< revision 3: the timebase
+            MS0 = 0x29,   ///< MS0-MS3: $29-$2C; reading MS0 latches the rest and TBSUB
+            TBSUBL = 0x2D,
+            TBSUBH = 0x2E,
             ID_REG = 0x7F,
         };
         static constexpr uint8_t HIGH = 0x0F;    ///< WINnH and VECH: A20-A23
@@ -172,6 +235,25 @@ namespace ooe::emu
         static constexpr uint8_t RTC_TICK = 0x80, RTC_TIE = 0x40, RTC_ALARM = 0x20, RTC_LOST = 0x04,
                                  RTC_SET = 0x02, RTC_BUSY = 0x01;
         static constexpr unsigned TIME_REGS = 7;
+        // TBCTL (revision 3)
+        static constexpr uint8_t TB_MSF = 0x80, TB_OVR = 0x40, TB_MSIE = 0x20, TB_SYNC = 0x10;
+        static constexpr uint64_t OSC_11MS = 157'500;         ///< OSC clocks in 11 ms: 9 ticks of 14,318, 2 of 14,319
+        static constexpr uint64_t SYNC_OSC = 1100 * OSC_11MS / 11; ///< SYNC's timeout, 1.1 s of OSC
+        static constexpr unsigned MSS_MAX = 999;
+        // RNGST (revision 3)
+        static constexpr uint8_t RNG_READY = 0x80, RNG_CHIP = 0x40, RNG_LOCKED = 0x20, RNG_FAULT = 0x10,
+                                 RNG_BUSY = 0x01, RNG_DRAW = 0x01;
+        static constexpr unsigned POOL = 32, TRIES = 3;
+        static constexpr uint32_t WAKE_HZ = 100'000;   ///< the wake byte's rate
+        static constexpr uint32_t WAKE_LOW_US = 80;    ///< SDA low for the $00 byte at 100 kHz
+        static constexpr uint32_t WAKE_DELAY_US = 1'500, POLL_US = 1'000, GIVE_UP_US = 100'000;
+        // The chip's transactions, in bits (9 a byte, 1 for each START and STOP)
+        static constexpr unsigned WAKE_BITS = 11;    ///< at WAKE_HZ
+        static constexpr unsigned CHECK_BITS = 47;   ///< START, address, 4 bytes, STOP
+        static constexpr unsigned COMMAND_BITS = 83; ///< START, address, word address, 7 bytes, STOP
+        static constexpr unsigned POLL_BITS = 11;    ///< START, address, and its ACK or NAK
+        static constexpr unsigned SLEEP_BITS = 20;   ///< START, address, word address, STOP
+        static constexpr unsigned RESET_BITS = 12;   ///< START, nine SCL pulses, START, STOP
         static constexpr uint32_t NATIVE_HZ = 7'159'090; ///< 14.31818 MHz / 2
         static constexpr uint32_t I2C_HZ = 400'000;
         // I²C bits a transaction takes: 9 a byte, one for each START, repeated START and STOP.
@@ -182,14 +264,16 @@ namespace ooe::emu
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
         /// `rtc`: the DS3231 on the CPU card; nullptr, a new one at 2000-01-01 00:00:00.
-        /// `revision`: 1 or WIDE (2); anything else is taken as 1.
+        /// `revision`: 1, WIDE (2) or 3; anything else is taken as 1.
         explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr,
                                  uint8_t revision = REVISION);
 
         uint8_t revision() const { return revision_; }
         uint8_t id() const { return static_cast<uint8_t>(MODULE << 4 | revision_); }
-        /// Revision 2: WINnH, VECH and MAP.
-        bool wide() const { return revision_ == WIDE; }
+        /// Revision 2 or more: WINnH, VECH and MAP.
+        bool wide() const { return revision_ >= WIDE; }
+        /// Revision 3: the timebase (TBCTL, MS, TBSUB, MSS), and TIE gone.
+        bool timebase() const { return revision_ >= TIMEBASE; }
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
         void attach(Decoder *decoder)
@@ -238,7 +322,7 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
 
-        bool irq() const override { return tick_ && tie_; }
+        bool irq() const override { return timebase() ? msf_ && msie_ : tick_ && tie_; }
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
 
@@ -248,6 +332,9 @@ namespace ooe::emu
         uint8_t winh(unsigned n) const { return winh_[n & 3]; }
         uint8_t vech() const { return vech_; }
         uint8_t map() const { return map_; }
+        uint8_t hole() const { return hole_; } ///< HOLE (revision 3; 0 before)
+        static constexpr uint8_t HOLE_EN = 0x80, HOLE_RO = 0x40, HOLE_BLOCK = 0x3F;
+        static constexpr uint16_t HOLE_BASE = 0xF800; ///< the hole: $F800-$FFFF
 
         // The real-time clock
         /// The CPU clock tick()'s cycles run at in native mode (0: NATIVE_HZ); Apple II mode's is APPLE_HZ.
@@ -260,8 +347,49 @@ namespace ooe::emu
         uint8_t rtcctl() const;
         /// A SET queued, under way or behind another transaction: what BUSY can't say, as SET reads 0.
         bool set_pending() const;
-        /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers.
+        /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers (and on revision 3 the
+        /// timebase: describe_timebase()).
         std::string describe_clock() const;
+
+        // The timebase (revision 3)
+        /// The millisecond counter, live, taking no latch.
+        uint32_t ms() const { return ms_; }
+        /// Test hook: put the counter at `value` (just before a carry, say); the divider runs on.
+        void set_ms(uint32_t value) { ms_ = value; }
+        /// Test hook: a tick now, out of the divider's turn, as one lands (MS one on, MSF set, OVR if MSF was).
+        void inject_tick()
+        {
+            ++ms_;
+            if (msf_)
+                ovr_ = true;
+            msf_ = true;
+        }
+        uint8_t tbctl() const;
+        /// MSS live: the whole milliseconds since R, at most 999 (not SEC's latch).
+        unsigned mss() const;
+        /// OSC clocks since power-on.
+        uint64_t osc() const { return osc_; }
+        /// The counter, TBCTL, MSS and SYNC in words, for the debugger.
+        std::string describe_timebase() const;
+
+        // The random source (revision 3)
+        /// The chip fitted (a locked one, the fixed stream, by default; nullptr: none). Before the first
+        /// reset: the power-on set-up is the chip's.
+        void set_rng_chip(std::unique_ptr<Atecc608> chip) { chip_ = std::move(chip); }
+        /// The chip, for tests' fault injection (nullptr: none).
+        Atecc608 *rng_chip() { return chip_.get(); }
+        uint8_t rngst() const;
+        size_t pool_size() const { return pool_.size(); }
+        /// What the engine did: draws started, tries failed, polls made, and for the last draw the cycles from
+        /// the command's end to its first poll.
+        struct RngCounts
+        {
+            unsigned draws{0}, failures{0}, polls{0};
+            uint64_t first_poll{0};
+        };
+        const RngCounts &rng_counts() const { return counts_; }
+        /// RNGST, the pool and the counts in words, for the debugger.
+        std::string describe_random() const;
 
     private:
         /// The DS3231's control bits that pick SQW: the bridge's, kept 0.
@@ -273,22 +401,51 @@ namespace ooe::emu
             Set,     ///< write the time, clear OSF
             Read,    ///< RTCREG into RTCDATA
             Write,   ///< RTCDATA to RTCREG, read back
+            // The random source's: never RTCCTL's BUSY
+            Wake,     ///< the $00 byte at 100 kHz
+            Check,    ///< the wake answer read
+            Command,  ///< Random, or the lock byte's Read (reg 1)
+            Poll,     ///< the address, for a read: ACK or NAK
+            Response, ///< the rest of the group (reg: its count)
+            Sleep,    ///< word address $01
+            SwReset,  ///< the I²C software reset
+        };
+        /// What follows a draw's sleep.
+        enum class After : uint8_t
+        {
+            Done,  ///< the pool filled, or the set-up over
+            Retry, ///< the software reset, then the wake again
+            Fault, ///< three tries failed
         };
         struct Transaction
         {
             Op op;
             uint8_t reg{0}, data{0};
             std::array<uint8_t, TIME_REGS> time{};
+            uint64_t osc{0}; ///< a Refresh: the OSC clock its edge fell on
         };
 
         void apply_reset();
         void rtc_reset();
         void retime();
-        uint64_t cost(Op op) const;
+        uint64_t cost(const Transaction &t) const;
+        static bool clock_op(Op op) { return op <= Op::Write; }
+        void rng_start();
+        void rng_fail();
+        void rng_after(Op op, uint32_t us); ///< `op` queued `us` after now
+        void rng_now();                     ///< the power-on set-up, run at once
         void queue(const Transaction &t);
         void finish(const Transaction &t);
         void read_time();
         void read_status();
+        /// The timebase: OSC clocks per CPU cycle at hz_, as num_ / den_.
+        void osc_rate();
+        /// The OSC clock of tick k since the hard reset's release.
+        uint64_t tick_at(uint64_t k) const { return tb_base_ + k * OSC_11MS / 11; }
+        /// CPU cycles until the next tick (at least 1).
+        uint64_t until_tick() const;
+        /// `cycles` of OSC counted, and any tick they reach.
+        void count_osc(uint64_t cycles);
         /// IRQL (high = false) or IRQH: 0 bits for interrupting modules.
         uint8_t poll(bool high) const;
 
@@ -303,6 +460,7 @@ namespace ooe::emu
         std::array<uint8_t, 4> winh_{};
         uint8_t vech_{0};
         uint8_t map_{MAP_AP8};
+        uint8_t hole_{0}; ///< HOLE: 0 at every reset
         uint8_t mode_{0};
         std::array<uint8_t, 4> wait_{};
         bool reset_wanted_{false};
@@ -319,5 +477,32 @@ namespace ooe::emu
         uint8_t rtc_reg_{0}, rtc_data_{0};
         std::deque<Transaction> queue_; ///< the front is under way
         uint64_t left_{0};              ///< its cycles still to go
+
+        // The timebase
+        uint64_t num_{2}, den_{1};       ///< OSC clocks a CPU cycle, num_ / den_
+        uint64_t osc_{0}, frac_{0};      ///< OSC clocks since power-on, and den_ths of one
+        uint64_t tb_base_{0};            ///< osc_ at the hard reset's release: tick 0
+        uint64_t ticks_{0};              ///< ticks since then
+        uint32_t ms_{0}, ms_latch_{0};   ///< MS, and MS0's latch of it
+        uint16_t tbsub_latch_{0}, mss_latch_{0};
+        bool msf_{false}, ovr_{false}, msie_{false};
+        bool synced_{false};             ///< an edge's read has landed since power-on
+        int64_t r_osc_{0};               ///< R: where MSS counts from
+        uint64_t edge_osc_{0};           ///< the last SQW edge
+
+        // The random source
+        std::unique_ptr<Atecc608> chip_;
+        std::deque<uint8_t> pool_;
+        bool rng_chip_{false}, rng_locked_{false}, rng_fault_{false}, drawing_{false};
+        bool setup_{false};               ///< the power-on set-up: the lock byte's Read first
+        bool reading_lock_{false};        ///< the command under way is the lock byte's Read
+        unsigned try_{0};
+        After after_{After::Done};
+        uint64_t rng_wait_{0};            ///< cycles until rng_next_ is queued (0: nothing waits)
+        Op rng_next_{Op::Wake};
+        uint64_t since_command_{0};       ///< cycles since the command's end, for the give-up
+        bool first_poll_{false};
+        std::vector<uint8_t> resp_;
+        RngCounts counts_;
     };
 } // namespace ooe::emu

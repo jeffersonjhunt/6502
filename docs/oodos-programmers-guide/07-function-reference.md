@@ -2782,7 +2782,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.19`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
-  | +8-9 | FARCALL's address in common memory |
+  | +8-9 | FARCALL's address in common memory (since OODOS 0.16 the north bridge's common hole: a far-called block needs no copy of it) |
 
 - A/X = FARCALL's address.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
@@ -3104,6 +3104,149 @@ version: a program that must tell the two apart asks [function 80's](#bdos-80) `
 
 OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
 
+<a id="bdos-78"></a>
+### 78 O_RANDOM: the random source
+
+#### Entry
+
+- Y = 78 (`O_RANDOM`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation. A block is never
+  in the zero page or the stack, so its address's high byte is never 0. The operations are oodos.inc's `RN_` names:
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `RN_INFO` | none | says whether there is a source |
+  | 1 | `RN_FILL` | +1 n (1–255); the bytes land at +2 on | fills n bytes from the chip |
+
+#### Exit
+
+- `RN_INFO`: A is `RS_CHIP` (`$01`: a locked chip on north bridge revision 3, so a source), `RS_UNLOCKED` (`$02`: a
+  chip whose configuration isn't locked, so no source) and `RS_FAULT` (`$04`: its last draw failed), ORed; 0 is no
+  chip. X = 0.
+- `RN_FILL`: A = X = 0, and the n bytes at +2 to +1 + n are the chip's. Nothing past +1 + n is written.
+- A = X = `$FF`: refused: an operation it doesn't have, `RN_FILL` without a block or with n 0, no source (`RN_INFO`
+  not `RS_CHIP`), or the chip failed twice in the call. After a refusal of a fill under way the bytes at +2 on are
+  undefined.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None but the refusal above.
+
+#### Side effects
+
+The bytes come from a pool of 32 that the north bridge keeps filled from the ATECC608B on its I²C bus
+([the Technical Reference, chapter 11](../oo1-technical-reference/11-north-bridge-and-rtc.md#reg-c699)). Taking the
+pool's last byte starts the bridge's next draw, about 26 ms for 32 bytes, and `RN_FILL` waits for it with interrupts
+on, at most 400 ms a byte. If the bridge reports a draw's failure (three tries), the call asks it once for a fresh
+draw; a second failure refuses the call.
+
+A 16-bit number is an `RN_FILL` of 2. For many numbers a frame, or a sequence to replay from a seed, take a seed
+from here and run a generator of the program's own: the chip gives about 1,200 bytes a second.
+
+#### Cycles
+
+About 600 for the call and 20 a byte while the pool lasts; a refill about 26 ms. Not measured.
+
+#### Since
+
+OODOS 0.16 (interface version 17, function 80's `FT_INFO`).
+
+An OODOS before it hasn't function 78 and answers it as any function it hasn't, A = X = `$FF`: a program checks
+[function 80's](#bdos-80) `FT_INFO` for interface 17 first.
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 78 (OODOS's range, 72 on).
+
+#### Example
+
+[`docs/examples/dice.s`](../examples/dice.s), built and run from the CCP by `test_docs_examples`:
+
+<!-- listing: ../examples/dice.s -->
+```
+; DICE: rolls five dice by BDOS function 78, O_RANDOM, then ends by the warm
+; boot. The Programmer's Guide's example for function 78. RN_FILL fills the
+; block's bytes from the north bridge's random number chip; a byte of 252 or
+; more is drawn again, so that each face of 1-6 is as likely (252 = 42 x 6).
+
+        .include "oodos.inc"
+
+        OODOS_HEADER
+
+DICE    = 5
+
+        .zeropage
+n:      .res    1                       ; the dice still to roll
+
+        .code
+start:  lda     #RN_INFO                ; a source? (X = 0: no block)
+        ldx     #0
+        ldy     #O_RANDOM
+        jsr     BDOS
+        and     #RS_CHIP
+        beq     none
+        lda     #<head
+        ldx     #>head
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        lda     #DICE
+        sta     n
+roll:   lda     #<blk                   ; one byte into blk + 2
+        ldx     #>blk
+        ldy     #O_RANDOM
+        jsr     BDOS
+        cmp     #0
+        bne     none                    ; $FF $FF: refused
+        lda     blk + 2
+        cmp     #252
+        bcs     roll                    ; drawn again
+@mod:   cmp     #6                      ; A mod 6
+        bcc     @face
+        sbc     #6
+        bcs     @mod                    ; (carry still set: always)
+@face:  clc
+        adc     #'1'
+        ldy     #C_WRITE
+        jsr     BDOS
+        lda     #' '
+        ldy     #C_WRITE
+        jsr     BDOS
+        dec     n
+        bne     roll
+        lda     #<crlf
+        ldx     #>crlf
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        jmp     WBOOT
+none:   lda     #<nosrc
+        ldx     #>nosrc
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        jmp     WBOOT
+
+        .data
+blk:    .byte   RN_FILL, 1, 0           ; the operation, n, the byte
+
+        .rodata
+head:   .byte   "Five dice: $"
+crlf:   .byte   13, 10, '$'
+nosrc:  .byte   "No random source", 13, 10, '$'
+```
+
+At the prompt, with DICE.COM on M:, on the emulator's fixed stream ([`dice.out`](../examples/dice.out)); on a real
+chip each run differs:
+
+<!-- listing: ../examples/dice.out -->
+```
+Five dice: 2 3 3 6 3 
+```
+
 <a id="bdos-80"></a>
 ### 80 O_FRAME: frame and timing
 
@@ -3125,6 +3268,7 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
   | 6 | `FT_FRAMEHOOK` | +1–2 the hook's address, 0 none | sets the frame hook, or takes it off |
   | 7 | `FT_TICKHOOK` | +1–2 the hook's address, 0 none; +3–4 every n ms | sets the tick hook, or takes it off |
   | 8 | `FT_COSTS` | 6 bytes to fill | the hooks' costs, as a debug build counts them |
+  | 9 | `FT_CLOCK` | 8 bytes to fill | the time of day to the millisecond (interface 17) |
 
 #### Exit
 
@@ -3138,20 +3282,29 @@ OODOS's own: CP/M 3 has no function 77 (OODOS's range, 72 on).
   [chapter 5](05-memory-and-banking.md#the-w1-contract); 13 OODOS 0.12's function 83 `DM_VFILLW` and the 640x480
   colour layers; 14 OODOS 0.13's full-resolution pointer (`DM_POINTER` 64 + n) and SPRCTL cleared at the warm boot;
   15 OODOS 0.14's, nothing a program uses; 16 OODOS 0.15's [function 85](#bdos-85), the serial line's
-  receive buffer, and the event area's `EV_RXCNT`),
+  receive buffer, and the event area's `EV_RXCNT`; 17 OODOS 0.16's [function 78](#bdos-78), the random source,
+  `FC_T1` and `FT_CLOCK`),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83); `OA_SERIAL`, `$20`: [function 85](#bdos-85), since
   interface 16). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
-  serial card's VIA), +4 the highest event area layout it writes (2).
+  north bridge's since OODOS 0.16, the serial card's VIA before it; `FC_T1` `$04`, since interface 17: the VIA's
+  timer 1 is the program's to use, polled, with no interrupt, set when the VIA is there and never before 17), +4
+  the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
   frame counter, each low byte first, read at one moment.
 - `FT_OPEN`, `FT_CLOSE`, `FT_DELAY`, `FT_FRAMEHOOK`, `FT_TICKHOOK`: A = 0, X = 0.
 - `FT_WAIT`: returns at the frame wanted. A/X = the frame counter's low word.
 - `FT_COSTS`: +1–2 the most cycles a frame hook took, +3–4 a tick hook, +5–6 the frames whose hook wasn't called
   because the last was still running, each since the warm boot. A = 1 if this OODOS counts the cycles (a debug
-  build, on a machine with the VIA, whose timer 1 it counts by), 0 if not, and then +1–4 are 0. X = 0.
+  build, which counts them by the north bridge's timebase), 0 if not, and then +1–4 are 0. X = 0.
+- `FT_CLOCK`: +1–4 the date and time as [function 105](#bdos-105) gives them (the day number, the hour and the
+  minute in BCD), +5 the seconds in BCD, +6–7 the milliseconds into that second (0–999), +8 `FK_SYNC` (`$01`: the
+  milliseconds are in step with the clock chip's second) and `FK_LOST` (`$02`: the clock chip's time is invalid,
+  its oscillator stopped: set the time), ORed. All of it from one latch of the clock, so the milliseconds belong to
+  the second given. It sets the date and time in the SCB as function 105 does. A = X = 0; A = X = `$FF` with no
+  block, or past 2155, as function 105.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors

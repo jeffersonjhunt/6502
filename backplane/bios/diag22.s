@@ -48,6 +48,10 @@ T_CH:           .res    1              ; D1: the channel
 T_FIT:          .res    1              ;   how many are fitted
 T_FITS:         .res    1              ;   which (bit n channel n)
 T_UNFIT:        .res    1              ;   $FF if T_CH isn't, else 0
+T_RND:          .res    32             ; NB9: the pool's 32 bytes
+T_MS:           .res    4              ; NB10: MS0-MS3 as last read
+T_MSB:          .res    4              ;   at the first SEC change, then the difference
+T_MSP:          .res    3              ;   MS0-MS2 before, for the never-backwards test
                 DTVARS
 
 .segment "D22"
@@ -185,8 +189,11 @@ STAGE7:
                 lda     #7
                 jsr     SBEGIN
                 ldx     #$D
-                lda     #2             ; ID $D2 exactly (B7); $D1 SKIPs, not known
-                jsr     CARDIS
+                lda     HW_REV + $D    ; ID $D2 or $D3 (B7, revision 3); $D1 SKIPs, not known
+                cmp     #3
+                beq     @rev
+                lda     #2
+@rev:           jsr     CARDIS
                 bcc     @card
                 rts
 @card:          jsr     NB1
@@ -196,11 +203,17 @@ STAGE7:
                 jsr     NB6
                 jsr     NB7
                 jsr     NB8
+                jsr     NB9
+                jsr     NB10
+                jsr     NB12
                 lda     #DR_PASS
                 jmp     CEND
 
 NB1:
-                TB      "NB1  ID $D2; STATUS'S REVISION "
+                TB      "NB1  ID $"
+                lda     NB_ID
+                jsr     HEX2
+                SAY     "; STATUS'S REVISION "
                 lda     NB_STATUS
                 lsr     a
                 lsr     a
@@ -531,6 +544,356 @@ NB8:
 @bad:           TD      "THE WRITE CHANGED THE BLOCK"
                 rts
 @none:          TS      "NO TESTED BLOCK"
+                rts
+
+; NB9, the random number chip (north bridge revision 3, hw/design.md, "The random source"): on $D3 only, else SKIP;
+; no chip, SKIP; a chip not locked, FAIL. Then the pool's 32 bytes, read through RNGDATA: FAIL if they are all one
+; value or one 4-byte group repeated (an unlocked part's fixed pattern is such a group). Then DRAW: BUSY must clear
+; with READY set within 150 ms; FAIL on FAULT. Its sample is in D22ZP (T_RND).
+NB9:
+                TB      "NB9  THE RANDOM NUMBER CHIP"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     NB_RNGST
+                and     #NB_RNG_CHIP
+                bne     @chip
+                TS      "NO RANDOM NUMBER CHIP"
+                rts
+@chip:          lda     NB_RNGST
+                and     #NB_RNG_LOCKED
+                bne     @locked
+                TD      "NOT LOCKED"
+                rts
+@locked:        ldx     #0
+@byte:          phx
+                jsr     RNGW           ; a byte there (the pool full on a good board)
+                plx
+                bcs     @slow
+                lda     NB_RNGDATA     ; a load: the read takes the byte
+                sta     T_RND,x
+                inx
+                cpx     #32
+                bne     @byte
+                ldx     #31            ; all one value?
+@one:           lda     T_RND,x
+                cmp     T_RND
+                bne     @group
+                dex
+                bne     @one
+                TD      "32 BYTES OF ONE VALUE"
+                rts
+@group:         ldx     #4             ; one 4-byte group repeated?
+@rep:           lda     T_RND,x
+                cmp     T_RND - 4,x
+                bne     @draw
+                inx
+                cpx     #32
+                bne     @rep
+                TD      "ONE 4-BYTE GROUP REPEATED"
+                rts
+@draw:          lda     #NB_RNG_DRAW
+                sta     NB_RNGST
+                jsr     RNGW
+                bcs     @slow
+                jmp     TPASS
+@slow:          cmp     #0
+                bne     @fault
+                TD      "NO FRESH BYTES WITHIN 150 MS"
+                rts
+@fault:         TD      "THE DRAW FAILED (FAULT)"
+                rts
+
+; Wait up to about 150 ms (191 x 256 passes of 22 cycles) for the pool: READY with BUSY clear, carry clear; FAULT,
+; carry set and A not 0; the time out, carry set and A 0. A and T_K.
+RNGW:           stz     T_K
+                lda     #191
+                sta     T_K + 1
+@w:             lda     NB_RNGST
+                bit     #NB_RNG_FAULT
+                bne     @fault
+                and     #NB_RNG_READY | NB_RNG_BUSY
+                cmp     #NB_RNG_READY
+                beq     @ok
+                dec     T_K
+                bne     @w
+                dec     T_K + 1
+                bne     @w
+                lda     #0
+                sec
+                rts
+@fault:         sec
+                rts
+@ok:            clc
+                rts
+
+; NB10, the timebase (north bridge revision 3, hw/design.md, "The north bridge, revision 3"): on $D3 only, else SKIP. With
+; interrupts off throughout: MSF sets within 1.1 ms of being cleared, and a read doesn't clear it; with MSIE, IRQH
+; bit 5 reads 0 while MSF is set and 1 once it is cleared, then MSIE off. Then across three of the DS3231's
+; seconds (three SEC changes): MSS reads 0 or 1 at each change and never more than 999; MS0-MS3 gain 1,000 +/- 1
+; between the first change and the second; MS0-MS2, read through the latch, never go backwards. Then SYNC set. A
+; FAIL names the step. Its counts are in D22ZP (T_MS, T_MSB, T_MSP).
+NB10:
+                TB      "NB10 THE TIMEBASE"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     #NB_TB_MSF | NB_TB_OVR ; both cleared, MSIE off
+                sta     NB_TBCTL
+                lda     NB_TBCTL
+                bpl     @wait
+                lda     #NB_TB_MSF | NB_TB_OVR ; a tick just then: once more
+                sta     NB_TBCTL
+                lda     NB_TBCTL
+                bpl     @wait
+                TD      "MSF: A 1 WRITTEN DIDN'T CLEAR IT"
+                rts
+@wait:          jsr     MSFW
+                bcc     @set
+                TD      "MSF: NOT SET WITHIN 1.1 MS"
+                rts
+@set:           lda     NB_TBCTL
+                bmi     @irq
+                TD      "MSF: A READ CLEARED IT"
+                rts
+@irq:           lda     #NB_TB_MSIE    ; MSF left set, MSIE on: the line low
+                sta     NB_TBCTL
+                lda     NB_IRQH
+                and     #NB_IRQ_NB
+                beq     @low
+                lda     #NB_TB_MSF | NB_TB_OVR
+                sta     NB_TBCTL
+                TD      "IRQH BIT 5: HIGH WITH MSF AND MSIE SET"
+                rts
+@low:           lda     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE ; the acknowledge: the line high again
+                sta     NB_TBCTL
+                lda     NB_IRQH
+                ldx     #NB_TB_MSF | NB_TB_OVR ; MSIE off
+                stx     NB_TBCTL
+                and     #NB_IRQ_NB
+                bne     @secs
+                TD      "IRQH BIT 5: STILL LOW WITH MSF CLEARED"
+                rts
+@secs:          stz     T_REV          ; the SEC changes seen
+                lda     NB_SEC
+                sta     T_SEC0
+                jsr     MSREAD
+                jsr     MSKEEP
+                stz     T_K            ; the give-up: 6 x 65,536 passes of the same second (about 4 s)
+                stz     T_K + 1
+                lda     #6
+                sta     T_SEC1
+@loop:          lda     NB_SEC         ; SEC, then MSS, from its latch
+                tax
+                lda     NB_MSSH
+                cmp     #3
+                jcc     @in
+                jne     @past
+                lda     NB_MSSL
+                cmp     #$E8
+                jcs     @past
+@in:            cpx     T_SEC0
+                jeq     @same
+                stx     T_SEC0         ; a new second: MSS 0 or 1
+                lda     NB_MSSH
+                jne     @late
+                lda     NB_MSSL
+                cmp     #2
+                jcs     @late
+                inc     T_REV
+                lda     T_REV
+                cmp     #1
+                jne     @two
+                jsr     MSREAD         ; the first change: MS kept
+                jsr     MSKEEP
+                ldx     #3
+@k:             lda     T_MS,x
+                sta     T_MSB,x
+                dex
+                bpl     @k
+                jmp     @loop
+@two:           cmp     #2
+                jne     @three
+                jsr     MSREAD         ; the second: 1,000 +/- 1 on
+                sec
+                lda     T_MS
+                sbc     T_MSB
+                sta     T_MSB
+                lda     T_MS + 1
+                sbc     T_MSB + 1
+                sta     T_MSB + 1
+                lda     T_MS + 2
+                sbc     T_MSB + 2
+                ora     T_MS + 3
+                jne     @steps         ; (T_MS + 3 is 0 here: MS is under 2^24 within 4.6 hours of a reset)
+                lda     T_MSB + 1
+                cmp     #>1000
+                jne     @steps
+                lda     T_MSB
+                cmp     #<999
+                jcc     @steps
+                cmp     #<1001 + 1
+                jcs     @steps
+                jsr     MSKEEP
+                jmp     @loop
+@three:         lda     NB_TBCTL
+                and     #NB_TB_SYNC
+                bne     @sync
+                TD      "SYNC: CLEAR"
+                rts
+@sync:          jmp     TPASS
+@same:          jsr     MSREAD         ; MS0-MS2 never backwards
+                lda     T_MS + 2
+                cmp     T_MSP + 2
+                jcc     @back
+                jne     @fwd
+                lda     T_MS + 1
+                cmp     T_MSP + 1
+                jcc     @back
+                jne     @fwd
+                lda     T_MS
+                cmp     T_MSP
+                jcc     @back
+@fwd:           jsr     MSKEEP
+                dec     T_K
+                jne     @loop1
+                dec     T_K + 1
+                jne     @loop1
+                dec     T_SEC1
+                jne     @loop1
+                TD      "SEC: NOT THREE CHANGES IN 4 S"
+                rts
+@loop1:         jmp     @loop
+@past:          TD      "MSS: PAST 999"
+                rts
+@late:          TD      "MSS: NOT 0 OR 1 AT A NEW SECOND"
+                rts
+@steps:         TD      "MS: NOT 1000 +/- 1 ACROSS A SECOND"
+                rts
+@back:          TD      "MS: BACKWARDS ACROSS A CARRY"
+                rts
+
+; NB12, the common hole (north bridge revision 3, hw/design.md, "The common hole"): on $D3
+; only, else SKIP (NB11 is the deferred WINnH and MAP check's number). A tested RAM block's top 2 KB, seen through
+; W1 at $7800-$7FFF, gets a tag at $7800 and its complement at $7FF0, and VEC's vectors at $7FFA (a Break while
+; the hole is on still lands in the core). With interrupts off, HOLE EN on it: $F800 and $FFF0 must read the tags
+; and $F7FF W3's own byte; then with RO set a write at $F800 must leave the block as it was; and with HOLE 0, $F800
+; is W3's again. HOLE is 0 and W1 on block 1 at the end, whatever the outcome.
+NB12:
+                TB      "NB12 THE COMMON HOLE"
+                lda     HW_REV + $D
+                cmp     #3
+                beq     @r3
+                TS      "NOT NORTH BRIDGE REVISION 3"
+                rts
+@r3:            lda     #$FF
+@b:             jsr     GOODBLK
+                jcs     @none
+                cmp     DG_W0
+                beq     @b
+                sta     DG_BLK
+                lda     NB_VEC         ; VEC's block in W1: its six vector bytes on the stack
+                sta     NB_WIN1
+                ldx     #5
+@v:             lda     $7FFA,x
+                pha
+                dex
+                bpl     @v
+                lda     DG_BLK
+                sta     NB_WIN1
+                ldx     #0
+@v2:            pla
+                sta     $7FFA,x
+                inx
+                cpx     #6
+                bne     @v2
+                lda     DG_BLK         ; the tags
+                sta     $7800
+                eor     #$FF
+                sta     $7FF0
+                lda     $F7FF          ; W3's bytes, with the hole off
+                sta     T_REV
+                lda     $F800
+                sta     T_N
+                php
+                sei
+                lda     DG_BLK
+                ora     #NB_HOLE_EN
+                sta     NB_HOLE
+                lda     $F800
+                cmp     DG_BLK
+                jne     @badmap
+                lda     $FFF0
+                eor     #$FF
+                cmp     DG_BLK
+                jne     @badmap
+                lda     $F7FF
+                cmp     T_REV
+                jne     @badmap
+                lda     DG_BLK
+                ora     #NB_HOLE_EN | NB_HOLE_RO
+                sta     NB_HOLE
+                lda     DG_BLK
+                eor     #$FF
+                sta     $F800          ; dropped
+                stz     NB_HOLE
+                plp
+                lda     $F800
+                cmp     T_N
+                jne     @badoff
+                lda     $7800          ; the block, through W1
+                ldx     #1
+                stx     NB_WIN1
+                cmp     DG_BLK
+                jne     @badro
+                jmp     TPASS
+@badmap:        stz     NB_HOLE
+                plp
+                ldx     #1
+                stx     NB_WIN1
+                TD      "F800-FFFF DIDN'T SHOW THE BLOCK'S TOP"
+                rts
+@badoff:        ldx     #1
+                stx     NB_WIN1
+                TD      "HOLE 0 DIDN'T GIVE F800 BACK TO W3"
+                rts
+@badro:         TD      "A WRITE WITH RO SET CHANGED THE BLOCK"
+                rts
+@none:          TS      "NO TESTED BLOCK"
+                rts
+
+; MSF set within 1.1 ms: 716 passes of 11 cycles (204, then 256 twice), carry clear; else carry set. A, X, Y.
+MSFW:           ldx     #204
+                ldy     #3
+@m:             lda     NB_TBCTL
+                bmi     @ok
+                dex
+                bne     @m
+                dey
+                bne     @m
+                sec
+                rts
+@ok:            clc
+                rts
+
+; MS0-MS3 into T_MS, MS0 first (its read latches the rest). A and X.
+MSREAD:         ldx     #0
+@r:             lda     NB_MS0,x
+                sta     T_MS,x
+                inx
+                cpx     #4
+                bne     @r
+                rts
+; T_MS's low three bytes into T_MSP. A and X.
+MSKEEP:         ldx     #2
+@c:             lda     T_MS,x
+                sta     T_MSP,x
+                dex
+                bpl     @c
                 rts
 
 ; --- Stage 8: DMA --------------------------------------------------------------
@@ -1415,12 +1778,12 @@ SLOTS:
                 stz     VIDEO_PCTL
                 rts
 
-; W1 on aperture slot A (0-3): on a $D2 north bridge WIN1H $0E and block A
+; W1 on aperture slot A (0-3): on a $D2+ north bridge WIN1H $0E and block A
 ; ($E00000 + A x $4000, whatever AP8 says); on a $D1 one block 32 + A (bank 8).
 ; A and X.
 APW1:           ldx     NB_ID
                 cpx     #NB_ID_V2
-                bne     @v1
+                bcc     @v1
                 ldx     #VIDEO_APER_H
                 stx     NB_WIN1H
                 sta     NB_WIN1
@@ -1428,10 +1791,10 @@ APW1:           ldx     NB_ID
 @v1:            ora     #32
                 sta     NB_WIN1
                 rts
-; W1 back on RAM block 1 (WIN1H 0 on a $D2 bridge). A only.
+; W1 back on RAM block 1 (WIN1H 0 on a $D2+ bridge). A only.
 W1HOME:         lda     NB_ID
                 cmp     #NB_ID_V2
-                bne     @b
+                bcc     @b
                 stz     NB_WIN1H
 @b:             lda     #1
                 sta     NB_WIN1

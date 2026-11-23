@@ -149,6 +149,11 @@ VEC, a fifth register with the same layout, stands in for W3 while the CPU reads
 ([chapter 4](04-interrupts.md#vec-and-the-vectors)), with VECH ([`$C6A4`](11-north-bridge-and-rtc.md#reg-c6a4)) for its
 A20–A23 on a revision 2 bridge.
 
+On revision 3, HOLE ([`$C6A6`](11-north-bridge-and-rtc.md#reg-c6a6)) can map `$F800–$FFFF` to one RAM block's top
+2 KB whatever W3 holds, ahead of VEC: the common hole ([chapter 11](11-north-bridge-and-rtc.md#the-common-hole)). It
+is off at every reset; OODOS 0.16 turns it on for its common memory, so `$F800–$FFFF` is the same in every block a
+program maps into W3, and W3 shows a block's `$C800–$F7FF` only.
+
 ## The I/O hole
 
 Status: **emulated**

@@ -21,7 +21,7 @@ that returns without doing that is entered again at once.
 | video | VIDEO_IEN | vertical blank, a chosen line, a sprite collision |
 | sound | SOUND_IEN | a byte in the mailbox from the card's 6510 |
 | USB | USB_IEN | a key, the mouse, the game port, a device |
-| north bridge | RTCCTL's TIE | TICK, once a second |
+| north bridge | TBCTL's MSIE (revision 3); RTCCTL's TIE before it | the 1 kHz tick (revision 3); TICK, once a second, before it |
 | console | CONSOLE_IEN | a key on the panel |
 
 **/NMI** has two sources: the USB keyboard's Pause/Break, with KBCFG's bit 7 set ([below](#pausebreak)), and the
@@ -97,7 +97,7 @@ Status: **emulated**
 Apple software polls its own cards and never uses /IACK. The north bridge's registers are hidden, so IRQL and IRQH
 can't be read. hw/design.md has the native cards keep quiet while AMODE is high. The emulator gets there by the
 /RESET pulse that enters the mode: it resets every card, which turns off the interrupt enables of the SD, video,
-sound, USB and console cards and the VIA's IER. The bridge clears TIE, and the DMA controller's reset clears every
+sound, USB and console cards and the VIA's IER. The bridge clears TIE, MSIE and HOLE, and the DMA controller's reset clears every
 channel's mode and terminal count, all eight, and puts each CARD and CONTROL back to their reset values
 ([chapter 5](05-dma.md#apple-ii-mode)). **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
 kept, and with its receive interrupt on, a byte arriving pulls /IRQ in Apple II mode. Enter the mode with the 6551's
@@ -126,37 +126,42 @@ windows' layout, and resets to the same value as W3, so a reset reads its vector
 Status: **built**
 
 Since OOLIB's L1 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS owns /IRQ, and runs with the CPU's
-I flag clear: programs, the CCP, and the BDOS during its calls. VEC is on block 62 while OODOS runs, and its IRQ
-vector points into common memory (`$F800–$FFFF`, the same in every block W3 maps), so the handler is there whatever
-W3 holds.
+I flag clear: programs, the CCP, and the BDOS during its calls. Its IRQ vector points into common memory
+(`$F800–$FFFF`), which since OODOS 0.16 is the north bridge's common hole: the same bytes whatever W3 holds
+([chapter 11](11-north-bridge-and-rtc.md#the-common-hole)), and a vector pull reads the hole whatever VEC holds, so
+the handler is there whatever block a program or a far call has in W3. OODOS 0.16 runs only on north bridge
+revision 3.
 
 - **The dispatcher** (`oodos/sys/irq.s`) tells BRK from an IRQ as the BIOS does (BRK still enters the monitor),
   saves A, X, Y and W0, puts W0 on OODOS's system block (31) without moving S, and reads IRQL and IRQH once each.
   It touches nothing of the BDOS's, and puts back every window it changes.
-- **What OODOS turns on:** timer 1 of the serial card's VIA, free-running at 1 kHz (ACR `$40`, a latch of 7,157:
-  a period of 7,159 cycles), for its millisecond counter; the video card's vertical blank (VIDEO_IEN bit 0),
-  for its frame counter; and, since OODOS 0.15, the 6551 stand-in's receive interrupt (ACIA_CMD `$09`), for the
-  serial line's receive buffer ([hw/oodos.md, "The serial receive buffer"](../../hw/oodos.md#the-serial-receive-buffer)).
-  ID 6 that isn't timer 1 alone goes to that service first: STATUS read (its IRQ cleared), and with RDRF set the
-  byte into a 255-byte ring in OODOS's memory, 247 cycles a byte from the interrupt to its RTI; with the ring full
-  the byte is left in the chip and the receive interrupt turned off, until the BIOS, reading, takes it and turns it
-  on again. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
-  Cold boot finds the VIA by its IER, which reads bit 7 set (on a machine without one, `$C34E` is the 6551
-  stand-in's command register, `$0B`), and the video card by its ID. Without the VIA, ID 6's interrupt is the
-  6551's, and the dispatcher leaves `$C340–$C34F` alone: they are the 6551's registers again. It quiets the
-  6551 and still serves the video card in the same pass.
-- **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
-  bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
+- **What OODOS turns on:** the north bridge's 1 kHz tick (TBCTL's MSIE, IRQH bit 5;
+  [chapter 11](11-north-bridge-and-rtc.md#the-timebase)), whose counter is OODOS's millisecond counter; the video
+  card's vertical blank (VIDEO_IEN bit 0), for its frame counter; and, since OODOS 0.15, the 6551 stand-in's receive
+  interrupt (ACIA_CMD `$09`), for the serial line's receive buffer
+  ([hw/oodos.md, "The serial receive buffer"](../../hw/oodos.md#the-serial-receive-buffer)). An interrupt that is the
+  tick alone (IRQL `$FF`, IRQH `$DF`) takes the fast path. ID 6 goes to the 6551's service: STATUS read (its IRQ
+  cleared), and with RDRF set the byte into a 255-byte ring in OODOS's memory, 247 cycles a byte from the interrupt
+  to its RTI; with the ring full the byte is left in the chip and the receive interrupt turned off, until the BIOS,
+  reading, takes it and turns it on again. The handlers acknowledge by writing TBCTL only the flags they saw (`$A0`,
+  MSF; `$E0`, MSF and OVR, when TICK read OVR set; MSIE kept), so a tick that lands meanwhile isn't lost, and by
+  writing 1 to VIDEO_ISR's bit 0. Cold boot finds the video card by its ID and the VIA by its IER, which
+  reads bit 7 set (on a machine without one, `$C34E` is the 6551 stand-in's command register, `$0B`); OODOS 0.16
+  turns every VIA interrupt off and leaves timer 1 to programs, polled
+  ([chapter 9](09-serial-and-via.md)). Without the VIA the dispatcher leaves `$C340–$C34F` alone: they are the 6551's
+  registers again.
+- **What it doesn't answer** it turns off, so it can't hold /IRQ low: every VIA interrupt (its IER bit off, its
+  IFR flag cleared), the video card's line and collision interrupts, and any other card's
   interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 (all eight, each selected in
   turn with CONTROL put back after) and the terminal count of each channel that had it on (another's is its driver's to read), the 6551's transmit interrupt
   (ACIA_CMD bits 3-2 `%10`, its receive interrupt bit 1 put back to OODOS's, the rest kept; then its STATUS read,
   and a byte waiting taken into the ring), the clock's TIE. The warm boot does
-  the same at each program's end, keeping only OODOS's two, and sets timer 1 up again (ACR, its latch if it
-  changed, its enable), in case a program changed it; putting the latch back clears timer 1's flag, so it can cost
-  the counter a tick.
+  the same at each program's end, keeping only OODOS's own, turns the VIA's interrupts off and puts ACR to 0, and
+  turns the tick on again.
 - **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
-  Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The driver adds that time to
-  the millisecond counter afterwards.
+  Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The counter is the bridge's, so
+  nothing is lost: the ticks that came meanwhile are one interrupt, with TBCTL's OVR set, and the event area's
+  counter is written whole at the next.
 - **The USB card** (IRQH bit 3), since OOLIB's L2: only while a program has an event area of layout 2 open
   ([chapter 8](08-usb.md#under-oodos)). Its handler, and the joysticks' and paddles' sampling at the tick, are in
   block 62, behind a switch of W3 and back; only the switch and the tick's checks are in common memory. An
@@ -177,16 +182,18 @@ W3 holds.
   writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
-- **What it costs:** a tick is 162 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 249
-  (the sticks compared), and twice a frame more (the paddles started, then read: 382 and 687). The USB card's
-  interrupt for a key is 679. Since OODOS 0.11 (B7) these include the dispatcher's 17 cycles for WIN1H on a
-  revision 2 north bridge with WIN1H 0: read, saved and found 0, so nothing is written. While a program that called
-  OOLIB's `GX_BANK8` has slot 1 in W1 (WIN1H `$0E`), the dispatcher clears WIN1H and puts it back, 27 cycles in
-  all, 10 more on every interrupt: a tick 172 and a frame 225 (measured at B7's final build).
-- **DMA:** the CPU is held through a memory-to-memory copy, and timer 1 has one flag, so OODOS's copies on channel 3
-  go 2 KB at a time (4,096 cycles, under a tick): the tick due is taken between them.
-- **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor
-  go through the BIOS's Break ([below](#pausebreak)), which turns off the VIA's and the video card's.
+- **What it costs** (OODOS 0.16, measured): a tick is 142 cycles through the dispatcher, 2% of the CPU (162 with
+  OODOS 0.15's VIA tick); with a layout-1 area open 188, with layout 2 241 (the sticks compared), and twice a frame
+  more (the paddles started, then read: 378 and 684). A frame is 231 cycles, 447 with a layout-2 area. These include
+  the dispatcher's 17 cycles for WIN1H, read, saved and found 0. While a program that called OOLIB's `GX_BANK8` has
+  slot 1 in W1 (WIN1H `$0E`), the dispatcher clears WIN1H and puts it back, 10 cycles more on every interrupt.
+- **DMA:** the CPU is held through a memory-to-memory copy, so OODOS's copies on channel 3 go 2 KB at a time
+  (4,096 cycles, under a tick): the tick due is taken between them, on time. (Before OODOS 0.16 timer 1's one flag
+  made that a must; the bridge's counter loses nothing either way, but the hooks and the sticks keep their
+  timing.)
+- **Leaving:** function 75's Apple II mode turns OODOS's interrupts off first; Break and function 75's monitor
+  go through the BIOS's Break ([below](#pausebreak)), which turns off the tick (TBCTL `$C0`) and the video card's.
+  Each way turns the common hole off before the ROM runs.
 
 The Programmer's Guide has what programs get from it: the counters, the event area and the hooks
 ([chapter 8](../oodos-programmers-guide/08-game-services.md)).
@@ -209,6 +216,7 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
   and ES5503 stopped too (PCMCTL FLUSH alone, DOCCTL's RUN cleared), since BIOS 0.12
   ([chapter 7](07-sound.md#silencing-them));
 - the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
+- the north bridge's tick off (`$C0` to TBCTL: MSF and OVR cleared, MSIE off), with no ID check, since BIOS 0.20;
 - the VIA's interrupts off (`$7F` to VIA_IER), and a panel key's pending interrupt cleared (`$01` to
   CONSOLE_ISR), since BIOS 0.11;
 - the text screen set up again, found from the cards' ID bytes;

@@ -10,10 +10,11 @@
 ; empty (the BDOS stub starts it afresh at each call), so the same S points
 ; into free stack there. It reads IRQL and IRQH and answers each card:
 ;
-;   the VIA (ID 6)     timer 1, free-running at 1 kHz: the millisecond
-;                      counter, the event area's copy, the tick hook; with
-;                      a layout-2 area open, the sticks and the paddles
-;                      (input.s's L2TICK, when something changed or is due)
+;   the bridge (ID D)  the 1 kHz tick (north bridge revision 3: TBCTL's
+;                      MSF; the counter is the bridge's): the event area's
+;                      copy, the tick hook; with a layout-2 area open, the
+;                      sticks and the paddles (input.s's L2TICK, when
+;                      something changed or is due)
 ;   video (ID 9)       vertical blank: the frame counter, the event area,
 ;                      the frame hook
 ;   the 6551 (ID 6)    a byte on the serial line, into its ring (serial.s's
@@ -26,8 +27,7 @@
 ;
 ; It touches no BDOS state, only its own (here) and the windows, which it
 ; puts back as they were. WIN1H too (B7): it runs with WIN1H 0, and puts back
-; what it read, on a revision 2 north bridge only (the value tells: 0, or
-; $FF where there is no register, is never written). The event area is the
+; what it read (0 is never written). The event area is the
 ; program's memory: W1 is put on its block for the writes and back after.
 ; A hook gets its own WIN1H (HK_W1H, the program's when it set the hook).
 ;
@@ -43,12 +43,13 @@
 ; tick isn't lost while it runs (its budget, 8,000 cycles, is more than a
 ; tick); a vertical blank while it still runs is counted, but the hook
 ; isn't called again for it (FHSKIP counts those). Neither may call the
-; BDOS, use DMA, far call, write the VIA's ACR, IER or IFR, or touch timer
-; 1 but to read T1CH or its latch (reading T1CL clears the tick's flag).
+; BDOS, use DMA, far call (FARCALL's operand is one slot in the common
+; hole), write the VIA's IER, IFR or ACR but timer 1's bits, or touch the
+; bridge's timebase. Timer 1 is the program's, polled (OODOS 0.16).
 ; A hook stacks on page 1 of the W0 it was set with. Budgets:
 ; 8,000 cycles a frame hook, 300 a tick hook; not enforced. A debug build
-; (OOLIB_DEBUG, `make DEBUG=1`) measures each hook by timer 1 and keeps the
-; most each took, for FT_COSTS.
+; (OOLIB_DEBUG, `make DEBUG=1`) measures each hook by the bridge's MS0 and
+; TBSUB and keeps the most each took, for FT_COSTS.
 ;
 ; Function 80, frame and timing: X = 0, A the operation, no parameters;
 ; else A/X a block, +0 the operation (oodos.inc's FT_*), its parameters
@@ -60,15 +61,16 @@
 .include "oodos.inc"
 .import NMI
 .importzp PA, PX, PP, T0, T1, T2, T3, T4, T5 ; the BDOS's (bdos.inc), for 80
-.import RETFF, PGET, PPUT
+.import RETFF, PGET, PPUT, B_TIME          ; bdos.s's (B_TIME: FT_CLOCK)
 .import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
 .import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
 .import VBON                           ; video.s's
-.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
+.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, F_RANDOM, CALL61, CALLHOOK, HOOKADDR, SETHOOK
 .export HK, DHON, DMACTL, WBDMA
 .import DMAWARM                        ; video.s's (block 61)
 .import RXDEAF, RXFLUSH                ; serial.s's (block 62)
-.export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
+.import RNGOK, RNGNEW, RNGBYTE         ; bios.s's: 78's driver
+.export CLOCKS, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
 .ifdef OOLIB_DEBUG
@@ -84,10 +86,8 @@ VIAL:           .res    1              ; IRQL for the VIA alone, <~NB_IRQ_VIA, i
 ; A hook's record in HK: sys.inc's HK_*, HF, HT, HD
 
 .segment "SYSBSS"
-CLOCKS:         .res    1              ; CLK_FRAME, CLK_MS: the clocks cold boot started
-MS:             .res    4              ; the millisecond counter, low byte first
-FRAMES:         .res    4              ; the frame counter; MS + 4, for EVALL
-MSACC:          .res    2              ; the Disk II's catch-up: cycles short of a tick (disk2.s)
+CLOCKS:         .res    1              ; CLK_FRAME, CLK_MS, CLK_T1: the clocks cold boot started
+FRAMES:         .res    4              ; the frame counter (the millisecond counter is the bridge's: MS0-MS3)
 IW0:            .res    1              ; W0 as the interrupt found it ($SYS_BLOCK: the BDOS's)
 EVON:           .res    1              ; 1: the event area open
 EVBLK:          .res    1              ; its block
@@ -98,11 +98,11 @@ THPER:          .res    2              ; the tick hook every n ms
 THCNT:          .res    2              ; ms to its next call
 HK:             .res    3 * HK_LEN     ; the hooks: the frame hook's at HF, the tick hook's at HT,
                                        ;   the ES5503's at HD
-SNAP:           .res    8              ; MS and FRAMES at one moment, for function 80; 81's event
+SNAP:           .res    8              ; MS0-MS3 and FRAMES at one moment, for function 80; 81's event
 STKA:           .res    1              ; the sticks as last sampled (ports A and B, bits 0-4), the
 STKB:           .res    1              ;   tick's to compare (a layout-2 area open)
 PADFRM:         .res    1              ; the frame counter's low byte at the paddles' last PTRIG
-PADDUE:         .res    1              ; MS's low byte when they are to be read
+PADDUE:         .res    1              ; MS0 when they are to be read
 UCARD:          .res    1              ; 1: a USB card (cold boot looked)
 
 PROG_LIMIT      = 24                   ; blocks below: banks 0-5, the event area's
@@ -144,26 +144,18 @@ DISPATCH:       LDA     NB_WIN0
                 STA     IW0
                 PHY
                 LDA     NB_WIN1H       ; and its WIN1H (B7), 0 while the dispatcher runs: cleared
-                PHA                    ; only when it isn't 0, and never on a revision 1 bridge
-                BEQ     @w1h           ; (no register: $FF)
-                BMI     @w1h
+                PHA                    ; only when it isn't 0
+                BEQ     @w1h
                 STZ     NB_WIN1H
 @w1h:           LDA     NB_IRQL
-                CMP     VIAL
-                BNE     @more          ; not the VIA alone, or no VIA
-                LDA     NB_IRQH
                 INC     A
-                BNE     @more
-; The VIA alone, the tick's case: as VIASRV, inline. Any flag but timer 1's
-; goes the long way.
-                LDA     VIA_IFR
-                AND     VIA_IER
-                AND     #<~VIA_IER_SET
-                CMP     #VIA_IRQ_T1
-                BNE     @via
+                BNE     @more          ; a card in IDs 0-7
+                LDA     NB_IRQH
+                CMP     #<~NB_IRQ_NB
+                BNE     @more          ; not the bridge's tick alone
+; The tick alone (north bridge revision 3's MSF, IRQH bit 5; the bridge has no
+; other interrupt): no flag to check.
                 JSR     TICK
-                BRA     @out
-@via:           JSR     VIASRV
                 BRA     @out
 @more:          LDA     NB_IRQL
                 AND     NB_IRQH
@@ -171,7 +163,6 @@ DISPATCH:       LDA     NB_WIN0
                 BNE     @some
                 PLA                    ; no card interrupting: nothing to answer; WIN1H back
                 BEQ     @none
-                BMI     @none
                 STA     NB_WIN1H
 @none:          PLY
                 PLA
@@ -191,19 +182,22 @@ DISPATCH:       LDA     NB_WIN0
                 AND     #NB_IRQ_VIDEO
                 BNE     @novideo
                 JSR     VIDSRV
-@novideo:       LDA     NB_IRQL        ; any other card's
+@novideo:       LDA     NB_IRQH        ; the tick with another card (flag 5)
+                AND     #NB_IRQ_NB
+                BNE     @notick
+                JSR     TICK
+@notick:        LDA     NB_IRQL        ; any other card's
                 ORA     #NB_IRQ_VIA
                 INC     A
                 BNE     @deaf
                 LDA     NB_IRQH
-                ORA     #NB_IRQ_VIDEO
+                ORA     #NB_IRQ_VIDEO | NB_IRQ_NB
                 INC     A
                 BEQ     @out
 @deaf:          LDX     #R62_OTHER     ; the USB card's events (a layout-2 area), or DEAFEN
                 JSR     CALL62
 @out:           PLA                    ; the interrupted WIN1H, as it was read
                 BEQ     @back
-                BMI     @back
                 STA     NB_WIN1H
 @back:          PLY
                 PLA
@@ -212,21 +206,17 @@ DISPATCH:       LDA     NB_WIN0
                 PLA
 IRQEND:         RTI                    ; (test_oodos_input times the dispatcher to here)
 
-; The VIA (cold boot found one: VIAL): timer 1 the tick; any other flag
-; enabled (OODOS enables none) turned off. Nothing at all: the stand-in
-; 6551, on the same ID: its byte into the ring (SERID6), or DEAFEN.
+; The VIA (cold boot found one: VIAL): OODOS enables none of its interrupts
+; (the tick is the bridge's), so any flag enabled is a stray: turned off, its
+; flag cleared. A program's timer 1 is polled only, so this never reads T1CL.
+; Nothing at all: the stand-in 6551, on the same ID: its byte into the ring
+; (SERID6), or DEAFEN.
 VIASRV:         LDA     VIA_IFR
                 AND     VIA_IER
                 AND     #<~VIA_IER_SET
                 BEQ     @none
-                PHA
-                AND     #VIA_IRQ_OTHERS
-                BEQ     @t1
                 STA     VIA_IER        ; bit 7 clear: these off
                 STA     VIA_IFR        ; and their flags
-@t1:            PLA
-                AND     #VIA_IRQ_T1
-                BNE     TICK
                 RTS
 @none:          ; fall through
 
@@ -243,7 +233,7 @@ CALL62:         LDA     NB_WIN3
                 STA     NB_WIN3
                 RTS
 
-; A millisecond: timer 1's flag cleared, the counter on, the event area's
+; A millisecond: the bridge's MSF acknowledged (its first write; the counter is the bridge's), the event area's
 ; copy (its low byte, or all of it after a carry or a catch-up), the sticks
 ; and the paddles with a layout-2 area open, the tick hook if it is due.
 ; With no area open the path is L1's, cycle for cycle (test_oodos_input's
@@ -254,27 +244,25 @@ CALL62:         LDA     NB_WIN3
 ; the paddles are due. With no frames (no video card) PADDUE is passed
 ; every 128 ms with no PTRIG sent: L2TICK is entered then, a harmless
 ; no-op (PADARM clear), and puts it 128 ms on again.
-TICK:           LDA     VIA_T1CL       ; the flag cleared
-                INC     MS
+TICK:           LDA     EVON
                 BNE     @ev
-                INC     MS + 1
-                BNE     @dirty
-                INC     MS + 2
-                BNE     @dirty
-                INC     MS + 3
-@dirty:         LDA     #1
-                STA     EVDIRTY
-@ev:            LDA     EVON
-                BEQ     @hook
+                LDA     #NB_TB_MSF | NB_TB_MSIE ; MSF cleared, MSIE kept, OVR left: the acknowledge, the
+                STA     NB_TBCTL       ; handler's first write (no area: the counter is the bridge's)
+                BRA     @hook
+@ev:            BIT     NB_TBCTL       ; OVR in V: ticks ran together, perhaps across a carry
+                BVS     @ovr
+                LDA     #NB_TB_MSF | NB_TB_MSIE ; only what was seen: an OVR a tick sets from here on
+                STA     NB_TBCTL       ; stays, for the next tick to take whole (review r1, C1)
                 LDA     EVDIRTY
                 BNE     @all
                 LDX     NB_WIN1
                 LDA     EVBLK
                 STA     NB_WIN1
                 LDY     #EV_MS
-                LDA     MS
+                LDA     NB_MS0         ; the area's low byte from the bridge's (a load: it latches)
                 STA     (EVP),Y
                 STX     NB_WIN1
+                BEQ     @all           ; 0: the low byte went round, the rest with it
 @l2:            BIT     EVON
                 BMI     @in
 @hook:          LDA     THON
@@ -287,9 +275,13 @@ TICK:           LDA     VIA_T1CL       ; the flag cleared
                 ORA     THCNT + 1
                 BEQ     THOOK
 @done:          RTS
+@ovr:           LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE ; OVR seen: cleared with MSF
+                STA     NB_TBCTL
 @all:           JSR     EVALL
                 BRA     @l2
-@in:            LDA     VIA_ORA_NH     ; a layout-2 area: anything to do?
+@in:            BIT     VIAL           ; a layout-2 area: anything to do? (the sticks: a VIA's ports)
+                BPL     @frm
+                LDA     VIA_ORA_NH
                 EOR     STKA
                 AND     #$1F
                 BNE     @go
@@ -297,10 +289,10 @@ TICK:           LDA     VIA_T1CL       ; the flag cleared
                 EOR     STKB
                 AND     #$1F
                 BNE     @go
-                LDA     FRAMES
+@frm:           LDA     FRAMES
                 EOR     PADFRM
                 BNE     @go
-                LDA     MS             ; MS - PADDUE >= 0: due (L2TICK checks a PTRIG went)
+                LDA     NB_MS0         ; MS0 - PADDUE >= 0: due (L2TICK checks a PTRIG went)
                 SEC
                 SBC     PADDUE
                 BMI     @hook
@@ -342,7 +334,7 @@ CALLHOOK:       LDA     NB_WIN1
                 LDA     HK + HK_WIN + 2,Y
                 STA     NB_WIN2
                 LDA     HK + HK_WIN + 3,Y
-                STA     NB_WIN3        ; its common memory the same: this goes on
+                STA     NB_WIN3        ; the hole the same: this goes on
                 LDA     HK + HK_W1H,Y  ; its WIN1H (B7): the dispatcher's is 0, so only if it isn't
                 BEQ     @w1h
                 STA     NB_WIN1H
@@ -389,8 +381,7 @@ HKBACK:         LDA     #SYS_BLOCK
 .endif
                 LDA     NB_WIN1H       ; WIN1H 0 again (B7), whatever the hook left there (a
                 BEQ     @w1h           ; frame hook may map W1 itself): the register's, not
-                BMI     @w1h           ; the record's; never written on a revision 1 bridge
-                STZ     NB_WIN1H
+                STZ     NB_WIN1H       ; the record's
 @w1h:           PLA
                 STA     NB_WIN3
                 PLA
@@ -454,22 +445,33 @@ FHOOK:          INC     FHBUSY
                 STZ     FHBUSY
                 RTS
 
-; The event area's counters, all eight bytes, through W1.
+; The event area's counters, all eight bytes, through W1: the bridge's MS0-MS3
+; upward from MS0 (its read latches the other three), then FRAMES. In a
+; handler, or with interrupts off.
 EVALL:          LDA     NB_WIN1
                 PHA
                 LDA     EVBLK
                 STA     NB_WIN1
-                LDY     #EV_FRAMES + 3
-@copy:          LDA     MS - EV_MS,Y
+                LDY     #EV_MS
+                LDX     #0
+@ms:            LDA     NB_MS0,X       ; MS0 first
                 STA     (EVP),Y
-                DEY
-                CPY     #EV_MS
-                BCS     @copy
+                INY
+                INX
+                CPX     #4
+                BNE     @ms
+                LDX     #0
+@fr:            LDA     FRAMES,X
+                STA     (EVP),Y
+                INY
+                INX
+                CPX     #4
+                BNE     @fr
                 PLA
                 STA     NB_WIN1
                 STZ     EVDIRTY
                 RTS
-.assert FRAMES = MS + 4 && EV_FRAMES = EV_MS + 4, error, "EVALL copies MS and FRAMES as one"
+.assert EV_FRAMES = EV_MS + 4, error, "EVALL writes the counters as one run"
 
 ; CALL61, sound.s's R61 routine X in block 61 (the BIOS), W2 borrowed for it
 ; and put back byte for byte, as CALL62 borrows W3, the routine's A
@@ -497,63 +499,14 @@ CALL61:         LDA     NB_WIN2
 ; hook of test_oodos_clock_debug measures 479, against 431 with neither.
 .segment "BIOS"
 
-; Hook Y's call: timer 1's count and MS's low byte, for HOOKCOST.
-HKON:           JSR     T1NOW
-                STA     HK + HK_C0,Y
-                TXA
-                STA     HK + HK_C0 + 1,Y
-                LDA     MS
+; Hook Y's call: the bridge's MS0 and TBSUB from one latch (MS0 first), for
+; HOOKCOST. Timer 1 is the program's: never touched. Interrupts are off.
+HKON:           LDA     NB_MS0
                 STA     HK + HK_M0,Y
-                RTS
-
-; Timer 1's count now in A (low) and X (high); a tick that came due
-; meanwhile counted first, since reading the count clears its flag (its
-; hook, if due, waits for the next). One that comes due between the IFR's
-; check and the read of T1CL has its flag cleared by that read unseen: the
-; count, just reloaded, is then within a few cycles of the top, so a count
-; read within T1LATE cycles of it with no flag seen is counted too (TICK
-; reads T1CL about 87 cycles after its expiry at the soonest: the
-; interrupt's 7, IRQ's 19 and the dispatcher's 57 to TICK, and its LDA's 4;
-; a hook's call is later still, so no tick is counted twice). No VIA: 0,
-; the 6551's registers left alone, and FT_COSTS says it counted nothing
-; (A = 0), as a build without OOLIB_DEBUG does.
-T1LATE          = 24
-.assert <TICK_LATCH >= T1LATE, error, "T1NOW's top: the latch's low byte less T1LATE"
-T1NOW:          BIT     VIAL
-                BMI     @via
-                LDA     #0
-                TAX
-                RTS
-@via:           LDA     VIA_IFR
-                AND     #VIA_IRQ_T1
-                BEQ     @late
-                JSR     @tick
-@read:          LDX     VIA_T1CH       ; the high byte the same either side of the low
-                LDA     VIA_T1CL
-                CPX     VIA_T1CH
-                BNE     @read
-                RTS
-@late:          LDX     VIA_T1CH       ; no flag seen: read it the same way, and then
-                LDA     VIA_T1CL
-                CPX     VIA_T1CH
-                BNE     @late
-                CPX     #>TICK_LATCH   ; just reloaded? Then its expiry came meanwhile
-                BNE     @done
-                CMP     #<TICK_LATCH - T1LATE
-                BCC     @done
-                PHA
-                JSR     @tick
-                PLA
-@done:          RTS
-@tick:          INC     MS
-                BNE     @d
-                INC     MS + 1
-                BNE     @d
-                INC     MS + 2
-                BNE     @d
-                INC     MS + 3
-@d:             LDA     #1
-                STA     EVDIRTY
+                LDA     NB_TBSUBL
+                STA     HK + HK_C0,Y
+                LDA     NB_TBSUBH
+                STA     HK + HK_C0 + 1,Y
                 RTS
 
 ; A/X (high in A) + Y ticks of TICK_CYCLES: exact in 16 bits while Y is 8 or
@@ -580,21 +533,17 @@ ADDTK:          CPY     #9
 ; if they are the most yet. Keeps Y.
 HOOKCOST:       CLD
                 STY     DBGR
-                JSR     T1NOW
-                STA     DBGC
-                STX     DBGC + 1
-                SEC                    ; C0 - now: timer 1 counts down
-                LDA     HK + HK_C0,Y
-                SBC     DBGC
-                TAX
-                LDA     HK + HK_C0 + 1,Y
-                SBC     DBGC + 1
-                PHA
-                LDA     MS             ; and the ticks between
+                LDA     NB_MS0         ; one latch: MS0, then TBSUB
                 SEC
                 SBC     HK + HK_M0,Y
-                TAY
-                PLA
+                STA     DBGC           ; the whole ticks between
+                SEC                    ; now - C0: TBSUB counts up (modulo 2^16 with the ticks added)
+                LDA     NB_TBSUBL
+                SBC     HK + HK_C0,Y
+                TAX
+                LDA     NB_TBSUBH
+                SBC     HK + HK_C0 + 1,Y
+                LDY     DBGC
                 JSR     ADDTK
                 LDY     DBGR
                 CMP     HK + HK_MAX + 1,Y
@@ -624,10 +573,12 @@ DMACTL:         .res    1              ; DEAFEN's: CONTROL as it found it, less 
 
 ; Every interrupt enable that isn't OODOS's own off, and what is pending
 ; there cleared: a program's (the warm boot), or one no handler answers
-; (the dispatcher, through W3). OODOS's own, timer 1 and vertical blank, stay
-; on, and timer 1 is set up again as CLKINIT has it (free-running, its
-; latch, its enable), in case a program changed it; MS runs on, though a
-; program that changed the latch may cost it a tick (below). A DMA
+; (the dispatcher, through W3). OODOS's own, the bridge's tick and vertical
+; blank, stay on (TBCTL $20 again, MSIE alone, in case a program wrote it:
+; the flags pending stay for the dispatcher, review r1's C1); the VIA's are
+; all off and ACR is $00, as /RESET leaves it, so a program's timer modes and
+; PB7 end with it (timer 1 is the program's, polled: its latch isn't
+; OODOS's to compare or write). A DMA
 ; channel's terminal count is cleared only if its interrupt was on: the
 ; others' are their drivers' (SDIO reads channel 0's), and an interrupt
 ; can come while one waits. The channels are reached through the window,
@@ -680,27 +631,14 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 .assert DMA_SEL7 = 14 && DMA_SEL2 = 4 && DMA_SEL = $0E, error, "DEAFEN's X is SELECT's field, 2 x the channel"
 @acia:          JSR     RXDEAF         ; the stand-in 6551's: OODOS's receiver interrupt on (off
                                        ; while the ring is full), its transmitter's off (serial.s)
-                LDA     CLOCKS
-                AND     #CLK_MS
-                BEQ     @video         ; no VIA: $C34E would be the 6551's command
-                LDA     #VIA_IRQ_OTHERS
-                STA     VIA_IER        ; all but timer 1 off
+                LDA     #NB_TB_MSIE    ; MSIE alone: a tick pending stays pending
+                STA     NB_TBCTL       ; the tick on (revision 3: NB3CHK)
+                BIT     VIAL
+                BPL     @video         ; no VIA: $C34E would be the 6551's command
+                LDA     #<~VIA_IER_SET
+                STA     VIA_IER        ; every VIA interrupt off
                 STA     VIA_IFR
-                LDA     #VIA_ACR_T1FREE
-                STA     VIA_ACR        ; timer 1 as CLKINIT left it
-                LDA     #VIA_IER_SET | VIA_IRQ_T1
-                STA     VIA_IER
-                LDA     VIA_T1LL       ; the latch read (safe: no flag cleared) and
-                CMP     #<TICK_LATCH   ; written only if a program changed it, since
-                BNE     @latch         ; writing its high byte clears timer 1's flag: a
-                                       ; tick already due then is lost, MS a ms behind
-                LDA     VIA_T1LH
-                CMP     #>TICK_LATCH
-                BEQ     @video
-@latch:         LDA     #<TICK_LATCH
-                STA     VIA_T1LL
-                LDA     #>TICK_LATCH
-                STA     VIA_T1LH       ; the counter takes it at its next expiry
+                STZ     VIA_ACR        ; as /RESET leaves it: timer 1 the program's
 @video:         LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @done
@@ -710,19 +648,16 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 @done:          RTS
 
 ; OODOS's own interrupts off, for leaving it (Apple II mode, function 75):
-; the clocks', the USB card's (a layout-2 area's), and the serial line's
+; the clocks' (TBCTL $C0: the tick's MSIE off), the USB card's (a layout-2 area's), and the serial line's
 ; receiver (the 6551 isn't reset by /RESET; the monitor's own command, $0B,
 ; has it off too). Keeps X and Y.
 CLKOFF:         STZ     USB_IEN
                 STZ     SOUND_IEN      ; and the sound card's (L3's)
                 LDA     #ACIA_CMD_RXOFF
                 TSB     ACIA_CMD
+                LDA     #NB_TB_MSF | NB_TB_OVR
+                STA     NB_TBCTL       ; the tick off
                 LDA     CLOCKS
-                AND     #CLK_MS
-                BEQ     @video
-                LDA     #<~VIA_IER_SET
-                STA     VIA_IER
-@video:         LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @done
                 STZ     VIDEO_IEN
@@ -739,22 +674,19 @@ CLKINIT:        STZ     CLOCKS
                 LDX     #R61_INIT      ; the sound card and the DMA controller (sound.s)
                 JSR     CALL61
                 LDA     VIA_IER
-                BPL     @video
+                BPL     @tick
                 LDA     #<~VIA_IER_SET
                 STA     VIA_IER        ; all off, all flags cleared
                 STA     VIA_IFR
-                LDA     #VIA_ACR_T1FREE
-                STA     VIA_ACR
-                LDA     #<TICK_LATCH
-                STA     VIA_T1CL
-                LDA     #>TICK_LATCH
-                STA     VIA_T1CH       ; the latch, and timer 1 started from it
-                LDA     #VIA_IER_SET | VIA_IRQ_T1
-                STA     VIA_IER
-                LDA     #CLK_MS
-                TSB     CLOCKS
+                STZ     VIA_ACR        ; timer 1 the program's: not loaded
                 LDA     #<~NB_IRQ_VIA
-                STA     VIAL           ; the dispatcher's fast path, and VIASRV, from here
+                STA     VIAL           ; VIASRV, and the sticks' ports, from here
+                LDA     #CLK_T1        ; FC_T1: timer 1 the program's (interface 17)
+                TSB     CLOCKS
+@tick:          LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE
+                STA     NB_TBCTL       ; the tick: north bridge revision 3's, MSIE on
+                LDA     #CLK_MS
+                TSB     CLOCKS         ; always: every bridge OODOS 0.16 runs on has the tick
 @video:         LDA     VIDEO_ID       ; revision 2 only (hw/video-rev2.md): CLK_FRAME says
                 CMP     #VIDEO_ID_V2   ; there is one, for function 83 too
                 BNE     @done
@@ -781,7 +713,7 @@ F_FRAME:        LDX     PX
                 JMP     (FTJUMPS,X)
 @ff:            JMP     RETFF
 FTJUMPS:        .word   FT_INFOX, FT_COUNTX, FT_OPENX, FT_CLOSEX, FT_WAITX, FT_DELAYX
-                .word   FT_FHOOKX, FT_THOOKX, FT_COSTSX
+                .word   FT_FHOOKX, FT_THOOKX, FT_COSTSX, FT_CLOCKX
 .assert (* - FTJUMPS) / 2 = FT_OPS, error, "FTJUMPS has an entry for each of oodos.inc's FT_*"
 
 ; OOLIB's interface version in A and the service areas in X; a block gets
@@ -801,16 +733,24 @@ FT_INFOX:       LDX     PX
                 LDX     #OOLIB_AREAS
                 RTS
 .assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA | OA_SERIAL, error, "frame and timing, input, sound, DMA, and the serial line"
-.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
+.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS && CLK_T1 = FC_T1, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
-; MS and FRAMES at one moment, into SNAP.
+; The bridge's millisecond counter and FRAMES at one moment, into SNAP: with
+; interrupts off, so no handler's read of MS0 takes a new latch between this
+; read of MS0 and of MS3; MS0 first (its read latches MS1-MS3).
 SNAPIT:         PHP
                 SEI
-                LDX     #7
-@copy:          LDA     MS,X
+                LDX     #0
+@ms:            LDA     NB_MS0,X
                 STA     SNAP,X
-                DEX
-                BPL     @copy
+                INX
+                CPX     #4
+                BNE     @ms
+@fr:            LDA     FRAMES - 4,X
+                STA     SNAP,X
+                INX
+                CPX     #8
+                BNE     @fr
                 PLP
                 RTS
 
@@ -990,15 +930,85 @@ FT_WAITX:       LDA     CLOCKS
                 RTS
 @no:            JMP     RETFF
 
-; +1-2 milliseconds from now. No VIA: A = X = $FF at once. A = X = $FF too
-; if the millisecond counter stands still for STALL frames: timer 1 stopped
-; (a program changed it against the rules), so the wait would never end.
-; The frame counter is the witness: with no video card nothing gives up.
-STALL           = 4
-FT_DELAYX:      LDA     CLOCKS
-                AND     #CLK_MS
-                BEQ     @no
+; 78: the random source (interface 17; hw/design.md, "The random source"). X = 0: A
+; is the operation; else A/X a block, its +0 the operation. RN_INFO: A the
+; RS_* bits (0: no chip), X 0. RN_FILL (a block): +1 n (1-255), n bytes of the
+; chip's to +2 on; A = X = 0, or $FF $FF refused (n 0, no source, the chip
+; failed twice: the bytes at +2 then undefined). Waits on the bridge (its
+; driver, bios.s's RNGBYTE) with interrupts on.
+F_RANDOM:       LDX     PX
+                BEQ     @op
+                JSR     PGET           ; the block's +0; PP then at +1
+@op:            CMP     #RN_INFO
+                BNE     @fill
+                JSR     RNGOK
+                LDX     #0
+                RTS
+@fill:          CMP     #RN_FILL
+                BNE     @no
                 LDX     PX
+                BEQ     @no            ; RN_FILL takes a block
+                JSR     PGET           ; n
+                CMP     #0
+                BEQ     @no
+                STA     T0
+                JSR     RNGOK
+                BCS     @no            ; no source
+                JSR     RNGNEW
+@byte:          JSR     RNGBYTE
+                BCS     @no
+                JSR     PPUT
+                DEC     T0
+                BNE     @byte
+                LDA     #0
+                TAX
+                RTS
+@no:            JMP     RETFF
+
+; FT_CLOCK (interface 17): the time of day to the millisecond, from one latch.
+; T_GET's TGET (the BIOS's TIME, A = 0) reads SEC first, which latches MIN to
+; YEAR and MSSL-MSSH with it, and sets the SCB's date and time, T_GET's side
+; effect; MSSL and MSSH are then read from that latch (no handler reads SEC
+; to take another). +1-4 the DAT, +5 the seconds (BCD), +6-7 the ms into the
+; second, +8 FK_SYNC (TBCTL's SYNC) and FK_LOST (RTCCTL's LOST). A block only;
+; A = X = $FF past 2155, as T_GET.
+FT_CLOCKX:      LDX     PX
+                BEQ     @no
+                LDA     #0
+                JSR     B_TIME
+                BCS     @no            ; past 2155
+                LDX     #0
+@dat:           LDA     SCB_DATE,X
+                JSR     PPUT
+                INX
+                CPX     #4
+                BNE     @dat
+                LDA     SCB_SEC
+                JSR     PPUT
+                LDA     NB_MSSL        ; from TGET's SEC's latch
+                JSR     PPUT
+                LDA     NB_MSSH
+                JSR     PPUT
+                LDX     #0
+                LDA     NB_TBCTL
+                AND     #NB_TB_SYNC
+                BEQ     @lost
+                LDX     #FK_SYNC
+@lost:          LDA     NB_RTCCTL
+                AND     #NB_RTC_LOST
+                BEQ     @put
+                TXA
+                ORA     #FK_LOST
+                TAX
+@put:           TXA
+                JSR     PPUT
+                LDA     #0
+                TAX
+                RTS
+@no:            JMP     RETFF
+
+; +1-2 milliseconds from now, by the bridge's counter (it can't stop: N10).
+FT_DELAYX:      LDX     PX
                 BEQ     @no
                 JSR     PGET
                 STA     T0             ; T0/T1 the count
@@ -1009,19 +1019,7 @@ FT_DELAYX:      LDA     CLOCKS
                 STA     T2
                 LDA     SNAP + 1
                 STA     T3
-@moved:         LDA     SNAP           ; T4 MS's low byte when it last moved,
-                STA     T4             ; T5 the frame counter's then
-                LDA     SNAP + 4
-                STA     T5
 @wait:          JSR     SNAPIT
-                LDA     SNAP
-                CMP     T4
-                BNE     @moved
-                LDA     SNAP + 4
-                SEC
-                SBC     T5
-                CMP     #STALL
-                BCS     @no            ; stood still: given up
                 SEC                    ; now - start, against the count
                 LDA     SNAP
                 SBC     T2
@@ -1161,10 +1159,7 @@ FT_COSTSX:      LDX     PX
                 CPX     #6
                 BNE     @put
 .ifdef OOLIB_DEBUG
-                LDA     VIAL           ; counted by timer 1: none without the VIA
-                BEQ     @a
-                LDA     #1
-@a:
+                LDA     #1             ; counted (by the bridge's TBSUB: always)
 .else
                 LDA     #0
 .endif
