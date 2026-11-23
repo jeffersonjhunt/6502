@@ -315,4 +315,120 @@ TEST(cmdfree_and_cmdrdy_hold_a_whole_record)
     CHECK_EQ(b.reg(SoundCard3::CMDFREE), 255);
 }
 
+namespace
+{
+    /// A firmware image as the S1 appendix lays it out (tools/mksndfw.py's), its body `body` bytes of a pattern.
+    std::vector<uint8_t> fw_image(uint8_t major, uint8_t minor, uint8_t card = 0xA3, size_t body = 3000, int bad = 0)
+    {
+        std::vector<uint8_t> b(body);
+        for (size_t i = 0; i < body; ++i)
+            b[i] = static_cast<uint8_t>(i * 7 + 3);
+        const uint32_t bcrc = Crc32::of(b.data(), b.size()) ^ (bad == 1 ? 1u : 0u);
+        std::vector<uint8_t> h{'O', 'O', 'S', 'D', card, 1, major, minor, 5, 0, 0, 0};
+        for (const uint32_t x : {static_cast<uint32_t>(body), bcrc})
+            for (int i = 0; i < 4; ++i)
+                h.push_back(static_cast<uint8_t>(x >> (8 * i)));
+        h.resize(28, 0);
+        const uint32_t hcrc = Crc32::of(h.data(), h.size()) ^ (bad == 2 ? 1u : 0u);
+        for (int i = 0; i < 4; ++i)
+            h.push_back(static_cast<uint8_t>(hcrc >> (8 * i)));
+        h.insert(h.end(), b.begin(), b.end());
+        return h;
+    }
+    /// FW_BEGIN, the image by DATA, FW_COMMIT, then FWRESULT. @return FWRESULT's status, or $FF for none
+    uint8_t update(Board &b, const std::vector<uint8_t> &img)
+    {
+        const uint32_t n = static_cast<uint32_t>(img.size());
+        b.send(SoundFw::FW_BEGIN, 1, {static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), static_cast<uint8_t>(n >> 16), 0});
+        b.run(1000);
+        for (const uint8_t x : img)
+            b.put(SoundCard3::DATA, x);
+        b.run(1000);
+        b.send(SoundFw::FW_COMMIT, 2);
+        b.run(1000);
+        uint8_t commit = 0xFF;
+        for (const Event &e : b.events())
+            if (e.kind == SoundFw::EV_REPLY && e.body[0] == 2)
+                commit = e.body[1];
+        CHECK_EQ(commit, 0); // taken at once, checked after
+        b.run_ms(SoundFw::FLASH_MS + 2);
+        for (const Event &e : b.events())
+            if (e.kind == SoundFw::EV_FWRESULT)
+                return e.body[5];
+        return 0xFF;
+    }
+} // namespace
+
+TEST(a_good_image_boots_after_fwrestart_and_says_its_version)
+{
+    Board b;
+    REQUIRE(b.card != nullptr);
+    CHECK_EQ(update(b, fw_image(1, 1)), 0);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // still the one running: 1.0
+    b.card->bus_reset();                         // /RESET keeps the slots and runs on
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+    b.run_ms(SoundFw::STARTUP_MS + 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1); // 1.1 booted
+    CHECK_EQ(b.card->firmware().running_slot(), 1);
+    b.events();
+    b.send(SoundFw::IDENTIFY, 3);
+    b.run(1000);
+    const auto ev = b.events();
+    REQUIRE(ev.size() == 1 && ev[0].body.size() == 2 + 32u);
+    CHECK_EQ(ev[0].body[3], 1);
+    CHECK_EQ(ev[0].body[4], 1);
+    CHECK_EQ(ev[0].body[2 + 25], 1); // image B
+    // The next update goes into A, the slot not running.
+    CHECK_EQ(update(b, fw_image(1, 2)), 0);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+    b.run_ms(SoundFw::STARTUP_MS + 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 2);
+    CHECK_EQ(b.card->firmware().running_slot(), 0);
+}
+
+TEST(a_bad_crc_or_another_card_s_image_leaves_the_old_one)
+{
+    Board b;
+    REQUIRE(b.card != nullptr);
+    auto magic = fw_image(2, 0);
+    magic[0] = 'X';
+    auto length = fw_image(2, 0);
+    length[12] ^= 1;
+    for (const auto &img : {fw_image(2, 0, 0xA3, 3000, 1), fw_image(2, 0, 0xA3, 3000, 2), fw_image(2, 0, 0xA2), magic, length})
+        CHECK_EQ(update(b, img), SoundFw::E_FIRMWARE);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+    b.run_ms(SoundFw::STARTUP_MS + 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // the old one
+    CHECK_EQ(b.card->firmware().running_slot(), 0);
+    // A commit with no image: E_STATE.
+    b.send(SoundFw::FW_COMMIT, 9);
+    b.run(1000);
+    const auto ev = b.events();
+    REQUIRE(ev.size() == 1);
+    CHECK_EQ(ev[0].body[1], SoundFw::E_STATE);
+}
+
+TEST(selftest_names_the_part_that_fails)
+{
+    Board b;
+    REQUIRE(b.card != nullptr);
+    for (unsigned bit = 0; bit <= 4; ++bit)
+    {
+        const uint8_t fault = static_cast<uint8_t>(bit < 4 ? 1u << bit : 0u);
+        b.card->firmware().set_faults(fault);
+        b.send(SoundFw::SELFTEST, 1, {0x0F});
+        b.send(SoundFw::SELFTEST, 2, {0x05}); // the store and the SIDs alone
+        b.run(1000);
+        const auto ev = b.events();
+        REQUIRE(ev.size() == 2);
+        CHECK_EQ(ev[0].body[2], 0x0F);
+        CHECK_EQ(ev[0].body[3], fault);
+        CHECK_EQ(ev[1].body[2], 0x05);
+        CHECK_EQ(ev[1].body[3], fault & 0x05);
+    }
+}
+
 int main() { return run_all(); }

@@ -275,8 +275,16 @@ namespace ooe::emu
         bool take_ready() { return take(came_up_); }
         uint8_t memsize() const { return static_cast<uint8_t>(memsize_units_); }
         uint8_t features() const;
-        uint8_t version_major() const { return VERSION_MAJOR; }
-        uint8_t version_minor() const { return VERSION_MINOR; }
+        /// The running image's version (the built-in one's VERSION_MAJOR.VERSION_MINOR until an update boots).
+        uint8_t version_major() const { return slots_[running_].major; }
+        uint8_t version_minor() const { return slots_[running_].minor; }
+        /// The flash's image slot running (0 A, 1 B), and the one marked to boot next.
+        uint8_t running_slot() const { return running_; }
+        uint8_t boot_slot() const { return boot_slot_; }
+        /// Tests: the parts (SELFTEST's bits: 0 the store, 1 wave RAM, 2 the SIDs, 3 the codec's loop) that a
+        /// self-test finds failing, as a card with those faults would.
+        void set_faults(uint8_t parts) { faults_ = parts & 0x0F; }
+        static constexpr uint32_t FLASH_MS = 50; ///< an image checked and written into its slot
 
         // --- for tests and the debugger -----------------------------------------------------------------
         size_t store_bytes() const { return store_.size(); }
@@ -659,6 +667,21 @@ namespace ooe::emu
         void music_gate(unsigned lv, bool on);
         void music_instrument(unsigned lv, const Instrument &in);
         uint32_t queued_notes(unsigned lv) const;
+
+        // --- the flash's images ------------------------------------------------------------------------------
+        struct Image
+        {
+            bool valid{false};
+            uint8_t major{0}, minor{0};
+            uint16_t build{0};
+        };
+        /// The slots live in the card (its flash): power-on, FWRESTART and /RESET keep them.
+        std::array<Image, 2> slots_{{{true, VERSION_MAJOR, VERSION_MINOR, BUILD}, {}}};
+        uint8_t running_{0}, boot_slot_{0};
+        uint32_t fw_pending_ms_{0};
+        uint8_t fw_status_{0}, fw_major_{0}, fw_minor_{0};
+        uint8_t faults_{0};
+        uint8_t check_image(Image &out) const;
 
         // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
         struct BootSound

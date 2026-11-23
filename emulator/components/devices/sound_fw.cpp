@@ -84,6 +84,8 @@ namespace ooe::emu
         ready_ = false;
         came_up_ = false;
         ready_at_ = now_ + static_cast<uint64_t>(STARTUP_MS) * SAMPLES_PER_MS;
+        running_ = boot_slot_; // the image marked to boot
+        fw_pending_ms_ = 0;
     }
 
     void SoundFw::reset()
@@ -139,6 +141,8 @@ namespace ooe::emu
 
     void SoundFw::ms_step()
     {
+        if (fw_pending_ms_ && --fw_pending_ms_ == 0) // the image checked and written: whether it will boot
+            event(EV_FWRESULT, 0, {fw_status_, fw_major_, fw_minor_});
         tune_ms();
         streams_ms();
         voices_ms();
@@ -912,6 +916,25 @@ namespace ooe::emu
         }
     }
 
+    // --- the firmware update ------------------------------------------------------------------------------
+
+    uint8_t SoundFw::check_image(Image &out) const
+    {
+        // Its header (the S1 appendix's), its length and both CRCs: else E_FIRMWARE, and the old image boots.
+        const uint8_t *h = &store_[image_.at];
+        const size_t n = image_.len;
+        if (n < 32 || std::memcmp(h, "OOSD", 4) || h[4] != CARD_TYPE || h[5] != 1)
+            return E_FIRMWARE;
+        const uint32_t body = get32(h + 12);
+        if (static_cast<size_t>(body) + 32 != n || Crc32::of(h, 28) != get32(h + 28) || Crc32::of(h + 32, body) != get32(h + 16))
+            return E_FIRMWARE;
+        out.valid = true;
+        out.major = h[6];
+        out.minor = h[7];
+        out.build = static_cast<uint16_t>(get16(h + 8));
+        return OK;
+    }
+
     // --- music: note blocks and their sequencer ----------------------------------------------------------
 
     uint8_t SoundFw::parse_block(unsigned slot)
@@ -1573,9 +1596,9 @@ namespace ooe::emu
         {
             std::vector<uint8_t> r;
             r.push_back(CARD_TYPE);
-            r.push_back(VERSION_MAJOR);
-            r.push_back(VERSION_MINOR);
-            put16(r, BUILD);
+            r.push_back(version_major());
+            r.push_back(version_minor());
+            put16(r, slots_[running_].build);
             r.push_back(memsize());
             r.push_back(features());
             r.push_back(FEAT2_TONE | FEAT2_SID_MODEL | FEAT2_UPDATE);
@@ -1590,7 +1613,7 @@ namespace ooe::emu
             r.push_back(32); // oscillators
             r.push_back(1);  // SID A: a 6581 until a tune asks
             r.push_back(1);
-            r.push_back(0);  // image A
+            r.push_back(running_); // image A or B
             r.resize(32, 0);
             reply(tag, OK, r);
             break;
@@ -1968,6 +1991,46 @@ namespace ooe::emu
             seq_.thresh = p[0];
             reply(tag, OK);
             break;
+        case SELFTEST:
+        {
+            // What it was asked to test, and what failed (the model's parts don't; a test's faults do).
+            const uint8_t tested = static_cast<uint8_t>(p[0] & 0x0F);
+            reply(tag, OK, {tested, static_cast<uint8_t>(tested & faults_)});
+            break;
+        }
+        case FW_BEGIN:
+        {
+            const uint32_t len = get32(p);
+            if (len < 32 || len > 0xFFFFFF)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            reply(tag, open_transfer(cmd, tag, 0, len, image_));
+            break;
+        }
+        case FW_COMMIT:
+        {
+            if (!image_.used || image_.loading || fw_pending_ms_)
+            {
+                reply(tag, image_.loading ? E_XFER : E_STATE);
+                break;
+            }
+            // The reply at once; FWRESULT once the image is checked and written into the slot not running.
+            Image img;
+            fw_status_ = check_image(img);
+            fw_major_ = img.major, fw_minor_ = img.minor;
+            if (fw_status_ == OK)
+            {
+                const uint8_t slot = static_cast<uint8_t>(1 - running_);
+                slots_[slot] = img;
+                boot_slot_ = slot; // marked to boot: the next power-on or FWRESTART
+            }
+            free_object(image_);
+            fw_pending_ms_ = FLASH_MS;
+            reply(tag, OK);
+            break;
+        }
         case EFFECT_DEF:
         {
             const size_t n = rec[1];

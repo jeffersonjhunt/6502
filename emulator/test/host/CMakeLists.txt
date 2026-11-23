@@ -904,6 +904,9 @@ if(Python3_FOUND)
     add_test(NAME test_trace_diff
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")
+    add_test(NAME test_mksndfw # tools/mksndfw.py's firmware images for the sound card, revision 3
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_mksndfw.py"
+                     "${PROJECT_SOURCE_DIR}/../tools/mksndfw.py")
 endif()
 
 # --- the map's own check -----------------------------------------------------
@@ -1048,6 +1051,7 @@ set(EMU_TEST_LABELS
     test_app_eater              "emu app eater acia debug lcd via"
     test_fetch_fixtures         "tools"
     test_trace_diff             "debug"
+    test_mksndfw                "sound tools"
     test_test_map               "tools")
 
 list(LENGTH EMU_TEST_LABELS n)
