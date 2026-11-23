@@ -274,10 +274,13 @@ namespace ooe::emu
         for (unsigned ch = 0; ch < 2; ++ch)
             src[SRC_EFFECTS][ch] = 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
         // The streams, at half of full scale as revision 2's bus mixes its stream.
+        unsigned ran = 0; // each stream once a frame: one that took over at a join has had its frame
         for (unsigned s = 0; s < STREAMS; ++s)
         {
+            if (ran & (1u << s))
+                continue;
             float f[2] = {0, 0};
-            stream_frame(s, f);
+            ran |= 1u << s | 1u << stream_frame(s, f);
             for (unsigned ch = 0; ch < 2; ++ch)
                 src[SRC_STREAMS][ch] += 0.5f * f[ch] * static_cast<float>(mix_[SRC_STREAMS]) / 255.0f;
         }
@@ -1748,8 +1751,8 @@ namespace ooe::emu
                 reply(tag, E_XFER);
                 break;
             }
-            std::vector<uint8_t> r;
-            put24(r, xfer_.len - xfer_.left);
+            std::vector<uint8_t> r; // the bytes that had come; of a stream's chunk, those kept (already played)
+            put24(r, static_cast<uint32_t>(xfer_.cmd == STREAM_DATA ? chunk_kept() : xfer_.len - xfer_.left));
             abort_transfer();
             reply(tag, OK, r);
             break;
@@ -1760,6 +1763,11 @@ namespace ooe::emu
             if (len == 0 || (p[4] & ~3u) || get16(p + 5) == 0)
             {
                 reply(tag, E_PARAM);
+                break;
+            }
+            if (const uint8_t refused = check_open(len, samples_[p[0]]))
+            {
+                reply(tag, refused); // the slot as it was
                 break;
             }
             for (unsigned v = SID_VOICES; v < VOICES; ++v) // a slot loaded again: its voices stop first
@@ -1783,6 +1791,11 @@ namespace ooe::emu
             if (p[0] >= TUNE_SLOTS || len < 0x76 || len > 0x10000 + 0x7C + 2)
             {
                 reply(tag, E_PARAM);
+                break;
+            }
+            if (const uint8_t refused = check_open(len, tunes_[p[0]]))
+            {
+                reply(tag, refused); // the slot, and its tune playing, as they were
                 break;
             }
             if (tune_.state != T_STOPPED && tune_.slot == p[0])
@@ -1891,6 +1904,7 @@ namespace ooe::emu
                 break;
             }
             st.need_out = false;
+            st.chunk_start = st.wr;
             xfer_ = Transfer{};
             xfer_.open = true;
             xfer_.cmd = cmd, xfer_.tag = tag, xfer_.slot = static_cast<uint8_t>(s);
@@ -1916,7 +1930,13 @@ namespace ooe::emu
             Stream &st = streams_[s];
             uint8_t status = OK;
             if (cmd == STREAM_END)
-                st.ended = true;
+            {
+                // What is in plays out: the chunk coming too, so the end waits for it.
+                if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
+                    st.end_pending = true;
+                else
+                    st.ended = true;
+            }
             else if (cmd == STREAM_PAUSE)
             {
                 if (st.paused || st.state == S_ENDED)
@@ -1936,9 +1956,15 @@ namespace ooe::emu
                 if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
                     abort_transfer();
                 st.rd = st.wr;
-                st.ended = st.need_out = st.underrun = false;
+                st.ended = st.need_out = st.underrun = st.end_pending = false;
                 st.state = S_BUFFERING;
+                // A seek: the decoder and its queue afresh, the gapless trim kept (the encoder's delay applied at
+                // the start, its padding still owed at the end).
+                const bool header = st.mp3 && st.mp3->header_done;
+                const uint32_t tail = st.mp3 ? st.mp3->tail : 0;
                 reset_decoder(st);
+                if (st.mp3)
+                    st.mp3->header_done = header, st.mp3->tail = tail, st.mp3->skip = 0;
             }
             else
                 close_stream(s);
@@ -1989,6 +2015,11 @@ namespace ooe::emu
             if (seq_.slot == p[0] || std::any_of(seq_.queue.begin(), seq_.queue.end(), [&](const auto &q) { return q.first == p[0]; }))
             {
                 reply(tag, E_BUSY); // playing or queued
+                break;
+            }
+            if (const uint8_t refused = check_open(len, music_[p[0]]))
+            {
+                reply(tag, refused);
                 break;
             }
             blocks_[p[0]].reset();
@@ -2385,6 +2416,25 @@ namespace ooe::emu
 
     // --- transfers ----------------------------------------------------------------------------------------
 
+    uint8_t SoundFw::check_open(uint32_t len, Object &o)
+    {
+        if (xfer_.open || xfer_.done)
+            return E_XFER;
+        const Object was = o; // a trial: the slot's own run counted free, as the load would free it
+        o.used = false;
+        const bool room = allocate(len).has_value();
+        o = was;
+        return room ? OK : E_MEMORY;
+    }
+
+    uint64_t SoundFw::chunk_kept() const
+    {
+        if (xfer_.cmd != STREAM_DATA || !(xfer_.open || xfer_.done))
+            return 0;
+        const Stream &st = streams_[xfer_.slot];
+        return std::min(st.rd, st.wr) > st.chunk_start ? std::min(st.rd, st.wr) - st.chunk_start : 0;
+    }
+
     uint8_t SoundFw::open_transfer(uint8_t cmd, uint8_t tag, uint8_t slot, uint32_t len, Object &o)
     {
         if (xfer_.open || xfer_.done)
@@ -2410,7 +2460,12 @@ namespace ooe::emu
         o.loading = false;
         o.crc = xfer_.crc.value();
         if (xfer_.cmd == STREAM_DATA)
+        {
             o.used = true, o.len = xfer_.len; // a record of the last chunk (CHECKSUM's), not a run of the store
+            Stream &st = streams_[xfer_.slot];
+            if (st.end_pending) // STREAM_END came while it was coming: the data ends here
+                st.ended = true, st.end_pending = false;
+        }
         const uint8_t cmd = xfer_.cmd, tag = xfer_.tag, slot = xfer_.slot;
         xfer_ = Transfer{};
         std::vector<uint8_t> payload{cmd, OK};
@@ -2490,7 +2545,14 @@ namespace ooe::emu
     void SoundFw::abort_transfer()
     {
         if (xfer_.cmd == STREAM_DATA && (xfer_.open || xfer_.done))
-            streams_[xfer_.slot].wr -= xfer_.len - xfer_.left; // what came of the chunk, dropped
+        {
+            // What of the chunk had come and not played is dropped; what played stays (the ring never runs back
+            // past what was read). The host resends from the bytes kept (XFERABORT's count).
+            Stream &st = streams_[xfer_.slot];
+            st.wr = st.chunk_start + chunk_kept();
+            if (st.end_pending)
+                st.ended = true, st.end_pending = false;
+        }
         if (xfer_.obj && (xfer_.open || xfer_.done))
             free_object(*xfer_.obj);
         xfer_ = Transfer{};
@@ -2725,15 +2787,15 @@ namespace ooe::emu
         return false;
     }
 
-    void SoundFw::stream_frame(unsigned s, float out[2])
+    unsigned SoundFw::stream_frame(unsigned s, float out[2])
     {
         Stream *st = &streams_[s];
         if (!st->open || st->queued || st->paused)
-            return;
+            return s;
         if (st->state == S_BUFFERING && (buffered_ms(*st) >= st->prebuffer_ms || st->ended))
             st->state = S_PLAYING;
         if (st->state != S_PLAYING && st->state != S_UNDERRUN)
-            return;
+            return s;
         const uint32_t rate = st->codec == 0 ? st->rate : (st->mp3->hz ? st->mp3->hz : 0);
         st->phase += rate ? rate : RATE;
         while (st->phase >= RATE)
@@ -2750,7 +2812,8 @@ namespace ooe::emu
                     st->state = S_PLAYING;
                     std::vector<uint8_t> v;
                     put32(v, static_cast<uint32_t>(st->frames));
-                    put32(v, static_cast<uint32_t>(st->missed));
+                    put32(v, static_cast<uint32_t>(st->missed_now)); // this underrun's
+                    st->missed_now = 0;
                     event(EV_UNDERRUN_END, static_cast<uint8_t>(now), v);
                 }
                 st->prev[0] = st->cur[0], st->prev[1] = st->cur[1];
@@ -2764,8 +2827,9 @@ namespace ooe::emu
             st = &streams_[now];
             s = now;
             if (!st->open || st->state == S_ENDED || st->state >= 0x80)
-                return;
+                return s;
             // No data and no end: silence, the frame due counted as missed; sound comes back at the next due.
+            ++st->missed_now;
             ++st->missed;
             st->prev[0] = st->prev[1] = st->cur[0] = st->cur[1] = 0;
             if (!st->underrun)
@@ -2782,6 +2846,7 @@ namespace ooe::emu
         const float frac = static_cast<float>(st->phase) / static_cast<float>(RATE);
         for (unsigned ch = 0; ch < 2; ++ch)
             out[ch] += (st->prev[ch] + (st->cur[ch] - st->prev[ch]) * frac) / 32768.0f;
+        return s;
     }
 
     void SoundFw::streams_ms()
@@ -2790,7 +2855,7 @@ namespace ooe::emu
         for (unsigned s = 0; s < STREAMS; ++s)
         {
             Stream &st = streams_[s];
-            if (!st.open || st.ended || st.need_out || st.state >= 0x80 || st.state == S_ENDED)
+            if (!st.open || st.ended || st.end_pending || st.need_out || st.state >= 0x80 || st.state == S_ENDED)
                 continue;
             if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
                 continue; // its chunk still coming: the room it will take isn't room

@@ -493,6 +493,153 @@ TEST(xferabort_runs_at_once_behind_a_record_waiting_on_its_load)
     CHECK_EQ(ev[2].status(), SoundFw::E_SLOT);
 }
 
+namespace
+{
+    /// A PSID of `size` bytes (code of zeros after its RTS), loaded into tune slot `slot`. @return XFERDONE's status
+    uint8_t load_tune(Card &c, uint8_t slot, size_t size)
+    {
+        std::vector<uint8_t> t(0x7C, 0);
+        t[0] = 'P', t[1] = 'S', t[2] = 'I', t[3] = 'D', t[5] = 2, t[7] = 0x7C;
+        t[0x08] = 0x10, t[0x0A] = 0x10, t[0x0F] = 1, t[0x11] = 1, t[0x77] = 0x14;
+        t.resize(size, 0);
+        t[0x7C] = 0x60;
+        c.send(SoundFw::TUNE_LOAD, 0x31, {slot, static_cast<uint8_t>(size), static_cast<uint8_t>(size >> 8), static_cast<uint8_t>(size >> 16)});
+        c.fw.advance(2);
+        c.data(t);
+        c.fw.advance(2);
+        uint8_t status = 0xFF;
+        for (const Event &e : c.events())
+            if (e.kind == SoundFw::EV_XFERDONE)
+                status = e.body.at(6);
+        return status;
+    }
+    /// A sample of `len` into `slot`, whole. @return its reply's status (then XFERDONE's, if taken)
+    uint8_t load_sample(Card &c, uint8_t slot, uint32_t len)
+    {
+        c.send(SoundFw::SAMPLE_LOAD, 0x32, sample_load(slot, len));
+        c.fw.advance(2);
+        uint8_t status = 0xFF;
+        for (const Event &e : c.events())
+            if (e.kind == SoundFw::EV_REPLY)
+                status = e.status();
+        if (status)
+            return status;
+        c.data(std::vector<uint8_t>(len, 0x55));
+        c.fw.advance(2);
+        c.events();
+        return 0;
+    }
+    uint8_t ask_status(Card &c, uint8_t cmd, const std::vector<uint8_t> &p = {})
+    {
+        c.send(cmd, 0x33, p);
+        c.fw.advance(3);
+        for (const Event &e : c.events())
+            if (e.kind == SoundFw::EV_REPLY && e.tag() == 0x33)
+                return e.status();
+        return 0xFF;
+    }
+} // namespace
+
+TEST(a_refused_load_leaves_the_slot_as_it_was)
+{
+    // E_XFER: a tune loaded and playing, a sample's transfer open; TUNE_LOAD of the tune's slot is refused, and the
+    // tune still plays, its header still there. SAMPLE_LOAD of a loaded sample's slot, refused the same, keeps it.
+    Card c;
+    CHECK_EQ(load_tune(c, 0, 200), 0);
+    CHECK_EQ(load_sample(c, 5, 1000), 0);
+    CHECK_EQ(ask_status(c, SoundFw::TUNE_PLAY, {0, 0, 0, 0, 0, 0, 0, 0, 0}), 0);
+    const uint8_t playing = c.fw.tune_state();
+    CHECK(playing != SoundFw::T_STOPPED);
+    c.send(SoundFw::SAMPLE_LOAD, 0x34, sample_load(9, 100));
+    c.fw.advance(2);
+    c.events();
+    REQUIRE(c.fw.xfer_open());
+    CHECK_EQ(ask_status(c, SoundFw::TUNE_LOAD, {0, 200, 0, 0}), SoundFw::E_XFER);
+    CHECK_EQ(c.fw.tune_state(), playing);
+    CHECK_EQ(ask_status(c, SoundFw::TUNE_INFO, {0}), 0);
+    CHECK_EQ(ask_status(c, SoundFw::SAMPLE_LOAD, sample_load(5, 500)), SoundFw::E_XFER);
+    CHECK_EQ(ask_status(c, SoundFw::CHECKSUM, {SoundFw::SAMPLE_LOAD, 5}), 0);
+    CHECK_EQ(ask_status(c, SoundFw::EFFECT_DEF, {7, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}), 0);
+    CHECK_EQ(ask_status(c, SoundFw::PLAY, {7, 255, 128, 0, 0, 0, 2}), 0); // the sample still plays
+    // E_MEMORY: a 2 MB store, samples of 1 MB and 900 KB; slot 1 again at 1.2 MB doesn't fit even with its own run
+    // free, so it is refused and keeps its sample; at 1,000 KB it fits in its own room and is taken.
+    Card m(32);
+    CHECK_EQ(load_sample(m, 0, 1u << 20), 0);
+    CHECK_EQ(load_sample(m, 1, 900u << 10), 0);
+    CHECK_EQ(load_sample(m, 1, 1200u << 10), SoundFw::E_MEMORY);
+    CHECK_EQ(ask_status(m, SoundFw::CHECKSUM, {SoundFw::SAMPLE_LOAD, 1}), 0);
+    CHECK_EQ(load_sample(m, 1, 1000u << 10), 0);
+}
+
+TEST(every_way_of_freeing_gives_the_store_back)
+{
+    // A 2 MB store filled, then freed by each path: the store's free bytes back, and a load of the room taken.
+    const size_t all = 32u * 65536u;
+    {
+        Card c(32); // BANK_FREE 1, the samples; 0, the effects, leaves them; 2, both
+        CHECK_EQ(load_sample(c, 0, static_cast<uint32_t>(all / 2)), 0);
+        CHECK_EQ(load_sample(c, 1, static_cast<uint32_t>(all / 2)), 0);
+        CHECK_EQ(c.fw.store_free(), 0u);
+        CHECK_EQ(ask_status(c, SoundFw::BANK_FREE, {0}), 0);
+        CHECK_EQ(c.fw.store_free(), 0u);
+        CHECK_EQ(ask_status(c, SoundFw::BANK_FREE, {1}), 0);
+        CHECK_EQ(c.fw.store_free(), all);
+        CHECK_EQ(load_sample(c, 2, static_cast<uint32_t>(all)), 0);
+        CHECK_EQ(ask_status(c, SoundFw::BANK_FREE, {2}), 0);
+        CHECK_EQ(c.fw.store_free(), all);
+    }
+    {
+        Card c(32); // TUNE_FREE
+        CHECK_EQ(load_tune(c, 0, 30000), 0);
+        CHECK_EQ(c.fw.store_free(), all - 30000);
+        CHECK_EQ(ask_status(c, SoundFw::TUNE_FREE, {0}), 0);
+        CHECK_EQ(c.fw.store_free(), all);
+        CHECK_EQ(load_sample(c, 0, static_cast<uint32_t>(all)), 0);
+    }
+    {
+        Card c(32); // FREEALL
+        CHECK_EQ(load_tune(c, 1, 30000), 0);
+        CHECK_EQ(load_sample(c, 3, 100000), 0);
+        CHECK_EQ(ask_status(c, SoundFw::FREEALL), 0);
+        CHECK_EQ(c.fw.store_free(), all);
+    }
+    {
+        Card c(32); // a block freed when done (MUSIC_PLAY's bit 1): one 10 ms note on the tone generator
+        std::vector<uint8_t> blk{1, 1, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 255, 128, 0x00, 69};
+        for (const uint32_t x : {10000u, 5000u})
+            for (int i = 0; i < 4; ++i)
+                blk.push_back(static_cast<uint8_t>(x >> (8 * i)));
+        c.send(SoundFw::MUSIC_LOAD, 0x35, {0, static_cast<uint8_t>(blk.size()), 0, 0});
+        c.fw.advance(2);
+        c.data(blk);
+        c.fw.advance(2);
+        CHECK_EQ(c.fw.store_free(), all - blk.size());
+        CHECK_EQ(ask_status(c, SoundFw::MUSIC_PLAY, {0, 2}), 0);
+        c.fw.advance(30 * SoundFw::SAMPLES_PER_MS);
+        CHECK_EQ(c.fw.store_free(), all);
+    }
+    {
+        Card c(32); // STREAM_CLOSE
+        CHECK_EQ(ask_status(c, SoundFw::STREAM_OPEN, {0, 0, 0x80, 0xBB, 0, 0, 0, 0, 0, 0}), 0);
+        CHECK(c.fw.store_free() < all);
+        CHECK_EQ(ask_status(c, SoundFw::STREAM_CLOSE, {0}), 0);
+        CHECK_EQ(c.fw.store_free(), all);
+    }
+    {
+        Card c(32); // a full-size slot loaded again in place; a middle object's hole filled to the byte
+        CHECK_EQ(load_sample(c, 0, static_cast<uint32_t>(all)), 0);
+        CHECK_EQ(load_sample(c, 0, static_cast<uint32_t>(all)), 0);
+        CHECK_EQ(ask_status(c, SoundFw::BANK_FREE, {1}), 0);
+        CHECK_EQ(load_tune(c, 0, 30000), 0);
+        CHECK_EQ(load_tune(c, 1, 30000), 0);
+        CHECK_EQ(load_sample(c, 0, static_cast<uint32_t>(all - 60000)), 0);
+        CHECK_EQ(c.fw.store_free(), 0u);
+        CHECK_EQ(ask_status(c, SoundFw::TUNE_FREE, {0}), 0);
+        CHECK_EQ(load_tune(c, 2, 30000), 0); // exactly the hole
+        CHECK_EQ(c.fw.store_free(), 0u);
+    }
+}
+
 TEST(the_store_refuses_what_doesn_t_fit_at_each_size)
 {
     for (const unsigned units : {32u, 64u, 128u})

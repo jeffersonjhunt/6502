@@ -462,6 +462,11 @@ namespace ooe::emu
 
         // transfers
         uint8_t open_transfer(uint8_t cmd, uint8_t tag, uint8_t slot, uint32_t len, Object &o);
+        /// Whether a load of `len` into `o` would be taken: E_XFER (one is open), E_MEMORY (no room, o's own run
+        /// counted free), or OK. Checked before a load changes anything, so a refusal leaves the slot as it was.
+        uint8_t check_open(uint32_t len, Object &o);
+        /// A stream chunk's bytes kept if its transfer ends now: those already played.
+        uint64_t chunk_kept() const;
         void finish_transfer();
         void abort_transfer();
 
@@ -512,6 +517,9 @@ namespace ooe::emu
         {
             uint8_t state{0};
             bool open{false}, paused{false}, ended{false}, need_out{false}, queued{false}, underrun{false};
+            bool end_pending{false};   ///< STREAM_END came while its chunk was coming: the end at the chunk's end
+            uint64_t chunk_start{0};   ///< wr where the chunk coming began
+            uint64_t missed_now{0};    ///< frames missed in the underrun now (UNDERRUN_END's)
             uint8_t codec{0}, fmt{0};
             uint32_t rate{0}, chunk{CHUNK_DEFAULT}, prebuffer_ms{PREBUFFER_DEFAULT};
             int next{-1};          ///< the stream that follows it (STREAM_NEXT)
@@ -536,7 +544,8 @@ namespace ooe::emu
         /// The next frame of stream `s` (or the stream that follows it) into `out`: false if none has come yet.
         bool next_frame(unsigned &s, int16_t out[2]);
         bool decode_mp3(unsigned s);
-        void stream_frame(unsigned s, float out[2]);
+        /// One output frame of stream `s` added to `out`. @return the stream it ended on (another, after a join)
+        unsigned stream_frame(unsigned s, float out[2]);
         void streams_ms();
 
         // --- the digital path ---------------------------------------------------------------------------

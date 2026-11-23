@@ -69,6 +69,8 @@ namespace
         bool auto_end{true};
         std::function<bool(unsigned)> hold = [](unsigned) { return false; };
         unsigned needs[2]{0, 0};
+        uint32_t least_room[2]{0xFFFFFFFFu, 0xFFFFFFFFu}; ///< the least room a NEED said
+        std::vector<std::pair<uint32_t, uint8_t>> urgency;  ///< each NEED's ms buffered and its urgent flag
         unsigned need_waiting[2]{0, 0}; ///< NEEDs not yet answered: a chunk each, as a host answers them
         uint32_t room[2]{0, 0};
 
@@ -104,6 +106,8 @@ namespace
                     ++needs[e.body[0]];
                     ++need_waiting[e.body[0]];
                     room[e.body[0]] = le32(e.body, 5);
+                    least_room[e.body[0]] = std::min(least_room[e.body[0]], room[e.body[0]]);
+                    urgency.push_back({le32(e.body, 9), e.body[13]});
                 }
                 seen.push_back(e);
             }
@@ -116,7 +120,7 @@ namespace
                 if (!need_waiting[s] || hold(s))
                     continue;
                 --need_waiting[s];
-                const size_t n = std::min<size_t>({data[s].size() - sent[s], 32 * 1024, room[s]});
+                const size_t n = std::min<size_t>(data[s].size() - sent[s], 32 * 1024); // a whole chunk, as a host sends
                 if (n)
                 {
                     send(SoundFw::STREAM_DATA, 0x50, {static_cast<uint8_t>(s), static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8),
@@ -242,6 +246,17 @@ TEST(a_stream_bigger_than_the_store_plays_with_no_underrun)
     CHECK(c.of(SoundFw::EV_UNDERRUN).empty());
     CHECK(played == c.data[0]);
     CHECK_EQ(c.card.firmware().stream_state(0), SoundFw::S_ENDED);
+    // Every NEED had room for a whole chunk, and said urgent exactly when under 1 s was buffered.
+    std::printf("  the least room a NEED said: %u\n", c.least_room[0]);
+    CHECK(c.least_room[0] >= 32 * 1024);
+    unsigned urgent = 0, calm = 0;
+    for (const auto &[ms, flag] : c.urgency)
+    {
+        CHECK_EQ(flag, ms < 1000 ? 1 : 0);
+        (flag ? urgent : calm) += 1;
+    }
+    std::printf("  NEEDs: %u urgent, %u not\n", urgent, calm);
+    CHECK(urgent > 0 && calm > 0);
     CHECK_EQ(c.of(SoundFw::EV_STREAM_ENDED).size(), 1u);
     // Every NEED was answered before the next came: never two outstanding.
     CHECK(c.needs[0] >= c.data[0].size() / (32 * 1024));
@@ -380,6 +395,242 @@ TEST(the_same_at_rate_0_and_48000)
     CHECK(n > 2 * 47000u);
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), b.begin()));
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), c.begin()));
+}
+
+namespace
+{
+    /// STREAM_DATA of `len` for stream `s`, and `bytes` of it through DATA (the transfer then left open or done).
+    void chunk(Card &c, uint8_t s, uint32_t len, const uint8_t *bytes, size_t n)
+    {
+        c.send(SoundFw::STREAM_DATA, 0x60, {s, static_cast<uint8_t>(len), static_cast<uint8_t>(len >> 8), static_cast<uint8_t>(len >> 16)});
+        c.wait_xfer();
+        for (size_t i = 0; i < n; ++i)
+            c.card.write(SoundCard3::DATA, bytes[i]);
+    }
+    /// The reply with `tag`'s body (tag, status, results), waited for (a millisecond at most).
+    std::vector<uint8_t> reply_for(Card &c, uint8_t tag)
+    {
+        for (int i = 0; i < 720; ++i)
+        {
+            c.drain();
+            for (auto it = c.seen.rbegin(); it != c.seen.rend(); ++it)
+                if (it->kind == SoundFw::EV_REPLY && it->body.at(0) == tag)
+                    return it->body;
+            c.run(10);
+        }
+        return {};
+    }
+    std::vector<int16_t> mp3_pcm(const std::vector<uint8_t> &mp3, size_t from)
+    {
+        std::vector<int16_t> out;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        for (size_t pos = from; pos < mp3.size();)
+        {
+            mp3dec_frame_info_t info{};
+            const int n = mp3dec_decode_frame(dec.get(), mp3.data() + pos, static_cast<int>(mp3.size() - pos), pcm.data(), &info);
+            if (!info.frame_bytes)
+                break;
+            pos += static_cast<size_t>(info.frame_bytes);
+            for (int i = 0; i < n; ++i)
+            {
+                const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                out.push_back(l);
+                out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+            }
+        }
+        return out;
+    }
+} // namespace
+
+TEST(an_aborted_chunk_drops_what_hasn_t_played_and_says_what_it_kept)
+{
+    // (a) Not yet playing (buffering): 1,001 bytes of a 32 KB chunk come, then XFERABORT: none kept (the count 0),
+    // and the chunk sent again whole plays with no fragment of the first.
+    {
+        Card c;
+    c.auto_end = false; // fed by hand
+        c.auto_end = false; // fed by hand
+        const std::vector<uint8_t> data = noise(32768, 41);
+        c.open(0, 0, 44100, 3); // 16-bit stereo
+        chunk(c, 0, 32768, data.data(), 1001);
+        c.send(SoundFw::XFERABORT, 0x61);
+        const auto r = reply_for(c, 0x61);
+        REQUIRE(r.size() == 5u);
+        CHECK_EQ(r[2] | r[3] << 8 | r[4] << 16, 0);
+        chunk(c, 0, 32768, data.data(), data.size());
+        c.send(SoundFw::STREAM_END, 0x62, {0});
+        c.run_ms(400);
+        CHECK(c.tap_bytes() == data);
+    }
+    // (b) Playing into the chunk (48 kHz 8-bit mono, run dry): 100 of 1,000 bytes come and play, then XFERABORT:
+    // the count is what played and stays; the buffered figures sane; the rest resent from there plays on.
+    {
+        Card c;
+    c.auto_end = false; // fed by hand
+        c.auto_end = false; // fed by hand
+        const std::vector<uint8_t> first = noise(4800, 42), second = noise(1000, 43);
+        c.send(SoundFw::STREAM_OPEN, 0x40, {0, 0, 0x80, 0xBB, 0, 0, 0x10, 0, 10, 0}); // 4 KB chunks, a 10 ms prebuffer
+        c.run(300);
+        chunk(c, 0, 4800, first.data(), first.size());
+        c.run_ms(150); // its 100 ms played: dry
+        chunk(c, 0, 1000, second.data(), 100);
+        c.run_ms(3);
+        c.send(SoundFw::XFERABORT, 0x61);
+        const auto r = reply_for(c, 0x61);
+        REQUIRE(r.size() == 5u);
+        const uint32_t kept = static_cast<uint32_t>(r[2] | r[3] << 8 | r[4] << 16);
+        c.send(SoundFw::STREAM_STATUS, 0x63, {0});
+        const auto st = reply_for(c, 0x63);
+        REQUIRE(st.size() == 2 + 21u);
+        std::printf("  kept %u of 100; buffered %u bytes, %u ms\n", kept, le32(st, 2 + 5), le32(st, 2 + 9));
+        CHECK(kept > 0 && kept <= 100);
+        CHECK(le32(st, 2 + 5) <= 100);
+        CHECK(le32(st, 2 + 9) < 10);
+        chunk(c, 0, 1000 - kept, second.data() + kept, 1000 - kept);
+        c.send(SoundFw::STREAM_END, 0x62, {0});
+        c.run_ms(100);
+        std::vector<uint8_t> want = first;
+        want.insert(want.end(), second.begin(), second.end());
+        std::vector<uint8_t> got; // the tap's left channel, high bytes: the 8-bit samples back (unsigned)
+        const auto tap = c.card.firmware().take_stream_tap();
+        for (size_t i = 0; i < tap.size(); i += 2)
+            got.push_back(static_cast<uint8_t>((tap[i] >> 8) + 128));
+        CHECK(got == want);
+        CHECK_EQ(c.card.firmware().stream_state(0), SoundFw::S_ENDED);
+    }
+}
+
+TEST(stream_end_waits_for_the_chunk_coming)
+{
+    // STREAM_END right after a chunk's STREAM_DATA, 300 of its 32 KB in: the stream ends only once the chunk has
+    // come and played; every byte of it plays.
+    Card c;
+    c.auto_end = false; // fed by hand
+    const std::vector<uint8_t> data = noise(32768, 44);
+    c.send(SoundFw::STREAM_OPEN, 0x40, {0, 0, 0x80, 0xBB, 0, 0, 0, 0, 0, 0}); // 48 kHz 8-bit mono
+    c.run(300);
+    chunk(c, 0, 32768, data.data(), 300);
+    c.send(SoundFw::STREAM_END, 0x62, {0});
+    c.run_ms(50);
+    CHECK(c.of(SoundFw::EV_STREAM_ENDED).empty());
+    for (size_t i = 300; i < data.size(); ++i)
+        c.card.write(SoundCard3::DATA, data[i]);
+    c.run_ms(800);
+    CHECK_EQ(c.of(SoundFw::EV_STREAM_ENDED).size(), 1u);
+    std::vector<uint8_t> got;
+    const auto tap = c.card.firmware().take_stream_tap();
+    for (size_t i = 0; i < tap.size(); i += 2)
+        got.push_back(static_cast<uint8_t>((tap[i] >> 8) + 128));
+    CHECK(got == data);
+}
+
+TEST(each_underrun_end_counts_its_own_frames)
+{
+    // 48 kHz 8-bit mono, 100 ms at a time: dry for 100 ms, then for 50 ms. Each UNDERRUN_END's frames missed are
+    // its own underrun's: about 4,800, then about 2,400.
+    Card c;
+    c.auto_end = false; // fed by hand
+    c.send(SoundFw::STREAM_OPEN, 0x40, {0, 0, 0x80, 0xBB, 0, 0, 0x10, 0, 10, 0});
+    c.run(300);
+    const std::vector<uint8_t> d = noise(4800, 45);
+    for (const unsigned dry : {100u, 50u, 0u})
+    {
+        chunk(c, 0, 4800, d.data(), d.size());
+        c.run_ms(100 + dry);
+    }
+    const auto back = c.of(SoundFw::EV_UNDERRUN_END);
+    std::printf("  %zu underruns, %zu back, state %u, statuses:", c.of(SoundFw::EV_UNDERRUN).size(), back.size(),
+                c.card.firmware().stream_state(0));
+    for (const uint8_t s : c.statuses)
+        std::printf(" %u", s);
+    std::printf("\n");
+    REQUIRE(back.size() == 2);
+    const uint32_t one = le32(back[0].body, 9), two = le32(back[1].body, 9);
+    std::printf("  missed %u, then %u\n", one, two);
+    CHECK(one > 4300 && one < 5300);
+    CHECK(two > 1900 && two < 2900);
+}
+
+TEST(a_seek_keeps_the_mp3_s_gapless_trim)
+{
+    // LAME's 44.1 kHz file: 12 KB of it played, then STREAM_FLUSH (a seek) and the file again from its second frame
+    // (the first after the Info frame), queued before another: after the seek, its frames end trimmed of the
+    // padding (as the header said at the start), and the next follows.
+    Card c;
+    c.auto_end = false; // fed by hand
+    const std::vector<uint8_t> a = mp3_file("cbr128_joint_44k.mp3"), b = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!a.empty() && !b.empty());
+    c.open(0, 1, 0, 0);
+    c.open(1, 1, 0, 0);
+    c.send(SoundFw::STREAM_NEXT, 0x41, {0, 1});
+    chunk(c, 0, 12288, a.data(), 12288); // 768 ms: past the prebuffer, so it plays and its header is read
+    c.run_ms(700);
+    c.send(SoundFw::STREAM_FLUSH, 0x64, {0});
+    c.run(300);
+    c.card.firmware().take_stream_tap(); // before the seek
+    // The second frame's place: the Info frame's length, as minimp3 finds it.
+    size_t second = 0;
+    {
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        mp3dec_frame_info_t info{};
+        mp3dec_decode_frame(dec.get(), a.data(), static_cast<int>(a.size()), pcm.data(), &info);
+        second = static_cast<size_t>(info.frame_bytes);
+    }
+    REQUIRE(second > 0);
+    chunk(c, 0, static_cast<uint32_t>(a.size() - second), a.data() + second, a.size() - second);
+    c.send(SoundFw::STREAM_END, 0x62, {0});
+    chunk(c, 1, static_cast<uint32_t>(b.size()), b.data(), b.size());
+    c.send(SoundFw::STREAM_END, 0x62, {1});
+    c.run_ms(2000);
+    std::vector<int16_t> want = mp3_pcm(a, second);
+    want.resize(want.size() - 2 * (612 - 529)); // the padding less the decoder's 529 (the header's: 612)
+    const std::vector<int16_t> rest = trimmed(b);
+    want.insert(want.end(), rest.begin(), rest.end());
+    const std::vector<int16_t> got = c.card.firmware().take_stream_tap();
+    std::printf("  %zu frames after the seek, %zu wanted\n", got.size() / 2, want.size() / 2);
+    CHECK(got == want);
+}
+
+TEST(a_join_s_output_is_one_stream_s)
+{
+    // Two queued 44.1 kHz streams against the same data as one: the card's output (resampled to 48 kHz) the same
+    // sample for sample across the join.
+    const std::vector<uint8_t> a = noise(44100u * 2u, 51), b = noise(44100u * 2u, 52); // 0.5 s each, 16-bit stereo
+    std::vector<uint8_t> ab = a;
+    ab.insert(ab.end(), b.begin(), b.end());
+    auto output = [](const std::vector<std::vector<uint8_t>> &parts) {
+        Card c;
+        c.auto_end = false; // fed by hand
+        c.card.set_tap(true);
+        c.open(0, 0, 44100, 3);
+        c.open(1, 0, 44100, 3); // both ways, so the card's time is the same (one stream: 1 opened, unused)
+        if (parts.size() == 2)
+            c.send(SoundFw::STREAM_NEXT, 0x41, {0, 1});
+        for (unsigned s = 0; s < parts.size(); ++s)
+        {
+            chunk(c, static_cast<uint8_t>(s), static_cast<uint32_t>(parts[s].size()), parts[s].data(), parts[s].size());
+            c.send(SoundFw::STREAM_END, 0x62, {static_cast<uint8_t>(s)});
+        }
+        c.run_ms(1300);
+        return c.card.take_tap();
+    };
+    const auto one = output({ab}), two = output({a, b});
+    // From each one's first sound (the feeding's waits differ by a sample or so), the same for as long as both run.
+    auto first = [](const std::vector<int16_t> &v) {
+        size_t i = 0;
+        while (i < v.size() && v[i] == 0)
+            ++i;
+        return i & ~size_t{1};
+    };
+    const size_t f1 = first(one), f2 = first(two), n = std::min(one.size() - f1, two.size() - f2);
+    std::printf("  %zu and %zu frames, sound from %zu and %zu, %zu compared\n", one.size() / 2, two.size() / 2, f1 / 2, f2 / 2, n / 2);
+    CHECK(n > 2 * 47000u);
+    CHECK(std::equal(one.begin() + static_cast<std::ptrdiff_t>(f1), one.begin() + static_cast<std::ptrdiff_t>(f1 + n),
+                     two.begin() + static_cast<std::ptrdiff_t>(f2)));
 }
 
 int main() { return run_all(); }

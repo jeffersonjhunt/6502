@@ -942,7 +942,7 @@ transfers and the flash, which no one command group owns.
 | `$42` | MUSIC_DONE | the last block's slot | +7-10 ms played since MUSIC_PLAY began the queue | 9 |
 | `$50` | NEED | the stream | +7-10 the room in bytes, +11-14 ms buffered, +15 bit 0 urgent (under 1 s buffered) | 14 |
 | `$51` | UNDERRUN | the stream | +7-10 the frame position, +11-12 the underruns so far | 11 |
-| `$52` | UNDERRUN_END | the stream | +7-10 the frame position sound came back at, +11-14 the frames missed | 13 |
+| `$52` | UNDERRUN_END | the stream | +7-10 the frame position sound came back at, +11-14 the frames missed in that underrun | 13 |
 | `$53` | TRACK | the stream now playing | +7 the stream that ended (now closed) | 6 |
 | `$54` | STREAM_ENDED | the stream | +7-10 the frames played | 9 |
 | `$60` | BEEP_DONE | 0 | none (BEEP's or BELL's sound ended, or a second BEEP replaced it) | 5 |
@@ -966,7 +966,7 @@ transfers and the flash, which no one command group owns.
 | TIME | +0-3 ms |
 | SELFTEST | +0 the parts tested (the request's bits that the card has), +1 those that failed |
 | CHECKSUM | +0-3 the CRC-32, +4-7 the bytes it covers |
-| XFERABORT | +0-2 the bytes that had come |
+| XFERABORT | +0-2 the bytes that had come; of a stream's chunk, the bytes kept (those already played: the rest is dropped, and the host resends from there) |
 | TUNE_STATUS (16) | +0 the state (0 stopped, 1 starting, 2 playing, 3 paused, 4 stalled, 5 jammed, 6 ended), +1 the slot, +2-3 the song, +4-7 ms played (paused time out), +8-11 play calls, +12-13 the 6510's cycles in the last frame, +14-15 ms since the last play call (held at 65,535) |
 | TUNE_INFO (104) | +0-1 the songs, +2-3 the start song, +4 the clock (as XFERDONE's), +5 bit 0 RSID, bit 1 two SIDs, bit 2 written for the 8580, bit 3 the start song CIA-timed, +6-7 the second SID's address (0 none), +8-39 the name, +40-71 the author, +72-103 the released field, 32 bytes each as the file has them |
 | PLAY | +0 the voice handle (1-255) |
@@ -1076,6 +1076,15 @@ second SID, comes as a later firmware step with its own corpus baseline (the own
 **Times in the model:** a command runs at the first 48 kHz sample at least 20 µs after its record's last byte came
 (the byte's card time, its place within a sample included); the start-up after power-on or FWRESTART takes 20 ms
 (inside the spec's 100 ms). Both are constants with test hooks (`set_latency_us`, `set_startup_ms`).
+
+**A refused load leaves the slot as it was.** A command that loads (TUNE_LOAD, SAMPLE_LOAD, MUSIC_LOAD,
+EFFECT_LOAD, FW_BEGIN) checks everything first: a transfer already open (`E_XFER`) and room for its length, counting
+the slot's own object as free (`E_MEMORY`); refused, it changes nothing. Taken, it frees the slot's old object at
+once and opens the transfer into the room: a transfer that then fails (XFERABORT, CTRL's RESET, or `E_DATA` at
+XFERDONE) leaves the slot empty. The model keeps no second copy of the old object.
+
+**STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
+when that transfer ends: what is in plays out, the chunk in flight included.
 
 **XFERABORT runs at once.** A command naming an object whose transfer is still open waits for it, in order, with
 everything behind it; XFERABORT alone doesn't wait behind such a command: it runs as soon as it is due, ends the
