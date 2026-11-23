@@ -627,6 +627,61 @@ TEST(the_area_s_counter_is_whole_after_ticks_run_together)
     CHECK_EQ(wrong, 0u);
 }
 
+TEST(a_late_tick_is_neither_lost_nor_left_flagged)
+{
+    // Review r1's C1 (with T2). An event area open (L1TEST F). The tick that carries MS0 from $FF to $00 is served
+    // late, and the next tick lands inside TICK's area path, between its read of TBCTL and its acknowledge
+    // (bridge().inject_tick() there, as one lands: MS on one, MSF, and OVR since MSF is still set). The acknowledge
+    // clears only what TICK saw, so OVR stays, and the next tick writes the area whole: at the tick after that,
+    // EV_MS is the bridge's count, all four bytes, and OVR is clear again. Must fail with the acknowledge clearing
+    // OVR whatever it saw (the area 256 ms behind), or with the OVR path's acknowledge leaving OVR set (every later
+    // tick then takes the long way).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const uint32_t area = l1("area");
+    const uint16_t tick = sym("TICK");
+    uint16_t ack = 0; // the instruction after TICK's BIT NB_TBCTL ($2C $A8 $C6) in its area path
+    for (uint16_t p = tick; p < tick + 32 && !ack; ++p)
+        if (r.machine->bus().peek(p) == 0x2C && r.machine->bus().peek(static_cast<uint16_t>(p + 1)) == 0xA8 &&
+            r.machine->bus().peek(static_cast<uint16_t>(p + 2)) == 0xC6)
+            ack = static_cast<uint16_t>(p + 3);
+    REQUIRE(ack != 0);
+    int phase = 0;
+    unsigned after = 0;
+    uint32_t got = 0, want = 0;
+    uint8_t tb = 0;
+    r.watch = [&](uint16_t pc) {
+        if (phase == 0 && pc == tick && r.phys(SYS_BLOCK_PHYS + sym("EVON")) != 0) // the area open
+        {
+            r.bridge().set_ms(r.bridge().ms() | 0xFF); // the next tick is the carry's
+            phase = 1;
+        }
+        else if (phase == 1 && pc == tick && (r.bridge().ms() & 0xFF) == 0)
+            phase = 2; // the carry's tick, in TICK
+        else if (phase == 2 && pc == ack)
+        {
+            r.bridge().inject_tick(); // the next tick, inside the window
+            phase = 3;
+        }
+        else if (phase == 3 && pc == tick && ++after == 2)
+        {
+            got = word32(r, area + EV_MS);
+            want = r.bridge().ms() - 1; // what the last tick wrote
+            tb = r.bridge().tbctl();
+            phase = 4;
+        }
+    };
+    start(r, "l1test.com", " F");
+    r.run(ms(100));
+    for (int i = 0; i < 100 && phase < 4; ++i)
+        r.run(ms(5));
+    r.watch = nullptr;
+    REQUIRE(phase == 4);
+    std::printf("  two ticks after: the area's EV_MS $%08X, the bridge's $%08X; TBCTL $%02X\n", got, want, tb);
+    CHECK_EQ(got, want);
+    CHECK_EQ(tb & 0x40, 0); // OVR clear: the ticks go back to the short way
+}
+
 TEST(a_hook_runs_with_the_win1h_its_program_had_and_the_bdos_gets_win1h_0_back)
 {
     // O3 (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) sets a tick hook (every ms) and a frame hook with

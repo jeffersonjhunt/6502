@@ -6638,7 +6638,8 @@ The ROM BIOS keeps supporting revisions 1 and 2: its diagnostics and boot run on
 - **CLKINIT**, after the ID check: TBCTL `$E0` (both flags cleared, MSIE on); `CLK_MS` in CLOCKS, always. The VIA,
   if there is one, gets IER `$7F`, its IFR cleared and ACR `$00`; timer 1 isn't loaded. VIAL (the dispatcher's "a
   VIA is there") is set by the VIA's presence, as now.
-- **DEAFEN and the warm boot**: TBCTL `$E0` again (MSIE on, in case a program wrote it), every VIA interrupt off, and
+- **DEAFEN and the warm boot**: TBCTL `$20` again (MSIE on, in case a program wrote it; the flags pending left for
+  the dispatcher, review round 1's C1), every VIA interrupt off, and
   ACR `$00`, as /RESET leaves it, so a program's timer modes and PB7 output end with it (timer 2 and the shift
   register too, as hw/oolib.md's question 6 has it). Timer 1's latch is no longer compared or written: it is the
   program's, and nothing of OODOS's depends on it.
@@ -6655,10 +6656,12 @@ timer 1 can't reach the tick: its IER bit is off, and the dispatcher never reads
 
 #### The tick ####
 
-- **The acknowledge** is the handler's first write: `LDA #$E0` `STA NB_TBCTL` (MSF and OVR cleared, MSIE kept). A
-  tick that comes during the handler sets MSF again and interrupts after the RTI.
+- **The acknowledge** clears only what the handler saw (review round 1's C1): `$A0` (MSF cleared, MSIE kept, OVR
+  left) with no area, or with an area and OVR clear; `$E0` (MSF and OVR) only when TICK read OVR set. A tick that
+  lands between TICK's read of TBCTL and its write sets OVR, which then stays, so the next tick writes the area
+  whole; a tick after the write sets MSF again and interrupts after the RTI.
 - **No event area:** nothing else for the counter: it is the bridge's. Then the tick hook's count, as now.
-- **An event area open:** TBCTL is read first (`BIT`: OVR in V), then acknowledged, then EV_MS's low byte written
+- **An event area open:** TBCTL is read first (`BIT`: OVR in V), then acknowledged as above, then EV_MS's low byte written
   from MS0. All four bytes are written (EVALL, from the latch) when EVDIRTY is set (the open), when MS0 reads 0 (the
   low byte went round), or when OVR was set (ticks ran together, perhaps across a carry). So the area's counter is
   whole at the next tick whatever held the interrupt off.

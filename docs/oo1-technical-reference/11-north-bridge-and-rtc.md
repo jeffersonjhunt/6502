@@ -200,7 +200,7 @@ Revision 3 gives the machine its 1 kHz tick and a millisecond counter of its own
 - **Resets:** any reset clears MSF, OVR and MSIE, so no tick interrupts until software turns MSIE on. In Apple II
   mode the registers are hidden and the counter runs on. The BIOS's Break writes `$C0` to TBCTL (both flags
   cleared, MSIE off), with no ID check: an older bridge drops the write.
-- **Under OODOS 0.16** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with `$E0`,
+- **Under OODOS 0.16** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with the flags it saw (`$A0`, or `$E0` after OVR),
   and its millisecond counter is the bridge's. A program reads it through function 80
   ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)).
 
@@ -1491,7 +1491,7 @@ without checking the ID.
 
 The tick is 1 kHz from the master oscillator: the k-th comes 157,500 k / 11 oscillator clocks (rounded down) after
 the counter starts, so a period is 7,159 native cycles, or 7,160 twice in every 11 ms. SYNC clears when no edge
-has come from the chip for 1.1 s. Under OODOS 0.16 the timebase is OODOS's: its tick acknowledges with `$E0`. The bits' equates are `NB_TB_MSF`,
+has come from the chip for 1.1 s. Under OODOS 0.16 the timebase is OODOS's: its tick acknowledges with the flags it saw, `$A0` (MSF), or `$E0` when it read OVR set. The bits' equates are `NB_TB_MSF`,
 `NB_TB_OVR`, `NB_TB_MSIE` and `NB_TB_SYNC`.
 
 <a id="reg-c6a9"></a>

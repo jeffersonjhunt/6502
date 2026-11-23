@@ -143,8 +143,9 @@ revision 3.
   tick alone (IRQL `$FF`, IRQH `$DF`) takes the fast path. ID 6 goes to the 6551's service: STATUS read (its IRQ
   cleared), and with RDRF set the byte into a 255-byte ring in OODOS's memory, 247 cycles a byte from the interrupt
   to its RTI; with the ring full the byte is left in the chip and the receive interrupt turned off, until the BIOS,
-  reading, takes it and turns it on again. The handlers acknowledge by writing `$E0` to TBCTL (MSF and OVR cleared,
-  MSIE kept) and 1 to VIDEO_ISR's bit 0. Cold boot finds the video card by its ID and the VIA by its IER, which
+  reading, takes it and turns it on again. The handlers acknowledge by writing TBCTL only the flags they saw (`$A0`,
+  MSF; `$E0`, MSF and OVR, when TICK read OVR set; MSIE kept), so a tick that lands meanwhile isn't lost, and by
+  writing 1 to VIDEO_ISR's bit 0. Cold boot finds the video card by its ID and the VIA by its IER, which
   reads bit 7 set (on a machine without one, `$C34E` is the 6551 stand-in's command register, `$0B`); OODOS 0.16
   turns every VIA interrupt off and leaves timer 1 to programs, polled
   ([chapter 9](09-serial-and-via.md)). Without the VIA the dispatcher leaves `$C340–$C34F` alone: they are the 6551's

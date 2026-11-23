@@ -246,13 +246,13 @@ CALL62:         LDA     NB_WIN3
 ; no-op (PADARM clear), and puts it 128 ms on again.
 TICK:           LDA     EVON
                 BNE     @ev
-                LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE ; MSF and OVR cleared, MSIE kept: the
-                STA     NB_TBCTL       ; acknowledge, the handler's first write
-                BRA     @hook          ; (no area: the counter is the bridge's, nothing to do)
+                LDA     #NB_TB_MSF | NB_TB_MSIE ; MSF cleared, MSIE kept, OVR left: the acknowledge, the
+                STA     NB_TBCTL       ; handler's first write (no area: the counter is the bridge's)
+                BRA     @hook
 @ev:            BIT     NB_TBCTL       ; OVR in V: ticks ran together, perhaps across a carry
-                LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE
-                STA     NB_TBCTL
-                BVS     @all
+                BVS     @ovr
+                LDA     #NB_TB_MSF | NB_TB_MSIE ; only what was seen: an OVR a tick sets from here on
+                STA     NB_TBCTL       ; stays, for the next tick to take whole (review r1, C1)
                 LDA     EVDIRTY
                 BNE     @all
                 LDX     NB_WIN1
@@ -275,6 +275,8 @@ TICK:           LDA     EVON
                 ORA     THCNT + 1
                 BEQ     THOOK
 @done:          RTS
+@ovr:           LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE ; OVR seen: cleared with MSF
+                STA     NB_TBCTL
 @all:           JSR     EVALL
                 BRA     @l2
 @in:            BIT     VIAL           ; a layout-2 area: anything to do? (the sticks: a VIA's ports)
@@ -572,7 +574,8 @@ DMACTL:         .res    1              ; DEAFEN's: CONTROL as it found it, less 
 ; Every interrupt enable that isn't OODOS's own off, and what is pending
 ; there cleared: a program's (the warm boot), or one no handler answers
 ; (the dispatcher, through W3). OODOS's own, the bridge's tick and vertical
-; blank, stay on (TBCTL $E0 again, in case a program wrote it); the VIA's are
+; blank, stay on (TBCTL $20 again, MSIE alone, in case a program wrote it:
+; the flags pending stay for the dispatcher, review r1's C1); the VIA's are
 ; all off and ACR is $00, as /RESET leaves it, so a program's timer modes and
 ; PB7 end with it (timer 1 is the program's, polled: its latch isn't
 ; OODOS's to compare or write). A DMA
@@ -628,7 +631,7 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 .assert DMA_SEL7 = 14 && DMA_SEL2 = 4 && DMA_SEL = $0E, error, "DEAFEN's X is SELECT's field, 2 x the channel"
 @acia:          JSR     RXDEAF         ; the stand-in 6551's: OODOS's receiver interrupt on (off
                                        ; while the ring is full), its transmitter's off (serial.s)
-                LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE
+                LDA     #NB_TB_MSIE    ; MSIE alone: a tick pending stays pending
                 STA     NB_TBCTL       ; the tick on (revision 3: NB3CHK)
                 BIT     VIAL
                 BPL     @video         ; no VIA: $C34E would be the 6551's command

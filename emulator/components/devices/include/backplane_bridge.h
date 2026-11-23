@@ -356,6 +356,14 @@ namespace ooe::emu
         uint32_t ms() const { return ms_; }
         /// Test hook: put the counter at `value` (just before a carry, say); the divider runs on.
         void set_ms(uint32_t value) { ms_ = value; }
+        /// Test hook: a tick now, out of the divider's turn, as one lands (MS one on, MSF set, OVR if MSF was).
+        void inject_tick()
+        {
+            ++ms_;
+            if (msf_)
+                ovr_ = true;
+            msf_ = true;
+        }
         uint8_t tbctl() const;
         /// MSS live: the whole milliseconds since R, at most 999 (not SEC's latch).
         unsigned mss() const;
