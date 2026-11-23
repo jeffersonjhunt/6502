@@ -252,6 +252,33 @@ TEST(a_layout_2_area_takes_typed_keys_into_its_queue)
     wboot(r);
 }
 
+TEST(a_key_s_stamp_is_whole_across_a_carry)
+{
+    // Review r1's T1. A key queued in a layout-2 area: as the handler starts the event (QEV), the bridge's counter
+    // is moved on 256 ms, so its MS1 differs from the last latch's (TICK's read of MS0). The event's stamp is the
+    // count then, whole: between the count at QEV and the count after. Must fail with QEV's copy taken MS3 first
+    // (MS1-MS3 from the last latch: 256 ms early).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    const uint16_t qev = sym("QEV");
+    uint32_t at = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == qev && !at)
+        {
+            r.bridge().set_ms(r.bridge().ms() + 0x100);
+            at = r.bridge().ms();
+        }
+    };
+    tap(r, A_KEY);
+    r.run(ms(20));
+    r.watch = nullptr;
+    const std::vector<Event> ev = waiting(r);
+    REQUIRE(!ev.empty() && at != 0);
+    std::printf("  at QEV $%08X, the stamp $%08X\n", at, ev[0].ms);
+    CHECK(ev[0].ms >= at && ev[0].ms <= at + 2);
+}
+
 TEST(only_e0_to_e7_are_modifiers)
 {
     // A usage past the modifiers ($E8-$FF) is a key like any other: queued, held, and not in MODS.

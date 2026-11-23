@@ -5,7 +5,8 @@
 ;   F n ...  for each n (two hex digits, space between): RN_FILL of n into
 ;            a block whose bytes past +2 + n are $EE first: FILL aa xx, then
 ;            the n bytes (hex, no spaces) and OVER o (1 if a byte past +2 + n
-;            changed)
+;            changed). In the list, I is RN_INFO (INFO aa xx) and Z is
+;            RN_FILL with no block (A = RN_FILL, X = 0: NOBLK aa xx)
 ;
 ; then the warm boot.
 
@@ -35,7 +36,11 @@ start:  ldx     #1                      ; past the tail's leading space
         beq     case_f
         jmp     WBOOT
 
-case_i: lda     #RN_INFO
+case_i: jsr     info
+        jmp     WBOOT
+
+; RN_INFO: INFO aa xx.
+info:   lda     #RN_INFO
         ldx     #0
         ldy     #O_RANDOM
         jsr     BDOS
@@ -44,13 +49,23 @@ case_i: lda     #RN_INFO
         lda     #<sinfo
         ldx     #>sinfo
         jsr     PUTS
-        pla
+        bra     axline
+; RN_FILL with no block: NOBLK aa xx.
+noblk:  lda     #RN_FILL
+        ldx     #0
+        ldy     #O_RANDOM
+        jsr     BDOS
+        pha
+        stx     sx
+        lda     #<snoblk
+        ldx     #>snoblk
+        jsr     PUTS
+axline: pla
         jsr     HEX2
         jsr     SPACE
         lda     sx
         jsr     HEX2
-        jsr     CRLF
-        jmp     WBOOT
+        jmp     CRLF
 
 case_f: inc     tp                      ; past the F
 @next:  ldx     tp                      ; skip spaces, to the tail's end (BP_DMA its length)
@@ -62,7 +77,17 @@ case_f: inc     tp                      ; past the F
         bne     @num
         inc     tp
         bra     @next
-@num:   jsr     hexdig
+@num:   cmp     #'I'
+        bne     @z
+        jsr     info
+        inc     tp
+        bra     @next
+@z:     cmp     #'Z'
+        bne     @hex
+        jsr     noblk
+        inc     tp
+        bra     @next
+@hex:   jsr     hexdig
         asl     a
         asl     a
         asl     a
@@ -157,6 +182,7 @@ fill:   ldx     #0
 
         .rodata
 sinfo:  .byte   "INFO $"
+snoblk: .byte   "NOBLK $"
 sfill:  .byte   "FILL $"
 sover:  .byte   "OVER $"
 

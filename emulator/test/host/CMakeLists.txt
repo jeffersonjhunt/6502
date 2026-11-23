@@ -203,6 +203,7 @@ set(EMU_SLOW_test_bios_diag
         nb9_fails_unlocked
         nb9_fails_a_constant_chip
         nb9_skips_without_a_chip
+        nb9_fails_a_repeated_group
         nb12_fails_when_the_hole_ignores_ro)
 
 emu_add_test(test_cpu_smoke)

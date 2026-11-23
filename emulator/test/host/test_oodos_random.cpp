@@ -138,6 +138,63 @@ TEST(rn_fill_recovers_from_a_fault)
     CHECK_EQ(f[1].ax, std::string("FF FF"));
 }
 
+TEST(rn_fill_refuses_n_0_and_no_block)
+{
+    // Review r1's T3. RN_FILL with n 0: A = X = $FF and nothing written from +2 on (a count of 0 wrapped to 256
+    // would write 256 bytes over what follows the block); RN_FILL with X = 0, no block: refused. Must fail with the
+    // n 0 refusal removed, or the no-block refusal removed.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::string o = r.go("rndtest.com", " F00 Z", ms(5000));
+    const std::vector<Fill> f = fills(o);
+    REQUIRE(f.size() == 1);
+    CHECK_EQ(f[0].ax, std::string("FF FF"));
+    CHECK_EQ(f[0].over, std::string("00"));
+    CHECK_EQ(field(o, "NOBLK"), std::string("FF FF"));
+}
+
+TEST(rn_info_says_the_last_draw_failed)
+{
+    // Review r1's T3. After a fill refused for two failed draws (six corrupted responses), RN_INFO says RS_CHIP and
+    // RS_FAULT ($05): the chip is there, its last draw failed. Must fail with RNGOK never reporting RS_FAULT on a
+    // locked chip.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.bridge().rng_chip()->corrupt_next(6);
+    const std::string o = r.go("rndtest.com", " F20 20 I", ms(10'000));
+    const std::vector<Fill> f = fills(o);
+    REQUIRE(f.size() == 2);
+    CHECK_EQ(f[1].ax, std::string("FF FF"));
+    CHECK_EQ(field(o, "INFO"), std::string("05 00"));
+}
+
+TEST(each_call_may_retry_a_failed_draw_once)
+{
+    // Review r1's T4. A fault recovered in one call (three corrupted responses, then DRAW), then another in a later
+    // call: F20 20 01 20, the last call's refill (its pool's 31 taken, then a draw) with three more corrupted
+    // responses, put in as that call starts. It retries too, and gives the stream's bytes past its failed tries.
+    // Must fail with RN_FILL's reset of its one DRAW (RNGNEW) removed: the flag carried over would refuse the last
+    // call at its first fault.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.bridge().rng_chip()->corrupt_next(3); // the refill after the pool's 32
+    const uint16_t entry = sym("F_RANDOM");
+    unsigned calls = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == entry && ++calls == 4)
+            r.bridge().rng_chip()->corrupt_next(3); // the fourth call's refill
+    };
+    const std::string o = r.go("rndtest.com", " F20 20 01 20", ms(10'000));
+    r.watch = nullptr;
+    const std::vector<Fill> f = fills(o);
+    REQUIRE(f.size() == 4);
+    CHECK_EQ(f[1].ax, std::string("00 00"));
+    CHECK_EQ(f[1].bytes, stream(32 + 96, 32)); // 128-159: the pool after the first fault
+    CHECK_EQ(f[2].bytes, stream(160, 1));      // the next pool's first
+    CHECK_EQ(f[3].ax, std::string("00 00"));
+    CHECK_EQ(f[3].bytes, stream(161, 31) + stream(192 + 96, 1)); // its other 31, then past three failed tries
+}
+
 TEST(rn_info_says_what_there_is)
 {
     // O4. RN_INFO: a locked chip RS_CHIP ($01); rng_chip=unlocked RS_UNLOCKED ($02), and RN_FILL refused; none 0,

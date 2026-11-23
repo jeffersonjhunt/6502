@@ -2070,6 +2070,23 @@ TEST(nb9_fails_a_constant_chip)
     CHECK(after_test(r, "NB9").find("32 BYTES OF ONE VALUE") != std::string::npos);
 }
 
+TEST(nb9_fails_a_repeated_group)
+{
+    // Review r1's T5. A chip that reads locked but answers every Random with one 4-byte group repeated (the
+    // unlocked part's $FF $FF $00 $00, as a bad lock read would hand out): NB9 FAILs, naming the group. Must fail
+    // with NB9's group check skipped.
+    Rig r(0, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    BackplaneBridge *nb = r.machine->backplane_bridge();
+    REQUIRE(nb != nullptr && nb->rng_chip() != nullptr);
+    nb->rng_chip()->set_fixed_pattern(true);
+    nb->write(BackplaneBridge::RNGST, BackplaneBridge::RNG_DRAW); // the pool drawn again from the faulty chip
+    r.run(ms(40));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "NB9"), "FAIL"));
+    CHECK(after_test(r, "NB9").find("ONE 4-BYTE GROUP REPEATED") != std::string::npos);
+}
+
 TEST(nb9_skips_without_a_chip)
 {
     // rng_chip=none: SKIP, "NO RANDOM NUMBER CHIP"; the stage still passes.

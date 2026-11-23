@@ -111,6 +111,9 @@ namespace ooe::emu
         void health_next(unsigned k) { health_ = k; }
         /// Every Random answers 32 of `byte` (-1: off).
         void set_constant(int byte) { constant_ = byte; }
+        /// Every Random answers the unlocked part's fixed pattern ($FF $FF $00 $00 repeated), though the chip reads
+        /// locked: one 4-byte group repeated (review r1's T5).
+        void set_fixed_pattern(bool on) { pattern_ = on; }
 
     private:
         uint64_t cycles_of(uint32_t us) const { return uint64_t{us} * hz_ / 1'000'000; }
@@ -133,5 +136,6 @@ namespace ooe::emu
         unsigned randoms_{0};
         unsigned corrupt_{0}, nak_{0}, health_{0};
         int constant_{-1};
+        bool pattern_{false};
     };
 } // namespace ooe::emu

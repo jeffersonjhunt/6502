@@ -164,7 +164,7 @@ namespace ooe::emu
                 for (unsigned i = 0; i < 32; ++i)
                 {
                     uint8_t b;
-                    if (!config_locked_)
+                    if (!config_locked_ || pattern_)
                         b = (i & 2) ? 0x00 : 0xFF; // the fixed pattern: $FF $FF $00 $00 ...
                     else if (constant_ >= 0)
                         b = static_cast<uint8_t>(constant_);

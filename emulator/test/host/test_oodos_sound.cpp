@@ -1269,6 +1269,32 @@ TEST(the_mailbox_s_last_byte_its_time_and_a_count_are_stamped_in_the_area)
     CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
 }
 
+TEST(the_mailbox_stamp_is_whole_across_a_carry)
+{
+    // Review r1's T1. The 6510's byte stamped in a layout-2 area: as SMTIME starts in the handler, the bridge's counter is moved on
+    // 256 ms, so its MS1 differs from the last latch's. EV_SMMS is the count then, whole. Must fail with SMTIME's
+    // copy taken MS3 first (MS1-MS3 from the last latch: 256 ms early).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    const uint16_t smtime = sym("SMTIME");
+    uint32_t at = 0;
+    unsigned calls = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == smtime && ++calls == 2 && !at) // the first is SN_START's, in the BDOS; the second the byte's
+        {
+            r.bridge().set_ms(r.bridge().ms() + 0x100);
+            at = r.bridge().ms();
+        }
+    };
+    loaded(r, ECHO, true);
+    r.run(ms(5));
+    r.watch = nullptr;
+    REQUIRE(at != 0);
+    std::printf("  at SMTIME $%08X, EV_SMMS $%08X\n", at, area32(r, EV_SMMS));
+    CHECK(area32(r, EV_SMMS) >= at && area32(r, EV_SMMS) <= at + 2);
+}
+
 TEST(before_the_first_byte_the_stamp_is_the_start_s_time_and_a_count_of_0)
 {
     CcpRig r;
