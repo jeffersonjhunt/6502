@@ -98,6 +98,8 @@ export interface CoreMachine {
   stopSid(): void;
   sidInfo(): { has: boolean; name: string; author: string; released: string; warnings: string; songs: number; song: number; rsid: boolean; ntsc: boolean; mos8580: boolean };
   soundRunning(): boolean;
+  soundDevice(): { has: boolean; tune: number; music: number; stream0: number; stream1: number; storeFree: number; store: number; boot: boolean; beep: boolean; voices: string; notes: number; image: number };
+  soundSids(): Uint8Array;
   takeAudio(): Float32Array;
   setClock(hz: number): void;
   fixedHz(): number;
@@ -681,7 +683,9 @@ export class WasmPort implements MachinePort {
       const v = this.machine.soundVoice(Math.floor(i / 3), i % 3);
       return { level: v & 0xff, phase: phases[(v >> 8) & 3] ?? "release", held: !!(v & 0x400) };
     });
-    return { ...c, jammed: state === 2, envelopes };
+    const sids = this.machine.soundSids().slice();
+    const { has: device, ...d } = this.machine.soundDevice();
+    return { ...c, jammed: state === 2, envelopes, sids, ...(device ? { device: d } : {}) };
   }
 
   async playSid(bytes: Uint8Array, song = 0): Promise<SidTune> {

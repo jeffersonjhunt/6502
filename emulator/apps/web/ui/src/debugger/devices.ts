@@ -201,6 +201,52 @@ export function frameText(c: SoundCpu): string {
   return `line ${c.raster} · interrupt ${c.frameEn & 1 ? "on" : "off"}${c.frame & 1 ? " · pending" : ""} · $D012 ${c.frameEn & 2 ? "shows it" : "reads $FF"}`;
 }
 
+/** Sound card revision 3's ID: the card as a device (hw/future/sound-device.md). */
+export const SOUND_V3 = 0xa3;
+const TUNE_STATES = ["stopped", "starting", "playing", "paused", "stalled", "jammed", "ended"];
+const STREAM_STATES: Record<number, string> = { 0: "idle", 1: "buffering", 2: "playing", 3: "paused", 4: "underrun", 5: "ended", 0x80: "bad format", 0x81: "no sync" };
+
+/** Revision 3's STATUS ($C501) in words. */
+export function deviceStatusText(v: number): string {
+  return bits(v, [[0x01, "READY"], [0x02, "CMDRDY"], [0x04, "EVT"], [0x08, "XFER"], [0x10, "DATA"], [0x20, "EVLOST"], [0x40, "ERR"], [0x80, "IRQ"]]);
+}
+
+/** Revision 3's registers, its firmware's objects and voices, then its 6510 and both SIDs (their shadows). */
+export function soundDeviceRows(r: Uint8Array, cpu: SoundCpu | null): HTMLElement[] {
+  const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
+  const left = r[0x08] | (r[0x09] << 8) | (r[0x0a] << 16);
+  const rows = [
+    ...row("STATUS", `$${hex(r[0x01], 2)}  ${deviceStatusText(r[0x01])}${r[0x01] & 0x40 ? ` · ERROR ${r[0x02]}` : ""}`),
+    ...row("FIFOs", `CMD ${r[0x04] === 255 ? "255+" : r[0x04]} free · EVT ${r[0x06] === 255 ? "255+" : r[0x06]} waiting`),
+    ...row("Transfer", r[0x01] & 0x08 ? `${left} bytes to go · tag $${hex(r[0x0b], 2)}${r[0x00] & 1 ? " · DMA" : ""}` : "none"),
+    ...row("IEN / ISR", `$${hex(r[0x0c], 2)} / $${hex(r[0x0d], 2)}  ${bits(r[0x0d], [[1, "EVT"], [2, "XDONE"], [4, "CMDROOM"], [8, "READY"]])}`),
+    ...row("Card", `firmware ${r[0x10]}.${r[0x11]} · store ${r[0x0e] / 16} MB · features $${hex(r[0x0f], 2)}`),
+  ];
+  const d = cpu?.device;
+  if (d) {
+    rows.push(
+      ...row("Tune", TUNE_STATES[d.tune] ?? `state ${d.tune}`),
+      ...row("Music", `${["stopped", "playing", "paused"][d.music] ?? d.music} · ${d.notes} notes waiting`),
+      ...row("Streams", `0 ${STREAM_STATES[d.stream0] ?? d.stream0} · 1 ${STREAM_STATES[d.stream1] ?? d.stream1}`),
+      ...row("Store", `${Math.round(d.storeFree / 1024)} of ${Math.round(d.store / 1024)} KB free · image ${d.image ? "B" : "A"}${d.boot ? " · boot sound" : ""}${d.beep ? " · beep" : ""}`),
+      ...row("Voices", `SIDs ${d.voices.slice(0, 6)} · ES5503 ${d.voices.slice(6)}`),
+    );
+  }
+  if (cpu) {
+    rows.push(...row("6510", soundCpuText(cpu, d ? d.tune >= 1 && d.tune <= 4 : false)), ...row("Frame", frameText(cpu)));
+    if (cpu.sids) {
+      const sids = cpu.sids;
+      const voice = (chip: number, i: number) => {
+        const s = sids.subarray(25 * chip + 7 * i, 25 * chip + 7 * i + 7);
+        const e = cpu.envelopes[chip * 3 + i];
+        return row(`${chip ? "B" : "A"}${i + 1}`, sidVoice(s) + (e ? ` · ${envelopeText(e)}` : ""));
+      };
+      rows.push(...voice(0, 0), ...voice(0, 1), ...voice(0, 2), ...voice(1, 0), ...voice(1, 1), ...voice(1, 2));
+    }
+  }
+  return rows;
+}
+
 /** The card's 6510 in a line: its registers, and whether it runs. */
 export function soundCpuText(c: SoundCpu, running: boolean): string {
   const regs = `PC $${hex(c.pc, 4)} · A $${hex(c.a, 2)} X $${hex(c.x, 2)} Y $${hex(c.y, 2)} S $${hex(c.s, 2)} P $${hex(c.p, 2)}`;
@@ -368,6 +414,12 @@ export function devicesView(port: MachinePort) {
     if ((r[0x7f] & 0xf0) !== SOUND_TYPE) {
       soundStatus.textContent = "none";
       soundRows.replaceChildren(h("dd", {}, "No sound card on this machine."));
+      return;
+    }
+    if (r[0x7f] === SOUND_V3) {
+      const cpu = await port.readSound();
+      soundRows.replaceChildren(...soundDeviceRows(r, cpu));
+      soundStatus.textContent = cpu?.device && cpu.device.tune >= 1 && cpu.device.tune <= 4 ? "tune playing" : "the device";
       return;
     }
     const ctrl = r[0x40], status = r[0x41];

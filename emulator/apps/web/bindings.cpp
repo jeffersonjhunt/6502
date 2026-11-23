@@ -176,6 +176,15 @@ namespace
         unsigned pc, a, x, y, s, p;
     };
 
+    struct SoundDevice
+    {
+        bool has{false};
+        unsigned tune{0}, music{0}, stream0{0}, stream1{0};
+        double store_free{0}, store{0};
+        bool boot{false}, beep{false};
+        std::string voices;
+        unsigned notes{0}, image{0};
+    };
     struct SidInfo
     {
         bool has{false};
@@ -457,7 +466,7 @@ namespace
 
         SoundCpu sound_cpu() const
         {
-            const SoundCard *c = session_->sound();
+            const SoundCard *c = session_->sound_chips(); // either revision: revision 3's own chips
             if (!c)
                 return SoundCpu{};
             const Registers &r = c->cpu().regs();
@@ -517,7 +526,7 @@ namespace
 
         int sound_voice(unsigned chip, unsigned voice) const
         {
-            const SoundCard *c = session_->sound();
+            const SoundCard *c = session_->sound_chips();
             if (!c)
                 return -1;
             const Sid::Voice &v = c->chip(chip).voice(voice);
@@ -552,11 +561,36 @@ namespace
             return SidInfo{true, f->name, f->author, f->released, warnings, f->songs, session_->sid_song(),
                            f->rsid, f->ntsc(), f->model() == Sid::Model::Mos8580};
         }
-        /// The card's 6510 runs (CTRL RUN): a tune plays. False without the card.
-        bool sound_running() const
+        /// A tune plays: revision 2's 6510 runs (CTRL RUN); revision 3's TUNE_STATUS says starting, playing or
+        /// stalled. False without the card.
+        bool sound_running() const { return session_->tune_playing(); }
+        /// Revision 3's firmware as a debugger sees it (has false on revision 1 or 2, or no card): the tune's,
+        /// music's and each stream's state, the store, the boot sound, and the voices: a letter each of the
+        /// SIDs' six then the ES5503's sixteen ('.' free, 'E' an effect's, 'M' music's).
+        SoundDevice sound_device() const
         {
-            const SoundCard *c = session_->sound();
-            return c && (c->ctrl() & SoundCard::CTRL_RUN);
+            const SoundCard3 *d = session_->sound_device();
+            if (!d)
+                return SoundDevice{};
+            const SoundFw &f = d->firmware();
+            std::string voices;
+            for (unsigned v = 0; v < SoundFw::VOICES; ++v)
+                voices += f.voice_use(v) == SoundFw::V_EFFECT ? 'E' : f.voice_use(v) == SoundFw::V_MUSIC ? 'M' : '.';
+            return SoundDevice{true, f.tune_state(), f.music_state(), f.stream_state(0), f.stream_state(1),
+                               static_cast<double>(f.store_free()), static_cast<double>(f.store_bytes()),
+                               f.boot_sound_playing(), f.beeping(), voices, f.notes_waiting(), f.running_slot()};
+        }
+        /// Both SIDs' 25 registers as last written (revision 3's shadows, or revision 2's): 50 bytes, A's first; a
+        /// view good until the next call; empty without the card.
+        val sound_sids()
+        {
+            const SoundCard *c = session_->sound_chips();
+            if (!c)
+                return val(emscripten::typed_memory_view(size_t{0}, sids_.data()));
+            for (unsigned chip = 0; chip < 2; ++chip)
+                for (unsigned r = 0; r < 25; ++r)
+                    sids_[25 * chip + r] = c->sid(chip)[r];
+            return val(emscripten::typed_memory_view(sids_.size(), sids_.data()));
         }
 
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
@@ -630,6 +664,7 @@ namespace
         static constexpr size_t RTC_CHIP = 16;
         std::array<uint8_t, RTC_CHIP + Ds3231::REGISTERS> rtc_{};
         std::array<uint8_t, 7> tb_{};
+        std::array<uint8_t, 50> sids_{};
         std::array<uint8_t, 2> rng_{};
         std::vector<float> audio_ = std::vector<float>(2 * 24'000); ///< half a second at 48 kHz, as much as the card keeps
         std::vector<Session::TraceRow> rows_;
@@ -649,6 +684,19 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("y", &Regs::y)
         .field("s", &Regs::s)
         .field("p", &Regs::p);
+    value_object<SoundDevice>("SoundDevice")
+        .field("has", &SoundDevice::has)
+        .field("tune", &SoundDevice::tune)
+        .field("music", &SoundDevice::music)
+        .field("stream0", &SoundDevice::stream0)
+        .field("stream1", &SoundDevice::stream1)
+        .field("storeFree", &SoundDevice::store_free)
+        .field("store", &SoundDevice::store)
+        .field("boot", &SoundDevice::boot)
+        .field("beep", &SoundDevice::beep)
+        .field("voices", &SoundDevice::voices)
+        .field("notes", &SoundDevice::notes)
+        .field("image", &SoundDevice::image);
     value_object<SidInfo>("SidInfo")
         .field("has", &SidInfo::has)
         .field("name", &SidInfo::name)
@@ -711,6 +759,8 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("stopSid", &WebMachine::stop_sid)
         .function("sidInfo", &WebMachine::sid_info)
         .function("soundRunning", &WebMachine::sound_running)
+        .function("soundDevice", &WebMachine::sound_device)
+        .function("soundSids", &WebMachine::sound_sids)
         .function("takeAudio", &WebMachine::take_audio)
         .function("lights", &WebMachine::lights)
         .function("setLights", &WebMachine::set_lights)

@@ -380,6 +380,14 @@ namespace ooe::emu
         /// The notes waiting (not yet begun), on every voice, in the block playing and those queued.
         uint32_t notes_waiting() const;
         bool music_tone_on() const { return mtone_.on; }
+        /// The emulator's session (Play .sid in the WebUI), outside the bus and its records: a `.sid` file into
+        /// tune slot 3 and its song played (0: the file's start song), as TUNE_LOAD and TUNE_PLAY would, with no
+        /// reply; a song of it again; stopped. @return OK, or an error with `why` in words.
+        uint8_t host_tune(const std::vector<uint8_t> &file, unsigned song, std::string &why);
+        uint8_t host_song(unsigned song, std::string &why);
+        void host_stop();
+        /// A tune plays: starting, playing or stalled (TUNE_STATUS's state).
+        bool tune_playing() const { return tune_.state == T_STARTING || tune_.state == T_PLAYING || tune_.state == T_STALLED; }
         bool beeping() const { return tone_.left > 0; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;

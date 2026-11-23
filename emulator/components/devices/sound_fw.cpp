@@ -916,6 +916,65 @@ namespace ooe::emu
         }
     }
 
+    // --- the emulator's session: a tune outside the bus -----------------------------------------------------
+
+    uint8_t SoundFw::host_tune(const std::vector<uint8_t> &file, unsigned song, std::string &why)
+    {
+        constexpr uint8_t SLOT = TUNE_SLOTS - 1;
+        auto parsed = parse_sid(file, why);
+        if (!parsed)
+            return E_DATA;
+        if (tune_.state != T_STOPPED && tune_.slot == SLOT)
+            stop_tune(T_STOPPED);
+        if (xfer_.obj == &tunes_[SLOT])
+            abort_transfer();
+        free_object(tunes_[SLOT]);
+        files_[SLOT].reset();
+        const auto at = allocate(file.size());
+        if (!at)
+        {
+            why = "the card's store is full";
+            return E_MEMORY;
+        }
+        std::copy(file.begin(), file.end(), store_.begin() + static_cast<std::ptrdiff_t>(*at));
+        tunes_[SLOT].used = true;
+        tunes_[SLOT].at = *at;
+        tunes_[SLOT].len = file.size();
+        tunes_[SLOT].crc = Crc32::of(file.data(), file.size());
+        files_[SLOT] = std::move(parsed);
+        return host_song(song, why);
+    }
+
+    uint8_t SoundFw::host_song(unsigned song, std::string &why)
+    {
+        constexpr uint8_t SLOT = TUNE_SLOTS - 1;
+        if (!files_[SLOT])
+        {
+            why = "no tune";
+            return E_SLOT;
+        }
+        if (song > 255 || song > files_[SLOT]->songs)
+        {
+            why = "it has " + std::to_string(files_[SLOT]->songs) + " songs";
+            return E_PARAM;
+        }
+        const uint8_t p[9] = {SLOT, static_cast<uint8_t>(song), 0, 0, 0, 0, 0, 0, 0};
+        const uint8_t status = play_tune(p);
+        if (status == E_DATA)
+            plan_sid(*files_[SLOT], song, why); // the planner's reason
+        else if (status == E_BUSY)
+            why = "music holds its chips";
+        else if (status != OK)
+            why = "refused";
+        return status;
+    }
+
+    void SoundFw::host_stop()
+    {
+        if (tune_.state != T_STOPPED)
+            stop_tune(T_STOPPED);
+    }
+
     // --- the firmware update ------------------------------------------------------------------------------
 
     uint8_t SoundFw::check_image(Image &out) const
