@@ -368,6 +368,7 @@ namespace ooe::emu
 
             std::string name, image;
             unsigned rev = 0;
+            unsigned memsize = 0; // the sound card's, in MB (revision 3)
             Space space = Space::Memory;
             for (size_t i = 2; i < w.size(); ++i)
             {
@@ -405,11 +406,22 @@ namespace ooe::emu
                 else if (eq != std::string::npos && arg.compare(0, eq, "rev") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);
-                    if (type != "video")
-                        return fail("rev: only the video card takes a revision");
-                    if (n != "1" && n != "2")
+                    if (type != "video" && type != "sound")
+                        return fail("rev: only the video and sound cards take a revision");
+                    if (type == "video" && n != "1" && n != "2")
                         return fail("rev: want the video card's revision, 1 or 2");
+                    if (type == "sound" && n != "1" && n != "2" && n != "3")
+                        return fail("rev: want the sound card's revision, 1, 2 or 3");
                     rev = static_cast<unsigned>(n[0] - '0');
+                }
+                else if (eq != std::string::npos && arg.compare(0, eq, "memsize") == 0)
+                {
+                    const std::string n = arg.substr(eq + 1);
+                    if (type != "sound")
+                        return fail("memsize: only the sound card takes a memory size");
+                    if (n != "2" && n != "4" && n != "8")
+                        return fail("memsize: want the sound card's store in MB, 2, 4 or 8");
+                    memsize = static_cast<unsigned>(n[0] - '0');
                 }
                 else if (eq != std::string::npos && arg.compare(0, eq, "module") == 0)
                 {
@@ -519,11 +531,24 @@ namespace ooe::emu
                 }
                 else if (type == "sound")
                 {
-                    if (m->sound_card_)
+                    if (m->sound_card_ || m->sound_device_)
                         return fail("sound: only one per machine");
-                    auto card = std::make_unique<SoundCard>();
-                    m->sound_card_ = card.get();
-                    dev = std::move(card);
+                    if (memsize && rev != 3)
+                        return fail("sound: memsize= is revision 3's (rev=3)");
+                    if (rev == 3)
+                    {
+                        auto card = std::make_unique<SoundCard3>((memsize ? memsize : 8) * 16);
+                        m->sound_device_ = card.get();
+                        dev = std::move(card);
+                    }
+                    else
+                    {
+                        auto card = std::make_unique<SoundCard>();
+                        if (rev)
+                            card->set_revision(rev);
+                        m->sound_card_ = card.get();
+                        dev = std::move(card);
+                    }
                 }
                 else if (type == "sd")
                 {
@@ -718,6 +743,8 @@ namespace ooe::emu
             usb_card_->set_cpu_hz(hz); // key repeat and the paddles
         if (sound_card_)
             sound_card_->set_cpu_hz(hz); // its 6510 keeps the SID clock's time
+        if (sound_device_)
+            sound_device_->set_cpu_hz(hz); // the firmware keeps the card's own time
         if (sd_card_)
             sd_card_->set_cpu_hz(hz); // its start-up and sector times
         if (BackplaneBridge *bridge = backplane_bridge())

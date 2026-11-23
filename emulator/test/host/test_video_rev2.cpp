@@ -635,8 +635,8 @@ TEST(machine_lines_check_the_revision_and_the_aperture)
     const std::string head = "cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n";
     CHECK(Machine::build(head + "video 480-4FF space=io name=video rev=3\n", "v.machine", {}, error) == nullptr);
     CHECK(error.find("rev:") != std::string::npos);
-    CHECK(Machine::build(head + "sound 500-57F space=io rev=2\n", "v.machine", {}, error) == nullptr);
-    CHECK(error.find("only the video card") != std::string::npos);
+    CHECK(Machine::build(head + "usb 500-57F space=io rev=2\n", "v.machine", {}, error) == nullptr);
+    CHECK(error.find("only the video and sound cards") != std::string::npos);
     auto none = Machine::build(head + "aperture 80000-8FFFF\n", "v.machine", {}, error); // no card: inert
     REQUIRE(none != nullptr);
     none->bus().write_physical(0x80000, 0x42);
