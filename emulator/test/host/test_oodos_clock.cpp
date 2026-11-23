@@ -51,12 +51,13 @@ namespace
         double frames_want() const { return static_cast<double>(r.cpu->cycles() - c0) / FRAME; }
         long ms() const { return static_cast<long>(ms_count(r) - m0); }
         long frames() const { return static_cast<long>(frame_count(r) - f0); }
-        /// Both within `ms_slack` ms and `frame_slack` frames of the time, said either way.
-        void check(const char *what, double ms_slack, double frame_slack) const
+        /// The frames within `frame_slack` of the time. The ms are printed as a record only: since OODOS 0.16 the
+        /// counter is the bridge's, which counts the cycles whatever OODOS does, so a check of it can't fail (review
+        /// r1's T8).
+        void check(const char *what, double frame_slack) const
         {
             std::printf("  %s: %ld ms counted, %.1f in the cycles; %ld frames, %.1f\n", what, ms(), ms_want(), frames(),
                         frames_want());
-            CHECK(std::abs(static_cast<double>(ms()) - ms_want()) <= ms_slack);
             CHECK(std::abs(static_cast<double>(frames()) - frames_want()) <= frame_slack);
         }
     };
@@ -90,12 +91,12 @@ TEST(the_clocks_follow_emulated_time_at_the_prompt)
     r.run(ms(100));
     Span s(r);
     r.run(ms(3000));
-    s.check("3 s at the prompt", 1, 1);
+    s.check("3 s at the prompt", 1);
     // And through command lines: the CCP, the BDOS and the console in turn.
     Span t(r);
     for (int i = 0; i < 4; ++i)
         r.cmd("dir m:");
-    t.check("four DIR M:s", 1, 1);
+    t.check("four DIR M:s", 1);
 }
 
 TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
@@ -276,7 +277,7 @@ static void hooks_gone(CcpRig &r)
     CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("EVON")), 0);
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80); // none of the VIA's on (bit 7 reads 1): the tick is the bridge's (N9)
     CHECK_EQ(r.machine->bus().peek(VIDEO_IEN), 0x01);
-    s.check("after the warm boot", 1, 1);
+    s.check("after the warm boot", 1);
 }
 
 TEST(hooks_run_with_their_windows_while_the_bdos_waits)
@@ -290,7 +291,7 @@ TEST(hooks_run_with_their_windows_while_the_bdos_waits)
     Span s(r);
     const std::string o = hooks(r, "B");
     hooks_ran(r, o, "in the BDOS");
-    s.check("the hooks' run", 2, 1);
+    s.check("the hooks' run", 1);
     hooks_gone(r);
 }
 
@@ -360,7 +361,7 @@ TEST(full_budget_hooks_lose_no_tick_and_no_frame)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " B", ms(8000));
-    s.check("2 s of full-budget hooks", 2, 1);
+    s.check("2 s of full-budget hooks", 1);
     CHECK_EQ(field(o, "FHOOK"), std::string("00 00"));
     CHECK_EQ(field(o, "THOOK"), std::string("00 00"));
     CHECK_EQ(field(o, "COSTS"), std::string("00 00"));        // not counted in this build
@@ -378,7 +379,7 @@ TEST(an_sd_read_loses_no_tick)
     Span s(r);
     const std::string o = r.cmd("m:pip m:=a:pattern.bin");
     CHECK(o.find("Disk") == std::string::npos);
-    s.check("PIP of 36 KB from A:", 1, 1);
+    s.check("PIP of 36 KB from A:", 1);
     CHECK(s.ms() > 200);
 }
 
@@ -394,7 +395,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     CHECK_EQ(field(o, "ALIVE"), std::string("11 2F")); // FT_INFO answers: OOLIB 17, frame and timing, input, sound, DMA and serial
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 80")); // vertical blank alone; none of the VIA's (N9: the tick is the bridge's)
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
-    s.check("through it", 2, 1);
+    s.check("through it", 1);
 }
 
 TEST(a_scrolling_screen_loses_no_tick)
@@ -414,7 +415,7 @@ TEST(a_scrolling_screen_loses_no_tick)
     CHECK_EQ(r.row(29), std::string("A>")); // the screen scrolled: the prompt on its last row, the warm boot's blank line
     CHECK_EQ(r.row(28), std::string(""));
     CHECK_EQ(r.row(27), std::string("SCROLL"));
-    s.check("120 lines scrolled", 1, 1);
+    s.check("120 lines scrolled", 1);
 }
 
 /// backplane.machine without the VIA (and the joysticks on it): the 6551 answers all of $C300-$C37F.
@@ -477,7 +478,7 @@ TEST(the_tick_is_the_bridge_s)
     CHECK(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) & 0x02); // FC_MS
     Span s(r);
     r.run(ms(1000));
-    s.check("the bridge's tick", 1, 1);
+    s.check("the bridge's tick", 1);
 }
 
 TEST(timer_1_is_the_program_s)
@@ -496,7 +497,7 @@ TEST(timer_1_is_the_program_s)
     std::printf("  free-running: %u flags in %u ms (%.1f by the cycles a ms)\n", freed, msd, want);
     CHECK(msd >= 10'000 && msd <= 10'010);
     CHECK(std::abs(static_cast<double>(freed) - want) <= 2);
-    s.check("timer 1 the program's, 10 s", 1, 1);
+    s.check("timer 1 the program's, 10 s", 1);
     CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x00);
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
 }
@@ -506,8 +507,9 @@ TEST(the_tick_and_another_card_together)
     // Flag 5 (N9): the tick and the video card's vertical blank pending at once: L1TEST G holds interrupts off for
     // about 20 ms (SEI, a spin, CLI), so both are waiting at its CLI. The dispatcher's long way serves both: TICK
     // runs, the frame counts, and nothing is DEAFENed (the tick's IRQH bit 5 isn't taken for "any other card"), so
-    // MSIE stays on. Must fail with the long way leaving the tick out (bit 5 then reaches R62_OTHER, which
-    // DEAFENs).
+    // MSIE stays on. Must fail with bit 5 left unmasked in both the dispatcher's other-card test and IRQOTH's (it then
+    // reaches R62_OTHER, which DEAFENs). Either mask alone, or the long way's JSR TICK alone, costs only a pass: the
+    // other mask holds, and the tick is served on the next pass (review r1's T10).
     CcpRig r;
     REQUIRE(r.ok);
     const uint16_t tick = sym("TICK"), deafen = sym("DEAFEN"), gsei = l1("GSEI"), gcli = l1("GCLI");

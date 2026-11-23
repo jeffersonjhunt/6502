@@ -644,7 +644,7 @@ BLK_BASE        = $C800
 BLK_FIX         = BLK_BASE             ; +0-1 the block's FARFIX list, +2-3 its count
 BLK_NFIX        = BLK_BASE + 2
 BLK_ENTRY       = BLK_BASE + 4         ; the jump table
-BLK_END         = $F800                ; common memory from here, copied in by the loader
+BLK_END         = $F800                ; common memory from here: the north bridge's hole (OODOS 0.16), no copy
 
 .macro  FAR     page, target
         .local  @site                  ; a cheap local: the caller's @ labels

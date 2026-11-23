@@ -39,9 +39,6 @@
 ;       and the enables as they are (VIEN vv, VIER ii); then timer 2's enable
 ;       on again, and the warm boot
 ;   S   SCROLLS lines, each scrolling the screen (a DMA copy of 4,640 bytes)
-;   T   timer 1 stopped (against the rules): T0 and FT_COUNT's 8; its enable
-;       off, one-shot (ACR 0), the latch $1234; FT_DELAY of 1000: DELAY aa xx
-;       (FF FF, given up); T1 and FT_COUNT's 8; the warm boot
 ;   R   the 6551's receive interrupt on (against the rules); a key by
 ;       function 1: KEY kk; CMD and the 6551's command register; the warm boot
 ;   K   a full-budget frame hook (B's), then KPASSES times: a delay of
@@ -60,10 +57,6 @@
 ;       them on; CLOSE;
 ;       the warm boot (ticks run together, OVR, a frame and a tick at once:
 ;       test_oodos_clock's O3 and the_tick_and_another_card_together)
-;   U   ACR changed (timer 1 free-running, and on PB7: since OODOS 0.16
-;       timer 1 is the program's, so that much is within the rules) and timer
-;       1's enable written (IER isn't the program's: the dispatcher turns it
-;       off); the warm boot at once
 ;   C   FT_CLOCK (interface 17): with no block CNB aa xx (refused); then
 ;       CLOCK aa xx and its block's 8 bytes (CLK1), FT_DELAY of 250, the same
 ;       (CLOCK2, CLK2); the warm boot
@@ -126,9 +119,6 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'S'
         bne     :+
         jmp     case_s
-:       cmp     #'T'
-        bne     :+
-        jmp     case_t
 :       cmp     #'R'
         bne     :+
         jmp     case_r
@@ -144,9 +134,6 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'C'
         bne     :+
         jmp     case_c
-:       cmp     #'U'
-        bne     :+
-        jmp     case_u
 :       jmp     WBOOT
 
 ; ---- small helpers ---------------------------------------------------------
@@ -546,23 +533,6 @@ case_s: lda     #SCROLLS
         bne     @line
         jmp     WBOOT
 
-case_t: CALL80  cblk
-        DUMP    "T0", cblk + 1, 8
-        lda     #VIA_IRQ_T1             ; its enable off
-        sta     VIA_IER
-        stz     VIA_ACR                 ; one-shot
-        lda     #$34
-        sta     VIA_T1LL
-        lda     #$12
-        sta     VIA_T1LH
-        lda     #<1000
-        ldx     #>1000
-        jsr     delay
-        SAY     "DELAY"
-        CALL80  cblk
-        DUMP    "T1", cblk + 1, 8
-        jmp     WBOOT
-
 case_r: lda     ACIA_CMD
         and     #<~ACIA_CMD_RXOFF
         sta     ACIA_CMD
@@ -754,12 +724,6 @@ spinY:
         dey
         bne     @o
         rts
-
-case_u: lda     #VIA_ACR_T1FREE | $80   ; PB7 timer 1's too: the program's since OODOS 0.16
-        sta     VIA_ACR
-        lda     #VIA_IER_SET | VIA_IRQ_T1
-        sta     VIA_IER
-        jmp     WBOOT
 
 ; kfcbb: O:K.BIN, the rest 0.
 kfcb:   ldx     #35
