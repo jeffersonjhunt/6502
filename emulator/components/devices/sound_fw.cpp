@@ -132,6 +132,8 @@ namespace ooe::emu
             run_commands();
         if (now_ % SAMPLES_PER_MS == 0)
             ms_step();
+        if (seq_.state == M_PLAYING)
+            music_tick();
         mix_frame();
     }
 
@@ -289,6 +291,19 @@ namespace ooe::emu
             src[SRC_BEEP][0] = src[SRC_BEEP][1] = s;
             if (--tone_.left == 0)
                 event(EV_BEEP_DONE, 0);
+        }
+        if (mtone_.on) // music's tone generator voice: a square as the beep's
+        {
+            const double tt = mtone_.phase;
+            double v = tt < 0.5 ? 1.0 : -1.0;
+            v += blep(tt, mtone_.step);
+            v -= blep(std::fmod(tt + 0.5, 1.0), mtone_.step);
+            mtone_.phase += mtone_.step;
+            if (mtone_.phase >= 1.0)
+                mtone_.phase -= 1.0;
+            const float s = static_cast<float>(v) * mtone_.amp * static_cast<float>(mix_[SRC_MUSIC]) / 255.0f;
+            src[SRC_MUSIC][0] += s;
+            src[SRC_MUSIC][1] += s;
         }
         float l = 0, r = 0;
         for (unsigned s = 0; s < SOURCES; ++s)
@@ -897,6 +912,342 @@ namespace ooe::emu
         }
     }
 
+    // --- music: note blocks and their sequencer ----------------------------------------------------------
+
+    uint8_t SoundFw::parse_block(unsigned slot)
+    {
+        // The header, an instrument for each voice in its mask, then its entries (the spec's S1 appendix).
+        const Object &o = music_[slot];
+        const uint8_t *b = &store_[o.at];
+        const size_t n = o.len;
+        if (n < 8 || b[0] != 1 || b[1] == 0)
+            return E_DATA;
+        Block blk;
+        blk.mask = b[1];
+        const uint32_t count = get32(b + 4);
+        size_t at = 8;
+        for (unsigned v = 0; v < 8; ++v)
+            if (blk.mask & (1u << v))
+            {
+                if (at + 8 > n || b[at] > 2)
+                    return E_DATA;
+                std::copy(b + at, b + at + 8, blk.inst[v].b);
+                at += 8;
+            }
+        static constexpr size_t SIZE[6] = {10, 12, 5, 9, 2, 2};
+        blk.entries.reserve(count);
+        for (uint32_t k = 0; k < count; ++k)
+        {
+            if (at >= n)
+                return E_DATA;
+            const uint8_t kind = b[at] >> 4, voice = b[at] & 0x0F;
+            if (kind > 5 || voice > 7 || !(blk.mask & (1u << voice)) || at + SIZE[kind] > n)
+                return E_DATA;
+            const uint8_t *e = b + at + 1;
+            Entry en;
+            en.kind = kind;
+            en.voice = voice;
+            switch (kind)
+            {
+            case 0: // a note: 69 the A at 440 Hz
+                en.freq16 = static_cast<uint32_t>(std::lround(440.0 * 16.0 * std::pow(2.0, (static_cast<int>(e[0] & 0x7F) - 69) / 12.0)));
+                en.len = get32(e + 1);
+                en.gate = get32(e + 5);
+                break;
+            case 1:
+                en.freq16 = get24(e);
+                en.len = get32(e + 3);
+                en.gate = get32(e + 7);
+                break;
+            case 2:
+                en.len = get32(e);
+                break;
+            case 3:
+                if (e[0] > 2)
+                    return E_DATA;
+                std::copy(e, e + 8, en.inst.b);
+                break;
+            default:
+                en.value = e[0];
+                break;
+            }
+            if ((kind <= 1 && en.gate > en.len) || (kind == 5 && en.value == 255))
+                return E_DATA;
+            if (kind <= 2)
+                ++blk.notes[voice];
+            blk.entries.push_back(en);
+            at += SIZE[kind];
+        }
+        if (at != n)
+            return E_DATA;
+        blocks_[slot] = std::move(blk);
+        return OK;
+    }
+
+    uint32_t SoundFw::queued_notes(unsigned lv) const
+    {
+        uint32_t n = 0;
+        for (const auto &q : seq_.queue)
+            if (blocks_[q.first])
+                n += blocks_[q.first]->notes[lv];
+        return n;
+    }
+
+    uint32_t SoundFw::notes_waiting() const
+    {
+        uint32_t n = 0;
+        for (unsigned lv = 0; lv < 8; ++lv)
+            n += seq_.v[lv].waiting + queued_notes(lv);
+        return n;
+    }
+
+    uint8_t SoundFw::start_block(uint8_t slot, bool free_when_done)
+    {
+        // The voices the block names: SID voices of chips no tune holds, the ES5503's, the tone generator's one.
+        // All of them free, or E_BUSY: music is never stolen and doesn't steal.
+        const Block &blk = *blocks_[slot];
+        std::array<int, 8> phys{};
+        phys.fill(-2);
+        bool tone = false;
+        for (unsigned lv = 0; lv < 8; ++lv)
+        {
+            if (!(blk.mask & (1u << lv)))
+                continue;
+            const uint8_t src = blk.inst[lv].b[0];
+            if (src == 2)
+            {
+                if (tone)
+                    return E_BUSY;
+                tone = true;
+                phys[lv] = -1;
+                continue;
+            }
+            if (src == 1 && boot_.active)
+                return E_BUSY;
+            const unsigned lo = src == 0 ? 0 : SID_VOICES, hi = src == 0 ? SID_VOICES : VOICES;
+            for (unsigned v = lo; v < hi && phys[lv] == -2; ++v)
+            {
+                if (voices_[v].use != V_FREE || (src == 0 && !sid_voice_free_for(v)) ||
+                    std::find(phys.begin(), phys.end(), static_cast<int>(v)) != phys.end())
+                    continue;
+                phys[lv] = static_cast<int>(v);
+            }
+            if (phys[lv] == -2)
+                return E_BUSY;
+        }
+        seq_.state = M_PLAYING;
+        seq_.slot = slot;
+        seq_.free_when_done = free_when_done;
+        const uint64_t t0 = now_us();
+        if (seq_.played_us == 0)
+            seq_.started_us = t0;
+        seq_.played_us = 1;
+        for (unsigned lv = 0; lv < 8; ++lv)
+        {
+            MusicVoice &mv = seq_.v[lv];
+            mv = MusicVoice{};
+            if (!(blk.mask & (1u << lv)))
+            {
+                mv.done = true;
+                continue;
+            }
+            mv.phys = phys[lv];
+            mv.tone = phys[lv] == -1;
+            if (mv.phys >= 0)
+            {
+                Voice &x = voices_[static_cast<size_t>(mv.phys)];
+                x = Voice{};
+                x.use = V_MUSIC;
+            }
+            mv.next_us = t0;
+            mv.waiting = blk.notes[lv];
+            music_instrument(lv, blk.inst[lv]);
+        }
+        for (uint32_t k = 0; k < blk.entries.size(); ++k)
+            seq_.v[blk.entries[k].voice].order.push_back(k);
+        return OK;
+    }
+
+    void SoundFw::stop_music()
+    {
+        for (unsigned lv = 0; lv < 8; ++lv)
+        {
+            MusicVoice &mv = seq_.v[lv];
+            if (mv.phys >= 0)
+                free_voice(static_cast<unsigned>(mv.phys), false);
+            mv = MusicVoice{};
+        }
+        mtone_ = MusicTone{};
+        if (seq_.free_when_done && seq_.slot >= 0)
+        {
+            free_object(music_[static_cast<size_t>(seq_.slot)]);
+            blocks_[static_cast<size_t>(seq_.slot)].reset();
+        }
+        const uint32_t thresh = seq_.thresh;
+        seq_ = Music{};
+        seq_.thresh = thresh;
+    }
+
+    void SoundFw::music_instrument(unsigned lv, const Instrument &in)
+    {
+        MusicVoice &mv = seq_.v[lv];
+        mv.inst = in;
+        mv.vol = in.b[6];
+        if (mv.phys >= 0 && static_cast<unsigned>(mv.phys) < SID_VOICES)
+        {
+            const unsigned v = static_cast<unsigned>(mv.phys), chip = v / 3, r = 7 * (v % 3);
+            port_.sid_write(chip, r + 2, in.b[4]);
+            port_.sid_write(chip, r + 3, static_cast<uint8_t>(in.b[5] & 0x0F));
+            port_.sid_write(chip, r + 5, in.b[2]);
+            port_.sid_write(chip, r + 6, in.b[3]);
+            uint8_t regs[25];
+            port_.sid_regs(chip, regs);
+            port_.sid_write(chip, 0x18, static_cast<uint8_t>((regs[0x18] & 0xF0) | (in.b[6] >> 4))); // the chip's volume, music's
+        }
+    }
+
+    void SoundFw::music_gate(unsigned lv, bool on)
+    {
+        MusicVoice &mv = seq_.v[lv];
+        if (mv.tone)
+        {
+            mtone_.on = on;
+            return;
+        }
+        const unsigned v = static_cast<unsigned>(mv.phys);
+        if (v < SID_VOICES)
+        {
+            const unsigned chip = v / 3, r = 7 * (v % 3);
+            port_.sid_write(chip, r + 4, static_cast<uint8_t>((mv.inst.b[1] & 0xFE) | (on ? 1 : 0)));
+        }
+        else if (!on)
+            silence_voice(v);
+    }
+
+    void SoundFw::music_entry(unsigned lv, const Entry &e, uint64_t at)
+    {
+        MusicVoice &mv = seq_.v[lv];
+        switch (e.kind)
+        {
+        case 0:
+        case 1:
+        {
+            --mv.waiting;
+            if (notes_waiting() + 1 == seq_.thresh && seq_.thresh) // fell from n to n - 1
+            {
+                std::vector<uint8_t> v;
+                put16(v, notes_waiting());
+                v.push_back(static_cast<uint8_t>(seq_.thresh));
+                event(EV_MUSIC_COUNT, 0, v);
+            }
+            if (mv.tone)
+            {
+                mtone_.step = e.freq16 / 16.0 / RATE;
+                mtone_.amp = static_cast<float>(mv.vol) / 255.0f * 0.25f;
+            }
+            else if (static_cast<unsigned>(mv.phys) < SID_VOICES)
+                write_sid_freq(static_cast<unsigned>(mv.phys), static_cast<int32_t>(e.freq16));
+            else
+            {
+                // The sample at the note's pitch: its rate x 2^((note - its root) / 12), as the Hz say.
+                const unsigned slot = mv.inst.b[1];
+                if (samples_[slot].used && sample_info_[slot].ready && cache_sample(slot))
+                {
+                    const double root = 440.0 * 16.0 * std::pow(2.0, (static_cast<int>(mv.inst.b[2]) - 69) / 12.0);
+                    Voice &x = voices_[static_cast<size_t>(mv.phys)];
+                    x.sample = static_cast<int>(slot);
+                    x.vol = mv.vol;
+                    x.pan = mv.inst.b[7];
+                    x.looped = mv.inst.b[3] == 1;
+                    doc_voice_start(static_cast<unsigned>(mv.phys), slot,
+                                    static_cast<uint32_t>(sample_info_[slot].rate * (e.freq16 / root)));
+                }
+            }
+            mv.gated = e.gate > 0;
+            music_gate(lv, mv.gated);
+            mv.gate_off_us = at + e.gate;
+            mv.next_us = at + e.len;
+            break;
+        }
+        case 2:
+            --mv.waiting;
+            if (notes_waiting() + 1 == seq_.thresh && seq_.thresh)
+            {
+                std::vector<uint8_t> v;
+                put16(v, notes_waiting());
+                v.push_back(static_cast<uint8_t>(seq_.thresh));
+                event(EV_MUSIC_COUNT, 0, v);
+            }
+            if (mv.gated)
+                music_gate(lv, false), mv.gated = false;
+            mv.next_us = at + e.len;
+            break;
+        case 3:
+            music_instrument(lv, e.inst);
+            break;
+        case 4:
+            mv.vol = e.value;
+            mv.inst.b[6] = e.value;
+            if (mv.tone)
+                mtone_.amp = static_cast<float>(mv.vol) / 255.0f * 0.25f;
+            break;
+        default:
+            event(EV_MUSIC_MARK, static_cast<uint8_t>(lv), {e.value, static_cast<uint8_t>(seq_.slot)});
+            break;
+        }
+    }
+
+    void SoundFw::music_tick()
+    {
+        const uint64_t now = now_us();
+        const Block &blk = *blocks_[static_cast<size_t>(seq_.slot)];
+        bool all_done = true;
+        for (unsigned lv = 0; lv < 8; ++lv)
+        {
+            MusicVoice &mv = seq_.v[lv];
+            if (mv.done)
+                continue;
+            if (mv.gated && mv.gate_off_us <= now && mv.gate_off_us < mv.next_us)
+                music_gate(lv, false), mv.gated = false;
+            while (!mv.done && mv.next_us <= now)
+            {
+                if (mv.pos == mv.order.size())
+                {
+                    if (mv.gated)
+                        music_gate(lv, false), mv.gated = false;
+                    mv.done = true;
+                    break;
+                }
+                const uint64_t at = mv.next_us;
+                music_entry(lv, blk.entries[mv.order[mv.pos++]], at);
+            }
+            all_done = all_done && mv.done;
+        }
+        if (!all_done)
+            return;
+        // The block has finished: the next queued, or MUSIC_DONE, once, for the last.
+        const uint8_t last = static_cast<uint8_t>(seq_.slot);
+        const uint64_t started = seq_.started_us;
+        const uint32_t thresh = seq_.thresh;
+        std::deque<std::pair<uint8_t, bool>> queue = seq_.queue;
+        stop_music();
+        seq_.thresh = thresh;
+        while (!queue.empty())
+        {
+            const auto [slot, free] = queue.front();
+            queue.pop_front();
+            if (blocks_[slot] && start_block(slot, free) == OK)
+            {
+                seq_.queue = queue;
+                seq_.started_us = started;
+                return;
+            }
+        }
+        std::vector<uint8_t> v;
+        put32(v, static_cast<uint32_t>((now - started) / 1000));
+        event(EV_MUSIC_DONE, last, v);
+    }
+
     void SoundFw::boot_ctl(unsigned x, uint8_t a)
     {
         const unsigned y = VOICE_OSC[x];
@@ -980,6 +1331,9 @@ namespace ooe::emu
         const auto plan = plan_sid(f, song, error);
         if (!plan)
             return E_DATA;
+        for (unsigned v = 0; v < SID_VOICES; ++v) // music is never stolen: its chips aren't the tune's to take
+            if (voices_[v].use == V_MUSIC && ((f.sid2 ? 3u : 1u) & (1u << (v / 3))))
+                return E_BUSY;
         if (tune_.state != T_STOPPED)
             port_.tune_stop();
         tune_ = Tune{};
@@ -1179,6 +1533,8 @@ namespace ooe::emu
             return object(rec[3], rec[4]);
         if ((rec[0] == TUNE_PLAY || rec[0] == TUNE_INFO) && rec[3] < TUNE_SLOTS)
             return &tunes_[rec[3]];
+        if (rec[0] == MUSIC_PLAY && rec[3] < MUSIC_SLOTS)
+            return &music_[rec[3]];
         if (rec[0] == PLAY) // its effect's table, or its sample, still coming
         {
             if (effects_.loading)
@@ -1518,6 +1874,100 @@ namespace ooe::emu
             reply(tag, OK, r);
             break;
         }
+        case MUSIC_LOAD:
+        {
+            const uint32_t len = get24(p + 1);
+            if (p[0] >= MUSIC_SLOTS || len < 8)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            if (seq_.slot == p[0] || std::any_of(seq_.queue.begin(), seq_.queue.end(), [&](const auto &q) { return q.first == p[0]; }))
+            {
+                reply(tag, E_BUSY); // playing or queued
+                break;
+            }
+            blocks_[p[0]].reset();
+            reply(tag, open_transfer(cmd, tag, p[0], len, music_[p[0]]));
+            break;
+        }
+        case MUSIC_PLAY:
+        {
+            const uint8_t slot = p[0], flags = p[1];
+            if (slot >= MUSIC_SLOTS || (flags & ~3u))
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            if (!blocks_[slot])
+            {
+                reply(tag, E_SLOT);
+                break;
+            }
+            if ((flags & 1) && seq_.state != M_STOPPED)
+            {
+                seq_.queue.push_back({slot, (flags & 2) != 0}); // after what plays (PLAY's MB)
+                reply(tag, OK);
+                break;
+            }
+            stop_music();
+            reply(tag, start_block(slot, (flags & 2) != 0));
+            break;
+        }
+        case MUSIC_STOP:
+            stop_music();
+            reply(tag, OK);
+            break;
+        case MUSIC_PAUSE:
+            if (seq_.state != M_PLAYING)
+            {
+                reply(tag, E_STATE);
+                break;
+            }
+            seq_.state = M_PAUSED;
+            seq_.paused_at = now_us();
+            for (unsigned lv = 0; lv < 8; ++lv)
+                if (seq_.v[lv].gated)
+                    music_gate(lv, false), seq_.v[lv].gated = true; // silent, still its note's
+            reply(tag, OK);
+            break;
+        case MUSIC_RESUME:
+        {
+            if (seq_.state != M_PAUSED)
+            {
+                reply(tag, E_STATE);
+                break;
+            }
+            const uint64_t held = now_us() - seq_.paused_at;
+            for (unsigned lv = 0; lv < 8; ++lv)
+            {
+                MusicVoice &mv = seq_.v[lv];
+                mv.next_us += held;
+                mv.gate_off_us += held;
+                if (mv.gated)
+                    music_gate(lv, true);
+            }
+            seq_.started_us += held;
+            seq_.state = M_PLAYING;
+            reply(tag, OK);
+            break;
+        }
+        case MUSIC_STATUS:
+        {
+            std::vector<uint8_t> r{seq_.state, static_cast<uint8_t>(seq_.queue.size())};
+            for (unsigned lv = 0; lv < 8; ++lv)
+                put16(r, std::min<uint32_t>(seq_.v[lv].waiting + queued_notes(lv), 0xFFFF));
+            const uint64_t played = seq_.state == M_STOPPED ? 0
+                                    : (seq_.state == M_PAUSED ? seq_.paused_at : now_us()) - seq_.started_us;
+            put32(r, static_cast<uint32_t>(played / 1000));
+            put16(r, std::min<uint32_t>(notes_waiting(), 0xFFFF));
+            reply(tag, OK, r);
+            break;
+        }
+        case MUSIC_THRESH:
+            seq_.thresh = p[0];
+            reply(tag, OK);
+            break;
         case EFFECT_DEF:
         {
             const size_t n = rec[1];
@@ -1757,6 +2207,7 @@ namespace ooe::emu
             }
         tone_ = Tone{};
         boot_ = BootSound{};
+        stop_music();
         for (unsigned v = 0; v < VOICES; ++v)
             if (voices_[v].use != V_FREE)
                 free_voice(v, false);
@@ -1783,6 +2234,8 @@ namespace ooe::emu
         sample_info_.fill(Sample{});
         effects_def_.fill(EffectDef{});
         wave_pages_.fill(false);
+        for (auto &b : blocks_)
+            b.reset();
     }
 
     // --- transfers ----------------------------------------------------------------------------------------
@@ -1854,6 +2307,17 @@ namespace ooe::emu
             if (s.loop_end > o.len || s.loop_start >= std::max<uint32_t>(s.loop_end, 1))
                 s.loop_start = s.loop_end = 0;
             s.ready = true;
+        }
+        if (cmd == MUSIC_LOAD)
+        {
+            const uint8_t status = parse_block(slot);
+            if (status != OK)
+            {
+                free_object(o);
+                payload[1] = status;
+            }
+            else
+                put32(payload, static_cast<uint32_t>(blocks_[slot]->entries.size()));
         }
         if (cmd == EFFECT_LOAD)
         {

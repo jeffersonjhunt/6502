@@ -362,6 +362,16 @@ namespace ooe::emu
         uint8_t voice_handle(unsigned v) const { return voices_[v % VOICES].handle; }
         /// Wave RAM's use as the store's cache: the sample slots there now.
         unsigned cached_samples() const;
+        enum MusicState : uint8_t
+        {
+            M_STOPPED = 0,
+            M_PLAYING = 1,
+            M_PAUSED = 2,
+        };
+        uint8_t music_state() const { return seq_.state; }
+        /// The notes waiting (not yet begun), on every voice, in the block playing and those queued.
+        uint32_t notes_waiting() const;
+        bool music_tone_on() const { return mtone_.on; }
         bool beeping() const { return tone_.left > 0; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
@@ -586,6 +596,69 @@ namespace ooe::emu
         void doc_voice_volume(unsigned v, uint32_t level); ///< level 0-255 of the voice's volume, by its pan
         void stop_voices_on_chips(uint8_t chips);
         bool parse_effect(uint8_t effect, uint8_t kind, const uint8_t *def, size_t n);
+
+        // --- music --------------------------------------------------------------------------------------------
+        struct Instrument
+        {
+            uint8_t b[8]{};             ///< as the block has it: +0 the source (0 SID, 1 sample, 2 tone), ...
+        };
+        struct Entry
+        {
+            uint8_t kind{0}, voice{0};
+            uint32_t freq16{0};         ///< Hz x 16 (a note's, worked out)
+            uint32_t len{0}, gate{0};   ///< µs
+            uint8_t value{0};           ///< a volume's, a marker's
+            Instrument inst;
+        };
+        struct Block
+        {
+            uint8_t mask{0};
+            std::array<Instrument, 8> inst{};
+            std::vector<Entry> entries;
+            std::array<uint32_t, 8> notes{}; ///< note, frequency and rest entries a voice
+        };
+        std::array<std::optional<Block>, MUSIC_SLOTS> blocks_{};
+        struct MusicVoice
+        {
+            int phys{-1};               ///< its voice in voices_ (a SID's or the ES5503's), or -1 the tone voice
+            bool tone{false};
+            Instrument inst;
+            uint8_t vol{255};
+            std::vector<uint32_t> order; ///< its entries' places in the block, in order
+            size_t pos{0};
+            uint64_t next_us{0};        ///< when its next entry begins
+            uint64_t gate_off_us{0};
+            bool gated{false}, done{false};
+            uint32_t waiting{0};        ///< its notes not yet begun
+        };
+        struct Music
+        {
+            uint8_t state{M_STOPPED};
+            int slot{-1};
+            bool free_when_done{false};
+            std::deque<std::pair<uint8_t, bool>> queue; ///< blocks waiting: slot, free when done
+            std::array<MusicVoice, 8> v{};
+            uint64_t paused_at{0};
+            uint64_t played_us{0}, started_us{0};
+            uint32_t thresh{0};
+        };
+        Music seq_;
+        struct MusicTone
+        {
+            bool on{false};
+            double phase{0}, step{0};
+            float amp{0};
+        };
+        MusicTone mtone_;
+        uint64_t now_us() const { return now_ * 125 / 6; } ///< the card's clock in µs (48 kHz samples: 20.83 µs)
+        uint8_t parse_block(unsigned slot);
+        uint8_t start_block(uint8_t slot, bool free_when_done);
+        void stop_music();
+        void music_tick();
+        void music_entry(unsigned lv, const Entry &e, uint64_t at);
+        void music_gate(unsigned lv, bool on);
+        void music_instrument(unsigned lv, const Instrument &in);
+        uint32_t queued_notes(unsigned lv) const;
 
         // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
         struct BootSound
