@@ -83,7 +83,7 @@ namespace ooe::emu
         std::fill(store_.begin(), store_.end(), 0);
         ready_ = false;
         came_up_ = false;
-        ready_at_ = now_ + static_cast<uint64_t>(STARTUP_MS) * SAMPLES_PER_MS;
+        ready_at_ = now_ + static_cast<uint64_t>(startup_ms_) * SAMPLES_PER_MS;
         running_ = boot_slot_; // the image marked to boot
         fw_pending_ms_ = 0;
     }
@@ -1441,7 +1441,7 @@ namespace ooe::emu
 
     // --- the host's side --------------------------------------------------------------------------------
 
-    bool SoundFw::cmd_write(uint8_t b)
+    bool SoundFw::cmd_write(uint8_t b, uint32_t fraction)
     {
         if (cmd_used_ >= CMD_BYTES)
         {
@@ -1457,7 +1457,10 @@ namespace ooe::emu
             // At the door: a command the firmware knows, with its n.
             const int want = params_for(partial_[0]);
             error_ = want == -2 ? E_UNKNOWN : (want >= 0 && partial_[1] != want) || partial_[1] > 253 ? E_PARAM : OK;
-            records_.push_back({std::move(partial_), now_ + 1, error_});
+            // Due at the first sample LATENCY_US or more after the byte's card time (now_ and its fraction).
+            const uint64_t ppm = uint64_t{fraction} + uint64_t{latency_us_} * RATE; // millionths of a sample
+            const uint64_t due = now_ + std::max<uint64_t>(1, (ppm + 999'999) / 1'000'000);
+            records_.push_back({std::move(partial_), due, error_});
             partial_.clear();
         }
         return true;
@@ -1595,17 +1598,36 @@ namespace ooe::emu
         {
             const Object *o = waits_on(p.rec);
             if (o && o->loading)
-                return false; // in order: it, and everything behind it, waits for the transfer
+            {
+                // In order: it, and everything behind it, waits for the transfer; but XFERABORT, which ends the
+                // transfer, runs at once (its reply before the waiting record's), so a host can always end a load.
+                for (auto it = records_.begin() + 1; it != records_.end(); ++it)
+                    if (it->rec[0] == XFERABORT && it->refused == OK && it->due <= now_ &&
+                        evt_room() >= reply_room(XFERABORT))
+                    {
+                        const Pending a = std::move(*it);
+                        records_.erase(it);
+                        cmd_used_ -= a.rec.size();
+                        running_room_ = reply_room(XFERABORT);
+                        execute(a.rec);
+                        running_room_ = 0;
+                        return true;
+                    }
+                return false;
+            }
         }
         const Pending q = std::move(p);
         records_.pop_front();
         cmd_used_ -= q.rec.size();
         if (cmd_was_full_)
             cmd_was_full_ = false, cmdroom_ = true;
+        // Its reply's room stays kept while it runs: an event it raises (VOICE_STOLEN, TUNE_STARTED) can't take it.
+        running_room_ = reply_room(q.rec[0]);
         if (q.refused != OK)
             reply(q.rec[2], q.refused);
         else
             execute(q.rec);
+        running_room_ = 0;
         return true;
     }
 
@@ -2246,8 +2268,9 @@ namespace ooe::emu
     void SoundFw::reply(uint8_t tag, uint8_t status, const std::vector<uint8_t> &results)
     {
         const size_t size = 4 + results.size();
-        if (evt_room() < size) // never, as run_one() waits for the room; a reply is never lost
+        if (evt_room() < size) // never, as run_one() waits for the room and keeps it; a reply is never lost
             return;
+        running_room_ = 0; // the reply has its room now: what the command raises after it is an event's to take
         evt_.push_back(EV_REPLY);
         evt_.push_back(static_cast<uint8_t>(2 + results.size()));
         evt_.push_back(tag);
@@ -2261,7 +2284,7 @@ namespace ooe::emu
             return; // not wanted: not sent, not lost
         const size_t size = 7 + payload.size();
         // The room the replies of the records waiting need is kept: an event never takes it.
-        size_t keep = 0;
+        size_t keep = running_room_;
         for (const Pending &p : records_)
             keep += reply_room(p.rec[0]);
         if (evt_room() < size + keep)

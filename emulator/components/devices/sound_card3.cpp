@@ -241,7 +241,7 @@ namespace ooe::emu
             ctrl_ = data & CTRL_DRQ;
             break;
         case CMD:
-            fw_.cmd_write(data);
+            fw_.cmd_write(data, static_cast<uint32_t>(phase_ * 1'000'000 / host_hz_)); // the byte's place in its sample
             break;
         case DATA:
             if (!fw_.data_write(data))

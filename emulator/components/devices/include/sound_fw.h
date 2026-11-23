@@ -18,9 +18,12 @@
  * Time is the card's own: a count of 48 kHz samples (the digital path's
  * rate), advanced by advance(). A millisecond is 48 samples, so the
  * firmware's millisecond steps fall on exact sample counts. A command record
- * runs at the first sample at least LATENCY_US after its last byte came,
- * once the commands before it have run and the event FIFO has room for its
- * reply; the start-up after power-on or FWRESTART takes STARTUP_MS. Results
+ * runs at the first sample at least LATENCY_US after its last byte came (the
+ * byte's card time: the sample now and its fraction, which a front end
+ * gives cmd_write()), once the commands before it have run and the event
+ * FIFO has room for its reply; XFERABORT alone runs at once, even behind a
+ * record waiting for the transfer it ends. The start-up after power-on or
+ * FWRESTART takes STARTUP_MS. Both have test hooks. Results
  * depend on the samples advanced and the bytes given at each, never on how
  * the caller splits its calls.
  *
@@ -252,8 +255,14 @@ namespace ooe::emu
 
         // --- the host's side ----------------------------------------------------------------------------
         bool ready() const { return ready_; }
-        /// CMD: a record's next byte. False (dropped) with the FIFO full.
-        bool cmd_write(uint8_t b);
+        /// CMD: a record's next byte, at the card time now plus `fraction` millionths of a sample (a front end's
+        /// place between two samples; 0 by default). False (dropped) with the FIFO full.
+        bool cmd_write(uint8_t b, uint32_t fraction = 0);
+        /// Tests: the command latency (LATENCY_US) and the start-up (STARTUP_MS), the model's constants.
+        void set_latency_us(uint32_t us) { latency_us_ = us; }
+        void set_startup_ms(uint32_t ms) { startup_ms_ = ms; }
+        /// Bytes the reply to `cmd` may take (tests hold each command's reply to it).
+        static size_t reply_room_for(uint8_t cmd) { return reply_room(cmd); }
         size_t cmd_free() const { return CMD_BYTES - cmd_used_; }
         /// CMDRDY: room for a whole record.
         bool cmd_ready() const { return cmd_free() >= RECORD_MAX; }
@@ -468,6 +477,8 @@ namespace ooe::emu
         std::vector<uint8_t> partial_;
         std::deque<uint8_t> evt_;
         uint8_t error_{OK};
+        size_t running_room_{0}; ///< the reply room of the record running, kept from its own events until its reply
+        uint32_t latency_us_{LATENCY_US}, startup_ms_{STARTUP_MS};
         uint32_t lost_{0};
         uint8_t mask_{0xFF};
         Transfer xfer_;

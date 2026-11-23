@@ -1073,8 +1073,14 @@ the first step is today's decode (a second SID at `$D420`, or `$D500` when the h
 `$D400-$D7FF` address SID A), so the corpus can play identically; the map above, with mirrors and a header-named
 second SID, comes as a later firmware step with its own corpus baseline (the owner's answer 2).
 
-**Times in the model:** a command runs at the card time of its record's last byte plus 20 µs; the start-up after
-power-on or FWRESTART takes 20 ms (inside the spec's 100 ms). Both are constants with test hooks.
+**Times in the model:** a command runs at the first 48 kHz sample at least 20 µs after its record's last byte came
+(the byte's card time, its place within a sample included); the start-up after power-on or FWRESTART takes 20 ms
+(inside the spec's 100 ms). Both are constants with test hooks (`set_latency_us`, `set_startup_ms`).
+
+**XFERABORT runs at once.** A command naming an object whose transfer is still open waits for it, in order, with
+everything behind it; XFERABORT alone doesn't wait behind such a command: it runs as soon as it is due, ends the
+transfer, and its reply comes before the waiting command's (which then finds the object gone: `E_SLOT`). So a host
+can always end a load it can't finish.
 
 ### Function 82: one clean table
 

@@ -249,6 +249,35 @@ TEST(reset_abandons_a_transfer_and_empties_both_fifos_but_keeps_the_store)
     }
 }
 
+TEST(a_record_runs_20_us_after_its_last_byte_wherever_in_a_sample_it_lands)
+{
+    // The last byte at each place in a sample (the bus ticked a cycle at a time): its reply comes no sooner
+    // than LATENCY_US (20 µs, 143 cycles) after it, and no later than a sample past that; and with the test hook
+    // at 100 µs, no sooner than 716 cycles.
+    for (const uint32_t us : {20u, 100u})
+    {
+        unsigned soonest = 1'000'000, latest = 0;
+        for (unsigned offset = 0; offset < 160; offset += 7)
+        {
+            SoundCard3 card; // alone, a tick a host cycle at 7.16 MHz
+            card.firmware().set_latency_us(us);
+            card.tick(SoundCard3::NATIVE_HZ / 1000 * (SoundFw::STARTUP_MS + 1) + offset);
+            card.write(SoundCard3::CMD, SoundFw::NOP);
+            card.write(SoundCard3::CMD, 0);
+            card.write(SoundCard3::CMD, 1); // its last byte, now
+            unsigned cycles = 0;
+            while (!card.peek(SoundCard3::EVTLEN) && cycles < 5000)
+                card.tick(1), ++cycles;
+            soonest = std::min(soonest, cycles);
+            latest = std::max(latest, cycles);
+        }
+        const unsigned want = us * 7'159'090u / 1'000'000u;
+        std::printf("  %u µs: the reply %u to %u cycles after the last byte (at least %u)\n", us, soonest, latest, want);
+        CHECK(soonest >= want);
+        CHECK(latest <= want + 151); // and within a sample of it
+    }
+}
+
 TEST(fwrestart_empties_the_store)
 {
     Board b;

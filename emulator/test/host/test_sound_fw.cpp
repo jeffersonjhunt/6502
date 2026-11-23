@@ -302,6 +302,197 @@ TEST(a_record_with_the_wrong_n_is_refused_at_the_door)
     CHECK(!c.fw.err());
 }
 
+namespace
+{
+    /// Events (loads' XFERDONEs) into EVT, nobody reading, until a load's reply can't fit: the FIFO then within a
+    /// few bytes of full. @return its free bytes
+    size_t flood(Card &c, uint8_t first_slot = 0)
+    {
+        for (unsigned i = 0; i < 250; ++i)
+        {
+            const uint8_t slot = static_cast<uint8_t>(first_slot + i);
+            c.send(SoundFw::SAMPLE_LOAD, 0xF0, sample_load(slot, 16));
+            c.fw.advance(2);
+            if (!c.fw.xfer_open())
+                break; // its reply waits for room
+            c.data(noise(16, slot));
+            c.fw.advance(2);
+        }
+        return SoundFw::EVT_BYTES - c.fw.evt_len();
+    }
+    /// EVT read a byte at a time, the card advanced between, to empty: every event of it, parsed.
+    std::vector<Event> trickle(Card &c, std::vector<uint8_t> bytes = {})
+    {
+        for (int guard = 0; guard < 100000 && (c.fw.evt_len() || bytes.size() < 2); ++guard)
+        {
+            if (c.fw.evt_len())
+                bytes.push_back(c.fw.evt_read());
+            c.fw.advance(1);
+            if (!c.fw.evt_len() && guard > 20)
+            {
+                c.fw.advance(20);
+                if (!c.fw.evt_len())
+                    break;
+            }
+        }
+        std::vector<Event> out;
+        for (size_t i = 0; i + 1 < bytes.size();)
+        {
+            Event e;
+            e.kind = bytes[i];
+            const size_t n = bytes[i + 1];
+            e.body.assign(bytes.begin() + static_cast<std::ptrdiff_t>(i + 2),
+                          bytes.begin() + static_cast<std::ptrdiff_t>(std::min(bytes.size(), i + 2 + n)));
+            out.push_back(e);
+            i += 2 + n;
+        }
+        return out;
+    }
+} // namespace
+
+TEST(a_reply_keeps_its_room_with_the_fifo_nearly_full)
+{
+    // Each command that answers with results, sent with EVT within a few bytes of full: its reply comes (never
+    // dropped), and its size is the room the firmware keeps for it. And a command whose own events come before
+    // its reply (PLAY stealing a voice: VOICE_STOLEN) still gets its reply: the event, not the reply, is lost.
+    Card c;
+    // What the commands name: a tune in slot 0, a sample in slot 200 (CHECKSUM), a SID effect 1.
+    std::vector<uint8_t> tune(0x7C, 0);
+    tune[0] = 'P', tune[1] = 'S', tune[2] = 'I', tune[3] = 'D', tune[5] = 2, tune[7] = 0x7C;
+    tune[0x08] = 0x10, tune[0x0A] = 0x10, tune[0x0F] = 1, tune[0x11] = 1, tune[0x77] = 0x14;
+    tune.push_back(0x60);
+    tune.push_back(0x60);
+    c.send(SoundFw::TUNE_LOAD, 1, {0, static_cast<uint8_t>(tune.size()), 0, 0});
+    c.fw.advance(2);
+    c.data(tune);
+    c.send(SoundFw::SAMPLE_LOAD, 2, sample_load(200, 64));
+    c.fw.advance(2);
+    c.data(noise(64, 3));
+    c.send(SoundFw::EFFECT_DEF, 3, {1, 0, 1, 0xFF, 0x10, 0x27, 0x21, 0x00, 0x1B, 0x00, 0, 8, 0x00, 0xF0, 0, 0, 0});
+    c.fw.advance(4);
+    for (const Event &e : c.events())
+        if (e.kind == SoundFw::EV_XFERDONE)
+            CHECK_EQ(e.body.at(6), 0); // the tune and the sample taken
+    struct Ask
+    {
+        uint8_t cmd;
+        std::vector<uint8_t> p;
+        size_t size; ///< the reply's bytes, kind and n with them
+    };
+    const std::vector<Ask> asks = {
+        {SoundFw::IDENTIFY, {}, 4 + 32},      {SoundFw::TIME, {}, 4 + 4},          {SoundFw::CHECKSUM, {SoundFw::SAMPLE_LOAD, 200}, 4 + 8},
+        {SoundFw::XFERABORT, {}, 4 + 3},      {SoundFw::TUNE_STATUS, {}, 4 + 16}, // (the flood's last load opens a transfer first)  {SoundFw::TUNE_INFO, {0}, 4 + 104},
+        {SoundFw::PLAY, {1, 255, 128, 0, 0, 0, 1}, 4 + 1}, {SoundFw::MUSIC_STATUS, {}, 4 + 24}, {SoundFw::STREAM_STATUS, {0}, 4 + 21},
+        {SoundFw::VIS, {}, 4 + 98},           {SoundFw::SIDREGS, {}, 4 + 50},      {SoundFw::LEVELS, {}, 4 + 10},
+        {SoundFw::SELFTEST, {0x0F}, 4 + 2},   {SoundFw::LOSTCLR, {}, 4 + 2},
+    };
+    for (const Ask &a : asks)
+    {
+        const size_t free = flood(c, 10);
+        if (free >= a.size)
+            std::printf("  command $%02X: %zu bytes free after the flood\n", a.cmd, free);
+        CHECK(free < a.size); // too few for its reply: it must wait
+        c.send(a.cmd, 0x77, a.p);
+        bool seen = false;
+        for (const Event &e : trickle(c))
+            if (e.kind == SoundFw::EV_REPLY && e.body.at(0) == 0x77)
+            {
+                seen = true;
+                CHECK_EQ(e.body.size() + 2, a.size);
+                CHECK(e.body.size() + 2 <= SoundFw::reply_room_for(a.cmd));
+            }
+        if (!seen)
+            std::printf("  command $%02X: no reply\n", a.cmd);
+        CHECK(seen);
+    }
+    // PLAY that steals: six SID effects at priority 0, EVT nearly full, then one at priority 1.
+    Card s;
+    s.send(SoundFw::EFFECT_DEF, 3, {1, 0, 1, 0xFF, 0x10, 0x27, 0x21, 0x00, 0x1B, 0x00, 0, 8, 0x00, 0xF0, 0, 0, 0});
+    for (int i = 0; i < 6; ++i)
+        s.send(SoundFw::PLAY, 4, {1, 255, 128, 0, 0, 0, 1});
+    s.fw.advance(4);
+    s.events();
+    flood(s, 10);
+    // 12 bytes free, as the review found it: room for PLAY's reply (5), or for VOICE_STOLEN (9), not both.
+    std::vector<uint8_t> read;
+    while (SoundFw::EVT_BYTES - s.fw.evt_len() < 12)
+        read.push_back(s.fw.evt_read());
+    REQUIRE(SoundFw::EVT_BYTES - s.fw.evt_len() == 12);
+    s.send(SoundFw::PLAY, 0x78, {1, 255, 128, 1, 0, 0, 1});
+    unsigned reply = 0, stolen = 0;
+    for (const Event &e : trickle(s, read))
+    {
+        reply += e.kind == SoundFw::EV_REPLY && e.body.at(0) == 0x78;
+        stolen += e.kind == SoundFw::EV_VOICE_STOLEN;
+    }
+    std::printf("  PLAY's reply %u, VOICE_STOLEN %u (lost %u)\n", reply, stolen, s.fw.events_lost());
+    CHECK_EQ(reply, 1u);
+}
+
+TEST(a_record_too_short_is_refused_at_the_door_too)
+{
+    Card c;
+    c.send_raw(SoundFw::TUNE_PLAY, 8, 1, std::vector<uint8_t>(8, 0)); // TUNE_PLAY takes 9
+    CHECK_EQ(c.fw.error(), SoundFw::E_PARAM);
+    CHECK(c.fw.err());
+    c.send_raw(SoundFw::SAMPLE_LOAD, 12, 2, std::vector<uint8_t>(12, 1)); // SAMPLE_LOAD takes 13
+    CHECK_EQ(c.fw.error(), SoundFw::E_PARAM);
+    c.send(SoundFw::TIME, 3); // the next parses
+    CHECK(!c.fw.err());
+    c.fw.advance(2);
+    const auto ev = c.events();
+    REQUIRE(ev.size() == 3);
+    CHECK_EQ(ev[0].status(), SoundFw::E_PARAM);
+    CHECK_EQ(ev[1].status(), SoundFw::E_PARAM);
+    CHECK_EQ(ev[2].status(), 0);
+    CHECK(!c.fw.xfer_open()); // the short SAMPLE_LOAD opened nothing
+}
+
+TEST(events_masked_off_are_neither_sent_nor_lost)
+{
+    // EVENTS without group 1 (the transfers): a load's XFERDONE isn't sent, and isn't counted lost; the group on
+    // again, the next load's comes. REPLY is always sent.
+    Card c;
+    c.send(SoundFw::EVENTS, 1, {static_cast<uint8_t>(0xFF & ~0x02)});
+    c.send(SoundFw::SAMPLE_LOAD, 2, sample_load(0, 4));
+    c.fw.advance(2);
+    c.data(noise(4, 1));
+    c.fw.advance(2);
+    auto ev = c.events();
+    REQUIRE(ev.size() == 2);
+    CHECK_EQ(ev[0].kind, SoundFw::EV_REPLY);
+    CHECK_EQ(ev[1].kind, SoundFw::EV_REPLY);
+    CHECK_EQ(c.fw.events_lost(), 0u);
+    CHECK(!c.fw.evlost());
+    c.send(SoundFw::EVENTS, 3, {0xFF});
+    c.send(SoundFw::SAMPLE_LOAD, 4, sample_load(1, 4));
+    c.fw.advance(2);
+    c.data(noise(4, 2));
+    c.fw.advance(2);
+    ev = c.events();
+    REQUIRE(ev.size() == 3);
+    CHECK_EQ(ev[2].kind, SoundFw::EV_XFERDONE);
+}
+
+TEST(xferabort_runs_at_once_behind_a_record_waiting_on_its_load)
+{
+    // TUNE_LOAD, its TUNE_PLAY sent at once (it waits for the load), then XFERABORT: the abort runs at once, ends
+    // the transfer, and the play behind it is answered (no tune: E_SLOT).
+    Card c;
+    c.send(SoundFw::TUNE_LOAD, 1, {0, 200, 0, 0});
+    c.send(SoundFw::TUNE_PLAY, 2, {0, 0, 0, 0, 0, 0, 0, 0, 0});
+    c.send(SoundFw::XFERABORT, 3);
+    c.fw.advance(4);
+    CHECK(!c.fw.xfer_open());
+    const auto ev = c.events();
+    REQUIRE(ev.size() == 3);
+    CHECK_EQ(ev[0].tag(), 1);
+    CHECK_EQ(ev[1].tag(), 3); // the abort, ahead of the play that waited
+    CHECK_EQ(ev[1].status(), 0);
+    CHECK_EQ(ev[2].tag(), 2);
+    CHECK_EQ(ev[2].status(), SoundFw::E_SLOT);
+}
+
 TEST(the_store_refuses_what_doesn_t_fit_at_each_size)
 {
     for (const unsigned units : {32u, 64u, 128u})

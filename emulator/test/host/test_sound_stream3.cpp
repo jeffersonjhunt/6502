@@ -121,7 +121,7 @@ namespace
                 {
                     send(SoundFw::STREAM_DATA, 0x50, {static_cast<uint8_t>(s), static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8),
                                                       static_cast<uint8_t>(n >> 16)});
-                    run(200);
+                    wait_xfer();
                     for (size_t i = 0; i < n; ++i)
                         card.write(SoundCard3::DATA, data[s][sent[s] + i]);
                     sent[s] += n;
@@ -134,6 +134,12 @@ namespace
             }
         }
         void run(uint64_t cycles) { card.tick(cycles); }
+        /// Until the transfer a command opens is open (as a host waits for it before DATA), a millisecond at most.
+        void wait_xfer()
+        {
+            for (int i = 0; i < 7200 && !(card.peek(SoundCard3::STATUS) & SoundCard3::STATUS_XFER); ++i)
+                card.tick(1);
+        }
         void run_ms(unsigned ms)
         {
             for (unsigned i = 0; i < ms; ++i)
