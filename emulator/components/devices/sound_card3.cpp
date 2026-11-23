@@ -6,11 +6,17 @@
 
 #include "sound_card3.h"
 
+#include "sid_file.h"
+
 #include <algorithm>
 
 namespace ooe::emu
 {
-    SoundCard3::SoundCard3(unsigned memsize_units) : fw_(*this, memsize_units) {}
+    SoundCard3::SoundCard3(unsigned memsize_units) : fw_(*this, memsize_units)
+    {
+        watch_.card = &chips_;
+        chips_.set_cpu_observer(&watch_);
+    }
 
     SoundCard3::~SoundCard3() = default;
 
@@ -19,18 +25,42 @@ namespace ooe::emu
         const uint32_t to = hz ? hz : NATIVE_HZ;
         phase_ = phase_ * to / host_hz_; // the part of a sample owed, rescaled
         host_hz_ = to;
+        chips_.set_cpu_hz(hz);
+    }
+
+    void SoundCard3::set_adc_rate(uint32_t rate)
+    {
+        adc_rate_ = rate;
+        chips_.set_audio_rate(rate);
+        chips_.set_chip_tap(rate != 0);
+    }
+
+    void SoundCard3::run_chips(uint64_t cycles)
+    {
+        if (!cycles)
+            return;
+        chips_.tick(cycles);
+        if (chips_.peek(SoundCard::STATUS) & SoundCard::STATUS_TO_HOST)
+            chips_.read(SoundCard::MBIN); // the stub's frame number: the play call is counted on the 6510's bus
     }
 
     void SoundCard3::tick(uint64_t cycles)
     {
-        phase_ += cycles * SoundFw::RATE;
-        const uint64_t samples = phase_ / host_hz_;
-        phase_ %= host_hz_;
-        if (samples)
+        // The chips to each sample the firmware acts at, then the firmware; the samples between in one step.
+        while (cycles)
         {
-            fw_.advance(samples);
-            take_edges();
+            const uint64_t n = fw_.next_action();
+            const uint64_t need = (n * host_hz_ - phase_ + SoundFw::RATE - 1) / SoundFw::RATE;
+            const uint64_t step = std::min(need, cycles);
+            run_chips(step);
+            cycles -= step;
+            phase_ += step * SoundFw::RATE;
+            const uint64_t samples = phase_ / host_hz_;
+            phase_ %= host_hz_;
+            if (samples)
+                fw_.advance(samples);
         }
+        take_edges();
     }
 
     void SoundCard3::catch_up() { take_edges(); }
@@ -146,5 +176,66 @@ namespace ooe::emu
 
     void SoundCard3::bus_reset() { strobe_reset(); }
 
-    void SoundCard3::silence() {}
+    // --- the port: the card's chips ------------------------------------------------------------------------
+
+    void SoundCard3::silence() { stop_sid(chips_); }
+
+    void SoundCard3::tune_start(const SidPlan &plan, bool ntsc, bool sid_b_d500)
+    {
+        // A tune starts on chips just reset (/RES): the 6510 stopped, CIA 1, its port and both SIDs as at
+        // power-on (the SIDs' envelope counters run on otherwise), whatever played before it. Its RAM stays.
+        chips_.reset();
+        stop_sid(chips_);
+        chips_.set_model(plan.model);
+        for (const auto &block : plan.blocks)
+        {
+            chips_.write(SoundCard::RAMADDR, static_cast<uint8_t>(block.addr));
+            chips_.write(SoundCard::RAMADDR + 1, static_cast<uint8_t>(block.addr >> 8));
+            for (const uint8_t byte : block.bytes)
+                chips_.write(SoundCard::RAMDATA, byte);
+        }
+        if (adc_rate_)
+            chips_.set_audio_rate(adc_rate_); // the samples afresh from the reset
+        chips_ctrl_ = static_cast<uint8_t>(SoundCard::CTRL_RUN | (ntsc ? SoundCard::CTRL_NTSC : 0) |
+                                           (sid_b_d500 ? SoundCard::CTRL_SID_B_D500 : 0)); // never BOTH
+        watch_.calls = 0;
+        watch_.last_play = 0;
+        chips_.write(SoundCard::CTRL, static_cast<uint8_t>(chips_ctrl_ | SoundCard::CTRL_RESET));
+        ++starts_;
+    }
+
+    void SoundCard3::tune_stop() { stop_sid(chips_); }
+
+    void SoundCard3::tune_hold(bool held)
+    {
+        if (held)
+        {
+            chips_.write(SoundCard::CTRL, static_cast<uint8_t>(chips_ctrl_ & ~SoundCard::CTRL_RUN));
+            for (unsigned n = 0; n < 2; ++n)
+            {
+                held_vol_[n] = chips_.sid(n)[SoundCard::SID_MODE_VOL];
+                chips_.write(static_cast<uint32_t>((n ? SoundCard::SID_B : SoundCard::SID_A) + SoundCard::SID_MODE_VOL),
+                             static_cast<uint8_t>(held_vol_[n] & 0xF0));
+            }
+            return;
+        }
+        for (unsigned n = 0; n < 2; ++n)
+            chips_.write(static_cast<uint32_t>((n ? SoundCard::SID_B : SoundCard::SID_A) + SoundCard::SID_MODE_VOL), held_vol_[n]);
+        chips_.write(SoundCard::CTRL, chips_ctrl_);
+    }
+
+    bool SoundCard3::tune_jammed(uint16_t &pc)
+    {
+        if (chips_.cpu().state() != Cpu6502::State::Stopped)
+            return false;
+        pc = chips_.cpu().regs().pc;
+        return true;
+    }
+
+    void SoundCard3::sid_regs(unsigned chip, uint8_t out[25])
+    {
+        const auto &r = chips_.sid(chip);
+        for (unsigned i = 0; i < 25; ++i)
+            out[i] = r[i];
+    }
 } // namespace ooe::emu

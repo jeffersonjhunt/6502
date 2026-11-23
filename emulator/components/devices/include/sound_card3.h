@@ -23,15 +23,23 @@
  * $0B XTAG, $0C IEN, $0D ISR (bit 0 EVT, a level; bits 1-3 XDONE, CMDROOM, READY, cleared by writing 1),
  * $0E MEMSIZE, $0F FEATURES, $10-$11 FWVER, $7F ID ($A3). Every other offset reads 0 and ignores writes.
  *
+ * The card's chips are revision 2's card (sound_card.h) used as a part: its 6510 with the C64-like map, CIA 1
+ * and the frame interrupt, and both SIDs, driven through its own registers by the port, never by the bus; so a
+ * tune's 6510 runs the same code as revision 2's, cycle for cycle (the stub, the decode: a second SID at $D420
+ * or $D500), except that a one-SID tune plays on SID A alone (no BOTH).
+ *
  * /RESET (bus_reset) and CTRL's RESET do the same: an open transfer abandoned, both FIFOs emptied, every
  * sound stopped, CTRL, IEN and ISR 0; the firmware runs on and the store keeps its objects. FWRESTART starts
  * the firmware over: READY clear for its start-up, the store emptied.
  */
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
+#include "bus_cycle.h"
 #include "device.h"
+#include "sound_card.h"
 #include "sound_fw.h"
 
 namespace ooe::emu
@@ -86,6 +94,20 @@ namespace ooe::emu
         bool drq() const override { return (ctrl_ & CTRL_DRQ) && fw_.xfer_open(); }
         void dack_write(uint8_t data, bool tc) override;
 
+        /// The card's chips (the debugger's and the tests' view: nothing on the bus reaches them).
+        SoundCard &chips() { return chips_; }
+        const SoundCard &chips() const { return chips_; }
+        /// Another observer of the 6510's bus cycles, after the card's own; null for none.
+        void set_cpu_observer(CycleObserver *observer) { watch_.next = observer; }
+        /// The rate the SIDs' sound is made at (their samples, each chip's alone, as the ADC takes them); 0 none.
+        /// A tune's start begins its samples afresh, so they fall alike relative to the 6510's reset.
+        void set_adc_rate(uint32_t rate);
+        uint32_t adc_rate() const { return adc_rate_; }
+        /// The SIDs' sound, left SID A and right SID B, as the chips' card mixes it (until the digital path).
+        size_t take_audio(float *out, size_t max_frames) { return chips_.take_audio(out, max_frames); }
+        /// Tunes started since power-on (tests: the moment a TUNE_PLAY ran).
+        uint64_t tune_starts() const { return starts_; }
+
         SoundFw &firmware() { return fw_; }
         const SoundFw &firmware() const { return fw_; }
         /// Bytes DATA dropped (none open), for tests.
@@ -94,6 +116,35 @@ namespace ooe::emu
     private:
         // SoundFwPort
         void silence() override;
+        void tune_start(const SidPlan &plan, bool ntsc, bool sid_b_d500) override;
+        void tune_stop() override;
+        void tune_hold(bool held) override;
+        bool tune_jammed(uint16_t &pc) override;
+        uint64_t play_calls() override { return watch_.calls; }
+        uint32_t play_cycles() override { return watch_.last_play; }
+        void sid_regs(unsigned chip, uint8_t out[25]) override;
+
+        /// The 6510's bus: play calls (the stub's $DE00 writes) and their cost from the frame's interrupt.
+        struct PlayWatch : CycleObserver
+        {
+            const SoundCard *card{nullptr};
+            CycleObserver *next{nullptr};
+            uint64_t calls{0}, irq_at{0};
+            uint32_t last_play{0};
+            void on_cycle(const BusCycle &c) override
+            {
+                if (!c.write && c.vector_pull && c.addr == 0xFFFE)
+                    irq_at = c.cycle;
+                else if (c.write && c.addr == 0xDE00 && card->io_visible())
+                {
+                    ++calls;
+                    last_play = static_cast<uint32_t>(c.cycle - irq_at);
+                }
+                if (next)
+                    next->on_cycle(c);
+            }
+        };
+        void run_chips(uint64_t cycles); ///< the chips, and the mailbox the stub writes taken
 
         void catch_up();       ///< the firmware to the host's cycle
         void take_edges();     ///< ISR's latched bits from the firmware
@@ -101,6 +152,12 @@ namespace ooe::emu
         uint8_t status() const;
         void strobe_reset();
 
+        SoundCard chips_;
+        PlayWatch watch_;
+        uint32_t adc_rate_{0};
+        uint8_t chips_ctrl_{0};          ///< the chips' CTRL while a tune runs (RESET not kept)
+        std::array<uint8_t, 2> held_vol_{}; ///< each SID's $18 as a pause found it
+        uint64_t starts_{0};
         SoundFw fw_;
         uint32_t host_hz_{NATIVE_HZ};
         uint64_t phase_{0};    ///< host cycles x 48,000 owed below one sample

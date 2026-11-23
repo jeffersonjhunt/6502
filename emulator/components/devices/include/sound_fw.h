@@ -40,6 +40,8 @@
 #include <string>
 #include <vector>
 
+#include "sid_plan.h"
+
 namespace ooe::emu
 {
     /// CRC-32 (polynomial $04C11DB7 reflected, from $FFFFFFFF, inverted): CHECKSUM's and the firmware image's.
@@ -72,6 +74,23 @@ namespace ooe::emu
         virtual ~SoundFwPort() = default;
         /// Every chip quiet: the 6510 stopped, both SIDs' registers 0, the ES5503's oscillators halted.
         virtual void silence() = 0;
+
+        // The 6510 and the tune's SIDs.
+        /// Reset the chips (the 6510, CIA 1 and both SIDs as at power-on), set their model, put the plan's blocks
+        /// into the 6510's RAM and reset it running, on the NTSC clock or PAL's, its second SID at $D500 or $D420 (today's decode).
+        virtual void tune_start(const SidPlan &plan, bool ntsc, bool sid_b_d500) = 0;
+        /// Stop the 6510 and silence both SIDs.
+        virtual void tune_stop() = 0;
+        /// Hold the 6510 where it is, each SID's volume nibble 0 (true); or put them back and run on (false).
+        virtual void tune_hold(bool held) = 0;
+        /// The 6510 met a JAM opcode: true, and its address.
+        virtual bool tune_jammed(uint16_t &pc) = 0;
+        /// The play calls since tune_start(): the stub's writes to $DE00.
+        virtual uint64_t play_calls() = 0;
+        /// The 6510's cycles from the last frame's interrupt to its play call's end.
+        virtual uint32_t play_cycles() = 0;
+        /// SID `chip`'s 25 registers as last written, by the 6510 or the firmware.
+        virtual void sid_regs(unsigned chip, uint8_t out[25]) = 0;
     };
 
     class SoundFw
@@ -197,6 +216,10 @@ namespace ooe::emu
         /// `samples` of the card's clock: due commands run, millisecond steps, the digital path.
         void advance(uint64_t samples);
         uint64_t now() const { return now_; }
+        /// Samples until the firmware next acts on its own (a millisecond step, a record falling due, a
+        /// transfer's check, READY): the samples between are the digital path's alone, so a front end may
+        /// clock its chips to that sample in one step. At least 1.
+        uint64_t next_action() const;
         uint32_t ms() const { return static_cast<uint32_t>(now_ / SAMPLES_PER_MS); }
 
         // --- resets ----------------------------------------------------------------------------------------
@@ -239,6 +262,19 @@ namespace ooe::emu
 
         // --- for tests and the debugger -----------------------------------------------------------------
         size_t store_bytes() const { return store_.size(); }
+        /// The SIDs a tune holds: bit 0 SID A, bit 1 SID B.
+        uint8_t tune_chips() const { return tune_.chips; }
+        enum TuneState : uint8_t
+        {
+            T_STOPPED = 0,
+            T_STARTING = 1,
+            T_PLAYING = 2,
+            T_PAUSED = 3,
+            T_STALLED = 4,
+            T_JAMMED = 5,
+            T_ENDED = 6,
+        };
+        uint8_t tune_state() const { return tune_.state; }
         size_t store_free() const;
         uint32_t events_lost() const { return lost_; }
 
@@ -326,5 +362,24 @@ namespace ooe::emu
         Object effects_{};
         std::array<Object, STREAMS> chunks_{}; ///< each stream's last chunk, for CHECKSUM
         Object image_{};                       ///< a firmware image received
+        std::array<std::optional<SidFile>, TUNE_SLOTS> files_{}; ///< each tune slot's header, once checked
+
+        struct Tune
+        {
+            uint8_t state{0}; ///< TuneState
+            uint8_t slot{0}, chips{0};
+            uint16_t song{0};
+            bool has_play{false}, first{false};
+            uint8_t held_state{0};      ///< the state a pause left
+            uint32_t played_ms{0};      ///< paused time out
+            uint32_t length_ms{0}, fade_ms{0};
+            uint32_t quiet_ms{0};       ///< since the last play call (or the start, before the first)
+            uint64_t calls{0};
+        };
+        Tune tune_;
+        void tune_ms();
+        void stop_tune(uint8_t state);
+        uint8_t play_tune(const uint8_t *p);
+        static constexpr uint32_t STALL_MS = 2000, FIRST_CALL_MS = 10000;
     };
 } // namespace ooe::emu

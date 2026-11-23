@@ -74,6 +74,7 @@ emulator/components/devices/*joystick_ports*    joy backplane web
 emulator/components/devices/*minimp3*           sound backplane web
 emulator/components/devices/*pia6821*           pia web
 emulator/components/devices/*sid_file*          sid web
+emulator/components/devices/*sid_plan*          sid sound backplane web
 emulator/components/devices/*sid.*              sid sound backplane web
 emulator/components/devices/*sound_card*        sound backplane web
 emulator/components/devices/*sound_dsp*         sound backplane web
