@@ -8,8 +8,11 @@
 
 #include "sound_flash.h"
 
+#include "minimp3.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace ooe::emu
 {
@@ -39,6 +42,17 @@ namespace ooe::emu
                 v.push_back(i < s.size() ? static_cast<uint8_t>(s[i]) : 0);
         }
     } // namespace
+
+    struct SoundFw::Mp3
+    {
+        mp3dec_t dec{};
+        std::deque<int16_t> pcm;   ///< decoded frames, left then right, held back by the trim's tail
+        bool header_done{false};   ///< the first frame looked at (an encoder's gapless header, or not)
+        bool end_decoded{false};   ///< no more frames: the data's end decoded
+        uint32_t skip{0};          ///< frames still to drop at the start (the encoder's delay)
+        uint32_t tail{0};          ///< frames to drop at the end (its padding)
+        uint32_t hz{0};
+    };
 
     void Crc32::add(uint8_t b)
     {
@@ -124,6 +138,7 @@ namespace ooe::emu
     void SoundFw::ms_step()
     {
         tune_ms();
+        streams_ms();
         if (boot_.active)
         {
             // 240 ticks a second, from the start (tick 0 played then).
@@ -251,6 +266,14 @@ namespace ooe::emu
         port_.doc_frame(d);
         for (unsigned ch = 0; ch < 2; ++ch)
             src[SRC_EFFECTS][ch] = 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
+        // The streams, at half of full scale as revision 2's bus mixes its stream.
+        for (unsigned s = 0; s < STREAMS; ++s)
+        {
+            float f[2] = {0, 0};
+            stream_frame(s, f);
+            for (unsigned ch = 0; ch < 2; ++ch)
+                src[SRC_STREAMS][ch] += 0.5f * f[ch] * static_cast<float>(mix_[SRC_STREAMS]) / 255.0f;
+        }
         // The tone generator: a band-limited square.
         if (tone_.left)
         {
@@ -626,8 +649,18 @@ namespace ooe::emu
     {
         if (!xfer_.open)
             return false;
-        Object &o = *xfer_.obj;
-        store_[o.at + (xfer_.len - xfer_.left)] = b;
+        if (xfer_.cmd == STREAM_DATA)
+        {
+            Stream &st = streams_[xfer_.slot];
+            const Object &ring = rings_[xfer_.slot];
+            store_[ring.at + st.wr % ring.len] = b;
+            ++st.wr;
+        }
+        else
+        {
+            Object &o = *xfer_.obj;
+            store_[o.at + (xfer_.len - xfer_.left)] = b;
+        }
         xfer_.crc.add(b);
         if (--xfer_.left == 0)
         {
@@ -648,7 +681,7 @@ namespace ooe::emu
             add(o);
         for (const auto &o : music_)
             add(o);
-        for (const auto &o : chunks_)
+        for (const auto &o : rings_)
             add(o);
         add(effects_);
         add(image_);
@@ -963,6 +996,117 @@ namespace ooe::emu
             files_[p[0]].reset();
             reply(tag, OK);
             break;
+        case STREAM_OPEN:
+            reply(tag, open_stream(p));
+            break;
+        case STREAM_DATA:
+        {
+            const unsigned s = p[0];
+            const uint32_t len = get24(p + 1);
+            if (s >= STREAMS || !streams_[s].open || streams_[s].ended || len == 0)
+            {
+                reply(tag, s >= STREAMS || len == 0 ? E_PARAM : E_STATE);
+                break;
+            }
+            Stream &st = streams_[s];
+            if (rings_[s].len - (st.wr - st.rd) < len)
+            {
+                reply(tag, E_MEMORY); // the ring hasn't room
+                break;
+            }
+            if (xfer_.open || xfer_.done)
+            {
+                reply(tag, E_XFER);
+                break;
+            }
+            st.need_out = false;
+            xfer_ = Transfer{};
+            xfer_.open = true;
+            xfer_.cmd = cmd, xfer_.tag = tag, xfer_.slot = static_cast<uint8_t>(s);
+            xfer_.len = xfer_.left = len;
+            chunks_[s] = Object{};
+            chunks_[s].loading = true;
+            xfer_.obj = &chunks_[s];
+            reply(tag, OK);
+            break;
+        }
+        case STREAM_END:
+        case STREAM_PAUSE:
+        case STREAM_RESUME:
+        case STREAM_FLUSH:
+        case STREAM_CLOSE:
+        {
+            const unsigned s = p[0];
+            if (s >= STREAMS || !streams_[s].open)
+            {
+                reply(tag, s >= STREAMS ? E_PARAM : E_STATE);
+                break;
+            }
+            Stream &st = streams_[s];
+            uint8_t status = OK;
+            if (cmd == STREAM_END)
+                st.ended = true;
+            else if (cmd == STREAM_PAUSE)
+            {
+                if (st.paused || st.state == S_ENDED)
+                    status = E_STATE;
+                else
+                    st.paused = true;
+            }
+            else if (cmd == STREAM_RESUME)
+            {
+                if (!st.paused)
+                    status = E_STATE;
+                else
+                    st.paused = false;
+            }
+            else if (cmd == STREAM_FLUSH)
+            {
+                if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
+                    abort_transfer();
+                st.rd = st.wr;
+                st.ended = st.need_out = st.underrun = false;
+                st.state = S_BUFFERING;
+                reset_decoder(st);
+            }
+            else
+                close_stream(s);
+            reply(tag, status);
+            break;
+        }
+        case STREAM_NEXT:
+        {
+            const unsigned s = p[0], n = p[1];
+            if (s >= STREAMS || n >= STREAMS || s == n || !streams_[s].open || !streams_[n].open)
+            {
+                reply(tag, s >= STREAMS || n >= STREAMS || s == n ? E_PARAM : E_STATE);
+                break;
+            }
+            streams_[s].next = static_cast<int>(n);
+            streams_[n].queued = true;
+            reply(tag, OK);
+            break;
+        }
+        case STREAM_STATUS:
+        {
+            const unsigned s = p[0];
+            if (s >= STREAMS)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            const Stream &st = streams_[s];
+            std::vector<uint8_t> r{st.paused && st.open ? uint8_t{S_PAUSED} : st.state, st.codec};
+            put16(r, st.codec == 0 ? st.rate : (st.mp3 ? st.mp3->hz : 0));
+            r.push_back(st.fmt);
+            put32(r, static_cast<uint32_t>(st.wr - st.rd));
+            put32(r, st.open ? buffered_ms(st) : 0);
+            put32(r, static_cast<uint32_t>(st.frames));
+            put16(r, st.kbps);
+            put16(r, st.underruns);
+            reply(tag, OK, r);
+            break;
+        }
         case BOOTSOUND:
             boot_start();
             reply(tag, OK);
@@ -1111,7 +1255,7 @@ namespace ooe::emu
             add(o);
         for (const auto &o : music_)
             add(o);
-        for (const auto &o : chunks_)
+        for (const auto &o : rings_)
             add(o);
         add(effects_);
         add(image_);
@@ -1134,6 +1278,17 @@ namespace ooe::emu
     {
         if (tune_.state != T_STOPPED)
             stop_tune(T_STOPPED);
+        for (unsigned s = 0; s < STREAMS; ++s) // every stream flushed: stopped, its ring kept
+            if (streams_[s].open)
+            {
+                Stream &st = streams_[s];
+                if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
+                    abort_transfer();
+                st.rd = st.wr;
+                st.ended = st.need_out = st.underrun = st.paused = false;
+                st.state = S_BUFFERING;
+                reset_decoder(st);
+            }
         tone_ = Tone{};
         boot_ = BootSound{};
         port_.silence();
@@ -1150,6 +1305,8 @@ namespace ooe::emu
             free_object(o);
         for (auto &o : chunks_)
             free_object(o);
+        for (unsigned s = 0; s < STREAMS; ++s)
+            close_stream(s);
         free_object(effects_);
         free_object(image_);
         for (auto &f : files_)
@@ -1182,6 +1339,8 @@ namespace ooe::emu
         Object &o = *xfer_.obj;
         o.loading = false;
         o.crc = xfer_.crc.value();
+        if (xfer_.cmd == STREAM_DATA)
+            o.used = true, o.len = xfer_.len; // a record of the last chunk (CHECKSUM's), not a run of the store
         const uint8_t cmd = xfer_.cmd, tag = xfer_.tag, slot = xfer_.slot;
         xfer_ = Transfer{};
         std::vector<uint8_t> payload{cmd, OK};
@@ -1212,8 +1371,322 @@ namespace ooe::emu
 
     void SoundFw::abort_transfer()
     {
+        if (xfer_.cmd == STREAM_DATA && (xfer_.open || xfer_.done))
+            streams_[xfer_.slot].wr -= xfer_.len - xfer_.left; // what came of the chunk, dropped
         if (xfer_.obj && (xfer_.open || xfer_.done))
             free_object(*xfer_.obj);
         xfer_ = Transfer{};
+    }
+
+    // --- streams --------------------------------------------------------------------------------------------
+
+
+    size_t SoundFw::frame_bytes(const Stream &st) const
+    {
+        return (st.fmt & 1 ? 2u : 1u) * (st.fmt & 2 ? 2u : 1u);
+    }
+
+    uint32_t SoundFw::buffered_ms(const Stream &st) const
+    {
+        const uint64_t bytes = st.wr - st.rd;
+        if (st.codec == 0)
+            return st.rate ? static_cast<uint32_t>(bytes * 1000 / (st.rate * frame_bytes(st))) : 0;
+        const uint32_t kbps = st.kbps ? st.kbps : 128; // by the first frames' bitrate, once known
+        return static_cast<uint32_t>(bytes * 8 / kbps);
+    }
+
+    uint8_t SoundFw::ring_byte(unsigned s, uint64_t at) const
+    {
+        const Object &r = rings_[s];
+        return store_[r.at + at % r.len];
+    }
+
+    void SoundFw::reset_decoder(Stream &st)
+    {
+        st.phase = 0;
+        st.prev[0] = st.prev[1] = st.cur[0] = st.cur[1] = 0;
+        if (st.codec == 1)
+        {
+            st.mp3 = std::make_shared<Mp3>();
+            mp3dec_init(&st.mp3->dec);
+        }
+        else
+            st.mp3.reset();
+    }
+
+    uint8_t SoundFw::open_stream(const uint8_t *p)
+    {
+        const unsigned s = p[0];
+        const uint8_t codec = p[1], fmt = p[4];
+        const uint32_t rate = get16(p + 2), chunk = get24(p + 5), prebuf = get16(p + 8);
+        if (s >= STREAMS || codec > 1 || (fmt & ~3u) || (codec == 0 && (rate < 8000 || rate > 48000)))
+            return E_PARAM;
+        close_stream(s);
+        Stream &st = streams_[s];
+        st = Stream{};
+        st.codec = codec;
+        st.fmt = fmt;
+        st.rate = codec == 0 ? rate : 0;
+        st.chunk = chunk ? chunk : CHUNK_DEFAULT;
+        st.prebuffer_ms = prebuf ? prebuf : PREBUFFER_DEFAULT;
+        // The ring: as big as the store allows, half of what's free (the bank, tunes and the other stream
+        // have the rest) and at most 4 MB, whole frames; at least a chunk.
+        size_t len = std::min(store_free() / 2, RING_MOST);
+        len -= len % 4;
+        if (len < st.chunk)
+            return E_MEMORY;
+        const auto at = allocate(len);
+        if (!at)
+            return E_MEMORY;
+        rings_[s].used = true;
+        rings_[s].at = *at;
+        rings_[s].len = len;
+        st.open = true;
+        st.state = S_BUFFERING;
+        reset_decoder(st);
+        return OK;
+    }
+
+    void SoundFw::close_stream(unsigned s)
+    {
+        if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
+            abort_transfer();
+        for (auto &o : streams_)
+            if (o.next == static_cast<int>(s))
+                o.next = -1;
+        streams_[s] = Stream{};
+        free_object(rings_[s]);
+    }
+
+    bool SoundFw::decode_mp3(unsigned s)
+    {
+        // A frame of the ring's data decoded into the stream's queue: false if no whole frame has come.
+        Stream &st = streams_[s];
+        Mp3 &m = *st.mp3;
+        const uint64_t have = st.wr - st.rd;
+        if (!have)
+        {
+            if (st.ended)
+                m.end_decoded = true; // every frame decoded
+            return st.ended;
+        }
+        const size_t n = static_cast<size_t>(std::min<uint64_t>(have, 16384));
+        mp3_scratch_.resize(n);
+        for (size_t i = 0; i < n; ++i)
+            mp3_scratch_[i] = ring_byte(s, st.rd + i);
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        mp3dec_frame_info_t info{};
+        const int got = mp3dec_decode_frame(&m.dec, mp3_scratch_.data(), static_cast<int>(n), pcm.data(), &info);
+        if (!info.frame_bytes)
+        {
+            if (st.ended && n == have) // the rest holds no frame
+            {
+                m.end_decoded = true;
+                return true;
+            }
+            if (n >= 16384)
+            {
+                st.state = S_NO_SYNC; // 16 KB with no frame in it
+                return false;
+            }
+            return false; // more to come
+        }
+        const uint8_t *frame = mp3_scratch_.data() + (static_cast<size_t>(info.frame_bytes) <= n ? 0 : 0);
+        if (!m.header_done)
+        {
+            // An encoder's gapless header: a Xing or Info frame with a LAME tag after it carries the delay and
+            // padding it added; that frame is the header, not audio (the spec's Q11).
+            m.header_done = true;
+            const size_t fb = static_cast<size_t>(info.frame_bytes);
+            const uint8_t *xing = nullptr;
+            for (size_t i = 0; i + 4 <= std::min<size_t>(fb, 64); ++i)
+                if (!std::memcmp(frame + i, "Xing", 4) || !std::memcmp(frame + i, "Info", 4))
+                {
+                    xing = frame + i;
+                    break;
+                }
+            if (xing && static_cast<size_t>(xing - frame) + 120 + 24 <= fb && !std::memcmp(xing + 120, "LAME", 4))
+            {
+                const uint8_t *d = xing + 120 + 21;
+                const uint32_t delay = static_cast<uint32_t>(d[0] << 4 | d[1] >> 4);
+                const uint32_t padding = static_cast<uint32_t>((d[1] & 0x0F) << 8 | d[2]);
+                m.skip = delay + 529; // and the decoder's own delay, as decoders keeping it do
+                m.tail = padding > 529 ? padding - 529 : 0;
+                st.rd += static_cast<uint64_t>(info.frame_bytes);
+                return true;
+            }
+        }
+        st.rd += static_cast<uint64_t>(info.frame_bytes);
+        if (info.hz > 48000)
+        {
+            st.state = S_BAD_FORMAT;
+            return false;
+        }
+        m.hz = static_cast<uint32_t>(info.hz);
+        st.kbps = static_cast<uint16_t>(info.bitrate_kbps);
+        for (int i = 0; i < got; ++i)
+        {
+            if (m.skip)
+            {
+                --m.skip;
+                continue;
+            }
+            const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+            m.pcm.push_back(l);
+            m.pcm.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+        }
+        return true;
+    }
+
+    bool SoundFw::next_frame(unsigned &s, int16_t out[2])
+    {
+        for (int guard = 0; guard < 4; ++guard)
+        {
+            Stream &st = streams_[s];
+            bool exhausted = false;
+            if (st.codec == 0)
+            {
+                const size_t fb = frame_bytes(st);
+                if (st.wr - st.rd >= fb)
+                {
+                    const auto sample = [&](uint64_t i) -> int16_t {
+                        if (st.fmt & 2)
+                            return static_cast<int16_t>(static_cast<uint16_t>(ring_byte(s, i) | ring_byte(s, i + 1) << 8));
+                        return static_cast<int16_t>((ring_byte(s, i) - 128) * 256); // unsigned, as revision 2
+                    };
+                    const uint64_t step = st.fmt & 2 ? 2 : 1;
+                    out[0] = sample(st.rd);
+                    out[1] = st.fmt & 1 ? sample(st.rd + step) : out[0];
+                    st.rd += fb;
+                    return true;
+                }
+                exhausted = st.ended;
+            }
+            else
+            {
+                Mp3 &m = *st.mp3;
+                while (m.pcm.size() / 2 <= m.tail && !m.end_decoded && st.state < 0x80)
+                    if (!decode_mp3(s))
+                        break;
+                if (m.pcm.size() / 2 > m.tail || (m.end_decoded && m.pcm.size() / 2 > m.tail))
+                {
+                    out[0] = m.pcm.front();
+                    m.pcm.pop_front();
+                    out[1] = m.pcm.front();
+                    m.pcm.pop_front();
+                    return true;
+                }
+                exhausted = m.end_decoded;
+                if (st.state >= 0x80)
+                    return false;
+            }
+            if (!exhausted)
+                return false;
+            // The data's end: the next stream's first frame follows with no gap, or the stream has ended.
+            if (st.next >= 0 && streams_[static_cast<unsigned>(st.next)].open)
+            {
+                const unsigned n = static_cast<unsigned>(st.next);
+                Stream &nx = streams_[n];
+                nx.queued = false;
+                nx.state = S_PLAYING;
+                nx.phase = st.phase;
+                nx.prev[0] = st.prev[0], nx.prev[1] = st.prev[1];
+                nx.cur[0] = st.cur[0], nx.cur[1] = st.cur[1];
+                const unsigned was = s;
+                close_stream(was);
+                event(EV_TRACK, static_cast<uint8_t>(n), {static_cast<uint8_t>(was)});
+                s = n;
+                continue;
+            }
+            st.state = S_ENDED;
+            std::vector<uint8_t> v;
+            put32(v, static_cast<uint32_t>(st.frames));
+            event(EV_STREAM_ENDED, static_cast<uint8_t>(s), v);
+            return false;
+        }
+        return false;
+    }
+
+    void SoundFw::stream_frame(unsigned s, float out[2])
+    {
+        Stream *st = &streams_[s];
+        if (!st->open || st->queued || st->paused)
+            return;
+        if (st->state == S_BUFFERING && (buffered_ms(*st) >= st->prebuffer_ms || st->ended))
+            st->state = S_PLAYING;
+        if (st->state != S_PLAYING && st->state != S_UNDERRUN)
+            return;
+        const uint32_t rate = st->codec == 0 ? st->rate : (st->mp3->hz ? st->mp3->hz : 0);
+        st->phase += rate ? rate : RATE;
+        while (st->phase >= RATE)
+        {
+            st->phase -= RATE;
+            int16_t f[2];
+            unsigned now = s;
+            if (next_frame(now, f))
+            {
+                st = &streams_[now];
+                if (st->state == S_UNDERRUN || st->underrun)
+                {
+                    st->underrun = false;
+                    st->state = S_PLAYING;
+                    std::vector<uint8_t> v;
+                    put32(v, static_cast<uint32_t>(st->frames));
+                    put32(v, static_cast<uint32_t>(st->missed));
+                    event(EV_UNDERRUN_END, static_cast<uint8_t>(now), v);
+                }
+                st->prev[0] = st->cur[0], st->prev[1] = st->cur[1];
+                st->cur[0] = f[0], st->cur[1] = f[1];
+                ++st->frames;
+                if (stream_tap_on_)
+                    stream_tap_.insert(stream_tap_.end(), f, f + 2);
+                s = now;
+                continue;
+            }
+            st = &streams_[now];
+            s = now;
+            if (!st->open || st->state == S_ENDED || st->state >= 0x80)
+                return;
+            // No data and no end: silence, the frame due counted as missed; sound comes back at the next due.
+            ++st->missed;
+            st->prev[0] = st->prev[1] = st->cur[0] = st->cur[1] = 0;
+            if (!st->underrun)
+            {
+                st->underrun = true;
+                st->state = S_UNDERRUN;
+                ++st->underruns;
+                std::vector<uint8_t> v;
+                put32(v, static_cast<uint32_t>(st->frames));
+                put16(v, st->underruns);
+                event(EV_UNDERRUN, static_cast<uint8_t>(s), v);
+            }
+        }
+        const float frac = static_cast<float>(st->phase) / static_cast<float>(RATE);
+        for (unsigned ch = 0; ch < 2; ++ch)
+            out[ch] += (st->prev[ch] + (st->cur[ch] - st->prev[ch]) * frac) / 32768.0f;
+    }
+
+    void SoundFw::streams_ms()
+    {
+        // NEED: room for a whole chunk and none outstanding.
+        for (unsigned s = 0; s < STREAMS; ++s)
+        {
+            Stream &st = streams_[s];
+            if (!st.open || st.ended || st.need_out || st.state >= 0x80 || st.state == S_ENDED)
+                continue;
+            if (xfer_.cmd == STREAM_DATA && xfer_.slot == s && (xfer_.open || xfer_.done))
+                continue; // its chunk still coming: the room it will take isn't room
+
+            const uint64_t room = rings_[s].len - (st.wr - st.rd);
+            if (room < st.chunk)
+                continue;
+            st.need_out = true;
+            const uint32_t ms_in = buffered_ms(st);
+            std::vector<uint8_t> v;
+            put32(v, static_cast<uint32_t>(room));
+            put32(v, ms_in);
+            v.push_back(ms_in < URGENT_MS ? 1 : 0);
+            event(EV_NEED, static_cast<uint8_t>(s), v);
+        }
     }
 } // namespace ooe::emu

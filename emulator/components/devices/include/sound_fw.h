@@ -322,6 +322,33 @@ namespace ooe::emu
         void take_output(std::vector<int16_t> &out);
         /// The ADC's samples so far into the firmware's queue (a front end's, before it restarts them).
         void pull_adc() { port_.adc_take(adc_); }
+        /// Tests: each stream's frames as they play, at the stream's own rate before any resampling (a TRACK's
+        /// join continuing the same list), signed 16-bit, left then right; underruns' silence not in it.
+        void set_stream_tap(bool on)
+        {
+            stream_tap_on_ = on;
+            stream_tap_.clear();
+        }
+        std::vector<int16_t> take_stream_tap()
+        {
+            std::vector<int16_t> out;
+            out.swap(stream_tap_);
+            return out;
+        }
+        enum StreamState : uint8_t
+        {
+            S_IDLE = 0,
+            S_BUFFERING = 1,
+            S_PLAYING = 2,
+            S_PAUSED = 3,
+            S_UNDERRUN = 4,
+            S_ENDED = 5,
+            S_BAD_FORMAT = 0x80,
+            S_NO_SYNC = 0x81,
+        };
+        uint8_t stream_state(unsigned s) const { return streams_[s % STREAMS].state; }
+        /// A stream's ring in the store, bytes.
+        size_t stream_ring(unsigned s) const { return rings_[s % STREAMS].len; }
         bool beeping() const { return tone_.left > 0; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
@@ -426,6 +453,41 @@ namespace ooe::emu
             uint64_t calls{0};
         };
         Tune tune_;
+
+        // --- streams ------------------------------------------------------------------------------------------
+        static constexpr uint32_t CHUNK_DEFAULT = 32 * 1024, PREBUFFER_DEFAULT = 500, URGENT_MS = 1000;
+        static constexpr size_t RING_MOST = 4u << 20; ///< a ring at most 4 MB, at most half the store free
+        struct Mp3;
+        struct Stream
+        {
+            uint8_t state{0};
+            bool open{false}, paused{false}, ended{false}, need_out{false}, queued{false}, underrun{false};
+            uint8_t codec{0}, fmt{0};
+            uint32_t rate{0}, chunk{CHUNK_DEFAULT}, prebuffer_ms{PREBUFFER_DEFAULT};
+            int next{-1};          ///< the stream that follows it (STREAM_NEXT)
+            uint64_t rd{0}, wr{0}; ///< the ring's bytes read and written, from the start
+            uint64_t frames{0}, missed{0};
+            uint16_t underruns{0}, kbps{0};
+            uint64_t phase{0};     ///< x 48,000: where the output is between prev and cur
+            int16_t prev[2]{0, 0}, cur[2]{0, 0};
+            std::shared_ptr<Mp3> mp3;
+        };
+        std::array<Stream, STREAMS> streams_{};
+        std::array<Object, STREAMS> rings_{};
+        bool stream_tap_on_{false};
+        std::vector<int16_t> stream_tap_;
+        std::vector<uint8_t> mp3_scratch_;
+        uint8_t open_stream(const uint8_t *p);
+        void close_stream(unsigned s);
+        void reset_decoder(Stream &st);
+        size_t frame_bytes(const Stream &st) const;
+        uint32_t buffered_ms(const Stream &st) const;
+        uint8_t ring_byte(unsigned s, uint64_t at) const;
+        /// The next frame of stream `s` (or the stream that follows it) into `out`: false if none has come yet.
+        bool next_frame(unsigned &s, int16_t out[2]);
+        bool decode_mp3(unsigned s);
+        void stream_frame(unsigned s, float out[2]);
+        void streams_ms();
 
         // --- the digital path ---------------------------------------------------------------------------
         void mix_frame();

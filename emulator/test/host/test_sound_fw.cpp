@@ -710,8 +710,8 @@ namespace
 
 TEST(the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream)
 {
-    // The beep at three pitches over a tune and the boot sound (the ES5503) playing; its pitch from the beep's
-    // own tap, and the tune's SID writes the same as with no beep. (The stream joins this case at S6.)
+    // The beep at three pitches over a tune, the boot sound (the ES5503) and a stream playing; its pitch from
+    // the beep's own tap, and the tune's SID writes the same as with no beep.
     for (const uint32_t hz : {440u, 1000u, 7040u})
     {
         Dev d, quiet;
@@ -720,6 +720,12 @@ TEST(the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream)
             x->load(0, psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21)); // play: INC $D401
             CHECK_EQ(x->play(0, 0), 0);
             CHECK_EQ(x->ask(SoundFw::BOOTSOUND)[1], 0);
+            // A raw stream, 3 s of 22,050 Hz 8-bit mono, given whole.
+            CHECK_EQ(x->ask(SoundFw::STREAM_OPEN, {0, 0, 0x22, 0x56, 0, 0, 0, 0, 0, 0})[1], 0);
+            CHECK_EQ(x->ask(SoundFw::STREAM_DATA, {0, 0x66, 0x02, 0x01})[1], 0); // 66,150 bytes
+            for (const uint8_t b : noise(66150, 9))
+                x->card.write(SoundCard3::DATA, b);
+            CHECK_EQ(x->ask(SoundFw::STREAM_END, {0})[1], 0);
         }
         d.card.set_tap(true, SoundFw::SRC_BEEP);
         CHECK_EQ(d.ask(SoundFw::BEEP, {static_cast<uint8_t>(hz), static_cast<uint8_t>(hz >> 8), 0xD0, 0x07, 0})[1], 0); // 2,000 ms
@@ -736,6 +742,7 @@ TEST(the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream)
         std::printf("  %u Hz: %.3f Hz at the tap (%.4f%%)\n", hz, f, (f - hz) / hz * 100);
         CHECK(std::fabs(f - hz) / hz < 0.001);
         CHECK(regs_d == regs_q); // the tune's SIDs untouched by the beep
+        CHECK_EQ(d.card.firmware().stream_state(0), SoundFw::S_PLAYING); // the stream still playing under it
         d.ms(20);
         CHECK_EQ(of_kind(d.events(), SoundFw::EV_BEEP_DONE).size(), 1u);
         CHECK(!d.card.firmware().beeping());
