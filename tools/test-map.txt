@@ -77,6 +77,7 @@ emulator/components/devices/*sid_file*          sid web
 emulator/components/devices/*sid.*              sid sound backplane web
 emulator/components/devices/*sound_card*        sound backplane web
 emulator/components/devices/*sound_dsp*         sound backplane web
+emulator/components/devices/*sound_fw*          sound backplane web
 emulator/components/devices/*usb_card*          usb backplane web
 emulator/components/devices/*via6522*           via backplane web
 emulator/components/devices/*video_card*        video backplane web

@@ -110,7 +110,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sound_fw test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -264,6 +264,7 @@ target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LI
 target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
 emu_add_test(test_es5503) # the DOC alone (hw/sound-rev2.md step 6)
 emu_add_test(test_sound_doc) # the DOC on the card (step 7)
+emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/future/sound-device.md)
 emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)
@@ -961,6 +962,7 @@ set(EMU_TEST_LABELS
     test_sound_eq               "emu sound"
     test_es5503                 "emu es5503"
     test_sound_doc              "emu sound es5503 dma bridge"
+    test_sound_fw               "emu sound"
     test_sid                    "emu sid sound"
     test_sid_audio              "emu sid sound"
     test_sid_file               "emu sid sound"
