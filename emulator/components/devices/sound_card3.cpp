@@ -302,6 +302,9 @@ namespace ooe::emu
         }
         if (adc_rate_)
             chips_.set_audio_rate(adc_rate_); // the samples afresh from the reset
+        // A one-SID tune (the plan's BOTH, which revision 3 doesn't set): its reads of $D420-$D43F answer SID A, its
+        // mirror, as a C64's and as revision 2's copy into SID B did; its writes keep today's decode.
+        chips_.set_reads_from_a((plan.ctrl & SidPlan::CTRL_BOTH) != 0);
         chips_ctrl_ = static_cast<uint8_t>(SoundCard::CTRL_RUN | (ntsc ? SoundCard::CTRL_NTSC : 0) |
                                            (sid_b_d500 ? SoundCard::CTRL_SID_B_D500 : 0)); // never BOTH
         watch_.calls = 0;

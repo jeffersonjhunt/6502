@@ -223,7 +223,9 @@ namespace ooe::emu
         for (const Voice &v : voices_)
             if (!v.frozen || v.envelope)
                 return false;
-        return std::fabs(lp_) < 1e-5f && std::fabs(bp_) < 1e-5f;
+        // The filter at rest too, exactly (mix() flushes its decay to 0 below 1e-20): then mix() would give the
+        // mixer's DC alone, every clock, so the shortcut is exact however a run is split.
+        return lp_ == 0.0f && bp_ == 0.0f;
     }
 
     float Sid::mix()
@@ -258,7 +260,6 @@ namespace ooe::emu
         if (quiet()) // nothing but the mixer's DC, which only a volume write changes
         {
             clock(clocks);
-            lp_ = bp_ = 0;
             out_ = mixer_dc_ * static_cast<float>(regs_[MODE_VOL] & 0x0F) / 15.0f;
             return static_cast<double>(out_) * static_cast<double>(clocks);
         }

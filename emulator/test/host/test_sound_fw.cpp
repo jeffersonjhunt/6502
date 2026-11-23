@@ -668,6 +668,25 @@ TEST(a_tune_takes_whole_chips_and_gives_them_back)
     CHECK_EQ(d.play(2, 0), SoundFw::E_SLOT);
 }
 
+TEST(a_one_sid_tune_s_read_of_d423_gives_sid_a_s_d403)
+{
+    // init: $08 to $D403 (voice 1's pulse width, high: write-only, read back as last written), $D423 read into
+    // $C000, RTS. A one-SID tune's $D420-$D43F is SID A's mirror for its reads (SID B, unwritten, would read $00);
+    // a two-SID tune with its second at $D420 reads its own SID B there.
+    const std::vector<uint8_t> code = {0xA9, 0x08, 0x8D, 0x03, 0xD4, 0xAD, 0x23, 0xD4, 0x8D, 0x00, 0xC0, 0x60, 0x60};
+    Dev one;
+    one.load(0, psid(code, 12));
+    CHECK_EQ(one.play(0, 0), 0);
+    one.ms(5);
+    CHECK_EQ(one.card.chips().ram()[0xC000], 0x08);
+    CHECK_EQ(one.card.chips().sid(1)[0x03], 0x00); // SID B untouched: the read came from A
+    Dev two;
+    two.load(0, psid(code, 12, 1, 0xD420));
+    CHECK_EQ(two.play(0, 0), 0);
+    two.ms(5);
+    CHECK_EQ(two.card.chips().ram()[0xC000], 0x00); // its own SID B, never written
+}
+
 namespace
 {
     // --- the digital path -----------------------------------------------------------------------------------

@@ -1540,7 +1540,7 @@ namespace ooe::emu
         if (addr == CARD_FRAME_EN)
             return vic_mask_;
         if (addr >= 0xD400 && addr < 0xD800)
-            return sid_read(sid_at(addr), addr & 0x1F);
+            return sid_read(reads_from_a_ ? 0 : sid_at(addr), addr & 0x1F);
         if (addr >= 0xDC00 && addr < 0xDD00)
         {
             switch (addr & 0x0F)

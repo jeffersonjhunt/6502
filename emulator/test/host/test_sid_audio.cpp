@@ -268,6 +268,37 @@ TEST(the_filter_settles_to_zero_not_to_denormals)
         CHECK_EQ(v, 0.0f);
 }
 
+TEST(a_chip_s_output_is_the_same_however_its_clocks_are_split)
+{
+    // A filtered voice released to rest with the filter still ringing (a low cutoff and resonance decay slowly):
+    // the chip's output over a stretch is the same summed in one run as in runs of any size, as a card catches
+    // its SIDs up wherever a read, a write or a sample falls. (Resting with the filter not yet at 0 isn't silence:
+    // the filter's decay is still heard.)
+    auto released = [] {
+        Sid s = playing(Sid::Model::Mos6581, Sid::SAW, 200);
+        set_cutoff(s, 30);
+        s.write(RES_FILT, 0xF1); // voice 1 through the filter, full resonance
+        s.write(MODE_VOL, 0x1F); // low-pass
+        s.clock_audio(20'000);
+        s.write(0x06, 0x00);           // sustain 0, release 0: the envelope falls to 0 at once
+        s.write(0x04, Sid::SAW);       // the gate off
+        s.clock_audio(2'000);          // the voice at rest; the filter rings on
+        return s;
+    };
+    Sid whole = released();
+    const double one = whole.clock_audio(200'000);
+    for (const unsigned run : {1u, 7u, 22u, 1000u, 33'333u})
+    {
+        Sid s = released();
+        double sum = 0;
+        for (unsigned done = 0; done < 200'000; done += run)
+            sum += s.clock_audio(std::min(run, 200'000u - done));
+        std::printf("  in runs of %u: %.12f (one run %.12f)\n", run, sum, one);
+        CHECK_EQ(sum, one);
+        CHECK_EQ(s.output(), whole.output());
+    }
+}
+
 TEST(reset_stills_the_filter)
 {
     Sid s = playing(Sid::Model::Mos8580, Sid::PULSE, 300);
