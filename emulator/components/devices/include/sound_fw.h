@@ -349,6 +349,19 @@ namespace ooe::emu
         uint8_t stream_state(unsigned s) const { return streams_[s % STREAMS].state; }
         /// A stream's ring in the store, bytes.
         size_t stream_ring(unsigned s) const { return rings_[s % STREAMS].len; }
+        /// The voice manager's voices: the SIDs' six (A's 0-2, B's 3-5) and the ES5503's sixteen (each two
+        /// oscillators, a pair for the pan), and who has each.
+        enum VoiceUse : uint8_t
+        {
+            V_FREE = 0,
+            V_EFFECT = 1,
+            V_MUSIC = 2,
+        };
+        static constexpr unsigned SID_VOICES = 6, DOC_VOICES = 16, VOICES = SID_VOICES + DOC_VOICES;
+        uint8_t voice_use(unsigned v) const { return voices_[v % VOICES].use; }
+        uint8_t voice_handle(unsigned v) const { return voices_[v % VOICES].handle; }
+        /// Wave RAM's use as the store's cache: the sample slots there now.
+        unsigned cached_samples() const;
         bool beeping() const { return tone_.left > 0; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
@@ -445,7 +458,7 @@ namespace ooe::emu
             uint8_t state{0}; ///< TuneState
             uint8_t slot{0}, chips{0};
             uint16_t song{0};
-            bool has_play{false}, first{false};
+            bool has_play{false}, first{false}, ntsc{false};
             uint8_t held_state{0};      ///< the state a pause left
             uint32_t played_ms{0};      ///< paused time out
             uint32_t length_ms{0}, fade_ms{0};
@@ -516,6 +529,63 @@ namespace ooe::emu
         std::vector<int16_t> tap_;
         std::deque<int16_t> out_;
         void reset_path(); ///< volumes 255, the EQ off and flat, the tone stopped
+
+        // --- the sound bank --------------------------------------------------------------------------------
+        struct Sample
+        {
+            uint32_t rate{0}, loop_start{0}, loop_end{0};
+            uint8_t flags{0};
+            bool ready{false};          ///< XFERDONE checked and converted
+            // wave RAM: a cached table of 256 << size bytes at page (0-511), or none
+            int page{-1};
+            uint8_t size{0};
+            uint64_t used{0};           ///< for the LRU
+        };
+        struct EffectDef
+        {
+            uint8_t kind{0xFF};         ///< 0 a SID effect, 1 a sample; 0xFF none
+            std::vector<uint8_t> def;   ///< as EFFECT_DEF had it, after the kind
+        };
+        struct Voice
+        {
+            uint8_t use{V_FREE};
+            uint8_t handle{0}, effect{0}, prio{0};
+            uint64_t order{0};          ///< when it was given: the oldest is stolen first
+            // a SID effect's player
+            unsigned step{0};
+            uint32_t step_ms{0};        ///< left in the step
+            int32_t freq{0};            ///< Hz x 16
+            int32_t pw{0};
+            // a sample's player
+            int sample{-1};
+            uint8_t vol{0}, pan{128};
+            uint32_t env_ms{0};         ///< since the start
+            uint32_t attack{0}, hold{0}, release{0};
+            bool releasing{false};
+            uint32_t release_ms{0};
+            bool looped{false};
+        };
+        std::array<Sample, SAMPLE_SLOTS> sample_info_{};
+        std::array<EffectDef, EFFECTS> effects_def_{};
+        std::array<Voice, VOICES> voices_{};
+        uint64_t voice_order_{0}, cache_clock_{0};
+        uint8_t next_handle_{1};
+        std::array<bool, 512> wave_pages_{}; ///< wave RAM's 256-byte pages in use by the cache
+        bool doc_all_{false};                ///< the ES5503 set for all 32 oscillators (the bank's)
+        uint32_t sid_clock() const { return tune_.ntsc ? 1'022'727u : 985'248u; }
+        bool sid_voice_free_for(unsigned v) const; ///< not a tune's chip, not music's
+        int give_voice(bool sid, uint8_t prio, uint8_t &stolen_handle, uint8_t &stolen_effect);
+        void free_voice(unsigned v, bool done_event);
+        void silence_voice(unsigned v);
+        uint8_t play_effect(const uint8_t *p, uint8_t &handle);
+        bool cache_sample(unsigned slot);
+        void sid_step(unsigned v);
+        void voices_ms();
+        void write_sid_freq(unsigned v, int32_t hz16);
+        void doc_voice_start(unsigned v, unsigned slot, uint32_t rate);
+        void doc_voice_volume(unsigned v, uint32_t level); ///< level 0-255 of the voice's volume, by its pan
+        void stop_voices_on_chips(uint8_t chips);
+        bool parse_effect(uint8_t effect, uint8_t kind, const uint8_t *def, size_t n);
 
         // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
         struct BootSound

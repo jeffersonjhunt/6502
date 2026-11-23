@@ -139,6 +139,7 @@ namespace ooe::emu
     {
         tune_ms();
         streams_ms();
+        voices_ms();
         if (boot_.active)
         {
             // 240 ticks a second, from the start (tick 0 played then).
@@ -343,6 +344,17 @@ namespace ooe::emu
 
     void SoundFw::boot_start()
     {
+        for (unsigned v = SID_VOICES; v < VOICES; ++v) // the ES5503 is the boot sound's while it plays
+            if (voices_[v].use != V_FREE)
+                free_voice(v, false);
+        for (Sample &s : sample_info_) // its samples over the cache's lower 80 KB
+            if (s.page >= 0 && s.page < 320)
+            {
+                for (unsigned i = 0; i < (1u << s.size); ++i)
+                    wave_pages_[static_cast<size_t>(s.page) + i] = false;
+                s.page = -1;
+            }
+        doc_all_ = false;
         port_.doc_ram(0, fl::WAVE, fl::WAVE_SIZE);
         boot_ = BootSound{};
         boot_.active = true;
@@ -391,6 +403,7 @@ namespace ooe::emu
             for (unsigned o = 0; o < fl::OSCS; ++o) // over: every oscillator halted
                 port_.doc_write(static_cast<uint8_t>(D_CTRL + o), init_ctl(o));
             b.active = false;
+            doc_all_ = false; // the bank sets all 32 again when it next plays
         }
     }
 
@@ -508,6 +521,382 @@ namespace ooe::emu
         }
     }
 
+    // --- the sound bank: effects and the voice manager -------------------------------------------------
+
+    namespace
+    {
+        constexpr uint8_t DOC_HALT = 0x01, DOC_ONESHOT = 0x02, DOC_RIGHT = 0x10;
+        constexpr uint32_t DOC_RATE_32 = 7'159'090 / (8 * 34); ///< the ES5503's samples a second with all 32: 26,320
+        constexpr size_t SID_STEP = 13, SAMPLE_DEF = 11;
+        int32_t sgn16(const uint8_t *p) { return static_cast<int16_t>(static_cast<uint16_t>(p[0] | p[1] << 8)); }
+    } // namespace
+
+    unsigned SoundFw::cached_samples() const
+    {
+        unsigned n = 0;
+        for (const Sample &s : sample_info_)
+            n += s.page >= 0;
+        return n;
+    }
+
+    bool SoundFw::parse_effect(uint8_t effect, uint8_t kind, const uint8_t *def, size_t n)
+    {
+        if (kind == 0)
+        {
+            if (n < 2 || def[0] < 1 || def[0] > 16 || n != 2 + SID_STEP * def[0] || (def[1] != 0xFF && def[1] >= def[0]))
+                return false;
+            for (unsigned s = 0; s < def[0]; ++s)
+                if (get16(def + 2 + SID_STEP * s) == 0)
+                    return false;
+        }
+        else if (kind == 1)
+        {
+            if (n != SAMPLE_DEF)
+                return false;
+        }
+        else
+            return false;
+        effects_def_[effect].kind = kind;
+        effects_def_[effect].def.assign(def, def + n);
+        return true;
+    }
+
+    bool SoundFw::sid_voice_free_for(unsigned v) const
+    {
+        const unsigned chip = v / 3;
+        return !(tune_.chips & (1u << chip)) && voices_[v].use != V_MUSIC;
+    }
+
+    int SoundFw::give_voice(bool sid, uint8_t prio, uint8_t &stolen_handle, uint8_t &stolen_effect)
+    {
+        // A free voice first; else the lowest priority, oldest, at or below this one's. Never a tune's chip, never
+        // music's voice.
+        const unsigned lo = sid ? 0 : SID_VOICES, hi = sid ? SID_VOICES : VOICES;
+        int best = -1;
+        for (unsigned v = lo; v < hi; ++v)
+        {
+            if (sid && !sid_voice_free_for(v))
+                continue;
+            if (voices_[v].use == V_FREE)
+                return static_cast<int>(v);
+            if (voices_[v].use != V_EFFECT || voices_[v].prio > prio)
+                continue;
+            if (best < 0 || voices_[v].prio < voices_[static_cast<size_t>(best)].prio ||
+                (voices_[v].prio == voices_[static_cast<size_t>(best)].prio && voices_[v].order < voices_[static_cast<size_t>(best)].order))
+                best = static_cast<int>(v);
+        }
+        if (best >= 0)
+        {
+            stolen_handle = voices_[static_cast<size_t>(best)].handle;
+            stolen_effect = voices_[static_cast<size_t>(best)].effect;
+            free_voice(static_cast<unsigned>(best), false);
+        }
+        return best;
+    }
+
+    void SoundFw::silence_voice(unsigned v)
+    {
+        if (v < SID_VOICES)
+        {
+            const unsigned chip = v / 3, r = 7 * (v % 3);
+            uint8_t regs[25];
+            port_.sid_regs(chip, regs);
+            port_.sid_write(chip, r + 4, static_cast<uint8_t>(regs[r + 4] & ~1u)); // the gate off: its release
+        }
+        else
+        {
+            const unsigned o = 2 * (v - SID_VOICES);
+            for (const unsigned q : {o, o + 1})
+                port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(DOC_HALT | (q & 1 ? DOC_RIGHT : 0)));
+        }
+    }
+
+    void SoundFw::free_voice(unsigned v, bool done_event)
+    {
+        Voice &x = voices_[v];
+        if (x.use == V_FREE)
+            return;
+        silence_voice(v);
+        const uint8_t handle = x.handle, effect = x.effect;
+        const bool effect_voice = x.use == V_EFFECT;
+        x = Voice{};
+        if (done_event && effect_voice)
+            event(EV_VOICE_DONE, handle, {effect});
+    }
+
+    void SoundFw::stop_voices_on_chips(uint8_t chips)
+    {
+        for (unsigned v = 0; v < SID_VOICES; ++v)
+            if ((chips & (1u << (v / 3))) && voices_[v].use == V_EFFECT)
+            {
+                const uint8_t handle = voices_[v].handle, effect = voices_[v].effect;
+                free_voice(v, false);
+                event(EV_VOICE_STOLEN, handle, {effect, 0xFF}); // taken by a tune
+            }
+    }
+
+    void SoundFw::write_sid_freq(unsigned v, int32_t hz16)
+    {
+        const unsigned chip = v / 3, r = 7 * (v % 3);
+        const uint64_t f = static_cast<uint64_t>(std::max<int32_t>(hz16, 0)) * (1u << 20) / sid_clock(); // Hz x 2^24 / clock
+        const uint16_t reg = static_cast<uint16_t>(std::min<uint64_t>(f, 0xFFFF));
+        port_.sid_write(chip, r, static_cast<uint8_t>(reg));
+        port_.sid_write(chip, r + 1, static_cast<uint8_t>(reg >> 8));
+    }
+
+    void SoundFw::sid_step(unsigned v)
+    {
+        // A step of a SID effect begins: its registers as the step has them.
+        Voice &x = voices_[v];
+        const uint8_t *s = effects_def_[x.effect].def.data() + 2 + SID_STEP * x.step;
+        const unsigned chip = v / 3, r = 7 * (v % 3);
+        x.step_ms = get16(s);
+        x.freq = static_cast<int32_t>(get24(s + 3));
+        x.pw = static_cast<int32_t>(get16(s + 6) & 0x0FFF);
+        uint8_t regs[25];
+        port_.sid_regs(chip, regs);
+        if ((regs[0x18] & 0x0F) == 0)
+            port_.sid_write(chip, 0x18, static_cast<uint8_t>((regs[0x18] & 0xF0) | 0x0F)); // the chip's volume up
+        write_sid_freq(v, x.freq);
+        port_.sid_write(chip, r + 2, static_cast<uint8_t>(x.pw));
+        port_.sid_write(chip, r + 3, static_cast<uint8_t>(x.pw >> 8));
+        port_.sid_write(chip, r + 5, s[8]);
+        port_.sid_write(chip, r + 6, s[9]);
+        port_.sid_write(chip, r + 4, static_cast<uint8_t>(s[2] & ~0x08u)); // its control (the test bit kept 0)
+    }
+
+    bool SoundFw::cache_sample(unsigned slot)
+    {
+        // The sample into wave RAM, if it isn't there: a table of the next power of two (1 KB at least), at a
+        // place of its size; the least recently used samples no voice plays are put out for room.
+        Sample &s = sample_info_[slot];
+        s.used = ++cache_clock_;
+        if (s.page >= 0)
+            return true;
+        const Object &o = samples_[slot];
+        // (A sample longer than the ES5503's largest table, 32 KB, plays its first 32 KB: the model's limit.)
+        const size_t region = std::min<size_t>(s.loop_end ? s.loop_end - s.loop_start : o.len, 32768);
+        uint8_t size = 2;
+        while ((256u << size) < region && size < 7)
+            ++size;
+        const unsigned pages = 1u << size;
+        const unsigned lo = boot_.active ? 320 : 0; // the boot sound's samples, while it plays
+        for (;;)
+        {
+            for (unsigned at = (lo + pages - 1) / pages * pages; at + pages <= 512; at += pages)
+            {
+                bool free = true;
+                for (unsigned i = 0; i < pages && free; ++i)
+                    free = !wave_pages_[at + i];
+                if (!free)
+                    continue;
+                for (unsigned i = 0; i < pages; ++i)
+                    wave_pages_[at + i] = true;
+                s.page = static_cast<int>(at);
+                s.size = size;
+                // The table: a one-shot's bytes then $00 (the chip stops there); a loop's region, repeated.
+                std::vector<uint8_t> table(256u << size, 0);
+                if (s.loop_end)
+                    for (size_t i = 0; i < table.size(); ++i)
+                        table[i] = store_[o.at + s.loop_start + i % region];
+                else
+                    std::copy(store_.begin() + static_cast<std::ptrdiff_t>(o.at),
+                              store_.begin() + static_cast<std::ptrdiff_t>(o.at + std::min<size_t>(o.len, table.size())), table.begin());
+                port_.doc_ram(at * 256u, table.data(), table.size());
+                return true;
+            }
+            // Put out the least recently used sample that no voice is playing.
+            int lru = -1;
+            for (unsigned k = 0; k < SAMPLE_SLOTS; ++k)
+            {
+                if (k == slot || sample_info_[k].page < 0)
+                    continue;
+                bool playing = false;
+                for (unsigned v = SID_VOICES; v < VOICES; ++v)
+                    playing = playing || (voices_[v].use != V_FREE && voices_[v].sample == static_cast<int>(k));
+                if (!playing && (lru < 0 || sample_info_[k].used < sample_info_[static_cast<size_t>(lru)].used))
+                    lru = static_cast<int>(k);
+            }
+            if (lru < 0)
+                return false;
+            Sample &out = sample_info_[static_cast<size_t>(lru)];
+            for (unsigned i = 0; i < (1u << out.size); ++i)
+                wave_pages_[static_cast<size_t>(out.page) + i] = false;
+            out.page = -1;
+        }
+    }
+
+    void SoundFw::doc_voice_volume(unsigned v, uint32_t level)
+    {
+        const Voice &x = voices_[v];
+        const unsigned o = 2 * (v - SID_VOICES);
+        const uint32_t vol = x.vol * level / 255;
+        port_.doc_write(static_cast<uint8_t>(0x40 + o), static_cast<uint8_t>(vol * (255u - x.pan) / 255u));
+        port_.doc_write(static_cast<uint8_t>(0x40 + o + 1), static_cast<uint8_t>(vol * x.pan / 255u));
+    }
+
+    void SoundFw::doc_voice_start(unsigned v, unsigned slot, uint32_t rate)
+    {
+        // Its two oscillators (even left, odd right) on the sample's table, at `rate` samples a second.
+        const Sample &s = sample_info_[slot];
+        const unsigned o = 2 * (v - SID_VOICES);
+        if (!doc_all_)
+        {
+            port_.doc_write(0xE1, 31 << 1); // all 32 oscillators: the bank's rate
+            doc_all_ = true;
+        }
+        const uint64_t f = static_cast<uint64_t>(rate) * (1u << (16 - s.size)) / DOC_RATE_32;
+        const uint16_t freq = static_cast<uint16_t>(std::min<uint64_t>(f, 0xFFFF));
+        const uint8_t table = static_cast<uint8_t>((s.page >= 256 ? 0x40 : 0) | s.size << 3 | 7);
+        const uint8_t mode = voices_[v].looped ? 0 : DOC_ONESHOT;
+        for (const unsigned q : {o, o + 1})
+        {
+            const uint8_t ch = q & 1 ? DOC_RIGHT : 0;
+            port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(DOC_HALT | mode | ch));
+            port_.doc_write(static_cast<uint8_t>(0x00 + q), static_cast<uint8_t>(freq));
+            port_.doc_write(static_cast<uint8_t>(0x20 + q), static_cast<uint8_t>(freq >> 8));
+            port_.doc_write(static_cast<uint8_t>(0xC0 + q), table);
+            port_.doc_write(static_cast<uint8_t>(0x80 + q), static_cast<uint8_t>(s.page & 0xFF));
+        }
+        doc_voice_volume(v, voices_[v].attack ? 0 : 255);
+        for (const unsigned q : {o, o + 1}) // from the top, together
+            port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(mode | (q & 1 ? DOC_RIGHT : 0)));
+    }
+
+    uint8_t SoundFw::play_effect(const uint8_t *p, uint8_t &handle)
+    {
+        const uint8_t effect = p[0], vol = p[1], pan = p[2], prio = p[3], chip = p[6];
+        const int32_t cents = sgn16(p + 4);
+        const EffectDef &d = effects_def_[effect];
+        if (prio > 3 || chip > 2)
+            return E_PARAM;
+        if (d.kind == 0xFF)
+            return E_SLOT;
+        const bool sid = d.kind == 0;
+        if ((sid && chip == 2) || (!sid && chip == 1))
+            return E_PARAM;
+        if (!sid)
+        {
+            const unsigned slot = d.def[0];
+            if (!samples_[slot].used || samples_[slot].loading || !sample_info_[slot].ready)
+                return E_SLOT;
+            if (boot_.active)
+                return E_BUSY; // the ES5503 is the boot sound's while it plays
+        }
+        uint8_t sh = 0, se = 0;
+        const int v = give_voice(sid, prio, sh, se);
+        if (v < 0)
+            return E_BUSY;
+        if (sh)
+            event(EV_VOICE_STOLEN, sh, {se, prio});
+        if (!sid && !cache_sample(d.def[0]))
+            return E_BUSY; // wave RAM all in use by voices playing
+        // A handle no voice has.
+        for (int guard = 0; guard < 256; ++guard)
+        {
+            bool taken = next_handle_ == 0;
+            for (const Voice &x : voices_)
+                taken = taken || (x.use != V_FREE && x.handle == next_handle_);
+            if (!taken)
+                break;
+            ++next_handle_;
+        }
+        Voice &x = voices_[static_cast<unsigned>(v)];
+        x = Voice{};
+        x.use = V_EFFECT;
+        x.handle = handle = next_handle_++;
+        x.effect = effect;
+        x.prio = prio;
+        x.order = ++voice_order_;
+        x.vol = vol;
+        x.pan = pan;
+        if (sid)
+        {
+            x.step = 0;
+            sid_step(static_cast<unsigned>(v));
+            if (cents)
+                write_sid_freq(static_cast<unsigned>(v), static_cast<int32_t>(x.freq * std::pow(2.0, cents / 1200.0)));
+            x.pw = static_cast<int32_t>(x.pw);
+            x.freq = static_cast<int32_t>(x.freq * std::pow(2.0, cents / 1200.0));
+        }
+        else
+        {
+            const uint8_t *s = d.def.data();
+            x.sample = s[0];
+            const Sample &smp = sample_info_[s[0]];
+            const uint32_t rate = get16(s + 1) ? get16(s + 1) : smp.rate;
+            x.looped = s[3] == 1;
+            x.attack = get16(s + 4);
+            x.hold = get16(s + 6);
+            x.release = get16(s + 8);
+            doc_voice_start(static_cast<unsigned>(v), s[0], static_cast<uint32_t>(rate * std::pow(2.0, cents / 1200.0)));
+        }
+        return OK;
+    }
+
+    void SoundFw::voices_ms()
+    {
+        for (unsigned v = 0; v < VOICES; ++v)
+        {
+            Voice &x = voices_[v];
+            if (x.use != V_EFFECT)
+                continue;
+            if (v < SID_VOICES)
+            {
+                const auto &def = effects_def_[x.effect].def;
+                const uint8_t *s = def.data() + 2 + SID_STEP * x.step;
+                if (--x.step_ms == 0)
+                {
+                    if (x.step + 1 < def[0])
+                        ++x.step;
+                    else if (def[1] != 0xFF)
+                        x.step = def[1];
+                    else
+                    {
+                        free_voice(v, true); // the last step done
+                        continue;
+                    }
+                    sid_step(v);
+                    continue;
+                }
+                const int32_t fs = sgn16(s + 10), ps = static_cast<int8_t>(s[12]);
+                if (fs || ps) // the sweeps, a ms at a time
+                {
+                    x.freq += fs;
+                    x.pw = std::clamp<int32_t>(x.pw + ps, 0, 0x0FFF);
+                    write_sid_freq(v, x.freq);
+                    const unsigned chip = v / 3, r = 7 * (v % 3);
+                    port_.sid_write(chip, r + 2, static_cast<uint8_t>(x.pw));
+                    port_.sid_write(chip, r + 3, static_cast<uint8_t>(x.pw >> 8));
+                }
+                continue;
+            }
+            // A sample's envelope: attack, hold, release (a ms at a time); one-shot's end when its oscillators halt.
+            ++x.env_ms;
+            const unsigned o = 2 * (v - SID_VOICES);
+            const bool halted = (port_.doc_read(static_cast<uint8_t>(0xA0 + o)) & DOC_HALT) &&
+                                (port_.doc_read(static_cast<uint8_t>(0xA0 + o + 1)) & DOC_HALT);
+            if (halted)
+            {
+                free_voice(v, true);
+                continue;
+            }
+            if (!x.releasing && x.hold && x.env_ms >= x.attack + x.hold)
+                x.releasing = true, x.release_ms = 0;
+            if (x.releasing)
+            {
+                if (++x.release_ms >= x.release)
+                {
+                    free_voice(v, true);
+                    continue;
+                }
+                doc_voice_volume(v, 255 - 255 * x.release_ms / std::max<uint32_t>(x.release, 1));
+            }
+            else if (x.attack && x.env_ms <= x.attack)
+                doc_voice_volume(v, 255 * x.env_ms / x.attack);
+        }
+    }
+
     void SoundFw::boot_ctl(unsigned x, uint8_t a)
     {
         const unsigned y = VOICE_OSC[x];
@@ -594,6 +983,8 @@ namespace ooe::emu
         if (tune_.state != T_STOPPED)
             port_.tune_stop();
         tune_ = Tune{};
+        tune_.ntsc = f.ntsc();
+        stop_voices_on_chips(f.sid2 ? 3 : 1); // a tune takes whole chips: effects on them stop
         tune_.slot = slot;
         tune_.song = static_cast<uint16_t>(song);
         tune_.chips = f.sid2 ? 3 : 1;
@@ -788,6 +1179,14 @@ namespace ooe::emu
             return object(rec[3], rec[4]);
         if ((rec[0] == TUNE_PLAY || rec[0] == TUNE_INFO) && rec[3] < TUNE_SLOTS)
             return &tunes_[rec[3]];
+        if (rec[0] == PLAY) // its effect's table, or its sample, still coming
+        {
+            if (effects_.loading)
+                return &effects_;
+            const EffectDef &d = effects_def_[rec[3]];
+            if (d.kind == 1 && samples_[d.def[0]].loading)
+                return &samples_[d.def[0]];
+        }
         return nullptr;
     }
 
@@ -898,11 +1297,23 @@ namespace ooe::emu
         case SAMPLE_LOAD:
         {
             const uint32_t len = get24(p + 1);
-            if (len == 0)
+            if (len == 0 || (p[4] & ~3u) || get16(p + 5) == 0)
             {
                 reply(tag, E_PARAM);
                 break;
             }
+            for (unsigned v = SID_VOICES; v < VOICES; ++v) // a slot loaded again: its voices stop first
+                if (voices_[v].use != V_FREE && voices_[v].sample == p[0])
+                    free_voice(v, false);
+            Sample &s = sample_info_[p[0]];
+            if (s.page >= 0)
+                for (unsigned i = 0; i < (1u << s.size); ++i)
+                    wave_pages_[static_cast<size_t>(s.page) + i] = false;
+            s = Sample{};
+            s.flags = p[4];
+            s.rate = get16(p + 5);
+            s.loop_start = get24(p + 7);
+            s.loop_end = get24(p + 10);
             reply(tag, open_transfer(cmd, tag, p[0], len, samples_[p[0]]));
             break;
         }
@@ -1107,6 +1518,61 @@ namespace ooe::emu
             reply(tag, OK, r);
             break;
         }
+        case EFFECT_DEF:
+        {
+            const size_t n = rec[1];
+            if (n < 2 || !parse_effect(p[0], p[1], p + 2, n - 2))
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            reply(tag, OK);
+            break;
+        }
+        case EFFECT_LOAD:
+        {
+            const uint32_t len = get24(p + 1);
+            if (len == 0)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            reply(tag, open_transfer(cmd, tag, p[0], len, effects_));
+            break;
+        }
+        case PLAY:
+        {
+            uint8_t handle = 0;
+            const uint8_t status = play_effect(p, handle);
+            reply(tag, status, status == OK ? std::vector<uint8_t>{handle} : std::vector<uint8_t>{});
+            break;
+        }
+        case VOICE_STOP:
+            for (unsigned v = 0; v < VOICES; ++v)
+                if (voices_[v].use == V_EFFECT && (p[0] == 0 || voices_[v].handle == p[0]))
+                    free_voice(v, false);
+            reply(tag, OK);
+            break;
+        case BANK_FREE:
+            if (p[0] > 2)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            for (unsigned v = 0; v < VOICES; ++v)
+                if (voices_[v].use == V_EFFECT)
+                    free_voice(v, false);
+            if (p[0] != 1)
+                effects_def_.fill(EffectDef{});
+            if (p[0] != 0)
+            {
+                for (unsigned s = 0; s < SAMPLE_SLOTS; ++s)
+                    free_object(samples_[s]);
+                sample_info_.fill(Sample{});
+                wave_pages_.fill(false);
+            }
+            reply(tag, OK);
+            break;
         case BOOTSOUND:
             boot_start();
             reply(tag, OK);
@@ -1291,6 +1757,9 @@ namespace ooe::emu
             }
         tone_ = Tone{};
         boot_ = BootSound{};
+        for (unsigned v = 0; v < VOICES; ++v)
+            if (voices_[v].use != V_FREE)
+                free_voice(v, false);
         port_.silence();
     }
 
@@ -1311,6 +1780,9 @@ namespace ooe::emu
         free_object(image_);
         for (auto &f : files_)
             f.reset();
+        sample_info_.fill(Sample{});
+        effects_def_.fill(EffectDef{});
+        wave_pages_.fill(false);
     }
 
     // --- transfers ----------------------------------------------------------------------------------------
@@ -1365,6 +1837,43 @@ namespace ooe::emu
                 payload.push_back(f.sid2 ? 2 : 1);
                 payload.push_back(static_cast<uint8_t>((f.rsid ? 1 : 0) | (f.cia_timed(f.start_song) ? 2 : 0)));
             }
+        }
+        if (cmd == SAMPLE_LOAD)
+        {
+            // As the ES5503 wants it: unsigned (bit 0: it came signed), and $00 made $01 (the chip's stop) unless
+            // bit 1 keeps it as one.
+            Sample &s = sample_info_[slot];
+            for (size_t i = 0; i < o.len; ++i)
+            {
+                uint8_t &b = store_[o.at + i];
+                if (s.flags & 1)
+                    b = static_cast<uint8_t>(b ^ 0x80);
+                if (b == 0 && !(s.flags & 2))
+                    b = 1;
+            }
+            if (s.loop_end > o.len || s.loop_start >= std::max<uint32_t>(s.loop_end, 1))
+                s.loop_start = s.loop_end = 0;
+            s.ready = true;
+        }
+        if (cmd == EFFECT_LOAD)
+        {
+            // A run of definitions: each its length, then its kind and definition; numbered from the first.
+            unsigned taken = 0;
+            size_t at = 0;
+            uint8_t e = slot;
+            while (at < o.len)
+            {
+                const size_t n = store_[o.at + at];
+                if (n < 1 || at + 1 + n > o.len || !parse_effect(e, store_[o.at + at + 1], &store_[o.at + at + 2], n - 1))
+                {
+                    payload[1] = E_DATA;
+                    break;
+                }
+                ++taken;
+                ++e;
+                at += 1 + n;
+            }
+            payload.push_back(static_cast<uint8_t>(taken));
         }
         event(EV_XFERDONE, tag, payload);
     }
