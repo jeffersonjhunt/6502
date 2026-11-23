@@ -195,6 +195,29 @@ namespace
     };
 } // namespace
 
+TEST(a_clock_change_keeps_the_chips_deadlines_in_time)
+{
+    // Review r1's C3. A Random started at the native clock, then the CPU's clock cut to a seventh (as Apple II
+    // mode's) 10 ms into its 23 ms: the chip answers after 13 ms more of time, at the new clock, not 13 ms of the old
+    // clock's cycles (about 91 ms). Must fail with set_cpu_hz changing only the clock (the deadline kept in cycles).
+    Atecc608 chip;
+    chip.wake(us(80));
+    chip.advance(us(1500));
+    REQUIRE(chip.address(true));
+    for (int i = 0; i < 4; ++i)
+        chip.read();
+    REQUIRE(chip.address(false));
+    chip.write(Atecc608::WA_COMMAND, {0x07, 0x1B, 0x00, 0x00, 0x00, 0x24, 0xCD});
+    chip.advance(us(10'000));
+    const uint32_t slow = Atecc608::NATIVE_HZ / 7;
+    chip.set_cpu_hz(slow);
+    const auto slow_us = [&](uint64_t n) { return n * slow / 1'000'000; };
+    chip.advance(slow_us(12'900));
+    CHECK(!chip.address(true)); // still working
+    chip.advance(slow_us(200));
+    CHECK(chip.address(true)); // done at 23 ms in time
+}
+
 TEST(pool_full_at_power_on)
 {
     // C1. At the first instruction: RNGCNT 32, READY, CHIP and LOCKED, BUSY and FAULT clear, and the bytes are the

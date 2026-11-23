@@ -84,7 +84,8 @@ namespace ooe::emu
         /// `config_locked`, `data_locked`: the lock bytes; `source`: empty for splitmix(1).
         explicit Atecc608(bool config_locked = true, bool data_locked = true, Source source = {});
 
-        void set_cpu_hz(uint32_t hz) { hz_ = hz ? hz : NATIVE_HZ; }
+        /// The CPU's clock: the deadlines already set keep their time, rescaled from now (as Ds3231::rate does).
+        void set_cpu_hz(uint32_t hz);
         void advance(uint64_t cycles);
         Timing &timing() { return timing_; }
 

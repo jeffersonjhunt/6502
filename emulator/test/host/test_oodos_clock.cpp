@@ -120,7 +120,11 @@ TEST(ft_clock_reads_the_time_to_the_ms)
     // ms the same).
     CcpRig r;
     REQUIRE(r.ok);
-    r.run(ms(1500)); // past the clock chip's first edge since CcpRig set it: the bridge's SYNC (1.1 s from an edge)
+    // Past the clock chip's first edge since CcpRig set it: SYNC is set by an edge's read and lasts 1.1 s, and
+    // CcpRig's set_time restarts the chip's second but not the bridge's SYNC, so before that edge SYNC is whatever an
+    // edge before the set left (review r1's C2/T9: with the host's clock it hung on the host's milliseconds; the rig's
+    // fixed time makes it the same each run, but the case doesn't lean on it).
+    r.run(ms(1500));
     const std::string o = r.go("l1test.com", " C");
     CHECK_EQ(field(o, "CNB"), std::string("FF FF"));
     CHECK_EQ(field(o, "CLOCK"), std::string("00 00"));

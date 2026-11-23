@@ -292,6 +292,9 @@ namespace oodos_rig
                 if (!images[n].empty())
                     opt.apple_roms[n] = {images[n]};
             opt.disk2_sequencer = disk2_sequencer;
+            // A fixed time, on a second (review r1's C2): with the host's, the chip's first edge, and so the bridge's
+            // SYNC before CcpRig's set_time, fell where the host's clock put it.
+            opt.rtc_time = Ds3231::Time{2026, 10, 30, 12, 0, 0, (days(2026, 10, 30) - 1) % 7 + 1};
             std::string error;
             machine = Machine::build(machine_text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : machine_text,
                                      "backplane.machine", opt, error);

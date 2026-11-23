@@ -10,6 +10,18 @@
 
 namespace ooe::emu
 {
+    void Atecc608::set_cpu_hz(uint32_t hz)
+    {
+        const uint32_t was = hz_;
+        hz_ = hz ? hz : NATIVE_HZ;
+        if (hz_ == was)
+            return;
+        // Each deadline still ahead: the same time left, in the new clock's cycles (rounded up). Review r1's C3.
+        for (uint64_t *at : {&ready_at_, &watchdog_at_, &busy_until_})
+            if (*at > now_)
+                *at = now_ + ((*at - now_) * hz_ + was - 1) / was;
+    }
+
     Atecc608::Source Atecc608::splitmix(uint64_t seed)
     {
         struct State
