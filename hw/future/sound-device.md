@@ -791,6 +791,14 @@ decision. The numbers are kept so the text above can cite them.
 - **Q15.** **What /RESET keeps.** **Decided:** the store's objects, as the storage card keeps its mounts; OODOS's cold
     boot sends FREEALL. Power-on and FWRESTART empty it.
 
+### The interface details, decided (2026-11-23)
+
+- The owner: "recommendations as listed, with the clean table". [The interface details](#appendix-interface-details-proposed-for-s1-2026-11-23)
+  are approved as written, with function 82 laid out afresh as one table of 34 operations (`SN_OPS` 34), removed
+  numbers reused and none kept refused; FWRESULT at `$11`; `SC_MUSIC` `$04`; a rest entry of 5 bytes.
+- Added: `SN_REFUSED`, A = `$FD` and X = the card's error, when the card refuses a command.
+- "Notes waiting" excludes the sounding note; branch C checks PLAY(n) against the IBM manual.
+
 ## Open questions
 
 1. **The interface versions.** **Recommended:** set OODOS's version and OOLIB's interface number (15 at OODOS 0.14)
@@ -902,8 +910,9 @@ Owner: "recommendations as listed, make sure all this is written down, use as ma
 
 ## Appendix: interface details (proposed for S1, 2026-11-23) ##
 
-**Proposed, for the owner's approval as one block** ([the build plan](sound-device-build.md), unit S1 and
-[answer 3](sound-device-build.md#decisions)). The draft leaves these layouts open; this fills them, starting from the
+**Decided (the owner, 2026-11-23): approved as written,** "recommendations as listed, with the clean table"
+([the build plan](sound-device-build.md), unit S1, and [its decisions](sound-device-build.md#decisions)), with
+FWRESULT at `$11`, `SC_MUSIC` at `$04`, a rest entry of 5 bytes, and `SN_REFUSED` added. The draft leaves these layouts open; this fills them, starting from the
 build plan's section 5.1. Function 82's operations are laid out afresh as one clean table, as the owner's revised
 answer 4+5 says, which replaces the numbering from 21 and the reserved, refused numbers in
 [What OODOS's function 82 becomes](#what-oodoss-function-82-becomes). Every multi-byte field is little-endian.
@@ -971,7 +980,8 @@ transfers and the flash, which no one command group owns.
   before any conversion (a sample's sign, its `$00` bytes).
 - **The CRC-32** everywhere (CHECKSUM, the firmware image) is the common one: polynomial `$04C11DB7` reflected
   (`$EDB88320`), starting at `$FFFFFFFF`, the result inverted.
-- **"Notes waiting"** are a block's note, frequency and rest entries not yet begun; the one sounding isn't counted.
+- **"Notes waiting"** are a block's note, frequency and rest entries not yet begun; the one sounding isn't counted
+  (decided; branch C checks GW-BASIC's PLAY(n) against the IBM manual and brings any difference back).
   MUSIC_COUNT comes when the total falls from the threshold n to n − 1.
 
 ### The note block
@@ -1073,8 +1083,8 @@ nothing kept refused; removed numbers are reused, since nothing has shipped befo
 18: every rebuilt caller (GW-BASIC's loader, `ui_load`, PLAYSID, SYSINFO, OO-Amp's port) checks it and refuses an
 older OODOS. As before: X = 0 and A the operation, or A/X a block whose +0 is the operation; A = X = `$FF` for an
 operation that isn't, a block needed and not given, a part not claimed, or no revision 3 card; A = `$FE` (`SN_BUSY`),
-X = `$FF` when the card doesn't answer in 100 ms or channel 2 is busy with the stream. **Proposed (new):** A = `$FD`
-(`SN_REFUSED`), X = the card's error (`E_MEMORY`, `E_BUSY` ...) when the card refused the command, so a program can
+X = `$FF` when the card doesn't answer in 100 ms or channel 2 is busy with the stream. **Decided (new, the owner,
+2026-11-23):** A = `$FD` (`SN_REFUSED`), X = the card's error (`E_MEMORY`, `E_BUSY` ...) when the card refused the command, so a program can
 tell a full store from a chip in use. [part] is the claim an operation needs.
 
 | Op | Name | Block (after +0) | Results; on the card |
@@ -1122,8 +1132,8 @@ tell a full store from a chip in use. [part] is the claim an operation needs.
 | 33 | `SN_LEVELS` | +1-10 to fill | LEVELS |
 | | `SN_OPS` = 34 | | |
 
-- **The parts:** `SC_TUNE` `$01`, `SC_STREAM` `$02`, `SC_MUSIC` `$04` (**proposed:** `$04`, the bit `SC_DOC` had, as
-  the clean table reuses numbers; the draft had `$08`). Effects and the beep need no claim.
+- **The parts:** `SC_TUNE` `$01`, `SC_STREAM` `$02`, `SC_MUSIC` `$04` (the bit `SC_DOC` had, as the clean table
+  reuses numbers; the draft had `$08`). Effects and the beep need no claim.
 - **What goes** (no number kept): `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD`, `SN_GO`,
   `SC_6510` and `SC_DOC`. `SN_STOP` keeps its name (the draft's Q5) at its new number.
 - **The event area:** +96-107 the stream's, as now; +108-115 reserved, 0; +116 the tune's state (TUNE_STATUS's),

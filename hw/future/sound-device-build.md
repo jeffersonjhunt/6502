@@ -998,3 +998,12 @@ The owner's answers to section 12, 2026-11-23: "recommendations as listed, with 
 14. **The expectation blocks A-E** are approved, exactly as listed in their units.
 15. **Every catalog card** is rebuilt on OODOS 0.17 at the release.
 16. **OO-Amp's port** is scheduled right after branch B.
+
+**S1's interface table** (the owner, 2026-11-23: "recommendations as listed, with the clean table"):
+
+- The appendix of [sound-device.md](sound-device.md#appendix-interface-details-proposed-for-s1-2026-11-23) is approved
+  as written, with function 82's clean table of 34 operations (`SN_OPS` 34).
+- Accepted: FWRESULT at `$11`; `SC_MUSIC` `$04`; a rest entry of 5 bytes.
+- Added: `SN_REFUSED` (A = `$FD`, X = the card's error).
+- "Notes waiting" excludes the sounding note; branch C checks PLAY(n) against the IBM manual and brings any
+  difference back.
