@@ -1131,6 +1131,8 @@ namespace ooe::emu
                 continue;
             const float in[2] = {static_cast<float>(sum_l_ / static_cast<double>(sample_clocks_)),
                                  static_cast<float>(sum_r_ / static_cast<double>(sample_clocks_))};
+            if (chip_tap_on_) // a test's only (set_chip_tap): each chip's own, before the output stage
+                chip_tap_.insert(chip_tap_.end(), in, in + 2);
             // The digital bus's frame for this sample, if it is playing; with none, the SIDs' alone, as before.
             // (An offset first: SID samples a bulk catch-up's skipped bus frames were meant for.)
             const bool bus = !mix_offset_ && pcm_mix_.size() >= 2;

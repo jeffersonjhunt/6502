@@ -36,6 +36,19 @@
  * itself is checked on synthetic tunes and on made-up results, fixtures or
  * not; without the fixtures only the sample is skipped. SID_DIR names
  * another folder of tunes instead of fixtures/SIDs.
+ *
+ * SID_RECORD=path records each tune of the sample (the baseline the sound
+ * device's corpus is compared with: hw/future/sound-device-build.md, S0 and
+ * answer 2) into `path`, a line a tune, outside the repo since it names the
+ * tunes. Over the run's first two seconds of the 6510's clock from its reset
+ * (every run lasts that long unless it jams): a hash of the 6510's SID writes
+ * (each its cycle from the reset, address and value), their count, the play
+ * calls (the stub's $DE00 writes), a hash of each chip's own output (the
+ * card's chip tap at 22,050 Hz, before the output stage) and one of the final
+ * mix, and whether the spec's 6510 map would send any of those writes to
+ * another chip than today's decode does. The audio is kept on for the two
+ * seconds, which changes no result (a chip clocked with or without its
+ * output stage runs alike).
  */
 
 #include "harness.h"
@@ -51,6 +64,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <iterator>
 #include <map>
 #include <optional>
@@ -124,6 +138,39 @@ namespace
         return all;
     }
 
+    /// One tune's record (SID_RECORD): FNV-1a hashes over the run's first `window` clocks of the 6510.
+    struct Record
+    {
+        static constexpr uint64_t BASIS = 0xCBF29CE484222325ull, PRIME = 0x100000001B3ull;
+        uint64_t window{0};           ///< SID clocks from the 6510's reset
+        uint64_t writes_hash{BASIS};  ///< (cycle from the reset, address, value) of each SID write
+        uint64_t writes{0};
+        uint64_t calls{0};            ///< the stub's play calls: its writes to the mailbox ($DE00)
+        uint64_t chip_hash[2]{BASIS, BASIS};
+        uint64_t mix_hash{BASIS};
+        size_t chip_samples{0}, mix_samples{0}; ///< audio samples hashed
+        bool map_moves{false};        ///< the spec's 6510 map would send a write to another chip
+        bool reset_seen{false};
+        uint64_t reset_at{0};         ///< the 6510's cycle at its reset's vector read
+        static void mix_in(uint64_t &h, const void *p, size_t n)
+        {
+            const auto *b = static_cast<const unsigned char *>(p);
+            for (size_t i = 0; i < n; ++i)
+                h = (h ^ b[i]) * PRIME;
+        }
+    };
+
+    /// Under the spec's map (hw/future/sound-device.md, "How the firmware shares the chips"): with one SID,
+    /// $D400-$D7FF all SID A; with two, the second at the header's address, the rest SID A. Today's decode
+    /// (SoundCard::sid_at): SID B at $D420 (or $D500 for a header that names it) whatever the tune.
+    bool spec_map_moves(const SidFile &f, uint16_t addr)
+    {
+        const uint16_t today_b = f.sid2 == 0xD500 ? 0xD500 : 0xD420;
+        const bool today = addr >= today_b && addr < today_b + 0x20;
+        const bool spec = f.sid2 != 0 && addr >= f.sid2 && addr < f.sid2 + 0x20;
+        return today != spec;
+    }
+
     struct Result
     {
         std::string error;
@@ -148,9 +195,13 @@ namespace
         uint64_t irqs{0};
         bool returned{false};
         uint64_t returned_at{0}; ///< in SID clocks
+        Record *rec{nullptr};    ///< SID_RECORD's, or none
+        const SidFile *file{nullptr};
         Watch(const SoundCard &c, uint16_t at) : card(c), returned_to(at) {}
         void on_cycle(const BusCycle &c) override
         {
+            if (rec)
+                record(c);
             if (c.write && c.addr == 0xD01A && (c.data & 0x01) && card.io_visible())
                 raster = true;
             if (!c.write && c.vector_pull && c.addr == 0xFFFE)
@@ -158,7 +209,37 @@ namespace
             if (c.sync && c.addr == returned_to && !returned)
                 returned = true, returned_at = card.sid_clocks();
         }
+        void record(const BusCycle &c)
+        {
+            if (!c.write && c.vector_pull && c.addr == 0xFFFC)
+                rec->reset_seen = true, rec->reset_at = c.cycle;
+            if (!rec->reset_seen || !c.write || !card.io_visible() || c.cycle - rec->reset_at >= rec->window)
+                return;
+            if (c.addr >= 0xD400 && c.addr < 0xD800)
+            {
+                const uint64_t at = c.cycle - rec->reset_at;
+                Record::mix_in(rec->writes_hash, &at, sizeof at);
+                Record::mix_in(rec->writes_hash, &c.addr, sizeof c.addr);
+                Record::mix_in(rec->writes_hash, &c.data, sizeof c.data);
+                ++rec->writes;
+                rec->map_moves = rec->map_moves || spec_map_moves(*file, c.addr);
+            }
+            else if (c.addr == 0xDE00)
+                ++rec->calls;
+        }
     };
+
+    /// The audio's samples so far into `rec`, to its window: each chip's (the chip tap) and the mix's.
+    void record_audio(SoundCard &card, Record &rec, const float *mix, size_t frames, size_t most)
+    {
+        const std::vector<float> chips = card.take_chip_tap();
+        for (size_t i = 0; i + 1 < chips.size() && rec.chip_samples < most; i += 2, ++rec.chip_samples)
+            for (unsigned n = 0; n < 2; ++n)
+                Record::mix_in(rec.chip_hash[n], &chips[i + n], sizeof(float));
+        for (size_t i = 0; i < frames && rec.mix_samples < most; ++i, ++rec.mix_samples)
+            Record::mix_in(rec.mix_hash, mix + 2 * i, 2 * sizeof(float));
+    }
+    bool recorded(const Record *rec, size_t most) { return !rec || (rec->chip_samples >= most && rec->mix_samples >= most); }
 
     /// Audio: windows of WINDOW samples at RATE; a tune has sounded once LOUD
     /// of them, anywhere in the run, swing by more than LEVEL RMS about their
@@ -172,7 +253,8 @@ namespace
 
     /// To `on_time` clocks past the first frame (or past the start, without
     /// one), then on until it sounds, to `most`.
-    Result play(const SidFile &f, uint64_t on_time, uint64_t most)
+    /// With `rec`, the run is also recorded (SID_RECORD), over rec->window clocks.
+    Result play(const SidFile &f, uint64_t on_time, uint64_t most, Record *rec = nullptr)
     {
         Result r;
         const auto plan = plan_sid(f, 0, r.error);
@@ -182,6 +264,11 @@ namespace
         card.set_cpu_hz(f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ);
         card.set_audio_rate(RATE);
         Watch watch(card, plan->returned);
+        watch.rec = rec, watch.file = &f;
+        const uint32_t hz = f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        const size_t rec_samples = rec ? static_cast<size_t>(rec->window * RATE / hz) : 0;
+        if (rec)
+            card.set_chip_tap(true);
         card.set_cpu_observer(&watch);
         start_sid(card, *plan);
         bool first = false;
@@ -204,8 +291,12 @@ namespace
                 r.frames += t < r.from + on_time ? 1 : 0;
             }
             r.jammed = card.cpu().state() == Cpu6502::State::Stopped;
-            for (size_t n; !r.sounded && (n = card.take_audio(buf.data(), WINDOW)) > 0;)
-                for (size_t i = 0; i < n; ++i)
+            const bool recording = !recorded(rec, rec_samples);
+            for (size_t n; (!r.sounded || recording) && (n = card.take_audio(buf.data(), WINDOW)) > 0;)
+            {
+                if (recording)
+                    record_audio(card, *rec, buf.data(), n, rec_samples);
+                for (size_t i = 0; i < n && !r.sounded; ++i)
                 {
                     window.push_back(double{buf[2 * i]} + buf[2 * i + 1]); // both SIDs: some 2SID tunes start on B alone
                     if (window.size() < WINDOW)
@@ -218,12 +309,11 @@ namespace
                         sq += (v - mean) * (v - mean);
                     loud += std::sqrt(sq / WINDOW) > LEVEL ? 1 : 0;
                     window.clear();
+                    r.sounded = loud >= LOUD;
                 }
-            if (!r.sounded && loud >= LOUD)
-            {
-                r.sounded = true;
-                card.set_audio_rate(0); // heard: the rest needs no sound, which costs
             }
+            if (r.sounded && card.audio_rate() && recorded(rec, rec_samples))
+                card.set_audio_rate(0); // heard (and recorded): the rest needs no sound, which costs
         }
         card.set_cpu_observer(nullptr);
         r.own_raster = watch.raster;
@@ -398,6 +488,53 @@ TEST(the_rule_bounds_a_vbi_songs_first_call_after_init)
 
 namespace
 {
+    Record record_of(const SidFile &f)
+    {
+        Record rec;
+        rec.window = 2ull * SoundCard::PAL_HZ;
+        play(f, 2ull * SoundCard::PAL_HZ, 10ull * SoundCard::PAL_HZ, &rec);
+        return rec;
+    }
+} // namespace
+
+TEST(the_recorder_hashes_each_write_with_its_cycle_and_each_chip_s_output)
+{
+    // Two runs of one tune record alike; a write changed, or the same writes later, records differently.
+    // init: the saw, then (play at $1015 + n) RTS; the late one waits about 1,280 clocks first (LDX #0: DEX, BNE).
+    const SidFile saw = synthetic(SAW + std::vector<uint8_t>{0x60, 0x60}, 21);
+    const SidFile later = synthetic(std::vector<uint8_t>{0xA2, 0x00, 0xCA, 0xD0, 0xFD} + SAW + std::vector<uint8_t>{0x60, 0x60}, 26);
+    std::vector<uint8_t> tri = SAW;
+    tri[16] = 0x11; // a triangle, not a sawtooth
+    const SidFile other = synthetic(tri + std::vector<uint8_t>{0x60, 0x60}, 21);
+    const Record a = record_of(saw), b = record_of(saw), c = record_of(later), d = record_of(other);
+    std::printf("  %llu writes, %llu play calls, %zu samples; writes %016llx, A %016llx, mix %016llx\n",
+                static_cast<unsigned long long>(a.writes), static_cast<unsigned long long>(a.calls), a.chip_samples,
+                static_cast<unsigned long long>(a.writes_hash), static_cast<unsigned long long>(a.chip_hash[0]),
+                static_cast<unsigned long long>(a.mix_hash));
+    CHECK(a.reset_seen);
+    CHECK_EQ(a.writes, 4u);
+    CHECK(a.calls >= 99 && a.calls <= 101); // 50 a second for two seconds
+    CHECK_EQ(a.chip_samples, static_cast<size_t>(2 * RATE));
+    CHECK_EQ(a.mix_samples, static_cast<size_t>(2 * RATE));
+    CHECK_EQ(a.writes_hash, b.writes_hash);
+    CHECK_EQ(a.chip_hash[0], b.chip_hash[0]);
+    CHECK_EQ(a.chip_hash[1], b.chip_hash[1]);
+    CHECK_EQ(a.mix_hash, b.mix_hash);
+    CHECK_EQ(c.writes, a.writes);
+    CHECK(c.writes_hash != a.writes_hash); // the same writes, later
+    CHECK(d.writes_hash != a.writes_hash); // another value
+    CHECK(d.chip_hash[0] != a.chip_hash[0]);
+    CHECK(d.mix_hash != a.mix_hash);
+    // A one-SID tune: the card copies SID A to SID B (BOTH), so B's own output is A's.
+    CHECK_EQ(a.chip_hash[1], a.chip_hash[0]);
+    CHECK(!a.map_moves);
+    // Under the spec's map a one-SID tune's write to $D420 is SID A's; today it is SID B's.
+    CHECK(spec_map_moves(saw, 0xD420));
+    CHECK(!spec_map_moves(saw, 0xD440));
+}
+
+namespace
+{
     /// One tune, read from FOLDER and judged by passes(): `why` says what it did when it fails.
     struct Outcome
     {
@@ -406,9 +543,29 @@ namespace
         bool basic{false}; ///< an RSID that needs C64 BASIC, refused by plan_sid (so not played)
         bool ok{false};
         std::string why;
+        Record rec;
     };
 
-    Outcome judge(const std::string &name)
+    /// The record's window: two seconds of the tune's clock, which every run lasts unless it jams.
+    uint64_t record_window(const SidFile &f) { return 2ull * (f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ); }
+
+    /// `o`'s record as SID_RECORD's line: the name, then tab-separated fields.
+    std::string record_line(const std::string &name, const Outcome &o)
+    {
+        const Record &k = o.rec;
+        char line[400];
+        std::snprintf(line, sizeof line,
+                      "%s\t%s\tsids=%u\tok=%d\twrites=%llu\twh=%016llx\tcalls=%llu\ta=%016llx\tb=%016llx\tmix=%016llx"
+                      "\tsamples=%zu\tmap=%d",
+                      name.c_str(), o.f ? (o.f->rsid ? "RSID" : "PSID") : "-", o.f && o.f->sid2 ? 2u : 1u, o.ok ? 1 : 0,
+                      static_cast<unsigned long long>(k.writes), static_cast<unsigned long long>(k.writes_hash),
+                      static_cast<unsigned long long>(k.calls), static_cast<unsigned long long>(k.chip_hash[0]),
+                      static_cast<unsigned long long>(k.chip_hash[1]), static_cast<unsigned long long>(k.mix_hash),
+                      std::min(k.chip_samples, k.mix_samples), k.map_moves ? 1 : 0);
+        return line;
+    }
+
+    Outcome judge(const std::string &name, bool record = false)
     {
         Outcome o;
         std::ifstream in(FOLDER + "/" + name, std::ios::binary);
@@ -433,7 +590,8 @@ namespace
             return o;
         }
         const uint32_t hz = o.f->ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
-        o.r = play(*o.f, 2ull * hz, 10ull * hz);
+        o.rec.window = record_window(*o.f);
+        o.r = play(*o.f, 2ull * hz, 10ull * hz, record ? &o.rec : nullptr);
         o.ok = passes(*o.f, o.r);
         char line[200];
         std::snprintf(line, sizeof line, "%u frames from %.2f s (%.2f frames after init), %llu IRQs, %s", o.r.frames,
@@ -474,15 +632,27 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
     REQUIRE(!known.empty()); // the list read: an empty one would let them all into the sample
     all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return known.count(n) != 0; }), all.end());
     std::printf("  %zu known failures left out (sid_known_failures.txt)\n", known.size());
-    unsigned played = 0, ran = 0, basic = 0, raster = 0;
+    std::FILE *out = nullptr;
+    if (const char *path = std::getenv("SID_RECORD"); path && *path)
+    {
+        out = std::fopen(path, "w");
+        REQUIRE(out != nullptr);
+        std::printf("  recording into SID_RECORD\n");
+    }
+    unsigned played = 0, ran = 0, basic = 0, raster = 0, moved = 0;
     double latest_vbi = 0, latest_cia = 0; // frames from init's return to the first call
     std::string latest_vbi_name, latest_cia_name;
     for (const std::string &name : sample(all))
     {
-        const Outcome o = judge(name);
+        const Outcome o = judge(name, out != nullptr);
         if (!o.ok)
             std::printf("  %s\t%s\n", name.c_str(), o.why.c_str()); // a line for sid_known_failures.txt
         CHECK(o.ok);
+        if (out)
+        {
+            std::fprintf(out, "%s\n", record_line(name, o).c_str());
+            moved += o.rec.map_moves;
+        }
         if (!o.f || o.basic)
         {
             basic += o.basic;
@@ -508,6 +678,11 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
                 played, ran, raster, basic);
     std::printf("  the first call after init's return: VBI at most %.2f frames (%s), CIA %.2f (%s)\n", latest_vbi,
                 latest_vbi_name.c_str(), latest_cia, latest_cia_name.c_str());
+    if (out)
+    {
+        std::fclose(out);
+        std::printf("  recorded; %u whose writes the spec's 6510 map would send to another chip\n", moved);
+    }
 }
 
 TEST(the_known_failures_still_fail)

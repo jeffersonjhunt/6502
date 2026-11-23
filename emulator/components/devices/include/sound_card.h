@@ -454,6 +454,24 @@ namespace ooe::emu
             out.swap(tap_);
             return out;
         }
+        /// Tests: each SID chip's own output, before the output stage's high-pass and the mix: for every audio
+        /// sample made from now on (true; false stops and drops them), chip A's then chip B's average over the
+        /// sample's clocks. Only while an audio rate is set (no samples are made at rate 0). For the corpus's
+        /// recorder (test_sid_corpus, SID_RECORD); off from the start, and /RESET leaves it.
+        void set_chip_tap(bool on)
+        {
+            catch_up(); // what went before, untapped
+            chip_tap_on_ = on;
+            chip_tap_.clear();
+        }
+        /// The samples recorded since the last call, chip A then chip B; emptied.
+        std::vector<float> take_chip_tap()
+        {
+            catch_up();
+            std::vector<float> out;
+            out.swap(chip_tap_);
+            return out;
+        }
         /// Frames the bus has put into the mix, resampled to the audio rate, since /RESET or set_audio_rate().
         uint64_t mix_frames() const { return mix_frames_; }
         /// Of them, those not yet added to a SID sample.
@@ -680,6 +698,8 @@ namespace ooe::emu
         bool tap_on_{false};
         bool tap_silence_{true};
         std::vector<int16_t> tap_;
+        bool chip_tap_on_{false};
+        mutable std::vector<float> chip_tap_; ///< set_chip_tap()'s: render() is const, as the SIDs' catch-up
         // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
         // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.
         mutable std::deque<float> pcm_mix_;

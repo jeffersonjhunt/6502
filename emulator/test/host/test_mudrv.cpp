@@ -580,6 +580,22 @@ TEST(the_step_leaves_the_6510_time_for_the_mailbox)
     CHECK(c.longest < 2 * (PAL_LATCH + 1));
 }
 
+TEST(the_music_driver_s_share_of_the_6510)
+{
+    // A record, not a gate (hw/future/sound-device-build.md, S0: step 1's measurement, the baseline the device's
+    // music is compared with): six voices each playing a run of notes, 10 ms apart with a gate of 8 ms, so a
+    // note starts or ends on some voice most steps, as a tune of six voices would. The share of the 6510 the
+    // step takes is printed; the books' figure is 19% with six notes (08-game-services.md, "What sound costs").
+    NEED_DRIVER();
+    Board b;
+    for (int n = 0; n < 30; ++n)
+        for (int v = 0; v < 6; ++v)
+            CHECK(b.note(v, 0x0800 + 0x100 * static_cast<unsigned>((n + v) % 12), 10, 8));
+    const Load m = measure(b, 200);
+    std::printf("  six voices playing notes: %.1f%% of the 6510, a step at most %.0f clocks\n", m.share * 100, m.longest);
+    CHECK(m.share > 0 && m.share < 1); // premise: the step was seen running, and not alone
+}
+
 int main()
 {
     const int rc = run_all();

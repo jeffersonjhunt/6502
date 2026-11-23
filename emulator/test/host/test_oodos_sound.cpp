@@ -849,6 +849,119 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick (N16, code placement; N10 242; 249 before): the stream costs it nothing
 }
 
+namespace
+{
+    /// Each interrupt's cycles, entry to RTI's end (time_interrupts' way), of those the sound card raised (IRQH
+    /// bit 2 low at the entry), over `stretch`.
+    std::map<unsigned, unsigned> sound_interrupts(CcpRig &r, uint64_t stretch, const std::function<void()> &each_ms = {})
+    {
+        std::map<unsigned, unsigned> out;
+        const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
+        uint64_t c0 = 0;
+        bool in = false, sound = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                c0 = r.cpu->cycles() - 7, sound = !(r.nb(9) & 0x04), in = true;
+            else if (pc == end && in)
+            {
+                if (sound)
+                    ++out[static_cast<unsigned>(r.cpu->cycles() + 6 - c0)];
+                in = false;
+            }
+        };
+        for (uint64_t t = 0; t < stretch; t += ms(1))
+        {
+            r.run(ms(1));
+            if (each_ms)
+                each_ms();
+        }
+        r.watch = nullptr;
+        return out;
+    }
+} // namespace
+
+TEST(the_stream_s_cost_to_the_host)
+{
+    // A record, not a gate (hw/future/sound-device-build.md, S0: step 1's measurement, the baseline the device's
+    // stream is compared with): 44.1 kHz 16-bit stereo raw PCM from memory, buffers of 16 KB given as OODOS
+    // frees them, 1.5 s of it. A piece is 4 KB by channel 2 at a byte a cycle, its terminal count's handler
+    // starting the next; each frame with the stream claimed writes the area's stream fields. The fewest cycles
+    // a terminal count's interrupt took is the handler with no piece running inside it (the FIFO full).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    Costs idle;
+    time_interrupts(r, idle, [] { return false; }, ms(300)); // nothing claimed: the frame's own cost
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
+    constexpr unsigned LEN = 16384, BUFS = 16;
+    const uint32_t at[2] = {0x10000, 0x14000};
+    unsigned given = 0;
+    auto give = [&](unsigned k) {
+        r.poke(at[k], noise(LEN, 200 + given));
+        CHECK_EQ(f82(r, buffer_block(at[k], LEN)), std::string("0") + static_cast<char>('0' + k) + " 00");
+        ++given;
+    };
+    Costs costs;
+    const uint64_t c0 = r.cpu->cycles();
+    // Timed throughout, the calls that give the buffers too (their pieces may start inside them).
+    time_interrupts(r, costs, [&] {
+        for (unsigned k = 0; k < 2 && given < BUFS; ++k)
+            if (given < 2 || area(r, EV_SBUFS) >> k & 1)
+                give(given < 2 ? given : k);
+        return given == BUFS && area(r, EV_SBUFS) == 3;
+    }, ms(3000));
+    CHECK_EQ(given, BUFS);
+    const double secs = static_cast<double>(r.cpu->cycles() - c0) / SoundCard::NATIVE_HZ;
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(card(r).underruns(), 0u);
+    Costs::print("channel 2's terminal count", costs.dma);
+    Costs::print("a frame, the stream claimed", costs.frame);
+    Costs::print("a frame, nothing claimed", idle.frame);
+    REQUIRE(!costs.dma.empty() && !costs.frame.empty() && !idle.frame.empty());
+    unsigned pieces = 0;
+    for (const auto &[c, k] : costs.dma)
+        pieces += k;
+    const unsigned handler = costs.dma.begin()->first;
+    const double frame_extra = static_cast<double>(Costs::mode(costs.frame)) - Costs::mode(idle.frame);
+    const double per_piece = 4096.0 + handler; // the piece's DMA cycles and its terminal count's handler
+    const double per_second = 176400.0 / 4096.0 * per_piece + 60.0 * frame_extra;
+    std::printf("  %u pieces over %.2f s; a piece: 4,096 DMA cycles + a handler of %u = %.0f cycles; a frame, the "
+                "stream claimed, %.0f more than a frame alone\n",
+                pieces, secs, handler, per_piece, frame_extra);
+    std::printf("  a second of 44.1 kHz stereo: about %.0f cycles of the host, %.1f%% of 7.16 MHz\n", per_second,
+                per_second / SoundCard::NATIVE_HZ * 100);
+    CHECK(pieces >= 60); // premise: 256 KB went, in pieces of 4 KB
+}
+
+TEST(the_es5503_hook_s_cost)
+{
+    // A record, not a gate (S0, as above): the ES5503's interrupt taken by OODOS and passed to a program's hook
+    // (L3TEST's counts and keeps the oscillator), its whole cost from the interrupt's first cycle to the RTI's
+    // last. Oscillator 0 halted from a control write in one-shot with IE, each millisecond, 50 times.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
+    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
+    unsigned fired = 0;
+    const auto costs = sound_interrupts(r, ms(50), [&] {
+        card(r).write(SoundCard::DOCCTL, 0);
+        card(r).write(SoundCard::DOCADDR, 0xA0);
+        card(r).write(SoundCard::DOCDATA, 0x0A); // running, one-shot, IE
+        card(r).write(SoundCard::DOCDATA, 0x0B); // halted: pending
+        ++fired;
+    });
+    r.run(ms(2));
+    Costs::print("the ES5503's interrupt, through the hook", costs);
+    unsigned n = 0;
+    for (const auto &[c, k] : costs)
+        n += k;
+    std::printf("  %u raised, %u taken, the hook called %u times; the mode %u cycles, the most %u\n", fired, n,
+                r.phys(DCNT), Costs::mode(costs), Costs::most(costs));
+    CHECK(n >= fired - 1 && n > 0); // premise: each was taken (the last may come after the stretch)
+}
+
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
 {
     CcpRig r;
