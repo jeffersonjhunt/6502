@@ -169,6 +169,7 @@ tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
 tools/atecc_crc.py                              rng
+tools/release/                                  none
 
 # --- prose, licenses and settings ----------------------------------------------------------------------
 hw/                                             docs
