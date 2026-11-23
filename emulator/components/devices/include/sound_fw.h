@@ -41,6 +41,7 @@
 #include <vector>
 
 #include "sid_plan.h"
+#include "sound_dsp.h"
 
 namespace ooe::emu
 {
@@ -91,6 +92,23 @@ namespace ooe::emu
         virtual uint32_t play_cycles() = 0;
         /// SID `chip`'s 25 registers as last written, by the 6510 or the firmware.
         virtual void sid_regs(unsigned chip, uint8_t out[25]) = 0;
+        /// A SID register written by the firmware (its own voices: effects, music).
+        virtual void sid_write(unsigned chip, unsigned reg, uint8_t data) = 0;
+
+        // The ADC: the SIDs' sound.
+        /// The ADC's rate (48,000 on the card; 0: the SIDs aren't heard, as a front end may save their cost).
+        virtual uint32_t adc_hz() = 0;
+        /// The ADC's samples since the last call, appended: SID A's then SID B's, each chip's own output.
+        virtual void adc_take(std::vector<float> &out) = 0;
+
+        // The ES5503.
+        virtual void doc_write(uint8_t reg, uint8_t data) = 0;
+        virtual uint8_t doc_read(uint8_t reg) = 0;
+        /// Wave RAM from `addr`.
+        virtual void doc_ram(uint32_t addr, const uint8_t *bytes, size_t n) = 0;
+        /// One frame of the digital path's (1/48,000 s): the chip stepped at its own rate, its output then,
+        /// left and right as revision 2's bus has it (signed 16-bit).
+        virtual void doc_frame(int16_t out[2]) = 0;
     };
 
     class SoundFw
@@ -275,6 +293,37 @@ namespace ooe::emu
             T_ENDED = 6,
         };
         uint8_t tune_state() const { return tune_.state; }
+        /// The digital path's mix sources (MIX): tunes, music, effects, streams, the beep.
+        enum Source : uint8_t
+        {
+            SRC_TUNES = 0,
+            SRC_MUSIC = 1,
+            SRC_EFFECTS = 2,
+            SRC_STREAMS = 3,
+            SRC_BEEP = 4,
+            SOURCES = 5,
+        };
+        /// Tests: the card's output (after the EQ and the volumes), signed 16-bit frames at 48 kHz, kept until
+        /// taken; with `source` below SOURCES, that source alone before the mix instead.
+        void set_tap(bool on, uint8_t source = SOURCES)
+        {
+            tap_on_ = on;
+            tap_source_ = source;
+            tap_.clear();
+        }
+        std::vector<int16_t> take_tap()
+        {
+            std::vector<int16_t> out;
+            out.swap(tap_);
+            return out;
+        }
+        /// The output for the host: signed 16-bit frames at 48 kHz since the last call, appended (at most a
+        /// second is kept).
+        void take_output(std::vector<int16_t> &out);
+        /// The ADC's samples so far into the firmware's queue (a front end's, before it restarts them).
+        void pull_adc() { port_.adc_take(adc_); }
+        bool beeping() const { return tone_.left > 0; }
+        bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
         uint32_t events_lost() const { return lost_; }
 
@@ -377,6 +426,51 @@ namespace ooe::emu
             uint64_t calls{0};
         };
         Tune tune_;
+
+        // --- the digital path ---------------------------------------------------------------------------
+        void mix_frame();
+        void tone_start(uint32_t hz, uint32_t ms, uint8_t volume);
+        struct Tone
+        {
+            double phase{0}, step{0};
+            float amp{0};
+            uint64_t left{0}; ///< samples to go
+        };
+        Tone tone_;
+        std::vector<float> adc_;      ///< the ADC's samples waiting (A, B)
+        size_t adc_at_{0};            ///< the pair next
+        uint64_t adc_phase_{0};       ///< in 1/48,000ths of an ADC sample
+        float adc_now_[2]{0, 0}, adc_prev_[2]{0, 0};
+        float hp_in_[2]{0, 0}, hp_out_[2]{0, 0};
+        std::array<uint8_t, SOURCES> mix_{255, 255, 255, 255, 255};
+        uint8_t vol_l_{255}, vol_r_{255};
+        std::array<int8_t, 11> eq_gain_{};
+        bool eq_on_{false};
+        BusEq eq_;
+        BusVis vis_;
+        std::array<uint8_t, BusVis::PAGE> vis_page_{};
+        bool tap_on_{false};
+        uint8_t tap_source_{SOURCES};
+        std::vector<int16_t> tap_;
+        std::deque<int16_t> out_;
+        void reset_path(); ///< volumes 255, the EQ off and flat, the tone stopped
+
+        // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
+        struct BootSound
+        {
+            bool active{false};
+            uint32_t started_ms{0}, ticks{0};
+            uint8_t tick{0}, mode{0}, run{0};
+            uint16_t frame{0};
+            std::array<uint16_t, 6> fc{}, fd{}, vl{}, dl{}, vr{}, dr{};
+        };
+        BootSound boot_;
+        void boot_start();
+        void boot_tick();
+        void boot_frame();
+        void boot_voice(unsigned x, uint8_t idx);
+        void boot_write(unsigned x);
+        void boot_ctl(unsigned x, uint8_t a);
         void tune_ms();
         void stop_tune(uint8_t state);
         uint8_t play_tune(const uint8_t *p);

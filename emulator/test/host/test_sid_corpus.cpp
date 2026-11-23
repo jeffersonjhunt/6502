@@ -245,9 +245,8 @@ namespace
     };
 
     /// The audio's samples so far into `rec`, to its window: each chip's (the chip tap) and the mix's.
-    void record_audio(SoundCard &card, Record &rec, const float *mix, size_t frames, size_t most)
+    void record_audio(const std::vector<float> &chips, Record &rec, const float *mix, size_t frames, size_t most)
     {
-        const std::vector<float> chips = card.take_chip_tap();
         for (size_t i = 0; i + 1 < chips.size() && rec.chip_samples < most; i += 2, ++rec.chip_samples)
             for (unsigned n = 0; n < 2; ++n)
                 Record::mix_in(rec.chip_hash[n], &chips[i + n], sizeof(float));
@@ -310,7 +309,7 @@ namespace
             for (size_t n; (!r.sounded || recording) && (n = card.take_audio(buf.data(), WINDOW)) > 0;)
             {
                 if (recording)
-                    record_audio(card, *rec, buf.data(), n, rec_samples);
+                    record_audio(card.take_chip_tap(), *rec, buf.data(), n, rec_samples);
                 for (size_t i = 0; i < n && !r.sounded; ++i)
                 {
                     window.push_back(double{buf[2 * i]} + buf[2 * i + 1]); // both SIDs: some 2SID tunes start on B alone
@@ -349,7 +348,9 @@ namespace
         const uint32_t hz = f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
         SoundCard3 dev;
         dev.set_cpu_hz(hz);
-        dev.set_adc_rate(RATE);
+        dev.set_adc_rate(RATE); // the chips' samples at the recorder's rate, as play()'s card makes them
+        dev.set_audio_rate(RATE);
+        dev.set_adc_copy(rec != nullptr);
         dev.tick(static_cast<uint64_t>(SoundFw::STARTUP_MS + 1) * hz / 1000);
         auto put = [&](std::initializer_list<uint8_t> rec_bytes) {
             for (const uint8_t b : rec_bytes)
@@ -378,7 +379,7 @@ namespace
             dev.set_cpu_observer(nullptr);
             return r;
         }
-        card.take_chip_tap(); // before the start: not the tune's
+        dev.take_adc_copy(); // before the start: not the tune's
         std::vector<float> buf(2 * WINDOW);
         while (dev.take_audio(buf.data(), WINDOW) > 0)
         {
@@ -407,7 +408,7 @@ namespace
             for (size_t n; (!r.sounded || recording) && (n = dev.take_audio(buf.data(), WINDOW)) > 0;)
             {
                 if (recording)
-                    record_audio(card, *rec, buf.data(), n, rec_samples);
+                    record_audio(dev.take_adc_copy(), *rec, buf.data(), n, rec_samples);
                 for (size_t i = 0; i < n && !r.sounded; ++i)
                 {
                     window.push_back(double{buf[2 * i]} + buf[2 * i + 1]);
@@ -425,7 +426,10 @@ namespace
                 }
             }
             if (r.sounded && dev.adc_rate() && recorded(rec, rec_samples))
+            {
                 dev.set_adc_rate(0); // heard (and recorded): the rest needs no sound
+                dev.set_audio_rate(0);
+            }
         }
         dev.set_cpu_observer(nullptr);
         r.own_raster = watch.raster;

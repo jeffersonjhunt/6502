@@ -412,6 +412,9 @@ namespace ooe::emu
         uint8_t ctrl() const { return ctrl_; }
         /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume): kept up to date.
         const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return written_[chip & 1]; }
+        /// A SID register written by the card's own logic (revision 3's firmware, sound_card3.h, which uses this
+        /// card as its chips), on its clock now, whether the 6510 runs or not; as a write of the 6510's lands.
+        void chip_write(unsigned chip, unsigned reg, uint8_t data) { sid_write(chip & 1, reg & 0x1F, data); }
         /// SID `n` as of now: its voices' oscillators and envelopes.
         const Sid &chip(unsigned n) const
         {

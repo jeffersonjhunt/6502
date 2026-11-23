@@ -10,9 +10,12 @@
 #include "harness.h"
 
 #include "sid_plan.h"
+#include "sound_flash.h"
 #include "sound_card3.h"
 #include "sound_fw.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -37,6 +40,13 @@ namespace
             for (unsigned i = 0; i < 25; ++i)
                 out[i] = 0;
         }
+        void sid_write(unsigned, unsigned, uint8_t) override {}
+        uint32_t adc_hz() override { return 0; }
+        void adc_take(std::vector<float> &) override {}
+        void doc_write(uint8_t, uint8_t) override {}
+        uint8_t doc_read(uint8_t) override { return 0; }
+        void doc_ram(uint32_t, const uint8_t *, size_t) override {}
+        void doc_frame(int16_t out[2]) override { out[0] = out[1] = 0; }
     };
 
     struct Event
@@ -656,6 +666,213 @@ TEST(a_tune_takes_whole_chips_and_gives_them_back)
     REQUIRE(bad.size() >= 7u);
     CHECK_EQ(bad[6], SoundFw::E_DATA);
     CHECK_EQ(d.play(2, 0), SoundFw::E_SLOT);
+}
+
+namespace
+{
+    // --- the digital path -----------------------------------------------------------------------------------
+
+    /// The frequency of the left channel's rising zero crossings, each placed between its samples.
+    double pitch(const std::vector<int16_t> &tap)
+    {
+        double first = -1, last = -1;
+        unsigned n = 0;
+        for (size_t i = 2; i + 1 < tap.size(); i += 2)
+        {
+            const int a = tap[i - 2], b = tap[i];
+            if (a < 0 && b >= 0)
+            {
+                const double at = static_cast<double>(i / 2 - 1) + static_cast<double>(-a) / static_cast<double>(b - a);
+                if (first < 0)
+                    first = at;
+                last = at;
+                ++n;
+            }
+        }
+        return n > 1 ? (n - 1) * static_cast<double>(SoundFw::RATE) / (last - first) : 0;
+    }
+    double rms(const std::vector<int16_t> &tap, unsigned ch)
+    {
+        double s = 0;
+        for (size_t i = ch; i < tap.size(); i += 2)
+            s += static_cast<double>(tap[i]) * tap[i];
+        return std::sqrt(s / static_cast<double>(tap.size() / 2));
+    }
+    /// A one-SID tune holding voice 1 at SID frequency `f` ($D400-$D401) with `wave` (control's gate set).
+    std::vector<uint8_t> tone_tune(uint16_t f, uint8_t wave)
+    {
+        return psid({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, static_cast<uint8_t>(f), 0x8D, 0x00, 0xD4, 0xA9,
+                     static_cast<uint8_t>(f >> 8), 0x8D, 0x01, 0xD4, 0xA9, 0xF0, 0x8D, 0x06, 0xD4, 0xA9, wave, 0x8D,
+                     0x04, 0xD4, 0x60, 0x60},
+                    26);
+    }
+} // namespace
+
+TEST(the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream)
+{
+    // The beep at three pitches over a tune and the boot sound (the ES5503) playing; its pitch from the beep's
+    // own tap, and the tune's SID writes the same as with no beep. (The stream joins this case at S6.)
+    for (const uint32_t hz : {440u, 1000u, 7040u})
+    {
+        Dev d, quiet;
+        for (Dev *x : {&d, &quiet})
+        {
+            x->load(0, psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21)); // play: INC $D401
+            CHECK_EQ(x->play(0, 0), 0);
+            CHECK_EQ(x->ask(SoundFw::BOOTSOUND)[1], 0);
+        }
+        d.card.set_tap(true, SoundFw::SRC_BEEP);
+        CHECK_EQ(d.ask(SoundFw::BEEP, {static_cast<uint8_t>(hz), static_cast<uint8_t>(hz >> 8), 0xD0, 0x07, 0})[1], 0); // 2,000 ms
+        quiet.ask(SoundFw::NOP);
+        std::vector<uint8_t> regs_d, regs_q;
+        for (int i = 0; i < 20; ++i)
+        {
+            d.ms(100);
+            quiet.ms(100);
+            for (unsigned r = 0; r < 25; ++r)
+                regs_d.push_back(d.card.chips().sid(0)[r]), regs_q.push_back(quiet.card.chips().sid(0)[r]);
+        }
+        const double f = pitch(d.card.take_tap());
+        std::printf("  %u Hz: %.3f Hz at the tap (%.4f%%)\n", hz, f, (f - hz) / hz * 100);
+        CHECK(std::fabs(f - hz) / hz < 0.001);
+        CHECK(regs_d == regs_q); // the tune's SIDs untouched by the beep
+        d.ms(20);
+        CHECK_EQ(of_kind(d.events(), SoundFw::EV_BEEP_DONE).size(), 1u);
+        CHECK(!d.card.firmware().beeping());
+    }
+    Dev d;
+    CHECK_EQ(d.ask(SoundFw::BEEP, {19, 0, 100, 0, 0})[1], SoundFw::E_PARAM); // below 20 Hz
+    CHECK_EQ(d.ask(SoundFw::BEEP, {0x21, 0x4E, 100, 0, 0})[1], SoundFw::E_PARAM); // 20,001
+}
+
+TEST(a_mono_tune_is_heard_in_both_ears)
+{
+    Dev d;
+    d.load(0, tone_tune(0x1C00, 0x21)); // a sawtooth, about 420 Hz
+    CHECK_EQ(d.play(0, 0), 0);
+    d.ms(100);
+    d.card.set_tap(true);
+    d.ms(500);
+    const auto tap = d.card.take_tap();
+    const double l = rms(tap, 0), r = rms(tap, 1);
+    std::printf("  RMS left %.0f, right %.0f\n", l, r);
+    CHECK(l > 500);
+    CHECK_EQ(l, r);
+}
+
+TEST(the_eq_and_vis_page_cover_the_sids)
+{
+    // A SID's triangle at 3 kHz (frequency 51,090): the vis page's loudest band is 3 kHz's (bin 4 of 750 Hz,
+    // byte 3), and the EQ's 3 kHz band cut by 12 dB lowers it there and at the tap.
+    Dev d;
+    d.load(0, tone_tune(51090, 0x11));
+    CHECK_EQ(d.play(0, 0), 0);
+    d.ms(200);
+    d.card.set_tap(true);
+    d.ms(200);
+    const double before = rms(d.card.take_tap(), 0);
+    const auto vis = d.ask(SoundFw::VIS);
+    REQUIRE(vis.size() == 2 + 98u);
+    unsigned loudest = 0;
+    for (unsigned b = 0; b < 32; ++b)
+        if (vis[2 + b] > vis[2 + loudest])
+            loudest = b;
+    std::printf("  the loudest band %u (%u), the VU %u %u\n", loudest, vis[2 + loudest], vis[2 + 32], vis[2 + 33]);
+    CHECK_EQ(loudest, 3u);
+    CHECK(vis[2 + 32] > 0 && vis[2 + 33] > 0);
+    const auto lv = d.ask(SoundFw::LEVELS);
+    REQUIRE(lv.size() == 2 + 10u);
+    CHECK(lv[2] > 0); // band 0 is bins 1-4
+    std::vector<uint8_t> gains(11, 0);
+    gains[6] = static_cast<uint8_t>(-24); // band 6: 3 kHz, -12 dB
+    CHECK_EQ(d.ask(SoundFw::EQ_ALL, gains)[1], 0);
+    CHECK_EQ(d.ask(SoundFw::EQ_ON, {1})[1], 0);
+    d.ms(100);
+    d.card.take_tap();
+    d.ms(200);
+    const double after = rms(d.card.take_tap(), 0);
+    const auto vis2 = d.ask(SoundFw::VIS);
+    std::printf("  RMS %.0f before the EQ, %.0f after; band 3 %u then %u\n", before, after, vis[2 + 3], vis2[2 + 3]);
+    CHECK(after < before * 0.4);
+    CHECK(vis2[2 + 3] < vis[2 + 3]);
+    gains[6] = 25; // out of range: nothing set
+    CHECK_EQ(d.ask(SoundFw::EQ_ALL, gains)[1], SoundFw::E_PARAM);
+    CHECK_EQ(d.ask(SoundFw::VOLUME, {0, 255})[1], 0);
+    d.ms(50);
+    d.card.take_tap();
+    d.ms(50);
+    const auto tap = d.card.take_tap();
+    CHECK_EQ(rms(tap, 0), 0.0);
+    CHECK(rms(tap, 1) > 0);
+}
+
+namespace
+{
+    /// A tune, the boot sound and a beep, the output tapped for a second: with the host's audio rate `rate`
+    /// (taken as it comes) and ticked `step` host cycles at a time.
+    std::vector<int16_t> scene(uint32_t rate, uint64_t step)
+    {
+        Dev d;
+        d.card.set_audio_rate(rate);
+        d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21));
+        CHECK_EQ(d.play(0, 0), 0);
+        d.send(SoundFw::BOOTSOUND, 1);
+        d.send(SoundFw::BEEP, 2, {0xE8, 0x03, 0xF4, 0x01, 0});
+        d.card.set_tap(true);
+        std::vector<float> host(2 * 4096);
+        for (uint64_t t = 0; t < SoundCard::PAL_HZ; t += step)
+        {
+            d.card.tick(step);
+            while (d.card.take_audio(host.data(), 4096) > 0)
+            {
+            }
+        }
+        return d.card.take_tap();
+    }
+} // namespace
+
+TEST(each_source_s_output_is_the_same_at_rate_0_and_48000)
+{
+    const auto a = scene(0, 1000), b = scene(48000, 997), c = scene(22050, 1);
+    std::printf("  %zu, %zu and %zu frames\n", a.size() / 2, b.size() / 2, c.size() / 2);
+    REQUIRE(!a.empty());
+    const size_t n = std::min({a.size(), b.size(), c.size()});
+    CHECK(n > 2 * 47000u);
+    CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), b.begin()));
+    CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), c.begin()));
+    CHECK(rms(a, 0) > 100);
+}
+
+TEST(the_boot_sound_plays_from_the_card_s_flash)
+{
+    namespace fl = sound_flash;
+    Dev d;
+    d.card.set_tap(true, SoundFw::SRC_EFFECTS);
+    CHECK_EQ(d.ask(SoundFw::BOOTSOUND)[1], 0);
+    const Es5503 &doc = d.card.doc();
+    CHECK(std::equal(fl::WAVE, fl::WAVE + fl::WAVE_SIZE, doc.ram().begin())); // the samples, from the card's flash
+    CHECK_EQ(doc.enabled(), fl::OSCS);
+    // Frame 0: bike 1 on oscillators 0-3, from the top, at its first pitch and volumes; the rest halted.
+    for (unsigned o = 0; o < 4; ++o)
+        CHECK_EQ(doc.peek(static_cast<uint8_t>(0xA0 + o)) & 1, 0);
+    for (unsigned o = 4; o < fl::OSCS; ++o)
+        CHECK_EQ(doc.peek(static_cast<uint8_t>(0xA0 + o)) & 1, 1);
+    CHECK_EQ(doc.peek(0x00) | doc.peek(0x20) << 8, fl::pitch_lo[0] | fl::pitch_hi[0] << 8);
+    CHECK_EQ(doc.peek(0x40), fl::vol_l[0] << 1);
+    CHECK_EQ(doc.peek(0x41), fl::vol_r[0] << 1);
+    CHECK_EQ(doc.peek(0xA1) & 0x10, 0x10); // the odd oscillator to the right
+    // Frame 8 (8 frames of 4 ticks at 240 a second: 133 ms): bike 2 on 4-7.
+    d.ms(140);
+    for (unsigned o = 4; o < 8; ++o)
+        CHECK_EQ(doc.peek(static_cast<uint8_t>(0xA0 + o)) & 1, 0);
+    CHECK(d.card.firmware().boot_sound_playing());
+    d.ms(5000); // 300 frames: 5 s
+    CHECK(!d.card.firmware().boot_sound_playing());
+    for (unsigned o = 0; o < fl::OSCS; ++o)
+        CHECK_EQ(doc.peek(static_cast<uint8_t>(0xA0 + o)) & 1, 1);
+    const auto tap = d.card.take_tap();
+    std::printf("  %zu frames from the ES5503, RMS %.0f %.0f\n", tap.size() / 2, rms(tap, 0), rms(tap, 1));
+    CHECK(rms(tap, 0) > 200 && rms(tap, 1) > 200);
 }
 
 int main() { return run_all(); }

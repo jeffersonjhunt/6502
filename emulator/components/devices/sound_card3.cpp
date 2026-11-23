@@ -16,6 +16,8 @@ namespace ooe::emu
     {
         watch_.card = &chips_;
         chips_.set_cpu_observer(&watch_);
+        chips_.set_audio_rate(adc_rate_);
+        chips_.set_chip_tap(true);
     }
 
     SoundCard3::~SoundCard3() = default;
@@ -30,9 +32,107 @@ namespace ooe::emu
 
     void SoundCard3::set_adc_rate(uint32_t rate)
     {
+        std::vector<float> before;
+        adc_take(before); // what the old rate made: the firmware's, as it was
         adc_rate_ = rate;
         chips_.set_audio_rate(rate);
         chips_.set_chip_tap(rate != 0);
+    }
+
+    void SoundCard3::adc_take(std::vector<float> &out)
+    {
+        const std::vector<float> s = chips_.take_chip_tap();
+        out.insert(out.end(), s.begin(), s.end());
+        if (adc_copy_on_)
+            adc_copy_.insert(adc_copy_.end(), s.begin(), s.end());
+        while (chips_.audio_frames()) // the chips' own mix, unused: the firmware mixes
+        {
+            std::vector<float> f(2 * 1024);
+            chips_.take_audio(f.data(), 1024);
+        }
+    }
+
+    void SoundCard3::doc_ram(uint32_t addr, const uint8_t *bytes, size_t n)
+    {
+        for (size_t i = 0; i < n && addr + i < Es5503::RAM_BYTES; ++i)
+            doc_.ram()[addr + i] = bytes[i];
+    }
+
+    void SoundCard3::doc_frame(int16_t out[2])
+    {
+        // The chip steps at its own rate (CLOCK_HZ / its clocks a sample); a frame is the average of the steps in
+        // it, as revision 2's bus has the chip (each voice (byte - 128) / 128 x volume / 255 x 1/8 of full scale),
+        // or the last when none fell in it.
+        doc_acc_ += Es5503::CLOCK_HZ;
+        const uint64_t per = uint64_t{doc_.clocks_per_sample()} * SoundFw::RATE;
+        while (doc_acc_ >= per)
+        {
+            doc_acc_ -= per;
+            doc_.step();
+            const std::array<int32_t, 2> s = doc_.stereo();
+            doc_sum_[0] += s[0];
+            doc_sum_[1] += s[1];
+            ++doc_steps_;
+        }
+        if (doc_steps_)
+        {
+            const int64_t den = int64_t{doc_steps_} * (128 * 255 * 8);
+            for (unsigned ch = 0; ch < 2; ++ch)
+            {
+                const int64_t num = doc_sum_[ch] * 32'768;
+                const int64_t q = num >= 0 ? (num + den / 2) / den : -((-num + den / 2) / den);
+                doc_last_[ch] = static_cast<int16_t>(std::clamp<int64_t>(q, -32'768, 32'767));
+            }
+            doc_sum_[0] = doc_sum_[1] = 0;
+            doc_steps_ = 0;
+        }
+        out[0] = doc_last_[0];
+        out[1] = doc_last_[1];
+    }
+
+    void SoundCard3::set_audio_rate(uint32_t rate)
+    {
+        audio_rate_ = rate;
+        out48_.clear();
+        out_at_ = 0;
+        out_phase_ = 0;
+    }
+
+    size_t SoundCard3::take_audio(float *out, size_t max_frames)
+    {
+        fw_.take_output(out48_);
+        if (!audio_rate_)
+        {
+            out48_.clear();
+            out_at_ = 0;
+            return 0;
+        }
+        // Linear, from 48 kHz to the audio rate: frame k at k x 48,000 / rate of the card's.
+        size_t n = 0;
+        while (n < max_frames)
+        {
+            const size_t i = out_at_ + static_cast<size_t>(out_phase_ / audio_rate_);
+            if (2 * (i + 1) + 1 >= out48_.size())
+                break;
+            const float frac = static_cast<float>(out_phase_ % audio_rate_) / static_cast<float>(audio_rate_);
+            for (unsigned ch = 0; ch < 2; ++ch)
+            {
+                const float a = out48_[2 * i + ch], b = out48_[2 * (i + 1) + ch];
+                out[2 * n + ch] = (a + (b - a) * frac) / 32768.0f;
+            }
+            ++n;
+            out_phase_ += SoundFw::RATE;
+        }
+        const size_t whole = static_cast<size_t>(out_phase_ / audio_rate_);
+        out_at_ += whole;
+        out_phase_ -= whole * audio_rate_;
+        if (out_at_ > 4096) // the frames read past: dropped (the next may be a frame on, not come yet)
+        {
+            const size_t gone = std::min(out_at_, out48_.size() / 2);
+            out48_.erase(out48_.begin(), out48_.begin() + static_cast<std::ptrdiff_t>(2 * gone));
+            out_at_ -= gone;
+        }
+        return n;
     }
 
     void SoundCard3::run_chips(uint64_t cycles)
@@ -178,10 +278,16 @@ namespace ooe::emu
 
     // --- the port: the card's chips ------------------------------------------------------------------------
 
-    void SoundCard3::silence() { stop_sid(chips_); }
+    void SoundCard3::silence()
+    {
+        stop_sid(chips_);
+        for (unsigned o = 0; o < 32; ++o) // every oscillator halted, its mode kept
+            doc_.write(static_cast<uint8_t>(0xA0 + o), static_cast<uint8_t>(doc_.peek(static_cast<uint8_t>(0xA0 + o)) | 1));
+    }
 
     void SoundCard3::tune_start(const SidPlan &plan, bool ntsc, bool sid_b_d500)
     {
+        fw_adc_flush();
         // A tune starts on chips just reset (/RES): the 6510 stopped, CIA 1, its port and both SIDs as at
         // power-on (the SIDs' envelope counters run on otherwise), whatever played before it. Its RAM stays.
         chips_.reset();
@@ -230,6 +336,11 @@ namespace ooe::emu
             return false;
         pc = chips_.cpu().regs().pc;
         return true;
+    }
+
+    void SoundCard3::sid_write(unsigned chip, unsigned reg, uint8_t data)
+    {
+        chips_.chip_write(chip, reg, data);
     }
 
     void SoundCard3::sid_regs(unsigned chip, uint8_t out[25])

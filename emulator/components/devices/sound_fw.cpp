@@ -6,7 +6,10 @@
 
 #include "sound_fw.h"
 
+#include "sound_flash.h"
+
 #include <algorithm>
+#include <cmath>
 
 namespace ooe::emu
 {
@@ -71,6 +74,7 @@ namespace ooe::emu
 
     void SoundFw::reset()
     {
+        reset_path();
         abort_transfer();
         cmd_used_ = 0;
         records_.clear();
@@ -114,9 +118,384 @@ namespace ooe::emu
             run_commands();
         if (now_ % SAMPLES_PER_MS == 0)
             ms_step();
+        mix_frame();
     }
 
-    void SoundFw::ms_step() { tune_ms(); }
+    void SoundFw::ms_step()
+    {
+        tune_ms();
+        if (boot_.active)
+        {
+            // 240 ticks a second, from the start (tick 0 played then).
+            const uint64_t elapsed = ms() - boot_.started_ms;
+            while (boot_.active && static_cast<uint64_t>(boot_.ticks) * 1000 <= elapsed * 240)
+            {
+                boot_tick();
+                ++boot_.ticks;
+            }
+        }
+    }
+
+    // --- the digital path ---------------------------------------------------------------------------------
+
+    namespace
+    {
+        /// The band-limited step's correction near an edge (PolyBLEP), `t` the phase past it, `dt` a sample's.
+        double blep(double t, double dt)
+        {
+            if (t < dt)
+            {
+                t /= dt;
+                return t + t - t * t - 1.0;
+            }
+            if (t > 1.0 - dt)
+            {
+                t = (t - 1.0) / dt;
+                return t * t + t + t + 1.0;
+            }
+            return 0.0;
+        }
+        int16_t to16(float x)
+        {
+            const long v = std::lround(static_cast<double>(x) * 32767.0);
+            return static_cast<int16_t>(std::clamp<long>(v, -32768, 32767));
+        }
+        /// x volume / 255, rounded half away from zero: revision 2's VOLL and VOLR.
+        int16_t scaled(int16_t s, uint8_t vol)
+        {
+            if (vol == 255)
+                return s;
+            const int32_t n = int32_t{s} * vol;
+            return static_cast<int16_t>(n >= 0 ? (n + 127) / 255 : -((-n + 127) / 255));
+        }
+        constexpr float HP_POLE = 0.997908f; ///< exp(-2 pi 16 / 48,000): the ADC's coupling, a one-pole high-pass at 16 Hz
+        constexpr uint8_t TONE_VOLUME = 128;  ///< BEEP's volume 0: the default
+    } // namespace
+
+    void SoundFw::reset_path()
+    {
+        vol_l_ = vol_r_ = 255;
+        mix_.fill(255);
+        eq_gain_.fill(0);
+        eq_on_ = false;
+        eq_.set(eq_gain_, false, RATE);
+        eq_.clear();
+        vis_.clear();
+        tone_ = Tone{};
+        boot_ = BootSound{};
+    }
+
+    void SoundFw::take_output(std::vector<int16_t> &out)
+    {
+        out.insert(out.end(), out_.begin(), out_.end());
+        out_.clear();
+    }
+
+    void SoundFw::tone_start(uint32_t hz, uint32_t ms, uint8_t volume)
+    {
+        if (tone_.left)
+            event(EV_BEEP_DONE, 0); // a second replaces the first
+        tone_.phase = 0;
+        tone_.step = static_cast<double>(hz) / RATE;
+        tone_.amp = static_cast<float>(volume ? volume : TONE_VOLUME) / 255.0f * 0.25f;
+        tone_.left = static_cast<uint64_t>(ms) * SAMPLES_PER_MS;
+        if (!tone_.left)
+            event(EV_BEEP_DONE, 0);
+    }
+
+    void SoundFw::mix_frame()
+    {
+        float src[SOURCES][2] = {};
+        // The SIDs, from the ADC: its samples resampled to the path's rate (linear, two of the ADC's behind,
+        // so the one needed has always come), each chip's DC taken off as the input's coupling does.
+        if (const uint32_t rate = port_.adc_hz())
+        {
+            port_.adc_take(adc_);
+            adc_phase_ += rate;
+            while (adc_phase_ >= RATE)
+            {
+                adc_phase_ -= RATE;
+                adc_prev_[0] = adc_now_[0], adc_prev_[1] = adc_now_[1];
+                if (adc_at_ + 2 + 4 <= adc_.size()) // two behind
+                {
+                    adc_now_[0] = adc_[adc_at_], adc_now_[1] = adc_[adc_at_ + 1];
+                    adc_at_ += 2;
+                }
+            }
+            if (adc_at_ > 8192)
+            {
+                adc_.erase(adc_.begin(), adc_.begin() + static_cast<std::ptrdiff_t>(adc_at_));
+                adc_at_ = 0;
+            }
+            const float frac = static_cast<float>(adc_phase_) / static_cast<float>(RATE);
+            float chip[2];
+            for (unsigned n = 0; n < 2; ++n)
+            {
+                const float x = adc_prev_[n] + (adc_now_[n] - adc_prev_[n]) * frac;
+                hp_out_[n] = x - hp_in_[n] + HP_POLE * hp_out_[n];
+                hp_in_[n] = x;
+                chip[n] = hp_out_[n] / 8.0f;
+            }
+            float g = static_cast<float>(mix_[SRC_TUNES]) / 255.0f;
+            if (tune_.fade_ms && tune_.length_ms && tune_.state != T_STOPPED && tune_.state != T_ENDED &&
+                tune_.played_ms + tune_.fade_ms > tune_.length_ms)
+                g *= static_cast<float>(tune_.length_ms - std::min(tune_.played_ms, tune_.length_ms)) /
+                     static_cast<float>(tune_.fade_ms);
+            if (tune_.chips == 3) // a two-SID tune: A left, B right, as revision 2
+                src[SRC_TUNES][0] = chip[0] * g, src[SRC_TUNES][1] = chip[1] * g;
+            else // a one-SID tune, or none: both chips in both ears
+                src[SRC_TUNES][0] = src[SRC_TUNES][1] = (chip[0] + chip[1]) * g;
+        }
+        // The ES5503, at half of full scale as revision 2's bus mixes it.
+        int16_t d[2];
+        port_.doc_frame(d);
+        for (unsigned ch = 0; ch < 2; ++ch)
+            src[SRC_EFFECTS][ch] = 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
+        // The tone generator: a band-limited square.
+        if (tone_.left)
+        {
+            const double t = tone_.phase;
+            double v = t < 0.5 ? 1.0 : -1.0;
+            v += blep(t, tone_.step);
+            v -= blep(std::fmod(t + 0.5, 1.0), tone_.step);
+            tone_.phase += tone_.step;
+            if (tone_.phase >= 1.0)
+                tone_.phase -= 1.0;
+            const float s = static_cast<float>(v) * tone_.amp * static_cast<float>(mix_[SRC_BEEP]) / 255.0f;
+            src[SRC_BEEP][0] = src[SRC_BEEP][1] = s;
+            if (--tone_.left == 0)
+                event(EV_BEEP_DONE, 0);
+        }
+        float l = 0, r = 0;
+        for (unsigned s = 0; s < SOURCES; ++s)
+            l += src[s][0], r += src[s][1];
+        int16_t L = to16(l), R = to16(r);
+        if (!eq_.idle())
+            eq_.run(L, R);
+        vis_.feed(L, R);
+        L = scaled(L, vol_l_);
+        R = scaled(R, vol_r_);
+        if (tap_on_)
+        {
+            if (tap_source_ < SOURCES)
+            {
+                tap_.push_back(to16(src[tap_source_][0]));
+                tap_.push_back(to16(src[tap_source_][1]));
+            }
+            else
+            {
+                tap_.push_back(L);
+                tap_.push_back(R);
+            }
+        }
+        out_.push_back(L);
+        out_.push_back(R);
+        if (out_.size() > 2u * RATE)
+            out_.erase(out_.begin(), out_.begin() + static_cast<std::ptrdiff_t>(out_.size() - 2u * RATE));
+    }
+
+    // --- the boot sound: splash/docsnd.s's sequence, the firmware's own player ---------------------------
+
+    namespace
+    {
+        namespace fl = sound_flash;
+        constexpr uint8_t D_FREQLO = 0x00, D_FREQHI = 0x20, D_VOL = 0x40, D_PTR = 0x80, D_CTRL = 0xA0, D_TABLE = 0xC0,
+                          D_ENABLE = 0xE1;
+        constexpr uint8_t HALT = 0x01, ONESHOT = 0x02, RIGHTCH = 0x10;
+        constexpr unsigned THUNKS = 20;
+        constexpr uint8_t VBIT[6] = {1, 2, 4, 8, 16, 32};
+        constexpr uint8_t VOICE_OSC[6] = {0, 4, 8, 12, 16, 18};
+        constexpr bool VOICE_DBL[6] = {true, true, true, true, false, false};
+        uint8_t init_ctl(unsigned o)
+        {
+            if (o < 20)
+                return static_cast<uint8_t>(HALT | (o & 1 ? RIGHTCH : 0));
+            return static_cast<uint8_t>(HALT | ONESHOT | (o & 1 ? RIGHTCH : 0));
+        }
+        uint8_t init_table(unsigned o) { return static_cast<uint8_t>(o < 18 ? fl::T_ENGINE : o < 20 ? fl::T_WIND : o < 22 ? fl::T_CRACK : fl::T_PUSH); }
+        uint8_t init_ptr(unsigned o) { return static_cast<uint8_t>(o < 18 ? fl::P_ENGINE : o < 20 ? fl::P_WIND : o < 22 ? fl::P_CRACK : fl::P_PUSH); }
+        /// A 16-bit signed difference shifted right twice, as the player's CMP #$80, ROR pairs do.
+        uint16_t quarter(uint16_t diff) { return static_cast<uint16_t>(static_cast<int16_t>(diff) >> 2); }
+    } // namespace
+
+    void SoundFw::boot_start()
+    {
+        port_.doc_ram(0, fl::WAVE, fl::WAVE_SIZE);
+        boot_ = BootSound{};
+        boot_.active = true;
+        boot_.started_ms = ms();
+        port_.doc_write(D_ENABLE, static_cast<uint8_t>((fl::OSCS - 1) << 1));
+        for (unsigned o = 0; o < fl::OSCS; ++o)
+        {
+            port_.doc_write(static_cast<uint8_t>(D_CTRL + o), init_ctl(o));
+            port_.doc_write(static_cast<uint8_t>(D_VOL + o), 0);
+            port_.doc_write(static_cast<uint8_t>(D_TABLE + o), init_table(o));
+            port_.doc_write(static_cast<uint8_t>(D_PTR + o), init_ptr(o));
+        }
+        for (const unsigned o : {20u, 21u})
+        {
+            port_.doc_write(static_cast<uint8_t>(D_FREQLO + o), static_cast<uint8_t>(fl::F_CRACK));
+            port_.doc_write(static_cast<uint8_t>(D_FREQHI + o), static_cast<uint8_t>(fl::F_CRACK >> 8));
+        }
+        for (const unsigned o : {22u, 23u})
+        {
+            port_.doc_write(static_cast<uint8_t>(D_FREQLO + o), static_cast<uint8_t>(fl::F_PUSH));
+            port_.doc_write(static_cast<uint8_t>(D_FREQHI + o), static_cast<uint8_t>(fl::F_PUSH >> 8));
+        }
+        boot_tick(); // tick 0 of frame 0, at once
+        boot_.ticks = 1;
+    }
+
+    void SoundFw::boot_tick()
+    {
+        BootSound &b = boot_;
+        if (b.tick == 0)
+            boot_frame();
+        if (!b.mode)
+            for (unsigned x = 0; x < fl::NVOICES; ++x)
+                if (b.run & VBIT[x])
+                {
+                    b.fc[x] = static_cast<uint16_t>(b.fc[x] + b.fd[x]);
+                    b.vl[x] = static_cast<uint16_t>(b.vl[x] + b.dl[x]);
+                    b.vr[x] = static_cast<uint16_t>(b.vr[x] + b.dr[x]);
+                    boot_write(x);
+                }
+        if (++b.tick < 4)
+            return;
+        b.tick = 0;
+        if (++b.frame == fl::FRAMES)
+        {
+            for (unsigned o = 0; o < fl::OSCS; ++o) // over: every oscillator halted
+                port_.doc_write(static_cast<uint8_t>(D_CTRL + o), init_ctl(o));
+            b.active = false;
+        }
+    }
+
+    void SoundFw::boot_frame()
+    {
+        BootSound &b = boot_;
+        if (b.frame > 255)
+            return; // the thunk plays out by itself
+        const uint8_t f = static_cast<uint8_t>(b.frame);
+        if (f > fl::IMPACT)
+            return;
+        if (f == fl::IMPACT)
+        {
+            b.mode = 1;
+            b.run = 0;
+            for (unsigned o = 0; o < 22; ++o) // 0-21 halted (the push plays out)
+                port_.doc_write(static_cast<uint8_t>(D_CTRL + o), init_ctl(o));
+            for (unsigned o = 0; o < THUNKS; ++o)
+            {
+                port_.doc_write(static_cast<uint8_t>(D_TABLE + o), static_cast<uint8_t>(o & 1 ? fl::T_THUNK_R : fl::T_THUNK_L));
+                port_.doc_write(static_cast<uint8_t>(D_PTR + o), static_cast<uint8_t>(o & 1 ? fl::P_THUNK_R : fl::P_THUNK_L));
+                port_.doc_write(static_cast<uint8_t>(D_FREQLO + o), static_cast<uint8_t>(fl::F_THUNK));
+                port_.doc_write(static_cast<uint8_t>(D_FREQHI + o), static_cast<uint8_t>(fl::F_THUNK >> 8));
+                port_.doc_write(static_cast<uint8_t>(D_VOL + o), 255);
+                port_.doc_write(static_cast<uint8_t>(D_CTRL + o), static_cast<uint8_t>(HALT | ONESHOT | (o & 1 ? RIGHTCH : 0)));
+            }
+            for (unsigned o = 0; o < THUNKS; ++o) // from the top, all together
+                port_.doc_write(static_cast<uint8_t>(D_CTRL + o), static_cast<uint8_t>(ONESHOT | (o & 1 ? RIGHTCH : 0)));
+            return;
+        }
+        for (int x = static_cast<int>(fl::NVOICES) - 1; x >= 0; --x)
+        {
+            const unsigned u = static_cast<unsigned>(x);
+            if (f < fl::ent_t0[u])
+                continue; // not started
+            const unsigned idx = static_cast<uint8_t>(f - fl::ent_t0[u] + fl::ent_i0[u]);
+            if (idx >= fl::LEN)
+            {
+                b.run = static_cast<uint8_t>(b.run & ~VBIT[u]); // past its tables: silent
+                boot_ctl(u, HALT);
+            }
+            else
+                boot_voice(u, static_cast<uint8_t>(idx));
+        }
+        if (f == fl::WHOOSH) // the stamp's push of air, from the top
+        {
+            port_.doc_write(D_VOL + 22, 200);
+            port_.doc_write(D_VOL + 23, 200);
+            port_.doc_write(D_CTRL + 22, HALT | ONESHOT);
+            port_.doc_write(D_CTRL + 22, ONESHOT);
+            port_.doc_write(D_CTRL + 23, HALT | ONESHOT | RIGHTCH);
+            port_.doc_write(D_CTRL + 23, ONESHOT | RIGHTCH);
+        }
+    }
+
+    void SoundFw::boot_voice(unsigned x, uint8_t idx)
+    {
+        BootSound &b = boot_;
+        const uint8_t fl_ = fl::ent_fl[x];
+        uint16_t target = static_cast<uint16_t>((fl::pitch_lo[idx] | fl::pitch_hi[idx] << 8) + (fl::ent_dlo[x] | fl::ent_dhi[x] << 8));
+        if (fl_ & fl::BODY)
+            target = static_cast<uint16_t>(target >> 1); // an octave down
+        if (fl_ & fl::WIND)
+            target = static_cast<uint16_t>(target >> 1); // the wind's half-rate table, at half
+        uint8_t tvl = fl::vol_l[idx], tvr = fl::vol_r[idx];
+        if (fl_ & fl::RIGHT)
+            std::swap(tvl, tvr);
+        if (fl_ & fl::WIND)
+            tvl = static_cast<uint8_t>(tvl >> 1), tvr = static_cast<uint8_t>(tvr >> 1);
+        if (idx == fl::ent_i0[x]) // its first frame: straight there
+        {
+            b.fc[x] = target;
+            b.vl[x] = static_cast<uint16_t>(tvl << 8);
+            b.vr[x] = static_cast<uint16_t>(tvr << 8);
+            b.fd[x] = b.dl[x] = b.dr[x] = 0;
+            b.run = static_cast<uint8_t>(b.run | VBIT[x]);
+            boot_write(x);
+            boot_ctl(x, HALT); // halted, then free run: from the top
+            boot_ctl(x, 0);
+        }
+        else // a quarter of the way a tick
+        {
+            b.fd[x] = quarter(static_cast<uint16_t>(target - b.fc[x]));
+            b.dl[x] = quarter(static_cast<uint16_t>((tvl << 8) - b.vl[x]));
+            b.dr[x] = quarter(static_cast<uint16_t>((tvr << 8) - b.vr[x]));
+        }
+        if ((fl_ & fl::MAIN) && idx == fl::SHIFT) // the quickshifter's crack at the upshift
+        {
+            const bool right = fl_ & fl::RIGHT;
+            port_.doc_write(D_VOL + 20, static_cast<uint8_t>(right ? fl::CRACK_VR : fl::CRACK_VL));
+            port_.doc_write(D_VOL + 21, static_cast<uint8_t>(right ? fl::CRACK_VL : fl::CRACK_VR));
+            port_.doc_write(D_CTRL + 20, HALT | ONESHOT);
+            port_.doc_write(D_CTRL + 20, ONESHOT);
+            port_.doc_write(D_CTRL + 21, HALT | ONESHOT | RIGHTCH);
+            port_.doc_write(D_CTRL + 21, ONESHOT | RIGHTCH);
+        }
+    }
+
+    void SoundFw::boot_write(unsigned x)
+    {
+        const BootSound &b = boot_;
+        const unsigned y = VOICE_OSC[x];
+        const auto vol = [](uint16_t v) { return static_cast<uint8_t>((v >> 8) & 0x80 ? 0 : (v >> 8) << 1); };
+        const unsigned pairs = VOICE_DBL[x] ? 2 : 1;
+        for (unsigned k = 0; k < pairs; ++k)
+        {
+            const unsigned o = y + 2 * k;
+            port_.doc_write(static_cast<uint8_t>(D_VOL + o), vol(b.vl[x]));
+            port_.doc_write(static_cast<uint8_t>(D_VOL + o + 1), vol(b.vr[x]));
+            for (const unsigned q : {o, o + 1})
+            {
+                port_.doc_write(static_cast<uint8_t>(D_FREQLO + q), static_cast<uint8_t>(b.fc[x]));
+                port_.doc_write(static_cast<uint8_t>(D_FREQHI + q), static_cast<uint8_t>(b.fc[x] >> 8));
+            }
+        }
+    }
+
+    void SoundFw::boot_ctl(unsigned x, uint8_t a)
+    {
+        const unsigned y = VOICE_OSC[x];
+        port_.doc_write(static_cast<uint8_t>(D_CTRL + y), a);
+        port_.doc_write(static_cast<uint8_t>(D_CTRL + y + 1), static_cast<uint8_t>(a | RIGHTCH));
+        if (VOICE_DBL[x])
+        {
+            port_.doc_write(static_cast<uint8_t>(D_CTRL + y + 2), static_cast<uint8_t>(a & ~RIGHTCH));
+            port_.doc_write(static_cast<uint8_t>(D_CTRL + y + 3), static_cast<uint8_t>(a | RIGHTCH));
+        }
+    }
 
     // --- tunes ------------------------------------------------------------------------------------------
 
@@ -584,6 +963,88 @@ namespace ooe::emu
             files_[p[0]].reset();
             reply(tag, OK);
             break;
+        case BOOTSOUND:
+            boot_start();
+            reply(tag, OK);
+            break;
+        case BEEP:
+        {
+            const uint32_t hz = get16(p), len = get16(p + 2);
+            if (hz < 20 || hz > 20000)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            reply(tag, OK);
+            tone_start(hz, len, p[4]);
+            break;
+        }
+        case BELL:
+            reply(tag, OK);
+            tone_start(sound_flash::BELL_HZ, sound_flash::BELL_MS, static_cast<uint8_t>(sound_flash::BELL_VOLUME));
+            break;
+        case VOLUME:
+            vol_l_ = p[0], vol_r_ = p[1];
+            reply(tag, OK);
+            break;
+        case MIX:
+            if (p[0] >= SOURCES)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            mix_[p[0]] = p[1];
+            reply(tag, OK);
+            break;
+        case EQ:
+        case EQ_ALL:
+        {
+            std::array<int8_t, 11> g = eq_gain_;
+            const unsigned first = cmd == EQ ? p[0] : 0, count = cmd == EQ ? 1 : 11;
+            const uint8_t *v = cmd == EQ ? p + 1 : p;
+            bool ok = first <= 10;
+            for (unsigned i = 0; ok && i < count; ++i)
+            {
+                const int8_t x = static_cast<int8_t>(v[i]);
+                ok = x >= -24 && x <= 24; // half-dB, revision 2's
+                g[first + i] = x;
+            }
+            if (!ok)
+            {
+                reply(tag, E_PARAM); // each checked before any is set
+                break;
+            }
+            eq_gain_ = g;
+            eq_.set(eq_gain_, eq_on_, RATE);
+            reply(tag, OK);
+            break;
+        }
+        case EQ_ON:
+            if (p[0] > 1)
+            {
+                reply(tag, E_PARAM);
+                break;
+            }
+            eq_on_ = p[0] == 1;
+            eq_.set(eq_gain_, eq_on_, RATE);
+            reply(tag, OK);
+            break;
+        case VIS:
+            vis_.snapshot(vis_page_);
+            reply(tag, OK, std::vector<uint8_t>(vis_page_.begin(), vis_page_.end()));
+            break;
+        case LEVELS:
+        {
+            // As PB_LEVELS has the vis page: its 32 bands four at a time, averaged, then its VU pair.
+            vis_.snapshot(vis_page_);
+            std::vector<uint8_t> r;
+            for (unsigned b = 0; b < 8; ++b)
+                r.push_back(static_cast<uint8_t>((vis_page_[4 * b] + vis_page_[4 * b + 1] + vis_page_[4 * b + 2] + vis_page_[4 * b + 3]) / 4));
+            r.push_back(vis_page_[BusVis::VU]);
+            r.push_back(vis_page_[BusVis::VU + 1]);
+            reply(tag, OK, r);
+            break;
+        }
         case SIDREGS:
         {
             std::vector<uint8_t> r(50);
@@ -673,6 +1134,8 @@ namespace ooe::emu
     {
         if (tune_.state != T_STOPPED)
             stop_tune(T_STOPPED);
+        tone_ = Tone{};
+        boot_ = BootSound{};
         port_.silence();
     }
 

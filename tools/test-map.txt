@@ -65,6 +65,8 @@ emulator/components/devices/*dma_controller*    dma backplane web
 emulator/components/devices/*ds3231*            rtc bridge backplane web
 emulator/components/devices/*es5503*            es5503 sound backplane web
 emulator/components/devices/*fat_volume*        sd web
+# (the sound card's flash image, before *flash*, which would take it)
+emulator/components/devices/include/sound_flash.h sound backplane web
 emulator/components/devices/*flash*             flash backplane web
 emulator/components/devices/*sd_card*           sd backplane web
 emulator/components/devices/*sd_media*          sd web
@@ -171,6 +173,7 @@ tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
 tools/atecc_crc.py                              rng
+tools/mksndflash.py                             sound tools
 tools/release/                                  none
 
 # --- prose, licenses and settings ----------------------------------------------------------------------
