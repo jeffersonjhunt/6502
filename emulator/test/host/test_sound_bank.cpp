@@ -367,4 +367,167 @@ TEST(mix_2_leaves_music_heard)
     }
 }
 
+namespace
+{
+    /// A SID step: `ms`, a sawtooth at `hz16`, sustain full, its frequency swept `sweep` (Hz x 16) a ms.
+    std::vector<uint8_t> sid_step(uint16_t ms, uint32_t hz16, int16_t sweep = 0)
+    {
+        const uint16_t s = static_cast<uint16_t>(sweep);
+        return {static_cast<uint8_t>(ms), static_cast<uint8_t>(ms >> 8), 0x21, static_cast<uint8_t>(hz16), static_cast<uint8_t>(hz16 >> 8),
+                static_cast<uint8_t>(hz16 >> 16), 0, 8, 0x00, 0xF0, static_cast<uint8_t>(s), static_cast<uint8_t>(s >> 8), 0};
+    }
+    int effect_voice(Dev &d, unsigned from, unsigned to)
+    {
+        for (unsigned v = from; v < to; ++v)
+            if (d.card.firmware().voice_use(v) == SoundFw::V_EFFECT)
+                return static_cast<int>(v);
+        return -1;
+    }
+    /// The running ES5503 oscillators' tables: each one's oscillator, then its first 64 bytes of wave RAM.
+    std::vector<std::pair<unsigned, std::vector<uint8_t>>> tables(Dev &d)
+    {
+        std::vector<std::pair<unsigned, std::vector<uint8_t>>> out;
+        const Es5503 &doc = d.card.doc();
+        for (unsigned o = 0; o < 32; ++o)
+            if (!(doc.peek(static_cast<uint8_t>(0xA0 + o)) & 1))
+            {
+                const auto at = static_cast<std::ptrdiff_t>(
+                    ((doc.peek(static_cast<uint8_t>(0xC0 + o)) & 0x40 ? 256u : 0u) + doc.peek(static_cast<uint8_t>(0x80 + o))) * 256u);
+                out.emplace_back(o, std::vector<uint8_t>(doc.ram().begin() + at, doc.ram().begin() + at + 64));
+            }
+        return out;
+    }
+} // namespace
+
+TEST(a_pitch_offset_holds_for_every_step_and_the_sweep)
+{
+    // Three steps (100 ms at 440 Hz; 100 ms at 660 Hz; 200 ms at 440 Hz swept up 1 Hz a ms), played at 0 and at
+    // +1200 cents: the second's frequency register is twice the first's in each step and through the sweep.
+    std::vector<uint32_t> regs[2];
+    for (const int cents : {0, 1200})
+    {
+        Dev d;
+        std::vector<uint8_t> def{1, 0, 3, 0xFF};
+        for (const auto &s : {sid_step(100, 440 * 16), sid_step(100, 660 * 16), sid_step(200, 440 * 16, 16)})
+            def.insert(def.end(), s.begin(), s.end());
+        CHECK_EQ(d.ask(SoundFw::EFFECT_DEF, def)[1], 0);
+        const uint16_t c = static_cast<uint16_t>(cents);
+        CHECK_EQ(d.ask(SoundFw::PLAY, {1, 255, 128, 1, static_cast<uint8_t>(c), static_cast<uint8_t>(c >> 8), 0})[1], 0);
+        const int v = effect_voice(d, 0, SoundFw::SID_VOICES);
+        REQUIRE(v >= 0);
+        const unsigned chip = static_cast<unsigned>(v) / 3, r = 7 * (static_cast<unsigned>(v) % 3);
+        for (const unsigned at : {50u, 100u, 100u, 100u})
+        {
+            d.ms(at);
+            const auto s = d.card.chips().sid(chip);
+            regs[cents ? 1 : 0].push_back(static_cast<uint32_t>(s[r] | s[r + 1] << 8));
+        }
+    }
+    for (size_t i = 0; i < regs[0].size(); ++i)
+    {
+        std::printf("  at %s: %u and %u\n", i == 0 ? "step 1" : i == 1 ? "step 2" : i == 2 ? "step 3, swept 50 ms" : "step 3, swept 150 ms",
+                    regs[0][i], regs[1][i]);
+        CHECK(regs[0][i] > 0);
+        CHECK(std::abs(static_cast<int>(regs[1][i]) - 2 * static_cast<int>(regs[0][i])) <= 2);
+    }
+    CHECK(regs[0][3] > regs[0][2] && regs[0][2] > regs[0][0]); // the sweep moved it
+}
+
+TEST(a_paused_sample_note_sounds_again_on_resume)
+{
+    // A 2 s note on a sample instrument, paused and resumed: silent while paused, heard again after.
+    Dev d;
+    d.card.set_tap(true);
+    d.sample(3, sine(8000, 40), 22050);
+    music(d, one_note(SAMPLE_3, 69, 2000));
+    d.ms(30);
+    const double on = out_rms(d, 50);
+    CHECK_EQ(d.ask(SoundFw::MUSIC_PAUSE)[1], 0);
+    const double paused = out_rms(d, 50);
+    CHECK_EQ(d.ask(SoundFw::MUSIC_RESUME)[1], 0);
+    d.ms(5);
+    const double again = out_rms(d, 100);
+    std::printf("  RMS: playing %.0f, paused %.0f, resumed %.0f\n", on, paused, again);
+    CHECK(on > 300);
+    CHECK(paused < 30);
+    CHECK(again > 300);
+}
+
+TEST(an_effect_table_past_effect_255_is_refused_there)
+{
+    // EFFECT_LOAD from effect 250 with ten definitions: 250-255 taken, E_DATA at the seventh; effect 0 untouched.
+    Dev d;
+    std::vector<uint8_t> table;
+    for (int i = 0; i < 10; ++i)
+    {
+        const auto e = sid_effect(0, 100, 440 * 16);
+        table.push_back(static_cast<uint8_t>(e.size() - 1));
+        table.insert(table.end(), e.begin() + 1, e.end());
+    }
+    const uint32_t n = static_cast<uint32_t>(table.size());
+    CHECK_EQ(d.ask(SoundFw::EFFECT_LOAD, {250, static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), 0})[1], 0);
+    d.data(table);
+    const auto done = d.of(SoundFw::EV_XFERDONE);
+    REQUIRE(done.size() == 1);
+    CHECK_EQ(done[0].body.at(6), SoundFw::E_DATA); // the object, the time, then EFFECT_LOAD and the status
+    CHECK_EQ(done[0].body.back(), 6);
+    CHECK_EQ(d.play(0)[1], SoundFw::E_SLOT); // not overwritten
+    CHECK_EQ(d.play(255)[1], 0);
+}
+
+TEST(a_sample_play_with_no_room_in_wave_ram_steals_no_voice)
+{
+    // Four 32 KB samples fill wave RAM; sixteen voices play them. A priority-3 PLAY of a fifth sample: E_BUSY, and
+    // no voice stolen (all sixteen still play).
+    Dev d;
+    for (uint8_t s = 0; s < 5; ++s)
+    {
+        d.sample(s, sine(32768, 40 + s), 8000);
+        CHECK_EQ(d.ask(SoundFw::EFFECT_DEF, sample_effect(static_cast<uint8_t>(10 + s), s))[1], 0);
+    }
+    for (int i = 0; i < 16; ++i)
+        CHECK_EQ(d.play(static_cast<uint8_t>(10 + i % 4), 0)[1], 0);
+    d.seen.clear();
+    CHECK_EQ(d.play(14, 3)[1], SoundFw::E_BUSY);
+    CHECK(d.of(SoundFw::EV_VOICE_STOLEN).empty());
+    unsigned playing = 0;
+    for (unsigned v = SoundFw::SID_VOICES; v < SoundFw::VOICES; ++v)
+        playing += d.card.firmware().voice_use(v) == SoundFw::V_EFFECT;
+    CHECK_EQ(playing, 16u);
+}
+
+TEST(wave_ram_puts_out_only_a_sample_no_voice_plays)
+{
+    // Four 32 KB samples fill wave RAM: three play on (4 s each), the fourth has played and ended. A fifth comes:
+    // it takes the ended one's room; the three playing keep their tables, and the fifth's holds its own bytes.
+    Dev d;
+    std::vector<std::vector<uint8_t>> bytes;
+    for (uint8_t s = 0; s < 5; ++s)
+    {
+        bytes.push_back(sine(32768, 40 + 3 * s));
+        d.sample(s, bytes.back(), s == 3 ? 32000 : 8000);
+        CHECK_EQ(d.ask(SoundFw::EFFECT_DEF, sample_effect(static_cast<uint8_t>(10 + s), s))[1], 0);
+    }
+    for (uint8_t s = 0; s < 4; ++s)
+        CHECK_EQ(d.play(static_cast<uint8_t>(10 + s))[1], 0);
+    d.ms(1300); // the fourth (1 s) ended
+    const auto before = tables(d);
+    CHECK_EQ(before.size(), 6u); // three voices, two oscillators each
+    CHECK_EQ(d.play(14)[1], 0);
+    const auto after = tables(d);
+    unsigned kept = 0, fifth = 0;
+    for (const auto &[o, t] : after)
+    {
+        bool was = false;
+        for (const auto &[o2, t2] : before)
+            if (o2 == o)
+                was = true, kept += t2 == t;
+        if (!was)
+            fifth += std::equal(t.begin(), t.end(), bytes[4].begin());
+    }
+    std::printf("  %u of 6 tables kept, the fifth's %u of 2 its own\n", kept, fifth);
+    CHECK_EQ(kept, 6u);
+    CHECK_EQ(fifth, 2u);
+}
+
 int main() { return run_all(); }

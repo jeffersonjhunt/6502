@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { deviceStatusText, appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
+import { deviceStatusText, appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, tuneRuns, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -270,6 +270,24 @@ describe("Devices tab", () => {
     expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0 · env $00 held at 0");
     expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0 · env $00 held at 0");
     expect(deviceStatusText(0x60)).toBe("EVLOST · ERR");
+  });
+
+  test("the sound card, revision 3: a paused tune holds the 6510", async () => {
+    const port = new FakePort();
+    port.memory.set(SOUND + 0x7f, 0xa3);
+    const held: Envelope = { level: 0, phase: "release", held: true };
+    port.sound = {
+      pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0, latch: 0, timerOn: false, frame: 0, frameEn: 1, raster: 0,
+      envelopes: [held, held, held, held, held, held], sids: new Uint8Array(50),
+      device: { tune: 3, music: 0, stream0: 0, stream1: 0, storeFree: 4096 * 1024, store: 8192 * 1024, boot: false, beep: false, voices: "......................", notes: 0, image: 0 },
+    };
+    const v = devicesView(port);
+    await v.refresh();
+    expect(text(v.element, "Tune")).toBe("paused");
+    expect(text(v.element, "6510")).toContain("· held");
+    expect(v.element.textContent).toContain("Sound card tune paused");
+    expect(tuneRuns(1) && tuneRuns(2) && tuneRuns(4)).toBe(true);
+    expect(tuneRuns(0) || tuneRuns(3) || tuneRuns(5) || tuneRuns(6)).toBe(false);
   });
 
   test("no sound card: says so", async () => {

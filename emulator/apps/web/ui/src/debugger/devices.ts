@@ -204,6 +204,10 @@ export function frameText(c: SoundCpu): string {
 /** Sound card revision 3's ID: the card as a device (hw/future/sound-device.md). */
 export const SOUND_V3 = 0xa3;
 const TUNE_STATES = ["stopped", "starting", "playing", "paused", "stalled", "jammed", "ended"];
+/** Whether a tune's state has the card's 6510 running: starting, playing or stalled (paused holds it). */
+export function tuneRuns(state: number): boolean {
+  return state === 1 || state === 2 || state === 4;
+}
 const STREAM_STATES: Record<number, string> = { 0: "idle", 1: "buffering", 2: "playing", 3: "paused", 4: "underrun", 5: "ended", 0x80: "bad format", 0x81: "no sync" };
 
 /** Revision 3's STATUS ($C501) in words. */
@@ -233,7 +237,7 @@ export function soundDeviceRows(r: Uint8Array, cpu: SoundCpu | null): HTMLElemen
     );
   }
   if (cpu) {
-    rows.push(...row("6510", soundCpuText(cpu, d ? d.tune >= 1 && d.tune <= 4 : false)), ...row("Frame", frameText(cpu)));
+    rows.push(...row("6510", soundCpuText(cpu, d ? tuneRuns(d.tune) : false)), ...row("Frame", frameText(cpu)));
     if (cpu.sids) {
       const sids = cpu.sids;
       const voice = (chip: number, i: number) => {
@@ -419,7 +423,7 @@ export function devicesView(port: MachinePort) {
     if (r[0x7f] === SOUND_V3) {
       const cpu = await port.readSound();
       soundRows.replaceChildren(...soundDeviceRows(r, cpu));
-      soundStatus.textContent = cpu?.device && cpu.device.tune >= 1 && cpu.device.tune <= 4 ? "tune playing" : "the device";
+      soundStatus.textContent = cpu?.device && tuneRuns(cpu.device.tune) ? "tune playing" : cpu?.device?.tune === 3 ? "tune paused" : "the device";
       return;
     }
     const ctrl = r[0x40], status = r[0x41];

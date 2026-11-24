@@ -175,6 +175,47 @@ TEST(a_load_s_bytes_go_in_by_channel_2_demand_dma_and_checksum)
     CHECK_EQ(b.card->data_dropped(), 0u);
 }
 
+TEST(a_load_by_word_grants_takes_both_bytes_of_each)
+{
+    // As above with channel 2's CARD WIDE ($1A): each grant a word, DATA taking its low byte then its high.
+    Board b;
+    REQUIRE(b.card != nullptr);
+    const std::vector<uint8_t> bytes = noise(10000, 9);
+    for (size_t i = 0; i < bytes.size(); ++i)
+        b.bus().write_physical(0x10000 + static_cast<uint32_t>(i), bytes[i]);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_DRQ);
+    b.send(SoundFw::SAMPLE_LOAD, 1, sample_load(3, 10000));
+    b.run(1000);
+    b.channel(0x10000, 10000);
+    b.bus().poke(0xC40C, 0x1A);
+    CHECK_EQ(b.m->dma()->peek_channel(2, DmaController::CARD), 0x1A);
+    b.run(12000);
+    CHECK(!b.armed());
+    b.send(SoundFw::CHECKSUM, 2, {SoundFw::SAMPLE_LOAD, 3});
+    b.run(1000);
+    const auto ev = b.events();
+    REQUIRE(ev.size() == 3);
+    CHECK_EQ(ev[1].kind, SoundFw::EV_XFERDONE);
+    CHECK_EQ(ev[1].body.at(6), 0); // its status: the object, the time, then SAMPLE_LOAD and it
+    CHECK_EQ(le32(ev[2].body, 2), Crc32::of(bytes.data(), bytes.size()));
+    CHECK_EQ(b.card->data_dropped(), 0u);
+}
+
+TEST(a_peek_of_xleft_is_live_in_all_three_bytes)
+{
+    // The debugger's view: with a 40,000-byte load open and $08 never read, a peek of $09 and $0A says the count.
+    Board b;
+    REQUIRE(b.card != nullptr);
+    b.send(SoundFw::SAMPLE_LOAD, 1, sample_load(3, 40000));
+    b.run(1000);
+    for (int i = 0; i < 300; ++i)
+        b.put(SoundCard3::DATA, 1);
+    b.run(1000);
+    const uint32_t left = uint32_t{b.card->peek(SoundCard3::XLEFT)} | uint32_t{b.card->peek(SoundCard3::XLEFT + 1)} << 8 |
+                          uint32_t{b.card->peek(SoundCard3::XLEFT + 2)} << 16;
+    CHECK_EQ(left, 39700u);
+}
+
 TEST(evt_is_a_level_and_no_event_is_lost_between_the_drain_and_the_clear)
 {
     Board b;

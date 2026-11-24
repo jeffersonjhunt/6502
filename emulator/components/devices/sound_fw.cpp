@@ -757,11 +757,12 @@ namespace ooe::emu
         x.step_ms = get16(s);
         x.freq = static_cast<int32_t>(get24(s + 3));
         x.pw = static_cast<int32_t>(get16(s + 6) & 0x0FFF);
+        const int32_t played = pitched(x);
         uint8_t regs[25];
         port_.sid_regs(chip, regs);
         if ((regs[0x18] & 0x0F) == 0)
             port_.sid_write(chip, 0x18, static_cast<uint8_t>((regs[0x18] & 0xF0) | 0x0F)); // the chip's volume up
-        write_sid_freq(v, x.freq);
+        write_sid_freq(v, played);
         port_.sid_write(chip, r + 2, static_cast<uint8_t>(x.pw));
         port_.sid_write(chip, r + 3, static_cast<uint8_t>(x.pw >> 8));
         port_.sid_write(chip, r + 5, s[8]);
@@ -893,14 +894,14 @@ namespace ooe::emu
             if (boot_.active)
                 return E_BUSY; // the ES5503 is the boot sound's while it plays
         }
+        if (!sid && !cache_sample(d.def[0]))
+            return E_BUSY; // wave RAM all in use by voices playing: refused before any voice is stolen
         uint8_t sh = 0, se = 0;
         const int v = give_voice(sid, prio, sh, se);
         if (v < 0)
             return E_BUSY;
         if (sh)
             event(EV_VOICE_STOLEN, sh, {se, prio});
-        if (!sid && !cache_sample(d.def[0]))
-            return E_BUSY; // wave RAM all in use by voices playing
         // A handle no voice has.
         for (int guard = 0; guard < 256; ++guard)
         {
@@ -923,11 +924,8 @@ namespace ooe::emu
         if (sid)
         {
             x.step = 0;
+            x.ratio = std::pow(2.0, cents / 1200.0);
             sid_step(static_cast<unsigned>(v));
-            if (cents)
-                write_sid_freq(static_cast<unsigned>(v), static_cast<int32_t>(x.freq * std::pow(2.0, cents / 1200.0)));
-            x.pw = static_cast<int32_t>(x.pw);
-            x.freq = static_cast<int32_t>(x.freq * std::pow(2.0, cents / 1200.0));
         }
         else
         {
@@ -974,7 +972,7 @@ namespace ooe::emu
                 {
                     x.freq += fs;
                     x.pw = std::clamp<int32_t>(x.pw + ps, 0, 0x0FFF);
-                    write_sid_freq(v, x.freq);
+                    write_sid_freq(v, pitched(x));
                     const unsigned chip = v / 3, r = 7 * (v % 3);
                     port_.sid_write(chip, r + 2, static_cast<uint8_t>(x.pw));
                     port_.sid_write(chip, r + 3, static_cast<uint8_t>(x.pw >> 8));
@@ -2151,8 +2149,17 @@ namespace ooe::emu
             seq_.state = M_PAUSED;
             seq_.paused_at = now_us();
             for (unsigned lv = 0; lv < 8; ++lv)
-                if (seq_.v[lv].gated)
-                    music_gate(lv, false), seq_.v[lv].gated = true; // silent, still its note's
+            {
+                MusicVoice &mv = seq_.v[lv];
+                if (!mv.gated)
+                    continue;
+                if (!mv.tone && mv.phys >= static_cast<int>(SID_VOICES)) // a sample: halted if it sounds, kept for resume
+                {
+                    const unsigned o = 2 * (static_cast<unsigned>(mv.phys) - SID_VOICES);
+                    mv.doc_held = !(port_.doc_read(static_cast<uint8_t>(0xA0 + o)) & DOC_HALT);
+                }
+                music_gate(lv, false), mv.gated = true; // silent, still its note's
+            }
             reply(tag, OK);
             break;
         case MUSIC_RESUME:
@@ -2170,6 +2177,14 @@ namespace ooe::emu
                 mv.gate_off_us += held;
                 if (mv.gated)
                     music_gate(lv, true);
+                if (mv.doc_held) // a sample halted by the pause: its oscillators again (the ES5503 starts them from the top)
+                {
+                    const unsigned v = static_cast<unsigned>(mv.phys), o = 2 * (v - SID_VOICES);
+                    const uint8_t mode = voices_[v].looped ? 0 : DOC_ONESHOT;
+                    for (const unsigned q : {o, o + 1})
+                        port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(mode | doc_channel(v, q)));
+                    mv.doc_held = false;
+                }
             }
             seq_.started_us += held;
             seq_.state = M_PLAYING;
@@ -2611,11 +2626,12 @@ namespace ooe::emu
             // A run of definitions: each its length, then its kind and definition; numbered from the first.
             unsigned taken = 0;
             size_t at = 0;
-            uint8_t e = slot;
+            unsigned e = slot; // the last is effect 255: one past it is E_DATA
             while (at < o.len)
             {
                 const size_t n = store_[o.at + at];
-                if (n < 1 || at + 1 + n > o.len || !parse_effect(e, store_[o.at + at + 1], &store_[o.at + at + 2], n - 1))
+                if (e >= EFFECTS || n < 1 || at + 1 + n > o.len ||
+                    !parse_effect(static_cast<uint8_t>(e), store_[o.at + at + 1], &store_[o.at + at + 2], n - 1))
                 {
                     payload[1] = E_DATA;
                     break;

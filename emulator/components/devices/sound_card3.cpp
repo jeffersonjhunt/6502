@@ -198,8 +198,8 @@ namespace ooe::emu
         case CMDFREE: return static_cast<uint8_t>(std::min<size_t>(fw_.cmd_free(), 255));
         case EVTLEN: return static_cast<uint8_t>(std::min<size_t>(fw_.evt_len(), 255));
         case XLEFT: return static_cast<uint8_t>(fw_.xleft());
-        case XLEFT + 1: return static_cast<uint8_t>(xlatch_ >> 8);
-        case XLEFT + 2: return static_cast<uint8_t>(xlatch_ >> 16);
+        case XLEFT + 1: return static_cast<uint8_t>(fw_.xleft() >> 8); // live: the latch is the CPU's reads'
+        case XLEFT + 2: return static_cast<uint8_t>(fw_.xleft() >> 16);
         case XTAG: return fw_.xtag();
         case IEN: return ien_;
         case ISR: return isr();
@@ -221,6 +221,8 @@ namespace ooe::emu
         case XLEFT:
             xlatch_ = fw_.xleft(); // all three, so a read across a carry isn't torn
             return static_cast<uint8_t>(xlatch_);
+        case XLEFT + 1: return static_cast<uint8_t>(xlatch_ >> 8); // the CPU's: as latched by its read of XLEFT
+        case XLEFT + 2: return static_cast<uint8_t>(xlatch_ >> 16);
         default: return peek(offset);
         }
     }
@@ -265,6 +267,16 @@ namespace ooe::emu
         catch_up();
         if (!fw_.data_write(data))
             ++dropped_;
+        take_edges();
+    }
+
+    void SoundCard3::dack_write_word(uint16_t data, bool tc)
+    {
+        (void)tc;
+        catch_up();
+        for (const uint8_t b : {static_cast<uint8_t>(data), static_cast<uint8_t>(data >> 8)})
+            if (!fw_.data_write(b))
+                ++dropped_;
         take_edges();
     }
 

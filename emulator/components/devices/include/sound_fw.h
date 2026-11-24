@@ -603,7 +603,8 @@ namespace ooe::emu
             // a SID effect's player
             unsigned step{0};
             uint32_t step_ms{0};        ///< left in the step
-            int32_t freq{0};            ///< Hz x 16
+            int32_t freq{0};            ///< Hz x 16, the definition's (the step's, swept)
+            double ratio{1.0};          ///< PLAY's pitch offset, 2^(cents / 1200), on every step and sweep
             int32_t pw{0};
             // a sample's player
             int sample{-1};
@@ -627,6 +628,7 @@ namespace ooe::emu
         void free_voice(unsigned v, bool done_event);
         uint8_t doc_channel(unsigned v, unsigned q) const; ///< oscillator q's channel bits for voice v
         void silence_voice(unsigned v);
+        int32_t pitched(const Voice &x) const { return static_cast<int32_t>(x.freq * x.ratio); } ///< Hz x 16 played
         uint8_t play_effect(const uint8_t *p, uint8_t &handle);
         bool cache_sample(unsigned slot);
         void sid_step(unsigned v);
@@ -669,6 +671,7 @@ namespace ooe::emu
             uint64_t next_us{0};        ///< when its next entry begins
             uint64_t gate_off_us{0};
             bool gated{false}, done{false};
+            bool doc_held{false};       ///< an ES5503 note halted by MUSIC_PAUSE, to start again on resume
             uint32_t waiting{0};        ///< its notes not yet begun
         };
         struct Music

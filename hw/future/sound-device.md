@@ -1091,6 +1091,12 @@ as it plays decodes as the whole file would.
 **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
 when that transfer ends: what is in plays out, the chunk in flight included.
 
+**A sample PLAY checks wave RAM first.** A sample effect needing room in wave RAM that voices playing hold is
+refused `E_BUSY` before a voice is taken: no voice is stolen for it.
+
+**A paused sample note starts again.** MUSIC_PAUSE halts a music voice's ES5503 note; MUSIC_RESUME starts it
+again, from the sample's start, for the rest of its length (the ES5503 starts a halted oscillator from the top).
+
 **An update is written at the end of its flash write.** FW_COMMIT's image is written into the slot not running,
 and marked to boot, only when the write's 50 ms end, just before FWRESULT. A power-on or FWRESTART before then
 drops the update: the old image boots, FWVER is unchanged and no FWRESULT comes; the host sends the update again.

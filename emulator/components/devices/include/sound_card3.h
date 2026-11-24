@@ -94,6 +94,8 @@ namespace ooe::emu
         void tick(uint64_t cycles) override;
         bool drq() const override { return (ctrl_ & CTRL_DRQ) && fw_.xfer_open(); }
         void dack_write(uint8_t data, bool tc) override;
+        /// A word grant (channel 2 with WIDE): DATA takes its two bytes, the low first.
+        void dack_write_word(uint16_t data, bool tc) override;
 
         /// The card's chips (the debugger's and the tests' view: nothing on the bus reaches them).
         SoundCard &chips() { return chips_; }
