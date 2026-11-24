@@ -200,7 +200,14 @@ namespace ooe::emu
     void SoundFw::ms_step()
     {
         if (fw_pending_ms_ && --fw_pending_ms_ == 0) // the image checked and written: whether it will boot
+        {
+            if (fw_status_ == OK) // the write done: the slot holds it, marked to boot (the next power-on or FWRESTART)
+            {
+                slots_[fw_new_slot_] = fw_new_;
+                boot_slot_ = fw_new_slot_;
+            }
             event(EV_FWRESULT, 0, {fw_status_, fw_major_, fw_minor_});
+        }
         tune_ms();
         streams_ms();
         voices_ms();
@@ -2210,16 +2217,14 @@ namespace ooe::emu
                 reply(tag, image_.loading ? E_XFER : E_STATE);
                 break;
             }
-            // The reply at once; FWRESULT once the image is checked and written into the slot not running.
+            // The reply at once; FWRESULT once the image is checked and written into the slot not running. The
+            // write takes FLASH_MS: the slot is written and marked to boot only at its end, so a restart before
+            // then (power-on, FWRESTART) drops the update, and the old image boots.
             Image img;
             fw_status_ = check_image(img);
             fw_major_ = img.major, fw_minor_ = img.minor;
-            if (fw_status_ == OK)
-            {
-                const uint8_t slot = static_cast<uint8_t>(1 - running_);
-                slots_[slot] = img;
-                boot_slot_ = slot; // marked to boot: the next power-on or FWRESTART
-            }
+            fw_new_ = img;
+            fw_new_slot_ = static_cast<uint8_t>(1 - running_);
             free_object(image_);
             fw_pending_ms_ = FLASH_MS;
             reply(tag, OK);

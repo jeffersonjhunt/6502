@@ -1091,6 +1091,10 @@ as it plays decodes as the whole file would.
 **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
 when that transfer ends: what is in plays out, the chunk in flight included.
 
+**An update is written at the end of its flash write.** FW_COMMIT's image is written into the slot not running,
+and marked to boot, only when the write's 50 ms end, just before FWRESULT. A power-on or FWRESTART before then
+drops the update: the old image boots, FWVER is unchanged and no FWRESULT comes; the host sends the update again.
+
 **MIX's sources reach every chip by its holder.** Each SID is mixed at its holder's level: a tune's chip at the
 tunes' (with the tune's fade), else music's while a music voice is on it, else the effects'. The ES5503's music
 voices play on its channels 2 and 3, mixed at music's level; its effects and the boot sound on channels 0 and 1, at

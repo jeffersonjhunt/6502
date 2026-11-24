@@ -711,6 +711,8 @@ namespace ooe::emu
         std::array<Image, 2> slots_{{{true, VERSION_MAJOR, VERSION_MINOR, BUILD}, {}}};
         uint8_t running_{0}, boot_slot_{0};
         uint32_t fw_pending_ms_{0};
+        Image fw_new_{};          ///< the image being written (FLASH_MS), into fw_new_slot_ when the write ends
+        uint8_t fw_new_slot_{0};
         uint8_t fw_status_{0}, fw_major_{0}, fw_minor_{0};
         uint8_t faults_{0};
         uint8_t check_image(Image &out) const;

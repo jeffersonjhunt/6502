@@ -347,14 +347,20 @@ TEST(cmdfree_and_cmdrdy_hold_a_whole_record)
 namespace
 {
     /// A firmware image as the S1 appendix lays it out (tools/mksndfw.py's), its body `body` bytes of a pattern.
-    std::vector<uint8_t> fw_image(uint8_t major, uint8_t minor, uint8_t card = 0xA3, size_t body = 3000, int bad = 0)
+    /// An image: `bad` 1 a wrong body CRC, 2 a wrong header CRC. `magic`, the header's version `hver` and the
+    /// length field less the body's (`short_by`, the body CRC over what the field says) go in before the header's
+    /// CRC, so an image wrong in one of them has every other check right.
+    std::vector<uint8_t> fw_image(uint8_t major, uint8_t minor, uint8_t card = 0xA3, size_t body = 3000, int bad = 0,
+                                  const char *magic = "OOSD", uint8_t hver = 1, size_t short_by = 0)
     {
         std::vector<uint8_t> b(body);
         for (size_t i = 0; i < body; ++i)
             b[i] = static_cast<uint8_t>(i * 7 + 3);
-        const uint32_t bcrc = Crc32::of(b.data(), b.size()) ^ (bad == 1 ? 1u : 0u);
-        std::vector<uint8_t> h{'O', 'O', 'S', 'D', card, 1, major, minor, 5, 0, 0, 0};
-        for (const uint32_t x : {static_cast<uint32_t>(body), bcrc})
+        const size_t said = body - short_by;
+        const uint32_t bcrc = Crc32::of(b.data(), said) ^ (bad == 1 ? 1u : 0u);
+        std::vector<uint8_t> h{static_cast<uint8_t>(magic[0]), static_cast<uint8_t>(magic[1]), static_cast<uint8_t>(magic[2]),
+                               static_cast<uint8_t>(magic[3]), card, hver, major, minor, 5, 0, 0, 0};
+        for (const uint32_t x : {static_cast<uint32_t>(said), bcrc})
             for (int i = 0; i < 4; ++i)
                 h.push_back(static_cast<uint8_t>(x >> (8 * i)));
         h.resize(28, 0);
@@ -417,15 +423,51 @@ TEST(a_good_image_boots_after_fwrestart_and_says_its_version)
     CHECK_EQ(b.card->firmware().running_slot(), 0);
 }
 
+TEST(a_restart_during_the_flash_write_keeps_the_old_image)
+{
+    // A good image (1.1) committed, FWRESTART 10 ms into the 50 ms write: the old image (1.0) boots, no FWRESULT
+    // comes. Sent again and left to finish, it boots.
+    Board b;
+    REQUIRE(b.card != nullptr);
+    const auto img = fw_image(1, 1);
+    const uint32_t n = static_cast<uint32_t>(img.size());
+    b.send(SoundFw::FW_BEGIN, 1, {static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), static_cast<uint8_t>(n >> 16), 0});
+    b.run(1000);
+    for (const uint8_t x : img)
+        b.put(SoundCard3::DATA, x);
+    b.run(1000);
+    b.send(SoundFw::FW_COMMIT, 2);
+    b.run_ms(10);
+    b.events();
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+    b.run_ms(SoundFw::STARTUP_MS + SoundFw::FLASH_MS + 10);
+    bool result = false;
+    for (const Event &e : b.events())
+        result = result || e.kind == SoundFw::EV_FWRESULT;
+    CHECK(!result);
+    CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // the old one
+    CHECK_EQ(b.card->firmware().running_slot(), 0);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART); // and again: still the old one
+    b.run_ms(SoundFw::STARTUP_MS + 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0);
+    b.events();
+    CHECK_EQ(update(b, img), 0);
+    b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+    b.run_ms(SoundFw::STARTUP_MS + 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1);
+    CHECK_EQ(b.card->firmware().running_slot(), 1);
+}
+
 TEST(a_bad_crc_or_another_card_s_image_leaves_the_old_one)
 {
     Board b;
     REQUIRE(b.card != nullptr);
-    auto magic = fw_image(2, 0);
-    magic[0] = 'X';
-    auto length = fw_image(2, 0);
-    length[12] ^= 1;
-    for (const auto &img : {fw_image(2, 0, 0xA3, 3000, 1), fw_image(2, 0, 0xA3, 3000, 2), fw_image(2, 0, 0xA2), magic, length})
+    // Each wrong in one way alone, its header's CRC right (T12): the body's CRC, the header's, another card's,
+    // another magic, a header version 2, a length field one short of the body (its CRC over what it says).
+    for (const auto &img : {fw_image(2, 0, 0xA3, 3000, 1), fw_image(2, 0, 0xA3, 3000, 2), fw_image(2, 0, 0xA2),
+                            fw_image(2, 0, 0xA3, 3000, 0, "XOSD"), fw_image(2, 0, 0xA3, 3000, 0, "OOSD", 2),
+                            fw_image(2, 0, 0xA3, 3000, 0, "OOSD", 1, 1)})
         CHECK_EQ(update(b, img), SoundFw::E_FIRMWARE);
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
     b.run_ms(SoundFw::STARTUP_MS + 1);
