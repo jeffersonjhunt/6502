@@ -135,9 +135,23 @@ TEST(what_sndfw_refuses_before_it_sends)
     other[4] = 0xA2; // another card's
     put(r, std::vector<uint8_t>(700, 0x41));
     r.put_m({{0, "OTHER   FW ", other, false, false, false}});
+    const std::vector<uint8_t> whole = image(1, 9, 6, 3000, true);
+    r.put_m({{0, "SHORT   FW ", std::vector<uint8_t>(whole.begin(), whole.begin() + 20), false, false, false},
+             {0, "CUT     FW ", std::vector<uint8_t>(whole.begin(), whole.begin() + 1024), false, false, false}});
     const uint8_t running = fw(r).running_slot();
     CHECK(r.cmd("M:SNDFW M:NEW").find("Not a sound card firmware image.") != std::string::npos);
     CHECK(r.cmd("M:SNDFW M:OTHER").find("Not a sound card firmware image.") != std::string::npos);
+    CHECK_EQ(fw(r).boot_slot(), running);
+    // Review T7: a file that ends before its header's length (the first 20 bytes of an image, SHORT, a record on the
+    // card; an image with its last records lost, CUT): SNDFW's own words, the boot slot unchanged. Must fail with the
+    // end-of-file check left out (a piece of no bytes sent: the card's refusal instead).
+    for (const char *f : {"M:SNDFW M:SHORT", "M:SNDFW M:CUT"})
+    {
+        const std::string o = r.cmd(f);
+        if (o.find("Not a sound card firmware image.") == std::string::npos)
+            std::printf("  %s: %s\n", f, vis(o).c_str());
+        CHECK(o.find("Not a sound card firmware image.") != std::string::npos);
+    }
     CHECK_EQ(fw(r).boot_slot(), running);
     CHECK(r.cmd("M:SNDFW M:NONE").find("No File") != std::string::npos);
     CHECK(r.cmd("M:SNDFW").find("SNDFW filespec") != std::string::npos);

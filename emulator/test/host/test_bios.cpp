@@ -1776,6 +1776,25 @@ TEST(c818_beep_and_stopall)
             CHECK(t.ms < hi);
         }
     }
+    {
+        // Review T6: another's REPLY waiting in EVT when $C818 is called (after a power-on without Break, the
+        // splash's BOOTSOUND reply, tag $FE, is never read), on a card that then never answers: the call must
+        // drop it and wait for its own, carry set at 100 ms. Must fail with SREAD taking any REPLY for $C818's.
+        std::printf("  a card that never answers, another's reply waiting\n");
+        Board b{Board::Sound3{}};
+        REQUIRE(b.ok());
+        REQUIRE(boot_past_splash(b));
+        record(b, SoundFw::NOP, 0xFE);
+        b.run(FRAME);
+        REQUIRE(dev(b).peek(SoundCard3::EVTLEN) > 0); // the premise: its reply waits
+        fw(b).set_latency_us(10'000'000);
+        const Timed t = c818_timed(b, 5, 0xA2);
+        std::printf("    $A2: %s in %.3f ms\n", t.returned ? "back" : "NOT back", t.ms);
+        CHECK(t.returned);
+        CHECK_EQ(t.p & 0x01, 0x01);
+        CHECK(t.ms >= 95);
+        CHECK(t.ms < 110);
+    }
 }
 
 TEST(c818r_is_the_menu_a_digit_apple_ii_mode_with_that_image_another_key_the_monitor)

@@ -831,4 +831,41 @@ TEST(pb_levels_are_the_card_s_own_for_a_tune_and_a_stream)
     CHECK(log[8] > 150 && log[9] > 150);
 }
 
+TEST(with_no_sound_card_or_one_never_ready_every_routine_answers_pe_nocard_and_pb_vis_leaves_its_buffer)
+{
+    // Review T4: OOLIB's no-card path on revision 3's OODOS: a machine with no sound card, and one whose card never
+    // comes READY (OODOS's cold boot then drives no card: SN_INFO 0). The EQ, the vis page and the volumes are
+    // PE_NOCARD, and PB_VIS leaves the caller's buffer as it was. Must fail with PBCARD taking any answer for a card,
+    // or PB_VIS copying its block after a failed function 82.
+    for (const bool none : {true, false})
+    {
+        std::printf("  %s\n", none ? "no sound card" : "a card that never comes READY");
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        if (none)
+        {
+            const size_t at = text.find("\nsound ");
+            REQUIRE(at != std::string::npos);
+            text.erase(at, text.find('\n', at + 1) - at);
+        }
+        else
+            before_boot() = [](Rig &b) {
+                b.machine->sound_device()->firmware().set_startup_ms(10'000);
+                b.machine->sound_device()->write(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+            };
+        CcpRig r({}, text);
+        before_boot() = nullptr;
+        REQUIRE(r.ok);
+        REQUIRE((r.machine->sound_device() == nullptr) == none);
+        start_pb(r);
+        r.poke(BUF, std::vector<uint8_t>(128, 0xEE));
+        CHECK_EQ(ac(pb(r, 'E', 1, 4)), NOCARD);
+        CHECK_EQ(ac(pb(r, 'N', 1)), NOCARD);
+        CHECK_EQ(ac(pb(r, 'A', BUF & 0xFF, BUF >> 8)), NOCARD); // $EE is -18, in range: then the card is asked
+        r.poke(BUF, std::vector<uint8_t>(128, 0xEE));
+        CHECK_EQ(ac(pb(r, 'V', BUF & 0xFF, BUF >> 8, 0)), NOCARD);
+        CHECK_EQ(r.phys(BUF), 0xEE);
+        CHECK_EQ(ac(pb(r, 'v', 100, 128)), NOCARD);
+    }
+}
+
 int main() { return run_all(); }

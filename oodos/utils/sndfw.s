@@ -132,15 +132,10 @@ start:  jsr     UT_INIT
         jsr     fill                    ; the first piece, and the header in it
         bcc     @hdr
         jmp     said
-@hdr:   lda     got                     ; the header whole, its magic and card type
-        ora     got + 1
-        jeq     @notfw
-        lda     got + 1
-        bne     @magic
-        lda     got
-        cmp     #32
-        jcc     @notfw
-@magic: ldx     #4
+@hdr:   lda     got                     ; the header whole (a file is whole records, so
+        ora     got + 1                 ;   one that isn't empty holds its 32 bytes: review
+        jeq     @notfw                  ;   T7), its magic and card type
+        ldx     #4
 @m:     lda     buf,x
         cmp     magic,x
         jne     @notfw
