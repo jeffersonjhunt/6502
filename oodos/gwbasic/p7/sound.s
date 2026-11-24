@@ -62,8 +62,9 @@
 ;@entry TIMOFP
 .export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
+.export PLYST, BLKNEW, FLUSH, GWREF, GWCNT, GWC
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
-.import SCRMOD, EVAREA, TIMON, TIMOFP
+.import SCRMOD, EVAREA, TIMON, TIMOFP, PLYN
 .include "oolib.inc"
 
 MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
@@ -87,6 +88,11 @@ SNDINI:         LDA     #120
                 STA     OCTAVE
                 STZ     DRVON
                 STZ     SNDUSE         ; (the owner's answer 20)
+                STZ     GWC            ; (OO-1, sound card revision 3: the count, the block, the threshold)
+                STZ     PLYST
+                JSR     BLKNEW
+                LDA     #$FF
+                STA     THNOW
                 LDA     TIMON          ; (7f: SYSTEM's too: ON TIMER's hook off)
                 BEQ     :+
                 JSR     TIMOFP
@@ -95,7 +101,9 @@ SNDINI:         LDA     #120
 ; SNDRST: DONOTE's AL 255, the background music off and the queue emptied:
 ; MU_STOP of voice 0, if the driver was started (SOUND x,0 with nothing
 ; sounding starts nothing).
-SNDRST:         LDA     #0             ; (PE_STATE if not started: nothing done)
+SNDRST:         STZ     GWC            ; (OO-1: nothing waits now, the block dropped)
+                JSR     BLKNEW
+                LDA     #0             ; (PE_STATE if not started: nothing done)
                 JMP     MU_STOP
 
 ; --- BEEP, SOUND (GWSTS.ASM 856, 877) --------------------------------------------------------
@@ -120,6 +128,7 @@ BELLP:          LDA     #1             ; sound used this run (answer 20)
 SOUNDP:         PHA                    ; sound used this run (the owner's answer 20)
                 LDA     #1
                 STA     SNDUSE
+                STZ     PLYST          ; (OO-1: SOUND's notes go at once, not into PLAY's block)
                 PLA
                 JSR     GETIN2         ; DX: the frequency
                 LDA     RDH            ; (review round 1, C5: negative, past the
@@ -213,10 +222,11 @@ DONOTE:         STA     NOTESC
 @on:            LDA     #1             ; (PLAY(n)'s: played this run)
                 STA     DRVON
                 STA     SNDUSE
-                LDA     MMODE          ; MF: voice 0 empty first; MB: room
+                LDA     MMODE          ; MF: nothing waiting first; MB: room (32 notes)
                 BEQ     :+
                 LDA     #MUQMAX - 1
-:               JSR     WAITQ
+:               STA     WLIM
+                JSR     ROOM
 @chunk:         LDA     NOTEU+1        ; this entry: at most 26,214 units
                 CMP     #>26214
                 BCC     @all
@@ -324,10 +334,14 @@ DONOTE:         STA     NOTESC
                 LDA     NOTEHZ+1
                 STA     TONEB+2
                 STZ     TONEB          ; voice 0
-                LDA     #<TONEB
-                LDX     #>TONEB
-                JSR     MU_TONE
-                BCS     @x             ; (refused: the driver stopped)
+                LDA     PLYST          ; PLAY's: into the statement's block (OO-1, revision 3)
+                BEQ     @tone
+                JSR     APPEND
+                BRA     @end
+@tone:          JSR     SENDT          ; SOUND's: at once (the owner's answer 9)
+                BCS     @x             ; (refused: music stopped)
+                INC     GWC
+@end:
                 JSR     MSNOW          ; the queue's end: from now if it had ended
                 SEC
                 LDA     QEND
@@ -398,17 +412,38 @@ UNITMS:         LDA     T0,X           ; x 4 + 1 (T4-T6), 17 bits
                 STA     T1,X
                 RTS
 
-; WAITQ: until voice 0 holds no more than A entries (MF's 0, MB's 31: the
-; driver's 32), the events taken meanwhile (CHKINT, screen mode's EVPOLL:
-; the note ends, the keys, ^C's break); or until the clock passes the
-; queue's end by 100 ms, when MU_STOP sets the count to 0 (the owner's
-; answer 6: an end lost to a full event queue can't hang the program).
-WAITQ:          STA     WLIM
-@w:             LDA     #0
-                JSR     MU_COUNT
+; ROOM (OO-1, sound card revision 3): room for one more note under BASIC's
+; rule, WLIM waiting at most (MF's 0, MB's 31: 32 notes): the notes the card
+; has (GWC) and those in the statement's block (BLKN). With none, the block
+; sent (FLUSH) and WAITQ. Carry clear, or set (the card refused).
+ROOM:           CLC
+                LDA     GWC
+                ADC     BLKN
                 CMP     WLIM
-                BCC     @x
-                BEQ     @x
+                BCC     @ok
+                BEQ     @ok
+                LDA     BLKN
+                BEQ     @w
+                JSR     FLUSH
+                BCS     @x
+@w:             JSR     WAITQ
+@ok:            CLC
+@x:             RTS
+
+; WAITQ: until the card's notes (GWC: its waiting, and the one sounding) are
+; WLIM or fewer, the events taken meanwhile (CHKINT, screen mode's EVPOLL:
+; SNDEV puts GWC right at each MUSIC_COUNT and MUSIC_DONE; MU_THRESH WLIM so
+; a MUSIC_COUNT comes as the room does), or until the clock passes the
+; queue's end by 100 ms, when MU_STOP sets the count to 0 (the owner's answer
+; 6: an end lost to a full event queue can't hang the program).
+WAITQ:          LDA     WLIM
+                CMP     GWC
+                BCS     @x
+                JSR     SETTH          ; (MF's 0: none; its end is MUSIC_DONE)
+                JSR     GWREF
+@w:             LDA     WLIM
+                CMP     GWC
+                BCS     @done
                 JSR     CHKINT
                 JSR     MSNOW          ; now - (QEND + 100), 32 bits
                 CLC
@@ -434,8 +469,209 @@ WAITQ:          STA     WLIM
                 LDA     MSN+3
                 SBC     T7
                 BMI     @w             ; not yet
-                LDA     #0             ; lost: the count put right
-                JMP     MU_STOP
+                STZ     GWC            ; lost: the count put right
+                LDA     #0
+                JSR     MU_STOP
+@done:          JMP     TH0
+@x:             RTS
+
+; GWREF: GWC from the card (GWCNT). A = GWC.
+GWREF:          JSR     GWCNT
+                STA     GWC
+                RTS
+
+; GWCNT: A = the card's notes: voice 0's waiting, and 1 more while music
+; plays or is paused (the one sounding). PLAY(n)'s; GWC left (SNDEV's
+; ON PLAY compares the count before an event with the count after).
+GWCNT:          LDA     #0
+                JSR     MU_COUNT
+                CPX     #0
+                BEQ     :+
+                CMP     #$FF
+                BEQ     :+
+                INC     A
+:               RTS
+
+; TH0: the threshold as ON PLAY(n) wants it in MB (n - 1: a MUSIC_COUNT as the
+; notes fall from n to n - 1), else none; SETTH: A's, if not set already.
+TH0:            LDA     #0
+                LDX     MMODE
+                BEQ     SETTH
+                LDX     PLYN
+                CPX     #2
+                BCC     SETTH
+                DEX
+                TXA
+SETTH:          CMP     THNOW
+                BEQ     @x
+                STA     THNOW
+                JMP     MU_THRESH
+@x:             RTS
+
+; BLKNEW: the statement's block empty.
+BLKNEW:         STZ     BLKN
+                LDA     #<(BLK + 16)
+                STA     BLKP
+                LDA     #>(BLK + 16)
+                STA     BLKP+1
+                RTS
+
+; APPEND: TONEB's note (NOTEHZ, TONEB+3-6's length and gate in ms) as the
+; block's next entry: a frequency (Hz x 16, the length and the gate in us),
+; or a rest (its length).
+APPEND:         LDA     BLKP
+                STA     MUP
+                LDA     BLKP+1
+                STA     MUP+1
+                LDY     #0
+                LDA     NOTEHZ
+                ORA     NOTEHZ+1
+                BNE     @f
+                LDA     #$20           ; a rest
+                STA     (MUP),Y
+                INY
+                LDA     TONEB+3
+                LDX     TONEB+4
+                JSR     MSUS
+                BRA     @n
+@f:             LDA     #$10           ; a frequency
+                STA     (MUP),Y
+                INY
+                LDA     NOTEHZ         ; x 16, 24 bits
+                STA     U0
+                LDA     NOTEHZ+1
+                STA     U0+1
+                STZ     U0+2
+                LDX     #4
+:               ASL     U0
+                ROL     U0+1
+                ROL     U0+2
+                DEX
+                BNE     :-
+                LDX     #0
+:               LDA     U0,X
+                STA     (MUP),Y
+                INY
+                INX
+                CPX     #3
+                BNE     :-
+                LDA     TONEB+3
+                LDX     TONEB+4
+                JSR     MSUS
+                LDA     TONEB+5
+                LDX     TONEB+6
+                JSR     MSUS
+@n:             TYA                    ; on past it
+                CLC
+                ADC     BLKP
+                STA     BLKP
+                BCC     :+
+                INC     BLKP+1
+:               INC     BLKN
+                RTS
+
+; MSUS: A/X ms x 1,000 (x 1,024 - x 16 - x 8) to (MUP),Y on, 4 bytes; Y on past them.
+MSUS:           STA     U0
+                STX     U0+1
+                STZ     U0+2
+                STZ     U0+3
+                JSR     @sh
+                JSR     @sh
+                JSR     @sh
+                LDX     #3
+:               LDA     U0,X
+                STA     U8,X
+                DEX
+                BPL     :-
+                JSR     @sh
+                LDX     #3
+:               LDA     U0,X
+                STA     U16,X
+                DEX
+                BPL     :-
+                LDX     #6
+:               JSR     @sh
+                DEX
+                BNE     :-
+                SEC
+:               LDA     U0,X
+                SBC     U16,X
+                STA     U0,X
+                INX
+                TXA
+                EOR     #4
+                BNE     :-
+                LDX     #0
+                SEC
+:               LDA     U0,X
+                SBC     U8,X
+                STA     (MUP),Y
+                INY
+                INX
+                TXA
+                EOR     #4
+                BNE     :-
+                RTS
+@sh:            ASL     U0
+                ROL     U0+1
+                ROL     U0+2
+                ROL     U0+3
+                RTS
+
+; FLUSH: the statement's block, if it holds a note, to the card (MU_BLOCK,
+; queued behind what plays; with the card's 8 blocks in use, again after
+; CHKINT); GWC moved on, the block empty, the threshold ON PLAY's. Carry set
+; if the card refused it.
+FLUSH:          LDA     BLKN
+                BNE     :+
+                CLC
+                RTS
+:               LDX     #15            ; the header (one voice, BLKN entries) and voice 0's 50% pulse
+:               LDA     BLKHDR,X
+                STA     BLK,X
+                DEX
+                BPL     :-
+                LDA     BLKN
+                STA     BLK+4
+                LDA     #<BLK
+                STA     MUB
+                LDA     #>BLK
+                STA     MUB+1
+                SEC
+                LDA     BLKP
+                SBC     #<BLK
+                STA     MUB+2
+                LDA     BLKP+1
+                SBC     #>BLK
+                STA     MUB+3
+@try:           LDA     #<MUB
+                LDX     #>MUB
+                JSR     MU_BLOCK
+                BCC     @sent
+                CMP     #PE_FULL
+                SEC
+                BNE     @x
+                JSR     CHKINT
+                BRA     @try
+@sent:          CLC
+                LDA     GWC
+                ADC     BLKN
+                STA     GWC
+                JSR     BLKNEW
+                JSR     TH0
+                CLC
+@x:             RTS
+
+; SENDT: MU_TONE of TONEB, again after CHKINT while the card's 8 blocks are in use.
+SENDT:          LDA     #<TONEB
+                LDX     #>TONEB
+                JSR     MU_TONE
+                BCC     @x
+                CMP     #PE_FULL
+                SEC
+                BNE     @x
+                JSR     CHKINT
+                BRA     SENDT
 @x:             RTS
 
 ; --- MSNOW ---------------------------------------------------------------------------------
@@ -470,6 +706,8 @@ MSNOW:          BIT     SCRMOD
                 RTS
 
 .rodata
+BLKHDR:         .byte   1, $01, 0, 0, 0, 0, 0, 0 ; a note block: version 1, voice 0, the entries (+4)
+                .byte   0, $40, $00, $F0, $00, $08, 255, 128 ; voice 0: a SID voice's 50% pulse (MU_INIT's)
 BEEPB:          .byte   SN_BEEP, <800, >800, <250, >250 ; function 82: the bell
 
 .data
@@ -495,6 +733,16 @@ TONEB:          .res    MU_NLEN        ; MU_TONE's block
 LASTU:          .res    2              ; its entry's units, and
 LASTSC:         .res    1              ;   gate's scale (0: none yet)
 QEND:           .res    4              ; when voice 0's queue ends, by the ms counter
-WLIM:           .res    1              ; WAITQ's
+WLIM:           .res    1              ; ROOM's and WAITQ's: the notes waiting at most
+GWC:            .res    1              ; the card's notes, waiting and sounding, as last seen (OO-1)
+THNOW:          .res    1              ; MU_THRESH as last set ($FF: not known)
+PLYST:          .res    1              ; 1: in a PLAY statement (DONOTE's notes go into the block)
+BLKN:           .res    1              ; the block's notes
+BLKP:           .res    2              ; where its next entry goes
+MUB:            .res    4              ; MU_BLOCK's block
+U0:             .res    4              ; MSUS's
+U8:             .res    4
+U16:            .res    4
+BLK:            .res    16 + MUQMAX * 12 ; PLAY's statement's block: header, instrument, 32 entries
 DRVON:          .res    1              ; 1 once this run has started the driver (SNDINI clears it)
 MSN:            .res    4              ; MSNOW's

@@ -400,6 +400,11 @@ namespace ooe::emu
         /// A tune plays: starting, playing or stalled (TUNE_STATUS's state).
         bool tune_playing() const { return tune_.state == T_STARTING || tune_.state == T_PLAYING || tune_.state == T_STALLED; }
         bool beeping() const { return tone_.left > 0; }
+        /// Tests: the EQ's gains (0 the preamp, 1-10 the bands, signed half-dB) and its enable; the master volumes.
+        int8_t eq_gain(unsigned i) const { return eq_gain_[i % eq_gain_.size()]; }
+        bool eq_enabled() const { return eq_on_; }
+        uint8_t volume_left() const { return vol_l_; }
+        uint8_t volume_right() const { return vol_r_; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
         uint32_t events_lost() const { return lost_; }

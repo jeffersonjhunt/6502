@@ -182,18 +182,18 @@ EV_MWHEEL       = 37                   ;   the wheel's steps, signed, summed unt
 EV_CTL          = 40                   ; four controllers, EC_LEN bytes each: controller 1 first
 EV_PADDLES      = 56                   ; the game port's four paddles, 0-255
 EV_KEYS         = 64                   ; the keys held: 32 bytes, bit (usage AND 7) of byte usage / 8
-EV_SOUND        = 96                   ; the sound part (L3), 32 bytes: +96-107 written while the stream is claimed
-EV_SSTATE       = 96                   ;   the stream's state (SOUND2_STATE's: 0 idle ... 5 ended, $80 up errors)
+EV_SOUND        = 96                   ; the sound part (L3), 32 bytes, written once a frame while its part is claimed:
+EV_SSTATE       = 96                   ;   the stream's state (STREAM_STATUS's: 0 idle ... 5 ended, $80 up errors)
 EV_SBUFS        = 97                   ;   the two buffers: bit 0 buffer 0 free, bit 1 buffer 1 (function 82)
-EV_SFREE        = 98                   ;   the FIFO's room, 256-byte units, 2 bytes
-EV_SPOS         = 100                  ;   the frames played, 4 bytes (SOUND2_POS)
+EV_SFREE        = 98                   ;   the ring's room, 256-byte units, 2 bytes (the card's last NEED's)
+EV_SPOS         = 100                  ;   the frames played, 4 bytes
 EV_SKBPS        = 104                  ;   an MP3's bitrate, kbit/s, 2 bytes
-EV_SUNDER       = 106                  ;   underruns seen, 2 bytes (from the stream's start)
-EV_SMBOX        = 108                  ;   the 6510's mailbox (L5a), while it is claimed: the last byte,
-EV_SMMS         = 109                  ;   the ms counter when it came (SN_START's, before the first), 4 bytes,
-EV_SMCNT        = 113                  ;   the bytes since SN_START, 2 bytes, held at 65,535
-EV_SFLAGS       = 115                  ;   the program's (OODOS 0.8): ES_NOQUEUE; +116-127 reserved, 0
-ES_NOQUEUE      = $01                  ; EV_SFLAGS: the 6510's bytes stamped above but not queued as EK_SOUND
+EV_SUNDER       = 106                  ;   underruns, 2 bytes (from the stream's start); +108-115 reserved, 0
+EV_TSTATE       = 116                  ;   the tune's state (SN_TSTATUS's +1), while SC_TUNE is claimed
+EV_TMS          = 117                  ;   its ms played, 3 bytes (paused time out)
+EV_MSTATE       = 120                  ;   music's state (SN_MSTATUS's +1), while SC_MUSIC is claimed
+EV_MBLOCKS      = 121                  ;   the blocks queued behind the one playing
+EV_MWAIT        = 122                  ;   the notes waiting (not begun), all voices, 2 bytes; +124-127 reserved, 0
 EV_QUEUE        = 128                  ; the queue's slots
 EV_LEN2         = EV_QUEUE + 16        ; layout 2's least size: two slots (EQ_LEN each), one event waiting
 EV_LAYOUT2      = 2
@@ -229,7 +229,21 @@ EK_BUTTON       = 2                    ; a mouse button
 EK_WHEEL        = 3                    ; the mouse's wheel
 EK_CTL          = 4                    ; a controller's bits changed
 EK_DEVICE       = 5                    ; a device plugged in or out
-EK_SOUND        = 6                    ; a byte from the card's 6510 (the mailbox, L3): code 0, value the byte
+EK_SOUND        = 6                    ; the sound card's event: code its kind (SK_*), value its object
+SK_TUNE_STARTED = $20                  ; EK_SOUND's codes: the card's event kinds it passes on (the
+SK_TUNE_STALL   = $21                  ;   Technical Reference, chapter 7). The value: the tune slot,
+SK_TUNE_JAM     = $22
+SK_TUNE_ENDED   = $23
+SK_VOICE_DONE   = $30                  ;   the voice handle,
+SK_VOICE_STOLEN = $31
+SK_MUSIC_MARK   = $40                  ;   the marker (MUSIC_MARK's own byte),
+SK_MUSIC_COUNT  = $41                  ;   0,
+SK_MUSIC_DONE   = $42                  ;   the last block's slot,
+SK_UNDERRUN     = $51                  ;   the stream,
+SK_UNDERRUN_END = $52
+SK_TRACK        = $53                  ;   the stream now playing,
+SK_STREAM_ENDED = $54
+SK_BEEP_DONE    = $60                  ;   0
 
 ; Function 81's operations (L2, input), as 80's: X = 0, A is the operation;
 ; else A/X is a block, its +0 the operation. A = X = $FF for one that isn't,
@@ -244,45 +258,73 @@ IN_REPEAT       = 6                    ; block: +1 the console's key repeat: bit
 IN_NEXT         = 7                    ; block: +1-8 get the next event, taken; A = its kind, 0 if none waits
 IN_OPS          = 8
 
-; Function 82's operations (L3, sound), as 80's: X = 0, A is the operation;
-; else A/X is a block, its +0 the operation. A = X = $FF for one that isn't,
-; a block needed and not given, a part not claimed, or what it can't do;
-; A = $FE, X = $FF (SN_BUSY) when DMA channel 2 is busy with the stream: try
-; again later. [part] is the claim (SC_*) an operation needs.
-SN_INFO         = 0                    ; A = the card's revision (0 none), X = its CODECS (0 on revision 1);
-                                       ;   a block +1, +2 those, +3 the parts (SC_*) no one has claimed
+; Function 82's operations (L3, sound; revision 3, the card as a device,
+; OOLIB interface 18: one clean table, grouped by job, renumbered before
+; OODOS 1.0 on the owner's word), as 80's: X = 0, A is the operation; else
+; A/X is a block, its +0 the operation. A = X = $FF for one that isn't, a
+; block needed and not given, a part not claimed, an address refused (as 51's
+; segment), or no revision 3 card; A = $FE, X = $FF (SN_BUSY) when the card
+; doesn't answer in 100 ms or channel 2 is busy with the stream: try again
+; later; A = $FD (SN_REFUSED), X = the card's error (SOUND_E_*) when the
+; card refused the command. [part] is the claim (SC_*) an operation needs.
+; A physical address is 3 bytes, a length 3 (0 refused) unless said.
+SN_INFO         = 0                    ; A = the card's revision (0 none), X = FEATURES (revision 3; on 1 or 2 its
+                                       ;   CODECS); a block +1, +2 those, +3 the parts (SC_*) no one has claimed
 SN_CLAIM        = 1                    ; block: +1 the parts (SC_*), all of them or none
 SN_RELEASE      = 2                    ; block: +1 the parts, each stopped and given back
-SN_LOAD         = 3                    ; block: +1-3 a physical address, +4-5 the card's RAM address, +6-7 the
-                                       ;   length (0: 65,536): the card's RAM loaded by DMA [SC_6510]
-SN_START        = 4                    ; block: +1-2 the 6510's entry, +3 CTRL's other bits (NTSC, $08, BOTH):
-                                       ;   the vector written, the 6510 reset and run [SC_6510]
-SN_STOP         = 5                    ; the 6510 stopped, the SIDs silenced [SC_6510]
-SN_SEND         = 6                    ; block: +1 a byte to the 6510's mailbox [SC_6510]
-SN_STREAM       = 7                    ; block: +1 the codec, +2-3 the rate, +4 the format: a stream started
+SN_IDENTIFY     = 3                    ; block: +1-32 get IDENTIFY's 32 bytes (the firmware, the store, ...)
+SN_FIRMWARE     = 4                    ; block: +1-3 a physical address, +4-6 the length, +7 0 a piece, 1 begin
+                                       ;   (+8-11 the image's length), 2 commit (FWRESULT awaited): no claim,
+                                       ;   refused while any part is claimed
+SN_TUNE         = 5                    ; block: +1-3 a .sid file's physical address, +4-6 its length, +7 a slot
+                                       ;   (0-3): loaded by DMA, its header checked [SC_TUNE]
+SN_PLAY         = 6                    ; block: +1 the slot, +2 the song (0 the file's), +3 flags (bit 0 PAL, bit 1
+                                       ;   NTSC), +4-7 a length in ms (0 until stopped), +8-9 a fade in ms [SC_TUNE]
+SN_STOP         = 7                    ; the tune stopped, its chips silenced [SC_TUNE]
+SN_TPAUSE       = 8                    ; the tune held, its chips silent [SC_TUNE]
+SN_TRESUME      = 9                    ; [SC_TUNE]
+SN_TSTATUS      = 10                   ; block: +1-16 get TUNE_STATUS's 16 bytes
+SN_TINFO        = 11                   ; block: +1 a slot, +2-105 get TUNE_INFO's 104 bytes
+SN_STREAM       = 12                   ; block: +1 the codec, +2-3 the rate, +4 the format: a stream started
                                        ;   afresh, both buffers free [SC_STREAM]
-SN_BUFFER       = 8                    ; block: +1-3 a physical address, +4-5 its length (0: 65,536): A = the
-                                       ;   buffer it took (0 or 1), sent to the card by DMA [SC_STREAM]
-SN_PAUSE        = 9                    ; [SC_STREAM]
-SN_RESUME       = 10                   ; [SC_STREAM]
-SN_SEEK         = 11                   ; the FIFO emptied (FLUSH) and both buffers dropped, free [SC_STREAM]
-SN_END          = 12                   ; no more data (EOF): what is in plays out [SC_STREAM]
-SN_STATUS       = 13                   ; A = the state, X = the buffers free (EV_SBUFS); a block +1 those,
-                                       ;   +3-4 the FIFO's room, +5-8 frames, +9-10 kbit/s, +11-12 underruns
-SN_WAVE         = 14                   ; block: +1-3 a physical address, +4-6 the wave RAM address (17 bits),
-                                       ;   +7-8 the length (0: 65,536): wave RAM loaded by DMA [SC_DOC]
-SN_DOCHOOK      = 15                   ; block: +1-2 the ES5503 hook, 0 none; +3 a zero-page byte ($00-$EF)
-                                       ;   that gets its interrupt register ($E0) at each call; no block: none [SC_DOC]
-SN_BEEP         = 16                   ; block: +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms
-SN_HOLD         = 17                   ; the 6510 held (RUN off, no reset), each SID's $D418 volume nibble 0,
-                                       ;   the bytes kept; refused if it isn't running [SC_6510]
-SN_GO           = 18                   ; a hold undone: the $D418s back, RUN on; refused if not held [SC_6510]
-SN_VOLUME       = 19                   ; block: +1 VOLL, +2 VOLR, the master volumes (255 unity; revision 2)
-SN_OPS          = 20
-SN_BUSY         = $FE                  ; A when channel 2 is busy (X $FF)
-SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
-SC_STREAM       = $02                  ;   the PCM stream (revision 2),
-SC_DOC          = $04                  ;   the ES5503 (revision 2)
+SN_BUFFER       = 13                   ; block: +1-3 a physical address, +4-5 its length (0: 65,536): A = the
+                                       ;   buffer it took (0 or 1), sent to the card by DMA when it asks [SC_STREAM]
+SN_PAUSE        = 14                   ; [SC_STREAM]
+SN_RESUME       = 15                   ; [SC_STREAM]
+SN_SEEK         = 16                   ; the ring emptied and both buffers dropped, free [SC_STREAM]
+SN_END          = 17                   ; no more data (EOF): what is in plays out [SC_STREAM]
+SN_STATUS       = 18                   ; A = the state, X = the buffers free (EV_SBUFS); a block +1 those,
+                                       ;   +3-4 the ring's room, +5-8 frames, +9-10 kbit/s, +11-12 underruns,
+                                       ;   +13-14 the rate in Hz
+SN_NEXT         = 19                   ; block: +1 the codec, +2-3 the rate, +4 the format: the next stream
+                                       ;   opened and queued behind the one playing; SN_BUFFER feeds the one the
+                                       ;   card asks for [SC_STREAM]
+SN_SAMPLE       = 20                   ; block: +1 a slot, +2-4 a physical address, +5-7 the length, +8 the flags,
+                                       ;   +9-10 the rate, +11-13 the loop's start, +14-16 its end
+SN_EFFECTS      = 21                   ; block: +1 the first effect, +2-4 a physical address, +5-7 the length
+SN_EFFECT       = 22                   ; block: +1 the effect, +2 the volume, +3 the pan, +4 the priority, +5-6
+                                       ;   cents, +7 the chip: A = the voice handle
+SN_ESTOP        = 23                   ; block: +1 a voice handle, 0 every effect voice
+SN_MUSIC        = 24                   ; block: +1 a slot (0-7), +2-4 a note block's physical address, +5-7 its
+                                       ;   length, +8 MUSIC_PLAY's flags (bit 0 queued, bit 1 freed when done) [SC_MUSIC]
+SN_MCTL         = 25                   ; block: +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) [SC_MUSIC]
+SN_MSTATUS      = 26                   ; block: +1-24 get MUSIC_STATUS's 24 bytes
+SN_BEEP         = 27                   ; block: +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms: on the
+                                       ;   card, returning when it has ended
+SN_VOLUME       = 28                   ; block: +1 left, +2 right, the master volumes (255 unity)
+SN_MIX          = 29                   ; block: +1 a source (0 tunes, 1 music, 2 effects, 3 streams, 4 the beep),
+                                       ;   +2 its level (255 unity)
+SN_EQ           = 30                   ; block: +1 a band (0 the preamp, 1-10) and +2 its gain; or +1 $FF and
+                                       ;   +2-12 all eleven; or +1 $FE and +2 0 off, else on
+SN_VIS          = 31                   ; block: +1-98 get the vis page
+SN_SIDREGS      = 32                   ; block: +1-50 get both SIDs' registers as last written
+SN_LEVELS       = 33                   ; block: +1-10 get eight bands and the VU pair, for every source
+SN_OPS          = 34
+SN_BUSY         = $FE                  ; A when the card didn't answer, or channel 2 is busy (X $FF)
+SN_REFUSED      = $FD                  ; A when the card refused (X its error)
+SC_TUNE         = $01                  ; the parts: the tune player (the 6510 and the SIDs a tune holds),
+SC_STREAM       = $02                  ;   the streams,
+SC_MUSIC        = $04                  ;   music
 
 ; Function 83's operations (L4, DMA and loading; video card revision 2,
 ; interface version 8: hw/oolib.md, "Video card revision 2"), as 80's: X =

@@ -3,7 +3,7 @@
 ; in bios.s), with a VT52 subset (hw/oodos.md, "BIOS"):
 ;
 ;   CR, LF, BS        column 0; down a line, scrolling at the bottom; back one
-;   BEL               nothing (no bell yet)
+;   BEL               the sound card's bell (sound.s's SBELL: BELL, not waited for)
 ;   ESC A, B, C, D    the cursor up, down, right, left, stopping at the edges
 ;   ESC H             home
 ;   ESC J, ESC K      erase to the end of the screen, of the line
@@ -38,6 +38,7 @@
 .importzp SRCP, DSTP, DCOUNT
 .export CRTINIT, CRTOUT, CRTREGS, CVA
 .import CLOCKS                         ; irq.s's
+.import SBELL                          ; sound.s's: BEL
 .exportzp CESC                         ; WARM resets it
 
 COLS            = 80
@@ -106,11 +107,14 @@ CRTCH:          LDX     CESC
                 BEQ     NEWLINE
                 CMP     #$08
                 BEQ     LEFT
+                CMP     #$07
+                BEQ     BELL
                 CMP     #$1B
                 BNE     NONE
                 LDA     #1
                 STA     CESC
 NONE:           RTS
+BELL:           JMP     SBELL
 
 CR:             STZ     CCOL
                 RTS

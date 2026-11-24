@@ -41,9 +41,9 @@
 
 .include "gwbasic.inc"
 
-.export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT
+.export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT, PLYN
 .import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, SCRMOD, TIMEP, DATEF, TIMEF, TIMSET
-.import MU_EVENT, MU_COUNT             ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
+.import GWREF, GWC                     ; p7/sound.s's
 
 CB_FIRE2        = CB_FIRE * 2          ; the second fire button (the DE-9 sticks have one)
 
@@ -56,24 +56,28 @@ EVP7:           LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
                 BEQ     STREV
                 CMP     #EK_SOUND
                 BNE     EVPX
-; SNDEV: the count before and after MU_EVENT; in MB with ON PLAY(n) given,
-; n to n - 1 is the request (EVTRP tests the trap's T_ON).
-SNDEV:          LDA     #0
-                JSR     MU_COUNT
+; SNDEV (OO-1, sound card revision 3): music's MUSIC_COUNT (the threshold
+; ROOM's wait or ON PLAY(n) set) or MUSIC_DONE: GWC from the card (GWREF);
+; in MB with ON PLAY(n) given, the count fallen through n (n or more before,
+; under n now) is the request (EVTRP tests the trap's T_ON).
+SNDEV:          LDA     EVAREA + EV_QUEUE + EQ_CODE,Y
+                CMP     #SK_MUSIC_COUNT
+                BEQ     :+
+                CMP     #SK_MUSIC_DONE
+                BNE     EVPX
+:               LDA     GWC
                 STA     SNB4
-                LDA     EVAREA + EV_QUEUE + EQ_VALUE,Y
-                JSR     MU_EVENT
+                JSR     GWREF
                 LDA     MMODE          ; MB only
                 BEQ     EVPX
                 LDA     PLYN           ; ON PLAY(n) given
                 BEQ     EVPX
-                CMP     SNB4
-                BNE     EVPX
-                LDA     #0
-                JSR     MU_COUNT
-                INC     A              ; n - 1 now?
-                CMP     SNB4
-                BNE     EVPX
+                LDA     SNB4
+                CMP     PLYN
+                BCC     EVPX           ; under n before
+                LDA     GWC
+                CMP     PLYN
+                BCS     EVPX           ; n or more now
                 LDA     #PLYOFF
                 FJSR    EVTRP
 EVPX:           RTS

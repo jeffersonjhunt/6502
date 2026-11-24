@@ -341,7 +341,7 @@ TEST(m_and_an_apple_do_unit_load_too)
 
 TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
 {
-    CcpRig r;
+    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
     REQUIRE(r.ok);
     const std::vector<uint8_t> data = noise(65536, 33);
     put_b(r, "PICTURE BIN", data);
@@ -351,11 +351,11 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
     r.poke(0x10000, noise(65536, 1));
     r.poke(0x3000, std::vector<uint8_t>{1, 2});                                          // SN_CLAIM the stream
     CHECK_EQ(gcall(r, O_SOUND_FN, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{7, 0, 0x44, 0xAC, 3});                           // SN_STREAM
+    r.poke(0x3000, std::vector<uint8_t>{12, 0, 0x44, 0xAC, 3});                          // SN_STREAM
     CHECK_EQ(gcall(r, O_SOUND_FN, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x01, 0x00, 0x80});               // SN_BUFFER $10000
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x00, 0x01, 0x00, 0x80});              // SN_BUFFER $10000
     CHECK_EQ(gcall(r, O_SOUND_FN, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x80, 0x01, 0x00, 0x80});               // and $18000
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x80, 0x01, 0x00, 0x80});              // and $18000
     CHECK_EQ(gcall(r, O_SOUND_FN, 0x3000), std::string("01 00"));
     r.run(ms(20));
     const uint32_t m0 = ms_count(r);
@@ -367,10 +367,9 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
     const unsigned counted = ms_count(r) - m0;
     CHECK(counted + 1 >= static_cast<unsigned>(secs * 1000) && counted <= static_cast<unsigned>(secs * 1000) + 1);
     r.run(ms(100));
-    SoundCard &card = *r.machine->sound_card();
     std::printf("  the load %llu cycles with the stream; its state %u, underruns %u\n",
-                static_cast<unsigned long long>(l.cycles), card.peek(SoundCard::STATE), r.phys(0x2000 + 106));
-    CHECK_EQ(card.peek(SoundCard::STATE), SoundCard::STATE_PLAYING);
+                static_cast<unsigned long long>(l.cycles), r.phys(0x2000 + 96), r.phys(0x2000 + 106));
+    CHECK_EQ(r.phys(0x2000 + 96), 2);  // EV_SSTATE: playing
     CHECK_EQ(r.phys(0x2000 + 106), 0); // EV_SUNDER
 }
 
@@ -558,3 +557,4 @@ TEST(open_with_cr_ff_gives_the_file_s_last_record_s_count_from_its_last_entry)
 }
 
 int main() { return run_all(); }
+

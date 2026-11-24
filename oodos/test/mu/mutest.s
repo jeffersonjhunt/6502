@@ -5,8 +5,8 @@
 ; routine with A = MBOX + 1, X = MBOX + 2, Y = MBOX + 3 and prints
 ; "c aa xx cc": A and X as it returned them, cc 01 if the carry was set. O
 ; opens a 256-byte event area at AREA ($3800, layout 2); D takes every event
-; waiting (function 81's IN_NEXT) and hands each EK_SOUND one's byte to
-; MU_EVENT, logging A, X and Y at LOG ($3C00) from LOGN ($3B00, the count,
+; waiting (function 81's IN_NEXT) and hands each EK_SOUND one's code and
+; value to MU_EVENT, logging A, X and Y at LOG ($3C00) from LOGN ($3B00, the count,
 ; 2 bytes) on, and returns A = the events it handed over; K calls function
 ; 82 with A/X a block, k with A the operation and no block; W is the warm
 ; boot.
@@ -105,7 +105,7 @@ c_open: lda     #<oblk
         clc                             ; (the BDOS gives the flags back as they were)
         rts
 
-; Every event waiting; each EK_SOUND one's byte to MU_EVENT, A X Y logged.
+; Every event waiting; each EK_SOUND one's code and value to MU_EVENT, A X Y logged.
 c_drain:
         stz     handed
 @next:  lda     #IN_NEXT
@@ -118,7 +118,8 @@ c_drain:
         beq     @done
         cmp     #EK_SOUND
         bne     @next
-        lda     eblk + 1 + EQ_VALUE
+        ldx     eblk + 1 + EQ_VALUE     ; MU_EVENT: A the code (the card's kind), X the value
+        lda     eblk + 1 + EQ_CODE
         jsr     MU_EVENT
         pha
         phx
@@ -184,6 +185,8 @@ cmds:   CMD     'I', MU_INIT
         CMD     'V', MU_VOLUME
         CMD     'C', MU_COUNT
         CMD     'E', MU_EVENT
+        CMD     'B', MU_BLOCK
+        CMD     'H', MU_THRESH
         CMD     'O', c_open
         CMD     'D', c_drain
         CMD     'K', c_f82

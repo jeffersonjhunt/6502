@@ -147,7 +147,6 @@ backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web
 backplane/README.md                             none
 oodos/include/                                  oodos docs
-oodos/lib/mudrv/                                oodos test_mudrv docs
 oodos/lib/                                      oodos gwlocale docs
 oodos/diskdefs                                  oodos docs web
 oodos/spike/                                    none

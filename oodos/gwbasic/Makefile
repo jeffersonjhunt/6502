@@ -92,16 +92,11 @@ $(BUILD)/p5/gxmem.o: ../lib/gxmem.s $(sort $(wildcard ../lib/*.inc)) ../include/
 $(BUILD)/p5/gxmode.o: ../lib/gxmode.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
-# Block P7 (7f) links OOLIB's music: mu.s (MU_INIT to MU_COUNT, with the driver's image, mudrv.bin, made
-# here as the oodos Makefile's lib rule makes it), mutone.s (MU_TONE) and physof.s, assembled as the
-# library's own modules are, MUP gwbasic.inc's (p7/sound.s exports it). munote.s isn't linked: PLAY's notes
-# go through MU_TONE in Hz, as the source's (7f's plan, the owner's answer 1).
-$(BUILD)/p7/mudrv.bin: ../lib/mudrv/mudrv.s ../lib/mudrv/mudrv.cfg | $(BUILD)/p7
-	ca65 ../lib/mudrv/mudrv.s -o $(BUILD)/p7/mudrv.o
-	ld65 -C ../lib/mudrv/mudrv.cfg $(BUILD)/p7/mudrv.o -o $@
-$(BUILD)/p7/mu.o: ../lib/mu.s $(BUILD)/p7/mudrv.bin $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
-	ca65 $(AFLAGS) -I ../lib --bin-include-dir $(BUILD)/p7 $< -o $@
-$(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o: $(BUILD)/p7/%.o: ../lib/%.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
+# Block P7 (7f) links OOLIB's music: mu.s (MU_INIT to MU_COUNT, on the sound card's music sequencer:
+# revision 3), mutone.s (MU_TONE) and physof.s, assembled as the library's own modules are, MUP
+# gwbasic.inc's (p7/sound.s exports it). munote.s isn't linked: PLAY's notes go in Hz, as the source's
+# (7f's plan, the owner's answer 1).
+$(BUILD)/p7/mu.o $(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o: $(BUILD)/p7/%.o: ../lib/%.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py

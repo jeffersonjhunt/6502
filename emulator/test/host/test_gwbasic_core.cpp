@@ -1181,14 +1181,14 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 // the note queued and MF's wait run to the clock).
 TEST(console_mode_keeps_its_guard)
 {
-    CcpRig r;
+    CcpRig r({}, machine_with_sound(3)); // sound card revision 3: SN_BEEP on the card
     REQUIRE(r.ok);
     start(r);
     for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",
                           "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)",
                           "PRINT STICK(0)", "PRINT STRIG(0)"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
-    // BEEP sounds the bell by function 82's SN_BEEP (16), 800 Hz for 250 ms (review round 1, T5): its block seen at
+    // BEEP sounds the bell by function 82's SN_BEEP (27), 800 Hz for 250 ms (review round 1, T5): its block seen at
     // the BDOS's entry ($0203, Y 82, A/X the block)
     std::vector<std::vector<uint8_t>> beeps;
     r.watch = [&](uint16_t pc) {
@@ -1196,7 +1196,7 @@ TEST(console_mode_keeps_its_guard)
         if (pc != 0x0203 || g.y != 82 || g.x == 0)
             return;
         const uint16_t at = static_cast<uint16_t>(g.a | g.x << 8);
-        if (r.machine->bus().peek(at) != 16)
+        if (r.machine->bus().peek(at) != 27)
             return;
         std::vector<uint8_t> b;
         for (uint16_t i = 0; i < 5; ++i)

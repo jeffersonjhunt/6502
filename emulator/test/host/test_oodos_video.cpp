@@ -762,18 +762,18 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
 {
     // Review F8: all four slots, 256 bytes each (1,024 in all), the pointer on and a 44.1 kHz stream playing
     // (its fields written each frame), the latest a frame's copies end, with a USB batch or a 64 KB load under way.
-    CcpRig r;
+    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
     open(r, "2");
     r.poke(0x10000, noise(65536, 1));
     r.poke(0x3000, std::vector<uint8_t>{1, 2}); // function 82: claim the stream, start it, two 64 KB buffers (0.74 s)
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{7, 0, 0x44, 0xAC, 3});
+    r.poke(0x3000, std::vector<uint8_t>{12, 0, 0x44, 0xAC, 3});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x01, 0x00, 0x00});
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x00, 0x01, 0x00, 0x00});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x02, 0x00, 0x00});
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x00, 0x02, 0x00, 0x00});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("01 00"));
     for (uint8_t k = 0; k < 4; ++k)
         CHECK_EQ(f83(r, vbset(k, 0x10000 + k * 0x100u, 0x90000 + k * 0x1000u, 256)), std::string("00 00"));
@@ -835,9 +835,9 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     CHECK(usb_latest <= 524);
     // The stream still playing at the measurement's end (128 KB of buffers: 0.74 s), and never dry (review R2).
     std::printf("  the stream at the end: state %u, %u frames played, underruns %u\n",
-                r.machine->sound_card()->peek(0x50), r.phys(AREA + 100) | r.phys(AREA + 101) << 8 | r.phys(AREA + 102) << 16,
+                r.phys(AREA + 96), r.phys(AREA + 100) | r.phys(AREA + 101) << 8 | r.phys(AREA + 102) << 16,
                 r.phys(AREA + 106));
-    CHECK_EQ(r.machine->sound_card()->peek(0x50), 2); // SOUND_STATE: playing
+    CHECK_EQ(r.phys(AREA + 96), 2); // EV_SSTATE: playing
     CHECK_EQ(r.phys(AREA + 106), 0);                 // the stream's underruns
 }
 

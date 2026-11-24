@@ -840,6 +840,10 @@ video:  lda     #<svideo
 ; ---------------------------------------------------------------------------
 ; SOUND
 
+OLD_6510        = $01                   ; SN_INFO's +3 on a revision 1 or 2 card: the parts it has by OODOS
+OLD_STREAM      = $02                   ;   0.16's names (OODOS 0.17 drives none of them)
+OLD_DOC         = $04
+
 sound:  lda     #<ssound
         ldx     #>ssound
         jsr     puts
@@ -859,7 +863,41 @@ sound:  lda     #<ssound
         jsr     puts
         lda     sninfo + 1
         jsr     dec8
-        lda     #<ssids
+        lda     sninfo + 1              ; revision 3, the card as a device (OODOS 0.17): its FEATURES
+        cmp     #3                      ;   and the parts, until SYSINFO's section on SN_IDENTIFY
+        bne     @old
+        lda     #<sfeat
+        ldx     #>sfeat
+        jsr     puts
+        lda     #'$'
+        jsr     CM_PUTC
+        lda     sninfo + 2
+        jsr     HW_HEX2
+        lda     #')'
+        jsr     CM_PUTC
+        jsr     cont
+        lda     #<sfree
+        ldx     #>sfree
+        jsr     puts
+        lda     sninfo + 3
+        and     #SC_TUNE | SC_STREAM | SC_MUSIC
+        bne     @parts3
+        jmp     @none
+@parts3:
+        stz     first
+        lda     #SC_TUNE
+        ldx     #<stune
+        ldy     #>stune
+        jsr     part
+        lda     #SC_STREAM
+        ldx     #<sstream
+        ldy     #>sstream
+        jsr     part
+        lda     #SC_MUSIC
+        ldx     #<smusic
+        ldy     #>smusic
+        jmp     part
+@old:   lda     #<ssids
         ldx     #>ssids
         jsr     puts
         lda     sninfo + 2
@@ -904,22 +942,22 @@ sound:  lda     #<ssound
         lda     #<sfree
         ldx     #>sfree
         jsr     puts
-        lda     sninfo + 3
-        and     #SC_6510 | SC_STREAM | SC_DOC
+        lda     sninfo + 3              ; revisions 1 and 2: OODOS 0.16's parts, by SN_INFO's old bits
+        and     #OLD_6510 | OLD_STREAM | OLD_DOC
         bne     @parts
-        lda     #<snone
+@none:  lda     #<snone
         ldx     #>snone
         jmp     puts
 @parts: stz     first
-        lda     #SC_6510
+        lda     #OLD_6510
         ldx     #<s6510
         ldy     #>s6510
         jsr     part
-        lda     #SC_STREAM
+        lda     #OLD_STREAM
         ldx     #<sstream
         ldy     #>sstream
         jsr     part
-        lda     #SC_DOC
+        lda     #OLD_DOC
         ldx     #<sdocp
         ldy     #>sdocp
 ; A part (A, its bit) named X/Y, if it is free, after ", " if one came before.
@@ -1585,6 +1623,9 @@ scodecs: .byte  " (CODECS $"
 sfree:  .byte   "free: $"
 snone:  .byte   "none$"
 s6510:  .byte   "6510$"
+sfeat:  .byte   " (FEATURES $"
+stune:  .byte   "tune$"
+smusic: .byte   "music$"
 sstream: .byte  "stream$"
 sdocp:  .byte   "ES5503$"
 sstorage: .byte "STORAGE$"

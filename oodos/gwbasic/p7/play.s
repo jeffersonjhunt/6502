@@ -35,17 +35,27 @@
 
 .export PLAYP, PLAYN
 .import MACLNG, MCLXEQ, FETCHR, FETCHZ, DECFET, VALSC2, MCLC2
-.import FCERR, ADVERR, SCRMOD, CHRGTR, PARCHK, MAKINT, MU_COUNT ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
+.import FCERR, ADVERR, SCRMOD, CHRGTR, PARCHK, MAKINT ; (oolib.inc not included: its .globalzp would export gwbasic.inc's GXP again)
 .import BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
+.import PLYST, BLKNEW, FLUSH, GWCNT
+.export PFCERR
 
 .code
 
 ; PLAYS (GWSTS.ASM 556): MACLNG with PLYTAB.
 PLAYP:          LDA     #1             ; sound used this run (the owner's answer 20)
                 STA     SNDUSE
+                STA     PLYST          ; (OO-1, sound card revision 3: the notes into one block,
+                JSR     BLKNEW         ;   sent at the statement's end, or as BASIC's 32 need room)
                 LDA     #<PLYTAB
                 LDX     #>PLYTAB
-                JMP     MACLNG
+                JSR     MACLNG
+                JMP     FLUSH
+
+; PFCERR (OO-1): Illegal function call, the notes before it sent first (the
+; manual: an error leaves what was queued playing). P7's MACLNG's and PLAY's.
+PFCERR:         JSR     FLUSH
+                JMP     FCERR
 
 ; PLAY(n) (OO-1): TXTPTR at PLAY's token; returns as EVAL, past ")".
 PLAYN:          BIT     SCRMOD         ; console mode: Advanced Feature (answer 4)
@@ -57,8 +67,7 @@ PLAYN:          BIT     SCRMOD         ; console mode: Advanced Feature (answer 
                 LDA     MMODE          ; MF: 0
                 AND     DRVON          ; nothing played this run: 0
                 BEQ     :+
-                LDA     #0
-                JSR     MU_COUNT
+                JSR     GWCNT          ; (OO-1: the card's count, the note sounding with them)
                 TAX
 :               STX     RBL
                 STZ     RBH
@@ -124,7 +133,7 @@ POCTDN:         LDA     OCTAVE
                 DEC     OCTAVE
                 RTS
 
-PLGOFC:         JMP     FCERR          ; GWSTS.ASM 685
+PLGOFC:         JMP     PFCERR         ; GWSTS.ASM 685 (OO-1: the notes before it sent)
 
 ; PLYNUM (GWSTS.ASM 667): N n, 0-84: 0 a rest; else n - 1 into its octave
 ; (/ 12) and its note (the remainder + 1, doubled).
@@ -305,7 +314,7 @@ PLYDOT:         JSR     FETCHR
 :               LDA     T2             ; DX / 2 nonzero: too big
                 LSR     A
                 BEQ     :+
-                JMP     FCERR
+                JMP     PFCERR
 :               LSR     T1             ; AX / 2
                 ROR     T0
                 LDA     T0
@@ -342,7 +351,7 @@ PLYMET:         JSR     FETCHZ
                 INX
                 CMP     #'B'
                 BEQ     PLYMOD
-                JMP     FCERR
+                JMP     PFCERR
 PLYMOD:         STX     MMODE
                 RTS
 PLYDUR:         STX     MSCALE

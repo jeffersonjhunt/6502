@@ -468,7 +468,7 @@ add_custom_command(
 # With them, OOLIB L4's: GXTEST (oodos/test/gx, the library's test program, not a utility) and the assets
 # test_oodos_gfx shows with VIEW, from PNGs check_mkasset.py writes (never the owner's); L5's PBTEST
 # (oodos/test/pb, the sound library's, for test_oodos_pb); and L6b's MUTEST (oodos/test/mu, the music
-# library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv). And SIDOVL with its overlays
+# library's, for test_oodos_mu). And SIDOVL with its overlays
 # SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
 # test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c, with
 # a copy in bigstack/ linked with a C stack too big for the TPA. And UITEST (oodos/test/ui), OOUI's test
@@ -478,7 +478,7 @@ add_custom_command(
 # UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE. And UIDEMO (oodos/demo), the demo card's
 # OOUI program, linked the same way (demo/uidemo.cfg), with its labels, for test_oodos_ui and test_oodos_boot.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
-     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
+     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
@@ -654,10 +654,8 @@ list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames
 # rebuilds the blocks
 file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
 list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" "${OODOS_SRC}/lib/gxmode.s" ${gwbasic_oolib})
-# Block P7 (7f) links OOLIB's music: mu.s with the driver's image (lib/mudrv/, assembled by GW-BASIC's Makefile),
-# mutone.s and physof.s.
-list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s"
-        "${OODOS_SRC}/lib/mudrv/mudrv.s" "${OODOS_SRC}/lib/mudrv/mudrv.cfg")
+# Block P7 (7f) links OOLIB's music: mu.s (on the sound card's music sequencer, revision 3), mutone.s and physof.s.
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s")
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"
@@ -830,27 +828,6 @@ if(EMU_CA65 AND EMU_LD65)
     add_dependencies(test_sound_driver sound_driver)
 endif()
 target_compile_definitions(test_sound_driver PRIVATE EMU_SOUND_DRIVER="${SOUND_DIR}/driver.bin")
-
-# --- OOLIB's music driver ---------------------------------------------------
-#
-# oodos/lib/mudrv/mudrv.s, for the card's 6510 (hw/oolib.md, L6a): assembled
-# here so test_mudrv runs it on the card. Without cc65 it skips.
-
-emu_add_test(test_mudrv)
-set(MUDRV_SRC "${PROJECT_SOURCE_DIR}/../oodos/lib/mudrv")
-set(MUDRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/mudrv")
-if(EMU_CA65 AND EMU_LD65)
-    file(MAKE_DIRECTORY "${MUDRV_DIR}")
-    add_custom_command(
-            OUTPUT "${MUDRV_DIR}/mudrv.bin"
-            COMMAND "${EMU_CA65}" -g -o "${MUDRV_DIR}/mudrv.o" "${MUDRV_SRC}/mudrv.s"
-            COMMAND "${EMU_LD65}" -C "${MUDRV_SRC}/mudrv.cfg" -o "${MUDRV_DIR}/mudrv.bin" "${MUDRV_DIR}/mudrv.o"
-            DEPENDS "${MUDRV_SRC}/mudrv.s" "${MUDRV_SRC}/mudrv.cfg"
-            VERBATIM)
-    add_custom_target(mudrv ALL DEPENDS "${MUDRV_DIR}/mudrv.bin")
-    add_dependencies(test_mudrv mudrv)
-endif()
-target_compile_definitions(test_mudrv PRIVATE EMU_MUDRV="${MUDRV_DIR}/mudrv.bin")
 
 # --- Ben Eater's ROMs -------------------------------------------------------
 #
@@ -1051,7 +1028,6 @@ set(EMU_TEST_LABELS
     test_gwbasic_math           "gwbasic oodos"
     test_gwbasic_programs       "gwbasic oodos"
     test_sound_driver           "emu sound bridge"
-    test_mudrv                  "oodos sound sid bridge"
     test_app_tty                "emu app apple1 debug pia"
     test_app_debug              "emu app apple1 debug backplane pia"
     test_app_eater              "emu app eater acia debug lcd via"
