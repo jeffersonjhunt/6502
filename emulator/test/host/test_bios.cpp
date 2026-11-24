@@ -28,13 +28,13 @@
  * from the ID bytes; the BIOS's copies leave CONTROL as they found it, give
  * up with no controller, and run with the master enable off (the demo's
  * too); C806R stops a program's DMA before its fills. And the boot splash
- * (splash.s): the card's logo and the sound card's tune start on one vertical
- * blank, the boot carries on behind them, and after 5 s the screen and the
- * SIDs are back; Break and the demo stop it early. On a revision 2 sound
- * card Break and the demo's end stop a PCM stream (its FIFO emptied, paused
- * or not) and the ES5503 (DOCCTL's other bits kept, an interrupt left pending
- * on the 6510's route) too, a $82 clears, and the audio goes silent; on
- * revision 1 Break writes nothing at $48-$63.
+ * (splash.s): the card's logo, and on a revision 3 sound card its boot sound
+ * (BOOTSOUND, sent on the vertical blank frame 0 begins on), the boot carrying
+ * on behind them, and after 5 s the screen is back; C800R stops a program's
+ * sound before it, and Break and the demo stop it early. On revision 3 Break and
+ * the demo's end stop every sound on the card (a tune, a stream, paused or not,
+ * and a beep: CTRL's RESET), dropping a half-written record; $C818's $A2 BEEP
+ * and $A3 STOPALL wait for the card and its reply, with time-outs.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -48,8 +48,9 @@
 #include "console_card.h"
 #include "machine.h"
 #include "bus_cycle.h"
-#include "es5503.h"
 #include "sound_card.h"
+#include "sound_card3.h"
+#include "sound_fw.h"
 #include "video_card.h"
 
 #include <algorithm>
@@ -94,9 +95,21 @@ namespace
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
                        std::string apple_chars = "", std::vector<std::string> without = {},
                        unsigned video_revision = 0, std::array<std::string, 4> images = {},
-                       std::array<std::string, 4> charsets = {}, unsigned bridge = 0)
+                       std::array<std::string, 4> charsets = {}, unsigned bridge = 0, unsigned sound_rev = 0)
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
+            if (sound_rev) // the sound card's rev= (3: the card as a device), else the machine file's own
+            {
+                const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
+                const size_t at = text.find(line);
+                if (at == std::string::npos)
+                {
+                    std::printf("  backplane.machine has no '%s' line\n", line.c_str());
+                    return;
+                }
+                const size_t end = text.find('\n', at); // the line's own options replaced
+                text.replace(at + line.size(), end - at - line.size(), "  rev=" + std::to_string(sound_rev));
+            }
             if (!video)
                 without.push_back("video");
             for (const std::string &card : without) // the machine without these cards
@@ -155,6 +168,13 @@ namespace
         }
 
         explicit Board(Rev2) : Board(false, true, {}, "", {}, 2) {}
+
+        /// Board(Board::Sound3{}): the sound card at revision 3, the device (hw/future/sound-device.md), which the
+        /// ROM drives; the video card at revision 2.
+        struct Sound3
+        {
+        };
+        explicit Board(Sound3) : Board(false, true, {}, "", {}, 0, {}, {}, 0, 3) {}
 
         bool ok() const { return cpu != nullptr; }
 
@@ -494,17 +514,6 @@ namespace
 {
     constexpr uint64_t FRAME = 119'437;          // a video frame at 7.16 MHz
 
-    /// The loudest sample the card's mix has given since the last call (it keeps up to a second).
-    double peak(SoundCard &sound)
-    {
-        float buf[2 * 4'096];
-        double most = 0;
-        for (size_t n; (n = sound.take_audio(buf, 4'096)) != 0;)
-            for (size_t i = 0; i < 2 * n; ++i)
-                most = std::max(most, static_cast<double>(std::fabs(buf[i])));
-        return most;
-    }
-
     /// What the card shows now, as distinct colours.
     size_t colours(const VideoCard &card)
     {
@@ -582,384 +591,306 @@ namespace
     }
 } // namespace
 
-TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sids)
-{
-    for (const unsigned rev : {2u, 1u}) // the sound card at either revision: the BIOS takes it by its type
-    {
-        std::printf("  sound card revision %u\n", rev);
-        Board b;
-        REQUIRE(b.ok());
-        const VideoCard *card = b.machine->video_card();
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(card != nullptr);
-        REQUIRE(sound != nullptr);
-        sound->set_revision(rev);
-        sound->set_audio_rate(48'000); // the mix, to hear the ES5503 in it
-        REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
-        b.reset();
-        // The card's 6510 starts on the vertical blank the splash starts on: tune frame n, picture frame n.
-        bool started_together = false;
-        for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
-            b.run(1'000);
-        started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
-        CHECK(started_together);
-        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
-        // The player at $1000, the reset vector at its boot entry: the ES5503's (splash/docsnd.bin) on
-        // revision 2, with the samples (splash/wave.bin, from flash blocks 24-28) in wave RAM and the chip
-        // running for the 6510; the SIDs' (splash/bootsnd.bin) on revision 1.
-        const std::string tune = read_file(rev == 2 ? EMU_BIOS_DIR_SPLASH "/docsnd.bin" : EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
-        REQUIRE(!tune.empty());
-        size_t differ = 0;
-        for (size_t i = 0; i < tune.size(); ++i)
-            differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
-        CHECK_EQ(differ, size_t{0});
-        CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
-        if (rev == 2)
-        {
-            const std::string wave = read_file(EMU_BIOS_DIR_SPLASH "/wave.bin");
-            REQUIRE(wave.size() == 0x14000);
-            size_t wrong = 0;
-            for (size_t i = 0; i < wave.size(); ++i)
-                wrong += sound->doc().ram()[i] != static_cast<uint8_t>(wave[i]);
-            CHECK_EQ(wrong, size_t{0});
-            CHECK(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN);
-        }
-        CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
-        b.run(FRAME * 60);
-        CHECK(card->splash_frame() > 60);
-        CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
-        if (rev == 2)
-        {
-            CHECK_EQ(sound->doc().peek(0xE1), 23 << 1); // 24 oscillators
-            CHECK_EQ(sound->doc().peek(0xA0) & 0x01, 0); // O1's engine plays, left ...
-            CHECK_EQ(sound->doc().peek(0xA1) & 0x01, 0); // ... and right
-            CHECK(sound->doc().peek(0x40) || sound->doc().peek(0x41));
-            const double engine = peak(*sound); // the last second's mix: the engine, heard
-            std::printf("  the engine's peak %.3f\n", engine);
-            CHECK(engine > 0.01);
-            // The landing (docsnd.s's IMPACT, frame 118): oscillators 0-19 on the thunk's tables, heard.
-            while (card->splash_frame() >= 0 && card->splash_frame() < 118)
-                b.run(FRAME);
-            peak(*sound); // what came before it, dropped
-            b.run(FRAME * 6);
-            CHECK_EQ(sound->doc().peek(0xC0), 0x37); // T_THUNK_L, left ...
-            CHECK_EQ(sound->doc().peek(0xC1), 0x77); // ... T_THUNK_R, right
-            CHECK_EQ(sound->doc().peek(0x80), 0xC0); // P_THUNK_L
-            const double thunk = peak(*sound);
-            std::printf("  the landing's peak %.3f\n", thunk);
-            CHECK(thunk > 0.01);
-        }
-        else
-            CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
-        if (rev == 1)
-            continue; // revision 1 took the card and plays the tune; how the splash ends doesn't depend on the
-                      // revision, so it is watched once, on revision 2 (5 s of machine time, ~45 s under ASan)
-        b.run(SPLASH_TIME);
-        CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
-        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the player stopped the card ($DE02) ...
-        CHECK_EQ(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, 0); // ... and the chip (its bit 0)
-        unsigned running = 0;
-        for (unsigned n = 0; n < 32; ++n)
-            running += !(sound->doc().peek(static_cast<uint8_t>(0xA0 + n)) & 0x01);
-        CHECK_EQ(running, 0u); // every oscillator halted
-        CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
-        CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.20"));
-    }
-}
-
-TEST(c800_after_an_es5503_program_halts_every_oscillator_before_the_splash_plays)
-{
-    // A program left all 32 of the ES5503's oscillators playing and was broken out of: QUIET only froze the chip,
-    // so its registers are as it left them. C800R's splash must halt them all before the 6510 has the chip, the
-    // 8 its player never touches (24-31) included, or they would play on over it, reading the fresh wave RAM.
-    Board b;
-    REQUIRE(b.ok());
-    SoundCard *sound = b.machine->sound_card();
-    REQUIRE(sound != nullptr);
-    sound->set_revision(2);
-    b.reset();
-    b.run(BOOT);
-    b.run(SPLASH_TIME); // the boot's own splash over
-    REQUIRE((sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN) == 0);
-    Es5503 &doc = sound->doc();
-    doc.write(0xE1, 31 << 1); // 32 oscillators
-    for (uint8_t n = 0; n < 32; ++n)
-    {
-        doc.write(static_cast<uint8_t>(0x00 + n), 0x40); // a pitch
-        doc.write(static_cast<uint8_t>(0x40 + n), 255);  // loud
-        doc.write(static_cast<uint8_t>(0xA0 + n), 0x00); // free run, not halted
-    }
-    CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
-    unsigned running = 0;
-    for (uint8_t n = 24; n < 32; ++n)
-        running += !(doc.peek(static_cast<uint8_t>(0xA0 + n)) & 0x01);
-    CHECK_EQ(running, 0u); // the ones the player leaves alone: halted by the BIOS
-}
-
-TEST(break_during_the_boot_splash_stops_it_and_its_sound)
-{
-    for (const unsigned rev : {2u, 1u}) // QUIET takes the sound card at either revision
-    {
-        std::printf("  sound card revision %u\n", rev);
-        Board b;
-        REQUIRE(b.ok());
-        const VideoCard *card = b.machine->video_card();
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(card != nullptr);
-        REQUIRE(sound != nullptr);
-        sound->set_revision(rev);
-        b.reset();
-        b.run(BOOT);
-        CHECK(card->splash_frame() >= 0);
-        CHECK(sound->ctrl() & SoundCard::CTRL_RUN); // the splash took the card
-        b.cpu->nmi();
-        b.run(FRAME * 2);
-        CHECK_EQ(card->splash_frame(), -1);
-        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
-        CHECK_EQ(sound->sid(0)[0x18], 0); // and QUIET silenced the SIDs
-        if (rev == 2)
-            CHECK_EQ(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, 0); // and froze the ES5503
-    }
-}
-
 namespace
 {
-    /// What revision 2's QUIET has to stop: the PCM stream or the ES5503 (one at a time: each refuses RUN while the
-    /// other runs).
-    enum class Noise
+    /// Revision 3's card (the device, sound_card3.h) on a Board(Board::Sound3{}), and its firmware.
+    SoundCard3 &dev(Board &b) { return *b.machine->sound_device(); }
+    SoundFw &fw(Board &b) { return b.machine->sound_device()->firmware(); }
+
+    /// A command record written to CMD from the host's side, as a bare-metal program writes one.
+    void record(Board &b, uint8_t cmd, uint8_t tag, const std::vector<uint8_t> &params = {})
     {
-        pcm,
-        doc,
-    };
+        dev(b).write(SoundCard3::CMD, cmd);
+        dev(b).write(SoundCard3::CMD, static_cast<uint8_t>(params.size()));
+        dev(b).write(SoundCard3::CMD, tag);
+        for (const uint8_t p : params)
+            dev(b).write(SoundCard3::CMD, p);
+    }
 
-    const char *name(Noise n) { return n == Noise::pcm ? "the PCM stream" : "the ES5503"; }
+    /// Every record waiting in EVT, read and dropped.
+    void drain(Board &b)
+    {
+        while (dev(b).peek(SoundCard3::EVTLEN))
+            dev(b).read(SoundCard3::EVT);
+    }
 
-    /// DOCCTL's bits besides RUN, which QUIET keeps.
-    constexpr uint8_t DOC_KEPT = SoundCard::DOCCTL_IRQ_CARD | SoundCard::DOCCTL_AUTOINC | SoundCard::DOCCTL_RAM;
+    /// The tags of the REPLYs waiting in EVT, in order (every record read).
+    std::vector<uint8_t> replies(Board &b)
+    {
+        std::vector<uint8_t> tags;
+        while (dev(b).peek(SoundCard3::EVTLEN))
+        {
+            const uint8_t kind = dev(b).read(SoundCard3::EVT), n = dev(b).read(SoundCard3::EVT);
+            for (unsigned i = 0; i < n; ++i)
+            {
+                const uint8_t x = dev(b).read(SoundCard3::EVT);
+                if (i == 0 && kind == SoundFw::EV_REPLY)
+                    tags.push_back(x);
+            }
+        }
+        return tags;
+    }
 
-    /// Boot, then end the splash and its tune with a first Break rather than waiting out its 5 s (under ASan about
-    /// 50 s of host time a boot): QUIET takes the splash off and stops the card's 6510, so the SIDs are the host's
-    /// and the monitor is at its prompt. The Break a case tests comes after, so it is QUIET's second run.
+    /// A command's REPLY from the host's side: the record, a moment, then its status and results (every other
+    /// record read and dropped); empty with none.
+    std::vector<uint8_t> ask(Board &b, uint8_t cmd, uint8_t tag, const std::vector<uint8_t> &params = {})
+    {
+        drain(b);
+        record(b, cmd, tag, params);
+        b.run(FRAME / 8);
+        std::vector<uint8_t> got;
+        while (dev(b).peek(SoundCard3::EVTLEN))
+        {
+            const uint8_t kind = dev(b).read(SoundCard3::EVT), n = dev(b).read(SoundCard3::EVT);
+            std::vector<uint8_t> body;
+            for (unsigned i = 0; i < n; ++i)
+                body.push_back(dev(b).read(SoundCard3::EVT));
+            if (kind == SoundFw::EV_REPLY && !body.empty() && body[0] == tag)
+                got.assign(body.begin() + 1, body.end());
+        }
+        return got;
+    }
+
+    /// A PSID whose init gates a sawtooth on voice 1 at full volume and whose play does nothing.
+    std::vector<uint8_t> saw_psid()
+    {
+        std::vector<uint8_t> t(0x7C, 0);
+        t[0] = 'P', t[1] = 'S', t[2] = 'I', t[3] = 'D', t[5] = 2, t[7] = 0x7C;
+        t[0x08] = 0x10, t[0x0A] = 0x10, t[0x0C] = 0x10, t[0x0D] = 0x15, t[0x0F] = 1, t[0x11] = 1, t[0x77] = 0x14;
+        const std::vector<uint8_t> code = {0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4, 0xA9,
+                                           0xF0, 0x8D, 0x06, 0xD4, 0xA9, 0x21, 0x8D, 0x04, 0xD4, 0x60, 0x60};
+        t.insert(t.end(), code.begin(), code.end());
+        return t;
+    }
+
+    /// Every kind of sound started on the card from the host's side, loud: a tune (tune slot 0), a raw stream (8 kHz
+    /// 8-bit mono, 64 KB of a full-scale square: 8 s), and a beep (1 kHz, 60 s). The tap on, emptied.
+    void start_everything(Board &b)
+    {
+        const std::vector<uint8_t> tune = saw_psid();
+        record(b, SoundFw::TUNE_LOAD, 1, {0, static_cast<uint8_t>(tune.size()), 0, 0});
+        b.run(FRAME / 8);
+        for (const uint8_t x : tune)
+            dev(b).write(SoundCard3::DATA, x);
+        b.run(FRAME / 8);
+        record(b, SoundFw::TUNE_PLAY, 2, {0, 0, 0, 0, 0, 0, 0, 0, 0});
+        record(b, SoundFw::STREAM_OPEN, 3, {0, 0, 0x40, 0x1F, 0, 0, 0, 0, 0, 0}); // 8,000 Hz
+        record(b, SoundFw::STREAM_DATA, 4, {0, 0x00, 0x00, 0x01});                 // 65,536 bytes
+        b.run(FRAME / 8);
+        for (unsigned i = 0; i < 0x10000; ++i)
+            dev(b).write(SoundCard3::DATA, i & 8 ? 0xFF : 0x00);
+        record(b, SoundFw::BEEP, 5, {0xE8, 0x03, 0x60, 0xEA, 0}); // 1,000 Hz, 60,000 ms
+        b.run(FRAME);
+        drain(b);
+        dev(b).set_tap(true);
+        dev(b).take_tap();
+    }
+
+    /// Whether anything at all plays on the card: the tune, the stream, the beep, the boot sound.
+    bool any_sound(Board &b)
+    {
+        return fw(b).tune_playing() || fw(b).stream_state(0) == SoundFw::S_PLAYING || fw(b).beeping() ||
+               fw(b).boot_sound_playing();
+    }
+
+    /// The tap's loudest sample, either channel, of what the card made since the last take.
+    int loudest_tap(Board &b)
+    {
+        int most = 0;
+        for (const int16_t s : dev(b).take_tap())
+            most = std::max(most, std::abs(static_cast<int>(s)));
+        return most;
+    }
+
+    /// After a QUIET on revision 3 (CTRL's RESET): nothing plays, IEN 0 (the host's /IRQ high), and from a frame
+    /// on the card's output is silent (the last of what was made before it given that frame; the SIDs' DC filter
+    /// settling, under 1e-3 of full scale, as revision 2's check allowed).
+    void check_quiet(Board &b)
+    {
+        CHECK(!any_sound(b));
+        CHECK_EQ(dev(b).peek(SoundCard3::IEN), 0);
+        CHECK(!b.machine->bus().irq());
+        b.run(FRAME);
+        dev(b).take_tap();
+        b.run(10 * FRAME);
+        const int after = loudest_tap(b);
+        std::printf("    after: the loudest sample %d\n", after);
+        CHECK(after < 33);
+    }
+
+    /// Boot, then end the splash and its boot sound with a first Break rather than waiting out its 5 s (under ASan
+    /// about 50 s of host time a boot): QUIET takes the splash off and stops the sound, and the monitor is at its
+    /// prompt. The Break a case tests comes after, so it is QUIET's second run.
     bool boot_past_splash(Board &b)
     {
         b.reset();
         b.run(BOOT);
         b.cpu->nmi();
         const bool prompt = has(b.run(BOOT), "\\");
-        return prompt && b.machine->video_card()->splash_frame() == -1 &&
-               !(b.machine->sound_card()->ctrl() & SoundCard::CTRL_RUN);
+        const bool quiet = !b.machine->sound_device() || !fw(b).boot_sound_playing();
+        return prompt && b.machine->video_card()->splash_frame() == -1 && quiet;
     }
 
-    /// Start `n` on the card from the host's side, loud: 8-bit mono PCM at 8 kHz, 64 KB of a full-scale square (8
-    /// seconds), or the ES5503's oscillator 0 looping a full-scale square in wave RAM, with IE (each loop makes it
-    /// pending) and DOCCTL's other bits set: the interrupt routed to the 6510, AUTOINC and RAM. The audio at 48 kHz
-    /// and the test tap on, both emptied.
-    void start_noise(SoundCard &sound, Noise n)
+    /// The first record written to CMD: the splash's frame and the video card's STATUS at its first byte, and the
+    /// bytes written in all.
+    struct CmdWatch : CycleObserver
     {
-        sound.set_audio_rate(48'000);
-        if (n == Noise::pcm)
-        {
-            sound.write(SoundCard::RATE, static_cast<uint8_t>(8'000));
-            sound.write(SoundCard::RATE + 1, static_cast<uint8_t>(8'000 >> 8));
-            sound.write(SoundCard::PCMFMT, 0);
-            for (unsigned i = 0; i < 0x10000; ++i)
-                sound.write(SoundCard::PCMDATA, i & 8 ? 0xFF : 0x00);
-            sound.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
-        }
-        else
-        {
-            sound.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RAM | SoundCard::DOCCTL_AUTOINC);
-            sound.write(SoundCard::DOCADDR, 0);
-            sound.write(SoundCard::DOCADDR + 1, 0);
-            sound.write(SoundCard::DOCBANK, 0);
-            for (unsigned i = 0; i < 256; ++i)
-                sound.write(SoundCard::DOCDATA, i < 128 ? 0xFF : 0x01);
-            sound.write(SoundCard::DOCCTL, 0); // the registers, one at a time
-            const auto reg = [&](uint8_t r, uint8_t v) {
-                sound.write(SoundCard::DOCADDR, r);
-                sound.write(SoundCard::DOCDATA, v);
-            };
-            reg(Es5503::FREQ_LO, 0x00);
-            reg(Es5503::FREQ_HI, 0x02);
-            reg(Es5503::VOLUME, 0xFF);
-            reg(Es5503::POINTER, 0);
-            reg(Es5503::TABLE, 0); // 256 bytes at 0
-            reg(Es5503::CONTROL, Es5503::MODE_FREE << 1 | Es5503::CONTROL_IE); // running, looping, channel 0
-            sound.write(SoundCard::DOCCTL, DOC_KEPT | SoundCard::DOCCTL_RUN);
-        }
-        sound.set_tap(true);
-    }
-
-    /// The loudest sample the card has made since the last call, left or right.
-    float loudest(SoundCard &sound)
-    {
-        std::vector<float> buf(2 * 4'096);
-        float peak = 0;
-        for (size_t got; (got = sound.take_audio(buf.data(), 4'096)) != 0;)
-            for (size_t i = 0; i < 2 * got; ++i)
-                peak = std::max(peak, std::fabs(buf[i]));
-        return peak;
-    }
-
-    /// Whether `n` runs: its RUN bit, and (PCM) the stream's STATE or (the ES5503) its oscillator 0 moving.
-    bool runs(SoundCard &sound, Noise n)
-    {
-        if (n == Noise::pcm)
-            return (sound.peek(SoundCard::PCMCTL) & SoundCard::PCMCTL_RUN) ||
-                   sound.peek(SoundCard::STATE) != SoundCard::STATE_IDLE;
-        return sound.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN;
-    }
-
-    /// After a QUIET: `n` stopped, the FIFO emptied (FLUSH), DOCCTL's RUN alone cleared, nothing more on the card's
-    /// bus (the test tap), and the audio silent from a frame on (the last of what was made before it, and the SIDs'
-    /// DC filter settling, given that frame). The ES5503's interrupt, pending on the 6510's route, stays pending,
-    /// and the host's /IRQ stays high (IEN is 0). The 6510's own /IRQ isn't checked here (the 6510 is stopped):
-    /// test_sound_doc's the_6510_isnt_held_by_a_paused_chips_interrupt tests that route.
-    void check_silent(Board &b, SoundCard &sound, Noise n)
-    {
-        CHECK(!runs(sound, n));
-        CHECK_EQ(sound.fifo_bytes(), size_t{0});
-        CHECK_EQ(sound.peek(SoundCard::PCMCTL), 0);
-        if (n == Noise::doc)
-        {
-            CHECK_EQ(sound.peek(SoundCard::DOCCTL), DOC_KEPT);
-            CHECK(sound.doc().irq());
-            CHECK(!b.machine->bus().irq());
-        }
-        b.run(FRAME);
-        sound.take_tap();
-        loudest(sound);
-        const uint32_t acc = sound.doc().accumulator(0);
-        b.run(10 * FRAME);
-        const std::vector<int16_t> tap = sound.take_tap();
-        const float peak = loudest(sound);
-        std::printf("    after: %zu bus frames, the loudest sample %.6f\n", tap.size() / 2, static_cast<double>(peak));
-        CHECK(tap.empty());
-        CHECK(peak < 1e-3f);
-        CHECK_EQ(sound.doc().accumulator(0), acc); // the chip frozen where it stopped
-        CHECK_EQ(sound.peek(SoundCard::IEN), 0);
-    }
-} // namespace
-
-TEST(break_stops_the_pcm_stream_and_the_es5503_on_revision_2)
-{
-    // QUIET on a revision 2 card ($A2) also clears PCMCTL RUN and DOCCTL RUN: Break silences everything, a stream
-    // or the ES5503 a program left playing as well as the SIDs.
-    for (const Noise n : {Noise::pcm, Noise::doc})
-    {
-        std::printf("  %s\n", name(n));
-        Board b;
-        REQUIRE(b.ok());
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(sound != nullptr);
-        REQUIRE(sound->peek(SoundCard::ID_REG) == SoundCard::ID);
-        REQUIRE(boot_past_splash(b)); // the splash and its tune over: the SIDs the host's
-        start_noise(*sound, n);
-        b.run(10 * FRAME);
-        const float before = loudest(*sound);
-        std::printf("    before: the loudest sample %.6f\n", static_cast<double>(before));
-        CHECK(runs(*sound, n));
-        CHECK(n != Noise::pcm || sound->peek(SoundCard::STATE) == SoundCard::STATE_PLAYING);
-        CHECK(before > 0.03f); // loud: the check below can tell
-        b.cpu->nmi();
-        b.run(FRAME);
-        check_silent(b, *sound, n);
-        CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
-    }
-}
-
-TEST(the_demos_end_stops_the_pcm_stream_and_the_es5503)
-{
-    // The demo ends through BREAK, so through QUIET too.
-    for (const Noise n : {Noise::pcm, Noise::doc})
-    {
-        std::printf("  %s\n", name(n));
-        Board b{Board::Rev2{}};
-        REQUIRE(b.ok());
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(sound != nullptr);
-        REQUIRE(boot_past_splash(b));
-        start_demo(b);
-        REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
-        start_noise(*sound, n);
-        b.run(5 * FRAME);
-        CHECK(runs(*sound, n));
-        CHECK(loudest(*sound) > 0.03f);
-        CHECK(has(b.run(10 * FRAME, "X"), "\\")); // the monitor's prompt again
-        check_silent(b, *sound, n);
-    }
-}
-
-TEST(break_stops_a_paused_stream_and_clears_a_refused_run)
-{
-    // A stream paused stops and empties as a playing one does; a RUN refused ($82 in STATE) reads 0 after Break.
-    for (const bool paused : {true, false})
-    {
-        std::printf("  %s\n", paused ? "a stream paused" : "PCMCTL RUN refused while the ES5503 plays");
-        Board b;
-        REQUIRE(b.ok());
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(sound != nullptr);
-        REQUIRE(boot_past_splash(b));
-        start_noise(*sound, paused ? Noise::pcm : Noise::doc);
-        b.run(5 * FRAME);
-        if (paused)
-            sound->write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
-        else
-            sound->write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
-        b.run(FRAME);
-        CHECK_EQ(sound->peek(SoundCard::STATE), paused ? SoundCard::STATE_PAUSED : SoundCard::STATE_BOTH);
-        b.cpu->nmi();
-        b.run(FRAME);
-        CHECK_EQ(sound->peek(SoundCard::STATE), SoundCard::STATE_IDLE);
-        check_silent(b, *sound, paused ? Noise::pcm : Noise::doc);
-    }
-}
-
-namespace
-{
-    /// Every host write to the sound card's revision 2 registers ($C548-$C563), and to its SIDs ($C500-$C53C).
-    struct SoundWrites : CycleObserver
-    {
-        unsigned rev2 = 0, sids = 0;
+        const VideoCard *card{nullptr};
+        unsigned bytes{0};
+        uint8_t first{0};
+        int frame{-2};
+        bool blank{false};
         void on_cycle(const BusCycle &c) override
         {
-            if (!c.write || c.dma)
+            if (!c.write || c.dma || c.addr != 0xC500 + SoundCard3::CMD)
                 return;
-            if (c.addr >= 0xC500 + SoundCard::PCMCTL && c.addr <= 0xC500 + SoundCard::DRQSEL)
-                ++rev2;
-            else if (c.addr >= 0xC500 && c.addr < 0xC500 + 0x3D)
-                ++sids;
+            if (bytes++ == 0)
+            {
+                first = c.data;
+                frame = card->splash_frame();
+                blank = card->peek(VideoCard::STATUS) & VideoCard::IN_VBLANK;
+            }
         }
     };
 } // namespace
 
-TEST(break_leaves_a_revision_1_cards_other_offsets_alone)
+TEST(the_splash_sends_bootsound_at_frame_0_s_blank)
 {
-    // Revision 1 ($A1) has nothing at $48-$63: QUIET takes its CTRL, IEN and SIDs as before, and writes there
-    // nothing. Revision 2 for comparison: the same Break writes PCMCTL and DOCCTL, once each. (The emulator models
-    // revisions 1 and 2 only: set_revision() takes no 3.)
-    for (const unsigned rev : {1u, 2u})
-    {
-        std::printf("  sound card revision %u\n", rev);
-        Board b;
-        REQUIRE(b.ok());
-        SoundCard *sound = b.machine->sound_card();
-        REQUIRE(sound != nullptr);
-        sound->set_revision(rev);
-        REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
-        REQUIRE(boot_past_splash(b));
-        SoundWrites seen;
-        b.cpu->set_observer(&seen);
-        b.cpu->nmi();
-        b.run(FRAME);
-        b.cpu->set_observer(nullptr);
-        std::printf("    Break wrote the SIDs %u times, $C548-$C563 %u times\n", seen.sids, seen.rev2);
-        CHECK_EQ(seen.sids, 0x3Du);              // QUIET ran, and took the card
-        CHECK_EQ(seen.rev2, rev == 1 ? 0u : 2u);
-        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
-    }
+    // On revision 3 (hw/future/sound-device.md, "Boot, reset and Apple II mode") the splash sends one record,
+    // BOOTSOUND, on the vertical blank its frame 0 begins on, once the card is READY: the firmware plays the boot
+    // sound from its flash (the sequence's start, the engine, heard), the boot doesn't wait for it, and after 5 s
+    // the monitor has the screen and the sound is over. Must fail with BOOTSOUND sent before the blank.
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    REQUIRE(b.machine->sound_device() != nullptr);
+    REQUIRE(dev(b).peek(SoundCard3::ID_REG) == 0xA3);
+    dev(b).set_tap(true);
+    CmdWatch watch;
+    watch.card = card;
+    b.cpu->set_observer(&watch);
+    b.reset();
+    for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
+        b.run(1'000);
+    b.run(1'000);
+    b.cpu->set_observer(nullptr);
+    std::printf("  the first CMD byte $%02X at splash frame %d, %s the blank; %u bytes\n", watch.first, watch.frame,
+                watch.blank ? "in" : "outside", watch.bytes);
+    CHECK_EQ(watch.first, SoundFw::BOOTSOUND);
+    CHECK_EQ(watch.bytes, 3u); // one record, n 0
+    CHECK_EQ(watch.frame, 0);  // frame 0 had begun ...
+    CHECK(watch.blank);        // ... on its vertical blank
+    CHECK(fw(b).boot_sound_playing());
+    CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
+    b.run(FRAME * 60);
+    CHECK(card->splash_frame() > 60);
+    CHECK(fw(b).boot_sound_playing());
+    const int engine = loudest_tap(b); // the first second: the engine, heard
+    std::printf("  the first second's loudest sample %d\n", engine);
+    CHECK(engine > 300);
+    b.run(SPLASH_TIME);
+    CHECK_EQ(card->splash_frame(), -1); // and both over: the monitor's screen
+    CHECK(!fw(b).boot_sound_playing());
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.20"));
+}
+
+TEST(c800_stops_a_program_s_sound_before_the_splash_plays)
+{
+    // A program left a sound playing (a 60 s beep) and the monitor's C800R boots again: the splash's CTRL RESET stops
+    // it before BOOTSOUND (C800R runs no QUIET). Must fail with the splash's strobe left out (the beep plays on).
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    record(b, SoundFw::BEEP, 1, {0xE8, 0x03, 0x60, 0xEA, 0}); // 1,000 Hz, 60,000 ms
+    b.run(FRAME);
+    REQUIRE(fw(b).beeping());
+    CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
+    CHECK(!fw(b).beeping());
+    CHECK(fw(b).boot_sound_playing()); // and the boot sound plays again
+}
+
+TEST(break_during_the_boot_splash_stops_it_and_its_sound)
+{
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    b.reset();
+    b.run(BOOT);
+    CHECK(card->splash_frame() >= 0);
+    CHECK(fw(b).boot_sound_playing()); // the splash's sound plays
+    dev(b).set_tap(true);
+    b.cpu->nmi();
+    b.run(FRAME * 2);
+    CHECK_EQ(card->splash_frame(), -1);
+    check_quiet(b);
+}
+
+TEST(break_stops_every_sound_on_the_card)
+{
+    // QUIET on revision 3 is one write, CTRL's RESET (the owner's answer 7): a tune, a stream and a beep all playing,
+    // and after Break nothing at the tap. Must fail with QUIET's write left out.
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    start_everything(b);
+    b.run(10 * FRAME);
+    CHECK(fw(b).tune_playing());
+    CHECK_EQ(fw(b).stream_state(0), SoundFw::S_PLAYING);
+    CHECK(fw(b).beeping());
+    const int before = loudest_tap(b);
+    std::printf("    before: the loudest sample %d\n", before);
+    CHECK(before > 1'000); // loud: the check after can tell
+    b.cpu->nmi();
+    b.run(FRAME);
+    check_quiet(b);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
+}
+
+TEST(the_demos_end_stops_every_sound_on_the_card)
+{
+    // The demo ends through BREAK, so through QUIET too.
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    start_demo(b);
+    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    start_everything(b);
+    b.run(5 * FRAME);
+    CHECK(any_sound(b));
+    CHECK(loudest_tap(b) > 1'000);
+    CHECK(has(b.run(10 * FRAME, "X"), "\\")); // the monitor's prompt again
+    check_quiet(b);
+}
+
+TEST(break_stops_a_paused_stream_and_drops_a_half_written_record)
+{
+    // A stream paused stops (flushed) as a playing one does; and a record a program had half written when Break came
+    // is dropped by the RESET, so the next record parses and is answered.
+    Board b{Board::Sound3{}};
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    start_everything(b);
+    b.run(10 * FRAME);
+    REQUIRE(fw(b).stream_state(0) == SoundFw::S_PLAYING);
+    REQUIRE(ask(b, SoundFw::STREAM_PAUSE, 6, {0}) == std::vector<uint8_t>{0});
+    b.run(FRAME);
+    const std::vector<uint8_t> st = ask(b, SoundFw::STREAM_STATUS, 7, {0});
+    REQUIRE(st.size() > 1);
+    REQUIRE(st[1] == SoundFw::S_PAUSED); // (+0 the status, +1 the state)
+    dev(b).write(SoundCard3::CMD, SoundFw::EVENTS); // EVENTS, n 1: its tag and mask never come
+    dev(b).write(SoundCard3::CMD, 1);
+    b.cpu->nmi();
+    b.run(FRAME);
+    check_quiet(b);
+    const std::vector<uint8_t> after = ask(b, SoundFw::STREAM_STATUS, 8, {0});
+    REQUIRE(after.size() > 1);
+    CHECK(after[1] != SoundFw::S_PAUSED); // flushed: no longer paused
+    record(b, SoundFw::NOP, 7);
+    b.run(FRAME);
+    CHECK(replies(b) == std::vector<uint8_t>{7});
+    CHECK_EQ(dev(b).peek(SoundCard3::ERROR), 0);
 }
 
 TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
@@ -1690,10 +1621,10 @@ TEST(c818_with_function_a1_but_y_not_5a_is_the_menu)
 
 TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_over_3)
 {
-    // Back, carry set, with A, X, Y and the windows as they were: X = $A2, $A3, $A7, $AF (reserved), $A0 (the flash
+    // Back, carry set, with A, X, Y and the windows as they were: X = $A7, $AF (reserved), $A0 (the flash
     // update, the menu's alone, Q18) and $A1 with A = 4 (block 4 is the character sets', not an image).
     for (const auto &[a, x] :
-         {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}, {0x37, 0xA2}, {2, 0xA3}})
+         {std::pair<uint8_t, uint8_t>{4, 0xA1}, {1, 0xA7}, {0, 0xA0}, {3, 0xAF}})
     {
         TwoImages t;
         REQUIRE(t.b.ok());
@@ -1709,6 +1640,141 @@ TEST(c818_with_the_token_refuses_an_unknown_function_the_update_and_an_image_ove
         CHECK_EQ(bus.peek_physical(0x313) & 0x01, 0x01);          // carry set
         CHECK_EQ(bus.peek_physical(0x314), 0x07);                 // W1 and W2 as the program left them
         CHECK_EQ(bus.peek_physical(0x315), 0x09);
+    }
+}
+
+namespace
+{
+    /// A $C818 call (c818_call) run from the monitor and timed from its JSR to its return: whether it returned
+    /// within a second, its time in ms, and what it left at $0310-$0315 (A, X, Y, P, W1, W2). With `spin` the
+    /// program ends in a JMP to itself, not BRK, whose way into the monitor (QUIET) would stop the card's sound.
+    struct Timed
+    {
+        bool returned{false};
+        double ms{0};
+        uint8_t a{0}, x{0}, y{0}, p{0}, w1{0}, w2{0};
+    };
+    Timed c818_timed(Board &b, uint8_t a, uint8_t x, bool spin = false)
+    {
+        for (uint32_t i = 0x310; i < 0x316; ++i)
+            b.machine->bus().write_physical(i, 0xEE);
+        std::vector<uint8_t> code = c818_call(a, x);
+        if (spin)
+        {
+            const unsigned at = 0x300 + static_cast<unsigned>(code.size()) - 1;
+            code.back() = 0x4C; // JMP *
+            code.push_back(static_cast<uint8_t>(at));
+            code.push_back(static_cast<uint8_t>(at >> 8));
+        }
+        put_program(b, code);
+        uint64_t c0 = 0, c1 = 0;
+        b.on_step = [&] {
+            const uint16_t pc = b.cpu->regs().pc;
+            if (pc == 0x311 && !c0) // JSR $C818
+                c0 = b.cpu->cycles();
+            else if (pc == 0x314 && c0 && !c1) // back
+                c1 = b.cpu->cycles();
+        };
+        b.run(BOOT / 4, "300R\r");
+        for (int i = 0; i < 60 && !c1; ++i)
+            b.run(FRAME);
+        b.run(BOOT / 4); // its stores and BRK
+        b.on_step = nullptr;
+        const Decoder &bus = b.machine->bus();
+        Timed t;
+        t.returned = c1 != 0;
+        t.ms = c1 ? static_cast<double>(c1 - c0) * 1000.0 / 7159090.0 : 0;
+        t.a = bus.peek_physical(0x310), t.x = bus.peek_physical(0x311), t.y = bus.peek_physical(0x312);
+        t.p = bus.peek_physical(0x313), t.w1 = bus.peek_physical(0x314), t.w2 = bus.peek_physical(0x315);
+        return t;
+    }
+} // namespace
+
+TEST(c818_beep_and_stopall)
+{
+    // $C818's $A2, BEEP (800 Hz for A x 10 ms, A = 0 250 ms: the owner's answer 8), and $A3, STOPALL, on a revision
+    // 3 card: back with carry clear once the card's REPLY is in, A, X, Y and the windows as they were; the beep at
+    // its pitch for its length. With no card, carry set at once; with a card that never comes READY (250 ms) or never
+    // answers (100 ms), carry set within 250 + 100 ms. Must fail with the waits' time-out left out (no return).
+    for (const auto &[a, want_ms] : {std::pair<uint8_t, double>{20, 200}, {0, 250}})
+    {
+        std::printf("  BEEP, A = %u\n", a);
+        Board b{Board::Sound3{}};
+        REQUIRE(b.ok());
+        REQUIRE(boot_past_splash(b));
+        dev(b).set_tap(true, SoundFw::SRC_BEEP);
+        dev(b).take_tap();
+        const Timed t = c818_timed(b, a, 0xA2, true);
+        std::printf("    back in %.3f ms\n", t.ms);
+        CHECK(t.returned);
+        CHECK_EQ(t.p & 0x01, 0); // carry clear
+        CHECK_EQ(t.a, a);
+        CHECK_EQ(t.x, 0xA2);
+        CHECK_EQ(t.y, 0x5A);
+        CHECK_EQ(t.w1, 0x07);
+        CHECK_EQ(t.w2, 0x09);
+        CHECK(t.ms < 5);
+        b.run(60 * FRAME);
+        const std::vector<int16_t> tap = dev(b).take_tap();
+        size_t on = 0, off = 0;
+        std::vector<size_t> rises;
+        for (size_t i = 0; i < tap.size(); i += 2)
+        {
+            if (tap[i] != 0)
+                off = i / 2 + 1, on = on ? on : i / 2 + 1;
+            if (i >= 2 && tap[i - 2] < 0 && tap[i] >= 0)
+                rises.push_back(i / 2);
+        }
+        REQUIRE(rises.size() > 10);
+        const double len = static_cast<double>(off - on) / 48.0;
+        const double hz = static_cast<double>(rises.size() - 1) * 48'000.0 / static_cast<double>(rises.back() - rises.front());
+        std::printf("    %.1f ms at %.2f Hz\n", len, hz);
+        CHECK(std::fabs(len - want_ms) < 2);
+        CHECK(std::fabs(hz - 800) < 2);
+    }
+    {
+        std::printf("  STOPALL\n");
+        Board b{Board::Sound3{}};
+        REQUIRE(b.ok());
+        REQUIRE(boot_past_splash(b));
+        record(b, SoundFw::BEEP, 1, {0xE8, 0x03, 0x60, 0xEA, 0}); // 1,000 Hz, 60 s
+        b.run(FRAME);
+        drain(b);
+        REQUIRE(fw(b).beeping());
+        const Timed t = c818_timed(b, 0x37, 0xA3, true);
+        CHECK(t.returned);
+        CHECK_EQ(t.p & 0x01, 0);
+        CHECK_EQ(t.a, 0x37);
+        CHECK_EQ(t.x, 0xA3);
+        CHECK(!fw(b).beeping());
+    }
+    for (const unsigned fault : {0u, 1u, 2u}) // no card; never READY; never a reply
+    {
+        static const char *const what[] = {"no sound card", "a card that never comes READY", "a card that never answers"};
+        std::printf("  %s\n", what[fault]);
+        Board b = fault == 0 ? Board(false, true, {}, "", {"sound"}) : Board(Board::Sound3{});
+        REQUIRE(b.ok());
+        REQUIRE(boot_past_splash(b));
+        if (fault == 1)
+        {
+            fw(b).set_startup_ms(10'000);
+            dev(b).write(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
+        }
+        else if (fault == 2)
+            fw(b).set_latency_us(10'000'000);
+        for (const uint8_t x : {uint8_t{0xA2}, uint8_t{0xA3}})
+        {
+            const Timed t = c818_timed(b, 5, x);
+            std::printf("    $%02X: %s in %.3f ms\n", x, t.returned ? "back" : "NOT back", t.ms);
+            CHECK(t.returned);
+            CHECK_EQ(t.p & 0x01, 0x01); // carry set
+            CHECK_EQ(t.a, 5);
+            CHECK_EQ(t.x, x);
+            CHECK_EQ(t.y, 0x5A);
+            const double lo = fault == 0 ? 0 : fault == 1 ? 240 : 95, hi = fault == 0 ? 1 : fault == 1 ? 260 : 110;
+            CHECK(t.ms >= lo);
+            CHECK(t.ms < hi);
+        }
     }
 }
 
@@ -1945,7 +2011,7 @@ TEST(c800_after_a_bootsel_boot_starts_the_image_in_ram_again)
 
 TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
 {
-    Board b;
+    Board b{Board::Sound3{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -1957,9 +2023,12 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
                              "C400: 00 00 00 00 01 00 8A 03\r" // ...interrupting at terminal count
                              "C47E: 71\r"        // SELECT 0...
                              "C406: 01 01\r"     // ...channel 0 armed, as for the SD card
-                             "C5B0: 01\r"        // USB: the key event interrupts
-                             "C540: 02 00 04\r"; // the sound card's 6510 running, its mailbox interrupting
+                             "C5B0: 01\r";       // USB: the key event interrupts
     b.run(keys.size() * 25'000 + BOOT / 2, keys);
+    record(b, SoundFw::NOP, 1);                  // the sound card: a REPLY waiting, its event interrupt on
+    dev(b).write(SoundCard3::IEN, SoundCard3::INT_EVT);
+    b.run(FRAME);
+    REQUIRE(dev(b).irq());
     REQUIRE(bus.irq());
     REQUIRE(b.machine->dma()->peek_channel(0, DmaController::CTRL) & 1);
     b.cpu->nmi();
@@ -1969,8 +2038,7 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
     CHECK_EQ(b.machine->dma()->peek_channel(0, DmaController::CTRL) & 1, 0);    // channel 0 stopped
     CHECK_EQ(b.machine->dma()->peek_channel(1, DmaController::MODE) & 0x80, 0); // and channel 1's interrupt off
     CHECK_EQ(bus.peek(0xC5B0), 0);
-    CHECK_EQ(bus.peek(0xC540), 0);               // the 6510 stopped
-    CHECK_EQ(bus.peek(0xC542), 0);
+    CHECK_EQ(bus.peek(0xC50C), 0);               // the sound card's interrupt off (its RESET: IEN 0)
     // CLI; LDA #'Z'; JSR ECHO; SEI; JMP WOZMON: runs, rather than living in IRQ and RTI.
     const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
     const unsigned echo = label(lbl, "ECHO"), wozmon = label(lbl, "WOZMON");
@@ -2316,7 +2384,6 @@ TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_t
     b.run(BOOT, "C47E: 05\r");                   // SELECT 2...
     b.run(BOOT, "C400: 00 00 02 00 00 00 45 01\r"); // ...channel 2 feeding the sound card for ever
     REQUIRE(dma.peek_channel(2, DmaController::CTRL) & 1);
-    REQUIRE(dma.peek(DmaController::REQ_REG) & 0x04); // its polls latched the sound card's request
     REQUIRE(dma.peek_channel(0, DmaController::CARD) == 0x05);
     b.run(4 * BOOT, "C806R\r");
     REQUIRE(b.bridge().apple());
@@ -2330,7 +2397,6 @@ TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_t
         CHECK_EQ(dma.peek_channel(n, DmaController::CTRL), 0x00);
     }
     Decoder &bus = b.machine->bus();
-    CHECK(bus.dreq());                           // the premise: the sound card still asks, at DRQSEL 0
     CountingMaster counted(dma);
     bus.set_master(&counted);
     const uint64_t c0 = b.cpu->cycles();

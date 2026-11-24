@@ -42,20 +42,20 @@ export async function phosphor(page: Page, name: "Colour" | "P1" | "P3" | "P4"):
 }
 
 /**
- * Wait out the boot splash and its tune: at power-on the BIOS (splash.s) has the video card cover the screen for
- * 5 s and the sound card play its tune, which stops the card's 6510 itself ($DE02). Right after the greeting, the
- * Devices tab shows both going, then both over, as test_bios waits for them; the drawer is left as it was.
+ * Wait out the boot splash and its sound: at power-on the BIOS (splash.s) has the video card cover the screen for
+ * 5 s and the sound card's firmware play its boot sound (BOOTSOUND), which ends by itself. Right after the greeting,
+ * the Devices tab shows both going, then both over, as test_bios waits for them; the drawer is left as it was.
  */
 export async function pastSplash(page: Page): Promise<void> {
   const wasOpen = (await page.getByTestId("tb-debugger").getAttribute("aria-pressed")) === "true";
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const splash = page.getByTestId("dev-video").locator('[data-reg="Splash"]');
-  const sound = page.getByTestId("dev-sound").locator('[data-reg="CTRL"]');
+  const sound = page.getByTestId("dev-sound").locator('[data-reg="Store"]');
   await expect(splash).toContainText("playing"); // the splash covers the screen...
-  await expect(sound).toContainText("6510 running"); // ...and the tune plays
+  await expect(sound).toContainText("boot sound"); // ...and the boot sound plays
   await expect(splash).toHaveText("$00  off", { timeout: 20_000 });
-  await expect(sound).toContainText("6510 stopped", { timeout: 20_000 });
+  await expect(sound).not.toContainText("boot sound", { timeout: 20_000 });
   if (!wasOpen) await page.getByTestId("tb-debugger").click();
   await expect(page.getByTestId("debugger")).toBeVisible({ visible: wasOpen });
 }

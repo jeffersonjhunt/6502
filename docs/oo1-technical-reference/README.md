@@ -19,7 +19,7 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 4 [Interrupts](04-interrupts.md) | IRQ and NMI, IRQL and IRQH, VEC, Pause/Break | the serial card's INTSTAT |
 | 5 [DMA](05-dma.md) | the controller, `$C400`: memory to memory, transfers for a card | revision 2's controller (the window, CARD, the poll and /WAIT), emulated as steps B2, B3 (eight channels) and B4 (16-bit transfers); the video port on channel 1 |
 | 6 [Video](06-video.md) | the VGA card, `$C480`: layers, sprites, the palette, video memory, interrupts, the splash | revision 2: the card's own 2 MB, the aperture, the data port |
-| 7 [Sound](07-sound.md) | two SIDs and a 6510, `$C500`: the mailbox, the card's RAM, `.sid` tunes | the card's bus timing |
+| 7 [Sound](07-sound.md) | the sound card as a device, `$C500`: command records, events, DATA by DMA, `.sid` tunes | |
 | 8 [USB](08-usb.md) | the keyboard, mouse, game port and speaker, `$C580` | other layouts, a gamepad, device events, the event FIFO on DMA, a real 558 |
 | 9 [Serial and the VIA](09-serial-and-via.md) | the 6551 stand-in at `$C300`, the VIA at `$C340` and the joysticks | COM1, COM2 and LPT; the user port |
 | 10 [Storage](10-storage.md) | the SD card, `$C380`: commands, FAT mounts, DMA; the Disk II in both modes, and how OODOS drives it | |

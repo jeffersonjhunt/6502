@@ -167,6 +167,11 @@ TEST(the_event_area_is_refused_where_it_cant_be_and_written_where_it_can)
     for (int i = 0; i < 200 && r.out.find("CLOSE", from) == std::string::npos; ++i)
     {
         r.run(ms(10));
+        // A program reads the area between instructions, never inside the interrupt handler (which runs with
+        // interrupts off, the counters and the area brought level before it returns): so the sample is taken
+        // at an instruction boundary with I clear.
+        for (int n = 0; n < 100'000 && (r.cpu->regs().p & Cpu6502::FLAG_I); ++n)
+            r.run(1);
         if (r.out.find("OPEN 00", from) == std::string::npos || r.out.find("DELAY ", from) != std::string::npos)
             continue;
         ++samples;

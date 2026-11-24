@@ -47,6 +47,7 @@ namespace
         uint8_t start_page{0}, page_length{0};
         uint8_t sid2{0};
         bool load_in_data{false};
+        std::string released{}; ///< the header's released field (+$56), empty: none
     };
     constexpr uint16_t SCRATCH = 0x0800; ///< init's and play's: outside every tune and stub page here
     /// init: STA $0800 (the song less 1), RTS; play: INC $0801, RTS: at the tune's load address and + 4.
@@ -71,6 +72,7 @@ namespace
         const std::string name = "Test Tune   ", author = "Nobody";
         std::copy(name.begin(), name.end(), b.begin() + 0x16);
         std::copy(author.begin(), author.end(), b.begin() + 0x36);
+        std::copy(h.released.begin(), h.released.end(), b.begin() + 0x56);
         if (h.version >= 2)
         {
             put16(0x76, h.flags);
@@ -296,6 +298,37 @@ TEST(what_playsid_refuses)
         CHECK(c.cmd("M:PLAYSID M:NONE").find("No File") != std::string::npos);
         CHECK(c.cmd("M:PLAYSID").find("PLAYSID filespec {song}") != std::string::npos);
     }
+}
+
+TEST(playsid_says_the_released_field_and_the_time_played)
+{
+    // PLAYSID's printout (block D): the released field on a line of its own after the name and the author, and
+    // the time the tune has played (m:ss, the card's TUNE_STATUS), written over itself each second while it waits
+    // for a key; the key ends the line. Must fail with the released line left out, or the time not written (or
+    // read from TUNE_STATUS's wrong bytes: it would never move, or jump).
+    Header h;
+    h.released = "2026 Somebody";
+    CcpRig r;
+    REQUIRE(r.ok);
+    put(r, sid_bytes(h, code(0x1000)));
+    const std::string o = r.to("M:PLAYSID M:T", "Press a key to stop.", ms(4000));
+    CHECK(o.find("Playing song 2 of 3: Test Tune, Nobody\r\n2026 Somebody\r\nPress a key to stop.") !=
+          std::string::npos);
+    const size_t from = r.out.size();
+    r.run(ms(2500));
+    const std::string t = r.out.substr(from);
+    std::printf("  then %s\n", vis(t).c_str());
+    CHECK(t.find("\r0:01 played") != std::string::npos);
+    CHECK(t.find("\r0:02 played") != std::string::npos);
+    CHECK(t.find("0:03") == std::string::npos);
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_PLAYING);
+    const size_t end = r.out.size();
+    r.type("x");
+    CHECK(r.until("A>", ms(2000), end));
+    const std::string tail = r.out.substr(end);
+    std::printf("  after the key %s\n", vis(tail).c_str());
+    CHECK_EQ(tail, std::string("\r\nA>")); // the time's line ended, no blank line
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
 }
 
 TEST(an_rsid_plays_on_the_card_s_player)

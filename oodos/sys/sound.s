@@ -22,9 +22,8 @@
 ;                     L3 owns, and the warm and cold boots' calls (irq.s)
 ;   SYSBSS            SCLAIM, SIEN and C2ON, which irq.s and input.s read
 ;
-; OODOS drives revision 3 only (the spec's Q12): on revision 1 or 2 SN_INFO
-; says the revision (X its CODECS, +3 the parts it has by OODOS 0.16's names,
-; none of which OODOS drives) and every other operation is refused.
+; The card is revision 3 (ID $A3), the card as a device; with no such card
+; SN_INFO says 0 and every other operation is refused.
 ;
 ; The records (the build plan's flags 8 and 9). Every record goes to CMD
 ; whole with interrupts off (PHP/SEI ... PLP), so a program's record and
@@ -111,10 +110,10 @@ R61TAB:         .word   SNDIRQ, SFRAME, SNDQUIET, SNDINIT
 .assert R61_VB = 8 && R61_WARM = 10, error, "R61TAB's video entries are sys.inc's R61_VB, R61_WARM"
 
 ; The variables (block 61's RAM).
-SREV:           .byte   0              ; the card's revision: 0 none, 1-3 (cold boot's)
+SREV:           .byte   0              ; the card's revision: 0 none, 3 (cold boot's)
 SON:            .byte   0              ; 1: a revision 3 card, up: OODOS drives it
-SFEAT:          .byte   0              ; its FEATURES; on revision 2 its CODECS (SN_INFO's X)
-SPARTS:         .byte   0              ; the parts there are (SC_*; revision 1-2: OODOS 0.16's, for SN_INFO)
+SFEAT:          .byte   0              ; its FEATURES (SN_INFO's X)
+SPARTS:         .byte   0              ; the parts there are (SC_*: SC_ALL with the card up)
 SDMA:           .byte   0              ; 1: the DMA controller is there
 STAG:           .byte   0              ; the program's last tag (1-127)
 WTAG:           .byte   0              ; the tag a call waits for (0: none)
@@ -157,12 +156,11 @@ BUFBIT:         .byte   $01, $02
 
 ; --- the boots -------------------------------------------------------------
 
-; Cold boot's: what there is. A sound card by its ID's high nibble, its
-; revision the low; the DMA controller by its ID. Revision 3: CTRL's RESET
-; first (a record the ROM left half written is dropped: the build plan's
-; flag 7), READY waited for (250 ms), DRQ on, the store emptied (FREEALL);
-; then OODOS drives it, its event interrupt on. Revisions 1 and 2: their
-; parts and CODECS for SN_INFO alone.
+; Cold boot's: what there is. The sound card by its ID ($A3), the DMA
+; controller by its ID. CTRL's RESET first (a record the ROM left half
+; written is dropped: the build plan's flag 7), READY waited for (250 ms),
+; DRQ on, the store emptied (FREEALL); then OODOS drives it, its event
+; interrupt on.
 SNDINIT:        STZ     SREV
                 STZ     SON
                 STZ     SFEAT
@@ -174,31 +172,12 @@ SNDINIT:        STZ     SREV
                 BNE     @card
                 INC     SDMA
 @card:          LDA     SOUND_ID
-                TAX
-                AND     #$F0
-                CMP     #SOUND_TYPE
-                BNE     @done
-                TXA
-                AND     #$0F
-                STA     SREV
-                CMP     #3
+                CMP     #SOUND_ID_V3
                 BEQ     @v3
-                BCS     @done          ; past 3: not one OODOS knows
-                LDA     #SC_TUNE       ; (OODOS 0.16's: the 6510, the stream, the ES5503)
-                STA     SPARTS
-                CPX     #SOUND2_ID_V2
-                BNE     @done
-                LDA     SOUND2_CODECS
-                STA     SFEAT
-                BPL     @old           ; bit 7: an ES5503
-                LDA     #SC_MUSIC
-                TSB     SPARTS
-@old:           LDA     SDMA
-                BEQ     @done
-                LDA     #SC_STREAM
-                TSB     SPARTS
-@done:          RTS
-@v3:            LDA     #SOUND_CTRL_RESET
+                RTS
+@v3:            LDA     #3
+                STA     SREV
+                LDA     #SOUND_CTRL_RESET
                 STA     SOUND_CTRL
                 LDA     #<READY_MS
                 LDX     #>READY_MS
@@ -1225,7 +1204,7 @@ RUN0:           STA     RB
 :
 .endmacro
 
-; The card's revision in A, X its FEATURES (revisions 1 and 2: CODECS); a
+; The card's revision in A (3, or 0: none), X its FEATURES; a
 ; block gets them at +1 and +2, and the parts no one has claimed at +3.
 SN_INFOX:       LDX     PX
                 BEQ     @ret

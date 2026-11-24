@@ -510,8 +510,9 @@ TEST(a_program_s_record_and_the_handler_s_never_mix)
 {
     // OODOS writes every record to CMD whole with interrupts off. The frame's status requests (the handler's
     // records, sent from the vertical blank's interrupt) are timed here to fall inside a program's IDENTIFY: by the
-    // frame's own period, the program's command started a step earlier each frame until a frame's interrupt comes
-    // while the record is being written. Both get their replies: IDENTIFY's 32 bytes, the area's fields. Must fail
+    // frame's own period, the program's command started a step earlier each frame until an interrupt comes while
+    // the record is being written (the host's /IRQ falling between its first byte and its last, the owner's
+    // ruling after S18). Both get their replies: IDENTIFY's 32 bytes, the area's fields. Must fail
     // with the sender's SEI left out (the records interleave: the card refuses one, E_PARAM, or takes the wrong
     // bytes as a record).
     CcpRig r;
@@ -559,6 +560,32 @@ TEST(a_program_s_record_and_the_handler_s_never_mix)
         while (r.cpu->cycles() + 2100 < at)
             r.run(2000);
         uint64_t rec = 0, frame = 0;
+        struct Bytes : CycleObserver // the program's record's first and last CMD bytes, and /IRQ's falls
+        {
+            Rig *rig{nullptr};
+            const uint64_t *armed{nullptr};
+            unsigned n{0};
+            uint64_t first{0}, last{0};
+            bool was{false};
+            std::vector<uint64_t> falls;
+            void on_cycle(const BusCycle &c) override
+            {
+                const bool now = rig->machine->bus().irq();
+                if (now && !was)
+                    falls.push_back(c.cycle);
+                was = now;
+                if (*armed && n < 3 && c.write && !c.dma && c.addr == 0xC500 + SoundCard3::CMD)
+                {
+                    if (n++ == 0)
+                        first = c.cycle;
+                    last = c.cycle;
+                }
+            }
+        } bytes;
+        bytes.rig = &r;
+        bytes.armed = &rec;
+        bytes.was = r.machine->bus().irq();
+        r.cpu->set_observer(&bytes);
         r.watch = [&](uint16_t pc) {
             if (pc == cmdb && r.nb(2) == 61 && !rec)
                 rec = r.cpu->cycles();
@@ -572,16 +599,20 @@ TEST(a_program_s_record_and_the_handler_s_never_mix)
         r.poke(KBLK, identify());
         const std::string res = command(r, 'K', "K");
         r.watch = nullptr;
+        r.cpu->set_observer(nullptr);
         const std::vector<uint8_t> b = got(r, 1);
         if ((res != "00 00" || b[0] != 0xA3) && ++bad <= 3)
             std::printf("  try %u: IDENTIFY gave %s, its first byte $%02X\n", d, res.c_str(), b[0]);
-        if (rec && frame && frame >= rec && frame - rec < 60) // its interrupt came during the record (taken at its end)
+        bool inside = false; // an interrupt came while the record was being written (taken at its end)
+        for (const uint64_t f : bytes.falls)
+            inside = inside || (bytes.n == 3 && f >= bytes.first && f <= bytes.last);
+        if (rec && frame && frame >= rec && inside)
             ++near;
     }
     r.run(ms(40));
-    std::printf("  %u tries: %u with the frame's interrupt taken as the program's record ended, %u bad; ERROR $%02X\n",
+    std::printf("  %u tries: %u with an interrupt coming inside the program's record, %u bad; ERROR $%02X\n",
                 tries, near, bad, reg(r, SoundCard3::ERROR));
-    CHECK(near > 0); // the premise: a frame's interrupt fell at the program's record
+    CHECK(near > 0); // the premise: an interrupt fell inside the program's record
     CHECK_EQ(bad, 0u);
     CHECK_EQ(reg(r, SoundCard3::ERROR), 0);
     CHECK_EQ(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_ERR, 0);

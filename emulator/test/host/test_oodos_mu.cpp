@@ -409,12 +409,4 @@ TEST(mu_init_refuses_music_claimed_already_and_leaves_the_claim)
     CHECK_EQ(ac(mu(r, 'I', 0)), OK);
 }
 
-TEST(on_a_card_oodos_doesn_t_drive_mu_init_is_refused)
-{
-    CcpRig r({}, machine_with_sound(2));
-    REQUIRE(r.ok);
-    start_mu(r);
-    CHECK_EQ(ac(mu(r, 'I', 0)), err(PE_REFUSED));
-}
-
 int main() { return run_all(); }

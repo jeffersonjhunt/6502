@@ -195,45 +195,6 @@ TEST(auto_increment_carries_into_the_bank_and_wraps_at_128_kb)
     CHECK_EQ(c.read(SoundCard::DOCDATA), 0xB2); // $00000
 }
 
-TEST(demand_dma_through_drqsel_2_fills_wave_ram)
-{
-    std::string error;
-    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
-                            "sound.machine", {}, error);
-    REQUIRE(m != nullptr);
-    SoundCard *sound = m->sound_card();
-    Decoder &bus = m->bus();
-    constexpr unsigned N = 3'000;
-    for (unsigned i = 0; i < N; ++i)
-        bus.write_physical(0x02000 + i, static_cast<uint8_t>(i * 13 + 1));
-    bus.write(0xC500 + SoundCard::DRQSEL, SoundCard::DRQ_DOCDATA);
-    bus.write(0xC500 + SoundCard::DOCCTL, SoundCard::DOCCTL_RAM | SoundCard::DOCCTL_AUTOINC);
-    bus.write(0xC500 + SoundCard::DOCADDR, 0x00);
-    bus.write(0xC500 + SoundCard::DOCADDR + 1, 0xF8); // $1F800: across the top, into $00000
-    bus.write(0xC500 + SoundCard::DOCBANK, 1);
-    // SELECT 2 first: the window at $C400-$C40F then shows channel 2
-    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
-    bus.poke(0xC400, 0x00);
-    bus.poke(0xC401, 0x20);
-    bus.poke(0xC402, 0x00);
-    bus.poke(0xC404, N & 0xFF);
-    bus.poke(0xC405, N >> 8);
-    bus.poke(0xC406, DmaController::DEMAND | DmaController::TO_CARD);
-    bus.poke(0xC407, DmaController::ENABLE);
-    for (unsigned i = 0; i < 4 * N; ++i)
-    {
-        bus.read(0x0000);
-        bus.irq();
-    }
-    bool same = true;
-    for (unsigned i = 0; i < N; ++i)
-        same = same && sound->doc().ram()[(0x1F800 + i) % Es5503::RAM_BYTES] == static_cast<uint8_t>(i * 13 + 1);
-    std::printf("  %u bytes by DMA to $1F800 on: %s\n", N, same ? "all there" : "WRONG");
-    CHECK(same);
-    CHECK_EQ(sound->doc().ram()[(0x1F800 + N) % Es5503::RAM_BYTES], 0); // and no further
-}
-
 TEST(the_6510_sees_the_registers_at_df00_only_while_run_is_set)
 {
     // A player's stores and loads at $DF00-$DFFF: with DOCCTL RUN, the chip's registers ($DF47 oscillator 7's
@@ -291,23 +252,7 @@ TEST(the_host_route_interrupts_through_ien_bit_3)
         CHECK_EQ(reg(c, R::INTERRUPT), static_cast<uint8_t>(0x41)); // oscillator 0, taken
         CHECK(!c.irq());
     }
-    // On the backplane: IRQH bit 2.
-    std::string error;
-    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "sound 500-57F space=io name=sound irq\n",
-                            "sound.machine", {}, error);
-    REQUIRE(m != nullptr);
-    SoundCard &c = *m->sound_card();
-    Decoder &bus = m->bus();
-    bus.write(0xC500 + SoundCard::IEN, SoundCard::IEN_DOC);
-    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
-    wave(c, 0, std::vector<uint8_t>(256, 0x90));
-    osc(c, 0, 0x2000, 100, 0, 0, control(Es5503::MODE_ONE_SHOT, 0, true));
-    CHECK_EQ(bus.peek(0xC689), 0xFF);
-    for (int i = 0; i < 20'000; ++i)
-        bus.read(0x0000);
-    CHECK(bus.irq());
-    CHECK_EQ(bus.peek(0xC689), 0xFB); // IRQH: bit 2 low, module A
+
 }
 
 TEST(the_card_route_interrupts_the_6510_and_dfe0_takes_it)

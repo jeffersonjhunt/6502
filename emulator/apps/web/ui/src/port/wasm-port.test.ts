@@ -83,15 +83,16 @@ async function open(bios?: Uint8Array) {
     for (let i = 0; i < max && !out.includes(want); ++i) step();
     return out.includes(want);
   };
-  /** The BIOS starts the video card's splash and the sound card's boot tune (splash.s): wait both out, as test_bios does. */
+  /** The BIOS starts the video card's splash and the sound card's boot sound (splash.s: BOOTSOUND, which the card's
+   * firmware plays): wait both out, as test_bios does. */
   const splash = async () => (await port.readMemory(0x489, 1, "io"))[0]; // the video card's SPLASH ($C489)
+  const bootSound = async () => (await port.readSound())?.device?.boot;
   const pastSplash = async () => {
-    let f = frames[frames.length - 1];
     expect(await splash(), "the splash is on").toBe(1);
-    expect(f.soundRunning, "the boot tune is playing").toBe(true);
-    for (let i = 0; i < SPLASH_FRAMES; ++i) f = step();
+    expect(await bootSound(), "the boot sound is playing").toBe(true);
+    for (let i = 0; i < SPLASH_FRAMES; ++i) step();
     expect(await splash(), "the splash is over").toBe(0);
-    expect(f.soundRunning, "the tune stopped the card ($DE02)").toBe(false);
+    expect(await bootSound(), "the boot sound is over").toBe(false);
   };
   return { port, clock, step, until, pastSplash, connected, output: () => out, clear: () => (out = "") };
 }
@@ -560,11 +561,12 @@ describe("WasmPort", () => {
     await m.pastSplash();
     expect(m.step().audio).toBeNull(); // not listening: none made
     m.port.listen(48_000);
-    // SID A from the monitor: $1000 (about 245 Hz), a triangle, attack 0, sustain F, volume 15
-    m.port.sendSerial(ascii("C500: 00 10 00 00 11 00 F0\r"));
-    expect(m.until("C500:")).toBe(true);
-    m.port.sendSerial(ascii("C518: 0F\r"));
-    expect(m.until("C518:")).toBe(true);
+    // The card's tone generator from the monitor: a BEEP record (1,000 Hz for 10 s, the default volume) typed into
+    // CMD a byte a line, as a bare-metal program writes it.
+    for (const b of ["60", "05", "01", "E8", "03", "10", "27", "00"]) {
+      m.port.sendSerial(ascii(`C503: ${b}\r`));
+      expect(m.until(`C503: ${b}`)).toBe(true);
+    }
     let frames = 0;
     let sq = 0;
     for (let i = 0; i < 30; ++i) {
@@ -576,8 +578,8 @@ describe("WasmPort", () => {
     }
     expect(Math.abs(frames - 30 * 800)).toBeLessThan(800); // 48 kHz x 30 frames of 1/60 s
     const rms = Math.sqrt(sq / frames);
-    expect(rms).toBeGreaterThan(0.05); // a triangle at full envelope: 1/8 peak, 0.072 RMS
-    expect(rms).toBeLessThan(0.1);
+    expect(rms).toBeGreaterThan(0.1); // the beep's square at its default volume: 128/255 of 0.25, about 0.12 RMS
+    expect(rms).toBeLessThan(0.14);
     m.port.setPower(false);
     expect(m.step().audio).toBeNull();
     m.port.setPower(true); // a new machine: still listening, and silent
@@ -635,8 +637,8 @@ describe("WasmPort", () => {
     expect(loud()).toBeGreaterThan(0.05); // a triangle at full envelope, on both sides (a mono tune)
     expect((await m.port.playSong(3)).song).toBe(3);
     m.step(); // the card runs init again
-    expect(Array.from(await m.port.readMemory(0x501, 1, "io"))).toEqual([0x18]); // SID A's pitch: song 3's
-    await expect(m.port.playSong(4)).rejects.toThrow(/song 4 of 3/);
+    expect((await m.port.readSound())!.sids![1]).toBe(0x18); // SID A's pitch (the card's shadow): song 3's
+    await expect(m.port.playSong(4)).rejects.toThrow(/has 3 songs/); // the firmware's player says so
     await expect(m.port.playSid(new Uint8Array([1, 2, 3]))).rejects.toThrow(/not a \.sid file/);
     expect(m.step().soundRunning).toBe(true); // the tune plays on
     m.port.stopSid();

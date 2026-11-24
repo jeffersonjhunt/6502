@@ -490,9 +490,9 @@ Guide](../oodos-users-guide/05-utilities.md#util-playsid)) is a program on it.
 
 ### The EQ and the vis page
 
-Since OODOS 0.7, the linked library sets the EQ and reads the vis page, on a revision-2 card (Technical Reference,
-[chapter 7](../oo1-technical-reference/07-sound.md#reg-c559)). Both are register work with nothing to share, so
-there is no claim: a program may set the EQ before its stream starts. Two modules, so a program that only draws a
+Since OODOS 0.7, the linked library sets the EQ and reads the vis page; since OODOS 0.17 it asks the card through
+function 82's `SN_EQ` and `SN_VIS` (Technical Reference, [chapter 7](../oo1-technical-reference/07-sound.md#the-commands)).
+Neither has anything to share, so there is no claim: a program may set the EQ before its stream starts. Two modules, so a program that only draws a
 meter doesn't link the EQ: `oodos/lib/pbeq.s` and `oodos/lib/pbvis.s`.
 
 - `PB_EQ`: A the band (0 the preamp, 1–10 the bands at 60, 170, 310 and 600 Hz and 1, 3, 6, 12, 14 and 16 kHz),

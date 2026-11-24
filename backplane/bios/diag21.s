@@ -33,6 +33,7 @@ T_SEEN:         .res    2              ; U4, SR3: what has been seen
 T_ROW:          .res    1
 T_COL:          .res    1
                 DTVARS
+                DSVARS
 
 .segment "D21"
                 DG_HEADER 2, START
@@ -874,95 +875,98 @@ V8:
                 stz     VIDEO_L1_CONFIG
                 rts
 
-; S10: a tone on each SID (the host's writes, the 6510 stopped) and on the
-; ES5503 (revision 2).
+; S10: the sound card's own sounds, by command (diagsnd.inc): a music block's
+; one note on a SID voice (the A at 440 Hz, a triangle, half a second), then a
+; sample effect on the ES5503 (a square wave, looped, at 220 Hz for half a
+; second); the sample slot freed after. Revision 3.
 S10:
-                TB      "S10  A TONE ON SID A, ON SID B"
+                TB      "S10  A NOTE ON A SID VOICE, A SAMPLE ON THE ES5503"
                 lda     HW_REV + $A
-                cmp     #1
-                beq     @card
-                cmp     #2
+                cmp     #3
                 beq     @card
                 TS      "NO SOUND CARD"
                 rts
 @card:          inc     T_ANY
-                lda     SOUND2_CTRL
-                and     #<~SOUND2_RUN
-                sta     SOUND2_CTRL
-                ldx     #0
-                jsr     SIDTONE
-                ldx     #SOUND2_SIDB - SOUND2_SIDA
-                jsr     SIDTONE
-                lda     HW_REV + $A
-                cmp     #2
-                bne     @ask
-                SAY     ", ON THE ES5503"
-                jsr     DOCTONE
-@ask:           SAY     "?"
-                jmp     YESNO
-
-; SID A's (X 0) or B's (X $20) voice 1: 440 Hz, a triangle, for 0.5 s.
-SIDTONE:
-                lda     #<7493
-                sta     SOUND2_SIDA + $00,x
-                lda     #>7493
-                sta     SOUND2_SIDA + $01,x
-                lda     #$09
-                sta     SOUND2_SIDA + $05,x
-                lda     #$F0
-                sta     SOUND2_SIDA + $06,x
-                lda     #$0F
-                sta     SOUND2_SIDA + $18,x
-                lda     #$11
-                sta     SOUND2_SIDA + $04,x
-                phx
-                lda     #55
+                lda     #SOUND_ST_READY
+                ldy     #SND_250MS
+                jsr     SNDWT
+                jcs     @dead
+                lda     #<RMLOAD       ; the block into music slot 0, played and freed
+                ldx     #>RMLOAD
+                jsr     SNDDO
+                jcs     @dead
+                jne     @dead
+                lda     #<MBLOCK
+                sta     SN_PTR
+                lda     #>MBLOCK
+                sta     SN_PTR + 1
+                ldy     #MBLEN
+                jsr     SNDDATA
+                lda     #<RMPLAY
+                ldx     #>RMPLAY
+                jsr     SNDDO
+                bcs     @dead
+                bne     @dead
+                lda     #60            ; its half second, and a little
                 sta     T_REV
                 jsr     WAITT
-                plx
-                lda     #$10
-                sta     SOUND2_SIDA + $04,x
-                stz     SOUND2_SIDA + $18,x
-                rts
-
-; The ES5503's oscillator 0: a square wave of 256 bytes from wave RAM's
-; first page, free-running, for 0.5 s, then halted and the chip stopped.
-DOCTONE:
-                lda     #SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC
-                sta     SOUND2_DOCCTL
-                stz     SOUND2_DOCADDR
-                stz     SOUND2_DOCADDR + 1
-                stz     SOUND2_DOCBANK
+                lda     #<RSLOAD       ; 256 bytes into sample slot 0: a square wave
+                ldx     #>RSLOAD
+                jsr     SNDDO
+                bcs     @dead
+                bne     @dead
                 ldx     #0
 @w:             lda     #$40
                 cpx     #$80
                 bcc     @lo
                 lda     #$C0
-@lo:            sta     SOUND2_DOCDATA
+@lo:            sta     SOUND_DATA
                 inx
                 bne     @w
-                stz     SOUND2_DOCCTL  ; the registers
-                ldx     #0
-@r:             lda     DOCREGS,x
-                sta     SOUND2_DOCADDR
-                stz     SOUND2_DOCADDR + 1
-                lda     DOCREGS + 1,x
-                sta     SOUND2_DOCDATA
-                inx
-                inx
-                cpx     #DOCN
-                bne     @r
-                lda     #SOUND2_DOC_RUN
-                sta     SOUND2_DOCCTL
-                lda     #55
+                lda     #<RSDEF        ; effect 0: the sample, looped, held half a second
+                ldx     #>RSDEF
+                jsr     SNDDO
+                bcs     @dead
+                bne     @dead
+                lda     #<RSPLAY
+                ldx     #>RSPLAY
+                jsr     SNDDO
+                bcs     @dead
+                bne     @dead
+                lda     #60
                 sta     T_REV
                 jsr     WAITT
-                stz     SOUND2_DOCCTL
-                lda     #$A0           ; oscillator 0 halted
-                sta     SOUND2_DOCADDR
-                lda     #$01
-                sta     SOUND2_DOCDATA
+                lda     #<RSFREE
+                ldx     #>RSFREE
+                jsr     SNDDO
+                SAY     "?"
+                jmp     YESNO
+@dead:          TD      "THE CARD DIDN'T TAKE ITS RECORDS"
                 rts
+
+; S10's records (diagsnd.inc): the command, n, the tag, n bytes; and its block
+RMLOAD:         .byte   SOUND_MUSIC_LOAD, 4, SND_TAG, 0, MBLEN, 0, 0
+RMPLAY:         .byte   SOUND_MUSIC_PLAY, 2, SND_TAG, 0, $02    ; freed when done
+RSLOAD:         .byte   SOUND_SAMPLE_LOAD, 13, SND_TAG, 0       ; sample slot 0:
+                .byte   0, 1, 0, 0                              ;   256 bytes, unsigned,
+                .word   56320                                   ;   one cycle at 220 Hz,
+                .byte   0, 0, 0, 0, 1, 0                        ;   looped whole
+RSDEF:          .byte   SOUND_EFFECT_DEF, 13, SND_TAG, 0, 1     ; effect 0, a sample:
+                .byte   0                                       ;   slot 0,
+                .word   0                                       ;   at its own rate,
+                .byte   1                                       ;   looped,
+                .word   0, 500, 20                              ;   attack, hold, release (ms)
+                .byte   0
+RSPLAY:         .byte   SOUND_PLAY, 7, SND_TAG, 0, 255, 128, 0  ; effect 0: full, centre,
+                .word   0                                       ;   priority 0, no offset,
+                .byte   2                                       ;   on the ES5503
+RSFREE:         .byte   SOUND_BANK_FREE, 1, SND_TAG, 2          ; every effect and sample
+MBLOCK:         .byte   1, $01, 0, 0                            ; version 1, voice 0,
+                .dword  1                                       ;   one entry
+                .byte   0, $10, $09, $F0, 0, 0, 255, 128        ; a SID voice, a triangle
+                .byte   $00, 69                                 ; voice 0: the A at 440 Hz,
+                .dword  500000, 500000                          ;   half a second, gated
+MBLEN           = * - MBLOCK
 
 ; U3: a key on the USB keyboard (USB_KEY polled).
 U3:
@@ -1216,6 +1220,7 @@ P3:
 
         .include "diagcon.inc"
         .include "diagtest.inc"
+        .include "diagsnd.inc"
 
 ; --- Tables and text -------------------------------------------------------------
 

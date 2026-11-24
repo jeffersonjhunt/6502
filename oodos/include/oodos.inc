@@ -268,8 +268,8 @@ IN_OPS          = 8
 ; later; A = $FD (SN_REFUSED), X = the card's error (SOUND_E_*) when the
 ; card refused the command. [part] is the claim (SC_*) an operation needs.
 ; A physical address is 3 bytes, a length 3 (0 refused) unless said.
-SN_INFO         = 0                    ; A = the card's revision (0 none), X = FEATURES (revision 3; on 1 or 2 its
-                                       ;   CODECS); a block +1, +2 those, +3 the parts (SC_*) no one has claimed
+SN_INFO         = 0                    ; A = the card's revision (3, or 0: none), X = its FEATURES; a block +1,
+                                       ;   +2 those, +3 the parts (SC_*) no one has claimed
 SN_CLAIM        = 1                    ; block: +1 the parts (SC_*), all of them or none
 SN_RELEASE      = 2                    ; block: +1 the parts, each stopped and given back
 SN_IDENTIFY     = 3                    ; block: +1-32 get IDENTIFY's 32 bytes (the firmware, the store, ...)

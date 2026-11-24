@@ -19,6 +19,7 @@
 #include "decoder.h"
 #include "cpu6502.h"
 #include "machine.h"
+#include "sound_card3.h"
 #include "video_card.h"
 
 #include <cstdint>
@@ -206,6 +207,52 @@ namespace ooe::test
                                       ooe::emu::bus_address(ooe::emu::Space::Io, ooe::emu::BackplaneBridge::REGISTERS + 0x7F),
                                       &f, ooe::emu::BackplaneBridge::MODULE});
         return true;
+    }
+
+    /// The sound card's faults (revision 3, the device), for stage 10: through the card's and its firmware's own
+    /// test hooks (sound_card3.h, sound_fw.h), on machine `m`'s card. Each @return whether it has one.
+    /// - never_ready: the firmware starts again and never comes up (READY stays clear).
+    /// - selftest_bit: SELFTEST finds `parts` failing (its bits: 0 the store, 1 wave RAM, 2 the SIDs, 3 the codec's
+    ///   loop).
+    /// - dma_drops_a_byte: the `n`th byte DMA brings to DATA from now is lost on its way in.
+    /// - dma_corrupts_a_byte: the `n`th byte DMA brings to DATA from now arrives with every bit flipped.
+    /// - irq_dead: the card's interrupt line never pulls, whatever ISR and IEN say.
+    inline bool never_ready(ooe::emu::Machine &m)
+    {
+        ooe::emu::SoundCard3 *c = m.sound_device();
+        if (!c)
+            return false;
+        c->firmware().set_startup_ms(3600 * 1000); // an hour: past any test
+        c->firmware().restart();
+        return true;
+    }
+    inline bool selftest_bit(ooe::emu::Machine &m, uint8_t parts)
+    {
+        ooe::emu::SoundCard3 *c = m.sound_device();
+        if (c)
+            c->firmware().set_faults(parts);
+        return c != nullptr;
+    }
+    inline bool dma_drops_a_byte(ooe::emu::Machine &m, uint64_t n)
+    {
+        ooe::emu::SoundCard3 *c = m.sound_device();
+        if (c)
+            c->set_dma_drop(n);
+        return c != nullptr;
+    }
+    inline bool dma_corrupts_a_byte(ooe::emu::Machine &m, uint64_t n)
+    {
+        ooe::emu::SoundCard3 *c = m.sound_device();
+        if (c)
+            c->set_dma_corrupt(n);
+        return c != nullptr;
+    }
+    inline bool irq_dead(ooe::emu::Machine &m)
+    {
+        ooe::emu::SoundCard3 *c = m.sound_device();
+        if (c)
+            c->set_irq_dead(true);
+        return c != nullptr;
     }
 
 } // namespace ooe::test

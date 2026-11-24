@@ -241,10 +241,21 @@ def examined_nothing(words, chosen, labels, path):
     return os.path.exists(os.path.join(REPO, path))
 
 
+def needs_rule(path):
+    """True if a path must match a rule: every path in the work tree. A path gone from it (deleted, as a removed
+    folder's files are) needs none, so the map needn't keep a rule that matches nothing tracked (the owner,
+    2026-11-24)."""
+    return os.path.exists(os.path.join(REPO, path))
+
+
 def selftest_examined_nothing():
-    """examined_nothing's rule on a path that is there and one that isn't (check runs it): the number of
-    problems."""
+    """examined_nothing's and needs_rule's rules on a path that is there and one that isn't (check runs it): the
+    number of problems."""
     problems = 0
+    for path, want in (("tools/test_map.py", True), ("emulator/test/host/no_such_folder_gone/gone.s", False)):
+        if needs_rule(path) != want:
+            print(f"needs_rule: {path} should be {want}")
+            problems += 1
     for path, want in (("tools/test_map.py", True), ("emulator/test/host/test_no_such_suite_gone.cpp", False)):
         if examined_nothing(["self"], set(), set(), path) != want:
             print(f"examined_nothing: {path} (a self rule, no suite) should be {want}")
@@ -343,6 +354,9 @@ def cmd_select(args):
     for p in args.paths:
         r = match(rules, p)
         if r is None:
+            if not needs_rule(p):
+                print(f"  {p}: deleted, no rule: nothing to examine")
+                continue
             unmapped.append(p)
             print(f"  {p}: NOT IN THE MAP")
             continue

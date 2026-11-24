@@ -633,30 +633,6 @@ TEST(ctrl_reset_clears_frameen_and_the_frame_latch)
     CHECK_EQ(c.cpu_bus().peek(0xD011), 0xFF);
 }
 
-TEST(on_the_backplane_at_c500_with_its_interrupt_on_irqh_bit_2)
-{
-    std::string error;
-    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "sound 500-57F space=io name=sound irq\n",
-                            "sound.machine", {}, error);
-    REQUIRE(m != nullptr);
-    SoundCard *sound = m->sound_card();
-    REQUIRE(sound != nullptr);
-    Decoder &bus = m->bus();
-    CHECK_EQ(bus.peek(0xC57F), 0xA2);
-    bus.write(0xC518, 0x0F);
-    CHECK_EQ(sound->sid(0)[MODE_VOL], 0x0F);
-    CHECK_EQ(bus.peek(0xC689), 0xFF);
-    bus.write(0xC542, SoundCard::IEN_MAILBOX);
-    sound->card_send(7);
-    CHECK(bus.irq());
-    CHECK_EQ(bus.peek(0xC689), 0xFB); // IRQH: bit 2 low, module A
-    CHECK_EQ(bus.read(0xC547), 7);
-    CHECK(!bus.irq());
-    bus.reset(); // the reset button, through the north bridge
-    CHECK_EQ(sound->sid(0)[MODE_VOL], 0x00);
-}
-
 TEST(only_one_per_machine)
 {
     std::string error;
@@ -665,40 +641,6 @@ TEST(only_one_per_machine)
                             "two.machine", {}, error);
     CHECK(m == nullptr);
     CHECK(error.find("sound: only one per machine") != std::string::npos);
-}
-
-TEST(dma_loads_a_tune_into_the_cards_ram)
-{
-    std::string error;
-    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                            "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq\n",
-                            "sound.machine", {}, error);
-    REQUIRE(m != nullptr);
-    SoundCard *sound = m->sound_card();
-    Decoder &bus = m->bus();
-    for (unsigned i = 0; i < 300; ++i)
-        bus.write_physical(0x02000 + i, static_cast<uint8_t>(i * 7));
-    bus.write(0xC543, 0x00); // RAMADDR $1000, a tune's load address
-    bus.write(0xC544, 0x10);
-    // channel 2: memory at $02000 to the card, 300 bytes, block mode
-    // SELECT 2 first: the window at $C400-$C40F then shows channel 2
-    bus.poke(0xC47E, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE | 2 << 1);
-    bus.poke(0xC400, 0x00);
-    bus.poke(0xC401, 0x20);
-    bus.poke(0xC402, 0x00);
-    bus.poke(0xC404, 300 & 0xFF);
-    bus.poke(0xC405, 300 >> 8);
-    bus.poke(0xC406, DmaController::BLOCK | DmaController::TO_CARD);
-    bus.poke(0xC407, DmaController::ENABLE);
-    for (int i = 0; i < 400; ++i)
-        bus.read(0x0000);
-    bool same = true;
-    for (unsigned i = 0; i < 300; ++i)
-        same = same && sound->ram()[0x1000 + i] == static_cast<uint8_t>(i * 7);
-    CHECK(same);
-    CHECK_EQ(sound->ram()[0x1000 + 300], 0x00); // and no further
-    CHECK_EQ(bus.peek(0xC543), (0x1000 + 300) & 0xFF);
-    CHECK_EQ(bus.peek(0xC544), (0x1000 + 300) >> 8);
 }
 
 // --- revision 2 (hw/sound-rev2.md): the registers ----------------------------

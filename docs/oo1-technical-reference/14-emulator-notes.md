@@ -43,7 +43,7 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
 | `video 480-4FF … irq drq rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DMA request on /DREQ, served by channel 1 (CARD `$09`). Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
 | `aperture E00000-E0FFFF` | revision 2's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. While the north bridge's AP8 (MAP, bit 0) is set, as from every reset whatever is fitted, it sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them; with AP8 clear bank 8 is RAM (*proposed*, B7). With a revision 1 card, or none, the line is inert: bank 8 reads `$FF` while AP8 is set, until the BIOS clears it at boot. On a `revision=1` bridge the alias is fixed when the machine is built, on only while a revision 2 card is fitted. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
-| `sound 500-57F … irq drq` | the sound card, its DMA request (RAMDATA's at reset) on /DREQ, served by channel 2 (CARD `$0A`) ([chapter 7](07-sound.md)) |
+| `sound 500-57F … irq drq` | the sound card (revision 3, `rev=3` and `memsize=` optional), its DMA request (DATA's, while a transfer is open) on /DREQ, served by channel 2 (CARD `$0A`) ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)), with its DMA request left off /DREQ |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
 | `console 700-77F … irq` | the console card, the front panel ([chapter 12](12-front-panel.md)) |
@@ -276,9 +276,6 @@ The design has these, and the emulator doesn't:
 - **The VIA's user port,** and its shift register ([chapter 9](09-serial-and-via.md#the-user-port)).
 - **The bus spy** ([chapter 3](03-boot.md#the-bus-spy)). `bootsel` and `--load` stand in for it.
 - **Turbo,** the CPU at ÷1 ([chapter 11](11-north-bridge-and-rtc.md#turbo)).
-- **The sound card's bus timing:** BUSY, and RDY on a SID access ([chapter 7](07-sound.md#bus-timing)).
-- **The sound card's revision 2 sound:** its registers, the raw PCM stream and its mix with the SIDs are in, but
-  there is no EQ, volume, vis page or ES5503 sound yet ([chapter 7](07-sound.md#in-the-emulator-so-far)).
 - **The USB card's other layouts, a gamepad on the paddles, device events, the FIFO on DMA and a real 558**
   ([chapter 8](08-usb.md#proposed)).
 - **The console card's bus-cycle step, its breakpoint on the cycle, EXAM and DEP on the bus, AMODE, the design's
@@ -319,8 +316,8 @@ emulator; each link goes to the note.
     console card ([Pause/Break](04-interrupts.md#pausebreak)).
 - **DMA** ([chapter 5](05-dma.md))
   - The SD, video and sound cards' requests reach /DREQ (`drq` on their lines), and channels 0, 1 and 2 serve
-    them by their reset CARD; the sound card asks always (RAMDATA's, unless its DRQSEL picks another:
-    [`$C563`](07-sound.md#reg-c563)). The USB card's request isn't wired, and the serial card, a 6551 standing in,
+    them by their reset CARD; the sound card asks while a transfer into its DATA is open and has room
+    ([`$C507`](07-sound.md#reg-c507)). The USB card's request isn't wired, and the serial card, a 6551 standing in,
     has no DMA ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C40C`](05-dma.md#reg-c40c)).
 - **Video** ([chapter 6](06-video.md))
   - A whole sprite table copied by DMA takes about 143 µs, at two cycles a byte, where hw/design.md says about
@@ -333,12 +330,9 @@ emulator; each link goes to the note.
   - hw/design.md still labels the boot splash proposed; the emulator has it
     ([The boot splash](06-video.md#the-boot-splash)).
 - **Sound** ([chapter 7](07-sound.md))
-  - Two waveforms at once are ANDed, and OSC3 then reads approximately. The DACs' nonlinearity, the 6581 filter's
-    distortion and the external input aren't modelled ([A voice](07-sound.md#a-voice)).
-  - SID writes go to the chip at once: STATUS's BUSY is always 0, and the card never holds the CPU
-    ([Bus timing](07-sound.md#bus-timing), [`$C541`](07-sound.md#reg-c541)).
-  - The card's RAM is all `$00` at power-on, where the design leaves it undefined
-    ([`$C545`](07-sound.md#reg-c545)).
+  - The card's SIDs: two waveforms at once are ANDed, and OSC3 then reads approximately. The DACs' nonlinearity,
+    the 6581 filter's distortion and the external input aren't modelled
+    ([Playing a .sid file](07-sound.md#playing-a-sid-file)).
 - **USB** ([chapter 8](08-usb.md))
   - The event FIFO holds 128 bytes, so EVCOUNT never reaches the design's 255 ([`$C583`](08-usb.md#reg-c583)).
   - LEDS reads back, where the design has it write-only, and lights nothing ([`$C585`](08-usb.md#reg-c585)).
@@ -455,10 +449,8 @@ Not bugs, but what BIOS 0.13 does, and 0.14 as well, which a program run from th
   (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11
   ([IRQ and NMI](04-interrupts.md#irq-and-nmi), [Pause/Break](04-interrupts.md#pausebreak)). Under BIOS 0.10 a VIA
   interrupt or a pending panel key kept /IRQ low after Break, so a program written for it clears both itself.
-- **Break stops a revision 2 sound card's PCM stream and ES5503,** since BIOS 0.12: it writes PCMCTL `$04` (FLUSH
-  alone, so the FIFO is emptied) and clears DOCCTL's RUN, keeping its other bits. The ES5503's registers and wave
-  RAM, the volumes and the EQ stay as they were, and an ES5503 interrupt pending at Break stays pending on its route
-  ([Silencing them](07-sound.md#silencing-them)). BIOS 0.11 left both playing behind the monitor.
+- **Break resets the sound card,** since BIOS 0.21: one write of CTRL's RESET stops every sound on it, abandons an
+  open transfer and clears IEN; the store keeps what it holds ([Silencing it](07-sound.md#silencing-it)).
 - **Nothing in the BIOS clears the video card's ISR,** so after a reset it soon reads `$03`, and after Break LINE
   and the collision bits are as a program left them ([Interrupts](06-video.md#interrupts)).
 - **The SD card's ERR is set under the monitor** after a power-on with a card that has no `/BOOT.BIN`, from the

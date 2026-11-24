@@ -357,72 +357,8 @@ DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ o
 DMA_BLOCK_OUT   = $06                  ; MODE: block, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
-; Sound card revisions 1 and 2 (module A, hw/sound-rev2.md): two SIDs and a 6510 of its own, the PCM stream
-; and the ES5503 on revision 2. SOUND2_*, until OODOS and the BIOS drive revision 3 alone (its equates below).
-SOUND2          = $C500
-SOUND2_SIDS     = $3D                  ; $00-$3C: SID A, a gap, SID B
-SOUND2_SIDA     = SOUND2 + $00         ; SID A's registers, $00-$1C
-SOUND2_SIDB     = SOUND2 + $20         ; SID B's, the same
-SOUND2_STATUS   = SOUND2 + $41         ; the mailboxes' flags
-SOUND2_MBOUT    = SOUND2 + $46         ; the mailbox to the card
-SOUND2_MBIN     = SOUND2 + $47         ; the mailbox from it: reading empties it
-SOUND2_CTRL    = SOUND2 + $40
-SOUND2_NTSC     = $01                  ; CTRL: the SIDs' clock is NTSC's
-SOUND2_RUN      = $02                  ; CTRL: the card's 6510 runs
-SOUND2_RESET    = $04                  ; CTRL: reset the card's 6510 (vector at its $FFFC)
-SOUND2_RAMADDR  = SOUND2 + $43         ; the card's RAM: address, then data,
-SOUND2_RAMDATA  = SOUND2 + $45         ;   which moves the address on
-SOUND2_IEN     = SOUND2 + $42
-SOUND2_ID      = SOUND2 + $7F
-SOUND2_ID_V1    = $A1
-SOUND2_ID_V2    = $A2                  ; revision 2: a PCM stream and an ES5503 (hw/sound-rev2.md, proposed)
-SOUND2_TYPE     = $A0                  ; ID's high nibble, the module: the card at any revision
-; Revision 2's registers.
-SOUND2_PCMCTL   = SOUND2 + $48         ; RUN, PAUSE, FLUSH (a strobe), EOF
-SOUND2_CODEC    = SOUND2 + $49         ; 0 raw PCM, 1 MP3
-SOUND2_RATE     = SOUND2 + $4A         ; 2 bytes: raw PCM's rate in Hz; reads the stream's
-SOUND2_PCMFMT   = SOUND2 + $4C         ; bit 0 stereo, bit 1 16-bit
-SOUND2_FREE     = SOUND2 + $4D         ; 2 bytes: the FIFO's room, 256-byte units; reading the low latches
-SOUND2_PCMDATA  = SOUND2 + $4F         ; the stream
-SOUND2_STATE    = SOUND2 + $50         ; idle, buffering, playing, paused, underrun, ended; $80 up errors
-SOUND2_POS      = SOUND2 + $51         ; 4 bytes: frames played; reading the low latches, writing it zeroes
-SOUND2_KBPS     = SOUND2 + $55         ; 2 bytes: the MP3's bitrate
-SOUND2_VOLL     = SOUND2 + $57         ; the master volumes, 255 unity
-SOUND2_VOLR    = SOUND2 + $58
-SOUND2_EQIDX    = SOUND2 + $59         ; 0 the preamp, 1-10 the bands; bit 7 the enable
-SOUND2_EQ_ENABLE = $80                 ; EQIDX: EQVAL is the enable (bit 0), not a gain
-SOUND2_EQVAL    = SOUND2 + $5A         ; the gain at EQIDX in half-dB, +-24; EQIDX moves on
-SOUND2_VISIDX   = SOUND2 + $5B         ; the vis page's index; writing 0 takes a snapshot
-SOUND2_VISDATA  = SOUND2 + $5C         ; the byte there, and the index moves on
-SOUND2_CODECS   = SOUND2 + $5D         ; the codecs there are: $83
-SOUND2_DOCCTL   = SOUND2 + $5E         ; the ES5503's port: RUN, its IRQ, auto-increment, RAM
-SOUND2_DOCDATA  = SOUND2 + $5F         ; the register or wave RAM byte at DOCADDR
-SOUND2_DOCADDR  = SOUND2 + $60         ; 2 bytes: the register (low), or wave RAM's address
-SOUND2_DOCBANK  = SOUND2 + $62         ; bit 0: wave RAM's address bit 16
-SOUND2_DRQSEL   = SOUND2 + $63         ; the DRQ's source: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA
-SOUND2_PCM_RUN  = $01                  ; PCMCTL
-SOUND2_PCM_PAUSE = $02
-SOUND2_PCM_FLUSH = $04
-SOUND2_PCM_EOF  = $08
-SOUND2_DOC_RUN  = $01                  ; DOCCTL
-SOUND2_DOC_IRQ_CARD = $04              ; DOCCTL: its interrupt to the 6510, not the host
-SOUND2_DOC_AUTOINC = $20
-SOUND2_DOC_RAM  = $40                  ; DOCCTL: DOCDATA reaches wave RAM, not the registers
-SOUND2_IEN_MBOX = $04                  ; IEN: a byte waiting in MBIN interrupts
-SOUND2_IEN_DOC  = $08                  ; IEN (revision 2): the ES5503's interrupt, routed to the host
-SOUND2_ST_IRQ   = $80                  ; STATUS: the card is interrupting
-SOUND2_ST_MBIN  = $04                  ; STATUS: a byte from the card waits in MBIN
-SOUND2_ST_MBOUT = $02                  ; STATUS: the byte written to MBOUT isn't taken yet
-SOUND2_DRQ_RAM  = 0                    ; DRQSEL: RAMDATA, PCMDATA, DOCDATA
-SOUND2_DRQ_PCM  = 1
-SOUND2_DRQ_DOC  = 2
-SOUND2_CODEC_DOC = $80                 ; CODECS: an ES5503
-SOUND2_STATE_UNDERRUN = $04            ; STATE: the FIFO ran dry before EOF
-SOUND2_RAM_VECTOR = $FFFC              ; the card's 6510's reset vector, in its RAM
-
-; Sound card revision 3 (module A): the card as a device (hw/future/sound-device.md). A program writes command
-; records to CMD and reads event records from EVT; data goes in through DATA, by DMA channel 2. Nothing of
-; revisions 1 and 2 is kept: their equates above are SOUND2_*, until OODOS and the BIOS drive revision 3 alone.
+; The sound card (module A), revision 3: the card as a device (hw/future/sound-device.md). A program writes
+; command records to CMD and reads event records from EVT; data goes in through DATA, by DMA channel 2.
 SOUND           = $C500
 SOUND_CTRL      = SOUND + $00          ; DRQ; FWRESTART and RESET, strobes
 SOUND_STATUS    = SOUND + $01          ; READY, CMDRDY, EVT, XFER, DATA, EVLOST, ERR, the card interrupting

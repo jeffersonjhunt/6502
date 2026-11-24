@@ -104,9 +104,6 @@
 ;               HW_WANT; the program writes where first
 ;   HW_SUMMARY  "SUMMARY  n tests: p passed, f failed, s skipped" and ", m
 ;               measured" if any were: A the failures
-;
-; The sound card's 6510 (card6510.s, its own program, not a module): the
-; commands C65_* below; hw/diag.md, "The 6510 test program"
 
 .ifndef OOHW_INC
 OOHW_INC = 1
@@ -211,14 +208,6 @@ HL_PASS         = 0                    ; HW_LINE's results, HW_TALLY's counts
 HL_FAIL         = 1
 HL_SKIP         = 2
 HL_INFO         = 3                    ; a measurement, with no limit
-
-; card6510.s: its place in the card's RAM and its commands (each answered)
-C65_ORG         = $0200                ; where it is loaded and started: $0200-$03FF at most
-C65_HELLO       = $A5                  ; sent when it starts
-C65_ECHO        = $01                  ; b: b back
-C65_SUM         = $02                  ; a (2), n (2): the sum of n bytes from a, low then high
-C65_SID         = $04                  ; s (0 A, 1 B): voice 3 run; back bit 0 OSC3 moved, bit 1 ENV3 rose
-C65_TONE        = $05                  ; s, on (1) or off (0): voice 1 at 440 Hz; back C65_TONE
 
 HW_FIRST        = 6                    ; the modules with registers HW_PROBE reads: 6-E
 HW_LAST         = $E

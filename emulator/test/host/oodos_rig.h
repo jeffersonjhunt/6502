@@ -264,7 +264,7 @@ namespace oodos_rig
     }
 
     /// The sound card's revision on the machines this suite's rigs build from backplane.machine: 0 its own
-    /// (revision 2, until the default moves), or 3 (the card as a device: the sound line given `rev=3`). Set
+    /// (revision 3, the card as a device), or another given on the sound line (`rev=`). Set
     /// once at a suite's start, as test_oodos_sound and the other sound suites do, as video_revision is given.
     inline unsigned &sound_revision()
     {
@@ -277,9 +277,10 @@ namespace oodos_rig
         std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
         const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
         const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), "  rev=" + std::to_string(rev) +
-                                              (memsize_mb ? "  memsize=" + std::to_string(memsize_mb) : std::string()));
+        if (at != std::string::npos) // the line's own options replaced
+            text.replace(at + line.size(), text.find('\n', at) - at - line.size(),
+                         "  rev=" + std::to_string(rev) +
+                             (memsize_mb ? "  memsize=" + std::to_string(memsize_mb) : std::string()));
         return text;
     }
     /// Block 61's byte at its CPU address `addr` ($8000-$BFFF: OODOS's BIOS block, sound.s's variables).

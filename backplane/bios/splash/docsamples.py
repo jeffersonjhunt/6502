@@ -13,8 +13,8 @@ loop is seamless: the loops are made periodic in the frequency domain, and
 the chip's free run (hw/design.md, "The ES5503's oscillators") repeats a
 table of N bytes every N - 1 samples, its last byte standing in for its first.
 
-The wave RAM image (wave.bin: its first 80 KB, the rest unused; the BIOS
-copies it from flash blocks 24-28):
+The wave RAM image (wave.bin: its first 80 KB, the rest unused; in
+tools/sndflash/, from which sound card revision 3's flash is made):
 
   $00000  ENGINE   32 KB loop, 4 times oversampled: a MotoGP bike flat out, ~16,100 rpm
   $08000  WIND      8 KB loop, half rate: a bike's air and tyre roar

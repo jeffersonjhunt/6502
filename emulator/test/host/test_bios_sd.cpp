@@ -25,6 +25,8 @@
 
 #include "flash.h"
 #include "session.h"
+#include "sound_card3.h"
+#include "sound_fw.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -65,6 +67,20 @@ namespace
         return path;
     }
     const std::string MACHINE = rev2_machine("test_bios_sd_rev2.machine");
+
+    /// The same with the sound card at revision 3, the device (its sound line given rev=3), as `name`.
+    [[maybe_unused]] std::string sound3_machine(const std::string &name)
+    {
+        std::ifstream in(MACHINE);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
+        const size_t at = text.find(line);
+        if (at != std::string::npos)
+            text.insert(at + line.size(), "  rev=3");
+        const std::string path = tmp(name);
+        std::ofstream(path) << text;
+        return path;
+    }
 
     bool run_until(Session &s, std::string &out, const std::string &want, int frames = 120)
     {
@@ -527,10 +543,10 @@ namespace
         return n;
     }
 
-    /// Booted to the monitor, then a card of `files` in the slot.
-    std::unique_ptr<Session> with_files(const std::vector<File> &files)
+    /// Booted to the monitor (on `machine`), then a card of `files` in the slot.
+    std::unique_ptr<Session> with_files(const std::vector<File> &files, const std::string &machine = MACHINE)
     {
-        auto s = booted("");
+        auto s = booted("", machine);
         std::string error;
         if (s && !s->insert_sd(make_card(files), "card", error))
         {
@@ -946,18 +962,24 @@ TEST(the_flash_update_puts_a_chip_left_half_way_through_a_program_back_to_readin
 
 TEST(the_flash_update_runs_quiet_and_sets_its_windows_however_it_was_entered)
 {
-    // Case 23c (Q18, critic 12): entered with W2 on ROM A block 31, read-only, and the sound card's 6510 running,
-    // the update stages in RAM blocks 58-59 all the same, writes image 0 right, and has stopped the 6510.
-    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}, {"/APPLE2E0.CHR", chars(0x1000, 5, 1)}});
+    // Case 23c (Q18, critic 12): entered with W2 on ROM A block 31, read-only, and a sound playing on the sound card
+    // (revision 3: a 60 s beep), the update stages in RAM blocks 58-59 all the same, writes image 0 right, and has
+    // stopped the sound (QUIET's CTRL RESET).
+    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}, {"/APPLE2E0.CHR", chars(0x1000, 5, 1)}},
+                        sound3_machine("test_bios_sd_sound3.machine"));
     REQUIRE(s != nullptr);
     Flash *a = rom_a(*s);
     REQUIRE(a != nullptr);
+    SoundCard3 *card = s->sound_device();
+    REQUIRE(card != nullptr);
     std::string out;
     s->send("C682: DF\r");
     REQUIRE(run_until(*s, out, "C682: "));
-    s->send("C540: 02\r");                                           // SOUND_CTRL: RUN
-    REQUIRE(run_until(*s, out, "C540: "));
-    REQUIRE((s->peek(0xC540) & 0x02) != 0);
+    for (const uint8_t b : {uint8_t{0x60}, uint8_t{5}, uint8_t{1}, uint8_t{0xE8}, uint8_t{0x03}, uint8_t{0x60},
+                            uint8_t{0xEA}, uint8_t{0}})
+        card->write(SoundCard3::CMD, b); // BEEP: 1,000 Hz for 60,000 ms
+    s->run(FRAME);
+    REQUIRE(card->firmware().beeping());
     REQUIRE(s->peek(0xC682) == 0xDF);
     REQUIRE(update(*s, out, 0));
     CHECK(out.find("FLASH IMAGE 0 WRITTEN") != std::string::npos);
@@ -965,7 +987,7 @@ TEST(the_flash_update_runs_quiet_and_sets_its_windows_however_it_was_entered)
     Bytes set = chars(0x1000, 5, 1);
     set.resize(SET, 0xFF);                                           // a 4 KB set, the rest erased
     CHECK_EQ(differ(*a, SETS, set), size_t{0});
-    CHECK_EQ(s->peek(0xC540) & 0x02, 0x00);                          // QUIET stopped the 6510
+    CHECK(!card->firmware().beeping());                              // QUIET stopped it
 }
 
 #endif

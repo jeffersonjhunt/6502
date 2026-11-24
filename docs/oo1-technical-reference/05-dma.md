@@ -145,7 +145,7 @@ no address of its own. On the last transfer the card also sees terminal count.
 |---|---|---|---|
 | 0 | `$07` | 7, mass storage | the SD card, while its CTRL has DMA set and STATUS's DATA is set |
 | 1 | `$09` | 9, video | revision 2's data port, while PCTL's DRQ bit is set ([below](#channel-1-the-video-cards-data-port)) |
-| 2 | `$0A` | A, sound | the sound card, always at DRQSEL 0 and 2: RAMDATA, or what its DRQSEL picks ([`$C563`](07-sound.md#reg-c563)) |
+| 2 | `$0A` | A, sound | the sound card, while its CTRL has DRQ set and a transfer into DATA is open with room ([`$C507`](07-sound.md#reg-c507)) |
 | 3 | `$08` | none | memory to memory |
 | 4–7 | `$08` | none | free for later drivers |
 
@@ -185,10 +185,10 @@ reset ends the hold-off.
 With WIDE, n counts transfers, a byte or a word, at the same cost each: single is 3 cycles a word, and a card's
 demand transfer of b bytes from an even address is 2 + b/2 ([16-bit transfers](#16-bit-transfers)).
 
-**The sound card's standing request.** At DRQSEL 0, its reset value and OODOS's idle value, and at 2, the sound
-card asks all the time, so with a sound card fitted /DREQ is almost never high. Memory-to-memory copies cost what
-they did. A card's transfer pays the poll at each take, a card that becomes ready can wait up to 64 cycles for its
-grant, behind the hold-off, and while a card's channel is armed the stray polls cost 2 cycles in 64.
+**Another card's request.** A card's transfer pays the poll at each take, a card that becomes ready can wait up to
+64 cycles for its grant, behind the hold-off, and while a card's channel is armed the stray polls cost 2 cycles in 64.
+Memory-to-memory copies cost what they did. The sound card asks only while a transfer into its DATA is open and has
+room ([chapter 7](07-sound.md#reg-c507)).
 
 MODE's DIR says which way: `%00` card to memory, `%01` memory to card. XFER says how:
 
@@ -217,7 +217,7 @@ channel.
 Status: **proposed**
 
 Revision 2 of the video card ([chapter 6](06-video.md#revision-2-card-memory)) has a data port, PDATA
-(`$C4BB`), whose request channel 1 serves, by its reset CARD `$09`, as channel 2 serves the sound card's RAMDATA. It
+(`$C4BB`), whose request channel 1 serves, by its reset CARD `$09`, as channel 2 serves the sound card's DATA. It
 is a card transfer like any other ([above](#transfers-for-a-card)), fly-by, with the card's own PADDR as the
 card-memory side and the channel's ADDR as the system-RAM side:
 
@@ -288,7 +288,7 @@ that serves any other card:
 | The video card's aperture ([chapter 6](06-video.md#the-aperture)), `$E00000`, and bank 8 while AP8 is set | words, both bytes of each |
 | The video card's port, PDATA ([chapter 6](06-video.md#the-data-port)) | words: two port accesses, the even byte at PADDR, a PSTEP step, then the odd byte, another step |
 | The SD card's DATA ([chapter 10](10-storage.md#reading-and-writing-by-dma)) | bytes |
-| The sound card's RAMDATA, PCMDATA and DOCDATA ([chapter 7](07-sound.md#reg-c563)) | bytes |
+| The sound card's DATA ([chapter 7](07-sound.md#reg-c507)) | bytes |
 | The USB card's event FIFO ([chapter 8](08-usb.md#proposed)) | bytes |
 | The serial card's stream registers ([chapter 9](09-serial-and-via.md#com1-com2-and-lpt)) | bytes |
 

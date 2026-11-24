@@ -11,13 +11,13 @@
  * grain is left), and by the video frame, within 0.01%; each is written in
  * the golden file as "#,###,### Hz", and the time as "hh:mm:ss".
  *
- *   - the whole machine (sysinfo.txt);
+ *   - the whole machine (sysinfo.txt), its SOUND section from the card's own IDENTIFY (function 82's
+ *     SN_IDENTIFY: the firmware's version, build and image, the store, the chips, the features);
  *   - a card left out of the machine's text (the sound card, the USB card,
  *     the console card): its CARDS line says "not found" and its own
  *     section says there is none, and nothing else changes (each its
  *     golden file, and the lines that differ from sysinfo.txt counted);
- *   - a revision changed: the sound card at revision 1 (OODOS booted again
- *     after, as test_oodos_sound does), the video card at revision 1;
+ *   - a revision changed: the video card at revision 1;
  *   - the floating bus (review CC5): no Disk II card, and a device in its
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
@@ -457,7 +457,7 @@ TEST(a_card_left_out_loses_its_line_and_its_section)
         size_t lines; ///< the lines that differ from sysinfo.txt
     };
     // Its CARDS line and its section's lines, out; the CARDS line and the section's one, in.
-    for (const Case &c : {Case{"sound", "sysinfo_nosound.txt", "sound: not found", 7},
+    for (const Case &c : {Case{"sound", "sysinfo_nosound.txt", "sound: not found", 10}, // its section seven lines
                           Case{"usb", "sysinfo_nousb.txt", "USB, game port and speaker: not found", 5},
                           Case{"console", "sysinfo_nopanel.txt", "console (front panel): not found", 4}})
     {
@@ -499,18 +499,6 @@ TEST(the_random_line_says_what_rn_info_says)
 
 TEST(a_revision_changed_changes_its_lines)
 {
-    {
-        std::printf("  the sound card at revision 1\n");
-        InfoRig r;
-        REQUIRE(r.ok);
-        r.machine->sound_card()->set_revision(1);
-        REQUIRE(r.boot());
-        r.put_util("sysinfo", UTILS);
-        const std::string got = normal(run(r, "m:sysinfo /all"));
-        CHECK(golden("sysinfo_sound1.txt", got));
-        CHECK(got.find("  $C500  $A1  sound") != std::string::npos);
-        CHECK(got.find("SOUND      revision 1: two SIDs") != std::string::npos);
-    }
     {
         std::printf("  the video card at revision 1\n");
         InfoRig r({}, 1);

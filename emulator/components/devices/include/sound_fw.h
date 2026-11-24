@@ -725,7 +725,7 @@ namespace ooe::emu
         uint8_t faults_{0};
         uint8_t check_image(Image &out) const;
 
-        // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
+        // --- the boot sound (sound_flash.h's, as revision 2's ES5503 player, docsnd.s, played it) ---------
         struct BootSound
         {
             bool active{false};

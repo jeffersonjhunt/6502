@@ -77,14 +77,14 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await expect(dev.locator('[data-reg="CTRL"]')).toHaveText("$03  display · layer 0");
   await expect(dev.locator('[data-reg="Layer 0"]')).toHaveText("text 80×30 · text $002000 · font $000400 · blink");
   await expect(dev.locator('[data-reg="Beam"]')).toContainText("line ");
-  // The sound card, as the boot tune leaves it: the tune ran on the NTSC clock and stopped itself ($DE02),
-  // which clears RUN and zeroes the SIDs; its 240 Hz player timer is left counting.
+  // The sound card (revision 3), as the boot sound leaves it: the firmware up, nothing playing, no tune on its
+  // 6510, its SIDs untouched.
   const sound = page.getByTestId("dev-sound");
-  await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$01  NTSC 1.023 MHz · 6510 stopped · SID B at $D420");
-  await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off · OSC3 $00 ENV3 $00");
+  await expect(sound.locator('[data-reg="STATUS"]')).toContainText("READY");
+  await expect(sound.locator('[data-reg="Tune"]')).toHaveText("stopped");
+  await expect(sound.locator('[data-reg="Store"]')).not.toContainText("boot sound");
   await expect(sound.locator('[data-reg="A1"]')).toHaveText("$0000 · no waveform · ADSR 0 0 0 0 · env $00 held at 0");
   await expect(sound.locator('[data-reg="6510"]')).toContainText("· held");
-  await expect(sound.locator('[data-reg="Timer A"]')).toHaveText(/^\$[0-9A-F]{4} of \$10A4 · counting$/);
 });
 
 test("Card memory: vram shows the card's own memory, and a write shows on VGA", async ({ page }) => {

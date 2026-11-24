@@ -19,7 +19,7 @@ that returns without doing that is entered again at once.
 | storage (SD) | SD_IEN | a command done, a card changed |
 | DMA | a channel's MODE, bit 7 | that channel's terminal count |
 | video | VIDEO_IEN | vertical blank, a chosen line, a sprite collision |
-| sound | SOUND2_IEN | a byte in the mailbox from the card's 6510 |
+| sound | SOUND_IEN | an event waiting, a transfer done, CMD's room back, the firmware up (SOUND_ISR says which) |
 | USB | USB_IEN | a key, the mouse, the game port, a device |
 | north bridge | TBCTL's MSIE (revision 3); RTCCTL's TIE before it | the 1 kHz tick (revision 3); TICK, once a second, before it |
 | console | CONSOLE_IEN | a key on the panel |
@@ -38,7 +38,7 @@ follows its ISR whatever IEN says, so a panel key that set ISR while a program h
 answer. Under BIOS 0.10 Break left both, and a program that clears I wrote them first
 ([chapter 12](12-front-panel.md)).
 
-<!-- listing: ../../backplane/bios/bios.s:396-405 -->
+<!-- listing: ../../backplane/bios/bios.s:530-539 -->
 ```
 ; BRK is the monitor; a real IRQ just returns.
 IRQ:            PHA
@@ -166,9 +166,9 @@ revision 3.
   ([chapter 8](08-usb.md#under-oodos)). Its handler, and the joysticks' and paddles' sampling at the tick, are in
   block 62, behind a switch of W3 and back; only the switch and the tick's checks are in common memory. An
   interrupt from the card with no such area open is turned off as any other's.
-- **The sound card and its DMA channel, 2** (IRQH bits 2 and 0; channel 2's CARD names the sound card, module A), since OOLIB's L3: the card's IEN bits 2 (the
-  mailbox) and 3 (the ES5503) while a program holds what they serve, and channel 2's terminal count while a stream
-  buffer is going to the card ([chapter 7](07-sound.md#under-oodos)). The handler that programs the stream's next
+- **The sound card and its DMA channel, 2** (IRQH bits 2 and 0; channel 2's CARD names the sound card, module A), since OOLIB's L3: the card's IEN
+  EVT whenever OODOS has the card up (its events and replies), and channel 2's terminal count while a load or a
+  stream buffer is going to the card ([chapter 7](07-sound.md#under-oodos)). The handler that programs the stream's next
   piece selects channel 2 and puts CONTROL back as it found it ([chapter 5's SELECT rule](05-dma.md#the-controller)). Their handler is in block 61, the BIOS's,
   reached through a borrow of W2 and put back byte for byte, from the same path as the USB card's; W1 is kept for
   the event area. OODOS's turning off of strays leaves those bits and channel 2 alone while they are its own.
@@ -212,9 +212,8 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
   or the monitor changed can't keep the SD boot from its grant, since BIOS 0.15 (*proposed*,
   [chapter 5](05-dma.md#the-controller));
 - an SD command abandoned, the units staying mounted;
-- the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced, and on revision 2 its PCM stream
-  and ES5503 stopped too (PCMCTL FLUSH alone, DOCCTL's RUN cleared), since BIOS 0.12
-  ([chapter 7](07-sound.md#silencing-them));
+- the boot splash stopped, and the sound card reset (CTRL's RESET: every sound stopped, an open transfer
+  abandoned, IEN cleared), since BIOS 0.21 ([chapter 7](07-sound.md#silencing-it));
 - the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
 - the north bridge's tick off (`$C0` to TBCTL: MSF and OVR cleared, MSIE off), with no ID check, since BIOS 0.20;
 - the VIA's interrupts off (`$7F` to VIA_IER), and a panel key's pending interrupt cleared (`$01` to

@@ -43,7 +43,7 @@ T_CNT:          .res    2
 T_K:            .res    2
 T_BANKS:        .res    2
 T_SUM:          .res    2
-T_RUNS:         .res    1
+T_RUNS:         .res    1              ; stage 10: the firmware came up (S1)
 T_CH:           .res    1              ; D1: the channel
 T_FIT:          .res    1              ;   how many are fitted
 T_FITS:         .res    1              ;   which (bit n channel n)
@@ -53,6 +53,7 @@ T_MS:           .res    4              ; NB10: MS0-MS3 as last read
 T_MSB:          .res    4              ;   at the first SEC change, then the difference
 T_MSP:          .res    3              ;   MS0-MS2 before, for the never-backwards test
                 DTVARS
+                DSVARS
 
 .segment "D22"
                 DG_HEADER 1, START
@@ -2184,134 +2185,179 @@ DMA1GO:
 
 ; --- Stage 10: the sound card ---------------------------------------------------
 
+; The sound card, revision 3, the device (hw/future/sound-device.md): driven
+; only by its records (diagsnd.inc). S1 the ID and READY; S2 IDENTIFY; S3
+; SELFTEST; S4 channel 2 into DATA, then CHECKSUM against the host's CRC-32;
+; S5 the event path and its interrupt line; S6 a raw PCM stream's frames at
+; its rate. The card is reset first (CTRL's RESET) and its store emptied after
+; (FREEALL), so the boot finds it as a power-on leaves it but for its time.
 STAGE10:
                 lda     #10
                 jsr     SBEGIN
-                lda     HW_REV + $A
-                cmp     #HW_NONE
-                bne     @there
-                lda     #<SNOCARD
-                ldx     #>SNOCARD
-                jmp     CSKIP
-@there:         cmp     #1
-                beq     @known
-                cmp     #2
-                beq     @known
-                jmp     CSKIPREV
-@known:         lda     SOUND2_CTRL    ; the 6510 stopped: the card's RAM is the host's
-                and     #<~SOUND2_RUN
-                sta     SOUND2_CTRL
+                lda     #3
+                ldx     #$A
+                jsr     CARDIS
+                bcc     @known
+                rts
+@known:         lda     #SOUND_CTRL_RESET
+                sta     SOUND_CTRL
                 jsr     S1
                 jsr     S2
                 jsr     S3
                 jsr     S4
                 jsr     S5
                 jsr     S6
-                jsr     S7
-                lda     SOUND2_CTRL    ; the 6510 stopped again
-                and     #<~SOUND2_RUN
-                sta     SOUND2_CTRL
-                jsr     S8
-                jsr     S9
+                lda     T_RUNS
+                beq     @end
+                lda     #<RFREE
+                ldx     #>RFREE
+                jsr     SNDDO
+@end:           lda     #SOUND_CTRL_RESET
+                sta     SOUND_CTRL
                 lda     #DR_PASS
                 jmp     CEND
 
-; Carry clear on revision 2.
-REV2:           lda     HW_REV + $A
-                cmp     #2
-                beq     @y
+; S1: the ID, then READY within 250 ms (T_RUNS 1 if it came). S2-S6 need it.
+S1:
+                TB      "S1   ID $A3; THE FIRMWARE READY"
+                stz     T_RUNS
+                lda     #SOUND_ST_READY
+                ldy     #SND_250MS
+                jsr     SNDWT
+                bcs     @no
+                inc     T_RUNS
+                jmp     TPASS
+@no:            TD      "NOT READY WITHIN 250 MS"
+                rts
+
+; Carry set, and the test skipped, if the firmware isn't up (S1).
+NEEDUP:
+                lda     T_RUNS
+                bne     @ok
+                TS      "THE FIRMWARE ISN'T READY (S1)"
                 sec
                 rts
-@y:             clc
+@ok:            clc
                 rts
 
-S1:
-                TB      "S1   ID $A"
-                lda     HW_REV + $A
-                jsr     HEXDIG
-                jsr     REV2
-                bcc     @r2
-                jmp     TPASS
-@r2:            SAY     "; CODECS $"
-                lda     SOUND2_CODECS
-                jsr     HEX2
-                cmp     #$83
-                bne     @bad
-                jmp     TPASS
-@bad:           TD      "CODECS ISN'T $83"
+; A failed record: carry set (no reply within 100 ms), else A the status.
+SNDBAD:
+                bcc     @st
+                TD      "NO REPLY WITHIN 100 MS"
                 rts
+@st:            pha
+                jsr     TDET
+                SAY     "REFUSED: ERROR "
+                pla
+                jsr     PUTDEC
+                jsr     CRLF
+                jmp     SCROFF
 
-; RAMADDR to A/X (low, high).
-RAMAT:          sta     SOUND2_RAMADDR
-                stx     SOUND2_RAMADDR + 1
-                rts
-
-; S2: the card's 64 KB through RAMADDR and RAMDATA, the 6510 stopped: address
-; in address (full: again with the key complemented, every bit both ways).
+; S2: IDENTIFY: the card's type, MEMSIZE and FEATURES as its registers say,
+; and the firmware's version.
 S2:
-                TB      "S2   THE CARD'S RAM, 64 KB: ADDRESS IN ADDRESS"
-                lda     DG_OPT
-                and     #DO_FULL
-                beq     @q
-                SAY     ", TWICE"
-@q:             lda     #<SOUND2_RAMDATA
-                sta     HW_PORT
-                lda     #>SOUND2_RAMDATA
-                sta     HW_PORT + 1
-                stz     HW_PLEN
-                lda     #1
-                sta     HW_PLEN + 1
-                lda     #$C3
-                jsr     @pass
+                TB      "S2   IDENTIFY: FIRMWARE "
+                jsr     NEEDUP
+                jcs     @r
+                lda     #<RIDENT
+                ldx     #>RIDENT
+                jsr     SNDDO
                 bcs     @bad
-                lda     DG_OPT
-                and     #DO_FULL
-                beq     @ok
-                lda     #$3C
-                jsr     @pass
-                bcs     @bad
-@ok:            jmp     TPASS
-@pass:          sta     T_PAT
-                lda     #0
-                tax
-                jsr     RAMAT
-                lda     T_PAT
-                sta     HW_KEY
-                jsr     HW_PAIAW
-                lda     #0
-                tax
-                jsr     RAMAT
-                lda     T_PAT
-                sta     HW_KEY
-                jmp     HW_PAIAC
-@bad:           lda     HW_BAD
-                sta     T_N
-                lda     HW_BAD + 1
-                sta     T_N + 1
-                lda     #2
-                sta     T_N + 3
-                lda     HW_GOT
-                sta     DG_MGOT
-                lda     HW_WANT
-                sta     DG_MWANT
-                lda     #<SCRAM
-                ldx     #>SCRAM
-                jmp     TCARDF
+                bne     @bad
+                lda     RBUF + 3       ; the version
+                jsr     PUTDEC
+                lda     #'.'
+                jsr     PUTC
+                lda     RBUF + 4
+                jsr     PUTDEC
+                SAY     ", MEMSIZE "
+                lda     RBUF + 7
+                jsr     PUTDEC
+                SAY     ", FEATURES $"
+                lda     RBUF + 8
+                jsr     HEX2
+                lda     RBUF + 2
+                cmp     #SOUND_ID_V3
+                bne     @type
+                lda     RBUF + 7
+                cmp     SOUND_MEMSIZE
+                bne     @regs
+                lda     RBUF + 8
+                cmp     SOUND_FEATURES
+                bne     @regs
+                lda     RBUF + 3
+                cmp     SOUND_FWVER
+                bne     @regs
+                lda     RBUF + 4
+                cmp     SOUND_FWVER + 1
+                bne     @regs
+                jmp     TPASS
+@bad:           jmp     SNDBAD
+@type:          TD      "ITS CARD TYPE ISN'T $A3"
+@r:             rts
+@regs:          TD      "IT DISAGREES WITH MEMSIZE, FEATURES OR FWVER"
+                rts
 
-; S3: channel 2, 4 KB of a pattern from W0's SRC4K into the card's RAM at
-; $1000 (DRQSEL 0, RAMDATA), read back through RAMDATA.
+; S3: SELFTEST of the store, wave RAM, the SIDs and the codec's loop: each
+; part that fails named.
 S3:
-                TB      "S3   DMA CHANNEL 2: 4 KB INTO THE CARD'S RAM"
+                TB      "S3   SELFTEST: THE STORE, WAVE RAM, SIDS, CODEC"
+                jsr     NEEDUP
+                bcs     @r
+                lda     #<RSELF
+                ldx     #>RSELF
+                jsr     SNDDO
+                bcs     @bad
+                bne     @bad
+                lda     RBUF + 3       ; those that failed
+                bne     @fail
+                jmp     TPASS
+@bad:           jmp     SNDBAD
+@fail:          sta     T_PAT
+                jsr     TDET
+                SAY     "FAILED:"
+                ldx     #0
+@part:          lsr     T_PAT
+                bcc     @next
+                phx
+                jsr     SPACE
+                plx
+                phx
+                lda     PARTS,x
+                pha
+                lda     PARTS + 1,x
+                tax
+                pla
+                jsr     PUTS
+                plx
+@next:          inx
+                inx
+                cpx     #8
+                bne     @part
+                jsr     CRLF
+                jmp     SCROFF
+@r:             rts
+
+; S4: channel 2, 4 KB of a pattern from W0's SRC4K into DATA (a sample's load,
+; CTRL's DRQ on), then CHECKSUM: the card's CRC-32 of what came against the
+; host's of what was sent. A load that never ends (a byte lost on the way)
+; is closed by XFERABORT, and the bytes that came said.
+S4:
+                TB      "S4   DMA CHANNEL 2: 4 KB, THE CARD'S CRC-32"
+                jsr     NEEDUP
+                bcs     @r
                 jsr     HAVEDMA
                 bcc     @dma
                 TS      "NO DMA CONTROLLER"
-                rts
+@r:             rts
 @dma:           jsr     PAT4K
-                lda     #SOUND2_DRQ_RAM
-                sta     SOUND2_DRQSEL
-                lda     #0
-                ldx     #$10
-                jsr     RAMAT
+                lda     #<RLOAD
+                ldx     #>RLOAD
+                jsr     SNDDO
+                bcs     @bad
+                bne     @bad
+                lda     #SOUND_CTRL_DRQ
+                sta     SOUND_CTRL
                 lda     DMA_CONTROL    ; CONTROL kept; the master on, SELECT 2 before any
                 pha                    ;   channel register; put back after
                 lda     #DMA_ON | DMA_SEL2
@@ -2333,352 +2379,207 @@ S3:
                 jsr     DMAWAIT
                 pla                    ; (the carry is DMAWAIT's)
                 sta     DMA_CONTROL
+                stz     SOUND_CTRL
                 bcs     @stuck
-                lda     #0
-                ldx     #$10
-                jsr     RAMAT
+                lda     #SOUND_EV_XFERDONE
+                jsr     SNDEVT         ; the load taken and checked
+                bcs     @short
+                jsr     CRC4K
+                lda     #<RCSUM
+                ldx     #>RCSUM
+                jsr     SNDDO
+                bcs     @bad
+                bne     @bad
+                ldx     #3
+@cmp:           lda     RBUF + 2,x
+                cmp     T_N,x
+                jne     @diff
+                dex
+                bpl     @cmp
+                jsr     @bank
+                jmp     TPASS
+@bad:           jsr     SNDBAD
+                jmp     @bank
+@stuck:         TD      "CHANNEL 2 NEVER REACHED ITS TERMINAL COUNT"
+                jsr     @abort
+                jmp     @bank
+@short:         jsr     @abort         ; never ended: closed, and what came said
+                bcs     @bad
+                bne     @bad
+                ldx     #2
+@n:             lda     RBUF + 2,x
+                sta     T_N,x
+                dex
+                bpl     @n
+                stz     T_N + 3
+                jsr     TDET
+                SAY     "THE LOAD TOOK "
+                jsr     DEC32
+                SAY     " OF 4096 BYTES"
+                jsr     CRLF
+                jsr     SCROFF
+                bra     @bank
+@diff:          jsr     TDET
+                SAY     "THE CARD'S CRC-32 $"
+                ldx     #3
+@c1:            lda     RBUF + 2,x
+                jsr     HEX2
+                dex
+                bpl     @c1
+                SAY     ", THE HOST'S $"
+                ldx     #3
+@c2:            lda     T_N,x
+                jsr     HEX2
+                dex
+                bpl     @c2
+                jsr     CRLF
+                jsr     SCROFF
+@bank:          lda     #<RBFREE
+                ldx     #>RBFREE
+                jmp     SNDDO
+@abort:         lda     #<RABORT
+                ldx     #>RABORT
+                jmp     SNDDO
+
+; T_N: the CRC-32 of W0's SRC4K, 4 KB (the common one: $EDB88320 reflected,
+; from $FFFFFFFF, the result inverted), a bit at a time.
+CRC4K:
+                lda     #$FF
+                ldx     #3
+@init:          sta     T_N,x
+                dex
+                bpl     @init
                 lda     #<SRC4K
                 sta     DG_PTR
                 lda     #>SRC4K
                 sta     DG_PTR + 1
                 ldx     #16
                 ldy     #0
-@b:             lda     SOUND2_RAMDATA
-                cmp     (DG_PTR),y
-                bne     @bad
-                iny
-                bne     @b
-                inc     DG_PTR + 1
-                dex
-                bne     @b
-                jmp     TPASS
-@stuck:         TD      "CHANNEL 2 NEVER REACHED ITS TERMINAL COUNT"
-                rts
-@bad:           TD      "THE CARD'S RAM DOESN'T HOLD WHAT CHANNEL 2 WROTE"
-                rts
-
-; A byte to the card's 6510 (A), once it has taken the last: carry set if it
-; doesn't within 0.5 s.
-MBSEND:
-                pha
-                jsr     TZERO
-@w:             lda     SOUND2_STATUS
-                and     #SOUND2_ST_MBOUT
-                beq     @go
-                jsr     TTICK
-                lda     T_ACC + 2
-                cmp     #$37           ; $370000 cycles: 0.5 s
-                bcc     @w
-                pla
-                sec
-                rts
-@go:            pla
-                sta     SOUND2_MBOUT
-                clc
-                rts
-; A byte from the 6510 within 0.5 s: in A, carry clear; carry set if none.
-MBRECV:
-                jsr     TZERO
-@w:             lda     SOUND2_STATUS
-                and     #SOUND2_ST_MBIN
-                bne     @got
-                jsr     TTICK
-                lda     T_ACC + 2
-                cmp     #$37
-                bcc     @w
-                sec
-                rts
-@got:           lda     SOUND2_MBIN
-                clc
-                rts
-
-; S4: the 6510 program (card6510.s) loaded at the card's $0200 with its reset
-; vector, the sum S6 checks taken first; then RUN and RESET: its start byte,
-; $A5, in MBIN within 0.5 s. S5-S7 need it.
-S4:
-                lda     #$00           ; S6's sum: the card's $1000-$1FFF, read by the host
-                ldx     #$10
-                jsr     RAMAT
-                stz     T_SUM
-                stz     T_SUM + 1
-                ldx     #16
-                ldy     #0
-@sum:           lda     SOUND2_RAMDATA
-                clc
-                adc     T_SUM
-                sta     T_SUM
-                bcc     @nc
-                inc     T_SUM + 1
-@nc:            iny
-                bne     @sum
-                dex
-                bne     @sum
-                TB      "S4   THE 6510'S PROGRAM: ITS START BYTE"
-                lda     #<C65_ORG
-                ldx     #>C65_ORG
-                jsr     RAMAT
-                lda     #<C6510
-                sta     DG_PTR
-                lda     #>C6510
-                sta     DG_PTR + 1
-                ldx     #>(C6510END - C6510) + 1
-                ldy     #0
-@load:          lda     (DG_PTR),y
-                sta     SOUND2_RAMDATA
-                iny
-                bne     @load
-                inc     DG_PTR + 1
-                dex
-                bne     @load
-                lda     #<SOUND2_RAM_VECTOR
-                ldx     #>SOUND2_RAM_VECTOR
-                jsr     RAMAT
-                lda     #<C65_ORG
-                sta     SOUND2_RAMDATA
-                lda     #>C65_ORG
-                sta     SOUND2_RAMDATA
-                lda     SOUND2_MBIN    ; a byte left there: dropped
-                lda     SOUND2_CTRL
-                ora     #SOUND2_RUN | SOUND2_RESET
-                sta     SOUND2_CTRL
-                jsr     MBRECV
-                bcs     @none
-                cmp     #C65_HELLO
-                bne     @wrong
-                lda     #1
-                sta     T_RUNS
-                jmp     TPASS
-@none:          stz     T_RUNS
-                TD      "NO START BYTE WITHIN 0.5 S"
-                rts
-@wrong:         stz     T_RUNS
-                sta     DG_MGOT
-                jsr     TDET
-                SAY     "THE START BYTE WAS "
-                lda     DG_MGOT
-                jsr     HEX2
-                SAY     ", NOT A5"
-                jsr     CRLF
-                jmp     SCROFF
-
-; Carry set, and the test skipped, if the 6510 didn't start (S4).
-NEEDRUN:
-                lda     T_RUNS
-                bne     @ok
-                TS      "THE 6510 DIDN'T START (S4)"
-                sec
-                rts
-@ok:            clc
-                rts
-
-; S5: the mailbox both ways, 256 bytes, each echoed.
-S5:
-                TB      "S5   THE MAILBOX BOTH WAYS: 256 BYTES ECHOED"
-                jsr     NEEDRUN
-                bcs     @r
-                stz     T_PAT
-@b:             lda     #C65_ECHO
-                jsr     MBSEND
-                bcs     @lost
-                lda     T_PAT
-                jsr     MBSEND
-                bcs     @lost
-                jsr     MBRECV
-                bcs     @lost
-                cmp     T_PAT
-                bne     @wrong
-                inc     T_PAT
-                bne     @b
-                jmp     TPASS
-@lost:          TD      "THE 6510 STOPPED ANSWERING"
-@r:             rts
-@wrong:         sta     DG_MGOT
-                lda     T_PAT
-                sta     DG_MWANT
-                jsr     TDET
-                SAY     "ECHOED"
-                jsr     RWBITS
-                jmp     SCROFF
-
-; S6: the 6510's sum of its $1000-$1FFF (S3's 4 KB) against the host's.
-S6:
-                TB      "S6   THE 6510'S SUM OF S3'S 4 KB"
-                jsr     NEEDRUN
-                bcs     @r
-                lda     #C65_SUM
-                jsr     MBSEND
-                lda     #$00
-                jsr     MBSEND
-                lda     #$10
-                jsr     MBSEND
-                lda     #$00
-                jsr     MBSEND
-                lda     #$10
-                jsr     MBSEND
-                bcs     @lost
-                jsr     MBRECV
-                bcs     @lost
+@byte:          lda     (DG_PTR),y
+                eor     T_N
                 sta     T_N
-                jsr     MBRECV
-                bcs     @lost
+                lda     #8
+                sta     T_PAT
+@bit:           lsr     T_N + 3
+                ror     T_N + 2
+                ror     T_N + 1
+                ror     T_N
+                bcc     @nx
+                lda     T_N + 3
+                eor     #$ED
+                sta     T_N + 3
+                lda     T_N + 2
+                eor     #$B8
+                sta     T_N + 2
+                lda     T_N + 1
+                eor     #$83
                 sta     T_N + 1
                 lda     T_N
-                cmp     T_SUM
-                bne     @bad
-                lda     T_N + 1
-                cmp     T_SUM + 1
-                bne     @bad
-                jmp     TPASS
-@lost:          TD      "THE 6510 STOPPED ANSWERING"
-@r:             rts
-@bad:           TD      "ITS SUM ISN'T THE HOST'S"
-                rts
-
-; S7: the SIDs, by the 6510: voice 3's OSC3 moves and ENV3 rises, on SID A
-; and on SID B.
-S7:
-                TB      "S7   THE SIDS: VOICE 3'S OSC3 AND ENV3, A AND B"
-                jsr     NEEDRUN
-                bcs     @r
-                stz     T_PAT
-@sid:           lda     #C65_SID
-                jsr     MBSEND
-                lda     T_PAT
-                jsr     MBSEND
-                bcs     @lost
-                jsr     MBRECV
-                bcs     @lost
-                cmp     #3
-                bne     @bad
-                inc     T_PAT
-                lda     T_PAT
-                cmp     #2
-                bne     @sid
-                jmp     TPASS
-@lost:          TD      "THE 6510 STOPPED ANSWERING"
-@r:             rts
-@bad:           sta     DG_MGOT
-                jsr     TDET
-                SAY     "SID "
-                lda     T_PAT
-                clc
-                adc     #'A'
-                jsr     PUTC
-                SAY     ": "
-                lda     DG_MGOT
-                and     #1
-                bne     @osc
-                SAY     "OSC3 STILL "
-@osc:           lda     DG_MGOT
-                and     #2
-                bne     @env
-                SAY     "ENV3 FLAT"
-@env:           jsr     CRLF
-                jmp     SCROFF
-
-; S8: revision 2's wave RAM, 128 KB, through DOCDATA with AUTOINC (DOCBANK
-; the address's bit 16), the ES5503 frozen: address in address (full: again
-; with the key complemented). The splash loads its samples again at the
-; next boot.
-S8:
-                TB      "S8   WAVE RAM, 128 KB: ADDRESS IN ADDRESS"
-                jsr     REV2
-                bcc     @r2
-                TS      "REVISION 1: NO ES5503"
-                rts
-@r2:            lda     DG_OPT
-                and     #DO_FULL
-                beq     @q
-                SAY     ", TWICE"
-@q:             lda     #<SOUND2_DOCDATA
-                sta     HW_PORT
-                lda     #>SOUND2_DOCDATA
-                sta     HW_PORT + 1
-                stz     HW_PLEN
-                lda     #2
-                sta     HW_PLEN + 1
-                lda     #$96
-                jsr     @pass
-                bcs     @bad
-                lda     DG_OPT
-                and     #DO_FULL
-                beq     @ok
-                lda     #$69
-                jsr     @pass
-                bcs     @bad
-@ok:            stz     SOUND2_DOCCTL
-                jmp     TPASS
-@pass:          sta     T_PAT
-                jsr     @at
-                jsr     HW_PAIAW
-                jsr     @at
-                jmp     HW_PAIAC
-@at:            lda     #SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC
-                sta     SOUND2_DOCCTL
-                stz     SOUND2_DOCADDR
-                stz     SOUND2_DOCADDR + 1
-                stz     SOUND2_DOCBANK
-                lda     T_PAT
-                sta     HW_KEY
-                rts
-@bad:           stz     SOUND2_DOCCTL
-                ldx     #2
-@cp:            lda     HW_BAD,x
+                eor     #$20
+                sta     T_N
+@nx:            dec     T_PAT
+                bne     @bit
+                iny
+                bne     @byte
+                inc     DG_PTR + 1
+                dex
+                bne     @byte
+                ldx     #3
+@inv:           lda     T_N,x
+                eor     #$FF
                 sta     T_N,x
                 dex
-                bpl     @cp
-                lda     #3
-                sta     T_N + 3
-                lda     HW_GOT
-                sta     DG_MGOT
-                lda     HW_WANT
-                sta     DG_MWANT
-                lda     #<SWAVE
-                ldx     #>SWAVE
-                jmp     TCARDF
-
-; S9: revision 2's stream: 4 KB of silence, raw PCM at 8,000 Hz, 8 bits mono.
-; STATE goes buffering (the first 2 KB), playing (at 4 KB), ended (EOF);
-; POS counts 8,000 frames a second within 0.5% over 1,835,008 cycles of
-; timer 2 (2,051 frames).
-S9:
-                TB      "S9   A PCM STREAM AT 8000 HZ: "
-                jsr     REV2
-                bcc     @r2
-                TS      "REVISION 1: NO STREAM"
+                bpl     @inv
                 rts
-@r2:            lda     #SOUND2_PCM_FLUSH
-                sta     SOUND2_PCMCTL
-                stz     SOUND2_CODEC
-                lda     #<8000
-                sta     SOUND2_RATE
-                lda     #>8000
-                sta     SOUND2_RATE + 1
-                stz     SOUND2_PCMFMT
-                lda     #SOUND2_PCM_RUN
-                sta     SOUND2_PCMCTL
-                jsr     @half
-                lda     SOUND2_STATE
-                cmp     #1
-                jne     @nobuf
-                jsr     @half
-                lda     SOUND2_STATE
-                cmp     #2
-                jne     @noplay
-                lda     SOUND2_POS     ; reading the low byte latches the rest
-                sta     T_SUM          ; (not T_D: TTICK's)
-                lda     SOUND2_POS + 1
+
+; S5: the event path: with IEN's EVT on, a NOP's REPLY pulls the card's line
+; (IRQH bit 2 low); once it is read the line lets go. IEN 0 after.
+S5:
+                TB      "S5   AN EVENT'S INTERRUPT: IRQH BIT 2"
+                jsr     NEEDUP
+                bcs     @r
+                lda     #SOUND_INT_EVT
+                sta     SOUND_IEN
+                lda     #<RNOP
+                ldx     #>RNOP
+                jsr     SNDCMD
+                bcs     @none
+                lda     #SOUND_ST_EVT
+                ldy     #SND_100MS
+                jsr     SNDWT
+                bcs     @none
+                lda     NB_IRQH
+                and     #NB_IRQ_SOUND
+                bne     @high
+                jsr     SNDREP
+                bcs     @none
+                lda     NB_IRQH
+                and     #NB_IRQ_SOUND
+                beq     @low
+                stz     SOUND_IEN
+                jmp     TPASS
+@none:          stz     SOUND_IEN
+                TD      "NO REPLY WITHIN 100 MS"
+@r:             rts
+@high:          stz     SOUND_IEN
+                jsr     SNDREP         ; (the reply read)
+                TD      "IRQH BIT 2 STAYED HIGH WITH AN EVENT WAITING"
+                rts
+@low:           stz     SOUND_IEN
+                TD      "IRQH BIT 2 STAYED LOW WITH THE EVENTS READ"
+                rts
+
+; S6: a raw PCM stream, 4 KB of silence at 8,000 Hz, 8 bits mono: playing
+; once its 100 ms are buffered, its frames played counting 8,000 a second
+; within 0.5% over 1,835,008 cycles of timer 2 (2,051 frames), then ended
+; once STREAM_END's data has played out.
+S6:
+                TB      "S6   A PCM STREAM AT 8000 HZ: "
+                jsr     NEEDUP
+                jcs     @r
+                lda     #<ROPEN
+                ldx     #>ROPEN
+                jsr     SNDDO
+                jcs     @bad
+                jne     @bad
+                lda     #<RDATA
+                ldx     #>RDATA
+                jsr     SNDDO
+                jcs     @bad
+                jne     @bad
+                ldx     #16            ; 4 KB of silence, by the CPU
+                ldy     #0
+                lda     #$80
+@fill:          sta     SOUND_DATA
+                iny
+                bne     @fill
+                dex
+                bne     @fill
+                lda     #<REND
+                ldx     #>REND
+                jsr     SNDDO
+                jcs     @bad
+                jne     @bad
+                lda     #S_PLAYING
+                jsr     SWAITS
+                jcs     @noplay
+                lda     RBUF + 15      ; frames played (its low 2 bytes)
+                sta     T_SUM
+                lda     RBUF + 16
                 sta     T_SUM + 1
                 jsr     TZERO
 @wait:          jsr     TTICK
                 lda     T_ACC + 2
                 cmp     #$1C
                 bcc     @wait
-                lda     SOUND2_POS
+                jsr     SSTAT
+                bcs     @bad
+                bne     @bad
                 sec
+                lda     RBUF + 15
                 sbc     T_SUM
                 sta     T_N
-                lda     SOUND2_POS + 1
+                lda     RBUF + 16
                 sbc     T_SUM + 1
                 sta     T_N + 1
                 stz     T_N + 2
@@ -2693,20 +2594,10 @@ S9:
                 pla
                 sta     T_N
                 SAY     " FRAMES IN 1835008 CYCLES"
-                lda     #SOUND2_PCM_RUN | SOUND2_PCM_EOF
-                sta     SOUND2_PCMCTL
-                jsr     TZERO          ; ended within about a second
-@end:           lda     SOUND2_STATE
-                cmp     #5
-                beq     @ended
-                jsr     TTICK
-                lda     T_ACC + 2
-                cmp     #$6D
-                bcc     @end
-                jsr     @stop
-                TD      "IT NEVER ENDED"
-                rts
-@ended:         jsr     @stop
+                lda     #S_ENDED
+                jsr     SWAITS
+                bcs     @noend
+                jsr     @close
                 stz     T_N + 2
                 stz     T_N + 3
                 lda     #<PCMREF
@@ -2714,29 +2605,50 @@ S9:
                 jsr     CLOSE
                 bcs     @far
                 jmp     TPASS
+@bad:           jsr     SNDBAD
+                bra     @close
 @far:           TD      "NOT WITHIN 0.5% OF 8000 FRAMES A SECOND"
+@r:             rts
+@noplay:        TD      "NOT PLAYING WITHIN 0.6 S OF ITS DATA"
+                bra     @close
+@noend:         TD      "IT NEVER ENDED"
+@close:         lda     #<RCLOSE
+                ldx     #>RCLOSE
+                jmp     SNDDO
+
+S_PLAYING       = 2                    ; STREAM_STATUS's states
+S_ENDED         = 5
+
+; Stream 0's STATUS into RBUF: carry set (no reply), else A the status.
+SSTAT:
+                lda     #<RSTAT
+                ldx     #>RSTAT
+                jmp     SNDDO
+
+; Until stream 0's state is A: asked every 9 ms or so, 64 times at most
+; (carry set if it never was).
+SWAITS:
+                sta     T_PAT
+                lda     #64
+                sta     T_CNT
+@ask:           jsr     SSTAT
+                bcs     @no
+                lda     RBUF + 2
+                cmp     T_PAT
+                beq     @yes
+                lda     #0             ; a unit's wait (no STATUS bit asked)
+                ldy     #1
+                jsr     SNDWT
+                dec     T_CNT
+                bne     @ask
+@no:            sec
                 rts
-@nobuf:         jsr     @stop
-                TD      "NOT BUFFERING AFTER THE FIRST 2 KB"
-                rts
-@noplay:        jsr     @stop
-                TD      "NOT PLAYING AFTER 4 KB"
-                rts
-@stop:          lda     #SOUND2_PCM_FLUSH
-                sta     SOUND2_PCMCTL
-                rts
-@half:          ldx     #8             ; 2 KB of silence
-                ldy     #0
-                lda     #$80
-@b:             sta     SOUND2_PCMDATA
-                iny
-                bne     @b
-                dex
-                bne     @b
+@yes:           clc
                 rts
 
         .include "diagcon.inc"
         .include "diagtest.inc"
+        .include "diagsnd.inc"
 
 ; --- Tables and text -------------------------------------------------------------
 
@@ -2806,11 +2718,29 @@ SCOPYUP:        .byte   "THE COPY UP DOESN'T MATCH ITS SOURCE", 0
 SCOPYDN:        .byte   "THE COPY DOWN (MODE'S DEC) DOESN'T MATCH ITS SOURCE", 0
 SCARD:          .byte   "CARD $", 0
 SPORT:          .byte   "THE PORT AT CARD $", 0
-SCRAM:          .byte   "CARD RAM $", 0
-SWAVE:          .byte   "WAVE RAM $", 0
+PARTS:          .word   SPSTORE, SPWAVE, SPSIDS, SPCODEC ; SELFTEST's bits 0-3
+SPSTORE:        .byte   "THE STORE", 0
+SPWAVE:         .byte   "WAVE RAM", 0
+SPSIDS:         .byte   "THE SIDS", 0
+SPCODEC:        .byte   "THE CODEC'S LOOP", 0
 
-; The 6510's program (card6510.s, assembled on its own by the Makefile)
-C6510:          .incbin "card6510.bin"
-C6510END:
-.assert C6510END - C6510 <= $200, error, "card6510.bin: more than $0200-$03FF"
-
+; Stage 10's records (diagsnd.inc): the command, n, the tag, n bytes
+RIDENT:         .byte   SOUND_IDENTIFY, 0, SND_TAG
+RSELF:          .byte   SOUND_SELFTEST, 1, SND_TAG, $0F         ; every part
+RLOAD:          .byte   SOUND_SAMPLE_LOAD, 13, SND_TAG, 0       ; sample slot 0:
+                .byte   $00, $10, $00, 0                        ;   4 KB, unsigned,
+                .word   8000                                    ;   8,000 Hz,
+                .byte   0, 0, 0, 0, 0, 0                        ;   no loop
+RCSUM:          .byte   SOUND_CHECKSUM, 2, SND_TAG, SOUND_SAMPLE_LOAD, 0
+RABORT:         .byte   SOUND_XFERABORT, 0, SND_TAG
+RBFREE:         .byte   SOUND_BANK_FREE, 1, SND_TAG, 1          ; every sample
+RNOP:           .byte   SOUND_NOP, 0, SND_TAG
+ROPEN:          .byte   SOUND_STREAM_OPEN, 10, SND_TAG, 0, 0    ; stream 0, raw PCM,
+                .word   8000                                    ;   8,000 Hz,
+                .byte   0, $00, $10, $00                        ;   8 bits mono, 4 KB chunks,
+                .word   100                                     ;   100 ms buffered to start
+RDATA:          .byte   SOUND_STREAM_DATA, 4, SND_TAG, 0, $00, $10, $00
+REND:           .byte   SOUND_STREAM_END, 1, SND_TAG, 0
+RSTAT:          .byte   SOUND_STREAM_STATUS, 1, SND_TAG, 0
+RCLOSE:         .byte   SOUND_STREAM_CLOSE, 1, SND_TAG, 0
+RFREE:          .byte   SOUND_FREEALL, 0, SND_TAG

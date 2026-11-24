@@ -155,8 +155,8 @@ namespace ooe::emu
             rtc_ = b->rtc();
         }
         clock_cards();
-        if (SoundCard *s = machine_->sound_card())
-            s->set_audio_rate(audio_rate_);
+        if (SoundCard3 *d = machine_->sound_device())
+            d->set_audio_rate(audio_rate_);
         if (UsbCard *u = machine_->usb_card())
             u->set_audio_rate(audio_rate_);
         sid_audio_.clear();
@@ -329,8 +329,6 @@ namespace ooe::emu
     void Session::set_audio_rate(uint32_t rate)
     {
         audio_rate_ = rate;
-        if (SoundCard *s = machine_->sound_card())
-            s->set_audio_rate(rate);
         if (SoundCard3 *d = machine_->sound_device())
             d->set_audio_rate(rate);
         if (UsbCard *u = machine_->usb_card())
@@ -341,9 +339,8 @@ namespace ooe::emu
 
     size_t Session::take_audio(float *out, size_t max_frames)
     {
-        SoundCard *card2 = machine_->sound_card();
-        SoundCard3 *card3 = machine_->sound_device();
-        const bool sound = card2 || card3;
+        SoundCard3 *card = machine_->sound_device();
+        const bool sound = card != nullptr;
         UsbCard *usb = machine_->usb_card();
         if (!audio_rate_ || (!sound && !usb))
             return 0;
@@ -354,8 +351,7 @@ namespace ooe::emu
         {
             const size_t had = sid_audio_.size();
             sid_audio_.resize(had + 2 * most);
-            sid_audio_.resize(had + 2 * (card2 ? card2->take_audio(sid_audio_.data() + had, most)
-                                               : card3->take_audio(sid_audio_.data() + had, most)));
+            sid_audio_.resize(had + 2 * card->take_audio(sid_audio_.data() + had, most));
         }
         if (usb)
         {
@@ -388,8 +384,6 @@ namespace ooe::emu
 
     const SoundCard *Session::sound_chips() const
     {
-        if (const SoundCard *c = machine_->sound_card())
-            return c;
         if (const SoundCard3 *d = machine_->sound_device())
             return &d->chips();
         return nullptr;
@@ -397,8 +391,6 @@ namespace ooe::emu
 
     bool Session::tune_playing() const
     {
-        if (const SoundCard *c = machine_->sound_card())
-            return c->ctrl() & SoundCard::CTRL_RUN;
         if (const SoundCard3 *d = machine_->sound_device())
             return d->firmware().tune_playing();
         return false;
@@ -429,19 +421,7 @@ namespace ooe::emu
             error.clear();
             return true;
         }
-        if (!machine_->sound_card())
-        {
-            error = "this machine has no sound card";
-            return false;
-        }
-        auto file = parse_sid(bytes, error);
-        if (!file)
-            return false;
-        auto keep = std::make_unique<SidFile>(std::move(*file));
-        std::swap(sid_, keep);
-        if (play_song(song, error))
-            return true;
-        std::swap(sid_, keep); // the old tune, if any, is still the one
+        error = "this machine has no sound card";
         return false;
     }
 
@@ -459,25 +439,12 @@ namespace ooe::emu
             sid_song_ = song ? song : sid_->start_song;
             return true;
         }
-        SoundCard *card = machine_->sound_card();
-        if (!card || !sid_)
-        {
-            error = card ? "no tune" : "this machine has no sound card";
-            return false;
-        }
-        const auto plan = plan_sid(*sid_, song, error);
-        if (!plan)
-            return false;
-        start_sid(*card, *plan);
-        sid_song_ = song ? song : sid_->start_song;
-        sid_warnings_ = plan->warnings;
-        return true;
+        error = "this machine has no sound card";
+        return false;
     }
 
     void Session::stop_sid()
     {
-        if (SoundCard *card = machine_->sound_card())
-            ooe::emu::stop_sid(*card);
         if (SoundCard3 *d = machine_->sound_device())
             d->firmware().host_stop();
         sid_.reset();
@@ -494,8 +461,8 @@ namespace ooe::emu
             video->set_cpu_hz(hz);
         if (UsbCard *usb = machine_->usb_card())
             usb->set_cpu_hz(hz);
-        if (SoundCard *sound = machine_->sound_card())
-            sound->set_cpu_hz(hz);
+        if (SoundCard3 *sound = machine_->sound_device())
+            sound->set_cpu_hz(hz); // the card's time is the CPU's cycles at this clock
         if (SdCard *sd = machine_->sd_card())
             sd->set_cpu_hz(hz);
         for (Flash *flash : machine_->flashes())

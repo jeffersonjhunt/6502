@@ -1,7 +1,8 @@
 ; PLAYSID.COM (hw/oolib.md, "The plan", L3; the User's Guide's PLAYSID):
-; PLAYSID filespec {song}. A C64 .sid tune (PSID) played on the sound
-; card's 6510 by OOLIB's linked library (lib/sid.s, include/oolib.inc),
-; through function 82, until a key is pressed.
+; PLAYSID filespec {song}. A C64 .sid tune, PSID or RSID, played by the
+; sound card's own tune player (revision 3, the card as a device), through
+; OOLIB's linked library (lib/sid.s, include/oolib.inc: SN_TUNE and SN_PLAY
+; of function 82), until a key is pressed.
 ;
 ;   filespec    the file; .SID if its type is left out
 ;   song        1 to the tune's songs (decimal); the file's own start song
@@ -9,9 +10,12 @@
 ;
 ; It reads the file into the memory past its BSS (the byte count of its
 ; last record, which open gives for CR $FF, taken off where a file has
-; one), says "Playing song n of m: name, author" and "Press a key to
-; stop.", and waits for a key at the console (function 6); then it stops
-; the 6510 and ends. The warm boot would stop it anyway.
+; one), says "Playing song n of m: name, author", the released field on a
+; line of its own (when the file has one), and "Press a key to stop.";
+; then, while it waits for a key at the console (function 6), the time the
+; tune has played (m:ss, the card's TUNE_STATUS by SN_TSTATUS), written
+; over itself each second. A key stops the tune and ends it. The warm boot
+; would stop it anyway.
 ;
 ; Errors: "Invalid file specification.", "No File", "Too big." (more than
 ; the TPA holds), the library's (SE_*) in words, "Song n of m?" for a song
@@ -29,6 +33,7 @@ CMD_BREAK = UT_BREAK
 
         .zeropage
 dst:    .res    2                       ; the next record's place
+rel:    .res    2                       ; the released field
 
         .code
 start:  jsr     UT_INIT
@@ -165,13 +170,15 @@ start:  jsr     UT_INIT
 @parse: lda     buf
         ldx     buf + 1
         jsr     SID_PARSE
-        bcs     err
+        bcs     @err
         lda     song
         ldx     song + 1
         jsr     SID_PLAN
-        bcs     err
+        bcs     @err
         jsr     SID_PLAY
-        bcs     err
+        bcc     @plays
+@err:   jmp     err
+@plays:
         lda     #<splay                 ; Playing song n of m: name, author
         ldx     #>splay
         jsr     CM_PUTS
@@ -197,16 +204,108 @@ start:  jsr     UT_INIT
         ldx     SID_AUTHOR + 1
         jsr     text32
         jsr     CM_CRLF
-        lda     #<skey
+        clc                             ; the released field (header +$56: the name's +64)
+        lda     SID_NAME
+        adc     #64
+        sta     rel
+        lda     SID_NAME + 1
+        adc     #0
+        sta     rel + 1
+        lda     (rel)
+        beq     @key
+        lda     rel
+        ldx     rel + 1
+        jsr     text32
+        jsr     CM_CRLF
+@key:   lda     #<skey
         ldx     #>skey
         jsr     UT_SAY
-@wait:  lda     #$FF                    ; a key: function 6's input
+        lda     #$FF
+        sta     shown
+@wait:  jsr     status
+        lda     #$FF                    ; a key: function 6's input
         ldy     #C_RAWIO
         jsr     BDOS
         cmp     #0
         beq     @wait
         jsr     SID_STOP
+        jsr     CM_EOL                  ; the time's line left for the prompt to end
         jmp     UT_EXIT
+
+; The time played, "m:ss" from the card's TUNE_STATUS (+4-7 ms played, the
+; paused time out), written over the last when its second has changed.
+status: lda     #SN_TSTATUS
+        sta     tstat
+        lda     #<tstat
+        ldx     #>tstat
+        ldy     #O_SOUND
+        jsr     BDOS
+        cmp     #0
+        bne     @no                     ; busy, or not answered: the next pass
+        ldx     #3
+@cp:    lda     tstat + 5,x             ; the ms, then seconds
+        sta     num,x
+        dex
+        bpl     @cp
+        lda     #<1000
+        ldx     #>1000
+        jsr     div
+        lda     num                     ; the same second (mod 256) as shown: nothing
+        cmp     shown
+        beq     @no
+        sta     shown
+        lda     #60
+        ldx     #0
+        jsr     div                     ; num the minutes, rem the seconds
+        lda     #13                     ; over the last
+        jsr     CM_PUTC
+        lda     num
+        ldx     num + 1
+        jsr     dec16
+        lda     #':'
+        jsr     CM_PUTC
+        lda     rem
+        ldx     #'0' - 1
+@ten:   inx
+        sec
+        sbc     #10
+        bcs     @ten
+        adc     #'0' + 10
+        pha
+        txa
+        jsr     CM_PUTC
+        pla
+        jsr     CM_PUTC
+        lda     #<splayed
+        ldx     #>splayed
+        jmp     CM_PUTS
+@no:    rts
+
+; num (4 bytes) divided by A/X: the quotient in num, the remainder in rem.
+div:    sta     dvs
+        stx     dvs + 1
+        stz     rem
+        stz     rem + 1
+        ldy     #32
+@bit:   asl     num
+        rol     num + 1
+        rol     num + 2
+        rol     num + 3
+        rol     rem
+        rol     rem + 1
+        sec
+        lda     rem
+        sbc     dvs
+        tax
+        lda     rem + 1
+        sbc     dvs + 1
+        bcc     @next
+        stx     rem
+        sta     rem + 1
+        inc     num
+@next:  dey
+        bne     @bit
+        rts
 
 ; The library's error A in words, or "Song n of m?".
 err:    cmp     #SE_SONG
@@ -296,9 +395,11 @@ scomma: .byte   ", $"
 skey:   .byte   "Press a key to stop.$"
 ssong:  .byte   "Song $"
 sq:     .byte   "?$"
-errs:   .word   e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13
+splayed:
+        .byte   " played$"
+errs:   .word   e1, e0, e3, e4, e5, e6, e7, e8, e9, e0, e0, e12, e13
+e0:     .byte   "The tune can't be played.$"
 e1:     .byte   "Not a .sid file.$"
-e2:     .byte   "An RSID tune: PLAYSID plays PSID only.$"
 e3:     .byte   "Unknown .sid version.$"
 e4:     .byte   "Bad data offset.$"
 e5:     .byte   "No code in the file.$"
@@ -306,10 +407,8 @@ e6:     .byte   "The code runs past the 6510's 64 KB.$"
 e7:     .byte   "Bad song count.$"
 e8:     .byte   "No such song.$"
 e9:     .byte   "A Compute! MUS file needs a player of its own.$"
-e10:    .byte   "The tune covers the 6510's vectors.$"
-e11:    .byte   "No free page for the player's stub.$"
-e12:    .byte   "The sound card is in use, or not there.$"
-e13:    .byte   "The sound card's RAM wasn't loaded.$"
+e12:    .byte   "The sound card's tune player is in use, or not there.$"
+e13:    .byte   "The card's player refused the tune: it wasn't loaded.$"
 
         .bss
 fcb:    .res    36
@@ -317,6 +416,11 @@ song:   .res    2
 bcount: .res    1
 buf:    .res    2
 tlen:   .res    1
+tstat:  .res    17                      ; SN_TSTATUS's block
+num:    .res    4
+rem:    .res    2
+dvs:    .res    2
+shown:  .res    1                       ; the second last shown (mod 256)
 
         .code
         .include "cmd.inc"

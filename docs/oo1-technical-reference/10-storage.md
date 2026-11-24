@@ -311,8 +311,8 @@ buffers free at once, and the card programs a sector faster than the channel fil
 no limit the CPU is held for almost the whole transfer. A lower BURST gives it a cycle back every 2^BURST transfers,
 bytes here.
 Each take of the bus begins with the poll, one cycle after the takeover's, so a burst of n bytes costs 2 + n
-cycles. While the channel waits for a sector, another card's standing request (the sound card's,
-[chapter 7](07-sound.md#reg-c563)) can start a poll that grants nothing, at most 2 cycles in 64, and a sector that
+cycles. While the channel waits for a sector, another card's request (the sound card's, while a transfer
+into its DATA is open: [chapter 7](07-sound.md#reg-c507)) can start a poll that grants nothing, at most 2 cycles in 64, and a sector that
 becomes ready can wait up to 64 cycles for its grant behind that poll's hold-off
 ([chapter 5](05-dma.md#transfers-for-a-card)).
 

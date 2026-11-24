@@ -8,7 +8,7 @@
  * and Y after it, a block at $3A00. L5b's EQ and vis page: what the library leaves in the card (the firmware's EQ
  * and volumes, read by the test as a debugger would); refusals that set nothing; OO-Amp's test of the EQ (a sine
  * at each band's centre, +12 dB from the library, 12 dB +- 1 louder at the card's tap than with the EQ off); the
- * vis page copied, its length kept; a card OODOS doesn't drive (revision 2) answered PE_NOCARD.
+ * vis page copied, its length kept.
  *
  * L5c's SID reads: SID_VOICES against the card's shadows as written; SID_NOTE at both sides of every note's
  * threshold for both clocks; SID_ENV's six levels frame by frame against the rules worked out here.
@@ -320,22 +320,6 @@ TEST(pb_vis_copies_the_card_s_page_and_keeps_to_its_length)
     for (const uint8_t y : {uint8_t{99}, uint8_t{200}, uint8_t{255}})
         CHECK_EQ(ac(pb(r, 'V', BUF & 0xFF, BUF >> 8, y)), RANGE);
     CHECK_EQ(r.phys(BUF), 0xEE);
-}
-
-TEST(on_a_card_oodos_doesn_t_drive_every_routine_answers_pe_nocard_and_pb_vis_leaves_its_buffer)
-{
-    // Revision 2: OODOS 0.17 drives revision 3 alone, so the EQ, the vis page and the volumes are PE_NOCARD.
-    CcpRig r({}, machine_with_sound(2));
-    REQUIRE(r.ok);
-    start_pb(r);
-    r.poke(BUF, std::vector<uint8_t>(128, 0xEE));
-    CHECK_EQ(ac(pb(r, 'E', 1, 4)), NOCARD);
-    CHECK_EQ(ac(pb(r, 'N', 1)), NOCARD);
-    CHECK_EQ(ac(pb(r, 'A', BUF & 0xFF, BUF >> 8)), NOCARD); // $EE is -18, in range: then the card is asked
-    r.poke(BUF, std::vector<uint8_t>(128, 0xEE));
-    CHECK_EQ(ac(pb(r, 'V', BUF & 0xFF, BUF >> 8, 0)), NOCARD);
-    CHECK_EQ(r.phys(BUF), 0xEE);
-    CHECK_EQ(ac(pb(r, 'v', 100, 128)), NOCARD);
 }
 
 TEST(the_warm_boot_after_the_library_leaves_the_eq_flat)

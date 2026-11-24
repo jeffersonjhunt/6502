@@ -89,7 +89,14 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         void bus_reset() override;
-        bool irq() const override { return (isr() & ien_) != 0; }
+        bool irq() const override
+        {
+#ifdef EMU_FAULT_HOOKS
+            if (irq_dead_)
+                return false;
+#endif
+            return (isr() & ien_) != 0;
+        }
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
         bool drq() const override { return (ctrl_ & CTRL_DRQ) && fw_.xfer_open(); }
@@ -135,6 +142,16 @@ namespace ooe::emu
         const SoundFw &firmware() const { return fw_; }
         /// Bytes DATA dropped (none open), for tests.
         uint64_t data_dropped() const { return dropped_; }
+#ifdef EMU_FAULT_HOOKS
+        /// Test-only (fault_devices.h; the diagnostics' stage 10): the card's interrupt line dead, irq() false
+        /// whatever ISR and IEN say; and the `n`th byte DMA brings to DATA from now (1-based; 0 none) lost on
+        /// its way in, as a landing buffer that drops one would. Compiled only into the native test build
+        /// (devices/CMakeLists.txt: EMU_FAULT_HOOKS), never the WebUI's.
+        void set_irq_dead(bool dead) { irq_dead_ = dead; }
+        void set_dma_drop(uint64_t n) { dma_drop_ = n; }
+        /// Test-only: the `n`th byte DMA brings to DATA from now arrives with every bit flipped.
+        void set_dma_corrupt(uint64_t n) { dma_corrupt_ = n; }
+#endif
 
     private:
         // SoundFwPort
@@ -211,5 +228,10 @@ namespace ooe::emu
         uint8_t ctrl_{0}, ien_{0}, isr_{0};
         uint32_t xlatch_{0};
         uint64_t dropped_{0};
+#ifdef EMU_FAULT_HOOKS
+        bool irq_dead_{false}; ///< set_irq_dead()'s, test-only
+        uint64_t dma_drop_{0}; ///< set_dma_drop()'s: DMA's bytes to go before the lost one
+        uint64_t dma_corrupt_{0}; ///< set_dma_corrupt()'s: DMA's bytes to go before the flipped one
+#endif
     };
 } // namespace ooe::emu
