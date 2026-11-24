@@ -264,8 +264,8 @@ IN_OPS          = 8
 ; A/X is a block, its +0 the operation. A = X = $FF for one that isn't, a
 ; block needed and not given, a part not claimed, an address refused (as 51's
 ; segment), or no revision 3 card; A = $FE, X = $FF (SN_BUSY) when the card
-; doesn't answer in 100 ms or channel 2 is busy with the stream: try again
-; later; A = $FD (SN_REFUSED), X = the card's error (SOUND_E_*) when the
+; doesn't answer in 100 ms, channel 2 is busy with the stream, or a load
+; finds no DMA controller: try again later; A = $FD (SN_REFUSED), X = the card's error (SOUND_E_*) when the
 ; card refused the command. [part] is the claim (SC_*) an operation needs.
 ; A physical address is 3 bytes, a length 3 (0 refused) unless said.
 SN_INFO         = 0                    ; A = the card's revision (3, or 0: none), X = its FEATURES; a block +1,
@@ -291,14 +291,15 @@ SN_BUFFER       = 13                   ; block: +1-3 a physical address, +4-5 it
                                        ;   buffer it took (0 or 1), sent to the card by DMA when it asks [SC_STREAM]
 SN_PAUSE        = 14                   ; [SC_STREAM]
 SN_RESUME       = 15                   ; [SC_STREAM]
-SN_SEEK         = 16                   ; the ring emptied and both buffers dropped, free [SC_STREAM]
+SN_SEEK         = 16                   ; the ring emptied and both buffers dropped, free; a stream SN_NEXT
+                                       ;   queued closed [SC_STREAM]
 SN_END          = 17                   ; no more data (EOF): what is in plays out [SC_STREAM]
 SN_STATUS       = 18                   ; A = the state, X = the buffers free (EV_SBUFS); a block +1 those,
                                        ;   +3-4 the ring's room, +5-8 frames, +9-10 kbit/s, +11-12 underruns,
-                                       ;   +13-14 the rate in Hz
+                                       ;   +13-14 the rate in Hz [SC_STREAM]
 SN_NEXT         = 19                   ; block: +1 the codec, +2-3 the rate, +4 the format: the next stream
-                                       ;   opened and queued behind the one playing; SN_BUFFER feeds the one the
-                                       ;   card asks for [SC_STREAM]
+                                       ;   opened and queued behind the one playing; SN_BUFFER feeds the new one
+                                       ;   from then on [SC_STREAM]
 SN_SAMPLE       = 20                   ; block: +1 a slot, +2-4 a physical address, +5-7 the length, +8 the flags,
                                        ;   +9-10 the rate, +11-13 the loop's start, +14-16 its end
 SN_EFFECTS      = 21                   ; block: +1 the first effect, +2-4 a physical address, +5-7 the length

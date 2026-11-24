@@ -2058,9 +2058,7 @@ TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
     CHECK_EQ(bad, 0u);
 }
 
-int main() { return run_all(); }
-
-TEST(the_interface_is_17)
+TEST(the_interface_is_18)
 {
     // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 18 and its areas, $2F: frame and
     // timing, input, sound, DMA and the serial line.
@@ -2069,3 +2067,5 @@ TEST(the_interface_is_17)
     open(r, "2");
     CHECK_EQ(command(r, 'F', "F"), std::string("12 2F"));
 }
+
+int main() { return run_all(); }

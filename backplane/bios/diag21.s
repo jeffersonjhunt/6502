@@ -1224,16 +1224,6 @@ P3:
 
 ; --- Tables and text -------------------------------------------------------------
 
-; The ES5503's registers for DOCTONE: (register, value)
-DOCREGS:        .byte   $E1, $00       ; one oscillator
-                .byte   $00, $00       ; oscillator 0's frequency
-                .byte   $20, $04
-                .byte   $40, $C0       ; its volume
-                .byte   $80, $00       ; its table: wave RAM $00000
-                .byte   $C0, $00       ; 256 bytes, resolution 0
-                .byte   $A0, $00       ; free-running, channel 0, not halted
-DOCN            = * - DOCREGS
-
 STYPES:         .word   STSC, STHC, STXC
 STSC:           .byte   "SDSC", 0
 STHC:           .byte   "SDHC", 0

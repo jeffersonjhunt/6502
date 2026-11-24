@@ -3555,9 +3555,9 @@ refused at its end leaves its slot empty.
 
 A = `$FE` (`SN_BUSY`), X = `$FF`, when the card doesn't answer within 100 ms (a beep's length more), or when what
 the operation needs is busy: a load while a stream buffer is moving on DMA channel 2, `SN_BUFFER` while the buffer
-whose turn it is is still in use, and any load with no DMA controller (its first piece never ends). Try again
-later. An OODOS before L3 answers 82 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80)
-`FT_INFO` says whether there is sound (`OA_SOUND`), and its interface version must be 18 for this table.
+whose turn it is is still in use, and any load on a machine with no DMA controller (the card takes the load's
+command, nothing can move its data, and OODOS closes the card's side of it again). Try again later.
+[Function 80's](#bdos-80) `FT_INFO` says whether there is sound (`OA_SOUND`).
 
 #### Side effects
 

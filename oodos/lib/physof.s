@@ -1,5 +1,5 @@
 ; OOLIB's PHYSOF (lib/physof.inc): a CPU address to the 20-bit physical
-; address function 82's SN_LOAD and function 83 take, through function 73
+; address function 82's loads (SN_TUNE, SN_SAMPLE, SN_EFFECTS, SN_MUSIC) and function 83 take, through function 73
 ; (O_PHYSADDR: the paragraph and the offset in it). sid.s's and mu.s's.
 
         .setcpu "65C02"
