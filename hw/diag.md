@@ -103,7 +103,7 @@ ones before it proved; a stage whose card isn't there says `SKIP` and the run go
 | 7 | 22 | the north bridge and the clock | stage 6 | |
 | 8 | 22 | DMA, every channel driven directly | stage 6 | |
 | 9 | 22 | the video card | stages 6, 8 | |
-| 10 | 22 | the sound card; the 6510 program loaded by the core | stages 6, 7, 8 | |
+| 10 | 22 | the sound card, revision 3, by its command records (*the 6510 program loaded by the core until 2026-11-24*) | stages 6, 7, 8 | |
 | 11 | 21 | storage, read-only: the SD card; the Disk II by its ID alone | stages 6, 8 | |
 | 12 | 21 | USB and the game port; the serial card and the VIA; the front panel | stage 7 | |
 | 13 | 21 | the interactive tests (switch 16 at the switch-19 and `C812R` entries, `DIAG [ASK]` from `A>`): `SKIP` otherwise | stages 9, 10, 12 | |
@@ -245,25 +245,28 @@ card memory is the core's, the console's and Apple II mode's parts too; the scre
 | V7 | channel 1: 4 KB into card memory through the port (PCTL's DRQ) and back (PCTL's FROM) into a tested RAM block; the aperture agrees | D2's D6 |
 | V8 (interactive) | the test card on layer 1 (colour bars, a grid): Y or N | D2's V6 |
 
-**Stage 10, the sound card.** No claim: the card is the core's. The core loads its 6510 program itself, through
-RAMADDR and RAMDATA, as the splash loads its own and starts it with CTRL's RUN and RESET.
+**Stage 10, the sound card** (revision 3, the card as a device, since BIOS 0.21; rewritten 2026-11-24 by the sound
+device's build, unit S19). No claim: the card is the core's. The stage drives the card only by its command records
+(`diagsnd.inc`): a record into CMD once STATUS's CMDRDY says there is room, its REPLY read back from EVT, any other
+event met on the way read and dropped, every wait timed by the VIA's timer 2, with interrupts off throughout. The
+card is reset first (CTRL's RESET), and at the end its store is emptied (FREEALL) and it is reset again, so the boot
+finds it as a power-on leaves it but for its clock. A card of another revision is `NOT KNOWN TO THIS BUILD`.
 
-| Test | Plan 2 | From D2 |
+| Test | Plan 2, as built for revision 3 | Fails when |
 |---|---|---|
-| S1 | ID `$A1` or `$A2`; CODECS `$83` on revision 2 | as D2, without `SN_INFO` |
-| S2 | the card's RAM, all 64 KB, through RAMADDR and RAMDATA with the 6510 stopped: address in address (full: the march); 0.3 s (1 s) | new: D2's 6510 couldn't test its own pages, so the host now tests all of them |
-| S3 | channel 2: 4 KB into the card's RAM by DMA (DRQSEL 0, RAMDATA), read back through RAMDATA | D2's D7 |
-| S4 | the 6510 program (`card6510.s`) loaded at the card's `$0200` with its reset vector, then run: `$A5` in MBIN within 0.5 s (STATUS's MBIN polled) | D2's S2, polled, not through the event queue |
-| S5 | the mailbox both ways: 256 bytes, each echoed | D2's S3 |
-| S6 | the 6510 sums S3's 4 KB and sends the sum | D2's D7's other half |
-| S7 | the SIDs, by the 6510: voice 3's OSC3 and ENV3 on SID A and SID B | D2's S5 |
-| S8 | revision 2: wave RAM, all 128 KB, through DOCDATA with AUTOINC and DOCBANK, the ES5503 frozen: address in address (full: the march); 0.6 s (2 s) | D2's S6, then `/FULL` only; the splash loads its samples again at the next boot |
-| S9 | revision 2: a 4 KB raw PCM stream at 8,000 Hz (silence): STATE goes buffering, playing, ended; POS counts 8,000 frames a second ± 0.5% against VIA timer 1, which NB5 held to the DS3231 | D2's S7, against OODOS's millisecond counter |
-| S10 (interactive) | a tone on each SID and on the ES5503: Y or N | D2's S8 |
+| S1 | ID `$A3`, then STATUS's READY within 250 ms | READY doesn't come: `NOT READY WITHIN 250 MS`, and S2-S6 `SKIP` |
+| S2 | IDENTIFY: the card type `$A3`, and MEMSIZE, FEATURES and the firmware's version as the card's registers say; the line shows the firmware, MEMSIZE and FEATURES | no reply in 100 ms; a refusal (its error); another card type; a reply that disagrees with MEMSIZE, FEATURES or FWVER |
+| S3 | SELFTEST of the store, wave RAM, the SIDs and the codec's loop (bits 0-3) | a part fails: each one named on the line after (`THE STORE`, `WAVE RAM`, `THE SIDS`, `THE CODEC'S LOOP`) |
+| S4 | channel 2: 4 KB of a pattern from W0 into DATA (a sample's load into slot 0, CTRL's DRQ on), then CHECKSUM: the card's CRC-32 of what came against the host's of what was sent (the common CRC-32) | no DMA controller: `SKIP`; the channel never reaching its terminal count; a load that never ends (a byte lost on the way: closed by XFERABORT, and the bytes that came said); the CRCs differing (both shown) |
+| S5 | the event path: with IEN's EVT on, a NOP's REPLY pulls the card's line (IRQH bit 2 low); once it is read, the line lets go; IEN 0 after | no reply; IRQH bit 2 high with an event waiting; low with the events read |
+| S6 | a short raw PCM stream: 4 KB of silence at 8,000 Hz, 8 bits mono: playing once its 100 ms are buffered, its frames played counting 8,000 a second within 0.5% over 1,835,008 cycles of timer 2 (2,051 frames), then ended once STREAM_END's data has played out | not playing; the frames off the rate; not ended |
+| S10 (interactive) | the card's own sounds by command: a music block's one note on a SID voice (the A at 440 Hz, a triangle, half a second), then a sample effect on the ES5503 (a 256-byte square wave, looped, 220 Hz, half a second); the sample slot freed after: Y or N | the card not taking its records: `THE CARD DIDN'T TAKE ITS RECORDS`; an N |
 
-D2's S4 (the card's RAM tested by the 6510 at its 1 MHz, 8 s for the march) goes: S2 covers all of it from the
-host, faster. The 6510 program keeps its RAM test routine only if D3b finds a use for it; the rest of it (the start
-byte, echo, sum, the SIDs) is D2's as built.
+*Revision 3's stage replaces revision 2's (2026-11-24):* the host's walks of the card's 64 KB RAM and of wave RAM, the
+6510 program `card6510.s` (its start byte, the mailbox echo, the sum, the SIDs' OSC3 and ENV3) and revision 2's
+registers went with the card's register model; the card tests its own memories (S3) and DMA is checked by the card's
+CRC (S4). `/FULL` adds nothing to stage 10. Revision 1 and 2 cards are no longer driven ([sound-rev2.md](sound-rev2.md)
+has revision 2's record).
 
 **Stage 11, storage, read-only** (answer 5: nothing is written to the SD card).
 
@@ -382,7 +385,7 @@ OO-1 ROM DIAGNOSTICS 0.1          BIOS 0.14         PASS 1         QUICK
  7  NORTH BRIDGE; CLOCK 7159090 HZ ......................... PASS
  8  DMA, 4 CHANNELS ........................................ PASS
  9  VIDEO $92, 2048 KB ..................................... PASS
-10  SOUND $A2: RAM, 6510, SIDS, WAVE RAM, PCM .............. PASS
+10  SOUND CARD ............................................ PASS
 11  SD $71 (READ ONLY), DISK II $C1 ........................ PASS
 12  USB $B1, SERIAL (NO ID), PANEL $E1 ..................... PASS
 13  INTERACTIVE: SWITCH 16 OR DIAG [ASK] ..................... SKIP
@@ -491,7 +494,7 @@ return code `$FF00`, and OODOS goes on.
 
 What OODOS needn't do, because the core does it at stage 0 for every entry (`C812R` and the reset need it too):
 stop the DMA channels (channel 1's vertical-blank copies and channel 2's sound stop with their interrupts anyway),
-stop the sound card's 6510 and silence its parts, put back the video card's state. Nothing OODOS keeps in RAM
+reset the sound card (CTRL's RESET; before revision 3, its 6510 stopped and its parts silenced), put back the video card's state. Nothing OODOS keeps in RAM
 matters: all of it is overwritten, and OODOS boots afresh after.
 
 **`$C815`, the entry for a program** (decided, [P2-2](#plan2-questions)): the jump table's last spare. With the
@@ -541,7 +544,7 @@ Nothing is merged or cherry-picked in this step. In D3a and D3b, each piece is t
 |---|---|---|
 | `backplane/oohw/hwmem.s` (walking 1s and 0s, the tags, address in address, March C−), `hwline.s` (the report lines), and `oohw.inc`'s D2 additions | moved file by file (`git checkout 4fdc4f2 -- path`), then given the `OOHW_ROM` build | D3a |
 | `backplane/oohw/hwport.s` (address in address through a port) | moved file by file, then `OOHW_ROM` | D3b |
-| `backplane/oohw/card6510.s` and `card6510.cfg` | moved file by file; the BIOS's Makefile assembles it and block 22 includes the binary | D3b |
+| `backplane/oohw/card6510.s` and `card6510.cfg` | moved file by file; the BIOS's Makefile assembles it and block 22 includes the binary (*removed 2026-11-24 with revision 3's stage 10, BIOS 0.21: the card's firmware tests itself*) | D3b |
 | `diag.s`'s card tests, NB1–P3 | re-done in place in `diag22.s` and `diag21.s`, with D2's code as the reference: every OODOS and OOLIB call in them changes | D3b |
 | `FaultyMemory` | moved into `fault_devices.h` | D3a |
 | the SoundCard hook: `sound_card.h`, `sound_card.cpp`, `devices/CMakeLists.txt`'s `EMU_FAULT_HOOKS`, `test_sound`'s case | moved file by file (the hunks, as main may have moved on) | D3b |
@@ -862,7 +865,7 @@ link the same HW_CLOCK, so ROM blocks 21–22 and their sums change with it; no 
 - **Full runs of S2 and S8 write and check address in address twice, the second with the key complemented,** not the
   march: a port that steps itself on each access can't read and then write one cell without its address written
   again for each byte. V4's full run adds the march (background `$00`). *A question for the owner (D3b-3).*
-- **The 6510's program** has no RAM test (`C65_TEST` gone, as the plan allowed): 345 bytes at `$0200-$03FF`.
+- **The 6510's program** has no RAM test (`C65_TEST` gone, as the plan allowed): 345 bytes at `$0200-$03FF`. *(Removed 2026-11-24, with `card6510.cfg`, by the sound device's unit S19: revision 3's stage 10 drives the card by its records, [above](#plan2-card-tests).)*
 - **Stage 11.** An empty SD slot is `INFO` (`NO CARD IN THE SLOT`) and SD2-SD4 aren't run. SD4 reads 128 sectors by
   channel 0 into four tested blocks in a row (not W0's) and gives KB a second (`INFO`; 6,214 on the emulator, 5,829 on
   DMA revision 2, B2: 19 cycles for each 16 bytes, the takeover, the poll and the CPU's cycle). Its
@@ -1212,7 +1215,7 @@ give `$FF` too, but that isn't measured.
 | `NB_RTCCTL` (`$C687`) | `NB_RTC_LOST`: the DS3231's oscillator stopped (OSF), so the time is invalid. This is the nearest thing to a battery flag: the DS3231 has no battery-low bit. `NB_RTC_BUSY` |
 | `NB_RTCREG`/`NB_RTCDATA` | the DS3231's temperature (`$11`, `$12`) and aging (`$10`). Writing RTCREG starts an I²C read (BUSY). The emulator's temperature is always 25.00 °C |
 | `VIDEO_MEMSIZE` (`$C4BF`) | card memory in 64 KB units: 32 for 2 MB. Card memory past it reads `$FF` and ignores writes ([video-rev2.md](video-rev2.md)) |
-| `SOUND_CODECS` (`$C55D`) | revision 2: `$83`, bit 7 an ES5503 (`SOUND_CODEC_DOC`), bits 0–1 raw PCM and MP3 |
+| `SOUND_CODECS` (`$C55D`) | revision 2: `$83`, bit 7 an ES5503 (`SOUND_CODEC_DOC`), bits 0–1 raw PCM and MP3. *Gone with revision 3 (2026-11-24, OODOS 0.17): SYSINFO reads no sound register; its SOUND section is function 82's `SN_IDENTIFY` and `SN_INFO`* |
 | `USB_DEVICES` (`$C5B2`) | bit 0 a keyboard, bit 1 a mouse, bit 2 a gamepad (reserved) |
 | `SD_STATUS` (`$C381`) | `SD_PRESENT`, `SD_READY`, `SD_BUSY` |
 | SD `IDENTIFY` (`SD_IDENTIFY`, `$EC`) | one sector: the card's sectors, type (SDSC, SDHC, SDXC), write-protect and FAT-found flags, the firmware's version, a name, and units 1–7 with their sizes, flags and file names (`sd_card.h`) |
@@ -1324,15 +1327,20 @@ CARDS
   $C380  $71  mass storage (SD)               1
   $C400  $82  DMA controller                  2
   $C480  $92  video                           2
-  $C500  $A2  sound                           2
+  $C500  $A3  sound                           3
   $C580  $B1  USB, game port and speaker      1
   $C600  $C1  Disk II controller              1
   $C680  $D2  north bridge                    2
   $C700  $E1  console (front panel)           1
 
 VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB
-SOUND      two SIDs; the 6510 and its 64 KB; an ES5503 and 128 KB of wave
-           RAM; raw PCM and MP3 (CODECS $83). Free: 6510, stream, ES5503
+SOUND      revision 3, firmware 1.0 build 1 (image A)
+             8,192 KB of store, 8,192 KB free (MEMSIZE 128)
+             two SIDs (6581, 6581), the 6510, an ES5503
+             raw PCM, MP3, EQ, the vis page
+             the tone generator, firmware updates
+             (FEATURES $FF, FEATURES2 $07)
+             free: tune, stream, music
 STORAGE    SD card: SDHC, 7,733,248 sectors (3,776 MB), FAT, firmware 1.0
              unit 1 BOOT.BIN     44 sectors   read-only
              unit 2 OODOS.IMG    16,384 sectors

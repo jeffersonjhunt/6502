@@ -1,6 +1,6 @@
 # OODOS: One Off DOS #
 
-Draft, 2026-10-26; OODOS 0.15 since 2026-11-21 (the serial line's receive buffer and function 85, OOLIB interface 16, [below](#the-serial-receive-buffer)); 0.14 since 2026-11-21 (OOLIB interface 15); 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+Draft, 2026-10-26; OODOS 0.17 since 2026-11-24 (sound card revision 3, the card as a device: function 82 numbered afresh as one table, OOLIB interface 18, ROM BIOS 0.21, [below](#oodos-017-sound-card-revision-3)); 0.16 since 2026-11-22 (north bridge revision 3, the random source and the common hole, OOLIB interface 17, ROM BIOS 0.20, [below](#oodos-016-north-bridge-revision-3)); 0.15 since 2026-11-21 (the serial line's receive buffer and function 85, OOLIB interface 16, [below](#the-serial-receive-buffer)); 0.14 since 2026-11-21 (OOLIB interface 15); 0.13 since 2026-11-20 (full-resolution sprites, function 83's `DM_POINTER` with 64 + the sprite and SPRCTL cleared at the warm boot, OOLIB interface 14, [sprites640.md](sprites640.md)); 0.12 since 2026-11-20 (the 640×480 colour layers and function 83's `DM_VFILLW`, OOLIB interface 13, [video640.md](video640.md)); 0.11 since 2026-11-18 (`APPLE2 n` and ROM A's IIe images, bank 8 as RAM, OOLIB interfaces 11 and 12, [design.md](design.md#b5-as-built)). The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
 W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
 **proposed**; open questions are collected at the end.
 
@@ -6028,7 +6028,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
     - **On the current sound card** (the owner, 2026-11-21): SOUND, PLAY and BEEP are built on today's card, OOLIB's
       music driver on its 6510 and function 82's `SN_BEEP`; they will be reworked on the new sound device (a card
       revision that plays a block of notes in one transfer with 32-bit lengths, and does the beep), after its
-      spec. Review round 1's C6 (a SOUND past 65,535 ms in MB refused as its later entries meet a full queue) was
+      spec. *(2026-11-24: the device is built, sound card revision 3 with OODOS 0.17; until GW-BASIC's own
+      rebuild, 7f's SOUND and PLAY run on OOLIB's `MU_*` calls rebuilt on note blocks, and BEEP on the card's
+      `SN_BEEP`: [OODOS 0.17](#oodos-017-sound-card-revision-3).)* Review round 1's C6 (a SOUND past 65,535 ms in MB refused as its later entries meet a full queue) was
       skipped for that reason.
     - **The blocks.** P7, the eighth, allocated: GW-BASIC takes 8 blocks (128 KB of the pool's 320). P7 links OOLIB's
       `mu.s` (with the driver's image, `mudrv.bin`, assembled by GW-BASIC's Makefile), `mutone.s` and `physof.s`
@@ -6929,6 +6931,37 @@ SYSINFO's clock case run with the DS3231 20 ppm fast, since in the emulator the 
 clock and phase-lock (N10), and from N13 held to the skewed rate within 0.004% (its mutant 12.9 times the bound out);
 test_oodos_serial's byte pass no longer counts a pass that reached TICK (N11); the three tick pins above (N16). The
 emulator gives the bridge and the DS3231 one crystal; independent crystals are a possible later change, not taken.
+
+## OODOS 0.17: sound card revision 3 ##
+
+Status: **built** (2026-11-24, feat/sound-device-sys, branch B of [the sound device's build
+plan](future/sound-device-build.md), units S12-S25). OODOS 0.17 drives sound card revision 3, the card as a device
+([design.md, "Sound card revision 3"](design.md#sound-card-revision-3)), and no other. **Versions:** OODOS 0.17
+(`SYS_MINOR`), OOLIB interface 18, ROM BIOS 0.21; sound card `$A3`.
+
+- **Function 82** is one table of 34 operations grouped by job (the device, tunes, streams, the sound bank, music,
+  the beep, the mix and what it shows), numbered afresh before 1.0 on the owner's word; interface 18 is the guard, and
+  every rebuilt caller checks it. Refusals: A = X = `$FF` (OODOS's), `SN_REFUSED` with the card's error, `SN_BUSY`.
+  The Programmer's Guide has it ([function 82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82),
+  [chapter 8](../docs/oodos-programmers-guide/08-game-services.md#sound)).
+- **The driver** (`oodos/sys/sound.s`, all of it in block 61 but the rarely used operations, in block 60): the record
+  sender (each record whole, interrupts off), the reply wait (the call reads EVT itself, the card's interrupt off,
+  100 ms), the event reader shared with the handler, the loads by channel 2 into DATA, the stream's two buffers sent
+  on the card's NEED, the frame's status requests and the event area's sound part from their replies, the beep, the
+  console's bell (crt.s's BEL), and the cold and warm boots' parts. Block 62 keeps only IRQOTH's branch, DEAFEN's care
+  of the card and the boots' calls; SYSBSS has the claims, the card's IEN as OODOS keeps it, and the records' and the stream's working state.
+- **The event area:** +96-107 the stream's, as before; +108-115 reserved, 0 (the mailbox stamp and `EV_SFLAGS`
+  went); +116-119 the tune's state and ms played; +120-123 music's state, blocks queued and notes waiting.
+  `EK_SOUND` is the card's event, its kind in the code.
+- **OOLIB:** `sid.s` on `SN_TUNE`/`SN_PLAY` (RSIDs play), `pb*.s` and `sid*.s` on function 82's status, EQ, vis,
+  levels and registers, `mu*.s` on note blocks (`MU_BLOCK`, `MU_THRESH`); the 6510 music driver (`mudrv/`) removed.
+- **The utilities:** PLAYSID on the card's tune player; SYSINFO's SOUND from `SN_IDENTIFY` (it reads no sound
+  register); SNDFW, new, for the card's firmware. Each needs interface 18.
+- **The ROM (BIOS 0.21):** QUIET's CTRL RESET; the splash's BOOTSOUND; `$C818`'s `$A2` BEEP and `$A3` STOPALL; stage 10
+  of the diagnostics on the card's records ([diag.md](diag.md#plan2-card-tests)); the splash's two 6510 players, the
+  WAVE image and `card6510.s` removed.
+- **Removed, named for the owner under AGENTS.md's rule:** [design.md's list](design.md#sound-card-revision-3).
+  Revision 2's record is [sound-rev2.md](sound-rev2.md).
 
 ## Testing ##
 

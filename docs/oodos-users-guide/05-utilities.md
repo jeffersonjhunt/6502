@@ -1274,6 +1274,7 @@ each second. Any key stops it: the tune stops, the SIDs go quiet, and PLAYSID en
 
 #### Errors
 
+- `PLAYSID needs OODOS 0.17 or newer.`: an older OODOS, whose function 82 drove the card another way.
 - `PLAYSID filespec {song}`: no file named. `Invalid file specification.`: a name OODOS can't take, or a song that
   isn't a number from 1 to 65,535. `No File`: no such file.
 - `Too big.`: the file doesn't fit in memory.
@@ -1289,7 +1290,7 @@ Each sets the return code to `$FF00`.
 
 #### Since
 
-OODOS 0.4
+OODOS 0.4; on sound card revision 3 (the card's own tune player, RSIDs too) since OODOS 0.17
 
 #### Status
 
@@ -1429,7 +1430,19 @@ CARDS
   SYSINFO doesn't know says so. The serial card of the emulator is a stand-in with no ID.
 - **VIDEO, SOUND:** the video card's memory; the sound card's own answer to IDENTIFY (its firmware's version, build
   and flash image, its store and how much is free, its chips and what it plays, its FEATURES bytes), and which of its
-  parts (tune, stream, music) no program has claimed. SYSINFO reads no sound register itself.
+  parts (tune, stream, music) no program has claimed. SYSINFO reads no sound register itself. With no sound card
+  OODOS drives, the line says `no sound card`; under an OODOS before 0.17, `not asked: this OODOS is before 0.17`.
+  The SOUND section:
+
+  ```
+  SOUND      revision 3, firmware 1.0 build 1 (image A)
+               8,192 KB of store, 8,192 KB free (MEMSIZE 128)
+               two SIDs (6581, 6581), the 6510, an ES5503
+               raw PCM, MP3, EQ, the vis page
+               the tone generator, firmware updates
+               (FEATURES $FF, FEATURES2 $07)
+               free: tune, stream, music
+  ```
 - **STORAGE:** the SD card's type, size, file system and firmware, the image files mounted, then drives A: to N:
   with their size and free space. O: and P:, the Disk II's, aren't looked at.
 - **INPUT:** the USB keyboard, mouse and gamepad plugged in, the game port's paddles and buttons, and the
@@ -1488,6 +1501,7 @@ The version and the build are the image's own, from its header.
 
 #### Errors
 
+- `SNDFW needs OODOS 0.17 or newer.`: an older OODOS, which can't update the card.
 - `SNDFW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file.
 - `Not a sound card firmware image.`: the file doesn't start with a firmware image's header for this card, or it
   ends before the length its header gives. Nothing is sent to the card.

@@ -206,9 +206,10 @@ The bridge's counter loses nothing however long the CPU is held, but the tick's 
 timing that way. (Before OODOS 0.16 the tick was the VIA's timer 1, with one flag, and a copy held across two of
 its periods lost a tick.)
 
-Since OOLIB's L3, channel 2 is OODOS's too: its function 82 loads the sound card's RAM and the ES5503's wave RAM on it,
-and feeds the card's PCM stream from two buffers of a program's, always 4 KB a piece (4,096 cycles at most with the
-CPU held, for the same reason), the stream's with MODE's IRQ set so that the next piece starts at each terminal count
+Since OOLIB's L3, channel 2 is OODOS's too: its function 82 sends the sound card its loads (tunes, samples, effects,
+note blocks, a firmware image) into the card's DATA on it, and feeds the card's stream from two buffers of a
+program's when the card asks, always 4 KB a piece (4,096 cycles at most with the CPU held, for the same reason), the
+stream's with MODE's IRQ set so that the next piece starts at each terminal count
 ([chapter 7](07-sound.md#under-oodos)). OODOS sets the master enable for it and leaves it on. The warm boot aborts the
 channel.
 

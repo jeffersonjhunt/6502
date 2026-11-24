@@ -626,7 +626,7 @@
   "documented": true,
   "anchor": "bdos-82",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.4",
+  "since": "OODOS 0.4; this table since OODOS 0.17 (OOLIB interface 18)",
   "status": "built"
  },
  {
