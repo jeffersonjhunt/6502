@@ -1,7 +1,8 @@
 # 7 Sound
 
 The sound card (module A, `$C500`): two SIDs and a 6510 of its own. Revision 2 adds a PCM stream and an ES5503
-([below](#revision-2)); the emulator plays both, as far as the spec's steps so far go.
+([below](#revision-2)); the emulator plays both, as far as the spec's steps so far go. Revision 3, the card as
+a device driven by command records, is [below](#revision-3) too.
 
 The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#sound).
 
@@ -9,8 +10,8 @@ The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#s
 
 Status: **emulated**
 
-The card holds two SIDs. SID A's 29 registers are at `$C500–$C51C` ([SOUND_SIDA](#reg-c500)) and SID B's at
-`$C520–$C53C` ([SOUND_SIDB](#reg-c520)). Each chip has three voices, a filter and a master volume. In the emulator
+The card holds two SIDs. SID A's 29 registers are at `$C500–$C51C` ([SOUND2_SIDA](#reg-c500)) and SID B's at
+`$C520–$C53C` ([SOUND2_SIDB](#reg-c520)). Each chip has three voices, a filter and a master volume. In the emulator
 SID A is the left channel and SID B the right.
 
 - **Who has them.** The host CPU writes the SIDs only while the card's 6510 is stopped (CTRL's RUN is 0). While it
@@ -65,29 +66,29 @@ voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK 
 
 <!-- listing: ../../backplane/bios/bios.s:471-490 -->
 ```
-@sound:         LDA     SOUND_ID
+@sound:         LDA     SOUND2_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BNE     @panel
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN   ; the 6510 stopped, so the SIDs take writes
-                STA     SOUND_CTRL
-                STZ     SOUND_IEN
-                LDX     #SOUND_SIDS - 1
-@sid:           STZ     SOUND,X        ; every SID register: gates and volume off
+                LDA     SOUND2_CTRL
+                AND     #<~SOUND2_RUN  ; the 6510 stopped, so the SIDs take writes
+                STA     SOUND2_CTRL
+                STZ     SOUND2_IEN
+                LDX     #SOUND2_SIDS - 1
+@sid:           STZ     SOUND2,X       ; every SID register: gates and volume off
                 DEX
                 BPL     @sid
-                LDA     SOUND_ID
-                CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
+                LDA     SOUND2_ID
+                CMP     #SOUND2_ID_V2  ; revision 2 and on: the PCM stream and the ES5503 too
                 BCC     @panel
-                LDA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL   ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
-                LDA     SOUND_DOCCTL
-                AND     #<~SOUND_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
-                STA     SOUND_DOCCTL
+                LDA     #SOUND2_PCM_FLUSH
+                STA     SOUND2_PCMCTL  ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
+                LDA     SOUND2_DOCCTL
+                AND     #<~SOUND2_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
+                STA     SOUND2_DOCCTL
 ```
 
-`SOUND_SIDS` is `$3D`, so the loop covers `$C500–$C53C`: SID A, the gap between and SID B. The gap's writes are
+`SOUND2_SIDS` is `$3D`, so the loop covers `$C500–$C53C`: SID A, the gap between and SID B. The gap's writes are
 ignored. QUIET keeps the rest of CTRL, NTSC among it, and leaves the card's RAM, RAMADDR and the mailbox alone.
 It takes the card at any revision, by the ID's high nibble, as `splash.s` does. Since BIOS 0.12, when the ID is
 `$A2` or more it also writes FLUSH alone to [PCMCTL](#reg-c548), which stops the PCM stream and empties its FIFO,
@@ -182,26 +183,26 @@ splash begins on, and writes CTRL:
 <!-- listing: ../../backplane/bios/splash.s:139-160 -->
 ```
 @vector:        LDA     #$FC           ; the card's reset vector: the player's boot entry
-                STA     SOUND_RAMADDR
+                STA     SOUND2_RAMADDR
                 LDA     #$FF
-                STA     SOUND_RAMADDR + 1
+                STA     SOUND2_RAMADDR + 1
                 LDA     #<TUNE_BOOT
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
                 LDA     #>TUNE_BOOT
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
 
 @video:         LDA     #VIDEO_SPLASH_ON
                 STA     VIDEO_SPLASH   ; latched: it starts at the next vertical blank
-                LDA     SOUND_ID
+                LDA     SOUND2_ID
                 AND     #$F0
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BNE     @done
 @out:           BIT     VIDEO_STATUS   ; a vertical blank under way: wait it out
                 BMI     @out
 @in:            BIT     VIDEO_STATUS   ; the next one: the splash's frame 0 begins
                 BPL     @in
-                LDA     #SOUND_NTSC | SOUND_RUN | SOUND_RESET
-                STA     SOUND_CTRL     ; the tune's frame 0, now
+                LDA     #SOUND2_NTSC | SOUND2_RUN | SOUND2_RESET
+                STA     SOUND2_CTRL    ; the tune's frame 0, now
 @done:          RTS
 ```
 
@@ -304,7 +305,7 @@ I2S DAC:
 
 PCM and the ES5503 don't run at once; the SIDs may always run beside either.
 
-**Taking the card at any revision.** The ID's high nibble, `$A` (`SOUND_TYPE` is `$A0`), says it is the sound card,
+**Taking the card at any revision.** The ID's high nibble, `$A` (`SOUND2_TYPE` is `$A0`), says it is the sound card,
 and the low nibble its revision. Software that uses only the SIDs, the 6510 and the mailbox tests the high nibble,
 as the BIOS and OODOS do. Software that uses revision 2's registers tests the low nibble for 2 or more first, or
 CODECS: on revision 1, `$48–$63` read `$FF` and ignore writes.
@@ -411,6 +412,27 @@ frame on both sides.
 - FLUSH with RUN set is a seek: the FIFO empties and the stream buffers again, to 4 KB or to EOF, with no underrun
   counted; POS runs on from where it was. Paused, the seek takes effect when PAUSE is released.
 
+## Revision 3
+
+Status: **emulated**
+
+Revision 3 is the card as a device ([hw/future/sound-device.md](../../hw/future/sound-device.md)): the 6510, both
+SIDs, the ES5503, the stream and a store of 2, 4 or 8 MB behind a controller and its firmware, which the host
+drives by command records alone. Its registers start at the block's start, as the video card's do, and none of
+revisions 1 and 2's is kept: an address below means one thing on revision 2 and another on revision 3, and the
+entries say both. The emulator models revision 3 (`rev=3` on the machine file's sound line); its default is still
+revision 2 until the BIOS and OODOS drive revision 3.
+
+- **A command** is a record written to CMD (`$C503`): +0 the command, +1 n (the parameter bytes after +2), +2 a
+  tag of the host's own, +3 on the parameters, little-endian. It runs once its last byte is in.
+- **An event** is a record read from EVT (`$C505`): +0 the kind, +1 n (the bytes after +1). Every command gets one
+  REPLY (kind 1: +2 its tag, +3 a status, 0 or an error, +4 on its results), in the order the commands came;
+  other events (+2 an object, +3–6 the card's ms, +7 on a payload) say what happened since.
+- **Data** goes in through DATA (`$C507`), by DMA channel 2 or the CPU, once a command has opened a transfer.
+
+The commands, the events and the errors are backplane.inc's `SOUND_*` equates, and the spec's tables. The
+revision 1 and 2 equates are `SOUND2_*` while both are here.
+
 ## Under OODOS
 
 Status: **built**
@@ -458,11 +480,11 @@ volumes (VOLL and VOLR, set through function 82's `SN_VOLUME`, since OODOS 0.6),
 Status: **emulated**
 
 <a id="reg-c500"></a>
-### $C500 SOUND_SIDA: SID A's registers
+### $C500 SOUND2_SIDA: SID A's registers
 
 #### Equates
 
-`SOUND`, `SOUND_SIDA`
+`SOUND`, `SOUND_CTRL`, `SOUND2`, `SOUND2_SIDA`
 
 #### Module
 
@@ -536,12 +558,478 @@ at `$00`.
 The card's 6510 sees SID A at `$D400`. [The SIDs](#the-sids) and [A voice](#a-voice) say what the registers do. On
 a C64 the write-only registers don't read back, so code written for one doesn't expect them to.
 
-<a id="reg-c520"></a>
-### $C520 SOUND_SIDB: SID B's registers
+On revision 3 ([above](#revision-3)) `$C500` is CTRL, `SOUND_CTRL`: bit 0 DRQ (DATA asks for DMA while a transfer is open and has room), bit 6 FWRESTART (a strobe: the firmware starts again, READY clear until it is up, the store emptied), bit 7 RESET (a strobe: as /RESET, an open transfer abandoned, both FIFOs emptied, every sound stopped, CTRL, IEN and ISR 0; the store keeps what it holds). The rest read 0. `SOUND_CTRL_DRQ`, `SOUND_CTRL_FWRESTART` and `SOUND_CTRL_RESET` are the bits. Reset: `$00`.
+
+<a id="reg-c501"></a>
+### $C501 SOUND_STATUS: revision 3's status
 
 #### Equates
 
-`SOUND_SIDB`
+`SOUND_STATUS`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R. Reads are answered at once.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | IRQ | the card is interrupting: ISR AND IEN |
+| 6 | ERR | the last record was refused before it ran: ERROR says why |
+| 5 | EVLOST | events were lost since the last LOSTCLR command |
+| 4 | DATA | DATA can take a byte now |
+| 3 | XFER | a transfer is open |
+| 2 | EVT | an event record waits |
+| 1 | CMDRDY | CMD has room for a whole record (256 bytes) |
+| 0 | READY | the firmware is up |
+
+#### Reset
+
+`$03` once the firmware is up (READY, CMDRDY), within 100 ms of power-on.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. The bits are `SOUND_ST_READY` to `SOUND_ST_IRQ`.
+
+<a id="reg-c502"></a>
+### $C502 SOUND_ERROR: why a record was refused
+
+#### Equates
+
+`SOUND_ERROR`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+All: 0 none, or the error that refused the last record at the door (`SOUND_E_UNKNOWN` 1 to `SOUND_E_FIRMWARE` 11): a command the firmware doesn't know, or n wrong for it.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c503"></a>
+### $C503 SOUND_CMD: the command FIFO
+
+#### Equates
+
+`SOUND_CMD`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+W. A command record's bytes, in order; the record runs once its last byte is in. Reads 0.
+
+#### Bits
+
+All: the next byte of a record.
+
+#### Reset
+
+Empty: /RESET and CTRL's RESET drop a half-written record.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. Write a whole record at a time, with interrupts off if a handler of yours writes records too: two records interleaved are both refused. The FIFO holds 1 KB.
+
+<a id="reg-c504"></a>
+### $C504 SOUND_CMDFREE: the command FIFO's room
+
+#### Equates
+
+`SOUND_CMDFREE`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+All: the room in bytes, 255 meaning 255 or more.
+
+#### Reset
+
+`$FF`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c505"></a>
+### $C505 SOUND_EVT: the event FIFO
+
+#### Equates
+
+`SOUND_EVT`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R. A read takes the next byte; with none waiting it reads 0 (kind 0, none).
+
+#### Bits
+
+All: the next byte of an event record.
+
+#### Reset
+
+Empty.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. The FIFO holds 2 KB; the firmware keeps room in it for the replies of the commands it has taken.
+
+<a id="reg-c506"></a>
+### $C506 SOUND_EVTLEN: the bytes waiting in EVT
+
+#### Equates
+
+`SOUND_EVTLEN`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+All: the bytes waiting, 255 meaning 255 or more.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c507"></a>
+### $C507 SOUND_DATA: the open transfer's bytes
+
+#### Equates
+
+`SOUND_DATA`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+W. A byte with no transfer open, or no room, is dropped. DMA channel 2 serves it (CARD `$0A`).
+
+#### Bits
+
+All: the next byte of the transfer.
+
+#### Reset
+
+No transfer open.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. With CTRL's DRQ set the card asks for DMA only while a transfer is open and its landing buffer has room.
+
+<a id="reg-c508"></a>
+### $C508 SOUND_XLEFT: the bytes the transfer still wants
+
+#### Equates
+
+`SOUND_XLEFT`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R, 3 bytes, `$C508–$C50A`, low byte first. Reading `$C508` latches all three.
+
+#### Bits
+
+All: a 24-bit count.
+
+#### Reset
+
+`$000000`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c50b"></a>
+### $C50B SOUND_XTAG: the transfer's tag
+
+#### Equates
+
+`SOUND_XTAG`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+All: the tag of the command that opened the transfer.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c50c"></a>
+### $C50C SOUND_IEN: the card's interrupt enable
+
+#### Equates
+
+`SOUND_IEN`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R/W.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–4 | | read 0 |
+| 3 | READY | the firmware came up |
+| 2 | CMDROOM | CMD had been full and has room again |
+| 1 | XDONE | a transfer took its last byte |
+| 0 | EVT | an event waits |
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. The card pulls /IRQ while ISR AND IEN isn't 0 (IRQH's bit 2, as before). The bits are `SOUND_INT_EVT` to `SOUND_INT_READY`.
+
+<a id="reg-c50d"></a>
+### $C50D SOUND_ISR: the card's interrupt status
+
+#### Equates
+
+`SOUND_ISR`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R; write 1 to a bit to clear it (bits 1–3).
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–4 | | read 0 |
+| 3 | READY | the firmware came up |
+| 2 | CMDROOM | CMD had been full and has room again |
+| 1 | XDONE | a transfer took its last byte |
+| 0 | EVT | a level: set while an event waits; writing it does nothing |
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. EVT is a level so that an event that comes between a handler's last read of EVT and its write here is never lost. Bits 1–3 are set whether IEN has them or not.
+
+<a id="reg-c50e"></a>
+### $C50E SOUND_MEMSIZE: the store's size
+
+#### Equates
+
+`SOUND_MEMSIZE`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+All: the store in 64 KB units: 32, 64 or 128 (2, 4 or 8 MB).
+
+#### Reset
+
+The card's size.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c50f"></a>
+### $C50F SOUND_FEATURES: what the card has
+
+#### Equates
+
+`SOUND_FEATURES`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | MORE | more in IDENTIFY's reply |
+| 6 | VIS | the vis page |
+| 5 | EQ | the EQ |
+| 4 | MP3 | MP3 streams |
+| 3 | PCM | raw PCM streams |
+| 2 | DOC | the ES5503 |
+| 1 | TUNES | the 6510: `.sid` tunes |
+| 0 | TWOSID | two SIDs |
+
+#### Reset
+
+The card's features: `$FF` on the emulator's.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it. The bits are `SOUND_FT_TWOSID` to `SOUND_FT_MORE`.
+
+<a id="reg-c510"></a>
+### $C510 SOUND_FWVER: the firmware's version
+
+#### Equates
+
+`SOUND_FWVER`
+
+#### Module
+
+A, the sound card
+
+#### Access
+
+R, 2 bytes, `$C510–$C511`: the major, then the minor.
+
+#### Bits
+
+All: the running image's version.
+
+#### Reset
+
+The version running (the emulator's model: 1.0).
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Revision 3 only: on revision 2 this address is inside SID A's registers ([$C500](#reg-c500)), and no equate names it.
+
+<a id="reg-c520"></a>
+### $C520 SOUND2_SIDB: SID B's registers
+
+#### Equates
+
+`SOUND2_SIDB`
 
 #### Module
 
@@ -570,11 +1058,11 @@ The card's 6510 sees SID B at `$D420`, or at `$D500` with CTRL's bit 3. With CTR
 lands here too, from either side; a write here goes to SID B only.
 
 <a id="reg-c540"></a>
-### $C540 SOUND_CTRL: the card's control
+### $C540 SOUND2_CTRL: the card's control
 
 #### Equates
 
-`SOUND_CTRL`
+`SOUND2_CTRL`
 
 #### Module
 
@@ -607,16 +1095,16 @@ card there is no boot sound, and it stays `$00`.
 
 #### Notes
 
-`SOUND_NTSC` (`$01`), `SOUND_RUN` (`$02`) and `SOUND_RESET` (`$04`) are the bits; bits 3 and 4 have no equates.
+`SOUND2_NTSC` (`$01`), `SOUND2_RUN` (`$02`) and `SOUND2_RESET` (`$04`) are the bits; bits 3 and 4 have no equates.
 The 6510 clears RUN itself by writing `$DE02`. Start a program with RUN and RESET together
 ([above](#the-cards-6510)).
 
 <a id="reg-c541"></a>
-### $C541 SOUND_STATUS: the mailbox's flags
+### $C541 SOUND2_STATUS: the mailbox's flags
 
 #### Equates
 
-`SOUND_STATUS`
+`SOUND2_STATUS`
 
 #### Module
 
@@ -649,11 +1137,11 @@ R. Writes are ignored.
 hw/design.md has BUSY set while a SID write is pending; the emulator never sets it ([Bus timing](#bus-timing)).
 
 <a id="reg-c542"></a>
-### $C542 SOUND_IEN: the card's interrupt enable
+### $C542 SOUND2_IEN: the card's interrupt enable
 
 #### Equates
 
-`SOUND_IEN`
+`SOUND2_IEN`
 
 #### Module
 
@@ -688,11 +1176,11 @@ the 6510 at `$DFE0`) and no other oscillator is pending. See [IRQH](11-north-bri
 [chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh).
 
 <a id="reg-c543"></a>
-### $C543 SOUND_RAMADDR: the card's RAM address
+### $C543 SOUND2_RAMADDR: the card's RAM address
 
 #### Equates
 
-`SOUND_RAMADDR`
+`SOUND2_RAMADDR`
 
 #### Module
 
@@ -715,11 +1203,11 @@ All: the next address in the card's 64 KB. It wraps from `$FFFF` to `$0000`.
 **emulated**
 
 <a id="reg-c545"></a>
-### $C545 SOUND_RAMDATA: the card's RAM
+### $C545 SOUND2_RAMDATA: the card's RAM
 
 #### Equates
 
-`SOUND_RAMDATA`
+`SOUND2_RAMDATA`
 
 #### Module
 
@@ -760,11 +1248,11 @@ off (Apple II mode) the request costs nothing. With the 6510 running, a write he
 the code under it.
 
 <a id="reg-c546"></a>
-### $C546 SOUND_MBOUT: the mailbox to the card
+### $C546 SOUND2_MBOUT: the mailbox to the card
 
 #### Equates
 
-`SOUND_MBOUT`
+`SOUND2_MBOUT`
 
 #### Module
 
@@ -792,11 +1280,11 @@ Empty: STATUS's bit 1 clear, and `$00` the byte the 6510 would read.
 The 6510 sees the box's state as `$DE01`'s bit 0. Reading `$DE00` with the box empty gives the last byte again.
 
 <a id="reg-c547"></a>
-### $C547 SOUND_MBIN: the mailbox from the card
+### $C547 SOUND2_MBIN: the mailbox from the card
 
 #### Equates
 
-`SOUND_MBIN`
+`SOUND2_MBIN`
 
 #### Module
 
@@ -825,11 +1313,11 @@ hasn't been taken. The boot sound sends nothing. The emulator's `.sid` stub send
 call ([above](#playing-a-sid-file)).
 
 <a id="reg-c548"></a>
-### $C548 SOUND_PCMCTL: the PCM stream's control
+### $C548 SOUND2_PCMCTL: the PCM stream's control
 
 #### Equates
 
-`SOUND_PCMCTL`
+`SOUND2_PCMCTL`
 
 #### Module
 
@@ -860,14 +1348,14 @@ R/W. FLUSH is a strobe: writing it 1 empties the FIFO and the decoder, and it re
 
 #### Notes
 
-`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO. The BIOS's QUIET writes `$04` here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12): RUN, PAUSE and EOF clear and the FIFO empties, so a stream stops, STATE reads 0, FREE reads the whole FIFO, and a new stream after Break starts clean.
+`SOUND2_PCM_RUN` (`$01`), `SOUND2_PCM_PAUSE` (`$02`), `SOUND2_PCM_FLUSH` (`$04`) and `SOUND2_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO. The BIOS's QUIET writes `$04` here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12): RUN, PAUSE and EOF clear and the FIFO empties, so a stream stops, STATE reads 0, FREE reads the whole FIFO, and a new stream after Break starts clean.
 
 <a id="reg-c549"></a>
-### $C549 SOUND_CODEC: the stream's codec
+### $C549 SOUND2_CODEC: the stream's codec
 
 #### Equates
 
-`SOUND_CODEC`
+`SOUND2_CODEC`
 
 #### Module
 
@@ -896,11 +1384,11 @@ then. MP3 is decoded by [minimp3](https://github.com/lieff/minimp3) in the emula
 codec](#the-mp3-codec), above).
 
 <a id="reg-c54a"></a>
-### $C54A SOUND_RATE: raw PCM's rate
+### $C54A SOUND2_RATE: raw PCM's rate
 
 #### Equates
 
-`SOUND_RATE`
+`SOUND2_RATE`
 
 #### Module
 
@@ -928,11 +1416,11 @@ frames (0 until the first decodes).
 A RATE outside the range when RUN is set is error `$80` in STATE. RUN takes RATE, and while it runs RATE reads back the rate it took, whatever is written after.
 
 <a id="reg-c54c"></a>
-### $C54C SOUND_PCMFMT: raw PCM's format
+### $C54C SOUND2_PCMFMT: raw PCM's format
 
 #### Equates
 
-`SOUND_PCMFMT`
+`SOUND2_PCMFMT`
 
 #### Module
 
@@ -964,11 +1452,11 @@ RUN takes PCMFMT, and while it runs PCMFMT reads back the format it took, whatev
 reads 16-bit, and stereo as its frame is (PCMFMT as written doesn't matter to it).
 
 <a id="reg-c54d"></a>
-### $C54D SOUND_FREE: the FIFO's room
+### $C54D SOUND2_FREE: the FIFO's room
 
 #### Equates
 
-`SOUND_FREE`
+`SOUND2_FREE`
 
 #### Module
 
@@ -995,11 +1483,11 @@ All: the FIFO's free space in 256-byte units, rounded down. 512 (`$0200`) is all
 Read the low byte first: until the next `$C54D` read, `$C54E` keeps the high byte of that moment while the card plays on. Bytes count against the FIFO until a frame takes them, a partial frame's too.
 
 <a id="reg-c54f"></a>
-### $C54F SOUND_PCMDATA: the stream
+### $C54F SOUND2_PCMDATA: the stream
 
 #### Equates
 
-`SOUND_PCMDATA`
+`SOUND2_PCMDATA`
 
 #### Module
 
@@ -1026,11 +1514,11 @@ Nothing: the FIFO is empty.
 With DRQSEL 1 the card's DMA request serves PCMDATA, held only while the FIFO has room, so demand-mode DMA stops by itself when the FIFO is full and goes on as the card plays. A stream longer than the FIFO can so be fed by one channel, loaded again at each terminal count.
 
 <a id="reg-c550"></a>
-### $C550 SOUND_STATE: the stream's state
+### $C550 SOUND2_STATE: the stream's state
 
 #### Equates
 
-`SOUND_STATE`
+`SOUND2_STATE`
 
 #### Module
 
@@ -1073,11 +1561,11 @@ bit isn't kept, so the register reads it 0) and STATE reads `$82` until PCMCTL o
 write clears it, and sets it again only if it is refused too. The source already running plays on underneath.
 
 <a id="reg-c551"></a>
-### $C551 SOUND_POS: the frames played
+### $C551 SOUND2_POS: the frames played
 
 #### Equates
 
-`SOUND_POS`
+`SOUND2_POS`
 
 #### Module
 
@@ -1104,11 +1592,11 @@ All: the frames played since POS was last zeroed, 32 bits.
 Read the low byte first: until the next `$C551` read, `$C552–$C554` keep that moment's bytes while POS counts on. Silence while underrun isn't counted, nor time paused.
 
 <a id="reg-c555"></a>
-### $C555 SOUND_KBPS: the MP3's bitrate
+### $C555 SOUND2_KBPS: the MP3's bitrate
 
 #### Equates
 
-`SOUND_KBPS`
+`SOUND2_KBPS`
 
 #### Module
 
@@ -1135,11 +1623,11 @@ All: the MP3 frame's bitrate in kbit/s; 0 for raw PCM.
 The frame playing's, so a VBR stream's changes as it plays.
 
 <a id="reg-c557"></a>
-### $C557 SOUND_VOLL: the left master volume
+### $C557 SOUND2_VOLL: the left master volume
 
 #### Equates
 
-`SOUND_VOLL`
+`SOUND2_VOLL`
 
 #### Module
 
@@ -1166,11 +1654,11 @@ All: 0 silent to 255 unity.
 VOLL scales the stream's left side after the EQ and the vis page: 255 is unity, and below it each sample is multiplied by VOLL / 255, rounded to the nearest (half away from zero), so 0 is silence. It scales SID A too: a write to SID A's `$18` reaches the chip with its volume nibble replaced by round(nibble × VOLL / 255), while reading it gives what was written. A write to VOLL reaches the chip at once. At 255 nothing changes.
 
 <a id="reg-c558"></a>
-### $C558 SOUND_VOLR: the right master volume
+### $C558 SOUND2_VOLR: the right master volume
 
 #### Equates
 
-`SOUND_VOLR`
+`SOUND2_VOLR`
 
 #### Module
 
@@ -1197,11 +1685,11 @@ All: 0 silent to 255 unity.
 As [VOLL](#reg-c557), for the right side and SID B.
 
 <a id="reg-c559"></a>
-### $C559 SOUND_EQIDX: the EQ's index
+### $C559 SOUND2_EQIDX: the EQ's index
 
 #### Equates
 
-`SOUND_EQIDX`
+`SOUND2_EQIDX`
 
 #### Module
 
@@ -1231,11 +1719,11 @@ R/W. Each access to EQVAL, read or write, moves it on by 1 in bits 0–6; bit 7 
 So a program writes the preamp and the ten bands with EQIDX 0 and eleven EQVAL writes. The bands are centred at 60, 170, 310 and 600 Hz and 1, 3, 6, 12, 14 and 16 kHz ([hw/sound-rev2.md](../../hw/sound-rev2.md#signal-path)).
 
 <a id="reg-c55a"></a>
-### $C55A SOUND_EQVAL: the EQ's gain or enable
+### $C55A SOUND2_EQVAL: the EQ's gain or enable
 
 #### Equates
 
-`SOUND_EQVAL`
+`SOUND2_EQVAL`
 
 #### Module
 
@@ -1262,11 +1750,11 @@ All: with EQIDX's bit 7 clear, the gain in signed half-dB, -24 to 24 (-12 to +12
 With the EQ off the path is bit for bit as it came in, and so it is on with every gain 0. On, the preamp scales both sides by its gain, then each band is a peaking filter at its centre (the cookbook's, Q 1.41), on each side. A band at or above 0.45 of the stream's rate is bypassed: at 8 kHz, the bands from 6 kHz up. A gain or the enable written takes effect from the next frame; the filters start from silence at RUN and at FLUSH. The result is rounded to the nearest sample and clipped at full scale, so a big boost can clip: lower the preamp for it. The EQ is the same on every host, bit for bit.
 
 <a id="reg-c55b"></a>
-### $C55B SOUND_VISIDX: the vis page's index
+### $C55B SOUND2_VISIDX: the vis page's index
 
 #### Equates
 
-`SOUND_VISIDX`
+`SOUND2_VISIDX`
 
 #### Module
 
@@ -1293,11 +1781,11 @@ All: the next vis page byte VISDATA reads.
 The page has 98 bytes: 0–31 the spectrum's bands, 32–33 the VU, left and right, 34–97 the last 64 samples, unsigned with `$80` zero. Bands and VU are 0 to 255 for -60 to 0 dBFS. The SIDs aren't in it.
 
 <a id="reg-c55c"></a>
-### $C55C SOUND_VISDATA: the vis page's byte
+### $C55C SOUND2_VISDATA: the vis page's byte
 
 #### Equates
 
-`SOUND_VISDATA`
+`SOUND2_VISDATA`
 
 #### Module
 
@@ -1332,11 +1820,11 @@ The page is the stream after the EQ and before the volumes, as it was when VISID
 The spectrum and the VU read 0 to 255 for -60 to 0 dBFS, 4.25 to a dB, rounded; -60 dB and below is 0. A half-scale sine reads 229.
 
 <a id="reg-c55d"></a>
-### $C55D SOUND_CODECS: the codecs the card has
+### $C55D SOUND2_CODECS: the codecs the card has
 
 #### Equates
 
-`SOUND_CODECS`
+`SOUND2_CODECS`
 
 #### Module
 
@@ -1369,11 +1857,11 @@ R. Writes are ignored.
 Bit *n* set means [CODEC](#reg-c549) value *n* exists.
 
 <a id="reg-c55e"></a>
-### $C55E SOUND_DOCCTL: the ES5503's port control
+### $C55E SOUND2_DOCCTL: the ES5503's port control
 
 #### Equates
 
-`SOUND_DOCCTL`
+`SOUND2_DOCCTL`
 
 #### Module
 
@@ -1402,14 +1890,14 @@ R/W. Bits 7, 4, 3 and 1 read 0.
 
 #### Notes
 
-`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set. The BIOS's QUIET clears RUN here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12), reading DOCCTL and writing it back: the chip freezes with its registers and wave RAM kept, and bits 2, 5 and 6 stay as they were. An interrupt pending in the chip stays pending on its route: with bit 2 the 6510's, which pulls nothing while RUN is clear; without it the host's, which IEN, cleared by QUIET, holds off. With bit 6 clear and DOCADDR `$E0`, a program reads DOCDATA to take it before it sets IEN bit 3 again: QUIET keeps bit 6, and with it set DOCDATA reads wave RAM instead.
+`SOUND2_DOC_RUN` (`$01`), `SOUND2_DOC_IRQ_CARD` (`$04`), `SOUND2_DOC_AUTOINC` (`$20`) and `SOUND2_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set. The BIOS's QUIET clears RUN here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12), reading DOCCTL and writing it back: the chip freezes with its registers and wave RAM kept, and bits 2, 5 and 6 stay as they were. An interrupt pending in the chip stays pending on its route: with bit 2 the 6510's, which pulls nothing while RUN is clear; without it the host's, which IEN, cleared by QUIET, holds off. With bit 6 clear and DOCADDR `$E0`, a program reads DOCDATA to take it before it sets IEN bit 3 again: QUIET keeps bit 6, and with it set DOCDATA reads wave RAM instead.
 
 <a id="reg-c55f"></a>
-### $C55F SOUND_DOCDATA: the ES5503's register or wave RAM
+### $C55F SOUND2_DOCDATA: the ES5503's register or wave RAM
 
 #### Equates
 
-`SOUND_DOCDATA`
+`SOUND2_DOCDATA`
 
 #### Module
 
@@ -1436,11 +1924,11 @@ The ES5503's register 0, frequency low: `$00` at power-on.
 The value is there at once: drop the IIgs's dummy read. The registers are the chip's: `$00–$1F` and `$20–$3F` frequency, `$40–$5F` volume, `$60–$7F` the last sample (read-only), `$80–$9F` the table pointer, `$A0–$BF` control, `$C0–$DF` the table's bank, size and resolution, `$E0` interrupt, `$E1` the oscillators enabled, `$E2` A/D, which reads `$80`. A /RESET halts every oscillator, clears pending interrupts and writes 0 to `$E1`; wave RAM keeps its contents. With DRQSEL 2, fly-by DMA comes here.
 
 <a id="reg-c560"></a>
-### $C560 SOUND_DOCADDR: the ES5503's address
+### $C560 SOUND2_DOCADDR: the ES5503's address
 
 #### Equates
 
-`SOUND_DOCADDR`
+`SOUND2_DOCADDR`
 
 #### Module
 
@@ -1467,11 +1955,11 @@ All: the low byte names the ES5503's register; both bytes, with DOCBANK's bit 0,
 Auto-increment moves the whole 17-bit address, registers or RAM, and wraps from `$1FFFF` to `$00000`.
 
 <a id="reg-c562"></a>
-### $C562 SOUND_DOCBANK: the ES5503's RAM bank
+### $C562 SOUND2_DOCBANK: the ES5503's RAM bank
 
 #### Equates
 
-`SOUND_DOCBANK`
+`SOUND2_DOCBANK`
 
 #### Module
 
@@ -1501,11 +1989,11 @@ R/W. Bits 7–1 read 0.
 128 KB, twice the IIgs's, since the chip's bank bit allows it.
 
 <a id="reg-c563"></a>
-### $C563 SOUND_DRQSEL: the DRQ's source
+### $C563 SOUND2_DRQSEL: the DRQ's source
 
 #### Equates
 
-`SOUND_DRQSEL`
+`SOUND2_DRQSEL`
 
 #### Module
 
@@ -1532,11 +2020,11 @@ All: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA: the register the card's DMA request (/DREQ
 RAMDATA and DOCDATA hold the request all the time, which costs the other cards' transfers (the standing request, [RAMDATA](#reg-c545)). A fly-by read with DRQSEL 1 gives `$FF`.
 
 <a id="reg-c57f"></a>
-### $C57F SOUND_ID: the card's ID
+### $C57F SOUND2_ID: the card's ID
 
 #### Equates
 
-`SOUND_ID`
+`SOUND_ID`, `SOUND2_ID`
 
 #### Module
 
@@ -1563,7 +2051,9 @@ R. Writes are ignored.
 
 #### Notes
 
-`SOUND_ID_V2` (`$A2`) is the value, and `SOUND_ID_V1` (`$A1`) revision 1's. The BIOS and OODOS check its high
-nibble against `SOUND_TYPE` (`$A0`) before they touch the card, so they take either revision
+`SOUND2_ID_V2` (`$A2`) is the value, and `SOUND2_ID_V1` (`$A1`) revision 1's. The BIOS and OODOS check its high
+nibble against `SOUND2_TYPE` (`$A0`) before they touch the card, so they take either revision
 ([Taking the card at any revision](#revision-2)). The offsets with no register, `$64–$7E`, read `$FF` and ignore
 writes; on revision 1, `$48–$7E` do.
+
+On revision 3 the ID is `$A3`, `SOUND_ID_V3`, and its high nibble is still `SOUND_TYPE` (`$A0`).

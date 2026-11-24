@@ -78,7 +78,7 @@ SCODECS:        .res    1              ; its CODECS (revision 2), else 0
 SDMA:           .res    1              ; 1: the DMA controller is there
 SPARTS:         .res    1              ; the parts this machine has (SC_*)
 SCLAIM:         .res    1              ; the parts claimed
-SIEN:           .res    1              ; SOUND_IEN as OODOS has it (DEAFEN writes it back)
+SIEN:           .res    1              ; SOUND2_IEN as OODOS has it (DEAFEN writes it back)
 C2ON:           .res    1              ; 1: a stream buffer is moving on channel 2 (its interrupt on)
 BBUSY:          .res    1              ; the buffers given and not yet all sent: bit 0, bit 1
 NEXTB:          .res    1              ; the buffer the next SN_BUFFER takes: 0, 1, 0, 1 in turn
@@ -131,10 +131,10 @@ SNDINIT:        STZ     SREV
                 CMP     #DMA_ID_V2
                 BNE     @card
                 INC     SDMA
-@card:          LDA     SOUND_ID
+@card:          LDA     SOUND2_ID
                 TAX
                 AND     #$F0
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BNE     @done
                 TXA
                 AND     #$0F
@@ -145,7 +145,7 @@ SNDINIT:        STZ     SREV
                 LDA     SREV
                 CMP     #2
                 BCC     @done
-                LDA     SOUND_CODECS
+                LDA     SOUND2_CODECS
                 STA     SCODECS
                 BPL     @stream        ; bit 7: an ES5503
                 LDA     #SC_DOC
@@ -155,7 +155,7 @@ SNDINIT:        STZ     SREV
                 LDA     #SC_STREAM
                 TSB     SPARTS
 @done:          RTS
-.assert SOUND_CODEC_DOC = $80, error, "SNDINIT tests CODECS's ES5503 bit by BPL"
+.assert SOUND2_CODEC_DOC = $80, error, "SNDINIT tests CODECS's ES5503 bit by BPL"
 
 ; The warm boot's (input.s's WBQUIET, before DEAFEN): what QUIET does for
 ; the card (the 6510 stopped, the SIDs silenced, on revision 2 the stream
@@ -171,18 +171,18 @@ SNDQUIET:       LDA     #SC_ALL
                 STZ     SIEN
                 LDA     SREV
                 BEQ     @done
-                STZ     SOUND_IEN
+                STZ     SOUND2_IEN
                 CMP     #2
                 BCC     @done
                 LDA     #$FF
-                STA     SOUND_VOLL
-                STA     SOUND_VOLR
-                LDA     #SOUND_EQ_ENABLE ; the EQ off and flat, as /RESET leaves it (L5a)
-                STA     SOUND_EQIDX
-                STZ     SOUND_EQVAL
-                STZ     SOUND_EQIDX
+                STA     SOUND2_VOLL
+                STA     SOUND2_VOLR
+                LDA     #SOUND2_EQ_ENABLE ; the EQ off and flat, as /RESET leaves it (L5a)
+                STA     SOUND2_EQIDX
+                STZ     SOUND2_EQVAL
+                STZ     SOUND2_EQIDX
                 LDX     #11            ; the preamp and the ten bands: EQIDX moves on
-@eq:            STZ     SOUND_EQVAL
+@eq:            STZ     SOUND2_EQVAL
                 DEX
                 BNE     @eq
 @done:          RTS
@@ -211,9 +211,9 @@ PQUIET:         STA     STMP
                 LDA     SREV
                 CMP     #2
                 BCC     @cpu
-                LDA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL   ; RUN, PAUSE and EOF off, the FIFO emptied
-                STZ     SOUND_DRQSEL
+                LDA     #SOUND2_PCM_FLUSH
+                STA     SOUND2_PCMCTL  ; RUN, PAUSE and EOF off, the FIFO emptied
+                STZ     SOUND2_DRQSEL
 @cpu:           LDA     STMP
                 AND     #SC_6510
                 BEQ     @doc
@@ -225,9 +225,9 @@ PQUIET:         STA     STMP
                 LDA     SREV
                 CMP     #2
                 BCC     @done
-                LDA     SOUND_DOCCTL
-                AND     #<~SOUND_DOC_RUN ; frozen where it is, its other bits kept (QUIET's)
-                STA     SOUND_DOCCTL
+                LDA     SOUND2_DOCCTL
+                AND     #<~SOUND2_DOC_RUN ; frozen where it is, its other bits kept (QUIET's)
+                STA     SOUND2_DOCCTL
 @done:          RTS
 
 ; The 6510 stopped (CTRL's other bits kept) and every SID register 0:
@@ -235,11 +235,11 @@ PQUIET:         STA     STMP
 SIDSTOP:        STZ     SHELD
                 LDA     SREV
                 BEQ     @done
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN
-                STA     SOUND_CTRL
-                LDX     #SOUND_SIDS - 1
-@sid:           STZ     SOUND,X
+                LDA     SOUND2_CTRL
+                AND     #<~SOUND2_RUN
+                STA     SOUND2_CTRL
+                LDX     #SOUND2_SIDS - 1
+@sid:           STZ     SOUND2,X
                 DEX
                 BPL     @sid
 @done:          RTS
@@ -271,7 +271,7 @@ C2STOP:         STZ     C2ON
                 STA     DMA_STATUS
 @done:          RTS
 
-; SOUND_IEN as the claims and the area want it, into SIEN and the card: the
+; SOUND2_IEN as the claims and the area want it, into SIEN and the card: the
 ; mailbox's interrupt while the 6510 is claimed and a layout-2 area is open
 ; (its bytes go to the queue), the ES5503's while its hook is set. The BDOS's
 ; (claims, the hook, FT_OPEN and FT_CLOSE), with W2 on this block.
@@ -282,16 +282,16 @@ SIENSET:        PHP
                 BEQ     @nobox
                 BIT     EVON
                 BPL     @nobox
-                LDA     #SOUND_IEN_MBOX
+                LDA     #SOUND2_IEN_MBOX
                 BRA     @doc
 @nobox:         LDA     #0
 @doc:           LDX     DHON
                 BEQ     @set
-                ORA     #SOUND_IEN_DOC
+                ORA     #SOUND2_IEN_DOC
 @set:           STA     SIEN
                 LDX     SREV
                 BEQ     @done
-                STA     SOUND_IEN
+                STA     SOUND2_IEN
 @done:          PLP
                 RTS
 .assert EVON_L2 = $80, error, "SIENSET tests layout 2 by EVON's bit 7"
@@ -326,19 +326,19 @@ SNDIRQ:         STZ     SANS
                 AND     #NB_IRQ_SOUND
                 BNE     @done
                 LDA     SIEN
-                AND     #SOUND_IEN_MBOX
+                AND     #SOUND2_IEN_MBOX
                 BEQ     @doc
-                LDA     SOUND_STATUS
-                AND     #SOUND_ST_MBIN
+                LDA     SOUND2_STATUS
+                AND     #SOUND2_ST_MBIN
                 BEQ     @doc
                 JSR     MBOXIN
                 LDA     #NB_IRQ_SOUND
                 TSB     SANS
 @doc:           LDA     SIEN           ; the ES5503's, told by its own $E0 (STATUS's IRQ
-                AND     #SOUND_IEN_DOC ; covers a mailbox byte too)
+                AND     #SOUND2_IEN_DOC ; covers a mailbox byte too)
                 BEQ     @done
-                LDA     SOUND_DOCCTL   ; routed to the card's 6510: its to take, so $E0 isn't
-                AND     #SOUND_DOC_IRQ_CARD ; read here (the read would take it)
+                LDA     SOUND2_DOCCTL  ; routed to the card's 6510: its to take, so $E0 isn't
+                AND     #SOUND2_DOC_IRQ_CARD ; read here (the read would take it)
                 BNE     @done
                 JSR     DOCIRQ
                 BCS     @done          ; none pending
@@ -355,7 +355,7 @@ SNDIRQ:         STZ     SANS
 ; queue and lose its keys). QEV is block 62's: W3 is on it, as IRQOTH runs
 ; there.
 .assert ES_NOQUEUE = $01, error, "MBOXIN tests ES_NOQUEUE by LSR"
-MBOXIN:         LDA     SOUND_MBIN
+MBOXIN:         LDA     SOUND2_MBIN
                 BIT     EVON
                 BPL     @done
                 STA     EVV
@@ -409,20 +409,20 @@ MBOXIN:         LDA     SOUND_MBIN
 ; hook's copied in, CALLHOOK called for HT (its return, THRET, is HT's),
 ; and HT's put back whole (in a debug build its count with it: FT_COSTS
 ; reports the frame and tick hooks only).
-DOCIRQ:         LDA     SOUND_DOCCTL
+DOCIRQ:         LDA     SOUND2_DOCCTL
                 STA     SDCTL
-                LDA     SOUND_DOCADDR
+                LDA     SOUND2_DOCADDR
                 STA     SDAL
-                LDA     SOUND_DOCADDR + 1
+                LDA     SOUND2_DOCADDR + 1
                 STA     SDAL + 1
-                LDA     SOUND_DOCBANK
+                LDA     SOUND2_DOCBANK
                 STA     SDBANK
                 LDA     SDCTL
-                AND     #<~(SOUND_DOC_RAM | SOUND_DOC_AUTOINC)
-                STA     SOUND_DOCCTL   ; the registers, one at a time
+                AND     #<~(SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC)
+                STA     SOUND2_DOCCTL  ; the registers, one at a time
                 LDA     #$E0
-                STA     SOUND_DOCADDR
-                LDA     SOUND_DOCDATA  ; the interrupt register: which oscillator, taken
+                STA     SOUND2_DOCADDR
+                LDA     SOUND2_DOCDATA ; the interrupt register: which oscillator, taken
                 STA     STMP
                 BMI     @none          ; bit 7: none was pending
                 LDA     DHON
@@ -459,13 +459,13 @@ DOCIRQ:         LDA     SOUND_DOCCTL
 
 ; The port as DOCIRQ found it: DOCADDR, DOCBANK, then DOCCTL.
 DOCBACK:        LDA     SDAL
-                STA     SOUND_DOCADDR
+                STA     SOUND2_DOCADDR
                 LDA     SDAL + 1
-                STA     SOUND_DOCADDR + 1
+                STA     SOUND2_DOCADDR + 1
                 LDA     SDBANK
-                STA     SOUND_DOCBANK
+                STA     SOUND2_DOCBANK
                 LDA     SDCTL
-                STA     SOUND_DOCCTL
+                STA     SOUND2_DOCCTL
                 RTS
 
 ; The beep's delay: X 5-cycle steps, then Y - 1 passes of 256. Aligned, so
@@ -560,8 +560,8 @@ PIECE:          LDA     #<CHUNK        ; STMP/Y the piece: CHUNK, or CLEFT if le
                 STY     DMA_COUNT + 1
                 LDA     #DMA_MODE_IRQ | DMA_DEMAND_OUT
                 STA     DMA_MODE
-                LDA     #SOUND_DRQ_PCM
-                STA     SOUND_DRQSEL   ; (a load in between may have moved it)
+                LDA     #SOUND2_DRQ_PCM
+                STA     SOUND2_DRQSEL  ; (a load in between may have moved it)
                 CLC
                 LDA     CADR
                 ADC     STMP
@@ -610,14 +610,14 @@ SFIELDS:        BIT     EVON
                 EOR     #3
                 STA     (EVP),Y
                 INY
-                LDA     SOUND_FREE     ; (the low byte latches the high)
+                LDA     SOUND2_FREE    ; (the low byte latches the high)
                 STA     (EVP),Y
                 INY
-                LDA     SOUND_FREE + 1
+                LDA     SOUND2_FREE + 1
                 STA     (EVP),Y
                 LDX     #0
 @pos:           INY                    ; POS, its low byte first (which latches the rest), KBPS
-                LDA     SOUND_POS,X
+                LDA     SOUND2_POS,X
                 STA     (EVP),Y
                 INX
                 CPX     #6
@@ -632,12 +632,12 @@ SFIELDS:        BIT     EVON
                 STA     NB_WIN1
 @no:            RTS
 .assert EV_SBUFS = EV_SSTATE + 1 && EV_SFREE = EV_SSTATE + 2 && EV_SPOS = EV_SSTATE + 4 && EV_SKBPS = EV_SPOS + 4 && EV_SUNDER = EV_SKBPS + 2, error, "SFIELDS writes the sound part in EV_S* order"
-.assert SOUND_KBPS = SOUND_POS + 4, error, "SFIELDS reads POS and KBPS as one run"
+.assert SOUND2_KBPS = SOUND2_POS + 4, error, "SFIELDS reads POS and KBPS as one run"
 
 ; STATE in A, an underrun counted when it is new (STATE 4 and not 4 when last
 ; seen). Keeps X and Y.
-SOBS:           LDA     SOUND_STATE
-                CMP     #SOUND_STATE_UNDERRUN
+SOBS:           LDA     SOUND2_STATE
+                CMP     #SOUND2_STATE_UNDERRUN
                 BNE     @seen
                 CMP     SPREV
                 BEQ     @seen
@@ -927,7 +927,7 @@ SN_CLAIMX:      BLOCK
 @cpu:           LDA     T0
                 AND     #SC_6510
                 BEQ     @set
-                LDA     SOUND_MBIN     ; emptied
+                LDA     SOUND2_MBIN    ; emptied
 @set:           LDA     T0
                 TSB     SCLAIM
                 JSR     SFIELDS        ; the area's sound part at once, as the stream's start makes it (L4)
@@ -963,10 +963,10 @@ SN_LOADX:       BLOCK
                 BEQ     @go
                 JMP     SNBUSY
 @go:            LDA     T2
-                STA     SOUND_RAMADDR
+                STA     SOUND2_RAMADDR
                 LDA     T3
-                STA     SOUND_RAMADDR + 1
-                STZ     SOUND_DRQSEL   ; RAMDATA (revision 1 has none: there it is always)
+                STA     SOUND2_RAMADDR + 1
+                STZ     SOUND2_DRQSEL  ; RAMDATA (revision 1 has none: there it is always)
                 JSR     DMALOAD
                 BCS     SNFF2
                 JMP     SN00
@@ -1032,17 +1032,17 @@ SN_STARTX:      BLOCK
                 JSR     PGET
                 STA     T1
                 JSR     PGET
-                AND     #SOUND_NTSC | $08 | $10 ; NTSC, SID B at $D500, BOTH
+                AND     #SOUND2_NTSC | $08 | $10 ; NTSC, SID B at $D500, BOTH
                 STA     T2
                 STZ     SHELD
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN
-                STA     SOUND_CTRL
+                LDA     SOUND2_CTRL
+                AND     #<~SOUND2_RUN
+                STA     SOUND2_CTRL
                 BIT     EVON
                 BPL     SMRUN
                 PHP
                 SEI                    ; W1 borrowed (the BDOS's block 60)
-SMDROP:         LDA     SOUND_MBIN     ; the old run's last byte, if it left one
+SMDROP:         LDA     SOUND2_MBIN    ; the old run's last byte, if it left one
                 LDA     NB_WIN1
                 PHA
                 LDA     EVBLK
@@ -1056,17 +1056,17 @@ SMDROP:         LDA     SOUND_MBIN     ; the old run's last byte, if it left one
                 PLA
                 STA     NB_WIN1
                 PLP
-SMRUN:          LDA     #<SOUND_RAM_VECTOR
-                STA     SOUND_RAMADDR
-                LDA     #>SOUND_RAM_VECTOR
-                STA     SOUND_RAMADDR + 1
+SMRUN:          LDA     #<SOUND2_RAM_VECTOR
+                STA     SOUND2_RAMADDR
+                LDA     #>SOUND2_RAM_VECTOR
+                STA     SOUND2_RAMADDR + 1
                 LDA     T0
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
                 LDA     T1
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
                 LDA     T2
-                ORA     #SOUND_RUN | SOUND_RESET
-                STA     SOUND_CTRL
+                ORA     #SOUND2_RUN | SOUND2_RESET
+                STA     SOUND2_CTRL
                 JMP     SN00
 
 SN_STOPX:       NEED    SC_6510
@@ -1084,21 +1084,21 @@ SN_STOPX:       NEED    SC_6510
 ; 6510 isn't running: never started, stopped, or held already (the kept
 ; values then stay).
 SN_HOLDX:       NEED    SC_6510
-                LDA     SOUND_CTRL
-                BIT     #SOUND_RUN
+                LDA     SOUND2_CTRL
+                BIT     #SOUND2_RUN
                 BEQ     SNFF3
-                AND     #<~SOUND_RUN
-                STA     SOUND_CTRL
-                LDA     SOUND_SIDA + SIDVOL
+                AND     #<~SOUND2_RUN
+                STA     SOUND2_CTRL
+                LDA     SOUND2_SIDA + SIDVOL
                 STA     SVOLA
-                LDA     SOUND_SIDB + SIDVOL
+                LDA     SOUND2_SIDB + SIDVOL
                 STA     SVOLB
                 LDA     SVOLA
                 AND     #$F0
-                STA     SOUND_SIDA + SIDVOL
+                STA     SOUND2_SIDA + SIDVOL
                 LDA     SVOLB
                 AND     #$F0
-                STA     SOUND_SIDB + SIDVOL
+                STA     SOUND2_SIDB + SIDVOL
                 LDA     #1
                 STA     SHELD
                 JMP     SN00
@@ -1112,17 +1112,17 @@ SNFF3:          JMP     RETFF
 SN_GOX:         NEED    SC_6510
                 LDA     SHELD
                 BEQ     SNFF3
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN
-                STA     SOUND_CTRL
+                LDA     SOUND2_CTRL
+                AND     #<~SOUND2_RUN
+                STA     SOUND2_CTRL
                 LDA     SVOLA
-                STA     SOUND_SIDA + SIDVOL
+                STA     SOUND2_SIDA + SIDVOL
                 LDA     SVOLB
-                STA     SOUND_SIDB + SIDVOL
+                STA     SOUND2_SIDB + SIDVOL
                 STZ     SHELD
-                LDA     SOUND_CTRL
-                ORA     #SOUND_RUN
-                STA     SOUND_CTRL
+                LDA     SOUND2_CTRL
+                ORA     #SOUND2_RUN
+                STA     SOUND2_CTRL
                 JMP     SN00
 
 ; +1 VOLL, +2 VOLR (0-255, 255 unity): the card's master volumes, which
@@ -1136,9 +1136,9 @@ SN_VOLUMEX:     BLOCK
                 JSR     PGET           ; both read before either is written: a block
                 STA     T0             ; refused at +2 changes nothing
                 JSR     PGET
-                STA     SOUND_VOLR
+                STA     SOUND2_VOLR
                 LDA     T0
-                STA     SOUND_VOLL
+                STA     SOUND2_VOLL
                 JMP     SN00
 
 ; +1 the byte, to MBOUT; SN_BUSY while the 6510 hasn't taken the last.
@@ -1146,11 +1146,11 @@ SN_SENDX:       BLOCK
                 NEED    SC_6510
                 JSR     PGET
                 TAX
-                LDA     SOUND_STATUS   ; the last byte not taken yet: busy (a second would replace it)
-                AND     #SOUND_ST_MBOUT
+                LDA     SOUND2_STATUS  ; the last byte not taken yet: busy (a second would replace it)
+                AND     #SOUND2_ST_MBOUT
                 BEQ     @send
                 JMP     SNBUSY
-@send:          STX     SOUND_MBOUT
+@send:          STX     SOUND2_MBOUT
                 JMP     SN00
 
 ; +1 the codec, +2-3 the rate, +4 the format: channel 2 stopped, both
@@ -1168,26 +1168,26 @@ SN_STREAMX:     BLOCK
                 PHP
                 SEI
                 JSR     C2STOP
-                LDA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL   ; stopped and emptied
+                LDA     #SOUND2_PCM_FLUSH
+                STA     SOUND2_PCMCTL  ; stopped and emptied
                 LDA     T0
-                STA     SOUND_CODEC
+                STA     SOUND2_CODEC
                 LDA     T1
-                STA     SOUND_RATE
+                STA     SOUND2_RATE
                 LDA     T2
-                STA     SOUND_RATE + 1
+                STA     SOUND2_RATE + 1
                 LDA     T3
-                STA     SOUND_PCMFMT
-                STZ     SOUND_POS      ; (any write zeroes it)
+                STA     SOUND2_PCMFMT
+                STZ     SOUND2_POS     ; (any write zeroes it)
                 STZ     SUNDER
                 STZ     SUNDER + 1
                 STZ     SPREV
-                LDA     #SOUND_DRQ_PCM
-                STA     SOUND_DRQSEL
+                LDA     #SOUND2_DRQ_PCM
+                STA     SOUND2_DRQSEL
                 LDA     #DMA_MASTER
                 TSB     DMA_CONTROL
-                LDA     #SOUND_PCM_RUN
-                STA     SOUND_PCMCTL   ; RUN takes the codec, the rate and the format
+                LDA     #SOUND2_PCM_RUN
+                STA     SOUND2_PCMCTL  ; RUN takes the codec, the rate and the format
                 JSR     SFIELDS
                 PLP
                 JMP     SN00
@@ -1265,16 +1265,16 @@ SN_BUFFERX:     BLOCK
 @no:            JMP     RETFF
 
 SN_PAUSEX:      NEED    SC_STREAM
-                LDA     #SOUND_PCM_PAUSE
+                LDA     #SOUND2_PCM_PAUSE
                 BRA     PCMSET
 SN_RESUMEX:     NEED    SC_STREAM
-                LDA     SOUND_PCMCTL
-                AND     #<~SOUND_PCM_PAUSE
+                LDA     SOUND2_PCMCTL
+                AND     #<~SOUND2_PCM_PAUSE
                 BRA     PCMPUT
 SN_ENDX:        NEED    SC_STREAM
-                LDA     #SOUND_PCM_EOF
-PCMSET:         ORA     SOUND_PCMCTL
-PCMPUT:         STA     SOUND_PCMCTL
+                LDA     #SOUND2_PCM_EOF
+PCMSET:         ORA     SOUND2_PCMCTL
+PCMPUT:         STA     SOUND2_PCMCTL
                 JMP     SN00
 
 ; The FIFO flushed (with RUN set, a seek: the card buffers again), EOF off,
@@ -1283,10 +1283,10 @@ SN_SEEKX:       NEED    SC_STREAM
                 PHP
                 SEI
                 JSR     C2STOP
-                LDA     SOUND_PCMCTL
-                AND     #SOUND_PCM_RUN | SOUND_PCM_PAUSE
-                ORA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL
+                LDA     SOUND2_PCMCTL
+                AND     #SOUND2_PCM_RUN | SOUND2_PCM_PAUSE
+                ORA     #SOUND2_PCM_FLUSH
+                STA     SOUND2_PCMCTL
                 JSR     SFIELDS
                 PLP
                 JMP     SN00
@@ -1301,12 +1301,12 @@ SN_STATUSX:     NEED    SC_STREAM
                 LDA     BBUSY
                 EOR     #3
                 STA     SST + 1
-                LDA     SOUND_FREE     ; (the low byte latches the high)
+                LDA     SOUND2_FREE    ; (the low byte latches the high)
                 STA     SST + 2
-                LDA     SOUND_FREE + 1
+                LDA     SOUND2_FREE + 1
                 STA     SST + 3
                 LDX     #0             ; POS, its low byte first (which latches the rest), KBPS
-@pos:           LDA     SOUND_POS,X
+@pos:           LDA     SOUND2_POS,X
                 STA     SST + 4,X
                 INX
                 CPX     #6
@@ -1328,7 +1328,7 @@ SN_STATUSX:     NEED    SC_STREAM
 @ret:           LDA     SST
                 LDX     SST + 1
                 RTS
-.assert SOUND_KBPS = SOUND_POS + 4, error, "SN_STATUS reads POS and KBPS as one run"
+.assert SOUND2_KBPS = SOUND2_POS + 4, error, "SN_STATUS reads POS and KBPS as one run"
 
 ; +1-3 the source, +4-6 the wave RAM address (A16 in +6's bit 0), +7-8 the
 ; length: the ES5503's interrupt held off at the card meanwhile, DOCCTL's
@@ -1350,30 +1350,30 @@ SN_WAVEX:       BLOCK
 @go:            PHP
                 SEI
                 LDA     SIEN           ; the ES5503's interrupt out of SIEN for the load, so a
-                AND     #<~SOUND_IEN_DOC ; stray's DEAFEN, which writes SIEN back, can't turn it on:
+                AND     #<~SOUND2_IEN_DOC ; stray's DEAFEN, which writes SIEN back, can't turn it on:
                 STA     SIEN           ; its handler never moves DOCADDR under the transfer
-                STA     SOUND_IEN
-                LDA     SOUND_DOCCTL
+                STA     SOUND2_IEN
+                LDA     SOUND2_DOCCTL
                 STA     T5
-                AND     #SOUND_DOC_RUN | SOUND_DOC_IRQ_CARD
-                ORA     #SOUND_DOC_RAM | SOUND_DOC_AUTOINC
-                STA     SOUND_DOCCTL
+                AND     #SOUND2_DOC_RUN | SOUND2_DOC_IRQ_CARD
+                ORA     #SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC
+                STA     SOUND2_DOCCTL
                 LDA     T2
-                STA     SOUND_DOCADDR
+                STA     SOUND2_DOCADDR
                 LDA     T3
-                STA     SOUND_DOCADDR + 1
+                STA     SOUND2_DOCADDR + 1
                 LDA     T4
                 AND     #1
-                STA     SOUND_DOCBANK
-                LDA     #SOUND_DRQ_DOC
-                STA     SOUND_DRQSEL
+                STA     SOUND2_DOCBANK
+                LDA     #SOUND2_DRQ_DOC
+                STA     SOUND2_DRQSEL
                 PLP
                 JSR     DMALOAD
                 PHP                    ; (the carry: DMALOAD's)
                 SEI
                 LDA     T5
-                STA     SOUND_DOCCTL
-                STZ     SOUND_DRQSEL
+                STA     SOUND2_DOCCTL
+                STZ     SOUND2_DRQSEL
                 JSR     SIENSET        ; SIEN and IEN as the hook wants them again
                 PLP
                 BCS     @no
@@ -1389,9 +1389,9 @@ SN_DOCHOOKX:    NEED    SC_DOC
                 SEI                    ; IEN with it, so an interrupt meanwhile waits in the chip
                 STZ     DHON           ; for the new hook (SIENSET below), not taken and lost
                 LDA     SIEN
-                AND     #<~SOUND_IEN_DOC
+                AND     #<~SOUND2_IEN_DOC
                 STA     SIEN
-                STA     SOUND_IEN
+                STA     SOUND2_IEN
                 PLP
                 JSR     HOOKADDR
                 BCS     @no

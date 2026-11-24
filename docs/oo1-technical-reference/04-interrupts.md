@@ -19,7 +19,7 @@ that returns without doing that is entered again at once.
 | storage (SD) | SD_IEN | a command done, a card changed |
 | DMA | a channel's MODE, bit 7 | that channel's terminal count |
 | video | VIDEO_IEN | vertical blank, a chosen line, a sprite collision |
-| sound | SOUND_IEN | a byte in the mailbox from the card's 6510 |
+| sound | SOUND2_IEN | a byte in the mailbox from the card's 6510 |
 | USB | USB_IEN | a key, the mouse, the game port, a device |
 | north bridge | TBCTL's MSIE (revision 3); RTCCTL's TIE before it | the 1 kHz tick (revision 3); TICK, once a second, before it |
 | console | CONSOLE_IEN | a key on the panel |

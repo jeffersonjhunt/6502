@@ -272,26 +272,26 @@ video:          lda     VIDEO_ID
                 stz     VIDEO_IEN
                 stz     VIDEO_SPLASH
                 stz     VIDEO_PCTL
-sound:          lda     SOUND_ID
+sound:          lda     SOUND2_ID
                 and     #$F0
-                cmp     #SOUND_TYPE
+                cmp     #SOUND2_TYPE
                 bne     panel
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
-                stz     SOUND_IEN
-                ldx     #SOUND_SIDS - 1
-sid:            stz     SOUND,x
+                lda     SOUND2_CTRL
+                and     #<~SOUND2_RUN
+                sta     SOUND2_CTRL
+                stz     SOUND2_IEN
+                ldx     #SOUND2_SIDS - 1
+sid:            stz     SOUND2,x
                 dex
                 bpl     sid
-                lda     SOUND_ID
-                cmp     #SOUND_ID_V2
+                lda     SOUND2_ID
+                cmp     #SOUND2_ID_V2
                 bcc     panel
-                lda     #SOUND_PCM_FLUSH
-                sta     SOUND_PCMCTL
-                lda     SOUND_DOCCTL
-                and     #<~SOUND_DOC_RUN
-                sta     SOUND_DOCCTL
+                lda     #SOUND2_PCM_FLUSH
+                sta     SOUND2_PCMCTL
+                lda     SOUND2_DOCCTL
+                and     #<~SOUND2_DOC_RUN
+                sta     SOUND2_DOCCTL
 panel:          lda     CONSOLE_ID
                 cmp     #CONSOLE_ID_V1
                 bne     via

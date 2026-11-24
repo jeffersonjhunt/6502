@@ -2198,9 +2198,9 @@ STAGE10:
                 cmp     #2
                 beq     @known
                 jmp     CSKIPREV
-@known:         lda     SOUND_CTRL     ; the 6510 stopped: the card's RAM is the host's
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
+@known:         lda     SOUND2_CTRL    ; the 6510 stopped: the card's RAM is the host's
+                and     #<~SOUND2_RUN
+                sta     SOUND2_CTRL
                 jsr     S1
                 jsr     S2
                 jsr     S3
@@ -2208,9 +2208,9 @@ STAGE10:
                 jsr     S5
                 jsr     S6
                 jsr     S7
-                lda     SOUND_CTRL     ; the 6510 stopped again
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
+                lda     SOUND2_CTRL    ; the 6510 stopped again
+                and     #<~SOUND2_RUN
+                sta     SOUND2_CTRL
                 jsr     S8
                 jsr     S9
                 lda     #DR_PASS
@@ -2233,7 +2233,7 @@ S1:
                 bcc     @r2
                 jmp     TPASS
 @r2:            SAY     "; CODECS $"
-                lda     SOUND_CODECS
+                lda     SOUND2_CODECS
                 jsr     HEX2
                 cmp     #$83
                 bne     @bad
@@ -2242,8 +2242,8 @@ S1:
                 rts
 
 ; RAMADDR to A/X (low, high).
-RAMAT:          sta     SOUND_RAMADDR
-                stx     SOUND_RAMADDR + 1
+RAMAT:          sta     SOUND2_RAMADDR
+                stx     SOUND2_RAMADDR + 1
                 rts
 
 ; S2: the card's 64 KB through RAMADDR and RAMDATA, the 6510 stopped: address
@@ -2254,9 +2254,9 @@ S2:
                 and     #DO_FULL
                 beq     @q
                 SAY     ", TWICE"
-@q:             lda     #<SOUND_RAMDATA
+@q:             lda     #<SOUND2_RAMDATA
                 sta     HW_PORT
-                lda     #>SOUND_RAMDATA
+                lda     #>SOUND2_RAMDATA
                 sta     HW_PORT + 1
                 stz     HW_PLEN
                 lda     #1
@@ -2307,8 +2307,8 @@ S3:
                 TS      "NO DMA CONTROLLER"
                 rts
 @dma:           jsr     PAT4K
-                lda     #SOUND_DRQ_RAM
-                sta     SOUND_DRQSEL
+                lda     #SOUND2_DRQ_RAM
+                sta     SOUND2_DRQSEL
                 lda     #0
                 ldx     #$10
                 jsr     RAMAT
@@ -2343,7 +2343,7 @@ S3:
                 sta     DG_PTR + 1
                 ldx     #16
                 ldy     #0
-@b:             lda     SOUND_RAMDATA
+@b:             lda     SOUND2_RAMDATA
                 cmp     (DG_PTR),y
                 bne     @bad
                 iny
@@ -2362,8 +2362,8 @@ S3:
 MBSEND:
                 pha
                 jsr     TZERO
-@w:             lda     SOUND_STATUS
-                and     #SOUND_ST_MBOUT
+@w:             lda     SOUND2_STATUS
+                and     #SOUND2_ST_MBOUT
                 beq     @go
                 jsr     TTICK
                 lda     T_ACC + 2
@@ -2373,14 +2373,14 @@ MBSEND:
                 sec
                 rts
 @go:            pla
-                sta     SOUND_MBOUT
+                sta     SOUND2_MBOUT
                 clc
                 rts
 ; A byte from the 6510 within 0.5 s: in A, carry clear; carry set if none.
 MBRECV:
                 jsr     TZERO
-@w:             lda     SOUND_STATUS
-                and     #SOUND_ST_MBIN
+@w:             lda     SOUND2_STATUS
+                and     #SOUND2_ST_MBIN
                 bne     @got
                 jsr     TTICK
                 lda     T_ACC + 2
@@ -2388,7 +2388,7 @@ MBRECV:
                 bcc     @w
                 sec
                 rts
-@got:           lda     SOUND_MBIN
+@got:           lda     SOUND2_MBIN
                 clc
                 rts
 
@@ -2403,7 +2403,7 @@ S4:
                 stz     T_SUM + 1
                 ldx     #16
                 ldy     #0
-@sum:           lda     SOUND_RAMDATA
+@sum:           lda     SOUND2_RAMDATA
                 clc
                 adc     T_SUM
                 sta     T_SUM
@@ -2424,23 +2424,23 @@ S4:
                 ldx     #>(C6510END - C6510) + 1
                 ldy     #0
 @load:          lda     (DG_PTR),y
-                sta     SOUND_RAMDATA
+                sta     SOUND2_RAMDATA
                 iny
                 bne     @load
                 inc     DG_PTR + 1
                 dex
                 bne     @load
-                lda     #<SOUND_RAM_VECTOR
-                ldx     #>SOUND_RAM_VECTOR
+                lda     #<SOUND2_RAM_VECTOR
+                ldx     #>SOUND2_RAM_VECTOR
                 jsr     RAMAT
                 lda     #<C65_ORG
-                sta     SOUND_RAMDATA
+                sta     SOUND2_RAMDATA
                 lda     #>C65_ORG
-                sta     SOUND_RAMDATA
-                lda     SOUND_MBIN     ; a byte left there: dropped
-                lda     SOUND_CTRL
-                ora     #SOUND_RUN | SOUND_RESET
-                sta     SOUND_CTRL
+                sta     SOUND2_RAMDATA
+                lda     SOUND2_MBIN    ; a byte left there: dropped
+                lda     SOUND2_CTRL
+                ora     #SOUND2_RUN | SOUND2_RESET
+                sta     SOUND2_CTRL
                 jsr     MBRECV
                 bcs     @none
                 cmp     #C65_HELLO
@@ -2590,9 +2590,9 @@ S8:
                 and     #DO_FULL
                 beq     @q
                 SAY     ", TWICE"
-@q:             lda     #<SOUND_DOCDATA
+@q:             lda     #<SOUND2_DOCDATA
                 sta     HW_PORT
-                lda     #>SOUND_DOCDATA
+                lda     #>SOUND2_DOCDATA
                 sta     HW_PORT + 1
                 stz     HW_PLEN
                 lda     #2
@@ -2606,22 +2606,22 @@ S8:
                 lda     #$69
                 jsr     @pass
                 bcs     @bad
-@ok:            stz     SOUND_DOCCTL
+@ok:            stz     SOUND2_DOCCTL
                 jmp     TPASS
 @pass:          sta     T_PAT
                 jsr     @at
                 jsr     HW_PAIAW
                 jsr     @at
                 jmp     HW_PAIAC
-@at:            lda     #SOUND_DOC_RAM | SOUND_DOC_AUTOINC
-                sta     SOUND_DOCCTL
-                stz     SOUND_DOCADDR
-                stz     SOUND_DOCADDR + 1
-                stz     SOUND_DOCBANK
+@at:            lda     #SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC
+                sta     SOUND2_DOCCTL
+                stz     SOUND2_DOCADDR
+                stz     SOUND2_DOCADDR + 1
+                stz     SOUND2_DOCBANK
                 lda     T_PAT
                 sta     HW_KEY
                 rts
-@bad:           stz     SOUND_DOCCTL
+@bad:           stz     SOUND2_DOCCTL
                 ldx     #2
 @cp:            lda     HW_BAD,x
                 sta     T_N,x
@@ -2647,38 +2647,38 @@ S9:
                 bcc     @r2
                 TS      "REVISION 1: NO STREAM"
                 rts
-@r2:            lda     #SOUND_PCM_FLUSH
-                sta     SOUND_PCMCTL
-                stz     SOUND_CODEC
+@r2:            lda     #SOUND2_PCM_FLUSH
+                sta     SOUND2_PCMCTL
+                stz     SOUND2_CODEC
                 lda     #<8000
-                sta     SOUND_RATE
+                sta     SOUND2_RATE
                 lda     #>8000
-                sta     SOUND_RATE + 1
-                stz     SOUND_PCMFMT
-                lda     #SOUND_PCM_RUN
-                sta     SOUND_PCMCTL
+                sta     SOUND2_RATE + 1
+                stz     SOUND2_PCMFMT
+                lda     #SOUND2_PCM_RUN
+                sta     SOUND2_PCMCTL
                 jsr     @half
-                lda     SOUND_STATE
+                lda     SOUND2_STATE
                 cmp     #1
                 jne     @nobuf
                 jsr     @half
-                lda     SOUND_STATE
+                lda     SOUND2_STATE
                 cmp     #2
                 jne     @noplay
-                lda     SOUND_POS      ; reading the low byte latches the rest
+                lda     SOUND2_POS     ; reading the low byte latches the rest
                 sta     T_SUM          ; (not T_D: TTICK's)
-                lda     SOUND_POS + 1
+                lda     SOUND2_POS + 1
                 sta     T_SUM + 1
                 jsr     TZERO
 @wait:          jsr     TTICK
                 lda     T_ACC + 2
                 cmp     #$1C
                 bcc     @wait
-                lda     SOUND_POS
+                lda     SOUND2_POS
                 sec
                 sbc     T_SUM
                 sta     T_N
-                lda     SOUND_POS + 1
+                lda     SOUND2_POS + 1
                 sbc     T_SUM + 1
                 sta     T_N + 1
                 stz     T_N + 2
@@ -2693,10 +2693,10 @@ S9:
                 pla
                 sta     T_N
                 SAY     " FRAMES IN 1835008 CYCLES"
-                lda     #SOUND_PCM_RUN | SOUND_PCM_EOF
-                sta     SOUND_PCMCTL
+                lda     #SOUND2_PCM_RUN | SOUND2_PCM_EOF
+                sta     SOUND2_PCMCTL
                 jsr     TZERO          ; ended within about a second
-@end:           lda     SOUND_STATE
+@end:           lda     SOUND2_STATE
                 cmp     #5
                 beq     @ended
                 jsr     TTICK
@@ -2722,13 +2722,13 @@ S9:
 @noplay:        jsr     @stop
                 TD      "NOT PLAYING AFTER 4 KB"
                 rts
-@stop:          lda     #SOUND_PCM_FLUSH
-                sta     SOUND_PCMCTL
+@stop:          lda     #SOUND2_PCM_FLUSH
+                sta     SOUND2_PCMCTL
                 rts
 @half:          ldx     #8             ; 2 KB of silence
                 ldy     #0
                 lda     #$80
-@b:             sta     SOUND_PCMDATA
+@b:             sta     SOUND2_PCMDATA
                 iny
                 bne     @b
                 dex

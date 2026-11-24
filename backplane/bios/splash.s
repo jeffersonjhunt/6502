@@ -42,25 +42,25 @@ SPLASH:
                 BEQ     :+
                 RTS                    ; no revision 2 video card: no splash, and no sound for it
 :
-                LDA     SOUND_ID
+                LDA     SOUND2_ID
                 AND     #$F0           ; the sound card at any revision: each runs the 6510 the same
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BEQ     @card
                 JMP     @video         ; no sound card: the picture alone
 
 ; The player into the card, stopped: CTRL RUN 0 also gives the host the SIDs.
-@card:          STZ     SOUND_CTRL
-                LDA     SOUND_ID
-                CMP     #SOUND_ID_V2
+@card:          STZ     SOUND2_CTRL
+                LDA     SOUND2_ID
+                CMP     #SOUND2_ID_V2
                 BCS     @doc
                 JMP     @sids          ; revision 1: the SIDs
 @doc:
 
-                LDA     #SOUND_DOC_AUTOINC | SOUND_DOC_RAM ; the ES5503: wave RAM, from 0
-                STA     SOUND_DOCCTL
-                STZ     SOUND_DOCADDR
-                STZ     SOUND_DOCADDR + 1
-                STZ     SOUND_DOCBANK
+                LDA     #SOUND2_DOC_AUTOINC | SOUND2_DOC_RAM ; the ES5503: wave RAM, from 0
+                STA     SOUND2_DOCCTL
+                STZ     SOUND2_DOCADDR
+                STZ     SOUND2_DOCADDR + 1
+                STZ     SOUND2_DOCBANK
                 LDA     NB_WIN1
                 PHA
                 LDX     #WAVE_BLOCK
@@ -74,7 +74,7 @@ SPLASH:
 @wave:
 .repeat 8                              ; eight at a time: about 11 cycles a byte
                 LDA     (PTR),Y
-                STA     SOUND_DOCDATA  ; DOCADDR moves on, into the bank
+                STA     SOUND2_DOCDATA ; DOCADDR moves on, into the bank
                 INY
 .endrepeat
                 BNE     @wave
@@ -90,18 +90,18 @@ SPLASH:
 ; Every oscillator halted before the 6510 has the chip: after C800R its
 ; registers are as the last program left them (QUIET only froze it), and the
 ; player halts only the 24 it uses, a frame after RUN.
-                LDA     #SOUND_DOC_AUTOINC ; the registers, from $A0: the 32 controls
-                STA     SOUND_DOCCTL
+                LDA     #SOUND2_DOC_AUTOINC ; the registers, from $A0: the 32 controls
+                STA     SOUND2_DOCCTL
                 LDA     #$A0
-                STA     SOUND_DOCADDR
-                STZ     SOUND_DOCADDR + 1
+                STA     SOUND2_DOCADDR
+                STZ     SOUND2_DOCADDR + 1
                 LDA     #$01           ; HALT
                 LDX     #32
-@halt:          STA     SOUND_DOCDATA
+@halt:          STA     SOUND2_DOCDATA
                 DEX
                 BNE     @halt
-                LDA     #SOUND_DOC_RUN ; the chip's registers, at the 6510's $DF00
-                STA     SOUND_DOCCTL
+                LDA     #SOUND2_DOC_RUN ; the chip's registers, at the 6510's $DF00
+                STA     SOUND2_DOCCTL
                 LDA     #<DOCTUNE
                 LDX     #>DOCTUNE
                 LDY     #<(DOCTUNE_END - DOCTUNE)
@@ -116,14 +116,14 @@ SPLASH:
 @load:          STA     PTR            ; A, X: where; LEFT, Y: how much
                 STX     PTR + 1
                 STY     LEFT + 1
-                STZ     SOUND_RAMADDR
+                STZ     SOUND2_RAMADDR
                 LDA     #>TUNE_AT
-                STA     SOUND_RAMADDR + 1
+                STA     SOUND2_RAMADDR + 1
                 LDY     #0
                 LDX     LEFT + 1       ; whole pages
                 BEQ     @part
 @page:          LDA     (PTR),Y
-                STA     SOUND_RAMDATA  ; RAMADDR moves on by itself
+                STA     SOUND2_RAMDATA ; RAMADDR moves on by itself
                 INY
                 BNE     @page
                 INC     PTR + 1
@@ -132,31 +132,31 @@ SPLASH:
 @part:          LDX     LEFT           ; and the rest
                 BEQ     @vector
 @rest:          LDA     (PTR),Y
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
                 INY
                 DEX
                 BNE     @rest
 @vector:        LDA     #$FC           ; the card's reset vector: the player's boot entry
-                STA     SOUND_RAMADDR
+                STA     SOUND2_RAMADDR
                 LDA     #$FF
-                STA     SOUND_RAMADDR + 1
+                STA     SOUND2_RAMADDR + 1
                 LDA     #<TUNE_BOOT
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
                 LDA     #>TUNE_BOOT
-                STA     SOUND_RAMDATA
+                STA     SOUND2_RAMDATA
 
 @video:         LDA     #VIDEO_SPLASH_ON
                 STA     VIDEO_SPLASH   ; latched: it starts at the next vertical blank
-                LDA     SOUND_ID
+                LDA     SOUND2_ID
                 AND     #$F0
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BNE     @done
 @out:           BIT     VIDEO_STATUS   ; a vertical blank under way: wait it out
                 BMI     @out
 @in:            BIT     VIDEO_STATUS   ; the next one: the splash's frame 0 begins
                 BPL     @in
-                LDA     #SOUND_NTSC | SOUND_RUN | SOUND_RESET
-                STA     SOUND_CTRL     ; the tune's frame 0, now
+                LDA     #SOUND2_NTSC | SOUND2_RUN | SOUND2_RESET
+                STA     SOUND2_CTRL    ; the tune's frame 0, now
 @done:          RTS
 
 TUNE:           .incbin "splash/bootsnd.bin"      ; the SIDs' (revision 1)

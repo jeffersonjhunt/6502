@@ -886,12 +886,12 @@ S10:
                 TS      "NO SOUND CARD"
                 rts
 @card:          inc     T_ANY
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
-                sta     SOUND_CTRL
+                lda     SOUND2_CTRL
+                and     #<~SOUND2_RUN
+                sta     SOUND2_CTRL
                 ldx     #0
                 jsr     SIDTONE
-                ldx     #SOUND_SIDB - SOUND_SIDA
+                ldx     #SOUND2_SIDB - SOUND2_SIDA
                 jsr     SIDTONE
                 lda     HW_REV + $A
                 cmp     #2
@@ -904,64 +904,64 @@ S10:
 ; SID A's (X 0) or B's (X $20) voice 1: 440 Hz, a triangle, for 0.5 s.
 SIDTONE:
                 lda     #<7493
-                sta     SOUND_SIDA + $00,x
+                sta     SOUND2_SIDA + $00,x
                 lda     #>7493
-                sta     SOUND_SIDA + $01,x
+                sta     SOUND2_SIDA + $01,x
                 lda     #$09
-                sta     SOUND_SIDA + $05,x
+                sta     SOUND2_SIDA + $05,x
                 lda     #$F0
-                sta     SOUND_SIDA + $06,x
+                sta     SOUND2_SIDA + $06,x
                 lda     #$0F
-                sta     SOUND_SIDA + $18,x
+                sta     SOUND2_SIDA + $18,x
                 lda     #$11
-                sta     SOUND_SIDA + $04,x
+                sta     SOUND2_SIDA + $04,x
                 phx
                 lda     #55
                 sta     T_REV
                 jsr     WAITT
                 plx
                 lda     #$10
-                sta     SOUND_SIDA + $04,x
-                stz     SOUND_SIDA + $18,x
+                sta     SOUND2_SIDA + $04,x
+                stz     SOUND2_SIDA + $18,x
                 rts
 
 ; The ES5503's oscillator 0: a square wave of 256 bytes from wave RAM's
 ; first page, free-running, for 0.5 s, then halted and the chip stopped.
 DOCTONE:
-                lda     #SOUND_DOC_RAM | SOUND_DOC_AUTOINC
-                sta     SOUND_DOCCTL
-                stz     SOUND_DOCADDR
-                stz     SOUND_DOCADDR + 1
-                stz     SOUND_DOCBANK
+                lda     #SOUND2_DOC_RAM | SOUND2_DOC_AUTOINC
+                sta     SOUND2_DOCCTL
+                stz     SOUND2_DOCADDR
+                stz     SOUND2_DOCADDR + 1
+                stz     SOUND2_DOCBANK
                 ldx     #0
 @w:             lda     #$40
                 cpx     #$80
                 bcc     @lo
                 lda     #$C0
-@lo:            sta     SOUND_DOCDATA
+@lo:            sta     SOUND2_DOCDATA
                 inx
                 bne     @w
-                stz     SOUND_DOCCTL   ; the registers
+                stz     SOUND2_DOCCTL  ; the registers
                 ldx     #0
 @r:             lda     DOCREGS,x
-                sta     SOUND_DOCADDR
-                stz     SOUND_DOCADDR + 1
+                sta     SOUND2_DOCADDR
+                stz     SOUND2_DOCADDR + 1
                 lda     DOCREGS + 1,x
-                sta     SOUND_DOCDATA
+                sta     SOUND2_DOCDATA
                 inx
                 inx
                 cpx     #DOCN
                 bne     @r
-                lda     #SOUND_DOC_RUN
-                sta     SOUND_DOCCTL
+                lda     #SOUND2_DOC_RUN
+                sta     SOUND2_DOCCTL
                 lda     #55
                 sta     T_REV
                 jsr     WAITT
-                stz     SOUND_DOCCTL
+                stz     SOUND2_DOCCTL
                 lda     #$A0           ; oscillator 0 halted
-                sta     SOUND_DOCADDR
+                sta     SOUND2_DOCADDR
                 lda     #$01
-                sta     SOUND_DOCDATA
+                sta     SOUND2_DOCDATA
                 rts
 
 ; U3: a key on the USB keyboard (USB_KEY polled).

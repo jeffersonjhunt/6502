@@ -468,26 +468,26 @@ QUIET:
                 STZ     VIDEO_IEN
                 STZ     VIDEO_SPLASH   ; the boot splash, if it's still on
                 STZ     VIDEO_PCTL     ; the port's DRQ off (channel 1 is stopped)
-@sound:         LDA     SOUND_ID
+@sound:         LDA     SOUND2_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
-                CMP     #SOUND_TYPE
+                CMP     #SOUND2_TYPE
                 BNE     @panel
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN   ; the 6510 stopped, so the SIDs take writes
-                STA     SOUND_CTRL
-                STZ     SOUND_IEN
-                LDX     #SOUND_SIDS - 1
-@sid:           STZ     SOUND,X        ; every SID register: gates and volume off
+                LDA     SOUND2_CTRL
+                AND     #<~SOUND2_RUN  ; the 6510 stopped, so the SIDs take writes
+                STA     SOUND2_CTRL
+                STZ     SOUND2_IEN
+                LDX     #SOUND2_SIDS - 1
+@sid:           STZ     SOUND2,X       ; every SID register: gates and volume off
                 DEX
                 BPL     @sid
-                LDA     SOUND_ID
-                CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
+                LDA     SOUND2_ID
+                CMP     #SOUND2_ID_V2  ; revision 2 and on: the PCM stream and the ES5503 too
                 BCC     @panel
-                LDA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL   ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
-                LDA     SOUND_DOCCTL
-                AND     #<~SOUND_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
-                STA     SOUND_DOCCTL
+                LDA     #SOUND2_PCM_FLUSH
+                STA     SOUND2_PCMCTL  ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
+                LDA     SOUND2_DOCCTL
+                AND     #<~SOUND2_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
+                STA     SOUND2_DOCCTL
 @panel:         LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
                 BNE     @via

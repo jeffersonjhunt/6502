@@ -593,7 +593,7 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 STZ     SD_IEN
                 STZ     USB_IEN
                 LDA     SIEN           ; the sound card's: L3's own kept (sound.s)
-                STA     SOUND_IEN
+                STA     SOUND2_IEN
                 STZ     CONSOLE_IEN
                 LDA     #1             ; a front-panel key pending pulls /IRQ whatever IEN says
                 STA     CONSOLE_ISR
@@ -652,7 +652,7 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 ; receiver (the 6551 isn't reset by /RESET; the monitor's own command, $0B,
 ; has it off too). Keeps X and Y.
 CLKOFF:         STZ     USB_IEN
-                STZ     SOUND_IEN      ; and the sound card's (L3's)
+                STZ     SOUND2_IEN     ; and the sound card's (L3's)
                 LDA     #ACIA_CMD_RXOFF
                 TSB     ACIA_CMD
                 LDA     #NB_TB_MSF | NB_TB_OVR
