@@ -1,6 +1,6 @@
-; L3TEST: OOLIB's L3 (hw/oolib.md, "The plan"): function 82, for
-; test_oodos_sound.cpp. The command tail's first letter opens an area at
-; AREA ($2000, in W0's block 0) or not:
+; L3TEST: OOLIB's L3 (hw/oolib.md, "The plan"): function 82, on sound card
+; revision 3, for test_oodos_sound.cpp. The command tail's first letter
+; opens an area at AREA ($2000, in W0's block 0) or not:
 ;
 ;   2   256 bytes (FT_OPEN's size 0): layout 2, 16 slots
 ;   1   16 bytes: layout 1
@@ -16,27 +16,21 @@
 ;   Z   Z aa xx: function 82 with X = 0, A = MBOX + 1's byte
 ;   S   ST aa xx and the status block's 12 bytes (SN_STATUS)
 ;   I   INFO aa xx and the info block's 3 bytes (SN_INFO)
-;   H   HOOK aa xx: SN_DOCHOOK with DOCHOOK, its zero page byte HZP
-;   R   RUN aa xx: 256 bytes, 0-255, written to wave RAM from $00000 through
-;       DOCDATA (DOCCTL's RAM and AUTOINC), a byte at a time, slowly: an
-;       ES5503 interrupt the test raises midway (at DOCRUN with X = 128)
-;       must leave the run's bytes where they belong
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
-;   V   V aa xx: SID A's and SID B's $D418 as the 65C02 reads them
+;   G   G aa xx: BEL written to the console (function 2)
+;   L   L1 aa xx and L2 aa xx: function 82 with the block at KBLK, then at once
+;       with the block at KBLK2 ($2160)
 ;   B   B aa xx: function 82 with a block just past the TPA, on the BDOS's jump at $BFFD, running
 ;       into the I/O hole at $C000: MBOX + 3's count of bytes from KBLK
 ;       copied to MBOX + 1-2's address. That is where the BDOS's jump
 ;       ($BFFD) lives, so its three bytes are kept, the stub called through
 ;       their address, and put back before anything else
-;   U   U aa xx: MBOX + 1's byte written to SID A's $D418 and MBOX + 2's
-;       to SID B's, then read back as V does
 ;   F   F aa xx: function 80's FT_INFO, X = 0 (OOLIB's interface version)
-;
-; DOCHOOK counts its calls at DCNT ($2180) and keeps the interrupt
-; register OODOS gave it (HZP) at DLAST ($2181), and its S at DS ($2182);
-; then writes the chip's register $40 (oscillator 0's volume) $77, as a
-; hook reprogramming an oscillator would.
+;   R   R aa xx: a feeder as fast as a program can be (layout 2): MBOX + 1's
+;       count of buffers given, the block at KBLK each time, each the moment
+;       the area's EV_SBUFS shows the next one (0, 1 in turn, from MBOX +
+;       2's) free; aa xx the last call's. No BDOS call while it waits
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -45,22 +39,13 @@
         .include "printzp.inc"
 
 AREA    = $2000
-DOCCTL  = $C55E                         ; the sound card's ES5503 port (backplane.inc's SOUND_DOC*)
-DOCDATA = $C55F
-DOCADDR = $C560
-DOCBANK = $C562
-SIDAVOL = $C518                         ; SID A's $D418, SID B's (backplane.inc's SOUND_SIDA, SOUND_SIDB)
-SIDBVOL = $C538
 MBOX    = $2100
 KBLK    = $2110
-DCNT    = $2180
-DLAST   = $2181
-DS      = $2182
+KBLK2   = $2160
 
         .zeropage
 t0:     .res    2
 sayx:   .res    1
-HZP:    .res    1
 
         .code
 .macro SAY label
@@ -101,8 +86,6 @@ s:      .byte   label, " $"
 .endmacro
 
 start:  stz     MBOX
-        stz     DCNT
-        stz     DLAST
         lda     BP_DMA + 1              ; the tail's first letter, after its space
         cmp     #' '
         bne     @l
@@ -182,6 +165,48 @@ c_k:    lda     #<KBLK
         SAY     "K"
         rts
 
+c_l:    lda     #<KBLK
+        ldx     #>KBLK
+        jsr     f82
+        sta     bres
+        stx     bres + 1
+        lda     #<KBLK2
+        ldx     #>KBLK2
+        jsr     f82
+        pha
+        phx
+        lda     bres
+        ldx     bres + 1
+        SAY     "L1"
+        plx
+        pla
+        SAY     "L2"
+        rts
+
+c_r:    lda     MBOX + 2
+        sta     rnext
+@one:   lda     MBOX + 1
+        beq     @out
+        ldx     rnext
+@wait:  lda     AREA + EV_SBUFS
+        and     rbit,x
+        beq     @wait
+        lda     #<KBLK
+        ldx     #>KBLK
+        jsr     f82
+        sta     bres
+        stx     bres + 1
+        lda     rnext
+        eor     #1
+        sta     rnext
+        dec     MBOX + 1
+        bra     @one
+@out:   lda     bres
+        ldx     bres + 1
+        SAY     "R"
+        rts
+rbit:   .byte   1, 2
+
 c_f:    lda     #FT_INFO
         ldx     #0
         ldy     #O_FRAME
@@ -207,40 +232,18 @@ c_info: lda     #<iblk
         SAYDUMP "INFO", iblk + 1, 3
         rts
 
-c_hook: lda     #<hblk
-        ldx     #>hblk
-        jsr     f82
-        SAY     "HOOK"
-        rts
-
 c_wboot:
         jmp     WBOOT
 
-c_run:  lda     #$60                    ; RAM, AUTOINC
-        sta     DOCCTL
-        stz     DOCADDR
-        stz     DOCADDR + 1
-        stz     DOCBANK
-        ldx     #0
-DOCRUN: txa
-        sta     DOCDATA
-        ldy     #40                     ; a run spread out, an interrupt may come in it
-@d:     dey
-        bne     @d
-        inx
-        bne     DOCRUN
-        lda     #0
-        ldx     #0
-        SAY     "RUN"
-        rts
-
-c_u:    lda     MBOX + 1
-        sta     SIDAVOL
-        lda     MBOX + 2
-        sta     SIDBVOL
-        lda     SIDAVOL
-        ldx     SIDBVOL
-        SAY     "U"
+c_g:    lda     #7
+        ldy     #C_WRITE
+        jsr     BDOS
+        pha
+        phx
+        jsr     CRLF
+        plx
+        pla
+        SAY     "G"
         rts
 
 c_b:    ldx     #2
@@ -275,11 +278,6 @@ c_b:    ldx     #2
         rts
 bcall:  jmp     (bsave + 1)             ; the stub, as $BFFD's jump goes
 
-c_v:    lda     SIDAVOL
-        ldx     SIDBVOL
-        SAY     "V"
-        rts
-
 c_line: lda     #<lbuf
         ldx     #>lbuf
         ldy     #C_READSTR
@@ -288,45 +286,28 @@ c_line: lda     #<lbuf
         SAY     "LINEOK"
         rts
 
-; The ES5503 hook: masked, its windows the program's; A, X and Y its own.
-DOCHOOK:
-        inc     DCNT
-        lda     HZP
-        sta     DLAST
-        tsx
-        stx     DS
-        lda     #$40                    ; oscillator 0's volume
-        sta     DOCADDR
-        lda     #$77
-        sta     DOCDATA
-        rts
-
         .rodata
 cmds:   CMD     'K', c_k
         CMD     'Z', c_z
         CMD     'S', c_st
         CMD     'I', c_info
-        CMD     'H', c_hook
-        CMD     'R', c_run
         CMD     'W', c_wboot
         CMD     'D', c_line
-        CMD     'U', c_u
-        CMD     'V', c_v
+        CMD     'G', c_g
+        CMD     'L', c_l
         CMD     'B', c_b
         CMD     'F', c_f
+        CMD     'R', c_r
 CMDS_LEN = * - cmds
-hblk:   .byte   SN_DOCHOOK
-        .word   DOCHOOK
-        .byte   HZP
-
         .data
 bsave:  .res    3
 bres:   .res    2
+rnext:  .res    1
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0
 sblk:   .byte   SN_STATUS
-        .res    12, $EE
+        .res    14, $EE
 iblk:   .byte   SN_INFO
         .res    3, $EE
 lbuf:   .byte   20, 0

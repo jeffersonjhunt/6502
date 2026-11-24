@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-soundgen.py - tables for the boot splash's sound (bootsnd.s).
+soundgen.py - the boot splash's sound's timing and the bikes' physics, which
+docgen.py takes; and the tables (tables.inc) of revision 1's SID player
+(bootsnd.s), which left the ROM with revision 3 (only git has it now).
 
 Four MotoGP bikes scream past a listener at the centre of the screen, one for
 each part of the logo: the O, the O and the E come in from the left as a pack,
 and DIGITAL MANUFACTURING comes in from the right. Each bike is a voice played
 on SID A (left) and SID B (right) at once; the lone fourth gets two more. Then
-VINTAGE FAST is rubber-stamped on: bootsnd.s makes that sound itself, from the
+VINTAGE FAST is rubber-stamped on: bootsnd.s (removed with the sound card as a
+device, whose firmware plays the boot sound) made that sound itself, from the
 constants here.
 
 The model, for a bike at speed V passing at distance Y0:

@@ -23,8 +23,9 @@
  *   reads still halts the boot;
  * - the put-back: the VIA's ACR, IER and IFR 0 and timer 1 still, after a run;
  * - D3b, the card tests (stages 7-13, blocks 22 and 21): a good machine's, with their measurements in bounds
- *   and an SD card in the slot; a stuck bit in the sound card's RAM (SoundCard::set_ram_fault, EMU_FAULT_HOOKS)
- *   named by S2; the 6510's program not starting (S4 fails within 0.5 s, S5-S7 SKIP); an aperture fault (V6,
+ *   and an SD card in the slot; the sound card's faults (fault_devices.h, EMU_FAULT_HOOKS): a SELFTEST failure
+ *   named by S3, a byte DMA loses caught by S4's CRC-32, a dead interrupt line caught by S5, and a card that never
+ *   comes READY (S1 fails within 250 ms, S2-S6 SKIP); an aperture fault (V6,
  *   not V4); a stuck bit under DMA named by D2 as stage 6 names it; no sound card, no DMA controller; the SD
  *   card's image unchanged by a full run (answer 5); CC5's floating bus in the Disk II's empty slot; a boot to
  *   A> never touching P3's $BD1A5; the interactive tests (switch 16) with every answer given, P3's halt and
@@ -45,7 +46,7 @@
 #include "machine.h"
 #include "sd_card.h"
 #include "sd_images.h"
-#include "sound_card.h"
+#include "sound_card3.h"
 #include "usb_card.h"
 
 #include <cctype>
@@ -272,7 +273,7 @@ namespace
     };
 
     const std::string PROMPT = "DIAGNOSTICS: PRESS CONT OR Y WITHIN 5 S";
-    const std::string GREETING = "BACKPLANE BIOS 0.20\r";
+    const std::string GREETING = "BACKPLANE BIOS 0.21\r";
     const std::string RESULT = "RESULT: ";
 
     /// Switch 19 up, the reset, the prompt, CONT: the core runs. @return whether the prompt came
@@ -1089,25 +1090,32 @@ TEST(a_block_stage_2_passed_over_is_never_w0s_spare)
     CHECK(w0 != 0 && w0 != 1);
 }
 
-TEST(break_stops_the_sound_cards_6510)
+TEST(break_stops_the_sound_cards_sound)
 {
+    // Break's put-back runs QUIETM, CTRL's RESET on the revision 3 card: a sound a program left playing stops
+    // before the boot. A minute's BEEP sent through CMD, as a program would, then Break in stage 5.
     Rig r(SW19);
     REQUIRE(enter(r));
     REQUIRE(r.until(" 5  ADDRESS IN", ms(30'000)));
-    r.machine->bus().write(0xC540, static_cast<uint8_t>(r.io(0xC540) | 0x02)); // the 6510 running, as a program left it
+    SoundCard3 *card = r.machine->sound_device();
+    REQUIRE(card != nullptr);
+    const uint8_t beep[] = {0x60, 5, 0x42, 0x20, 0x03, 0x60, 0xEA, 0}; // BEEP: 800 Hz for 60,000 ms
+    for (const uint8_t b : beep)
+        r.machine->bus().write(0xC503, b);
+    r.run(ms(5));
+    REQUIRE(card->firmware().beeping());
     const uint16_t boot = label("BOOT");
-    bool reached = false;
-    uint8_t ctrl = 0xFF;
+    bool reached = false, beeping = true;
     r.watch = [&](uint16_t pc) {
         if (!reached && pc == boot)
-            reached = true, ctrl = r.io(0xC540); // as Break's put-back left it, before the boot's splash runs it again
+            reached = true, beeping = card->firmware().beeping(); // as Break's put-back left it
     };
     r.cpu->nmi();
     for (int i = 0; i < 400 && !reached; ++i)
         r.run(1000);
     REQUIRE(reached);
     CHECK(r.out.find("BREAK") != std::string::npos);
-    CHECK_EQ(ctrl & 0x02, 0); // SOUND_CTRL's RUN
+    CHECK(!beeping);
 }
 
 TEST(a_pass_count_above_255_is_printed_whole)
@@ -1157,7 +1165,7 @@ namespace
         return at == std::string::npos ? 0 : std::stoull(line.substr(at + before.size()));
     }
     /// The golden report with what the run measures masked: a run of four or more digits on the lines of
-    /// NB5, NB6, V3, D5 and S9 becomes "#", so a change of the code's timing by a few cycles isn't a diff.
+    /// NB5, NB6, V3, D5 and S6 becomes "#", so a change of the code's timing by a few cycles isn't a diff.
     std::string masked(const std::string &text)
     {
         std::string out;
@@ -1167,7 +1175,7 @@ namespace
             size_t end = text.find('\r', at);
             end = end == std::string::npos ? text.size() : end + 1;
             std::string line = text.substr(at, end - at);
-            for (const char *t : {"    NB5 ", "    NB6 ", "    V3 ", "    D5 ", "    S9 "})
+            for (const char *t : {"    NB5 ", "    NB6 ", "    V3 ", "    D5 ", "    S6 "})
                 if (line.compare(0, std::strlen(t), t) == 0)
                 {
                     std::string m;
@@ -1226,7 +1234,8 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
 {
     // The golden run's measurements, read back: the clock within 0.002% by the DS3231 (the emulator's counts
     // cycles) and 0.01% by the frame, as SYSINFO's tests hold them; the frame, DMA's 2 cycles a byte, the
-    // stream's 8,000 frames a second; and an SD card in the slot this time, so SD2-SD4 run.
+    // stream's 8,000 frames a second (S6, the sound card's); and an SD card in the slot this time, so SD2-SD4 run.
+    // Stage 10 on the revision 3 card (S19): each of S1-S6 passes, and S2 says what IDENTIFY said.
     Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
     REQUIRE(enter(r));
     REQUIRE(to_result(r));
@@ -1234,21 +1243,31 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
         CHECK(ends(stage_line(r, n), "PASS"));
     CHECK(ends(stage_line(r, 13), "SKIP"));
     const uint64_t hz = measured(r, "NB5", "CPU "), fhz = measured(r, "NB6", "CPU ");
-    std::printf("  NB5 %llu Hz, NB6 %llu Hz, V3 %llu cycles, S9 %llu frames, SD4 %llu KB/s\n",
+    std::printf("  NB5 %llu Hz, NB6 %llu Hz, V3 %llu cycles, S6 %llu frames, SD4 %llu KB/s\n",
                 static_cast<unsigned long long>(hz), static_cast<unsigned long long>(fhz),
                 static_cast<unsigned long long>(measured(r, "V3", "A FRAME ")),
-                static_cast<unsigned long long>(measured(r, "S9", "8000 HZ: ")),
+                static_cast<unsigned long long>(measured(r, "S6", "8000 HZ: ")),
                 static_cast<unsigned long long>(measured(r, "SD4", "SPEED: ")));
     CHECK(hz > HZ - HZ / 50000 && hz < HZ + HZ / 50000);
     CHECK(fhz > HZ - HZ / 10000 && fhz < HZ + HZ / 10000);
     CHECK(measured(r, "D4", "FILL: ") == 4096);
-    const uint64_t frame = measured(r, "V3", "A FRAME "), frames = measured(r, "S9", "8000 HZ: "),
+    const uint64_t frame = measured(r, "V3", "A FRAME "), frames = measured(r, "S6", "8000 HZ: "),
                    left = measured(r, "D5", "PART WAY: ");
     // V3's own frame, by HW_CLOCK (ae842b7): each end is stamped by the poll pass before its change, 11-53 cycles
     // early, and a clean change's gap is 79 cycles, so the frame is within a gap of the true 119,436.6 either way
     CHECK(frame >= 119437 - 80 && frame <= 119437 + 80);
     CHECK(frames >= 2051 - 2 && frames <= 2051 + 2);
     CHECK(left > 4096 - 16 && left < 4096);
+    for (const char *t : {"S1", "S2", "S3", "S4", "S5", "S6"})
+        CHECK(ends(test_line(r, t), "PASS"));
+    const SoundCard3 &card = *r.machine->sound_device();
+    char identify[64];
+    std::snprintf(identify, sizeof identify, "IDENTIFY: FIRMWARE %u.%u, MEMSIZE %u, FEATURES $%02X",
+                  card.firmware().version_major(), card.firmware().version_minor(), card.firmware().memsize(),
+                  card.firmware().features());
+    std::printf("  %s\n", test_line(r, "S2").c_str());
+    CHECK(test_line(r, "S2").find(identify) != std::string::npos);
+    CHECK(card.firmware().store_bytes() == card.firmware().store_free()); // FREEALL at the stage's end
     CHECK(ends(test_line(r, "SD2"), "PASS"));
     CHECK(test_line(r, "SD2").find("FAT") != std::string::npos);
     CHECK(ends(test_line(r, "SD3"), "PASS"));
@@ -1262,46 +1281,118 @@ TEST(the_card_stages_pass_on_a_good_machine_with_their_measurements_in_bounds)
     CHECK(r.row(3).find(" 1  FLASH BLOCKS 21-31") == 0);
 }
 
-TEST(a_stuck_bit_in_the_sound_cards_ram_is_named_by_s2)
+TEST(stage_10_names_a_selftest_failure)
 {
+    // The firmware's SELFTEST finds wave RAM and the codec's loop failing (bits 1 and 3): S3 fails naming both,
+    // and the rest of the stage runs on. Must fail if S3 doesn't look at the parts that failed.
     Rig r;
     REQUIRE(r.ok());
-    r.machine->sound_card()->set_ram_fault(0x5678, 0xFB, 0x00); // bit 2 stuck at 0
+    REQUIRE(selftest_bit(*r.machine, 0x0A));
     faulted_run(r);
-    CHECK(ends(test_line(r, "S2"), "FAIL"));
-    CHECK(after_test(r, "S2").find("CARD RAM $5678: READ E9, WROTE ED, BITS 2") != std::string::npos);
-    CHECK(ends(test_line(r, "S4"), "PASS"));
+    CHECK(ends(test_line(r, "S3"), "FAIL"));
+    CHECK(after_test(r, "S3").find("FAILED: WAVE RAM THE CODEC'S LOOP") != std::string::npos);
+    for (const char *t : {"S1", "S2", "S4", "S5", "S6"})
+        CHECK(ends(test_line(r, t), "PASS"));
     CHECK(ends(stage_line(r, 10), "FAIL"));
 }
 
-TEST(the_6510_program_not_running_fails_s4_within_half_a_second_and_skips_s5_to_s7)
+TEST(stage_10_s_checksum_catches_a_dropped_byte)
 {
-    // Its first opcode reads $02 (a jam on the NMOS 6510): the start byte never comes.
+    // One byte of S4's 4 KB lost on its way into DATA: the load never ends (the card wants one more byte, and a
+    // command behind an open transfer waits for it), so S4 closes it by XFERABORT and fails, saying what came;
+    // the replies stay in step and S5 and S6 pass. Must fail if S4 takes a load that never ended as done.
     Rig r;
     REQUIRE(r.ok());
-    r.machine->sound_card()->set_ram_fault(0x0200, 0x00, 0x02);
+    REQUIRE(dma_drops_a_byte(*r.machine, 0)); // armed when S4 begins (below)
+    c815(r, 0xA5, 0x00, 0x5A);
+    bool armed = false;
+    auto before = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (!armed && r.out.find("S4   DMA CHANNEL 2") != std::string::npos)
+            armed = true, r.machine->sound_device()->set_dma_drop(1000);
+    };
+    REQUIRE(to_result(r));
+    for (const char *t : {"S4", "S5", "S6"})
+        std::printf("  %s%s\n", test_line(r, t).c_str(), after_test(r, t).c_str());
+    CHECK(armed);
+    CHECK(ends(test_line(r, "S4"), "FAIL"));
+    CHECK(after_test(r, "S4").find("THE LOAD TOOK 4095 OF 4096 BYTES") != std::string::npos);
+    for (const char *t : {"S5", "S6"})
+        CHECK(ends(test_line(r, t), "PASS"));
+    CHECK(ends(stage_line(r, 10), "FAIL"));
+}
+
+TEST(stage_10_s_checksum_catches_a_corrupted_byte)
+{
+    // One byte of S4's 4 KB arrives with its bits flipped: the load ends whole, so only the card's CRC-32 against
+    // the host's tells; S4 fails saying both, and S5 and S6 pass. Must fail if S4 doesn't compare the two.
+    Rig r;
+    REQUIRE(r.ok());
+    REQUIRE(dma_corrupts_a_byte(*r.machine, 0)); // armed when S4 begins (below)
+    c815(r, 0xA5, 0x00, 0x5A);
+    bool armed = false;
+    auto before = r.watch;
+    r.watch = [&](uint16_t pc) {
+        if (before)
+            before(pc);
+        if (!armed && r.out.find("S4   DMA CHANNEL 2") != std::string::npos)
+            armed = true, r.machine->sound_device()->set_dma_corrupt(1000);
+    };
+    REQUIRE(to_result(r));
+    for (const char *t : {"S4", "S5", "S6"})
+        std::printf("  %s%s\n", test_line(r, t).c_str(), after_test(r, t).c_str());
+    CHECK(armed);
+    CHECK(ends(test_line(r, "S4"), "FAIL"));
+    CHECK(after_test(r, "S4").find("THE CARD'S CRC-32 $") != std::string::npos);
+    for (const char *t : {"S5", "S6"})
+        CHECK(ends(test_line(r, t), "PASS"));
+    CHECK(ends(stage_line(r, 10), "FAIL"));
+}
+
+TEST(stage_10_s_event_path_catches_a_dead_interrupt)
+{
+    // The card's interrupt line dead: its events still come through EVT, but IRQH bit 2 never goes low, and S5
+    // says so. Must fail if S5 doesn't read IRQH.
+    Rig r;
+    REQUIRE(r.ok());
+    REQUIRE(irq_dead(*r.machine));
+    faulted_run(r);
+    CHECK(ends(test_line(r, "S5"), "FAIL"));
+    CHECK(after_test(r, "S5").find("IRQH BIT 2 STAYED HIGH WITH AN EVENT WAITING") != std::string::npos);
+    for (const char *t : {"S1", "S2", "S3", "S4", "S6"})
+        CHECK(ends(test_line(r, t), "PASS"));
+    CHECK(ends(stage_line(r, 10), "FAIL"));
+}
+
+TEST(a_card_that_never_comes_ready_fails_s1_and_skips_the_rest)
+{
+    // The firmware never up: S1 waits its 250 ms for READY and fails, and S2-S6 skip, saying why.
+    Rig r;
+    REQUIRE(r.ok());
+    REQUIRE(never_ready(*r.machine));
     uint64_t asked = 0, failed = 0;
     c815(r, 0xA5, 0x00, 0x5A);
     auto before = r.watch;
     r.watch = [&](uint16_t pc) {
         if (before)
             before(pc);
-        if (!asked && r.out.find("S4   THE 6510") != std::string::npos)
+        if (!asked && r.out.find("S1   ID $A3") != std::string::npos)
             asked = r.cpu->cycles();
-        if (asked && !failed && r.out.find("NO START BYTE") != std::string::npos)
+        if (asked && !failed && r.out.find("NOT READY WITHIN 250 MS") != std::string::npos)
             failed = r.cpu->cycles();
     };
     REQUIRE(to_result(r));
-    CHECK(ends(test_line(r, "S4"), "FAIL"));
-    CHECK(after_test(r, "S4").find("NO START BYTE WITHIN 0.5 S") != std::string::npos);
-    for (const char *t : {"S5", "S6", "S7"})
+    CHECK(ends(test_line(r, "S1"), "FAIL"));
+    for (const char *t : {"S2", "S3", "S4", "S5", "S6"})
     {
         CHECK(ends(test_line(r, t), "SKIP"));
-        CHECK(after_test(r, t).find("THE 6510 DIDN'T START (S4)") != std::string::npos);
+        CHECK(after_test(r, t).find("THE FIRMWARE ISN'T READY (S1)") != std::string::npos);
     }
     const double s = static_cast<double>(failed - asked) / HZ;
-    std::printf("  S4 gave up after %.2f s\n", s);
-    CHECK(asked && failed && s > 0.45 && s < 0.65); // its wait and the line's own characters
+    std::printf("  S1 gave up after %.3f s\n", s);
+    CHECK(asked && failed && s > 0.24 && s < 0.40); // its wait and the line's own characters
 }
 
 TEST(an_aperture_fault_fails_v6_and_not_v4)
@@ -1346,7 +1437,7 @@ TEST(no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3)
         REQUIRE(enter(r));
         REQUIRE(to_result(r));
         CHECK(ends(stage_line(r, 8), "SKIP"));
-        for (const char *t : {"V7", "S3", "SD3", "SD4"})
+        for (const char *t : {"V7", "S4", "SD3", "SD4"})
         {
             CHECK(ends(test_line(r, t), "SKIP"));
             CHECK(after_test(r, t).find("NO DMA CONTROLLER") != std::string::npos);
@@ -1560,22 +1651,30 @@ namespace
     }
 } // namespace
 
-TEST(break_during_s10s_first_tone_leaves_the_sids_silent_at_the_boot)
+TEST(break_during_s10s_note_leaves_the_card_silent_at_the_boot)
 {
-    // Review P1: Break's way out quiets every card as stage 0 does, so a SID can't drone on into the boot.
+    // Review P1: Break's way out quiets every card as stage 0 does, so S10's note can't drone on into the boot:
+    // the music stopped and every voice free by BOOT.
     Rig r(SW19 | SW16);
     REQUIRE(enter(r));
     size_t at = 0;
     at = on(r, "DID ONE LIGHT WALK ACROSS? (Y OR N) ", at, [&r] { r.key('y'); }, ms(90'000));
     at = on(r, "GRID? (Y OR N) ", at, [&r] { r.key('y'); }, ms(5000));
-    REQUIRE(r.until("S10  A TONE ON SID A, ON SID B", ms(5000), at));
-    r.run(ms(150)); // in SID A's half second
-    REQUIRE((r.io(0xC504) & 0x01) != 0); // its gate on: the tone sounding
+    REQUIRE(r.until("S10  A NOTE ON A SID VOICE", ms(5000), at));
+    r.run(ms(150)); // in the note's half second
+    const SoundFw &fw = r.machine->sound_device()->firmware();
+    REQUIRE(fw.music_state() == SoundFw::M_PLAYING); // the note sounding
     r.cpu->nmi();
-    uint8_t vol = 0xFF, gate = 0xFF;
-    REQUIRE(at_boot(r, [&] { vol = r.io(0xC518), gate = r.io(0xC504); }));
-    CHECK_EQ(vol & 0x0F, 0);
-    CHECK_EQ(gate & 0x01, 0);
+    uint8_t music = 0xFF;
+    unsigned busy = 99;
+    REQUIRE(at_boot(r, [&] {
+        music = fw.music_state();
+        busy = 0;
+        for (unsigned v = 0; v < SoundFw::VOICES; ++v)
+            busy += fw.voice_use(v) != SoundFw::V_FREE;
+    }));
+    CHECK_EQ(music, SoundFw::M_STOPPED);
+    CHECK_EQ(busy, 0u);
     CHECK(r.until(GREETING, ms(8000)));
 }
 
@@ -1730,7 +1829,7 @@ namespace
 TEST(a_revision_1_dma_controller_is_listed_and_never_driven)
 {
     // Item 13: revision 1's layout is another, so its ID ($81) reads as no controller this ROM drives. Stage 8
-    // skips it, saying revision 1, and NB3, V7, S3, SD3 and SD4 skip their DMA parts as with none fitted.
+    // skips it, saying revision 1, and NB3, V7, S4, SD3 and SD4 skip their DMA parts as with none fitted.
     // Must fail if the check takes revision 1 (HAVEDMA's or a card test's `cmp #2` left at 1): the ROM would
     // program a revision 1 controller with revision 2's registers.
     Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
@@ -1751,7 +1850,7 @@ TEST(a_revision_1_dma_controller_is_listed_and_never_driven)
     const std::string reason = why == std::string::npos ? "" : text.substr(why, text.find('\r', why) - why);
     std::printf("  stage 8: '%s' / '%s'\n", stage_line(r, 8).c_str(), reason.c_str());
     CHECK(reason.find("REVISION 1") != std::string::npos);
-    for (const char *t : {"V7", "S3", "SD3", "SD4"})
+    for (const char *t : {"V7", "S4", "SD3", "SD4"})
     {
         CHECK(ends(test_line(r, t), "SKIP"));
         CHECK(after_test(r, t).find("NO DMA CONTROLLER") != std::string::npos);
@@ -1884,7 +1983,7 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
     CHECK_EQ(bridge_of(r).winh(1), 0x00);
     CHECK_EQ(bridge_of(r).window(1), 0x01);
     CHECK_EQ(bridge_of(r).map(), 0x01); // the card: AP8 set again
-    CHECK(r.screen_has("BACKPLANE BIOS 0.20"));
+    CHECK(r.screen_has("BACKPLANE BIOS 0.21"));
     r.machine->bus().write_bus(0x04123, 0x5C); // RAM block 1
     const size_t from = r.out.size();
     r.type("4123\r");

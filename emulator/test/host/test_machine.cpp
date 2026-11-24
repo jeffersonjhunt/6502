@@ -224,32 +224,27 @@ TEST(spaces_and_the_northbridge_line)
 
 TEST(the_machine_takes_rev_and_memsize)
 {
-    // The sound line: rev=1, 2 (the default) or 3, the device; memsize=2, 4 or 8 (MB) on revision 3 only.
+    // The sound line: the device, revision 3 (rev=3 may be said); memsize=2, 4 or 8 (MB), 8 the default.
     std::string error;
     auto with = [&error](const std::string &opts) {
         return build("northbridge backplane\nram 00000-FFFFF\nsound 500-57F space=io name=sound irq drq" + opts + "\n", error);
     };
-    auto m = with("");
-    REQUIRE(m != nullptr);
-    REQUIRE(m->sound_card() != nullptr);
-    CHECK_EQ(m->sound_card()->revision(), 2u);
-    CHECK(m->sound_device() == nullptr);
-    m = with(" rev=1");
-    REQUIRE(m != nullptr);
-    CHECK_EQ(m->sound_card()->revision(), 1u);
-    m = with(" rev=3");
-    REQUIRE(m != nullptr);
-    CHECK(m->sound_card() == nullptr);
-    REQUIRE(m->sound_device() != nullptr);
-    CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 128);
-    CHECK_EQ(m->sound_device()->peek(SoundCard3::ID_REG), 0xA3);
+    for (const char *opts : {"", " rev=3"})
+    {
+        auto m = with(opts);
+        REQUIRE(m != nullptr);
+        REQUIRE(m->sound_device() != nullptr);
+        CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 128);
+        CHECK_EQ(m->sound_device()->peek(SoundCard3::ID_REG), 0xA3);
+    }
+    std::unique_ptr<Machine> m;
     for (const char *mb : {"2", "4", "8"})
     {
         m = with(std::string(" rev=3 memsize=") + mb);
         REQUIRE(m != nullptr);
         CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 16 * (mb[0] - '0'));
     }
-    for (const char *bad : {" rev=4", " rev=3 memsize=3", " memsize=8", " rev=2 memsize=2", " rev=0"})
+    for (const char *bad : {" rev=4", " rev=3 memsize=3", " memsize=16", " rev=0"})
     {
         CHECK(with(bad) == nullptr);
         std::printf("  %s: %s\n", bad, error.c_str());

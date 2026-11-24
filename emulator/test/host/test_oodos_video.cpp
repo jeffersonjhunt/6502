@@ -201,7 +201,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("11 2F")); // interface 17, areas frame, input, sound, DMA, serial
+    CHECK_EQ(command(r, 'F', "F"), std::string("12 2F")); // interface 18, areas frame, input, sound, DMA, serial
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
     // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
     // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
@@ -762,18 +762,18 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
 {
     // Review F8: all four slots, 256 bytes each (1,024 in all), the pointer on and a 44.1 kHz stream playing
     // (its fields written each frame), the latest a frame's copies end, with a USB batch or a 64 KB load under way.
-    CcpRig r;
+    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
     open(r, "2");
     r.poke(0x10000, noise(65536, 1));
     r.poke(0x3000, std::vector<uint8_t>{1, 2}); // function 82: claim the stream, start it, two 64 KB buffers (0.74 s)
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{7, 0, 0x44, 0xAC, 3});
+    r.poke(0x3000, std::vector<uint8_t>{12, 0, 0x44, 0xAC, 3});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x01, 0x00, 0x00});
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x00, 0x01, 0x00, 0x00});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
-    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x02, 0x00, 0x00});
+    r.poke(0x3000, std::vector<uint8_t>{13, 0x00, 0x00, 0x02, 0x00, 0x00});
     CHECK_EQ(gcall(r, 82, 0x3000), std::string("01 00"));
     for (uint8_t k = 0; k < 4; ++k)
         CHECK_EQ(f83(r, vbset(k, 0x10000 + k * 0x100u, 0x90000 + k * 0x1000u, 256)), std::string("00 00"));
@@ -835,9 +835,9 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     CHECK(usb_latest <= 524);
     // The stream still playing at the measurement's end (128 KB of buffers: 0.74 s), and never dry (review R2).
     std::printf("  the stream at the end: state %u, %u frames played, underruns %u\n",
-                r.machine->sound_card()->peek(0x50), r.phys(AREA + 100) | r.phys(AREA + 101) << 8 | r.phys(AREA + 102) << 16,
+                r.phys(AREA + 96), r.phys(AREA + 100) | r.phys(AREA + 101) << 8 | r.phys(AREA + 102) << 16,
                 r.phys(AREA + 106));
-    CHECK_EQ(r.machine->sound_card()->peek(0x50), 2); // SOUND_STATE: playing
+    CHECK_EQ(r.phys(AREA + 96), 2); // EV_SSTATE: playing
     CHECK_EQ(r.phys(AREA + 106), 0);                 // the stream's underruns
 }
 
@@ -1056,7 +1056,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, V_L0), 0x80);
         CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
         CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
-        CHECK_EQ(command(r, 'F', "F"), std::string("11 2F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("12 2F"));
     }
 }
 

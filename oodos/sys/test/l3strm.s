@@ -1,7 +1,10 @@
-; L3STRM: sound revision 2's acceptance (hw/sound-rev2.md, item 4), for
+; L3STRM: sound revision 2's acceptance (hw/sound-rev2.md, item 4), and
+; revision 3's (a file bigger than the card's store), for
 ; test_oodos_sound.cpp: a file streamed through function 82, its two
-; buffers refilled with ordinary BDOS reads (function 20, 96 records a
-; call) as OODOS frees them. The test puts the stream's codec, rate (2
+; buffers refilled by function 83's DM_LOAD (96 records a call, the file
+; into memory by DMA: function 20's record path reads about 200 KB/s,
+; under 48 kHz stereo's 192 with the stream's interrupts) as OODOS frees
+; them. The test puts the stream's codec, rate (2
 ; bytes) and format at PARMS ($2100) and the file's FCB at FCB ($2120)
 ; before GO. The program opens a 256-byte event area at AREA ($2000) and
 ; watches its sound part (EV_SBUFS) for a free buffer, then:
@@ -67,9 +70,6 @@ start:  stz     eof
         ldx     #>cblk
         jsr     f82
         SAY     "CLAIM"
-        lda     #RECS
-        ldy     #F_MULTISEC
-        jsr     BDOS
         lda     #<FCB
         ldx     #>FCB
         ldy     #F_OPEN
@@ -149,31 +149,47 @@ drain:  lda     AREA + EV_SBUFS
         jsr     f82
         jmp     WBOOT
 
-; Buffer A filled from the file (RECS records, fewer at its end) and given;
-; nothing given if the file had none left.
+; Buffer A filled from the file (RECS records, fewer at its end) by function
+; 83's DM_LOAD (the file's records into memory by DMA, from the next record
+; on) and given; nothing given if the file had none left.
 refill: sta     k
         tax
-        lda     blo,x
-        pha
+        lda     blo,x                   ; the destination: the buffer's physical address (blocks 0-2)
+        sta     lblk + 8
         lda     bhi,x
-        tax
-        pla
-        ldy     #F_DMAOFF
-        jsr     BDOS
-        lda     #<FCB
-        ldx     #>FCB
-        ldy     #F_READ
+        sta     lblk + 9
+        stz     lblk + 10
+        ldx     #2
+@rec:   lda     rec,x                   ; the first record
+        sta     lblk + 3,x
+        dex
+        bpl     @rec
+        lda     #<RECS
+        sta     lblk + 6
+        lda     #>RECS
+        sta     lblk + 7
+        lda     #<lblk
+        ldx     #>lblk
+        ldy     #O_DMA
         jsr     BDOS
         cmp     #0
         beq     rf_all
-        stx     n                       ; 1: the file's end, X records read before it
-        lda     #1
+        lda     #1                      ; the file ended: +6-7 the records loaded
         sta     eof
-        lda     n
-        bne     rf_give
+        lda     lblk + 6
+        sta     n
+        bne     rf_more
         rts
 rf_all:   lda     #RECS
         sta     n
+rf_more:  clc                           ; the next record on
+        lda     rec
+        adc     n
+        sta     rec
+        bcc     rf_give
+        inc     rec + 1
+        bne     rf_give
+        inc     rec + 2
 rf_give:  ldx     k
         lda     blo,x
         sta     bblk + 1
@@ -234,6 +250,10 @@ oblk:   .byte   FT_OPEN
 tblk:   .byte   SN_STREAM, 0, 0, 0, 0
 bblk:   .byte   SN_BUFFER, 0, 0, 0, 0, 0
 sblk:   .byte   SN_STATUS
-        .res    12
+        .res    14
+lblk:   .byte   DM_LOAD
+        .word   FCB
+        .res    8
+rec:    .res    3                       ; the file's next record
 
         .include "print.inc"

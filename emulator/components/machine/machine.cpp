@@ -410,8 +410,8 @@ namespace ooe::emu
                         return fail("rev: only the video and sound cards take a revision");
                     if (type == "video" && n != "1" && n != "2")
                         return fail("rev: want the video card's revision, 1 or 2");
-                    if (type == "sound" && n != "1" && n != "2" && n != "3")
-                        return fail("rev: want the sound card's revision, 1, 2 or 3");
+                    if (type == "sound" && n != "3")
+                        return fail("rev: want the sound card's revision, 3");
                     rev = static_cast<unsigned>(n[0] - '0');
                 }
                 else if (eq != std::string::npos && arg.compare(0, eq, "memsize") == 0)
@@ -531,24 +531,11 @@ namespace ooe::emu
                 }
                 else if (type == "sound")
                 {
-                    if (m->sound_card_ || m->sound_device_)
+                    if (m->sound_device_)
                         return fail("sound: only one per machine");
-                    if (memsize && rev != 3)
-                        return fail("sound: memsize= is revision 3's (rev=3)");
-                    if (rev == 3)
-                    {
-                        auto card = std::make_unique<SoundCard3>((memsize ? memsize : 8) * 16);
-                        m->sound_device_ = card.get();
-                        dev = std::move(card);
-                    }
-                    else
-                    {
-                        auto card = std::make_unique<SoundCard>();
-                        if (rev)
-                            card->set_revision(rev);
-                        m->sound_card_ = card.get();
-                        dev = std::move(card);
-                    }
+                    auto card = std::make_unique<SoundCard3>((memsize ? memsize : 8) * 16);
+                    m->sound_device_ = card.get();
+                    dev = std::move(card);
                 }
                 else if (type == "sd")
                 {
@@ -741,8 +728,6 @@ namespace ooe::emu
             video_card_->set_cpu_hz(hz); // 0, flat out: the card keeps 7.16 MHz time
         if (usb_card_)
             usb_card_->set_cpu_hz(hz); // key repeat and the paddles
-        if (sound_card_)
-            sound_card_->set_cpu_hz(hz); // its 6510 keeps the SID clock's time
         if (sound_device_)
             sound_device_->set_cpu_hz(hz); // the firmware keeps the card's own time
         if (sd_card_)

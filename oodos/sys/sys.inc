@@ -153,7 +153,7 @@ TICK_CYCLES     = 7159                 ; the CPU's whole cycles a millisecond (t
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
 CLK_T1          = $04                  ; CLOCKS: the VIA's timer 1 is the program's (a VIA is there)
-OOLIB_IFACE     = 17                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 15 adds nothing a program uses, 85's serial receive buffer and EV_RXCNT: 16, 78's random source, FC_T1 and FT_CLOCK: 17)
+OOLIB_IFACE     = 18                   ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6, EV_SFLAGS: 7, video card revision 2: 8, 72's ROM BIOS version: 9, 75's diagnostics: 10, 75's Apple II mode by image: 11, 83's DM_BANK8 and WIN1H in the W1 contract: 12, 83's DM_VFILLW and the 640x480 colour layers: 13, 83's full-resolution pointer and SPRCTL cleared at the warm boot: 14, 15 adds nothing a program uses, 85's serial receive buffer and EV_RXCNT: 16, 78's random source, FC_T1 and FT_CLOCK: 17, 82 renumbered for the sound card as a device, OODOS 0.17: 18)
 OOLIB_AREAS     = $2F                  ; the service areas there are (FT_INFO's): frame and timing (80),
                                        ; input (81), sound (82), DMA and loading (83), the serial line (85)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
@@ -164,7 +164,7 @@ R62_ID6         = 0                    ; irq.s's CALL62: input.s's R62TAB, SERID
 R62_OTHER       = 2                    ;   IRQOTH: a card's interrupt not the VIA's or the video card's
 R62_TICK        = 4                    ;   L2TICK: the sticks and the paddles
 R61_IRQ         = 0                    ; irq.s's CALL61: sound.s's R61TAB, SNDIRQ (block 61)
-R61_FRAME       = 2                    ;   SFIELDS: the event area's sound part
+R61_FRAME       = 2                    ;   SFRAME: the sound part's status asked for, once a frame
 R61_QUIET       = 4                    ;   SNDQUIET: the warm boot's
 R61_INIT        = 6                    ;   SNDINIT: cold boot's
 R61_VB          = 8                    ;   VBWORK: the vertical-blank copies and the pointer (video.s, L4)

@@ -38,7 +38,7 @@ namespace
     }
 
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string GREETING = "\rBACKPLANE BIOS 0.20\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.21\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     std::unique_ptr<Session> open(const std::string &machine = MACHINE)
@@ -310,7 +310,7 @@ TEST(the_sound_cards_audio_keeps_real_time_and_outlasts_a_power_cycle)
 {
     auto s = booted();
     REQUIRE(s != nullptr);
-    REQUIRE(s->sound() != nullptr);
+    REQUIRE(s->sound_device() != nullptr);
     std::vector<float> out(2 * 48'000);
     CHECK_EQ(s->take_audio(out.data(), 48'000), 0u); // not asked for: none
     s->set_audio_rate(48'000);
@@ -352,60 +352,10 @@ namespace
 
 TEST(a_sid_tune_plays_on_the_card_changes_song_stops_and_goes_with_a_power_cycle)
 {
+    // The file goes to the card's tune player (the firmware's, outside the bus), on its 6510 and SIDs (the card's
+    // own chips).
     auto s = booted();
     REQUIRE(s != nullptr);
-    SoundCard *card = s->sound();
-    REQUIRE(card != nullptr);
-    std::string error;
-    REQUIRE(s->play_sid(two_song_sid(), 0, error));
-    REQUIRE(s->sid() != nullptr);
-    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
-    CHECK_EQ(s->sid_song(), 1u);
-    CHECK(card->ctrl() & SoundCard::CTRL_RUN);
-    s->run(7'159'090 / 5); // a fifth of a second of the host: ten frames on the card
-    CHECK_EQ(card->sid(0)[0x18], 0x0F);
-    const uint8_t frames = card->sid(0)[0x00];
-    CHECK(frames >= 9 && frames <= 10);
-    CHECK_EQ(card->ram()[0xC000], 0);
-
-    REQUIRE(s->play_song(2, error));
-    CHECK_EQ(s->sid_song(), 2u);
-    s->run(7'159'090 / 50);
-    CHECK_EQ(card->ram()[0xC000], 1); // init again, with song 2 in A
-    CHECK(card->sid(0)[0x00] <= 1);  // from silence again
-    CHECK(!s->play_song(3, error));
-    CHECK(!error.empty());
-
-    CHECK(!s->play_sid({1, 2, 3}, 0, error)); // not a .sid: the tune playing stays
-    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
-    CHECK(card->ctrl() & SoundCard::CTRL_RUN);
-
-    s->stop_sid();
-    CHECK(s->sid() == nullptr);
-    CHECK(!(card->ctrl() & SoundCard::CTRL_RUN));
-    CHECK_EQ(card->sid(0)[0x18], 0);
-
-    REQUIRE(s->play_sid(two_song_sid(), 2, error));
-    REQUIRE(s->power_cycle(error));
-    CHECK(s->sid() == nullptr); // a new card, no tune on it
-    CHECK(!(s->sound()->ctrl() & SoundCard::CTRL_RUN));
-}
-
-TEST(a_sid_tune_plays_on_a_revision_3_card_changes_song_stops_and_goes_with_a_power_cycle)
-{
-    // The case above's twin on the sound card as a device (`sound ... rev=3`): the file goes to the card's tune
-    // player (the firmware's, outside the bus), its 6510 and SIDs (the card's own chips) as revision 2's would be.
-    std::ifstream in(MACHINE);
-    std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-    const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
-    const size_t at = text.find(line);
-    REQUIRE(at != std::string::npos);
-    text.insert(at + line.size(), "  rev=3");
-    auto s = open(write_machine("sound3.machine", text));
-    REQUIRE(s != nullptr);
-    std::string out;
-    REQUIRE(run_until(*s, out, GREETING));
-    CHECK(s->sound() == nullptr);
     SoundCard3 *card = s->sound_device();
     REQUIRE(card != nullptr);
     std::string error;
@@ -446,45 +396,55 @@ TEST(a_sid_tune_plays_on_a_revision_3_card_changes_song_stops_and_goes_with_a_po
     CHECK(!s->tune_playing());
 }
 
-TEST(the_speaker_and_the_sids_mix_into_the_same_stream)
+TEST(the_speaker_and_the_sound_card_mix_into_the_same_stream)
 {
     auto s = booted();
     REQUIRE(s != nullptr);
     std::string out;
-    s->run(7'159'090 * 51 / 10); // past the boot splash, whose tune has the card until it stops it
+    s->run(7'159'090 * 51 / 10); // past the boot splash and the card's boot sound
     s->set_audio_rate(48'000);
-    // A SID note on both sides, from the monitor...
-    for (const char *line : {"C540: 10\r", "C500: 00 10 00 00 11 00 F0\r", "C518: 0F\r"})
+    // The card's tone generator, from the monitor: a BEEP record (1,000 Hz for 10 s, the default volume) typed
+    // into CMD a byte a line, as a bare-metal program writes it...
+    for (const char *line : {"C503: 60\r", "C503: 05\r", "C503: 01\r", "C503: E8\r", "C503: 03\r", "C503: 10\r",
+                             "C503: 27\r", "C503: 00\r"})
     {
         s->send(line);
         CHECK(run_until(*s, out, std::string(line).substr(0, 5)));
     }
+    std::vector<float> block(2 * 24'000);
+    // The RMS of half a second, both sides alike (the beep is mono, and so is the speaker).
+    auto rms = [&] {
+        double sq = 0;
+        size_t n = 0;
+        for (int i = 0; i < 30; ++i)
+        {
+            s->run(7'159'090 / 60);
+            const size_t k = s->take_audio(block.data(), 24'000);
+            for (size_t f = 0; f < k; ++f, ++n)
+            {
+                CHECK_EQ(block[2 * f], block[2 * f + 1]);
+                sq += static_cast<double>(block[2 * f]) * block[2 * f];
+            }
+        }
+        CHECK(n > 23'000);
+        return std::sqrt(sq / static_cast<double>(std::max<size_t>(n, 1)));
+    };
     // ...and the speaker ($C5A6) toggled every 3,866 cycles, 926 Hz: LDA $C5A6, then three rounds of
     // 256 DEXes (LDY #3, LDX #0, DEX, BNE, DEY, BNE), JMP $0300.
     s->send("300: AD A6 C5 A0 03 A2 00 CA D0 FD 88 D0 F8 4C 00 03\r");
     CHECK(run_until(*s, out, "0300:"));
-    std::vector<float> block(2 * 24'000);
     s->take_audio(block.data(), 24'000); // what went before
+    const double beep = rms();
     s->send("300R\r");
     for (int i = 0; i < 6; ++i) // a tenth of a second for it to start and settle
         s->run(7'159'090 / 60), s->take_audio(block.data(), 24'000);
-    double sq = 0;
-    size_t n = 0;
-    for (int i = 0; i < 30; ++i)
-    {
-        s->run(7'159'090 / 60);
-        const size_t k = s->take_audio(block.data(), 24'000);
-        for (size_t f = 0; f < k; ++f, ++n)
-        {
-            CHECK_EQ(block[2 * f], block[2 * f + 1]); // a mono tune, and the speaker: both sides alike
-            sq += static_cast<double>(block[2 * f]) * block[2 * f];
-        }
-    }
-    CHECK(n > 23'000);
-    const double rms = std::sqrt(sq / static_cast<double>(n));
-    // The speaker's square, 0.2 RMS less the few % of its harmonics past 24 kHz, and the SID's
-    // triangle at full envelope, 0.072: about 0.21 together (the speaker alone is 0.197).
-    CHECK(rms > 0.203 && rms < 0.22);
+    const double both = rms();
+    std::printf("  the beep alone %.4f RMS; with the speaker %.4f (the speaker alone is 0.197)\n", beep, both);
+    // Two squares a few % apart in pitch add as powers: the speaker's 0.197 and the beep's own.
+    CHECK(beep > 0.02);
+    const double want = std::sqrt(beep * beep + 0.197 * 0.197);
+    CHECK(both > want * 0.97);
+    CHECK(both < want * 1.03);
     CHECK(s->usb()->speaker_toggles() > 400);
 }
 
@@ -526,6 +486,26 @@ TEST(apple_ii_mode_fixes_the_clock_and_the_cards_follow_it)
     s->run(1'020'484);                         // the caller's clock again (7.16 MHz): 8.5 frames,
     const uint64_t after = s->video()->frames() - native;
     CHECK(after == 8 || after == 9);           // not the Apple clock's 60
+}
+
+TEST(in_apple_ii_mode_the_sound_card_keeps_the_apple_clock_s_time)
+{
+    // The card's time is the CPU's cycles at the clock it is told: in Apple II mode the mode's 1,020,484 Hz, so a
+    // second of the Apple's cycles is a second of the card's sound.
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    REQUIRE(s->sound_device() != nullptr);
+    s->send("C685: 1\r");
+    for (int i = 0; i < 60 && !s->fixed_hz(); ++i)
+        s->run(FRAME);
+    REQUIRE(s->fixed_hz() == 1'020'484u);
+    s->set_audio_rate(48'000);
+    std::vector<float> out(2 * 48'000);
+    size_t frames = 0;
+    for (int i = 0; i < 4; ++i) // a second at the Apple clock, a quarter at a time (a take holds half a second)
+        s->run(1'020'484 / 4), frames += s->take_audio(out.data(), 48'000);
+    std::printf("  a second in Apple II mode: %zu frames of sound\n", frames);
+    CHECK(frames >= 47'990 && frames <= 48'000);
 }
 
 TEST(start_after_apple_ii_mode_puts_the_cards_back_on_the_callers_clock)

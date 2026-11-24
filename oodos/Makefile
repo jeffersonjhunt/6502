@@ -94,13 +94,6 @@ OOLIB_USERS = playsid view
 $(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s $(wildcard lib/*.inc) include/oodos.inc include/oolib.inc | $(BUILD)
 	ca65 $(AFLAGS) -I lib --bin-include-dir $(BUILD) $< -o $@
 
-# The music driver for the sound card's 6510 (lib/mudrv/, L6a): a 6502 program, not a library module,
-# assembled on its own and taken into lib/mu.s's image whole.
-$(BUILD)/mudrv.bin: lib/mudrv/mudrv.s lib/mudrv/mudrv.cfg | $(BUILD)
-	ca65 lib/mudrv/mudrv.s -o $(BUILD)/mudrv.o
-	ld65 -C lib/mudrv/mudrv.cfg $(BUILD)/mudrv.o -o $@
-$(BUILD)/lib-mu.o: $(BUILD)/mudrv.bin
-
 # Every module's zero page in a lib/zp*.s of its own (tools/libzp.py), so an overlay can link the library.
 $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 	$(PYTHON) tools/libzp.py check $(LIBS:%=$(BUILD)/lib-%.o)

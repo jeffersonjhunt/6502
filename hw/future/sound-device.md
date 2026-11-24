@@ -333,7 +333,7 @@ slot, so the host can send a load and the play after it without waiting for a re
 
 | Cmd | Name | Parameters | Reply's results |
 |---|---|---|---|
-| `$40` | MUSIC_LOAD | +3 a slot (0–7), +4–6 the length | none; a transfer opens for a block |
+| `$40` | MUSIC_LOAD | +3 a slot (0–31), +4–6 the length | none; a transfer opens for a block |
 | `$41` | MUSIC_PLAY | +3 the slot, +4 flags: bit 0 queue it after what plays (PLAY's MB), bit 1 free the slot when done | none |
 | `$42` | MUSIC_STOP | none | none: every queued block dropped, the voices released |
 | `$43` | MUSIC_PAUSE, `$44` MUSIC_RESUME | none | none |
@@ -961,7 +961,7 @@ transfers and the flash, which no one command group owns.
 
 | Command | Results (after the reply's +3 status), by offset from the first |
 |---|---|
-| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (8), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 effect voices (6 SID, 32 oscillators: +21 the SID voices, +22 the oscillators), +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
+| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (32), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 effect voices (6 SID, 32 oscillators: +21 the SID voices, +22 the oscillators), +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
 | LOSTCLR | +0-1 the events lost since the last |
 | TIME | +0-3 ms |
 | SELFTEST | +0 the parts tested (the request's bits that the card has), +1 those that failed |
@@ -1143,7 +1143,7 @@ tell a full store from a chip in use. [part] is the claim an operation needs.
 | 13 | `SN_BUFFER` | +1-3 a physical address, +4-5 the length (0: 65,536) | A the buffer taken (0 or 1); sent into DATA on NEED [`SC_STREAM`] |
 | 14 | `SN_PAUSE` | none | STREAM_PAUSE [`SC_STREAM`] |
 | 15 | `SN_RESUME` | none | STREAM_RESUME [`SC_STREAM`] |
-| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped [`SC_STREAM`] |
+| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped; a stream `SN_NEXT` queued closed first (STREAM_CLOSE) [`SC_STREAM`] |
 | 17 | `SN_END` | none | STREAM_END [`SC_STREAM`] |
 | 18 | `SN_STATUS` | +1-12 to fill | A the state, X the buffers free; the block as today's, +3-4 the ring's room in 256-byte units |
 | 19 | `SN_NEXT` | +1 the codec, +2-3 the rate, +4 the format | stream 1 opened and queued behind stream 0 (STREAM_NEXT); SN_BUFFER feeds the one that wants data [`SC_STREAM`] |

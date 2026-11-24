@@ -107,7 +107,6 @@ emulator/test/host/fault_devices.h              test_bios_diag
 emulator/test/host/scratch.h                    test_machine test_bios_sd test_disk2 test_session
 emulator/test/host/sd/                          sd oodos web
 emulator/test/host/mp3/                         sound web
-emulator/test/host/sound/                       test_sound_driver
 emulator/test/host/fixtures/                    none
 emulator/test/host/README.md                    docs
 emulator/test/host/test_docs_examples.cpp       self docs
@@ -140,14 +139,10 @@ backplane/bios/apple.s                          bios apple docs web
 # The ROM's diagnostics (hw/diag.md) choose test_bios_diag's slow share too (hw/testing.md, item 8).
 backplane/bios/diag*                            bios diagslow docs web
 backplane/bios/sd.s                             bios sd docs web
-# The boot sound's samples and tables: the sound card's firmware plays them from its flash (mksndflash.py).
-backplane/bios/splash/wave.bin                  sound bios docs web
-backplane/bios/splash/doctables.inc             sound bios docs web
 backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web
 backplane/README.md                             none
 oodos/include/                                  oodos docs
-oodos/lib/mudrv/                                oodos test_mudrv docs
 oodos/lib/                                      oodos gwlocale docs
 oodos/diskdefs                                  oodos docs web
 oodos/spike/                                    none
@@ -179,6 +174,8 @@ tools/test_coverage.py                          tools
 tools/atecc_crc.py                              rng
 tools/mksndflash.py                             sound tools
 tools/mksndfw.py                                sound tools
+# The boot sound's samples and tables: the sound card's firmware plays them from its flash (mksndflash.py).
+tools/sndflash/                                 sound docs web
 tools/release/                                  none
 
 # --- prose, licenses and settings ----------------------------------------------------------------------

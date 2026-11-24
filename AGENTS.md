@@ -28,7 +28,8 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,
   its common hole (HOLE), its timebase (TBCTL, MS0-MS3, TBSUB, MSS) and its random number registers (RNGST, RNGCNT,
-  RNGDATA, `$19-$1B`: a program asks function 78), the sound card's 6510, the VIA's IER and IFR, and its ACR but for
+  RNGDATA, `$19-$1B`: a program asks function 78), the sound card (revision 3, the only one OODOS drives: drive it
+  through function 82 only), the VIA's IER and IFR, and its ACR but for
   timer 1's mode bits (7-6), and the serial line's receive (the 6551's CMD and its interrupt, its STATUS and DATA;
   later the TL16C552A's IER, MCR and FIFO control): a program reads AUX: by functions 3 and 7, and asks function 85
   for the rest (the owner, 2026-11-21). **Timer 1 is the program's, polled** (the owner, 2026-11-21; OODOS 0.16,
@@ -65,12 +66,21 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
     and OODOS's next command writes UNIT, LBA, COUNT and CTRL afresh.
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
-- **Don't break an interface programs use** (the owner's rule, 2026-11-13). The BDOS functions, OOLIB's interface
-  (12, function 80's `FT_INFO`), FARCALL and common memory's table, the BIOS's jump table and OOUI's interface
-  (`UI_IFACE` 1) only grow: a new function, operation, flag or field is added with its interface version raised,
-  and every existing call keeps its arguments, results, record layouts and meaning. A change that would break an
-  existing caller, or remove anything, goes to the owner first, named, with why. The interfaces are declared
-  stable at OODOS 1.0, after GW-BASIC (phase 7); until then this rule holds them.
+- **Interfaces programs use: free before 1.0, then they only grow** (the owner's rule, 2026-11-13; reworded
+  2026-11-24). The BDOS functions, OOLIB's interface (function 80's `FT_INFO`), FARCALL and common memory's table,
+  the BIOS's jump table and OOUI's interface (`UI_IFACE`). Before OODOS 1.0 (after GW-BASIC, phase 7) they change
+  freely: there is no older OODOS, only pre-1.0, and programs and OODOS ship together, so a change needs no
+  version gate and no caller refuses an earlier build. Each change is named in its commit (what changed, and its
+  interface version raised), and the books follow it. Version numbers stay reported (`FT_INFO`, SYSINFO), never
+  checked. From 1.0 they only grow: a new function, operation, flag or field is added with its interface version
+  raised, every existing call keeps its arguments, results, record layouts and meaning, and a change that would
+  break an existing caller, or remove anything, goes to the owner first, named, with why.
+  So, before 1.0 (the owner, 2026-11-23), function 82's operations were laid out afresh as one table grouped by
+  job, for the sound card as a device (OODOS 0.17, OOLIB interface 18)
+  ([the build plan's decisions](hw/future/sound-device-build.md#decisions)).
+- **The sound card is revision 3 (`$A3`) only** (the owner, 2026-11-24: until 1.0, no support or tests for a
+  revision that has been replaced). The ROM, OODOS, OOLIB and the emulator drive no other; a program reaches the card
+  through function 82 alone, and writes none of its registers.
 - **No Digital Research text or code,** in programs, tests or books. Write from the meaning, in our own words.
   The CP/M 3 Programmer's Guide and User's Guide are on the owner's machine, outside the repo and read-only, in
   `~/workspace/references/cpm3/` (PDF and text): read them for what CP/M 3 does, and never copy or closely

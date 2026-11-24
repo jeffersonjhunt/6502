@@ -129,7 +129,7 @@ namespace ooe::emu
         static constexpr uint8_t CARD_TYPE = 0xA3;
         static constexpr uint8_t VERSION_MAJOR = 1, VERSION_MINOR = 0;
         static constexpr uint16_t BUILD = 1;
-        static constexpr unsigned TUNE_SLOTS = 4, SAMPLE_SLOTS = 256, EFFECTS = 256, MUSIC_SLOTS = 8, STREAMS = 2;
+        static constexpr unsigned TUNE_SLOTS = 4, SAMPLE_SLOTS = 256, EFFECTS = 256, MUSIC_SLOTS = 32, STREAMS = 2;
 
         enum Command : uint8_t
         {
@@ -400,6 +400,11 @@ namespace ooe::emu
         /// A tune plays: starting, playing or stalled (TUNE_STATUS's state).
         bool tune_playing() const { return tune_.state == T_STARTING || tune_.state == T_PLAYING || tune_.state == T_STALLED; }
         bool beeping() const { return tone_.left > 0; }
+        /// Tests: the EQ's gains (0 the preamp, 1-10 the bands, signed half-dB) and its enable; the master volumes.
+        int8_t eq_gain(unsigned i) const { return eq_gain_[i % eq_gain_.size()]; }
+        bool eq_enabled() const { return eq_on_; }
+        uint8_t volume_left() const { return vol_l_; }
+        uint8_t volume_right() const { return vol_r_; }
         bool boot_sound_playing() const { return boot_.active; }
         size_t store_free() const;
         uint32_t events_lost() const { return lost_; }
@@ -720,7 +725,7 @@ namespace ooe::emu
         uint8_t faults_{0};
         uint8_t check_image(Image &out) const;
 
-        // --- the boot sound (sound_flash.h's, as splash/docsnd.s played it on revision 2) -------------
+        // --- the boot sound (sound_flash.h's, as revision 2's ES5503 player, docsnd.s, played it) ---------
         struct BootSound
         {
             bool active{false};

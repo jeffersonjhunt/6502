@@ -422,7 +422,7 @@ namespace ooe::emu
             out_.erase(out_.begin(), out_.begin() + static_cast<std::ptrdiff_t>(out_.size() - 2u * RATE));
     }
 
-    // --- the boot sound: splash/docsnd.s's sequence, the firmware's own player ---------------------------
+    // --- the boot sound: revision 2's player's sequence (docsnd.s), the firmware's own player ------------
 
     namespace
     {

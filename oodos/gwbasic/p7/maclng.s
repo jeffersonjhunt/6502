@@ -3,4 +3,5 @@
 ; (DRAW's, in P3), two copies, each with its own state in its own block's
 ; BRAM, so PLAY needs no crossing to P3 for each command.
 
+.define FCERR PFCERR                    ; (OO-1: P7's PLAY sends its notes before an error)
 .include "p3/maclng.s"

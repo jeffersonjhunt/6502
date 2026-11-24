@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-docgen.py - tables for the boot splash's ES5503 player (docsnd.s), on sound
-card revision 2.
+docgen.py - tables for the boot splash's ES5503 sequence (doctables.inc, in
+tools/sndflash/), which sound card revision 3's firmware plays from its flash
+as revision 2's 6510 player (docsnd.s, gone from the ROM) did.
 
 The same four bikes as the SID tune (soundgen.py's physics: Doppler, distance
 and pan, the same timing), with the rpm of the recording the engine is

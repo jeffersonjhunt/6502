@@ -421,10 +421,10 @@ VIDSRV:         LDA     VIDEO_ISR
                 BEQ     @snd           ; VBWORK, block 61), first: they have the blank's time
                 LDX     #R61_VB
                 JSR     CALL61
-@snd:           BIT     EVON           ; a layout-2 area and the stream claimed: the sound part
-                BPL     @hook          ; (sound.s's SFIELDS, block 61)
+@snd:           BIT     EVON           ; a layout-2 area and a sound part claimed: its status
+                BPL     @hook          ; asked for (sound.s's SFRAME, block 61)
                 LDA     SCLAIM
-                AND     #SC_STREAM
+                AND     #SC_STREAM | SC_TUNE | SC_MUSIC
                 BEQ     @hook
                 LDX     #R61_FRAME
                 JSR     CALL61
@@ -825,7 +825,7 @@ FT_OPENX:       LDX     PX
                 STZ     USB_IEN
                 STZ     EVON
                 PHA
-                JSR     SIENSET        ; the mailbox's interrupt off with it (sound.s)
+                JSR     SIENSET        ; the sound card's interrupt as OODOS has it (sound.s)
                 PLA
                 PLP
                 STA     EVBLK
@@ -886,7 +886,7 @@ FT_OPENX:       LDX     PX
                 STA     EVON
                 BRA     @ok
 @l2:            JSR     L2OPEN         ; layout 2's input, and EVON (input.s)
-@ok:            JSR     SIENSET        ; the mailbox's interrupt, if the 6510 is claimed
+@ok:            JSR     SIENSET        ; the sound card's interrupt as OODOS has it
                 LDA     #0
                 TAX
                 RTS
@@ -897,7 +897,7 @@ FT_CLOSEX:      PHP                    ; a layout-2 area's input off, then the a
                 SEI                    ; with no interrupt between the two
                 STZ     USB_IEN
                 STZ     EVON
-                JSR     SIENSET        ; and the mailbox's (sound.s)
+                JSR     SIENSET        ; and the sound card's as OODOS has it (sound.s)
                 PLP
                 LDA     #0
                 TAX

@@ -31,7 +31,7 @@ Guide's chapter 8 on what is decided. **A plan for building it is proposed (2026
 | Area | Hardware ([design.md](design.md)) | Notes for the services |
 |---|---|---|
 | Video | VGA card `$C480`, ID 9: two layers (text, tile, bitmap 256, bitmap 512, mono) and 64 sprites; palette of 256 12-bit colours; data in banks 8–B, snooped | Base and scroll registers latch at vertical blank. Interrupts: vertical blank, a chosen scan line, sprite collision |
-| Sound | Two SIDs `$C500`, ID A, and a 6510 on the card with its own 64 KB, a one-byte mailbox each way. Revision 2 (ID `$A2`, BIOS 0.12): a stereo DAC fed by a 128 KB FIFO (raw PCM at 8–48 kHz, or MP3 the card decodes), a ten-band EQ, volume and a vis page; an ES5503 with 128 KB of wave RAM; DRQSEL picks what the card's DMA request feeds | SID writes are ignored while the 6510 runs. `.sid` tunes play on the 6510 with no main-CPU time; a stream plays from the FIFO with none either, as long as it's kept fed |
+| Sound | The sound card `$C500`, ID `$A3` (revision 3, the card as a device, OODOS 0.17): two SIDs and a 6510 for `.sid` tunes, an ES5503, raw PCM and MP3 streams, a tone generator, a store of 2–8 MB, the EQ, the volumes, the mix and a vis page, all run by the card's firmware; command records in, data in by DMA channel 2, events out (IRQH bit 2) | A tune, music, an effect and a stream once fed cost the main CPU nothing: the card plays them on its own clock. *(Revisions 1 and 2, a raw 6510, mailbox and FIFO, were never built: [sound-rev2.md](sound-rev2.md).)* |
 | Speaker | USB card `$C5A6` (SPKR) | One bit, toggled per access |
 | Keyboard | USB card `$C580`, ID B: cooked KEY (ASCII, repeat) and a raw event FIFO (HID usage + press/release) | OODOS's console reads only KEY today |
 | Mouse | USB card `$C590`–`$C59A`: buttons, relative or absolute X/Y, wheel | Absolute mode suits a pointer sprite, within the sprites' 320×240 space: limits 319 and 239, not the 639 and 479 of /RESET (corrected, L4's plan) |
@@ -179,6 +179,15 @@ interrupt without knowing it. So:
 
 ### Sound ###
 
+*Revision 3 (2026-11-24, OODOS 0.17, OOLIB interface 18): the card is a device, and every service below is a command
+to it through function 82, the card doing the playing: tunes (PSID and RSID) on its 6510, the stream (gapless, the
+card asking for data), a sound bank of samples and effects, music from note blocks for SOUND and PLAY, the beep on
+its tone generator, the volumes, the mix, the EQ and what it shows. There is no raw mode, no program code on the card
+and no mailbox, so the music driver, a program's own driver and the SIDs written directly (below) went. Claims are
+per part: the tune player, the stream, music. [design.md, "Sound card revision 3"](design.md#sound-card-revision-3)
+has the decisions; the Programmer's Guide's [chapter 8](../docs/oodos-programmers-guide/08-game-services.md#sound) what
+a program sees. As first proposed:*
+
 The card's 6510 can be used three ways; the services cover all three, one at a time:
 
 - **OODOS's own music driver on the 6510** (proposed default): a driver of ours on the card that plays tunes and
@@ -245,7 +254,7 @@ Revision 2 adds three more, each a claim of its own (question 6):
 ```
 setup:  OODOS: open the event area (address, size); set the frame hook (and a tick hook, if it wants one)
         OOLIB: set layer 0 to tiles, layer 1 to text; load tiles, map, palette, sprites
-        OODOS: start the music driver; play tune 1
+        OODOS: claim music; send tune 1's note block (revision 3: the card plays it)
 loop:   read the event area: frame and ms counters, keys held, controllers, events
         OOLIB: move sprites in the shadow table, put map entries, scroll
         OODOS: wait for the next frame (the sprite table goes to the card then)
@@ -260,12 +269,12 @@ end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees th
 |---|---|
 | SCREEN, COLOR, PALETTE, CLS, WIDTH | OOLIB modes and palette; the console's text screen |
 | PSET, PRESET, LINE, CIRCLE, PAINT, DRAW, GET/PUT (graphics), POINT | OOLIB bitmaps |
-| SOUND, PLAY, BEEP | the music driver; the speaker |
+| SOUND, PLAY, BEEP | music's note blocks and the card's beep (revision 3; before it, the music driver and the speaker) |
 | INKEY$, INPUT$ | the console (function 6) |
 | ON KEY, KEY(n) | the event queue, keys held |
 | STICK, STRIG, ON STRIG | controllers 1 and 2 in the event area (fire events for ON STRIG) |
 | ON TIMER, TIMER | the millisecond counter and the tick hook |
-| ON PLAY | the music driver's sync points |
+| ON PLAY | music's threshold and markers (`MUSIC_COUNT`, `MUSIC_MARK`) |
 | DEF SEG, PEEK, POKE, BLOAD, BSAVE | physical memory by DMA (3c), video banks included |
 
 
@@ -603,6 +612,8 @@ queue, block 62 as the handlers' home).
   PSID files the tests build themselves, as `test_sid_file.cpp` does, never the owner's collection; the beep's
   length; a layout-1 or layout-2 program unaffected. Each suite's fast time stated, and the sanitizer TIMEOUT
   checked (the acceptance case plays the fewest seconds that prove the chaining).
+
+*Revision 3 (2026-11-24, OODOS 0.17, interface 18): what L3 built for revision 2's registers was rebuilt on the sound card as a device, function 82 numbered afresh as one table; [design.md, "Sound card revision 3"](design.md#sound-card-revision-3) and the Programmer's Guide's [function 82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82). The text below is L3 as it was built.*
 
 **L3, as built (2026-11-08)** (`oodos/sys/sound.s`, new: function 82 in block 60, the handlers in block 61;
 `irq.s`'s `CALL61`, the frame's call, DEAFEN, cold boot's; `input.s`'s IRQOTH branch and WBQUIET's call;
@@ -1143,6 +1154,7 @@ and more in L5:
   function 85, `O_SERIAL`: `SR_INFO`, `SR_STATUS`, `SR_FLUSH`. No queue event, and no linked-library routine (a
   program calls 85 as it calls 80-83). Measured: 247 cycles a byte (277 with an area), the tick's 162 unchanged.
 - **L4b: hold, go and volume, in function 82.**
+  - *Revision 3 (2026-11-24): `SN_HOLD` and `SN_GO` went with revision 2's interface; a tune's pause is `SN_TPAUSE` and `SN_TRESUME` now, done by the card. `SN_VOLUME` stays (operation 28).*
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.
     The 6510's state and the tune's RAM are untouched, so it carries on where it stopped. [SC_6510]
@@ -1187,6 +1199,7 @@ and more in L5:
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in
   OOLIB (linked), from OO-Amp's proposal:
+  - *Revision 3 (2026-11-24, interface 18): the playback layer, the EQ and vis routines and the SIDs' voices are function 82 calls on the device (`SN_TPAUSE`, `SN_EQ`, `SN_VIS`, `SN_SIDREGS`, `SN_LEVELS`); `PB_MUSIC` is added and `PB_DOC` refused; a tune's stall is the card's judgement, not the mailbox stamp's (L5a's stamp and `EV_SFLAGS` went). The text below is L5 as it was built.*
   - **A playback layer** over function 82, the source a number (`PB_SID`, `PB_STREAM`, `PB_DOC`): `PB_PAUSE` and
     `PB_RESUME` (hold and go, the stream's pause and resume, or the ES5503's); `PB_VOLUME`, a level 0–255 and a
     balance (0 left, 128 the centre, 255 right) turned into VOLL and VOLR by one fixed pan law; `PB_STATUS`, a
@@ -1270,6 +1283,7 @@ and more in L5:
     a test of `PB_LEVELS` for the ES5503.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
+  - *Revision 3 (2026-11-24, interface 18): the driver on the card's 6510 (`mudrv/`) went. The card's own music sequencer plays note blocks (lengths in µs, 32 bits; one transfer a block; the counts exact from the card), and `mu.s` builds them: `MU_NOTE` and `MU_TONE` send one entry at once, `MU_BLOCK` (new) a whole block, `MU_THRESH` (new) the threshold, `MU_EVENT` names the card's events. The text below is L6 as it was built.*
   - *L6's plan (decided 2026-11-09, the owner: as recommended):*
     - **Scope:** note-level commands, as question 5 has it (note, length, voice, envelope). GW-BASIC parses PLAY.
     - **Where it runs:** on the card's 6510 (this section's "Sound").

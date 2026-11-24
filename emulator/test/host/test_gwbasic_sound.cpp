@@ -22,6 +22,8 @@
 #include "harness.h"
 #include "oodos_rig.h"
 #include "sound_card.h"
+#include "sound_card3.h"
+#include "sound_fw.h"
 #include "gw_timing.h"
 
 #include <cmath>
@@ -41,6 +43,8 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
+    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: sound card revision 3, the card as a device
+
     const std::string BUILD = std::getenv("GWBASIC_BUILD") ? std::getenv("GWBASIC_BUILD") : EMU_GWBASIC_BUILD;
 
     std::vector<uint8_t> file(const std::string &name)
@@ -183,64 +187,86 @@ namespace
         return "?";
     }
 
-    SoundCard &card(CcpRig &r) { return *r.machine->sound_card(); }
-    bool running(CcpRig &r) { return (card(r).peek(SoundCard::CTRL) & SoundCard::CTRL_RUN) != 0; }
+    /// The sound card, revision 3: its SID A's registers as last written (the firmware's music writes them through
+    /// the chips, as SN_SIDREGS's shadows have them), and music running: SC_MUSIC claimed or the firmware playing.
+    SoundCard3 &dev(CcpRig &r) { return *r.machine->sound_device(); }
+    struct Sid0
+    {
+        CcpRig &r;
+        const std::array<uint8_t, SoundCard::SID_REGS> &sid(unsigned chip) const { return dev(r).chips().sid(chip); }
+    };
+    Sid0 card(CcpRig &r) { return Sid0{r}; }
+    bool running(CcpRig &r)
+    {
+        return (r.phys(SYS_BLOCK_PHYS + sym("SCLAIM")) & 0x04) != 0 ||
+               dev(r).firmware().music_state() != SoundFw::M_STOPPED;
+    }
 
-    constexpr uint8_t O_SOUND = 82, SN_RELEASE = 2, SN_LOAD = 3, SN_SEND = 6, SN_BEEP = 16;
+    constexpr uint8_t O_SOUND = 82, SN_CLAIM = 1, SN_RELEASE = 2, SN_MUSIC = 24, SN_MCTL = 25, SN_BEEP = 27, SC_MUSIC = 4;
 
-    /// A voice's entry as P7 sent it to the driver (lib/mudrv/mudrv.s's protocol, lib/mu.s's MUQ).
+    /// A voice's entry as P7 sent it to the card: an entry of an SN_MUSIC's note block (the S1 appendix's layout).
     struct Entry
     {
-        uint64_t at;   ///< the cycle its first byte went
+        uint64_t at;   ///< the cycle of the SN_MUSIC call that sent it
         unsigned voice;
-        unsigned freq; ///< the SID's frequency word
+        unsigned freq; ///< as the SID's frequency word: pal() of its Hz (7f's MU_TONE arithmetic)
         unsigned len, gate; ///< ms
     };
-    /// Function 82 as P7 calls it, watched at the BDOS's entry ($0203, Y 82, A/X the block): SN_SEND's bytes
-    /// decoded into entries (a voice's tone or note: $0v and 6 bytes), stops ($2v), and the other calls counted.
+    /// Function 82 as P7 calls it, watched at the BDOS's entry ($0203, Y 82, A/X the block): SN_MUSIC's note blocks
+    /// decoded into entries (frequency entries and rests), stops (SN_MCTL's stop), beeps (SN_BEEP's blocks), the
+    /// music's claim (`loads`: MU_INIT's start) and releases counted.
     struct Sound
     {
         std::vector<Entry> entries;
         std::vector<std::pair<uint64_t, unsigned>> stops; ///< (cycle, voice)
         std::vector<std::vector<uint8_t>> beeps;          ///< SN_BEEP's blocks: +1-2 Hz, +3-4 ms
-        std::vector<std::vector<uint8_t>> loads;          ///< SN_LOAD's blocks
+        std::vector<std::vector<uint8_t>> loads;          ///< SN_CLAIM's blocks of SC_MUSIC (MU_INIT's)
         unsigned releases = 0;
         uint64_t bdos_cycles = 0; ///< function 82's cycles, its calls (the interrupts inside included)
         unsigned bdos_calls = 0;
-        std::vector<uint8_t> pend;
-        unsigned need = 0;
-        uint64_t pend_at = 0;
-        // The call under way: its return address and S after it, its op and block; taken only if it returns A 0
-        // (SN_SEND is called again while the card is busy).
+        // The call under way: its return address and S after it, its op and block, and a note block's bytes as
+        // the call found them; taken only if it returns A 0.
         bool in = false;
         uint16_t ret = 0;
         uint8_t ret_s = 0;
         uint64_t call_at = 0;
-        std::vector<uint8_t> blk;
-        unsigned w(size_t i) const { return static_cast<unsigned>(pend[i] | pend[i + 1] << 8); }
-        void byte(uint64_t at, uint8_t b)
+        std::vector<uint8_t> blk, notes;
+        static uint32_t le(const std::vector<uint8_t> &b, size_t at, unsigned n)
         {
-            if (need == 0)
-            {
-                pend.assign(1, b);
-                pend_at = at;
-                const unsigned hi = b >> 4;
-                need = hi == 0 ? 6 : hi == 1 ? 5 : hi == 3 || hi == 6 ? 1 : 0;
-                if (hi == 2)
-                    stops.push_back({at, b & 15u});
+            uint32_t v = 0;
+            for (unsigned i = 0; i < n; ++i)
+                v |= static_cast<uint32_t>(b.at(at + i)) << (8 * i);
+            return v;
+        }
+        static unsigned ms_of(uint32_t us) { return (us + 500) / 1000; }
+        void decode(uint64_t at)
+        {
+            if (notes.size() < 8)
                 return;
+            unsigned voices = 0;
+            for (unsigned v = 0; v < 8; ++v)
+                voices += notes[1] >> v & 1;
+            const uint32_t count = le(notes, 4, 4);
+            size_t p = 8 + 8 * voices;
+            for (uint32_t k = 0; k < count && p < notes.size(); ++k)
+            {
+                const unsigned kind = notes[p] >> 4, voice = notes[p] & 15;
+                if (kind == 1)
+                    entries.push_back({at, voice, pal(le(notes, p + 1, 3) / 16), ms_of(le(notes, p + 4, 4)), ms_of(le(notes, p + 8, 4))});
+                else if (kind == 2)
+                    entries.push_back({at, voice, 0, ms_of(le(notes, p + 1, 4)), ms_of(le(notes, p + 1, 4))});
+                p += kind == 0 ? 10 : kind == 1 ? 12 : kind == 2 ? 5 : kind == 3 ? 9 : 2;
             }
-            pend.push_back(b);
-            if (--need == 0 && (pend[0] >> 4) == 0)
-                entries.push_back({pend_at, pend[0] & 15u, w(1), w(3), w(5)});
         }
         void done(const std::vector<uint8_t> &b, uint64_t at)
         {
-            if (b[0] == SN_SEND)
-                byte(at, b[1]);
+            if (b[0] == SN_MUSIC)
+                decode(at);
+            else if (b[0] == SN_MCTL && b[1] == 0)
+                stops.push_back({at, 0u});
             else if (b[0] == SN_BEEP)
                 beeps.push_back(b);
-            else if (b[0] == SN_LOAD)
+            else if (b[0] == SN_CLAIM && (b[1] & SC_MUSIC))
                 loads.push_back(b);
             else if (b[0] == SN_RELEASE)
                 ++releases;
@@ -263,8 +289,15 @@ namespace
                     return;
                 const uint16_t at = static_cast<uint16_t>(g.a | g.x << 8);
                 blk.clear();
-                for (uint16_t i = 0; i < 8; ++i)
+                for (uint16_t i = 0; i < 9; ++i)
                     blk.push_back(bus.peek(static_cast<uint16_t>(at + i)));
+                notes.clear();
+                if (blk[0] == SN_MUSIC)
+                {
+                    const uint32_t phys = le(blk, 2, 3), len = le(blk, 5, 3);
+                    for (uint32_t i = 0; i < len && i < 4096; ++i)
+                        notes.push_back(r.phys(phys + i));
+                }
                 const uint16_t sp = static_cast<uint16_t>(0x100 + g.s);
                 ret = static_cast<uint16_t>((bus.peek(static_cast<uint16_t>(sp + 1)) | bus.peek(static_cast<uint16_t>(sp + 2)) << 8) + 1);
                 ret_s = static_cast<uint8_t>(g.s + 2);
@@ -272,6 +305,7 @@ namespace
                 in = true;
             };
         }
+        static unsigned pal(unsigned hz) { return std::min(65535u, hz * 4359u / 256u); }
     };
     /// MU_TONE's register value on PAL's clock: Hz x 4,359 / 256 (lib/mutone.s), held at $FFFF.
     unsigned pal(unsigned hz) { return std::min(65535u, hz * 4359u / 256u); }
@@ -619,38 +653,6 @@ TEST(beep_and_ctrl_g_sound_the_bell)
     CHECK(!running(r));
 }
 
-// N38 (7f's plan): the first SOUND loads the driver by SN_LOAD from P7's own block: its source is the physical
-// address of mu.s's image (P7's DATA, in W3 while P7 runs: function 73's translation, PHYSOF), and the card's RAM
-// at $1000 holds mudrv.bin but for its latch (bytes 3-4, set for the clock) and the driver's own status (5-9). Guards the driver loaded from the wrong
-// block: a crashed 6510. Seen failing with PHYSOF given the image's address as a W1 one.
-TEST(p7_s_driver_image_loads_from_its_block)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(start(r) > 0);
-    Sound s;
-    s.watch(r);
-    CHECK_EQ(said(r, "SOUND 440,2"), std::string());
-    r.watch = nullptr;
-    REQUIRE(s.loads.size() == 1u);
-    const std::vector<uint8_t> drv = file("p7/mudrv.bin");
-    REQUIRE(drv.size() > 16);
-    const auto &b = s.loads[0];
-    CHECK_EQ(b[4] | b[5] << 8, 0x1000);
-    CHECK_EQ(static_cast<size_t>(b[6] | b[7] << 8), drv.size());
-    unsigned differ = 0;
-    for (size_t i = 0; i < drv.size(); ++i)
-        if ((i < 3 || i > 9) && card(r).ram()[0x1000 + i] != drv[i]) // (the latch, and the driver's own LOST, TICKS)
-            ++differ;
-    CHECK_EQ(differ, 0u);
-    // The source: P7's block (the loader's PAGBLK), at the image's place in it.
-    const std::map<std::string, uint16_t> lab = lbl_map(), p7 = lbl_map("p7.lbl");
-    REQUIRE(lab.count("PAGBLK") == 1 && p7.count("image") == 1);
-    const uint32_t src = b[1] | b[2] << 8 | static_cast<uint32_t>(b[3]) << 16;
-    const uint32_t want = static_cast<uint32_t>(r.phys(lab.at("PAGBLK") + 7u)) * 0x4000u + 0x800u + (p7.at("image") - 0xC800u);
-    CHECK_EQ(src, want);
-}
-
 // N12 (the manual's pp. 250-251; the owner's answer 2): each note's frequency word from NOTTAB shifted right by
 // 7 - the octave and rounded (O3's C 262 Hz, middle C; O4's A 880), on MU_TONE's arithmetic: C and B in every
 // octave, A in O3 and O4, N1 (O0's C), N42, N84 (O6's B), N0 a rest (0); > and < one octave up or down, held at 6
@@ -799,6 +801,22 @@ TEST(play_mb_runs_in_the_background_and_play_n_counts)
     r.watch = nullptr;
     CHECK_EQ(line(r, 2), std::string(" 0"));
     CHECK(!running(r));
+}
+
+// Review C6 (BASIC's 32-note rule across statements): 32 one-note PLAY "MB" statements all queue (the card's 32 music
+// slots, a block a statement), PLAY(0) reaches 32, and ON PLAY(10) (n > 8) fires as the count falls past 10. Must fail
+// with the card's 8 slots (the ninth statement waits: PLAY(0) never past 8, ON PLAY(10) never fires).
+TEST(thirty_two_mb_statements_queue_and_on_play_past_8_fires)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 ON PLAY(10) GOSUB 100:PLAY ON", "20 FOR I=1 TO 32:PLAY \"MB T120 L4 C\":NEXT", "30 M=PLAY(0)",
+                 "40 IF PLAY(0)>0 THEN 40", "50 PRINT M;N:END", "100 N=N+1:RETURN"},
+             ms(17500));
+    if (line(r, 2) != " 32  1")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string(" 32  1"));
 }
 
 // N33 (the owner's answer 11, its gate 9,000 by answer 24: a PLAY note in MB, the interrupts left out): PLAY "MB

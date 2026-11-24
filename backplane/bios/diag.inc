@@ -34,7 +34,7 @@ DG_VERSION      = 1                    ; ROM DIAGNOSTICS 0.1
 ; the diagnostics' header line and the BIOS block 23 records (DG_LINKED) are all
 ; made from these
 BIOS_VMAJ       = 0
-BIOS_VMIN       = 20
+BIOS_VMIN       = 21
 .define BIOS_VERSION .sprintf("%d.%d", BIOS_VMAJ, BIOS_VMIN)
 DG_B21          = NB_ROM | NB_RO | 21  ; the three blocks as W2 maps them
 DG_B22          = NB_ROM | NB_RO | 22
@@ -215,14 +215,21 @@ T_PA:           .res    3              ; a physical address (PHYSB)
 T_GOOD:         .res    1
 .endmacro
 
+; diagsnd.inc's variables, as DTVARS's.
+.macro DSVARS
+SN_MASK:        .res    1              ; SNDWT's STATUS bits; SNDEVT's kind read
+SN_WANT:        .res    1              ; SNDEVT's kind wanted
+SN_PTR:         .res    2              ; SNDCMD's record; SNDDATA's bytes
+.endmacro
+
 ; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
 ; stopped (all eight channels, each one's CARD back to its reset module; X and Y
 ; not kept), the SD card's command abandoned, every card's interrupt off, the
-; 6510 stopped and the SIDs silent, the stream and the ES5503 stopped, the
+; sound card's every sound stopped (CTRL's RESET, on revision 3), the
 ; clock's TIE off, the timebase's MSIE off (revision 3; an older bridge drops
 ; the write), the VIA's interrupts off. The breakpoint is left alone.
 .macro QUIETM
-        .local sd, idle, chans, chan, card, usb, video, sound, sid, panel, via
+        .local sd, idle, chans, chan, card, usb, video, sound, panel, via
                 lda     #NB_RTC_TICK
                 sta     NB_RTCCTL
                 lda     #NB_TB_MSF | NB_TB_OVR
@@ -272,26 +279,11 @@ video:          lda     VIDEO_ID
                 stz     VIDEO_IEN
                 stz     VIDEO_SPLASH
                 stz     VIDEO_PCTL
-sound:          lda     SOUND_ID
-                and     #$F0
-                cmp     #SOUND_TYPE
+sound:          lda     SOUND_ID       ; revision 3: CTRL's RESET strobe stops every sound
+                cmp     #SOUND_ID_V3   ;   (the transfer, both FIFOs and IEN with them)
                 bne     panel
-                lda     SOUND_CTRL
-                and     #<~SOUND_RUN
+                lda     #SOUND_CTRL_RESET
                 sta     SOUND_CTRL
-                stz     SOUND_IEN
-                ldx     #SOUND_SIDS - 1
-sid:            stz     SOUND,x
-                dex
-                bpl     sid
-                lda     SOUND_ID
-                cmp     #SOUND_ID_V2
-                bcc     panel
-                lda     #SOUND_PCM_FLUSH
-                sta     SOUND_PCMCTL
-                lda     SOUND_DOCCTL
-                and     #<~SOUND_DOC_RUN
-                sta     SOUND_DOCCTL
 panel:          lda     CONSOLE_ID
                 cmp     #CONSOLE_ID_V1
                 bne     via

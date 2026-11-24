@@ -93,6 +93,8 @@ namespace ooe::emu
     void SoundCard3::set_audio_rate(uint32_t rate)
     {
         audio_rate_ = rate;
+        std::vector<int16_t> before; // what the firmware made for the host before now: dropped with the rest
+        fw_.take_output(before);
         out48_.clear();
         out_at_ = 0;
         out_phase_ = 0;
@@ -265,6 +267,12 @@ namespace ooe::emu
     {
         (void)tc;
         catch_up();
+#ifdef EMU_FAULT_HOOKS
+        if (dma_drop_ && --dma_drop_ == 0)
+            return; // set_dma_drop()'s byte: lost
+        if (dma_corrupt_ && --dma_corrupt_ == 0)
+            data = static_cast<uint8_t>(~data); // set_dma_corrupt()'s byte: every bit flipped
+#endif
         if (!fw_.data_write(data))
             ++dropped_;
         take_edges();

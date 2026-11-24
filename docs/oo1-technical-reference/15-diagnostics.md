@@ -21,7 +21,7 @@ runs:
 | Block | What |
 |---|---|
 | 23 | the core: its header and the BIOS's way in, the reset's prompt, stages 0–6 (the flash, zero page and stack, the CPU and all of RAM), the end and its put-back, Break |
-| 22 | stages 7–10: the north bridge and the clock, DMA, the video card, the sound card (with the 6510's test program) |
+| 22 | stages 7–10: the north bridge and the clock, DMA, the video card, the sound card (by its command records) |
 | 21 | stages 11–14: storage, USB, serial and the panel, the interactive tests, the summary |
 
 Block 23 starts with a signature, `OOHWDIAG`, the diagnostics' version and, at `$801C`, the version of the BIOS
@@ -82,7 +82,7 @@ bridge they pass over blocks 32–35 while a revision 2 card makes bank 8 the ap
 
 | Stage | Block | What it tests |
 |---|---|---|
-| 0 | 23 | nothing: SEI and CLD; every card made quiet as the BIOS's Break does (every DMA channel aborted, all eight, each CARD put back to its reset value, the SD card's command abandoned, every card's interrupt enable off, the 6510 stopped and the SIDs silent, on sound revision 2 the stream flushed and the ES5503 frozen, the VIA's IER off, the clock's TIE off); W3 on flash block 31 and VEC on block 23, the core's own vectors, so Break is the core's; the lamps on; the 6551 at 19,200 baud; the text screen, if the video card is revision 2 |
+| 0 | 23 | nothing: SEI and CLD; every card made quiet as the BIOS's Break does (every DMA channel aborted, all eight, each CARD put back to its reset value, the SD card's command abandoned, every card's interrupt enable off, the sound card's every sound stopped by CTRL's RESET, the VIA's IER off, the clock's TIE off); W3 on flash block 31 and VEC on block 23, the core's own vectors, so Break is the core's; the lamps on; the 6551 at 19,200 baud; the text screen, if the video card is revision 2 |
 | 1 | 23 | the flash: the sums of blocks 21–31, each against the sum recorded when the ROM was built |
 | 2 | 23 | zero page and stack: a march over the first 512 bytes of a RAM block for W0, from block 0 up, the block also proved to have no other address landing on them; a block that fails is passed over |
 | 3 | 23 | the CPU (it must not answer the 65C816's XBA: the design's W65C02S); the data lines, walking 1s and 0s at each RAM module's first block (0, 16, 36, 48). A module whose two reads of a written 0 are both `$FF`, or differ, is `NOT ANSWERING`, and its blocks are left out of stages 4–6 |
@@ -92,10 +92,10 @@ bridge they pass over blocks 32–35 while a revision 2 card makes bank 8 the ap
 | 7 | 22 | the north bridge and the clock: NB1 its ID and revision (since BIOS 0.17, revision 2, `$D2`, and since BIOS 0.20 revision 3, `$D3`: a `$D1` bridge is `NOT KNOWN TO THIS BUILD` and the stage says `SKIP`); NB2 W0's window bits, each block as itself; NB3 IRQL and IRQH, and DMA's line; NB4 the clock chip (BUSY, SEC stepping a second); NB5 the CPU's clock by the DS3231 and NB6 by 60 video frames; NB7 WAIT0–3 and VEC read back; NB8 a read-only window keeping its RAM; since BIOS 0.20, on a revision 3 bridge (`$D3`; on `$D2` each `SKIP`s): NB9 the random number chip (a locked chip, its pool not one value nor one 4-byte group repeated, a fresh draw within 150 ms), NB10 the timebase (MSF and IRQH bit 5, the counter across a second, MSS at three second changes, SYNC) and NB12 the common hole (a tested block's top 2 KB at `$F800–$FFFF`, RO, and W3's again with HOLE 0). NB11 is kept for the deferred WINnH and MAP readback |
 | 8 | 22 | DMA, revision 2 (ID `$82`; a revision 1 controller is skipped): D1 the ID, and each channel's registers through CONTROL's SELECT, 0–7, CARD among them, then each CARD put back to its reset value, and CONTROL's BURST and SELECT bits (a channel whose window reads `$FF` and drops a pattern counts as not fitted, and the count is on D1's line: 8 since B3 (4 in B2)); D2–D4 on channel 3, selected again after D1; D2 a fill of all of RAM, checked by the CPU; D3 a copy between two blocks, up and down; D4 a 2 KB fill's time; D5 the terminal count and an abort part way |
 | 9 | 22 | the video card: V1 its ID and MEMSIZE; V2 every register that reads back; V3 the beam's lines and a frame's cycles; V4 all of card memory, address in address (a full run adds the march); V5 past MEMSIZE; V6 the data port against the aperture; V7 DMA channel 1 to the card and back |
-| 10 | 22 | the sound card: S1 its ID and codecs; S2 its 64 KB of RAM through RAMDATA; S3 DMA channel 2 into it; S4 the 6510's test program starting; S5 the mailbox both ways; S6 the 6510's sum of S3's bytes; S7 the SIDs' voice 3; S8 the ES5503's 128 KB of wave RAM; S9 a PCM stream's rate. A full run writes S2 and S8 twice, the second time with the key complemented |
+| 10 | 22 | the sound card, revision 3 (`$A3`; another revision is `NOT KNOWN TO THIS BUILD`), driven only by its command records, the card reset first by CTRL's RESET and its store emptied after (FREEALL): S1 its ID and the firmware READY within 250 ms (S2–S6 skip if it isn't); S2 IDENTIFY, its card type, MEMSIZE, FEATURES and version as the registers say; S3 SELFTEST of the store, wave RAM, the SIDs and the codec's loop, each part that fails named; S4 DMA channel 2, 4 KB of a pattern into DATA as a sample's load, then CHECKSUM: the card's CRC-32 of what came against the host's of what was sent; S5 the event path: with IEN's EVT on, a NOP's REPLY pulls IRQH bit 2 low, and reading it lets the line go; S6 a raw PCM stream at 8,000 Hz, its frames played counting 8,000 a second within 0.5% |
 | 11 | 21 | storage, read only: SD1 the SD card's ID and the card in the slot; SD2 IDENTIFY; SD3 LBA 0 by the CPU and by channel 0, which must agree; SD4 the read speed; DK1 the Disk II by its ID alone |
 | 12 | 21 | USB, serial and the panel: U1 the USB card's ID and devices; U2 the paddles settling; SR1 the serial card's ID; SR2 the VIA's timers 2 and 1; SR4 the TL16C552A's loop (not in this build); P1 the panel's ID and switches; P2 a bit walked across the lamps |
-| 13 | 21 | the interactive tests, asked for: V8 a test card on the screen; S10 a tone on each SID and on the ES5503; U3 a key on the USB keyboard; U4 the mouse and the game port's buttons; U5 the speaker; SR3 both joysticks; P3 the breakpoint, a read of `$BD1A5` (RAM block 47, which stage 6 must have passed) halting the CPU until CONT. Otherwise `SKIP` |
+| 13 | 21 | the interactive tests, asked for: V8 a test card on the screen; S10 the sound card's own sounds by command, a music block's note on a SID voice and a looped sample effect on the ES5503; U3 a key on the USB keyboard; U4 the mouse and the game port's buttons; U5 the speaker; SR3 both joysticks; P3 the breakpoint, a read of `$BD1A5` (RAM block 47, which stage 6 must have passed) halting the CPU until CONT. Otherwise `SKIP` |
 | 14 | 21 | the summary: the tests passed, failed, skipped and measured, and the result |
 
 A question in stage 13 is answered `Y`; Esc on the terminal skips U3, U4 and SR3, and 30 s with nothing fails them.
@@ -170,7 +170,7 @@ Status: **emulated**
 
 With switch 17 down (and always from `$C815`), the run waits for a key: on the serial line, the USB keyboard, or the
 panel's CONT or EXAM (ignored at LOCK). Then it puts back what it changed to what /RESET leaves (the video card's
-slots and port, DMA CONTROL `$70` and every channel's CARD its reset value, the sound card's 6510 stopped, the VIA's ACR, IER and IFR 0 and timer 1 still,
+slots and port, DMA CONTROL `$70` and every channel's CARD its reset value, the sound card reset (CTRL's RESET), the VIA's ACR, IER and IFR 0 and timer 1 still,
 every wait state 0, BPCTRL as above, DISPLAY and CTRL 0, W0–W2 on blocks 0–2 and VEC on flash block 31), and:
 
 - **CONT, RETURN or any other key: the boot,** at the BIOS's `BOOT`, past the reset's switch check: the BIOS copied
@@ -190,8 +190,9 @@ and boots. With switch 19 still up, the next hard reset asks again.
 Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
-every card: **a quick run 61.6 s with BIOS 0.20 on north bridge revision 3** (NB9, NB10 and NB12 added; BIOS 0.19's
-was 58.7 s), **a full run 171.8 s** (BIOS 0.19's). The prompt, unanswered, waits 5.97 s. Both were measured
+every card: **a quick run 60.3 s and a full run 171.6 s with BIOS 0.21** (stage 10 on sound card revision 3; BIOS
+0.20 on north bridge revision 3 took 61.6 s for a quick run, BIOS 0.19 58.7 s, and BIOS 0.19's full run 171.8 s).
+The prompt, unanswered, waits 5.97 s. Both were measured
 with BIOS 0.17's test of all 64 RAM blocks (B7, *proposed*), 2.2 s and 6.2 s longer than with bank 8 passed over
 (56.5 s and 165.6 s, with DMA revision 2: B2, *proposed*). On real hardware
 the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.

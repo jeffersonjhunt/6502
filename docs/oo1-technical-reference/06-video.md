@@ -522,8 +522,8 @@ SPLASH ([`$C489`](#reg-c489)) bit 0 runs it:
   registers can be set up behind it.
 
 The BIOS writes 1 at boot, if the card's ID answers, and then VINIT sets the text screen up behind it (`splash.s`).
-With a sound card, the BIOS starts the card's 6510 on the vertical blank the splash starts on, so the tune keeps
-time with the picture ([chapter 7](07-sound.md)). With a `/BOOT.BIN` to boot, AUTOBOOT waits for the bit to clear
+With a sound card, the BIOS sends the card BOOTSOUND on the vertical blank the splash starts on, so the sound keeps
+time with the picture ([chapter 7](07-sound.md#the-boot-sound)). With a `/BOOT.BIN` to boot, AUTOBOOT waits for the bit to clear
 first ([chapter 3](03-boot.md#booting-from-the-sd-card)). Break's QUIET writes 0, and so does the demo before it
 takes the screen.
 
@@ -641,8 +641,7 @@ program can have a sprite table in one window and part of a bitmap in another.
 
 Status: **proposed**
 
-The port moves bytes to or from card memory with no window at all, a byte for each PDATA access, the model of the
-sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
+The port moves bytes to or from card memory with no window at all, a byte for each PDATA access.
 
 | Register | Address | What |
 |---|---|---|

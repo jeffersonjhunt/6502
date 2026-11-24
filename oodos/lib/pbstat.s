@@ -1,22 +1,21 @@
 ; OOLIB's playback status (include/oolib.inc, "Sound: playback";
-; hw/oolib.md, L5d): PB_STATUS, apart from pb.s so a program that only
-; pauses and resumes doesn't link the stream's arithmetic. It reads pb.s's
-; times and state (pb.inc's PB*).
+; hw/oolib.md, L5d): PB_STATUS, from the card's own status (function 82's
+; SN_TSTATUS, SN_STATUS, SN_MSTATUS), apart from pb.s so a program that only
+; pauses and resumes doesn't link the stream's arithmetic.
 
         .setcpu "65C02"
         .include "oodos.inc"
         .include "oolib.inc"
         .include "pb.inc"
-
         .importzp PBSTAT_ZP             ; zppbstat.s's
+
 pbp             = PBSTAT_ZP            ; the caller's block
-ap              = PBSTAT_ZP + 2        ; the event area
 
         .bss
 ms:     .res    4                       ; the status's milliseconds
 under:  .res    2
 state:  .res    1
-sblk:   .res    13                      ; SN_STATUS's
+sblk:   .res    25                      ; the status's block (the largest: SN_MSTATUS's)
 dq:     .res    4                       ; a dividend, then the quotient
 dv:     .res    2                       ; the divisor
 rm:     .res    2                       ; the remainder
@@ -25,60 +24,59 @@ ma:     .res    4                       ; a multiplicand
         .code
 
 ; A/X a block of PBS_LEN bytes: +0 the state (PS_*), +1-4 the milliseconds
-; played (paused time left out; a stream's from the frames the card has
-; played), +5-6 a stream's underruns.
+; played (paused time left out: the card's count for a tune and music; a
+; stream's from the frames the card has played), +5-6 a stream's underruns.
 PB_STATUS:
         sta     pbp
         stx     pbp + 1
-        jsr     PBNOW
-        stz     under
-        stz     under + 1
-        ldx     #3                      ; ms: (paused ? t_pause : now) - t_begin - t_away
-@ms:    lda     PBTNOW,x
-        ldy     PBHELD
-        beq     @n
-        lda     PBTPAUSE,x
-@n:     sta     ms,x
-        dex
-        bpl     @ms
-        ldx     #0
-        ldy     #4
-        sec
-@b:     lda     ms,x
-        sbc     PBTBEGIN,x
-        sta     ms,x
-        inx
-        dey
-        bne     @b
-        ldx     #0
-        ldy     #4
-        sec
-@a:     lda     ms,x
-        sbc     PBTAWAY,x
-        sta     ms,x
-        inx
-        dey
-        bne     @a
-        lda     PBSRC
-        bne     @on
-        ldx     #3
+        ldx     #5
 @z:     stz     ms,x
         dex
         bpl     @z
-        lda     #PS_STOPPED
-        bra     @put
-@on:    cmp     #PB_SID + 1
+        lda     PBSRC
+        beq     @stop
+        cmp     #PB_SID + 1
         bne     @strm
-        jsr     sidstate
-        bra     @put
+        lda     #SN_TSTATUS
+        jsr     status
+        bcs     @stop
+        ldx     #3                      ; +4-7 the ms played
+@t:     lda     sblk + 5,x
+        sta     ms,x
+        dex
+        bpl     @t
+        ldx     sblk + 1                ; the state to PS_*
+        cpx     #7
+        bcs     @stop
+        lda     tmap,x
+        bra     @held
 @strm:  cmp     #PB_STREAM + 1
-        bne     @doc
+        bne     @music
         jsr     strmstate
-        bra     @put
-@doc:   lda     SND_DOCCTL              ; the ES5503: DOCCTL's RUN
-        and     #SND_DOC_RUN
-        beq     @put                    ; (PS_STOPPED is 0)
-        lda     #PS_PLAYING
+        bra     @held
+@music: lda     #SN_MSTATUS
+        jsr     status
+        bcs     @stop
+        ldx     #3                      ; +18-21 the ms played
+@m:     lda     sblk + 19,x
+        sta     ms,x
+        dex
+        bpl     @m
+        ldx     sblk + 1
+        cpx     #3
+        bcs     @stop
+        lda     mmap,x
+        bra     @held
+@stop:  ldx     #5
+@zz:    stz     ms,x
+        dex
+        bpl     @zz
+        lda     #PS_STOPPED
+@held:  ldx     PBHELD                  ; paused by PB_PAUSE: paused, whatever the card's word
+        beq     @put
+        cmp     #PS_STOPPED
+        beq     @put
+        lda     #PS_PAUSED
 @put:   sta     state
         ldy     #0
         sta     (pbp),y
@@ -93,115 +91,28 @@ PB_STATUS:
 .assert under = ms + 4, error, "PB_STATUS copies ms and under as one run"
 .assert PS_STOPPED = 0 && PBS_LEN = 7, error, "PB_STATUS's block: the state, ms, the underruns"
 
-; A SID's state: paused (by PB_PAUSE), stopped (RUN off), playing if it
-; doesn't report (PB_BEGIN's X) or there's no event area, or else from the
-; mailbox's stamp: a byte within 2 s, or (before the first)
-; within 10 s of the start, playing or starting; else stalled. The start is
-; the later of EV_SMMS and t_floor (an area opened after SN_START has
-; EV_SMMS 0; the 6510 sends nothing while held).
-sidstate:
-        lda     PBHELD
-        beq     @run
-        lda     #PS_PAUSED
-        rts
-@run:   lda     SND_CTRL
-        and     #SND_RUN
-        bne     @area
-        lda     #PS_STOPPED
-        rts
-@area:  lda     PBRPT                   ; a tune that doesn't report: running is playing
-        beq     @play
-        lda     PBAREA
-        ora     PBAREA + 1
-        bne     @stamp
-@play:
-        lda     #PS_PLAYING
-        rts
-@stamp: lda     PBAREA
-        sta     ap
-        lda     PBAREA + 1
-        sta     ap + 1
-        ldy     #EV_SMMS + 3            ; dq = EV_SMMS
-        ldx     #3
-@mms:   lda     (ap),y
-        sta     dq,x
-        dey
-        dex
-        bpl     @mms
-        ldx     #3                      ; the later of it and t_floor
-@cmp:   lda     dq,x
-        cmp     PBTFLOOR,x
-        bne     @diff
-        dex
-        bpl     @cmp
-        bra     @later                  ; equal
-@diff:  bcs     @later
-        ldx     #3
-@fl:    lda     PBTFLOOR,x
-        sta     dq,x
-        dex
-        bpl     @fl
-@later: ldx     #0                      ; dq = now - it
-        ldy     #4
-        sec
-@sub:   lda     PBTNOW,x
-        sbc     dq,x
-        sta     dq,x
-        inx
-        dey
-        bne     @sub
-        ldy     #EV_SMCNT               ; none yet: 10 s; else 2 s
-        lda     (ap),y
-        iny
-        ora     (ap),y
-        tax                             ; X 0: none yet
-        lda     #<2000
-        sta     dv
-        lda     #>2000
-        sta     dv + 1
-        cpx     #0
-        bne     @lim
-        lda     #<10000
-        sta     dv
-        lda     #>10000
-        sta     dv + 1
-@lim:   lda     dq + 3                  ; past the limit: stalled
-        ora     dq + 2
-        bne     @stall
-        lda     dv
-        cmp     dq
-        lda     dv + 1
-        sbc     dq + 1
-        bcc     @stall
-        lda     #PS_PLAYING
-        cpx     #0
-        bne     @ret
-        lda     #PS_STARTING
-@ret:   rts
-@stall: lda     #PS_STALLED
+; Function 82's status A into sblk: carry set if refused (not claimed, no card).
+status: sta     sblk
+        lda     #<sblk
+        ldx     #>sblk
+        ldy     #O_SOUND
+        jsr     BDOS
+        cmp     #1
         rts
 
 ; The stream's state, its underruns and its milliseconds, from SN_STATUS:
 ; refused (not claimed) is stopped.
 strmstate:
-        lda     pbp                     ; the caller's block, kept
-        pha
-        lda     pbp + 1
-        pha
-        lda     #SN_STATUS
+        lda     #SN_STATUS              ; (A the state: refused is A $FD up)
         sta     sblk
         lda     #<sblk
         ldx     #>sblk
         ldy     #O_SOUND
         jsr     BDOS
-        cpx     #$FF
-        bne     @got
-        ldx     #3
-@z:     stz     ms,x
-        dex
-        bpl     @z
+        cmp     #SN_REFUSED
+        bcc     @got
         lda     #PS_STOPPED
-        bra     @out
+        rts
 @got:   lda     sblk + 11
         sta     under
         lda     sblk + 12
@@ -212,28 +123,18 @@ strmstate:
         bcs     @err
         tax
         lda     stmap,x
-        bra     @out
+        rts
 @err:   lda     #PS_ERROR
-@out:   tax
-        pla
-        sta     pbp + 1
-        pla
-        sta     pbp
-        txa
         rts
 
-; ms = the frames played (sblk + 5) x 1,000 / the stream's rate: (frames /
-; rate) x 1,000 + (the remainder x 1,000) / rate. A rate of 0: 0.
-strmms: lda     SND_RATE
+; ms = the frames played (sblk + 5) x 1,000 / the stream's rate (sblk + 13):
+; (frames / rate) x 1,000 + (the remainder x 1,000) / rate. A rate of 0: 0.
+strmms: lda     sblk + 13
         sta     dv
-        lda     SND_RATE + 1
+        lda     sblk + 14
         sta     dv + 1
         ora     dv
         bne     @go
-        ldx     #3
-@z:     stz     ms,x
-        dex
-        bpl     @z
         rts
 @go:    ldx     #3
 @f:     lda     sblk + 5,x
@@ -344,5 +245,9 @@ mul1000:
         rts
 
         .rodata
-; The card's STATE (idle, buffering, playing, paused, underrun, ended) to PS_*.
+; The stream's state (idle, buffering, playing, paused, underrun, ended) to PS_*.
 stmap:  .byte   PS_STOPPED, PS_STARTING, PS_PLAYING, PS_PAUSED, PS_STALLED, PS_ENDED
+; A tune's (stopped, starting, playing, paused, stalled, jammed, ended).
+tmap:   .byte   PS_STOPPED, PS_STARTING, PS_PLAYING, PS_PAUSED, PS_STALLED, PS_ERROR, PS_ENDED
+; Music's (stopped, playing, paused).
+mmap:   .byte   PS_STOPPED, PS_PLAYING, PS_PAUSED

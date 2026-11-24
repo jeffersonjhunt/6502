@@ -5,8 +5,7 @@
 ; Carry clear, or set and A: UX_STATE (UISTATE not on a page: checked first),
 ; UX_BUSY (loaded already), UX_LOAD (no file, a short read, not an OOUI.BNK),
 ; UX_VERSION (a file older than this program's interface, or one needing
-; more UISTATE or imports than it gives, or an OODOS before interface 17,
-; whose blocks would have no common memory: checked before a block is taken), UX_MEMORY (no block free), UX_GX
+; more UISTATE or imports than it gives: checked before a block is taken), UX_MEMORY (no block free), UX_GX
 ; (OOLIB refused a block in W1: GX_INIT not called first, or it refused). On
 ; a refusal after the first block is taken, every block taken is freed
 ; (function 57), the W1 map read again (GX_REMAP) and block 1 put back in
@@ -231,15 +230,7 @@ ui_load:
         bcs     @far
 @old:   lda     #UX_VERSION
         jmp     CLOSE
-@far:   lda     #FT_INFO                ; OODOS's interface 17 or more: the common hole
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80
-        beq     @old
-        cmp     #17
-        bcc     @old
-        jsr     HEADOK                  ; its lengths and entries in range (review C2)
+@far:   jsr     HEADOK                  ; its lengths and entries in range (review C2)
         bcc     @hok
         jmp     @short
 @hok:   lda     #<lver                  ; FARCALL's address (function 72), import 0

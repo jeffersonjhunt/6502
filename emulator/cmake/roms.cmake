@@ -3,9 +3,7 @@
 #
 # The backplane BIOS (backplane/bios), as its Makefile builds it: a full
 # 512 KB ROM A image with the BIOS and Woz Monitor in the top block, the
-# font in block 30 and the video demo in block 29 (and the boot splash's
-# players, splash/bootsnd.bin and splash/docsnd.bin, and its samples in blocks
-# 24-28, splash/wave.bin, all committed; the ROM's diagnostics in blocks 21-23,
+# font in block 30 and the video demo in block 29 (the ROM's diagnostics in blocks 21-23,
 # with oohw's modules built for the ROM, each block its own copy, the sound card's
 # 6510 program in block 22, the flash update (flash.s) in the top block, and the flash's sums written by romsum.py),
 # its ld65 -Ln label file, and its two chips' files, bios-even.rom and bios-odd.rom (romsplit.py). Target
@@ -31,20 +29,11 @@ if(EMU_CA65 AND EMU_LD65 AND Python3_Interpreter_FOUND)
                         --bin-include-dir "${EMU_BIOS_SRC}" -o "${EMU_BIOS_DIR}/${src}.o" "${EMU_BIOS_SRC}/${src}.s"
                 DEPENDS "${EMU_BIOS_SRC}/${src}.s" "${EMU_BIOS_SRC}/backplane.inc" "${EMU_BIOS_SRC}/font/vga8x16.bin"
                         "${EMU_BIOS_SRC}/diag.inc" "${EMU_BIOS_SRC}/diagcon.inc" "${EMU_BIOS_SRC}/diagtest.inc"
-                        "${EMU_OOHW_SRC}/oohw.inc" "${EMU_BIOS_DIR}/card6510.bin"
-                        ${demo_assets} "${EMU_BIOS_SRC}/splash/bootsnd.bin" "${EMU_BIOS_SRC}/splash/docsnd.bin"
-                        "${EMU_BIOS_SRC}/splash/wave.bin"
+                        "${EMU_BIOS_SRC}/diagsnd.inc" "${EMU_OOHW_SRC}/oohw.inc"
+                        ${demo_assets}
                 VERBATIM)
         list(APPEND objs "${EMU_BIOS_DIR}/${src}.o")
     endforeach()
-    # The sound card's 6510 program (oohw's card6510.s, its own link), taken whole into block 22.
-    add_custom_command(
-            OUTPUT "${EMU_BIOS_DIR}/card6510.bin"
-            COMMAND "${EMU_CA65}" -I "${EMU_OOHW_SRC}" -o "${EMU_BIOS_DIR}/card6510.o" "${EMU_OOHW_SRC}/card6510.s"
-            COMMAND "${EMU_LD65}" -C "${EMU_OOHW_SRC}/card6510.cfg" -o "${EMU_BIOS_DIR}/card6510.bin"
-                    "${EMU_BIOS_DIR}/card6510.o"
-            DEPENDS "${EMU_OOHW_SRC}/card6510.s" "${EMU_OOHW_SRC}/card6510.cfg" "${EMU_OOHW_SRC}/oohw.inc"
-            VERBATIM)
     # oohw's modules, for the ROM: each block its own copy (the Makefile's HWOBJS), block 23's under the plain
     # names, block 22's and 21's with their number in each name (OOHW_BLK, oohw.inc).
     foreach(pair "-:hwmem" "-:hwzp" "22:hwprobe" "22:hwclock" "22:hwfmt" "22:hwmem" "22:hwport" "22:hwzp"

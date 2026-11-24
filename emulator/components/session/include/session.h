@@ -156,14 +156,11 @@ namespace ooe::emu
         SdCard *sd() const { return machine_->sd_card(); }
         /// The DMA controller, or nullptr: its channels by DmaController::peek_channel().
         DmaController *dma() const { return machine_->dma(); }
-        /// The sound card, or nullptr: its registers, RAM and 6510.
-        SoundCard *sound() const { return machine_->sound_card(); }
-        /// The sound card if it is revision 3, the device (sound_card3.h); then sound() is null.
+        /// The sound card, the device (sound_card3.h), or nullptr.
         SoundCard3 *sound_device() const { return machine_->sound_device(); }
-        /// The sound card's chips, either revision: revision 2's card itself, or revision 3's own (its 6510 and
-        /// SIDs, as a debugger sees them); null with no card.
+        /// The sound card's chips (its 6510 and SIDs, as a debugger sees them); null with no card.
         const SoundCard *sound_chips() const;
-        /// A tune plays: revision 2's 6510 runs (CTRL RUN), or revision 3's tune is starting, playing or stalled.
+        /// A tune plays: the card's tune is starting, playing or stalled.
         bool tune_playing() const;
         /// The machine's sound at `rate` samples a second (0: none, the default), kept across
         /// power cycles: the sound card's two SIDs, left and right, and the USB card's speaker

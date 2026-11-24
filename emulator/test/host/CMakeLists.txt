@@ -130,7 +130,7 @@ if(EMSCRIPTEN)
                 EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
                 EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
     endforeach()
-    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
+    target_compile_definitions(test_bios PRIVATE
             EMU_BIOS_EVEN="${EMU_BIOS_DIR}/bios-even.rom" EMU_BIOS_ODD="${EMU_BIOS_DIR}/bios-odd.rom")
     target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
@@ -150,7 +150,7 @@ set(EMU_SPLIT_test_oodos_utils_dir 3)
 set(EMU_SPLIT_test_oodos_utils_files 2)
 # test_session under the sanitizers (dev, alone, 2026-11-11): 106 s of its 120, 50 of them one case's.
 set(EMU_SPLIT_test_session 2)
-set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
+set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sound_card_mix_into_the_same_stream)
 # test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
 set(EMU_SPLIT_test_bios_sd 3)
 # test_bios_diag with B7's revision 2 default (fast, alone, 2026-11-17): 923 s, over its 900; each half ~460.
@@ -166,7 +166,10 @@ set(EMU_SLOW_test_bios_diag
         c815_with_the_token_runs_a_programs_options_whatever_the_switches
         esc_at_the_end_is_the_monitor_and_return_boots_the_card
         d2_marks_every_block_it_finds_bad_not_only_the_first_eight
-        the_6510_program_not_running_fails_s4_within_half_a_second_and_skips_s5_to_s7
+        a_card_that_never_comes_ready_fails_s1_and_skips_the_rest
+        stage_10_s_checksum_catches_a_dropped_byte
+        stage_10_s_checksum_catches_a_corrupted_byte
+        stage_10_s_event_path_catches_a_dead_interrupt
         a_full_run_never_writes_the_sd_card
         an_sd_card_that_stays_busy_is_reset_and_given_no_command
         on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
@@ -177,7 +180,7 @@ set(EMU_SLOW_test_bios_diag
         the_wait_states_and_the_vias_ier_are_put_back
         a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c
         a_block_stage_2_passed_over_is_never_w0s_spare
-        a_stuck_bit_in_the_sound_cards_ram_is_named_by_s2
+        stage_10_names_a_selftest_failure
         a9_stuck_on_ram_a_w0_goes_to_ram_b_and_the_run_ends
         a_block_answering_as_w0s_is_said_and_not_tested
         an_aliased_address_line_is_named
@@ -195,7 +198,7 @@ set(EMU_SLOW_test_bios_diag
         break_during_sd4s_read_leaves_no_channel_running_into_the_boot
         break_during_p3_leaves_the_breakpoint_off
         the_interactive_tests_with_switch_16_every_answer_given
-        break_during_s10s_first_tone_leaves_the_sids_silent_at_the_boot
+        break_during_s10s_note_leaves_the_card_silent_at_the_boot
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
         a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
@@ -369,7 +372,6 @@ target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_BIOS_EVEN="${BIOS_DIR}/bios-even.rom"
         EMU_BIOS_ODD="${BIOS_DIR}/bios-odd.rom"
-        EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
@@ -419,7 +421,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial test_oodos_random)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_sndfw test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c test_oodos_sysinfo test_oodos_serial test_oodos_random)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     emu_suite_properties(${name} TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -468,7 +470,7 @@ add_custom_command(
 # With them, OOLIB L4's: GXTEST (oodos/test/gx, the library's test program, not a utility) and the assets
 # test_oodos_gfx shows with VIEW, from PNGs check_mkasset.py writes (never the owner's); L5's PBTEST
 # (oodos/test/pb, the sound library's, for test_oodos_pb); and L6b's MUTEST (oodos/test/mu, the music
-# library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv). And SIDOVL with its overlays
+# library's, for test_oodos_mu). And SIDOVL with its overlays
 # SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
 # test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c, with
 # a copy in bigstack/ linked with a C stack too big for the TPA. And UITEST (oodos/test/ui), OOUI's test
@@ -478,7 +480,7 @@ add_custom_command(
 # UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE. And UIDEMO (oodos/demo), the demo card's
 # OOUI program, linked the same way (demo/uidemo.cfg), with its labels, for test_oodos_ui and test_oodos_boot.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
-     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
+     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
      "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
@@ -654,10 +656,8 @@ list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames
 # rebuilds the blocks
 file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
 list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" "${OODOS_SRC}/lib/gxmode.s" ${gwbasic_oolib})
-# Block P7 (7f) links OOLIB's music: mu.s with the driver's image (lib/mudrv/, assembled by GW-BASIC's Makefile),
-# mutone.s and physof.s.
-list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s"
-        "${OODOS_SRC}/lib/mudrv/mudrv.s" "${OODOS_SRC}/lib/mudrv/mudrv.cfg")
+# Block P7 (7f) links OOLIB's music: mu.s (on the sound card's music sequencer, revision 3), mutone.s and physof.s.
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s")
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"
@@ -809,48 +809,6 @@ target_compile_definitions(test_oodos_model PRIVATE
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 add_test(NAME test_oodos_model_py COMMAND "${Python3_EXECUTABLE}" -I "${OODOS_SRC}/test/test_model.py")
 set_tests_properties(test_oodos_model_py PROPERTIES TIMEOUT 600)
-
-# --- the sound card's test driver --------------------------------------------
-#
-# test/host/sound/driver.s, for the card's 6510: assembled here so
-# test_sound_driver runs a real program on the card. Without cc65 it skips.
-
-emu_add_test(test_sound_driver)
-set(SOUND_SRC "${CMAKE_CURRENT_LIST_DIR}/sound")
-set(SOUND_DIR "${CMAKE_CURRENT_BINARY_DIR}/sound")
-if(EMU_CA65 AND EMU_LD65)
-    file(MAKE_DIRECTORY "${SOUND_DIR}")
-    add_custom_command(
-            OUTPUT "${SOUND_DIR}/driver.bin"
-            COMMAND "${EMU_CA65}" -g -o "${SOUND_DIR}/driver.o" "${SOUND_SRC}/driver.s"
-            COMMAND "${EMU_LD65}" -C "${SOUND_SRC}/driver.cfg" -o "${SOUND_DIR}/driver.bin" "${SOUND_DIR}/driver.o"
-            DEPENDS "${SOUND_SRC}/driver.s" "${SOUND_SRC}/driver.cfg"
-            VERBATIM)
-    add_custom_target(sound_driver ALL DEPENDS "${SOUND_DIR}/driver.bin")
-    add_dependencies(test_sound_driver sound_driver)
-endif()
-target_compile_definitions(test_sound_driver PRIVATE EMU_SOUND_DRIVER="${SOUND_DIR}/driver.bin")
-
-# --- OOLIB's music driver ---------------------------------------------------
-#
-# oodos/lib/mudrv/mudrv.s, for the card's 6510 (hw/oolib.md, L6a): assembled
-# here so test_mudrv runs it on the card. Without cc65 it skips.
-
-emu_add_test(test_mudrv)
-set(MUDRV_SRC "${PROJECT_SOURCE_DIR}/../oodos/lib/mudrv")
-set(MUDRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/mudrv")
-if(EMU_CA65 AND EMU_LD65)
-    file(MAKE_DIRECTORY "${MUDRV_DIR}")
-    add_custom_command(
-            OUTPUT "${MUDRV_DIR}/mudrv.bin"
-            COMMAND "${EMU_CA65}" -g -o "${MUDRV_DIR}/mudrv.o" "${MUDRV_SRC}/mudrv.s"
-            COMMAND "${EMU_LD65}" -C "${MUDRV_SRC}/mudrv.cfg" -o "${MUDRV_DIR}/mudrv.bin" "${MUDRV_DIR}/mudrv.o"
-            DEPENDS "${MUDRV_SRC}/mudrv.s" "${MUDRV_SRC}/mudrv.cfg"
-            VERBATIM)
-    add_custom_target(mudrv ALL DEPENDS "${MUDRV_DIR}/mudrv.bin")
-    add_dependencies(test_mudrv mudrv)
-endif()
-target_compile_definitions(test_mudrv PRIVATE EMU_MUDRV="${MUDRV_DIR}/mudrv.bin")
 
 # --- Ben Eater's ROMs -------------------------------------------------------
 #
@@ -1027,6 +985,7 @@ set(EMU_TEST_LABELS
     test_oodos_input            "oodos bios sd usb joy backplane"
     test_oodos_sound            "oodos bios sd sound sid es5503 dma backplane"
     test_oodos_playsid          "oodos bios sd sound sid backplane"
+    test_oodos_sndfw            "oodos bios sd sound dma backplane"
     test_oodos_video            "oodos bios sd video dma backplane"
     test_oodos_load             "oodos bios sd dma sound backplane"
     test_oodos_gfx              "oodos bios sd video dma backplane"
@@ -1050,8 +1009,6 @@ set(EMU_TEST_LABELS
     test_gwbasic_gfx            "gwbasic oodos bios sd backplane video usb"
     test_gwbasic_math           "gwbasic oodos"
     test_gwbasic_programs       "gwbasic oodos"
-    test_sound_driver           "emu sound bridge"
-    test_mudrv                  "oodos sound sid bridge"
     test_app_tty                "emu app apple1 debug pia"
     test_app_debug              "emu app apple1 debug backplane pia"
     test_app_eater              "emu app eater acia debug lcd via"

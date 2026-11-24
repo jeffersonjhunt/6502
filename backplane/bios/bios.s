@@ -30,11 +30,14 @@
 ; $C818 is the dispatching entry, for the functions after the eight: a program
 ; asks with Y = $5A and X = $A0 + the function, A its argument (two bytes, as
 ; $C815's, so the monitor's R, which leaves X 0, can't match them). $A1 is
-; Apple II mode with image A, 0-3 (apple.s). $A0, the flash update (flash.s),
-; is the menu's alone, so with the token it is refused as $A2-$AF are: back,
-; carry set, A, X, Y and the windows as they were, as $A1 with A over 3 is.
-; Without the token (C818R) it is a menu: F the flash update, 0-3 Apple II
-; mode with that image, any other key the monitor.
+; Apple II mode with image A, 0-3 (apple.s). $A2 is a beep on a revision 3
+; sound card, 800 Hz for A x 10 ms (A = 0: 250 ms), and $A3 stops every sound
+; on it (STOPALL): each waits for the card's READY (250 ms) and its reply
+; (100 ms), carry clear; carry set with no such card, or if it doesn't answer.
+; $A0, the flash update (flash.s), is the menu's alone, so with the token it
+; is refused as $A4-$AF are: back, carry set, A, X, Y and the windows as they
+; were, as $A1 with A over 3 is. Without the token (C818R) it is a menu: F the
+; flash update, 0-3 Apple II mode with that image, any other key the monitor.
 ;
 ; Before the copy, with the front panel there (its ID read twice): a
 ; breakpoint left on P3's own address (DG_P3ADDR) is turned off, and only
@@ -60,7 +63,7 @@
 .include "backplane.inc"
 .include "diag.inc"
 .import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, APPLEN, SDCAT, SDBOOT, SPLASH, AUTOBOOT, GETKEY, FLASHUP
-.export BREAK, BOOT, MONBOOT, QUIET
+.export BREAK, BOOT, MONBOOT, QUIET, SWAIT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -324,21 +327,25 @@ DIAGPGM:        CMP     #$A5
                 JMP     DIAGGO
 
 ; $C818: a program's function, with the token (Y = $5A, X $A0-$AF): $A1 Apple
-; II mode with image A (A 0-3); anything else back, carry set, nothing changed.
-; Without the token, the menu.
+; II mode with image A (A 0-3), $A2 BEEP and $A3 STOPALL (SNDCALL); anything
+; else back, carry set, nothing changed. Without the token, the menu.
 ROMCALL:        CPY     #$5A
                 BNE     MENU
                 CPX     #$A0
                 BCC     MENU
                 CPX     #$B0
                 BCS     MENU
-                CPX     #$A1           ; $A0 (the update, the menu's only) and $A2-$AF: none
-                BNE     @none
-                CMP     #IIE_IMAGES
-                BCS     @none          ; no image 4 or over: block 4 is the character sets'
-                JMP     APPLEN         ; never returns
+                CPX     #$A1           ; $A0 (the update, the menu's only) and $A4-$AF: none
+                BEQ     @apple
+                BCC     @none
+                CPX     #$A4
+                BCS     @none
+                JMP     SNDCALL        ; $A2, $A3
 @none:          SEC                    ; A, X, Y and the windows as they were
                 RTS
+@apple:         CMP     #IIE_IMAGES
+                BCS     @none          ; no image 4 or over: block 4 is the character sets'
+                JMP     APPLEN         ; never returns
 
 ; C818R: a key from the menu. A typed R has no return address, so this never
 ; returns.
@@ -375,6 +382,133 @@ MNODIAG:        .byte   $0D, "NO DIAGNOSTICS IN THE FLASH", $0D, 0
 MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: WRITE THE FLASH AGAIN", $0D, 0
 MROM:           .byte   $0D, "ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
+; $C818's $A2 (BEEP: 800 Hz, the PC's beep, for A x 10 ms; A = 0, 250 ms) and
+; $A3 (STOPALL), X the function, on a revision 3 sound card (hw/future/sound-
+; device.md, "Bare metal"): READY waited for (250 ms), then CMD's room for a
+; whole record (100 ms); the record written whole with interrupts off, tag
+; RTAG; then its REPLY (100 ms), each other record the card sends meanwhile
+; read and dropped. Carry clear once the REPLY is in (whatever its status);
+; carry set at once with no revision 3 card, or when a wait runs out. A, X, Y
+; and the windows kept; the stack holds what it needs (no RAM of its own).
+RTAG    = $FF                          ; $C818's tag (the splash's is $FE; OODOS's are $01-$84)
+SNDCALL:        PHA
+                PHX
+                PHY
+                LDY     SOUND_ID
+                CPY     #SOUND_ID_V3
+                BNE     @fail
+                LDA     #SOUND_ST_READY
+                LDY     #250
+                JSR     SWAIT
+                BCS     @fail
+                LDA     #SOUND_ST_CMDRDY
+                LDY     #100
+                JSR     SWAIT
+                BCS     @fail
+                JSR     SSEND
+                LDY     #100           ; the REPLY: 100 ms, records read as they come
+@wait:          LDA     #SOUND_ST_EVT
+                JSR     SWAIT
+                BCS     @fail
+                JSR     SREAD
+                TXA
+                BNE     @wait          ; another's: on waiting
+                PLY
+                PLX
+                PLA
+                CLC
+                RTS
+@fail:          PLY
+                PLX
+                PLA
+                SEC
+                RTS
+
+; SNDCALL's record, whole, with interrupts off: X's function ($A2 BEEP, $A3
+; STOPALL) and A's length from SNDCALL's pushes. A, X, Y.
+SSEND:          PHP
+                SEI
+                TSX                    ; $0101,X P, $0102-3 the return, then Y, X and A
+                LDA     $0105,X
+                CMP     #$A3
+                BEQ     @stop
+                LDY     $0106,X        ; the length, in 10 ms
+                LDX     #SOUND_BEEP    ; BEEP: n 5, 800 Hz
+                STX     SOUND_CMD
+                LDX     #5
+                STX     SOUND_CMD
+                LDX     #RTAG
+                STX     SOUND_CMD
+                LDX     #<800
+                STX     SOUND_CMD
+                LDX     #>800
+                STX     SOUND_CMD
+                LDX     #0             ; ms: A x 10 (X its high byte); A = 0, 250
+                LDA     #<250
+                CPY     #0
+                BEQ     @len
+                LDA     #0
+@add:           CLC
+                ADC     #10
+                BCC     @next
+                INX
+@next:          DEY
+                BNE     @add
+@len:           STA     SOUND_CMD
+                STX     SOUND_CMD
+                STZ     SOUND_CMD      ; the volume: the card's default
+                PLP
+                RTS
+@stop:          LDA     #SOUND_STOPALL ; STOPALL: n 0
+                STA     SOUND_CMD
+                STZ     SOUND_CMD
+                LDA     #RTAG
+                STA     SOUND_CMD
+                PLP
+                RTS
+
+; One record from EVT (one waits), read whole: X 0 if it is RTAG's REPLY,
+; else 1. A; Y kept.
+SREAD:          PHY
+                LDA     SOUND_EVT      ; +0 the kind
+                EOR     #SOUND_EV_REPLY
+                TAX                    ; X 0: a REPLY, so far
+                LDA     SOUND_EVT      ; +1 n, the bytes after it
+                TAY
+                BEQ     @none          ; (nothing after it: not ours)
+                LDA     SOUND_EVT      ; +2 a REPLY's tag (an event's object)
+                CMP     #RTAG
+                BEQ     @rest
+                LDX     #1
+@rest:          DEY
+                BEQ     @done
+@drop:          LDA     SOUND_EVT      ; the rest of the record
+                DEY
+                BNE     @drop
+                BRA     @done
+@none:          LDX     #1
+@done:          PLY
+                RTS
+
+; Until the sound card's STATUS has a bit of A (carry clear), or for Y ms
+; (1-255; carry set, Y 0). A pass of X's 256 is about a millisecond at
+; 7.16 MHz (28 cycles each). A kept; X; Y the ms left. SNDCALL's and the
+; splash's.
+SWAIT:          LDX     #0
+@pass:          BIT     SOUND_STATUS   ; 4
+                BNE     @yes           ; 2
+                JSR     @rts           ; 12
+                NOP                    ; 2
+                BIT     $00            ; 3
+                DEX                    ; 2
+                BNE     @pass          ; 3
+                DEY
+                BNE     SWAIT
+                SEC
+@rts:           RTS
+@yes:           CLC
+                RTS
+
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's; on revision 2 or more every WINnH and
 ; VECH 0 and MAP as the boot sets it), the cards quiet, the text screen
@@ -405,8 +539,9 @@ IRQ:            PHA
                 RTI
 
 ; Stop what would go on behind the monitor: every DMA channel (all eight), the SD card's
-; command, the boot splash and the video port's DMA request, the sound card's 6510 and SIDs (and from revision
-; 2, its PCM stream and ES5503); and turn off the interrupts that
+; command, the boot splash and the video port's DMA request, every sound on a revision 3 sound card (CTRL's
+; RESET: its tunes, music, effects, streams and beep, an open transfer and both FIFOs, IEN 0; one write, no
+; wait; revisions 1 and 2 aren't driven); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
 ; it doesn't know (a program's own state) is left alone; the serial card the
@@ -469,25 +604,10 @@ QUIET:
                 STZ     VIDEO_SPLASH   ; the boot splash, if it's still on
                 STZ     VIDEO_PCTL     ; the port's DRQ off (channel 1 is stopped)
 @sound:         LDA     SOUND_ID
-                AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
-                CMP     #SOUND_TYPE
+                CMP     #SOUND_ID_V3
                 BNE     @panel
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN   ; the 6510 stopped, so the SIDs take writes
+                LDA     #SOUND_CTRL_RESET
                 STA     SOUND_CTRL
-                STZ     SOUND_IEN
-                LDX     #SOUND_SIDS - 1
-@sid:           STZ     SOUND,X        ; every SID register: gates and volume off
-                DEX
-                BPL     @sid
-                LDA     SOUND_ID
-                CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
-                BCC     @panel
-                LDA     #SOUND_PCM_FLUSH
-                STA     SOUND_PCMCTL   ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
-                LDA     SOUND_DOCCTL
-                AND     #<~SOUND_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
-                STA     SOUND_DOCCTL
 @panel:         LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
                 BNE     @via

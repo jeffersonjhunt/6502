@@ -25,7 +25,8 @@
 ;            B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
-;   SOUND    82's SN_INFO
+;   SOUND    82's SN_INFO and SN_IDENTIFY (the card's own answer: no sound
+;            register is read)
 ;   STORAGE  the SD card's IDENTIFY (HW_SD_ID); drives A-N by 14, 31 and 46
 ;            in the error mode that returns errors (O: and P:, the Disk
 ;            II's, aren't selected, to leave its drives alone)
@@ -840,6 +841,10 @@ video:  lda     #<svideo
 ; ---------------------------------------------------------------------------
 ; SOUND
 
+; SN_INFO for the card (0: none) and the parts no one has claimed; then
+; SN_IDENTIFY's 32 bytes: the firmware, the store, the chips and features.
+; SYSINFO reads no sound register.
+
 sound:  lda     #<ssound
         ldx     #>ssound
         jsr     puts
@@ -859,44 +864,142 @@ sound:  lda     #<ssound
         jsr     puts
         lda     sninfo + 1
         jsr     dec8
+        lda     #SN_IDENTIFY
+        sta     snid
+        lda     #<snid
+        ldx     #>snid
+        ldy     #O_SOUND
+        jsr     BDOS
+        cmp     #0
+        beq     @id
+        lda     #<snoid                 ; the card didn't answer (or refused)
+        ldx     #>snoid
+        jsr     puts
+        jmp     @free
+@id:    lda     #<sfw                   ; ", firmware 1.0 build 1 (image A)"
+        ldx     #>sfw
+        jsr     puts
+        lda     snid + 2
+        jsr     dec8
+        lda     #'.'
+        jsr     CM_PUTC
+        lda     snid + 3
+        jsr     dec8
+        lda     #<sbuild
+        ldx     #>sbuild
+        jsr     puts
+        lda     snid + 4
+        ldx     snid + 5
+        jsr     dec16
+        lda     #<simage
+        ldx     #>simage
+        jsr     puts
+        lda     snid + 26
+        clc
+        adc     #'A'
+        jsr     CM_PUTC
+        lda     #')'
+        jsr     CM_PUTC
+        jsr     cont                    ; "8,192 KB of store, 8,192 KB free (MEMSIZE 128)"
+        lda     #<(snid + 13)
+        ldx     #>(snid + 13)
+        jsr     kb32
+        lda     #<sstore
+        ldx     #>sstore
+        jsr     puts
+        lda     #<(snid + 9)
+        ldx     #>(snid + 9)
+        jsr     kb32
+        lda     #<sidfree
+        ldx     #>sidfree
+        jsr     puts
+        lda     snid + 6
+        jsr     dec8
+        lda     #')'
+        jsr     CM_PUTC
+        jsr     cont                    ; the chips: "two SIDs (6581, 6581), the 6510, an ES5503"
+        stz     first
+        lda     snid + 7
+        and     #SOUND_FT_TWOSID
+        beq     @tunes
+        jsr     sep
         lda     #<ssids
         ldx     #>ssids
         jsr     puts
-        lda     sninfo + 2
-        bpl     @pcm
+        lda     snid + 24               ; the models, if the card says
+        ora     snid + 25
+        beq     @tunes
+        lda     #<sopen
+        ldx     #>sopen
+        jsr     puts
+        lda     snid + 24
+        jsr     model
+        lda     #<scomma
+        ldx     #>scomma
+        jsr     puts
+        lda     snid + 25
+        jsr     model
+        lda     #')'
+        jsr     CM_PUTC
+@tunes: lda     #SOUND_FT_TUNES
+        ldx     #<s6510
+        ldy     #>s6510
+        jsr     feat
+        lda     #SOUND_FT_DOC
+        ldx     #<sdoc
+        ldy     #>sdoc
+        jsr     feat
+        jsr     cont                    ; what it plays: "raw PCM, MP3, EQ, the vis page"
+        stz     first
+        lda     #SOUND_FT_PCM
+        ldx     #<spcm
+        ldy     #>spcm
+        jsr     feat
+        lda     #SOUND_FT_MP3
+        ldx     #<smp3
+        ldy     #>smp3
+        jsr     feat
+        lda     #SOUND_FT_EQ
+        ldx     #<seq
+        ldy     #>seq
+        jsr     feat
+        lda     #SOUND_FT_VIS
+        ldx     #<svis
+        ldy     #>svis
+        jsr     feat
+        lda     snid + 8                ; FEATURES2, a line: bit 0 the tone generator, bit 2 the update
+        and     #$05
+        beq     @fhex
         jsr     cont
-        lda     #<sdoc
-        ldx     #>sdoc
+        stz     first
+        lda     snid + 8
+        and     #$01
+        beq     @upd
+        jsr     sep
+        lda     #<stone
+        ldx     #>stone
         jsr     puts
-@pcm:   lda     sninfo + 2
-        and     #$03
-        beq     @free
-        jsr     cont
-        lda     sninfo + 2
-        lsr     a
-        bcc     @mp3
-        lda     #<spcm
-        ldx     #>spcm
+@upd:   lda     snid + 8
+        and     #$04
+        beq     @fhex
+        jsr     sep
+        lda     #<supdate
+        ldx     #>supdate
         jsr     puts
-        lda     sninfo + 2
-        and     #$02
-        beq     @codecs
-        lda     #<sand
-        ldx     #>sand
-        jsr     puts
-@mp3:   lda     sninfo + 2
-        and     #$02
-        beq     @codecs
-        lda     #<smp3
-        ldx     #>smp3
-        jsr     puts
-@codecs:
-        lda     #<scodecs
-        ldx     #>scodecs
+@fhex:  jsr     cont                    ; "(FEATURES $FF, FEATURES2 $07)"
+        lda     #<sfeat
+        ldx     #>sfeat
         jsr     puts
         lda     #'$'
         jsr     CM_PUTC
-        lda     sninfo + 2
+        lda     snid + 7
+        jsr     HW_HEX2
+        lda     #<sfeat2
+        ldx     #>sfeat2
+        jsr     puts
+        lda     #'$'
+        jsr     CM_PUTC
+        lda     snid + 8
         jsr     HW_HEX2
         lda     #')'
         jsr     CM_PUTC
@@ -905,24 +1008,75 @@ sound:  lda     #<ssound
         ldx     #>sfree
         jsr     puts
         lda     sninfo + 3
-        and     #SC_6510 | SC_STREAM | SC_DOC
+        and     #SC_TUNE | SC_STREAM | SC_MUSIC
         bne     @parts
         lda     #<snone
         ldx     #>snone
         jmp     puts
 @parts: stz     first
-        lda     #SC_6510
-        ldx     #<s6510
-        ldy     #>s6510
+        lda     #SC_TUNE
+        ldx     #<stune
+        ldy     #>stune
         jsr     part
         lda     #SC_STREAM
         ldx     #<sstream
         ldy     #>sstream
         jsr     part
-        lda     #SC_DOC
-        ldx     #<sdocp
-        ldy     #>sdocp
-; A part (A, its bit) named X/Y, if it is free, after ", " if one came before.
+        lda     #SC_MUSIC
+        ldx     #<smusic
+        ldy     #>smusic
+        jmp     part
+
+; A SID's model (A: 1 6581, 2 8580, else "unknown").
+model:  ldx     #2
+        cmp     #1
+        beq     @n
+        ldx     #0
+        cmp     #2
+        beq     @n
+        lda     #<sunkn
+        ldx     #>sunkn
+        jmp     puts
+@n:     lda     smodels,x
+        pha
+        lda     smodels + 1,x
+        tax
+        pla
+        jmp     puts
+
+; A feature (A, its FEATURES bit) named X/Y, if the card has it, after ", ".
+feat:   stx     name
+        sty     name + 1
+        and     snid + 7
+        beq     @no
+        jsr     sep
+        lda     name
+        ldx     name + 1
+        jmp     puts
+@no:    rts
+
+; The 4 bytes at A/X (low first), a count of bytes, in KB (the low 10 bits
+; dropped), in decimal with commas.
+kb32:   sta     p
+        stx     p + 1
+        ldy     #1
+        ldx     #0
+@sh:    lda     (p),y                   ; HW_NUM = the bytes from +1, shifted right 2
+        sta     HW_NUM,x
+        iny
+        inx
+        cpx     #3
+        bne     @sh
+        stz     HW_NUM + 3
+        ldx     #2
+@two:   lsr     HW_NUM + 2
+        ror     HW_NUM + 1
+        ror     HW_NUM
+        dex
+        bne     @two
+        sec
+        jmp     HW_DEC
+
 part:   stx     name
         sty     name + 1
         and     sninfo + 3
@@ -1576,17 +1730,32 @@ skb:    .byte   " KB$"
 ssound: .byte   "SOUND      $"
 snosound: .byte "no sound card$"
 srev:   .byte   "revision $"
-ssids:  .byte   ": two SIDs, the 6510 and its 64 KB$"
-sdoc:   .byte   "an ES5503 and 128 KB of wave RAM$"
+snoid:  .byte   ", which didn't answer IDENTIFY$"
+sfw:    .byte   ", firmware $"
+sbuild: .byte   " build $"
+simage: .byte   " (image $"
+sstore: .byte   " KB of store, $"
+sidfree: .byte  " KB free (MEMSIZE $"
+ssids:  .byte   "two SIDs$"
+smodels: .word  s8580, s6581
+s6581:  .byte   "6581$"
+s8580:  .byte   "8580$"
+sunkn:  .byte   "unknown$"
+s6510:  .byte   "the 6510$"
+sdoc:   .byte   "an ES5503$"
 spcm:   .byte   "raw PCM$"
-sand:   .byte   " and $"
 smp3:   .byte   "MP3$"
-scodecs: .byte  " (CODECS $"
+seq:    .byte   "EQ$"
+svis:   .byte   "the vis page$"
+stone:  .byte   "the tone generator$"
+supdate: .byte  "firmware updates$"
+sfeat:  .byte   "(FEATURES $"
+sfeat2: .byte   ", FEATURES2 $"
 sfree:  .byte   "free: $"
 snone:  .byte   "none$"
-s6510:  .byte   "6510$"
+stune:  .byte   "tune$"
+smusic: .byte   "music$"
 sstream: .byte  "stream$"
-sdocp:  .byte   "ES5503$"
 sstorage: .byte "STORAGE$"
 ssdcard: .byte  "  SD CARD    $"
 sderrs: .word   snosd, sempty, sbusy
@@ -1671,6 +1840,7 @@ mcb:    .res    5
 vunits: .res    1
 mod:    .res    1
 sninfo: .res    4
+snid:   .res    33
 first:  .res    1
 sec0:   .res    2
 unit:   .res    1

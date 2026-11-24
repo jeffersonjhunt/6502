@@ -1,19 +1,23 @@
 /**
  * @file test_oodos_playsid.cpp
  * @brief OOLIB's L3 (hw/oolib.md, "The plan"): PLAYSID.COM and the linked library's .sid (oodos/lib/sid.s),
- * on OODOS.SYS booted as test_oodos_sound boots it.
+ * on OODOS.SYS booted as test_oodos_sound boots it, on sound card revision 3: the file played by the card's own
+ * tune player (SN_TUNE, SN_PLAY).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * Every tune here is built by the test, as test_sid_file.cpp builds its own: a few bytes of code (init keeps
  * its A, play counts its calls) under headers of each kind the player treats differently. PLAYSID plays each
- * from M:, and what it put in the card's RAM, and CTRL, are checked against the emulator's own player's plan
- * (sid_file.h's plan_sid) for the same bytes: the library is a port of its rules. Never the owner's tunes.
+ * from M:, and what the card's player put in its 6510's RAM, and its CTRL, are checked against the emulator's own
+ * planner (sid_file.h's plan_sid) for the same bytes: the card plays the file the library hands it whole. RSIDs
+ * play now. Never the owner's tunes.
  */
 
 #include "harness.h"
 #include "oodos_rig.h"
 #include "sid_file.h"
 #include "sound_card.h"
+#include "sound_card3.h"
+#include "sound_fw.h"
 
 #include <cstdio>
 #include <map>
@@ -27,6 +31,8 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
+    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
+
     struct Header
     {
         bool rsid{false};
@@ -41,6 +47,7 @@ namespace
         uint8_t start_page{0}, page_length{0};
         uint8_t sid2{0};
         bool load_in_data{false};
+        std::string released{}; ///< the header's released field (+$56), empty: none
     };
     constexpr uint16_t SCRATCH = 0x0800; ///< init's and play's: outside every tune and stub page here
     /// init: STA $0800 (the song less 1), RTS; play: INC $0801, RTS: at the tune's load address and + 4.
@@ -65,6 +72,7 @@ namespace
         const std::string name = "Test Tune   ", author = "Nobody";
         std::copy(name.begin(), name.end(), b.begin() + 0x16);
         std::copy(author.begin(), author.end(), b.begin() + 0x36);
+        std::copy(h.released.begin(), h.released.end(), b.begin() + 0x56);
         if (h.version >= 2)
         {
             put16(0x76, h.flags);
@@ -81,7 +89,9 @@ namespace
         return b;
     }
 
-    SoundCard &card(Rig &r) { return *r.machine->sound_card(); }
+    /// The card's chips: its 6510's RAM and CTRL as the card's player set them (the debugger's view).
+    SoundCard &card(Rig &r) { return r.machine->sound_device()->chips(); }
+    SoundFw &fw(Rig &r) { return r.machine->sound_device()->firmware(); }
 
     /// The card as plan_sid plans `f`'s song: its blocks in the card's RAM (the stub's frame counter aside), CTRL,
     /// and init and play seen to have run (init with `want_song` less 1).
@@ -105,7 +115,9 @@ namespace
             CHECK(same);
         }
         std::printf("  stub at $%04X, CTRL $%02X (plan $%02X)\n", plan.stub, card(r).peek(SoundCard::CTRL), plan.ctrl);
-        CHECK_EQ(card(r).peek(SoundCard::CTRL), plan.ctrl & ~SoundCard::CTRL_RESET); // RESET a strobe: reads 0
+        // RESET a strobe (reads 0); BOTH not used by the card (a one-SID tune plays on SID A alone: decided).
+        CHECK_EQ(card(r).peek(SoundCard::CTRL), plan.ctrl & ~(SoundCard::CTRL_RESET | SoundCard::CTRL_BOTH));
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_PLAYING);
         const uint16_t page = SCRATCH;
         if (f.init == f.load)
             CHECK_EQ(ram[page], want_song - 1); // init ran with the song less 1
@@ -176,6 +188,7 @@ namespace
         r.type("x");
         CHECK(r.until("\r\nA>", ms(2000), from));
         CHECK_EQ(card(r).peek(SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
         CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("SCLAIM")), 0);
     }
 
@@ -267,9 +280,7 @@ TEST(what_playsid_refuses)
 {
     Header h;
     CHECK(refuses(sid_bytes(h, code(0x1000)), " 5").find("Song 5 of 3?") != std::string::npos);
-    Header r = h;
-    r.rsid = true;
-    CHECK(refuses(sid_bytes(r, code(0x1000))).find("An RSID tune") != std::string::npos);
+
     Header m = h;
     m.flags = 0x0015; // MUS
     CHECK(refuses(sid_bytes(m, code(0x1000))).find("MUS") != std::string::npos);
@@ -277,7 +288,8 @@ TEST(what_playsid_refuses)
     v.load = 0xFF00, v.init = 0xFF00, v.play = 0xFF04;
     std::vector<uint8_t> top = code(0xFF00);
     top.resize(0x100, 0xEA);
-    CHECK(refuses(sid_bytes(v, top)).find("vectors") != std::string::npos);
+    // The vectors: refused by the card's player now (the planner's rule), so the library's SE_LOAD.
+    CHECK(refuses(sid_bytes(v, top)).find("wasn't loaded") != std::string::npos);
     CHECK(refuses(std::vector<uint8_t>(200, 0x41)).find("Not a .sid file.") != std::string::npos);
     {
         CcpRig c;
@@ -286,6 +298,50 @@ TEST(what_playsid_refuses)
         CHECK(c.cmd("M:PLAYSID M:NONE").find("No File") != std::string::npos);
         CHECK(c.cmd("M:PLAYSID").find("PLAYSID filespec {song}") != std::string::npos);
     }
+}
+
+TEST(playsid_says_the_released_field_and_the_time_played)
+{
+    // PLAYSID's printout (block D): the released field on a line of its own after the name and the author, and
+    // the time the tune has played (m:ss, the card's TUNE_STATUS), written over itself each second while it waits
+    // for a key; the key ends the line. Must fail with the released line left out, or the time not written (or
+    // read from TUNE_STATUS's wrong bytes: it would never move, or jump).
+    Header h;
+    h.released = "2026 Somebody";
+    CcpRig r;
+    REQUIRE(r.ok);
+    put(r, sid_bytes(h, code(0x1000)));
+    const std::string o = r.to("M:PLAYSID M:T", "Press a key to stop.", ms(4000));
+    CHECK(o.find("Playing song 2 of 3: Test Tune, Nobody\r\n2026 Somebody\r\nPress a key to stop.") !=
+          std::string::npos);
+    const size_t from = r.out.size();
+    r.run(ms(2500));
+    const std::string t = r.out.substr(from);
+    std::printf("  then %s\n", vis(t).c_str());
+    CHECK(t.find("\r0:01 played") != std::string::npos);
+    CHECK(t.find("\r0:02 played") != std::string::npos);
+    CHECK(t.find("0:03") == std::string::npos);
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_PLAYING);
+    const size_t end = r.out.size();
+    r.type("x");
+    CHECK(r.until("A>", ms(2000), end));
+    const std::string tail = r.out.substr(end);
+    std::printf("  after the key %s\n", vis(tail).c_str());
+    CHECK_EQ(tail, std::string("\r\nA>")); // the time's line ended, no blank line
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
+}
+
+TEST(an_rsid_plays_on_the_card_s_player)
+{
+    // RSIDs play now (the card's player, the planner's rules for one): a version 2 RSID, its load address in its
+    // data, no play routine (its own interrupt), plays as plan_sid plans it. Must fail with SID_PARSE's RSID refusal
+    // put back (SE_RSID: PLAYSID's "An RSID tune").
+    Header h;
+    h.rsid = true;
+    h.load_in_data = true;
+    h.play = 0;
+    h.songs = 1, h.start = 1;
+    plays(sid_bytes(h, code(0x1000)), "", 0, 1);
 }
 
 // ---- The library linked into an overlay ----------------------------------------------------------------------

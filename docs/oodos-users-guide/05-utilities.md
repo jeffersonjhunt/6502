@@ -1,7 +1,8 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures; SYSINFO (hw/diag.md, D1), for what the machine has. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures; SYSINFO (hw/diag.md, D1), for what the machine has; SNDFW, for the sound card's
+firmware. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -1235,10 +1236,12 @@ OODOS's own: CP/M 3 has no such utility.
 <a id="util-playsid"></a>
 ### PLAYSID: play a C64 .sid tune
 
-PLAYSID plays a `.sid` file, a Commodore 64 tune with its own player code, on the sound card's 6510 and its two
-SIDs, until you press a key. The card does all the work, so the tune keeps time on its own clock. PLAYSID is built
+PLAYSID plays a `.sid` file, a Commodore 64 tune with its own player code (PSID or RSID), on the sound card's own
+tune player, its 6510 and its two SIDs, until you press a key. The card does all the work, so the tune keeps time on
+its own clock. PLAYSID is built
 on OOLIB's linked library ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#sid-tunes)),
-which plays the tune as the emulator's own Play .sid does.
+which hands the file to the card's player (function 82's `SN_TUNE` and `SN_PLAY`), as the emulator's own Play .sid
+does.
 
 #### Forms
 
@@ -1260,12 +1263,14 @@ None.
 ```
 A>PLAYSID TUNE 2
 Playing song 2 of 3: Test Tune, Nobody
+2026 Somebody
 Press a key to stop.
+0:12 played
 ```
 
-The name and the author are the tune's own, from its header. The SIDs are the card's own model (a jumper on the card,
-not a register), whatever the tune asks for. Any key stops it: the 6510 stops, the SIDs go quiet,
-and PLAYSID ends. Ending any other way (^C, Break) stops the tune too: the warm boot quiets the card.
+The name, the author and the released field are the tune's own, from its header (the released line only when the
+file has one). The time the tune has played, from the card's own count (paused time left out), is written over itself
+each second. Any key stops it: the tune stops, the SIDs go quiet, and PLAYSID ends. Ending any other way (^C, Break) stops the tune too: the warm boot quiets the card.
 
 #### Errors
 
@@ -1275,18 +1280,16 @@ and PLAYSID ends. Ending any other way (^C, Break) stops the tune too: the warm 
 - `Song n of m?`: a song past the tune's count.
 - `Not a .sid file.`, `Unknown .sid version.`, `Bad data offset.`, `No code in the file.`, `The code runs past the
   6510's 64 KB.`, `Bad song count.`: the file isn't a .sid file PLAYSID can read.
-- `An RSID tune: PLAYSID plays PSID only.`: an RSID tune expects a whole C64 (its video chip, its second CIA, its
-  ROMs), which the card hasn't got.
-- `A Compute! MUS file needs a player of its own.`, `The tune covers the 6510's vectors.`, `No free page for the
-  player's stub.`: a tune the card's player can't take.
-- `The sound card is in use, or not there.`: another program or an RSX has the 6510, or there is no sound card.
-  `The sound card's RAM wasn't loaded.`: a load into it was refused.
+- `A Compute! MUS file needs a player of its own.`: a tune the card's player can't take.
+- `The sound card's tune player is in use, or not there.`: another program or an RSX has the tune player, or there
+  is no sound card OODOS drives. `The card's player refused the tune: it wasn't loaded.`: the card refused the file
+  at its load or its play (its own checks: a tune over the 6510's vectors, say).
 
 Each sets the return code to `$FF00`.
 
 #### Since
 
-OODOS 0.4
+OODOS 0.4; on sound card revision 3 (the card's own tune player, RSIDs too) since OODOS 0.17
 
 #### Status
 
@@ -1411,7 +1414,7 @@ CARDS
   $C380  $71  mass storage (SD)             1
   $C400  $82  DMA controller                2
   $C480  $92  video                         2
-  $C500  $A2  sound                         2
+  $C500  $A3  sound                         3
   $C580  $B1  USB, game port and speaker    1
   $C600  $C1  Disk II controller            1
   $C680  $D3  north bridge                  3
@@ -1424,7 +1427,21 @@ CARDS
   as function 78 reports it: `RANDOM     ATECC608B on the north bridge`, or `none`, `not locked` or `failed`.
 - **CARDS:** a line a card, found by its ID byte. A card that doesn't answer is `not found`; a card at a revision
   SYSINFO doesn't know says so. The serial card of the emulator is a stand-in with no ID.
-- **VIDEO, SOUND:** the cards' memory and parts, and which of the sound card's parts no program has claimed.
+- **VIDEO, SOUND:** the video card's memory; the sound card's own answer to IDENTIFY (its firmware's version, build
+  and flash image, its store and how much is free, its chips and what it plays, its FEATURES bytes), and which of its
+  parts (tune, stream, music) no program has claimed. SYSINFO reads no sound register itself. With no sound card
+  OODOS drives, the line says `no sound card`.
+  The SOUND section:
+
+  ```
+  SOUND      revision 3, firmware 1.0 build 1 (image A)
+               8,192 KB of store, 8,192 KB free (MEMSIZE 128)
+               two SIDs (6581, 6581), the 6510, an ES5503
+               raw PCM, MP3, EQ, the vis page
+               the tone generator, firmware updates
+               (FEATURES $FF, FEATURES2 $07)
+               free: tune, stream, music
+  ```
 - **STORAGE:** the SD card's type, size, file system and firmware, the image files mounted, then drives A: to N:
   with their size and free space. O: and P:, the Disk II's, aren't looked at.
 - **INPUT:** the USB keyboard, mouse and gamepad plugged in, the game port's paddles and buttons, and the
@@ -1440,6 +1457,63 @@ CARDS
 #### Since
 
 OODOS 0.10, from hw/diag.md's D1 (function 77: interface version 9).
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.
+
+## SNDFW
+
+<a id="util-sndfw"></a>
+### SNDFW: update the sound card's firmware
+
+SNDFW sends a firmware image to the sound card (revision 3), which checks it and writes it into the half of its flash
+that isn't running, marked to boot. The card runs it from its next start: the next power-on, or its firmware started
+again. A bad image changes nothing: the card's old firmware stays the one that boots.
+
+#### Forms
+
+```
+SNDFW filespec
+```
+
+- **filespec** is the image; `.FW` if you leave the type out. It is sent in 4 KB pieces, so it may be bigger than
+  memory. The image's own header says how long it is, so the padding at the end of the file's last record is never
+  sent.
+
+#### Options
+
+None.
+
+#### Output
+
+```
+A>SNDFW CARD
+Firmware 1.7 (build 3) written: the sound card runs it from its next start.
+```
+
+The version and the build are the image's own, from its header.
+
+#### Errors
+
+- `SNDFW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file.
+- `Not a sound card firmware image.`: the file doesn't start with a firmware image's header for this card, or it
+  ends before the length its header gives. Nothing is sent to the card.
+- `The sound card is in use, or there is no card OODOS drives.`: a program or an RSX has claimed a part of the card
+  (an update waits until every part is free), or there is no revision 3 sound card.
+- `The sound card didn't answer.`: it didn't answer in time; try again.
+- `The card refused the image: its old firmware stays.`: the card's check of the image failed (its CRCs, its
+  length). `The card refused the update: error n.`: another refusal, the card's error number.
+
+Each sets the return code to `$FF00`.
+
+#### Since
+
+OODOS 0.17
 
 #### Status
 

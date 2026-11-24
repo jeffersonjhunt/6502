@@ -1049,7 +1049,8 @@ with up to 16 MB, so the reasoning isn't lost.
    that doesn't start up is given up on at a key. An OODOS card so boots OODOS at power-on. *(BIOS 0.11,
    2026-11-05.)* Break also turns the VIA's interrupts off (`$7F` to its IER) and clears the Console card's ISR,
    since a front-panel key already pending holds /IRQ low whatever IEN says; and the BIOS takes the sound card at
-   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). The BIOS's memory-to-memory
+   any revision (the ID's high nibble, `$A`), for revision 2 (*until BIOS 0.21, which drives revision 3 alone:
+   [below](#sound-card-revision-3)*). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
    program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
@@ -1062,8 +1063,11 @@ with up to 16 MB, so the reasoning isn't lost.
    `$E0–$E7`.
 
    *(BIOS 0.12, 2026-11-07.)* On a sound card of revision 2 or later (ID `$A2` and up), Break also stops the PCM
-   stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor
-   ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
+   stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor; on
+   revision 1 it writes nothing at `$48–$63`. *(BIOS 0.21, 2026-11-24: on sound card revision 3, the only one the
+   ROM drives, Break's QUIET is one write of the card's CTRL RESET, which stops every sound, abandons an open transfer
+   and empties both FIFOs; on any other card it does nothing to it. [Sound card
+   revision 3](#sound-card-revision-3).)*
 
    *(BIOS 0.14, 2026-11-14: [diag.md](diag.md), plan 2.)* The ROM's diagnostics are in flash blocks
    21–23 (blocks 0–20 stay erased; since B5, 0–5 hold the IIe images and sets), entered three ways. Before its copy into block 63, with the Console card
@@ -1552,448 +1556,144 @@ card plays its sound alongside ([below](#the-splashs-sound)).
 
 #### The splash's sound ####
 
-The sound card's 6510 plays it, on whatever the card has: on [revision 2](#sound-card-revision-2) the ES5503, from
-samples ([below](#on-the-es5503-revision-2)); on revision 1 the SIDs, as follows. Either way the same bikes pass at
-the same moments and the stamp lands on the same frame.
+**Decided (2026-11-23, the owner's answer 12 on the sound device):** the sound card's firmware plays it, from the
+card's own flash: the same samples and the same sequence as before, on the firmware's own clock. It sounds the same,
+and isn't sample-identical. The BIOS loads nothing: `splash.s` writes the card's CTRL RESET, waits for READY (250 ms
+at most, else the splash runs silent), and at the vertical blank the splash's frame 0 begins on sends one record,
+BOOTSOUND. Break stops it early, as it stops any sound (QUIET's CTRL RESET).
 
-**On the SIDs (revision 1).** A 2 KB program for the 6510 (`backplane/bios/splash/bootsnd.s`; also a stereo PSID,
-`bootsnd.sid`, for any SID player). SID A is left and SID B right. Play runs 240 times a second, four ticks to a
-video frame, so pitches glide rather than step.
+**The scene.** Four MotoGP bikes scream past, one for each part of the logo, each panning on its own and changing
+pitch as it passes (Doppler, with a real engine's rpm climbing and its upshifts, the quickshifter's crack and the
+ignition cut); then the stamp comes down with a push of air and lands with a thunk, a rubbery smack and the handle's
+wooden knock. All of it is gone by about 2.4 s; the rest of the splash is quiet. The samples are synthesised from
+measurements of the real thing, the same bytes every build: `backplane/bios/splash/docsamples.py` and `docgen.py`
+make them, `tools/sndflash/` holds the image and the sequence's tables, and `tools/mksndflash.py` turns them into the
+emulator's flash (`sound_flash.h`). The 80 KB image left the system flash with BIOS 0.21: blocks 24–28 are erased.
 
-**Four MotoGP bikes** scream past, one for each part of the logo, each a voice on both SIDs:
-
-- **Pitch:** Doppler from a bike at 85 m/s passing 7 m away, on an inline-4 near 17,000 rpm, glided between frames.
-  There's a random wobble each tick for the engine's roughness, and at the upshift just after the pass, two ticks
-  of noise: the quickshifter's crack.
-- **Panning:** the chips' master volumes, slewed so they never click. Each chip also routes the bikes on its far
-  side through a low-pass filter, so every bike pans on its own: the far ear hears it dull.
-- **Distance:** the voices' sustain levels, which a SID can lower mid-note.
-- The fourth bike passes alone, so it has the other voices too: a sawtooth an octave down for body, and a noise
-  roar whose brightness follows its pitch.
-
-**The stamp:**
-
-- A push of air as it comes down: noise rising through a low-pass that opens, over its 4 frames.
-- The thunk as it lands: a thump (a pulse for the punch, then a triangle) falling from 120 Hz to 35 Hz.
-- A rubbery smack: noise through a resonant low-pass snapping shut.
-- The handle's wooden knock: a triangle at 196 Hz left and 203 Hz right.
-- All of it gone by 2.4 s; the rest of the splash is quiet.
-
-The tune is voiced for 8580 mode, and works on a 6581.
-
-The BIOS (`splash.s`) loads it at `$1000` through RAMDATA, points the card's reset vector at its boot entry
-(`$1006`), writes SPLASH, waits for the vertical blank the splash starts on, and sets CTRL to RUN, RESET and NTSC.
-The tune calls play once at once and then from CIA 1's timer at 240 Hz, so its frame *n* sounds with the picture's
-frame *n*. When it's over it zeroes the SIDs' oscillators (TEST) and registers and writes `$DE02`, which stops the
-card's 6510 and hands the SIDs back to the host, as after a reset. Break (QUIET) stops both early. A program that
-takes the card within the first 5 s finds the tune's voices still in the SIDs, so it silences them first, as QUIET
-does.
-
-##### On the ES5503 (revision 2) #####
-
-*(Proposed 2026-11-10.)* The same scene from samples: `backplane/bios/splash/docsnd.s`, a 1.5 KB player for the
-6510, and 80 KB of wave RAM made by `docsamples.py`, all synthesised, the same bytes every build; the engine from
-measurements of the real thing (a trackside recording of the 2024 MotoGP tests at Mugello), kept as numbers in
-`docsamples.py`, not the recording. The chip runs 24 oscillators, so 34,419 samples a second; even oscillators go
-left and odd right.
-
-| Table | Wave RAM | Contents |
-|---|---|---|
-| Engine | `$00000`, 32 KB loop | a bike flat out near 16,100 rpm: each 720° cycle from the harmonics measured on ten full-throttle pulls (order-tracked and averaged), their levels and phases and how much of each repeats cycle to cycle, the rest a new phase each cycle (the rasp); softly clipped for level, band-limited to 9.5 kHz; oversampled 4 times, 32 cycles in 0.24 s |
-| Wind | `$08000`, 8 KB loop | a bike's air and tyre roar, at half rate |
-| Crack | `$0A000`, 2 KB one-shot | the quickshifter's crack: two quick bangs and a crackle |
-| Push | `$0A800`, 2 KB one-shot | the air a stamp shoves ahead of it, at half rate |
-| Thunk | `$0C000` left, `$10000` right, 16 KB one-shots | the stamp landing: the contact's click, a sub kick falling from 171 Hz to 46, the rubber's smack, the handle's wooden knock (each ear's a touch apart), the desk, a short room, driven hard so the body stays up behind the hit; at half rate |
-
-- **Each bike** is the engine on two oscillators in each ear, for 6 dB more: a voice peaks at an eighth of the bus,
-  which mixes the chip at a half. Every tick the player glides each bike's pitch (the SIDs' Doppler, with the
-  recording's rpm: climbing about 9 % a second, 11 % down at each upshift; from `docgen.py`) and each ear's volume
-  (its distance and an equal-power pan), so every bike pans on its own. At the first upshift, just after the pass,
-  the crack plays and the engine dips for three frames: the ignition cut; the second, going away, only dips. The
-  lone fourth bike also has the engine an octave down, and the wind, on one oscillator to an ear (half and a
-  quarter level).
-- **The stamp:** the push starts as the stamp does and ends as it lands; then twenty oscillators, ten to an ear,
-  play the thunk, and the bikes stop.
-- **Why oversampled:** the ES5503 doesn't interpolate; it plays the sample its accumulator's whole part points at.
-  At a step that isn't whole, which a gliding pitch never is, every sample is up to one out, and on this engine at
-  one sample a step that error was only 19 dB under the sound: hiss and grit all through it. At about 4 samples a
-  step it's 31 dB under, the 8 bits' own floor. The price is a short loop, so the cycles vary in phase only, not
-  level, and don't beat at its 4 Hz.
-- **Level:** the bikes peak about −12 dBFS on the card's bus, about 5 dB under the SIDs' version; the landing about
-  −4 dBFS, some 14 dB over the bikes for its first 150 ms.
-- **Time:** the player's busiest tick takes about 82 % of the 4,261 SID clocks a tick has.
-
-The BIOS (`splash.s`), when the card's ID is `$A2` or more, stops the card's 6510, copies wave RAM's image from flash
-blocks 24–28 (through W1, by DOCDATA with auto-increment, about 0.13 s), loads the player at `$1000`, sets DOCCTL
-RUN so the 6510 has the chip at `$DF00`, and starts it as for the SIDs, on the splash's first vertical blank. When
-it's over the player halts every oscillator and writes 1 to `$DE02`: the 6510 stops and so does the chip (DOCCTL
-RUN clears), so PCM isn't refused afterwards. Break's QUIET stops both early, as it does any ES5503 program.
+*Earlier:* revision 1's 6510 played a SID version of the scene and revision 2's an ES5503 version, both loaded by the
+ROM. Neither card was built; revision 2's record is [sound-rev2.md](sound-rev2.md), and this file's history has the
+players.
 
 
 ## Sound ##
 
 **Decided**
 
-- Two 6581 SIDs, using modern drop-in replacements (ARMSID, FPGASID, SwinSID or similar).
-- Playing C64 `.sid` files is a goal for later.
-- **A co-processor on the card:** an RP2350 running a cycle-exact 6510, with its own 64 KB, so tunes play
-  independently of the main CPU.
-- **Revision 2 (decided 2026-11-05):** an I2S DAC for a PCM stream, and an emulated ES5503 (the Apple IIgs's DOC),
-  both on the RP2350's second core ([below](#sound-card-revision-2); the spec is
-  [sound-rev2.md](sound-rev2.md)).
-- **The ES5503's channels fold to stereo by their low bit (decided 2026-11-05):** even channels left, odd right.
+- **The card is a device** (revision 3, ID `$A3`; the owner, 2026-11-21): it presents itself as one device with
+  features, and a caller never knows what is inside it. Data goes in by DMA; everything is played and controlled by
+  commands; events come back (done, markers, counts, underruns, requests for data). There is no raw mode and no
+  window into card memory.
+- **Revision 3 only** (the owner, 2026-11-23): revisions 1 and 2 never existed as hardware. The ROM, OODOS and
+  OOLIB drive revision 3 alone, and the revision 1 and 2 equates were removed at the end of the system's branch.
+  Revision 2's design is kept as a record in [sound-rev2.md](sound-rev2.md).
+- **Two SIDs and a 6510** stay, hidden: the 6510 runs `.sid` tune code, PSID and RSID, at a C64's speed, with the
+  card managing it. An **ES5503** with 128 KB of wave RAM plays samples, and a **stream decoder** raw PCM and MP3.
+- **The SIDs go through the codec's ADC** into the card's digital path, so they are mixed, EQ'd, in the vis page and
+  under the master volume with everything else.
+- **The part is open** (the owner: "treat it like the Video Card"): a microcontroller, an FPGA, or both. The card's
+  logic is called **the firmware**, and lives in the card's own flash, in two images; updating it through OODOS is a
+  feature. A bad image leaves the old one booting.
+- **A store** of 2, 4 or 8 MB holds what is loaded (tunes, samples, effects, note blocks, streams' rings), its size in
+  MEMSIZE.
+- **The beep is the card's** tone generator, and the console's bell a sound of its own. No card, no sound, not even a
+  beep. The USB card's speaker stays for Apple II mode and the diagnostics' U5.
+- **Old software may break:** nothing was placed to keep revision 2's interface working.
 
-**Why a co-processor.** A `.sid` file is 6502 code (the tune's own player), not data, so playing it independently
-needs a CPU on the card. Running tunes on the main CPU instead would hit several walls:
+**Why a 6510 on the card.** A `.sid` file is 6502 code (the tune's own player), not data, so playing it needs a CPU
+running at a C64's speed with the SIDs in its own map. The main CPU can't: the I/O hole collides with tunes loaded
+there, the SIDs can't appear at `$D400` inside a window, sample tunes time their `$D418` writes for 1 MHz, and many
+players use the NMOS 6510's undocumented opcodes, which are NOPs on the W65C02S. The card's 6510 runs from the SID
+clock, PAL 985,248 Hz or NTSC 1,022,727 Hz, a cycle a SID clock. Its player does what a C64 would leave a tune (the
+free page, the vectors, the port, CIA 1's timer, a frame interrupt, the KERNAL's interrupt path), as the emulator's
+`sid_file.h` stub did.
 
-- the I/O hole at `$C000–$C7FF` collides with tunes loaded there;
-- the SIDs can't appear at `$D400` inside a window, so tunes couldn't read OSC3 or ENV3;
-- sample tunes time their `$D418` writes for a 1 MHz CPU;
-- many players, especially demoscene ones, use the NMOS 6510's undocumented opcodes (LAX, SAX, DCP and others),
-  which are NOPs on the W65C02S.
+**In Apple II mode** the card is idle and its block hidden; entering the mode pulses /RESET.
 
-The card's 6510 runs from the SID clock at exactly C64 speed, with the SIDs at `$D400` in its own map. Native games
-can use it the same way, as arcade boards used sound CPUs: the game loads its music driver onto the card and sends
-it commands.
+### Sound card revision 3 ###
 
-**Proposed: the card**
+The card's spec is [future/sound-device.md](future/sound-device.md) (approved, with its interface details, 2026-11-23),
+and its build plan [future/sound-device-build.md](future/sound-device-build.md). The Technical Reference's [chapter
+7](../docs/oo1-technical-reference/07-sound.md) has the registers, the commands, the events and the errors; the
+Programmer's Guide's [function 82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82) and [chapter
+8](../docs/oodos-programmers-guide/08-game-services.md#sound) what a program sees.
 
-- **RP2350**, the same chip as the USB and SD cards. Its 520 KB of internal SRAM holds the card's 64 KB, so there is
-  no external RAM.
-- **SID clock** from crystals, selected by CTRL: PAL 985,248 Hz (17.734475 MHz ÷ 18) or NTSC 1,022,727 Hz
-  (14.31818 MHz ÷ 14). `.sid` files assume one or the other; most assume PAL. The 6510 runs one cycle per SID
-  clock.
-- **Model.** Most replacement chips can behave as a 6581 or an 8580, set by a jumper or a configuration sequence
-  written to the chip; there is no card register for it.
-- **The card's 6510 memory map**, modelled on the C64:
+**The interface (decided).**
 
-  | Address | Contents |
-  |---|---|
-  | `$0000–$FFFF` | 64 KB RAM |
-  | `$0001` | the 6510 port, for tunes that bank I/O out of the way |
-  | `$D011`/`$D012` | with FRAMEEN bit 1 (below), the VIC-II's raster line, read only, from the card's frame: `$D012` its low 8 bits, `$D011` bit 7 its ninth; 312 lines of 63 SID clocks PAL, 263 of 65 NTSC. `$FF` without |
-  | `$D400` | SID A |
-  | `$D420` or `$D500` | SID B (CTRL bit 3) |
-  | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
-  | `$DE03`/`$DE04` | FRAME and FRAMEEN: the card's frame interrupt, for the host's player stub, and the raster line's switch (below) |
-  | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
-  | `$DE02` | STOP *(proposed 2026-10-31)*: any write clears CTRL RUN, so a one-shot such as the [boot splash's sound](#the-splashs-sound) hands the SIDs back when it's done. On revision 2 a write with bit 0 set also clears DOCCTL RUN, as the host's write does *(proposed 2026-11-10)*, so an ES5503 one-shot hands back the chip too and PCM may run; 0 leaves the ES5503 be |
+- **Registers** at `$C500–$C511`, the ID at `$C57F`, little-endian, after the video card's conventions; the storage
+  card's where it already fronts a controller (commands run on the card, an ERROR code, READY after start-up, a reset
+  strobe, objects that survive /RESET).
+- **Records.** A command is a record written to CMD: the command, a length, a tag of the host's, its parameters. Every
+  command gets exactly one REPLY, in order, with its tag and a status. Every other event is a record read from EVT:
+  its kind, its object, the card's millisecond stamp and a payload. Kinds and commands are grouped by job in the high
+  nibble (the device, tunes, the sound bank, music, streams, the beep, the mix), with transfers and the flash in group
+  1.
+- **Transfers.** A load's data goes through DATA once its command has opened a transfer: by DMA channel 2 in demand
+  mode, the card asking only while the transfer is open and has room (CTRL's DRQ), so revision 2's standing request
+  is gone. XFERDONE says it ended.
+- **The interrupt** is IRQH bit 2, while ISR AND IEN isn't 0: an event waiting, a transfer done, CMD's room back, the
+  firmware up.
+- **Resets.** CTRL's RESET does what /RESET does: every sound stopped, an open transfer abandoned, both FIFOs emptied,
+  IEN cleared, the volumes 255 and the EQ off; the firmware keeps running and the store keeps what it holds. FWRESTART
+  starts the firmware over.
 
-  RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
-  later.
-- **Bus timing.** The RP2350 answers the backplane through its PIO. Writes are latched; reads and back-to-back
-  writes hold the CPU with RDY if the card isn't ready. *(On the new bus, by /WAIT: [wait states](#wait-states-and-the-read-budget).)*
-- **In Apple mode** the card is idle and its block hidden.
+**The firmware (decided as the spec has it):** the sequencers (music, effects, the voice manager) step each
+millisecond; every timed thing is on the card's own clock, never the host's; the digital path runs at 48 kHz (the
+ES5503, raw PCM, MP3, the tone generator and the SIDs from the ADC, then the EQ, the vis tap, the volumes and the
+mix). The card shares its chips by holder: a tune takes the SIDs it uses, music takes SID voices and ES5503 voices for
+its blocks, and effects get the voices left, by priority. Streams are gapless: the card asks for each chunk (NEED),
+reports underruns, and plays a second stream queued behind the first with no gap.
 
-**Registers (decided)** (module ID `0xA`, `$C500–$C57F`, offsets from `$C500`):
+**The owner's rulings on the build** (2026-11-23, [the build plan's decisions](future/sound-device-build.md#decisions)):
 
-| Offset | Name | Access | Purpose |
-|---|---|---|---|
-| `$00–$1C` | SID A | read/write | the SID's 29 registers, for native programs that drive the SIDs themselves. Writes are ignored while the card's 6510 runs; reads always work |
-| `$20–$3C` | SID B | read/write | the same for SID B |
-| `$40` | CTRL | read/write | bit 0: SID clock PAL (0) or NTSC (1). Bit 1 RUN: the card's 6510 runs. Bit 2 RESET: writing 1 resets it. Bit 3: SID B at `$D500` instead of `$D420` in the card's map. Bit 4 BOTH: SID A writes also go to SID B, so a mono tune plays on both |
-| `$41` | STATUS | read | bit 0 BUSY: a SID write is still pending. Bit 1: the host-to-card mailbox is full. Bit 2: the card-to-host mailbox is full. Bit 7: interrupt pending |
-| `$42` | IEN | read/write | bit 2: interrupt when the card sends a mailbox byte; it pulls bit 2 of IRQH (ID A) low |
-| `$43–$44` | RAMADDR | read/write | address in the card's 64 KB, low byte first; increments on every RAMDATA access |
-| `$45` | RAMDATA | read/write | the card's RAM. Asserts DRQ while ready, so DMA loads a whole tune in about 10 ms |
-| `$46` | MBOUT | write | a byte to the card ("play song 3", a sound effect, a music cue) |
-| `$47` | MBIN | read | a byte from the card ("tune finished", a sync point); reading empties it |
-| `$7F` | ID | read | card type and revision: `$A1`; `$A2` for [revision 2](#sound-card-revision-2) |
+1. Three branches: the emulator, the system (the ROM, OODOS, OOLIB, the utilities, the books), GW-BASIC; then the
+   release, every catalog card rebuilt on OODOS 0.17.
+2. "Plays identically" means the 6510's SID writes and each chip's own output; the mix's hash was re-based once. The
+   6510's decode is today's for now.
+3. **Function 82 is one clean table, grouped by job** (operations 0–33, `SN_OPS` 34), renumbered before OODOS 1.0 on
+   the owner's word: removed numbers reused, no gaps, nothing kept "refused". The guard is OOLIB interface 18: every
+   rebuilt caller (GW-BASIC's loader, `ui_load`, PLAYSID, SYSINFO, SNDFW, OO-Amp's port) checks it and refuses an
+   older OODOS. `SN_REFUSED` (`$FD`, X the card's error) added. The parts: `SC_TUNE` `$01`, `SC_STREAM` `$02`,
+   `SC_MUSIC` `$04`.
+4. `SN_BEEP` waits until the beep has ended.
+5. Break's QUIET writes CTRL's RESET (one write, no record, so a record half written by a program is dropped, not
+   continued); OODOS's cold boot strobes it first for the same reason; `$C818`'s STOPALL still sends the record.
+6. The BIOS's entries: `$C818` with X = `$A2` is BEEP, 800 Hz for A × 10 ms (A = 0: 250 ms); X = `$A3` STOPALL.
+7. OOLIB's `MU_NOTE` and `MU_TONE` send their note at once; `MU_BLOCK` is added; there is no `MU_FLUSH`. `SID_PLAN`
+   stays as a thin call.
+8. The revision 1 and 2 equates are removed at the end of the system's branch.
+9. The boot sound: the same samples and sequence, played by the firmware ([above](#the-splashs-sound)).
+10. The interface details (the event kinds and payloads, the replies' results, the note block, the sound bank's
+    definitions, the firmware image's header) approved as one table, with FWRESULT at `$11`, a rest entry of 5 bytes,
+    and "notes waiting" leaving out the note sounding.
 
-**Details settled in the emulator (2026-10-25, proposed for the card):**
+**Removed with revision 2's interface** (named for the owner under AGENTS.md's rule, decided): function 82's
+`SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD` and `SN_GO`, `SC_6510` and `SC_DOC`; the event
+area's mailbox stamp and `EV_SFLAGS` (+108–115, now reserved); `EK_SOUND`'s mailbox byte (it is now the card's event:
+the kind in its code, the object in its value); OOLIB's music driver for the 6510 (`mudrv/`) and the `.sid` stub;
+the ROM's two splash players, the WAVE image and the diagnostics' 6510 program (`card6510.s`).
 
-- **SID reads.** The card answers the 25 write-only registers itself, with what was last written to each, so
-  "reads always work" holds for every register; `$19–$1C` come from the chip.
-- **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
-  same for the card's byte; STATUS says when a box is full.
-- **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2. *(DMA revision 2,
-  B2: the card's request reaches the shared /DREQ (`drq` on its line) and channel 2 serves it by its reset CARD
-  `$0A`; since it asks always at DRQSEL 0 and 2, /DREQ is almost never high with the card fitted: [the standing
-  request](#the-dma-controller-revision-2).)*
-- **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, while RUN is set, from
-  the 6510's reset.
-  Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
-  turn it on by accident: `$DE03` FRAME (bit 0 latches at each frame's start and a 1 written there clears it;
-  bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt;
-  bit 1 shows the raster line at `$D011`/`$D012`). The host's stub sets bit 1 for a PSID and not for an RSID:
-  an RSID expects a whole C64, and one let past a raster wait can go on to CIA 2 or timer B and jam.
-  /RESET and CTRL RESET turn it off and start the frame over.
-- **/RESET** stops the card's 6510 (CTRL is cleared), pulls the SIDs' /RES, and empties the mailbox. The card's
-  RAM keeps its contents.
+**Under OODOS (OODOS 0.17, OOLIB interface 18):** OODOS drives the card itself (`oodos/sys/sound.s`, in block 61):
 
-**`.sid` playback.**
+- **Records** go to CMD whole with interrupts off, so a program's and the interrupt handler's never mix. A function
+  82 call waits for its own REPLY (its tag, 1–127) by reading EVT itself, with the card's interrupt off meanwhile,
+  and handles any other record it meets as the handler would; the wait is 100 ms (a beep's its length more), then
+  `SN_BUSY`. The handler's own records (a stream's data, the frame's status requests, the bell) carry tags of `$80`
+  up. This keeps the reply's results out of SYSBSS: the call copies them straight into the program's block.
+- **Loads** go by channel 2 into DATA in 4 KB pieces, each under a tick of the millisecond counter, each address
+  checked as function 51 checks a segment.
+- **The stream:** two buffers of the program's, sent in turn when the card asks (NEED), each from the handler as
+  pieces at each terminal count.
+- **The frame's status:** with a part claimed and a layout-2 event area open, the frame sends that part's status
+  request and the reply, when it comes, writes the event area's sound part: one frame late, since a handler can't
+  wait for a reply.
+- **Events** the program cares for (a tune's start, stall, jam and end; an effect done or stolen; music's marks,
+  counts and end; underruns, tracks, a stream's end; a beep done) become `EK_SOUND` events in the queue.
+- **The cold boot** strobes CTRL's RESET, waits up to 250 ms for READY, sets DRQ and empties the store (FREEALL).
+  **The warm boot**, at every program's end: CTRL's RESET, DRQ, FREEALL, channel 2 aborted, every claim released.
+- **The console's BEL** sends BELL and doesn't wait.
 
-1. The host stops the card (RUN = 0) and loads the tune's data at its load address through RAMDATA.
-2. It writes a small stub that calls init with the song number, then calls play on each CIA timer interrupt, or
-   at 50 or 60 Hz for tunes that use the vertical blank.
-3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
-4. The main CPU is free; the mailbox tells it when to change song or stop.
-
-Break, BRK and the demo's end stop the card at any revision (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
-tune; the WebUI's tune bar then says the machine stopped it. On revision 2 QUIET also stops the PCM stream and the
-ES5503 (BIOS 0.12, [below](#the-bios-step-8)).
-
-**Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
-
-- **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
-  or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
-  timer A (the KERNAL's `$4025`/`$4295` for a CIA song or an RSID, with its interrupt on; a frame,
-  with it off, for a VBI song, whose play comes from the card's frame interrupt at `$DE03` instead, so init
-  retiming the CIA doesn't change its rate; the handler plays only on a frame and acknowledges any
-  other interrupt at `$DC0D`, and the interrupt entry sends a frame to it even past a `$0314` that init
-  has repointed), banks `$01` for init's address, calls init with the song less one in
-  A, and waits in a `JMP` loop.
-- **`$01` for a routine** follows PSID players: `$37` below `$A000`, `$36` below `$D000`, `$34` in
-  `$D000-$DFFF`, `$35` above. On the card only `$34` differs (there are no ROMs), so I/O comes back
-  after an init under it.
-- **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
-  and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
-  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
-  a play routine that loads over `$0314` goes straight to the stub's handler instead. For a VBI song,
-  whose frame interrupt only the stub can acknowledge, a frame reaches the stub's handler even past a
-  repointed `$0314`. A tune's own `$FFFE` entry that passes on to `$0314`, KERNAL-style, reaches the
-  stub's handler and plays; one whose handler never passes on to `$0314` nor clears `$DE03` is
-  stormed by the pending frame, a limit of the card (the corpus test's storming case stands for it).
-- **A sync point:** after each play call the stub writes the call's number (mod 256) to the
-  mailbox, so the host can count frames.
-- **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3
-  to match; a third SID, or a second elsewhere, is beyond the card, and its writes land on SID A's
-  mirror.
-
-
-### Sound card revision 2 ###
-
-**Decided (2026-11-05):** the DAC and the ES5503, above. **Proposed (2026-11-05):** everything below, the
-registers from [sound-rev2.md](sound-rev2.md), which has the behaviour in full and the order it's built in. The
-ID becomes `$A2`, so software can tell the revisions apart; what revision 1 has is unchanged, and software that
-knows only revision 1 takes the card by the ID's high nibble. **Later revisions (decided by the owner,
-2026-11-07):** `$A3` and up keep what `$48–$63` mean. They may add registers, never move or redefine these, so
-software that tests for `$A2` or more (the BIOS's QUIET does) works on them; a card that broke that would take a
-new type nibble.
-
-**Registers** (offsets from `$C500`; the rest of `$64–$7E` reads `$FF`):
-
-| Offset | Name | Access | Purpose |
-|---|---|---|---|
-| `$48` | PCMCTL | read/write | bit 0 RUN, bit 1 PAUSE, bit 2 FLUSH (a strobe: it empties the FIFO and reads 0), bit 3 EOF. Bit 7 is reserved |
-| `$49` | CODEC | read/write | 0 raw PCM, 1 MP3, 2 reserved for MOD; ignored while RUN is set |
-| `$4A–$4B` | RATE | read/write | raw PCM's rate in Hz, 8,000 to 48,000; reads back the rate playing |
-| `$4C` | PCMFMT | read/write | bit 0 stereo, bit 1 16-bit |
-| `$4D–$4E` | FREE | read | the 128 KB FIFO's room in 256-byte units; reading `$4D` latches both |
-| `$4F` | PCMDATA | write | the stream; a byte with the FIFO full is dropped |
-| `$50` | STATE | read | 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended; `$80` bad RATE or PCMFMT, `$81` no MP3 sync, `$82` PCM and the ES5503 both asked to run |
-| `$51–$54` | POS | read/write | frames played; reading `$51` latches all four, a write to `$51` zeroes it |
-| `$55–$56` | KBPS | read | the MP3's bitrate |
-| `$57`, `$58` | VOLL, VOLR | read/write | master volume, 255 unity; it scales the SIDs' volume too |
-| `$59` | EQIDX | read/write | 0 the preamp, 1–10 the bands; bit 7 the enable instead. EQVAL moves it on |
-| `$5A` | EQVAL | read/write | the gain at EQIDX in signed half-dB, clamped to ±24; the enable's bit 0 |
-| `$5B` | VISIDX | read/write | the index into the 98-byte vis page; writing 0 takes a snapshot |
-| `$5C` | VISDATA | read | the page's byte at VISIDX, which moves on |
-| `$5D` | CODECS | read | bit *n*: codec *n*; bit 7: an ES5503. `$83` |
-| `$5E` | DOCCTL | read/write | the ES5503's port: bit 0 RUN, bit 2 its interrupt to the card's 6510, not the host; bit 5 auto-increment; bit 6 DOCDATA reaches wave RAM, not the registers |
-| `$5F` | DOCDATA | read/write | the register or wave RAM byte at DOCADDR |
-| `$60–$61` | DOCADDR | read/write | the low byte is the register; both, the RAM address |
-| `$62` | DOCBANK | read/write | bit 0: the RAM address's bit 16; auto-increment carries into it, and wraps at 128 KB |
-| `$63` | DRQSEL | read/write | the card's DRQ and fly-by register: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA |
-
-- **No dummy read.** The IIgs's Sound GLU needs a read before each DOC read, because the DOC is slow; here a
-  DOCDATA read returns its value at once, so code ported from the IIgs drops that read.
-- **The ES5503** has 32 oscillators and 128 KB of wave RAM of its own (the IIgs has 64 KB; the chip's bank bit
-  allows 128), clocked at 7,159,090 Hz as in the IIgs. Its registers are the real chip's; only the port is ours.
-  Wave RAM and its registers are reachable whether RUN is set or not.
-- **/RESET** clears PCMCTL, empties the FIFO, zeroes POS, puts the volumes at 255, the EQ off with its gains 0,
-  DRQSEL 0 and DOCCTL 0; the ES5503's oscillators halted, no interrupt pending and `$E1` 0; wave RAM keeps its
-  contents. CTRL RESET leaves all of it alone.
-
-**Settled in the emulator so far (2026-11-06, proposed for the card):** steps 1 to 5 of the spec, the registers,
-the raw PCM stream, the mix, MP3, and the EQ, vis page and volume. Each register reads back what's written, as
-above. The stream runs as the spec's behaviour says, on the host's clock and whatever the audio rate, through the
-EQ, the vis tap and VOLL/VOLR, and is mixed with the SIDs: resampled by linear interpolation, scaled by
-`MIX_DIGITAL` (0.5) and clipped. The spec's start, at 4 KB or EOF, reads for MP3 (step 4) as 4 KB, or EOF, and a decoded
-first frame: an MP3 stays buffering past 4 KB until its first frame decodes (its sync run of ten has decided),
-which also gives the rate. Nothing has played, so it's no underrun, and only an empty FIFO without EOF is one, as
-the spec says; a stream under DMA has none. For raw PCM 4 KB always holds a whole frame, so the two readings
-agree there. A real-time feeder pays for it: fed at 1.02 times the stream's rate, playing starts about 135 ms after
-the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR -V0. Where the spec is silent:
-
-- /RESET also puts CODEC, RATE, PCMFMT, EQIDX, VISIDX, DOCADDR and DOCBANK back at 0, as it does RAMADDR.
-- EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
-  so bit 7 stays.
-- DRQSEL keeps bits 0–1; 3 is no source: no DRQ, a fly-by read `$FF` and a write dropped.
-- A frame is due every host-clock period of the rate, the first a whole period after playing starts. Running dry
-  is found when a frame falls due with none in the FIFO, so a FIFO emptied and refilled between two frames hasn't
-  underrun; data again plays from the next frame due, with no new buffering. One counted underrun is one time dry.
-- RUN takes RATE and PCMFMT; while it runs they read back what it took. PCMFMT's two bits are all valid, so `$80`
-  is a RATE outside 8,000–48,000, or a CODEC of 2 or more (MOD is reserved).
-- Releasing PAUSE goes back to the state it paused (buffering, playing or underrun); an underrun paused is the
-  same dry spell, not counted again. Ended stays ended until RUN is cleared.
-- With EOF, a partial frame left over is dropped when the stream ends, never played, so the next stream starts on
-  a frame and FREE reads 512 again.
-- FLUSH with RUN set is a seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
-- A new host clock (`set_cpu_hz()`) rescales the part of a frame owed, so a clock change loses no frames.
-- The mix: the stream counts as playing while it plays or runs dry (silence); buffering, paused, ended or idle it
-  adds nothing, and the SIDs' samples are bit for bit what they are without revision 2. Each run of the stream lines
-  up with the SIDs' samples made at its start, a lead of silence ahead: (audio rate / stream rate, rounded up) + 1
-  samples, so within a run the bursts a stream frame's samples come in never leave a SID sample without its part of
-  the stream. A run starts when the stream starts playing, after a pause, at a FLUSH seek or a new RUN (within one
-  write too), and after a tick of over two seconds; each costs one lead of silence. Within a run the delay is
-  constant: a frame's level comes out about the lead after it falls due (2 samples for equal rates, 7 for 8 kHz into
-  48 kHz); from the start, counting the first frame's period, 3 and 13. The backlog rules are the SIDs': of a gap
-  over two seconds only the last second is made, and the stream's samples for the part skipped go with it. With
-  nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits. A pause released
-  before its lead has played out loses up to a lead of the stream (250 µs at most) to the new run's lead: accepted.
-- The EQ (step 5): the preamp, then the ten peaking biquads, each side its own, in doubles (transposed direct form
-  II), rounded to the nearest sample and clipped at the end. A band at 0 dB is bypassed as one at or above 0.45 of
-  the rate is, and so is the preamp at 0, so on and flat is bit for bit as off. The filters start from silence at
-  RUN and FLUSH, and when a band starts running; a gain or the enable written, or an MP3's rate changing, gives new
-  coefficients from the next frame, the state kept. A band's state, both halves below 10^-9 of a sample's step
-  together, is let go to 0 as one, so a dry spell after a stream ends in exact silence (every band, at every gain
-  and rate, within a second) and takes the bulk path; zeroing a half alone could leave a band ringing at that level
-  for good. The coefficients' sines, cosines and powers of ten are by
-  series in the card's own code (sound_dsp.cpp), not libm, so every target makes the same bits.
-- The vis page (step 5): "the left and right mix" is read as their mono mix, (L + R) / 2, the same that indexes
-  34–97 hold. The spectrum's 32 bytes are bins 1 to 32 of the 64-point FFT (DC left out, Nyquist in), with a
-  periodic Hann window, scaled so a full-scale sine on a bin reads 0 dBFS (|X| over 16; the Nyquist bin, real,
-  over 32, so a full-scale cosine there reads 0 dBFS). The scale is
-  round((dB + 60) × 255 / 60), clamped to 0–255, for the spectrum and for the VU, whose dB is the side's peak
-  sample against full scale. Indexes 34–97 are each frame's high byte, offset to unsigned. Every frame of the bus
-  feeds the tap, those the mix doesn't need too (no audio rate, a bulk catch-up's, a dry spell's silence); while
-  RUN is set and the stream doesn't play (paused, buffering, ended, an error), the tap has silence at the stream's
-  rate on its own frame times, from the frame that found the stop, the EQ's state kept (an MP3 sought has no rate
-  until its next first frame: the bus's last one). So the page goes quiet as the sound does, and doesn't depend
-  on the audio rate or the ticks. Clearing RUN empties the tap's frames, so the next snapshot's spectrum and
-  samples are silence (its VU the peaks since the last, as after a pause); the page itself changes only when
-  VISIDX is written 0, as the spec says.
-- Volume (step 5): VOLL and VOLR scale the bus after the vis tap: 255 exact, otherwise x × vol / 255 rounded half
-  away from zero. SID A takes VOLL and SID B VOLR, a CTRL BOTH write to A reaching B by VOLR; the 6510's reads, the
-  host's and the emulator's `sid()` give `$D418` as written.
-- MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored): from the second frame on as each falls
-  due, the first when buffering ends (above). In step, a
-  frame is decoded only with all of it and the next header in the FIFO; out of step, a frame is taken by
-  minimp3's own sync rule (ten frames in step after it, or the data's end after one), and the card waits until
-  that decides (an ID3v2 tag ends a run as the data's end does). So a stream fed while it plays, in any pieces and
-  with EOF written whenever, plays what the same bytes at once do, and that is minimp3 on the whole data, but for
-  three cases where the card does better: tags, a last frame with something after it (both below), and a lone
-  last frame after junk, which the card plays and minimp3 drops. Without EOF fewer than eleven frames don't play,
-  so a program sets EOF after a short clip. Only
-  layer III frames whose length their header gives are taken: free format, layer I and II frames, and frames
-  that decode to nothing are junk; 64 KB of junk since the last frame that made samples is `$81`. ID3v2 tags
-  (versions 2.2 to 2.4, flags checked, up to 8 MB declared, footer included) are skipped by their size wherever
-  met, not counted as junk (8 MB of tags with no frame is `$81`); the decoder stays in step across one. A frame
-  with nothing frame-like and no tag after it, to EOF or for 32 KB, plays by its own header's length, whatever
-  follows ignored (CP/M's `$1A` padding, an ID3v1 or APE trailer, anything; `$1A`s aren't stripped, as a frame
-  can end in them); without EOF and less than 32 KB after it, it waits. RATE reads 0 until the first frame
-  decodes. The rate and channels follow each frame (a change re-anchors the mix); above 48 kHz is `$80`, which no
-  MPEG-1, -2 or -2.5 frame can be. FLUSH empties the decoder too. A search that finds nothing costs a few header
-  checks at most: the look past a frame resumes where it stopped, junk is dropped as it's found, and a run is at
-  most ten headers. minimp3 is built with its stack scratch zeroed
-  (`-ftrivial-auto-var-init=zero`), so a bad frame decodes the same whatever the stack held.
-- The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
-  registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
-  The data registers read `$80` after /RESET.
-
-**The ES5503's oscillators (step 6, decided by the owner 2026-11-06).** The chip alone (`es5503.{h,cpp}`, with
-no knowledge of the card), reimplemented from the spec with MAME's ES5503 (mamedev/mame
-`e1c41b59c0027df7290229f6008393e5ab72013c`, `src/devices/sound/es5503.cpp`) read for its edge cases; no MAME code
-is copied, so no MAME licence is needed.
-
-- **The bank is a latch of its own.** The table register's bit 6 keeps the bank; a pointer write leaves it, and
-  `$C0` reads back as written, bit 7 aside. MAME packs the pointer and the bank into one value, so its pointer
-  write clears the bank; that comes of its packing, and we don't copy it.
-- **One sample at a time.** Each output sample (8 × (enabled + 2) of the chip's 7,159,090 Hz), every enabled
-  oscillator not halted steps once, in number order. MAME renders each oscillator over a whole buffer before the
-  next, so its AM volume and sync restart take effect once a buffer; that is its buffering, not copied.
-- **The accumulator** is 24 bits. Each step the index (accumulator >> (9 + resolution − size), the size masked)
-  picks the byte, then the frequency is added; an index at the table's last byte or past is its end, and a loop
-  takes (size − 1) << shift off. A sum that carries past 2^24 is kept with its carry until the next step's end
-  check takes it, as MAME's sum does: so at resolution 7 a fast frequency that steps over the table's top still
-  ends it, where a bare 24-bit wrap would loop a one-shot for ever.
-- **Sync and AM pairs:** an even oscillator in sync/AM restarts the odd one below it (if that runs); an odd one
-  plays nothing and its byte becomes the volume of the one above it (if that runs), which its volume register
-  then reads. Oscillator 0 has nothing below and 31 nothing above: both do nothing there.
-- **The halt rules are MAME's `halt_osc`, reimplemented:** a `$00` byte halts in every mode and plays nothing;
-  free run loops, its phase kept; one-shot halts; swap halts and starts its partner (number XOR 1) from 0; an even
-  oscillator whose partner swaps, itself not swapping, starts again; sync/AM loops. A halt with IE makes the
-  oscillator pending. Halting one-shot or swap from a control write does the same by the mode it had, with an
-  interrupt only if both the old and the new value have IE; halting free run so does nothing more; clearing the
-  halt bit starts the oscillator from 0. One exception (owner, 2026-11-06): a loop never takes the accumulator
-  below 0. Where MAME's subtraction would go below 0 (an even oscillator in free run whose partner swaps loops
-  twice at one end; one-shot or free run with a swapping partner starts again from wherever a `$00` halted it),
-  its 32-bit sum wraps round and the oscillator ends its table every step after; the real chip's 24-bit
-  accumulator can't wrap like that. Here it goes to 0 instead and plays the table through, one end a pass.
-- **The interrupt line is MAME's:** up when an oscillator becomes pending; a `$E0` read drops it and raises it
-  again at once while an enabled oscillator is still pending.
-- **No triple mix and no swap click.** MAME mixes the highest enabled oscillator three times (a quirk of the
-  real chip, it says); the spec leaves it out, and so do we. MAME doesn't model the swap's one-sample centre
-  value either, and we don't.
-- **Integer output.** The chip gives each of the 16 channels' sum of (byte − 128) × volume, and a stereo fold
-  (even channels left, odd right). The float scale (÷ 128 ÷ 255 ÷ 8) and the resampling to the bus are the
-  card's (step 7), so the core has no floating point, and its golden hash is of integers.
-- **/RESET** sets every halt bit, clears pending interrupts and drops the line, sets `$E1` to 0 and the
-  accumulators to 0, and keeps the other registers and the wave RAM, as the spec says. (MAME's reset zeroes every
-  register and leaves the oscillators running; the spec's wins.) A table register never written is size 0, 256
-  bytes, whose end the oscillator finds (MAME's table length is 0 until written).
-
-**The ES5503 on the card (step 7).** The port (DOCCTL, DOCDATA, DOCADDR, DOCBANK) reaches the registers and wave
-RAM whatever RUN is, auto-increment carrying into the bank and wrapping at 128 KB, and DMA reaches them through
-DRQSEL 2. A DOCDATA read returns its value at once: there is no dummy read, and code ported from the IIgs drops
-it. While DOCCTL RUN is set and I/O is banked in, the card's 6510 sees the registers at `$DF00–$DFFF` (`$DFE0`
-acknowledging as DOCDATA's `$E0` does); with RUN clear the page reads `$FF` and takes no write, as before. The
-chip's interrupt goes to the host through IEN bit 3 (STATUS bit 7, IRQH bit 2), or with DOCCTL bit 2 to the 6510's
-/IRQ instead. /RESET clears DOCCTL and resets the chip as step 6 says; CTRL RESET leaves it.
-
-- **Its clock is the card's.** The chip plays inside the SIDs' catch-up, over the same SID clocks, so the 6510's
-  accesses to `$DF00`, its interrupt, the host's DOCDATA and the bus all see it as of the same moment, whatever
-  the host's speed, the ticks or the audio rate. Its steps (every 8 × (enabled + 2) of 7,159,090 Hz) and the
-  bus's 48 kHz frames fall on their exact times, counted in integers (a step at a frame's very end is that
-  frame's). While it plays, every host write to the card's registers first brings it up to that moment, so a
-  write to VOLL, VOLR, the EQ or anything else changes only the frames after it, however late the card was last
-  caught up (and so does a change of revision). A switch of the SIDs' crystal (CTRL NTSC) rescales the chip's
-  next step and frame end to the new clock, so they stay on time. `mix_dry()` counts SID samples left without a
-  bus frame for the chip's bus too (none so far: its frames are made before the SIDs' samples that take them).
-- **PCM's register leaves the chip's bus alone.** While the ES5503 has the bus, a PCMCTL write (a refused RUN, a
-  0, a FLUSH) doesn't clear the vis tap's frames or the EQ's filters: those are the chip's then. With PCM on the
-  bus they behave as before.
-- **The 6510's /IRQ only while RUN is set** (owner, 2026-11-06). With DOCCTL bit 2 and RUN clear the 6510 can't
-  reach `$DFE0` to take an interrupt, so the chip doesn't pull its /IRQ then; the interrupt stays pending in the
-  chip and pulls /IRQ again when RUN is set. The host's route (IEN bit 3) isn't gated by RUN: the host can always
-  take the interrupt through DOCDATA, whose registers are reachable whatever RUN is.
-
-Decided by the owner, 2026-11-06:
-
-1. **A refused RUN isn't stored.** PCMCTL's RUN written while the ES5503 runs, or DOCCTL's while PCM runs, isn't
-   kept: the register reads it 0, and the source already running plays on.
-2. **`$82`** shows in STATE from a refused write until PCMCTL or DOCCTL is next written; that write clears it, and
-   sets it again only if it is refused too.
-3. **The bus frames are integers:** each the average of the steps it spans (or the last frame held when it spans
-   none), round(sum × 32,768 / (steps × 261,120)) of the chip's stereo sums of (byte − 128) × volume, clipped to
-   16 bits: the spec's ((byte − 128) / 128) × (volume / 255) × 1/8 per voice, exactly.
-4. **Clearing DOCCTL RUN freezes the chip** (no steps) and stops its bus; the vis tap's frames are dropped as when
-   PCM's RUN is cleared (the next snapshot silence, its VU the peaks since the last). RUN again plays the
-   oscillators on from where they were, the EQ from silence and the mix anchored afresh.
-5. **The bus is 48 kHz while the ES5503 runs:** the EQ's coefficients and the mix's resampling are for 48 kHz.
-
-#### The BIOS (step 8) ####
-
-QUIET (Break, BRK and the demo's end) takes the card by the ID's high nibble, as before, and clears CTRL RUN, IEN
-and the SIDs at any revision. When the ID is `$A2` or more it then writes `$04` (FLUSH alone) to PCMCTL and clears
-RUN in DOCCTL by reading it and writing it back *(BIOS 0.12, 2026-11-07)*, so nothing on the card plays on behind
-the monitor; on revision 1 (`$A1`) it writes nothing at `$48–$63`. What the two writes do:
-
-- **PCMCTL `$04`** clears RUN, PAUSE and EOF and empties the FIFO and the decoder: STATE goes to 0 (idle), a `$82`
-  is cleared, FREE reads the whole FIFO, and with PCM on the bus the vis tap's frames are dropped and the EQ's
-  filters start from silence. A program starts its next stream clean. CODEC, RATE, PCMFMT and POS are left.
-- **DOCCTL, RUN cleared,** freezes the chip where it is and stops its bus (decision 4 above) and closes the 6510's
-  `$DF00` window. Bits 2, 5 and 6 (the interrupt's route, auto-increment, DOCDATA on wave RAM) are kept, and so are
-  the oscillators' registers and wave RAM.
-- **An ES5503 interrupt pending at Break stays pending, on its route.** With bit 2 it is the 6510's, which the chip
-  pulls only while RUN is set, so it is silent; without, the host's, which IEN (cleared by QUIET) holds off. A
-  program acknowledges it before it sets IEN bit 3 again: with DOCCTL bit 6 clear (QUIET keeps it, and with it
-  set DOCDATA reads wave RAM) and DOCADDR `$E0`, it reads DOCDATA.
-- The volumes, the EQ's gains, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already
-  aborted every DMA channel (all eight since BIOS 0.15), so DRQSEL's DRQ moves nothing.
-
-The audio is then silent: no bus frames, and the SIDs at volume 0.
+**In the ROM (BIOS 0.21):** QUIET's one write, the splash's BOOTSOUND, `$C818`'s BEEP and STOPALL, and stage 10 of
+the diagnostics, which drives the card by its records ([diag.md](diag.md#plan2-card-tests)).
 
 
 ## Storage ##
@@ -3000,7 +2700,9 @@ OODOS's idle value, and at 2, the sound card asks for DMA all the time (revision
 fitted /DREQ is almost never high. Accepted as it is: memory-to-memory costs don't move; another card's transfer
 pays its poll at each take; a card that becomes ready can wait up to 64 cycles for its grant behind a hold-off; and
 while a card's channel is armed with nothing to grant, the stray polls cost 2 cycles in 64. DRQSEL 0 stays the idle
-value. With the master enable off (Apple II mode) it costs nothing.
+value. With the master enable off (Apple II mode) it costs nothing. *(Sound card revision 3, 2026-11-24: the card
+asks only while a transfer is open and it has room, so there is no standing request: [Sound card
+revision 3](#sound-card-revision-3).)*
 
 **The grant cycle.**
 - The controller drives:

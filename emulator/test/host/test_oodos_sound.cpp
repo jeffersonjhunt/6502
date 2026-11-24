@@ -1,24 +1,32 @@
 /**
  * @file test_oodos_sound.cpp
- * @brief OOLIB's L3 (hw/oolib.md, "The plan"): function 82, the sound card's claims, its RAM and wave RAM
- * loaded by DMA channel 2, the 6510 and the mailbox, the stream fed from two buffers, the ES5503 hook,
- * the beep, the event area's sound part and the warm boot; and sound revision 2's last acceptance item
- * (hw/sound-rev2.md, item 4), a file on an SD drive streamed through function 82.
+ * @brief OOLIB's L3 (hw/oolib.md, "The plan") on sound card revision 3, the card as a device
+ * (hw/future/sound-device.md and its interface details; the build plan's S13-S16): function 82's clean table,
+ * its claims, OODOS's record sender and reply wait, the handler's events, the loads by DMA channel 2 into DATA,
+ * the stream fed when the card asks (NEED), the beep and the console's bell on the card, the event area's sound
+ * part and the warm and cold boots; and the acceptance items: a file on an SD drive streamed through function 82.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h). L3TEST (oodos/sys/test/l3test.s), run by
- * GO, opens its area at $2000 and takes commands, a letter at $2100; function 82's blocks the test builds
- * at $2110, and the data they name it puts in physical memory itself. L3STRM (l3strm.s) streams a file
- * from B: as a program would, refilling its two buffers with ordinary BDOS reads. The MP3 is the repo's
- * own (test/host/mp3, tools/make_mp3_fixtures.sh); the raw PCM is made here.
+ * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h), on a machine whose sound card is revision 3 (the
+ * rig's sound_revision). L3TEST (oodos/sys/test/l3test.s), run by GO, opens its area at $2000 and takes commands,
+ * a letter at $2100; function 82's blocks the test builds at $2110, and the data they name it puts in physical
+ * memory itself. L3STRM (l3strm.s) streams a file from B: as a program would, refilling its two buffers with
+ * ordinary BDOS reads. The MP3 is the repo's own (test/host/mp3, tools/make_mp3_fixtures.sh); the raw PCM is
+ * made here.
  */
 
+#include "dma_controller.h"
 #include "harness.h"
 #include "minimp3.h"
 #include "oodos_rig.h"
-#include "sound_card.h"
+#include "sound_card3.h"
+#include "sound_fw.h"
+#include "usb_card.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -34,24 +42,38 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    constexpr uint32_t AREA = 0x2000, MBOX = 0x2100, KBLK = 0x2110, DCNT = 0x2180, DLAST = 0x2181; ///< l3test.s's
-    constexpr uint32_t PARMS = 0x2100, FCB = 0x2120;                                                  ///< l3strm.s's
+    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
+
+    constexpr uint32_t AREA = 0x2000, MBOX = 0x2100, KBLK = 0x2110; ///< l3test.s's
+    constexpr uint32_t PARMS = 0x2100, FCB = 0x2120;                 ///< l3strm.s's
     // oodos.inc's
     constexpr unsigned EV_LAYOUT = 0, EV_QHEAD = 16, EV_QTAIL = 17, EV_QSLOTS = 18, EV_QUEUE = 128;
     constexpr unsigned EV_SSTATE = 96, EV_SBUFS = 97, EV_SFREE = 98, EV_SPOS = 100, EV_SKBPS = 104, EV_SUNDER = 106;
-    constexpr unsigned EV_SMBOX = 108, EV_SMMS = 109, EV_SMCNT = 113; // the mailbox's stamp (L5a)
+    constexpr unsigned EV_TSTATE = 116, EV_TMS = 117, EV_MSTATE = 120, EV_MWAIT = 122;
     constexpr unsigned EK_SOUND = 6;
-    constexpr uint8_t SN_INFO = 0, SN_CLAIM = 1, SN_RELEASE = 2, SN_LOAD = 3, SN_START = 4, SN_STOP = 5, SN_SEND = 6,
-                      SN_STREAM = 7, SN_BUFFER = 8, SN_PAUSE = 9, SN_RESUME = 10, SN_SEEK = 11, SN_END = 12,
-                      SN_WAVE = 14, SN_BEEP = 16, SN_HOLD = 17, SN_GO = 18, SN_VOLUME = 19, SN_OPS = 20;
-    constexpr uint8_t SC_6510 = 1, SC_STREAM = 2, SC_DOC = 4;
+    constexpr uint8_t SN_INFO = 0, SN_CLAIM = 1, SN_RELEASE = 2, SN_IDENTIFY = 3, SN_FIRMWARE = 4, SN_TUNE = 5,
+                      SN_PLAY = 6, SN_STOP = 7, SN_TPAUSE = 8, SN_TRESUME = 9, SN_TSTATUS = 10, SN_TINFO = 11,
+                      SN_STREAM = 12, SN_BUFFER = 13, SN_PAUSE = 14, SN_RESUME = 15, SN_SEEK = 16, SN_END = 17,
+                      SN_NEXT = 19, SN_SAMPLE = 20, SN_EFFECTS = 21, SN_EFFECT = 22, SN_ESTOP = 23, SN_MUSIC = 24,
+                      SN_MCTL = 25, SN_MSTATUS = 26, SN_BEEP = 27, SN_VOLUME = 28, SN_MIX = 29, SN_EQ = 30,
+                      SN_VIS = 31, SN_SIDREGS = 32, SN_LEVELS = 33, SN_OPS = 34;
+    constexpr uint8_t SC_TUNE = 1, SC_STREAM = 2, SC_MUSIC = 4;
+    constexpr uint8_t ST_BUFFERING = 1, ST_PLAYING = 2, ST_PAUSED = 3, ST_UNDERRUN = 4, ST_ENDED = 5;
+    constexpr uint8_t FMT_STEREO = 1, FMT_16BIT = 2;
 
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
     unsigned area16(Rig &r, unsigned off) { return area(r, off) | area(r, off + 1) << 8; }
     uint32_t area32(Rig &r, unsigned off) { return area16(r, off) | static_cast<uint32_t>(area16(r, off + 2)) << 16; }
-    SoundCard &card(Rig &r) { return *r.machine->sound_card(); }
-    uint8_t reg(Rig &r, uint8_t offset) { return card(r).peek(offset); }
+    SoundCard3 &dev(Rig &r) { return *r.machine->sound_device(); }
+    SoundFw &fw(Rig &r) { return dev(r).firmware(); }
+    uint8_t reg(Rig &r, uint8_t offset) { return dev(r).peek(offset); }
     uint8_t sys(Rig &r, const char *name) { return r.phys(SYS_BLOCK_PHYS + sym(name)); }
+    /// sound.s's variable, in SYSBSS or in block 61 (its BIOS segment, RAM).
+    uint8_t sv(Rig &r, const char *name)
+    {
+        const uint16_t a = sym(name);
+        return a >= 0x8000 ? r.phys(BIOS_BLOCK_PHYS + a - 0x8000u) : sys(r, name);
+    }
 
     /// Deterministic bytes.
     std::vector<uint8_t> noise(size_t n, uint32_t seed)
@@ -66,6 +88,17 @@ namespace
         }
         return b;
     }
+    std::vector<uint8_t> operator+(std::vector<uint8_t> a, const std::vector<uint8_t> &b)
+    {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
+    }
+    std::vector<uint8_t> le24(uint32_t v) { return {static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v >> 16)}; }
+    std::vector<uint8_t> u32(uint32_t v)
+    {
+        return {static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v >> 16), static_cast<uint8_t>(v >> 24)};
+    }
+    uint32_t crc32(const std::vector<uint8_t> &b) { return Crc32::of(b.data(), b.size()); }
 
     /// L3TEST with `tail`, run to its OPEN line (or, for X, a little).
     size_t open(CcpRig &r, const std::string &tail)
@@ -93,7 +126,6 @@ namespace
         r.until("\r", ms(500), at + 1);
         return field(r.out.substr(from), label);
     }
-    /// L3TEST's warm boot (command W), to the CCP's prompt.
     void wboot(CcpRig &r)
     {
         const size_t from = r.out.size();
@@ -112,42 +144,94 @@ namespace
         r.poke(MBOX + 1, op);
         return command(r, 'Z', "Z");
     }
+    /// Function 82 with `block` at `at`, just below $C000 (L3TEST's B, which keeps the BDOS's jump there).
+    std::string f82at(CcpRig &r, uint16_t at, const std::vector<uint8_t> &block)
+    {
+        r.poke(KBLK, block);
+        r.poke(MBOX + 1, std::vector<uint8_t>{static_cast<uint8_t>(at), static_cast<uint8_t>(at >> 8),
+                                              static_cast<uint8_t>(block.size())});
+        return command(r, 'B', "B");
+    }
+    /// The block at KBLK's bytes from +1 after a call: what it was given back.
+    std::vector<uint8_t> got(Rig &r, unsigned n)
+    {
+        std::vector<uint8_t> out;
+        for (unsigned i = 0; i < n; ++i)
+            out.push_back(r.phys(KBLK + 1 + i));
+        return out;
+    }
     std::vector<uint8_t> buffer_block(uint32_t phys, unsigned len)
     {
         return {SN_BUFFER, static_cast<uint8_t>(phys), static_cast<uint8_t>(phys >> 8), static_cast<uint8_t>(phys >> 16),
                 static_cast<uint8_t>(len), static_cast<uint8_t>(len >> 8)};
     }
-    std::vector<uint8_t> stream_block(uint8_t codec, unsigned rate, uint8_t fmt)
+    std::vector<uint8_t> stream_block(uint8_t codec, unsigned rate, uint8_t fmt, uint8_t op = SN_STREAM)
     {
-        return {SN_STREAM, codec, static_cast<uint8_t>(rate), static_cast<uint8_t>(rate >> 8), fmt};
+        return {op, codec, static_cast<uint8_t>(rate), static_cast<uint8_t>(rate >> 8), fmt};
     }
-    /// The events waiting in the area's queue: kind, value.
-    std::vector<std::pair<unsigned, unsigned>> waiting(Rig &r)
+    /// A load's block: `op`, then `pre` (a slot ...), then the address and the 3-byte length, then `post`.
+    std::vector<uint8_t> load_block(uint8_t op, const std::vector<uint8_t> &pre, uint32_t phys, uint32_t len,
+                                    const std::vector<uint8_t> &post = {})
     {
-        std::vector<std::pair<unsigned, unsigned>> out;
+        return std::vector<uint8_t>{op} + pre + le24(phys) + le24(len) + post;
+    }
+    /// The events waiting in the area's queue: kind, code, value.
+    struct Ev
+    {
+        unsigned kind, code, value;
+    };
+    std::vector<Ev> waiting(Rig &r)
+    {
+        std::vector<Ev> out;
         const unsigned slots = area(r, EV_QSLOTS);
         for (unsigned t = area(r, EV_QTAIL); slots && t != area(r, EV_QHEAD); t = (t + 1) % slots)
-            out.push_back({area(r, EV_QUEUE + t * 8), area(r, EV_QUEUE + t * 8 + 2)});
+            out.push_back({area(r, EV_QUEUE + t * 8), area(r, EV_QUEUE + t * 8 + 1), area(r, EV_QUEUE + t * 8 + 2)});
         return out;
     }
-    /// The frames the tap recorded, as bytes (16-bit stereo, low byte first).
-    std::vector<uint8_t> tap_bytes(SoundCard &c)
+    bool queued(Rig &r, unsigned code, int value = -1)
     {
-        std::vector<uint8_t> out;
-        for (const int16_t s : c.take_tap())
+        for (const Ev &e : waiting(r))
+            if (e.kind == EK_SOUND && e.code == code && (value < 0 || e.value == static_cast<unsigned>(value)))
+                return true;
+        return false;
+    }
+    /// A record straight to the card from the test, the CPU stopped (so OODOS reads nothing meanwhile): its REPLY's
+    /// status and results (its tag $7E; any other record read meanwhile dropped).
+    std::vector<uint8_t> card_cmd(Rig &r, const std::vector<uint8_t> &rec)
+    {
+        SoundCard3 &d = dev(r);
+        for (const uint8_t b : rec)
+            d.write(SoundCard3::CMD, b);
+        std::vector<uint8_t> reply;
+        for (int k = 0; k < 400 && reply.empty(); ++k)
         {
-            out.push_back(static_cast<uint8_t>(s & 0xFF));
-            out.push_back(static_cast<uint8_t>((s >> 8) & 0xFF));
+            d.tick(ms(1) / 10);
+            while (d.peek(SoundCard3::EVTLEN))
+            {
+                const uint8_t kind = d.read(SoundCard3::EVT), n = d.read(SoundCard3::EVT);
+                std::vector<uint8_t> body;
+                for (unsigned i = 0; i < n; ++i)
+                    body.push_back(d.read(SoundCard3::EVT));
+                if (kind == SoundFw::EV_REPLY && !body.empty() && body[0] == rec[2])
+                    reply.assign(body.begin() + 1, body.end());
+            }
         }
-        return out;
+        return reply;
+    }
+    /// CHECKSUM of what the card holds: kind (the loading command), slot. @return the CRC, or 0 with none
+    uint32_t card_crc(Rig &r, uint8_t kind, uint8_t slot)
+    {
+        const std::vector<uint8_t> rp = card_cmd(r, {SoundFw::CHECKSUM, 2, 0x7E, kind, slot});
+        return rp.size() >= 5 && rp[0] == 0 ? static_cast<uint32_t>(rp[1] | rp[2] << 8 | rp[3] << 16 | rp[4] << 24) : 0;
     }
 
-    /// The dispatcher's cost for each interrupt over a stretch, from the interrupt's first cycle to its
-    /// RTI's last (test_oodos_input's way), by what interrupted: channel 2's terminal count (IRQH bit 0),
-    /// a vertical blank (the frame counter moved), a tick alone.
+    /// The dispatcher's cost for each interrupt over a stretch, from the interrupt's first cycle to its RTI's last
+    /// (test_oodos_input's way), by what interrupted: channel 2's terminal count (IRQH bit 0), a vertical blank
+    /// (the frame counter moved), a tick alone.
     struct Costs
     {
         std::map<unsigned, unsigned> dma, frame, tick;
+        unsigned pieces = 0; ///< PIECE's entries: channel 2's pieces started, in an interrupt or a call
         static unsigned most(const std::map<unsigned, unsigned> &m) { return m.empty() ? 0 : m.rbegin()->first; }
         static unsigned mode(const std::map<unsigned, unsigned> &m)
         {
@@ -167,12 +251,17 @@ namespace
     };
     void time_interrupts(Rig &r, Costs &out, const std::function<bool()> &until, uint64_t budget)
     {
-        const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
+        const uint16_t irq = sym("IRQ"), end = sym("IRQEND"), piece = sym("PIECE");
         const uint32_t frames = SYS_BLOCK_PHYS + sym("FRAMES");
         uint64_t c0 = 0;
         uint8_t l = 0, h = 0, f = 0;
         bool in = false;
+        const std::function<void(uint16_t)> before = r.watch; // a watch already set goes on
         r.watch = [&](uint16_t pc) {
+            if (before)
+                before(pc);
+            if (pc == piece && r.nb(2) == 61)
+                ++out.pieces;
             if (pc == irq)
             {
                 c0 = r.cpu->cycles() - 7;
@@ -196,57 +285,77 @@ namespace
         const uint64_t endc = r.cpu->cycles() + budget;
         while (!until() && r.cpu->cycles() < endc)
             r.run(ms(1));
-        r.watch = nullptr;
+        r.watch = before;
     }
 
-    /// Every part released and quiet, as the warm boot leaves them.
+    /// Every part released and quiet, as the warm boot leaves the card: nothing claimed or moving, the card's event
+    /// interrupt on and DRQ set, nothing playing, the store empty.
     void quiet(CcpRig &r)
     {
         CHECK_EQ(sys(r, "SCLAIM"), 0);
         CHECK_EQ(sys(r, "C2ON"), 0);
-        CHECK_EQ(reg(r, SoundCard::IEN), 0);
-        CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
-        CHECK_EQ(reg(r, SoundCard::PCMCTL), 0);
-        CHECK_EQ(reg(r, SoundCard::STATE), 0);
-        CHECK_EQ(reg(r, SoundCard::DOCCTL) & 1, 0);
-        CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
+        CHECK_EQ(reg(r, SoundCard3::IEN), SoundCard3::INT_EVT);
+        CHECK_EQ(reg(r, SoundCard3::CTRL), SoundCard3::CTRL_DRQ);
         CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::MODE) & 0x80, 0); // channel 2's MODE: its interrupt
         CHECK_EQ(r.machine->dma()->peek_channel(2, DmaController::CTRL) & 0x01, 0); // its CTRL's ENABLE
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
+        CHECK_EQ(fw(r).music_state(), SoundFw::M_STOPPED);
+        CHECK_EQ(fw(r).stream_state(0), SoundFw::S_IDLE);
+        CHECK_EQ(fw(r).stream_state(1), SoundFw::S_IDLE);
+        CHECK(!fw(r).beeping());
+        CHECK_EQ(fw(r).store_free(), fw(r).store_bytes());
     }
-    /// The 6510, the stream and the ES5503 claimed and running.
-    void claim_it_all(CcpRig &r)
+
+    /// A PSID: load and init $1000, play $1000 + `play_at` (0: none), PAL, VBI (test_sound_fw's).
+    std::vector<uint8_t> psid(std::vector<uint8_t> code, uint16_t play_at, uint16_t songs = 1)
     {
-        open(r, "2");
-        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510 | SC_STREAM | SC_DOC}), std::string("00 00"));
-        r.poke(0x3000, std::vector<uint8_t>{0x4C, 0x00, 0x10}); // JMP $1000: the 6510 spins
-        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, 3, 0}), std::string("00 00"));
-        CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-        CHECK_EQ(f82(r, stream_block(0, 8000, 0)), std::string("00 00"));
-        r.poke(0x10000, noise(0x10000, 3));
-        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
-        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
-        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00")); // the first two gone to the FIFO
-        CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
-        CHECK(reg(r, SoundCard::PCMCTL) & SoundCard::PCMCTL_RUN);
-        CHECK_EQ(sys(r, "SCLAIM"), 7);
-        CHECK_EQ(sys(r, "C2ON"), 1); // the third waits for the FIFO's room
-        CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_MAILBOX);
+        std::vector<uint8_t> b(0x7C, 0);
+        b[0] = 'P', b[1] = 'S', b[2] = 'I', b[3] = 'D', b[5] = 3, b[7] = 0x7C;
+        b[0x08] = 0x10, b[0x0A] = 0x10;
+        if (play_at)
+            b[0x0C] = static_cast<uint8_t>(0x10 + (play_at >> 8)), b[0x0D] = static_cast<uint8_t>(play_at);
+        b[0x0F] = static_cast<uint8_t>(songs), b[0x11] = 1, b[0x77] = 0x14;
+        const char name[] = "A TEST TUNE";
+        for (size_t i = 0; i < sizeof name - 1; ++i)
+            b[0x16 + i] = static_cast<uint8_t>(name[i]);
+        return b + code;
     }
+    /// init's start: volume up, voice 1 a gated sawtooth (sustain 15); then RTS, and play: INC $D401, RTS.
+    const std::vector<uint8_t> SAW = {0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4,
+                                      0xA9, 0xF0, 0x8D, 0x06, 0xD4, 0xA9, 0x21, 0x8D, 0x04, 0xD4};
+    std::vector<uint8_t> tune() { return psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21); }
+
+    /// A note block (the S1 appendix's layout): voice 0 on `source`'s instrument, the entries given.
+    std::vector<uint8_t> note_block(const std::vector<std::vector<uint8_t>> &entries, uint8_t source = 2)
+    {
+        std::vector<uint8_t> b{1, 0x01, 0, 0};
+        b = b + u32(static_cast<uint32_t>(entries.size()));
+        b = b + std::vector<uint8_t>{source, 0x40, 0x00, 0xF0, 0x00, 0x08, 255, 128};
+        for (const auto &e : entries)
+            b = b + e;
+        return b;
+    }
+    /// A frequency entry on voice 0: Hz, its length and gate in µs.
+    std::vector<uint8_t> tone(unsigned hz, uint32_t us, uint32_t gate) { return std::vector<uint8_t>{0x10} + le24(hz * 16) + u32(us) + u32(gate); }
 
     std::vector<uint8_t> mp3_file(const std::string &name)
     {
         std::ifstream in(std::string(EMU_MP3_DIR) + "/" + name, std::ios::binary);
         return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
-    /// minimp3 on its own, the whole file: its frames as the card's bus carries them (mono on both sides),
-    /// as test_sound_mp3's reference.
+    /// minimp3 on its own, the whole file (mono on both sides), and, when it carries an encoder's LAME tag, trimmed
+    /// as the card's gapless rule does (the Info frame left out, the encoder's delay and the decoder's 529 off the
+    /// front, the padding less 529 off the end: test_sound_stream3's reference).
     std::vector<int16_t> mp3_reference(const std::vector<uint8_t> &mp3)
     {
+        const char tag[] = "LAME";
+        const auto lame = std::search(mp3.begin(), mp3.end(), tag, tag + 4);
         std::vector<int16_t> out;
         auto dec = std::make_unique<mp3dec_t>();
         mp3dec_init(dec.get());
         std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
         size_t pos = 0;
+        bool first = lame != mp3.end();
         while (pos < mp3.size())
         {
             mp3dec_frame_info_t info{};
@@ -254,12 +363,34 @@ namespace
             if (!info.frame_bytes)
                 break;
             pos += static_cast<size_t>(info.frame_bytes);
+            if (first)
+            {
+                first = false;
+                continue;
+            }
             for (int i = 0; i < n; ++i)
             {
                 const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
                 out.push_back(l);
                 out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
             }
+        }
+        if (lame == mp3.end())
+            return out;
+        const size_t t = static_cast<size_t>(lame - mp3.begin()) + 21;
+        const uint32_t delay = static_cast<uint32_t>(mp3[t] << 4 | mp3[t + 1] >> 4);
+        const uint32_t padding = static_cast<uint32_t>((mp3[t + 1] & 0x0F) << 8 | mp3[t + 2]);
+        const size_t head = 2 * (delay + 529), tail = 2 * (padding - 529);
+        return std::vector<int16_t>(out.begin() + static_cast<std::ptrdiff_t>(head), out.end() - static_cast<std::ptrdiff_t>(tail));
+    }
+    /// The stream's frames as the card played them (its stream tap), as bytes (16-bit, low byte first).
+    std::vector<uint8_t> tap_bytes(Rig &r)
+    {
+        std::vector<uint8_t> out;
+        for (const int16_t s : fw(r).take_stream_tap())
+        {
+            out.push_back(static_cast<uint8_t>(s & 0xFF));
+            out.push_back(static_cast<uint8_t>((s >> 8) & 0xFF));
         }
         return out;
     }
@@ -280,386 +411,370 @@ namespace
         CHECK(r.until("END ", ms(10), from) && r.until("\r\nA>", ms(1000), r.out.find("END ", from)));
         return r.out.substr(from);
     }
+
+    /// The stream claimed and opened (`fmt` at `rate`), with a layout-2 area.
+    void streaming(CcpRig &r, unsigned rate = 48000, uint8_t fmt = FMT_16BIT | FMT_STEREO, const std::string &tail = "2")
+    {
+        open(r, tail);
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+        CHECK_EQ(f82(r, stream_block(0, rate, fmt)), std::string("00 00"));
+    }
+    /// The 32-byte IDENTIFY block.
+    std::vector<uint8_t> identify()
+    {
+        std::vector<uint8_t> id(33, 0);
+        id[0] = SN_IDENTIFY;
+        return id;
+    }
+    /// The tap's left channel: the samples not 0.
+    size_t sounding(const std::vector<int16_t> &tap)
+    {
+        size_t n = 0;
+        for (size_t i = 0; i < tap.size(); i += 2)
+            n += tap[i] != 0;
+        return n;
+    }
 } // namespace
+
+// --- S13: the driver's core ------------------------------------------------------------------------------------
 
 TEST(info_and_the_claims)
 {
+    // SN_INFO: revision 3, FEATURES, the three parts free; claims all or none; a part's operations need its claim;
+    // an operation past the table, or one that needs a block and has none, is refused; IDENTIFY's 32 bytes.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("02 83 028307")); // revision 2, PCM, MP3, the ES5503; all free
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("FF FF"));             // held
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510 | SC_STREAM}), std::string("FF FF")); // one of them held: neither
+    char want[32];
+    std::snprintf(want, sizeof want, "03 %02X 03%02X07", fw(r).features(), fw(r).features());
+    CHECK_EQ(command(r, 'I', "INFO"), std::string(want));
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("FF FF"));             // held
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM}), std::string("FF FF")); // one of them held: neither
     CHECK_EQ(f82(r, {SN_CLAIM, 0}), std::string("FF FF"));                   // none asked for
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("02 83 028306"));
-    CHECK_EQ(sys(r, "SCLAIM"), SC_6510);
-    CHECK_EQ(f82(r, {SN_RELEASE, SC_6510 | SC_DOC}), std::string("00 00")); // what isn't held: nothing
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("02 83 028307"));
+    CHECK_EQ(f82(r, {SN_CLAIM, 0x08}), std::string("FF FF"));                // no such part
+    std::snprintf(want, sizeof want, "03 %02X 03%02X06", fw(r).features(), fw(r).features());
+    CHECK_EQ(command(r, 'I', "INFO"), std::string(want));
+    CHECK_EQ(sys(r, "SCLAIM"), SC_TUNE);
+    CHECK_EQ(f82(r, {SN_RELEASE, SC_TUNE | SC_MUSIC}), std::string("00 00")); // what isn't held: nothing
+    CHECK_EQ(sys(r, "SCLAIM"), 0);
     // A part's operations need its claim; an operation that isn't one; a block needed and not given.
     CHECK_EQ(f82op(r, SN_STOP), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_SEND, 1}), std::string("FF FF"));
     CHECK_EQ(f82(r, stream_block(0, 8000, 0)), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_WAVE, 0, 0x30, 0, 0, 0, 0, 1, 0}), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("FF FF"));
     CHECK_EQ(f82op(r, SN_OPS), std::string("FF FF"));
+    CHECK_EQ(f82op(r, 0xFF), std::string("FF FF"));
     CHECK_EQ(f82op(r, SN_CLAIM), std::string("FF FF"));
-    CHECK_EQ(f82op(r, SN_INFO), std::string("02 83"));
+    CHECK_EQ(f82op(r, SN_IDENTIFY), std::string("FF FF"));
+    std::snprintf(want, sizeof want, "03 %02X", fw(r).features());
+    CHECK_EQ(f82op(r, SN_INFO), std::string(want));
+    // IDENTIFY: the card's 32 bytes in the block, and no further.
+    std::vector<uint8_t> id(34, 0xEE);
+    id[0] = SN_IDENTIFY;
+    CHECK_EQ(f82(r, id), std::string("00 00"));
+    const std::vector<uint8_t> b = got(r, 33);
+    CHECK_EQ(b[0], 0xA3);
+    CHECK_EQ(b[1], SoundFw::VERSION_MAJOR);
+    CHECK_EQ(b[2], SoundFw::VERSION_MINOR);
+    CHECK_EQ(b[5], fw(r).memsize());
+    CHECK_EQ(b[6], fw(r).features());
+    CHECK_EQ(b[16], 4); // tune slots
+    CHECK_EQ(b[17], 32); // music slots
+    CHECK_EQ(b[32], 0xEE);
     // A load from OODOS's own memory (banks 6-7: the system's) is refused, as 51's segment is.
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x00, 0x07, 0, 0, 16, 0}), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_LOAD, 0xF0, 0xFF, 0x05, 0, 0, 32, 0}), std::string("FF FF")); // runs into bank 6
-    // A byte the 6510 (stopped) hasn't taken: a second is refused, busy, rather than replace it.
-    CHECK_EQ(f82(r, {SN_SEND, 0x11}), std::string("00 00"));
-    CHECK(reg(r, SoundCard::STATUS) & SoundCard::STATUS_TO_CARD);
-    CHECK_EQ(f82(r, {SN_SEND, 0x22}), std::string("FE FF"));
-    // The card's RAM's end: to $FFFF and no further (the address would wrap to 0).
-    r.poke(0x3000, noise(32, 7));
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0xF0, 0xFF, 0x10, 0}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0xF0, 0xFF, 0x11, 0}), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x01, 0x00, 0, 0}), std::string("FF FF")); // 64 KB from 1
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x070000, 16, {0})), std::string("FF FF"));
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x05FFF0, 32, {0})), std::string("FF FF")); // runs into bank 6
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x010000, 0, {0})), std::string("FF FF"));  // nothing to load
 }
 
-TEST(the_card_s_ram_is_loaded_by_dma_and_its_6510_talks_through_the_mailbox)
+TEST(the_card_s_refusal_is_sn_refused_with_its_error)
 {
+    // A = SN_REFUSED ($FD), X = the card's error, when the card refused the command: a tune slot past 3 (E_PARAM), a
+    // tune not loaded (E_SLOT), a beep below 20 Hz or above 20,000 (E_PARAM); a resume of what isn't paused
+    // (E_STATE).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_MAILBOX); // the 6510 claimed, a layout-2 area open
-    // All 64 KB, 16 pieces of 4,096 bytes with the CPU held for each: byte for byte, and no tick lost.
-    const std::vector<uint8_t> all = noise(0x10000, 1);
-    r.poke(0x10000, all);
-    const uint64_t c0 = r.cpu->cycles();
-    const uint32_t m0 = ms_count(r);
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x00, 0x01, 0x00, 0x00, 0, 0}), std::string("00 00"));
-    const double want = static_cast<double>(r.cpu->cycles() - c0) / 7159.0;
-    const double got = ms_count(r) - m0;
-    std::printf("  64 KB loaded: %.0f ms counted, %.1f in the cycles\n", got, want);
-    CHECK(got >= want - 1.5 && got <= want + 1.5);
-    CHECK(std::equal(all.begin(), all.end(), card(r).ram().begin()));
-    // A program at $1000, a piece and a bit (crossing pieces): it says $42, then echoes each byte inverted.
-    std::vector<uint8_t> code = {0xA9, 0x42, 0x8D, 0x00, 0xDE, 0xAD, 0x01, 0xDE, 0x29, 0x01, 0xF0, 0xF9,
-                                 0xAD, 0x00, 0xDE, 0x49, 0xFF, 0x8D, 0x00, 0xDE, 0x4C, 0x05, 0x10};
-    std::vector<uint8_t> image = noise(5000, 2);
-    std::copy(code.begin(), code.end(), image.begin());
-    r.poke(0x3000, image);
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, 0x88, 0x13}), std::string("00 00")); // 5,000 bytes
-    CHECK(std::equal(image.begin(), image.end(), card(r).ram().begin() + 0x1000));
-    CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, SoundCard::CTRL_NTSC}), std::string("00 00"));
-    CHECK_EQ(card(r).ram()[0xFFFC], 0x00);
-    CHECK_EQ(card(r).ram()[0xFFFD], 0x10);
-    CHECK_EQ(reg(r, SoundCard::CTRL) & 0x07, SoundCard::CTRL_RUN | SoundCard::CTRL_NTSC);
-    r.run(ms(5));
-    CHECK_EQ(f82(r, {SN_SEND, 0x10}), std::string("00 00"));
-    r.run(ms(5));
-    std::vector<std::pair<unsigned, unsigned>> ev = waiting(r);
-    REQUIRE(ev.size() == 2);
-    CHECK_EQ(ev[0].first, EK_SOUND);
-    CHECK_EQ(ev[0].second, 0x42u);
-    CHECK_EQ(ev[1].first, EK_SOUND);
-    CHECK_EQ(ev[1].second, 0xEFu);
-    // Stopped: RUN off, the SIDs silenced.
-    card(r).write(SoundCard::SID_A + 0x18, 0x0F); // dropped while the 6510 runs: so written after the stop
-    CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
-    card(r).write(SoundCard::SID_A + 0x18, 0x0F);
-    CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::SID_A + 0x18), 0);
-    // Without a layout-2 area the mailbox's interrupt is off: the program reads MBIN itself.
-    wboot(r);
-    open(r, "1");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), 0);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM}), std::string("00 00"));
+    r.poke(0x10000, tune());
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {4})), std::string("FD 02"));
+    CHECK_EQ(f82(r, {SN_PLAY, 2, 0, 0, 0, 0, 0, 0, 0, 0}), std::string("FD 03"));
+    CHECK_EQ(f82(r, {SN_BEEP, 19, 0, 10, 0}), std::string("FD 02"));
+    CHECK_EQ(f82(r, {SN_BEEP, 0x21, 0x4E, 10, 0}), std::string("FD 02"));
+    CHECK_EQ(f82(r, stream_block(0, 8000, 0)), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_RESUME), std::string("FD 08"));
 }
 
-TEST(a_load_is_refused_busy_while_a_stream_buffer_moves)
+TEST(a_program_s_record_and_the_handler_s_never_mix)
 {
-    CcpRig r;
-    REQUIRE(r.ok);
-    claim_it_all(r); // a third 64 KB buffer waiting for the FIFO's room
-    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));      // a fourth, queued
-    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("FE FF"));      // a fifth: both taken
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x20, 16, 0}), std::string("FE FF"));
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x30, 0x00, 0, 0, 0, 16, 0}), std::string("FE FF"));
-    CHECK_EQ(area(r, EV_SBUFS), 0);
-    // A seek drops both: the channel stopped, the buffers free, a load then goes.
-    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
-    CHECK_EQ(sys(r, "C2ON"), 0);
-    CHECK_EQ(area(r, EV_SBUFS), 3);
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x20, 16, 0}), std::string("00 00"));
-}
-
-TEST(a_stream_s_buffers_chain_across_terminal_counts_with_no_gap)
-{
+    // OODOS writes every record to CMD whole with interrupts off. The frame's status requests (the handler's
+    // records, sent from the vertical blank's interrupt) are timed here to fall inside a program's IDENTIFY: by the
+    // frame's own period, the program's command started a step earlier each frame until an interrupt comes while
+    // the record is being written (the host's /IRQ falling between its first byte and its last, the owner's
+    // ruling after S18). Both get their replies: IDENTIFY's 32 bytes, the area's fields. Must fail
+    // with the sender's SEI left out (the records interleave: the card refuses one, E_PARAM, or takes the wrong
+    // bytes as a record).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
-    CHECK_EQ(area(r, EV_SBUFS), 3);
-    CHECK_EQ(f82(r, stream_block(0, 48000, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
-    card(r).set_tap(true, false);
-    // Six buffers of 10,000 bytes (pieces of 4,096, 4,096 and 1,808), each given again as OODOS frees it.
-    constexpr unsigned LEN = 10000, BUFS = 6;
-    const uint32_t at[2] = {0x03000, 0x06000};
-    std::vector<uint8_t> sent;
-    unsigned given = 0;
-    Costs costs;
-    auto give = [&](unsigned k) {
-        const std::vector<uint8_t> b = noise(LEN, 100 + given);
-        r.poke(at[k], b);
-        CHECK_EQ(f82(r, buffer_block(at[k], LEN)), std::string("0") + static_cast<char>('0' + k) + " 00");
-        sent.insert(sent.end(), b.begin(), b.end());
-        ++given;
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM | SC_MUSIC}), std::string("00 00")); // three requests a frame
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    const uint16_t sframe = sym("SFRAME"), cmdb = sym("CMDB"), irq = sym("IRQ");
+    std::vector<uint64_t> frames; // each frame's interrupt: its entry (the IRQ that went on to SFRAME)
+    uint64_t last_irq = 0;
+    auto watch_frames = [&] {
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61)
+                frames.push_back(last_irq);
+        };
     };
-    give(0);
-    give(1);
-    while (given < BUFS)
-    {
-        bool freed = false;
-        time_interrupts(r, costs, [&] { return (area(r, EV_SBUFS) & 3) != 0; }, ms(500));
-        for (unsigned k = 0; k < 2 && given < BUFS; ++k)
-            if (area(r, EV_SBUFS) >> k & 1)
-                give(k), freed = true;
-        REQUIRE(freed);
-    }
-    time_interrupts(r, costs, [&] { return area(r, EV_SBUFS) == 3; }, ms(500));
-    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
-    time_interrupts(r, costs, [&] { return area(r, EV_SSTATE) == SoundCard::STATE_ENDED; }, ms(1000));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_ENDED);
-    const std::vector<uint8_t> played = tap_bytes(card(r));
-    std::printf("  %zu bytes sent, %zu played\n", sent.size(), played.size());
-    CHECK(played == sent);
-    CHECK_EQ(card(r).underruns(), 0u);
-    CHECK_EQ(area16(r, EV_SUNDER), 0u);
-    CHECK_EQ(area32(r, EV_SPOS), LEN * BUFS / 4);
-    CHECK_EQ(area16(r, EV_SFREE), 512u);
-    CHECK_EQ(area16(r, EV_SKBPS), 0u);
-}
-
-TEST(pause_resume_seek_end_and_status)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
-    CHECK_EQ(f82(r, stream_block(0, 22050, SoundCard::PCMFMT_16BIT)), std::string("00 00"));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_BUFFERING);
-    r.poke(0x10000, noise(0x10000, 9));
-    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
-    r.run(ms(100));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_PLAYING);
-    CHECK_EQ(area(r, EV_SBUFS), 3);
-    CHECK(area32(r, EV_SPOS) > 1000);
-    CHECK_EQ(f82op(r, SN_PAUSE), std::string("00 00"));
-    r.run(ms(40));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_PAUSED);
-    const uint32_t pos = area32(r, EV_SPOS);
-    r.run(ms(100));
-    CHECK_EQ(area32(r, EV_SPOS), pos);
-    CHECK_EQ(f82op(r, SN_RESUME), std::string("00 00"));
-    r.run(ms(40));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_PLAYING);
-    // A seek: buffering again, the FIFO empty; POS runs on.
-    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_BUFFERING);
-    CHECK_EQ(area16(r, EV_SFREE), 512u);
-    // Run dry with no EOF: an underrun, counted once, in the area and in the status block.
-    CHECK_EQ(f82(r, buffer_block(0x10000, 8192)), std::string("00 00"));
-    r.run(ms(400));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_UNDERRUN);
-    CHECK_EQ(area16(r, EV_SUNDER), 1u);
-    const std::string st = command(r, 'S', "ST");
-    CHECK_EQ(st.substr(0, 6), std::string("04 03 ")); // underrun, both free
-    CHECK_EQ(st.substr(6, 2), std::string("04"));
-    CHECK_EQ(st.substr(26, 4), std::string("0100")); // the underruns: 1
-    CHECK_EQ(card(r).underruns(), 1u);
-    // EOF: what is in plays out, then ended.
-    CHECK_EQ(f82(r, buffer_block(0x10000, 4096)), std::string("01 00")); // in turn: the seek's first was 0
-    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
-    r.run(ms(200));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_ENDED);
-    CHECK_EQ(area16(r, EV_SUNDER), 1u);
-}
-
-TEST(wave_ram_is_loaded_by_dma_and_the_es5503_hook_is_called)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
-    // 6,000 bytes at $0F000: across the first 64 KB into the second (DOCBANK's carry), and two pieces.
-    const std::vector<uint8_t> w = noise(6000, 4);
-    r.poke(0x10000, w);
-    card(r).write(SoundCard::DOCCTL, SoundCard::DOCCTL_AUTOINC); // the program's, kept
-    card(r).write(SoundCard::DOCADDR, 0xA0);
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0x00, 0xF0, 0x00, 0x70, 0x17}), std::string("00 00"));
-    CHECK(std::equal(w.begin(), w.end(), card(r).doc().ram().begin() + 0xF000));
-    CHECK_EQ(reg(r, SoundCard::DOCCTL), SoundCard::DOCCTL_AUTOINC);
-    CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
-    CHECK_EQ(reg(r, SoundCard::IEN), 0);
-    // Wave RAM's end: to $1FFFF and no further.
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x10, 0x00}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x11, 0x00}), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x00}), std::string("FF FF")); // $20000: none
-    CHECK(std::equal(w.begin(), w.begin() + 16, card(r).doc().ram().begin() + 0x1FFF0));
-    // The hook: IEN bit 3 on. Oscillator 0 halted from a control write in one-shot with IE: its interrupt.
-    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC);
-    card(r).write(SoundCard::DOCCTL, 0);
-    card(r).write(SoundCard::DOCADDR, 0xA0);
-    card(r).write(SoundCard::DOCDATA, 0x0A); // running, one-shot, IE
-    card(r).write(SoundCard::DOCDATA, 0x0B); // halted: pending
-    card(r).write(SoundCard::DOCADDR, 0x42); // where the program was: oscillator 2's volume
-    card(r).write(SoundCard::DOCCTL, SoundCard::DOCCTL_AUTOINC);
-    r.run(ms(5));
-    CHECK_EQ(r.phys(DCNT), 1);
-    CHECK_EQ(r.phys(DLAST), 0x41); // oscillator 0 (bits 1-5), bits 0 and 6 reading 1
-    CHECK_EQ(reg(r, SoundCard::DOCCTL), SoundCard::DOCCTL_AUTOINC); // put back as the program had them
-    CHECK_EQ(reg(r, SoundCard::DOCADDR), 0x42);
-    CHECK_EQ(card(r).peek(SoundCard::STATUS) & SoundCard::STATUS_IRQ, 0);
-    // The hook off: IEN bit 3 off.
-    CHECK_EQ(f82op(r, 15), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), 0);
-}
-
-TEST(the_6510_s_es5503_interrupt_is_left_to_it_when_a_mailbox_byte_comes)
-{
-    // The hook set, but the ES5503's interrupt routed to the card's 6510 (DOCCTL's IRQ_CARD): an oscillator
-    // pending there is the 6510's to take. A mailbox byte's interrupt mustn't read $E0 and take it instead.
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510 | SC_DOC}), std::string("00 00"));
-    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_MAILBOX | SoundCard::IEN_DOC);
-    card(r).write(SoundCard::DOCCTL, SoundCard::DOCCTL_IRQ_CARD); // RUN clear: the 6510 isn't interrupted yet
-    card(r).doc().write(0xA0, 0x0A);
-    card(r).doc().write(0xA0, 0x0B); // oscillator 0 pending, on the 6510's route
-    CHECK(card(r).doc().irq());
-    r.poke(0x3000, std::vector<uint8_t>{0xA9, 0x42, 0x8D, 0x00, 0xDE, 0x4C, 0x05, 0x10}); // say $42, spin
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, 8, 0}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    r.run(ms(5));
-    const std::vector<std::pair<unsigned, unsigned>> ev = waiting(r);
-    REQUIRE(ev.size() == 1);
-    CHECK_EQ(ev[0].second, 0x42u); // the mailbox's interrupt came, and was answered
-    CHECK(card(r).doc().irq());   // the oscillator still pending, for the 6510
-    CHECK_EQ(r.phys(DCNT), 0);
-}
-
-TEST(a_stray_during_a_wave_load_leaves_the_es5503_s_interrupt_off)
-{
-    // The hook set (IEN bit 3), then a wave load of 64 KB (16 pieces) with a stray coming in its middle (the
-    // USB card's interrupt, no layout-2 area): DEAFEN turns the stray off and writes the card's IEN back as
-    // OODOS has it, which must not have bit 3 while the load runs.
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "X");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
-    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC);
-    const uint16_t from = sym("DMALOAD"), to = sym("BEEPQ"), deafen = sym("DEAFEN");
-    unsigned in = 0, on = 0, deaf = 0;
-    bool stray = false;
+    watch_frames();
+    r.run(ms(60));
+    REQUIRE(frames.size() >= 3);
+    const uint64_t period = frames[2] - frames[1];
+    // From the poke of 'K' to the program's first CMD write.
+    r.poke(KBLK, identify());
+    uint64_t first = 0;
     r.watch = [&](uint16_t pc) {
-        if (r.nb(1) != 60)
-            return;
-        if (pc == deafen && r.nb(3) == 62)
-            ++deaf;
-        if (pc >= from && pc < to)
+        if (pc == cmdb && r.nb(2) == 61 && !first)
+            first = r.cpu->cycles();
+    };
+    const uint64_t poked = r.cpu->cycles();
+    CHECK_EQ(command(r, 'K', "K"), std::string("00 00"));
+    REQUIRE(first > poked);
+    const uint64_t lead = first - poked;
+    std::printf("  a frame every %llu cycles; the program's record %llu cycles after the poke\n",
+                static_cast<unsigned long long>(period), static_cast<unsigned long long>(lead));
+    unsigned bad = 0, near = 0, tries = 0;
+    for (unsigned d = 0; d <= 90; d += 3, ++tries)
+    {
+        frames.clear();
+        watch_frames();
+        while (frames.empty())
+            r.run(100);
+        const uint64_t at = frames.back() + period - lead - d;
+        r.watch = nullptr;
+        while (r.cpu->cycles() + 2100 < at)
+            r.run(2000);
+        uint64_t rec = 0, frame = 0;
+        struct Bytes : CycleObserver // the program's record's first and last CMD bytes, and /IRQ's falls
         {
-            ++in;
-            if (!stray && in > 200)
+            Rig *rig{nullptr};
+            const uint64_t *armed{nullptr};
+            unsigned n{0};
+            uint64_t first{0}, last{0};
+            bool was{false};
+            std::vector<uint64_t> falls;
+            void on_cycle(const BusCycle &c) override
             {
-                r.machine->bus().write(0xC5B0, 0x0F); // USB_IEN, against the rules
-                r.machine->usb_card()->key(0x04, true);
-                stray = true;
+                const bool now = rig->machine->bus().irq();
+                if (now && !was)
+                    falls.push_back(c.cycle);
+                was = now;
+                if (*armed && n < 3 && c.write && !c.dma && c.addr == 0xC500 + SoundCard3::CMD)
+                {
+                    if (n++ == 0)
+                        first = c.cycle;
+                    last = c.cycle;
+                }
             }
-            if (reg(r, SoundCard::IEN) & SoundCard::IEN_DOC)
-                ++on;
-        }
-    };
-    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0}), std::string("00 00"));
-    r.watch = nullptr;
-    r.machine->usb_card()->key(0x04, false);
-    std::printf("  %u steps in the load, the stray's DEAFEN %u, IEN bit 3 on in %u\n", in, deaf, on);
-    CHECK(stray && deaf >= 1);
-    CHECK_EQ(on, 0u);
-    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC); // the hook's, back after the load
+        } bytes;
+        bytes.rig = &r;
+        bytes.armed = &rec;
+        bytes.was = r.machine->bus().irq();
+        r.cpu->set_observer(&bytes);
+        r.watch = [&](uint16_t pc) {
+            if (pc == cmdb && r.nb(2) == 61 && !rec)
+                rec = r.cpu->cycles();
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61 && !frame)
+                frame = last_irq; // the frame's interrupt's entry
+        };
+        while (r.cpu->cycles() < at)
+            r.run(1);
+        r.poke(KBLK, identify());
+        const std::string res = command(r, 'K', "K");
+        r.watch = nullptr;
+        r.cpu->set_observer(nullptr);
+        const std::vector<uint8_t> b = got(r, 1);
+        if ((res != "00 00" || b[0] != 0xA3) && ++bad <= 3)
+            std::printf("  try %u: IDENTIFY gave %s, its first byte $%02X\n", d, res.c_str(), b[0]);
+        bool inside = false; // an interrupt came while the record was being written (taken at its end)
+        for (const uint64_t f : bytes.falls)
+            inside = inside || (bytes.n == 3 && f >= bytes.first && f <= bytes.last);
+        if (rec && frame && frame >= rec && inside)
+            ++near;
+    }
+    r.run(ms(40));
+    std::printf("  %u tries: %u with an interrupt coming inside the program's record, %u bad; ERROR $%02X\n",
+                tries, near, bad, reg(r, SoundCard3::ERROR));
+    CHECK(near > 0); // the premise: an interrupt fell inside the program's record
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(reg(r, SoundCard3::ERROR), 0);
+    CHECK_EQ(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_ERR, 0);
+    CHECK_EQ(area(r, EV_SSTATE), ST_BUFFERING); // and the frame's replies reached the area
+    CHECK_EQ(sv(r, "FPEND"), 0);
 }
 
-TEST(a_stray_terminal_count_on_channel_6_is_deafened)
+TEST(a_card_that_never_answers_is_sn_busy_in_100_ms)
 {
-    // B3: a channel 4-7's interrupt that no driver turned on (a program's, against the rules) reaches IRQOTH and
-    // DEAFEN, which clears its MODE.IRQ and its terminal count through SELECT 6 and puts CONTROL back. Must fail
-    // if DEAFEN's loop starts at SELECT 3: the count is never cleared, /IRQ stays low and OODOS hangs in the
-    // dispatcher (OODOS's "nothing more" for B3, seen to hold).
+    // A card whose firmware has stopped answering (its command latency made a second): the call gives up after 100
+    // ms, SN_BUSY, and OODOS goes on; the late reply is dropped. Must fail with the wait's time-out left out (the
+    // call hangs until the reply, a second later).
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(!r.cmd("dir").empty());            // at A>
-    DmaController &dma = *r.machine->dma();
-    Decoder &bus = r.machine->bus();
-    const uint8_t control = dma.peek(DmaController::CONTROL);
-    REQUIRE(control & DmaController::MASTER_ENABLE);
-    const uint16_t deafen = sym("DEAFEN");
-    unsigned deaf = 0;
-    r.watch = [&](uint16_t pc) {
-        if (pc == deafen && r.nb(3) == 62)
-            ++deaf;
-    };
-    // Between instructions, as a program would: a 1-byte copy of a byte onto itself, on channel 6 with MODE.IRQ.
-    constexpr uint32_t BYTE = 0x07FFF0;
-    bus.write(0xC47E, static_cast<uint8_t>((control & ~DmaController::SELECT_MASK) | 6 << DmaController::SELECT_SHIFT));
-    for (unsigned i = 0; i < 3; ++i)
-    {
-        bus.write(static_cast<uint16_t>(0xC400 + DmaController::ADDR + i), static_cast<uint8_t>(BYTE >> (8 * i)));
-        bus.write(static_cast<uint16_t>(0xC400 + DmaController::DEST + i), static_cast<uint8_t>(BYTE >> (8 * i)));
-    }
-    bus.write(0xC400 + DmaController::COUNT, 1);
-    bus.write(0xC400 + DmaController::COUNT + 1, 0);
-    bus.write(0xC400 + DmaController::MODE, DmaController::IRQ | DmaController::MEM_TO_MEM);
-    bus.write(0xC400 + DmaController::CTRL, DmaController::ENABLE | DmaController::REQ);
-    bus.write(0xC47E, control);                // CONTROL put back
-    r.run(ms(5));
-    r.watch = nullptr;
-    std::printf("  DEAFEN run %u times for channel 6's terminal count\n", deaf);
-    CHECK(deaf >= 1);
-    CHECK_EQ(dma.peek_channel(6, DmaController::MODE), DmaController::MEM_TO_MEM); // its interrupt off
-    CHECK_EQ(dma.peek(DmaController::STATUS) & 0x40, 0);                            // its count cleared
-    CHECK(!dma.irq());
-    CHECK_EQ(dma.peek(DmaController::CONTROL), control);                            // as DEAFEN found it
-    CHECK(!r.cmd("dir").empty());              // and A> still answers
+    open(r, "2");
+    fw(r).set_latency_us(1'000'000);
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(f82(r, identify(), ms(600)), std::string("FE FF"));
+    const double took = static_cast<double>(r.cpu->cycles() - c0) / 7159.09;
+    std::printf("  SN_BUSY after %.1f ms\n", took);
+    CHECK(took >= 99 && took < 140);
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    r.run(ms(1100)); // the late reply comes, and is dropped
+    CHECK_EQ(f82(r, identify()), std::string("00 00"));
+    CHECK_EQ(got(r, 1)[0], 0xA3);
+    // Review T2: the late reply coming while the program's next call waits, as it does when a program goes straight
+    // on: a call the card will refuse, 150 ms late (SN_BUSY at 100 ms), then at once one it takes. The refusal is the
+    // first call's (its tag), not the second's. Must fail with the wait taking any program's tag for its own.
+    fw(r).set_latency_us(150'000);
+    CHECK_EQ(f82(r, {SN_MIX, 5, 0x20}), std::string("FE FF")); // the card's E_PARAM comes after the time-out
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00"));
+    CHECK_EQ(fw(r).volume_left(), 0x80);
 }
 
-TEST(the_beep_lasts_its_length_at_its_pitch)
+TEST(the_cold_boot_clears_a_half_record_left_by_the_rom)
 {
+    // A record half written to CMD before OODOS boots (as a Break inside the ROM's own record could leave it): the
+    // cold boot's CTRL RESET drops it, so OODOS's first record parses and the card answers each in turn. Must fail
+    // with the strobe left out (OODOS's records complete the stray one; the replies don't match).
+    before_boot() = [](Rig &r) {
+        r.machine->bus().write(0xC503, 0x04); // EVENTS, n 1 (right for it): its tag and mask still to come
+        r.machine->bus().write(0xC503, 0x01);
+    };
+    CcpRig r;
+    before_boot() = nullptr;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, identify()), std::string("00 00"));
+    CHECK_EQ(got(r, 1)[0], 0xA3);
+    CHECK_EQ(reg(r, SoundCard3::ERROR), 0);
+    CHECK_EQ(fw(r).store_free(), fw(r).store_bytes()); // FREEALL ran
+}
+
+TEST(sn_beep_lasts_its_length_at_its_pitch_on_the_card)
+{
+    // SN_BEEP: BEEP on the card's tone generator, the call back when it has ended (the owner's answer 6), its pitch
+    // exact. Must fail with SN_BEEP returning at the REPLY (the call's time a millisecond).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    UsbCard *usb = r.machine->usb_card();
-    const uint64_t t0 = usb->speaker_toggles(), c0 = r.cpu->cycles();
-    CHECK_EQ(f82(r, {SN_BEEP, 0xE8, 0x03, 100, 0}), std::string("00 00")); // 1,000 Hz, 100 ms
-    const uint64_t toggles = usb->speaker_toggles() - t0;
+    dev(r).set_tap(true, SoundFw::SRC_BEEP);
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(f82(r, {SN_BEEP, 0xE8, 0x03, 200, 0}), std::string("00 00")); // 1,000 Hz, 200 ms
     const double secs = static_cast<double>(r.cpu->cycles() - c0) / 7159090.0;
-    std::printf("  1,000 Hz for 100 ms: %llu toggles, the call %.1f ms\n", static_cast<unsigned long long>(toggles), secs * 1000);
-    CHECK(toggles >= 190 && toggles <= 202); // 200 at 1,000 Hz; the ticks lower it about 2%
-    CHECK(secs >= 0.100 && secs <= 0.115); // the command's own line included
-    CHECK_EQ(f82(r, {SN_BEEP, 19, 0, 10, 0}), std::string("FF FF"));          // below 20 Hz
-    CHECK_EQ(f82(r, {SN_BEEP, 0x21, 0x4E, 10, 0}), std::string("FF FF"));     // above 20,000
+    const std::vector<int16_t> tap = dev(r).take_tap();
+    dev(r).set_tap(false);
+    size_t on = 0, off = 0; // the first and last samples sounding
+    for (size_t i = 0; i < tap.size(); i += 2)
+        if (tap[i] != 0)
+            off = i / 2 + 1, on = on ? on : i / 2 + 1;
+    std::vector<size_t> rises; // the left channel's rising zero crossings
+    for (size_t i = 2; i < tap.size(); i += 2)
+        if (tap[i - 2] < 0 && tap[i] >= 0)
+            rises.push_back(i / 2);
+    REQUIRE(rises.size() > 10);
+    const double hz = static_cast<double>(rises.size() - 1) * 48000.0 / static_cast<double>(rises.back() - rises.front());
+    const size_t n = off - on + 1;
+    std::printf("  1,000 Hz for 200 ms: %.2f Hz, %zu samples from the first sounding to the last (%.1f ms), the call %.1f ms\n", hz, n, static_cast<double>(n) / 48.0,
+                secs * 1000);
+    CHECK(std::fabs(hz - 1000) < 1.0);
+    CHECK(static_cast<double>(n) / 48.0 > 195 && static_cast<double>(n) / 48.0 < 201);
+    CHECK(secs >= 0.200 && secs <= 0.215); // the command's own line included
 }
 
-TEST(the_warm_boot_quiets_the_card_and_releases_the_claims_by_wboot_ctrl_c_and_break)
+TEST(a_bel_rings_the_card_s_bell)
 {
+    // S16: the console's BEL sends BELL to the card (no wait): its tone sounds from the card's flash. Must fail with
+    // BEL dropped (crt.s's test of $07 taken out).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    dev(r).set_tap(true, SoundFw::SRC_BEEP);
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(command(r, 'G', "G").substr(3), std::string("00"));
+    const double secs = static_cast<double>(r.cpu->cycles() - c0) / 7159090.0;
+    r.run(ms(200));
+    const std::vector<int16_t> tap = dev(r).take_tap();
+    dev(r).set_tap(false);
+    const size_t n = sounding(tap);
+    std::printf("  the bell: %zu samples sounding (%.1f ms); the BEL's line %.1f ms after its command\n", n, static_cast<double>(n) / 48.0,
+                secs * 1000);
+    CHECK(static_cast<double>(n) / 48.0 > 100); // the bell's 120 ms
+    CHECK(secs < 0.05);    // not waited for
+}
+
+namespace
+{
+    /// A tune playing, music playing, the stream claimed and a buffer sent, the volumes, MIX and the EQ moved:
+    /// everything the warm boot must put back.
+    void claim_it_all(CcpRig &r)
+    {
+        open(r, "2");
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM | SC_MUSIC}), std::string("00 00"));
+        r.poke(0x10000, tune());
+        CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {0})), std::string("00 00"));
+        CHECK_EQ(f82(r, {SN_PLAY, 0, 0, 0, 0, 0, 0, 0, 0, 0}), std::string("00 00"));
+        CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+        r.poke(0x20000, noise(0x10000, 3));
+        CHECK_EQ(f82(r, buffer_block(0x20000, 0)), std::string("00 00"));
+        const std::vector<uint8_t> blk = note_block({tone(440, 2'000'000, 2'000'000)});
+        r.poke(0x30000, blk);
+        CHECK_EQ(f82(r, load_block(SN_MUSIC, {0}, 0x30000, static_cast<uint32_t>(blk.size()), {2})), std::string("00 00"));
+        CHECK_EQ(f82(r, {SN_VOLUME, 0, 0}), std::string("00 00"));
+        CHECK_EQ(f82(r, {SN_MIX, 4, 0}), std::string("00 00"));   // the beep's source muted
+        CHECK_EQ(f82(r, {SN_EQ, 0xFE, 1}), std::string("00 00")); // the EQ on
+        CHECK_EQ(f82(r, {SN_EQ, 3, 0xF0}), std::string("00 00")); // a band at -8 dB
+        r.run(ms(50));
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_PLAYING);
+        CHECK_EQ(fw(r).music_state(), SoundFw::M_PLAYING);
+        CHECK_EQ(sys(r, "SCLAIM"), 7);
+    }
+    /// After the warm boot: a beep through every default (the volumes 255, the beep's MIX 255) is heard at the
+    /// tap's full level.
+    void defaults_heard(CcpRig &r)
+    {
+        open(r, "X");
+        dev(r).set_tap(true);
+        CHECK_EQ(f82(r, {SN_BEEP, 0xE8, 0x03, 20, 0}), std::string("00 00"));
+        const std::vector<int16_t> tap = dev(r).take_tap();
+        dev(r).set_tap(false);
+        int most = 0;
+        for (const int16_t s : tap)
+            most = std::max(most, std::abs(static_cast<int>(s)));
+        std::printf("  a beep after the warm boot: its peak %d\n", most);
+        CHECK(most > 4000);
+    }
+} // namespace
+
+TEST(the_warm_boot_quiets_the_card_and_puts_back_its_defaults_by_wboot_ctrl_c_and_break)
+{
+    // The warm boot (WBOOT, ^C, Break and OODOS booted again): every claim released, nothing playing, the store
+    // empty (FREEALL), and the volumes, every source's MIX and the EQ as the card starts (CTRL's RESET: the owner's
+    // answer 4, MIX's levels too). Must fail if the warm boot leaves the card as the program left it.
     {
         CcpRig r;
         REQUIRE(r.ok);
         quiet(r); // cold boot's
         claim_it_all(r);
-        const size_t from = r.out.size();
-        r.poke(MBOX, 'W');
-        CHECK(r.until("\r\nA>", ms(2000), from));
+        wboot(r);
         quiet(r);
+        defaults_heard(r);
     }
     {
         CcpRig r;
@@ -671,19 +786,19 @@ TEST(the_warm_boot_quiets_the_card_and_releases_the_claims_by_wboot_ctrl_c_and_b
         r.type("\x03");
         CHECK(r.until("\r\nA>", ms(2000), from));
         quiet(r);
+        defaults_heard(r);
     }
     {
-        // Break: the ROM's QUIET (every DMA channel aborted, the card quiet); OODOS booted again.
+        // Break: the ROM's QUIET, then OODOS booted again (its cold boot's RESET and FREEALL).
         CcpRig r;
         REQUIRE(r.ok);
         claim_it_all(r);
         const size_t from = r.out.size();
         r.cpu->nmi();
         CHECK(r.until("\\\r", ms(1000), from));
-        CHECK_EQ(reg(r, SoundCard::IEN), 0);
-        CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
         REQUIRE(r.boot());
         quiet(r);
+        defaults_heard(r);
     }
 }
 
@@ -697,10 +812,10 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // the bridge's tick, a layout-2 area (N16, code placement; N10 242; 249 with timer 1's)
+    CHECK_EQ(Costs::mode(costs.tick), 241u); // the bridge's tick, a layout-2 area (N16, code placement)
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
-    CHECK_EQ(reg(r, SoundCard::IEN), 0);
+    CHECK_EQ(reg(r, SoundCard3::IEN), SoundCard3::INT_EVT); // the card's events: on whenever OODOS drives it
     wboot(r);
     r.poke(AREA + 16, std::vector<uint8_t>(240, 0)); // what layout 2 left, cleared: layout 1 writes 16 bytes
     open(r, "1");
@@ -710,33 +825,250 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
         CHECK_EQ(area(r, i), 0);
 }
 
+TEST(the_card_s_events_reach_the_queue_as_ek_sound)
+{
+    // An event the card sends (a beep's end; music's end; a tune's end) reaches a layout-2 area's queue as EK_SOUND,
+    // its code the event's kind, its value the object; the tune's and music's fields are written each frame while
+    // their part is claimed.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_BEEP, 0xE8, 0x03, 5, 0}), std::string("00 00"));
+    r.run(ms(10));
+    CHECK(queued(r, SoundFw::EV_BEEP_DONE, 0));
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_MUSIC | SC_TUNE}), std::string("00 00"));
+    const std::vector<uint8_t> blk = note_block({tone(440, 100'000, 100'000), tone(660, 100'000, 100'000)});
+    r.poke(0x30000, blk);
+    CHECK_EQ(f82(r, load_block(SN_MUSIC, {5}, 0x30000, static_cast<uint32_t>(blk.size()), {2})), std::string("00 00"));
+    r.run(ms(50));
+    CHECK_EQ(area(r, EV_MSTATE), SoundFw::M_PLAYING);
+    CHECK_EQ(area16(r, EV_MWAIT), 1u); // the second note waits
+    r.run(ms(250));
+    CHECK_EQ(area(r, EV_MSTATE), SoundFw::M_STOPPED);
+    CHECK(queued(r, SoundFw::EV_MUSIC_DONE, 5)); // the last block's slot
+    r.poke(0x10000, tune());
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {1})), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_PLAY, 1, 0, 0, 0xC8, 0, 0, 0, 0, 0}), std::string("00 00")); // 200 ms
+    r.run(ms(100));
+    CHECK_EQ(area(r, EV_TSTATE), SoundFw::T_PLAYING);
+    const unsigned played = area(r, EV_TMS) | area(r, EV_TMS + 1) << 8 | area(r, EV_TMS + 2) << 16;
+    std::printf("  the tune at 100 ms: %u ms played\n", played);
+    CHECK(played > 50 && played < 110);
+    r.run(ms(200));
+    CHECK(queued(r, SoundFw::EV_TUNE_ENDED, 1));
+}
+
+// --- S14: the stream, fed when the card asks --------------------------------------------------------------------
+
+TEST(a_load_is_refused_busy_while_a_stream_buffer_moves)
+{
+    // While a stream's buffer moves on channel 2 (its transfer open on the card, one at a time), a load is refused
+    // SN_BUSY; a seek drops the buffers and the load goes.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    r.poke(0x10000, noise(0x10000, 5));
+    r.poke(0x30000, tune());
+    const std::vector<uint8_t> load = load_block(SN_TUNE, {}, 0x30000, static_cast<uint32_t>(tune().size()), {0});
+    // L3TEST's L: a 64 KB buffer given, the card asking (its NEED): its STREAM_DATA goes at once; the load straight
+    // after it is refused while that is answered and the buffer moves (a piece holds the CPU, so a program sees
+    // only the wait for the reply).
+    r.run(ms(20));
+    CHECK_EQ(sv(r, "NEEDP"), 1);
+    r.poke(KBLK, buffer_block(0x10000, 0));
+    r.poke(0x2160, load);
+    fw(r).set_latency_us(5000); // a card slower to answer: STREAM_DATA's reply 5 ms on, the load meanwhile
+    CHECK_EQ(command(r, 'L', "L2"), std::string("FE FF"));
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    CHECK_EQ(field(r.out.substr(r.out.rfind("\nL1 ")), "L1"), std::string("00 00"));
+
+    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
+    CHECK_EQ(sys(r, "C2ON"), 0);
+    CHECK_EQ(sv(r, "BBUSY"), 0);
+    CHECK_EQ(f82(r, load), std::string("00 00"));
+    CHECK_EQ(card_crc(r, SoundFw::TUNE_LOAD, 0), crc32(tune()));
+}
+
+TEST(a_stream_s_buffers_chain_across_needs_with_no_gap)
+{
+    // Six buffers of 10,000 bytes (pieces of 4,096, 4,096 and 1,808), each given again as OODOS frees it, each sent
+    // when the card asks (NEED): the card plays them as one stream, frame for frame, with no underrun.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    fw(r).set_stream_tap(true);
+    constexpr unsigned LEN = 10000, BUFS = 6;
+    const uint32_t at[2] = {0x03000, 0x06000};
+    std::vector<uint8_t> sent;
+    unsigned given = 0;
+    Costs costs;
+    auto give = [&](unsigned k) {
+        const std::vector<uint8_t> b = noise(LEN, 100 + given);
+        r.poke(at[k], b);
+        CHECK_EQ(f82(r, buffer_block(at[k], LEN)), std::string("0") + static_cast<char>('0' + k) + " 00");
+        sent.insert(sent.end(), b.begin(), b.end());
+        ++given;
+    };
+    r.run(ms(20));
+    CHECK_EQ(area(r, EV_SBUFS), 3);
+    give(0);
+    give(1);
+    while (given < BUFS)
+    {
+        bool freed = false;
+        time_interrupts(r, costs, [&] { return (area(r, EV_SBUFS) & 3) != 0; }, ms(500));
+        for (unsigned k = 0; k < 2 && given < BUFS; ++k)
+            if (area(r, EV_SBUFS) >> k & 1)
+                give(k), freed = true;
+        REQUIRE(freed);
+    }
+    time_interrupts(r, costs, [&] { return area(r, EV_SBUFS) == 3; }, ms(500));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    time_interrupts(r, costs, [&] { return area(r, EV_SSTATE) == ST_ENDED; }, ms(1000));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %zu bytes sent, %zu played\n", sent.size(), played.size());
+    CHECK(played == sent);
+    CHECK_EQ(area16(r, EV_SUNDER), 0u);
+    CHECK_EQ(area32(r, EV_SPOS), LEN * BUFS / 4);
+    CHECK(area16(r, EV_SFREE) > 256); // the ring's room, as the card's NEED said: more than 64 KB
+    CHECK_EQ(area16(r, EV_SKBPS), 0u);
+}
+
+TEST(pause_resume_seek_end_and_status)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 22050, FMT_16BIT);
+    r.run(ms(40));
+    CHECK_EQ(area(r, EV_SSTATE), ST_BUFFERING);
+    r.poke(0x10000, noise(0x10000, 9));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
+    r.run(ms(200));
+    CHECK_EQ(area(r, EV_SSTATE), ST_PLAYING);
+    CHECK_EQ(area(r, EV_SBUFS), 3);
+    CHECK(area32(r, EV_SPOS) > 1000);
+    CHECK_EQ(f82op(r, SN_PAUSE), std::string("00 00"));
+    r.run(ms(40));
+    CHECK_EQ(area(r, EV_SSTATE), ST_PAUSED);
+    const uint32_t pos = area32(r, EV_SPOS);
+    r.run(ms(100));
+    CHECK_EQ(area32(r, EV_SPOS), pos);
+    CHECK_EQ(f82op(r, SN_RESUME), std::string("00 00"));
+    r.run(ms(40));
+    CHECK_EQ(area(r, EV_SSTATE), ST_PLAYING);
+    // A seek: buffering again.
+    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
+    r.run(ms(40));
+    CHECK_EQ(area(r, EV_SSTATE), ST_BUFFERING);
+    // Run dry with no EOF: an underrun, counted once, in the area and in the status block.
+    CHECK_EQ(f82(r, buffer_block(0x10000, 8192)), std::string("00 00"));
+    r.run(ms(400));
+    CHECK_EQ(area(r, EV_SSTATE), ST_UNDERRUN);
+    CHECK_EQ(area16(r, EV_SUNDER), 1u);
+    const std::string st = command(r, 'S', "ST");
+    CHECK_EQ(st.substr(0, 6), std::string("04 03 ")); // underrun, both free
+    CHECK_EQ(st.substr(6, 2), std::string("04"));
+    CHECK_EQ(st.substr(26, 4), std::string("0100")); // the underruns: 1
+    // EOF: what is in plays out, then ended.
+    CHECK_EQ(f82(r, buffer_block(0x10000, 4096)), std::string("01 00")); // in turn: the seek's first was 0
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    r.run(ms(300));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK_EQ(area16(r, EV_SUNDER), 1u);
+}
+
+TEST(two_files_queued_by_sn_next_join_with_no_gap)
+{
+    // The first stream's data, SN_END, then SN_NEXT: the second opened and queued behind it, fed by SN_BUFFER; the
+    // card's tap has the second's first frame straight after the first's last (TRACK says so), and the area follows
+    // the stream now playing.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 44100, FMT_16BIT | FMT_STEREO);
+    fw(r).set_stream_tap(true);
+    const std::vector<uint8_t> a = noise(40000, 61), b = noise(30000, 62);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(a.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    CHECK_EQ(f82(r, buffer_block(0x20000, static_cast<unsigned>(b.size()))), std::string("01 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    r.run(ms(700));
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %zu + %zu bytes queued, %zu played; the area's state %u, the stream playing %u\n", a.size(), b.size(),
+                played.size(), area(r, EV_SSTATE), sv(r, "SPLAY"));
+    CHECK(played == a + b);
+    CHECK_EQ(sv(r, "SPLAY"), 1);
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(queued(r, SoundFw::EV_TRACK, 1));
+}
+
+TEST(a_stray_terminal_count_on_channel_6_is_deafened)
+{
+    // B3: a channel 4-7's interrupt that no driver turned on (a program's, against the rules) reaches IRQOTH and
+    // DEAFEN, which clears its MODE.IRQ and its terminal count through SELECT 6 and puts CONTROL back.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(!r.cmd("dir").empty());
+    DmaController &dma = *r.machine->dma();
+    Decoder &bus = r.machine->bus();
+    const uint8_t control = dma.peek(DmaController::CONTROL);
+    REQUIRE(control & DmaController::MASTER_ENABLE);
+    const uint16_t deafen = sym("DEAFEN");
+    unsigned deaf = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == deafen && r.nb(3) == 62)
+            ++deaf;
+    };
+    constexpr uint32_t BYTE = 0x07FFF0;
+    bus.write(0xC47E, static_cast<uint8_t>((control & ~DmaController::SELECT_MASK) | 6 << DmaController::SELECT_SHIFT));
+    for (unsigned i = 0; i < 3; ++i)
+    {
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::ADDR + i), static_cast<uint8_t>(BYTE >> (8 * i)));
+        bus.write(static_cast<uint16_t>(0xC400 + DmaController::DEST + i), static_cast<uint8_t>(BYTE >> (8 * i)));
+    }
+    bus.write(0xC400 + DmaController::COUNT, 1);
+    bus.write(0xC400 + DmaController::COUNT + 1, 0);
+    bus.write(0xC400 + DmaController::MODE, DmaController::IRQ | DmaController::MEM_TO_MEM);
+    bus.write(0xC400 + DmaController::CTRL, DmaController::ENABLE | DmaController::REQ);
+    bus.write(0xC47E, control);
+    r.run(ms(5));
+    r.watch = nullptr;
+    std::printf("  DEAFEN run %u times for channel 6's terminal count\n", deaf);
+    CHECK(deaf >= 1);
+    CHECK_EQ(dma.peek_channel(6, DmaController::MODE), DmaController::MEM_TO_MEM);
+    CHECK_EQ(dma.peek(DmaController::STATUS) & 0x40, 0);
+    CHECK(!dma.irq());
+    CHECK_EQ(dma.peek(DmaController::CONTROL), control);
+    CHECK(!r.cmd("dir").empty());
+}
+
 namespace
 {
-    /// A stream moving with no event area: 48 kHz 16-bit stereo, two 64 KB buffers into the FIFO and a
-    /// third given, waiting for its room (its pieces chained by terminal counts as the card plays).
-    void stream_waiting(CcpRig &r)
+    /// A stream moving with no event area: 48 kHz 16-bit stereo, two 64 KB buffers given (their pieces chained by
+    /// terminal counts as the card takes them).
+    void stream_moving(CcpRig &r)
     {
         open(r, "X");
         CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
-        CHECK_EQ(f82(r, stream_block(0, 48000, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
+        CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
         r.poke(0x10000, noise(0x10000, 5));
         CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
         CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
-        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
-        CHECK_EQ(sys(r, "C2ON"), 1);
     }
 } // namespace
 
 TEST(chained_terminal_counts_in_a_program_are_not_strays)
 {
-    // The handler says which interrupts it answered. A terminal count still pulling when it returns (the
-    // next piece run at once: the FIFO emptied under the program, so each piece goes whole) must be left to
-    // the next interrupt, not taken for a stray: if what it answered were lost, DEAFEN would run for each.
+    // The handler says which interrupts it answered. A terminal count still pulling when it returns (the next piece
+    // run at once: the card's ring has room, so each piece goes whole) must be left to the next interrupt, not taken
+    // for a stray: if what it answered were lost, DEAFEN would run for each.
     CcpRig r;
     REQUIRE(r.ok);
-    stream_waiting(r);
-    r.run(ms(30));
-    card(r).write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH); // the program spins in L3TEST
+    stream_moving(r);
     const uint16_t deafen = sym("DEAFEN"), cnext = sym("CNEXT");
     unsigned deaf = 0, chained = 0;
     r.watch = [&](uint16_t pc) {
@@ -745,7 +1077,11 @@ TEST(chained_terminal_counts_in_a_program_are_not_strays)
         if (pc == cnext && r.nb(2) == 61)
             ++chained;
     };
-    r.run(ms(200));
+    for (int k = 0; k < 6; ++k) // 64 KB buffers given as each goes, the program spinning between
+    {
+        f82(r, buffer_block(0x10000, 0));
+        r.run(ms(30));
+    }
     r.watch = nullptr;
     std::printf("  200 ms: %u pieces chained, DEAFEN run %u times\n", chained, deaf);
     CHECK(chained >= 5);
@@ -754,11 +1090,11 @@ TEST(chained_terminal_counts_in_a_program_are_not_strays)
 
 TEST(a_stray_in_a_bdos_call_is_turned_off_while_a_stream_moves)
 {
-    // The USB card's interrupt left on with no layout-2 area, while a stream moves and the program waits in
-    // function 10: the stray must be turned off (DEAFEN), not taken as answered, and the call go on.
+    // The USB card's interrupt left on with no layout-2 area, while a stream moves and the program waits in function
+    // 10: the stray must be turned off (DEAFEN), not taken as answered, and the call go on.
     CcpRig r;
     REQUIRE(r.ok);
-    stream_waiting(r);
+    stream_moving(r);
     const size_t from = r.out.size();
     r.poke(MBOX, 'D');
     CHECK(r.calls(CcpRig::C_READSTR_FN));
@@ -771,58 +1107,17 @@ TEST(a_stray_in_a_bdos_call_is_turned_off_while_a_stream_moves)
     CHECK(r.until("LINEOK", ms(2000), from));
 }
 
-TEST(a_hook_s_register_write_leaves_the_interrupted_docdata_run_whole)
-{
-    // L3TEST writes 0-255 to wave RAM through DOCDATA; at its 128th byte an oscillator's interrupt comes, and
-    // the hook writes the chip's register $40. The run's bytes must land in order, and the hook's in $40.
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
-    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
-    card(r).write(SoundCard::DOCCTL, 0);
-    card(r).doc().write(0xA0, 0x0A); // oscillator 0 running, one-shot, IE
-    for (unsigned i = 0; i < 256; ++i)
-        card(r).doc().ram()[i] = 0xEE;
-    const uint16_t run = labels(SYS + "/l3test.lbl").at("DOCRUN");
-    bool fired = false;
-    r.watch = [&](uint16_t pc) {
-        if (!fired && pc == run && r.cpu->regs().x == 128)
-        {
-            card(r).doc().write(0xA0, 0x0B); // halted: its interrupt, now
-            fired = true;
-        }
-    };
-    CHECK_EQ(command(r, 'R', "RUN"), std::string("00 00"));
-    r.watch = nullptr;
-    CHECK(fired);
-    CHECK_EQ(r.phys(DCNT), 1);
-    bool whole = true;
-    for (unsigned i = 0; i < 256; ++i)
-        whole = whole && card(r).doc().ram()[i] == i;
-    CHECK(whole);
-    if (!whole)
-        for (unsigned i = 0; i < 256; ++i)
-            if (card(r).doc().ram()[i] != i)
-            {
-                std::printf("  wave RAM $%02X: $%02X\n", i, card(r).doc().ram()[i]);
-                break;
-            }
-    CHECK_EQ(card(r).doc().read(0x40), 0x77);
-}
-
 TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
 {
-    // 1.3 s of 44.1 kHz 16-bit stereo, 1,792 records (229,376 bytes, whole records: a ^Z-padded last one
-    // would play its padding): past the FIFO's 128 KB, so the stream lives on the program's refills after
-    // the first 0.74 s.
+    // 1.3 s of 44.1 kHz 16-bit stereo, 1,792 records (229,376 bytes, whole records: a ^Z-padded last one would play
+    // its padding), L3STRM's refills sent as the card asks.
     CcpRig r;
     REQUIRE(r.ok);
     const std::vector<uint8_t> pcm = noise(1792 * 128, 44);
-    card(r).set_tap(true, false);
+    fw(r).set_stream_tap(true);
     const uint64_t c0 = r.cpu->cycles();
     Costs costs;
-    const std::string o = stream_file(r, "TONE    PCM", pcm, 0, 44100, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO, ms(4000), costs);
+    const std::string o = stream_file(r, "TONE    PCM", pcm, 0, 44100, FMT_16BIT | FMT_STEREO, ms(4000), costs);
     std::printf("  %s", vis(o).c_str());
     std::printf("\n  %.2f s of machine time\n", static_cast<double>(r.cpu->cycles() - c0) / 7159090.0);
     CHECK_EQ(field(o, "CLAIM"), std::string("00 00"));
@@ -831,69 +1126,75 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     CHECK(o.find("SLOT") == std::string::npos && o.find("BUSY") == std::string::npos);
     CHECK_EQ(field(o, "SENT"), std::string("0013")); // 18 buffers of 96 records, then one of 64
     const std::string end = field(o, "END");
-    CHECK_EQ(end.substr(0, 6), std::string("05 03 "));    // ended, both buffers free
-    CHECK_EQ(end.substr(end.size() - 4), std::string("0000")); // OODOS saw no underrun
-    const std::vector<uint8_t> played = tap_bytes(card(r));
-    std::printf("  %zu bytes in the file, %zu at the card's tap; the card's underruns: %u\n", pcm.size(), played.size(),
-                card(r).underruns());
-    CHECK_EQ(card(r).underruns(), 0u);
+    CHECK_EQ(end.substr(0, 6), std::string("05 03 "));        // ended, both buffers free
+    CHECK_EQ(end.substr(end.size() - 4), std::string("0000")); // no underrun
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %zu bytes in the file, %zu at the card's stream tap\n", pcm.size(), played.size());
     CHECK(played == pcm);
     quiet(r); // L3STRM released it, and the warm boot after it
     Costs::print("channel 2's terminal count", costs.dma);
     Costs::print("a frame, the stream claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    // A terminal count's handler, the next piece started (a piece that runs at once, the FIFO having room,
-    // holds the CPU its 4,098 or so cycles inside it: those are counted too, and are the DMA's, not the handler's).
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick (N16, code placement; N10 242; 249 before): the stream costs it nothing
+    CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick: the stream costs it nothing
 }
 
-namespace
+TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
 {
-    /// Each interrupt's cycles, entry to RTI's end (time_interrupts' way), of those the sound card raised (IRQH
-    /// bit 2 low at the entry), over `stretch`.
-    std::map<unsigned, unsigned> sound_interrupts(CcpRig &r, uint64_t stretch, const std::function<void()> &each_ms = {})
-    {
-        std::map<unsigned, unsigned> out;
-        const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
-        uint64_t c0 = 0;
-        bool in = false, sound = false;
-        r.watch = [&](uint16_t pc) {
-            if (pc == irq)
-                c0 = r.cpu->cycles() - 7, sound = !(r.nb(9) & 0x04), in = true;
-            else if (pc == end && in)
-            {
-                if (sound)
-                    ++out[static_cast<unsigned>(r.cpu->cycles() + 6 - c0)];
-                in = false;
-            }
-        };
-        for (uint64_t t = 0; t < stretch; t += ms(1))
-        {
-            r.run(ms(1));
-            if (each_ms)
-                each_ms();
-        }
-        r.watch = nullptr;
-        return out;
-    }
-} // namespace
+    // The card's decoding as minimp3's of the whole file, trimmed as the card's gapless rule does when the file
+    // carries an encoder's LAME tag (the spec's Q11).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> mp3 = mp3_file("cbr320_stereo_48k.mp3");
+    REQUIRE(!mp3.empty());
+    fw(r).set_stream_tap(true);
+    Costs costs;
+    const std::string o = stream_file(r, "SONG    MP3", mp3, 1, 0, 0, ms(5000), costs);
+    std::printf("  %s\n", vis(o.substr(o.find("SENT"))).c_str());
+    const std::string end = field(o, "END");
+    CHECK_EQ(end.substr(0, 6), std::string("05 03 "));
+    CHECK_EQ(end.substr(end.size() - 4), std::string("0000"));
+    const std::vector<int16_t> want = mp3_reference(mp3);
+    const std::vector<int16_t> got = fw(r).take_stream_tap();
+    std::printf("  %zu bytes of MP3, %zu frames by minimp3, %zu at the card's stream tap\n", mp3.size(), want.size() / 2,
+                got.size() / 2);
+    CHECK(got == want);
+}
+
+TEST(a_file_bigger_than_the_store_streams_from_b_with_no_underrun)
+{
+    // The spec's acceptance, from an OODOS program: a file bigger than the card's store (a 2 MB card: 2.2 MB of 48
+    // kHz 16-bit stereo, 11.7 s) streamed by L3STRM from B:, fed as the card asks: no underrun, every byte played.
+    CcpRig r({}, machine_with_sound(3, 2));
+    REQUIRE(r.ok);
+    REQUIRE(fw(r).store_bytes() == 2u << 20);
+    const std::vector<uint8_t> pcm = noise(17600 * 128, 45); // 2,252,800 bytes
+    fw(r).set_stream_tap(true);
+    Costs costs;
+    const std::string o = stream_file(r, "BIG     PCM", pcm, 0, 48000, FMT_16BIT | FMT_STEREO, ms(16000), costs);
+    const std::string end = field(o, "END");
+    std::printf("  %zu bytes through a ring of %zu: END %s\n", pcm.size(), fw(r).stream_ring(0), end.c_str());
+    CHECK_EQ(end.substr(0, 6), std::string("05 03 "));
+    CHECK_EQ(end.substr(end.size() - 4), std::string("0000"));
+    const std::vector<uint8_t> played = tap_bytes(r);
+    CHECK_EQ(played.size(), pcm.size());
+    CHECK(played == pcm);
+}
 
 TEST(the_stream_s_cost_to_the_host)
 {
-    // A record, not a gate (hw/future/sound-device-build.md, S0: step 1's measurement, the baseline the device's
-    // stream is compared with): 44.1 kHz 16-bit stereo raw PCM from memory, buffers of 16 KB given as OODOS
-    // frees them, 1.5 s of it. A piece is 4 KB by channel 2 at a byte a cycle, its terminal count's handler
-    // starting the next; each frame with the stream claimed writes the area's stream fields. The fewest cycles
-    // a terminal count's interrupt took is the handler with no piece running inside it (the FIFO full).
+    // A record, not a gate (the build plan's section 8: S0's figures re-measured on the device): 44.1 kHz 16-bit
+    // stereo raw PCM from memory, buffers of 16 KB given as OODOS frees them, each sent when the card asks. A piece is
+    // 4 KB by channel 2 at a byte a cycle, its terminal count's handler starting the next; each frame with the stream
+    // claimed asks for its status. The fewest cycles a terminal count's interrupt took is the handler.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
     Costs idle;
     time_interrupts(r, idle, [] { return false; }, ms(300)); // nothing claimed: the frame's own cost
     CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
-    CHECK_EQ(f82(r, stream_block(0, 44100, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
     constexpr unsigned LEN = 16384, BUFS = 16;
     const uint32_t at[2] = {0x10000, 0x14000};
     unsigned given = 0;
@@ -904,7 +1205,6 @@ TEST(the_stream_s_cost_to_the_host)
     };
     Costs costs;
     const uint64_t c0 = r.cpu->cycles();
-    // Timed throughout, the calls that give the buffers too (their pieces may start inside them).
     time_interrupts(r, costs, [&] {
         for (unsigned k = 0; k < 2 && given < BUFS; ++k)
             if (given < 2 || area(r, EV_SBUFS) >> k & 1)
@@ -912,662 +1212,263 @@ TEST(the_stream_s_cost_to_the_host)
         return given == BUFS && area(r, EV_SBUFS) == 3;
     }, ms(3000));
     CHECK_EQ(given, BUFS);
-    const double secs = static_cast<double>(r.cpu->cycles() - c0) / SoundCard::NATIVE_HZ;
+    const double secs = static_cast<double>(r.cpu->cycles() - c0) / SoundCard3::NATIVE_HZ;
     CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
-    CHECK_EQ(card(r).underruns(), 0u);
     Costs::print("channel 2's terminal count", costs.dma);
     Costs::print("a frame, the stream claimed", costs.frame);
     Costs::print("a frame, nothing claimed", idle.frame);
     REQUIRE(!costs.dma.empty() && !costs.frame.empty() && !idle.frame.empty());
-    unsigned pieces = 0;
-    for (const auto &[c, k] : costs.dma)
-        pieces += k;
+    const unsigned pieces = costs.pieces; // PIECE's entries (a terminal count may be served in the card's interrupt)
     const unsigned handler = costs.dma.begin()->first;
     const double frame_extra = static_cast<double>(Costs::mode(costs.frame)) - Costs::mode(idle.frame);
-    const double per_piece = 4096.0 + handler; // the piece's DMA cycles and its terminal count's handler
+    const double per_piece = 4096.0 + handler;
     const double per_second = 176400.0 / 4096.0 * per_piece + 60.0 * frame_extra;
     std::printf("  %u pieces over %.2f s; a piece: 4,096 DMA cycles + a handler of %u = %.0f cycles; a frame, the "
                 "stream claimed, %.0f more than a frame alone\n",
                 pieces, secs, handler, per_piece, frame_extra);
     std::printf("  a second of 44.1 kHz stereo: about %.0f cycles of the host, %.1f%% of 7.16 MHz\n", per_second,
-                per_second / SoundCard::NATIVE_HZ * 100);
+                per_second / SoundCard3::NATIVE_HZ * 100);
     CHECK(pieces >= 60); // premise: 256 KB went, in pieces of 4 KB
 }
 
-TEST(the_es5503_hook_s_cost)
+// --- S15: the new operations, a group each ---------------------------------------------------------------------
+
+TEST(tunes_load_play_pause_status_and_info)
 {
-    // A record, not a gate (S0, as above): the ES5503's interrupt taken by OODOS and passed to a program's hook
-    // (L3TEST's counts and keeps the oscillator), its whole cost from the interrupt's first cycle to the RTI's
-    // last. Oscillator 0 halted from a control write in one-shot with IE, each millisecond, 50 times.
+    // SN_TUNE (a .sid file by DMA, checked by the card), SN_PLAY, SN_TPAUSE/SN_TRESUME, SN_TSTATUS's 16 bytes,
+    // SN_TINFO's 104 (the header's name), SN_STOP; the claim needed; the bytes as they came (CHECKSUM).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
-    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
-    unsigned fired = 0;
-    const auto costs = sound_interrupts(r, ms(50), [&] {
-        card(r).write(SoundCard::DOCCTL, 0);
-        card(r).write(SoundCard::DOCADDR, 0xA0);
-        card(r).write(SoundCard::DOCDATA, 0x0A); // running, one-shot, IE
-        card(r).write(SoundCard::DOCDATA, 0x0B); // halted: pending
-        ++fired;
-    });
-    r.run(ms(2));
-    Costs::print("the ES5503's interrupt, through the hook", costs);
-    unsigned n = 0;
-    for (const auto &[c, k] : costs)
-        n += k;
-    std::printf("  %u raised, %u taken, the hook called %u times; the mode %u cycles, the most %u\n", fired, n,
-                r.phys(DCNT), Costs::mode(costs), Costs::most(costs));
-    CHECK(n >= fired - 1 && n > 0); // premise: each was taken (the last may come after the stretch)
-}
-
-TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    const std::vector<uint8_t> mp3 = mp3_file("cbr320_stereo_48k.mp3");
-    REQUIRE(!mp3.empty());
-    card(r).set_tap(true, false);
-    Costs costs;
-    const std::string o = stream_file(r, "SONG    MP3", mp3, 1, 0, 0, ms(4000), costs);
-    std::printf("  %s\n", vis(o.substr(o.find("SENT"))).c_str());
-    const std::string end = field(o, "END");
-    CHECK_EQ(end.substr(0, 6), std::string("05 03 "));
-    CHECK_EQ(end.substr(end.size() - 4), std::string("0000"));
-    const std::vector<int16_t> want = mp3_reference(mp3);
-    const std::vector<int16_t> got = card(r).take_tap();
-    std::printf("  %zu bytes of MP3, %zu frames decoded by minimp3, %zu at the card's tap; underruns %u\n", mp3.size(),
-                want.size() / 2, got.size() / 2, card(r).underruns());
-    CHECK_EQ(card(r).underruns(), 0u);
-    CHECK(got == want);
-}
-
-namespace
-{
-    /// L4b's 6510 program, at the card's $1000: its count at $0200-$0201 zeroed, SID A's $D418 $1F and SID B's
-    /// $2A (B at $D420), then the count run up for ever. A restart would zero the count again.
-    constexpr uint16_t COUNT = 0x0200;
-    const std::vector<uint8_t> COUNTER = {
-        0xA9, 0x00, 0x8D, 0x00, 0x02, 0x8D, 0x01, 0x02, // LDA #0, STA $0200, STA $0201
-        0xA9, 0x1F, 0x8D, 0x18, 0xD4,                   // LDA #$1F, STA $D418
-        0xA9, 0x2A, 0x8D, 0x38, 0xD4,                   // LDA #$2A, STA $D438
-        0xEE, 0x00, 0x02, 0xD0, 0xFB,                   // $1012: INC $0200, BNE $1012
-        0xEE, 0x01, 0x02, 0x4C, 0x12, 0x10};            // INC $0201, JMP $1012
-    unsigned count(Rig &r) { return card(r).ram()[COUNT] | card(r).ram()[COUNT + 1] << 8; }
-    /// The 6510 claimed, COUNTER loaded and started, run a little.
-    void counting(CcpRig &r, const std::string &tail = "2")
-    {
-        open(r, tail);
-        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-        r.poke(0x3000, COUNTER);
-        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
-        CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-        r.run(ms(5));
-        CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
-        CHECK(count(r) > 0);
-    }
-    /// L3TEST's V: SID A's and SID B's $D418 as the 65C02 reads them, "aa xx".
-    std::string sidvols(CcpRig &r) { return command(r, 'V', "V"); }
-    /// Function 82 with `block` at `at`, just below $C000 (L3TEST's B, which keeps the BDOS's jump there): its
-    /// parameters after it run into the I/O hole.
-    std::string f82at(CcpRig &r, uint16_t at, const std::vector<uint8_t> &block)
-    {
-        r.poke(KBLK, block);
-        r.poke(MBOX + 1, std::vector<uint8_t>{static_cast<uint8_t>(at), static_cast<uint8_t>(at >> 8),
-                                              static_cast<uint8_t>(block.size())});
-        return command(r, 'B', "B");
-    }
-} // namespace
-
-TEST(premise_each_sid_s_d418_reads_back_as_last_written_by_the_65c02_or_the_6510)
-{
-    // L4b's hold keeps each SID's $D418 by reading it: the card must answer with what was last written there,
-    // whoever wrote it, not with the chip's (scaled) value or the bus's.
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    r.poke(MBOX + 1, std::vector<uint8_t>{0x5C, 0x93}); // the 6510 stopped: the 65C02's writes land
-    CHECK_EQ(command(r, 'U', "U"), std::string("5C 93"));
-    CHECK_EQ(sidvols(r), std::string("5C 93"));
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x5C);
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x93);
-    // The 6510's, while it runs.
-    r.poke(0x3000, COUNTER);
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    r.run(ms(5));
-    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
-    // Read back as written under a master volume too: the chip has the nibble scaled, the register doesn't.
-    card(r).write(SoundCard::VOLL, 0x80);
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x18); // 15 x 128 / 255, rounded
-    card(r).write(SoundCard::VOLL, 0xFF);
-}
-
-TEST(hold_stops_the_6510_where_it_is_and_silences_each_sid_through_its_own_volume)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF")); // not claimed
-    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF")); // claimed, but the 6510 isn't running
-    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));   // not held
-    CHECK_EQ(sys(r, "SHELD"), 0);
-    wboot(r);
-    counting(r);
-    r.run(ms(20)); // the count well up: a restart's, from 0, would stay below it after go
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    const unsigned resets = card(r).cpu_resets();
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
-    CHECK_EQ(card(r).cpu_resets(), resets); // RESET not pulsed
-    CHECK_EQ(sidvols(r), std::string("10 20")); // the volume nibbles 0, the filter's bits kept
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x10);
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x20);
-    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF); // the master volumes untouched
-    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
-    CHECK_EQ(sys(r, "SHELD"), 1);
-    CHECK_EQ(sys(r, "SVOLA"), 0x1F);
-    CHECK_EQ(sys(r, "SVOLB"), 0x2A);
-    // Held: the 6510's state and RAM stay as they are.
-    const unsigned held = count(r);
-    const uint16_t pc = card(r).cpu().regs().pc;
-    const std::vector<uint8_t> ram(card(r).ram().begin(), card(r).ram().end());
-    r.run(ms(50));
-    CHECK_EQ(count(r), held);
-    CHECK_EQ(card(r).cpu().regs().pc, pc);
-    CHECK(std::equal(ram.begin(), ram.end(), card(r).ram().begin()));
-    // A hold while held is refused and keeps what the first kept.
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF"));
-    CHECK_EQ(sys(r, "SVOLA"), 0x1F);
-    CHECK_EQ(sys(r, "SVOLB"), 0x2A);
-    // Go: the volumes back, then RUN, and the count carries on from where it was (a restart would zero it).
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
-    CHECK_EQ(card(r).cpu_resets(), resets);
-    CHECK_EQ(sys(r, "SHELD"), 0);
-    r.run(ms(2));
-    std::printf("  the count %u when held, %u after go\n", held, count(r));
-    CHECK(count(r) > held);
-    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF")); // not held now
-    // A refused SN_START (its +3 at $C000, in the I/O hole) leaves the hold as it was: go still resumes.
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    const unsigned held2 = count(r);
-    CHECK_EQ(f82at(r, 0xBFFD, {SN_START, 0x00, 0x10}), std::string("FF FF"));
-    CHECK_EQ(sys(r, "SHELD"), 1);
-    CHECK_EQ(card(r).cpu_resets(), resets);
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    r.run(ms(2));
-    CHECK(count(r) > held2);
-    // A program that sets RUN itself while held: go still puts the volumes back at the chip (RUN off first,
-    // as the card drops the 65C02's SID writes while the 6510 runs).
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    card(r).write(SoundCard::CTRL, card(r).ctrl() | SoundCard::CTRL_RUN);
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
-    CHECK_EQ(card(r).cpu_resets(), resets);
-    // SN_STOP, SN_START and a release each forget a hold: go is refused after them.
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    const std::vector<uint8_t> t = tune();
+    r.poke(0x10000, t);
+    const std::vector<uint8_t> load = load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(t.size()), {2});
+    CHECK_EQ(f82(r, load), std::string("FF FF")); // not claimed
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    CHECK_EQ(f82(r, load), std::string("00 00"));
+    CHECK_EQ(card_crc(r, SoundFw::TUNE_LOAD, 2), crc32(t));
+    r.poke(0x18000, std::vector<uint8_t>(200, 0xEA)); // not a .sid: the card's E_DATA at XFERDONE
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x18000, 200, {3})), std::string("FD 06"));
+    CHECK_EQ(f82(r, {SN_PLAY, 2, 0, 0, 0, 0, 0, 0, 0, 0}), std::string("00 00"));
+    r.run(ms(100));
+    std::vector<uint8_t> st(17, 0);
+    st[0] = SN_TSTATUS;
+    CHECK_EQ(f82(r, st), std::string("00 00"));
+    std::vector<uint8_t> s = got(r, 16);
+    CHECK_EQ(s[0], SoundFw::T_PLAYING);
+    CHECK_EQ(s[1], 2);
+    CHECK((s[8] | s[9] << 8) > 3); // play calls
+    CHECK_EQ(f82op(r, SN_TPAUSE), std::string("00 00"));
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_PAUSED);
+    CHECK_EQ(f82op(r, SN_TRESUME), std::string("00 00"));
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_PLAYING);
+    std::vector<uint8_t> in(106, 0);
+    in[0] = SN_TINFO, in[1] = 2;
+    CHECK_EQ(f82(r, in), std::string("00 00"));
+    s = got(r, 105);
+    CHECK_EQ(s[1] | s[2] << 8, 1); // one song
+    CHECK_EQ(std::string(s.begin() + 9, s.begin() + 20), std::string("A TEST TUNE"));
     CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
-    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    r.run(ms(2));
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    CHECK_EQ(sys(r, "SHELD"), 0);
-    r.run(ms(2));
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_RELEASE, SC_6510}), std::string("00 00"));
-    CHECK_EQ(sys(r, "SHELD"), 0);
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
+    CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
 }
 
-TEST(hold_and_go_with_both_sids_written_together)
+TEST(the_bank_sample_effects_play_and_stop)
 {
-    // CTRL's BOTH: a write to SID A reaches B too. Both are read before either is written, so B keeps its own.
-    CcpRig r;
-    REQUIRE(r.ok);
-    counting(r);
-    card(r).sid_write(1, SoundCard::SID_MODE_VOL, 0x4B); // B's own, as a tune might have left it
-    CHECK_EQ(sidvols(r), std::string("1F 4B"));
-    card(r).write(SoundCard::CTRL, card(r).ctrl() | 0x10); // BOTH
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL), 0x10); // BOTH kept, RUN off
-    CHECK_EQ(sidvols(r), std::string("10 40"));
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL), 0x10 | SoundCard::CTRL_RUN);
-    CHECK_EQ(sidvols(r), std::string("1F 4B"));
-}
-
-TEST(hold_and_go_keep_ctrl_s_ntsc_d500_and_both_bits)
-{
-    // Started with SN_START's +3 NTSC, SID B at $D500 and BOTH: a hold and a go change RUN alone.
+    // SN_SAMPLE (a sample by DMA, its flags, rate and loop), SN_EFFECTS (a table of definitions), SN_EFFECT (A the
+    // voice handle), SN_ESTOP; no claim (effects take free voices).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    r.poke(0x3000, COUNTER);
-    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
-    constexpr uint8_t BITS = SoundCard::CTRL_NTSC | SoundCard::CTRL_SID_B_D500 | SoundCard::CTRL_BOTH;
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, BITS}), std::string("00 00"));
-    r.run(ms(5));
-    CHECK_EQ(reg(r, SoundCard::CTRL), BITS | SoundCard::CTRL_RUN);
-    const std::string vols = sidvols(r);
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL), BITS);
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL), BITS | SoundCard::CTRL_RUN);
-    CHECK_EQ(sidvols(r), vols);
+    std::vector<uint8_t> smp(4000);
+    for (size_t i = 0; i < smp.size(); ++i)
+        smp[i] = static_cast<uint8_t>(128 + 100 * std::sin(static_cast<double>(i) * 0.1));
+    r.poke(0x10000, smp);
+    CHECK_EQ(f82(r, load_block(SN_SAMPLE, {7}, 0x10000, static_cast<uint32_t>(smp.size()), {0, 0x40, 0x1F, 0, 0, 0, 0, 0, 0})),
+             std::string("00 00")); // unsigned, 8,000 Hz, no loop
+    CHECK_EQ(card_crc(r, SoundFw::SAMPLE_LOAD, 7), crc32(smp));
+    // Two effects: a sample one (slot 7), and a SID one (a step of 50 ms, a gated sawtooth).
+    const std::vector<uint8_t> table = std::vector<uint8_t>{12, 1, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} +
+                                       std::vector<uint8_t>{16, 0, 1, 0xFF, 50, 0, 0x21, 0x00, 0x1C, 0x00, 0x00, 0x08, 0x00, 0xF0, 0, 0, 0};
+    r.poke(0x18000, table);
+    CHECK_EQ(f82(r, load_block(SN_EFFECTS, {10}, 0x18000, static_cast<uint32_t>(table.size()))), std::string("00 00"));
+    const std::string v1 = f82(r, {SN_EFFECT, 10, 255, 128, 1, 0, 0, 2}); // the sample, on the ES5503
+    const std::string v2 = f82(r, {SN_EFFECT, 11, 255, 128, 1, 0, 0, 1}); // the SID one
+    std::printf("  voice handles %s, %s\n", v1.c_str(), v2.c_str());
+    CHECK(v1.size() == 5 && v1.substr(3) == "00" && v1.substr(0, 2) != "00" && v1.substr(0, 2) != "FD" && v1.substr(0, 2) != "FF");
+    CHECK(v2.size() == 5 && v2.substr(3) == "00" && v2.substr(0, 2) != "00" && v2.substr(0, 2) != "FD" && v2 != v1);
+    r.run(ms(10));
+    unsigned busy = 0;
+    for (unsigned v = 0; v < SoundFw::VOICES; ++v)
+        busy += fw(r).voice_use(v) == SoundFw::V_EFFECT;
+    CHECK_EQ(busy, 2u);
+    CHECK_EQ(f82(r, {SN_ESTOP, 0}), std::string("00 00")); // every effect voice
+    r.run(ms(10));
+    busy = 0;
+    for (unsigned v = 0; v < SoundFw::VOICES; ++v)
+        busy += fw(r).voice_use(v) == SoundFw::V_EFFECT;
+    CHECK_EQ(busy, 0u);
 }
 
-TEST(a_hold_leaves_a_stream_playing_alongside_as_it_was)
+TEST(music_block_control_and_status)
 {
-    // The 6510 held while the stream plays: VOLL and VOLR untouched, so the stream's bytes reach the card's
-    // tap (after the master volume) as they were sent, and its position runs on.
-    CcpRig r;
-    REQUIRE(r.ok);
-    counting(r);
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
-    CHECK_EQ(f82(r, stream_block(0, 48000, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
-    card(r).set_tap(true, false);
-    constexpr unsigned LEN = 10000;
-    const std::vector<uint8_t> a = noise(LEN, 61), b = noise(LEN, 62);
-    r.poke(0x03000, a);
-    r.poke(0x06000, b);
-    CHECK_EQ(f82(r, buffer_block(0x03000, LEN)), std::string("00 00"));
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);
-    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
-    CHECK_EQ(f82(r, buffer_block(0x06000, LEN)), std::string("01 00"));
-    const uint32_t pos = area32(r, EV_SPOS);
-    r.run(ms(30));
-    CHECK(area32(r, EV_SPOS) > pos);
-    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
-    const uint64_t endc = r.cpu->cycles() + ms(500);
-    while (area(r, EV_SSTATE) != SoundCard::STATE_ENDED && r.cpu->cycles() < endc)
-        r.run(ms(5));
-    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_ENDED);
-    std::vector<uint8_t> sent = a;
-    sent.insert(sent.end(), b.begin(), b.end());
-    const std::vector<uint8_t> played = tap_bytes(card(r));
-    std::printf("  %zu bytes sent, %zu played with the 6510 held\n", sent.size(), played.size());
-    CHECK(played == sent);
-    CHECK_EQ(area32(r, EV_SPOS), LEN * 2 / 4);
-    CHECK_EQ(sys(r, "SHELD"), 1);
-}
-
-TEST(sn_volume_sets_the_master_volumes_which_scale_a_sid_s_volume_as_it_reaches_the_chip)
-{
+    // SN_MUSIC (a note block by DMA, checked, then played or queued), SN_MCTL (pause, resume, the threshold, stop),
+    // SN_MSTATUS's 24 bytes; the claim needed; a block that doesn't parse refused (E_DATA).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00")); // no claim needed
-    CHECK_EQ(reg(r, SoundCard::VOLL), 0x80);
-    CHECK_EQ(reg(r, SoundCard::VOLR), 0x40);
-    CHECK_EQ(f82op(r, SN_VOLUME), std::string("FF FF")); // a block needed
-    CHECK_EQ(f82(r, {SN_VOLUME, 0xFF, 0xFF}), std::string("00 00"));
-    CHECK_EQ(f82at(r, 0xBFFE, {SN_VOLUME, 0x40}), std::string("FF FF")); // +2 at $C000, the I/O hole:
-    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);                                // refused, and nothing changed
-    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
+    const std::vector<uint8_t> blk = note_block({tone(440, 300'000, 300'000), tone(550, 300'000, 300'000),
+                                                 tone(660, 300'000, 300'000)});
+    r.poke(0x10000, blk);
+    const std::vector<uint8_t> play = load_block(SN_MUSIC, {0}, 0x10000, static_cast<uint32_t>(blk.size()), {2});
+    CHECK_EQ(f82(r, play), std::string("FF FF")); // not claimed
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_MUSIC}), std::string("00 00"));
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    CHECK_EQ(card_crc(r, SoundFw::MUSIC_LOAD, 0), crc32(blk));
+    std::vector<uint8_t> msb(25, 0);
+    msb[0] = SN_MSTATUS;
+    CHECK_EQ(f82(r, msb), std::string("00 00"));
+    const std::vector<uint8_t> s = got(r, 24);
+    CHECK_EQ(s[0], SoundFw::M_PLAYING);
+    CHECK_EQ(s[22] | s[23] << 8, 2); // two waiting (the one sounding isn't counted)
+    CHECK_EQ(f82(r, {SN_MCTL, 1}), std::string("00 00"));
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PAUSED);
+    CHECK_EQ(f82(r, {SN_MCTL, 2}), std::string("00 00"));
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PLAYING);
+    CHECK_EQ(f82(r, {SN_MCTL, 3, 2}), std::string("00 00")); // a MUSIC_COUNT when the waiting fall from 2 to 1
+    r.run(ms(400));
+    CHECK(queued(r, SoundFw::EV_MUSIC_COUNT));
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("00 00"));
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_STOPPED);
+    CHECK_EQ(f82(r, {SN_MCTL, 4}), std::string("FF FF"));
+    std::vector<uint8_t> bad = blk;
+    bad[1] = 0x02; // the voice mask says voice 1; the entries are voice 0's
+    r.poke(0x10000, bad);
+    CHECK_EQ(f82(r, play), std::string("FD 06"));
+}
+
+TEST(the_mix_eq_vis_sidregs_and_levels)
+{
+    // SN_VOLUME, SN_MIX, SN_EQ (a band, all eleven, on and off), SN_VIS's 98 bytes, SN_SIDREGS's 50 (a tune's SID
+    // writes), SN_LEVELS's 10; no claim; a source or band out of range is the card's E_PARAM.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
     CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00"));
-    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-    r.poke(MBOX + 1, std::vector<uint8_t>{0x1F, 0x2F});
-    CHECK_EQ(command(r, 'U', "U"), std::string("1F 2F")); // read back as written
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x18); // 15 x 128 / 255, rounded: 8
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x24); // 15 x 64 / 255: 4
+    CHECK_EQ(f82op(r, SN_VOLUME), std::string("FF FF"));                // a block needed
+    CHECK_EQ(f82at(r, 0xBFFE, {SN_VOLUME, 0x40}), std::string("FF FF")); // +2 at $C000, the I/O hole: refused
     CHECK_EQ(f82(r, {SN_VOLUME, 0xFF, 0xFF}), std::string("00 00"));
-    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F); // at once, at unity
-    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2F);
+    CHECK_EQ(f82(r, {SN_MIX, 1, 0x20}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_MIX, 5, 0x20}), std::string("FD 02"));
+    CHECK_EQ(f82(r, {SN_EQ, 4, 6}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_EQ, 11, 6}), std::string("FD 02"));
+    CHECK_EQ(f82(r, std::vector<uint8_t>{SN_EQ, 0xFF} + std::vector<uint8_t>(11, 2)), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_EQ, 0xFE, 1}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_EQ, 0xFE, 0}), std::string("00 00"));
+    // A tune's SID writes in SIDREGS: its init's volume 15 and the sawtooth on voice 1.
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    r.poke(0x10000, tune());
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {0})), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_PLAY, 0, 0, 0, 0, 0, 0, 0, 0, 0}), std::string("00 00"));
+    r.run(ms(100));
+    std::vector<uint8_t> sr(51, 0);
+    sr[0] = SN_SIDREGS;
+    CHECK_EQ(f82(r, sr), std::string("00 00"));
+    std::vector<uint8_t> s = got(r, 50);
+    CHECK_EQ(s[0x18] & 0x0F, 0x0F);
+    CHECK_EQ(s[0x04], 0x21);
+    CHECK_EQ(s[0x06], 0xF0);
+    std::vector<uint8_t> vis(99, 0);
+    vis[0] = SN_VIS;
+    CHECK_EQ(f82(r, vis), std::string("00 00"));
+    s = got(r, 98);
+    unsigned bands = 0;
+    for (unsigned i = 0; i < 32; ++i)
+        bands += s[i];
+    CHECK(bands > 0); // the tune's sawtooth shows in the bands
+    std::vector<uint8_t> lv(12, 0xEE);
+    lv[0] = SN_LEVELS;
+    CHECK_EQ(f82(r, lv), std::string("00 00"));
+    s = got(r, 11);
+    CHECK(s[8] > 0 || s[9] > 0); // the VU pair
+    CHECK_EQ(s[10], 0xEE);       // and no further
 }
 
-TEST(on_a_revision_1_card_volume_is_refused_and_hold_and_go_work)
+TEST(sn_firmware_updates_the_card_s_image)
 {
-    CcpRig r;
-    REQUIRE(r.ok);
-    card(r).set_revision(1);
-    REQUIRE(r.boot());
-    counting(r, "X");
-    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x80}), std::string("FF FF"));
-    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-    CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
-    CHECK_EQ(sidvols(r), std::string("10 20"));
-    const unsigned held = count(r);
-    r.run(ms(20));
-    CHECK_EQ(count(r), held);
-    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
-    CHECK_EQ(sidvols(r), std::string("1F 2A"));
-    r.run(ms(2));
-    CHECK(count(r) > held);
-    wboot(r);
-    CHECK_EQ(sys(r, "SHELD"), 0);
-}
-
-namespace
-{
-    /// The 6510 counting and held, the master volumes lowered: what the warm boot must undo.
-    void held_and_lowered(CcpRig &r)
-    {
-        counting(r);
-        CHECK_EQ(f82(r, {SN_VOLUME, 0x30, 0x60}), std::string("00 00"));
-        CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
-        CHECK_EQ(sys(r, "SHELD"), 1);
-    }
-    /// As the warm boot leaves the card: VOLL and VOLR at unity, the hold forgotten, the 6510 stopped and every
-    /// SID register 0, as SIDSTOP leaves them.
-    void unheld(CcpRig &r)
-    {
-        quiet(r);
-        CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);
-        CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
-        CHECK_EQ(sys(r, "SHELD"), 0);
-        bool zero = true;
-        for (unsigned i = 0; i < SoundCard::POTX; ++i) // the written ones; POTX up are the chip's own
-            zero = zero && reg(r, static_cast<uint8_t>(SoundCard::SID_A + i)) == 0 &&
-                   reg(r, static_cast<uint8_t>(SoundCard::SID_B + i)) == 0;
-        CHECK(zero);
-    }
-} // namespace
-
-TEST(the_warm_boot_puts_the_volumes_back_and_forgets_a_hold_by_wboot_ctrl_c_and_break)
-{
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        held_and_lowered(r);
-        wboot(r);
-        unheld(r);
-        open(r, "2"); // and a go after it is refused: nothing is held
-        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-        CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
-        CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
-    }
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        held_and_lowered(r);
-        const size_t from = r.out.size();
-        r.poke(MBOX, 'D');
-        CHECK(r.calls(CcpRig::C_READSTR_FN));
-        r.type("\x03");
-        CHECK(r.until("\r\nA>", ms(2000), from));
-        unheld(r);
-    }
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        held_and_lowered(r);
-        const size_t from = r.out.size();
-        r.cpu->nmi();
-        CHECK(r.until("\\\r", ms(1000), from));
-        REQUIRE(r.boot());
-        unheld(r);
-    }
-}
-
-namespace
-{
-    /// The 6510's program for the stamp: it says $42, then echoes each byte inverted (the mailbox test's).
-    const std::vector<uint8_t> ECHO = {0xA9, 0x42, 0x8D, 0x00, 0xDE, 0xAD, 0x01, 0xDE, 0x29, 0x01, 0xF0, 0xF9,
-                                       0xAD, 0x00, 0xDE, 0x49, 0xFF, 0x8D, 0x00, 0xDE, 0x4C, 0x05, 0x10};
-    /// The 6510 claimed, `code` loaded at $1000; started if `go`.
-    void loaded(CcpRig &r, const std::vector<uint8_t> &code, bool go)
-    {
-        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
-        r.poke(0x3000, code);
-        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(code.size()), 0}), std::string("00 00"));
-        if (go)
-            CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    }
-    /// The queue's last event's millisecond count (EQ_MS, +4 in its slot).
-    uint32_t last_event_ms(Rig &r)
-    {
-        const unsigned slots = area(r, EV_QSLOTS);
-        const unsigned last = (area(r, EV_QHEAD) + slots - 1) % slots;
-        return area32(r, EV_QUEUE + last * 8 + 4);
-    }
-} // namespace
-
-TEST(the_mailbox_s_last_byte_its_time_and_a_count_are_stamped_in_the_area)
-{
+    // SN_FIRMWARE: begin with the image's length (its first piece with it), the next piece into DATA by channel 2,
+    // commit: FWRESULT's status. A good image is taken (marked to boot), a bad one (its CRC) refused E_FIRMWARE; no
+    // update while a part is claimed.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    const uint32_t before = ms_count(r);
-    loaded(r, ECHO, true);
-    r.run(ms(5));
-    REQUIRE(waiting(r).size() == 1);
-    CHECK_EQ(area(r, EV_SMBOX), 0x42);
-    CHECK_EQ(area16(r, EV_SMCNT), 1u);
-    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r)); // the event's own time, to the millisecond
-    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= ms_count(r));
-    r.run(ms(20));
-    const uint32_t first = area32(r, EV_SMMS);
-    CHECK_EQ(f82(r, {SN_SEND, 0x10}), std::string("00 00"));
-    r.run(ms(5));
-    REQUIRE(waiting(r).size() == 2);
-    CHECK_EQ(area(r, EV_SMBOX), 0xEF);
-    CHECK_EQ(area16(r, EV_SMCNT), 2u);
-    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
-    CHECK(area32(r, EV_SMMS) >= first + 20);
-    // The count stops at 65,535; the byte and its time go on.
-    r.poke(AREA + EV_SMCNT, std::vector<uint8_t>{0xFE, 0xFF});
-    CHECK_EQ(f82(r, {SN_SEND, 0x01}), std::string("00 00"));
-    r.run(ms(5));
-    CHECK_EQ(area16(r, EV_SMCNT), 0xFFFFu);
-    CHECK_EQ(area(r, EV_SMBOX), 0xFE);
-    CHECK_EQ(f82(r, {SN_SEND, 0x02}), std::string("00 00"));
-    r.run(ms(5));
-    CHECK_EQ(area16(r, EV_SMCNT), 0xFFFFu);
-    CHECK_EQ(area(r, EV_SMBOX), 0xFD);
-    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
-    // Started again: counted from that start.
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    r.run(ms(5));
-    CHECK_EQ(area16(r, EV_SMCNT), 1u);
-    CHECK_EQ(area(r, EV_SMBOX), 0x42);
-    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
-}
-
-TEST(the_mailbox_stamp_is_whole_across_a_carry)
-{
-    // Review r1's T1. The 6510's byte stamped in a layout-2 area: as SMTIME starts in the handler, the bridge's counter is moved on
-    // 256 ms, so its MS1 differs from the last latch's. EV_SMMS is the count then, whole. Must fail with SMTIME's
-    // copy taken MS3 first (MS1-MS3 from the last latch: 256 ms early).
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    const uint16_t smtime = sym("SMTIME");
-    uint32_t at = 0;
-    unsigned calls = 0;
-    r.watch = [&](uint16_t pc) {
-        if (pc == smtime && ++calls == 2 && !at) // the first is SN_START's, in the BDOS; the second the byte's
-        {
-            r.bridge().set_ms(r.bridge().ms() + 0x100);
-            at = r.bridge().ms();
-        }
+    auto image = [](uint8_t major, uint8_t minor, bool good) {
+        std::vector<uint8_t> body = noise(3000, 77);
+        std::vector<uint8_t> h(32, 0);
+        h[0] = 'O', h[1] = 'O', h[2] = 'S', h[3] = 'D', h[4] = 0xA3, h[5] = 1, h[6] = major, h[7] = minor;
+        const uint32_t len = static_cast<uint32_t>(body.size()), crc = Crc32::of(body.data(), body.size()) ^ (good ? 0u : 1u);
+        for (unsigned i = 0; i < 4; ++i)
+            h[12 + i] = static_cast<uint8_t>(len >> (8 * i)), h[16 + i] = static_cast<uint8_t>(crc >> (8 * i));
+        const uint32_t hc = Crc32::of(h.data(), 28);
+        for (unsigned i = 0; i < 4; ++i)
+            h[28 + i] = static_cast<uint8_t>(hc >> (8 * i));
+        return h + body;
     };
-    loaded(r, ECHO, true);
-    r.run(ms(5));
-    r.watch = nullptr;
-    REQUIRE(at != 0);
-    std::printf("  at SMTIME $%08X, EV_SMMS $%08X\n", at, area32(r, EV_SMMS));
-    CHECK(area32(r, EV_SMMS) >= at && area32(r, EV_SMMS) <= at + 2);
-}
-
-TEST(before_the_first_byte_the_stamp_is_the_start_s_time_and_a_count_of_0)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    loaded(r, COUNTER, false); // says nothing
-    r.poke(AREA + EV_SMBOX, std::vector<uint8_t>(7, 0x55)); // what a start must overwrite: all but the byte
-    r.run(ms(30));
-    const uint32_t before = ms_count(r);
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    const uint32_t after = ms_count(r);
-    r.run(ms(50));
-    CHECK_EQ(area16(r, EV_SMCNT), 0u);
-    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= after);
-    CHECK_EQ(area(r, EV_SMBOX), 0x55); // no byte yet: the last one's left as it was
-    CHECK(waiting(r).empty());
-}
-
-TEST(a_byte_the_old_run_left_at_a_restart_is_dropped_not_counted_as_the_new_run_s)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "2");
-    loaded(r, COUNTER, true); // says nothing
-    r.run(ms(10));
-    r.poke(AREA + EV_SMBOX, 0x55);
-    // The old run's byte arrives once SN_START has stopped it, with interrupts off: MBIN holds it at the drop.
-    const uint16_t drop = static_cast<uint16_t>(sym("SMDROP"));
-    bool sent = false;
-    r.watch = [&](uint16_t pc) {
-        if (pc == drop && !sent && r.machine->bus().peek(0xC682) == 61) // W2 on block 61 (NB_WIN2)
-        {
-            card(r).card_send(0x99);
-            sent = true;
-        }
+    auto update = [&](const std::vector<uint8_t> &img) {
+        r.poke(0x10000, img);
+        const uint32_t len = static_cast<uint32_t>(img.size()), half = len / 2;
+        const std::string a = f82(r, std::vector<uint8_t>{SN_FIRMWARE} + le24(0x10000) + le24(half) + std::vector<uint8_t>{1} + u32(len));
+        const std::string b = f82(r, std::vector<uint8_t>{SN_FIRMWARE} + le24(0x10000 + half) + le24(len - half) + std::vector<uint8_t>{0});
+        const std::string c = f82(r, std::vector<uint8_t>{SN_FIRMWARE, 0, 0, 0, 0, 0, 0, 2});
+        return a + " " + b + " " + c;
     };
-    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
-    r.watch = nullptr;
-    REQUIRE(sent);
-    r.run(ms(20));
-    CHECK_EQ(area16(r, EV_SMCNT), 0u);
-    CHECK_EQ(area(r, EV_SMBOX), 0x55);
-    CHECK(waiting(r).empty());
-    CHECK_EQ(reg(r, SoundCard::STATUS) & 0x04, 0); // STATUS: nothing waits in MBIN
+    CHECK_EQ(update(image(1, 7, false)), std::string("00 00 00 00 FD 0B"));
+    CHECK_EQ(fw(r).boot_slot(), fw(r).running_slot());
+    CHECK_EQ(update(image(1, 7, true)), std::string("00 00 00 00 00 00"));
+    CHECK_EQ(fw(r).boot_slot(), 1 - fw(r).running_slot());
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_MUSIC}), std::string("00 00"));
+    CHECK_EQ(f82(r, std::vector<uint8_t>{SN_FIRMWARE, 0, 0, 0, 0, 0, 0, 2}), std::string("FF FF"));
 }
 
-TEST(a_full_queue_loses_no_stamp)
+TEST(each_load_s_address_is_checked_as_function_51_s_segment)
 {
+    // Every load's source (SN_TUNE, SN_SAMPLE, SN_EFFECTS, SN_MUSIC, SN_BUFFER, SN_FIRMWARE's pieces) is checked as
+    // function 51's DMA segment: past $FFFFF, or into OODOS's own blocks (banks 6 and 7), refused, nothing sent to the
+    // card. Must fail with a block past memory accepted (the 64 KB steps' check left out).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    loaded(r, ECHO, true);
-    r.run(ms(5));
-    const unsigned slots = area(r, EV_QSLOTS);
-    // Nothing read: the queue fills, and each byte after is still stamped.
-    uint32_t before = 0, after = 0; // around the last byte's send
-    for (unsigned i = 1; i <= slots + 4; ++i)
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM | SC_MUSIC}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT)), std::string("00 00"));
+    struct Load
     {
-        before = ms_count(r);
-        CHECK_EQ(f82(r, {SN_SEND, static_cast<uint8_t>(i)}), std::string("00 00"));
-        r.run(ms(2));
-        after = ms_count(r);
+        uint8_t op;
+        std::vector<uint8_t> pre, post;
+    };
+    const std::vector<Load> loads = {{SN_TUNE, {}, {0}},
+                                     {SN_SAMPLE, {1}, {0, 0x40, 0x1F, 0, 0, 0, 0, 0, 0}},
+                                     {SN_EFFECTS, {1}, {}},
+                                     {SN_MUSIC, {1}, {2}}};
+    for (const Load &l : loads)
+    {
+        CHECK_EQ(f82(r, load_block(l.op, l.pre, 0x0F8000, 0x10000, l.post)), std::string("FF FF")); // past $FFFFF
+        CHECK_EQ(f82(r, load_block(l.op, l.pre, 0x040000, 0x30000, l.post)), std::string("FF FF")); // into bank 6
+        CHECK_EQ(f82(r, load_block(l.op, l.pre, 0x0E0000, 0x20001, l.post)), std::string("FF FF")); // past, by whole 64 KBs
     }
-    CHECK(waiting(r).size() < slots + 5); // full: some were lost from the queue
-    CHECK_EQ(area16(r, EV_SMCNT), slots + 5);
-    CHECK_EQ(area(r, EV_SMBOX), static_cast<uint8_t>(~(slots + 4)));
-    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= after);
+    CHECK_EQ(f82(r, buffer_block(0x06FFF0, 32)), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_RELEASE, 7}), std::string("00 00"));
+    CHECK_EQ(f82(r, std::vector<uint8_t>{SN_FIRMWARE} + le24(0x0FFFF0) + le24(0x20) + std::vector<uint8_t>{0}), std::string("FF FF"));
+    CHECK_EQ(dev(r).data_dropped(), 0u);
+    CHECK(!(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_XFER)); // and no transfer was opened
 }
 
-TEST(with_a_layout_1_area_nothing_is_stamped)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    r.poke(AREA, std::vector<uint8_t>(256, 0));
-    open(r, "1");
-    loaded(r, ECHO, true);
-    r.run(ms(10));
-    for (unsigned i = 16; i < 128; ++i)
-        CHECK_EQ(area(r, i), 0);
-}
+// --- the SELECT rule, the pin ----------------------------------------------------------------------------------
 
 namespace
 {
-    /// The EQ as the card holds it: the enable, then the preamp's and the ten bands' gains (read through
-    /// EQIDX and EQVAL, as a program would; it leaves EQIDX moved).
-    std::vector<int> eq_state(Rig &r)
-    {
-        std::vector<int> out;
-        card(r).write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-        out.push_back(card(r).read(SoundCard::EQVAL));
-        card(r).write(SoundCard::EQIDX, 0);
-        for (unsigned i = 0; i <= SoundCard::EQ_BANDS; ++i)
-            out.push_back(static_cast<int8_t>(card(r).read(SoundCard::EQVAL)));
-        return out;
-    }
-    /// The EQ on, every gain away from 0: what the warm boot must undo.
-    void eq_set(CcpRig &r)
-    {
-        open(r, "2");
-        card(r).write(SoundCard::EQIDX, 0);
-        for (unsigned i = 0; i <= SoundCard::EQ_BANDS; ++i)
-            card(r).write(SoundCard::EQVAL, static_cast<uint8_t>(i & 1 ? -(int)(2 * i) : 2 * i + 1));
-        card(r).write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-        card(r).write(SoundCard::EQVAL, 1);
-        std::vector<int> st = eq_state(r);
-        CHECK_EQ(st[0], 1);
-        CHECK_EQ(st[1], 1);
-        CHECK_EQ(st[11], 21);
-    }
-    void eq_flat(CcpRig &r)
-    {
-        const std::vector<int> st = eq_state(r);
-        bool flat = true;
-        for (const int v : st)
-            flat = flat && v == 0;
-        CHECK(flat);
-        if (!flat)
-            for (size_t i = 0; i < st.size(); ++i)
-                std::printf("  EQ %s%zu: %d\n", i ? "gain " : "enable", i ? i - 1 : 0, st[i]);
-    }
-} // namespace
-
-TEST(the_warm_boot_turns_the_eq_off_with_every_gain_0_by_wboot_ctrl_c_and_break)
-{
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        eq_set(r);
-        wboot(r);
-        eq_flat(r);
-    }
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        eq_set(r);
-        const size_t from = r.out.size();
-        r.poke(MBOX, 'D');
-        CHECK(r.calls(CcpRig::C_READSTR_FN));
-        r.type("\x03");
-        CHECK(r.until("\r\nA>", ms(2000), from));
-        eq_flat(r);
-    }
-    {
-        CcpRig r;
-        REQUIRE(r.ok);
-        eq_set(r);
-        const size_t from = r.out.size();
-        r.cpu->nmi();
-        CHECK(r.until("\\\r", ms(1000), from));
-        REQUIRE(r.boot());
-        eq_flat(r);
-    }
-}
-
-namespace
-{
-    /// The SELECT rule (hw/design.md, "The DMA controller, revision 2"; b2-plan.md §4 item 9): code that moves
-    /// CONTROL's SELECT, in an interrupt too, puts CONTROL back as it found it. This watches the dispatcher: the
-    /// DMA controller's CONTROL at each interrupt's entry (IRQ) and at its RTI (IRQEND), whether PIECE or
-    /// DEAFEN ran in it, and with which SELECT it was entered.
+    /// The SELECT rule (hw/design.md, "The DMA controller, revision 2"): code that moves CONTROL's SELECT, in an
+    /// interrupt too, puts CONTROL back as it found it. This watches the dispatcher: the DMA controller's CONTROL at
+    /// each interrupt's entry (IRQ) and at its RTI (IRQEND), whether PIECE or DEAFEN ran in it, and with which SELECT
+    /// it was entered.
     struct SelectRule
     {
         unsigned interrupts{0}, changed{0};
@@ -1607,27 +1508,25 @@ namespace
     };
 } // namespace
 
-TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
+TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_load)
 {
-    // Must fail if PIECE (the stream's next piece, in the terminal count's interrupt) or DEAFEN (a stray's)
-    // leaves SELECT moved: the window would be another channel's under SDIO or DMALOAD, and sectors or wave
-    // RAM written through the wrong channel.
+    // Must fail if PIECE (the stream's next piece, in the terminal count's interrupt) or DEAFEN (a stray's) leaves
+    // SELECT moved: the window would be another channel's under SDIO or DMALOAD, and sectors or a load written
+    // through the wrong channel.
     {
-        // A stream from B: past the FIFO's 128 KB, so the program's refills (SDIO, on channel 0) run while
-        // the pieces' terminal counts interrupt them.
         CcpRig r;
         REQUIRE(r.ok);
         const std::string name83 = "SELECT  PCM";
         const std::vector<uint8_t> pcm = noise(1792 * 128, 46);
-        card(r).set_tap(true, false);
+        fw(r).set_stream_tap(true);
         put_b(r, name83, pcm);
-        r.poke(PARMS, std::vector<uint8_t>{0, 0x44, 0xAC, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO}); // 44,100 Hz
+        r.poke(PARMS, std::vector<uint8_t>{0, 0x44, 0xAC, FMT_16BIT | FMT_STEREO}); // 44,100 Hz
         std::vector<uint8_t> fcb(36, 0);
         fcb[0] = 2; // B:
         for (unsigned i = 0; i < 11; ++i)
             fcb[1 + i] = static_cast<uint8_t>(name83[i]);
         r.poke(FCB, fcb);
-        const uint8_t before = SelectRule::control(r); // the program's CONTROL, as the CCP leaves it
+        const uint8_t before = SelectRule::control(r);
         const size_t from = start(r, "l3strm.com");
         SelectRule rule;
         r.watch = [&](uint16_t pc) { rule.step(r, pc); };
@@ -1635,33 +1534,33 @@ TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
         while (r.out.find("END ", from) == std::string::npos && r.cpu->cycles() < endc)
             r.run(ms(1));
         r.watch = nullptr;
-        const uint8_t after = SelectRule::control(r); // at L3STRM's END line: every piece started, in a call or not
+        const uint8_t after = SelectRule::control(r);
         REQUIRE(r.until("END ", ms(10), from) && r.until("\r\nA>", ms(1000), r.out.find("END ", from)));
         std::printf("  the stream: %u interrupts, %u with PIECE run beside another SELECT, %u changed CONTROL\n",
                     rule.interrupts, rule.piece_beside, rule.changed);
         CHECK(rule.piece_beside > 0); // the premise: a piece started over SDIO's SELECT 0
         CHECK_EQ(rule.changed, 0u);
-        CHECK_EQ(after, before); // nor a piece started in function 82's call
+        CHECK_EQ(after, before);
         CHECK_EQ(field(r.out.substr(from), "END").substr(0, 6), std::string("05 03 "));
-        CHECK_EQ(card(r).underruns(), 0u);
-        CHECK(tap_bytes(card(r)) == pcm); // every sector read through channel 0, every piece through 2
+        CHECK(tap_bytes(r) == pcm); // every sector read through channel 0, every piece through 2
     }
     {
-        // A wave load of 64 KB (DMALOAD, SELECT 2) with a stray (the USB card's interrupt, no layout-2 area)
-        // in its middle: DEAFEN's SELECT loop runs inside it.
+        // A 64 KB sample load (DMALOAD: each piece's SELECT 2 set and put back with interrupts off) with a stray (the
+        // USB card's interrupt, no layout-2 area) in its middle: DEAFEN's SELECT loop runs inside it.
         CcpRig r;
         REQUIRE(r.ok);
         open(r, "X");
-        CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
         const std::vector<uint8_t> w = noise(0x10000, 47);
         r.poke(0x10000, w);
-        const uint16_t from = sym("DMALOAD"), to = sym("BEEPQ");
-        unsigned in = 0;
+        const uint16_t from = sym("DMALOAD"), to = sym("F_SOUND"), deafen = sym("DEAFEN");
+        unsigned in = 0, deafened = 0;
         bool stray = false;
         SelectRule rule;
         r.watch = [&](uint16_t pc) {
             rule.step(r, pc);
-            if (r.nb(1) != 60 || pc < from || pc >= to)
+            if (stray && pc == deafen && r.nb(3) == 62)
+                ++deafened;
+            if (r.nb(2) != 61 || pc < from || pc >= to)
                 return;
             if (!stray && ++in > 200)
             {
@@ -1670,26 +1569,503 @@ TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_wave_load)
                 stray = true;
             }
         };
-        CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0}), std::string("00 00"));
+        CHECK_EQ(f82(r, load_block(SN_SAMPLE, {3}, 0x10000, 0x10000, {0, 0x40, 0x1F, 0, 0, 0, 0, 0, 0})), std::string("00 00"));
         r.watch = nullptr;
         r.machine->usb_card()->key(0x04, false);
-        std::printf("  the wave load: %u interrupts, %u with DEAFEN run beside SELECT 2, %u changed CONTROL\n",
-                    rule.interrupts, rule.deafen_beside, rule.changed);
+        std::printf("  the load: %u interrupts, DEAFEN run %u times inside it, %u changed CONTROL\n", rule.interrupts,
+                    deafened, rule.changed);
         CHECK(stray);
-        CHECK(rule.deafen_beside > 0); // the premise: DEAFEN's loop ran over DMALOAD's SELECT
+        CHECK(deafened > 0); // the premise: a stray's DEAFEN ran inside the load (between its pieces: each piece's
+                             // own SELECT 2 is set and put back with interrupts off)
         CHECK_EQ(rule.changed, 0u);
-        CHECK(std::equal(w.begin(), w.end(), card(r).doc().ram().begin())); // every piece through channel 2
+        CHECK_EQ(card_crc(r, SoundFw::SAMPLE_LOAD, 3), crc32(w)); // every piece through channel 2
     }
 }
 
-int main() { return run_all(); }
+// --- review round 1 (branch B): the driver's fixes, each with its must-fail case -------------------------------
 
-TEST(the_interface_is_17)
+namespace
 {
-    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 17 and its areas, $2F: frame and
+    /// Every record the CPU writes to CMD, parsed by its own length byte: each record's command, and the raw bytes.
+    struct CmdRecords : CycleObserver
+    {
+        unsigned state{0}, left{0};
+        uint8_t cmd{0};
+        std::vector<uint8_t> cmds, raw;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.write || c.dma || c.addr != 0xC500 + SoundCard3::CMD)
+                return;
+            raw.push_back(c.data);
+            if (state == 0)
+                cmd = c.data, state = 1;
+            else if (state == 1)
+                left = c.data, state = 2;
+            else if (state == 2)
+            {
+                cmds.push_back(cmd);
+                state = left ? 3 : 0;
+            }
+            else if (--left == 0)
+                state = 0;
+        }
+    };
+    /// The CPU stepped to an instruction outside any interrupt and any record (I clear, in the program), so a
+    /// record the test writes straight to CMD can't fall inside one of OODOS's.
+    void at_program(CcpRig &r)
+    {
+        for (int i = 0; i < 200000; ++i)
+        {
+            const Registers g = r.cpu->regs();
+            if (!(g.p & 0x04) && g.pc >= 0x0300 && g.pc < 0x4000)
+                return;
+            r.run(1);
+        }
+        CHECK(!"the program never ran unmasked");
+    }
+    /// A record straight to the card's CMD (the CPU stopped at a program instruction).
+    void to_cmd(CcpRig &r, const std::vector<uint8_t> &rec)
+    {
+        at_program(r);
+        for (const uint8_t b : rec)
+            dev(r).write(SoundCard3::CMD, b);
+    }
+} // namespace
+
+TEST(a_bel_while_the_frame_sends_its_records_reaches_the_card_whole)
+{
+    // Review C1/T1: the console's BEL (SBELL, from a program, interrupts on) while the frame's interrupt sends its own
+    // status requests through the same record buffer (all three parts claimed): the frame's interrupt timed to fall
+    // across SBELL's first cycles, a cycle a try. Every bell must reach the card as one whole BELL record and the
+    // frame's as theirs: the card's parser never out of step, every frame's request answered (FPEND 0), every
+    // tone's end come back (TONES 0). Must fail with HRECT's SEI left out (the bell's record sent with the frame's
+    // command and length in it).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM | SC_MUSIC}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    const uint16_t sframe = sym("SFRAME"), sbell = sym("SBELL"), irq = sym("IRQ");
+    std::vector<uint64_t> frames;
+    uint64_t last_irq = 0;
+    auto watch_frames = [&] {
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61)
+                frames.push_back(last_irq);
+        };
+    };
+    watch_frames();
+    r.run(ms(60));
+    REQUIRE(frames.size() >= 3);
+    const uint64_t period = frames[2] - frames[1];
+    uint64_t first = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sbell && r.nb(2) == 61 && !first)
+            first = r.cpu->cycles();
+    };
+    const uint64_t poked = r.cpu->cycles();
+    command(r, 'G', "G");
+    REQUIRE(first > poked);
+    const uint64_t lead = first - poked;
+    CmdRecords recs;
+    r.cpu->set_observer(&recs);
+    unsigned hits = 0, tries = 0;
+    for (int d = -40; d <= 40; ++d, ++tries)
+    {
+        frames.clear();
+        watch_frames();
+        while (frames.empty())
+            r.run(100);
+        const uint64_t at = frames.back() + period - lead + static_cast<uint64_t>(40 + d) - 40;
+        r.watch = nullptr;
+        while (r.cpu->cycles() + 2100 < at)
+            r.run(2000);
+        uint64_t bell = 0, frame = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == sbell && r.nb(2) == 61 && !bell)
+                bell = r.cpu->cycles();
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61 && !frame)
+                frame = last_irq;
+        };
+        while (r.cpu->cycles() < at)
+            r.run(1);
+        command(r, 'G', "G");
+        r.watch = nullptr;
+        hits += bell && frame >= bell && frame < bell + 60;
+    }
+    r.cpu->set_observer(nullptr);
+    unsigned bells = 0;
+    for (const uint8_t c : recs.cmds)
+        bells += c == SoundFw::BELL;
+    r.run(ms(400));
+    std::printf("  %u tries, %u with the frame's interrupt inside SBELL; %u BELL records; ERROR $%02X, FPEND %u, TONES %u\n",
+                tries, hits, bells, reg(r, SoundCard3::ERROR), sv(r, "FPEND"), sv(r, "TONES"));
+    CHECK(hits > 0); // the premise: a frame's interrupt came inside SBELL
+    CHECK_EQ(bells, tries);
+    CHECK_EQ(reg(r, SoundCard3::ERROR), 0);
+    CHECK_EQ(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_ERR, 0);
+    CHECK_EQ(sv(r, "TONES"), 0);
+    CHECK_EQ(sv(r, "FPEND"), 0);
+    CHECK_EQ(f82(r, identify()), std::string("00 00")); // the card's parser in step after it all
+    CHECK_EQ(got(r, 1)[0], 0xA3);
+}
+
+TEST(with_no_area_a_full_ring_is_fed_at_each_need)
+{
+    // Review T3: a 2 MB card (its ring fills), no event area, the program polling SN_STATUS (L3TEST's S) for a free
+    // buffer and giving the next 64 KB; 1.5 MB in all at 48 kHz 16-bit stereo. With the ring full the card asks
+    // (NEED) only when room comes, with nothing moving: that NEED must send the waiting buffer at once. Every byte
+    // played, no underrun. Must fail with NEED's own SFEED left out.
+    CcpRig r({}, machine_with_sound(3, 2));
+    REQUIRE(r.ok);
+    fw(r).set_stream_tap(true);
+    open(r, "X");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    constexpr unsigned BUFS = 24;
+    const uint32_t at[2] = {0x10000, 0x20000};
+    std::vector<uint8_t> sent;
+    unsigned given = 0, polls = 0;
+    auto give = [&](unsigned k) {
+        const std::vector<uint8_t> b = noise(0x10000, 300 + given);
+        r.poke(at[k], b);
+        CHECK_EQ(f82(r, buffer_block(at[k], 0)).substr(3), std::string("00"));
+        sent.insert(sent.end(), b.begin(), b.end());
+        ++given;
+    };
+    give(0);
+    give(1);
+    const uint64_t endc = r.cpu->cycles() + ms(20000);
+    while (given < BUFS && r.cpu->cycles() < endc)
+    {
+        r.run(ms(20));
+        const std::string st = command(r, 'S', "ST");
+        ++polls;
+        if (st.size() >= 5 && std::stoul(st.substr(3, 2), nullptr, 16) >> (given & 1) & 1)
+            give(given & 1);
+    }
+    CHECK_EQ(given, BUFS);
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 200 && command(r, 'S', "ST").substr(0, 2) != "05"; ++i)
+        r.run(ms(50));
+    const std::string st = command(r, 'S', "ST");
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %u polls; a ring of %zu; %zu sent, %zu played; ST %s\n", polls, fw(r).stream_ring(0), sent.size(),
+                played.size(), st.c_str());
+    CHECK(sent.size() > fw(r).stream_ring(0)); // the premise: more than the ring holds
+    CHECK_EQ(st.substr(0, 2), std::string("05"));
+    CHECK(played == sent);
+    CHECK_EQ(st.substr(26, 4), std::string("0000"));
+}
+
+TEST(a_freed_buffer_shows_in_ev_sbufs_before_the_interrupt_returns)
+{
+    // Review T5: EV_SBUFS is written at once wherever BBUSY changes, so a program waiting on it refills a buffer as
+    // soon as it is sent, not up to a frame later at the frame's status reply. Ten 10,000-byte buffers, each given
+    // again when EV_SBUFS shows it free; at the end of each interrupt that freed one, the area must show it. Must
+    // fail with CNEXT's SBUFS left out.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    constexpr unsigned LEN = 10000, BUFS = 10;
+    const uint32_t at[2] = {0x03000, 0x06000};
+    unsigned given = 0, freed = 0, late = 0;
+    uint8_t was = 0, pending = 0;
+    const uint16_t end = sym("IRQEND");
+    r.watch = [&](uint16_t pc) {
+        const uint8_t now = sv(r, "BBUSY");
+        pending |= static_cast<uint8_t>(was & ~now);
+        was = now;
+        if (pc == end && pending)
+        {
+            ++freed;
+            late += (area(r, EV_SBUFS) & pending) != pending;
+            pending = 0;
+        }
+    };
+    auto give = [&](unsigned k) {
+        r.poke(at[k], noise(LEN, 400 + given));
+        CHECK_EQ(f82(r, buffer_block(at[k], LEN)), std::string("0") + static_cast<char>('0' + k) + " 00");
+        ++given;
+    };
+    r.run(ms(20));
+    give(0);
+    give(1);
+    const uint64_t endc = r.cpu->cycles() + ms(3000);
+    while (given < BUFS && r.cpu->cycles() < endc)
+    {
+        r.run(ms(1));
+        for (unsigned k = 0; k < 2 && given < BUFS; ++k)
+            if (area(r, EV_SBUFS) >> k & 1 && (sv(r, "NEXTB") == k))
+                give(k);
+    }
+    r.run(ms(100));
+    r.watch = nullptr;
+    std::printf("  %u buffers given; %u interrupts freed one, %u returned with EV_SBUFS not showing it\n", given, freed, late);
+    CHECK_EQ(given, BUFS);
+    CHECK(freed >= BUFS - 1); // the premise
+    CHECK_EQ(late, 0u);
+}
+
+TEST(a_stream_s_sn_end_goes_when_its_buffers_have_gone_with_a_fast_feeder_after_sn_next)
+{
+    // Review C2: the book's order for two files (chapter 8): the first's SN_END before its last buffer runs out,
+    // then SN_NEXT and the second's buffers. On a 2 MB card, the first's ring filled (so its last two buffers wait
+    // for room, both taken at SN_END); then SN_NEXT, and L3TEST's R refilling each buffer for the second the moment
+    // it frees, as fast as a program can. The first's STREAM_END must go as its own last buffer goes, though the
+    // buffer sent next is always taken (the second's): the first plays out, ends, the second follows with no gap,
+    // every byte of both played and no underrun. Must fail with STREAM_END sent only when the next buffer to send is
+    // free (the first never ends: it runs dry, and the second never starts).
+    CcpRig r({}, machine_with_sound(3, 2));
+    REQUIRE(r.ok);
+    fw(r).set_stream_tap(true);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    const std::vector<uint8_t> a = noise(0x10000, 501), b = noise(0x10000, 502);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    auto feed = [&](unsigned n, unsigned first, uint32_t from, uint64_t budget) {
+        r.poke(KBLK, buffer_block(from, 0));
+        r.poke(MBOX + 1, std::vector<uint8_t>{static_cast<uint8_t>(n), static_cast<uint8_t>(first)});
+        return command(r, 'R', "R", budget);
+    };
+    // The first: 18 buffers of 64 KB (its ring, 1 MB, full after 16), then SN_END with its last two waiting.
+    CHECK_EQ(feed(18, 0, 0x10000, ms(3000)), std::string("01 00"));
+    std::printf("  the first's ring %zu; at SN_END: BBUSY %u\n", fw(r).stream_ring(0), sv(r, "BBUSY"));
+    CHECK_EQ(sv(r, "BBUSY"), 3); // the premise: both taken, so SN_END waits (ENDP)
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(sv(r, "ENDP"), 1);
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    // The second: 10 buffers (more than its ring), each the moment it frees, the card a millisecond to answer each
+    // STREAM_DATA (a piece holds the CPU, so it is in that wait that a program refills the buffer just freed).
+    fw(r).set_latency_us(1000);
+    const std::string fed = feed(10, sv(r, "NEXTB"), 0x20000, ms(12000));
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    std::printf("  R %s; ENDP %u, SPLAY %u\n", fed.c_str(), sv(r, "ENDP"), sv(r, "SPLAY"));
+    CHECK_EQ(fed.substr(3), std::string("00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 300 && area(r, EV_SSTATE) != ST_ENDED; ++i) // 28 buffers' 9.6 s at most
+        r.run(ms(50));
+    std::vector<uint8_t> want;
+    for (unsigned i = 0; i < 18; ++i)
+        want = want + a;
+    for (unsigned i = 0; i < 10; ++i)
+        want = want + b;
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %zu bytes played of %zu; the area's state %u, underruns %u\n", played.size(), want.size(),
+                area(r, EV_SSTATE), area16(r, EV_SUNDER));
+    CHECK_EQ(sv(r, "SPLAY"), 1);
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(played == want);
+    CHECK_EQ(area16(r, EV_SUNDER), 0u);
+    CHECK(queued(r, SoundFw::EV_TRACK, 1));
+}
+
+TEST(a_seek_after_sn_next_feeds_and_ends_the_stream_playing)
+{
+    // Review C3: SN_NEXT, a buffer for the next file, then SN_SEEK in the one playing (a player's seek within the
+    // track with the next one queued): the queued stream is closed, and the buffers and SN_END after the seek go
+    // to the stream playing, which plays them and ends. Must fail with the seek leaving the queued stream (the
+    // buffers go to it: the stream playing stays buffering for ever).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 44100, FMT_16BIT | FMT_STEREO);
+    fw(r).set_stream_tap(true);
+    const std::vector<uint8_t> a = noise(40000, 601), b = noise(30000, 602), c = noise(30000, 603);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    r.poke(0x30000, c);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(a.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    CHECK_EQ(f82(r, buffer_block(0x20000, static_cast<unsigned>(b.size()))), std::string("01 00"));
+    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
+    fw(r).take_stream_tap(); // what played before the seek
+    CHECK_EQ(sv(r, "FEED"), 0);
+    CHECK_EQ(fw(r).stream_state(1), SoundFw::S_IDLE); // the queued one closed
+    CHECK_EQ(f82(r, buffer_block(0x30000, static_cast<unsigned>(c.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  after the seek: %zu bytes played of %zu; the area's state %u, SPLAY %u, BBUSY %u\n", played.size(),
+                c.size(), area(r, EV_SSTATE), sv(r, "SPLAY"), sv(r, "BBUSY"));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK_EQ(sv(r, "SPLAY"), 0);
+    CHECK_EQ(sv(r, "BBUSY"), 0);
+    CHECK(played == c);
+}
+
+TEST(a_load_that_fails_after_the_card_took_it_leaves_no_transfer_open)
+{
+    // Review C4: a load whose data loses a byte on its way (the card's DMA fault: XFERDONE never comes) is SN_BUSY
+    // after its wait; OODOS closes the card's side (XFERABORT), so the same load again goes, and the stream's next
+    // STREAM_DATA is taken: the stream plays. Must fail with the failed load's XFERABORT left out (the retry refused
+    // E_XFER, the stream's buffer never sent).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    fw(r).set_stream_tap(true);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    const std::vector<uint8_t> t = tune();
+    r.poke(0x30000, t);
+    const std::vector<uint8_t> load = load_block(SN_TUNE, {}, 0x30000, static_cast<uint32_t>(t.size()), {0});
+    dev(r).set_dma_drop(20); // the 20th byte lost
+    CHECK_EQ(f82(r, load), std::string("FE FF"));
+    CHECK(!(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_XFER)); // closed
+    CHECK_EQ(f82(r, load), std::string("00 00"));
+    CHECK_EQ(card_crc(r, SoundFw::TUNE_LOAD, 0), crc32(t));
+    const std::vector<uint8_t> data = noise(30000, 701);
+    r.poke(0x10000, data);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(data.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(tap_bytes(r) == data);
+}
+
+TEST(a_stream_data_the_card_refuses_is_sent_again)
+{
+    // Review C4: the card asks for data once (its NEED stays outstanding until a STREAM_DATA is taken), so a
+    // STREAM_DATA it refuses (here E_XFER: a transfer left open on the card, as a failed load left it before
+    // XFERABORT, written straight to CMD by the test) must be tried again, or the stream stalls for good. Once the
+    // card's transfer is closed, the next frame's try sends the buffer and it plays. Must fail with the refusal
+    // dropping the stream's request.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    fw(r).set_stream_tap(true);
+    r.run(ms(20));
+    CHECK_EQ(sv(r, "NEEDP"), 1);
+    to_cmd(r, {SoundFw::TUNE_LOAD, 4, 0x80, 0, 0x00, 0x02, 0}); // a transfer open (tag $80: its reply OODOS drops)
+    r.run(ms(5));
+    CHECK(fw(r).xfer_open());
+    const std::vector<uint8_t> data = noise(30000, 801);
+    r.poke(0x10000, data);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(data.size()))), std::string("00 00"));
+    r.run(ms(5));
+    std::printf("  refused: BBUSY %u, SDPEND %u, NEEDP %u\n", sv(r, "BBUSY"), sv(r, "SDPEND"), sv(r, "NEEDP"));
+    CHECK_EQ(sv(r, "BBUSY"), 1); // the premise: its STREAM_DATA refused, the buffer still taken
+    to_cmd(r, {SoundFw::XFERABORT, 0, 0x80});
+    r.run(ms(100));
+    CHECK_EQ(sv(r, "BBUSY"), 0);
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(tap_bytes(r) == data);
+}
+
+TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
+{
+    // Review C5: SN_STATUS's block is of one moment, its own reply's, even when the frame's STREAM_STATUS reply (which
+    // rewrites the same mapping) lands while the block is being put: the program's call timed, a step a frame, so the
+    // frame's reply comes inside its copy. The block's frames and underruns must be its own reply's (RR). Must fail
+    // with the block put from SST, the mapping the frame's reply rewrites.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    r.poke(0x10000, noise(0x10000, 901));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
+    r.run(ms(300)); // playing
+    const uint16_t fields = sym("FIELDS"), statusx = sym("SN_STATUSX"), pput = sym("PPUT"), irq = sym("IRQ"),
+                   sframe = sym("SFRAME");
+    const uint32_t rr = BIOS_BLOCK_PHYS + sym("RR") - 0x8000u;
+    // The frame's period, and when its reply's FIELDS comes after the frame's interrupt.
+    std::vector<uint64_t> frames, replies;
+    uint64_t last_irq = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == irq)
+            last_irq = r.cpu->cycles();
+        if (pc == sframe && r.nb(2) == 61)
+            frames.push_back(last_irq);
+        if (pc == fields && r.nb(2) == 61)
+            replies.push_back(r.cpu->cycles());
+    };
+    r.run(ms(60));
+    REQUIRE(frames.size() >= 3 && replies.size() >= 2);
+    const uint64_t period = frames[2] - frames[1];
+    uint64_t offset = 0;
+    for (const uint64_t f : replies)
+        if (f > frames[1] && !offset)
+            offset = f - frames[1];
+    // From the poke of 'S' to the call's first PPUT.
+    uint64_t first = 0;
+    bool in = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == statusx && r.nb(2) == 61)
+            in = true;
+        if (in && pc == pput && !first)
+            first = r.cpu->cycles();
+    };
+    const uint64_t poked = r.cpu->cycles();
+    command(r, 'S', "ST");
+    REQUIRE(first > poked);
+    const uint64_t lead = first - poked;
+    unsigned hits = 0, bad = 0, tries = 0;
+    for (int d = 1800; d < 3600; d += 60, ++tries) // (the window: the frame's reply some 2,000-3,400 cycles on)
+    {
+        frames.clear();
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61)
+                frames.push_back(last_irq);
+        };
+        while (frames.empty())
+            r.run(100);
+        const uint64_t at = frames.back() + period + offset - lead - static_cast<uint64_t>(d);
+        r.watch = nullptr;
+        while (r.cpu->cycles() + 2100 < at)
+            r.run(2000);
+        unsigned puts = 0, between = 0;
+        in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == statusx && r.nb(2) == 61)
+                in = true, puts = 0;
+            if (in && pc == pput && puts < 14)
+                ++puts;
+            if (in && pc == fields && r.nb(2) == 61 && puts >= 1 && puts < 14)
+                between = puts;
+        };
+        while (r.cpu->cycles() < at)
+            r.run(1);
+        const std::string st = command(r, 'S', "ST");
+        r.watch = nullptr;
+        if (st.size() < 30)
+            continue;
+        hits += between >= 1 && between <= 5; // the frame's reply before the frames field was put
+        uint32_t frames_got = 0, frames_rr = 0;
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            frames_got |= static_cast<uint32_t>(std::stoul(st.substr(14 + 2 * i, 2), nullptr, 16)) << (8 * i);
+            frames_rr |= static_cast<uint32_t>(r.phys(rr + 13 + i)) << (8 * i);
+        }
+        if (frames_got != frames_rr && ++bad <= 3)
+            std::printf("  try %d: the block's frames %u, its reply's %u (the frame's reply after put %u)\n", d,
+                        frames_got, frames_rr, between);
+    }
+    std::printf("  %u tries, %u with the frame's reply inside the block's first five puts, %u not the reply's own\n", tries,
+                hits, bad);
+    CHECK(hits > 0); // the premise
+    CHECK_EQ(bad, 0u);
+}
+
+TEST(the_interface_is_18)
+{
+    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 18 and its areas, $2F: frame and
     // timing, input, sound, DMA and the serial line.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(command(r, 'F', "F"), std::string("11 2F"));
+    CHECK_EQ(command(r, 'F', "F"), std::string("12 2F"));
 }
+
+int main() { return run_all(); }

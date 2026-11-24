@@ -98,10 +98,18 @@ docs or Python-only suites.
 path counts. Besides the labels: `all` (the core: `emulator/components/{cpu6502,bus,machine,session,emu_log}`,
 `memory_devices`, the CMake files, `harness.h`, `test_support.h`, `machines/backplane.machine`), `self` (a suite's
 own `test_NAME.cpp` or `.py` chooses that suite), a suite's name (a file only it reads: `sid_known_failures.txt`,
-`test/host/sound/`, `fetch_fixtures.py`, `oodos/lib/mudrv/`), `web` (the web steps), and `none` (licenses,
+`fetch_fixtures.py`; until 2026-11-24 also `test/host/sound/` and `oodos/lib/mudrv/`), `web` (the web steps), and `none` (licenses,
 editor settings, `basic/`, `oodos/spike/`, `apps/sidcheck/`: nothing tests them; every build still builds the
 code among them). A part inside another chooses both (the RTC and Apple II mode's I/O are the bridge's, the DOC
 and the SIDs the sound card's), and each card of the backplane machine chooses `backplane` too.
+
+*The sound suites with sound card revision 3 (2026-11-24, OODOS 0.17).* Gone: `test_sound_driver` (revision 2's card
+driven by a 6510 program of the host's, `test/host/sound/`) and `test_mudrv` (OOLIB's 6510 music driver), with what
+they tested. New: the firmware alone (`test_sound_fw`), the card on the bus (`test_sound_device`), its streams
+(`test_sound_stream3`), its sound bank (`test_sound_bank`) and its music (`test_sound_music`), labelled `sound`;
+`test_oodos_sndfw` (SNDFW, `oodos bios sd sound dma backplane`); and the tools' `test_mksndflash` and `test_mksndfw`.
+`test_oodos_sound`, `test_oodos_playsid`, `test_oodos_pb`, `test_oodos_mu`, `test_oodos_sysinfo`, `test_bios` and
+`test_bios_diag` were rewritten for revision 3. The list is `emulator/test/host/CMakeLists.txt`'s.
 
 `web` is chosen by everything in the page: `emulator/apps/web/`, `web_build.sh`, and what `oo1.wasm` embeds or
 runs (every backplane card, the card media, `.sid` files and `components/debug`; the BIOS, its ROM and labels;

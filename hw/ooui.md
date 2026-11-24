@@ -996,7 +996,8 @@ questions say where it leans on them.
   4. Each block's image goes to the block's `$0800-$37FF`, which is `$C800-$F7FF` when the block is in W3.
   5. Each block is put in W1 through OOLIB (`GX_BLOCK`), and its fixups are applied. (Before OODOS 0.16 common
      memory was copied from `$F800-$FFFF` to the block's top 2 KB here, as FARCALL needed; since 0.16 the north
-     bridge's common hole shows it in every block, and `ui_load` refuses an OODOS before interface 17, UX_VERSION.)
+     bridge's common hole shows it in every block; `ui_load`'s refusal of an OODOS before interface 17 went on
+     2026-11-24, the owner's pre-1.0 rule.)
   6. Block 1 goes back in W1 (`GX_W1BACK`).
   7. **All of `UISTATE` is zeroed** (D2). The fixup buffer was in it, and nothing in it may start out as it was
      found: a program's `BSS` isn't cleared. `uopen` (today in `DATA` for that reason, `uicore.s`) and every other

@@ -113,7 +113,7 @@ Header flag bit 7 marks a program that breaks the rules. OODOS's tools never set
 with it set, as it refuses any flag.
 
 Keeping the rules isn't all: a program also leaves alone what OODOS owns, the interrupts and vectors, the DMA
-channels, the north bridge's windows, the sound card's 6510, and the VIA's ACR, IER and IFR
+channels, the north bridge's windows, the sound card (drive it through function 82 only), and the VIA's ACR, IER and IFR
 ([AGENTS.md](../../AGENTS.md#the-rules-that-matter-most)).
 
 ## RSXs

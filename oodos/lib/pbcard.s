@@ -1,6 +1,6 @@
-; OOLIB's sound modules (lib/pb*.s, L5): is there a card with revision 2's
-; registers (the EQ, the vis page)? Its ID read: the module's high nibble,
-; a revision of 2 or more. Shared by the modules; not in oolib.inc.
+; OOLIB's sound modules (lib/pb*.s, L5): is there a card OODOS drives
+; (revision 3: SN_INFO's A), and function 82 for a block. Shared by the
+; modules; not in oolib.inc.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -9,20 +9,26 @@
 
         .code
 
-; Carry clear, A kept: revision 2 or later. Carry set, A = PE_NOCARD:
-; revision 1, or no sound card (its ID isn't a sound card's).
+; Carry clear, A kept: a revision 3 card. Carry set, A = PE_NOCARD: an older
+; card, or none. X and Y changed.
 PBCARD:
         pha
-        lda     SND_ID
-        eor     #SND_TYPE               ; the module's nibble 0, the revision left
-        cmp     #$10
-        bcs     @no
-        cmp     #2
-        bcc     @no
+        lda     #SN_INFO
+        ldx     #0
+        ldy     #O_SOUND
+        jsr     BDOS
+        cmp     #3
+        bne     @no
         pla
         clc
         rts
 @no:    pla
         lda     #PE_NOCARD
         sec
+        rts
+
+; Function 82 with the block A/X: Z set if done (A = 0).
+PBF82:  ldy     #O_SOUND
+        jsr     BDOS
+        cmp     #0
         rts

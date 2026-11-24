@@ -265,7 +265,7 @@ namespace
     constexpr unsigned BLK_BASE = 0xC800;
 
     const std::string DAMAGED = "GWBASIC.OVL is damaged\r\n", NO_OVL = "GWBASIC.OVL not found\r\n",
-                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs OODOS 0.16 or newer\r\n";
+                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n";
 
     /// `got` says `message`, has no Ok, and ends at the CCP's prompt.
     void says(const std::string &what, const std::string &got, const std::string &message)
@@ -540,58 +540,6 @@ TEST(the_loader_refuses_with_no_memory_for_the_blocks)
                  r.poke(SYS_BLOCK_PHYS + sym("AMAP") + i, 0x81);
          }),
          NO_MEMORY);
-}
-
-// An OODOS without function 83 (DD12): function 80's FT_INFO answered as an OODOS without the services answers
-// it, A = X = $FF; the loader says so, not "damaged".
-TEST(the_loader_refuses_an_oodos_without_function_83)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    unsigned answered = 0;
-    const std::string got = refused(r, {}, true, [&](uint16_t pc, bool) {
-        const Registers g = r.cpu->regs();
-        if (pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // the BDOS's entry, FT_INFO: return A = X = $FF
-        {
-            Registers n = g;
-            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
-                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
-            n.pc = static_cast<uint16_t>(ret + 1);
-            n.s = static_cast<uint8_t>(g.s + 2);
-            n.a = n.x = 0xFF;
-            r.cpu->set_regs(n);
-            ++answered;
-        }
-    });
-    CHECK(answered >= 1u);
-    says("an OODOS without function 83", got, OLD);
-}
-
-// An OODOS before interface 17 (N17; hw/design.md, "The common hole"): FT_INFO answered with
-// A = 16 and every area; the loader refuses it, MOLD, rather than far call into blocks with no common memory.
-// Must fail with the loader's CMP #17 removed.
-TEST(the_loader_refuses_an_oodos_before_interface_17)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    unsigned answered = 0;
-    const std::string got = refused(r, {}, true, [&](uint16_t pc, bool) {
-        const Registers g = r.cpu->regs();
-        if (pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // the BDOS's entry, FT_INFO: return A = 16, X = $2F
-        {
-            Registers n = g;
-            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
-                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
-            n.pc = static_cast<uint16_t>(ret + 1);
-            n.s = static_cast<uint8_t>(g.s + 2);
-            n.a = 16;
-            n.x = 0x2F;
-            r.cpu->set_regs(n);
-            ++answered;
-        }
-    });
-    CHECK(answered >= 1u);
-    says("an OODOS of interface 16", got, OLD);
 }
 
 // A stale zero page (DD3): PTRFIL left as LPT1's ($FFFF) and the columns at the margin by what ran before; the
@@ -1181,14 +1129,14 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 // the note queued and MF's wait run to the clock).
 TEST(console_mode_keeps_its_guard)
 {
-    CcpRig r;
+    CcpRig r({}, machine_with_sound(3)); // sound card revision 3: SN_BEEP on the card
     REQUIRE(r.ok);
     start(r);
     for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",
                           "STRIG(0) ON", "STRIG ON", "KEY(1) ON", "KEY 15,CHR$(0)+CHR$(30)",
                           "PRINT STICK(0)", "PRINT STRIG(0)"})
         CHECK_EQ(command(r, k), std::string("Advanced feature\r\n"));
-    // BEEP sounds the bell by function 82's SN_BEEP (16), 800 Hz for 250 ms (review round 1, T5): its block seen at
+    // BEEP sounds the bell by function 82's SN_BEEP (27), 800 Hz for 250 ms (review round 1, T5): its block seen at
     // the BDOS's entry ($0203, Y 82, A/X the block)
     std::vector<std::vector<uint8_t>> beeps;
     r.watch = [&](uint16_t pc) {
@@ -1196,7 +1144,7 @@ TEST(console_mode_keeps_its_guard)
         if (pc != 0x0203 || g.y != 82 || g.x == 0)
             return;
         const uint16_t at = static_cast<uint16_t>(g.a | g.x << 8);
-        if (r.machine->bus().peek(at) != 16)
+        if (r.machine->bus().peek(at) != 27)
             return;
         std::vector<uint8_t> b;
         for (uint16_t i = 0; i < 5; ++i)

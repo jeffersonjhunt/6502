@@ -6,9 +6,8 @@
 ;
 ;   0. The console's output state cleared (PTRFIL, TTYPOS, LPTPOS: what
 ;      the previous program left in zero page could send the messages to
-;      LST:), and function 80's FT_INFO asked for interface 17 or more and
-;      OA_DMA: an OODOS before 0.16 (no common hole: a far-called block would
-;      have no common memory) or without function 83 is refused, MOLD.
+;      LST:). (No test of OODOS's version: GW-BASIC and OODOS ship together
+;      before 1.0, the owner's rule of 2026-11-24.)
 ;   1. FARCALL's address, from function 72.
 ;   2. GWBASIC.OVL opened on the drive GWBASIC.COM came from (the base page's
 ;      $0250), in the current user, and its header record read and checked:
@@ -82,26 +81,11 @@ LBLK:           .res    1              ; LPATCH: 1 the sites are in LIMG, 0 in m
 .segment "LOADER"
 
 LOAD:           CLD
-                ; 0. The output state, and the services: function 83's.
+                ; 0. The output state.
                 STZ     PTRFIL         ; the console (OUTDO's, for STROUT)
                 STZ     PTRFIL + 1
                 STZ     TTYPOS
                 STZ     LPTPOS
-                LDA     #FT_INFO
-                LDX     #0
-                LDY     #O_FRAME
-                JSR     BDOS
-                CMP     #$FF           ; no function 80: A = X = $FF
-                BEQ     @old
-                CMP     #17            ; interface 17: the common hole (OODOS 0.16)
-                BCC     @old
-                TXA
-                AND     #OA_DMA
-                BNE     @new
-@old:           LDA     #<MOLD
-                LDX     #>MOLD
-                JMP     LFAIL
-@new:
                 ; 1. FARCALL's address.
                 LDA     #<LVER
                 LDX     #>LVER
@@ -537,6 +521,5 @@ LPATCH:         LDA     LCNT
 MNOOVL:         .byte   "GWBASIC.OVL not found", 13, 10, 0
 MNOMEM:         .byte   "No memory for GW-BASIC's blocks", 13, 10, 0
 MBAD:           .byte   "GWBASIC.OVL is damaged", 13, 10, 0
-MOLD:           .byte   "GW-BASIC needs OODOS 0.16 or newer", 13, 10, 0
 OVLNAM:         .byte   "GWBASIC OVL"
 OVLMAG:         .byte   "GWB", $1A

@@ -855,7 +855,7 @@
   "status": "emulated"
  },
  {
-  "equate": "SOUND_SIDA",
+  "equate": "SOUND_CTRL",
   "address": "$C500",
   "module": "A",
   "documented": true,
@@ -864,263 +864,128 @@
   "status": "emulated"
  },
  {
-  "equate": "SOUND_SIDB",
-  "address": "$C520",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c520",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_CTRL",
-  "address": "$C540",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c540",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
   "equate": "SOUND_STATUS",
-  "address": "$C541",
+  "address": "$C501",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c541",
+  "anchor": "reg-c501",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_ERROR",
+  "address": "$C502",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c502",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_CMD",
+  "address": "$C503",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c503",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_CMDFREE",
+  "address": "$C504",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c504",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_EVT",
+  "address": "$C505",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c505",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_EVTLEN",
+  "address": "$C506",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c506",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DATA",
+  "address": "$C507",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c507",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_XLEFT",
+  "address": "$C508",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c508",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_XTAG",
+  "address": "$C50B",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c50b",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },
  {
   "equate": "SOUND_IEN",
-  "address": "$C542",
+  "address": "$C50C",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c542",
+  "anchor": "reg-c50c",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },
  {
-  "equate": "SOUND_RAMADDR",
-  "address": "$C543",
+  "equate": "SOUND_ISR",
+  "address": "$C50D",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c543",
+  "anchor": "reg-c50d",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },
  {
-  "equate": "SOUND_RAMDATA",
-  "address": "$C545",
+  "equate": "SOUND_MEMSIZE",
+  "address": "$C50E",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c545",
+  "anchor": "reg-c50e",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },
  {
-  "equate": "SOUND_MBOUT",
-  "address": "$C546",
+  "equate": "SOUND_FEATURES",
+  "address": "$C50F",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c546",
+  "anchor": "reg-c50f",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },
  {
-  "equate": "SOUND_MBIN",
-  "address": "$C547",
+  "equate": "SOUND_FWVER",
+  "address": "$C510",
   "module": "A",
   "documented": true,
-  "anchor": "reg-c547",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_PCMCTL",
-  "address": "$C548",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c548",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_CODEC",
-  "address": "$C549",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c549",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_RATE",
-  "address": "$C54A",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c54a",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_PCMFMT",
-  "address": "$C54C",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c54c",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_FREE",
-  "address": "$C54D",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c54d",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_PCMDATA",
-  "address": "$C54F",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c54f",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_STATE",
-  "address": "$C550",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c550",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_POS",
-  "address": "$C551",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c551",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_KBPS",
-  "address": "$C555",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c555",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_VOLL",
-  "address": "$C557",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c557",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_VOLR",
-  "address": "$C558",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c558",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_EQIDX",
-  "address": "$C559",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c559",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_EQVAL",
-  "address": "$C55A",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55a",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_VISIDX",
-  "address": "$C55B",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55b",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_VISDATA",
-  "address": "$C55C",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55c",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_CODECS",
-  "address": "$C55D",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55d",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_DOCCTL",
-  "address": "$C55E",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55e",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_DOCDATA",
-  "address": "$C55F",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c55f",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_DOCADDR",
-  "address": "$C560",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c560",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_DOCBANK",
-  "address": "$C562",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c562",
-  "file": "oo1-technical-reference/07-sound.md",
-  "status": "emulated"
- },
- {
-  "equate": "SOUND_DRQSEL",
-  "address": "$C563",
-  "module": "A",
-  "documented": true,
-  "anchor": "reg-c563",
+  "anchor": "reg-c510",
   "file": "oo1-technical-reference/07-sound.md",
   "status": "emulated"
  },

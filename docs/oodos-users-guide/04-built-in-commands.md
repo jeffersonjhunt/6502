@@ -685,9 +685,12 @@ DIAG [FULL,ASK]
 #### Options
 
 - `FULL`: the full run: the march over all of memory with four backgrounds, not one, and over the video card's
-  memory, and the sound card's memories written twice. About 2 minutes 46 s, where the quick run takes about 57 s
-  (on the emulator at 7.16 MHz).
-- `ASK`: the interactive tests too: a test card on the screen, a tone on each sound chip, a key, the mouse, the
+  memory. The sound card is tested the same way in both runs: it checks its own memories and chips when asked, and
+  the diagnostics check what reaches it by DMA, its interrupt and a short stream (BIOS 0.21 on, sound card revision
+  3). About 2 minutes 52 s, where the quick run takes about 60 s
+  (on the emulator at 7.16 MHz, BIOS 0.21).
+- `ASK`: the interactive tests too: a test card on the screen, a note on a SID voice and a sample on the ES5503
+  played by the sound card, a key, the mouse, the
   speaker, the joysticks and the front panel's breakpoint, each asking you; `Y` is yes, and Esc skips the ones that
   wait for you to do something.
 

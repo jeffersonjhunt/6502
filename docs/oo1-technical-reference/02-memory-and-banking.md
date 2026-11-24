@@ -37,7 +37,7 @@ only, 32 blocks more, and the BIOS takes nothing from it. Neither has a module I
 | 31, `$7C000` | the BIOS and the Woz Monitor, `$C800–$FFFF` of it (the first 2 KB is under the I/O hole) |
 | 30, `$78000` | the 8×16 font, 4 KB |
 | 29, `$74000` | the video demo |
-| 24–28, `$60000` | the boot splash's samples for the ES5503: wave RAM's image, 80 KB ([chapter 7](07-sound.md)) |
+| 24–28, `$60000` | erased (`$FF`) since BIOS 0.21: the boot sound's samples are in the sound card's own flash ([chapter 7](07-sound.md#the-boot-sound)) |
 | 21–23, `$54000` | since BIOS 0.14: the ROM's diagnostics, block 23 their core and memory tests, 22 and 21 the card tests ([chapter 15](15-diagnostics.md)) |
 | 6–20 | erased (`$FF`) |
 | 4–5, `$10000` | since B5 (*proposed*): the IIe character sets, 8 KB each, set *n* at `$10000 + $2000 × n` for image *n*; an erased set (its first 8 bytes `$FF`) is made from the font ([chapter 13](13-apple-ii-mode.md)) |

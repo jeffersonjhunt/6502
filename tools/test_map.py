@@ -231,6 +231,41 @@ def is_cxx(path):
     return path.endswith((".cpp", ".h", ".hpp", ".cc", "CMakeLists.txt", ".cmake", "CMakePresets.json"))
 
 
+def examined_nothing(words, chosen, labels, path):
+    """True if a path's rule (its words) chose no suite and no step for it, so the branch's checks examined
+    nothing for it: a self rule for a suite no CMake file registers, a label no suite carries. A path gone from
+    the work tree (deleted, as a removed suite's file is) needs nothing examined: its removal is checked by
+    whatever its rule's labels chose, or by none."""
+    if set(words) == {"none"} or chosen or any(x in STEPS for x in labels):
+        return False
+    return os.path.exists(os.path.join(REPO, path))
+
+
+def needs_rule(path):
+    """True if a path must match a rule: every path in the work tree. A path gone from it (deleted, as a removed
+    folder's files are) needs none, so the map needn't keep a rule that matches nothing tracked (the owner,
+    2026-11-24)."""
+    return os.path.exists(os.path.join(REPO, path))
+
+
+def selftest_examined_nothing():
+    """examined_nothing's and needs_rule's rules on a path that is there and one that isn't (check runs it): the
+    number of problems."""
+    problems = 0
+    for path, want in (("tools/test_map.py", True), ("emulator/test/host/no_such_folder_gone/gone.s", False)):
+        if needs_rule(path) != want:
+            print(f"needs_rule: {path} should be {want}")
+            problems += 1
+    for path, want in (("tools/test_map.py", True), ("emulator/test/host/test_no_such_suite_gone.cpp", False)):
+        if examined_nothing(["self"], set(), set(), path) != want:
+            print(f"examined_nothing: {path} (a self rule, no suite) should be {want}")
+            problems += 1
+    if examined_nothing(["none"], set(), set(), "tools/test_map.py"):
+        print("examined_nothing: a none rule examines nothing by choice")
+        problems += 1
+    return problems
+
+
 def cmd_check(args):
     rules = read_map(args.map)
     paths = tracked()
@@ -242,7 +277,7 @@ def cmd_check(args):
         r = match(rules, p)
         if r:
             used.add(r[0])
-    problems = len(bad)
+    problems = len(bad) + selftest_examined_nothing()
     for n, pattern, _ in rules:
         if n not in used:
             print(f"{args.map}:{n}: {pattern} matches no tracked path")
@@ -319,6 +354,9 @@ def cmd_select(args):
     for p in args.paths:
         r = match(rules, p)
         if r is None:
+            if not needs_rule(p):
+                print(f"  {p}: deleted, no rule: nothing to examine")
+                continue
             unmapped.append(p)
             print(f"  {p}: NOT IN THE MAP")
             continue
@@ -328,12 +366,11 @@ def cmd_select(args):
         chosen |= s
         cxx = cxx or is_cxx(p)
         what = " ".join(words)
-        # A rule that isn't `none` and chose no suite and no step (a self rule for a suite no CMake file
-        # registers, a label no suite carries) examined nothing for that path.
-        nothing = set(words) != {"none"} and not s and not any(x in STEPS for x in l)
+        nothing = examined_nothing(words, s, l, p)
         if nothing:
             chose_nothing.append(p)
-        print(f"  {p}: {what} (line {n}, {pattern}): {len(s)} suite(s){': NOTHING' if nothing else ''}")
+        gone = "" if os.path.exists(os.path.join(REPO, p)) else ": deleted"
+        print(f"  {p}: {what} (line {n}, {pattern}): {len(s)} suite(s){': NOTHING' if nothing else gone}")
     if unmapped:
         print(f"{len(unmapped)} path(s) not in {args.map}: add a rule for each", file=sys.stderr)
         return 1

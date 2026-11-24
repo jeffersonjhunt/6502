@@ -128,7 +128,6 @@ TEST(the_card_says_what_it_is_and_comes_up_ready)
 {
     Board b;
     REQUIRE(b.card != nullptr);
-    CHECK(b.m->sound_card() == nullptr); // revision 3 is the device, not revision 2's card
     CHECK_EQ(b.reg(SoundCard3::ID_REG), 0xA3);
     CHECK_EQ(b.reg(SoundCard3::MEMSIZE), 128);
     CHECK_EQ(b.reg(SoundCard3::FWVER), SoundFw::VERSION_MAJOR);
@@ -140,6 +139,23 @@ TEST(the_card_says_what_it_is_and_comes_up_ready)
     Board small(" memsize=2");
     REQUIRE(small.card != nullptr);
     CHECK_EQ(small.reg(SoundCard3::MEMSIZE), 32);
+}
+
+TEST(a_new_audio_rate_drops_the_sound_made_before_it)
+{
+    // The firmware keeps up to a second of output for the host; a new rate (a page's audio turned on, Apple II
+    // mode's switch) starts from now, as the card's own buffer does, not with what was made before it.
+    Board b;
+    REQUIRE(b.card != nullptr);
+    b.send(SoundFw::BEEP, 1, {0xE8, 0x03, 0xE8, 0x03, 0}); // 1,000 Hz for 1 s
+    b.run_ms(500);                                          // half a second of it made, nobody taking it
+    b.card->set_audio_rate(48'000);
+    b.run_ms(100);
+    std::vector<float> out(2 * 48'000);
+    const size_t n = b.card->take_audio(out.data(), 48'000);
+    std::printf("  a tenth of a second after the rate: %zu frames\n", n);
+    CHECK(n >= 4'790);
+    CHECK(n <= 4'810);
 }
 
 TEST(a_load_s_bytes_go_in_by_channel_2_demand_dma_and_checksum)
