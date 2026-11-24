@@ -305,7 +305,7 @@ SN_EFFECTS      = 21                   ; block: +1 the first effect, +2-4 a phys
 SN_EFFECT       = 22                   ; block: +1 the effect, +2 the volume, +3 the pan, +4 the priority, +5-6
                                        ;   cents, +7 the chip: A = the voice handle
 SN_ESTOP        = 23                   ; block: +1 a voice handle, 0 every effect voice
-SN_MUSIC        = 24                   ; block: +1 a slot (0-7), +2-4 a note block's physical address, +5-7 its
+SN_MUSIC        = 24                   ; block: +1 a slot (0-31), +2-4 a note block's physical address, +5-7 its
                                        ;   length, +8 MUSIC_PLAY's flags (bit 0 queued, bit 1 freed when done) [SC_MUSIC]
 SN_MCTL         = 25                   ; block: +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) [SC_MUSIC]
 SN_MSTATUS      = 26                   ; block: +1-24 get MUSIC_STATUS's 24 bytes

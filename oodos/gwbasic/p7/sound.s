@@ -619,7 +619,7 @@ MSUS:           STA     U0
                 RTS
 
 ; FLUSH: the statement's block, if it holds a note, to the card (MU_BLOCK,
-; queued behind what plays; with the card's 8 blocks in use, again after
+; queued behind what plays; with the card's 32 blocks in use, again after
 ; CHKINT); GWC moved on, the block empty, the threshold ON PLAY's. Carry set
 ; if the card refused it.
 FLUSH:          LDA     BLKN
@@ -662,7 +662,7 @@ FLUSH:          LDA     BLKN
                 CLC
 @x:             RTS
 
-; SENDT: MU_TONE of TONEB, again after CHKINT while the card's 8 blocks are in use.
+; SENDT: MU_TONE of TONEB, again after CHKINT while the card's 32 blocks are in use.
 SENDT:          LDA     #<TONEB
                 LDX     #>TONEB
                 JSR     MU_TONE

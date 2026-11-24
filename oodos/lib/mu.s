@@ -5,7 +5,7 @@
 ; at once, as a block of one (the owner's answer 9); MU_BLOCK sends a block
 ; the program built. Each goes by function 82's SN_MUSIC into the next of the
 ; card's music slots in turn, queued behind what plays, freed when done; with
-; all eight playing or queued, PE_FULL. The counts are the card's
+; all 32 playing or queued, PE_FULL. The counts are the card's
 ; (MU_COUNT: SN_MSTATUS), and its events come to the program's queue as
 ; EK_SOUND, which MU_EVENT names.
 ;
@@ -158,7 +158,7 @@ MUQ:    jsr     voice
 
 ; A/X a block of MU_BLEN bytes: +0-1 a note block's address (the card's
 ; layout, in one run of the program's memory), +2-3 its length: sent and
-; queued behind what plays. PE_FULL with all eight slots in use; PE_REFUSED
+; queued behind what plays. PE_FULL with all 32 slots in use; PE_REFUSED
 ; if the card refused it (a block that doesn't parse: E_DATA).
 MU_BLOCK:
         sta     MUP
@@ -221,7 +221,7 @@ SNDBLK: jsr     PHYSOF
         lda     mslot
         sta     MUSLOT
         jmp     ok
-.assert MU_SLOTS = 8, error, "SNDBLK's slots: AND #7"
+.assert MU_SLOTS = 32, error, "SNDBLK's slots: AND #31, the card's MUSIC_SLOTS"
 
 ; A/X a block: +0 the voice, +1 the control register's bits (waveform,
 ; ring, sync), +2 attack/decay, +3 sustain/release, +4-5 the pulse width:

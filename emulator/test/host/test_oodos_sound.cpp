@@ -479,7 +479,7 @@ TEST(info_and_the_claims)
     CHECK_EQ(b[5], fw(r).memsize());
     CHECK_EQ(b[6], fw(r).features());
     CHECK_EQ(b[16], 4); // tune slots
-    CHECK_EQ(b[17], 8); // music slots
+    CHECK_EQ(b[17], 32); // music slots
     CHECK_EQ(b[32], 0xEE);
     // A load from OODOS's own memory (banks 6-7: the system's) is refused, as 51's segment is.
     CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));

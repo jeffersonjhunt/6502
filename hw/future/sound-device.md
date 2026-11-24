@@ -333,7 +333,7 @@ slot, so the host can send a load and the play after it without waiting for a re
 
 | Cmd | Name | Parameters | Reply's results |
 |---|---|---|---|
-| `$40` | MUSIC_LOAD | +3 a slot (0–7), +4–6 the length | none; a transfer opens for a block |
+| `$40` | MUSIC_LOAD | +3 a slot (0–31), +4–6 the length | none; a transfer opens for a block |
 | `$41` | MUSIC_PLAY | +3 the slot, +4 flags: bit 0 queue it after what plays (PLAY's MB), bit 1 free the slot when done | none |
 | `$42` | MUSIC_STOP | none | none: every queued block dropped, the voices released |
 | `$43` | MUSIC_PAUSE, `$44` MUSIC_RESUME | none | none |
@@ -961,7 +961,7 @@ transfers and the flash, which no one command group owns.
 
 | Command | Results (after the reply's +3 status), by offset from the first |
 |---|---|
-| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (8), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 effect voices (6 SID, 32 oscillators: +21 the SID voices, +22 the oscillators), +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
+| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (32), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 effect voices (6 SID, 32 oscillators: +21 the SID voices, +22 the oscillators), +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
 | LOSTCLR | +0-1 the events lost since the last |
 | TIME | +0-3 ms |
 | SELFTEST | +0 the parts tested (the request's bits that the card has), +1 those that failed |

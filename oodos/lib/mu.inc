@@ -7,7 +7,7 @@
 MU_INC = 1
 
 MU_VOICES       = 6
-MU_SLOTS        = 8                    ; the card's music slots: blocks playing or queued
+MU_SLOTS        = 32                   ; the card's music slots: blocks playing or queued
 MU_NOTE0        = 12                   ; MU_NOTE's note 0 (C-0) as the block's note number (A-4 57: 69)
 
 ; mu.s's: MUQ sends voice A's entry MUE (MUELEN bytes, its kind in +0's high

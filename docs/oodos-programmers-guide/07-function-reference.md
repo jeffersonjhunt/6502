@@ -3482,7 +3482,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 22 | `SN_EFFECT` | +1 the effect, +2 the volume (0–255), +3 the pan (0 left, 128 the centre, 255 right), +4 the priority (0–3), +5–6 a pitch offset in cents (signed), +7 the chip (0 any, 1 a SID, 2 the ES5503) | plays an effect on a voice | |
   | 23 | `SN_ESTOP` | +1 a voice handle, 0 every effect voice | stops it | |
   | | **Music** | | | |
-  | 24 | `SN_MUSIC` | +1 a music slot, 0–7, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it | music |
+  | 24 | `SN_MUSIC` | +1 a music slot, 0–31, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it | music |
   | 25 | `SN_MCTL` | +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) | controls music | music |
   | 26 | `SN_MSTATUS` | 24 bytes to fill | music's state | |
   | | **The beep** | | | |

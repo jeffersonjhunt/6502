@@ -241,20 +241,20 @@ TEST(a_tone_in_hz_and_a_rest)
     CHECK_EQ(note(r, 2, REST, 10, 10), OK);
 }
 
-TEST(eight_blocks_fill_the_card_and_the_ninth_is_pe_full)
+TEST(thirty_two_blocks_fill_the_card_and_the_thirty_third_is_pe_full)
 {
-    // The card holds eight blocks, the one playing and those queued: a ninth note is PE_FULL, a marker too, and once
-    // the first has ended there is room again. Must fail with SNDBLK's test of the queue against all eight slots
-    // (the card then refuses the load: PE_REFUSED).
+    // The card holds 32 blocks (review C6: 8 before), the one playing and those queued: a 33rd note is PE_FULL, a
+    // marker too, and once the first has ended there is room again. Must fail with SNDBLK's test of the queue against
+    // all 32 slots (the card then refuses the load: PE_REFUSED).
     CcpRig r;
     REQUIRE(r.ok);
     ready(r);
-    for (unsigned i = 0; i < 8; ++i)
-        CHECK_EQ(note(r, 3, 40 + i, 200, 200), OK);
-    CHECK_EQ(note(r, 3, 40, 200, 200), err(PE_FULL));
+    for (unsigned i = 0; i < 32; ++i)
+        CHECK_EQ(note(r, 3, 40 + i, 2000, 2000), OK);
+    CHECK_EQ(note(r, 3, 40, 2000, 2000), err(PE_FULL));
     CHECK_EQ(ac(mu(r, 'M', 3, 1)), err(PE_FULL));
-    CHECK_EQ(count(r, 3), std::string("07 01")); // seven waiting, the first sounding
-    r.run(ms(220));
+    CHECK_EQ(count(r, 3), std::string("1F 01")); // 31 waiting, the first sounding
+    r.run(ms(2020));
     CHECK_EQ(note(r, 3, 40, 200, 200), OK);
     CHECK_EQ(ac(mu(r, 'X', ALL)), OK);
     CHECK_EQ(count(r, 3), std::string("00 00"));

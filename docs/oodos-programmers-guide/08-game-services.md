@@ -510,7 +510,7 @@ The warm boot empties the store, so a program loads its bank when it starts.
 ### Music
 
 The card's sequencer plays **note blocks**: a whole tune, or a whole PLAY statement, in one transfer, with lengths in
-microseconds, 32 bits each. It holds eight blocks, in slots 0–7, playing and queued. With music claimed, `SN_MUSIC`
+microseconds, 32 bits each. It holds 32 blocks, in slots 0–31, playing and queued. With music claimed, `SN_MUSIC`
 loads a block into a slot and plays it: +1 the slot, +2–4 the block's address, +5–7 its length, +8 bit 0 queued
 behind what plays (else at once), bit 1 the slot freed when it is done. `SN_MCTL` stops music (every queued block
 dropped), pauses it, resumes it, or sets the threshold for `SK_MUSIC_COUNT` (+1 3, +2 n: the event when the notes
@@ -551,8 +551,8 @@ doesn't parse (6, DATA).
   music's. `MU_COUNT`: A a voice; A = its notes waiting (the card's count, exact), X = music's state.
 
 Each call but `MU_EVENT` and `MU_COUNT` returns carry clear and A = 0, or carry set and A an error: `PE_STATE` before
-`MU_INIT`, `PE_RANGE`, `PE_FULL` (all eight slots playing or queued: a program that sends a note at a time can be
-eight ahead), or `PE_REFUSED`.
+`MU_INIT`, `PE_RANGE`, `PE_FULL` (all 32 slots playing or queued: a program that sends a note at a time can be
+32 ahead), or `PE_REFUSED`.
 
 ### The beep
 

@@ -129,7 +129,7 @@ namespace ooe::emu
         static constexpr uint8_t CARD_TYPE = 0xA3;
         static constexpr uint8_t VERSION_MAJOR = 1, VERSION_MINOR = 0;
         static constexpr uint16_t BUILD = 1;
-        static constexpr unsigned TUNE_SLOTS = 4, SAMPLE_SLOTS = 256, EFFECTS = 256, MUSIC_SLOTS = 8, STREAMS = 2;
+        static constexpr unsigned TUNE_SLOTS = 4, SAMPLE_SLOTS = 256, EFFECTS = 256, MUSIC_SLOTS = 32, STREAMS = 2;
 
         enum Command : uint8_t
         {

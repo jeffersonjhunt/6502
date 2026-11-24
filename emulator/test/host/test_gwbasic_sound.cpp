@@ -803,6 +803,22 @@ TEST(play_mb_runs_in_the_background_and_play_n_counts)
     CHECK(!running(r));
 }
 
+// Review C6 (BASIC's 32-note rule across statements): 32 one-note PLAY "MB" statements all queue (the card's 32 music
+// slots, a block a statement), PLAY(0) reaches 32, and ON PLAY(10) (n > 8) fires as the count falls past 10. Must fail
+// with the card's 8 slots (the ninth statement waits: PLAY(0) never past 8, ON PLAY(10) never fires).
+TEST(thirty_two_mb_statements_queue_and_on_play_past_8_fires)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 ON PLAY(10) GOSUB 100:PLAY ON", "20 FOR I=1 TO 32:PLAY \"MB T120 L4 C\":NEXT", "30 M=PLAY(0)",
+                 "40 IF PLAY(0)>0 THEN 40", "50 PRINT M;N:END", "100 N=N+1:RETURN"},
+             ms(17500));
+    if (line(r, 2) != " 32  1")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string(" 32  1"));
+}
+
 // N33 (the owner's answer 11, its gate 9,000 by answer 24: a PLAY note in MB, the interrupts left out): PLAY "MB
 // T255 L64" with 16 notes against one note, T17's method; the difference over 15. About 5,100 of a note is function
 // 82's: OOLIB's seven SN_SENDs and the card's busy retries (a note sent as one block is OOLIB's backlog). Guards MB

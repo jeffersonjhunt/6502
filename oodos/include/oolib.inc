@@ -395,7 +395,7 @@ PBL_LEN         = 10
 ; and PLAY. MU_INIT claims music (SC_MUSIC) and loads nothing. MU_NOTE,
 ; MU_TONE and MU_MARK send their entry at once as a block of one (queued
 ; behind what plays); MU_BLOCK sends a whole block the program built. The
-; card holds 8 blocks, playing and queued. Each call but MU_EVENT and
+; card holds 32 blocks, playing and queued. Each call but MU_EVENT and
 ; MU_COUNT returns carry clear and A = 0, or carry set and A an error (PE_*:
 ; PE_STATE before MU_INIT or after MU_QUIT, PE_RANGE, PE_FULL, PE_REFUSED);
 ; A, X and Y changed.
@@ -408,7 +408,7 @@ PBL_LEN         = 10
 ;               (C-0) to 95 (B-7; A-4 is 57), or MU_REST; +3-4 the length in
 ;               ms (0 is 1); +5-6 the gate time in ms (0: silent; the length
 ;               or more: legato). PLAY's MN is 7/8 of the length, MS 3/4.
-;               PE_FULL with 8 blocks playing and queued
+;               PE_FULL with 32 blocks playing and queued
 ;   MU_TONE     the same with +1-2 a frequency in Hz (0 a rest), exact
 ;               (SOUND)
 ;   MU_BLOCK    A/X a block of MU_BLEN (interface 18): +0-1 a note block's
