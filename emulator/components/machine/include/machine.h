@@ -53,7 +53,8 @@
  * a revision 2 one sends it to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
- * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
+ * card: at most one; `rev=1`, `2` (the default: sound_card.h) or `3` (the device: sound_card3.h), and on
+ * revision 3 `memsize=2`, `4` or `8`, its store in MB, 8 the default), sd (the mass storage card, sd_card.h; at most
  * one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board; a 4-byte 6551 in an I/O
  * block, every 4). Mappings may overlap, and the later line answers: so a
@@ -99,6 +100,7 @@
 #include "flash.h"
 #include "sd_card.h"
 #include "sound_card.h"
+#include "sound_card3.h"
 #include "decoder.h"
 #include "device.h"
 #include "joystick_ports.h"
@@ -179,6 +181,8 @@ namespace ooe::emu
         Disk2Card *disk2_card() const { return disk2_card_; }
         /// The sound card, if the description has one (`sound`).
         SoundCard *sound_card() const { return sound_card_; }
+        /// The sound card if it is revision 3, the device (`sound ... rev=3`); then sound_card() is null.
+        SoundCard3 *sound_device() const { return sound_device_; }
         /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
         SdCard *sd_card() const { return sd_card_; }
         /// The `flash` lines' chips, in the description's order (set_cpu_hz() or the Session tells them the clock).
@@ -230,6 +234,7 @@ namespace ooe::emu
         UsbCard *usb_card_{nullptr};         ///< owned through devices_
         Disk2Card *disk2_card_{nullptr};     ///< owned through devices_
         SoundCard *sound_card_{nullptr};     ///< owned through devices_
+        SoundCard3 *sound_device_{nullptr};  ///< owned through devices_
         SdCard *sd_card_{nullptr};           ///< owned through devices_
         DmaController *dma_{nullptr};        ///< owned through devices_
         std::vector<Flash *> flashes_;       ///< owned through devices_

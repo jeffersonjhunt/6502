@@ -5,7 +5,9 @@ Draft, Nov 21, 2026, for the owner to edit and approve. It builds nothing.
 **Status: draft.** Everything here is **Proposed** unless it says **Decided**. Decided means the owner's decisions of
 2026-11-21 (recorded in [the appendix](#appendix-the-owners-decisions-2026-11-21), to be copied into hw/design.md when this is approved). Register offsets,
 command numbers, record layouts and sizes are proposals for the owner to change. [hw/sound-rev2.md](../sound-rev2.md)
-stays the record of revision 2 and isn't edited.
+stays the record of revision 2 and isn't edited. The layouts this draft leaves open, and function 82's
+renumbering (the owner's answer of 2026-11-23), are in [the interface details](#appendix-interface-details-proposed-for-s1-2026-11-23)
+at the end.
 
 ## Summary
 
@@ -789,6 +791,14 @@ decision. The numbers are kept so the text above can cite them.
 - **Q15.** **What /RESET keeps.** **Decided:** the store's objects, as the storage card keeps its mounts; OODOS's cold
     boot sends FREEALL. Power-on and FWRESTART empty it.
 
+### The interface details, decided (2026-11-23)
+
+- The owner: "recommendations as listed, with the clean table". [The interface details](#appendix-interface-details-proposed-for-s1-2026-11-23)
+  are approved as written, with function 82 laid out afresh as one table of 34 operations (`SN_OPS` 34), removed
+  numbers reused and none kept refused; FWRESULT at `$11`; `SC_MUSIC` `$04`; a rest entry of 5 bytes.
+- Added: `SN_REFUSED`, A = `$FD` and X = the card's error, when the card refuses a command.
+- "Notes waiting" excludes the sounding note; branch C checks PLAY(n) against the IBM manual.
+
 ## Open questions
 
 1. **The interface versions.** **Recommended:** set OODOS's version and OOLIB's interface number (15 at OODOS 0.14)
@@ -897,3 +907,271 @@ Owner: "recommendations as listed, make sure all this is written down, use as ma
   own SID step table; length/fade by the program; gapless MP3; rev 3 only; SID model per tune; load-from-file
   later; /RESET keeps, cold boot clears). The owner asked where an MCU (e.g. RP2350B, 520 KB SRAM) gets the
   2/4/8 MB store: answer to be written into the spec (QSPI PSRAM on the RP2350's second QMI chip-select).
+
+## Appendix: interface details (proposed for S1, 2026-11-23) ##
+
+**Decided (the owner, 2026-11-23): approved as written,** "recommendations as listed, with the clean table"
+([the build plan](sound-device-build.md), unit S1, and [its decisions](sound-device-build.md#decisions)), with
+FWRESULT at `$11`, `SC_MUSIC` at `$04`, a rest entry of 5 bytes, and `SN_REFUSED` added. The draft leaves these layouts open; this fills them, starting from the
+build plan's section 5.1. Function 82's operations are laid out afresh as one clean table, as the owner's revised
+answer 4+5 says, which replaces the numbering from 21 and the reserved, refused numbers in
+[What OODOS's function 82 becomes](#what-oodoss-function-82-becomes). Every multi-byte field is little-endian.
+"ms" is the card's own millisecond count (TIME's); "µs" lengths are 32 bits.
+
+### Event kinds and their records
+
+Every event record is the kind (+0), n (+1: the bytes after +1), the object (+2), the card's ms stamp when it
+happened (+3-6, 4 bytes), then the payload (+7 on). A REPLY has no object or stamp: +2 the tag, +3 the status (0 or
+an [error](#errors)), +4 on the results. The kind's high nibble is the group, as the commands' is; group 1 is the
+transfers and the flash, which no one command group owns.
+
+| Kind | Name | Object (+2) | Payload (+7 on) | n |
+|---|---|---|---|---|
+| `$00` | none | | (EVT reads 0 with nothing waiting) | |
+| `$01` | REPLY | the tag | +3 status, +4 on the command's results | 2 + results |
+| `$10` | XFERDONE | the tag of the command that opened the transfer | +7 that command, +8 the status (0, `E_DATA`, `E_MEMORY`), +9 on its results (below) | 7 + results |
+| `$11` | FWRESULT | 0 | +7 the status (0: written and marked to boot; `E_FIRMWARE`), +8-9 the image's version (major, minor) | 8 |
+| `$20` | TUNE_STARTED | the tune slot | +7-8 the song (1-based) | 7 |
+| `$21` | TUNE_STALL | the tune slot | +7-10 ms since the last play call | 9 |
+| `$22` | TUNE_JAM | the tune slot | +7-8 the 6510's address of the JAM opcode | 7 |
+| `$23` | TUNE_ENDED | the tune slot | +7-10 ms played (its length and fade ran out) | 9 |
+| `$30` | VOICE_DONE | the voice handle | +7 the effect | 6 |
+| `$31` | VOICE_STOLEN | the voice handle | +7 the effect, +8 the priority that took it | 7 |
+| `$40` | MUSIC_MARK | the logical voice (0-7) | +7 the marker (0-254), +8 the music slot | 7 |
+| `$41` | MUSIC_COUNT | 0 | +7-8 the notes waiting (all voices), +9 the threshold | 8 |
+| `$42` | MUSIC_DONE | the last block's slot | +7-10 ms played since MUSIC_PLAY began the queue | 9 |
+| `$50` | NEED | the stream | +7-10 the room in bytes, +11-14 ms buffered, +15 bit 0 urgent (under 1 s buffered) | 14 |
+| `$51` | UNDERRUN | the stream | +7-10 the frame position, +11-12 the underruns so far | 11 |
+| `$52` | UNDERRUN_END | the stream | +7-10 the frame position sound came back at, +11-14 the frames missed in that underrun | 13 |
+| `$53` | TRACK | the stream now playing | +7 the stream that ended (now closed) | 6 |
+| `$54` | STREAM_ENDED | the stream | +7-10 the frames played | 9 |
+| `$60` | BEEP_DONE | 0 | none (BEEP's or BELL's sound ended, or a second BEEP replaced it) | 5 |
+
+- **XFERDONE's results** by the command that opened the transfer: TUNE_LOAD +9-10 the songs, +11-12 the start song,
+  +13 the clock (0 unknown, 1 PAL, 2 NTSC, 3 either), +14 the SIDs (1 or 2), +15 bit 0 RSID, bit 1 the start song
+  CIA-timed; SAMPLE_LOAD none; EFFECT_LOAD +9 the definitions taken; MUSIC_LOAD +9-12 the entries; STREAM_DATA and
+  FW_BEGIN none.
+- **EVENTS' mask** (+3) is by group: bit n wants kinds `$n0-$nF` (bit 1 the transfers and the flash, 2 tunes, 3
+  voices, 4 music, 5 streams, 6 the beep). REPLY is always sent. After power-on, FWRESTART, CTRL's RESET and
+  /RESET the mask is `$FF`.
+- **BOOTSOUND** is `$09` in the device group: no parameters, no results; the boot sound plays from the card's flash
+  and its end sends nothing.
+
+### The replies' results
+
+| Command | Results (after the reply's +3 status), by offset from the first |
+|---|---|
+| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (8), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 effect voices (6 SID, 32 oscillators: +21 the SID voices, +22 the oscillators), +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
+| LOSTCLR | +0-1 the events lost since the last |
+| TIME | +0-3 ms |
+| SELFTEST | +0 the parts tested (the request's bits that the card has), +1 those that failed |
+| CHECKSUM | +0-3 the CRC-32, +4-7 the bytes it covers |
+| XFERABORT | +0-2 the bytes that had come; of a stream's chunk, the bytes kept (those already played: the rest is dropped, and the host resends from there) |
+| TUNE_STATUS (16) | +0 the state (0 stopped, 1 starting, 2 playing, 3 paused, 4 stalled, 5 jammed, 6 ended), +1 the slot, +2-3 the song, +4-7 ms played (paused time out), +8-11 play calls, +12-13 the 6510's cycles in the last frame, +14-15 ms since the last play call (held at 65,535) |
+| TUNE_INFO (104) | +0-1 the songs, +2-3 the start song, +4 the clock (as XFERDONE's), +5 bit 0 RSID, bit 1 two SIDs, bit 2 written for the 8580, bit 3 the start song CIA-timed, +6-7 the second SID's address (0 none), +8-39 the name, +40-71 the author, +72-103 the released field, 32 bytes each as the file has them |
+| PLAY | +0 the voice handle (1-255) |
+| MUSIC_STATUS (24) | +0 the state (0 stopped, 1 playing, 2 paused), +1 the blocks queued, +2-17 the notes waiting on each logical voice (8 × 2), +18-21 ms played, +22-23 the notes waiting on all (held at 65,535) |
+| STREAM_STATUS (21) | +0 the state (revision 2's: 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended, `$80` up an error), +1 the codec, +2-3 the rate, +4 the format, +5-8 the bytes buffered, +9-12 ms buffered, +13-16 frames played, +17-18 kbit/s, +19-20 underruns |
+| VIS (98), SIDREGS (50), LEVELS (10) | as the command set says |
+
+- **CHECKSUM's kind** (+3) is the command that loaded the object (`$20` a tune, `$30` a sample, `$32` the effect
+  table last loaded, `$40` a music block, `$51` a stream's last chunk, `$0D` the firmware image last received), +4 its
+  slot (the stream, for `$51`; ignored for `$32` and `$0D`). The CRC is of the bytes as they came through DATA,
+  before any conversion (a sample's sign, its `$00` bytes).
+- **The CRC-32** everywhere (CHECKSUM, the firmware image) is the common one: polynomial `$04C11DB7` reflected
+  (`$EDB88320`), starting at `$FFFFFFFF`, the result inverted.
+- **"Notes waiting"** are a block's note, frequency and rest entries not yet begun; the one sounding isn't counted
+  (decided; branch C checks GW-BASIC's PLAY(n) against the IBM manual and brings any difference back).
+  MUSIC_COUNT comes when the total falls from the threshold n to n − 1.
+
+### The note block
+
+A block is a header, an instrument table and its entries, in one transfer (MUSIC_LOAD).
+
+| Part | Bytes | What |
+|---|---|---|
+| Header | 8 | +0 the version (1), +1 the logical voices used (bit n voice n), +2-3 reserved (0), +4-7 the entries that follow the instruments |
+| Instruments | 8 each | one for each voice in +1's mask, in voice order: the voice's sound until an instrument entry changes it |
+| Entries | 2-12 each | in time order per voice; the voices' entries may be interleaved, and each voice keeps its own time |
+
+**An instrument** (8 bytes): +0 the source (0 a SID voice, 1 an ES5503 sample, 2 the tone generator); for a SID voice
++1 the control register's waveform, ring and sync bits (the gate is the entries'), +2 AD, +3 SR, +4-5 the pulse width
+(12 bits); for a sample +1 the sample slot, +2 the note it plays at its recorded rate, +3 0 one-shot or 1 looped at
+the sample's loop points; +6 the volume (0-255, 255 unity: the sample's or the tone generator's; for a SID voice its
+chip's volume while music holds the chip), +7 the pan (0 left, 128 centre, 255 right; a SID voice takes its chip's
+place in the mix, so it is ignored). Unused bytes are 0.
+
+**An entry:** +0 the kind in the high nibble, the logical voice (0-7) in the low.
+
+| Kind | Bytes | After +0 |
+|---|---|---|
+| 0 note | 10 | +1 the note (0-127, 69 the A at 440 Hz), +2-5 the length in µs, +6-9 the gate in µs (at most the length; equal is legato) |
+| 1 frequency | 12 | +1-3 Hz × 16 (24 bits), +4-7 the length in µs, +8-11 the gate in µs |
+| 2 rest | 5 | +1-4 the length in µs |
+| 3 instrument | 9 | +1-8 an instrument, as the table's, for this voice's notes from here |
+| 4 volume | 2 | +1 the voice's volume (0-255) from here |
+| 5 marker | 2 | +1 the marker (0-254): MUSIC_MARK when the voice reaches it |
+
+A block whose header, counts or entries don't parse is refused at XFERDONE with `E_DATA` (a voice outside the mask,
+an entry past the transfer's end, a gate longer than its length, a kind above 5).
+
+### The sound bank's definitions
+
+**A SID effect** (EFFECT_DEF kind 0): +0 the steps (1-16), +1 the step to loop back to after the last (`$FF` none:
+the effect ends), then 13 bytes a step:
+
+| Step | What |
+|---|---|
+| +0-1 | its length in ms (1-65,535) |
+| +2 | the control register: waveform, ring, sync and gate bits as the chip's (the test bit kept 0) |
+| +3-5 | the frequency, Hz × 16 (24 bits) |
+| +6-7 | the pulse width (12 bits) |
+| +8 | AD |
+| +9 | SR |
+| +10-11 | a frequency sweep, signed Hz × 16 a ms, over the step |
+| +12 | a pulse-width sweep, signed, a ms, over the step |
+
+**A sample effect** (EFFECT_DEF kind 1), 11 bytes: +0 the sample slot, +1-2 the rate to play it at in Hz (0: the rate
+it was recorded at), +3 0 one-shot or 1 looped at the sample's loop points, +4-5 the attack in ms, +6-7 the hold in ms
+(0: to the sample's end, or to VOICE_STOP when looped), +8-9 the release in ms, +10 reserved (0). PLAY's pitch offset
+in cents applies to both kinds.
+
+**EFFECT_LOAD's table** is a run of definitions, each +0 its length (the bytes after it), +1 the kind, +2 on the
+definition, numbered from the command's first effect on.
+
+### The firmware image
+
+A 32-byte header, then the body:
+
+| Bytes | What |
+|---|---|
+| +0-3 | the magic, `OOSD` in ASCII |
+| +4 | the card type, `$A3` |
+| +5 | the header's version, 1 |
+| +6-7 | the image's version (major, minor), as FWVER will read |
+| +8-9 | its build |
+| +10-11 | reserved, 0 |
+| +12-15 | the body's length |
+| +16-19 | the body's CRC-32 |
+| +20-27 | reserved, 0 |
+| +28-31 | the CRC-32 of +0-27 |
+
+FW_BEGIN's length is the header's and the body's. FW_COMMIT's reply comes at once (the image is taken for checking);
+FWRESULT says, once the image is checked and written into the slot not running, whether it will boot. A wrong magic,
+card type, length or either CRC is `E_FIRMWARE`, and the old image stays the one that boots. In the emulator the slots
+live in the card object (a FWRESTART or /RESET keeps them; a machine built afresh starts from the built-in image), and
+behaviour stays the model's: what is tested is the update's path ([the build plan](sound-device-build.md), 4.7).
+
+### The firmware's port
+
+The firmware talks to the chips through one interface (`SoundFwPort`), so the same code can drive the emulator's
+chips, a microcontroller's pins or an FPGA's cores: the 6510 (write its RAM, reset, run, hold, stop; its play-call
+signal, the stub's `$DE00` write, which reaches the firmware and not the host; its JAM; its cycle count); the SIDs (a
+register write by chip, register and value; the model; the ADC's samples); the ES5503 (a register write, wave RAM, its
+output and interrupt); the codec's DAC; and the card's clock, in SID clocks and 48 kHz samples. The 6510's map at
+the first step is today's decode (a second SID at `$D420`, or `$D500` when the header names it; every other
+`$D400-$D7FF` address SID A), so the corpus can play identically; the map above, with mirrors and a header-named
+second SID, comes as a later firmware step with its own corpus baseline (the owner's answer 2).
+
+**Times in the model:** a command runs at the first 48 kHz sample at least 20 µs after its record's last byte came
+(the byte's card time, its place within a sample included); the start-up after power-on or FWRESTART takes 20 ms
+(inside the spec's 100 ms). Both are constants with test hooks (`set_latency_us`, `set_startup_ms`).
+
+**A refused load leaves the slot as it was.** A command that loads (TUNE_LOAD, SAMPLE_LOAD, MUSIC_LOAD,
+EFFECT_LOAD, FW_BEGIN) checks everything first: a transfer already open (`E_XFER`) and room for its length, counting
+the slot's own object as free (`E_MEMORY`); refused, it changes nothing. Taken, it frees the slot's old object at
+once and opens the transfer into the room: a transfer that then fails (XFERABORT, CTRL's RESET, or `E_DATA` at
+XFERDONE) leaves the slot empty. The model keeps no second copy of the old object.
+
+**An MP3 stream is read as revision 2 reads its FIFO:** an ID3v2 tag is skipped by its size; a frame in step with
+the stream is decoded once its end and the next header have come (or the data has ended); one out of step only once
+minimp3's own sync rule has decided on it; until a decision can be made, the stream waits for more. So a stream fed
+as it plays decodes as the whole file would.
+
+**STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
+when that transfer ends: what is in plays out, the chunk in flight included.
+
+**A sample PLAY checks wave RAM first.** A sample effect needing room in wave RAM that voices playing hold is
+refused `E_BUSY` before a voice is taken: no voice is stolen for it.
+
+**A paused sample note starts again.** MUSIC_PAUSE halts a music voice's ES5503 note; MUSIC_RESUME starts it
+again, from the sample's start, for the rest of its length (the ES5503 starts a halted oscillator from the top).
+
+**An update is written at the end of its flash write.** FW_COMMIT's image is written into the slot not running,
+and marked to boot, only when the write's 50 ms end, just before FWRESULT. A power-on or FWRESTART before then
+drops the update: the old image boots, FWVER is unchanged and no FWRESULT comes; the host sends the update again.
+
+**MIX's sources reach every chip by its holder.** Each SID is mixed at its holder's level: a tune's chip at the
+tunes' (with the tune's fade), else music's while a music voice is on it, else the effects'. The ES5503's music
+voices play on its channels 2 and 3, mixed at music's level; its effects and the boot sound on channels 0 and 1, at
+the effects'. So muting one source leaves the others heard, whichever chips they share.
+
+**XFERABORT runs at once.** A command naming an object whose transfer is still open waits for it, in order, with
+everything behind it; XFERABORT alone doesn't wait behind such a command: it runs as soon as it is due, ends the
+transfer, and its reply comes before the waiting command's (which then finds the object gone: `E_SLOT`). So a host
+can always end a load it can't finish.
+
+### Function 82: one clean table
+
+The owner's answer 4+5 (2026-11-23): function 82's operations are numbered afresh, grouped by job, with no gaps and
+nothing kept refused; removed numbers are reused, since nothing has shipped before 1.0. The guard is OOLIB's interface
+18: every rebuilt caller (GW-BASIC's loader, `ui_load`, PLAYSID, SYSINFO, OO-Amp's port) checks it and refuses an
+older OODOS. As before: X = 0 and A the operation, or A/X a block whose +0 is the operation; A = X = `$FF` for an
+operation that isn't, a block needed and not given, a part not claimed, or no revision 3 card; A = `$FE` (`SN_BUSY`),
+X = `$FF` when the card doesn't answer in 100 ms or channel 2 is busy with the stream. **Decided (new, the owner,
+2026-11-23):** A = `$FD` (`SN_REFUSED`), X = the card's error (`E_MEMORY`, `E_BUSY` ...) when the card refused the command, so a program can
+tell a full store from a chip in use. [part] is the claim an operation needs.
+
+| Op | Name | Block (after +0) | Results; on the card |
+|---|---|---|---|
+| | **The device** | | |
+| 0 | `SN_INFO` | none, or +1-3 to fill | A the revision (3; 0 no card), X FEATURES; a block +1, +2 those, +3 the parts no one has claimed |
+| 1 | `SN_CLAIM` | +1 the parts | all or none |
+| 2 | `SN_RELEASE` | +1 the parts | each stopped and given back |
+| 3 | `SN_IDENTIFY` | +1-32 to fill | IDENTIFY's 32 bytes |
+| 4 | `SN_FIRMWARE` | +1-3 a physical address, +4-6 the length, +7 0 a piece, 1 begin (+8-11 the image's length), 2 commit | FW_BEGIN, the pieces into DATA, FW_COMMIT then FWRESULT awaited; no claim; refused while any part is claimed |
+| | **Tunes** | | |
+| 5 | `SN_TUNE` | +1-3 a physical address, +4-6 the length, +7 a slot (0-3) | TUNE_LOAD, the file by channel 2, XFERDONE awaited [`SC_TUNE`] |
+| 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's), +3 flags (bit 0 PAL, bit 1 NTSC), +4-7 a length in ms (0 until stopped), +8-9 a fade in ms | TUNE_PLAY [`SC_TUNE`] |
+| 7 | `SN_STOP` | none | TUNE_STOP [`SC_TUNE`] |
+| 8 | `SN_TPAUSE` | none | TUNE_PAUSE [`SC_TUNE`] |
+| 9 | `SN_TRESUME` | none | TUNE_RESUME [`SC_TUNE`] |
+| 10 | `SN_TSTATUS` | +1-16 to fill | TUNE_STATUS's 16 bytes |
+| 11 | `SN_TINFO` | +1 a slot, +2-105 to fill | TUNE_INFO's 104 bytes |
+| | **Streams** (stream 0, and 1 for SN_NEXT) | | |
+| 12 | `SN_STREAM` | +1 the codec, +2-3 the rate, +4 the format | STREAM_OPEN: a stream started afresh, both buffers free [`SC_STREAM`] |
+| 13 | `SN_BUFFER` | +1-3 a physical address, +4-5 the length (0: 65,536) | A the buffer taken (0 or 1); sent into DATA on NEED [`SC_STREAM`] |
+| 14 | `SN_PAUSE` | none | STREAM_PAUSE [`SC_STREAM`] |
+| 15 | `SN_RESUME` | none | STREAM_RESUME [`SC_STREAM`] |
+| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped [`SC_STREAM`] |
+| 17 | `SN_END` | none | STREAM_END [`SC_STREAM`] |
+| 18 | `SN_STATUS` | +1-12 to fill | A the state, X the buffers free; the block as today's, +3-4 the ring's room in 256-byte units |
+| 19 | `SN_NEXT` | +1 the codec, +2-3 the rate, +4 the format | stream 1 opened and queued behind stream 0 (STREAM_NEXT); SN_BUFFER feeds the one that wants data [`SC_STREAM`] |
+| | **The sound bank** | | |
+| 20 | `SN_SAMPLE` | +1 a slot, +2-4 a physical address, +5-7 the length, +8 the flags, +9-10 the rate, +11-13 the loop start, +14-16 the loop end | SAMPLE_LOAD, XFERDONE awaited |
+| 21 | `SN_EFFECTS` | +1 the first effect, +2-4 a physical address, +5-7 the length | EFFECT_LOAD, XFERDONE awaited |
+| 22 | `SN_EFFECT` | +1 the effect, +2 the volume, +3 the pan, +4 the priority, +5-6 cents, +7 the chip | PLAY; A the voice handle |
+| 23 | `SN_ESTOP` | +1 a voice handle, 0 every effect voice | VOICE_STOP |
+| | **Music** | | |
+| 24 | `SN_MUSIC` | +1 a slot, +2-4 a physical address, +5-7 the length, +8 MUSIC_PLAY's flags | MUSIC_LOAD, XFERDONE awaited, MUSIC_PLAY [`SC_MUSIC`] |
+| 25 | `SN_MCTL` | +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) | MUSIC_STOP, MUSIC_PAUSE, MUSIC_RESUME, MUSIC_THRESH [`SC_MUSIC`] |
+| 26 | `SN_MSTATUS` | +1-24 to fill | MUSIC_STATUS's 24 bytes |
+| | **The beep** | | |
+| 27 | `SN_BEEP` | +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms | BEEP; returns when BEEP_DONE comes (the owner's answer 6) |
+| | **The mix and what it shows** | | |
+| 28 | `SN_VOLUME` | +1 left, +2 right | VOLUME |
+| 29 | `SN_MIX` | +1 a source, +2 a level | MIX |
+| 30 | `SN_EQ` | +1 a band and +2 a gain; or +1 `$FF` and +2-12 all; or +1 `$FE` and +2 off or on | EQ, EQ_ALL, EQ_ON |
+| 31 | `SN_VIS` | +1-98 to fill | VIS |
+| 32 | `SN_SIDREGS` | +1-50 to fill | SIDREGS |
+| 33 | `SN_LEVELS` | +1-10 to fill | LEVELS |
+| | `SN_OPS` = 34 | | |
+
+- **The parts:** `SC_TUNE` `$01`, `SC_STREAM` `$02`, `SC_MUSIC` `$04` (the bit `SC_DOC` had, as the clean table
+  reuses numbers; the draft had `$08`). Effects and the beep need no claim.
+- **What goes** (no number kept): `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD`, `SN_GO`,
+  `SC_6510` and `SC_DOC`. `SN_STOP` keeps its name (the draft's Q5) at its new number.
+- **The event area:** +96-107 the stream's, as now; +108-115 reserved, 0; +116 the tune's state (TUNE_STATUS's),
+  +117-119 its ms played (24 bits); +120 music's state, +121 the blocks queued, +122-123 the notes waiting; +124-127
+  reserved, 0. OODOS writes them once a frame while the part is claimed, from the frame's status requests (the build
+  plan's flag 12).

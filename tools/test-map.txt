@@ -65,6 +65,8 @@ emulator/components/devices/*dma_controller*    dma backplane web
 emulator/components/devices/*ds3231*            rtc bridge backplane web
 emulator/components/devices/*es5503*            es5503 sound backplane web
 emulator/components/devices/*fat_volume*        sd web
+# (the sound card's flash image, before *flash*, which would take it)
+emulator/components/devices/include/sound_flash.h sound backplane web
 emulator/components/devices/*flash*             flash backplane web
 emulator/components/devices/*sd_card*           sd backplane web
 emulator/components/devices/*sd_media*          sd web
@@ -74,9 +76,11 @@ emulator/components/devices/*joystick_ports*    joy backplane web
 emulator/components/devices/*minimp3*           sound backplane web
 emulator/components/devices/*pia6821*           pia web
 emulator/components/devices/*sid_file*          sid web
+emulator/components/devices/*sid_plan*          sid sound backplane web
 emulator/components/devices/*sid.*              sid sound backplane web
 emulator/components/devices/*sound_card*        sound backplane web
 emulator/components/devices/*sound_dsp*         sound backplane web
+emulator/components/devices/*sound_fw*          sound backplane web
 emulator/components/devices/*usb_card*          usb backplane web
 emulator/components/devices/*via6522*           via backplane web
 emulator/components/devices/*video_card*        video backplane web
@@ -95,6 +99,7 @@ emulator/test/host/disk2_rig.h                  disk2
 emulator/test/host/sd_images.h                  sd web
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
+emulator/test/host/sid_device_known_failures.txt  test_sid_corpus
 emulator/test/host/golden/ooui.txt              test_oodos_ui
 emulator/test/host/golden/sysinfo*              test_oodos_sysinfo
 emulator/test/host/golden/romdiag*              test_bios_diag
@@ -135,6 +140,9 @@ backplane/bios/apple.s                          bios apple docs web
 # The ROM's diagnostics (hw/diag.md) choose test_bios_diag's slow share too (hw/testing.md, item 8).
 backplane/bios/diag*                            bios diagslow docs web
 backplane/bios/sd.s                             bios sd docs web
+# The boot sound's samples and tables: the sound card's firmware plays them from its flash (mksndflash.py).
+backplane/bios/splash/wave.bin                  sound bios docs web
+backplane/bios/splash/doctables.inc             sound bios docs web
 backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web
 backplane/README.md                             none
@@ -169,6 +177,8 @@ tools/test-map.txt                              tools
 tools/test_map.py                               tools
 tools/test_coverage.py                          tools
 tools/atecc_crc.py                              rng
+tools/mksndflash.py                             sound tools
+tools/mksndfw.py                                sound tools
 tools/release/                                  none
 
 # --- prose, licenses and settings ----------------------------------------------------------------------

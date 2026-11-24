@@ -110,7 +110,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sound_fw test_sound_device test_sound_stream3 test_sound_bank test_sound_music test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -136,6 +136,8 @@ if(EMSCRIPTEN)
     target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
     target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
+    target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
+    target_link_libraries(test_sound_stream3 PRIVATE emu_minimp3)
     return()
 endif()
 
@@ -264,11 +266,22 @@ target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LI
 target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
 emu_add_test(test_es5503) # the DOC alone (hw/sound-rev2.md step 6)
 emu_add_test(test_sound_doc) # the DOC on the card (step 7)
+emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/future/sound-device.md)
+emu_add_test(test_sound_device) # revision 3 on the bus: registers, FIFOs, DMA, interrupt, resets
+emu_add_test(test_sound_stream3) # revision 3's streams: rings, NEED, underruns, gapless, the MP3 trim
+emu_add_test(test_sound_bank) # revision 3's sound bank: samples, effects, the voice manager, wave RAM's cache
+emu_add_test(test_sound_music) # revision 3's music: note blocks, the sequencer, notes waiting, MUSIC_DONE
+target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
+target_link_libraries(test_sound_stream3 PRIVATE emu_minimp3)
 emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)
 emu_add_test(test_sid_corpus) # a sample of the owner's tunes, under fixtures/SIDs; skips without them
-target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_known_failures.txt")
+target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_known_failures.txt"
+                                                   EMU_SID_DEVICE_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_device_known_failures.txt")
+# T13: both modes' samples in one entry, about 120 s in the fast build with others at once: the default 120 s
+# timed out under load.
+emu_suite_properties(test_sid_corpus TIMEOUT 240)
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
@@ -895,6 +908,11 @@ if(Python3_FOUND)
     add_test(NAME test_trace_diff
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")
+    add_test(NAME test_mksndflash # the firmware's flash header made from the boot sound's sources, checked
+             COMMAND "${Python3_EXECUTABLE}" -I "${PROJECT_SOURCE_DIR}/../tools/mksndflash.py" --check)
+    add_test(NAME test_mksndfw # tools/mksndfw.py's firmware images for the sound card, revision 3
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_mksndfw.py"
+                     "${PROJECT_SOURCE_DIR}/../tools/mksndfw.py")
 endif()
 
 # --- the map's own check -----------------------------------------------------
@@ -961,6 +979,11 @@ set(EMU_TEST_LABELS
     test_sound_eq               "emu sound"
     test_es5503                 "emu es5503"
     test_sound_doc              "emu sound es5503 dma bridge"
+    test_sound_fw               "emu sound"
+    test_sound_device           "emu sound dma bridge"
+    test_sound_stream3          "emu sound"
+    test_sound_bank             "emu sound es5503 sid"
+    test_sound_music            "emu sound sid es5503"
     test_sid                    "emu sid sound"
     test_sid_audio              "emu sid sound"
     test_sid_file               "emu sid sound"
@@ -1034,6 +1057,8 @@ set(EMU_TEST_LABELS
     test_app_eater              "emu app eater acia debug lcd via"
     test_fetch_fixtures         "tools"
     test_trace_diff             "debug"
+    test_mksndfw                "sound tools"
+    test_mksndflash             "sound tools"
     test_test_map               "tools")
 
 list(LENGTH EMU_TEST_LABELS n)

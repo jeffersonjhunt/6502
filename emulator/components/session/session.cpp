@@ -331,6 +331,8 @@ namespace ooe::emu
         audio_rate_ = rate;
         if (SoundCard *s = machine_->sound_card())
             s->set_audio_rate(rate);
+        if (SoundCard3 *d = machine_->sound_device())
+            d->set_audio_rate(rate);
         if (UsbCard *u = machine_->usb_card())
             u->set_audio_rate(rate);
         sid_audio_.clear();
@@ -339,7 +341,9 @@ namespace ooe::emu
 
     size_t Session::take_audio(float *out, size_t max_frames)
     {
-        SoundCard *sound = machine_->sound_card();
+        SoundCard *card2 = machine_->sound_card();
+        SoundCard3 *card3 = machine_->sound_device();
+        const bool sound = card2 || card3;
         UsbCard *usb = machine_->usb_card();
         if (!audio_rate_ || (!sound && !usb))
             return 0;
@@ -350,7 +354,8 @@ namespace ooe::emu
         {
             const size_t had = sid_audio_.size();
             sid_audio_.resize(had + 2 * most);
-            sid_audio_.resize(had + 2 * sound->take_audio(sid_audio_.data() + had, most));
+            sid_audio_.resize(had + 2 * (card2 ? card2->take_audio(sid_audio_.data() + had, most)
+                                               : card3->take_audio(sid_audio_.data() + had, most)));
         }
         if (usb)
         {
@@ -381,8 +386,49 @@ namespace ooe::emu
         return frames;
     }
 
+    const SoundCard *Session::sound_chips() const
+    {
+        if (const SoundCard *c = machine_->sound_card())
+            return c;
+        if (const SoundCard3 *d = machine_->sound_device())
+            return &d->chips();
+        return nullptr;
+    }
+
+    bool Session::tune_playing() const
+    {
+        if (const SoundCard *c = machine_->sound_card())
+            return c->ctrl() & SoundCard::CTRL_RUN;
+        if (const SoundCard3 *d = machine_->sound_device())
+            return d->firmware().tune_playing();
+        return false;
+    }
+
     bool Session::play_sid(const std::vector<uint8_t> &bytes, unsigned song, std::string &error)
     {
+        if (SoundCard3 *d = machine_->sound_device())
+        {
+            // Revision 3: the file to the card's tune player itself, outside the bus (sound_fw.h, host_tune).
+            auto file = parse_sid(bytes, error);
+            if (!file)
+                return false;
+            if (d->firmware().host_tune(bytes, song, error) != SoundFw::OK)
+            {
+                if (sid_) // the old tune again, as revision 2's keeps playing it
+                {
+                    std::string ignored;
+                    d->firmware().host_tune(sid_bytes_, sid_song_, ignored);
+                }
+                return false;
+            }
+            sid_ = std::make_unique<SidFile>(std::move(*file));
+            sid_bytes_ = bytes;
+            sid_song_ = song ? song : sid_->start_song;
+            const auto plan = plan_sid(*sid_, song, error);
+            sid_warnings_ = plan ? plan->warnings : std::vector<std::string>{};
+            error.clear();
+            return true;
+        }
         if (!machine_->sound_card())
         {
             error = "this machine has no sound card";
@@ -401,6 +447,18 @@ namespace ooe::emu
 
     bool Session::play_song(unsigned song, std::string &error)
     {
+        if (SoundCard3 *d = machine_->sound_device())
+        {
+            if (!sid_)
+            {
+                error = "no tune";
+                return false;
+            }
+            if (d->firmware().host_song(song, error) != SoundFw::OK)
+                return false;
+            sid_song_ = song ? song : sid_->start_song;
+            return true;
+        }
         SoundCard *card = machine_->sound_card();
         if (!card || !sid_)
         {
@@ -420,7 +478,10 @@ namespace ooe::emu
     {
         if (SoundCard *card = machine_->sound_card())
             ooe::emu::stop_sid(*card);
+        if (SoundCard3 *d = machine_->sound_device())
+            d->firmware().host_stop();
         sid_.reset();
+        sid_bytes_.clear();
         sid_song_ = 0;
         sid_warnings_.clear();
     }

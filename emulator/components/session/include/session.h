@@ -158,6 +158,13 @@ namespace ooe::emu
         DmaController *dma() const { return machine_->dma(); }
         /// The sound card, or nullptr: its registers, RAM and 6510.
         SoundCard *sound() const { return machine_->sound_card(); }
+        /// The sound card if it is revision 3, the device (sound_card3.h); then sound() is null.
+        SoundCard3 *sound_device() const { return machine_->sound_device(); }
+        /// The sound card's chips, either revision: revision 2's card itself, or revision 3's own (its 6510 and
+        /// SIDs, as a debugger sees them); null with no card.
+        const SoundCard *sound_chips() const;
+        /// A tune plays: revision 2's 6510 runs (CTRL RUN), or revision 3's tune is starting, playing or stalled.
+        bool tune_playing() const;
         /// The machine's sound at `rate` samples a second (0: none, the default), kept across
         /// power cycles: the sound card's two SIDs, left and right, and the USB card's speaker
         /// (the Apple's $C030) in both. Time is the CPU's: halted or stopped, it is silent too.
@@ -331,6 +338,7 @@ namespace ooe::emu
         uint32_t rtc_sets_{0};
         int64_t rtc_offset_ms_{0};
         std::unique_ptr<SidFile> sid_;
+        std::vector<uint8_t> sid_bytes_; ///< the file itself, for revision 3's card (its tune player takes the file)
         unsigned sid_song_{0};
         std::vector<std::string> sid_warnings_;
     };

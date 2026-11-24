@@ -134,6 +134,30 @@ export interface SoundCpu {
   raster: number;
   /** Each voice's envelope, SID A's three then SID B's. */
   envelopes: Envelope[];
+  /** Both SIDs' 25 registers as last written, A's then B's (revision 3's shadows: its SIDs aren't on the bus). */
+  sids?: Uint8Array;
+  /** Revision 3's firmware (the card as a device); absent on revision 1 or 2. */
+  device?: SoundDevice;
+}
+
+/** Sound card revision 3's firmware as a debugger sees it (readSound). */
+export interface SoundDevice {
+  /** TUNE_STATUS's state, MUSIC_STATUS's, and each stream's (STREAM_STATUS's). */
+  tune: number;
+  music: number;
+  stream0: number;
+  stream1: number;
+  /** The store, bytes: free and in all. */
+  storeFree: number;
+  store: number;
+  boot: boolean;
+  beep: boolean;
+  /** A letter a voice, the SIDs' six then the ES5503's sixteen: "." free, "E" an effect's, "M" music's. */
+  voices: string;
+  /** Music's notes waiting. */
+  notes: number;
+  /** The flash's image running: 0 A, 1 B. */
+  image: number;
 }
 
 /** A SID voice's envelope: its level, and where in ADSR it is. */

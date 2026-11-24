@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
+import { deviceStatusText, appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, tuneRuns, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -236,6 +236,58 @@ describe("Devices tab", () => {
     expect(soundCpuText(cpu, false)).toContain("· held");
     expect(soundPortText({ ...cpu, port: 0x34 })).toBe("DDR $2F · $34 · RAM at $D000");
     expect(soundPortText({ ...cpu, ddr: 0, port: 0 })).toBe("DDR $00 · $00 · I/O in"); // inputs read high
+  });
+
+  test("the sound card, revision 3: its registers, the firmware's objects, its 6510 and both SIDs' shadows", async () => {
+    const port = new FakePort();
+    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x1b, 0x04: 0xff, 0x06: 0x05, 0x08: 0x10, 0x09: 0x27, 0x0b: 0x40, 0x0c: 0x01, 0x0d: 0x09, 0x0e: 128, 0x0f: 0xff, 0x10: 1, 0x11: 0, 0x7f: 0xa3 };
+    for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
+    const sids = new Uint8Array(50);
+    sids[0] = 0xd6;
+    sids[1] = 0x1c;
+    sids[4] = 0x21;
+    sids[25 + 4] = 0x11;
+    const held: Envelope = { level: 0, phase: "release", held: true };
+    port.sound = {
+      pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0, latch: 0, timerOn: false, frame: 0, frameEn: 1, raster: 0,
+      envelopes: [held, held, held, held, held, held], sids,
+      device: { tune: 2, music: 1, stream0: 2, stream1: 0, storeFree: 4096 * 1024, store: 8192 * 1024, boot: false, beep: true, voices: "...EM.E...............", notes: 12, image: 1 },
+    };
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.textContent).toContain("Sound card tune playing");
+    expect(text(v.element, "STATUS")).toBe("$1B  READY · CMDRDY · XFER · DATA");
+    expect(text(v.element, "FIFOs")).toBe("CMD 255+ free · EVT 5 waiting");
+    expect(text(v.element, "Transfer")).toBe("10000 bytes to go · tag $40 · DMA");
+    expect(text(v.element, "IEN / ISR")).toBe("$01 / $09  EVT · READY");
+    expect(text(v.element, "Card")).toBe("firmware 1.0 · store 8 MB · features $FF");
+    expect(text(v.element, "Tune")).toBe("playing");
+    expect(text(v.element, "Music")).toBe("playing · 12 notes waiting");
+    expect(text(v.element, "Streams")).toBe("0 playing · 1 idle");
+    expect(text(v.element, "Store")).toBe("4096 of 8192 KB free · image B · beep");
+    expect(text(v.element, "Voices")).toBe("SIDs ...EM. · ES5503 E...............");
+    expect(text(v.element, "6510")).toBe("PC $1023 · A $01 X $02 Y $03 S $FD P $24 · running");
+    expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0 · env $00 held at 0");
+    expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0 · env $00 held at 0");
+    expect(deviceStatusText(0x60)).toBe("EVLOST · ERR");
+  });
+
+  test("the sound card, revision 3: a paused tune holds the 6510", async () => {
+    const port = new FakePort();
+    port.memory.set(SOUND + 0x7f, 0xa3);
+    const held: Envelope = { level: 0, phase: "release", held: true };
+    port.sound = {
+      pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0, latch: 0, timerOn: false, frame: 0, frameEn: 1, raster: 0,
+      envelopes: [held, held, held, held, held, held], sids: new Uint8Array(50),
+      device: { tune: 3, music: 0, stream0: 0, stream1: 0, storeFree: 4096 * 1024, store: 8192 * 1024, boot: false, beep: false, voices: "......................", notes: 0, image: 0 },
+    };
+    const v = devicesView(port);
+    await v.refresh();
+    expect(text(v.element, "Tune")).toBe("paused");
+    expect(text(v.element, "6510")).toContain("· held");
+    expect(v.element.textContent).toContain("Sound card tune paused");
+    expect(tuneRuns(1) && tuneRuns(2) && tuneRuns(4)).toBe(true);
+    expect(tuneRuns(0) || tuneRuns(3) || tuneRuns(5) || tuneRuns(6)).toBe(false);
   });
 
   test("no sound card: says so", async () => {

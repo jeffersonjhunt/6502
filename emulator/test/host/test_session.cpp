@@ -391,6 +391,61 @@ TEST(a_sid_tune_plays_on_the_card_changes_song_stops_and_goes_with_a_power_cycle
     CHECK(!(s->sound()->ctrl() & SoundCard::CTRL_RUN));
 }
 
+TEST(a_sid_tune_plays_on_a_revision_3_card_changes_song_stops_and_goes_with_a_power_cycle)
+{
+    // The case above's twin on the sound card as a device (`sound ... rev=3`): the file goes to the card's tune
+    // player (the firmware's, outside the bus), its 6510 and SIDs (the card's own chips) as revision 2's would be.
+    std::ifstream in(MACHINE);
+    std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
+    const size_t at = text.find(line);
+    REQUIRE(at != std::string::npos);
+    text.insert(at + line.size(), "  rev=3");
+    auto s = open(write_machine("sound3.machine", text));
+    REQUIRE(s != nullptr);
+    std::string out;
+    REQUIRE(run_until(*s, out, GREETING));
+    CHECK(s->sound() == nullptr);
+    SoundCard3 *card = s->sound_device();
+    REQUIRE(card != nullptr);
+    std::string error;
+    REQUIRE(s->play_sid(two_song_sid(), 0, error));
+    REQUIRE(s->sid() != nullptr);
+    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
+    CHECK_EQ(s->sid_song(), 1u);
+    s->run(7'159'090 / 5); // a fifth of a second: ten frames on the card
+    CHECK(s->tune_playing());
+    const SoundCard &chips = card->chips();
+    CHECK_EQ(chips.sid(0)[0x18], 0x0F);
+    const uint8_t frames = chips.sid(0)[0x00];
+    CHECK(frames >= 9 && frames <= 10);
+    CHECK_EQ(chips.ram()[0xC000], 0);
+    CHECK(s->sound_chips() == &chips);
+
+    REQUIRE(s->play_song(2, error));
+    CHECK_EQ(s->sid_song(), 2u);
+    s->run(7'159'090 / 50);
+    CHECK_EQ(chips.ram()[0xC000], 1); // init again, with song 2 in A
+    CHECK(chips.sid(0)[0x00] <= 1);  // from silence again
+    CHECK(!s->play_song(3, error));
+    CHECK(!error.empty());
+
+    CHECK(!s->play_sid({1, 2, 3}, 0, error)); // not a .sid: the tune playing stays
+    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
+    CHECK(s->tune_playing());
+
+    s->stop_sid();
+    CHECK(s->sid() == nullptr);
+    CHECK(!s->tune_playing());
+    CHECK_EQ(chips.sid(0)[0x18], 0);
+
+    REQUIRE(s->play_sid(two_song_sid(), 2, error));
+    REQUIRE(s->power_cycle(error));
+    CHECK(s->sid() == nullptr); // a new card, no tune on it
+    REQUIRE(s->sound_device() != nullptr);
+    CHECK(!s->tune_playing());
+}
+
 TEST(the_speaker_and_the_sids_mix_into_the_same_stream)
 {
     auto s = booted();

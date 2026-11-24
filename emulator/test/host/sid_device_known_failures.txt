@@ -1,0 +1,8 @@
+# The tunes that fail passes() on the sound device (revision 3) alone: they pass on revision 2's registers.
+# Path, a tab, then what they did on the device (test_sid_corpus prints the line). The device's sample leaves
+# them out; the_known_failures_still_fail plays them on the device (SID_KNOWN_FAILURES=1).
+#
+# The two below were decided by the owner at S11 (2026-11-23): they sound on revision 2's registers and are
+# silent on the device; kept as they are, expected here as the known failures are.
+C64Music/MUSICIANS/M/Metal/Bonziied_2_tune_2.sid	101 frames from 0.02 s (1.08 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/T/Tonal_Teapot/Solar_Temple.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent

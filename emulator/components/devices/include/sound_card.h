@@ -412,6 +412,16 @@ namespace ooe::emu
         uint8_t ctrl() const { return ctrl_; }
         /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume): kept up to date.
         const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return written_[chip & 1]; }
+        /// A SID register written by the card's own logic (revision 3's firmware, sound_card3.h, which uses this
+        /// card as its chips), on its clock now, whether the 6510 runs or not; as a write of the 6510's lands.
+        void chip_write(unsigned chip, unsigned reg, uint8_t data) { sid_write(chip & 1, reg & 0x1F, data); }
+        /// The card's own logic's setting (revision 3's, for a one-SID tune): the 6510's reads of $D400-$D7FF all
+        /// answered by SID A, as SID A's mirrors on a C64 (its writes keep the decode). Off, as revision 2 has it;
+        /// /RESET leaves it.
+        void set_reads_from_a(bool on) { reads_from_a_ = on; }
+        /// The card's own logic's reset for a tune's start (revision 3's): reset() but, with `keep_b`, SID B and
+        /// its registers as they are (a one-SID tune takes SID A alone; SID B may be playing the firmware's voices).
+        void reset_for_tune(bool keep_b);
         /// SID `n` as of now: its voices' oscillators and envelopes.
         const Sid &chip(unsigned n) const
         {
@@ -452,6 +462,24 @@ namespace ooe::emu
             catch_up(); // the ES5503's frames to now
             std::vector<int16_t> out;
             out.swap(tap_);
+            return out;
+        }
+        /// Tests: each SID chip's own output, before the output stage's high-pass and the mix: for every audio
+        /// sample made from now on (true; false stops and drops them), chip A's then chip B's average over the
+        /// sample's clocks. Only while an audio rate is set (no samples are made at rate 0). For the corpus's
+        /// recorder (test_sid_corpus, SID_RECORD); off from the start, and /RESET leaves it.
+        void set_chip_tap(bool on)
+        {
+            catch_up(); // what went before, untapped
+            chip_tap_on_ = on;
+            chip_tap_.clear();
+        }
+        /// The samples recorded since the last call, chip A then chip B; emptied.
+        std::vector<float> take_chip_tap()
+        {
+            catch_up();
+            std::vector<float> out;
+            out.swap(chip_tap_);
             return out;
         }
         /// Frames the bus has put into the mix, resampled to the audio rate, since /RESET or set_audio_rate().
@@ -640,6 +668,7 @@ namespace ooe::emu
         void tune_clocks();
 
         mutable std::array<Sid, 2> chips_{};
+        bool reads_from_a_{false}; ///< set_reads_from_a()
         mutable uint64_t sids_at_{0}; ///< the SID clock the chips have been clocked to
         uint32_t audio_rate_{0};
         mutable std::deque<float> audio_;          ///< left, right, ...: trimmed at the front
@@ -680,6 +709,8 @@ namespace ooe::emu
         bool tap_on_{false};
         bool tap_silence_{true};
         std::vector<int16_t> tap_;
+        bool chip_tap_on_{false};
+        mutable std::vector<float> chip_tap_; ///< set_chip_tap()'s: render() is const, as the SIDs' catch-up
         // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
         // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.
         mutable std::deque<float> pcm_mix_;

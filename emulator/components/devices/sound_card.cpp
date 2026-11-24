@@ -406,6 +406,16 @@ namespace ooe::emu
         reset_rev2();
     }
 
+    void SoundCard::reset_for_tune(bool keep_b)
+    {
+        catch_up(); // SID B to now, as it is
+        const Sid b = chips_[1];
+        const auto wb = written_[1];
+        reset();
+        if (keep_b)
+            chips_[1] = b, written_[1] = wb;
+    }
+
     void SoundCard::reset_rev2()
     {
         // The ES5503 stopped first: nothing below (the vis snapshot's catch-up) may play it with the bus's rate
@@ -1131,6 +1141,8 @@ namespace ooe::emu
                 continue;
             const float in[2] = {static_cast<float>(sum_l_ / static_cast<double>(sample_clocks_)),
                                  static_cast<float>(sum_r_ / static_cast<double>(sample_clocks_))};
+            if (chip_tap_on_) // a test's only (set_chip_tap): each chip's own, before the output stage
+                chip_tap_.insert(chip_tap_.end(), in, in + 2);
             // The digital bus's frame for this sample, if it is playing; with none, the SIDs' alone, as before.
             // (An offset first: SID samples a bulk catch-up's skipped bus frames were meant for.)
             const bool bus = !mix_offset_ && pcm_mix_.size() >= 2;
@@ -1538,7 +1550,7 @@ namespace ooe::emu
         if (addr == CARD_FRAME_EN)
             return vic_mask_;
         if (addr >= 0xD400 && addr < 0xD800)
-            return sid_read(sid_at(addr), addr & 0x1F);
+            return sid_read(reads_from_a_ ? 0 : sid_at(addr), addr & 0x1F);
         if (addr >= 0xDC00 && addr < 0xDD00)
         {
             switch (addr & 0x0F)

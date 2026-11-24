@@ -88,7 +88,7 @@ namespace
         unsigned song{0};
         bool dump{false};
         std::string wav;
-        std::optional<Sid::Model> model;
+        std::optional<SidModel> model;
         uint8_t muted{0};
     };
 
@@ -271,7 +271,7 @@ int main(int argc, char **argv)
         else if (a == "--dump")
             opt.dump = true;
         else if (a == "--model" && i + 1 < argc && (std::string(argv[i + 1]) == "6581" || std::string(argv[i + 1]) == "8580"))
-            opt.model = std::string(argv[++i]) == "6581" ? Sid::Model::Mos6581 : Sid::Model::Mos8580;
+            opt.model = std::string(argv[++i]) == "6581" ? SidModel::Mos6581 : SidModel::Mos8580;
         else if (a == "--mute" && i + 1 < argc)
             for (const char *p = argv[++i]; *p; ++p)
                 opt.muted = static_cast<uint8_t>(opt.muted | (*p >= '1' && *p <= '3' ? 1 << (*p - '1') : 0));

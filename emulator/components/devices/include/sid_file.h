@@ -9,131 +9,21 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * A `.sid` file is a header and the tune's own 6502 code, which runs on the
- * sound card's 6510 (sound_card.h). The header (HVSC's SID_file_format.txt)
- * gives where the code loads, its init and play routines, how many songs,
- * and per song whether play is called at 50 Hz (the vertical blank, VBI) or
- * from CIA 1's timer. Versions 2-4 add the clock (PAL or NTSC), the SID
- * model, and where a second and third SID sit.
- *
- * Playing it follows hw/design.md (".sid playback"), as a host program would
- * through the card's registers: stop the card, load the code at its load
- * address through RAMDATA, write a stub, set the clock and start the 6510.
- * The stub stands in for what the C64's KERNAL leaves behind for a tune:
- *
- * - $01 banked for the routine's address ($37 below $A000, $36 below $D000,
- *   $34 inside $D000-$DFFF, $35 above), the stack at $FF, decimal clear;
- * - CIA 1's timer A running: with its interrupt on at the KERNAL's own $4025
- *   or $4295 for a CIA song or an RSID (which expects the C64 as the KERNAL
- *   leaves it), which init may reprogram; for a VBI song with a play routine,
- *   at a frame (19,656 clocks PAL, 17,095 NTSC) with its interrupt off, and
- *   the card's frame interrupt ($DE03/$DE04, sound_card.h) on instead, as a
- *   PSID player uses the VIC-II's raster interrupt: so a VBI song plays once
- *   a frame whatever init does to the CIA. The stub's handler plays only when
- *   $DE03 says a frame came, clearing it; any other interrupt (the CIA's,
- *   if init turned it on) it acknowledges by reading $DC0D and leaves. A
- *   frame goes to the handler even when init has pointed $0314 at a handler
- *   of its own, which knows only the C64's interrupts and would leave the
- *   frame's set (an interrupt storm); the rest still go through $0314. A
- *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
- *   not on the card. A tune that points $FFFE at an entry of its own (code
- *   under the KERNAL often does) still plays if that entry passes on to
- *   $0314, as the KERNAL's does, since $0314 is the stub's handler. One
- *   whose own handler, from init or play, never passes on to $0314 nor
- *   clears $DE03 is a limit of the card: the frame stays pending and storms
- *   it (the corpus test's storming case fails on it);
- * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
- *   then JMP ($0314); for a VBI song, a check of $DE03 first, with $01
- *   saved and I/O banked in, that takes a frame to the stub's handler, 26
- *   cycles before any other interrupt reaches $0314; straight to the
- *   stub's handler for a tune with a play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
- *   $FEBC, for tunes that install their own interrupt at $0314 and leave
- *   through them;
- * - init called with the song (0-based) in A; then, if the tune has a play
- *   routine, the stub's handler calls it on each interrupt and writes the
- *   frame's number to the mailbox, a sync point for the host.
- *
- * A tune with play = 0 (RSID, or a PSID that installs its own interrupt)
- * runs from init on its own. The card has no VIC-II (only its raster line,
- * to read, which the stub shows a PSID and not an RSID: FRAMEEN bit 1 in
- * sound_card.h), CIA 2 or ROMs: a tune that needs the raster interrupt, CIA 2's
- * NMIs, BASIC or KERNAL calls
- * beyond those exits runs but stays silent or stops. A third SID is beyond
- * the card; a second one plays only at $D420 or $D500.
+ * Playing a tune on revision 2's card, through its host registers: the
+ * header and the plan are sid_plan.h's.
  */
 
 #include "sid.h"
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <string>
-#include <vector>
+#include "sid_plan.h"
 
 namespace ooe::emu
 {
     class SoundCard;
 
-    struct SidFile
-    {
-        enum class Clock : uint8_t
-        {
-            Unknown,
-            Pal,
-            Ntsc,
-            Either,
-        };
-
-        bool rsid{false};
-        uint16_t version{0};
-        uint16_t load{0}; ///< from the header, or the data's first two bytes
-        uint16_t init{0};
-        uint16_t play{0}; ///< 0: the tune installs its own interrupt
-        uint16_t songs{1};
-        uint16_t start_song{1}; ///< 1-based
-        uint32_t speed{0};      ///< bit n: song n + 1 is CIA-timed (bit 31 for songs past 32)
-        uint16_t flags{0};
-        uint8_t start_page{0}, page_length{0}; ///< v2+: free memory the tune leaves
-        uint16_t sid2{0}, sid3{0};             ///< v3/v4: the extra SIDs' addresses, or 0
-        std::string name, author, released;
-        std::vector<uint8_t> data; ///< the code, without its load address
-
-        static constexpr uint16_t FLAG_MUS = 0x01, FLAG_BASIC = 0x02; ///< bit 1: PSID-specific, or RSID's BASIC
-
-        Clock clock() const { return static_cast<Clock>((flags >> 2) & 3); }
-        /// The chip it was written for: 8580 when it says only that, else the 6581.
-        Sid::Model model() const { return ((flags >> 4) & 3) == 2 ? Sid::Model::Mos8580 : Sid::Model::Mos6581; }
-        bool ntsc() const { return clock() == Clock::Ntsc; }
-        /// The last address the code fills.
-        uint32_t end() const { return load + static_cast<uint32_t>(data.size()) - 1; }
-        /// Song `song` (1-based) is called from CIA 1's timer, not at 50 Hz.
-        bool cia_timed(unsigned song) const;
-    };
-
-    /// `bytes` as a `.sid` file; nullopt and `error` if it isn't one.
-    std::optional<SidFile> parse_sid(const std::vector<uint8_t> &bytes, std::string &error);
-
-    /// What playing a tune needs written into the card's RAM, and how to start it.
-    struct SidPlan
-    {
-        struct Block
-        {
-            uint16_t addr;
-            std::vector<uint8_t> bytes;
-        };
-        std::vector<Block> blocks; ///< the tune, then the stub, the KERNAL exits and vectors
-        uint8_t ctrl{0};           ///< CTRL to start with (RUN and RESET included)
-        Sid::Model model{Sid::Model::Mos6581}; ///< the chips' jumper, as the tune wants
-        uint16_t stub{0};          ///< where the stub sits
-        uint16_t frame{0};         ///< the stub's frame counter, written to the mailbox after each play
-        uint16_t returned{0};      ///< where init returns to in the stub: the 6510 fetching it means init is done
-        std::vector<std::string> warnings; ///< what about the tune the card can't give it
-    };
-
-    /// The plan for song `song` (1-based; 0: the file's start song). Nullopt
-    /// and `error` when there is nowhere free for the stub, or no such song.
-    std::optional<SidPlan> plan_sid(const SidFile &file, unsigned song, std::string &error);
+    /// The plan's model as the emulator's SID chips have it.
+    inline Sid::Model to_sid(SidModel m) { return m == SidModel::Mos8580 ? Sid::Model::Mos8580 : Sid::Model::Mos6581; }
+    inline bool operator==(SidModel a, Sid::Model b) { return to_sid(a) == b; }
+    inline bool operator!=(SidModel a, Sid::Model b) { return !(a == b); }
 
     /// Stop the card's 6510 and silence the SIDs, through its host registers.
     void stop_sid(SoundCard &card);
