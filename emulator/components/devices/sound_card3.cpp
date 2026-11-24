@@ -58,7 +58,7 @@ namespace ooe::emu
             doc_.ram()[addr + i] = bytes[i];
     }
 
-    void SoundCard3::doc_frame(int16_t out[2])
+    void SoundCard3::doc_frame(int16_t out[4])
     {
         // The chip steps at its own rate (CLOCK_HZ / its clocks a sample); a frame is the average of the steps in
         // it, as revision 2's bus has the chip (each voice (byte - 128) / 128 x volume / 255 x 1/8 of full scale),
@@ -69,25 +69,25 @@ namespace ooe::emu
         {
             doc_acc_ -= per;
             doc_.step();
-            const std::array<int32_t, 2> s = doc_.stereo();
-            doc_sum_[0] += s[0];
-            doc_sum_[1] += s[1];
+            const auto &c = doc_.out(); // channels 2 and 3 music's, the rest the effects' by evenness
+            for (unsigned n = 0; n < c.size(); ++n)
+                doc_sum_[(n == 2 || n == 3 ? 2 : 0) + (n & 1)] += c[n];
             ++doc_steps_;
         }
         if (doc_steps_)
         {
             const int64_t den = int64_t{doc_steps_} * (128 * 255 * 8);
-            for (unsigned ch = 0; ch < 2; ++ch)
+            for (unsigned ch = 0; ch < 4; ++ch)
             {
                 const int64_t num = doc_sum_[ch] * 32'768;
                 const int64_t q = num >= 0 ? (num + den / 2) / den : -((-num + den / 2) / den);
                 doc_last_[ch] = static_cast<int16_t>(std::clamp<int64_t>(q, -32'768, 32'767));
             }
-            doc_sum_[0] = doc_sum_[1] = 0;
+            doc_sum_[0] = doc_sum_[1] = doc_sum_[2] = doc_sum_[3] = 0;
             doc_steps_ = 0;
         }
-        out[0] = doc_last_[0];
-        out[1] = doc_last_[1];
+        for (unsigned ch = 0; ch < 4; ++ch)
+            out[ch] = doc_last_[ch];
     }
 
     void SoundCard3::set_audio_rate(uint32_t rate)

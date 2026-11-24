@@ -52,7 +52,7 @@ namespace
         void doc_write(uint8_t, uint8_t) override {}
         uint8_t doc_read(uint8_t) override { return 0; }
         void doc_ram(uint32_t, const uint8_t *, size_t) override {}
-        void doc_frame(int16_t out[2]) override { out[0] = out[1] = 0; }
+        void doc_frame(int16_t out[4]) override { out[0] = out[1] = out[2] = out[3] = 0; }
     };
 
     struct Event

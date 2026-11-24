@@ -150,7 +150,7 @@ namespace ooe::emu
         void doc_write(uint8_t reg, uint8_t data) override { doc_.write(reg, data); }
         uint8_t doc_read(uint8_t reg) override { return doc_.read(reg); }
         void doc_ram(uint32_t addr, const uint8_t *bytes, size_t n) override;
-        void doc_frame(int16_t out[2]) override;
+        void doc_frame(int16_t out[4]) override;
 
         /// The 6510's bus: play calls (the stub's $DE00 writes) and their cost from the frame's interrupt.
         struct PlayWatch : CycleObserver
@@ -190,9 +190,9 @@ namespace ooe::emu
         std::vector<float> adc_copy_;
         Es5503 doc_;
         uint64_t doc_acc_{0};       ///< the ES5503's clocks owed, x 48,000
-        int64_t doc_sum_[2]{0, 0};
+        int64_t doc_sum_[4]{0, 0, 0, 0};
         unsigned doc_steps_{0};
-        int16_t doc_last_[2]{0, 0};
+        int16_t doc_last_[4]{0, 0, 0, 0};
         uint32_t audio_rate_{0};
         std::vector<int16_t> out48_; ///< the firmware's output waiting for the host
         size_t out_at_{0};           ///< the frame next

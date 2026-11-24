@@ -316,21 +316,38 @@ namespace ooe::emu
                 hp_in_[n] = x;
                 chip[n] = hp_out_[n] / 8.0f;
             }
-            float g = static_cast<float>(mix_[SRC_TUNES]) / 255.0f;
+            // Each chip at its holder's level: a tune's chip at the tunes' (and the tune's fade), else music's when
+            // a music voice is on it, else the effects'.
+            float tg = static_cast<float>(mix_[SRC_TUNES]) / 255.0f;
             if (tune_.fade_ms && tune_.length_ms && tune_.state != T_STOPPED && tune_.state != T_ENDED &&
                 tune_.played_ms + tune_.fade_ms > tune_.length_ms)
-                g *= static_cast<float>(tune_.length_ms - std::min(tune_.played_ms, tune_.length_ms)) /
-                     static_cast<float>(tune_.fade_ms);
-            if (tune_.chips == 3) // a two-SID tune: A left, B right, as revision 2
-                src[SRC_TUNES][0] = chip[0] * g, src[SRC_TUNES][1] = chip[1] * g;
-            else // a one-SID tune, or none: both chips in both ears
-                src[SRC_TUNES][0] = src[SRC_TUNES][1] = (chip[0] + chip[1]) * g;
+                tg *= static_cast<float>(tune_.length_ms - std::min(tune_.played_ms, tune_.length_ms)) /
+                      static_cast<float>(tune_.fade_ms);
+            for (unsigned n = 0; n < 2; ++n)
+            {
+                unsigned holder = SRC_EFFECTS;
+                if (tune_.chips & (1u << n))
+                    holder = SRC_TUNES;
+                else
+                    for (unsigned v = 3 * n; v < 3 * n + 3; ++v)
+                        if (voices_[v].use == V_MUSIC)
+                            holder = SRC_MUSIC;
+                const float g = holder == SRC_TUNES ? tg : static_cast<float>(mix_[holder]) / 255.0f;
+                if (tune_.chips == 3) // a two-SID tune: A left, B right, as revision 2
+                    src[holder][n] += chip[n] * g;
+                else // a one-SID tune, or none: both chips in both ears
+                    src[holder][0] += chip[n] * g, src[holder][1] += chip[n] * g;
+            }
         }
-        // The ES5503, at half of full scale as revision 2's bus mixes it.
-        int16_t d[2];
+        // The ES5503, at half of full scale as revision 2's bus mixes it: the effects' and the boot sound's
+        // oscillators (channels 0 and 1) at the effects' level, music's (channels 2 and 3) at music's.
+        int16_t d[4];
         port_.doc_frame(d);
         for (unsigned ch = 0; ch < 2; ++ch)
-            src[SRC_EFFECTS][ch] = 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
+        {
+            src[SRC_EFFECTS][ch] += 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
+            src[SRC_MUSIC][ch] += 0.5f * static_cast<float>(d[2 + ch]) / 32768.0f * static_cast<float>(mix_[SRC_MUSIC]) / 255.0f;
+        }
         // The streams, at half of full scale as revision 2's bus mixes its stream.
         unsigned ran = 0; // each stream once a frame: one that took over at a join has had its frame
         for (unsigned s = 0; s < STREAMS; ++s)
@@ -605,7 +622,7 @@ namespace ooe::emu
 
     namespace
     {
-        constexpr uint8_t DOC_HALT = 0x01, DOC_ONESHOT = 0x02, DOC_RIGHT = 0x10;
+        constexpr uint8_t DOC_HALT = 0x01, DOC_ONESHOT = 0x02, DOC_RIGHT = 0x10, DOC_MUSIC = 0x20;
         constexpr uint32_t DOC_RATE_32 = 7'159'090 / (8 * 34); ///< the ES5503's samples a second with all 32: 26,320
         constexpr size_t SID_STEP = 13, SAMPLE_DEF = 11;
         int32_t sgn16(const uint8_t *p) { return static_cast<int16_t>(static_cast<uint16_t>(p[0] | p[1] << 8)); }
@@ -815,6 +832,12 @@ namespace ooe::emu
         port_.doc_write(static_cast<uint8_t>(0x40 + o + 1), static_cast<uint8_t>(vol * x.pan / 255u));
     }
 
+    uint8_t SoundFw::doc_channel(unsigned v, unsigned q) const
+    {
+        // Even oscillators left, odd right; a music voice's on channels 2 and 3, the mix's music source.
+        return static_cast<uint8_t>((q & 1 ? DOC_RIGHT : 0) | (voices_[v].use == V_MUSIC ? DOC_MUSIC : 0));
+    }
+
     void SoundFw::doc_voice_start(unsigned v, unsigned slot, uint32_t rate)
     {
         // Its two oscillators (even left, odd right) on the sample's table, at `rate` samples a second.
@@ -831,7 +854,7 @@ namespace ooe::emu
         const uint8_t mode = voices_[v].looped ? 0 : DOC_ONESHOT;
         for (const unsigned q : {o, o + 1})
         {
-            const uint8_t ch = q & 1 ? DOC_RIGHT : 0;
+            const uint8_t ch = doc_channel(v, q);
             port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(DOC_HALT | mode | ch));
             port_.doc_write(static_cast<uint8_t>(0x00 + q), static_cast<uint8_t>(freq));
             port_.doc_write(static_cast<uint8_t>(0x20 + q), static_cast<uint8_t>(freq >> 8));
@@ -840,7 +863,7 @@ namespace ooe::emu
         }
         doc_voice_volume(v, voices_[v].attack ? 0 : 255);
         for (const unsigned q : {o, o + 1}) // from the top, together
-            port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(mode | (q & 1 ? DOC_RIGHT : 0)));
+            port_.doc_write(static_cast<uint8_t>(0xA0 + q), static_cast<uint8_t>(mode | doc_channel(v, q)));
     }
 
     uint8_t SoundFw::play_effect(const uint8_t *p, uint8_t &handle)

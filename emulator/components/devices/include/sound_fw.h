@@ -111,7 +111,9 @@ namespace ooe::emu
         virtual void doc_ram(uint32_t addr, const uint8_t *bytes, size_t n) = 0;
         /// One frame of the digital path's (1/48,000 s): the chip stepped at its own rate, its output then,
         /// left and right as revision 2's bus has it (signed 16-bit).
-        virtual void doc_frame(int16_t out[2]) = 0;
+        /// The ES5503's output frame, by source: out[0] and out[1] the effects' and the boot sound's (left and right:
+        /// every channel but 2 and 3, by its evenness), out[2] and out[3] music's (channels 2 and 3).
+        virtual void doc_frame(int16_t out[4]) = 0;
     };
 
     class SoundFw
@@ -623,6 +625,7 @@ namespace ooe::emu
         bool sid_voice_free_for(unsigned v) const; ///< not a tune's chip, not music's
         int give_voice(bool sid, uint8_t prio, uint8_t &stolen_handle, uint8_t &stolen_effect);
         void free_voice(unsigned v, bool done_event);
+        uint8_t doc_channel(unsigned v, unsigned q) const; ///< oscillator q's channel bits for voice v
         void silence_voice(unsigned v);
         uint8_t play_effect(const uint8_t *p, uint8_t &handle);
         bool cache_sample(unsigned slot);

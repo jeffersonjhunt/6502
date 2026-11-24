@@ -1091,6 +1091,11 @@ as it plays decodes as the whole file would.
 **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
 when that transfer ends: what is in plays out, the chunk in flight included.
 
+**MIX's sources reach every chip by its holder.** Each SID is mixed at its holder's level: a tune's chip at the
+tunes' (with the tune's fade), else music's while a music voice is on it, else the effects'. The ES5503's music
+voices play on its channels 2 and 3, mixed at music's level; its effects and the boot sound on channels 0 and 1, at
+the effects'. So muting one source leaves the others heard, whichever chips they share.
+
 **XFERABORT runs at once.** A command naming an object whose transfer is still open waits for it, in order, with
 everything behind it; XFERABORT alone doesn't wait behind such a command: it runs as soon as it is due, ends the
 transfer, and its reply comes before the waiting command's (which then finds the object gone: `E_SLOT`). So a host

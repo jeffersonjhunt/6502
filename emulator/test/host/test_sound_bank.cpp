@@ -265,4 +265,106 @@ TEST(a_bank_bigger_than_wave_ram_plays_each_sample)
     CHECK_EQ(d.ask(SoundFw::EFFECT_DEF, {40, 0, 0, 0xFF})[1], SoundFw::E_PARAM);
 }
 
+namespace
+{
+    double out_rms(Dev &d, unsigned ms)
+    {
+        d.card.take_tap();
+        d.ms(ms);
+        const auto tap = d.card.take_tap();
+        double s = 0;
+        for (const int16_t x : tap)
+            s += static_cast<double>(x) * x;
+        return tap.empty() ? 0 : std::sqrt(s / static_cast<double>(tap.size()));
+    }
+    /// A note block on logical voice 0: `inst`, one note `note` of `ms`, gated for all of it.
+    std::vector<uint8_t> one_note(const std::vector<uint8_t> &inst, uint8_t note, uint32_t ms)
+    {
+        std::vector<uint8_t> b{1, 1, 0, 0, 1, 0, 0, 0};
+        b.insert(b.end(), inst.begin(), inst.end());
+        b.push_back(0x00);
+        b.push_back(note);
+        for (const uint32_t x : {ms * 1000, ms * 1000})
+            for (int i = 0; i < 4; ++i)
+                b.push_back(static_cast<uint8_t>(x >> (8 * i)));
+        return b;
+    }
+    void music(Dev &d, const std::vector<uint8_t> &blk)
+    {
+        CHECK_EQ(d.ask(SoundFw::MUSIC_LOAD, {0, static_cast<uint8_t>(blk.size()), 0, 0})[1], 0);
+        d.data(blk);
+        CHECK_EQ(d.ask(SoundFw::MUSIC_PLAY, {0, 0})[1], 0);
+    }
+    const std::vector<uint8_t> SID_SAW = {0, 0x20, 0x09, 0xF0, 0x00, 0x08, 0xFF, 128};
+    const std::vector<uint8_t> SAMPLE_3 = {1, 3, 69, 0, 0, 0, 255, 128}; // slot 3, one-shot (363 ms)
+} // namespace
+
+TEST(mix_0_mutes_the_tune_and_leaves_sid_b_s_effect_heard)
+{
+    // A one-SID tune on SID A, a SID effect on SID B. MIX(0, 0): the tune goes quiet, the effect is still heard
+    // (it is the effects' source, not the tunes'); MIX(2, 0) then quietens it too.
+    Dev d;
+    d.card.set_tap(true);
+    const auto file = tune();
+    CHECK_EQ(d.ask(SoundFw::TUNE_LOAD, {0, static_cast<uint8_t>(file.size()), static_cast<uint8_t>(file.size() >> 8), 0})[1], 0);
+    d.data(file);
+    CHECK_EQ(d.ask(SoundFw::EFFECT_DEF, sid_effect(1, 1000, 440 * 16))[1], 0);
+    CHECK_EQ(d.ask(SoundFw::TUNE_PLAY, {0, 0, 0, 0, 0, 0, 0, 0, 0})[1], 0);
+    d.ms(50);
+    const double tune_on = out_rms(d, 100);
+    CHECK_EQ(d.ask(SoundFw::MIX, {0, 0})[1], 0);
+    const double tune_off = out_rms(d, 100);
+    CHECK_EQ(d.play(1)[1], 0);
+    REQUIRE(d.card.firmware().voice_use(3) == SoundFw::V_EFFECT); // SID B's first voice
+    d.ms(20);
+    const double effect = out_rms(d, 100);
+    CHECK_EQ(d.ask(SoundFw::MIX, {2, 0})[1], 0);
+    const double none = out_rms(d, 100);
+    std::printf("  RMS: the tune %.0f, muted %.0f; SID B's effect %.0f, muted %.0f\n", tune_on, tune_off, effect, none);
+    CHECK(tune_on > 300);
+    CHECK(tune_off < 30);
+    CHECK(effect > 300);
+    CHECK(none < 30);
+}
+
+TEST(mix_1_mutes_music_on_the_sids_and_the_es5503)
+{
+    // A note on a SID instrument, then one on a sample: each heard, and quiet under MIX(1, 0).
+    for (const bool sample : {false, true})
+    {
+        Dev d;
+        d.card.set_tap(true);
+        if (sample)
+            d.sample(3, sine(8000, 40), 22050);
+        music(d, one_note(sample ? SAMPLE_3 : SID_SAW, 69, 2000));
+        d.ms(50);
+        const double on = out_rms(d, 100);
+        CHECK_EQ(d.ask(SoundFw::MIX, {1, 0})[1], 0);
+        const double off = out_rms(d, 100);
+        std::printf("  music on %s: RMS %.0f, muted %.0f\n", sample ? "the ES5503" : "a SID", on, off);
+        CHECK(on > 300);
+        CHECK(off < 30);
+    }
+}
+
+TEST(mix_2_leaves_music_heard)
+{
+    // MIX(2, 0) mutes the effects, not music: a note on a SID instrument and one on a sample, each heard alike.
+    for (const bool sample : {false, true})
+    {
+        Dev d;
+        d.card.set_tap(true);
+        if (sample)
+            d.sample(3, sine(8000, 40), 22050);
+        music(d, one_note(sample ? SAMPLE_3 : SID_SAW, 69, 2000));
+        d.ms(50);
+        const double on = out_rms(d, 100);
+        CHECK_EQ(d.ask(SoundFw::MIX, {2, 0})[1], 0);
+        const double still = out_rms(d, 100);
+        std::printf("  music on %s: RMS %.0f, effects muted %.0f\n", sample ? "the ES5503" : "a SID", on, still);
+        CHECK(on > 300);
+        CHECK(still > 0.8 * on);
+    }
+}
+
 int main() { return run_all(); }
