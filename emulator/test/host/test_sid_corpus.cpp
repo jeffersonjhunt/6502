@@ -758,12 +758,13 @@ namespace
         return o;
     }
 
-    /// sid_known_failures.txt: the tunes passes() fails today, path to what they did (a tab between; '#' a
-    /// comment). The sample leaves them out; the_known_failures_still_fail plays them.
-    std::map<std::string, std::string> known_failures()
+    /// sid_known_failures.txt (or `path`, sid_device_known_failures.txt for the device's): the tunes passes()
+    /// fails today, path to what they did (a tab between; '#' a comment). The sample leaves them out;
+    /// the_known_failures_still_fail plays them.
+    std::map<std::string, std::string> known_failures(const char *path = EMU_SID_KNOWN_FAILURES)
     {
         std::map<std::string, std::string> known;
-        std::ifstream in(EMU_SID_KNOWN_FAILURES);
+        std::ifstream in(path);
         for (std::string line; std::getline(in, line);)
         {
             if (line.empty() || line[0] == '#')
@@ -817,6 +818,13 @@ namespace
     REQUIRE(!known.empty()); // the list read: an empty one would let them all into the sample
     all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return known.count(n) != 0; }), all.end());
     std::printf("  %zu known failures left out (sid_known_failures.txt)\n", known.size());
+    if (device) // and the device's own (T1: the owner's decided ones)
+    {
+        const std::map<std::string, std::string> dev = known_failures(EMU_SID_DEVICE_KNOWN_FAILURES);
+        REQUIRE(!dev.empty());
+        all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return dev.count(n) != 0; }), all.end());
+        std::printf("  %zu more on the device (sid_device_known_failures.txt)\n", dev.size());
+    }
     std::printf("  %s\n", device ? "on the device (revision 3, by its records)" : "on revision 2's registers");
     std::map<std::string, std::map<std::string, std::string>> baseline; // SID_COMPARE's, by name
     if (const char *path = std::getenv("SID_COMPARE"); device && path && *path)
@@ -964,6 +972,20 @@ TEST(the_known_failures_still_fail)
             ++failing;
     }
     std::printf("  %u of %zu known failures still fail\n", failing, known.size());
+    // The device's own: each still fails there.
+    const std::map<std::string, std::string> dev = known_failures(EMU_SID_DEVICE_KNOWN_FAILURES);
+    REQUIRE(!dev.empty());
+    unsigned dev_failing = 0;
+    for (const auto &[name, was] : dev)
+    {
+        const Outcome o = judge(name, false, true);
+        if (o.ok)
+            std::printf("  %s: passes on the device now (it was: %s); take it off sid_device_known_failures.txt\n", name.c_str(),
+                        was.c_str());
+        CHECK(!o.ok);
+        dev_failing += !o.ok;
+    }
+    std::printf("  %u of %zu of the device's still fail\n", dev_failing, dev.size());
 }
 
 int main() { return run_all(); }

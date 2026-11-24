@@ -277,7 +277,11 @@ emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)
 emu_add_test(test_sid_corpus) # a sample of the owner's tunes, under fixtures/SIDs; skips without them
-target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_known_failures.txt")
+target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_known_failures.txt"
+                                                   EMU_SID_DEVICE_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_device_known_failures.txt")
+# T13: both modes' samples in one entry, about 120 s in the fast build with others at once: the default 120 s
+# timed out under load.
+emu_suite_properties(test_sid_corpus TIMEOUT 240)
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
@@ -904,6 +908,8 @@ if(Python3_FOUND)
     add_test(NAME test_trace_diff
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")
+    add_test(NAME test_mksndflash # the firmware's flash header made from the boot sound's sources, checked
+             COMMAND "${Python3_EXECUTABLE}" -I "${PROJECT_SOURCE_DIR}/../tools/mksndflash.py" --check)
     add_test(NAME test_mksndfw # tools/mksndfw.py's firmware images for the sound card, revision 3
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_mksndfw.py"
                      "${PROJECT_SOURCE_DIR}/../tools/mksndfw.py")
@@ -1052,6 +1058,7 @@ set(EMU_TEST_LABELS
     test_fetch_fixtures         "tools"
     test_trace_diff             "debug"
     test_mksndfw                "sound tools"
+    test_mksndflash             "sound tools"
     test_test_map               "tools")
 
 list(LENGTH EMU_TEST_LABELS n)

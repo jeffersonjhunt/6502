@@ -99,6 +99,7 @@ emulator/test/host/disk2_rig.h                  disk2
 emulator/test/host/sd_images.h                  sd web
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
+emulator/test/host/sid_device_known_failures.txt  test_sid_corpus
 emulator/test/host/golden/ooui.txt              test_oodos_ui
 emulator/test/host/golden/sysinfo*              test_oodos_sysinfo
 emulator/test/host/golden/romdiag*              test_bios_diag
@@ -139,6 +140,9 @@ backplane/bios/apple.s                          bios apple docs web
 # The ROM's diagnostics (hw/diag.md) choose test_bios_diag's slow share too (hw/testing.md, item 8).
 backplane/bios/diag*                            bios diagslow docs web
 backplane/bios/sd.s                             bios sd docs web
+# The boot sound's samples and tables: the sound card's firmware plays them from its flash (mksndflash.py).
+backplane/bios/splash/wave.bin                  sound bios docs web
+backplane/bios/splash/doctables.inc             sound bios docs web
 backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web
 backplane/README.md                             none
