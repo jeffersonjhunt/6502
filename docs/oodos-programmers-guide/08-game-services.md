@@ -530,21 +530,23 @@ its release, at most its length; equal is legato. The card checks the whole bloc
 doesn't parse (6, DATA).
 
 **The library.** OOLIB's music routines build the blocks for a program (`oodos/lib/mu.s`, `munote.s` and `mutone.s`;
-`include/oolib.inc` has the calls), on six logical voices, for a program's music and GW-BASIC's SOUND and PLAY:
+`include/oolib.inc` has the calls), on six logical voices, for a program's music. (GW-BASIC's SOUND and PLAY build
+their own blocks, one a statement, on the tone generator's voice, and use `MU_INIT`, `MU_BLOCK`, `MU_COUNT`,
+`MU_THRESH`, `MU_STOP` and `MU_QUIT`.)
 
 - `MU_INIT`: A the clock, 0 PAL or 1 NTSC. It claims music; every voice is a 50% pulse at full volume. `PE_REFUSED`
   without a card, or while music is another program's. `MU_QUIT` stops it and gives it back; the warm boot does too.
 - `MU_NOTE`: A/X a block of 7 bytes (`MU_NLEN`): +0 the voice, 0–5; +1 the note, 0 (C-0) to 95 (B-7; A-4, 440 Hz,
   is 57), or `MU_REST`; +3–4 the length in ms (0 is 1); +5–6 the gate in ms (0 silent; the length or more, legato).
-  PLAY's MN is 7/8 of the length, MS 3/4. `MU_TONE`: the same with +1–2 a frequency in Hz (0 a rest), exact: SOUND's.
+  PLAY's MN is 7/8 of the length, MS 3/4. `MU_TONE`: the same with +1–2 a frequency in Hz (0 a rest), exact.
   Each is sent at once, as a block of one entry, queued behind what plays.
 - `MU_BLOCK` (interface 18): A/X a block of 4 bytes (`MU_BLEN`): +0–1 the address of a note block the program built
   in its own memory, +2–3 its length. It is sent whole and queued. `PE_REFUSED` if the card refused it.
 - `MU_INSTR`: A/X a block of 6 bytes (`MU_ILEN`): +0 the voice, +1 the waveform's bits (noise, pulse, saw, triangle,
   ring, sync), +2 attack and decay, +3 sustain and release, +4–5 the pulse width, from the voice's next entry on.
   `MU_VOLUME`: A a SID (0, 1 or `MU_ALL`), X its volume, 0–15, for the voices that name it.
-- `MU_MARK`: A a voice, X a marker, 0–14: `MU_EVENT` says `MV_MARK` when the voice reaches it, for GW-BASIC's ON
-  PLAY or a program's own sync points. `MU_THRESH` (interface 18): A n, the threshold, 0 none.
+- `MU_MARK`: A a voice, X a marker, 0–14: `MU_EVENT` says `MV_MARK` when the voice reaches it, for a program's own
+  sync points. `MU_THRESH` (interface 18): A n, the threshold, 0 none (GW-BASIC's ON PLAY(n) sets n - 1).
 - `MU_STOP`: music stopped, every queued block dropped (the card has one queue). `MU_PAUSE` and `MU_RESUME`.
 - `MU_EVENT`: A an `EK_SOUND` event's code, X its value: A = `MV_DONE` (the queued music has all played, X the last
   slot), `MV_MARK` (X the voice, Y the marker), `MV_COUNT` (the threshold met), or `MV_NONE` for an event that isn't
@@ -1007,7 +1009,7 @@ monitor with the machine's interrupts off, as it always has; booting OODOS again
 
 ## Still to come
 
-GW-BASIC's SOUND, PLAY and BEEP on note blocks ([Music](#music)); MOD; USB gamepads as controller
+MOD; USB gamepads as controller
 4; for graphics, a scan-line hook and a collision hook, software sprites, a C target for the library, and a copy of
 the library for FARCALL (with GW-BASIC): [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
 built, a program has none for it: see [AGENTS.md](../../AGENTS.md) for what not to take over in the meantime.
