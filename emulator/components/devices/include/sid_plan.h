@@ -66,8 +66,6 @@
  * the card; a second one plays only at $D420 or $D500.
  */
 
-#include "sid.h"
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -77,6 +75,14 @@
 
 namespace ooe::emu
 {
+    /// The SID a tune was written for: the chips' model the card sets for it (sid.h's Sid::Model, which the
+    /// emulator maps it to in sid_file.h, so the plan needs no SID model of its own).
+    enum class SidModel : uint8_t
+    {
+        Mos6581,
+        Mos8580,
+    };
+
     struct SidFile
     {
         enum class Clock : uint8_t
@@ -105,7 +111,7 @@ namespace ooe::emu
 
         Clock clock() const { return static_cast<Clock>((flags >> 2) & 3); }
         /// The chip it was written for: 8580 when it says only that, else the 6581.
-        Sid::Model model() const { return ((flags >> 4) & 3) == 2 ? Sid::Model::Mos8580 : Sid::Model::Mos6581; }
+        SidModel model() const { return ((flags >> 4) & 3) == 2 ? SidModel::Mos8580 : SidModel::Mos6581; }
         bool ntsc() const { return clock() == Clock::Ntsc; }
         /// The last address the code fills.
         uint32_t end() const { return load + static_cast<uint32_t>(data.size()) - 1; }
@@ -129,7 +135,7 @@ namespace ooe::emu
         static constexpr uint8_t CTRL_NTSC = 0x01, CTRL_RUN = 0x02, CTRL_RESET = 0x04, CTRL_SID_B_D500 = 0x08,
                                  CTRL_BOTH = 0x10;
         uint8_t ctrl{0};           ///< CTRL to start with (RUN and RESET included)
-        Sid::Model model{Sid::Model::Mos6581}; ///< the chips' jumper, as the tune wants
+        SidModel model{SidModel::Mos6581}; ///< the chips' jumper, as the tune wants
         uint16_t stub{0};          ///< where the stub sits
         uint16_t frame{0};         ///< the stub's frame counter, written to the mailbox after each play
         uint16_t returned{0};      ///< where init returns to in the stub: the 6510 fetching it means init is done

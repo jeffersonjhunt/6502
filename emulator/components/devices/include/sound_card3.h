@@ -198,6 +198,9 @@ namespace ooe::emu
         size_t out_at_{0};           ///< the frame next
         uint64_t out_phase_{0};      ///< in 1/audio-rate frames, x 48,000
         uint8_t chips_ctrl_{0};          ///< the chips' CTRL while a tune runs (RESET not kept)
+        bool tune_two_{false};           ///< the tune's chips: both (true), or SID A alone
+        /// The tune's chips silenced (their 25 registers 0, as stop_sid() does both): SID A, and SID B for a two-SID tune.
+        void stop_tune_chips();
         std::array<uint8_t, 2> held_vol_{}; ///< each SID's $18 as a pause found it
         uint64_t starts_{0};
         SoundFw fw_;

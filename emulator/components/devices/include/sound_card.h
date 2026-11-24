@@ -419,6 +419,9 @@ namespace ooe::emu
         /// answered by SID A, as SID A's mirrors on a C64 (its writes keep the decode). Off, as revision 2 has it;
         /// /RESET leaves it.
         void set_reads_from_a(bool on) { reads_from_a_ = on; }
+        /// The card's own logic's reset for a tune's start (revision 3's): reset() but, with `keep_b`, SID B and
+        /// its registers as they are (a one-SID tune takes SID A alone; SID B may be playing the firmware's voices).
+        void reset_for_tune(bool keep_b);
         /// SID `n` as of now: its voices' oscillators and envelopes.
         const Sid &chip(unsigned n) const
         {

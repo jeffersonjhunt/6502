@@ -30,7 +30,7 @@ namespace ooe::emu
     void start_sid(SoundCard &card, const SidPlan &plan)
     {
         stop_sid(card);
-        card.set_model(plan.model);
+        card.set_model(to_sid(plan.model));
         for (const auto &block : plan.blocks)
         {
             card.write(SoundCard::RAMADDR, static_cast<uint8_t>(block.addr));

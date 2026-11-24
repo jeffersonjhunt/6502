@@ -69,6 +69,8 @@
 #include <array>
 #include <cstdint>
 
+#define OOE_EMU_SID_H ///< (test_sound_fw checks the firmware's header doesn't bring this in)
+
 namespace ooe::emu
 {
     class Sid

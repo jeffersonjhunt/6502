@@ -508,6 +508,7 @@ namespace ooe::emu
             uint64_t calls{0};
         };
         Tune tune_;
+        uint8_t sid_model_{1}; ///< IDENTIFY's: the chips' model as a tune last set it (1 6581, the jumper's at first; 2 8580)
 
         // --- streams ------------------------------------------------------------------------------------------
         static constexpr uint32_t CHUNK_DEFAULT = 32 * 1024, PREBUFFER_DEFAULT = 500, URGENT_MS = 1000;

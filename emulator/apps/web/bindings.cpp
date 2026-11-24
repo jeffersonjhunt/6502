@@ -559,7 +559,7 @@ namespace
             for (const auto &w : session_->sid_warnings())
                 warnings += (warnings.empty() ? "" : "\n") + w;
             return SidInfo{true, f->name, f->author, f->released, warnings, f->songs, session_->sid_song(),
-                           f->rsid, f->ntsc(), f->model() == Sid::Model::Mos8580};
+                           f->rsid, f->ntsc(), f->model() == SidModel::Mos8580};
         }
         /// A tune plays: revision 2's 6510 runs (CTRL RUN); revision 3's TUNE_STATUS says starting, playing or
         /// stalled. False without the card.

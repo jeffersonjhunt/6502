@@ -7,6 +7,12 @@
  * them. Records are written byte by byte, the card's clock advanced, and the events read back and parsed.
  */
 
+// The firmware depends on its port alone (the spec's Q2): its header, first, brings in no emulator chip.
+#include "sound_fw.h"
+#ifdef OOE_EMU_SID_H
+#error "sound_fw.h brings in sid.h, the emulator's SID"
+#endif
+
 #include "harness.h"
 
 #include "sid_plan.h"
@@ -809,14 +815,15 @@ namespace
     };
 
     /// A PSID: load and init $1000, play $1000 + `play_at` (0: none), PAL, VBI; `songs`; a second SID at `sid2`.
-    std::vector<uint8_t> psid(std::vector<uint8_t> code, uint16_t play_at, uint16_t songs = 1, uint16_t sid2 = 0)
+    std::vector<uint8_t> psid(std::vector<uint8_t> code, uint16_t play_at, uint16_t songs = 1, uint16_t sid2 = 0,
+                              uint8_t flags = 0x14)
     {
         std::vector<uint8_t> b(0x7C, 0);
         b[0] = 'P', b[1] = 'S', b[2] = 'I', b[3] = 'D', b[5] = 3, b[7] = 0x7C;
         b[0x08] = 0x10, b[0x0A] = 0x10;
         if (play_at)
             b[0x0C] = static_cast<uint8_t>(0x10 + (play_at >> 8)), b[0x0D] = static_cast<uint8_t>(play_at);
-        b[0x0F] = static_cast<uint8_t>(songs), b[0x11] = 1, b[0x77] = 0x14;
+        b[0x0F] = static_cast<uint8_t>(songs), b[0x11] = 1, b[0x77] = flags;
         const char name[] = "A TEST TUNE";
         for (size_t i = 0; i < sizeof name - 1; ++i)
             b[0x16 + i] = static_cast<uint8_t>(name[i]);
@@ -1237,6 +1244,70 @@ TEST(the_boot_sound_plays_from_the_card_s_flash)
     const auto tap = d.card.take_tap();
     std::printf("  %zu frames from the ES5503, RMS %.0f %.0f\n", tap.size() / 2, rms(tap, 0), rms(tap, 1));
     CHECK(rms(tap, 0) > 200 && rms(tap, 1) > 200);
+}
+
+TEST(a_one_sid_tune_leaves_sid_b_to_what_plays_there)
+{
+    // Music on SID B (a SID instrument: SID A is the tune's), a long note; then the one-SID tune started again,
+    // paused, resumed and stopped: SID B's registers and its music voice are untouched each time.
+    Dev d;
+    d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0x60}, 21));
+    CHECK_EQ(d.play(0, 0), 0);
+    d.ms(20);
+    std::vector<uint8_t> blk{1, 1, 0, 0, 1, 0, 0, 0, 0, 0x20, 0x09, 0xA9, 0x00, 0x08, 0xFF, 128, 0x00, 60};
+    for (const uint32_t x : {5'000'000u, 5'000'000u})
+        for (int i = 0; i < 4; ++i)
+            blk.push_back(static_cast<uint8_t>(x >> (8 * i)));
+    CHECK_EQ(d.ask(SoundFw::MUSIC_LOAD, {0, static_cast<uint8_t>(blk.size()), 0, 0})[1], 0);
+    for (const uint8_t b : blk)
+        d.card.write(SoundCard3::DATA, b);
+    d.ms(1);
+    CHECK_EQ(d.ask(SoundFw::MUSIC_PLAY, {0, 0})[1], 0);
+    d.ms(20);
+    REQUIRE(d.card.firmware().voice_use(3) == SoundFw::V_MUSIC);
+    const auto b = d.card.chips().sid(1);
+    std::printf("  SID B: control $%02X, AD $%02X, SR $%02X, $18 $%02X\n", b[4], b[5], b[6], b[0x18]);
+    CHECK_EQ(b[4] & 1, 1); // its note gated
+    auto same = [&](const char *what) {
+        const auto now = d.card.chips().sid(1);
+        bool alike = true;
+        for (unsigned r = 0; r < 25; ++r)
+            alike = alike && now[r] == b[r];
+        if (!alike)
+            std::printf("  after %s: SID B's registers changed\n", what);
+        CHECK(alike);
+        CHECK(d.card.firmware().voice_use(3) == SoundFw::V_MUSIC);
+    };
+    CHECK_EQ(d.play(0, 0), 0); // the tune again
+    d.ms(10);
+    same("TUNE_PLAY");
+    CHECK_EQ(d.ask(SoundFw::TUNE_PAUSE)[1], 0);
+    d.ms(10);
+    same("TUNE_PAUSE");
+    CHECK_EQ(d.ask(SoundFw::TUNE_RESUME)[1], 0);
+    d.ms(10);
+    same("TUNE_RESUME");
+    CHECK_EQ(d.ask(SoundFw::TUNE_STOP)[1], 0);
+    d.ms(10);
+    same("TUNE_STOP");
+}
+
+TEST(identify_says_the_sids_model_a_tune_set)
+{
+    Dev d;
+    auto models = [&] {
+        const auto r = d.ask(SoundFw::IDENTIFY);
+        return std::make_pair(r.at(2 + 23), r.at(2 + 24));
+    };
+    CHECK(models() == std::make_pair(uint8_t{1}, uint8_t{1})); // the 6581, as the jumper is at first
+    d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0x60}, 21, 1, 0, 0x24)); // written for the 8580
+    CHECK_EQ(d.play(0, 0), 0);
+    d.ms(5);
+    CHECK(models() == std::make_pair(uint8_t{2}, uint8_t{2}));
+    d.load(1, psid(SAW + std::vector<uint8_t>{0x60, 0x60}, 21));
+    CHECK_EQ(d.play(1, 0), 0);
+    d.ms(5);
+    CHECK(models() == std::make_pair(uint8_t{1}, uint8_t{1}));
 }
 
 int main() { return run_all(); }

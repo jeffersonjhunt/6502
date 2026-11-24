@@ -1489,6 +1489,7 @@ namespace ooe::emu
         tune_.fade_ms = get16(p + 7);
         tune_.has_play = f.play != 0;
         port_.tune_start(*plan, f.ntsc(), f.sid2 == 0xD500);
+        sid_model_ = plan->model == SidModel::Mos8580 ? 2 : 1;
         if (tune_.has_play)
             tune_.state = T_STARTING;
         else
@@ -1753,8 +1754,8 @@ namespace ooe::emu
             r.push_back(EFFECTS - 1);
             r.push_back(6);  // SID voices
             r.push_back(32); // oscillators
-            r.push_back(1);  // SID A: a 6581 until a tune asks
-            r.push_back(1);
+            r.push_back(sid_model_); // each SID's model as a tune last set it (the chips share the setting)
+            r.push_back(sid_model_);
             r.push_back(running_); // image A or B
             r.resize(32, 0);
             reply(tag, OK, r);
@@ -1915,7 +1916,7 @@ namespace ooe::emu
             put16(r, f.songs);
             put16(r, f.start_song);
             r.push_back(static_cast<uint8_t>(f.clock()));
-            r.push_back(static_cast<uint8_t>((f.rsid ? 1 : 0) | (f.sid2 ? 2 : 0) | (f.model() == Sid::Model::Mos8580 ? 4 : 0) |
+            r.push_back(static_cast<uint8_t>((f.rsid ? 1 : 0) | (f.sid2 ? 2 : 0) | (f.model() == SidModel::Mos8580 ? 4 : 0) |
                                              (f.cia_timed(f.start_song) ? 8 : 0)));
             put16(r, f.sid2);
             put_text(r, f.name);

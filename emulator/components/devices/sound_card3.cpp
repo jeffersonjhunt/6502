@@ -290,9 +290,10 @@ namespace ooe::emu
         fw_adc_flush();
         // A tune starts on chips just reset (/RES): the 6510 stopped, CIA 1, its port and both SIDs as at
         // power-on (the SIDs' envelope counters run on otherwise), whatever played before it. Its RAM stays.
-        chips_.reset();
-        stop_sid(chips_);
-        chips_.set_model(plan.model);
+        tune_two_ = !(plan.ctrl & SidPlan::CTRL_BOTH); // the plan's BOTH: a one-SID tune
+        chips_.reset_for_tune(!tune_two_);
+        stop_tune_chips();
+        chips_.set_model(to_sid(plan.model));
         for (const auto &block : plan.blocks)
         {
             chips_.write(SoundCard::RAMADDR, static_cast<uint8_t>(block.addr));
@@ -313,14 +314,25 @@ namespace ooe::emu
         ++starts_;
     }
 
-    void SoundCard3::tune_stop() { stop_sid(chips_); }
+    void SoundCard3::stop_tune_chips()
+    {
+        chips_.write(SoundCard::CTRL, 0); // the 6510 stopped: the SIDs are the card's
+        for (unsigned reg = 0; reg < 0x19; ++reg)
+        {
+            chips_.chip_write(0, reg, 0);
+            if (tune_two_)
+                chips_.chip_write(1, reg, 0);
+        }
+    }
+
+    void SoundCard3::tune_stop() { stop_tune_chips(); }
 
     void SoundCard3::tune_hold(bool held)
     {
         if (held)
         {
             chips_.write(SoundCard::CTRL, static_cast<uint8_t>(chips_ctrl_ & ~SoundCard::CTRL_RUN));
-            for (unsigned n = 0; n < 2; ++n)
+            for (unsigned n = 0; n < (tune_two_ ? 2u : 1u); ++n) // the tune's chips alone
             {
                 held_vol_[n] = chips_.sid(n)[SoundCard::SID_MODE_VOL];
                 chips_.write(static_cast<uint32_t>((n ? SoundCard::SID_B : SoundCard::SID_A) + SoundCard::SID_MODE_VOL),
@@ -328,7 +340,7 @@ namespace ooe::emu
             }
             return;
         }
-        for (unsigned n = 0; n < 2; ++n)
+        for (unsigned n = 0; n < (tune_two_ ? 2u : 1u); ++n)
             chips_.write(static_cast<uint32_t>((n ? SoundCard::SID_B : SoundCard::SID_A) + SoundCard::SID_MODE_VOL), held_vol_[n]);
         chips_.write(SoundCard::CTRL, chips_ctrl_);
     }

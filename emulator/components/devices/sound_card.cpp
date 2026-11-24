@@ -406,6 +406,16 @@ namespace ooe::emu
         reset_rev2();
     }
 
+    void SoundCard::reset_for_tune(bool keep_b)
+    {
+        catch_up(); // SID B to now, as it is
+        const Sid b = chips_[1];
+        const auto wb = written_[1];
+        reset();
+        if (keep_b)
+            chips_[1] = b, written_[1] = wb;
+    }
+
     void SoundCard::reset_rev2()
     {
         // The ES5503 stopped first: nothing below (the vis snapshot's catch-up) may play it with the bus's rate

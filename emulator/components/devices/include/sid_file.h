@@ -13,11 +13,17 @@
  * header and the plan are sid_plan.h's.
  */
 
+#include "sid.h"
 #include "sid_plan.h"
 
 namespace ooe::emu
 {
     class SoundCard;
+
+    /// The plan's model as the emulator's SID chips have it.
+    inline Sid::Model to_sid(SidModel m) { return m == SidModel::Mos8580 ? Sid::Model::Mos8580 : Sid::Model::Mos6581; }
+    inline bool operator==(SidModel a, Sid::Model b) { return to_sid(a) == b; }
+    inline bool operator!=(SidModel a, Sid::Model b) { return !(a == b); }
 
     /// Stop the card's 6510 and silence the SIDs, through its host registers.
     void stop_sid(SoundCard &card);
