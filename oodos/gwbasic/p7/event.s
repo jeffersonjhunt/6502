@@ -6,10 +6,10 @@
 ; p7/sound.s, so the jump table's order is as U1 made it):
 ;
 ;   EVP7      EVPOLL's: an event that isn't a key's, Y its slot's offset in
-;             the queue (EVAREA + EV_QUEUE + Y). EK_SOUND: SNDEV, its byte to
-;             MU_EVENT (the voices' counts), and ON PLAY(n)'s request when
-;             the notes waiting in MB fall from n to n - 1 (OO-1: the source
-;             has no PLAY event); EK_CTL: STREV; the rest dropped
+;             the queue (EVAREA + EV_QUEUE + Y). EK_SOUND: SNDEV, ON PLAY(n)'s
+;             request when the notes in MB fall from n to n - 1 (the card's
+;             MUSIC_COUNT, or MUSIC_DONE for n = 1; OO-1: the source has no
+;             PLAY event); EK_CTL: STREV; the rest dropped
 ;   STREV     a controller's change (EC_BITS, controllers 1 and 2): each
 ;             fire button newly pressed: its trap requested (P3's EVTRP:
 ;             GWSTS.ASM's POLSTR, on the events) and, if that didn't trap
@@ -18,8 +18,13 @@
 ;   TRPPOL    retired: an RTS (the owner's answers 23-24: ON TIMER by the tick
 ;             hook, ON COM's trap deferred until AUX: has a receive buffer)
 ;   ONSETP    ON PLAY(n) and ON TIMER(n) (P3's ONGOTP): A 0 PLAY, n 1-32
-;             (the manual's p. 211), kept for SNDEV; A 1 TIMER (p7/time.s
-;             TIMSET); A the event's id back
+;             (the manual's p. 211), kept for SNDEV and the card's threshold
+;             set for it at once if music has started (TH0); A 1 TIMER
+;             (p7/time.s TIMSET); A the event's id back
+;   PLONP     PLAY ON's (the home block's PLAYS, after P3's SETEV1): with
+;             nothing in the buffer (GWCNT 0), a trap remembered under PLAY
+;             STOP or OFF dropped, not taken (the manual's p. 212, its note
+;             2: the owner's answer 6 to branch C's plan)
 ;   JOYFP     PEN(n), STICK(n), STRIG(n) from FUNDSP (the resident JOYF), X
 ;             the function as FINGO has it: PEN(n) GWSTS.ASM's PENF, n 0-9,
 ;             the OEM's RDPEN reporting no pen (0; PEN(0) the trap's
@@ -41,9 +46,9 @@
 
 .include "gwbasic.inc"
 
-.export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, STRLAT, PLYN
+.export EVP7, TRPPOL, JOYFP, XFUNP, ONSETP, PLONP, STRLAT, PLYN
 .import FCERR, SNERR, ADVERR, CONINT, MAKINT, EVAREA, PLAYN, MMODE, SCRMOD, TIMEP, DATEF, TIMEF, TIMSET
-.import GWREF, GWC                     ; p7/sound.s's
+.import GWCNT, TH0, DRVON             ; p7/sound.s's
 
 CB_FIRE2        = CB_FIRE * 2          ; the second fire button (the DE-9 sticks have one)
 
@@ -56,28 +61,23 @@ EVP7:           LDA     EVAREA + EV_QUEUE + EQ_KIND,Y
                 BEQ     STREV
                 CMP     #EK_SOUND
                 BNE     EVPX
-; SNDEV (OO-1, sound card revision 3): music's MUSIC_COUNT (the threshold
-; ROOM's wait or ON PLAY(n) set) or MUSIC_DONE: GWC from the card (GWREF);
-; in MB with ON PLAY(n) given, the count fallen through n (n or more before,
-; under n now) is the request (EVTRP tests the trap's T_ON).
+; SNDEV (OO-1, sound card revision 3): the card's threshold is ON PLAY(n)'s
+; alone (p7/sound.s TH0: n - 1), so in MB with ON PLAY(n) given a
+; MUSIC_COUNT (n 2-32) or a MUSIC_DONE (n = 1) is the count's fall from n to
+; n - 1: the request (EVTRP tests the trap's T_ON).
 SNDEV:          LDA     EVAREA + EV_QUEUE + EQ_CODE,Y
+                LDX     PLYN
                 CMP     #SK_MUSIC_COUNT
-                BEQ     :+
+                BEQ     @count
                 CMP     #SK_MUSIC_DONE
                 BNE     EVPX
-:               LDA     GWC
-                STA     SNB4
-                JSR     GWREF
-                LDA     MMODE          ; MB only
+                DEX                    ; MUSIC_DONE: n = 1
+                BNE     EVPX
+                BRA     @mb
+@count:         CPX     #2             ; MUSIC_COUNT: n 2-32
+                BCC     EVPX
+@mb:            LDA     MMODE          ; MB only
                 BEQ     EVPX
-                LDA     PLYN           ; ON PLAY(n) given
-                BEQ     EVPX
-                LDA     SNB4
-                CMP     PLYN
-                BCC     EVPX           ; under n before
-                LDA     GWC
-                CMP     PLYN
-                BCS     EVPX           ; n or more now
                 LDA     #PLYOFF
                 FJSR    EVTRP
 EVPX:           RTS
@@ -137,12 +137,24 @@ ONSETP:         CMP     #0
                 CMP     #MUQMAX + 1
                 BCS     @fc
                 STA     PLYN
-                LDA     #PLYOFF
+                LDA     DRVON          ; music started: the card's threshold now
+                BEQ     :+             ;   (else FLUSH's, at the first block)
+                JSR     TH0
+:               LDA     #PLYOFF
                 RTS
 @tim:           JSR     TIMSET         ; TIMER(n): 1-86,400
                 LDA     #TIMOFF
                 RTS
 @fc:            JMP     FCERR
+
+; PLONP: PLAY ON just done (SETEV1's): the buffer empty, the trap's request
+; freed (P3's TSTCEV: after ONTRP has counted it, so ONGSBF stays right).
+PLONP:          JSR     GWCNT
+                CMP     #0             ; (GWCNT's flags aren't A's)
+                BNE     :+
+                LDA     #PLYOFF
+                FJSR    TSTCEV
+:               RTS
 
 ; --- JOYFP ---------------------------------------------------------------------------------
 
@@ -226,10 +238,7 @@ XFUNP:          CMP     #PLAY_XS
                 JMP     DATEF
 :               JMP     TIMEF          ; (TIME$: ERDEVP's last)
 
-MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
-
 .segment "BRAM"
-SNB4:           .res    1              ; SNDEV's count before
 PLYN:           .res    1              ; ON PLAY(n)'s n, 0 none
 CTLB:           .res    2              ; controllers 1 and 2's EC_BITS as last seen
 STT:            .res    1              ; STREV's

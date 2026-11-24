@@ -20,7 +20,8 @@
 ;             first (P7's TIMONP), TIMER OFF takes it off (TIMOFP); both modes
 ;   PLAYS     PLAY string: P7's PLAYP in screen mode; Advanced Feature in
 ;             console mode (answer 4). OO-1 (7f): PLAY ON, OFF or STOP, ON
-;             PLAY(n)'s trap, by P3's SETEV1 on PLYOFF
+;             PLAY(n)'s trap, by P3's SETEV1 on PLYOFF; PLAY ON then P7's
+;             PLONP (branch C: with the buffer empty, no remembered trap)
 
 .include "gwbasic.inc"
 
@@ -76,7 +77,7 @@ BEEP:           FJSR    BEEPP
 PLAYS:          BIT     SCRMOD
                 BPL     SADV
                 CMP     #ON_TK         ; PLAY ON, OFF, STOP: its trap
-                BEQ     :+
+                BEQ     @on
                 CMP     #OFF_TK
                 BEQ     :+
                 CMP     #STOP_TK
@@ -84,6 +85,11 @@ PLAYS:          BIT     SCRMOD
 :               DECW    TXTPTR         ; (EVSTM takes the token by CHRGTR)
                 LDX     #PLYOFF
                 BRA     EVSTM
+@on:            DECW    TXTPTR         ; PLAY ON: then, the buffer empty, a
+                LDX     #PLYOFF        ;   remembered trap dropped (P7's PLONP:
+                JSR     EVSTM          ;   the manual's p. 212, note 2)
+                FJSR    PLONP
+                RTS
 @play:          FJSR    PLAYP
                 RTS
 DATES:          FJSR    DATESP

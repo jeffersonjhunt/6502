@@ -498,13 +498,13 @@ TEST(sound_s_ranges_by_hand)
     CHECK(gap > 950 && gap < 1100);
 }
 
-// N18 (the owner's answer 6): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times: each after the first
-// is sent as the one before ends; ^C during the third: Ok (the break), MU_STOP of voice 0 (SNDRST's) and the gate
-// off; a note's end lost (each EK_SOUND event's kind made 0 by the watch as it lands, so EVPOLL drops it) still
-// lets the next go, by the
-// clock (the queue's end + 100 ms, then MU_STOP). Guards ^C leaving a tone on; a
-// program hung for ever on a lost event. Seen failing with (a) SNDRST left out of the break, (b) the clock's end of
-// the wait left out.
+// N18 (the owner's answer 6; branch C's answer 7): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times:
+// each after the first is sent as the one before ends; ^C during the third: Ok (the break), MU_STOP of voice 0
+// (SNDRST's) and the gate off; with every EK_SOUND event lost (each one's kind made 0 by the watch as it lands, so
+// EVPOLL drops it) the next still goes as the one before ends, since the wait asks the card its count
+// (SN_MSTATUS) and needs no event. Guards ^C leaving a tone on; a program hung for ever, or late, on a lost event.
+// Seen failing with (a) SNDRST left out of the break, (b) the wait on the events alone (the poll left out: it
+// hangs).
 TEST(play_mf_waits_and_ctrl_c_breaks_it)
 {
     CcpRig r;
@@ -548,16 +548,16 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
     r.watch = nullptr;
     REQUIRE(t.entries.size() == 2u);
     const double gap = as_ms(t.entries[1].at - t.entries[0].at);
-    std::printf("  with the note's end lost, the next sent after %.1f ms (500 + 100 by the clock)\n", gap);
-    CHECK(gap > 590 && gap < 660);
+    std::printf("  with the note's end lost, the next sent after %.1f ms (a note 500 ms)\n", gap);
+    CHECK(gap > 480 && gap < 560);
 }
 
-// N19 (the owner's answer 5): after RUN, NEW, CLEAR and SYSTEM the 6510 is given back (SN_RELEASE; CTRL's RUN off),
+// N19 (the owner's answer 5): after RUN, NEW, CLEAR and SYSTEM music is given back (SN_RELEASE of SC_MUSIC),
 // and PLAY's state is the defaults again (SNDINI's; review round 1, T1): MB O6 T255 L64 MS set and played, then the
-// next PLAY's C has O4's word, T120 L4's 500 ms and MN's gate, and its D waits for it (MF). Guards a .sid player
-// refused after GW-BASIC; a new run inheriting the last one's mode. Seen failing with (a) CLEARC's SNDINI not called
+// next PLAY's C has O4's word, T120 L4's 500 ms and MN's gate, and its D waits for it (MF). Guards music held
+// after GW-BASIC (the next program's MU_INIT refused); a new run inheriting the last one's mode. Seen failing with (a) CLEARC's SNDINI not called
 // (INITRP's far call left out), (b) SNDINI's stores dropped.
-TEST(run_and_system_free_the_6510)
+TEST(run_and_system_free_the_music)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -844,11 +844,13 @@ TEST(play_s_note_cost_is_timed)
     CHECK(per > 1000 && per <= 9000);
 }
 
-// N17 (the manual's p. 211, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one GOSUB,
-// as the buffer falls from 2 to 1 (the 3rd note's end); PLAY STOP after PLAY ON remembers it (taken at the next PLAY
-// ON: a trap never turned on remembers nothing, BIMISC.ASM's REQTRP), PLAY OFF forgets
-// it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, or refilled
-// twice. Seen failing with the request at n + 1 to n.
+// N17 (the manual's pp. 211-212, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one
+// GOSUB, as the buffer falls from 2 to 1 (the 3rd note's end); PLAY STOP after PLAY ON remembers it (a trap never
+// turned on remembers nothing, BIMISC.ASM's REQTRP), but a PLAY ON with the buffer already empty takes no trap (p.
+// 212's note 2: branch C's answer 6), while one with a note still sounding takes the remembered trap then; PLAY OFF
+// forgets it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, refilled
+// twice, or refilled after it ended. Seen failing with (a) the request at n + 1 to n (the card's threshold n), (b)
+// note 2's drop left out.
 TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
 {
     CcpRig r;
@@ -860,16 +862,87 @@ TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
                      "30 IF PLAY(0)>0 THEN 30", "40 PLAY ON:PRINT \"N=\";N;P:END", "100 N=N+1:P=PLAY(0):RETURN"},
                  ms(1500));
         const std::string h(how);
-        const std::string want = h.find("OFF") != std::string::npos ? "N= 0  0" : h.find("STOP") != std::string::npos
-                                                                                     ? "N= 1  0"
-                                                                                     : "N= 1  1"; // (1 left: n - 1)
+        const std::string want = h.find("OFF") != std::string::npos    ? "N= 0  0"
+                                 : h.find("STOP") != std::string::npos ? "N= 0  0" // (empty at PLAY ON: note 2)
+                                                                       : "N= 1  1"; // (1 left: n - 1)
         if (line(r, 2) != want)
             std::printf("  %s: %s\n", how, screen(r).c_str());
         CHECK_EQ(line(r, 2), want);
     }
+    // PLAY STOP, then PLAY ON while the last note (a half note, 470 ms) still sounds: the remembered trap taken then.
+    run_prog(r, {"10 ON PLAY(2) GOSUB 100:PLAY ON:PLAY STOP", "20 PLAY \"MB T255 L16 CDE L2 F\"",
+                 "30 IF PLAY(0)>1 THEN 30", "40 PLAY ON:PRINT \"N=\";N;P:END", "100 N=N+1:P=PLAY(0):RETURN"},
+             ms(1500));
+    if (line(r, 2) != "N= 1  1")
+        std::printf("  PLAY STOP, PLAY ON with a note sounding: %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string("N= 1  1"));
     CHECK_EQ(said(r, "ON PLAY(0) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(33) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(32) GOSUB 10"), std::string());
+}
+
+// Branch C (the manual's p. 211): ON PLAY(n) given after the notes were sent still traps as the buffer falls from n
+// to n - 1: PLAY "MB" of 8 eighth notes, then ON PLAY(4): one GOSUB, PLAY(0) 3 in it. Guards a trap that comes only
+// at the music's end (the card's threshold set only when a block is sent). Seen failing with ONSETP's threshold left
+// out (" 0  0"; main's " 1  0").
+TEST(on_play_given_after_the_notes_fires_as_the_count_falls_to_n_minus_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 PLAY \"MB T120 L8 CDEFGABC\":ON PLAY(4) GOSUB 100:PLAY ON", "20 IF PLAY(0)>0 THEN 20",
+                 "30 PRINT N;Q:END", "100 N=N+1:Q=PLAY(0):RETURN"},
+             ms(3500));
+    if (line(r, 2) != " 1  3")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string(" 1  3"));
+}
+
+// Branch C (the manual's pp. 80, 324; the source: STOP and END don't call SNDRST, POLKEY's ^C does): MB music plays
+// on after END (at Ok PLAY(0) counts down, no stop sent) and through STOP and CONT (its count fallen meanwhile: the
+// note sounding counted, the owner's answer 1); ^C during MB music stops it
+// (SNDRST: MU_STOP), PLAY(0) 0 after. Guards a program's end cutting its music, or a ^C leaving it playing. Seen
+// failing with ITSCTC's SNDRST left out.
+TEST(stop_end_and_break_with_background_music)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\":END"}, ms(300)); // 4 notes of 1 s
+    CHECK(s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    const std::string p1 = said(r, "PRINT PLAY(0)");
+    std::printf("  after END, at Ok: PLAY(0) '%s'\n", p1.c_str());
+    CHECK(p1 == " 1" || p1 == " 2" || p1 == " 3");
+    r.run(ms(4000));
+    CHECK_EQ(said(r, "PRINT PLAY(0)"), std::string(" 0"));
+    CHECK(s.stops.empty());
+    CHECK_EQ(s.entries.size(), 4u);
+    // STOP, CONT
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\"", "20 STOP", "30 PRINT \"P\";PLAY(0)"}, ms(300));
+    CHECK(until_row(r, "Break in 20") >= 0);
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    r.run(ms(1200)); // stopped past the first note's end: the count goes down meanwhile
+    enter(r, "CONT");
+    const int row = until_row(r, "P ");
+    REQUIRE(row >= 0);
+    const std::string p2 = line(r, static_cast<unsigned>(row));
+    std::printf("  after STOP and CONT: '%s'\n", p2.c_str());
+    CHECK(p2 == "P 2" || p2 == "P 3");
+    CHECK(s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    r.run(ms(4000));
+    // ^C during MB music
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\"", "20 GOTO 20"}, ms(800));
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    press(r, 0x06, CTRL);
+    CHECK(until_row(r, "Break") >= 0);
+    r.watch = nullptr;
+    CHECK(!s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_STOPPED);
+    CHECK_EQ(said(r, "PRINT PLAY(0)"), std::string(" 0"));
 }
 
 // N27 (the manual's pp. 145-148, GWSTS.ASM's KEYTRP, GIOKYB.ASM's TRPCHK): ON KEY(1) with KEY(1) ON, F1 pressed: one

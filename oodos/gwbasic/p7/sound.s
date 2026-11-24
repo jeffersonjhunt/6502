@@ -60,14 +60,13 @@
 ;@entry TIMESP
 ;@entry TIMONP
 ;@entry TIMOFP
+;@entry PLONP
 .export SNDINI, SNDRST, SOUNDP, BEEPP, BELLP, DONOTE, MSNOW, MSN
 .export BEATS, MSCALE, MMODE, NOTELN, NOTE1L, OCTAVE, NOTEHZ, NOTEU, DOSND, DRVON
-.export PLYST, BLKNEW, FLUSH, GWREF, GWCNT, GWC
+.export PLYST, BLKNEW, FLUSH, GWCNT, TH0
 .import FCERR, SNERR, ADVERR, GETIN2, SYNCHR, FRMEVL, CHRGTR, FRCSNG, PUSHF, POPR, CONIA, FMULS, CHKINT
 .import SCRMOD, EVAREA, TIMON, TIMOFP, PLYN
 .include "oolib.inc"
-
-MUQMAX          = 32                   ; the driver's queue a voice (lib/mu.inc's MU_QLEN)
 
 .exportzp MUP                          ; mu.s's and mutone.s's (lib/zpmu.s's), at gwbasic.inc's address
 
@@ -342,34 +341,7 @@ DONOTE:         STA     NOTESC
                 BCS     @x             ; (refused: music stopped)
                 INC     GWC
 @end:
-                JSR     MSNOW          ; the queue's end: from now if it had ended
-                SEC
-                LDA     QEND
-                SBC     MSN
-                LDA     QEND+1
-                SBC     MSN+1
-                LDA     QEND+2
-                SBC     MSN+2
-                LDA     QEND+3
-                SBC     MSN+3
-                BPL     :+             ; QEND still to come
-                LDX     #3
-@c:             LDA     MSN,X
-                STA     QEND,X
-                DEX
-                BPL     @c
-:               CLC                    ; QEND + the entry's ms
-                LDA     QEND
-                ADC     T0
-                STA     QEND
-                LDA     QEND+1
-                ADC     T1
-                STA     QEND+1
-                BCC     :+
-                INC     QEND+2
-                BNE     :+
-                INC     QEND+3
-:               LDA     NOTEU          ; more of it: straight after
+                LDA     NOTEU          ; more of it: straight after
                 ORA     NOTEU+1
                 BEQ     @ok
                 JMP     @chunk
@@ -414,14 +386,16 @@ UNITMS:         LDA     T0,X           ; x 4 + 1 (T4-T6), 17 bits
 
 ; ROOM (OO-1, sound card revision 3): room for one more note under BASIC's
 ; rule, WLIM waiting at most (MF's 0, MB's 31: 32 notes): the notes the card
-; has (GWC) and those in the statement's block (BLKN). With none, the block
-; sent (FLUSH) and WAITQ. Carry clear, or set (the card refused).
-ROOM:           CLC
-                LDA     GWC
-                ADC     BLKN
-                CMP     WLIM
-                BCC     @ok
-                BEQ     @ok
+; has (GWC, an upper bound: it only falls on its own, so it is asked again
+; here, GWCNT, when it says there is none) and those in the statement's block
+; (BLKN). With none, the block sent (FLUSH) and WAITQ. Carry clear, or set
+; (the card refused).
+ROOM:           JSR     FITS
+                BCS     @ok
+                JSR     GWCNT
+                STA     GWC
+                JSR     FITS
+                BCS     @ok
                 LDA     BLKN
                 BEQ     @w
                 JSR     FLUSH
@@ -429,60 +403,32 @@ ROOM:           CLC
 @w:             JSR     WAITQ
 @ok:            CLC
 @x:             RTS
-
-; WAITQ: until the card's notes (GWC: its waiting, and the one sounding) are
-; WLIM or fewer, the events taken meanwhile (CHKINT, screen mode's EVPOLL:
-; SNDEV puts GWC right at each MUSIC_COUNT and MUSIC_DONE; MU_THRESH WLIM so
-; a MUSIC_COUNT comes as the room does), or until the clock passes the
-; queue's end by 100 ms, when MU_STOP sets the count to 0 (the owner's answer
-; 6: an end lost to a full event queue can't hang the program).
-WAITQ:          LDA     WLIM
-                CMP     GWC
-                BCS     @x
-                JSR     SETTH          ; (MF's 0: none; its end is MUSIC_DONE)
-                JSR     GWREF
-@w:             LDA     WLIM
-                CMP     GWC
-                BCS     @done
-                JSR     CHKINT
-                JSR     MSNOW          ; now - (QEND + 100), 32 bits
-                CLC
-                LDA     QEND
-                ADC     #100
+; FITS: carry set if GWC + BLKN is WLIM or less.
+FITS:           CLC
+                LDA     GWC
+                ADC     BLKN
                 STA     T4
-                LDA     QEND+1
-                ADC     #0
-                STA     T5
-                LDA     QEND+2
-                ADC     #0
-                STA     T6
-                LDA     QEND+3
-                ADC     #0
-                STA     T7
-                SEC
-                LDA     MSN
-                SBC     T4
-                LDA     MSN+1
-                SBC     T5
-                LDA     MSN+2
-                SBC     T6
-                LDA     MSN+3
-                SBC     T7
-                BMI     @w             ; not yet
-                STZ     GWC            ; lost: the count put right
-                LDA     #0
-                JSR     MU_STOP
-@done:          JMP     TH0
-@x:             RTS
-
-; GWREF: GWC from the card (GWCNT). A = GWC.
-GWREF:          JSR     GWCNT
-                STA     GWC
+                LDA     WLIM
+                CMP     T4
                 RTS
 
+; WAITQ (OO-1; the owner's answer 7 to branch C's plan): until the card's
+; notes (GWCNT: its waiting, and the one sounding) are WLIM or fewer, the card
+; asked again after each look at the keys and the events (CHKINT, screen
+; mode's EVPOLL): its count is exact, so an event lost to a full queue can't
+; hang the wait. GWC the count found.
+WAITQ:          JSR     GWCNT
+                STA     GWC
+                LDA     WLIM
+                CMP     GWC
+                BCS     @x
+                JSR     CHKINT
+                BRA     WAITQ
+@x:             RTS
+
 ; GWCNT: A = the card's notes: voice 0's waiting, and 1 more while music
-; plays or is paused (the one sounding). PLAY(n)'s; GWC left (SNDEV's
-; ON PLAY compares the count before an event with the count after).
+; plays or is paused (the one sounding: the owner's answer 1 to branch C's
+; plan). PLAY(n)'s, ROOM's and WAITQ's; GWC left.
 GWCNT:          LDA     #0
                 JSR     MU_COUNT
                 CPX     #0
@@ -493,7 +439,10 @@ GWCNT:          LDA     #0
 :               RTS
 
 ; TH0: the threshold as ON PLAY(n) wants it in MB (n - 1: a MUSIC_COUNT as the
-; notes fall from n to n - 1), else none; SETTH: A's, if not set already.
+; card's waiting falls from n - 1 to n - 2, PLAY(n)'s count from n to n - 1;
+; n = 1 is MUSIC_DONE's), else none; SETTH: A's, if not set already. ON
+; PLAY's alone (FLUSH's after a block and ONSETP's), so each MUSIC_COUNT is
+; ON PLAY(n)'s fall (SNDEV). Music started (DRVON) first.
 TH0:            LDA     #0
                 LDX     MMODE
                 BEQ     SETTH
@@ -732,7 +681,6 @@ NOTESC:         .res    1              ; the gate's scale
 TONEB:          .res    MU_NLEN        ; MU_TONE's block
 LASTU:          .res    2              ; its entry's units, and
 LASTSC:         .res    1              ;   gate's scale (0: none yet)
-QEND:           .res    4              ; when voice 0's queue ends, by the ms counter
 WLIM:           .res    1              ; ROOM's and WAITQ's: the notes waiting at most
 GWC:            .res    1              ; the card's notes, waiting and sounding, as last seen (OO-1)
 THNOW:          .res    1              ; MU_THRESH as last set ($FF: not known)

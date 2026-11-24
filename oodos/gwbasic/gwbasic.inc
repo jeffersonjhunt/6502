@@ -283,6 +283,10 @@ GXT             = $EE                  ; gxmem's scratch (GX_BLOCK's bit)
 ; the other's value there.
 MUP             = GXQ                  ; mu.s's block pointer (MU_INSTR, MU_TONE)
 
+; 7f, BASIC's background music buffer (the manual's p. 253): 32 notes, the one
+; sounding with them; ON PLAY(n)'s n 1-32. P7's (p7/sound.s, p7/event.s).
+MUQMAX          = 32
+
 ; 7f (the owner's answer 20): nonzero once this run has used sound (SOUND,
 ; BEEP and the bell, PLAY, the driver's start: P7 sets it), so P3's INITRP
 ; far calls P7's SNDINI at CLEARC only then, and a CHAIN or RUN with no
