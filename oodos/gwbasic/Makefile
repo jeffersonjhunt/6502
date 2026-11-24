@@ -72,7 +72,7 @@ $(BUILD)/ressym.lst: $(BUILD)/ressym.s
 # labels, so no banked code calls it.
 # The OOLIB modules a block links (below): P5's gxmem and gxmode, P7's music (7f).
 LIB_p5      = $(BUILD)/p5/gxmem.o $(BUILD)/p5/gxmode.o
-LIB_p7      = $(BUILD)/p7/mu.o $(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o
+LIB_p7      = $(BUILD)/p7/mu.o $(BUILD)/p7/physof.o
 define BLOCK
 $(BUILD)/$(1)/%.o: $(1)/%.s $(INCS) | $(BUILD)/$(1)
 	ca65 $$(AFLAGS) -D BLOCK_$(1) $(if $(filter p8,$(1)),,-D NOHOME) $$< -o $$@
@@ -92,11 +92,11 @@ $(BUILD)/p5/gxmem.o: ../lib/gxmem.s $(sort $(wildcard ../lib/*.inc)) ../include/
 $(BUILD)/p5/gxmode.o: ../lib/gxmode.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p5
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
-# Block P7 (7f) links OOLIB's music: mu.s (MU_INIT to MU_COUNT, on the sound card's music sequencer:
-# revision 3), mutone.s (MU_TONE) and physof.s, assembled as the library's own modules are, MUP
-# gwbasic.inc's (p7/sound.s exports it). munote.s isn't linked: PLAY's notes go in Hz, as the source's
-# (7f's plan, the owner's answer 1).
-$(BUILD)/p7/mu.o $(BUILD)/p7/mutone.o $(BUILD)/p7/physof.o: $(BUILD)/p7/%.o: ../lib/%.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
+# Block P7 (7f) links OOLIB's music: mu.s (MU_INIT, MU_BLOCK, MU_COUNT, MU_THRESH, MU_STOP, MU_QUIT, on
+# the sound card's music sequencer: revision 3) and physof.s, assembled as the library's own modules are,
+# MUP gwbasic.inc's (p7/sound.s exports it). P7 builds its own note blocks (one a statement, the tone
+# generator's voice), so neither munote.s nor mutone.s is linked (branch C of the sound device).
+$(BUILD)/p7/mu.o $(BUILD)/p7/physof.o: $(BUILD)/p7/%.o: ../lib/%.s $(sort $(wildcard ../lib/*.inc)) ../include/oodos.inc ../include/oolib.inc | $(BUILD)/p7
 	ca65 $(AFLAGS) -I ../lib $< -o $@
 
 $(BUILD)/GWBASIC.COM: $(BUILD)/gwbasic.res $(BLOCKS:%=$(BUILD)/%.bin) tools/mkgw.py tools/gwsize.py

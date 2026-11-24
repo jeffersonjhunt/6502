@@ -275,13 +275,13 @@ GXT             = $EE                  ; gxmem's scratch (GX_BLOCK's bit)
 
 ; --- 7f's: OOLIB's music in block P7 ($E0-$E1) -------------------------------------
 ;
-; P7 links OOLIB's mu.s and mutone.s (7f's plan: the music driver for SOUND
-; and PLAY), whose zero page is one word, MUP (lib/zpmu.s's): an alias of
+; P7 links OOLIB's mu.s (7f's plan; on sound card revision 3, the card's music
+; for SOUND and PLAY), whose zero page is one word, MUP (lib/zpmu.s's): an alias of
 ; GXQ, exported by p7/sound.s (.globalzp, as p5/seed.s exports GXQ). The rule
 ; that makes the sharing safe: P5 never calls P7, and P7 never holds MUP
 ; across a far call (the library's calls make none), so neither block finds
 ; the other's value there.
-MUP             = GXQ                  ; mu.s's block pointer (MU_INSTR, MU_TONE)
+MUP             = GXQ                  ; mu.s's block pointer (MU_BLOCK's; P7's APPEND)
 
 ; 7f, BASIC's background music buffer (the manual's p. 253): 32 notes, the one
 ; sounding with them; ON PLAY(n)'s n 1-32. P7's (p7/sound.s, p7/event.s).
