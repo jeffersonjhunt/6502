@@ -633,4 +633,94 @@ TEST(a_join_s_output_is_one_stream_s)
                      two.begin() + static_cast<std::ptrdiff_t>(f2)));
 }
 
+namespace
+{
+    /// `n` layer III frames as a stream has them (MPEG-1, 128 kbit/s, 44.1 kHz: 417 bytes each), their audio silence.
+    std::vector<uint8_t> mp3_frames(unsigned n)
+    {
+        std::vector<uint8_t> out;
+        for (unsigned k = 0; k < n; ++k)
+        {
+            std::vector<uint8_t> f(417, 0);
+            f[0] = 0xFF, f[1] = 0xFB, f[2] = 0x90, f[3] = 0x44;
+            out.insert(out.end(), f.begin(), f.end());
+        }
+        return out;
+    }
+    /// The frames STREAM_STATUS says played.
+    uint32_t frames_played(Card &c)
+    {
+        c.send(SoundFw::STREAM_STATUS, 0x65, {0});
+        const auto r = reply_for(c, 0x65);
+        return r.size() == 2 + 21u ? le32(r, 2 + 13) : 0;
+    }
+} // namespace
+
+TEST(an_mp3_fed_as_it_plays_decodes_as_the_whole_data_would)
+{
+    // 120 frames (138,240 samples a channel): 8 KB at once, played out to an underrun, then the rest in 4 KB pieces
+    // with the host late each time (an underrun between them); (a) each piece landing at once, (b) at DMA's pace,
+    // about 149 bytes a 48 kHz sample. A frame not yet whole is waited for, never thrown away: every one plays.
+    for (const bool paced : {false, true})
+    {
+        Card c;
+        c.auto_end = false;
+        const std::vector<uint8_t> data = mp3_frames(120);
+        c.send(SoundFw::STREAM_OPEN, 0x40, {0, 1, 0, 0, 1, 0x00, 0x10, 0x00, 100, 0}); // MP3, 4 KB chunks, 100 ms
+        c.run(300);
+        size_t at = 0;
+        auto piece = [&](size_t len) {
+            c.send(SoundFw::STREAM_DATA, 0x60, {0, static_cast<uint8_t>(len), static_cast<uint8_t>(len >> 8), static_cast<uint8_t>(len >> 16)});
+            c.wait_xfer();
+            for (size_t i = 0; i < len; ++i)
+            {
+                c.card.write(SoundCard3::DATA, data[at++]);
+                if (paced && i % 149 == 148)
+                    c.run(SoundCard3::NATIVE_HZ / 48000);
+            }
+        };
+        piece(8192);
+        c.run_ms(1000);
+        while (at < data.size())
+        {
+            piece(std::min<size_t>(4096, data.size() - at));
+            c.run_ms(400);
+        }
+        c.send(SoundFw::STREAM_END, 0x62, {0});
+        c.run_ms(3000);
+        const uint32_t played = frames_played(c);
+        std::printf("  %s: %u frames played of %u; %zu underruns\n", paced ? "at DMA's pace" : "pieces at once", played,
+                    120u * 1152u, c.of(SoundFw::EV_UNDERRUN).size());
+        CHECK_EQ(played, 120u * 1152u);
+        CHECK_EQ(c.card.firmware().stream_state(0), SoundFw::S_ENDED);
+    }
+}
+
+TEST(an_id3v2_tag_is_skipped_by_its_size)
+{
+    // An ID3v2.3 tag whose body holds twelve frame-like headers in step (as an embedded picture or clip might),
+    // then 40 frames: the tag is passed over by its size, so exactly the 40 frames play.
+    std::vector<uint8_t> body = mp3_frames(12);
+    body.resize(body.size() + 100, 0);
+    const size_t size = body.size();
+    std::vector<uint8_t> data{'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 0x7F), static_cast<uint8_t>(size >> 14 & 0x7F),
+                              static_cast<uint8_t>(size >> 7 & 0x7F), static_cast<uint8_t>(size & 0x7F)};
+    data.insert(data.end(), body.begin(), body.end());
+    const std::vector<uint8_t> frames = mp3_frames(40);
+    data.insert(data.end(), frames.begin(), frames.end());
+    Card c;
+    c.auto_end = false;
+    c.send(SoundFw::STREAM_OPEN, 0x40, {0, 1, 0, 0, 1, 0, 0, 0, 0, 0});
+    c.run(300);
+    c.send(SoundFw::STREAM_DATA, 0x60, {0, static_cast<uint8_t>(data.size()), static_cast<uint8_t>(data.size() >> 8), 0});
+    c.wait_xfer();
+    for (const uint8_t x : data)
+        c.card.write(SoundCard3::DATA, x);
+    c.send(SoundFw::STREAM_END, 0x62, {0});
+    c.run_ms(2000);
+    const uint32_t played = frames_played(c);
+    std::printf("  %u frames played (40 x 1,152 = %u)\n", played, 40u * 1152u);
+    CHECK_EQ(played, 40u * 1152u);
+}
+
 int main() { return run_all(); }

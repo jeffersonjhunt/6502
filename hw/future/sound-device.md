@@ -1083,6 +1083,11 @@ the slot's own object as free (`E_MEMORY`); refused, it changes nothing. Taken, 
 once and opens the transfer into the room: a transfer that then fails (XFERABORT, CTRL's RESET, or `E_DATA` at
 XFERDONE) leaves the slot empty. The model keeps no second copy of the old object.
 
+**An MP3 stream is read as revision 2 reads its FIFO:** an ID3v2 tag is skipped by its size; a frame in step with
+the stream is decoded once its end and the next header have come (or the data has ended); one out of step only once
+minimp3's own sync rule has decided on it; until a decision can be made, the stream waits for more. So a stream fed
+as it plays decodes as the whole file would.
+
 **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
 when that transfer ends: what is in plays out, the chunk in flight included.
 

@@ -45,14 +45,72 @@ namespace ooe::emu
 
     struct SoundFw::Mp3
     {
+        /// What a search for a frame is given: ten frames of the largest kind, as minimp3 checks a sync by.
+        static constexpr size_t WINDOW = 32'768;
+        static constexpr size_t NO_SYNC = 65'536;
+        /// minimp3 takes a sync once this many frames follow in step (or the data runs out after one).
+        static constexpr unsigned MATCHES = 10;
+        /// An ID3v2 tag declaring more than this isn't taken for one: its bytes are junk. And tags adding up to
+        /// this with no frame between are S_NO_SYNC.
+        static constexpr size_t TAG_MAX = 8u << 20;
+
         mp3dec_t dec{};
+        std::vector<uint8_t> window = std::vector<uint8_t>(WINDOW);
         std::deque<int16_t> pcm;   ///< decoded frames, left then right, held back by the trim's tail
         bool header_done{false};   ///< the first frame looked at (an encoder's gapless header, or not)
         bool end_decoded{false};   ///< no more frames: the data's end decoded
         uint32_t skip{0};          ///< frames still to drop at the start (the encoder's delay)
         uint32_t tail{0};          ///< frames to drop at the end (its padding)
         uint32_t hz{0};
+        size_t junk{0};     ///< bytes since the last frame that made samples, tags left out
+        size_t tagged{0};   ///< tags' bytes since the last frame that made samples
+        size_t tag_left{0}; ///< of an ID3v2 tag being skipped
+        bool fresh{false};  ///< junk passed over since the last frame: the next is found by a search, afresh
+        size_t looked{0};   ///< how far past the frame at the front a look for anything frame-like has gone
     };
+
+    namespace
+    {
+        // Revision 2's MP3 feeding rules (sound_card.cpp), on the ring: the same decisions, so a stream fed as it
+        // plays decodes as the whole data would.
+
+        /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one.
+        size_t mp3_frame_bytes(const uint8_t *h)
+        {
+            if (h[0] != 0xFF || (h[1] & 0xE0) != 0xE0 || (h[1] & 0x06) != 0x02)
+                return 0;
+            const unsigned version = (h[1] >> 3) & 3, rate = (h[2] >> 2) & 3, index = h[2] >> 4;
+            if (version == 1 || rate == 3 || index == 0 || index == 15)
+                return 0;
+            static const uint16_t kbps[2][15] = {{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+                                                 {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}};
+            static const uint32_t hz[3] = {44'100, 48'000, 32'000};
+            const bool one = version == 3;
+            const uint32_t sample_hz = hz[rate] >> (one ? 0 : version == 2 ? 1 : 2);
+            const uint32_t samples = one ? 1'152 : 576;
+            return samples * kbps[one][index] * 125 / sample_hz + ((h[2] >> 1) & 1);
+        }
+        /// The same stream as `prev`: version, layer and rate, as the decoder's own check has it.
+        bool mp3_same(const uint8_t *prev, const uint8_t *h)
+        {
+            return prev[0] == 0xFF && h[0] == 0xFF && ((prev[1] ^ h[1]) & 0xFE) == 0 && ((prev[2] ^ h[2]) & 0x0C) == 0;
+        }
+        /// An ID3v2 tag's whole length (header, body, footer) from its 10-byte header, or 0 if `h` isn't one.
+        size_t id3_bytes(const uint8_t *h)
+        {
+            static const uint8_t flags[5] = {0, 0, 0xC0, 0xE0, 0xF0};
+            if (h[0] != 'I' || h[1] != 'D' || h[2] != '3' || h[3] < 2 || h[3] > 4 || h[4] == 0xFF || (h[5] & ~flags[h[3]]))
+                return 0;
+            size_t size = 0;
+            for (unsigned i = 6; i < 10; ++i)
+            {
+                if (h[i] & 0x80)
+                    return 0;
+                size = size << 7 | h[i];
+            }
+            return 10 + size + (h[5] & 0x10 ? 10 : 0);
+        }
+    } // namespace
 
     void Crc32::add(uint8_t b)
     {
@@ -2640,82 +2698,292 @@ namespace ooe::emu
 
     bool SoundFw::decode_mp3(unsigned s)
     {
-        // A frame of the ring's data decoded into the stream's queue: false if no whole frame has come.
+        // The next frame of the ring's data decoded into the stream's queue, by revision 2's rules: a frame in step
+        // with the stream is decoded once its end and the next header have come (or the data has ended); one out of
+        // step only once minimp3's own sync rule has decided on it (a run of frames in step, or the data's end); an
+        // ID3v2 tag is skipped by its size. Until a decision can be made it waits for more: false. True when the
+        // queue gained frames or the header was taken; the data's end sets end_decoded.
         Stream &st = streams_[s];
         Mp3 &m = *st.mp3;
-        const uint64_t have = st.wr - st.rd;
-        if (!have)
-        {
-            if (st.ended)
-                m.end_decoded = true; // every frame decoded
-            return st.ended;
-        }
-        const size_t n = static_cast<size_t>(std::min<uint64_t>(have, 16384));
-        mp3_scratch_.resize(n);
-        for (size_t i = 0; i < n; ++i)
-            mp3_scratch_[i] = ring_byte(s, st.rd + i);
-        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
-        mp3dec_frame_info_t info{};
-        const int got = mp3dec_decode_frame(&m.dec, mp3_scratch_.data(), static_cast<int>(n), pcm.data(), &info);
-        if (!info.frame_bytes)
-        {
-            if (st.ended && n == have) // the rest holds no frame
-            {
-                m.end_decoded = true;
-                return true;
-            }
-            if (n >= 16384)
-            {
-                st.state = S_NO_SYNC; // 16 KB with no frame in it
+        const bool eof = st.ended;
+        const auto at = [&](size_t i) { return ring_byte(s, st.rd + i); };
+        const auto head = [&](size_t i, uint8_t *g, size_t n) {
+            for (size_t k = 0; k < n; ++k)
+                g[k] = at(i + k);
+        };
+        const auto drop = [&](size_t n, bool junk, bool lost = true) {
+            st.rd += n;
+            m.looked = 0;
+            if (junk)
+                m.junk += n;
+            if (junk && lost)
+                m.fresh = true;
+        };
+        const auto no_sync = [&] {
+            if (m.junk < Mp3::NO_SYNC && m.tagged < Mp3::TAG_MAX)
                 return false;
-            }
-            return false; // more to come
-        }
-        const uint8_t *frame = mp3_scratch_.data() + (static_cast<size_t>(info.frame_bytes) <= n ? 0 : 0);
-        if (!m.header_done)
+            st.state = S_NO_SYNC;
+            return true;
+        };
+        const auto tag_at = [&](size_t i, size_t have) -> size_t {
+            if (i + 10 > have || at(i) != 'I')
+                return 0;
+            uint8_t g[10];
+            head(i, g, 10);
+            const size_t tg = id3_bytes(g);
+            return tg <= Mp3::TAG_MAX ? tg : 0;
+        };
+        const auto frame_at = [&](size_t i, size_t have) -> size_t {
+            if (i + 4 > have || at(i) != 0xFF)
+                return 0;
+            uint8_t g[4];
+            head(i, g, 4);
+            return mp3_frame_bytes(g);
+        };
+        for (;;)
         {
-            // An encoder's gapless header: a Xing or Info frame with a LAME tag after it carries the delay and
-            // padding it added; that frame is the header, not audio (the spec's Q11).
-            m.header_done = true;
-            const size_t fb = static_cast<size_t>(info.frame_bytes);
-            const uint8_t *xing = nullptr;
-            for (size_t i = 0; i + 4 <= std::min<size_t>(fb, 64); ++i)
-                if (!std::memcmp(frame + i, "Xing", 4) || !std::memcmp(frame + i, "Info", 4))
-                {
-                    xing = frame + i;
-                    break;
-                }
-            if (xing && static_cast<size_t>(xing - frame) + 120 + 24 <= fb && !std::memcmp(xing + 120, "LAME", 4))
+            const size_t have = static_cast<size_t>(st.wr - st.rd);
+            if (m.tag_left)
             {
-                const uint8_t *d = xing + 120 + 21;
-                const uint32_t delay = static_cast<uint32_t>(d[0] << 4 | d[1] >> 4);
-                const uint32_t padding = static_cast<uint32_t>((d[1] & 0x0F) << 8 | d[2]);
-                m.skip = delay + 529; // and the decoder's own delay, as decoders keeping it do
-                m.tail = padding > 529 ? padding - 529 : 0;
-                st.rd += static_cast<uint64_t>(info.frame_bytes);
-                return true;
-            }
-        }
-        st.rd += static_cast<uint64_t>(info.frame_bytes);
-        if (info.hz > 48000)
-        {
-            st.state = S_BAD_FORMAT;
-            return false;
-        }
-        m.hz = static_cast<uint32_t>(info.hz);
-        st.kbps = static_cast<uint16_t>(info.bitrate_kbps);
-        for (int i = 0; i < got; ++i)
-        {
-            if (m.skip)
-            {
-                --m.skip;
+                const size_t d = std::min(m.tag_left, have);
+                drop(d, false);
+                m.tag_left -= d;
+                if (m.tag_left)
+                    return false;
                 continue;
             }
-            const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
-            m.pcm.push_back(l);
-            m.pcm.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+            if (have == 0)
+            {
+                if (eof)
+                    m.end_decoded = true; // every frame decoded
+                return eof;
+            }
+            if (const size_t tg = tag_at(0, have))
+            {
+                m.tag_left = tg;
+                m.tagged += tg;
+                if (no_sync())
+                    return false;
+                continue;
+            }
+            if (have < 10 && !eof && at(0) == 'I')
+                return false;
+            uint8_t h[4] = {};
+            head(0, h, std::min<size_t>(4, have));
+            const size_t fb = frame_at(0, have);
+            size_t n = 0;
+            bool search = true;
+            if (fb && !m.fresh && mp3_same(m.dec.header, h))
+            {
+                if (have < fb)
+                {
+                    if (!eof)
+                        return false; // the frame's end still to come
+                    drop(have, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                uint8_t next[4] = {};
+                if (have >= fb + 4)
+                    head(fb, next, 4);
+                if (have >= fb + 4 && mp3_frame_bytes(next) && mp3_same(h, next))
+                {
+                    n = fb + 4;
+                    search = false;
+                }
+                else
+                {
+                    const size_t end = std::min(have, fb + Mp3::WINDOW);
+                    size_t i = fb + m.looked;
+                    bool like = false, tag = false;
+                    for (; i < end && !like && !tag; ++i)
+                    {
+                        if (i + 10 > have && !eof && have < fb + Mp3::WINDOW)
+                            break;
+                        tag = tag_at(i, have) != 0;
+                        like = !tag && frame_at(i, have) != 0;
+                    }
+                    if (tag)
+                    {
+                        n = fb;
+                        search = false;
+                    }
+                    else if (!like)
+                    {
+                        m.looked = i - fb;
+                        if (!eof && have < fb + Mp3::WINDOW)
+                            return false;
+                        n = fb;
+                        search = false;
+                    }
+                }
+            }
+            if (search)
+            {
+                size_t p = 0;
+                for (; p < have; ++p)
+                {
+                    if (frame_at(p, have) || tag_at(p, have))
+                        break;
+                    if (!eof && (p + 10 > have) && at(p) == 'I')
+                        break;
+                    if (!eof && p + 4 > have && at(p) == 0xFF)
+                        break;
+                }
+                if (p)
+                {
+                    drop(p, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (!frame_at(0, have))
+                {
+                    if (!eof)
+                        return false;
+                    drop(have, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                size_t i = fb;
+                unsigned matched = 0;
+                bool decided = false, take = false;
+                if (fb > have)
+                {
+                    if (!eof)
+                        return false;
+                    decided = true;
+                }
+                else if (fb == have && eof)
+                    decided = take = true;
+                while (!decided)
+                {
+                    if (i + 10 > have && !eof && i < have && at(i) == 'I')
+                        return false;
+                    if (tag_at(i, have))
+                    {
+                        decided = take = true;
+                        break;
+                    }
+                    if (i + 4 > have)
+                    {
+                        if (!eof)
+                            return false;
+                        decided = true;
+                        take = matched > 0;
+                        break;
+                    }
+                    uint8_t g[4];
+                    head(i, g, 4);
+                    const size_t gb = mp3_frame_bytes(g);
+                    if (!gb || !mp3_same(h, g))
+                    {
+                        decided = true;
+                        break;
+                    }
+                    if (++matched == Mp3::MATCHES)
+                    {
+                        decided = take = true;
+                        i += 4;
+                        break;
+                    }
+                    i += gb;
+                }
+                if (!take)
+                {
+                    drop(1, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                n = std::min({have, i, Mp3::WINDOW});
+                mp3dec_init(&m.dec);
+            }
+            for (size_t k = 0; k < n; ++k)
+                m.window[k] = at(k);
+            if (!m.header_done && fb && fb <= n)
+            {
+                // The first frame: an encoder's gapless header (a Xing or Info frame with a LAME tag after it)
+                // carries the delay and padding it added; that frame is the header, not audio (the spec's Q11).
+                m.header_done = true;
+                const uint8_t *xing = nullptr;
+                for (size_t i = 0; i + 4 <= std::min<size_t>(fb, 64); ++i)
+                    if (!std::memcmp(m.window.data() + i, "Xing", 4) || !std::memcmp(m.window.data() + i, "Info", 4))
+                    {
+                        xing = m.window.data() + i;
+                        break;
+                    }
+                if (xing && static_cast<size_t>(xing - m.window.data()) + 120 + 24 <= fb && !std::memcmp(xing + 120, "LAME", 4))
+                {
+                    const uint8_t *d = xing + 120 + 21;
+                    const uint32_t delay = static_cast<uint32_t>(d[0] << 4 | d[1] >> 4);
+                    const uint32_t padding = static_cast<uint32_t>((d[1] & 0x0F) << 8 | d[2]);
+                    m.skip = delay + 529; // and the decoder's own delay, as decoders keeping it do
+                    m.tail = padding > 529 ? padding - 529 : 0;
+                    std::memcpy(m.dec.header, m.window.data(), 4); // in step with the stream from here
+                    drop(fb, false);
+                    m.fresh = false;
+                    return true;
+                }
+            }
+            std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+            mp3dec_frame_info_t info{};
+            const int got = mp3dec_decode_frame(&m.dec, m.window.data(), static_cast<int>(n), pcm.data(), &info);
+            if (info.hz)
+            {
+                const size_t frame = static_cast<size_t>(info.frame_bytes - info.frame_offset);
+                if (info.frame_offset) // a backstop: the rules above start every window at a frame minimp3 takes
+                {
+                    drop(1, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (info.layer != 3 || info.bitrate_kbps == 0)
+                {
+                    drop(frame, true);
+                    mp3dec_init(&m.dec);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (got <= 0)
+                {
+                    drop(frame, true, false);
+                    m.fresh = false;
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (info.hz > 48000)
+                {
+                    st.state = S_BAD_FORMAT;
+                    return false;
+                }
+                drop(frame, false);
+                m.junk = m.tagged = 0;
+                m.fresh = false;
+                m.hz = static_cast<uint32_t>(info.hz);
+                st.kbps = static_cast<uint16_t>(info.bitrate_kbps);
+                for (int i = 0; i < got; ++i)
+                {
+                    if (m.skip)
+                    {
+                        --m.skip;
+                        continue;
+                    }
+                    const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                    m.pcm.push_back(l);
+                    m.pcm.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+                }
+                return true;
+            }
+            drop(1, true); // a backstop, as above: a byte, junk, and on
+            if (no_sync())
+                return false;
         }
-        return true;
     }
 
     bool SoundFw::next_frame(unsigned &s, int16_t out[2])
