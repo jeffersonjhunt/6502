@@ -190,8 +190,9 @@ and boots. With switch 19 still up, the next hard reset asks again.
 Status: **emulated**
 
 Measured on the emulator at 7,159,090 Hz, from CONT (or `$C815`) to the keys' line, on `backplane.machine` with
-every card: **a quick run 61.6 s with BIOS 0.20 on north bridge revision 3** (NB9, NB10 and NB12 added; BIOS 0.19's
-was 58.7 s), **a full run 171.8 s** (BIOS 0.19's). The prompt, unanswered, waits 5.97 s. Both were measured
+every card: **a quick run 60.3 s and a full run 171.6 s with BIOS 0.21** (stage 10 on sound card revision 3; BIOS
+0.20 on north bridge revision 3 took 61.6 s for a quick run, BIOS 0.19 58.7 s, and BIOS 0.19's full run 171.8 s).
+The prompt, unanswered, waits 5.97 s. Both were measured
 with BIOS 0.17's test of all 64 RAM blocks (B7, *proposed*), 2.2 s and 6.2 s longer than with bank 8 passed over
 (56.5 s and 165.6 s, with DMA revision 2: B2, *proposed*). On real hardware
 the cards' wait states (/WAIT), and the SD card's read speed, aren't known yet.

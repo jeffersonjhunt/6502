@@ -653,14 +653,18 @@ its build and which half it is in.
 
 ### What sound costs
 
-Nothing a tick, and nothing a frame while no part is claimed. Not yet measured on revision 3; what costs what:
+Nothing a tick, and nothing a frame while no part is claimed. Measured on the emulator at 7.16 MHz, sound card
+revision 3 (`test_oodos_sound`'s records, OODOS 0.17):
 
 - **A load or a stream buffer** holds the CPU about 4,096 cycles a 4 KB piece, one DMA cycle a byte, and each piece's
-  end is an interrupt. So a stream costs about its byte rate in cycles: 44.1 kHz 16-bit stereo, 176,400 bytes a
-  second, about 2.5% of the CPU; 48 kHz, 192,000, about 2.7%. Each buffer also costs one record to the card and its
-  reply, when the card asks for it.
+  end is an interrupt whose handler takes 583 cycles at the fewest. So a piece costs about 4,679 cycles, and a
+  stream about its byte rate and a seventh more: 44.1 kHz 16-bit stereo, 176,400 bytes a second, about 221,500
+  cycles a second with its frames' status, 3.1% of the CPU; 48 kHz, 192,000 bytes, about 239,400, 3.3%. Each buffer
+  also costs one record to the card and its reply, when the card asks for it.
 - **A frame** with a part claimed and a layout-2 area open sends the card one status request a part, and reads the
-  replies when they come, in the next frame.
+  replies when they come, in the next frame: a frame's interrupt takes 447 cycles with nothing claimed, 781 with the
+  stream claimed (334 more), and 5,285 with all three parts claimed (about 4,840 more: some 290,000 cycles a second,
+  4% of the CPU).
 - **The card's events** are an interrupt each, read and queued.
 - **A tune, music, effects and the beep**, once started, cost nothing: the card plays them.
 

@@ -3596,8 +3596,9 @@ command, nothing can move its data, and OODOS closes the card's side of it again
 
 #### Cycles
 
-`SN_BEEP` takes its length. Each load and each stream buffer holds the CPU about 4,096 cycles a 4 KB piece. What sound
-costs between calls is [chapter 8's](08-game-services.md#what-sound-costs). The rest: not measured.
+`SN_BEEP` takes its length. Each load and each stream buffer holds the CPU about 4,096 cycles a 4 KB piece, and each
+piece's end is an interrupt of 583 cycles at the fewest. What sound costs between calls is
+[chapter 8's](08-game-services.md#what-sound-costs). The rest: not measured.
 
 #### Since
 
