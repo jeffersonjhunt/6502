@@ -638,6 +638,14 @@ TEST(a_card_that_never_answers_is_sn_busy_in_100_ms)
     r.run(ms(1100)); // the late reply comes, and is dropped
     CHECK_EQ(f82(r, identify()), std::string("00 00"));
     CHECK_EQ(got(r, 1)[0], 0xA3);
+    // Review T2: the late reply coming while the program's next call waits, as it does when a program goes straight
+    // on: a call the card will refuse, 150 ms late (SN_BUSY at 100 ms), then at once one it takes. The refusal is the
+    // first call's (its tag), not the second's. Must fail with the wait taking any program's tag for its own.
+    fw(r).set_latency_us(150'000);
+    CHECK_EQ(f82(r, {SN_MIX, 5, 0x20}), std::string("FE FF")); // the card's E_PARAM comes after the time-out
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00"));
+    CHECK_EQ(fw(r).volume_left(), 0x80);
 }
 
 TEST(the_cold_boot_clears_a_half_record_left_by_the_rom)
@@ -1572,6 +1580,482 @@ TEST(the_select_rule_holds_over_a_stream_from_b_and_a_stray_in_a_load)
         CHECK_EQ(rule.changed, 0u);
         CHECK_EQ(card_crc(r, SoundFw::SAMPLE_LOAD, 3), crc32(w)); // every piece through channel 2
     }
+}
+
+// --- review round 1 (branch B): the driver's fixes, each with its must-fail case -------------------------------
+
+namespace
+{
+    /// Every record the CPU writes to CMD, parsed by its own length byte: each record's command, and the raw bytes.
+    struct CmdRecords : CycleObserver
+    {
+        unsigned state{0}, left{0};
+        uint8_t cmd{0};
+        std::vector<uint8_t> cmds, raw;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.write || c.dma || c.addr != 0xC500 + SoundCard3::CMD)
+                return;
+            raw.push_back(c.data);
+            if (state == 0)
+                cmd = c.data, state = 1;
+            else if (state == 1)
+                left = c.data, state = 2;
+            else if (state == 2)
+            {
+                cmds.push_back(cmd);
+                state = left ? 3 : 0;
+            }
+            else if (--left == 0)
+                state = 0;
+        }
+    };
+    /// The CPU stepped to an instruction outside any interrupt and any record (I clear, in the program), so a
+    /// record the test writes straight to CMD can't fall inside one of OODOS's.
+    void at_program(CcpRig &r)
+    {
+        for (int i = 0; i < 200000; ++i)
+        {
+            const Registers g = r.cpu->regs();
+            if (!(g.p & 0x04) && g.pc >= 0x0300 && g.pc < 0x4000)
+                return;
+            r.run(1);
+        }
+        CHECK(!"the program never ran unmasked");
+    }
+    /// A record straight to the card's CMD (the CPU stopped at a program instruction).
+    void to_cmd(CcpRig &r, const std::vector<uint8_t> &rec)
+    {
+        at_program(r);
+        for (const uint8_t b : rec)
+            dev(r).write(SoundCard3::CMD, b);
+    }
+} // namespace
+
+TEST(a_bel_while_the_frame_sends_its_records_reaches_the_card_whole)
+{
+    // Review C1/T1: the console's BEL (SBELL, from a program, interrupts on) while the frame's interrupt sends its own
+    // status requests through the same record buffer (all three parts claimed): the frame's interrupt timed to fall
+    // across SBELL's first cycles, a cycle a try. Every bell must reach the card as one whole BELL record and the
+    // frame's as theirs: the card's parser never out of step, every frame's request answered (FPEND 0), every
+    // tone's end come back (TONES 0). Must fail with HRECT's SEI left out (the bell's record sent with the frame's
+    // command and length in it).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_STREAM | SC_MUSIC}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    const uint16_t sframe = sym("SFRAME"), sbell = sym("SBELL"), irq = sym("IRQ");
+    std::vector<uint64_t> frames;
+    uint64_t last_irq = 0;
+    auto watch_frames = [&] {
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61)
+                frames.push_back(last_irq);
+        };
+    };
+    watch_frames();
+    r.run(ms(60));
+    REQUIRE(frames.size() >= 3);
+    const uint64_t period = frames[2] - frames[1];
+    uint64_t first = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sbell && r.nb(2) == 61 && !first)
+            first = r.cpu->cycles();
+    };
+    const uint64_t poked = r.cpu->cycles();
+    command(r, 'G', "G");
+    REQUIRE(first > poked);
+    const uint64_t lead = first - poked;
+    CmdRecords recs;
+    r.cpu->set_observer(&recs);
+    unsigned hits = 0, tries = 0;
+    for (int d = -40; d <= 40; ++d, ++tries)
+    {
+        frames.clear();
+        watch_frames();
+        while (frames.empty())
+            r.run(100);
+        const uint64_t at = frames.back() + period - lead + static_cast<uint64_t>(40 + d) - 40;
+        r.watch = nullptr;
+        while (r.cpu->cycles() + 2100 < at)
+            r.run(2000);
+        uint64_t bell = 0, frame = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == sbell && r.nb(2) == 61 && !bell)
+                bell = r.cpu->cycles();
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61 && !frame)
+                frame = last_irq;
+        };
+        while (r.cpu->cycles() < at)
+            r.run(1);
+        command(r, 'G', "G");
+        r.watch = nullptr;
+        hits += bell && frame >= bell && frame < bell + 60;
+    }
+    r.cpu->set_observer(nullptr);
+    unsigned bells = 0;
+    for (const uint8_t c : recs.cmds)
+        bells += c == SoundFw::BELL;
+    r.run(ms(400));
+    std::printf("  %u tries, %u with the frame's interrupt inside SBELL; %u BELL records; ERROR $%02X, FPEND %u, TONES %u\n",
+                tries, hits, bells, reg(r, SoundCard3::ERROR), sv(r, "FPEND"), sv(r, "TONES"));
+    CHECK(hits > 0); // the premise: a frame's interrupt came inside SBELL
+    CHECK_EQ(bells, tries);
+    CHECK_EQ(reg(r, SoundCard3::ERROR), 0);
+    CHECK_EQ(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_ERR, 0);
+    CHECK_EQ(sv(r, "TONES"), 0);
+    CHECK_EQ(sv(r, "FPEND"), 0);
+    CHECK_EQ(f82(r, identify()), std::string("00 00")); // the card's parser in step after it all
+    CHECK_EQ(got(r, 1)[0], 0xA3);
+}
+
+TEST(with_no_area_a_full_ring_is_fed_at_each_need)
+{
+    // Review T3: a 2 MB card (its ring fills), no event area, the program polling SN_STATUS (L3TEST's S) for a free
+    // buffer and giving the next 64 KB; 1.5 MB in all at 48 kHz 16-bit stereo. With the ring full the card asks
+    // (NEED) only when room comes, with nothing moving: that NEED must send the waiting buffer at once. Every byte
+    // played, no underrun. Must fail with NEED's own SFEED left out.
+    CcpRig r({}, machine_with_sound(3, 2));
+    REQUIRE(r.ok);
+    fw(r).set_stream_tap(true);
+    open(r, "X");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    constexpr unsigned BUFS = 24;
+    const uint32_t at[2] = {0x10000, 0x20000};
+    std::vector<uint8_t> sent;
+    unsigned given = 0, polls = 0;
+    auto give = [&](unsigned k) {
+        const std::vector<uint8_t> b = noise(0x10000, 300 + given);
+        r.poke(at[k], b);
+        CHECK_EQ(f82(r, buffer_block(at[k], 0)).substr(3), std::string("00"));
+        sent.insert(sent.end(), b.begin(), b.end());
+        ++given;
+    };
+    give(0);
+    give(1);
+    const uint64_t endc = r.cpu->cycles() + ms(20000);
+    while (given < BUFS && r.cpu->cycles() < endc)
+    {
+        r.run(ms(20));
+        const std::string st = command(r, 'S', "ST");
+        ++polls;
+        if (st.size() >= 5 && std::stoul(st.substr(3, 2), nullptr, 16) >> (given & 1) & 1)
+            give(given & 1);
+    }
+    CHECK_EQ(given, BUFS);
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 200 && command(r, 'S', "ST").substr(0, 2) != "05"; ++i)
+        r.run(ms(50));
+    const std::string st = command(r, 'S', "ST");
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %u polls; a ring of %zu; %zu sent, %zu played; ST %s\n", polls, fw(r).stream_ring(0), sent.size(),
+                played.size(), st.c_str());
+    CHECK(sent.size() > fw(r).stream_ring(0)); // the premise: more than the ring holds
+    CHECK_EQ(st.substr(0, 2), std::string("05"));
+    CHECK(played == sent);
+    CHECK_EQ(st.substr(26, 4), std::string("0000"));
+}
+
+TEST(a_freed_buffer_shows_in_ev_sbufs_before_the_interrupt_returns)
+{
+    // Review T5: EV_SBUFS is written at once wherever BBUSY changes, so a program waiting on it refills a buffer as
+    // soon as it is sent, not up to a frame later at the frame's status reply. Ten 10,000-byte buffers, each given
+    // again when EV_SBUFS shows it free; at the end of each interrupt that freed one, the area must show it. Must
+    // fail with CNEXT's SBUFS left out.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    constexpr unsigned LEN = 10000, BUFS = 10;
+    const uint32_t at[2] = {0x03000, 0x06000};
+    unsigned given = 0, freed = 0, late = 0;
+    uint8_t was = 0, pending = 0;
+    const uint16_t end = sym("IRQEND");
+    r.watch = [&](uint16_t pc) {
+        const uint8_t now = sv(r, "BBUSY");
+        pending |= static_cast<uint8_t>(was & ~now);
+        was = now;
+        if (pc == end && pending)
+        {
+            ++freed;
+            late += (area(r, EV_SBUFS) & pending) != pending;
+            pending = 0;
+        }
+    };
+    auto give = [&](unsigned k) {
+        r.poke(at[k], noise(LEN, 400 + given));
+        CHECK_EQ(f82(r, buffer_block(at[k], LEN)), std::string("0") + static_cast<char>('0' + k) + " 00");
+        ++given;
+    };
+    r.run(ms(20));
+    give(0);
+    give(1);
+    const uint64_t endc = r.cpu->cycles() + ms(3000);
+    while (given < BUFS && r.cpu->cycles() < endc)
+    {
+        r.run(ms(1));
+        for (unsigned k = 0; k < 2 && given < BUFS; ++k)
+            if (area(r, EV_SBUFS) >> k & 1 && (sv(r, "NEXTB") == k))
+                give(k);
+    }
+    r.run(ms(100));
+    r.watch = nullptr;
+    std::printf("  %u buffers given; %u interrupts freed one, %u returned with EV_SBUFS not showing it\n", given, freed, late);
+    CHECK_EQ(given, BUFS);
+    CHECK(freed >= BUFS - 1); // the premise
+    CHECK_EQ(late, 0u);
+}
+
+TEST(a_stream_s_sn_end_goes_when_its_buffers_have_gone_with_a_fast_feeder_after_sn_next)
+{
+    // Review C2: the book's order for two files (chapter 8): the first's SN_END before its last buffer runs out,
+    // then SN_NEXT and the second's buffers. On a 2 MB card, the first's ring filled (so its last two buffers wait
+    // for room, both taken at SN_END); then SN_NEXT, and L3TEST's R refilling each buffer for the second the moment
+    // it frees, as fast as a program can. The first's STREAM_END must go as its own last buffer goes, though the
+    // buffer sent next is always taken (the second's): the first plays out, ends, the second follows with no gap,
+    // every byte of both played and no underrun. Must fail with STREAM_END sent only when the next buffer to send is
+    // free (the first never ends: it runs dry, and the second never starts).
+    CcpRig r({}, machine_with_sound(3, 2));
+    REQUIRE(r.ok);
+    fw(r).set_stream_tap(true);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    const std::vector<uint8_t> a = noise(0x10000, 501), b = noise(0x10000, 502);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    auto feed = [&](unsigned n, unsigned first, uint32_t from, uint64_t budget) {
+        r.poke(KBLK, buffer_block(from, 0));
+        r.poke(MBOX + 1, std::vector<uint8_t>{static_cast<uint8_t>(n), static_cast<uint8_t>(first)});
+        return command(r, 'R', "R", budget);
+    };
+    // The first: 18 buffers of 64 KB (its ring, 1 MB, full after 16), then SN_END with its last two waiting.
+    CHECK_EQ(feed(18, 0, 0x10000, ms(3000)), std::string("01 00"));
+    std::printf("  the first's ring %zu; at SN_END: BBUSY %u\n", fw(r).stream_ring(0), sv(r, "BBUSY"));
+    CHECK_EQ(sv(r, "BBUSY"), 3); // the premise: both taken, so SN_END waits (ENDP)
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(sv(r, "ENDP"), 1);
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    // The second: 10 buffers (more than its ring), each the moment it frees, the card a millisecond to answer each
+    // STREAM_DATA (a piece holds the CPU, so it is in that wait that a program refills the buffer just freed).
+    fw(r).set_latency_us(1000);
+    const std::string fed = feed(10, sv(r, "NEXTB"), 0x20000, ms(12000));
+    fw(r).set_latency_us(SoundFw::LATENCY_US);
+    std::printf("  R %s; ENDP %u, SPLAY %u\n", fed.c_str(), sv(r, "ENDP"), sv(r, "SPLAY"));
+    CHECK_EQ(fed.substr(3), std::string("00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 300 && area(r, EV_SSTATE) != ST_ENDED; ++i) // 28 buffers' 9.6 s at most
+        r.run(ms(50));
+    std::vector<uint8_t> want;
+    for (unsigned i = 0; i < 18; ++i)
+        want = want + a;
+    for (unsigned i = 0; i < 10; ++i)
+        want = want + b;
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  %zu bytes played of %zu; the area's state %u, underruns %u\n", played.size(), want.size(),
+                area(r, EV_SSTATE), area16(r, EV_SUNDER));
+    CHECK_EQ(sv(r, "SPLAY"), 1);
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(played == want);
+    CHECK_EQ(area16(r, EV_SUNDER), 0u);
+    CHECK(queued(r, SoundFw::EV_TRACK, 1));
+}
+
+TEST(a_seek_after_sn_next_feeds_and_ends_the_stream_playing)
+{
+    // Review C3: SN_NEXT, a buffer for the next file, then SN_SEEK in the one playing (a player's seek within the
+    // track with the next one queued): the queued stream is closed, and the buffers and SN_END after the seek go
+    // to the stream playing, which plays them and ends. Must fail with the seek leaving the queued stream (the
+    // buffers go to it: the stream playing stays buffering for ever).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 44100, FMT_16BIT | FMT_STEREO);
+    fw(r).set_stream_tap(true);
+    const std::vector<uint8_t> a = noise(40000, 601), b = noise(30000, 602), c = noise(30000, 603);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    r.poke(0x30000, c);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(a.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    CHECK_EQ(f82(r, buffer_block(0x20000, static_cast<unsigned>(b.size()))), std::string("01 00"));
+    CHECK_EQ(f82op(r, SN_SEEK), std::string("00 00"));
+    fw(r).take_stream_tap(); // what played before the seek
+    CHECK_EQ(sv(r, "FEED"), 0);
+    CHECK_EQ(fw(r).stream_state(1), SoundFw::S_IDLE); // the queued one closed
+    CHECK_EQ(f82(r, buffer_block(0x30000, static_cast<unsigned>(c.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    const std::vector<uint8_t> played = tap_bytes(r);
+    std::printf("  after the seek: %zu bytes played of %zu; the area's state %u, SPLAY %u, BBUSY %u\n", played.size(),
+                c.size(), area(r, EV_SSTATE), sv(r, "SPLAY"), sv(r, "BBUSY"));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK_EQ(sv(r, "SPLAY"), 0);
+    CHECK_EQ(sv(r, "BBUSY"), 0);
+    CHECK(played == c);
+}
+
+TEST(a_load_that_fails_after_the_card_took_it_leaves_no_transfer_open)
+{
+    // Review C4: a load whose data loses a byte on its way (the card's DMA fault: XFERDONE never comes) is SN_BUSY
+    // after its wait; OODOS closes the card's side (XFERABORT), so the same load again goes, and the stream's next
+    // STREAM_DATA is taken: the stream plays. Must fail with the failed load's XFERABORT left out (the retry refused
+    // E_XFER, the stream's buffer never sent).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    fw(r).set_stream_tap(true);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE}), std::string("00 00"));
+    const std::vector<uint8_t> t = tune();
+    r.poke(0x30000, t);
+    const std::vector<uint8_t> load = load_block(SN_TUNE, {}, 0x30000, static_cast<uint32_t>(t.size()), {0});
+    dev(r).set_dma_drop(20); // the 20th byte lost
+    CHECK_EQ(f82(r, load), std::string("FE FF"));
+    CHECK(!(reg(r, SoundCard3::STATUS) & SoundCard3::STATUS_XFER)); // closed
+    CHECK_EQ(f82(r, load), std::string("00 00"));
+    CHECK_EQ(card_crc(r, SoundFw::TUNE_LOAD, 0), crc32(t));
+    const std::vector<uint8_t> data = noise(30000, 701);
+    r.poke(0x10000, data);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(data.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(tap_bytes(r) == data);
+}
+
+TEST(a_stream_data_the_card_refuses_is_sent_again)
+{
+    // Review C4: the card asks for data once (its NEED stays outstanding until a STREAM_DATA is taken), so a
+    // STREAM_DATA it refuses (here E_XFER: a transfer left open on the card, as a failed load left it before
+    // XFERABORT, written straight to CMD by the test) must be tried again, or the stream stalls for good. Once the
+    // card's transfer is closed, the next frame's try sends the buffer and it plays. Must fail with the refusal
+    // dropping the stream's request.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    fw(r).set_stream_tap(true);
+    r.run(ms(20));
+    CHECK_EQ(sv(r, "NEEDP"), 1);
+    to_cmd(r, {SoundFw::TUNE_LOAD, 4, 0x80, 0, 0x00, 0x02, 0}); // a transfer open (tag $80: its reply OODOS drops)
+    r.run(ms(5));
+    CHECK(fw(r).xfer_open());
+    const std::vector<uint8_t> data = noise(30000, 801);
+    r.poke(0x10000, data);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(data.size()))), std::string("00 00"));
+    r.run(ms(5));
+    std::printf("  refused: BBUSY %u, SDPEND %u, NEEDP %u\n", sv(r, "BBUSY"), sv(r, "SDPEND"), sv(r, "NEEDP"));
+    CHECK_EQ(sv(r, "BBUSY"), 1); // the premise: its STREAM_DATA refused, the buffer still taken
+    to_cmd(r, {SoundFw::XFERABORT, 0, 0x80});
+    r.run(ms(100));
+    CHECK_EQ(sv(r, "BBUSY"), 0);
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 40 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(50));
+    CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
+    CHECK(tap_bytes(r) == data);
+}
+
+TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
+{
+    // Review C5: SN_STATUS's block is of one moment, its own reply's, even when the frame's STREAM_STATUS reply (which
+    // rewrites the same mapping) lands while the block is being put: the program's call timed, a step a frame, so the
+    // frame's reply comes inside its copy. The block's frames and underruns must be its own reply's (RR). Must fail
+    // with the block put from SST, the mapping the frame's reply rewrites.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    r.poke(0x10000, noise(0x10000, 901));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
+    r.run(ms(300)); // playing
+    const uint16_t fields = sym("FIELDS"), statusx = sym("SN_STATUSX"), pput = sym("PPUT"), irq = sym("IRQ"),
+                   sframe = sym("SFRAME");
+    const uint32_t rr = BIOS_BLOCK_PHYS + sym("RR") - 0x8000u;
+    // The frame's period, and when its reply's FIELDS comes after the frame's interrupt.
+    std::vector<uint64_t> frames, replies;
+    uint64_t last_irq = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == irq)
+            last_irq = r.cpu->cycles();
+        if (pc == sframe && r.nb(2) == 61)
+            frames.push_back(last_irq);
+        if (pc == fields && r.nb(2) == 61)
+            replies.push_back(r.cpu->cycles());
+    };
+    r.run(ms(60));
+    REQUIRE(frames.size() >= 3 && replies.size() >= 2);
+    const uint64_t period = frames[2] - frames[1];
+    uint64_t offset = 0;
+    for (const uint64_t f : replies)
+        if (f > frames[1] && !offset)
+            offset = f - frames[1];
+    // From the poke of 'S' to the call's first PPUT.
+    uint64_t first = 0;
+    bool in = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == statusx && r.nb(2) == 61)
+            in = true;
+        if (in && pc == pput && !first)
+            first = r.cpu->cycles();
+    };
+    const uint64_t poked = r.cpu->cycles();
+    command(r, 'S', "ST");
+    REQUIRE(first > poked);
+    const uint64_t lead = first - poked;
+    unsigned hits = 0, bad = 0, tries = 0;
+    for (int d = 1800; d < 3600; d += 60, ++tries) // (the window: the frame's reply some 2,000-3,400 cycles on)
+    {
+        frames.clear();
+        r.watch = [&](uint16_t pc) {
+            if (pc == irq)
+                last_irq = r.cpu->cycles();
+            if (pc == sframe && r.nb(2) == 61)
+                frames.push_back(last_irq);
+        };
+        while (frames.empty())
+            r.run(100);
+        const uint64_t at = frames.back() + period + offset - lead - static_cast<uint64_t>(d);
+        r.watch = nullptr;
+        while (r.cpu->cycles() + 2100 < at)
+            r.run(2000);
+        unsigned puts = 0, between = 0;
+        in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == statusx && r.nb(2) == 61)
+                in = true, puts = 0;
+            if (in && pc == pput && puts < 14)
+                ++puts;
+            if (in && pc == fields && r.nb(2) == 61 && puts >= 1 && puts < 14)
+                between = puts;
+        };
+        while (r.cpu->cycles() < at)
+            r.run(1);
+        const std::string st = command(r, 'S', "ST");
+        r.watch = nullptr;
+        if (st.size() < 30)
+            continue;
+        hits += between >= 1 && between <= 5; // the frame's reply before the frames field was put
+        uint32_t frames_got = 0, frames_rr = 0;
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            frames_got |= static_cast<uint32_t>(std::stoul(st.substr(14 + 2 * i, 2), nullptr, 16)) << (8 * i);
+            frames_rr |= static_cast<uint32_t>(r.phys(rr + 13 + i)) << (8 * i);
+        }
+        if (frames_got != frames_rr && ++bad <= 3)
+            std::printf("  try %d: the block's frames %u, its reply's %u (the frame's reply after put %u)\n", d,
+                        frames_got, frames_rr, between);
+    }
+    std::printf("  %u tries, %u with the frame's reply inside the block's first five puts, %u not the reply's own\n", tries,
+                hits, bad);
+    CHECK(hits > 0); // the premise
+    CHECK_EQ(bad, 0u);
 }
 
 int main() { return run_all(); }

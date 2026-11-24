@@ -1143,7 +1143,7 @@ tell a full store from a chip in use. [part] is the claim an operation needs.
 | 13 | `SN_BUFFER` | +1-3 a physical address, +4-5 the length (0: 65,536) | A the buffer taken (0 or 1); sent into DATA on NEED [`SC_STREAM`] |
 | 14 | `SN_PAUSE` | none | STREAM_PAUSE [`SC_STREAM`] |
 | 15 | `SN_RESUME` | none | STREAM_RESUME [`SC_STREAM`] |
-| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped [`SC_STREAM`] |
+| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped; a stream `SN_NEXT` queued closed first (STREAM_CLOSE) [`SC_STREAM`] |
 | 17 | `SN_END` | none | STREAM_END [`SC_STREAM`] |
 | 18 | `SN_STATUS` | +1-12 to fill | A the state, X the buffers free; the block as today's, +3-4 the ring's room in 256-byte units |
 | 19 | `SN_NEXT` | +1 the codec, +2-3 the rate, +4 the format | stream 1 opened and queued behind stream 0 (STREAM_NEXT); SN_BUFFER feeds the one that wants data [`SC_STREAM`] |

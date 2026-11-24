@@ -27,6 +27,10 @@
 ;       ($BFFD) lives, so its three bytes are kept, the stub called through
 ;       their address, and put back before anything else
 ;   F   F aa xx: function 80's FT_INFO, X = 0 (OOLIB's interface version)
+;   R   R aa xx: a feeder as fast as a program can be (layout 2): MBOX + 1's
+;       count of buffers given, the block at KBLK each time, each the moment
+;       the area's EV_SBUFS shows the next one (0, 1 in turn, from MBOX +
+;       2's) free; aa xx the last call's. No BDOS call while it waits
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -179,6 +183,30 @@ c_l:    lda     #<KBLK
         SAY     "L2"
         rts
 
+c_r:    lda     MBOX + 2
+        sta     rnext
+@one:   lda     MBOX + 1
+        beq     @out
+        ldx     rnext
+@wait:  lda     AREA + EV_SBUFS
+        and     rbit,x
+        beq     @wait
+        lda     #<KBLK
+        ldx     #>KBLK
+        jsr     f82
+        sta     bres
+        stx     bres + 1
+        lda     rnext
+        eor     #1
+        sta     rnext
+        dec     MBOX + 1
+        bra     @one
+@out:   lda     bres
+        ldx     bres + 1
+        SAY     "R"
+        rts
+rbit:   .byte   1, 2
+
 c_f:    lda     #FT_INFO
         ldx     #0
         ldy     #O_FRAME
@@ -269,10 +297,12 @@ cmds:   CMD     'K', c_k
         CMD     'L', c_l
         CMD     'B', c_b
         CMD     'F', c_f
+        CMD     'R', c_r
 CMDS_LEN = * - cmds
         .data
 bsave:  .res    3
 bres:   .res    2
+rnext:  .res    1
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0

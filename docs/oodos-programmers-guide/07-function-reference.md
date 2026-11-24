@@ -3573,9 +3573,13 @@ later. An OODOS before L3 answers 82 as a function it doesn't have, A = X = `$FF
   bytes) and prebuffer (100 ms for raw PCM, 750 ms for MP3). `SN_NEXT` opens the other stream and queues it behind
   the one being fed; from then on `SN_BUFFER` feeds the new one. `SN_BUFFER` takes the buffers in turn, 0, 1, 0, 1,
   from `SN_STREAM` or `SN_SEEK`; each goes to the card, by channel 2 (demand mode, its terminal count's interrupt
-  on), when the card asks for data (its NEED event) and nothing else is moving. `SN_SEEK` stops channel 2, drops
-  both buffers and flushes the stream playing (its ring and decoder emptied: it buffers again). `SN_END` tells the
-  card once the stream's buffers have all gone.
+  on), when the card asks for data (its NEED event) and nothing else is moving; a STREAM_DATA the card refuses is
+  tried again at the next chance (the card asks only once). `SN_SEEK` stops channel 2, drops both buffers, closes a
+  stream `SN_NEXT` queued (so the buffers and `SN_END` after it are the stream playing's again) and flushes the stream
+  playing (its ring and decoder emptied: it buffers again). `SN_END` tells the card as soon as none of the buffers
+  taken is that stream's, whichever buffer goes next. A load that fails after the card has taken it (a piece that
+  never ends, its XFERDONE not come) closes the card's side of it before it returns `SN_BUSY`, so the next load, or
+  the stream's next buffer, finds no transfer open.
 - With a part claimed and a layout-2 event area open, OODOS asks the card for that part's status once a frame, and
   writes the replies into the area's sound part, +96–127, a frame late: the stream's at +96–107, the tune's at
   +116–119, music's at +120–123 ([chapter 8](08-game-services.md#the-event-areas-sound-part)). `EV_SBUFS` is written

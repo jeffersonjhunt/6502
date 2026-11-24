@@ -283,16 +283,19 @@ SIENSET:        PHP
 ; The handler's record: A the command, n 0 (HREC0), or n X (HRECN, its
 ; parameters in HB + 3 on), tag HTAG + Y (HRECT) or HTAG. Carry set, and
 ; nothing sent, with no room for a whole record (it is tried again later
-; by whoever needs it). Masked inside; keeps nothing.
+; by whoever needs it). Masked inside from before its first store to HB:
+; SBELL calls it with interrupts on, and the handler's own records go
+; through HB too, so building the record and sending it are one masked step
+; (review C1). Keeps nothing.
 HREC0:          LDX     #0
 HRECN:          LDY     #0
-HRECT:          STA     HB
+HRECT:          PHP
+                SEI
+                STA     HB
                 STX     HB + 1
                 TYA
                 ORA     #HTAG
                 STA     HB + 2
-                PHP
-                SEI
                 LDA     SOUND_STATUS
                 AND     #SOUND_ST_CMDRDY
                 BEQ     @full
@@ -510,10 +513,16 @@ EVONE:          PHP
 @data:          LDA     SDPEND         ; STREAM_DATA's: the channel on with the buffer, if taken
                 BEQ     ESKIP          ; (dropped by a seek meanwhile)
                 STZ     SDPEND
-                LDA     STMP
-                BNE     ESKIP          ; refused: the next NEED tries again
                 LDX     SENDB
-                JSR     BSTART
+                LDA     STMP
+                BEQ     @go
+                CMP     #SOUND_E_STATE ; refused: the card asks once (its NEED stays
+                BEQ     ESKIP          ;   outstanding), so but for a stream closed or
+                LDY     BSTRM,X        ;   ended (E_STATE) its request is kept, for
+                LDA     BUFBIT,Y       ;   the next SFEED to try again (review C4)
+                TSB     NEEDP
+                BRA     ESKIP
+@go:            JSR     BSTART
                 ; fall through
 ; The rest of the record dropped, then PLP.
 ESKIP:          LDA     ELEFT
@@ -715,6 +724,7 @@ SSMAP:          LDA     RR,X
                 BNE     @c
                 RTS
 SST:            .res    14
+SSTC:           .res    14             ; SN_STATUS's copy of SST, taken masked
 
 ; --- the handler ---------------------------------------------------------------
 
@@ -806,79 +816,6 @@ SBELL:          LDA     SON
 
 ; --- the stream ------------------------------------------------------------------
 
-; The next buffer to the card if it can go: one waiting (SENDB's, given), its
-; stream asking (NEEDP), nothing moving or asked for (C2ON, SDPEND), no
-; program's transfer open: STREAM_DATA of its length, the channel started at
-; its REPLY (EVONE). Else a stream's SN_END that waits for nothing now.
-; Masked by the caller.
-SFEED:          LDA     C2ON
-                ORA     SDPEND
-                ORA     XBUSY
-                BNE     @done
-                LDX     SENDB
-                LDA     BUFBIT,X
-                AND     BBUSY
-                BEQ     @end           ; none given
-                LDY     BSTRM,X
-                LDA     BUFBIT,Y
-                AND     NEEDP
-                BEQ     @done          ; its stream hasn't asked
-                STY     HB + 3
-                TXA
-                ASL     A
-                TAY
-                LDA     BLEN,Y         ; the length, 3 bytes (0: 65,536)
-                STA     HB + 4
-                LDA     BLEN + 1,Y
-                STA     HB + 5
-                STZ     HB + 6
-                ORA     HB + 4
-                BNE     @send
-                INC     HB + 6
-@send:          LDA     #SOUND_STREAM_DATA
-                LDX     #4
-                LDY     #HT_DATA - HTAG
-                JSR     HRECT
-                BCS     @done          ; no room: the next frame tries again
-                INC     SDPEND
-                LDX     HB + 3
-                LDA     BUFBIT,X
-                TRB     NEEDP          ; answered
-@done:          RTS
-@end:           LDA     ENDP           ; nothing given: a waiting STREAM_END now
-                BEQ     @done
-                LDX     #0
-                LSR     A
-                BCS     @e
-                INX
-@e:             STX     HB + 3
-                PHX
-                LDA     #SOUND_STREAM_END
-                LDX     #1
-                JSR     HRECN
-                PLX
-                BCS     @done          ; no room: the next frame's
-                LDA     BUFBIT,X
-                TRB     ENDP
-                RTS
-
-; Channel 2's next piece: of the buffer moving (CUR), or, when it has all
-; gone, that buffer free, the channel idle (C2ON 0), and the next sent when
-; the card asks. Masked.
-CNEXT:          LDA     CLEFT
-                ORA     CLEFT + 1
-                ORA     CLEFT + 2
-                BNE     PIECE
-                LDX     CUR
-                LDA     BUFBIT,X
-                TRB     BBUSY          ; all sent: free
-                TXA
-                EOR     #1
-                STA     SENDB
-                STZ     C2ON
-                JSR     SBUFS
-                JMP     SFEED
-
 ; EV_SBUFS as BBUSY has it now (a buffer taken or freed), a layout-2 area
 ; open and the stream claimed: the program waits on it for a buffer to
 ; refill, so it can't wait for the frame's status. W1 borrowed. Masked.
@@ -898,6 +835,106 @@ SBUFS:          BIT     EVON
                 PLA
                 STA     NB_WIN1
 @done:          RTS
+
+; Each stream whose SN_END waits (ENDP) and has no buffer taken (BBUSY's
+; buffers, BSTRM theirs) gets its STREAM_END now, whichever buffer goes
+; next: after SN_NEXT the program's buffers are the next stream's, so the
+; first's end mustn't wait for a buffer of its own to be free (review C2).
+; Masked by the caller.
+SENDS:          LDA     ENDP
+                BEQ     @x
+                LDX     #1
+@s:             LDA     BUFBIT,X
+                AND     ENDP
+                BEQ     @next
+                LDY     #1
+@b:             LDA     BUFBIT,Y
+                AND     BBUSY
+                BEQ     @nb
+                TXA
+                CMP     BSTRM,Y
+                BEQ     @next          ; a buffer of its own still taken
+@nb:            DEY
+                BPL     @b
+                STX     HB + 3
+                PHX
+                LDA     #SOUND_STREAM_END
+                LDX     #1
+                JSR     HRECN
+                PLX
+                BCS     @next          ; no room: the next frame's
+                LDA     BUFBIT,X
+                TRB     ENDP
+@next:          DEX
+                BPL     @s
+@x:             RTS
+
+; The next buffer to the card if it can go: one waiting (SENDB's, given), its
+; stream asking (NEEDP), nothing moving or asked for (C2ON, SDPEND), no
+; program's transfer open: STREAM_DATA of its length, the channel started at
+; its REPLY (EVONE). First, each stream's SN_END that waits for nothing now
+; (SENDS). Masked by the caller.
+SFEED:          JSR     SENDS
+                LDA     C2ON
+                ORA     SDPEND
+                ORA     XBUSY
+                BNE     SFRTS
+                LDX     SENDB
+; CNEXT's entry: X = SENDB, and nothing moving, asked for or open (a
+; buffer's last piece has just gone: C2ON was set, so SDPEND and XBUSY are
+; clear).
+SFEEDX:         LDA     BUFBIT,X
+                AND     BBUSY
+                BEQ     SFRTS          ; none given
+                LDY     BSTRM,X
+                LDA     BUFBIT,Y
+                AND     NEEDP
+                BEQ     SFRTS          ; its stream hasn't asked
+                STY     HB + 3
+                TXA
+                ASL     A
+                TAY
+                LDA     BLEN,Y         ; the length, 3 bytes (0: 65,536)
+                STA     HB + 4
+                LDA     BLEN + 1,Y
+                STA     HB + 5
+                STZ     HB + 6
+                ORA     HB + 4
+                BNE     @send
+                INC     HB + 6
+@send:          LDA     #SOUND_STREAM_DATA
+                LDX     #4
+                LDY     #HT_DATA - HTAG
+                JSR     HRECT
+                BCS     SFRTS          ; no room: the next frame tries again
+                INC     SDPEND
+                LDX     HB + 3
+                LDA     BUFBIT,X
+                TRB     NEEDP          ; answered
+SFRTS:          RTS
+
+; Channel 2's next piece: of the buffer moving (CUR), or, when it has all
+; gone, that buffer free, the channel idle (C2ON 0), a stream's waiting
+; SN_END sent if that was its last buffer (SENDS), and the next buffer sent
+; if the card has asked. Masked.
+CNEXT:          LDA     CLEFT
+                ORA     CLEFT + 1
+                ORA     CLEFT + 2
+                BNE     PIECE
+                LDX     CUR
+                LDA     BUFBIT,X
+                TRB     BBUSY          ; all sent: free
+                TXA
+                EOR     #1
+                STA     SENDB
+                TAX                    ; (SBUFS keeps X)
+                STZ     C2ON
+                JSR     SBUFS
+                LDA     ENDP
+                BEQ     SFEEDX
+                JSR     SENDS
+                LDX     SENDB
+                BRA     SFEEDX
 
 ; Buffer X started: its address and length to CADR and CLEFT, C2ON set,
 ; its first piece. Masked.
@@ -1384,14 +1421,23 @@ LOAD:           PHP
                 BEQ     @ok
                 JMP     SNREF
 @ok:            JMP     SN00
-@busy:          JSR     XDONE
-                JMP     SNBUSY
+@busy:          JMP     XBUSYX
 @x:             PHA
                 PHX
                 JSR     XDONE
                 PLX
                 PLA
                 RTS
+
+; A load that failed after the card took it (no DMA controller, a piece
+; that never ended, no XFERDONE): the card's transfer closed (XFERABORT;
+; its reply or a refusal, none open, either way), then XDONE: SN_BUSY. So
+; the next load, and the stream's next STREAM_DATA, find no transfer open
+; (review C4).
+XBUSYX:         LDA     #SOUND_XFERABORT
+                JSR     RUN0
+                JSR     XDONE
+                JMP     SNBUSY
 
 ; A program's transfer over: the stream's next, if it waited.
 XDONE:          PHP
@@ -1525,8 +1571,7 @@ SN_FIRMX:       BLOCK
                 LDA     XST
                 BNE     @ref
 @ok:            JMP     SN00
-@busy:          JSR     XDONE
-                JMP     SNBUSY
+@busy:          JMP     XBUSYX
 @ref:           JMP     SNREF
 @no:            JMP     RETFF
 @begin:         LDX     #3
@@ -1724,7 +1769,11 @@ SN_BUFFERX:     BLOCK
 @no:            JMP     RETFF
 
 ; A seek: channel 2 stopped, both buffers dropped and free, a NEED forgotten
-; (the card asks again), then STREAM_FLUSH of the stream playing.
+; (the card asks again), a waiting SN_END dropped (the flush clears the
+; card's end too); a next stream queued by SN_NEXT closed (STREAM_CLOSE, its
+; transfer with it), so SN_BUFFER and SN_END feed the stream playing again
+; (review C3); then STREAM_FLUSH of the stream playing (its transfer
+; aborted with it).
 SN_SEEKX:       NEED    SC_STREAM
                 PHP
                 SEI
@@ -1732,7 +1781,25 @@ SN_SEEKX:       NEED    SC_STREAM
                 STZ     NEEDP
                 STZ     ENDP
                 PLP
-                LDA     #SOUND_STREAM_FLUSH
+                LDA     FEED
+                CMP     SPLAY
+                BEQ     @flush
+                STA     RB + 3         ; the queued one: closed (a refusal ignored)
+                LDA     #SOUND_STREAM_CLOSE
+                STA     RB
+                STZ     RMODE
+                LDX     #4
+                JSR     RUN
+                PHP
+                SEI
+                LDX     FEED
+                LDA     BUFBIT,X
+                TRB     SOPEN
+                TRB     NEEDP          ; (an ask that came meanwhile: closed now)
+                LDA     SPLAY
+                STA     FEED
+                PLP
+@flush:         LDA     #SOUND_STREAM_FLUSH
                 ; fall through
 ; A stream command of the stream playing, its reply awaited.
 SCMD:           STA     RB
@@ -1769,21 +1836,26 @@ SN_STATUSX:     NEED    SC_STREAM
                 JSR     CMDW
                 BCS     @busy
                 BNE     @ref
-                PHP
-                SEI
+                PHP                    ; SST mapped and copied with interrupts off:
+                SEI                    ;   the frame's reply rewrites SST (review C5)
                 LDX     #0
                 JSR     SSMAP
+                LDX     #13
+@cp:            LDA     SST,X
+                STA     SSTC,X
+                DEX
+                BPL     @cp
                 PLP
                 LDX     PX
                 BEQ     @ret
                 LDX     #0
-@put:           LDA     SST,X
+@put:           LDA     SSTC,X
                 JSR     PPUT
                 INX
                 CPX     #14
                 BNE     @put
-@ret:           LDA     SST
-                LDX     SST + 1
+@ret:           LDA     SSTC
+                LDX     SSTC + 1
                 RTS
 @busy:          JMP     SNBUSY
 @ref:           JMP     SNREF

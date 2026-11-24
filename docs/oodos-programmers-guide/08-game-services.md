@@ -476,7 +476,8 @@ layout-2 area open the area has it each frame.
 **The next track.** `SN_NEXT`, with the same block as `SN_STREAM`'s, opens a second stream queued behind the one
 playing, and from then on `SN_BUFFER` feeds the new one. When the first ends, the second starts with no gap, the first
 closes, and `SK_TRACK` comes; the status is then the second's. Give the first its `SN_END` before its last buffer
-runs out, and the second its first buffers before the first ends.
+runs out, and the second its first buffers before the first ends. A `SN_SEEK` with the second queued closes the
+second: the seek is in the track playing, and its buffers and `SN_END` go to it; call `SN_NEXT` again for the next.
 
 **Keeping it fed.** Nothing in this needs the program's time while the ring and a buffer have data: a slow frame
 costs nothing. An underrun is the ring running dry before `SN_END`; the card counts each one (`EV_SUNDER`) and says
