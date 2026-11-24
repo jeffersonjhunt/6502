@@ -42,18 +42,7 @@ dst:    .res    2                       ; the next record's place
 
         .code
 start:  jsr     UT_INIT
-        lda     #FT_INFO                ; function 82's table: OOLIB interface 18
-        ldx     #0                      ; (OODOS 0.17) or more, else refused
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80
-        beq     @old
-        cmp     #18
-        bcs     @new
-@old:   lda     #<sold
-        ldx     #>sold
-        jmp     failsay
-@new:   lda     #<fcb
+        lda     #<fcb
         ldx     #>fcb
         jsr     UT_SPEC
         bcc     @spec
@@ -356,7 +345,6 @@ dec8:   ldx     #0
 magic:  .byte   "OOSD", $A3
 susage: .byte   "SNDFW filespec$"
 sinv:   .byte   "Invalid file specification.$"
-sold:   .byte   "SNDFW needs OODOS 0.17 or newer.$"
 snofile:
         .byte   "No File$"
 snotfw: .byte   "Not a sound card firmware image.$"

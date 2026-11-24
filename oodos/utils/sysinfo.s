@@ -843,24 +843,12 @@ video:  lda     #<svideo
 
 ; SN_INFO for the card (0: none) and the parts no one has claimed; then
 ; SN_IDENTIFY's 32 bytes: the firmware, the store, the chips and features.
-; SYSINFO reads no sound register. Function 82's table is interface 18's
-; (OODOS 0.17): an older OODOS isn't asked.
+; SYSINFO reads no sound register.
 
 sound:  lda     #<ssound
         ldx     #>ssound
         jsr     puts
-        lda     #FT_INFO
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80
-        beq     @old
-        cmp     #18
-        bcs     @ask
-@old:   lda     #<ssndold
-        ldx     #>ssndold
-        jmp     puts
-@ask:   lda     #SN_INFO
+        lda     #SN_INFO
         sta     sninfo
         lda     #<sninfo
         ldx     #>sninfo
@@ -1741,7 +1729,6 @@ svprog: .byte   "); the program's $"
 skb:    .byte   " KB$"
 ssound: .byte   "SOUND      $"
 snosound: .byte "no sound card$"
-ssndold: .byte  "not asked: this OODOS is before 0.17$"
 srev:   .byte   "revision $"
 snoid:  .byte   ", which didn't answer IDENTIFY$"
 sfw:    .byte   ", firmware $"

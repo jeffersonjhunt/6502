@@ -1274,7 +1274,6 @@ each second. Any key stops it: the tune stops, the SIDs go quiet, and PLAYSID en
 
 #### Errors
 
-- `PLAYSID needs OODOS 0.17 or newer.`: an older OODOS, whose function 82 drove the card another way.
 - `PLAYSID filespec {song}`: no file named. `Invalid file specification.`: a name OODOS can't take, or a song that
   isn't a number from 1 to 65,535. `No File`: no such file.
 - `Too big.`: the file doesn't fit in memory.
@@ -1431,7 +1430,7 @@ CARDS
 - **VIDEO, SOUND:** the video card's memory; the sound card's own answer to IDENTIFY (its firmware's version, build
   and flash image, its store and how much is free, its chips and what it plays, its FEATURES bytes), and which of its
   parts (tune, stream, music) no program has claimed. SYSINFO reads no sound register itself. With no sound card
-  OODOS drives, the line says `no sound card`; under an OODOS before 0.17, `not asked: this OODOS is before 0.17`.
+  OODOS drives, the line says `no sound card`.
   The SOUND section:
 
   ```
@@ -1501,7 +1500,6 @@ The version and the build are the image's own, from its header.
 
 #### Errors
 
-- `SNDFW needs OODOS 0.17 or newer.`: an older OODOS, which can't update the card.
 - `SNDFW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file.
 - `Not a sound card firmware image.`: the file doesn't start with a firmware image's header for this card, or it
   ends before the length its header gives. Nothing is sent to the card.

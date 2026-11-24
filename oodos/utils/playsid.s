@@ -37,18 +37,7 @@ rel:    .res    2                       ; the released field
 
         .code
 start:  jsr     UT_INIT
-        lda     #FT_INFO                ; function 82's table: OOLIB interface 18
-        ldx     #0                      ; (OODOS 0.17) or more, else refused
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80
-        beq     @old
-        cmp     #18
-        bcs     @new
-@old:   lda     #<sold
-        ldx     #>sold
-        jmp     failsay
-@new:   lda     #<fcb
+        lda     #<fcb
         ldx     #>fcb
         jsr     UT_SPEC
         bcc     @spec
@@ -396,7 +385,6 @@ text32: sta     @src + 1
 tsid:   .byte   "SID"
 susage: .byte   "PLAYSID filespec {song}$"
 sinv:   .byte   "Invalid file specification.$"
-sold:   .byte   "PLAYSID needs OODOS 0.17 or newer.$"
 snofile:
         .byte   "No File$"
 sbig:   .byte   "Too big.$"

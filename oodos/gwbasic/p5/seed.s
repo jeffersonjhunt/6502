@@ -20,7 +20,7 @@
 ;             it (below)
 ;   DSINFO    7e2: for the home block's DSRUNH (p8/far4.s: BLOAD's and
 ;             BSAVE's run checks, 7c's tail and 7d3, the home block's since
-;             7e2), A the graphics mode, X DSB8; DSPUT's entry a stub
+;             7e2), A the graphics mode; DSPUT's entry a stub
 ;   DSGRUN    7e3: a BSAVE's or BLOAD's run on SCREEN 1 or 2's page, between
 ;             bank 8's RAM (the staging) and the card, from the home block's
 ;             DSSRUN and DSPUTH (below)
@@ -144,8 +144,7 @@ GXSTRT:         LDA     #<SCBPB        ; CON:'s output (SCB $24): X its high byt
                 BRA     @con
 @scr:           LDA     DSVAL
                 STA     SCRMOD         ; bit 7: the CRT, so GW-BASIC's own screen
-@con:           JSR     GX_BANK8
-                ROR     DSB8           ; 7d3: bit 7, GX_BANK8 refused (bank 8 isn't RAM)
+@con:           JSR     GX_BANK8       ; (OODOS refuses it only under a ROM BIOS before 0.17: none, pre-1.0)
                 LDA     #<SCRB
                 STA     DSPB
                 LDA     #>SCRB
@@ -461,7 +460,7 @@ BLKOF:          LDA     DSA+1,X
 ; and copies (DSRUN, DSSRUN, DSPUT) are the home block's now (p8/far4.s's
 ; DSRUNH, DSPUTH), which calls them without a far call; their entries keep
 ; their places in the jump table. DSINFO, DSRUN's: what DSRUNH needs of this
-; block, A the graphics mode (GMODEV) and X DSB8 (bit 7: GX_BANK8 refused);
+; block, A the graphics mode (GMODEV);
 ; 7e5: and for VIEW's checks (p8/far5.s) RDI the mode's last x, RBP its last
 ; y; in the OO-1's modes, for DEF SEG's page (the layer's own bytes, by
 ; SCREEN 0's route: the owner's answer 6), T0-T2 the page's card address
@@ -489,7 +488,6 @@ DSINFO:         LDA     GMODEV
                 LDA     GMAXY + 1
                 STA     RBP + 1
                 LDA     GMODEV
-                LDX     DSB8
 DSPUT:          RTS
 
 ; --- SCREEN 1 and 2's page (7e3) ----------------------------------------------------------
@@ -711,7 +709,6 @@ SCRB:           .res    1              ; the scratch byte
 DSVC:           .res    3              ; 7d3: the screen page's card address (DSPAGE)
 DSPH:           .res    3              ;   the physical side (the scratch byte, or bank 8's RAM)
 DSVL:           .res    2              ;   the bytes
-DSB8:           .res    1              ; 7d3: bit 7, GX_BANK8 refused (bank 8 not RAM)
 SCRP:           .res    3              ; the scratch byte's physical address (GXSTRT; 7f: moved here
                                        ;   from RODATA, F3's review F7)
 

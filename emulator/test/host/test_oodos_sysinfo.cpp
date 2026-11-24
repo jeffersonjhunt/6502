@@ -591,20 +591,6 @@ TEST(sysinfo_on_an_oodos_of_interface_8_says_it_has_no_function_77)
         std::printf("  %s\n", vis(o).c_str());
 }
 
-TEST(sysinfo_on_an_oodos_before_interface_18_asks_nothing_of_function_82)
-{
-    // Function 82's table is interface 18's (OODOS 0.17): under an OODOS that says 17, the SOUND section says so
-    // and asks the card nothing. Must fail with its CMP #18 made CMP #17 (the card's revision line instead).
-    InfoRig r;
-    REQUIRE(r.ok);
-    report_interface(r, 17);
-    const std::string o = run(r, "m:sysinfo sound /all");
-    CHECK(o.find("SOUND      not asked: this OODOS is before 0.17") != std::string::npos);
-    CHECK(o.find("revision") == std::string::npos);
-    if (o.find("not asked") == std::string::npos)
-        std::printf("  %s\n", vis(o).c_str());
-}
-
 TEST(one_section_alone_and_a_wrong_word)
 {
     InfoRig r;

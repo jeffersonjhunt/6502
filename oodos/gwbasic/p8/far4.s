@@ -444,9 +444,8 @@ BPARM3:         JSR     SYNCHR
 
 ; 7e2 (the owner's option 3 of 2026-11-19): moved here from P5's seed
 ; (p5/seed.s) to give P5 room, the routines as they were there but for
-; their names and two things: what they need of P5 (its graphics mode and
-; DSB8, GX_BANK8's answer) comes by one far call to P5's DSINFO, on the
-; screen page's path only; and the scratch byte (the probe's DM_COPY
+; their names and two things: what they need of P5 (its graphics mode)
+; comes by one far call to P5's DSINFO, on the screen page's path only; and the scratch byte (the probe's DM_COPY
 ; target, and DSPUTH's ^Z test) is this block's own, its physical address
 ; found by function 73 at the first run (DSSPH). BSAVE and BLOAD call them
 ; here without a far call. DSADR, BLKOF, DSPAGE, DSVX, DSSWAP and DSCALL are
@@ -477,10 +476,8 @@ BPARM3:         JSR     SYNCHR
 ; file shorter than its header: those before its last record's ^Z), so the
 ; rest stays as it was, as a PC's BLOAD. P4 is unchanged: its DM_COPY and
 ; DM_LOAD reach only GW-BASIC's RAM, and the card only function 83's port
-; operations. Refused, Illegal function call: in console mode, where
-; GX_BANK8 refused (bank 8 isn't RAM: a revision 1 bridge, a BIOS before
-; 0.17; DSB8), a run from bank 7 into bank 8 or from it into bank 9, and one
-; past the reach. The staging takes $80000 up to the reach ($812BF at most):
+; operations. Refused, Illegal function call: in console mode, a run from
+; bank 7 into bank 8 or from it into bank 9, and one past the reach. The staging takes $80000 up to the reach ($812BF at most):
 ; nothing else of GW-BASIC's uses bank 8's RAM.
 ;
 ; 7e3, SCREEN 1 and 2's page (the PC's CGA layout, 7e's answer 9; the owner's
@@ -581,9 +578,7 @@ DSRUNH:         STZ     DSSCF          ; 7d3: no run staged for DSPUT yet
 ; there by DM_VREAD, and DSSCF set for DSPUT.
 DSSRUN:         BIT     SCRMOD
                 BPL     @fc
-                FJSR    DSINFO         ; 7e2: P5's GMODEV (A), DSB8 (X)
-                CPX     #$80
-                BCS     @fc            ; GX_BANK8 refused
+                FJSR    DSINFO         ; 7e2: P5's GMODEV (A)
                 CMP     #3             ; 7e5: the OO-1's modes, SCREEN 0's route: the page
                 BCS     @lin           ; and its reach DSINFO's (T0-T2, GXT)
                 CMP     #0

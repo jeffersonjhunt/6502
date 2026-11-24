@@ -3867,8 +3867,8 @@ only if a cost measured in a sub-phase forces it.
    - **Decided (2026-11-13, the owner):** GW-BASIC's loader copies common memory into each of its code blocks, as `ui_load` does. No
      block is marked for code, and 53–58 are unchanged.
    - **Closed (2026-11-22, OODOS 0.16):** north bridge revision 3's common hole shows common memory in every block,
-     so the loader's copy and ui_load's went ([OODOS 0.16](#oodos-016-north-bridge-revision-3)); both refuse an
-     OODOS before interface 17.
+     so the loader's copy and ui_load's went ([OODOS 0.16](#oodos-016-north-bridge-revision-3)). (Their refusal
+     of an OODOS before interface 17 went on 2026-11-24, the owner's rule: before 1.0 there is no older OODOS.)
    - **How, as a cost estimate:**
      1. The loader copies `$F800–$FFFF` into a buffer in the free workspace once, by CPU: about 29,000 cycles.
      2. It puts the buffer into each block's `$3800–$3FFF` by function 83's `DM_COPY`: about 4,600 cycles a block.
@@ -4724,8 +4724,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       only exports `APG`, `CROW`, `RWOLO` and `RWOHI`. DSCOPY's swap and DSCALL's tail became `DSSWAP` and `DSGO`,
       shared with the page's route.
     - **BLOAD and BSAVE** (U2; answers 5 and 6): `DSRUN` sends a run whose first and last bytes are both in bank 8 to
-      `DSSRUN` (one from bank 7 into bank 8, or from it into bank 9, stays refused): console mode, or `GX_BANK8`
-      refused at start-up (a `$D1` bridge, a BIOS before 0.17: `GXSTRT` keeps its carry in `DSB8`), refused;
+      `DSSRUN` (one from bank 7 into bank 8, or from it into bank 9, stays refused): console mode refused (and
+      `GX_BANK8` refused at start-up, `DSB8`, until 2026-11-24, when that guard of a BIOS before 0.17 went);
       else `SCPAGP` with the cache forgotten, the run's last byte checked against the reach, and the run **staged in
       bank 8's own RAM at its own address**, `$80000` + its offset: one `DM_VREAD` copies the page's bytes there,
       and `DSSCF` marks it. P4's BSAVEP then saves from that RAM and P4's BLDRUN loads into it, both unchanged
