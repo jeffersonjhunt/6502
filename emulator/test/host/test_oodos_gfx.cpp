@@ -674,7 +674,7 @@ TEST(the_library_refuses_to_map_below_interface_8)
     // (interface 17 since function 78, FC_T1 and FT_CLOCK), LDX #$2F.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 7);
@@ -1499,7 +1499,7 @@ namespace
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
             ++p;
         REQUIRE(p < base + 64);
         r.poke(p + 1, v);

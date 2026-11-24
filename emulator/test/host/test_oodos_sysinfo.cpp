@@ -262,16 +262,18 @@ namespace
         return s;
     }
 
-    /// FT_INFOX's LDA #17 in OODOS's block 60 made LDA #8: an OODOS that reports interface 8, as before function 77.
-    void report_interface_8(CcpRig &r)
+    /// FT_INFOX's LDA #18 in OODOS's block 60 made LDA #`v`: an OODOS that reports interface `v`.
+    void report_interface(CcpRig &r, uint8_t v)
     {
         const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
         uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 17 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
             ++p;
         REQUIRE(p < base + 64);
-        r.poke(p + 1, 8);
+        r.poke(p + 1, v);
     }
+    /// As before function 77.
+    void report_interface_8(CcpRig &r) { report_interface(r, 8); }
 
     std::string full_golden() { return read_text(std::string(EMU_GOLDEN_DIR) + "/sysinfo.txt"); }
 } // namespace
@@ -533,19 +535,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 17, 77 the ROM BIOS 0.20 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 18, 77 the ROM BIOS 0.21 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
-    CHECK(o.find("FINFO 11 2F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 14\n") != std::string::npos);
+    CHECK(o.find("FINFO 12 2F\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 15\n") != std::string::npos);
     std::smatch m;
-    CHECK(std::regex_search(o, m, std::regex("V72 0010000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 14") == std::string::npos || m.empty())
+    CHECK(std::regex_search(o, m, std::regex("V72 0011000200044001[0-9A-F]{4}A55A")));
+    if (o.find("ROMV 00 15") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.20\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.21\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
@@ -586,6 +588,20 @@ TEST(sysinfo_on_an_oodos_of_interface_8_says_it_has_no_function_77)
     CHECK(o.find("  ROM BIOS   not given by this OODOS (before interface 9)\n") != std::string::npos);
     CHECK(o.find("OOLIB interface 8") != std::string::npos);
     if (o.find("before interface 9") == std::string::npos)
+        std::printf("  %s\n", vis(o).c_str());
+}
+
+TEST(sysinfo_on_an_oodos_before_interface_18_asks_nothing_of_function_82)
+{
+    // Function 82's table is interface 18's (OODOS 0.17): under an OODOS that says 17, the SOUND section says so
+    // and asks the card nothing. Must fail with its CMP #18 made CMP #17 (the card's revision line instead).
+    InfoRig r;
+    REQUIRE(r.ok);
+    report_interface(r, 17);
+    const std::string o = run(r, "m:sysinfo sound /all");
+    CHECK(o.find("SOUND      not asked: this OODOS is before 0.17") != std::string::npos);
+    CHECK(o.find("revision") == std::string::npos);
+    if (o.find("not asked") == std::string::npos)
         std::printf("  %s\n", vis(o).c_str());
 }
 

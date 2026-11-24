@@ -1578,10 +1578,10 @@ int main() { return run_all(); }
 
 TEST(the_interface_is_17)
 {
-    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 17 and its areas, $2F: frame and
+    // OOLIB's interface pin: function 80's FT_INFO (L3TEST's F) answers interface 18 and its areas, $2F: frame and
     // timing, input, sound, DMA and the serial line.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    CHECK_EQ(command(r, 'F', "F"), std::string("11 2F"));
+    CHECK_EQ(command(r, 'F', "F"), std::string("12 2F"));
 }

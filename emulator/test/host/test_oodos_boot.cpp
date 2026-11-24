@@ -337,7 +337,7 @@ namespace
             return b;
         }
         std::string out;
-        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.20\r\\\r") == std::string::npos; ++i)
+        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.21\r\\\r") == std::string::npos; ++i)
         {
             b.s->run(FRAME);
             out += b.s->take_output();
@@ -392,7 +392,7 @@ namespace
         if (!b.s->stopped())
             std::printf("  it didn't stop: %s\n", b.out.c_str());
         REQUIRE(b.s->stopped());
-        CHECK(b.out.find("\rOOLDR 0.16\r") != std::string::npos);
+        CHECK(b.out.find("\rOOLDR 0.17\r") != std::string::npos);
         const std::vector<Segment> segs = segments_of(sys);
         CHECK_EQ(segs.size(), size_t{6});
         // One runs from block 60 into 61, so OOLDR's W2 must be the next block.

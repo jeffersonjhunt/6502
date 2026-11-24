@@ -6,9 +6,10 @@
 ;
 ;   0. The console's output state cleared (PTRFIL, TTYPOS, LPTPOS: what
 ;      the previous program left in zero page could send the messages to
-;      LST:), and function 80's FT_INFO asked for interface 17 or more and
-;      OA_DMA: an OODOS before 0.16 (no common hole: a far-called block would
-;      have no common memory) or without function 83 is refused, MOLD.
+;      LST:), and function 80's FT_INFO asked for interface 18 or more and
+;      OA_DMA: an OODOS before 0.17 (function 82's old table, and before 0.16
+;      no common hole: a far-called block would have no common memory) or
+;      without function 83 is refused, MOLD.
 ;   1. FARCALL's address, from function 72.
 ;   2. GWBASIC.OVL opened on the drive GWBASIC.COM came from (the base page's
 ;      $0250), in the current user, and its header record read and checked:
@@ -93,7 +94,7 @@ LOAD:           CLD
                 JSR     BDOS
                 CMP     #$FF           ; no function 80: A = X = $FF
                 BEQ     @old
-                CMP     #17            ; interface 17: the common hole (OODOS 0.16)
+                CMP     #18            ; interface 18: function 82's table (OODOS 0.17), the common hole
                 BCC     @old
                 TXA
                 AND     #OA_DMA
@@ -537,6 +538,6 @@ LPATCH:         LDA     LCNT
 MNOOVL:         .byte   "GWBASIC.OVL not found", 13, 10, 0
 MNOMEM:         .byte   "No memory for GW-BASIC's blocks", 13, 10, 0
 MBAD:           .byte   "GWBASIC.OVL is damaged", 13, 10, 0
-MOLD:           .byte   "GW-BASIC needs OODOS 0.16 or newer", 13, 10, 0
+MOLD:           .byte   "GW-BASIC needs OODOS 0.17 or newer", 13, 10, 0
 OVLNAM:         .byte   "GWBASIC OVL"
 OVLMAG:         .byte   "GWB", $1A

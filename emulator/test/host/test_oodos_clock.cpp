@@ -104,11 +104,11 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("11 2F"));        // interface 17 (78, FC_T1, FT_CLOCK), frame and timing, input, sound, DMA, serial
-    CHECK_EQ(field(o, "INFOB"), std::string("112F0702"));    // both clocks and FC_T1 (a VIA), layouts to 2
+    CHECK_EQ(field(o, "INFO"), std::string("12 2F"));        // interface 18 (82 renumbered), frame and timing, input, sound, DMA, serial
+    CHECK_EQ(field(o, "INFOB"), std::string("122F0702"));    // both clocks and FC_T1 (a VIA), layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
-    CHECK_EQ(v.substr(0, 4), std::string("0010"));            // OODOS 0.16 (question 15)
+    CHECK_EQ(v.substr(0, 4), std::string("0011"));            // OODOS 0.17 (question 15)
     CHECK_EQ(v.substr(20), std::string("EEEE"));              // 10 bytes, as on main: 11 and 12 untouched
 }
 
@@ -397,7 +397,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
-    CHECK_EQ(field(o, "ALIVE"), std::string("11 2F")); // FT_INFO answers: OOLIB 17, frame and timing, input, sound, DMA and serial
+    CHECK_EQ(field(o, "ALIVE"), std::string("12 2F")); // FT_INFO answers: OOLIB 18, frame and timing, input, sound, DMA and serial
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 80")); // vertical blank alone; none of the VIA's (N9: the tick is the bridge's)
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0x80);
     s.check("through it", 1);

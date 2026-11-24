@@ -265,7 +265,7 @@ namespace
     constexpr unsigned BLK_BASE = 0xC800;
 
     const std::string DAMAGED = "GWBASIC.OVL is damaged\r\n", NO_OVL = "GWBASIC.OVL not found\r\n",
-                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs OODOS 0.16 or newer\r\n";
+                      NO_MEMORY = "No memory for GW-BASIC's blocks\r\n", OLD = "GW-BASIC needs OODOS 0.17 or newer\r\n";
 
     /// `got` says `message`, has no Ok, and ends at the CCP's prompt.
     void says(const std::string &what, const std::string &got, const std::string &message)
@@ -592,6 +592,32 @@ TEST(the_loader_refuses_an_oodos_before_interface_17)
     });
     CHECK(answered >= 1u);
     says("an OODOS of interface 16", got, OLD);
+}
+
+// An OODOS before interface 18 (OODOS 0.16: function 82's old table): FT_INFO answered with A = 17 and every area;
+// the loader refuses it, MOLD. Must fail with the loader's CMP #18 made CMP #17.
+TEST(the_loader_refuses_an_oodos_before_interface_18)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    unsigned answered = 0;
+    const std::string got = refused(r, {}, true, [&](uint16_t pc, bool) {
+        const Registers g = r.cpu->regs();
+        if (pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // the BDOS's entry, FT_INFO: return A = 17, X = $2F
+        {
+            Registers n = g;
+            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
+                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
+            n.pc = static_cast<uint16_t>(ret + 1);
+            n.s = static_cast<uint8_t>(g.s + 2);
+            n.a = 17;
+            n.x = 0x2F;
+            r.cpu->set_regs(n);
+            ++answered;
+        }
+    });
+    CHECK(answered >= 1u);
+    says("an OODOS of interface 17", got, OLD);
 }
 
 // A stale zero page (DD3): PTRFIL left as LPT1's ($FFFF) and the columns at the margin by what ran before; the

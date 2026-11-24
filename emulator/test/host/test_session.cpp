@@ -38,7 +38,7 @@ namespace
     }
 
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string GREETING = "\rBACKPLANE BIOS 0.20\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.21\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     std::unique_ptr<Session> open(const std::string &machine = MACHINE)

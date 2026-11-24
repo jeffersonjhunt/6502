@@ -3014,6 +3014,38 @@ TEST(ui_load_refuses_an_oodos_before_interface_17)
     CHECK_EQ(free_blocks(r), before);
 }
 
+TEST(ui_load_refuses_an_oodos_before_interface_18)
+{
+    // As above, with FT_INFO answered A = 17 (OODOS 0.16: function 82's old table): UX_VERSION and no block taken.
+    // Must fail with ui_load's CMP #18 made CMP #17.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(r, "uitest", 'N');
+    const unsigned before = free_blocks(r);
+    unsigned answered = 0;
+    r.watch = [&](uint16_t pc) {
+        const Registers g = r.cpu->regs();
+        if (!answered && pc == 0x0203 && g.y == 80 && g.a == 0 && g.x == 0) // FT_INFO: A = 17, X = $2F
+        {
+            Registers n = g;
+            const uint16_t ret = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(0x101 + g.s)) |
+                                                       r.machine->bus().peek(static_cast<uint16_t>(0x102 + g.s)) << 8);
+            n.pc = static_cast<uint16_t>(ret + 1);
+            n.s = static_cast<uint8_t>(g.s + 2);
+            n.a = 17;
+            n.x = 0x2F;
+            r.cpu->set_regs(n);
+            ++answered;
+        }
+    };
+    const std::string got = ac(ui(r, 'L', 1));
+    r.watch = nullptr;
+    CHECK_EQ(answered, 1u);
+    CHECK_EQ(got, hex2(UX_VERSION_) + "01");
+    CHECK_EQ(free_blocks(r), before);
+}
+
 TEST(ui_load_s_refusals_leave_nothing_taken)
 {
     // Each refusal (uiprog/uiload.s): the error, and the blocks free as before (any it took freed again).

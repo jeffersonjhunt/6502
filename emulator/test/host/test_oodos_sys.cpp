@@ -74,7 +74,7 @@ TEST(oodos_sys_is_built_to_its_format)
     const SysFile s = SysFile::parse(f);
     CHECK_EQ(s.error, std::string());
     CHECK_EQ(s.major, 0);
-    CHECK_EQ(s.minor, 16); // 0.16: north bridge revision 3, function 78, the common hole (interface 17)
+    CHECK_EQ(s.minor, 17); // 0.17: the sound card as a device, function 82 renumbered (interface 18)
     CHECK_EQ(s.entry, sym("COLD"));
     CHECK(s.entry >= 0xC800);
     REQUIRE(s.segments.size() == 4u);
@@ -115,7 +115,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
 {
     Booted r;
     REQUIRE(r.ok);
-    CHECK(r.out.find("\r\nOODOS 0.16  2026-10-27 12:00:00\r\n" + boot_status() + "\r\nA>") != std::string::npos);
+    CHECK(r.out.find("\r\nOODOS 0.17  2026-10-27 12:00:00\r\n" + boot_status() + "\r\nA>") != std::string::npos);
     // Waiting for a line, in the BDOS: the system's windows.
     CHECK_EQ(r.nb(0), 31);
     CHECK_EQ(r.nb(1), 60);
@@ -130,7 +130,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.phys(0xBFFD), 0x4C);
     CHECK_EQ(r.phys(0xBFFE) | r.phys(0xBFFF) << 8, sym("STUB"));
     // The banner on the screen too, and the status under it.
-    CHECK_EQ(r.row(1), std::string("OODOS 0.16  2026-10-27 12:00:00"));
+    CHECK_EQ(r.row(1), std::string("OODOS 0.17  2026-10-27 12:00:00"));
     CHECK_EQ(r.row(2), "BIOS " + bios_version() + "   47K TPA");
     CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K   O: 128K   P: 128K")); // O: and P:, the Disk II's, disk in or not (6c)
     CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel"));
@@ -417,7 +417,7 @@ TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
             t3 = now;
     };
     const std::string o = r.go("fartest.com");
-    CHECK_EQ(field(o, "OODOS"), "001000020004" "4001" + hex(far & 0xFF, 2) + hex(far >> 8, 2));
+    CHECK_EQ(field(o, "OODOS"), "001100020004" "4001" + hex(far & 0xFF, 2) + hex(far >> 8, 2));
     CHECK_EQ(field(o, "FARCALL"), hex(far, 4));
     // Block 20 got 11 22 33, P $CD (B and U pushed), in block 20; block 21's came back to it
     // with 20 in W3 again; 21 got 44 55 66 in block 21; the caller got 77 88 99, P $C3, in 62.
@@ -477,7 +477,7 @@ TEST(a_clock_past_2155_is_no_time)
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
     r.set_time(2156, 3, 1, 10, 20, 30);
     REQUIRE(r.boot());
-    CHECK(r.out.find("\r\nOODOS 0.16  \r\nBIOS ") != std::string::npos); // no date, then the status
+    CHECK(r.out.find("\r\nOODOS 0.17  \r\nBIOS ") != std::string::npos); // no date, then the status
     std::string o = r.go("timetest.com");
     const std::string t = field(o, "TIME");
     CHECK_EQ(t.substr(t.size() - 2), std::string("FF"));
@@ -853,7 +853,7 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     CHECK_EQ(field(b, "BOOT"), std::string("FFFF"));
     CHECK_EQ(r.phys(0xC0000 + 33), 'K');
     size_t banners = 0;
-    for (size_t at = r.out.find("OODOS 0.16"); at != std::string::npos; at = r.out.find("OODOS 0.16", at + 1))
+    for (size_t at = r.out.find("OODOS 0.17"); at != std::string::npos; at = r.out.find("OODOS 0.17", at + 1))
         ++banners;
     CHECK_EQ(banners, size_t{1});
 }
@@ -3415,7 +3415,7 @@ TEST(oodos_refuses_an_older_bridge)
     // monitor's prompt. Nothing of OODOS's was turned on: the VIA's IER, TBCTL (none there: $FF), the video card's
     // IEN and the 6551's command register are as the ROM BIOS left them, and no CPU cycle wrote the SD card. Must
     // fail with the check accepting $D2 and up, or with the check after BINIT (the card's IEN written first).
-    const std::string want = "OODOS 0.16 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D"; // (the version: N20)
+    const std::string want = "OODOS 0.17 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D"; // (the version: N20)
     for (const unsigned rev : {1u, 2u})
     {
         std::printf("  revision %u\n", rev);

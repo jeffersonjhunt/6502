@@ -204,6 +204,16 @@ namespace
         CHECK_EQ(card(r).peek(SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
         return o;
     }
+    /// FT_INFOX's LDA #18 (the interface, LDX #$2F after it) in OODOS's block 60 made LDA #`v`: an older OODOS.
+    void report_interface(CcpRig &r, uint8_t v)
+    {
+        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
+        uint32_t p = base;
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+            ++p;
+        REQUIRE(p < base + 64);
+        r.poke(p + 1, v);
+    }
 } // namespace
 
 TEST(a_frame_timed_song_plays_as_the_emulator_s_player_plans_it)
@@ -298,6 +308,19 @@ TEST(what_playsid_refuses)
         CHECK(c.cmd("M:PLAYSID M:NONE").find("No File") != std::string::npos);
         CHECK(c.cmd("M:PLAYSID").find("PLAYSID filespec {song}") != std::string::npos);
     }
+}
+
+TEST(playsid_refuses_an_oodos_before_interface_18)
+{
+    // Function 82's table is interface 18's (OODOS 0.17): under an OODOS that says 17, PLAYSID refuses before it
+    // opens the file. Must fail with its CMP #18 made CMP #17 (the missing file's "No File" instead).
+    CcpRig c;
+    REQUIRE(c.ok);
+    c.put_util("playsid");
+    report_interface(c, 17);
+    const std::string o = c.cmd("M:PLAYSID M:NONE");
+    CHECK(o.find("PLAYSID needs OODOS 0.17 or newer.") != std::string::npos);
+    CHECK(o.find("No File") == std::string::npos);
 }
 
 TEST(playsid_says_the_released_field_and_the_time_played)

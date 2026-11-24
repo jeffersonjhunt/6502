@@ -231,13 +231,13 @@ ui_load:
         bcs     @far
 @old:   lda     #UX_VERSION
         jmp     CLOSE
-@far:   lda     #FT_INFO                ; OODOS's interface 17 or more: the common hole
+@far:   lda     #FT_INFO                ; OODOS's interface 18 or more: the common hole, function 82's table
         ldx     #0
         ldy     #O_FRAME
         jsr     BDOS
         cmp     #$FF                    ; no function 80
         beq     @old
-        cmp     #17
+        cmp     #18
         bcc     @old
         jsr     HEADOK                  ; its lengths and entries in range (review C2)
         bcc     @hok

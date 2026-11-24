@@ -71,6 +71,17 @@ namespace
         r.put_util("sndfw");
         r.put_m({{0, "NEW     FW ", file, false, false, false}});
     }
+
+    /// FT_INFOX's LDA #18 (the interface, LDX #$2F after it) in OODOS's block 60 made LDA #`v`: an older OODOS.
+    void report_interface(CcpRig &r, uint8_t v)
+    {
+        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
+        uint32_t p = base;
+        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
+            ++p;
+        REQUIRE(p < base + 64);
+        r.poke(p + 1, v);
+    }
 } // namespace
 
 TEST(a_good_image_from_m_is_written_marked_to_boot_and_runs_after_fwrestart)
@@ -133,3 +144,16 @@ TEST(what_sndfw_refuses_before_it_sends)
 }
 
 int main() { return run_all(); }
+
+TEST(sndfw_refuses_an_oodos_before_interface_18)
+{
+    // Function 82's table is interface 18's (OODOS 0.17): under an OODOS that says 17, SNDFW refuses before it
+    // opens the file. Must fail with its CMP #18 made CMP #17 (the missing file's "No File" instead).
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_util("sndfw");
+    report_interface(r, 17);
+    const std::string o = r.cmd("M:SNDFW M:NONE");
+    CHECK(o.find("SNDFW needs OODOS 0.17 or newer.") != std::string::npos);
+    CHECK(o.find("No File") == std::string::npos);
+}
