@@ -435,7 +435,8 @@ while enough is buffered, underruns reported. **Proposed, the rules:**
 - **When it plays.** After the prebuffer (500 ms of audio by default, by the stream's byte rate; for MP3 by the first
   frames' bitrate), or at STREAM_END, whichever comes first.
 - **The low-water mark.** Below 1 s buffered, NEED carries an urgent flag, which OODOS passes on, so a player can put
-  its disk reads ahead of its drawing.
+  its disk reads ahead of its drawing (the event area's `EV_SNEED` and `EV_SBUFMS`, `SN_STATUS`'s +15 and +16-19:
+  the stream playing's last NEED; [the interface details](#appendix-interface-details-proposed-for-s1-2026-11-23)).
 - **Underrun.** The ring empty with no STREAM_END: silence, and an `UNDERRUN` event (the stream, the frame position,
   the count). Data again plays from the next frame due, with no new prebuffer, as revision 2. An `UNDERRUN_END` event
   says when sound came back, and the count is in STREAM_STATUS.
@@ -508,7 +509,8 @@ registers, and a claim is only an exclusivity among programs and RSXs. AGENTS.md
 
 **Proposed: also gone, as consequences** (decided: [Q6](#the-drafts-questions-decided)): the 6510's
 mailbox events (`EK_SOUND` with a mailbox byte), the event area's mailbox stamp (`EV_SMBOX`, `EV_SMMS`, `EV_SMCNT`,
-+108–114) and `ES_NOQUEUE` (+115), all of which only `SN_SEND`'s mailbox fed. Their bytes stay reserved, 0.
++108–114) and `ES_NOQUEUE` (+115), all of which only `SN_SEND`'s mailbox fed. Their bytes stay reserved, 0 (until
+2026-11-25, when +108–112 took NEED's urgent flag and ms buffered: [the interface details](#appendix-interface-details-proposed-for-s1-2026-11-23)).
 
 **Proposed: kept,** with their numbers, blocks and results, now done by device commands:
 
@@ -550,7 +552,7 @@ mailbox events (`EK_SOUND` with a mailbox byte), the event area's mailbox stamp 
   51's DMA segment), owns channel 2, keeps the claims and the warm boot's clean-up, and can follow a firmware change
   without the program seeing it.
 - **Each call waits for its REPLY** with a time-out of 100 ms (`SN_BUSY` past it); a load waits for XFERDONE too.
-- **The event area's sound part (Proposed):** +96–107 the stream's, as now; +108–115 reserved (above); +116–119 the
+- **The event area's sound part (Proposed):** +96–107 the stream's, as now; +108–115 reserved (above; +108–112 since NEED's flag); +116–119 the
   tune's state and ms played; +120–123 music's state and notes waiting; +124–127 reserved. Asynchronous events reach
   the queue as `EK_SOUND` events whose code is the event's kind and whose value is its object: `TUNE_ENDED`,
   `TUNE_STALL`, `MUSIC_MARK` (the value the marker, the voice in the code's low bits), `MUSIC_COUNT`, `MUSIC_DONE`,
@@ -1145,7 +1147,7 @@ tell a full store from a chip in use. [part] is the claim an operation needs.
 | 15 | `SN_RESUME` | none | STREAM_RESUME [`SC_STREAM`] |
 | 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped; a stream `SN_NEXT` queued closed first (STREAM_CLOSE) [`SC_STREAM`] |
 | 17 | `SN_END` | none | STREAM_END [`SC_STREAM`] |
-| 18 | `SN_STATUS` | +1-12 to fill | A the state, X the buffers free; the block as today's, +3-4 the ring's room in 256-byte units |
+| 18 | `SN_STATUS` | +1-19 to fill | A the state, X the buffers free; the block as today's, +3-4 the ring's room in 256-byte units, +13-14 the rate, +15 the last NEED's flags (bit 0 urgent), +16-19 its ms buffered |
 | 19 | `SN_NEXT` | +1 the codec, +2-3 the rate, +4 the format | stream 1 opened and queued behind stream 0 (STREAM_NEXT); SN_BUFFER feeds the one that wants data [`SC_STREAM`] |
 | | **The sound bank** | | |
 | 20 | `SN_SAMPLE` | +1 a slot, +2-4 a physical address, +5-7 the length, +8 the flags, +9-10 the rate, +11-13 the loop start, +14-16 the loop end | SAMPLE_LOAD, XFERDONE awaited |
@@ -1171,7 +1173,10 @@ tell a full store from a chip in use. [part] is the claim an operation needs.
   reuses numbers; the draft had `$08`). Effects and the beep need no claim.
 - **What goes** (no number kept): `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD`, `SN_GO`,
   `SC_6510` and `SC_DOC`. `SN_STOP` keeps its name (the draft's Q5) at its new number.
-- **The event area:** +96-107 the stream's, as now; +108-115 reserved, 0; +116 the tune's state (TUNE_STATUS's),
+- **The event area:** +96-107 the stream's, as now; +108 the stream's last NEED's flags (`EV_SNEED`, bit 0
+  `SNF_URGENT`: under 1 s buffered), +109-112 the ms buffered it said (`EV_SBUFMS`); +113-115 reserved, 0 (OODOS
+  keeps each stream's last NEED; the urgent bit is cleared by STREAM_END, both at the stream's start and close and
+  the warm boot); +116 the tune's state (TUNE_STATUS's),
   +117-119 its ms played (24 bits); +120 music's state, +121 the blocks queued, +122-123 the notes waiting; +124-127
   reserved, 0. OODOS writes them once a frame while the part is claimed, from the frame's status requests (the build
   plan's flag 12).

@@ -3474,7 +3474,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 15 | `SN_RESUME` | none | lets it go on | stream |
   | 16 | `SN_SEEK` | none | empties the stream's ring, drops both buffers | stream |
   | 17 | `SN_END` | none | no more data: what is in plays out | stream |
-  | 18 | `SN_STATUS` | 14 bytes to fill (optional) | the stream's state | stream |
+  | 18 | `SN_STATUS` | 19 bytes to fill (optional) | the stream's state | stream |
   | 19 | `SN_NEXT` | as `SN_STREAM`'s | opens the next stream, queued behind the one playing | stream |
   | | **The sound bank** | | | |
   | 20 | `SN_SAMPLE` | +1 a sample slot, 0–255, +2–4 a physical address, +5–7 the length, +8 the flags, +9–10 the rate it was recorded at, +11–13 the loop's start, +14–16 its end (0: no loop) | loads a sample by DMA | |
@@ -3519,7 +3519,9 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
 - `SN_STATUS`: A = the stream's state (0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended, `$80` up an
   error), X = the buffers free (bit 0 buffer 0, bit 1 buffer 1). With a block, of one moment: +1 and +2 the same,
   +3–4 the ring's room in 256-byte units, +5–8 the frames played, +9–10 an MP3's kbit/s, +11–12 the underruns since
-  the stream started, +13–14 its rate in Hz. It is the stream playing's, after `SN_NEXT` the one now heard.
+  the stream started, +13–14 its rate in Hz, +15 the flags of the card's last request for its data (bit 0, `SNF_URGENT`:
+  under 1 s was buffered) and +16–19 the ms it had buffered then. It is the stream playing's, after `SN_NEXT` the one
+  now heard.
 - `SN_EFFECT`: A = the voice handle, 1–255, X = 0.
 - `SN_MSTATUS`: +1 the state (0 stopped, 1 playing, 2 paused), +2 the blocks queued, +3–18 the notes waiting on
   each of the eight logical voices (2 bytes each), +19–22 the ms played, +23–24 the notes waiting on all (held at

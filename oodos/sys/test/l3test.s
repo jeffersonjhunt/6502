@@ -14,7 +14,7 @@
 ;
 ;   K   K aa xx: function 82 with the block at KBLK
 ;   Z   Z aa xx: function 82 with X = 0, A = MBOX + 1's byte
-;   S   ST aa xx and the status block's 12 bytes (SN_STATUS)
+;   S   ST aa xx and the status block's 19 bytes (SN_STATUS, SN_STATLEN)
 ;   I   INFO aa xx and the info block's 3 bytes (SN_INFO)
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
@@ -223,7 +223,7 @@ c_z:    lda     MBOX + 1
 c_st:   lda     #<sblk
         ldx     #>sblk
         jsr     f82
-        SAYDUMP "ST", sblk + 1, 12
+        SAYDUMP "ST", sblk + 1, SN_STATLEN
         rts
 
 c_info: lda     #<iblk
@@ -307,7 +307,7 @@ oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0
 sblk:   .byte   SN_STATUS
-        .res    14, $EE
+        .res    SN_STATLEN, $EE
 iblk:   .byte   SN_INFO
         .res    3, $EE
 lbuf:   .byte   20, 0

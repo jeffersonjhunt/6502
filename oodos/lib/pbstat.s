@@ -16,6 +16,7 @@ ms:     .res    4                       ; the status's milliseconds
 under:  .res    2
 state:  .res    1
 sblk:   .res    25                      ; the status's block (the largest: SN_MSTATUS's)
+.assert 25 >= SN_STATLEN + 1, error, "sblk holds SN_STATUS's block"
 dq:     .res    4                       ; a dividend, then the quotient
 dv:     .res    2                       ; the divisor
 rm:     .res    2                       ; the remainder

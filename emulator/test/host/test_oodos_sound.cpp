@@ -49,6 +49,7 @@ namespace
     // oodos.inc's
     constexpr unsigned EV_LAYOUT = 0, EV_QHEAD = 16, EV_QTAIL = 17, EV_QSLOTS = 18, EV_QUEUE = 128;
     constexpr unsigned EV_SSTATE = 96, EV_SBUFS = 97, EV_SFREE = 98, EV_SPOS = 100, EV_SKBPS = 104, EV_SUNDER = 106;
+    constexpr unsigned EV_SNEED = 108, EV_SBUFMS = 109, SNF_URGENT = 1;
     constexpr unsigned EV_TSTATE = 116, EV_TMS = 117, EV_MSTATE = 120, EV_MWAIT = 122;
     constexpr unsigned EK_SOUND = 6;
     constexpr uint8_t SN_INFO = 0, SN_CLAIM = 1, SN_RELEASE = 2, SN_IDENTIFY = 3, SN_FIRMWARE = 4, SN_TUNE = 5,
@@ -977,6 +978,87 @@ TEST(pause_resume_seek_end_and_status)
     r.run(ms(300));
     CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
     CHECK_EQ(area16(r, EV_SUNDER), 1u);
+}
+
+TEST(the_card_s_urgent_need_and_its_ms_buffered_reach_the_area_and_sn_status)
+{
+    // The spec's low-water mark (hw/future/sound-device.md, "The low-water mark"): under 1 s buffered the card's NEED
+    // carries an urgent flag, which OODOS passes on with the ms buffered: the area's EV_SNEED and EV_SBUFMS, SN_STATUS's
+    // +15 and +16-19, each the stream's last NEED's as the card sent it. A 48 kHz 16-bit stereo stream (192,000 bytes
+    // a second) fed 64 KB buffers (341 ms each): urgent at the start, clear once fed past 1 s (and kept so while no
+    // NEED comes), urgent again when one buffer is given after it has drained under 0.5 s; clear at SN_END's
+    // STREAM_END; forgotten at the release and the warm boot. Must fail with the bit or the ms dropped, as main had it
+    // (+108-115 reserved, 0; SN_STATUS's block 14 bytes).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r);
+    const uint32_t at[2] = {0x10000, 0x20000};
+    r.poke(at[0], noise(0x10000, 31));
+    r.poke(at[1], noise(0x10000, 32));
+    const uint32_t nms = BIOS_BLOCK_PHYS + sym("NMS") - 0x8000u;
+    auto kept = [&] {
+        unsigned v = sv(r, "NURG");
+        for (unsigned i = 0; i < 8; ++i)
+            v |= r.phys(nms + i);
+        return v;
+    };
+    // The area (a frame behind) and SN_STATUS both say the card's last NEED.
+    auto says = [&](bool urgent, const char *when) {
+        const SoundFw::NeedSent n = fw(r).last_need(0);
+        CHECK_EQ(n.urgent, urgent); // the premise
+        r.run(ms(40));
+        const std::string st = command(r, 'S', "ST");
+        REQUIRE(st.size() >= 44);
+        uint32_t st_ms = 0;
+        for (unsigned i = 0; i < 4; ++i)
+            st_ms |= static_cast<uint32_t>(std::stoul(st.substr(36 + 2 * i, 2), nullptr, 16)) << (8 * i);
+        std::printf("  %s: the card's NEED %u, %u ms%s; the area %02X, %u ms; SN_STATUS %s, %u ms\n", when, n.count,
+                    n.ms, n.urgent ? ", urgent" : "", area(r, EV_SNEED), area32(r, EV_SBUFMS), st.substr(34, 2).c_str(),
+                    st_ms);
+        CHECK_EQ(fw(r).last_need(0).count, n.count); // (none since: one NEED's values)
+        CHECK_EQ(area(r, EV_SNEED), urgent ? SNF_URGENT : 0u);
+        CHECK_EQ(area32(r, EV_SBUFMS), n.ms);
+        CHECK_EQ(st.substr(34, 2), std::string(urgent ? "01" : "00"));
+        CHECK_EQ(st_ms, n.ms);
+        CHECK_EQ(area(r, 113) | area(r, 114) | area(r, 115), 0); // reserved
+    };
+    // A buffer given, sent, and the card's next NEED come.
+    unsigned given = 0;
+    auto give = [&] {
+        const unsigned k = given++ & 1;
+        const uint32_t n0 = fw(r).last_need(0).count;
+        CHECK_EQ(f82(r, buffer_block(at[k], 0)), std::string("0") + static_cast<char>('0' + k) + " 00");
+        for (int i = 0; i < 100 && !(area(r, EV_SBUFS) >> k & 1 && fw(r).last_need(0).count > n0); ++i)
+            r.run(ms(5));
+        CHECK(fw(r).last_need(0).count > n0);
+    };
+    r.run(ms(40));
+    says(true, "opened");
+    while (fw(r).last_need(0).urgent && given < 12)
+        give();
+    CHECK(fw(r).last_need(0).ms >= 1000);
+    says(false, "fed past 1 s");
+    for (int i = 0; i < 400 && fw(r).stream_buffered(0) > 96000; ++i)
+        r.run(ms(5));
+    CHECK(fw(r).stream_buffered(0) <= 96000);
+    says(false, "drained, no NEED since"); // what the last NEED said
+    give();
+    CHECK(fw(r).last_need(0).ms < 1000);
+    says(true, "one buffer after the drain");
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    r.run(ms(40));
+    CHECK_EQ(area(r, EV_SNEED), 0u); // no more data coming
+    CHECK_EQ(command(r, 'S', "ST").substr(34, 2), std::string("00"));
+    CHECK(area32(r, EV_SBUFMS) > 0); // (its ms as the last NEED said)
+    CHECK_EQ(f82(r, {SN_RELEASE, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(kept(), 0u);
+    // The warm boot forgets one too.
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, FMT_16BIT | FMT_STEREO)), std::string("00 00"));
+    r.run(ms(40));
+    CHECK_EQ(sv(r, "NURG"), 1);
+    wboot(r);
+    CHECK_EQ(kept(), 0u);
 }
 
 TEST(two_files_queued_by_sn_next_join_with_no_gap)

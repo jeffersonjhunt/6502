@@ -412,7 +412,9 @@ behind. `EV_SBUFS` alone is written at once, as each stream buffer is taken or s
 | +100–103 | `EV_SPOS` | the frames played |
 | +104–105 | `EV_SKBPS` | an MP3's bitrate, kbit/s |
 | +106–107 | `EV_SUNDER` | the underruns since the stream started |
-| +108–115 | | reserved, 0 |
+| +108 | `EV_SNEED` | the flags of the card's last request for the stream's data: bit 0, `SNF_URGENT`, under 1 s was buffered |
+| +109–112 | `EV_SBUFMS` | the ms the card had buffered at that request |
+| +113–115 | | reserved, 0 |
 | +116 | `EV_TSTATE` | the tune's state, as `SN_TSTATUS`'s +1 (0 stopped ... 6 ended), while the tune player is claimed |
 | +117–119 | `EV_TMS` | its milliseconds played, paused time left out |
 | +120 | `EV_MSTATE` | music's state, as `SN_MSTATUS`'s +1 (0 stopped, 1 playing, 2 paused), while music is claimed |
@@ -486,6 +488,14 @@ when it starts and ends. A raw 48 kHz 16-bit stereo stream is 192 KB a second. R
 B: included, that is within reach when the program reads it with [function 83's](07-function-reference.md#bdos-83)
 `DM_LOAD`, which loads records into memory by DMA, straight into the buffer it then gives `SN_BUFFER`; the stream
 test program does so, with no underrun.
+
+**Urgent.** Each time the card asks for data it says how much it has buffered, and below 1 s it marks the request
+urgent. OODOS keeps the last request's word, for the stream playing: `EV_SNEED`'s bit 0 (`SNF_URGENT`) and
+`EV_SBUFMS` in the area, `SN_STATUS`'s +15 and +16–19. A program with other work to do (drawing, say) reads its
+file first while the flag is set. The card asks again only once a buffer has answered it, so between requests the
+values are what the last one said, not the ring's level now. The flag is cleared by `SN_END` (no more data is
+coming), and both are 0 when a stream starts, when it is released or closes (after `SK_TRACK`, the first's), and at
+the warm boot.
 
 ### The sound bank and effects
 
@@ -670,7 +680,7 @@ revision 3 (`test_oodos_sound`'s records, OODOS 0.17):
   4% of the CPU).
 - **A call that asks the card and reads its reply** waits for the reply and copies its results into the program's
   block: `PB_VIS` about 7,400 cycles (its 98 bytes), `SID_VOICES` 4,200 (`SN_SIDREGS`' 50), `PB_LEVELS` 2,100 (10)
-  and `SN_STATUS` 3,300 (14), with a stream playing (`test_oodos_pb`'s `pb_vis_costs`). Called each frame, `PB_VIS`
+  and `SN_STATUS` 3,700 (19), with a stream playing (`test_oodos_pb`'s `pb_vis_costs`). Called each frame, `PB_VIS`
   is about 6% of a frame.
 - **The card's events** are an interrupt each, read and queued.
 - **A tune, music, effects and the beep**, once started, cost nothing: the card plays them.
