@@ -312,6 +312,8 @@ namespace ooe::emu
             T_ENDED = 6,
         };
         uint8_t tune_state() const { return tune_.state; }
+        /// Tests: the clock the tune plays at, NTSC or PAL (TUNE_PLAY's flags, or else the file's).
+        bool tune_ntsc() const { return tune_.ntsc; }
         /// The digital path's mix sources (MIX): tunes, music, effects, streams, the beep.
         enum Source : uint8_t
         {
@@ -368,6 +370,15 @@ namespace ooe::emu
         uint8_t stream_state(unsigned s) const { return streams_[s % STREAMS].state; }
         /// A stream's ring in the store, bytes.
         size_t stream_ring(unsigned s) const { return rings_[s % STREAMS].len; }
+        /// Tests: the bytes in a stream's ring not yet played (STREAM_STATUS's +5-8).
+        size_t stream_buffered(unsigned s) const
+        {
+            const Stream &st = streams_[s % STREAMS];
+            return static_cast<size_t>(st.wr - st.rd);
+        }
+        /// Tests: every stream's underruns since power-on (STREAM_STATUS's +19-20 are one stream's,
+        /// from its open).
+        uint64_t underruns_total() const { return underruns_total_; }
         /// The voice manager's voices: the SIDs' six (A's 0-2, B's 3-5) and the ES5503's sixteen (each two
         /// oscillators, a pair for the pan), and who has each.
         enum VoiceUse : uint8_t
@@ -492,6 +503,7 @@ namespace ooe::emu
         size_t running_room_{0}; ///< the reply room of the record running, kept from its own events until its reply
         uint32_t latency_us_{LATENCY_US}, startup_ms_{STARTUP_MS};
         uint32_t lost_{0};
+        uint64_t underruns_total_{0}; ///< underruns_total()'s
         uint8_t mask_{0xFF};
         Transfer xfer_;
         std::array<Object, TUNE_SLOTS> tunes_{};

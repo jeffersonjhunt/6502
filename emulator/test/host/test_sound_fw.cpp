@@ -1310,4 +1310,61 @@ TEST(identify_says_the_sids_model_a_tune_set)
     CHECK(models() == std::make_pair(uint8_t{1}, uint8_t{1}));
 }
 
+// ---- The model's read-only accessors for tests (a program's tests read the card as a debugger would) ----------
+
+TEST(tune_ntsc_is_the_clock_tune_play_chose)
+{
+    // tune_ntsc(): TUNE_PLAY's flags (bit 0 PAL, bit 1 NTSC) over the file's, the file's with neither.
+    const struct
+    {
+        uint8_t file, flags;
+        bool ntsc;
+    } cases[] = {{0x14, 0, false}, {0x18, 0, true}, {0x14, 2, true}, {0x18, 1, false}};
+    for (const auto &k : cases)
+    {
+        Dev d;
+        d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0x60}, 21, 1, 0, k.file));
+        CHECK_EQ(d.play(0, 0, k.flags), 0);
+        CHECK_EQ(d.card.firmware().tune_ntsc(), k.ntsc);
+    }
+}
+
+TEST(stream_buffered_and_underruns_total_are_what_stream_status_says)
+{
+    // stream_buffered(): STREAM_STATUS's +5-8 (the ring's bytes not yet played) while it buffers and plays: the
+    // reply's figure between the accessor's before the ask and after it (the ask takes 1 ms, 22 bytes);
+    // underruns_total(): its +19-20 summed over two streams, each counting from its own open.
+    Dev d;
+    std::vector<uint8_t> st;
+    const auto status = [&] {
+        const size_t before = d.card.firmware().stream_buffered(0);
+        st = d.ask(SoundFw::STREAM_STATUS, {0});
+        const size_t after = d.card.firmware().stream_buffered(0);
+        REQUIRE(st.size() >= 2 + 21);
+        const size_t said = le32(st, 2 + 5);
+        CHECK(after <= said && said <= before && before - after <= 23);
+    };
+    uint64_t total = 0;
+    for (int round = 0; round < 2; ++round)
+    {
+        CHECK_EQ(d.ask(SoundFw::STREAM_OPEN, {0, 0, 0x22, 0x56, 0, 0, 0, 0, 0, 0})[1], 0); // 22,050 Hz 8-bit mono
+        CHECK_EQ(d.ask(SoundFw::STREAM_DATA, {0, 0x20, 0x4E, 0x00})[1], 0);               // 20,000 bytes, no end
+        for (const uint8_t b : noise(20000, 3))
+            d.card.write(SoundCard3::DATA, b);
+        for (int i = 0; i < 4; ++i)
+        {
+            status();
+            d.ms(150);
+        }
+        d.ms(1200); // past its 0.9 s: an underrun
+        status();
+        CHECK_EQ(d.card.firmware().stream_buffered(0), 0u);
+        const unsigned under = static_cast<unsigned>(st[2 + 19] | st[2 + 20] << 8);
+        CHECK_EQ(under, 1u);
+        total += under;
+        CHECK_EQ(d.card.firmware().underruns_total(), total);
+        CHECK_EQ(d.ask(SoundFw::STREAM_CLOSE, {0})[1], 0);
+    }
+}
+
 int main() { return run_all(); }
