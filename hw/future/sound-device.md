@@ -1114,9 +1114,9 @@ can always end a load it can't finish.
 ### Function 82: one clean table
 
 The owner's answer 4+5 (2026-11-23): function 82's operations are numbered afresh, grouped by job, with no gaps and
-nothing kept refused; removed numbers are reused, since nothing has shipped before 1.0. The guard is OOLIB's interface
-18: every rebuilt caller (GW-BASIC's loader, `ui_load`, PLAYSID, SYSINFO, OO-Amp's port) checks it and refuses an
-older OODOS. As before: X = 0 and A the operation, or A/X a block whose +0 is the operation; A = X = `$FF` for an
+nothing kept refused; removed numbers are reused, since nothing has shipped before 1.0. OOLIB's interface is 18; no
+caller checks it (the owner's rule of 2026-11-24, AGENTS.md: no version gates before 1.0, programs and OODOS ship
+together; the refusals first planned here were removed in branch B's review). As before: X = 0 and A the operation, or A/X a block whose +0 is the operation; A = X = `$FF` for an
 operation that isn't, a block needed and not given, a part not claimed, or no revision 3 card; A = `$FE` (`SN_BUSY`),
 X = `$FF` when the card doesn't answer in 100 ms or channel 2 is busy with the stream. **Decided (new, the owner,
 2026-11-23):** A = `$FD` (`SN_REFUSED`), X = the card's error (`E_MEMORY`, `E_BUSY` ...) when the card refused the command, so a program can

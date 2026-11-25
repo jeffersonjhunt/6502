@@ -339,8 +339,8 @@ registers. It asks OODOS, through function 82, and OODOS sends the card command 
 events. The card does the playing: once a tune, a block of notes or an effect is loaded and started, it costs the
 65C02 nothing.
 
-This is OOLIB's interface 18 (OODOS 0.17), which numbered function 82 afresh. A program asks `FT_INFO` first and
-says so and ends on anything older.
+This is OOLIB's interface 18 (OODOS 0.17), which numbered function 82 afresh. Before OODOS 1.0 a program ships with
+the OODOS it was built for and checks no version: `FT_INFO` reports the interface, it isn't a gate.
 
 **The parts.** Three things on the card are taken by one program at a time: **the tune player** (`SC_TUNE`, `$01`:
 a `.sid` tune on the 6510 and the SIDs it holds), **the stream** (`SC_STREAM`, `$02`) and **music** (`SC_MUSIC`,
