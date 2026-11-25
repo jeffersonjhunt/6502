@@ -444,7 +444,8 @@ says stalled or jammed, and an event comes.
 OOLIB's linked library reads a `.sid` file for the program and hands it to the card: `oodos/lib/sid.s`, linked from
 `build/oolib.lib` (`include/oolib.inc` has its calls). `SID_PARSE` reads the header and fills the `SID_*` fields;
 `SID_PLAN` checks a song against it; `SID_PLAY` claims the tune player, loads the file into slot 0 by `SN_TUNE` and
-plays the song by `SN_PLAY`; `SID_STOP` stops it and gives the player back. The file must be in one run of physical
+plays the song by `SN_PLAY`, at the clock `SID_FLAGS`' bits 2–3 name (01 PAL, 10 NTSC; 00 or 11, the file's: a program
+may set them after `SID_PARSE` and before `SID_PLAN`, which names notes by the same bits); `SID_STOP` stops it and gives the player back. The file must be in one run of physical
 memory (a `.COM`'s blocks 0–2 are). PSID and RSID files both play. The chips' model (a 6581 or an 8580) isn't the
 program's to choose: a tune written for the other plays on the chips fitted, and IDENTIFY says which they are.
 PLAYSID ([the User's Guide](../oodos-users-guide/05-utilities.md#util-playsid)) is a program on it.

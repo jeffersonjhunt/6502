@@ -356,7 +356,7 @@ f82:    ldy     #O_SOUND
 
 ; The tune player claimed (SC_TUNE), the file loaded into tune slot 0 (SN_TUNE:
 ; its physical address, SID_LEN bytes) and SID_SONG played (SN_PLAY, till
-; stopped). SE_CLAIM: held, or no card; SE_LOAD: the load or the play refused
+; stopped) at SID_FLAGS' clock, as SID_PLAN names notes by it. SE_CLAIM: held, or no card; SE_LOAD: the load or the play refused
 ; (the card's check of the header too).
 SID_PLAY:
         lda     #SN_CLAIM
@@ -403,10 +403,18 @@ SID_PLAY:
         bne     @s
         lda     #0
 @s:     sta     blk + 2
-        ldx     #7
-@z:     stz     blk + 3 - 1,x           ; the file's clock, no length, no fade
+        ldx     #6
+@z:     stz     blk + 4 - 1,x           ; no length, no fade
         dex
         bne     @z
+        lda     SID_FLAGS               ; the clock: SID_FLAGS' bits 2-3, 01 PAL (+3 bit 0) and 10 NTSC
+        lsr     a                       ;   (bit 1); 00 or 11, 0: the file's
+        lsr     a
+        and     #3
+        cmp     #3
+        bne     @c
+        lda     #0
+@c:     sta     blk + 3
         lda     #<blk
         ldx     #>blk
         jsr     f82

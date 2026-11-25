@@ -587,6 +587,37 @@ namespace
     }
 } // namespace
 
+TEST(sid_play_takes_the_flags_clock)
+{
+    // SID_PLAY plays at SID_FLAGS' clock (bits 2-3: 01 PAL, 10 NTSC), as SID_PLAN names notes by it; 00 or 11 is the
+    // file's own. The clock read is the one the card's chips run the tune at. Must fail with SN_PLAY's +3 left 0 (a
+    // PAL file set to NTSC plays PAL), and with the two bits swapped.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    const struct
+    {
+        uint8_t header; ///< the file's flags' low byte ($77): $14 PAL, $18 NTSC (a 6581 both)
+        uint8_t clk;    ///< SID_FLAGS' bits 2-3 set to this, $FF left as the file has them
+        bool ntsc;
+    } cases[] = {{0x14, 2, true}, {0x18, 1, false}, {0x14, 0xFF, false}, {0x18, 0xFF, true}, {0x18, 0, true}, {0x14, 3, false}};
+    for (const auto &k : cases)
+    {
+        std::vector<uint8_t> file = ticker(255);
+        file[0x77] = k.header;
+        r.poke(0x5000, file);
+        const std::string f = pb(r, 'p', k.clk, static_cast<uint8_t>(file.size()), static_cast<uint8_t>(file.size() >> 8));
+        r.run(ms(50));
+        const bool ntsc = (dev(r).chips().ctrl() & SoundCard::CTRL_NTSC) != 0;
+        std::printf("  a %s file, the bits %02X: %s\n", k.header == 0x18 ? "NTSC" : "PAL", k.clk, ntsc ? "NTSC" : "PAL");
+        CHECK_EQ(ac(f), OK);
+        CHECK(fw(r).tune_playing());
+        CHECK_EQ(ntsc, k.ntsc);
+        pb(r, 's'); // (SID_STOP's carry is the BDOS's: the state says it)
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
+    }
+}
+
 TEST(a_tune_s_status_starting_playing_paused_resumed_stalled_and_stopped)
 {
     // PB_STATUS of a .sid tune from the card's own status (SN_TSTATUS): playing once its play calls come, paused and

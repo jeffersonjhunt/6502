@@ -18,11 +18,13 @@
 ;               error (SE_*)
 ;   SID_PLAN    A/X the song, 1-based, up to 256 (0: the file's start
 ;               song): checked against the header, kept in SID_SONG (a
-;               word); SID_CTRL bit 0 the header's NTSC. SID_STUB and
+;               word); SID_CTRL bit 0 SID_FLAGS' NTSC (bits 2-3 10). SID_STUB and
 ;               SID_STUBLEN are 0 (the card needs no stub of the program's).
 ;               Carry set and A an error
 ;   SID_PLAY    the tune player claimed (SC_TUNE, function 82), the file
-;               loaded into tune slot 0 and SID_SONG played: carry set and A
+;               loaded into tune slot 0 and SID_SONG played at SID_FLAGS'
+;               clock (bits 2-3: 01 PAL, 10 NTSC; else the file's; a caller
+;               may set them after SID_PARSE, before SID_PLAN): carry set and A
 ;               an error (SE_CLAIM: the player held, or no card OODOS
 ;               drives; SE_LOAD: the load or the play refused, the card's
 ;               check of the header too)
