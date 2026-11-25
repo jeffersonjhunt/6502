@@ -1975,7 +1975,7 @@ TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
     CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
     CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
     r.run(ms(300)); // playing
-    const uint16_t fields = sym("FIELDS"), statusx = sym("SN_STATUSX"), pput = sym("PPUT"), irq = sym("IRQ"),
+    const uint16_t fields = sym("FIELDS"), statusx = sym("SN_STATUSX"), pput = sym("PPUTN"), irq = sym("IRQ"),
                    sframe = sym("SFRAME");
     const uint32_t rr = BIOS_BLOCK_PHYS + sym("RR") - 0x8000u;
     // The frame's period, and when its reply's FIELDS comes after the frame's interrupt.
@@ -1996,7 +1996,7 @@ TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
     for (const uint64_t f : replies)
         if (f > frames[1] && !offset)
             offset = f - frames[1];
-    // From the poke of 'S' to the call's first PPUT.
+    // From the poke of 'S' to the call's first PPUTN (its block put from RB).
     uint64_t first = 0;
     bool in = false;
     r.watch = [&](uint16_t pc) {

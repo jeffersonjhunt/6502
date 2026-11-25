@@ -63,7 +63,7 @@ SM_ANYNAME      = $10                  ; '?' in the name
 SM_ANYEX        = $08                  ; any extent
 
 ; Zero page
-.globalzp PA, PX, PP, FUNC, EDRV, ECODE, T0, T1, T2, T3, T4, T5
+.globalzp PA, PX, PP, TP, FUNC, EDRV, ECODE, T0, T1, T2, T3, T4, T5
 .globalzp CDRV, CSLOT, CD, BSH, BLM, EXM, DSM, DRM, HWM, MODE, BIG, OFFS, DPBP
 .globalzp HBLK, HBASE, ALVP, LBA, BPTR, DPTR, DIDX, HP, LIM, HV, H0, H3, NP, BLK
 .globalzp RECP, GBNEW, LASTB, BIOSDRV, AGE, SMODE, FCBN, EXMASK, PEX3, MASK3, PHASH
@@ -74,7 +74,7 @@ SM_ANYEX        = $08                  ; any extent
 .global BCB_DRV, BCB_LO, BCB_HI, BCB_DIRTY, BCB_AGEL, BCB_AGEH
 
 ; bdos.s
-.global ABORT, RETA, RETAX, RETFF, RET0, DERR, FCBIN, FCBOUT, FCBSEL, FCBDRV, PGET, PPUT
+.global ABORT, RETA, RETAX, RETFF, RET0, DERR, FCBIN, FCBOUT, FCBSEL, FCBDRV, PGET, PPUT, PMAP
 .global PIN, POUT, DIN, DOUT, DRVBIT, ISWILD
 .global B_SELDSK, B_SETTRK, B_SETSEC, B_SETDMA, B_READ, B_WRITE, B_MOVE
 .global B_TIME, B_SETBNK, B_XMOVE

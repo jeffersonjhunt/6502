@@ -10,7 +10,7 @@
 ; ($3C00) a frame (up to 128 frames). L5d: O opens a 256-byte event area
 ; at AREA ($3800, layout 2); K calls function 82 with A/X a block, k with A
 ; the operation and no block; L waits A frames (up to 100) and at each
-; calls PB_LEVELS into LOG, 10 bytes a frame.
+; calls PB_LEVELS into LOG, 10 bytes a frame; l calls PB_LEVELS once.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -62,7 +62,7 @@ wait:   lda     MBOX
         ldx     MBOX + 2
         ldy     MBOX + 3
         jsr     call
-        stx     rxx
+called: stx     rxx                     ; (the test times a routine from call to here)
         pha
         lda     #0
         rol     a
@@ -190,6 +190,7 @@ cmds:   CMD     'E', PB_EQ
         CMD     'v', PB_VOLUME
         CMD     'Q', PB_STATUS
         CMD     'L', c_levels
+        CMD     'l', PB_LEVELS
         CMD     'W', c_wboot
 CMDS_LEN = * - cmds
 

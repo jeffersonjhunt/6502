@@ -667,6 +667,10 @@ revision 3 (`test_oodos_sound`'s records, OODOS 0.17):
   replies when they come, in the next frame: a frame's interrupt takes 447 cycles with nothing claimed, 781 with the
   stream claimed (334 more), and 5,285 with all three parts claimed (about 4,840 more: some 290,000 cycles a second,
   4% of the CPU).
+- **A call that asks the card and reads its reply** waits for the reply and copies its results into the program's
+  block: `PB_VIS` about 7,400 cycles (its 98 bytes), `SID_VOICES` 4,200 (`SN_SIDREGS`' 50), `PB_LEVELS` 2,100 (10)
+  and `SN_STATUS` 3,300 (14), with a stream playing (`test_oodos_pb`'s `pb_vis_costs`). Called each frame, `PB_VIS`
+  is about 6% of a frame.
 - **The card's events** are an interrupt each, read and queued.
 - **A tune, music, effects and the beep**, once started, cost nothing: the card plays them.
 

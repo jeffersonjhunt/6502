@@ -10,8 +10,9 @@
 ;   block 61 (BIOS)   all of it, and its own variables (block 61 is RAM, as
 ;                     disk2.s's buffers are): function 82 (the BDOS's table's
 ;                     entry, reached with W2 on this block, its parameters
-;                     read and its results put by PGET and PPUT, which put W2
-;                     back on this block); the record sender, the reply wait
+;                     read and its results put by PGET and PPUT, a reply's
+;                     by PPUTN in block 60, a run at a time, each of which
+;                     puts W2 back on this block); the record sender, the reply wait
 ;                     and the event reader; and the handlers, reached from the
 ;                     dispatcher through a W2 borrow (CALL61): the card's
 ;                     events, channel 2's terminal count (the stream's next
@@ -49,8 +50,8 @@
 .setcpu "65C02"
 .include "sys.inc"
 .include "oodos.inc"
-.importzp PX, PP, T0, T1, SG
-.import RETFF, PGET, PPUT, SEGOK
+.importzp PX, PP, T0, T1, SG, TP
+.import RETFF, PGET, PPUT, PMAP, SEGOK
 .importzp EVP                          ; irq.s's
 .import EVON, EVBLK                    ; irq.s's
 .import QEV, EVK, EVC, EVV             ; input.s's
@@ -92,6 +93,8 @@ BLEN:           .res    4              ; each one's length (0: 65,536)
 BSTRM:          .res    2              ; each one's stream
 CADR:           .res    3              ; its next piece's address
 CLEFT:          .res    3              ; its bytes not yet started (17 bits)
+PNLEFT:         .res    1              ; PPUTN's: the bytes still to put,
+PNEVT:          .res    1              ;   and bit 7 from EVT (else RB)
 
 ; ---------------------------------------------------------------------------
 ; Block 61: the handlers, function 82, and what they share.
@@ -121,7 +124,7 @@ RWAIT:          .byte   0              ; 1: a call reads EVT itself (the handler
 WFLAGS:         .byte   0              ; what the wait has seen: WF_*
 RST:            .byte   0              ; the awaited REPLY's status
 XST:            .byte   0              ; the awaited XFERDONE's status
-RMODE:          .byte   0              ; the awaited REPLY's results: 0 dropped, 1 PPUT (RCNT of them), 2 into RR
+RMODE:          .byte   0              ; the awaited REPLY's results: 0 dropped, 1 PPUTN (RCNT of them), 2 into RR
 RCNT:           .byte   0
 RR:             .res    RRLEN          ; a call's results kept
 FR:             .res    RRLEN          ; the handler's (a frame's status)
@@ -456,7 +459,7 @@ WOVER:          PHP
 ; done: a REPLY the call waits for (its status, its results by RMODE), the
 ; handler's own; XFERDONE, FWRESULT; NEED; BEEP_DONE and the rest into the
 ; event queue as EK_SOUND (code the kind, value the object) with a layout-2
-; area open. Masked, but while a program's results go to its block by PPUT
+; area open. Masked, but while a program's results go to its block by PPUTN
 ; (only in a call's wait: the handler never waits). Keeps nothing.
 EVONE:          PHP
                 SEI
@@ -484,16 +487,22 @@ EVONE:          PHP
                 CMP     #1
                 BNE     @keep
                 PLP                    ; the program's block: interrupts as the call has them
-@put:           LDA     ELEFT
-                BEQ     @pdone
-                LDA     RCNT
+                LDA     RCNT           ; RCNT of the results, or as many as the record has
+                CMP     ELEFT
+                BCC     @n
+                LDA     ELEFT
+@n:             TAX
                 BEQ     @pskip
-                DEC     RCNT
+                EOR     #$FF           ; ELEFT less them
+                SEC
+                ADC     ELEFT
+                STA     ELEFT
+                SEC                    ; from EVT
+                JSR     PPUTN
+@pskip:         LDA     ELEFT          ; the rest dropped
+                BEQ     @pdone
                 JSR     EGET
-                JSR     PPUT
-                BRA     @put
-@pskip:         JSR     EGET
-                BRA     @put
+                BRA     @pskip
 @pdone:         RTS
 @keep:          LDY     #0
                 JSR     KEEPY
@@ -536,6 +545,44 @@ ESKIP:          LDA     ELEFT
 EGET:           DEC     ELEFT
                 LDA     SOUND_EVT
                 RTS
+
+.segment "BDOS"
+
+; X bytes (1-255) to the program's block at PP, PP moved on past them: from
+; EVT (carry set; the caller has counted them off ELEFT) or from RB (carry
+; clear). W2 is mapped on the program's block once (PMAP) and again where PP
+; crosses a page, not once a byte as PPUT does, then put back on block 61;
+; so this is in block 60. An address in the I/O hole ends the function, as
+; PPUT's does. Keeps nothing.
+PPUTN:          STX     PNLEFT
+                LDA     #0
+                ROR     A
+                STA     PNEVT          ; bit 7: from EVT
+                LDY     #0             ; RB's
+@map:           JSR     PMAP           ; (TP's low byte is PP's)
+@byte:          BIT     PNEVT
+                BPL     @rb
+                LDA     SOUND_EVT
+                BRA     @put
+@rb:            LDA     RB,Y
+                INY
+@put:           STA     (TP)
+                INC     TP
+                INC     PP
+                BNE     @next
+                INC     PP + 1
+                LDX     #BIOS_BLOCK    ; a page crossed: block 61 back first (PMAP
+                STX     NB_WIN2        ;   refuses with it in W2), then mapped again
+                DEC     PNLEFT
+                BNE     @map
+                RTS
+@next:          DEC     PNLEFT
+                BNE     @byte
+                LDX     #BIOS_BLOCK
+                STX     NB_WIN2
+                RTS
+
+.segment "BIOS"
 
 ; The results into RR (Y 0) or FR (Y RRLEN, which follows it), RRLEN at
 ; most (the rest left for ESKIP). Keeps X.
@@ -724,7 +771,6 @@ SSMAP:          LDA     RR,X
                 BNE     @c
                 RTS
 SST:            .res    14
-SSTC:           .res    14             ; SN_STATUS's copy of SST, taken masked
 
 ; --- the handler ---------------------------------------------------------------
 
@@ -1836,26 +1882,23 @@ SN_STATUSX:     NEED    SC_STREAM
                 JSR     CMDW
                 BCS     @busy
                 BNE     @ref
-                PHP                    ; SST mapped and copied with interrupts off:
+                PHP                    ; SST mapped and copied into RB with interrupts off:
                 SEI                    ;   the frame's reply rewrites SST (review C5)
                 LDX     #0
                 JSR     SSMAP
                 LDX     #13
 @cp:            LDA     SST,X
-                STA     SSTC,X
+                STA     RB,X
                 DEX
                 BPL     @cp
                 PLP
                 LDX     PX
                 BEQ     @ret
-                LDX     #0
-@put:           LDA     SSTC,X
-                JSR     PPUT
-                INX
-                CPX     #14
-                BNE     @put
-@ret:           LDA     SSTC
-                LDX     SSTC + 1
+                LDX     #14
+                CLC                    ; from RB
+                JSR     PPUTN
+@ret:           LDA     RB
+                LDX     RB + 1
                 RTS
 @busy:          JMP     SNBUSY
 @ref:           JMP     SNREF
