@@ -1,7 +1,7 @@
 /**
  * @file test_gwbasic_sound.cpp
  * @brief GW-BASIC's sound, input and events, phase 7f (hw/oodos.md, "The plan, phase 7": block P7): SOUND, BEEP,
- *        PLAY and its traps on OOLIB's music driver, TIMER and ON TIMER, DATE$ and TIME$, STICK, STRIG and their
+ *        PLAY and its traps on sound card revision 3's music sequencer and tone generator, TIMER and ON TIMER, DATE$ and TIME$, STICK, STRIG and their
  *        traps, ON KEY(n) and KEY 15-20, PEN (ON COM(n)'s trap deferred: 7f's answer 24); run from OODOS's CCP on backplane.machine.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -10,10 +10,10 @@
  * on M:, and GW-BASIC starts on its own screen (CON:'s output keeps the CRT), its keys pressed on the USB card.
  *
  * PLAY, SOUND, STICK and the traps print nothing PC-BASIC's oracle could compare, so every case reads the machine
- * (7f's plan, "New tests"): the music driver's commands as P7 hands them to function 82 (SN_SEND's bytes, watched
- * at the BDOS's entry and decoded here: a voice's entry is its command byte, then the frequency word, the length
- * and the gate time in ms, each low byte first), the SID's registers and the card's CTRL, the beeper's block
- * (SN_BEEP), the RTC set by the rig, the joystick ports and the USB keyboard driven by it. Each expected figure is
+ * (7f's plan, "New tests"): the note blocks P7 hands to function 82 (SN_MUSIC's, watched at the BDOS's entry and
+ * decoded here: each block's instrument, and its entries as sent, the frequency in Hz and the length and the gate
+ * in us), its stops (SN_MCTL), the bell's block (SN_BEEP), the card's firmware (its music state, its tone voice,
+ * the music source's output), the RTC set by the rig, the joystick ports and the USB keyboard driven by it. Each expected figure is
  * worked out here from the manual (the IBM BASIC Reference 3.0, for meaning), the source (GWSTS.ASM's PLAY and
  * SOUND) and the owner's answers to 7f's plan; each case names the failure on real hardware it guards and the
  * broken build it was seen failing on.
@@ -187,15 +187,9 @@ namespace
         return "?";
     }
 
-    /// The sound card, revision 3: its SID A's registers as last written (the firmware's music writes them through
-    /// the chips, as SN_SIDREGS's shadows have them), and music running: SC_MUSIC claimed or the firmware playing.
+    /// The sound card, revision 3, and music running: SC_MUSIC claimed or the firmware playing.
     SoundCard3 &dev(CcpRig &r) { return *r.machine->sound_device(); }
-    struct Sid0
-    {
-        CcpRig &r;
-        const std::array<uint8_t, SoundCard::SID_REGS> &sid(unsigned chip) const { return dev(r).chips().sid(chip); }
-    };
-    Sid0 card(CcpRig &r) { return Sid0{r}; }
+    bool tone_on(CcpRig &r) { return dev(r).firmware().music_tone_on(); }
     bool running(CcpRig &r)
     {
         return (r.phys(SYS_BLOCK_PHYS + sym("SCLAIM")) & 0x04) != 0 ||
@@ -209,15 +203,16 @@ namespace
     {
         uint64_t at;   ///< the cycle of the SN_MUSIC call that sent it
         unsigned voice;
-        unsigned freq; ///< as the SID's frequency word: pal() of its Hz (7f's MU_TONE arithmetic)
-        unsigned len, gate; ///< ms
+        unsigned hz;   ///< the frequency entry's Hz x 16, / 16 (0: a rest)
+        uint32_t len, gate; ///< us (a rest's gate its length)
     };
     /// Function 82 as P7 calls it, watched at the BDOS's entry ($0203, Y 82, A/X the block): SN_MUSIC's note blocks
-    /// decoded into entries (frequency entries and rests), stops (SN_MCTL's stop), beeps (SN_BEEP's blocks), the
-    /// music's claim (`loads`: MU_INIT's start) and releases counted.
+    /// decoded into entries (frequency entries and rests) and each block's first instrument, stops (SN_MCTL's stop),
+    /// beeps (SN_BEEP's blocks), the music's claim (`loads`: MU_INIT's start) and releases counted.
     struct Sound
     {
         std::vector<Entry> entries;
+        std::vector<std::vector<uint8_t>> instruments; ///< each block's first voice's instrument, 8 bytes
         std::vector<std::pair<uint64_t, unsigned>> stops; ///< (cycle, voice)
         std::vector<std::vector<uint8_t>> beeps;          ///< SN_BEEP's blocks: +1-2 Hz, +3-4 ms
         std::vector<std::vector<uint8_t>> loads;          ///< SN_CLAIM's blocks of SC_MUSIC (MU_INIT's)
@@ -238,7 +233,6 @@ namespace
                 v |= static_cast<uint32_t>(b.at(at + i)) << (8 * i);
             return v;
         }
-        static unsigned ms_of(uint32_t us) { return (us + 500) / 1000; }
         void decode(uint64_t at)
         {
             if (notes.size() < 8)
@@ -246,15 +240,17 @@ namespace
             unsigned voices = 0;
             for (unsigned v = 0; v < 8; ++v)
                 voices += notes[1] >> v & 1;
+            if (voices && notes.size() >= 16)
+                instruments.emplace_back(notes.begin() + 8, notes.begin() + 16);
             const uint32_t count = le(notes, 4, 4);
             size_t p = 8 + 8 * voices;
             for (uint32_t k = 0; k < count && p < notes.size(); ++k)
             {
                 const unsigned kind = notes[p] >> 4, voice = notes[p] & 15;
                 if (kind == 1)
-                    entries.push_back({at, voice, pal(le(notes, p + 1, 3) / 16), ms_of(le(notes, p + 4, 4)), ms_of(le(notes, p + 8, 4))});
+                    entries.push_back({at, voice, le(notes, p + 1, 3) / 16, le(notes, p + 4, 4), le(notes, p + 8, 4)});
                 else if (kind == 2)
-                    entries.push_back({at, voice, 0, ms_of(le(notes, p + 1, 4)), ms_of(le(notes, p + 1, 4))});
+                    entries.push_back({at, voice, 0, le(notes, p + 1, 4), le(notes, p + 1, 4)});
                 p += kind == 0 ? 10 : kind == 1 ? 12 : kind == 2 ? 5 : kind == 3 ? 9 : 2;
             }
         }
@@ -305,12 +301,27 @@ namespace
                 in = true;
             };
         }
-        static unsigned pal(unsigned hz) { return std::min(65535u, hz * 4359u / 256u); }
     };
-    /// MU_TONE's register value on PAL's clock: Hz x 4,359 / 256 (lib/mutone.s), held at $FFFF.
-    unsigned pal(unsigned hz) { return std::min(65535u, hz * 4359u / 256u); }
-    /// GW-BASIC's 2.5 ms units as ms: x 5 / 2, rounded (P7's UNITMS).
-    unsigned units_ms(unsigned u) { return (u * 5 + 1) / 2; }
+    /// GW-BASIC's 2.5 ms units (the source's) as us, exactly (branch C's answer 4).
+    uint32_t units_us(unsigned u) { return u * 2500u; }
+    /// The music source's pitch while it sounds: its output tapped for 200 ms (before the mix, its left channel),
+    /// the rising zero crossings counted from the first to the last. @return Hz, or 0 if fewer than 3 crossings
+    double music_hz(CcpRig &r)
+    {
+        dev(r).firmware().set_tap(true, SoundFw::SRC_MUSIC);
+        r.run(ms(200));
+        const std::vector<int16_t> t = dev(r).firmware().take_tap();
+        dev(r).firmware().set_tap(false);
+        size_t first = 0, last = 0, n = 0;
+        for (size_t i = 2; i < t.size(); i += 2)
+            if (t[i - 2] < 0 && t[i] >= 0)
+            {
+                if (n++ == 0)
+                    first = i / 2;
+                last = i / 2;
+            }
+        return n < 3 ? 0.0 : static_cast<double>(n - 1) * SoundFw::RATE / static_cast<double>(last - first);
+    }
     double as_ms(uint64_t cycles) { return static_cast<double>(cycles) * 1000.0 / static_cast<double>(HZ); }
 
     /// A program typed after NEW and RUN, the sound watched; run for `budget` and then until Ok.
@@ -384,13 +395,15 @@ namespace
     }
 } // namespace
 
-// N9 (7f's plan): SOUND 440,18.2 plays one entry on voice 0: the frequency word 440 x 4,359 / 256 (PAL, MU_TONE's
-// arithmetic), 18.2 ticks x 22 = 400 units = 1,000 ms, the gate the whole note (the source's SOUND is legato). In
-// MF (the default: the owner's answer 6, a queue one note deep) the statement after the first SOUND runs at once,
-// and a second SOUND waits for the first to end. Guards SOUND silent, a wrong pitch, or a length in the wrong units.
-// Seen failing with (a) the length taken as ms (the units' x 5 / 2 left out), (b) MF's wait after the note, not
-// before the next.
-TEST(sound_plays_its_tone_on_the_sid)
+// N9 (7f's plan; branch C, S26): SOUND 440,18.2 plays one entry on voice 0 of a block whose instrument is the card's
+// tone generator (source 2) at the beep's volume, 128 (branch C's answer 3): 440 Hz, 18.2 ticks x 54,925 us (the
+// PC's tick, the sound device's spec) = 999,635 us, the gate the whole note (the source's SOUND is legato). In MF
+// (the default: the owner's answer 6, a queue one note deep) the statement after the first SOUND runs at once, and a
+// second SOUND waits for the first to end. The music source sounds at the pitch asked, within 0.5%, at 440 Hz and
+// at 15,000 Hz (past the SID's top, about 3,848 Hz). Guards SOUND silent, a wrong pitch, or a length in the wrong
+// units. Seen failing with (a) the instrument's source left a SID voice's (0: the tap's pitch the SID's), (b) the
+// tick taken as the source's 55,000 us, (c) MF's wait after the note, not before the next.
+TEST(sound_plays_its_tone_on_the_tone_generator)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -409,11 +422,14 @@ TEST(sound_plays_its_tone_on_the_sid)
     run_prog(r, {"10 SOUND 440,18.2:PRINT \"A\":SOUND 880,18.2:PRINT \"B\""}, ms(2600));
     r.watch = nullptr;
     REQUIRE(s.entries.size() == 2u);
+    REQUIRE(s.instruments.size() == 2u);
+    CHECK_EQ(s.instruments[0][0], 2);   // the tone generator
+    CHECK_EQ(s.instruments[0][6], 128); // the beep's volume
     CHECK_EQ(s.entries[0].voice, 0u);
-    CHECK_EQ(s.entries[0].freq, pal(440));
-    CHECK_EQ(s.entries[0].len, 1000u);
-    CHECK_EQ(s.entries[0].gate, 1000u);
-    CHECK_EQ(s.entries[1].freq, pal(880));
+    CHECK_EQ(s.entries[0].hz, 440u);
+    CHECK_EQ(s.entries[0].len, 999635u);
+    CHECK_EQ(s.entries[0].gate, 999635u);
+    CHECK_EQ(s.entries[1].hz, 880u);
     REQUIRE(prints.size() == 2u);
     const double a = as_ms(prints[0] - s.entries[0].at), second = as_ms(s.entries[1].at - s.entries[0].at),
                  b = as_ms(prints[1] - s.entries[0].at);
@@ -423,12 +439,23 @@ TEST(sound_plays_its_tone_on_the_sid)
     CHECK(second > 950 && second < 1150);
     CHECK(b > second && b - second < 50);
     CHECK(running(r));
+    r.run(ms(1200));
+    for (const unsigned hz : {440u, 15000u})
+    {
+        keys(r, "SOUND " + std::to_string(hz) + ",18.2\r");
+        r.run(ms(300));
+        CHECK(tone_on(r));
+        const double got = music_hz(r);
+        std::printf("  SOUND %u: the music source at %.1f Hz\n", hz, got);
+        CHECK(std::fabs(got - hz) < hz * 0.005);
+        r.run(ms(800));
+    }
 }
 
-// N10 (the manual's p. 323): SOUND 500,100 then SOUND 500,0 stops it at once (MU_STOP of voice 0, the gate
-// dropped); SOUND 500,0 with nothing sounding, in a run that hasn't played, starts no driver: the 6510 left
-// unclaimed (CTRL's RUN off, no SN_LOAD). Guards a stuck note; a 6510 claimed for nothing, refusing the next
-// program's .sid. Seen failing with SOUND x,0 queued as a 1 ms note.
+// N10 (the manual's p. 323): SOUND 500,100 then SOUND 500,0 stops it at once (MU_STOP, the tone voice off); SOUND
+// 500,0 with nothing sounding, in a run that hasn't played, starts nothing: music left unclaimed (no SN_CLAIM).
+// Guards a stuck note; music claimed for nothing, refusing the next program's. Seen failing with SOUND x,0 queued as
+// a short note.
 TEST(sound_x_0_stops_and_does_nothing_when_silent)
 {
     CcpRig r;
@@ -447,15 +474,16 @@ TEST(sound_x_0_stops_and_does_nothing_when_silent)
     REQUIRE(!s.stops.empty());
     CHECK_EQ(s.stops.back().second, 0u);
     CHECK(!s.entries.empty() && s.stops.back().first > s.entries[0].at);
-    CHECK_EQ(card(r).sid(0)[4] & 1, 0); // voice 0's gate off
+    CHECK(!tone_on(r)); // the tone voice off
 }
 
-// N11 (the manual's p. 323: 37 to 32,767 Hz, 0 to 65,535 ticks; the owner's answer 19: a negative duration Illegal
-// function call): 36 Illegal function call, 37 and 32,767 taken; 65,535 ticks taken (three entries back to back,
-// the owner's answer 18: 65,535 x 22 units held at 65,535, 163,838 ms, past the driver's 16-bit length: about
-// 2 min 44 s at most, a temporary OO-1 limit, review round 1's C9), 65,536 and -1 Illegal function call; a
-// negative frequency Illegal function call (C5); .0015 the driver's 1 ms, waited for (C7). Guards a frequency below the range sent to the SID. Seen failing with the 37 check
-// one low.
+// N11 (the manual's p. 323: 37 to 32,767 Hz, .0015 to 65,535 ticks; the owner's answer 19: a negative duration
+// Illegal function call; branch C's answers 2 and 5): 36 Illegal function call, 37 Hz exactly; 15,000 and 20,000 Hz
+// tones, 20,001 and 32,767 (the manual's silence) rests; 65,535 ticks one entry of 65,535 x 54,925 = 3,599,509,875
+// us (within a single's 256: 7f's 2 min 44 s cap, C9, gone); 65,536, 65,535.5, -1 and .001 Illegal function call; a
+// negative frequency Illegal function call (C5); .0015 one entry of 82 us, waited for in MF (C7's 1 ms gone).
+// Guards a frequency below the range sent, a long SOUND cut short, and silence played as a tone. Seen failing with
+// (a) the 37 check one low, (b) the us cut to 16 bits, (c) 32,767 sent as a tone.
 TEST(sound_s_ranges_by_hand)
 {
     CcpRig r;
@@ -466,45 +494,54 @@ TEST(sound_s_ranges_by_hand)
     CHECK_EQ(said(r, "SOUND 36,1"), std::string("Illegal function call"));
     CHECK(s.entries.empty());
     CHECK_EQ(said(r, "SOUND 37,1"), std::string());
+    CHECK_EQ(said(r, "SOUND 15000,1"), std::string());
+    CHECK_EQ(said(r, "SOUND 20000,1"), std::string());
+    CHECK_EQ(said(r, "SOUND 20001,1"), std::string());
     CHECK_EQ(said(r, "SOUND 32767,1"), std::string());
     CHECK_EQ(said(r, "SOUND 440,65536"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "SOUND 440,65535.5"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "SOUND 440,-1"), std::string("Illegal function call"));
+    CHECK_EQ(said(r, "SOUND 440,.001"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "SOUND -1,1"), std::string("Illegal function call")); // (review round 1, C5)
     CHECK_EQ(said(r, "SOUND -32768,1"), std::string("Illegal function call"));
-    REQUIRE(s.entries.size() == 2u);
-    CHECK_EQ(s.entries[0].freq, pal(37));
-    CHECK_EQ(s.entries[1].freq, pal(32767)); // (held at $FFFF)
-    CHECK_EQ(s.entries[0].len, units_ms(22));
+    REQUIRE(s.entries.size() == 5u);
+    const unsigned want_hz[5] = {37, 15000, 20000, 0, 0}; // (past 20,000: a rest)
+    for (unsigned i = 0; i < 5; ++i)
+    {
+        CHECK_EQ(s.entries[i].hz, want_hz[i]);
+        CHECK_EQ(s.entries[i].len, 54925u); // one tick
+    }
     r.run(ms(200));
     CHECK_EQ(said(r, "SOUND 440,65535"), std::string());
     r.watch = nullptr;
-    REQUIRE(s.entries.size() == 5u);
-    CHECK_EQ(s.entries[2].len, 65535u);
-    CHECK_EQ(s.entries[3].len, 65535u);
-    CHECK_EQ(s.entries[4].len, units_ms(65535 - 2 * 26214));
-    CHECK(s.entries[4].at - s.entries[2].at < ms(50)); // back to back, the first waited for alone
-    // SOUND's shortest, .0015 (the manual's p. 323; x 22 is 0 units): the driver's shortest, 1 ms, gated the whole,
-    // and waited for as any in MF (the plan; review round 1, C7): after a 1,000 ms note, about 1,000 ms later.
+    REQUIRE(s.entries.size() == 6u);
+    const int64_t hour = 65535LL * 54925;
+    std::printf("  SOUND 440,65535: one entry of %u us (65,535 x 54,925 = %lld)\n", s.entries[5].len,
+                static_cast<long long>(hour));
+    CHECK(std::llabs(static_cast<int64_t>(s.entries[5].len) - hour) <= 256);
+    CHECK_EQ(s.entries[5].gate, s.entries[5].len);
+    // SOUND's shortest, .0015 (the manual's p. 323): .0015 x 54,925 = 82 us, gated the whole, and waited for as any
+    // in MF: after an 18.2-tick note, about 1,000 ms later.
     said(r, "SOUND 440,0"); // (the long one stopped)
     s.watch(r);
     const size_t n = s.entries.size();
     CHECK_EQ(said(r, "SOUND 440,18.2:SOUND 880,.0015", ms(1500)), std::string());
     r.watch = nullptr;
     REQUIRE(s.entries.size() == n + 2);
-    CHECK_EQ(s.entries[n + 1].freq, pal(880));
-    CHECK_EQ(s.entries[n + 1].len, 1u);
-    CHECK_EQ(s.entries[n + 1].gate, 1u);
+    CHECK_EQ(s.entries[n + 1].hz, 880u);
+    CHECK_EQ(s.entries[n + 1].len, 82u);
+    CHECK_EQ(s.entries[n + 1].gate, 82u);
     const double gap = as_ms(s.entries[n + 1].at - s.entries[n].at);
     CHECK(gap > 950 && gap < 1100);
 }
 
-// N18 (the owner's answer 6): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times: each after the first
-// is sent as the one before ends; ^C during the third: Ok (the break), MU_STOP of voice 0 (SNDRST's) and the gate
-// off; a note's end lost (each EK_SOUND event's kind made 0 by the watch as it lands, so EVPOLL drops it) still
-// lets the next go, by the
-// clock (the queue's end + 100 ms, then MU_STOP). Guards ^C leaving a tone on; a
-// program hung for ever on a lost event. Seen failing with (a) SNDRST left out of the break, (b) the clock's end of
-// the wait left out.
+// N18 (the owner's answer 6; branch C's answer 7): PLAY's and SOUND's MF wait. SOUND 440,9.1 (500 ms) three times:
+// each after the first is sent as the one before ends; ^C during the third: Ok (the break), MU_STOP of voice 0
+// (SNDRST's) and the tone voice off; with every EK_SOUND event lost (each one's kind made 0 by the watch as it lands, so
+// EVPOLL drops it) the next still goes as the one before ends, since the wait asks the card its count
+// (SN_MSTATUS) and needs no event. Guards ^C leaving a tone on; a program hung for ever, or late, on a lost event.
+// Seen failing with (a) SNDRST left out of the break, (b) the wait on the events alone (the poll left out: it
+// hangs), (c) the wait's look at the keys left out (CHKINT: the break a note late; review round 1, T1).
 TEST(play_mf_waits_and_ctrl_c_breaks_it)
 {
     CcpRig r;
@@ -513,15 +550,29 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
     Sound s;
     s.watch(r);
     run_prog(r, {"10 SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1"}, ms(1200));
-    press(r, 0x06, CTRL); // ^C, as the third plays
+    // (review round 1, T1) the break comes from inside the wait: within about 50 ms of the key, not a note later
+    const uint16_t itsctc = lbl_map().at("ITSCTC");
+    uint64_t brk = 0;
+    const auto snd0 = r.watch;
+    r.watch = [&](uint16_t pc) {
+        snd0(pc);
+        if (pc == itsctc && brk == 0)
+            brk = r.cpu->cycles();
+    };
+    const uint64_t key = r.cpu->cycles() + ms(10); // press(): Ctrl down, 10 ms, then C
+    press(r, 0x06, CTRL); // ^C, as the third plays (the fourth SOUND waiting for it)
     CHECK(until_row(r, "Break") >= 0);
+    r.watch = snd0;
+    REQUIRE(brk > key);
+    std::printf("  ^C: the break %.1f ms after the key\n", as_ms(brk - key));
+    CHECK(as_ms(brk - key) < 50);
     const size_t n = s.entries.size();
     r.run(ms(800));
     CHECK_EQ(s.entries.size(), n);
     CHECK(n >= 3);
     REQUIRE(!s.stops.empty());
     CHECK(s.stops.back().first > s.entries[n - 1].at);
-    CHECK_EQ(card(r).sid(0)[4] & 1, 0);
+    CHECK(!tone_on(r));
     for (size_t i = 1; i < n; ++i)
     {
         const double gap = as_ms(s.entries[i].at - s.entries[i - 1].at);
@@ -548,16 +599,16 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
     r.watch = nullptr;
     REQUIRE(t.entries.size() == 2u);
     const double gap = as_ms(t.entries[1].at - t.entries[0].at);
-    std::printf("  with the note's end lost, the next sent after %.1f ms (500 + 100 by the clock)\n", gap);
-    CHECK(gap > 590 && gap < 660);
+    std::printf("  with the note's end lost, the next sent after %.1f ms (a note 500 ms)\n", gap);
+    CHECK(gap > 480 && gap < 560);
 }
 
-// N19 (the owner's answer 5): after RUN, NEW, CLEAR and SYSTEM the 6510 is given back (SN_RELEASE; CTRL's RUN off),
+// N19 (the owner's answer 5): after RUN, NEW, CLEAR and SYSTEM music is given back (SN_RELEASE of SC_MUSIC),
 // and PLAY's state is the defaults again (SNDINI's; review round 1, T1): MB O6 T255 L64 MS set and played, then the
-// next PLAY's C has O4's word, T120 L4's 500 ms and MN's gate, and its D waits for it (MF). Guards a .sid player
-// refused after GW-BASIC; a new run inheriting the last one's mode. Seen failing with (a) CLEARC's SNDINI not called
+// next PLAY's C has O4's Hz, T120 L4's 500,000 us and MN's gate, and its D waits for it (MF). Guards music held
+// after GW-BASIC (the next program's MU_INIT refused); a new run inheriting the last one's mode. Seen failing with (a) CLEARC's SNDINI not called
 // (INITRP's far call left out), (b) SNDINI's stores dropped.
-TEST(run_and_system_free_the_6510)
+TEST(run_and_system_free_the_music)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -576,14 +627,14 @@ TEST(run_and_system_free_the_6510)
             enter(r, what);
         CHECK_EQ(s.releases, before + 1);
         CHECK(!running(r));
-        // then the defaults (O4 L4 T120 MN MF): C's word, 500 ms with MN's gate, and D sent as C ends (MF)
+        // then the defaults (O4 L4 T120 MN MF): C's Hz, 500 ms with MN's gate, and D sent as C ends (MF)
         const size_t n = s.entries.size();
         CHECK_EQ(said(r, "PLAY \"CD\"", ms(1200)), std::string());
         REQUIRE(s.entries.size() == n + 2);
         const Entry &c = s.entries[n], &d = s.entries[n + 1];
-        CHECK_EQ(c.freq, pal(note_hz(0, 4)));
-        CHECK_EQ(c.len, units_ms(play_units(120, 4)));
-        CHECK_EQ(c.gate, units_ms(play_units(120, 4) * 7 / 8));
+        CHECK_EQ(c.hz, note_hz(0, 4));
+        CHECK_EQ(c.len, units_us(play_units(120, 4)));
+        CHECK_EQ(c.gate, units_us(play_units(120, 4) * 7 / 8));
         const double gap = as_ms(d.at - c.at);
         CHECK(gap > 480 && gap < 560);
         r.run(ms(600));
@@ -598,9 +649,9 @@ TEST(run_and_system_free_the_6510)
 }
 
 // The owner's answer 20: CLEARC far calls P7's SNDINI only when the run used sound (SNDUSE); a CHAIN from a run that
-// played still resets the sound: MB notes queued, then CHAIN to a saved program: the 6510 given back (SN_RELEASE,
-// CTRL's RUN off) and the chained program's PLAY(0) 0; and a CHAIN from a run with no sound makes no SN_ call.
-// Guards a CHAIN that leaves the last program's music playing, or the driver held. Seen failing with INITRP's test
+// played still resets the sound: MB notes queued, then CHAIN to a saved program: music given back (SN_RELEASE) and
+// the chained program's PLAY(0) 0; and a CHAIN from a run with no sound makes no SN_ call.
+// Guards a CHAIN that leaves the last program's music playing, or music held. Seen failing with INITRP's test
 // of SNDUSE inverted.
 TEST(chain_after_sound_still_resets_the_sound)
 {
@@ -617,7 +668,7 @@ TEST(chain_after_sound_still_resets_the_sound)
     {
         std::printf("  the screen: %s\n", screen(r).c_str());
         for (const Entry &e : s.entries)
-            std::printf("  entry at %.1f: voice %u word %u len %u gate %u\n", as_ms(e.at), e.voice, e.freq, e.len, e.gate);
+            std::printf("  entry at %.1f: voice %u %u Hz len %u gate %u\n", as_ms(e.at), e.voice, e.hz, e.len, e.gate);
     }
     CHECK_EQ(s.entries.size(), 4u);
     CHECK_EQ(s.releases, 1u);
@@ -631,7 +682,8 @@ TEST(chain_after_sound_still_resets_the_sound)
 }
 
 // N20 (the owner's answer 3): BEEP and PRINT CHR$(7) in screen mode, and BEEP in console mode (test_gwbasic_core's
-// console_mode_keeps_its_guard, its SN_BEEP block watched: review round 1, T5), sound the bell by function 82's SN_BEEP, 800 Hz for 250 ms, and claim nothing (no SN_LOAD). Guards
+// console_mode_keeps_its_guard, its SN_BEEP block watched: review round 1, T5), sound the bell by function 82's
+// SN_BEEP, 800 Hz for 250 ms, and claim nothing (no SN_CLAIM). Guards
 // BEEP silent. Seen failing with ^G's route left out of P6 (CBEEP's far call).
 TEST(beep_and_ctrl_g_sound_the_bell)
 {
@@ -653,10 +705,10 @@ TEST(beep_and_ctrl_g_sound_the_bell)
     CHECK(!running(r));
 }
 
-// N12 (the manual's pp. 250-251; the owner's answer 2): each note's frequency word from NOTTAB shifted right by
-// 7 - the octave and rounded (O3's C 262 Hz, middle C; O4's A 880), on MU_TONE's arithmetic: C and B in every
+// N12 (the manual's pp. 250-251; the owner's answer 2): each note's Hz from NOTTAB shifted right by 7 - the octave
+// and rounded (O3's C 262 Hz, middle C; O4's A 880), as sent: C and B in every
 // octave, A in O3 and O4, N1 (O0's C), N42, N84 (O6's B), N0 a rest (0); > and < one octave up or down, held at 6
-// and 0, across PLAYs too (p. 250's PLAY ">A" again and again). All in MB at T255 L64 (13 ms notes), so nothing
+// and 0, across PLAYs too (p. 250's PLAY ">A" again and again). All in MB at T255 L64 (12.5 ms notes), so nothing
 // waits. Guards a tune an octave off or a note wrong on the card. Seen failing with (a) > not held at 6, (b)
 // PLYNU4's rounding (the last bit out) left out.
 TEST(play_s_notes_and_octaves_by_hand)
@@ -671,35 +723,36 @@ TEST(play_s_notes_and_octaves_by_hand)
     for (unsigned o = 0; o <= 6; ++o)
     {
         tune += " O" + std::to_string(o) + " C B";
-        want.push_back(pal(note_hz(0, o)));
-        want.push_back(pal(note_hz(11, o)));
+        want.push_back(note_hz(0, o));
+        want.push_back(note_hz(11, o));
     }
     tune += " O3 A O4 A N1 N42 N84 N0";
     for (const unsigned hz : {note_hz(9, 3), note_hz(9, 4), note_hz(0, 0), note_hz(5, 3), note_hz(11, 6), 0u})
-        want.push_back(pal(hz));
+        want.push_back(hz);
     CHECK_EQ(said(r, "PLAY \"" + tune + "\""), std::string());
     r.run(ms(500));
     CHECK_EQ(said(r, "PLAY \"O5 >C >C >C O1 <C <C <C\""), std::string());
     for (const unsigned o : {6u, 6u, 6u, 0u, 0u, 0u})
-        want.push_back(pal(note_hz(0, o)));
+        want.push_back(note_hz(0, o));
     CHECK_EQ(said(r, "PLAY \"O4\":PLAY \">A\":PLAY \">A\":PLAY \">A\""), std::string());
     for (const unsigned o : {5u, 6u, 6u})
-        want.push_back(pal(note_hz(9, o)));
+        want.push_back(note_hz(9, o));
     r.watch = nullptr;
     CHECK_EQ(note_hz(0, 3), 262u); // middle C
     CHECK_EQ(note_hz(9, 4), 880u); // (the owner's answer 2)
     REQUIRE(s.entries.size() == want.size());
     unsigned bad = 0;
     for (size_t i = 0; i < want.size(); ++i)
-        if (s.entries[i].freq != want[i] && ++bad <= 4)
-            std::printf("  note %zu: the word %u, want %u\n", i, s.entries[i].freq, want[i]);
+        if (s.entries[i].hz != want[i] && ++bad <= 4)
+            std::printf("  note %zu: %u Hz, want %u\n", i, s.entries[i].hz, want[i]);
     CHECK_EQ(bad, 0u);
 }
 
 // N13 (the manual's pp. 251-253, the source's PPAUS2 and PLYDOT): the lengths from 96,000 / (T x L) units of 2.5
-// ms, in ms; L1, L4, L64; A16 the same as L16A; T32 and T255; one and two dots (x 3 / 2 each); the gates: MN 7/8,
-// ML the whole, MS 3/4 (of the units, at least 1, as ms); a rest's gate the whole (P4). In MB. Guards rhythm wrong:
-// notes run together or clipped. Seen failing with MS's gate as 7/8.
+// ms, as us exactly (units x 2,500: branch C's answer 4); L1, L4, L64; A16 the same as L16A; T32 and T255; one and
+// two dots (x 3 / 2 each); the gates: MN 7/8, ML the whole, MS 3/4 (of the units, at least 1, x 2,500); a rest's
+// gate the whole (P4). In MB. Guards rhythm wrong: notes run together or clipped, or run slow by a rounding. Seen
+// failing with (a) MS's gate as 7/8, (b) the us rounded to whole ms.
 TEST(play_s_lengths_tempo_dots_and_styles)
 {
     CcpRig r;
@@ -721,14 +774,14 @@ TEST(play_s_lengths_tempo_dots_and_styles)
                                     {t32, mn(t32)}, {t255, mn(t255)}, {d1, mn(d1)}, {d2, mn(d2)},  {l4, l4},
                                     {l4, msg(l4)},  {l4, l4}};
     CHECK_EQ(l4, 200u);
-    CHECK_EQ(units_ms(l4), 500u);
+    CHECK_EQ(units_us(l4), 500000u);
     REQUIRE(s.entries.size() == want.size());
     for (size_t i = 0; i < want.size(); ++i)
     {
-        CHECK_EQ(s.entries[i].len, units_ms(want[i].units));
-        CHECK_EQ(s.entries[i].gate, units_ms(want[i].gate_units));
+        CHECK_EQ(s.entries[i].len, units_us(want[i].units));
+        CHECK_EQ(s.entries[i].gate, units_us(want[i].gate_units));
     }
-    CHECK_EQ(s.entries.back().freq, 0u); // P4: a rest
+    CHECK_EQ(s.entries.back().hz, 0u); // P4: a rest
 }
 
 // N14 (the manual's pp. 249-253): B#, E#, C-, F- Illegal function call; O7, L0, L65, T31, N85, P0 (the manual's
@@ -766,11 +819,11 @@ TEST(play_x_and_variables_by_hand)
     CHECK_EQ(said(r, "A$=\"CDE\":I=2:PLAY \"MB T255 L64 XA$; O=I; C\""), std::string());
     CHECK_EQ(said(r, "PLAY \"X\"+VARPTR$(A$)+\"O=\"+VARPTR$(I)+\"D\""), std::string());
     r.watch = nullptr;
-    const std::vector<unsigned> want = {pal(note_hz(0, 4)), pal(note_hz(2, 4)), pal(note_hz(4, 4)), pal(note_hz(0, 2)),
-                                        pal(note_hz(0, 2)), pal(note_hz(2, 2)), pal(note_hz(4, 2)), pal(note_hz(2, 2))};
+    const std::vector<unsigned> want = {note_hz(0, 4), note_hz(2, 4), note_hz(4, 4), note_hz(0, 2),
+                                        note_hz(0, 2), note_hz(2, 2), note_hz(4, 2), note_hz(2, 2)};
     REQUIRE(s.entries.size() == want.size());
     for (size_t i = 0; i < want.size(); ++i)
-        CHECK_EQ(s.entries[i].freq, want[i]);
+        CHECK_EQ(s.entries[i].hz, want[i]);
 }
 
 // N16 (the manual's pp. 252-255): MB runs in the background: a program goes on at once, PLAY(0) counts the notes
@@ -791,7 +844,7 @@ TEST(play_mb_runs_in_the_background_and_play_n_counts)
     CHECK_EQ(said(r, "PLAY \"MB T255 L8 " + std::string(33, 'C') + "\"", ms(1200)), std::string());
     REQUIRE(s.entries.size() == 33u);
     const double w31 = as_ms(s.entries[31].at - s.entries[0].at), w32 = as_ms(s.entries[32].at - s.entries[0].at);
-    const double note = units_ms(play_units(255, 8));
+    const double note = units_us(play_units(255, 8)) / 1000.0;
     std::printf("  from the first note: the 32nd sent after %.1f ms, the 33rd after %.1f ms (a note %.0f ms)\n", w31, w32,
                 note);
     CHECK(w31 < note - 20);
@@ -820,10 +873,10 @@ TEST(thirty_two_mb_statements_queue_and_on_play_past_8_fires)
 }
 
 // N33 (the owner's answer 11, its gate 9,000 by answer 24: a PLAY note in MB, the interrupts left out): PLAY "MB
-// T255 L64" with 16 notes against one note, T17's method; the difference over 15. About 5,100 of a note is function
-// 82's: OOLIB's seven SN_SENDs and the card's busy retries (a note sent as one block is OOLIB's backlog). Guards MB
-// falling behind its own notes.
-// Seen failing with MU_TONE called twice a note.
+// T255 L64" with 16 notes against one note, T17's method; the difference over 15. A statement's notes go to the card
+// as one block (one SN_MUSIC, sound card revision 3), so function 82's share of a note is about none: what is left
+// is the parse and the block's entry. A record and a bound (1,000-9,000), not a functional guard (the play_* cases
+// are). Guards MB falling behind its own notes.
 TEST(play_s_note_cost_is_timed)
 {
     CcpRig r;
@@ -837,18 +890,23 @@ TEST(play_s_note_cost_is_timed)
     const uint64_t many = run_cycles(r, {"10 PLAY \"MB T255 L64 CDEFGABCDEFGABCD\""});
     r.watch = nullptr;
     const double per = static_cast<double>(many - one) / 15;
+    // (Both runs' calls are in the totals: the 16-note run's less the one-note run's, a note; signed, since the two
+    // runs make about the same calls.)
     std::printf("  of which function 82: %.0f cycles a note, %.1f calls\n",
-                static_cast<double>(s.bdos_cycles - 2 * b1) / 15, (s.bdos_calls - 2.0 * n1) / 15);
+                (static_cast<double>(s.bdos_cycles) - 2.0 * static_cast<double>(b1)) / 15, (s.bdos_calls - 2.0 * n1) / 15);
     std::printf("  PLAY in MB: %.0f cycles a note, the interrupts left out (the gate 9,000); one note's PLAY %llu\n", per,
                 static_cast<unsigned long long>(one));
     CHECK(per > 1000 && per <= 9000);
 }
 
-// N17 (the manual's p. 211, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one GOSUB,
-// as the buffer falls from 2 to 1 (the 3rd note's end); PLAY STOP after PLAY ON remembers it (taken at the next PLAY
-// ON: a trap never turned on remembers nothing, BIMISC.ASM's REQTRP), PLAY OFF forgets
-// it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, or refilled
-// twice. Seen failing with the request at n + 1 to n.
+// N17 (the manual's pp. 211-212, the owner's answer 9's event): ON PLAY(2) GOSUB with PLAY ON, MB and 4 notes: one
+// GOSUB, as the buffer falls from 2 to 1 (the 3rd note's end); PLAY STOP after PLAY ON remembers it (a trap never
+// turned on remembers nothing, BIMISC.ASM's REQTRP), but a PLAY ON with the buffer already empty takes no trap (p.
+// 212's note 2: branch C's answer 6), while one with a note still sounding takes the remembered trap then; PLAY OFF
+// forgets it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, refilled
+// twice, or refilled after it ended; ON PLAY(1), the "tune ended" refill, in MB and not MF (review round 1, T3).
+// Seen failing with (a) the request at n + 1 to n (the card's threshold n), (b) note 2's drop left out, (c)
+// MUSIC_DONE never trapping, (d) the MB-only test left out.
 TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
 {
     CcpRig r;
@@ -860,16 +918,122 @@ TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
                      "30 IF PLAY(0)>0 THEN 30", "40 PLAY ON:PRINT \"N=\";N;P:END", "100 N=N+1:P=PLAY(0):RETURN"},
                  ms(1500));
         const std::string h(how);
-        const std::string want = h.find("OFF") != std::string::npos ? "N= 0  0" : h.find("STOP") != std::string::npos
-                                                                                     ? "N= 1  0"
-                                                                                     : "N= 1  1"; // (1 left: n - 1)
+        const std::string want = h.find("OFF") != std::string::npos    ? "N= 0  0"
+                                 : h.find("STOP") != std::string::npos ? "N= 0  0" // (empty at PLAY ON: note 2)
+                                                                       : "N= 1  1"; // (1 left: n - 1)
         if (line(r, 2) != want)
             std::printf("  %s: %s\n", how, screen(r).c_str());
+        CHECK_EQ(line(r, 2), want);
+    }
+    // PLAY STOP, then PLAY ON while the last note (a half note, 470 ms) still sounds: the remembered trap taken then.
+    run_prog(r, {"10 ON PLAY(2) GOSUB 100:PLAY ON:PLAY STOP", "20 PLAY \"MB T255 L16 CDE L2 F\"",
+                 "30 IF PLAY(0)>1 THEN 30", "40 PLAY ON:PRINT \"N=\";N;P:END", "100 N=N+1:P=PLAY(0):RETURN"},
+             ms(1500));
+    if (line(r, 2) != "N= 1  1")
+        std::printf("  PLAY STOP, PLAY ON with a note sounding: %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string("N= 1  1"));
+    // (review round 1, T3) ON PLAY(1): MUSIC_DONE's trap, as the last note ends (PLAY(0) 0 in it), in MB only (the
+    // manual's note 1): the same tune in MF traps nothing.
+    for (const char *mode : {"MB", "MF"})
+    {
+        run_prog(r, {std::string("10 ON PLAY(1) GOSUB 100:PLAY ON:PLAY \"") + mode + " T255 L16 CDEF\"",
+                     "20 IF PLAY(0)>0 THEN 20", "25 T!=TIMER", "26 IF TIMER-T!<.5 THEN 26", "30 PRINT N;Q:END",
+                     "100 N=N+1:Q=PLAY(0):RETURN"},
+                 ms(2500));
+        const std::string want = std::string(mode) == "MB" ? " 1  0" : " 0  0";
+        if (line(r, 2) != want)
+            std::printf("  ON PLAY(1), %s: %s\n", mode, screen(r).c_str());
         CHECK_EQ(line(r, 2), want);
     }
     CHECK_EQ(said(r, "ON PLAY(0) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(33) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(32) GOSUB 10"), std::string());
+}
+
+// Review round 1, T2 (the manual's p. 212, note 2; BIMISC.ASM's trap counts): PLAY ON with a PLAY trap remembered
+// under PLAY STOP and the buffer empty drops it, after SETEV1 has counted it in ONGSBF, so another trap's count is
+// kept: ON KEY(1) armed, ON PLAY(2) under PLAY STOP while MB music plays out, ERROR 200, F1 pressed in the error
+// handler (traps held: ONGSBF 1), then PLAY ON and RESUME: the key's GOSUB is taken (K 1), the PLAY trap not (N 0).
+// Guards a key or timer trap lost to the drop. Seen failing with PLONP called before SETEV1 (K 0).
+TEST(play_on_with_the_buffer_empty_keeps_another_trap_s_count)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 ON KEY(1) GOSUB 200:KEY(1) ON:ON PLAY(2) GOSUB 300:PLAY ON:PLAY STOP:ON ERROR GOTO 500",
+                 "20 PLAY \"MB T255 L16 CDEF\"", "30 IF PLAY(0)>0 THEN 30", "40 ERROR 200",
+                 "50 PRINT \"K=\";K;N:END", "200 K=K+1:RETURN", "300 N=N+1:RETURN",
+                 "500 T!=TIMER", "510 IF TIMER-T!<1.5 THEN 510", "520 PLAY ON:RESUME 50"},
+             ms(700));
+    press(r, 0x3A); // F1, inside the error handler
+    r.run(ms(3500));
+    if (line(r, 2) != "K= 1  0")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string("K= 1  0"));
+}
+
+// Branch C (the manual's p. 211): ON PLAY(n) given after the notes were sent still traps as the buffer falls from n
+// to n - 1: PLAY "MB" of 8 eighth notes, then ON PLAY(4): one GOSUB, PLAY(0) 3 in it. Guards a trap that comes only
+// at the music's end (the card's threshold set only when a block is sent). Seen failing with ONSETP's threshold left
+// out (" 0  0"; main's " 1  0").
+TEST(on_play_given_after_the_notes_fires_as_the_count_falls_to_n_minus_1)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 PLAY \"MB T120 L8 CDEFGABC\":ON PLAY(4) GOSUB 100:PLAY ON", "20 IF PLAY(0)>0 THEN 20",
+                 "30 PRINT N;Q:END", "100 N=N+1:Q=PLAY(0):RETURN"},
+             ms(3500));
+    if (line(r, 2) != " 1  3")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string(" 1  3"));
+}
+
+// Branch C (the manual's pp. 80, 324; the source: STOP and END don't call SNDRST, POLKEY's ^C does): MB music plays
+// on after END (at Ok PLAY(0) counts down, no stop sent) and through STOP and CONT (its count fallen meanwhile: the
+// note sounding counted, the owner's answer 1); ^C during MB music stops it
+// (SNDRST: MU_STOP), PLAY(0) 0 after. Guards a program's end cutting its music, or a ^C leaving it playing. Seen
+// failing with ITSCTC's SNDRST left out.
+TEST(stop_end_and_break_with_background_music)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    Sound s;
+    s.watch(r);
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\":END"}, ms(300)); // 4 notes of 1 s
+    CHECK(s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    const std::string p1 = said(r, "PRINT PLAY(0)");
+    std::printf("  after END, at Ok: PLAY(0) '%s'\n", p1.c_str());
+    CHECK(p1 == " 1" || p1 == " 2" || p1 == " 3");
+    r.run(ms(4000));
+    CHECK_EQ(said(r, "PRINT PLAY(0)"), std::string(" 0"));
+    CHECK(s.stops.empty());
+    CHECK_EQ(s.entries.size(), 4u);
+    // STOP, CONT
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\"", "20 STOP", "30 PRINT \"P\";PLAY(0)"}, ms(300));
+    CHECK(until_row(r, "Break in 20") >= 0);
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    r.run(ms(1200)); // stopped past the first note's end: the count goes down meanwhile
+    enter(r, "CONT");
+    const int row = until_row(r, "P ");
+    REQUIRE(row >= 0);
+    const std::string p2 = line(r, static_cast<unsigned>(row));
+    std::printf("  after STOP and CONT: '%s'\n", p2.c_str());
+    CHECK(p2 == "P 2" || p2 == "P 3");
+    CHECK(s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    r.run(ms(4000));
+    // ^C during MB music
+    run_prog(r, {"10 PLAY \"MB T120 L2 CDEF\"", "20 GOTO 20"}, ms(800));
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_PLAYING);
+    press(r, 0x06, CTRL);
+    CHECK(until_row(r, "Break") >= 0);
+    r.watch = nullptr;
+    CHECK(!s.stops.empty());
+    CHECK(dev(r).firmware().music_state() == SoundFw::M_STOPPED);
+    CHECK_EQ(said(r, "PRINT PLAY(0)"), std::string(" 0"));
 }
 
 // N27 (the manual's pp. 145-148, GWSTS.ASM's KEYTRP, GIOKYB.ASM's TRPCHK): ON KEY(1) with KEY(1) ON, F1 pressed: one

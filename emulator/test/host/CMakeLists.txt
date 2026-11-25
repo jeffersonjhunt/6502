@@ -656,8 +656,8 @@ list(APPEND gwbasic_sources "${GWBASIC_SRC}/ledger.txt" "${GWBASIC_SRC}/srcnames
 # rebuilds the blocks
 file(GLOB gwbasic_oolib CONFIGURE_DEPENDS "${OODOS_SRC}/lib/*.inc")
 list(APPEND gwbasic_sources "${OODOS_SRC}/lib/gxmem.s" "${OODOS_SRC}/lib/gxmode.s" ${gwbasic_oolib})
-# Block P7 (7f) links OOLIB's music: mu.s (on the sound card's music sequencer, revision 3), mutone.s and physof.s.
-list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/mutone.s" "${OODOS_SRC}/lib/physof.s")
+# Block P7 (7f) links OOLIB's music: mu.s (on the sound card's music sequencer, revision 3) and physof.s.
+list(APPEND gwbasic_sources "${OODOS_SRC}/lib/mu.s" "${OODOS_SRC}/lib/physof.s")
 add_custom_command(
         OUTPUT "${GWBASIC_DIR}/GWBASIC.COM" "${GWBASIC_DIR}/GWBASIC.OVL" "${GWBASIC_DIR}/gwbasic.lbl"
                "${GWBASIC_DIR}/ledger.ok"

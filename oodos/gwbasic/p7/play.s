@@ -3,20 +3,23 @@
 ;
 ; GWSTS.ASM's PLAY (541-822), in block P7 (hw/oodos.md, "The plan, phase 7":
 ; 7f), on P7's own copy of MACLNG (p7/maclng.s) and the OEM's DONOTE
-; (p7/sound.s):
+; (p7/sound.s: the card's music sequencer, its tone generator voice):
 ;
 ;   PLAYP     PLAY string (the home block's stub, screen mode: the owner's
 ;             answer 4): MACLNG with PLYTAB
-;   PLAYN     PLAY(n) (XFUNP's): the notes waiting in MB (MU_COUNT of voice
-;             0); 0 in MF (the manual's p. 255) or with the driver not
-;             started in this run; n parsed and not used; console mode
-;             Advanced Feature (the owner's answer 4)
+;   PLAYN     PLAY(n) (XFUNP's): the notes in MB's buffer (p7/sound.s
+;             GWCNT: the card's waiting, and the one sounding, the owner's
+;             answer 1 to branch C's plan); 0 in MF (the manual's p. 255) or
+;             with no music started in this run; n parsed and not used;
+;             console mode Advanced Feature (the owner's answer 4)
 ;
 ; Each command as the source's, its number in DX (1 if none) and C set if
 ; one was given (MACLNG's). What the OO-1 does differently:
-;   - a note is one entry on the driver, its gate time MN's 7/8, MS's 3/4 or
-;     the whole (ML), where the source sends the shortened note and then a
-;     pause (PLYNO6-PLYNO9): so MB's 32 entries are the manual's 32 notes;
+;   - a note is one entry of the statement's note block, its gate time MN's
+;     7/8, MS's 3/4 or the whole (ML), where the source sends the shortened
+;     note and then a pause (PLYNO6-PLYNO9): so MB's 32 entries are the
+;     manual's 32 notes; the length and the gate are the source's 2.5 ms
+;     units as us, exactly (x 2,500: branch C's answer 4);
 ;   - the octave: the manual's (the owner's answer 2): O3 starts with middle
 ;     C, so NOTTAB's top octave is shifted right by 7 - O (the source's
 ;     6 - O puts each note an octave higher), rounded by the last bit out

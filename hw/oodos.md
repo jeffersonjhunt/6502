@@ -6039,7 +6039,9 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       (`p7/maclng.s` includes `p3/maclng.s`). P5's SCRP moved from RODATA to BRAM (F3's review F7): P5 differs from
       main only by that move's relocation (shown by a build with a 3-byte pad left in RODATA). GWBASIC.OVL is
       72,704 bytes (568 records); the overlay check covers P7. M: lost the room for two cases' BSAVEs: both now KILL
-      `M:GWBASIC.COM` first (answer 14: M: is OODOS's banks C-D, not the rig's to enlarge).
+      `M:GWBASIC.COM` first (answer 14: M: is OODOS's banks C-D, not the rig's to enlarge). *(Since: the driver's
+      image went with sound card revision 3, branch B; on the device P7 links `mu.s` and `physof.s` only,
+      [below](#oodos-017-sound-card-revision-3).)*
     - **Room** (the lines of answer 10; none crossed): free for BASIC 34,769 (34,768), P1 3,133 (2,500), P2 6,404
       (6,000), P3 3,172 (3,000), P4 1,265 (1,200), P5 976 (512), P6 623 (600), P7 6,544 (4,000), P8 4,453 (4,000);
       HOMTAB 6 of 9 (HPENST, `p8/sound.s`).
@@ -6053,6 +6055,8 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       (SNDUSE, zero page `$5F`, proved free by a scan of every zero page operand: answer 20) and at SYSTEM; SNDRST
       (`MU_STOP` of voice 0) at ^C and SOUND x,0. DONOTE, the OEM's: `MU_INIT` at a run's first note (PAL), MF one
       note deep and MB 32, each wait ended also by the clock (the queue's end + 100 ms, then `MU_STOP`: answer 6).
+      *(C7, C9, answer 18's split and answer 6's clock all went on the sound device: "on the sound device (branch
+      C)", below.)*
     - **PLAY** (`p7/play.s`): PLYTAB and its routines translated; one entry a note with its gate (MN 7/8, MS 3/4,
       ML all); the octave the manual's (7 - O: O3's C 262 Hz, O4's A 880, answer 2); `>` and `<`; P0 and every
       number past the manual's range Illegal function call; the dotted note's overflow test the source's (answer 21:
@@ -6118,6 +6122,42 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       block (T5); each mutant seen failing on its own case. Changed results: E1-E6 and E8 as approved, E5
       also the COM case's table end (answer 24, item 5). N21 can't force TIMER's .999 cap (the
       rig's clock didn't hold); N24 checks TIME$ to the minute after a set.
+  - **As built, on the sound device (branch C)** (Proposed, 2026-11-24; feat/gwbasic-sound3 off main `64e6cb91`,
+    [the sound device's build plan](future/sound-device-build.md), units S26-S28, with the owner's 8 answers to
+    branch C's plan, "recommendations as listed"; expectation block F as approved).
+    - **The voice:** SOUND and PLAY play on the card's tone generator (a note block's instrument source 2), one
+      voice as the PC's one speaker, at the beep's volume (128: answer 3), so every frequency SOUND allows plays at
+      its pitch (the SID voice topped out at about 3,848 Hz) and no SID is taken. P7 builds its own blocks and links
+      only OOLIB's `mu.s` (`MU_INIT`, `MU_BLOCK`, `MU_COUNT`, `MU_THRESH`, `MU_STOP`, `MU_QUIT`) and `physof.s`
+      (answer 8: `mu.s` stays; `mutone.s` goes).
+    - **SOUND f,d** is one entry: d ticks x 54,925 us in 32 bits (the single's product rounded to the us: exact
+      under 16.7 s, within 256 us at an hour), its own block sent at once. 7f's limits go: the 2 min 44 s cap (C9),
+      the entries back to back past 65,535 ms (answer 18), and the 1 ms shortest (C7: .0015 is 82 us). A duration
+      below .0015 or past 65,535 is Illegal function call (the manual's range: answer 5); a frequency past 20,000 Hz,
+      32,767 (the manual's silence) among them, is a rest (answer 2).
+    - **PLAY's lengths** are the source's 2.5 ms units as us, exactly (x 2,500: answer 4), the gate's likewise; T255
+      L64 is 12.5 ms, no longer rounded to 13.
+    - **The waits** (MF one note deep, MB's 32 notes) ask the card its count (`SN_MSTATUS`) until there is room,
+      the keys and events looked at between (answer 7): answer 6's clock fallback is gone, and a lost event can't
+      hang or delay a program (the MF gap measured about 3 ms).
+    - **ON PLAY(n):** the card's threshold (n - 1, or `MUSIC_DONE` for n = 1) is ON PLAY's alone, so each
+      `MUSIC_COUNT` is the count's fall from n to n - 1 (SNDEV keeps no count from events); ON PLAY(n) given after
+      the notes were sent sets it at once (it was set only as a block went, so the trap came at the music's end);
+      PLAY ON with the buffer empty takes no trap remembered under PLAY STOP (the manual's p. 212, note 2: answer 6;
+      P8's PLAY ON far calls P7's new PLONP, after SETEV1, so ONGSBF keeps its count).
+    - **Recorded, unchanged** (the plan's section 2): the tick is the spec's 54,925 us (the manual's 18.2 a second,
+      the source's 55,000); an MN or MS note is one entry with a gate, not the source's note and pause (the manual's
+      32 notes); BEEP sounds at once over music and the program waits its 250 ms (7f's answer 3); PLAY(n) counts the
+      note sounding with those waiting, 32 at most (answer 1; the manual is silent, the card leaves it out); MF's
+      next note goes as the one before ends, about 3 ms after; STOP, END and CONT leave MB music playing, ^C stops
+      it (the source's).
+    - **Room:** P7 6,680 free (6,324 on `64e6cb91`), P8 4,435 (4,457: PLAY ON's call); free for BASIC 34,772, and
+      every other block as before. **Cycles:** a PLAY note in MB about 3,480 (the gate 1,000-9,000: the two x 2,500
+      products a note); TIMER and NEWSTT as before.
+    - **Tests:** test_gwbasic_sound's block F (the voice, the lengths in us, the ranges, the waits, the traps), and
+      `on_play_given_after_the_notes_fires_as_the_count_falls_to_n_minus_1` and
+      `stop_end_and_break_with_background_music`, new; `run_and_system_free_the_6510` renamed `..._free_the_music`;
+      each change's mutant seen failing on its own case.
 - **7g: the release.**
   - GWBASIC.COM and GWBASIC.OVL on the cards (`make_card.sh`), with LICENSE.TXT.
   - The User's Guide's GW-BASIC chapter (the OO-1's differences, not a BASIC manual), and the Programmer's Guide's

@@ -1,5 +1,5 @@
 ; OOLIB's music: MU_TONE (include/oolib.inc, "Sound: music"; hw/oolib.md,
-; L6b), GW-BASIC's SOUND. A/X a block of MU_NLEN: +0 the voice, +1-2 a
+; L6b). A/X a block of MU_NLEN: +0 the voice, +1-2 a
 ; frequency in Hz (0 a rest), +3-4 the length in ms, +5-6 the gate time, as
 ; MU_NOTE's. A frequency entry (Hz x 16, the card's exact pitch) or a rest,
 ; sent at once as a one-entry block (MUQ). Carry and A as mu.s's calls.
