@@ -391,8 +391,9 @@ PBL_LEN         = 10
 ; ---------------------------------------------------------------------------
 ; Sound: music (lib/mu.s, munote.s, mutone.s, L6b; sound card revision 3):
 ; notes played by the card's music sequencer, from note blocks (the
-; Technical Reference, chapter 7), on six logical voices; GW-BASIC's SOUND
-; and PLAY. MU_INIT claims music (SC_MUSIC) and loads nothing. MU_NOTE,
+; Technical Reference, chapter 7), on six logical voices, for a program's
+; music (GW-BASIC builds its own blocks: MU_BLOCK). MU_INIT claims music
+; (SC_MUSIC) and loads nothing. MU_NOTE,
 ; MU_TONE and MU_MARK send their entry at once as a block of one (queued
 ; behind what plays); MU_BLOCK sends a whole block the program built. The
 ; card holds 32 blocks, playing and queued. Each call but MU_EVENT and
@@ -410,7 +411,6 @@ PBL_LEN         = 10
 ;               or more: legato). PLAY's MN is 7/8 of the length, MS 3/4.
 ;               PE_FULL with 32 blocks playing and queued
 ;   MU_TONE     the same with +1-2 a frequency in Hz (0 a rest), exact
-;               (SOUND)
 ;   MU_BLOCK    A/X a block of MU_BLEN (interface 18): +0-1 a note block's
 ;               address (one run of the program's memory), +2-3 its length:
 ;               queued behind what plays. PE_REFUSED if the card refused it

@@ -23,8 +23,9 @@
 ;             (p7/time.s TIMSET); A the event's id back
 ;   PLONP     PLAY ON's (the home block's PLAYS, after P3's SETEV1): with
 ;             nothing in the buffer (GWCNT 0), a trap remembered under PLAY
-;             STOP or OFF dropped, not taken (the manual's p. 212, its note
-;             2: the owner's answer 6 to branch C's plan)
+;             STOP (or still pending) dropped, not taken (the manual's p.
+;             212, its note 2: the owner's answer 6 to branch C's plan; PLAY
+;             OFF remembers nothing)
 ;   JOYFP     PEN(n), STICK(n), STRIG(n) from FUNDSP (the resident JOYF), X
 ;             the function as FINGO has it: PEN(n) GWSTS.ASM's PENF, n 0-9,
 ;             the OEM's RDPEN reporting no pen (0; PEN(0) the trap's

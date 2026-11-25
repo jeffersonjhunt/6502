@@ -541,7 +541,7 @@ TEST(sound_s_ranges_by_hand)
 // EVPOLL drops it) the next still goes as the one before ends, since the wait asks the card its count
 // (SN_MSTATUS) and needs no event. Guards ^C leaving a tone on; a program hung for ever, or late, on a lost event.
 // Seen failing with (a) SNDRST left out of the break, (b) the wait on the events alone (the poll left out: it
-// hangs).
+// hangs), (c) the wait's look at the keys left out (CHKINT: the break a note late; review round 1, T1).
 TEST(play_mf_waits_and_ctrl_c_breaks_it)
 {
     CcpRig r;
@@ -550,8 +550,22 @@ TEST(play_mf_waits_and_ctrl_c_breaks_it)
     Sound s;
     s.watch(r);
     run_prog(r, {"10 SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1:SOUND 440,9.1"}, ms(1200));
-    press(r, 0x06, CTRL); // ^C, as the third plays
+    // (review round 1, T1) the break comes from inside the wait: within about 50 ms of the key, not a note later
+    const uint16_t itsctc = lbl_map().at("ITSCTC");
+    uint64_t brk = 0;
+    const auto snd0 = r.watch;
+    r.watch = [&](uint16_t pc) {
+        snd0(pc);
+        if (pc == itsctc && brk == 0)
+            brk = r.cpu->cycles();
+    };
+    const uint64_t key = r.cpu->cycles() + ms(10); // press(): Ctrl down, 10 ms, then C
+    press(r, 0x06, CTRL); // ^C, as the third plays (the fourth SOUND waiting for it)
     CHECK(until_row(r, "Break") >= 0);
+    r.watch = snd0;
+    REQUIRE(brk > key);
+    std::printf("  ^C: the break %.1f ms after the key\n", as_ms(brk - key));
+    CHECK(as_ms(brk - key) < 50);
     const size_t n = s.entries.size();
     r.run(ms(800));
     CHECK_EQ(s.entries.size(), n);
@@ -890,8 +904,9 @@ TEST(play_s_note_cost_is_timed)
 // turned on remembers nothing, BIMISC.ASM's REQTRP), but a PLAY ON with the buffer already empty takes no trap (p.
 // 212's note 2: branch C's answer 6), while one with a note still sounding takes the remembered trap then; PLAY OFF
 // forgets it; ON PLAY(0) and ON PLAY(33) Illegal function call. Guards the background tune never refilled, refilled
-// twice, or refilled after it ended. Seen failing with (a) the request at n + 1 to n (the card's threshold n), (b)
-// note 2's drop left out.
+// twice, or refilled after it ended; ON PLAY(1), the "tune ended" refill, in MB and not MF (review round 1, T3).
+// Seen failing with (a) the request at n + 1 to n (the card's threshold n), (b) note 2's drop left out, (c)
+// MUSIC_DONE never trapping, (d) the MB-only test left out.
 TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
 {
     CcpRig r;
@@ -917,9 +932,44 @@ TEST(on_play_fires_when_the_buffer_falls_to_n_minus_1)
     if (line(r, 2) != "N= 1  1")
         std::printf("  PLAY STOP, PLAY ON with a note sounding: %s\n", screen(r).c_str());
     CHECK_EQ(line(r, 2), std::string("N= 1  1"));
+    // (review round 1, T3) ON PLAY(1): MUSIC_DONE's trap, as the last note ends (PLAY(0) 0 in it), in MB only (the
+    // manual's note 1): the same tune in MF traps nothing.
+    for (const char *mode : {"MB", "MF"})
+    {
+        run_prog(r, {std::string("10 ON PLAY(1) GOSUB 100:PLAY ON:PLAY \"") + mode + " T255 L16 CDEF\"",
+                     "20 IF PLAY(0)>0 THEN 20", "25 T!=TIMER", "26 IF TIMER-T!<.5 THEN 26", "30 PRINT N;Q:END",
+                     "100 N=N+1:Q=PLAY(0):RETURN"},
+                 ms(2500));
+        const std::string want = std::string(mode) == "MB" ? " 1  0" : " 0  0";
+        if (line(r, 2) != want)
+            std::printf("  ON PLAY(1), %s: %s\n", mode, screen(r).c_str());
+        CHECK_EQ(line(r, 2), want);
+    }
     CHECK_EQ(said(r, "ON PLAY(0) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(33) GOSUB 10"), std::string("Illegal function call"));
     CHECK_EQ(said(r, "ON PLAY(32) GOSUB 10"), std::string());
+}
+
+// Review round 1, T2 (the manual's p. 212, note 2; BIMISC.ASM's trap counts): PLAY ON with a PLAY trap remembered
+// under PLAY STOP and the buffer empty drops it, after SETEV1 has counted it in ONGSBF, so another trap's count is
+// kept: ON KEY(1) armed, ON PLAY(2) under PLAY STOP while MB music plays out, ERROR 200, F1 pressed in the error
+// handler (traps held: ONGSBF 1), then PLAY ON and RESUME: the key's GOSUB is taken (K 1), the PLAY trap not (N 0).
+// Guards a key or timer trap lost to the drop. Seen failing with PLONP called before SETEV1 (K 0).
+TEST(play_on_with_the_buffer_empty_keeps_another_trap_s_count)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(start(r) > 0);
+    run_prog(r, {"10 ON KEY(1) GOSUB 200:KEY(1) ON:ON PLAY(2) GOSUB 300:PLAY ON:PLAY STOP:ON ERROR GOTO 500",
+                 "20 PLAY \"MB T255 L16 CDEF\"", "30 IF PLAY(0)>0 THEN 30", "40 ERROR 200",
+                 "50 PRINT \"K=\";K;N:END", "200 K=K+1:RETURN", "300 N=N+1:RETURN",
+                 "500 T!=TIMER", "510 IF TIMER-T!<1.5 THEN 510", "520 PLAY ON:RESUME 50"},
+             ms(700));
+    press(r, 0x3A); // F1, inside the error handler
+    r.run(ms(3500));
+    if (line(r, 2) != "K= 1  0")
+        std::printf("  %s\n", screen(r).c_str());
+    CHECK_EQ(line(r, 2), std::string("K= 1  0"));
 }
 
 // Branch C (the manual's p. 211): ON PLAY(n) given after the notes were sent still traps as the buffer falls from n
