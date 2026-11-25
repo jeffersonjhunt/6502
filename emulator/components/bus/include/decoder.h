@@ -101,9 +101,8 @@
  *
  * The CPU card may send a memory cycle somewhere other than the address its
  * master asked for: the backplane's bridge sends bank 8 to the video
- * aperture (NorthBridge::redirect()), on its revision 2 while MAP's AP8 is
- * set, which it reads on every cycle, and on revision 1 while a revision 2
- * card is fitted. The CPU's windows and the DMA controller's cycles go through it, as both
+ * aperture (NorthBridge::redirect()) while MAP's AP8 is set, which it reads
+ * on every cycle. The CPU's windows and the DMA controller's cycles go through it, as both
  * are on the CPU card. peek_physical() and write_physical() are that same
  * reach with no cycle counted (the CPU card's view, for tests and tools);
  * peek_bus() and write_bus() are the backplane as a card driving it sees

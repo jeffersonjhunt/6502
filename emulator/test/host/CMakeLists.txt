@@ -154,10 +154,10 @@ set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sound_card_mix_into_the_sam
 # test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
 set(EMU_SPLIT_test_bios_sd 3)
 # test_bios_diag with B7's revision 2 default (fast, alone, 2026-11-17): 923 s, over its 900; each half ~460.
-# Its slow share (the owner, 2026-11-18; hw/testing.md, item 8): the 37 cases of 13 s or more that each make a
-# whole diagnostics run (1,030 s in all, 904 of them these), timed one by one at main b0100305. Four whole runs
-# stay in the two shares every gate runs: the golden quick run, the card stages on a good machine, bank 8's
-# stuck bit on a revision 2 bridge, and block 0's stuck bit. The slow share runs when the diagnostics' own
+# Its slow share (the owner, 2026-11-18; hw/testing.md, item 8): the cases of 13 s or more that each make a
+# whole diagnostics run (37 timed one by one at main b0100305, 1,030 s in all, 904 of them these; 36 since the
+# revision 1 bridge's went). Four whole runs stay in the two shares every gate runs: the golden quick run, the
+# card stages on a good machine, bank 8's stuck bit, and block 0's stuck bit. The slow share runs when the diagnostics' own
 # files change (tools/test-map.txt, label diagslow) and in quick and full.
 set(EMU_SPLIT_test_bios_diag 2)
 set(EMU_SLOW_SPLIT_test_bios_diag 4)
@@ -172,7 +172,7 @@ set(EMU_SLOW_test_bios_diag
         stage_10_s_event_path_catches_a_dead_interrupt
         a_full_run_never_writes_the_sd_card
         an_sd_card_that_stays_busy_is_reset_and_given_no_command
-        on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
+        v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
         a_pass_count_above_255_is_printed_whole
         a_loop_runs_two_passes_and_a_key_ends_it_after_the_second
         no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3
@@ -202,7 +202,6 @@ set(EMU_SLOW_test_bios_diag
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
         a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
-        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build
         nb10_fails_when_mss_isnt_restarted
         nb10_fails_when_msf_isnt_cleared
         nb9_fails_unlocked

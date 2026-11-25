@@ -1,13 +1,13 @@
 /**
  * @file test_nb_timebase.cpp
- * @brief North bridge revision 3's timebase: the 1 kHz tick, the millisecond counter and MSS.
+ * @brief The north bridge's timebase: the 1 kHz tick, the millisecond counter and MSS.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * hw/design.md ("The timebase"; its tests B1-B9 in hw/testing.md) is the
  * spec; backplane_bridge.h says how the emulator times it. The CPU runs at
  * NATIVE_HZ, so a cycle is two OSC clocks and tick k comes floor(157,500 k /
  * 11) OSC clocks after the reset's release: in cycle floor(78,750 k / 11),
- * counted from 0. A revision 2 bridge has none of it.
+ * counted from 0.
  */
 
 #include "harness.h"
@@ -46,16 +46,15 @@ namespace
     /// The cycle (from the release, counted from 0) tick k lands in.
     uint64_t tick_cycle(uint64_t k) { return 78'750 * k / 11; }
 
-    /// The bridge at `revision` on 1 MB of RAM (and the DMA controller with `dma`), powered on.
+    /// The bridge on 1 MB of RAM (and the DMA controller with `dma`), powered on.
     struct Rig
     {
-        explicit Rig(unsigned revision = 3, bool dma = false)
+        explicit Rig(bool dma = false)
         {
             MachineOptions opt;
             opt.rtc = std::make_shared<Ds3231>(START);
             std::string error;
-            std::string text = "cpu w65c02s\nnorthbridge backplane bootsel revision=" + std::to_string(revision) +
-                               "\nram 00000-FFFFF name=ram\n";
+            std::string text = "cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF name=ram\n";
             if (dma)
                 text += "dma 400-47F space=io name=dma irq\n";
             m = Machine::build(text, "nb3.machine", opt, error);
@@ -174,7 +173,7 @@ TEST(a_tick_under_dma_is_counted)
     // B4. 6502 code starts a 64 KB copy, memory to memory, that holds the CPU 131,073 cycles (18.3 ms): MS has
     // every tick it covered (18, exactly), MSF and OVR are set, and with MSIE it is one interrupt, gone at one
     // acknowledge. Must fail if OVR is never set, or the counter misses ticks the CPU didn't see.
-    Rig r(3, true);
+    Rig r(true);
     const uint8_t sel3 = static_cast<uint8_t>(0x71 | 3 << DmaController::SELECT_SHIFT);
     const std::vector<uint8_t> prog = {
         0xA9, sel3, 0x8D, 0x7E, 0xC4, // LDA #$71|SELECT 3; STA CONTROL
@@ -297,24 +296,19 @@ TEST(the_tick_needs_no_clock_chip)
 
 TEST(tie_is_gone_on_revision_3)
 {
-    // B7. Revision 3: TICK is still set by each second's read and cleared by a 1, but TIE written 1 reads 0 and
-    // nothing interrupts. Revision 2 as before: TIE reads back and TICK interrupts. Must fail with TIE kept on
-    // revision 3.
-    for (const unsigned rev : {3u, 2u})
-    {
-        std::printf("  revision %u\n", rev);
-        Rig r(rev);
-        r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
-        CHECK_EQ(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TIE, rev == 3 ? 0 : BackplaneBridge::RTC_TIE);
-        while (!(r.bridge->rtcctl() & BackplaneBridge::RTC_BUSY))
-            r.idle(100);
-        r.settle();
-        CHECK(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TICK);
-        CHECK_EQ(r.bus().irq(), rev == 2);
-        r.bus().write(RTCCTL, BackplaneBridge::RTC_TICK);
-        CHECK_EQ(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TICK, 0);
-        CHECK(!r.bus().irq());
-    }
+    // B7. TICK is still set by each second's read and cleared by a 1, but TIE written 1 reads 0 and nothing
+    // interrupts. Must fail with TIE kept, or TICK interrupting.
+    Rig r;
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
+    CHECK_EQ(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TIE, 0);
+    while (!(r.bridge->rtcctl() & BackplaneBridge::RTC_BUSY))
+        r.idle(100);
+    r.settle();
+    CHECK(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TICK);
+    CHECK(!r.bus().irq());
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_TICK);
+    CHECK_EQ(r.bus().read(RTCCTL) & BackplaneBridge::RTC_TICK, 0);
+    CHECK(!r.bus().irq());
 }
 
 TEST(resets_and_apple_ii_mode)
@@ -361,19 +355,6 @@ TEST(a_peek_latches_nothing)
     r.bus().peek(SEC);
     CHECK_EQ(r.bus().read(NB + BackplaneBridge::MS0 + 1), 0x56);
     CHECK_EQ(r.bus().read(MSSL), mss);
-}
-
-TEST(revision_2_has_no_timebase)
-{
-    // Revision 2 has no timebase: $1C-$1D and $28-$2E read $FF, a write to TBCTL does nothing, and its interrupt
-    // is TICK with TIE as before. Must fail with the timebase answering on revision 2.
-    Rig r(2);
-    r.bus().write(TBCTL, MSIE);
-    r.idle(HZ / 100);
-    for (uint16_t a : {MSSL, MSSH, TBCTL, MS0, uint16_t(MS0 + 1), uint16_t(MS0 + 2), uint16_t(MS0 + 3), TBSUBL, TBSUBH})
-        CHECK_EQ(r.bus().read(a), 0xFF);
-    CHECK(!r.bus().irq());
-    CHECK_EQ(r.bridge->ms(), 0u);
 }
 
 int main()

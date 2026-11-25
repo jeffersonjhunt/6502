@@ -113,9 +113,9 @@
  * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
  * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, 10 1 while a SET is pending (it reads
  * 0 in RTCCTL), then from 16 the DS3231's registers
- * $00-$12; empty without the backplane's bridge. timebase() is north bridge
- * revision 3's, read with no latch taken: a Uint8Array(7) of TBCTL, MS0-MS3
- * and MSSL-MSSH; empty before revision 3. random() likewise, its random
+ * $00-$12; empty without the backplane's bridge. timebase() is the north
+ * bridge's, read with no latch taken: a Uint8Array(7) of TBCTL, MS0-MS3
+ * and MSSL-MSSH; empty without the bridge. random() likewise, its random
  * source, taking no byte: a Uint8Array(2) of RNGST and RNGCNT.
  *
  * A `.sid` tune: loadSid(bytes, song) starts it on the card (song 0: its
@@ -499,22 +499,22 @@ namespace
                 rtc_[RTC_CHIP + r] = b->rtc()->read(r);
             return val(emscripten::typed_memory_view(rtc_.size(), rtc_.data()));
         }
-        /// North bridge revision 3's random source, taking no byte: RNGST and RNGCNT; empty before revision 3.
+        /// The north bridge's random source, taking no byte: RNGST and RNGCNT; empty with no bridge.
         val random()
         {
             const BackplaneBridge *b = session_->bridge();
-            if (!b || !b->timebase())
+            if (!b)
                 return val(emscripten::typed_memory_view(size_t{0}, rng_.data()));
             rng_[0] = b->rngst();
             rng_[1] = static_cast<uint8_t>(b->pool_size());
             return val(emscripten::typed_memory_view(rng_.size(), rng_.data()));
         }
-        /// North bridge revision 3's timebase, taking no latch: TBCTL, MS's four bytes (low first), MSS's two;
-        /// empty before revision 3 (or with no bridge). A view good until the next call.
+        /// The north bridge's timebase, taking no latch: TBCTL, MS's four bytes (low first), MSS's two;
+        /// empty with no bridge. A view good until the next call.
         val timebase()
         {
             const BackplaneBridge *b = session_->bridge();
-            if (!b || !b->timebase())
+            if (!b)
                 return val(emscripten::typed_memory_view(size_t{0}, tb_.data()));
             tb_[0] = b->tbctl();
             for (unsigned i = 0; i < 4; ++i)

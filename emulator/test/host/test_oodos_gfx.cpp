@@ -1451,7 +1451,7 @@ namespace
 
     /// The CPU's writes to $C6A0-$C6A5 (the DMA's aren't the library's); with `program`, only those made while the
     /// program's code ($0300-$3FFF: GXTEST and the library linked in it) runs, not OODOS's own (the console's
-    /// WIN1H on a revision 2 bridge), told by the rig's watch.
+    /// WIN1H), told by the rig's watch.
     struct NewRegWrites : CycleObserver
     {
         unsigned writes = 0;

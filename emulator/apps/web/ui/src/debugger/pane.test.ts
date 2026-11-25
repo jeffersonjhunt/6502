@@ -130,11 +130,11 @@ describe("debugger pane", () => {
     expect(q('[data-testid="bp-notice"]').textContent).toMatch(/SLOT1/);
   });
 
-  test("on connecting to a revision 2 machine, a saved bank 8 breakpoint moves to the notice", async () => {
+  test("on connecting with AP8 set, a saved bank 8 breakpoint moves to the notice", async () => {
     const bank8 = { id: "5", text: "84123", cpu: null, physical: 0x84123, fetch: true, read: false, write: false, nmi: false };
     localStorage.setItem("oo1.breakpoints", JSON.stringify([bank8]));
     const port = new FakePort();
-    port.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    port.io.set(0xc6ff, 0xd3); // NB_ID: the bridge
     port.io.set(0xc6a5, 0x01); // MAP: AP8 set
     const pane = debuggerPane(port);
     document.body.replaceChildren(pane.element);
@@ -145,11 +145,11 @@ describe("debugger pane", () => {
     expect(pane.element.querySelector('[data-testid="bp-notice"]')?.textContent).toMatch(/84123/);
   });
 
-  test("on connecting to a revision 2 bridge with AP8 clear, a saved bank 8 breakpoint stays in the list", async () => {
+  test("on connecting with AP8 clear, a saved bank 8 breakpoint stays in the list", async () => {
     const bank8 = { id: "5", text: "84123", cpu: null, physical: 0x84123, fetch: true, read: false, write: false, nmi: false };
     localStorage.setItem("oo1.breakpoints", JSON.stringify([bank8]));
     const port = new FakePort();
-    port.io.set(0xc6ff, 0xd2); // NB_ID: revision 2
+    port.io.set(0xc6ff, 0xd3); // NB_ID: the bridge
     port.io.set(0xc6a5, 0x00); // MAP: AP8 clear
     port.io.set(0xc4ff, 0x92); // a revision 2 card, whose bank 8 a program has taken back as RAM
     const pane = debuggerPane(port);

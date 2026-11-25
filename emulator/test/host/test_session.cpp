@@ -776,13 +776,14 @@ TEST(a_power_cycle_puts_the_north_bridges_map_and_winh_back)
     const std::string line = "\nnorthbridge  backplane";
     const size_t at = text.find(line);
     REQUIRE(at != std::string::npos);
-    text.insert(at + line.size(), " revision=2");
-    auto s = open(write_machine("nb2.machine", text));   // kept until the power cycle has read it again
+    text.insert(at + line.size(), " rng_chip=unlocked");
+    auto s = open(write_machine("nbu.machine", text));   // kept until the power cycle has read it again
     REQUIRE(s != nullptr);
     REQUIRE(s->bridge() != nullptr);
-    CHECK_EQ(s->bridge()->revision(), 2u);
+    constexpr uint8_t CHIP = BackplaneBridge::RNG_CHIP | BackplaneBridge::RNG_LOCKED;
     std::string out;
     REQUIRE(run_until(*s, out, GREETING));
+    CHECK_EQ(s->bridge()->rngst() & CHIP, BackplaneBridge::RNG_CHIP); // the file's own option: unlocked
     s->send("C6A1: 0E\r");                                  // the monitor's stores: WIN1H and MAP
     for (int i = 0; i < 10; ++i)
         s->run(FRAME);
@@ -794,11 +795,11 @@ TEST(a_power_cycle_puts_the_north_bridges_map_and_winh_back)
     CHECK_EQ(s->bridge()->map(), 0x00);
     std::string error;
     const bool cycled = s->power_cycle(error);
-    std::remove(tmp("nb2.machine").c_str());
+    std::remove(tmp("nbu.machine").c_str());
     if (!cycled)
         std::printf("  %s\n", error.c_str());
     REQUIRE(cycled);
-    CHECK_EQ(s->bridge()->revision(), 2u);                  // the same machine, built again
+    CHECK_EQ(s->bridge()->rngst() & CHIP, BackplaneBridge::RNG_CHIP); // the same machine, built again
     CHECK_EQ(s->bridge()->winh(1), 0x00);
     CHECK_EQ(s->bridge()->map(), BackplaneBridge::MAP_AP8);
     CHECK_EQ(s->peek_io(0x6A5), 0x01);

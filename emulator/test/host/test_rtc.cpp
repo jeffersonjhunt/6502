@@ -6,9 +6,8 @@
  * hw/design.md ("Real-time clock") is the spec; backplane_bridge.h says how
  * the bridge's I²C work is timed. Most cases run the CPU clock at 400 kHz,
  * so an I²C bit is one cycle and a transaction's BUSY lasts its bit count.
- * Then 6502 code on machines/backplane.machine reads the time through
- * $C690-$C696 and takes a TICK interrupt, and a session keeps the clock
- * through a power cycle.
+ * The clock keeps its second through the random source's draws, and a
+ * session keeps the clock through a power cycle.
  */
 
 #include "harness.h"
@@ -22,8 +21,6 @@
 #include "symbols.h"
 
 #include <cstdio>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,9 +46,8 @@ namespace
             MachineOptions opt;
             opt.rtc = std::make_shared<Ds3231>(t, lost);
             std::string error;
-            // Revision 2 (N5, block A): TIE's 1 Hz interrupt is revision 2's; revision 3's timebase is
-            // test_nb_timebase's, and the random source's C5 has its own machine below.
-            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel revision=2\nram 00000-FFFFF module=0\n",
+            // The timebase is test_nb_timebase's, and the random source's C5 has its own machine below.
+            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n",
                                "rtc.machine", opt, error);
             if (!m)
                 std::printf("  %s\n", error.c_str());
@@ -144,26 +140,6 @@ TEST(reading_sec_latches_all_seven_across_a_second)
     CHECK_EQ(r.bus().read(SEC + 5), 0x12);
     CHECK_EQ(r.bus().read(SEC + 6), 0x26);
     CHECK(r.time() == (std::vector<uint8_t>{0x00, 0x00, 0x00, 0x06, 0x01, 0x01, 0x27}));
-}
-
-TEST(tick_with_tie_interrupts_as_irqh_bit_5)
-{
-    Rig r;
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
-    CHECK_EQ(r.bus().read(RTCCTL), BackplaneBridge::RTC_TIE);
-    CHECK(!r.bus().irq());
-    CHECK_EQ(r.bus().read(NB + BackplaneBridge::IRQH), 0xFF);
-    r.next_tick();
-    CHECK(r.bus().irq());
-    CHECK_EQ(r.bus().read(NB + BackplaneBridge::IRQH), 0xDF); // ID 0xD
-    CHECK_EQ(r.bus().read(NB + BackplaneBridge::IRQL), 0xFF);
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TICK | BackplaneBridge::RTC_TIE);
-    CHECK(!r.bus().irq());
-    r.next_tick();
-    CHECK(r.bus().irq());
-    r.bus().write(RTCCTL, 0x00); // TIE off: TICK stays, the interrupt goes
-    CHECK(!r.bus().irq());
-    CHECK_EQ(r.bus().read(RTCCTL), BackplaneBridge::RTC_TICK);
 }
 
 TEST(set_sends_sec_to_year_and_clears_osf)
@@ -271,9 +247,9 @@ TEST(set_reads_0_so_a_read_modify_write_does_not_send_it_again)
     const std::vector<uint8_t> t = {0x00, 0x30, 0x10, 0x03, 0x27, 0x10, 0x26};
     for (uint16_t i = 0; i < 7; ++i)
         r.bus().write(static_cast<uint16_t>(SEC + i), t[i]);
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET | BackplaneBridge::RTC_TIE);
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET);
     const uint8_t ctl = r.bus().read(RTCCTL);
-    CHECK_EQ(ctl, BackplaneBridge::RTC_TIE | BackplaneBridge::RTC_BUSY); // pending shows as BUSY
+    CHECK_EQ(ctl, BackplaneBridge::RTC_BUSY); // pending shows as BUSY
     r.bus().write(RTCCTL, ctl);
     r.idle(BackplaneBridge::SET_BITS);
     CHECK(r.rtc->time() == (Ds3231::Time{2026, 10, 27, 10, 30, 0, 3}));
@@ -300,16 +276,15 @@ TEST(busy_takes_its_bits_at_the_cpu_clock)
 TEST(apple_ii_mode_hides_the_registers_and_the_clock_runs_on)
 {
     Rig r;
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
-    REQUIRE(r.bus().irq());
+    REQUIRE(r.bridge->rtcctl() & BackplaneBridge::RTC_TICK);
     r.bus().write(NB + BackplaneBridge::MODE, BackplaneBridge::MODE_APPLE);
     REQUIRE(r.bus().take_reset());
-    r.bus().pulse_reset(); // entering: /RESET clears TIE and TICK
+    r.bus().pulse_reset(); // entering: /RESET clears TICK
     REQUIRE(r.bridge->apple());
     CHECK(!r.bus().irq());
     CHECK_EQ(r.bridge->rtcctl(), 0x00);
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE); // the IIe's $C687 now: slot 6's ROM
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET); // the IIe's $C687 now: slot 6's ROM, no SET sent
     CHECK_EQ(r.bridge->rtcctl(), 0x00);
     const unsigned was = r.rtc->time().second;
     // The CPU runs at the Apple clock, and the second is still a second.
@@ -322,21 +297,19 @@ TEST(apple_ii_mode_hides_the_registers_and_the_clock_runs_on)
     CHECK_EQ(r.bus().read(SEC), r.bridge->rtc_time()[0]);
 }
 
-TEST(any_reset_clears_tick_and_tie_but_not_the_time)
+TEST(any_reset_clears_tick_but_not_the_time)
 {
     Rig r;
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
-    REQUIRE(r.bus().irq());
+    REQUIRE(r.bridge->rtcctl() & BackplaneBridge::RTC_TICK);
     r.bus().write(RTCREG, Ds3231::AGING);
     r.settle();
     r.bus().pulse_reset(); // /RESET
     CHECK(!r.bus().irq());
     CHECK_EQ(r.bus().read(RTCCTL), 0x00);
     CHECK_EQ(r.bus().read(RTCREG), 0x00);
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
-    REQUIRE(r.bus().irq());
+    REQUIRE(r.bridge->rtcctl() & BackplaneBridge::RTC_TICK);
     r.rtc->write(Ds3231::CONTROL, Ds3231::INTCN | Ds3231::A2IE); // on the chip (RTCDATA can't): the set-up would undo it
     r.bus().reset(); // the reset button: a hard reset, not a power-on
     CHECK(!r.bus().irq());
@@ -350,14 +323,13 @@ TEST(any_reset_clears_tick_and_tie_but_not_the_time)
 TEST(the_debugger_shows_the_clock)
 {
     Rig r;
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     Cpu6502 cpu(r.bus(), Cpu6502::Model::W65C02S);
     Symbols symbols;
     Debugger d(cpu, r.bus(), symbols);
     d.add_view("rtc", "   rtc   the clock\n", [&r] { return r.bridge->describe_clock(); });
     const std::string out = d.command("rtc");
     CHECK(out.find("time     2026-10-26 13:45:07  day 2\n") == 0);
-    CHECK(out.find("RTCCTL   $40 TIE\n") != std::string::npos);
+    CHECK(out.find("RTCCTL   $00\n") != std::string::npos);
     CHECK(out.find("control  $00  status $08  aging $00  temperature 25.00 C") != std::string::npos);
     CHECK(d.command("h").find("   rtc   the clock\nq  quit") != std::string::npos);
     CHECK_EQ(d.command("rtc now"), std::string("bad arguments; 'h' for help\n"));
@@ -366,107 +338,15 @@ TEST(the_debugger_shows_the_clock)
     CHECK(r.bridge->describe_clock().find("time     2026-10-26 13:45:08  day 2  (12 h)") == 0);
     // SET reads 0: a pending one is BUSY, and the bridge's queue says which.
     r.bus().write(RTCREG, Ds3231::AGING);
-    CHECK(d.command("rtc").find("RTCCTL   $C1 TICK TIE BUSY\n") != std::string::npos);
+    CHECK(d.command("rtc").find("RTCCTL   $81 TICK BUSY\n") != std::string::npos);
     r.settle();
-    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE | BackplaneBridge::RTC_SET);
-    CHECK(d.command("rtc").find("RTCCTL   $C1 TICK TIE BUSY (SET)\n") != std::string::npos);
-}
-
-namespace
-{
-    /// The whole 512 KB of ROM A with `code` at $C800 in its top block and the vectors set.
-    std::string flash_image(const std::vector<uint8_t> &code, uint16_t irq)
-    {
-        std::vector<uint8_t> flash(0x80000, 0xFF);
-        const size_t block31 = 0x7C000;
-        for (size_t i = 0; i < code.size(); ++i)
-            flash[block31 + 0x0800 + i] = code[i];
-        flash[block31 + 0x3FFC] = 0x00; // reset: $C800
-        flash[block31 + 0x3FFD] = 0xC8;
-        flash[block31 + 0x3FFE] = static_cast<uint8_t>(irq);
-        flash[block31 + 0x3FFF] = static_cast<uint8_t>(irq >> 8);
-        const char *image = "rtc_flash.rom";
-        std::FILE *f = std::fopen(image, "wb");
-        if (f)
-        {
-            std::fwrite(flash.data(), 1, flash.size(), f);
-            std::fclose(f);
-        }
-        return image;
-    }
-} // namespace
-
-TEST(a_program_reads_the_time_and_takes_the_tick_interrupt)
-{
-    std::vector<uint8_t> code = {0x78}; // C800 SEI
-    for (uint8_t i = 0; i < 7; ++i)      // LDA SEC+i; STA $0200+i: SEC first, latching
-    {
-        code.insert(code.end(), {0xAD, static_cast<uint8_t>(0x90 + i), 0xC6});
-        code.insert(code.end(), {0x8D, i, 0x02});
-    }
-    code.insert(code.end(), {
-                                0xA9, 0xC0, 0x8D, 0x87, 0xC6, // LDA #TICK|TIE; STA RTCCTL
-                                0x58,                         // CLI
-                                0xCB,                         // WAI
-                                0x80, 0xFD,                   // BRA WAI
-                            });
-    code.resize(0x100, 0xEA);
-    code.insert(code.end(), {
-                                // C900: the IRQ
-                                0xAD, 0x89, 0xC6, 0x8D, 0x10, 0x02, // LDA IRQH; STA $0210
-                                0xAD, 0x87, 0xC6, 0x8D, 0x11, 0x02, // LDA RTCCTL; STA $0211
-                                0xA9, 0xC0, 0x8D, 0x87, 0xC6,       // TICK cleared, TIE kept
-                                0xAD, 0x87, 0xC6, 0x8D, 0x12, 0x02, // LDA RTCCTL; STA $0212
-                                0xAD, 0x90, 0xC6, 0x8D, 0x08, 0x02, // LDA SEC; STA $0208
-                                0xDB,                               // STP
-                            });
-    MachineOptions opt;
-    opt.rom_override = flash_image(code, 0xC900);
-    opt.rtc_time = START;
-    std::string error;
-    std::ifstream file(EMU_MACHINE_DIR "/backplane.machine"); // at revision 2: TIE's interrupt (N5)
-    std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    const size_t at = text.find("northbridge  backplane");
-    REQUIRE(at != std::string::npos);
-    text.insert(at + 22, " revision=2");
-    auto m = Machine::build(text, "backplane.machine", opt, error);
-    if (!m)
-        std::printf("  %s\n", error.c_str());
-    REQUIRE(m != nullptr);
-    BackplaneBridge *bridge = m->backplane_bridge();
-    REQUIRE(bridge != nullptr);
-    constexpr uint32_t CPU_HZ = 100'000; // a slow CPU, so a second is quick to run
-    bridge->set_cpu_hz(CPU_HZ);
-    Decoder &bus = m->bus();
-    Cpu6502 cpu(bus, Cpu6502::Model::W65C02S);
-    bus.reset();
-    cpu.reset();
-    uint64_t woke = 0;
-    for (int i = 0; i < 2'000'000 && cpu.state() != Cpu6502::State::Stopped; ++i)
-    {
-        cpu.step();
-        if (bus.irq())
-        {
-            if (!woke)
-                woke = cpu.cycles();
-            cpu.irq();
-        }
-    }
-    REQUIRE(cpu.state() == Cpu6502::State::Stopped);
-    for (uint16_t i = 0; i < 7; ++i)
-        CHECK_EQ(bus.peek(static_cast<uint16_t>(0x0200 + i)), START_REGS[i]);
-    CHECK_EQ(bus.peek(0x0210), 0xDF); // IRQH: the north bridge, ID 0xD
-    CHECK_EQ(bus.peek(0x0211), BackplaneBridge::RTC_TICK | BackplaneBridge::RTC_TIE);
-    CHECK_EQ(bus.peek(0x0212), BackplaneBridge::RTC_TIE);
-    CHECK_EQ(bus.peek(0x0208), 0x08);
-    // The second ends at CPU_HZ; then 132 bits at 400 kHz, 33 cycles, before TICK.
-    CHECK(woke > CPU_HZ + 32 && woke < CPU_HZ + 40);
-    std::remove(opt.rom_override.c_str());
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET);
+    CHECK(d.command("rtc").find("RTCCTL   $81 TICK BUSY (SET)\n") != std::string::npos);
 }
 
 TEST(the_clock_keeps_its_second_through_draws)
 {
-    // Random source C5 (hw/design.md, "The random source"), on a revision 3 bridge: a program drains the random pool for
+    // Random source C5 (hw/design.md, "The random source"): a program drains the random pool for
     // 5 s straight, so draws run back to back on the bus the clock shares. Each second's read still lands: TICK
     // each second, SEC one on each time, and RTCCTL's BUSY never held by a draw: at most a Refresh's 132 bits
     // and the one chip transaction it waited behind (a response, 326). Must fail with one BUSY shared by both,
@@ -474,7 +354,7 @@ TEST(the_clock_keeps_its_second_through_draws)
     MachineOptions opt;
     opt.rtc = std::make_shared<Ds3231>(START);
     std::string error;
-    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel revision=3\nram 00000-FFFFF module=0\n",
+    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n",
                             "rtc3.machine", opt, error);
     REQUIRE(m != nullptr);
     BackplaneBridge *bridge = m->backplane_bridge();
@@ -533,6 +413,30 @@ TEST(the_clock_keeps_its_second_through_draws)
     CHECK(longest <= BackplaneBridge::REFRESH_BITS + 9 * 34 + 1 + 12); // (+ the loop's 12 cycles a pass)
     CHECK(total <= (seconds + 1) * (BackplaneBridge::REFRESH_BITS + 9 * 34 + 1 + 12)); // the clock's alone
 }
+
+namespace
+{
+    /// The whole 512 KB of ROM A with `code` at $C800 in its top block and the vectors set.
+    std::string flash_image(const std::vector<uint8_t> &code, uint16_t irq)
+    {
+        std::vector<uint8_t> flash(0x80000, 0xFF);
+        const size_t block31 = 0x7C000;
+        for (size_t i = 0; i < code.size(); ++i)
+            flash[block31 + 0x0800 + i] = code[i];
+        flash[block31 + 0x3FFC] = 0x00; // reset: $C800
+        flash[block31 + 0x3FFD] = 0xC8;
+        flash[block31 + 0x3FFE] = static_cast<uint8_t>(irq);
+        flash[block31 + 0x3FFF] = static_cast<uint8_t>(irq >> 8);
+        const char *image = "rtc_flash.rom";
+        std::FILE *f = std::fopen(image, "wb");
+        if (f)
+        {
+            std::fwrite(flash.data(), 1, flash.size(), f);
+            std::fclose(f);
+        }
+        return image;
+    }
+} // namespace
 
 TEST(a_session_keeps_the_clock_through_a_power_cycle)
 {

@@ -117,7 +117,7 @@ export function debuggerPane(port: MachinePort) {
   const connect = () => {
     connected = true;
     bps.arm(null);
-    void bps.recheck(); // a saved bank 8 breakpoint can't fire while bank 8 is the aperture (AP8 set; VIDEO_ID $92 off a $D2 bridge)
+    void bps.recheck(); // a saved bank 8 breakpoint can't fire while bank 8 is the aperture (AP8 set; VIDEO_ID $92 with no bridge)
     watch();
   };
 

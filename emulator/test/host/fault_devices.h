@@ -10,7 +10,7 @@
  * bits, and one block answering as another (fault_redirect). Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
  * and the bus's later mappings win, for the CPU's windows and DMA alike. Addresses are physical as the CPU card
  * reaches them (Decoder::redirect()) when the machine has a revision 2 video card: bank 8 is then the aperture at
- * $E00000 (AP8 set from reset, or a revision 1 bridge's fixed alias), so a fault there is the aperture's. With no
+ * $E00000 (AP8 set from reset), so a fault there is the aperture's. With no
  * revision 2 card bank 8 is RAM (the BIOS clears AP8; step B7, proposed), and `ram` asks for the RAM card's bank 8
  * whatever is fitted: the diagnostics clear AP8 and test it (b7-plan.md, question 6).
  */

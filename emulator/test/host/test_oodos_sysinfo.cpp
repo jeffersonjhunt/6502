@@ -600,9 +600,9 @@ TEST(one_section_alone_and_a_wrong_word)
     CHECK_EQ(run(r, "m:sysinfo memory"), std::string("SYSINFO {section} {/ALL}"));
 }
 
-TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
+TEST(the_ram_line_takes_bank_8_from_maps_ap8)
 {
-    // D6 (B7, b7-plan.md §4, as C18 left it): on a $D2 bridge SYSINFO reads MAP's AP8 to say what bank 8 is, with
+    // D6 (B7, b7-plan.md §4, as C18 left it): SYSINFO reads the north bridge's MAP's AP8 to say what bank 8 is, with
     // no new text. With the revision 2 video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
     // to 0 before it runs, bank 8 is RAM: the no-card text. With no revision 2 card and MAP forced to 1, the
     // no-card text too (DM_INFO says there is no card).

@@ -646,7 +646,7 @@ TEST(every_ram_block_bad_blinks_82_the_block_and_the_bits)
     Rig r(SW19);
     REQUIRE(r.ok());
     std::vector<std::unique_ptr<FaultyMemory>> faults;
-    for (uint32_t b = 0; b < 64; ++b) // bank 8's too: GO clears AP8 on $D2, so blocks 32-35 are RAM and tested
+    for (uint32_t b = 0; b < 64; ++b) // bank 8's too: GO clears AP8, so blocks 32-35 are RAM and tested
     {
         auto f = std::make_unique<FaultyMemory>();
         f->or_mask = 0x10;
@@ -1860,27 +1860,14 @@ TEST(a_revision_1_dma_controller_is_listed_and_never_driven)
     CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
 }
 
-// --- B7: the north bridge's revision 2 (MAP's AP8; step B7, proposed) ----------------------------------
+// --- B7: the north bridge's MAP's AP8 (step B7) ----------------------------------
 //
-// On a bridge whose NB_ID reads $D2, GO clears AP8 (b7-plan.md, question 6): bank 8 is RAM and tested with the
-// other 60 blocks, DG_APER (from AP8) is 0, and V4-V7 reach the aperture at $E00000 by WIN1H $0E (APW1). The boot
-// after the run sets MAP back (BOOT2's NBSET). These machines say `revision=2` on their northbridge line.
+// GO clears AP8 (b7-plan.md, question 6): bank 8 is RAM and tested with the other 60 blocks, DG_APER (from AP8) is
+// 0, and V4-V7 reach the aperture at $E00000 by WIN1H $0E (APW1). The boot after the run sets MAP back (BOOT2's
+// NBSET).
 
 namespace
 {
-    /// `text` (backplane.machine when empty) with its north bridge at revision=`nb`.
-    std::string with_bridge(unsigned nb, std::string text = {})
-    {
-        if (text.empty())
-            text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at == std::string::npos)
-            std::printf("  backplane.machine has no '%s' line\n", line.c_str());
-        else
-            text.insert(at + line.size(), " revision=" + std::to_string(nb));
-        return text;
-    }
     const BackplaneBridge &bridge_of(const Rig &r) { return *r.machine->find_as<BackplaneBridge>("northbridge"); }
     /// Bank 8's RAM, as the backplane carries it (no redirect): a pattern in it, or how many of its bytes changed.
     void fill_bank8(Rig &r)
@@ -1897,14 +1884,14 @@ namespace
     }
 } // namespace
 
-TEST(on_a_revision_2_bridge_with_no_video_card_the_prompts_run_tests_bank_8_and_passes)
+TEST(with_no_video_card_the_prompts_run_tests_bank_8_and_passes)
 {
     // R5. The prompt's way in (RESET, DE_PROMPT, GO) never passes BOOT2, so MAP is still $01 from reset; GO writes it
     // 0 itself. Stages 2-6 pass, and bank 8's RAM was theirs to test (its pages written: with AP8 left set they
     // would go to the empty aperture and bank 8's RAM keep the mark).
-    Rig r(SW19, EMU_BIOS_ROM, with_bridge(2, machine_without({"video", "aperture"})));
+    Rig r(SW19, EMU_BIOS_ROM, machine_without({"video", "aperture"}));
     REQUIRE(r.ok());
-    REQUIRE(bridge_of(r).id() == 0xD2);
+    REQUIRE(bridge_of(r).id() == 0xD3);
     fill_bank8(r);
     REQUIRE(enter(r));
     CHECK_EQ(bridge_of(r).map(), 0x00);
@@ -1915,11 +1902,11 @@ TEST(on_a_revision_2_bridge_with_no_video_card_the_prompts_run_tests_bank_8_and_
     CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
 }
 
-TEST(on_a_revision_2_bridge_with_the_card_a_stuck_bit_in_bank_8s_ram_is_found)
+TEST(with_the_card_a_stuck_bit_in_bank_8s_ram_is_found)
 {
     // R6. With the card, GO still clears AP8, so DG_APER is 0 and bank 8's RAM (blocks 32-35) is tested: a stuck
     // bit in block 33 (the RAM card's, not the aperture) fails stage 6, named.
-    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    Rig r(0, EMU_BIOS_ROM);
     REQUIRE(r.ok());
     FaultyMemory f;
     REQUIRE(fault_at(*r.machine, f, 33 * BLOCK + 0x0123, 0xFF, 0x08, true));
@@ -1930,12 +1917,12 @@ TEST(on_a_revision_2_bridge_with_the_card_a_stuck_bit_in_bank_8s_ram_is_found)
     CHECK(ends(test_line(r, "V6"), "PASS"));
 }
 
-TEST(on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6)
+TEST(v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6)
 {
     // R7. With AP8 clear, V4-V7 reach the aperture by WIN1H $0E and BLOCK the slot: they pass on a good machine,
     // with bank 8's RAM tested beside them; an aperture fault at $E04123 (slot 1) fails V6 and not V4.
     {
-        Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+        Rig r(0, EMU_BIOS_ROM);
         REQUIRE(r.ok());
         faulted_run(r);
         for (const char *t : {"V4", "V5", "V6", "V7"})
@@ -1943,7 +1930,7 @@ TEST(on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_s
         CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
     }
     {
-        Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+        Rig r(0, EMU_BIOS_ROM);
         REQUIRE(r.ok());
         FaultyMemory f;
         REQUIRE(fault_at(*r.machine, f, 0xE04123, 0xF7, 0x00)); // aperture slot 1, bit 3 stuck at 0
@@ -1960,7 +1947,7 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
 {
     // R8. Break while V6 has W1 on the aperture (WIN1H $0E): BRKH's PUTBACKM puts W1 back on block 1 but leaves
     // WIN1H (C6), and DG_TBOOT's BOOT2 clears it (NBSET), so the boot's screen and W1 are right.
-    Rig r(SW19, EMU_BIOS_ROM, with_bridge(2));
+    Rig r(SW19, EMU_BIOS_ROM);
     REQUIRE(r.ok());
     REQUIRE(enter(r));
     bool fired = false;
@@ -1992,10 +1979,9 @@ TEST(break_in_v6_with_win1h_on_0e_boots_with_w1_on_ram_block_1)
 
 TEST(stage_7_takes_d3)
 {
-    // N1, the sweep: stage 7 takes the bridge at revision 2 or 3, and NB1 names the ID it read. On a $D3 bridge the
-    // stage runs and passes (revision 3 is revision 2's registers so far), NB1 says $D3, and the run passes. Must
-    // fail if CARDIS is still asked for revision 2 alone (the stage would SKIP).
-    Rig r(SW19, EMU_BIOS_ROM, with_bridge(3));
+    // N1, the sweep: NB1 names the ID it read. On the $D3 bridge the stage runs and passes, NB1 says $D3, and the
+    // run passes. Must fail if CARDIS is asked for another revision (the stage would SKIP).
+    Rig r(SW19, EMU_BIOS_ROM);
     REQUIRE(r.ok());
     REQUIRE(bridge_of(r).id() == 0xD3);
     REQUIRE(enter(r));
@@ -2005,51 +1991,16 @@ TEST(stage_7_takes_d3)
     CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
 }
 
-TEST(on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build)
-{
-    // R10. Stage 7 takes the bridge at revision 2, ID $D2 exactly (b7-plan.md, question 7): a $D1 bridge has no
-    // WINnH, VECH or MAP, so NB1-NB8 never run and the stage SKIPs, saying revision 1. Must fail if CARDIS's
-    // revision is left at 1 (stage 7 would run, and pass, on the old bridge). The rest of the run is unchanged: the
-    // other stages pass, by the VIDEO_ID rule on $D1.
-    Rig r(SW19, EMU_BIOS_ROM, with_bridge(1));
-    REQUIRE(r.ok());
-    REQUIRE(bridge_of(r).id() == 0xD1);
-    REQUIRE(enter(r));
-    REQUIRE(to_result(r));
-    CHECK(ends(stage_line(r, 7), "SKIP"));
-    const std::string text = report(r);
-    const size_t s7 = text.find("\r" + stage_line(r, 7) + "\r"); // the stage's line, then its reason's
-    const size_t why = s7 == std::string::npos ? s7 : s7 + stage_line(r, 7).size() + 2;
-    const std::string reason = why == std::string::npos ? "" : text.substr(why, text.find('\r', why) - why);
-    std::printf("  stage 7: '%s' / '%s'\n", stage_line(r, 7).c_str(), reason.c_str());
-    CHECK(reason.find("REVISION 1: NOT KNOWN TO THIS BUILD") != std::string::npos);
-    CHECK(text.find("NB1  ID") == std::string::npos); // NB1-NB8 never run
-    for (unsigned n = 2; n <= 6; ++n)
-        CHECK(ends(stage_line(r, n), "PASS"));
-    CHECK(ends(stage_line(r, 9), "PASS"));
-    CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
-    CHECK_EQ(bridge_of(r).map(), 0x01); // nothing wrote MAP: a $D1 bridge has none (it reads its reset value)
-}
-
 // --- Revision 3: NB10, the timebase (N6; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ---------------
 
-TEST(nb10_passes_on_revision_3_and_skips_on_2)
+TEST(nb10_passes)
 {
-    // NB10 on the default revision 3 bridge: MSF, IRQH bit 5, MS across a second, MSS at three second changes and
-    // SYNC all pass. On a revision 2 bridge it SKIPs, saying so, and the run still passes.
-    {
-        Rig r(0, EMU_BIOS_ROM);
-        REQUIRE(r.ok());
-        REQUIRE(bridge_of(r).id() == 0xD3);
-        faulted_run(r);
-        CHECK(ends(test_line(r, "NB10"), "PASS"));
-        CHECK(ends(stage_line(r, 7), "PASS"));
-    }
-    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    // NB10 on the bridge: MSF, IRQH bit 5, MS across a second, MSS at three second changes and SYNC all pass.
+    Rig r(0, EMU_BIOS_ROM);
     REQUIRE(r.ok());
+    REQUIRE(bridge_of(r).id() == 0xD3);
     faulted_run(r);
-    CHECK(ends(test_line(r, "NB10"), "SKIP"));
-    CHECK(after_test(r, "NB10").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(test_line(r, "NB10"), "PASS"));
     CHECK(ends(stage_line(r, 7), "PASS"));
 }
 
@@ -2081,24 +2032,16 @@ TEST(nb10_fails_when_msf_isnt_cleared)
 
 // --- Revision 3: NB12, the common hole (N18; hw/design.md, "The common hole") ---------------
 
-TEST(nb12_passes_on_revision_3_and_skips_on_2)
+TEST(nb12_passes)
 {
-    // NB12 on the default revision 3 bridge: the hole shows a tested block's top 2 KB, keeps it with RO, and
-    // gives $F800 back to W3 when off; HOLE 0 after it. On a revision 2 bridge it SKIPs, saying so.
-    {
-        Rig r(0, EMU_BIOS_ROM);
-        REQUIRE(r.ok());
-        faulted_run(r);
-        CHECK(ends(test_line(r, "NB12"), "PASS"));
-        CHECK(ends(stage_line(r, 7), "PASS"));
-        CHECK_EQ(bridge_of(r).hole(), 0x00);
-    }
-    Rig r(0, EMU_BIOS_ROM, with_bridge(2));
+    // NB12 on the bridge: the hole shows a tested block's top 2 KB, keeps it with RO, and gives $F800 back to W3
+    // when off; HOLE 0 after it.
+    Rig r(0, EMU_BIOS_ROM);
     REQUIRE(r.ok());
     faulted_run(r);
-    CHECK(ends(test_line(r, "NB12"), "SKIP"));
-    CHECK(after_test(r, "NB12").find("NOT NORTH BRIDGE REVISION 3") != std::string::npos);
+    CHECK(ends(test_line(r, "NB12"), "PASS"));
     CHECK(ends(stage_line(r, 7), "PASS"));
+    CHECK_EQ(bridge_of(r).hole(), 0x00);
 }
 
 TEST(nb12_fails_when_the_hole_ignores_ro)
@@ -2120,7 +2063,7 @@ TEST(nb12_fails_when_the_hole_ignores_ro)
 
 namespace
 {
-    /// backplane.machine at revision 3 with rng_chip=`chip`.
+    /// backplane.machine with rng_chip=`chip`.
     std::string with_chip(const std::string &chip)
     {
         std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");

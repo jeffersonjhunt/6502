@@ -22,40 +22,29 @@
  * bridge's own ID, D, on PS0-PS3 (memory_select()), and the DMA
  * controller's memory to memory cycles its 8.
  *
- * Three revisions (step B7, proposed; the constructor's `revision`, a machine
- * file's `revision=1|2|3`; REVISION and ID are the default's):
- *
- * - Revision 3, ID $D3 (hw/design.md, "The north bridge, revision 3"):
- *   revision 2's registers, the timebase ($1C-$1D, $28-$2E, below) and in
- *   the random source ($19-$1B, below). RTCCTL's TIE reads 0 and ignores
- *   writes: the 1 Hz TICK can't interrupt.
- *
- * - Revision 2, ID $D2 (hw/design.md, "The video aperture moved out of
- *   RAM"): WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
- *   block, or VEC's on a vector pull, while its ROM bit is clear (bits 3-0;
- *   7-4 read 0), so a window reaches any 16 KB of the 16 MB. MAP ($25) holds
- *   AP8 in bit 0 (bits 7-1 read 0): set, the CPU card sends every memory
- *   cycle for bank 8, $080000-$08FFFF, to the video card's aperture at
- *   $E00000-$E0FFFF instead (redirect(): a window with ROM clear, WINnH 0 and
- *   blocks 32-35, and the DMA controller's memory side), as bank 8 was the
- *   card's before; clear, bank 8 is the RAM's. It follows MAP live. Any
- *   reset sets WINnH and VECH to 0 and MAP to $01, whatever is fitted: a
- *   machine with no revision 2 video card reads $FF in bank 8 until its
- *   BIOS clears AP8.
- * - Revision 1, ID $D1, B1's model: $20-$25 read $FF and drop writes, and
- *   the alias is fixed when the machine is built, from the card it has
- *   (set_aperture()): bank 8 goes to the aperture while a revision 2 card is
- *   fitted, and is the RAM's without one.
+ * Revision 3, ID $D3 (hw/design.md, "The north bridge, revision 3"), the
+ * only one: WIN0H-WIN3H ($20-$23) and VECH ($24) give A20-A23 for a window's
+ * block, or VEC's on a vector pull, while its ROM bit is clear (bits 3-0;
+ * 7-4 read 0), so a window reaches any 16 KB of the 16 MB. MAP ($25) holds
+ * AP8 in bit 0 (bits 7-1 read 0): set, the CPU card sends every memory
+ * cycle for bank 8, $080000-$08FFFF, to the video card's aperture at
+ * $E00000-$E0FFFF instead (redirect(): a window with ROM clear, WINnH 0 and
+ * blocks 32-35, and the DMA controller's memory side); clear, bank 8 is the
+ * RAM's. It follows MAP live. Any reset sets WINnH and VECH to 0 and MAP to
+ * $01, whatever is fitted: a machine with no video card reads $FF in bank 8
+ * until its BIOS clears AP8. The timebase ($1C-$1D, $28-$2E) and the random
+ * source ($19-$1B) are below. RTCCTL's TIE (bit 6) reads 0 and ignores
+ * writes: the 1 Hz TICK is a flag, and never interrupts.
  *
  * The Console card, driving the bus itself, sees bank 8 as the RAM's either
  * way.
  *
- * Revision 3's common hole, HOLE ($26: bit 7 EN, bit 6 RO, bits 5-0 the
+ * The common hole, HOLE ($26: bit 7 EN, bit 6 RO, bits 5-0 the
  * block): with EN set, every native CPU cycle to $F800-$FFFF goes to RAM at
  * the block's top 2 KB (block x $4000 + $3800), ahead of VEC and W3, whose
  * ROM, RO and WINnH bits don't reach it; HOLE's RO drops writes. $00 at every
  * reset and the /RESET pulse; the Apple II map comes first, and DMA (physical
- * addresses) is untouched. Before revision 3 $26 reads $FF and drops writes.
+ * addresses) is untouched.
  *
  * While VPB is low, $C000-$FFFF goes through VEC instead of W3. The I/O hole,
  * $C000-$C7FF, is decoded ahead of the windows; module n's registers are at
@@ -67,7 +56,7 @@
  *   $17 RTCREG   $18 RTCDATA   $19-$1B RNGST RNGCNT RNGDATA
  *   $1C/$1D MSSL/MSSH   $20-$23 WIN0H-WIN3H
  *   $24 VECH   $25 MAP   $26 HOLE   $28 TBCTL   $29-$2C MS0-MS3   $2D/$2E TBSUBL/H
- *   $7F ID (WIN0H-MAP on revision 2 or more)
+ *   $7F ID
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
  * ROM A read-only ($DF); with /BOOTSEL held they map RAM block 63 ($3F).
@@ -114,9 +103,9 @@
  * - Writing RTCREG reads that DS3231 register into RTCDATA; writing RTCDATA
  *   writes it and reads it back. A status read updates LOST and ALARM. A
  *   control write goes with INTCN and RS cleared: SQW stays the bridge's.
- * - TICK && TIE is the bridge's interrupt: IRQH bit 5, ID 0xD.
+ * - TICK is a flag: RTCCTL's TIE reads 0, so the clock never interrupts.
  *
- * The timebase (revision 3): the bridge counts OSC, the 14.31818 MHz master
+ * The timebase: the bridge counts OSC, the 14.31818 MHz master
  * clock, which is native cycles x 2 and, in Apple II mode, 912 clocks in 65
  * cycles (any other CPU clock by its ratio to NATIVE_HZ). The k-th tick comes
  * floor(157,500 k / 11) OSC clocks after a hard reset's release, and tick()
@@ -133,7 +122,7 @@
  * clears MS and the divider (they start at the release); a /RESET pulse
  * leaves them; any reset clears MSF, OVR and MSIE. peek() takes no latch.
  *
- * The random source (revision 3; hw/design.md, "The random source"): an ATECC608B
+ * The random source (hw/design.md, "The random source"): an ATECC608B
  * (atecc608.h) on the same I²C bus, driven by the bridge alone, which keeps
  * a pool of 32 bytes. A draw is a run of short transactions with the bus free
  * between them, queued with the clock's one at a time and timed by their bits:
@@ -156,7 +145,7 @@
  * At power-on (the first reset) the bridge sets the square wave to 1 Hz
  * (INTCN and RS cleared, the rest of the control register kept) and reads
  * the time, all while /RESET is held, so the first instruction sees a
- * valid time with BUSY clear. Any reset clears TICK and TIE; the DS3231,
+ * valid time with BUSY clear. Any reset clears TICK; the DS3231,
  * its time, and a transaction under way carry on. The chip itself is
  * shared, so a session can keep it through a power cycle (rtc()).
  *
@@ -186,10 +175,7 @@ namespace ooe::emu
     public:
         static constexpr uint8_t MODULE = 0xD;                     ///< the ID its registers use
         static constexpr uint32_t REGISTERS = MODULE * 0x80;      ///< offset in the I/O hole: $C680
-        static constexpr uint8_t REVISION = 3;                    ///< the default revision (revision()): 3 since N5
-        static constexpr uint8_t ID = MODULE << 4 | REVISION;     ///< the default's +$7F: type and revision (id())
-        static constexpr uint8_t WIDE = 2;                        ///< the revision with WINnH, VECH and MAP
-        static constexpr uint8_t TIMEBASE = 3;                    ///< the revision with the timebase
+        static constexpr uint8_t ID = MODULE << 4 | 3;            ///< +$7F: type and revision, $D3 (id())
 
         static constexpr uint8_t ROM = 0x80;
         static constexpr uint8_t RO = 0x40;
@@ -210,16 +196,16 @@ namespace ooe::emu
             SEC = 0x10, ///< SEC-YEAR: $10-$16
             RTCREG = 0x17,
             RTCDATA = 0x18,
-            WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23 (revision 2)
-            VECH = 0x24,  ///< revision 2
-            MAP = 0x25,   ///< revision 2
-            HOLE = 0x26,  ///< revision 3: the common hole
-            RNGST = 0x19, ///< revision 3: the random source
+            WIN0H = 0x20, ///< WIN0H-WIN3H: $20-$23
+            VECH = 0x24,
+            MAP = 0x25,
+            HOLE = 0x26,  ///< the common hole
+            RNGST = 0x19, ///< the random source
             RNGCNT = 0x1A,
             RNGDATA = 0x1B,
-            MSSL = 0x1C,  ///< revision 3: MSS from SEC's latch
+            MSSL = 0x1C,  ///< MSS from SEC's latch
             MSSH = 0x1D,
-            TBCTL = 0x28, ///< revision 3: the timebase
+            TBCTL = 0x28, ///< the timebase
             MS0 = 0x29,   ///< MS0-MS3: $29-$2C; reading MS0 latches the rest and TBSUB
             TBSUBL = 0x2D,
             TBSUBH = 0x2E,
@@ -232,15 +218,15 @@ namespace ooe::emu
         static constexpr uint8_t MODE_APPLE = 0x01;
         static constexpr uint8_t MODE_TURBO = 0x02; ///< reserved for /1: kept, not modelled
         // RTCCTL
-        static constexpr uint8_t RTC_TICK = 0x80, RTC_TIE = 0x40, RTC_ALARM = 0x20, RTC_LOST = 0x04,
+        static constexpr uint8_t RTC_TICK = 0x80, RTC_TIE = 0x40 /* reads 0 */, RTC_ALARM = 0x20, RTC_LOST = 0x04,
                                  RTC_SET = 0x02, RTC_BUSY = 0x01;
         static constexpr unsigned TIME_REGS = 7;
-        // TBCTL (revision 3)
+        // TBCTL
         static constexpr uint8_t TB_MSF = 0x80, TB_OVR = 0x40, TB_MSIE = 0x20, TB_SYNC = 0x10;
         static constexpr uint64_t OSC_11MS = 157'500;         ///< OSC clocks in 11 ms: 9 ticks of 14,318, 2 of 14,319
         static constexpr uint64_t SYNC_OSC = 1100 * OSC_11MS / 11; ///< SYNC's timeout, 1.1 s of OSC
         static constexpr unsigned MSS_MAX = 999;
-        // RNGST (revision 3)
+        // RNGST
         static constexpr uint8_t RNG_READY = 0x80, RNG_CHIP = 0x40, RNG_LOCKED = 0x20, RNG_FAULT = 0x10,
                                  RNG_BUSY = 0x01, RNG_DRAW = 0x01;
         static constexpr unsigned POOL = 32, TRIES = 3;
@@ -264,16 +250,10 @@ namespace ooe::emu
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
         /// `rtc`: the DS3231 on the CPU card; nullptr, a new one at 2000-01-01 00:00:00.
-        /// `revision`: 1, WIDE (2) or 3; anything else is taken as 1.
-        explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr,
-                                 uint8_t revision = REVISION);
+        explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr);
 
-        uint8_t revision() const { return revision_; }
-        uint8_t id() const { return static_cast<uint8_t>(MODULE << 4 | revision_); }
-        /// Revision 2 or more: WINnH, VECH and MAP.
-        bool wide() const { return revision_ >= WIDE; }
-        /// Revision 3: the timebase (TBCTL, MS, TBSUB, MSS), and TIE gone.
-        bool timebase() const { return revision_ >= TIMEBASE; }
+        uint8_t revision() const { return ID & 0x0F; }
+        uint8_t id() const { return ID; }
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
         void attach(Decoder *decoder)
@@ -293,16 +273,8 @@ namespace ooe::emu
         {
             if ((physical & ~0xFFFFu) != BANK8) // A20-A23 0 and bank 8 only
                 return physical;
-            if (wide())
-                return map_ & MAP_AP8 ? APERTURE + (physical & 0xFFFF) : physical; // AP8, live
-            return aperture_ != NO_APERTURE ? aperture_ + (physical & 0xFFFF) : physical;
+            return map_ & MAP_AP8 ? APERTURE + (physical & 0xFFFF) : physical; // AP8, live
         }
-        /// Revision 1: send bank 8 to the aperture at `base` (64 KB; a revision 2 video card is
-        /// fitted), or NO_APERTURE: bank 8 is the RAM's. Fixed when the machine is built. Revision 2
-        /// ignores it: MAP's AP8 decides.
-        void set_aperture(uint32_t base) { aperture_ = base; }
-        static constexpr uint32_t NO_APERTURE = 0xFFFFFFFF;
-        uint32_t aperture() const { return aperture_; }
         void reset() override;
         void reset_pulse() override;
         bool take_reset() override;
@@ -322,17 +294,17 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
 
-        bool irq() const override { return timebase() ? msf_ && msie_ : tick_ && tie_; }
+        bool irq() const override { return msf_ && msie_; }
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
 
         uint8_t window(unsigned n) const { return win_[n & 3]; }
         uint8_t vec() const { return vec_; }
-        /// Revision 2's WIN0H-WIN3H, VECH and MAP (0, 0 and $01 held on revision 1, which has none).
+        /// WIN0H-WIN3H, VECH and MAP.
         uint8_t winh(unsigned n) const { return winh_[n & 3]; }
         uint8_t vech() const { return vech_; }
         uint8_t map() const { return map_; }
-        uint8_t hole() const { return hole_; } ///< HOLE (revision 3; 0 before)
+        uint8_t hole() const { return hole_; } ///< HOLE
         static constexpr uint8_t HOLE_EN = 0x80, HOLE_RO = 0x40, HOLE_BLOCK = 0x3F;
         static constexpr uint16_t HOLE_BASE = 0xF800; ///< the hole: $F800-$FFFF
 
@@ -347,11 +319,11 @@ namespace ooe::emu
         uint8_t rtcctl() const;
         /// A SET queued, under way or behind another transaction: what BUSY can't say, as SET reads 0.
         bool set_pending() const;
-        /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers (and on revision 3 the
-        /// timebase: describe_timebase()).
+        /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers, the timebase
+        /// (describe_timebase()) and the random source (describe_random()).
         std::string describe_clock() const;
 
-        // The timebase (revision 3)
+        // The timebase
         /// The millisecond counter, live, taking no latch.
         uint32_t ms() const { return ms_; }
         /// Test hook: put the counter at `value` (just before a carry, say); the divider runs on.
@@ -372,7 +344,7 @@ namespace ooe::emu
         /// The counter, TBCTL, MSS and SYNC in words, for the debugger.
         std::string describe_timebase() const;
 
-        // The random source (revision 3)
+        // The random source
         /// The chip fitted (a locked one, the fixed stream, by default; nullptr: none). Before the first
         /// reset: the power-on set-up is the chip's.
         void set_rng_chip(std::unique_ptr<Atecc608> chip) { chip_ = std::move(chip); }
@@ -450,8 +422,6 @@ namespace ooe::emu
         uint8_t poll(bool high) const;
 
         Decoder *decoder_{nullptr};
-        uint32_t aperture_{NO_APERTURE};
-        uint8_t revision_;
         bool bootsel_;
         bool power_on_{true};
         bool reset_seen_{false};
@@ -473,7 +443,7 @@ namespace ooe::emu
         std::array<uint8_t, TIME_REGS> latch_{};  ///< what reading SEC caught
         std::array<uint8_t, TIME_REGS> staged_{}; ///< what SET will send
         uint8_t status_{0};                       ///< the DS3231's status as last read
-        bool tick_{false}, tie_{false};
+        bool tick_{false};
         uint8_t rtc_reg_{0}, rtc_data_{0};
         std::deque<Transaction> queue_; ///< the front is under way
         uint64_t left_{0};              ///< its cycles still to go

@@ -44,8 +44,7 @@
  * bits 0-6; bit 7 is still the depth). Card memory past MEMSIZE reads $FF
  * and ignores writes, by scanout, the aperture and the port alike. The
  * aperture (VideoAperture, the memory device at $E00000-$E0FFFF; the CPU card
- * sends bank 8 there while MAP's AP8 is set, or on a revision 1 north bridge
- * while a revision 2 card is fitted) shows four 16 KB slots
+ * sends bank 8 there while the north bridge's MAP has AP8 set) shows four 16 KB slots
  * of card memory, slot n from SLOTn x $4000, and ignores cycles while the
  * north bridge is in Apple II mode. Each PDATA read or write moves PADDR by
  * PSTEP, up or (PCTL bit 2) down, wrapping at the fitted memory's end. While
@@ -416,8 +415,7 @@ namespace ooe::emu
 
     /**
      * @brief Revision 2's aperture: 64 KB of physical memory at $E00000-$E0FFFF that the card
-     * answers (bank 8 reaches it while MAP's AP8 is set, or on a revision 1 north bridge while a
-     * revision 2 card is fitted), four 16 KB slots of card memory (VideoCard::aperture_peek()). The machine's
+     * answers (bank 8 reaches it while the north bridge's MAP has AP8 set), four 16 KB slots of card memory (VideoCard::aperture_peek()). The machine's
      * `aperture` line; without a revision 2 card it shows nothing (reads $FF).
      */
     class VideoAperture : public Device

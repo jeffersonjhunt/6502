@@ -17,11 +17,10 @@
  * $E00000) is refused, and so is a bank 8 address ($80000-$8FFFF) while
  * the CPU card sends the CPU's and DMA's bank 8 to the aperture, since no
  * cycle there reaches the bus to match. Which it does is the north
- * bridge's to say (B7): NB_ID ($C6FF) is read first, and on a revision 2
- * bridge ($D2) bank 8 is the aperture while AP8 (MAP, $C6A5 bit 0) is set;
- * on any other NB_ID (a revision 1 bridge's $D1, or nothing answering) the
- * older rule holds, bank 8 being the aperture while VIDEO_ID ($C4FF) reads
- * $92, a revision 2 video card. A saved breakpoint that can't fire isn't
+ * bridge's to say (B7): bank 8 is the aperture while AP8 (MAP, $C6A5 bit 0)
+ * is set. With no bridge answering (NB_ID, $C6FF, reads $FF) nothing
+ * redirects, and bank 8 is a revision 2 video card's aperture while
+ * VIDEO_ID ($C4FF) reads $92. A saved breakpoint that can't fire isn't
  * restored, and notRestored names it: above $FFFFF at once, and in bank 8
  * once recheck() has found bank 8 sent to the aperture by the same rule
  * (the pane calls it on connecting; a page from before B1 could save one).
@@ -68,12 +67,12 @@ export const hex = (v: number, n: number) => v.toString(16).toUpperCase().padSta
 
 /** BPADDR's reach: A0-A19, with A20-A23 0. */
 export const BPADDR_MAX = 0xfffff;
-/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's (the rule off a revision 2 bridge). */
+/** VIDEO_ID's address, and a revision 2 card's ID: its bank 8 is the aperture's (the rule with no bridge). */
 const VIDEO_ID = 0xc4ff;
 const VIDEO_REV2 = 0x92;
-/** NB_ID's address, and a revision 2 north bridge's ID: its MAP register says where bank 8 goes. */
+/** NB_ID's address, and what it reads with no north bridge answering. */
 const NB_ID = 0xc6ff;
-const NB_REV2 = 0xd2;
+const NOTHING = 0xff;
 /** MAP's address, and AP8 (bit 0): set, the CPU card sends bank 8 to the aperture. */
 const NB_MAP = 0xc6a5;
 const MAP_AP8 = 0x01;
@@ -86,13 +85,13 @@ export function describe(b: Breakpoint): string {
 }
 
 /**
- * Where bank 8 goes now, by the rule above: "ap8" on a revision 2 bridge with AP8 set, "card" on any other bridge
- * with a revision 2 video card, null while bank 8 reaches the bus (a breakpoint there can fire).
+ * Where bank 8 goes now, by the rule above: "ap8" with the bridge's AP8 set, "card" with no bridge and a revision 2
+ * video card, null while bank 8 reaches the bus (a breakpoint there can fire).
  */
 async function bank8Aperture(port: MachinePort): Promise<"ap8" | "card" | null> {
-  if ((await port.readMemory(NB_ID, 1, "io"))[0] === NB_REV2)
-    return (await port.readMemory(NB_MAP, 1, "io"))[0] & MAP_AP8 ? "ap8" : null;
-  return (await port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2 ? "card" : null;
+  if ((await port.readMemory(NB_ID, 1, "io"))[0] === NOTHING)
+    return (await port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_REV2 ? "card" : null;
+  return (await port.readMemory(NB_MAP, 1, "io"))[0] & MAP_AP8 ? "ap8" : null;
 }
 
 export interface Hit {
@@ -143,8 +142,8 @@ export class Breakpoints {
   }
 
   /**
-   * Once the machine is there: while bank 8 goes to the aperture (AP8 set on a revision 2 bridge; on any other, a
-   * revision 2 video card, VIDEO_ID $92) a restored bank 8 breakpoint can never fire, so it joins notRestored (and
+   * Once the machine is there: while bank 8 goes to the aperture (AP8 set; with no bridge, a revision 2 video
+   * card, VIDEO_ID $92) a restored bank 8 breakpoint can never fire, so it joins notRestored (and
    * stays saved). Disarms it if it was armed.
    */
   async recheck(): Promise<void> {
