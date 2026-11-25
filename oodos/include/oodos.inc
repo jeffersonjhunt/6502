@@ -188,7 +188,11 @@ EV_SBUFS        = 97                   ;   the two buffers: bit 0 buffer 0 free,
 EV_SFREE        = 98                   ;   the ring's room, 256-byte units, 2 bytes (the card's last NEED's)
 EV_SPOS         = 100                  ;   the frames played, 4 bytes
 EV_SKBPS        = 104                  ;   an MP3's bitrate, kbit/s, 2 bytes
-EV_SUNDER       = 106                  ;   underruns, 2 bytes (from the stream's start); +108-115 reserved, 0
+EV_SUNDER       = 106                  ;   underruns, 2 bytes (from the stream's start)
+EV_SNEED        = 108                  ;   the card's last NEED for the stream: SNF_* (urgent cleared by SN_END's
+                                       ;   STREAM_END; 0 at the stream's start and close, and the warm boot)
+EV_SBUFMS       = 109                  ;   and the ms it had buffered then, 4 bytes; +113-115 reserved, 0
+SNF_URGENT      = $01                  ; EV_SNEED, SN_STATUS's +15: under 1 s buffered (read the stream's data first)
 EV_TSTATE       = 116                  ;   the tune's state (SN_TSTATUS's +1), while SC_TUNE is claimed
 EV_TMS          = 117                  ;   its ms played, 3 bytes (paused time out)
 EV_MSTATE       = 120                  ;   music's state (SN_MSTATUS's +1), while SC_MUSIC is claimed
@@ -296,7 +300,9 @@ SN_SEEK         = 16                   ; the ring emptied and both buffers dropp
 SN_END          = 17                   ; no more data (EOF): what is in plays out [SC_STREAM]
 SN_STATUS       = 18                   ; A = the state, X = the buffers free (EV_SBUFS); a block +1 those,
                                        ;   +3-4 the ring's room, +5-8 frames, +9-10 kbit/s, +11-12 underruns,
-                                       ;   +13-14 the rate in Hz [SC_STREAM]
+                                       ;   +13-14 the rate in Hz, +15 the last NEED's SNF_*, +16-19 its ms
+                                       ;   buffered (SN_STATLEN bytes after +0) [SC_STREAM]
+SN_STATLEN      = 19                   ; SN_STATUS's block after its +0
 SN_NEXT         = 19                   ; block: +1 the codec, +2-3 the rate, +4 the format: the next stream
                                        ;   opened and queued behind the one playing; SN_BUFFER feeds the new one
                                        ;   from then on [SC_STREAM]

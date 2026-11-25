@@ -16,7 +16,7 @@
 ;   a line SLOT kk when SN_BUFFER takes another buffer than the one
 ;   refilled (it never should), or BUSY when it is refused
 ;   SENT nnnn       the buffers given, when the file has all gone
-;   END aa xx and SN_STATUS's 12 bytes, once the stream has ended
+;   END aa xx and SN_STATUS's first 12 bytes, once the stream has ended
 ;
 ; then releases the stream and returns to the CCP.
 
@@ -250,7 +250,7 @@ oblk:   .byte   FT_OPEN
 tblk:   .byte   SN_STREAM, 0, 0, 0, 0
 bblk:   .byte   SN_BUFFER, 0, 0, 0, 0, 0
 sblk:   .byte   SN_STATUS
-        .res    14
+        .res    SN_STATLEN
 lblk:   .byte   DM_LOAD
         .word   FCB
         .res    8

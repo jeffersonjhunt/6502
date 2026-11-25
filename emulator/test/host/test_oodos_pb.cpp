@@ -964,8 +964,8 @@ TEST(a_reply_s_results_land_whole_across_a_page_and_a_window_of_the_program_s_bl
 
 TEST(sn_status_s_copy_lands_whole_across_a_page_of_the_program_s_block)
 {
-    // SN_STATUS's 14 bytes with the block across a page ($3B00 between +11 and +12): +1-2 the state and the buffers
-    // free as A and X say, +13-14 the rate (48,000), nothing past +14 nor before the block. Must fail with the map
+    // SN_STATUS's 19 bytes with the block across a page ($3B00 between +11 and +12): +1-2 the state and the buffers
+    // free as A and X say, +13-14 the rate (48,000), nothing past +19 nor before the block. Must fail with the map
     // left as it was at the page's crossing.
     CcpRig r;
     REQUIRE(r.ok);
@@ -980,7 +980,7 @@ TEST(sn_status_s_copy_lands_whole_across_a_page_of_the_program_s_block)
     CHECK_EQ(hex2(r.phys(at + 2)), f.substr(3, 2));
     CHECK_EQ(r.phys(at + 13) | r.phys(at + 14) << 8, 48'000);
     CHECK(untouched(r, at - 64, at));
-    CHECK(untouched(r, at + 15, at + 128));
+    CHECK(untouched(r, at + 20, at + 128));
 }
 
 namespace
@@ -1022,7 +1022,7 @@ namespace
 TEST(pb_vis_costs)
 {
     // A record, not a guard: the cycles of the per-frame calls that go to the card and back (PB_VIS's 98 bytes,
-    // SID_VOICES' 50 by SN_SIDREGS, PB_LEVELS' 10, SN_STATUS's 14), with a 48 kHz stream playing. The fewest of 8 is
+    // SID_VOICES' 50 by SN_SIDREGS, PB_LEVELS' 10, SN_STATUS's 19), with a 48 kHz stream playing. The fewest of 8 is
     // the call alone; the mean has the frames' interrupts in it. Printed for the books (08-game-services.md, "What
     // sound costs"); only that each call was timed is checked.
     CcpRig r;
@@ -1040,7 +1040,7 @@ TEST(pb_vis_costs)
     } calls[] = {{"PB_VIS (98 bytes)", 'V', BUF & 0xFF, BUF >> 8, 0},
                  {"SID_VOICES (SN_SIDREGS, 50)", 'S', BUF & 0xFF, BUF >> 8, 0},
                  {"PB_LEVELS (10)", 'l', BUF & 0xFF, BUF >> 8, 0},
-                 {"SN_STATUS (14)", 'K', (BUF + 0x100) & 0xFF, (BUF + 0x100) >> 8, 0}};
+                 {"SN_STATUS (19)", 'K', (BUF + 0x100) & 0xFF, (BUF + 0x100) >> 8, 0}};
     for (const auto &k : calls)
     {
         const auto [fewest, mean] = cost(r, k.c, k.a, k.x, k.y, 8);

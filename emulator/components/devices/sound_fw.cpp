@@ -3183,6 +3183,9 @@ namespace ooe::emu
             put32(v, static_cast<uint32_t>(room));
             put32(v, ms_in);
             v.push_back(ms_in < URGENT_MS ? 1 : 0);
+            st.last_need.ms = ms_in;
+            st.last_need.urgent = ms_in < URGENT_MS;
+            ++st.last_need.count;
             event(EV_NEED, static_cast<uint8_t>(s), v);
         }
     }

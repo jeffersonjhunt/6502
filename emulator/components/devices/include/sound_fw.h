@@ -376,6 +376,15 @@ namespace ooe::emu
             const Stream &st = streams_[s % STREAMS];
             return static_cast<size_t>(st.wr - st.rd);
         }
+        /// Tests: the last NEED stream `s` sent since it opened: the ms buffered it said (+11-14), its urgent flag
+        /// (+15 bit 0), and how many NEEDs it has sent.
+        struct NeedSent
+        {
+            uint32_t ms{0};
+            bool urgent{false};
+            uint32_t count{0};
+        };
+        NeedSent last_need(unsigned s) const { return streams_[s % STREAMS].last_need; }
         /// Tests: every stream's underruns since power-on (STREAM_STATUS's +19-20 are one stream's,
         /// from its open).
         uint64_t underruns_total() const { return underruns_total_; }
@@ -549,6 +558,7 @@ namespace ooe::emu
             uint64_t phase{0};     ///< x 48,000: where the output is between prev and cur
             int16_t prev[2]{0, 0}, cur[2]{0, 0};
             std::shared_ptr<Mp3> mp3;
+            NeedSent last_need{}; ///< last_need()'s
         };
         std::array<Stream, STREAMS> streams_{};
         std::array<Object, STREAMS> rings_{};

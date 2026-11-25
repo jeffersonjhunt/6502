@@ -74,7 +74,8 @@ HT_SST          = $82                  ;   the frame's STREAM_STATUS,
 HT_TST          = $83                  ;   TUNE_STATUS,
 HT_MST          = $84                  ;   MUSIC_STATUS
 RRLEN           = 24                   ; RR: the results kept (the frame's and SN_STATUS's)
-EBLEN           = 10                   ; EB: an event's object, stamp and payload's first five
+EBLEN           = 14                   ; EB: an event's object, stamp and payload's first nine (NEED's all)
+SSTLEN          = SN_STATLEN           ; SN_STATUS's block after +0 (SST), put from RB
 .assert SC_TUNE = 1 && SC_STREAM = 2 && SC_MUSIC = 4, error, "the parts are bits 0-2 (FPEND's too)"
 
 .segment "SYSBSS"
@@ -83,7 +84,8 @@ SIEN:           .res    1              ; SOUND_IEN as OODOS has it (DEAFEN write
 C2ON:           .res    1              ; 1: a stream buffer is moving on channel 2 (its interrupt on)
 WT0:            .res    3              ; the wait's start (MS0-MS2)
 WMS:            .res    3              ; and its time-out, ms
-RB:             .res    16             ; the program's record: +0 the command, +1 n, +2 the tag, +3 on
+RB:             .res    SSTLEN         ; the program's record: +0 the command, +1 n, +2 the tag, +3 on
+                                       ;   (16 at most), and SN_STATUS's block (SSTLEN)
 HB:             .res    8              ; the handler's
 EKIND:          .res    1              ; EVONE's: the record's kind,
 ELEFT:          .res    1              ;   the bytes of it still to read,
@@ -146,6 +148,8 @@ SOPEN:          .byte   0              ; the streams open: bit 0, bit 1
 FEED:           .byte   0              ; the stream SN_BUFFER feeds (the last opened)
 SPLAY:          .byte   0              ; the stream playing, whose status the area has
 NROOM:          .res    2              ; the ring's room, 256-byte units, as the last NEED said
+NURG:           .byte   0              ; the streams whose last NEED was urgent (under 1 s buffered): bit 0, bit 1
+NMS:            .res    8              ; each stream's ms buffered, 4 bytes, as its last NEED said: 0's, then 1's
 SANS:           .byte   0              ; SNDIRQ's: the IRQH bits it answered
 STMP:           .byte   0
 LDLEN:          .res    3              ; a load's length
@@ -221,6 +225,7 @@ SNDQUIET:       JSR     C2STOP
                 STZ     SPLAY
                 STZ     NROOM
                 STZ     NROOM + 1
+                JSR     NCLR
                 LDA     SON
                 BEQ     @done
                 LDA     #SOUND_CTRL_RESET
@@ -640,9 +645,26 @@ EVENT:          LDY     #0
                 LDA     #$FF
                 STA     NROOM
                 STA     NROOM + 1
-@ask:           LDX     EB             ; the stream
+@ask:           LDA     EB             ; the stream's ms buffered (+9-12) into NMS
+                ASL     A
+                ASL     A
+                TAY
+                LDX     #0
+@ms:            LDA     EB + 9,X
+                STA     NMS,Y
+                INY
+                INX
+                CPX     #4
+                BNE     @ms
+                LDX     EB             ; and its urgent bit (+13's bit 0) into NURG
+                LDA     EB + 13
+                LSR     A
                 LDA     BUFBIT,X
-                TSB     NEEDP
+                BCS     @urg
+                TRB     NURG
+                BRA     @asks
+@urg:           TSB     NURG
+@asks:          TSB     NEEDP
                 JSR     SFEED
                 BRA     @sk
 @track:         CMP     #SOUND_EV_TRACK
@@ -651,6 +673,7 @@ EVENT:          LDY     #0
                 LDA     BUFBIT,X
                 TRB     SOPEN
                 TRB     NEEDP
+                JSR     NCLRX          ; (keeps nothing)
                 LDA     EB             ; the one now playing
                 STA     SPLAY
                 BRA     @queue
@@ -736,19 +759,24 @@ SSFLDS:         LDX     #RRLEN
                 JSR     SSMAP
                 LDY     #EV_SSTATE
                 LDX     #0
-@f:             LDA     SST,X
+@f:             CPX     #12            ; (SST's +12-13, the rate, aren't the area's)
+                BNE     @w
+                LDX     #14
+@w:             LDA     SST,X
                 STA     (EVP),Y
                 INY
                 INX
-                CPX     #12
+                CPX     #SSTLEN
                 BNE     @f
                 RTS
 .assert EV_SBUFS = EV_SSTATE + 1 && EV_SFREE = EV_SSTATE + 2 && EV_SPOS = EV_SSTATE + 4 && EV_SKBPS = EV_SPOS + 4 && EV_SUNDER = EV_SKBPS + 2, error, "SSFLDS writes the sound part in SN_STATUS's order"
+.assert EV_SNEED = EV_SUNDER + 2 && EV_SBUFMS = EV_SNEED + 1 && EV_SBUFMS + 4 <= EV_TSTATE, error, "SSFLDS: SST's +14-18 follow the underruns"
 
-; SN_STATUS's 14 bytes (SST) from a STREAM_STATUS reply in RR (X 0) or FR
+; SN_STATUS's 19 bytes (SST) from a STREAM_STATUS reply in RR (X 0) or FR
 ; (X RRLEN): +0 the state, +1 the buffers free, +2-3 the room (NEED's),
 ; +4-7 the frames (+13 of the reply), +8-9 kbit/s (+17), +10-11 the
-; underruns (+19), +12-13 the rate (+2).
+; underruns (+19), +12-13 the rate (+2); then the stream playing's last
+; NEED: +14 its flags (SNF_URGENT), +15-18 its ms buffered.
 SSMAP:          LDA     RR,X
                 STA     SST
                 LDA     RR + 2,X       ; +12-13 the rate (SN_STATUS's block's +13-14)
@@ -769,8 +797,45 @@ SSMAP:          LDA     RR,X
                 INY
                 CPY     #8
                 BNE     @c
+                LDX     SPLAY          ; the last NEED's, of the stream playing
+                LDA     BUFBIT,X
+                AND     NURG
+                BEQ     @u
+                LDA     #SNF_URGENT
+@u:             STA     SST + 14
+                TXA
+                ASL     A
+                ASL     A
+                TAX
+                LDY     #0
+@m:             LDA     NMS,X
+                STA     SST + 15,Y
+                INX
+                INY
+                CPY     #4
+                BNE     @m
                 RTS
-SST:            .res    14
+SST:            .res    SSTLEN
+
+; The last NEEDs forgotten: both streams' (NCLR), or stream X's (NCLRX),
+; urgent and ms buffered 0. Keeps nothing.
+NCLR:           STZ     NURG
+                LDX     #7
+@z:             STZ     NMS,X
+                DEX
+                BPL     @z
+                RTS
+NCLRX:          LDA     BUFBIT,X
+                TRB     NURG
+                TXA
+                ASL     A
+                ASL     A
+                TAX
+                STZ     NMS,X
+                STZ     NMS + 1,X
+                STZ     NMS + 2,X
+                STZ     NMS + 3,X
+                RTS
 
 ; --- the handler ---------------------------------------------------------------
 
@@ -911,6 +976,7 @@ SENDS:          LDA     ENDP
                 BCS     @next          ; no room: the next frame's
                 LDA     BUFBIT,X
                 TRB     ENDP
+                TRB     NURG           ; no more data coming: not urgent
 @next:          DEX
                 BPL     @s
 @x:             RTS
@@ -1323,6 +1389,7 @@ SN_CLAIMX:      BLOCK
                 STZ     ENDP
                 STZ     NROOM
                 STZ     NROOM + 1
+                JSR     NCLR
 @set:           LDA     T0
                 TSB     SCLAIM
                 PLP
@@ -1356,6 +1423,7 @@ PQUIET:         LDA     T0
                 JSR     C2STOP
                 STZ     NEEDP
                 STZ     ENDP
+                JSR     NCLR
                 PLP
                 JSR     SCLOSE
 @music:         LDA     T0
@@ -1670,6 +1738,7 @@ SN_STREAMX:     BLOCK
                 STZ     ENDP
                 STZ     NROOM
                 STZ     NROOM + 1
+                JSR     NCLR
                 PLP
                 JSR     SCLOSE         ; (RB's parameters first kept in SG and T0-T1)
                 LDA     #0
@@ -1842,6 +1911,7 @@ SN_SEEKX:       NEED    SC_STREAM
                 LDA     BUFBIT,X
                 TRB     SOPEN
                 TRB     NEEDP          ; (an ask that came meanwhile: closed now)
+                JSR     NCLRX
                 LDA     SPLAY
                 STA     FEED
                 PLP
@@ -1868,8 +1938,8 @@ SN_ENDX:        NEED    SC_STREAM
                 JMP     SN00
 
 ; A = the state, X = the buffers free; a block gets +1 those, then the
-; ring's room, the frames, the bitrate and the underruns: STREAM_STATUS of
-; the stream playing.
+; ring's room, the frames, the bitrate, the underruns, the rate, and the
+; last NEED's flags and ms buffered: STREAM_STATUS of the stream playing.
 SN_STATUSX:     NEED    SC_STREAM
                 LDA     #2
                 STA     RMODE
@@ -1886,7 +1956,7 @@ SN_STATUSX:     NEED    SC_STREAM
                 SEI                    ;   the frame's reply rewrites SST (review C5)
                 LDX     #0
                 JSR     SSMAP
-                LDX     #13
+                LDX     #SSTLEN - 1
 @cp:            LDA     SST,X
                 STA     RB,X
                 DEX
@@ -1894,7 +1964,7 @@ SN_STATUSX:     NEED    SC_STREAM
                 PLP
                 LDX     PX
                 BEQ     @ret
-                LDX     #14
+                LDX     #SSTLEN
                 CLC                    ; from RB
                 JSR     PPUTN
 @ret:           LDA     RB
