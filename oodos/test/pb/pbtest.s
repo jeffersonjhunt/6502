@@ -10,7 +10,10 @@
 ; ($3C00) a frame (up to 128 frames). L5d: O opens a 256-byte event area
 ; at AREA ($3800, layout 2); K calls function 82 with A/X a block, k with A
 ; the operation and no block; L waits A frames (up to 100) and at each
-; calls PB_LEVELS into LOG, 10 bytes a frame.
+; calls PB_LEVELS into LOG, 10 bytes a frame; l calls PB_LEVELS once.
+; p plays the .sid file at TUNE ($5000), X/Y its length: SID_PARSE, A's
+; low two bits into SID_FLAGS' clock bits (2-3) unless A is $FF, SID_PLAN
+; of the start song, SID_PLAY; A the error, if any. s is SID_STOP.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -24,6 +27,7 @@ MBOX    = $3900
 AREA    = $3800
 VBLK    = $3B00
 LOG     = $3C00
+TUNE    = $5000
 
         .zeropage
 logp:   .res    2
@@ -31,6 +35,7 @@ frames: .res    1
 rax:    .res    1
 rxx:    .res    1
 rc:     .res    1
+clk:    .res    1
 letter: .res    1
 
         .code
@@ -62,7 +67,7 @@ wait:   lda     MBOX
         ldx     MBOX + 2
         ldy     MBOX + 3
         jsr     call
-        stx     rxx
+called: stx     rxx                     ; (the test times a routine from call to here)
         pha
         lda     #0
         rol     a
@@ -132,6 +137,33 @@ c_levels:
         clc
 @out:   rts
 
+c_sid:  sta     clk
+        stx     SID_LEN
+        sty     SID_LEN + 1
+        lda     #<TUNE
+        ldx     #>TUNE
+        jsr     SID_PARSE
+        bcs     @out
+        lda     clk
+        cmp     #$FF
+        beq     @plan
+        and     #3
+        asl     a
+        asl     a
+        sta     clk
+        lda     SID_FLAGS
+        and     #$F3
+        ora     clk
+        sta     SID_FLAGS
+@plan:  lda     #0
+        tax
+        jsr     SID_PLAN
+        bcs     @out
+        jsr     SID_PLAY
+        bcs     @out
+        lda     #0
+@out:   rts
+
 c_frames:
         sta     frames
         lda     #<LOG
@@ -190,6 +222,9 @@ cmds:   CMD     'E', PB_EQ
         CMD     'v', PB_VOLUME
         CMD     'Q', PB_STATUS
         CMD     'L', c_levels
+        CMD     'l', PB_LEVELS
+        CMD     'p', c_sid
+        CMD     's', SID_STOP
         CMD     'W', c_wboot
 CMDS_LEN = * - cmds
 

@@ -3150,6 +3150,7 @@ namespace ooe::emu
                 st->underrun = true;
                 st->state = S_UNDERRUN;
                 ++st->underruns;
+                ++underruns_total_;
                 std::vector<uint8_t> v;
                 put32(v, static_cast<uint32_t>(st->frames));
                 put16(v, st->underruns);

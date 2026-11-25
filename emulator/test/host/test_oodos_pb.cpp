@@ -29,7 +29,9 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ooe::test;
@@ -585,6 +587,37 @@ namespace
     }
 } // namespace
 
+TEST(sid_play_takes_the_flags_clock)
+{
+    // SID_PLAY plays at SID_FLAGS' clock (bits 2-3: 01 PAL, 10 NTSC), as SID_PLAN names notes by it; 00 or 11 is the
+    // file's own. The clock read is the one the card's chips run the tune at. Must fail with SN_PLAY's +3 left 0 (a
+    // PAL file set to NTSC plays PAL), and with the two bits swapped.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    const struct
+    {
+        uint8_t header; ///< the file's flags' low byte ($77): $14 PAL, $18 NTSC (a 6581 both)
+        uint8_t clk;    ///< SID_FLAGS' bits 2-3 set to this, $FF left as the file has them
+        bool ntsc;
+    } cases[] = {{0x14, 2, true}, {0x18, 1, false}, {0x14, 0xFF, false}, {0x18, 0xFF, true}, {0x18, 0, true}, {0x14, 3, false}};
+    for (const auto &k : cases)
+    {
+        std::vector<uint8_t> file = ticker(255);
+        file[0x77] = k.header;
+        r.poke(0x5000, file);
+        const std::string f = pb(r, 'p', k.clk, static_cast<uint8_t>(file.size()), static_cast<uint8_t>(file.size() >> 8));
+        r.run(ms(50));
+        const bool ntsc = (dev(r).chips().ctrl() & SoundCard::CTRL_NTSC) != 0;
+        std::printf("  a %s file, the bits %02X: %s\n", k.header == 0x18 ? "NTSC" : "PAL", k.clk, ntsc ? "NTSC" : "PAL");
+        CHECK_EQ(ac(f), OK);
+        CHECK(fw(r).tune_playing());
+        CHECK_EQ(ntsc, k.ntsc);
+        pb(r, 's'); // (SID_STOP's carry is the BDOS's: the state says it)
+        CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
+    }
+}
+
 TEST(a_tune_s_status_starting_playing_paused_resumed_stalled_and_stopped)
 {
     // PB_STATUS of a .sid tune from the card's own status (SN_TSTATUS): playing once its play calls come, paused and
@@ -865,6 +898,154 @@ TEST(with_no_sound_card_or_one_never_ready_every_routine_answers_pe_nocard_and_p
         CHECK_EQ(ac(pb(r, 'V', BUF & 0xFF, BUF >> 8, 0)), NOCARD);
         CHECK_EQ(r.phys(BUF), 0xEE);
         CHECK_EQ(ac(pb(r, 'v', 100, 128)), NOCARD);
+    }
+}
+
+// ---- Function 82's replies into the program's block -------------------------------------------------------
+
+namespace
+{
+    constexpr uint8_t SN_STATUS = 18, SN_SIDREGS = 32;
+    /// The SIDs' 50 registers written straight to the card's chips (as a tune would): what SN_SIDREGS answers.
+    std::vector<uint8_t> sids_written(CcpRig &r)
+    {
+        std::vector<uint8_t> want;
+        for (unsigned sid = 0; sid < 2; ++sid)
+            for (unsigned i = 0; i < 25; ++i)
+            {
+                const uint8_t v = static_cast<uint8_t>(0x23 * sid + 11 * i + 5);
+                sid_reg(r, sid, i, v);
+                want.push_back(v);
+            }
+        return want;
+    }
+    /// SN_SIDREGS by function 82 with its block at `at`, the memory around it $EE first: A, and what landed at +1-50.
+    std::vector<uint8_t> sidregs_at(CcpRig &r, uint32_t at, std::string &a)
+    {
+        r.poke(at - 64, std::vector<uint8_t>(192, 0xEE));
+        r.poke(at, SN_SIDREGS);
+        a = pb(r, 'K', static_cast<uint8_t>(at), static_cast<uint8_t>(at >> 8)).substr(0, 2);
+        std::vector<uint8_t> got(50);
+        for (unsigned i = 0; i < got.size(); ++i)
+            got[i] = r.phys(at + 1 + i);
+        return got;
+    }
+    /// Every byte from `from` to `to` (not included) still $EE.
+    bool untouched(CcpRig &r, uint32_t from, uint32_t to)
+    {
+        for (uint32_t a = from; a < to; ++a)
+            if (r.phys(a) != 0xEE)
+                return false;
+        return true;
+    }
+} // namespace
+
+TEST(a_reply_s_results_land_whole_across_a_page_and_a_window_of_the_program_s_block)
+{
+    // OODOS puts a REPLY's results into the program's block with its window mapped once a run, again where the block
+    // crosses a page: SN_SIDREGS's 50 bytes with the block inside a page, across a page ($3B00) and across a window
+    // ($4000, W0's block to W1's) all land whole, in order, and nothing before or after the block moves. Must fail
+    // with the map left as it was at a page's crossing (the bytes past it written over the page's start).
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    const std::vector<uint8_t> want = sids_written(r);
+    for (const uint32_t at : {uint32_t{0x3A40}, uint32_t{0x3AE0}, uint32_t{0x3FE0}})
+    {
+        std::string a;
+        const std::vector<uint8_t> got = sidregs_at(r, at, a);
+        std::printf("  the block at $%04X\n", static_cast<unsigned>(at));
+        CHECK_EQ(a, std::string("00"));
+        CHECK(got == want);
+        CHECK(untouched(r, at - 64, at));
+        CHECK(untouched(r, at + 51, at + 128));
+    }
+}
+
+TEST(sn_status_s_copy_lands_whole_across_a_page_of_the_program_s_block)
+{
+    // SN_STATUS's 14 bytes with the block across a page ($3B00 between +11 and +12): +1-2 the state and the buffers
+    // free as A and X say, +13-14 the rate (48,000), nothing past +14 nor before the block. Must fail with the map
+    // left as it was at the page's crossing.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    play(r, sine(30'000, 3'000, 0.5), false);
+    r.run(ms(200));
+    const uint32_t at = 0x3AF4;
+    r.poke(at - 64, std::vector<uint8_t>(192, 0xEE));
+    r.poke(at, SN_STATUS);
+    const std::string f = pb(r, 'K', static_cast<uint8_t>(at), static_cast<uint8_t>(at >> 8));
+    CHECK_EQ(hex2(r.phys(at + 1)), f.substr(0, 2));
+    CHECK_EQ(hex2(r.phys(at + 2)), f.substr(3, 2));
+    CHECK_EQ(r.phys(at + 13) | r.phys(at + 14) << 8, 48'000);
+    CHECK(untouched(r, at - 64, at));
+    CHECK(untouched(r, at + 15, at + 128));
+}
+
+namespace
+{
+    /// The cycles from PBTEST's call of command `c`'s routine to its return, over `n` calls: the fewest and the mean
+    /// (a frame's interrupt may come in one).
+    std::pair<uint64_t, uint64_t> cost(CcpRig &r, char c, uint8_t a, uint8_t x, uint8_t y, unsigned n)
+    {
+        static const std::map<std::string, uint16_t> lbl = labels(UTILS + "/pbtest.lbl");
+        const uint16_t call = lbl.count("call") ? lbl.at("call") : 0, back = lbl.count("called") ? lbl.at("called") : 0;
+        CHECK(call && back);
+        if (!call || !back)
+            return {0, 0};
+        uint64_t t0 = 0, sum = 0, fewest = ~uint64_t{0};
+        unsigned got = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == call)
+                t0 = r.cpu->cycles();
+            else if (pc == back && t0)
+            {
+                const uint64_t d = r.cpu->cycles() - t0;
+                sum += d, fewest = std::min(fewest, d), ++got, t0 = 0;
+            }
+        };
+        for (unsigned i = 0; i < n; ++i)
+        {
+            const std::string f = pb(r, c, a, x, y);
+            if (c == 'K')
+                CHECK_EQ(f.substr(0, 2), std::string("02")); // SN_STATUS's A: the stream playing
+            else
+                CHECK_EQ(f.substr(6, 2), std::string("00")); // a routine's carry
+        }
+        r.watch = nullptr;
+        CHECK_EQ(got, n);
+        return {got ? fewest : 0, got ? sum / got : 0};
+    }
+} // namespace
+
+TEST(pb_vis_costs)
+{
+    // A record, not a guard: the cycles of the per-frame calls that go to the card and back (PB_VIS's 98 bytes,
+    // SID_VOICES' 50 by SN_SIDREGS, PB_LEVELS' 10, SN_STATUS's 14), with a 48 kHz stream playing. The fewest of 8 is
+    // the call alone; the mean has the frames' interrupts in it. Printed for the books (08-game-services.md, "What
+    // sound costs"); only that each call was timed is checked.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    CHECK_EQ(ac(pb(r, 'B', 1)), OK); // PB_LEVELS: the stream's
+    play(r, sine(30'000, 3'000, 0.5), false);
+    r.run(ms(200));
+    r.poke(BUF + 0x100, SN_STATUS);
+    const struct
+    {
+        const char *what;
+        char c;
+        uint8_t a, x, y;
+    } calls[] = {{"PB_VIS (98 bytes)", 'V', BUF & 0xFF, BUF >> 8, 0},
+                 {"SID_VOICES (SN_SIDREGS, 50)", 'S', BUF & 0xFF, BUF >> 8, 0},
+                 {"PB_LEVELS (10)", 'l', BUF & 0xFF, BUF >> 8, 0},
+                 {"SN_STATUS (14)", 'K', (BUF + 0x100) & 0xFF, (BUF + 0x100) >> 8, 0}};
+    for (const auto &k : calls)
+    {
+        const auto [fewest, mean] = cost(r, k.c, k.a, k.x, k.y, 8);
+        std::printf("  %s: fewest %llu cycles, mean %llu\n", k.what, static_cast<unsigned long long>(fewest),
+                    static_cast<unsigned long long>(mean));
     }
 }
 
