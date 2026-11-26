@@ -2280,7 +2280,10 @@ changes; `UI_IFACE` stays 1; the 25 golden frames are compared unchanged, and B5
   allows an instruction that can set the bit only in `DIRTY`, `CHECKTAB` and `DLGREC`; its own examples refuse an
   `ora` of it and a `tsb` of it elsewhere.
 - **A record's letter.** A program that writes a button's `UW_TEXT` itself calls `ui_dirty`, which finds the
-  letter; one that changes a record's type calls `ui_redraw` (S1's rule).
+  letter; one that changes a record's type calls `ui_redraw` (S1's rule). *(Review round 1, C1; the owner's
+  decision, 2026-11-26:)* a letter written into a record's fields directly (its text, or the string it points to,
+  while suspended, or before the first `ui_poll`) takes effect at `ui_open` or `ui_redraw` (or `ui_dirty` on that
+  record), not at `ui_resume`.
 
 **What it costs.** Every figure is emulated cycles (a frame is 119,318), each OOUI figure every `ui_poll` until
 `UE_NONE`.
@@ -2299,17 +2302,7 @@ test_oodos_ui, block 8 of UITBAR (90 records on one layer, as OO-Amp's):
 | A letter key with no key letter in the table, over F7's poll | a walk of 90 records | 71-312 (a tick lands in one poll or the other) |
 | 30 widgets; a track's start; `ui_redraw` (each overflows the list or makes the cache stale: today's walk) | 426,750; 212,435; 1,529,504 | 429,769; 212,935; 1,526,092 |
 
-OO-Amp (659bf69, read only, against this branch; its traced pass, the mean of 8 events, | Event | Its pass, main | S3 | `ui_poll` (2 calls), main | S3 |
-| --- | --- | --- | --- | --- |
-| S (shuffle) | 131,766 (1.10 frames) | 48,991 (0.41) | 94,262 | 15,298 |
-| G (EQ) | 142,028 (1.19) | 59,981 (0.50) | 99,665 | 22,021 |
-| M (zone C's mode) | 115,695 (0.97) | 57,915 (0.49) | 73,071 | 17,182 |
-| Tab | 135,523 (1.14) | 100,029 (0.84) | 106,120 | 72,758 (the playlist drawn whole, 45,000, is left: O9) |
-| The shuffle click (its release's pass) | 86,275 (0.72) | 47,524 (0.40) | 53,777 | 14,538 |
-| The EQ toggle click | 96,400 (0.81) | 58,696 (0.49) | 59,180 | 21,291 |
-
-The key reaches its pass 0.82-0.90 frames after it is pressed, as before: OO-Amp's main loop waits for the blank.
-Main's walks on S were `FINDACC` 38,438 cycles, `POST` 14,500, `PASS`'s 22,900 and `PAINT`'s clearing 8,500.):
+OO-Amp (659bf69, read only, against this branch; its traced pass, the mean of 8 events):
 
 | Event | Its pass, main | S3 | `ui_poll` (2 calls), main | S3 |
 | --- | --- | --- | --- | --- |
