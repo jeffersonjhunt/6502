@@ -3,13 +3,13 @@
 /**
  * @file es5503.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The Ensoniq ES5503 (the DOC), as sound card revision 2 emulates it.
+ * @brief The Ensoniq ES5503 (the DOC), as the sound card's firmware plays it (sound_card3.h).
  * @version 0.1.0
  * @date 2026-11-05
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * hw/sound-rev2.md ("ES5503") is the spec, proposed. The chip alone, with no
+ * hw/sound-rev2.md ("ES5503") specified the model. The chip alone, with no
  * knowledge of the card: its 32 oscillators and its 128 KB of wave RAM.
  *
  *   $00-$1F frequency, low byte    $20-$3F frequency, high byte

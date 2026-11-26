@@ -762,7 +762,7 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
 {
     // Review F8: all four slots, 256 bytes each (1,024 in all), the pointer on and a 44.1 kHz stream playing
     // (its fields written each frame), the latest a frame's copies end, with a USB batch or a 64 KB load under way.
-    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
+    CcpRig r;
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
     open(r, "2");

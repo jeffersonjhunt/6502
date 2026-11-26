@@ -1,5 +1,5 @@
 #!/bin/sh
-# Makes the MP3 test files (emulator/test/host/mp3/, test_sound_mp3.cpp reads them): our own synthetic signal,
+# Makes the MP3 test files (emulator/test/host/mp3/; test_sound_stream3 and test_oodos_sound read them): our own synthetic signal,
 # made here by Python, encoded by LAME. No third-party audio. Needs Docker; everything runs in a throwaway
 # debian:bookworm, pinned by digest, with LAME and Python pinned by version, so the same script makes the same
 # files; it checks them against the sha256s recorded below and fails if they differ.

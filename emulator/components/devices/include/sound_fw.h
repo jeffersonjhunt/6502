@@ -110,7 +110,7 @@ namespace ooe::emu
         /// Wave RAM from `addr`.
         virtual void doc_ram(uint32_t addr, const uint8_t *bytes, size_t n) = 0;
         /// One frame of the digital path's (1/48,000 s): the chip stepped at its own rate, its output then,
-        /// left and right as revision 2's bus has it (signed 16-bit).
+        /// left and right (signed 16-bit).
         /// The ES5503's output frame, by source: out[0] and out[1] the effects' and the boot sound's (left and right:
         /// every channel but 2 and 3, by its evenness), out[2] and out[3] music's (channels 2 and 3).
         virtual void doc_frame(int16_t out[4]) = 0;
@@ -747,7 +747,7 @@ namespace ooe::emu
         uint8_t faults_{0};
         uint8_t check_image(Image &out) const;
 
-        // --- the boot sound (sound_flash.h's, as revision 2's ES5503 player, docsnd.s, played it) ---------
+        // --- the boot sound (sound_flash.h's, as docsnd.s's ES5503 player played it) --------------------
         struct BootSound
         {
             bool active{false};

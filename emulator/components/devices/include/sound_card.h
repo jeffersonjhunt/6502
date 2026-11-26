@@ -3,56 +3,20 @@
 /**
  * @file sound_card.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The backplane's sound card (module ID A): two SIDs, and a 6510 of its own.
+ * @brief The sound card's chips: two SIDs, and a 6510 of its own.
  * @version 0.1.0
  * @date 2026-10-25
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * hw/design.md ("Sound") is the spec. Registers at $C500:
+ * The sound card's chips: revision 3 (sound_card3.h, the card as a device)
+ * uses this class as its SIDs, its 6510 and the 64 KB the 6510 sees, its
+ * firmware (sound_fw.h) on the host's side of it; sidcheck, sid_file.h and
+ * the tests drive it alone. No machine line builds it on the bus. Its
+ * registers, as an offset into its 128 bytes:
  *
  *   $00-$1C SID A   $20-$3C SID B   $40 CTRL   $41 STATUS   $42 IEN
- *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
- *
- * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h), all that spec's steps built: its registers hold what
- * is written and read it back, with their reset values; the PCM stream
- * runs, raw or MP3, and the ES5503 plays (one or the other: STATE $82),
- * each through the EQ, the vis tap and volume, mixed with the SIDs.
- * set_revision(1) makes the card revision 1 ($A1), $48-$63 reading $FF
- * and ignoring writes:
- *
- *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
- *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
- *   $4D-$4E FREE: the FIFO's room in 256-byte units (512, empty); reading
- *           $4D latches $4E   $4F PCMDATA: into the 128 KB FIFO; dropped full
- *   $50 STATE (below)   $51-$54 POS: reading $51 latches $52-$54, a write
- *           to $51 zeroes it   $55-$56 KBPS: 0   $57/$58 VOLL/VOLR
- *   $59 EQIDX: 0 the preamp, 1-10 the bands, bit 7 the enable instead; an
- *           EQVAL access moves bits 0-6 on   $5A EQVAL: a gain, -24 to 24
- *           (clamped), or the enable's bit 0; an index past 10 reads 0
- *   $5B VISIDX: writing 0 takes a snapshot (sound_dsp.h)   $5C VISDATA:
- *           the vis page's byte at VISIDX, which moves on; past 97, 0
- *   $5D CODECS: $83   $5E DOCCTL (bits 0, 2, 5, 6)   $5F DOCDATA: wave RAM
- *           (DOCCTL bit 6) or the DOC's register at DOCADDR, which moves on
- *           with bit 5, wrapping at 128 KB   $60-$61 DOCADDR   $62 DOCBANK
- *           (bit 0: address bit 16)   $63 DRQSEL: 0 RAMDATA, 1 PCMDATA
- *           (DRQ while the FIFO has room; a fly-by read $FF), 2 DOCDATA,
- *           3 none (no DRQ)
- *
- * The stream. RUN takes RATE and PCMFMT (a RATE outside 8,000-48,000, or a
- * CODEC of 2 or more, is STATE $80) and buffers: playing starts
- * at 4 KB in the FIFO, or at EOF. Each frame then falls due on the host's
- * clock (tick()'s cycles at set_cpu_hz()), whether sound is made or not, and
- * takes 1, 2 or 4 bytes, whole frames only, so one split across writes
- * waits for its last byte. A frame due with none in the FIFO is underrun
- * (silence, counted once by underruns()) without EOF, and the end with it;
- * a byte arriving plays from the next frame; at the end a partial frame is
- * dropped. PAUSE holds the place (its release goes back to the state it
- * paused), FLUSH empties the FIFO (with RUN set, a seek: buffering again),
- * clearing RUN keeps it. POS counts the frames played.
- * The test tap (set_tap()) records the bus before any resampling, signed
- * 16-bit left then right, 8-bit made (b - 128) x 256, mono on both sides.
+ *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   the rest $FF
  *
  * The host's side: the SIDs' registers, the card's 64 KB through RAMADDR
  * and RAMDATA, and the mailbox. The card's side: its own 6510, an NMOS
@@ -77,11 +41,8 @@
  *   $DE03/$DE04  FRAME and FRAMEEN: the card's frame interrupt, for the
  *                host's stub, and the raster line's switch (below)
  *   $DE00/$DE01  the mailbox and its status
- *   $DE02        STOP: any write clears CTRL RUN, so a one-shot (the boot
- *                splash's tune) hands the SIDs back to the host when done.
- *                On revision 2 a write with bit 0 set also clears DOCCTL
- *                RUN, as the host's write does (the ES5503 frozen, its bus
- *                stopped), so PCM may run again; 0 leaves the ES5503 be
+ *   $DE02        STOP: any write clears CTRL RUN, so a one-shot hands the
+ *                SIDs back to the host when done
  *
  * The rest of $D000-$DFFF (the rest of the VIC-II, colour RAM, CIA 2, the
  * rest of $DE00-$DFFF) reads $FF
@@ -123,18 +84,13 @@
  * emulator, so STATUS BUSY never sets.
  *
  * RAM. RAMADDR is the next address; a RAMDATA access, read or write, moves
- * it on, wrapping at 64 KB. The card is always ready, so DRQ is always
- * asserted: with its line wired (`drq` in the machine file) the card pulls
- * /DREQ and answers the DMA controller's poll by its module (A), and a
- * channel whose CARD names it moves bytes through RAMDATA, fly-by, as fast
- * as it is programmed to. So at DRQSEL 0 (its reset value) and 2 the card
- * is a standing request on the shared line.
+ * it on, wrapping at 64 KB.
  *
  * Mailbox. Two one-byte boxes. MBOUT puts a byte in the card's box (STATUS
  * bit 1 until the card takes it; a second write replaces the first). The
  * card's byte waits in MBIN (STATUS bit 2), and reading MBIN empties it.
- * With IEN bit 2, a byte waiting in MBIN interrupts (STATUS bit 7), on bit 2
- * of IRQH. The card sees the same two boxes from its side: $DE00 reads the
+ * With IEN bit 2, a byte waiting in MBIN interrupts (irq(), STATUS bit 7).
+ * The card sees the same two boxes from its side: $DE00 reads the
  * host's byte and writes its own; $DE01 bit 0 is "a byte from the host
  * waiting", bit 1 "my byte not yet taken".
  *
@@ -152,97 +108,26 @@
  * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
  *
- * MP3 (CODEC 1): the FIFO decoded by minimp3 (third_party/minimp3, CC0),
- * layer III, a frame at a time as its first sample falls due. In step, a
- * frame is decoded with all of it and the next header there; out of step,
- * a frame is taken by minimp3's own sync rule (ten in step after it, or the
- * data's end, or a tag), the card waiting until that decides, so a stream
- * fed as it plays decodes as the whole data would; until its first frame
- * decodes, an MP3 is buffering. The rate and channels follow each
- * frame. Free format, layers I and II and frames that decode to nothing are
- * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
- * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
- * tag after it, to EOF or for 32 KB, plays by its own length. A fruitless
- * search costs a few header checks at most.
- *
- * The mix (revision 2). While the PCM stream plays or runs dry, its bus
- * frames are resampled to the audio rate by linear interpolation into a
- * queue, and each SID sample made takes one frame from it, adds it scaled by
- * MIX_DIGITAL and clips the sum; with the queue empty (the bus stopped) the
- * SIDs' sample is made exactly as before. Each run of the bus (a start, a
- * pause's release, a seek, a new RUN, within one write too, and a bulk
- * catch-up) starts its queue lined up with the SIDs' samples made up to that
- * moment, behind a lead of silence ((audio rate / stream rate, rounded up) +
- * 1 frames), so the bursts a bus frame's outputs come in never leave it dry
- * while the bus runs. The same backlog rules: of more than two seconds of
- * bus frames in one tick only the last second is resampled (the samples for
- * the rest an offset to pass first); at a second and a half queued the SIDs
- * are caught up, which takes it; when the SIDs skip a backlog, the queue's
- * frames for the samples skipped go with them. sid.cpp and this file build
- * with -ffp-contract=off, so every target makes the same samples, given the
- * same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree
- * today.
- *
- * The bus (revision 2, step 5). Each frame goes through the EQ (sound_dsp.h),
- * then the vis tap, then VOLL and VOLR (255 unity, else x vol / 255, rounded
- * half away from zero), then the test tap and the mix. Every frame does,
- * those the mix has no use for (no audio rate, a bulk catch-up's) too, so the
- * EQ's state and the vis page are the same whatever the audio rate and the
- * ticks. While RUN is set and the stream doesn't play (paused, buffering,
- * ended, an error), the vis tap has silence at the stream's rate (an MP3
- * sought, the bus's last), on the stream's frame times from the one that
- * found the stop; the EQ keeps its state. Clearing RUN empties the vis tap's
- * frames, so the next snapshot's spectrum and samples are silence (its VU,
- * as after a pause, the peaks since the last); the page already taken stays
- * until VISIDX is written 0. The EQ's filters start from silence at RUN and at FLUSH; a gain or
- * enable written, or an MP3's rate changing, gives it new coefficients from
- * the next frame. VOLL and VOLR scale SID A's and SID B's $D418 too: the chip
- * has round(nibble x vol / 255) in the low nibble, the card's registers (and
- * sid()) what was written; a volume written reaches the chips at once.
- *
- * The ES5503 (step 7). The port (DOCCTL, DOCDATA, DOCADDR, DOCBANK)
- * reaches its registers and wave RAM whatever RUN is, and DMA reaches them
- * through DRQSEL 2. DOCCTL RUN plays it on the card's own clock (inside the
- * SIDs' catch-up), its steps and the bus's 48 kHz frames on their exact
- * times, each frame the average of the steps it spans at (byte - 128) / 128
- * x volume / 255 x 1/8, in integers, then the EQ, the vis tap, volume and the
- * mix as PCM's frames; while RUN is set the 6510 sees the registers at
- * $DF00-$DFFF. Its interrupt goes to the host (IEN bit 3) or, with DOCCTL
- * bit 2 and only while RUN is set, the 6510. Clearing RUN freezes the chip
- * and stops its bus; RUN again plays on from there.
- *
- * Break (the BIOS's QUIET, BIOS 0.12) takes the card at any revision: CTRL
- * RUN and IEN off, every SID register 0; and from $A2 on, PCMCTL FLUSH
- * alone (the stream stopped, its FIFO emptied) and DOCCTL's RUN cleared,
- * its other bits kept (the ES5503 frozen). On revision 1 it writes nothing
- * at $48-$63.
- *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
- * 6510's port, and empties the mailbox; the card's RAM keeps its contents. In Apple II mode the card sits idle:
- * entering it is a reset, and Apple software never addresses the block.
+ * 6510's port, and empties the mailbox; the card's RAM keeps its contents.
  */
 
 #include <array>
 #include <cstdint>
 #include <deque>
-#include <memory>
 #include <vector>
 
 #include "bus.h"
 #include "cpu6502.h"
 #include "device.h"
-#include "es5503.h"
 #include "sid.h"
-#include "sound_dsp.h"
 
 namespace ooe::emu
 {
     class SoundCard : public Device
     {
     public:
-        static constexpr uint8_t MODULE = 0xA;
-        static constexpr uint8_t ID = MODULE << 4 | 2; ///< +$7F: type (module ID) and revision (2: hw/sound-rev2.md), unless set_revision(1)
         static constexpr unsigned SID_REGS = 29;       ///< $00-$1C
         static constexpr size_t RAM_BYTES = 0x10000;
 
@@ -257,76 +142,18 @@ namespace ooe::emu
             RAMDATA = 0x45,
             MBOUT = 0x46,
             MBIN = 0x47,
-            PCMCTL = 0x48,
-            CODEC = 0x49,
-            RATE = 0x4A, ///< low byte; $4B high
-            PCMFMT = 0x4C,
-            FREE = 0x4D, ///< low byte, latching; $4E high
-            PCMDATA = 0x4F,
-            STATE = 0x50,
-            POS = 0x51, ///< low byte, latching; $52-$54 the rest
-            KBPS = 0x55, ///< low byte; $56 high
-            VOLL = 0x57,
-            VOLR = 0x58,
-            EQIDX = 0x59,
-            EQVAL = 0x5A,
-            VISIDX = 0x5B,
-            VISDATA = 0x5C,
-            CODECS = 0x5D,
-            DOCCTL = 0x5E,
-            DOCDATA = 0x5F,
-            DOCADDR = 0x60, ///< low byte (the register number); $61 high
-            DOCBANK = 0x62,
-            DRQSEL = 0x63,
-            ID_REG = 0x7F,
         };
         /// The SID's read-only registers.
         static constexpr uint8_t POTX = 0x19, POTY = 0x1A, OSC3 = 0x1B, ENV3 = 0x1C;
-        static constexpr uint8_t SID_MODE_VOL = 0x18; ///< filter mode and volume: VOLL / VOLR scale its low nibble
+        static constexpr uint8_t SID_MODE_VOL = 0x18; ///< filter mode and volume
         static constexpr uint8_t CTRL_NTSC = 0x01, CTRL_RUN = 0x02, CTRL_RESET = 0x04, CTRL_SID_B_D500 = 0x08,
                                  CTRL_BOTH = 0x10;
         static constexpr uint8_t STATUS_BUSY = 0x01, STATUS_TO_CARD = 0x02, STATUS_TO_HOST = 0x04,
                                  STATUS_IRQ = 0x80;
         static constexpr uint8_t IEN_MAILBOX = 0x04;
-        static constexpr uint8_t IEN_DOC = 0x08; ///< revision 2: the ES5503's interrupt, when DOCCTL routes it here
-        static constexpr uint8_t PCMCTL_RUN = 0x01, PCMCTL_PAUSE = 0x02, PCMCTL_FLUSH = 0x04, PCMCTL_EOF = 0x08;
-        static constexpr uint8_t PCMFMT_STEREO = 0x01, PCMFMT_16BIT = 0x02;
-        /// CODECS: raw PCM (bit 0), MP3 (bit 1), an ES5503 (bit 7).
-        static constexpr uint8_t CODECS_PRESENT = 0x83;
-        enum PcmState : uint8_t
-        {
-            STATE_IDLE = 0,
-            STATE_BUFFERING = 1,
-            STATE_PLAYING = 2,
-            STATE_PAUSED = 3,
-            STATE_UNDERRUN = 4,
-            STATE_ENDED = 5,
-            STATE_BAD_FORMAT = 0x80, ///< at RUN, a RATE or CODEC that doesn't play; an MP3 frame above 48 kHz
-            STATE_NO_SYNC = 0x81,    ///< MP3: 64 KB of data with no frame found in it
-            STATE_BOTH = 0x82,       ///< PCM and the ES5503 both asked to run: the second refused
-        };
-        static constexpr uint32_t RATE_MIN = 8'000, RATE_MAX = 48'000;
-        static constexpr size_t START_BYTES = 4096; ///< buffering ends at this much in the FIFO, or at EOF
-        static constexpr unsigned EQ_BANDS = 10; ///< EQIDX 1-10; 0 is the preamp
-        static constexpr uint8_t EQIDX_ENABLE = 0x80;
-        static constexpr int EQ_LIMIT = 24; ///< EQVAL's half-dB, either way
-        static constexpr unsigned VIS_BYTES = 98;
-        static constexpr uint8_t DOCCTL_RUN = 0x01, DOCCTL_IRQ_CARD = 0x04, DOCCTL_AUTOINC = 0x20,
-                                 DOCCTL_RAM = 0x40;
-        enum DrqSource : uint8_t
-        {
-            DRQ_RAMDATA = 0,
-            DRQ_PCMDATA = 1,
-            DRQ_DOCDATA = 2,
-        };
-        static constexpr size_t FIFO_BYTES = 0x20000; ///< 128 KB
         /// $DE01, the card's view of the mailbox.
         static constexpr uint8_t CARD_FROM_HOST = 0x01, CARD_UNTAKEN = 0x02;
         static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
-        /// The digital bus's share of the mix, against the SIDs' output: the real card's analog stage will set it.
-        static constexpr float MIX_DIGITAL = 0.5f;
-        /// The bus's rate while the ES5503 plays.
-        static constexpr uint32_t DOC_BUS_HZ = 48'000;
         /// CIA 1's registers the card imitates (offsets from $DC00).
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
         /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
@@ -339,20 +166,11 @@ namespace ooe::emu
         ~SoundCard() override;
         SoundCard(const SoundCard &) = delete;
         SoundCard &operator=(const SoundCard &) = delete;
-        /// The card's revision, for tests of software that must take the card at any (ID's low nibble):
-        /// 2, the default, or 1, the card before hw/sound-rev2.md, whose $48-$63 read $FF and ignore writes
-        /// (so DRQ and fly-by stay RAMDATA's). Not a register: kept through resets, as set_model() is.
-        void set_revision(unsigned rev);
-        unsigned revision() const { return rev_; }
         /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
         void set_cpu_hz(uint32_t hz)
         {
             const uint32_t to = hz ? hz : NATIVE_HZ;
-            // The stream has been ticked at the old clock; the part of a frame owed carries over, rescaled
-            // (below host Hz, so the product fits), and so does the vis tap's while the bus is stopped.
-            pcm_phase_ = pcm_phase_ * to / host_hz_;
-            vis_phase_ = vis_phase_ * to / host_hz_;
-            phase_ = phase_ * to / host_hz_; // the SIDs' clock too: the part of a SID clock owed
+            phase_ = phase_ * to / host_hz_; // the part of a SID clock owed carries over, rescaled
             host_hz_ = to;
         }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
@@ -383,15 +201,8 @@ namespace ooe::emu
         uint8_t read(uint32_t offset) override;
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
-        /// IRQH bit 2: a byte waiting in MBIN with IEN bit 2, or (revision 2) the ES5503's interrupt with IEN
-        /// bit 3, DOCCTL bit 2 clear.
+        /// A byte waiting in MBIN with IEN bit 2.
         bool irq() const override;
-        bool drq() const override
-        {
-            return drqsel_ == DRQ_PCMDATA ? fifo_count_ < FIFO_BYTES : drqsel_ <= DRQ_DOCDATA;
-        }
-        uint8_t dack_read(bool tc) override;
-        void dack_write(uint8_t data, bool tc) override;
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
 
@@ -410,14 +221,14 @@ namespace ooe::emu
         uint8_t sid_read(unsigned chip, unsigned reg) const;
 
         uint8_t ctrl() const { return ctrl_; }
-        /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume): kept up to date.
+        /// SID `chip`'s registers as written: kept up to date.
         const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return written_[chip & 1]; }
         /// A SID register written by the card's own logic (revision 3's firmware, sound_card3.h, which uses this
         /// card as its chips), on its clock now, whether the 6510 runs or not; as a write of the 6510's lands.
         void chip_write(unsigned chip, unsigned reg, uint8_t data) { sid_write(chip & 1, reg & 0x1F, data); }
         /// The card's own logic's setting (revision 3's, for a one-SID tune): the 6510's reads of $D400-$D7FF all
-        /// answered by SID A, as SID A's mirrors on a C64 (its writes keep the decode). Off, as revision 2 has it;
-        /// /RESET leaves it.
+        /// answered by SID A, as SID A's mirrors on a C64 (its writes keep the decode). Off by default; /RESET
+        /// leaves it.
         void set_reads_from_a(bool on) { reads_from_a_ = on; }
         /// The card's own logic's reset for a tune's start (revision 3's): reset() but, with `keep_b`, SID B and
         /// its registers as they are (a one-SID tune takes SID A alone; SID B may be playing the firmware's voices).
@@ -434,9 +245,9 @@ namespace ooe::emu
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
 #ifdef EMU_FAULT_HOOKS
         /// Test-only (hw/diag.md, answer 8; D2): a fault in the card's RAM. The byte at `addr` reads as
-        /// (byte AND `and_mask`) OR `or_mask`, for every reader alike: the host's RAMDATA, DMA channel 2's
-        /// reads and the 6510's own; writes store as ever. clear_ram_fault() takes it off. Compiled only into
-        /// the native test build (devices/CMakeLists.txt: EMU_FAULT_HOOKS), never the WebUI's.
+        /// (byte AND `and_mask`) OR `or_mask`, for every reader alike: the host's RAMDATA and the 6510's own;
+        /// writes store as ever. clear_ram_fault() takes it off. Compiled only into the native test build
+        /// (devices/CMakeLists.txt: EMU_FAULT_HOOKS), never the WebUI's.
         void set_ram_fault(uint16_t addr, uint8_t and_mask, uint8_t or_mask)
         {
             fault_on_ = true;
@@ -446,28 +257,10 @@ namespace ooe::emu
         }
         void clear_ram_fault() { fault_on_ = false; }
 #endif
-        // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
-        /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps
-        /// every frame until take_tap(), uncapped, so nothing else turns it on (it starts off, and /RESET leaves it).
-        /// With `silence` false, the frames of silence while the stream is dry aren't recorded: only what played.
-        void set_tap(bool on, bool silence = true)
-        {
-            tap_on_ = on;
-            tap_silence_ = silence;
-            tap_.clear();
-        }
-        /// The frames recorded since the last call, left then right, signed 16-bit; emptied.
-        std::vector<int16_t> take_tap()
-        {
-            catch_up(); // the ES5503's frames to now
-            std::vector<int16_t> out;
-            out.swap(tap_);
-            return out;
-        }
         /// Tests: each SID chip's own output, before the output stage's high-pass and the mix: for every audio
         /// sample made from now on (true; false stops and drops them), chip A's then chip B's average over the
         /// sample's clocks. Only while an audio rate is set (no samples are made at rate 0). For the corpus's
-        /// recorder (test_sid_corpus, SID_RECORD); off from the start, and /RESET leaves it.
+        /// recorder (test_sid_corpus, SID_RECORD) and revision 3's mixer; off from the start, and /RESET leaves it.
         void set_chip_tap(bool on)
         {
             catch_up(); // what went before, untapped
@@ -482,30 +275,6 @@ namespace ooe::emu
             out.swap(chip_tap_);
             return out;
         }
-        /// Frames the bus has put into the mix, resampled to the audio rate, since /RESET or set_audio_rate().
-        uint64_t mix_frames() const { return mix_frames_; }
-        /// Of them, those not yet added to a SID sample.
-        size_t mix_backlog() const { return pcm_mix_.size() / 2; }
-        /// SID samples made while the bus (PCM's or the ES5503's) ran with nothing queued for them: 0 if the lead
-        /// held. Since /RESET or set_audio_rate().
-        uint64_t mix_dry() const { return mix_dry_; }
-        /// Times the stream ran dry with no EOF, since /RESET.
-        unsigned underruns() const { return underruns_; }
-        /// Bytes waiting in the FIFO, a partial frame's among them.
-        size_t fifo_bytes() const { return fifo_count_; }
-        /// The card's ES5503, its registers and wave RAM, played up to now.
-        Es5503 &doc()
-        {
-            catch_up();
-            return doc_;
-        }
-        const Es5503 &doc() const
-        {
-            catch_up();
-            return doc_;
-        }
-        /// The DOC's address, 17 bits: DOCBANK bit 0, then DOCADDR.
-        uint32_t doc_address() const { return doc_addr_; }
         /// Times CTRL RESET was written.
         unsigned cpu_resets() const { return cpu_resets_; }
         /// The card's 6510, for the debugger.
@@ -559,83 +328,6 @@ namespace ooe::emu
 #endif
             return ram_[addr];
         }
-        /// The FIFO's room, in 256-byte units.
-        uint16_t free_units() const { return static_cast<uint16_t>((FIFO_BYTES - fifo_count_) / 256); }
-        /// The playing format's frame: 1, 2 or 4 bytes.
-        size_t frame_bytes() const
-        {
-            return size_t{play_fmt_ & PCMFMT_STEREO ? 2u : 1u} * (play_fmt_ & PCMFMT_16BIT ? 2u : 1u);
-        }
-        /// CODEC 1: the decoder's state and the frame it last made (sound_card.cpp; minimp3 underneath).
-        struct Mp3;
-        bool mp3() const { return play_codec_ == 1; }
-        /// The next MP3 frame's samples ready (decoding from the FIFO as it must), or false: none can be yet.
-        bool mp3_next();
-        /// Stereo frames ready from the last MP3 frame decoded.
-        size_t mp3_ready() const;
-        /// A new MP3 frame's rate: the bus follows it.
-        void mp3_rate(uint32_t hz);
-        /// `n` bytes off the FIFO's front.
-        void fifo_drop(size_t n)
-        {
-            fifo_head_ = (fifo_head_ + n) % FIFO_BYTES;
-            fifo_count_ -= n;
-        }
-        /// A byte into the FIFO (dropped if it's full), then the state as that leaves it.
-        void pcm_write(uint8_t data);
-        /// PCMCTL written: FLUSH, RUN's edges, PAUSE and EOF.
-        void pcm_control(uint8_t data);
-        /// The state as the FIFO and PCMCTL now leave it, between frames; a start or stop unanchors the mix.
-        void pcm_update();
-        /// pcm_update()'s state flow. The mix is re-anchored in one place, pcm_update(), around this: any start
-        /// (from buffering, paused, or a RUN or seek that stopped the stream first, even within one write) or
-        /// stop; and by pcm_advance() after a bulk catch-up, and tick() when time passes with the bus stopped.
-        void pcm_step();
-        /// The bus runs (frames fall due) in these states.
-        static bool bus_runs(uint8_t state) { return state == STATE_PLAYING || state == STATE_UNDERRUN; }
-        /// `cycles` host cycles of playback: the frames due, from the FIFO or, run dry, silence.
-        void pcm_advance(uint64_t cycles);
-        /// `n` frames out of the FIFO, onto the bus.
-        void pcm_play(size_t n);
-        /// `n` frames of silence onto the bus (the stream dry).
-        void pcm_silence(uint64_t n);
-        /// One frame of the bus: the EQ, the vis tap and volume (bus_dsp), then to the tap and resampled into the mix.
-        void bus_frame(int16_t l, int16_t r);
-        /// The EQ, the vis tap and volume, in place: every frame of the bus, the mix's or not, so the vis page and
-        /// the EQ's state are the same whatever the audio rate or the ticks.
-        void bus_dsp(int16_t &l, int16_t &r);
-        /// `n` frames of silence through bus_dsp, none to the tap or the mix.
-        void bus_dsp_silence(uint64_t n);
-        /// `cycles` with the bus stopped and RUN set: silence to the vis tap at the stream's rate.
-        void vis_quiet(uint64_t cycles);
-        /// VOLL or VOLR on each SID's volume: its $D418 as written, the low nibble scaled.
-        void sid_volume();
-        uint8_t sid_mode_vol(unsigned chip) const
-        {
-            const unsigned v = vol_[chip & 1], mv = written_[chip & 1][SID_MODE_VOL];
-            return static_cast<uint8_t>((mv & 0xF0) | ((mv & 0x0F) * v + 127) / 255);
-        }
-        /// The mix takes the bus from now: the SIDs' samples made up to now, so the bus's next lines up with theirs.
-        void mix_anchor();
-        /// An audio rate is set, so the bus's frames (while the stream plays or runs dry) are resampled into the mix.
-        bool mixing() const { return audio_rate_ != 0; }
-        /// DOCDATA: wave RAM or a register at the DOC's address, which moves on with DOCCTL bit 5.
-        uint8_t doc_data_read();
-        void doc_data_write(uint8_t data);
-        void doc_step()
-        {
-            if (docctl_ & DOCCTL_AUTOINC)
-                doc_addr_ = (doc_addr_ + 1) & (Es5503::RAM_BYTES - 1);
-        }
-        /// EQVAL at EQIDX, then EQIDX moves on (bits 0-6; bit 7 stays).
-        uint8_t eq_value() const;
-        void eq_step() { eqidx_ = static_cast<uint8_t>((eqidx_ & EQIDX_ENABLE) | ((eqidx_ + 1) & 0x7F)); }
-        /// A new vis page, from the bus as the vis tap has had it.
-        void vis_snapshot();
-        /// Revision 2's registers to their /RESET values.
-        void reset_rev2();
-        /// $48-$63 on a revision 1 card: nothing there.
-        bool hidden(unsigned o) const { return rev_ < 2 && o >= PCMCTL && o <= DRQSEL; }
         bool io_in() const;
         uint8_t card_read(uint16_t addr);
         uint8_t card_peek(uint16_t addr) const;
@@ -648,15 +340,6 @@ namespace ooe::emu
         void cia_write(unsigned reg, uint8_t data);
         bool cia_irq() const { return cia_flags_ & cia_mask_ & 0x01; }
         bool vic_irq() const { return vic_flags_ & vic_mask_ & 0x01; }
-        /// The ES5503's interrupt as the card's 6510 sees it (DOCCTL bit 2), the chip brought up to now.
-        bool doc_irq_card() const;
-        /// The ES5503 played over `clocks` SID clocks, its steps and the bus's 48 kHz frames on their exact
-        /// times; called from catch_up(), so it keeps step with the SIDs.
-        void doc_run(uint64_t clocks);
-        /// The bus frame for the ES5503's steps since the last: their average, or the last frame held.
-        void doc_frame();
-        /// DOCCTL's RUN set (refused while PCM runs) or cleared.
-        void doc_control(uint8_t data);
         /// The frame's clock: a frame each FRAME_PAL or FRAME_NTSC SID clocks.
         void vic_tick(unsigned cycles);
         void reset_cpu();
@@ -690,69 +373,10 @@ namespace ooe::emu
         uint8_t to_card_{0}, to_host_{0};
         bool to_card_full_{false}, to_host_full_{false};
         unsigned cpu_resets_{0};
-
-        // Revision 2 (hw/sound-rev2.md)
-        unsigned rev_{2};
-        uint8_t pcmctl_{0}, codec_{0}, pcmfmt_{0};
-        uint16_t rate_{0};
-        // The stream: the FIFO a ring, on the heap; RATE and PCMFMT as RUN took them.
-        std::unique_ptr<std::array<uint8_t, FIFO_BYTES>> fifo_ = std::make_unique<std::array<uint8_t, FIFO_BYTES>>();
-        size_t fifo_head_{0}, fifo_count_{0};
-        uint8_t state_{STATE_IDLE};
-        uint8_t resume_{STATE_BUFFERING}; ///< the state PAUSE's release goes back to
-        uint32_t play_rate_{0};
-        uint8_t play_fmt_{0};
-        uint8_t play_codec_{0};            ///< CODEC as RUN took it
-        std::unique_ptr<Mp3> mp3_;
-        uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame
-        unsigned underruns_{0};
-        bool tap_on_{false};
-        bool tap_silence_{true};
-        std::vector<int16_t> tap_;
         bool chip_tap_on_{false};
         mutable std::vector<float> chip_tap_; ///< set_chip_tap()'s: render() is const, as the SIDs' catch-up
-        // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
-        // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.
-        mutable std::deque<float> pcm_mix_;
-        float mix_prev_[2]{0, 0};          ///< the bus frame before the next
-        uint64_t mix_acc_{0};              ///< the next output's place past mix_prev_, in 1/audio-rate frames
-        bool bus_on_{false};               ///< the mix has its anchor for this run of the bus
-        uint64_t mix_skip_{0};             ///< bus frames of a bulk catch-up that make nothing
-        mutable uint64_t mix_offset_{0};   ///< SID samples to make before the queue's front is theirs
-        uint64_t mix_frames_{0};
-        mutable uint64_t mix_dry_{0};
-        uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
-        uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
-        std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR
-        uint8_t eqidx_{0};
-        std::array<int8_t, EQ_BANDS + 1> eq_gain_{}; ///< the preamp, then the bands
-        bool eq_on_{false};
-        BusEq eq_;
-        bool eq_dirty_{true};  ///< the gains or enable changed: the coefficients anew
-        /// The bus's last rate: the one the EQ's coefficients are for, kept on every frame, the EQ on or off; and
-        /// the rate of vis_quiet()'s silence when the stream has none (an MP3 sought, until its next first frame).
-        uint32_t eq_rate_{0};
-        BusVis vis_bus_;
-        uint64_t vis_phase_{0}; ///< host cycles x rate owed to the vis tap's silence while the bus is stopped
-        /// Each SID's registers as written ($00-$18; the read-only four 0): the chip has its $D418 scaled by VOLL
-        /// or VOLR.
+        /// Each SID's registers as written ($00-$18; the read-only four 0).
         std::array<std::array<uint8_t, SID_REGS>, 2> written_{};
-        uint8_t visidx_{0};
-        std::array<uint8_t, VIS_BYTES> vis_{};
-        uint8_t docctl_{0};
-        uint32_t doc_addr_{0};
-        uint8_t drqsel_{DRQ_RAMDATA};
-        Es5503 doc_;
-        // The ES5503 on the card (step 7). Its time is the SIDs' (catch_up() runs both to the same clock), in
-        // units of a SID clock / (7,159,090 x 48,000): a chip clock is SID Hz x 48,000 of them, a bus frame
-        // SID Hz x 7,159,090.
-        uint64_t doc_step_left_{0};    ///< to its next step
-        uint64_t doc_frame_left_{0};   ///< to the end of the bus frame
-        std::array<int64_t, 2> doc_sum_{}; ///< the steps' stereo sums this frame
-        uint32_t doc_steps_{0};
-        std::array<int16_t, 2> doc_last_{}; ///< the last frame, held when one spans no step
-        bool doc_mix_on_{false};       ///< the mix has its anchor for this run of the ES5503
-        bool both_{false};             ///< a RUN refused (PCM and the ES5503): STATE reads $82 until the next write
 
         CardBus bus_{*this};
         Cpu6502 cpu_;

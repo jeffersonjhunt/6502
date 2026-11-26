@@ -1,6 +1,6 @@
 /**
  * @file sound_dsp.cpp
- * @brief Sound card revision 2's digital bus: the EQ and the vis page.
+ * @brief The sound card's digital bus: the EQ and the vis page.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 

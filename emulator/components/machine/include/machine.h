@@ -50,8 +50,7 @@
  * bridge sends bank 8 to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
- * card, the device, sound_card3.h: at most one; `rev=3`, its only revision, may be given, and `memsize=2`,
- * `4` or `8`, its store in MB, 8 the default), sd (the mass storage card, sd_card.h; at most
+ * card, the device, sound_card3.h: at most one; `memsize=2`, `4` or `8`, its store in MB, 8 the default), sd (the mass storage card, sd_card.h; at most
  * one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board; a 4-byte 6551 in an I/O
  * block, every 4). Mappings may overlap, and the later line answers: so a

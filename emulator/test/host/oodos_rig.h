@@ -263,24 +263,14 @@ namespace oodos_rig
         return card;
     }
 
-    /// The sound card's revision on the machines this suite's rigs build from backplane.machine: 0 its own
-    /// (revision 3, the card as a device), or another given on the sound line (`rev=`). Set
-    /// once at a suite's start, as test_oodos_sound and the other sound suites do.
-    inline unsigned &sound_revision()
-    {
-        static unsigned rev = 0;
-        return rev;
-    }
-    /// backplane.machine's text with its sound line given `rev=` (and `memsize=` when not 0, in MB).
-    inline std::string machine_with_sound(unsigned rev, unsigned memsize_mb = 0)
+    /// backplane.machine's text with its sound card's store `memsize_mb` MB (2, 4 or 8) on its line.
+    inline std::string machine_with_memsize(unsigned memsize_mb)
     {
         std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
         const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
         const size_t at = text.find(line);
         if (at != std::string::npos) // the line's own options replaced
-            text.replace(at + line.size(), text.find('\n', at) - at - line.size(),
-                         "  rev=" + std::to_string(rev) +
-                             (memsize_mb ? "  memsize=" + std::to_string(memsize_mb) : std::string()));
+            text.replace(at + line.size(), text.find('\n', at) - at - line.size(), "  memsize=" + std::to_string(memsize_mb));
         return text;
     }
     /// backplane.machine without its video card (the card's line and its aperture's).
@@ -329,9 +319,7 @@ namespace oodos_rig
             // SYNC before CcpRig's set_time, fell where the host's clock put it.
             opt.rtc_time = Ds3231::Time{2026, 10, 30, 12, 0, 0, (days(2026, 10, 30) - 1) % 7 + 1};
             std::string error;
-            machine = Machine::build(!machine_text.empty() ? machine_text
-                                     : sound_revision()  ? machine_with_sound(sound_revision())
-                                                         : read_text(EMU_MACHINE_DIR "/backplane.machine"),
+            machine = Machine::build(!machine_text.empty() ? machine_text : read_text(EMU_MACHINE_DIR "/backplane.machine"),
                                      "backplane.machine", opt, error);
             if (machine)
                 console = make_console(*machine, error);

@@ -18,7 +18,7 @@
  *
  * This half is portable (no emulator dependency): the sound card's firmware,
  * revision 3, plans with it (sound_fw.h), and sid_file.h's start_sid() and
- * stop_sid() put a plan into revision 2's card through its registers.
+ * stop_sid() put a plan into the card's chips (sound_card.h) through their registers.
  *
  * Playing it follows hw/design.md (".sid playback"), as a host program would
  * through the card's registers: stop the card, load the code at its load
@@ -131,7 +131,7 @@ namespace ooe::emu
             std::vector<uint8_t> bytes;
         };
         std::vector<Block> blocks; ///< the tune, then the stub, the KERNAL exits and vectors
-        /// CTRL's bits, revision 2's (sound_card.h): what the plan's ctrl holds.
+        /// CTRL's bits, the chips' (sound_card.h): what the plan's ctrl holds.
         static constexpr uint8_t CTRL_NTSC = 0x01, CTRL_RUN = 0x02, CTRL_RESET = 0x04, CTRL_SID_B_D500 = 0x08,
                                  CTRL_BOTH = 0x10;
         uint8_t ctrl{0};           ///< CTRL to start with (RUN and RESET included)

@@ -684,7 +684,7 @@ TEST(the_device_records_a_tune_as_the_register_path_does)
     CHECK_EQ(rd.frames, ra.frames);
     CHECK_EQ(rd.late, ra.late);
     CHECK_EQ(passes(f, rd), passes(f, ra));
-    CHECK(d.chip_hash[1] != a.chip_hash[1]); // SID B: BOTH's copy on revision 2, silent on the device
+    CHECK(d.chip_hash[1] != a.chip_hash[1]); // SID B: BOTH's copy on the register path, silent on the device
 }
 
 namespace
@@ -825,7 +825,7 @@ namespace
         all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return dev.count(n) != 0; }), all.end());
         std::printf("  %zu more on the device (sid_device_known_failures.txt)\n", dev.size());
     }
-    std::printf("  %s\n", device ? "on the device (revision 3, by its records)" : "on revision 2's registers");
+    std::printf("  %s\n", device ? "on the device (revision 3, by its records)" : "on the chips' registers (sound_card.h)");
     std::map<std::string, std::map<std::string, std::string>> baseline; // SID_COMPARE's, by name
     if (const char *path = std::getenv("SID_COMPARE"); device && path && *path)
     {

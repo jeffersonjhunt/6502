@@ -15,7 +15,7 @@ namespace ooe::emu
     static_assert(SidPlan::CTRL_NTSC == SoundCard::CTRL_NTSC && SidPlan::CTRL_RUN == SoundCard::CTRL_RUN &&
                       SidPlan::CTRL_RESET == SoundCard::CTRL_RESET && SidPlan::CTRL_SID_B_D500 == SoundCard::CTRL_SID_B_D500 &&
                       SidPlan::CTRL_BOTH == SoundCard::CTRL_BOTH,
-                  "the plan's CTRL is revision 2's");
+                  "the plan's CTRL is the chips' (sound_card.h)");
 
     void stop_sid(SoundCard &card)
     {

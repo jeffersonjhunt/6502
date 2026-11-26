@@ -341,7 +341,7 @@ TEST(m_and_an_apple_do_unit_load_too)
 
 TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
 {
-    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
+    CcpRig r;
     REQUIRE(r.ok);
     const std::vector<uint8_t> data = noise(65536, 33);
     put_b(r, "PICTURE BIN", data);

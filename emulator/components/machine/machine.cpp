@@ -384,14 +384,6 @@ namespace ooe::emu
                 }
                 else if (eq != std::string::npos && arg.compare(0, eq, "name") == 0)
                     name = arg.substr(eq + 1);
-                else if (eq != std::string::npos && arg.compare(0, eq, "rev") == 0)
-                {
-                    const std::string n = arg.substr(eq + 1);
-                    if (type != "sound")
-                        return fail("rev: only the sound card takes a revision");
-                    if (n != "3")
-                        return fail("rev: want the sound card's revision, 3");
-                }
                 else if (eq != std::string::npos && arg.compare(0, eq, "memsize") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);

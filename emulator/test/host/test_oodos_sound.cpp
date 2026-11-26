@@ -7,8 +7,8 @@
  * part and the warm and cold boots; and the acceptance items: a file on an SD drive streamed through function 82.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h), on a machine whose sound card is revision 3 (the
- * rig's sound_revision). L3TEST (oodos/sys/test/l3test.s), run by GO, opens its area at $2000 and takes commands,
+ * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h), on backplane.machine, whose sound card is revision 3.
+ * L3TEST (oodos/sys/test/l3test.s), run by GO, opens its area at $2000 and takes commands,
  * a letter at $2100; function 82's blocks the test builds at $2110, and the data they name it puts in physical
  * memory itself. L3STRM (l3strm.s) streams a file from B: as a program would, refilling its two buffers with
  * ordinary BDOS reads. The MP3 is the repo's own (test/host/mp3, tools/make_mp3_fixtures.sh); the raw PCM is
@@ -42,8 +42,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     constexpr uint32_t AREA = 0x2000, MBOX = 0x2100, KBLK = 0x2110; ///< l3test.s's
     constexpr uint32_t PARMS = 0x2100, FCB = 0x2120;                 ///< l3strm.s's
     // oodos.inc's
@@ -1248,7 +1246,7 @@ TEST(a_file_bigger_than_the_store_streams_from_b_with_no_underrun)
 {
     // The spec's acceptance, from an OODOS program: a file bigger than the card's store (a 2 MB card: 2.2 MB of 48
     // kHz 16-bit stereo, 11.7 s) streamed by L3STRM from B:, fed as the card asks: no underrun, every byte played.
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     REQUIRE(fw(r).store_bytes() == 2u << 20);
     const std::vector<uint8_t> pcm = noise(17600 * 128, 45); // 2,252,800 bytes
@@ -1802,7 +1800,7 @@ TEST(with_no_area_a_full_ring_is_fed_at_each_need)
     // buffer and giving the next 64 KB; 1.5 MB in all at 48 kHz 16-bit stereo. With the ring full the card asks
     // (NEED) only when room comes, with nothing moving: that NEED must send the waiting buffer at once. Every byte
     // played, no underrun. Must fail with NEED's own SFEED left out.
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     fw(r).set_stream_tap(true);
     open(r, "X");
@@ -1902,7 +1900,7 @@ TEST(a_stream_s_sn_end_goes_when_its_buffers_have_gone_with_a_fast_feeder_after_
     // buffer sent next is always taken (the second's): the first plays out, ends, the second follows with no gap,
     // every byte of both played and no underrun. Must fail with STREAM_END sent only when the next buffer to send is
     // free (the first never ends: it runs dry, and the second never starts).
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     fw(r).set_stream_tap(true);
     open(r, "2");

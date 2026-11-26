@@ -161,30 +161,15 @@ describe("Devices tab", () => {
     expect(sidFilter(r)).toBe("volume 10 · filter low+high-pass · cutoff 1031 · resonance 0 · voices ext · voice 3 off · OSC3 $A5 ENV3 $3C");
   });
 
-  test("the sound card: CTRL, the mailbox, RAMADDR and both SIDs", async () => {
-    const port = new FakePort();
-    const regs: Record<number, number> = { 0x00: 0xd6, 0x01: 0x1c, 0x04: 0x21, 0x18: 0x0f, 0x24: 0x11, 0x40: 0x1b, 0x41: 0x06, 0x42: 0x04, 0x43: 0x00, 0x44: 0x10, 0x47: 0x80, 0x7f: 0xa1 };
-    for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
-    const v = devicesView(port);
-    await v.refresh();
-    expect(v.element.textContent).toContain("Sound card running");
-    expect(text(v.element, "CTRL")).toBe("$1B  NTSC 1.023 MHz · 6510 running · SID B at $D500 · A to both");
-    expect(text(v.element, "Mailbox")).toBe("to card full · to host $80 waiting · interrupts");
-    expect(text(v.element, "RAMADDR")).toBe("$1000");
-    expect(text(v.element, "SID A")).toBe("volume 15 · filter off · OSC3 $00 ENV3 $00");
-    expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0");
-    expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0");
-    expect(text(v.element, "B3")).toBe("$0000 · no waveform · ADSR 0 0 0 0");
-  });
-
   test("the card's 6510: registers, port, timer", async () => {
     const port = new FakePort();
-    port.memory.set(SOUND + 0x7f, 0xa1);
-    port.memory.set(SOUND + 0x40, 0x02);
+    port.memory.set(SOUND + 0x7f, 0xa3);
     const held: Envelope = { level: 0, phase: "release", held: true };
     const cpu: SoundCpu = {
       pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0x1234, latch: 0x4cf8, timerOn: true, frame: 1, frameEn: 3, raster: 0x123,
       envelopes: [{ level: 0x88, phase: "decay/sustain", held: false }, held, held, held, held, { level: 0x40, phase: "attack", held: false }],
+      sids: new Uint8Array(50),
+      device: { tune: 2, music: 0, stream0: 0, stream1: 0, storeFree: 4096 * 1024, store: 8192 * 1024, boot: false, beep: false, voices: "......................", notes: 0, image: 0 },
     };
     port.sound = cpu;
     const v = devicesView(port);
@@ -261,8 +246,8 @@ describe("Devices tab", () => {
     expect(v.element.textContent).toContain("No sound card on this machine.");
   });
 
-  test("the sound card at any revision; another card's ID isn't it", async () => {
-    for (const [id, found] of [[0xa1, true], [0xa2, true], [0xaf, true], [0xb1, false], [0xff, false]] as const) {
+  test("$A3 is the sound card; any other ID isn't", async () => {
+    for (const [id, found] of [[0xa3, true], [0xa1, false], [0xa2, false], [0xaf, false], [0xb1, false], [0xff, false]] as const) {
       const port = new FakePort();
       port.memory.set(SOUND + 0x7f, id);
       const v = devicesView(port);

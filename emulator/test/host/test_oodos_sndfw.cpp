@@ -29,8 +29,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     SoundCard3 &dev(Rig &r) { return *r.machine->sound_device(); }
     SoundFw &fw(Rig &r) { return dev(r).firmware(); }
 

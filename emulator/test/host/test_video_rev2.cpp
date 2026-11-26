@@ -613,13 +613,13 @@ TEST(machine_lines_refuse_a_video_revision_and_check_the_aperture)
 {
     std::string error;
     const std::string head = "cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n";
-    for (const char *rev : {"rev=1", "rev=2"}) // one card, one revision: the video line takes no rev=
+    for (const char *rev : {"rev=1", "rev=2"}) // one card, one revision: no line takes rev=
     {
         CHECK(Machine::build(head + "video 480-4FF space=io name=video " + rev + "\n", "v.machine", {}, error) == nullptr);
-        CHECK(error.find("rev: only the sound card takes a revision") != std::string::npos);
+        CHECK(error.find("unknown option 'rev'") != std::string::npos);
     }
     CHECK(Machine::build(head + "usb 500-57F space=io rev=2\n", "v.machine", {}, error) == nullptr);
-    CHECK(error.find("only the sound card") != std::string::npos);
+    CHECK(error.find("unknown option 'rev'") != std::string::npos);
     auto none = Machine::build(head + "aperture E00000-E0FFFF\n", "v.machine", {}, error); // no card: inert
     REQUIRE(none != nullptr);
     none->bus().write_physical(0x80000, 0x42);

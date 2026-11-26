@@ -84,21 +84,9 @@ namespace
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
                        std::string apple_chars = "", std::vector<std::string> without = {},
                        std::array<std::string, 4> images = {},
-                       std::array<std::string, 4> charsets = {}, unsigned sound_rev = 0)
+                       std::array<std::string, 4> charsets = {})
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
-            if (sound_rev) // the sound card's rev= (3: the card as a device), else the machine file's own
-            {
-                const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
-                const size_t at = text.find(line);
-                if (at == std::string::npos)
-                {
-                    std::printf("  backplane.machine has no '%s' line\n", line.c_str());
-                    return;
-                }
-                const size_t end = text.find('\n', at); // the line's own options replaced
-                text.replace(at + line.size(), end - at - line.size(), "  rev=" + std::to_string(sound_rev));
-            }
             if (!video)
                 without.push_back("video");
             for (const std::string &card : without) // the machine without these cards
@@ -143,13 +131,6 @@ namespace
             }
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
         }
-
-        /// Board(Board::Sound3{}): the sound card at revision 3, the device (hw/future/sound-device.md), which the
-        /// ROM drives.
-        struct Sound3
-        {
-        };
-        explicit Board(Sound3) : Board(false, true, {}, "", {}, {}, {}, 3) {}
 
         bool ok() const { return cpu != nullptr; }
 
@@ -265,7 +246,7 @@ namespace
         std::unique_ptr<Cpu6502> cpu;
     };
 
-    constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
+    constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash, then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
     const std::string GREETING = "\rBACKPLANE BIOS 0.21\r\\\r";
 
@@ -568,7 +549,7 @@ namespace
 
 namespace
 {
-    /// Revision 3's card (the device, sound_card3.h) on a Board(Board::Sound3{}), and its firmware.
+    /// The sound card (revision 3, the device, sound_card3.h) on a Board, and its firmware.
     SoundCard3 &dev(Board &b) { return *b.machine->sound_device(); }
     SoundFw &fw(Board &b) { return b.machine->sound_device()->firmware(); }
 
@@ -679,7 +660,7 @@ namespace
 
     /// After a QUIET on revision 3 (CTRL's RESET): nothing plays, IEN 0 (the host's /IRQ high), and from a frame
     /// on the card's output is silent (the last of what was made before it given that frame; the SIDs' DC filter
-    /// settling, under 1e-3 of full scale, as revision 2's check allowed).
+    /// settling, under 1e-3 of full scale).
     void check_quiet(Board &b)
     {
         CHECK(!any_sound(b));
@@ -735,7 +716,7 @@ TEST(the_splash_sends_bootsound_at_frame_0_s_blank)
     // BOOTSOUND, on the vertical blank its frame 0 begins on, once the card is READY: the firmware plays the boot
     // sound from its flash (the sequence's start, the engine, heard), the boot doesn't wait for it, and after 5 s
     // the monitor has the screen and the sound is over. Must fail with BOOTSOUND sent before the blank.
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card != nullptr);
@@ -774,7 +755,7 @@ TEST(c800_stops_a_program_s_sound_before_the_splash_plays)
 {
     // A program left a sound playing (a 60 s beep) and the monitor's C800R boots again: the splash's CTRL RESET stops
     // it before BOOTSOUND (C800R runs no QUIET). Must fail with the splash's strobe left out (the beep plays on).
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     REQUIRE(boot_past_splash(b));
     record(b, SoundFw::BEEP, 1, {0xE8, 0x03, 0x60, 0xEA, 0}); // 1,000 Hz, 60,000 ms
@@ -787,7 +768,7 @@ TEST(c800_stops_a_program_s_sound_before_the_splash_plays)
 
 TEST(break_during_the_boot_splash_stops_it_and_its_sound)
 {
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card != nullptr);
@@ -806,7 +787,7 @@ TEST(break_stops_every_sound_on_the_card)
 {
     // QUIET on revision 3 is one write, CTRL's RESET (the owner's answer 7): a tune, a stream and a beep all playing,
     // and after Break nothing at the tap. Must fail with QUIET's write left out.
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     REQUIRE(boot_past_splash(b));
     start_everything(b);
@@ -826,7 +807,7 @@ TEST(break_stops_every_sound_on_the_card)
 TEST(the_demos_end_stops_every_sound_on_the_card)
 {
     // The demo ends through BREAK, so through QUIET too.
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     REQUIRE(boot_past_splash(b));
     start_demo(b);
@@ -843,7 +824,7 @@ TEST(break_stops_a_paused_stream_and_drops_a_half_written_record)
 {
     // A stream paused stops (flushed) as a playing one does; and a record a program had half written when Break came
     // is dropped by the RESET, so the next record parses and is answered.
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     REQUIRE(boot_past_splash(b));
     start_everything(b);
@@ -1637,7 +1618,7 @@ TEST(c818_beep_and_stopall)
     for (const auto &[a, want_ms] : {std::pair<uint8_t, double>{20, 200}, {0, 250}})
     {
         std::printf("  BEEP, A = %u\n", a);
-        Board b{Board::Sound3{}};
+        Board b;
         REQUIRE(b.ok());
         REQUIRE(boot_past_splash(b));
         dev(b).set_tap(true, SoundFw::SRC_BEEP);
@@ -1672,7 +1653,7 @@ TEST(c818_beep_and_stopall)
     }
     {
         std::printf("  STOPALL\n");
-        Board b{Board::Sound3{}};
+        Board b;
         REQUIRE(b.ok());
         REQUIRE(boot_past_splash(b));
         record(b, SoundFw::BEEP, 1, {0xE8, 0x03, 0x60, 0xEA, 0}); // 1,000 Hz, 60 s
@@ -1690,7 +1671,7 @@ TEST(c818_beep_and_stopall)
     {
         static const char *const what[] = {"no sound card", "a card that never comes READY", "a card that never answers"};
         std::printf("  %s\n", what[fault]);
-        Board b = fault == 0 ? Board(false, true, {}, "", {"sound"}) : Board(Board::Sound3{});
+        Board b = fault == 0 ? Board(false, true, {}, "", {"sound"}) : Board();
         REQUIRE(b.ok());
         REQUIRE(boot_past_splash(b));
         if (fault == 1)
@@ -1719,7 +1700,7 @@ TEST(c818_beep_and_stopall)
         // splash's BOOTSOUND reply, tag $FE, is never read), on a card that then never answers: the call must
         // drop it and wait for its own, carry set at 100 ms. Must fail with SREAD taking any REPLY for $C818's.
         std::printf("  a card that never answers, another's reply waiting\n");
-        Board b{Board::Sound3{}};
+        Board b;
         REQUIRE(b.ok());
         REQUIRE(boot_past_splash(b));
         record(b, SoundFw::NOP, 0xFE);
@@ -1968,7 +1949,7 @@ TEST(c800_after_a_bootsel_boot_starts_the_image_in_ram_again)
 
 TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
 {
-    Board b{Board::Sound3{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -2322,8 +2303,8 @@ namespace
 TEST(apple_ii_mode_starts_with_the_dma_controller_as_reset_and_losing_no_cycle_to_it)
 {
     // b2-plan.md §4 item 14 (chapter 13: Apple II mode takes no cycle for DMA). After C806R the /RESET pulse
-    // leaves CONTROL $70 (the master off), every CARD at its reset module and REQ 0, and the sound card's
-    // standing request (DRQSEL 0) costs nothing. Must fail if pulse_reset() leaves the poll's state, or a
+    // leaves CONTROL $70 (the master off), every CARD at its reset module and REQ 0, and a card's request
+    // costs nothing. Must fail if pulse_reset() leaves the poll's state, or a
     // request costs cycles with the master off.
     const std::string rom = fake_iie_rom("test_dma_apple.rom");
     Board b(false, true, {rom});

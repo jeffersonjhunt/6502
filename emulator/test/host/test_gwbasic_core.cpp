@@ -1130,7 +1130,7 @@ TEST(graphics_are_advanced_feature_in_console_mode)
 // the note queued and MF's wait run to the clock).
 TEST(console_mode_keeps_its_guard)
 {
-    CcpRig r({}, machine_with_sound(3)); // sound card revision 3: SN_BEEP on the card
+    CcpRig r;
     REQUIRE(r.ok);
     start(r);
     for (const char *k : {"SOUND 440,1", "SOUND 9,9", "PLAY \"C\"", "PRINT PLAY(0)", "PLAY ON", "PLAY STOP",

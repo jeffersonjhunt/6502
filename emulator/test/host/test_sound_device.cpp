@@ -4,7 +4,7 @@
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * A backplane with the DMA controller and a revision 3 sound card in module A ($C500), as the machine file's
- * `sound ... rev=3` builds it. The host's side is the bus: records written to CMD, events read from EVT, data
+ * The sound line builds it. The host's side is the bus: records written to CMD, events read from EVT, data
  * by the CPU into DATA or by DMA channel 2 in demand mode.
  */
 
@@ -42,7 +42,7 @@ namespace
         {
             std::string error;
             m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
-                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq rev=3" +
+                               "dma 400-47F space=io name=dma irq\nsound 500-57F space=io name=sound irq drq" +
                                    options + "\n",
                                "sound.machine", {}, error);
             if (!m)

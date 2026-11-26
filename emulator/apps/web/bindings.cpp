@@ -465,7 +465,7 @@ namespace
 
         SoundCpu sound_cpu() const
         {
-            const SoundCard *c = session_->sound_chips(); // either revision: revision 3's own chips
+            const SoundCard *c = session_->sound_chips(); // the card's chips
             if (!c)
                 return SoundCpu{};
             const Registers &r = c->cpu().regs();
@@ -560,10 +560,9 @@ namespace
             return SidInfo{true, f->name, f->author, f->released, warnings, f->songs, session_->sid_song(),
                            f->rsid, f->ntsc(), f->model() == SidModel::Mos8580};
         }
-        /// A tune plays: revision 2's 6510 runs (CTRL RUN); revision 3's TUNE_STATUS says starting, playing or
-        /// stalled. False without the card.
+        /// A tune plays: the firmware's TUNE_STATUS says starting, playing or stalled. False without the card.
         bool sound_running() const { return session_->tune_playing(); }
-        /// Revision 3's firmware as a debugger sees it (has false on revision 1 or 2, or no card): the tune's,
+        /// The card's firmware as a debugger sees it (has false with no card): the tune's,
         /// music's and each stream's state, the store, the boot sound, and the voices: a letter each of the
         /// SIDs' six then the ES5503's sixteen ('.' free, 'E' an effect's, 'M' music's).
         SoundDevice sound_device() const
@@ -579,7 +578,7 @@ namespace
                                static_cast<double>(f.store_free()), static_cast<double>(f.store_bytes()),
                                f.boot_sound_playing(), f.beeping(), voices, f.notes_waiting(), f.running_slot()};
         }
-        /// Both SIDs' 25 registers as last written (revision 3's shadows, or revision 2's): 50 bytes, A's first; a
+        /// Both SIDs' 25 registers as last written (the firmware's shadows): 50 bytes, A's first; a
         /// view good until the next call; empty without the card.
         val sound_sids()
         {

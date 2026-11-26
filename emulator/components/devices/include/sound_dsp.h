@@ -3,18 +3,19 @@
 /**
  * @file sound_dsp.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief Sound card revision 2's digital bus: the EQ and the vis page.
+ * @brief The sound card's digital bus: the EQ and the vis page.
  * @version 0.1.0
  * @date 2026-11-06
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * hw/sound-rev2.md ("Signal path", "Vis page") is the spec, proposed. Frames
- * are signed 16-bit, left and right, at the bus's rate.
+ * The firmware (sound_fw.h) runs them on its bus; hw/sound-rev2.md ("Signal
+ * path", "Vis page") specified them. Frames are signed 16-bit, left and
+ * right, at the bus's rate.
  *
  * BusEq is the EQ: the preamp, then ten peaking biquads (the RBJ cookbook's,
  * Q 1.41) at 60, 170, 310, 600 Hz and 1, 3, 6, 12, 14, 16 kHz, each channel
- * its own. Gains are EQVAL's half-dB. A band at or above 0.45 of the bus rate
+ * its own. Gains are in half-dB. A band at or above 0.45 of the bus rate
  * is bypassed, and so is one at 0 (as is the preamp at 0), so with every gain
  * 0, or disabled, a frame comes out as it went in, bit for bit. The sums are
  * doubles, rounded to the nearest sample and clipped at the end.

@@ -37,7 +37,6 @@ const VIDEO_ID = 0x92;
 export const USB = 0xc580;
 const USB_ID = 0xb1;
 export const SOUND = 0xc500;
-const SOUND_TYPE = 0xa0; // the ID's high nibble: the sound card at any revision (2 adds hw/sound-rev2.md's)
 export const SD = 0xc380;
 const SD_ID = 0x71;
 const MODS = ["L-Ctrl", "L-Shift", "L-Alt", "L-GUI", "R-Ctrl", "R-Shift", "R-Alt", "R-GUI"];
@@ -197,7 +196,7 @@ export function frameText(c: SoundCpu): string {
   return `line ${c.raster} · interrupt ${c.frameEn & 1 ? "on" : "off"}${c.frame & 1 ? " · pending" : ""} · $D012 ${c.frameEn & 2 ? "shows it" : "reads $FF"}`;
 }
 
-/** Sound card revision 3's ID: the card as a device (hw/future/sound-device.md). */
+/** The sound card's ID: revision 3, the card as a device (hw/future/sound-device.md), its only one. */
 export const SOUND_V3 = 0xa3;
 const TUNE_STATES = ["stopped", "starting", "playing", "paused", "stalled", "jammed", "ended"];
 /** Whether a tune's state has the card's 6510 running: starting, playing or stalled (paused holds it). */
@@ -206,12 +205,13 @@ export function tuneRuns(state: number): boolean {
 }
 const STREAM_STATES: Record<number, string> = { 0: "idle", 1: "buffering", 2: "playing", 3: "paused", 4: "underrun", 5: "ended", 0x80: "bad format", 0x81: "no sync" };
 
-/** Revision 3's STATUS ($C501) in words. */
+/** The card's STATUS ($C501) in words. */
 export function deviceStatusText(v: number): string {
   return bits(v, [[0x01, "READY"], [0x02, "CMDRDY"], [0x04, "EVT"], [0x08, "XFER"], [0x10, "DATA"], [0x20, "EVLOST"], [0x40, "ERR"], [0x80, "IRQ"]]);
 }
 
-/** Revision 3's registers, its firmware's objects and voices, then its 6510 and both SIDs (their shadows). */
+/** The card's registers, its firmware's objects and voices, then its 6510 (registers, port, CIA 1's timer, frame) and
+ * both SIDs (their shadows). */
 export function soundDeviceRows(r: Uint8Array, cpu: SoundCpu | null): HTMLElement[] {
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
   const left = r[0x08] | (r[0x09] << 8) | (r[0x0a] << 16);
@@ -233,7 +233,12 @@ export function soundDeviceRows(r: Uint8Array, cpu: SoundCpu | null): HTMLElemen
     );
   }
   if (cpu) {
-    rows.push(...row("6510", soundCpuText(cpu, d ? tuneRuns(d.tune) : false)), ...row("Frame", frameText(cpu)));
+    rows.push(
+      ...row("6510", soundCpuText(cpu, d ? tuneRuns(d.tune) : false)),
+      ...row("Port", soundPortText(cpu)),
+      ...row("Timer A", `$${hex(cpu.timer, 4)} of $${hex(cpu.latch, 4)} · ${cpu.timerOn ? "counting" : "stopped"}`),
+      ...row("Frame", frameText(cpu)),
+    );
     if (cpu.sids) {
       const sids = cpu.sids;
       const voice = (chip: number, i: number) => {
@@ -396,43 +401,14 @@ export function devicesView(port: MachinePort) {
 
   const refreshSound = async () => {
     const r = await port.readMemory(SOUND, 0x80, "io");
-    if ((r[0x7f] & 0xf0) !== SOUND_TYPE) {
+    if (r[0x7f] !== SOUND_V3) {
       soundStatus.textContent = "none";
       soundRows.replaceChildren(h("dd", {}, "No sound card on this machine."));
       return;
     }
-    if (r[0x7f] === SOUND_V3) {
-      const cpu = await port.readSound();
-      soundRows.replaceChildren(...soundDeviceRows(r, cpu));
-      soundStatus.textContent = cpu?.device && tuneRuns(cpu.device.tune) ? "tune playing" : cpu?.device?.tune === 3 ? "tune paused" : "the device";
-      return;
-    }
-    const ctrl = r[0x40], status = r[0x41];
-    soundStatus.textContent = ctrl & 2 ? "running" : "stopped";
-    const clock = ctrl & 1 ? "NTSC 1.023 MHz" : "PAL 0.985 MHz";
-    const box = (full: boolean, v: number) => (full ? `$${hex(v, 2)} waiting` : "empty");
     const cpu = await port.readSound();
-    const envelope = (chip: number, i: number) => (cpu?.envelopes[chip * 3 + i] ? ` · ${envelopeText(cpu.envelopes[chip * 3 + i])}` : "");
-    const voices = (base: number) =>
-      [0, 7, 14].map((o, i) => row(`${base ? "B" : "A"}${i + 1}`, sidVoice(r.subarray(base + o, base + o + 7)) + envelope(base ? 1 : 0, i))).flat();
-    const cpuRows = cpu
-      ? [
-          ...row("6510", soundCpuText(cpu, !!(ctrl & 2))),
-          ...row("Port", soundPortText(cpu)),
-          ...row("Timer A", `$${hex(cpu.timer, 4)} of $${hex(cpu.latch, 4)} · ${cpu.timerOn ? "counting" : "stopped"}`),
-          ...row("Frame", frameText(cpu)),
-        ]
-      : [];
-    soundRows.replaceChildren(
-      ...row("CTRL", `$${hex(ctrl, 2)}  ${clock} · 6510 ${ctrl & 2 ? "running" : "stopped"} · SID B at $${ctrl & 8 ? "D500" : "D420"}${ctrl & 0x10 ? " · A to both" : ""}`),
-      ...row("Mailbox", `to card ${status & 2 ? "full" : "empty"} · to host ${box(!!(status & 4), r[0x47])}${r[0x42] & 4 ? " · interrupts" : ""}`),
-      ...row("RAMADDR", `$${hex(r[0x43] | (r[0x44] << 8), 4)}`),
-      ...cpuRows,
-      ...row("SID A", sidFilter(r.subarray(0x00, 0x1d))),
-      ...voices(0x00),
-      ...row("SID B", sidFilter(r.subarray(0x20, 0x3d))),
-      ...voices(0x20),
-    );
+    soundRows.replaceChildren(...soundDeviceRows(r, cpu));
+    soundStatus.textContent = cpu?.device && tuneRuns(cpu.device.tune) ? "tune playing" : cpu?.device?.tune === 3 ? "tune paused" : "the device";
   };
 
   const refreshSd = async () => {

@@ -219,16 +219,15 @@ TEST(spaces_and_the_northbridge_line)
     CHECK(starts_with(error_of("ram 000-0FF space=io\n"), "test.machine:1: ram: 000-0FF crosses"));
 }
 
-TEST(the_machine_takes_rev_and_memsize)
+TEST(the_sound_line_takes_memsize_and_no_revision)
 {
-    // The sound line: the device, revision 3 (rev=3 may be said); memsize=2, 4 or 8 (MB), 8 the default.
+    // The sound line: the device, revision 3, its only one (no rev=); memsize=2, 4 or 8 (MB), 8 the default.
     std::string error;
     auto with = [&error](const std::string &opts) {
         return build("northbridge backplane\nram 00000-FFFFF\nsound 500-57F space=io name=sound irq drq" + opts + "\n", error);
     };
-    for (const char *opts : {"", " rev=3"})
     {
-        auto m = with(opts);
+        auto m = with("");
         REQUIRE(m != nullptr);
         REQUIRE(m->sound_device() != nullptr);
         CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 128);
@@ -237,11 +236,11 @@ TEST(the_machine_takes_rev_and_memsize)
     std::unique_ptr<Machine> m;
     for (const char *mb : {"2", "4", "8"})
     {
-        m = with(std::string(" rev=3 memsize=") + mb);
+        m = with(std::string(" memsize=") + mb);
         REQUIRE(m != nullptr);
         CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 16 * (mb[0] - '0'));
     }
-    for (const char *bad : {" rev=4", " rev=3 memsize=3", " memsize=16", " rev=0"})
+    for (const char *bad : {" rev=3", " memsize=3", " memsize=16", " rev=0"})
     {
         CHECK(with(bad) == nullptr);
         std::printf("  %s: %s\n", bad, error.c_str());

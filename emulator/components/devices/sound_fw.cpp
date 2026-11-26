@@ -71,7 +71,7 @@ namespace ooe::emu
 
     namespace
     {
-        // Revision 2's MP3 feeding rules (sound_card.cpp), on the ring: the same decisions, so a stream fed as it
+        // The MP3 feeding rules, on the ring: the same decisions whenever the bytes come, so a stream fed as it
         // plays decodes as the whole data would.
 
         /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one.
@@ -247,7 +247,7 @@ namespace ooe::emu
             const long v = std::lround(static_cast<double>(x) * 32767.0);
             return static_cast<int16_t>(std::clamp<long>(v, -32768, 32767));
         }
-        /// x volume / 255, rounded half away from zero: revision 2's VOLL and VOLR.
+        /// x volume / 255, rounded half away from zero.
         int16_t scaled(int16_t s, uint8_t vol)
         {
             if (vol == 255)
@@ -340,13 +340,13 @@ namespace ooe::emu
                         if (voices_[v].use == V_MUSIC)
                             holder = SRC_MUSIC;
                 const float g = holder == SRC_TUNES ? tg : static_cast<float>(mix_[holder]) / 255.0f;
-                if (tune_.chips == 3) // a two-SID tune: A left, B right, as revision 2
+                if (tune_.chips == 3) // a two-SID tune: A left, B right
                     src[holder][n] += chip[n] * g;
                 else // a one-SID tune, or none: both chips in both ears
                     src[holder][0] += chip[n] * g, src[holder][1] += chip[n] * g;
             }
         }
-        // The ES5503, at half of full scale as revision 2's bus mixes it: the effects' and the boot sound's
+        // The ES5503, at half of full scale: the effects' and the boot sound's
         // oscillators (channels 0 and 1) at the effects' level, music's (channels 2 and 3) at music's.
         int16_t d[4];
         port_.doc_frame(d);
@@ -355,7 +355,7 @@ namespace ooe::emu
             src[SRC_EFFECTS][ch] += 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
             src[SRC_MUSIC][ch] += 0.5f * static_cast<float>(d[2 + ch]) / 32768.0f * static_cast<float>(mix_[SRC_MUSIC]) / 255.0f;
         }
-        // The streams, at half of full scale as revision 2's bus mixes its stream.
+        // The streams, at half of full scale.
         unsigned ran = 0; // each stream once a frame: one that took over at a join has had its frame
         for (unsigned s = 0; s < STREAMS; ++s)
         {
@@ -422,7 +422,7 @@ namespace ooe::emu
             out_.erase(out_.begin(), out_.begin() + static_cast<std::ptrdiff_t>(out_.size() - 2u * RATE));
     }
 
-    // --- the boot sound: revision 2's player's sequence (docsnd.s), the firmware's own player ------------
+    // --- the boot sound: the sequence docsnd.s played, the firmware's own player -----------------------
 
     namespace
     {
@@ -2343,7 +2343,7 @@ namespace ooe::emu
             for (unsigned i = 0; ok && i < count; ++i)
             {
                 const int8_t x = static_cast<int8_t>(v[i]);
-                ok = x >= -24 && x <= 24; // half-dB, revision 2's
+                ok = x >= -24 && x <= 24; // half-dB
                 g[first + i] = x;
             }
             if (!ok)
@@ -2743,7 +2743,7 @@ namespace ooe::emu
 
     bool SoundFw::decode_mp3(unsigned s)
     {
-        // The next frame of the ring's data decoded into the stream's queue, by revision 2's rules: a frame in step
+        // The next frame of the ring's data decoded into the stream's queue, by these rules: a frame in step
         // with the stream is decoded once its end and the next header have come (or the data has ended); one out of
         // step only once minimp3's own sync rule has decided on it (a run of frames in step, or the data's end); an
         // ID3v2 tag is skipped by its size. Until a decision can be made it waits for more: false. True when the
@@ -3045,7 +3045,7 @@ namespace ooe::emu
                     const auto sample = [&](uint64_t i) -> int16_t {
                         if (st.fmt & 2)
                             return static_cast<int16_t>(static_cast<uint16_t>(ring_byte(s, i) | ring_byte(s, i + 1) << 8));
-                        return static_cast<int16_t>((ring_byte(s, i) - 128) * 256); // unsigned, as revision 2
+                        return static_cast<int16_t>((ring_byte(s, i) - 128) * 256); // unsigned
                     };
                     const uint64_t step = st.fmt & 2 ? 2 : 1;
                     out[0] = sample(st.rd);

@@ -13,8 +13,8 @@ The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#s
 Status: **emulated**
 
 The card's registers fill `$C500–$C511`, with its ID at `$C57F` ([Registers](#registers)); the rest of the block
-reads `$FF`. The emulator models the card on the machine file's sound line (`rev=3`, the only revision, may be said;
-`memsize=2`, `4` or `8`, 8 the default).
+reads `$FF`. The emulator models the card on the machine file's sound line (revision 3, the only one: the line takes
+no `rev=`; `memsize=2`, `4` or `8`, 8 the default).
 
 - **A command** is a record written to [CMD](#reg-c503) (`$C503`), a byte at a time: +0 the command, +1 n (the
   parameter bytes after +2), +2 a tag of the host's own choosing, +3 on the parameters, low byte first. The card

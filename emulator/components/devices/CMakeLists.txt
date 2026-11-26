@@ -8,7 +8,7 @@ if(EMU_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_compile_definitions(emu_devices PUBLIC EMU_FAULT_HOOKS)
 endif()
 # The sound's floats the same on every target: no fused multiply-adds, which g++ makes on aarch64 at -O2 and
-# clang within expressions, and WebAssembly and -O0 never do (test_sound_mix's golden hash is one value). That
+# clang within expressions, and WebAssembly and -O0 never do (so the native and WebAssembly builds make the same bits). That
 # holds given the same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree today; another may not.
 # sound_dsp.cpp (the EQ and the vis page) uses no libm but floor, fabs and ldexp, which are exact.
 set_source_files_properties(sid.cpp sound_card.cpp sound_card3.cpp sound_dsp.cpp sound_fw.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")

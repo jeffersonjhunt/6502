@@ -61,8 +61,7 @@ namespace ooe::emu
     void SoundCard3::doc_frame(int16_t out[4])
     {
         // The chip steps at its own rate (CLOCK_HZ / its clocks a sample); a frame is the average of the steps in
-        // it, as revision 2's bus has the chip (each voice (byte - 128) / 128 x volume / 255 x 1/8 of full scale),
-        // or the last when none fell in it.
+        // it (each voice (byte - 128) / 128 x volume / 255 x 1/8 of full scale), or the last when none fell in it.
         doc_acc_ += Es5503::CLOCK_HZ;
         const uint64_t per = uint64_t{doc_.clocks_per_sample()} * SoundFw::RATE;
         while (doc_acc_ >= per)
@@ -324,7 +323,7 @@ namespace ooe::emu
         if (adc_rate_)
             chips_.set_audio_rate(adc_rate_); // the samples afresh from the reset
         // A one-SID tune (the plan's BOTH, which revision 3 doesn't set): its reads of $D420-$D43F answer SID A, its
-        // mirror, as a C64's and as revision 2's copy into SID B did; its writes keep today's decode.
+        // mirror, as a C64's do; its writes keep today's decode.
         chips_.set_reads_from_a((plan.ctrl & SidPlan::CTRL_BOTH) != 0);
         chips_ctrl_ = static_cast<uint8_t>(SoundCard::CTRL_RUN | (ntsc ? SoundCard::CTRL_NTSC : 0) |
                                            (sid_b_d500 ? SoundCard::CTRL_SID_B_D500 : 0)); // never BOTH

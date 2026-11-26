@@ -110,7 +110,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_flash test_dma test_console_card test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sound_fw test_sound_device test_sound_stream3 test_sound_bank test_sound_music test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video_rev2 test_usb test_sound test_es5503 test_sound_fw test_sound_device test_sound_stream3 test_sound_dsp test_sound_bank test_sound_music test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -132,10 +132,6 @@ if(EMSCRIPTEN)
     endforeach()
     target_compile_definitions(test_bios PRIVATE
             EMU_BIOS_EVEN="${EMU_BIOS_DIR}/bios-even.rom" EMU_BIOS_ODD="${EMU_BIOS_DIR}/bios-odd.rom")
-    target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-    target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
-    target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-    target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
     target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_stream3 PRIVATE emu_minimp3)
     return()
@@ -256,19 +252,11 @@ emu_add_test(test_video_rev2) # the video card (hw/video-rev2.md): card memory, 
 target_compile_definitions(test_video_rev2 PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 emu_add_test(test_usb)
 emu_add_test(test_sound)
-emu_add_test(test_sound_pcm)
-emu_add_test(test_sound_mix)
-emu_add_test(test_sound_mp3) # our own MP3 files (test/host/mp3, tools/make_mp3_fixtures.sh), against minimp3 itself
-target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
-emu_add_test(test_sound_eq) # the EQ on an MP3 against minimp3's frames too
-target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
-emu_add_test(test_es5503) # the DOC alone (hw/sound-rev2.md step 6)
-emu_add_test(test_sound_doc) # the DOC on the card (step 7)
+emu_add_test(test_es5503) # the DOC alone (es5503.h), the chip revision 3's firmware plays
 emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/future/sound-device.md)
 emu_add_test(test_sound_device) # revision 3 on the bus: registers, FIFOs, DMA, interrupt, resets
 emu_add_test(test_sound_stream3) # revision 3's streams: rings, NEED, underruns, gapless, the MP3 trim
+emu_add_test(test_sound_dsp) # the EQ and the vis page alone (sound_dsp.h), as the firmware runs them
 emu_add_test(test_sound_bank) # revision 3's sound bank: samples, effects, the voice manager, wave RAM's cache
 emu_add_test(test_sound_music) # revision 3's music: note blocks, the sequencer, notes waiting, MUSIC_DONE
 target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
@@ -927,15 +915,11 @@ set(EMU_TEST_LABELS
     test_video_rev2             "emu video bridge dma debug backplane"
     test_usb                    "emu usb dma bridge"
     test_sound                  "emu sound dma bridge"
-    test_sound_pcm              "emu sound dma bridge"
-    test_sound_mix              "emu sound"
-    test_sound_mp3              "emu sound dma bridge"
-    test_sound_eq               "emu sound"
     test_es5503                 "emu es5503"
-    test_sound_doc              "emu sound es5503 dma bridge"
     test_sound_fw               "emu sound"
     test_sound_device           "emu sound dma bridge"
     test_sound_stream3          "emu sound"
+    test_sound_dsp              "emu sound"
     test_sound_bank             "emu sound es5503 sid"
     test_sound_music            "emu sound sid es5503"
     test_sid                    "emu sid sound"
