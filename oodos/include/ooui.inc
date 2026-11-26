@@ -121,7 +121,9 @@ UT_COUNT        = 23
 ; UW_FLAGS: bits 0-3 every type's, 4-7 the type's own.
 UF_HIDDEN       = $01
 UF_DISABLED     = $02
-UF_DIRTY        = $04                  ; OOUI's
+UF_DIRTY        = $04                  ; OOUI's alone: set by its calls (a program asks with ui_dirty),
+                                       ;   never by a program's own writing (S3: OOUI lists the records it
+                                       ;   marks, and draws and clears those)
 UF_NOFOCUS      = $08
 UF_CLOSE        = $10                  ; a window: its close box
 UF_MODAL        = $20                  ;   it takes the input while it shows

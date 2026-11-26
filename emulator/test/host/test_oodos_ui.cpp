@@ -5614,10 +5614,11 @@ namespace
     constexpr uint8_t A_PREV = 34, A_PLAY = 35, A_LOAD = 43; ///< block 8's first button, its second, its last
     constexpr uint8_t U_G = 0x0A, U_H = 0x0B, U_J = 0x0D;   ///< HID usages
     constexpr uint16_t S3TEXT = TEXTBUF + 0x80;             ///< the strings these cases write, past c_text's
-    /// (S3-1, the owner's answer 5) a letter key's poll over F7's in a table with no key letter: 312 cycles at S3-1
-    /// (the letter's own steps: its character, UPPER, ukeyl's test), plus 32 for a few page crossings; 38,000 or
-    /// so before S3, FINDACC's walk.
-    constexpr unsigned long S3_LETTER_CEILING = 312 + 32;
+    /// (S3-1, the owner's answer 5) a letter key's poll over F7's in a table with no key letter: at most 312 cycles
+    /// seen (the letter's own steps: its character, UPPER, ukeyl's test; 71 to 312 as the system's tick lands in one
+    /// poll or the other), plus 500 for a tick (447 at most, test_oodos_video's); 38,000 or so before S3, FINDACC's
+    /// walk.
+    constexpr unsigned long S3_LETTER_CEILING = 312 + 500;
     /// Record h of uitest.s's amp table (blocks 5 and 8).
     uint16_t rec_amp(uint8_t h) { return static_cast<uint16_t>(lab("amp") + h * 16u); }
     /// String `s` at S3TEXT + `at`, and record h's UW_TEXT pointed at it.
@@ -5766,4 +5767,72 @@ TEST(s3_a_paint_that_moves_no_thumb_runs_no_post)
     say("a sprite slider's range changed", range);
     CHECK_EQ(range.posts, 1u);
     CHECK_EQ(range.places, 1u);
+}
+
+namespace
+{
+    /// The table's records with UF_DIRTY set, read from the host: none once a paint is done.
+    unsigned dirty_left(CcpRig &r)
+    {
+        const unsigned n = r.phys(lab("ucount")), tab = word_at(r, lab("utab"));
+        unsigned d = 0;
+        for (unsigned h = 0; h < n; ++h)
+            if (r.phys(tab + h * 16u + UW_FLAGS) & 0x04u) // UF_DIRTY
+                ++d;
+        return d;
+    }
+} // namespace
+
+TEST(s3_more_dirty_records_than_the_list_holds)
+{
+    // Block 8 (OOUI's base layer 1). Nine track labels given a new text by their fields and dirtied (ui_dirty, the
+    // rule for a text written so), one more than the dirty list holds (UI_DIRTYL, 8), then 30: each drawn, OOUI's
+    // cells then as ui_redraw draws them, and no record left dirty. A list that dropped the ninth, instead of saying
+    // it was too long, would leave the ninth's dirty bit set, or its old text on the screen.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t A_TR0 = 59; // the 26 track labels, then the 5 extras (85-89)
+    for (const auto &[n, text, at] : {std::tuple<unsigned, const char *, unsigned>{9, "Nine", 0x40},
+                                      std::tuple<unsigned, const char *, unsigned>{30, "Thirty", 0x50}})
+    {
+        for (unsigned i = 0; i < n; ++i)
+        {
+            const uint8_t h = static_cast<uint8_t>(A_TR0 + i);
+            text_at(r, h, at, text);
+            CHECK_EQ(ui(r, 'd', h).substr(6), std::string("00"));
+        }
+        const Polls p = polls_cost(r);
+        std::printf("  %u labels dirty: %lu ONE\n", n, p.ones);
+        CHECK(p.ones >= n);
+        CHECK_EQ(dirty_left(r), 0u);
+        const std::string drawn = base_cells(r, 1);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        CHECK(base_cells(r, 1) == drawn);
+    }
+}
+
+TEST(s3_a_record_is_drawn_once)
+{
+    // ui_open makes every record dirty and says the dirty list too long, so its first paint clears every record's
+    // bit: none is left. Then a label dirtied and drawn, and another far from it: the second poll draws that one
+    // alone (one ONE), the first's bit cleared by its own paint (the listed records').
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(dirty_left(r), 0u);
+    CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(dirty_left(r), 0u);
+    CHECK_EQ(ui(r, 'd', A_X4B).substr(6), std::string("00"));
+    const Polls p = polls_cost(r);
+    say("a label dirty after another's paint", p);
+    CHECK_EQ(p.ones, 1u);
+    CHECK_EQ(dirty_left(r), 0u);
 }

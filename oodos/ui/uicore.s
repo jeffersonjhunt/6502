@@ -52,6 +52,10 @@ udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0
 bxl:    .res    1                      ; (B5) BOXADD's layer
 udend:  .res    2                      ; (B5) each layer's boxes' end this paint: past the last used
 uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
+udn:    .res    1                      ; (S3) the dirty list: how many records it holds, $FF too many (every
+                                       ;   record dirty or looked at: ui_open's, the dialogs'); UF_DIRTY is set
+                                       ;   by OOUI alone (DIRTY, CHECKTAB, DLGREC), so it names every dirty record
+udl:    .res    UI_DIRTYL              ;   their handles, as DIRTY marked them
 ukeyl:  .res    1                      ; (S3) not 0: a button, a check box or a radio button may have a key
                                        ;   letter, so FINDACC looks; 0: none has, no record walked for a letter
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
@@ -469,17 +473,30 @@ UPPER:  cmp     #'a'
 @r:     rts
 
 ; A a handle: marked dirty (a menu's bar too, an item's menu), and a paint
-; to do (UQ_PAINT: U3b, B1). Keeps A, and leaves UIR on record A (the
-; review's O1: not on the bar it went up to).
+; to do (UQ_PAINT: U3b, B1); (S3) put on the dirty list, or the list said
+; too long. Keeps A and X, and leaves UIR on record A (the review's O1: not
+; on the bar it went up to).
 DIRTY:  cmp     utot
         bcs     @r
         pha
         jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
+        bit     #UF_DIRTY               ; (S3) dirty already: listed already, or the list too long
+        bne     @on
         ora     #UF_DIRTY
         sta     (UIR),y
-        lda     #UQ_PAINT               ; (U3b, B1) a paint to do
+        ldy     udn                     ; (S3) on the list, or the list too long ($FF): PAINT clears
+        cpy     #UI_DIRTYL              ;   the listed records' bits, PASS's fast walk reads them
+        bcs     @ovf
+        pla
+        pha
+        sta     udl,y
+        inc     udn
+        bra     @on
+@ovf:   lda     #$FF
+        sta     udn
+@on:    lda     #UQ_PAINT               ; (U3b, B1) a paint to do
         tsb     uany
         ldy     #UW_TYPE
         lda     (UIR),y
@@ -1086,6 +1103,8 @@ CHECKTAB:
 @b0:    jmp     @bad
 @go:    stz     t0
         stz     ukeyl                   ; (S3) the key letters found again
+        lda     #$FF                    ; (S3) every record made dirty: the dirty list too long
+        sta     udn
 @rec:   lda     t0
         jsr     REC
         jsr     ACCREC

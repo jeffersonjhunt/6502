@@ -65,6 +65,8 @@ DLGREC: sta     k
         ora     #UF_DIRTY
         sta     (UIR),y
         sta     ukeyl                   ; (S3) the dialogs' buttons have letters (A not 0)
+        lda     #$FF                    ; (S3) dirty, not listed: the dirty list too long
+        sta     udn
         lda     #UQ_PAINT | UQ_STALE | UQ_GEOM | UQ_CSTALE ; (U3b, B1, B3) a paint to do; the modal window
         tsb     uany                    ;   and the overlay found again; (S1) a geometry event
         lda     k

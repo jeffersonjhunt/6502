@@ -11,6 +11,8 @@ UI_PAGES        = 64                   ; OOUI's card memory: one card bank, in c
 UI_OFS_OVER     = $14                  ; its parts, in card pages from its first: the overlay's map,
 UI_OFS_SPR      = $28                  ;   the sprite images (the pointer's first),
 UI_OFS_FONT     = $30                  ;   the font
+UI_DIRTYL       = 8                    ; (S3) the dirty list's room (udl): more dirtied before a paint, every
+                                       ;   record looked at, as before S3
 UI_BOXES        = 4                    ; (B5) the damage boxes a layer: box k of layer L (0 the base, 4 the
                                        ;   overlay) at udmg + 8 x k + L
 UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what is under it)
@@ -23,7 +25,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 ; uicore.s's
 .global ublk, uarea, utab, ucount, utheme, ukeys, ubase, uover, usprite, usprites, uoflags
 .global upage, ufocus, ufwin, umenu, umsel, upress, ususp, ushow, umodal, udmg, uany, ucli, rhid, rover, rtype
-.global ukeyl, ACCREC
+.global ukeyl, ACCREC, udn, udl
 .global udend, UDEND
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL, RNEXT
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER

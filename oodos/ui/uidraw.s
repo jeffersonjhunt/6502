@@ -479,7 +479,19 @@ PAINT:  lda     ususp
         beq     @np2                    ;   second pass
 @p2:    jsr     PASSA
 @np2:   jsr     MPASS
-        lda     #0                      ; nothing dirty, no damage
+        ldx     udn                     ; (S3) nothing dirty: the dirty list's records' bits cleared,
+        cpx     #$FF                    ;   or, the list too long, every record's
+        beq     @all
+        ldy     #UW_FLAGS
+@cl:    dex
+        bmi     @e
+        lda     udl,x
+        jsr     REC
+        lda     (UIR),y
+        and     #<~UF_DIRTY
+        sta     (UIR),y
+        bra     @cl
+@all:   lda     #0                      ; nothing dirty, no damage
         sta     ph
         jsr     REC
         ldy     #UW_FLAGS
@@ -493,7 +505,8 @@ PAINT:  lda     ususp
         lda     ph
         jsr     RNEXT                   ; (U3b, B4: keeps Y)
         bra     @c
-@e:     lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
+@e:     stz     udn                     ; (S3) the dirty list empty
+        lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
         trb     uany                    ;   on is the next paint's
         ldx     #7                      ; the damage kept for upost (POST: U3a's Z3): each layer's
 @pz:    stz     pdmg,x                  ;   boxes' bounds (B5), then cleared
