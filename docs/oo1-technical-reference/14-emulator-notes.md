@@ -42,7 +42,7 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `sd 380-3FF … irq drq` | the mass storage card, its DMA request on /DREQ, served by channel 0 (CARD `$07`) ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
 | `video 480-4FF … irq drq` | the video card ([chapter 6](06-video.md)), revision 2, ID `$92` (*proposed*), the only one: it draws from its own 2 MB, with its data port's DMA request on /DREQ, served by channel 1 (CARD `$09`) ([below](#revision-2-of-the-video-card)). The line takes no `rev=` |
-| `aperture E00000-E0FFFF` | the video card's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. While the north bridge's AP8 (MAP, bit 0) is set, as from every reset whatever is fitted, it sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them; with AP8 clear bank 8 is RAM (*proposed*, B7). With no video card the line is inert: bank 8 reads `$FF` while AP8 is set, until the BIOS clears it at boot. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
+| `aperture E00000-E0FFFF` | the video card's aperture (*proposed*): 64 KB at `$E00000` and nowhere else, four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. While the north bridge's AP8 (MAP, bit 0) is set, as from every reset whatever is fitted, it sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them; with AP8 clear bank 8 is RAM (*proposed*, B7). With no video card the line is inert: bank 8 reads `$FF` while AP8 is set, until the BIOS clears it at boot |
 | `sound 500-57F … irq drq` | the sound card (revision 3, `rev=3` and `memsize=` optional), its DMA request (DATA's, while a transfer is open) on /DREQ, served by channel 2 (CARD `$0A`) ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)), with its DMA request left off /DREQ |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
@@ -57,8 +57,8 @@ Each line of `backplane.machine` is a part of the OO-1:
   is its I/O block's, and the channel whose CARD names that module serves it; CARD's reset values give channel 0 the
   SD card, 1 the video card and 2 the sound card ([chapter 5](05-dma.md#transfers-for-a-card)). A device on a line
   without it never pulls /DREQ. A line with no module ID (a memory line without `module=`) can't take it: no
-  CARD could name the card, so `drq` there is refused with an error. `drq=N`, revision 1's channel number, is refused, with an error that says a channel
-  serves a card by its CARD register, so an old machine file can't load wired wrong.
+  CARD could name the card, so `drq` there is refused with an error. The machine file names no channel: `drq=N`
+  is an unknown option.
 - **`wait=N`**, 0–15, which `backplane.machine` doesn't use, is the card's /WAIT: N extra cycles on every CPU
   access to the mapping, as a slow card would ask, and N on each DMA grant cycle it answers. On a fly-by both the
   memory and the card answer, and the grant takes the longer of their two. The north bridge's WAIT0–3 add nothing

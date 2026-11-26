@@ -19,7 +19,7 @@
 ; revision 2"; vmem.inc): the card draws from its own memory, card addresses
 ; of 24 bits. OODOS owns $000000-$03FFFF (the console's palette, font and
 ; text, its units 0-12, in bank 0, which aperture slot 0 always shows: at
-; $E00000-$E03FFF on a revision 2 north bridge, B7, and as block 32,
+; $E00000-$E03FFF, B7, and as block 32,
 ; $80000-$83FFF, while MAP's AP8 is set); the program owns
 ; $040000-$1BFFFF, through OOLIB; Apple II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
 ; it) puts slot 1 on the program's first card bank (VM_PROG_BANK) and slots
@@ -1020,7 +1020,7 @@ PORTGO:         STA     DMA_MODE       ; (STA and STX absolute: the tests watch 
 ; DM_VCOPY's next piece from VSRC and VDST, VLEFT bytes left (0: 65,536):
 ; DCOUNT the least of DMA_PIECE, VLEFT, and the bytes to the end of each's
 ; bank; SRCP slot 2's window's address for VSRC, DSTP slot 3's for VDST
-; (the aperture's own on a revision 2 north bridge: CVA).
+; (the aperture's own: CVA).
 VC_PIECE        = 2048                 ; DMAGO's block, so DMAGO runs it as one
 VPIECE:         LDA     VLEFT + 1
                 BEQ     @tiny
@@ -1046,8 +1046,8 @@ VPIECE:         LDA     VLEFT + 1
                 LDX     #VDST - VSRC
                 JSR     @limit
                 LDA     VSRC           ; the windows: slots 2 and 3's + the offsets, $E08000 and
-                STA     SRCP           ; $E0C000 on a revision 2 north bridge, $88000 and $8C000 on
-                LDA     VSRC + 1       ; revision 1 (B7: CVA, crt.s's, the bank; the rest the same)
+                STA     SRCP           ; $E0C000 (B7: CVA, crt.s's, the bank; the rest the same)
+                LDA     VSRC + 1
                 AND     #$3F
                 ORA     #>(VM_APERTURE + 2 * VM_BANK)
                 STA     SRCP + 1

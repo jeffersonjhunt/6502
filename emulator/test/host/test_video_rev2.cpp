@@ -620,26 +620,26 @@ TEST(machine_lines_refuse_a_video_revision_and_check_the_aperture)
     }
     CHECK(Machine::build(head + "usb 500-57F space=io rev=2\n", "v.machine", {}, error) == nullptr);
     CHECK(error.find("only the sound card") != std::string::npos);
-    auto none = Machine::build(head + "aperture 80000-8FFFF\n", "v.machine", {}, error); // no card: inert
+    auto none = Machine::build(head + "aperture E00000-E0FFFF\n", "v.machine", {}, error); // no card: inert
     REQUIRE(none != nullptr);
     none->bus().write_physical(0x80000, 0x42);
     CHECK_EQ(none->bus().peek_physical(0x80000), 0xFF); // AP8 set at reset: the write went to the empty aperture
     none->bus().write(0xC6A5, 0);                       // MAP: AP8 clear, as the BIOS does with no card
     none->bus().write_physical(0x80000, 0x42);
     CHECK_EQ(none->bus().peek_physical(0x80000), 0x42); // the RAM answers
-    CHECK(Machine::build(head + "video 480-4FF space=io\naperture 80000-87FFF\n", "v.machine", {}, error) ==
+    CHECK(Machine::build(head + "video 480-4FF space=io\naperture E00000-E07FFF\n", "v.machine", {}, error) ==
           nullptr);
     CHECK(error.find("64 KB") != std::string::npos);
     // The card needs no RAM at banks 8-B: it draws from its own memory.
     const std::string low = "cpu w65c02s\nnorthbridge backplane\nram 00000-7FFFF\n";
-    auto m = Machine::build(low + "video 480-4FF space=io\naperture 80000-8FFFF\n", "v.machine", {}, error);
+    auto m = Machine::build(low + "video 480-4FF space=io\naperture E00000-E0FFFF\n", "v.machine", {}, error);
     CHECK(m != nullptr);
-    // The old spelling, 80000-8FFFF, is the aperture at its own place, E00000, with bank 8 sent there:
-    // the bus still has the RAM at bank 8 (B1, review V3).
-    auto old = Machine::build(head + "video 480-4FF space=io\naperture 80000-8FFFF\n", "v.machine", {}, error);
-    REQUIRE(old != nullptr);
-    Decoder &bus = old->bus();
-    old->video_card()->card_poke(0x4123, 0xC3);
+    // The aperture at its own place, E00000, with bank 8 sent there: the bus still has the RAM at bank 8
+    // (B1, review V3).
+    auto sent = Machine::build(head + "video 480-4FF space=io\naperture E00000-E0FFFF\n", "v.machine", {}, error);
+    REQUIRE(sent != nullptr);
+    Decoder &bus = sent->bus();
+    sent->video_card()->card_poke(0x4123, 0xC3);
     bus.write_bus(0x084123, 0x5A);
     CHECK_EQ(bus.peek_bus(0x084123), 0x5A);       // the RAM, as the bus carries it
     CHECK_EQ(bus.peek_physical(0xE04123), 0xC3);  // the card, at the aperture's own address
@@ -649,13 +649,13 @@ TEST(machine_lines_refuse_a_video_revision_and_check_the_aperture)
     CHECK_EQ(bus.last_access().physical, 0xE04123u);
 }
 
-TEST(the_aperture_line_is_at_e00000_or_the_old_bank_8_spelling_and_nowhere_else)
+TEST(the_aperture_line_is_at_e00000_and_nowhere_else)
 {
     std::string error;
     const std::string head = "cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF\nvideo 480-4FF space=io\n";
     CHECK(Machine::build(head + "aperture E00000-E0FFFF\n", "v.machine", {}, error) != nullptr);
-    CHECK(Machine::build(head + "aperture 80000-8FFFF\n", "v.machine", {}, error) != nullptr);
-    for (const char *line : {"aperture E04000-E13FFF\n", "aperture 90000-9FFFF\n", "aperture 100000-10FFFF\n"})
+    for (const char *line : {"aperture 80000-8FFFF\n", "aperture E04000-E13FFF\n", "aperture 90000-9FFFF\n",
+                             "aperture 100000-10FFFF\n"})
     {
         CHECK(Machine::build(head + line, "v.machine", {}, error) == nullptr);
         CHECK(error.find("aperture: want 64 KB at E00000-E0FFFF") != std::string::npos);

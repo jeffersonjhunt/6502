@@ -20,9 +20,9 @@
 ; program linked with this library runs as one linked before it. Only a
 ; program that calls GX_BANK8 (function 83's DM_BANK8) gets bank 8 as its
 ; RAM; slot 1's window is then WIN1H $0E with block 1 ($E04000), which
-; GXPHYS maps by GXAPH:GXAPB. The library writes WIN1H only after that, so
-; never on a revision 1 north bridge ($D1), which has none; an interrupt
-; between its two writes is harmless, since OODOS's dispatcher keeps WIN1H.
+; GXPHYS maps by GXAPH:GXAPB. The library writes WIN1H only after that; an
+; interrupt between its two writes is harmless, since OODOS's dispatcher keeps
+; WIN1H.
 ;
 ; Card memory: the program's part, $040000-$1BFFFF, in 1,536 units of 1 KB
 ; (VM_UNIT), a bit each in GX_UNITS (set: taken); unit u is card page
@@ -177,7 +177,7 @@ GX_REMAP:
 ; Bank 8 the program's RAM, by function 83's DM_BANK8 (interface version
 ; 12): slot 1's window is then WIN1H $0E and block 1, and blocks 32-39 join
 ; the W1 map. After GX_INIT. GE_VERSION, nothing changed, for an older
-; OODOS, no DMA, a revision 1 north bridge or a ROM BIOS older than 0.17:
+; OODOS, no DMA or a ROM BIOS older than 0.17:
 ; the library stays in the old mode. With no video card, carry clear:
 ; bank 8 is the program's RAM, and there is no window.
 GX_BANK8:

@@ -362,9 +362,6 @@ namespace ooe::emu
                     map.irq_wired = true;
                 else if (arg == "drq")
                     map.drq = Dreq::Wired; // the card pulls /DREQ; its module, from its I/O block, names it
-                else if (eq != std::string::npos && arg.compare(0, eq, "drq") == 0)
-                    return fail("drq: a flag, with no channel: the card's request reaches /DREQ, and a DMA "
-                                "channel serves it by the module its CARD register names (DMA revision 2)");
                 else if (eq != std::string::npos && arg.compare(0, eq, "wait") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);
@@ -536,10 +533,10 @@ namespace ooe::emu
                 }
                 else if (type == "aperture")
                 {
-                    // Its place on the new bus, or the old spelling of it, bank 8, which means the same (B1).
+                    // Its place on the backplane; the north bridge sends bank 8 there while AP8 is set.
                     if (space != Space::Memory || size != VideoCard::APERTURE_SIZE ||
-                        (map.first != BackplaneBridge::APERTURE && map.first != BackplaneBridge::BANK8))
-                        return fail("aperture: want 64 KB at E00000-E0FFFF (or 80000-8FFFF, read as that)");
+                        map.first != BackplaneBridge::APERTURE)
+                        return fail("aperture: want 64 KB at E00000-E0FFFF");
                     auto ap = std::make_unique<VideoAperture>();
                     aperture_devices.push_back(ap.get());
                     dev = std::move(ap);
@@ -591,26 +588,14 @@ namespace ooe::emu
             error = origin + ": Disk II PROMs, but no disk2 line for the card";
             return nullptr;
         }
+        // The card answers its aperture. The north bridge sends bank 8 there while MAP's AP8 is set
+        // (hw/design.md). A machine without the card has no aperture: the line is inert.
+        if (m->video_card_)
         {
-            // The card answers its aperture. The north bridge sends bank 8 there while MAP's AP8 is
-            // set (hw/design.md). A machine without the card has no aperture: the line is inert. A line
-            // at bank 8 itself, as machine files had it before the 24-bit bus, is taken for the aperture's
-            // own place, E00000, on the backplane.
-            auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_);
-            if (m->video_card_)
-            {
-                for (VideoAperture *ap : aperture_devices)
-                    ap->attach(m->video_card_);
-                for (Mapping map : apertures)
-                {
-                    if (bp && map.first == bus_address(Space::Memory, BackplaneBridge::BANK8))
-                    {
-                        map.first = bus_address(Space::Memory, BackplaneBridge::APERTURE);
-                        map.last = map.first + VideoCard::APERTURE_SIZE - 1;
-                    }
-                    m->bus_.map(map);
-                }
-            }
+            for (VideoAperture *ap : aperture_devices)
+                ap->attach(m->video_card_);
+            for (const Mapping &map : apertures)
+                m->bus_.map(map);
         }
         if (m->video_card_)
         {

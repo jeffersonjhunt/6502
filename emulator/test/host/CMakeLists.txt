@@ -200,7 +200,6 @@ set(EMU_SLOW_test_bios_diag
         the_interactive_tests_with_switch_16_every_answer_given
         break_during_s10s_note_leaves_the_card_silent_at_the_boot
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
-        a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
         nb10_fails_when_mss_isnt_restarted
         nb10_fails_when_msf_isnt_cleared

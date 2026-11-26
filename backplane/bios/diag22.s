@@ -111,7 +111,7 @@ CARDIS:
                 rts
 
 ; Carry clear if there is a DMA controller this build knows: revision 2 (ID
-; $82 exactly; revision 1's layout is another, so it reads as none).
+; $82 exactly).
 HAVEDMA:
                 lda     HW_REV + 8
                 cmp     #2
@@ -884,7 +884,7 @@ STAGE8:
                 lda     #8
                 jsr     SBEGIN
                 ldx     #8
-                lda     #2             ; revision 2 (ID $82): revision 1's layout is another
+                lda     #2             ; revision 2 (ID $82)
                 jsr     CARDIS
                 bcc     @card
                 rts

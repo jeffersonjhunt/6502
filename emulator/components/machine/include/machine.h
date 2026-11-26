@@ -33,7 +33,7 @@
  * request to the backplane's shared /DREQ (Dreq::Wired): the DMA controller
  * polls it and grants it by its module ID, which a channel's CARD register
  * names (dma_controller.h), so the channel isn't the machine file's to say;
- * `drq=N`, revision 1's channel, is refused; `irq` wires the device's
+ * `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image; CPU writes do
  * nothing), flash (the same, but two chips, even and odd bytes, that take
  * their command sequences: flash.h; an even size), pia6821, via6522,
@@ -45,9 +45,8 @@
  * (the card's 64 KB window on card memory, video_card.h's VideoAperture,
  * at E00000-E0FFFF on the backplane: the card answers it, as if
  * mapped last, and the CPU card sends bank 8, 080000-08FFFF, to it while
- * the north bridge's MAP has AP8 set (backplane_bridge.h); a line at
- * 80000-8FFFF, as machine files had it before the 24-bit bus, means the
- * same. With no video line it is inert: the
+ * the north bridge's MAP has AP8 set (backplane_bridge.h). With no video
+ * line it is inert: the
  * bridge sends bank 8 to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound

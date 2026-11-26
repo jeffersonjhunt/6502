@@ -148,7 +148,7 @@ namespace ooe::emu
     constexpr unsigned MODULE_IDS = 16; ///< PS0-PS3
 
     /// A card's DMA request: wired to the backplane's /DREQ or not. A type of its own, so a bare
-    /// 0 or 1 (revision 1's channel numbers) can't initialise it.
+    /// 0 or 1 can't initialise it.
     enum class Dreq : uint8_t
     {
         None,  ///< not wired

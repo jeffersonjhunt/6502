@@ -83,8 +83,8 @@ APPLEN:         STZ     NB_WIN0H       ; W0 below 1 MB, whatever a program left,
 - **The video card** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
   port ([chapter 6](06-video.md#revision-2-card-memory)). With no card the BIOS prints `APPLE II MODE NEEDS THE
   VIDEO CARD`. *Proposed*, with the card.
-- **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; since BIOS 0.15 a
-  revision 1 controller, `$81`, counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
+- **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; any
+  other ID counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
   DMA CONTROLLER`.
 - **A IIe ROM** must be in ROM A (since BIOS 0.16, *proposed*): image *n* is flash block *n*, 0–3
   (`$F00000 + n × $4000`), 16 KB as the ROM sits at `$C000–$FFFF`. An image is good when the byte at its `$FBB3` is

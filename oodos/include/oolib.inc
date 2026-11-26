@@ -98,8 +98,8 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;               block 1 ($E04000), and blocks 32-39 in the W1 map. Carry
 ;               clear, with no video card too (bank 8 RAM, no window).
 ;               GE_VERSION, nothing changed and the old mode kept: OODOS's
-;               interface below 12, no DMA, a revision 1 north bridge or a
-;               ROM BIOS older than 0.17. A program that loads card memory
+;               interface below 12, no DMA or a ROM BIOS older than
+;               0.17. A program that loads card memory
 ;               by DMA through $84000 (slot 1's old window) must not call it:
 ;               that address is then RAM, and a DMA address can't name
 ;               $E04000

@@ -41,7 +41,7 @@ serves. One window, `$C400–$C40F`, shows the channel that CONTROL's SELECT nam
   then 1–7.
 - **How long it keeps the bus.** CONTROL's BURST sets that: 2^BURST transfers (a byte, or a word with WIDE), after
   which the CPU gets one cycle back, or no limit at 7. CONTROL resets to `$70`: no limit, SELECT 0, and DMA off until software sets the master enable
-  (bit 0). With a revision 2 video card the BIOS writes `DMA_ON` (`$71`: on, no limit, SELECT 0) when it sets up the
+  (bit 0). With a video card the BIOS writes `DMA_ON` (`$71`: on, no limit, SELECT 0) when it sets up the
   text screen at boot, before the SD boot's read, and leaves it there, so under the monitor CONTROL reads `$71`.
 - **Terminal count.** When a channel's count runs out, its STATUS bit is set and its REQ clears. ENABLE clears too,
   unless the mode's AUTO reloads the address, count and destination and keeps the channel armed. With the mode's
@@ -52,25 +52,9 @@ serves. One window, `$C400–$C40F`, shows the channel that CONTROL's SELECT nam
 - **Break.** The BIOS's QUIET aborts all eight channels and clears their STATUS bits, then selects each in turn,
   clears its MODE and puts its CARD back to the reset value, and puts CONTROL back as it found it.
 
-#### Revision 1: replaced by revision 2 (B2)
-
-Revision 1, ID `$81`, was the emulator's controller until B2, and BIOS 0.14 and OODOS's code before B2 drive it. It
-had four channels, each with its 16 bytes at `$C400 + n × $10` (ADDR, COUNT, MODE, CTRL and DEST, the addresses 20
-bits), STATUS at `$C440` (the terminal counts in bits 3–0, each channel's request as it was in bits 7–4), CONTROL at
-`$C441` and ABORT at `$C442`. Each card had a request line and an acknowledge of its own, one channel's. The emulator
-has no revision 1 now. BIOS 0.15, and OODOS from B2, take an ID of `$81` as no controller, since its registers are
-elsewhere.
-
 ### Under OODOS
 
-Status: **proposed**, on revision 2, which OODOS's code drives from B2 (OODOS.SYS on the cards in the repo). An
-OODOS.SYS built before B2 drives revision 1, and on revision 2 it reaches `A>` but can't use a file. Its SD card's
-sectors still reach channel 0, because revision 1's channel 0 sat where the window is (with SELECT 0 and the master
-on, as BIOS 0.15 leaves them with the video card). But its channel-3 work times out and moves nothing, and
-its BDOS moves every FCB and every record between banks on channel 3: DIR says "No File", TYPE never comes back,
-and a write saves nothing it should. Its paths that check the ID see no controller. Replace such a card with the
-built-in one, and don't write with it. Without a revision 2 video card the master is off, and its sector reads fail
-too.
+Status: **proposed**.
 
 OODOS owns all eight channels; a program reaches them only through its functions. Each of its routines keeps the
 SELECT rule: CONTROL saved, the channel selected, programmed and waited for, CONTROL put back. **Channel 0** is the
@@ -114,7 +98,7 @@ whatever XFER says (software writes `%10`, block): REQ in CTRL starts it, and th
 out, or gets a cycle back every 2^BURST transfers. Each byte takes two cycles, a read into the controller's latch
 and then the write, so 64 KB takes about 18 ms at 7.16 MHz; or, with WIDE and the two addresses of one parity, two
 cycles a word, so 64 KB takes about 9 ms ([below](#16-bit-transfers)). A copy needs no poll of the cards, so it
-costs 1 + 2n cycles for n bytes a take, as on revision 1; a take polls only when a card's channel is armed too
+costs 1 + 2n cycles for n bytes a take; a take polls only when a card's channel is armed too
 ([below](#transfers-for-a-card)).
 
 - **A fill:** HOLD keeps the source address still, so one byte fills the destination. The BIOS clears memory that
@@ -180,7 +164,7 @@ reset ends the hold-off.
 |---|---|
 | single (a byte a request) | 3 a byte: the takeover, the poll, the byte |
 | demand, block | demand: 2 + n for n bytes, every take polls (only a card's request starts one). Block: 2 + n for the take a card's request starts; 1 + n for a block REQ starts or one under way, which skips the poll unless another armed card channel waits with /DREQ low and no hold-off running |
-| memory to memory | 1 + 2n a take, as on revision 1 |
+| memory to memory | 1 + 2n a take |
 
 With WIDE, n counts transfers, a byte or a word, at the same cost each: single is 3 cycles a word, and a card's
 demand transfer of b bytes from an even address is 2 + b/2 ([16-bit transfers](#16-bit-transfers)).
@@ -347,9 +331,8 @@ Emulated as step B2.
 
 The address steps up after each byte, or by 2 after a word ([16-bit transfers](#16-bit-transfers)), down with
 MODE's DEC, or not at all with HOLD, and wraps within 24 bits. AUTO
-puts the start address back at terminal count. The third byte is the whole of A16–A23: revision 1 dropped its top
-four bits, so a bank byte of `$10` or more, which reached RAM there, reaches nothing, the aperture (`$E0`) or the
-flash (`$F0` on) here.
+puts the start address back at terminal count. The third byte is the whole of A16–A23, so a bank byte of `$10` or
+more reaches nothing, the aperture (`$E0`) or the flash (`$F0` on).
 
 <a id="reg-c404"></a>
 ### $C404 DMA_COUNT: the selected channel's count
@@ -423,7 +406,7 @@ Emulated as step B2.
 
 #### Notes
 
-As revision 1's. backplane.inc names `DMA_M2M` (`$0A`: block, memory to memory), `DMA_HOLD` (`$20`), `DMA_DEC`
+backplane.inc names `DMA_M2M` (`$0A`: block, memory to memory), `DMA_HOLD` (`$20`), `DMA_DEC`
 (`$10`), `DMA_MODE_IRQ` (`$80`) and `DMA_DEMAND_IN` (`$01`: demand, card to memory, as the SD card is read).
 
 <a id="reg-c407"></a>
@@ -462,7 +445,7 @@ Emulated as step B2.
 
 #### Notes
 
-As revision 1's. `DMA_ENABLE` (`$01`) and `DMA_GO` (`$03`, ENABLE and REQ) are in backplane.inc. A program waits
+`DMA_ENABLE` (`$01`) and `DMA_GO` (`$03`, ENABLE and REQ) are in backplane.inc. A program waits
 for a copy by polling ENABLE until it is 0, with the channel still selected.
 
 <a id="reg-c408"></a>
@@ -571,7 +554,7 @@ Emulated as steps B2 and B3.
 #### Notes
 
 A TC bit with its channel's MODE IRQ set is what interrupts. `DMA_CH0`–`DMA_CH7` and `DMA_ALL` (`$FF`) name the
-bits. Revision 1's requests, its STATUS bits 7–4, are [REQ](#reg-c412) now.
+bits. Each channel's request is in [REQ](#reg-c412).
 
 <a id="reg-c411"></a>
 ### $C411 DMA_ABORT: stop channels
@@ -718,5 +701,4 @@ Emulated as step B2.
 
 #### Notes
 
-The BIOS, OODOS and SYSINFO take `$82` exactly: a revision 1 controller (`$81`) has its registers elsewhere, so it
-reads as no controller ([above](#revision-1-replaced-by-revision-2-b2)).
+The BIOS, OODOS and SYSINFO take `$82` exactly: any other ID reads as no controller.

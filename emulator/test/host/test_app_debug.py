@@ -227,7 +227,7 @@ def main():
         with open(video2, "w") as f:
             f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
                     "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
-                    "video 480-4FF space=io name=video irq\naperture 80000-8FFFF module=9\n")
+                    "video 480-4FF space=io name=video irq\naperture E00000-E0FFFF module=9\n")
         s = Session(binary, ["--machine", video2, "--halt", rom], cwd)
         s.expect(PROMPT)
         out = s.send(b"h\n")

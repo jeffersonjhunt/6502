@@ -21,8 +21,7 @@
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
-;            a north bridge of revision 2 or more, NB_MAP's AP8 for what bank 8 is:
-;            B7); how the machine booted (NB_STATUS)
+;            NB_MAP's AP8 for what bank 8 is: B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
 ;   SOUND    82's SN_INFO and SN_IDENTIFY (the card's own answer: no sound

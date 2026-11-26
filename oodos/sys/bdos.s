@@ -28,7 +28,7 @@
 ;                   card and the DMA controller are there and ROM A's images
 ;                   0-3 hold a IIe ROM (the cartridge under a ROM BIOS before
 ;                   0.16, as its C806 looks), else A = $FF and X = $FD (no
-;                   revision 2 card), $FE (no DMA controller) or $FF (no IIe
+;                   video card), $FE (no DMA controller) or $FF (no IIe
 ;                   ROM), and OODOS goes on; A = 2 the ROM's diagnostics (its $C815,
 ;                   with no question: the program has asked), X the options
 ;                   (bit 0 full, bit 1 interactive), if flash block 23 holds
@@ -289,9 +289,8 @@ F_ROMVER:       LDA     ROMVER
 ; The IIe ROM is looked for through W2, put back on the BIOS after, where the
 ; running ROM BIOS's $C806 looks for it (NEWROM): ROM A's images 0-3 from
 ; 0.16 on (the first good one), the cartridge (ROM B's first block) before.
-; Apple II mode needs the video card and the revision 2 DMA
-; controller too (ID $82 exactly: a revision 1 controller reads as none;
-; the ROM's APPLE checks both, the card first, and goes to its monitor
+; Apple II mode needs the video card and the DMA controller too (ID
+; $82 exactly; the ROM's APPLE checks both, the card first, and goes to its monitor
 ; without either): looked at first, in APPLE's order, before anything is
 ; written back (without DMA SDIO can't move a sector). Without the card
 ; A = $FF, X = $FD; without DMA A = $FF, X = $FE; so a

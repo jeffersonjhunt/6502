@@ -229,8 +229,8 @@ the trace gap all agree. DMA reaches memory space by physical address.
 Cards raise `Device::drq()` and answer `dack_read`/`dack_write` with the TC
 flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
 DMA yet (the SD card now does); test_dma uses a test card. Not modelled: an
-NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only). *(This is
-revision 1, ID $81, replaced by revision 2 in B2: below.)*
+NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only). *(Since
+replaced by step B2's controller: below.)*
 
 **The Console card (2026-10-23), WebUI step 1.** `ConsoleCard` (module E,
 $C700; machine line `console 700-77F space=io irq`) has the decided
@@ -849,7 +849,7 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
 - **Requests.** `Mapping::drq` is `Dreq::None` or `Dreq::Wired` (a type a
   bare 0 or 1 can't initialise, so an old positional "channel 0" can't
   compile on as unwired). The machine file's `drq` is a flag; `drq=N` is
-  refused with an error naming CARD. The decoder keeps the wired mappings
+  an unknown option (cleanup U5). The decoder keeps the wired mappings
   and a table of module to mapping, built when the mappings change, and
   catches the timed ones up before it ORs their `drq()` into /DREQ.
 - **A take** returns at once with the master enable off. With /DREQ low,
