@@ -992,7 +992,7 @@ ui_open:
         bcs     @mem
         sta     upage
         stx     upage + 1
-        jsr     GLYPHS
+        XGO     FARC, XC_GLYPHS         ; (S3-0) block C's: OOUI's font and glyphs
         bcs     @undo
         jsr     CLEARMAPS
         bcc     @got

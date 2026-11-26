@@ -31,7 +31,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 
 ; uidraw.s's
 .global upmode, pdmg, THUMBSOFF
-.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
+.global PAINT, SETUP, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global clip
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 .global ph, pl, pbx, ONE
@@ -107,6 +107,7 @@ XC_MARGIN       = 12
 XC_SHOWS        = 14
 XC_CSET         = 16
 XC_CCLR         = 18                   ; (S2, round 8) every entry hidden: ui_open's
+XC_GLYPHS       = 20                   ; (S3-0) uiglyph.s's GLYPHS: ui_open's
 PR_ROWS         = 16                   ; uirows.s's prbuf: the picker's rows shown
 PR_LEN          = 40                   ;   each one's text with its 0, as uipick.s's rowbuf
 .global prtop, prn, prsty, prbuf, PROFS, PROWS

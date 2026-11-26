@@ -1,5 +1,5 @@
 ; OOUI's text backend (hw/ooui.md, "Text backend: resources"): its card
-; memory, its font and glyphs, its layers, colours and pointer, and the
+; memory (its font and glyphs uiglyph.s's, block C's: S3-0), its layers, colours and pointer, and the
 ; painting: every widget but the menus' (uimenu.s) drawn as cells of the
 ; 80 x 30 text layers.
 ;
@@ -69,8 +69,6 @@ po:     .res    1
 pf:     .res    1
 pb:     .res    1
 pc:     .res    1
-gi:     .res    1                      ; GLYPHS'
-gn:     .res    1
 lb:     .res    1                      ; LAYERS'
 lrow:   .res    1                      ; DLABEL's
 lrows:  .res    1
@@ -102,102 +100,6 @@ MAPW1:  lda     upage
         stx     mapB + 1
         rts
         .code
-
-; The console's font copied to OOUI's, and OOUI's glyphs written over it:
-; carry set if the copy was refused.
-GLYPHS: lda     #<VM_FONT
-        sta     GX_A
-        lda     #>VM_FONT
-        sta     GX_A + 1
-        lda     #^VM_FONT
-        sta     GX_A + 2
-        stz     GX_C
-        lda     upage
-        clc
-        adc     #UI_OFS_FONT
-        sta     GX_C + 1
-        lda     upage + 1
-        adc     #0
-        sta     GX_C + 2
-        stz     GX_V
-        lda     #>4096
-        sta     GX_V + 1
-        jsr     GX_VCOPY
-        bcs     @r
-        jsr     MAPW1
-        lda     #1                      ; the vertical bars, 1-15 sixteenths from the bottom
-        sta     gi
-@v:     lda     gi
-        jsr     GLYPHAT
-        ldy     #15
-@vr:    tya                             ; row y lit if y >= 16 - n
-        clc
-        adc     gi
-        cmp     #16
-        lda     #0
-        bcc     @vb
-        lda     #$FF
-@vb:    sta     (UIP),y
-        dey
-        bpl     @vr
-        inc     gi
-        lda     gi
-        cmp     #16
-        bne     @v
-        stz     gi                      ; the horizontal bars, 1-7 eighths from the left
-@h:     ldx     gi
-        lda     HCODES,x
-        jsr     GLYPHAT
-        ldx     gi
-        lda     HMASK,x
-        ldy     #15
-@hr:    sta     (UIP),y
-        dey
-        bpl     @hr
-        inc     gi
-        lda     gi
-        cmp     #7
-        bne     @h
-        stz     gi                      ; the drawn ones
-        stz     gn
-@d:     ldx     gi
-        lda     DCODES,x
-        jsr     GLYPHAT
-        ldy     #0
-        ldx     gn
-@dr:    lda     GLYPHDATA,x
-        sta     (UIP),y
-        inx
-        iny
-        cpy     #16
-        bne     @dr
-        stx     gn
-        inc     gi
-        lda     gi
-        cmp     #DCODES_LEN
-        bne     @d
-        clc
-@r:     rts
-
-; UIP = character A's 16 bytes in OOUI's font, through W1.
-GLYPHAT:
-        stz     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        clc
-        adc     mapB
-        sta     UIP
-        lda     UIP + 1
-        adc     mapB + 1
-        adc     #UI_OFS_FONT
-        sta     UIP + 1
-        rts
 
 ; The layers, the colours and the pointer (ui_open, ui_resume): (U3b landing,
 ; review AA1) the layers' registers, CTRL and the palette at the next paint's
@@ -1590,128 +1492,6 @@ FRAMES: .byte   ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '              ; TS_NONE
         .byte   $C9, $BB, $C8, $BC, $CD, $CD, $BA, $C7              ; TS_DOUBLE
         .byte   $DB, $DB, $DB, $DB, $DF, $DC, $DB, $DB              ; TS_HEAVY
         .rodata
-
-; The horizontal bars' codes and masks, 1-7 eighths.
-HCODES: .byte   $12, $13, $14, $15, $16, $17, $1C
-HMASK:  .byte   $80, $C0, $E0, $F0, $F8, $FC, $FE
-
-; A glyph from 16 rows of 8: '#' lit.
-.macro GROW s
-        .local b
-        b .set 0
-        .repeat 8, i
-                .if .strat(s, i) = '#'
-                        b .set b | ($80 >> i)
-                .endif
-        .endrepeat
-        .byte   b
-.endmacro
-DCODES: .byte   UG_BOX, UG_BOXON, UG_RADIO, UG_RADIOON, UG_FOLDER, UG_DRIVE
-DCODES_LEN = * - DCODES
-GLYPHDATA:
-        ; UG_BOX
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "#######."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#######."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_BOXON
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "#######."
-        GROW    "#.....#."
-        GROW    "#....##."
-        GROW    "#...#.#."
-        GROW    "##.#..#."
-        GROW    "#.##..#."
-        GROW    "#..#..#."
-        GROW    "#######."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_RADIO
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "..###..."
-        GROW    ".#...#.."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    ".#...#.."
-        GROW    "..###..."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_RADIOON
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "..###..."
-        GROW    ".#...#.."
-        GROW    "#..#..#."
-        GROW    "#.###.#."
-        GROW    "#..#..#."
-        GROW    ".#...#.."
-        GROW    "..###..."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_FOLDER
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "###....."
-        GROW    "#..#...."
-        GROW    "#...####"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "########"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_DRIVE
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "########"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#....#.#"
-        GROW    "#......#"
-        GROW    "########"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-.assert * - GLYPHDATA = DCODES_LEN * 16, error, "a glyph is 16 rows"
 
 ; The pointer, 16 rows of 16: 'X' its outline, '#' its fill. Each row its
 ; outline's 16 bits, then its fill's, the leftmost pixel in the first
