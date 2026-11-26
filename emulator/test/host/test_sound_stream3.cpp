@@ -1164,47 +1164,48 @@ TEST(a_tag_header_must_be_a_real_one)
 
 TEST(files_back_to_back_with_tags_between_play_whole)
 {
-    // File A, an ID3v1 record ("TAG" and 125 bytes), an 80 KB ID3v2.3 tag of binary data (FF FB 90 00 and other
-    // frame-like bytes in it), then file B. A plays to its last frame; the record is junk; the tag is skipped by
-    // its size, whatever is in it; B plays from its first frame. Written at once, and fed in 40-byte pieces.
+    // File A, its ID3v1 record ("TAG" and 125 bytes), then file B: with an 80 KB ID3v2.3 tag of binary data (FF FB
+    // 90 00 and other frame-like bytes in it) between the record and B, and with none. A plays to its last frame,
+    // the record and the tag are skipped, and B follows as if A and B were back to back with nothing between: every
+    // sample the same, the decoder run on from A into B. Written at once, and fed in 40-byte pieces. Must fail if
+    // the record is taken for junk: A's last frame is then judged out of step and lost, and B is found afresh by a
+    // search, its first frames decoded without A's.
     const std::vector<uint8_t> a = mp3_file("cbr128_joint_44k.mp3"), b = mp3_file("vbr0_stereo_44k.mp3");
     REQUIRE(!a.empty());
     REQUIRE(!b.empty());
-    std::vector<uint8_t> bytes = a;
-    bytes.insert(bytes.end(), {'T', 'A', 'G'});
+    std::vector<uint8_t> record{'T', 'A', 'G'};
     for (unsigned k = 0; k < 125; ++k)
-        bytes.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
+        record.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
     const size_t size = 80'000;
-    bytes.insert(bytes.end(), {'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 127),
-                               static_cast<uint8_t>(size >> 14 & 127), static_cast<uint8_t>(size >> 7 & 127),
-                               static_cast<uint8_t>(size & 127)});
+    std::vector<uint8_t> tag{'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 127), static_cast<uint8_t>(size >> 14 & 127),
+                             static_cast<uint8_t>(size >> 7 & 127), static_cast<uint8_t>(size & 127)};
     uint32_t r = 77;
     for (size_t k = 0; k < size; ++k)
     {
         r = r * 1'103'515'245u + 12'345u;
-        bytes.push_back(k % 997 == 0 ? 0xFF : k % 997 == 1 ? 0xFB : k % 997 == 2 ? 0x90 : static_cast<uint8_t>(r >> 16));
+        tag.push_back(k % 997 == 0 ? 0xFF : k % 997 == 1 ? 0xFB : k % 997 == 2 ? 0x90 : static_cast<uint8_t>(r >> 16));
     }
-    bytes.insert(bytes.end(), b.begin(), b.end());
-    // The reference: A and B back to back with nothing between them. A plays trimmed by its Info frame, B whole
-    // after it, and as many frames come with the record and the tag between: none lost, none of the tag's bytes
-    // decoded. Only the join's one frame (1,152) may differ: after the record B starts afresh, where back to back
-    // the decoder carries A's last frame into B's first.
     std::vector<uint8_t> ab = a;
     ab.insert(ab.end(), b.begin(), b.end());
     const Played joined = play_mp3(ab, 0);
-    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 40);
-    std::printf("  A then B: back to back %zu, with the record and the tag at once %zu, fed %zu\n",
-                joined.tap.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
-    const std::vector<int16_t> ta = trimmed(a);
-    const size_t join = ta.size() + 2 * 1152; // B's second frame on
-    REQUIRE(joined.tap.size() > join);
-    CHECK(std::equal(ta.begin(), ta.end(), joined.tap.begin()));
-    CHECK_EQ(once.tap.size(), joined.tap.size());
-    CHECK(once.tap.size() == joined.tap.size() && std::equal(ta.begin(), ta.end(), once.tap.begin()) &&
-          std::equal(once.tap.begin() + static_cast<std::ptrdiff_t>(join), once.tap.end(),
-                     joined.tap.begin() + static_cast<std::ptrdiff_t>(join)));
-    CHECK(fed.tap == once.tap);
-    CHECK_EQ(fed.state, SoundFw::S_ENDED);
+    REQUIRE(joined.tap.size() > trimmed(a).size() + trimmed(b).size());
+    for (const bool with_tag : {false, true})
+    {
+        std::vector<uint8_t> bytes = a;
+        bytes.insert(bytes.end(), record.begin(), record.end());
+        if (with_tag)
+            bytes.insert(bytes.end(), tag.begin(), tag.end());
+        bytes.insert(bytes.end(), b.begin(), b.end());
+        const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 40);
+        size_t first = 0;
+        while (first < std::min(once.tap.size(), joined.tap.size()) && once.tap[first] == joined.tap[first])
+            ++first;
+        std::printf("  A, the record%s, B: back to back %zu; at once %zu, fed %zu; the first sample apart %zu\n",
+                    with_tag ? " and a tag" : "", joined.tap.size() / 2, once.tap.size() / 2, fed.tap.size() / 2, first / 2);
+        CHECK(once.tap == joined.tap);
+        CHECK(fed.tap == joined.tap);
+        CHECK_EQ(fed.state, SoundFw::S_ENDED);
+    }
 }
 
 TEST(a_stream_of_one_frame_plays_and_so_does_one_after_junk)

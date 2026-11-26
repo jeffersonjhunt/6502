@@ -2331,7 +2331,9 @@ is buffered, underruns reported (decided). The rules:
 - **An MP3 stream is read as a file would be:** an ID3v2 tag is skipped by its size; a frame in step with the stream
   is decoded once its end and the next header have come (or the data has ended); one out of step only once
   minimp3's own sync rule has decided on it; until a decision can be made, the stream waits for more. So a stream fed
-  as it plays decodes as the whole file would.
+  as it plays decodes as the whole file would. An ID3v1 record ("TAG", 128 bytes) at a frame in step's end is
+  skipped as a tag is, the frame before it taken by its own length: files joined with their records between play
+  as if back to back, the decoder run on from one into the next (cleanup review 1, 2026-11-26).
 - **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
   when that transfer ends: what is in plays out, the chunk in flight included.
 - **Arithmetic for the rule.** At CD quality with 32 KB chunks the card asks about five times a second; at 128 kbit/s

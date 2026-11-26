@@ -67,6 +67,10 @@ namespace ooe::emu
         size_t tag_left{0}; ///< of an ID3v2 tag being skipped
         bool fresh{false};  ///< junk passed over since the last frame: the next is found by a search, afresh
         size_t looked{0};   ///< how far past the frame at the front a look for anything frame-like has gone
+        /// Where an ID3v1 record is due: the end of a frame in step that "TAG" followed (~0: none). The record
+        /// (128 bytes) is skipped there as a tag is, so the decoder runs on into the next file as if it weren't.
+        uint64_t v1_at{~0ull};
+        static constexpr size_t V1_BYTES = 128;
     };
 
     namespace
@@ -2755,7 +2759,7 @@ namespace ooe::emu
         // The next frame of the ring's data decoded into the stream's queue, by these rules: a frame in step
         // with the stream is decoded once its end and the next header have come (or the data has ended); one out of
         // step only once minimp3's own sync rule has decided on it (a run of frames in step, or the data's end); an
-        // ID3v2 tag is skipped by its size. Until a decision can be made it waits for more: false. True when the
+        // ID3v2 tag is skipped by its size, and an ID3v1 record at a frame in step's end by its 128. Until a decision can be made it waits for more: false. True when the
         // queue gained frames or the header was taken; the data's end sets end_decoded.
         Stream &st = streams_[s];
         Mp3 &m = *st.mp3;
@@ -2820,6 +2824,15 @@ namespace ooe::emu
                     return false;
                 continue;
             }
+            if (st.rd == m.v1_at)
+            {
+                m.v1_at = ~0ull;
+                m.tag_left = Mp3::V1_BYTES;
+                m.tagged += Mp3::V1_BYTES;
+                if (no_sync())
+                    return false;
+                continue;
+            }
             if (have < 10 && !eof && at(0) == 'I')
                 return false;
             uint8_t h[4] = {};
@@ -2845,6 +2858,14 @@ namespace ooe::emu
                 {
                     n = fb + 4;
                     search = false;
+                }
+                else if (have >= fb + 3 && at(fb) == 'T' && at(fb + 1) == 'A' && at(fb + 2) == 'G')
+                {
+                    // An ID3v1 record at the frame's end (a file's last 128 bytes, another file after it): the
+                    // frame by its own length, then the record skipped, the decoder in step on into the next.
+                    n = fb;
+                    search = false;
+                    m.v1_at = st.rd + fb;
                 }
                 else
                 {
