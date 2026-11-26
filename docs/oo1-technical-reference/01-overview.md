@@ -98,7 +98,7 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | A | sound | `$C500` | `$A2` (`$A1` before revision 2: take either by the high nibble) | yes ([chapter 7](07-sound.md)) |
 | B | USB | `$C580` | `$B1` | yes ([chapter 8](08-usb.md)) |
 | C | Disk II | `$C600` | `$C1` | yes ([chapter 10](10-storage.md#the-disk-ii)) |
-| D | the north bridge, on the CPU card | `$C680` | `$D2` (revision 2, with WINnH, VECH and MAP, *proposed*, B7; `$D1` before) | yes ([chapter 11](11-north-bridge-and-rtc.md)) |
+| D | the north bridge, on the CPU card | `$C680` | `$D3` (revision 3, *proposed*: WINnH, VECH and MAP, the timebase, the random number chip and the common hole) | yes ([chapter 11](11-north-bridge-and-rtc.md)) |
 | E | console, the front panel | `$C700` | `$E1` | yes ([chapter 12](12-front-panel.md)) |
 | F | reserved: the idle bus's ID, what PS0–PS3's pull-ups give a cycle no master drives (*proposed*); never a card's | none | | its block reads `$FF` |
 

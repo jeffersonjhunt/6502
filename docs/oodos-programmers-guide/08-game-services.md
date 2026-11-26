@@ -833,7 +833,7 @@ card memory all free. Then:
     is mapped by WIN1H `$0E` with block 1, and blocks 32–39 join the W1 map.
   - With no revision 2 card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
   - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): OODOS's interface
-    below 12, no DMA, a revision 1 north bridge or a ROM BIOS older than 0.17.
+    below 12, no DMA or a ROM BIOS older than 0.17.
   - `GX_INIT` always takes the old mode, so a `GX_INIT` after `GX_BANK8` needs `GX_BANK8` again.
 - **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
   (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (since OODOS 0.9) a layer's palette

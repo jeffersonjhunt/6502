@@ -21,7 +21,7 @@ that returns without doing that is entered again at once.
 | video | VIDEO_IEN | vertical blank, a chosen line, a sprite collision |
 | sound | SOUND_IEN | an event waiting, a transfer done, CMD's room back, the firmware up (SOUND_ISR says which) |
 | USB | USB_IEN | a key, the mouse, the game port, a device |
-| north bridge | TBCTL's MSIE (revision 3); RTCCTL's TIE before it | the 1 kHz tick (revision 3); TICK, once a second, before it |
+| north bridge | TBCTL's MSIE | the 1 kHz tick |
 | console | CONSOLE_IEN | a key on the panel |
 
 **/NMI** has two sources: the USB keyboard's Pause/Break, with KBCFG's bit 7 set ([below](#pausebreak)), and the
@@ -31,7 +31,7 @@ edge.
 **The BIOS's handlers.** The ROM's vectors point NMI at Break and IRQ at a handler that tells BRK from an IRQ. BRK
 enters the monitor as Break does. A real IRQ returns at once, because the BIOS enables no interrupts. The BIOS
 starts with the CPU's I flag set. Break turns off the interrupt enables of the SD, video, sound, USB and console
-cards and the clock's TIE, and the monitor sets the 6551 up with its interrupts off. Since BIOS 0.11 Break also
+cards and clears the clock's TICK, and the monitor sets the 6551 up with its interrupts off. Since BIOS 0.11 Break also
 writes `$7F` to VIA_IER, turning every VIA interrupt off, and `$01` to CONSOLE_ISR: the console card's interrupt
 follows its ISR whatever IEN says, so a panel key that set ISR while a program had IEN on would otherwise keep
 /IRQ low. So a program run from the monitor may clear I, as long as it leaves nothing on that the handler can't
@@ -97,7 +97,7 @@ Status: **emulated**
 Apple software polls its own cards and never uses /IACK. The north bridge's registers are hidden, so IRQL and IRQH
 can't be read. hw/design.md has the native cards keep quiet while AMODE is high. The emulator gets there by the
 /RESET pulse that enters the mode: it resets every card, which turns off the interrupt enables of the SD, video,
-sound, USB and console cards and the VIA's IER. The bridge clears TIE, MSIE and HOLE, and the DMA controller's reset clears every
+sound, USB and console cards and the VIA's IER. The bridge clears TICK, MSIE and HOLE, and the DMA controller's reset clears every
 channel's mode and terminal count, all eight, and puts each CARD and CONTROL back to their reset values
 ([chapter 5](05-dma.md#apple-ii-mode)). **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
 kept, and with its receive interrupt on, a byte arriving pulls /IRQ in Apple II mode. Enter the mode with the 6551's
@@ -129,8 +129,7 @@ Since OOLIB's L1 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS o
 I flag clear: programs, the CCP, and the BDOS during its calls. Its IRQ vector points into common memory
 (`$F800–$FFFF`), which since OODOS 0.16 is the north bridge's common hole: the same bytes whatever W3 holds
 ([chapter 11](11-north-bridge-and-rtc.md#the-common-hole)), and a vector pull reads the hole whatever VEC holds, so
-the handler is there whatever block a program or a far call has in W3. OODOS 0.16 runs only on north bridge
-revision 3.
+the handler is there whatever block a program or a far call has in W3.
 
 - **The dispatcher** (`oodos/sys/irq.s`) tells BRK from an IRQ as the BIOS does (BRK still enters the monitor),
   saves A, X, Y and W0, puts W0 on OODOS's system block (31) without moving S, and reads IRQL and IRQH once each.
@@ -155,7 +154,7 @@ revision 3.
   interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 (all eight, each selected in
   turn with CONTROL put back after) and the terminal count of each channel that had it on (another's is its driver's to read), the 6551's transmit interrupt
   (ACIA_CMD bits 3-2 `%10`, its receive interrupt bit 1 put back to OODOS's, the rest kept; then its STATUS read,
-  and a byte waiting taken into the ring), the clock's TIE. The warm boot does
+  and a byte waiting taken into the ring), the clock's TICK. The warm boot does
   the same at each program's end, keeping only OODOS's own, turns the VIA's interrupts off and puts ACR to 0, and
   turns the tick on again.
 - **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
@@ -214,7 +213,7 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 - an SD command abandoned, the units staying mounted;
 - the boot splash stopped, and the sound card reset (CTRL's RESET: every sound stopped, an open transfer
   abandoned, IEN cleared), since BIOS 0.21 ([chapter 7](07-sound.md#silencing-it));
-- the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
+- the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK cleared;
 - the north bridge's tick off (`$C0` to TBCTL: MSF and OVR cleared, MSIE off), with no ID check, since BIOS 0.20;
 - the VIA's interrupts off (`$7F` to VIA_IER), and a panel key's pending interrupt cleared (`$01` to
   CONSOLE_ISR), since BIOS 0.11;

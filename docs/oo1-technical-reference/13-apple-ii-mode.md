@@ -46,9 +46,9 @@ are written by [the flash update](03-boot.md#the-flash-update) (or, in the emula
 Status: **emulated**
 
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
-map and with nothing changed but WIN0H (0 on a revision 2 bridge), if any of it is missing. On a revision 2 north
-bridge (ID `$D2`, *proposed*, B7) it first sets WIN0H to 0, whatever a program left in it, since the checks keep
-their image number in W0's zero page and FINDIMG's return address on its stack:
+map and with nothing changed but WIN0H (0), if any of it is missing. It first sets WIN0H to 0 (*proposed*, B7),
+whatever a program left in it, since the checks keep their image number in W0's zero page and FINDIMG's return
+address on its stack:
 
 <!-- listing: ../../backplane/bios/apple.s:57-82 -->
 ```
@@ -93,7 +93,7 @@ APPLEN:         STZ     NB_WIN0H       ; W0 below 1 MB, whatever a program left,
   IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
   CARTRIDGE`.)
 
-With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN1H and WIN2H to 0 too,
+With all three there, it sets WIN1H and WIN2H to 0 too (*proposed*, B7),
 whatever a program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the
 high registers don't move. Then, in order:
 
@@ -139,9 +139,9 @@ Status: **emulated**
 The pulse that enters the mode is the same /RESET as Ctrl-Reset's ([below](#ctrl-reset-and-the-hard-reset)). It
 isn't a hard reset: APPLE survives it. What it resets:
 
-- **The north bridge:** the windows and VEC to their reset values, and on a revision 2 bridge WINnH, VECH and MAP
+- **The north bridge:** the windows and VEC to their reset values, and WINnH, VECH and MAP
   too (*proposed*, B7; the mode doesn't use any of them), the wait states to 0,
-  TICK and TIE cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
+  TICK cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
   real-time clock keeps its time.
 - **The DMA controller:** every channel cleared, its CARD back to its reset value, REQ cleared and any hold-off
   ended, and CONTROL back to `$70`: master enable off and SELECT 0. With the master enable off it neither polls nor

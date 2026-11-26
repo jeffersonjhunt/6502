@@ -3649,7 +3649,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 
   Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
   version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since OODOS 0.11
-  (interface version 12, B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's
+  (interface version 12, B7), for the north bridge's MAP; a program asks for it through OOLIB's
   `GX_BANK8` ([chapter 8](08-game-services.md#video-memory)) rather than by itself. Operation 12 is since OODOS
   0.12 (interface version 13, [hw/video640.md](../../hw/video640.md)), for the direct 640 layer, whose pixels are
   words; OOLIB's `GX_FRECT` uses it on a `GB_DIRECT` bitmap.
@@ -3695,7 +3695,7 @@ isn't the program's (the I/O hole, flash), and:
 - `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
 - `DM_POINTER`: a +1 of 128–254 (before OODOS 0.13, interface version 14: past 63); no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
   card of revision 2 or no DMA controller. `$FF` (off) is always taken.
-- `DM_BANK8`: a revision 1 north bridge (ID `$D1`), which has no MAP, or a ROM BIOS before 0.17
+- `DM_BANK8`: a ROM BIOS before 0.17
   ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
   bank 8's RAM. Nothing is changed: bank 8 stays as it was, the aperture with a revision 2 video card and RAM
   without one.
@@ -3748,7 +3748,7 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
   SPRBASE, the layers; since OODOS 0.13 SPRCTL 0, every sprite doubled): its text, font and palette are where they were, so what was printed meanwhile shows.
 - The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does. It also
   turns the port's DMA request off and puts the aperture's slots 0–3 on card banks 0, 16, 2 and 3: slot 1 on the
-  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. On a `$D2` north bridge it sets
+  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. It sets
   WIN0H–WIN3H and VECH to 0 and AP8 again where there is a revision 2 video card, so `DM_BANK8` lasts until the
   program ends.
 - `DM_BANK8` clears the north bridge's AP8 (MAP, `$C6A5`) with a revision 2 card, so bank 8, blocks 32–35, is RAM

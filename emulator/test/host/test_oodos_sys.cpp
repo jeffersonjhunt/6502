@@ -762,7 +762,7 @@ TEST(the_hole_is_on_at_the_prompt)
 {
     // O-H1 (N16; hw/design.md, "The common hole"): HOLE reads $BE at A>, and a far call into
     // block 20, whose top 2 KB is all $00 (BRKs), makes a BDOS call there and takes 100 ticks there, and comes back.
-    // Must fail with NB3CHK's write left out.
+    // Must fail with HOLEON's write left out.
     Booted r;
     REQUIRE(r.ok);
     CHECK_EQ(r.nb(0x26), 0xBE);

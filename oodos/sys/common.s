@@ -1,7 +1,7 @@
 ; OODOS's common memory, $F800-$FFFF (hw/oodos.md, "The system, phase 2"):
-; the same 2 KB whatever block W3 maps, since OODOS 0.16 by the north
-; bridge's common hole (HOLE $BE, NB3CHK: block 62's top 2 KB at $F800-$FFFF
-; whatever W3 holds), so code here can switch W3 under itself and the next
+; the same 2 KB whatever block W3 maps, by the north bridge's common
+; hole (HOLE $BE, HOLEON: block 62's top 2 KB at $F800-$FFFF whatever W3
+; holds), so code here can switch W3 under itself and the next
 ; instruction comes from the same bytes. No block needs a copy.
 ;
 ;   $F800   the BIOS's jump table: CP/M 3's 30 entries in CP/M 3's order
@@ -443,7 +443,7 @@ APPLEEND:
 ; WIN0H-WIN3H and VECH to 0, and MAP written whole: AP8 set (bank 8 the
 ; video card's aperture, as old programs know it) with a revision 2 video
 ; card, clear (bank 8 RAM) without one (B7; hw/design.md, "The video aperture
-; moved out of RAM"): every bridge OODOS 0.16 runs on has them (NB3CHK). For ROMAPPLE, and for
+; moved out of RAM"). For ROMAPPLE, and for
 ; WARM and NMI once W0 is on the system block (they clear WIN0H inline
 ; first, since a JSR through a WIN0H left set, or a read-only W0, would lose
 ; its return address: diag.inc's NBSET is inline for the same reason).

@@ -1380,7 +1380,7 @@ program's 320 KB.
     one crossing (E3).
 - **Must-fails:**
   - *(retired at OODOS 0.16, nb-rev3's N17: ui_load makes no copy, the north bridge's hole shows common memory in
-    every block; NB3CHK's write of HOLE left out fails `a_window_with_labels_buttons_and_a_check_box` instead)* the
+    every block; HOLEON's write of HOLE left out fails `a_window_with_labels_buttons_and_a_check_box` instead)* the
     copy of common memory left out: the first call never comes back, and the case fails on its time limit;
   - a kind of fixup skipped: the frames differ;
   - in `test/check_tools.py`:

@@ -588,7 +588,6 @@ to the ROM:
   keeps the rule).
 - **The diagnostics and Apple II mode by image** (ROMENTRY): HOLE 0 right after its SEI, before the tramp's copy,
   since its tramp has no room. W3 is block 62 there, so the same bytes stay in place.
-- **The refusal of a `$D1` or `$D2` bridge** (NB3CHK) runs before the hole is on.
 
 The ROM's QUIET doesn't write HOLE: OODOS has always cleared it by then. A program that wrecks the hole loses Break
 until a hard reset, as a stray write over block 62's `$FFFA` does today.

@@ -37,7 +37,6 @@ NB_WIN3H        = NB + $23
 NB_VECH         = NB + $24             ; a vector pull's A20-A23 (VEC's ROM bit clear)
 NB_MAP          = NB + $25             ; bit 0, AP8: bank 8 goes to the video card's aperture ($01 at reset)
 NB_MAP_AP8      = $01
-NB_ID_V2        = $D2                  ; superseded; kept only until OODOS's W1HTEST stops naming it
 NB_ID_V3        = $D3                  ; revision 3: the windows' high bits, the random source and the timebase
 ; Revision 3 (ID $D3; hw/design.md, "The north bridge, revision 3"). MS0 and SEC latch when read, and RNGDATA gives
 ; up its byte: read each with a load (LDA, LDX, LDY), never a read-modify-write or a 16-bit read.
@@ -83,7 +82,6 @@ IIE_ID_AT       = $3BB3                ; in an image ($FBB3): IIE_ID if it is a 
 IIE_ID          = $06
 NB_STATUS_BOOTSEL = $01                ; booted from RAM (the bus spy loaded it)
 NB_RTC_TICK     = $80                  ; RTCCTL: the second's read happened; write 1 to clear
-NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D); revision 2; reads 0 on 3
 NB_RTC_ALARM    = $20                  ; RTCCTL: the DS3231 flagged an alarm (A1F or A2F)
 NB_RTC_LOST     = $04                  ; RTCCTL: the DS3231's oscillator stopped (OSF): set the time
 NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231 (reads 0)

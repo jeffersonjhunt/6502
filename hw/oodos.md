@@ -6298,7 +6298,7 @@ offsets up to `$BFFF` it names the CPU's own addresses: a PEEK of VARPTR's resul
   - a byte of `$FOTB` changed (the table check);
   - the gate's budget lowered under the build's size (the size gate);
   - *(retired at OODOS 0.16, nb-rev3's N17: the loader makes no copy of common memory, the north bridge's hole
-    shows it in every block. Its guard is OODOS's: NB3CHK's write of HOLE left out fails `the_hole_is_on_at_the_prompt`
+    shows it in every block. Its guard is OODOS's: HOLEON's write of HOLE left out fails `the_hole_is_on_at_the_prompt`
     and `the_loader_loads_the_blocks_and_gw_basic_says_ok` both.)* the loader's copy of common memory skipped (the
     first far call's interrupt, or its BDOS call, goes astray: a test with a tick during a far call fails);
   - `GX_W1BACK` left out after a PSET (a test whose variables sit in `$4000–$7FFF` reads them wrong);
@@ -6644,20 +6644,8 @@ specs' OODOS parts, moved here as built; the figures measured are in [As built](
 
 #### Revision 3 required ####
 
-**Decided (the owner, 2026-11-21: "require revision 3").** OODOS 0.16 has one tick, the bridge's. The VIA timer 1
-tick is retired entirely: no fallback for `$D1` or `$D2`.
-
-**On an older bridge OODOS refuses to boot (Proposed).** The cold boot's first act, before it turns anything on,
-is to read NB_ID. Anything but `$D3`: it prints, on the BIOS's console and the serial line,
-
-    OODOS 0.16 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D2.
-
-and goes back to the monitor through the BIOS's Break, with no interrupt of OODOS's on and nothing of the card
-written. A refusal is plain: the machine says why, and nothing half-works. *Not taken:* booting without a
-millisecond counter (`FC_MS` clear), as OODOS does today without a VIA. It would boot, but `FT_DELAY`, the tick
-hook, the beep, the sticks' sampling and the random source (revision 3's too) would all be missing, and a program
-that didn't check `FT_INFO` would fail in ways harder to read than one line at boot. The owner's "require" reads as
-the refusal, so this isn't a question.
+**Removed in the cleanup pass (2026-11-25):** the machine has one north bridge, revision 3, so the requirement and
+its refusal went; the cold boot reads no ID, and its first act is HOLEON, the common hole's write.
 
 **What that simplifies.** Every machine OODOS 0.16 runs on has the bridge's tick and counter, and revision 2's
 registers (WINnH, VECH, MAP), since revision 3 has them:

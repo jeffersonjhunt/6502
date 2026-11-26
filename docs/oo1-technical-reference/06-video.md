@@ -384,11 +384,10 @@ The program owns `$040000–$1BFFFF`, handed out by OOLIB, for as long as it run
 program's part, and its pointer is written only while SPRBASE is in it.
 
 **The aperture.** Slot 0 is OODOS's and always shows card bank 0, the console's, where the console writes its
-text: since B7 (*proposed*, a `$D2` north bridge) at `$E00000–$E03FFF`, through W1 with WIN1H `$0E` and block 0;
-on a `$D1` bridge at `$80000–$83FFF` (block 32). Slot 1, at `$84000–$87FFF` (block 33), or after `GX_BANK8` at
+text: since B7 (*proposed*) at `$E00000–$E03FFF`, through W1 with WIN1H `$0E` and block 0. Slot 1, at `$84000–$87FFF` (block 33), or after `GX_BANK8` at
 `$E04000–$E07FFF` (WIN1H `$0E` with block 1), is the program's, through OOLIB under the W1 contract
 ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
-Slots 2 and 3 are OODOS's too, at `$E08000–$E0FFFF` (`$88000–$8FFFF` on `$D1`): function 83's card-to-card copy
+Slots 2 and 3 are OODOS's too, at `$E08000–$E0FFFF`: function 83's card-to-card copy
 borrows them for each piece and puts them back. While AP8 is set for the program, as OODOS leaves it, bank 8 is
 those slots, so no physical destination of function 83, and no record read through a DMA segment (function 51),
 may touch `$80000–$83FFF` or `$88000–$8FFFF`: OODOS refuses it. DM_INFO's W1 map leaves out blocks 32, 34 and 35:
@@ -494,8 +493,7 @@ revision 1's old offsets in card memory (`$000400`, `$000000` and `$002000`, so 
 registers read `$0004`, `$0000` and `$0020`). VINIT writes the font and the palette into the port's PDATA, and
 clears the screen with two port transfers by DMA on channel 1 (CARD 9, the card's module), held on one byte with PSTEP 2: the characters, then
 the attributes. VPUTC, run for each character, writes it with the CPU through aperture slot 0 (W2 on physical
-`$E00000`, WIN2H `$0E` and block 0, since BIOS 0.17 on a `$D2` north bridge, *proposed*; on `$D1`, `$80000`,
-block 32; it points SLOT0 at page 0 and puts W2, WIN2H and SLOT0 back after), and scrolls by the port on channel 1: the rows out
+`$E00000`, WIN2H `$0E` and block 0, since BIOS 0.17, *proposed*; it points SLOT0 at page 0 and puts W2, WIN2H and SLOT0 back after), and scrolls by the port on channel 1: the rows out
 of the card into a 2 KB buffer at `$FC000` (under the I/O hole, in RAM block 63) and back in a row higher, then a
 fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, and since BIOS 0.15 the DMA controller's
 CONTROL too, which it saves before it selects channel 1 (*proposed*), but stops a program's own transfer on
@@ -621,8 +619,8 @@ Status: **proposed**
 
 The aperture is physical `$E00000–$E0FFFF` (`VIDEO_APERTURE2`). It is four slots of 16 KB, and slot *n* shows card
 memory from SLOT*n* × `$4000`. SLOT0–SLOT3 (`$C4B0–$C4B7`) are two bytes each, low byte first, a 16 KB page number.
-A window with WIN*x*H `$0E` (`VIDEO_APER_H`) and block *n* shows slot *n*, on a revision 2 north bridge (ID `$D2`,
-*proposed*, B7: [chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). While the bridge's AP8
+A window with WIN*x*H `$0E` (`VIDEO_APER_H`) and block *n* shows slot *n* (*proposed*, B7:
+[chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). While the bridge's AP8
 is set, as from reset, bank 8 is the aperture too, `$80000–$8FFFF` (`VIDEO_APERTURE`), with no RAM answering: a
 window pointed at block 32 + *n* ([chapter 2](02-memory-and-banking.md#the-four-windows)) shows slot *n*, so a
 program can have a sprite table in one window and part of a bitmap in another.

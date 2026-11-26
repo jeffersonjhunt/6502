@@ -625,8 +625,7 @@ DM_CONSOLEX:    JSR     CRTREGS
 ; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
 ; Refused, nothing changed, under a ROM BIOS older than 0.17 (cold.s's
 ; ROMVER, as bdos.s's NEWROM compares it; $FF $FF not found), whose Break
-; would draw the monitor's screen through bank 8. (Every bridge OODOS 0.16
-; runs on has MAP: NB3CHK.)
+; would draw the monitor's screen through bank 8.
 DM_BANK8X:      BLOCK
                 LDA     ROMVER
                 CMP     #$FF

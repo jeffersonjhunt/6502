@@ -189,7 +189,7 @@ map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 3
 contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
 `$BFFD` in block 2; FARCALL's block is mapped in W3, under the common hole).
 
-**Interface version 12** (since OODOS 0.11, B7: a revision 2 north bridge, ID `$D2`; every bridge OODOS 0.16 runs on, revision 3, has WIN1H). After the program's `GX_BANK8`,
+**Interface version 12** (since OODOS 0.11, B7: the north bridge's WIN1H). After the program's `GX_BANK8`,
 which asks for function 83's `DM_BANK8`, **OOLIB may write `NB_WIN1H`** (`$C6A1`) too: slot 1 is then WIN1H `$0E`
 with WIN1 1, the aperture's own place at `$E04000`, and every other block of the map is WIN1H 0. OOLIB writes WIN1H
 first, then WIN1, and goes back by WIN1H 0, then the block. A map is then two writes, which an interrupt can split;
@@ -218,8 +218,7 @@ card, or none, OODOS has no console screen and the card operations are refused. 
 - **Banks 8–B.** While the north bridge's AP8 is set, as OODOS leaves it, bank 8, blocks 32–35, is the card's
   aperture: four 16 KB slots, each showing a 16 KB card bank that its slot register chooses. Slot 0 (block 32)
   always shows card bank 0, the console's; slots 2 and 3 (blocks 34 and 35) are OODOS's, borrowed by `DM_VCOPY`;
-  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (since OODOS 0.11, B7: a
-  `$D2` north bridge), where OODOS's console and `DM_VCOPY` reach it. A program that calls function 83's
+  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (since OODOS 0.11, B7), where OODOS's console and `DM_VCOPY` reach it. A program that calls function 83's
   `DM_BANK8` (through OOLIB's `GX_BANK8`) has bank 8 as RAM too, until the warm boot sets AP8 again, and reaches
   slot 1 at `$E04000`, WIN1H `$0E` with block 1. Banks 9–B, blocks
   36–47, are ordinary RAM, the running program's as video memory was: in the W1 map, reachable by DMA segments and
