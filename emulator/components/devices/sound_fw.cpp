@@ -1311,6 +1311,13 @@ namespace ooe::emu
                 v.push_back(static_cast<uint8_t>(seq_.thresh));
                 event(EV_MUSIC_COUNT, 0, v);
             }
+            if (mv.tone && e.freq16 > TONE_TOP_HZ * 16) // above the tone generator's top: a rest for its length
+            {
+                if (mv.gated)
+                    music_gate(lv, false), mv.gated = false;
+                mv.next_us = at + e.len;
+                break;
+            }
             if (mv.tone)
             {
                 mtone_.step = e.freq16 / 16.0 / RATE;
@@ -2307,7 +2314,7 @@ namespace ooe::emu
         case BEEP:
         {
             const uint32_t hz = get16(p), len = get16(p + 2);
-            if (hz < 20 || hz > 20000)
+            if (hz < 20 || hz > TONE_TOP_HZ)
             {
                 reply(tag, E_PARAM);
                 break;

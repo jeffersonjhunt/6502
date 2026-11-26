@@ -123,7 +123,9 @@ Status: **emulated**
 
 The tone generator plays a band-limited square, one note at a time, beside everything else. BEEP gives it a pitch
 (20–20,000 Hz), a length in ms and a volume (0 the default), and BEEP_DONE says it ended; BELL plays the console's
-bell, the firmware's own short tone.
+bell, the firmware's own short tone. Music can have the tone generator as one of its voices (an instrument whose source
+is 2); there, as for BEEP, 20,000 Hz is the top, and a tone entry above it is silent for its length, as a rest is, with
+the voice's next entry on time.
 
 On the bare machine the ROM has both through its dispatching entry `$C818` ([chapter 3](03-boot.md)), Y = `$5A`:
 X = `$A2` is BEEP, 800 Hz for A × 10 ms (A = 0: 250 ms), and X = `$A3` is STOPALL. Each waits for the card's READY

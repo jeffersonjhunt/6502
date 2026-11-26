@@ -2222,6 +2222,10 @@ place in the mix, so it is ignored). Unused bytes are 0.
 | 4 volume | 2 | +1 the voice's volume (0-255) from here |
 | 5 marker | 2 | +1 the marker (0-254): MUSIC_MARK when the voice reaches it |
 
+On the tone generator's voice a note or frequency entry above 20,000 Hz, BEEP's top, is a rest: the voice is silent
+(released, if it was gated) for the entry's length and its next entry begins on time, so the square never aliases.
+The block is not refused for it. (SID and sample voices take any pitch the entry gives.)
+
 A block whose header, counts or entries don't parse is refused at XFERDONE with `E_DATA` (a voice outside the mask,
 an entry past the transfer's end, a gate longer than its length, a kind above 5).
 

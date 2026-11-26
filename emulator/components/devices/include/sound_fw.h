@@ -124,6 +124,7 @@ namespace ooe::emu
         static constexpr uint32_t SAMPLES_PER_MS = RATE / 1000; ///< 48
         static constexpr uint32_t LATENCY_US = 20;              ///< a command runs this long after its last byte
         static constexpr uint32_t STARTUP_MS = 20;              ///< power-on or FWRESTART to READY
+        static constexpr uint32_t TONE_TOP_HZ = 20'000;         ///< the tone generator's top: BEEP's, and music's (a rest above)
         static constexpr size_t CMD_BYTES = 1024, EVT_BYTES = 2048;
         static constexpr size_t RECORD_MAX = 256;               ///< a command record: 3 + n, n at most 253
         static constexpr uint8_t CARD_TYPE = 0xA3;

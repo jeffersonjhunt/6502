@@ -9,6 +9,7 @@
 
 #include "sound_card3.h"
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -129,6 +130,20 @@ namespace
         e.push_back(n);
         put32(e, len_us);
         put32(e, gate_us);
+    }
+    /// A tone entry: `freq16` the pitch in 1/16 Hz (24 bits).
+    void tone(std::vector<uint8_t> &e, uint8_t voice, uint32_t freq16, uint32_t len_us, uint32_t gate_us)
+    {
+        e.push_back(static_cast<uint8_t>(0x10 | voice));
+        for (int i = 0; i < 3; ++i)
+            e.push_back(static_cast<uint8_t>(freq16 >> (8 * i)));
+        put32(e, len_us);
+        put32(e, gate_us);
+    }
+    void rest(std::vector<uint8_t> &e, uint8_t voice, uint32_t len_us)
+    {
+        e.push_back(static_cast<uint8_t>(0x20 | voice));
+        put32(e, len_us);
     }
 } // namespace
 
@@ -278,6 +293,57 @@ TEST(a_block_that_doesn_t_parse_is_refused_at_xferdone)
     REQUIRE(mark.size() == 1);
     CHECK_EQ(mark[0].body[0], 0); // voice 0
     CHECK_EQ(mark[0].body[5], 7); // the marker
+}
+
+TEST(a_tone_entry_above_20_khz_is_a_rest_and_keeps_time)
+{
+    // The tone generator's top is BEEP's, 20,000 Hz: a tone entry above it is a rest for its length. Three entries
+    // of 10 ms (480 frames at 48 kHz), each gated its whole length: 20,000 Hz sounds from the block's start;
+    // 20,001 Hz is silent, exact zeros at music's tap (nothing else of music's sounds); 1 kHz begins 960 frames on.
+    // The same block with a rest for the second entry is the reference, frame for frame; a block that begins with
+    // the 1 kHz is the anchor for the block's first frame.
+    constexpr uint32_t MS10 = 10000;
+    auto run = [](const std::vector<uint8_t> &e, uint32_t count) {
+        Dev d;
+        d.card.set_tap(true, SoundFw::SRC_MUSIC);
+        CHECK_EQ(d.music(0, block(TONE, e, count)), 0);
+        d.ms(40);
+        return d.card.take_tap();
+    };
+    auto first_sound = [](const std::vector<int16_t> &t, size_t from) {
+        for (size_t f = from; 2 * f + 1 < t.size(); ++f)
+            if (t[2 * f] || t[2 * f + 1])
+                return f;
+        return t.size() / 2;
+    };
+    std::vector<uint8_t> a, b, c;
+    tone(a, 0, 20000 * 16, MS10, MS10);
+    tone(a, 0, 20001 * 16, MS10, MS10);
+    tone(a, 0, 1000 * 16, MS10, MS10);
+    tone(b, 0, 20000 * 16, MS10, MS10);
+    rest(b, 0, MS10);
+    tone(b, 0, 1000 * 16, MS10, MS10);
+    tone(c, 0, 1000 * 16, MS10, MS10);
+    const auto ta = run(a, 3), tb = run(b, 3), tc = run(c, 1);
+    const size_t start = first_sound(tc, 0); // the anchor: the block's first frame that sounds
+    REQUIRE(start + 1500 < ta.size() / 2);
+    const size_t fa = first_sound(ta, 0);
+    double e1 = 0;
+    for (size_t f = start; f < start + 480; ++f)
+        e1 += static_cast<double>(ta[2 * f]) * ta[2 * f];
+    size_t loud = 0; // frames of the 20,001 Hz entry that aren't exact zero
+    for (size_t f = start - 1 + 480; f < start - 1 + 960; ++f)
+        loud += ta[2 * f] || ta[2 * f + 1];
+    const size_t next_a = first_sound(ta, start + 480), next_b = first_sound(tb, start + 480);
+    std::printf("  block's first sounding frame %zu; 20,000 Hz from %zu, rms %.0f; 20,001 Hz: %zu frames not zero; "
+                "1 kHz from %zu (the reference %zu, %zu after the start)\n",
+                start, fa, std::sqrt(e1 / 480), loud, next_a, next_b, next_a - start);
+    CHECK_EQ(fa, start);      // 20,000 Hz sounds, from the block's start
+    CHECK(e1 / 480 > 1e6);    // well above silence (rms > 1,000 of 32,767)
+    CHECK_EQ(loud, 0u);       // 20,001 Hz is silent for its length
+    CHECK_EQ(next_a, next_b); // 1 kHz on time, to the frame
+    CHECK(next_a >= start - 1 + 960 && next_a <= start + 960);
+    CHECK(ta == tb);          // and the whole block is the rest's, frame for frame
 }
 
 int main() { return run_all(); }

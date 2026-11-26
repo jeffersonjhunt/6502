@@ -539,8 +539,9 @@ A block is a header, an instrument for each voice it uses, and its entries:
 | The entries | 2–12 each | +0 the kind in the high nibble and the voice in the low; then by kind: 0 a note (+1 the note, 0–127, 69 the A at 440 Hz; +2–5 the length and +6–9 the gate, µs), 1 a frequency (+1–3 Hz × 16; +4–7 the length, +8–11 the gate), 2 a rest (+1–4 the length), 3 an instrument (+1–8), 4 a volume (+1), 5 a marker (+1, 0–254) |
 
 Each voice keeps its own time, so the voices' entries may be interleaved. The gate is how long the note sounds before
-its release, at most its length; equal is legato. The card checks the whole block as it comes and refuses one that
-doesn't parse (6, DATA).
+its release, at most its length; equal is legato. The tone generator's voice goes no higher than BEEP's 20,000 Hz:
+a frequency entry above that on it is silent for its length, a rest, and the voice's next entry comes on time. The
+card checks the whole block as it comes and refuses one that doesn't parse (6, DATA).
 
 **The library.** OOLIB's music routines build the blocks for a program (`oodos/lib/mu.s`, `munote.s` and `mutone.s`;
 `include/oolib.inc` has the calls), on six logical voices, for a program's music. (GW-BASIC's SOUND and PLAY build
