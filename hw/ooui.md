@@ -133,7 +133,8 @@ built, and the few places it changed this text, are in [U1](#u1-the-core-and-the
 
 A record is 16 bytes (`UW_LEN`), so record *h* is at the table + *h* × 16. The table is the app's memory, and OOUI
 writes `UW_FLAGS`'s dirty bit, `UW_STATE` and the values the user changes. An app may write any field itself and
-then call `ui_dirty`. *(S1, proposed; the owner's rule:)* a field that moves or resizes a record (`UW_X`, `UW_Y`,
+then call `ui_dirty`, but for `UW_FLAGS`'s `UF_DIRTY`, which only OOUI sets *(S3; the owner's rule, 2026-11-26: a
+bit a program set would name a record OOUI's dirty list doesn't, so it would not be drawn)*. *(S1, proposed; the owner's rule:)* a field that moves or resizes a record (`UW_X`, `UW_Y`,
 `UW_W`, `UW_H`, a window's frame), or its type or parent, needs `ui_redraw` after, not `ui_dirty`: what covers what
 may have changed, and only `ui_redraw` says so (the sprite thumbs, the hit test). *(S2, proposed:)* OOUI keeps
 each record's place in a cache; a record moved by its fields and only dirtied is caught at the next paint (its
@@ -193,7 +194,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 `$01` | `UF_HIDDEN` | | | | | | | |
 | 1 `$02` | `UF_DISABLED`: drawn dim, takes no input | | | | | | | |
-| 2 `$04` | `UF_DIRTY`: OOUI's, set by the calls that change a widget | | | | | | | |
+| 2 `$04` | `UF_DIRTY`: OOUI's alone, set by the calls that change a widget (S3: never by the program's own writing) | | | | | | | |
 | 3 `$08` | `UF_NOFOCUS`: Tab passes it by | | | | | | | |
 | 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb (*U3b:* a scroll bar's too) |
 | 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | `UF_OWNTHUMB` (*U3b:* with `UF_SPRITE`, the program's image; a scroll bar's too) |
@@ -2216,12 +2217,13 @@ the next small phase's question.
   it itself before `ui_close`).
 - **An S3 target** *(the owner, 2026-11-13)*: one key's change on screen within a frame. OO-Amp's
   `a_key_s_state_changes_within_a_frame` measures 1.24 frames (its limit 1.1): OOUI's paint in that key's pass.
-  It is a known failure until S3.
+  It is a known failure until S3. *(S3: 0.92 frames, [S3](#u3b-speed-step-s3-the-faster-paint-pass).)*
 - **An S3 target** *(the owner, 2026-11-13, landing review round 2)*: in OO-Amp's `test_accept` response case,
   the pause click right after zone C's is done in 2.0 frames (begun 1.4), over the case's 2-frame limit. Since FF3 a
   half's read isn't put off in a pass that opens or closes a dialog (without that check the click is done in 1.0);
   most likely that moves when later reads fall due, and the pass the click waits behind now carries one. It is a known failure until S3, for that click only: it is printed,
-  and a ceiling of 2.1 frames is still checked. Every other key and click in the case is held to 2 frames.
+  and a ceiling of 2.1 frames is still checked. Every other key and click in the case is held to 2 frames. *(S3: 0.9
+  frames, and the case's worst 1.9: [S3](#u3b-speed-step-s3-the-faster-paint-pass).)*
 - **The response case, as evidence** (OO-Amp 7665e91, dialogs on OOUI and patches drawn; `test_accept`'s response
   case, 1 minute; the worst done of the keys and clicks that read no disk, 2.0 frames its limit, frames):
 
@@ -2237,6 +2239,140 @@ the next small phase's question.
   pressed that and the jump stayed up; fixed in OO-Amp (9df4444, with a test that fails without it). What is left in B5's G EQ (1.86
   frames, 221,653 cycles): 68,952 waiting for the blank, OOUI 96,711 (the paint 57,624, two buttons drawn), OO-Amp's
   own 111,711, the system's 13,231; before S2 the paint alone was 202,000.
+
+#### U3b: speed step S3, the faster paint pass ####
+
+**Built 2026-11-26**, the owner's plan (approved 2026-11-26, "recommendations as listed": S3-0 to S3-5, O1-O5 with
+O6; O7 `POST`'s thumb list, O8 `NEXTFOCUS`'s pre-test and O9 the list's focus row later). The target: one key's
+change on screen within a frame ([the outcome](#u3b-the-outcome)). On main a letter key's pass in OO-Amp spent
+about 870 cycles a record of its 98 on four walks that each looked at every record: `FINDACC`'s for a button's
+letter, `PASS`'s after the first dirty record, `POST`'s for the 15 thumbs and `PAINT`'s clearing of the dirty
+bits. S3 takes each walk away where nothing in it can change the outcome. No call, record, event, flag or drawing
+changes; `UI_IFACE` stays 1; the 25 golden frames are compared unchanged, and B5's and S2's cell comparisons with
+`ui_redraw` hold.
+
+- **S3-0, room in block A.** `GLYPHS`, `GLYPHAT` and their data move from uidraw.s (A) to ui/uiglyph.s (C), reached
+  from `ui_open`, their only caller, by one crossing (`XC_GLYPHS`); `gi`, `gn` in `CBSS`.
+- **S3-1, the key letters (O1, O2).** `FINDACC` compares a record's letter before it places the record's scope
+  (`INSCOPE`'s `RECT`), so only the button whose letter it is is placed; the same record is found. `ukeyl` (a
+  `UISTATE` byte) says a button, check box or radio button may have a key letter; while it is 0 `FINDACC` looks
+  at no record. `ACCREC` sets it for a record of those types with a letter, from `ui_open` (`CHECKTAB`, which
+  clears it first), `ui_settext` and `ui_dirty`; the dialogs' records (`DLGREC`) set it whatever they find.
+  *(Review round 1, C2:)* `KEYS` finds it again, every table record's letter and any dialog's window that shows,
+  at `ui_redraw` and when `HIDEH` hides a dialog's window, so after a dialog or a `ui_redraw` a table with no
+  letter walks none again (before, every letter key walked at O1's cost, about 13,500 cycles on OO-Amp's screen,
+  until the next `ui_open`). `KEYS` costs 11,108 cycles among 90 records (block 8), once a `ui_redraw` or a
+  dialog's going.
+- **S3-2, `POST` after a mark or a geometry event (O3).** `PAINT` calls `POST` only when `uany` has `UQ_THUMB` (a
+  thumb marked: `SPRDRAWN`, which now sets it too, or `VDIRTY`) or `UQ_GPOST` (a geometry event): what S1's tests
+  act on. `udrew` goes.
+- **S3-3, the dirty list (O4).** `DIRTY` puts the record on `udl` (`UI_DIRTYL`, 8; `udn` its length, `$FF` too
+  many); `CHECKTAB` and `DLGREC`, which make records dirty without it, say it too long. `PAINT` clears only the
+  listed records' bits (every record's when it is too long).
+- **S3-4, `PASS`'s fast walk (O5, O6).** While the cache holds and the list isn't too long, `FAST` (block C) marks
+  the listed records (`dmark`, 254 bytes of C's memory), places and draws each as before (`PREC`), and reads every
+  other record only from its cache entry: first against the union of the layer's boxes (`FUNION`: its start widened
+  by the theme's shadow and less 1, so it rejects only what `CMEETS` would), then `CMEETS`; a `REC` and a `RECT`
+  only for a record drawn. A listed record found moved by its fields (S2's comparison) ends it: the marks cleared,
+  the rest walked as before S2. `ui_open`'s `CCLR` clears every mark.
+
+**The rules (the owner, 2026-11-26).** Both were the rules already; S3 depends on them:
+- **`UF_DIRTY` is OOUI's alone** (answer 4). Its calls set it, and a program asks with `ui_dirty`; `ui_flags`
+  refuses the bit ([widget records](#widget-records)). A program that set it by writing `UW_FLAGS` would name a
+  record the dirty list doesn't, which the fast walk would not draw. check_tools.py's rule (`dirty_setters`)
+  allows an instruction that can set the bit only in `DIRTY`, `CHECKTAB` and `DLGREC`, and *(review round 1, T4)*
+  in no other source in the repository (the programs, uidemo, the test programs, docs/examples, OODOS, the ROM); its
+  own examples refuse an `ora` of it and a `tsb` of it elsewhere, and a program's own routine named `DIRTY`.
+- **A record's letter.** A program that writes a button's `UW_TEXT` itself calls `ui_dirty`, which finds the
+  letter; one that changes a record's type calls `ui_redraw` (S1's rule). *(Review round 1, C1; the owner's
+  decision, 2026-11-26:)* a letter written into a record's fields directly (its text, or the string it points to,
+  while suspended, or before the first `ui_poll`) takes effect at `ui_open` or `ui_redraw` (or `ui_dirty` on that
+  record), not at `ui_resume`.
+
+**What it costs.** Every figure is emulated cycles (a frame is 119,318), each OOUI figure every `ui_poll` until
+`UE_NONE`.
+
+test_oodos_ui, block 8 of UITBAR (90 records on one layer, as OO-Amp's):
+
+| What | Main (5de41a5a) | S3 |
+| --- | --- | --- |
+| One label dirty | 53,552, 106 `REC` | 12,077, 13 `REC` |
+| The last label dirty | 42,038 | 11,976 |
+| Two far-apart labels dirty | 60,842 | 24,745 |
+| A button released (its click) | 50,107 | 14,286 |
+| A drag's step | 72,088 | 56,308 |
+| The wheel, the pointer still | 68,269 | 51,561 |
+| A button pressed | 115,663 | 89,673 |
+| A letter key with no key letter in the table, over F7's poll | a walk of 90 records | 71-312 (a tick lands in one poll or the other) |
+| 30 widgets; a track's start; `ui_redraw` (each overflows the list or makes the cache stale: today's walk) | 426,750; 212,435; 1,529,504 | 429,769; 212,935; 1,526,092 |
+
+OO-Amp (659bf69, read only, against this branch; its traced pass, the mean of 8 events):
+
+| Event | Its pass, main | S3 | `ui_poll` (2 calls), main | S3 |
+| --- | --- | --- | --- | --- |
+| S (shuffle) | 131,766 (1.10 frames) | 48,991 (0.41) | 94,262 | 15,298 |
+| G (EQ) | 142,028 (1.19) | 59,981 (0.50) | 99,665 | 22,021 |
+| M (zone C's mode) | 115,695 (0.97) | 57,915 (0.49) | 73,071 | 17,182 |
+| Tab | 135,523 (1.14) | 100,029 (0.84) | 106,120 | 72,758 (the playlist drawn whole, 45,000, is left: O9) |
+| The shuffle click (its release's pass) | 86,275 (0.72) | 47,524 (0.40) | 53,777 | 14,538 |
+| The EQ toggle click | 96,400 (0.81) | 58,696 (0.49) | 59,180 | 21,291 |
+
+The key reaches its pass 0.82-0.90 frames after it is pressed, as before: OO-Amp's main loop waits for the blank.
+Main's walks on S were `FINDACC` 38,438 cycles, `POST` 14,500, `PASS`'s 22,900 and `PAINT`'s clearing 8,500.
+
+OO-Amp's own cases (their limits are OO-Amp's, unchanged; tightening them is its follow-up, the owner's answer 7):
+
+| Case | Its limit | Main | S3 |
+| --- | --- | --- | --- |
+| test_ooamp `a_key_s_state_changes_within_a_frame` (the S3 target) | 1.10 frames (a known failure; ceiling 1.3) | 1.25 | 0.92: "KNOWN FAILURE NOW PASSES" |
+| test_more, a key's pass done at most | 1.9 | 1.85 | 1.16 |
+| test_errors, D's line | pinned at "MISSED 1 LONGEST 2" | MISSED 1 LONGEST 2 | MISSED 0 LONGEST 1: the pin fails, as the plan said it would |
+| test_accept's response, the worst of the keys and clicks | 2.0 (KNOWN under 2.5) | 2.97: fails | 1.9: "KNOWN FAILURE NOW PASSES" (every key 1.4 or less; the worst a repeat click) |
+| test_accept, the pause click after zone C's | a known failure | 0.90 | 0.9 |
+
+test_ooamp's frame comparisons and test_wav, test_mp3, test_eq, test_txt and test_more pass. test_sid doesn't build
+against main or this branch: it calls the rig's `machine_with_sound`, which the cleanup took out (af9fe8f9);
+OO-Amp's follow-up.
+
+**Tests.** `s3_a_letter_key_walks_no_records` (each letter key's poll against F7's, a key with no character that
+never reaches `FINDACC`: with the letters there, no `RECT` more than F7's; with none, no `REC` and no `RECT` more,
+and its cycles over F7's under the one new ceiling, 312 + 500 for a tick: the owner's answer 5);
+`s3_a_letter_given_later_takes_its_key` (from a table with no letter, a letter given by `ui_settext`, by the
+program's own `UW_TEXT` and `ui_dirty`, by a label made a button by its fields and `ui_redraw`, and the picker's
+"Add a&ll" over a table with only menus' letters); `s3_a_paint_that_moves_no_thumb_runs_no_post` (a button drawn:
+`POST` not entered; a sprite slider's range changed: `POST` once, one thumb placed);
+`s3_more_dirty_records_than_the_list_holds` (9, then 30 labels given new texts and dirtied: each drawn, the cells
+as `ui_redraw` draws them, none left dirty); `s3_a_record_is_drawn_once` (none dirty after `ui_open`'s paint; a
+label after another's paint draws one record; every mark set in block C's memory before `ui_open`, none after);
+`s3_a_record_moved_by_its_fields_and_dirtied_on_the_fast_walk` (a panel with two check boxes moved by its fields
+and only dirtied: its new place's cells as `ui_redraw` draws them, the cache as `ui_rect` gives it, no mark left).
+*(Review round 1:)* `s3_a_dialog_closed_walks_no_letter_again` (C2: the message box come and gone, and
+`ui_redraw`, then a letter walks no record; `ui_redraw` with the picker up keeps its letters);
+`s3_a_record_on_the_damage_s_edge_is_drawn_again` (T1: a window placed by its fields exactly on a dirty button's box's
+edges, one cell over it, with the default theme's shadow and with none: drawn again, the cells `ui_redraw`'s; the
+union one cell tighter on any side fails it); `s3_a_check_box_s_and_a_radio_button_s_letter` (T2: tables whose only
+letters are a check box's, a radio button's; `ACCTYPE` is `FINDACC`'s and `ACCREC`'s one type list); and the dirty
+list read from the host, `udn` 8 after the 8th record and `$FF` after the 9th, the byte after it untouched (T3).
+The guards are counts (`REC`, `RECT`, `ONE`, `POST`, the marks); the S1, S2 and B5 cases' cycle ceilings stay as
+they are (answer 5). **Changed expectation** (answer 6): `z3_the_thumbs_placed_after_a_paint_cost_little`'s second
+part, a status line's text changed, required that `POST` ran (9,689 cycles); it now checks that `POST` isn't
+entered. By hand, 2026-11-26, each piece taken out, each failing on its own case: `ukeyl`'s test, O1's order,
+`ACCREC` in `ui_settext` and in `ui_dirty`, `ui_redraw`'s and `DLGREC`'s setting, `CHECKTAB`'s clearing;
+`SPRDRAWN`'s `UQ_THUMB`, `PAINT`'s test, `UQ_GPOST` in it; `PAINT`'s clearing of the listed records, the overflow
+made "drop", `CHECKTAB`'s and `DLGREC`'s `$FF`; the fast walk not going back, the marks left at the switch,
+`CCLR`'s clearing of them, the fast walk never drawing a clean record, the union not widened by the shadow.
+
+**Sizes** (mkbank.py; main's in brackets): `UICOM` 3,244 (3,218); block A 11,943, 345 free (12,182, 106 free); B
+10,464, 1,824 free (10,433, 1,855); C 10,502, 1,786 free (9,611, 2,677); `UISTATE` 1,500 of 1,536 (1,493);
+OOUI.BNK 41,600 bytes (41,088).
+
+**Why OO-Amp's response had moved from 2.34 to 3.0 frames on main** (the owner's question, 2026-11-26): two
+commits of the cleanup (feat/cleanup, merged in 5de41a5a), found by building OO-Amp 659bf69 against each.
+32ce5ba4 (the version gates, U7) took it from 2.34 to 2.80: only its OOLIB and system code and its OOUI code
+together do it, each alone not, so it is where code lies. c499156e (block 61's NEED records, U9) took it to 2.97,
+its sound.s alone. In both, each key's pass is as long as before; what grew is the wait from the event to its
+action begun (S 0.4 to 1.4 frames, M 1.5 to 2.2): the keys now land behind another of the stream's long passes. A
+timing coincidence, as the plan's risk 3 says, not a slower OOUI; S3's shorter passes take the case back under 2.
 
 #### U3a: questions ####
 

@@ -1,6 +1,7 @@
 """Checks OODOS's build tools (README.md): the header, mkprl.py's .PRL and loader, the rules gate, and
 dos33.py (phase 6d): its images, listing, extraction and check; the C target's build (Plan C1); and
-mkbank.py's OOUI.BNK and its refusals (OOUI U3a).
+mkbank.py's OOUI.BNK and its refusals (OOUI U3a); and that only OOUI's DIRTY, CHECKTAB and DLGREC set a record's
+UF_DIRTY (OOUI S3).
 
     make check                       # from oodos/, after make
     python3 -I test/check_tools.py [BUILD]
@@ -15,6 +16,7 @@ PASS n, or FAIL n.
 import glob
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -777,6 +779,83 @@ def mkbank_checks(tmp):
             ok(a.returncode != 0 and "UF_MARGIN in its flags" in a.stderr, "ooui.inc refuses %s: %s" % (what, a.stderr.strip()[:120]))
 
 
+DIRTY_SETTERS = ("DIRTY", "CHECKTAB", "DLGREC")  # (OOUI S3) the only routines that set a record's UF_DIRTY
+
+
+def dirty_setters(sources, allowed=DIRTY_SETTERS):
+    """(OOUI S3, the owner's answer 4) UF_DIRTY is OOUI's alone, and only DIRTY (which puts the record on the dirty
+    list), CHECKTAB and DLGREC (which say the list is too long) set it: a bit set anywhere else would name a record
+    the list doesn't, which PASS's fast walk would never draw. sources is {name: text}; the answer is each place an
+    instruction can set the bit (an ora, eor, tsb or adc of it, or a load of it as an immediate, for a tsb or a
+    store) outside the routines `allowed` (those three in OOUI's sources, none in a program's), as (name, line,
+    routine): its routine the last label at a line's start that isn't a local (@) one. A mask that clears the bit
+    (<~UF_DIRTY), an and or a bit of it, is no setting."""
+    found = []
+    for name, text in sorted(sources.items()):
+        routine = None
+        for n, line in enumerate(text.splitlines(), 1):
+            code = line.split(";", 1)[0]
+            m = re.match(r"([A-Za-z_][A-Za-z0-9_]*):", code)
+            if m:
+                routine = m.group(1)
+            if "UF_DIRTY" not in code:
+                continue
+            ins = re.search(r"\b(ora|eor|tsb|adc|lda|ldx|ldy)\s+(#?)(.*)", code, re.I)
+            if not ins or "~" in ins.group(3):
+                continue
+            if ins.group(1).lower().startswith("ld") and not ins.group(2):
+                continue
+            if routine not in allowed:
+                found.append((name, n, routine))
+    return found
+
+
+def program_sources():
+    """(Review 1, T4) Every other assembly source in the repository, {path: text}: the programs (uidemo, the test
+    programs, docs/examples), OODOS, OOLIB, the ROM; build output, fixtures and node_modules left out."""
+    repo = os.path.dirname(ROOT)
+    skip = {".git", "node_modules", "fixtures"}
+    found = {}
+    for top, dirs, files in os.walk(repo):
+        dirs[:] = sorted(d for d in dirs if d not in skip and not d.startswith("build"))
+        if os.path.relpath(top, repo).startswith(os.path.join("oodos", "ui")):
+            continue
+        for f in sorted(files):
+            if f.endswith(".s"):
+                path = os.path.join(top, f)
+                with open(path, errors="replace") as fh:
+                    found[os.path.relpath(path, repo)] = fh.read()
+    return found
+
+
+def dirty_checks():
+    """dirty_setters on OOUI's sources (ui/*.s: none outside the three), on every other source in the repository
+    (none at all: a program asks with ui_dirty), and on examples it must refuse (a routine of its own setting the
+    bit by an ora, and by a tsb of it loaded; a program's routine named DIRTY) and take (a mask clearing it; OOUI's
+    DIRTY's own)."""
+    real = {}
+    for src in sorted(glob.glob(os.path.join(ROOT, "ui", "*.s"))):
+        with open(src) as f:
+            real[os.path.basename(src)] = f.read()
+    bad = dirty_setters(real)
+    ok(not bad and "DIRTY:" in real.get("uicore.s", ""), "UF_DIRTY set only by DIRTY, CHECKTAB and DLGREC: %s" % (bad or "so"))
+    progs = program_sources()
+    bad = dirty_setters(progs, allowed=())
+    ok(not bad and any(p.endswith("uidemo.s") for p in progs) and any("examples" in p for p in progs),
+       "UF_DIRTY set by no program, OODOS or ROM source (%d of them): %s" % (len(progs), bad or "so"))
+    for what, src, refuse, allowed in (
+            ("an ora of it in a routine of its own", "FOO:    lda     (UIR),y\n        ora     #UF_DIRTY\n        sta     (UIR),y\n", True, DIRTY_SETTERS),
+            ("a tsb of it loaded", "BAR:    lda     #UF_DIRTY | UF_HIDDEN\n        tsb     t0\n", True, DIRTY_SETTERS),
+            ("a set after a local label in a routine of its own", "BAZ:    rts\n@x:     ora     #UF_DIRTY\n", True, DIRTY_SETTERS),
+            ("a program's own routine named DIRTY", "DIRTY:  lda     (UIR),y\n        ora     #UF_DIRTY\n", True, ()),
+            ("a mask that clears it", "QUX:    and     #<~UF_DIRTY\n        lda     #<~UF_DIRTY\n", False, DIRTY_SETTERS),
+            ("OOUI's DIRTY's own", "DIRTY:  lda     (UIR),y\n        bit     #UF_DIRTY\n        ora     #UF_DIRTY\n", False, DIRTY_SETTERS)):
+        got = dirty_setters({"example.s": src}, allowed=allowed)
+        if refuse:
+            ok(len(got) == 1, "the UF_DIRTY rule refuses %s: %s" % (what, got))
+        else:
+            ok(not got, "the UF_DIRTY rule takes %s" % what)
+
 def main():
     built =os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
     with tempfile.TemporaryDirectory() as tmp:
@@ -806,6 +885,8 @@ def main():
         w1_checks(tmp)
         print("OOUI.BNK")
         mkbank_checks(tmp)
+        print("UF_DIRTY is OOUI's")
+        dirty_checks()
         print("Running hello")
         run_checks(hello, tmp)
         print("The C target")

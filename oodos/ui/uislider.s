@@ -185,6 +185,8 @@ SPRDRAWN:
         lda     (UIR),y
         ora     #US_THUMB
         sta     (UIR),y
+        lda     #UQ_THUMB               ; (S3) and POST to run: PAINT runs it only for a mark or
+        tsb     uany                    ;   a geometry event
 @r:     rts
 
 ; Record A's value changed (UIR on it; SETV's, the scroll bar's, and

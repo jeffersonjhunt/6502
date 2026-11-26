@@ -11,6 +11,8 @@ UI_PAGES        = 64                   ; OOUI's card memory: one card bank, in c
 UI_OFS_OVER     = $14                  ; its parts, in card pages from its first: the overlay's map,
 UI_OFS_SPR      = $28                  ;   the sprite images (the pointer's first),
 UI_OFS_FONT     = $30                  ;   the font
+UI_DIRTYL       = 8                    ; (S3) the dirty list's room (udl): more dirtied before a paint, every
+                                       ;   record looked at, as before S3
 UI_BOXES        = 4                    ; (B5) the damage boxes a layer: box k of layer L (0 the base, 4 the
                                        ;   overlay) at udmg + 8 x k + L
 UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what is under it)
@@ -23,6 +25,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 ; uicore.s's
 .global ublk, uarea, utab, ucount, utheme, ukeys, ubase, uover, usprite, usprites, uoflags
 .global upage, ufocus, ufwin, umenu, umsel, upress, ususp, ushow, umodal, udmg, uany, ucli, rhid, rover, rtype
+.global ukeyl, ACCREC, ACCTYPE, udn, udl
 .global udend, UDEND
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL, RNEXT
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
@@ -31,7 +34,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 
 ; uidraw.s's
 .global upmode, pdmg, THUMBSOFF
-.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
+.global PAINT, SETUP, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global clip
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 .global ph, pl, pbx, ONE
@@ -107,6 +110,7 @@ XC_MARGIN       = 12
 XC_SHOWS        = 14
 XC_CSET         = 16
 XC_CCLR         = 18                   ; (S2, round 8) every entry hidden: ui_open's
+XC_GLYPHS       = 20                   ; (S3-0) uiglyph.s's GLYPHS: ui_open's
 PR_ROWS         = 16                   ; uirows.s's prbuf: the picker's rows shown
 PR_LEN          = 40                   ;   each one's text with its 0, as uipick.s's rowbuf
 .global prtop, prn, prsty, prbuf, PROFS, PROWS

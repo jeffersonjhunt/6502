@@ -2820,8 +2820,9 @@ namespace
     enum : uint8_t { BLK_AMP = 5 };       ///< uitest.s's (UITBAR): a screen shaped as OO-Amp's
     constexpr uint8_t A_EQ5 = 16, A_ST0 = 44; ///< one of its 15 sprite sliders, a band; a status line
     /// The cycles from POST (block B: the sprite sliders' thumbs placed after a paint that drew) to its return
-    /// in PAINT (PDONE, block A), for a paint after command `c` (A `a`, X `x`, Y `y`).
-    unsigned long post_cycles(CcpRig &r, char c, uint8_t a, uint8_t x, uint8_t y)
+    /// in PAINT (PDONE, block A), for a paint after command `c` (A `a`, X `x`, Y `y`); with `ran` false (S3-2), 0:
+    /// POST not entered at all.
+    unsigned long post_cycles(CcpRig &r, char c, uint8_t a, uint8_t x, uint8_t y, bool ran = true)
     {
         const uint16_t post = lab("POST"), done = lab("PDONE");
         const unsigned bb = bank_block(r, "POST"), ba = bank_block(r, "PDONE");
@@ -2836,7 +2837,10 @@ namespace
         CHECK_EQ(ui(r, c, a, x, y).substr(6), std::string("00"));
         poll(r);
         r.watch = nullptr;
-        CHECK(took != 0);
+        if (ran)
+            CHECK(took != 0);
+        else
+            CHECK(start == 0);
         return static_cast<unsigned long>(took);
     }
 } // namespace
@@ -2854,11 +2858,13 @@ TEST(z3_the_thumbs_placed_after_a_paint_cost_little)
     const unsigned long one = post_cycles(r, 'v', 20, 0, A_EQ5);
     std::printf("  the thumbs placed after a band moved: %lu cycles (a frame is 119,318)\n", one);
     CHECK(one < 100000);
-    // A status line's text changed, far from every slider: no thumb placed again.
+    // A status line's text changed, far from every slider: no thumb placed again. (S3-2, the owner's answer 6: POST
+    // isn't entered at all, no thumb being marked and no geometry event come; before, it ran and left each thumb
+    // as it was, 9,689 cycles.)
     r.poke(TEXTBUF, bytes(std::string("Playing", 8)));
-    const unsigned long none = post_cycles(r, 'x', 0, 0, A_ST0);
-    std::printf("  the thumbs after a status line's text changed: %lu cycles\n", none);
-    CHECK(none < 20000);
+    const unsigned long none = post_cycles(r, 'x', 0, 0, A_ST0, false);
+    std::printf("  the thumbs after a status line's text changed: POST not run (%lu cycles)\n", none);
+    CHECK_EQ(none, 0ul);
 }
 
 TEST(x4_a_menu_down_over_a_thumb_hides_it)
@@ -4273,16 +4279,18 @@ namespace
     constexpr uint8_t A_TIME = 2, A_EQ5B = 16, A_X4B = 89; ///< its first label; a band (A_EQ5); its last label
     /// A 'p' (ui_poll till UE_NONE): the cycles of all its ui_polls (each from its stub to its return, PRET), how
     /// many, the events, and how often OOUI's REC, RNEXT (a walk's step), FRONT and PASS were entered (U3b, B1-B4),
-    /// and (S1) ONE (a record drawn) and PLACE1 (a sprite thumb placed).
+    /// (S1) ONE (a record drawn) and PLACE1 (a sprite thumb placed), and (S3) RECT and POST.
     struct Polls
     {
         unsigned long cycles = 0, calls = 0, recs = 0, steps = 0, fronts = 0, passes = 0, ones = 0, places = 0;
+        unsigned long rects = 0, posts = 0; ///< (S3) RECT entered, POST entered
         std::vector<Event> ev;
     };
     Polls polls_cost(CcpRig &r)
     {
         const uint16_t stub = lab("ui_poll"), back = lab("PRET"), rec = lab("REC"), front = lab("FRONT"),
-                       pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1");
+                       pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1"),
+                       rect = lab("RECT"), post = lab("POST");
         const unsigned blocks[3] = {bank_block(r, "PAINT"), bank_block(r, "POST"), bank_block(r, "DLGON")};
         const unsigned passb = bank_block(r, "PASS"); // (block C's from S2)
         Polls p;
@@ -4310,6 +4318,10 @@ namespace
                 ++p.ones;
             else if (w3 == blocks[1] && pc == place)
                 ++p.places;
+            else if (ooui && pc == rect)
+                ++p.rects;
+            else if (w3 == blocks[1] && pc == post)
+                ++p.posts;
         };
         p.ev = poll(r);
         r.watch = nullptr;
@@ -5590,4 +5602,461 @@ TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
         std::printf("  after A>: \"%s\", want \"DIR^M^J\"\n", shown.c_str());
     }
     CHECK_EQ(echo, std::string("DIR\r\n"));
+}
+
+// ---------------------------------------------------------------------------
+// S3, the faster paint pass (hw/ooui.md, "U3b: speed step S3"): a letter key walks no record when no button, check
+// box or radio button has a key letter (ukeyl), and a letter's scope placed only for the button whose letter it is;
+// POST only after a thumb's mark or a geometry event; the dirty list; PASS's fast walk over the position cache.
+
+namespace
+{
+    constexpr uint8_t A_PREV = 34, A_PLAY = 35, A_LOAD = 43; ///< block 8's first button, its second, its last
+    constexpr uint8_t U_G = 0x0A, U_H = 0x0B, U_J = 0x0D;   ///< HID usages
+    constexpr uint16_t S3TEXT = TEXTBUF + 0x80;             ///< the strings these cases write, past c_text's
+    /// (S3-1, the owner's answer 5) a letter key's poll over F7's in a table with no key letter: at most 312 cycles
+    /// seen (the letter's own steps: its character, UPPER, ukeyl's test; 71 to 312 as the system's tick lands in one
+    /// poll or the other), plus 500 for a tick (447 at most, test_oodos_video's); 38,000 or so before S3, FINDACC's
+    /// walk.
+    constexpr unsigned long S3_LETTER_CEILING = 312 + 500;
+    /// Record h of uitest.s's amp table (blocks 5 and 8).
+    uint16_t rec_amp(uint8_t h) { return static_cast<uint16_t>(lab("amp") + h * 16u); }
+    /// String `s` at S3TEXT + `at`, and record h's UW_TEXT pointed at it.
+    void text_at(CcpRig &r, uint8_t h, unsigned at, const std::string &s)
+    {
+        const uint16_t a = static_cast<uint16_t>(S3TEXT + at);
+        std::string z = s;
+        z.push_back('\0');
+        r.poke(a, bytes(z));
+        r.poke(rec_amp(h) + UW_TEXT, static_cast<uint8_t>(a & 0xFF));
+        r.poke(rec_amp(h) + UW_TEXT + 1, static_cast<uint8_t>(a >> 8));
+    }
+    /// Block 8 as OO-Amp's screen is: no key letter (its buttons' texts without '&'), opened and drawn.
+    void open_big_no_letters(CcpRig &r)
+    {
+        for (unsigned h = A_PREV; h <= A_LOAD; ++h)
+            text_at(r, static_cast<uint8_t>(h), 0, "Btn");
+        CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+        poll(r);
+        poll(r);
+    }
+    bool clicked(const std::vector<Event> &ev, unsigned h)
+    {
+        return std::any_of(ev.begin(), ev.end(), [h](const Event &e) { return e.code == UE_CLICK && e.handle == h; });
+    }
+    bool keyed(const std::vector<Event> &ev, unsigned usage)
+    {
+        return std::any_of(ev.begin(), ev.end(), [usage](const Event &e) { return e.code == UE_KEY && e.y == usage; });
+    }
+} // namespace
+
+TEST(s3_a_letter_key_walks_no_records)
+{
+    // Block 8 (UITBAR's), 90 records as OO-Amp's screen. Each letter key's poll is measured against F7's, a key
+    // with no character, which never reaches the letter search (FINDACC): the rest of the two polls is the same.
+    // With the buttons' letters, a letter none of them has (Q): each record looked at for its letter, and no
+    // button's scope placed (RECT) before its letter matched (S3-1; before, an INSCOPE of each of the 10 enabled
+    // buttons). Then with no letter in the table, as OO-Amp's: no record walked at all (ukeyl 0; before, the 90
+    // RECs and the 10 RECTs). That poll's cycles over F7's are held to a ceiling (the owner's answer 5): the
+    // figure at S3-1 plus a small margin.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t U_F7 = 0x40;
+    key(r, U_F7);
+    const Polls ref = polls_cost(r);
+    say("F7, no character", ref);
+    std::printf("  ... and %lu RECT\n", ref.rects);
+    CHECK(keyed(ref.ev, U_F7));
+    key(r, K_Q);
+    const Polls some = polls_cost(r);
+    say("a letter no button has, the buttons' letters there", some);
+    std::printf("  ... and %lu RECT\n", some.rects);
+    CHECK(keyed(some.ev, K_Q));
+    CHECK(some.recs >= ref.recs + 90u); // every record looked at for its letter
+    CHECK_EQ(some.rects, ref.rects);
+    key(r, 0x1B); // X, A_PLAY's letter: pressed
+    CHECK(clicked(poll(r), A_PLAY));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    key(r, U_F7);
+    const Polls ref0 = polls_cost(r);
+    key(r, K_Q);
+    const Polls none = polls_cost(r);
+    say("a letter key, no key letter in the table", none);
+    std::printf("  ... and %lu RECT; %lu cycles more than F7's\n", none.rects, none.cycles - ref0.cycles);
+    CHECK(keyed(none.ev, K_Q));
+    CHECK_EQ(none.recs, ref0.recs);
+    CHECK_EQ(none.rects, ref0.rects);
+    CHECK(none.cycles <= ref0.cycles + S3_LETTER_CEILING);
+}
+
+TEST(s3_a_letter_given_later_takes_its_key)
+{
+    // ukeyl is found at ui_open and set again by every path that can give a button a letter after it: ui_settext;
+    // the program's own UW_TEXT and ui_dirty (the rule for a text written by its fields); a record made a button by
+    // its fields and ui_redraw (S1's rule for a type changed); the dialogs' records (DLGREC). Each part from a table
+    // with no letter (block 8 as OO-Amp's: ui_open again before each), its letter then pressing its button.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    open_big_no_letters(r);
+    // ui_settext: A_PREV is "&Go".
+    r.poke(TEXTBUF, bytes(std::string("&Go", 4)));
+    CHECK_EQ(ui(r, 'x', 0, 0, A_PREV).substr(6), std::string("00"));
+    poll(r);
+    key(r, U_G);
+    CHECK(clicked(poll(r), A_PREV));
+    // The program's own writing of A_PLAY's UW_TEXT ("&Hi"), and ui_dirty.
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    text_at(r, A_PLAY, 0x10, "&Hi");
+    CHECK_EQ(ui(r, 'd', A_PLAY).substr(6), std::string("00"));
+    poll(r);
+    key(r, U_H);
+    CHECK(clicked(poll(r), A_PLAY));
+    // A label (A_ST0) made a button "&Jump" by its fields, and ui_redraw.
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    text_at(r, A_ST0, 0x20, "&Jump");
+    r.poke(rec_amp(A_ST0) + UW_TYPE, 5); // UT_BUTTON
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    key(r, U_J);
+    CHECK(clicked(poll(r), A_ST0));
+    // The picker over a table with no button letter (BLK_DESK: menus' letters only), as OO-Amp's Load Files: its
+    // "Add a&ll" takes L (UE_PICK 3).
+    CcpRig p;
+    REQUIRE(p.ok);
+    p.put_m({{0, "DATA00  BIN", std::vector<uint8_t>(10, 1)}, {0, "DATA01  BIN", std::vector<uint8_t>(10, 1)}});
+    start_ui(p, "uitpick");
+    CHECK_EQ(ui(p, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(p);
+    pick(p, 5);
+    key(p, 0x0F); // L
+    const std::vector<Event> all = poll(p);
+    CHECK(std::any_of(all.begin(), all.end(), [](const Event &e) { return e.code == UE_PICK && e.handle == P_WIN && e.value == 3; }));
+    key(p, K_ESC);
+    poll(p);
+}
+
+TEST(s3_a_paint_that_moves_no_thumb_runs_no_post)
+{
+    // Block 8, 90 records with 15 sprite thumbs, as OO-Amp's screen. A button drawn again: no thumb marked and no
+    // geometry event, so POST isn't entered (S3-2: before, it ran after every paint that drew, a REC and SNUM of
+    // each record to leave each thumb as it was: 14,500 cycles on OO-Amp's screen). Then a sprite slider's range
+    // changed (ui_setrange: its record dirty and drawn, its thumb marked by SPRDRAWN): POST runs and places that
+    // thumb.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    CHECK_EQ(ui(r, 'd', A_PLAY).substr(6), std::string("00"));
+    const Polls btn = polls_cost(r);
+    say("a button drawn", btn);
+    CHECK(btn.ones >= 1u);
+    CHECK_EQ(btn.posts, 0u);
+    constexpr uint8_t A_SEEK = 6;
+    CHECK_EQ(ui(r, 'q', 0xF4, 0x01, A_SEEK).substr(6), std::string("00")); // its range 1,000 to 500
+    const Polls range = polls_cost(r);
+    say("a sprite slider's range changed", range);
+    CHECK_EQ(range.posts, 1u);
+    CHECK_EQ(range.places, 1u);
+}
+
+namespace
+{
+    /// The table's records with UF_DIRTY set, read from the host: none once a paint is done.
+    unsigned dirty_left(CcpRig &r)
+    {
+        const unsigned n = r.phys(lab("ucount")), tab = word_at(r, lab("utab"));
+        unsigned d = 0;
+        for (unsigned h = 0; h < n; ++h)
+            if (r.phys(tab + h * 16u + UW_FLAGS) & 0x04u) // UF_DIRTY
+                ++d;
+        return d;
+    }
+    /// (S3-4) The records PASS's fast walk has marked (block C's dmark, in its bank, read from the host): none
+    /// once ui_open is done or a walk has ended.
+    unsigned marks_left(CcpRig &r)
+    {
+        const uint32_t at = bank_block(r, "CFILL") * 0x4000u + (lab("dmark") - 0xC000u);
+        unsigned m = 0;
+        for (unsigned h = 0; h < 254; ++h)
+            if (r.phys(at + h) != 0)
+                ++m;
+        return m;
+    }
+} // namespace
+
+TEST(s3_more_dirty_records_than_the_list_holds)
+{
+    // Block 8 (OOUI's base layer 1). Nine track labels given a new text by their fields and dirtied (ui_dirty, the
+    // rule for a text written so), one more than the dirty list holds (UI_DIRTYL, 8), then 30: each drawn, OOUI's
+    // cells then as ui_redraw draws them, and no record left dirty. A list that dropped the ninth, instead of saying
+    // it was too long, would leave the ninth's dirty bit set, or its old text on the screen.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t A_TR0 = 59; // the 26 track labels, then the 5 extras (85-89)
+    // (Review 1, T3) the list itself, read from the host: 8 records dirtied fill it (udn 8), the 9th makes it too
+    // long ($FF), and the byte after the list (ukeyl) is as it was: a list one longer would hold the 9th there.
+    const uint8_t keyl = r.phys(lab("ukeyl"));
+    for (unsigned i = 0; i < 9; ++i)
+    {
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(A_TR0 + i)).substr(6), std::string("00"));
+        if (i == 7)
+            CHECK_EQ(r.phys(lab("udn")), 8u);
+    }
+    CHECK_EQ(r.phys(lab("udn")), 0xFFu);
+    CHECK_EQ(r.phys(lab("ukeyl")), keyl);
+    poll(r);
+    CHECK_EQ(r.phys(lab("udn")), 0u);
+    for (const auto &[n, text, at] : {std::tuple<unsigned, const char *, unsigned>{9, "Nine", 0x40},
+                                      std::tuple<unsigned, const char *, unsigned>{30, "Thirty", 0x50}})
+    {
+        for (unsigned i = 0; i < n; ++i)
+        {
+            const uint8_t h = static_cast<uint8_t>(A_TR0 + i);
+            text_at(r, h, at, text);
+            CHECK_EQ(ui(r, 'd', h).substr(6), std::string("00"));
+        }
+        const Polls p = polls_cost(r);
+        std::printf("  %u labels dirty: %lu ONE\n", n, p.ones);
+        CHECK(p.ones >= n);
+        CHECK_EQ(dirty_left(r), 0u);
+        const std::string drawn = base_cells(r, 1);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        CHECK(base_cells(r, 1) == drawn);
+    }
+}
+
+TEST(s3_a_record_is_drawn_once)
+{
+    // ui_open makes every record dirty and says the dirty list too long, so its first paint clears every record's
+    // bit: none is left. Then a label dirtied and drawn, and another far from it: the second poll draws that one
+    // alone (one ONE), the first's bit cleared by its own paint (the listed records'). (S3-4) Block C's memory is
+    // as ui_load left it, on the machine whatever its RAM held: every record is marked there for PASS's fast walk
+    // before ui_open, which clears the marks (CCLR); a mark left would have a later walk read that record.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    const uint32_t cbank = bank_block(r, "CFILL") * 0x4000u + (lab("dmark") - 0xC000u);
+    for (unsigned h = 0; h < 254; ++h)
+        r.poke(cbank + h, 1);
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    CHECK_EQ(marks_left(r), 0u);
+    poll(r);
+    CHECK_EQ(dirty_left(r), 0u);
+    CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(dirty_left(r), 0u);
+    CHECK_EQ(ui(r, 'd', A_X4B).substr(6), std::string("00"));
+    const Polls p = polls_cost(r);
+    say("a label dirty after another's paint", p);
+    CHECK_EQ(p.ones, 1u);
+    CHECK_EQ(dirty_left(r), 0u);
+}
+
+namespace
+{
+    /// OOUI's cells on layer `layer` (a character and an attribute each) in columns c0 to c1 - 1, rows r0 to r1 - 1.
+    std::string cells_in(CcpRig &r, unsigned layer, unsigned c0, unsigned r0, unsigned c1, unsigned r1)
+    {
+        const unsigned map0 = vid(r).peek(0x11 + 0x10 * layer) | vid(r).peek(0x12 + 0x10 * layer) << 8;
+        std::string c;
+        for (unsigned row = r0; row < std::min(r1, 30u); ++row)
+            for (unsigned i = c0 * 2u; i < std::min(c1, 80u) * 2u; ++i)
+                c += static_cast<char>(vid(r).card_peek(map0 * 256u + row * 160u + i));
+        return c;
+    }
+} // namespace
+
+TEST(s3_a_record_moved_by_its_fields_and_dirtied_on_the_fast_walk)
+{
+    // UITEST's main scene. A panel with children (P_OPTS: two check boxes) moved by its fields and only dirtied,
+    // against S1's rule, with a later label dirtied too: PASS's fast walk finds the panel moved when it places it
+    // (S2's comparison) and walks the rest as before S2, every record placed, so the children are drawn where they
+    // now are. A fast walk that went on reading the cache would test them at their old places, which the new box
+    // doesn't meet, and leave the panel empty. Its cells are then as ui_redraw draws them, and the cache matches
+    // ui_rect. The walk that ends that way leaves no record marked (the later label's mark cleared with the rest):
+    // a mark left would have a later walk read that record.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint16_t px = static_cast<uint16_t>(rec(P_OPTS) + 2), py = static_cast<uint16_t>(rec(P_OPTS) + 3);
+    r.poke(px, 24);
+    r.poke(py, 7);
+    CHECK_EQ(ui(r, 'd', P_OPTS).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'd', L_DIS).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(marks_left(r), 0u);
+    const Place p = rect(r, P_OPTS);
+    CHECK_EQ(p.col, 31u);
+    CHECK_EQ(p.row, 11u);
+    const std::string moved = cells_in(r, 0, p.col, p.row, p.col + p.w, p.row + p.h);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK(cells_in(r, 0, p.col, p.row, p.col + p.w, p.row + p.h) == moved);
+    CHECK_EQ(cache_mismatches(r, "a panel moved by its fields, only ui_dirty"), 0u);
+}
+
+TEST(s3_a_dialog_closed_walks_no_letter_again)
+{
+    // (Review 1, C2) Block 8 with no key letter, as OO-Amp's. A dialog's records have letters, so ukeyl is set while
+    // one shows (DLGREC); when its window is hidden ukeyl is found again (KEYS), so a letter key walks no record
+    // again, against F7's poll as in s3_a_letter_key_walks_no_records. The same after ui_redraw (OO-Amp makes its
+    // own dialogs with it), whose KEYS is timed. And ui_redraw while the picker is up keeps its letters: "Add a&ll"
+    // still takes L.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    open_big_no_letters(r);
+    constexpr uint8_t U_F7 = 0x40;
+    const auto no_walk = [&](const char *what) {
+        key(r, U_F7);
+        const Polls ref = polls_cost(r);
+        key(r, K_Q);
+        const Polls q = polls_cost(r);
+        std::printf("  %s: Q %lu REC, F7 %lu REC\n", what, q.recs, ref.recs);
+        CHECK(keyed(q.ev, K_Q));
+        CHECK_EQ(q.recs, ref.recs);
+        CHECK_EQ(q.rects, ref.rects);
+    };
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("ukeyl")) != 0); // the box's records made
+    key(r, K_ENTER);
+    poll(r);
+    no_walk("the message box come and gone");
+    const uint16_t keys = lab("KEYS"), done = lab("RDONE");
+    const unsigned ba = bank_block(r, "KEYS");
+    uint64_t start = 0, took = 0;
+    r.watch = [&](uint16_t pc) {
+        const unsigned w3 = r.nb(3) & 0x3F;
+        if (w3 == ba && pc == keys && !start)
+            start = r.cpu->cycles();
+        else if (w3 == ba && pc == done && start && !took)
+            took = r.cpu->cycles() - start;
+    };
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    r.watch = nullptr;
+    std::printf("  ui_redraw's KEYS among 90 records: %lu cycles\n", static_cast<unsigned long>(took));
+    CHECK(took != 0);
+    poll(r);
+    no_walk("after ui_redraw");
+    CcpRig p;
+    REQUIRE(p.ok);
+    p.put_m({{0, "DATA00  BIN", std::vector<uint8_t>(10, 1)}, {0, "DATA01  BIN", std::vector<uint8_t>(10, 1)}});
+    start_ui(p, "uitpick");
+    CHECK_EQ(ui(p, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(p);
+    pick(p, 5);
+    CHECK_EQ(ui(p, 'D').substr(6), std::string("00"));
+    poll(p);
+    key(p, 0x0F); // L
+    const std::vector<Event> all = poll(p);
+    CHECK(std::any_of(all.begin(), all.end(), [](const Event &e) { return e.code == UE_PICK && e.handle == P_WIN && e.value == 3; }));
+    key(p, K_ESC);
+    poll(p);
+}
+
+TEST(s3_a_record_on_the_damage_s_edge_is_drawn_again)
+{
+    // (Review 1, T1) UITEST's main scene. B_TOG dirtied (a button: ui_dirty on a window would make the cache stale,
+    // and the walk today's): its rectangle is the damage, and PASS's fast walk tests every clean record against the
+    // union of the boxes (FUNION) before CMEETS. W_TALL, after it in the table, placed by its fields (and ui_redraw)
+    // exactly on that box's edges, one cell over it: its shadow on the box's first column, its shadow on the box's
+    // first row, its first column on the box's last; and in a theme with no shadow (theme 4, the program's copy of the
+    // default, its TM_SHADOWX and TM_SHADOWY 0 and no TF_SHADOW), its last column on the box's first, its last row on
+    // the box's first, its first column on the box's last. It must be drawn again over B_TOG there, so the cells are
+    // as ui_redraw draws them. A union one cell too tight on any side leaves that column or row undrawn.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint16_t t = rec(W_TALL);
+    const Place b = rect(r, B_TOG);
+    std::printf("  B_TOG: %u,%u %ux%u\n", b.col, b.row, b.w, b.h);
+    const auto scene = [&](const char *what, unsigned x, unsigned y, uint8_t w, uint8_t h) {
+        r.poke(t + 2u, static_cast<uint8_t>(x));
+        r.poke(t + 3u, static_cast<uint8_t>(y));
+        r.poke(t + 4u, w);
+        r.poke(t + 5u, h);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        CHECK_EQ(ui(r, 'd', B_TOG).substr(6), std::string("00"));
+        const Polls p = polls_cost(r);
+        const std::string drawn = base_cells(r);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        const bool same = base_cells(r) == drawn;
+        std::printf("  %s: %lu ONE%s\n", what, p.ones, same ? "" : ", the cells aren't ui_redraw's");
+        CHECK(same);
+    };
+    r.poke(t + 4u, 6);
+    r.poke(t + 5u, 3);
+    CHECK_EQ(ui(r, 's', W_TALL).substr(6), std::string("00"));
+    poll(r);
+    // (the default theme: a window's shadow two columns right and a row down, TM_SHADOWX 2, TM_SHADOWY 1)
+    scene("its shadow on the box's first column", b.col - 7, b.row - 1, 6, 3); // its last column 2 before
+    scene("its shadow on the box's first row", b.col + 2, b.row - 3, 6, 3);    // its last row 1 above
+    scene("its first column on the box's last", b.col + b.w - 1, b.row - 1, 4, 3);
+    const uint16_t house = lab("UI_HOUSE");
+    r.poke(house + 1u, 0);  // TH_FLAGS: no TF_SHADOW
+    r.poke(house + 14u, 0); // TM_SHADOWX
+    r.poke(house + 15u, 0); // TM_SHADOWY
+    CHECK_EQ(ui(r, 't', 4).substr(6), std::string("00"));
+    poll(r);
+    scene("no shadow: its last column on the box's first", b.col - 5, b.row - 1, 6, 3);
+    scene("no shadow: its last row on the box's first", b.col + 2, b.row - 2, 6, 3);
+    scene("no shadow: its first column on the box's last", b.col + b.w - 1, b.row - 1, 4, 3);
+}
+
+namespace
+{
+    /// String `s` at S3TEXT + `at`, and record h's UW_TEXT pointed at it, in the running program's table `table`.
+    void text_in(CcpRig &r, const char *table, uint8_t h, unsigned at, const std::string &s)
+    {
+        const uint16_t a = static_cast<uint16_t>(S3TEXT + at), rh = static_cast<uint16_t>(lab(table) + h * 16u);
+        std::string z = s;
+        z.push_back('\0');
+        r.poke(a, bytes(z));
+        r.poke(rh + UW_TEXT, static_cast<uint8_t>(a & 0xFF));
+        r.poke(rh + UW_TEXT + 1, static_cast<uint8_t>(a >> 8));
+    }
+} // namespace
+
+TEST(s3_a_check_box_s_and_a_radio_button_s_letter)
+{
+    // (Review 1, T2) ACCREC's types are FINDACC's (one list, ACCTYPE): a table whose only key letters are a check
+    // box's, then one whose only letters are radio buttons', opens with ukeyl set, and those letters press.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    for (uint8_t h : {B_OK, B_CAN, B_TOG, B_HIDE})
+        text_in(r, "main", h, 0, "Btn");
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("ukeyl")) != 0);
+    key(r, 0x10); // M: "&Mouse"
+    const std::vector<Event> m = poll(r);
+    CHECK(std::any_of(m.begin(), m.end(), [](const Event &e) { return e.code == UE_CHANGE && e.handle == C_MOUS; }));
+    CcpRig w;
+    REQUIRE(w.ok);
+    start_ui(w, "uitwid");
+    text_in(w, "u2", X_DONE, 0, "Done");
+    CHECK_EQ(ui(w, 'o', BLK_U2).substr(6), std::string("00"));
+    poll(w);
+    CHECK(w.phys(lab("ukeyl")) != 0);
+    key(w, 0x0B); // H: "&High"
+    expect(poll(w), {{UE_CHANGE, X_GRP, 0, 2}}, "H");
 }

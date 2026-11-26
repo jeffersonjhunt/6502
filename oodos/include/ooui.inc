@@ -54,6 +54,8 @@
 ;   ui_theme    A/X a theme (0: the default): everything drawn again
 ;   ui_suspend  OOUI stops drawing, and ui_poll gives every event as UE_RAW
 ;   ui_resume   the layers, colours and pointer set again; everything drawn
+;               again (a key letter written into a record's fields meanwhile
+;               takes effect at ui_open or ui_redraw, or ui_dirty on it: S3)
 ;   ui_setrange Y a handle, A/X a list's count, or a bar's, slider's, scroll
 ;               bar's or choice's top: the value held to it (U2)
 ;   ui_msgbox   A/X a block of UM_LEN: the message box up (U2, uimsg.s)
@@ -121,7 +123,9 @@ UT_COUNT        = 23
 ; UW_FLAGS: bits 0-3 every type's, 4-7 the type's own.
 UF_HIDDEN       = $01
 UF_DISABLED     = $02
-UF_DIRTY        = $04                  ; OOUI's
+UF_DIRTY        = $04                  ; OOUI's alone: set by its calls (a program asks with ui_dirty),
+                                       ;   never by a program's own writing (S3: OOUI lists the records it
+                                       ;   marks, and draws and clears those)
 UF_NOFOCUS      = $08
 UF_CLOSE        = $10                  ; a window: its close box
 UF_MODAL        = $20                  ;   it takes the input while it shows

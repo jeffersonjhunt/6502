@@ -52,6 +52,12 @@ udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0
 bxl:    .res    1                      ; (B5) BOXADD's layer
 udend:  .res    2                      ; (B5) each layer's boxes' end this paint: past the last used
 uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
+udn:    .res    1                      ; (S3) the dirty list: how many records it holds, $FF too many (every
+                                       ;   record dirty or looked at: ui_open's, the dialogs'); UF_DIRTY is set
+                                       ;   by OOUI alone (DIRTY, CHECKTAB, DLGREC), so it names every dirty record
+udl:    .res    UI_DIRTYL              ;   their handles, as DIRTY marked them
+ukeyl:  .res    1                      ; (S3) not 0: a button, a check box or a radio button may have a key
+                                       ;   letter, so FINDACC looks; 0: none has, no record walked for a letter
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
 rhid:   .res    1                      ;   not 0: hidden (it or a parent, or a menu not down)
 rover:  .res    1                      ;   1: on the overlay
@@ -415,6 +421,71 @@ DLEN:   lda     UIP
 @r:     rts
         .code
 
+; (S3, review 1's T2) Z set if type A may have a key letter: a button, a
+; check box or (U2) a radio button. FINDACC's and ACCREC's one list.
+ACCTYPE:
+        cmp     #UT_BUTTON
+        beq     @r
+        cmp     #UT_CHECK
+        beq     @r
+        cmp     #UT_RADIO
+@r:     rts
+
+; (S3) Record UIR: ukeyl set if it is a button, a check box or a radio
+; button with a key letter (FINDACC's types). Keeps UIR and X. ui_open's
+; (CHECKTAB, every record), ui_settext's, ui_dirty's and KEYS' (ui_redraw,
+; a dialog closed); the dialogs' records (DLGREC) set ukeyl themselves.
+ACCREC: ldy     #UW_TYPE
+        lda     (UIR),y
+        jsr     ACCTYPE
+        bne     @r
+        ldy     #UW_TEXT
+        lda     (UIR),y
+        sta     UIP
+        iny
+        lda     (UIR),y
+        sta     UIP + 1
+        jsr     ACCEL
+        beq     @r
+        sta     ukeyl
+@r:     rts
+
+; (S3, review 1's C2) ukeyl found again: each table record's letter
+; (ACCREC), and not 0 while a dialog's window shows (its buttons' letters;
+; a closed dialog's window is hidden). ui_redraw's, and HIDEH's when it
+; hides a dialog's window, so a table with no letter walks none again after
+; a dialog. Keeps X.
+KEYS:   phx
+        stz     ukeyl
+        ldx     #0
+        txa
+        jsr     REC
+@l:     cpx     utot
+        bcs     @r
+        cpx     ucount
+        bcs     @dlg
+        jsr     ACCREC
+@n:     inx
+        txa
+        jsr     RNEXT
+        bra     @l
+@dlg:   ldy     #UW_PARENT              ; a dialog's window (no parent, used) that shows
+        lda     (UIR),y
+        cmp     #UI_NONE
+        bne     @n
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        beq     @n
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_HIDDEN
+        bne     @n
+        lda     #1
+        sta     ukeyl
+        bra     @n
+@r:     plx
+        rts
+
 ; UIP a string (0 none): A its key, the letter after its first single '&'
 ; in capitals, or 0.
 ACCEL:  lda     UIP
@@ -444,17 +515,30 @@ UPPER:  cmp     #'a'
 @r:     rts
 
 ; A a handle: marked dirty (a menu's bar too, an item's menu), and a paint
-; to do (UQ_PAINT: U3b, B1). Keeps A, and leaves UIR on record A (the
-; review's O1: not on the bar it went up to).
+; to do (UQ_PAINT: U3b, B1); (S3) put on the dirty list, or the list said
+; too long. Keeps A and X, and leaves UIR on record A (the review's O1: not
+; on the bar it went up to).
 DIRTY:  cmp     utot
         bcs     @r
         pha
         jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
+        bit     #UF_DIRTY               ; (S3) dirty already: listed already, or the list too long
+        bne     @on
         ora     #UF_DIRTY
         sta     (UIR),y
-        lda     #UQ_PAINT               ; (U3b, B1) a paint to do
+        ldy     udn                     ; (S3) on the list, or the list too long ($FF): PAINT clears
+        cpy     #UI_DIRTYL              ;   the listed records' bits, PASS's fast walk reads them
+        bcs     @ovf
+        pla
+        pha
+        sta     udl,y
+        inc     udn
+        bra     @on
+@ovf:   lda     #$FF
+        sta     udn
+@on:    lda     #UQ_PAINT               ; (U3b, B1) a paint to do
         tsb     uany
         ldy     #UW_TYPE
         lda     (UIR),y
@@ -992,7 +1076,7 @@ ui_open:
         bcs     @mem
         sta     upage
         stx     upage + 1
-        jsr     GLYPHS
+        XGO     FARC, XC_GLYPHS         ; (S3-0) block C's: OOUI's font and glyphs
         bcs     @undo
         jsr     CLEARMAPS
         bcc     @got
@@ -1060,8 +1144,12 @@ CHECKTAB:
         bcc     @go
 @b0:    jmp     @bad
 @go:    stz     t0
+        stz     ukeyl                   ; (S3) the key letters found again
+        lda     #$FF                    ; (S3) every record made dirty: the dirty list too long
+        sta     udn
 @rec:   lda     t0
         jsr     REC
+        jsr     ACCREC
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_COUNT
@@ -1368,6 +1456,10 @@ HIDEH:  sta     sh_h
         lda     (UIR),y
         ora     #UF_HIDDEN
         sta     (UIR),y
+        lda     sh_h                    ; (S3, review C2) a dialog's window hidden: its letters gone
+        cmp     ucount                  ;   with it, the key letters found again
+        bcc     HIDSET
+        jsr     KEYS
 ; (S2) record sh_h's entry in the position cache found again (block C's
 ; CSET: its own, or the whole cache stale if it has children); then the
 ; focus.
@@ -1676,6 +1768,7 @@ TXTCHK: cmp     #UT_VSCROLL
         iny
         lda     t1
         sta     (UIR),y
+        jsr     ACCREC                  ; (S3) a letter given: FINDACC to look
         clc
         rts
 
@@ -1715,6 +1808,7 @@ ui_dirty:
         jsr     ENTER
         jsr     CHKH
         jsr     DIRTY
+        jsr     ACCREC                  ; (S3) a letter in a text the program wrote itself
         ldy     #UW_TYPE                ; (U3b, B3) a window: its flags may be the program's
         lda     (UIR),y                 ;   own writing (UF_MODAL, UF_OVERLAY), so the modal
         cmp     #UT_WINDOW              ;   window and the overlay are found again
@@ -1727,7 +1821,9 @@ STALE:  lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (S1: a geometry event; S2: the
         rts
 
 ui_redraw:
-        jsr     ALLDIRTY
+        jsr     KEYS                    ; (S3, review C2) a record's type or text may be the program's
+                                       ;   own writing (S1's rule): the key letters found again
+RDONE:  jsr     ALLDIRTY                ; (test_oodos_ui times KEYS to here)
         bra     STALE
 
 ui_focus:

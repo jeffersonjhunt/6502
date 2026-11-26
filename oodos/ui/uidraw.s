@@ -1,5 +1,5 @@
 ; OOUI's text backend (hw/ooui.md, "Text backend: resources"): its card
-; memory, its font and glyphs, its layers, colours and pointer, and the
+; memory (its font and glyphs uiglyph.s's, block C's: S3-0), its layers, colours and pointer, and the
 ; painting: every widget but the menus' (uimenu.s) drawn as cells of the
 ; 80 x 30 text layers.
 ;
@@ -69,8 +69,6 @@ po:     .res    1
 pf:     .res    1
 pb:     .res    1
 pc:     .res    1
-gi:     .res    1                      ; GLYPHS'
-gn:     .res    1
 lb:     .res    1                      ; LAYERS'
 lrow:   .res    1                      ; DLABEL's
 lrows:  .res    1
@@ -78,8 +76,7 @@ pi_:    .res    1                      ; SETPAL's
 pdim:   .res    1
 pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
-upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
-udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
+upost:  .res    2                      ; PAINT's last call, 0 none (U2): (S3) after a thumb's mark or a geometry event
 pdmg:   .res    8                      ; the last paint's damage, each layer's (B5: its boxes' bounds; POST's, U3a: Z3)
 obx:    .res    1                      ; (B5) ONE's and PASSA's box, ONE's record,
 obh:    .res    1
@@ -102,102 +99,6 @@ MAPW1:  lda     upage
         stx     mapB + 1
         rts
         .code
-
-; The console's font copied to OOUI's, and OOUI's glyphs written over it:
-; carry set if the copy was refused.
-GLYPHS: lda     #<VM_FONT
-        sta     GX_A
-        lda     #>VM_FONT
-        sta     GX_A + 1
-        lda     #^VM_FONT
-        sta     GX_A + 2
-        stz     GX_C
-        lda     upage
-        clc
-        adc     #UI_OFS_FONT
-        sta     GX_C + 1
-        lda     upage + 1
-        adc     #0
-        sta     GX_C + 2
-        stz     GX_V
-        lda     #>4096
-        sta     GX_V + 1
-        jsr     GX_VCOPY
-        bcs     @r
-        jsr     MAPW1
-        lda     #1                      ; the vertical bars, 1-15 sixteenths from the bottom
-        sta     gi
-@v:     lda     gi
-        jsr     GLYPHAT
-        ldy     #15
-@vr:    tya                             ; row y lit if y >= 16 - n
-        clc
-        adc     gi
-        cmp     #16
-        lda     #0
-        bcc     @vb
-        lda     #$FF
-@vb:    sta     (UIP),y
-        dey
-        bpl     @vr
-        inc     gi
-        lda     gi
-        cmp     #16
-        bne     @v
-        stz     gi                      ; the horizontal bars, 1-7 eighths from the left
-@h:     ldx     gi
-        lda     HCODES,x
-        jsr     GLYPHAT
-        ldx     gi
-        lda     HMASK,x
-        ldy     #15
-@hr:    sta     (UIP),y
-        dey
-        bpl     @hr
-        inc     gi
-        lda     gi
-        cmp     #7
-        bne     @h
-        stz     gi                      ; the drawn ones
-        stz     gn
-@d:     ldx     gi
-        lda     DCODES,x
-        jsr     GLYPHAT
-        ldy     #0
-        ldx     gn
-@dr:    lda     GLYPHDATA,x
-        sta     (UIP),y
-        inx
-        iny
-        cpy     #16
-        bne     @dr
-        stx     gn
-        inc     gi
-        lda     gi
-        cmp     #DCODES_LEN
-        bne     @d
-        clc
-@r:     rts
-
-; UIP = character A's 16 bytes in OOUI's font, through W1.
-GLYPHAT:
-        stz     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        asl     a
-        rol     UIP + 1
-        clc
-        adc     mapB
-        sta     UIP
-        lda     UIP + 1
-        adc     mapB + 1
-        adc     #UI_OFS_FONT
-        sta     UIP + 1
-        rts
 
 ; The layers, the colours and the pointer (ui_open, ui_resume): (U3b landing,
 ; review AA1) the layers' registers, CTRL and the palette at the next paint's
@@ -488,8 +389,7 @@ PAINT:  lda     ususp
         bit     uany                    ;   last: nothing to draw, nor thumbs to place
         bne     @go
 @r:     rts
-@go:    stz     udrew
-        jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
+@go:    jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
         lda     (UIT),y
         tax
@@ -579,7 +479,19 @@ PAINT:  lda     ususp
         beq     @np2                    ;   second pass
 @p2:    jsr     PASSA
 @np2:   jsr     MPASS
-        lda     #0                      ; nothing dirty, no damage
+        ldx     udn                     ; (S3) nothing dirty: the dirty list's records' bits cleared,
+        cpx     #$FF                    ;   or, the list too long, every record's
+        beq     @all
+        ldy     #UW_FLAGS
+@cl:    dex
+        bmi     @e
+        lda     udl,x
+        jsr     REC
+        lda     (UIR),y
+        and     #<~UF_DIRTY
+        sta     (UIR),y
+        bra     @cl
+@all:   lda     #0                      ; nothing dirty, no damage
         sta     ph
         jsr     REC
         ldy     #UW_FLAGS
@@ -593,20 +505,8 @@ PAINT:  lda     ususp
         lda     ph
         jsr     RNEXT                   ; (U3b, B4: keeps Y)
         bra     @c
-@e:     ldx     #0                      ; damage with nothing drawn (a window hidden over
-@ea:    lda     udmg,x                  ;   nothing): what shows changed, upost too (Z2)
-        cmp     udmg + 2,x
-        bcc     @dmg
-        inx
-        inx
-        inx
-        inx
-        cpx     #8 * UI_BOXES
-        bcc     @ea
-        bra     @clr
-@dmg:   lda     #1
-        sta     udrew
-@clr:   lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
+@e:     stz     udn                     ; (S3) the dirty list empty
+        lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
         trb     uany                    ;   on is the next paint's
         ldx     #7                      ; the damage kept for upost (POST: U3a's Z3): each layer's
 @pz:    stz     pdmg,x                  ;   boxes' bounds (B5), then cleared
@@ -666,10 +566,10 @@ PAINT:  lda     ususp
         lda     uptr                    ; (review JJ3) and the pointer in the theme's
         beq     @sh                     ;   colours: a ui_theme before this paint left it
         jsr     PTRATTR
-@sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
-        and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
-        ora     udrew                   ;   changed (VDIRTY), with nothing drawn
-        beq     PNONE
+@sh:    lda     #UQ_THUMB | UQ_GPOST    ; a widget module's (a slider's sprites, U2): (S3) only for
+        and     uany                    ;   a thumb marked (its record drawn dirty, SPRDRAWN; its value
+        beq     PNONE                   ;   changed, VDIRTY) or a geometry event, which are what POST's
+                                        ;   tests act on: else every thumb is as it was (S1)
         lda     upost + 1
         beq     PNONE
         XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
@@ -741,8 +641,7 @@ ONE:    sta     dh
         ldx     obx
 @t:     jsr     OVERLAP
         bcs     @n
-        lda     #1                      ; drawn (upost's)
-        sta     udrew
+        lda     #1                      ; drawn for this box
         sta     odn
         ldx     obx
         jsr     CLIPBOX
@@ -755,9 +654,7 @@ ONE:    sta     dh
         cpx     #8 * UI_BOXES
         bcc     @b
         rts
-@dirty: lda     #1
-        sta     udrew
-        jsr     CLIPALL
+@dirty: jsr     CLIPALL
         jsr     CLIPR
         jsr     DRAW
         ldx     pbx
@@ -1590,128 +1487,6 @@ FRAMES: .byte   ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '              ; TS_NONE
         .byte   $C9, $BB, $C8, $BC, $CD, $CD, $BA, $C7              ; TS_DOUBLE
         .byte   $DB, $DB, $DB, $DB, $DF, $DC, $DB, $DB              ; TS_HEAVY
         .rodata
-
-; The horizontal bars' codes and masks, 1-7 eighths.
-HCODES: .byte   $12, $13, $14, $15, $16, $17, $1C
-HMASK:  .byte   $80, $C0, $E0, $F0, $F8, $FC, $FE
-
-; A glyph from 16 rows of 8: '#' lit.
-.macro GROW s
-        .local b
-        b .set 0
-        .repeat 8, i
-                .if .strat(s, i) = '#'
-                        b .set b | ($80 >> i)
-                .endif
-        .endrepeat
-        .byte   b
-.endmacro
-DCODES: .byte   UG_BOX, UG_BOXON, UG_RADIO, UG_RADIOON, UG_FOLDER, UG_DRIVE
-DCODES_LEN = * - DCODES
-GLYPHDATA:
-        ; UG_BOX
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "#######."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#######."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_BOXON
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "#######."
-        GROW    "#.....#."
-        GROW    "#....##."
-        GROW    "#...#.#."
-        GROW    "##.#..#."
-        GROW    "#.##..#."
-        GROW    "#..#..#."
-        GROW    "#######."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_RADIO
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "..###..."
-        GROW    ".#...#.."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    "#.....#."
-        GROW    ".#...#.."
-        GROW    "..###..."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_RADIOON
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "..###..."
-        GROW    ".#...#.."
-        GROW    "#..#..#."
-        GROW    "#.###.#."
-        GROW    "#..#..#."
-        GROW    ".#...#.."
-        GROW    "..###..."
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_FOLDER
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "###....."
-        GROW    "#..#...."
-        GROW    "#...####"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "########"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        ; UG_DRIVE
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "########"
-        GROW    "#......#"
-        GROW    "#......#"
-        GROW    "#....#.#"
-        GROW    "#......#"
-        GROW    "########"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-        GROW    "........"
-.assert * - GLYPHDATA = DCODES_LEN * 16, error, "a glyph is 16 rows"
 
 ; The pointer, 16 rows of 16: 'X' its outline, '#' its fill. Each row its
 ; outline's 16 bits, then its fill's, the leftmost pixel in the first
