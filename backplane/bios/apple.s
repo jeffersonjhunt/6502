@@ -29,7 +29,7 @@
 ; revision 1, and CHARS writes only revision 2's port), no DMA controller,
 ; or no IIe ROM in any of the four images (in image A, for APPLEN), it says
 ; so and goes back to the monitor, still in the native map, with nothing
-; changed but WIN0H (0 on a revision 2 bridge).
+; changed but WIN0H (0).
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -55,11 +55,9 @@ VGA_CPU   = $4000
 .segment "APPLE"
 
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
-                BCC     @w0            ; WOZMON all use it
-                STZ     NB_WIN0H
-@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         STZ     NB_WIN0H       ; W0 below 1 MB, whatever a program left, since IMAGE,
+                                       ; FINDIMG's stack and a refusal's WOZMON all use it
+                STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -79,12 +77,9 @@ APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, what
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; revision 2 or more: W1-W2 under 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
-                BCC     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
-                STZ     NB_WIN1H
-                STZ     NB_WIN2H
-@low:
+@rom:           STZ     NB_WIN1H       ; W1-W2 under 1 MB, whatever a program left (after the
+                STZ     NB_WIN2H       ; checks: a refusal changes nothing but WIN0H; the images
+                                       ; are flash, which WIN1H doesn't move)
 
                 ; the ROM into bank E: $4000-$7FFF (W1) to $8000-$BFFF (W2)
                 LDA     #IIE_BLOCK

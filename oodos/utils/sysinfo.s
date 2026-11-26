@@ -608,13 +608,11 @@ memory: lda     #<smemory
         sta     vunits
         cmp     #0
         beq     @prog
-        lda     HW_REV + $D             ; a north bridge of revision 2 or more (B7): bank 8 is
-        cmp     #2                      ;   the aperture only while MAP's AP8 is set, else the
-        bcc     @aper                   ;   RAM card's
-        lda     NB_MAP
+        lda     NB_MAP                  ; bank 8 is the aperture only while MAP's AP8 is set,
+                                        ;   else the RAM card's
         and     #NB_MAP_AP8
         beq     @prog
-@aper:  lda     #<sram960
+        lda     #<sram960
         ldx     #>sram960
         jsr     puts
 @prog:  jsr     cont

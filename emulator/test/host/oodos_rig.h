@@ -503,6 +503,10 @@ namespace oodos_rig
             }
             for (const auto &[phys, bytes] : f.segments)
                 poke(phys, bytes);
+            // WIN0H-WIN3H and VECH 0 first, as the ROM's NBSET leaves them before it hands over: a boot from
+            // the monitor may come while the ROM has a window borrowed (VPUTC's W2 on the aperture).
+            for (unsigned i = 0; i < 5; ++i)
+                machine->bus().write(static_cast<uint16_t>(NB + 0x20 + i), 0);
             const uint8_t windows[] = {0, 60, 61, 62, 62};
             for (unsigned i = 0; i < 5; ++i)
                 machine->bus().write(static_cast<uint16_t>(NB + i), windows[i]);

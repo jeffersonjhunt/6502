@@ -75,7 +75,7 @@ One write stops everything: CTRL's RESET ([`$C500`](#reg-c500)) stops every soun
 transfer, empties both FIFOs and clears IEN; the store keeps what it holds. The BIOS's QUIET does it on Break, BRK
 and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:606-610 -->
+<!-- listing: ../../backplane/bios/bios.s:603-607 -->
 ```
 @sound:         LDA     SOUND_ID
                 CMP     #SOUND_ID_V3

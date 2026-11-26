@@ -50,14 +50,12 @@ map and with nothing changed but WIN0H (0 on a revision 2 bridge), if any of it 
 bridge (ID `$D2`, *proposed*, B7) it first sets WIN0H to 0, whatever a program left in it, since the checks keep
 their image number in W0's zero page and FINDIMG's return address on its stack:
 
-<!-- listing: ../../backplane/bios/apple.s:57-87 -->
+<!-- listing: ../../backplane/bios/apple.s:57-82 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
-                BCC     @w0            ; WOZMON all use it
-                STZ     NB_WIN0H
-@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         STZ     NB_WIN0H       ; W0 below 1 MB, whatever a program left, since IMAGE,
+                                       ; FINDIMG's stack and a refusal's WOZMON all use it
+                STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -77,12 +75,9 @@ APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, what
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; revision 2 or more: W1-W2 under 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
-                BCC     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
-                STZ     NB_WIN1H
-                STZ     NB_WIN2H
-@low:
+@rom:           STZ     NB_WIN1H       ; W1-W2 under 1 MB, whatever a program left (after the
+                STZ     NB_WIN2H       ; checks: a refusal changes nothing but WIN0H; the images
+                                       ; are flash, which WIN1H doesn't move)
 ```
 
 - **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
@@ -125,7 +120,7 @@ high registers don't move. Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:158-160 -->
+<!-- listing: ../../backplane/bios/apple.s:153-155 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET

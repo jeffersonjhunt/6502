@@ -88,24 +88,11 @@ loop:           lda     str,x
 done:
 .endmacro
 
-; A = 1 (Z clear) if bank 8 is the video card's aperture now, so not RAM; else 0 (Z set). On a $D2+
-; north bridge, MAP's AP8 (which GO clears); on another, a revision 2 video card, as revision 1 fixes
-; it. A only.
+; A = 1 (Z clear) if bank 8 is the video card's aperture now, so not RAM; else 0 (Z set): MAP's AP8
+; (which GO clears). A only.
 .macro APER8
-        .local v1, no, done
-                lda     NB_ID
-                cmp     #NB_ID_V2
-                bcc     v1
                 lda     NB_MAP
                 and     #NB_MAP_AP8
-                bra     done
-v1:             lda     VIDEO_ID
-                cmp     #VIDEO_ID_V2
-                bne     no
-                lda     #1
-                bra     done
-no:             lda     #0
-done:
 .endmacro
 
 ; Both
@@ -458,7 +445,7 @@ GO:
                 sta     NB_WIN3        ; (this code is in W2)
                 lda     #DG_B23
                 sta     NB_VEC         ; Break: this block's vectors, the stub at $8020
-                NBSET   clear          ; revision 2 or more: WINnH, VECH 0, and AP8 clear, so bank 8 is RAM
+                NBSET   clear          ; WINnH, VECH 0, and AP8 clear, so bank 8 is RAM
                                        ;   and tested, and the aperture is at $E00000 (BOOT2 sets MAP back)
                 QUIETM
                 lda     #8
