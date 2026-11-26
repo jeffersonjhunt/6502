@@ -854,7 +854,7 @@ sound:  lda     #<ssound
         ldx     #>snoid
         jsr     puts
         jmp     @free
-@id:    lda     #<sfw                   ; ", firmware 1.0 build 1 (image A)"
+@id:    lda     #<sfw                   ; ", firmware 1.1 build 1 (image A)"
         ldx     #>sfw
         jsr     puts
         lda     snid + 2

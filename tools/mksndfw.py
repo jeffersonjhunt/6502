@@ -13,7 +13,7 @@ The CRC-32 is zlib's (polynomial $04C11DB7 reflected, from $FFFFFFFF, inverted).
 a new body (its firmware is its C++), so a body is any bytes: what is tested is the update's path (SNDFW.COM,
 function 82's SN_FIRMWARE, FW_BEGIN and FW_COMMIT).
 
-    python3 -I tools/mksndfw.py OUT [--version 1.1] [--build 2] [--card A3] [--body-bytes 4096]
+    python3 -I tools/mksndfw.py OUT [--version 1.2] [--build 2] [--card A3] [--body-bytes 4096]
                                     [--bad-crc body|header] [--magic OOSD]
 """
 
@@ -38,7 +38,7 @@ def image(version=(1, 1), build=2, card=0xA3, body=b"", bad_crc=None, magic=b"OO
 def main(argv):
     p = argparse.ArgumentParser(description="Make a sound card revision 3 firmware image (for tests).")
     p.add_argument("out")
-    p.add_argument("--version", default="1.1", help="major.minor, as FWVER will read")
+    p.add_argument("--version", default="1.2", help="major.minor, as FWVER will read")
     p.add_argument("--build", type=int, default=2)
     p.add_argument("--card", default="A3", help="the card type, hex")
     p.add_argument("--body-bytes", type=int, default=4096, help="a body of this many bytes of a pattern")

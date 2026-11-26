@@ -1334,7 +1334,7 @@ CARDS
   $C700  $E1  console (front panel)           1
 
 VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB
-SOUND      revision 3, firmware 1.0 build 1 (image A)
+SOUND      revision 3, firmware 1.1 build 1 (image A)
              8,192 KB of store, 8,192 KB free (MEMSIZE 128)
              two SIDs (6581, 6581), the 6510, an ES5503
              raw PCM, MP3, EQ, the vis page

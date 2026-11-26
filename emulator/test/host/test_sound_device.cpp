@@ -455,14 +455,14 @@ TEST(a_good_image_boots_after_fwrestart_and_says_its_version)
 {
     Board b;
     REQUIRE(b.card != nullptr);
-    CHECK_EQ(update(b, fw_image(1, 1)), 0);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // still the one running: 1.0
+    CHECK_EQ(update(b, fw_image(1, 2)), 0);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1); // still the one running: 1.1
     b.card->bus_reset();                         // /RESET keeps the slots and runs on
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1);
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
     b.run_ms(SoundFw::STARTUP_MS + 1);
     CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1); // 1.1 booted
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 2); // 1.2 booted
     CHECK_EQ(b.card->firmware().running_slot(), 1);
     b.events();
     b.send(SoundFw::IDENTIFY, 3);
@@ -470,23 +470,23 @@ TEST(a_good_image_boots_after_fwrestart_and_says_its_version)
     const auto ev = b.events();
     REQUIRE(ev.size() == 1 && ev[0].body.size() == 2 + 32u);
     CHECK_EQ(ev[0].body[3], 1);
-    CHECK_EQ(ev[0].body[4], 1);
+    CHECK_EQ(ev[0].body[4], 2);
     CHECK_EQ(ev[0].body[2 + 25], 1); // image B
     // The next update goes into A, the slot not running.
-    CHECK_EQ(update(b, fw_image(1, 2)), 0);
+    CHECK_EQ(update(b, fw_image(1, 3)), 0);
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
     b.run_ms(SoundFw::STARTUP_MS + 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 2);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 3);
     CHECK_EQ(b.card->firmware().running_slot(), 0);
 }
 
 TEST(a_restart_during_the_flash_write_keeps_the_old_image)
 {
-    // A good image (1.1) committed, FWRESTART 10 ms into the 50 ms write: the old image (1.0) boots, no FWRESULT
+    // A good image (1.2) committed, FWRESTART 10 ms into the 50 ms write: the old image (1.1) boots, no FWRESULT
     // comes. Sent again and left to finish, it boots.
     Board b;
     REQUIRE(b.card != nullptr);
-    const auto img = fw_image(1, 1);
+    const auto img = fw_image(1, 2);
     const uint32_t n = static_cast<uint32_t>(img.size());
     b.send(SoundFw::FW_BEGIN, 1, {static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), static_cast<uint8_t>(n >> 16), 0});
     b.run(1000);
@@ -503,16 +503,16 @@ TEST(a_restart_during_the_flash_write_keeps_the_old_image)
         result = result || e.kind == SoundFw::EV_FWRESULT;
     CHECK(!result);
     CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // the old one
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1); // the old one
     CHECK_EQ(b.card->firmware().running_slot(), 0);
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART); // and again: still the old one
     b.run_ms(SoundFw::STARTUP_MS + 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1);
     b.events();
     CHECK_EQ(update(b, img), 0);
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
     b.run_ms(SoundFw::STARTUP_MS + 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1);
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 2);
     CHECK_EQ(b.card->firmware().running_slot(), 1);
 }
 
@@ -529,7 +529,7 @@ TEST(a_bad_crc_or_another_card_s_image_leaves_the_old_one)
     b.put(SoundCard3::CTRL, SoundCard3::CTRL_FWRESTART);
     b.run_ms(SoundFw::STARTUP_MS + 1);
     CHECK_EQ(b.reg(SoundCard3::FWVER), 1);
-    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 0); // the old one
+    CHECK_EQ(b.reg(SoundCard3::FWVER + 1), 1); // the old one
     CHECK_EQ(b.card->firmware().running_slot(), 0);
     // A commit with no image: E_STATE.
     b.send(SoundFw::FW_COMMIT, 9);

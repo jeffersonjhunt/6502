@@ -248,7 +248,7 @@ namespace
 
     constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash, then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.21\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.22\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -384,7 +384,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000
     CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.21"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.22"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -444,7 +444,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.21"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.22"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -748,7 +748,7 @@ TEST(the_splash_sends_bootsound_at_frame_0_s_blank)
     b.run(SPLASH_TIME);
     CHECK_EQ(card->splash_frame(), -1); // and both over: the monitor's screen
     CHECK(!fw(b).boot_sound_playing());
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.21"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.22"));
 }
 
 TEST(c800_stops_a_program_s_sound_before_the_splash_plays)
@@ -2404,7 +2404,7 @@ TEST(golden_frame_the_monitors_text_screen)
     REQUIRE(card->splash_frame() == -1);
     REQUIRE(card->frames() < MONITOR_FRAME);
     run_to_frame(b, MONITOR_FRAME);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.21"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.22"));
     CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
 }
 
@@ -2530,7 +2530,7 @@ TEST(the_boot_clears_ap8_with_no_video_card_and_keeps_it_with_one)
         b.run(BOOT);
         CHECK_EQ(b.bridge().map(), 0x01);
         CHECK(winh_clear(b.bridge()));
-        CHECK(b.find_row("BACKPLANE BIOS 0.21") >= 0); // the screen through the aperture's old address, as before
+        CHECK(b.find_row("BACKPLANE BIOS 0.22") >= 0); // the screen through the aperture's old address, as before
     }
 }
 

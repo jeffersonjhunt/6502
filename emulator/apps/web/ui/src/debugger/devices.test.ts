@@ -190,7 +190,7 @@ describe("Devices tab", () => {
 
   test("the sound card, revision 3: its registers, the firmware's objects, its 6510 and both SIDs' shadows", async () => {
     const port = new FakePort();
-    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x1b, 0x04: 0xff, 0x06: 0x05, 0x08: 0x10, 0x09: 0x27, 0x0b: 0x40, 0x0c: 0x01, 0x0d: 0x09, 0x0e: 128, 0x0f: 0xff, 0x10: 1, 0x11: 0, 0x7f: 0xa3 };
+    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x1b, 0x04: 0xff, 0x06: 0x05, 0x08: 0x10, 0x09: 0x27, 0x0b: 0x40, 0x0c: 0x01, 0x0d: 0x09, 0x0e: 128, 0x0f: 0xff, 0x10: 1, 0x11: 1, 0x7f: 0xa3 };
     for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
     const sids = new Uint8Array(50);
     sids[0] = 0xd6;
@@ -210,7 +210,7 @@ describe("Devices tab", () => {
     expect(text(v.element, "FIFOs")).toBe("CMD 255+ free · EVT 5 waiting");
     expect(text(v.element, "Transfer")).toBe("10000 bytes to go · tag $40 · DMA");
     expect(text(v.element, "IEN / ISR")).toBe("$01 / $09  EVT · READY");
-    expect(text(v.element, "Card")).toBe("firmware 1.0 · store 8 MB · features $FF");
+    expect(text(v.element, "Card")).toBe("firmware 1.1 · store 8 MB · features $FF");
     expect(text(v.element, "Tune")).toBe("playing");
     expect(text(v.element, "Music")).toBe("playing · 12 notes waiting");
     expect(text(v.element, "Streams")).toBe("0 playing · 1 idle");
